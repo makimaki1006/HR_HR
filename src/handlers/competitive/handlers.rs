@@ -1,0 +1,278 @@
+use axum::extract::{Query, State};
+use axum::response::Html;
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Arc;
+use tower_sessions::Session;
+
+use crate::AppState;
+use crate::handlers::overview::{format_number, get_session_filters};
+use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
+use super::fetch::{
+    fetch_competitive, fetch_job_types,
+    fetch_nearby_postings, fetch_postings, fetch_prefectures,
+};
+use super::render::{
+    render_analysis_html, render_analysis_html_with_scope, render_competitive,
+    render_posting_table, render_report_html,
+};
+use super::utils::escape_html;
+
+/// タブ8: 競合調査（ヘッダーフィルタ統合版）
+pub async fn tab_competitive(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Html<String> {
+    let (job_type, _prefecture, _municipality) = get_session_filters(&session).await;
+
+    let cache_key = format!("competitive_{}", job_type);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
+    let stats = fetch_competitive(&state, &job_type);
+    let pref_options = fetch_prefectures(&state, &job_type);
+    // facility_type/service_type は廃止、空のVecを渡す
+    let ftype_options: Vec<(String, i64)> = Vec::new();
+    let stype_options: Vec<(String, i64)> = Vec::new();
+    let html = render_competitive(&job_type, &stats, &pref_options, &ftype_options, &stype_options);
+    state.cache.set(cache_key, Value::String(html.clone()));
+    Html(html)
+}
+
+/// フィルタリクエストパラメータ
+#[derive(Deserialize)]
+pub struct CompFilterParams {
+    pub prefecture: Option<String>,
+    pub municipality: Option<String>,
+    pub employment_type: Option<String>,
+    pub nearby: Option<bool>,
+    pub radius_km: Option<f64>,
+    pub page: Option<i64>,
+}
+
+/// フィルタ付き求人一覧API（HTMXパーシャル）
+/// ヘッダーのjob_typeフィルタをセッションから取得
+pub async fn comp_filter(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<CompFilterParams>,
+) -> Html<String> {
+    let (job_type, session_pref, _session_muni) = get_session_filters(&session).await;
+
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
+    };
+
+    // クエリパラメータ優先、なければセッションから取得
+    let pref = params.prefecture.as_deref().unwrap_or("");
+    let pref = if pref.is_empty() { &session_pref } else { pref };
+    let muni = params.municipality.as_deref().unwrap_or("");
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let nearby = params.nearby.unwrap_or(false);
+    let radius_km = params.radius_km.unwrap_or(10.0);
+    let page = params.page.unwrap_or(1).max(1);
+    let page_size: i64 = 50;
+
+    if pref.is_empty() {
+        return Html("<p class=\"text-slate-400\">都道府県を選択してください</p>".to_string());
+    }
+
+    let postings = if nearby && !muni.is_empty() {
+        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp)
+    } else {
+        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+    };
+
+    let total = postings.len() as i64;
+    let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
+    let start = ((page - 1) * page_size) as usize;
+    let start = start.min(postings.len());
+    let end = (start + page_size as usize).min(postings.len());
+    let page_data = &postings[start..end];
+
+    let salary_stats = calc_salary_stats(&postings);
+
+    render_posting_table(
+        &job_type, pref, muni, page_data, &salary_stats,
+        page, total_pages, total, nearby, radius_km, emp,
+    )
+}
+
+/// 市区町村一覧API
+#[derive(Deserialize)]
+pub struct MuniParams {
+    pub prefecture: Option<String>,
+}
+
+pub async fn comp_municipalities(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<MuniParams>,
+) -> Html<String> {
+    let (job_type, _, _) = get_session_filters(&session).await;
+
+    let pref = params.prefecture.as_deref().unwrap_or("");
+    if pref.is_empty() {
+        return Html(r#"<option value="">市区町村</option>"#.to_string());
+    }
+
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Html(r#"<option value="">市区町村</option>"#.to_string()),
+    };
+
+    // job_typeが空の場合は全産業から市区町村を取得
+    let (sql, param_values) = if job_type.is_empty() {
+        (
+            "SELECT DISTINCT municipality FROM postings WHERE prefecture = ? ORDER BY municipality".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT DISTINCT municipality FROM postings WHERE job_type = ? AND prefecture = ? ORDER BY municipality".to_string(),
+            vec![job_type.to_string(), pref.to_string()],
+        )
+    };
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = db.query(&sql, &params_ref).unwrap_or_default();
+
+    let mut html = String::from(r#"<option value="">全て</option>"#);
+    for row in &rows {
+        let m = row.get("municipality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !m.is_empty() {
+            html.push_str(&format!(r#"<option value="{m}">{m}</option>"#));
+        }
+    }
+    Html(html)
+}
+
+/// 産業一覧API（facility_typesの代替、都道府県変更時にHTMXで取得）
+pub async fn comp_facility_types(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<MuniParams>,
+) -> Html<String> {
+    let pref = params.prefecture.as_deref().unwrap_or("");
+    let job_types = fetch_job_types(&state, pref);
+
+    if job_types.is_empty() {
+        return Html(r#"<div class="text-sm text-slate-400 p-2">データがありません</div>"#.to_string());
+    }
+
+    let mut html = String::new();
+    for (jt, cnt) in &job_types {
+        html.push_str(&format!(
+            r#"<div class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded">
+                <span class="text-sm text-white flex-1">{}</span>
+                <span class="text-xs text-slate-400">{}</span>
+            </div>"#,
+            escape_html(jt), format_number(*cnt)
+        ));
+    }
+
+    Html(html)
+}
+
+/// 事業形態一覧API（互換性のため残すが空データを返す）
+pub async fn comp_service_types(
+    State(_state): State<Arc<AppState>>,
+    _session: Session,
+    Query(_params): Query<MuniParams>,
+) -> Html<String> {
+    // service_type廃止のため空データを返す
+    Html(r#"<option value="">全て</option>"#.to_string())
+}
+
+/// 求人データ分析API（HTMXパーシャル）
+pub async fn comp_analysis(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Html<String> {
+    let (job_type, _, _) = get_session_filters(&session).await;
+
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
+    };
+
+    let analysis = fetch_analysis(db, &job_type);
+    Html(render_analysis_html(&job_type, &analysis))
+}
+
+/// 都道府県指定の分析API
+#[derive(Deserialize)]
+pub struct AnalysisParams {
+    pub prefecture: Option<String>,
+    pub municipality: Option<String>,
+}
+
+pub async fn comp_analysis_filtered(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<AnalysisParams>,
+) -> Html<String> {
+    let (job_type, _, _) = get_session_filters(&session).await;
+
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
+    };
+
+    let pref = params.prefecture.as_deref().unwrap_or("");
+    let muni = params.municipality.as_deref().unwrap_or("");
+    let analysis = fetch_analysis_filtered(db, &job_type, pref, muni);
+    let scope_label = if !muni.is_empty() {
+        format!("{} {}", pref, muni)
+    } else if !pref.is_empty() {
+        pref.to_string()
+    } else {
+        "全国".to_string()
+    };
+    Html(render_analysis_html_with_scope(&job_type, &scope_label, &analysis))
+}
+
+/// HTMLレポート生成API
+pub async fn comp_report(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<CompFilterParams>,
+) -> Html<String> {
+    let (job_type, _prefecture, _municipality) = get_session_filters(&session).await;
+
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Html("<p>ローカルDBが利用できません</p>".to_string()),
+    };
+
+    let pref = params.prefecture.as_deref().unwrap_or("");
+    let muni = params.municipality.as_deref().unwrap_or("");
+    let emp = params.employment_type.as_deref().unwrap_or("");
+    let nearby = params.nearby.unwrap_or(false);
+    let radius_km = params.radius_km.unwrap_or(10.0);
+
+    if pref.is_empty() {
+        return Html("<p>都道府県を選択してください</p>".to_string());
+    }
+
+    let postings = if nearby && !muni.is_empty() {
+        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp)
+    } else {
+        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+    };
+
+    let stats = calc_salary_stats(&postings);
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    render_report_html(&job_type, pref, muni, emp, &postings, &stats, &today, nearby, radius_km)
+}

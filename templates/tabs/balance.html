@@ -1,0 +1,63 @@
+<!-- タブ4: 産業別分析 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">🏭 産業別分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+
+    <!-- 競争環境言語化カード（都道府県選択時のみ） -->
+    {{COMPETITION_SECTION}}
+
+    <!-- 選択地域表示 -->
+    <div class="flex items-center gap-1">
+        <span class="text-slate-400 text-sm">📍 選択中:</span>
+        {{LOCATION_DISPLAY}}
+    </div>
+
+    <!-- 5つのKPIカード -->
+    <div class="flex flex-wrap gap-4">
+        {{GAP_KPI_CARDS}}
+    </div>
+
+    <!-- 求人・企業規模比較 -->
+    {{SHARE_SECTION}}
+
+    <!-- 求人が多い地域 Top 10 -->
+    <div class="stat-card">
+        <div class="flex items-baseline gap-2 mb-2">
+            <h3 class="text-lg font-bold text-white">求人が多い地域 Top 10</h3>
+            <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">この産業の求人が集中している市区町村</p>
+        {{SHORTAGE_CHART}}
+    </div>
+
+    <!-- 大企業が多い地域 Top 10 -->
+    <div class="stat-card">
+        <div class="flex items-baseline gap-2 mb-2">
+            <h3 class="text-lg font-bold text-white">大企業が多い地域 Top 10</h3>
+            <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">従業員数が多い企業が集中している市区町村</p>
+        {{SURPLUS_CHART}}
+    </div>
+
+    <!-- 給与水準が高い地域 Top 10 -->
+    <div class="stat-card">
+        <div class="flex items-baseline gap-2 mb-2">
+            <h3 class="text-lg font-bold text-white">給与水準が高い地域 Top 10</h3>
+            <span class="text-slate-400 text-sm">（{{PREF_LABEL}}内）</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">平均月給が高い市区町村です</p>
+        {{RATIO_CHART}}
+    </div>
+
+    <!-- 指標の説明 -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">用語の説明</h3>
+        <ul class="space-y-1 text-sm text-slate-400">
+            <li>• 求人件数: この産業・地域に登録されている求人の合計数</li>
+            <li>• 事業所数: 求人を出している事業所のユニーク数</li>
+            <li>• 平均月給: 月給換算での平均給与（時給・日給は月額換算済み）</li>
+            <li>• 従業員数: 事業所の従業員数の中央値</li>
+            <li>• 正社員率: 全求人に占める正社員求人の割合</li>
+        </ul>
+    </div>
+</div>

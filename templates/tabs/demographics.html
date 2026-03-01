@@ -1,0 +1,116 @@
+<!-- タブ2: 求人要件 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">📋 求人要件 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+    <p class="text-xs text-slate-500 -mt-4">この産業の求人がどんな条件を提示しているか — 年齢制限・学歴・資格・福利厚生の傾向を確認できます</p>
+
+    <!-- 言語化カード -->
+    {{VERBALIZATION_CARDS}}
+
+    <!-- 1行目: 求人タイプ内訳 + 横棒グラフ -->
+    <div class="flex flex-col md:flex-row gap-4">
+        <div class="stat-card flex-1" style="min-width: 300px;">
+            <div class="text-sm font-semibold text-slate-400 mb-3">求人条件タイプ一覧（100%）</div>
+            <div class="text-xs text-slate-500 mb-2">例:「月給20万以上・週休二日」「時給1000円以上・社保完備」など</div>
+            <div style="max-height: 350px; overflow-y: auto;">
+                {{PERSONA_LIST}}
+            </div>
+        </div>
+        <div class="stat-card flex-1" style="min-width: 400px;">
+            <div class="text-sm font-semibold text-slate-400 mb-3">求人条件タイプの割合</div>
+            {{PERSONA_BAR_CHART}}
+        </div>
+    </div>
+
+    <!-- 2行目: 資格・免許要件（全一覧） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">必要資格・免許（全一覧）</div>
+        <div style="max-height: 350px; overflow-y: auto;">
+            {{QUALIFICATION_LIST}}
+        </div>
+    </div>
+
+    <!-- 3行目: 給与×雇用形態の分布 -->
+    <div class="text-sm font-semibold text-slate-400 mt-2 mb-3">給与×雇用形態の分布</div>
+    <div class="flex flex-col md:flex-row gap-4">
+        <div class="stat-card flex-1">
+            {{GENDER_PIE}}
+        </div>
+        <div class="stat-card flex-1">
+            {{AGE_GENDER_STACKED_BAR}}
+        </div>
+    </div>
+
+    <!-- 4行目: KPIカード3枚 -->
+    <div class="flex flex-wrap gap-4">
+        {{KPI_CARDS}}
+    </div>
+
+    <!-- 5行目: 雇用形態×福利厚生の組み合わせ Top 10 -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">雇用形態×福利厚生の組み合わせ Top 10</div>
+        <div class="text-xs text-slate-500 mb-2">例:「正社員・社保完備・退職金あり」が最も多い、など</div>
+        {{EMPLOYMENT_BREAKDOWN_CHART}}
+    </div>
+
+    <!-- 6行目: 必要資格の雇用形態比（主要資格Top10） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">必要資格の雇用形態比（主要資格 Top10）</div>
+        {{QUAL_GENDER_CHART}}
+    </div>
+
+    <!-- 7行目: 求人構成の割合（給与帯×雇用形態） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">求人構成の割合（給与帯×雇用形態）</div>
+        <div class="text-xs text-slate-500 mb-2">この産業にどんな給与帯・雇用形態の求人があるか</div>
+        {{PERSONA_SHARE_CHART}}
+        {{PERSONA_SHARE_BADGES}}
+    </div>
+
+    <!-- 8行目: 福利厚生・年間休日（雇用形態別） -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-slate-400 mb-3">福利厚生・年間休日（雇用形態別）</div>
+        <div class="text-xs text-slate-500 mb-3">雇用形態ごとの平均値</div>
+        {{AGE_GENDER_STATS_LIST}}
+    </div>
+
+    <!-- 9行目: 条件を組み合わせて求人を探す -->
+    <div class="stat-card">
+        <div class="text-sm font-semibold text-white mb-3">🎯 条件を組み合わせて求人を探す</div>
+        <div class="text-xs mb-3" style="color: #6366F1;">例:「月給25万以上 × 正社員 × 週休二日」でどのくらいの求人があるか調べられます</div>
+        <form hx-get="/api/rarity" hx-target="#rarity-results" hx-swap="innerHTML">
+            <!-- 給与帯 -->
+            <div class="p-2 rounded mb-2" style="background-color: rgba(59, 130, 246, 0.05);">
+                <div class="text-xs font-semibold text-slate-400 mb-1">給与帯（複数選択可）</div>
+                <div class="flex gap-4 flex-wrap">
+                    {{RARITY_AGE_CHECKBOXES}}
+                </div>
+            </div>
+            <!-- 雇用形態 -->
+            <div class="p-2 rounded mb-2" style="background-color: rgba(34, 197, 94, 0.05);">
+                <div class="text-xs font-semibold text-slate-400 mb-1">雇用形態（複数選択可）</div>
+                <div class="flex gap-4">
+                    <label class="flex items-center gap-1 text-sm text-white cursor-pointer"><input type="checkbox" name="gender" value="正社員" class="accent-green-500"> 正社員</label>
+                    <label class="flex items-center gap-1 text-sm text-white cursor-pointer"><input type="checkbox" name="gender" value="パート" class="accent-green-500"> パート</label>
+                </div>
+            </div>
+            <!-- 資格・条件 -->
+            <div class="p-4 rounded mb-3" style="background-color: rgba(168, 85, 247, 0.05);">
+                <div class="text-sm font-semibold text-slate-400 mb-3">必要資格・条件（複数選択可）{{RARITY_QUAL_COUNT}}</div>
+                <div style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                    {{RARITY_QUAL_CHECKBOXES}}
+                </div>
+            </div>
+            <div class="flex gap-2 mb-3">
+                <button type="submit" class="px-4 py-1.5 rounded text-sm font-semibold text-white" style="background-color: #6366F1;">🔍 検索</button>
+                <button type="reset" class="px-4 py-1.5 rounded text-sm border border-slate-600 text-slate-400">🗑️ クリア</button>
+            </div>
+        </form>
+        <div id="rarity-results">
+            <p class="text-slate-500 text-sm">条件を選択して検索してください</p>
+        </div>
+    </div>
+
+    <!-- 追加セクション -->
+    {{URG_GENDER_SECTION}}
+    {{URG_START_SECTION}}
+</div>

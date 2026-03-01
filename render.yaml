@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: hellowork-dashboard
+    runtime: docker
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "9216"
+      - key: RUST_LOG
+        value: info
+      - key: AUTH_PASSWORD
+        sync: false
+      - key: ALLOWED_DOMAINS
+        value: "f-a-c.co.jp,cyxen.co.jp"
+      - key: HELLOWORK_DB_PATH
+        value: "data/hellowork.db"

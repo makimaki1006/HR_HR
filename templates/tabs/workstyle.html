@@ -1,0 +1,90 @@
+<!-- タブ5: 就業条件分析 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">📈 就業条件の傾向分析 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+    <p class="text-xs text-slate-500 -mt-4">正社員・パート等の割合、就業時間・休日・福利厚生の分布を確認できます</p>
+
+    <!-- 雇用形態分布ドーナツ + KPIカード -->
+    <div class="flex flex-col md:flex-row gap-4">
+        <div class="stat-card flex-1">
+            <h3 class="text-sm text-slate-400 mb-3">雇用形態分布</h3>
+            <div class="echart" style="height:300px;" data-chart-config='{
+                "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
+                "legend": {"orient": "horizontal", "bottom": "0%"},
+                "series": [{
+                    "type": "pie",
+                    "radius": ["40%", "70%"],
+                    "center": ["50%", "48%"],
+                    "avoidLabelOverlap": true,
+                    "itemStyle": {"borderRadius": 6, "borderColor": "#0f172a", "borderWidth": 2},
+                    "label": {"show": true, "color": "#e2e8f0", "fontSize": 12, "formatter": "{b}\n{d}%"},
+                    "data": [{{WS_PIE_DATA}}]
+                }]
+            }'></div>
+        </div>
+        <!-- KPIカード -->
+        <div class="flex flex-col gap-2" style="flex: 0 0 220px;">
+            {{WS_KPI_CARDS}}
+        </div>
+    </div>
+
+    <!-- 雇用形態 × 給与帯 スタック棒グラフ -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 給与帯</h3>
+        <p class="text-xs text-slate-500 mb-2">給与帯が上がると正社員の割合は増える？ パートはどの給与帯に多い？</p>
+        <div class="echart" style="height:350px;" data-chart-config='{
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "legend": {"data": ["正社員", "パート", "その他"], "top": "0%", "itemGap": 15},
+            "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
+            "xAxis": {"type": "category", "data": ["~15万", "15~20万", "20~25万", "25~30万", "30~35万", "35万~"]},
+            "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
+            "series": [{{AGE_CROSS_SERIES}}]
+        }'></div>
+    </div>
+
+    <div class="grid-charts">
+        <!-- 雇用形態 × 福利厚生 グループ棒グラフ -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 社会保険</h3>
+            <p class="text-xs text-slate-500 mb-2">正社員とパートで社会保険の加入率に違いはある？</p>
+            <div class="echart" style="height:300px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "legend": {"data": ["正社員", "パート"], "top": "0%", "itemGap": 15},
+                "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
+                "xAxis": {"type": "category", "data": ["正社員", "パート", "その他"]},
+                "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
+                "series": [
+                    {"name": "正社員", "type": "bar", "data": {{GENDER_MALE_DATA}}, "itemStyle": {"color": "#0072B2"}, "label": {"show": true, "position": "inside", "formatter": "{c}%", "color": "#fff"}},
+                    {"name": "パート", "type": "bar", "data": {{GENDER_FEMALE_DATA}}, "itemStyle": {"color": "#E69F00"}, "label": {"show": true, "position": "inside", "formatter": "{c}%", "color": "#fff"}}
+                ]
+            }'></div>
+        </div>
+
+        <!-- 雇用形態 × 休日 スタック棒グラフ -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 休日</h3>
+            <p class="text-xs text-slate-500 mb-2">週休二日制の求人はどの雇用形態に多い？</p>
+            <div class="echart" style="height:300px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "legend": {"data": ["週休二日", "その他休日", "不明"], "top": "0%", "itemGap": 15},
+                "grid": {"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true},
+                "xAxis": {"type": "category", "data": ["正社員", "パート", "その他"]},
+                "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
+                "series": [{{EMP_CROSS_SERIES}}]
+            }'></div>
+        </div>
+    </div>
+
+    <!-- 追加セクション -->
+    {{MOBILITY_CARD}}
+
+    <!-- このデータの見方 -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">このデータの見方</h3>
+        <ul class="space-y-1 text-sm text-slate-400">
+            <li>• 給与は月給換算: 時給は「×8時間×22日」、日給は「×22日」で月額に換算しています</li>
+            <li>• 雇用形態別の差: 正社員とパートでは福利厚生・休日に差があることが多いです</li>
+            <li>• データの見方: 「この条件なら必ずこう」ではなく、「全体の傾向をつかむ」目的でお使いください</li>
+            <li>• 例: 「正社員は週休二日が多い傾向」→ 求人条件の相場感を把握できます</li>
+        </ul>
+    </div>
+</div>

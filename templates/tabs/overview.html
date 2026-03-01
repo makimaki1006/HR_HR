@@ -1,0 +1,94 @@
+<!-- タブ1: 求人概況 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">📊 求人概況 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}} / {{LOCATION_LABEL}}</span></h2>
+
+    <!-- 採用課題診断カード（都道府県選択時のみ表示） -->
+    {{DIAGNOSIS_SECTION}}
+
+    <!-- 3層比較パネル（都道府県選択時のみ表示） -->
+    {{COMPARISON_SECTION}}
+
+    <!-- KPIカード -->
+    <div class="grid-stats">
+        <div class="stat-card">
+            <div class="stat-value text-blue-400">{{TOTAL_COUNT}}</div>
+            <div class="stat-label">求人件数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value text-amber-400">{{AVG_AGE}}<span class="text-lg">万円</span></div>
+            <div class="stat-label">平均月給</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">
+                <span style="color: #0072B2">{{MALE_COUNT}}</span>
+                <span class="text-slate-500 text-lg mx-1">/</span>
+                <span style="color: #E69F00">{{FEMALE_COUNT}}</span>
+            </div>
+            <div class="stat-label">正社員 / パート</div>
+        </div>
+    </div>
+
+    <!-- チャート行 -->
+    <div class="grid-charts">
+        <!-- 雇用形態構成（ドーナツチャート） -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">雇用形態構成</h3>
+            <div class="echart" style="height:320px;" data-chart-config='{
+                "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
+                "series": [{
+                    "type": "pie",
+                    "radius": ["45%", "72%"],
+                    "center": ["50%", "52%"],
+                    "avoidLabelOverlap": true,
+                    "itemStyle": {"borderRadius": 6, "borderColor": "#0f172a", "borderWidth": 2},
+                    "label": {"show": true, "color": "#e2e8f0", "fontSize": 13, "formatter": "{b}\n{d}%"},
+                    "data": [
+                        {"value": {{MALE_COUNT_RAW}}, "name": "正社員", "itemStyle": {"color": "#0072B2"}},
+                        {"value": {{FEMALE_COUNT_RAW}}, "name": "パート", "itemStyle": {"color": "#E69F00"}}
+                    ]
+                }]
+            }'></div>
+        </div>
+
+        <!-- 給与帯別分布（棒グラフ） -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">給与帯別分布（月給換算）</h3>
+            <div class="echart" style="height:320px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "xAxis": {"type": "category", "data": {{AGE_LABELS}}},
+                "yAxis": {"type": "value", "name": "件数"},
+                "series": [{
+                    "type": "bar",
+                    "data": {{AGE_VALUES}},
+                    "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]},
+                    "barWidth": "50%"
+                }]
+            }'></div>
+        </div>
+    </div>
+
+    <!-- 産業別 x 雇用形態（グループ棒グラフ） -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">産業別 x 雇用形態</h3>
+        <div class="echart" style="height:360px;" data-chart-config='{
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "legend": {"data": ["正社員", "パート"], "top": 4},
+            "xAxis": {"type": "category", "data": {{AGE_LABELS}}},
+            "yAxis": {"type": "value", "name": "件数"},
+            "series": [
+                {
+                    "name": "正社員",
+                    "type": "bar",
+                    "data": {{AGE_MALE_VALUES}},
+                    "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]}
+                },
+                {
+                    "name": "パート",
+                    "type": "bar",
+                    "data": {{AGE_FEMALE_VALUES}},
+                    "itemStyle": {"color": "#E69F00", "borderRadius": [4, 4, 0, 0]}
+                }
+            ]
+        }'></div>
+    </div>
+</div>

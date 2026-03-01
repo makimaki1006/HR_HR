@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ハローワーク求人分析ダッシュボード</title>
+    <link rel="preload" href="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" as="script">
+    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: { navy: { 900: '#0d1525', 800: '#0f172a', 700: '#1e293b' } } } }
+        }
+    </script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body class="bg-navy-900 text-slate-100 min-h-screen">
+    <header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+            <h1 class="text-lg font-bold text-white">ハローワーク求人分析</h1>
+            <span class="text-slate-400 text-sm">📍</span>
+            <select id="pref-select"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                <option value="">全国</option>
+                {{PREF_OPTIONS}}
+            </select>
+            <select id="muni-select"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                <option value="">すべて</option>
+                {{MUNI_OPTIONS}}
+            </select>
+            <span class="text-slate-400 text-sm">🏭</span>
+            <select id="job-type-select"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+                <option value="">全産業</option>
+                {{INDUSTRY_OPTIONS}}
+            </select>
+        </div>
+        <div class="flex items-center gap-4">
+            <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
+            <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
+        </div>
+    </header>
+
+    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
+        <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">📊 地域概況</button>
+        <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">🏢 企業分析</button>
+        <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">💰 求人条件</button>
+        <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">📋 採用動向</button>
+        <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">🗺️ 求人地図</button>
+        <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">🔍 詳細検索</button>
+    </nav>
+
+    <!-- ブレッドクラム: 現在の選択状態を表示 -->
+    <div id="breadcrumb-bar" class="bg-navy-800/60 border-b border-slate-700/50 px-6 py-2 flex items-center gap-2 text-sm">
+        <span class="text-slate-500">現在の表示:</span>
+        <span id="bc-pref" class="bc-chip bc-chip-area">全国</span>
+        <span id="bc-muni-sep" class="text-slate-600 hidden">›</span>
+        <span id="bc-muni" class="bc-chip bc-chip-area hidden"></span>
+        <span class="text-slate-600">|</span>
+        <span class="text-slate-500">産業:</span>
+        <span id="bc-job" class="bc-chip bc-chip-job">全産業</span>
+    </div>
+
+    <main id="content" class="p-6">
+        <div class="text-center text-slate-400 py-20">
+            <p class="text-lg">読み込み中...</p>
+        </div>
+    </main>
+
+    <script src="/static/js/tabcache.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/maps.js"></script>
+    <script src="/static/js/export.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
+
+            // ブレッドクラム更新
+            window.updateBreadcrumb = function() {
+                var jobSel = document.getElementById('job-type-select');
+                var prefSel = document.getElementById('pref-select');
+                var muniSel = document.getElementById('muni-select');
+                var bcJob = document.getElementById('bc-job');
+                var bcPref = document.getElementById('bc-pref');
+                var bcMuni = document.getElementById('bc-muni');
+                var bcMuniSep = document.getElementById('bc-muni-sep');
+
+                if (jobSel && bcJob) {
+                    bcJob.textContent = jobSel.value ? jobSel.options[jobSel.selectedIndex].text : '全産業';
+                }
+                if (prefSel && bcPref) {
+                    bcPref.textContent = prefSel.value ? prefSel.options[prefSel.selectedIndex].text : '全国';
+                    bcPref.classList.toggle('bc-chip-area-active', !!prefSel.value);
+                }
+                if (muniSel && bcMuni && bcMuniSep) {
+                    if (muniSel.value) {
+                        bcMuni.textContent = muniSel.options[muniSel.selectedIndex].text;
+                        bcMuni.classList.remove('hidden');
+                        bcMuniSep.classList.remove('hidden');
+                    } else {
+                        bcMuni.classList.add('hidden');
+                        bcMuniSep.classList.add('hidden');
+                    }
+                }
+            }
+
+            // 初回表示時にブレッドクラム更新
+            updateBreadcrumb();
+
+            // アクティブタブ再読み込み共通関数
+            function reloadActiveTab() {
+                var activeBtn = document.querySelector('.tab-btn.active');
+                if (activeBtn) {
+                    var url = activeBtn.getAttribute('hx-get');
+                    htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                }
+            }
+
+            // セレクトボックスのオプション安全更新
+            function safeSetOptions(selectEl, optionHtml, defaultOption) {
+                while (selectEl.options.length > 0) { selectEl.remove(0); }
+                var def = document.createElement('option');
+                def.value = '';
+                def.textContent = defaultOption;
+                selectEl.appendChild(def);
+                if (optionHtml) {
+                    var tmp = document.createElement('select');
+                    tmp.insertAdjacentHTML('afterbegin', optionHtml);
+                    while (tmp.firstChild) { selectEl.appendChild(tmp.firstChild); }
+                }
+                selectEl.selectedIndex = 0;
+            }
+
+            // 産業リスト再取得ヘルパー
+            function refreshIndustries(pref, muni) {
+                var url = '/api/industries?';
+                if (pref) url += 'prefecture=' + encodeURIComponent(pref) + '&';
+                if (muni) url += 'municipality=' + encodeURIComponent(muni);
+                return fetch(url).then(function(r) { return r.text(); }).then(function(html) {
+                    safeSetOptions(document.getElementById('job-type-select'), html, '全産業');
+                });
+            }
+
+            // 都道府県切り替え（最優先フィルタ）
+            var prefSelect = document.getElementById('pref-select');
+            if (prefSelect) {
+                prefSelect.addEventListener('change', function() {
+                    if (window.clearTabCache) window.clearTabCache();
+                    var pref = this.value;
+                    fetch('/api/set_prefecture', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'prefecture=' + encodeURIComponent(pref)
+                    }).then(function() {
+                        // 市区町村カスケード取得
+                        if (pref) {
+                            return fetch('/api/municipalities_cascade?prefecture=' + encodeURIComponent(pref));
+                        } else {
+                            return Promise.resolve({ text: function() { return ''; } });
+                        }
+                    }).then(function(r) { return r.text(); }).then(function(html) {
+                        safeSetOptions(document.getElementById('muni-select'), html, 'すべて');
+                        // 産業リストも更新
+                        return refreshIndustries(pref, '');
+                    }).then(function() {
+                        updateBreadcrumb();
+                        reloadActiveTab();
+                    });
+                });
+            }
+
+            // 市区町村切り替え
+            var muniSelect = document.getElementById('muni-select');
+            if (muniSelect) {
+                muniSelect.addEventListener('change', function() {
+                    if (window.clearTabCache) window.clearTabCache();
+                    var muni = this.value;
+                    var pref = document.getElementById('pref-select').value;
+                    fetch('/api/set_municipality', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'municipality=' + encodeURIComponent(muni)
+                    }).then(function() {
+                        // 産業リストも更新
+                        return refreshIndustries(pref, muni);
+                    }).then(function() {
+                        updateBreadcrumb();
+                        reloadActiveTab();
+                    });
+                });
+            }
+
+            // 産業切り替え（地域はリセットしない）
+            var jobSelect = document.getElementById('job-type-select');
+            if (jobSelect) {
+                jobSelect.addEventListener('change', function() {
+                    if (window.clearTabCache) window.clearTabCache();
+                    var jt = this.value;
+                    fetch('/api/set_job_type', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'job_type=' + encodeURIComponent(jt)
+                    }).then(function() {
+                        updateBreadcrumb();
+                        reloadActiveTab();
+                    });
+                });
+            }
+        });
+        function setActiveTab(el) {
+            document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
+            el.classList.add('active');
+            var url = el.getAttribute('hx-get');
+            if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
+        }
+        // アイドル時に次のタブをプリフェッチ
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(function() {
+                fetch('/tab/balance', { priority: 'low' });
+            });
+        }
+
+        // 地域クリックでプルダウンを切り替え
+        function switchLocation(pref, muni) {
+            if (!pref) return;
+
+            fetch('/api/set_prefecture', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'prefecture=' + encodeURIComponent(pref)
+            }).then(function() {
+                return fetch('/api/municipalities_cascade?prefecture=' + encodeURIComponent(pref));
+            }).then(function(r) { return r.text(); }).then(function(html) {
+                var prefSelect = document.getElementById('pref-select');
+                for (var i = 0; i < prefSelect.options.length; i++) {
+                    if (prefSelect.options[i].value === pref) {
+                        prefSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+
+                var muniSelect = document.getElementById('muni-select');
+                while (muniSelect.options.length > 0) { muniSelect.remove(0); }
+                var def = document.createElement('option');
+                def.value = '';
+                def.textContent = 'すべて';
+                muniSelect.appendChild(def);
+                if (html) {
+                    var tmp = document.createElement('select');
+                    tmp.insertAdjacentHTML('afterbegin', html);
+                    while (tmp.firstChild) { muniSelect.appendChild(tmp.firstChild); }
+                }
+                muniSelect.selectedIndex = 0;
+
+                if (muni) {
+                    fetch('/api/set_municipality', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'municipality=' + encodeURIComponent(muni)
+                    }).then(function() {
+                        for (var j = 0; j < muniSelect.options.length; j++) {
+                            if (muniSelect.options[j].value === muni) {
+                                muniSelect.selectedIndex = j;
+                                break;
+                            }
+                        }
+                        if (window.updateBreadcrumb) window.updateBreadcrumb();
+                        var activeBtn = document.querySelector('.tab-btn.active');
+                        if (activeBtn) {
+                            var url = activeBtn.getAttribute('hx-get');
+                            htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                        }
+                    });
+                } else {
+                    fetch('/api/set_municipality', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'municipality='
+                    }).then(function() {
+                        if (window.updateBreadcrumb) window.updateBreadcrumb();
+                        var activeBtn = document.querySelector('.tab-btn.active');
+                        if (activeBtn) {
+                            var url = activeBtn.getAttribute('hx-get');
+                            htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                        }
+                    });
+                }
+            });
+        }
+    </script>
+</body>
+</html>

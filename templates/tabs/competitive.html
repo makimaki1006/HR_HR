@@ -1,0 +1,327 @@
+<!-- タブ8: 競合調査 パーシャルHTML -->
+<div class="space-y-6">
+    <h2 class="text-xl font-bold text-white">🔍 企業調査 <span class="text-blue-400 text-base font-normal">{{JOB_TYPE}}</span></h2>
+
+    <!-- KPIカード -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="stat-card">
+            <div class="text-sm text-slate-400">該当件数</div>
+            <div class="text-3xl font-bold text-emerald-400">{{TOTAL_POSTINGS}}</div>
+        </div>
+        <div class="stat-card">
+            <div class="text-sm text-slate-400">事業所数</div>
+            <div class="text-3xl font-bold text-cyan-400">{{TOTAL_FACILITIES}}</div>
+        </div>
+    </div>
+
+    <!-- フィルタ -->
+    <div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-3">求人検索</h3>
+        <div class="flex flex-wrap gap-3 items-end">
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">都道府県</label>
+                <select id="comp-pref"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white"
+                    hx-get="/api/competitive/municipalities"
+                    hx-target="#comp-muni"
+                    hx-swap="innerHTML"
+                    hx-include="[name='prefecture']"
+                    name="prefecture"
+                    onchange="updateFacilityTypes(this.value)">
+                    <option value="">選択してください</option>
+                    {{PREF_OPTIONS}}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">市区町村</label>
+                <select id="comp-muni" name="municipality"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">雇用形態</label>
+                <select id="comp-emp" name="employment_type"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                    <option value="正社員">正社員</option>
+                    <option value="契約社員">契約社員</option>
+                    <option value="パート">パート</option>
+                </select>
+            </div>
+            <!-- 事業形態 -->
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">産業分類</label>
+                <select id="comp-stype" name="service_type"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="">全て</option>
+                    {{STYPE_OPTIONS}}
+                </select>
+            </div>
+            <!-- 施設形態: 2階層選択（大カテゴリ→サブカテゴリ） -->
+            <div class="relative" id="ftype-dropdown-container">
+                <label class="block text-xs text-slate-400 mb-1">事業所形態</label>
+                <button type="button" onclick="toggleFtypeDropdown()" id="ftype-btn"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white text-left min-w-[160px] flex items-center gap-1">
+                    <span id="ftype-btn-text">全て</span>
+                    <svg class="w-3 h-3 ml-auto text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div id="ftype-panel" class="hidden absolute z-50 mt-1 bg-navy-700 border border-slate-600 rounded-lg shadow-lg max-h-96 overflow-y-auto p-2" style="min-width:340px;">
+                    <div class="flex justify-between items-center mb-2 border-b border-slate-600 pb-1">
+                        <span class="text-xs text-slate-400">事業所形態を選択（展開でサブカテゴリ表示）</span>
+                        <button type="button" onclick="clearFtypes()" class="text-xs text-blue-400 hover:text-blue-300">全て解除</button>
+                    </div>
+                    <div id="ftype-list">
+                        {{FTYPE_CHECKBOXES}}
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="flex items-center gap-1 text-sm text-slate-300">
+                    <input type="checkbox" id="comp-nearby" class="rounded">
+                    近辺エリアも含める
+                </label>
+                <select id="comp-radius"
+                    class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white">
+                    <option value="10">10km</option>
+                    <option value="20">20km</option>
+                    <option value="50">50km</option>
+                </select>
+            </div>
+            <button onclick="searchCompetitive()"
+                class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition">
+                検索
+            </button>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">※ 市区町村を選択しない場合、都道府県全体で検索します</p>
+    </div>
+
+    <!-- 検索結果（HTMXで動的更新） -->
+    <div id="comp-results">
+        <p class="text-slate-400 text-sm">都道府県を選択して検索してください</p>
+    </div>
+
+    <!-- 求人タイプ分析（独立タブへ移動） -->
+    <div class="stat-card">
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm text-slate-400">求人タイプ分析</h3>
+            <button hx-get="/tab/segment" hx-target="#content" hx-swap="innerHTML"
+                onclick="document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-btn')[8].classList.add('active')"
+                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition flex items-center gap-2">
+                🎯 求人タイプ分析タブへ →
+            </button>
+        </div>
+        <p class="text-slate-500 text-sm mt-2">給与・待遇・条件などの軸で求人を分類した詳細分析は専用タブで確認できます</p>
+    </div>
+
+    <!-- 求人データ分析パネル -->
+    <div class="stat-card">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm text-slate-400">求人データ分析</h3>
+            <div class="flex gap-2 items-center">
+                <button onclick="loadAnalysis()"
+                    class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg transition">
+                    全国データを分析
+                </button>
+                <button onclick="loadAnalysisFiltered()"
+                    class="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white text-sm rounded-lg transition">
+                    選択地域で分析
+                </button>
+            </div>
+        </div>
+        <div id="comp-analysis">
+            <p class="text-slate-500 text-sm">「全国データを分析」または地域を選択して「選択地域で分析」をクリックしてください</p>
+        </div>
+    </div>
+
+    <div class="grid-charts">
+        <!-- 都道府県別求人数チャート -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求人数（上位15）</h3>
+            <div class="echart" style="height:400px;" data-chart-config='{
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": {{PREF_LABELS}}, "inverse": true},
+                "series": [{"type": "bar", "data": {{PREF_VALUES}}, "itemStyle": {"color": "#D55E00", "borderRadius": [0,4,4,0]}, "barWidth": "60%"}],
+                "grid": {"left": "25%", "right": "5%"}
+            }'></div>
+        </div>
+
+        <!-- テーブル -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">都道府県別 求人数ランキング</h3>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="text-center" style="width:50px">順位</th>
+                            <th>都道府県</th>
+                            <th class="text-right">求人数</th>
+                        </tr>
+                    </thead>
+                    <tbody>{{PREF_ROWS}}</tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- 2階層施設形態ドロップダウン制御 ---
+
+function toggleFtypeDropdown() {
+    document.getElementById('ftype-panel').classList.toggle('hidden');
+}
+
+function clearFtypes() {
+    document.querySelectorAll('.ftype-major-cb, .ftype-sub-cb').forEach(function(cb) { cb.checked = false; });
+    updateFtypeLabel();
+}
+
+// サブカテゴリ展開/折りたたみ
+function toggleSubTypes(groupId) {
+    var panel = document.getElementById('sub-' + groupId);
+    var arrow = document.getElementById('arrow-' + groupId);
+    if (panel) {
+        panel.classList.toggle('hidden');
+        if (arrow) arrow.classList.toggle('rotate-90');
+    }
+}
+
+// 大カテゴリチェック時: サブカテゴリを全OFF（大カテゴリ全体で検索）
+function onMajorToggle(majorCb) {
+    var group = majorCb.getAttribute('data-group');
+    if (group) {
+        document.querySelectorAll('.ftype-sub-cb[data-group="' + group + '"]').forEach(function(cb) { cb.checked = false; });
+    }
+    updateFtypeLabel();
+}
+
+// サブカテゴリチェック時: 大カテゴリをOFF
+function onSubToggle(subCb) {
+    var group = subCb.getAttribute('data-group');
+    if (group) {
+        var majorCb = document.querySelector('.ftype-major-cb[data-group="' + group + '"]');
+        if (majorCb && subCb.checked) majorCb.checked = false;
+    }
+    updateFtypeLabel();
+}
+
+function updateFtypeLabel() {
+    var majorChecked = document.querySelectorAll('.ftype-major-cb:checked');
+    var subChecked = document.querySelectorAll('.ftype-sub-cb:checked');
+    var btn = document.getElementById('ftype-btn-text');
+    var total = majorChecked.length + subChecked.length;
+    if (total === 0) {
+        btn.textContent = '全て';
+    } else if (majorChecked.length > 0 && subChecked.length === 0) {
+        if (majorChecked.length === 1) {
+            var span = majorChecked[0].parentElement.querySelector('span.flex-1');
+            btn.textContent = span ? span.textContent.trim() : '1カテゴリ';
+        } else {
+            btn.textContent = majorChecked.length + 'カテゴリ';
+        }
+    } else {
+        btn.textContent = subChecked.length + '種別選択';
+    }
+}
+
+// 選択されたフィルタ値を取得（大カテゴリ or サブカテゴリ）
+function getSelectedFtypes() {
+    var vals = [];
+    document.querySelectorAll('.ftype-major-cb:checked').forEach(function(cb) { vals.push(cb.value); });
+    document.querySelectorAll('.ftype-sub-cb:checked').forEach(function(cb) { vals.push(cb.value); });
+    return vals.join(',');
+}
+
+// ドロップダウン外クリックで閉じる
+document.addEventListener('click', function(e) {
+    var container = document.getElementById('ftype-dropdown-container');
+    if (container && !container.contains(e.target)) {
+        document.getElementById('ftype-panel').classList.add('hidden');
+    }
+});
+
+// 都道府県変更時に施設形態を2階層で再取得（サーバーサイドレンダリングHTML）
+function updateFacilityTypes(pref) {
+    fetch('/api/competitive/facility_types?prefecture=' + encodeURIComponent(pref))
+        .then(function(r) { return r.text(); })
+        .then(function(responseHtml) {
+            // サーバーからの信頼済みHTMLをDOMParserで安全にパース
+            var parser = new DOMParser();
+            var doc = parser.parseFromString(responseHtml, 'text/html');
+            var container = document.getElementById('ftype-list');
+            // 既存の内容をクリアし、パースされたノードを移植
+            while (container.firstChild) container.removeChild(container.firstChild);
+            var nodes = doc.body.childNodes;
+            while (nodes.length > 0) {
+                container.appendChild(document.adoptNode(nodes[0]));
+            }
+            updateFtypeLabel();
+        });
+    // 事業形態プルダウンも再取得
+    fetch('/api/competitive/service_types?prefecture=' + encodeURIComponent(pref))
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+            var sel = document.getElementById('comp-stype');
+            if (sel) {
+                var parser = new DOMParser();
+                var doc = parser.parseFromString('<select>' + html + '</select>', 'text/html');
+                var newOptions = doc.querySelector('select');
+                while (sel.options.length > 0) sel.remove(0);
+                while (newOptions.firstChild) sel.appendChild(document.adoptNode(newOptions.firstChild));
+                sel.selectedIndex = 0;
+            }
+        });
+}
+
+// --- 検索・分析 ---
+
+function searchCompetitive() {
+    var pref = document.getElementById('comp-pref').value;
+    var muni = document.getElementById('comp-muni').value;
+    var emp = document.getElementById('comp-emp').value;
+    var ftype = getSelectedFtypes();
+    var stype = document.getElementById('comp-stype').value;
+    var nearby = document.getElementById('comp-nearby').checked;
+    var radius = document.getElementById('comp-radius').value;
+
+    if (!pref) {
+        var el = document.getElementById('comp-results');
+        el.textContent = '';
+        var p = document.createElement('p');
+        p.className = 'text-amber-400 text-sm';
+        p.textContent = '都道府県を選択してください';
+        el.appendChild(p);
+        return;
+    }
+
+    var url = '/api/competitive/filter?prefecture=' + encodeURIComponent(pref)
+        + '&municipality=' + encodeURIComponent(muni)
+        + '&employment_type=' + encodeURIComponent(emp)
+        + '&facility_type=' + encodeURIComponent(ftype)
+        + '&service_type=' + encodeURIComponent(stype)
+        + '&nearby=' + nearby
+        + '&radius_km=' + radius;
+
+    htmx.ajax('GET', url, {target: '#comp-results', swap: 'innerHTML'});
+}
+
+function loadAnalysis() {
+    htmx.ajax('GET', '/api/competitive/analysis', {
+        target: '#comp-analysis',
+        swap: 'innerHTML'
+    });
+}
+
+function loadAnalysisFiltered() {
+    var pref = document.getElementById('comp-pref').value;
+    var muni = document.getElementById('comp-muni').value;
+    var url = '/api/competitive/analysis/filter?prefecture=' + encodeURIComponent(pref)
+        + '&municipality=' + encodeURIComponent(muni);
+    htmx.ajax('GET', url, {
+        target: '#comp-analysis',
+        swap: 'innerHTML'
+    });
+}
+</script>
