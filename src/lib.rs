@@ -148,7 +148,7 @@ async fn auth_middleware(
     next: middleware::Next,
 ) -> axum::response::Response {
     let path = request.uri().path().to_string();
-    if path == "/login" || path == "/logout" || path.starts_with("/static") {
+    if path == "/login" || path == "/logout" || path == "/health" || path.starts_with("/static") {
         return next.run(request).await;
     }
     require_auth(session, request, next).await

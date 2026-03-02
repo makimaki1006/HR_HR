@@ -299,18 +299,22 @@ pub(crate) fn fetch_nearby_postings(
          FROM postings WHERE \
          latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"
     );
-    let mut param_values: Vec<String> = vec![
-        lat_min.to_string(), lat_max.to_string(),
-        lng_min.to_string(), lng_max.to_string(),
+    // REAL列にはREAL型でバインド（String→TEXT型だとBETWEENが常にFALSEになる）
+    use rusqlite::types::Value as SqlValue;
+    let mut param_values: Vec<SqlValue> = vec![
+        SqlValue::Real(lat_min),
+        SqlValue::Real(lat_max),
+        SqlValue::Real(lng_min),
+        SqlValue::Real(lng_max),
     ];
 
     if !job_type.is_empty() {
         sql.push_str(" AND job_type = ?");
-        param_values.push(job_type.to_string());
+        param_values.push(SqlValue::Text(job_type.to_string()));
     }
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");
-        param_values.push(emp.to_string());
+        param_values.push(SqlValue::Text(emp.to_string()));
     }
     sql.push_str(" ORDER BY salary_min DESC");
 
