@@ -61,7 +61,10 @@ var postingMap = (function() {
       attribution: '&copy; OpenStreetMap', maxZoom: 18
     }).addTo(map);
     connectionSvg = document.getElementById('jm-connection-svg');
-    markerGroup = L.layerGroup().addTo(map);
+    markerGroup = (typeof L.markerClusterGroup === 'function')
+      ? L.markerClusterGroup({ maxClusterRadius: 60, disableClusteringAtZoom: 16, chunkedLoading: true })
+      : L.layerGroup();
+    markerGroup.addTo(map);
     initialized = true;
     ['jm-pref','jm-muni','jm-radius','jm-emp','jm-salary-type'].forEach(function(id) {
       var e = document.getElementById(id);
@@ -372,7 +375,12 @@ var postingMap = (function() {
   }
 
   function drawMarkers(data) {
-    clearPinnedCards(); markerGroup.clearLayers(); allMarkers = [];
+    clearPinnedCards();
+    if (map && map.hasLayer(markerGroup)) map.removeLayer(markerGroup);
+    markerGroup = (typeof L.markerClusterGroup === 'function')
+      ? L.markerClusterGroup({ maxClusterRadius: 60, disableClusteringAtZoom: 16, chunkedLoading: true })
+      : L.layerGroup();
+    allMarkers = [];
     activeDetailMarker = null; detailJsonCache = {}; regionSectionsLoaded = {};
     var markers = data.markers || [];
     document.getElementById('jm-count').textContent = markers.length + ' \u4ef6';
@@ -386,6 +394,7 @@ var postingMap = (function() {
       marker.bindTooltip(escapeHtml(d.facility) + '\n' + escapeHtml(d.emp) + ' ' + sal, { direction: 'top', offset: [0, -8] });
       markerGroup.addLayer(marker);
     });
+    markerGroup.addTo(map);
     if (data.center) {
       var zoom = 12, r = parseFloat(document.getElementById('jm-radius').value) || 10;
       if (r <= 5) zoom = 14; else if (r <= 10) zoom = 13; else if (r <= 20) zoom = 12;
