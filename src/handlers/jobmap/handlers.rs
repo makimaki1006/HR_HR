@@ -26,6 +26,14 @@ pub struct MarkerParams {
     pub employment_type: String,
     #[serde(default)]
     pub salary_type: String,
+    #[serde(default)]
+    pub south: Option<f64>,
+    #[serde(default)]
+    pub north: Option<f64>,
+    #[serde(default)]
+    pub west: Option<f64>,
+    #[serde(default)]
+    pub east: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +101,23 @@ pub async fn jobmap_markers(
         None => return Json(serde_json::json!({"markers": [], "total": 0})),
     };
 
+    // ビューポートboundsが全て指定されている場合は矩形検索
+    if let (Some(south), Some(north), Some(west), Some(east)) =
+        (params.south, params.north, params.west, params.east)
+    {
+        let (markers, total_available) = fetch::fetch_markers_by_bounds(
+            geocoded_db,
+            &job_type,
+            &params.employment_type,
+            &params.salary_type,
+            south,
+            north,
+            west,
+            east,
+        );
+        return markers_to_json(&markers, None, total_available);
+    }
+
     let pref = if params.prefecture.is_empty() {
         &session_pref
     } else {
@@ -127,7 +152,7 @@ pub async fn jobmap_markers(
             })
     });
 
-    let markers = if let Some((clat, clng)) = center {
+    let (markers, total_available) = if let Some((clat, clng)) = center {
         fetch::fetch_markers(
             geocoded_db,
             &job_type,
@@ -150,7 +175,7 @@ pub async fn jobmap_markers(
         )
     };
 
-    markers_to_json(&markers, center)
+    markers_to_json(&markers, center, total_available)
 }
 
 /// 求人詳細カードHTML
@@ -498,6 +523,7 @@ pub async fn jobmap_seeker_detail(
 fn markers_to_json(
     markers: &[fetch::MarkerRow],
     center: Option<(f64, f64)>,
+    total_available: usize,
 ) -> Json<serde_json::Value> {
     let marker_arr: Vec<serde_json::Value> = markers
         .iter()
@@ -519,6 +545,7 @@ fn markers_to_json(
     let mut result = serde_json::json!({
         "markers": marker_arr,
         "total": markers.len(),
+        "totalAvailable": total_available,
     });
 
     if let Some((lat, lng)) = center {

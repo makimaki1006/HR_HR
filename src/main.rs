@@ -32,6 +32,7 @@ async fn main() {
             let idx_sqls = [
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_pref ON postings (job_type, prefecture)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_lat_lng ON postings (job_type, latitude, longitude)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_lat_lng ON postings (latitude, longitude)",
             ];
             for sql in &idx_sqls {
                 if let Err(e) = db.execute(sql, &[]) {

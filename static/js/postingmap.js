@@ -26,28 +26,21 @@ var postingMap = (function() {
   // 表示モード管理
   var currentViewMode = 'postings';
 
+  // ビューポート連動ロード
+  var viewportEnabled = false;
+  var viewportTimer = null;
+  var currentFilters = { employment_type: '', salary_type: '' };
+
   // 求職者レイヤー
   var seekerGroup = null;
   var geojsonLayer = null;
   var flowGroup = null;
   var seekerData = null;
 
-  // GAS準拠: 標準ピンアイコン
-  var defaultIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-  });
-  var detailIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-  });
-  var pinnedIcon = L.icon({
-    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
-  });
+  // CircleMarkerスタイル（Canvas描画で軽量、外部画像読込なし）
+  var defaultStyle = { radius: 6, fillColor: '#3b82f6', color: '#fff', weight: 1, fillOpacity: 0.7, opacity: 0.9 };
+  var detailStyle = { radius: 8, fillColor: '#f97316', color: '#fff', weight: 2, fillOpacity: 0.9, opacity: 1 };
+  var pinnedStyle = { radius: 8, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 0.9, opacity: 1 };
 
   function ensureInit() { if (!initialized || !map) init(); }
 
@@ -56,7 +49,7 @@ var postingMap = (function() {
     var el = document.getElementById('jm-map');
     if (!el) return;
     if (el.offsetHeight === 0) el.style.minHeight = '400px';
-    map = L.map('jm-map', { center: [36.5, 137.0], zoom: 6, zoomControl: true });
+    map = L.map('jm-map', { center: [36.5, 137.0], zoom: 6, zoomControl: true, preferCanvas: true });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap', maxZoom: 18
     }).addTo(map);
@@ -70,6 +63,7 @@ var postingMap = (function() {
       var e = document.getElementById(id);
       if (e) e.addEventListener('keydown', function(ev) { if (ev.key === 'Enter') search(); });
     });
+    map.on('moveend', onViewportChange);
     initResizeHandle();
     updateUIForMode();
   }
@@ -360,6 +354,9 @@ var postingMap = (function() {
     lastSearchPref = pref; lastSearchMuni = muni;
     var params = new URLSearchParams({ prefecture: pref, municipality: muni, radius: radius,
       employment_type: emp, salary_type: salaryType });
+    currentFilters.employment_type = emp;
+    currentFilters.salary_type = salaryType;
+    viewportEnabled = false;
     fetch('/api/jobmap/markers?' + params.toString())
       .then(function(r) { return r.json(); })
       .then(function(data) {
@@ -367,6 +364,8 @@ var postingMap = (function() {
         document.getElementById('jm-search-btn').disabled = false;
         var rb = document.getElementById('jm-region-btn'); if (rb) rb.disabled = false;
         if (currentViewMode === 'hybrid') loadSeekerData(pref, muni);
+        // 初回描画後500msでビューポート連動ロードを有効化
+        setTimeout(function() { viewportEnabled = true; }, 500);
       })
       .catch(function(err) {
         document.getElementById('jm-count').textContent = '\u30a8\u30e9\u30fc: ' + err.message;
@@ -383,15 +382,19 @@ var postingMap = (function() {
     allMarkers = [];
     activeDetailMarker = null; detailJsonCache = {}; regionSectionsLoaded = {};
     var markers = data.markers || [];
-    document.getElementById('jm-count').textContent = markers.length + ' \u4ef6';
+    var totalAvailable = data.totalAvailable || markers.length;
+    var countText = markers.length < totalAvailable
+      ? markers.length.toLocaleString() + ' / ' + totalAvailable.toLocaleString() + ' \u4ef6'
+      : markers.length.toLocaleString() + ' \u4ef6';
+    document.getElementById('jm-count').textContent = countText;
     if (markers.length === 0) { document.getElementById('jm-count').textContent = '\u8a72\u5f53\u306a\u3057'; return; }
     markers.forEach(function(d) {
-      var marker = L.marker([d.lat, d.lng], { icon: defaultIcon });
+      var marker = L.circleMarker([d.lat, d.lng], defaultStyle);
       var mi = { marker: marker, data: d, isPinned: false, isDetailActive: false };
       allMarkers.push(mi);
       marker.on('click', function() { onMarkerClick(mi); });
       var sal = formatYen(d.salaryMin) + ' \u301c ' + formatYen(d.salaryMax);
-      marker.bindTooltip(escapeHtml(d.facility) + '\n' + escapeHtml(d.emp) + ' ' + sal, { direction: 'top', offset: [0, -8] });
+      marker.bindTooltip(escapeHtml(d.facility) + '\n' + escapeHtml(d.emp) + ' ' + sal, { direction: 'top', offset: [0, -6] });
       markerGroup.addLayer(marker);
     });
     markerGroup.addTo(map);
@@ -405,10 +408,10 @@ var postingMap = (function() {
 
   function onMarkerClick(mi) {
     if (activeDetailMarker) {
-      activeDetailMarker.marker.setIcon(activeDetailMarker.isPinned ? pinnedIcon : defaultIcon);
+      activeDetailMarker.marker.setStyle(activeDetailMarker.isPinned ? pinnedStyle : defaultStyle);
       activeDetailMarker.isDetailActive = false;
     }
-    mi.marker.setIcon(detailIcon); mi.isDetailActive = true; activeDetailMarker = mi;
+    mi.marker.setStyle(detailStyle); mi.isDetailActive = true; activeDetailMarker = mi;
     var panel = document.getElementById('jm-details-panel'); panel.classList.remove('hidden');
     var handle = document.getElementById('jm-resize-handle'); if (handle) handle.classList.remove('hidden');
     fetch('/api/jobmap/detail/' + mi.data.id).then(function(r) { return r.text(); })
@@ -446,7 +449,7 @@ var postingMap = (function() {
     var container = document.getElementById('jm-details-container');
     var mi = card._markerInfo; container.removeChild(card);
     if (mi && mi.isDetailActive) {
-      mi.marker.setIcon(mi.isPinned ? pinnedIcon : defaultIcon);
+      mi.marker.setStyle(mi.isPinned ? pinnedStyle : defaultStyle);
       mi.isDetailActive = false; if (activeDetailMarker === mi) activeDetailMarker = null;
     }
     if (container.children.length === 0) {
@@ -517,7 +520,7 @@ var postingMap = (function() {
     pc.style.left = (pt.x + 20) + 'px'; pc.style.top = (pt.y - 20) + 'px';
     document.getElementById('jm-map-container').appendChild(pc);
     var cd = { element: pc, markerLat: d.lat, markerLng: d.lng, line: null, markerInfo: mi, data: d };
-    pinnedCards.push(cd); mi.isPinned = true; mi.marker.setIcon(pinnedIcon);
+    pinnedCards.push(cd); mi.isPinned = true; mi.marker.setStyle(pinnedStyle);
     makeDraggable(pc, cd); updateConnectionLine(cd);
     if (pinnedCards.length === 1) map.on('move zoom', updateAllPinnedCards);
     updatePinnedStats();
@@ -540,7 +543,7 @@ var postingMap = (function() {
     pc.style.left = (pt.x + 20) + 'px'; pc.style.top = (pt.y - 20) + 'px';
     document.getElementById('jm-map-container').appendChild(pc);
     var cd = { element: pc, markerLat: d.lat, markerLng: d.lng, line: null, markerInfo: mi, data: d };
-    pinnedCards.push(cd); mi.isPinned = true; mi.marker.setIcon(pinnedIcon);
+    pinnedCards.push(cd); mi.isPinned = true; mi.marker.setStyle(pinnedStyle);
     makeDraggable(pc, cd); updateConnectionLine(cd);
     if (pinnedCards.length === 1) map.on('move zoom', updateAllPinnedCards);
     updatePinnedStats();
@@ -599,7 +602,7 @@ var postingMap = (function() {
     if (cd.element.parentNode) cd.element.parentNode.removeChild(cd.element);
     if (cd.line && connectionSvg && connectionSvg.contains(cd.line)) connectionSvg.removeChild(cd.line);
     cd.markerInfo.isPinned = false;
-    cd.markerInfo.marker.setIcon(cd.markerInfo.isDetailActive ? detailIcon : defaultIcon);
+    cd.markerInfo.marker.setStyle(cd.markerInfo.isDetailActive ? detailStyle : defaultStyle);
     pinnedCards.splice(idx, 1);
     if (pinnedCards.length === 0) map.off('move zoom', updateAllPinnedCards);
     updatePinnedStats();
@@ -649,7 +652,7 @@ var postingMap = (function() {
     p.textContent = '\u30de\u30fc\u30ab\u30fc\u3092\u30af\u30ea\u30c3\u30af\u3067\u8a73\u7d30\u8868\u793a'; c.appendChild(p);
     closeRegionDashboard(); closeSeekerStats();
     if (activeDetailMarker) {
-      activeDetailMarker.marker.setIcon(activeDetailMarker.isPinned ? pinnedIcon : defaultIcon);
+      activeDetailMarker.marker.setStyle(activeDetailMarker.isPinned ? pinnedStyle : defaultStyle);
       activeDetailMarker.isDetailActive = false; activeDetailMarker = null;
     }
     if (map) map.invalidateSize();
@@ -708,6 +711,57 @@ var postingMap = (function() {
       var em = document.createElement('p'); em.className = 'text-red-400 text-xs';
       em.textContent = '\u30a8\u30e9\u30fc: ' + (err.message || 'unknown'); ct.appendChild(em);
     });
+  }
+
+  // ===== ビューポート連動ロード =====
+
+  function onViewportChange() {
+    if (!viewportEnabled || currentViewMode !== 'postings') return;
+    if (viewportTimer) clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(loadViewportMarkers, 300);
+  }
+
+  function loadViewportMarkers() {
+    if (!map) return;
+    var bounds = map.getBounds();
+    var params = new URLSearchParams({
+      south: bounds.getSouth(),
+      north: bounds.getNorth(),
+      west: bounds.getWest(),
+      east: bounds.getEast(),
+      employment_type: currentFilters.employment_type || '',
+      salary_type: currentFilters.salary_type || ''
+    });
+    fetch('/api/jobmap/markers?' + params.toString())
+      .then(function(r) { return r.json(); })
+      .then(function(data) { refreshMarkers(data); })
+      .catch(function(err) { console.warn('[postingmap] viewport load error:', err); });
+  }
+
+  function refreshMarkers(data) {
+    if (map && map.hasLayer(markerGroup)) map.removeLayer(markerGroup);
+    markerGroup = (typeof L.markerClusterGroup === 'function')
+      ? L.markerClusterGroup({ maxClusterRadius: 60, disableClusteringAtZoom: 16, chunkedLoading: true })
+      : L.layerGroup();
+    allMarkers = [];
+    activeDetailMarker = null;
+    detailJsonCache = {};
+    var markers = data.markers || [];
+    var totalAvailable = data.totalAvailable || markers.length;
+    var countText = markers.length < totalAvailable
+      ? markers.length.toLocaleString() + ' / ' + totalAvailable.toLocaleString() + ' \u4ef6'
+      : markers.length.toLocaleString() + ' \u4ef6';
+    document.getElementById('jm-count').textContent = countText;
+    markers.forEach(function(d) {
+      var marker = L.circleMarker([d.lat, d.lng], defaultStyle);
+      var mi = { marker: marker, data: d, isPinned: false, isDetailActive: false };
+      allMarkers.push(mi);
+      marker.on('click', function() { onMarkerClick(mi); });
+      var sal = formatYen(d.salaryMin) + ' \u301c ' + formatYen(d.salaryMax);
+      marker.bindTooltip(escapeHtml(d.facility) + '\n' + escapeHtml(d.emp) + ' ' + sal, { direction: 'top', offset: [0, -6] });
+      markerGroup.addLayer(marker);
+    });
+    markerGroup.addTo(map);
   }
 
   function formatYen(n) { if (!n || n === 0) return '\u2212'; return '\u00A5' + n.toLocaleString(); }
