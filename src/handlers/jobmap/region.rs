@@ -7,7 +7,19 @@ use tower_sessions::Session;
 
 use crate::AppState;
 use crate::handlers::competitive::escape_html;
-use crate::handlers::overview::get_session_filters;
+use crate::handlers::overview::{get_session_filters, SessionFilters};
+
+/// 地域フィルタ（産業+都道府県+市区町村）のWHERE句と連番?パラメータを構築
+fn build_region_filter(filters: &SessionFilters, pref: &str, muni: &str) -> (String, Vec<String>) {
+    let mut clause = String::from("1=1");
+    let mut params: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut clause, &mut params);
+    clause.push_str(" AND prefecture = ?");
+    params.push(pref.to_string());
+    clause.push_str(" AND municipality = ?");
+    params.push(muni.to_string());
+    (clause, params)
+}
 
 #[derive(Deserialize)]
 pub struct RegionParams {
@@ -24,7 +36,7 @@ pub async fn region_summary(
     session: Session,
     Query(params): Query<RegionParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     if params.prefecture.is_empty() || params.municipality.is_empty() {
         return Html(r#"<p class="text-gray-400 text-xs">地域を選択してください</p>"#.to_string());
@@ -35,16 +47,17 @@ pub async fn region_summary(
         None => return Html(r#"<p class="text-gray-400 text-xs">データベースなし</p>"#.to_string()),
     };
 
-    // postingsテーブルから求人件数・給与統計を集計
-    let sql = "SELECT COUNT(*) as cnt, \
-               AVG(salary_min) as avg_sal_min, AVG(salary_max) as avg_sal_max \
-               FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3";
+    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
 
-    let rows = match db.query(sql, &[
-        &job_type as &dyn rusqlite::types::ToSql,
-        &params.prefecture as &dyn rusqlite::types::ToSql,
-        &params.municipality as &dyn rusqlite::types::ToSql,
-    ]) {
+    // postingsテーブルから求人件数・給与統計を集計
+    let sql = format!(
+        "SELECT COUNT(*) as cnt, \
+         AVG(salary_min) as avg_sal_min, AVG(salary_max) as avg_sal_max \
+         FROM postings WHERE {where_clause}"
+    );
+    let bind: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    let rows = match db.query(&sql, &bind) {
         Ok(r) => r,
         Err(_) => {
             return Html(r#"<p class="text-gray-400 text-xs">データ取得エラー</p>"#.to_string());
@@ -55,7 +68,7 @@ pub async fn region_summary(
         return Html(format!(
             r#"<p class="text-gray-400 text-xs">{}の{}データがありません</p>"#,
             escape_html(&params.municipality),
-            escape_html(&job_type)
+            escape_html(&filters.industry_label())
         ));
     }
 
@@ -65,15 +78,14 @@ pub async fn region_summary(
     let avg_sal_max = get_f64(row, "avg_sal_max");
 
     // 雇用形態別件数
-    let emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings \
-                   WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 \
-                   AND employment_type IS NOT NULL AND employment_type != '' \
-                   GROUP BY employment_type ORDER BY cnt DESC LIMIT 3";
-    let emp_info = if let Ok(emp_rows) = db.query(emp_sql, &[
-        &job_type as &dyn rusqlite::types::ToSql,
-        &params.prefecture as &dyn rusqlite::types::ToSql,
-        &params.municipality as &dyn rusqlite::types::ToSql,
-    ]) {
+    let emp_sql = format!(
+        "SELECT employment_type, COUNT(*) as cnt FROM postings \
+         WHERE {where_clause} \
+         AND employment_type IS NOT NULL AND employment_type != '' \
+         GROUP BY employment_type ORDER BY cnt DESC LIMIT 3"
+    );
+    let emp_bind: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let emp_info = if let Ok(emp_rows) = db.query(&emp_sql, &emp_bind) {
         emp_rows.iter().map(|r| {
             format!("{}: {}件", get_str(r, "employment_type"), get_i64(r, "cnt"))
         }).collect::<Vec<_>>().join(", ")
@@ -116,7 +128,7 @@ pub async fn region_age_gender(
     session: Session,
     Query(params): Query<RegionParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     if params.prefecture.is_empty() || params.municipality.is_empty() {
         return Html(r#"<p class="text-gray-400 text-xs">地域を選択してください</p>"#.to_string());
@@ -127,17 +139,18 @@ pub async fn region_age_gender(
         None => return Html(r#"<p class="text-gray-400 text-xs">データベースなし</p>"#.to_string()),
     };
 
-    // postingsテーブルから雇用形態別・給与区分別の件数を集計
-    let sql = "SELECT employment_type, COUNT(*) as cnt FROM postings \
-               WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 \
-               AND employment_type IS NOT NULL AND employment_type != '' \
-               GROUP BY employment_type ORDER BY cnt DESC";
+    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
 
-    let rows = match db.query(sql, &[
-        &job_type as &dyn rusqlite::types::ToSql,
-        &params.prefecture as &dyn rusqlite::types::ToSql,
-        &params.municipality as &dyn rusqlite::types::ToSql,
-    ]) {
+    // postingsテーブルから雇用形態別・給与区分別の件数を集計
+    let sql = format!(
+        "SELECT employment_type, COUNT(*) as cnt FROM postings \
+         WHERE {where_clause} \
+         AND employment_type IS NOT NULL AND employment_type != '' \
+         GROUP BY employment_type ORDER BY cnt DESC"
+    );
+    let bind: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    let rows = match db.query(&sql, &bind) {
         Ok(r) => r,
         Err(_) => {
             return Html(r#"<p class="text-gray-400 text-xs">データ取得エラー</p>"#.to_string());
@@ -205,7 +218,7 @@ pub async fn region_posting_stats(
     session: Session,
     Query(params): Query<RegionParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let geocoded_db = match &state.hw_db {
         Some(db) => db,
@@ -218,18 +231,16 @@ pub async fn region_posting_stats(
         return Html(r#"<p class="text-gray-400 text-xs">地域を選択してください</p>"#.to_string());
     }
 
-    let jt = job_type.clone();
-    let pref = params.prefecture.clone();
-    let muni = params.municipality.clone();
+    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
+    let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
+        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+    };
 
     let mut html = String::with_capacity(2048);
 
     // 雇用形態別件数
-    let emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 GROUP BY employment_type ORDER BY cnt DESC";
-    let emp_rows = geocoded_db.query(
-        emp_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
+    let emp_sql = format!("SELECT employment_type, COUNT(*) as cnt FROM postings WHERE {where_clause} GROUP BY employment_type ORDER BY cnt DESC");
+    let emp_rows = geocoded_db.query(&emp_sql, &mk_bind());
 
     html.push_str(r#"<div class="space-y-3 text-xs">"#);
 
@@ -250,11 +261,8 @@ pub async fn region_posting_stats(
     html.push_str("</tbody></table></div>");
 
     // 給与統計
-    let salary_sql = "SELECT salary_type, AVG(salary_min) as avg_min, AVG(salary_max) as avg_max, MIN(salary_min) as min_min, MAX(salary_max) as max_max, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND salary_min > 0 GROUP BY salary_type";
-    let salary_rows = geocoded_db.query(
-        salary_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
+    let salary_sql = format!("SELECT salary_type, AVG(salary_min) as avg_min, AVG(salary_max) as avg_max, MIN(salary_min) as min_min, MAX(salary_max) as max_max, COUNT(*) as cnt FROM postings WHERE {where_clause} AND salary_min > 0 GROUP BY salary_type");
+    let salary_rows = geocoded_db.query(&salary_sql, &mk_bind());
 
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">給与レンジ</div>"#);
     html.push_str(r#"<table class="w-full"><thead><tr class="text-gray-500"><th class="text-left">区分</th><th class="text-right">平均下限</th><th class="text-right">平均上限</th><th class="text-right">件</th></tr></thead><tbody>"#);
@@ -276,11 +284,8 @@ pub async fn region_posting_stats(
     html.push_str("</tbody></table></div>");
 
     // 産業別TOP5
-    let ind_sql = "SELECT job_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND job_type != '' GROUP BY job_type ORDER BY cnt DESC LIMIT 5";
-    let ind_rows = geocoded_db.query(
-        ind_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
+    let ind_sql = format!("SELECT job_type, COUNT(*) as cnt FROM postings WHERE {where_clause} AND job_type != '' GROUP BY job_type ORDER BY cnt DESC LIMIT 5");
+    let ind_rows = geocoded_db.query(&ind_sql, &mk_bind());
 
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">産業別 TOP5</div>"#);
     if let Ok(rows) = &ind_rows {
@@ -318,7 +323,7 @@ pub async fn region_segments(
     session: Session,
     Query(params): Query<RegionParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let geocoded_db = match &state.hw_db {
         Some(db) => db,
@@ -331,19 +336,17 @@ pub async fn region_segments(
         return Html(r#"<p class="text-gray-400 text-xs">地域を選択してください</p>"#.to_string());
     }
 
-    let jt = job_type.clone();
-    let pref = params.prefecture.clone();
-    let muni = params.municipality.clone();
+    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
+    let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
+        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+    };
 
     let mut html = String::with_capacity(2048);
     html.push_str(r#"<div class="space-y-3 text-xs">"#);
 
     // Tier3セグメント分布TOP10
-    let tier3_sql = "SELECT tier3_label_short, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND tier3_label_short != '' GROUP BY tier3_label_short ORDER BY cnt DESC LIMIT 10";
-    let tier3_rows = geocoded_db.query(
-        tier3_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
+    let tier3_sql = format!("SELECT tier3_label_short, COUNT(*) as cnt FROM postings WHERE {where_clause} AND tier3_label_short != '' GROUP BY tier3_label_short ORDER BY cnt DESC LIMIT 10");
+    let tier3_rows = geocoded_db.query(&tier3_sql, &mk_bind());
 
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">求人セグメント TOP10</div>"#);
     if let Ok(rows) = &tier3_rows {
@@ -374,11 +377,8 @@ pub async fn region_segments(
     html.push_str("</div>");
 
     // 雇用形態別分布
-    let emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings WHERE job_type = ?1 AND prefecture = ?2 AND municipality = ?3 AND employment_type != '' GROUP BY employment_type ORDER BY cnt DESC LIMIT 10";
-    let emp_rows = geocoded_db.query(
-        emp_sql,
-        &[&jt as &dyn rusqlite::types::ToSql, &pref, &muni],
-    );
+    let emp_sql = format!("SELECT employment_type, COUNT(*) as cnt FROM postings WHERE {where_clause} AND employment_type != '' GROUP BY employment_type ORDER BY cnt DESC LIMIT 10");
+    let emp_rows = geocoded_db.query(&emp_sql, &mk_bind());
 
     html.push_str(r#"<div><div class="text-gray-400 mb-1 font-medium">雇用形態別分布</div>"#);
     if let Ok(rows) = &emp_rows {

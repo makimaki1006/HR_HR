@@ -10,7 +10,7 @@ use crate::db::local_sqlite::LocalDb;
 
 use super::overview::{
     build_filter_clause, format_number, get_f64, get_i64, get_session_filters, get_str,
-    make_location_label, render_no_db_data,
+    make_location_label, render_no_db_data, SessionFilters,
 };
 
 /// タブ2: 企業分析
@@ -18,22 +18,22 @@ pub async fn tab_balance(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Html(render_no_db_data("企業分析")),
     };
 
-    let cache_key = format!("balance_{}_{}_{}", job_type, prefecture, municipality);
+    let cache_key = format!("balance_{}_{}", filters.industry_cache_key(), filters.prefecture);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
 
-    let stats = fetch_balance(db, &job_type, &prefecture, &municipality);
-    let html = render_balance(&job_type, &prefecture, &municipality, &stats);
+    let stats = fetch_balance(db, &filters);
+    let html = render_balance(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -81,12 +81,10 @@ impl Default for BalanceStats {
 
 fn fetch_balance(
     db: &LocalDb,
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
 ) -> BalanceStats {
     let mut stats = BalanceStats::default();
-    let (filter_clause, filter_params) = build_filter_clause(job_type, prefecture, municipality, 0);
+    let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     // 0. KPI基本
     {
@@ -299,17 +297,11 @@ fn fetch_balance(
 }
 
 fn render_balance(
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
     stats: &BalanceStats,
 ) -> String {
-    let location_label = make_location_label(prefecture, municipality);
-    let industry_label = if job_type.is_empty() {
-        "全産業"
-    } else {
-        job_type
-    };
+    let location_label = make_location_label(&filters.prefecture, &filters.municipality);
+    let industry_label = filters.industry_label();
 
     // KPIカード
     let kpi_cards = format!(

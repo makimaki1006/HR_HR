@@ -47,7 +47,8 @@ pub async fn tab_jobmap(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, prefecture, _municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
+    let industry_label = filters.industry_label();
 
     let geocoded_db = match &state.hw_db {
         Some(db) => db,
@@ -63,15 +64,15 @@ pub async fn tab_jobmap(
         }
     };
 
-    // 選択職種のデータ存在チェック
-    if !fetch::has_job_type_data(geocoded_db, &job_type) {
-        return Html(render::render_no_data_message(&job_type));
+    // 選択産業のデータ存在チェック
+    if !fetch::has_job_type_data(geocoded_db, &filters) {
+        return Html(render::render_no_data_message(&industry_label));
     }
 
-    let prefs = fetch::fetch_prefectures(geocoded_db, &job_type);
+    let prefs = fetch::fetch_prefectures(geocoded_db, &filters);
     let pref_options: String = std::iter::once(build_option("", "-- 都道府県 --"))
         .chain(prefs.iter().map(|p| {
-            if p == &prefecture {
+            if p == &filters.prefecture {
                 format!(
                     r#"<option value="{}" selected>{}</option>"#,
                     escape_html(p),
@@ -84,7 +85,7 @@ pub async fn tab_jobmap(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let html = render::render_jobmap_page(&job_type, &prefecture, &pref_options);
+    let html = render::render_jobmap_page(&industry_label, &filters.prefecture, &pref_options);
     Html(html)
 }
 
@@ -94,7 +95,7 @@ pub async fn jobmap_markers(
     session: Session,
     Query(params): Query<MarkerParams>,
 ) -> Json<serde_json::Value> {
-    let (job_type, session_pref, _session_muni) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let geocoded_db = match &state.hw_db {
         Some(db) => db,
@@ -107,7 +108,7 @@ pub async fn jobmap_markers(
     {
         let (markers, total_available) = fetch::fetch_markers_by_bounds(
             geocoded_db,
-            &job_type,
+            &filters,
             &params.employment_type,
             &params.salary_type,
             south,
@@ -117,6 +118,8 @@ pub async fn jobmap_markers(
         );
         return markers_to_json(&markers, None, total_available);
     }
+
+    let session_pref = filters.prefecture.clone();
 
     let pref = if params.prefecture.is_empty() {
         &session_pref
@@ -155,7 +158,7 @@ pub async fn jobmap_markers(
     let (markers, total_available) = if let Some((clat, clng)) = center {
         fetch::fetch_markers(
             geocoded_db,
-            &job_type,
+            &filters,
             pref,
             "",
             &params.employment_type,
@@ -167,7 +170,7 @@ pub async fn jobmap_markers(
     } else {
         fetch::fetch_markers_by_pref(
             geocoded_db,
-            &job_type,
+            &filters,
             pref,
             &params.municipality,
             &params.employment_type,
@@ -207,14 +210,14 @@ pub async fn jobmap_municipalities(
     session: Session,
     Query(params): Query<MuniParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let geocoded_db = match &state.hw_db {
         Some(db) => db,
         None => return Html(build_option("", "-- 市区町村 --")),
     };
 
-    let munis = fetch::fetch_municipalities(geocoded_db, &job_type, &params.prefecture);
+    let munis = fetch::fetch_municipalities(geocoded_db, &filters, &params.prefecture);
     let options: String = std::iter::once(build_option("", "-- 市区町村 --"))
         .chain(munis.iter().map(|m| build_option(m, m)))
         .collect::<Vec<_>>()
@@ -274,15 +277,15 @@ pub async fn jobmap_seekers(
     session: Session,
     Query(params): Query<SeekerParams>,
 ) -> Json<serde_json::Value> {
-    let (job_type, session_pref, session_muni) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let pref = if params.prefecture.is_empty() {
-        &session_pref
+        &filters.prefecture
     } else {
         &params.prefecture
     };
     let muni = if params.municipality.is_empty() {
-        &session_muni
+        &filters.municipality
     } else {
         &params.municipality
     };
@@ -320,10 +323,8 @@ pub async fn jobmap_seekers(
         actual_sql.push_str(" AND municipality = ?");
         actual_params.push(muni.to_string());
     }
-    if !job_type.is_empty() {
-        actual_sql.push_str(" AND job_type = ?");
-        actual_params.push(job_type.clone());
-    }
+    // 産業フィルタ
+    filters.append_industry_filter_str(&mut actual_sql, &mut actual_params);
     actual_sql.push_str(" GROUP BY municipality ORDER BY cnt DESC");
 
     let params_ref: Vec<&dyn rusqlite::types::ToSql> = actual_params
@@ -419,10 +420,10 @@ pub async fn jobmap_seeker_detail(
     session: Session,
     Query(params): Query<SeekerParams>,
 ) -> Html<String> {
-    let (job_type, session_pref, _session_muni) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let pref = if params.prefecture.is_empty() {
-        &session_pref
+        &filters.prefecture
     } else {
         &params.prefecture
     };
@@ -445,10 +446,7 @@ pub async fn jobmap_seeker_detail(
                          FROM postings \
                          WHERE prefecture = ? AND municipality = ?".to_string();
     let mut params_vec: Vec<String> = vec![pref.to_string(), muni.to_string()];
-    if !job_type.is_empty() {
-        stats_sql.push_str(" AND job_type = ?");
-        params_vec.push(job_type.clone());
-    }
+    filters.append_industry_filter_str(&mut stats_sql, &mut params_vec);
 
     let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_vec
         .iter()
@@ -490,10 +488,7 @@ pub async fn jobmap_seeker_detail(
     let mut emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings \
                        WHERE prefecture = ? AND municipality = ?".to_string();
     let mut emp_params: Vec<String> = vec![pref.to_string(), muni.to_string()];
-    if !job_type.is_empty() {
-        emp_sql.push_str(" AND job_type = ?");
-        emp_params.push(job_type.clone());
-    }
+    filters.append_industry_filter_str(&mut emp_sql, &mut emp_params);
     emp_sql.push_str(" AND employment_type IS NOT NULL AND employment_type != '' \
                        GROUP BY employment_type ORDER BY cnt DESC LIMIT 5");
 

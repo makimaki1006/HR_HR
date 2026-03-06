@@ -5,17 +5,183 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::auth::{SESSION_JOB_TYPE_KEY, SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY};
+use crate::auth::{
+    SESSION_JOB_TYPE_KEY, SESSION_JOB_TYPES_KEY, SESSION_INDUSTRY_RAWS_KEY,
+    SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY,
+};
 use crate::AppState;
 
+/// セッションフィルタ（複数選択対応）
+#[derive(Clone, Debug)]
+pub struct SessionFilters {
+    pub job_types: Vec<String>,
+    pub industry_raws: Vec<String>,
+    pub prefecture: String,
+    pub municipality: String,
+}
+
+impl SessionFilters {
+    /// 産業ラベル生成（具体名表示）
+    /// 1-2件: 具体名をカンマ区切り（例: 「医療, 建設業」）
+    /// 3件以上: 先頭名 + 「他N件」（例: 「医療 他2件」）
+    /// 混合時（大分類+中分類）: 「医療 + 電気工事業 他1件」
+    pub fn industry_label(&self) -> String {
+        let jt_count = self.job_types.len();
+        let ir_count = self.industry_raws.len();
+        let total = jt_count + ir_count;
+
+        if total == 0 {
+            return "全産業".to_string();
+        }
+
+        // 全名前リストを構築（大分類優先）
+        let mut all_names: Vec<&str> = Vec::with_capacity(total);
+        for jt in &self.job_types { all_names.push(jt.as_str()); }
+        for ir in &self.industry_raws { all_names.push(ir.as_str()); }
+
+        if total <= 2 {
+            all_names.join(", ")
+        } else {
+            format!("{} 他{}件", all_names[0], total - 1)
+        }
+    }
+
+    /// ツールチップ用の全名前リスト
+    pub fn industry_label_full(&self) -> String {
+        let mut all_names: Vec<&str> = Vec::new();
+        for jt in &self.job_types { all_names.push(jt.as_str()); }
+        for ir in &self.industry_raws { all_names.push(ir.as_str()); }
+        if all_names.is_empty() {
+            "全産業".to_string()
+        } else {
+            all_names.join(", ")
+        }
+    }
+
+    /// キャッシュキーの産業部分
+    pub fn industry_cache_key(&self) -> String {
+        let mut key = String::new();
+        if !self.job_types.is_empty() {
+            let mut sorted = self.job_types.clone();
+            sorted.sort();
+            key.push_str(&format!("jt:{}", sorted.join("+")));
+        }
+        if !self.industry_raws.is_empty() {
+            if !key.is_empty() { key.push('|'); }
+            let mut sorted = self.industry_raws.clone();
+            sorted.sort();
+            key.push_str(&format!("ir:{}", sorted.join("+")));
+        }
+        key
+    }
+
+    /// 「未分類」を除いた実質的な大分類リスト
+    fn real_job_types(&self) -> Vec<String> {
+        self.job_types.iter().filter(|jt| *jt != "未分類").cloned().collect()
+    }
+
+    /// 「未分類」が選択されているか
+    fn has_unclassified(&self) -> bool {
+        self.job_types.iter().any(|jt| jt == "未分類")
+    }
+
+    /// 産業フィルタSQL句（?N 位置パラメータ用）
+    /// 両方指定時は OR 結合: (job_type IN (...) OR industry_raw IN (...))
+    /// 「未分類」選択時は (industry_raw IS NULL OR industry_raw = '') を OR追加
+    pub fn build_industry_clause(&self, mut idx: usize) -> (String, Vec<String>, usize) {
+        let real_jt = self.real_job_types();
+        let has_unclass = self.has_unclassified();
+        let has_jt = !real_jt.is_empty();
+        let has_ir = !self.industry_raws.is_empty();
+
+        // フィルタなし
+        if !has_jt && !has_ir && !has_unclass {
+            return (String::new(), Vec::new(), idx);
+        }
+
+        let mut parts: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+
+        if has_jt {
+            let ph: Vec<String> = real_jt.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            parts.push(format!("job_type IN ({})", ph.join(",")));
+            params.extend(real_jt);
+        }
+        if has_ir {
+            let ph: Vec<String> = self.industry_raws.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            parts.push(format!("industry_raw IN ({})", ph.join(",")));
+            params.extend(self.industry_raws.iter().cloned());
+        }
+        if has_unclass {
+            parts.push("(industry_raw IS NULL OR industry_raw = '')".to_string());
+        }
+
+        let clause = format!(" AND ({})", parts.join(" OR "));
+        (clause, params, idx)
+    }
+
+    /// 産業フィルタSQL句（自動連番?パラメータ用 - jobmap等）
+    /// 「未分類」選択時は (industry_raw IS NULL OR industry_raw = '') を OR追加
+    pub fn append_industry_filter_str(&self, sql: &mut String, params: &mut Vec<String>) {
+        let real_jt = self.real_job_types();
+        let has_unclass = self.has_unclassified();
+        let has_jt = !real_jt.is_empty();
+        let has_ir = !self.industry_raws.is_empty();
+
+        if !has_jt && !has_ir && !has_unclass {
+            return;
+        }
+
+        let mut parts: Vec<String> = Vec::new();
+
+        if has_jt {
+            let ph = vec!["?"; real_jt.len()].join(",");
+            parts.push(format!("job_type IN ({})", ph));
+            params.extend(real_jt);
+        }
+        if has_ir {
+            let ph = vec!["?"; self.industry_raws.len()].join(",");
+            parts.push(format!("industry_raw IN ({})", ph));
+            params.extend(self.industry_raws.iter().cloned());
+        }
+        if has_unclass {
+            parts.push("(industry_raw IS NULL OR industry_raw = '')".to_string());
+        }
+
+        sql.push_str(&format!(" AND ({})", parts.join(" OR ")));
+    }
+}
+
+/// JSONの配列文字列をVec<String>にパース
+fn parse_json_array(s: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(s).unwrap_or_default()
+}
+
 /// セッションから共通フィルタ値を取得するヘルパー
-pub async fn get_session_filters(session: &Session) -> (String, String, String) {
-    let job_type: String = session
-        .get(SESSION_JOB_TYPE_KEY)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+pub async fn get_session_filters(session: &Session) -> SessionFilters {
+    // 新キー（複数選択）→ 旧キー（単一）のフォールバック
+    let job_types: Vec<String> = {
+        let new_val: Option<String> = session.get(SESSION_JOB_TYPES_KEY).await.ok().flatten();
+        if let Some(ref s) = new_val {
+            let parsed = parse_json_array(s);
+            if !parsed.is_empty() {
+                parsed
+            } else {
+                // 旧キーからフォールバック
+                let old: String = session.get(SESSION_JOB_TYPE_KEY).await.ok().flatten().unwrap_or_default();
+                if old.is_empty() { Vec::new() } else { vec![old] }
+            }
+        } else {
+            let old: String = session.get(SESSION_JOB_TYPE_KEY).await.ok().flatten().unwrap_or_default();
+            if old.is_empty() { Vec::new() } else { vec![old] }
+        }
+    };
+
+    let industry_raws: Vec<String> = {
+        let val: Option<String> = session.get(SESSION_INDUSTRY_RAWS_KEY).await.ok().flatten();
+        val.map(|s| parse_json_array(&s)).unwrap_or_default()
+    };
+
     let prefecture: String = session
         .get(SESSION_PREFECTURE_KEY)
         .await
@@ -28,35 +194,35 @@ pub async fn get_session_filters(session: &Session) -> (String, String, String) 
         .ok()
         .flatten()
         .unwrap_or_default();
-    (job_type, prefecture, municipality)
+
+    SessionFilters { job_types, industry_raws, prefecture, municipality }
 }
 
 /// SQLのWHERE句とパラメータインデックスを構築するヘルパー（hw_db用）
-/// job_type が空文字の場合はjob_typeフィルタを省略する
+/// SessionFiltersの産業フィルタ+地域フィルタを構築
 /// 戻り値: (WHERE句文字列, パラメータ値のVec)
 pub fn build_filter_clause(
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
     base_index: usize,
 ) -> (String, Vec<String>) {
     let mut clause = String::new();
     let mut params = Vec::new();
-    let mut idx = base_index;
-    if !job_type.is_empty() {
-        idx += 1;
-        clause.push_str(&format!(" AND job_type = ?{}", idx));
-        params.push(job_type.to_string());
-    }
-    if !prefecture.is_empty() {
+
+    // 産業フィルタ
+    let (ind_clause, ind_params, mut idx) = filters.build_industry_clause(base_index);
+    clause.push_str(&ind_clause);
+    params.extend(ind_params);
+
+    // 地域フィルタ
+    if !filters.prefecture.is_empty() {
         idx += 1;
         clause.push_str(&format!(" AND prefecture = ?{}", idx));
-        params.push(prefecture.to_string());
+        params.push(filters.prefecture.clone());
     }
-    if !municipality.is_empty() {
+    if !filters.municipality.is_empty() {
         idx += 1;
         clause.push_str(&format!(" AND municipality = ?{}", idx));
-        params.push(municipality.to_string());
+        params.push(filters.municipality.clone());
     }
     (clause, params)
 }
@@ -88,7 +254,7 @@ pub async fn tab_overview(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db,
@@ -97,22 +263,19 @@ pub async fn tab_overview(
         }
     };
 
-    let cache_key = format!("overview_{}_{}_{}", job_type, prefecture, municipality);
+    let cache_key = format!("overview_{}_{}_{}",
+        filters.industry_cache_key(), filters.prefecture, filters.municipality);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
 
-    let stats = fetch_overview_stats(db, &job_type, &prefecture, &municipality);
-    let location_label = make_location_label(&prefecture, &municipality);
-    let industry_label = if job_type.is_empty() {
-        "全産業".to_string()
-    } else {
-        job_type.to_string()
-    };
+    let stats = fetch_overview_stats(db, &filters);
+    let location_label = make_location_label(&filters.prefecture, &filters.municipality);
+    let industry_label = filters.industry_label();
 
-    let html = render_overview(&industry_label, &stats, &location_label, &prefecture);
+    let html = render_overview(&industry_label, &stats, &location_label, &filters.prefecture);
 
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -184,13 +347,11 @@ impl Default for OverviewStats {
 /// postingsテーブルから概況統計を取得
 fn fetch_overview_stats(
     db: &crate::db::local_sqlite::LocalDb,
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
 ) -> OverviewStats {
     let mut stats = OverviewStats::default();
 
-    let (filter_clause, filter_params) = build_filter_clause(job_type, prefecture, municipality, 0);
+    let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     // 1. 総求人件数 + 事業所数 + 平均給与 + 正社員数
     {
@@ -330,12 +491,15 @@ fn fetch_overview_stats(
     }
 
     // 7. 全国比較（都道府県選択時のみ）
-    if !prefecture.is_empty() {
-        let (jt_filter, jt_params) = if !job_type.is_empty() {
-            (format!(" AND job_type = ?1"), vec![job_type.to_string()])
-        } else {
-            (String::new(), Vec::new())
+    if !filters.prefecture.is_empty() {
+        // 産業フィルタのみ適用（地域なし）
+        let national_filters = SessionFilters {
+            job_types: filters.job_types.clone(),
+            industry_raws: filters.industry_raws.clone(),
+            prefecture: String::new(),
+            municipality: String::new(),
         };
+        let (jt_filter, jt_params) = build_filter_clause(&national_filters, 0);
         let sql = format!(
             "SELECT COUNT(*) as cnt, AVG(NULLIF(salary_min, 0)) as avg_min \
              FROM postings WHERE 1=1{jt_filter}"
@@ -778,22 +942,103 @@ mod tests {
 
     #[test]
     fn test_build_filter_clause_empty() {
-        let (clause, params) = build_filter_clause("", "", "", 0);
+        let filters = SessionFilters {
+            job_types: vec![],
+            industry_raws: vec![],
+            prefecture: String::new(),
+            municipality: String::new(),
+        };
+        let (clause, params) = build_filter_clause(&filters, 0);
         assert_eq!(clause, "");
         assert!(params.is_empty());
     }
 
     #[test]
     fn test_build_filter_clause_job_only() {
-        let (clause, params) = build_filter_clause("建設業", "", "", 0);
-        assert_eq!(clause, " AND job_type = ?1");
+        let filters = SessionFilters {
+            job_types: vec!["建設業".to_string()],
+            industry_raws: vec![],
+            prefecture: String::new(),
+            municipality: String::new(),
+        };
+        let (clause, params) = build_filter_clause(&filters, 0);
+        assert_eq!(clause, " AND (job_type IN (?1))");
         assert_eq!(params, vec!["建設業"]);
     }
 
     #[test]
     fn test_build_filter_clause_all() {
-        let (clause, params) = build_filter_clause("建設業", "東京都", "新宿区", 0);
-        assert_eq!(clause, " AND job_type = ?1 AND prefecture = ?2 AND municipality = ?3");
+        let filters = SessionFilters {
+            job_types: vec!["建設業".to_string()],
+            industry_raws: vec![],
+            prefecture: "東京都".to_string(),
+            municipality: "新宿区".to_string(),
+        };
+        let (clause, params) = build_filter_clause(&filters, 0);
+        assert_eq!(clause, " AND (job_type IN (?1)) AND prefecture = ?2 AND municipality = ?3");
         assert_eq!(params, vec!["建設業", "東京都", "新宿区"]);
+    }
+
+    #[test]
+    fn test_build_filter_clause_industry_raws() {
+        // 両方指定時は OR 結合
+        let filters = SessionFilters {
+            job_types: vec!["建設業".to_string()],
+            industry_raws: vec!["病院".to_string(), "ソフトウェア業".to_string()],
+            prefecture: "東京都".to_string(),
+            municipality: String::new(),
+        };
+        let (clause, params) = build_filter_clause(&filters, 0);
+        assert_eq!(clause, " AND (job_type IN (?1) OR industry_raw IN (?2,?3)) AND prefecture = ?4");
+        assert_eq!(params, vec!["建設業", "病院", "ソフトウェア業", "東京都"]);
+
+        // industry_rawsのみの場合
+        let filters2 = SessionFilters {
+            job_types: vec![],
+            industry_raws: vec!["病院".to_string()],
+            prefecture: String::new(),
+            municipality: String::new(),
+        };
+        let (clause2, params2) = build_filter_clause(&filters2, 0);
+        assert_eq!(clause2, " AND (industry_raw IN (?1))");
+        assert_eq!(params2, vec!["病院"]);
+    }
+
+    #[test]
+    fn test_build_filter_clause_multiple_job_types() {
+        let filters = SessionFilters {
+            job_types: vec!["建設業".to_string(), "医療".to_string()],
+            industry_raws: vec![],
+            prefecture: String::new(),
+            municipality: String::new(),
+        };
+        let (clause, params) = build_filter_clause(&filters, 0);
+        assert_eq!(clause, " AND (job_type IN (?1,?2))");
+        assert_eq!(params, vec!["建設業", "医療"]);
+    }
+
+    #[test]
+    fn test_build_filter_clause_unclassified() {
+        // 「未分類」のみ選択
+        let filters = SessionFilters {
+            job_types: vec!["未分類".to_string()],
+            industry_raws: vec![],
+            prefecture: String::new(),
+            municipality: String::new(),
+        };
+        let (clause, params) = build_filter_clause(&filters, 0);
+        assert_eq!(clause, " AND ((industry_raw IS NULL OR industry_raw = ''))");
+        assert!(params.is_empty());
+
+        // 「未分類」+ 通常の大分類
+        let filters2 = SessionFilters {
+            job_types: vec!["建設業".to_string(), "未分類".to_string()],
+            industry_raws: vec![],
+            prefecture: String::new(),
+            municipality: String::new(),
+        };
+        let (clause2, params2) = build_filter_clause(&filters2, 0);
+        assert_eq!(clause2, " AND (job_type IN (?1) OR (industry_raw IS NULL OR industry_raw = ''))");
+        assert_eq!(params2, vec!["建設業"]);
     }
 }

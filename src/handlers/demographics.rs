@@ -9,7 +9,7 @@ use crate::AppState;
 
 use super::overview::{
     build_filter_clause, format_number, get_f64, get_i64, get_session_filters, get_str,
-    make_location_label, render_no_db_data,
+    make_location_label, render_no_db_data, SessionFilters,
 };
 
 /// タブ4: 採用動向 - HTMXパーシャルHTML
@@ -17,22 +17,22 @@ pub async fn tab_demographics(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Html(render_no_db_data("採用動向")),
     };
 
-    let cache_key = format!("demographics_{}_{}_{}", job_type, prefecture, municipality);
+    let cache_key = format!("demographics_{}_{}", filters.industry_cache_key(), filters.prefecture);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
 
-    let stats = fetch_demographics(db, &job_type, &prefecture, &municipality);
-    let html = render_demographics(&job_type, &prefecture, &municipality, &stats);
+    let stats = fetch_demographics(db, &filters);
+    let html = render_demographics(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -79,12 +79,10 @@ impl Default for DemoStats {
 
 fn fetch_demographics(
     db: &crate::db::local_sqlite::LocalDb,
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
 ) -> DemoStats {
     let mut stats = DemoStats::default();
-    let (filter_clause, filter_params) = build_filter_clause(job_type, prefecture, municipality, 0);
+    let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
         filter_params
@@ -309,17 +307,11 @@ fn fetch_demographics(
 }
 
 fn render_demographics(
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
     stats: &DemoStats,
 ) -> String {
-    let location_label = make_location_label(prefecture, municipality);
-    let industry_label = if job_type.is_empty() {
-        "全産業"
-    } else {
-        job_type
-    };
+    let location_label = make_location_label(&filters.prefecture, &filters.municipality);
+    let industry_label = filters.industry_label();
 
     // 求人理由ドーナツ
     let reason_pie: Vec<String> = stats
@@ -642,7 +634,7 @@ pub async fn api_rarity(
     session: Session,
     raw_query: axum::extract::RawQuery,
 ) -> Html<String> {
-    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db,
@@ -665,20 +657,35 @@ pub async fn api_rarity(
     let mut bind_strings: Vec<String> = Vec::new();
     let mut idx = 0;
 
-    if !job_type.is_empty() {
-        idx += 1;
-        conditions.push(format!("job_type = ?{}", idx));
-        bind_strings.push(job_type.clone());
+    // 産業フィルタ（大分類+中分類混合時はOR結合）
+    {
+        let has_jt = !filters.job_types.is_empty();
+        let has_ir = !filters.industry_raws.is_empty();
+        if has_jt && has_ir {
+            let jt_ph: Vec<String> = filters.job_types.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            let ir_ph: Vec<String> = filters.industry_raws.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            conditions.push(format!("(job_type IN ({}) OR industry_raw IN ({}))", jt_ph.join(","), ir_ph.join(",")));
+            bind_strings.extend(filters.job_types.iter().cloned());
+            bind_strings.extend(filters.industry_raws.iter().cloned());
+        } else if has_ir {
+            let placeholders: Vec<String> = filters.industry_raws.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            conditions.push(format!("industry_raw IN ({})", placeholders.join(",")));
+            bind_strings.extend(filters.industry_raws.iter().cloned());
+        } else if has_jt {
+            let placeholders: Vec<String> = filters.job_types.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            conditions.push(format!("job_type IN ({})", placeholders.join(",")));
+            bind_strings.extend(filters.job_types.iter().cloned());
+        }
     }
-    if !prefecture.is_empty() {
+    if !filters.prefecture.is_empty() {
         idx += 1;
         conditions.push(format!("prefecture = ?{}", idx));
-        bind_strings.push(prefecture);
+        bind_strings.push(filters.prefecture.clone());
     }
-    if !municipality.is_empty() {
+    if !filters.municipality.is_empty() {
         idx += 1;
         conditions.push(format!("municipality = ?{}", idx));
-        bind_strings.push(municipality);
+        bind_strings.push(filters.municipality.clone());
     }
 
     if !employment_list.is_empty() {

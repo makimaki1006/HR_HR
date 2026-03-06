@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::AppState;
+use crate::handlers::overview::SessionFilters;
 use super::utils::{value_to_i64, haversine};
 
 // --- 内部データ型 ---
@@ -61,7 +62,7 @@ pub(crate) struct SalaryStats {
 
 /// 競合調査の基本統計
 /// job_typeが空の場合は全体集計
-pub(crate) fn fetch_competitive(state: &AppState, job_type: &str) -> CompStats {
+pub(crate) fn fetch_competitive(state: &AppState, filters: &SessionFilters) -> CompStats {
     let db = match &state.hw_db {
         Some(db) => db,
         None => return CompStats::default(),
@@ -69,68 +70,41 @@ pub(crate) fn fetch_competitive(state: &AppState, job_type: &str) -> CompStats {
 
     let mut stats = CompStats::default();
 
-    if job_type.is_empty() {
-        stats.total_postings = db
-            .query_scalar::<i64>(
-                "SELECT COUNT(*) FROM postings",
-                &[],
-            )
-            .unwrap_or(0);
+    let mut base_sql = "SELECT COUNT(*) FROM postings WHERE 1=1".to_string();
+    let mut params: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut base_sql, &mut params);
+    let bind: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
-        stats.total_facilities = db
-            .query_scalar::<i64>(
-                "SELECT COUNT(DISTINCT facility_name) FROM postings",
-                &[],
-            )
-            .unwrap_or(0);
+    stats.total_postings = db.query(&base_sql, &bind)
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| r.get("COUNT(*)").and_then(|v| v.as_i64())))
+        .unwrap_or(0);
 
-        if let Ok(rows) = db.query(
-            "SELECT prefecture, COUNT(*) as cnt FROM postings GROUP BY prefecture ORDER BY cnt DESC LIMIT 15",
-            &[],
-        ) {
-            for row in &rows {
-                let pref = row.get("prefecture")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let cnt = row.get("cnt")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                if !pref.is_empty() {
-                    stats.pref_ranking.push((pref, cnt));
-                }
-            }
-        }
-    } else {
-        stats.total_postings = db
-            .query_scalar::<i64>(
-                "SELECT COUNT(*) FROM postings WHERE job_type = ?",
-                &[&job_type as &dyn rusqlite::types::ToSql],
-            )
-            .unwrap_or(0);
+    let mut fac_sql = "SELECT COUNT(DISTINCT facility_name) as cnt FROM postings WHERE 1=1".to_string();
+    let mut fac_params: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut fac_sql, &mut fac_params);
+    let fac_bind: Vec<&dyn rusqlite::types::ToSql> = fac_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    stats.total_facilities = db.query(&fac_sql, &fac_bind)
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| r.get("cnt").and_then(|v| v.as_i64())))
+        .unwrap_or(0);
 
-        stats.total_facilities = db
-            .query_scalar::<i64>(
-                "SELECT COUNT(DISTINCT facility_name) FROM postings WHERE job_type = ?",
-                &[&job_type as &dyn rusqlite::types::ToSql],
-            )
-            .unwrap_or(0);
-
-        if let Ok(rows) = db.query(
-            "SELECT prefecture, COUNT(*) as cnt FROM postings WHERE job_type = ? GROUP BY prefecture ORDER BY cnt DESC LIMIT 15",
-            &[&job_type as &dyn rusqlite::types::ToSql],
-        ) {
-            for row in &rows {
-                let pref = row.get("prefecture")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let cnt = row.get("cnt")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                if !pref.is_empty() {
-                    stats.pref_ranking.push((pref, cnt));
-                }
+    let mut pref_sql = "SELECT prefecture, COUNT(*) as cnt FROM postings WHERE 1=1".to_string();
+    let mut pref_params: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut pref_sql, &mut pref_params);
+    pref_sql.push_str(" GROUP BY prefecture ORDER BY cnt DESC LIMIT 15");
+    let pref_bind: Vec<&dyn rusqlite::types::ToSql> = pref_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    if let Ok(rows) = db.query(&pref_sql, &pref_bind) {
+        for row in &rows {
+            let pref = row.get("prefecture")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let cnt = row.get("cnt")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            if !pref.is_empty() {
+                stats.pref_ranking.push((pref, cnt));
             }
         }
     }
@@ -140,23 +114,16 @@ pub(crate) fn fetch_competitive(state: &AppState, job_type: &str) -> CompStats {
 
 /// 都道府県一覧
 /// job_typeが空の場合は全体から取得
-pub(crate) fn fetch_prefectures(state: &AppState, job_type: &str) -> Vec<String> {
+pub(crate) fn fetch_prefectures(state: &AppState, filters: &SessionFilters) -> Vec<String> {
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Vec::new(),
     };
 
-    let (sql, param_values) = if job_type.is_empty() {
-        (
-            "SELECT DISTINCT prefecture FROM postings ORDER BY prefecture".to_string(),
-            vec![],
-        )
-    } else {
-        (
-            "SELECT DISTINCT prefecture FROM postings WHERE job_type = ? ORDER BY prefecture".to_string(),
-            vec![job_type.to_string()],
-        )
-    };
+    let mut sql = "SELECT DISTINCT prefecture FROM postings WHERE 1=1".to_string();
+    let mut param_values: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    sql.push_str(" ORDER BY prefecture");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -213,7 +180,7 @@ pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)
 /// job_typeが空の場合は全産業対象
 pub(crate) fn fetch_postings(
     db: &crate::db::local_sqlite::LocalDb,
-    job_type: &str,
+    filters: &SessionFilters,
     pref: &str,
     muni: Option<&str>,
     emp: &str,
@@ -232,10 +199,8 @@ pub(crate) fn fetch_postings(
     );
     let mut param_values: Vec<String> = vec![pref.to_string()];
 
-    if !job_type.is_empty() {
-        sql.push_str(" AND job_type = ?");
-        param_values.push(job_type.to_string());
-    }
+    // 産業フィルタ
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
     if let Some(m) = muni {
         if !m.is_empty() {
             sql.push_str(" AND municipality = ?");
@@ -267,7 +232,7 @@ pub(crate) fn fetch_postings(
 /// 近隣求人取得（半径検索）
 pub(crate) fn fetch_nearby_postings(
     db: &crate::db::local_sqlite::LocalDb,
-    job_type: &str,
+    filters: &SessionFilters,
     pref: &str,
     muni: &str,
     radius_km: f64,
@@ -308,9 +273,25 @@ pub(crate) fn fetch_nearby_postings(
         SqlValue::Real(lng_max),
     ];
 
-    if !job_type.is_empty() {
-        sql.push_str(" AND job_type = ?");
-        param_values.push(SqlValue::Text(job_type.to_string()));
+    // 産業フィルタ（大分類+中分類混合時はOR結合）
+    {
+        let has_jt = !filters.job_types.is_empty();
+        let has_ir = !filters.industry_raws.is_empty();
+        if has_jt && has_ir {
+            let jt_ph = vec!["?"; filters.job_types.len()].join(",");
+            let ir_ph = vec!["?"; filters.industry_raws.len()].join(",");
+            sql.push_str(&format!(" AND (job_type IN ({}) OR industry_raw IN ({}))", jt_ph, ir_ph));
+            param_values.extend(filters.job_types.iter().map(|s| SqlValue::Text(s.clone())));
+            param_values.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+        } else if has_ir {
+            let placeholders = vec!["?"; filters.industry_raws.len()].join(",");
+            sql.push_str(&format!(" AND industry_raw IN ({})", placeholders));
+            param_values.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+        } else if has_jt {
+            let placeholders = vec!["?"; filters.job_types.len()].join(",");
+            sql.push_str(&format!(" AND job_type IN ({})", placeholders));
+            param_values.extend(filters.job_types.iter().map(|s| SqlValue::Text(s.clone())));
+        }
     }
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");

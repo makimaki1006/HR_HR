@@ -23,21 +23,22 @@ pub async fn tab_competitive(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, _prefecture, _municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
+    let industry_label = filters.industry_label();
 
-    let cache_key = format!("competitive_{}", job_type);
+    let cache_key = format!("competitive_{}", filters.industry_cache_key());
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
 
-    let stats = fetch_competitive(&state, &job_type);
-    let pref_options = fetch_prefectures(&state, &job_type);
+    let stats = fetch_competitive(&state, &filters);
+    let pref_options = fetch_prefectures(&state, &filters);
     // facility_type/service_type は廃止、空のVecを渡す
     let ftype_options: Vec<(String, i64)> = Vec::new();
     let stype_options: Vec<(String, i64)> = Vec::new();
-    let html = render_competitive(&job_type, &stats, &pref_options, &ftype_options, &stype_options);
+    let html = render_competitive(&industry_label, &stats, &pref_options, &ftype_options, &stype_options);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -60,7 +61,7 @@ pub async fn comp_filter(
     session: Session,
     Query(params): Query<CompFilterParams>,
 ) -> Html<String> {
-    let (job_type, session_pref, _session_muni) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db,
@@ -69,7 +70,7 @@ pub async fn comp_filter(
 
     // クエリパラメータ優先、なければセッションから取得
     let pref = params.prefecture.as_deref().unwrap_or("");
-    let pref = if pref.is_empty() { &session_pref } else { pref };
+    let pref = if pref.is_empty() { &filters.prefecture } else { pref };
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
@@ -81,10 +82,11 @@ pub async fn comp_filter(
         return Html("<p class=\"text-slate-400\">都道府県を選択してください</p>".to_string());
     }
 
+    let industry_label = filters.industry_label();
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp)
+        fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp)
     } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
     };
 
     let total = postings.len() as i64;
@@ -97,7 +99,7 @@ pub async fn comp_filter(
     let salary_stats = calc_salary_stats(&postings);
 
     render_posting_table(
-        &job_type, pref, muni, page_data, &salary_stats,
+        &industry_label, pref, muni, page_data, &salary_stats,
         page, total_pages, total, nearby, radius_km, emp,
     )
 }
@@ -113,7 +115,7 @@ pub async fn comp_municipalities(
     session: Session,
     Query(params): Query<MuniParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let pref = params.prefecture.as_deref().unwrap_or("");
     if pref.is_empty() {
@@ -125,18 +127,10 @@ pub async fn comp_municipalities(
         None => return Html(r#"<option value="">市区町村</option>"#.to_string()),
     };
 
-    // job_typeが空の場合は全産業から市区町村を取得
-    let (sql, param_values) = if job_type.is_empty() {
-        (
-            "SELECT DISTINCT municipality FROM postings WHERE prefecture = ? ORDER BY municipality".to_string(),
-            vec![pref.to_string()],
-        )
-    } else {
-        (
-            "SELECT DISTINCT municipality FROM postings WHERE job_type = ? AND prefecture = ? ORDER BY municipality".to_string(),
-            vec![job_type.to_string(), pref.to_string()],
-        )
-    };
+    let mut sql = "SELECT DISTINCT municipality FROM postings WHERE prefecture = ?".to_string();
+    let mut param_values: Vec<String> = vec![pref.to_string()];
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    sql.push_str(" ORDER BY municipality");
 
     let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -199,15 +193,16 @@ pub async fn comp_analysis(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
+    let industry_label = filters.industry_label();
 
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
     };
 
-    let analysis = fetch_analysis(db, &job_type);
-    Html(render_analysis_html(&job_type, &analysis))
+    let analysis = fetch_analysis(db, &industry_label);
+    Html(render_analysis_html(&industry_label, &analysis))
 }
 
 /// 都道府県指定の分析API
@@ -222,7 +217,8 @@ pub async fn comp_analysis_filtered(
     session: Session,
     Query(params): Query<AnalysisParams>,
 ) -> Html<String> {
-    let (job_type, _, _) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
+    let industry_label = filters.industry_label();
 
     let db = match &state.hw_db {
         Some(db) => db,
@@ -231,7 +227,7 @@ pub async fn comp_analysis_filtered(
 
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
-    let analysis = fetch_analysis_filtered(db, &job_type, pref, muni);
+    let analysis = fetch_analysis_filtered(db, &industry_label, pref, muni);
     let scope_label = if !muni.is_empty() {
         format!("{} {}", pref, muni)
     } else if !pref.is_empty() {
@@ -239,7 +235,7 @@ pub async fn comp_analysis_filtered(
     } else {
         "全国".to_string()
     };
-    Html(render_analysis_html_with_scope(&job_type, &scope_label, &analysis))
+    Html(render_analysis_html_with_scope(&industry_label, &scope_label, &analysis))
 }
 
 /// HTMLレポート生成API
@@ -248,7 +244,8 @@ pub async fn comp_report(
     session: Session,
     Query(params): Query<CompFilterParams>,
 ) -> Html<String> {
-    let (job_type, _prefecture, _municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
+    let industry_label = filters.industry_label();
 
     let db = match &state.hw_db {
         Some(db) => db,
@@ -266,13 +263,13 @@ pub async fn comp_report(
     }
 
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &job_type, pref, muni, radius_km, emp)
+        fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp)
     } else {
-        fetch_postings(db, &job_type, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
     };
 
     let stats = calc_salary_stats(&postings);
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    render_report_html(&job_type, pref, muni, emp, &postings, &stats, &today, nearby, radius_km)
+    render_report_html(&industry_label, pref, muni, emp, &postings, &stats, &today, nearby, radius_km)
 }

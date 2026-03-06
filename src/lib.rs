@@ -20,7 +20,8 @@ use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 
 use auth::{
     require_auth, validate_email_domain, verify_password,
-    SESSION_JOB_TYPE_KEY, SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY, SESSION_USER_KEY,
+    SESSION_JOB_TYPE_KEY, SESSION_JOB_TYPES_KEY, SESSION_INDUSTRY_RAWS_KEY,
+    SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY, SESSION_USER_KEY,
 };
 use config::AppConfig;
 use db::cache::AppCache;
@@ -86,6 +87,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/industries",
             get(handlers::api::get_industries),
         )
+        .route(
+            "/api/industry_tree",
+            get(handlers::api::get_industry_tree),
+        )
+        .route("/api/set_industry_filter", post(set_industry_filter))
         .route(
             "/api/competitive/filter",
             get(handlers::competitive::comp_filter),
@@ -255,6 +261,20 @@ async fn dashboard_page(
         .flatten()
         .unwrap_or_default();
 
+    // 複数選択フィルタ（JSON配列文字列）
+    let selected_job_types_json: String = session
+        .get::<String>(SESSION_JOB_TYPES_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "[]".to_string());
+    let selected_industry_raws_json: String = session
+        .get::<String>(SESSION_INDUSTRY_RAWS_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "[]".to_string());
+
     let current_prefecture: String = session
         .get(SESSION_PREFECTURE_KEY)
         .await
@@ -340,6 +360,8 @@ async fn dashboard_page(
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
         .replace("{{INDUSTRY_OPTIONS}}", &industry_options)
+        .replace("{{SELECTED_JOB_TYPES_JSON}}", &selected_job_types_json)
+        .replace("{{SELECTED_INDUSTRY_RAWS_JSON}}", &selected_industry_raws_json)
         .replace("{{USER_EMAIL}}", &user_email)
         .replace("{{TURSO_WARNING}}", &db_warning);
 
@@ -354,12 +376,47 @@ struct SetJobTypeForm {
 }
 
 async fn set_job_type(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     session: Session,
     Form(form): Form<SetJobTypeForm>,
 ) -> impl IntoResponse {
     let _ = session.insert(SESSION_JOB_TYPE_KEY, &form.job_type).await;
-    state.cache.clear();
+    // キャッシュキーにフィルタ条件が含まれるため、フィルタ変更時は
+    // 自動的にキャッシュミスとなる。古いエントリはTTLで自然失効。
+    // cache.clear() は他ユーザーのキャッシュまで破棄してしまうため削除。
+    Html("OK".to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct SetIndustryFilterForm {
+    #[serde(default)]
+    job_types: String,
+    #[serde(default)]
+    industry_raws: String,
+}
+
+async fn set_industry_filter(
+    State(_state): State<Arc<AppState>>,
+    session: Session,
+    Form(form): Form<SetIndustryFilterForm>,
+) -> impl IntoResponse {
+    // カンマ区切り → JSON配列に変換してセッション保存
+    let jt_list: Vec<String> = form.job_types.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let ir_list: Vec<String> = form.industry_raws.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let jt_json = serde_json::to_string(&jt_list).unwrap_or_else(|_| "[]".to_string());
+    let ir_json = serde_json::to_string(&ir_list).unwrap_or_else(|_| "[]".to_string());
+
+    let _ = session.insert(SESSION_JOB_TYPES_KEY, &jt_json).await;
+    let _ = session.insert(SESSION_INDUSTRY_RAWS_KEY, &ir_json).await;
+    // 旧キーをクリア（後方互換のフォールバック用）
+    let _ = session.insert(SESSION_JOB_TYPE_KEY, "").await;
     Html("OK".to_string())
 }
 
@@ -369,7 +426,7 @@ struct SetPrefectureForm {
 }
 
 async fn set_prefecture(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     session: Session,
     Form(form): Form<SetPrefectureForm>,
 ) -> impl IntoResponse {
@@ -378,7 +435,6 @@ async fn set_prefecture(
         .await;
     // 都道府県変更時、市区町村をリセット（job_typeはリセットしない）
     let _ = session.insert(SESSION_MUNICIPALITY_KEY, "").await;
-    state.cache.clear();
     Html("OK".to_string())
 }
 
@@ -388,14 +444,13 @@ struct SetMunicipalityForm {
 }
 
 async fn set_municipality(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     session: Session,
     Form(form): Form<SetMunicipalityForm>,
 ) -> impl IntoResponse {
     let _ = session
         .insert(SESSION_MUNICIPALITY_KEY, &form.municipality)
         .await;
-    state.cache.clear();
     Html("OK".to_string())
 }
 
@@ -634,4 +689,53 @@ fn decompress_gz_file(gz_path: &str, out_path: &str) {
         }
     }
     let _ = out.flush();
+}
+
+/// GeoJSON事前圧縮: static/geojson/*.json → *.json.gz
+/// precompressed_gzip() (ServeDir) が .gz を自動配信する
+pub fn precompress_geojson() {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+    use std::path::Path;
+
+    let geojson_dir = Path::new("static/geojson");
+    if !geojson_dir.exists() {
+        return;
+    }
+
+    let entries = match std::fs::read_dir(geojson_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let mut count = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map_or(true, |e| e != "json") {
+            continue;
+        }
+        let gz_path_str = format!("{}.gz", path.display());
+        let gz_path = Path::new(&gz_path_str);
+        if gz_path.exists() {
+            continue;
+        }
+        let data = match std::fs::read(&path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let gz_file = match std::fs::File::create(&gz_path_str) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let mut encoder = GzEncoder::new(gz_file, Compression::best());
+        if encoder.write_all(&data).is_ok() {
+            if encoder.finish().is_ok() {
+                count += 1;
+            }
+        }
+    }
+    if count > 0 {
+        tracing::info!("Pre-compressed {count} GeoJSON files to .gz");
+    }
 }

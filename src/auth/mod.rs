@@ -12,6 +12,9 @@ pub const SESSION_USER_KEY: &str = "user_email";
 pub const SESSION_JOB_TYPE_KEY: &str = "current_job_type";
 pub const SESSION_PREFECTURE_KEY: &str = "current_prefecture";
 pub const SESSION_MUNICIPALITY_KEY: &str = "current_municipality";
+/// 複数選択対応セッションキー（JSON配列文字列）
+pub const SESSION_JOB_TYPES_KEY: &str = "current_job_types";
+pub const SESSION_INDUSTRY_RAWS_KEY: &str = "current_industry_raws";
 
 /// 認証ミドルウェア: ログイン済みでなければ /login へリダイレクト
 pub async fn require_auth(session: Session, request: Request, next: Next) -> Response {

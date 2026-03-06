@@ -10,7 +10,7 @@ use crate::db::local_sqlite::LocalDb;
 
 use super::overview::{
     build_filter_clause, format_number, get_i64, get_session_filters, get_str,
-    make_location_label, render_no_db_data,
+    make_location_label, render_no_db_data, SessionFilters,
 };
 
 /// タブ3: 求人条件分析
@@ -18,22 +18,22 @@ pub async fn tab_workstyle(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
-    let (job_type, prefecture, municipality) = get_session_filters(&session).await;
+    let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Html(render_no_db_data("求人条件")),
     };
 
-    let cache_key = format!("workstyle_{}_{}_{}", job_type, prefecture, municipality);
+    let cache_key = format!("workstyle_{}_{}", filters.industry_cache_key(), filters.prefecture);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
 
-    let stats = fetch_workstyle(db, &job_type, &prefecture, &municipality);
-    let html = render_workstyle(&job_type, &prefecture, &municipality, &stats);
+    let stats = fetch_workstyle(db, &filters);
+    let html = render_workstyle(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -100,12 +100,10 @@ impl Default for WorkstyleStats {
 
 fn fetch_workstyle(
     db: &LocalDb,
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
 ) -> WorkstyleStats {
     let mut stats = WorkstyleStats::default();
-    let (filter_clause, filter_params) = build_filter_clause(job_type, prefecture, municipality, 0);
+    let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
         filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
@@ -350,17 +348,11 @@ fn fetch_workstyle(
 }
 
 fn render_workstyle(
-    job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    filters: &SessionFilters,
     stats: &WorkstyleStats,
 ) -> String {
-    let location_label = make_location_label(prefecture, municipality);
-    let industry_label = if job_type.is_empty() {
-        "全産業"
-    } else {
-        job_type
-    };
+    let location_label = make_location_label(&filters.prefecture, &filters.municipality);
+    let industry_label = filters.industry_label();
 
     // 雇用形態ドーナツ
     let ws_colors = |ws: &str| -> &str {

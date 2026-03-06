@@ -34,11 +34,24 @@
                 {{MUNI_OPTIONS}}
             </select>
             <span class="text-slate-400 text-sm">🏭</span>
-            <select id="job-type-select"
-                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
-                <option value="">全産業</option>
-                {{INDUSTRY_OPTIONS}}
-            </select>
+            <div class="relative" id="industry-dropdown-container">
+                <button type="button" id="industry-btn" onclick="toggleIndustryDropdown()"
+                    aria-expanded="false" aria-haspopup="true" aria-controls="industry-panel"
+                    class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white min-w-[180px] flex items-center gap-1 cursor-pointer hover:border-slate-500 transition">
+                    <span id="industry-btn-text">全産業</span>
+                    <svg class="w-3 h-3 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div id="industry-panel" role="tree" aria-label="産業分類フィルタ" class="hidden absolute z-50 mt-1 bg-navy-700 border border-slate-600 rounded-lg shadow-xl"
+                     style="max-height:70vh;overflow-y:auto;min-width:min(420px, calc(100vw - 2rem));padding:8px;">
+                    <div class="flex justify-between items-center mb-2 pb-1 border-b border-slate-600">
+                        <span class="text-xs text-slate-400">産業分類（大分類展開で中分類表示）</span>
+                        <button type="button" onclick="clearIndustryFilter()" class="text-xs text-blue-400 hover:text-blue-300">全解除</button>
+                    </div>
+                    <div id="industry-tree-list"><p class="text-slate-500 text-sm p-2">読み込み中...</p></div>
+                </div>
+            </div>
         </div>
         <div class="flex items-center gap-4">
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
@@ -89,7 +102,6 @@
 
             // ブレッドクラム更新
             window.updateBreadcrumb = function() {
-                var jobSel = document.getElementById('job-type-select');
                 var prefSel = document.getElementById('pref-select');
                 var muniSel = document.getElementById('muni-select');
                 var bcJob = document.getElementById('bc-job');
@@ -97,8 +109,9 @@
                 var bcMuni = document.getElementById('bc-muni');
                 var bcMuniSep = document.getElementById('bc-muni-sep');
 
-                if (jobSel && bcJob) {
-                    bcJob.textContent = jobSel.value ? jobSel.options[jobSel.selectedIndex].text : '全産業';
+                if (bcJob) {
+                    var btnText = document.getElementById('industry-btn-text');
+                    bcJob.textContent = btnText ? btnText.textContent : '全産業';
                 }
                 if (prefSel && bcPref) {
                     bcPref.textContent = prefSel.value ? prefSel.options[prefSel.selectedIndex].text : '全国';
@@ -143,15 +156,275 @@
                 selectEl.selectedIndex = 0;
             }
 
-            // 産業リスト再取得ヘルパー
-            function refreshIndustries(pref, muni) {
-                var url = '/api/industries?';
+            // === 産業2階層ドロップダウン ===
+            var _selectedJobTypes = {{SELECTED_JOB_TYPES_JSON}};
+            var _selectedIndustryRaws = {{SELECTED_INDUSTRY_RAWS_JSON}};
+            var _industryTreeData = null;
+
+            window.toggleIndustryDropdown = function() {
+                var panel = document.getElementById('industry-panel');
+                var btn = document.getElementById('industry-btn');
+                if (panel.classList.contains('hidden')) {
+                    panel.classList.remove('hidden');
+                    if (btn) btn.setAttribute('aria-expanded', 'true');
+                    if (!_industryTreeData) loadIndustryTree();
+                } else {
+                    panel.classList.add('hidden');
+                    if (btn) btn.setAttribute('aria-expanded', 'false');
+                }
+            };
+
+            // 外クリックで閉じる
+            document.addEventListener('click', function(e) {
+                var container = document.getElementById('industry-dropdown-container');
+                if (container && !container.contains(e.target)) {
+                    var panel = document.getElementById('industry-panel');
+                    panel.classList.add('hidden');
+                    var btn = document.getElementById('industry-btn');
+                    if (btn) btn.setAttribute('aria-expanded', 'false');
+                }
+            });
+
+            // Escapeキーでパネルを閉じる
+            document.addEventListener('keydown', function(e) {
+                var panel = document.getElementById('industry-panel');
+                if (!panel || panel.classList.contains('hidden')) return;
+                if (e.key === 'Escape') {
+                    panel.classList.add('hidden');
+                    var btn = document.getElementById('industry-btn');
+                    if (btn) {
+                        btn.setAttribute('aria-expanded', 'false');
+                        btn.focus();
+                    }
+                    e.preventDefault();
+                }
+            });
+
+            function loadIndustryTree() {
+                var pref = document.getElementById('pref-select').value;
+                var muni = document.getElementById('muni-select').value;
+                var url = '/api/industry_tree?';
                 if (pref) url += 'prefecture=' + encodeURIComponent(pref) + '&';
                 if (muni) url += 'municipality=' + encodeURIComponent(muni);
-                return fetch(url).then(function(r) { return r.text(); }).then(function(html) {
-                    safeSetOptions(document.getElementById('job-type-select'), html, '全産業');
+                fetch(url).then(function(r) { return r.json(); }).then(function(tree) {
+                    _industryTreeData = tree;
+                    renderIndustryTree(tree);
+                    updateIndustryLabel();
+                    if (window.updateBreadcrumb) updateBreadcrumb();
                 });
             }
+
+            function createSvgArrow(gid, rotated) {
+                var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('class', 'w-4 h-4 text-slate-400 ind-arrow');
+                svg.setAttribute('id', 'arrow-' + gid);
+                svg.setAttribute('fill', 'none');
+                svg.setAttribute('stroke', 'currentColor');
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.style.cursor = 'pointer';
+                svg.style.transition = 'transform 0.2s';
+                if (rotated) svg.style.transform = 'rotate(90deg)';
+                var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('stroke-linecap', 'round');
+                path.setAttribute('stroke-linejoin', 'round');
+                path.setAttribute('stroke-width', '2');
+                path.setAttribute('d', 'M9 5l7 7-7 7');
+                svg.appendChild(path);
+                svg.addEventListener('click', function() { toggleIndustrySubs(gid); });
+                return svg;
+            }
+
+            function formatNum(n) {
+                return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            }
+
+            function renderIndustryTree(tree) {
+                var list = document.getElementById('industry-tree-list');
+                while (list.firstChild) list.removeChild(list.firstChild);
+                var frag = document.createDocumentFragment();
+
+                for (var i = 0; i < tree.length; i++) {
+                    var group = tree[i];
+                    var gid = 'ig-' + i;
+                    var majorChecked = _selectedJobTypes.indexOf(group.major) >= 0;
+                    var hasSubSel = false;
+                    for (var k = 0; k < group.subs.length; k++) {
+                        if (_selectedIndustryRaws.indexOf(group.subs[k].name) >= 0) { hasSubSel = true; break; }
+                    }
+
+                    // 大分類行
+                    var row = document.createElement('div');
+                    row.className = 'flex items-center gap-2 py-2 px-1 hover:bg-slate-600/40 rounded cursor-pointer';
+
+                    var cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.id = 'ind-major-' + i;
+                    cb.className = 'ind-major-cb accent-blue-500';
+                    cb.value = group.major;
+                    if (majorChecked) cb.checked = true;
+                    cb.addEventListener('change', function() { onIndustryMajorToggle(this); });
+                    var cbLabel = document.createElement('label');
+                    cbLabel.className = 'flex items-center justify-center w-8 h-8 cursor-pointer flex-shrink-0';
+                    cbLabel.setAttribute('for', 'ind-major-' + i);
+                    cbLabel.appendChild(cb);
+                    row.appendChild(cbLabel);
+
+                    var label = document.createElement('span');
+                    label.className = 'text-sm text-white flex-1 select-none';
+                    label.textContent = group.major;
+                    (function(id) { label.addEventListener('click', function() { toggleIndustrySubs(id); }); })(gid);
+                    row.appendChild(label);
+
+                    var cnt = document.createElement('span');
+                    cnt.className = 'text-xs text-slate-400';
+                    cnt.textContent = formatNum(group.major_count);
+                    row.appendChild(cnt);
+
+                    // 中分類がある場合のみ矢印表示
+                    if (group.subs.length > 0) {
+                        row.appendChild(createSvgArrow(gid, hasSubSel));
+                    }
+                    frag.appendChild(row);
+
+                    // 中分類パネル（中分類がある場合のみ）
+                    var subsDiv = document.createElement('div');
+                    subsDiv.id = gid;
+                    subsDiv.className = 'pl-6 ' + (hasSubSel ? '' : 'hidden');
+                    for (var j = 0; j < group.subs.length; j++) {
+                        var sub = group.subs[j];
+                        var subChecked = _selectedIndustryRaws.indexOf(sub.name) >= 0;
+                        var subRow = document.createElement('div');
+                        subRow.className = 'flex items-center gap-2 py-1.5 px-1 hover:bg-slate-600/30 rounded';
+
+                        var scb = document.createElement('input');
+                        scb.type = 'checkbox';
+                        scb.id = 'ind-sub-' + i + '-' + j;
+                        scb.className = 'ind-sub-cb accent-blue-400';
+                        scb.setAttribute('data-major', group.major);
+                        scb.value = sub.name;
+                        if (subChecked) scb.checked = true;
+                        scb.addEventListener('change', function() { onIndustrySubToggle(this); });
+                        var scbLabel = document.createElement('label');
+                        scbLabel.className = 'flex items-center justify-center w-7 h-7 cursor-pointer flex-shrink-0';
+                        scbLabel.setAttribute('for', 'ind-sub-' + i + '-' + j);
+                        scbLabel.appendChild(scb);
+                        subRow.appendChild(scbLabel);
+
+                        var slabel = document.createElement('span');
+                        slabel.className = 'text-xs text-slate-300 flex-1 select-none';
+                        slabel.textContent = sub.name;
+                        subRow.appendChild(slabel);
+
+                        var scnt = document.createElement('span');
+                        scnt.className = 'text-xs text-slate-500';
+                        scnt.textContent = formatNum(sub.count);
+                        subRow.appendChild(scnt);
+
+                        subsDiv.appendChild(subRow);
+                    }
+                    frag.appendChild(subsDiv);
+                }
+
+                // 適用ボタン
+                var applyRow = document.createElement('div');
+                applyRow.className = 'mt-2 pt-2 border-t border-slate-600 flex justify-end';
+                applyRow.style.position = 'sticky';
+                applyRow.style.bottom = '0';
+                applyRow.style.backgroundColor = '#1e293b';
+                applyRow.style.zIndex = '10';
+                applyRow.style.paddingBottom = '4px';
+                var applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-1.5 rounded transition';
+                applyBtn.textContent = '適用';
+                applyBtn.addEventListener('click', applyIndustryFilter);
+                applyRow.appendChild(applyBtn);
+                frag.appendChild(applyRow);
+
+                list.appendChild(frag);
+            }
+
+            window.toggleIndustrySubs = function(gid) {
+                var el = document.getElementById(gid);
+                var arrow = document.getElementById('arrow-' + gid);
+                if (el) {
+                    el.classList.toggle('hidden');
+                    if (arrow) {
+                        arrow.style.transform = el.classList.contains('hidden') ? '' : 'rotate(90deg)';
+                    }
+                }
+            };
+
+            window.onIndustryMajorToggle = function(cb) {
+                var major = cb.value;
+                document.querySelectorAll('.ind-sub-cb[data-major="' + major + '"]').forEach(function(sub) {
+                    sub.checked = false;
+                });
+                updateIndustryLabel();
+            };
+
+            window.onIndustrySubToggle = function(cb) {
+                var major = cb.getAttribute('data-major');
+                var majorCb = document.querySelector('.ind-major-cb[value="' + major + '"]');
+                if (majorCb && cb.checked) majorCb.checked = false;
+                updateIndustryLabel();
+            };
+
+            window.clearIndustryFilter = function() {
+                document.querySelectorAll('.ind-major-cb, .ind-sub-cb').forEach(function(cb) { cb.checked = false; });
+                updateIndustryLabel();
+            };
+
+            function updateIndustryLabel() {
+                var majors = [], subs = [];
+                document.querySelectorAll('.ind-major-cb:checked').forEach(function(cb) { majors.push(cb.value); });
+                document.querySelectorAll('.ind-sub-cb:checked').forEach(function(cb) { subs.push(cb.value); });
+                var btn = document.getElementById('industry-btn-text');
+                var btnEl = document.getElementById('industry-btn');
+                if (!btn) return;
+
+                var text = '全産業';
+                var allNames = majors.concat(subs);
+
+                if (allNames.length === 0) {
+                    text = '全産業';
+                } else if (allNames.length <= 2) {
+                    text = allNames.join(', ');
+                } else {
+                    text = allNames[0] + ' 他' + (allNames.length - 1) + '件';
+                }
+
+                btn.textContent = text;
+                if (btnEl && allNames.length > 0) {
+                    btnEl.title = allNames.join('\n');
+                } else if (btnEl) {
+                    btnEl.title = '';
+                }
+            }
+
+            function applyIndustryFilter() {
+                var majors = [], subs = [];
+                document.querySelectorAll('.ind-major-cb:checked').forEach(function(cb) { majors.push(cb.value); });
+                document.querySelectorAll('.ind-sub-cb:checked').forEach(function(cb) { subs.push(cb.value); });
+                _selectedJobTypes = majors;
+                _selectedIndustryRaws = subs;
+
+                if (window.clearTabCache) window.clearTabCache();
+                fetch('/api/set_industry_filter', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'job_types=' + encodeURIComponent(majors.join(',')) + '&industry_raws=' + encodeURIComponent(subs.join(','))
+                }).then(function() {
+                    document.getElementById('industry-panel').classList.add('hidden');
+                    var btn = document.getElementById('industry-btn');
+                    if (btn) btn.setAttribute('aria-expanded', 'false');
+                    updateBreadcrumb();
+                    reloadActiveTab();
+                });
+            }
+
+            // 産業ツリー初期読み込み
+            loadIndustryTree();
 
             // 都道府県切り替え（最優先フィルタ）
             var prefSelect = document.getElementById('pref-select');
@@ -172,8 +445,9 @@
                         }
                     }).then(function(r) { return r.text(); }).then(function(html) {
                         safeSetOptions(document.getElementById('muni-select'), html, 'すべて');
-                        // 産業リストも更新
-                        return refreshIndustries(pref, '');
+                        // 産業ツリーも再読み込み
+                        _industryTreeData = null;
+                        loadIndustryTree();
                     }).then(function() {
                         updateBreadcrumb();
                         reloadActiveTab();
@@ -193,8 +467,9 @@
                         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                         body: 'municipality=' + encodeURIComponent(muni)
                     }).then(function() {
-                        // 産業リストも更新
-                        return refreshIndustries(pref, muni);
+                        // 産業ツリーも再読み込み
+                        _industryTreeData = null;
+                        loadIndustryTree();
                     }).then(function() {
                         updateBreadcrumb();
                         reloadActiveTab();
@@ -202,22 +477,8 @@
                 });
             }
 
-            // 産業切り替え（地域はリセットしない）
-            var jobSelect = document.getElementById('job-type-select');
-            if (jobSelect) {
-                jobSelect.addEventListener('change', function() {
-                    if (window.clearTabCache) window.clearTabCache();
-                    var jt = this.value;
-                    fetch('/api/set_job_type', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                        body: 'job_type=' + encodeURIComponent(jt)
-                    }).then(function() {
-                        updateBreadcrumb();
-                        reloadActiveTab();
-                    });
-                });
-            }
+            // 初期ラベル更新
+            updateIndustryLabel();
         });
         function setActiveTab(el) {
             document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });

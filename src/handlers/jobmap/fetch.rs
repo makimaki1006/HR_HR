@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::db::local_sqlite::LocalDb;
+use crate::handlers::overview::SessionFilters;
 
 /// マーカー表示用の軽量データ
 pub(crate) struct MarkerRow {
@@ -74,11 +75,37 @@ fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
     r * c
 }
 
+/// 産業フィルタをSqlValue型パラメータ付きSQLに追記するヘルパー
+fn append_industry_sqlval(
+    filters: &SessionFilters,
+    sql: &mut String,
+    params: &mut Vec<rusqlite::types::Value>,
+) {
+    use rusqlite::types::Value as SqlValue;
+    let has_jt = !filters.job_types.is_empty();
+    let has_ir = !filters.industry_raws.is_empty();
+    if has_jt && has_ir {
+        let jt_ph = vec!["?"; filters.job_types.len()].join(",");
+        let ir_ph = vec!["?"; filters.industry_raws.len()].join(",");
+        sql.push_str(&format!(" AND (job_type IN ({}) OR industry_raw IN ({}))", jt_ph, ir_ph));
+        params.extend(filters.job_types.iter().map(|s| SqlValue::Text(s.clone())));
+        params.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+    } else if has_ir {
+        let placeholders = vec!["?"; filters.industry_raws.len()].join(",");
+        sql.push_str(&format!(" AND industry_raw IN ({})", placeholders));
+        params.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+    } else if has_jt {
+        let placeholders = vec!["?"; filters.job_types.len()].join(",");
+        sql.push_str(&format!(" AND job_type IN ({})", placeholders));
+        params.extend(filters.job_types.iter().map(|s| SqlValue::Text(s.clone())));
+    }
+}
+
 /// Bounding Box + Haversine距離フィルタでマーカーデータを取得
 /// job_typeが空の場合はjob_typeフィルタを省略する
 pub(crate) fn fetch_markers(
     db: &LocalDb,
-    job_type: &str,
+    filters: &SessionFilters,
     _prefecture: &str,
     _municipality: &str,
     employment_type: &str,
@@ -110,11 +137,8 @@ pub(crate) fn fetch_markers(
         SqlValue::Real(lng_max),
     ];
 
-    // job_typeが空でない場合のみフィルタ
-    if !job_type.is_empty() {
-        sql.push_str(" AND job_type = ?");
-        param_values.push(SqlValue::Text(job_type.to_string()));
-    }
+    // 産業フィルタ
+    append_industry_sqlval(filters, &mut sql, &mut param_values);
 
     // GAS方式: 半径検索時は prefecture/municipality でフィルタしない
     // 中心座標 + Bounding Box + Haversine で地理的に絞る
@@ -178,7 +202,7 @@ pub(crate) fn fetch_markers(
 /// ビューポート矩形でマーカーを取得（パン/ズーム時の動的ロード用）
 pub(crate) fn fetch_markers_by_bounds(
     db: &LocalDb,
-    job_type: &str,
+    filters: &SessionFilters,
     employment_type: &str,
     salary_type: &str,
     south: f64,
@@ -200,10 +224,8 @@ pub(crate) fn fetch_markers_by_bounds(
         SqlValue::Real(east),
     ];
 
-    if !job_type.is_empty() {
-        sql.push_str(" AND job_type = ?");
-        param_values.push(SqlValue::Text(job_type.to_string()));
-    }
+    // 産業フィルタ
+    append_industry_sqlval(filters, &mut sql, &mut param_values);
     if !employment_type.is_empty() && employment_type != "全て選択" {
         sql.push_str(" AND employment_type = ?");
         param_values.push(SqlValue::Text(employment_type.to_string()));
@@ -252,7 +274,7 @@ pub(crate) fn fetch_markers_by_bounds(
 /// job_typeが空の場合はjob_typeフィルタを省略する
 pub(crate) fn fetch_markers_by_pref(
     db: &LocalDb,
-    job_type: &str,
+    filters: &SessionFilters,
     prefecture: &str,
     municipality: &str,
     employment_type: &str,
@@ -265,11 +287,8 @@ pub(crate) fn fetch_markers_by_pref(
     );
     let mut param_values: Vec<String> = vec![prefecture.to_string()];
 
-    // job_typeが空でない場合のみフィルタ
-    if !job_type.is_empty() {
-        sql.push_str(" AND job_type = ?");
-        param_values.push(job_type.to_string());
-    }
+    // 産業フィルタ
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
 
     if !municipality.is_empty() {
         sql.push_str(" AND municipality = ?");
@@ -367,24 +386,15 @@ pub(crate) fn fetch_detail(db: &LocalDb, posting_id: i64) -> Option<DetailRow> {
 /// job_typeが空の場合はjob_typeフィルタを省略する
 pub(crate) fn fetch_municipalities(
     db: &LocalDb,
-    job_type: &str,
+    filters: &SessionFilters,
     prefecture: &str,
 ) -> Vec<String> {
-    let (sql, param_values) = if job_type.is_empty() {
-        (
-            "SELECT DISTINCT municipality FROM postings \
-             WHERE prefecture = ? AND municipality != '' \
-             ORDER BY municipality".to_string(),
-            vec![prefecture.to_string()],
-        )
-    } else {
-        (
-            "SELECT DISTINCT municipality FROM postings \
-             WHERE job_type = ? AND prefecture = ? AND municipality != '' \
-             ORDER BY municipality".to_string(),
-            vec![job_type.to_string(), prefecture.to_string()],
-        )
-    };
+    let mut sql = "SELECT DISTINCT municipality FROM postings \
+         WHERE prefecture = ? AND municipality != ''".to_string();
+    let mut param_values: Vec<String> = vec![prefecture.to_string()];
+
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    sql.push_str(" ORDER BY municipality");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -422,35 +432,27 @@ pub(crate) fn get_muni_center(
 
 /// 指定職種がgeocode_dbに存在するかチェック
 /// job_typeが空の場合は全体でデータ存在チェック
-pub(crate) fn has_job_type_data(db: &LocalDb, job_type: &str) -> bool {
-    if job_type.is_empty() {
-        let rows = db.query(
-            "SELECT 1 FROM postings LIMIT 1",
-            &[],
-        );
-        return matches!(rows, Ok(ref r) if !r.is_empty());
-    }
-    let rows = db.query(
-        "SELECT 1 FROM postings WHERE job_type = ? LIMIT 1",
-        &[&job_type as &dyn rusqlite::types::ToSql],
-    );
+pub(crate) fn has_job_type_data(db: &LocalDb, filters: &SessionFilters) -> bool {
+    let mut sql = "SELECT 1 FROM postings WHERE 1=1".to_string();
+    let mut param_values: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    sql.push_str(" LIMIT 1");
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows = db.query(&sql, &params);
     matches!(rows, Ok(ref r) if !r.is_empty())
 }
 
 /// 都道府県一覧取得
 /// job_typeが空の場合はjob_typeフィルタを省略する
-pub(crate) fn fetch_prefectures(db: &LocalDb, job_type: &str) -> Vec<String> {
-    let (sql, param_values) = if job_type.is_empty() {
-        (
-            "SELECT DISTINCT prefecture FROM postings ORDER BY prefecture".to_string(),
-            vec![],
-        )
-    } else {
-        (
-            "SELECT DISTINCT prefecture FROM postings WHERE job_type = ? ORDER BY prefecture".to_string(),
-            vec![job_type.to_string()],
-        )
-    };
+pub(crate) fn fetch_prefectures(db: &LocalDb, filters: &SessionFilters) -> Vec<String> {
+    let mut sql = "SELECT DISTINCT prefecture FROM postings WHERE 1=1".to_string();
+    let mut param_values: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    sql.push_str(" ORDER BY prefecture");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()

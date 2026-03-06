@@ -4,6 +4,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -246,4 +247,106 @@ pub async fn get_industries(
         .join("\n");
 
     Html(html)
+}
+
+/// 産業ツリーAPI: /api/industry_tree?prefecture=&municipality=
+/// JSON: [{ "major": "建設業", "major_count": N, "subs": [{"name": "...", "count": N}, ...] }, ...]
+/// 「未分類」カテゴリも含む（industry_rawがNULL/空の求人）
+/// レスポンスはキャッシュ（TTL: AppCacheのデフォルトTTLに従う）
+pub async fn get_industry_tree(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<IndustriesQuery>,
+) -> Json<Value> {
+    let prefecture = params.prefecture.as_deref().unwrap_or("");
+    let municipality = params.municipality.as_deref().unwrap_or("");
+
+    // キャッシュチェック
+    let cache_key = format!("industry_tree_{}_{}", prefecture, municipality);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        return Json(cached);
+    }
+
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Json(Value::Array(vec![])),
+    };
+
+    let (loc_filter, loc_params) =
+        super::overview::build_hw_location_filter(prefecture, municipality, 0);
+
+    // 分類済み求人（job_type + industry_raw が両方あるもの）
+    let sql = format!(
+        "SELECT job_type, industry_raw, COUNT(*) as cnt FROM postings \
+         WHERE 1=1{loc_filter} \
+         AND job_type IS NOT NULL AND job_type != '' \
+         AND industry_raw IS NOT NULL AND industry_raw != '' \
+         GROUP BY job_type, industry_raw \
+         ORDER BY job_type, cnt DESC"
+    );
+    let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
+        loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    let rows = match db.query(&sql, &bind_refs) {
+        Ok(r) => r,
+        Err(_) => return Json(Value::Array(vec![])),
+    };
+
+    // BTreeMapで大分類グルーピング
+    let mut tree: BTreeMap<String, (i64, Vec<(String, i64)>)> = BTreeMap::new();
+    for row in &rows {
+        let major = get_str(row, "job_type");
+        let sub = get_str(row, "industry_raw");
+        let cnt = get_i64(row, "cnt");
+        if major.is_empty() || sub.is_empty() {
+            continue;
+        }
+        let entry = tree.entry(major).or_insert((0, Vec::new()));
+        entry.0 += cnt;
+        entry.1.push((sub, cnt));
+    }
+
+    // 未分類カテゴリ: industry_raw が NULL/空 の求人数
+    let unclass_sql = format!(
+        "SELECT COUNT(*) as cnt FROM postings \
+         WHERE 1=1{loc_filter} \
+         AND (industry_raw IS NULL OR industry_raw = '')"
+    );
+    let unclass_refs: Vec<&dyn rusqlite::types::ToSql> =
+        loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let unclass_count = db.query(&unclass_sql, &unclass_refs)
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| r.get("cnt").and_then(|v| v.as_i64())))
+        .unwrap_or(0);
+
+    // 件数降順ソート
+    let mut sorted: Vec<_> = tree.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+
+    let mut result: Vec<Value> = sorted
+        .into_iter()
+        .map(|(major, (major_count, subs))| {
+            let sub_arr: Vec<Value> = subs
+                .into_iter()
+                .map(|(name, count)| serde_json::json!({"name": name, "count": count}))
+                .collect();
+            serde_json::json!({
+                "major": major,
+                "major_count": major_count,
+                "subs": sub_arr
+            })
+        })
+        .collect();
+
+    // 未分類カテゴリを末尾に追加（件数 > 0 の場合のみ）
+    if unclass_count > 0 {
+        result.push(serde_json::json!({
+            "major": "未分類",
+            "major_count": unclass_count,
+            "subs": []
+        }));
+    }
+
+    let json_result = Value::Array(result);
+    state.cache.set(cache_key, json_result.clone());
+    Json(json_result)
 }

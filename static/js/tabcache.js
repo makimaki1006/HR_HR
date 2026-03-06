@@ -72,10 +72,13 @@
     var CACHE_EXCLUDED = ['/tab/jobmap']; // 地図タブはキャッシュ除外
 
     function getFilterKey() {
-        var jt = document.getElementById('job-type-select');
+        var majors = [], subs = [];
+        document.querySelectorAll('.ind-major-cb:checked').forEach(function(cb) { majors.push(cb.value); });
+        document.querySelectorAll('.ind-sub-cb:checked').forEach(function(cb) { subs.push(cb.value); });
         var pref = document.getElementById('pref-select');
         var muni = document.getElementById('muni-select');
-        return (jt ? jt.value : '') + '|' + (pref ? pref.value : '') + '|' + (muni ? muni.value : '');
+        return majors.sort().join('+') + '|' + subs.sort().join('+')
+             + '|' + (pref ? pref.value : '') + '|' + (muni ? muni.value : '');
     }
 
     function makeCacheKey(url) {

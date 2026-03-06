@@ -23,6 +23,7 @@ async fn main() {
     tracing::info!("Starting hellowork_dashboard on port {}", port);
 
     decompress_geojson_if_needed();
+    rust_dashboard::precompress_geojson();
     decompress_db_if_needed(&config.hellowork_db_path);
 
     let hw_db = match LocalDb::new(&config.hellowork_db_path) {
@@ -33,11 +34,23 @@ async fn main() {
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_pref ON postings (job_type, prefecture)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_job_lat_lng ON postings (job_type, latitude, longitude)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_lat_lng ON postings (latitude, longitude)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_prefecture ON postings (prefecture)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_employment ON postings (employment_type)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_occ_major ON postings (occupation_major)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_salary_type ON postings (salary_type)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_recruitment ON postings (recruitment_reason)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_pref_muni ON postings (prefecture, municipality)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_pref_job ON postings (prefecture, job_type)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_industry_raw ON postings (industry_raw)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_industry_raw_pref ON postings (industry_raw, prefecture)",
             ];
             for sql in &idx_sqls {
                 if let Err(e) = db.execute(sql, &[]) {
                     tracing::warn!("Index creation failed: {e}");
                 }
+            }
+            if let Err(e) = db.execute("ANALYZE", &[]) {
+                tracing::warn!("ANALYZE failed: {e}");
             }
             Some(db)
         }
