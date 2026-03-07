@@ -10,7 +10,7 @@ pub fn escape_html(s: &str) -> String {
 }
 
 /// 文字列を指定文字数で切り詰め
-pub(crate) fn truncate_str(s: &str, max_chars: usize) -> String {
+pub fn truncate_str(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s.to_string()
     } else {

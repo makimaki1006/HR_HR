@@ -13,7 +13,8 @@ pub use handlers::{
     comp_municipalities, comp_report, comp_service_types, tab_competitive,
 };
 
-// 他モジュールから参照されるユーティリティ（api.rs, segment.rs）
+// 他モジュールから参照されるユーティリティ
 pub use utils::build_option;
 pub use utils::escape_html;
+pub use utils::truncate_str;
 

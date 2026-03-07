@@ -1,13 +1,13 @@
 use axum::extract::{Query, State};
 use axum::response::Html;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::AppState;
-use crate::handlers::competitive::escape_html;
-use crate::handlers::overview::{get_session_filters, SessionFilters};
+use crate::handlers::competitive::{escape_html, truncate_str};
+use crate::handlers::overview::{get_i64, get_f64, get_str, get_session_filters, SessionFilters};
+use super::render::format_yen;
 
 /// 地域フィルタ（産業+都道府県+市区町村）のWHERE句と連番?パラメータを構築
 fn build_region_filter(filters: &SessionFilters, pref: &str, muni: &str) -> (String, Vec<String>) {
@@ -303,7 +303,7 @@ pub async fn region_posting_stats(
   <span class="text-white w-8 text-right">{cnt}</span>
 </div>"#,
                 full = escape_html(&ind),
-                label = escape_html(&truncate(&ind, 16)),
+                label = escape_html(&truncate_str(&ind, 16)),
                 pct = pct,
                 cnt = cnt
             ));
@@ -367,7 +367,7 @@ pub async fn region_segments(
   <span class="text-white w-8 text-right">{cnt}</span>
 </div>"#,
                     full = escape_html(&label),
-                    short = escape_html(&truncate(&label, 20)),
+                    short = escape_html(&truncate_str(&label, 20)),
                     pct = pct,
                     cnt = cnt
                 ));
@@ -399,7 +399,7 @@ pub async fn region_segments(
   <span class="text-white w-8 text-right">{cnt}</span>
 </div>"#,
                     full = escape_html(&label),
-                    short = escape_html(&truncate(&label, 20)),
+                    short = escape_html(&truncate_str(&label, 20)),
                     pct = pct,
                     cnt = cnt
                 ));
@@ -411,51 +411,6 @@ pub async fn region_segments(
     html.push_str("</div>");
 
     Html(html)
-}
-
-// --- ヘルパー ---
-
-fn get_i64(row: &HashMap<String, serde_json::Value>, key: &str) -> i64 {
-    row.get(key)
-        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
-        .unwrap_or(0)
-}
-
-fn get_f64(row: &HashMap<String, serde_json::Value>, key: &str) -> f64 {
-    row.get(key)
-        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
-        .unwrap_or(0.0)
-}
-
-fn get_str(row: &HashMap<String, serde_json::Value>, key: &str) -> String {
-    row.get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-fn format_yen(n: i64) -> String {
-    if n == 0 {
-        return "\u{2212}".to_string(); // −
-    }
-    let s = n.to_string();
-    let mut result = String::new();
-    for (i, c) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
-    }
-    format!("\u{00a5}{}", result.chars().rev().collect::<String>())
-}
-
-fn truncate(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars - 1).collect();
-        format!("{}…", truncated)
-    }
 }
 
 /// 簡易ユニークID生成（チャート要素の衝突回避用）

@@ -1,5 +1,5 @@
 use super::fetch::DetailRow;
-use crate::handlers::competitive::escape_html;
+use crate::handlers::competitive::{escape_html, truncate_str};
 
 /// 初期ページHTML（テンプレート読み込み + 変数置換）
 pub(crate) fn render_jobmap_page(
@@ -101,7 +101,7 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
     if !d.job_description.is_empty() {
         html.push_str(&format!(
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">仕事内容</span><span class="text-xs">{}</span></div>"#,
-            escape_html(&truncate(&d.job_description, 200))
+            escape_html(&truncate_str(&d.job_description, 200))
         ));
     }
 
@@ -109,7 +109,7 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
     if !d.requirements.is_empty() {
         html.push_str(&format!(
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">応募要件</span><span class="text-xs">{}</span></div>"#,
-            escape_html(&truncate(&d.requirements, 150))
+            escape_html(&truncate_str(&d.requirements, 150))
         ));
     }
 
@@ -117,7 +117,7 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
     if !d.working_hours.is_empty() {
         html.push_str(&format!(
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">勤務時間</span><span class="text-xs">{}</span></div>"#,
-            escape_html(&truncate(&d.working_hours, 100))
+            escape_html(&truncate_str(&d.working_hours, 100))
         ));
     }
 
@@ -125,7 +125,7 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
     if !d.holidays.is_empty() {
         html.push_str(&format!(
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">休日</span><span class="text-xs">{}</span></div>"#,
-            escape_html(&truncate(&d.holidays, 100))
+            escape_html(&truncate_str(&d.holidays, 100))
         ));
     }
 
@@ -133,7 +133,7 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
     if !d.benefits.is_empty() {
         html.push_str(&format!(
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">待遇</span><span class="text-xs">{}</span></div>"#,
-            escape_html(&truncate(&d.benefits, 150))
+            escape_html(&truncate_str(&d.benefits, 150))
         ));
     }
 
@@ -167,7 +167,7 @@ fn emp_badge_class(emp: &str) -> &'static str {
     }
 }
 
-fn format_yen(n: i64) -> String {
+pub(crate) fn format_yen(n: i64) -> String {
     if n == 0 {
         return "\u{2212}".to_string();
     }
@@ -181,15 +181,6 @@ fn format_yen(n: i64) -> String {
     }
     let formatted: String = result.chars().rev().collect();
     format!("\u{00a5}{}", formatted)
-}
-
-fn truncate(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{}...", truncated)
-    }
 }
 
 /// 職種データが未連携の場合の表示
