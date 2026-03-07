@@ -25,7 +25,7 @@ pub async fn tab_balance(
         None => return Html(render_no_db_data("企業分析")),
     };
 
-    let cache_key = format!("balance_{}_{}", filters.industry_cache_key(), filters.prefecture);
+    let cache_key = format!("balance_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -86,6 +86,10 @@ fn fetch_balance(
     let mut stats = BalanceStats::default();
     let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
+    let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
+        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+    };
+
     // 0. KPI基本
     {
         let sql = format!(
@@ -93,9 +97,7 @@ fn fetch_balance(
              AVG(NULLIF(employee_count, 0)) as avg_emp \
              FROM postings WHERE 1=1{filter_clause}"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             if let Some(row) = rows.first() {
                 stats.total_postings = get_i64(row, "cnt");
                 stats.total_facilities = get_i64(row, "fac_cnt");
@@ -118,9 +120,7 @@ fn fetch_balance(
              FROM postings WHERE 1=1{filter_clause} AND employee_count > 0 \
              GROUP BY band ORDER BY MIN(employee_count)"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             for row in &rows {
                 let band = get_str(row, "band");
                 let cnt = get_i64(row, "cnt");
@@ -145,9 +145,7 @@ fn fetch_balance(
              FROM postings WHERE 1=1{filter_clause} AND capital > 0 \
              GROUP BY band ORDER BY MIN(capital)"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             for row in &rows {
                 let band = get_str(row, "band");
                 let cnt = get_i64(row, "cnt");
@@ -173,9 +171,7 @@ fn fetch_balance(
              FROM postings WHERE 1=1{filter_clause} AND founding_year > 0 \
              GROUP BY era ORDER BY MIN(founding_year)"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             for row in &rows {
                 let era = get_str(row, "era");
                 let cnt = get_i64(row, "cnt");
@@ -200,9 +196,7 @@ fn fetch_balance(
              FROM postings WHERE 1=1{filter_clause} AND employee_count > 0 AND employee_count_female > 0 \
              GROUP BY rng ORDER BY MIN(CAST(employee_count_female AS REAL) / employee_count)"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             for row in &rows {
                 let rng = get_str(row, "rng");
                 let cnt = get_i64(row, "cnt");
@@ -227,9 +221,7 @@ fn fetch_balance(
              FROM postings WHERE 1=1{filter_clause} AND employee_count > 0 AND employee_count_parttime > 0 \
              GROUP BY rng ORDER BY MIN(CAST(employee_count_parttime AS REAL) / employee_count)"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             for row in &rows {
                 let rng = get_str(row, "rng");
                 let cnt = get_i64(row, "cnt");
@@ -248,9 +240,7 @@ fn fetch_balance(
              WHERE 1=1{filter_clause} AND job_type IS NOT NULL AND job_type != '' \
              GROUP BY job_type ORDER BY cnt DESC LIMIT 5"
         );
-        let bind: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql_top, &bind) {
+        if let Ok(rows) = db.query(&sql_top, &mk_bind()) {
             for row in &rows {
                 let jt = get_str(row, "job_type");
                 if !jt.is_empty() {
@@ -279,9 +269,7 @@ fn fetch_balance(
              AND job_type IS NOT NULL AND job_type != '' \
              GROUP BY job_type, band"
         );
-        let bind2: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql_cross, &bind2) {
+        if let Ok(rows) = db.query(&sql_cross, &mk_bind()) {
             for row in &rows {
                 let jt = get_str(row, "job_type");
                 let band = get_str(row, "band");

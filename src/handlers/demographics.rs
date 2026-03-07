@@ -24,7 +24,7 @@ pub async fn tab_demographics(
         None => return Html(render_no_db_data("採用動向")),
     };
 
-    let cache_key = format!("demographics_{}_{}", filters.industry_cache_key(), filters.prefecture);
+    let cache_key = format!("demographics_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -233,24 +233,21 @@ fn fetch_demographics(
         }
     }
 
-    // 6. 必要資格TOP20（license_1, license_2, license_3を集約）
+    // 6. 必要資格TOP20（license_1, license_2, license_3を1回のスキャンで集約）
     {
         let sql = format!(
-            "SELECT license, SUM(cnt) as total FROM ( \
-               SELECT license_1 as license, COUNT(*) as cnt FROM postings \
-                 WHERE 1=1{filter_clause} AND license_1 IS NOT NULL AND license_1 != '' GROUP BY license_1 \
+            "SELECT license, COUNT(*) as total FROM ( \
+               SELECT license_1 as license FROM postings \
+                 WHERE 1=1{filter_clause} AND license_1 IS NOT NULL AND license_1 != '' \
                UNION ALL \
-               SELECT license_2 as license, COUNT(*) as cnt FROM postings \
-                 WHERE 1=1{filter_clause} AND license_2 IS NOT NULL AND license_2 != '' GROUP BY license_2 \
+               SELECT license_2 FROM postings \
+                 WHERE 1=1{filter_clause} AND license_2 IS NOT NULL AND license_2 != '' \
                UNION ALL \
-               SELECT license_3 as license, COUNT(*) as cnt FROM postings \
-                 WHERE 1=1{filter_clause} AND license_3 IS NOT NULL AND license_3 != '' GROUP BY license_3 \
+               SELECT license_3 FROM postings \
+                 WHERE 1=1{filter_clause} AND license_3 IS NOT NULL AND license_3 != '' \
              ) GROUP BY license ORDER BY total DESC LIMIT 20"
         );
-        // SQLiteはUNION ALL内でも同じ?1, ?2..を共有できるので、パラメータは1セットでOK
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind_refs) {
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
             for row in &rows {
                 let lic = get_str(row, "license");
                 let cnt = get_i64(row, "total");

@@ -25,7 +25,7 @@ pub async fn tab_workstyle(
         None => return Html(render_no_db_data("求人条件")),
     };
 
-    let cache_key = format!("workstyle_{}_{}", filters.industry_cache_key(), filters.prefecture);
+    let cache_key = format!("workstyle_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -159,69 +159,51 @@ fn fetch_workstyle(
 
     let total = stats.total_postings.max(1) as f64;
 
-    // 3. 賞与あり率（bonus_code または has_賞与）
+    // 3-5. 賞与・昇給・退職金あり率（3クエリを1クエリに統合）
     {
         let sql = format!(
-            "SELECT SUM(CASE WHEN bonus_code IS NOT NULL AND bonus_code != '' AND bonus_code != '0' THEN 1 \
-                              WHEN \"has_賞与\" = 1 THEN 1 ELSE 0 END) as cnt \
+            "SELECT \
+               SUM(CASE WHEN bonus_code IS NOT NULL AND bonus_code != '' AND bonus_code != '0' THEN 1 \
+                        WHEN \"has_賞与\" = 1 THEN 1 ELSE 0 END) as bonus_cnt, \
+               SUM(CASE WHEN raise_code IS NOT NULL AND raise_code != '' AND raise_code != '0' THEN 1 \
+                        WHEN \"has_昇給\" = 1 THEN 1 ELSE 0 END) as raise_cnt, \
+               SUM(CASE WHEN retirement_age_code IS NOT NULL AND retirement_age_code != '' AND retirement_age_code != '0' THEN 1 \
+                        WHEN \"has_退職金\" = 1 THEN 1 ELSE 0 END) as retirement_cnt \
              FROM postings WHERE 1=1{filter_clause}"
         );
         if let Ok(rows) = db.query(&sql, &mk_bind()) {
             if let Some(row) = rows.first() {
-                stats.bonus_count = get_i64(row, "cnt");
+                stats.bonus_count = get_i64(row, "bonus_cnt");
                 stats.bonus_rate = stats.bonus_count as f64 / total * 100.0;
-            }
-        }
-    }
-
-    // 4. 昇給あり率（raise_code または has_昇給）
-    {
-        let sql = format!(
-            "SELECT SUM(CASE WHEN raise_code IS NOT NULL AND raise_code != '' AND raise_code != '0' THEN 1 \
-                              WHEN \"has_昇給\" = 1 THEN 1 ELSE 0 END) as cnt \
-             FROM postings WHERE 1=1{filter_clause}"
-        );
-        if let Ok(rows) = db.query(&sql, &mk_bind()) {
-            if let Some(row) = rows.first() {
-                stats.raise_count = get_i64(row, "cnt");
+                stats.raise_count = get_i64(row, "raise_cnt");
                 stats.raise_rate = stats.raise_count as f64 / total * 100.0;
-            }
-        }
-    }
-
-    // 5. 退職金あり率（retirement_age_code または has_退職金）
-    {
-        let sql = format!(
-            "SELECT SUM(CASE WHEN retirement_age_code IS NOT NULL AND retirement_age_code != '' AND retirement_age_code != '0' THEN 1 \
-                              WHEN \"has_退職金\" = 1 THEN 1 ELSE 0 END) as cnt \
-             FROM postings WHERE 1=1{filter_clause}"
-        );
-        if let Ok(rows) = db.query(&sql, &mk_bind()) {
-            if let Some(row) = rows.first() {
-                stats.retirement_count = get_i64(row, "cnt");
+                stats.retirement_count = get_i64(row, "retirement_cnt");
                 stats.retirement_rate = stats.retirement_count as f64 / total * 100.0;
             }
         }
     }
 
-    // 6. 社会保険加入率
+    // 6. 社会保険加入率（4クエリを1クエリに統合）
     {
-        let insurance_cols = [
-            ("insurance_employment", "雇用保険"),
-            ("insurance_workers_comp", "労災保険"),
-            ("insurance_health", "健康保険"),
-            ("insurance_pension", "厚生年金"),
-        ];
-        for (col, label) in &insurance_cols {
-            let sql = format!(
-                "SELECT SUM(CASE WHEN {col} = 1 OR {col} = '1' THEN 1 ELSE 0 END) as cnt \
-                 FROM postings WHERE 1=1{filter_clause}"
-            );
-            if let Ok(rows) = db.query(&sql, &mk_bind()) {
-                if let Some(row) = rows.first() {
-                    let cnt = get_i64(row, "cnt");
-                    let rate = cnt as f64 / total * 100.0;
-                    stats.insurance_rates.push((label.to_string(), rate, cnt));
+        let sql = format!(
+            "SELECT \
+               SUM(CASE WHEN insurance_employment = 1 OR insurance_employment = '1' THEN 1 ELSE 0 END) as emp_ins, \
+               SUM(CASE WHEN insurance_workers_comp = 1 OR insurance_workers_comp = '1' THEN 1 ELSE 0 END) as workers_ins, \
+               SUM(CASE WHEN insurance_health = 1 OR insurance_health = '1' THEN 1 ELSE 0 END) as health_ins, \
+               SUM(CASE WHEN insurance_pension = 1 OR insurance_pension = '1' THEN 1 ELSE 0 END) as pension_ins \
+             FROM postings WHERE 1=1{filter_clause}"
+        );
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
+            if let Some(row) = rows.first() {
+                let insurance_results = [
+                    ("雇用保険", get_i64(row, "emp_ins")),
+                    ("労災保険", get_i64(row, "workers_ins")),
+                    ("健康保険", get_i64(row, "health_ins")),
+                    ("厚生年金", get_i64(row, "pension_ins")),
+                ];
+                for (label, cnt) in &insurance_results {
+                    let rate = *cnt as f64 / total * 100.0;
+                    stats.insurance_rates.push((label.to_string(), rate, *cnt));
                 }
             }
         }
@@ -301,44 +283,23 @@ fn fetch_workstyle(
         }
     }
 
-    // 10. テレワーク対応率
+    // 10-12. テレワーク・託児施設・入居住宅あり率（3クエリを1クエリに統合）
     {
         let sql = format!(
-            "SELECT SUM(CASE WHEN telework_code IS NOT NULL AND telework_code != '' AND telework_code != '0' THEN 1 \
-                              WHEN \"has_在宅勤務\" = 1 THEN 1 ELSE 0 END) as cnt \
+            "SELECT \
+               SUM(CASE WHEN telework_code IS NOT NULL AND telework_code != '' AND telework_code != '0' THEN 1 \
+                        WHEN \"has_在宅勤務\" = 1 THEN 1 ELSE 0 END) as telework_cnt, \
+               SUM(CASE WHEN childcare_facility = 1 OR childcare_facility = '1' THEN 1 ELSE 0 END) as childcare_cnt, \
+               SUM(CASE WHEN housing_available = 1 OR housing_available = '1' THEN 1 ELSE 0 END) as housing_cnt \
              FROM postings WHERE 1=1{filter_clause}"
         );
         if let Ok(rows) = db.query(&sql, &mk_bind()) {
             if let Some(row) = rows.first() {
-                stats.telework_count = get_i64(row, "cnt");
+                stats.telework_count = get_i64(row, "telework_cnt");
                 stats.telework_rate = stats.telework_count as f64 / total * 100.0;
-            }
-        }
-    }
-
-    // 11. 託児施設あり率
-    {
-        let sql = format!(
-            "SELECT SUM(CASE WHEN childcare_facility = 1 OR childcare_facility = '1' THEN 1 ELSE 0 END) as cnt \
-             FROM postings WHERE 1=1{filter_clause}"
-        );
-        if let Ok(rows) = db.query(&sql, &mk_bind()) {
-            if let Some(row) = rows.first() {
-                stats.childcare_count = get_i64(row, "cnt");
+                stats.childcare_count = get_i64(row, "childcare_cnt");
                 stats.childcare_rate = stats.childcare_count as f64 / total * 100.0;
-            }
-        }
-    }
-
-    // 12. 入居住宅あり率
-    {
-        let sql = format!(
-            "SELECT SUM(CASE WHEN housing_available = 1 OR housing_available = '1' THEN 1 ELSE 0 END) as cnt \
-             FROM postings WHERE 1=1{filter_clause}"
-        );
-        if let Ok(rows) = db.query(&sql, &mk_bind()) {
-            if let Some(row) = rows.first() {
-                stats.housing_count = get_i64(row, "cnt");
+                stats.housing_count = get_i64(row, "housing_cnt");
                 stats.housing_rate = stats.housing_count as f64 / total * 100.0;
             }
         }

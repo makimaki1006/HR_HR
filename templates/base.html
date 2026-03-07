@@ -6,23 +6,11 @@
     <title>{% block title %}求職者データ分析{% endblock %}</title>
 
     <!-- DNS Prefetch -->
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="dns-prefetch" href="https://unpkg.com">
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
 
-    <!-- Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        navy: { 900: '#0d1525', 800: '#0f172a', 700: '#1e293b' },
-                    }
-                }
-            }
-        }
-    </script>
+    <!-- Tailwind CSS (プリコンパイル済み) -->
+    <link rel="stylesheet" href="/static/css/tailwind-precompiled.css">
 
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>

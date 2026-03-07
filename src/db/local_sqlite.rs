@@ -5,6 +5,23 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 
+/// 全接続にPRAGMAを適用するカスタマイザ
+#[derive(Debug)]
+struct PragmaCustomizer;
+
+impl r2d2::CustomizeConnection<rusqlite::Connection, rusqlite::Error> for PragmaCustomizer {
+    fn on_acquire(&self, conn: &mut rusqlite::Connection) -> Result<(), rusqlite::Error> {
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=NORMAL;
+             PRAGMA cache_size=10000;
+             PRAGMA temp_store=MEMORY;
+             PRAGMA mmap_size=268435456;"
+        )?;
+        Ok(())
+    }
+}
+
 /// ローカルSQLiteコネクションプール
 #[derive(Clone)]
 pub struct LocalDb {
@@ -21,20 +38,9 @@ impl LocalDb {
         let manager = SqliteConnectionManager::file(path);
         let pool = Pool::builder()
             .max_size(10)
+            .connection_customizer(Box::new(PragmaCustomizer))
             .build(manager)
             .map_err(|e| format!("SQLite pool creation failed: {e}"))?;
-
-        // PRAGMA最適化: WALモード + 読み取り性能向上
-        {
-            let conn = pool.get().map_err(|e| format!("SQLite PRAGMA setup failed: {e}"))?;
-            conn.execute_batch(
-                "PRAGMA journal_mode=WAL;
-                 PRAGMA synchronous=NORMAL;
-                 PRAGMA cache_size=10000;
-                 PRAGMA temp_store=MEMORY;
-                 PRAGMA mmap_size=268435456;"
-            ).map_err(|e| format!("SQLite PRAGMA failed: {e}"))?;
-        }
 
         Ok(Self { pool })
     }

@@ -128,7 +128,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .nest_service("/static", ServeDir::new("static").precompressed_gzip())
         .layer(SetResponseHeaderLayer::if_not_present(
             http::header::CACHE_CONTROL,
-            http::HeaderValue::from_static("public, max-age=86400"),
+            http::HeaderValue::from_static("public, max-age=604800, immutable"),
         ));
 
     Router::new()
@@ -254,12 +254,7 @@ async fn dashboard_page(
         .flatten()
         .unwrap_or_else(|| "unknown".to_string());
 
-    let current_job_type: String = session
-        .get(SESSION_JOB_TYPE_KEY)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    // current_job_type は産業ツリードロップダウン移行により不要（JS側で動的ロード）
 
     // 複数選択フィルタ（JSON配列文字列）
     let selected_job_types_json: String = session
@@ -323,26 +318,6 @@ async fn dashboard_page(
         String::new()
     };
 
-    // 産業オプション（地域で絞り込み、件数付き）
-    let industry_list = fetch_industry_list(&state, &current_prefecture, &current_municipality).await;
-    let industry_options: String = industry_list
-        .iter()
-        .map(|(jt, cnt)| {
-            let selected = if *jt == current_job_type {
-                " selected"
-            } else {
-                ""
-            };
-            format!(
-                r#"<option value="{jt}"{selected}>{jt} ({cnt})</option>"#,
-                jt = jt,
-                selected = selected,
-                cnt = handlers::overview::format_number(*cnt),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
     let db_warning = if state.hw_db.is_none() {
         r#"<div id="db-warning" class="bg-red-900/80 border border-red-600 text-red-200 px-4 py-3 text-sm flex items-center gap-2">
             <span class="text-lg">⚠️</span>
@@ -359,7 +334,6 @@ async fn dashboard_page(
     let html = include_str!("../templates/dashboard_inline.html")
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
-        .replace("{{INDUSTRY_OPTIONS}}", &industry_options)
         .replace("{{SELECTED_JOB_TYPES_JSON}}", &selected_job_types_json)
         .replace("{{SELECTED_INDUSTRY_RAWS_JSON}}", &selected_industry_raws_json)
         .replace("{{USER_EMAIL}}", &user_email)
@@ -468,39 +442,6 @@ async fn fetch_municipality_list(
         ) {
             return rows.iter()
                 .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect();
-        }
-    }
-    Vec::new()
-}
-
-/// 産業一覧取得（地域フィルタ付き、件数付き）
-async fn fetch_industry_list(
-    state: &AppState,
-    prefecture: &str,
-    municipality: &str,
-) -> Vec<(String, i64)> {
-    if let Some(db) = &state.hw_db {
-        let (loc_filter, loc_params) =
-            handlers::overview::build_hw_location_filter(prefecture, municipality, 0);
-        let sql = format!(
-            "SELECT job_type, COUNT(*) as cnt FROM postings \
-             WHERE 1=1{loc_filter} AND job_type IS NOT NULL AND job_type != '' \
-             GROUP BY job_type ORDER BY cnt DESC"
-        );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind_refs) {
-            return rows
-                .iter()
-                .filter_map(|r| {
-                    let jt = r.get("job_type").and_then(|v| v.as_str()).map(|s| s.to_string())?;
-                    let cnt = r
-                        .get("cnt")
-                        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
-                        .unwrap_or(0);
-                    Some((jt, cnt))
-                })
                 .collect();
         }
     }

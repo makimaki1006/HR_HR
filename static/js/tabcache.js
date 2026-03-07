@@ -68,7 +68,7 @@
     // ===== Phase 2: クライアントサイドキャッシュ =====
 
     var tabCache = {};
-    var CACHE_TTL_MS = 5 * 60 * 1000; // 5分
+    var CACHE_TTL_MS = 30 * 60 * 1000; // 30分（サーバー側TTLと同期）
     var CACHE_EXCLUDED = ['/tab/jobmap']; // 地図タブはキャッシュ除外
 
     function getFilterKey() {
