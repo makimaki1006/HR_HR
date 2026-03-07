@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ハローワーク求人分析ダッシュボード</title>
     <link rel="stylesheet" href="/static/css/tailwind-precompiled.css">
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script>
+    // Leaflet 遅延ローダー（地図タブ初回表示時にのみロード）
+    window.ensureLeaflet=(function(){var p=null;return function(){if(window.L)return Promise.resolve();if(p)return p;p=new Promise(function(ok){var c=document.createElement('link');c.rel='stylesheet';c.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(c);['MarkerCluster.css','MarkerCluster.Default.css'].forEach(function(f){var m=document.createElement('link');m.rel='stylesheet';m.href='https://unpkg.com/leaflet.markercluster@1.5.3/dist/'+f;document.head.appendChild(m)});var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';s.onload=function(){var m=document.createElement('script');m.src='https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js';m.onload=ok;document.head.appendChild(m)};document.head.appendChild(s)});return p}})();
+    </script>
 </head>
 <body class="bg-navy-900 text-slate-100 min-h-screen">
     <header class="bg-navy-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
@@ -94,7 +96,6 @@
     <script src="/static/js/tabcache.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/charts.js"></script>
-    <script src="/static/js/maps.js"></script>
     <script src="/static/js/export.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {

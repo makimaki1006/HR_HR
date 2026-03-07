@@ -363,15 +363,24 @@
         htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
     }
 
-    // グローバル公開: app.jsから呼び出される
+    // グローバル公開: app.jsから呼び出される（Leaflet遅延ロード対応）
     window.initLeafletMaps = function(container) {
         if (!container) container = document;
         var maps = container.querySelectorAll('.leaflet-map');
-        maps.forEach(function(el) {
-            // 高さ0はスキップ
-            if (el.offsetHeight === 0) return;
-            initMap(el);
-        });
+        if (maps.length === 0) return;
+        if (typeof window.ensureLeaflet === 'function') {
+            window.ensureLeaflet().then(function() {
+                maps.forEach(function(el) {
+                    if (el.offsetHeight === 0) return;
+                    initMap(el);
+                });
+            });
+        } else if (typeof L !== 'undefined') {
+            maps.forEach(function(el) {
+                if (el.offsetHeight === 0) return;
+                initMap(el);
+            });
+        }
     };
 
     // リサイズ用: app.jsから呼び出される

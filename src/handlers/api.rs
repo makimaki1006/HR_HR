@@ -17,17 +17,26 @@ pub struct GeoJsonQuery {
     pub pref: Option<String>,
 }
 
-/// GeoJSON API: /api/geojson/:filename
+/// GeoJSON API: /api/geojson/:filename（キャッシュ付き）
 pub async fn get_geojson(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Path(filename): Path<String>,
 ) -> Json<Value> {
+    // キャッシュチェック
+    let cache_key = format!("geojson_{}", filename);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        return Json(cached);
+    }
+
     let geojson_dir = "static/geojson";
     let path = format!("{geojson_dir}/{filename}");
 
     match std::fs::read_to_string(&path) {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
-            Ok(json) => Json(json),
+            Ok(json) => {
+                state.cache.set(cache_key, json.clone());
+                Json(json)
+            }
             Err(_) => Json(Value::Null),
         },
         Err(_) => Json(Value::Null),

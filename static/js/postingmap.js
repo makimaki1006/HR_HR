@@ -48,6 +48,11 @@ var postingMap = (function() {
     if (initialized && map) { map.invalidateSize(); return; }
     var el = document.getElementById('jm-map');
     if (!el) return;
+    // Leaflet 遅延ロード対応
+    if (typeof L === 'undefined') {
+      if (typeof window.ensureLeaflet === 'function') { window.ensureLeaflet().then(init); }
+      return;
+    }
     if (el.offsetHeight === 0) el.style.minHeight = '400px';
     map = L.map('jm-map', { center: [36.5, 137.0], zoom: 6, zoomControl: true, preferCanvas: true });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
