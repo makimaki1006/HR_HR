@@ -345,6 +345,11 @@ impl Default for OverviewStats {
 }
 
 /// postingsテーブルから概況統計を取得
+///
+/// 469K行のpostingsテーブルに対するクエリを最適化:
+/// - クエリ1: 集約統計（総数・事業所数・平均給与・正社員数・雇用形態分布・求人理由分布）を1回のスキャンで取得
+/// - クエリ2-4: GROUP BYクエリ（産業別・職業別・給与帯）は結果形状が異なるため個別実行
+/// - クエリ5: 全国比較（都道府県選択時のみ、異なるWHERE句）
 fn fetch_overview_stats(
     db: &crate::db::local_sqlite::LocalDb,
     filters: &SessionFilters,
@@ -353,18 +358,42 @@ fn fetch_overview_stats(
 
     let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
-    // 1. 総求人件数 + 事業所数 + 平均給与 + 正社員数
+    // bind_refs を一度だけ構築して全クエリで再利用
+    let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
+        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    // 1. 集約統計 + 雇用形態分布 + 求人理由分布を1回のクエリで取得
+    //    旧クエリ1(総数/事業所数/平均給与/正社員数) + 旧クエリ4(雇用形態) + 旧クエリ6(求人理由)を統合
+    //    JSON_GROUP_ARRAY + JSON_OBJECT でグループ集計結果をサブクエリから取得
     {
         let sql = format!(
-            "SELECT COUNT(*) as cnt, \
-             COUNT(DISTINCT facility_name) as fac_cnt, \
-             AVG(NULLIF(salary_min, 0)) as avg_min, \
-             SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt \
-             FROM postings WHERE 1=1{filter_clause}"
+            "SELECT \
+               COUNT(*) as cnt, \
+               COUNT(DISTINCT facility_name) as fac_cnt, \
+               AVG(NULLIF(salary_min, 0)) as avg_min, \
+               SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt, \
+               (\
+                 SELECT JSON_GROUP_ARRAY(JSON_OBJECT('name', sub.employment_type, 'cnt', sub.c)) \
+                 FROM (\
+                   SELECT employment_type, COUNT(*) as c FROM postings \
+                   WHERE 1=1{fc} AND employment_type IS NOT NULL AND employment_type != '' \
+                   GROUP BY employment_type ORDER BY c DESC\
+                 ) sub\
+               ) as emp_dist_json, \
+               (\
+                 SELECT JSON_GROUP_ARRAY(JSON_OBJECT('name', sub2.recruitment_reason, 'cnt', sub2.c)) \
+                 FROM (\
+                   SELECT recruitment_reason, COUNT(*) as c FROM postings \
+                   WHERE 1=1{fc} AND recruitment_reason IS NOT NULL AND recruitment_reason != '' \
+                   GROUP BY recruitment_reason ORDER BY c DESC\
+                 ) sub2\
+               ) as reason_dist_json \
+             FROM postings WHERE 1=1{fc}",
+            fc = filter_clause,
         );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
+        // SQLite の ?N 位置パラメータは同一番号が複数出現しても同じ値にバインドされる
+        // サブクエリ内で同じ ?1, ?2, ... を参照するためパラメータは1セットで十分
         if let Ok(rows) = db.query(&sql, &bind_refs) {
             if let Some(row) = rows.first() {
                 stats.total_postings = get_i64(row, "cnt");
@@ -376,19 +405,41 @@ fn fetch_overview_stats(
                 } else {
                     0.0
                 };
+
+                // 雇用形態分布をJSONからパース
+                let emp_json = get_str(row, "emp_dist_json");
+                if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&emp_json) {
+                    for item in &arr {
+                        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let cnt = item.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+                        if !name.is_empty() {
+                            stats.employment_dist.push((name.to_string(), cnt));
+                        }
+                    }
+                }
+
+                // 求人理由分布をJSONからパース
+                let reason_json = get_str(row, "reason_dist_json");
+                if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&reason_json) {
+                    for item in &arr {
+                        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let cnt = item.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+                        if !name.is_empty() {
+                            stats.recruitment_reasons.push((name.to_string(), cnt));
+                        }
+                    }
+                }
             }
         }
     }
 
-    // 2. 産業別求人数
+    // 2. 産業別求人数 (GROUP BY job_type - 独自の結果形状)
     {
         let sql = format!(
             "SELECT job_type, COUNT(*) as cnt FROM postings \
              WHERE 1=1{filter_clause} AND job_type IS NOT NULL AND job_type != '' \
              GROUP BY job_type ORDER BY cnt DESC"
         );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
         if let Ok(rows) = db.query(&sql, &bind_refs) {
             for row in &rows {
                 let jt = get_str(row, "job_type");
@@ -400,15 +451,13 @@ fn fetch_overview_stats(
         }
     }
 
-    // 3. 職業大分類別
+    // 3. 職業大分類別 (GROUP BY occupation_major - 独自の結果形状)
     {
         let sql = format!(
             "SELECT occupation_major, COUNT(*) as cnt FROM postings \
              WHERE 1=1{filter_clause} AND occupation_major IS NOT NULL AND occupation_major != '' \
              GROUP BY occupation_major ORDER BY cnt DESC LIMIT 15"
         );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
         if let Ok(rows) = db.query(&sql, &bind_refs) {
             for row in &rows {
                 let om = get_str(row, "occupation_major");
@@ -420,27 +469,7 @@ fn fetch_overview_stats(
         }
     }
 
-    // 4. 雇用形態分布
-    {
-        let sql = format!(
-            "SELECT employment_type, COUNT(*) as cnt FROM postings \
-             WHERE 1=1{filter_clause} AND employment_type IS NOT NULL AND employment_type != '' \
-             GROUP BY employment_type ORDER BY cnt DESC"
-        );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind_refs) {
-            for row in &rows {
-                let emp = get_str(row, "employment_type");
-                let cnt = get_i64(row, "cnt");
-                if !emp.is_empty() {
-                    stats.employment_dist.push((emp, cnt));
-                }
-            }
-        }
-    }
-
-    // 5. 給与帯分布
+    // 4. 給与帯分布 (GROUP BY CASE式 + 追加WHERE条件 salary_min > 0)
     {
         let sql = format!(
             "SELECT \
@@ -457,8 +486,6 @@ fn fetch_overview_stats(
              WHERE 1=1{filter_clause} AND salary_min > 0 \
              GROUP BY range_label ORDER BY MIN(salary_min)"
         );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
         if let Ok(rows) = db.query(&sql, &bind_refs) {
             for row in &rows {
                 let label = get_str(row, "range_label");
@@ -470,29 +497,8 @@ fn fetch_overview_stats(
         }
     }
 
-    // 6. 求人理由分布
-    {
-        let sql = format!(
-            "SELECT recruitment_reason, COUNT(*) as cnt FROM postings \
-             WHERE 1=1{filter_clause} AND recruitment_reason IS NOT NULL AND recruitment_reason != '' \
-             GROUP BY recruitment_reason ORDER BY cnt DESC"
-        );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-            filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind_refs) {
-            for row in &rows {
-                let reason = get_str(row, "recruitment_reason");
-                let cnt = get_i64(row, "cnt");
-                if !reason.is_empty() {
-                    stats.recruitment_reasons.push((reason, cnt));
-                }
-            }
-        }
-    }
-
-    // 7. 全国比較（都道府県選択時のみ）
+    // 5. 全国比較（都道府県選択時のみ、産業フィルタのみ適用）
     if !filters.prefecture.is_empty() {
-        // 産業フィルタのみ適用（地域なし）
         let national_filters = SessionFilters {
             job_types: filters.job_types.clone(),
             industry_raws: filters.industry_raws.clone(),
@@ -504,9 +510,9 @@ fn fetch_overview_stats(
             "SELECT COUNT(*) as cnt, AVG(NULLIF(salary_min, 0)) as avg_min \
              FROM postings WHERE 1=1{jt_filter}"
         );
-        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
+        let nat_refs: Vec<&dyn rusqlite::types::ToSql> =
             jt_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-        if let Ok(rows) = db.query(&sql, &bind_refs) {
+        if let Ok(rows) = db.query(&sql, &nat_refs) {
             if let Some(row) = rows.first() {
                 stats.national_total = get_i64(row, "cnt");
                 stats.national_avg_salary_min = get_f64(row, "avg_min");

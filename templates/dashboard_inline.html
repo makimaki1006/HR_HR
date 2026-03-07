@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ハローワーク求人分析ダッシュボード</title>
-    <link rel="preload" href="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" as="script">
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
     <link rel="stylesheet" href="/static/css/tailwind-precompiled.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
@@ -43,6 +41,13 @@
                     <div class="flex justify-between items-center mb-2 pb-1 border-b border-slate-600">
                         <span class="text-xs text-slate-400">産業分類（大分類展開で中分類表示）</span>
                         <button type="button" onclick="clearIndustryFilter()" class="text-xs text-blue-400 hover:text-blue-300">全解除</button>
+                    </div>
+                    <div class="flex flex-wrap gap-1 mb-2 pb-1 border-b border-slate-700">
+                        <span class="text-xs text-slate-500 mr-1 self-center">よく使う:</span>
+                        <button type="button" onclick="applyPreset(['医療','老人福祉・介護'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">医療・介護</button>
+                        <button type="button" onclick="applyPreset(['IT・通信'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">IT・通信</button>
+                        <button type="button" onclick="applyPreset(['建設業','製造業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">建設・製造</button>
+                        <button type="button" onclick="applyPreset(['サービス業','飲食業','宿泊業','小売業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">サービス全般</button>
                     </div>
                     <div id="industry-tree-list"><p class="text-slate-500 text-sm p-2">読み込み中...</p></div>
                 </div>
@@ -257,7 +262,7 @@
                     cb.className = 'ind-major-cb accent-blue-500';
                     cb.value = group.major;
                     if (majorChecked) cb.checked = true;
-                    cb.addEventListener('change', function() { onIndustryMajorToggle(this); });
+                    // イベントデリゲーションで処理するため個別ハンドラ不要
                     var cbLabel = document.createElement('label');
                     cbLabel.className = 'flex items-center justify-center w-8 h-8 cursor-pointer flex-shrink-0';
                     cbLabel.setAttribute('for', 'ind-major-' + i);
@@ -298,7 +303,7 @@
                         scb.setAttribute('data-major', group.major);
                         scb.value = sub.name;
                         if (subChecked) scb.checked = true;
-                        scb.addEventListener('change', function() { onIndustrySubToggle(this); });
+                        // イベントデリゲーションで処理するため個別ハンドラ不要
                         var scbLabel = document.createElement('label');
                         scbLabel.className = 'flex items-center justify-center w-7 h-7 cursor-pointer flex-shrink-0';
                         scbLabel.setAttribute('for', 'ind-sub-' + i + '-' + j);
@@ -370,6 +375,19 @@
                 updateIndustryLabel();
             };
 
+            // プリセット適用: 指定した大分類のみチェックしてフィルタ適用
+            window.applyPreset = function(majors) {
+                // 全チェック解除
+                document.querySelectorAll('.ind-major-cb, .ind-sub-cb').forEach(function(cb) { cb.checked = false; });
+                // 指定された大分類をチェック
+                majors.forEach(function(name) {
+                    var cb = document.querySelector('.ind-major-cb[value="' + name + '"]');
+                    if (cb) cb.checked = true;
+                });
+                updateIndustryLabel();
+                applyIndustryFilter();
+            };
+
             function updateIndustryLabel() {
                 var majors = [], subs = [];
                 document.querySelectorAll('.ind-major-cb:checked').forEach(function(cb) { majors.push(cb.value); });
@@ -417,6 +435,16 @@
                     reloadActiveTab();
                 });
             }
+
+            // 産業ツリーのイベントデリゲーション（1回だけセットアップ）
+            document.getElementById('industry-tree-list').addEventListener('change', function(e) {
+                var cb = e.target;
+                if (cb.classList.contains('ind-major-cb')) {
+                    onIndustryMajorToggle(cb);
+                } else if (cb.classList.contains('ind-sub-cb')) {
+                    onIndustrySubToggle(cb);
+                }
+            });
 
             // 産業ツリー初期読み込み
             loadIndustryTree();

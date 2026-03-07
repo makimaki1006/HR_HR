@@ -62,49 +62,73 @@ pub(crate) struct SalaryStats {
 
 /// 競合調査の基本統計
 /// job_typeが空の場合は全体集計
+/// 3つのクエリを1つに統合し、JSON_GROUP_ARRAYでpref_rankingを取得
 pub(crate) fn fetch_competitive(state: &AppState, filters: &SessionFilters) -> CompStats {
     let db = match &state.hw_db {
         Some(db) => db,
         None => return CompStats::default(),
     };
 
-    let mut stats = CompStats::default();
+    // フィルタ句を一度だけ構築し、メインクエリとサブクエリの両方に使う
+    let mut filter_fragment = String::new();
+    let mut filter_params: Vec<String> = Vec::new();
+    filters.append_industry_filter_str(&mut filter_fragment, &mut filter_params);
 
-    let mut base_sql = "SELECT COUNT(*) FROM postings WHERE 1=1".to_string();
+    // 統合クエリ: COUNT(*), COUNT(DISTINCT facility_name), pref_ranking を1回で取得
+    let sql = format!(
+        "SELECT \
+           COUNT(*) as total_cnt, \
+           COUNT(DISTINCT facility_name) as fac_cnt, \
+           (SELECT JSON_GROUP_ARRAY(JSON_OBJECT('pref', sub.prefecture, 'cnt', sub.c)) \
+            FROM ( \
+              SELECT prefecture, COUNT(*) as c FROM postings \
+              WHERE 1=1{filter} AND prefecture IS NOT NULL AND prefecture != '' \
+              GROUP BY prefecture ORDER BY c DESC LIMIT 15 \
+            ) sub \
+           ) as pref_ranking_json \
+         FROM postings WHERE 1=1{filter}",
+        filter = filter_fragment
+    );
+
+    // パラメータはサブクエリ分 + メインクエリ分の2セット必要
     let mut params: Vec<String> = Vec::new();
-    filters.append_industry_filter_str(&mut base_sql, &mut params);
-    let bind: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    params.extend(filter_params.iter().cloned()); // サブクエリ用
+    params.extend(filter_params);                 // メインクエリ用
+    let bind: Vec<&dyn rusqlite::types::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
-    stats.total_postings = db.query(&base_sql, &bind)
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.get("COUNT(*)").and_then(|v| v.as_i64())))
-        .unwrap_or(0);
+    let rows = match db.query(&sql, &bind) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("fetch_competitive統合クエリ失敗: {e}");
+            return CompStats::default();
+        }
+    };
 
-    let mut fac_sql = "SELECT COUNT(DISTINCT facility_name) as cnt FROM postings WHERE 1=1".to_string();
-    let mut fac_params: Vec<String> = Vec::new();
-    filters.append_industry_filter_str(&mut fac_sql, &mut fac_params);
-    let fac_bind: Vec<&dyn rusqlite::types::ToSql> = fac_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    stats.total_facilities = db.query(&fac_sql, &fac_bind)
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.get("cnt").and_then(|v| v.as_i64())))
-        .unwrap_or(0);
+    let mut stats = CompStats::default();
+    if let Some(row) = rows.first() {
+        stats.total_postings = row.get("total_cnt")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+        stats.total_facilities = row.get("fac_cnt")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
 
-    let mut pref_sql = "SELECT prefecture, COUNT(*) as cnt FROM postings WHERE 1=1".to_string();
-    let mut pref_params: Vec<String> = Vec::new();
-    filters.append_industry_filter_str(&mut pref_sql, &mut pref_params);
-    pref_sql.push_str(" GROUP BY prefecture ORDER BY cnt DESC LIMIT 15");
-    let pref_bind: Vec<&dyn rusqlite::types::ToSql> = pref_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    if let Ok(rows) = db.query(&pref_sql, &pref_bind) {
-        for row in &rows {
-            let pref = row.get("prefecture")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let cnt = row.get("cnt")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            if !pref.is_empty() {
-                stats.pref_ranking.push((pref, cnt));
+        // JSON文字列からpref_rankingをパース
+        if let Some(json_str) = row.get("pref_ranking_json").and_then(|v| v.as_str()) {
+            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
+                for item in &arr {
+                    let pref = item.get("pref")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let cnt = item.get("cnt")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    if !pref.is_empty() {
+                        stats.pref_ranking.push((pref, cnt));
+                    }
+                }
             }
         }
     }

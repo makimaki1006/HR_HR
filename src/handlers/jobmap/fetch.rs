@@ -152,8 +152,8 @@ pub(crate) fn fetch_markers(
         param_values.push(SqlValue::Text(salary_type.to_string()));
     }
     // Bounding Boxで粗くフィルタ → Haversineで正確に絞る
-    // LIMIT 2000は最終結果に適用するのでここではやや多めに取得
-    sql.push_str(" LIMIT 50000");
+    // LIMIT 20000はHaversineフィルタ前の粗い取得（最終truncate 5000）
+    sql.push_str(" LIMIT 20000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -234,8 +234,7 @@ pub(crate) fn fetch_markers_by_bounds(
         sql.push_str(" AND salary_type = ?");
         param_values.push(SqlValue::Text(salary_type.to_string()));
     }
-    // 全件カウント用にLIMITなしで取得（50000上限で安全策）
-    sql.push_str(" LIMIT 50000");
+    sql.push_str(" LIMIT 5000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()

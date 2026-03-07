@@ -48,6 +48,8 @@ async fn main() {
                 "CREATE INDEX IF NOT EXISTS idx_postings_license1 ON postings (license_1)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_license2 ON postings (license_2)",
                 "CREATE INDEX IF NOT EXISTS idx_postings_license3 ON postings (license_3)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_pref_salary ON postings (prefecture, salary_min DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_postings_pref_muni_job ON postings (prefecture, municipality, job_type)",
             ];
             for sql in &idx_sqls {
                 if let Err(e) = db.execute(sql, &[]) {
