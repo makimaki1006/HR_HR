@@ -9,8 +9,9 @@ use crate::AppState;
 use crate::handlers::overview::{format_number, get_session_filters};
 use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
 use super::fetch::{
-    fetch_competitive, fetch_job_types,
+    count_postings, fetch_competitive, fetch_job_types,
     fetch_nearby_postings, fetch_postings, fetch_prefectures,
+    fetch_salary_stats_sql,
 };
 use super::render::{
     render_analysis_html, render_analysis_html_with_scope, render_competitive,
@@ -83,23 +84,32 @@ pub async fn comp_filter(
     }
 
     let industry_label = filters.industry_label();
-    let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp)
-    } else {
-        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
-    };
+    let muni_opt = if muni.is_empty() { None } else { Some(muni) };
 
-    let total = postings.len() as i64;
+    // 近隣検索はhaversineフィルタがあるためRust側でページネーション
+    if nearby && !muni.is_empty() {
+        let postings = fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp);
+        let total = postings.len() as i64;
+        let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
+        let start = ((page - 1) * page_size) as usize;
+        let start = start.min(postings.len());
+        let end = (start + page_size as usize).min(postings.len());
+        let page_data = &postings[start..end];
+        let salary_stats = calc_salary_stats(&postings);
+        return render_posting_table(
+            &industry_label, pref, muni, page_data, &salary_stats,
+            page, total_pages, total, nearby, radius_km, emp,
+        );
+    }
+
+    // 通常検索: SQLレベルのページネーション + SQL給与統計
+    let total = count_postings(db, &filters, pref, muni_opt, emp);
     let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
-    let start = ((page - 1) * page_size) as usize;
-    let start = start.min(postings.len());
-    let end = (start + page_size as usize).min(postings.len());
-    let page_data = &postings[start..end];
-
-    let salary_stats = calc_salary_stats(&postings);
+    let postings = fetch_postings(db, &filters, pref, muni_opt, emp, Some(page), Some(page_size));
+    let salary_stats = fetch_salary_stats_sql(db, &filters, pref, muni_opt, emp);
 
     render_posting_table(
-        &industry_label, pref, muni, page_data, &salary_stats,
+        &industry_label, pref, muni, &postings, &salary_stats,
         page, total_pages, total, nearby, radius_km, emp,
     )
 }
@@ -265,7 +275,7 @@ pub async fn comp_report(
     let postings = if nearby && !muni.is_empty() {
         fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp)
     } else {
-        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp)
+        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp, None, None)
     };
 
     let stats = calc_salary_stats(&postings);

@@ -200,14 +200,17 @@ pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)
         .collect()
 }
 
-/// 求人一覧取得（ヘッダーフィルタ + 追加フィルタ）
+/// 求人一覧取得（ヘッダーフィルタ + 追加フィルタ + ページネーション）
 /// job_typeが空の場合は全産業対象
+/// page/page_sizeが指定された場合はLIMIT/OFFSETでSQLレベルのページネーションを行う
 pub(crate) fn fetch_postings(
     db: &crate::db::local_sqlite::LocalDb,
     filters: &SessionFilters,
     pref: &str,
     muni: Option<&str>,
     emp: &str,
+    page: Option<i64>,
+    page_size: Option<i64>,
 ) -> Vec<PostingRow> {
     let mut sql = String::from(
         "SELECT facility_name, job_type, prefecture, municipality, employment_type, \
@@ -237,6 +240,12 @@ pub(crate) fn fetch_postings(
     }
     sql.push_str(" ORDER BY salary_min DESC");
 
+    // LIMIT/OFFSETによるSQLレベルのページネーション
+    if let (Some(p), Some(ps)) = (page, page_size) {
+        let offset = (p.max(1) - 1) * ps;
+        sql.push_str(&format!(" LIMIT {} OFFSET {}", ps, offset));
+    }
+
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
         .map(|s| s as &dyn rusqlite::types::ToSql)
@@ -251,6 +260,310 @@ pub(crate) fn fetch_postings(
     };
 
     rows.iter().map(|r| row_to_posting(r, None)).collect()
+}
+
+/// 求人件数のみ取得（ページネーション用カウントクエリ）
+/// fetch_postingsと同じWHERE条件だがSELECT COUNT(*)のみで効率的
+pub(crate) fn count_postings(
+    db: &crate::db::local_sqlite::LocalDb,
+    filters: &SessionFilters,
+    pref: &str,
+    muni: Option<&str>,
+    emp: &str,
+) -> i64 {
+    let mut sql = String::from(
+        "SELECT COUNT(*) as cnt FROM postings WHERE prefecture = ?"
+    );
+    let mut param_values: Vec<String> = vec![pref.to_string()];
+
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    if let Some(m) = muni {
+        if !m.is_empty() {
+            sql.push_str(" AND municipality = ?");
+            param_values.push(m.to_string());
+        }
+    }
+    if !emp.is_empty() && emp != "全て" {
+        sql.push_str(" AND employment_type = ?");
+        param_values.push(emp.to_string());
+    }
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    match db.query(&sql, &params) {
+        Ok(rows) => rows.first()
+            .and_then(|r| r.get("cnt"))
+            .map(value_to_i64)
+            .unwrap_or(0),
+        Err(e) => {
+            tracing::error!("Count query failed: {e}");
+            0
+        }
+    }
+}
+
+/// 給与統計をSQLで直接計算（全件メモリロードを回避）
+/// calc_salary_statsと同じSalaryStatsを返すが、SQL集計で効率的に計算
+pub(crate) fn fetch_salary_stats_sql(
+    db: &crate::db::local_sqlite::LocalDb,
+    filters: &SessionFilters,
+    pref: &str,
+    muni: Option<&str>,
+    emp: &str,
+) -> SalaryStats {
+    // WHERE句を構築（fetch_postingsと同じ条件）
+    let mut where_clause = String::from(" WHERE prefecture = ?");
+    let mut param_values: Vec<String> = vec![pref.to_string()];
+
+    filters.append_industry_filter_str(&mut where_clause, &mut param_values);
+    if let Some(m) = muni {
+        if !m.is_empty() {
+            where_clause.push_str(" AND municipality = ?");
+            param_values.push(m.to_string());
+        }
+    }
+    if !emp.is_empty() && emp != "全て" {
+        where_clause.push_str(" AND employment_type = ?");
+        param_values.push(emp.to_string());
+    }
+
+    let empty_stats = SalaryStats {
+        count: 0,
+        salary_min_median: "-".to_string(),
+        salary_min_avg: "-".to_string(),
+        salary_min_mode: "-".to_string(),
+        salary_max_median: "-".to_string(),
+        salary_max_avg: "-".to_string(),
+        salary_max_mode: "-".to_string(),
+        bonus_rate: "-".to_string(),
+        avg_holidays: "-".to_string(),
+        has_data: false,
+    };
+
+    // 全体件数を先に取得
+    let total_count = {
+        let sql = format!("SELECT COUNT(*) as cnt FROM postings{}", where_clause);
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => rows.first()
+                .and_then(|r| r.get("cnt"))
+                .map(value_to_i64)
+                .unwrap_or(0),
+            Err(_) => return empty_stats,
+        }
+    };
+
+    if total_count == 0 {
+        return empty_stats;
+    }
+
+    // salary_min の集計統計（AVG）
+    let sal_min_filter = format!("{} AND salary_min >= 50000", where_clause);
+    let sal_max_filter = format!("{} AND salary_max >= 50000", where_clause);
+
+    // クエリ1: salary_min の基本統計（件数, 平均）
+    let (min_count, min_avg) = {
+        let sql = format!(
+            "SELECT COUNT(*) as cnt, ROUND(AVG(salary_min)) as avg_sal \
+             FROM postings{}",
+            sal_min_filter
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => {
+                let row = rows.first();
+                let cnt = row.and_then(|r| r.get("cnt")).map(value_to_i64).unwrap_or(0);
+                let avg = row.and_then(|r| r.get("avg_sal")).map(value_to_i64).unwrap_or(0);
+                (cnt, avg)
+            }
+            Err(_) => (0, 0),
+        }
+    };
+
+    // クエリ2: salary_max の基本統計（件数, 平均）
+    let (max_count, max_avg) = {
+        let sql = format!(
+            "SELECT COUNT(*) as cnt, ROUND(AVG(salary_max)) as avg_sal \
+             FROM postings{}",
+            sal_max_filter
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => {
+                let row = rows.first();
+                let cnt = row.and_then(|r| r.get("cnt")).map(value_to_i64).unwrap_or(0);
+                let avg = row.and_then(|r| r.get("avg_sal")).map(value_to_i64).unwrap_or(0);
+                (cnt, avg)
+            }
+            Err(_) => (0, 0),
+        }
+    };
+
+    if min_count == 0 && max_count == 0 {
+        return SalaryStats {
+            count: total_count,
+            has_data: false,
+            ..empty_stats
+        };
+    }
+
+    // クエリ3: salary_min の中央値（LIMIT 1 OFFSET count/2）
+    let min_median = if min_count > 0 {
+        let offset = min_count / 2;
+        let sql = format!(
+            "SELECT salary_min FROM postings{} ORDER BY salary_min LIMIT 1 OFFSET {}",
+            sal_min_filter, offset
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => rows.first()
+                .and_then(|r| r.get("salary_min"))
+                .map(value_to_i64)
+                .unwrap_or(0),
+            Err(_) => 0,
+        }
+    } else { 0 };
+
+    // クエリ4: salary_max の中央値
+    let max_median = if max_count > 0 {
+        let offset = max_count / 2;
+        let sql = format!(
+            "SELECT salary_max FROM postings{} ORDER BY salary_max LIMIT 1 OFFSET {}",
+            sal_max_filter, offset
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => rows.first()
+                .and_then(|r| r.get("salary_max"))
+                .map(value_to_i64)
+                .unwrap_or(0),
+            Err(_) => 0,
+        }
+    } else { 0 };
+
+    // クエリ5: salary_min の最頻値（1万円帯）
+    let min_mode = if min_count > 0 {
+        let sql = format!(
+            "SELECT CAST(ROUND(salary_min / 10000.0) * 10000 AS INTEGER) as band, COUNT(*) as cnt \
+             FROM postings{} GROUP BY band ORDER BY cnt DESC LIMIT 1",
+            sal_min_filter
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => rows.first()
+                .and_then(|r| r.get("band"))
+                .map(value_to_i64)
+                .unwrap_or(0),
+            Err(_) => 0,
+        }
+    } else { 0 };
+
+    // クエリ6: salary_max の最頻値（1万円帯）
+    let max_mode = if max_count > 0 {
+        let sql = format!(
+            "SELECT CAST(ROUND(salary_max / 10000.0) * 10000 AS INTEGER) as band, COUNT(*) as cnt \
+             FROM postings{} GROUP BY band ORDER BY cnt DESC LIMIT 1",
+            sal_max_filter
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => rows.first()
+                .and_then(|r| r.get("band"))
+                .map(value_to_i64)
+                .unwrap_or(0),
+            Err(_) => 0,
+        }
+    } else { 0 };
+
+    // クエリ7: 賞与率（benefitsに「賞与」を含む割合）
+    let bonus_rate = {
+        let sql = format!(
+            "SELECT COUNT(*) as cnt FROM postings{} AND benefits LIKE '%賞与%'",
+            where_clause
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        let bonus_count = match db.query(&sql, &params) {
+            Ok(rows) => rows.first()
+                .and_then(|r| r.get("cnt"))
+                .map(value_to_i64)
+                .unwrap_or(0),
+            Err(_) => 0,
+        };
+        if total_count > 0 {
+            format!("{:.0}%", bonus_count as f64 / total_count as f64 * 100.0)
+        } else {
+            "-".to_string()
+        }
+    };
+
+    // クエリ8: 平均休日数
+    let avg_holidays = {
+        let sql = format!(
+            "SELECT ROUND(AVG(annual_holidays)) as avg_hol \
+             FROM postings{} AND annual_holidays >= 80 AND annual_holidays <= 200",
+            where_clause
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        match db.query(&sql, &params) {
+            Ok(rows) => {
+                let val = rows.first()
+                    .and_then(|r| r.get("avg_hol"))
+                    .map(value_to_i64)
+                    .unwrap_or(0);
+                if val > 0 { format!("{}日", val) } else { "-".to_string() }
+            }
+            Err(_) => "-".to_string(),
+        }
+    };
+
+    // フォーマットして返す
+    use crate::handlers::overview::format_number;
+    let fmt = |v: i64| -> String {
+        if v > 0 { format!("{}円", format_number(v)) } else { "-".to_string() }
+    };
+
+    SalaryStats {
+        count: total_count,
+        salary_min_median: fmt(min_median),
+        salary_min_avg: fmt(min_avg),
+        salary_min_mode: fmt(min_mode),
+        salary_max_median: fmt(max_median),
+        salary_max_avg: fmt(max_avg),
+        salary_max_mode: fmt(max_mode),
+        bonus_rate,
+        avg_holidays,
+        has_data: min_count > 0,
+    }
 }
 
 /// 近隣求人取得（半径検索）

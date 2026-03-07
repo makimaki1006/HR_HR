@@ -1,18 +1,26 @@
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::local_sqlite::LocalDb;
 use crate::handlers::overview::SessionFilters;
 
 /// マーカー表示用の軽量データ
+#[derive(Serialize)]
 pub(crate) struct MarkerRow {
     pub(crate) id: i64,
     pub(crate) lat: f64,
     pub(crate) lng: f64,
+    #[serde(rename = "facility")]
     pub(crate) facility_name: String,
+    #[serde(rename = "jobType")]
     pub(crate) job_type: String,
+    #[serde(rename = "emp")]
     pub(crate) employment_type: String,
+    #[serde(rename = "salaryType")]
     pub(crate) salary_type: String,
+    #[serde(rename = "salaryMin")]
     pub(crate) salary_min: i64,
+    #[serde(rename = "salaryMax")]
     pub(crate) salary_max: i64,
 }
 

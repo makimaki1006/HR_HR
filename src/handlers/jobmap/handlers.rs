@@ -520,25 +520,8 @@ fn markers_to_json(
     center: Option<(f64, f64)>,
     total_available: usize,
 ) -> Json<serde_json::Value> {
-    let marker_arr: Vec<serde_json::Value> = markers
-        .iter()
-        .map(|m| {
-            serde_json::json!({
-                "id": m.id,
-                "lat": m.lat,
-                "lng": m.lng,
-                "facility": m.facility_name,
-                "jobType": m.job_type,
-                "emp": m.employment_type,
-                "salaryType": m.salary_type,
-                "salaryMin": m.salary_min,
-                "salaryMax": m.salary_max,
-            })
-        })
-        .collect();
-
     let mut result = serde_json::json!({
-        "markers": marker_arr,
+        "markers": markers,
         "total": markers.len(),
         "totalAvailable": total_available,
     });
