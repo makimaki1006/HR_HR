@@ -201,7 +201,7 @@ pub(crate) fn fetch_markers(
         })
         .collect();
 
-    // パフォーマンス最適化: 表示上限5000件（Canvas + MarkerCluster）
+    // パフォーマンス最適化: 表示上限5000件（Canvas + LayerGroup）
     let total_available = result.len();
     result.truncate(5000);
     (result, total_available)
