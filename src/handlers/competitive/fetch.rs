@@ -40,8 +40,13 @@ pub(crate) struct PostingRow {
     pub(crate) hello_work_office: String,
     pub(crate) recruitment_reason: String,
     pub(crate) benefits: String,
-    #[allow(dead_code)]
     pub(crate) working_hours: String,
+    // 採用関連フィールド
+    pub(crate) license_1: String,
+    pub(crate) license_2: String,
+    pub(crate) license_3: String,
+    pub(crate) occupation_major: String,
+    pub(crate) education_required: String,
 }
 
 pub(crate) struct SalaryStats {
@@ -221,7 +226,12 @@ pub(crate) fn fetch_postings(
          COALESCE(hello_work_office,'') as hello_work_office, \
          COALESCE(recruitment_reason,'') as recruitment_reason, \
          COALESCE(benefits,'') as benefits, \
-         COALESCE(working_hours,'') as working_hours \
+         COALESCE(working_hours,'') as working_hours, \
+         COALESCE(license_1,'') as license_1, \
+         COALESCE(license_2,'') as license_2, \
+         COALESCE(license_3,'') as license_3, \
+         COALESCE(occupation_major,'') as occupation_major, \
+         COALESCE(education_required,'') as education_required \
          FROM postings WHERE prefecture = ?"
     );
     let mut param_values: Vec<String> = vec![pref.to_string()];
@@ -597,6 +607,11 @@ pub(crate) fn fetch_nearby_postings(
          COALESCE(recruitment_reason,'') as recruitment_reason, \
          COALESCE(benefits,'') as benefits, \
          COALESCE(working_hours,'') as working_hours, \
+         COALESCE(license_1,'') as license_1, \
+         COALESCE(license_2,'') as license_2, \
+         COALESCE(license_3,'') as license_3, \
+         COALESCE(occupation_major,'') as occupation_major, \
+         COALESCE(education_required,'') as education_required, \
          latitude, longitude \
          FROM postings WHERE \
          latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"
@@ -697,5 +712,10 @@ fn row_to_posting(r: &std::collections::HashMap<String, Value>, distance: Option
         recruitment_reason: r.get("recruitment_reason").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         benefits: r.get("benefits").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         working_hours: r.get("working_hours").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        license_1: r.get("license_1").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        license_2: r.get("license_2").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        license_3: r.get("license_3").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        occupation_major: r.get("occupation_major").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        education_required: r.get("education_required").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
 }
