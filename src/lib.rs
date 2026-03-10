@@ -51,6 +51,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         )
         .route("/tab/balance", get(handlers::balance::tab_balance))
         .route("/tab/workstyle", get(handlers::workstyle::tab_workstyle))
+        .route("/tab/analysis", get(handlers::analysis::tab_analysis))
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
         .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
         .route("/api/jobmap/detail/{id}", get(handlers::jobmap::jobmap_detail))
