@@ -42,11 +42,14 @@ pub(crate) struct PostingRow {
     pub(crate) benefits: String,
     pub(crate) working_hours: String,
     // 採用関連フィールド
-    pub(crate) license_1: String,
-    pub(crate) license_2: String,
-    pub(crate) license_3: String,
-    pub(crate) occupation_major: String,
+    pub(crate) experience_required: String,
+    pub(crate) occupation_detail: String,
     pub(crate) education_required: String,
+    pub(crate) raise_amount: String,
+    pub(crate) bonus_amount: String,
+    pub(crate) bonus_months: f64,
+    pub(crate) employee_count: i64,
+    pub(crate) company_features: String,
 }
 
 pub(crate) struct SalaryStats {
@@ -227,11 +230,14 @@ pub(crate) fn fetch_postings(
          COALESCE(recruitment_reason,'') as recruitment_reason, \
          COALESCE(benefits,'') as benefits, \
          COALESCE(working_hours,'') as working_hours, \
-         COALESCE(license_1,'') as license_1, \
-         COALESCE(license_2,'') as license_2, \
-         COALESCE(license_3,'') as license_3, \
-         COALESCE(occupation_major,'') as occupation_major, \
-         COALESCE(education_required,'') as education_required \
+         COALESCE(experience_required,'') as experience_required, \
+         COALESCE(occupation_detail,'') as occupation_detail, \
+         COALESCE(education_required,'') as education_required, \
+         COALESCE(raise_amount,'') as raise_amount, \
+         COALESCE(bonus_amount,'') as bonus_amount, \
+         COALESCE(bonus_months,0) as bonus_months, \
+         COALESCE(employee_count,0) as employee_count, \
+         COALESCE(company_features,'') as company_features \
          FROM postings WHERE prefecture = ?"
     );
     let mut param_values: Vec<String> = vec![pref.to_string()];
@@ -607,11 +613,14 @@ pub(crate) fn fetch_nearby_postings(
          COALESCE(recruitment_reason,'') as recruitment_reason, \
          COALESCE(benefits,'') as benefits, \
          COALESCE(working_hours,'') as working_hours, \
-         COALESCE(license_1,'') as license_1, \
-         COALESCE(license_2,'') as license_2, \
-         COALESCE(license_3,'') as license_3, \
-         COALESCE(occupation_major,'') as occupation_major, \
+         COALESCE(experience_required,'') as experience_required, \
+         COALESCE(occupation_detail,'') as occupation_detail, \
          COALESCE(education_required,'') as education_required, \
+         COALESCE(raise_amount,'') as raise_amount, \
+         COALESCE(bonus_amount,'') as bonus_amount, \
+         COALESCE(bonus_months,0) as bonus_months, \
+         COALESCE(employee_count,0) as employee_count, \
+         COALESCE(company_features,'') as company_features, \
          latitude, longitude \
          FROM postings WHERE \
          latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"
@@ -712,10 +721,13 @@ fn row_to_posting(r: &std::collections::HashMap<String, Value>, distance: Option
         recruitment_reason: r.get("recruitment_reason").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         benefits: r.get("benefits").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         working_hours: r.get("working_hours").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        license_1: r.get("license_1").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        license_2: r.get("license_2").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        license_3: r.get("license_3").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        occupation_major: r.get("occupation_major").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        experience_required: r.get("experience_required").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        occupation_detail: r.get("occupation_detail").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         education_required: r.get("education_required").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        raise_amount: r.get("raise_amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        bonus_amount: r.get("bonus_amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        bonus_months: r.get("bonus_months").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        employee_count: r.get("employee_count").map(value_to_i64).unwrap_or(0),
+        company_features: r.get("company_features").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     }
 }

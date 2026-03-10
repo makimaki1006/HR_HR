@@ -125,12 +125,13 @@ pub(crate) fn render_posting_table(
     html.push_str("<th>給与区分</th>");
     html.push_str(r#"<th class="text-right">月給下限</th>"#);
     html.push_str(r#"<th class="text-right">月給上限</th>"#);
-    html.push_str("<th>必要資格</th>");
+    html.push_str("<th>職種詳細</th>");
     html.push_str("<th>学歴</th>");
-    html.push_str("<th>職業分類</th>");
-    html.push_str(r#"<th style="min-width:200px">応募要件</th>"#);
+    html.push_str(r#"<th style="min-width:180px">応募要件</th>"#);
+    html.push_str(r#"<th style="min-width:120px">必要経験</th>"#);
+    html.push_str("<th>昇給・賞与</th>");
     html.push_str("<th>勤務時間</th>");
-    html.push_str("<th>待遇・福利厚生</th>");
+    html.push_str("<th>従業員数</th>");
     html.push_str(r#"<th class="text-right">年間休日</th>"#);
     html.push_str("<th>管轄HW</th>");
     html.push_str("<th>募集理由</th>");
@@ -154,21 +155,26 @@ pub(crate) fn render_posting_table(
         let recruit_reason = truncate_str(&escape_html(&p.recruitment_reason), 20);
         let jt = truncate_str(&escape_html(&p.job_type), 20);
         let working_hrs = truncate_str(&escape_html(&p.working_hours), 30);
-        let benefits_str = truncate_str(&escape_html(&p.benefits), 40);
-
-        // 必要資格を結合（空でないものだけ）
-        let licenses: Vec<&str> = [&p.license_1, &p.license_2, &p.license_3]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.as_str())
-            .collect();
-        let license_display = if licenses.is_empty() {
-            "-".to_string()
-        } else {
-            truncate_str(&escape_html(&licenses.join(" / ")), 40)
-        };
+        let occ_detail = truncate_str(&escape_html(&p.occupation_detail), 30);
         let education = if p.education_required.is_empty() { "-".to_string() } else { escape_html(&p.education_required) };
-        let occ_major = if p.occupation_major.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.occupation_major), 20) };
+        let exp_req = if p.experience_required.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.experience_required), 40) };
+
+        // 昇給・賞与を結合表示
+        let raise_bonus = {
+            let mut parts = Vec::new();
+            if !p.raise_amount.is_empty() {
+                parts.push(format!("昇給:{}", p.raise_amount));
+            }
+            if !p.bonus_amount.is_empty() {
+                if p.bonus_months > 0.0 {
+                    parts.push(format!("賞与:{}({}ヶ月)", p.bonus_amount, p.bonus_months));
+                } else {
+                    parts.push(format!("賞与:{}", p.bonus_amount));
+                }
+            }
+            if parts.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&parts.join(" ")), 35) }
+        };
+        let emp_count = if p.employee_count > 0 { format!("{}人", p.employee_count) } else { "-".to_string() };
 
         let seg_label = if p.tier3_label_short.is_empty() {
             "-".to_string()
@@ -176,12 +182,16 @@ pub(crate) fn render_posting_table(
             truncate_str(&escape_html(&p.tier3_label_short), 25)
         };
         html.push_str(&format!(
-            r#"<tr><td class="text-center">{}</td><td class="font-mono text-xs">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td><div class="cell-wrap">{}</div></td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-right">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td>"#,
+            r#"<tr><td class="text-center">{}</td><td class="font-mono text-xs">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td><div class="cell-wrap">{}</div></td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-right">{}</td><td class="text-right">{}</td>"#,
             start_num + i as i64 + 1, job_num, fname, jt, area, escape_html(&p.employment_type),
             sal_type, sal_min, sal_max,
-            license_display, education, occ_major,
-            reqs, working_hrs, benefits_str,
-            holidays, hw_office, recruit_reason, seg_label,
+            occ_detail, education,
+            reqs, exp_req, raise_bonus, working_hrs,
+            holidays, emp_count,
+        ));
+        html.push_str(&format!(
+            r#"<td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td>"#,
+            hw_office, recruit_reason, seg_label,
         ));
         if show_distance {
             let dist = p.distance_km.map(|d| format!("{:.1}km", d)).unwrap_or("-".to_string());
@@ -263,14 +273,19 @@ pub(crate) fn render_report_html(
             String::new()
         };
 
-        let licenses: Vec<&str> = [&p.license_1, &p.license_2, &p.license_3]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.as_str())
-            .collect();
-        let license_display = if licenses.is_empty() { "-".to_string() } else { escape_html(&licenses.join(" / ")) };
+        let occ_detail = if p.occupation_detail.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.occupation_detail), 30) };
         let education = if p.education_required.is_empty() { "-".to_string() } else { escape_html(&p.education_required) };
-        let occ_major = if p.occupation_major.is_empty() { "-".to_string() } else { escape_html(&p.occupation_major) };
+        let exp_req = if p.experience_required.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.experience_required), 40) };
+        let raise_bonus = {
+            let mut parts = Vec::new();
+            if !p.raise_amount.is_empty() { parts.push(format!("昇給:{}", p.raise_amount)); }
+            if !p.bonus_amount.is_empty() {
+                if p.bonus_months > 0.0 { parts.push(format!("賞与:{}({}ヶ月)", p.bonus_amount, p.bonus_months)); }
+                else { parts.push(format!("賞与:{}", p.bonus_amount)); }
+            }
+            if parts.is_empty() { "-".to_string() } else { escape_html(&parts.join(" ")) }
+        };
+        let emp_count = if p.employee_count > 0 { format!("{}人", p.employee_count) } else { "-".to_string() };
 
         let seg = if p.tier3_label_short.is_empty() {
             "-".to_string()
@@ -278,7 +293,7 @@ pub(crate) fn render_report_html(
             escape_html(&p.tier3_label_short)
         };
         table_rows.push_str(&format!(
-            r#"<tr><td style="text-align:center">{}</td><td class="font-mono">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td>{}</td><td>{}</td><td>{}</td><td style="max-width:250px;word-break:break-all">{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td>{}</td><td>{}</td><td>{}</td>{}</tr>"#,
+            r#"<tr><td style="text-align:center">{}</td><td class="font-mono">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td><td>{}</td><td>{}</td><td style="max-width:250px;word-break:break-all">{}</td><td>{}</td><td>{}</td><td>{}</td><td class="num">{}</td><td class="num">{}</td>"#,
             i + 1,
             escape_html(&p.job_number),
             fname,
@@ -286,11 +301,13 @@ pub(crate) fn render_report_html(
             area,
             escape_html(&p.employment_type),
             sal_type, sal_min, sal_max,
-            license_display, education, occ_major,
-            reqs,
+            occ_detail, education,
+            reqs, exp_req, raise_bonus,
             truncate_str(&escape_html(&p.working_hours), 30),
-            truncate_str(&escape_html(&p.benefits), 40),
-            holidays,
+            holidays, emp_count,
+        ));
+        table_rows.push_str(&format!(
+            r#"<td>{}</td><td>{}</td><td>{}</td>{}</tr>"#,
             truncate_str(&escape_html(&p.hello_work_office), 15),
             truncate_str(&escape_html(&p.recruitment_reason), 20),
             seg, dist_cell,
@@ -362,9 +379,9 @@ tr:nth-child(even) {{ background-color: #f8f9fa; }}
 <tr>
     <th>#</th><th>求人番号</th><th>事業所名</th><th>産業</th><th>エリア</th>
     <th>雇用形態</th><th>給与区分</th><th>月給下限</th><th>月給上限</th>
-    <th>必要資格</th><th>学歴</th><th>職業分類</th>
-    <th>応募要件</th><th>勤務時間</th><th>待遇</th>
-    <th>年間休日</th><th>管轄HW</th><th>募集理由</th>
+    <th>職種詳細</th><th>学歴</th>
+    <th>応募要件</th><th>必要経験</th><th>昇給・賞与</th><th>勤務時間</th>
+    <th>年間休日</th><th>従業員数</th><th>管轄HW</th><th>募集理由</th>
     <th>セグメント</th>{distance_th}
 </tr>
 </thead>
