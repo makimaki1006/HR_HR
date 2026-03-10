@@ -517,7 +517,7 @@ pub async fn jobmap_seeker_detail(
 
 fn markers_to_json(
     markers: &[fetch::MarkerRow],
-    center: Option<(f64, f64)>,
+    _search_center: Option<(f64, f64)>,
     total_available: usize,
 ) -> Json<serde_json::Value> {
     let mut result = serde_json::json!({
@@ -526,9 +526,8 @@ fn markers_to_json(
         "totalAvailable": total_available,
     });
 
-    if let Some((lat, lng)) = center {
-        result["center"] = serde_json::json!({"lat": lat, "lng": lng});
-    } else if !markers.is_empty() {
+    // 常にマーカー重心を center として返す（自治体中心ではなく実データ位置基準）
+    if !markers.is_empty() {
         let avg_lat: f64 = markers.iter().map(|m| m.lat).sum::<f64>() / markers.len() as f64;
         let avg_lng: f64 = markers.iter().map(|m| m.lng).sum::<f64>() / markers.len() as f64;
         result["center"] = serde_json::json!({"lat": avg_lat, "lng": avg_lng});

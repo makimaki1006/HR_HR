@@ -159,7 +159,10 @@ pub(crate) fn fetch_markers(
         sql.push_str(" AND salary_type = ?");
         param_values.push(SqlValue::Text(salary_type.to_string()));
     }
-    // Bounding Boxで粗くフィルタ → Haversineで正確に絞る
+    // 中心から近い順にソート → 5000件サンプルの代表性を向上
+    sql.push_str(" ORDER BY ABS(latitude - ?) + ABS(longitude - ?)");
+    param_values.push(SqlValue::Real(lat));
+    param_values.push(SqlValue::Real(lng));
     // LIMIT 20000はHaversineフィルタ前の粗い取得（最終truncate 5000）
     sql.push_str(" LIMIT 20000");
 
