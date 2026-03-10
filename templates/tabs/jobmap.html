@@ -65,6 +65,11 @@
               class="bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded px-3 py-1.5 transition-colors">
         📊 地域分析
       </button>
+      <button id="jm-fullscreen-btn" onclick="toggleJobmapFullscreen()"
+              class="bg-gray-600 hover:bg-gray-500 text-white text-sm rounded px-3 py-1.5 transition-colors"
+              title="全画面表示">
+        ⛶ 全画面
+      </button>
       <span id="jm-count" class="text-gray-400 text-sm ml-2"></span>
     </div>
   </div>
@@ -200,8 +205,70 @@
   </div>
 </div>
 
+<style>
+  .jm-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 9999 !important;
+    background: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    overflow: hidden;
+  }
+  .jm-fullscreen .space-y-4 { gap: 0 !important; }
+  .jm-fullscreen > h2,
+  .jm-fullscreen > #jm-layer-controls,
+  .jm-fullscreen > #jm-pin-fields-wrap,
+  .jm-fullscreen > #jm-pinned-stats { display: none !important; }
+  .jm-fullscreen > .stat-card:first-of-type {
+    position: absolute !important;
+    top: 10px !important;
+    left: 10px !important;
+    right: 10px !important;
+    z-index: 10000 !important;
+    background: rgba(15, 23, 42, 0.92) !important;
+    backdrop-filter: blur(8px) !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+    margin: 0 !important;
+  }
+  .jm-fullscreen #jm-main-container {
+    height: 100vh !important;
+    min-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  .jm-fullscreen #jm-map-container {
+    border-radius: 0 !important;
+  }
+  .jm-fullscreen #jm-fullscreen-btn {
+    background: #dc2626 !important;
+  }
+</style>
 <script src="/static/js/postingmap.js?v=4"></script>
 <script>
+  function toggleJobmapFullscreen() {
+    var wrap = document.querySelector('#tab-content > div > div.space-y-4') ||
+               document.querySelector('.space-y-4');
+    if (!wrap) return;
+    var btn = document.getElementById('jm-fullscreen-btn');
+    var isFs = wrap.classList.toggle('jm-fullscreen');
+    if (btn) btn.textContent = isFs ? '\u2715 \u623b\u308b' : '\u26f6 \u5168\u753b\u9762';
+    if (typeof postingMap !== 'undefined') {
+      setTimeout(function() { postingMap.init(); }, 100);
+    }
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var wrap = document.querySelector('.jm-fullscreen');
+      if (wrap) toggleJobmapFullscreen();
+    }
+  });
+
   // 初期化（HTMX タブ切り替え・DOMContentLoaded 両対応）
   (function() {
     var maxRetries = 10;
