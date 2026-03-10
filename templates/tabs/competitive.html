@@ -22,12 +22,8 @@
                 <label class="block text-xs text-slate-400 mb-1">都道府県</label>
                 <select id="comp-pref"
                     class="bg-navy-700 border border-slate-600 rounded px-2 py-1.5 text-sm text-white"
-                    hx-get="/api/competitive/municipalities"
-                    hx-target="#comp-muni"
-                    hx-swap="innerHTML"
-                    hx-include="[name='prefecture']"
                     name="prefecture"
-                    onchange="updateFacilityTypes(this.value)">
+                    onchange="onCompPrefChange(this.value)">
                     <option value="">選択してください</option>
                     {{PREF_OPTIONS}}
                 </select>
@@ -101,28 +97,11 @@
         <p class="text-slate-400 text-sm">都道府県を選択して検索してください</p>
     </div>
 
-    <!-- 求人タイプ分析（独立タブへ移動） -->
-    <div class="stat-card">
-        <div class="flex items-center justify-between">
-            <h3 class="text-sm text-slate-400">求人タイプ分析</h3>
-            <button hx-get="/tab/segment" hx-target="#content" hx-swap="innerHTML"
-                onclick="document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-btn')[8].classList.add('active')"
-                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition flex items-center gap-2">
-                🎯 求人タイプ分析タブへ →
-            </button>
-        </div>
-        <p class="text-slate-500 text-sm mt-2">給与・待遇・条件などの軸で求人を分類した詳細分析は専用タブで確認できます</p>
-    </div>
-
     <!-- 求人データ分析パネル -->
     <div class="stat-card">
         <div class="flex items-center justify-between mb-3">
             <h3 class="text-sm text-slate-400">求人データ分析</h3>
             <div class="flex gap-2 items-center">
-                <button onclick="loadAnalysis()"
-                    class="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg transition">
-                    全国データを分析
-                </button>
                 <button onclick="loadAnalysisFiltered()"
                     class="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white text-sm rounded-lg transition">
                     選択地域で分析
@@ -130,7 +109,7 @@
             </div>
         </div>
         <div id="comp-analysis">
-            <p class="text-slate-500 text-sm">「全国データを分析」または地域を選択して「選択地域で分析」をクリックしてください</p>
+            <p class="text-slate-500 text-sm">都道府県を選択して「選択地域で分析」をクリックしてください</p>
         </div>
     </div>
 
@@ -275,6 +254,25 @@ function updateFacilityTypes(pref) {
         });
 }
 
+// --- 都道府県変更時のカスケード処理 ---
+function onCompPrefChange(pref) {
+    // 市区町村を取得
+    var muniUrl = '/api/competitive/municipalities?prefecture=' + encodeURIComponent(pref);
+    fetch(muniUrl).then(function(r) { return r.text(); }).then(function(html) {
+        var sel = document.getElementById('comp-muni');
+        if (sel) {
+            var parser = new DOMParser();
+            var doc = parser.parseFromString('<select>' + html + '</select>', 'text/html');
+            var newSel = doc.querySelector('select');
+            while (sel.options.length > 0) sel.remove(0);
+            while (newSel.firstChild) sel.appendChild(document.adoptNode(newSel.firstChild));
+            sel.selectedIndex = 0;
+        }
+    });
+    // 事業所形態・産業分類も更新
+    updateFacilityTypes(pref);
+}
+
 // --- 検索・分析 ---
 
 function searchCompetitive() {
@@ -305,13 +303,6 @@ function searchCompetitive() {
         + '&radius_km=' + radius;
 
     htmx.ajax('GET', url, {target: '#comp-results', swap: 'innerHTML'});
-}
-
-function loadAnalysis() {
-    htmx.ajax('GET', '/api/competitive/analysis', {
-        target: '#comp-analysis',
-        swap: 'innerHTML'
-    });
 }
 
 function loadAnalysisFiltered() {

@@ -6,16 +6,6 @@
   <!-- フィルタバー -->
   <div class="stat-card">
     <div class="flex flex-wrap items-end gap-3">
-      <!-- 表示モード -->
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">表示モード</label>
-        <select id="jm-view-mode" onchange="postingMap.switchViewMode(this.value)"
-                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
-          <option value="postings">求人マーカー</option>
-          <option value="seekers">求職者分布</option>
-          <option value="hybrid">求人+求職者</option>
-        </select>
-      </div>
       <div>
         <label class="block text-xs text-gray-400 mb-1">都道府県</label>
         <select id="jm-pref" name="prefecture"
@@ -70,12 +60,16 @@
               title="全画面表示">
         ⛶ 全画面
       </button>
+      <button id="jm-back-btn" onclick="toggleJobmapFullscreen()" style="display:none;"
+              class="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded px-4 py-1.5 transition-colors">
+        ✕ 戻る
+      </button>
       <span id="jm-count" class="text-gray-400 text-sm ml-2"></span>
     </div>
   </div>
 
-  <!-- レイヤーコントロール（seekers/hybridモード時のみ表示） -->
-  <div id="jm-layer-controls" class="stat-card hidden">
+  <!-- レイヤーコントロール（V2では使用しない） -->
+  <div id="jm-layer-controls" class="stat-card hidden" style="display:none !important;">
     <div class="flex items-center gap-4 flex-wrap">
       <span class="text-sm font-medium text-gray-300">レイヤー:</span>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> エリア色分け</label>
@@ -218,36 +212,33 @@
     padding: 0 !important;
     border-radius: 0 !important;
     overflow: hidden;
+    display: flex !important;
+    flex-direction: column !important;
   }
-  .jm-fullscreen .space-y-4 { gap: 0 !important; }
   .jm-fullscreen > h2,
   .jm-fullscreen > #jm-layer-controls,
   .jm-fullscreen > #jm-pin-fields-wrap,
   .jm-fullscreen > #jm-pinned-stats { display: none !important; }
   .jm-fullscreen > .stat-card:first-of-type {
-    position: absolute !important;
-    top: 10px !important;
-    left: 10px !important;
-    right: 10px !important;
-    z-index: 10000 !important;
-    background: rgba(15, 23, 42, 0.92) !important;
-    backdrop-filter: blur(8px) !important;
-    border-radius: 8px !important;
-    padding: 8px 12px !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+    flex-shrink: 0 !important;
+    background: rgba(15, 23, 42, 0.95) !important;
+    border-radius: 0 !important;
+    padding: 6px 12px !important;
     margin: 0 !important;
+    border-bottom: 1px solid #374151 !important;
   }
   .jm-fullscreen #jm-main-container {
-    height: 100vh !important;
-    min-height: 100vh !important;
+    height: 100% !important;
+    min-height: 0 !important;
     border-radius: 0 !important;
+    flex: 1 !important;
   }
   .jm-fullscreen #jm-map-container {
     border-radius: 0 !important;
   }
-  .jm-fullscreen #jm-fullscreen-btn {
-    background: #dc2626 !important;
-  }
+  /* 全画面時: 全画面ボタン非表示、戻るボタン表示 */
+  .jm-fullscreen #jm-fullscreen-btn { display: none !important; }
+  .jm-fullscreen #jm-back-btn { display: inline-block !important; }
 </style>
 <script src="/static/js/postingmap.js?v=4"></script>
 <script>
@@ -255,9 +246,27 @@
     var wrap = document.querySelector('#tab-content > div > div.space-y-4') ||
                document.querySelector('.space-y-4');
     if (!wrap) return;
-    var btn = document.getElementById('jm-fullscreen-btn');
     var isFs = wrap.classList.toggle('jm-fullscreen');
-    if (btn) btn.textContent = isFs ? '\u2715 \u623b\u308b' : '\u26f6 \u5168\u753b\u9762';
+
+    // グローバルヘッダー（都道府県・市区町村・産業フィルタ）を全画面の上に表示
+    var header = document.querySelector('header');
+    var nav = document.querySelector('nav.bg-navy-800');
+    var breadcrumb = document.getElementById('breadcrumb-bar');
+    var mainEl = document.getElementById('content');
+    if (header) {
+      header.style.zIndex = isFs ? '10001' : '';
+      header.style.position = isFs ? 'fixed' : '';
+      header.style.top = isFs ? '0' : '';
+      header.style.left = isFs ? '0' : '';
+      header.style.right = isFs ? '0' : '';
+      // 全画面コンテナをヘッダー直下から開始
+      var hh = header.offsetHeight || 52;
+      wrap.style.top = isFs ? hh + 'px' : '';
+    }
+    if (nav) nav.style.display = isFs ? 'none' : '';
+    if (breadcrumb) breadcrumb.style.display = isFs ? 'none' : '';
+    if (mainEl) mainEl.style.padding = isFs ? '0' : '';
+
     if (typeof postingMap !== 'undefined') {
       setTimeout(function() { postingMap.init(); }, 100);
     }
