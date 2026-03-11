@@ -317,8 +317,12 @@ function searchCompetitive() {
 function loadAnalysisFiltered() {
     var pref = document.getElementById('comp-pref').value;
     var muni = document.getElementById('comp-muni').value;
+    var stype = document.getElementById('comp-stype').value;
+    var ftype = getSelectedFtypes();
     var url = '/api/competitive/analysis/filter?prefecture=' + encodeURIComponent(pref)
-        + '&municipality=' + encodeURIComponent(muni);
+        + '&municipality=' + encodeURIComponent(muni)
+        + '&service_type=' + encodeURIComponent(stype)
+        + '&facility_type=' + encodeURIComponent(ftype);
     htmx.ajax('GET', url, {
         target: '#comp-analysis',
         swap: 'innerHTML'

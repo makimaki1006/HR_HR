@@ -717,6 +717,8 @@ pub(crate) fn fetch_nearby_postings(
     muni: &str,
     radius_km: f64,
     emp: &str,
+    stype: &str,
+    ftype: &str,
 ) -> Vec<PostingRow> {
     let center = match get_geocode(db, pref, muni) {
         Some(c) => c,
@@ -784,6 +786,22 @@ pub(crate) fn fetch_nearby_postings(
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");
         param_values.push(SqlValue::Text(emp.to_string()));
+    }
+    // 産業分類フィルタ（industry_raw）
+    if !stype.is_empty() {
+        sql.push_str(" AND industry_raw = ?");
+        param_values.push(SqlValue::Text(stype.to_string()));
+    }
+    // 事業所形態フィルタ（job_type、カンマ区切り複数対応）
+    if !ftype.is_empty() {
+        let types: Vec<&str> = ftype.split(',').filter(|s| !s.is_empty()).collect();
+        if !types.is_empty() {
+            let placeholders = vec!["?"; types.len()].join(",");
+            sql.push_str(&format!(" AND job_type IN ({})", placeholders));
+            for t in &types {
+                param_values.push(SqlValue::Text(t.to_string()));
+            }
+        }
     }
     sql.push_str(" ORDER BY salary_min DESC");
 

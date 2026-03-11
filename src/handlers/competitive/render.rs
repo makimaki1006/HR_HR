@@ -86,6 +86,8 @@ pub(crate) fn render_posting_table(
     nearby: bool,
     radius_km: f64,
     emp: &str,
+    stype: &str,
+    ftype: &str,
 ) -> Html<String> {
     let show_distance = nearby && postings.iter().any(|p| p.distance_km.is_some());
 
@@ -124,7 +126,7 @@ pub(crate) fn render_posting_table(
     html.push_str(&format!(
         r#"<div class="flex justify-between items-center mb-2">
             <span class="text-sm text-slate-400">全{}件中 {}〜{}件</span>
-            <a href="/api/report?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}"
+            <a href="/api/report?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}&service_type={}&facility_type={}"
                target="_blank"
                class="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-sm rounded-lg transition">
                HTMLレポート出力
@@ -138,6 +140,8 @@ pub(crate) fn render_posting_table(
         urlencoding::encode(emp),
         nearby,
         radius_km,
+        urlencoding::encode(stype),
+        urlencoding::encode(ftype),
     ));
 
     // テーブル
@@ -232,12 +236,14 @@ pub(crate) fn render_posting_table(
     if total_pages > 1 {
         html.push_str(r#"<div class="flex justify-center gap-2 mt-4">"#);
         let base_url = format!(
-            "/api/competitive/filter?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}",
+            "/api/competitive/filter?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}&service_type={}&facility_type={}",
             urlencoding::encode(pref),
             urlencoding::encode(muni),
             urlencoding::encode(emp),
             nearby,
             radius_km,
+            urlencoding::encode(stype),
+            urlencoding::encode(ftype),
         );
         if page > 1 {
             html.push_str(&format!(

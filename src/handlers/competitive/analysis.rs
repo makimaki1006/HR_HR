@@ -16,7 +16,7 @@ pub(crate) struct AnalysisData {
 }
 
 pub(crate) fn fetch_analysis(db: &crate::db::local_sqlite::LocalDb, job_type: &str) -> AnalysisData {
-    fetch_analysis_filtered(db, job_type, "", "")
+    fetch_analysis_filtered(db, job_type, "", "", "", "")
 }
 
 pub(crate) fn fetch_analysis_filtered(
@@ -24,6 +24,8 @@ pub(crate) fn fetch_analysis_filtered(
     job_type: &str,
     pref: &str,
     muni: &str,
+    stype: &str,
+    ftype: &str,
 ) -> AnalysisData {
     let mut data = AnalysisData {
         total: 0,
@@ -49,6 +51,22 @@ pub(crate) fn fetch_analysis_filtered(
     if !muni.is_empty() {
         where_clause.push_str(" AND municipality = ?");
         param_values.push(muni.to_string());
+    }
+    // 産業分類フィルタ
+    if !stype.is_empty() {
+        where_clause.push_str(" AND industry_raw = ?");
+        param_values.push(stype.to_string());
+    }
+    // 事業所形態フィルタ（カンマ区切り複数対応）
+    if !ftype.is_empty() {
+        let types: Vec<&str> = ftype.split(',').filter(|s| !s.is_empty()).collect();
+        if !types.is_empty() {
+            let placeholders = vec!["?"; types.len()].join(",");
+            where_clause.push_str(&format!(" AND job_type IN ({})", placeholders));
+            for t in &types {
+                param_values.push(t.to_string());
+            }
+        }
     }
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values

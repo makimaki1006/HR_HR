@@ -91,7 +91,7 @@ pub async fn comp_filter(
 
     // 近隣検索はhaversineフィルタがあるためRust側でページネーション
     if nearby && !muni.is_empty() {
-        let postings = fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp);
+        let postings = fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp, stype, ftype);
         let total = postings.len() as i64;
         let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
         let start = ((page - 1) * page_size) as usize;
@@ -101,7 +101,7 @@ pub async fn comp_filter(
         let salary_stats = calc_salary_stats(&postings);
         return render_posting_table(
             &industry_label, pref, muni, page_data, &salary_stats,
-            page, total_pages, total, nearby, radius_km, emp,
+            page, total_pages, total, nearby, radius_km, emp, stype, ftype,
         );
     }
 
@@ -113,7 +113,7 @@ pub async fn comp_filter(
 
     render_posting_table(
         &industry_label, pref, muni, &postings, &salary_stats,
-        page, total_pages, total, nearby, radius_km, emp,
+        page, total_pages, total, nearby, radius_km, emp, stype, ftype,
     )
 }
 
@@ -271,6 +271,8 @@ pub async fn comp_analysis(
 pub struct AnalysisParams {
     pub prefecture: Option<String>,
     pub municipality: Option<String>,
+    pub service_type: Option<String>,
+    pub facility_type: Option<String>,
 }
 
 pub async fn comp_analysis_filtered(
@@ -288,7 +290,9 @@ pub async fn comp_analysis_filtered(
 
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
-    let analysis = fetch_analysis_filtered(db, &industry_label, pref, muni);
+    let stype = params.service_type.as_deref().unwrap_or("");
+    let ftype = params.facility_type.as_deref().unwrap_or("");
+    let analysis = fetch_analysis_filtered(db, &industry_label, pref, muni, stype, ftype);
     let scope_label = if !muni.is_empty() {
         format!("{} {}", pref, muni)
     } else if !pref.is_empty() {
@@ -316,6 +320,8 @@ pub async fn comp_report(
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
+    let stype = params.service_type.as_deref().unwrap_or("");
+    let ftype = params.facility_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
     let radius_km = params.radius_km.unwrap_or(10.0);
 
@@ -324,9 +330,9 @@ pub async fn comp_report(
     }
 
     let postings = if nearby && !muni.is_empty() {
-        fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp)
+        fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp, stype, ftype)
     } else {
-        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp, "", "", None, None)
+        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp, stype, ftype, None, None)
     };
 
     let stats = calc_salary_stats(&postings);
