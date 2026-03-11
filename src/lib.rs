@@ -220,12 +220,20 @@ async fn login_submit(
     }
 
     // パスワードチェック: 社内（無期限） + 外部（有効期限付き）
+    tracing::info!(
+        "Login attempt: email={}, pw_len={}, external_count={}, external_pw_lens={:?}",
+        &form.email,
+        form.password.len(),
+        state.config.external_passwords.len(),
+        state.config.external_passwords.iter().map(|e| (e.password.len(), &e.expires)).collect::<Vec<_>>(),
+    );
     let (pw_ok, expired_msg) = verify_password_with_externals(
         &form.password,
         &state.config.auth_password,
         &state.config.auth_password_hash,
         &state.config.external_passwords,
     );
+    tracing::info!("Login result: ok={}, expired_msg={:?}", pw_ok, expired_msg);
     if !pw_ok {
         state.rate_limiter.record_failure(&client_ip);
         let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
