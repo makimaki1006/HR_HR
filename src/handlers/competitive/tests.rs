@@ -23,6 +23,14 @@ fn make_posting(salary_min: i64, salary_max: i64, bonus: &str, holidays: i64) ->
         recruitment_reason: String::new(),
         benefits: if bonus.is_empty() { String::new() } else { format!("賞与{}", bonus) },
         working_hours: String::new(),
+        experience_required: String::new(),
+        occupation_detail: String::new(),
+        education_required: String::new(),
+        raise_amount: String::new(),
+        bonus_amount: String::new(),
+        bonus_months: 0.0,
+        employee_count: 0,
+        company_features: String::new(),
     }
 }
 

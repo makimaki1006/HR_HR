@@ -19,7 +19,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 
 use auth::{
-    require_auth, validate_email_domain, verify_password,
+    require_auth, validate_email_domain, verify_password_with_externals,
     SESSION_JOB_TYPE_KEY, SESSION_JOB_TYPES_KEY, SESSION_INDUSTRY_RAWS_KEY,
     SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY, SESSION_USER_KEY,
 };
@@ -205,7 +205,12 @@ async fn login_submit(
         .into_response();
     }
 
-    if !validate_email_domain(&form.email, &state.config.allowed_domains) {
+    // ドメインチェック: 社内ドメイン + 外部追加ドメインの両方を許可
+    let all_domains: Vec<String> = state.config.allowed_domains.iter()
+        .chain(state.config.allowed_domains_extra.iter())
+        .cloned()
+        .collect();
+    if !validate_email_domain(&form.email, &all_domains) {
         state.rate_limiter.record_failure(&client_ip);
         return render_login(
             &state,
@@ -214,17 +219,17 @@ async fn login_submit(
         .into_response();
     }
 
-    if !verify_password(
+    // パスワードチェック: 社内（無期限） + 外部（有効期限付き）
+    let (pw_ok, expired_msg) = verify_password_with_externals(
         &form.password,
         &state.config.auth_password,
         &state.config.auth_password_hash,
-    ) {
+        &state.config.external_passwords,
+    );
+    if !pw_ok {
         state.rate_limiter.record_failure(&client_ip);
-        return render_login(
-            &state,
-            Some("パスワードが正しくありません".to_string()),
-        )
-        .into_response();
+        let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
+        return render_login(&state, Some(msg)).into_response();
     }
 
     state.rate_limiter.record_success(&client_ip);
