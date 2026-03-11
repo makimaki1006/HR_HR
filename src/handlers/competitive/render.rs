@@ -45,13 +45,14 @@ pub(crate) fn render_competitive(
         .replace("{{FTYPE_CHECKBOXES}}", &{
             let mut html = String::new();
             for (i, (jt, cnt)) in ftype_options.iter().enumerate() {
-                let esc = escape_html(jt);
+                let raw = jt.replace('"', "&quot;");
+                let disp = escape_html(jt);
                 let cnt_s = format_number(*cnt);
                 html.push_str(&format!(
                     r#"<label class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded cursor-pointer">
-                        <input type="checkbox" class="ftype-major-cb rounded" value="{esc}" data-group="g{i}"
+                        <input type="checkbox" class="ftype-major-cb rounded" value="{raw}" data-group="g{i}"
                             onchange="onMajorToggle(this)">
-                        <span class="text-sm text-white flex-1">{esc}</span>
+                        <span class="text-sm text-white flex-1">{disp}</span>
                         <span class="text-xs text-slate-400">{cnt_s}</span>
                     </label>"#,
                 ));
@@ -61,10 +62,11 @@ pub(crate) fn render_competitive(
         .replace("{{STYPE_OPTIONS}}", &{
             let mut html = String::new();
             for (name, cnt) in stype_options {
-                let esc = escape_html(name);
+                let raw = name.replace('"', "&quot;");
+                let disp = escape_html(name);
                 let cnt_s = format_number(*cnt);
                 html.push_str(&format!(
-                    r#"<option value="{esc}">{esc} ({cnt_s})</option>"#,
+                    r#"<option value="{raw}">{disp} ({cnt_s})</option>"#,
                 ));
             }
             html

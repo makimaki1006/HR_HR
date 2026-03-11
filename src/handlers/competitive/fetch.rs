@@ -208,28 +208,66 @@ pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)
         .collect()
 }
 
-/// 産業分類（industry_raw）一覧取得
-pub(crate) fn fetch_industry_raws(state: &AppState, pref: &str) -> Vec<(String, i64)> {
+/// 事業所形態（job_type）一覧取得（都道府県+市区町村フィルタ対応）
+pub(crate) fn fetch_job_types_filtered(state: &AppState, pref: &str, muni: &str) -> Vec<(String, i64)> {
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Vec::new(),
     };
 
-    let (sql, param_values) = if pref.is_empty() {
-        (
-            "SELECT industry_raw, COUNT(*) as cnt \
-             FROM postings WHERE industry_raw IS NOT NULL AND industry_raw != '' \
-             GROUP BY industry_raw ORDER BY cnt DESC".to_string(),
-            vec![],
-        )
-    } else {
-        (
-            "SELECT industry_raw, COUNT(*) as cnt \
-             FROM postings WHERE prefecture = ? AND industry_raw IS NOT NULL AND industry_raw != '' \
-             GROUP BY industry_raw ORDER BY cnt DESC".to_string(),
-            vec![pref.to_string()],
-        )
+    let mut sql = "SELECT job_type, COUNT(*) as cnt FROM postings WHERE job_type IS NOT NULL AND job_type != ''".to_string();
+    let mut param_values: Vec<String> = Vec::new();
+
+    if !pref.is_empty() {
+        sql.push_str(" AND prefecture = ?");
+        param_values.push(pref.to_string());
+    }
+    if !muni.is_empty() {
+        sql.push_str(" AND municipality = ?");
+        param_values.push(muni.to_string());
+    }
+    sql.push_str(" GROUP BY job_type ORDER BY cnt DESC");
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = db.query(&sql, &params_ref).unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| {
+            let jt = r.get("job_type").and_then(|v| v.as_str())?.to_string();
+            let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+            if jt.is_empty() { None } else { Some((jt, cnt)) }
+        })
+        .collect()
+}
+
+/// 産業分類（industry_raw）一覧取得
+pub(crate) fn fetch_industry_raws(state: &AppState, pref: &str) -> Vec<(String, i64)> {
+    fetch_industry_raws_filtered(state, pref, "")
+}
+
+/// 産業分類（industry_raw）一覧取得（都道府県+市区町村フィルタ対応）
+pub(crate) fn fetch_industry_raws_filtered(state: &AppState, pref: &str, muni: &str) -> Vec<(String, i64)> {
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Vec::new(),
     };
+
+    let mut sql = "SELECT industry_raw, COUNT(*) as cnt FROM postings WHERE industry_raw IS NOT NULL AND industry_raw != ''".to_string();
+    let mut param_values: Vec<String> = Vec::new();
+
+    if !pref.is_empty() {
+        sql.push_str(" AND prefecture = ?");
+        param_values.push(pref.to_string());
+    }
+    if !muni.is_empty() {
+        sql.push_str(" AND municipality = ?");
+        param_values.push(muni.to_string());
+    }
+    sql.push_str(" GROUP BY industry_raw ORDER BY cnt DESC");
 
     let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()

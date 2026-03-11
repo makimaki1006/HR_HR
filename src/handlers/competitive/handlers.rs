@@ -10,8 +10,8 @@ use crate::handlers::overview::{format_number, get_session_filters};
 use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
 use super::fetch::{
     count_postings, fetch_competitive, fetch_industry_raws, fetch_job_types,
-    fetch_nearby_postings, fetch_postings, fetch_prefectures,
-    fetch_salary_stats_sql,
+    fetch_job_types_filtered, fetch_nearby_postings, fetch_postings,
+    fetch_prefectures, fetch_salary_stats_sql,
 };
 use super::render::{
     render_analysis_html, render_analysis_html_with_scope, render_competitive,
@@ -117,10 +117,11 @@ pub async fn comp_filter(
     )
 }
 
-/// 市区町村一覧API
+/// 市区町村一覧API / ドロップダウン絞り込み共通パラメータ
 #[derive(Deserialize)]
 pub struct MuniParams {
     pub prefecture: Option<String>,
+    pub municipality: Option<String>,
 }
 
 pub async fn comp_municipalities(
@@ -171,7 +172,8 @@ pub async fn comp_facility_types(
     Query(params): Query<MuniParams>,
 ) -> Html<String> {
     let pref = params.prefecture.as_deref().unwrap_or("");
-    let job_types = fetch_job_types(&state, pref);
+    let muni = params.municipality.as_deref().unwrap_or("");
+    let job_types = fetch_job_types_filtered(&state, pref, muni);
 
     if job_types.is_empty() {
         return Html(r#"<div class="text-sm text-slate-400 p-2">データがありません</div>"#.to_string());
@@ -179,12 +181,13 @@ pub async fn comp_facility_types(
 
     let mut html = String::new();
     for (i, (jt, cnt)) in job_types.iter().enumerate() {
-        let esc = escape_html(jt);
+        let raw = jt.replace('"', "&quot;");
+        let disp = escape_html(jt);
         html.push_str(&format!(
             r#"<label class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded cursor-pointer">
-                <input type="checkbox" class="ftype-major-cb rounded" value="{esc}" data-group="g{i}"
+                <input type="checkbox" class="ftype-major-cb rounded" value="{raw}" data-group="g{i}"
                     onchange="onMajorToggle(this)">
-                <span class="text-sm text-white flex-1">{esc}</span>
+                <span class="text-sm text-white flex-1">{disp}</span>
                 <span class="text-xs text-slate-400">{cnt_s}</span>
             </label>"#,
             cnt_s = format_number(*cnt),
@@ -207,12 +210,17 @@ pub async fn comp_service_types(
     };
 
     let pref = params.prefecture.as_deref().unwrap_or("");
+    let muni = params.municipality.as_deref().unwrap_or("");
     let mut sql = "SELECT industry_raw, COUNT(*) as cnt FROM postings WHERE length(industry_raw) > 0".to_string();
     let mut param_values: Vec<String> = Vec::new();
 
     if !pref.is_empty() {
         sql.push_str(" AND prefecture = ?");
         param_values.push(pref.to_string());
+    }
+    if !muni.is_empty() {
+        sql.push_str(" AND municipality = ?");
+        param_values.push(muni.to_string());
     }
     filters.append_industry_filter_str(&mut sql, &mut param_values);
     sql.push_str(" GROUP BY industry_raw ORDER BY cnt DESC");
@@ -229,9 +237,12 @@ pub async fn comp_service_types(
         let name = row.get("industry_raw").and_then(|v| v.as_str()).unwrap_or("");
         let cnt = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
         if !name.is_empty() {
+            // valueにはraw値を使い、表示名のみエスケープ
             html.push_str(&format!(
-                r#"<option value="{}">{} ({})</option>"#,
-                escape_html(name), escape_html(name), format_number(cnt)
+                r#"<option value="{raw}">{disp} ({cnt_s})</option>"#,
+                raw = name.replace('"', "&quot;"),
+                disp = escape_html(name),
+                cnt_s = format_number(cnt),
             ));
         }
     }
