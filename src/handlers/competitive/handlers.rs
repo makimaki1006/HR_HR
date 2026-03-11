@@ -9,7 +9,7 @@ use crate::AppState;
 use crate::handlers::overview::{format_number, get_session_filters};
 use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
 use super::fetch::{
-    count_postings, fetch_competitive, fetch_job_types,
+    count_postings, fetch_competitive, fetch_industry_raws, fetch_job_types,
     fetch_nearby_postings, fetch_postings, fetch_prefectures,
     fetch_salary_stats_sql,
 };
@@ -36,9 +36,8 @@ pub async fn tab_competitive(
 
     let stats = fetch_competitive(&state, &filters);
     let pref_options = fetch_prefectures(&state, &filters);
-    // facility_type/service_type は廃止、空のVecを渡す
-    let ftype_options: Vec<(String, i64)> = Vec::new();
-    let stype_options: Vec<(String, i64)> = Vec::new();
+    let ftype_options = fetch_job_types(&state, "");
+    let stype_options = fetch_industry_raws(&state, "");
     let html = render_competitive(&industry_label, &stats, &pref_options, &ftype_options, &stype_options);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -50,6 +49,8 @@ pub struct CompFilterParams {
     pub prefecture: Option<String>,
     pub municipality: Option<String>,
     pub employment_type: Option<String>,
+    pub service_type: Option<String>,
+    pub facility_type: Option<String>,
     pub nearby: Option<bool>,
     pub radius_km: Option<f64>,
     pub page: Option<i64>,
@@ -74,6 +75,8 @@ pub async fn comp_filter(
     let pref = if pref.is_empty() { &filters.prefecture } else { pref };
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
+    let stype = params.service_type.as_deref().unwrap_or("");
+    let ftype = params.facility_type.as_deref().unwrap_or("");
     let nearby = params.nearby.unwrap_or(false);
     let radius_km = params.radius_km.unwrap_or(10.0);
     let page = params.page.unwrap_or(1).max(1);
@@ -103,10 +106,10 @@ pub async fn comp_filter(
     }
 
     // 通常検索: SQLレベルのページネーション + SQL給与統計
-    let total = count_postings(db, &filters, pref, muni_opt, emp);
+    let total = count_postings(db, &filters, pref, muni_opt, emp, stype, ftype);
     let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
-    let postings = fetch_postings(db, &filters, pref, muni_opt, emp, Some(page), Some(page_size));
-    let salary_stats = fetch_salary_stats_sql(db, &filters, pref, muni_opt, emp);
+    let postings = fetch_postings(db, &filters, pref, muni_opt, emp, stype, ftype, Some(page), Some(page_size));
+    let salary_stats = fetch_salary_stats_sql(db, &filters, pref, muni_opt, emp, stype, ftype);
 
     render_posting_table(
         &industry_label, pref, muni, &postings, &salary_stats,
@@ -161,7 +164,7 @@ pub async fn comp_municipalities(
     Html(html)
 }
 
-/// 産業一覧API（facility_typesの代替、都道府県変更時にHTMXで取得）
+/// 事業所形態一覧API（job_typeのチェックボックスHTMLを返す）
 pub async fn comp_facility_types(
     State(state): State<Arc<AppState>>,
     _session: Session,
@@ -175,27 +178,64 @@ pub async fn comp_facility_types(
     }
 
     let mut html = String::new();
-    for (jt, cnt) in &job_types {
+    for (i, (jt, cnt)) in job_types.iter().enumerate() {
+        let esc = escape_html(jt);
         html.push_str(&format!(
-            r#"<div class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded">
-                <span class="text-sm text-white flex-1">{}</span>
-                <span class="text-xs text-slate-400">{}</span>
-            </div>"#,
-            escape_html(jt), format_number(*cnt)
+            r#"<label class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded cursor-pointer">
+                <input type="checkbox" class="ftype-major-cb rounded" value="{esc}" data-group="g{i}"
+                    onchange="onMajorToggle(this)">
+                <span class="text-sm text-white flex-1">{esc}</span>
+                <span class="text-xs text-slate-400">{cnt_s}</span>
+            </label>"#,
+            cnt_s = format_number(*cnt),
         ));
     }
 
     Html(html)
 }
 
-/// 事業形態一覧API（互換性のため残すが空データを返す）
+/// 産業分類一覧API（industry_rawのDISTINCT値を返す）
 pub async fn comp_service_types(
-    State(_state): State<Arc<AppState>>,
-    _session: Session,
-    Query(_params): Query<MuniParams>,
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<MuniParams>,
 ) -> Html<String> {
-    // service_type廃止のため空データを返す
-    Html(r#"<option value="">全て</option>"#.to_string())
+    let filters = get_session_filters(&session).await;
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Html(r#"<option value="">全て</option>"#.to_string()),
+    };
+
+    let pref = params.prefecture.as_deref().unwrap_or("");
+    let mut sql = "SELECT industry_raw, COUNT(*) as cnt FROM postings WHERE length(industry_raw) > 0".to_string();
+    let mut param_values: Vec<String> = Vec::new();
+
+    if !pref.is_empty() {
+        sql.push_str(" AND prefecture = ?");
+        param_values.push(pref.to_string());
+    }
+    filters.append_industry_filter_str(&mut sql, &mut param_values);
+    sql.push_str(" GROUP BY industry_raw ORDER BY cnt DESC");
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = db.query(&sql, &params_ref).unwrap_or_default();
+
+    let mut html = String::from(r#"<option value="">全て</option>"#);
+    for row in &rows {
+        let name = row.get("industry_raw").and_then(|v| v.as_str()).unwrap_or("");
+        let cnt = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+        if !name.is_empty() {
+            html.push_str(&format!(
+                r#"<option value="{}">{} ({})</option>"#,
+                escape_html(name), escape_html(name), format_number(cnt)
+            ));
+        }
+    }
+    Html(html)
 }
 
 /// 求人データ分析API（HTMXパーシャル）
@@ -275,7 +315,7 @@ pub async fn comp_report(
     let postings = if nearby && !muni.is_empty() {
         fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp)
     } else {
-        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp, None, None)
+        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp, "", "", None, None)
     };
 
     let stats = calc_salary_stats(&postings);

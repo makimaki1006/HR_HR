@@ -208,6 +208,45 @@ pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)
         .collect()
 }
 
+/// 産業分類（industry_raw）一覧取得
+pub(crate) fn fetch_industry_raws(state: &AppState, pref: &str) -> Vec<(String, i64)> {
+    let db = match &state.hw_db {
+        Some(db) => db,
+        None => return Vec::new(),
+    };
+
+    let (sql, param_values) = if pref.is_empty() {
+        (
+            "SELECT industry_raw, COUNT(*) as cnt \
+             FROM postings WHERE industry_raw IS NOT NULL AND industry_raw != '' \
+             GROUP BY industry_raw ORDER BY cnt DESC".to_string(),
+            vec![],
+        )
+    } else {
+        (
+            "SELECT industry_raw, COUNT(*) as cnt \
+             FROM postings WHERE prefecture = ? AND industry_raw IS NOT NULL AND industry_raw != '' \
+             GROUP BY industry_raw ORDER BY cnt DESC".to_string(),
+            vec![pref.to_string()],
+        )
+    };
+
+    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = db.query(&sql, &params_ref).unwrap_or_default();
+
+    rows.iter()
+        .filter_map(|r| {
+            let ir = r.get("industry_raw").and_then(|v| v.as_str())?.to_string();
+            let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+            if ir.is_empty() { None } else { Some((ir, cnt)) }
+        })
+        .collect()
+}
+
 /// 求人一覧取得（ヘッダーフィルタ + 追加フィルタ + ページネーション）
 /// job_typeが空の場合は全産業対象
 /// page/page_sizeが指定された場合はLIMIT/OFFSETでSQLレベルのページネーションを行う
@@ -217,6 +256,8 @@ pub(crate) fn fetch_postings(
     pref: &str,
     muni: Option<&str>,
     emp: &str,
+    stype: &str,
+    ftype: &str,
     page: Option<i64>,
     page_size: Option<i64>,
 ) -> Vec<PostingRow> {
@@ -254,6 +295,22 @@ pub(crate) fn fetch_postings(
         sql.push_str(" AND employment_type = ?");
         param_values.push(emp.to_string());
     }
+    // 産業分類フィルタ（industry_raw）
+    if !stype.is_empty() {
+        sql.push_str(" AND industry_raw = ?");
+        param_values.push(stype.to_string());
+    }
+    // 事業所形態フィルタ（job_type、カンマ区切りで複数指定可能）
+    if !ftype.is_empty() {
+        let types: Vec<&str> = ftype.split(',').filter(|s| !s.is_empty()).collect();
+        if !types.is_empty() {
+            let placeholders = vec!["?"; types.len()].join(",");
+            sql.push_str(&format!(" AND job_type IN ({})", placeholders));
+            for t in &types {
+                param_values.push(t.to_string());
+            }
+        }
+    }
     sql.push_str(" ORDER BY salary_min DESC");
 
     // LIMIT/OFFSETによるSQLレベルのページネーション
@@ -286,6 +343,8 @@ pub(crate) fn count_postings(
     pref: &str,
     muni: Option<&str>,
     emp: &str,
+    stype: &str,
+    ftype: &str,
 ) -> i64 {
     let mut sql = String::from(
         "SELECT COUNT(*) as cnt FROM postings WHERE prefecture = ?"
@@ -302,6 +361,20 @@ pub(crate) fn count_postings(
     if !emp.is_empty() && emp != "全て" {
         sql.push_str(" AND employment_type = ?");
         param_values.push(emp.to_string());
+    }
+    if !stype.is_empty() {
+        sql.push_str(" AND industry_raw = ?");
+        param_values.push(stype.to_string());
+    }
+    if !ftype.is_empty() {
+        let types: Vec<&str> = ftype.split(',').filter(|s| !s.is_empty()).collect();
+        if !types.is_empty() {
+            let placeholders = vec!["?"; types.len()].join(",");
+            sql.push_str(&format!(" AND job_type IN ({})", placeholders));
+            for t in &types {
+                param_values.push(t.to_string());
+            }
+        }
     }
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
@@ -329,6 +402,8 @@ pub(crate) fn fetch_salary_stats_sql(
     pref: &str,
     muni: Option<&str>,
     emp: &str,
+    stype: &str,
+    ftype: &str,
 ) -> SalaryStats {
     // WHERE句を構築（fetch_postingsと同じ条件）
     let mut where_clause = String::from(" WHERE prefecture = ?");
@@ -344,6 +419,20 @@ pub(crate) fn fetch_salary_stats_sql(
     if !emp.is_empty() && emp != "全て" {
         where_clause.push_str(" AND employment_type = ?");
         param_values.push(emp.to_string());
+    }
+    if !stype.is_empty() {
+        where_clause.push_str(" AND industry_raw = ?");
+        param_values.push(stype.to_string());
+    }
+    if !ftype.is_empty() {
+        let types: Vec<&str> = ftype.split(',').filter(|s| !s.is_empty()).collect();
+        if !types.is_empty() {
+            let placeholders = vec!["?"; types.len()].join(",");
+            where_clause.push_str(&format!(" AND job_type IN ({})", placeholders));
+            for t in &types {
+                param_values.push(t.to_string());
+            }
+        }
     }
 
     let empty_stats = SalaryStats {
