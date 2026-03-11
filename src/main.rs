@@ -21,6 +21,13 @@ async fn main() {
     let config = AppConfig::from_env();
     let port = config.port;
     tracing::info!("Starting hellowork_dashboard on port {}", port);
+    tracing::info!(
+        "Auth: internal={}, external={} passwords, domains={:?}, domains_extra={:?}",
+        if config.auth_password.is_empty() && config.auth_password_hash.is_empty() { "none" } else { "set" },
+        config.external_passwords.len(),
+        config.allowed_domains,
+        config.allowed_domains_extra,
+    );
 
     decompress_geojson_if_needed();
     rust_dashboard::precompress_geojson();
