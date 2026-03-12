@@ -218,7 +218,7 @@ pub(crate) fn render_posting_table(
             sal_type, sal_min, sal_max,
             occ_detail, education,
             reqs, exp_req, raise_bonus, working_hrs,
-            holidays, emp_count,
+            emp_count, holidays,
         ));
         html.push_str(&format!(
             r#"<td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td>"#,
@@ -337,7 +337,7 @@ pub(crate) fn render_report_html(
             occ_detail, education,
             reqs, exp_req, raise_bonus,
             truncate_str(&escape_html(&p.working_hours), 30),
-            holidays, emp_count,
+            emp_count, holidays,
         ));
         table_rows.push_str(&format!(
             r#"<td>{}</td><td>{}</td><td>{}</td>{}</tr>"#,
