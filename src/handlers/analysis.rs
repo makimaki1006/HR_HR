@@ -8,7 +8,7 @@
 //! Phase 5: 予測・推定（充足困難度, 地域間流動性, 給与分位表）
 //! 全指標は雇用形態（正社員/パート/その他）でセグメント化
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::Html;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -22,7 +22,17 @@ use super::helpers::{get_f64, get_i64, get_str_html, escape_html, format_number,
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
 
-/// HTMXパーシャル: V2独自分析（企業分析タブ末尾に遅延読み込み）
+/// サブタブ定義
+const ANALYSIS_SUBTABS: [(u8, &str); 6] = [
+    (1, "求人動向"),
+    (2, "給与分析"),
+    (3, "テキスト分析"),
+    (4, "市場構造"),
+    (5, "異常値・外部"),
+    (6, "予測・推定"),
+];
+
+/// HTMXパーシャル: V2独自分析（サブタブナビゲーション付き）
 pub async fn tab_analysis(
     State(state): State<Arc<AppState>>,
     session: Session,
@@ -30,77 +40,129 @@ pub async fn tab_analysis(
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
-        Some(db) => db,
+        Some(db) => db.clone(),
         None => return Html(render_no_db_data("雇用形態別分析")),
     };
 
-    let cache_key = format!("v2analysis_{}_{}_{}",
-        filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let pref = filters.prefecture.clone();
+    let muni = filters.municipality.clone();
+    let location = make_location_label(&pref, &muni);
+    let industry = filters.industry_label();
+
+    // サブタブ1のコンテンツを初期表示（spawn_blockingで実行）
+    let pref2 = pref.clone();
+    let muni2 = muni.clone();
+    let subtab1_content = tokio::task::spawn_blocking(move || {
+        render_subtab_1(&db, &pref2, &muni2)
+    }).await.unwrap_or_else(|_| render_no_db_data("雇用形態別分析"));
+
+    let mut html = String::with_capacity(16_000);
+
+    html.push_str(&format!(
+        r#"<div class="space-y-4">
+        <h2 class="text-xl font-bold text-white">雇用形態別 市場構造分析 <span class="text-blue-400 text-base font-normal">{location} {industry}</span></h2>
+        <p class="text-xs text-slate-500">正社員/パートで分けた求人市場の構造指標です</p>"#
+    ));
+
+    // サブタブナビゲーションバー
+    html.push_str(r#"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"#);
+    for (id, label) in &ANALYSIS_SUBTABS {
+        let active = if *id == 1 { " active" } else { "" };
+        html.push_str(&format!(
+            r##"<button class="analysis-subtab{active}" hx-get="/api/analysis/subtab/{id}" hx-target="#analysis-content" hx-swap="innerHTML" onclick="setAnalysisSubtab(this)">{label}</button>"##
+        ));
+    }
+    html.push_str("</div>");
+
+    // サブタブコンテンツ領域（初期はサブタブ1を表示）
+    html.push_str(r##"<div id="analysis-content">"##);
+    html.push_str(&subtab1_content);
+    html.push_str("</div>");
+
+    // サブタブ切替用JS
+    html.push_str(r#"<script>
+function setAnalysisSubtab(el) {
+    document.querySelectorAll('.analysis-subtab').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    el.classList.add('active');
+}
+</script>"#);
+
+    html.push_str("</div>");
+
+    Html(html)
+}
+
+/// サブタブAPIハンドラー（HTMX経由で呼ばれる）
+pub async fn analysis_subtab(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Path(id): Path<u8>,
+) -> Html<String> {
+    let filters = get_session_filters(&session).await;
+
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => return Html(r#"<p class="text-slate-500 text-sm p-4">データベース未接続</p>"#.to_string()),
+    };
+
+    let pref = filters.prefecture.clone();
+    let muni = filters.municipality.clone();
+
+    let cache_key = format!("v2analysis_sub{}_{}_{}_{}",
+        id, filters.industry_cache_key(), filters.prefecture, filters.municipality);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
 
-    let pref = &filters.prefecture;
-    let muni = &filters.municipality;
-    let location = make_location_label(pref, muni);
-    let industry = filters.industry_label();
+    let content = tokio::task::spawn_blocking(move || {
+        match id {
+            1 => render_subtab_1(&db, &pref, &muni),
+            2 => render_subtab_2(&db, &pref, &muni),
+            3 => render_subtab_3(&db, &pref, &muni),
+            4 => render_subtab_4(&db, &pref, &muni),
+            5 => render_subtab_5(&db, &pref, &muni),
+            6 => render_subtab_6(&db, &pref, &muni),
+            _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
+        }
+    }).await.unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
 
-    // Phase 1 データ取得
+    state.cache.set(cache_key, Value::String(content.clone()));
+    Html(content)
+}
+
+// ======== サブタブ描画関数 ========
+
+/// サブタブ1: 求人動向（vacancy, vacancy_by_industry, resilience, transparency）
+fn render_subtab_1(db: &Db, pref: &str, muni: &str) -> String {
     let vacancy = fetch_vacancy_data(db, pref, muni);
     let vacancy_by_industry = fetch_vacancy_by_industry(db, pref, muni);
     let resilience = fetch_resilience_data(db, pref, muni);
     let transparency = fetch_transparency_data(db, pref, muni);
 
-    // Phase 2 データ取得（テーブル存在確認付き）
-    let temperature = fetch_temperature_data(db, pref, muni);
-    let competition = fetch_competition_data(db, pref);
-    let anomaly = fetch_anomaly_data(db, pref, muni);
-    let cascade = fetch_cascade_data(db, pref, muni);
+    let mut html = String::with_capacity(16_000);
+    html.push_str(r#"<div class="space-y-6">"#);
 
-    // Phase 1B: 給与分析
-    let salary_structure = fetch_salary_structure(db, pref, muni);
-    let salary_comp = fetch_salary_competitiveness(db, pref, muni);
-    let compensation = fetch_compensation_package(db, pref, muni);
-
-    // Phase 2B: テキスト分析
-    let text_quality = fetch_text_quality(db, pref, muni);
-    let keyword_profile = fetch_keyword_profile(db, pref, muni);
-
-    // Phase 3: 市場構造
-    let employer_strategy = fetch_employer_strategy(db, pref, muni);
-    let monopsony = fetch_monopsony_data(db, pref, muni);
-    let spatial = if !muni.is_empty() { fetch_spatial_mismatch(db, pref, muni) } else { vec![] };
-
-    let mut html = String::with_capacity(64_000);
-
-    html.push_str(&format!(
-        r#"<div class="space-y-6">
-        <h2 class="text-xl font-bold text-white">雇用形態別 市場構造分析 <span class="text-blue-400 text-base font-normal">{location} {industry}</span></h2>
-        <p class="text-xs text-slate-500">正社員/パートで分けた求人市場の構造指標です</p>"#
-    ));
-
-    // Phase 1
     html.push_str(&render_vacancy_section(&vacancy, &vacancy_by_industry));
     html.push_str(&render_resilience_section(&resilience));
     html.push_str(&render_transparency_section(&transparency));
 
-    // Phase 2
-    if !temperature.is_empty() {
-        html.push_str(&render_temperature_section(&temperature));
-    }
-    if !competition.is_empty() {
-        html.push_str(&render_competition_section(&competition));
-    }
-    if !anomaly.is_empty() {
-        html.push_str(&render_anomaly_section(&anomaly));
-    }
-    if !cascade.is_empty() {
-        html.push_str(&render_cascade_section(&cascade));
-    }
+    html.push_str("</div>");
+    html
+}
 
-    // Phase 1B: 給与分析
+/// サブタブ2: 給与分析（salary_structure, salary_competitiveness, compensation）
+fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
+    let salary_structure = fetch_salary_structure(db, pref, muni);
+    let salary_comp = fetch_salary_competitiveness(db, pref, muni);
+    let compensation = fetch_compensation_package(db, pref, muni);
+
+    let mut html = String::with_capacity(12_000);
+    html.push_str(r#"<div class="space-y-6">"#);
+
     if !salary_structure.is_empty() {
         html.push_str(&render_salary_structure_section(&salary_structure));
     }
@@ -110,16 +172,51 @@ pub async fn tab_analysis(
     if !compensation.is_empty() {
         html.push_str(&render_compensation_section(&compensation));
     }
+    if salary_structure.is_empty() && salary_comp.is_empty() && compensation.is_empty() {
+        html.push_str(r#"<p class="text-slate-500 text-sm">給与分析データがありません</p>"#);
+    }
 
-    // Phase 2B: テキスト分析
+    html.push_str("</div>");
+    html
+}
+
+/// サブタブ3: テキスト分析（text_quality, keyword_profile, temperature）
+fn render_subtab_3(db: &Db, pref: &str, muni: &str) -> String {
+    let text_quality = fetch_text_quality(db, pref, muni);
+    let keyword_profile = fetch_keyword_profile(db, pref, muni);
+    let temperature = fetch_temperature_data(db, pref, muni);
+
+    let mut html = String::with_capacity(12_000);
+    html.push_str(r#"<div class="space-y-6">"#);
+
     if !text_quality.is_empty() {
         html.push_str(&render_text_quality_section(&text_quality));
     }
     if !keyword_profile.is_empty() {
         html.push_str(&render_keyword_profile_section(&keyword_profile));
     }
+    if !temperature.is_empty() {
+        html.push_str(&render_temperature_section(&temperature));
+    }
+    if text_quality.is_empty() && keyword_profile.is_empty() && temperature.is_empty() {
+        html.push_str(r#"<p class="text-slate-500 text-sm">テキスト分析データがありません</p>"#);
+    }
 
-    // Phase 3: 市場構造
+    html.push_str("</div>");
+    html
+}
+
+/// サブタブ4: 市場構造（employer_strategy, monopsony, spatial_mismatch, competition, cascade）
+fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
+    let employer_strategy = fetch_employer_strategy(db, pref, muni);
+    let monopsony = fetch_monopsony_data(db, pref, muni);
+    let spatial = if !muni.is_empty() { fetch_spatial_mismatch(db, pref, muni) } else { vec![] };
+    let competition = fetch_competition_data(db, pref);
+    let cascade = fetch_cascade_data(db, pref, muni);
+
+    let mut html = String::with_capacity(16_000);
+    html.push_str(r#"<div class="space-y-6">"#);
+
     if !employer_strategy.is_empty() {
         html.push_str(&render_employer_strategy_section(&employer_strategy));
     }
@@ -129,14 +226,37 @@ pub async fn tab_analysis(
     if !spatial.is_empty() {
         html.push_str(&render_spatial_mismatch_section(&spatial));
     }
+    if !competition.is_empty() {
+        html.push_str(&render_competition_section(&competition));
+    }
+    if !cascade.is_empty() {
+        html.push_str(&render_cascade_section(&cascade));
+    }
+    if employer_strategy.is_empty() && monopsony.is_empty() && spatial.is_empty()
+        && competition.is_empty() && cascade.is_empty() {
+        html.push_str(r#"<p class="text-slate-500 text-sm">市場構造データがありません</p>"#);
+    }
 
-    // Phase 4: 外部データ統合分析
+    html.push_str("</div>");
+    html
+}
+
+/// サブタブ5: 異常値・外部（anomaly, minimum_wage, wage_compliance, region_benchmark）
+fn render_subtab_5(db: &Db, pref: &str, muni: &str) -> String {
+    let anomaly = fetch_anomaly_data(db, pref, muni);
     let minimum_wage = fetch_minimum_wage(db, pref);
     let wage_compliance = fetch_wage_compliance(db, pref, muni);
     let region_benchmark = fetch_region_benchmark(db, pref, muni);
 
+    let mut html = String::with_capacity(16_000);
+    html.push_str(r#"<div class="space-y-6">"#);
+
+    if !anomaly.is_empty() {
+        html.push_str(&render_anomaly_section(&anomaly));
+    }
+
     if !minimum_wage.is_empty() || !wage_compliance.is_empty() || !region_benchmark.is_empty() {
-        html.push_str(r#"<div class="border-t border-slate-700 my-6 pt-4">
+        html.push_str(r#"<div class="border-t border-slate-700 my-4 pt-4">
             <h3 class="text-lg font-semibold text-slate-300 mb-4">外部データ統合分析</h3></div>"#);
     }
     if !minimum_wage.is_empty() {
@@ -149,15 +269,23 @@ pub async fn tab_analysis(
         html.push_str(&render_region_benchmark_section(&region_benchmark));
     }
 
-    // Phase 5: 予測・推定
+    if anomaly.is_empty() && minimum_wage.is_empty() && wage_compliance.is_empty() && region_benchmark.is_empty() {
+        html.push_str(r#"<p class="text-slate-500 text-sm">異常値・外部データがありません</p>"#);
+    }
+
+    html.push_str("</div>");
+    html
+}
+
+/// サブタブ6: 予測・推定（fulfillment, mobility, shadow_wage）
+fn render_subtab_6(db: &Db, pref: &str, muni: &str) -> String {
     let fulfillment = fetch_fulfillment_summary(db, pref, muni);
     let mobility = fetch_mobility_estimate(db, pref, muni);
     let shadow_wage = fetch_shadow_wage(db, pref, muni);
 
-    if !fulfillment.is_empty() || !mobility.is_empty() || !shadow_wage.is_empty() {
-        html.push_str(r#"<div class="border-t border-slate-700 my-6 pt-4">
-            <h3 class="text-lg font-semibold text-slate-300 mb-4">予測・推定分析</h3></div>"#);
-    }
+    let mut html = String::with_capacity(12_000);
+    html.push_str(r#"<div class="space-y-6">"#);
+
     if !fulfillment.is_empty() {
         html.push_str(&render_fulfillment_section(&fulfillment));
     }
@@ -168,10 +296,12 @@ pub async fn tab_analysis(
         html.push_str(&render_shadow_wage_section(&shadow_wage));
     }
 
-    html.push_str("</div>");
+    if fulfillment.is_empty() && mobility.is_empty() && shadow_wage.is_empty() {
+        html.push_str(r#"<p class="text-slate-500 text-sm">予測・推定データがありません</p>"#);
+    }
 
-    state.cache.set(cache_key, Value::String(html.clone()));
-    Html(html)
+    html.push_str("</div>");
+    html
 }
 
 // ======== データ取得: Phase 1 ========

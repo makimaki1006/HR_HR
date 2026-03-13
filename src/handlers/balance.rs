@@ -32,7 +32,12 @@ pub async fn tab_balance(
         }
     }
 
-    let stats = fetch_balance(db, &filters);
+    let db = db.clone();
+    let filters_clone = filters.clone();
+    let stats = tokio::task::spawn_blocking(move || {
+        fetch_balance(&db, &filters_clone)
+    }).await.unwrap_or_default();
+
     let html = render_balance(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)

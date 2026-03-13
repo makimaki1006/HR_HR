@@ -32,7 +32,12 @@ pub async fn tab_workstyle(
         }
     }
 
-    let stats = fetch_workstyle(db, &filters);
+    let db = db.clone();
+    let filters_clone = filters.clone();
+    let stats = tokio::task::spawn_blocking(move || {
+        fetch_workstyle(&db, &filters_clone)
+    }).await.unwrap_or_default();
+
     let html = render_workstyle(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)

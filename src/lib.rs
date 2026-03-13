@@ -52,6 +52,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/tab/balance", get(handlers::balance::tab_balance))
         .route("/tab/workstyle", get(handlers::workstyle::tab_workstyle))
         .route("/tab/analysis", get(handlers::analysis::tab_analysis))
+        .route("/api/analysis/subtab/{id}", get(handlers::analysis::analysis_subtab))
         .route("/tab/diagnostic", get(handlers::diagnostic::tab_diagnostic))
         .route("/api/diagnostic/evaluate", get(handlers::diagnostic::evaluate_diagnostic))
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
@@ -449,17 +450,23 @@ async fn fetch_municipality_list(
     state: &AppState,
     prefecture: &str,
 ) -> Vec<String> {
-    if let Some(db) = &state.hw_db {
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => return Vec::new(),
+    };
+    let pref = prefecture.to_string();
+    tokio::task::spawn_blocking(move || {
         if let Ok(rows) = db.query(
             "SELECT DISTINCT municipality FROM postings WHERE prefecture = ?1 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
-            &[&prefecture as &dyn rusqlite::types::ToSql],
+            &[&pref as &dyn rusqlite::types::ToSql],
         ) {
-            return rows.iter()
+            rows.iter()
                 .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect();
+                .collect()
+        } else {
+            Vec::new()
         }
-    }
-    Vec::new()
+    }).await.unwrap_or_default()
 }
 
 /// ヘルスチェック（DB接続+キャッシュ状態をJSON返却）
@@ -468,8 +475,11 @@ async fn health_check(
 ) -> axum::response::Json<serde_json::Value> {
     let db_ok = state.hw_db.is_some();
     let db_rows = if let Some(db) = &state.hw_db {
-        db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
-            .unwrap_or(-1)
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || {
+            db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
+                .unwrap_or(-1)
+        }).await.unwrap_or(-1)
     } else {
         -1
     };
@@ -487,8 +497,11 @@ async fn api_status(
 ) -> axum::response::Json<serde_json::Value> {
     let db_ok = state.hw_db.is_some();
     let db_count = if let Some(db) = &state.hw_db {
-        db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
-            .unwrap_or(0)
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || {
+            db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
+                .unwrap_or(0)
+        }).await.unwrap_or(0)
     } else {
         0
     };

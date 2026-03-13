@@ -61,6 +61,36 @@
     border-radius: 4px;
 }
 
+/* 分析タブ内サブタブナビゲーション */
+.analysis-subtab {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.analysis-subtab:hover {
+    color: #e2e8f0;
+    background-color: rgba(51, 65, 85, 0.3);
+}
+
+.analysis-subtab.active {
+    color: #60a5fa;
+    border-bottom-color: #3b82f6;
+    font-weight: 600;
+}
+
+.analysis-subtab:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: -2px;
+    border-radius: 4px;
+}
+
 /* フォーカス可視スタイル（全インタラクティブ要素） */
 select:focus-visible,
 button:focus-visible,

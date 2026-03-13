@@ -270,7 +270,12 @@ pub async fn tab_overview(
         }
     }
 
-    let stats = fetch_overview_stats(db, &filters);
+    let db = db.clone();
+    let filters_clone = filters.clone();
+    let stats = tokio::task::spawn_blocking(move || {
+        fetch_overview_stats(&db, &filters_clone)
+    }).await.unwrap_or_default();
+
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
 

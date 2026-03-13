@@ -31,7 +31,12 @@ pub async fn tab_demographics(
         }
     }
 
-    let stats = fetch_demographics(db, &filters);
+    let db = db.clone();
+    let filters_clone = filters.clone();
+    let stats = tokio::task::spawn_blocking(move || {
+        fetch_demographics(&db, &filters_clone)
+    }).await.unwrap_or_default();
+
     let html = render_demographics(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)

@@ -81,14 +81,14 @@ pub async fn evaluate_diagnostic(
     Query(q): Query<DiagnosticQuery>,
 ) -> Html<String> {
     let db = match &state.hw_db {
-        Some(db) => db,
+        Some(db) => db.clone(),
         None => return Html(render_no_db_data("市場診断")),
     };
 
     let filters = get_session_filters(&session).await;
-    let pref = &filters.prefecture;
-    let muni = &filters.municipality;
-    let emp_type = q.emp_type.as_deref().unwrap_or("正社員");
+    let pref = filters.prefecture.clone();
+    let muni = filters.municipality.clone();
+    let emp_type = q.emp_type.as_deref().unwrap_or("正社員").to_string();
 
     let salary = match q.salary {
         Some(s) if s > 0 => s,
@@ -98,22 +98,33 @@ pub async fn evaluate_diagnostic(
     let holidays = q.holidays.unwrap_or(0);
     let bonus = q.bonus.unwrap_or(0.0);
 
+    // 全DBクエリをspawn_blockingで一括実行
+    let pref2 = pref.clone();
+    let muni2 = muni.clone();
+    let emp2 = emp_type.clone();
+    let db_data = tokio::task::spawn_blocking(move || {
+        let salary_pct = compute_salary_percentile(&db, &pref2, &muni2, &emp2, salary);
+        let holidays_pct = if holidays > 0 {
+            compute_holidays_percentile(&db, &pref2, &muni2, &emp2, holidays)
+        } else { None };
+        let bonus_pct = if bonus > 0.0 {
+            compute_bonus_percentile(&db, &pref2, &muni2, &emp2, bonus)
+        } else { None };
+
+        let benchmark = fetch_benchmark_for_diagnostic(&db, &pref2, &muni2, &emp2);
+        let comp_pkg = fetch_compensation_for_diagnostic(&db, &pref2, &muni2, &emp2);
+        let shadow = fetch_shadow_wage_for_diagnostic(&db, &pref2, &muni2, &emp2);
+        let fulfillment = fetch_fulfillment_grade(&db, &pref2, &muni2, &emp2);
+
+        (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment)
+    }).await;
+
+    let (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment) = match db_data {
+        Ok(data) => data,
+        Err(_) => return Html(render_no_db_data("市場診断")),
+    };
+
     let mut html = String::with_capacity(32_000);
-
-    // 1. パーセンタイル計算
-    let salary_pct = compute_salary_percentile(db, pref, muni, emp_type, salary);
-    let holidays_pct = if holidays > 0 {
-        compute_holidays_percentile(db, pref, muni, emp_type, holidays)
-    } else { None };
-    let bonus_pct = if bonus > 0.0 {
-        compute_bonus_percentile(db, pref, muni, emp_type, bonus)
-    } else { None };
-
-    // 2. 事前計算テーブルから追加データ取得
-    let benchmark = fetch_benchmark_for_diagnostic(db, pref, muni, emp_type);
-    let comp_pkg = fetch_compensation_for_diagnostic(db, pref, muni, emp_type);
-    let shadow = fetch_shadow_wage_for_diagnostic(db, pref, muni, emp_type);
-    let fulfillment = fetch_fulfillment_grade(db, pref, muni, emp_type);
 
     // 3. 総合評価（加重平均: 給与50%, 休日30%, 賞与20%）
     let (overall_pct, overall_grade, grade_color) = compute_composite_grade(
@@ -208,7 +219,7 @@ pub async fn evaluate_diagnostic(
     // ========================================
     html.push_str(&render_actionable_suggestions(
         salary, holidays, bonus, salary_pct, holidays_pct, bonus_pct,
-        &shadow, overall_grade, pref,
+        &shadow, overall_grade, &pref,
     ));
 
     html.push_str("</div>");

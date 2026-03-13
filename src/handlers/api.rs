@@ -54,37 +54,38 @@ pub async fn get_markers(
     Query(params): Query<MarkersQuery>,
 ) -> Json<Value> {
     let db = match &state.hw_db {
-        Some(db) => db,
+        Some(db) => db.clone(),
         None => return Json(serde_json::json!([])),
     };
 
-    // job_type指定時のみフィルタ
-    let (sql, bind_strings) = if let Some(ref jt) = params.job_type {
-        if !jt.is_empty() {
-            (
-                "SELECT prefecture, COUNT(*) as cnt FROM postings WHERE job_type = ?1 GROUP BY prefecture ORDER BY cnt DESC".to_string(),
-                vec![jt.clone()],
-            )
+    let job_type = params.job_type.clone();
+
+    let rows = tokio::task::spawn_blocking(move || {
+        // job_type指定時のみフィルタ
+        let (sql, bind_strings) = if let Some(ref jt) = job_type {
+            if !jt.is_empty() {
+                (
+                    "SELECT prefecture, COUNT(*) as cnt FROM postings WHERE job_type = ?1 GROUP BY prefecture ORDER BY cnt DESC".to_string(),
+                    vec![jt.clone()],
+                )
+            } else {
+                (
+                    "SELECT prefecture, COUNT(*) as cnt FROM postings GROUP BY prefecture ORDER BY cnt DESC".to_string(),
+                    Vec::new(),
+                )
+            }
         } else {
             (
                 "SELECT prefecture, COUNT(*) as cnt FROM postings GROUP BY prefecture ORDER BY cnt DESC".to_string(),
                 Vec::new(),
             )
-        }
-    } else {
-        (
-            "SELECT prefecture, COUNT(*) as cnt FROM postings GROUP BY prefecture ORDER BY cnt DESC".to_string(),
-            Vec::new(),
-        )
-    };
+        };
 
-    let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind_strings.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
+            bind_strings.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
-    let rows = match db.query(&sql, &bind_refs) {
-        Ok(r) => r,
-        Err(_) => return Json(serde_json::json!([])),
-    };
+        db.query(&sql, &bind_refs).unwrap_or_default()
+    }).await.unwrap_or_default();
 
     // 都道府県→緯度経度マッピング
     let pref_coords: Vec<(&str, f64, f64)> = vec![
@@ -139,18 +140,20 @@ pub async fn get_prefectures(
     _session: Session,
     Query(_params): Query<PrefecturesQuery>,
 ) -> Html<String> {
-    let mut prefs = Vec::new();
-
-    if let Some(db) = &state.hw_db {
-        if let Ok(rows) = db.query(
-            "SELECT DISTINCT prefecture FROM postings WHERE prefecture IS NOT NULL AND prefecture != ''",
-            &[],
-        ) {
-            prefs = rows.iter()
-                .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect();
-        }
-    }
+    let mut prefs = if let Some(db) = &state.hw_db {
+        let db = db.clone();
+        tokio::task::spawn_blocking(move || {
+            db.query(
+                "SELECT DISTINCT prefecture FROM postings WHERE prefecture IS NOT NULL AND prefecture != ''",
+                &[],
+            ).unwrap_or_default()
+            .iter()
+            .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect::<Vec<String>>()
+        }).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     // JIS北→南順にソート
     prefs.sort_by_key(|p| {
@@ -182,18 +185,21 @@ pub async fn get_municipalities_cascade(
         return Html(String::new());
     }
 
-    let mut munis = Vec::new();
-
-    if let Some(db) = &state.hw_db {
-        if let Ok(rows) = db.query(
-            "SELECT DISTINCT municipality FROM postings WHERE prefecture = ?1 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
-            &[&prefecture as &dyn rusqlite::types::ToSql],
-        ) {
-            munis = rows.iter()
-                .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect();
-        }
-    }
+    let munis = if let Some(db) = &state.hw_db {
+        let db = db.clone();
+        let pref = prefecture.to_string();
+        tokio::task::spawn_blocking(move || {
+            db.query(
+                "SELECT DISTINCT municipality FROM postings WHERE prefecture = ?1 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
+                &[&pref as &dyn rusqlite::types::ToSql],
+            ).unwrap_or_default()
+            .iter()
+            .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect::<Vec<String>>()
+        }).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     let html: String = munis
         .iter()
@@ -215,28 +221,27 @@ pub async fn get_industries(
     State(state): State<Arc<AppState>>,
     Query(params): Query<IndustriesQuery>,
 ) -> Html<String> {
-    let prefecture = params.prefecture.as_deref().unwrap_or("");
-    let municipality = params.municipality.as_deref().unwrap_or("");
+    let prefecture = params.prefecture.as_deref().unwrap_or("").to_string();
+    let municipality = params.municipality.as_deref().unwrap_or("").to_string();
 
     let db = match &state.hw_db {
-        Some(db) => db,
+        Some(db) => db.clone(),
         None => return Html(String::new()),
     };
 
-    let (loc_filter, loc_params) =
-        super::overview::build_hw_location_filter(prefecture, municipality, 0);
-    let sql = format!(
-        "SELECT job_type, COUNT(*) as cnt FROM postings \
-         WHERE 1=1{loc_filter} AND job_type IS NOT NULL AND job_type != '' \
-         GROUP BY job_type ORDER BY cnt DESC"
-    );
-    let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-        loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let rows = tokio::task::spawn_blocking(move || {
+        let (loc_filter, loc_params) =
+            super::overview::build_hw_location_filter(&prefecture, &municipality, 0);
+        let sql = format!(
+            "SELECT job_type, COUNT(*) as cnt FROM postings \
+             WHERE 1=1{loc_filter} AND job_type IS NOT NULL AND job_type != '' \
+             GROUP BY job_type ORDER BY cnt DESC"
+        );
+        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
+            loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
-    let rows = match db.query(&sql, &bind_refs) {
-        Ok(r) => r,
-        Err(_) => return Html(String::new()),
-    };
+        db.query(&sql, &bind_refs).unwrap_or_default()
+    }).await.unwrap_or_default();
 
     let html: String = rows
         .iter()
@@ -266,8 +271,8 @@ pub async fn get_industry_tree(
     State(state): State<Arc<AppState>>,
     Query(params): Query<IndustriesQuery>,
 ) -> Json<Value> {
-    let prefecture = params.prefecture.as_deref().unwrap_or("");
-    let municipality = params.municipality.as_deref().unwrap_or("");
+    let prefecture = params.prefecture.as_deref().unwrap_or("").to_string();
+    let municipality = params.municipality.as_deref().unwrap_or("").to_string();
 
     // キャッシュチェック
     let cache_key = format!("industry_tree_{}_{}", prefecture, municipality);
@@ -276,86 +281,87 @@ pub async fn get_industry_tree(
     }
 
     let db = match &state.hw_db {
-        Some(db) => db,
+        Some(db) => db.clone(),
         None => return Json(Value::Array(vec![])),
     };
 
-    let (loc_filter, loc_params) =
-        super::overview::build_hw_location_filter(prefecture, municipality, 0);
+    // 全DBクエリをspawn_blockingで実行
+    let json_result = tokio::task::spawn_blocking(move || {
+        let (loc_filter, loc_params) =
+            super::overview::build_hw_location_filter(&prefecture, &municipality, 0);
 
-    // 分類済み求人（job_type + industry_raw が両方あるもの）
-    let sql = format!(
-        "SELECT job_type, industry_raw, COUNT(*) as cnt FROM postings \
-         WHERE 1=1{loc_filter} \
-         AND job_type IS NOT NULL AND job_type != '' \
-         AND industry_raw IS NOT NULL AND industry_raw != '' \
-         GROUP BY job_type, industry_raw \
-         ORDER BY job_type, cnt DESC"
-    );
-    let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-        loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        // 分類済み求人（job_type + industry_raw が両方あるもの）
+        let sql = format!(
+            "SELECT job_type, industry_raw, COUNT(*) as cnt FROM postings \
+             WHERE 1=1{loc_filter} \
+             AND job_type IS NOT NULL AND job_type != '' \
+             AND industry_raw IS NOT NULL AND industry_raw != '' \
+             GROUP BY job_type, industry_raw \
+             ORDER BY job_type, cnt DESC"
+        );
+        let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
+            loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
 
-    let rows = match db.query(&sql, &bind_refs) {
-        Ok(r) => r,
-        Err(_) => return Json(Value::Array(vec![])),
-    };
+        let rows = db.query(&sql, &bind_refs).unwrap_or_default();
 
-    // BTreeMapで大分類グルーピング
-    let mut tree: BTreeMap<String, (i64, Vec<(String, i64)>)> = BTreeMap::new();
-    for row in &rows {
-        let major = get_str(row, "job_type");
-        let sub = get_str(row, "industry_raw");
-        let cnt = get_i64(row, "cnt");
-        if major.is_empty() || sub.is_empty() {
-            continue;
+        // BTreeMapで大分類グルーピング
+        let mut tree: BTreeMap<String, (i64, Vec<(String, i64)>)> = BTreeMap::new();
+        for row in &rows {
+            let major = get_str(row, "job_type");
+            let sub = get_str(row, "industry_raw");
+            let cnt = get_i64(row, "cnt");
+            if major.is_empty() || sub.is_empty() {
+                continue;
+            }
+            let entry = tree.entry(major).or_insert((0, Vec::new()));
+            entry.0 += cnt;
+            entry.1.push((sub, cnt));
         }
-        let entry = tree.entry(major).or_insert((0, Vec::new()));
-        entry.0 += cnt;
-        entry.1.push((sub, cnt));
-    }
 
-    // 未分類カテゴリ: industry_raw が NULL/空 の求人数
-    let unclass_sql = format!(
-        "SELECT COUNT(*) as cnt FROM postings \
-         WHERE 1=1{loc_filter} \
-         AND (industry_raw IS NULL OR industry_raw = '')"
-    );
-    let unclass_refs: Vec<&dyn rusqlite::types::ToSql> =
-        loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    let unclass_count = db.query(&unclass_sql, &unclass_refs)
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.get("cnt").and_then(|v| v.as_i64())))
-        .unwrap_or(0);
+        // 未分類カテゴリ: industry_raw が NULL/空 の求人数
+        let unclass_sql = format!(
+            "SELECT COUNT(*) as cnt FROM postings \
+             WHERE 1=1{loc_filter} \
+             AND (industry_raw IS NULL OR industry_raw = '')"
+        );
+        let unclass_refs: Vec<&dyn rusqlite::types::ToSql> =
+            loc_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let unclass_count = db.query(&unclass_sql, &unclass_refs)
+            .ok()
+            .and_then(|rows| rows.first().and_then(|r| r.get("cnt").and_then(|v| v.as_i64())))
+            .unwrap_or(0);
 
-    // 件数降順ソート
-    let mut sorted: Vec<_> = tree.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        // 件数降順ソート
+        let mut sorted: Vec<_> = tree.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.0.cmp(&a.1.0));
 
-    let mut result: Vec<Value> = sorted
-        .into_iter()
-        .map(|(major, (major_count, subs))| {
-            let sub_arr: Vec<Value> = subs
-                .into_iter()
-                .map(|(name, count)| serde_json::json!({"name": name, "count": count}))
-                .collect();
-            serde_json::json!({
-                "major": major,
-                "major_count": major_count,
-                "subs": sub_arr
+        let mut result: Vec<Value> = sorted
+            .into_iter()
+            .map(|(major, (major_count, subs))| {
+                let sub_arr: Vec<Value> = subs
+                    .into_iter()
+                    .map(|(name, count)| serde_json::json!({"name": name, "count": count}))
+                    .collect();
+                serde_json::json!({
+                    "major": major,
+                    "major_count": major_count,
+                    "subs": sub_arr
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    // 未分類カテゴリを末尾に追加（件数 > 0 の場合のみ）
-    if unclass_count > 0 {
-        result.push(serde_json::json!({
-            "major": "未分類",
-            "major_count": unclass_count,
-            "subs": []
-        }));
-    }
+        // 未分類カテゴリを末尾に追加（件数 > 0 の場合のみ）
+        if unclass_count > 0 {
+            result.push(serde_json::json!({
+                "major": "未分類",
+                "major_count": unclass_count,
+                "subs": []
+            }));
+        }
 
-    let json_result = Value::Array(result);
+        Value::Array(result)
+    }).await.unwrap_or_else(|_| Value::Array(vec![]));
+
     state.cache.set(cache_key, json_result.clone());
     Json(json_result)
 }
