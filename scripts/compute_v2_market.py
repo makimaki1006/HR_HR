@@ -174,8 +174,10 @@ def compute_employer_strategy(db):
         else:
             benefits_kw_score = 0.0
 
-        # (4) low_overtime: 残業月20時間未満 or NULL
-        if overtime is None or overtime < 20:
+        # (4) low_overtime: 残業月20時間未満=1.0, NULL=0.5（不明）, 20時間以上=0.0
+        if overtime is None:
+            low_overtime = 0.5  # 未開示は中立扱い
+        elif overtime < 20:
             low_overtime = 1.0
         else:
             low_overtime = 0.0

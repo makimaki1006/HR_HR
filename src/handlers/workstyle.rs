@@ -486,7 +486,7 @@ fn render_workstyle(
             <h3 class="text-sm text-slate-400 mb-3">雇用形態分布</h3>
             <div class="echart" style="height:300px;" data-chart-config='{{
                 "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
-                "legend": {{"orient": "horizontal", "bottom": "0%"}},
+                "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
                 "series": [{{
                     "type": "pie",
                     "radius": ["40%", "70%"],
@@ -524,7 +524,7 @@ fn render_workstyle(
         <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 給与区分</h3>
         <div class="echart" style="height:350px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
-            "legend": {{"top": "0%", "itemGap": 15}},
+            "legend": {{"top": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
             "grid": {{"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true}},
             "xAxis": {{"type": "category", "data": [{emp_labels}]}},
             "yAxis": {{"type": "value", "max": 100, "axisLabel": {{"formatter": "{{value}}%"}}}},

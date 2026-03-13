@@ -1,7 +1,6 @@
 use axum::extract::State;
 use axum::response::Html;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -727,7 +726,7 @@ fn render_overview(
             <h3 class="text-sm text-slate-400 mb-3">雇用形態分布</h3>
             <div class="echart" style="height:320px;" data-chart-config='{{
                 "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
-                "legend": {{"orient": "horizontal", "bottom": "0%"}},
+                "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
                 "series": [{{
                     "type": "pie",
                     "radius": ["40%", "70%"],
@@ -780,7 +779,7 @@ fn render_overview(
         <h3 class="text-sm text-slate-400 mb-3">求人理由分布</h3>
         <div class="echart" style="height:350px;" data-chart-config='{{
             "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
-            "legend": {{"orient": "vertical", "left": "left", "top": "5%"}},
+            "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
             "series": [{{
                 "type": "pie",
                 "radius": ["35%", "65%"],
@@ -832,57 +831,8 @@ fn build_horizontal_bar_chart(
     )
 }
 
-/// 数値を3桁区切りフォーマット
-/// HTMLエスケープ（XSS対策）
-pub fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
-}
-
-pub fn format_number(n: i64) -> String {
-    let s = n.to_string();
-    let mut result = String::new();
-    for (i, ch) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 && ch != '-' {
-            result.push(',');
-        }
-        result.push(ch);
-    }
-    result.chars().rev().collect()
-}
-
-/// HashMap からString値を取得
-pub fn get_str(row: &HashMap<String, Value>, key: &str) -> String {
-    row.get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-/// HashMap からi64値を取得
-pub fn get_i64(row: &HashMap<String, Value>, key: &str) -> i64 {
-    row.get(key)
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_f64().map(|f| f as i64))
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .unwrap_or(0)
-}
-
-/// HashMap からf64値を取得
-pub fn get_f64(row: &HashMap<String, Value>, key: &str) -> f64 {
-    row.get(key)
-        .and_then(|v| {
-            v.as_f64()
-                .or_else(|| v.as_i64().map(|i| i as f64))
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .unwrap_or(0.0)
-}
+// ヘルパー関数はhelpers.rsに統一、後方互換のため再エクスポート
+pub use super::helpers::{escape_html, format_number, get_str, get_i64, get_f64, get_str_html};
 
 #[cfg(test)]
 mod tests {

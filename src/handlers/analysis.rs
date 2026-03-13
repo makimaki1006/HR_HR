@@ -16,7 +16,8 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::AppState;
-use super::overview::{get_session_filters, make_location_label, render_no_db_data, format_number, escape_html};
+use super::overview::{get_session_filters, make_location_label, render_no_db_data};
+use super::helpers::{get_f64, get_i64, get_str_html, escape_html, format_number, pct, pct_bar, truncate_str, table_exists};
 
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
@@ -382,26 +383,10 @@ fn fetch_cascade_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     db.query(&sql, &p).unwrap_or_default()
 }
 
-// ======== ヘルパー ========
+// ======== ヘルパー（色判定関数のみローカル定義、汎用関数はhelpers.rsに統一） ========
 
-fn get_f64(row: &Row, key: &str) -> f64 {
-    row.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
-}
-fn get_i64(row: &Row, key: &str) -> i64 {
-    row.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
-}
 fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
     row.get(key).and_then(|v| v.as_str()).unwrap_or("")
-}
-/// HTMLレンダリング用: DB文字列をエスケープして返す
-fn get_str_html(row: &Row, key: &str) -> String {
-    escape_html(row.get(key).and_then(|v| v.as_str()).unwrap_or(""))
-}
-fn pct(v: f64) -> String { format!("{:.1}%", v * 100.0) }
-
-fn pct_bar(v: f64, color: &str) -> String {
-    let w = (v * 100.0).min(100.0).max(0.0);
-    format!(r#"<div class="w-full bg-slate-700 rounded h-2"><div class="rounded h-2" style="width:{w:.1}%;background:{color}"></div></div>"#)
 }
 
 fn vacancy_color(rate: f64) -> &'static str {
@@ -415,14 +400,6 @@ fn evenness_color(ev: f64) -> &'static str {
 }
 fn temp_color(t: f64) -> &'static str {
     if t >= 5.0 { "#ef4444" } else if t >= 2.0 { "#f97316" } else if t >= 0.0 { "#eab308" } else { "#3b82f6" }
-}
-
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    if s.chars().count() > max_chars {
-        s.chars().take(max_chars).collect::<String>() + "…"
-    } else {
-        s.to_string()
-    }
 }
 
 // ======== HTML描画: Phase 1 ========
@@ -508,7 +485,7 @@ fn render_resilience_section(data: &[Row]) -> String {
     let mut html = String::new();
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">地域レジリエンス（産業多様性）</h3>
-        <p class="text-xs text-slate-500 mb-4">Shannon多様性指数で産業の分散度を評価。均等度が高いほど特定産業への依存リスクが低い健全な雇用構造です。</p>
+        <p class="text-xs text-slate-500 mb-4">産業の分散度を評価。業界分散度が高いほど特定産業への依存リスクが低い健全な雇用構造です。</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
@@ -532,14 +509,14 @@ fn render_resilience_section(data: &[Row]) -> String {
                 <div class="text-sm font-semibold text-white mb-2">{grp}</div>
                 <div class="flex items-baseline gap-2 mb-1">
                     <span class="text-2xl font-bold" style="color:{ec}">{evenness:.2}</span>
-                    <span class="text-xs text-slate-400">均等度</span>
+                    <span class="text-xs text-slate-400">業界分散度</span>
                 </div>
                 <div class="text-xs mb-3" style="color:{ec}">{label}</div>
                 {bar_html}
                 <div class="mt-3 space-y-1 text-xs">
-                    <div class="flex justify-between text-slate-400"><span>Shannon指数</span><span class="text-white">{shannon:.3}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>多様性スコア</span><span class="text-white">{shannon:.3}</span></div>
                     <div class="flex justify-between text-slate-400"><span>産業数</span><span class="text-white">{n_ind}</span></div>
-                    <div class="flex justify-between text-slate-400"><span>HHI</span><span class="text-white">{hhi:.4}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>集中度</span><span class="text-white">{hhi:.0}</span></div>
                     <div class="flex justify-between text-slate-400"><span>最大産業</span><span class="text-amber-400 truncate ml-1" title="{top_ind}">{top_ind_short}</span></div>
                     <div class="flex justify-between text-slate-400"><span>最大シェア</span><span class="text-amber-400">{top_share_s}</span></div>
                     <div class="flex justify-between text-slate-400"><span>求人数</span><span class="text-white">{total_s}</span></div>
@@ -725,9 +702,9 @@ fn render_anomaly_section(data: &[Row]) -> String {
     let mut html = String::new();
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">異常値検出</h3>
-        <p class="text-xs text-slate-500 mb-4">地域平均から2σ以上離れた求人の割合。異常値が多い指標は地域内の格差が大きいことを示します。</p>
+        <p class="text-xs text-slate-500 mb-4">地域平均から大きく外れた求人の割合。異常値が多い指標は地域内の格差が大きいことを示します。</p>
         <div style="overflow-x:auto;"><table class="data-table text-xs">
-        <thead><tr><th>指標</th><th>雇用形態</th><th class="text-right">件数</th><th class="text-right">異常値数</th><th class="text-right">異常率</th><th class="text-right">平均</th><th class="text-right">標準偏差</th><th class="text-right">高異常</th><th class="text-right">低異常</th></tr></thead><tbody>"#);
+        <thead><tr><th>指標</th><th>雇用形態</th><th class="text-right">件数</th><th class="text-right">異常値数</th><th class="text-right">異常率</th><th class="text-right">平均</th><th class="text-right">バラツキ</th><th class="text-right">高異常</th><th class="text-right">低異常</th></tr></thead><tbody>"#);
 
     let metric_labels: HashMap<&str, &str> = [
         ("salary_min", "最低給与"), ("employee_count", "従業員数"),
@@ -772,13 +749,6 @@ fn render_anomaly_section(data: &[Row]) -> String {
 }
 
 // ======== データ取得: Phase 1B（給与分析） ========
-
-fn table_exists(db: &Db, name: &str) -> bool {
-    db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-        &[&name],
-    ).unwrap_or(0) > 0
-}
 
 fn fetch_salary_structure(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     if !table_exists(db, "v2_salary_structure") { return vec![]; }
@@ -1414,7 +1384,7 @@ fn render_monopsony_section(data: &[Row]) -> String {
     let mut html = String::with_capacity(4_000);
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">⚖️ 雇用者集中度（独占力）</h3>
-        <p class="text-xs text-slate-500 mb-4">HHI（ハーフィンダール・ハーシュマン指数）で雇用市場の独占度を評価。集中度が高いほど求職者の選択肢が限られます。</p>
+        <p class="text-xs text-slate-500 mb-4">雇用市場の集中度を評価。数値が高いほど少数企業に求人が偏り、求職者の選択肢が限られます。</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
@@ -1442,7 +1412,7 @@ fn render_monopsony_section(data: &[Row]) -> String {
                 </div>
                 <div class="flex items-baseline gap-2 mb-1">
                     <span class="text-2xl font-bold" style="color:{hhi_color}">{hhi:.0}</span>
-                    <span class="text-xs text-slate-400">HHI</span>
+                    <span class="text-xs text-slate-400">集中度</span>
                 </div>
                 <div class="w-full bg-slate-700 rounded h-2 mb-3"><div class="rounded h-2" style="width:{hhi_w:.1}%;background:{hhi_color}"></div></div>
                 <div class="space-y-2 text-xs">
@@ -1458,7 +1428,7 @@ fn render_monopsony_section(data: &[Row]) -> String {
                         <div class="flex justify-between text-slate-400 mb-1"><span>Top5シェア</span><span>{top5_pct}</span></div>
                         {top5_bar}
                     </div>
-                    <div class="flex justify-between text-slate-400 pt-2 border-t border-slate-700"><span>Gini係数</span><span class="text-white">{gini:.3}</span></div>
+                    <div class="flex justify-between text-slate-400 pt-2 border-t border-slate-700"><span>格差指数</span><span class="text-white">{gini:.3}</span></div>
                     <div class="flex justify-between text-slate-400"><span>施設数</span><span class="text-white">{fac_s}</span></div>
                     <div class="flex justify-between text-slate-400"><span>求人数</span><span class="text-white">{total_s}</span></div>
                 </div>

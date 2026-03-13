@@ -409,7 +409,7 @@ fn render_demographics(
             <h3 class="text-sm text-slate-400 mb-3">求人理由内訳</h3>
             <div class="echart" style="height:350px;" data-chart-config='{{
                 "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
-                "legend": {{"orient": "vertical", "left": "left", "top": "5%"}},
+                "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
                 "series": [{{
                     "type": "pie",
                     "radius": ["35%", "65%"],

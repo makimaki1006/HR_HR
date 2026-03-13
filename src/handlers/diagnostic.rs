@@ -11,23 +11,14 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::AppState;
-use super::overview::{get_session_filters, make_location_label, render_no_db_data, format_number};
+use super::overview::{get_session_filters, make_location_label, render_no_db_data};
+use super::helpers::{get_f64, format_number, table_exists};
 
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
 
-fn get_f64(row: &Row, key: &str) -> f64 {
-    row.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
-}
 fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
     row.get(key).and_then(|v| v.as_str()).unwrap_or("")
-}
-
-fn table_exists(db: &Db, name: &str) -> bool {
-    db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-        &[&name],
-    ).unwrap_or(0) > 0
 }
 
 /// クエリパラメータ: 条件入力
