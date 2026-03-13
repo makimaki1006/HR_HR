@@ -833,6 +833,15 @@ fn build_horizontal_bar_chart(
 }
 
 /// 数値を3桁区切りフォーマット
+/// HTMLエスケープ（XSS対策）
+pub fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 pub fn format_number(n: i64) -> String {
     let s = n.to_string();
     let mut result = String::new();

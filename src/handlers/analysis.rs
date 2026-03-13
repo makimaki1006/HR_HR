@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::AppState;
-use super::overview::{get_session_filters, make_location_label, render_no_db_data, format_number};
+use super::overview::{get_session_filters, make_location_label, render_no_db_data, format_number, escape_html};
 
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
@@ -392,6 +392,10 @@ fn get_i64(row: &Row, key: &str) -> i64 {
 fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
     row.get(key).and_then(|v| v.as_str()).unwrap_or("")
 }
+/// HTMLレンダリング用: DB文字列をエスケープして返す
+fn get_str_html(row: &Row, key: &str) -> String {
+    escape_html(row.get(key).and_then(|v| v.as_str()).unwrap_or(""))
+}
 fn pct(v: f64) -> String { format!("{:.1}%", v * 100.0) }
 
 fn pct_bar(v: f64, color: &str) -> String {
@@ -469,13 +473,13 @@ fn render_vacancy_section(data: &[Row], by_industry: &[Row]) -> String {
             <thead><tr><th>業種</th><th class="text-center">雇用形態</th><th class="text-right">件数</th><th class="text-right">欠員率</th><th class="text-right">増員率</th><th style="width:100px"></th></tr></thead><tbody>"#);
 
         for row in by_industry.iter().take(15) {
-            let ind = get_str(row, "industry_raw");
-            let grp = get_str(row, "emp_group");
+            let ind = get_str_html(row, "industry_raw");
+            let grp = get_str_html(row, "emp_group");
             let n = get_i64(row, "total_count");
             let vr = get_f64(row, "vacancy_rate");
             let gr = get_f64(row, "growth_rate");
             let vc = vacancy_color(vr);
-            let ind_short = truncate_str(ind, 18);
+            let ind_short = truncate_str(&ind, 18);
 
             html.push_str(&format!(
                 r#"<tr><td class="text-slate-300" title="{ind}">{ind_short}</td>
@@ -507,18 +511,18 @@ fn render_resilience_section(data: &[Row]) -> String {
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
-        let grp = get_str(row, "emp_group");
+        let grp = get_str_html(row, "emp_group");
         let total = get_i64(row, "total_count");
         let n_ind = get_i64(row, "industry_count");
         let shannon = get_f64(row, "shannon_index");
         let evenness = get_f64(row, "evenness");
-        let top_ind = get_str(row, "top_industry");
+        let top_ind = get_str_html(row, "top_industry");
         let top_share = get_f64(row, "top_industry_share");
         let hhi = get_f64(row, "hhi");
         let ec = evenness_color(evenness);
         let label = if evenness >= 0.7 { "分散（良好）" } else if evenness >= 0.5 { "やや集中" } else { "集中（リスク）" };
         let bar_html = pct_bar(evenness, ec);
-        let top_ind_short = truncate_str(top_ind, 12);
+        let top_ind_short = truncate_str(&top_ind, 12);
         let top_share_s = pct(top_share);
         let total_s = format_number(total);
 
@@ -653,13 +657,13 @@ fn render_competition_section(data: &[Row]) -> String {
         <thead><tr><th>給与帯</th><th>学歴</th><th>雇用形態</th><th class="text-right">求人数</th><th class="text-right">競合業種数</th><th>主な業種</th></tr></thead><tbody>"#);
 
     for row in data.iter().take(20) {
-        let band = get_str(row, "salary_band");
-        let edu = get_str(row, "education_group");
-        let grp = get_str(row, "emp_group");
+        let band = get_str_html(row, "salary_band");
+        let edu = get_str_html(row, "education_group");
+        let grp = get_str_html(row, "emp_group");
         let n = get_i64(row, "total_postings");
         let ic = get_f64(row, "industry_count");
-        let tops = get_str(row, "top_industries");
-        let tops_short = truncate_str(tops, 30);
+        let tops = get_str_html(row, "top_industries");
+        let tops_short = truncate_str(&tops, 30);
 
         let ic_color = if ic >= 30.0 { "#ef4444" } else if ic >= 15.0 { "#f97316" } else { "#eab308" };
 
@@ -685,15 +689,15 @@ fn render_cascade_section(data: &[Row]) -> String {
         <thead><tr><th>業種</th><th class="text-center">雇用形態</th><th class="text-right">求人数</th><th class="text-right">施設数</th><th class="text-right">平均給与</th><th class="text-right">年間休日</th><th class="text-right">欠員率</th><th style="width:80px"></th></tr></thead><tbody>"#);
 
     for row in data {
-        let ind = get_str(row, "industry_raw");
-        let grp = get_str(row, "emp_group");
+        let ind = get_str_html(row, "industry_raw");
+        let grp = get_str_html(row, "emp_group");
         let n = get_i64(row, "posting_count");
         let fac = get_i64(row, "facility_count");
         let avg_sal = get_f64(row, "avg_salary_min");
         let holidays = get_f64(row, "avg_annual_holidays");
         let vr = get_f64(row, "vacancy_rate");
         let vc = vacancy_color(vr);
-        let ind_short = truncate_str(ind, 18);
+        let ind_short = truncate_str(&ind, 18);
 
         let sal_s = if avg_sal > 0.0 { format!("{}円", format_number(avg_sal as i64)) } else { "-".to_string() };
         let hol_s = if holidays > 0.0 { format!("{holidays:.0}日") } else { "-".to_string() };
@@ -1267,11 +1271,11 @@ fn render_keyword_profile_section(data: &[Row]) -> String {
         ));
 
         for row in rows {
-            let cat = get_str(row, "keyword_category");
+            let cat_raw = get_str(row, "keyword_category");
             let density = get_f64(row, "density");
             let avg_cnt = get_f64(row, "avg_count");
-            let label = keyword_category_label(cat);
-            let color = keyword_category_color(cat);
+            let label = escape_html(keyword_category_label(cat_raw));
+            let color = keyword_category_color(cat_raw);
             // 密度バー（max 30‰としてスケーリング）
             let bar_w = (density / 30.0 * 100.0).min(100.0).max(0.0);
 
@@ -1332,10 +1336,11 @@ fn render_employer_strategy_section(data: &[Row]) -> String {
         ));
 
         for row in rows {
-            let stype = get_str(row, "strategy_type");
+            let stype_raw = get_str(row, "strategy_type");
+            let stype = escape_html(stype_raw);
             let count = get_i64(row, "count");
             let pct_val = get_f64(row, "pct");
-            let (bg, fg) = strategy_color(stype);
+            let (bg, fg) = strategy_color(stype_raw);
 
             html.push_str(&format!(
                 r#"<div class="rounded-lg p-3 text-center" style="background:{bg}">
@@ -1374,19 +1379,19 @@ fn render_monopsony_section(data: &[Row]) -> String {
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
-        let grp = get_str(row, "emp_group");
+        let grp = get_str_html(row, "emp_group");
         let total = get_i64(row, "total_postings");
         let facilities = get_i64(row, "unique_facilities");
         let hhi = get_f64(row, "hhi");
         let level = get_str(row, "concentration_level");
-        let top1 = get_str(row, "top1_name");
+        let top1 = get_str_html(row, "top1_name");
         let top1_share = get_f64(row, "top1_share");
         let top3_share = get_f64(row, "top3_share");
         let top5_share = get_f64(row, "top5_share");
         let gini = get_f64(row, "gini");
 
         let (badge_bg, badge_fg) = concentration_badge(level);
-        let top1_short = truncate_str(top1, 16);
+        let top1_short = truncate_str(&top1, 16);
 
         // HHI ゲージ（0-10000スケール、>2500で高度集中）
         let hhi_w = (hhi / 10000.0 * 100.0).min(100.0).max(0.0);
