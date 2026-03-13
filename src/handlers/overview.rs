@@ -483,7 +483,7 @@ fn fetch_overview_stats(
                END as range_label, \
                COUNT(*) as cnt \
              FROM postings \
-             WHERE 1=1{filter_clause} AND salary_min > 0 \
+             WHERE 1=1{filter_clause} AND salary_min > 0 AND salary_type = '月給' \
              GROUP BY range_label ORDER BY MIN(salary_min)"
         );
         if let Ok(rows) = db.query(&sql, &bind_refs) {

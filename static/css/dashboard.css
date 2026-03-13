@@ -55,6 +55,33 @@
     font-weight: 600;
 }
 
+.tab-btn:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: -2px;
+    border-radius: 4px;
+}
+
+/* フォーカス可視スタイル（全インタラクティブ要素） */
+select:focus-visible,
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+}
+
+/* スクリーンリーダー専用（アクセシビリティ） */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
 /* ==========================================================
    ブレッドクラム（フィルタ状態表示）
    ========================================================== */

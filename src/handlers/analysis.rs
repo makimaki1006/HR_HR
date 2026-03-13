@@ -281,19 +281,20 @@ fn fetch_temperature_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     ).unwrap_or(0) == 0 { return vec![]; }
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, avg_temperature, median_temperature, \
-          avg_urgency_density, avg_selectivity_density \
+        ("SELECT emp_group, sample_count, temperature, \
+          urgency_density, selectivity_density, urgency_hit_rate, selectivity_hit_rate \
           FROM v2_text_temperature WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
           ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, avg_temperature, median_temperature, \
-          avg_urgency_density, avg_selectivity_density \
+        ("SELECT emp_group, sample_count, temperature, \
+          urgency_density, selectivity_density, urgency_hit_rate, selectivity_hit_rate \
           FROM v2_text_temperature WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
           ORDER BY emp_group".to_string(), vec![pref.to_string()])
     } else {
-        ("SELECT emp_group, SUM(total_count) as total_count, \
-          AVG(avg_temperature) as avg_temperature, AVG(median_temperature) as median_temperature, \
-          AVG(avg_urgency_density) as avg_urgency_density, AVG(avg_selectivity_density) as avg_selectivity_density \
+        ("SELECT emp_group, SUM(sample_count) as sample_count, \
+          AVG(temperature) as temperature, \
+          AVG(urgency_density) as urgency_density, AVG(selectivity_density) as selectivity_density, \
+          AVG(urgency_hit_rate) as urgency_hit_rate, AVG(selectivity_hit_rate) as selectivity_hit_rate \
           FROM v2_text_temperature WHERE municipality = '' AND industry_raw = '' \
           GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
     };
@@ -618,10 +619,10 @@ fn render_temperature_section(data: &[Row]) -> String {
 
     for row in data {
         let grp = get_str(row, "emp_group");
-        let total = get_i64(row, "total_count");
-        let avg_t = get_f64(row, "avg_temperature");
-        let urg = get_f64(row, "avg_urgency_density");
-        let sel = get_f64(row, "avg_selectivity_density");
+        let total = get_i64(row, "sample_count");
+        let avg_t = get_f64(row, "temperature");
+        let urg = get_f64(row, "urgency_density");
+        let sel = get_f64(row, "selectivity_density");
         let tc = temp_color(avg_t);
 
         let temp_label = if avg_t >= 5.0 { "人手不足（条件緩和）" }
@@ -891,15 +892,15 @@ fn fetch_keyword_profile(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     if !table_exists(db, "v2_keyword_profile") { return vec![]; }
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, keyword_category, density, avg_count \
+        ("SELECT emp_group, keyword_category, density, avg_count_per_posting \
           FROM v2_keyword_profile WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
           ORDER BY emp_group, keyword_category".to_string(), vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT emp_group, keyword_category, density, avg_count \
+        ("SELECT emp_group, keyword_category, density, avg_count_per_posting \
           FROM v2_keyword_profile WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
           ORDER BY emp_group, keyword_category".to_string(), vec![pref.to_string()])
     } else {
-        ("SELECT emp_group, keyword_category, AVG(density) as density, AVG(avg_count) as avg_count \
+        ("SELECT emp_group, keyword_category, AVG(density) as density, AVG(avg_count_per_posting) as avg_count_per_posting \
           FROM v2_keyword_profile WHERE municipality = '' AND industry_raw = '' \
           GROUP BY emp_group, keyword_category ORDER BY emp_group, keyword_category".to_string(), vec![])
     };
@@ -912,19 +913,56 @@ fn fetch_keyword_profile(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
 fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     if !table_exists(db, "v2_employer_strategy_summary") { return vec![]; }
 
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, strategy_type, count, pct \
-          FROM v2_employer_strategy_summary WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group, strategy_type".to_string(), vec![pref.to_string(), muni.to_string()])
+    // Python側テーブルはピボット形式（premium_count/premium_pct/salary_focus_count/...）
+    // Rust側はrow形式（strategy_type/count/pct）で表示するため、UNION ALLで変換
+    let base_filter = if !muni.is_empty() {
+        format!("WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = ''")
     } else if !pref.is_empty() {
-        ("SELECT emp_group, strategy_type, count, pct \
-          FROM v2_employer_strategy_summary WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group, strategy_type".to_string(), vec![pref.to_string()])
+        format!("WHERE prefecture = ?1 AND municipality = '' AND industry_raw = ''")
     } else {
-        ("SELECT emp_group, strategy_type, SUM(count) as count, \
-          AVG(pct) as pct \
-          FROM v2_employer_strategy_summary WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group, strategy_type ORDER BY emp_group, strategy_type".to_string(), vec![])
+        format!("WHERE municipality = '' AND industry_raw = ''")
+    };
+
+    let agg = if muni.is_empty() && pref.is_empty() { true } else { false };
+
+    let (sql, params): (String, Vec<String>) = if agg {
+        // 全国集計: SUMでピボットカラムを集計後、UNION ALL
+        (format!(
+            "SELECT emp_group, 'プレミアム型' as strategy_type, SUM(premium_count) as count, \
+               CAST(SUM(premium_count) AS REAL) / SUM(total_count) * 100.0 as pct \
+             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
+             UNION ALL \
+             SELECT emp_group, '給与一本勝負型', SUM(salary_focus_count), \
+               CAST(SUM(salary_focus_count) AS REAL) / SUM(total_count) * 100.0 \
+             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
+             UNION ALL \
+             SELECT emp_group, '福利厚生重視型', SUM(benefits_focus_count), \
+               CAST(SUM(benefits_focus_count) AS REAL) / SUM(total_count) * 100.0 \
+             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
+             UNION ALL \
+             SELECT emp_group, 'コスト優先型', SUM(cost_focus_count), \
+               CAST(SUM(cost_focus_count) AS REAL) / SUM(total_count) * 100.0 \
+             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
+             ORDER BY emp_group, strategy_type", f = base_filter), vec![])
+    } else {
+        let params = if !muni.is_empty() {
+            vec![pref.to_string(), muni.to_string()]
+        } else {
+            vec![pref.to_string()]
+        };
+        (format!(
+            "SELECT emp_group, 'プレミアム型' as strategy_type, premium_count as count, premium_pct as pct \
+             FROM v2_employer_strategy_summary {f} \
+             UNION ALL \
+             SELECT emp_group, '給与一本勝負型', salary_focus_count, salary_focus_pct \
+             FROM v2_employer_strategy_summary {f} \
+             UNION ALL \
+             SELECT emp_group, '福利厚生重視型', benefits_focus_count, benefits_focus_pct \
+             FROM v2_employer_strategy_summary {f} \
+             UNION ALL \
+             SELECT emp_group, 'コスト優先型', cost_focus_count, cost_focus_pct \
+             FROM v2_employer_strategy_summary {f} \
+             ORDER BY emp_group, strategy_type", f = base_filter), params)
     };
     let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
     db.query(&sql, &p).unwrap_or_default()
@@ -933,21 +971,22 @@ fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
 fn fetch_monopsony_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     if !table_exists(db, "v2_monopsony_index") { return vec![]; }
 
+    // Python側テーブルにtop1_nameカラムは存在しない
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         ("SELECT emp_group, total_postings, unique_facilities, hhi, concentration_level, \
-          top1_name, top1_share, top3_share, top5_share, gini \
+          top1_share, top3_share, top5_share, gini \
           FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
           ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
         ("SELECT emp_group, total_postings, unique_facilities, hhi, concentration_level, \
-          top1_name, top1_share, top3_share, top5_share, gini \
+          top1_share, top3_share, top5_share, gini \
           FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
           ORDER BY emp_group".to_string(), vec![pref.to_string()])
     } else {
         ("SELECT emp_group, SUM(total_postings) as total_postings, \
           SUM(unique_facilities) as unique_facilities, \
           AVG(hhi) as hhi, '' as concentration_level, \
-          '' as top1_name, AVG(top1_share) as top1_share, \
+          AVG(top1_share) as top1_share, \
           AVG(top3_share) as top3_share, AVG(top5_share) as top5_share, AVG(gini) as gini \
           FROM v2_monopsony_index WHERE municipality = '' AND industry_raw = '' \
           GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
@@ -1273,7 +1312,7 @@ fn render_keyword_profile_section(data: &[Row]) -> String {
         for row in rows {
             let cat_raw = get_str(row, "keyword_category");
             let density = get_f64(row, "density");
-            let avg_cnt = get_f64(row, "avg_count");
+            let avg_cnt = get_f64(row, "avg_count_per_posting");
             let label = escape_html(keyword_category_label(cat_raw));
             let color = keyword_category_color(cat_raw);
             // 密度バー（max 30‰としてスケーリング）
@@ -1384,14 +1423,12 @@ fn render_monopsony_section(data: &[Row]) -> String {
         let facilities = get_i64(row, "unique_facilities");
         let hhi = get_f64(row, "hhi");
         let level = get_str(row, "concentration_level");
-        let top1 = get_str_html(row, "top1_name");
         let top1_share = get_f64(row, "top1_share");
         let top3_share = get_f64(row, "top3_share");
         let top5_share = get_f64(row, "top5_share");
         let gini = get_f64(row, "gini");
 
         let (badge_bg, badge_fg) = concentration_badge(level);
-        let top1_short = truncate_str(&top1, 16);
 
         // HHI ゲージ（0-10000スケール、>2500で高度集中）
         let hhi_w = (hhi / 10000.0 * 100.0).min(100.0).max(0.0);
@@ -1409,7 +1446,6 @@ fn render_monopsony_section(data: &[Row]) -> String {
                 </div>
                 <div class="w-full bg-slate-700 rounded h-2 mb-3"><div class="rounded h-2" style="width:{hhi_w:.1}%;background:{hhi_color}"></div></div>
                 <div class="space-y-2 text-xs">
-                    <div class="flex justify-between text-slate-400"><span>最大雇用者</span><span class="text-amber-400 truncate ml-1" title="{top1}">{top1_short}</span></div>
                     <div>
                         <div class="flex justify-between text-slate-400 mb-1"><span>Top1シェア</span><span>{top1_pct}</span></div>
                         {top1_bar}

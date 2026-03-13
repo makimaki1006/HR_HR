@@ -18,13 +18,15 @@
         <div class="flex items-center gap-4">
             <h1 class="text-lg font-bold text-white">ハローワーク求人分析</h1>
             <span class="text-slate-400 text-sm">📍</span>
-            <select id="pref-select"
-                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+            <label for="pref-select" class="sr-only">都道府県</label>
+            <select id="pref-select" aria-label="都道府県を選択"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">全国</option>
                 {{PREF_OPTIONS}}
             </select>
-            <select id="muni-select"
-                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white">
+            <label for="muni-select" class="sr-only">市区町村</label>
+            <select id="muni-select" aria-label="市区町村を選択"
+                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">すべて</option>
                 {{MUNI_OPTIONS}}
             </select>
@@ -61,22 +63,22 @@
         </div>
     </header>
 
-    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto">
-        <button class="tab-btn active" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
+    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto" role="tablist" aria-label="ダッシュボードタブ">
+        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📊 地域概況</button>
-        <button class="tab-btn" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">🏢 企業分析</button>
-        <button class="tab-btn" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">💰 求人条件</button>
-        <button class="tab-btn" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/demographics" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📋 採用動向</button>
-        <button class="tab-btn" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">🗺️ 求人地図</button>
-        <button class="tab-btn" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📈 市場分析</button>
-        <button class="tab-btn" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">🔍 詳細検索</button>
-        <button class="tab-btn" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">🩺 市場診断</button>
     </nav>
 
@@ -91,7 +93,7 @@
         <span id="bc-job" class="bc-chip bc-chip-job">全産業</span>
     </div>
 
-    <main id="content" class="p-6">
+    <main id="content" class="p-6" style="transition:opacity 0.15s ease">
         <div class="text-center text-slate-400 py-20">
             <p class="text-lg">読み込み中...</p>
         </div>
@@ -99,6 +101,13 @@
 
     <script src="/static/js/tabcache.js"></script>
     <script src="/static/js/app.js"></script>
+    <script>
+    // フィルタ変更時のローディングフィードバック: opacity復帰
+    document.body.addEventListener('htmx:afterSettle', function(e) {
+        var c = document.getElementById('content');
+        if (c) c.style.opacity = '1';
+    });
+    </script>
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/export.js"></script>
     <script>
@@ -459,6 +468,8 @@
             if (prefSelect) {
                 prefSelect.addEventListener('change', function() {
                     if (window.clearTabCache) window.clearTabCache();
+                    var content = document.getElementById('content');
+                    if (content) content.style.opacity = '0.4';
                     var pref = this.value;
                     fetch('/api/set_prefecture', {
                         method: 'POST',
@@ -488,6 +499,8 @@
             if (muniSelect) {
                 muniSelect.addEventListener('change', function() {
                     if (window.clearTabCache) window.clearTabCache();
+                    var content = document.getElementById('content');
+                    if (content) content.style.opacity = '0.4';
                     var muni = this.value;
                     var pref = document.getElementById('pref-select').value;
                     fetch('/api/set_municipality', {
@@ -509,8 +522,12 @@
             updateIndustryLabel();
         });
         function setActiveTab(el) {
-            document.querySelectorAll('.tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {
+                btn.classList.remove('active');
+                btn.setAttribute('aria-selected', 'false');
+            });
             el.classList.add('active');
+            el.setAttribute('aria-selected', 'true');
             var url = el.getAttribute('hx-get');
             if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
         }
