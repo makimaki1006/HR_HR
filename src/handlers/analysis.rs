@@ -770,7 +770,8 @@ fn render_anomaly_section(data: &[Row]) -> String {
 
 fn table_exists(db: &Db, name: &str) -> bool {
     db.query_scalar::<i64>(
-        &format!("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'", name), &[]
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+        &[&name],
     ).unwrap_or(0) > 0
 }
 

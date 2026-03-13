@@ -426,17 +426,20 @@ fn render_industry_comparison(salary: i64, shadow: &[Row]) -> String {
 
 // ======== パーセンタイル計算 ========
 
-fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, _emp_type: &str, salary: i64) -> Option<f64> {
+fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, salary: i64) -> Option<f64> {
+    // 雇用形態でフィルタ: 正社員の月給とパートの月給を混同しない
+    let emp_filter = if emp_type == "パート" { " AND employment_type='パート'" } else { " AND employment_type='正社員'" };
+
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 AND municipality=?2 \
-          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?3".to_string(),
+        (format!("SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 AND municipality=?2 \
+          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?3{}", emp_filter),
          vec![pref.to_string(), muni.to_string(), salary.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 \
-          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?2".to_string(),
+        (format!("SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 \
+          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?2{}", emp_filter),
          vec![pref.to_string(), salary.to_string()])
     } else {
-        ("SELECT COUNT(*) as below FROM postings WHERE salary_min > 0 AND salary_type='月給' AND salary_min <= ?1".to_string(),
+        (format!("SELECT COUNT(*) as below FROM postings WHERE salary_min > 0 AND salary_type='月給' AND salary_min <= ?1{}", emp_filter),
          vec![salary.to_string()])
     };
 
@@ -444,11 +447,11 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, _emp_type: &str, s
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
     let total_sql = if !muni.is_empty() {
-        "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND salary_min > 0 AND salary_type='月給'".to_string()
+        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND salary_min > 0 AND salary_type='月給'{}", emp_filter)
     } else if !pref.is_empty() {
-        "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND salary_min > 0 AND salary_type='月給'".to_string()
+        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND salary_min > 0 AND salary_type='月給'{}", emp_filter)
     } else {
-        "SELECT COUNT(*) FROM postings WHERE salary_min > 0 AND salary_type='月給'".to_string()
+        format!("SELECT COUNT(*) FROM postings WHERE salary_min > 0 AND salary_type='月給'{}", emp_filter)
     };
 
     let total_params: Vec<String> = if !muni.is_empty() {
@@ -468,48 +471,70 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, _emp_type: &str, s
     }
 }
 
-fn compute_holidays_percentile(db: &Db, pref: &str, _muni: &str, _emp_type: &str, holidays: i64) -> Option<f64> {
-    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0 AND annual_holidays <= ?2".to_string(),
+fn compute_holidays_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, holidays: i64) -> Option<f64> {
+    let emp_filter = if emp_type == "パート" { " AND employment_type='パート'" } else { " AND employment_type='正社員'" };
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND annual_holidays > 0 AND annual_holidays <= ?3{}", emp_filter),
+         vec![pref.to_string(), muni.to_string(), holidays.to_string()])
+    } else if !pref.is_empty() {
+        (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0 AND annual_holidays <= ?2{}", emp_filter),
          vec![pref.to_string(), holidays.to_string()])
     } else {
-        ("SELECT COUNT(*) FROM postings WHERE annual_holidays > 0 AND annual_holidays <= ?1".to_string(),
+        (format!("SELECT COUNT(*) FROM postings WHERE annual_holidays > 0 AND annual_holidays <= ?1{}", emp_filter),
          vec![holidays.to_string()])
     };
     let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
-    let total_sql = if !pref.is_empty() {
-        "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0"
+    let total_sql = if !muni.is_empty() {
+        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND annual_holidays > 0{}", emp_filter)
+    } else if !pref.is_empty() {
+        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0{}", emp_filter)
     } else {
-        "SELECT COUNT(*) FROM postings WHERE annual_holidays > 0"
+        format!("SELECT COUNT(*) FROM postings WHERE annual_holidays > 0{}", emp_filter)
     };
-    let tp: Vec<String> = if !pref.is_empty() { vec![pref.to_string()] } else { vec![] };
+    let tp: Vec<String> = if !muni.is_empty() {
+        vec![pref.to_string(), muni.to_string()]
+    } else if !pref.is_empty() {
+        vec![pref.to_string()]
+    } else { vec![] };
     let tpp: Vec<&dyn rusqlite::types::ToSql> = tp.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    let total = db.query_scalar::<i64>(total_sql, &tpp).unwrap_or(0);
+    let total = db.query_scalar::<i64>(&total_sql, &tpp).unwrap_or(0);
 
     if total > 0 { Some((below as f64 / total as f64) * 100.0) } else { None }
 }
 
-fn compute_bonus_percentile(db: &Db, pref: &str, _muni: &str, _emp_type: &str, bonus: f64) -> Option<f64> {
-    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0 AND bonus_months <= ?2".to_string(),
+fn compute_bonus_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, bonus: f64) -> Option<f64> {
+    let emp_filter = if emp_type == "パート" { " AND employment_type='パート'" } else { " AND employment_type='正社員'" };
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND bonus_months > 0 AND bonus_months <= ?3{}", emp_filter),
+         vec![pref.to_string(), muni.to_string(), format!("{:.1}", bonus)])
+    } else if !pref.is_empty() {
+        (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0 AND bonus_months <= ?2{}", emp_filter),
          vec![pref.to_string(), format!("{:.1}", bonus)])
     } else {
-        ("SELECT COUNT(*) FROM postings WHERE bonus_months > 0 AND bonus_months <= ?1".to_string(),
+        (format!("SELECT COUNT(*) FROM postings WHERE bonus_months > 0 AND bonus_months <= ?1{}", emp_filter),
          vec![format!("{:.1}", bonus)])
     };
     let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
-    let total_sql = if !pref.is_empty() {
-        "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0"
+    let total_sql = if !muni.is_empty() {
+        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND bonus_months > 0{}", emp_filter)
+    } else if !pref.is_empty() {
+        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0{}", emp_filter)
     } else {
-        "SELECT COUNT(*) FROM postings WHERE bonus_months > 0"
+        format!("SELECT COUNT(*) FROM postings WHERE bonus_months > 0{}", emp_filter)
     };
-    let tp: Vec<String> = if !pref.is_empty() { vec![pref.to_string()] } else { vec![] };
+    let tp: Vec<String> = if !muni.is_empty() {
+        vec![pref.to_string(), muni.to_string()]
+    } else if !pref.is_empty() {
+        vec![pref.to_string()]
+    } else { vec![] };
     let tpp: Vec<&dyn rusqlite::types::ToSql> = tp.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    let total = db.query_scalar::<i64>(total_sql, &tpp).unwrap_or(0);
+    let total = db.query_scalar::<i64>(&total_sql, &tpp).unwrap_or(0);
 
     if total > 0 { Some((below as f64 / total as f64) * 100.0) } else { None }
 }
