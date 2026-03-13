@@ -84,7 +84,7 @@ impl AppConfig {
             cache_max_entries: env::var("CACHE_MAX_ENTRIES")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(2000),
+                .unwrap_or(3000),
             rate_limit_max_attempts: env::var("RATE_LIMIT_MAX_ATTEMPTS")
                 .ok()
                 .and_then(|v| v.parse().ok())

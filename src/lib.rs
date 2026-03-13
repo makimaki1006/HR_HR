@@ -221,11 +221,9 @@ async fn login_submit(
 
     // パスワードチェック: 社内（無期限） + 外部（有効期限付き）
     tracing::info!(
-        "Login attempt: email={}, pw_len={}, external_count={}, external_pw_lens={:?}",
-        &form.email,
-        form.password.len(),
+        "Login attempt: domain={}, external_count={}",
+        form.email.split('@').nth(1).unwrap_or("?"),
         state.config.external_passwords.len(),
-        state.config.external_passwords.iter().map(|e| (e.password.len(), &e.expires)).collect::<Vec<_>>(),
     );
     let (pw_ok, expired_msg) = verify_password_with_externals(
         &form.password,
@@ -233,7 +231,7 @@ async fn login_submit(
         &state.config.auth_password_hash,
         &state.config.external_passwords,
     );
-    tracing::info!("Login result: ok={}, expired_msg={:?}", pw_ok, expired_msg);
+    tracing::info!("Login result: ok={}", pw_ok);
     if !pw_ok {
         state.rate_limiter.record_failure(&client_ip);
         let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
@@ -462,9 +460,23 @@ async fn fetch_municipality_list(
     Vec::new()
 }
 
-/// ヘルスチェック
-async fn health_check() -> &'static str {
-    "OK"
+/// ヘルスチェック（DB接続+キャッシュ状態をJSON返却）
+async fn health_check(
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Json<serde_json::Value> {
+    let db_ok = state.hw_db.is_some();
+    let db_rows = if let Some(db) = &state.hw_db {
+        db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
+            .unwrap_or(-1)
+    } else {
+        -1
+    };
+    axum::response::Json(serde_json::json!({
+        "status": if db_ok { "healthy" } else { "degraded" },
+        "db_connected": db_ok,
+        "db_rows": db_rows,
+        "cache_entries": state.cache.len(),
+    }))
 }
 
 /// ステータスAPI
