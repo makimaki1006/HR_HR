@@ -19,7 +19,7 @@ type Row = HashMap<String, Value>;
 fn get_f64(row: &Row, key: &str) -> f64 {
     row.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
 }
-fn get_i64(row: &Row, key: &str) -> i64 {
+fn _get_i64(row: &Row, key: &str) -> i64 {
     row.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
 }
 fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
@@ -44,7 +44,7 @@ pub struct DiagnosticQuery {
 
 /// HTMXパーシャル: 市場診断フォーム（初期表示）
 pub async fn tab_diagnostic(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
     let filters = get_session_filters(&session).await;
@@ -125,7 +125,7 @@ pub async fn evaluate_diagnostic(
     let fulfillment = fetch_fulfillment_grade(db, pref, muni, emp_type);
 
     // 3. 報酬パッケージランク
-    let comp_rank = fetch_comp_rank(db, pref, muni, emp_type);
+    let _comp_rank = fetch_comp_rank(db, pref, muni, emp_type);
 
     // ヘッダー
     html.push_str(r#"<div class="space-y-4 mt-4">"#);
