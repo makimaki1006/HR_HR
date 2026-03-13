@@ -22,9 +22,13 @@ nul
 # Windows-specific cargo config
 .cargo/
 
-# Scripts (development only)
-scripts/
+# Build scripts (development only)
 build_release.bat
+
+# Scripts: compute_v2_*.py are tracked (pre-computation for analysis)
+scripts/*.bat
+scripts/*.sh
+scripts/!compute_v2_*.py
 
 # Dev docs
 GAP_ANALYSIS.md
