@@ -1,6 +1,9 @@
 //! V2独自分析ハンドラー
 //! Phase 1: C-4(欠員補充率), S-2(地域レジリエンス), C-1(透明性スコア)
+//! Phase 1B: 給与構造分析, 給与競争力指数, 報酬パッケージ総合評価
 //! Phase 2: L-1(テキスト温度計), L-3(異業種競合), A-1(異常値), S-1(カスケード)
+//! Phase 2B: 求人原稿品質分析, キーワードプロファイル
+//! Phase 3: 企業採用戦略4象限, 雇用者集中度(独占力), 空間的ミスマッチ
 //! 全指標は雇用形態（正社員/パート/その他）でセグメント化
 
 use axum::extract::State;
@@ -53,7 +56,21 @@ pub async fn tab_analysis(
     let anomaly = fetch_anomaly_data(db, pref, muni);
     let cascade = fetch_cascade_data(db, pref, muni);
 
-    let mut html = String::with_capacity(32_000);
+    // Phase 1B: 給与分析
+    let salary_structure = fetch_salary_structure(db, pref, muni);
+    let salary_comp = fetch_salary_competitiveness(db, pref, muni);
+    let compensation = fetch_compensation_package(db, pref, muni);
+
+    // Phase 2B: テキスト分析
+    let text_quality = fetch_text_quality(db, pref, muni);
+    let keyword_profile = fetch_keyword_profile(db, pref, muni);
+
+    // Phase 3: 市場構造
+    let employer_strategy = fetch_employer_strategy(db, pref, muni);
+    let monopsony = fetch_monopsony_data(db, pref, muni);
+    let spatial = if !muni.is_empty() { fetch_spatial_mismatch(db, pref, muni) } else { vec![] };
+
+    let mut html = String::with_capacity(64_000);
 
     html.push_str(&format!(
         r#"<div class="space-y-6">
@@ -78,6 +95,36 @@ pub async fn tab_analysis(
     }
     if !cascade.is_empty() {
         html.push_str(&render_cascade_section(&cascade));
+    }
+
+    // Phase 1B: 給与分析
+    if !salary_structure.is_empty() {
+        html.push_str(&render_salary_structure_section(&salary_structure));
+    }
+    if !salary_comp.is_empty() {
+        html.push_str(&render_salary_competitiveness_section(&salary_comp));
+    }
+    if !compensation.is_empty() {
+        html.push_str(&render_compensation_section(&compensation));
+    }
+
+    // Phase 2B: テキスト分析
+    if !text_quality.is_empty() {
+        html.push_str(&render_text_quality_section(&text_quality));
+    }
+    if !keyword_profile.is_empty() {
+        html.push_str(&render_keyword_profile_section(&keyword_profile));
+    }
+
+    // Phase 3: 市場構造
+    if !employer_strategy.is_empty() {
+        html.push_str(&render_employer_strategy_section(&employer_strategy));
+    }
+    if !monopsony.is_empty() {
+        html.push_str(&render_monopsony_section(&monopsony));
+    }
+    if !spatial.is_empty() {
+        html.push_str(&render_spatial_mismatch_section(&spatial));
     }
 
     html.push_str("</div>");
@@ -676,5 +723,730 @@ fn render_anomaly_section(data: &[Row]) -> String {
     }
 
     html.push_str("</tbody></table></div></div>");
+    html
+}
+
+// ======== データ取得: Phase 1B（給与分析） ========
+
+fn table_exists(db: &Db, name: &str) -> bool {
+    db.query_scalar::<i64>(
+        &format!("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'", name), &[]
+    ).unwrap_or(0) > 0
+}
+
+fn fetch_salary_structure(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_salary_structure") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, salary_type, total_count, avg_salary_min, avg_salary_max, \
+          median_salary_min, p25_salary_min, p75_salary_min, p90_salary_min, \
+          salary_spread, avg_bonus_months, estimated_annual_min \
+          FROM v2_salary_structure WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group, salary_type".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, salary_type, total_count, avg_salary_min, avg_salary_max, \
+          median_salary_min, p25_salary_min, p75_salary_min, p90_salary_min, \
+          salary_spread, avg_bonus_months, estimated_annual_min \
+          FROM v2_salary_structure WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group, salary_type".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, salary_type, SUM(total_count) as total_count, \
+          AVG(avg_salary_min) as avg_salary_min, AVG(avg_salary_max) as avg_salary_max, \
+          AVG(median_salary_min) as median_salary_min, AVG(p25_salary_min) as p25_salary_min, \
+          AVG(p75_salary_min) as p75_salary_min, AVG(p90_salary_min) as p90_salary_min, \
+          AVG(salary_spread) as salary_spread, AVG(avg_bonus_months) as avg_bonus_months, \
+          AVG(estimated_annual_min) as estimated_annual_min \
+          FROM v2_salary_structure WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+fn fetch_salary_competitiveness(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_salary_competitiveness") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, local_avg_salary, national_avg_salary, competitiveness_index, \
+          percentile_rank, sample_count \
+          FROM v2_salary_competitiveness WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, local_avg_salary, national_avg_salary, competitiveness_index, \
+          percentile_rank, sample_count \
+          FROM v2_salary_competitiveness WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, AVG(local_avg_salary) as local_avg_salary, \
+          AVG(national_avg_salary) as national_avg_salary, \
+          AVG(competitiveness_index) as competitiveness_index, \
+          AVG(percentile_rank) as percentile_rank, SUM(sample_count) as sample_count \
+          FROM v2_salary_competitiveness WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+fn fetch_compensation_package(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_compensation_package") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, total_count, avg_salary_min, avg_annual_holidays, avg_bonus_months, \
+          salary_pctile, holidays_pctile, bonus_pctile, composite_score, rank_label \
+          FROM v2_compensation_package WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, total_count, avg_salary_min, avg_annual_holidays, avg_bonus_months, \
+          salary_pctile, holidays_pctile, bonus_pctile, composite_score, rank_label \
+          FROM v2_compensation_package WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, SUM(total_count) as total_count, \
+          AVG(avg_salary_min) as avg_salary_min, AVG(avg_annual_holidays) as avg_annual_holidays, \
+          AVG(avg_bonus_months) as avg_bonus_months, \
+          AVG(salary_pctile) as salary_pctile, AVG(holidays_pctile) as holidays_pctile, \
+          AVG(bonus_pctile) as bonus_pctile, AVG(composite_score) as composite_score, \
+          '' as rank_label \
+          FROM v2_compensation_package WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+// ======== データ取得: Phase 2B（テキスト分析） ========
+
+fn fetch_text_quality(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_text_quality") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, total_count, avg_char_count, avg_unique_char_ratio, \
+          avg_kanji_ratio, avg_numeric_ratio, avg_punctuation_density, information_score \
+          FROM v2_text_quality WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, total_count, avg_char_count, avg_unique_char_ratio, \
+          avg_kanji_ratio, avg_numeric_ratio, avg_punctuation_density, information_score \
+          FROM v2_text_quality WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, SUM(total_count) as total_count, \
+          AVG(avg_char_count) as avg_char_count, AVG(avg_unique_char_ratio) as avg_unique_char_ratio, \
+          AVG(avg_kanji_ratio) as avg_kanji_ratio, AVG(avg_numeric_ratio) as avg_numeric_ratio, \
+          AVG(avg_punctuation_density) as avg_punctuation_density, AVG(information_score) as information_score \
+          FROM v2_text_quality WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+fn fetch_keyword_profile(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_keyword_profile") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, keyword_category, density, avg_count \
+          FROM v2_keyword_profile WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group, keyword_category".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, keyword_category, density, avg_count \
+          FROM v2_keyword_profile WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group, keyword_category".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, keyword_category, AVG(density) as density, AVG(avg_count) as avg_count \
+          FROM v2_keyword_profile WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group, keyword_category ORDER BY emp_group, keyword_category".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+// ======== データ取得: Phase 3（市場構造） ========
+
+fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_employer_strategy_summary") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, strategy_type, count, pct \
+          FROM v2_employer_strategy_summary WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group, strategy_type".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, strategy_type, count, pct \
+          FROM v2_employer_strategy_summary WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group, strategy_type".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, strategy_type, SUM(count) as count, \
+          AVG(pct) as pct \
+          FROM v2_employer_strategy_summary WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group, strategy_type ORDER BY emp_group, strategy_type".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+fn fetch_monopsony_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_monopsony_index") { return vec![]; }
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT emp_group, total_postings, unique_facilities, hhi, concentration_level, \
+          top1_name, top1_share, top3_share, top5_share, gini \
+          FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT emp_group, total_postings, unique_facilities, hhi, concentration_level, \
+          top1_name, top1_share, top3_share, top5_share, gini \
+          FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+          ORDER BY emp_group".to_string(), vec![pref.to_string()])
+    } else {
+        ("SELECT emp_group, SUM(total_postings) as total_postings, \
+          SUM(unique_facilities) as unique_facilities, \
+          AVG(hhi) as hhi, '' as concentration_level, \
+          '' as top1_name, AVG(top1_share) as top1_share, \
+          AVG(top3_share) as top3_share, AVG(top5_share) as top5_share, AVG(gini) as gini \
+          FROM v2_monopsony_index WHERE municipality = '' AND industry_raw = '' \
+          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+fn fetch_spatial_mismatch(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_spatial_mismatch") { return vec![]; }
+
+    // 空間ミスマッチは市区町村レベルのみ（industry_rawフィルタなし）
+    let sql = "SELECT emp_group, posting_count, avg_salary_min, \
+          accessible_postings_30km, accessible_avg_salary_30km, \
+          accessible_postings_60km, salary_gap_vs_accessible, isolation_score \
+          FROM v2_spatial_mismatch WHERE prefecture = ?1 AND municipality = ?2 \
+          ORDER BY emp_group".to_string();
+    let params = vec![pref.to_string(), muni.to_string()];
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
+}
+
+// ======== HTML描画: Phase 1B（給与分析） ========
+
+fn salary_color(salary_min: f64) -> &'static str {
+    if salary_min > 300000.0 { "#22c55e" } else if salary_min > 200000.0 { "#3b82f6" } else { "#94a3b8" }
+}
+
+fn rank_badge_color(rank: &str) -> (&'static str, &'static str) {
+    // (背景色, テキスト色)
+    match rank {
+        "S" => ("#fbbf24", "#1e293b"),  // gold
+        "A" => ("#10b981", "#ffffff"),  // emerald
+        "B" => ("#3b82f6", "#ffffff"),  // blue
+        "C" => ("#f59e0b", "#1e293b"),  // amber
+        "D" => ("#64748b", "#ffffff"),  // slate
+        _ => ("#475569", "#ffffff"),
+    }
+}
+
+fn render_salary_structure_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(4_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">💰 給与構造分析</h3>
+        <p class="text-xs text-slate-500 mb-4">雇用形態別の給与分布（P25-P75四分位範囲）と推定年収。給与スプレッドが大きいほど交渉余地が広い市場です。</p>
+        <div style="overflow-x:auto;"><table class="data-table text-xs">
+        <thead><tr><th>雇用形態</th><th>給与種別</th><th class="text-right">件数</th><th class="text-right">平均下限</th><th class="text-right">中央値</th><th class="text-right">P25</th><th class="text-right">P75</th><th class="text-right">P90</th><th class="text-right">スプレッド</th><th class="text-right">賞与</th><th class="text-right">推定年収</th><th style="width:120px">分布</th></tr></thead><tbody>"#);
+
+    for row in data {
+        let grp = get_str(row, "emp_group");
+        let stype = get_str(row, "salary_type");
+        let total = get_i64(row, "total_count");
+        let avg_min = get_f64(row, "avg_salary_min");
+        let median = get_f64(row, "median_salary_min");
+        let p25 = get_f64(row, "p25_salary_min");
+        let p75 = get_f64(row, "p75_salary_min");
+        let p90 = get_f64(row, "p90_salary_min");
+        let spread = get_f64(row, "salary_spread");
+        let bonus = get_f64(row, "avg_bonus_months");
+        let annual = get_f64(row, "estimated_annual_min");
+        let sc = salary_color(avg_min);
+
+        // P25-P75範囲バー（全体を0-P90として描画）
+        let bar_html = if p90 > 0.0 {
+            let left_pct = (p25 / p90 * 100.0).min(100.0).max(0.0);
+            let width_pct = ((p75 - p25) / p90 * 100.0).min(100.0 - left_pct).max(0.0);
+            let median_pct = (median / p90 * 100.0).min(100.0).max(0.0);
+            format!(r#"<div class="w-full bg-slate-700 rounded h-3 relative">
+                <div class="rounded h-3 opacity-60" style="position:absolute;left:{left_pct:.0}%;width:{width_pct:.0}%;background:{sc}"></div>
+                <div style="position:absolute;left:{median_pct:.0}%;top:0;bottom:0;width:2px;background:#ffffff"></div>
+            </div>"#)
+        } else {
+            String::new()
+        };
+
+        let annual_s = if annual > 0.0 { format!("{}万", (annual / 10000.0) as i64) } else { "-".to_string() };
+        let bonus_s = if bonus > 0.0 { format!("{bonus:.1}月") } else { "-".to_string() };
+
+        html.push_str(&format!(
+            r#"<tr><td class="text-slate-300">{grp}</td>
+            <td class="text-slate-400">{stype}</td>
+            <td class="text-right text-slate-400">{total_s}</td>
+            <td class="text-right" style="color:{sc}">{avg_s}</td>
+            <td class="text-right text-white">{med_s}</td>
+            <td class="text-right text-slate-400">{p25_s}</td>
+            <td class="text-right text-slate-400">{p75_s}</td>
+            <td class="text-right text-slate-400">{p90_s}</td>
+            <td class="text-right text-amber-400">{spread:.0}</td>
+            <td class="text-right text-cyan-400">{bonus_s}</td>
+            <td class="text-right text-emerald-400">{annual_s}</td>
+            <td>{bar_html}</td></tr>"#,
+            total_s = format_number(total),
+            avg_s = format_number(avg_min as i64),
+            med_s = format_number(median as i64),
+            p25_s = format_number(p25 as i64),
+            p75_s = format_number(p75 as i64),
+            p90_s = format_number(p90 as i64),
+        ));
+    }
+
+    html.push_str("</tbody></table></div></div>");
+    html
+}
+
+fn render_salary_competitiveness_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📊 給与競争力指数</h3>
+        <p class="text-xs text-slate-500 mb-4">地域の平均給与を全国平均と比較。プラスなら全国より高水準、マイナスなら低水準です。</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+
+    for row in data {
+        let grp = get_str(row, "emp_group");
+        let local = get_f64(row, "local_avg_salary");
+        let national = get_f64(row, "national_avg_salary");
+        let ci = get_f64(row, "competitiveness_index");
+        let pctile = get_f64(row, "percentile_rank");
+        let sample = get_i64(row, "sample_count");
+
+        let ci_color = if ci >= 0.0 { "#22c55e" } else { "#ef4444" };
+        let ci_sign = if ci >= 0.0 { "+" } else { "" };
+        let pctile_color = if pctile >= 75.0 { "#22c55e" } else if pctile >= 50.0 { "#3b82f6" } else if pctile >= 25.0 { "#eab308" } else { "#ef4444" };
+
+        // 地域 vs 全国 比較バー
+        let max_sal = local.max(national).max(1.0);
+        let local_w = (local / max_sal * 100.0).min(100.0);
+        let national_w = (national / max_sal * 100.0).min(100.0);
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-sm font-semibold text-white mb-2">{grp}</div>
+                <div class="text-2xl font-bold mb-1" style="color:{ci_color}">{ci_sign}{ci:.1}%</div>
+                <div class="text-xs mb-3" style="color:{pctile_color}">全国 {pctile:.0} パーセンタイル</div>
+                <div class="space-y-2 text-xs">
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>地域平均</span><span class="text-white">{local_s}円</span></div>
+                        <div class="w-full bg-slate-700 rounded h-2"><div class="rounded h-2 bg-emerald-500" style="width:{local_w:.1}%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>全国平均</span><span class="text-white">{national_s}円</span></div>
+                        <div class="w-full bg-slate-700 rounded h-2"><div class="rounded h-2 bg-blue-500" style="width:{national_w:.1}%"></div></div>
+                    </div>
+                    <div class="flex justify-between text-slate-400 mt-2"><span>サンプル数</span><span class="text-white">{sample_s}</span></div>
+                </div>
+            </div>"#,
+            local_s = format_number(local as i64),
+            national_s = format_number(national as i64),
+            sample_s = format_number(sample),
+        ));
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+fn render_compensation_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🏆 報酬パッケージ総合評価</h3>
+        <p class="text-xs text-slate-500 mb-4">給与・休日・賞与の3軸で地域の報酬水準を全国パーセンタイルで総合評価（S/A/B/C/Dランク）。</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+
+    for row in data {
+        let grp = get_str(row, "emp_group");
+        let total = get_i64(row, "total_count");
+        let avg_sal = get_f64(row, "avg_salary_min");
+        let holidays = get_f64(row, "avg_annual_holidays");
+        let bonus = get_f64(row, "avg_bonus_months");
+        let sp = get_f64(row, "salary_pctile");
+        let hp = get_f64(row, "holidays_pctile");
+        let bp = get_f64(row, "bonus_pctile");
+        let composite = get_f64(row, "composite_score");
+        let rank = get_str(row, "rank_label");
+        let (badge_bg, badge_fg) = rank_badge_color(rank);
+
+        let composite_w = (composite * 100.0).min(100.0).max(0.0);
+        let composite_color = if composite >= 0.7 { "#22c55e" } else if composite >= 0.5 { "#3b82f6" } else if composite >= 0.3 { "#eab308" } else { "#ef4444" };
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-semibold text-white">{grp}</div>
+                    <span class="px-3 py-1 rounded-full text-sm font-bold" style="background:{badge_bg};color:{badge_fg}">{rank_display}</span>
+                </div>
+                <div class="text-xs text-slate-400 mb-3">総合スコア</div>
+                <div class="flex items-baseline gap-2 mb-2">
+                    <span class="text-2xl font-bold" style="color:{composite_color}">{composite:.2}</span>
+                    <span class="text-xs text-slate-400">/ 1.00</span>
+                </div>
+                <div class="w-full bg-slate-700 rounded h-2 mb-4"><div class="rounded h-2" style="width:{composite_w:.0}%;background:{composite_color}"></div></div>
+                <div class="space-y-3 text-xs">
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>給与（{sal_s}円）</span><span>P{sp:.0}</span></div>
+                        {sp_bar}
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>休日（{hol_s}日）</span><span>P{hp:.0}</span></div>
+                        {hp_bar}
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>賞与（{bonus:.1}月）</span><span>P{bp:.0}</span></div>
+                        {bp_bar}
+                    </div>
+                    <div class="flex justify-between text-slate-400 mt-2 pt-2 border-t border-slate-700"><span>求人数</span><span class="text-white">{total_s}</span></div>
+                </div>
+            </div>"#,
+            rank_display = if rank.is_empty() { "-" } else { rank },
+            sal_s = format_number(avg_sal as i64),
+            hol_s = format!("{holidays:.0}"),
+            sp_bar = pct_bar(sp / 100.0, "#22c55e"),
+            hp_bar = pct_bar(hp / 100.0, "#3b82f6"),
+            bp_bar = pct_bar(bp / 100.0, "#f59e0b"),
+            total_s = format_number(total),
+        ));
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+// ======== HTML描画: Phase 2B（テキスト分析） ========
+
+fn info_score_color(score: f64) -> &'static str {
+    if score >= 0.8 { "#22c55e" } else if score >= 0.6 { "#3b82f6" } else if score >= 0.4 { "#eab308" } else { "#ef4444" }
+}
+
+fn render_text_quality_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📝 求人原稿品質分析</h3>
+        <p class="text-xs text-slate-500 mb-4">求人原稿の文字数・語彙多様性・漢字比率等から情報スコアを算出。高いほど情報量が多く具体的な原稿です。</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+
+    for row in data {
+        let grp = get_str(row, "emp_group");
+        let total = get_i64(row, "total_count");
+        let chars = get_f64(row, "avg_char_count");
+        let unique_ratio = get_f64(row, "avg_unique_char_ratio");
+        let kanji = get_f64(row, "avg_kanji_ratio");
+        let numeric = get_f64(row, "avg_numeric_ratio");
+        let punct = get_f64(row, "avg_punctuation_density");
+        let info = get_f64(row, "information_score");
+        let ic = info_score_color(info);
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-sm font-semibold text-white mb-2">{grp}</div>
+                <div class="flex items-baseline gap-2 mb-1">
+                    <span class="text-2xl font-bold" style="color:{ic}">{info:.2}</span>
+                    <span class="text-xs text-slate-400">情報スコア</span>
+                </div>
+                {info_bar}
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">{chars:.0}字</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">語彙{unique_pct}</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">漢字{kanji_pct}</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">数値{num_pct}</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">句読点{punct:.2}</span>
+                </div>
+                <div class="mt-2 text-xs text-slate-400">({total_s} 件)</div>
+            </div>"#,
+            info_bar = pct_bar(info, ic),
+            unique_pct = pct(unique_ratio),
+            kanji_pct = pct(kanji),
+            num_pct = pct(numeric),
+            total_s = format_number(total),
+        ));
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+fn keyword_category_label(cat: &str) -> &str {
+    match cat {
+        "urgent" => "急募系",
+        "inexperienced" => "未経験系",
+        "benefits" => "待遇系",
+        "wlb" => "WLB系",
+        "growth" => "成長系",
+        "stability" => "安定系",
+        _ => cat,
+    }
+}
+
+fn keyword_category_color(cat: &str) -> &str {
+    match cat {
+        "urgent" => "#ef4444",
+        "inexperienced" => "#f97316",
+        "benefits" => "#22c55e",
+        "wlb" => "#3b82f6",
+        "growth" => "#a855f7",
+        "stability" => "#14b8a6",
+        _ => "#94a3b8",
+    }
+}
+
+fn render_keyword_profile_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(4_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🔍 求人キーワード分析</h3>
+        <p class="text-xs text-slate-500 mb-4">求人原稿に頻出するキーワードを6カテゴリに分類。密度が高いほどその傾向の求人が多い地域です。</p>"#);
+
+    // 雇用形態でグループ化
+    let mut groups: HashMap<String, Vec<&Row>> = HashMap::new();
+    for row in data {
+        let grp = get_str(row, "emp_group").to_string();
+        groups.entry(grp).or_default().push(row);
+    }
+
+    let mut sorted_groups: Vec<_> = groups.into_iter().collect();
+    sorted_groups.sort_by(|a, b| a.0.cmp(&b.0));
+
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
+
+    for (grp, rows) in &sorted_groups {
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-sm font-semibold text-white mb-3">{grp}</div>
+                <div class="space-y-2">"#
+        ));
+
+        for row in rows {
+            let cat = get_str(row, "keyword_category");
+            let density = get_f64(row, "density");
+            let avg_cnt = get_f64(row, "avg_count");
+            let label = keyword_category_label(cat);
+            let color = keyword_category_color(cat);
+            // 密度バー（max 30‰としてスケーリング）
+            let bar_w = (density / 30.0 * 100.0).min(100.0).max(0.0);
+
+            html.push_str(&format!(
+                r#"<div>
+                    <div class="flex justify-between text-xs mb-1">
+                        <span style="color:{color}">{label}</span>
+                        <span class="text-slate-400">{density:.1}‰ (平均{avg_cnt:.1}回)</span>
+                    </div>
+                    <div class="w-full bg-slate-700 rounded h-2"><div class="rounded h-2" style="width:{bar_w:.1}%;background:{color}"></div></div>
+                </div>"#
+            ));
+        }
+
+        html.push_str("</div></div>");
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+// ======== HTML描画: Phase 3（市場構造） ========
+
+fn strategy_color(stype: &str) -> (&'static str, &'static str) {
+    // (背景色, テキスト色)
+    match stype {
+        "プレミアム型" => ("#065f46", "#6ee7b7"),     // emerald dark bg
+        "給与一本勝負型" => ("#1e3a5f", "#93c5fd"),   // blue dark bg
+        "福利厚生重視型" => ("#78350f", "#fcd34d"),    // amber dark bg
+        "コスト優先型" => ("#334155", "#94a3b8"),      // slate dark bg
+        _ => ("#1e293b", "#cbd5e1"),
+    }
+}
+
+fn render_employer_strategy_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🎯 企業採用戦略の4象限</h3>
+        <p class="text-xs text-slate-500 mb-4">給与×福利厚生の2軸で企業の採用戦略を4分類。プレミアム型が多い地域は人材獲得競争が激しい傾向です。</p>"#);
+
+    // 雇用形態でグループ化
+    let mut groups: HashMap<String, Vec<&Row>> = HashMap::new();
+    for row in data {
+        let grp = get_str(row, "emp_group").to_string();
+        groups.entry(grp).or_default().push(row);
+    }
+
+    let mut sorted_groups: Vec<_> = groups.into_iter().collect();
+    sorted_groups.sort_by(|a, b| a.0.cmp(&b.0));
+
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
+
+    for (grp, rows) in &sorted_groups {
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-sm font-semibold text-white mb-3">{grp}</div>
+                <div class="grid grid-cols-2 gap-2">"#
+        ));
+
+        for row in rows {
+            let stype = get_str(row, "strategy_type");
+            let count = get_i64(row, "count");
+            let pct_val = get_f64(row, "pct");
+            let (bg, fg) = strategy_color(stype);
+
+            html.push_str(&format!(
+                r#"<div class="rounded-lg p-3 text-center" style="background:{bg}">
+                    <div class="text-xs font-semibold mb-1" style="color:{fg}">{stype}</div>
+                    <div class="text-lg font-bold" style="color:{fg}">{pct_s}</div>
+                    <div class="text-xs" style="color:{fg};opacity:0.7">{count_s}件</div>
+                </div>"#,
+                pct_s = pct(pct_val),
+                count_s = format_number(count),
+            ));
+        }
+
+        html.push_str("</div></div>");
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+fn concentration_badge(level: &str) -> (&'static str, &'static str) {
+    // (背景色, テキスト色)
+    match level {
+        "高度集中" => ("#991b1b", "#fca5a5"),
+        "中度集中" => ("#92400e", "#fcd34d"),
+        "低度集中" => ("#166534", "#86efac"),
+        "競争的" => ("#1e3a5f", "#93c5fd"),
+        _ => ("#334155", "#94a3b8"),
+    }
+}
+
+fn render_monopsony_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(4_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">⚖️ 雇用者集中度（独占力）</h3>
+        <p class="text-xs text-slate-500 mb-4">HHI（ハーフィンダール・ハーシュマン指数）で雇用市場の独占度を評価。集中度が高いほど求職者の選択肢が限られます。</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+
+    for row in data {
+        let grp = get_str(row, "emp_group");
+        let total = get_i64(row, "total_postings");
+        let facilities = get_i64(row, "unique_facilities");
+        let hhi = get_f64(row, "hhi");
+        let level = get_str(row, "concentration_level");
+        let top1 = get_str(row, "top1_name");
+        let top1_share = get_f64(row, "top1_share");
+        let top3_share = get_f64(row, "top3_share");
+        let top5_share = get_f64(row, "top5_share");
+        let gini = get_f64(row, "gini");
+
+        let (badge_bg, badge_fg) = concentration_badge(level);
+        let top1_short = truncate_str(top1, 16);
+
+        // HHI ゲージ（0-10000スケール、>2500で高度集中）
+        let hhi_w = (hhi / 10000.0 * 100.0).min(100.0).max(0.0);
+        let hhi_color = if hhi >= 2500.0 { "#ef4444" } else if hhi >= 1500.0 { "#f97316" } else if hhi >= 1000.0 { "#eab308" } else { "#22c55e" };
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-semibold text-white">{grp}</div>
+                    <span class="px-2 py-0.5 rounded text-xs font-semibold" style="background:{badge_bg};color:{badge_fg}">{level_display}</span>
+                </div>
+                <div class="flex items-baseline gap-2 mb-1">
+                    <span class="text-2xl font-bold" style="color:{hhi_color}">{hhi:.0}</span>
+                    <span class="text-xs text-slate-400">HHI</span>
+                </div>
+                <div class="w-full bg-slate-700 rounded h-2 mb-3"><div class="rounded h-2" style="width:{hhi_w:.1}%;background:{hhi_color}"></div></div>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between text-slate-400"><span>最大雇用者</span><span class="text-amber-400 truncate ml-1" title="{top1}">{top1_short}</span></div>
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>Top1シェア</span><span>{top1_pct}</span></div>
+                        {top1_bar}
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>Top3シェア</span><span>{top3_pct}</span></div>
+                        {top3_bar}
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-slate-400 mb-1"><span>Top5シェア</span><span>{top5_pct}</span></div>
+                        {top5_bar}
+                    </div>
+                    <div class="flex justify-between text-slate-400 pt-2 border-t border-slate-700"><span>Gini係数</span><span class="text-white">{gini:.3}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>施設数</span><span class="text-white">{fac_s}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>求人数</span><span class="text-white">{total_s}</span></div>
+                </div>
+            </div>"#,
+            level_display = if level.is_empty() { "-" } else { level },
+            top1_pct = pct(top1_share),
+            top1_bar = pct_bar(top1_share, "#f59e0b"),
+            top3_pct = pct(top3_share),
+            top3_bar = pct_bar(top3_share, "#f97316"),
+            top5_pct = pct(top5_share),
+            top5_bar = pct_bar(top5_share, "#ef4444"),
+            fac_s = format_number(facilities),
+            total_s = format_number(total),
+        ));
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+fn render_spatial_mismatch_section(data: &[Row]) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📍 空間的ミスマッチ分析</h3>
+        <p class="text-xs text-slate-500 mb-4">当該市区町村の求人と近隣30km/60km圏の求人を比較。孤立スコアが高いほど周辺に選択肢が少ない「求人砂漠」地域です。</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+
+    for row in data {
+        let grp = get_str(row, "emp_group");
+        let count = get_i64(row, "posting_count");
+        let avg_sal = get_f64(row, "avg_salary_min");
+        let acc_30 = get_i64(row, "accessible_postings_30km");
+        let acc_sal_30 = get_f64(row, "accessible_avg_salary_30km");
+        let acc_60 = get_i64(row, "accessible_postings_60km");
+        let sal_gap = get_f64(row, "salary_gap_vs_accessible");
+        let isolation = get_f64(row, "isolation_score");
+
+        let iso_color = if isolation >= 0.7 { "#ef4444" } else if isolation >= 0.4 { "#f97316" } else if isolation >= 0.2 { "#eab308" } else { "#22c55e" };
+        let iso_label = if isolation >= 0.7 { "高孤立（求人砂漠）" } else if isolation >= 0.4 { "やや孤立" } else if isolation >= 0.2 { "標準" } else { "アクセス良好" };
+
+        let gap_color = if sal_gap >= 0.0 { "#22c55e" } else { "#ef4444" };
+        let gap_sign = if sal_gap >= 0.0 { "+" } else { "" };
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-sm font-semibold text-white mb-2">{grp}</div>
+                <div class="flex items-baseline gap-2 mb-1">
+                    <span class="text-2xl font-bold" style="color:{iso_color}">{isolation:.2}</span>
+                    <span class="text-xs text-slate-400">孤立スコア</span>
+                </div>
+                <div class="text-xs mb-3" style="color:{iso_color}">{iso_label}</div>
+                {iso_bar}
+                <div class="mt-3 space-y-1 text-xs">
+                    <div class="flex justify-between text-slate-400"><span>当地の求人数</span><span class="text-white">{count_s}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>当地の平均給与</span><span class="text-white">{sal_s}円</span></div>
+                    <div class="flex justify-between text-slate-400 pt-1 border-t border-slate-700"><span>30km圏 求人数</span><span class="text-cyan-400">{acc30_s}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>30km圏 平均給与</span><span class="text-cyan-400">{accsal30_s}円</span></div>
+                    <div class="flex justify-between text-slate-400"><span>60km圏 求人数</span><span class="text-blue-400">{acc60_s}</span></div>
+                    <div class="flex justify-between text-slate-400 pt-1 border-t border-slate-700"><span>給与ギャップ</span><span style="color:{gap_color}">{gap_sign}{sal_gap:.1}%</span></div>
+                </div>
+            </div>"#,
+            iso_bar = pct_bar(isolation, iso_color),
+            count_s = format_number(count),
+            sal_s = format_number(avg_sal as i64),
+            acc30_s = format_number(acc_30),
+            accsal30_s = format_number(acc_sal_30 as i64),
+            acc60_s = format_number(acc_60),
+        ));
+    }
+
+    html.push_str("</div></div>");
     html
 }
