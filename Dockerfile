@@ -22,6 +22,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -38,8 +39,13 @@ COPY static/js/ static/js/
 
 # 圧縮データ（起動時に自動解凍）
 COPY data/geojson_gz/ data/geojson_gz/
-# V2: ハローワークDB（1DBのみ）
-COPY data/hellowork.db.gz data/hellowork.db.gz
+
+# DB: GitHub Releaseからダウンロード（Git LFS不要）
+ARG DB_RELEASE_URL=""
+COPY scripts/download_db.sh scripts/download_db.sh
+RUN chmod +x scripts/download_db.sh && \
+    mkdir -p data && \
+    scripts/download_db.sh
 
 EXPOSE 9216
 

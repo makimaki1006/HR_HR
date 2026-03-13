@@ -5,8 +5,9 @@ target/
 # Environment
 .env
 
-# Uncompressed database files (use .gz versions)
+# Database files (DB is downloaded from GitHub Release at build time)
 data/*.db
+data/*.db.gz
 
 # Uncompressed GeoJSON (decompressed from data/geojson_gz/ at startup)
 static/geojson/
@@ -28,6 +29,7 @@ build_release.bat
 # Scripts: compute_v2_*.py are tracked (pre-computation for analysis)
 scripts/*.bat
 scripts/*.sh
+!scripts/download_db.sh
 scripts/!compute_v2_*.py
 
 # Dev docs

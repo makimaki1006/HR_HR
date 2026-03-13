@@ -328,7 +328,7 @@ def compute_region_benchmark(db):
     diversity_data = {}
     if table_exists(db, "v2_regional_resilience"):
         for row in db.execute("""
-            SELECT prefecture, municipality, emp_group, diversity_index
+            SELECT prefecture, municipality, emp_group, shannon_index
             FROM v2_regional_resilience
         """).fetchall():
             key = (row[0], row[1] or "", row[2])
@@ -360,7 +360,7 @@ def compute_region_benchmark(db):
     temperature_data = {}
     if table_exists(db, "v2_text_temperature"):
         for row in db.execute("""
-            SELECT prefecture, municipality, emp_group, avg_temperature
+            SELECT prefecture, municipality, emp_group, temperature
             FROM v2_text_temperature
             WHERE industry_raw = ''
         """).fetchall():

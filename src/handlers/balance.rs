@@ -379,12 +379,6 @@ fn render_balance(
         {cross_chart}
     </div>
 
-    <!-- V2独自分析（雇用形態別）: 遅延読み込み -->
-    <div hx-get="/tab/analysis" hx-trigger="revealed" hx-swap="innerHTML">
-        <div class="stat-card text-center py-8">
-            <p class="text-slate-400 text-sm">雇用形態別分析を読み込み中...</p>
-        </div>
-    </div>
 </div>"##,
         industry_label = industry_label,
         location_label = location_label,
