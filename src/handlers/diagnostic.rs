@@ -1,6 +1,6 @@
-//! Phase 6: 条件入力→市場診断ハンドラー
+//! Phase 6: 条件入力→市場診断ハンドラー（拡張版）
 //! 入力: 月給、年間休日、賞与月数、雇用形態
-//! 出力: パーセンタイルバー + 充足困難度 + 改善提案
+//! 出力: EChartsレーダー + 総合診断 + 業界比較 + 具体的改善提案
 
 use axum::extract::{Query, State};
 use axum::response::Html;
@@ -18,9 +18,6 @@ type Row = HashMap<String, Value>;
 
 fn get_f64(row: &Row, key: &str) -> f64 {
     row.get(key).and_then(|v| v.as_f64()).unwrap_or(0.0)
-}
-fn _get_i64(row: &Row, key: &str) -> i64 {
-    row.get(key).and_then(|v| v.as_i64()).unwrap_or(0)
 }
 fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
     row.get(key).and_then(|v| v.as_str()).unwrap_or("")
@@ -86,7 +83,7 @@ pub async fn tab_diagnostic(
     Html(html)
 }
 
-/// API: 診断結果を返す
+/// API: 診断結果を返す（拡張版）
 pub async fn evaluate_diagnostic(
     State(state): State<Arc<AppState>>,
     session: Session,
@@ -110,9 +107,9 @@ pub async fn evaluate_diagnostic(
     let holidays = q.holidays.unwrap_or(0);
     let bonus = q.bonus.unwrap_or(0.0);
 
-    let mut html = String::with_capacity(16_000);
+    let mut html = String::with_capacity(32_000);
 
-    // 1. 給与パーセンタイル計算
+    // 1. パーセンタイル計算
     let salary_pct = compute_salary_percentile(db, pref, muni, emp_type, salary);
     let holidays_pct = if holidays > 0 {
         compute_holidays_percentile(db, pref, muni, emp_type, holidays)
@@ -121,31 +118,64 @@ pub async fn evaluate_diagnostic(
         compute_bonus_percentile(db, pref, muni, emp_type, bonus)
     } else { None };
 
-    // 2. 充足困難度
+    // 2. 事前計算テーブルから追加データ取得
+    let benchmark = fetch_benchmark_for_diagnostic(db, pref, muni, emp_type);
+    let comp_pkg = fetch_compensation_for_diagnostic(db, pref, muni, emp_type);
+    let shadow = fetch_shadow_wage_for_diagnostic(db, pref, muni, emp_type);
     let fulfillment = fetch_fulfillment_grade(db, pref, muni, emp_type);
 
-    // 3. 報酬パッケージランク
-    let _comp_rank = fetch_comp_rank(db, pref, muni, emp_type);
+    // 3. 総合評価（加重平均: 給与50%, 休日30%, 賞与20%）
+    let (overall_pct, overall_grade, grade_color) = compute_composite_grade(
+        salary_pct, holidays_pct, bonus_pct
+    );
 
-    // ヘッダー
+    // ========================================
+    // ヘッダー + 総合グレード
+    // ========================================
     html.push_str(r#"<div class="space-y-4 mt-4">"#);
-    html.push_str(r#"<h3 class="text-lg font-bold text-white">診断結果</h3>"#);
+    html.push_str(r#"<h3 class="text-lg font-bold text-white">📊 総合診断結果</h3>"#);
 
-    // パーセンタイルバー: 給与
+    // 総合グレードカード
+    html.push_str(&format!(
+        r#"<div class="stat-card border-l-4" style="border-color:{grade_color}">
+            <div class="flex items-center justify-between">
+                <div>
+                    <span class="text-sm text-slate-400">市場ポジション</span>
+                    <p class="text-xs text-slate-500 mt-1">
+                        この地域の{emp_type}求人の中で、総合的に上位{top_pct:.0}%に位置します
+                    </p>
+                </div>
+                <div class="text-right">
+                    <span class="text-3xl font-bold" style="color:{grade_color}">{overall_grade}</span>
+                    <p class="text-xs text-slate-500">{overall_pct:.1}点 / 100</p>
+                </div>
+            </div>
+        </div>"#,
+        top_pct = 100.0 - overall_pct,
+    ));
+
+    // ========================================
+    // ECharts レーダーチャート（6軸）
+    // ========================================
+    html.push_str(&render_radar_chart(
+        salary_pct, holidays_pct, bonus_pct, &benchmark, &comp_pkg,
+    ));
+
+    // ========================================
+    // パーセンタイルバー（個別指標）
+    // ========================================
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-3">"#);
+
     html.push_str(&render_percentile_bar(
         "月給", &format!("{}円", format_number(salary)),
         salary_pct, "#3B82F6",
     ));
-
-    // パーセンタイルバー: 休日
     if let Some(hp) = holidays_pct {
         html.push_str(&render_percentile_bar(
             "年間休日", &format!("{}日", holidays),
             Some(hp), "#10B981",
         ));
     }
-
-    // パーセンタイルバー: 賞与
     if let Some(bp) = bonus_pct {
         html.push_str(&render_percentile_bar(
             "賞与", &format!("{:.1}ヶ月", bonus),
@@ -153,32 +183,18 @@ pub async fn evaluate_diagnostic(
         ));
     }
 
-    // 総合評価
-    let overall_pct = salary_pct.unwrap_or(50.0);
-    let grade = if overall_pct >= 75.0 { "A（上位）" }
-        else if overall_pct >= 50.0 { "B（中位以上）" }
-        else if overall_pct >= 25.0 { "C（中位以下）" }
-        else { "D（下位）" };
+    html.push_str("</div>");
 
-    let grade_color = if overall_pct >= 75.0 { "#10B981" }
-        else if overall_pct >= 50.0 { "#3B82F6" }
-        else if overall_pct >= 25.0 { "#F59E0B" }
-        else { "#EF4444" };
+    // ========================================
+    // 業界比較バー（給与分位での位置）
+    // ========================================
+    if !shadow.is_empty() {
+        html.push_str(&render_industry_comparison(salary, &shadow));
+    }
 
-    html.push_str(&format!(
-        r#"<div class="stat-card border-l-4" style="border-color:{grade_color}">
-            <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-400">市場ポジション</span>
-                <span class="text-lg font-bold" style="color:{grade_color}">{grade}</span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">
-                この地域の{emp_type}求人の中で、給与は上位{top_pct:.0}%に位置します
-            </p>
-        </div>"#,
-        top_pct = 100.0 - overall_pct,
-    ));
-
-    // 充足困難度（テーブルが存在する場合のみ）
+    // ========================================
+    // 充足困難度
+    // ========================================
     if let Some((avg_score, grade_label)) = fulfillment {
         let fc = if avg_score >= 75.0 { "#EF4444" }
             else if avg_score >= 50.0 { "#F59E0B" }
@@ -196,12 +212,216 @@ pub async fn evaluate_diagnostic(
         ));
     }
 
-    // 改善提案
-    html.push_str(&render_improvement_suggestions(salary, holidays, bonus, overall_pct, pref));
+    // ========================================
+    // 具体的改善提案（数値付き）
+    // ========================================
+    html.push_str(&render_actionable_suggestions(
+        salary, holidays, bonus, salary_pct, holidays_pct, bonus_pct,
+        &shadow, overall_grade, pref,
+    ));
 
     html.push_str("</div>");
 
     Html(html)
+}
+
+// ======== 総合グレード計算 ========
+
+/// 加重平均で総合スコアを計算し、S/A/B/C/D グレードを返す
+fn compute_composite_grade(
+    salary_pct: Option<f64>,
+    holidays_pct: Option<f64>,
+    bonus_pct: Option<f64>,
+) -> (f64, &'static str, &'static str) {
+    let mut total_weight = 0.0_f64;
+    let mut weighted_sum = 0.0_f64;
+
+    // 給与: 50%
+    if let Some(sp) = salary_pct {
+        weighted_sum += sp * 0.50;
+        total_weight += 0.50;
+    }
+    // 休日: 30%
+    if let Some(hp) = holidays_pct {
+        weighted_sum += hp * 0.30;
+        total_weight += 0.30;
+    }
+    // 賞与: 20%
+    if let Some(bp) = bonus_pct {
+        weighted_sum += bp * 0.20;
+        total_weight += 0.20;
+    }
+
+    let overall = if total_weight > 0.0 { weighted_sum / total_weight } else { 50.0 };
+
+    let (grade, color) = if overall >= 85.0 { ("S", "#FFD700") }
+        else if overall >= 70.0 { ("A", "#10B981") }
+        else if overall >= 50.0 { ("B", "#3B82F6") }
+        else if overall >= 30.0 { ("C", "#F59E0B") }
+        else { ("D", "#EF4444") };
+
+    (overall, grade, color)
+}
+
+// ======== ECharts レーダーチャート ========
+
+fn render_radar_chart(
+    salary_pct: Option<f64>,
+    holidays_pct: Option<f64>,
+    bonus_pct: Option<f64>,
+    benchmark: &Option<Row>,
+    comp_pkg: &Option<Row>,
+) -> String {
+    // 6軸: 給与, 休日, 賞与, 透明性, 原稿品質, 人材定着
+    let v_salary = salary_pct.unwrap_or(50.0);
+    let v_holidays = holidays_pct.unwrap_or(50.0);
+    let v_bonus = bonus_pct.unwrap_or(50.0);
+
+    // ベンチマークデータがあれば活用、なければ50.0
+    let v_transparency = benchmark.as_ref()
+        .map(|r| get_f64(r, "info_transparency")).unwrap_or(50.0);
+    let v_text_temp = benchmark.as_ref()
+        .map(|r| get_f64(r, "text_temperature")).unwrap_or(50.0);
+    let v_retention = benchmark.as_ref()
+        .map(|r| get_f64(r, "talent_retention")).unwrap_or(50.0);
+
+    // 地域平均のコンパレータ
+    let avg_salary = comp_pkg.as_ref()
+        .map(|r| get_f64(r, "salary_pctile")).unwrap_or(50.0);
+    let avg_holidays = comp_pkg.as_ref()
+        .map(|r| get_f64(r, "holidays_pctile")).unwrap_or(50.0);
+    let avg_bonus = comp_pkg.as_ref()
+        .map(|r| get_f64(r, "bonus_pctile")).unwrap_or(50.0);
+
+    let mut html = String::with_capacity(4_000);
+    html.push_str(r#"<div class="stat-card">"#);
+    html.push_str(r#"<h4 class="text-sm text-slate-400 mb-2">🎯 6軸レーダー診断</h4>"#);
+    html.push_str(r#"<p class="text-xs text-slate-500 mb-3">青=あなたの条件 / 灰=地域平均</p>"#);
+
+    // ECharts レーダーチャート
+    html.push_str(&format!(
+        r##"<div class="echart" style="height:350px;" data-chart-config='{{
+            "tooltip": {{"trigger": "item"}},
+            "legend": {{
+                "data": ["あなたの条件", "地域平均"],
+                "bottom": 0,
+                "textStyle": {{"color": "#94a3b8", "fontSize": 11}}
+            }},
+            "radar": {{
+                "indicator": [
+                    {{"name": "給与水準", "max": 100}},
+                    {{"name": "年間休日", "max": 100}},
+                    {{"name": "賞与", "max": 100}},
+                    {{"name": "情報透明性", "max": 100}},
+                    {{"name": "原稿品質", "max": 100}},
+                    {{"name": "人材定着度", "max": 100}}
+                ],
+                "shape": "circle",
+                "radius": "60%",
+                "axisName": {{"color": "#94a3b8", "fontSize": 11}},
+                "splitArea": {{"areaStyle": {{"color": ["rgba(30,41,59,0.3)", "rgba(30,41,59,0.5)"]}}}},
+                "axisLine": {{"lineStyle": {{"color": "rgba(100,116,139,0.3)"}}}},
+                "splitLine": {{"lineStyle": {{"color": "rgba(100,116,139,0.2)"}}}}
+            }},
+            "series": [{{
+                "type": "radar",
+                "data": [
+                    {{
+                        "value": [{v_salary:.1}, {v_holidays:.1}, {v_bonus:.1}, {v_transparency:.1}, {v_text_temp:.1}, {v_retention:.1}],
+                        "name": "あなたの条件",
+                        "areaStyle": {{"color": "rgba(59,130,246,0.25)"}},
+                        "lineStyle": {{"color": "#3B82F6", "width": 2}},
+                        "itemStyle": {{"color": "#3B82F6"}}
+                    }},
+                    {{
+                        "value": [{avg_salary:.1}, {avg_holidays:.1}, {avg_bonus:.1}, {v_transparency:.1}, {v_text_temp:.1}, {v_retention:.1}],
+                        "name": "地域平均",
+                        "areaStyle": {{"color": "rgba(100,116,139,0.15)"}},
+                        "lineStyle": {{"color": "#64748B", "width": 1, "type": "dashed"}},
+                        "itemStyle": {{"color": "#64748B"}}
+                    }}
+                ]
+            }}]
+        }}'></div>"##
+    ));
+
+    html.push_str("</div>");
+    html
+}
+
+// ======== 業界比較（給与分位での位置） ========
+
+fn render_industry_comparison(salary: i64, shadow: &[Row]) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card">"#);
+    html.push_str(r#"<h4 class="text-sm text-slate-400 mb-2">📊 給与分布における位置</h4>"#);
+    html.push_str(r#"<p class="text-xs text-slate-500 mb-3">地域の給与分布（月給）と入力値の比較</p>"#);
+
+    // shadow_wage から月給データを取得
+    let monthly = shadow.iter().find(|r| {
+        let st = get_str(r, "salary_type");
+        st == "月給" || st.is_empty()
+    });
+
+    if let Some(row) = monthly {
+        let p10 = get_f64(row, "p10") as i64;
+        let p25 = get_f64(row, "p25") as i64;
+        let p50 = get_f64(row, "p50") as i64;
+        let p75 = get_f64(row, "p75") as i64;
+        let p90 = get_f64(row, "p90") as i64;
+
+        // ユーザー値の位置を計算
+        let range = (p90 - p10).max(1) as f64;
+        let user_pos = ((salary - p10) as f64 / range * 100.0).clamp(2.0, 98.0);
+
+        // 横バーで分位点を可視化
+        html.push_str(&format!(
+            r#"<div class="relative">
+                <div class="flex items-center gap-1 mb-2">
+                    <span class="text-xs text-slate-500 w-16">P10</span>
+                    <span class="text-xs text-slate-500 flex-1 text-center">P25</span>
+                    <span class="text-xs text-slate-500 flex-1 text-center font-medium text-white">P50（中央値）</span>
+                    <span class="text-xs text-slate-500 flex-1 text-center">P75</span>
+                    <span class="text-xs text-slate-500 w-16 text-right">P90</span>
+                </div>
+                <div class="relative w-full h-8 bg-slate-700 rounded overflow-hidden">
+                    <div class="absolute h-full bg-red-900/40" style="left:0;width:12.5%"></div>
+                    <div class="absolute h-full bg-amber-900/30" style="left:12.5%;width:25%"></div>
+                    <div class="absolute h-full bg-blue-900/30" style="left:37.5%;width:25%"></div>
+                    <div class="absolute h-full bg-emerald-900/30" style="left:62.5%;width:25%"></div>
+                    <div class="absolute h-full bg-emerald-900/40" style="left:87.5%;width:12.5%"></div>
+                    <div class="absolute h-full w-0.5 bg-slate-500" style="left:12.5%"></div>
+                    <div class="absolute h-full w-0.5 bg-slate-500" style="left:37.5%"></div>
+                    <div class="absolute h-full w-0.5 bg-white/50" style="left:50%"></div>
+                    <div class="absolute h-full w-0.5 bg-slate-500" style="left:62.5%"></div>
+                    <div class="absolute h-full w-0.5 bg-slate-500" style="left:87.5%"></div>
+                    <div class="absolute -top-1 -bottom-1 w-1 bg-yellow-400 shadow-lg shadow-yellow-400/50" style="left:{user_pos:.1}%"></div>
+                </div>
+                <div class="flex items-center gap-1 mt-1">
+                    <span class="text-xs text-slate-500 w-16">{p10_s}</span>
+                    <span class="text-xs text-slate-500 flex-1 text-center">{p25_s}</span>
+                    <span class="text-xs text-white flex-1 text-center font-medium">{p50_s}</span>
+                    <span class="text-xs text-slate-500 flex-1 text-center">{p75_s}</span>
+                    <span class="text-xs text-slate-500 w-16 text-right">{p90_s}</span>
+                </div>
+                <div class="text-center mt-2">
+                    <span class="text-xs text-yellow-400">▲ あなた: {user_s}円</span>
+                </div>
+            </div>"#,
+            user_pos = user_pos,
+            p10_s = format_number(p10),
+            p25_s = format_number(p25),
+            p50_s = format_number(p50),
+            p75_s = format_number(p75),
+            p90_s = format_number(p90),
+            user_s = format_number(salary),
+        ));
+    } else {
+        html.push_str(r#"<p class="text-xs text-slate-500">給与分布データがありません</p>"#);
+    }
+
+    html.push_str("</div>");
+    html
 }
 
 // ======== パーセンタイル計算 ========
@@ -224,9 +444,9 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, _emp_type: &str, s
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
     let total_sql = if !muni.is_empty() {
-        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND salary_min > 0 AND salary_type='月給'")
+        "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND salary_min > 0 AND salary_type='月給'".to_string()
     } else if !pref.is_empty() {
-        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND salary_min > 0 AND salary_type='月給'")
+        "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND salary_min > 0 AND salary_type='月給'".to_string()
     } else {
         "SELECT COUNT(*) FROM postings WHERE salary_min > 0 AND salary_type='月給'".to_string()
     };
@@ -249,7 +469,6 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, _emp_type: &str, s
 }
 
 fn compute_holidays_percentile(db: &Db, pref: &str, _muni: &str, _emp_type: &str, holidays: i64) -> Option<f64> {
-    // 都道府県レベルで計算
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         ("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0 AND annual_holidays <= ?2".to_string(),
          vec![pref.to_string(), holidays.to_string()])
@@ -313,7 +532,7 @@ fn fetch_fulfillment_grade(db: &Db, pref: &str, muni: &str, _emp_type: &str) -> 
           FROM v2_fulfillment_summary WHERE prefecture=?1 AND municipality='' LIMIT 1".to_string(),
          vec![pref.to_string()])
     } else {
-        return None; // 全国レベルでは非表示
+        return None;
     };
 
     let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
@@ -321,24 +540,79 @@ fn fetch_fulfillment_grade(db: &Db, pref: &str, muni: &str, _emp_type: &str) -> 
     rows.first().map(|r| (get_f64(r, "avg_score"), get_str(r, "grade").to_string()))
 }
 
-fn fetch_comp_rank(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Option<(f64, String)> {
-    if !table_exists(db, "v2_compensation_package") { return None; }
+fn fetch_benchmark_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Option<Row> {
+    if !table_exists(db, "v2_region_benchmark") { return None; }
+
+    let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT composite_score, rank_label FROM v2_compensation_package \
-          WHERE prefecture=?1 AND municipality=?2 AND industry_raw='' AND emp_group=?3 LIMIT 1".to_string(),
-         vec![pref.to_string(), muni.to_string(), emp_type.to_string()])
+        ("SELECT posting_activity, salary_competitiveness, talent_retention, \
+          industry_diversity, info_transparency, text_temperature, composite_benchmark \
+          FROM v2_region_benchmark WHERE prefecture=?1 AND municipality=?2 AND emp_group=?3 LIMIT 1".to_string(),
+         vec![pref.to_string(), muni.to_string(), emp_group.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT composite_score, rank_label FROM v2_compensation_package \
-          WHERE prefecture=?1 AND municipality='' AND industry_raw='' AND emp_group=?2 LIMIT 1".to_string(),
-         vec![pref.to_string(), emp_type.to_string()])
+        ("SELECT posting_activity, salary_competitiveness, talent_retention, \
+          industry_diversity, info_transparency, text_temperature, composite_benchmark \
+          FROM v2_region_benchmark WHERE prefecture=?1 AND municipality='' AND emp_group=?2 LIMIT 1".to_string(),
+         vec![pref.to_string(), emp_group.to_string()])
     } else {
         return None;
     };
 
     let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
     let rows = db.query(&sql, &p).unwrap_or_default();
-    rows.first().map(|r| (get_f64(r, "composite_score"), get_str(r, "rank_label").to_string()))
+    rows.into_iter().next()
+}
+
+fn fetch_compensation_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Option<Row> {
+    if !table_exists(db, "v2_compensation_package") { return None; }
+
+    let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT avg_salary_min, avg_annual_holidays, avg_bonus_months, \
+          salary_pctile, holidays_pctile, bonus_pctile, composite_score, rank_label \
+          FROM v2_compensation_package WHERE prefecture=?1 AND municipality=?2 AND industry_raw='' AND emp_group=?3 LIMIT 1".to_string(),
+         vec![pref.to_string(), muni.to_string(), emp_group.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT avg_salary_min, avg_annual_holidays, avg_bonus_months, \
+          salary_pctile, holidays_pctile, bonus_pctile, composite_score, rank_label \
+          FROM v2_compensation_package WHERE prefecture=?1 AND municipality='' AND industry_raw='' AND emp_group=?2 LIMIT 1".to_string(),
+         vec![pref.to_string(), emp_group.to_string()])
+    } else {
+        return None;
+    };
+
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let rows = db.query(&sql, &p).unwrap_or_default();
+    rows.into_iter().next()
+}
+
+fn fetch_shadow_wage_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Vec<Row> {
+    if !table_exists(db, "v2_shadow_wage") { return vec![]; }
+
+    let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
+
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT salary_type, total_count, p10, p25, p50, p75, p90, mean \
+          FROM v2_shadow_wage WHERE prefecture=?1 AND municipality=?2 AND industry_raw='' AND emp_group=?3 \
+          ORDER BY salary_type".to_string(),
+         vec![pref.to_string(), muni.to_string(), emp_group.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT salary_type, total_count, p10, p25, p50, p75, p90, mean \
+          FROM v2_shadow_wage WHERE prefecture=?1 AND municipality='' AND industry_raw='' AND emp_group=?2 \
+          ORDER BY salary_type".to_string(),
+         vec![pref.to_string(), emp_group.to_string()])
+    } else {
+        ("SELECT salary_type, SUM(total_count) as total_count, \
+          AVG(p10) as p10, AVG(p25) as p25, AVG(p50) as p50, AVG(p75) as p75, AVG(p90) as p90, AVG(mean) as mean \
+          FROM v2_shadow_wage WHERE municipality='' AND industry_raw='' AND emp_group=?1 \
+          GROUP BY salary_type ORDER BY salary_type".to_string(),
+         vec![emp_group.to_string()])
+    };
+
+    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    db.query(&sql, &p).unwrap_or_default()
 }
 
 // ======== レンダリング ========
@@ -371,25 +645,98 @@ fn render_percentile_bar(label: &str, value_str: &str, pct: Option<f64>, color: 
     )
 }
 
-fn render_improvement_suggestions(_salary: i64, holidays: i64, bonus: f64, salary_pct: f64, _pref: &str) -> String {
-    let mut suggestions = Vec::new();
+/// 具体的数値を含む改善提案
+fn render_actionable_suggestions(
+    salary: i64, holidays: i64, bonus: f64,
+    salary_pct: Option<f64>, holidays_pct: Option<f64>, bonus_pct: Option<f64>,
+    shadow: &[Row], overall_grade: &str, _pref: &str,
+) -> String {
+    let mut suggestions: Vec<(String, &str)> = Vec::new(); // (提案テキスト, 重要度色)
 
-    if salary_pct < 25.0 {
-        suggestions.push("給与水準が下位25%に位置しています。競争力向上には月給の見直しを検討してください。");
-    } else if salary_pct < 50.0 {
-        suggestions.push("給与水準は中位以下です。地域の給与トレンドに注目してください。");
+    let sp = salary_pct.unwrap_or(50.0);
+
+    // 給与分位から目標額を計算
+    let monthly = shadow.iter().find(|r| {
+        let st = get_str(r, "salary_type");
+        st == "月給" || st.is_empty()
+    });
+
+    if sp < 25.0 {
+        if let Some(row) = monthly {
+            let p50 = get_f64(row, "p50") as i64;
+            let diff = p50 - salary;
+            if diff > 0 {
+                suggestions.push((
+                    format!("月給を{diff_s}円増額して{p50_s}円（中央値）にすると、ランクCからBに改善が見込めます",
+                        diff_s = format_number(diff),
+                        p50_s = format_number(p50)),
+                    "#EF4444"
+                ));
+            }
+        } else {
+            suggestions.push((
+                "給与水準が下位25%に位置しています。中央値以上への引き上げを検討してください".to_string(),
+                "#EF4444"
+            ));
+        }
+    } else if sp < 50.0 {
+        if let Some(row) = monthly {
+            let p75 = get_f64(row, "p75") as i64;
+            let diff = p75 - salary;
+            if diff > 0 {
+                suggestions.push((
+                    format!("月給を{diff_s}円増額して{p75_s}円にすると上位25%に入り、ランクAが狙えます",
+                        diff_s = format_number(diff),
+                        p75_s = format_number(p75)),
+                    "#F59E0B"
+                ));
+            }
+        }
     }
 
-    if holidays > 0 && holidays < 105 {
-        suggestions.push("年間休日105日未満は求職者にとって不利な条件です。最低でも105日以上を推奨します。");
+    // 休日の改善提案
+    if let Some(hp) = holidays_pct {
+        if hp < 30.0 && holidays > 0 && holidays < 105 {
+            suggestions.push((
+                format!("年間休日{}日は下位圏です。105日以上にすると法令遵守面でも安心です", holidays),
+                "#EF4444"
+            ));
+        } else if hp < 50.0 && holidays < 120 {
+            let target = 120;
+            suggestions.push((
+                format!("年間休日を{}日から{}日に増やすと、中央値を超えてランクアップが見込めます",
+                    holidays, target),
+                "#F59E0B"
+            ));
+        }
+    } else if holidays == 0 {
+        suggestions.push((
+            "年間休日を明示すると求職者の安心感が向上します。120日以上が競争力の目安です".to_string(),
+            "#3B82F6"
+        ));
     }
 
-    if bonus <= 0.0 {
-        suggestions.push("賞与が未設定です。賞与の明示は応募率向上に効果的です。");
+    // 賞与の改善提案
+    if let Some(bp) = bonus_pct {
+        if bp < 25.0 && bonus > 0.0 {
+            suggestions.push((
+                format!("賞与{:.1}ヶ月は下位25%です。3.0ヶ月以上にすると競争力が大幅に向上します", bonus),
+                "#F59E0B"
+            ));
+        }
+    } else if bonus <= 0.0 {
+        suggestions.push((
+            "賞与の明示は応募率向上に効果的です。業界平均は2.0〜3.5ヶ月です".to_string(),
+            "#3B82F6"
+        ));
     }
 
-    if salary_pct >= 75.0 && holidays >= 120 && bonus >= 3.0 {
-        suggestions.push("優良な求人条件です。求人原稿の質（具体的な仕事内容の記載等）で差別化を図りましょう。");
+    // 総合グレードがS/Aの場合のポジティブ提案
+    if overall_grade == "S" || overall_grade == "A" {
+        suggestions.push((
+            "優良な求人条件です。求人原稿の充実（具体的な業務内容、キャリアパス、職場の雰囲気等の記載）で更なる差別化を図りましょう".to_string(),
+            "#10B981"
+        ));
     }
 
     if suggestions.is_empty() {
@@ -398,12 +745,13 @@ fn render_improvement_suggestions(_salary: i64, holidays: i64, bonus: f64, salar
 
     let mut html = String::new();
     html.push_str(r#"<div class="stat-card border-l-4 border-blue-500">
-        <h4 class="text-sm font-medium text-blue-400 mb-2">改善提案</h4>
-        <ul class="space-y-1">"#);
-    for s in &suggestions {
+        <h4 class="text-sm font-medium text-blue-400 mb-3">💡 具体的改善提案</h4>
+        <ul class="space-y-2">"#);
+    for (text, color) in &suggestions {
         html.push_str(&format!(
-            r#"<li class="text-xs text-slate-300 flex items-start gap-2">
-                <span class="text-blue-400 mt-0.5">▸</span><span>{s}</span>
+            r#"<li class="flex items-start gap-2 p-2 rounded bg-slate-800/50">
+                <span class="mt-0.5 text-lg" style="color:{color}">●</span>
+                <span class="text-sm text-slate-300">{text}</span>
             </li>"#
         ));
     }
