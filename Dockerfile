@@ -42,10 +42,14 @@ COPY data/geojson_gz/ data/geojson_gz/
 
 # DB: GitHub Releaseからダウンロード（Git LFS不要）
 ARG DB_RELEASE_URL=""
+ARG GITHUB_TOKEN=""
+ENV GITHUB_TOKEN=${GITHUB_TOKEN}
 COPY scripts/download_db.sh scripts/download_db.sh
 RUN chmod +x scripts/download_db.sh && \
     mkdir -p data && \
     scripts/download_db.sh
+# トークンをイメージに残さない
+ENV GITHUB_TOKEN=""
 
 EXPOSE 9216
 

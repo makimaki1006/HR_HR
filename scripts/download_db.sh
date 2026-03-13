@@ -16,28 +16,58 @@ fi
 REPO="makimaki1006/HR_HR"
 ASSET_NAME="hellowork.db.gz"
 
+# GitHub API認証ヘッダー（レート制限回避）
+AUTH_HEADER=""
+if [ -n "$GITHUB_TOKEN" ]; then
+    AUTH_HEADER="Authorization: token $GITHUB_TOKEN"
+    echo "Using GITHUB_TOKEN for API authentication"
+fi
+
 if [ -n "$DB_RELEASE_URL" ]; then
     URL="$DB_RELEASE_URL"
     echo "Downloading DB from specified URL: $URL"
 else
     # GitHub API で最新ReleaseのアセットURLを取得
     echo "Fetching latest release info from $REPO..."
-    RELEASE_URL=$(curl -sL \
-        "https://api.github.com/repos/${REPO}/releases/latest" \
-        | grep -o "https://github.com/${REPO}/releases/download/[^\"]*${ASSET_NAME}" \
-        | head -1)
 
-    if [ -z "$RELEASE_URL" ]; then
-        echo "ERROR: Could not find $ASSET_NAME in latest release of $REPO"
-        echo "Please set DB_RELEASE_URL or create a release with the DB file"
-        exit 1
+    if [ -n "$AUTH_HEADER" ]; then
+        API_RESPONSE=$(curl -sL -H "$AUTH_HEADER" \
+            "https://api.github.com/repos/${REPO}/releases/latest")
+    else
+        API_RESPONSE=$(curl -sL \
+            "https://api.github.com/repos/${REPO}/releases/latest")
     fi
-    URL="$RELEASE_URL"
-    echo "Downloading DB from latest release: $URL"
+
+    # レート制限チェック
+    if echo "$API_RESPONSE" | grep -q "API rate limit exceeded"; then
+        echo "WARNING: GitHub API rate limit exceeded, trying direct URL..."
+        # フォールバック: 既知の最新タグで直接URL構築
+        URL="https://github.com/${REPO}/releases/download/db-v2.0/${ASSET_NAME}"
+        echo "Trying fallback URL: $URL"
+    else
+        RELEASE_URL=$(echo "$API_RESPONSE" \
+            | grep -o "https://github.com/${REPO}/releases/download/[^\"]*${ASSET_NAME}" \
+            | head -1)
+
+        if [ -z "$RELEASE_URL" ]; then
+            echo "WARNING: Could not find $ASSET_NAME in latest release, trying fallback..."
+            echo "API response (first 500 chars): $(echo "$API_RESPONSE" | head -c 500)"
+            # フォールバック: 直接URL
+            URL="https://github.com/${REPO}/releases/download/db-v2.0/${ASSET_NAME}"
+            echo "Trying fallback URL: $URL"
+        else
+            URL="$RELEASE_URL"
+            echo "Downloading DB from latest release: $URL"
+        fi
+    fi
 fi
 
 # ダウンロード（リダイレクト対応、リトライ3回）
-curl -L --retry 3 --retry-delay 5 -o "$DB_GZ" "$URL"
+if [ -n "$AUTH_HEADER" ]; then
+    curl -L -H "$AUTH_HEADER" --retry 3 --retry-delay 5 -o "$DB_GZ" "$URL"
+else
+    curl -L --retry 3 --retry-delay 5 -o "$DB_GZ" "$URL"
+fi
 
 # サイズ確認
 SIZE=$(du -h "$DB_GZ" | cut -f1)
