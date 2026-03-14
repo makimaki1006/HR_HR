@@ -5,6 +5,9 @@ services:
     region: oregon
     plan: free
     healthCheckPath: /health
+    dockerArgs:
+      GITHUB_TOKEN:
+        sync: false
     envVars:
       - key: PORT
         value: "9216"
