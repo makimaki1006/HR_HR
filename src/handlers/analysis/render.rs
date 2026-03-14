@@ -1,143 +1,24 @@
-//! V2独自分析ハンドラー
-//! Phase 1: C-4(欠員補充率), S-2(地域レジリエンス), C-1(透明性スコア)
-//! Phase 1B: 給与構造分析, 給与競争力指数, 報酬パッケージ総合評価
-//! Phase 2: L-1(テキスト温度計), L-3(異業種競合), A-1(異常値), S-1(カスケード)
-//! Phase 2B: 求人原稿品質分析, キーワードプロファイル
-//! Phase 3: 企業採用戦略4象限, 雇用者集中度(独占力), 空間的ミスマッチ
-//! Phase 4: 外部データ統合（最低賃金マスタ, 最低賃金違反, 地域ベンチマーク）
-//! Phase 5: 予測・推定（充足困難度, 地域間流動性, 給与分位表）
-//! 全指標は雇用形態（正社員/パート/その他）でセグメント化
+//! HTML描画関数（全 render_* 関数 + render_subtab_1..6）
 
-use axum::extract::{Path, State};
-use axum::response::Html;
-use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tower_sessions::Session;
+use serde_json::Value;
 
-use crate::AppState;
-use super::overview::{get_session_filters, make_location_label, render_no_db_data};
-use super::helpers::{get_f64, get_i64, get_str_html, escape_html, format_number, pct, pct_bar, truncate_str, table_exists};
+use super::super::helpers::{get_f64, get_i64, get_str_html, escape_html, format_number, pct, pct_bar, truncate_str};
+use super::helpers::{
+    get_str, vacancy_color, transparency_color, evenness_color, temp_color,
+    salary_color, rank_badge_color, info_score_color,
+    keyword_category_label, keyword_category_color,
+    strategy_color, concentration_badge,
+};
+use super::fetch::*;
 
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
 
-/// サブタブ定義
-const ANALYSIS_SUBTABS: [(u8, &str); 6] = [
-    (1, "求人動向"),
-    (2, "給与分析"),
-    (3, "テキスト分析"),
-    (4, "市場構造"),
-    (5, "異常値・外部"),
-    (6, "予測・推定"),
-];
-
-/// HTMXパーシャル: V2独自分析（サブタブナビゲーション付き）
-pub async fn tab_analysis(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
-    let filters = get_session_filters(&session).await;
-
-    let db = match &state.hw_db {
-        Some(db) => db.clone(),
-        None => return Html(render_no_db_data("雇用形態別分析")),
-    };
-
-    let pref = filters.prefecture.clone();
-    let muni = filters.municipality.clone();
-    let location = make_location_label(&pref, &muni);
-    let industry = filters.industry_label();
-
-    // サブタブ1のコンテンツを初期表示（spawn_blockingで実行）
-    let pref2 = pref.clone();
-    let muni2 = muni.clone();
-    let subtab1_content = tokio::task::spawn_blocking(move || {
-        render_subtab_1(&db, &pref2, &muni2)
-    }).await.unwrap_or_else(|_| render_no_db_data("雇用形態別分析"));
-
-    let mut html = String::with_capacity(16_000);
-
-    html.push_str(&format!(
-        r#"<div class="space-y-4">
-        <h2 class="text-xl font-bold text-white">雇用形態別 市場構造分析 <span class="text-blue-400 text-base font-normal">{location} {industry}</span></h2>
-        <p class="text-xs text-slate-500">正社員/パートで分けた求人市場の構造指標です</p>"#
-    ));
-
-    // サブタブナビゲーションバー
-    html.push_str(r#"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"#);
-    for (id, label) in &ANALYSIS_SUBTABS {
-        let active = if *id == 1 { " active" } else { "" };
-        html.push_str(&format!(
-            r##"<button class="analysis-subtab{active}" hx-get="/api/analysis/subtab/{id}" hx-target="#analysis-content" hx-swap="innerHTML" onclick="setAnalysisSubtab(this)">{label}</button>"##
-        ));
-    }
-    html.push_str("</div>");
-
-    // サブタブコンテンツ領域（初期はサブタブ1を表示）
-    html.push_str(r##"<div id="analysis-content">"##);
-    html.push_str(&subtab1_content);
-    html.push_str("</div>");
-
-    // サブタブ切替用JS
-    html.push_str(r#"<script>
-function setAnalysisSubtab(el) {
-    document.querySelectorAll('.analysis-subtab').forEach(function(btn) {
-        btn.classList.remove('active');
-    });
-    el.classList.add('active');
-}
-</script>"#);
-
-    html.push_str("</div>");
-
-    Html(html)
-}
-
-/// サブタブAPIハンドラー（HTMX経由で呼ばれる）
-pub async fn analysis_subtab(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-    Path(id): Path<u8>,
-) -> Html<String> {
-    let filters = get_session_filters(&session).await;
-
-    let db = match &state.hw_db {
-        Some(db) => db.clone(),
-        None => return Html(r#"<p class="text-slate-500 text-sm p-4">データベース未接続</p>"#.to_string()),
-    };
-
-    let pref = filters.prefecture.clone();
-    let muni = filters.municipality.clone();
-
-    let cache_key = format!("v2analysis_sub{}_{}_{}_{}",
-        id, filters.industry_cache_key(), filters.prefecture, filters.municipality);
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
-
-    let content = tokio::task::spawn_blocking(move || {
-        match id {
-            1 => render_subtab_1(&db, &pref, &muni),
-            2 => render_subtab_2(&db, &pref, &muni),
-            3 => render_subtab_3(&db, &pref, &muni),
-            4 => render_subtab_4(&db, &pref, &muni),
-            5 => render_subtab_5(&db, &pref, &muni),
-            6 => render_subtab_6(&db, &pref, &muni),
-            _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
-        }
-    }).await.unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
-
-    state.cache.set(cache_key, Value::String(content.clone()));
-    Html(content)
-}
-
 // ======== サブタブ描画関数 ========
 
 /// サブタブ1: 求人動向（vacancy, vacancy_by_industry, resilience, transparency）
-fn render_subtab_1(db: &Db, pref: &str, muni: &str) -> String {
+pub(crate) fn render_subtab_1(db: &Db, pref: &str, muni: &str) -> String {
     let vacancy = fetch_vacancy_data(db, pref, muni);
     let vacancy_by_industry = fetch_vacancy_by_industry(db, pref, muni);
     let resilience = fetch_resilience_data(db, pref, muni);
@@ -155,7 +36,7 @@ fn render_subtab_1(db: &Db, pref: &str, muni: &str) -> String {
 }
 
 /// サブタブ2: 給与分析（salary_structure, salary_competitiveness, compensation）
-fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
+pub(crate) fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
     let salary_structure = fetch_salary_structure(db, pref, muni);
     let salary_comp = fetch_salary_competitiveness(db, pref, muni);
     let compensation = fetch_compensation_package(db, pref, muni);
@@ -181,7 +62,7 @@ fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
 }
 
 /// サブタブ3: テキスト分析（text_quality, keyword_profile, temperature）
-fn render_subtab_3(db: &Db, pref: &str, muni: &str) -> String {
+pub(crate) fn render_subtab_3(db: &Db, pref: &str, muni: &str) -> String {
     let text_quality = fetch_text_quality(db, pref, muni);
     let keyword_profile = fetch_keyword_profile(db, pref, muni);
     let temperature = fetch_temperature_data(db, pref, muni);
@@ -207,7 +88,7 @@ fn render_subtab_3(db: &Db, pref: &str, muni: &str) -> String {
 }
 
 /// サブタブ4: 市場構造（employer_strategy, monopsony, spatial_mismatch, competition, cascade）
-fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
+pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
     let employer_strategy = fetch_employer_strategy(db, pref, muni);
     let monopsony = fetch_monopsony_data(db, pref, muni);
     let spatial = if !muni.is_empty() { fetch_spatial_mismatch(db, pref, muni) } else { vec![] };
@@ -242,7 +123,7 @@ fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
 }
 
 /// サブタブ5: 異常値・外部（anomaly, minimum_wage, wage_compliance, region_benchmark）
-fn render_subtab_5(db: &Db, pref: &str, muni: &str) -> String {
+pub(crate) fn render_subtab_5(db: &Db, pref: &str, muni: &str) -> String {
     let anomaly = fetch_anomaly_data(db, pref, muni);
     let minimum_wage = fetch_minimum_wage(db, pref);
     let wage_compliance = fetch_wage_compliance(db, pref, muni);
@@ -278,7 +159,7 @@ fn render_subtab_5(db: &Db, pref: &str, muni: &str) -> String {
 }
 
 /// サブタブ6: 予測・推定（fulfillment, mobility, shadow_wage）
-fn render_subtab_6(db: &Db, pref: &str, muni: &str) -> String {
+pub(crate) fn render_subtab_6(db: &Db, pref: &str, muni: &str) -> String {
     let fulfillment = fetch_fulfillment_summary(db, pref, muni);
     let mobility = fetch_mobility_estimate(db, pref, muni);
     let shadow_wage = fetch_shadow_wage(db, pref, muni);
@@ -304,234 +185,6 @@ fn render_subtab_6(db: &Db, pref: &str, muni: &str) -> String {
     html
 }
 
-// ======== データ取得: Phase 1 ========
-
-fn fetch_vacancy_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, vacancy_count, growth_count, new_facility_count, vacancy_rate, growth_rate \
-          FROM v2_vacancy_rate WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, vacancy_count, growth_count, new_facility_count, vacancy_rate, growth_rate \
-          FROM v2_vacancy_rate WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_count) as total_count, SUM(vacancy_count) as vacancy_count, \
-          SUM(growth_count) as growth_count, SUM(new_facility_count) as new_facility_count, \
-          CAST(SUM(vacancy_count) AS REAL) / SUM(total_count) as vacancy_rate, \
-          CAST(SUM(growth_count) AS REAL) / SUM(total_count) as growth_rate \
-          FROM v2_vacancy_rate WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-/// C-4 業種別: 正社員とパートの欠員補充率上位10業種
-fn fetch_vacancy_by_industry(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    let (filter, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("prefecture = ?1 AND municipality = ?2 AND length(industry_raw) > 0".to_string(),
-         vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("prefecture = ?1 AND municipality = '' AND length(industry_raw) > 0".to_string(),
-         vec![pref.to_string()])
-    } else {
-        // 全国: 業種集計
-        ("municipality = '' AND length(industry_raw) > 0".to_string(), vec![])
-    };
-
-    let sql = format!(
-        "SELECT industry_raw, emp_group, total_count, vacancy_rate, growth_rate \
-         FROM v2_vacancy_rate WHERE {filter} AND total_count >= 30 \
-         ORDER BY vacancy_rate DESC LIMIT 30"
-    );
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_resilience_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, industry_count, shannon_index, evenness, \
-          top_industry, top_industry_share, hhi \
-          FROM v2_regional_resilience WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, industry_count, shannon_index, evenness, \
-          top_industry, top_industry_share, hhi \
-          FROM v2_regional_resilience WHERE prefecture = ?1 AND municipality = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT prefecture as emp_group, total_count, industry_count, shannon_index, evenness, \
-          top_industry, top_industry_share, hhi \
-          FROM v2_regional_resilience WHERE municipality = '' AND emp_group = '正社員' \
-          ORDER BY shannon_index DESC LIMIT 10".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_transparency_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, avg_transparency, median_transparency, \
-          disclosure_annual_holidays, disclosure_bonus_months, disclosure_employee_count, \
-          disclosure_capital, disclosure_overtime, disclosure_female_ratio, \
-          disclosure_parttime_ratio, disclosure_founding_year \
-          FROM v2_transparency_score WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, avg_transparency, median_transparency, \
-          disclosure_annual_holidays, disclosure_bonus_months, disclosure_employee_count, \
-          disclosure_capital, disclosure_overtime, disclosure_female_ratio, \
-          disclosure_parttime_ratio, disclosure_founding_year \
-          FROM v2_transparency_score WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_count) as total_count, \
-          AVG(avg_transparency) as avg_transparency, AVG(median_transparency) as median_transparency, \
-          AVG(disclosure_annual_holidays) as disclosure_annual_holidays, \
-          AVG(disclosure_bonus_months) as disclosure_bonus_months, \
-          AVG(disclosure_employee_count) as disclosure_employee_count, \
-          AVG(disclosure_capital) as disclosure_capital, \
-          AVG(disclosure_overtime) as disclosure_overtime, \
-          AVG(disclosure_female_ratio) as disclosure_female_ratio, \
-          AVG(disclosure_parttime_ratio) as disclosure_parttime_ratio, \
-          AVG(disclosure_founding_year) as disclosure_founding_year \
-          FROM v2_transparency_score WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-// ======== データ取得: Phase 2 ========
-
-fn fetch_temperature_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    // テーブル存在確認
-    if db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v2_text_temperature'", &[]
-    ).unwrap_or(0) == 0 { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, sample_count, temperature, \
-          urgency_density, selectivity_density, urgency_hit_rate, selectivity_hit_rate \
-          FROM v2_text_temperature WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, sample_count, temperature, \
-          urgency_density, selectivity_density, urgency_hit_rate, selectivity_hit_rate \
-          FROM v2_text_temperature WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(sample_count) as sample_count, \
-          AVG(temperature) as temperature, \
-          AVG(urgency_density) as urgency_density, AVG(selectivity_density) as selectivity_density, \
-          AVG(urgency_hit_rate) as urgency_hit_rate, AVG(selectivity_hit_rate) as selectivity_hit_rate \
-          FROM v2_text_temperature WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_competition_data(db: &Db, pref: &str) -> Vec<Row> {
-    if db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v2_cross_industry_competition'", &[]
-    ).unwrap_or(0) == 0 { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT salary_band, education_group, emp_group, total_postings, industry_count, top_industries \
-          FROM v2_cross_industry_competition WHERE prefecture = ?1 AND total_postings >= 10 \
-          ORDER BY industry_count DESC LIMIT 30".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT salary_band, education_group, emp_group, \
-          SUM(total_postings) as total_postings, AVG(industry_count) as industry_count, '' as top_industries \
-          FROM v2_cross_industry_competition WHERE total_postings >= 10 \
-          GROUP BY salary_band, education_group, emp_group \
-          ORDER BY AVG(industry_count) DESC LIMIT 30".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_anomaly_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v2_anomaly_stats'", &[]
-    ).unwrap_or(0) == 0 { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, metric_name, total_count, anomaly_count, anomaly_rate, \
-          avg_value, stddev_value, anomaly_high_count, anomaly_low_count \
-          FROM v2_anomaly_stats WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group, metric_name".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, metric_name, total_count, anomaly_count, anomaly_rate, \
-          avg_value, stddev_value, anomaly_high_count, anomaly_low_count \
-          FROM v2_anomaly_stats WHERE prefecture = ?1 AND municipality = '' \
-          ORDER BY emp_group, metric_name".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, metric_name, SUM(total_count) as total_count, \
-          SUM(anomaly_count) as anomaly_count, \
-          CAST(SUM(anomaly_count) AS REAL) / SUM(total_count) as anomaly_rate, \
-          AVG(avg_value) as avg_value, AVG(stddev_value) as stddev_value, \
-          SUM(anomaly_high_count) as anomaly_high_count, SUM(anomaly_low_count) as anomaly_low_count \
-          FROM v2_anomaly_stats WHERE municipality = '' \
-          GROUP BY emp_group, metric_name ORDER BY emp_group, metric_name".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_cascade_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v2_cascade_summary'", &[]
-    ).unwrap_or(0) == 0 { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, industry_raw, posting_count, facility_count, \
-          avg_salary_min, median_salary_min, avg_employee_count, avg_annual_holidays, vacancy_rate \
-          FROM v2_cascade_summary WHERE prefecture = ?1 AND municipality = ?2 AND length(industry_raw) > 0 \
-          AND posting_count >= 20 ORDER BY posting_count DESC LIMIT 20".to_string(),
-         vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, industry_raw, posting_count, facility_count, \
-          avg_salary_min, median_salary_min, avg_employee_count, avg_annual_holidays, vacancy_rate \
-          FROM v2_cascade_summary WHERE prefecture = ?1 AND municipality = '' AND length(industry_raw) > 0 \
-          AND posting_count >= 30 ORDER BY posting_count DESC LIMIT 20".to_string(),
-         vec![pref.to_string()])
-    } else {
-        // 全国: 業種別サマリー（各雇用形態の上位）
-        ("SELECT emp_group, industry_raw, SUM(posting_count) as posting_count, \
-          SUM(facility_count) as facility_count, \
-          AVG(avg_salary_min) as avg_salary_min, AVG(median_salary_min) as median_salary_min, \
-          AVG(avg_employee_count) as avg_employee_count, AVG(avg_annual_holidays) as avg_annual_holidays, \
-          CAST(SUM(vacancy_rate * posting_count) AS REAL) / SUM(posting_count) as vacancy_rate \
-          FROM v2_cascade_summary WHERE municipality = '' AND length(industry_raw) > 0 \
-          GROUP BY emp_group, industry_raw HAVING SUM(posting_count) >= 100 \
-          ORDER BY SUM(posting_count) DESC LIMIT 20".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-// ======== ヘルパー（色判定関数のみローカル定義、汎用関数はhelpers.rsに統一） ========
-
-fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
-    row.get(key).and_then(|v| v.as_str()).unwrap_or("")
-}
-
-fn vacancy_color(rate: f64) -> &'static str {
-    if rate >= 0.4 { "#ef4444" } else if rate >= 0.3 { "#f97316" } else if rate >= 0.2 { "#eab308" } else { "#22c55e" }
-}
-fn transparency_color(score: f64) -> &'static str {
-    if score >= 0.8 { "#22c55e" } else if score >= 0.6 { "#eab308" } else if score >= 0.4 { "#f97316" } else { "#ef4444" }
-}
-fn evenness_color(ev: f64) -> &'static str {
-    if ev >= 0.7 { "#22c55e" } else if ev >= 0.5 { "#eab308" } else { "#f97316" }
-}
-fn temp_color(t: f64) -> &'static str {
-    if t >= 5.0 { "#ef4444" } else if t >= 2.0 { "#f97316" } else if t >= 0.0 { "#eab308" } else { "#3b82f6" }
-}
-
 // ======== HTML描画: Phase 1 ========
 
 fn render_vacancy_section(data: &[Row], by_industry: &[Row]) -> String {
@@ -539,11 +192,33 @@ fn render_vacancy_section(data: &[Row], by_industry: &[Row]) -> String {
         return r#"<div class="stat-card"><h3 class="text-sm text-slate-400 mb-2">欠員補充率</h3><p class="text-slate-500 text-sm">データがありません</p></div>"#.to_string();
     }
 
+    // ECharts用データ収集
+    let mut chart_labels = vec![];
+    let mut vacancy_rates = vec![];
+    let mut growth_rates = vec![];
+    for row in data {
+        chart_labels.push(get_str(row, "emp_group").to_string());
+        vacancy_rates.push(format!("{:.1}", get_f64(row, "vacancy_rate") * 100.0));
+        growth_rates.push(format!("{:.1}", get_f64(row, "growth_rate") * 100.0));
+    }
+
     let mut html = String::new();
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">欠員補充率</h3>
-        <p class="text-xs text-slate-500 mb-4">求人理由が「欠員補充」の割合。高いほど人材が定着しにくい地域・業種です。</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+        <p class="text-xs text-slate-500 mb-4">求人理由が「欠員補充」の割合。高いほど人材が定着しにくい地域・業種です。</p>"#);
+
+    // ECharts 横棒グラフ: 欠員率 vs 増員率
+    if data.len() > 1 {
+        let labels_json: Vec<String> = chart_labels.iter().map(|l| format!("\"{}\"", l)).collect();
+        html.push_str(&format!(
+            r##"<div class="echart" style="height:250px;" data-chart-config='{{"tooltip":{{"trigger":"axis","axisPointer":{{"type":"shadow"}}}},"legend":{{"orient":"horizontal","bottom":0,"textStyle":{{"color":"#94a3b8","fontSize":11}}}},"grid":{{"left":"20%","right":"5%","top":"10%","bottom":"15%"}},"xAxis":{{"type":"value","axisLabel":{{"formatter":"{{value}}%","color":"#94a3b8"}}}},"yAxis":{{"type":"category","data":[{labels}],"axisLabel":{{"color":"#94a3b8"}}}},"series":[{{"name":"欠員率","type":"bar","data":[{vr}],"itemStyle":{{"color":"#ef4444"}}}},{{"name":"増員率","type":"bar","data":[{gr}],"itemStyle":{{"color":"#22c55e"}}}}]}}'></div>"##,
+            labels = labels_json.join(","),
+            vr = vacancy_rates.join(","),
+            gr = growth_rates.join(","),
+        ));
+    }
+
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
         let grp = get_str(row, "emp_group");
@@ -615,8 +290,41 @@ fn render_resilience_section(data: &[Row]) -> String {
     let mut html = String::new();
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">地域レジリエンス（産業多様性）</h3>
-        <p class="text-xs text-slate-500 mb-4">産業の分散度を評価。業界分散度が高いほど特定産業への依存リスクが低い健全な雇用構造です。</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+        <p class="text-xs text-slate-500 mb-4">産業の分散度を評価。業界分散度が高いほど特定産業への依存リスクが低い健全な雇用構造です。</p>"#);
+
+    // ECharts レーダーチャート: 4指標 × 雇用形態
+    if data.len() > 1 {
+        let colors = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"];
+        // 正規化用の最大値を計算
+        let max_ind: f64 = data.iter().map(|r| get_f64(r, "industry_count") as f64).fold(1.0_f64, f64::max);
+        let max_hhi: f64 = data.iter().map(|r| get_f64(r, "hhi")).fold(1.0_f64, f64::max);
+
+        let mut series_json = vec![];
+        for (i, row) in data.iter().enumerate() {
+            let grp = get_str(row, "emp_group");
+            let shannon = get_f64(row, "shannon_index");
+            let evenness = get_f64(row, "evenness");
+            let n_ind = get_f64(row, "industry_count");
+            let hhi = get_f64(row, "hhi");
+            // 正規化: 多様性(shannon max~4), 均等度(0-1→0-100), 産業数(比率), 分散度(HHI逆数)
+            let diversity_norm = (shannon / 4.0 * 100.0).min(100.0);
+            let evenness_norm = evenness * 100.0;
+            let industry_norm = if max_ind > 0.0 { n_ind / max_ind * 100.0 } else { 0.0 };
+            let dispersion_norm = if max_hhi > 0.0 { (1.0 - hhi / max_hhi) * 100.0 } else { 50.0 };
+            let c = colors[i % colors.len()];
+            series_json.push(format!(
+                r#"{{"name":"{grp}","type":"radar","data":[{{"value":[{d:.1},{e:.1},{ind:.1},{disp:.1}],"name":"{grp}"}}],"lineStyle":{{"color":"{c}"}},"itemStyle":{{"color":"{c}"}},"areaStyle":{{"color":"{c}","opacity":0.15}}}}"#,
+                d = diversity_norm, e = evenness_norm, ind = industry_norm, disp = dispersion_norm,
+            ));
+        }
+
+        html.push_str(&format!(
+            r##"<div class="echart" style="height:280px;" data-chart-config='{{"tooltip":{{}},"legend":{{"orient":"horizontal","bottom":0,"textStyle":{{"color":"#94a3b8","fontSize":11}}}},"radar":{{"indicator":[{{"name":"多様性","max":100}},{{"name":"均等度","max":100}},{{"name":"産業数","max":100}},{{"name":"分散度","max":100}}],"axisName":{{"color":"#94a3b8"}},"splitArea":{{"areaStyle":{{"color":["rgba(30,41,59,0.3)","rgba(30,41,59,0.5)"]}}}}}},"series":[{series}]}}'></div>"##,
+            series = series_json.join(","),
+        ));
+    }
+
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
         let grp = get_str_html(row, "emp_group");
@@ -878,254 +586,7 @@ fn render_anomaly_section(data: &[Row]) -> String {
     html
 }
 
-// ======== データ取得: Phase 1B（給与分析） ========
-
-fn fetch_salary_structure(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_salary_structure") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, salary_type, total_count, avg_salary_min, avg_salary_max, \
-          median_salary_min, p25_salary_min, p75_salary_min, p90_salary_min, \
-          salary_spread, avg_bonus_months, estimated_annual_min \
-          FROM v2_salary_structure WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group, salary_type".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, salary_type, total_count, avg_salary_min, avg_salary_max, \
-          median_salary_min, p25_salary_min, p75_salary_min, p90_salary_min, \
-          salary_spread, avg_bonus_months, estimated_annual_min \
-          FROM v2_salary_structure WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group, salary_type".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, salary_type, SUM(total_count) as total_count, \
-          AVG(avg_salary_min) as avg_salary_min, AVG(avg_salary_max) as avg_salary_max, \
-          AVG(median_salary_min) as median_salary_min, AVG(p25_salary_min) as p25_salary_min, \
-          AVG(p75_salary_min) as p75_salary_min, AVG(p90_salary_min) as p90_salary_min, \
-          AVG(salary_spread) as salary_spread, AVG(avg_bonus_months) as avg_bonus_months, \
-          AVG(estimated_annual_min) as estimated_annual_min \
-          FROM v2_salary_structure WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_salary_competitiveness(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_salary_competitiveness") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, local_avg_salary, national_avg_salary, competitiveness_index, \
-          percentile_rank, sample_count \
-          FROM v2_salary_competitiveness WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, local_avg_salary, national_avg_salary, competitiveness_index, \
-          percentile_rank, sample_count \
-          FROM v2_salary_competitiveness WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, AVG(local_avg_salary) as local_avg_salary, \
-          AVG(national_avg_salary) as national_avg_salary, \
-          AVG(competitiveness_index) as competitiveness_index, \
-          AVG(percentile_rank) as percentile_rank, SUM(sample_count) as sample_count \
-          FROM v2_salary_competitiveness WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_compensation_package(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_compensation_package") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, avg_salary_min, avg_annual_holidays, avg_bonus_months, \
-          salary_pctile, holidays_pctile, bonus_pctile, composite_score, rank_label \
-          FROM v2_compensation_package WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, avg_salary_min, avg_annual_holidays, avg_bonus_months, \
-          salary_pctile, holidays_pctile, bonus_pctile, composite_score, rank_label \
-          FROM v2_compensation_package WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_count) as total_count, \
-          AVG(avg_salary_min) as avg_salary_min, AVG(avg_annual_holidays) as avg_annual_holidays, \
-          AVG(avg_bonus_months) as avg_bonus_months, \
-          AVG(salary_pctile) as salary_pctile, AVG(holidays_pctile) as holidays_pctile, \
-          AVG(bonus_pctile) as bonus_pctile, AVG(composite_score) as composite_score, \
-          '' as rank_label \
-          FROM v2_compensation_package WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-// ======== データ取得: Phase 2B（テキスト分析） ========
-
-fn fetch_text_quality(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_text_quality") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, avg_char_count, avg_unique_char_ratio, \
-          avg_kanji_ratio, avg_numeric_ratio, avg_punctuation_density, information_score \
-          FROM v2_text_quality WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, avg_char_count, avg_unique_char_ratio, \
-          avg_kanji_ratio, avg_numeric_ratio, avg_punctuation_density, information_score \
-          FROM v2_text_quality WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_count) as total_count, \
-          AVG(avg_char_count) as avg_char_count, AVG(avg_unique_char_ratio) as avg_unique_char_ratio, \
-          AVG(avg_kanji_ratio) as avg_kanji_ratio, AVG(avg_numeric_ratio) as avg_numeric_ratio, \
-          AVG(avg_punctuation_density) as avg_punctuation_density, AVG(information_score) as information_score \
-          FROM v2_text_quality WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_keyword_profile(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_keyword_profile") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, keyword_category, density, avg_count_per_posting \
-          FROM v2_keyword_profile WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group, keyword_category".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, keyword_category, density, avg_count_per_posting \
-          FROM v2_keyword_profile WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group, keyword_category".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, keyword_category, AVG(density) as density, AVG(avg_count_per_posting) as avg_count_per_posting \
-          FROM v2_keyword_profile WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group, keyword_category ORDER BY emp_group, keyword_category".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-// ======== データ取得: Phase 3（市場構造） ========
-
-fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_employer_strategy_summary") { return vec![]; }
-
-    // Python側テーブルはピボット形式（premium_count/premium_pct/salary_focus_count/...）
-    // Rust側はrow形式（strategy_type/count/pct）で表示するため、UNION ALLで変換
-    let base_filter = if !muni.is_empty() {
-        format!("WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = ''")
-    } else if !pref.is_empty() {
-        format!("WHERE prefecture = ?1 AND municipality = '' AND industry_raw = ''")
-    } else {
-        format!("WHERE municipality = '' AND industry_raw = ''")
-    };
-
-    let agg = if muni.is_empty() && pref.is_empty() { true } else { false };
-
-    let (sql, params): (String, Vec<String>) = if agg {
-        // 全国集計: SUMでピボットカラムを集計後、UNION ALL
-        (format!(
-            "SELECT emp_group, 'プレミアム型' as strategy_type, SUM(premium_count) as count, \
-               CAST(SUM(premium_count) AS REAL) / SUM(total_count) * 100.0 as pct \
-             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
-             UNION ALL \
-             SELECT emp_group, '給与一本勝負型', SUM(salary_focus_count), \
-               CAST(SUM(salary_focus_count) AS REAL) / SUM(total_count) * 100.0 \
-             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
-             UNION ALL \
-             SELECT emp_group, '福利厚生重視型', SUM(benefits_focus_count), \
-               CAST(SUM(benefits_focus_count) AS REAL) / SUM(total_count) * 100.0 \
-             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
-             UNION ALL \
-             SELECT emp_group, 'コスト優先型', SUM(cost_focus_count), \
-               CAST(SUM(cost_focus_count) AS REAL) / SUM(total_count) * 100.0 \
-             FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
-             ORDER BY emp_group, strategy_type", f = base_filter), vec![])
-    } else {
-        let params = if !muni.is_empty() {
-            vec![pref.to_string(), muni.to_string()]
-        } else {
-            vec![pref.to_string()]
-        };
-        (format!(
-            "SELECT emp_group, 'プレミアム型' as strategy_type, premium_count as count, premium_pct as pct \
-             FROM v2_employer_strategy_summary {f} \
-             UNION ALL \
-             SELECT emp_group, '給与一本勝負型', salary_focus_count, salary_focus_pct \
-             FROM v2_employer_strategy_summary {f} \
-             UNION ALL \
-             SELECT emp_group, '福利厚生重視型', benefits_focus_count, benefits_focus_pct \
-             FROM v2_employer_strategy_summary {f} \
-             UNION ALL \
-             SELECT emp_group, 'コスト優先型', cost_focus_count, cost_focus_pct \
-             FROM v2_employer_strategy_summary {f} \
-             ORDER BY emp_group, strategy_type", f = base_filter), params)
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_monopsony_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_monopsony_index") { return vec![]; }
-
-    // Python側テーブルにtop1_nameカラムは存在しない
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_postings, unique_facilities, hhi, concentration_level, \
-          top1_share, top3_share, top5_share, gini \
-          FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_postings, unique_facilities, hhi, concentration_level, \
-          top1_share, top3_share, top5_share, gini \
-          FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_postings) as total_postings, \
-          SUM(unique_facilities) as unique_facilities, \
-          AVG(hhi) as hhi, '' as concentration_level, \
-          AVG(top1_share) as top1_share, \
-          AVG(top3_share) as top3_share, AVG(top5_share) as top5_share, AVG(gini) as gini \
-          FROM v2_monopsony_index WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-fn fetch_spatial_mismatch(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_spatial_mismatch") { return vec![]; }
-
-    // 空間ミスマッチは市区町村レベルのみ（industry_rawフィルタなし）
-    let sql = "SELECT emp_group, posting_count, avg_salary_min, \
-          accessible_postings_30km, accessible_avg_salary_30km, \
-          accessible_postings_60km, salary_gap_vs_accessible, isolation_score \
-          FROM v2_spatial_mismatch WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group".to_string();
-    let params = vec![pref.to_string(), muni.to_string()];
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
 // ======== HTML描画: Phase 1B（給与分析） ========
-
-fn salary_color(salary_min: f64) -> &'static str {
-    if salary_min > 300000.0 { "#22c55e" } else if salary_min > 200000.0 { "#3b82f6" } else { "#94a3b8" }
-}
-
-fn rank_badge_color(rank: &str) -> (&'static str, &'static str) {
-    // (背景色, テキスト色)
-    match rank {
-        "S" => ("#fbbf24", "#1e293b"),  // gold
-        "A" => ("#10b981", "#ffffff"),  // emerald
-        "B" => ("#3b82f6", "#ffffff"),  // blue
-        "C" => ("#f59e0b", "#1e293b"),  // amber
-        "D" => ("#64748b", "#ffffff"),  // slate
-        _ => ("#475569", "#ffffff"),
-    }
-}
 
 fn render_salary_structure_section(data: &[Row]) -> String {
     let mut html = String::with_capacity(4_000);
@@ -1192,11 +653,42 @@ fn render_salary_structure_section(data: &[Row]) -> String {
 }
 
 fn render_salary_competitiveness_section(data: &[Row]) -> String {
-    let mut html = String::with_capacity(3_000);
+    let mut html = String::with_capacity(5_000);
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">📊 給与競争力指数</h3>
-        <p class="text-xs text-slate-500 mb-4">地域の平均給与を全国平均と比較。プラスなら全国より高水準、マイナスなら低水準です。</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
+        <p class="text-xs text-slate-500 mb-4">地域の平均給与を全国平均と比較。プラスなら全国より高水準、マイナスなら低水準です。</p>"#);
+
+    // ECharts ゲージチャート: パーセンタイルランク
+    if !data.is_empty() {
+        let colors = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"];
+        let n = data.len();
+        let axis_color_arr = r##"[[0.25,"#ef4444"],[0.5,"#eab308"],[0.75,"#3b82f6"],[1,"#22c55e"]]"##;
+        let title_color = "#94a3b8";
+        let mut series_json = vec![];
+        for (i, row) in data.iter().enumerate() {
+            let grp = get_str(row, "emp_group");
+            let pctile = get_f64(row, "percentile_rank");
+            let c = colors[i % colors.len()];
+            let center_x = if n > 1 {
+                (100.0 / (n as f64 + 1.0)) * (i as f64 + 1.0)
+            } else { 50.0 };
+            let s = format!(
+                r#"{{"type":"gauge","center":["{cx:.0}%","55%"],"radius":"70%","startAngle":200,"endAngle":-20,"min":0,"max":100,"detail":{{"formatter":"P{{value}}","fontSize":14,"color":"{c}","offsetCenter":[0,"70%"]}},"title":{{"fontSize":11,"color":"{tc}","offsetCenter":[0,"90%"]}},"data":[{{"value":{pctile:.0},"name":"{grp}"}}],"axisLine":{{"lineStyle":{{"width":12,"color":{acol}}}}},"axisTick":{{"show":false}},"splitLine":{{"show":false}},"axisLabel":{{"show":false}},"pointer":{{"length":"60%","width":4,"itemStyle":{{"color":"{c}"}}}},"progress":{{"show":false}}}}"#,
+                cx = center_x,
+                tc = title_color,
+                acol = axis_color_arr,
+            );
+            series_json.push(s);
+        }
+        let chart_h = if n <= 2 { 200 } else { 220 };
+        html.push_str(&format!(
+            r##"<div class="echart" style="height:{}px;" data-chart-config='{{"series":[{}]}}'></div>"##,
+            chart_h,
+            series_json.join(","),
+        ));
+    }
+
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
     for row in data {
         let grp = get_str(row, "emp_group");
@@ -1309,10 +801,6 @@ fn render_compensation_section(data: &[Row]) -> String {
 
 // ======== HTML描画: Phase 2B（テキスト分析） ========
 
-fn info_score_color(score: f64) -> &'static str {
-    if score >= 0.8 { "#22c55e" } else if score >= 0.6 { "#3b82f6" } else if score >= 0.4 { "#eab308" } else { "#ef4444" }
-}
-
 fn render_text_quality_section(data: &[Row]) -> String {
     let mut html = String::with_capacity(3_000);
     html.push_str(r#"<div class="stat-card">
@@ -1358,30 +846,6 @@ fn render_text_quality_section(data: &[Row]) -> String {
 
     html.push_str("</div></div>");
     html
-}
-
-fn keyword_category_label(cat: &str) -> &str {
-    match cat {
-        "urgent" => "急募系",
-        "inexperienced" => "未経験系",
-        "benefits" => "待遇系",
-        "wlb" => "WLB系",
-        "growth" => "成長系",
-        "stability" => "安定系",
-        _ => cat,
-    }
-}
-
-fn keyword_category_color(cat: &str) -> &str {
-    match cat {
-        "urgent" => "#ef4444",
-        "inexperienced" => "#f97316",
-        "benefits" => "#22c55e",
-        "wlb" => "#3b82f6",
-        "growth" => "#a855f7",
-        "stability" => "#14b8a6",
-        _ => "#94a3b8",
-    }
 }
 
 fn render_keyword_profile_section(data: &[Row]) -> String {
@@ -1438,17 +902,6 @@ fn render_keyword_profile_section(data: &[Row]) -> String {
 
 // ======== HTML描画: Phase 3（市場構造） ========
 
-fn strategy_color(stype: &str) -> (&'static str, &'static str) {
-    // (背景色, テキスト色)
-    match stype {
-        "プレミアム型" => ("#065f46", "#6ee7b7"),     // emerald dark bg
-        "給与一本勝負型" => ("#1e3a5f", "#93c5fd"),   // blue dark bg
-        "福利厚生重視型" => ("#78350f", "#fcd34d"),    // amber dark bg
-        "コスト優先型" => ("#334155", "#94a3b8"),      // slate dark bg
-        _ => ("#1e293b", "#cbd5e1"),
-    }
-}
-
 fn render_employer_strategy_section(data: &[Row]) -> String {
     let mut html = String::with_capacity(3_000);
     html.push_str(r#"<div class="stat-card">
@@ -1497,17 +950,6 @@ fn render_employer_strategy_section(data: &[Row]) -> String {
 
     html.push_str("</div></div>");
     html
-}
-
-fn concentration_badge(level: &str) -> (&'static str, &'static str) {
-    // (背景色, テキスト色)
-    match level {
-        "高度集中" => ("#991b1b", "#fca5a5"),
-        "中度集中" => ("#92400e", "#fcd34d"),
-        "低度集中" => ("#166534", "#86efac"),
-        "競争的" => ("#1e3a5f", "#93c5fd"),
-        _ => ("#334155", "#94a3b8"),
-    }
 }
 
 fn render_monopsony_section(data: &[Row]) -> String {
@@ -1631,142 +1073,6 @@ fn render_spatial_mismatch_section(data: &[Row]) -> String {
 
     html.push_str("</div></div>");
     html
-}
-
-// ======== データ取得: Phase 4（外部データ統合） ========
-
-/// Phase 4-1: 最低賃金マスタ
-fn fetch_minimum_wage(db: &Db, pref: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_external_minimum_wage") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, hourly_min_wage \
-          FROM v2_external_minimum_wage WHERE prefecture = ?1".to_string(),
-         vec![pref.to_string()])
-    } else {
-        ("SELECT prefecture, hourly_min_wage \
-          FROM v2_external_minimum_wage ORDER BY hourly_min_wage DESC".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-/// Phase 4-2: 最低賃金違反チェック
-fn fetch_wage_compliance(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_wage_compliance") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_hourly_postings, min_wage, below_min_count, below_min_rate, \
-          avg_hourly_wage, median_hourly_wage \
-          FROM v2_wage_compliance WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_hourly_postings, min_wage, below_min_count, below_min_rate, \
-          avg_hourly_wage, median_hourly_wage \
-          FROM v2_wage_compliance WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_hourly_postings) as total_hourly_postings, \
-          AVG(min_wage) as min_wage, SUM(below_min_count) as below_min_count, \
-          CAST(SUM(below_min_count) AS REAL) / SUM(total_hourly_postings) as below_min_rate, \
-          AVG(avg_hourly_wage) as avg_hourly_wage, AVG(median_hourly_wage) as median_hourly_wage \
-          FROM v2_wage_compliance WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-/// Phase 4-3: 地域ベンチマーク（6軸レーダー用）
-fn fetch_region_benchmark(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_region_benchmark") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, posting_activity, salary_competitiveness, talent_retention, \
-          industry_diversity, info_transparency, text_temperature, composite_benchmark \
-          FROM v2_region_benchmark WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, posting_activity, salary_competitiveness, talent_retention, \
-          industry_diversity, info_transparency, text_temperature, composite_benchmark \
-          FROM v2_region_benchmark WHERE prefecture = ?1 AND municipality = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, AVG(posting_activity) as posting_activity, \
-          AVG(salary_competitiveness) as salary_competitiveness, \
-          AVG(talent_retention) as talent_retention, \
-          AVG(industry_diversity) as industry_diversity, \
-          AVG(info_transparency) as info_transparency, \
-          AVG(text_temperature) as text_temperature, \
-          AVG(composite_benchmark) as composite_benchmark \
-          FROM v2_region_benchmark WHERE municipality = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-// ======== データ取得: Phase 5（予測・推定） ========
-
-/// Phase 5-1: 充足困難度予測
-fn fetch_fulfillment_summary(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_fulfillment_summary") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, avg_score, grade_a_pct, grade_b_pct, grade_c_pct, grade_d_pct \
-          FROM v2_fulfillment_summary WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, avg_score, grade_a_pct, grade_b_pct, grade_c_pct, grade_d_pct \
-          FROM v2_fulfillment_summary WHERE prefecture = ?1 AND municipality = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, SUM(total_count) as total_count, \
-          AVG(avg_score) as avg_score, AVG(grade_a_pct) as grade_a_pct, \
-          AVG(grade_b_pct) as grade_b_pct, AVG(grade_c_pct) as grade_c_pct, \
-          AVG(grade_d_pct) as grade_d_pct \
-          FROM v2_fulfillment_summary WHERE municipality = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
-}
-
-/// Phase 5-2: 地域間流動性推定（市区町村選択時のみ）
-fn fetch_mobility_estimate(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if muni.is_empty() { return vec![]; }
-    if !table_exists(db, "v2_mobility_estimate") { return vec![]; }
-
-    let sql = "SELECT emp_group, local_postings, local_avg_salary, gravity_attractiveness, \
-               gravity_outflow, net_gravity, top3_destinations \
-               FROM v2_mobility_estimate WHERE prefecture = ?1 AND municipality = ?2 \
-               ORDER BY emp_group";
-    let params = vec![pref.to_string(), muni.to_string()];
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(sql, &p).unwrap_or_default()
-}
-
-/// Phase 5-3: 給与分位テーブル
-fn fetch_shadow_wage(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_shadow_wage") { return vec![]; }
-
-    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, salary_type, total_count, p10, p25, p50, p75, p90, mean, stddev, iqr \
-          FROM v2_shadow_wage WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = '' \
-          ORDER BY emp_group, salary_type".to_string(), vec![pref.to_string(), muni.to_string()])
-    } else if !pref.is_empty() {
-        ("SELECT emp_group, salary_type, total_count, p10, p25, p50, p75, p90, mean, stddev, iqr \
-          FROM v2_shadow_wage WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
-          ORDER BY emp_group, salary_type".to_string(), vec![pref.to_string()])
-    } else {
-        ("SELECT emp_group, salary_type, SUM(total_count) as total_count, \
-          AVG(p10) as p10, AVG(p25) as p25, AVG(p50) as p50, AVG(p75) as p75, AVG(p90) as p90, \
-          AVG(mean) as mean, AVG(stddev) as stddev, AVG(iqr) as iqr \
-          FROM v2_shadow_wage WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type".to_string(), vec![])
-    };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    db.query(&sql, &p).unwrap_or_default()
 }
 
 // ======== HTML描画: Phase 4（外部データ統合） ========
@@ -1967,9 +1273,7 @@ fn render_region_benchmark_section(data: &[Row]) -> String {
         html.push_str("</div>");
     }
 
-    html.push_str("</div>");
-    html.push_str(r#"<p class="text-xs text-slate-600 mt-2">※EChartsレーダーチャートは今後追加予定</p>"#);
-    html.push_str("</div>");
+    html.push_str("</div></div>");
     html
 }
 
