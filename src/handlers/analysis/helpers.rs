@@ -35,7 +35,8 @@ pub(crate) fn evenness_color(ev: f64) -> &'static str {
 }
 
 pub(crate) fn temp_color(t: f64) -> &'static str {
-    if t >= 5.0 { "#ef4444" } else if t >= 2.0 { "#f97316" } else if t >= 0.0 { "#eab308" } else { "#3b82f6" }
+    // 実データ分布 -0.7~+0.6 に合わせた閾値
+    if t >= 0.5 { "#ef4444" } else if t >= 0.2 { "#f97316" } else if t >= -0.2 { "#eab308" } else { "#3b82f6" }
 }
 
 pub(crate) fn salary_color(salary_min: f64) -> &'static str {

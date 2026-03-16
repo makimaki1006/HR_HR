@@ -455,9 +455,9 @@ fn render_temperature_section(data: &[Row]) -> String {
         let sel = get_f64(row, "selectivity_density");
         let tc = temp_color(avg_t);
 
-        let temp_label = if avg_t >= 5.0 { "人手不足（条件緩和）" }
-            else if avg_t >= 2.0 { "やや緩和" }
-            else if avg_t >= 0.0 { "標準" }
+        let temp_label = if avg_t >= 0.5 { "人手不足（条件緩和）" }
+            else if avg_t >= 0.2 { "やや緩和" }
+            else if avg_t >= -0.2 { "標準" }
             else { "選り好み（高選択性）" };
 
         html.push_str(&format!(
