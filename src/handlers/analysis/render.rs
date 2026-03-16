@@ -940,7 +940,7 @@ fn render_employer_strategy_section(data: &[Row]) -> String {
                     <div class="text-lg font-bold" style="color:{fg}">{pct_s}</div>
                     <div class="text-xs" style="color:{fg};opacity:0.7">{count_s}件</div>
                 </div>"#,
-                pct_s = pct(pct_val),
+                pct_s = format!("{:.1}%", pct_val),
                 count_s = format_number(count),
             ));
         }
