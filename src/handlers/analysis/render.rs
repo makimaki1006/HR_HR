@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use serde_json::Value;
 
-use super::super::helpers::{get_f64, get_i64, get_str_html, escape_html, format_number, pct, pct_bar, truncate_str};
+use super::super::helpers::{cross_nav, get_f64, get_i64, get_str_html, escape_html, format_number, pct, pct_bar, truncate_str};
 use super::helpers::{
     get_str, vacancy_color, transparency_color, evenness_color, temp_color,
     salary_color, rank_badge_color, info_score_color,
@@ -26,6 +26,11 @@ pub(crate) fn render_subtab_1(db: &Db, pref: &str, muni: &str) -> String {
 
     let mut html = String::with_capacity(16_000);
     html.push_str(r#"<div class="space-y-6">"#);
+    html.push_str(&format!(
+        r#"<div class="flex items-center gap-3 text-xs text-slate-500 mb-2">関連: {} {}</div>"#,
+        cross_nav("/tab/overview", "地域概況"),
+        cross_nav("/tab/balance", "企業分析"),
+    ));
 
     html.push_str(&render_vacancy_section(&vacancy, &vacancy_by_industry));
     html.push_str(&render_resilience_section(&resilience));
@@ -43,6 +48,11 @@ pub(crate) fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
 
     let mut html = String::with_capacity(12_000);
     html.push_str(r#"<div class="space-y-6">"#);
+    html.push_str(&format!(
+        r#"<div class="flex items-center gap-3 text-xs text-slate-500 mb-2">関連: {} {}</div>"#,
+        cross_nav("/tab/workstyle", "求人条件の給与帯"),
+        cross_nav("/tab/diagnostic", "市場診断ツール"),
+    ));
 
     if !salary_structure.is_empty() {
         html.push_str(&render_salary_structure_section(&salary_structure));
@@ -97,6 +107,11 @@ pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
 
     let mut html = String::with_capacity(16_000);
     html.push_str(r#"<div class="space-y-6">"#);
+    html.push_str(&format!(
+        r#"<div class="flex items-center gap-3 text-xs text-slate-500 mb-2">関連: {} {}</div>"#,
+        cross_nav("/tab/balance", "企業規模・産業"),
+        cross_nav("/tab/competitive", "詳細検索"),
+    ));
 
     if !employer_strategy.is_empty() {
         html.push_str(&render_employer_strategy_section(&employer_strategy));

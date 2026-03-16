@@ -91,6 +91,13 @@ pub fn pct_bar(v: f64, color: &str) -> String {
     )
 }
 
+/// クロスナビリンク: 他タブへの誘導リンクを生成
+pub fn cross_nav(tab_url: &str, label: &str) -> String {
+    format!(
+        r#"<a class="inline-flex items-center gap-1 text-xs text-blue-400/80 hover:text-blue-300 cursor-pointer transition-colors" onclick="navigateToTab('{tab_url}')"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>{label}</a>"#
+    )
+}
+
 /// テーブル存在確認（パラメータバインド使用、SQLインジェクション対策済み）
 pub fn table_exists(db: &crate::db::local_sqlite::LocalDb, name: &str) -> bool {
     db.query_scalar::<i64>(

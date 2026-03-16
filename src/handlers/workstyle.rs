@@ -9,7 +9,7 @@ use crate::AppState;
 use crate::db::local_sqlite::LocalDb;
 
 use super::overview::{
-    build_filter_clause, format_number, get_i64, get_session_filters, get_str,
+    build_filter_clause, cross_nav, format_number, get_i64, get_session_filters, get_str,
     make_location_label, render_no_db_data, SessionFilters,
 };
 
@@ -526,7 +526,7 @@ fn render_workstyle(
 
     <!-- 雇用形態 × 給与帯 -->
     <div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 給与区分</h3>
+        <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 給与区分 {nav_salary}</h3>
         <div class="echart" style="height:350px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
             "legend": {{"top": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
@@ -620,6 +620,7 @@ fn render_workstyle(
 </div>"##,
         industry_label = industry_label,
         location_label = location_label,
+        nav_salary = cross_nav("/tab/analysis", "給与構造・競争力分析"),
         ws_pie = ws_pie.join(","),
         kpi_cards = kpi_cards,
         bonus_rate = stats.bonus_rate,

@@ -531,6 +531,15 @@
             var url = el.getAttribute('hx-get');
             if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
         }
+        // クロスナビ: 他タブへのリンクからタブ遷移
+        function navigateToTab(tabUrl) {
+            var btn = document.querySelector('.tab-btn[hx-get="' + tabUrl + '"]');
+            if (btn) {
+                btn.click();
+            } else {
+                htmx.ajax('GET', tabUrl, {target: '#content', swap: 'innerHTML'});
+            }
+        }
         // アイドル時に次のタブをプリフェッチ
         if ('requestIdleCallback' in window) {
             requestIdleCallback(function() {

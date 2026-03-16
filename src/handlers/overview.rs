@@ -705,11 +705,11 @@ fn render_overview(
         </div>
         <div class="stat-card">
             <div class="stat-value text-amber-400">{avg_salary}<span class="text-lg">円</span></div>
-            <div class="stat-label">平均月給</div>
+            <div class="stat-label">平均月給 {nav_salary}</div>
         </div>
         <div class="stat-card">
             <div class="stat-value text-cyan-400">{ft_rate}</div>
-            <div class="stat-label">正社員率</div>
+            <div class="stat-label">正社員率 {nav_workstyle}</div>
         </div>
     </div>
 
@@ -773,6 +773,8 @@ fn render_overview(
             "-".to_string()
         },
         ft_rate = ft_rate_display,
+        nav_salary = cross_nav("/tab/analysis", "詳細分析"),
+        nav_workstyle = cross_nav("/tab/workstyle", "雇用形態詳細"),
         industry_chart = industry_chart,
         occupation_chart = occupation_chart,
         emp_pie_data = emp_pie_data.join(","),
@@ -837,7 +839,7 @@ fn build_horizontal_bar_chart(
 }
 
 // ヘルパー関数はhelpers.rsに統一、後方互換のため再エクスポート
-pub use super::helpers::{escape_html, format_number, get_str, get_i64, get_f64, get_str_html};
+pub use super::helpers::{cross_nav, escape_html, format_number, get_str, get_i64, get_f64, get_str_html};
 
 #[cfg(test)]
 mod tests {
