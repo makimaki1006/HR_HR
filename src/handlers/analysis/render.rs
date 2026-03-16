@@ -1328,10 +1328,10 @@ fn render_fulfillment_section(data: &[Row]) -> String {
                 </div>
             </div>"#,
             total_s = format_number(total),
-            a_s = pct(a_pct / 100.0),
-            b_s = pct(b_pct / 100.0),
-            c_s = pct(c_pct / 100.0),
-            d_s = pct(d_pct / 100.0),
+            a_s = format!("{:.1}%", a_pct),
+            b_s = format!("{:.1}%", b_pct),
+            c_s = format!("{:.1}%", c_pct),
+            d_s = format!("{:.1}%", d_pct),
         ));
     }
 
