@@ -12,18 +12,9 @@ import math
 import sys
 import os
 from collections import defaultdict
+from hw_common import emp_group
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
-
-# 雇用形態グルーピング
-def emp_group(et):
-    if et is None:
-        return "その他"
-    if "パート" in et:
-        return "パート"
-    if et == "正社員":
-        return "正社員"
-    return "その他"
 
 
 def compute_c4_vacancy_rate(db):

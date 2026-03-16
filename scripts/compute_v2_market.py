@@ -14,6 +14,7 @@ import sys
 import os
 from collections import defaultdict
 from bisect import bisect_left
+from hw_common import emp_group
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
 
@@ -21,17 +22,6 @@ MIN_SAMPLE = 5  # 最小サンプルサイズ
 
 # 福利厚生キーワード（amenity_score算出用）
 BENEFITS_KEYWORDS = re.compile(r'退職金|住宅手当|家族手当|通勤手当|育休|産休|研修|資格取得|社宅|保育')
-
-
-def emp_group(et):
-    """雇用形態グルーピング"""
-    if et is None:
-        return "その他"
-    if "パート" in et:
-        return "パート"
-    if et == "正社員":
-        return "正社員"
-    return "その他"
 
 
 def percentile(sorted_list, pct):
@@ -174,17 +164,24 @@ def compute_employer_strategy(db):
         else:
             benefits_kw_score = 0.0
 
-        # (4) low_overtime: 残業月20時間未満=1.0, NULL=0.5（不明）, 20時間以上=0.0
-        if overtime is None:
-            low_overtime = 0.5  # 未開示は中立扱い
-        elif overtime < 20:
-            low_overtime = 1.0
-        else:
-            low_overtime = 0.0
+        # M-3: overtime_monthlyが100% NULLの場合、amenity_scoreから除外
+        # NULL率が高い成分は計算から除外し、残りの成分で正規化
+        components = {
+            "has_bonus": has_bonus,
+            "holiday_score": holiday_score,
+            "benefits_kw_score": benefits_kw_score,
+        }
+        # overtime は非NULLの場合のみ成分に追加
+        if overtime is not None:
+            if overtime < 20:
+                components["low_overtime"] = 1.0
+            else:
+                components["low_overtime"] = 0.0
 
-        # amenity_score（0-100スケール）
-        amenity = (has_bonus * 25 + holiday_score * 25
-                   + benefits_kw_score * 25 + low_overtime * 25)
+        # amenity_score（0-100スケール）: 各成分を均等配分
+        n_components = len(components)
+        weight = 100.0 / n_components if n_components > 0 else 25.0
+        amenity = sum(v * weight for v in components.values())
 
         # 4象限分類（中央値=50を閾値として使用）
         if salary_pct >= 50 and amenity >= 50:

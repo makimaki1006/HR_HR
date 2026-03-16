@@ -29,21 +29,12 @@ try:
 except ImportError:
     USE_SKLEARN = False
 
+from hw_common import emp_group
+
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
 
 MIN_SAMPLE = 5   # 一般的な最小サンプルサイズ
 MIN_SAMPLE_PRED = 10  # 予測モデル用の最小サンプルサイズ
-
-
-def emp_group(et):
-    """雇用形態をグループ化"""
-    if et is None:
-        return "その他"
-    if "パート" in et:
-        return "パート"
-    if et == "正社員":
-        return "正社員"
-    return "その他"
 
 
 def percentile(sorted_list, pct):

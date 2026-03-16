@@ -13,20 +13,11 @@ import sys
 import os
 from collections import defaultdict
 from bisect import bisect_left
+from hw_common import emp_group
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
 
 MIN_SAMPLE = 5  # 最小サンプルサイズ
-
-
-def emp_group(et):
-    if et is None:
-        return "その他"
-    if "パート" in et:
-        return "パート"
-    if et == "正社員":
-        return "正社員"
-    return "その他"
 
 
 def percentile(sorted_list, pct):

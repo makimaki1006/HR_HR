@@ -15,20 +15,10 @@ import math
 import sys
 import os
 from collections import defaultdict
+from hw_common import emp_group
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
-MIN_SAMPLE = 3
-
-
-def emp_group(et):
-    """雇用形態グルーピング"""
-    if et is None:
-        return "その他"
-    if "パート" in et:
-        return "パート"
-    if et == "正社員":
-        return "正社員"
-    return "その他"
+MIN_SAMPLE = 30  # 統計的に意味のある最小サンプル数
 
 
 # ─── L-1: テキスト温度計 ─────────────────────────────────────
@@ -138,11 +128,14 @@ def compute_l1_text_temperature(db):
     """)
 
     # イテレータ処理: fetchall()を使わずメモリ効率を改善
+    # H-1: 5フィールド結合でテキスト分析の網羅性を向上
     cursor = db.execute("""
         SELECT prefecture, municipality, industry_raw, employment_type,
                COALESCE(job_description, '') || ' ' ||
+               COALESCE(headline, '') || ' ' ||
                COALESCE(requirements, '') || ' ' ||
-               COALESCE(benefits, '') as full_text
+               COALESCE(benefits, '') || ' ' ||
+               COALESCE(company_description, '') as full_text
         FROM postings
         WHERE prefecture IS NOT NULL AND prefecture != ''
     """)
@@ -228,8 +221,8 @@ EDUCATION_NORMALIZE = {
 
 
 def salary_band(salary_type, salary_min):
-    """月給帯の判定
-    注: salary_type == "月給" チェック済みのため、月給で10000以下は非現実的。
+    """月給帯の判定（M-2: NULLセーフティ対応済み）
+    salary_minがNoneまたは0以下の場合は「その他」を返す。
     val > 10000 の条件は月給の円→万円変換として妥当。
     """
     if salary_type != "月給" or salary_min is None or salary_min <= 0:
@@ -486,7 +479,8 @@ def compute_s1_cascade_summary(db):
         industry = industry or ""
         facility = facility or ""
 
-        # 欠員補充判定（全グループ共通で事前計算）
+        # M-1: vacancy_rate = 欠員補充求人の割合（Rust overview.rsの定義と統一）
+        # 「欠員」を含む募集理由の割合。高い = 人材定着率が低い地域
         is_vacancy = 1 if (reason and "欠員" in str(reason)) else 0
 
         # 3レベル集計キー（雇用形態別 + 全体）

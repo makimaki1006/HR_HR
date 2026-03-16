@@ -141,10 +141,13 @@ pub(crate) fn fetch_transparency_data(db: &Db, pref: &str, muni: &str) -> Vec<Ro
 pub(crate) fn fetch_temperature_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     let cols = "emp_group, sample_count, temperature, \
         urgency_density, selectivity_density, urgency_hit_rate, selectivity_hit_rate";
+    // H-2: 全国集計はsample_countで加重平均（離島と東京が同じ重みにならないように）
     let nat = "emp_group, SUM(sample_count) as sample_count, \
-        AVG(temperature) as temperature, \
-        AVG(urgency_density) as urgency_density, AVG(selectivity_density) as selectivity_density, \
-        AVG(urgency_hit_rate) as urgency_hit_rate, AVG(selectivity_hit_rate) as selectivity_hit_rate";
+        SUM(temperature * sample_count) / SUM(sample_count) as temperature, \
+        SUM(urgency_density * sample_count) / SUM(sample_count) as urgency_density, \
+        SUM(selectivity_density * sample_count) / SUM(sample_count) as selectivity_density, \
+        SUM(urgency_hit_rate * sample_count) / SUM(sample_count) as urgency_hit_rate, \
+        SUM(selectivity_hit_rate * sample_count) / SUM(sample_count) as selectivity_hit_rate";
     query_3level(db, "v2_text_temperature", pref, muni,
         cols, "AND industry_raw = '' ORDER BY emp_group",
         nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")

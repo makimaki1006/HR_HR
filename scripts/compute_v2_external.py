@@ -15,6 +15,7 @@ import sqlite3
 import os
 import sys
 from collections import defaultdict
+from hw_common import emp_group
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hellowork.db")
 
@@ -36,17 +37,6 @@ MINIMUM_WAGE_2024 = {
     "佐賀県": 1000, "長崎県": 1000, "熊本県": 1000, "大分県": 1000,
     "宮崎県": 1000, "鹿児島県": 1000, "沖縄県": 1000,
 }
-
-
-def emp_group(et):
-    """雇用形態を3グループに分類"""
-    if et is None:
-        return "その他"
-    if "パート" in et:
-        return "パート"
-    if et == "正社員":
-        return "正社員"
-    return "その他"
 
 
 def table_exists(db, table_name):
