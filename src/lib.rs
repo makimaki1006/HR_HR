@@ -31,6 +31,7 @@ use models::job_seeker::PREFECTURE_ORDER;
 pub struct AppState {
     pub config: AppConfig,
     pub hw_db: Option<db::local_sqlite::LocalDb>,
+    pub turso_db: Option<db::turso_http::TursoDb>,
     pub cache: AppCache,
     pub rate_limiter: auth::session::RateLimiter,
 }

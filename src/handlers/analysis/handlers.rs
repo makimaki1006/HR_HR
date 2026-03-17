@@ -100,13 +100,14 @@ pub async fn analysis_subtab(
         }
     }
 
+    let turso_db = state.turso_db.clone();
     let content = tokio::task::spawn_blocking(move || {
         match id {
             1 => render_subtab_1(&db, &pref, &muni),
             2 => render_subtab_2(&db, &pref, &muni),
             3 => render_subtab_3(&db, &pref, &muni),
             4 => render_subtab_4(&db, &pref, &muni),
-            5 => render_subtab_5(&db, &pref, &muni),
+            5 => render_subtab_5(&db, turso_db.as_ref(), &pref, &muni),
             6 => render_subtab_6(&db, &pref, &muni),
             _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
         }

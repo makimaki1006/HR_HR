@@ -74,12 +74,33 @@ async fn main() {
         }
     };
 
+    // Turso外部統計DB接続（環境変数から）
+    let turso_db = match (
+        std::env::var("TURSO_EXTERNAL_URL").ok(),
+        std::env::var("TURSO_EXTERNAL_TOKEN").ok(),
+    ) {
+        (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
+            match rust_dashboard::db::turso_http::TursoDb::new(&url, &token) {
+                Ok(db) => Some(db),
+                Err(e) => {
+                    tracing::warn!("Turso external DB not available: {e}");
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::info!("Turso external DB not configured (TURSO_EXTERNAL_URL / TURSO_EXTERNAL_TOKEN)");
+            None
+        }
+    };
+
     let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
     let rate_limiter = RateLimiter::new(config.rate_limit_max_attempts, config.rate_limit_lockout_secs);
 
     let state = Arc::new(AppState {
         config,
         hw_db,
+        turso_db,
         cache,
         rate_limiter,
     });

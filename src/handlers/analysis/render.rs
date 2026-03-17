@@ -13,6 +13,7 @@ use super::helpers::{
 use super::fetch::*;
 
 type Db = crate::db::local_sqlite::LocalDb;
+type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
 // ======== サブタブ描画関数 ========
@@ -137,21 +138,29 @@ pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
     html
 }
 
-/// サブタブ5: 異常値・外部（anomaly, minimum_wage, wage_compliance, region_benchmark）
-pub(crate) fn render_subtab_5(db: &Db, pref: &str, muni: &str) -> String {
+/// サブタブ5: 異常値・外部（anomaly, minimum_wage, wage_compliance, prefecture_stats, population, region_benchmark）
+pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> String {
     let anomaly = fetch_anomaly_data(db, pref, muni);
     let minimum_wage = fetch_minimum_wage(db, pref);
     let wage_compliance = fetch_wage_compliance(db, pref, muni);
+    let prefecture_stats = fetch_prefecture_stats(db, turso, pref);
+    let population = fetch_population_data(db, turso, pref, muni);
+    let pyramid = fetch_population_pyramid(db, turso, pref, muni);
+    let migration = fetch_migration_data(db, turso, pref, muni);
+    let daytime = fetch_daytime_population(db, turso, pref, muni);
     let region_benchmark = fetch_region_benchmark(db, pref, muni);
 
-    let mut html = String::with_capacity(16_000);
+    let mut html = String::with_capacity(32_000);
     html.push_str(r#"<div class="space-y-6">"#);
 
     if !anomaly.is_empty() {
         html.push_str(&render_anomaly_section(&anomaly));
     }
 
-    if !minimum_wage.is_empty() || !wage_compliance.is_empty() || !region_benchmark.is_empty() {
+    let has_external = !minimum_wage.is_empty() || !wage_compliance.is_empty()
+        || !prefecture_stats.is_empty() || !population.is_empty() || !region_benchmark.is_empty();
+
+    if has_external {
         html.push_str(r#"<div class="border-t border-slate-700 my-4 pt-4">
             <h3 class="text-lg font-semibold text-slate-300 mb-4">外部データ統合分析</h3></div>"#);
     }
@@ -161,11 +170,20 @@ pub(crate) fn render_subtab_5(db: &Db, pref: &str, muni: &str) -> String {
     if !wage_compliance.is_empty() {
         html.push_str(&render_wage_compliance_section(&wage_compliance));
     }
+    if !prefecture_stats.is_empty() {
+        html.push_str(&render_prefecture_stats_section(&prefecture_stats, pref));
+    }
+    if !population.is_empty() {
+        html.push_str(&render_population_section(&population, &pyramid));
+    }
+    if !migration.is_empty() || !daytime.is_empty() {
+        html.push_str(&render_demographics_section(&migration, &daytime));
+    }
     if !region_benchmark.is_empty() {
         html.push_str(&render_region_benchmark_section(&region_benchmark));
     }
 
-    if anomaly.is_empty() && minimum_wage.is_empty() && wage_compliance.is_empty() && region_benchmark.is_empty() {
+    if anomaly.is_empty() && !has_external {
         html.push_str(r#"<p class="text-slate-500 text-sm">異常値・外部データがありません</p>"#);
     }
 
@@ -1174,6 +1192,7 @@ fn render_minimum_wage_section(data: &[Row], pref: &str) -> String {
         ));
     }
 
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 厚生労働省「地域別最低賃金の全国一覧」(2025年度)</p>"#);
     html.push_str("</div>");
     html
 }
@@ -1238,24 +1257,252 @@ fn render_wage_compliance_section(data: &[Row]) -> String {
         ));
     }
 
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 厚生労働省「地域別最低賃金」+ ハローワーク求人データ</p>"#);
+    html.push_str("</div></div>");
+    html
+}
+
+fn render_prefecture_stats_section(data: &[Row], pref: &str) -> String {
+    let mut html = String::with_capacity(6_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📊 都道府県別外部指標</h3>
+        <p class="text-xs text-slate-500 mb-4">労働力調査・就業構造基本調査・賃金構造基本統計調査等の公的統計データ。</p>"#);
+
+    if !pref.is_empty() && data.len() == 1 {
+        let row = &data[0];
+        let unemp = get_f64(row, "unemployment_rate");
+        let desire = get_f64(row, "job_change_desire_rate");
+        let non_reg = get_f64(row, "non_regular_rate");
+        let wage = get_f64(row, "avg_monthly_wage");
+        let price = get_f64(row, "price_index");
+        let fulfill = get_f64(row, "fulfillment_rate");
+        let real_wage = get_f64(row, "real_wage_index");
+
+        html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
+
+        let cards: [(&str, String, &str, &str); 7] = [
+            ("完全失業率", format!("{unemp:.1}%"), "顕在求職者率", "#ef4444"),
+            ("転職希望者比率", format!("{desire:.1}%"), "潜在労働力流動性", "#f59e0b"),
+            ("非正規雇用比率", format!("{non_reg:.1}%"), "就業構造", "#8b5cf6"),
+            ("平均所定内給与", format!("{wage:.0}千円"), "賃金構造基本統計", "#22c55e"),
+            ("物価地域差指数", format!("{price:.1}"), "全国=100", "#06b6d4"),
+            ("有効求人充足率", format!("{fulfill:.1}%"), "充足数/新規求人", "#3b82f6"),
+            ("実質賃金力", format!("{real_wage:.1}千円"), "物価調整後", "#ec4899"),
+        ];
+
+        for (label, value, sub, color) in &cards {
+            html.push_str(&format!(
+                r#"<div class="bg-navy-700/50 rounded-lg p-3 text-center">
+                    <div class="text-xs text-slate-500 mb-1">{label}</div>
+                    <div class="text-xl font-bold" style="color:{color}">{value}</div>
+                    <div class="text-xs text-slate-600 mt-1">{sub}</div>
+                </div>"#
+            ));
+        }
+        html.push_str("</div>");
+    } else if data.len() > 1 {
+        // 全国一覧: テーブル形式
+        html.push_str(r#"<div style="overflow-x:auto;max-height:400px;overflow-y:auto;"><table class="data-table text-xs">
+            <thead><tr>
+                <th>都道府県</th><th class="text-right">失業率</th><th class="text-right">転職希望</th>
+                <th class="text-right">非正規</th><th class="text-right">平均賃金</th>
+                <th class="text-right">物価</th><th class="text-right">充足率</th><th class="text-right">実質賃金</th>
+            </tr></thead><tbody>"#);
+        for row in data {
+            let p = get_str(row, "prefecture");
+            html.push_str(&format!(
+                r#"<tr><td class="text-slate-300">{p}</td>
+                <td class="text-right">{:.1}%</td><td class="text-right">{:.1}%</td>
+                <td class="text-right">{:.1}%</td><td class="text-right">{:.0}</td>
+                <td class="text-right">{:.1}</td><td class="text-right">{:.1}%</td>
+                <td class="text-right">{:.1}</td></tr>"#,
+                get_f64(row, "unemployment_rate"), get_f64(row, "job_change_desire_rate"),
+                get_f64(row, "non_regular_rate"), get_f64(row, "avg_monthly_wage"),
+                get_f64(row, "price_index"), get_f64(row, "fulfillment_rate"),
+                get_f64(row, "real_wage_index"),
+            ));
+        }
+        html.push_str("</tbody></table></div>");
+    }
+
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 労働力調査(総務省統計局,2024)、就業構造基本調査(総務省,2022)、賃金構造基本統計調査(厚労省,2024)、小売物価統計調査(総務省,2024)、職業安定業務統計(厚労省)</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
+    let mut html = String::with_capacity(8_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">👥 人口構成</h3>
+        <p class="text-xs text-slate-500 mb-4">住民基本台帳に基づく人口・年齢構成データ。</p>"#);
+
+    if let Some(row) = pop_data.first() {
+        let total = get_i64(row, "total_population");
+        let male = get_i64(row, "male_population");
+        let female = get_i64(row, "female_population");
+        let aging = get_f64(row, "aging_rate");
+        let working = get_f64(row, "working_age_rate");
+        let youth = get_f64(row, "youth_rate");
+
+        // 年齢3区分バー
+        let aging_color = if aging >= 35.0 { "#ef4444" } else if aging >= 28.0 { "#f97316" } else { "#22c55e" };
+
+        html.push_str(&format!(
+            r#"<div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                <div class="bg-navy-700/50 rounded-lg p-3 text-center">
+                    <div class="text-xs text-slate-500 mb-1">総人口</div>
+                    <div class="text-2xl font-bold text-white">{total_s}</div>
+                    <div class="text-xs text-slate-500 mt-1">男{male_s} / 女{female_s}</div>
+                </div>
+                <div class="bg-navy-700/50 rounded-lg p-3 text-center">
+                    <div class="text-xs text-slate-500 mb-1">高齢化率</div>
+                    <div class="text-2xl font-bold" style="color:{aging_color}">{aging:.1}%</div>
+                    <div class="text-xs text-slate-500 mt-1">65歳以上</div>
+                </div>
+                <div class="bg-navy-700/50 rounded-lg p-3 text-center">
+                    <div class="text-xs text-slate-500 mb-1">生産年齢人口</div>
+                    <div class="text-2xl font-bold text-blue-400">{working:.1}%</div>
+                    <div class="text-xs text-slate-500 mt-1">15-64歳</div>
+                </div>
+            </div>"#,
+            total_s = format_number(total),
+            male_s = format_number(male),
+            female_s = format_number(female),
+        ));
+
+        // 年齢3区分の積み上げバー
+        html.push_str(&format!(
+            r#"<div class="mb-4">
+                <div class="text-xs text-slate-500 mb-1">年齢3区分構成</div>
+                <div class="w-full flex rounded h-5 overflow-hidden">
+                    <div class="h-5 bg-cyan-500" style="width:{youth:.1}%" title="年少({youth:.1}%)"></div>
+                    <div class="h-5 bg-blue-500" style="width:{working:.1}%" title="生産年齢({working:.1}%)"></div>
+                    <div class="h-5 bg-orange-500" style="width:{aging:.1}%" title="高齢({aging:.1}%)"></div>
+                </div>
+                <div class="flex justify-between text-xs mt-1">
+                    <span class="text-cyan-400">年少 {youth:.1}%</span>
+                    <span class="text-blue-400">生産年齢 {working:.1}%</span>
+                    <span class="text-orange-400">高齢 {aging:.1}%</span>
+                </div>
+            </div>"#
+        ));
+    }
+
+    // 人口ピラミッドチャート（横棒グラフ左右対称）
+    if !pyramid.is_empty() {
+        let max_count: i64 = pyramid.iter()
+            .map(|r| get_i64(r, "male_count").max(get_i64(r, "female_count")))
+            .max().unwrap_or(1);
+
+        html.push_str(r#"<div class="mt-4">
+            <div class="text-xs text-slate-400 font-semibold mb-2">人口ピラミッド</div>
+            <div class="flex text-xs text-slate-500 mb-1"><span class="w-1/2 text-right pr-1 text-blue-400">男性</span><span class="w-1/2 pl-1 text-pink-400">女性</span></div>"#);
+
+        // 下から上に表示（若い方が下）
+        for row in pyramid.iter().rev() {
+            let ag = get_str(row, "age_group");
+            let m = get_i64(row, "male_count");
+            let f = get_i64(row, "female_count");
+            let m_pct = if max_count > 0 { m as f64 / max_count as f64 * 100.0 } else { 0.0 };
+            let f_pct = if max_count > 0 { f as f64 / max_count as f64 * 100.0 } else { 0.0 };
+
+            html.push_str(&format!(
+                r#"<div class="flex items-center h-4 mb-0.5">
+                    <div class="w-10 text-right text-xs text-slate-500 pr-1 shrink-0">{ag}</div>
+                    <div class="flex-1 flex justify-end"><div class="h-3 bg-blue-500/70 rounded-l" style="width:{m_pct:.1}%"></div></div>
+                    <div class="w-0.5 bg-slate-600 mx-0.5 h-3"></div>
+                    <div class="flex-1"><div class="h-3 bg-pink-500/70 rounded-r" style="width:{f_pct:.1}%"></div></div>
+                </div>"#
+            ));
+        }
+        html.push_str("</div>");
+    }
+
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: SSDSE-A(統計センター) - 国勢調査(総務省,2020)</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+fn render_demographics_section(migration: &[Row], daytime: &[Row]) -> String {
+    let mut html = String::with_capacity(4_000);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🔄 人口動態</h3>
+        <p class="text-xs text-slate-500 mb-4">社会増減（転入転出）と昼夜間人口比から人の流れを把握します。</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
+
+    // 社会動態
+    if let Some(row) = migration.first() {
+        let inflow = get_i64(row, "inflow");
+        let outflow = get_i64(row, "outflow");
+        let net = get_i64(row, "net_migration");
+        let rate = get_f64(row, "net_migration_rate");
+        let net_color = if net >= 0 { "#22c55e" } else { "#ef4444" };
+        let net_sign = if net >= 0 { "+" } else { "" };
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-xs text-slate-500 mb-2">社会増減</div>
+                <div class="text-2xl font-bold mb-1" style="color:{net_color}">{net_sign}{net_s}</div>
+                <div class="text-xs" style="color:{net_color}">{net_sign}{rate:.1}‰</div>
+                <div class="mt-3 space-y-1 text-xs">
+                    <div class="flex justify-between text-slate-400"><span>転入</span><span class="text-emerald-400">{in_s}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>転出</span><span class="text-red-400">{out_s}</span></div>
+                </div>
+            </div>"#,
+            net_s = format_number(net.abs()),
+            in_s = format_number(inflow),
+            out_s = format_number(outflow),
+        ));
+    }
+
+    // 昼夜間人口
+    if let Some(row) = daytime.first() {
+        let night = get_i64(row, "nighttime_pop");
+        let day = get_i64(row, "daytime_pop");
+        let ratio = get_f64(row, "day_night_ratio");
+        let ratio_color = if ratio >= 100.0 { "#22c55e" } else { "#f59e0b" };
+        let label = if ratio >= 100.0 { "昼間流入超過" } else { "昼間流出超過" };
+
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+                <div class="text-xs text-slate-500 mb-2">昼夜間人口比率</div>
+                <div class="text-2xl font-bold mb-1" style="color:{ratio_color}">{ratio:.1}%</div>
+                <div class="text-xs" style="color:{ratio_color}">{label}</div>
+                <div class="mt-3 space-y-1 text-xs">
+                    <div class="flex justify-between text-slate-400"><span>夜間人口</span><span class="text-white">{night_s}</span></div>
+                    <div class="flex justify-between text-slate-400"><span>昼間人口</span><span class="text-white">{day_s}</span></div>
+                </div>
+            </div>"#,
+            night_s = format_number(night),
+            day_s = format_number(day),
+        ));
+    }
+
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: SSDSE-A(統計センター) - 住民基本台帳(2023)/国勢調査(2020)</p>"#);
     html.push_str("</div></div>");
     html
 }
 
 fn render_region_benchmark_section(data: &[Row]) -> String {
-    let mut html = String::with_capacity(5_000);
+    let mut html = String::with_capacity(8_000);
     html.push_str(r#"<div class="stat-card">
-        <h3 class="text-sm text-slate-400 mb-1">🎯 地域ベンチマーク（6軸）</h3>
-        <p class="text-xs text-slate-500 mb-4">6つの指標で地域の求人市場を総合評価。各軸0-100のスケールで、スコアが高いほど当該地域が優位です。</p>
+        <h3 class="text-sm text-slate-400 mb-1">🎯 地域ベンチマーク（12軸）</h3>
+        <p class="text-xs text-slate-500 mb-4">12の指標で地域の求人市場を総合評価。各軸0-100のスケールで、スコアが高いほど当該地域が優位です。</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#);
 
-    let axis_labels: [(&str, &str, &str); 6] = [
-        ("posting_activity", "求人活動量", "#3b82f6"),
+    let axis_labels: [(&str, &str, &str); 12] = [
         ("salary_competitiveness", "給与競争力", "#22c55e"),
-        ("talent_retention", "人材定着度", "#8b5cf6"),
+        ("job_market_tightness", "求人逼迫度", "#3b82f6"),
+        ("wage_compliance", "賃金遵守率", "#10b981"),
         ("industry_diversity", "産業多様性", "#f59e0b"),
         ("info_transparency", "情報透明性", "#06b6d4"),
-        ("text_temperature", "原稿温度", "#ec4899"),
+        ("text_urgency", "求人切迫度", "#ec4899"),
+        ("posting_freshness", "求人鮮度", "#8b5cf6"),
+        ("real_wage_power", "実質賃金力", "#14b8a6"),
+        ("labor_fluidity", "労働力流動性", "#f97316"),
+        ("working_age_ratio", "生産年齢比率", "#6366f1"),
+        ("population_growth", "人口社会増減", "#84cc16"),
+        ("foreign_workforce", "外国人労働力", "#a855f7"),
     ];
 
     for row in data {
@@ -1272,9 +1519,13 @@ fn render_region_benchmark_section(data: &[Row]) -> String {
                 </div>"#
         ));
 
-        // 6軸の水平バー
+        // 12軸の水平バー
         for (key, label, color) in &axis_labels {
             let val = get_f64(row, key);
+            if val <= 0.0 {
+                // データなしの軸はスキップ
+                continue;
+            }
             let bar_w = val.min(100.0).max(0.0);
             html.push_str(&format!(
                 r#"<div class="flex items-center gap-2 mb-1.5">
@@ -1288,6 +1539,7 @@ fn render_region_benchmark_section(data: &[Row]) -> String {
         html.push_str("</div>");
     }
 
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 各軸の元データは上記セクション参照。軸8-12は外部統計(厚労省/総務省/統計センター)に基づく</p>"#);
     html.push_str("</div></div>");
     html
 }

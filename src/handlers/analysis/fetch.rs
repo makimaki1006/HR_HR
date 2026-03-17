@@ -6,7 +6,39 @@ use serde_json::Value;
 use super::super::helpers::table_exists;
 
 type Db = crate::db::local_sqlite::LocalDb;
+type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
+
+/// Turso外部DBクエリ実行ヘルパー
+/// Turso接続がある場合はTursoを使い、なければローカルDBにフォールバック
+fn query_turso_or_local(
+    turso: Option<&TursoDb>,
+    local_db: &Db,
+    sql: &str,
+    params: &[String],
+    local_table_check: &str,
+) -> Vec<Row> {
+    // Turso優先
+    if let Some(tdb) = turso {
+        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+        match tdb.query(sql, &p) {
+            Ok(rows) if !rows.is_empty() => return rows,
+            Ok(_) => {} // 空結果 → ローカルにフォールバック
+            Err(e) => {
+                tracing::warn!("Turso query failed, falling back to local: {e}");
+            }
+        }
+    }
+
+    // ローカルDBフォールバック
+    if !local_table_check.is_empty() && !table_exists(local_db, local_table_check) {
+        return vec![];
+    }
+    let p: Vec<&dyn rusqlite::types::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    local_db.query(sql, &p).unwrap_or_default()
+}
 
 /// 3レベルフィルタクエリ実行（市区町村→都道府県→全国）
 fn query_3level(
@@ -415,20 +447,129 @@ pub(crate) fn fetch_wage_compliance(db: &Db, pref: &str, muni: &str) -> Vec<Row>
         nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")
 }
 
-/// Phase 4-3: 地域ベンチマーク（6軸レーダー用）
+/// Phase 4-3: 地域ベンチマーク（12軸レーダー用）
 pub(crate) fn fetch_region_benchmark(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    let cols = "emp_group, posting_activity, salary_competitiveness, talent_retention, \
-        industry_diversity, info_transparency, text_temperature, composite_benchmark";
-    let nat = "emp_group, AVG(posting_activity) as posting_activity, \
+    let cols = "emp_group, salary_competitiveness, job_market_tightness, wage_compliance, \
+        industry_diversity, info_transparency, text_urgency, posting_freshness, \
+        real_wage_power, labor_fluidity, working_age_ratio, population_growth, foreign_workforce, \
+        composite_benchmark";
+    let nat = "emp_group, \
         AVG(salary_competitiveness) as salary_competitiveness, \
-        AVG(talent_retention) as talent_retention, \
+        AVG(job_market_tightness) as job_market_tightness, \
+        AVG(wage_compliance) as wage_compliance, \
         AVG(industry_diversity) as industry_diversity, \
         AVG(info_transparency) as info_transparency, \
-        AVG(text_temperature) as text_temperature, \
+        AVG(text_urgency) as text_urgency, \
+        AVG(posting_freshness) as posting_freshness, \
+        AVG(real_wage_power) as real_wage_power, \
+        AVG(labor_fluidity) as labor_fluidity, \
+        AVG(working_age_ratio) as working_age_ratio, \
+        AVG(population_growth) as population_growth, \
+        AVG(foreign_workforce) as foreign_workforce, \
         AVG(composite_benchmark) as composite_benchmark";
     query_3level(db, "v2_region_benchmark", pref, muni,
         cols, "ORDER BY emp_group",
         nat, "GROUP BY emp_group ORDER BY emp_group")
+}
+
+/// Phase 4-4: 都道府県別外部指標マスタ（Turso優先）
+pub(crate) fn fetch_prefecture_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, unemployment_rate, job_change_desire_rate, non_regular_rate, \
+          avg_monthly_wage, price_index, fulfillment_rate, real_wage_index \
+          FROM v2_external_prefecture_stats WHERE prefecture = ?1".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT prefecture, unemployment_rate, job_change_desire_rate, non_regular_rate, \
+          avg_monthly_wage, price_index, fulfillment_rate, real_wage_index \
+          FROM v2_external_prefecture_stats ORDER BY prefecture".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_prefecture_stats")
+}
+
+/// Phase B: 人口ピラミッドデータ（市区町村レベル、Turso優先）
+pub(crate) fn fetch_population_data(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT prefecture, municipality, total_population, male_population, female_population, \
+          age_0_14, age_15_64, age_65_over, aging_rate, working_age_rate, youth_rate \
+          FROM v2_external_population WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+         vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT prefecture, municipality, total_population, male_population, female_population, \
+          age_0_14, age_15_64, age_65_over, aging_rate, working_age_rate, youth_rate \
+          FROM v2_external_population WHERE prefecture = ?1 AND municipality = ''".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT prefecture, '' as municipality, SUM(total_population) as total_population, \
+          SUM(male_population) as male_population, SUM(female_population) as female_population, \
+          SUM(age_0_14) as age_0_14, SUM(age_15_64) as age_15_64, SUM(age_65_over) as age_65_over, \
+          CAST(SUM(age_65_over) AS REAL) / SUM(total_population) * 100 as aging_rate, \
+          CAST(SUM(age_15_64) AS REAL) / SUM(total_population) * 100 as working_age_rate, \
+          CAST(SUM(age_0_14) AS REAL) / SUM(total_population) * 100 as youth_rate \
+          FROM v2_external_population WHERE municipality = ''".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_population")
+}
+
+/// Phase B: 人口ピラミッド詳細（5歳階級×男女、Turso優先）
+pub(crate) fn fetch_population_pyramid(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT age_group, male_count, female_count \
+          FROM v2_external_population_pyramid WHERE prefecture = ?1 AND municipality = ?2 \
+          ORDER BY CASE WHEN age_group = '85+' THEN 85 WHEN age_group = '75+' THEN 75 ELSE CAST(SUBSTR(age_group, 1, INSTR(age_group, '-') - 1) AS INT) END".to_string(),
+         vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
+          FROM v2_external_population_pyramid WHERE prefecture = ?1 \
+          GROUP BY age_group \
+          ORDER BY CASE WHEN age_group = '85+' THEN 85 WHEN age_group = '75+' THEN 75 ELSE CAST(SUBSTR(age_group, 1, INSTR(age_group, '-') - 1) AS INT) END".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
+          FROM v2_external_population_pyramid \
+          GROUP BY age_group \
+          ORDER BY CASE WHEN age_group = '85+' THEN 85 WHEN age_group = '75+' THEN 75 ELSE CAST(SUBSTR(age_group, 1, INSTR(age_group, '-') - 1) AS INT) END".to_string(),
+         vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_population_pyramid")
+}
+
+/// Phase B: 社会動態（転入転出、Turso優先）
+pub(crate) fn fetch_migration_data(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT inflow, outflow, net_migration, net_migration_rate \
+          FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+         vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT inflow, outflow, net_migration, net_migration_rate \
+          FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ''".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT SUM(inflow) as inflow, SUM(outflow) as outflow, \
+          SUM(net_migration) as net_migration, \
+          CAST(SUM(net_migration) AS REAL) / SUM(inflow + outflow) * 1000 as net_migration_rate \
+          FROM v2_external_migration WHERE municipality = ''".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_migration")
+}
+
+/// Phase B: 昼夜間人口（Turso優先）
+pub(crate) fn fetch_daytime_population(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        ("SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
+          FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+         vec![pref.to_string(), muni.to_string()])
+    } else if !pref.is_empty() {
+        ("SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
+          FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ''".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
+          CAST(SUM(daytime_pop) AS REAL) / SUM(nighttime_pop) * 100 as day_night_ratio, \
+          SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
+          FROM v2_external_daytime_population WHERE municipality = ''".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_daytime_population")
 }
 
 // ======== データ取得: Phase 5（予測・推定） ========

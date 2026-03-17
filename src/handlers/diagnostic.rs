@@ -283,9 +283,9 @@ fn render_radar_chart(
     let v_transparency = benchmark.as_ref()
         .map(|r| get_f64(r, "info_transparency")).unwrap_or(50.0);
     let v_text_temp = benchmark.as_ref()
-        .map(|r| get_f64(r, "text_temperature")).unwrap_or(50.0);
+        .map(|r| get_f64(r, "text_urgency")).unwrap_or(50.0);
     let v_retention = benchmark.as_ref()
-        .map(|r| get_f64(r, "talent_retention")).unwrap_or(50.0);
+        .map(|r| get_f64(r, "posting_freshness")).unwrap_or(50.0);
 
     // 地域平均のコンパレータ
     let avg_salary = comp_pkg.as_ref()
@@ -573,13 +573,17 @@ fn fetch_benchmark_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &st
     let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT posting_activity, salary_competitiveness, talent_retention, \
-          industry_diversity, info_transparency, text_temperature, composite_benchmark \
+        ("SELECT salary_competitiveness, job_market_tightness, wage_compliance, \
+          industry_diversity, info_transparency, text_urgency, posting_freshness, \
+          real_wage_power, labor_fluidity, working_age_ratio, population_growth, foreign_workforce, \
+          composite_benchmark \
           FROM v2_region_benchmark WHERE prefecture=?1 AND municipality=?2 AND emp_group=?3 LIMIT 1".to_string(),
          vec![pref.to_string(), muni.to_string(), emp_group.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT posting_activity, salary_competitiveness, talent_retention, \
-          industry_diversity, info_transparency, text_temperature, composite_benchmark \
+        ("SELECT salary_competitiveness, job_market_tightness, wage_compliance, \
+          industry_diversity, info_transparency, text_urgency, posting_freshness, \
+          real_wage_power, labor_fluidity, working_age_ratio, population_growth, foreign_workforce, \
+          composite_benchmark \
           FROM v2_region_benchmark WHERE prefecture=?1 AND municipality='' AND emp_group=?2 LIMIT 1".to_string(),
          vec![pref.to_string(), emp_group.to_string()])
     } else {
