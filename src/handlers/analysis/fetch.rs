@@ -495,18 +495,22 @@ pub(crate) fn fetch_population_data(db: &Db, turso: Option<&TursoDb>, pref: &str
           FROM v2_external_population WHERE prefecture = ?1 AND municipality = ?2".to_string(),
          vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT prefecture, municipality, total_population, male_population, female_population, \
-          age_0_14, age_15_64, age_65_over, aging_rate, working_age_rate, youth_rate \
-          FROM v2_external_population WHERE prefecture = ?1 AND municipality = ''".to_string(),
-         vec![pref.to_string()])
-    } else {
-        ("SELECT prefecture, '' as municipality, SUM(total_population) as total_population, \
+        ("SELECT ?1 as prefecture, '全体' as municipality, SUM(total_population) as total_population, \
           SUM(male_population) as male_population, SUM(female_population) as female_population, \
           SUM(age_0_14) as age_0_14, SUM(age_15_64) as age_15_64, SUM(age_65_over) as age_65_over, \
           CAST(SUM(age_65_over) AS REAL) / SUM(total_population) * 100 as aging_rate, \
           CAST(SUM(age_15_64) AS REAL) / SUM(total_population) * 100 as working_age_rate, \
           CAST(SUM(age_0_14) AS REAL) / SUM(total_population) * 100 as youth_rate \
-          FROM v2_external_population WHERE municipality = ''".to_string(), vec![])
+          FROM v2_external_population WHERE prefecture = ?1".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT '全国' as prefecture, '' as municipality, SUM(total_population) as total_population, \
+          SUM(male_population) as male_population, SUM(female_population) as female_population, \
+          SUM(age_0_14) as age_0_14, SUM(age_15_64) as age_15_64, SUM(age_65_over) as age_65_over, \
+          CAST(SUM(age_65_over) AS REAL) / SUM(total_population) * 100 as aging_rate, \
+          CAST(SUM(age_15_64) AS REAL) / SUM(total_population) * 100 as working_age_rate, \
+          CAST(SUM(age_0_14) AS REAL) / SUM(total_population) * 100 as youth_rate \
+          FROM v2_external_population".to_string(), vec![])
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_population")
 }
@@ -541,14 +545,16 @@ pub(crate) fn fetch_migration_data(db: &Db, turso: Option<&TursoDb>, pref: &str,
           FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ?2".to_string(),
          vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT inflow, outflow, net_migration, net_migration_rate \
-          FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ''".to_string(),
+        ("SELECT SUM(inflow) as inflow, SUM(outflow) as outflow, \
+          SUM(net_migration) as net_migration, \
+          CAST(SUM(net_migration) AS REAL) / NULLIF(SUM(inflow + outflow), 0) * 1000 as net_migration_rate \
+          FROM v2_external_migration WHERE prefecture = ?1".to_string(),
          vec![pref.to_string()])
     } else {
         ("SELECT SUM(inflow) as inflow, SUM(outflow) as outflow, \
           SUM(net_migration) as net_migration, \
-          CAST(SUM(net_migration) AS REAL) / SUM(inflow + outflow) * 1000 as net_migration_rate \
-          FROM v2_external_migration WHERE municipality = ''".to_string(), vec![])
+          CAST(SUM(net_migration) AS REAL) / NULLIF(SUM(inflow + outflow), 0) * 1000 as net_migration_rate \
+          FROM v2_external_migration".to_string(), vec![])
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_migration")
 }
@@ -560,14 +566,16 @@ pub(crate) fn fetch_daytime_population(db: &Db, turso: Option<&TursoDb>, pref: &
           FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2".to_string(),
          vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
-          FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ''".to_string(),
+        ("SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
+          CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
+          SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
+          FROM v2_external_daytime_population WHERE prefecture = ?1".to_string(),
          vec![pref.to_string()])
     } else {
         ("SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
-          CAST(SUM(daytime_pop) AS REAL) / SUM(nighttime_pop) * 100 as day_night_ratio, \
+          CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
           SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
-          FROM v2_external_daytime_population WHERE municipality = ''".to_string(), vec![])
+          FROM v2_external_daytime_population".to_string(), vec![])
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_daytime_population")
 }
