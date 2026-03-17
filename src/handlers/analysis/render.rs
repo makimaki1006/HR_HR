@@ -1409,9 +1409,9 @@ fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
             html.push_str(&format!(
                 r#"<div class="flex items-center h-4 mb-0.5">
                     <div class="w-10 text-right text-xs text-slate-500 pr-1 shrink-0">{ag}</div>
-                    <div class="flex-1 flex justify-end"><div class="h-3 bg-blue-500/70 rounded-l" style="width:{m_pct:.1}%"></div></div>
-                    <div class="w-0.5 bg-slate-600 mx-0.5 h-3"></div>
-                    <div class="flex-1"><div class="h-3 bg-pink-500/70 rounded-r" style="width:{f_pct:.1}%"></div></div>
+                    <div class="flex-1 flex justify-end"><div class="rounded-l" style="height:0.75rem;width:{m_pct:.1}%;background:rgba(59,130,246,0.7)"></div></div>
+                    <div style="width:2px;height:0.75rem;background:#475569;margin:0 2px"></div>
+                    <div class="flex-1"><div class="rounded-r" style="height:0.75rem;width:{f_pct:.1}%;background:rgba(236,72,153,0.7)"></div></div>
                 </div>"#
             ));
         }
