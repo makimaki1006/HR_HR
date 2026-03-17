@@ -1407,18 +1407,18 @@ fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
             let f_pct = if max_count > 0 { f as f64 / max_count as f64 * 100.0 } else { 0.0 };
 
             html.push_str(&format!(
-                r#"<div class="flex items-center h-4 mb-0.5">
-                    <div class="w-10 text-right text-xs text-slate-500 pr-1 shrink-0">{ag}</div>
-                    <div class="flex-1 flex justify-end"><div class="rounded-l" style="height:0.75rem;width:{m_pct:.1}%;background:rgba(59,130,246,0.7)"></div></div>
-                    <div style="width:2px;height:0.75rem;background:#475569;margin:0 2px"></div>
-                    <div class="flex-1"><div class="rounded-r" style="height:0.75rem;width:{f_pct:.1}%;background:rgba(236,72,153,0.7)"></div></div>
+                r#"<div class="flex items-center" style="height:1.1rem;margin-bottom:1px">
+                    <div class="text-right text-slate-500 pr-1 shrink-0" style="width:2.2rem;font-size:0.65rem">{ag}</div>
+                    <div class="flex-1 flex justify-end"><div class="rounded-l" style="height:0.6rem;width:{m_pct:.1}%;background:rgba(59,130,246,0.7)"></div></div>
+                    <div style="width:2px;height:0.6rem;background:#475569;margin:0 2px"></div>
+                    <div class="flex-1"><div class="rounded-r" style="height:0.6rem;width:{f_pct:.1}%;background:rgba(236,72,153,0.7)"></div></div>
                 </div>"#
             ));
         }
         html.push_str("</div>");
     }
 
-    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: SSDSE-A(統計センター) - 国勢調査(総務省,2020)</p>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 国勢調査(総務省,2020) + SSDSE-A按分推計</p>"#);
     html.push_str("</div>");
     html
 }

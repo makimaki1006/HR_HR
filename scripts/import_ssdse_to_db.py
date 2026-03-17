@@ -24,6 +24,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CSV = os.path.join(SCRIPT_DIR, "data", "update", "SSDSE-A-2025.csv")
 DEFAULT_DB = os.path.join(os.path.dirname(SCRIPT_DIR), "data", "hellowork.db")
 DEFAULT_DAYTIME_XLSX = os.path.join(SCRIPT_DIR, "data", "update", "daytime_pop_raw.xlsx")
+DEFAULT_CENSUS_AGE_XLSX = os.path.join(SCRIPT_DIR, "data", "census_age_000032142405.xlsx")
 
 # SSDSE-Aのカラムコード → 意味のマッピング
 # 出典: SSDSE_ITEM_2025.xlsx
@@ -263,11 +264,109 @@ def import_foreign_residents(db, rows, ref_years, pop_rows):
     print(f"    v2_external_foreign_residents: {len(foreign_rows)} 行")
 
 
-def import_population_pyramid(db, rows):
-    """人口ピラミッド（4区分×男女）をインポート → v2_external_population_pyramid
+def parse_census_age_excel(xlsx_path):
+    """国勢調査Excelから都道府県別×男女×各歳人口を読み込み、10歳階級に集約
 
-    SSDSE-Aの年齢3区分+75歳以上データから4区分ピラミッドを構築:
-    0-14歳, 15-64歳, 65-74歳, 75歳以上 × 男女
+    Returns:
+        dict[(pref_code, gender), dict[age_group, population]]
+        gender: 'male' or 'female'
+        age_group: '0-9', '10-19', ..., '70-79', '80+'
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        print("    国勢調査Excel解析: スキップ (openpyxlが必要)")
+        return None
+
+    if not os.path.exists(xlsx_path):
+        print(f"    国勢調査Excel: ファイル未配置 ({xlsx_path})")
+        return None
+
+    print(f"  国勢調査Excel読み込み: {os.path.basename(xlsx_path)}")
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    sh = wb[wb.sheetnames[0]]
+
+    # 都道府県コード→都道府県名マッピング
+    PREF_MAP = {
+        "01000": "北海道", "02000": "青森県", "03000": "岩手県", "04000": "宮城県",
+        "05000": "秋田県", "06000": "山形県", "07000": "福島県", "08000": "茨城県",
+        "09000": "栃木県", "10000": "群馬県", "11000": "埼玉県", "12000": "千葉県",
+        "13000": "東京都", "14000": "神奈川県", "15000": "新潟県", "16000": "富山県",
+        "17000": "石川県", "18000": "福井県", "19000": "山梨県", "20000": "長野県",
+        "21000": "岐阜県", "22000": "静岡県", "23000": "愛知県", "24000": "三重県",
+        "25000": "滋賀県", "26000": "京都府", "27000": "大阪府", "28000": "兵庫県",
+        "29000": "奈良県", "30000": "和歌山県", "31000": "鳥取県", "32000": "島根県",
+        "33000": "岡山県", "34000": "広島県", "35000": "山口県", "36000": "徳島県",
+        "37000": "香川県", "38000": "愛媛県", "39000": "高知県", "40000": "福岡県",
+        "41000": "佐賀県", "42000": "長崎県", "43000": "熊本県", "44000": "大分県",
+        "45000": "宮崎県", "46000": "鹿児島県", "47000": "沖縄県",
+    }
+
+    # 10歳階級の定義: (age_group, start_age, end_age)
+    AGE_GROUPS = [
+        ("0-9", 0, 9), ("10-19", 10, 19), ("20-29", 20, 29),
+        ("30-39", 30, 39), ("40-49", 40, 49), ("50-59", 50, 59),
+        ("60-69", 60, 69), ("70-79", 70, 79), ("80+", 80, 999),
+    ]
+
+    # 各歳データはCol 5(0歳)〜Col 115(110歳以上)
+    # Col 5+age = age歳の人口 (0〜109歳)
+    # Col 115 = 110歳以上
+    AGE_COL_START = 5  # 0歳のカラム
+    AGE_COL_110PLUS = 115  # 110歳以上
+
+    result = {}  # (pref_name, gender) -> {age_group: count}
+
+    for r in range(12, sh.max_row + 1):
+        c1 = str(sh.cell(r, 1).value or "")
+        c2 = str(sh.cell(r, 2).value or "")
+        c3 = str(sh.cell(r, 3).value or "")
+
+        # 国籍総数のみ（col1が0_で始まる）
+        if not c1.startswith("0_"):
+            continue
+
+        # 男女判定
+        if c2.startswith("1_"):
+            gender = "male"
+        elif c2.startswith("2_"):
+            gender = "female"
+        else:
+            continue
+
+        # 都道府県コード抽出（全国行は除外）
+        pref_code = c3.split("_")[0] if "_" in c3 else ""
+        if pref_code == "00000" or pref_code not in PREF_MAP:
+            continue
+
+        pref_name = PREF_MAP[pref_code]
+
+        # 各歳データを読み込み、10歳階級に集約
+        age_counts = {}
+        for grp_name, start, end in AGE_GROUPS:
+            total = 0
+            for age in range(start, min(end + 1, 110)):
+                col = AGE_COL_START + age
+                total += safe_int(sh.cell(r, col).value)
+            # 80+グループには110歳以上も加算
+            if grp_name == "80+":
+                total += safe_int(sh.cell(r, AGE_COL_110PLUS).value)
+            age_counts[grp_name] = total
+
+        result[(pref_name, gender)] = age_counts
+
+    wb.close()
+
+    pref_count = len(set(k[0] for k in result.keys()))
+    print(f"    国勢調査: {pref_count} 都道府県 × 男女 × 9区分 読み込み完了")
+    return result
+
+
+def import_population_pyramid(db, rows, census_ratios=None):
+    """人口ピラミッド（9区分×男女）をインポート → v2_external_population_pyramid
+
+    国勢調査の都道府県別年齢分布比率で、SSDSE-Aの市区町村4区分を9区分に按分推定。
+    census_ratiosがNoneの場合は旧4区分にフォールバック。
     """
 
     db.execute("DROP TABLE IF EXISTS v2_external_population_pyramid")
@@ -281,6 +380,9 @@ def import_population_pyramid(db, rows):
             PRIMARY KEY (prefecture, municipality, age_group)
         )
     """)
+
+    AGE_GROUPS_9 = ["0-9", "10-19", "20-29", "30-39", "40-49",
+                    "50-59", "60-69", "70-79", "80+"]
 
     pyramid_rows = []
     for r in rows:
@@ -296,28 +398,146 @@ def import_population_pyramid(db, rows):
         male_75 = r.get("male_75_over", 0)
         female_75 = r.get("female_75_over", 0)
 
-        # 65-74歳 = 65歳以上 - 75歳以上
         male_65_74 = max(0, male_65 - male_75)
         female_65_74 = max(0, female_65 - female_75)
 
-        # 全区分0なら当該市区町村はデータなしとしてスキップ
         total = male_0_14 + female_0_14 + male_15_64 + female_15_64 + male_65 + female_65
         if total == 0:
             continue
 
-        pyramid_rows.extend([
-            (pref, muni, "0-14", male_0_14, female_0_14),
-            (pref, muni, "15-64", male_15_64, female_15_64),
-            (pref, muni, "65-74", male_65_74, female_65_74),
-            (pref, muni, "75+", male_75, female_75),
-        ])
+        if census_ratios is None:
+            # フォールバック: 旧4区分
+            pyramid_rows.extend([
+                (pref, muni, "0-14", male_0_14, female_0_14),
+                (pref, muni, "15-64", male_15_64, female_15_64),
+                (pref, muni, "65-74", male_65_74, female_65_74),
+                (pref, muni, "75+", male_75, female_75),
+            ])
+            continue
+
+        # 国勢調査比率で按分
+        for gender, ssdse_brackets, census_key in [
+            ("male",
+             {"0-14": male_0_14, "15-64": male_15_64,
+              "65-74": male_65_74, "75+": male_75},
+             "male"),
+            ("female",
+             {"0-14": female_0_14, "15-64": female_15_64,
+              "65-74": female_65_74, "75+": female_75},
+             "female"),
+        ]:
+            census = census_ratios.get((pref, census_key))
+            if census is None:
+                # 都道府県の国勢調査データがない場合、均等按分
+                census = {g: 1 for g in AGE_GROUPS_9}
+
+            # 国勢調査の各ブラケット内合計を計算
+            c_0_14 = census.get("0-9", 0) + census.get("10-19", 0) * 0.5  # 10-14のみ
+            c_0_14_full = sum(census.get(g, 0) for g in ["0-9"]) + census.get("10-19", 0) * 0.5
+            # 正確に: 0-14 = 0-9 全部 + 10-19のうち10-14 ≒ 10-19の半分
+            # 国勢調査の各歳データから正確な区分を使う
+            c_0_9 = census.get("0-9", 0)
+            c_10_19 = census.get("10-19", 0)
+            c_20_29 = census.get("20-29", 0)
+            c_30_39 = census.get("30-39", 0)
+            c_40_49 = census.get("40-49", 0)
+            c_50_59 = census.get("50-59", 0)
+            c_60_69 = census.get("60-69", 0)
+            c_70_79 = census.get("70-79", 0)
+            c_80plus = census.get("80+", 0)
+
+            # SSDSE-Aの4区分に対応する国勢調査合計
+            # 0-14歳 → census 0-9 + census 10-14 (= 10-19の半分と近似)
+            # ただし各歳データを持っているので正確に計算可能
+            # parse_census_age_excelが10歳階級に集約済みなので、
+            # 15-64に対応する国勢調査合計 = 10-19の半分 + 20-29 + ... + 60-69の半分
+            # しかし10歳階級境界がSSDE-Aの4区分境界(0-14, 15-64, 65-74, 75+)と
+            # きれいに一致しないので、各10歳階級をSSDE-A区分にマッピングする比率を使う
+
+            # 各10歳階級がどのSSDE-A区分に属するかの比率
+            # 10-19歳: 10-14は「0-14」、15-19は「15-64」 → 半々と近似
+            # 60-69歳: 60-64は「15-64」、65-69は「65-74」 → 半々と近似
+            # 70-79歳: 70-74は「65-74」、75-79は「75+」 → 半々と近似
+
+            # SSDSE-A区分ごとの国勢調査合計（按分分母）
+            census_in_0_14 = c_0_9 + c_10_19 * 0.5
+            census_in_15_64 = c_10_19 * 0.5 + c_20_29 + c_30_39 + c_40_49 + c_50_59 + c_60_69 * 0.5
+            census_in_65_74 = c_60_69 * 0.5 + c_70_79 * 0.5
+            census_in_75plus = c_70_79 * 0.5 + c_80plus
+
+            # 各10歳階級の推定人口を計算
+            estimated = {}
+
+            # 0-9: 0-14区分から按分
+            if census_in_0_14 > 0:
+                estimated["0-9"] = ssdse_brackets["0-14"] * c_0_9 / census_in_0_14
+            else:
+                estimated["0-9"] = 0
+
+            # 10-19: 0-14区分の残り + 15-64区分の一部
+            ratio_10_14_in_0_14 = (c_10_19 * 0.5) / census_in_0_14 if census_in_0_14 > 0 else 0
+            ratio_15_19_in_15_64 = (c_10_19 * 0.5) / census_in_15_64 if census_in_15_64 > 0 else 0
+            estimated["10-19"] = (ssdse_brackets["0-14"] * ratio_10_14_in_0_14
+                                  + ssdse_brackets["15-64"] * ratio_15_19_in_15_64)
+
+            # 20-29, 30-39, 40-49, 50-59: 15-64区分内で按分
+            for grp, c_val in [("20-29", c_20_29), ("30-39", c_30_39),
+                                ("40-49", c_40_49), ("50-59", c_50_59)]:
+                if census_in_15_64 > 0:
+                    estimated[grp] = ssdse_brackets["15-64"] * c_val / census_in_15_64
+                else:
+                    estimated[grp] = 0
+
+            # 60-69: 15-64の残り + 65-74の一部
+            ratio_60_64_in_15_64 = (c_60_69 * 0.5) / census_in_15_64 if census_in_15_64 > 0 else 0
+            ratio_65_69_in_65_74 = (c_60_69 * 0.5) / census_in_65_74 if census_in_65_74 > 0 else 0
+            estimated["60-69"] = (ssdse_brackets["15-64"] * ratio_60_64_in_15_64
+                                  + ssdse_brackets["65-74"] * ratio_65_69_in_65_74)
+
+            # 70-79: 65-74の残り + 75+の一部
+            ratio_70_74_in_65_74 = (c_70_79 * 0.5) / census_in_65_74 if census_in_65_74 > 0 else 0
+            ratio_75_79_in_75plus = (c_70_79 * 0.5) / census_in_75plus if census_in_75plus > 0 else 0
+            estimated["70-79"] = (ssdse_brackets["65-74"] * ratio_70_74_in_65_74
+                                  + ssdse_brackets["75+"] * ratio_75_79_in_75plus)
+
+            # 80+: 75+の残り
+            if census_in_75plus > 0:
+                estimated["80+"] = ssdse_brackets["75+"] * c_80plus / census_in_75plus
+            else:
+                estimated["80+"] = 0
+
+            # 整数化（四捨五入）
+            int_values = {g: round(estimated[g]) for g in AGE_GROUPS_9}
+
+            # 端数調整: 合計をSSDE-Aの男女合計に一致させる
+            ssdse_total = (ssdse_brackets["0-14"] + ssdse_brackets["15-64"]
+                           + ssdse_brackets["65-74"] + ssdse_brackets["75+"])
+            diff = ssdse_total - sum(int_values.values())
+            if diff != 0:
+                # 最大グループに端数を加算
+                max_grp = max(int_values, key=int_values.get)
+                int_values[max_grp] += diff
+
+            # pyramid_rowsに追加（genderごとにmale/femaleを振り分け）
+            if gender == "male":
+                for g in AGE_GROUPS_9:
+                    # (pref, muni, age_group, male, female=placeholder)
+                    pyramid_rows.append((pref, muni, g, int_values[g], None))
+            else:
+                # femaleを既存のmale行に結合
+                # male行は直前に追加されているので、末尾9行を更新
+                base = len(pyramid_rows) - 9
+                for i, g in enumerate(AGE_GROUPS_9):
+                    old = pyramid_rows[base + i]
+                    pyramid_rows[base + i] = (old[0], old[1], old[2], old[3], int_values[g])
 
     db.executemany(
         "INSERT OR REPLACE INTO v2_external_population_pyramid VALUES (?,?,?,?,?)",
         pyramid_rows,
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_ext_pyramid_pref ON v2_external_population_pyramid(prefecture)")
-    print(f"    v2_external_population_pyramid: {len(pyramid_rows)} 行 ({len(pyramid_rows)//4} 市区町村)")
+    n_groups = 9 if census_ratios else 4
+    print(f"    v2_external_population_pyramid: {len(pyramid_rows)} 行 ({len(pyramid_rows)//n_groups} 市区町村 × {n_groups}区分)")
 
 
 def build_code_to_name_map(csv_path):
@@ -527,6 +747,8 @@ def main():
     parser.add_argument("--db", default=DEFAULT_DB, help="hellowork.dbパス")
     parser.add_argument("--daytime-xlsx", default=DEFAULT_DAYTIME_XLSX,
                         help="昼夜間人口Excelパス (e-Stat 国勢調査)")
+    parser.add_argument("--census-age-xlsx", default=DEFAULT_CENSUS_AGE_XLSX,
+                        help="国勢調査 年齢各歳別人口Excel (10歳階級按分用)")
     args = parser.parse_args()
 
     if not os.path.exists(args.csv):
@@ -571,8 +793,9 @@ def main():
         import_foreign_residents(db, rows, ref_years, pop_rows)
         db.commit()
 
-        # 4. 人口ピラミッド（4区分×男女）
-        import_population_pyramid(db, rows)
+        # 4. 人口ピラミッド（9区分×男女、国勢調査按分）
+        census_ratios = parse_census_age_excel(args.census_age_xlsx)
+        import_population_pyramid(db, rows, census_ratios)
         db.commit()
 
         # 5. 昼夜間人口（e-Stat 国勢調査 従業地・通学地集計 令和2年）

@@ -517,22 +517,28 @@ pub(crate) fn fetch_population_data(db: &Db, turso: Option<&TursoDb>, pref: &str
 
 /// Phase B: 人口ピラミッド詳細（5歳階級×男女、Turso優先）
 pub(crate) fn fetch_population_pyramid(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+    let order_clause = "ORDER BY CASE age_group \
+          WHEN '0-9' THEN 0 WHEN '10-19' THEN 10 WHEN '20-29' THEN 20 \
+          WHEN '30-39' THEN 30 WHEN '40-49' THEN 40 WHEN '50-59' THEN 50 \
+          WHEN '60-69' THEN 60 WHEN '70-79' THEN 70 WHEN '80+' THEN 80 \
+          WHEN '0-14' THEN 0 WHEN '15-64' THEN 15 WHEN '65-74' THEN 65 WHEN '75+' THEN 75 \
+          ELSE 999 END";
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT age_group, male_count, female_count \
+        (format!("SELECT age_group, male_count, female_count \
           FROM v2_external_population_pyramid WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY CASE WHEN age_group = '85+' THEN 85 WHEN age_group = '75+' THEN 75 ELSE CAST(SUBSTR(age_group, 1, INSTR(age_group, '-') - 1) AS INT) END".to_string(),
+          {order_clause}"),
          vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
+        (format!("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
           FROM v2_external_population_pyramid WHERE prefecture = ?1 \
           GROUP BY age_group \
-          ORDER BY CASE WHEN age_group = '85+' THEN 85 WHEN age_group = '75+' THEN 75 ELSE CAST(SUBSTR(age_group, 1, INSTR(age_group, '-') - 1) AS INT) END".to_string(),
+          {order_clause}"),
          vec![pref.to_string()])
     } else {
-        ("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
+        (format!("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
           FROM v2_external_population_pyramid \
           GROUP BY age_group \
-          ORDER BY CASE WHEN age_group = '85+' THEN 85 WHEN age_group = '75+' THEN 75 ELSE CAST(SUBSTR(age_group, 1, INSTR(age_group, '-') - 1) AS INT) END".to_string(),
+          {order_clause}"),
          vec![])
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_population_pyramid")
