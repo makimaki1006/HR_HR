@@ -19,3 +19,7 @@ services:
         value: "f-a-c.co.jp,cyxen.co.jp"
       - key: HELLOWORK_DB_PATH
         value: "data/hellowork.db"
+      - key: TURSO_EXTERNAL_URL
+        sync: false
+      - key: TURSO_EXTERNAL_TOKEN
+        sync: false
