@@ -595,12 +595,19 @@ pub fn decompress_db_if_needed(db_path: &str) {
     use std::path::Path;
 
     let db_file = Path::new(db_path);
+    let gz_path = format!("{}.gz", db_path);
+    let gz_file = Path::new(&gz_path);
+
+    // gzが存在する場合は常にgzから再解凍（DB更新を確実に反映）
+    if db_file.exists() && gz_file.exists() {
+        tracing::info!("Both {db_path} and {gz_path} exist, removing old DB to re-decompress");
+        let _ = std::fs::remove_file(db_path);
+    }
+
     if db_file.exists() {
         return;
     }
 
-    let gz_path = format!("{}.gz", db_path);
-    let gz_file = Path::new(&gz_path);
     if !gz_file.exists() {
         tracing::info!("No gzip DB found at {gz_path}, skipping decompression");
         return;
