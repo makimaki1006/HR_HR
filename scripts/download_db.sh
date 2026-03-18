@@ -5,11 +5,18 @@
 set -e
 
 DB_GZ="data/hellowork.db.gz"
+DB_FILE="data/hellowork.db"
 
 # 既存DBがあっても常に最新版をダウンロード
 if [ -f "$DB_GZ" ]; then
-    echo "Removing old DB: $DB_GZ ($(du -h "$DB_GZ" | cut -f1))"
+    echo "Removing old DB gz: $DB_GZ ($(du -h "$DB_GZ" | cut -f1))"
     rm -f "$DB_GZ"
+fi
+
+# 解凍済みDBも削除（起動時に新しいgzから再解凍させる）
+if [ -f "$DB_FILE" ]; then
+    echo "Removing old decompressed DB: $DB_FILE ($(du -h "$DB_FILE" | cut -f1))"
+    rm -f "$DB_FILE"
 fi
 
 # URL決定: 環境変数 > ビルド引数 > デフォルト（最新Release）

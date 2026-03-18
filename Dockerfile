@@ -42,7 +42,7 @@ COPY data/geojson_gz/ data/geojson_gz/
 
 # DB: GitHub Releaseからダウンロード（Git LFS不要）
 # DB_VERSION を変更するとDockerキャッシュが無効化され、最新DBがダウンロードされる
-ARG DB_VERSION="2.1-pyramid9"
+ARG DB_VERSION="2.2-pyramid9-force"
 ARG DB_RELEASE_URL=""
 ARG GITHUB_TOKEN=""
 ENV GITHUB_TOKEN=${GITHUB_TOKEN}
