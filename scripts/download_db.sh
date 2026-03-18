@@ -6,10 +6,10 @@ set -e
 
 DB_GZ="data/hellowork.db.gz"
 
-# 既にDBが存在する場合はスキップ
+# 既存DBがあっても常に最新版をダウンロード
 if [ -f "$DB_GZ" ]; then
-    echo "DB already exists: $DB_GZ ($(du -h "$DB_GZ" | cut -f1))"
-    exit 0
+    echo "Removing old DB: $DB_GZ ($(du -h "$DB_GZ" | cut -f1))"
+    rm -f "$DB_GZ"
 fi
 
 # URL決定: 環境変数 > ビルド引数 > デフォルト（最新Release）
