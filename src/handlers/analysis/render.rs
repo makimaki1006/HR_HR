@@ -1580,11 +1580,11 @@ fn render_fulfillment_section(data: &[Row]) -> String {
                 <div class="text-xs mb-3" style="color:{score_color}">{score_label}（{total_s}件）</div>
                 <div class="mb-3">
                     <div class="text-xs text-slate-500 mb-1">グレード分布</div>
-                    <div class="w-full flex rounded h-4 overflow-hidden">
-                        <div class="h-4 bg-emerald-500" style="width:{a_w:.1}%" title="A（容易）"></div>
-                        <div class="h-4 bg-blue-500" style="width:{b_w:.1}%" title="B（標準）"></div>
-                        <div class="h-4 bg-amber-500" style="width:{c_w:.1}%" title="C（やや困難）"></div>
-                        <div class="h-4 bg-red-500" style="width:{d_w:.1}%" title="D（困難）"></div>
+                    <div class="w-full flex rounded h-5 overflow-hidden">
+                        <div class="h-5" style="width:{a_w:.1}%;background:#22c55e" title="A（容易）"></div>
+                        <div class="h-5" style="width:{b_w:.1}%;background:#3b82f6" title="B（標準）"></div>
+                        <div class="h-5" style="width:{c_w:.1}%;background:#f59e0b" title="C（やや困難）"></div>
+                        <div class="h-5" style="width:{d_w:.1}%;background:#ef4444" title="D（困難）"></div>
                     </div>
                     <div class="flex justify-between text-xs mt-1">
                         <span class="text-emerald-400">A {a_s}</span>
