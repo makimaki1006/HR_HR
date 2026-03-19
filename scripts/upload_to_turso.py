@@ -32,6 +32,8 @@ TABLES = [
     "v2_external_job_openings_ratio",
     "v2_external_labor_stats",
     "v2_external_establishments",
+    "v2_external_turnover",
+    "v2_external_household_spending",
 ]
 
 # テーブル定義（CREATE TABLE文）
@@ -153,6 +155,29 @@ TABLE_SCHEMAS = {
             employee_count INTEGER,
             reference_year TEXT,
             PRIMARY KEY (prefecture, industry)
+        )
+    """,
+    "v2_external_turnover": """
+        CREATE TABLE IF NOT EXISTS v2_external_turnover (
+            prefecture TEXT NOT NULL,
+            fiscal_year TEXT NOT NULL,
+            industry TEXT NOT NULL DEFAULT '産業計',
+            entry_rate REAL,
+            separation_rate REAL,
+            net_rate REAL,
+            entry_count REAL,
+            separation_count REAL,
+            worker_count REAL,
+            PRIMARY KEY (prefecture, fiscal_year, industry)
+        )
+    """,
+    "v2_external_household_spending": """
+        CREATE TABLE IF NOT EXISTS v2_external_household_spending (
+            prefecture TEXT NOT NULL,
+            category TEXT NOT NULL,
+            monthly_amount INTEGER,
+            reference_year TEXT,
+            PRIMARY KEY (prefecture, category)
         )
     """,
 }

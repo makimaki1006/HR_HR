@@ -151,6 +151,8 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     let job_openings_ratio = fetch_job_openings_ratio(db, turso, pref);
     let labor_stats = fetch_labor_stats(db, turso, pref);
     let establishments = fetch_establishments(db, turso, pref);
+    let turnover = fetch_turnover(db, turso, pref);
+    let household_spending = fetch_household_spending(db, turso, pref);
     let region_benchmark = fetch_region_benchmark(db, pref, muni);
 
     let mut html = String::with_capacity(40_000);
@@ -162,7 +164,8 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
 
     let has_external = !minimum_wage.is_empty() || !wage_compliance.is_empty()
         || !prefecture_stats.is_empty() || !population.is_empty() || !region_benchmark.is_empty()
-        || !job_openings_ratio.is_empty() || !labor_stats.is_empty() || !establishments.is_empty();
+        || !job_openings_ratio.is_empty() || !labor_stats.is_empty() || !establishments.is_empty()
+        || !turnover.is_empty() || !household_spending.is_empty();
 
     if has_external {
         html.push_str(r#"<div class="border-t border-slate-700 my-4 pt-4">
@@ -191,6 +194,12 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     }
     if !establishments.is_empty() {
         html.push_str(&render_establishment_section(&establishments, pref));
+    }
+    if !turnover.is_empty() {
+        html.push_str(&render_turnover_section(&turnover, pref));
+    }
+    if !household_spending.is_empty() {
+        html.push_str(&render_household_spending_section(&household_spending, pref));
     }
     if !region_benchmark.is_empty() {
         html.push_str(&render_region_benchmark_section(&region_benchmark));
@@ -1923,6 +1932,286 @@ fn render_establishment_section(data: &[Row], pref: &str) -> String {
     html.push_str(r#"</div>
         <p class="text-xs text-slate-600 mt-3 italic">出典: 総務省「経済センサス-活動調査」（2021年） e-Stat API ※外部統計データ</p>
     </div>"#);
+    html
+}
+
+/// 入職率・離職率の推移（医療・福祉産業、SVG折れ線グラフ）
+fn render_turnover_section(data: &[Row], pref: &str) -> String {
+    // データを全国と都道府県に分離
+    let mut nat_entry: Vec<(String, f64)> = Vec::new();
+    let mut nat_sep: Vec<(String, f64)> = Vec::new();
+    let mut reg_entry: Vec<(String, f64)> = Vec::new();
+    let mut reg_sep: Vec<(String, f64)> = Vec::new();
+
+    for row in data {
+        let p = get_str(row, "prefecture");
+        let fy = get_str(row, "fiscal_year").to_string();
+        let entry = get_f64(row, "entry_rate");
+        let sep = get_f64(row, "separation_rate");
+        if fy.is_empty() { continue; }
+        if p == "全国" {
+            if entry > 0.0 { nat_entry.push((fy.clone(), entry)); }
+            if sep > 0.0 { nat_sep.push((fy, sep)); }
+        } else {
+            if entry > 0.0 { reg_entry.push((fy.clone(), entry)); }
+            if sep > 0.0 { reg_sep.push((fy, sep)); }
+        }
+    }
+
+    // 入職率・離職率ともに空ならセクション非表示
+    if nat_entry.is_empty() && nat_sep.is_empty()
+        && reg_entry.is_empty() && reg_sep.is_empty()
+    {
+        return String::new();
+    }
+
+    // Y軸の範囲を自動計算（全系列の最大最小）
+    let all_vals: Vec<f64> = nat_entry.iter().chain(nat_sep.iter())
+        .chain(reg_entry.iter()).chain(reg_sep.iter())
+        .map(|(_, v)| *v).collect();
+    let y_min_raw = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
+    let y_max_raw = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let y_min = ((y_min_raw - 1.0) * 1.0).floor().max(0.0);
+    let y_max = ((y_max_raw + 1.0) * 1.0).ceil();
+    let y_range = y_max - y_min;
+    if y_range <= 0.0 { return String::new(); }
+
+    // SVG描画パラメータ
+    let svg_w: f64 = 800.0;
+    let svg_h: f64 = 300.0;
+    let ml: f64 = 60.0;  // margin_left
+    let mr: f64 = 70.0;  // margin_right
+    let mt: f64 = 20.0;  // margin_top
+    let mb: f64 = 50.0;  // margin_bottom
+    let pw = svg_w - ml - mr; // plot_width
+    let ph = svg_h - mt - mb; // plot_height
+
+    // X軸基準（全系列のfiscal_yearを統合して一意な昇順リストを作成）
+    let x_labels: Vec<String> = {
+        let mut all_fy: Vec<String> = nat_entry.iter()
+            .chain(nat_sep.iter()).chain(reg_entry.iter()).chain(reg_sep.iter())
+            .map(|(fy, _)| fy.clone()).collect();
+        all_fy.sort();
+        all_fy.dedup();
+        all_fy
+    };
+    let total_pts = x_labels.len();
+    if total_pts == 0 { return String::new(); }
+
+    // 座標変換クロージャ
+    let x_pos = |fy: &str| -> Option<f64> {
+        x_labels.iter().position(|f| f == fy)
+            .map(|i| {
+                if total_pts <= 1 { ml + pw / 2.0 }
+                else { ml + (i as f64) / ((total_pts - 1) as f64) * pw }
+            })
+    };
+    let y_pos = |val: f64| -> f64 { mt + ph - ((val - y_min) / y_range) * ph };
+
+    let mut svg = String::with_capacity(10_000);
+    svg.push_str(&format!(
+        r#"<svg viewBox="0 0 {svg_w} {svg_h}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;max-height:320px;">"#
+    ));
+    svg.push_str(&format!(
+        r#"<rect x="0" y="0" width="{svg_w}" height="{svg_h}" fill="transparent"/>"#
+    ));
+
+    // グリッド線（水平方向）
+    let grid_steps = 5;
+    for i in 0..=grid_steps {
+        let val = y_min + y_range * (i as f64) / (grid_steps as f64);
+        let y = y_pos(val);
+        svg.push_str(&format!(
+            r##"<line x1="{ml}" y1="{y:.1}" x2="{}" y2="{y:.1}" stroke="#334155" stroke-width="0.5"/>"##,
+            ml + pw
+        ));
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" text-anchor="end" fill="#94a3b8" font-size="11">{:.1}%</text>"##,
+            ml - 8.0, y + 4.0, val
+        ));
+    }
+
+    // X軸ラベル
+    for (i, fy) in x_labels.iter().enumerate() {
+        let x = if total_pts <= 1 { ml + pw / 2.0 }
+                else { ml + (i as f64) / ((total_pts - 1) as f64) * pw };
+        svg.push_str(&format!(
+            r##"<text x="{x:.1}" y="{}" text-anchor="middle" fill="#94a3b8" font-size="10">{fy}</text>"##,
+            svg_h - 10.0
+        ));
+    }
+
+    // 折れ線描画（系列ごと）
+    // (データ, 線色, 破線パターン, ポイント半径, ラベル名)
+    let reg_entry_label = format!("{}入職率", if pref.is_empty() { "" } else { pref });
+    let reg_sep_label = format!("{}離職率", if pref.is_empty() { "" } else { pref });
+    let series: Vec<(&Vec<(String, f64)>, &str, &str, f64, &str)> = vec![
+        (&nat_entry, "#22c55e", "6,3", 2.5, "全国入職率"),
+        (&nat_sep,   "#ef4444", "6,3", 2.5, "全国離職率"),
+        (&reg_entry, "#22c55e", "",    3.0, &reg_entry_label),
+        (&reg_sep,   "#ef4444", "",    3.0, &reg_sep_label),
+    ];
+
+    for (pts, color, dash, radius, label) in &series {
+        if pts.len() < 2 { continue; }
+        let mut path = String::new();
+        for (_j, (fy, val)) in pts.iter().enumerate() {
+            if let Some(x) = x_pos(fy) {
+                let y = y_pos(*val);
+                if path.is_empty() {
+                    path.push_str(&format!("M{x:.1},{y:.1}"));
+                } else {
+                    path.push_str(&format!(" L{x:.1},{y:.1}"));
+                }
+            }
+        }
+        if !path.is_empty() {
+            let dash_attr = if dash.is_empty() { String::new() }
+                else { format!(r#" stroke-dasharray="{dash}""#) };
+            let width = if dash.is_empty() { "2" } else { "1.5" };
+            svg.push_str(&format!(
+                r##"<path d="{path}" fill="none" stroke="{color}" stroke-width="{width}"{dash_attr}/>"##
+            ));
+        }
+        // データポイント
+        for (fy, val) in pts.iter() {
+            if let Some(x) = x_pos(fy) {
+                let y = y_pos(*val);
+                svg.push_str(&format!(
+                    r##"<circle cx="{x:.1}" cy="{y:.1}" r="{radius}" fill="{color}"><title>{label} {fy}: {val:.1}%</title></circle>"##
+                ));
+            }
+        }
+        // 最新値ラベル
+        if let Some((fy, val)) = pts.last() {
+            if let Some(x) = x_pos(fy) {
+                let y = y_pos(*val);
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{color}" font-size="11" font-weight="bold">{val:.1}%</text>"##,
+                    x + 6.0, y + 4.0
+                ));
+            }
+        }
+    }
+
+    svg.push_str("</svg>");
+
+    // 凡例
+    let pref_label = if pref.is_empty() { "（都道府県を選択）" } else { pref };
+    let legend = format!(
+        r##"<div class="flex flex-wrap justify-center gap-4 mt-2 text-xs">
+            <span class="flex items-center gap-1">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#22c55e" stroke-width="2"/></svg>
+                <span class="text-slate-400">{p} 入職率</span>
+            </span>
+            <span class="flex items-center gap-1">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#ef4444" stroke-width="2"/></svg>
+                <span class="text-slate-400">{p} 離職率</span>
+            </span>
+            <span class="flex items-center gap-1">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+                <span class="text-slate-400">全国 入職率</span>
+            </span>
+            <span class="flex items-center gap-1">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+                <span class="text-slate-400">全国 離職率</span>
+            </span>
+        </div>"##,
+        p = escape_html(pref_label)
+    );
+
+    // stat-card で包む
+    let scope_label = if pref.is_empty() { "全国" } else { pref };
+    let mut html = String::with_capacity(svg.len() + 600);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📉 入職率・離職率の推移（医療・福祉） <span class="text-blue-400">【{}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">医療・福祉産業における入職率と離職率の年度次推移。外部統計データ。</p>"#,
+        escape_html(scope_label)
+    ));
+    html.push_str(&svg);
+    html.push_str(&legend);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 雇用動向調査（厚生労働省） e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 消費支出プロファイル（横棒グラフ、CSSベース）
+fn render_household_spending_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() { return String::new(); }
+
+    // 「消費支出」（総計）を除外し、内訳カテゴリのみ上位10件に絞る
+    let filtered: Vec<&Row> = data.iter()
+        .filter(|r| {
+            let cat = get_str(r, "category");
+            cat != "消費支出" && !cat.is_empty()
+        })
+        .take(10)
+        .collect();
+    if filtered.is_empty() { return String::new(); }
+
+    // 最大値を取得（バー幅の基準）
+    let max_amount = filtered.iter()
+        .map(|r| get_f64(r, "monthly_amount"))
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+
+    // 基準年を取得
+    let ref_year = filtered.first()
+        .map(|r| get_str(r, "reference_year").to_string())
+        .unwrap_or_default();
+
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    let mut html = String::with_capacity(6_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">💰 消費支出プロファイル <span class="text-blue-400">【{}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">二人以上世帯の消費支出内訳。求人票の福利厚生設計の参考に。</p>
+        <div class="space-y-2">"#,
+        escape_html(pref_label)
+    ));
+
+    // 色パレット（上位から順に使用）
+    let colors = [
+        "from-amber-500 to-yellow-400",
+        "from-emerald-500 to-teal-400",
+        "from-blue-500 to-cyan-400",
+        "from-purple-500 to-violet-400",
+        "from-rose-500 to-pink-400",
+        "from-orange-500 to-amber-400",
+        "from-lime-500 to-green-400",
+        "from-sky-500 to-blue-400",
+        "from-fuchsia-500 to-purple-400",
+        "from-indigo-500 to-blue-400",
+    ];
+
+    for (i, row) in filtered.iter().enumerate() {
+        let cat = get_str(row, "category");
+        let amount = get_f64(row, "monthly_amount");
+        let pct_width = (amount / max_amount * 100.0).min(100.0);
+        let amount_str = format_number(amount as i64);
+        let cat_escaped = escape_html(cat);
+        let color = colors.get(i).unwrap_or(&colors[0]);
+
+        html.push_str(&format!(
+            r#"<div class="flex items-center gap-2">
+                <div class="w-28 text-xs text-slate-400 truncate text-right flex-shrink-0" title="{cat_escaped}">{cat_short}</div>
+                <div class="flex-1 bg-navy-800/60 rounded-full h-5 relative overflow-hidden">
+                    <div class="h-full rounded-full bg-gradient-to-r {color}" style="width:{pct_width:.1}%"></div>
+                </div>
+                <div class="w-24 text-xs text-slate-300 text-right flex-shrink-0">{amount_str}円</div>
+            </div>"#,
+            cat_short = truncate_str(cat, 10),
+        ));
+    }
+
+    html.push_str(r#"</div>"#);
+    html.push_str(&format!(
+        r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 家計調査（総務省） e-Stat API{yr} ※外部統計データ</p>"#,
+        yr = if ref_year.is_empty() { String::new() } else { format!("（{}年）", escape_html(&ref_year)) }
+    ));
+    html.push_str("</div>");
     html
 }
 

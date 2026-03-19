@@ -645,6 +645,42 @@ pub(crate) fn fetch_establishments(db: &Db, turso: Option<&TursoDb>, pref: &str)
     query_turso_or_local(turso, db, &sql, &params, "v2_external_establishments")
 }
 
+/// 入職率・離職率データ（都道府県別×産業、Turso優先）
+pub(crate) fn fetch_turnover(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, fiscal_year, industry, entry_rate, separation_rate, net_rate \
+          FROM v2_external_turnover \
+          WHERE prefecture IN ('全国', ?1) AND industry = '医療，福祉' \
+          ORDER BY fiscal_year ASC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT prefecture, fiscal_year, industry, entry_rate, separation_rate, net_rate \
+          FROM v2_external_turnover \
+          WHERE prefecture = '全国' AND industry = '医療，福祉' \
+          ORDER BY fiscal_year ASC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_turnover")
+}
+
+/// 家計消費支出データ（都道府県別×カテゴリ、Turso優先）
+pub(crate) fn fetch_household_spending(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, category, monthly_amount, reference_year \
+          FROM v2_external_household_spending \
+          WHERE prefecture = ?1 \
+          ORDER BY monthly_amount DESC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        // 全国選択時: 全47県の平均を計算
+        ("SELECT '全国' as prefecture, category, \
+          AVG(monthly_amount) as monthly_amount, MAX(reference_year) as reference_year \
+          FROM v2_external_household_spending \
+          GROUP BY category \
+          ORDER BY monthly_amount DESC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_household_spending")
+}
+
 // ======== データ取得: Phase 5（予測・推定） ========
 
 /// Phase 5-1: 充足困難度予測
