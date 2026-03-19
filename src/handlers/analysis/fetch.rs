@@ -586,6 +586,24 @@ pub(crate) fn fetch_daytime_population(db: &Db, turso: Option<&TursoDb>, pref: &
     query_turso_or_local(turso, db, &sql, &params, "v2_external_daytime_population")
 }
 
+/// Phase 4-5: 有効求人倍率の年度次推移（Turso優先）
+/// 全国 + 選択都道府県のデータを取得し、時系列チャートで比較表示する
+pub(crate) fn fetch_job_openings_ratio(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, fiscal_year, ratio_total, ratio_excl_part \
+          FROM v2_external_job_openings_ratio \
+          WHERE prefecture IN ('全国', ?1) \
+          ORDER BY fiscal_year ASC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT prefecture, fiscal_year, ratio_total, ratio_excl_part \
+          FROM v2_external_job_openings_ratio \
+          WHERE prefecture = '全国' \
+          ORDER BY fiscal_year ASC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_job_openings_ratio")
+}
+
 // ======== データ取得: Phase 5（予測・推定） ========
 
 /// Phase 5-1: 充足困難度予測

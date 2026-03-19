@@ -29,6 +29,7 @@ TABLES = [
     "v2_external_daytime_population",
     "v2_external_population_pyramid",
     "v2_external_prefecture_stats",
+    "v2_external_job_openings_ratio",
 ]
 
 # テーブル定義（CREATE TABLE文）
@@ -107,6 +108,15 @@ TABLE_SCHEMAS = {
             price_index REAL,
             fulfillment_rate REAL,
             real_wage_index REAL
+        )
+    """,
+    "v2_external_job_openings_ratio": """
+        CREATE TABLE IF NOT EXISTS v2_external_job_openings_ratio (
+            prefecture TEXT NOT NULL,
+            fiscal_year TEXT NOT NULL,
+            ratio_total REAL,
+            ratio_excl_part REAL,
+            PRIMARY KEY (prefecture, fiscal_year)
         )
     """,
 }

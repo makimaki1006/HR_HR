@@ -148,6 +148,7 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     let pyramid = fetch_population_pyramid(db, turso, pref, muni);
     let migration = fetch_migration_data(db, turso, pref, muni);
     let daytime = fetch_daytime_population(db, turso, pref, muni);
+    let job_openings_ratio = fetch_job_openings_ratio(db, turso, pref);
     let region_benchmark = fetch_region_benchmark(db, pref, muni);
 
     let mut html = String::with_capacity(32_000);
@@ -158,7 +159,8 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     }
 
     let has_external = !minimum_wage.is_empty() || !wage_compliance.is_empty()
-        || !prefecture_stats.is_empty() || !population.is_empty() || !region_benchmark.is_empty();
+        || !prefecture_stats.is_empty() || !population.is_empty() || !region_benchmark.is_empty()
+        || !job_openings_ratio.is_empty();
 
     if has_external {
         html.push_str(r#"<div class="border-t border-slate-700 my-4 pt-4">
@@ -172,6 +174,9 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     }
     if !prefecture_stats.is_empty() {
         html.push_str(&render_prefecture_stats_section(&prefecture_stats, pref));
+    }
+    if !job_openings_ratio.is_empty() {
+        html.push_str(&render_job_openings_ratio_section(&job_openings_ratio, pref));
     }
     if !population.is_empty() {
         html.push_str(&render_population_section(&population, &pyramid));
@@ -1259,6 +1264,197 @@ fn render_wage_compliance_section(data: &[Row]) -> String {
 
     html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 厚生労働省「地域別最低賃金」+ ハローワーク求人データ</p>"#);
     html.push_str("</div></div>");
+    html
+}
+
+/// 有効求人倍率の年度次推移チャート（SVGインライン描画）
+/// 全国（グレー破線）+ 選択都道府県（青実線）を比較表示
+fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
+    // データを全国と都道府県に分離
+    let mut national: Vec<(&str, f64)> = Vec::new();
+    let mut regional: Vec<(&str, f64)> = Vec::new();
+
+    for row in data {
+        let p = get_str(row, "prefecture");
+        let fy = get_str(row, "fiscal_year");
+        let ratio = get_f64(row, "ratio_total");
+        if fy.is_empty() || ratio <= 0.0 { continue; }
+        if p == "全国" {
+            national.push((fy, ratio));
+        } else {
+            regional.push((fy, ratio));
+        }
+    }
+
+    if national.is_empty() && regional.is_empty() {
+        return String::new();
+    }
+
+    // Y軸の範囲を自動計算
+    let all_ratios: Vec<f64> = national.iter().chain(regional.iter()).map(|(_, r)| *r).collect();
+    let y_min_raw = all_ratios.iter().cloned().fold(f64::INFINITY, f64::min);
+    let y_max_raw = all_ratios.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    // 余白を持たせる（0.1刻みで切り捨て/切り上げ）
+    let y_min = ((y_min_raw - 0.1) * 10.0).floor() / 10.0;
+    let y_max = ((y_max_raw + 0.1) * 10.0).ceil() / 10.0;
+    let y_min = if y_min < 0.0 { 0.0 } else { y_min };
+    let y_range = y_max - y_min;
+    if y_range <= 0.0 {
+        return String::new();
+    }
+
+    // SVG描画エリアの定義
+    let svg_w: f64 = 800.0;
+    let svg_h: f64 = 300.0;
+    let margin_left: f64 = 60.0;
+    let margin_right: f64 = 70.0;
+    let margin_top: f64 = 20.0;
+    let margin_bottom: f64 = 50.0;
+    let plot_w = svg_w - margin_left - margin_right;
+    let plot_h = svg_h - margin_top - margin_bottom;
+
+    // 座標変換ヘルパー
+    let x_pos = |i: usize, total: usize| -> f64 {
+        if total <= 1 { return margin_left + plot_w / 2.0; }
+        margin_left + (i as f64) / ((total - 1) as f64) * plot_w
+    };
+    let y_pos = |val: f64| -> f64 {
+        margin_top + plot_h - ((val - y_min) / y_range) * plot_h
+    };
+
+    let mut svg = String::with_capacity(8_000);
+    svg.push_str(&format!(
+        r#"<svg viewBox="0 0 {svg_w} {svg_h}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;max-height:320px;">"#
+    ));
+
+    // 背景
+    svg.push_str(&format!(
+        r#"<rect x="0" y="0" width="{svg_w}" height="{svg_h}" fill="transparent"/>"#
+    ));
+
+    // グリッド線（水平方向）
+    let grid_steps = 5;
+    for i in 0..=grid_steps {
+        let val = y_min + y_range * (i as f64) / (grid_steps as f64);
+        let y = y_pos(val);
+        svg.push_str(&format!(
+            r##"<line x1="{margin_left}" y1="{y:.1}" x2="{}" y2="{y:.1}" stroke="#334155" stroke-width="0.5"/>"##,
+            margin_left + plot_w
+        ));
+        // Y軸ラベル
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" text-anchor="end" fill="#94a3b8" font-size="11">{:.2}</text>"##,
+            margin_left - 8.0, y + 4.0, val
+        ));
+    }
+
+    // X軸ラベル（年度ごと）— 全国データ基準で表示
+    let x_labels = if !national.is_empty() { &national } else { &regional };
+    let total_points = x_labels.len();
+    for (i, (fy, _)) in x_labels.iter().enumerate() {
+        let x = x_pos(i, total_points);
+        svg.push_str(&format!(
+            r##"<text x="{x:.1}" y="{}" text-anchor="middle" fill="#94a3b8" font-size="10">{fy}</text>"##,
+            svg_h - 10.0
+        ));
+    }
+
+    // 全国ライン（グレー破線）
+    if national.len() >= 2 {
+        let mut path = String::new();
+        for (i, (_, ratio)) in national.iter().enumerate() {
+            let x = x_pos(i, national.len());
+            let y = y_pos(*ratio);
+            if i == 0 {
+                path.push_str(&format!("M{x:.1},{y:.1}"));
+            } else {
+                path.push_str(&format!(" L{x:.1},{y:.1}"));
+            }
+        }
+        svg.push_str(&format!(
+            r##"<path d="{path}" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="6,3"/>"##
+        ));
+        // データポイント（丸）
+        for (i, (ym, ratio)) in national.iter().enumerate() {
+            let x = x_pos(i, national.len());
+            let y = y_pos(*ratio);
+            svg.push_str(&format!(
+                r##"<circle cx="{x:.1}" cy="{y:.1}" r="2.5" fill="#9ca3af"><title>全国 {ym}: {ratio:.2}</title></circle>"##
+            ));
+        }
+        // 最新値ラベル
+        if let Some((ym, ratio)) = national.last() {
+            let x = x_pos(national.len() - 1, national.len());
+            let y = y_pos(*ratio);
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="#9ca3af" font-size="11" font-weight="bold">{ratio:.2}</text>"##,
+                x + 6.0, y + 4.0
+            ));
+        }
+    }
+
+    // 都道府県ライン（青実線）
+    if regional.len() >= 2 {
+        let mut path = String::new();
+        for (i, (_, ratio)) in regional.iter().enumerate() {
+            let x = x_pos(i, regional.len());
+            let y = y_pos(*ratio);
+            if i == 0 {
+                path.push_str(&format!("M{x:.1},{y:.1}"));
+            } else {
+                path.push_str(&format!(" L{x:.1},{y:.1}"));
+            }
+        }
+        svg.push_str(&format!(
+            r##"<path d="{path}" fill="none" stroke="#3b82f6" stroke-width="2"/>"##
+        ));
+        // データポイント（丸）
+        for (i, (ym, ratio)) in regional.iter().enumerate() {
+            let x = x_pos(i, regional.len());
+            let y = y_pos(*ratio);
+            svg.push_str(&format!(
+                r##"<circle cx="{x:.1}" cy="{y:.1}" r="3" fill="#3b82f6"><title>{} {ym}: {ratio:.2}</title></circle>"##,
+                escape_html(pref)
+            ));
+        }
+        // 最新値ラベル
+        if let Some((ym, ratio)) = regional.last() {
+            let x = x_pos(regional.len() - 1, regional.len());
+            let y = y_pos(*ratio);
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="#3b82f6" font-size="11" font-weight="bold">{ratio:.2}</text>"##,
+                x + 6.0, y - 6.0
+            ));
+        }
+    }
+
+    svg.push_str("</svg>");
+
+    // 凡例
+    let pref_label = if pref.is_empty() { "（都道府県を選択してください）" } else { pref };
+    let legend = format!(
+        r##"<div class="flex justify-center gap-6 mt-2 text-xs">
+            <span class="flex items-center gap-1">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#9ca3af" stroke-width="1.5" stroke-dasharray="4,2"/></svg>
+                <span class="text-slate-400">全国</span>
+            </span>
+            <span class="flex items-center gap-1">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#3b82f6" stroke-width="2"/></svg>
+                <span class="text-slate-400">{}</span>
+            </span>
+        </div>"##,
+        escape_html(pref_label)
+    );
+
+    // stat-card で包む
+    let mut html = String::with_capacity(svg.len() + 500);
+    html.push_str(r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📈 有効求人倍率推移</h3>
+        <p class="text-xs text-slate-500 mb-4">都道府県別の有効求人倍率 年度次推移（全国比較）。出典: 社会・人口統計体系（総務省）</p>"#);
+    html.push_str(&svg);
+    html.push_str(&legend);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 社会・人口統計体系（総務省） e-Stat API</p>"#);
+    html.push_str("</div>");
     html
 }
 
