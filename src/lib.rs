@@ -56,6 +56,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/analysis/subtab/{id}", get(handlers::analysis::analysis_subtab))
         .route("/tab/diagnostic", get(handlers::diagnostic::tab_diagnostic))
         .route("/api/diagnostic/evaluate", get(handlers::diagnostic::evaluate_diagnostic))
+        .route("/api/diagnostic/reset", get(handlers::diagnostic::reset_diagnostic))
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
         .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
         .route("/api/jobmap/detail/{id}", get(handlers::jobmap::jobmap_detail))

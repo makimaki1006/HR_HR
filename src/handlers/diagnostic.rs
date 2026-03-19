@@ -62,8 +62,12 @@ pub async fn tab_diagnostic(
                 <div><label class=\"text-xs text-slate-400 block mb-1\">雇用形態</label>\
                     <select name=\"emp_type\" class=\"w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm\">\
                         <option value=\"正社員\">正社員</option><option value=\"パート\">パート</option></select></div>\
-                <div class=\"col-span-2\"><button type=\"submit\" \
-                    class=\"w-full bg-blue-600 hover:bg-blue-500 text-white rounded py-2 text-sm font-medium\">診断する</button></div>\
+                <div class=\"col-span-2 flex gap-2\">\
+                    <button type=\"submit\" \
+                        class=\"flex-1 bg-blue-600 hover:bg-blue-500 text-white rounded py-2 text-sm font-medium\">診断する</button>\
+                    <button type=\"button\" hx-get=\"/api/diagnostic/reset\" hx-target=\"#diagnostic-result\" hx-swap=\"innerHTML\" \
+                        onclick=\"this.closest('form').reset();\" \
+                        class=\"px-4 bg-slate-600 hover:bg-slate-500 text-white rounded py-2 text-sm\">リセット</button></div>\
             </form>\
             <div id=\"diag-loading\" class=\"htmx-indicator text-center text-slate-400 py-4\">\
                 <span class=\"text-sm\">診断中...</span></div>\
@@ -72,6 +76,11 @@ pub async fn tab_diagnostic(
     </div>");
 
     Html(html)
+}
+
+/// API: リセット（空HTMLを返す）
+pub async fn reset_diagnostic() -> Html<String> {
+    Html(String::new())
 }
 
 /// API: 診断結果を返す（拡張版）
