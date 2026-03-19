@@ -73,6 +73,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),
         )
+        .route("/tab/guide", get(handlers::guide::tab_guide))
         .route(
             "/api/geojson/{filename}",
             get(handlers::api::get_geojson),
@@ -195,6 +196,12 @@ async fn login_submit(
         .or(socket_ip)
         .unwrap_or_else(|| "unknown".to_string());
 
+    let req_ua = req.headers()
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
     let Form(form) = match axum::extract::Form::<LoginForm>::from_request(req, &()).await {
         Ok(f) => f,
         Err(_) => {
@@ -236,14 +243,24 @@ async fn login_submit(
         &state.config.auth_password_hash,
         &state.config.external_passwords,
     );
-    tracing::info!("Login result: ok={}", pw_ok);
     if !pw_ok {
+        tracing::warn!(
+            "LOGIN_FAILED: email={}, ip={}, reason={}",
+            form.email, client_ip,
+            expired_msg.as_deref().unwrap_or("wrong_password"),
+        );
         state.rate_limiter.record_failure(&client_ip);
         let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
         return render_login(&state, Some(msg)).into_response();
     }
 
     state.rate_limiter.record_success(&client_ip);
+    tracing::info!(
+        "LOGIN_SUCCESS: email={}, ip={}, user_agent={}",
+        form.email,
+        client_ip,
+        req_ua,
+    );
     let _ = session.insert(SESSION_USER_KEY, &form.email).await;
     // デフォルト産業: 空（全産業）
     let _ = session.insert(SESSION_JOB_TYPE_KEY, "").await;

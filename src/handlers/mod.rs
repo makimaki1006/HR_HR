@@ -8,3 +8,4 @@ pub mod competitive;
 pub mod analysis;
 pub mod diagnostic;
 pub mod api;
+pub mod guide;
