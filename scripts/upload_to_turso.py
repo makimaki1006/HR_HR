@@ -30,6 +30,8 @@ TABLES = [
     "v2_external_population_pyramid",
     "v2_external_prefecture_stats",
     "v2_external_job_openings_ratio",
+    "v2_external_labor_stats",
+    "v2_external_establishments",
 ]
 
 # テーブル定義（CREATE TABLE文）
@@ -117,6 +119,40 @@ TABLE_SCHEMAS = {
             ratio_total REAL,
             ratio_excl_part REAL,
             PRIMARY KEY (prefecture, fiscal_year)
+        )
+    """,
+    "v2_external_labor_stats": """
+        CREATE TABLE IF NOT EXISTS v2_external_labor_stats (
+            prefecture TEXT NOT NULL,
+            fiscal_year TEXT NOT NULL,
+            unemployment_rate REAL,
+            unemployment_rate_male REAL,
+            unemployment_rate_female REAL,
+            employment_rate REAL,
+            employee_rate REAL,
+            separation_rate REAL,
+            turnover_rate REAL,
+            job_changer_rate REAL,
+            placement_rate REAL,
+            fulfillment_rate REAL,
+            elderly_employment_rate REAL,
+            working_hours_male REAL,
+            working_hours_female REAL,
+            monthly_salary_male REAL,
+            monthly_salary_female REAL,
+            part_time_wage_female REAL,
+            part_time_wage_male REAL,
+            PRIMARY KEY (prefecture, fiscal_year)
+        )
+    """,
+    "v2_external_establishments": """
+        CREATE TABLE IF NOT EXISTS v2_external_establishments (
+            prefecture TEXT NOT NULL,
+            industry TEXT NOT NULL DEFAULT '全産業',
+            establishment_count INTEGER,
+            employee_count INTEGER,
+            reference_year TEXT,
+            PRIMARY KEY (prefecture, industry)
         )
     """,
 }

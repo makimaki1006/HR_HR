@@ -604,6 +604,47 @@ pub(crate) fn fetch_job_openings_ratio(db: &Db, turso: Option<&TursoDb>, pref: &
     query_turso_or_local(turso, db, &sql, &params, "v2_external_job_openings_ratio")
 }
 
+/// 労働市場指標の年度次推移（Turso優先）
+pub(crate) fn fetch_labor_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, fiscal_year, unemployment_rate, \
+          separation_rate, monthly_salary_male, monthly_salary_female, \
+          working_hours_male, working_hours_female, \
+          part_time_wage_male, part_time_wage_female \
+          FROM v2_external_labor_stats \
+          WHERE prefecture IN ('全国', ?1) \
+          ORDER BY fiscal_year ASC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT prefecture, fiscal_year, unemployment_rate, \
+          separation_rate, monthly_salary_male, monthly_salary_female, \
+          working_hours_male, working_hours_female, \
+          part_time_wage_male, part_time_wage_female \
+          FROM v2_external_labor_stats \
+          WHERE prefecture = '全国' \
+          ORDER BY fiscal_year ASC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_labor_stats")
+}
+
+/// 事業所数データ（都道府県別×産業分類、Turso優先）
+pub(crate) fn fetch_establishments(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, industry, establishment_count, reference_year \
+          FROM v2_external_establishments \
+          WHERE prefecture = ?1 \
+          ORDER BY establishment_count DESC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT '全国' as prefecture, industry, SUM(establishment_count) as establishment_count, \
+          MAX(reference_year) as reference_year \
+          FROM v2_external_establishments \
+          GROUP BY industry \
+          ORDER BY establishment_count DESC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_establishments")
+}
+
 // ======== データ取得: Phase 5（予測・推定） ========
 
 /// Phase 5-1: 充足困難度予測
