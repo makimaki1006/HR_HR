@@ -681,6 +681,79 @@ pub(crate) fn fetch_household_spending(db: &Db, turso: Option<&TursoDb>, pref: &
     query_turso_or_local(turso, db, &sql, &params, "v2_external_household_spending")
 }
 
+// ======== データ取得: Phase 4-6（事業所動態・気象・介護需要） ========
+
+/// 事業所動態データ（開業率・廃業率、Turso優先）
+pub(crate) fn fetch_business_dynamics(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, fiscal_year, opening_rate, closure_rate, \
+          new_establishments, closed_establishments, net_change \
+          FROM v2_external_business_dynamics \
+          WHERE prefecture = ?1 \
+          ORDER BY fiscal_year ASC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        // 全国: 全都道府県の合計から算出
+        ("SELECT '全国' as prefecture, fiscal_year, \
+          AVG(opening_rate) as opening_rate, AVG(closure_rate) as closure_rate, \
+          SUM(new_establishments) as new_establishments, \
+          SUM(closed_establishments) as closed_establishments, \
+          SUM(net_change) as net_change \
+          FROM v2_external_business_dynamics \
+          GROUP BY fiscal_year ORDER BY fiscal_year ASC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_business_dynamics")
+}
+
+/// 気象データ（都道府県別、Turso優先）
+pub(crate) fn fetch_climate(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, fiscal_year, avg_temperature, max_temperature, \
+          min_temperature, snow_days, sunshine_hours, precipitation \
+          FROM v2_external_climate \
+          WHERE prefecture = ?1 \
+          ORDER BY fiscal_year ASC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT '全国' as prefecture, fiscal_year, \
+          AVG(avg_temperature) as avg_temperature, \
+          MAX(max_temperature) as max_temperature, \
+          MIN(min_temperature) as min_temperature, \
+          AVG(snow_days) as snow_days, \
+          AVG(sunshine_hours) as sunshine_hours, \
+          AVG(precipitation) as precipitation \
+          FROM v2_external_climate \
+          GROUP BY fiscal_year ORDER BY fiscal_year ASC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_climate")
+}
+
+/// 介護需要データ（給付件数・施設数等、Turso優先）
+pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        ("SELECT prefecture, fiscal_year, insurance_benefit_cases, \
+          nursing_home_count, health_facility_count, \
+          home_care_offices, day_service_offices, \
+          pop_65_over, pop_75_over, pop_65_over_rate \
+          FROM v2_external_care_demand \
+          WHERE prefecture = ?1 \
+          ORDER BY fiscal_year ASC".to_string(),
+         vec![pref.to_string()])
+    } else {
+        ("SELECT '全国' as prefecture, fiscal_year, \
+          SUM(insurance_benefit_cases) as insurance_benefit_cases, \
+          SUM(nursing_home_count) as nursing_home_count, \
+          SUM(health_facility_count) as health_facility_count, \
+          SUM(home_care_offices) as home_care_offices, \
+          SUM(day_service_offices) as day_service_offices, \
+          SUM(pop_65_over) as pop_65_over, SUM(pop_75_over) as pop_75_over, \
+          AVG(pop_65_over_rate) as pop_65_over_rate \
+          FROM v2_external_care_demand \
+          GROUP BY fiscal_year ORDER BY fiscal_year ASC".to_string(), vec![])
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_care_demand")
+}
+
 // ======== データ取得: Phase 5（予測・推定） ========
 
 /// Phase 5-1: 充足困難度予測

@@ -153,6 +153,9 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     let establishments = fetch_establishments(db, turso, pref);
     let turnover = fetch_turnover(db, turso, pref);
     let household_spending = fetch_household_spending(db, turso, pref);
+    let business_dynamics = fetch_business_dynamics(db, turso, pref);
+    let climate = fetch_climate(db, turso, pref);
+    let care_demand = fetch_care_demand(db, turso, pref);
     let region_benchmark = fetch_region_benchmark(db, pref, muni);
 
     let mut html = String::with_capacity(40_000);
@@ -165,7 +168,8 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     let has_external = !minimum_wage.is_empty() || !wage_compliance.is_empty()
         || !prefecture_stats.is_empty() || !population.is_empty() || !region_benchmark.is_empty()
         || !job_openings_ratio.is_empty() || !labor_stats.is_empty() || !establishments.is_empty()
-        || !turnover.is_empty() || !household_spending.is_empty();
+        || !turnover.is_empty() || !household_spending.is_empty()
+        || !business_dynamics.is_empty() || !climate.is_empty() || !care_demand.is_empty();
 
     if has_external {
         html.push_str(r#"<div class="border-t border-slate-700 my-4 pt-4">
@@ -200,6 +204,15 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     }
     if !household_spending.is_empty() {
         html.push_str(&render_household_spending_section(&household_spending, pref));
+    }
+    if !business_dynamics.is_empty() {
+        html.push_str(&render_business_dynamics_section(&business_dynamics, pref));
+    }
+    if !climate.is_empty() {
+        html.push_str(&render_climate_section(&climate, pref));
+    }
+    if !care_demand.is_empty() {
+        html.push_str(&render_care_demand_section(&care_demand, pref));
     }
     if !region_benchmark.is_empty() {
         html.push_str(&render_region_benchmark_section(&region_benchmark));
@@ -2211,6 +2224,228 @@ fn render_household_spending_section(data: &[Row], pref: &str) -> String {
         r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 家計調査（総務省） e-Stat API{yr} ※外部統計データ</p>"#,
         yr = if ref_year.is_empty() { String::new() } else { format!("（{}年）", escape_html(&ref_year)) }
     ));
+    html.push_str("</div>");
+    html
+}
+
+/// 事業所動態セクション（開業率 vs 廃業率の横棒グラフ）
+fn render_business_dynamics_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() { return String::new(); }
+
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // バーの最大幅を決定するため、開業率・廃業率の最大値を取得
+    let max_rate = data.iter()
+        .flat_map(|r| vec![get_f64(r, "opening_rate"), get_f64(r, "closure_rate")])
+        .fold(0.0_f64, f64::max)
+        .max(0.1);
+
+    let mut html = String::with_capacity(6_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🏗️ 事業所動態（開業率・廃業率） <span class="text-blue-400">【{}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">事業所の開業率と廃業率の推移。地域の産業活力を示す指標。</p>
+        <div class="space-y-3">"#,
+        escape_html(pref_label)
+    ));
+
+    for row in data {
+        let fy = get_str(row, "fiscal_year");
+        let opening = get_f64(row, "opening_rate");
+        let closure = get_f64(row, "closure_rate");
+        let net = get_i64(row, "net_change");
+        let open_w = (opening / max_rate * 100.0).min(100.0);
+        let close_w = (closure / max_rate * 100.0).min(100.0);
+        let net_color = if net >= 0 { "#22c55e" } else { "#ef4444" };
+        let net_sign = if net >= 0 { "+" } else { "" };
+
+        html.push_str(&format!(
+            r#"<div class="flex items-center gap-2">
+                <div class="w-16 text-xs text-slate-400 text-right flex-shrink-0">{fy}</div>
+                <div class="flex-1 space-y-1">
+                    <div class="flex items-center gap-1">
+                        <div class="w-10 text-xs text-slate-500 text-right">開業</div>
+                        <div class="flex-1 bg-navy-800/60 rounded-full h-4 relative overflow-hidden">
+                            <div class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400" style="width:{open_w:.1}%"></div>
+                        </div>
+                        <div class="w-14 text-xs text-emerald-400 text-right">{opening:.2}%</div>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <div class="w-10 text-xs text-slate-500 text-right">廃業</div>
+                        <div class="flex-1 bg-navy-800/60 rounded-full h-4 relative overflow-hidden">
+                            <div class="h-full rounded-full bg-gradient-to-r from-rose-500 to-red-400" style="width:{close_w:.1}%"></div>
+                        </div>
+                        <div class="w-14 text-xs text-rose-400 text-right">{closure:.2}%</div>
+                    </div>
+                </div>
+                <div class="w-20 text-xs text-right flex-shrink-0" style="color:{net_color}">{net_sign}{net_val}</div>
+            </div>"#,
+            fy = escape_html(fy),
+            net_val = format_number(net),
+        ));
+    }
+
+    html.push_str(r#"</div>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 経済センサス（総務省） e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 気象特性セクション（最新年度のサマリーカード、2x3グリッド）
+fn render_climate_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() { return String::new(); }
+
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // 最新年度のデータ（最後の行）を使用
+    let latest = data.last().unwrap();
+    let fy = get_str(latest, "fiscal_year");
+
+    let avg_temp = get_f64(latest, "avg_temperature");
+    let max_temp = get_f64(latest, "max_temperature");
+    let min_temp = get_f64(latest, "min_temperature");
+    let snow = get_f64(latest, "snow_days");
+    let sun = get_f64(latest, "sunshine_hours");
+    let rain = get_f64(latest, "precipitation");
+
+    let mut html = String::with_capacity(4_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🌡️ 気象特性 <span class="text-blue-400">【{}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">主要気象指標のサマリー（{}年度）。通勤・勤務環境の参考に。</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">"#,
+        escape_html(pref_label),
+        escape_html(fy),
+    ));
+
+    // 6つの指標カード
+    let indicators: [(&str, &str, String, &str); 6] = [
+        ("年平均気温", "🌡️", format!("{:.1}℃", avg_temp), "#3b82f6"),
+        ("最高気温", "☀️", format!("{:.1}℃", max_temp), "#ef4444"),
+        ("最低気温", "❄️", format!("{:.1}℃", min_temp), "#06b6d4"),
+        ("降雪日数", "🌨️", format!("{:.0}日", snow), "#94a3b8"),
+        ("日照時間", "☀️", format!("{:.0}時間", sun), "#f59e0b"),
+        ("年間降水量", "🌧️", format!("{:.0}mm", rain), "#6366f1"),
+    ];
+
+    for (label, icon, value, color) in &indicators {
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-3 text-center">
+                <div class="text-lg mb-1">{icon}</div>
+                <div class="text-xs text-slate-500 mb-1">{label}</div>
+                <div class="text-lg font-bold" style="color:{color}">{value}</div>
+            </div>"#,
+        ));
+    }
+
+    html.push_str(r#"</div>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 社会・人口統計体系（総務省） e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 介護需要推移セクション（SVG折れ線グラフ: 介護給付件数）
+fn render_care_demand_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() { return String::new(); }
+
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // 介護保険給付件数を抽出
+    let points: Vec<(String, f64)> = data.iter()
+        .map(|r| {
+            let fy = get_str(r, "fiscal_year").to_string();
+            let cases = get_f64(r, "insurance_benefit_cases");
+            (fy, cases)
+        })
+        .filter(|(_, v)| *v > 0.0)
+        .collect();
+
+    if points.is_empty() { return String::new(); }
+
+    let min_val = points.iter().map(|(_, v)| *v).fold(f64::MAX, f64::min);
+    let max_val = points.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max);
+    let range = (max_val - min_val).max(1.0);
+
+    // SVGパラメータ
+    let svg_w: f64 = 800.0;
+    let svg_h: f64 = 300.0;
+    let pad_l: f64 = 80.0;
+    let pad_r: f64 = 20.0;
+    let pad_t: f64 = 20.0;
+    let pad_b: f64 = 40.0;
+    let chart_w = svg_w - pad_l - pad_r;
+    let chart_h = svg_h - pad_t - pad_b;
+    let n = points.len();
+
+    // 折れ線のパスを生成
+    let mut path = String::new();
+    let mut circles = String::new();
+    let mut x_labels = String::new();
+
+    for (i, (fy, val)) in points.iter().enumerate() {
+        let x = pad_l + if n > 1 { chart_w * (i as f64) / ((n - 1) as f64) } else { chart_w / 2.0 };
+        let y = pad_t + chart_h - chart_h * (val - min_val) / range;
+
+        if i == 0 {
+            path.push_str(&format!("M{:.1},{:.1}", x, y));
+        } else {
+            path.push_str(&format!(" L{:.1},{:.1}", x, y));
+        }
+
+        // データ点の円
+        circles.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"4\" fill=\"#3b82f6\" stroke=\"#1e3a5f\" stroke-width=\"1.5\"/>",
+            x, y
+        ));
+
+        // X軸ラベル（年度）
+        x_labels.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{}\" text-anchor=\"middle\" fill=\"#94a3b8\" font-size=\"11\">{}</text>",
+            x, svg_h - 5.0, escape_html(fy)
+        ));
+    }
+
+    // Y軸ラベル（5本の目盛線）
+    let mut y_guides = String::new();
+    for i in 0..5 {
+        let frac = i as f64 / 4.0;
+        let val = min_val + range * frac;
+        let y = pad_t + chart_h - chart_h * frac;
+        // 千件単位で表示
+        let label = if val >= 1_000_000.0 {
+            format!("{:.0}万", val / 10_000.0)
+        } else if val >= 1_000.0 {
+            format!("{:.0}千", val / 1_000.0)
+        } else {
+            format!("{:.0}", val)
+        };
+        y_guides.push_str(&format!(
+            "<line x1=\"{}\" y1=\"{:.1}\" x2=\"{}\" y2=\"{:.1}\" stroke=\"#334155\" stroke-width=\"0.5\" stroke-dasharray=\"4\"/>\
+            <text x=\"{}\" y=\"{:.1}\" text-anchor=\"end\" fill=\"#94a3b8\" font-size=\"11\" dominant-baseline=\"middle\">{}</text>",
+            pad_l, y, svg_w - pad_r, y,
+            pad_l - 8.0, y, label
+        ));
+    }
+
+    let mut html = String::with_capacity(6_000);
+    html.push_str(&format!(
+        "<div class=\"stat-card\">\
+        <h3 class=\"text-sm text-slate-400 mb-1\">🏥 介護需要の推移 <span class=\"text-blue-400\">【{}】</span></h3>\
+        <p class=\"text-xs text-slate-500 mb-4\">介護保険給付件数の推移。求人需要の先行指標。</p>\
+        <svg viewBox=\"0 0 {} {}\" class=\"w-full\" style=\"max-height:300px\">\
+        {}\
+        <path d=\"{}\" fill=\"none\" stroke=\"#3b82f6\" stroke-width=\"2.5\" stroke-linejoin=\"round\"/>\
+        {}\
+        {}\
+        </svg>",
+        escape_html(pref_label),
+        svg_w, svg_h,
+        y_guides,
+        path,
+        circles,
+        x_labels,
+    ));
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 社会・人口統計体系（総務省） e-Stat API ※外部統計データ</p>"#);
     html.push_str("</div>");
     html
 }

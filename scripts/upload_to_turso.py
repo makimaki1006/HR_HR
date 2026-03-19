@@ -34,6 +34,9 @@ TABLES = [
     "v2_external_establishments",
     "v2_external_turnover",
     "v2_external_household_spending",
+    "v2_external_business_dynamics",
+    "v2_external_climate",
+    "v2_external_care_demand",
 ]
 
 # テーブル定義（CREATE TABLE文）
@@ -178,6 +181,57 @@ TABLE_SCHEMAS = {
             monthly_amount INTEGER,
             reference_year TEXT,
             PRIMARY KEY (prefecture, category)
+        )
+    """,
+    "v2_external_business_dynamics": """
+        CREATE TABLE IF NOT EXISTS v2_external_business_dynamics (
+            prefecture TEXT NOT NULL,
+            fiscal_year TEXT NOT NULL,
+            total_establishments INTEGER,
+            new_establishments INTEGER,
+            closed_establishments INTEGER,
+            survived_establishments INTEGER,
+            net_change INTEGER,
+            opening_rate REAL,
+            closure_rate REAL,
+            PRIMARY KEY (prefecture, fiscal_year)
+        )
+    """,
+    "v2_external_climate": """
+        CREATE TABLE IF NOT EXISTS v2_external_climate (
+            prefecture TEXT NOT NULL,
+            fiscal_year TEXT NOT NULL,
+            avg_temperature REAL,
+            max_temperature REAL,
+            min_temperature REAL,
+            rainy_days INTEGER,
+            snow_days INTEGER,
+            sunshine_hours REAL,
+            precipitation REAL,
+            PRIMARY KEY (prefecture, fiscal_year)
+        )
+    """,
+    "v2_external_care_demand": """
+        CREATE TABLE IF NOT EXISTS v2_external_care_demand (
+            prefecture TEXT NOT NULL,
+            fiscal_year TEXT NOT NULL,
+            care_support_offices REAL, care_support_users REAL,
+            day_service_offices REAL, day_service_users REAL,
+            health_facility_capacity REAL, health_facility_count REAL,
+            health_facility_residents REAL,
+            home_care_offices REAL, home_care_users REAL,
+            home_helper_count REAL,
+            insurance_benefit_cases REAL,
+            insurance_benefit_cases_facility REAL,
+            insurance_benefit_cases_home REAL,
+            insurance_benefit_cost REAL,
+            insurance_benefit_cost_facility REAL,
+            insurance_benefit_cost_home REAL,
+            late_elderly_insured REAL, late_elderly_medical_cost REAL,
+            nursing_home_capacity REAL, nursing_home_count REAL,
+            nursing_home_residents REAL,
+            pop_65_over REAL, pop_65_over_rate REAL, pop_75_over REAL,
+            PRIMARY KEY (prefecture, fiscal_year)
         )
     """,
 }
