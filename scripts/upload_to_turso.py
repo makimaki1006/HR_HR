@@ -37,6 +37,12 @@ TABLES = [
     "v2_external_business_dynamics",
     "v2_external_climate",
     "v2_external_care_demand",
+    "ts_turso_counts",
+    "ts_turso_vacancy",
+    "ts_turso_salary",
+    "ts_turso_fulfillment",
+    "ts_agg_workstyle",
+    "ts_agg_tracking",
 ]
 
 # テーブル定義（CREATE TABLE文）
@@ -232,6 +238,54 @@ TABLE_SCHEMAS = {
             nursing_home_residents REAL,
             pop_65_over REAL, pop_65_over_rate REAL, pop_75_over REAL,
             PRIMARY KEY (prefecture, fiscal_year)
+        )
+    """,
+    "ts_turso_counts": """
+        CREATE TABLE IF NOT EXISTS ts_turso_counts (
+            snapshot_id TEXT, prefecture TEXT,
+            industry_major_code TEXT, emp_group TEXT,
+            posting_count INTEGER, facility_count INTEGER, recruit_total INTEGER
+        )
+    """,
+    "ts_turso_vacancy": """
+        CREATE TABLE IF NOT EXISTS ts_turso_vacancy (
+            snapshot_id TEXT, prefecture TEXT,
+            industry_major_code TEXT, emp_group TEXT,
+            total_count INTEGER, vacancy_count INTEGER,
+            growth_count INTEGER, new_facility_count INTEGER,
+            vacancy_rate REAL, growth_rate REAL
+        )
+    """,
+    "ts_turso_salary": """
+        CREATE TABLE IF NOT EXISTS ts_turso_salary (
+            snapshot_id TEXT, prefecture TEXT,
+            industry_major_code TEXT, emp_group TEXT,
+            count INTEGER, mean_min REAL, mean_max REAL,
+            median_min REAL, min_val INTEGER, max_val INTEGER
+        )
+    """,
+    "ts_turso_fulfillment": """
+        CREATE TABLE IF NOT EXISTS ts_turso_fulfillment (
+            snapshot_id TEXT, prefecture TEXT,
+            industry_major_code TEXT, emp_group TEXT,
+            count INTEGER, avg_listing_days REAL,
+            median_listing_days REAL, long_term_count INTEGER,
+            very_long_count INTEGER
+        )
+    """,
+    "ts_agg_workstyle": """
+        CREATE TABLE IF NOT EXISTS ts_agg_workstyle (
+            prefecture TEXT, emp_group TEXT,
+            count INTEGER, avg_annual_holidays REAL,
+            avg_overtime REAL, snapshot_id TEXT
+        )
+    """,
+    "ts_agg_tracking": """
+        CREATE TABLE IF NOT EXISTS ts_agg_tracking (
+            snapshot_id TEXT, prefecture TEXT,
+            industry_major_code TEXT, emp_group TEXT,
+            new_count INTEGER, continue_count INTEGER,
+            end_count INTEGER, churn_rate REAL
         )
     """,
 }
