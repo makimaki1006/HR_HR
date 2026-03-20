@@ -22,6 +22,7 @@ impl Default for CompStats {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct PostingRow {
     pub(crate) facility_name: String,
     pub(crate) job_type: String,

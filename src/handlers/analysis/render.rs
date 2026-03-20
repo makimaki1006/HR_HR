@@ -1413,7 +1413,7 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
             ));
         }
         // 最新値ラベル
-        if let Some((ym, ratio)) = national.last() {
+        if let Some((_ym, ratio)) = national.last() {
             let x = x_pos(national.len() - 1, national.len());
             let y = y_pos(*ratio);
             svg.push_str(&format!(
@@ -1448,7 +1448,7 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
             ));
         }
         // 最新値ラベル
-        if let Some((ym, ratio)) = regional.last() {
+        if let Some((_ym, ratio)) = regional.last() {
             let x = x_pos(regional.len() - 1, regional.len());
             let y = y_pos(*ratio);
             svg.push_str(&format!(

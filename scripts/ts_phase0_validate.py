@@ -6,7 +6,7 @@ snapshot_metadata.json を生成する。
 
 使い方:
     python ts_phase0_validate.py
-    python ts_phase0_validate.py --data-dir "C:\path\to\csvs"
+    python ts_phase0_validate.py --data-dir "C:/path/to/csvs"
 """
 
 import argparse

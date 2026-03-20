@@ -49,7 +49,7 @@ impl TursoDb {
 
     /// SQL実行 → Vec<HashMap<String, Value>>
     /// LocalDb::query() と同じシグネチャ
-    pub fn query(
+    pub(crate) fn query(
         &self,
         sql: &str,
         params: &[&dyn ToSqlTurso],
@@ -95,7 +95,8 @@ impl TursoDb {
     }
 
     /// スカラー値を取得（i64用の簡易版）
-    pub fn query_scalar_i64(
+    #[allow(dead_code)]
+    pub(crate) fn query_scalar_i64(
         &self,
         sql: &str,
         params: &[&dyn ToSqlTurso],
@@ -184,7 +185,8 @@ impl TursoDb {
 }
 
 /// Turso HTTP APIパラメータ型
-enum TursoArg {
+pub(crate) enum TursoArg {
+    #[allow(dead_code)]
     Null,
     Integer(i64),
     Real(f64),
@@ -192,7 +194,7 @@ enum TursoArg {
 }
 
 /// LocalDb の rusqlite::types::ToSql に相当する trait
-pub trait ToSqlTurso {
+pub(crate) trait ToSqlTurso {
     fn to_turso_arg(&self) -> TursoArg;
 }
 
