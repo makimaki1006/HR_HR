@@ -160,6 +160,11 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
 
     let mut html = String::with_capacity(40_000);
     html.push_str(r#"<div class="space-y-6">"#);
+    html.push_str(&format!(
+        r#"<div class="flex items-center gap-3 text-xs text-slate-500 mb-2">関連: {} {}</div>"#,
+        cross_nav("/tab/trend", "時系列トレンド"),
+        cross_nav("/tab/overview", "地域概況"),
+    ));
 
     if !anomaly.is_empty() {
         html.push_str(&render_anomaly_section(&anomaly));

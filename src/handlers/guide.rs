@@ -97,6 +97,7 @@ fn build_section_about() -> String {
           <li>どんな企業が求人を出しているか？</li>
           <li>求人条件の相場はどのくらいか？</li>
           <li>自社の求人条件は市場でどの位置にあるか？</li>
+          <li>求人市場はどう変化しているか？（📈 トレンドタブで約20ヶ月の時系列推移を確認）</li>
         </ul>
       </div>
     </details>
@@ -139,7 +140,7 @@ fn build_section_basic() -> String {
   </div>"#.to_string()
 }
 
-/// セクション: タブ別ガイド（8タブ）
+/// セクション: タブ別ガイド（9タブ）
 fn build_section_tabs() -> String {
     r#"<div class="stat-card">
     <details>
@@ -437,6 +438,7 @@ fn build_section_usecases() -> String {
           <ol class="list-decimal list-inside text-slate-400 text-sm space-y-1">
             <li><strong class="text-white">📊 地域概況</strong> で正社員比率・平均給与を全国と比較</li>
             <li><strong class="text-white">📈 市場分析 → 異常値・外部</strong> で：有効求人倍率推移、事業所動態、人口ピラミッド、介護需要推移を確認</li>
+            <li><strong class="text-white">📈 トレンド</strong> で求人数・給与水準・雇用形態構成の時系列変化を確認 → 「給与は上昇傾向か」「正社員比率は変化しているか」を把握</li>
             <li><strong class="text-white">🩺 市場診断</strong> で地域の平均的な求人条件を入力し、市場での位置を確認</li>
           </ol>
         </div>
@@ -523,6 +525,16 @@ fn build_section_faq() -> String {
         <div class="bg-slate-800/50 rounded p-3">
           <p class="text-white font-semibold">Q: データは最新ですか？</p>
           <p class="text-slate-400 mt-1">A: HW求人データはスクレイピング実行時点のスナップショットです。最終更新日はログイン後の画面に表示されます。外部統計データの各出典の年次はセクション末尾の出典に記載されています。</p>
+        </div>
+
+        <div class="bg-slate-800/50 rounded p-3">
+          <p class="text-white font-semibold">Q: トレンドタブは市区町村単位で見られますか？</p>
+          <p class="text-slate-400 mt-1">A: いいえ。トレンド分析は都道府県単位のみ対応です。時系列データの集計構造上、市区町村レベルでの集計は行われていません。都道府県を選択してご利用ください。</p>
+        </div>
+
+        <div class="bg-slate-800/50 rounded p-3">
+          <p class="text-white font-semibold">Q: トレンドタブのデータはいつの期間ですか？</p>
+          <p class="text-slate-400 mt-1">A: 約20ヶ月分のHW求人スナップショットを基に集計しています。各月次のスクレイピング結果を蓄積したもので、リアルタイムの最新データではありません。</p>
         </div>
 
       </div>
