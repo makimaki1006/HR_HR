@@ -143,7 +143,7 @@ fn build_section_basic() -> String {
 fn build_section_tabs() -> String {
     r#"<div class="stat-card">
     <details>
-      <summary class="text-lg font-bold text-cyan-400 cursor-pointer hover:text-cyan-300">📑 タブ別ガイド（全8タブの読み方）</summary>
+      <summary class="text-lg font-bold text-cyan-400 cursor-pointer hover:text-cyan-300">📑 タブ別ガイド（全9タブの読み方）</summary>
       <div class="mt-3 space-y-4">
 
         <!-- Tab 1: 地域概況 -->
@@ -334,6 +334,25 @@ fn build_section_tabs() -> String {
             </table>
             <p class="mt-2 text-slate-400 text-sm">レーダーチャートで5軸の相対位置を表示し、「市場平均より上/下」が一目でわかります。具体的な改善提案も表示されます。</p>
             <p class="mt-1 text-amber-400 text-xs">注意: 診断結果はHW掲載求人との比較です。民間サイトの求人条件との比較ではありません。</p>
+          </div>
+        </details>
+
+        <!-- Tab 9: トレンド -->
+        <details class="ml-2">
+          <summary class="text-white font-semibold cursor-pointer hover:text-cyan-300">📈 Tab 9: トレンド ― 「求人市場はどう変化しているか？」</summary>
+          <div class="mt-2 ml-4">
+            <p class="text-slate-400 text-sm mb-2">HW過去データ（約20ヶ月分のスナップショット）を時系列で分析し、求人市場の変化を可視化します。</p>
+            <table class="w-full text-sm">
+              <thead><tr class="border-b border-slate-700"><th class="text-left py-2 px-3 text-slate-300">サブタブ</th><th class="text-left py-2 px-3 text-slate-300">内容</th></tr></thead>
+              <tbody class="text-slate-400">
+                <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">量の変化</td><td class="py-2 px-3">求人数・事業所数の推移、欠員補充率・増員率の変化</td></tr>
+                <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">質の変化</td><td class="py-2 px-3">給与水準（平均・中央値）の推移、年間休日数の変化</td></tr>
+                <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">構造の変化</td><td class="py-2 px-3">雇用形態別構成比の推移、平均掲載日数・長期掲載比率</td></tr>
+                <tr><td class="py-2 px-3 font-semibold text-white">シグナル</td><td class="py-2 px-3">新規/継続/終了の推移、離脱率、充足困難度の変化</td></tr>
+              </tbody>
+            </table>
+            <p class="mt-2 text-slate-400 text-sm">都道府県フィルタに対応。市区町村フィルタは時系列データの集計単位上、非対応です。</p>
+            <p class="mt-1 text-amber-400 text-xs">注意: このデータは過去のHW掲載求人のスナップショットです。リアルタイムの最新データではありません。</p>
           </div>
         </details>
 

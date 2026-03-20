@@ -9,3 +9,4 @@ pub mod analysis;
 pub mod diagnostic;
 pub mod api;
 pub mod guide;
+pub mod trend;

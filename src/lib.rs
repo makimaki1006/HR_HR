@@ -73,6 +73,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),
         )
+        .route("/tab/trend", get(handlers::trend::tab_trend))
+        .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
         .route("/tab/guide", get(handlers::guide::tab_guide))
         .route(
             "/api/geojson/{filename}",
