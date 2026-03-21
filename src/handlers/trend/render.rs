@@ -7,6 +7,7 @@ use super::super::helpers::{get_f64, get_i64, format_number};
 use super::helpers::{
     emp_group_color, snapshot_label, echart_div,
     line_chart_config, stacked_area_config, stacked_bar_config,
+    dual_axis_chart_config, align_yearly_to_monthly,
 };
 use super::fetch::*;
 
@@ -434,6 +435,182 @@ pub(crate) fn render_subtab_4(turso: Option<&TursoDb>, pref: &str) -> String {
         html.push_str(r#"<p class="text-xs text-slate-500 mb-2">90日以上掲載されている求人の割合（高いほど充足困難）</p>"#);
         let config = line_chart_config("充足困難度推移", &labels, &difficulty_series, "percent");
         html.push_str(&echart_div(&config, "280px"));
+        html.push_str("</div>");
+    }
+
+    html.push_str("</div>");
+    html
+}
+
+// ======== サブタブ5: 外部比較 ========
+
+pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
+    let turso = match turso {
+        Some(t) => t,
+        None => return no_turso_html(),
+    };
+
+    let counts = fetch_ts_counts(turso, pref);
+    let salary = fetch_ts_salary(turso, pref);
+    let tracking = fetch_ts_tracking(turso, pref);
+    let ext_ratio = fetch_ext_job_openings_ratio(turso, pref);
+    let ext_labor = fetch_ext_labor_stats(turso, pref);
+    let ext_turnover = fetch_ext_turnover(turso, pref);
+
+    if counts.is_empty() && salary.is_empty() && tracking.is_empty()
+        && ext_ratio.is_empty() && ext_labor.is_empty() && ext_turnover.is_empty()
+    {
+        return r#"<p class="text-slate-500 text-sm p-4">外部比較データがありません</p>"#.to_string();
+    }
+
+    let mut html = String::with_capacity(12_000);
+    html.push_str(r#"<div class="space-y-6">"#);
+
+    // 注意書き
+    html.push_str(r#"<div class="stat-card" style="border-left: 3px solid #f59e0b;">"#);
+    html.push_str(r#"<p class="text-xs text-amber-400">&#9888; 外部統計は年次データ（ステップ表示）、HWデータは月次です。時間粒度が異なります。</p>"#);
+    html.push_str("</div>");
+
+    // --- チャート1: 有効求人倍率 x HW求人数推移（dual axis） ---
+    if !counts.is_empty() || !ext_ratio.is_empty() {
+        html.push_str(r#"<div class="stat-card">"#);
+        html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">有効求人倍率 x HW求人数推移</h3>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">左軸: HW月次求人数（全雇用形態合計）、右軸: 有効求人倍率（年次・e-Stat）</p>"#);
+
+        // HW求人数: 雇用形態を合算して月次の合計求人数を算出
+        let hw_snapshots = unique_snapshots(&counts);
+        let labels = x_labels(&hw_snapshots);
+
+        let hw_total: Vec<f64> = hw_snapshots.iter().map(|&sid| {
+            counts.iter()
+                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .map(|r| get_f64(r, "posting_count"))
+                .sum()
+        }).collect();
+        let left_series = vec![
+            ("HW求人数".to_string(), "#3b82f6".to_string(), hw_total),
+        ];
+
+        // 外部求人倍率: 年度データを月次X軸に合わせる
+        let right_series = if !ext_ratio.is_empty() {
+            let fy: Vec<String> = ext_ratio.iter()
+                .filter_map(|r| r.get("fiscal_year").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+            let ratio_vals: Vec<f64> = ext_ratio.iter()
+                .map(|r| get_f64(r, "ratio_total"))
+                .collect();
+            let aligned = align_yearly_to_monthly(&fy, &ratio_vals, &hw_snapshots);
+            vec![
+                ("有効求人倍率".to_string(), "#f97316".to_string(), aligned),
+            ]
+        } else {
+            vec![]
+        };
+
+        let config = dual_axis_chart_config(
+            "有効求人倍率 x HW求人数",
+            &labels,
+            &left_series,
+            &right_series,
+            "求人数",
+            "倍率",
+        );
+        html.push_str(&echart_div(&config, "350px"));
+        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">有効求人倍率は厚生労働省「一般職業紹介状況」（e-Stat）に基づく年度値です。HW掲載求人数と比較することで、市場全体の需給動向を確認できます。</p>"#);
+        html.push_str("</div>");
+    }
+
+    // --- チャート2: 賃金比較推移 ---
+    if !salary.is_empty() || !ext_labor.is_empty() {
+        html.push_str(r#"<div class="stat-card">"#);
+        html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">賃金比較推移</h3>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">HW正社員平均給与下限（月次）と厚労省賃金統計（年次、万円→円換算）の比較</p>"#);
+
+        // HW正社員の給与下限（月次）
+        let hw_snapshots = unique_snapshots(&salary);
+        let labels = x_labels(&hw_snapshots);
+
+        let seishain_rows: Vec<&Row> = salary.iter()
+            .filter(|r| r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == "正社員")
+            .collect();
+
+        let hw_mean_min: Vec<f64> = hw_snapshots.iter().map(|&sid| {
+            seishain_rows.iter()
+                .find(|r| get_i64(r, "snapshot_id") == sid)
+                .map(|r| get_f64(r, "mean_min"))
+                .unwrap_or(f64::NAN)
+        }).collect();
+
+        let mut all_series: Vec<(String, String, Vec<f64>)> = vec![
+            ("HW正社員 平均下限".to_string(), "#3b82f6".to_string(), hw_mean_min),
+        ];
+
+        // 外部賃金統計: 万円→円に変換して同一Y軸に
+        if !ext_labor.is_empty() {
+            let fy: Vec<String> = ext_labor.iter()
+                .filter_map(|r| r.get("fiscal_year").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+            let ext_salary_man: Vec<f64> = ext_labor.iter()
+                .map(|r| get_f64(r, "monthly_salary_male"))
+                .collect();
+            // 万円→円変換（例: 36.66万円 → 366,600円）
+            let ext_salary_yen: Vec<f64> = ext_salary_man.iter().map(|v| v * 10000.0).collect();
+            let aligned = align_yearly_to_monthly(&fy, &ext_salary_yen, &hw_snapshots);
+            all_series.push(
+                ("厚労省 男性月給(年次)".to_string(), "#f97316".to_string(), aligned),
+            );
+        }
+
+        let config = line_chart_config("賃金比較推移", &labels, &all_series, "yen");
+        html.push_str(&echart_div(&config, "350px"));
+        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">厚労省「賃金構造基本統計調査」の男性月給（万円を円換算）と、HW掲載求人の正社員平均給与下限を比較しています。外部統計は年次値をステップ表示しています。</p>"#);
+        html.push_str("</div>");
+    }
+
+    // --- チャート3: 離職率比較 ---
+    if !tracking.is_empty() || !ext_turnover.is_empty() {
+        html.push_str(r#"<div class="stat-card">"#);
+        html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">離職率比較</h3>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">HW求人離脱率（月次、0-1→%換算）と厚労省離職率（年次、%）の比較</p>"#);
+
+        // HW離脱率: 全雇用形態の平均churn_rateを%に変換
+        let hw_snapshots = unique_snapshots(&tracking);
+        let labels = x_labels(&hw_snapshots);
+
+        let hw_churn_pct: Vec<f64> = hw_snapshots.iter().map(|&sid| {
+            let rates: Vec<f64> = tracking.iter()
+                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .map(|r| get_f64(r, "churn_rate"))
+                .filter(|v| !v.is_nan())
+                .collect();
+            if rates.is_empty() {
+                f64::NAN
+            } else {
+                (rates.iter().sum::<f64>() / rates.len() as f64) * 100.0
+            }
+        }).collect();
+
+        let mut all_series: Vec<(String, String, Vec<f64>)> = vec![
+            ("HW求人離脱率(%)".to_string(), "#3b82f6".to_string(), hw_churn_pct),
+        ];
+
+        // 外部離職率: 既に%単位なのでそのまま
+        if !ext_turnover.is_empty() {
+            let fy: Vec<String> = ext_turnover.iter()
+                .filter_map(|r| r.get("fiscal_year").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+            let sep_rate: Vec<f64> = ext_turnover.iter()
+                .map(|r| get_f64(r, "separation_rate"))
+                .collect();
+            let aligned = align_yearly_to_monthly(&fy, &sep_rate, &hw_snapshots);
+            all_series.push(
+                ("厚労省 離職率(年次)".to_string(), "#f97316".to_string(), aligned),
+            );
+        }
+
+        let config = line_chart_config("離職率比較", &labels, &all_series, "percent");
+        html.push_str(&echart_div(&config, "350px"));
+        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">HW求人離脱率は「前月からの掲載終了率」、厚労省離職率は「雇用動向調査」に基づく年次値です。指標の定義が異なるため、水準よりもトレンドの方向性を比較してください。</p>"#);
         html.push_str("</div>");
     }
 

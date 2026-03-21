@@ -356,8 +356,8 @@ fn stacked_bar_config_has_stack_total() {
 // ========================================
 
 #[test]
-fn trend_subtabs_has_4_entries() {
-    assert_eq!(TREND_SUBTABS.len(), 4);
+fn trend_subtabs_has_5_entries() {
+    assert_eq!(TREND_SUBTABS.len(), 5);
 }
 
 #[test]

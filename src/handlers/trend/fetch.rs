@@ -208,3 +208,39 @@ pub(crate) fn fetch_ts_tracking(turso: &TursoDb, pref: &str) -> Vec<Row> {
     };
     query_turso(turso, &sql, &params)
 }
+
+// ======== Sub5: 外部比較 ========
+
+/// 有効求人倍率の年度別推移（v2_external_job_openings_ratio）
+pub(crate) fn fetch_ext_job_openings_ratio(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    let effective_pref = if pref.is_empty() { "全国" } else { pref };
+    let sql = "SELECT fiscal_year, ratio_total, ratio_excl_part \
+               FROM v2_external_job_openings_ratio \
+               WHERE prefecture = ?1 \
+               ORDER BY fiscal_year";
+    query_turso(turso, sql, &[effective_pref.to_string()])
+}
+
+/// 労働統計の年度別推移（v2_external_labor_stats）
+/// 月給（男女別）、パート時給（男女別）、離職率、転職率
+pub(crate) fn fetch_ext_labor_stats(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    let effective_pref = if pref.is_empty() { "全国" } else { pref };
+    let sql = "SELECT fiscal_year, monthly_salary_male, monthly_salary_female, \
+               part_time_wage_male, part_time_wage_female, \
+               separation_rate, turnover_rate \
+               FROM v2_external_labor_stats \
+               WHERE prefecture = ?1 \
+               ORDER BY fiscal_year";
+    query_turso(turso, sql, &[effective_pref.to_string()])
+}
+
+/// 入職・離職率の年度別推移（v2_external_turnover）
+/// 産業計のみ取得
+pub(crate) fn fetch_ext_turnover(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    let effective_pref = if pref.is_empty() { "全国" } else { pref };
+    let sql = "SELECT fiscal_year, entry_rate, separation_rate, net_rate \
+               FROM v2_external_turnover \
+               WHERE prefecture = ?1 AND industry = '産業計' \
+               ORDER BY fiscal_year";
+    query_turso(turso, sql, &[effective_pref.to_string()])
+}

@@ -10,7 +10,7 @@ use crate::AppState;
 use super::super::overview::{get_session_filters, make_location_label};
 use super::helpers::TREND_SUBTABS;
 use super::render::{
-    render_subtab_1, render_subtab_2, render_subtab_3, render_subtab_4,
+    render_subtab_1, render_subtab_2, render_subtab_3, render_subtab_4, render_subtab_5,
 };
 
 /// HTMXパーシャル: 時系列トレンド分析（サブタブナビゲーション付き）
@@ -91,6 +91,7 @@ pub async fn trend_subtab(
             2 => render_subtab_2(turso_db.as_ref(), &pref),
             3 => render_subtab_3(turso_db.as_ref(), &pref),
             4 => render_subtab_4(turso_db.as_ref(), &pref),
+            5 => render_subtab_5(turso_db.as_ref(), &pref),
             _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
         }
     }).await.unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
