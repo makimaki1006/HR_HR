@@ -7,4 +7,7 @@ mod handlers;
 mod helpers;
 mod render;
 
+#[cfg(test)]
+mod tests;
+
 pub use handlers::{tab_trend, trend_subtab};

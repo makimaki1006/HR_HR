@@ -844,6 +844,7 @@ pub use super::helpers::{cross_nav, escape_html, format_number, get_str, get_i64
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_format_number_basic() {
