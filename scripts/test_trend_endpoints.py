@@ -108,7 +108,7 @@ def test_tab_trend(opener: urllib.request.OpenerDirector, results: TestResult):
     # JS内の querySelectorAll('.analysis-subtab') は除外
     subtab_buttons = re.findall(r'<button\s[^>]*class="analysis-subtab', body)
     subtab_count = len(subtab_buttons)
-    ok_subtabs = subtab_count == 4
+    ok_subtabs = subtab_count == 5
 
     all_ok = ok_status and ok_title and ok_subtabs
     details = []
@@ -117,7 +117,7 @@ def test_tab_trend(opener: urllib.request.OpenerDirector, results: TestResult):
     if not ok_title:
         details.append("missing '時系列トレンド分析'")
     if not ok_subtabs:
-        details.append(f"subtab button count={subtab_count}, expected 4")
+        details.append(f"subtab button count={subtab_count}, expected 5")
     results.record("I-1: tab_trend returns 200", all_ok, "; ".join(details) if details else "")
 
 
@@ -151,8 +151,8 @@ def test_subtab(opener: urllib.request.OpenerDirector, results: TestResult,
 
 
 def test_subtab_invalid(opener: urllib.request.OpenerDirector, results: TestResult):
-    """I-6: 無効なサブタブID=5"""
-    status, body = do_get(opener, "/api/trend/subtab/5")
+    """I-6: 無効なサブタブID=6"""
+    status, body = do_get(opener, "/api/trend/subtab/6")
     ok_status = status == 200
     ok_msg = "不明なサブタブ" in body
     ok = ok_status and ok_msg
@@ -161,7 +161,7 @@ def test_subtab_invalid(opener: urllib.request.OpenerDirector, results: TestResu
         details.append(f"status={status}")
     if not ok_msg:
         details.append("missing '不明なサブタブ'")
-    results.record("I-6: subtab/5 invalid", ok, "; ".join(details) if details else "")
+    results.record("I-6: subtab/6 invalid", ok, "; ".join(details) if details else "")
 
 
 def test_echart_json_validity(opener: urllib.request.OpenerDirector, results: TestResult):
@@ -237,6 +237,47 @@ def test_cross_nav_link(opener: urllib.request.OpenerDirector, results: TestResu
     results.record("I-9: Cross-nav link", ok, "; ".join(details) if details else "")
 
 
+def test_subtab5_external(opener: urllib.request.OpenerDirector, results: TestResult):
+    """I-11: subtab/5 (外部比較) が200を返し、チャートを含む"""
+    test_subtab(opener, results, 5, "I-11: subtab/5 (外部比較)",
+                ["有効求人倍率"], check_chart=True, check_size=True)
+
+
+def test_subtab5_echart_json(opener: urllib.request.OpenerDirector, results: TestResult):
+    """I-12: subtab/5 の data-chart-config がすべて有効なJSON"""
+    status, body = do_get(opener, "/api/trend/subtab/5")
+    if status != 200:
+        results.record("I-12: Sub5 ECharts JSON validity", False, f"status={status}")
+        return
+
+    # data-chart-config='...' を全て抽出
+    pattern = r"data-chart-config='([^']*)'"
+    matches = re.findall(pattern, body)
+
+    if not matches:
+        # data-chart-config="..." (ダブルクォート)パターンも試す
+        pattern2 = r'data-chart-config="([^"]*)"'
+        matches = re.findall(pattern2, body)
+
+    if not matches:
+        results.record("I-12: Sub5 ECharts JSON validity", False, "no data-chart-config found")
+        return
+
+    parse_errors = []
+    for i, config_str in enumerate(matches):
+        # HTMLエンティティのデコード
+        config_str = config_str.replace("&quot;", '"').replace("&amp;", "&")
+        config_str = config_str.replace("&lt;", "<").replace("&gt;", ">")
+        try:
+            json.loads(config_str)
+        except json.JSONDecodeError as e:
+            parse_errors.append(f"config[{i}]: {e}")
+
+    ok = len(parse_errors) == 0
+    detail = f"{len(matches)} configs parsed OK" if ok else "; ".join(parse_errors[:3])
+    results.record("I-12: Sub5 ECharts JSON validity", ok, detail)
+
+
 def test_cache_behavior(opener: urllib.request.OpenerDirector, results: TestResult):
     """I-10: subtab/1 の2回目リクエストがキャッシュにより高速（または同等）"""
     # 1回目（キャッシュされる）
@@ -293,7 +334,7 @@ def main() -> int:
     test_subtab(opener, results, 4, "I-5: subtab/4 (シグナル)",
                 ["ライフサイクル"], check_chart=True)
 
-    # I-6: subtab/5 (invalid)
+    # I-6: subtab/6 (invalid)
     test_subtab_invalid(opener, results)
 
     # I-7: ECharts JSON validity
@@ -307,6 +348,12 @@ def main() -> int:
 
     # I-10: Cache behavior
     test_cache_behavior(opener, results)
+
+    # I-11: subtab/5 (外部比較)
+    test_subtab5_external(opener, results)
+
+    # I-12: Sub5 ECharts JSON validity
+    test_subtab5_echart_json(opener, results)
 
     print()
     return results.summary()

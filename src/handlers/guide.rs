@@ -349,7 +349,8 @@ fn build_section_tabs() -> String {
                 <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">量の変化</td><td class="py-2 px-3">求人数・事業所数の推移、欠員補充率・増員率の変化</td></tr>
                 <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">質の変化</td><td class="py-2 px-3">給与水準（平均・中央値）の推移、年間休日数の変化</td></tr>
                 <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">構造の変化</td><td class="py-2 px-3">雇用形態別構成比の推移、平均掲載日数・長期掲載比率</td></tr>
-                <tr><td class="py-2 px-3 font-semibold text-white">シグナル</td><td class="py-2 px-3">新規/継続/終了の推移、離脱率、充足困難度の変化</td></tr>
+                <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">シグナル</td><td class="py-2 px-3">新規/継続/終了の推移、離脱率、充足困難度の変化</td></tr>
+                <tr><td class="py-2 px-3 font-semibold text-white">外部比較</td><td class="py-2 px-3">有効求人倍率×HW求人数、賃金比較（厚労省統計vs HW）、離職率比較、最低賃金推移</td></tr>
               </tbody>
             </table>
             <p class="mt-2 text-slate-400 text-sm">都道府県フィルタに対応。市区町村フィルタは時系列データの集計単位上、非対応です。</p>
@@ -429,6 +430,7 @@ fn build_section_usecases() -> String {
             <li><strong class="text-white">📊 地域概況</strong> で対象地域を選択し、求人件数の多い産業を確認</li>
             <li><strong class="text-white">📋 採用動向</strong> で欠員補充率が高い産業を特定 → 「人が辞めて困っている」企業が多い</li>
             <li><strong class="text-white">📈 市場分析 → 異常値・外部</strong> で入職率・離職率を確認 → HWデータの欠員率と外部統計の離職率が両方高い産業は構造的な人手不足</li>
+            <li><strong class="text-white">📈 トレンド → 外部比較</strong> で有効求人倍率とHW求人数の連動を確認 → 求人倍率が上がっている地域は営業チャンス</li>
             <li><strong class="text-white">💰 求人条件</strong> で給与相場を把握 → 「相場より低い給与で出している企業」にコンサルティング提案</li>
           </ol>
         </div>
@@ -535,6 +537,11 @@ fn build_section_faq() -> String {
         <div class="bg-slate-800/50 rounded p-3">
           <p class="text-white font-semibold">Q: トレンドタブのデータはいつの期間ですか？</p>
           <p class="text-slate-400 mt-1">A: 約20ヶ月分のHW求人スナップショットを基に集計しています。各月次のスクレイピング結果を蓄積したもので、リアルタイムの最新データではありません。</p>
+        </div>
+
+        <div class="bg-slate-800/50 rounded p-3">
+          <p class="text-white font-semibold">Q: 外部比較タブの外部データとHWデータで時間の粒度が違うのはなぜですか？</p>
+          <p class="text-slate-400 mt-1">A: HWデータは月次スナップショット、外部統計は年度データです。外部統計は年度内で同じ値がステップ表示されます。これは元データの公表頻度の違いによるものです。</p>
         </div>
 
       </div>

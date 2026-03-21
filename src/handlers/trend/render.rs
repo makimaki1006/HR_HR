@@ -456,9 +456,11 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
     let ext_ratio = fetch_ext_job_openings_ratio(turso, pref);
     let ext_labor = fetch_ext_labor_stats(turso, pref);
     let ext_turnover = fetch_ext_turnover(turso, pref);
+    let ext_min_wage = fetch_ext_minimum_wage_history(turso, pref);
 
     if counts.is_empty() && salary.is_empty() && tracking.is_empty()
         && ext_ratio.is_empty() && ext_labor.is_empty() && ext_turnover.is_empty()
+        && ext_min_wage.is_empty()
     {
         return r#"<p class="text-slate-500 text-sm p-4">外部比較データがありません</p>"#.to_string();
     }
@@ -612,6 +614,63 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
         html.push_str(&echart_div(&config, "350px"));
         html.push_str(r#"<p class="text-xs text-slate-500 mt-2">HW求人離脱率は「前月からの掲載終了率」、厚労省離職率は「雇用動向調査」に基づく年次値です。指標の定義が異なるため、水準よりもトレンドの方向性を比較してください。</p>"#);
         html.push_str("</div>");
+    }
+
+    // --- チャート4: 最低賃金推移 x HWパート給与推移（dual axis） ---
+    if !ext_min_wage.is_empty() && !salary.is_empty() {
+        // パートの平均給与下限（月次）
+        let part_rows: Vec<&Row> = salary.iter()
+            .filter(|r| r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == "パート")
+            .collect();
+
+        if !part_rows.is_empty() {
+            html.push_str(r#"<div class="stat-card">"#);
+            html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">最低賃金推移 x HWパート給与推移</h3>"#);
+            html.push_str(r#"<p class="text-xs text-slate-500 mb-2">左軸: HWパート求人の平均給与下限（月次）、右軸: 最低賃金・時給（年次・厚労省）</p>"#);
+
+            let hw_snapshots = unique_snapshots(&salary);
+            let labels = x_labels(&hw_snapshots);
+
+            // 左軸: パート平均給与下限
+            let part_mean_min: Vec<f64> = hw_snapshots.iter().map(|&sid| {
+                part_rows.iter()
+                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .map(|r| get_f64(r, "mean_min"))
+                    .unwrap_or(f64::NAN)
+            }).collect();
+            let left_series = vec![
+                ("HWパート 平均下限".to_string(), "#3b82f6".to_string(), part_mean_min),
+            ];
+
+            // 右軸: 最低賃金（年度データを月次に合わせる）
+            let fy: Vec<String> = ext_min_wage.iter()
+                .filter_map(|r| {
+                    // fiscal_year は INTEGER なので数値として取得して文字列に変換
+                    r.get("fiscal_year")
+                        .and_then(|v| v.as_i64().map(|n| n.to_string())
+                            .or_else(|| v.as_str().map(|s| s.to_string())))
+                })
+                .collect();
+            let wage_vals: Vec<f64> = ext_min_wage.iter()
+                .map(|r| get_f64(r, "hourly_min_wage"))
+                .collect();
+            let aligned = align_yearly_to_monthly(&fy, &wage_vals, &hw_snapshots);
+            let right_series = vec![
+                ("最低賃金(時給)".to_string(), "#f97316".to_string(), aligned),
+            ];
+
+            let config = dual_axis_chart_config(
+                "最低賃金推移 x HWパート給与",
+                &labels,
+                &left_series,
+                &right_series,
+                "円",
+                "円/時",
+            );
+            html.push_str(&echart_div(&config, "350px"));
+            html.push_str(r#"<p class="text-xs text-slate-500 mt-2">最低賃金（時給）とHWパート求人の平均給与下限を比較。最低賃金引上げ後の給与追随を確認できます。</p>"#);
+            html.push_str("</div>");
+        }
     }
 
     html.push_str("</div>");

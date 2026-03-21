@@ -234,6 +234,16 @@ pub(crate) fn fetch_ext_labor_stats(turso: &TursoDb, pref: &str) -> Vec<Row> {
     query_turso(turso, sql, &[effective_pref.to_string()])
 }
 
+/// 最低賃金の年度別推移（v2_external_minimum_wage_history）
+pub(crate) fn fetch_ext_minimum_wage_history(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    let effective_pref = if pref.is_empty() { "全国" } else { pref };
+    let sql = "SELECT fiscal_year, hourly_min_wage \
+               FROM v2_external_minimum_wage_history \
+               WHERE prefecture = ?1 \
+               ORDER BY fiscal_year";
+    query_turso(turso, sql, &[effective_pref.to_string()])
+}
+
 /// 入職・離職率の年度別推移（v2_external_turnover）
 /// 産業計のみ取得
 pub(crate) fn fetch_ext_turnover(turso: &TursoDb, pref: &str) -> Vec<Row> {
