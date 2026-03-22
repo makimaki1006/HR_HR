@@ -355,6 +355,36 @@ fn build_section_tabs() -> String {
             </table>
             <p class="mt-2 text-slate-400 text-sm">都道府県フィルタに対応。市区町村フィルタは時系列データの集計単位上、非対応です。</p>
             <p class="mt-1 text-amber-400 text-xs">注意: このデータは過去のHW掲載求人のスナップショットです。リアルタイムの最新データではありません。</p>
+
+            <details class="mt-4">
+              <summary class="text-slate-300 text-sm cursor-pointer hover:text-cyan-300">📸 画面イメージ（クリックで展開）</summary>
+              <div class="mt-3 space-y-4">
+                <div>
+                  <p class="text-xs text-slate-500 mb-1">量の変化 ― 求人数・事業所数・欠員率・増員率の月次推移</p>
+                  <img src="/static/guide/trend_sub1.png" alt="トレンド: 量の変化" class="rounded border border-slate-700 w-full" loading="lazy">
+                </div>
+                <div>
+                  <p class="text-xs text-slate-500 mb-1">質の変化 ― 正社員給与・パート時給・年間休日の推移</p>
+                  <img src="/static/guide/trend_sub2.png" alt="トレンド: 質の変化" class="rounded border border-slate-700 w-full" loading="lazy">
+                </div>
+                <div>
+                  <p class="text-xs text-slate-500 mb-1">構造の変化 ― 雇用形態別構成・掲載日数の推移</p>
+                  <img src="/static/guide/trend_sub3.png" alt="トレンド: 構造の変化" class="rounded border border-slate-700 w-full" loading="lazy">
+                </div>
+                <div>
+                  <p class="text-xs text-slate-500 mb-1">シグナル ― 求人ライフサイクル・離脱率・充足困難度</p>
+                  <img src="/static/guide/trend_sub4.png" alt="トレンド: シグナル" class="rounded border border-slate-700 w-full" loading="lazy">
+                </div>
+                <div>
+                  <p class="text-xs text-slate-500 mb-1">外部比較 ― 有効求人倍率・賃金・離職率・最低賃金の外部統計比較</p>
+                  <img src="/static/guide/trend_sub5.png" alt="トレンド: 外部比較" class="rounded border border-slate-700 w-full" loading="lazy">
+                </div>
+                <div>
+                  <p class="text-xs text-slate-500 mb-1">都道府県フィルタ使用例（東京都）</p>
+                  <img src="/static/guide/trend_tokyo.png" alt="トレンド: 東京都" class="rounded border border-slate-700 w-full" loading="lazy">
+                </div>
+              </div>
+            </details>
           </div>
         </details>
 
