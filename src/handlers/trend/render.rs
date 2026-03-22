@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::super::helpers::{get_f64, get_i64, format_number};
 use super::helpers::{
-    emp_group_color, snapshot_label, echart_div,
+    emp_group_color, snapshot_label, echart_div, parse_snapshot_id,
     line_chart_config, stacked_area_config, stacked_bar_config,
     dual_axis_chart_config, align_yearly_to_monthly,
 };
@@ -17,7 +17,7 @@ type Row = HashMap<String, Value>;
 /// snapshot_idリスト -> ソートされたユニークなIDリスト
 fn unique_snapshots(rows: &[Row]) -> Vec<i64> {
     let mut ids: Vec<i64> = rows.iter()
-        .map(|r| get_i64(r, "snapshot_id"))
+        .map(|r| parse_snapshot_id(r, "snapshot_id"))
         .collect();
     ids.sort();
     ids.dedup();
@@ -40,7 +40,7 @@ fn extract_series(
         let data: Vec<f64> = snapshots.iter().map(|&sid| {
             rows.iter()
                 .find(|r| {
-                    get_i64(r, "snapshot_id") == sid &&
+                    parse_snapshot_id(r, "snapshot_id") == sid &&
                     r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == group
                 })
                 .map(|r| get_f64(r, value_key))
@@ -96,7 +96,7 @@ pub(crate) fn render_subtab_1(turso: Option<&TursoDb>, pref: &str) -> String {
             html.push_str(r#"<div class="grid grid-cols-3 gap-3 mt-3">"#);
             for group in &EMP_GROUPS {
                 if let Some(row) = counts.iter().find(|r|
-                    get_i64(r, "snapshot_id") == latest &&
+                    parse_snapshot_id(r, "snapshot_id") == latest &&
                     r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == *group
                 ) {
                     let cnt = get_i64(row, "posting_count");
@@ -184,19 +184,19 @@ pub(crate) fn render_subtab_2(turso: Option<&TursoDb>, pref: &str) -> String {
         if !seishain_rows.is_empty() {
             let mean_min_data: Vec<f64> = snapshots.iter().map(|&sid| {
                 seishain_rows.iter()
-                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                     .map(|r| get_f64(r, "mean_min"))
                     .unwrap_or(f64::NAN)
             }).collect();
             let mean_max_data: Vec<f64> = snapshots.iter().map(|&sid| {
                 seishain_rows.iter()
-                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                     .map(|r| get_f64(r, "mean_max"))
                     .unwrap_or(f64::NAN)
             }).collect();
             let median_min_data: Vec<f64> = snapshots.iter().map(|&sid| {
                 seishain_rows.iter()
-                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                     .map(|r| get_f64(r, "median_min"))
                     .unwrap_or(f64::NAN)
             }).collect();
@@ -222,13 +222,13 @@ pub(crate) fn render_subtab_2(turso: Option<&TursoDb>, pref: &str) -> String {
         if !part_rows.is_empty() {
             let mean_min_data: Vec<f64> = snapshots.iter().map(|&sid| {
                 part_rows.iter()
-                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                     .map(|r| get_f64(r, "mean_min"))
                     .unwrap_or(f64::NAN)
             }).collect();
             let mean_max_data: Vec<f64> = snapshots.iter().map(|&sid| {
                 part_rows.iter()
-                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                     .map(|r| get_f64(r, "mean_max"))
                     .unwrap_or(f64::NAN)
             }).collect();
@@ -313,7 +313,7 @@ pub(crate) fn render_subtab_3(turso: Option<&TursoDb>, pref: &str) -> String {
             let data: Vec<f64> = snapshots.iter().map(|&sid| {
                 fulfillment.iter()
                     .find(|r| {
-                        get_i64(r, "snapshot_id") == sid &&
+                        parse_snapshot_id(r, "snapshot_id") == sid &&
                         r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == group
                     })
                     .map(|r| {
@@ -364,19 +364,19 @@ pub(crate) fn render_subtab_4(turso: Option<&TursoDb>, pref: &str) -> String {
         // 雇用形態を合算
         let new_data: Vec<f64> = snapshots.iter().map(|&sid| {
             tracking.iter()
-                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .filter(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                 .map(|r| get_i64(r, "new_count") as f64)
                 .sum()
         }).collect();
         let continued_data: Vec<f64> = snapshots.iter().map(|&sid| {
             tracking.iter()
-                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .filter(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                 .map(|r| get_i64(r, "continue_count") as f64)
                 .sum()
         }).collect();
         let ended_data: Vec<f64> = snapshots.iter().map(|&sid| {
             tracking.iter()
-                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .filter(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                 .map(|r| get_i64(r, "end_count") as f64)
                 .sum()
         }).collect();
@@ -414,7 +414,7 @@ pub(crate) fn render_subtab_4(turso: Option<&TursoDb>, pref: &str) -> String {
             let data: Vec<f64> = snapshots.iter().map(|&sid| {
                 fulfillment.iter()
                     .find(|r| {
-                        get_i64(r, "snapshot_id") == sid &&
+                        parse_snapshot_id(r, "snapshot_id") == sid &&
                         r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == group
                     })
                     .map(|r| {
@@ -482,7 +482,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
 
         let hw_total: Vec<f64> = hw_snapshots.iter().map(|&sid| {
             counts.iter()
-                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .filter(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                 .map(|r| get_f64(r, "posting_count"))
                 .sum()
         }).collect();
@@ -535,7 +535,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
 
         let hw_mean_min: Vec<f64> = hw_snapshots.iter().map(|&sid| {
             seishain_rows.iter()
-                .find(|r| get_i64(r, "snapshot_id") == sid)
+                .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                 .map(|r| get_f64(r, "mean_min"))
                 .unwrap_or(f64::NAN)
         }).collect();
@@ -578,7 +578,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
 
         let hw_churn_pct: Vec<f64> = hw_snapshots.iter().map(|&sid| {
             let rates: Vec<f64> = tracking.iter()
-                .filter(|r| get_i64(r, "snapshot_id") == sid)
+                .filter(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                 .map(|r| get_f64(r, "churn_rate"))
                 .filter(|v| !v.is_nan())
                 .collect();
@@ -631,7 +631,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
             // 左軸: パート平均時給下限
             let part_mean_min: Vec<f64> = hw_snapshots.iter().map(|&sid| {
                 part_rows.iter()
-                    .find(|r| get_i64(r, "snapshot_id") == sid)
+                    .find(|r| parse_snapshot_id(r, "snapshot_id") == sid)
                     .map(|r| get_f64(r, "mean_min"))
                     .unwrap_or(f64::NAN)
             }).collect();

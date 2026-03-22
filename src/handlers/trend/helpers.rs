@@ -28,6 +28,26 @@ pub(crate) fn snapshot_label(id: i64) -> String {
     format!("{}/{:02}", year, month)
 }
 
+/// snapshot_id文字列をi64に変換
+/// "202501" → 202501（そのままパース）
+/// "2025-01" → 202501（ハイフン除去してパース）
+pub(crate) fn parse_snapshot_id(row: &std::collections::HashMap<String, serde_json::Value>, key: &str) -> i64 {
+    row.get(key)
+        .and_then(|v| {
+            // まずi64として試行
+            v.as_i64().or_else(|| {
+                v.as_str().and_then(|s| {
+                    // "202501" 形式
+                    s.parse::<i64>().ok().or_else(|| {
+                        // "2025-01" 形式 → ハイフン除去
+                        s.replace('-', "").parse::<i64>().ok()
+                    })
+                })
+            })
+        })
+        .unwrap_or(0)
+}
+
 /// EChartsチャートの共通ラッパーHTML生成
 pub(crate) fn echart_div(config_json: &str, height: &str) -> String {
     format!(
