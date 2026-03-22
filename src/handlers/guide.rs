@@ -347,10 +347,10 @@ fn build_section_tabs() -> String {
               <thead><tr class="border-b border-slate-700"><th class="text-left py-2 px-3 text-slate-300">サブタブ</th><th class="text-left py-2 px-3 text-slate-300">内容</th></tr></thead>
               <tbody class="text-slate-400">
                 <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">量の変化</td><td class="py-2 px-3">求人数・事業所数の推移、欠員補充率・増員率の変化</td></tr>
-                <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">質の変化</td><td class="py-2 px-3">給与水準（平均・中央値）の推移、年間休日数の変化</td></tr>
+                <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">質の変化</td><td class="py-2 px-3">正社員給与（月額）・パート時給の推移、年間休日数の変化</td></tr>
                 <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">構造の変化</td><td class="py-2 px-3">雇用形態別構成比の推移、平均掲載日数・長期掲載比率</td></tr>
                 <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">シグナル</td><td class="py-2 px-3">新規/継続/終了の推移、離脱率、充足困難度の変化</td></tr>
-                <tr><td class="py-2 px-3 font-semibold text-white">外部比較</td><td class="py-2 px-3">有効求人倍率×HW求人数、賃金比較（厚労省統計vs HW）、離職率比較、最低賃金推移</td></tr>
+                <tr><td class="py-2 px-3 font-semibold text-white">外部比較</td><td class="py-2 px-3">有効求人倍率×HW求人数、賃金比較（厚労省月給vs HW正社員月給）、離職率比較、最低賃金×パート時給推移</td></tr>
               </tbody>
             </table>
             <p class="mt-2 text-slate-400 text-sm">都道府県フィルタに対応。市区町村フィルタは時系列データの集計単位上、非対応です。</p>
