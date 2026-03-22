@@ -239,8 +239,8 @@ pub(crate) fn render_subtab_2(turso: Option<&TursoDb>, pref: &str) -> String {
             ];
 
             html.push_str(r#"<div class="stat-card">"#);
-            html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">パート 給与推移</h3>"#);
-            let config = line_chart_config("パート 給与推移", &labels, &part_series, "yen");
+            html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">パート 時給推移</h3>"#);
+            let config = line_chart_config("パート 時給推移", &labels, &part_series, "yen");
             html.push_str(&echart_div(&config, "280px"));
             html.push_str("</div>");
         }
@@ -615,7 +615,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
 
     // --- チャート4: 最低賃金推移 x HWパート給与推移（dual axis） ---
     if !ext_min_wage.is_empty() && !salary.is_empty() {
-        // パートの平均給与下限（月次）
+        // パートの平均時給下限（月次）
         let part_rows: Vec<&Row> = salary.iter()
             .filter(|r| r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == "パート")
             .collect();
@@ -623,12 +623,12 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
         if !part_rows.is_empty() {
             html.push_str(r#"<div class="stat-card">"#);
             html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">最低賃金推移 x HWパート給与推移</h3>"#);
-            html.push_str(r#"<p class="text-xs text-slate-500 mb-2">左軸: HWパート求人の平均給与下限（月次）、右軸: 最低賃金・時給（年次・厚労省）</p>"#);
+            html.push_str(r#"<p class="text-xs text-slate-500 mb-2">左軸: HWパート求人の平均時給下限（月次）、右軸: 最低賃金・時給（年次・厚労省）</p>"#);
 
             let hw_snapshots = unique_snapshots(&salary);
             let labels = x_labels(&hw_snapshots);
 
-            // 左軸: パート平均給与下限
+            // 左軸: パート平均時給下限
             let part_mean_min: Vec<f64> = hw_snapshots.iter().map(|&sid| {
                 part_rows.iter()
                     .find(|r| get_i64(r, "snapshot_id") == sid)
@@ -665,7 +665,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
                 "円/時",
             );
             html.push_str(&echart_div(&config, "350px"));
-            html.push_str(r#"<p class="text-xs text-slate-500 mt-2">最低賃金（時給）とHWパート求人の平均給与下限を比較。最低賃金引上げ後の給与追随を確認できます。</p>"#);
+            html.push_str(r#"<p class="text-xs text-slate-500 mt-2">最低賃金（時給）とHWパート求人の平均時給下限を比較。最低賃金引上げ後の時給追随を確認できます。</p>"#);
             html.push_str("</div>");
         }
     }
