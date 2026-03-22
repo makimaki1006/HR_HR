@@ -394,11 +394,8 @@ pub(crate) fn render_subtab_4(turso: Option<&TursoDb>, pref: &str) -> String {
         html.push_str(&echart_div(&config, "320px"));
         html.push_str("</div>");
 
-        // 離脱率推移（churn_rate）
-        let churn_series = extract_series(&tracking, &snapshots, "churn_rate", &EMP_GROUPS);
-        let churn_pct: Vec<(String, String, Vec<f64>)> = churn_series.into_iter()
-            .map(|(n, c, d)| (n, c, d.iter().map(|v| v * 100.0).collect()))
-            .collect();
+        // 離脱率推移（churn_rate）— ETLで既に%値として格納済みのためそのまま使用
+        let churn_pct = extract_series(&tracking, &snapshots, "churn_rate", &EMP_GROUPS);
 
         html.push_str(r#"<div class="stat-card">"#);
         html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">離脱率推移</h3>"#);
@@ -547,16 +544,16 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
             ("HW正社員 平均下限".to_string(), "#3b82f6".to_string(), hw_mean_min),
         ];
 
-        // 外部賃金統計: 万円→円に変換して同一Y軸に
+        // 外部賃金統計: 千円→円に変換して同一Y軸に
         if !ext_labor.is_empty() {
             let fy: Vec<String> = ext_labor.iter()
                 .filter_map(|r| r.get("fiscal_year").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .collect();
-            let ext_salary_man: Vec<f64> = ext_labor.iter()
+            let ext_salary_sen: Vec<f64> = ext_labor.iter()
                 .map(|r| get_f64(r, "monthly_salary_male"))
                 .collect();
-            // 万円→円変換（例: 36.66万円 → 366,600円）
-            let ext_salary_yen: Vec<f64> = ext_salary_man.iter().map(|v| v * 10000.0).collect();
+            // 千円→円変換（例: 366.6千円 → 366,600円）
+            let ext_salary_yen: Vec<f64> = ext_salary_sen.iter().map(|v| v * 1000.0).collect();
             let aligned = align_yearly_to_monthly(&fy, &ext_salary_yen, &hw_snapshots);
             all_series.push(
                 ("厚労省 男性月給(年次)".to_string(), "#f97316".to_string(), aligned),
@@ -565,7 +562,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
 
         let config = line_chart_config("賃金比較推移", &labels, &all_series, "yen");
         html.push_str(&echart_div(&config, "350px"));
-        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">厚労省「賃金構造基本統計調査」の男性月給（万円を円換算）と、HW掲載求人の正社員平均給与下限を比較しています。外部統計は年次値をステップ表示しています。</p>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">厚労省「賃金構造基本統計調査」の男性月給（千円を円換算）と、HW掲載求人の正社員平均給与下限を比較しています。外部統計は年次値をステップ表示しています。</p>"#);
         html.push_str("</div>");
     }
 
@@ -573,9 +570,9 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
     if !tracking.is_empty() || !ext_turnover.is_empty() {
         html.push_str(r#"<div class="stat-card">"#);
         html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">離職率比較</h3>"#);
-        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">HW求人離脱率（月次、0-1→%換算）と厚労省離職率（年次、%）の比較</p>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">HW求人離脱率（月次、%）と厚労省離職率（年次、%）の比較</p>"#);
 
-        // HW離脱率: 全雇用形態の平均churn_rateを%に変換
+        // HW離脱率: 全雇用形態の平均churn_rate（ETLで既に%値として格納済み）
         let hw_snapshots = unique_snapshots(&tracking);
         let labels = x_labels(&hw_snapshots);
 
@@ -588,7 +585,7 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
             if rates.is_empty() {
                 f64::NAN
             } else {
-                (rates.iter().sum::<f64>() / rates.len() as f64) * 100.0
+                rates.iter().sum::<f64>() / rates.len() as f64
             }
         }).collect();
 
