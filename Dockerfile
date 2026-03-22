@@ -33,9 +33,10 @@ COPY --from=builder /app/target/release/rust_dashboard .
 # テンプレート（ランタイムでは不要だがディレクトリ構造維持）
 COPY templates/ templates/
 
-# 静的ファイル（CSS/JS）※GeoJSONは除外、gzから起動時解凍
+# 静的ファイル（CSS/JS/ガイド画像）※GeoJSONは除外、gzから起動時解凍
 COPY static/css/ static/css/
 COPY static/js/ static/js/
+COPY static/guide/ static/guide/
 
 # 圧縮データ（起動時に自動解凍）
 COPY data/geojson_gz/ data/geojson_gz/
