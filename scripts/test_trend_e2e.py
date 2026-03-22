@@ -137,6 +137,15 @@ def run_tests():
             trend_btn = page.locator('nav button.tab-btn', has_text="トレンド")
             trend_btn.click()
             wait_for_htmx(page)
+            # HTMXコンテンツ更新完了を明示的に待機
+            try:
+                page.wait_for_function(
+                    "() => (document.querySelector('#content') || {}).innerText?.includes('時系列トレンド分析')",
+                    timeout=15000
+                )
+            except Exception:
+                pass
+            page.wait_for_timeout(500)
             content = page.locator("#content")
             content_text = content.inner_text()
 
