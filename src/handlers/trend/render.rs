@@ -246,17 +246,22 @@ pub(crate) fn render_subtab_2(turso: Option<&TursoDb>, pref: &str) -> String {
         }
     }
 
-    // 年間休日推移
+    // 年間休日推移（avg_annual_holidaysが全NULLの場合はスキップ）
     if !workstyle.is_empty() {
-        let snapshots = unique_snapshots(&workstyle);
-        let labels = x_labels(&snapshots);
-        let holiday_series = extract_series(&workstyle, &snapshots, "avg_annual_holidays", &EMP_GROUPS);
+        let has_holiday_data = workstyle.iter().any(|r|
+            r.get("avg_annual_holidays").and_then(|v| v.as_f64()).map(|v| v > 0.0).unwrap_or(false)
+        );
+        if has_holiday_data {
+            let snapshots = unique_snapshots(&workstyle);
+            let labels = x_labels(&snapshots);
+            let holiday_series = extract_series(&workstyle, &snapshots, "avg_annual_holidays", &EMP_GROUPS);
 
-        html.push_str(r#"<div class="stat-card">"#);
-        html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">年間休日数推移</h3>"#);
-        let config = line_chart_config("年間休日数推移", &labels, &holiday_series, "days");
-        html.push_str(&echart_div(&config, "280px"));
-        html.push_str("</div>");
+            html.push_str(r#"<div class="stat-card">"#);
+            html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">年間休日数推移</h3>"#);
+            let config = line_chart_config("年間休日数推移", &labels, &holiday_series, "days");
+            html.push_str(&echart_div(&config, "280px"));
+            html.push_str("</div>");
+        }
     }
 
     html.push_str("</div>");
