@@ -15,6 +15,18 @@ def check(name, ok, detail=""):
     results.append((name, ok, detail))
     print(f"[{tag}] {name}" + (f" -- {detail}" if detail else ""))
 
+def click_subtab(page, label):
+    """サブタブをHTMX経由で切り替え"""
+    subtab_map = {"量の変化": 1, "質の変化": 2, "構造の変化": 3, "シグナル": 4, "外部比較": 5}
+    sub_id = subtab_map.get(label, 1)
+    target = "#trend-content" if page.locator("#trend-content").count() > 0 else "#content"
+    page.evaluate(f"""() => {{
+        if (typeof htmx !== 'undefined') {{
+            htmx.ajax('GET', '/api/trend/subtab/{sub_id}', {{target: '{target}', swap: 'innerHTML'}});
+        }}
+    }}""")
+    page.wait_for_timeout(8000)
+
 def wait_trend_content(page, text, timeout=20000):
     """#trend-content または #content に指定テキストが出現するまで待機"""
     try:
@@ -71,26 +83,22 @@ with sync_playwright() as p:
         sys.exit(1)
 
     # === E-1: トレンドタブ表示 ===
-    # HTMXではなく直接ナビゲートしてタブコンテンツを確認
+    # トレンドタブをHTMX経由で開く（htmx.ajax使用）
     page.evaluate("""() => {
-        const btn = document.querySelector('nav button.tab-btn');
-        if (btn) {
-            // 全タブのactiveを外す
-            document.querySelectorAll('nav button.tab-btn').forEach(b => {
-                b.classList.remove('active');
-                b.setAttribute('aria-selected', 'false');
-            });
+        if (typeof htmx !== 'undefined') {
+            htmx.ajax('GET', '/tab/trend', {target: '#content', swap: 'innerHTML'});
         }
-        // トレンドタブボタンを見つけてHTMXリクエストを発火
+        document.querySelectorAll('nav button.tab-btn').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-selected', 'false');
+        });
         const trendBtn = Array.from(document.querySelectorAll('nav button.tab-btn')).find(b => b.textContent.includes('トレンド'));
         if (trendBtn) {
             trendBtn.classList.add('active');
             trendBtn.setAttribute('aria-selected', 'true');
-            trendBtn.click();
         }
     }""")
-    page.wait_for_timeout(8000)
-    # コンテンツの確認
+    page.wait_for_timeout(10000)
     content_text = page.locator("#content").inner_text(timeout=10000)
     trend_loaded = "時系列トレンド分析" in content_text
     check("E-1 トレンドタブ表示", trend_loaded, "loaded" if trend_loaded else content_text[:80])
@@ -120,8 +128,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/02_sub1_detail.png")
 
     # === E-4: Sub2 質の変化 ===
-    page.locator('#content button.analysis-subtab', has_text="質の変化").click()
-    wait_trend_content(page, "給与推移")
+    click_subtab(page, "質の変化")
     t2 = page.locator("#content").inner_text()
     check("E-4a パート時給表記", "パート" in t2 and "時給" in t2)
     charts2 = get_chart_data(page)
@@ -134,8 +141,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/03_sub2.png")
 
     # === E-5: Sub3 構造の変化 ===
-    page.locator('#content button.analysis-subtab', has_text="構造の変化").click()
-    wait_trend_content(page, "雇用形態")
+    click_subtab(page, "構造の変化")
     charts3 = get_chart_data(page)
     for i, cd in enumerate(charts3):
         if "error" in cd: continue
@@ -146,8 +152,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/04_sub3.png")
 
     # === E-6: Sub4 シグナル ===
-    page.locator('#content button.analysis-subtab', has_text="シグナル").click()
-    wait_trend_content(page, "ライフサイクル")
+    click_subtab(page, "シグナル")
     charts4 = get_chart_data(page)
     for i, cd in enumerate(charts4):
         if "error" in cd: continue
@@ -158,8 +163,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/05_sub4.png")
 
     # === E-7: Sub5 外部比較 ===
-    page.locator('#content button.analysis-subtab', has_text="外部比較").click()
-    wait_trend_content(page, "有効求人倍率")
+    click_subtab(page, "外部比較")
     t5 = page.locator("#content").inner_text()
     check("E-7a 有効求人倍率", "有効求人倍率" in t5)
     check("E-7b 賃金比較", "賃金比較" in t5)
