@@ -527,11 +527,11 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
         html.push_str("</div>");
     }
 
-    // --- チャート2: 賃金比較推移 ---
+    // --- チャート2: 賃金比較推移（dual axis） ---
     if !salary.is_empty() || !ext_labor.is_empty() {
         html.push_str(r#"<div class="stat-card">"#);
         html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">賃金比較推移</h3>"#);
-        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">HW正社員平均給与下限（月次）と厚労省賃金統計（年次、万円→円換算）の比較</p>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">左軸: HW正社員平均給与下限（月次）、右軸: 厚労省現金給与月額（年次・千円→円）</p>"#);
 
         // HW正社員の給与下限（月次）
         let hw_snapshots = unique_snapshots(&salary);
@@ -548,12 +548,12 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
                 .unwrap_or(f64::NAN)
         }).collect();
 
-        let mut all_series: Vec<(String, String, Vec<f64>)> = vec![
+        let left_series = vec![
             ("HW正社員 平均下限".to_string(), "#3b82f6".to_string(), hw_mean_min),
         ];
 
-        // 外部賃金統計: 千円→円に変換して同一Y軸に
-        if !ext_labor.is_empty() {
+        // 外部賃金統計: 千円→円に変換、右軸に配置
+        let right_series = if !ext_labor.is_empty() {
             let fy: Vec<String> = ext_labor.iter()
                 .filter_map(|r| r.get("fiscal_year").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .collect();
@@ -563,22 +563,22 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
             // 千円→円変換（例: 366.6千円 → 366,600円）
             let ext_salary_yen: Vec<f64> = ext_salary_sen.iter().map(|v| v * 1000.0).collect();
             let aligned = align_yearly_to_monthly(&fy, &ext_salary_yen, &hw_snapshots);
-            all_series.push(
-                ("厚労省 男性月給(年次)".to_string(), "#f97316".to_string(), aligned),
-            );
-        }
+            vec![("厚労省 現金給与(年次)".to_string(), "#f97316".to_string(), aligned)]
+        } else {
+            vec![]
+        };
 
-        let config = line_chart_config("賃金比較推移", &labels, &all_series, "yen");
+        let config = dual_axis_chart_config("賃金比較推移", &labels, &left_series, &right_series, "HW給与下限(円)", "厚労省給与(円)");
         html.push_str(&echart_div(&config, "350px"));
-        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">厚労省「賃金構造基本統計調査」の男性月給（千円を円換算）と、HW掲載求人の正社員平均給与下限を比較しています。外部統計は年次値をステップ表示しています。</p>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">HW「平均給与下限」は求人票記載の下限値、厚労省「現金給与月額」は手当含む実支給額のため水準が異なります。変化の方向性を比較してください。</p>"#);
         html.push_str("</div>");
     }
 
-    // --- チャート3: 離職率比較 ---
+    // --- チャート3: 離職率比較（dual axis） ---
     if !tracking.is_empty() || !ext_turnover.is_empty() {
         html.push_str(r#"<div class="stat-card">"#);
         html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">離職率比較</h3>"#);
-        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">HW求人離脱率（月次、%）と厚労省離職率（年次、%）の比較</p>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">左軸: HW求人離脱率（月次）、右軸: 厚労省年間離職率（年次）</p>"#);
 
         // HW離脱率: 全雇用形態の平均churn_rate（ETLで既に%値として格納済み）
         let hw_snapshots = unique_snapshots(&tracking);
@@ -597,12 +597,12 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
             }
         }).collect();
 
-        let mut all_series: Vec<(String, String, Vec<f64>)> = vec![
-            ("HW求人離脱率(%)".to_string(), "#3b82f6".to_string(), hw_churn_pct),
+        let left_series = vec![
+            ("HW月次離脱率(%)".to_string(), "#3b82f6".to_string(), hw_churn_pct),
         ];
 
-        // 外部離職率: 既に%単位なのでそのまま
-        if !ext_turnover.is_empty() {
+        // 外部離職率: 右軸に配置
+        let right_series = if !ext_turnover.is_empty() {
             let fy: Vec<String> = ext_turnover.iter()
                 .filter_map(|r| r.get("fiscal_year").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .collect();
@@ -610,14 +610,14 @@ pub(crate) fn render_subtab_5(turso: Option<&TursoDb>, pref: &str) -> String {
                 .map(|r| get_f64(r, "separation_rate"))
                 .collect();
             let aligned = align_yearly_to_monthly(&fy, &sep_rate, &hw_snapshots);
-            all_series.push(
-                ("厚労省 離職率(年次)".to_string(), "#f97316".to_string(), aligned),
-            );
-        }
+            vec![("厚労省 年間離職率(%)".to_string(), "#f97316".to_string(), aligned)]
+        } else {
+            vec![]
+        };
 
-        let config = line_chart_config("離職率比較", &labels, &all_series, "percent");
+        let config = dual_axis_chart_config("離職率比較", &labels, &left_series, &right_series, "HW離脱率(%)", "厚労省離職率(%)");
         html.push_str(&echart_div(&config, "350px"));
-        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">HW求人離脱率は「前月からの掲載終了率」、厚労省離職率は「雇用動向調査」に基づく年次値です。指標の定義が異なるため、水準よりもトレンドの方向性を比較してください。</p>"#);
+        html.push_str(r#"<p class="text-xs text-slate-500 mt-2">HW求人離脱率は「前月からの掲載終了率」、厚労省離職率は「雇用動向調査」に基づく年次値です。定義が異なるため左右の軸スケールが異なります。</p>"#);
         html.push_str("</div>");
     }
 
