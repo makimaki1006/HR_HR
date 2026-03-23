@@ -120,7 +120,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/02_sub1_detail.png")
 
     # === E-4: Sub2 質の変化 ===
-    page.click('button.analysis-subtab:has-text("質の変化")')
+    page.locator('#content button.analysis-subtab', has_text="質の変化").click()
     wait_trend_content(page, "給与推移")
     t2 = page.locator("#content").inner_text()
     check("E-4a パート時給表記", "パート" in t2 and "時給" in t2)
@@ -134,7 +134,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/03_sub2.png")
 
     # === E-5: Sub3 構造の変化 ===
-    page.click('button.analysis-subtab:has-text("構造の変化")')
+    page.locator('#content button.analysis-subtab', has_text="構造の変化").click()
     wait_trend_content(page, "雇用形態")
     charts3 = get_chart_data(page)
     for i, cd in enumerate(charts3):
@@ -146,7 +146,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/04_sub3.png")
 
     # === E-6: Sub4 シグナル ===
-    page.click('button.analysis-subtab:has-text("シグナル")')
+    page.locator('#content button.analysis-subtab', has_text="シグナル").click()
     wait_trend_content(page, "ライフサイクル")
     charts4 = get_chart_data(page)
     for i, cd in enumerate(charts4):
@@ -158,7 +158,7 @@ with sync_playwright() as p:
     page.screenshot(path=f"{SSDIR}/05_sub4.png")
 
     # === E-7: Sub5 外部比較 ===
-    page.click('button.analysis-subtab:has-text("外部比較")')
+    page.locator('#content button.analysis-subtab', has_text="外部比較").click()
     wait_trend_content(page, "有効求人倍率")
     t5 = page.locator("#content").inner_text()
     check("E-7a 有効求人倍率", "有効求人倍率" in t5)
