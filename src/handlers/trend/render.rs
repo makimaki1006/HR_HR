@@ -405,34 +405,37 @@ pub(crate) fn render_subtab_4(turso: Option<&TursoDb>, pref: &str) -> String {
         html.push_str("</div>");
     }
 
-    // 充足困難度推移
+    // 充足困難度推移（very_long_countが全0の場合はスキップ）
     if !fulfillment.is_empty() {
-        let snapshots = unique_snapshots(&fulfillment);
-        let labels = x_labels(&snapshots);
+        let has_data = fulfillment.iter().any(|r| get_i64(r, "very_long_count") > 0);
+        if has_data {
+            let snapshots = unique_snapshots(&fulfillment);
+            let labels = x_labels(&snapshots);
 
-        let difficulty_series: Vec<(String, String, Vec<f64>)> = EMP_GROUPS.iter().map(|&group| {
-            let data: Vec<f64> = snapshots.iter().map(|&sid| {
-                fulfillment.iter()
-                    .find(|r| {
-                        parse_snapshot_id(r, "snapshot_id") == sid &&
-                        r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == group
-                    })
-                    .map(|r| {
-                        let very_long = get_i64(r, "very_long_count") as f64;
-                        let total = get_i64(r, "count") as f64;
-                        if total > 0.0 { (very_long / total) * 100.0 } else { f64::NAN }
-                    })
-                    .unwrap_or(f64::NAN)
+            let difficulty_series: Vec<(String, String, Vec<f64>)> = EMP_GROUPS.iter().map(|&group| {
+                let data: Vec<f64> = snapshots.iter().map(|&sid| {
+                    fulfillment.iter()
+                        .find(|r| {
+                            parse_snapshot_id(r, "snapshot_id") == sid &&
+                            r.get("emp_group").and_then(|v| v.as_str()).unwrap_or("") == group
+                        })
+                        .map(|r| {
+                            let very_long = get_i64(r, "very_long_count") as f64;
+                            let total = get_i64(r, "count") as f64;
+                            if total > 0.0 { (very_long / total) * 100.0 } else { f64::NAN }
+                        })
+                        .unwrap_or(f64::NAN)
+                }).collect();
+                (group.to_string(), emp_group_color(group).to_string(), data)
             }).collect();
-            (group.to_string(), emp_group_color(group).to_string(), data)
-        }).collect();
 
-        html.push_str(r#"<div class="stat-card">"#);
-        html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">充足困難度推移</h3>"#);
-        html.push_str(r#"<p class="text-xs text-slate-500 mb-2">90日以上掲載されている求人の割合（高いほど充足困難）</p>"#);
-        let config = line_chart_config("充足困難度推移", &labels, &difficulty_series, "percent");
-        html.push_str(&echart_div(&config, "280px"));
-        html.push_str("</div>");
+            html.push_str(r#"<div class="stat-card">"#);
+            html.push_str(r#"<h3 class="text-base font-semibold text-slate-300 mb-3">充足困難度推移</h3>"#);
+            html.push_str(r#"<p class="text-xs text-slate-500 mb-2">90日以上掲載されている求人の割合（高いほど充足困難）</p>"#);
+            let config = line_chart_config("充足困難度推移", &labels, &difficulty_series, "percent");
+            html.push_str(&echart_div(&config, "280px"));
+            html.push_str("</div>");
+        }
     }
 
     html.push_str("</div>");

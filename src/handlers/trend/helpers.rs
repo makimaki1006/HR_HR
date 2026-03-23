@@ -277,7 +277,12 @@ pub(crate) fn dual_axis_chart_config(
 /// fiscal_years: ["2024", "2025", "2026"] のような年度文字列
 /// values: 各年度に対応する値
 /// monthly_snapshots: [202407, 202408, ..., 202603] のようなYYYYMM整数
-/// 戻り値: 月次スナップショットに合わせた値ベクタ（年度の値をその年度の各月に繰り返す）
+/// 戻り値: 月次スナップショットに合わせた値ベクタ
+///
+/// マッチング戦略:
+/// 1. まずカレンダー年度(YYYY)で完全一致を探す
+/// 2. 見つからなければ会計年度(4月始まり)で探す
+/// 3. それでも見つからなければ直近の過去年度データをフォールバック
 pub(crate) fn align_yearly_to_monthly(
     fiscal_years: &[String],
     values: &[f64],
@@ -291,14 +296,33 @@ pub(crate) fn align_yearly_to_monthly(
         }
     }
 
-    // 各月次スナップショットに対応する年度を決定
-    // 日本の会計年度: 4月始まり → YYYYMM が ????04〜????03 の場合
-    // 例: 202404〜202503 → 2024年度
+    // 直近の年度値を取得（フォールバック用）
+    let mut sorted_years: Vec<i64> = fy_map.keys().copied().collect();
+    sorted_years.sort();
+
     monthly_snapshots.iter().map(|&snap| {
         let year = snap / 100;
         let month = snap % 100;
-        // 4月以降はその年が年度、1-3月は前年が年度
-        let fiscal_year = if month >= 4 { year } else { year - 1 };
-        fy_map.get(&fiscal_year).copied().unwrap_or(f64::NAN)
+
+        // 1. カレンダー年で完全一致
+        if let Some(&v) = fy_map.get(&year) {
+            return v;
+        }
+
+        // 2. 会計年度（4月始まり）で一致
+        let fy = if month >= 4 { year } else { year - 1 };
+        if let Some(&v) = fy_map.get(&fy) {
+            return v;
+        }
+
+        // 3. 直近の過去年度データをフォールバック
+        // 該当月より前の最新の年度データを使用
+        for &y in sorted_years.iter().rev() {
+            if y <= year {
+                return *fy_map.get(&y).unwrap();
+            }
+        }
+
+        f64::NAN
     }).collect()
 }
