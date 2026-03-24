@@ -16,65 +16,49 @@ pub fn build_guide_html() -> String {
 
   <!-- タイトル -->
   <div class="stat-card">
-    <h2 class="text-xl font-bold text-white mb-2">📖 ハローワーク求人分析ダッシュボード 取扱説明書</h2>
-    <p class="text-slate-400 text-sm">最終更新: 2026年3月19日</p>
+    <h2 class="text-xl font-bold text-white mb-2">📖 取扱説明書</h2>
+    <p class="text-slate-400 text-sm">ハローワーク求人分析ダッシュボード（最終更新: 2026年3月24日）</p>
+    <p class="text-amber-400 text-xs mt-1">⚠️ このダッシュボードはHW掲載求人のみが対象です。民間サイト（Indeed等）の求人は含まれません。</p>
   </div>
 
-  <!-- ⚠️ データの範囲に関する重要な注意（常に展開） -->
-  <div class="stat-card border border-amber-600/50">
-    <h3 class="text-lg font-bold text-amber-400 mb-3">⚠️ データの範囲に関する重要な注意</h3>
+  <!-- 逆引きインデックス（常に展開） -->
+  <div class="stat-card">
+    <h3 class="text-lg font-bold text-cyan-400 mb-3">🔍 知りたいこと → 見るべきタブ</h3>
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-slate-700">
-          <th class="text-left py-2 px-3 text-slate-300 w-1/4">注意事項</th>
-          <th class="text-left py-2 px-3 text-slate-300">説明</th>
+          <th class="text-left py-2 px-3 text-slate-300 w-1/2">知りたいこと</th>
+          <th class="text-left py-2 px-3 text-slate-300">見るべきタブ</th>
         </tr>
       </thead>
       <tbody class="text-slate-400">
-        <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">対象データ</td><td class="py-2 px-3">ハローワークインターネットサービスに掲載された求人<strong class="text-amber-400">のみ</strong></td></tr>
-        <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">含まれないもの</td><td class="py-2 px-3">Indeed、リクナビ、マイナビ等の民間求人サイトの求人</td></tr>
-        <tr class="border-b border-slate-800"><td class="py-2 px-3 font-semibold text-white">データの偏り</td><td class="py-2 px-3">中小企業・医療福祉・製造業が多い。IT・スタートアップ・外資系は少ない</td></tr>
-        <tr><td class="py-2 px-3 font-semibold text-white">地域差</td><td class="py-2 px-3">地方はHW比率が高く実態に近い。都市部は民間サイト併用が多くHWだけでは全貌が見えない</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">この地域の求人市場の全体像</td><td class="py-2 px-3 text-white">📊 地域概況</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">どんな企業が求人を出しているか</td><td class="py-2 px-3 text-white">🏢 企業分析</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">給与・休日・賞与の相場</td><td class="py-2 px-3 text-white">💰 求人条件</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">欠員補充が多い産業、採用理由の傾向</td><td class="py-2 px-3 text-white">📋 採用動向</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">求人の地理的分布、地図上で確認</td><td class="py-2 px-3 text-white">🗺️ 求人地図</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">給与構造、テキスト分析、異常値、外部統計</td><td class="py-2 px-3 text-white">📈 市場分析</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">条件を指定して個別求人を探す</td><td class="py-2 px-3 text-white">🔍 詳細検索</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">自社の求人条件が市場でどの位置か</td><td class="py-2 px-3 text-white">🩺 市場診断</td></tr>
+        <tr class="border-b border-slate-800"><td class="py-2 px-3">求人数・給与・離職率の時系列変化</td><td class="py-2 px-3 text-white">📈 トレンド</td></tr>
+        <tr><td class="py-2 px-3">外部統計（求人倍率・賃金）とHWデータの比較</td><td class="py-2 px-3 text-white">📈 トレンド → 外部比較</td></tr>
       </tbody>
     </table>
-    <p class="mt-3 text-amber-300 text-sm font-semibold">このダッシュボードの数値は「HW掲載求人の中での分析結果」であり、求人市場全体を表すものではありません。</p>
-
-    <div class="mt-4 pt-3 border-t border-slate-700">
-      <h4 class="text-sm font-bold text-slate-300 mb-2">外部統計データについて</h4>
-      <p class="text-slate-400 text-sm mb-2">一部のグラフには「※外部統計データ」と記載されたセクションがあります。これらは公的統計から取得したデータで、HW求人データとは別のデータソースです。</p>
-      <table class="w-full text-sm">
-        <tbody class="text-slate-400">
-          <tr class="border-b border-slate-800"><td class="py-1 px-3 font-semibold text-white w-1/3">出典末尾に「※外部統計データ」</td><td class="py-1 px-3">国の統計（e-Stat API）から取得。全産業・全チャネルを含む</td></tr>
-          <tr><td class="py-1 px-3 font-semibold text-white">出典末尾に記載なし</td><td class="py-1 px-3">HW掲載求人データから算出</td></tr>
-        </tbody>
-      </table>
-      <p class="mt-2 text-slate-400 text-sm">外部統計の有効求人倍率（厚労省公表値）とHW求人データから算出した指標は計算方法が異なります。直接比較する際はこの点にご注意ください。</p>
-    </div>
   </div>
 
-  <!-- セクション1: はじめに -->
-  {section_about}
-
-  <!-- セクション2: 基本操作 -->
+  <!-- 基本操作 -->
   {section_basic}
 
-  <!-- セクション3: タブ別ガイド -->
+  <!-- タブ別ガイド -->
   {section_tabs}
 
-  <!-- セクション4: 指標辞典 -->
+  <!-- 詳細セクション（折りたたみ） -->
   {section_metrics}
-
-  <!-- セクション5: ユースケース集 -->
   {section_usecases}
-
-  <!-- セクション6: 外部データ出典 -->
   {section_sources}
-
-  <!-- セクション7: FAQ・用語集 -->
   {section_faq}
 
 </div>"##,
-        section_about = build_section_about(),
         section_basic = build_section_basic(),
         section_tabs = build_section_tabs(),
         section_metrics = build_section_metrics(),
@@ -82,26 +66,6 @@ pub fn build_guide_html() -> String {
         section_sources = build_section_sources(),
         section_faq = build_section_faq(),
     )
-}
-
-/// セクション: はじめに
-fn build_section_about() -> String {
-    r#"<div class="stat-card">
-    <details>
-      <summary class="text-lg font-bold text-cyan-400 cursor-pointer hover:text-cyan-300">📌 はじめに ― このダッシュボードでわかること</summary>
-      <div class="mt-3 text-slate-400 text-sm space-y-2">
-        <p>ハローワークインターネットサービスに掲載された求人データを多角的に分析し、<strong class="text-white">地域の求人市場の「今」と「動き」</strong>を可視化するツールです。</p>
-        <p>以下のような問いに答えることができます:</p>
-        <ul class="list-disc list-inside space-y-1 ml-2">
-          <li>この地域の求人市場はどんな状態か？</li>
-          <li>どんな企業が求人を出しているか？</li>
-          <li>求人条件の相場はどのくらいか？</li>
-          <li>自社の求人条件は市場でどの位置にあるか？</li>
-          <li>求人市場はどう変化しているか？（📈 トレンドタブで約20ヶ月の時系列推移を確認）</li>
-        </ul>
-      </div>
-    </details>
-  </div>"#.to_string()
 }
 
 /// セクション: 基本操作
