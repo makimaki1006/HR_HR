@@ -248,6 +248,14 @@ var choroplethOverlay = (function () {
                 // geoLayer は overlayPane に入るので、マーカーの下に表示される
                 geoLayer.addTo(map);
 
+                // ポリゴン範囲にズーム（初回または都道府県変更時）
+                try {
+                    var bounds = geoLayer.getBounds();
+                    if (bounds.isValid()) {
+                        map.fitBounds(bounds, { padding: [20, 20], maxZoom: 12 });
+                    }
+                } catch (e) { /* bounds計算失敗は無視 */ }
+
                 // 凡例を更新
                 updateLegend(legend);
             })
