@@ -64,6 +64,22 @@
               class="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded px-4 py-1.5 transition-colors">
         ✕ 戻る
       </button>
+      <!-- データレイヤー（コロプレス）オーバーレイ選択 -->
+      <div>
+        <label for="jm-choropleth-layer" class="block text-xs text-gray-400 mb-1">データレイヤー</label>
+        <select id="jm-choropleth-layer"
+                onchange="if(typeof choroplethOverlay!=='undefined')choroplethOverlay.switchLayer(this.value)"
+                class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600"
+                aria-label="データレイヤー切替">
+          <option value="">なし（マーカーのみ）</option>
+          <option value="posting_count">求人件数</option>
+          <option value="avg_salary">平均給与</option>
+          <option value="day_night_ratio">昼夜間人口比</option>
+          <option value="net_migration">転入超過率</option>
+          <option value="vacancy_rate">欠員補充率</option>
+          <option value="min_wage">最低賃金</option>
+        </select>
+      </div>
       <span id="jm-count" class="text-gray-400 text-sm ml-2"></span>
     </div>
   </div>
@@ -131,6 +147,11 @@
       <div id="jm-legend" class="hidden absolute bottom-2 left-2 bg-gray-800/90 rounded p-2 text-xs z-[500] max-w-[220px]">
         <div class="font-medium text-gray-200 mb-1">凡例</div>
         <div id="jm-legend-content"></div>
+      </div>
+      <!-- コロプレスデータレイヤー凡例 -->
+      <div id="jm-choropleth-legend"
+           class="absolute bottom-4 right-4 bg-gray-800/90 border border-gray-700 rounded-lg p-3 text-xs z-[500]"
+           style="display:none; min-width:140px; max-width:220px; pointer-events:auto;">
       </div>
     </div>
 
@@ -239,8 +260,22 @@
   /* 全画面時: 全画面ボタン非表示、戻るボタン表示 */
   .jm-fullscreen #jm-fullscreen-btn { display: none !important; }
   .jm-fullscreen #jm-back-btn { display: inline-block !important; }
+  /* コロプレスツールチップのスタイル */
+  .choropleth-tooltip {
+    background: rgba(15, 23, 42, 0.92) !important;
+    border: 1px solid #475569 !important;
+    color: #e2e8f0 !important;
+    font-size: 12px !important;
+    padding: 4px 8px !important;
+    border-radius: 4px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+  }
+  .choropleth-tooltip::before {
+    border-top-color: #475569 !important;
+  }
 </style>
 <script src="/static/js/postingmap.js?v=4"></script>
+<script src="/static/js/choropleth_overlay.js?v=1" defer></script>
 <script>
   function toggleJobmapFullscreen() {
     var wrap = document.querySelector('#tab-content > div > div.space-y-4') ||
@@ -285,6 +320,28 @@
     function tryInit() {
       if (typeof postingMap !== 'undefined' && document.getElementById('jm-map')) {
         postingMap.init();
+        // Leaflet マップインスタンスへの参照を DOM 要素に設定
+        // choropleth_overlay.js がマップにアクセスするためのフォールバック
+        setTimeout(function() {
+          var el = document.getElementById('jm-map');
+          if (el && typeof L !== 'undefined' && !el.__choroplethMapRef) {
+            // el._leaflet_id がある場合、Leaflet 内部のマップ参照を探す
+            for (var key in el) {
+              if (!el.hasOwnProperty(key)) continue;
+              try {
+                var v = el[key];
+                if (v && typeof v === 'object' && typeof v._zoom !== 'undefined' && typeof v.addLayer === 'function') {
+                  el.__choroplethMapRef = v;
+                  break;
+                }
+              } catch(e) {}
+            }
+          }
+          // choroplethOverlay の初期化
+          if (typeof choroplethOverlay !== 'undefined' && choroplethOverlay.init) {
+            choroplethOverlay.init();
+          }
+        }, 200);
         return;
       }
       retryCount++;

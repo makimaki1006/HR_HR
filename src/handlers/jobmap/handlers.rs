@@ -547,6 +547,408 @@ fn extract_parent_city(municipality: &str) -> Option<String> {
     None
 }
 
+// ===== コロプレスオーバーレイAPI =====
+
+#[derive(Deserialize)]
+pub struct ChoroplethQuery {
+    #[serde(default)]
+    pub layer: String,
+    #[serde(default)]
+    pub prefecture: String,
+}
+
+/// コロプレスデータオーバーレイAPI: /api/jobmap/choropleth
+/// layer パラメータに応じてローカルDB / Turso から市区町村別データを取得し、
+/// 色分け情報を返す
+pub async fn jobmap_choropleth(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(params): Query<ChoroplethQuery>,
+) -> Json<serde_json::Value> {
+    let filters = get_session_filters(&session).await;
+
+    let pref = if params.prefecture.is_empty() {
+        filters.prefecture.clone()
+    } else {
+        params.prefecture.clone()
+    };
+
+    if pref.is_empty() {
+        return Json(serde_json::json!({
+            "choropleth": {},
+            "legend": [],
+            "geojsonUrl": "",
+            "error": "都道府県を選択してください"
+        }));
+    }
+
+    let layer = if params.layer.is_empty() {
+        "posting_count".to_string()
+    } else {
+        params.layer.clone()
+    };
+
+    // キャッシュチェック
+    let cache_key = format!("choropleth_{}_{}", layer, pref);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        return Json(cached);
+    }
+
+    let hw_db = state.hw_db.clone();
+    let turso_db = state.turso_db.clone();
+    let pref_clone = pref.clone();
+    let layer_clone = layer.clone();
+    let filters_clone = filters.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        choropleth_data(&hw_db, turso_db.as_ref(), &pref_clone, &layer_clone, &filters_clone)
+    })
+    .await
+    .unwrap_or_else(|_| serde_json::json!({
+        "choropleth": {},
+        "legend": [],
+        "geojsonUrl": "",
+        "error": "処理エラー"
+    }));
+
+    state.cache.set(cache_key, result.clone());
+    Json(result)
+}
+
+/// コロプレスデータ構築（spawn_blocking 内で実行）
+fn choropleth_data(
+    hw_db: &Option<crate::db::local_sqlite::LocalDb>,
+    turso: Option<&crate::db::turso_http::TursoDb>,
+    pref: &str,
+    layer: &str,
+    filters: &crate::handlers::overview::SessionFilters,
+) -> serde_json::Value {
+    use crate::handlers::overview::{get_f64, get_i64};
+
+    // 市区町村別の値を取得
+    let muni_values: Vec<(String, f64)> = match layer {
+        "posting_count" => {
+            let db = match hw_db {
+                Some(db) => db,
+                None => return empty_choropleth(pref),
+            };
+            let mut sql = "SELECT municipality, COUNT(*) as cnt FROM postings \
+                           WHERE prefecture = ? AND municipality != ''".to_string();
+            let mut p: Vec<String> = vec![pref.to_string()];
+            filters.append_industry_filter_str(&mut sql, &mut p);
+            sql.push_str(" GROUP BY municipality");
+            let refs: Vec<&dyn rusqlite::types::ToSql> =
+                p.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            db.query(&sql, &refs)
+                .unwrap_or_default()
+                .iter()
+                .map(|r| {
+                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let v = get_i64(r, "cnt") as f64;
+                    (m, v)
+                })
+                .collect()
+        }
+        "avg_salary" => {
+            let db = match hw_db {
+                Some(db) => db,
+                None => return empty_choropleth(pref),
+            };
+            let mut sql = "SELECT municipality, AVG(salary_min) as avg_sal FROM postings \
+                           WHERE prefecture = ? AND municipality != '' AND salary_min > 0".to_string();
+            let mut p: Vec<String> = vec![pref.to_string()];
+            filters.append_industry_filter_str(&mut sql, &mut p);
+            sql.push_str(" GROUP BY municipality");
+            let refs: Vec<&dyn rusqlite::types::ToSql> =
+                p.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+            db.query(&sql, &refs)
+                .unwrap_or_default()
+                .iter()
+                .map(|r| {
+                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let v = get_f64(r, "avg_sal");
+                    (m, v)
+                })
+                .collect()
+        }
+        "day_night_ratio" => {
+            // Turso優先、ローカルフォールバック
+            let sql = "SELECT municipality, day_night_ratio \
+                       FROM v2_external_daytime_population \
+                       WHERE prefecture = ?1 AND municipality != ''";
+            let params = vec![pref.to_string()];
+            let rows = query_turso_or_local_choropleth(turso, hw_db, sql, &params, "v2_external_daytime_population");
+            rows.iter()
+                .map(|r| {
+                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let v = get_f64(r, "day_night_ratio");
+                    (m, v)
+                })
+                .collect()
+        }
+        "net_migration" => {
+            let sql = "SELECT municipality, net_migration_rate \
+                       FROM v2_external_migration \
+                       WHERE prefecture = ?1 AND municipality != ''";
+            let params = vec![pref.to_string()];
+            let rows = query_turso_or_local_choropleth(turso, hw_db, sql, &params, "v2_external_migration");
+            rows.iter()
+                .map(|r| {
+                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let v = get_f64(r, "net_migration_rate");
+                    (m, v)
+                })
+                .collect()
+        }
+        "vacancy_rate" => {
+            let db = match hw_db {
+                Some(db) => db,
+                None => return empty_choropleth(pref),
+            };
+            let sql = "SELECT municipality, vacancy_rate FROM v2_vacancy_rate \
+                       WHERE prefecture = ?1 AND municipality != '' AND emp_group = '正社員'";
+            let p: Vec<&dyn rusqlite::types::ToSql> = vec![&pref as &dyn rusqlite::types::ToSql];
+            if !crate::handlers::helpers::table_exists(db, "v2_vacancy_rate") {
+                return empty_choropleth(pref);
+            }
+            db.query(sql, &p)
+                .unwrap_or_default()
+                .iter()
+                .map(|r| {
+                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let v = get_f64(r, "vacancy_rate");
+                    (m, v)
+                })
+                .collect()
+        }
+        "min_wage" => {
+            // 都道府県単位の単一値 → 全市区町村に同じ値を設定
+            let sql = "SELECT hourly_min_wage FROM v2_external_minimum_wage WHERE prefecture = ?1";
+            let params = vec![pref.to_string()];
+            let rows = query_turso_or_local_choropleth(turso, hw_db, sql, &params, "v2_external_minimum_wage");
+            let wage = rows.first().map(|r| get_f64(r, "hourly_min_wage")).unwrap_or(0.0);
+            if wage == 0.0 {
+                return empty_choropleth(pref);
+            }
+            // 市区町村一覧を取得して同じ値を返す
+            let db = match hw_db {
+                Some(db) => db,
+                None => return empty_choropleth(pref),
+            };
+            let muni_rows = db.query(
+                "SELECT DISTINCT municipality FROM postings WHERE prefecture = ? AND municipality != ''",
+                &[&pref as &dyn rusqlite::types::ToSql],
+            ).unwrap_or_default();
+            muni_rows.iter()
+                .filter_map(|r| {
+                    r.get("municipality").and_then(|v| v.as_str()).map(|m| (m.to_string(), wage))
+                })
+                .collect()
+        }
+        _ => {
+            return serde_json::json!({
+                "choropleth": {},
+                "legend": [],
+                "geojsonUrl": "",
+                "error": format!("不明なレイヤー: {}", layer)
+            });
+        }
+    };
+
+    if muni_values.is_empty() {
+        return empty_choropleth(pref);
+    }
+
+    // 色計算とJSON構築
+    let is_diverging = matches!(layer, "day_night_ratio" | "net_migration");
+    let center_value = match layer {
+        "day_night_ratio" => 100.0,
+        "net_migration" => 0.0,
+        _ => 0.0,
+    };
+
+    let mut choropleth = serde_json::Map::new();
+
+    if is_diverging {
+        // ダイバージングカラーマップ: 中心値からの偏差で青/赤
+        let max_deviation = muni_values.iter()
+            .map(|(_, v)| (v - center_value).abs())
+            .fold(0.0_f64, f64::max)
+            .max(0.001);
+
+        for (muni, val) in &muni_values {
+            let deviation = val - center_value;
+            let norm = (deviation / max_deviation).clamp(-1.0, 1.0);
+            let (r_val, g_val, b_val) = if norm < 0.0 {
+                // 青方向（中心値未満）
+                let t = -norm;
+                (
+                    (255.0 * (1.0 - t) + 30.0 * t) as u8,
+                    (255.0 * (1.0 - t) + 64.0 * t) as u8,
+                    (255.0 * (1.0 - t) + 175.0 * t) as u8,
+                )
+            } else {
+                // 赤方向（中心値超過）
+                let t = norm;
+                (
+                    (255.0 * (1.0 - t) + 185.0 * t) as u8,
+                    (255.0 * (1.0 - t) + 28.0 * t) as u8,
+                    (255.0 * (1.0 - t) + 28.0 * t) as u8,
+                )
+            };
+            let opacity = 0.3 + 0.5 * norm.abs();
+            choropleth.insert(muni.clone(), serde_json::json!({
+                "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
+                "fillOpacity": opacity,
+                "weight": 1,
+                "color": "#475569",
+                "value": val,
+            }));
+        }
+    } else {
+        // グラデーションカラーマップ（薄→濃）
+        let max_val = muni_values.iter()
+            .map(|(_, v)| *v)
+            .fold(0.0_f64, f64::max)
+            .max(0.001);
+
+        for (muni, val) in &muni_values {
+            let intensity = (val / max_val).clamp(0.0, 1.0);
+            // 薄い青→濃い青
+            let r_val = (219.0 + (30.0 - 219.0) * intensity) as u8;
+            let g_val = (234.0 + (64.0 - 234.0) * intensity) as u8;
+            let b_val = (254.0 + (175.0 - 254.0) * intensity) as u8;
+            let opacity = 0.2 + 0.6 * intensity;
+            choropleth.insert(muni.clone(), serde_json::json!({
+                "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
+                "fillOpacity": opacity,
+                "weight": 1,
+                "color": "#475569",
+                "value": val,
+            }));
+        }
+    }
+
+    // 凡例生成
+    let legend = build_legend(layer, &muni_values, is_diverging, center_value);
+
+    // GeoJSON URL
+    let geojson_url = {
+        let code_map = pref_name_to_code();
+        if let Some(code) = code_map.get(pref) {
+            format!("/api/geojson/{}.json", code)
+        } else {
+            String::new()
+        }
+    };
+
+    serde_json::json!({
+        "choropleth": choropleth,
+        "legend": legend,
+        "geojsonUrl": geojson_url,
+        "layer": layer,
+        "prefecture": pref,
+        "count": muni_values.len(),
+    })
+}
+
+/// Turso優先→ローカルDBフォールバックのクエリ実行
+fn query_turso_or_local_choropleth(
+    turso: Option<&crate::db::turso_http::TursoDb>,
+    hw_db: &Option<crate::db::local_sqlite::LocalDb>,
+    sql: &str,
+    params: &[String],
+    local_table: &str,
+) -> Vec<std::collections::HashMap<String, serde_json::Value>> {
+    // Turso優先
+    if let Some(tdb) = turso {
+        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+        match tdb.query(sql, &p) {
+            Ok(rows) if !rows.is_empty() => return rows,
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("Turso choropleth query failed, falling back to local: {e}");
+            }
+        }
+    }
+    // ローカルDBフォールバック
+    if let Some(db) = hw_db {
+        if !crate::handlers::helpers::table_exists(db, local_table) {
+            return vec![];
+        }
+        let p: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        return db.query(sql, &p).unwrap_or_default();
+    }
+    vec![]
+}
+
+/// 凡例データ生成
+fn build_legend(
+    layer: &str,
+    values: &[(String, f64)],
+    is_diverging: bool,
+    center_value: f64,
+) -> Vec<serde_json::Value> {
+    if values.is_empty() {
+        return vec![];
+    }
+
+    let (label, unit) = match layer {
+        "posting_count" => ("求人件数", "件"),
+        "avg_salary" => ("平均月給", "円"),
+        "day_night_ratio" => ("昼夜間人口比率", "%"),
+        "net_migration" => ("純移動率", ""),
+        "vacancy_rate" => ("欠員率", "%"),
+        "min_wage" => ("最低賃金", "円/時"),
+        _ => ("値", ""),
+    };
+
+    let vals: Vec<f64> = values.iter().map(|(_, v)| *v).collect();
+    let min_val = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_val = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+    if is_diverging {
+        vec![
+            serde_json::json!({"color": "rgb(30,64,175)", "label": format!("{}{} 未満", label, center_value)}),
+            serde_json::json!({"color": "rgb(255,255,255)", "label": format!("{}{}", label, center_value)}),
+            serde_json::json!({"color": "rgb(185,28,28)", "label": format!("{}{} 超過", label, center_value)}),
+        ]
+    } else {
+        let format_val = |v: f64| -> String {
+            if v >= 10000.0 {
+                format!("{:.1}万{}", v / 10000.0, unit)
+            } else {
+                format!("{:.0}{}", v, unit)
+            }
+        };
+        vec![
+            serde_json::json!({"color": "rgb(219,234,254)", "label": format_val(min_val)}),
+            serde_json::json!({"color": "rgb(120,149,214)", "label": format_val((min_val + max_val) / 2.0)}),
+            serde_json::json!({"color": "rgb(30,64,175)", "label": format_val(max_val)}),
+        ]
+    }
+}
+
+/// 空のコロプレスレスポンス
+fn empty_choropleth(pref: &str) -> serde_json::Value {
+    let geojson_url = {
+        let code_map = pref_name_to_code();
+        if let Some(code) = code_map.get(pref) {
+            format!("/api/geojson/{}.json", code)
+        } else {
+            String::new()
+        }
+    };
+    serde_json::json!({
+        "choropleth": {},
+        "legend": [],
+        "geojsonUrl": geojson_url,
+        "count": 0,
+    })
+}
+
 /// 簡易金額フォーマット
 fn format_yen_simple(n: i64) -> String {
     if n == 0 {
