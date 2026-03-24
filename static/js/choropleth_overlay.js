@@ -259,8 +259,9 @@ var choroplethOverlay = (function () {
                         if (!b.isValid()) return;
                         var c = b.getCenter();
                         // 本土フィーチャーのみ（離島除外）
-                        // 緯度30以上（小笠原・沖ノ鳥島除外）、経度128-146（南鳥島除外）
-                        if (c.lat >= 30 && c.lat <= 46 && c.lng >= 128 && c.lng <= 146) {
+                        // 緯度33以上（伊豆諸島・小笠原除外）、経度128-146（南鳥島除外）
+                        // 沖縄(lat 26)は全体のlatSpanが小さいので別途フォールバック
+                        if (c.lat >= 33 && c.lat <= 46 && c.lng >= 128 && c.lng <= 146) {
                             if (!mainlandBounds) {
                                 mainlandBounds = L.latLngBounds(b.getSouthWest(), b.getNorthEast());
                             } else {
@@ -270,6 +271,12 @@ var choroplethOverlay = (function () {
                     });
                     if (mainlandBounds && mainlandBounds.isValid()) {
                         map.fitBounds(mainlandBounds, { padding: [30, 30], maxZoom: 13 });
+                    } else {
+                        // 本土フィルタでマッチしない場合（沖縄等）はフィルタなしのboundsを使用
+                        var rawBounds = geoLayer.getBounds();
+                        if (rawBounds && rawBounds.isValid()) {
+                            map.fitBounds(rawBounds, { padding: [30, 30], maxZoom: 12 });
+                        }
                     }
                 } catch (e) { /* bounds計算失敗は無視 */ }
 
