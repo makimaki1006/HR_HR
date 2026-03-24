@@ -551,9 +551,12 @@ fn render_login(state: &AppState, error_message: Option<String>) -> Html<String>
         })
         .unwrap_or_default();
 
+    let guide_html = handlers::guide::build_guide_html();
+
     let html = include_str!("../templates/login_inline.html")
         .replace("{{ERROR_HTML}}", &error_html)
-        .replace("{{DOMAINS}}", &domains);
+        .replace("{{DOMAINS}}", &domains)
+        .replace("{{GUIDE_HTML}}", &guide_html);
 
     Html(html)
 }

@@ -10,7 +10,7 @@ pub async fn tab_guide() -> Html<String> {
 }
 
 /// ガイドHTMLを構築（マークダウンパーサー不使用、直接HTML記述）
-fn build_guide_html() -> String {
+pub fn build_guide_html() -> String {
     format!(
         r##"<div class="space-y-4">
 
