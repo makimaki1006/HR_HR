@@ -248,28 +248,27 @@ var choroplethOverlay = (function () {
                 // geoLayer は overlayPane に入るので、マーカーの下に表示される
                 geoLayer.addTo(map);
 
-                // 都道府県にズーム（本土の座標で、離島を除外）
+                // 都道府県にズーム（離島除外版）
+                // GeoJSONから緯度34-37, 経度138-141 内のフィーチャーのみでboundsを計算
+                // （東京都の小笠原諸島等を除外するため）
                 try {
-                    var bounds = geoLayer.getBounds();
-                    if (bounds.isValid()) {
-                        // 離島（小笠原等）で bounds が広がりすぎる対策：
-                        // bounds の南西・北東の緯度差が5度以上なら本土のみに制限
-                        var sw = bounds.getSouthWest();
-                        var ne = bounds.getNorthEast();
-                        var latSpan = ne.lat - sw.lat;
-                        var lngSpan = ne.lng - sw.lng;
-                        if (latSpan > 5 || lngSpan > 5) {
-                            // 広すぎる → 本土部分のみ（緯度26-46, 経度127-146）でクリップ
-                            var clipped = L.latLngBounds(
-                                [Math.max(sw.lat, 26), Math.max(sw.lng, 127)],
-                                [Math.min(ne.lat, 46), Math.min(ne.lng, 146)]
-                            );
-                            if (clipped.isValid()) {
-                                map.fitBounds(clipped, { padding: [30, 30], maxZoom: 11 });
+                    var mainlandBounds = null;
+                    geoLayer.eachLayer(function(layer) {
+                        if (!layer.getBounds) return;
+                        var b = layer.getBounds();
+                        if (!b.isValid()) return;
+                        var c = b.getCenter();
+                        // 日本本土の範囲（緯度26-46, 経度127-146）に入るフィーチャーのみ
+                        if (c.lat >= 26 && c.lat <= 46 && c.lng >= 127 && c.lng <= 146) {
+                            if (!mainlandBounds) {
+                                mainlandBounds = L.latLngBounds(b.getSouthWest(), b.getNorthEast());
+                            } else {
+                                mainlandBounds.extend(b);
                             }
-                        } else {
-                            map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
                         }
+                    });
+                    if (mainlandBounds && mainlandBounds.isValid()) {
+                        map.fitBounds(mainlandBounds, { padding: [30, 30], maxZoom: 13 });
                     }
                 } catch (e) { /* bounds計算失敗は無視 */ }
 
