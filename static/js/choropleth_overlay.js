@@ -28,24 +28,18 @@ var choroplethOverlay = (function () {
      * 複数のフォールバック方式を試行する。
      */
     function getMap() {
+        // 方式0: postingmap.js パッチによるグローバル参照（最も確実）
+        if (window.__jmMap && typeof window.__jmMap.addLayer === 'function') {
+            return window.__jmMap;
+        }
+
         var el = document.getElementById('jm-map');
         if (!el) return null;
 
-        // 方式1: _leaflet_id を使った内部レジストリ参照
-        // Leaflet 1.x では window._leaflet_id でマップを追跡できる場合がある
-        if (typeof el._leaflet_id !== 'undefined' && window.L) {
-            // Leaflet 内部で el に直接参照が設定されている場合を探す
-            var keys = Object.keys(el);
-            for (var i = 0; i < keys.length; i++) {
-                var k = keys[i];
-                if (k.indexOf('_leaflet_') === 0) {
-                    continue; // _leaflet_id 等のプリミティブはスキップ
-                }
-            }
-        }
+        // 方式1: __choroplethMapRef（テンプレートで設定）
+        if (el.__choroplethMapRef) return el.__choroplethMapRef;
 
         // 方式2: DOM 要素のプロパティを走査して Leaflet map オブジェクトを特定
-        // Leaflet map は _zoom, _container, _layers 等の内部プロパティを持つ
         for (var key in el) {
             if (!el.hasOwnProperty(key)) continue;
             try {
