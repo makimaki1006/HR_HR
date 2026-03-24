@@ -58,6 +58,26 @@ pub fn pref_center(pref: &str) -> (f64, f64) {
     }
 }
 
+/// 都道府県コード → GeoJSONファイル名（ローマ字込み）
+pub fn pref_code_to_geojson_filename(code: &str) -> String {
+    let romaji = match code {
+        "01" => "hokkaido", "02" => "aomori", "03" => "iwate", "04" => "miyagi",
+        "05" => "akita", "06" => "yamagata", "07" => "fukushima", "08" => "ibaraki",
+        "09" => "tochigi", "10" => "gunma", "11" => "saitama", "12" => "chiba",
+        "13" => "tokyo", "14" => "kanagawa", "15" => "niigata", "16" => "toyama",
+        "17" => "ishikawa", "18" => "fukui", "19" => "yamanashi", "20" => "nagano",
+        "21" => "gifu", "22" => "shizuoka", "23" => "aichi", "24" => "mie",
+        "25" => "shiga", "26" => "kyoto", "27" => "osaka", "28" => "hyogo",
+        "29" => "nara", "30" => "wakayama", "31" => "tottori", "32" => "shimane",
+        "33" => "okayama", "34" => "hiroshima", "35" => "yamaguchi", "36" => "tokushima",
+        "37" => "kagawa", "38" => "ehime", "39" => "kochi", "40" => "fukuoka",
+        "41" => "saga", "42" => "nagasaki", "43" => "kumamoto", "44" => "oita",
+        "45" => "miyazaki", "46" => "kagoshima", "47" => "okinawa",
+        _ => return format!("{}.json", code),
+    };
+    format!("{}_{}.json", code, romaji)
+}
+
 /// GeoJSONファイルを読み込む
 pub fn load_geojson(geojson_dir: &str, pref_name: &str) -> Result<Value, String> {
     let code_map = pref_name_to_code();

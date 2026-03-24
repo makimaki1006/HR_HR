@@ -385,7 +385,7 @@ pub async fn jobmap_seekers(
         let code_map = pref_name_to_code();
         if let Some(code) = code_map.get(pref.as_str()) {
             // pref_code_to_romajiが利用できないので、コードのみで構築
-            format!("/api/geojson/{}.json", code)
+            format!("/api/geojson/{}", crate::geo::pref_code_to_geojson_filename(code))
         } else {
             String::new()
         }
@@ -836,7 +836,7 @@ fn choropleth_data(
     let geojson_url = {
         let code_map = pref_name_to_code();
         if let Some(code) = code_map.get(pref) {
-            format!("/api/geojson/{}.json", code)
+            format!("/api/geojson/{}", crate::geo::pref_code_to_geojson_filename(code))
         } else {
             String::new()
         }
@@ -936,7 +936,7 @@ fn empty_choropleth(pref: &str) -> serde_json::Value {
     let geojson_url = {
         let code_map = pref_name_to_code();
         if let Some(code) = code_map.get(pref) {
-            format!("/api/geojson/{}.json", code)
+            format!("/api/geojson/{}", crate::geo::pref_code_to_geojson_filename(code))
         } else {
             String::new()
         }
