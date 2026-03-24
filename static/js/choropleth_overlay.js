@@ -248,11 +248,28 @@ var choroplethOverlay = (function () {
                 // geoLayer は overlayPane に入るので、マーカーの下に表示される
                 geoLayer.addTo(map);
 
-                // ポリゴン範囲にズーム（初回または都道府県変更時）
+                // 都道府県にズーム（本土の座標で、離島を除外）
                 try {
                     var bounds = geoLayer.getBounds();
                     if (bounds.isValid()) {
-                        map.fitBounds(bounds, { padding: [20, 20], maxZoom: 12 });
+                        // 離島（小笠原等）で bounds が広がりすぎる対策：
+                        // bounds の南西・北東の緯度差が5度以上なら本土のみに制限
+                        var sw = bounds.getSouthWest();
+                        var ne = bounds.getNorthEast();
+                        var latSpan = ne.lat - sw.lat;
+                        var lngSpan = ne.lng - sw.lng;
+                        if (latSpan > 5 || lngSpan > 5) {
+                            // 広すぎる → 本土部分のみ（緯度26-46, 経度127-146）でクリップ
+                            var clipped = L.latLngBounds(
+                                [Math.max(sw.lat, 26), Math.max(sw.lng, 127)],
+                                [Math.min(ne.lat, 46), Math.min(ne.lng, 146)]
+                            );
+                            if (clipped.isValid()) {
+                                map.fitBounds(clipped, { padding: [30, 30], maxZoom: 11 });
+                            }
+                        } else {
+                            map.fitBounds(bounds, { padding: [30, 30], maxZoom: 12 });
+                        }
                     }
                 } catch (e) { /* bounds計算失敗は無視 */ }
 
