@@ -258,8 +258,9 @@ var choroplethOverlay = (function () {
                         var b = layer.getBounds();
                         if (!b.isValid()) return;
                         var c = b.getCenter();
-                        // 日本本土の範囲（緯度26-46, 経度127-146）に入るフィーチャーのみ
-                        if (c.lat >= 26 && c.lat <= 46 && c.lng >= 127 && c.lng <= 146) {
+                        // 本土フィーチャーのみ（離島除外）
+                        // 緯度30以上（小笠原・沖ノ鳥島除外）、経度128-146（南鳥島除外）
+                        if (c.lat >= 30 && c.lat <= 46 && c.lng >= 128 && c.lng <= 146) {
                             if (!mainlandBounds) {
                                 mainlandBounds = L.latLngBounds(b.getSouthWest(), b.getNorthEast());
                             } else {
