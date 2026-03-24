@@ -248,34 +248,42 @@ var choroplethOverlay = (function () {
                 // geoLayer は overlayPane に入るので、マーカーの下に表示される
                 geoLayer.addTo(map);
 
-                // 都道府県にズーム（離島除外版）
-                // GeoJSONから緯度34-37, 経度138-141 内のフィーチャーのみでboundsを計算
-                // （東京都の小笠原諸島等を除外するため）
+                // 都道府県にズーム（離島除外: 中央値ベース）
+                // 全フィーチャーの緯度中央値を算出し、中央値±2度以内のフィーチャーのみでboundsを構築
                 try {
-                    var mainlandBounds = null;
+                    var centers = [];
                     geoLayer.eachLayer(function(layer) {
                         if (!layer.getBounds) return;
                         var b = layer.getBounds();
                         if (!b.isValid()) return;
-                        var c = b.getCenter();
-                        // 本土フィーチャーのみ（離島除外）
-                        // 緯度33以上（伊豆諸島・小笠原除外）、経度128-146（南鳥島除外）
-                        // 沖縄(lat 26)は全体のlatSpanが小さいので別途フォールバック
-                        if (c.lat >= 33 && c.lat <= 46 && c.lng >= 128 && c.lng <= 146) {
-                            if (!mainlandBounds) {
-                                mainlandBounds = L.latLngBounds(b.getSouthWest(), b.getNorthEast());
-                            } else {
-                                mainlandBounds.extend(b);
+                        centers.push({ lat: b.getCenter().lat, lng: b.getCenter().lng, bounds: b });
+                    });
+
+                    if (centers.length > 0) {
+                        // 緯度の中央値を計算
+                        var lats = centers.map(function(c) { return c.lat; }).sort(function(a, b) { return a - b; });
+                        var medianLat = lats[Math.floor(lats.length / 2)];
+
+                        // 中央値±2度以内のフィーチャーのみでboundsを構築
+                        var mainBounds = null;
+                        for (var i = 0; i < centers.length; i++) {
+                            if (Math.abs(centers[i].lat - medianLat) <= 2) {
+                                if (!mainBounds) {
+                                    mainBounds = L.latLngBounds(centers[i].bounds.getSouthWest(), centers[i].bounds.getNorthEast());
+                                } else {
+                                    mainBounds.extend(centers[i].bounds);
+                                }
                             }
                         }
-                    });
-                    if (mainlandBounds && mainlandBounds.isValid()) {
-                        map.fitBounds(mainlandBounds, { padding: [30, 30], maxZoom: 13 });
-                    } else {
-                        // 本土フィルタでマッチしない場合（沖縄等）はフィルタなしのboundsを使用
-                        var rawBounds = geoLayer.getBounds();
-                        if (rawBounds && rawBounds.isValid()) {
-                            map.fitBounds(rawBounds, { padding: [30, 30], maxZoom: 12 });
+
+                        if (mainBounds && mainBounds.isValid()) {
+                            map.fitBounds(mainBounds, { padding: [30, 30], maxZoom: 13 });
+                        } else {
+                            // フォールバック: フィルタなし
+                            var raw = geoLayer.getBounds();
+                            if (raw && raw.isValid()) {
+                                map.fitBounds(raw, { padding: [30, 30], maxZoom: 12 });
+                            }
                         }
                     }
                 } catch (e) { /* bounds計算失敗は無視 */ }
