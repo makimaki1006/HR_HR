@@ -251,7 +251,7 @@ var choroplethOverlay = (function () {
 
                 // 都道府県の中心座標にズーム（API返却値を使用、離島問題を回避）
                 if (apiCenter && apiCenter.length === 2) {
-                    map.setView(apiCenter, 10);
+                    map.setView(apiCenter, 10, { animate: false });
                 }
 
                 // 凡例を更新
