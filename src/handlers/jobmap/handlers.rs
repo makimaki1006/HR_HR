@@ -842,10 +842,14 @@ fn choropleth_data(
         }
     };
 
+    // 都道府県の中心座標（離島を含まない本土の中心）
+    let (center_lat, center_lng) = crate::geo::pref_center(pref);
+
     serde_json::json!({
         "choropleth": choropleth,
         "legend": legend,
         "geojsonUrl": geojson_url,
+        "center": [center_lat, center_lng],
         "layer": layer,
         "prefecture": pref,
         "count": muni_values.len(),

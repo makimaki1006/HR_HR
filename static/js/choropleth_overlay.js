@@ -128,6 +128,7 @@ var choroplethOverlay = (function () {
                 var choropleth = data.choropleth || {};
                 var legend = data.legend || [];
                 var geojsonUrl = data.geojsonUrl || '';
+                var apiCenter = data.center || null; // [lat, lng] from API
 
                 // choropleth データが空
                 if (Object.keys(choropleth).length === 0) {
@@ -248,45 +249,10 @@ var choroplethOverlay = (function () {
                 // geoLayer は overlayPane に入るので、マーカーの下に表示される
                 geoLayer.addTo(map);
 
-                // 都道府県にズーム（離島除外: 中央値ベース）
-                // 全フィーチャーの緯度中央値を算出し、中央値±2度以内のフィーチャーのみでboundsを構築
-                try {
-                    var centers = [];
-                    geoLayer.eachLayer(function(layer) {
-                        if (!layer.getBounds) return;
-                        var b = layer.getBounds();
-                        if (!b.isValid()) return;
-                        centers.push({ lat: b.getCenter().lat, lng: b.getCenter().lng, bounds: b });
-                    });
-
-                    if (centers.length > 0) {
-                        // 緯度の中央値を計算
-                        var lats = centers.map(function(c) { return c.lat; }).sort(function(a, b) { return a - b; });
-                        var medianLat = lats[Math.floor(lats.length / 2)];
-
-                        // 中央値±2度以内のフィーチャーのみでboundsを構築
-                        var mainBounds = null;
-                        for (var i = 0; i < centers.length; i++) {
-                            if (Math.abs(centers[i].lat - medianLat) <= 2) {
-                                if (!mainBounds) {
-                                    mainBounds = L.latLngBounds(centers[i].bounds.getSouthWest(), centers[i].bounds.getNorthEast());
-                                } else {
-                                    mainBounds.extend(centers[i].bounds);
-                                }
-                            }
-                        }
-
-                        if (mainBounds && mainBounds.isValid()) {
-                            map.fitBounds(mainBounds, { padding: [30, 30], maxZoom: 13 });
-                        } else {
-                            // フォールバック: フィルタなし
-                            var raw = geoLayer.getBounds();
-                            if (raw && raw.isValid()) {
-                                map.fitBounds(raw, { padding: [30, 30], maxZoom: 12 });
-                            }
-                        }
-                    }
-                } catch (e) { /* bounds計算失敗は無視 */ }
+                // 都道府県の中心座標にズーム（API返却値を使用、離島問題を回避）
+                if (apiCenter && apiCenter.length === 2) {
+                    map.setView(apiCenter, 10);
+                }
 
                 // 凡例を更新
                 updateLegend(legend);
