@@ -103,9 +103,10 @@ var choroplethOverlay = (function () {
             return;
         }
 
-        // 多重リクエスト防止
+        // 多重リクエスト防止（15秒タイムアウトで自動リセット）
         if (loading) return;
         loading = true;
+        setTimeout(function() { loading = false; }, 15000);
 
         // ローディング表示
         showLegendMessage('読み込み中...');
@@ -144,7 +145,7 @@ var choroplethOverlay = (function () {
                 }
 
                 // GeoJSON を取得してレイヤーを描画
-                applyGeoJSON(geojsonUrl, choropleth, legend);
+                applyGeoJSON(geojsonUrl, choropleth, legend, apiCenter);
             })
             .catch(function (err) {
                 loading = false;
@@ -159,8 +160,9 @@ var choroplethOverlay = (function () {
      * @param {string} geojsonUrl - GeoJSON の URL パス
      * @param {Object} choropleth - 市区町村名 → スタイル情報のマップ
      * @param {Array} legend - 凡例配列 [{color, label}]
+     * @param {Array|null} apiCenter - [lat, lng] 都道府県中心座標（API返却値）
      */
-    function applyGeoJSON(geojsonUrl, choropleth, legend) {
+    function applyGeoJSON(geojsonUrl, choropleth, legend, apiCenter) {
         var map = getMap();
         if (!map) {
             showLegendMessage('マップの初期化を待っています。しばらくお待ちください。');
@@ -168,7 +170,7 @@ var choroplethOverlay = (function () {
             setTimeout(function () {
                 var m = getMap();
                 if (m) {
-                    applyGeoJSON(geojsonUrl, choropleth, legend);
+                    applyGeoJSON(geojsonUrl, choropleth, legend, apiCenter);
                 } else {
                     showLegendMessage('マップインスタンスが見つかりません。');
                 }
