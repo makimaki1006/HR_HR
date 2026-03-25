@@ -103,10 +103,8 @@ var choroplethOverlay = (function () {
             return;
         }
 
-        // 多重リクエスト防止（15秒タイムアウトで自動リセット）
-        if (loading) return;
+        // リクエスト中は前回を中断して新しいリクエストを優先
         loading = true;
-        setTimeout(function() { loading = false; }, 15000);
 
         // ローディング表示
         showLegendMessage('読み込み中...');
