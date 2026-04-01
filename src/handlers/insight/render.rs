@@ -244,10 +244,10 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 .grade-desc { font-size: 11px; color: #555; margin-top: 4px; line-height: 1.5; }
 .findings-list { margin: 12px 0; padding-left: 20px; }
 .findings-list li { font-size: 11px; line-height: 1.8; color: #333; }
-.kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
-.kpi-card { border: 1px solid #ddd; border-radius: 6px; padding: 10px; text-align: center; }
-.kpi-value { font-size: 16px; font-weight: bold; }
-.kpi-label { font-size: 8px; color: #666; margin-top: 2px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.kpi-card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; text-align: center; }
+.kpi-value { font-size: 18px; font-weight: bold; }
+.kpi-label { font-size: 9px; color: #666; margin-top: 3px; }
 .section-title { font-size: 15px; color: #1a5276; margin: 16px 0 8px 0; border-left: 4px solid #1a5276; padding-left: 8px; }
 .section-question { font-size: 10px; color: #666; font-style: italic; margin-bottom: 10px; }
 .narrative { background: #f8f9fa; border-left: 3px solid #1a5276; padding: 10px 14px; margin-bottom: 12px; font-size: 11px; line-height: 1.6; color: #444; }
@@ -268,9 +268,9 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 .insight-body { font-size: 10px; color: #555; line-height: 1.5; }
 .so-what { font-size: 10px; color: #1a5276; font-weight: bold; margin-top: 4px; }
 .evidence { font-size: 8px; color: #999; margin-top: 3px; }
-.flow-table { width: 100%; border-collapse: collapse; font-size: 10px; }
-.flow-table th { background: #2c3e50; color: #fff; padding: 5px 6px; text-align: left; font-size: 9px; }
-.flow-table td { padding: 4px 6px; border-bottom: 1px solid #eee; }
+.flow-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.flow-table th { background: #2c3e50; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
+.flow-table td { padding: 5px 8px; border-bottom: 1px solid #eee; }
 .flow-table tr:nth-child(even) { background: #f8f9fa; }
 .metric-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 10px; }
 .metric-label { color: #64748b; }
@@ -285,7 +285,6 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     body { padding: 0; }
     .report-page { min-height: auto; }
 }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .metric-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
 .metric-label { color: #64748b; font-size: 10px; }
 .metric-value { font-weight: bold; font-size: 11px; }
@@ -555,11 +554,35 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         (InsightCategory::ActionProposal, "第4章: 推奨アクション"),
     ];
 
-    for (cat, title) in &categories {
+    let chapter_questions = [
+        "この地域で採用が難しい構造的な原因は何か?",
+        "市場はこの先どうなるか? 人材は確保できるか?",
+        "他の地域と比べて優位か劣位か?",
+        "具体的に何をすべきか?",
+    ];
+
+    for (idx, (cat, title)) in categories.iter().enumerate() {
         let filtered: Vec<_> = insights.iter().filter(|i| &i.category == cat).collect();
         if filtered.is_empty() { continue; }
 
         html.push_str(&format!(r#"<h2>{title}</h2>"#));
+        html.push_str(&format!("<div class=\"section-question\">{}</div>", chapter_questions[idx]));
+
+        // ナラティブ（章の概要テキスト）
+        if let Some(top) = filtered.first() {
+            let narrative = if filtered.len() == 1 {
+                format!("この章では1件の分析結果を報告します。最も重要な点は「{}」です。", top.title)
+            } else {
+                let critical_count = filtered.iter().filter(|i| i.severity == Severity::Critical || i.severity == Severity::Warning).count();
+                if critical_count > 0 {
+                    format!("{}件の分析結果のうち、注意が必要な項目が{}件あります。最優先は「{}」です。",
+                        filtered.len(), critical_count, top.title)
+                } else {
+                    format!("{}件の分析結果があります。全体的に良好な状態です。", filtered.len())
+                }
+            };
+            html.push_str(&format!("<div class=\"narrative\">{}</div>", escape_html(&narrative)));
+        }
         for insight in &filtered {
             let cls = match insight.severity {
                 Severity::Critical => "critical",
