@@ -47,6 +47,18 @@ flate2 = "1"
 # Time (セッション有効期限設定用)
 time = "0.3"
 
+# CSV parsing (survey upload)
+csv = "1"
+
+# Random (bootstrap statistics)
+rand = "0.8"
+
+# Multipart file upload
+axum-extra = { version = "0.10", features = ["multipart"] }
+
+# Excel export
+rust_xlsxwriter = "0.80"
+
 # Misc
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }

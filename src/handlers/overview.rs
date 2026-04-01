@@ -279,7 +279,23 @@ pub async fn tab_overview(
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
 
-    let html = render_overview(&industry_label, &stats, &location_label, &filters.prefecture);
+    let mut html = render_overview(&industry_label, &stats, &location_label, &filters.prefecture);
+
+    // 外部統計データ（人口コンテキスト）
+    if let Some(turso) = &state.turso_db {
+        let turso = turso.clone();
+        let pref = filters.prefecture.clone();
+        let muni = filters.municipality.clone();
+        let ext_section = tokio::task::spawn_blocking(move || {
+            build_population_context(&turso, &pref, &muni)
+        }).await.unwrap_or_default();
+        if !ext_section.is_empty() {
+            html.push_str(&ext_section);
+        }
+    }
+
+    // 関連示唆ウィジェット（遅延ロード）
+    html.push_str(r#"<div hx-get="/api/insight/widget/overview" hx-trigger="load" hx-swap="innerHTML"></div>"#);
 
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -840,6 +856,69 @@ fn build_horizontal_bar_chart(
 
 // ヘルパー関数はhelpers.rsに統一、後方互換のため再エクスポート
 pub use super::helpers::{cross_nav, escape_html, format_number, get_str, get_i64, get_f64, get_str_html};
+
+/// 外部統計データ: 人口コンテキストセクション
+fn build_population_context(
+    turso: &crate::db::turso_http::TursoDb,
+    pref: &str,
+    muni: &str,
+) -> String {
+    if pref.is_empty() { return String::new(); }
+
+    // 人口データ取得
+    let effective_pref = pref;
+    let pop_sql = if !muni.is_empty() {
+        "SELECT total_population, daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
+    } else {
+        "SELECT SUM(total_population) as total_population, SUM(daytime_population) as daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1"
+    };
+
+    let params: Vec<String> = if !muni.is_empty() {
+        vec![effective_pref.to_string(), muni.to_string()]
+    } else {
+        vec![effective_pref.to_string()]
+    };
+
+    let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+        params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+    let rows = match turso.query(pop_sql, &p) {
+        Ok(r) if !r.is_empty() => r,
+        _ => return String::new(),
+    };
+
+    let row = &rows[0];
+    let total_pop = get_f64(row, "total_population");
+    let daytime_pop = get_f64(row, "daytime_population");
+    if total_pop < 1.0 { return String::new(); }
+
+    let daytime_ratio = daytime_pop / total_pop;
+    let pop_type = if daytime_ratio > 1.05 { "都市型（通勤流入）" }
+        else if daytime_ratio < 0.95 { "ベッドタウン型（通勤流出）" }
+        else { "均衡型" };
+
+    format!(
+        r#"<div class="stat-card mt-4">
+            <h3 class="text-sm text-slate-400 mb-2">人口コンテキスト <span class="text-xs text-slate-600">※外部統計データ</span></h3>
+            <div class="grid grid-cols-3 gap-4">
+                <div>
+                    <div class="text-lg font-bold text-white">{}</div>
+                    <div class="text-xs text-slate-500">総人口</div>
+                </div>
+                <div>
+                    <div class="text-lg font-bold text-cyan-400">{:.2}</div>
+                    <div class="text-xs text-slate-500">昼夜間人口比</div>
+                </div>
+                <div>
+                    <div class="text-sm font-medium text-slate-300">{}</div>
+                    <div class="text-xs text-slate-500">地域タイプ</div>
+                </div>
+            </div>
+        </div>"#,
+        format_number(total_pop as i64),
+        daytime_ratio,
+        pop_type,
+    )
+}
 
 #[cfg(test)]
 mod tests {

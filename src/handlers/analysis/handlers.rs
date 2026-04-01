@@ -71,6 +71,7 @@ function setAnalysisSubtab(el) {
 }
 </script>"#);
 
+    html.push_str(r#"<div hx-get="/api/insight/widget/analysis" hx-trigger="load" hx-swap="innerHTML"></div>"#);
     html.push_str("</div>");
 
     Html(html)
@@ -109,6 +110,7 @@ pub async fn analysis_subtab(
             4 => render_subtab_4(&db, &pref, &muni),
             5 => render_subtab_5(&db, turso_db.as_ref(), &pref, &muni),
             6 => render_subtab_6(&db, &pref, &muni),
+            7 => super::render::render_subtab_7(&db, turso_db.as_ref(), &pref, &muni),
             _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
         }
     }).await.unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());

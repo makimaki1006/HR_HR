@@ -8,7 +8,7 @@
 //! Phase 5: 予測・推定（充足困難度, 地域間流動性, 給与分位表）
 //! 全指標は雇用形態（正社員/パート/その他）でセグメント化
 
-mod fetch;
+pub(crate) mod fetch;
 mod handlers;
 mod helpers;
 mod render;
