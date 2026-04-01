@@ -197,6 +197,74 @@ input:focus-visible {
     }
 }
 
+/* レスポンシブ: タブレット */
+@media (max-width: 1024px) {
+    .grid-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* レスポンシブ: 小型タブレット */
+@media (max-width: 768px) {
+    .grid-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .grid-charts {
+        grid-template-columns: 1fr;
+    }
+    .stat-card {
+        padding: 12px;
+    }
+    .stat-value {
+        font-size: 1.5rem;
+    }
+}
+
+/* レスポンシブ: モバイル */
+@media (max-width: 640px) {
+    header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+    header select {
+        min-width: 0;
+        font-size: 12px;
+    }
+    nav {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 4px;
+    }
+    nav::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 30px;
+        background: linear-gradient(to right, transparent, #0f172a);
+        pointer-events: none;
+    }
+    .tab-btn {
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+    main#content {
+        padding: 12px;
+    }
+    .grid-stats {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    .stat-value {
+        font-size: 1.2rem;
+    }
+    .stat-label {
+        font-size: 10px;
+    }
+}
+
 /* ==========================================================
    データテーブル
    ========================================================== */
