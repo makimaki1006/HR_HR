@@ -1938,8 +1938,8 @@ fn render_establishment_section(data: &[Row], pref: &str) -> String {
         html.push_str(&format!(
             r#"<div class="flex items-center gap-2">
                 <div class="w-32 text-xs text-slate-400 truncate text-right flex-shrink-0" title="{ind_escaped}">{ind_short}</div>
-                <div class="flex-1 bg-navy-800/60 rounded-full h-5 relative overflow-hidden">
-                    <div class="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-500" style="width:{pct_width:.1}%"></div>
+                <div class="flex-1 rounded-full h-5 relative overflow-hidden" style="background:rgba(15,23,42,0.6)">
+                    <div class="h-full rounded-full" style="width:{pct_width:.1}%;background:linear-gradient(to right,#2563eb,#06b6d4)"></div>
                 </div>
                 <div class="w-20 text-xs text-slate-300 text-right flex-shrink-0">{count_str}</div>
             </div>"#,
@@ -2190,18 +2190,18 @@ fn render_household_spending_section(data: &[Row], pref: &str) -> String {
         escape_html(pref_label)
     ));
 
-    // 色パレット（上位から順に使用）
+    // 色パレット（インラインスタイル: Tailwindプリコンパイルに未定義のグラデーション対策）
     let colors = [
-        "from-amber-500 to-yellow-400",
-        "from-emerald-500 to-teal-400",
-        "from-blue-500 to-cyan-400",
-        "from-purple-500 to-violet-400",
-        "from-rose-500 to-pink-400",
-        "from-orange-500 to-amber-400",
-        "from-lime-500 to-green-400",
-        "from-sky-500 to-blue-400",
-        "from-fuchsia-500 to-purple-400",
-        "from-indigo-500 to-blue-400",
+        "background:linear-gradient(to right,#f59e0b,#facc15)",
+        "background:linear-gradient(to right,#10b981,#14b8a6)",
+        "background:linear-gradient(to right,#3b82f6,#22d3ee)",
+        "background:linear-gradient(to right,#a855f7,#8b5cf6)",
+        "background:linear-gradient(to right,#f43f5e,#ec4899)",
+        "background:linear-gradient(to right,#f97316,#f59e0b)",
+        "background:linear-gradient(to right,#84cc16,#22c55e)",
+        "background:linear-gradient(to right,#0ea5e9,#60a5fa)",
+        "background:linear-gradient(to right,#d946ef,#c084fc)",
+        "background:linear-gradient(to right,#6366f1,#60a5fa)",
     ];
 
     for (i, row) in filtered.iter().enumerate() {
@@ -2215,8 +2215,8 @@ fn render_household_spending_section(data: &[Row], pref: &str) -> String {
         html.push_str(&format!(
             r#"<div class="flex items-center gap-2">
                 <div class="w-28 text-xs text-slate-400 truncate text-right flex-shrink-0" title="{cat_escaped}">{cat_short}</div>
-                <div class="flex-1 bg-navy-800/60 rounded-full h-5 relative overflow-hidden">
-                    <div class="h-full rounded-full bg-gradient-to-r {color}" style="width:{pct_width:.1}%"></div>
+                <div class="flex-1 rounded-full h-5 relative overflow-hidden" style="background:rgba(15,23,42,0.6)">
+                    <div class="h-full rounded-full" style="width:{pct_width:.1}%;{color}"></div>
                 </div>
                 <div class="w-24 text-xs text-slate-300 text-right flex-shrink-0">{amount_str}円</div>
             </div>"#,
@@ -2271,14 +2271,14 @@ fn render_business_dynamics_section(data: &[Row], pref: &str) -> String {
                     <div class="flex items-center gap-1">
                         <div class="w-10 text-xs text-slate-500 text-right">開業</div>
                         <div class="flex-1 bg-navy-800/60 rounded-full h-4 relative overflow-hidden">
-                            <div class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400" style="width:{open_w:.1}%"></div>
+                            <div class="h-full rounded-full" style="width:{open_w:.1}%;background:linear-gradient(to right,#10b981,#4ade80)"></div>
                         </div>
                         <div class="w-14 text-xs text-emerald-400 text-right">{opening:.2}%</div>
                     </div>
                     <div class="flex items-center gap-1">
                         <div class="w-10 text-xs text-slate-500 text-right">廃業</div>
                         <div class="flex-1 bg-navy-800/60 rounded-full h-4 relative overflow-hidden">
-                            <div class="h-full rounded-full bg-gradient-to-r from-rose-500 to-red-400" style="width:{close_w:.1}%"></div>
+                            <div class="h-full rounded-full" style="width:{close_w:.1}%;background:linear-gradient(to right,#f43f5e,#f87171)"></div>
                         </div>
                         <div class="w-14 text-xs text-rose-400 text-right">{closure:.2}%</div>
                     </div>
