@@ -90,6 +90,8 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
     }
 
     let mut records = Vec::new();
+    let mut skipped_metadata = 0_usize;
+    let mut skipped_incomplete = 0_usize;
     for (idx, result) in rdr.records().enumerate() {
         let row = match result {
             Ok(r) => r,
@@ -98,6 +100,19 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
                 continue;
             }
         };
+
+        // GAS isMetadataRow() 移植: メタデータ行を除外
+        let first_col = row.get(0).unwrap_or("").trim();
+        if first_col.is_empty()
+            || first_col.contains("この採用企業")
+            || first_col.contains("優先条件")
+            || first_col.contains("希望する給与")
+            || first_col.contains("新しい求人")
+            || first_col.contains("この採用企業の")
+        {
+            skipped_metadata += 1;
+            continue;
+        }
 
         let get = |key: &str| -> String {
             col_map.get(key)
@@ -109,9 +124,54 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
 
         let job_title = get("job_title");
         let company_name = get("company_name");
-        let location_raw = get("location");
-        let salary_raw = get("salary");
-        let employment_type = get("employment_type");
+
+        // GAS cleanDataFromSheet() 移植: タイトルと会社名の両方がない行はスキップ
+        if job_title.is_empty() && company_name.is_empty() {
+            skipped_incomplete += 1;
+            continue;
+        }
+        // GAS getFirstValidValue() 移植: 複数候補列から最適な値を選択
+        let location_raw = {
+            let v = get("location");
+            if v.is_empty() || score_location(&v) == 0 {
+                // col_mapのlocation以外の列からも探す
+                let mut best = v;
+                for ci in 0..row.len().min(headers.len()) {
+                    let val = row.get(ci).unwrap_or("").trim();
+                    if score_location(val) > score_location(&best) {
+                        best = val.to_string();
+                    }
+                }
+                best
+            } else { v }
+        };
+        let salary_raw = {
+            let v = get("salary");
+            if v.is_empty() || score_salary(&v) == 0 {
+                let mut best = v;
+                for ci in 0..row.len().min(headers.len()) {
+                    let val = row.get(ci).unwrap_or("").trim();
+                    if score_salary(val) > score_salary(&best) {
+                        best = val.to_string();
+                    }
+                }
+                best
+            } else { v }
+        };
+        let employment_type = {
+            let v = get("employment_type");
+            if v.is_empty() || score_employment_type(&v) == 0 {
+                let mut best = v;
+                for ci in 0..row.len().min(headers.len()) {
+                    let val = row.get(ci).unwrap_or("").trim();
+                    if score_employment_type(val) > score_employment_type(&best) {
+                        best = val.to_string();
+                    }
+                }
+                best
+            } else { v }
+        };
+        let employment_type = normalize_employment_type(&employment_type);
         let mut tags_raw = get("tags");
         // IndeedのCSVはタグが複数カラムに分散: jobsearch-JobCard-tag, (2), (3)...
         // col_mapのtags以降の連続タグカラムを結合
@@ -156,8 +216,16 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
         });
     }
 
+    tracing::info!(
+        "CSV parse: {} records accepted, {} metadata rows skipped, {} incomplete rows skipped",
+        records.len(), skipped_metadata, skipped_incomplete
+    );
+
     if records.is_empty() {
-        return Err("CSVにデータ行がありません".to_string());
+        return Err(format!(
+            "CSVにデータ行がありません（メタデータ除外{}行、不完全行除外{}行）",
+            skipped_metadata, skipped_incomplete
+        ));
     }
 
     Ok(records)
@@ -344,8 +412,19 @@ fn score_company(val: &str) -> i32 {
 fn score_employment_type(val: &str) -> i32 {
     if val.contains("正社員") || val.contains("契約社員") || val.contains("派遣社員")
         || val.contains("パート") || val.contains("アルバイト") || val.contains("業務委託")
-        || val.contains("紹介予定派遣") { return 100; }
+        || val.contains("紹介予定派遣") || val.contains("嘱託") || val.contains("請負") { return 100; }
     0
+}
+
+/// GAS EMPLOYMENT_TYPE_MAP 移植: 雇用形態テキストを正規化
+fn normalize_employment_type(val: &str) -> String {
+    if val.contains("正社員") || val.contains("正職員") { return "正社員".into(); }
+    if val.contains("契約社員") || val.contains("嘱託") { return "契約社員".into(); }
+    if val.contains("紹介予定派遣") { return "紹介予定派遣".into(); }
+    if val.contains("派遣") { return "派遣社員".into(); }
+    if val.contains("パート") || val.contains("アルバイト") { return "パート・アルバイト".into(); }
+    if val.contains("業務委託") || val.contains("請負") { return "業務委託".into(); }
+    val.to_string()
 }
 
 fn score_job_title(val: &str) -> i32 {
