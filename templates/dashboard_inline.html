@@ -82,6 +82,10 @@
             onclick="setActiveTab(this)">🩺 市場診断</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/trend" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📈 トレンド</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/insight" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">💡 総合診断</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">📊 競合調査</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/guide" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📖 ガイド</button>
     </nav>
@@ -617,6 +621,21 @@
                     });
                 }
             });
+        }
+        // 総合診断レポートJSON出力
+        function downloadInsightReport() {
+            fetch('/api/insight/report')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'insight_report_' + new Date().toISOString().slice(0,10) + '.json';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                })
+                .catch(function(e) { alert('レポート生成に失敗しました'); });
         }
     </script>
 </body>

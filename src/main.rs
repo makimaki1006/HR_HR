@@ -75,15 +75,23 @@ async fn main() {
     };
 
     // Turso外部統計DB接続（環境変数から）
+    // reqwest::blocking::Client はasyncコンテキスト内で作成するとパニックするため
+    // spawn_blocking で別スレッドで初期化する
     let turso_db = match (
         std::env::var("TURSO_EXTERNAL_URL").ok(),
         std::env::var("TURSO_EXTERNAL_TOKEN").ok(),
     ) {
         (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
-            match rust_dashboard::db::turso_http::TursoDb::new(&url, &token) {
-                Ok(db) => Some(db),
-                Err(e) => {
+            match tokio::task::spawn_blocking(move || {
+                rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+            }).await {
+                Ok(Ok(db)) => Some(db),
+                Ok(Err(e)) => {
                     tracing::warn!("Turso external DB not available: {e}");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("Turso external DB init failed: {e}");
                     None
                 }
             }

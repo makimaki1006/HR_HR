@@ -28,6 +28,7 @@ pub struct DiagnosticQuery {
     pub holidays: Option<i64>,      // 年間休日
     pub bonus: Option<f64>,         // 賞与月数
     pub emp_type: Option<String>,   // 正社員/パート
+    pub industry: Option<String>,   // 産業（任意）
 }
 
 /// HTMXパーシャル: 市場診断フォーム（初期表示）
@@ -62,6 +63,9 @@ pub async fn tab_diagnostic(
                 <div><label class=\"text-xs text-slate-400 block mb-1\">雇用形態</label>\
                     <select name=\"emp_type\" class=\"w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm\">\
                         <option value=\"正社員\">正社員</option><option value=\"パート\">パート</option></select></div>\
+                <div class=\"col-span-2\"><label class=\"text-xs text-slate-400 block mb-1\">産業（任意）</label>\
+                    <input type=\"text\" name=\"industry\" placeholder=\"例: 製造業、建設業、医療\" \
+                           class=\"w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white text-sm\"></div>\
                 <div class=\"col-span-2 flex gap-2\">\
                     <button type=\"submit\" \
                         class=\"flex-1 bg-blue-600 hover:bg-blue-500 text-white rounded py-2 text-sm font-medium\">診断する</button>\
@@ -125,10 +129,19 @@ pub async fn evaluate_diagnostic(
         let shadow = fetch_shadow_wage_for_diagnostic(&db, &pref2, &muni2, &emp2);
         let fulfillment = fetch_fulfillment_grade(&db, &pref2, &muni2, &emp2);
 
-        (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment)
+        // 通勤圏データ
+        let commute_inflow_total: i64 = if !muni2.is_empty() {
+            super::analysis::fetch::fetch_commute_inflow(&db, &pref2, &muni2)
+                .iter().map(|f| f.total_commuters).sum()
+        } else { 0 };
+        let spatial = if !muni2.is_empty() {
+            super::analysis::fetch::fetch_spatial_mismatch(&db, &pref2, &muni2)
+        } else { vec![] };
+
+        (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment, commute_inflow_total, spatial)
     }).await;
 
-    let (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment) = match db_data {
+    let (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment, commute_inflow_total, spatial) = match db_data {
         Ok(data) => data,
         Err(_) => return Html(render_no_db_data("市場診断")),
     };
@@ -230,6 +243,130 @@ pub async fn evaluate_diagnostic(
         salary, holidays, bonus, salary_pct, holidays_pct, bonus_pct,
         &shadow, overall_grade, &pref,
     ));
+
+    // ========================================
+    // 地理的競争力
+    // ========================================
+    if commute_inflow_total > 0 || !spatial.is_empty() {
+        html.push_str(r#"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-2">地理的競争力</h4>"#);
+        html.push_str(r#"<div class="grid grid-cols-2 gap-3">"#);
+        if commute_inflow_total > 0 {
+            html.push_str(&format!(
+                r#"<div class="text-center p-2 bg-slate-800/50 rounded">
+                    <div class="text-lg font-bold text-blue-400">{}人</div>
+                    <div class="text-[10px] text-slate-500">通勤圏人材プール</div>
+                    <div class="text-[10px] text-slate-600">（実際にこの地域に通勤している人数）</div>
+                </div>"#,
+                format_number(commute_inflow_total)
+            ));
+        }
+        if let Some(sm) = spatial.first() {
+            let acc30 = super::helpers::get_i64(sm, "accessible_postings_30km");
+            let iso = super::helpers::get_f64(sm, "isolation_score");
+            html.push_str(&format!(
+                r#"<div class="text-center p-2 bg-slate-800/50 rounded">
+                    <div class="text-lg font-bold text-amber-400">{}</div>
+                    <div class="text-[10px] text-slate-500">30km圏内の競合求人数</div>
+                    <div class="text-[10px] text-slate-600">孤立スコア: {:.2}</div>
+                </div>"#,
+                format_number(acc30), iso
+            ));
+        }
+        html.push_str("</div></div>");
+    }
+
+    // 推定採用期間は根拠がないため削除。充足グレードのみ表示。
+
+    // ========================================
+    // シナリオ比較
+    // ========================================
+    {
+        // shadow_wageからp50/p75を取得
+        let (p50, p75): (i64, i64) = if let Some(s) = shadow.first() {
+            (get_f64(s, "p50") as i64, get_f64(s, "p75") as i64)
+        } else { (0, 0) };
+        let current_pct = salary_pct.unwrap_or(0.0);
+
+        // シナリオ1: 給与改善（p50またはp75到達）
+        let target_salary = if current_pct < 50.0 && p50 > salary { p50 }
+            else if current_pct < 75.0 && p75 > salary { p75 }
+            else { 0 };
+
+        // シナリオ推定期間計算ヘルパー
+        let has_scenarios = target_salary > 0 || holidays == 0;
+
+        if has_scenarios {
+            html.push_str(r#"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-3">シナリオ比較</h4>"#);
+            html.push_str(r#"<div class="overflow-x-auto"><table class="w-full text-xs">"#);
+            html.push_str(r#"<thead><tr class="text-slate-500 border-b border-slate-700">
+                <th class="text-left py-2 px-2">指標</th>
+                <th class="text-center py-2 px-2">現状</th>"#);
+
+            // シナリオヘッダー
+            if target_salary > 0 {
+                let diff = target_salary - salary;
+                html.push_str(&format!(r#"<th class="text-center py-2 px-2 text-blue-400">月給+{}円</th>"#, format_number(diff)));
+            }
+            if holidays == 0 {
+                html.push_str(r#"<th class="text-center py-2 px-2 text-emerald-400">休日120日明記</th>"#);
+            }
+            if commute_inflow_total > 0 {
+                html.push_str(r#"<th class="text-center py-2 px-2 text-amber-400">エリア拡大</th>"#);
+            }
+            html.push_str("</tr></thead><tbody>");
+
+            // グレード行
+            html.push_str(&format!(r#"<tr class="border-b border-slate-800">
+                <td class="py-2 px-2 text-slate-400">グレード</td>
+                <td class="text-center py-2 px-2 text-white font-bold">{overall_grade}</td>"#));
+            if target_salary > 0 {
+                let target_label = if target_salary >= p75 { "A〜B" } else { "B" };
+                html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-blue-400 font-bold">{target_label}</td>"#));
+            }
+            if holidays == 0 {
+                html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-emerald-400">{overall_grade}+</td>"#));
+            }
+            if commute_inflow_total > 0 {
+                html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-slate-400">{overall_grade}</td>"#));
+            }
+            html.push_str("</tr>");
+
+            // 年間コスト行（給与改善時のみ）
+            if target_salary > 0 {
+                let annual_cost = (target_salary - salary) * 12;
+                html.push_str(&format!(r#"<tr class="border-b border-slate-800">
+                    <td class="py-2 px-2 text-slate-400">年間コスト増</td>
+                    <td class="text-center py-2 px-2 text-slate-500">-</td>
+                    <td class="text-center py-2 px-2 text-red-400">+{}円/人</td>"#, format_number(annual_cost)));
+                if holidays == 0 { html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#); }
+                if commute_inflow_total > 0 { html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#); }
+                html.push_str("</tr>");
+            }
+
+            html.push_str("</tbody></table></div></div>");
+        }
+    }
+
+    // ========================================
+    // 産業別注記
+    // ========================================
+    {
+        let industry = q.industry.as_deref().unwrap_or("");
+        let is_low_hw = industry.contains("情報") || industry.contains("IT")
+            || industry.contains("ソフト") || industry.contains("インターネット")
+            || industry.contains("通信");
+
+        html.push_str(r#"<div class="stat-card border-l-4 border-slate-600 mt-4">
+            <h4 class="text-sm text-slate-400 mb-2">データソースと注意事項</h4>
+            <ul class="text-xs text-slate-500 space-y-1 list-disc list-inside">"#);
+        html.push_str(r#"<li>ハローワーク掲載求人ベースの分析です</li>"#);
+        if is_low_hw {
+            html.push_str(r#"<li class="text-amber-400">選択された産業はHW掲載が少なく、実際の市場とは乖離がある可能性があります</li>"#);
+        }
+        html.push_str(r#"<li>充足グレードはMLモデルによる推計値です</li>"#);
+        html.push_str(r#"<li>通勤フローは2020年国勢調査データに基づきます</li>"#);
+        html.push_str("</ul></div>");
+    }
 
     html.push_str("</div>");
 

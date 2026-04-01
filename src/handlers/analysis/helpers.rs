@@ -6,13 +6,14 @@ use serde_json::Value;
 type Row = HashMap<String, Value>;
 
 /// サブタブ定義
-pub(crate) const ANALYSIS_SUBTABS: [(u8, &str); 6] = [
+pub(crate) const ANALYSIS_SUBTABS: [(u8, &str); 7] = [
     (1, "求人動向"),
     (2, "給与分析"),
     (3, "テキスト分析"),
     (4, "市場構造"),
     (5, "異常値・外部"),
     (6, "予測・推定"),
+    (7, "通勤圏"),
 ];
 
 /// Row から文字列参照を取得（借用版）

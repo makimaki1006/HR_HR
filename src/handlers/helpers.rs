@@ -98,6 +98,16 @@ pub fn cross_nav(tab_url: &str, label: &str) -> String {
     )
 }
 
+/// Haversine距離計算（km単位）
+pub fn haversine(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
+    let r = 6371.0; // 地球半径(km)
+    let dlat = (lat2 - lat1).to_radians();
+    let dlng = (lng2 - lng1).to_radians();
+    let a = (dlat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlng / 2.0).sin().powi(2);
+    2.0 * r * a.sqrt().asin()
+}
+
 /// テーブル存在確認（パラメータバインド使用、SQLインジェクション対策済み）
 pub fn table_exists(db: &crate::db::local_sqlite::LocalDb, name: &str) -> bool {
     db.query_scalar::<i64>(

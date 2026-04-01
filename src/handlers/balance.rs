@@ -38,7 +38,8 @@ pub async fn tab_balance(
         fetch_balance(&db, &filters_clone)
     }).await.unwrap_or_default();
 
-    let html = render_balance(&filters, &stats);
+    let mut html = render_balance(&filters, &stats);
+    html.push_str(r#"<div hx-get="/api/insight/widget/balance" hx-trigger="load" hx-swap="innerHTML"></div>"#);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }

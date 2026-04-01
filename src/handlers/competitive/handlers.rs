@@ -38,7 +38,8 @@ pub async fn tab_competitive(
     let pref_options = fetch_prefectures(&state, &filters);
     let ftype_options = fetch_job_types(&state, "");
     let stype_options = fetch_industry_raws(&state, "");
-    let html = render_competitive(&industry_label, &stats, &pref_options, &ftype_options, &stype_options);
+    let mut html = render_competitive(&industry_label, &stats, &pref_options, &ftype_options, &stype_options);
+    html.push_str(r#"<div hx-get="/api/insight/widget/competitive" hx-trigger="load" hx-swap="innerHTML"></div>"#);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }

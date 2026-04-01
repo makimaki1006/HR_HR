@@ -63,6 +63,7 @@ function setTrendSubtab(el) {
 }
 </script>"#);
 
+    html.push_str(r#"<div hx-get="/api/insight/widget/trend" hx-trigger="load" hx-swap="innerHTML"></div>"#);
     html.push_str("</div>");
 
     Html(html)

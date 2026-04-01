@@ -76,6 +76,17 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         )
         .route("/tab/trend", get(handlers::trend::tab_trend))
         .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
+        .route("/tab/insight", get(handlers::insight::tab_insight))
+        .route("/api/insight/subtab/{id}", get(handlers::insight::insight_subtab))
+        .route("/api/insight/widget/{tab}", get(handlers::insight::insight_widget))
+        .route("/api/insight/report", get(handlers::insight::insight_report_json))
+        .route("/api/insight/report/xlsx", get(handlers::insight::insight_report_xlsx))
+        .route("/report/insight", get(handlers::insight::insight_report_html))
+        .route("/tab/survey", get(handlers::survey::tab_survey))
+        .route("/api/survey/upload", post(handlers::survey::upload_csv))
+        .route("/api/survey/analyze", get(handlers::survey::analyze_survey))
+        .route("/api/survey/integrate", get(handlers::survey::integrate_report))
+        .route("/api/survey/report", get(handlers::survey::report_json))
         .route("/tab/guide", get(handlers::guide::tab_guide))
         .route(
             "/api/geojson/{filename}",
