@@ -71,7 +71,23 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
         .iter().map(|s| s.to_string()).collect();
 
     let source = detect_csv_source(&headers);
-    let col_map = build_column_map(&headers, &source);
+    let mut col_map = build_column_map(&headers, &source);
+
+    // ヘッダーマッチが不十分な場合、データ内容ベースの動的検出にフォールバック（GASのdetectColumnsAutomatically移植）
+    if col_map.len() < 3 {
+        // サンプル行を先に読み取って動的検出
+        let data_bytes = if data.starts_with(&[0xEF, 0xBB, 0xBF]) { &data[3..] } else { data };
+        let mut sample_rdr = csv::ReaderBuilder::new().flexible(true).has_headers(true).from_reader(data_bytes);
+        let sample_rows: Vec<csv::StringRecord> = sample_rdr.records().take(20).filter_map(|r| r.ok()).collect();
+        if !sample_rows.is_empty() {
+            let detected = detect_columns_from_data(&headers, &sample_rows);
+            tracing::info!("Dynamic column detection: {:?}", detected.keys().collect::<Vec<_>>());
+            // 検出結果でcol_mapを上書き（ヘッダーマッチより動的検出を優先）
+            for (key, idx) in detected {
+                col_map.insert(key, idx);
+            }
+        }
+    }
 
     let mut records = Vec::new();
     for (idx, result) in rdr.records().enumerate() {
@@ -198,34 +214,146 @@ fn build_column_map(headers: &[String], source: &CsvSource) -> std::collections:
         }
     }
 
-    // フォールバック: ヘッダーマッチが少ない場合、IndeedのCSSクラス名パターンで位置推定
-    if map.len() < 3 && headers.len() >= 14 {
-        let h0 = headers[0].trim();
-        if h0.contains("href") || h0.contains("indeed.com") || h0.contains("jcs-JobTitle") {
-            // Indeed scraping pattern: URL, title, company, location, tags..., salary, emp_type
-            if !map.contains_key("url") { map.insert("url", 0); }
-            if !map.contains_key("job_title") { map.insert("job_title", 1); }
-            if !map.contains_key("company_name") { map.insert("company_name", 2); }
-            if !map.contains_key("location") { map.insert("location", 3); }
-            if !map.contains_key("tags") { map.insert("tags", 4); }
-            // 給与と雇用形態: 「円」「万」を含むカラムを探す
-            for i in 10..headers.len().min(20) {
-                if !map.contains_key("salary") {
-                    // 最初の行のデータは見れないのでヘッダー名で判定
-                    let hdr = headers[i].trim();
-                    if hdr.contains("zydy3i") || hdr.contains("salary") || hdr.contains("給与") {
-                        map.insert("salary", i);
-                    }
-                }
-            }
-            // 給与の次が雇用形態
-            if let Some(&sal_idx) = map.get("salary") {
-                if sal_idx + 1 < headers.len() && !map.contains_key("employment_type") {
-                    map.insert("employment_type", sal_idx + 1);
-                }
+    map
+}
+
+/// GASのColumnDetectionPatternsを移植: データ内容ベースの動的カラム検出
+/// ヘッダー名ではなくデータの中身をスコアリングして最適な列を自動判定
+pub fn detect_columns_from_data(
+    headers: &[String],
+    sample_rows: &[csv::StringRecord],
+) -> std::collections::HashMap<&'static str, usize> {
+    let mut scores: std::collections::HashMap<&str, Vec<(usize, i32)>> = std::collections::HashMap::new();
+    for key in &["location", "salary", "company_name", "job_title", "url", "employment_type", "is_new"] {
+        scores.insert(key, Vec::new());
+    }
+
+    let sample_size = sample_rows.len().min(20);
+    for row in sample_rows.iter().take(sample_size) {
+        for col_idx in 0..row.len().min(headers.len()) {
+            let val = row.get(col_idx).unwrap_or("").trim();
+            if val.is_empty() { continue; }
+
+            // 勤務地スコア（都道府県パターン）
+            let loc_score = score_location(val);
+            if loc_score > 0 { scores.get_mut("location").unwrap().push((col_idx, loc_score)); }
+
+            // 給与スコア
+            let sal_score = score_salary(val);
+            if sal_score > 0 { scores.get_mut("salary").unwrap().push((col_idx, sal_score)); }
+
+            // 会社名スコア
+            let comp_score = score_company(val);
+            if comp_score > 0 { scores.get_mut("company_name").unwrap().push((col_idx, comp_score)); }
+
+            // URLスコア
+            if val.starts_with("http") { scores.get_mut("url").unwrap().push((col_idx, 100)); }
+
+            // 雇用形態スコア
+            let emp_score = score_employment_type(val);
+            if emp_score > 0 { scores.get_mut("employment_type").unwrap().push((col_idx, emp_score)); }
+
+            // 求人タイトルスコア
+            let title_score = score_job_title(val);
+            if title_score > 0 { scores.get_mut("job_title").unwrap().push((col_idx, title_score)); }
+
+            // 新着スコア
+            if val.contains("新着") || val.contains("NEW") || val.contains("日前") {
+                scores.get_mut("is_new").unwrap().push((col_idx, 100));
             }
         }
     }
 
-    map
+    // 各フィールドで最高スコアの列を選択
+    let mut result = std::collections::HashMap::new();
+    let mut used_cols = std::collections::HashSet::new();
+
+    // 優先度順: URL → salary → location → company → employment → title → is_new
+    for key in &["url", "salary", "location", "company_name", "employment_type", "job_title", "is_new"] {
+        let mut col_totals: std::collections::HashMap<usize, i32> = std::collections::HashMap::new();
+        for (col, score) in scores.get(key).unwrap() {
+            *col_totals.entry(*col).or_default() += score;
+        }
+        if let Some((&best_col, &best_score)) = col_totals.iter()
+            .filter(|(col, _)| !used_cols.contains(col))
+            .max_by_key(|(_, &score)| score)
+        {
+            if best_score >= 30 {
+                result.insert(*key, best_col);
+                used_cols.insert(best_col);
+            }
+        }
+    }
+
+    // タグ: locationでもsalaryでもcompanyでもない列のうち、短いテキスト（<30文字）が多い列
+    if !result.contains_key("tags") {
+        for col_idx in 0..headers.len() {
+            if used_cols.contains(&col_idx) { continue; }
+            let h = headers[col_idx].to_lowercase();
+            if h.contains("tag") || h.contains("jobsearch-jobcard-tag") {
+                result.insert("tags", col_idx);
+                break;
+            }
+        }
+    }
+
+    result
+}
+
+fn score_location(val: &str) -> i32 {
+    if val.starts_with("http") || val.len() > 100 { return 0; }
+    let mut score = 0;
+    // 都道府県
+    if val.contains("都") || val.contains("道") || val.contains("府") || val.contains("県") {
+        let prefs = ["北海道","青森","岩手","宮城","秋田","山形","福島","茨城","栃木","群馬",
+            "埼玉","千葉","東京","神奈川","新潟","富山","石川","福井","山梨","長野","岐阜",
+            "静岡","愛知","三重","滋賀","京都","大阪","兵庫","奈良","和歌山","鳥取","島根",
+            "岡山","広島","山口","徳島","香川","愛媛","高知","福岡","佐賀","長崎","熊本",
+            "大分","宮崎","鹿児島","沖縄"];
+        if prefs.iter().any(|p| val.contains(p)) { score += 50; }
+    }
+    // 市区町村
+    if val.contains("市") || val.contains("区") || val.contains("町") || val.contains("村") { score += 30; }
+    score
+}
+
+fn score_salary(val: &str) -> i32 {
+    if val.starts_with("http") { return 0; }
+    let mut score = 0;
+    if val.contains("時給") { score += 80; }
+    if val.contains("月給") { score += 70; }
+    if val.contains("年収") || val.contains("年俸") { score += 70; }
+    if val.contains("日給") { score += 60; }
+    if val.contains("円") && val.chars().any(|c| c.is_ascii_digit()) { score += 40; }
+    if val.contains("万") && val.chars().any(|c| c.is_ascii_digit()) { score += 30; }
+    // 住所と混同しないように
+    if val.contains("市") || val.contains("区") { score = 0; }
+    score
+}
+
+fn score_company(val: &str) -> i32 {
+    if val.starts_with("http") || val.contains("円") { return 0; }
+    let mut score = 0;
+    if val.contains("株式会社") || val.contains("有限会社") || val.contains("合同会社") { score += 60; }
+    if val.contains("(株)") || val.contains("（株）") { score += 50; }
+    if val.contains("法人") || val.contains("医療法人") || val.contains("社会福祉法人") { score += 60; }
+    if val.len() >= 3 && val.len() <= 50 && score == 0 { score += 5; } // 短すぎず長すぎない
+    score
+}
+
+fn score_employment_type(val: &str) -> i32 {
+    if val.contains("正社員") || val.contains("契約社員") || val.contains("派遣社員")
+        || val.contains("パート") || val.contains("アルバイト") || val.contains("業務委託")
+        || val.contains("紹介予定派遣") { return 100; }
+    0
+}
+
+fn score_job_title(val: &str) -> i32 {
+    if val.starts_with("http") || val.contains("円") { return 0; }
+    let keywords = ["エンジニア","デザイナー","営業","事務","経理","スタッフ","ドライバー",
+        "看護","介護","製造","加工","販売","接客","マネージャー","担当","募集","オペレーター"];
+    let mut score = 0;
+    if keywords.iter().any(|k| val.contains(k)) { score += 40; }
+    if val.len() >= 5 && val.len() <= 100 { score += 20; }
+    score
 }
