@@ -101,7 +101,12 @@
         <span id="bc-job" class="bc-chip bc-chip-job">全産業</span>
     </div>
 
-    <main id="content" class="p-6" style="transition:opacity 0.15s ease">
+    <!-- ローディングオーバーレイ -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <main id="content" class="p-6">
         <div class="text-center text-slate-400 py-20">
             <p class="text-lg">読み込み中...</p>
         </div>
@@ -110,10 +115,20 @@
     <script src="/static/js/tabcache.js"></script>
     <script src="/static/js/app.js"></script>
     <script>
-    // フィルタ変更時のローディングフィードバック: opacity復帰
+    // タブ切替・フィルタ変更時のローディングフィードバック
+    document.body.addEventListener('htmx:beforeRequest', function(e) {
+        var c = document.getElementById('content');
+        if (c && e.detail.target === c) {
+            c.classList.add('loading');
+            document.getElementById('loading-overlay').classList.add('active');
+        }
+    });
     document.body.addEventListener('htmx:afterSettle', function(e) {
         var c = document.getElementById('content');
-        if (c) c.style.opacity = '1';
+        if (c) {
+            c.classList.remove('loading');
+            document.getElementById('loading-overlay').classList.remove('active');
+        }
     });
     </script>
     <script src="/static/js/charts.js"></script>
