@@ -275,7 +275,7 @@ pub fn detect_columns_from_data(
             *col_totals.entry(*col).or_default() += score;
         }
         if let Some((&best_col, &best_score)) = col_totals.iter()
-            .filter(|(col, _)| !used_cols.contains(col))
+            .filter(|(col, _)| !used_cols.contains(*col))
             .max_by_key(|(_, &score)| score)
         {
             if best_score >= 30 {
