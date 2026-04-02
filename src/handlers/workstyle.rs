@@ -76,6 +76,8 @@ struct WorkstyleStats {
     /// 入居住宅あり率
     housing_rate: f64,
     housing_count: i64,
+    /// 休日テキスト分布 (text, count)
+    holiday_text_dist: Vec<(String, i64)>,
     /// 福利厚生一覧 (label, count, rate%)
     benefits_list: Vec<(String, i64, f64)>,
 }
@@ -102,6 +104,7 @@ impl Default for WorkstyleStats {
             childcare_count: 0,
             housing_rate: 0.0,
             housing_count: 0,
+            holiday_text_dist: Vec::new(),
             benefits_list: Vec::new(),
         }
     }
@@ -237,6 +240,24 @@ fn fetch_workstyle(
                 let cnt = get_i64(row, "cnt");
                 if !label.is_empty() {
                     stats.weekly_holiday_dist.push((label, cnt));
+                }
+            }
+        }
+    }
+
+    // 7b. 休日テキスト詳細分布（上位10パターン）
+    {
+        let sql = format!(
+            "SELECT holiday_text, COUNT(*) as cnt \
+             FROM postings WHERE 1=1{filter_clause} AND holiday_text IS NOT NULL AND holiday_text != '' \
+             GROUP BY holiday_text ORDER BY cnt DESC LIMIT 10"
+        );
+        if let Ok(rows) = db.query(&sql, &mk_bind()) {
+            for row in &rows {
+                let text = get_str(row, "holiday_text");
+                let cnt = get_i64(row, "cnt");
+                if !text.is_empty() {
+                    stats.holiday_text_dist.push((text, cnt));
                 }
             }
         }
@@ -606,6 +627,15 @@ fn render_workstyle(
                 }}]
             }}'></div>
         </div>
+        <!-- 休日パターン詳細 -->
+        <div class="stat-card">
+            <h3 class="text-sm text-slate-400 mb-3">休日パターン Top10</h3>
+            <div class="space-y-1">
+                {holiday_text_bars}
+            </div>
+        </div>
+    </div>
+    <div class="grid-charts">
         <!-- 年間休日分布 -->
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">年間休日分布</h3>
@@ -626,16 +656,7 @@ fn render_workstyle(
         <!-- 月平均残業時間 -->
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">月平均残業時間分布</h3>
-            <div class="echart" style="height:300px;" data-chart-config='{{
-                "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
-                "xAxis": {{"type": "category", "data": [{overtime_labels}]}},
-                "yAxis": {{"type": "value"}},
-                "series": [{{
-                    "type": "bar",
-                    "data": [{overtime_values}],
-                    "itemStyle": {{"color": "#F59E0B", "borderRadius": [4, 4, 0, 0]}}
-                }}]
-            }}'></div>
+            {overtime_chart}
         </div>
         <!-- 福利厚生一覧 -->
         <div class="stat-card">
@@ -664,8 +685,33 @@ fn render_workstyle(
         weekly_pie = weekly_pie.join(","),
         holiday_labels = holiday_labels.join(","),
         holiday_values = holiday_values.join(","),
-        overtime_labels = overtime_labels.join(","),
-        overtime_values = overtime_values.join(","),
+        holiday_text_bars = {
+            let max_cnt = stats.holiday_text_dist.first().map(|(_, c)| *c).unwrap_or(1).max(1);
+            let mut bars = String::new();
+            for (text, cnt) in &stats.holiday_text_dist {
+                let w = (*cnt as f64 / max_cnt as f64 * 100.0).min(100.0);
+                bars.push_str(&format!(
+                    "<div class=\"flex items-center gap-2\">\
+                     <div class=\"w-28 text-xs text-slate-400 text-right flex-shrink-0 truncate\">{}</div>\
+                     <div class=\"flex-1 rounded-full h-4 relative overflow-hidden\" style=\"background:rgba(15,23,42,0.6)\">\
+                       <div class=\"h-full rounded-full\" style=\"width:{w:.1}%;background:#8b5cf6\"></div>\
+                     </div>\
+                     <div class=\"w-16 text-xs text-slate-300 text-right\">{}</div>\
+                    </div>",
+                    super::helpers::escape_html(text),
+                    super::helpers::format_number(*cnt),
+                ));
+            }
+            if bars.is_empty() { "<p class=\"text-slate-500 text-sm\">データなし</p>".to_string() } else { bars }
+        },
+        overtime_chart = if overtime_labels.is_empty() {
+            r#"<p class="text-slate-500 text-sm text-center py-8">残業時間データがありません</p>"#.to_string()
+        } else {
+            format!(
+                "<div class=\"echart\" style=\"height:300px;\" data-chart-config='{{\"tooltip\":{{\"trigger\":\"axis\",\"axisPointer\":{{\"type\":\"shadow\"}}}},\"grid\":{{\"left\":\"3%\",\"right\":\"4%\",\"bottom\":\"3%\",\"top\":\"15%\",\"containLabel\":true}},\"xAxis\":{{\"type\":\"category\",\"data\":[{}]}},\"yAxis\":{{\"type\":\"value\"}},\"series\":[{{\"type\":\"bar\",\"data\":[{}],\"itemStyle\":{{\"color\":\"#F59E0B\",\"borderRadius\":[4,4,0,0]}}}}]}}'></div>",
+                overtime_labels.join(","), overtime_values.join(",")
+            )
+        },
         benefits_bars = {
             let mut bars = String::new();
             for (label, _cnt, rate) in &stats.benefits_list {
