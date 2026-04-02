@@ -12,3 +12,4 @@ pub mod guide;
 pub mod insight;
 pub mod survey;
 pub mod trend;
+pub mod company;
