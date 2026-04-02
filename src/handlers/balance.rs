@@ -64,7 +64,9 @@ struct BalanceStats {
     /// KPI
     total_postings: i64,
     total_facilities: i64,
-    avg_employee_count: f64,
+    avg_employee_count: f64,     // 平均
+    median_employee_count: f64,  // 中央値
+    mode_employee_count: i64,    // 最頻値
 }
 
 impl Default for BalanceStats {
@@ -81,6 +83,8 @@ impl Default for BalanceStats {
             total_postings: 0,
             total_facilities: 0,
             avg_employee_count: 0.0,
+            median_employee_count: 0.0,
+            mode_employee_count: 0,
         }
     }
 }
@@ -96,19 +100,21 @@ fn fetch_balance(
         filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
     };
 
-    // 0. KPI基本（従業員数は中央値を使用 — 平均は大企業に引っ張られるため）
+    // 0. KPI基本 + 従業員数（平均/中央値/最頻値の3指標）
     {
         let sql = format!(
-            "SELECT COUNT(*) as cnt, COUNT(DISTINCT facility_name) as fac_cnt \
+            "SELECT COUNT(*) as cnt, COUNT(DISTINCT facility_name) as fac_cnt, \
+             AVG(NULLIF(employee_count, 0)) as avg_emp \
              FROM postings WHERE 1=1{filter_clause}"
         );
         if let Ok(rows) = db.query(&sql, &mk_bind()) {
             if let Some(row) = rows.first() {
                 stats.total_postings = get_i64(row, "cnt");
                 stats.total_facilities = get_i64(row, "fac_cnt");
+                stats.avg_employee_count = get_f64(row, "avg_emp");
             }
         }
-        // 従業員数の中央値を別クエリで計算（SQLiteにMEDIAN関数がないため）
+        // 中央値（SQLiteにMEDIAN関数がないためOFFSETで計算）
         let median_sql = format!(
             "SELECT employee_count FROM postings \
              WHERE 1=1{filter_clause} AND employee_count > 0 \
@@ -117,7 +123,18 @@ fn fetch_balance(
         );
         if let Ok(rows) = db.query(&median_sql, &mk_bind()) {
             if let Some(row) = rows.first() {
-                stats.avg_employee_count = get_f64(row, "employee_count");
+                stats.median_employee_count = get_f64(row, "employee_count");
+            }
+        }
+        // 最頻値
+        let mode_sql = format!(
+            "SELECT employee_count, COUNT(*) as freq FROM postings \
+             WHERE 1=1{filter_clause} AND employee_count > 0 \
+             GROUP BY employee_count ORDER BY freq DESC LIMIT 1"
+        );
+        if let Ok(rows) = db.query(&mode_sql, &mk_bind()) {
+            if let Some(row) = rows.first() {
+                stats.mode_employee_count = get_i64(row, "employee_count");
             }
         }
     }
@@ -322,14 +339,20 @@ fn render_balance(
         <div class="stat-value text-amber-400">{}<span class="text-lg">人</span></div>
         <div class="stat-label">従業員数（中央値）</div>
     </div>
+    <div class="stat-card">
+        <div class="stat-value text-cyan-400">{}<span class="text-lg">人</span></div>
+        <div class="stat-label">従業員数（平均）</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value text-purple-400">{}<span class="text-lg">人</span></div>
+        <div class="stat-label">従業員数（最頻値）</div>
+    </div>
 </div>"##,
         format_number(stats.total_postings),
         format_number(stats.total_facilities),
-        if stats.avg_employee_count > 0.0 {
-            format!("{:.0}", stats.avg_employee_count)
-        } else {
-            "-".to_string()
-        },
+        if stats.median_employee_count > 0.0 { format!("{:.0}", stats.median_employee_count) } else { "-".to_string() },
+        if stats.avg_employee_count > 0.0 { format!("{:.0}", stats.avg_employee_count) } else { "-".to_string() },
+        if stats.mode_employee_count > 0 { format_number(stats.mode_employee_count) } else { "-".to_string() },
     );
 
     // 従業員規模分布
