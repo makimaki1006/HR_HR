@@ -76,6 +76,8 @@ struct WorkstyleStats {
     /// 入居住宅あり率
     housing_rate: f64,
     housing_count: i64,
+    /// 福利厚生一覧 (label, count, rate%)
+    benefits_list: Vec<(String, i64, f64)>,
 }
 
 impl Default for WorkstyleStats {
@@ -100,6 +102,7 @@ impl Default for WorkstyleStats {
             childcare_count: 0,
             housing_rate: 0.0,
             housing_count: 0,
+            benefits_list: Vec::new(),
         }
     }
 }
@@ -309,6 +312,41 @@ fn fetch_workstyle(
                 stats.housing_rate = stats.housing_count as f64 / total * 100.0;
             }
         }
+    }
+
+    // 13. 福利厚生一覧（has_*カラム全16項目）
+    {
+        let benefits_cols = [
+            ("has_社会保険", "社会保険"),
+            ("has_雇用保険", "雇用保険"),
+            ("has_健康保険", "健康保険"),
+            ("has_厚生年金", "厚生年金"),
+            ("has_退職金", "退職金"),
+            ("has_賞与", "賞与"),
+            ("has_昇給", "昇給"),
+            ("has_育児休業", "育児休業"),
+            ("has_介護休暇", "介護休暇"),
+            ("has_在宅勤務", "在宅勤務"),
+            ("has_マイカー通勤", "マイカー通勤可"),
+            ("has_週休二日", "週休二日制"),
+            ("has_年休120以上", "年間休日120日以上"),
+            ("has_外国人雇用", "外国人雇用実績"),
+            ("has_定年制", "定年制"),
+            ("has_再雇用制度", "再雇用制度"),
+        ];
+        for (col, label) in &benefits_cols {
+            let sql = format!(
+                "SELECT SUM(CASE WHEN \"{col}\" = 1 THEN 1 ELSE 0 END) as cnt FROM postings WHERE 1=1{filter_clause}"
+            );
+            if let Ok(rows) = db.query(&sql, &mk_bind()) {
+                if let Some(row) = rows.first() {
+                    let cnt = get_i64(row, "cnt");
+                    let rate = if total > 0.0 { cnt as f64 / total * 100.0 } else { 0.0 };
+                    stats.benefits_list.push((label.to_string(), cnt, rate));
+                }
+            }
+        }
+        stats.benefits_list.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
     }
 
     stats
@@ -599,22 +637,11 @@ fn render_workstyle(
                 }}]
             }}'></div>
         </div>
-        <!-- テレワーク・福利厚生KPI -->
+        <!-- 福利厚生一覧 -->
         <div class="stat-card">
-            <h3 class="text-sm text-slate-400 mb-3">その他の福利厚生</h3>
-            <div class="space-y-4 mt-4">
-                <div class="flex items-center justify-between p-3 rounded-lg" style="background: rgba(99,102,241,0.1);">
-                    <span class="text-white font-medium">テレワーク対応</span>
-                    <span class="text-2xl font-bold" style="color: #6366F1;">{telework_rate:.1}%</span>
-                </div>
-                <div class="flex items-center justify-between p-3 rounded-lg" style="background: rgba(236,72,153,0.1);">
-                    <span class="text-white font-medium">託児施設あり</span>
-                    <span class="text-2xl font-bold" style="color: #EC4899;">{childcare_rate:.1}%</span>
-                </div>
-                <div class="flex items-center justify-between p-3 rounded-lg" style="background: rgba(16,185,129,0.1);">
-                    <span class="text-white font-medium">入居住宅あり</span>
-                    <span class="text-2xl font-bold" style="color: #10B981;">{housing_rate:.1}%</span>
-                </div>
+            <h3 class="text-sm text-slate-400 mb-3">福利厚生一覧</h3>
+            <div class="space-y-1 mt-2">
+                {benefits_bars}
             </div>
         </div>
     </div>
@@ -639,8 +666,22 @@ fn render_workstyle(
         holiday_values = holiday_values.join(","),
         overtime_labels = overtime_labels.join(","),
         overtime_values = overtime_values.join(","),
-        telework_rate = stats.telework_rate,
-        childcare_rate = stats.childcare_rate,
-        housing_rate = stats.housing_rate,
+        benefits_bars = {
+            let mut bars = String::new();
+            for (label, _cnt, rate) in &stats.benefits_list {
+                let w = rate.min(100.0);
+                let color = if *rate > 70.0 { "#22c55e" } else if *rate > 40.0 { "#3b82f6" } else { "#64748b" };
+                bars.push_str(&format!(
+                    "<div class=\"flex items-center gap-2\">\
+                     <div class=\"w-28 text-xs text-slate-400 text-right flex-shrink-0\">{label}</div>\
+                     <div class=\"flex-1 rounded-full h-4 relative overflow-hidden\" style=\"background:rgba(15,23,42,0.6)\">\
+                       <div class=\"h-full rounded-full\" style=\"width:{w:.1}%;background:{color}\"></div>\
+                     </div>\
+                     <div class=\"w-12 text-xs text-slate-300 text-right\">{rate:.1}%</div>\
+                    </div>"
+                ));
+            }
+            bars
+        },
     )
 }
