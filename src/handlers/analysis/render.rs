@@ -2797,7 +2797,17 @@ pub(crate) fn render_subtab_7(
     if !spatial.is_empty() {
         html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">通勤圏求人市場</h4>"#);
         html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
-        if let Some(row) = spatial.iter().find(|r| get_str(r, "emp_group") == "正社員") {
+        // 正社員優先、なければfirst()にフォールバック
+        let (sm_row, is_fallback) = if let Some(row) = spatial.iter().find(|r| get_str(r, "emp_group") == "正社員") {
+            (Some(row), false)
+        } else {
+            (spatial.first(), true)
+        };
+        if let Some(row) = sm_row {
+            if is_fallback {
+                let grp = get_str(row, "emp_group");
+                html.push_str(&format!(r#"<p class="text-xs text-amber-400 mb-2">※正社員データなし。{}のデータを表示</p>"#, escape_html(grp)));
+            }
             let acc30 = get_i64(row, "accessible_postings_30km");
             let local = get_i64(row, "posting_count");
             let gap = get_f64(row, "salary_gap_vs_accessible");
