@@ -102,6 +102,35 @@ async fn main() {
         }
     };
 
+    // SalesNow Turso DB接続（企業分析タブ用）
+    let salesnow_db = match (
+        std::env::var("SALESNOW_TURSO_URL").ok(),
+        std::env::var("SALESNOW_TURSO_TOKEN").ok(),
+    ) {
+        (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
+            match tokio::task::spawn_blocking(move || {
+                rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+            }).await {
+                Ok(Ok(db)) => {
+                    tracing::info!("SalesNow DB connected: {}", std::env::var("SALESNOW_TURSO_URL").unwrap_or_default());
+                    Some(db)
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("SalesNow DB not available: {e}");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("SalesNow DB init failed: {e}");
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::info!("SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)");
+            None
+        }
+    };
+
     let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
     let rate_limiter = RateLimiter::new(config.rate_limit_max_attempts, config.rate_limit_lockout_secs);
 
@@ -109,6 +138,7 @@ async fn main() {
         config,
         hw_db,
         turso_db,
+        salesnow_db,
         cache,
         rate_limiter,
     });
