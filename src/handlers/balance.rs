@@ -96,18 +96,28 @@ fn fetch_balance(
         filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
     };
 
-    // 0. KPI基本
+    // 0. KPI基本（従業員数は中央値を使用 — 平均は大企業に引っ張られるため）
     {
         let sql = format!(
-            "SELECT COUNT(*) as cnt, COUNT(DISTINCT facility_name) as fac_cnt, \
-             AVG(NULLIF(employee_count, 0)) as avg_emp \
+            "SELECT COUNT(*) as cnt, COUNT(DISTINCT facility_name) as fac_cnt \
              FROM postings WHERE 1=1{filter_clause}"
         );
         if let Ok(rows) = db.query(&sql, &mk_bind()) {
             if let Some(row) = rows.first() {
                 stats.total_postings = get_i64(row, "cnt");
                 stats.total_facilities = get_i64(row, "fac_cnt");
-                stats.avg_employee_count = get_f64(row, "avg_emp");
+            }
+        }
+        // 従業員数の中央値を別クエリで計算（SQLiteにMEDIAN関数がないため）
+        let median_sql = format!(
+            "SELECT employee_count FROM postings \
+             WHERE 1=1{filter_clause} AND employee_count > 0 \
+             ORDER BY employee_count \
+             LIMIT 1 OFFSET (SELECT COUNT(*)/2 FROM postings WHERE 1=1{filter_clause} AND employee_count > 0)"
+        );
+        if let Ok(rows) = db.query(&median_sql, &mk_bind()) {
+            if let Some(row) = rows.first() {
+                stats.avg_employee_count = get_f64(row, "employee_count");
             }
         }
     }
@@ -310,7 +320,7 @@ fn render_balance(
     </div>
     <div class="stat-card">
         <div class="stat-value text-amber-400">{}<span class="text-lg">人</span></div>
-        <div class="stat-label">平均従業員数</div>
+        <div class="stat-label">従業員数（中央値）</div>
     </div>
 </div>"##,
         format_number(stats.total_postings),
