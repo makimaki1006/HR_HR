@@ -118,33 +118,63 @@ def parse_float(v):
         return None
 
 
-def upload_companies(turso_url, turso_token, dry_run=False):
+def upload_companies(turso_url, turso_token, dry_run=False, resume=False):
     """CSVからSalesNow企業をTursoにアップロード"""
     if not CSV_FILE.exists():
         print(f"エラー: CSVが見つかりません: {CSV_FILE}")
         sys.exit(1)
 
-    # テーブル作成（DROP + CREATE）
-    print("テーブル作成...")
-    for table_name, schema in SCHEMAS.items():
-        stmts = [
-            (f"DROP TABLE IF EXISTS {table_name}", []),
-            (schema, []),
-        ]
+    if not resume:
+        # テーブル作成（DROP + CREATE）
+        print("テーブル作成...")
+        for table_name, schema in SCHEMAS.items():
+            stmts = [
+                (f"DROP TABLE IF EXISTS {table_name}", []),
+                (schema, []),
+            ]
+            if not dry_run:
+                turso_pipeline(turso_url, turso_token, stmts)
+            print(f"  {table_name}: 作成完了")
+
+        # 業界マッピングのアップロード
+        print("\n業界マッピングアップロード...")
+        mapping_rows = build_mapping_rows()
+        insert_mapping = "INSERT OR REPLACE INTO v2_industry_mapping (sn_industry, hw_job_type, confidence) VALUES (?1, ?2, ?3)"
+        stmts = [(insert_mapping, list(row)) for row in mapping_rows]
         if not dry_run:
             turso_pipeline(turso_url, turso_token, stmts)
-        print(f"  {table_name}: 作成完了")
+        print(f"  v2_industry_mapping: {len(mapping_rows)} 行完了")
+    else:
+        print("再開モード: テーブルDROPをスキップ")
 
-    # 業界マッピングのアップロード
-    print("\n業界マッピングアップロード...")
-    mapping_rows = build_mapping_rows()
-    insert_mapping = "INSERT OR REPLACE INTO v2_industry_mapping (sn_industry, hw_job_type, confidence) VALUES (?1, ?2, ?3)"
-    stmts = [(insert_mapping, list(row)) for row in mapping_rows]
-    if not dry_run:
-        turso_pipeline(turso_url, turso_token, stmts)
-    print(f"  v2_industry_mapping: {len(mapping_rows)} 行完了")
+    # CSVから法人番号ごとに最良レコードを選択（従業員数最大優先、情報充填率優先）
+    print("\n企業データ読み込み・重複排除...")
+    best_records = {}  # corporate_number → best row
 
-    # 企業データのアップロード
+    with open(CSV_FILE, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            corp_num = (row.get("corporate_number") or "").strip()
+            if not corp_num:
+                continue
+
+            emp = parse_int(row.get("employee_count")) or 0
+            # 情報充填スコア: 各フィールドが埋まっているほど高い
+            fill_score = sum(1 for k in ["sn_industry", "sn_industry2", "sales_range", "credit_score", "employee_delta_1y"]
+                            if (row.get(k) or "").strip())
+
+            if corp_num not in best_records:
+                best_records[corp_num] = (row, emp, fill_score)
+            else:
+                _, prev_emp, prev_fill = best_records[corp_num]
+                # 従業員数が大きい方 → 同数なら充填率が高い方を採用
+                if (emp, fill_score) > (prev_emp, prev_fill):
+                    best_records[corp_num] = (row, emp, fill_score)
+
+    dedup_count = len(best_records)
+    print(f"  CSV {sum(1 for _ in open(CSV_FILE, encoding='utf-8')) - 1}行 → 重複排除後 {dedup_count}件")
+
+    # アップロード
     print("\n企業データアップロード...")
     insert_sql = """INSERT OR REPLACE INTO v2_salesnow_companies
         (corporate_number, company_name, employee_count, employee_range,
@@ -154,49 +184,57 @@ def upload_companies(turso_url, turso_token, dry_run=False):
 
     total = 0
     skipped = 0
+    errors = 0
     batch = []
 
-    with open(CSV_FILE, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            corp_num = (row.get("corporate_number") or "").strip()
-            if not corp_num:
-                skipped += 1
-                continue
+    for corp_num, (row, _, _) in best_records.items():
+        params = [
+            corp_num,
+            (row.get("sn_company_name") or row.get("name") or "").strip(),
+            parse_int(row.get("employee_count")),
+            (row.get("employee_range") or "").strip() or None,
+            parse_float(row.get("employee_delta_1y")),
+            (row.get("sales_range") or "").strip() or None,
+            (row.get("sn_industry") or "").strip() or None,
+            (row.get("sn_industry2") or "").strip() or None,
+            (row.get("prefecture") or "").strip() or None,
+            parse_float(row.get("credit_score")),
+            (row.get("hubspot_id") or "").strip() or None,
+        ]
 
-            params = [
-                corp_num,
-                (row.get("sn_company_name") or row.get("name") or "").strip(),
-                parse_int(row.get("employee_count")),
-                (row.get("employee_range") or "").strip() or None,
-                parse_float(row.get("employee_delta_1y")),
-                (row.get("sales_range") or "").strip() or None,
-                (row.get("sn_industry") or "").strip() or None,
-                (row.get("sn_industry2") or "").strip() or None,
-                (row.get("prefecture") or "").strip() or None,
-                parse_float(row.get("credit_score")),
-                (row.get("hubspot_id") or "").strip() or None,
-            ]
+        batch.append((insert_sql, params))
 
-            batch.append((insert_sql, params))
+        if len(batch) >= BATCH_SIZE:
+            if not dry_run:
+                for attempt in range(3):
+                    try:
+                        turso_pipeline(turso_url, turso_token, batch)
+                        break
+                    except Exception as e:
+                        if attempt < 2:
+                            print(f"    リトライ {attempt+1}/3: {e}")
+                            time.sleep(2)
+                        else:
+                            print(f"    スキップ（3回失敗）: {e}")
+                            errors += len(batch)
+            total += len(batch)
+            batch = []
 
-            if len(batch) >= BATCH_SIZE:
-                if not dry_run:
-                    turso_pipeline(turso_url, turso_token, batch)
-                total += len(batch)
-                batch = []
-
-                if total % 5000 == 0:
-                    print(f"    {total} 行完了...")
-                    time.sleep(0.1)  # レートリミット回避
+            if total % 5000 == 0:
+                print(f"    {total} 行完了... (エラー: {errors})")
+                time.sleep(0.05)
 
     # 残りのバッチ
     if batch:
         if not dry_run:
-            turso_pipeline(turso_url, turso_token, batch)
+            try:
+                turso_pipeline(turso_url, turso_token, batch)
+            except Exception as e:
+                print(f"    最終バッチエラー: {e}")
+                errors += len(batch)
         total += len(batch)
 
-    print(f"  v2_salesnow_companies: {total} 行アップロード完了 (スキップ: {skipped})")
+    print(f"  v2_salesnow_companies: {total} 行完了 (スキップ: {skipped}, エラー: {errors})")
     return total
 
 
@@ -208,6 +246,8 @@ def main():
                         help="Turso Token")
     parser.add_argument("--dry-run", action="store_true",
                         help="実際にはアップロードしない")
+    parser.add_argument("--resume", action="store_true",
+                        help="テーブルDROPせずに追加のみ（途中再開用）")
     args = parser.parse_args()
 
     turso_url = args.url
@@ -226,7 +266,7 @@ def main():
     print(f"Dry run: {args.dry_run}")
     print()
 
-    total = upload_companies(turso_url, turso_token, args.dry_run)
+    total = upload_companies(turso_url, turso_token, args.dry_run, getattr(args, 'resume', False))
     print(f"\n完了: {total} 企業をTursoにアップロード")
 
 
