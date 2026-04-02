@@ -5,11 +5,13 @@ use crate::handlers::competitive::{escape_html, truncate_str};
 pub(crate) fn render_jobmap_page(
     job_type: &str,
     prefecture: &str,
+    municipality: &str,
     prefecture_options: &str,
 ) -> String {
     include_str!("../../../templates/tabs/jobmap.html")
         .replace("{{JOB_TYPE}}", &escape_html(job_type))
         .replace("{{PREFECTURE}}", &escape_html(prefecture))
+        .replace("{{MUNICIPALITY}}", &escape_html(municipality))
         .replace("{{PREFECTURE_OPTIONS}}", prefecture_options)
 }
 

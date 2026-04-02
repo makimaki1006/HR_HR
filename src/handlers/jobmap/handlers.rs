@@ -85,7 +85,7 @@ pub async fn tab_jobmap(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let html = render::render_jobmap_page(&industry_label, &filters.prefecture, &pref_options);
+    let html = render::render_jobmap_page(&industry_label, &filters.prefecture, &filters.municipality, &pref_options);
     Html(html)
 }
 

@@ -384,4 +384,52 @@
       htmx.ajax('GET', '/api/jobmap/region/summary?prefecture=' + encodeURIComponent(pref), {target: '#jm-region-stats-content', swap: 'innerHTML'});
     });
   }
+
+  // セッション選択済み都道府県・市区町村がある場合、自動で地図をロード
+  (function autoLoadFromSession() {
+    var sessionPref = '{{PREFECTURE}}';
+    var sessionMuni = '{{MUNICIPALITY}}';
+    if (!sessionPref) return;
+
+    var prefSel = document.getElementById('jm-pref');
+    if (!prefSel || prefSel.value !== sessionPref) return;
+
+    // 地域統計パネルを自動表示
+    var statsPanel = document.getElementById('jm-region-stats');
+    var statsContent = document.getElementById('jm-region-stats-content');
+    if (statsPanel && statsContent) {
+      statsPanel.style.display = 'block';
+      statsContent.textContent = '読み込み中...';
+      var summaryUrl = '/api/jobmap/region/summary?prefecture=' + encodeURIComponent(sessionPref);
+      if (sessionMuni) summaryUrl += '&municipality=' + encodeURIComponent(sessionMuni);
+      htmx.ajax('GET', summaryUrl, {target: '#jm-region-stats-content', swap: 'innerHTML'});
+    }
+
+    // 市区町村リストを取得して自動選択 → 検索実行
+    if (sessionMuni) {
+      fetch('/api/jobmap/municipalities?prefecture=' + encodeURIComponent(sessionPref))
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var muniSel = document.getElementById('jm-muni');
+          if (!muniSel) return;
+          muniSel.innerHTML = '<option value="">-- 市区町村 --</option>' + html;
+          // セッションの市区町村を選択
+          for (var i = 0; i < muniSel.options.length; i++) {
+            if (muniSel.options[i].value === sessionMuni) {
+              muniSel.value = sessionMuni;
+              break;
+            }
+          }
+          // 地図検索を自動実行（マップ初期化完了を待つ）
+          function trySearch() {
+            if (typeof postingMap !== 'undefined' && window.__jmMap) {
+              postingMap.search();
+            } else {
+              setTimeout(trySearch, 300);
+            }
+          }
+          setTimeout(trySearch, 500);
+        });
+    }
+  })();
 </script>

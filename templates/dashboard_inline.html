@@ -121,6 +121,7 @@
         var c = document.getElementById('content');
         if (c) {
             c.classList.remove('loading');
+            c.style.opacity = '';
             document.getElementById('loading-overlay').classList.remove('active');
         }
     });
