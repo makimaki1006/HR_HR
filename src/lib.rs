@@ -157,10 +157,27 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             http::HeaderValue::from_static("public, max-age=604800, immutable"),
         ));
 
+    // JSON REST API v1（認証不要 - MCP/AI連携用）
+    let api_v1 = Router::new()
+        .route("/api/v1/companies", get(handlers::api_v1::search_companies))
+        .route(
+            "/api/v1/companies/{corporate_number}",
+            get(handlers::api_v1::company_profile),
+        )
+        .route(
+            "/api/v1/companies/{corporate_number}/nearby",
+            get(handlers::api_v1::nearby_companies),
+        )
+        .route(
+            "/api/v1/companies/{corporate_number}/postings",
+            get(handlers::api_v1::company_postings),
+        );
+
     Router::new()
         .route("/health", get(health_check))
         .route("/login", get(login_page).post(login_submit))
         .route("/logout", get(logout))
+        .merge(api_v1)
         .merge(protected_routes)
         .with_state(state)
         .merge(static_router)

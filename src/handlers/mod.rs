@@ -13,3 +13,4 @@ pub mod insight;
 pub mod survey;
 pub mod trend;
 pub mod company;
+pub mod api_v1;
