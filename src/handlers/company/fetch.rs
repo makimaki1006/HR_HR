@@ -1,6 +1,19 @@
 use crate::db::turso_http::TursoDb;
 use crate::handlers::helpers::{get_f64, get_i64, get_str, Row};
 
+/// 近隣企業データ（郵便番号上3桁マッチ）
+#[derive(Default)]
+pub struct NearbyCompany {
+    pub corporate_number: String,
+    pub company_name: String,
+    pub prefecture: String,
+    pub sn_industry: String,
+    pub employee_count: i64,
+    pub credit_score: f64,
+    pub postal_code: String,
+    pub hw_posting_count: i64,
+}
+
 /// 企業プロフィール + 市場コンテキストの統合データ
 #[derive(Default)]
 pub struct CompanyContext {
@@ -15,6 +28,10 @@ pub struct CompanyContext {
     pub sn_industry2: String,
     pub prefecture: String,
     pub credit_score: f64,
+    pub address: String,
+    pub postal_code: String,
+    pub nearby_companies: Vec<NearbyCompany>,
+    pub hw_matched_postings: Vec<Row>,
 
     // 業界マッピング結果
     pub hw_job_types: Vec<(String, f64)>,
@@ -65,7 +82,7 @@ pub fn fetch_company_detail(turso: &TursoDb, corporate_number: &str) -> Option<R
     let sql = r#"
         SELECT corporate_number, company_name, employee_count, employee_range,
                employee_delta_1y, sales_range, sn_industry, sn_industry2,
-               prefecture, credit_score, hubspot_id
+               prefecture, credit_score, address, postal_code, hubspot_id
         FROM v2_salesnow_companies
         WHERE corporate_number = ?1
     "#;
@@ -113,6 +130,10 @@ pub fn build_company_context(
         sn_industry2: get_str(&row, "sn_industry2"),
         prefecture: get_str(&row, "prefecture"),
         credit_score: get_f64(&row, "credit_score"),
+        address: get_str(&row, "address"),
+        postal_code: get_str(&row, "postal_code"),
+        nearby_companies: vec![],
+        hw_matched_postings: vec![],
         ..Default::default()
     };
 
@@ -139,6 +160,14 @@ pub fn build_company_context(
     // 外部統計（country-statistics Turso: 人口等）
     if let Some(ext) = ext_db {
         fetch_external_stats(ext, &mut ctx);
+    }
+
+    // HW求人マッチング（企業名でfacility_nameを検索）
+    ctx.hw_matched_postings = fetch_hw_postings_for_company(db, &ctx.company_name, &ctx.prefecture);
+
+    // 近隣企業検索（郵便番号上3桁マッチ）
+    if !ctx.postal_code.is_empty() {
+        ctx.nearby_companies = fetch_nearby_companies(sn_db, db, &ctx.postal_code, &ctx.corporate_number, &ctx.prefecture);
     }
 
     Some(ctx)
@@ -317,4 +346,99 @@ fn fetch_external_stats(turso: &TursoDb, ctx: &mut CompanyContext) {
             ctx.aging_rate = get_f64(r, "aging_rate");
         }
     }
+}
+
+/// 企業名正規化（法人格除去）
+fn normalize_company_name(name: &str) -> String {
+    name.replace("株式会社", "")
+        .replace("有限会社", "")
+        .replace("合同会社", "")
+        .replace("(株)", "")
+        .replace("（株）", "")
+        .replace("(有)", "")
+        .replace("（有）", "")
+        .replace("(合)", "")
+        .replace("（合）", "")
+        .trim()
+        .to_string()
+}
+
+/// HW求人マッチング（企業名でfacility_nameをLIKE検索）
+pub fn fetch_hw_postings_for_company(
+    db: &crate::db::local_sqlite::LocalDb,
+    company_name: &str,
+    prefecture: &str,
+) -> Vec<Row> {
+    let normalized = normalize_company_name(company_name);
+    if normalized.len() < 2 {
+        return vec![];
+    }
+    let like_pattern = format!("%{}%", normalized);
+    let sql = "SELECT facility_name, job_type, employment_type, salary_type, \
+               salary_min, salary_max, headline, municipality, industry_raw \
+               FROM postings \
+               WHERE facility_name LIKE ?1 AND prefecture = ?2 \
+               ORDER BY salary_min DESC LIMIT 30";
+    let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
+    db.query(sql, &params).unwrap_or_default()
+}
+
+/// 近隣企業検索（郵便番号上3桁マッチ）
+pub fn fetch_nearby_companies(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    postal_code: &str,
+    exclude_corp: &str,
+    prefecture: &str,
+) -> Vec<NearbyCompany> {
+    if postal_code.len() < 3 {
+        return vec![];
+    }
+    // 郵便番号上3桁でエリアマッチ
+    let prefix = &postal_code[..3];
+    let like_pattern = format!("{}%", prefix);
+    let sql = r#"
+        SELECT corporate_number, company_name, prefecture, sn_industry,
+               employee_count, credit_score, postal_code
+        FROM v2_salesnow_companies
+        WHERE postal_code LIKE ?1 AND corporate_number != ?2
+        ORDER BY employee_count DESC
+        LIMIT 50
+    "#;
+    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&like_pattern, &exclude_corp];
+    let rows = sn_db.query(sql, &params).unwrap_or_default();
+
+    rows.iter().map(|r| {
+        let name = get_str(r, "company_name");
+        let pref = get_str(r, "prefecture");
+        // HW求人数を集計
+        let hw_count = count_hw_postings(db, &name, &pref);
+        NearbyCompany {
+            corporate_number: get_str(r, "corporate_number"),
+            company_name: name,
+            prefecture: pref,
+            sn_industry: get_str(r, "sn_industry"),
+            employee_count: get_i64(r, "employee_count"),
+            credit_score: get_f64(r, "credit_score"),
+            postal_code: get_str(r, "postal_code"),
+            hw_posting_count: hw_count,
+        }
+    }).collect()
+}
+
+/// HW求人数カウント（近隣企業用）
+fn count_hw_postings(db: &crate::db::local_sqlite::LocalDb, company_name: &str, prefecture: &str) -> i64 {
+    let normalized = normalize_company_name(company_name);
+    if normalized.len() < 2 {
+        return 0;
+    }
+    let like_pattern = format!("%{}%", normalized);
+    let sql = "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
+    let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
+    if let Ok(rows) = db.query(sql, &params) {
+        if let Some(r) = rows.first() {
+            return get_i64(r, "cnt");
+        }
+    }
+    0
 }

@@ -1,5 +1,5 @@
-use super::fetch::CompanyContext;
-use crate::handlers::helpers::{escape_html, format_number, get_str, Row};
+use super::fetch::{CompanyContext, NearbyCompany};
+use crate::handlers::helpers::{escape_html, format_number, get_str, get_i64, truncate_str, Row};
 
 /// 検索ページ（タブのシェル）
 pub fn render_search_page() -> String {
@@ -136,6 +136,12 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
 
     // セクションF: 複合示唆
     render_insights(&mut html, ctx);
+
+    // セクションG: この企業のHW求人
+    render_hw_postings(&mut html, ctx);
+
+    // セクションH: 近隣企業
+    render_nearby_companies(&mut html, ctx);
 
     // レポートリンク
     html.push_str(&format!(
@@ -524,6 +530,123 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
     html.push_str("</div></div>");
 }
 
+fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
+    html.push_str(r##"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-3">📋 この企業のハローワーク求人</h4>"##);
+
+    if ctx.hw_matched_postings.is_empty() {
+        html.push_str(r##"<p class="text-slate-500 text-sm text-center py-4">ハローワークに求人掲載なし</p></div>"##);
+        return;
+    }
+
+    html.push_str(&format!(
+        r##"<p class="text-xs text-slate-500 mb-2">企業名「{}」でマッチした求人 {}件</p>"##,
+        escape_html(&ctx.company_name),
+        ctx.hw_matched_postings.len()
+    ));
+
+    html.push_str(r##"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">
+        <thead><tr class="text-slate-500 border-b border-slate-700">
+            <th class="text-left py-1.5 px-2">職種</th>
+            <th class="text-left py-1.5 px-2">雇用形態</th>
+            <th class="text-left py-1.5 px-2">勤務地</th>
+            <th class="text-right py-1.5 px-2">給与</th>
+            <th class="text-left py-1.5 px-2">見出し</th>
+        </tr></thead><tbody>"##);
+
+    for row in &ctx.hw_matched_postings {
+        let job_type = get_str(row, "job_type");
+        let emp_type = get_str(row, "employment_type");
+        let muni = get_str(row, "municipality");
+        let salary_min = get_i64(row, "salary_min");
+        let salary_max = get_i64(row, "salary_max");
+        let salary_type = get_str(row, "salary_type");
+        let headline = get_str(row, "headline");
+
+        let salary_display = if salary_min > 0 && salary_max > 0 {
+            format!("{} {}-{}", escape_html(&salary_type), format_number(salary_min), format_number(salary_max))
+        } else if salary_min > 0 {
+            format!("{} {}~", escape_html(&salary_type), format_number(salary_min))
+        } else {
+            "-".to_string()
+        };
+
+        let emp_color = match emp_type.as_str() {
+            "正社員" => "text-green-400",
+            _ => "text-slate-300",
+        };
+
+        html.push_str(&format!(
+            r##"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
+                <td class="py-1.5 px-2">{}</td>
+                <td class="py-1.5 px-2 {}"><span class="font-medium">{}</span></td>
+                <td class="py-1.5 px-2 text-slate-400">{}</td>
+                <td class="text-right py-1.5 px-2 text-amber-400">{}</td>
+                <td class="py-1.5 px-2 text-slate-400 max-w-xs truncate">{}</td>
+            </tr>"##,
+            escape_html(&job_type),
+            emp_color,
+            escape_html(&emp_type),
+            escape_html(&muni),
+            salary_display,
+            escape_html(&truncate_str(&headline, 40)),
+        ));
+    }
+
+    html.push_str("</tbody></table></div></div>");
+}
+
+fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
+    if ctx.nearby_companies.is_empty() {
+        return;
+    }
+
+    let postal_prefix = if ctx.postal_code.len() >= 3 { &ctx.postal_code[..3] } else { &ctx.postal_code };
+
+    html.push_str(&format!(
+        r##"<div class="stat-card mt-4">
+        <h4 class="text-sm text-slate-400 mb-3">🏢 近隣企業（〒{}xxx エリア、{}社）</h4>
+        <div class="overflow-x-auto max-h-96"><table class="w-full text-xs">
+        <thead><tr class="text-slate-500 border-b border-slate-700">
+            <th class="text-left py-1.5 px-2">企業名</th>
+            <th class="text-left py-1.5 px-2">業界</th>
+            <th class="text-right py-1.5 px-2">従業員数</th>
+            <th class="text-right py-1.5 px-2">与信</th>
+            <th class="text-right py-1.5 px-2">HW求人</th>
+        </tr></thead><tbody>"##,
+        escape_html(postal_prefix),
+        ctx.nearby_companies.len(),
+    ));
+
+    for nc in &ctx.nearby_companies {
+        let hw_badge = if nc.hw_posting_count > 0 {
+            format!(r##"<span class="text-blue-400 font-medium">{}件</span>"##, nc.hw_posting_count)
+        } else {
+            r##"<span class="text-slate-600">-</span>"##.to_string()
+        };
+
+        // hx-target に # が含まれるため push_str で構築
+        html.push_str("<tr class=\"border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer\" ");
+        html.push_str(&format!("hx-get=\"/api/company/profile/{}\" ", escape_html(&nc.corporate_number)));
+        html.push_str("hx-target=\"#company-profile-area\" hx-swap=\"innerHTML\">");
+
+        html.push_str(&format!(
+            r##"<td class="py-1.5 px-2 text-white">{}</td>
+                <td class="py-1.5 px-2 text-slate-400">{}</td>
+                <td class="text-right py-1.5 px-2">{}</td>
+                <td class="text-right py-1.5 px-2">{}</td>
+                <td class="text-right py-1.5 px-2">{}</td>
+            </tr>"##,
+            escape_html(&nc.company_name),
+            escape_html(&nc.sn_industry),
+            if nc.employee_count > 0 { format_number(nc.employee_count) } else { "-".to_string() },
+            if nc.credit_score > 0.0 { format!("{:.0}", nc.credit_score) } else { "-".to_string() },
+            hw_badge,
+        ));
+    }
+
+    html.push_str("</tbody></table></div></div>");
+}
+
 /// 印刷用レポートHTML（フルページ）
 pub fn render_company_report(ctx: &CompanyContext) -> String {
     let mut body = String::with_capacity(32_000);
@@ -533,6 +656,7 @@ pub fn render_company_report(ctx: &CompanyContext) -> String {
     render_competitor_section(&mut body, ctx);
     render_demographics(&mut body, ctx);
     render_insights(&mut body, ctx);
+    render_hw_postings(&mut body, ctx);
 
     format!(
         r##"<!DOCTYPE html>
