@@ -36,6 +36,8 @@ PROPERTIES = [
     "qw_snpf__sn_industry_name2__c",
     "qw_snpf__sn_prefecture__c",
     "qw_snpf__sn_company_credit_score__c",
+    "qw_snpf__sn_address__c",
+    "qw_snpf__sn_postal_code__c",
 ]
 
 # CSVヘッダー（読みやすい名前）
@@ -52,6 +54,8 @@ CSV_HEADERS = [
     "sn_industry2",
     "prefecture",
     "credit_score",
+    "address",
+    "postal_code",
 ]
 
 API_BASE = "https://api.hubapi.com/crm/v3/objects/companies"

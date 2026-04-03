@@ -44,7 +44,9 @@ SCHEMAS = {
             sn_industry2 TEXT,
             prefecture TEXT,
             credit_score REAL,
-            hubspot_id TEXT
+            hubspot_id TEXT,
+            address TEXT,
+            postal_code TEXT
         )
     """,
     "v2_industry_mapping": """
@@ -179,8 +181,8 @@ def upload_companies(turso_url, turso_token, dry_run=False, resume=False):
     insert_sql = """INSERT OR REPLACE INTO v2_salesnow_companies
         (corporate_number, company_name, employee_count, employee_range,
          employee_delta_1y, sales_range, sn_industry, sn_industry2,
-         prefecture, credit_score, hubspot_id)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"""
+         prefecture, credit_score, hubspot_id, address, postal_code)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"""
 
     total = 0
     skipped = 0
@@ -200,6 +202,8 @@ def upload_companies(turso_url, turso_token, dry_run=False, resume=False):
             (row.get("prefecture") or "").strip() or None,
             parse_float(row.get("credit_score")),
             (row.get("hubspot_id") or "").strip() or None,
+            (row.get("address") or "").strip() or None,
+            (row.get("postal_code") or "").strip() or None,
         ]
 
         batch.append((insert_sql, params))
