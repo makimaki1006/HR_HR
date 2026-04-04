@@ -91,6 +91,7 @@
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> エリア色分け</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-seeker-markers" checked class="accent-blue-500" onchange="postingMap.toggleLayer('seekerMarkers', this.checked)"> 求職者マーカー</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-flows" class="accent-blue-500" onchange="postingMap.toggleLayer('flows', this.checked)"> 移動の流れ</label>
+      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-companies" class="accent-emerald-500" onchange="postingMap.toggleCompanyLayer(this.checked)"> 🏢 SalesNow企業</label>
     </div>
   </div>
 
@@ -286,6 +287,7 @@
   }
 </style>
 <script src="/static/js/postingmap.js?v=4"></script>
+<script src="/static/js/companymap.js?v=1"></script>
 <script src="/static/js/choropleth_overlay.js?v=1" defer></script>
 <script>
   function toggleJobmapFullscreen() {

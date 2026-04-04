@@ -134,6 +134,29 @@ async fn main() {
     let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
     let rate_limiter = RateLimiter::new(config.rate_limit_max_attempts, config.rate_limit_lockout_secs);
 
+    // 企業ジオコードキャッシュ（SalesNow DB接続時にロード）
+    let company_geo_cache = if let Some(ref sn_db) = salesnow_db {
+        let sn_ref = sn_db.clone();
+        match tokio::task::spawn_blocking(move || {
+            rust_dashboard::handlers::jobmap::company_markers::load_company_geo_cache(&sn_ref)
+        }).await {
+            Ok(entries) if !entries.is_empty() => {
+                tracing::info!("企業ジオコードキャッシュ: {}件", entries.len());
+                Some(entries)
+            }
+            Ok(_) => {
+                tracing::info!("企業ジオコードテーブル未作成またはデータなし");
+                None
+            }
+            Err(e) => {
+                tracing::warn!("企業ジオコードキャッシュのロードに失敗: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let state = Arc::new(AppState {
         config,
         hw_db,
@@ -141,6 +164,7 @@ async fn main() {
         salesnow_db,
         cache,
         rate_limiter,
+        company_geo_cache,
     });
 
     let app = build_app(state);
