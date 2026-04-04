@@ -383,6 +383,64 @@ pub fn fetch_hw_postings_for_company(
     db.query(sql, &params).unwrap_or_default()
 }
 
+/// 地域ベースの企業検索（都道府県 + 市区町村フィルタ）
+/// CSV調査の統合レポートで使用
+pub fn fetch_companies_by_region(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    prefecture: &str,
+    municipality: &str,
+    _industries: &[String],
+    limit: usize,
+) -> Vec<NearbyCompany> {
+    if prefecture.is_empty() {
+        return vec![];
+    }
+
+    let lim = limit.min(50) as i64;
+
+    let rows = if !municipality.is_empty() {
+        // 市区町村フィルタあり
+        let muni_pattern = format!("%{}%", municipality);
+        let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                   employee_count, credit_score, postal_code \
+                   FROM v2_salesnow_companies \
+                   WHERE prefecture = ?1 AND address LIKE ?2 \
+                   ORDER BY employee_count DESC LIMIT ?3";
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            vec![&prefecture, &muni_pattern, &lim];
+        sn_db.query(sql, &params).unwrap_or_default()
+    } else {
+        // 都道府県のみ
+        let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                   employee_count, credit_score, postal_code \
+                   FROM v2_salesnow_companies \
+                   WHERE prefecture = ?1 \
+                   ORDER BY employee_count DESC LIMIT ?2";
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            vec![&prefecture, &lim];
+        sn_db.query(sql, &params).unwrap_or_default()
+    };
+
+    rows.iter()
+        .map(|r| {
+            let name = get_str(r, "company_name");
+            let pref = get_str(r, "prefecture");
+            let hw_count = count_hw_postings(db, &name, &pref);
+            NearbyCompany {
+                corporate_number: get_str(r, "corporate_number"),
+                company_name: name,
+                prefecture: pref,
+                sn_industry: get_str(r, "sn_industry"),
+                employee_count: get_i64(r, "employee_count"),
+                credit_score: get_f64(r, "credit_score"),
+                postal_code: get_str(r, "postal_code"),
+                hw_posting_count: hw_count,
+            }
+        })
+        .collect()
+}
+
 /// 近隣企業検索（郵便番号上3桁マッチ）
 pub fn fetch_nearby_companies(
     sn_db: &TursoDb,

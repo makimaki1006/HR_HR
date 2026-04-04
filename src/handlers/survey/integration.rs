@@ -1,5 +1,6 @@
 //! CSV × HW × 外部統計 統合レポート描画
 
+use super::super::company::fetch::NearbyCompany;
 use super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::insight::fetch::InsightContext;
 use super::super::insight::helpers::{Insight, Severity};
@@ -10,14 +11,15 @@ pub(crate) fn render_integration(
     muni: &str,
     insights: &[Insight],
     ctx: &InsightContext,
+    companies: &[NearbyCompany],
 ) -> String {
-    let mut html = String::with_capacity(8_000);
+    let mut html = String::with_capacity(12_000);
     let location = if !muni.is_empty() { format!("{} {}", pref, muni) } else { pref.to_string() };
 
     html.push_str(&format!(
         r#"<div class="space-y-4 mt-4">
         <h3 class="text-lg font-bold text-white">🔗 統合分析: <span class="text-blue-400">{}</span></h3>
-        <p class="text-xs text-slate-500">HW求人データ・外部統計データとの統合分析結果</p>"#,
+        <p class="text-xs text-slate-500">HW求人データ・外部統計データ・SalesNow企業データとの統合分析結果</p>"#,
         escape_html(&location)
     ));
 
@@ -26,6 +28,9 @@ pub(crate) fn render_integration(
 
     // 外部統計セクション
     html.push_str(&render_external_section(ctx));
+
+    // 該当地域の企業データセクション
+    html.push_str(&render_companies_section(companies, &location));
 
     // insight示唆セクション
     html.push_str(&render_insights_section(insights));
@@ -189,11 +194,123 @@ fn render_insights_section(insights: &[Insight]) -> String {
     html
 }
 
+/// 該当地域のSalesNow企業セクション
+fn render_companies_section(companies: &[NearbyCompany], location: &str) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">🏢 該当地域の企業データ（SalesNow）</h4>"#);
+
+    if companies.is_empty() {
+        html.push_str(&format!(
+            r#"<p class="text-slate-500 text-xs">{}に該当するSalesNow企業データはありません</p>"#,
+            escape_html(location)
+        ));
+        html.push_str("</div>");
+        return html;
+    }
+
+    // サマリー
+    let total = companies.len();
+    let with_hw = companies.iter().filter(|c| c.hw_posting_count > 0).count();
+    let industries: Vec<&str> = {
+        let mut inds: Vec<&str> = companies.iter()
+            .map(|c| c.sn_industry.as_str())
+            .filter(|s| !s.is_empty())
+            .collect();
+        inds.sort();
+        inds.dedup();
+        inds.truncate(5);
+        inds
+    };
+    let ind_text = if industries.is_empty() {
+        String::new()
+    } else {
+        format!(" / {}", industries.join("・"))
+    };
+
+    html.push_str(&format!(
+        r#"<div class="text-xs text-slate-300 mb-3">{}の企業 <span class="text-white font-bold">{}社</span>{}（うちHW求人あり: {}社）</div>"#,
+        escape_html(location), total, escape_html(&ind_text), with_hw
+    ));
+
+    // テーブル
+    html.push_str(
+        r#"<div class="overflow-x-auto"><table class="w-full text-xs">
+        <thead><tr class="text-slate-400 border-b border-slate-700">
+            <th class="text-left py-1.5 px-2">企業名</th>
+            <th class="text-left py-1.5 px-2">業種</th>
+            <th class="text-right py-1.5 px-2">従業員数</th>
+            <th class="text-right py-1.5 px-2">信用スコア</th>
+            <th class="text-right py-1.5 px-2">HW求人</th>
+            <th class="text-center py-1.5 px-2">詳細</th>
+        </tr></thead><tbody>"#
+    );
+
+    for c in companies.iter().take(30) {
+        let score_color = if c.credit_score >= 70.0 {
+            "text-green-400"
+        } else if c.credit_score >= 50.0 {
+            "text-amber-400"
+        } else if c.credit_score > 0.0 {
+            "text-red-400"
+        } else {
+            "text-slate-500"
+        };
+
+        let score_text = if c.credit_score > 0.0 {
+            format!("{:.0}", c.credit_score)
+        } else {
+            "-".to_string()
+        };
+
+        let hw_badge = if c.hw_posting_count > 0 {
+            format!(r#"<span class="text-blue-400 font-medium">{}</span>"#, c.hw_posting_count)
+        } else {
+            r#"<span class="text-slate-600">-</span>"#.to_string()
+        };
+
+        let emp_text = if c.employee_count > 0 {
+            format_number(c.employee_count)
+        } else {
+            "-".to_string()
+        };
+
+        html.push_str(&format!(
+            r##"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
+                <td class="py-1.5 px-2 text-white">{}</td>
+                <td class="py-1.5 px-2 text-slate-400">{}</td>
+                <td class="py-1.5 px-2 text-right text-slate-300">{}</td>
+                <td class="py-1.5 px-2 text-right {}">{}
+                </td>
+                <td class="py-1.5 px-2 text-right">{}</td>
+                <td class="py-1.5 px-2 text-center">
+                    <button class="text-blue-400 hover:text-blue-300 text-[10px]"
+                        hx-get="/api/company/profile/{}" hx-target="#content" hx-swap="innerHTML">
+                        詳細→
+                    </button>
+                </td>
+            </tr>"##,
+            escape_html(&c.company_name),
+            escape_html(&c.sn_industry),
+            emp_text,
+            score_color, score_text,
+            hw_badge,
+            escape_html(&c.corporate_number),
+        ));
+    }
+
+    html.push_str("</tbody></table></div>");
+    html.push_str(r#"<div class="text-xs text-slate-600 mt-2">※SalesNow企業データベース（236K社）に基づく。従業員数降順。</div>"#);
+    html.push_str("</div>");
+    html
+}
+
 fn kpi_card(html: &mut String, label: &str, value: &str, color: &str) {
     html.push_str(&format!(
         r#"<div class="text-center p-2 bg-slate-800/50 rounded">
-            <div class="text-sm font-bold {color}">{value}</div>
-            <div class="text-[10px] text-slate-500">{label}</div>
-        </div>"#
+            <div class="text-sm font-bold {color}">{}</div>
+            <div class="text-[10px] text-slate-500">{}</div>
+        </div>"#,
+        escape_html(value),
+        escape_html(label),
     ));
 }

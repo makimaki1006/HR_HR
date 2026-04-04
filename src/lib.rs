@@ -35,6 +35,8 @@ pub struct AppState {
     pub salesnow_db: Option<db::turso_http::TursoDb>,
     pub cache: AppCache,
     pub rate_limiter: auth::session::RateLimiter,
+    /// SalesNow企業の座標キャッシュ（起動時にTursoからロード）
+    pub company_geo_cache: Option<Vec<handlers::jobmap::company_markers::CompanyGeoEntry>>,
 }
 
 /// アプリケーションRouter構築
@@ -71,6 +73,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/jobmap/region/age_gender", get(handlers::jobmap::region_age_gender))
         .route("/api/jobmap/region/posting_stats", get(handlers::jobmap::region_posting_stats))
         .route("/api/jobmap/region/segments", get(handlers::jobmap::region_segments))
+        .route("/api/jobmap/company-markers", get(handlers::jobmap::jobmap_company_markers))
         .route(
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),

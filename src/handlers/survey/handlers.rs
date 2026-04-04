@@ -84,8 +84,8 @@ pub async fn upload_csv(
     let agg = aggregate_records(&records);
     let seeker = analyze_job_seeker(&records);
 
-    // セッションID生成（簡易: タイムスタンプベース）
-    let session_id = format!("s_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
+    // セッションID生成（UUID v4: 予測不可能）
+    let session_id = format!("s_{}", uuid::Uuid::new_v4());
 
     // 集計結果をキャッシュに保存（統合レポートで再利用）
     let agg_json = serde_json::to_value(&agg).unwrap_or_default();
@@ -153,19 +153,29 @@ pub async fn integrate_report(
     };
 
     let turso = state.turso_db.clone();
+    let salesnow = state.salesnow_db.clone();
     let pref2 = pref.clone();
     let muni2 = muni.clone();
 
     let content = tokio::task::spawn_blocking(move || {
         use super::super::insight::fetch::build_insight_context;
         use super::super::insight::engine::generate_insights;
+        use super::super::company::fetch::fetch_companies_by_region;
 
         let ctx = build_insight_context(&db, turso.as_ref(), &pref2, &muni2);
         let insights = generate_insights(&ctx);
 
+        // SalesNow企業データ取得（該当地域）
+        let companies = if let Some(ref sn_db) = salesnow {
+            // 業種フィルタは空（全業種）で地域の企業を取得
+            fetch_companies_by_region(sn_db, &db, &pref2, &muni2, &[], 30)
+        } else {
+            vec![]
+        };
+
         // 統合レポートHTML生成
         super::integration::render_integration(
-            &pref2, &muni2, &insights, &ctx
+            &pref2, &muni2, &insights, &ctx, &companies
         )
     }).await.unwrap_or_else(|e| {
         tracing::error!("Integration report failed: {e}");
