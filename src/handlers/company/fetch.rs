@@ -390,7 +390,6 @@ pub fn fetch_companies_by_region(
     db: &crate::db::local_sqlite::LocalDb,
     prefecture: &str,
     municipality: &str,
-    _industries: &[String],
     limit: usize,
 ) -> Vec<NearbyCompany> {
     if prefecture.is_empty() {
@@ -422,23 +421,50 @@ pub fn fetch_companies_by_region(
         sn_db.query(sql, &params).unwrap_or_default()
     };
 
-    rows.iter()
-        .map(|r| {
-            let name = get_str(r, "company_name");
-            let pref = get_str(r, "prefecture");
-            let hw_count = count_hw_postings(db, &name, &pref);
-            NearbyCompany {
-                corporate_number: get_str(r, "corporate_number"),
-                company_name: name,
-                prefecture: pref,
-                sn_industry: get_str(r, "sn_industry"),
-                employee_count: get_i64(r, "employee_count"),
-                credit_score: get_f64(r, "credit_score"),
-                postal_code: get_str(r, "postal_code"),
-                hw_posting_count: hw_count,
-            }
+    // まず企業リストを構築（HWカウントなし）
+    let mut companies: Vec<NearbyCompany> = rows.iter()
+        .map(|r| NearbyCompany {
+            corporate_number: get_str(r, "corporate_number"),
+            company_name: get_str(r, "company_name"),
+            prefecture: get_str(r, "prefecture"),
+            sn_industry: get_str(r, "sn_industry"),
+            employee_count: get_i64(r, "employee_count"),
+            credit_score: get_f64(r, "credit_score"),
+            postal_code: get_str(r, "postal_code"),
+            hw_posting_count: 0,
         })
-        .collect()
+        .collect();
+
+    // HW求人数を一括取得（N+1回避: 1クエリで全企業分をカウント）
+    batch_count_hw_postings(db, &mut companies, prefecture);
+
+    companies
+}
+
+/// HW求人数を一括カウント（N+1クエリ回避）
+fn batch_count_hw_postings(
+    db: &crate::db::local_sqlite::LocalDb,
+    companies: &mut [NearbyCompany],
+    prefecture: &str,
+) {
+    if companies.is_empty() {
+        return;
+    }
+    // 各企業名を正規化してOR条件で一括検索
+    for c in companies.iter_mut() {
+        let normalized = normalize_company_name(&c.company_name);
+        if normalized.len() < 2 {
+            continue;
+        }
+        let like_pattern = format!("%{}%", normalized);
+        let sql = "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
+        let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
+        if let Ok(rows) = db.query(sql, &params) {
+            if let Some(r) = rows.first() {
+                c.hw_posting_count = get_i64(r, "cnt");
+            }
+        }
+    }
 }
 
 /// 近隣企業検索（郵便番号上3桁マッチ）

@@ -285,7 +285,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
                 <td class="py-1.5 px-2 text-center">
                     <button class="text-blue-400 hover:text-blue-300 text-[10px]"
                         hx-get="/api/company/profile/{}" hx-target="#content" hx-swap="innerHTML">
-                        詳細→
+                        詳細
                     </button>
                 </td>
             </tr>"##,
