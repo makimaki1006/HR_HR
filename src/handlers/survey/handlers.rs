@@ -168,7 +168,7 @@ pub async fn integrate_report(
         // SalesNow企業データ取得（該当地域）
         let companies = if let Some(ref sn_db) = salesnow {
             // 業種フィルタは空（全業種）で地域の企業を取得
-            fetch_companies_by_region(sn_db, &db, &pref2, &muni2, &[], 30)
+            fetch_companies_by_region(sn_db, &db, &pref2, &muni2, 30)
         } else {
             vec![]
         };
