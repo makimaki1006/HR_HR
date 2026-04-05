@@ -166,14 +166,15 @@ pub async fn company_postings(
         let detail = fetch::fetch_company_detail(&sn_db, &corp)?;
         let name = get_str(&detail, "company_name");
         let pref = get_str(&detail, "prefecture");
+        let total_count = fetch::count_hw_postings(&db, &name, &pref);
         let postings = fetch::fetch_hw_postings_for_company(&db, &name, &pref);
-        Some((name, postings))
+        Some((name, total_count, postings))
     })
     .await
     .unwrap_or(None);
 
     match result {
-        Some((name, postings)) => {
+        Some((name, total_count, postings)) => {
             let items: Vec<Value> = postings
                 .iter()
                 .map(|r| {
@@ -189,8 +190,7 @@ pub async fn company_postings(
                     })
                 })
                 .collect();
-            let count = items.len();
-            Json(json!({"company_name": name, "postings": items, "count": count}))
+            Json(json!({"company_name": name, "postings": items, "count": total_count, "shown": items.len()}))
         }
         None => Json(json!({"error": "企業が見つかりません", "postings": []})),
     }

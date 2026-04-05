@@ -32,6 +32,7 @@ pub struct CompanyContext {
     pub postal_code: String,
     pub nearby_companies: Vec<NearbyCompany>,
     pub hw_matched_postings: Vec<Row>,
+    pub hw_matched_total_count: i64,
 
     // 業界マッピング結果
     pub hw_job_types: Vec<(String, f64)>,
@@ -163,6 +164,7 @@ pub fn build_company_context(
     }
 
     // HW求人マッチング（企業名でfacility_nameを検索）
+    ctx.hw_matched_total_count = count_hw_postings(db, &ctx.company_name, &ctx.prefecture);
     ctx.hw_matched_postings = fetch_hw_postings_for_company(db, &ctx.company_name, &ctx.prefecture);
 
     // 近隣企業検索（郵便番号上3桁マッチ）
@@ -511,7 +513,7 @@ pub fn fetch_nearby_companies(
 }
 
 /// HW求人数カウント（近隣企業用）
-fn count_hw_postings(db: &crate::db::local_sqlite::LocalDb, company_name: &str, prefecture: &str) -> i64 {
+pub fn count_hw_postings(db: &crate::db::local_sqlite::LocalDb, company_name: &str, prefecture: &str) -> i64 {
     let normalized = normalize_company_name(company_name);
     if normalized.len() < 2 {
         return 0;
