@@ -91,7 +91,17 @@
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-polygons" checked class="accent-blue-500" onchange="postingMap.toggleLayer('polygons', this.checked)"> エリア色分け</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-seeker-markers" checked class="accent-blue-500" onchange="postingMap.toggleLayer('seekerMarkers', this.checked)"> 求職者マーカー</label>
       <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-flows" class="accent-blue-500" onchange="postingMap.toggleLayer('flows', this.checked)"> 移動の流れ</label>
-      <label class="text-xs text-gray-300 cursor-pointer"><input type="checkbox" id="jm-show-companies" class="accent-emerald-500" onchange="postingMap.toggleCompanyLayer(this.checked)"> 🏢 SalesNow企業</label>
+    </div>
+  </div>
+
+  <!-- SalesNow企業マーカートグル -->
+  <div class="stat-card">
+    <div class="flex items-center gap-3">
+      <label class="text-xs text-gray-300 cursor-pointer flex items-center gap-1.5">
+        <input type="checkbox" id="jm-show-companies" class="accent-emerald-500" onchange="postingMap.toggleCompanyLayer(this.checked)">
+        <span style="color:#10b981;">&#9679;</span> SalesNow企業を表示
+      </label>
+      <span id="jm-company-count" class="text-[10px] text-gray-500"></span>
     </div>
   </div>
 

@@ -46,6 +46,14 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 renderCompanyMarkers(data.markers || []);
+                var countEl = document.getElementById("jm-company-count");
+                if (countEl) {
+                    var shown = (data.markers || []).length;
+                    var total = data.total || 0;
+                    countEl.textContent = shown > 0
+                        ? (shown < total ? shown + " / " + total + " 社" : shown + " 社")
+                        : (data.zoom_required ? "zoom " + data.zoom_required + "+ で表示" : "");
+                }
             })
             .catch(function(e) {
                 console.warn("[companymap] load error:", e);
