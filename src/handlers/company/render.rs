@@ -538,11 +538,14 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
         return;
     }
 
-    html.push_str(&format!(
-        r##"<p class="text-xs text-slate-500 mb-2">企業名「{}」でマッチした求人 {}件</p>"##,
-        escape_html(&ctx.company_name),
-        ctx.hw_matched_postings.len()
-    ));
+    let total = ctx.hw_matched_total_count;
+    let shown = ctx.hw_matched_postings.len();
+    let label = if total as usize > shown {
+        format!("企業名「{}」でマッチした求人 {}件（上位{}件表示）", escape_html(&ctx.company_name), total, shown)
+    } else {
+        format!("企業名「{}」でマッチした求人 {}件", escape_html(&ctx.company_name), total)
+    };
+    html.push_str(&format!(r##"<p class="text-xs text-slate-500 mb-2">{}</p>"##, label));
 
     html.push_str(r##"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">
         <thead><tr class="text-slate-500 border-b border-slate-700">
