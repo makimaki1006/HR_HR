@@ -178,8 +178,8 @@ fn fetch_market_stats(db: &crate::db::local_sqlite::LocalDb, ctx: &mut CompanyCo
     let sql = format!(
         "SELECT COUNT(*) as cnt, \
          COUNT(DISTINCT facility_name) as fac_cnt, \
-         AVG(NULLIF(salary_min, 0)) as avg_min, \
-         AVG(NULLIF(salary_max, 0)) as avg_max, \
+         AVG(CASE WHEN salary_type = '月給' AND salary_min > 0 THEN salary_min END) as avg_min, \
+         AVG(CASE WHEN salary_type = '月給' AND salary_max > 0 THEN salary_max END) as avg_max, \
          SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt, \
          SUM(CASE WHEN recruitment_reason LIKE '%欠員%' OR recruitment_reason LIKE '%補充%' THEN 1 ELSE 0 END) as vacancy_cnt \
          FROM postings WHERE job_type = ?1 AND prefecture = ?2"
@@ -223,7 +223,7 @@ fn fetch_salary_distribution(db: &crate::db::local_sqlite::LocalDb, ctx: &mut Co
             ELSE '40万以上' \
         END as band, COUNT(*) as cnt \
         FROM postings \
-        WHERE job_type = ?1 AND prefecture = ?2 AND salary_min > 0 \
+        WHERE job_type = ?1 AND prefecture = ?2 AND salary_min > 0 AND salary_type = '月給' \
         GROUP BY band ORDER BY MIN(salary_min)";
     let jt = &ctx.primary_hw_job_type;
     let pref = &ctx.prefecture;
@@ -315,7 +315,7 @@ fn fetch_benefit_rates(db: &crate::db::local_sqlite::LocalDb, ctx: &mut CompanyC
 
 /// 全国平均統計
 fn fetch_national_stats(db: &crate::db::local_sqlite::LocalDb, ctx: &mut CompanyContext) {
-    let sql = "SELECT AVG(NULLIF(salary_min, 0)) as avg_min FROM postings WHERE salary_min > 0";
+    let sql = "SELECT AVG(salary_min) as avg_min FROM postings WHERE salary_min > 0 AND salary_type = '月給'";
     let params: Vec<&dyn rusqlite::types::ToSql> = vec![];
     if let Ok(rows) = db.query(sql, &params) {
         if let Some(r) = rows.first() {
