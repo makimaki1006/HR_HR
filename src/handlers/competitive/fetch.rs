@@ -508,8 +508,8 @@ pub(crate) fn fetch_salary_stats_sql(
     }
 
     // salary_min の集計統計（AVG）
-    let sal_min_filter = format!("{} AND salary_min >= 50000", where_clause);
-    let sal_max_filter = format!("{} AND salary_max >= 50000", where_clause);
+    let sal_min_filter = format!("{} AND salary_type = '月給' AND salary_min >= 50000", where_clause);
+    let sal_max_filter = format!("{} AND salary_type = '月給' AND salary_max >= 50000", where_clause);
 
     // クエリ1: salary_min の基本統計（件数, 平均）
     let (min_count, min_avg) = {

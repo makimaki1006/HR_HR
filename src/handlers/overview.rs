@@ -390,7 +390,7 @@ fn fetch_overview_stats(
             "SELECT \
                COUNT(*) as cnt, \
                COUNT(DISTINCT facility_name) as fac_cnt, \
-               AVG(NULLIF(salary_min, 0)) as avg_min, \
+               AVG(CASE WHEN salary_type = '月給' AND salary_min > 0 THEN salary_min END) as avg_min, \
                SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt, \
                (\
                  SELECT JSON_GROUP_ARRAY(JSON_OBJECT('name', sub.employment_type, 'cnt', sub.c)) \
@@ -527,7 +527,7 @@ fn fetch_overview_stats(
         };
         let (jt_filter, jt_params) = build_filter_clause(&national_filters, 0);
         let sql = format!(
-            "SELECT COUNT(*) as cnt, AVG(NULLIF(salary_min, 0)) as avg_min \
+            "SELECT COUNT(*) as cnt, AVG(CASE WHEN salary_type = '月給' AND salary_min > 0 THEN salary_min END) as avg_min \
              FROM postings WHERE 1=1{jt_filter}"
         );
         let nat_refs: Vec<&dyn rusqlite::types::ToSql> =
