@@ -35,7 +35,7 @@ pub async fn company_search(
     let sn_db = match &state.salesnow_db {
         Some(t) => t.clone(),
         None => {
-            return Html(r#"<p class="text-slate-500 text-sm py-2">企業データベース未接続（SALESNOW_TURSO_URL を設定してください）</p>"#.to_string());
+            return Html(r#"<p class="text-slate-500 text-sm py-2">企業データベース未接続</p>"#.to_string());
         }
     };
 
