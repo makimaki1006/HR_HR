@@ -17,6 +17,8 @@ import re
 import sys
 import time
 import traceback
+from urllib.parse import quote
+
 from playwright.sync_api import sync_playwright
 
 BASE = "https://hr-hw.onrender.com"
@@ -352,10 +354,11 @@ def test_suite_3_api_integrity(page):
     print("Suite 3: API Data Integrity")
     print("=" * 60)
 
-    # --- 3a: Company search ---
-    search_result = fetch_json(page, "/api/v1/companies?q=%E3%83%88%E3%83%A8%E3%82%BF%E8%87%AA%E5%8B%95%E8%BB%8A")
+    # --- 3a: 企業検索（日本語クエリ「トヨタ自動車」） ---
+    search_query = quote("トヨタ自動車")
+    search_result = fetch_json(page, f"/api/v1/companies?q={search_query}")
 
-    record("API", "API-001", "company search returns results for 'toyota jidosha'",
+    record("API", "API-001", "企業検索: 'トヨタ自動車' で結果が返る",
            search_result is not None and search_result.get("count", 0) > 0,
            f"count={search_result.get('count') if search_result else 'null'}")
 
@@ -380,12 +383,12 @@ def test_suite_3_api_integrity(page):
             corp_num = toyota.get("corporate_number", "")
 
             record("API", "API-002",
-                   "Toyota employee_count > 10000",
+                   "トヨタ自動車 employee_count > 10000",
                    emp is not None and emp > 10000,
                    f"employee_count={emp}, name={toyota.get('company_name', '')}")
 
             record("API", "API-003",
-                   "Toyota prefecture is in valid prefectures",
+                   "トヨタ自動車 prefecture が有効な都道府県",
                    pref in PREFECTURES_47,
                    f"prefecture='{pref}'")
 
@@ -463,12 +466,12 @@ def test_suite_3_api_integrity(page):
                 for tid in ["API-004", "API-005", "API-006", "API-007", "API-008"]:
                     record("API", tid, "(skipped - no corporate_number)", False, "no corp_num")
         else:
-            record("API", "API-002", "Toyota employee_count > 10000",
-                   False, "Toyota not found in search results")
-            record("API", "API-003", "Toyota prefecture is in valid prefectures",
-                   False, "Toyota not found")
+            record("API", "API-002", "トヨタ自動車 employee_count > 10000",
+                   False, "トヨタ自動車が検索結果に見つからない")
+            record("API", "API-003", "トヨタ自動車 prefecture が有効な都道府県",
+                   False, "トヨタ自動車が検索結果に見つからない")
             for tid in ["API-004", "API-005", "API-006", "API-007", "API-008"]:
-                record("API", tid, "(skipped - Toyota not found)", False, "")
+                record("API", tid, "(skipped - トヨタ自動車 not found)", False, "")
     else:
         for tid in ["API-002", "API-003", "API-004", "API-005", "API-006", "API-007", "API-008"]:
             record("API", tid, "(skipped - search failed)", False, "")
