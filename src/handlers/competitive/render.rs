@@ -144,29 +144,32 @@ pub(crate) fn render_posting_table(
         urlencoding::encode(ftype),
     ));
 
+    // カラム表示トグルボタン
+    html.push_str(r#"<div class="mb-2"><button id="comp-col-toggle" onclick="toggleCompColumns()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded transition">全カラム表示</button></div>"#);
+
     // テーブル
     html.push_str(r#"<div class="overflow-x-auto"><table class="data-table text-xs">"#);
     html.push_str("<thead><tr>");
     html.push_str(r#"<th class="text-center" style="width:30px">#</th>"#);
-    html.push_str("<th>求人番号</th>");
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">求人番号</th>"#);
     html.push_str("<th>事業所名</th>");
     html.push_str("<th>産業</th>");
     html.push_str("<th>エリア</th>");
     html.push_str("<th>雇用形態</th>");
-    html.push_str("<th>給与区分</th>");
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">給与区分</th>"#);
     html.push_str(r#"<th class="text-right">月給下限</th>"#);
     html.push_str(r#"<th class="text-right">月給上限</th>"#);
-    html.push_str("<th>職種詳細</th>");
-    html.push_str("<th>学歴</th>");
-    html.push_str(r#"<th style="min-width:180px">応募要件</th>"#);
-    html.push_str(r#"<th style="min-width:120px">必要経験</th>"#);
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">職種詳細</th>"#);
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">学歴</th>"#);
+    html.push_str(r#"<th class="comp-col-extra" style="display:none;min-width:180px">応募要件</th>"#);
+    html.push_str(r#"<th class="comp-col-extra" style="display:none;min-width:120px">必要経験</th>"#);
     html.push_str("<th>昇給・賞与</th>");
-    html.push_str("<th>勤務時間</th>");
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">勤務時間</th>"#);
     html.push_str("<th>従業員数</th>");
     html.push_str(r#"<th class="text-right">年間休日</th>"#);
-    html.push_str("<th>管轄HW</th>");
-    html.push_str("<th>募集理由</th>");
-    html.push_str("<th>セグメント</th>");
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">管轄HW</th>"#);
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">募集理由</th>"#);
+    html.push_str(r#"<th class="comp-col-extra" style="display:none">セグメント</th>"#);
     if show_distance {
         html.push_str(r#"<th class="text-right">距離</th>"#);
     }
@@ -213,7 +216,7 @@ pub(crate) fn render_posting_table(
             truncate_str(&escape_html(&p.tier3_label_short), 25)
         };
         html.push_str(&format!(
-            r#"<tr><td class="text-center">{}</td><td class="font-mono text-xs">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td><div class="cell-wrap">{}</div></td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-right">{}</td><td class="text-right">{}</td>"#,
+            r#"<tr><td class="text-center">{}</td><td class="comp-col-extra font-mono text-xs" style="display:none">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="comp-col-extra" style="display:none">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra" style="display:none"><div class="cell-wrap">{}</div></td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="text-xs">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="text-right">{}</td><td class="text-right">{}</td>"#,
             start_num + i as i64 + 1, job_num, fname, jt, area, escape_html(&p.employment_type),
             sal_type, sal_min, sal_max,
             occ_detail, education,
@@ -221,7 +224,7 @@ pub(crate) fn render_posting_table(
             emp_count, holidays,
         ));
         html.push_str(&format!(
-            r#"<td class="text-xs">{}</td><td class="text-xs">{}</td><td class="text-xs">{}</td>"#,
+            r#"<td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td>"#,
             hw_office, recruit_reason, seg_label,
         ));
         if show_distance {

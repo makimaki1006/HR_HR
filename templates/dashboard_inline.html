@@ -67,7 +67,7 @@
         <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📊 概況</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">🏢 企業</button>
+            onclick="setActiveTab(this)">📊 企業属性</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">💰 条件</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
@@ -79,7 +79,7 @@
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">💡 診断</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">🔎 企業分析</button>
+            onclick="setActiveTab(this)">🔎 企業検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📊 調査</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/guide" hx-target="#content" hx-swap="innerHTML"
@@ -641,6 +641,16 @@
                 }
             });
         }
+        // カラム表示トグル（競合検索テーブル）
+        function toggleCompColumns() {
+            var btn = document.getElementById('comp-col-toggle');
+            var hidden = document.querySelectorAll('.comp-col-extra');
+            if (!hidden.length) return;
+            var isHidden = hidden[0].style.display === 'none' || hidden[0].style.display === '';
+            hidden.forEach(function(el) { el.style.display = isHidden ? '' : 'none'; });
+            if (btn) btn.textContent = isHidden ? '主要カラムのみ表示' : '全カラム表示';
+        }
+
         // 総合診断レポートJSON出力
         function downloadInsightReport() {
             fetch('/api/insight/report')
@@ -657,5 +667,15 @@
                 .catch(function(e) { alert('レポート生成に失敗しました'); });
         }
     </script>
+    <footer class="bg-navy-800 border-t border-slate-700 mt-4">
+        <div class="text-center py-2 text-xs text-slate-600">
+            <a href="mailto:feedback@f-a-c.co.jp?subject=HWダッシュボード フィードバック"
+               class="hover:text-slate-400 transition-colors">
+                📝 フィードバックを送る
+            </a>
+            <span class="mx-2">|</span>
+            <span>V2.4 HelloWork Dashboard</span>
+        </div>
+    </footer>
 </body>
 </html>

@@ -343,6 +343,7 @@ struct OverviewStats {
     /// 全国比較用
     national_total: i64,
     national_avg_salary_min: f64,
+    national_fulltime_rate: f64,
 }
 
 impl Default for OverviewStats {
@@ -360,6 +361,7 @@ impl Default for OverviewStats {
             recruitment_reasons: Vec::new(),
             national_total: 0,
             national_avg_salary_min: 0.0,
+            national_fulltime_rate: 0.0,
         }
     }
 }
@@ -527,7 +529,9 @@ fn fetch_overview_stats(
         };
         let (jt_filter, jt_params) = build_filter_clause(&national_filters, 0);
         let sql = format!(
-            "SELECT COUNT(*) as cnt, AVG(CASE WHEN salary_type = '月給' AND salary_min > 0 THEN salary_min END) as avg_min \
+            "SELECT COUNT(*) as cnt, \
+             AVG(CASE WHEN salary_type = '月給' AND salary_min > 0 THEN salary_min END) as avg_min, \
+             SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt \
              FROM postings WHERE 1=1{jt_filter}"
         );
         let nat_refs: Vec<&dyn rusqlite::types::ToSql> =
@@ -536,6 +540,12 @@ fn fetch_overview_stats(
             if let Some(row) = rows.first() {
                 stats.national_total = get_i64(row, "cnt");
                 stats.national_avg_salary_min = get_f64(row, "avg_min");
+                let nat_ft = get_i64(row, "ft_cnt");
+                stats.national_fulltime_rate = if stats.national_total > 0 {
+                    (nat_ft as f64 / stats.national_total as f64) * 100.0
+                } else {
+                    0.0
+                };
             }
         }
     }
@@ -614,6 +624,14 @@ fn build_comparison_section(
         )
     }
 
+    let posting_bar = bar_row(
+        "求人数",
+        stats.national_total as f64,
+        stats.total_postings as f64,
+        region_label,
+        "件",
+    );
+
     let salary_bar = bar_row(
         "平均給与下限",
         stats.national_avg_salary_min,
@@ -622,15 +640,27 @@ fn build_comparison_section(
         "円",
     );
 
+    let fulltime_bar = bar_row(
+        "正社員率",
+        stats.national_fulltime_rate,
+        stats.fulltime_rate,
+        region_label,
+        "%",
+    );
+
     format!(
         r#"<div class="stat-card border-l-4 border-cyan-600">
     <h3 class="text-sm text-slate-400 mb-4">全国 vs {region_label} 比較</h3>
     <div class="space-y-5">
+        {posting_bar}
         {salary_bar}
+        {fulltime_bar}
     </div>
 </div>"#,
         region_label = region_label,
+        posting_bar = posting_bar,
         salary_bar = salary_bar,
+        fulltime_bar = fulltime_bar,
     )
 }
 
@@ -700,6 +730,43 @@ fn render_overview(
         .map(|(r, v)| format!(r#"{{"value": {}, "name": "{}"}}"#, v, r))
         .collect();
 
+    // アクセシビリティ: 雇用形態パイチャートのaria-label生成
+    let emp_aria_label = {
+        let total: i64 = stats.employment_dist.iter().map(|(_, v)| *v).sum();
+        let top3: Vec<String> = stats.employment_dist.iter().take(3).map(|(name, val)| {
+            if total > 0 {
+                format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
+            } else {
+                format!("{} {}件", name, val)
+            }
+        }).collect();
+        format!("雇用形態分布: {}", top3.join("、"))
+    };
+
+    // アクセシビリティ: 給与帯バーチャートのaria-label生成
+    let salary_aria_label = {
+        let top3: Vec<String> = stats.salary_ranges.iter().take(3).map(|(label, val)| {
+            format!("{} {}件", label, val)
+        }).collect();
+        if top3.is_empty() {
+            "給与帯分布（月給下限ベース）".to_string()
+        } else {
+            format!("給与帯分布（月給下限ベース）: {}", top3.join("、"))
+        }
+    };
+
+    // アクセシビリティ: 求人理由パイチャートのaria-label生成
+    let reason_aria_label = {
+        let top3: Vec<String> = stats.recruitment_reasons.iter().take(3).map(|(r, v)| {
+            format!("{} {}件", r, v)
+        }).collect();
+        if top3.is_empty() {
+            "求人理由分布".to_string()
+        } else {
+            format!("求人理由分布: {}", top3.join("、"))
+        }
+    };
+
     // 正社員率の表示
     let ft_rate_display = format!("{:.1}%", stats.fulltime_rate);
 
@@ -721,13 +788,15 @@ fn render_overview(
         </div>
         <div class="stat-card">
             <div class="stat-value text-amber-400">{avg_salary}<span class="text-lg">円</span></div>
-            <div class="stat-label">平均月給 {nav_salary}</div>
+            <div class="stat-label">平均月給（下限） {nav_salary}</div>
         </div>
         <div class="stat-card">
             <div class="stat-value text-cyan-400">{ft_rate}</div>
             <div class="stat-label">正社員率 {nav_workstyle}</div>
         </div>
     </div>
+    <div class="text-xs text-slate-600 text-right mt-1">データ時点: 2026年3月 | HW求人 {total_count_raw}件</div>
+    <div class="text-xs text-slate-500 mt-1">※ トレンド分析は「分析」タブで確認できます</div>
 
     <!-- 産業別 + 職業大分類 -->
     <div class="grid-charts">
@@ -745,7 +814,7 @@ fn render_overview(
     <div class="grid-charts">
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">雇用形態分布</h3>
-            <div class="echart" style="height:320px;" data-chart-config='{{
+            <div class="echart" role="img" aria-label="{emp_aria_label}" style="height:320px;" data-chart-config='{{
                 "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
                 "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
                 "series": [{{
@@ -761,7 +830,7 @@ fn render_overview(
         </div>
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">給与帯分布（月給下限ベース）</h3>
-            <div class="echart" style="height:320px;" data-chart-config='{{
+            <div class="echart" role="img" aria-label="{salary_aria_label}" style="height:320px;" data-chart-config='{{
                 "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
                 "xAxis": {{"type": "category", "data": [{salary_labels}]}},
                 "yAxis": {{"type": "value", "name": "件数"}},
@@ -782,6 +851,7 @@ fn render_overview(
         location_label = location_label,
         comparison_section = comparison_section,
         total_count = format_number(stats.total_postings),
+        total_count_raw = format_number(stats.total_postings),
         facility_count = format_number(stats.facility_count),
         avg_salary = if stats.avg_salary_min > 0.0 {
             format!("{:.0}", stats.avg_salary_min)
@@ -793,14 +863,16 @@ fn render_overview(
         nav_workstyle = cross_nav("/tab/workstyle", "雇用形態詳細"),
         industry_chart = industry_chart,
         occupation_chart = occupation_chart,
+        emp_aria_label = emp_aria_label,
         emp_pie_data = emp_pie_data.join(","),
+        salary_aria_label = salary_aria_label,
         salary_labels = salary_labels.join(","),
         salary_values = salary_values.join(","),
         reason_section = if !stats.recruitment_reasons.is_empty() {
             format!(
                 r##"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-3">求人理由分布</h3>
-        <div class="echart" style="height:350px;" data-chart-config='{{
+        <div class="echart" role="img" aria-label="{}" style="height:350px;" data-chart-config='{{
             "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
             "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
             "series": [{{
@@ -811,6 +883,7 @@ fn render_overview(
             }}]
         }}'></div>
     </div>"##,
+                reason_aria_label,
                 reason_pie_data.join(",")
             )
         } else {
@@ -822,7 +895,7 @@ fn render_overview(
 /// 横棒グラフの共通ビルダー
 fn build_horizontal_bar_chart(
     data: &[(String, i64)],
-    _title: &str,
+    title: &str,
     color: &str,
     height: u32,
 ) -> String {
@@ -831,11 +904,17 @@ fn build_horizontal_bar_chart(
             .to_string();
     }
 
+    // アクセシビリティ: 上位3項目をaria-labelに含める
+    let aria_summary: Vec<String> = data.iter().take(3).map(|(l, v)| {
+        format!("{} {}件", l, format_number(*v))
+    }).collect();
+    let aria_label = format!("{}: {}", title, aria_summary.join("、"));
+
     let labels: Vec<String> = data.iter().rev().map(|(l, _)| format!("\"{}\"", l)).collect();
     let values: Vec<String> = data.iter().rev().map(|(_, v)| v.to_string()).collect();
 
     format!(
-        r##"<div class="echart" style="height:{height}px;" data-chart-config='{{
+        r##"<div class="echart" role="img" aria-label="{aria_label}" style="height:{height}px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
             "grid": {{"left": "25%", "right": "10%", "top": "5%", "bottom": "10%"}},
             "xAxis": {{"type": "value"}},
@@ -847,6 +926,7 @@ fn build_horizontal_bar_chart(
                 "label": {{"show": true, "position": "right", "color": "#e2e8f0"}}
             }}]
         }}'></div>"##,
+        aria_label = aria_label,
         height = height,
         labels = labels.join(","),
         values = values.join(","),

@@ -540,6 +540,59 @@ fn render_workstyle(
         .map(|(_, v)| v.to_string())
         .collect();
 
+    // アクセシビリティ: 各チャートのaria-label生成
+    let ws_pie_aria = {
+        let total: i64 = stats.distribution.iter().map(|(_, v)| *v).sum();
+        let top3: Vec<String> = stats.distribution.iter().take(3).map(|(name, val)| {
+            if total > 0 {
+                format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
+            } else {
+                format!("{} {}件", name, val)
+            }
+        }).collect();
+        format!("雇用形態分布: {}", top3.join("、"))
+    };
+
+    let salary_cross_aria = {
+        let top_types: Vec<&str> = emp_types.iter().take(3).copied().collect();
+        format!("雇用形態別給与区分: {}", top_types.join("、"))
+    };
+
+    let insurance_aria = {
+        let top3: Vec<String> = stats.insurance_rates.iter().take(3).map(|(l, r, _)| {
+            format!("{} {:.1}%", l, r)
+        }).collect();
+        format!("社会保険加入率: {}", top3.join("、"))
+    };
+
+    let weekly_pie_aria = {
+        let total: i64 = stats.weekly_holiday_dist.iter().map(|(_, v)| *v).sum();
+        let top3: Vec<String> = stats.weekly_holiday_dist.iter().take(3).map(|(name, val)| {
+            if total > 0 {
+                format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
+            } else {
+                format!("{} {}件", name, val)
+            }
+        }).collect();
+        format!("週休二日制の割合: {}", top3.join("、"))
+    };
+
+    let holiday_aria = {
+        let top3: Vec<String> = stats.annual_holiday_hist.iter().take(3).map(|(l, v)| {
+            format!("{} {}件", l, v)
+        }).collect();
+        if top3.is_empty() { "年間休日分布".to_string() }
+        else { format!("年間休日分布: {}", top3.join("、")) }
+    };
+
+    let overtime_aria = {
+        let top3: Vec<String> = stats.overtime_hist.iter().take(3).map(|(l, v)| {
+            format!("{} {}件", l, v)
+        }).collect();
+        if top3.is_empty() { "月平均残業時間分布".to_string() }
+        else { format!("月平均残業時間分布: {}", top3.join("、")) }
+    };
+
     format!(
         r##"<div class="space-y-6">
     <h2 class="text-xl font-bold text-white">💰 求人条件 <span class="text-blue-400 text-base font-normal">{industry_label} / {location_label}</span></h2>
@@ -549,7 +602,7 @@ fn render_workstyle(
     <div class="flex flex-col md:flex-row gap-4">
         <div class="stat-card flex-1">
             <h3 class="text-sm text-slate-400 mb-3">雇用形態分布</h3>
-            <div class="echart" style="height:300px;" data-chart-config='{{
+            <div class="echart" role="img" aria-label="{ws_pie_aria}" style="height:300px;" data-chart-config='{{
                 "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
                 "legend": {{"orient": "horizontal", "bottom": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
                 "series": [{{
@@ -587,7 +640,7 @@ fn render_workstyle(
     <!-- 雇用形態 × 給与帯 -->
     <div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">雇用形態 × 給与区分 {nav_salary}</h3>
-        <div class="echart" style="height:350px;" data-chart-config='{{
+        <div class="echart" role="img" aria-label="{salary_cross_aria}" style="height:350px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
             "legend": {{"top": 0, "textStyle": {{"color": "#94a3b8", "fontSize": 11}}}},
             "grid": {{"left": "3%", "right": "4%", "bottom": "3%", "top": "15%", "containLabel": true}},
@@ -600,7 +653,7 @@ fn render_workstyle(
     <!-- 社会保険加入率 -->
     <div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-3">社会保険加入率</h3>
-        <div class="echart" style="height:250px;" data-chart-config='{{
+        <div class="echart" role="img" aria-label="{insurance_aria}" style="height:250px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}, "formatter": "{{b}}: {{c}}%"}},
             "grid": {{"left": "20%", "right": "10%", "top": "5%", "bottom": "5%"}},
             "xAxis": {{"type": "value", "max": 100, "axisLabel": {{"formatter": "{{value}}%"}}}},
@@ -618,7 +671,7 @@ fn render_workstyle(
         <!-- 週休二日制ドーナツ -->
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">週休二日制の割合</h3>
-            <div class="echart" style="height:300px;" data-chart-config='{{
+            <div class="echart" role="img" aria-label="{weekly_pie_aria}" style="height:300px;" data-chart-config='{{
                 "tooltip": {{"trigger": "item", "formatter": "{{b}}: {{c}}件 ({{d}}%)"}},
                 "series": [{{
                     "type": "pie",
@@ -639,7 +692,7 @@ fn render_workstyle(
         <!-- 年間休日分布 -->
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">年間休日分布</h3>
-            <div class="echart" style="height:300px;" data-chart-config='{{
+            <div class="echart" role="img" aria-label="{holiday_aria}" style="height:300px;" data-chart-config='{{
                 "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
                 "xAxis": {{"type": "category", "data": [{holiday_labels}], "axisLabel": {{"rotate": 20}}}},
                 "yAxis": {{"type": "value"}},
@@ -670,7 +723,12 @@ fn render_workstyle(
         industry_label = industry_label,
         location_label = location_label,
         nav_salary = cross_nav("/tab/analysis", "給与構造・競争力分析"),
+        ws_pie_aria = ws_pie_aria,
         ws_pie = ws_pie.join(","),
+        salary_cross_aria = salary_cross_aria,
+        insurance_aria = insurance_aria,
+        weekly_pie_aria = weekly_pie_aria,
+        holiday_aria = holiday_aria,
         kpi_cards = kpi_cards,
         bonus_rate = stats.bonus_rate,
         bonus_count = format_number(stats.bonus_count),
@@ -708,8 +766,8 @@ fn render_workstyle(
             r#"<p class="text-slate-500 text-sm text-center py-8">残業時間データがありません</p>"#.to_string()
         } else {
             format!(
-                "<div class=\"echart\" style=\"height:300px;\" data-chart-config='{{\"tooltip\":{{\"trigger\":\"axis\",\"axisPointer\":{{\"type\":\"shadow\"}}}},\"grid\":{{\"left\":\"3%\",\"right\":\"4%\",\"bottom\":\"3%\",\"top\":\"15%\",\"containLabel\":true}},\"xAxis\":{{\"type\":\"category\",\"data\":[{}]}},\"yAxis\":{{\"type\":\"value\"}},\"series\":[{{\"type\":\"bar\",\"data\":[{}],\"itemStyle\":{{\"color\":\"#F59E0B\",\"borderRadius\":[4,4,0,0]}}}}]}}'></div>",
-                overtime_labels.join(","), overtime_values.join(",")
+                "<div class=\"echart\" role=\"img\" aria-label=\"{}\" style=\"height:300px;\" data-chart-config='{{\"tooltip\":{{\"trigger\":\"axis\",\"axisPointer\":{{\"type\":\"shadow\"}}}},\"grid\":{{\"left\":\"3%\",\"right\":\"4%\",\"bottom\":\"3%\",\"top\":\"15%\",\"containLabel\":true}},\"xAxis\":{{\"type\":\"category\",\"data\":[{}]}},\"yAxis\":{{\"type\":\"value\"}},\"series\":[{{\"type\":\"bar\",\"data\":[{}],\"itemStyle\":{{\"color\":\"#F59E0B\",\"borderRadius\":[4,4,0,0]}}}}]}}'></div>",
+                overtime_aria, overtime_labels.join(","), overtime_values.join(",")
             )
         },
         benefits_bars = {
