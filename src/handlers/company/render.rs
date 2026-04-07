@@ -117,16 +117,28 @@ fn credit_score_class(score_str: &str) -> &'static str {
 
 /// 企業プロフィール全体
 pub fn render_company_profile(ctx: &CompanyContext) -> String {
-    let mut html = String::with_capacity(32_000);
+    let mut html = String::with_capacity(48_000);
 
-    // セクションA: 企業ヘッダー
+    // 提案ポイント（最重要セクション: トップに表示）
+    render_sales_pitches(&mut html, ctx);
+
+    // セクションA: 企業ヘッダー（成長シグナルバッジ付き）
     render_header(&mut html, ctx);
+
+    // 採用リスクゲージ
+    render_hiring_risk(&mut html, ctx);
 
     // セクションB: 市場スナップショット
     render_market_snapshot(&mut html, ctx);
 
-    // セクションC: 給与市場ポジション
+    // 地域 vs 自社 比較
+    render_region_vs_company(&mut html, ctx);
+
+    // セクションC: 給与市場ポジション（給与ギャップテーブル付き）
     render_salary_section(&mut html, ctx);
+
+    // 給与ギャップ詳細テーブル
+    render_salary_gap_table(&mut html, ctx);
 
     // セクションD: 競合環境
     render_competitor_section(&mut html, ctx);
@@ -166,6 +178,17 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         format!(r#"<span class="text-slate-400">{:.1}%→</span>"#, ctx.employee_delta_1y)
     };
 
+    // 成長シグナルバッジ
+    let growth_badge = match ctx.growth_signal.as_str() {
+        "StrongGrowth" => r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-green-900/60 text-green-300 border border-green-700">急成長</span>"#.to_string(),
+        "ModerateGrowth" => r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300 border border-emerald-700">成長中</span>"#.to_string(),
+        "Contradictory" => r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700">要注意: 増員中だが欠員多</span>"#.to_string(),
+        "SilentDecline" => r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-red-900/60 text-red-300 border border-red-700">潜在リスク: 静かな縮小</span>"#.to_string(),
+        "Declining" => r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-red-900/60 text-red-300 border border-red-700">人員減少中</span>"#.to_string(),
+        "Stagnant" => r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600">横ばい</span>"#.to_string(),
+        _ => String::new(),
+    };
+
     let hw_mapping = if !ctx.primary_hw_job_type.is_empty() {
         format!(
             r#"<span class="text-xs bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded">HW: {}</span>"#,
@@ -193,7 +216,7 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
             <div class="bg-slate-800/50 rounded-lg p-3">
                 <div class="text-xs text-slate-500">従業員数</div>
                 <div class="text-xl font-bold text-white">{emp}<span class="text-sm text-slate-400">名</span></div>
-                <div class="text-xs mt-1">前年比 {delta}</div>
+                <div class="text-xs mt-1">前年比 {delta} {growth_badge}</div>
             </div>
             <div class="bg-slate-800/50 rounded-lg p-3">
                 <div class="text-xs text-slate-500">売上規模</div>
@@ -225,6 +248,7 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
                        else if ctx.credit_score >= 30.0 { "text-yellow-400" }
                        else { "text-red-400" },
         emp_range = escape_html(&ctx.employee_range),
+        growth_badge = growth_badge,
     ));
 }
 
@@ -530,6 +554,198 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
     html.push_str("</div></div>");
 }
 
+/// 提案ポイントカード（最重要: プロフィールの最上部に表示）
+fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
+    if ctx.sales_pitches.is_empty() {
+        return;
+    }
+
+    html.push_str(r#"<div class="stat-card border-l-4 border-blue-400 mb-4">
+        <h4 class="text-sm font-bold text-blue-400 mb-3">&#x1F4A1; 提案ポイント</h4>
+        <div class="space-y-3">"#);
+
+    for (i, (headline, body)) in ctx.sales_pitches.iter().enumerate() {
+        html.push_str(&format!(
+            r#"<div class="bg-slate-800/50 rounded-lg p-3">
+                <div class="flex items-start gap-2">
+                    <span class="text-blue-400 font-bold text-sm shrink-0">{num}.</span>
+                    <div>
+                        <div class="text-white text-sm font-medium">{headline}</div>
+                        <p class="text-xs text-slate-300 mt-1">{body}</p>
+                    </div>
+                </div>
+            </div>"#,
+            num = i + 1,
+            headline = escape_html(headline),
+            body = escape_html(body),
+        ));
+    }
+
+    html.push_str("</div></div>");
+}
+
+/// 採用リスクゲージ
+fn render_hiring_risk(html: &mut String, ctx: &CompanyContext) {
+    let (grade_color, grade_bg) = match ctx.hiring_risk_grade.as_str() {
+        "A" => ("text-green-400", "bg-green-900/40 border-green-700"),
+        "B" => ("text-blue-400", "bg-blue-900/40 border-blue-700"),
+        "C" => ("text-amber-400", "bg-amber-900/40 border-amber-700"),
+        "D" => ("text-orange-400", "bg-orange-900/40 border-orange-700"),
+        _ => ("text-red-400", "bg-red-900/40 border-red-700"),
+    };
+
+    let explanation = match ctx.hiring_risk_grade.as_str() {
+        "A" => "採用環境は良好です。給与水準・地域特性ともに人材確保に有利な条件が揃っています。",
+        "B" => "採用環境はおおむね良好ですが、一部の指標に注意が必要です。",
+        "C" => "採用に中程度のリスクがあります。給与水準や地域の人口動態に改善の余地があります。",
+        "D" => "採用リスクが高い状態です。複数の指標で不利な条件が重なっています。",
+        _ => "採用環境は非常に厳しい状態です。早急な対策が必要です。",
+    };
+
+    html.push_str(&format!(
+        r#"<div class="stat-card mt-4 border {grade_bg}">
+        <div class="flex items-center gap-6">
+            <div class="text-center">
+                <div class="text-4xl font-black {grade_color}">{grade}</div>
+                <div class="text-xs text-slate-500 mt-1">採用リスク</div>
+                <div class="text-sm {grade_color} font-mono">{score:.0}<span class="text-xs text-slate-500">/100</span></div>
+            </div>
+            <div class="flex-1">
+                <p class="text-sm text-slate-300">{explanation}</p>
+                <div class="flex gap-4 mt-2 text-xs text-slate-500">
+                    <span>高齢化率: {aging:.1}%</span>
+                    <span>欠員率: {vacancy:.1}%</span>
+                    <span>給与: {salary_pct}パーセンタイル</span>
+                    <span>与信: {credit:.0}</span>
+                </div>
+            </div>
+        </div>
+    </div>"#,
+        grade_bg = grade_bg,
+        grade_color = grade_color,
+        grade = escape_html(&ctx.hiring_risk_grade),
+        score = ctx.hiring_risk_score,
+        explanation = explanation,
+        aging = ctx.aging_rate,
+        vacancy = ctx.market_vacancy_rate,
+        salary_pct = if ctx.salary_percentile > 0.0 {
+            format!("{:.0}%", ctx.salary_percentile)
+        } else {
+            "-".to_string()
+        },
+        credit = ctx.credit_score,
+    ));
+}
+
+/// 地域 vs 自社 比較セクション
+fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
+    if ctx.region_industry_company_count == 0 {
+        return;
+    }
+
+    let region_delta_display = if ctx.region_industry_avg_delta.abs() > 0.01 {
+        format!("{:+.1}%", ctx.region_industry_avg_delta)
+    } else {
+        "0.0%".to_string()
+    };
+
+    let net_change_color = if ctx.region_industry_net_change > 0 {
+        "text-green-400"
+    } else if ctx.region_industry_net_change < 0 {
+        "text-red-400"
+    } else {
+        "text-slate-400"
+    };
+
+    let gap_display = if ctx.company_vs_region_gap.abs() > 0.1 {
+        if ctx.company_vs_region_gap > 0.0 {
+            format!(r#"<span class="text-green-400">+{:.1}pt 上回る</span>"#, ctx.company_vs_region_gap)
+        } else {
+            format!(r#"<span class="text-red-400">{:.1}pt 下回る</span>"#, ctx.company_vs_region_gap)
+        }
+    } else {
+        r#"<span class="text-slate-400">同水準</span>"#.to_string()
+    };
+
+    html.push_str(&format!(
+        r#"<div class="stat-card mt-4">
+        <h4 class="text-sm text-slate-400 mb-3">&#x1F4CA; 地域×業種 人材フロー比較</h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-slate-800/50 rounded-lg p-4">
+                <div class="text-xs text-slate-500 mb-1">{pref}の{ind}業界（{cnt}社）</div>
+                <div class="text-xl font-bold text-white">{total}人</div>
+                <div class="text-sm {net_color} mt-1">年間 {net_change:+}人（平均 {avg_delta}）</div>
+            </div>
+            <div class="bg-slate-800/50 rounded-lg p-4">
+                <div class="text-xs text-slate-500 mb-1">御社</div>
+                <div class="text-xl font-bold text-white">{emp}人</div>
+                <div class="text-sm mt-1">前年比 {delta:.1}%（地域平均比: {gap}）</div>
+            </div>
+        </div>
+    </div>"#,
+        pref = escape_html(&ctx.prefecture),
+        ind = escape_html(&ctx.sn_industry),
+        cnt = ctx.region_industry_company_count,
+        total = format_number(ctx.region_industry_total_employees),
+        net_color = net_change_color,
+        net_change = ctx.region_industry_net_change,
+        avg_delta = region_delta_display,
+        emp = format_number(ctx.employee_count),
+        delta = ctx.employee_delta_1y,
+        gap = gap_display,
+    ));
+}
+
+/// 給与ギャップテーブル
+fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
+    // 自社給与データがある場合のみ表示
+    if ctx.company_salary_count == 0 || ctx.market_avg_salary_min <= 0.0 {
+        return;
+    }
+
+    let gap = ctx.company_avg_salary_min - ctx.market_avg_salary_min;
+    let gap_color = if gap > 0.0 { "text-green-400" } else { "text-red-400" };
+    let gap_display = if gap.abs() > 0.0 {
+        format!(r#"<span class="{}">{:+.0}円</span>"#, gap_color, gap)
+    } else {
+        "±0円".to_string()
+    };
+
+    html.push_str(&format!(
+        r#"<div class="stat-card mt-4">
+        <h4 class="text-sm text-slate-400 mb-3">&#x1F4B0; 給与ギャップ分析（月給下限）</h4>
+        <table class="w-full text-sm">
+            <thead><tr class="text-slate-500 border-b border-slate-700">
+                <th class="text-left py-2 px-3"></th>
+                <th class="text-right py-2 px-3">月給（下限平均）</th>
+                <th class="text-right py-2 px-3">市場比</th>
+                <th class="text-right py-2 px-3">パーセンタイル</th>
+            </tr></thead>
+            <tbody>
+                <tr class="border-b border-slate-800">
+                    <td class="py-2 px-3 text-white font-medium">この企業</td>
+                    <td class="text-right py-2 px-3 text-white">{company_sal:.0}円 <span class="text-xs text-slate-500">({cnt}件)</span></td>
+                    <td class="text-right py-2 px-3">{gap}</td>
+                    <td class="text-right py-2 px-3 {pct_color}">上位 {pct:.0}%</td>
+                </tr>
+                <tr>
+                    <td class="py-2 px-3 text-slate-400">市場全体</td>
+                    <td class="text-right py-2 px-3 text-slate-300">{market_sal:.0}円</td>
+                    <td class="text-right py-2 px-3 text-slate-500">-</td>
+                    <td class="text-right py-2 px-3 text-slate-500">-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>"#,
+        company_sal = ctx.company_avg_salary_min,
+        cnt = ctx.company_salary_count,
+        gap = gap_display,
+        pct_color = if ctx.salary_percentile > 50.0 { "text-green-400" } else { "text-amber-400" },
+        pct = 100.0 - ctx.salary_percentile,
+        market_sal = ctx.market_avg_salary_min,
+    ));
+}
+
 fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
     html.push_str(r##"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-3">📋 この企業のハローワーク求人</h4>"##);
 
@@ -652,10 +868,14 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
 
 /// 印刷用レポートHTML（フルページ）
 pub fn render_company_report(ctx: &CompanyContext) -> String {
-    let mut body = String::with_capacity(32_000);
+    let mut body = String::with_capacity(48_000);
+    render_sales_pitches(&mut body, ctx);
     render_header(&mut body, ctx);
+    render_hiring_risk(&mut body, ctx);
     render_market_snapshot(&mut body, ctx);
+    render_region_vs_company(&mut body, ctx);
     render_salary_section(&mut body, ctx);
+    render_salary_gap_table(&mut body, ctx);
     render_competitor_section(&mut body, ctx);
     render_demographics(&mut body, ctx);
     render_insights(&mut body, ctx);

@@ -228,6 +228,10 @@ fn context_to_json(ctx: &fetch::CompanyContext) -> Value {
         })
         .collect();
 
+    let pitches: Vec<Value> = ctx.sales_pitches.iter()
+        .map(|(h, b)| json!({"headline": h, "body": b}))
+        .collect();
+
     json!({
         "company": {
             "corporate_number": ctx.corporate_number,
@@ -263,6 +267,28 @@ fn context_to_json(ctx: &fetch::CompanyContext) -> Value {
             "population": ctx.population,
             "daytime_ratio": ctx.daytime_ratio,
             "aging_rate": ctx.aging_rate,
+        },
+        "cross_analysis": {
+            "region_industry": {
+                "total_employees": ctx.region_industry_total_employees,
+                "net_change": ctx.region_industry_net_change,
+                "avg_delta": ctx.region_industry_avg_delta,
+                "company_count": ctx.region_industry_company_count,
+            },
+            "company_vs_region_gap": ctx.company_vs_region_gap,
+            "company_salary": {
+                "avg_salary_min": ctx.company_avg_salary_min,
+                "salary_count": ctx.company_salary_count,
+                "salary_percentile": ctx.salary_percentile,
+            },
+            "growth_signal": ctx.growth_signal,
+            "growth_postings_count": ctx.growth_postings_count,
+            "replacement_postings_count": ctx.replacement_postings_count,
+            "hiring_risk": {
+                "score": ctx.hiring_risk_score,
+                "grade": ctx.hiring_risk_grade,
+            },
+            "sales_pitches": pitches,
         },
         "hw_postings": hw_postings,
         "nearby_companies": nearby,
