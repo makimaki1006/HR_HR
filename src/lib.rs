@@ -75,6 +75,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/jobmap/region/segments", get(handlers::jobmap::region_segments))
         .route("/api/jobmap/company-markers", get(handlers::jobmap::jobmap_company_markers))
         .route("/api/jobmap/labor-flow", get(handlers::jobmap::jobmap_labor_flow))
+        .route("/api/jobmap/industry-companies", get(handlers::jobmap::jobmap_industry_companies))
         .route(
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),

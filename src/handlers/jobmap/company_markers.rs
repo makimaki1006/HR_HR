@@ -136,6 +136,93 @@ pub async fn labor_flow(
     Json(result)
 }
 
+/// 業種別企業一覧APIパラメータ
+#[derive(Deserialize)]
+pub struct IndustryCompaniesParams {
+    #[serde(default)]
+    pub prefecture: String,
+    #[serde(default)]
+    pub municipality: String,
+    #[serde(default)]
+    pub industry: String,
+}
+
+/// 業種別企業一覧API
+/// 人材フローの業種をクリックした際に、その業種の企業一覧を返す
+pub async fn industry_companies(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<IndustryCompaniesParams>,
+) -> Json<Value> {
+    let prefecture = params.prefecture.trim().to_string();
+    let municipality = params.municipality.trim().to_string();
+    let industry = params.industry.trim().to_string();
+
+    if prefecture.is_empty() || industry.is_empty() {
+        return Json(json!({"companies": [], "error": "prefecture and industry required"}));
+    }
+
+    let sn_db = match &state.salesnow_db {
+        Some(db) => db.clone(),
+        None => return Json(json!({"companies": [], "error": "DB未接続"})),
+    };
+
+    let pref = prefecture.clone();
+    let muni = municipality.clone();
+    let ind = industry.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        use crate::handlers::helpers::{get_f64, get_i64, get_str};
+
+        let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) = if !muni.is_empty() {
+            let muni_pattern = format!("%{}%", muni);
+            ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
+                    employee_delta_3m, employee_delta_1y, credit_score, address \
+             FROM v2_salesnow_companies \
+             WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry = ?3 \
+               AND employee_count > 0 \
+             ORDER BY employee_count DESC LIMIT 50".to_string(),
+            vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
+                 Box::new(muni_pattern),
+                 Box::new(ind.clone())])
+        } else {
+            ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
+                    employee_delta_3m, employee_delta_1y, credit_score, address \
+             FROM v2_salesnow_companies \
+             WHERE prefecture = ?1 AND sn_industry = ?2 \
+               AND employee_count > 0 \
+             ORDER BY employee_count DESC LIMIT 50".to_string(),
+            vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
+                 Box::new(ind.clone())])
+        };
+
+        let param_refs: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            params_db.iter().map(|p| p.as_ref()).collect();
+
+        let rows = sn_db.query(&sql, &param_refs).unwrap_or_default();
+        let companies: Vec<Value> = rows.iter().map(|r| {
+            json!({
+                "corporate_number": get_str(r, "corporate_number"),
+                "company_name": get_str(r, "company_name"),
+                "employee_count": get_i64(r, "employee_count"),
+                "employee_delta_1m": get_f64(r, "employee_delta_1m"),
+                "employee_delta_3m": get_f64(r, "employee_delta_3m"),
+                "employee_delta_1y": get_f64(r, "employee_delta_1y"),
+                "credit_score": get_f64(r, "credit_score"),
+                "address": get_str(r, "address"),
+            })
+        }).collect();
+
+        json!({
+            "industry": ind,
+            "prefecture": pref,
+            "companies": companies,
+            "count": companies.len(),
+        })
+    }).await.unwrap_or_else(|_| json!({"companies": [], "error": "query failed"}));
+
+    Json(result)
+}
+
 /// 企業ジオコードエントリ（メモリキャッシュ用）
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanyGeoEntry {

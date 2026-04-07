@@ -221,11 +221,15 @@
       + '<th class="py-1 px-2 text-right">平均変動率</th>'
       + '</tr></thead><tbody>';
 
+    // 現在の都道府県・市区町村を保持（企業一覧取得用）
+    var currentPref = data.prefecture || "";
+    var currentMuni = data.municipality || "";
+
     for (var i = 0; i < industries.length; i++) {
       var d = industries[i];
       var c1y = d.net_change_1y || 0;
       var c3m = d.net_change_3m || 0;
-      html += '<tr class="border-b border-gray-800 hover:bg-gray-800/50">'
+      html += '<tr class="border-b border-gray-800 hover:bg-gray-700/50 cursor-pointer" onclick="loadIndustryCompanies(\'' + escapeAttr(currentPref) + '\',\'' + escapeAttr(currentMuni) + '\',\'' + escapeAttr(d.sn_industry) + '\')">'
         + '<td class="py-1 pr-2 text-gray-200 max-w-[160px] truncate" title="' + escapeAttr(d.sn_industry) + '">' + escapeText(d.sn_industry) + '</td>'
         + '<td class="py-1 px-2 text-right text-gray-300">' + d.companies.toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right text-gray-300">' + d.total_emp.toLocaleString() + '</td>'
@@ -241,6 +245,126 @@
     html += '</tbody></table></div>';
     el.innerHTML = html;
   }
+
+  /**
+   * 業種クリック → 企業一覧を表示
+   * 企業名は escapeText() でXSSサニタイズ済み
+   */
+  window.loadIndustryCompanies = function(pref, muni, industry) {
+    var tableEl = document.getElementById("jm-labor-flow-table");
+    if (!tableEl) return;
+
+    var url = "/api/jobmap/industry-companies?prefecture=" + encodeURIComponent(pref)
+            + "&industry=" + encodeURIComponent(industry);
+    if (muni) url += "&municipality=" + encodeURIComponent(muni);
+
+    // ローディング表示（テキストのみ）
+    while (tableEl.firstChild) tableEl.removeChild(tableEl.firstChild);
+    var loadingSpan = document.createElement("span");
+    loadingSpan.className = "text-gray-400";
+    loadingSpan.textContent = "「" + industry + "」の企業を読み込み中...";
+    tableEl.appendChild(loadingSpan);
+
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        while (tableEl.firstChild) tableEl.removeChild(tableEl.firstChild);
+
+        if (data.error) {
+          var errSpan = document.createElement("span");
+          errSpan.className = "text-red-400";
+          errSpan.textContent = data.error;
+          tableEl.appendChild(errSpan);
+          return;
+        }
+
+        var companies = data.companies || [];
+
+        // 戻るボタン + タイトル
+        var header = document.createElement("div");
+        header.className = "mb-2 flex items-center gap-2";
+        var backBtn = document.createElement("button");
+        backBtn.className = "text-xs text-slate-400 hover:text-white bg-slate-800 px-2 py-1 rounded";
+        backBtn.textContent = "\u2190 業種一覧に戻る";
+        backBtn.onclick = function() { loadLaborFlow(pref, muni); };
+        header.appendChild(backBtn);
+        var titleSpan = document.createElement("span");
+        titleSpan.className = "text-sm text-white font-medium";
+        titleSpan.textContent = industry;
+        header.appendChild(titleSpan);
+        var countSpan = document.createElement("span");
+        countSpan.className = "text-xs text-slate-400";
+        countSpan.textContent = companies.length + "\u793e";
+        header.appendChild(countSpan);
+        tableEl.appendChild(header);
+
+        // テーブル構築（DOM API使用、XSS安全）
+        var scrollDiv = document.createElement("div");
+        scrollDiv.className = "overflow-y-auto";
+        scrollDiv.style.maxHeight = "400px";
+        var table = document.createElement("table");
+        table.className = "w-full text-left border-collapse text-xs";
+        var thead = document.createElement("thead");
+        var headRow = document.createElement("tr");
+        headRow.className = "border-b border-gray-700 text-gray-400 sticky top-0 bg-gray-900";
+        ["企業名","従業員","1M","3M","1Y","信用"].forEach(function(t, idx) {
+          var th = document.createElement("th");
+          th.className = idx === 0 ? "py-1 pr-2" : "py-1 px-2 text-right";
+          th.textContent = t;
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        var tbody = document.createElement("tbody");
+        companies.forEach(function(c) {
+          var tr = document.createElement("tr");
+          tr.className = "border-b border-gray-800 hover:bg-gray-700/50 cursor-pointer";
+          tr.onclick = function() {
+            window._lastTab = "/tab/jobmap";
+            var el = document.getElementById("content");
+            if (el && typeof htmx !== "undefined") {
+              htmx.ajax("GET", "/api/company/profile/" + encodeURIComponent(c.corporate_number), {target: el, swap: "innerHTML"});
+            }
+          };
+
+          var tdName = document.createElement("td");
+          tdName.className = "py-1 pr-2 text-blue-400";
+          tdName.textContent = c.company_name;
+          tr.appendChild(tdName);
+
+          var tdEmp = document.createElement("td");
+          tdEmp.className = "py-1 px-2 text-right text-gray-300";
+          tdEmp.textContent = c.employee_count > 0 ? c.employee_count.toLocaleString() : "-";
+          tr.appendChild(tdEmp);
+
+          [c.employee_delta_1m, c.employee_delta_3m, c.employee_delta_1y].forEach(function(d) {
+            var td = document.createElement("td");
+            td.className = "py-1 px-2 text-right";
+            td.style.color = d >= 0 ? "#22c55e" : "#ef4444";
+            td.textContent = d !== 0 ? (d > 0 ? "+" : "") + d.toFixed(1) + "%" : "-";
+            tr.appendChild(td);
+          });
+
+          var tdCredit = document.createElement("td");
+          tdCredit.className = "py-1 px-2 text-right text-gray-300";
+          tdCredit.textContent = c.credit_score > 0 ? c.credit_score.toFixed(0) : "-";
+          tr.appendChild(tdCredit);
+
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        scrollDiv.appendChild(table);
+        tableEl.appendChild(scrollDiv);
+      })
+      .catch(function(err) {
+        while (tableEl.firstChild) tableEl.removeChild(tableEl.firstChild);
+        var errSpan = document.createElement("span");
+        errSpan.className = "text-red-400";
+        errSpan.textContent = "取得失敗";
+        tableEl.appendChild(errSpan);
+      });
+  };
 
   /** テキストをHTMLエスケープ */
   function escapeText(s) {
