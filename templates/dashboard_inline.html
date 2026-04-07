@@ -63,7 +63,7 @@
         </div>
     </header>
 
-    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto" role="tablist" aria-label="ダッシュボードタブ">
+    <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto scrollbar-thin" role="tablist" aria-label="ダッシュボードタブ" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
         <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">📊 概況</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
@@ -125,6 +125,13 @@
             c.classList.remove('loading');
             c.style.opacity = '';
             document.getElementById('loading-overlay').classList.remove('active');
+            // コンテンツのフェードインアニメーションを再トリガー
+            var children = c.children;
+            for (var i = 0; i < children.length; i++) {
+                children[i].style.animation = 'none';
+                children[i].offsetHeight; // 強制リフロー
+                children[i].style.animation = '';
+            }
         }
     });
     </script>
