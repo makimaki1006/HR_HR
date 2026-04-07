@@ -19,7 +19,7 @@ pub(crate) fn render_integration(
     html.push_str(&format!(
         r#"<div class="space-y-4 mt-4">
         <h3 class="text-lg font-bold text-white">🔗 統合分析: <span class="text-blue-400">{}</span></h3>
-        <p class="text-xs text-slate-500">HW求人データ・外部統計データ・SalesNow企業データとの統合分析結果</p>"#,
+        <p class="text-xs text-slate-500">HW求人データ・外部統計データ・企業データとの統合分析結果</p>"#,
         escape_html(&location)
     ));
 
@@ -194,14 +194,14 @@ fn render_insights_section(insights: &[Insight]) -> String {
     html
 }
 
-/// 該当地域のSalesNow企業セクション
+/// 該当地域の企業セクション
 fn render_companies_section(companies: &[NearbyCompany], location: &str) -> String {
     let mut html = String::with_capacity(3_000);
-    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">🏢 該当地域の企業データ（SalesNow）</h4>"#);
+    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">🏢 該当地域の企業データ</h4>"#);
 
     if companies.is_empty() {
         html.push_str(&format!(
-            r#"<p class="text-slate-500 text-xs">{}に該当するSalesNow企業データはありません</p>"#,
+            r#"<p class="text-slate-500 text-xs">{}に該当する企業データはありません</p>"#,
             escape_html(location)
         ));
         html.push_str("</div>");
@@ -299,7 +299,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
     }
 
     html.push_str("</tbody></table></div>");
-    html.push_str(r#"<div class="text-xs text-slate-600 mt-2">※SalesNow企業データベース（236K社）に基づく。従業員数降順。</div>"#);
+    html.push_str(r#"<div class="text-xs text-slate-600 mt-2">※企業データベースに基づく。従業員数降順。</div>"#);
     html.push_str("</div>");
     html
 }

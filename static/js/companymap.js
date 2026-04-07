@@ -1,5 +1,5 @@
 /**
- * SalesNow企業マーカーレイヤー（postingMapの拡張）
+ * 企業マーカーレイヤー（postingMapの拡張）
  * 地図タブ上で企業マーカーのトグル表示を提供する。
  */
 (function() {

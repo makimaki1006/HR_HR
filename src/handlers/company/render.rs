@@ -6,7 +6,7 @@ pub fn render_search_page() -> String {
     r##"<div class="space-y-6">
     <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white">🔎 企業分析
-            <span class="text-blue-400 text-base font-normal">SalesNow企業 × ハローワーク市場データ</span>
+            <span class="text-blue-400 text-base font-normal">企業データ × ハローワーク市場データ</span>
         </h2>
         <div class="flex gap-2">
             <button class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1 rounded transition-colors" onclick="window.print()">🖨 印刷</button>
@@ -33,7 +33,7 @@ pub fn render_search_page() -> String {
     <div id="company-profile-area"></div>
     <div class="stat-card">
         <p class="text-slate-500 text-sm text-center py-4">企業を検索して選択すると、その企業の地域・業界の採用市場分析が表示されます。</p>
-        <p class="text-slate-600 text-xs text-center">データソース: SalesNow (企業属性) × ハローワーク (求人市場469,000件) × 外部統計 (人口・労働)</p>
+        <p class="text-slate-600 text-xs text-center">データソース: 企業属性 × ハローワーク求人 × 外部統計</p>
     </div>
 </div>"##.to_string()
 }
@@ -343,7 +343,7 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         String::new()
     };
 
-    // SalesNowスコア表示
+    // 企業スコア表示
     let sn_score_display = if ctx.salesnow_score > 0.0 {
         let sn_color = if ctx.salesnow_score >= 70.0 { "text-green-400" }
                        else if ctx.salesnow_score >= 50.0 { "text-blue-400" }
@@ -1112,7 +1112,7 @@ pub fn render_company_report(ctx: &CompanyContext) -> String {
         <h1 class="text-lg font-bold">企業分析レポート</h1>
         <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm">🖨 印刷 / PDF保存</button>
     </div>
-    <div class="text-xs text-slate-500 mb-4">生成日: <script>document.write(new Date().toLocaleDateString('ja-JP'))</script> | データソース: SalesNow + ハローワーク求人 + 外部統計</div>
+    <div class="text-xs text-slate-500 mb-4">生成日: <script>document.write(new Date().toLocaleDateString('ja-JP'))</script> | データソース: 企業属性 + ハローワーク求人 + 外部統計</div>
     {body}
     <div class="text-xs text-slate-600 mt-8 text-center">
         ※ ハローワーク掲載求人のみが対象です。民間求人サイト（Indeed等）の求人は含まれません。
