@@ -43,19 +43,14 @@ pub async fn company_markers(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CompanyMarkerParams>,
 ) -> Json<Value> {
-    let cache = match &state.company_geo_cache {
-        Some(c) => c,
-        None => return Json(json!({"markers": [], "total": 0, "error": "企業座標データ未ロード"})),
-    };
-
     let south = params.south.unwrap_or(24.0);
     let north = params.north.unwrap_or(46.0);
     let west = params.west.unwrap_or(122.0);
     let east = params.east.unwrap_or(154.0);
     let zoom = params.zoom.unwrap_or(5);
-    let min_emp = params.min_employees.unwrap_or(0);
+    let _min_emp = params.min_employees.unwrap_or(0);
 
-    // zoom < 10 では企業マーカーを表示しない（全国レベルでは多すぎる）
+    // zoom < 10 では企業マーカーを表示しない
     if zoom < 10 {
         return Json(json!({
             "markers": [],
@@ -65,45 +60,56 @@ pub async fn company_markers(
         }));
     }
 
-    // bounding boxフィルタ + 従業員数フィルタ
-    let mut filtered: Vec<&CompanyGeoEntry> = cache
-        .iter()
-        .filter(|e| {
-            e.lat >= south
-                && e.lat <= north
-                && e.lng >= west
-                && e.lng <= east
-                && e.employee_count >= min_emp
-        })
-        .collect();
+    // メモリキャッシュがある場合はそちらを使用
+    if let Some(ref cache) = state.company_geo_cache {
+        let mut filtered: Vec<&CompanyGeoEntry> = cache
+            .iter()
+            .filter(|e| e.lat >= south && e.lat <= north && e.lng >= west && e.lng <= east)
+            .collect();
+        filtered.sort_by(|a, b| b.employee_count.cmp(&a.employee_count));
+        let total = filtered.len();
+        filtered.truncate(500);
+        let markers: Vec<Value> = filtered.iter().map(|e| json!({
+            "corporate_number": e.corporate_number, "lat": e.lat, "lng": e.lng,
+            "company_name": e.company_name, "sn_industry": e.sn_industry,
+            "employee_count": e.employee_count, "credit_score": e.credit_score,
+        })).collect();
+        return Json(json!({"markers": markers, "total": total, "shown": markers.len()}));
+    }
 
-    // 従業員数降順ソート（大企業優先）
-    filtered.sort_by(|a, b| b.employee_count.cmp(&a.employee_count));
+    // キャッシュなし: Turso直接クエリ（オンデマンドモード）
+    let sn_db = match &state.salesnow_db {
+        Some(db) => db.clone(),
+        None => return Json(json!({"markers": [], "total": 0, "error": "SalesNow DB未接続"})),
+    };
 
-    // 上限500件
-    let total = filtered.len();
-    filtered.truncate(500);
+    let s = south; let n = north; let w = west; let e = east;
+    let result = tokio::task::spawn_blocking(move || {
+        use crate::handlers::helpers::{get_f64, get_i64, get_str};
+        let sql = r#"
+            SELECT c.corporate_number, g.lat, g.lng,
+                   c.company_name, c.sn_industry, c.employee_count, c.credit_score
+            FROM v2_company_geocode g
+            JOIN v2_salesnow_companies c ON g.corporate_number = c.corporate_number
+            WHERE g.lat BETWEEN ?1 AND ?2 AND g.lng BETWEEN ?3 AND ?4
+            ORDER BY c.employee_count DESC
+            LIMIT 500
+        "#;
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&s, &n, &w, &e];
+        let rows = sn_db.query(sql, &params).unwrap_or_default();
+        let markers: Vec<Value> = rows.iter().map(|r| json!({
+            "corporate_number": get_str(r, "corporate_number"),
+            "lat": get_f64(r, "lat"), "lng": get_f64(r, "lng"),
+            "company_name": get_str(r, "company_name"),
+            "sn_industry": get_str(r, "sn_industry"),
+            "employee_count": get_i64(r, "employee_count"),
+            "credit_score": get_f64(r, "credit_score"),
+        })).collect();
+        let total = markers.len();
+        json!({"markers": markers, "total": total, "shown": total})
+    }).await.unwrap_or_else(|_| json!({"markers": [], "total": 0, "error": "query failed"}));
 
-    let markers: Vec<Value> = filtered
-        .iter()
-        .map(|e| {
-            json!({
-                "corporate_number": e.corporate_number,
-                "lat": e.lat,
-                "lng": e.lng,
-                "company_name": e.company_name,
-                "sn_industry": e.sn_industry,
-                "employee_count": e.employee_count,
-                "credit_score": e.credit_score,
-            })
-        })
-        .collect();
-
-    Json(json!({
-        "markers": markers,
-        "total": total,
-        "shown": markers.len(),
-    }))
+    Json(result)
 }
 
 /// 起動時にTursoから企業ジオコードデータをロード
