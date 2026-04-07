@@ -15,15 +15,18 @@ use crate::AppState;
 pub struct LaborFlowParams {
     #[serde(default)]
     pub prefecture: String,
+    #[serde(default)]
+    pub municipality: String,
 }
 
 /// 人材フロー（業種別従業員増減）API
-/// 都道府県を指定すると、SalesNow企業データから業種別の従業員増減を集計して返す
+/// 都道府県＋市区町村を指定して、企業データから業種別の従業員増減を集計
 pub async fn labor_flow(
     State(state): State<Arc<AppState>>,
     Query(params): Query<LaborFlowParams>,
 ) -> Json<Value> {
     let prefecture = params.prefecture.trim().to_string();
+    let municipality = params.municipality.trim().to_string();
     if prefecture.is_empty() {
         return Json(json!({
             "prefecture": "",
@@ -37,32 +40,64 @@ pub async fn labor_flow(
         None => return Json(json!({
             "prefecture": prefecture,
             "industries": [],
-            "error": "SalesNow DB未接続"
+            "error": "企業DB未接続"
         })),
     };
 
     let pref = prefecture.clone();
+    let muni = municipality.clone();
+    let location_label = if !municipality.is_empty() {
+        format!("{} {}", prefecture, municipality)
+    } else {
+        prefecture.clone()
+    };
+
     let result = tokio::task::spawn_blocking(move || {
         use crate::handlers::helpers::{get_f64, get_i64, get_str};
 
-        let sql = r#"
-            SELECT sn_industry,
-                   COUNT(*) as companies,
-                   SUM(employee_count) as total_emp,
-                   SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)) as net_change_1y,
-                   SUM(CAST(employee_count * employee_delta_3m / (100.0 + employee_delta_3m) AS INTEGER)) as net_change_3m,
-                   ROUND(AVG(employee_delta_1y), 1) as avg_delta_1y
-            FROM v2_salesnow_companies
-            WHERE prefecture = ?1
-              AND employee_count > 0
-              AND employee_delta_1y IS NOT NULL
-              AND sn_industry IS NOT NULL AND sn_industry != ''
-            GROUP BY sn_industry
-            ORDER BY net_change_1y DESC
-        "#;
+        // 市区町村が指定されている場合、address LIKE で絞り込む
+        let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) = if !muni.is_empty() {
+            let muni_pattern = format!("%{}%", muni);
+            (format!(r#"
+                SELECT sn_industry,
+                       COUNT(*) as companies,
+                       SUM(employee_count) as total_emp,
+                       SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)) as net_change_1y,
+                       SUM(CAST(employee_count * employee_delta_3m / (100.0 + employee_delta_3m) AS INTEGER)) as net_change_3m,
+                       ROUND(AVG(employee_delta_1y), 1) as avg_delta_1y
+                FROM v2_salesnow_companies
+                WHERE prefecture = ?1 AND address LIKE ?2
+                  AND employee_count > 0
+                  AND employee_delta_1y IS NOT NULL
+                  AND sn_industry IS NOT NULL AND sn_industry != ''
+                GROUP BY sn_industry
+                ORDER BY net_change_1y DESC
+            "#),
+            vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
+                 Box::new(muni_pattern)])
+        } else {
+            (format!(r#"
+                SELECT sn_industry,
+                       COUNT(*) as companies,
+                       SUM(employee_count) as total_emp,
+                       SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)) as net_change_1y,
+                       SUM(CAST(employee_count * employee_delta_3m / (100.0 + employee_delta_3m) AS INTEGER)) as net_change_3m,
+                       ROUND(AVG(employee_delta_1y), 1) as avg_delta_1y
+                FROM v2_salesnow_companies
+                WHERE prefecture = ?1
+                  AND employee_count > 0
+                  AND employee_delta_1y IS NOT NULL
+                  AND sn_industry IS NOT NULL AND sn_industry != ''
+                GROUP BY sn_industry
+                ORDER BY net_change_1y DESC
+            "#),
+            vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>])
+        };
 
-        let params_db: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref];
-        let rows = match sn_db.query(sql, &params_db) {
+        let param_refs: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            params_db.iter().map(|p| p.as_ref()).collect();
+
+        let rows = match sn_db.query(&sql, &param_refs) {
             Ok(rows) => rows,
             Err(e) => {
                 tracing::warn!("人材フロー集計エラー: {e}");
@@ -85,8 +120,10 @@ pub async fn labor_flow(
             })
         }).collect();
 
+        let loc = if !muni.is_empty() { format!("{} {}", pref, muni) } else { pref.clone() };
         json!({
             "prefecture": pref,
+            "location": loc,
             "industries": industries,
             "total_industries": industries.len(),
         })

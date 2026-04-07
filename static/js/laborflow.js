@@ -12,7 +12,7 @@
    * 都道府県を指定して人材フローデータをロード・描画
    * @param {string} prefecture - 都道府県名
    */
-  window.loadLaborFlow = function(prefecture) {
+  window.loadLaborFlow = function(prefecture, municipality) {
     var panel = document.getElementById("jm-labor-flow");
     var chartEl = document.getElementById("jm-labor-flow-chart");
     var tableEl = document.getElementById("jm-labor-flow-table");
@@ -26,12 +26,15 @@
     }
 
     panel.style.display = "block";
-    if (titleEl) titleEl.textContent = prefecture + " - 人材フロー（業種別）";
+    var locationLabel = municipality ? prefecture + " " + municipality : prefecture;
+    if (titleEl) titleEl.textContent = locationLabel + " - 人材フロー（業種別）";
 
     // ローディング表示
     if (tableEl) tableEl.innerHTML = '<span class="text-gray-400">読み込み中...</span>';
 
-    fetch("/api/jobmap/labor-flow?prefecture=" + encodeURIComponent(prefecture))
+    var url = "/api/jobmap/labor-flow?prefecture=" + encodeURIComponent(prefecture);
+    if (municipality) url += "&municipality=" + encodeURIComponent(municipality);
+    fetch(url)
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.error) {
@@ -94,8 +97,7 @@
         textStyle: { color: "#e2e8f0", fontSize: 12 },
         formatter: function(params) {
           var p = params[0];
-          var idx = top.length - 1 - p.dataIndex;
-          var d = top[top.length - 1 - p.dataIndex];
+          var d = top[p.dataIndex];
           if (!d) return "";
           var sign = d.net_change_1y >= 0 ? "+" : "";
           return '<div style="font-weight:bold;">' + escapeText(d.sn_industry) + '</div>'
