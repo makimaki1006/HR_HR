@@ -30,6 +30,23 @@ pub struct CompanyContext {
     pub credit_score: f64,
     pub address: String,
     pub postal_code: String,
+
+    // SalesNow拡張フィールド（44カラム対応）
+    pub employee_delta_1m: f64,
+    pub employee_delta_3m: f64,
+    pub employee_delta_6m: f64,
+    pub employee_delta_2y: f64,
+    pub capital_stock: i64,
+    pub capital_stock_range: String,
+    pub salesnow_score: f64,
+    pub business_tags: String,
+    pub established_date: String,
+    pub listing_category: String,
+    pub sales_amount: i64,
+    pub tob_toc: String,
+    pub company_url: String,
+    pub group_employee_count: i64,
+
     pub nearby_companies: Vec<NearbyCompany>,
     pub hw_matched_postings: Vec<Row>,
     pub hw_matched_total_count: i64,
@@ -94,7 +111,8 @@ pub fn search_companies(turso: &TursoDb, query: &str) -> Vec<Row> {
     let like_pattern = format!("%{}%", query.trim());
     let sql = r#"
         SELECT corporate_number, company_name, prefecture, sn_industry, sn_industry2,
-               employee_count, employee_range, sales_range, credit_score
+               employee_count, employee_range, sales_range, credit_score,
+               salesnow_score, listing_category
         FROM v2_salesnow_companies
         WHERE company_name LIKE ?1
         ORDER BY employee_count DESC
@@ -109,7 +127,11 @@ pub fn fetch_company_detail(turso: &TursoDb, corporate_number: &str) -> Option<R
     let sql = r#"
         SELECT corporate_number, company_name, employee_count, employee_range,
                employee_delta_1y, sales_range, sn_industry, sn_industry2,
-               prefecture, credit_score, address, postal_code, hubspot_id
+               prefecture, credit_score, address, postal_code, hubspot_id,
+               employee_delta_1m, employee_delta_3m, employee_delta_6m, employee_delta_2y,
+               capital_stock, capital_stock_range, salesnow_score,
+               business_tags, established_date, listing_category,
+               sales_amount, tob_toc, company_url, group_employee_count
         FROM v2_salesnow_companies
         WHERE corporate_number = ?1
     "#;
@@ -159,6 +181,20 @@ pub fn build_company_context(
         credit_score: get_f64(&row, "credit_score"),
         address: get_str(&row, "address"),
         postal_code: get_str(&row, "postal_code"),
+        employee_delta_1m: get_f64(&row, "employee_delta_1m"),
+        employee_delta_3m: get_f64(&row, "employee_delta_3m"),
+        employee_delta_6m: get_f64(&row, "employee_delta_6m"),
+        employee_delta_2y: get_f64(&row, "employee_delta_2y"),
+        capital_stock: get_i64(&row, "capital_stock"),
+        capital_stock_range: get_str(&row, "capital_stock_range"),
+        salesnow_score: get_f64(&row, "salesnow_score"),
+        business_tags: get_str(&row, "business_tags"),
+        established_date: get_str(&row, "established_date"),
+        listing_category: get_str(&row, "listing_category"),
+        sales_amount: get_i64(&row, "sales_amount"),
+        tob_toc: get_str(&row, "tob_toc"),
+        company_url: get_str(&row, "company_url"),
+        group_employee_count: get_i64(&row, "group_employee_count"),
         nearby_companies: vec![],
         hw_matched_postings: vec![],
         ..Default::default()

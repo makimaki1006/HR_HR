@@ -22,40 +22,120 @@ CHECKPOINT_FILE = DATA_DIR / "salesnow_checkpoint.json"
 # HubSpot APIトークン（.envから読み込み）
 ENV_FILE = Path(r"C:\Users\fuji1\OneDrive\デスクトップ\Hubspot\.env")
 
-# 取得するSalesNowフィールド
+# 取得するSalesNowフィールド（全44プロパティ）
 PROPERTIES = [
     "hs_object_id",
     "name",
+    # 企業基本情報
     "qw_snpf__sn_corporate_number__c",
     "qw_snpf__sn_company_name__c",
-    "qw_snpf__sn_employee_number__c",
-    "qw_snpf__sn_employee_number_range__c",
-    "qw_snpf__sn_employee_number_delta_one_year__c",
-    "qw_snpf__sn_sales_range__c",
-    "qw_snpf__sn_industry_name__c",
-    "qw_snpf__sn_industry_name2__c",
+    "qw_snpf__sn_company_name_kana__c",
+    "qw_snpf__sn_company_url__c",
+    "qw_snpf__sn_established_date__c",
+    "qw_snpf__sn_listing_category_new__c",
+    "qw_snpf__sn_tob_toc__c",
+    "qw_snpf__sn_president_name__c",
+    "qw_snpf__sn_phone_number__c",
+    "qw_snpf__sn_mail_address__c",
+    # 所在地
     "qw_snpf__sn_prefecture__c",
-    "qw_snpf__sn_company_credit_score__c",
     "qw_snpf__sn_address__c",
     "qw_snpf__sn_postal_code__c",
+    # 業種
+    "qw_snpf__sn_industry_name__c",
+    "qw_snpf__sn_industry_name2__c",
+    "qw_snpf__sn_industry_name_subs__c",
+    "qw_snpf__sn_business_tags__c",
+    "qw_snpf__sn_business_description__c",
+    "qw_snpf__sn_jccode__c",
+    # 従業員数・増減率
+    "qw_snpf__sn_employee_number__c",
+    "qw_snpf__sn_employee_number_range__c",
+    "qw_snpf__sn_group_employee_number__c",
+    "qw_snpf__sn_employee_number_delta_one_month__c",
+    "qw_snpf__sn_employee_number_delta_three_month__c",
+    "qw_snpf__sn_employee_number_delta_six_month__c",
+    "qw_snpf__sn_employee_number_delta_one_year__c",
+    "qw_snpf__sn_employee_number_delta_two_years__c",
+    # 財務
+    "qw_snpf__sn_capital_stock__c",
+    "qw_snpf__sn_capital_stock_range__c",
+    "qw_snpf__sn_sales__c",
+    "qw_snpf__sn_sales_range__c",
+    "qw_snpf__sn_net_sales__c",
+    "qw_snpf__sn_profit_loss__c",
+    "qw_snpf__sn_is_estimated_sales__c",
+    "qw_snpf__sn_period_month__c",
+    # スコア
+    "qw_snpf__sn_company_credit_score__c",
+    "qw_snpf__sn_salesnow_score__c",
+    # 調達
+    "qw_snpf__sn_latest_event_date__c",
+    "qw_snpf__sn_latest_raised_series__c",
+    "qw_snpf__sn_latest_round_post_valuation__c",
+    "qw_snpf__sn_market_cap__c",
+    # メタ
+    "qw_snpf__sn_label__c",
+    "qw_snpf__sn_collated_at__c",
+    "qw_snpf__sn_salesnow_url__c",
 ]
 
 # CSVヘッダー（読みやすい名前）
 CSV_HEADERS = [
     "hubspot_id",
     "name",
+    # 企業基本情報
     "corporate_number",
     "sn_company_name",
-    "employee_count",
-    "employee_range",
-    "employee_delta_1y",
-    "sales_range",
-    "sn_industry",
-    "sn_industry2",
+    "company_name_kana",
+    "company_url",
+    "established_date",
+    "listing_category",
+    "tob_toc",
+    "president_name",
+    "phone_number",
+    "mail_address",
+    # 所在地
     "prefecture",
-    "credit_score",
     "address",
     "postal_code",
+    # 業種
+    "sn_industry",
+    "sn_industry2",
+    "sn_industry_subs",
+    "business_tags",
+    "business_description",
+    "jccode",
+    # 従業員数・増減率
+    "employee_count",
+    "employee_range",
+    "group_employee_count",
+    "employee_delta_1m",
+    "employee_delta_3m",
+    "employee_delta_6m",
+    "employee_delta_1y",
+    "employee_delta_2y",
+    # 財務
+    "capital_stock",
+    "capital_stock_range",
+    "sales_amount",
+    "sales_range",
+    "net_sales",
+    "profit_loss",
+    "is_estimated_sales",
+    "period_month",
+    # スコア
+    "credit_score",
+    "salesnow_score",
+    # 調達
+    "latest_event_date",
+    "latest_raised_series",
+    "latest_round_post_valuation",
+    "market_cap",
+    # メタ
+    "label",
+    "collated_at",
+    "salesnow_url",
 ]
 
 API_BASE = "https://api.hubapi.com/crm/v3/objects/companies"
