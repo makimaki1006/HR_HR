@@ -81,15 +81,122 @@
             if (c.employee_count > 0) tip += "\n従業員: " + c.employee_count.toLocaleString() + "人";
             marker.bindTooltip(tip, { direction: "top", offset: [0, -6] });
 
-            // クリック → 企業プロフィールをHTMX経由で表示
+            // クリック → ポップアップに従業員推移ミニチャートを表示
             marker.on("click", function() {
-                var contentEl = document.getElementById("content");
-                if (contentEl && typeof htmx !== "undefined") {
-                    htmx.ajax("GET",
-                        "/api/company/profile/" + encodeURIComponent(c.corporate_number),
-                        { target: contentEl, swap: "innerHTML" }
-                    );
-                }
+                var map = getMap();
+                if (!map) return;
+
+                var corp = c.corporate_number;
+                var popupId = "popup-chart-" + corp.replace(/\W/g, "_");
+
+                // 仮のポップアップを先に表示（ローディング状態）
+                var loadingHtml = '<div style="width:300px;background:#1e293b;color:#e2e8f0;padding:12px;border-radius:8px;">'
+                    + '<div style="font-weight:bold;font-size:13px;">' + escapeText(c.company_name) + '</div>'
+                    + '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">読み込み中...</div>'
+                    + '</div>';
+
+                var popup = L.popup({ maxWidth: 320, className: "company-popup" })
+                    .setLatLng([c.lat, c.lng])
+                    .setContent(loadingHtml)
+                    .openOn(map);
+
+                // 企業詳細APIからdeltaデータを取得
+                fetch("/api/v1/companies/" + encodeURIComponent(corp))
+                    .then(function(r) { return r.json(); })
+                    .then(function(detail) {
+                        var d = detail || {};
+                        var empCount = d.employee_count || c.employee_count || 0;
+                        var industry = d.sn_industry || c.sn_industry || "";
+
+                        // delta値を取得（nullの場合はNaNにしてチャートで欠損扱い）
+                        var deltas = [
+                            d.employee_delta_1m != null ? d.employee_delta_1m : null,
+                            d.employee_delta_3m != null ? d.employee_delta_3m : null,
+                            d.employee_delta_6m != null ? d.employee_delta_6m : null,
+                            d.employee_delta_1y != null ? d.employee_delta_1y : null,
+                            d.employee_delta_2y != null ? d.employee_delta_2y : null
+                        ];
+                        var hasDeltas = deltas.some(function(v) { return v !== null; });
+
+                        var chartHtml = hasDeltas
+                            ? '<div id="' + popupId + '" style="width:280px;height:120px;margin-top:8px;"></div>'
+                            : '<div style="font-size:11px;color:#64748b;margin-top:8px;">従業員推移データなし</div>';
+
+                        var html = '<div style="width:300px;background:#1e293b;color:#e2e8f0;padding:12px;border-radius:8px;">'
+                            + '<div style="font-weight:bold;font-size:13px;">' + escapeText(d.company_name || c.company_name) + '</div>'
+                            + '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">'
+                            +   (industry ? escapeText(industry) + ' | ' : '')
+                            +   (empCount > 0 ? empCount.toLocaleString() + '人' : '従業員数不明')
+                            + '</div>'
+                            + chartHtml
+                            + '<div style="margin-top:8px;text-align:right;">'
+                            +   '<a href="#" style="color:#60a5fa;font-size:11px;text-decoration:none;" '
+                            +     'onclick="(function(){var el=document.getElementById(\'content\');if(el&&typeof htmx!==\'undefined\'){'
+                            +     'htmx.ajax(\'GET\',\'/api/company/profile/' + encodeURIComponent(corp) + '\',{target:el,swap:\'innerHTML\'});}return false;})();return false;"'
+                            +   '>詳細を見る &rarr;</a>'
+                            + '</div>'
+                            + '</div>';
+
+                        popup.setContent(html);
+
+                        // EChartsの初期化はDOM描画後に実行
+                        if (hasDeltas) {
+                            setTimeout(function() {
+                                var chartEl = document.getElementById(popupId);
+                                if (!chartEl) return;
+                                if (typeof echarts === "undefined") return;
+
+                                var chart = echarts.init(chartEl);
+                                chart.setOption({
+                                    grid: { left: 40, right: 10, top: 10, bottom: 20 },
+                                    xAxis: {
+                                        type: "category",
+                                        data: ["1M", "3M", "6M", "1Y", "2Y"],
+                                        axisLabel: { fontSize: 10, color: "#94a3b8" },
+                                        axisLine: { lineStyle: { color: "#334155" } },
+                                        axisTick: { show: false }
+                                    },
+                                    yAxis: {
+                                        type: "value",
+                                        axisLabel: { fontSize: 10, color: "#94a3b8", formatter: "{value}%" },
+                                        axisLine: { show: false },
+                                        splitLine: { lineStyle: { color: "#334155", type: "dashed" } }
+                                    },
+                                    series: [{
+                                        type: "line",
+                                        data: deltas,
+                                        smooth: true,
+                                        symbol: "circle",
+                                        symbolSize: 6,
+                                        areaStyle: { color: "rgba(59,130,246,0.15)" },
+                                        lineStyle: { color: "#3b82f6", width: 2 },
+                                        itemStyle: {
+                                            color: function(p) {
+                                                return (p.data != null && p.data >= 0) ? "#22c55e" : "#ef4444";
+                                            }
+                                        }
+                                    }]
+                                });
+
+                                // ポップアップが閉じられたらチャートを破棄
+                                map.once("popupclose", function() {
+                                    if (chart) {
+                                        chart.dispose();
+                                        chart = null;
+                                    }
+                                });
+                            }, 50);
+                        }
+                    })
+                    .catch(function(err) {
+                        console.warn("[companymap] 企業詳細取得エラー:", err);
+                        popup.setContent(
+                            '<div style="width:300px;background:#1e293b;color:#e2e8f0;padding:12px;border-radius:8px;">'
+                            + '<div style="font-weight:bold;font-size:13px;">' + escapeText(c.company_name) + '</div>'
+                            + '<div style="font-size:11px;color:#ef4444;margin-top:4px;">データ取得に失敗しました</div>'
+                            + '</div>'
+                        );
+                    });
             });
 
             companyLayer.addLayer(marker);

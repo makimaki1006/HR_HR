@@ -312,33 +312,75 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         String::new()
     };
 
-    // デルタトレンド行（1m/3m/6m/1y/2y） -- ラベルと値を一体化して読みやすく
+    // デルタトレンド: EChartsバーチャート（従業員数増減率）
     let deltas: [(&str, f64); 5] = [
-        ("1M", ctx.employee_delta_1m),
-        ("3M", ctx.employee_delta_3m),
-        ("6M", ctx.employee_delta_6m),
-        ("1Y", ctx.employee_delta_1y),
-        ("2Y", ctx.employee_delta_2y),
+        ("1ヶ月", ctx.employee_delta_1m),
+        ("3ヶ月", ctx.employee_delta_3m),
+        ("6ヶ月", ctx.employee_delta_6m),
+        ("1年", ctx.employee_delta_1y),
+        ("2年", ctx.employee_delta_2y),
     ];
     let has_any_delta = deltas.iter().any(|(_, v)| v.abs() > 0.01);
     let delta_trend = if has_any_delta {
-        let items: Vec<String> = deltas.iter().map(|(label, val)| {
-            if val.abs() < 0.01 {
-                format!(r#"<span class="text-[11px] text-slate-600">{}: -</span>"#, label)
-            } else {
-                let color = if *val > 0.5 { "text-green-400" }
-                    else if *val < -0.5 { "text-red-400" }
-                    else { "text-slate-400" };
-                format!(r#"<span class="text-[11px] {}">{}: {:+.1}%</span>"#, color, label, val)
-            }
+        // aria-label用のフォールバックテキスト
+        let aria_parts: Vec<String> = deltas.iter().map(|(label, val)| {
+            if val.abs() < 0.01 { format!("{} -", label) }
+            else { format!("{} {:+.1}%", label, val) }
         }).collect();
-        format!(
-            r#"<div class="flex items-center gap-3 mt-2 flex-wrap">
-                <span class="text-[10px] text-slate-500 font-medium">従業員推移</span>
-                {}
-            </div>"#,
-            items.join("")
-        )
+        let aria_label = format!("従業員数推移: {}", aria_parts.join(", "));
+
+        // 各バーの色: 正=緑、負=赤、ゼロ=グレー
+        let bar_color = |v: f64| -> &str {
+            if v.abs() < 0.01 { "\\u00239ca3af" }
+            else if v >= 0.0 { "\\u002322c55e" }
+            else { "\\u0023ef4444" }
+        };
+
+        // 各バーのデータ項目JSONを生成
+        let data_items: Vec<String> = deltas.iter().map(|(_, val)| {
+            format!(
+                "{{\"value\":{:.1},\"itemStyle\":{{\"color\":\"{}\"}}}}",
+                val, bar_color(*val)
+            )
+        }).collect();
+
+        // ECharts chart config JSON（#はUnicodeエスケープで記述してraw string衝突を回避）
+        let chart_config = format!(
+            concat!(
+                "{{",
+                "\"xAxis\":{{\"type\":\"category\",\"data\":[\"1ヶ月\",\"3ヶ月\",\"6ヶ月\",\"1年\",\"2年\"],",
+                "\"axisLabel\":{{\"color\":\"\\u002394a3b8\",\"fontSize\":11}},",
+                "\"axisLine\":{{\"lineStyle\":{{\"color\":\"\\u0023334155\"}}}}}},",
+                "\"yAxis\":{{\"type\":\"value\",",
+                "\"axisLabel\":{{\"color\":\"\\u002394a3b8\",\"fontSize\":10,\"formatter\":\"{{value}}%\"}},",
+                "\"splitLine\":{{\"lineStyle\":{{\"color\":\"\\u00231e293b\"}}}},",
+                "\"axisLine\":{{\"lineStyle\":{{\"color\":\"\\u0023334155\"}}}}}},",
+                "\"grid\":{{\"left\":\"12%\",\"right\":\"8%\",\"top\":\"14%\",\"bottom\":\"16%\"}},",
+                "\"series\":[{{\"type\":\"bar\",\"data\":[{data}],",
+                "\"barWidth\":\"40%\",",
+                "\"label\":{{\"show\":true,\"position\":\"top\",\"color\":\"\\u0023e2e8f0\",\"fontSize\":11,\"formatter\":\"{{c}}%\"}},",
+                "\"markLine\":{{\"silent\":true,\"symbol\":\"none\",",
+                "\"lineStyle\":{{\"color\":\"\\u0023475569\",\"type\":\"dashed\"}},",
+                "\"data\":[{{\"yAxis\":0}}]}}}}],",
+                "\"tooltip\":{{\"trigger\":\"axis\",",
+                "\"backgroundColor\":\"\\u00231e293b\",\"borderColor\":\"\\u0023334155\",",
+                "\"textStyle\":{{\"color\":\"\\u0023e2e8f0\"}},",
+                "\"formatter\":\"{{b}}: {{c}}%\"}}}}"
+            ),
+            data = data_items.join(","),
+        );
+
+        // HTML要素としてチャートとアクセシビリティを出力
+        let mut trend_html = String::with_capacity(2048);
+        trend_html.push_str("<div class=\"stat-card mt-3\" style=\"border-left:4px solid #3b82f6\">");
+        trend_html.push_str("<h4 class=\"text-xs text-slate-400 mb-2\">従業員数推移（増減率%）</h4>");
+        trend_html.push_str("<div class=\"echart\" role=\"img\" aria-label=\"");
+        trend_html.push_str(&aria_label);
+        trend_html.push_str("\" data-chart-config='");
+        trend_html.push_str(&chart_config);
+        trend_html.push_str("' style=\"height:160px;\"></div>");
+        trend_html.push_str("</div>");
+        trend_html
     } else {
         String::new()
     };

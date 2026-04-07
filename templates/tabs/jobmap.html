@@ -105,6 +105,16 @@
     </div>
   </div>
 
+  <!-- 人材フロー（業種別従業員増減）パネル -->
+  <div id="jm-labor-flow" class="stat-card" style="display:none;">
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-sm text-gray-300 font-medium" id="jm-labor-flow-title">人材フロー（業種別）</span>
+      <button onclick="document.getElementById('jm-labor-flow').style.display='none'" class="text-xs text-gray-400 hover:text-white" aria-label="人材フローパネルを閉じる">&#10005;</button>
+    </div>
+    <div id="jm-labor-flow-chart" style="height:320px;" role="img" aria-label="業種別従業員増減の横棒グラフ"></div>
+    <div id="jm-labor-flow-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="業種別人材フロー詳細"></div>
+  </div>
+
   <!-- 地域統計サマリー（都道府県選択時に表示） -->
   <div id="jm-region-stats" class="stat-card" style="display:none;">
     <div class="flex justify-between items-center mb-2">
@@ -296,6 +306,7 @@
     border-top-color: #475569 !important;
   }
 </style>
+<script src="/static/js/laborflow.js?v=1"></script>
 <script src="/static/js/postingmap.js?v=4"></script>
 <script src="/static/js/companymap.js?v=1"></script>
 <script src="/static/js/choropleth_overlay.js?v=1" defer></script>
@@ -394,6 +405,8 @@
       statsPanel.style.display = 'block';
       statsContent.textContent = '読み込み中...';
       htmx.ajax('GET', '/api/jobmap/region/summary?prefecture=' + encodeURIComponent(pref), {target: '#jm-region-stats-content', swap: 'innerHTML'});
+      // 人材フローパネルもロード
+      if (typeof loadLaborFlow === 'function') loadLaborFlow(pref);
     });
   }
 
@@ -415,6 +428,8 @@
       var summaryUrl = '/api/jobmap/region/summary?prefecture=' + encodeURIComponent(sessionPref);
       if (sessionMuni) summaryUrl += '&municipality=' + encodeURIComponent(sessionMuni);
       htmx.ajax('GET', summaryUrl, {target: '#jm-region-stats-content', swap: 'innerHTML'});
+      // 人材フローパネルも自動ロード
+      if (typeof loadLaborFlow === 'function') loadLaborFlow(sessionPref);
     }
 
     // 市区町村リストを取得して自動選択 → 検索実行
