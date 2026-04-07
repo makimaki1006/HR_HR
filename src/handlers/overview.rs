@@ -773,6 +773,7 @@ fn render_overview(
     format!(
         r##"<div class="space-y-6">
     <h2 class="text-xl font-bold text-white">📊 地域概況 <span class="text-blue-400 text-base font-normal">{industry_label} / {location_label}</span></h2>
+    <p class="text-xs text-slate-500 mb-2">ハローワーク求人データベースから地域・産業別の採用市場動向を分析するダッシュボードです。フィルタで地域・産業を絞り込み、各タブで詳細を確認できます。</p>
 
     {comparison_section}
 
@@ -795,7 +796,7 @@ fn render_overview(
             <div class="stat-label">正社員率 {nav_workstyle}</div>
         </div>
     </div>
-    <div class="text-xs text-slate-600 text-right mt-1">データ時点: 2026年3月 | HW求人 {total_count_raw}件</div>
+    <div class="text-xs text-slate-600 text-right mt-1">データ時点: 2026年3月（月次更新） | HW求人 {total_count_raw}件</div>
     <div class="text-xs text-slate-500 mt-1">※ トレンド分析は「分析」タブで確認できます</div>
 
     <!-- 産業別 + 職業大分類 -->
