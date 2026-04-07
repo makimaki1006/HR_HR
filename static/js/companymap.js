@@ -131,7 +131,7 @@
                             + chartHtml
                             + '<div style="margin-top:8px;text-align:right;">'
                             +   '<a href="#" style="color:#60a5fa;font-size:11px;text-decoration:none;" '
-                            +     'onclick="(function(){var el=document.getElementById(\'content\');if(el&&typeof htmx!==\'undefined\'){'
+                            +     'onclick="(function(){window._lastTab=\'/tab/jobmap\';var el=document.getElementById(\'content\');if(el&&typeof htmx!==\'undefined\'){'
                             +     'htmx.ajax(\'GET\',\'/api/company/profile/' + encodeURIComponent(corp) + '\',{target:el,swap:\'innerHTML\'});}return false;})();return false;"'
                             +   '>詳細を見る &rarr;</a>'
                             + '</div>'
