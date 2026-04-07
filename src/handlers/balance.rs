@@ -356,19 +356,19 @@ fn render_balance(
     );
 
     // 従業員規模分布
-    let emp_size_chart = build_bar_chart(&stats.employee_size_dist, "#3B82F6", 320);
+    let emp_size_chart = build_bar_chart(&stats.employee_size_dist, "従業員規模分布", "#3B82F6", 320);
 
     // 資本金分布
-    let capital_chart = build_bar_chart(&stats.capital_dist, "#10B981", 320);
+    let capital_chart = build_bar_chart(&stats.capital_dist, "資本金分布", "#10B981", 320);
 
     // 設立年代分布
-    let founding_chart = build_bar_chart(&stats.founding_era_dist, "#F59E0B", 320);
+    let founding_chart = build_bar_chart(&stats.founding_era_dist, "設立年代分布", "#F59E0B", 320);
 
     // 女性従業員比率
-    let female_ratio_chart = build_bar_chart(&stats.female_ratio_hist, "#EC4899", 280);
+    let female_ratio_chart = build_bar_chart(&stats.female_ratio_hist, "女性従業員比率分布", "#EC4899", 280);
 
     // パート比率
-    let parttime_ratio_chart = build_bar_chart(&stats.parttime_ratio_hist, "#8B5CF6", 280);
+    let parttime_ratio_chart = build_bar_chart(&stats.parttime_ratio_hist, "パート比率分布", "#8B5CF6", 280);
 
     // 産業×従業員規模クロス（スタックバー）
     let cross_chart = build_industry_size_cross(
@@ -432,16 +432,23 @@ fn render_balance(
 }
 
 /// 汎用棒グラフビルダー
-fn build_bar_chart(data: &[(String, i64)], color: &str, height: u32) -> String {
+fn build_bar_chart(data: &[(String, i64)], title: &str, color: &str, height: u32) -> String {
     if data.is_empty() {
         return r##"<p class="text-slate-500 text-sm text-center py-12">データがありません</p>"##
             .to_string();
     }
+
+    // アクセシビリティ: 上位3項目をaria-labelに含める
+    let aria_summary: Vec<String> = data.iter().take(3).map(|(l, v)| {
+        format!("{} {}件", l, format_number(*v))
+    }).collect();
+    let aria_label = format!("{}: {}", title, aria_summary.join("、"));
+
     let labels: Vec<String> = data.iter().map(|(l, _)| format!("\"{}\"", l)).collect();
     let values: Vec<String> = data.iter().map(|(_, v)| v.to_string()).collect();
 
     format!(
-        r##"<div class="echart" style="height:{height}px;" data-chart-config='{{
+        r##"<div class="echart" role="img" aria-label="{aria_label}" style="height:{height}px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
             "grid": {{"left": "3%", "right": "4%", "bottom": "8%", "top": "5%", "containLabel": true}},
             "xAxis": {{"type": "category", "data": [{labels}], "axisLabel": {{"rotate": 30}}}},
@@ -453,6 +460,7 @@ fn build_bar_chart(data: &[(String, i64)], color: &str, height: u32) -> String {
                 "label": {{"show": true, "position": "top", "color": "#e2e8f0", "fontSize": 11}}
             }}]
         }}'></div>"##,
+        aria_label = aria_label,
         height = height,
         labels = labels.join(","),
         values = values.join(","),
@@ -509,8 +517,12 @@ fn build_industry_size_cross(
         })
         .collect();
 
+    // アクセシビリティ: 上位産業名をaria-labelに含める
+    let aria_top: Vec<&str> = top_industries.iter().take(3).map(|s| s.as_str()).collect();
+    let aria_label = format!("産業別従業員規模クロス: {}", aria_top.join("、"));
+
     format!(
-        r##"<div class="echart" style="height:400px;" data-chart-config='{{
+        r##"<div class="echart" role="img" aria-label="{aria_label}" style="height:400px;" data-chart-config='{{
             "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
             "legend": {{"data": [{legend}], "top": "0%"}},
             "grid": {{"left": "20%", "right": "5%", "top": "12%", "bottom": "5%"}},
@@ -518,6 +530,7 @@ fn build_industry_size_cross(
             "yAxis": {{"type": "category", "data": [{labels}]}},
             "series": [{series}]
         }}'></div>"##,
+        aria_label = aria_label,
         legend = size_bands
             .iter()
             .map(|s| format!("\"{}\"", s))
