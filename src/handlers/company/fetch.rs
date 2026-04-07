@@ -471,8 +471,9 @@ pub fn fetch_hw_postings_for_company(
         return vec![];
     }
     let like_pattern = format!("%{}%", normalized);
-    let sql = "SELECT facility_name, job_type, employment_type, salary_type, \
-               salary_min, salary_max, headline, municipality, industry_raw \
+    let sql = "SELECT rowid, facility_name, job_type, employment_type, salary_type, \
+               salary_min, salary_max, headline, municipality, industry_raw, \
+               job_number, working_hours, holidays, benefits, recruitment_reason \
                FROM postings \
                WHERE facility_name LIKE ?1 AND prefecture = ?2 \
                ORDER BY salary_min DESC LIMIT 30";

@@ -1031,6 +1031,7 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
         </tr></thead><tbody>"##);
 
     for row in &ctx.hw_matched_postings {
+        let rowid = get_i64(row, "rowid");
         let job_type = get_str(row, "job_type");
         let emp_type = get_str(row, "employment_type");
         let muni = get_str(row, "municipality");
@@ -1038,6 +1039,11 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
         let salary_max = get_i64(row, "salary_max");
         let salary_type = get_str(row, "salary_type");
         let headline = get_str(row, "headline");
+        let job_number = get_str(row, "job_number");
+        let working_hours = get_str(row, "working_hours");
+        let holidays = get_str(row, "holidays");
+        let benefits = get_str(row, "benefits");
+        let reason = get_str(row, "recruitment_reason");
 
         let salary_display = if salary_min > 0 && salary_max > 0 {
             format!("{} {}-{}", escape_html(&salary_type), format_number(salary_min), format_number(salary_max))
@@ -1052,8 +1058,10 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
             _ => "text-slate-300",
         };
 
+        // クリックで詳細を展開/折りたたみ
+        let detail_id = format!("hw-detail-{}", rowid);
         html.push_str(&format!(
-            r##"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
+            r##"<tr class="border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer" onclick="var d=document.getElementById('{detail_id}');d.style.display=d.style.display==='none'?'table-row':'none'">
                 <td class="py-1.5 px-2">{}</td>
                 <td class="py-1.5 px-2 {}"><span class="font-medium">{}</span></td>
                 <td class="py-1.5 px-2 text-slate-400">{}</td>
@@ -1067,6 +1075,44 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
             salary_display,
             escape_html(&truncate_str(&headline, 40)),
         ));
+
+        // 展開時の詳細行（初期非表示）
+        html.push_str(&format!(
+            r##"<tr id="{detail_id}" style="display:none" class="bg-slate-800/80">
+                <td colspan="5" class="px-4 py-3">
+                    <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">"##,
+        ));
+        if !job_number.is_empty() {
+            html.push_str(&format!(
+                r##"<div><span class="text-slate-500">求人番号:</span> <span class="text-cyan-300 font-mono">{}</span></div>"##,
+                escape_html(&job_number)));
+        }
+        if !headline.is_empty() {
+            html.push_str(&format!(
+                r##"<div class="col-span-2"><span class="text-slate-500">見出し:</span> <span class="text-white">{}</span></div>"##,
+                escape_html(&headline)));
+        }
+        if !working_hours.is_empty() {
+            html.push_str(&format!(
+                r##"<div><span class="text-slate-500">勤務時間:</span> <span class="text-slate-300">{}</span></div>"##,
+                escape_html(&truncate_str(&working_hours, 60))));
+        }
+        if !holidays.is_empty() {
+            html.push_str(&format!(
+                r##"<div><span class="text-slate-500">休日:</span> <span class="text-slate-300">{}</span></div>"##,
+                escape_html(&truncate_str(&holidays, 60))));
+        }
+        if !benefits.is_empty() {
+            html.push_str(&format!(
+                r##"<div class="col-span-2"><span class="text-slate-500">福利厚生:</span> <span class="text-slate-300">{}</span></div>"##,
+                escape_html(&truncate_str(&benefits, 100))));
+        }
+        if !reason.is_empty() {
+            html.push_str(&format!(
+                r##"<div><span class="text-slate-500">募集理由:</span> <span class="text-slate-300">{}</span></div>"##,
+                escape_html(&reason)));
+        }
+        html.push_str("</div></td></tr>");
     }
 
     html.push_str("</tbody></table></div></div>");
