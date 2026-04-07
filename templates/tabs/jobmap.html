@@ -306,9 +306,9 @@
     border-top-color: #475569 !important;
   }
 </style>
-<script src="/static/js/laborflow.js?v=1"></script>
-<script src="/static/js/postingmap.js?v=4"></script>
-<script src="/static/js/companymap.js?v=1"></script>
+<script src="/static/js/laborflow.js?v=3"></script>
+<script src="/static/js/postingmap.js?v=5"></script>
+<script src="/static/js/companymap.js?v=3"></script>
 <script src="/static/js/choropleth_overlay.js?v=1" defer></script>
 <script>
   function toggleJobmapFullscreen() {
@@ -407,6 +407,18 @@
       htmx.ajax('GET', '/api/jobmap/region/summary?prefecture=' + encodeURIComponent(pref), {target: '#jm-region-stats-content', swap: 'innerHTML'});
       // 人材フローパネルもロード
       if (typeof loadLaborFlow === 'function') { var m=document.getElementById('jm-muni'); loadLaborFlow(pref, m?m.value:''); }
+    });
+  }
+
+  // 市区町村変更時にも人材フローを更新
+  var jmMuni = document.getElementById('jm-muni');
+  if (jmMuni) {
+    jmMuni.addEventListener('change', function() {
+      var pref = document.getElementById('jm-pref').value;
+      var muni = this.value;
+      if (pref && typeof loadLaborFlow === 'function') {
+        loadLaborFlow(pref, muni);
+      }
     });
   }
 
