@@ -556,6 +556,7 @@
             el.classList.add('active');
             el.setAttribute('aria-selected', 'true');
             var url = el.getAttribute('hx-get');
+            window._lastTab = url;
             if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
         }
         // クロスナビ: 他タブへのリンクからタブ遷移

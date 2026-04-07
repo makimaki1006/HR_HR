@@ -63,11 +63,11 @@
       return;
     }
 
-    // 上位15業種に絞る（net_change_1yの絶対値が大きい順）
+    // 全業種を表示（net_change_1yの絶対値が大きい順）
     var sorted = industries.slice().sort(function(a, b) {
       return Math.abs(b.net_change_1y) - Math.abs(a.net_change_1y);
     });
-    var top = sorted.slice(0, 15);
+    var top = sorted;
     // チャート表示用に昇順（下から大きい値）
     top.reverse();
 
@@ -80,6 +80,9 @@
       chart = null;
     }
 
+    // チャート高さを業種数に応じて動的設定（1業種あたり25px、最低200px）
+    var chartHeight = Math.max(200, top.length * 25 + 50);
+    el.style.height = chartHeight + "px";
     chart = echarts.init(el);
 
     var option = {
@@ -204,9 +207,10 @@
       + (totalChange3m >= 0 ? '+' : '') + totalChange3m.toLocaleString() + '人</strong></span>'
       + '</div>';
 
-    // テーブル（上位10業種）
+    // テーブル（全業種表示）
+    html += '<div class="overflow-y-auto" style="max-height:400px;">';
     html += '<table class="w-full text-left border-collapse">';
-    html += '<thead><tr class="border-b border-gray-700 text-gray-400">'
+    html += '<thead><tr class="border-b border-gray-700 text-gray-400 sticky top-0 bg-gray-900">'
       + '<th class="py-1 pr-2">業種</th>'
       + '<th class="py-1 px-2 text-right">企業数</th>'
       + '<th class="py-1 px-2 text-right">従業員</th>'
@@ -215,8 +219,7 @@
       + '<th class="py-1 px-2 text-right">平均変動率</th>'
       + '</tr></thead><tbody>';
 
-    var showCount = Math.min(industries.length, 10);
-    for (var i = 0; i < showCount; i++) {
+    for (var i = 0; i < industries.length; i++) {
       var d = industries[i];
       var c1y = d.net_change_1y || 0;
       var c3m = d.net_change_3m || 0;
@@ -233,12 +236,7 @@
         + '</tr>';
     }
 
-    if (industries.length > 10) {
-      html += '<tr><td colspan="6" class="py-1 text-center text-gray-500">他 '
-        + (industries.length - 10) + ' 業種</td></tr>';
-    }
-
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     el.innerHTML = html;
   }
 

@@ -140,6 +140,14 @@ fn credit_score_class(score_str: &str) -> &'static str {
 pub fn render_company_profile(ctx: &CompanyContext) -> String {
     let mut html = String::with_capacity(64_000);
 
+    // 戻るボタン（前のタブに戻れるように）
+    html.push_str(r##"<div class="mb-3">
+      <button class="text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded bg-slate-800 hover:bg-slate-700"
+              onclick="if(window._lastTab){document.querySelector('.tab-btn[hx-get=&quot;'+window._lastTab+'&quot;]').click()}else{document.querySelector('.tab-btn[hx-get=&quot;/tab/company&quot;]').click()}">
+        ← 戻る
+      </button>
+    </div>"##);
+
     // サブタブナビゲーション
     html.push_str(r##"<div class="flex gap-1 mb-4 flex-wrap" id="company-subtab-nav">
       <button class="px-3 py-1.5 text-xs rounded bg-blue-600 text-white font-medium transition-colors" onclick="showCompanyTab(0)" data-company-tab="0">サマリー</button>
@@ -1093,10 +1101,10 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
             r##"<span class="text-slate-600">-</span>"##.to_string()
         };
 
-        // hx-target に # が含まれるため push_str で構築
+        // クリックで同タブ内に企業プロフィールを展開
         html.push_str("<tr class=\"border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer\" ");
         html.push_str(&format!("hx-get=\"/api/company/profile/{}\" ", escape_html(&nc.corporate_number)));
-        html.push_str("hx-target=\"#company-profile-area\" hx-swap=\"innerHTML\">");
+        html.push_str("hx-target=\"#content\" hx-swap=\"innerHTML\">");
 
         html.push_str(&format!(
             r##"<td class="py-1.5 px-2 text-white">{}</td>
