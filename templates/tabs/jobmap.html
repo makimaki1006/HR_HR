@@ -406,7 +406,7 @@
       statsContent.textContent = '読み込み中...';
       htmx.ajax('GET', '/api/jobmap/region/summary?prefecture=' + encodeURIComponent(pref), {target: '#jm-region-stats-content', swap: 'innerHTML'});
       // 人材フローパネルもロード
-      if (typeof loadLaborFlow === 'function') loadLaborFlow(pref);
+      if (typeof loadLaborFlow === 'function') { var m=document.getElementById('jm-muni'); loadLaborFlow(pref, m?m.value:''); }
     });
   }
 
@@ -429,7 +429,7 @@
       if (sessionMuni) summaryUrl += '&municipality=' + encodeURIComponent(sessionMuni);
       htmx.ajax('GET', summaryUrl, {target: '#jm-region-stats-content', swap: 'innerHTML'});
       // 人材フローパネルも自動ロード
-      if (typeof loadLaborFlow === 'function') loadLaborFlow(sessionPref);
+      if (typeof loadLaborFlow === 'function') { loadLaborFlow(sessionPref, sessionMuni||''); }
     }
 
     // 市区町村リストを取得して自動選択 → 検索実行
