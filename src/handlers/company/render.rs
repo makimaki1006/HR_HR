@@ -115,47 +115,47 @@ fn credit_score_class(score_str: &str) -> &'static str {
     else { "bg-slate-700 text-slate-400" }
 }
 
-/// 企業プロフィール全体
+/// 企業プロフィール全体（サブタブ構成）
 pub fn render_company_profile(ctx: &CompanyContext) -> String {
-    let mut html = String::with_capacity(48_000);
+    let mut html = String::with_capacity(64_000);
 
-    // 提案ポイント（最重要セクション: トップに表示）
+    // サブタブナビゲーション
+    html.push_str(r##"<div class="flex gap-1 mb-4 flex-wrap" id="company-subtab-nav">
+      <button class="px-3 py-1.5 text-xs rounded bg-blue-600 text-white font-medium transition-colors" onclick="showCompanyTab(0)" data-company-tab="0">サマリー</button>
+      <button class="px-3 py-1.5 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors" onclick="showCompanyTab(1)" data-company-tab="1">人材フロー</button>
+      <button class="px-3 py-1.5 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors" onclick="showCompanyTab(2)" data-company-tab="2">給与・競合</button>
+      <button class="px-3 py-1.5 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors" onclick="showCompanyTab(3)" data-company-tab="3">求人詳細</button>
+    </div>"##);
+
+    // ===== サブタブ0: サマリー =====
+    html.push_str(r#"<div class="company-tab-panel" data-company-panel="0">"#);
     render_sales_pitches(&mut html, ctx);
-
-    // セクションA: 企業ヘッダー（成長シグナルバッジ付き）
     render_header(&mut html, ctx);
-
-    // 採用リスクゲージ
     render_hiring_risk(&mut html, ctx);
-
-    // セクションB: 市場スナップショット
     render_market_snapshot(&mut html, ctx);
+    html.push_str("</div>");
 
-    // 地域 vs 自社 比較
+    // ===== サブタブ1: 人材フロー =====
+    html.push_str(r#"<div class="company-tab-panel" data-company-panel="1" style="display:none;">"#);
     render_region_vs_company(&mut html, ctx);
-
-    // セクションC: 給与市場ポジション（給与ギャップテーブル付き）
-    render_salary_section(&mut html, ctx);
-
-    // 給与ギャップ詳細テーブル
-    render_salary_gap_table(&mut html, ctx);
-
-    // セクションD: 競合環境
-    render_competitor_section(&mut html, ctx);
-
-    // セクションE: 地域人口コンテキスト
     render_demographics(&mut html, ctx);
-
-    // セクションF: 複合示唆
     render_insights(&mut html, ctx);
+    html.push_str("</div>");
 
-    // セクションG: この企業のHW求人
+    // ===== サブタブ2: 給与・競合 =====
+    html.push_str(r#"<div class="company-tab-panel" data-company-panel="2" style="display:none;">"#);
+    render_salary_gap_table(&mut html, ctx);
+    render_salary_section(&mut html, ctx);
+    render_competitor_section(&mut html, ctx);
+    html.push_str("</div>");
+
+    // ===== サブタブ3: 求人詳細 =====
+    html.push_str(r#"<div class="company-tab-panel" data-company-panel="3" style="display:none;">"#);
     render_hw_postings(&mut html, ctx);
-
-    // セクションH: 近隣企業
     render_nearby_companies(&mut html, ctx);
+    html.push_str("</div>");
 
-    // レポートリンク
+    // レポートリンク（常に表示）
     html.push_str(&format!(
         r#"<div class="text-right mt-4">
             <a href="/report/company/{}" target="_blank"
@@ -165,6 +165,29 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
         </div>"#,
         escape_html(&ctx.corporate_number)
     ));
+
+    // サブタブ切り替えJavaScript
+    html.push_str(r##"<script>
+function showCompanyTab(idx) {
+    // パネル切り替え
+    document.querySelectorAll('.company-tab-panel').forEach(function(p) {
+        p.style.display = p.getAttribute('data-company-panel') == idx.toString() ? '' : 'none';
+    });
+    // ボタンスタイル切り替え
+    document.querySelectorAll('#company-subtab-nav button').forEach(function(b) {
+        if (b.getAttribute('data-company-tab') == idx.toString()) {
+            b.className = 'px-3 py-1.5 text-xs rounded bg-blue-600 text-white font-medium transition-colors';
+        } else {
+            b.className = 'px-3 py-1.5 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors';
+        }
+    });
+    // EChartsの再初期化（非表示→表示でサイズがおかしくなる対策）
+    var panel = document.querySelector('.company-tab-panel[data-company-panel="' + idx + '"]');
+    if (panel && typeof initECharts === 'function') {
+        setTimeout(function() { initECharts(panel); }, 50);
+    }
+}
+</script>"##);
 
     html
 }

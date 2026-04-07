@@ -42,11 +42,13 @@
     border-bottom: 2px solid transparent;
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.15s ease, border-color 0.15s ease;
+    transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+    flex-shrink: 0;
 }
 
 .tab-btn:hover {
     color: #e2e8f0;
+    background-color: rgba(51, 65, 85, 0.3);
 }
 
 .tab-btn.active {
@@ -161,7 +163,14 @@ input:focus-visible {
     background-color: #1e293b; /* navy-700 */
     border-radius: 0.75rem;
     padding: 1.25rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(96, 165, 250, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .stat-value {
@@ -220,6 +229,16 @@ input:focus-visible {
     }
 }
 
+/* レスポンシブ: タブバーのスクロール対応（タブレット以下） */
+@media (max-width: 1024px) {
+    nav[role="tablist"] {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        position: relative;
+    }
+}
+
 /* レスポンシブ: モバイル */
 @media (max-width: 640px) {
     header {
@@ -231,20 +250,23 @@ input:focus-visible {
         min-width: 0;
         font-size: 12px;
     }
-    nav {
+    nav[role="tablist"] {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         padding-bottom: 4px;
+        gap: 0;
     }
-    nav::after {
+    nav[role="tablist"]::after {
         content: '';
-        position: absolute;
+        position: sticky;
         right: 0;
         top: 0;
         bottom: 0;
-        width: 30px;
+        flex-shrink: 0;
+        width: 24px;
         background: linear-gradient(to right, transparent, #0f172a);
         pointer-events: none;
+        margin-left: -24px;
     }
     .tab-btn {
         font-size: 11px;
@@ -402,7 +424,7 @@ input:focus-visible {
     to { transform: rotate(360deg); }
 }
 
-/* タブ切替時のフェード */
+/* タブ切替時のフェードアウト */
 #content.loading {
     opacity: 0.3;
     pointer-events: none;
@@ -410,6 +432,37 @@ input:focus-visible {
 }
 #content {
     transition: opacity 0.2s ease;
+}
+
+/* タブコンテンツのフェードインアニメーション */
+@keyframes content-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+#content > * {
+    animation: content-fade-in 0.25s ease-out;
+}
+
+/* prefers-reduced-motion対応: アニメーション無効化 */
+@media (prefers-reduced-motion: reduce) {
+    #content > * {
+        animation: none;
+    }
+    .stat-card:hover {
+        transform: none;
+    }
+    .loading-spinner {
+        animation-duration: 2s;
+    }
+    .skeleton::after {
+        animation: none;
+    }
 }
 
 /* ==========================================================
@@ -469,6 +522,23 @@ input:focus-visible {
 }
 
 /* ==========================================================
+   汎用インタラクション改善
+   ========================================================== */
+
+/* ダークテーマのボーダー視認性改善 */
+.data-table thead th {
+    border-bottom-color: #475569;
+}
+
+/* チャートカードのコンテナ */
+.grid-charts > div {
+    transition: border-color 0.2s ease;
+}
+.grid-charts > div:hover {
+    border-color: rgba(100, 116, 139, 0.4);
+}
+
+/* ==========================================================
    印刷/エクスポート
    ========================================================== */
 .print-export-bar {
@@ -501,8 +571,9 @@ input:focus-visible {
    印刷用スタイル
    ========================================================== */
 @media print {
-    /* ヘッダー・ナビ・ブレッドクラム非表示 */
-    header, nav, #breadcrumb-bar, .print-export-bar {
+    /* ヘッダー・ナビ・ブレッドクラム・ローディング非表示 */
+    header, nav, #breadcrumb-bar, .print-export-bar,
+    .loading-overlay, .loading-spinner {
         display: none !important;
     }
 
@@ -514,7 +585,7 @@ input:focus-visible {
         print-color-adjust: exact;
     }
 
-    /* コンテンツの余白調整 */
+    /* コンテンツの余白調整（A4余白を考慮） */
     main#content {
         padding: 0 !important;
         margin: 0 !important;
@@ -526,6 +597,9 @@ input:focus-visible {
         border: 1px solid #cbd5e1 !important;
         break-inside: avoid;
         page-break-inside: avoid;
+        /* 印刷時はhoverアニメーション無効化 */
+        transform: none !important;
+        box-shadow: none !important;
     }
 
     /* テキスト色を印刷用に */
@@ -549,21 +623,37 @@ input:focus-visible {
         border-bottom: 1px solid #e2e8f0 !important;
     }
 
-    /* EChartsは背景透過のまま維持（チャートの色は保持） */
+    .data-table {
+        break-inside: auto;
+        page-break-inside: auto;
+    }
+
+    .data-table tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* EChartsの印刷サイズ制御 */
     .echart {
         break-inside: avoid;
         page-break-inside: avoid;
+        max-height: 350px !important;
     }
 
     /* 地図はページ分割回避 */
     .leaflet-map, #jm-map-container, #talentmap-leaflet {
         break-inside: avoid;
         page-break-inside: avoid;
+        max-height: 400px !important;
     }
 
     /* グリッドを1カラムに */
     .grid-charts {
         grid-template-columns: 1fr !important;
+    }
+
+    .grid-stats {
+        grid-template-columns: repeat(4, 1fr) !important;
     }
 
     /* 印刷ヘッダー表示 */
@@ -578,5 +668,11 @@ input:focus-visible {
     /* 不要なボタン非表示 */
     button:not(.tab-btn) {
         display: none !important;
+    }
+
+    /* 全アニメーション無効化 */
+    *, *::before, *::after {
+        animation-duration: 0s !important;
+        transition-duration: 0s !important;
     }
 }
