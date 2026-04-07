@@ -10,6 +10,95 @@ use std::sync::Arc;
 
 use crate::AppState;
 
+/// 人材フローAPIパラメータ
+#[derive(Deserialize)]
+pub struct LaborFlowParams {
+    #[serde(default)]
+    pub prefecture: String,
+}
+
+/// 人材フロー（業種別従業員増減）API
+/// 都道府県を指定すると、SalesNow企業データから業種別の従業員増減を集計して返す
+pub async fn labor_flow(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<LaborFlowParams>,
+) -> Json<Value> {
+    let prefecture = params.prefecture.trim().to_string();
+    if prefecture.is_empty() {
+        return Json(json!({
+            "prefecture": "",
+            "industries": [],
+            "error": "都道府県を指定してください"
+        }));
+    }
+
+    let sn_db = match &state.salesnow_db {
+        Some(db) => db.clone(),
+        None => return Json(json!({
+            "prefecture": prefecture,
+            "industries": [],
+            "error": "SalesNow DB未接続"
+        })),
+    };
+
+    let pref = prefecture.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        use crate::handlers::helpers::{get_f64, get_i64, get_str};
+
+        let sql = r#"
+            SELECT sn_industry,
+                   COUNT(*) as companies,
+                   SUM(employee_count) as total_emp,
+                   SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)) as net_change_1y,
+                   SUM(CAST(employee_count * employee_delta_3m / (100.0 + employee_delta_3m) AS INTEGER)) as net_change_3m,
+                   ROUND(AVG(employee_delta_1y), 1) as avg_delta_1y
+            FROM v2_salesnow_companies
+            WHERE prefecture = ?1
+              AND employee_count > 0
+              AND employee_delta_1y IS NOT NULL
+              AND sn_industry IS NOT NULL AND sn_industry != ''
+            GROUP BY sn_industry
+            ORDER BY net_change_1y DESC
+        "#;
+
+        let params_db: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref];
+        let rows = match sn_db.query(sql, &params_db) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!("人材フロー集計エラー: {e}");
+                return json!({
+                    "prefecture": pref,
+                    "industries": [],
+                    "error": format!("クエリエラー: {e}")
+                });
+            }
+        };
+
+        let industries: Vec<Value> = rows.iter().map(|r| {
+            json!({
+                "sn_industry": get_str(r, "sn_industry"),
+                "companies": get_i64(r, "companies"),
+                "total_emp": get_i64(r, "total_emp"),
+                "net_change_1y": get_i64(r, "net_change_1y"),
+                "net_change_3m": get_i64(r, "net_change_3m"),
+                "avg_delta_1y": get_f64(r, "avg_delta_1y"),
+            })
+        }).collect();
+
+        json!({
+            "prefecture": pref,
+            "industries": industries,
+            "total_industries": industries.len(),
+        })
+    }).await.unwrap_or_else(|_| json!({
+        "prefecture": prefecture,
+        "industries": [],
+        "error": "タスク実行エラー"
+    }));
+
+    Json(result)
+}
+
 /// 企業ジオコードエントリ（メモリキャッシュ用）
 #[derive(Clone, Debug, Serialize)]
 pub struct CompanyGeoEntry {

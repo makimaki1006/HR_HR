@@ -11,3 +11,4 @@ pub use handlers::{
 };
 pub use region::{region_summary, region_age_gender, region_posting_stats, region_segments};
 pub use company_markers::company_markers as jobmap_company_markers;
+pub use company_markers::labor_flow as jobmap_labor_flow;
