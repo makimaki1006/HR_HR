@@ -1,4 +1,4 @@
-use super::fetch::{CompanyContext, NearbyCompany};
+use super::fetch::CompanyContext;
 use crate::handlers::helpers::{escape_html, format_number, get_str, get_i64, truncate_str, Row};
 
 /// 検索ページ（タブのシェル）
@@ -60,8 +60,11 @@ pub fn render_search_results(results: &[Row]) -> String {
         } else {
             format!("{}名", emp)
         };
-        let range = escape_html(&get_str(row, "employee_range"));
+        let _range = escape_html(&get_str(row, "employee_range"));
         let credit = get_str(row, "credit_score");
+
+        let sn_score = get_str(row, "salesnow_score");
+        let listing = get_str(row, "listing_category");
 
         let credit_badge = if !credit.is_empty() && credit != "0" {
             let cls = credit_score_class(&credit);
@@ -72,6 +75,22 @@ pub fn render_search_results(results: &[Row]) -> String {
             s.push_str(&format!("信用{}", credit));
             s.push_str("</span>");
             s
+        } else {
+            String::new()
+        };
+
+        let listing_badge = if !listing.is_empty() && listing != "-" {
+            if listing.contains("上場") {
+                format!(" <span class=\"text-xs px-1 rounded bg-amber-900/50 text-amber-300\">&#x1F3E2; {}</span>", escape_html(&listing))
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let sn_score_badge = if !sn_score.is_empty() && sn_score != "0" {
+            format!(" <span class=\"text-xs px-1 rounded bg-purple-900/50 text-purple-300\">SN:{}</span>", sn_score)
         } else {
             String::new()
         };
@@ -90,7 +109,7 @@ pub fn render_search_results(results: &[Row]) -> String {
                     <span class="text-slate-500 text-xs">{emp_display}</span>
                 </div>
                 <div class="text-xs text-slate-500 mt-0.5">
-                    {ind}{ind2_sep}{ind2}{credit_badge}
+                    {ind}{ind2_sep}{ind2}{credit_badge}{listing_badge}{sn_score_badge}
                 </div>
             </div>"##,
             name = name,
@@ -100,6 +119,8 @@ pub fn render_search_results(results: &[Row]) -> String {
             ind2_sep = if !ind2.is_empty() { " / " } else { "" },
             ind2 = ind2,
             credit_badge = credit_badge,
+            listing_badge = listing_badge,
+            sn_score_badge = sn_score_badge,
         ));
     }
 
@@ -221,14 +242,161 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         r#"<span class="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded">HWマッピングなし</span>"#.to_string()
     };
 
+    // 上場バッジ
+    let listing_badge = if !ctx.listing_category.is_empty() && ctx.listing_category != "-" {
+        if ctx.listing_category.contains("上場") {
+            format!(
+                r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-700">&#x1F3E2; {}</span>"#,
+                escape_html(&ctx.listing_category)
+            )
+        } else {
+            format!(
+                r#"<span class="ml-2 text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400 border border-slate-600">{}</span>"#,
+                escape_html(&ctx.listing_category)
+            )
+        }
+    } else {
+        String::new()
+    };
+
+    // BtoB/BtoC バッジ
+    let tob_toc_badge = if !ctx.tob_toc.is_empty() && ctx.tob_toc != "-" {
+        format!(
+            r#"<span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-indigo-900/50 text-indigo-300">{}</span>"#,
+            escape_html(&ctx.tob_toc)
+        )
+    } else {
+        String::new()
+    };
+
+    // 設立年と企業年齢
+    let established_display = if !ctx.established_date.is_empty() && ctx.established_date != "-" {
+        // 年を抽出して企業年齢を計算（YYYY-MM-DD or YYYY/MM/DD or YYYY）
+        let year_str: String = ctx.established_date.chars().take(4).collect();
+        let age = year_str.parse::<i32>().ok().map(|y| 2026 - y);
+        match age {
+            Some(a) if a > 0 => format!(
+                r#"<span class="text-xs text-slate-400">設立 {} ({}年)</span>"#,
+                escape_html(&ctx.established_date), a
+            ),
+            _ => format!(
+                r#"<span class="text-xs text-slate-400">設立 {}</span>"#,
+                escape_html(&ctx.established_date)
+            ),
+        }
+    } else {
+        String::new()
+    };
+
+    // 事業タグ（カンマ区切りをバッジ化）
+    let tags_html = if !ctx.business_tags.is_empty() && ctx.business_tags != "-" {
+        let tags: Vec<&str> = ctx.business_tags.split(',')
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+            .take(5) // 最大5つ表示
+            .collect();
+        if tags.is_empty() {
+            String::new()
+        } else {
+            let mut s = String::from(r#"<div class="flex flex-wrap gap-1 mt-1">"#);
+            for tag in &tags {
+                s.push_str(&format!(
+                    r#"<span class="text-xs px-1.5 py-0.5 rounded bg-slate-700/80 text-slate-300 border border-slate-600">{}</span>"#,
+                    escape_html(tag)
+                ));
+            }
+            s.push_str("</div>");
+            s
+        }
+    } else {
+        String::new()
+    };
+
+    // デルタトレンド行（1m/3m/6m/1y/2y） -- ラベルと値を一体化して読みやすく
+    let deltas: [(&str, f64); 5] = [
+        ("1M", ctx.employee_delta_1m),
+        ("3M", ctx.employee_delta_3m),
+        ("6M", ctx.employee_delta_6m),
+        ("1Y", ctx.employee_delta_1y),
+        ("2Y", ctx.employee_delta_2y),
+    ];
+    let has_any_delta = deltas.iter().any(|(_, v)| v.abs() > 0.01);
+    let delta_trend = if has_any_delta {
+        let items: Vec<String> = deltas.iter().map(|(label, val)| {
+            if val.abs() < 0.01 {
+                format!(r#"<span class="text-[11px] text-slate-600">{}: -</span>"#, label)
+            } else {
+                let color = if *val > 0.5 { "text-green-400" }
+                    else if *val < -0.5 { "text-red-400" }
+                    else { "text-slate-400" };
+                format!(r#"<span class="text-[11px] {}">{}: {:+.1}%</span>"#, color, label, val)
+            }
+        }).collect();
+        format!(
+            r#"<div class="flex items-center gap-3 mt-2 flex-wrap">
+                <span class="text-[10px] text-slate-500 font-medium">従業員推移</span>
+                {}
+            </div>"#,
+            items.join("")
+        )
+    } else {
+        String::new()
+    };
+
+    // SalesNowスコア表示
+    let sn_score_display = if ctx.salesnow_score > 0.0 {
+        let sn_color = if ctx.salesnow_score >= 70.0 { "text-green-400" }
+                       else if ctx.salesnow_score >= 50.0 { "text-blue-400" }
+                       else if ctx.salesnow_score >= 30.0 { "text-yellow-400" }
+                       else { "text-slate-400" };
+        format!(r#"<div class="text-xl font-bold {}">{:.0}<span class="text-sm text-slate-400">/100</span></div>"#,
+                sn_color, ctx.salesnow_score)
+    } else {
+        r#"<div class="text-lg text-slate-600">-</div>"#.to_string()
+    };
+
+    // 資本金表示（capital_stockは円単位）
+    let capital_display = if ctx.capital_stock > 0 {
+        let man = ctx.capital_stock / 10_000; // 万円換算
+        if man >= 10_000 {
+            // 1億円以上
+            let oku = man / 10_000;
+            let rem = man % 10_000;
+            if rem > 0 {
+                format!("{}億{}万円", format_number(oku), format_number(rem))
+            } else {
+                format!("{}億円", format_number(oku))
+            }
+        } else if man > 0 {
+            format!("{}万円", format_number(man))
+        } else {
+            format!("{}円", format_number(ctx.capital_stock))
+        }
+    } else if !ctx.capital_stock_range.is_empty() && ctx.capital_stock_range != "-" {
+        ctx.capital_stock_range.clone()
+    } else {
+        "-".to_string()
+    };
+
+    // 企業URLリンク
+    let url_link = if !ctx.company_url.is_empty() && ctx.company_url != "-" {
+        format!(
+            r#" <a href="{}" target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300 text-xs ml-1" title="企業サイト">&#x1F517;</a>"#,
+            escape_html(&ctx.company_url)
+        )
+    } else {
+        String::new()
+    };
+
     html.push_str(&format!(
         r#"<div class="stat-card border-l-4 border-blue-500">
         <div class="flex justify-between items-start mb-4">
             <div>
-                <h3 class="text-2xl font-bold text-white">{name}</h3>
+                <h3 class="text-2xl font-bold text-white">{name}{url_link}{listing_badge}{tob_toc_badge}</h3>
                 <div class="text-sm text-slate-400 mt-1">
-                    {pref} | {ind}{ind2_sep}{ind2} {hw_mapping}
+                    {pref} | {ind}{ind2_sep}{ind2} {hw_mapping} {established}
                 </div>
+                {tags}
             </div>
             <div class="text-right">
                 <div class="text-xs text-slate-500">法人番号</div>
@@ -240,38 +408,55 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
                 <div class="text-xs text-slate-500">従業員数</div>
                 <div class="text-xl font-bold text-white">{emp}<span class="text-sm text-slate-400">名</span></div>
                 <div class="text-xs mt-1">前年比 {delta} {growth_badge}</div>
+                <div class="text-[10px] text-slate-500 mt-0.5">{emp_range}</div>
+                {group_emp}
             </div>
             <div class="bg-slate-800/50 rounded-lg p-3">
                 <div class="text-xs text-slate-500">売上規模</div>
                 <div class="text-lg font-bold text-white">{sales}</div>
+                <div class="text-xs text-slate-500 mt-1">資本金: {capital}</div>
             </div>
             <div class="bg-slate-800/50 rounded-lg p-3">
                 <div class="text-xs text-slate-500">与信スコア</div>
                 <div class="text-xl font-bold {credit_color}">{credit}<span class="text-sm text-slate-400">/100</span></div>
             </div>
             <div class="bg-slate-800/50 rounded-lg p-3">
-                <div class="text-xs text-slate-500">従業員規模</div>
-                <div class="text-sm font-medium text-white">{emp_range}</div>
+                <div class="text-xs text-slate-500">SNスコア</div>
+                {sn_score}
             </div>
         </div>
+        {delta_trend}
     </div>"#,
         name = escape_html(&ctx.company_name),
+        url_link = url_link,
+        listing_badge = listing_badge,
+        tob_toc_badge = tob_toc_badge,
         pref = escape_html(&ctx.prefecture),
         ind = escape_html(&ctx.sn_industry),
         ind2_sep = if !ctx.sn_industry2.is_empty() { " / " } else { "" },
         ind2 = escape_html(&ctx.sn_industry2),
         hw_mapping = hw_mapping,
+        established = established_display,
+        tags = tags_html,
         corp = escape_html(&ctx.corporate_number),
         emp = format_number(ctx.employee_count),
         delta = delta_arrow,
         sales = if ctx.sales_range.is_empty() { "-" } else { &ctx.sales_range },
+        capital = capital_display,
         credit = ctx.credit_score as i64,
         credit_color = if ctx.credit_score >= 70.0 { "text-green-400" }
                        else if ctx.credit_score >= 50.0 { "text-blue-400" }
                        else if ctx.credit_score >= 30.0 { "text-yellow-400" }
                        else { "text-red-400" },
+        sn_score = sn_score_display,
         emp_range = escape_html(&ctx.employee_range),
+        group_emp = if ctx.group_employee_count > 0 {
+            format!(r#"<div class="text-xs text-slate-500 mt-1">グループ: {}名</div>"#, format_number(ctx.group_employee_count))
+        } else {
+            String::new()
+        },
         growth_badge = growth_badge,
+        delta_trend = delta_trend,
     ));
 }
 
@@ -480,7 +665,7 @@ fn render_demographics(html: &mut String, ctx: &CompanyContext) {
 }
 
 fn render_insights(html: &mut String, ctx: &CompanyContext) {
-    html.push_str(r#"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-3">💡 複合示唆</h4><div class="space-y-3">"#);
+    html.push_str(r#"<div class="stat-card mt-4 border-l-4 border-emerald-500"><h4 class="text-sm text-slate-400 mb-3">💡 複合示唆</h4><div class="space-y-3">"#);
 
     // 1. 給与ポジショニング
     if ctx.market_avg_salary_min > 0.0 {
@@ -583,8 +768,8 @@ fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
         return;
     }
 
-    html.push_str(r#"<div class="stat-card border-l-4 border-blue-400 mb-4">
-        <h4 class="text-sm font-bold text-blue-400 mb-3">&#x1F4A1; 提案ポイント</h4>
+    html.push_str(r#"<div class="stat-card border-l-4 border-cyan-400 mb-4">
+        <h4 class="text-sm font-bold text-cyan-400 mb-3">&#x1F4A1; 提案ポイント</h4>
         <div class="space-y-3">"#);
 
     for (i, (headline, body)) in ctx.sales_pitches.iter().enumerate() {
@@ -691,7 +876,7 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
     };
 
     html.push_str(&format!(
-        r#"<div class="stat-card mt-4">
+        r#"<div class="stat-card mt-4 border-l-4 border-purple-500">
         <h4 class="text-sm text-slate-400 mb-3">&#x1F4CA; 地域×業種 人材フロー比較</h4>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="bg-slate-800/50 rounded-lg p-4">
@@ -735,7 +920,7 @@ fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
     };
 
     html.push_str(&format!(
-        r#"<div class="stat-card mt-4">
+        r#"<div class="stat-card mt-4 border-l-4 border-amber-500">
         <h4 class="text-sm text-slate-400 mb-3">&#x1F4B0; 給与ギャップ分析（月給下限）</h4>
         <table class="w-full text-sm">
             <thead><tr class="text-slate-500 border-b border-slate-700">
@@ -770,7 +955,7 @@ fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
 }
 
 fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
-    html.push_str(r##"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-3">📋 この企業のハローワーク求人</h4>"##);
+    html.push_str(r##"<div class="stat-card mt-4 border-l-4 border-rose-500"><h4 class="text-sm text-slate-400 mb-3">📋 この企業のハローワーク求人</h4>"##);
 
     if ctx.hw_matched_postings.is_empty() {
         html.push_str(r##"<p class="text-slate-500 text-sm text-center py-4">ハローワークに求人掲載なし</p></div>"##);

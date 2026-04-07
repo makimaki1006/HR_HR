@@ -57,6 +57,8 @@ pub async fn search_companies(
                 "employee_range": get_str(r, "employee_range"),
                 "sales_range": get_str(r, "sales_range"),
                 "credit_score": get_f64(r, "credit_score"),
+                "salesnow_score": get_f64(r, "salesnow_score"),
+                "listing_category": get_str(r, "listing_category"),
             })
         })
         .collect();
@@ -246,6 +248,20 @@ fn context_to_json(ctx: &fetch::CompanyContext) -> Value {
             "address": ctx.address,
             "postal_code": ctx.postal_code,
             "credit_score": ctx.credit_score,
+            "employee_delta_1m": ctx.employee_delta_1m,
+            "employee_delta_3m": ctx.employee_delta_3m,
+            "employee_delta_6m": ctx.employee_delta_6m,
+            "employee_delta_2y": ctx.employee_delta_2y,
+            "capital_stock": ctx.capital_stock,
+            "capital_stock_range": ctx.capital_stock_range,
+            "salesnow_score": ctx.salesnow_score,
+            "business_tags": ctx.business_tags,
+            "established_date": ctx.established_date,
+            "listing_category": ctx.listing_category,
+            "sales_amount": ctx.sales_amount,
+            "tob_toc": ctx.tob_toc,
+            "company_url": ctx.company_url,
+            "group_employee_count": ctx.group_employee_count,
         },
         "industry_mapping": {
             "hw_job_types": ctx.hw_job_types.iter().map(|(jt, conf)| json!({"job_type": jt, "confidence": conf})).collect::<Vec<_>>(),
