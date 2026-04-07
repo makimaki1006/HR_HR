@@ -95,7 +95,7 @@
   </div>
 
   <!-- 企業マーカートグル -->
-  <div class="stat-card">
+  <div id="jm-company-toggle" class="stat-card">
     <div class="flex items-center gap-3">
       <label class="text-xs text-gray-300 cursor-pointer flex items-center gap-1.5">
         <input type="checkbox" id="jm-show-companies" class="accent-emerald-500" onchange="postingMap.toggleCompanyLayer(this.checked)">
@@ -271,7 +271,10 @@
   .jm-fullscreen > h2,
   .jm-fullscreen > #jm-layer-controls,
   .jm-fullscreen > #jm-pin-fields-wrap,
-  .jm-fullscreen > #jm-pinned-stats { display: none !important; }
+  .jm-fullscreen > #jm-pinned-stats,
+  .jm-fullscreen > #jm-labor-flow,
+  .jm-fullscreen > #jm-region-stats,
+  .jm-fullscreen > #jm-company-toggle { display: none !important; }
   .jm-fullscreen > .stat-card:first-of-type {
     flex-shrink: 0 !important;
     background: rgba(15, 23, 42, 0.95) !important;
