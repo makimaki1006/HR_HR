@@ -1,6 +1,5 @@
 use axum::extract::State;
 use axum::response::Html;
-use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -22,14 +21,8 @@ pub async fn tab_market(
         None => return Html(render_no_db_data("市場概況")),
     };
 
-    let cache_key = format!(
-        "market_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality
-    );
-    if let Some(cached) = state.cache.get(&cache_key) {
-        if let Some(html) = cached.as_str() {
-            return Html(html.to_string());
-        }
-    }
+    // 市場概況タブはセクションごとに遅延ロードするため、
+    // タブ全体のキャッシュは使わない（各セクションAPIが個別にキャッシュ管理）
 
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
@@ -76,23 +69,23 @@ pub async fn tab_market(
         html.push_str(r##"<div hx-get="/api/market/population" hx-trigger="revealed" hx-swap="innerHTML"></div>"##);
     }
 
-    // セクション2: 雇用条件（遅延ロード）
+    // セクション2: 雇用条件（即時ロード）
     html.push_str(r##"<section id="sec-workstyle" class="mt-8">
-        <div hx-get="/api/market/workstyle" hx-trigger="revealed" hx-swap="outerHTML">
+        <div hx-get="/api/market/workstyle" hx-trigger="load" hx-swap="outerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
     </section>"##);
 
-    // セクション3: 企業分析（遅延ロード）
+    // セクション3: 企業分析（即時ロード）
     html.push_str(r##"<section id="sec-balance" class="mt-8">
-        <div hx-get="/api/market/balance" hx-trigger="revealed" hx-swap="outerHTML">
+        <div hx-get="/api/market/balance" hx-trigger="load" hx-swap="outerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
     </section>"##);
 
-    // セクション4: 採用動向（遅延ロード）
+    // セクション4: 採用動向（即時ロード）
     html.push_str(r##"<section id="sec-demographics" class="mt-8">
-        <div hx-get="/api/market/demographics" hx-trigger="revealed" hx-swap="outerHTML">
+        <div hx-get="/api/market/demographics" hx-trigger="load" hx-swap="outerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
     </section>"##);
@@ -102,7 +95,6 @@ pub async fn tab_market(
 
     html.push_str("</div>");
 
-    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
