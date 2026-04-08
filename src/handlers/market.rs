@@ -77,21 +77,21 @@ pub async fn tab_market(
 
     // セクション2: 雇用条件（即時ロード）
     html.push_str(r##"<section id="sec-workstyle" class="mt-8">
-        <div hx-get="/api/market/workstyle" hx-trigger="load" hx-swap="outerHTML">
+        <div hx-get="/api/market/workstyle" hx-trigger="load" hx-swap="innerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
     </section>"##);
 
     // セクション3: 企業分析（即時ロード）
     html.push_str(r##"<section id="sec-balance" class="mt-8">
-        <div hx-get="/api/market/balance" hx-trigger="load" hx-swap="outerHTML">
+        <div hx-get="/api/market/balance" hx-trigger="load" hx-swap="innerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
     </section>"##);
 
     // セクション4: 採用動向（即時ロード）
     html.push_str(r##"<section id="sec-demographics" class="mt-8">
-        <div hx-get="/api/market/demographics" hx-trigger="load" hx-swap="outerHTML">
+        <div hx-get="/api/market/demographics" hx-trigger="load" hx-swap="innerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
     </section>"##);
