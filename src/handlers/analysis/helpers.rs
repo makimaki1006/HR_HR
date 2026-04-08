@@ -5,11 +5,10 @@ use serde_json::Value;
 
 type Row = HashMap<String, Value>;
 
-/// サブタブ定義
-pub(crate) const ANALYSIS_SUBTABS: [(u8, &str); 7] = [
+/// サブタブ定義（テキスト分析はrender_subtab_3として内部保持するがタブボタンは非表示）
+pub(crate) const ANALYSIS_SUBTABS: [(u8, &str); 6] = [
     (1, "求人動向"),
     (2, "給与分析"),
-    (3, "テキスト分析"),
     (4, "市場構造"),
     (5, "異常値・外部"),
     (6, "予測・推定"),
