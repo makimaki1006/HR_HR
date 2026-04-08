@@ -58,32 +58,28 @@
             </div>
         </div>
         <div class="flex items-center gap-4">
+            <button type="button" onclick="navigateToTab('/tab/guide')" title="使い方ガイド"
+                class="text-slate-400 hover:text-white text-sm transition p-1.5 rounded hover:bg-navy-700">?</button>
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
             <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
         </div>
     </header>
 
     <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto scrollbar-thin" role="tablist" aria-label="ダッシュボードタブ" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
-        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/overview" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">概況</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/balance" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">企業</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/workstyle" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">条件</button>
+        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/market" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">市場概況</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">地図</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">分析</button>
+            onclick="setActiveTab(this)">詳細分析</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">検索</button>
+            onclick="setActiveTab(this)">求人検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">診断</button>
+            onclick="setActiveTab(this)">条件診断</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">企業検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">調査</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/guide" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">ガイド</button>
+            onclick="setActiveTab(this)">媒体分析</button>
     </nav>
 
     <!-- ブレッドクラム: 現在の選択状態を表示 -->
@@ -139,7 +135,7 @@
     <script src="/static/js/export.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            htmx.ajax('GET', '/tab/overview', {target: '#content', swap: 'innerHTML'});
+            htmx.ajax('GET', '/tab/market', {target: '#content', swap: 'innerHTML'});
 
             // ブレッドクラム更新
             window.updateBreadcrumb = function() {
@@ -571,7 +567,7 @@
         // アイドル時に次のタブをプリフェッチ
         if ('requestIdleCallback' in window) {
             requestIdleCallback(function() {
-                fetch('/tab/balance', { priority: 'low' });
+                fetch('/tab/jobmap', { priority: 'low' });
             });
         }
 

@@ -323,6 +323,26 @@ pub fn make_location_label(pref: &str, muni: &str) -> String {
     }
 }
 
+/// 市場概況タブ用: 概況セクションHTML生成（fetch + render）
+pub(crate) fn build_overview_html(
+    db: &crate::db::local_sqlite::LocalDb,
+    filters: &SessionFilters,
+) -> String {
+    let stats = fetch_overview_stats(db, filters);
+    let location_label = make_location_label(&filters.prefecture, &filters.municipality);
+    let industry_label = filters.industry_label();
+    render_overview(&industry_label, &stats, &location_label, &filters.prefecture)
+}
+
+/// 市場概況タブ用: 人口コンテキストセクションHTML生成
+pub(crate) fn build_population_context_html(
+    turso: &crate::db::turso_http::TursoDb,
+    pref: &str,
+    muni: &str,
+) -> String {
+    build_population_context(turso, pref, muni)
+}
+
 /// 概況統計データ
 struct OverviewStats {
     total_postings: i64,

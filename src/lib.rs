@@ -48,6 +48,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
 
     let protected_routes = Router::new()
         .route("/", get(dashboard_page))
+        .route("/tab/market", get(handlers::market::tab_market))
+        .route("/api/market/population", get(handlers::market::market_population))
+        .route("/api/market/workstyle", get(handlers::market::market_workstyle))
+        .route("/api/market/balance", get(handlers::market::market_balance))
+        .route("/api/market/demographics", get(handlers::market::market_demographics))
         .route("/tab/overview", get(handlers::overview::tab_overview))
         .route(
             "/tab/demographics",

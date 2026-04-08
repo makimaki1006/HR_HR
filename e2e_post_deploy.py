@@ -142,7 +142,7 @@ def main():
 
         # All tabs
         print("\n=== 8. All Tabs ===")
-        tabs = ["概況","企業","条件","地図","分析","検索","診断","企業分析","調査","ガイド"]
+        tabs = ["市場概況","地図","詳細分析","求人検索","条件診断","企業検索","媒体分析"]
         for tab in tabs:
             page.evaluate(f"document.querySelectorAll('.tab-btn').forEach(function(b){{if(b.textContent.indexOf('{tab}')>=0)b.click()}})")
             time.sleep(5)
@@ -217,8 +217,8 @@ def main():
         # Survey x Company Integration (Phase 1)
         print("\n=== 10. Survey x Company Integration ===")
 
-        # 10a. 調査タブに移動してセッション存在確認
-        page.evaluate("document.querySelectorAll('.tab-btn').forEach(function(b){if(b.textContent.indexOf('調査')>=0)b.click()})")
+        # 10a. 媒体分析タブに移動してセッション存在確認
+        page.evaluate("document.querySelectorAll('.tab-btn').forEach(function(b){if(b.textContent.indexOf('媒体分析')>=0)b.click()})")
         time.sleep(6)
         ss(page, "d15_survey_tab")
         body = page.text_content("body") or ""
