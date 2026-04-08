@@ -130,46 +130,53 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
             skipped_incomplete += 1;
             continue;
         }
-        // GAS getFirstValidValue() 移植: 複数候補列から最適な値を選択
+        // GAS getFirstValidValue() 移植: 行ごとに全列スキャンして最適な値を選択
+        // Indeed CSVでは勤務地がcol[3]とcol[13]に分散するため、常に全列を探索
         let location_raw = {
-            let v = get("location");
-            if v.is_empty() || score_location(&v) == 0 {
-                // col_mapのlocation以外の列からも探す
-                let mut best = v;
-                for ci in 0..row.len().min(headers.len()) {
+            let mut best_val = String::new();
+            let mut best_score = 0_i32;
+            // まずcol_mapの列を試す
+            let mapped = get("location");
+            let mapped_score = score_location(&mapped);
+            if mapped_score > 0 { best_val = mapped; best_score = mapped_score; }
+            // 全列をスキャンしてより良い値を探す
+            if best_score == 0 {
+                for ci in 0..row.len() {
                     let val = row.get(ci).unwrap_or("").trim();
-                    if score_location(val) > score_location(&best) {
-                        best = val.to_string();
+                    let s = score_location(val);
+                    if s > best_score {
+                        best_score = s;
+                        best_val = val.to_string();
                     }
                 }
-                best
-            } else { v }
+            }
+            best_val
         };
         let salary_raw = {
-            let v = get("salary");
-            if v.is_empty() || score_salary(&v) == 0 {
-                let mut best = v;
-                for ci in 0..row.len().min(headers.len()) {
+            let mapped = get("salary");
+            if score_salary(&mapped) > 0 { mapped }
+            else {
+                let mut best_val = String::new();
+                let mut best_score = 0_i32;
+                for ci in 0..row.len() {
                     let val = row.get(ci).unwrap_or("").trim();
-                    if score_salary(val) > score_salary(&best) {
-                        best = val.to_string();
-                    }
+                    let s = score_salary(val);
+                    if s > best_score { best_score = s; best_val = val.to_string(); }
                 }
-                best
-            } else { v }
+                best_val
+            }
         };
         let employment_type = {
-            let v = get("employment_type");
-            if v.is_empty() || score_employment_type(&v) == 0 {
-                let mut best = v;
-                for ci in 0..row.len().min(headers.len()) {
+            let mapped = get("employment_type");
+            if score_employment_type(&mapped) > 0 { mapped }
+            else {
+                let mut best_val = String::new();
+                for ci in 0..row.len() {
                     let val = row.get(ci).unwrap_or("").trim();
-                    if score_employment_type(val) > score_employment_type(&best) {
-                        best = val.to_string();
-                    }
+                    if score_employment_type(val) > 0 { best_val = val.to_string(); break; }
                 }
-                best
-            } else { v }
+                best_val
+            }
         };
         let employment_type = normalize_employment_type(&employment_type);
         let mut tags_raw = get("tags");
