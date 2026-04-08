@@ -188,7 +188,11 @@ pub fn enhanced_salary_statistics(values: &[i64]) -> Option<EnhancedStats> {
     let mean = valid.iter().sum::<i64>() / n as i64;
     let mut sorted = valid.clone();
     sorted.sort();
-    let median = sorted[n / 2];
+    let median = if n % 2 == 0 {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+    } else {
+        sorted[n / 2]
+    };
     let min = sorted[0];
     let max = sorted[n - 1];
 
