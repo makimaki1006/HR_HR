@@ -39,6 +39,7 @@ pub async fn tab_workstyle(
     }).await.unwrap_or_default();
 
     let mut html = render_workstyle(&filters, &stats);
+    html.push_str(r#"<div class="text-[10px] text-slate-600 mt-4 border-t border-slate-800 pt-2">出典: ハローワーク掲載求人データ / 外部統計: e-Stat API / SSDSE-A（総務省統計局）</div>"#);
     html.push_str(r#"<div hx-get="/api/insight/widget/workstyle" hx-trigger="load" hx-swap="innerHTML"></div>"#);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)

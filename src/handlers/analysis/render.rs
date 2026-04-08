@@ -47,6 +47,10 @@ pub(crate) fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
     let salary_comp = fetch_salary_competitiveness(db, pref, muni);
     let compensation = fetch_compensation_package(db, pref, muni);
 
+    // 正社員データの有無をチェック（フォールバック判定用）
+    let has_seishain = salary_structure.iter().any(|r| get_str(r, "emp_group").contains("正社員"));
+    let is_fallback = !has_seishain && !salary_structure.is_empty();
+
     let mut html = String::with_capacity(12_000);
     html.push_str(r#"<div class="space-y-6">"#);
     html.push_str(&format!(
@@ -54,6 +58,11 @@ pub(crate) fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
         cross_nav("/tab/workstyle", "求人条件の給与帯"),
         cross_nav("/tab/diagnostic", "市場診断ツール"),
     ));
+
+    // 正社員データなしの場合、パートデータで代替表示する旨を通知
+    if is_fallback {
+        html.push_str(r#"<div class="bg-amber-900/30 border border-amber-700 rounded-lg p-3 mb-4 text-sm text-amber-300">※正社員データなし。パートデータを表示しています</div>"#);
+    }
 
     if !salary_structure.is_empty() {
         html.push_str(&render_salary_structure_section(&salary_structure));
@@ -696,22 +705,32 @@ fn render_salary_structure_section(data: &[Row]) -> String {
             String::new()
         };
 
-        let annual_s = if annual > 0.0 { format!("{}万", (annual / 10000.0) as i64) } else { "-".to_string() };
+        // 時給/月給の単位を明示
+        let is_hourly = stype.contains("時給");
+        let annual_s = if is_hourly {
+            "-".to_string()
+        } else if annual > 0.0 {
+            format!("{}万", (annual / 10000.0) as i64)
+        } else {
+            "-".to_string()
+        };
         let bonus_s = if bonus > 0.0 { format!("{bonus:.1}月") } else { "-".to_string() };
 
         html.push_str(&format!(
             r#"<tr><td class="text-slate-300">{grp}</td>
-            <td class="text-slate-400">{stype}</td>
+            <td class="text-slate-400">{stype_display}</td>
             <td class="text-right text-slate-400">{total_s}</td>
-            <td class="text-right" style="color:{sc}">{avg_s}</td>
-            <td class="text-right text-white">{med_s}</td>
-            <td class="text-right text-slate-400">{p25_s}</td>
-            <td class="text-right text-slate-400">{p75_s}</td>
-            <td class="text-right text-slate-400">{p90_s}</td>
+            <td class="text-right" style="color:{sc}">{avg_s}{unit}</td>
+            <td class="text-right text-white">{med_s}{unit}</td>
+            <td class="text-right text-slate-400">{p25_s}{unit}</td>
+            <td class="text-right text-slate-400">{p75_s}{unit}</td>
+            <td class="text-right text-slate-400">{p90_s}{unit}</td>
             <td class="text-right text-amber-400">{spread:.0}</td>
             <td class="text-right text-cyan-400">{bonus_s}</td>
             <td class="text-right text-emerald-400">{annual_s}</td>
             <td>{bar_html}</td></tr>"#,
+            stype_display = stype,
+            unit = if is_hourly { "<span class='text-[10px] text-slate-500'>/時</span>" } else { "" },
             total_s = format_number(total),
             avg_s = format_number(avg_min as i64),
             med_s = format_number(median as i64),

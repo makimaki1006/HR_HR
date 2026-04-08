@@ -245,7 +245,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
         </tr></thead><tbody>"#
     );
 
-    for c in companies.iter().take(30) {
+    for c in companies.iter().take(50) {
         let score_color = if c.credit_score >= 70.0 {
             "text-green-400"
         } else if c.credit_score >= 50.0 {

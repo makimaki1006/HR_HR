@@ -180,7 +180,7 @@ pub async fn industry_companies(
              FROM v2_salesnow_companies \
              WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry = ?3 \
                AND employee_count > 0 \
-             ORDER BY employee_count DESC LIMIT 200".to_string(),
+             ORDER BY employee_count DESC LIMIT 500".to_string(),
             vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
                  Box::new(muni_pattern),
                  Box::new(ind.clone())])
@@ -190,7 +190,7 @@ pub async fn industry_companies(
              FROM v2_salesnow_companies \
              WHERE prefecture = ?1 AND sn_industry = ?2 \
                AND employee_count > 0 \
-             ORDER BY employee_count DESC LIMIT 200".to_string(),
+             ORDER BY employee_count DESC LIMIT 500".to_string(),
             vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
                  Box::new(ind.clone())])
         };

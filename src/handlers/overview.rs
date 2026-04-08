@@ -294,6 +294,9 @@ pub async fn tab_overview(
         }
     }
 
+    // 出典情報
+    html.push_str(r#"<div class="text-[10px] text-slate-600 mt-4 border-t border-slate-800 pt-2">出典: ハローワーク掲載求人データ / 外部統計: e-Stat API / SSDSE-A（総務省統計局）</div>"#);
+
     // 関連示唆ウィジェット（遅延ロード）
     html.push_str(r#"<div hx-get="/api/insight/widget/overview" hx-trigger="load" hx-swap="innerHTML"></div>"#);
 
