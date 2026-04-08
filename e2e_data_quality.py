@@ -188,7 +188,7 @@ def test_suite_1_kpi_accuracy(page):
     print("=" * 60)
 
     # overviewタブを直接fetchでロード（tabcache回避）
-    load_tab_fresh(page, "/tab/overview", wait_count=3)
+    load_tab_fresh(page, "/tab/market", wait_count=3)
 
     kpi_data = extract_kpi_cards(page)
 
@@ -285,7 +285,10 @@ def test_suite_2_balance_stats(page):
     print("Suite 2: Employee Stats Consistency (Balance Tab)")
     print("=" * 60)
 
-    load_tab_fresh(page, "/tab/balance", wait_count=3)
+    load_tab_fresh(page, "/tab/market", wait_count=3)
+    # 企業分析セクションまでスクロールして遅延ロードを発火
+    page.evaluate("document.getElementById('sec-balance')?.scrollIntoView()")
+    time.sleep(5)
 
     kpi_data = extract_kpi_cards(page)
 

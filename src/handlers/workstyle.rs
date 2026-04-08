@@ -44,6 +44,15 @@ pub async fn tab_workstyle(
     Html(html)
 }
 
+/// 市場概況タブ用: 条件分析セクションHTML生成（fetch + render）
+pub(crate) fn build_workstyle_html(
+    db: &LocalDb,
+    filters: &SessionFilters,
+) -> String {
+    let stats = fetch_workstyle(db, filters);
+    render_workstyle(filters, &stats)
+}
+
 struct WorkstyleStats {
     total_postings: i64,
     /// 雇用形態分布 (employment_type, count)

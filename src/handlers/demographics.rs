@@ -42,6 +42,15 @@ pub async fn tab_demographics(
     Html(html)
 }
 
+/// 市場概況タブ用: 採用動向セクションHTML生成（fetch + render）
+pub(crate) fn build_demographics_html(
+    db: &crate::db::local_sqlite::LocalDb,
+    filters: &SessionFilters,
+) -> String {
+    let stats = fetch_demographics(db, filters);
+    render_demographics(filters, &stats)
+}
+
 struct DemoStats {
     total_postings: i64,
     /// 求人理由内訳 (recruitment_reason, count)

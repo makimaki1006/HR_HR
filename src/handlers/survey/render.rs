@@ -7,7 +7,7 @@ use super::job_seeker::JobSeekerAnalysis;
 /// Phase A: アップロードフォーム
 pub(crate) fn render_upload_form() -> String {
     r#"<div class="space-y-6">
-        <h2 class="text-xl font-bold text-white">📊 競合調査</h2>
+        <h2 class="text-xl font-bold text-white">媒体分析</h2>
         <p class="text-xs text-slate-500">Indeed / 求人ボックスのCSVをアップロードして、HWデータ・外部統計と統合した競合分析レポートを生成します</p>
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-4">CSVファイルをアップロード</h3>

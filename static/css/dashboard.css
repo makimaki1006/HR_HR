@@ -64,6 +64,29 @@
 }
 
 /* 分析タブ内サブタブナビゲーション */
+/* グループナビ（詳細分析タブ: 構造分析/トレンド/総合診断） */
+.analysis-group {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    color: #94a3b8;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.analysis-group:hover {
+    color: #e2e8f0;
+    background: #334155;
+}
+.analysis-group.active {
+    color: #ffffff;
+    background: #3b82f6;
+    border-color: #3b82f6;
+    font-weight: 600;
+}
+
 .analysis-subtab {
     padding: 0.375rem 0.75rem;
     font-size: 0.75rem;

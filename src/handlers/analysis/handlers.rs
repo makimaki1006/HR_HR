@@ -42,12 +42,25 @@ pub async fn tab_analysis(
 
     html.push_str(&format!(
         r#"<div class="space-y-4">
-        <h2 class="text-xl font-bold text-white">雇用形態別 市場構造分析 <span class="text-blue-400 text-base font-normal">{location} {industry}</span></h2>
-        <p class="text-xs text-slate-500">正社員/パートで分けた求人市場の構造指標です</p>"#
+        <h2 class="text-xl font-bold text-white">詳細分析 <span class="text-blue-400 text-base font-normal">{location} {industry}</span></h2>"#
     ));
 
-    // サブタブナビゲーションバー
-    html.push_str(r#"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"#);
+    // グループナビゲーション（構造分析 / トレンド / 総合診断）
+    html.push_str(r##"
+        <div class="flex gap-2 mb-2">
+            <button class="analysis-group active" onclick="setAnalysisGroup(this)"
+                hx-get="/tab/analysis?group_only=1" hx-target="#analysis-group-content" hx-swap="innerHTML">構造分析</button>
+            <button class="analysis-group" onclick="setAnalysisGroup(this)"
+                hx-get="/tab/trend" hx-target="#analysis-group-content" hx-swap="innerHTML">トレンド</button>
+            <button class="analysis-group" onclick="setAnalysisGroup(this)"
+                hx-get="/tab/insight" hx-target="#analysis-group-content" hx-swap="innerHTML">総合診断</button>
+        </div>
+        <div id="analysis-group-content">
+    "##);
+
+    // グループA: 構造分析 サブタブナビゲーション
+    html.push_str(r##"<p class="text-xs text-slate-500 mb-2">正社員/パートで分けた求人市場の構造指標</p>"##);
+    html.push_str(r##"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"##);
     for (id, label) in &ANALYSIS_SUBTABS {
         let active = if *id == 1 { " active" } else { "" };
         html.push_str(&format!(
@@ -61,8 +74,16 @@ pub async fn tab_analysis(
     html.push_str(&subtab1_content);
     html.push_str("</div>");
 
-    // サブタブ切替用JS
+    html.push_str("</div>"); // analysis-group-content
+
+    // グループ切替+サブタブ切替用JS
     html.push_str(r#"<script>
+function setAnalysisGroup(el) {
+    document.querySelectorAll('.analysis-group').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    el.classList.add('active');
+}
 function setAnalysisSubtab(el) {
     document.querySelectorAll('.analysis-subtab').forEach(function(btn) {
         btn.classList.remove('active');
@@ -71,7 +92,7 @@ function setAnalysisSubtab(el) {
 }
 </script>"#);
 
-    html.push_str(r#"<div hx-get="/api/insight/widget/analysis" hx-trigger="load" hx-swap="innerHTML"></div>"#);
+    html.push_str(r##"<div hx-get="/api/insight/widget/analysis" hx-trigger="load" hx-swap="innerHTML"></div>"##);
     html.push_str("</div>");
 
     Html(html)

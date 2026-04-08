@@ -44,6 +44,15 @@ pub async fn tab_balance(
     Html(html)
 }
 
+/// 市場概況タブ用: 企業分析セクションHTML生成（fetch + render）
+pub(crate) fn build_balance_html(
+    db: &LocalDb,
+    filters: &SessionFilters,
+) -> String {
+    let stats = fetch_balance(db, filters);
+    render_balance(filters, &stats)
+}
+
 struct BalanceStats {
     /// 従業員規模分布 (band_label, count)
     employee_size_dist: Vec<(String, i64)>,

@@ -3,6 +3,7 @@ pub mod overview;
 pub mod demographics;
 pub mod balance;
 pub mod workstyle;
+pub mod market;
 pub mod jobmap;
 pub mod competitive;
 pub mod analysis;
