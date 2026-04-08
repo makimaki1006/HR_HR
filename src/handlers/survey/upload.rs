@@ -29,9 +29,11 @@ pub struct SurveyRecord {
     pub tags_raw: String,
     pub url: Option<String>,
     pub is_new: bool,
+    pub description: String,
     // パース結果
     pub salary_parsed: ParsedSalary,
     pub location_parsed: ParsedLocation,
+    pub annual_holidays: Option<i64>,
 }
 
 // ======== CSVヘッダー検出 ========
@@ -39,6 +41,10 @@ pub struct SurveyRecord {
 /// ヘッダーからCSVソースを自動判定
 pub fn detect_csv_source(headers: &[String]) -> CsvSource {
     let header_str = headers.join(",").to_lowercase();
+    // 求人ボックス: CSSクラス名ベースのヘッダー検出（GASのp-result_name, p-result_company, c-icon相当）
+    if header_str.contains("p-result") || header_str.contains("c-icon") {
+        return CsvSource::JobBox;
+    }
     // 求人ボックス: 「企業名」「所在地」「賃金」
     if header_str.contains("企業名") || header_str.contains("所在地") || header_str.contains("求人ボックス") {
         return CsvSource::JobBox;
@@ -203,9 +209,12 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
             v.contains("新着") || v.contains("NEW") || v.contains("new")
         };
 
+        let description = get("description");
+
         // パース
         let salary_parsed = parse_salary(&salary_raw, SalaryType::Monthly);
         let location_parsed = parse_location(&location_raw, context_pref);
+        let annual_holidays = extract_annual_holidays(&description);
 
         records.push(SurveyRecord {
             row_index: idx,
@@ -218,8 +227,10 @@ pub fn parse_csv_bytes(data: &[u8], context_pref: Option<&str>) -> Result<Vec<Su
             tags_raw,
             url,
             is_new,
+            description,
             salary_parsed,
             location_parsed,
+            annual_holidays,
         });
     }
 
@@ -255,6 +266,7 @@ fn build_column_map(headers: &[String], source: &CsvSource) -> std::collections:
                 if h.contains("タグ") || h.contains("特徴") || h == "tags" { map.insert("tags", i); }
                 if h.contains("URL") || h.contains("url") || h.contains("リンク") { map.insert("url", i); }
                 if h.contains("新着") || h.contains("NEW") { map.insert("is_new", i); }
+                if h.contains("詳細") || h.contains("仕事内容") || h.contains("description") { map.insert("description", i); }
                 // IndeedスクレイピングツールのCSSクラス名ベースヘッダー
                 // カラム順: URL, 求人名, 会社名, 勤務地, タグ×7, 給与, 雇用形態, ...
                 if h == "jcs-JobTitle href" { map.insert("url", i); }
@@ -274,6 +286,7 @@ fn build_column_map(headers: &[String], source: &CsvSource) -> std::collections:
                 if h.contains("特徴") || h.contains("タグ") || h.contains("こだわり") { map.insert("tags", i); }
                 if h.contains("URL") || h.contains("url") { map.insert("url", i); }
                 if h.contains("新着") { map.insert("is_new", i); }
+                if h.contains("詳細") || h.contains("仕事内容") || h.contains("休日") { map.insert("description", i); }
             }
             CsvSource::Unknown => {
                 // 汎用マッチ
@@ -285,6 +298,7 @@ fn build_column_map(headers: &[String], source: &CsvSource) -> std::collections:
                 if hl.contains("type") || h.contains("雇用") { map.insert("employment_type", i); }
                 if hl.contains("tag") || h.contains("タグ") || h.contains("特徴") { map.insert("tags", i); }
                 if hl.contains("url") { map.insert("url", i); }
+                if hl.contains("description") || h.contains("詳細") || h.contains("仕事内容") { map.insert("description", i); }
             }
         }
     }
@@ -442,4 +456,43 @@ fn score_job_title(val: &str) -> i32 {
     if keywords.iter().any(|k| val.contains(k)) { score += 40; }
     if val.len() >= 5 && val.len() <= 100 { score += 20; }
     score
+}
+
+/// descriptionテキストから年間休日数を抽出
+/// パターン: 「年間休日120日」「年間120日」「休日120日」
+/// 80-200の範囲なら有効値として返す
+fn extract_annual_holidays(text: &str) -> Option<i64> {
+    if text.is_empty() { return None; }
+
+    // パターン1: 「年間休日120日」
+    if let Some(pos) = text.find("年間休日") {
+        let after = &text[pos + "年間休日".len()..];
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(v) = num_str.parse::<i64>() {
+            if (80..=200).contains(&v) { return Some(v); }
+        }
+    }
+
+    // パターン2: 「年間120日」（「年間休日」でないケース）
+    if let Some(pos) = text.find("年間") {
+        let after = &text[pos + "年間".len()..];
+        // 「休日」を挟む場合はパターン1で処理済みなのでスキップ
+        if !after.starts_with("休日") {
+            let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(v) = num_str.parse::<i64>() {
+                if (80..=200).contains(&v) { return Some(v); }
+            }
+        }
+    }
+
+    // パターン3: 「休日120日」（「年間」なし）
+    if let Some(pos) = text.find("休日") {
+        let after = &text[pos + "休日".len()..];
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(v) = num_str.parse::<i64>() {
+            if (80..=200).contains(&v) { return Some(v); }
+        }
+    }
+
+    None
 }

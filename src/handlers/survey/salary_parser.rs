@@ -203,15 +203,50 @@ fn try_parse_man_format(text: &str) -> Option<i64> {
     Some(man_val * 10_000 + extra)
 }
 
-/// X千円パターン
+/// X千Y百Z十円パターン（例: 「1千5百円」→1500、「2千円」→2000）
 fn try_parse_sen_format(text: &str) -> Option<i64> {
     let sen_pos = text.find('千')?;
     let before = &text[..sen_pos];
+    // 千の前の数字
     let num_str: String = before.chars().rev()
-        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .take_while(|c| c.is_ascii_digit())
         .collect::<String>().chars().rev().collect();
-    let val: f64 = num_str.parse().ok()?;
-    Some((val * 1_000.0) as i64)
+    let sen_val: i64 = num_str.parse().ok()?;
+    let mut total = sen_val * 1_000;
+
+    // 千の後の「百」パターン
+    let after_sen = &text[sen_pos + '千'.len_utf8()..];
+    if let Some(hyaku_pos) = after_sen.find('百') {
+        let before_hyaku = &after_sen[..hyaku_pos];
+        let hyaku_str: String = before_hyaku.chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if let Ok(h) = hyaku_str.parse::<i64>() {
+            total += h * 100;
+        }
+        // 百の後の「十」パターン
+        let after_hyaku = &after_sen[hyaku_pos + '百'.len_utf8()..];
+        if let Some(juu_pos) = after_hyaku.find('十') {
+            let before_juu = &after_hyaku[..juu_pos];
+            let juu_str: String = before_juu.chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(j) = juu_str.parse::<i64>() {
+                total += j * 10;
+            }
+        }
+    } else if let Some(juu_pos) = after_sen.find('十') {
+        // 千の後に百なしで「十」がある場合
+        let before_juu = &after_sen[..juu_pos];
+        let juu_str: String = before_juu.chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if let Ok(j) = juu_str.parse::<i64>() {
+            total += j * 10;
+        }
+    }
+
+    Some(total)
 }
 
 /// 純粋な数値（4桁以上 = 円単位）
@@ -449,9 +484,14 @@ mod tests {
     #[test]
     fn test_sen_format() {
         let r = parse_salary("時給1千5百円", SalaryType::Monthly);
-        // 「1千」= 1000 を抽出
         assert_eq!(r.salary_type, SalaryType::Hourly);
-        assert!(r.min_value.is_some());
+        assert_eq!(r.min_value, Some(1_500)); // 1千5百 = 1500
+    }
+
+    #[test]
+    fn test_sen_format_simple() {
+        let r = parse_salary("時給2千円", SalaryType::Monthly);
+        assert_eq!(r.min_value, Some(2_000));
     }
 
     #[test]
