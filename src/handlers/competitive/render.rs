@@ -1,9 +1,28 @@
+use std::collections::HashMap;
 use axum::response::Html;
 
 use crate::handlers::overview::format_number;
 use super::analysis::AnalysisData;
 use super::fetch::{CompStats, PostingRow, SalaryStats};
 use super::utils::{escape_html, truncate_str};
+
+/// 同一施設の重複求人をグルーピング（施設名+職種+雇用形態+給与でdedup）
+fn dedup_postings(postings: &[PostingRow]) -> Vec<(PostingRow, usize)> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut result: Vec<(PostingRow, usize)> = Vec::new();
+
+    for p in postings {
+        let key = format!("{}|{}|{}|{}|{}",
+            p.facility_name, p.job_type, p.employment_type, p.salary_min, p.salary_max);
+        if let Some(&idx) = seen.get(&key) {
+            result[idx].1 += 1;
+        } else {
+            seen.insert(key, result.len());
+            result.push((p.clone(), 1));
+        }
+    }
+    result
+}
 
 /// 競合調査タブの初期HTML
 pub(crate) fn render_competitive(
@@ -101,7 +120,7 @@ pub(crate) fn render_posting_table(
                 <h3 class="text-sm text-slate-400 mb-2">給与統計（{} {}{} / {}件）</h3>
                 <div class="overflow-x-auto">
                 <table class="data-table text-xs">
-                    <thead><tr><th></th><th class="text-right">月給下限</th><th class="text-right">月給上限</th></tr></thead>
+                    <thead><tr><th></th><th class="text-right">給与下限</th><th class="text-right">給与上限</th></tr></thead>
                     <tbody>
                         <tr><td class="text-slate-300">最頻値（1万円単位）</td><td class="text-right">{}</td><td class="text-right">{}</td></tr>
                         <tr><td class="text-slate-300">中央値</td><td class="text-right">{}</td><td class="text-right">{}</td></tr>
@@ -157,8 +176,8 @@ pub(crate) fn render_posting_table(
     html.push_str("<th>エリア</th>");
     html.push_str("<th>雇用形態</th>");
     html.push_str(r#"<th class="comp-col-extra" style="display:none">給与区分</th>"#);
-    html.push_str(r#"<th class="text-right">月給下限</th>"#);
-    html.push_str(r#"<th class="text-right">月給上限</th>"#);
+    html.push_str(r#"<th class="text-right">給与下限</th>"#);
+    html.push_str(r#"<th class="text-right">給与上限</th>"#);
     html.push_str(r#"<th class="comp-col-extra" style="display:none">職種詳細</th>"#);
     html.push_str(r#"<th class="comp-col-extra" style="display:none">学歴</th>"#);
     html.push_str(r#"<th class="comp-col-extra" style="display:none;min-width:180px">応募要件</th>"#);
@@ -175,13 +194,24 @@ pub(crate) fn render_posting_table(
     }
     html.push_str("</tr></thead><tbody>");
 
+    // 重複求人のグルーピング（施設名+職種+雇用形態+給与でdedup）
+    let deduped = dedup_postings(postings);
+
     let start_num = (page - 1) * 50;
-    for (i, p) in postings.iter().enumerate() {
-        let fname = truncate_str(&escape_html(&p.facility_name), 40);
+    for (i, (p, dup_count)) in deduped.iter().enumerate() {
+        let fname_raw = escape_html(&p.facility_name);
+        let fname = if *dup_count > 1 {
+            format!("{} <span class='text-amber-400 text-[10px]'>({}件)</span>",
+                truncate_str(&fname_raw, 36), dup_count)
+        } else {
+            truncate_str(&fname_raw, 40)
+        };
         let area = format!("{} {}", p.prefecture, p.municipality);
         let sal_type = escape_html(&p.salary_type);
-        let sal_min = if p.salary_min > 0 { format_number(p.salary_min) } else { "-".to_string() };
-        let sal_max = if p.salary_max > 0 { format_number(p.salary_max) } else { "-".to_string() };
+        let is_hourly = p.salary_type.contains("時給");
+        let sal_unit = if is_hourly { "<span class='text-slate-500 text-[10px]'>/時</span>" } else { "" };
+        let sal_min = if p.salary_min > 0 { format!("{}{}", format_number(p.salary_min), sal_unit) } else { "-".to_string() };
+        let sal_max = if p.salary_max > 0 { format!("{}{}", format_number(p.salary_max), sal_unit) } else { "-".to_string() };
         let reqs = escape_html(&p.requirements);
         let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
         let job_num = escape_html(&p.job_number);
