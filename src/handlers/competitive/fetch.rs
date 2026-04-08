@@ -23,6 +23,7 @@ impl Default for CompStats {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub(crate) struct PostingRow {
     pub(crate) facility_name: String,
     pub(crate) job_type: String,
