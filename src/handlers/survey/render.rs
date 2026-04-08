@@ -3,6 +3,7 @@
 use super::super::helpers::{escape_html, format_number};
 use super::aggregator::SurveyAggregation;
 use super::job_seeker::JobSeekerAnalysis;
+use serde_json::json;
 
 /// Phase A: アップロードフォーム
 pub(crate) fn render_upload_form() -> String {
@@ -164,24 +165,227 @@ pub(crate) fn render_analysis_result(
         }
     }
 
-    // 地域分布 Top 10
+    // === ECharts チャートセクション ===
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
+
+    // チャート1: 給与帯分布（縦棒グラフ）
+    if !agg.by_salary_range.is_empty() {
+        let labels: Vec<serde_json::Value> = agg.by_salary_range.iter()
+            .map(|(l, _)| json!(l))
+            .collect();
+        let values: Vec<serde_json::Value> = agg.by_salary_range.iter()
+            .map(|(_, v)| json!(v))
+            .collect();
+
+        let mut chart = json!({
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "grid": {"left": "10%", "right": "5%", "top": "15%", "bottom": "18%"},
+            "xAxis": {
+                "type": "category",
+                "data": labels,
+                "axisLabel": {"color": "#94a3b8", "fontSize": 10, "rotate": 20}
+            },
+            "yAxis": {
+                "type": "value",
+                "axisLabel": {"color": "#94a3b8"}
+            },
+            "series": [{
+                "type": "bar",
+                "data": values,
+                "itemStyle": {"color": "#0072B2", "borderRadius": [4, 4, 0, 0]},
+                "label": {"show": true, "position": "top", "color": "#e2e8f0", "fontSize": 10}
+            }]
+        });
+
+        // 中央値・平均のマークライン追加
+        if let Some(stats) = &agg.enhanced_stats {
+            chart["series"][0]["markLine"] = json!({
+                "silent": true,
+                "lineStyle": {"type": "dashed"},
+                "data": [
+                    {"yAxis": stats.median, "name": "中央値", "lineStyle": {"color": "#E69F00"}},
+                    {"yAxis": stats.mean, "name": "平均", "lineStyle": {"color": "#D55E00"}}
+                ]
+            });
+        }
+
+        let config_str = chart.to_string().replace('\'', "&#39;");
+        html.push_str(&format!(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">給与帯分布</h4><div class="echart" style="height:300px" data-chart-config='{config_str}'></div></div>"#
+        ));
+    }
+
+    // チャート2: 雇用形態分布（ドーナツ）
+    if !agg.by_employment_type.is_empty() {
+        let colors = ["#0072B2","#E69F00","#009E73","#D55E00","#CC79A7","#56B4E9","#F0E442","#999999"];
+        let pie_data: Vec<serde_json::Value> = agg.by_employment_type.iter().enumerate()
+            .map(|(i, (name, val))| json!({
+                "value": val,
+                "name": name,
+                "itemStyle": {"color": colors[i % colors.len()]}
+            }))
+            .collect();
+
+        let chart = json!({
+            "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
+            "legend": {
+                "bottom": "0%",
+                "textStyle": {"color": "#94a3b8", "fontSize": 10}
+            },
+            "series": [{
+                "type": "pie",
+                "radius": ["40%", "70%"],
+                "center": ["50%", "45%"],
+                "data": pie_data,
+                "label": {"color": "#e2e8f0", "fontSize": 10},
+                "emphasis": {"itemStyle": {"shadowBlur": 10, "shadowColor": "rgba(0,0,0,0.5)"}}
+            }]
+        });
+
+        let config_str = chart.to_string().replace('\'', "&#39;");
+        html.push_str(&format!(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">雇用形態分布</h4><div class="echart" style="height:300px" data-chart-config='{config_str}'></div></div>"#
+        ));
+    }
+
+    // チャート3: 地域分布 Top15（横棒グラフ）
     if !agg.by_prefecture.is_empty() {
-        html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">地域分布 Top 10</h4>"#);
-        for (pref, count) in agg.by_prefecture.iter().take(10) {
-            let pct = *count as f64 / agg.total_count as f64 * 100.0;
+        // 横棒は下から上に表示するので逆順
+        let top15: Vec<&(String, usize)> = agg.by_prefecture.iter().take(15).collect();
+        let labels: Vec<serde_json::Value> = top15.iter().rev()
+            .map(|(l, _)| json!(l))
+            .collect();
+        let values: Vec<serde_json::Value> = top15.iter().rev()
+            .map(|(_, v)| json!(v))
+            .collect();
+
+        let chart = json!({
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "grid": {"left": "20%", "right": "10%", "top": "5%", "bottom": "5%"},
+            "xAxis": {"type": "value", "axisLabel": {"color": "#94a3b8"}},
+            "yAxis": {
+                "type": "category",
+                "data": labels,
+                "axisLabel": {"color": "#e2e8f0", "fontSize": 11}
+            },
+            "series": [{
+                "type": "bar",
+                "data": values,
+                "itemStyle": {"color": "#009E73", "borderRadius": [0, 4, 4, 0]},
+                "label": {"show": true, "position": "right", "color": "#e2e8f0", "fontSize": 10}
+            }]
+        });
+
+        let config_str = chart.to_string().replace('\'', "&#39;");
+        html.push_str(&format!(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">地域分布 Top15</h4><div class="echart" style="height:400px" data-chart-config='{config_str}'></div></div>"#
+        ));
+    }
+
+    // チャート4: 求人タグ Top15（横棒グラフ）
+    if !agg.by_tags.is_empty() {
+        let top15: Vec<&(String, usize)> = agg.by_tags.iter().take(15).collect();
+        let labels: Vec<serde_json::Value> = top15.iter().rev()
+            .map(|(l, _)| json!(l))
+            .collect();
+        let values: Vec<serde_json::Value> = top15.iter().rev()
+            .map(|(_, v)| json!(v))
+            .collect();
+
+        let chart = json!({
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "grid": {"left": "30%", "right": "10%", "top": "5%", "bottom": "5%"},
+            "xAxis": {"type": "value", "axisLabel": {"color": "#94a3b8"}},
+            "yAxis": {
+                "type": "category",
+                "data": labels,
+                "axisLabel": {"color": "#e2e8f0", "fontSize": 10}
+            },
+            "series": [{
+                "type": "bar",
+                "data": values,
+                "itemStyle": {"color": "#E69F00", "borderRadius": [0, 4, 4, 0]},
+                "label": {"show": true, "position": "right", "color": "#e2e8f0", "fontSize": 10}
+            }]
+        });
+
+        let config_str = chart.to_string().replace('\'', "&#39;");
+        html.push_str(&format!(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">求人タグ Top15</h4><div class="echart" style="height:400px" data-chart-config='{config_str}'></div></div>"#
+        ));
+    }
+
+    // チャート5: 経験者 vs 未経験可 給与比較（縦棒グラフ）
+    if let Some(inexp) = &seeker.inexperience_analysis {
+        if let (Some(inexp_sal), Some(exp_sal)) = (inexp.inexperience_avg_salary, inexp.experience_avg_salary) {
+            let chart = json!({
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "grid": {"left": "15%", "right": "5%", "top": "15%", "bottom": "15%"},
+                "xAxis": {
+                    "type": "category",
+                    "data": [
+                        format!("経験者 ({}件)", inexp.experience_count),
+                        format!("未経験可 ({}件)", inexp.inexperience_count)
+                    ],
+                    "axisLabel": {"color": "#e2e8f0", "fontSize": 11}
+                },
+                "yAxis": {
+                    "type": "value",
+                    "axisLabel": {"color": "#94a3b8"},
+                    "name": "円",
+                    "nameTextStyle": {"color": "#94a3b8"}
+                },
+                "series": [{
+                    "type": "bar",
+                    "data": [
+                        {"value": exp_sal, "itemStyle": {"color": "#0072B2"}},
+                        {"value": inexp_sal, "itemStyle": {"color": "#D55E00"}}
+                    ],
+                    "label": {"show": true, "position": "top", "color": "#e2e8f0", "fontSize": 11,
+                              "formatter": "{c}円"},
+                    "barWidth": "40%"
+                }]
+            });
+
+            let config_str = chart.to_string().replace('\'', "&#39;");
             html.push_str(&format!(
-                r#"<div class="flex items-center gap-2 mb-1">
-                    <span class="text-xs text-white w-20 shrink-0">{}</span>
-                    <div class="flex-1 bg-slate-700 rounded h-3">
-                        <div class="bg-blue-500 rounded h-3" style="width:{pct:.1}%"></div>
-                    </div>
-                    <span class="text-xs text-slate-400 w-16 text-right">{} ({pct:.1}%)</span>
-                </div>"#,
-                escape_html(pref), count
+                r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">経験者 vs 未経験可 給与比較</h4><div class="echart" style="height:300px" data-chart-config='{config_str}'></div></div>"#
             ));
         }
-        html.push_str("</div>");
     }
+
+    // チャート6: 給与レンジ幅の分布（ドーナツ）
+    if let Some(perception) = &seeker.salary_range_perception {
+        let total = perception.narrow_count + perception.medium_count + perception.wide_count;
+        if total > 0 {
+            let chart = json!({
+                "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
+                "legend": {
+                    "bottom": "0%",
+                    "textStyle": {"color": "#94a3b8", "fontSize": 10}
+                },
+                "series": [{
+                    "type": "pie",
+                    "radius": ["40%", "70%"],
+                    "center": ["50%", "45%"],
+                    "data": [
+                        {"value": perception.narrow_count, "name": "狭い (<5万円)", "itemStyle": {"color": "#56B4E9"}},
+                        {"value": perception.medium_count, "name": "中程度 (5~10万円)", "itemStyle": {"color": "#009E73"}},
+                        {"value": perception.wide_count, "name": "広い (>10万円)", "itemStyle": {"color": "#D55E00"}}
+                    ],
+                    "label": {"color": "#e2e8f0", "fontSize": 10},
+                    "emphasis": {"itemStyle": {"shadowBlur": 10, "shadowColor": "rgba(0,0,0,0.5)"}}
+                }]
+            });
+
+            let config_str = chart.to_string().replace('\'', "&#39;");
+            html.push_str(&format!(
+                r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">給与レンジ幅の分布</h4><div class="echart" style="height:300px" data-chart-config='{config_str}'></div></div>"#
+            ));
+        }
+    }
+
+    html.push_str("</div>"); // grid終了
 
     // 統合レポート生成ボタン
     html.push_str(&format!(
