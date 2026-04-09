@@ -1,6 +1,6 @@
 use axum::extract::State;
 use axum::response::Html;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
@@ -441,7 +441,7 @@ fn render_balance(
     )
 }
 
-/// 汎用棒グラフビルダー
+/// 汎用棒グラフビルダー（serde_json::json!で安全にJSON生成）
 fn build_bar_chart(data: &[(String, i64)], title: &str, color: &str, height: u32) -> String {
     if data.is_empty() {
         return r##"<p class="text-slate-500 text-sm text-center py-12">データがありません</p>"##
@@ -454,31 +454,32 @@ fn build_bar_chart(data: &[(String, i64)], title: &str, color: &str, height: u32
     }).collect();
     let aria_label = format!("{}: {}", title, aria_summary.join("、"));
 
-    let labels: Vec<String> = data.iter().map(|(l, _)| format!("\"{}\"", l)).collect();
-    let values: Vec<String> = data.iter().map(|(_, v)| v.to_string()).collect();
+    let labels: Vec<&str> = data.iter().map(|(l, _)| l.as_str()).collect();
+    let values: Vec<i64> = data.iter().map(|(_, v)| *v).collect();
+
+    let config = json!({
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "grid": {"left": "3%", "right": "4%", "bottom": "8%", "top": "5%", "containLabel": true},
+        "xAxis": {"type": "category", "data": labels, "axisLabel": {"rotate": 30}},
+        "yAxis": {"type": "value"},
+        "series": [{
+            "type": "bar",
+            "data": values,
+            "itemStyle": {"color": color, "borderRadius": [4, 4, 0, 0]},
+            "label": {"show": true, "position": "top", "color": "#e2e8f0", "fontSize": 11}
+        }]
+    });
+    let config_str = config.to_string().replace('\'', "&#39;");
 
     format!(
-        r##"<div class="echart" role="img" aria-label="{aria_label}" style="height:{height}px;" data-chart-config='{{
-            "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
-            "grid": {{"left": "3%", "right": "4%", "bottom": "8%", "top": "5%", "containLabel": true}},
-            "xAxis": {{"type": "category", "data": [{labels}], "axisLabel": {{"rotate": 30}}}},
-            "yAxis": {{"type": "value"}},
-            "series": [{{
-                "type": "bar",
-                "data": [{values}],
-                "itemStyle": {{"color": "{color}", "borderRadius": [4, 4, 0, 0]}},
-                "label": {{"show": true, "position": "top", "color": "#e2e8f0", "fontSize": 11}}
-            }}]
-        }}'></div>"##,
+        r#"<div class="echart" role="img" aria-label="{aria_label}" style="height:{height}px;" data-chart-config='{config_str}'></div>"#,
         aria_label = aria_label,
         height = height,
-        labels = labels.join(","),
-        values = values.join(","),
-        color = color,
+        config_str = config_str,
     )
 }
 
-/// 産業×従業員規模のスタック横棒グラフ
+/// 産業×従業員規模のスタック横棒グラフ（serde_json::json!で安全にJSON生成）
 fn build_industry_size_cross(
     top_industries: &[String],
     size_bands: &[String],
@@ -499,54 +500,51 @@ fn build_industry_size_cross(
         "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899",
     ];
 
-    let industry_labels: Vec<String> = top_industries
-        .iter()
-        .rev()
-        .map(|s| format!("\"{}\"", s))
-        .collect();
+    // 産業ラベル（逆順）
+    let industry_labels: Vec<&str> = top_industries.iter().rev().map(|s| s.as_str()).collect();
 
-    let series: Vec<String> = size_bands
+    // seriesをserde_json::Valueとして構築
+    let series_values: Vec<serde_json::Value> = size_bands
         .iter()
         .enumerate()
         .map(|(i, band)| {
-            let data: Vec<String> = top_industries
+            let data: Vec<i64> = top_industries
                 .iter()
                 .rev()
                 .map(|jt| {
-                    let val = pivot.get(&(jt.as_str(), band.as_str())).copied().unwrap_or(0);
-                    val.to_string()
+                    pivot.get(&(jt.as_str(), band.as_str())).copied().unwrap_or(0)
                 })
                 .collect();
             let color = band_colors.get(i).unwrap_or(&"#999");
-            format!(
-                r##"{{"name": "{band}", "type": "bar", "stack": "total", "data": [{data}], "itemStyle": {{"color": "{color}"}}}}"##,
-                band = band,
-                data = data.join(","),
-                color = color,
-            )
+            json!({
+                "name": band,
+                "type": "bar",
+                "stack": "total",
+                "data": data,
+                "itemStyle": {"color": *color}
+            })
         })
         .collect();
+
+    let legend_data: Vec<&str> = size_bands.iter().map(|s| s.as_str()).collect();
 
     // アクセシビリティ: 上位産業名をaria-labelに含める
     let aria_top: Vec<&str> = top_industries.iter().take(3).map(|s| s.as_str()).collect();
     let aria_label = format!("産業別従業員規模クロス: {}", aria_top.join("、"));
 
+    let config = json!({
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "legend": {"data": legend_data, "top": "0%"},
+        "grid": {"left": "20%", "right": "5%", "top": "12%", "bottom": "5%"},
+        "xAxis": {"type": "value"},
+        "yAxis": {"type": "category", "data": industry_labels},
+        "series": series_values
+    });
+    let config_str = config.to_string().replace('\'', "&#39;");
+
     format!(
-        r##"<div class="echart" role="img" aria-label="{aria_label}" style="height:400px;" data-chart-config='{{
-            "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
-            "legend": {{"data": [{legend}], "top": "0%"}},
-            "grid": {{"left": "20%", "right": "5%", "top": "12%", "bottom": "5%"}},
-            "xAxis": {{"type": "value"}},
-            "yAxis": {{"type": "category", "data": [{labels}]}},
-            "series": [{series}]
-        }}'></div>"##,
+        r#"<div class="echart" role="img" aria-label="{aria_label}" style="height:400px;" data-chart-config='{config_str}'></div>"#,
         aria_label = aria_label,
-        legend = size_bands
-            .iter()
-            .map(|s| format!("\"{}\"", s))
-            .collect::<Vec<_>>()
-            .join(","),
-        labels = industry_labels.join(","),
-        series = series.join(","),
+        config_str = config_str,
     )
 }

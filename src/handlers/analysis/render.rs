@@ -2922,54 +2922,69 @@ fn build_commute_sankey(
     outflow: &[super::fetch::CommuteFlow],
     center_name: &str,
 ) -> String {
-    let mut nodes = vec![format!("{{\"name\":\"{}\"}}", escape_html(center_name))];
-    let mut links = Vec::new();
+    use serde_json::json;
+
+    let mut node_values: Vec<serde_json::Value> = vec![json!({"name": center_name})];
+    let mut link_values: Vec<serde_json::Value> = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
     // 流入（左→中央）
     for f in inflow.iter().take(10) {
         let name = format!("{}{}", f.partner_pref, f.partner_muni);
         if !seen.contains(&name) {
-            nodes.push(format!("{{\"name\":\"{}\"}}", escape_html(&name)));
+            node_values.push(json!({"name": &name}));
             seen.insert(name.clone());
         }
-        links.push(format!(
-            "{{\"source\":\"{}\",\"target\":\"{}\",\"value\":{}}}",
-            escape_html(&name), escape_html(center_name), f.total_commuters
-        ));
+        link_values.push(json!({
+            "source": &name,
+            "target": center_name,
+            "value": f.total_commuters
+        }));
     }
 
     // 流出（中央→右）
     for f in outflow.iter().take(10) {
         let name = format!("{}{}(流出)", f.partner_pref, f.partner_muni);
         if !seen.contains(&name) {
-            nodes.push(format!("{{\"name\":\"{}\"}}", escape_html(&name)));
+            node_values.push(json!({"name": &name}));
             seen.insert(name.clone());
         }
-        links.push(format!(
-            "{{\"source\":\"{}\",\"target\":\"{}\",\"value\":{}}}",
-            escape_html(center_name), escape_html(&name), f.total_commuters
-        ));
+        link_values.push(json!({
+            "source": center_name,
+            "target": &name,
+            "value": f.total_commuters
+        }));
     }
 
-    format!(
-        "{{\"tooltip\":{{\"trigger\":\"item\"}},\"series\":[{{\"type\":\"sankey\",\"layout\":\"none\",\"emphasis\":{{\"focus\":\"adjacency\"}},\"nodeAlign\":\"justify\",\"data\":[{}],\"links\":[{}],\"lineStyle\":{{\"color\":\"gradient\",\"curveness\":0.5}},\"label\":{{\"color\":\"#e2e8f0\",\"fontSize\":10}}}}]}}",
-        nodes.join(","),
-        links.join(","),
-    )
+    let config = json!({
+        "tooltip": {"trigger": "item"},
+        "series": [{
+            "type": "sankey",
+            "layout": "none",
+            "emphasis": {"focus": "adjacency"},
+            "nodeAlign": "justify",
+            "data": node_values,
+            "links": link_values,
+            "lineStyle": {"color": "gradient", "curveness": 0.5},
+            "label": {"color": "#e2e8f0", "fontSize": 10}
+        }]
+    });
+    config.to_string().replace('\'', "&#39;")
 }
 
 /// 蝶形ピラミッドECharts JSON生成
 fn build_butterfly_pyramid(zone: &[Row], local: &[Row], muni_name: &str) -> String {
+    use serde_json::json;
+
     let ages: Vec<String> = zone.iter()
         .map(|r| get_str(r, "age_group").to_string())
         .collect();
 
-    let zone_male: Vec<String> = zone.iter()
-        .map(|r| format!("{}", -get_i64(r, "male_count")))
+    let zone_male: Vec<i64> = zone.iter()
+        .map(|r| -get_i64(r, "male_count"))
         .collect();
-    let zone_female: Vec<String> = zone.iter()
-        .map(|r| format!("{}", get_i64(r, "female_count")))
+    let zone_female: Vec<i64> = zone.iter()
+        .map(|r| get_i64(r, "female_count"))
         .collect();
 
     // ローカルピラミッド（年齢順にマッチング）
@@ -2982,34 +2997,56 @@ fn build_butterfly_pyramid(zone: &[Row], local: &[Row], muni_name: &str) -> Stri
         })
         .collect();
 
-    let local_male: Vec<String> = ages.iter()
-        .map(|a| format!("{}", -local_map.get(a).map(|(m,_)| *m).unwrap_or(0)))
+    let local_male: Vec<i64> = ages.iter()
+        .map(|a| -local_map.get(a).map(|(m,_)| *m).unwrap_or(0))
         .collect();
-    let local_female: Vec<String> = ages.iter()
-        .map(|a| format!("{}", local_map.get(a).map(|(_,f)| *f).unwrap_or(0)))
+    let local_female: Vec<i64> = ages.iter()
+        .map(|a| local_map.get(a).map(|(_,f)| *f).unwrap_or(0))
         .collect();
 
-    let ages_json: Vec<String> = ages.iter().map(|a| format!(r#""{}""#, a)).collect();
-    let muni_esc = escape_html(muni_name);
+    let legend_male_local = format!("男性({})", muni_name);
+    let legend_female_local = format!("女性({})", muni_name);
 
-    // ECharts JSON（色コードの#はformat!で問題になるためJSON文字列として直接構築）
-    let mut j = String::with_capacity(2_000);
-    j.push_str(r#"{"tooltip":{"trigger":"axis","axisPointer":{"type":"shadow"}},"#);
-    j.push_str("\"legend\":{\"data\":[\"男性(通勤圏)\",\"女性(通勤圏)\",\"男性(");
-    j.push_str(&muni_esc);
-    j.push_str(")\",\"女性(");
-    j.push_str(&muni_esc);
-    j.push_str(")\"],\"textStyle\":{\"color\":\"#94a3b8\",\"fontSize\":10},\"bottom\":0},");
-    j.push_str(r#""grid":{"left":"3%","right":"3%","top":"3%","bottom":"12%","containLabel":true},"#);
-    j.push_str(r#""xAxis":{"type":"value"},"#);
-    j.push_str(&format!(r#""yAxis":{{"type":"category","data":[{}],"axisTick":{{"show":false}}}},"#, ages_json.join(",")));
-    j.push_str(r#""series":["#);
-    j.push_str(&format!(r#"{{"name":"男性(通勤圏)","type":"bar","data":[{}],"itemStyle":{{"color":"rgba(59,130,246,0.7)"}}}},"#, zone_male.join(",")));
-    j.push_str(&format!(r#"{{"name":"女性(通勤圏)","type":"bar","data":[{}],"itemStyle":{{"color":"rgba(236,72,153,0.7)"}}}},"#, zone_female.join(",")));
-    j.push_str(&format!(r#"{{"name":"男性({})","type":"bar","data":[{}],"barGap":"-100%","itemStyle":{{"color":"rgba(59,130,246,0.3)"}}}},"#, muni_esc, local_male.join(",")));
-    j.push_str(&format!(r#"{{"name":"女性({})","type":"bar","data":[{}],"barGap":"-100%","itemStyle":{{"color":"rgba(236,72,153,0.3)"}}}}"#, muni_esc, local_female.join(",")));
-    j.push_str("]}");
-    j
+    let config = json!({
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "legend": {
+            "data": ["男性(通勤圏)", "女性(通勤圏)", &legend_male_local, &legend_female_local],
+            "textStyle": {"color": "#94a3b8", "fontSize": 10},
+            "bottom": 0
+        },
+        "grid": {"left": "3%", "right": "3%", "top": "3%", "bottom": "12%", "containLabel": true},
+        "xAxis": {"type": "value"},
+        "yAxis": {"type": "category", "data": ages, "axisTick": {"show": false}},
+        "series": [
+            {
+                "name": "男性(通勤圏)",
+                "type": "bar",
+                "data": zone_male,
+                "itemStyle": {"color": "rgba(59,130,246,0.7)"}
+            },
+            {
+                "name": "女性(通勤圏)",
+                "type": "bar",
+                "data": zone_female,
+                "itemStyle": {"color": "rgba(236,72,153,0.7)"}
+            },
+            {
+                "name": &legend_male_local,
+                "type": "bar",
+                "data": local_male,
+                "barGap": "-100%",
+                "itemStyle": {"color": "rgba(59,130,246,0.3)"}
+            },
+            {
+                "name": &legend_female_local,
+                "type": "bar",
+                "data": local_female,
+                "barGap": "-100%",
+                "itemStyle": {"color": "rgba(236,72,153,0.3)"}
+            }
+        ]
+    });
+    config.to_string().replace('\'', "&#39;")
 }
 
 fn kpi(html: &mut String, label: &str, value: &str, color: &str) {
