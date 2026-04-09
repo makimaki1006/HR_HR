@@ -52,6 +52,8 @@ pub(crate) fn render_upload_form() -> String {
                 target.innerHTML = serverHtml;
                 // Re-process HTMX attributes in dynamically inserted content
                 if (typeof htmx !== 'undefined') htmx.process(target);
+                // ECharts初期化: htmx:afterSettleを手動発火してapp.jsのチャート初期化をトリガー
+                document.body.dispatchEvent(new CustomEvent('htmx:afterSettle', {detail: {target: target}}));
                 status.textContent = '完了';
                 status.className = 'mt-3 text-sm text-green-400';
             })
