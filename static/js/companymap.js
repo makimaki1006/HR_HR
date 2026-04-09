@@ -139,11 +139,11 @@
 
                         popup.setContent(html);
 
-                        // EChartsの初期化はDOM描画後に実行
+                        // EChartsの初期化はDOM描画後に実行（200ms待機でレンダリング完了を保証）
                         if (hasDeltas) {
                             setTimeout(function() {
                                 var chartEl = document.getElementById(popupId);
-                                if (!chartEl) return;
+                                if (!chartEl) { setTimeout(arguments.callee, 100); return; }
                                 if (typeof echarts === "undefined") return;
 
                                 var chart = echarts.init(chartEl);
@@ -185,7 +185,7 @@
                                         chart = null;
                                     }
                                 });
-                            }, 50);
+                            }, 200);
                         }
                     })
                     .catch(function(err) {
