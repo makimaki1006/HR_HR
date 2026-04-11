@@ -207,7 +207,7 @@ pub(crate) fn interpret_pyramid(pyramid: &[std::collections::HashMap<String, ser
 
     let mut peak_age = String::new();
     let mut peak_pop: i64 = 0;
-    let mut working_age: i64 = 0;
+    let mut _working_age: i64 = 0;
     let mut elderly: i64 = 0;
     let mut total: i64 = 0;
 
@@ -218,7 +218,7 @@ pub(crate) fn interpret_pyramid(pyramid: &[std::collections::HashMap<String, ser
         if pop > peak_pop { peak_pop = pop; peak_age = age.to_string(); }
         match age {
             "15-19"|"20-24"|"25-29"|"30-34"|"35-39"|"40-44"|"45-49"|"50-54"|"55-59"|"60-64"
-            | "10-19"|"20-29"|"30-39"|"40-49"|"50-59"|"60-69" => working_age += pop,
+            | "10-19"|"20-29"|"30-39"|"40-49"|"50-59"|"60-69" => _working_age += pop,
             _ => {}
         }
         match age {
