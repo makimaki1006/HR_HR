@@ -16,6 +16,16 @@ pub struct CompanyAgg {
     pub median_salary: i64,
 }
 
+/// タグ別給与集計
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TagSalaryAgg {
+    pub tag: String,
+    pub count: usize,
+    pub avg_salary: i64,
+    pub diff_from_avg: i64,   // 全体平均との差分（円）
+    pub diff_percent: f64,    // 差分率（%）
+}
+
 /// 雇用形態別給与
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmpTypeSalary {
@@ -44,6 +54,7 @@ pub struct SurveyAggregation {
     pub by_emp_type_salary: Vec<EmpTypeSalary>,
     pub salary_min_values: Vec<i64>,
     pub salary_max_values: Vec<i64>,
+    pub by_tag_salary: Vec<TagSalaryAgg>,
 }
 
 /// パース済みレコードを集計
@@ -116,11 +127,43 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     by_tags.sort_by(|a, b| b.1.cmp(&a.1));
     by_tags.truncate(30); // 上位30タグ
 
+    // タグ別給与集計
+    let mut tag_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
+    for r in records {
+        if let Some(sal) = r.salary_parsed.unified_monthly {
+            if sal > 0 && !r.tags_raw.is_empty() {
+                for tag in r.tags_raw.split(|c: char| c == ',' || c == '、' || c == '/' || c == '\t') {
+                    let tag = tag.trim();
+                    if !tag.is_empty() && tag.chars().count() <= 20 {
+                        tag_salary_map.entry(tag.to_string()).or_default().push(sal);
+                    }
+                }
+            }
+        }
+    }
+
     // 給与統計
     let salary_values: Vec<i64> = records.iter()
         .filter_map(|r| r.salary_parsed.unified_monthly)
         .collect();
     let enhanced_stats = enhanced_salary_statistics(&salary_values);
+
+    // タグ別給与差分の計算
+    let overall_mean = enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0);
+    let mut by_tag_salary: Vec<TagSalaryAgg> = tag_salary_map.into_iter()
+        .filter(|(_, salaries)| salaries.len() >= 3) // 3件以上のタグのみ
+        .map(|(tag, salaries)| {
+            let count = salaries.len();
+            let avg_salary = salaries.iter().sum::<i64>() / count as i64;
+            let diff_from_avg = avg_salary - overall_mean;
+            let diff_percent = if overall_mean > 0 {
+                diff_from_avg as f64 / overall_mean as f64 * 100.0
+            } else { 0.0 };
+            TagSalaryAgg { tag, count, avg_salary, diff_from_avg, diff_percent }
+        })
+        .collect();
+    by_tag_salary.sort_by(|a, b| b.diff_from_avg.cmp(&a.diff_from_avg));
+    by_tag_salary.truncate(20);
 
     // 下限/上限給与（レポート用）
     let salary_min_values: Vec<i64> = records.iter()
@@ -193,5 +236,6 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         by_emp_type_salary,
         salary_min_values,
         salary_max_values,
+        by_tag_salary,
     }
 }
