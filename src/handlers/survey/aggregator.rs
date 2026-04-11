@@ -36,6 +36,15 @@ pub struct MunicipalitySalaryAgg {
     pub median_salary: i64,
 }
 
+/// 都道府県別給与集計
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PrefectureSalaryAgg {
+    pub name: String,
+    pub count: usize,
+    pub avg_salary: i64,
+    pub avg_min_salary: i64,  // 下限給与の平均
+}
+
 /// 散布図データ点
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScatterPoint {
@@ -83,6 +92,8 @@ pub struct SurveyAggregation {
     pub by_municipality_salary: Vec<MunicipalitySalaryAgg>,
     pub scatter_min_max: Vec<ScatterPoint>,
     pub regression_min_max: Option<RegressionResult>,
+    pub by_prefecture_salary: Vec<PrefectureSalaryAgg>,
+    pub is_hourly: bool,
 }
 
 /// パース済みレコードを集計
@@ -247,6 +258,40 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .collect();
     by_emp_type_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
 
+    // 都道府県別給与集計（最低賃金比較用）
+    let mut pref_salary_map: HashMap<String, (Vec<i64>, Vec<i64>)> = HashMap::new(); // (unified, min_values)
+    for r in records {
+        if let Some(pref) = &r.location_parsed.prefecture {
+            let entry = pref_salary_map.entry(pref.clone()).or_default();
+            if let Some(sal) = r.salary_parsed.unified_monthly {
+                if sal > 0 { entry.0.push(sal); }
+            }
+            if let Some(min_sal) = r.salary_parsed.min_value {
+                if min_sal > 0 { entry.1.push(min_sal); }
+            }
+        }
+    }
+    let mut by_prefecture_salary: Vec<PrefectureSalaryAgg> = pref_salary_map.into_iter()
+        .map(|(name, (salaries, min_salaries))| {
+            let count = salaries.len();
+            let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
+            let avg_min_salary = if min_salaries.is_empty() { 0 } else {
+                min_salaries.iter().sum::<i64>() / min_salaries.len() as i64
+            };
+            PrefectureSalaryAgg { name, count, avg_salary, avg_min_salary }
+        })
+        .collect();
+    by_prefecture_salary.sort_by(|a, b| b.count.cmp(&a.count));
+
+    // 時給モード判定（時給レコードが過半数なら時給モード）
+    let hourly_count = records.iter()
+        .filter(|r| r.salary_parsed.salary_type == super::salary_parser::SalaryType::Hourly)
+        .count();
+    let total_with_salary = records.iter()
+        .filter(|r| r.salary_parsed.min_value.is_some())
+        .count();
+    let is_hourly = total_with_salary > 0 && hourly_count > total_with_salary / 2;
+
     // 散布図データ（下限 vs 上限）
     let scatter_min_max: Vec<ScatterPoint> = records.iter()
         .filter_map(|r| {
@@ -304,6 +349,8 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         by_municipality_salary,
         scatter_min_max,
         regression_min_max,
+        by_prefecture_salary,
+        is_hourly,
     }
 }
 

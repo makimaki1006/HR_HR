@@ -68,6 +68,9 @@ pub(crate) fn render_survey_report_page(
     // --- セクション5-2: 市区町村別給与 ---
     render_section_municipality_salary(&mut html, agg);
 
+    // --- セクション6: 最低賃金比較 ---
+    render_section_min_wage(&mut html, agg);
+
     // --- セクション8: 企業分析 ---
     render_section_company(&mut html, by_company);
 
@@ -255,12 +258,21 @@ svg { max-width: 100%; height: auto; }
 // ============================================================
 
 fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
+    let salary_label = if agg.is_hourly { "平均時給" } else { "平均月給" };
+    let salary_unit = if agg.is_hourly { "円" } else { "万円" };
+
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>サマリー</h2>\n");
 
     // KPIカード 2x2
-    let avg_salary_man = agg.enhanced_stats.as_ref()
-        .map(|s| format!("{:.1}", s.mean as f64 / 10_000.0))
+    let avg_salary_display = agg.enhanced_stats.as_ref()
+        .map(|s| {
+            if agg.is_hourly {
+                format_number(s.mean)
+            } else {
+                format!("{:.1}", s.mean as f64 / 10_000.0)
+            }
+        })
         .unwrap_or_else(|| "-".to_string());
 
     // 正社員率の計算
@@ -282,15 +294,20 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str("<div class=\"summary-grid\">\n");
     render_summary_card(html, "総求人数", &format_number(agg.total_count as i64), "件");
-    render_summary_card(html, "平均月給", &avg_salary_man, "万円");
+    render_summary_card(html, salary_label, &avg_salary_display, salary_unit);
     render_summary_card(html, "正社員率", &fulltime_rate, "");
     render_summary_card(html, "新着率", &new_rate, "");
     html.push_str("</div>\n");
 
     // 読み方ガイド
+    let salary_guide = if agg.is_hourly {
+        "時給データとして解析されています。"
+    } else {
+        "全求人の月給換算平均値です。時給・年俸は月給に統一計算しています。"
+    };
     html.push_str("<div class=\"guide-grid\">\n");
     render_guide_item(html, "総求人数", "CSVに含まれる求人の総数です。市場規模の目安になります。");
-    render_guide_item(html, "平均月給", "全求人の月給換算平均値です。時給・年俸は月給に統一計算しています。");
+    render_guide_item(html, salary_label, salary_guide);
     render_guide_item(html, "正社員率", "正社員・正職員の求人割合です。高いほど安定雇用が多い市場です。");
     render_guide_item(html, "新着率", "新着求人の割合です。高いほど求人の入れ替わりが活発です。");
     html.push_str("</div>\n");
@@ -522,6 +539,35 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 }
 
 // ============================================================
+// 最低賃金データ（2025年10月施行）
+// ============================================================
+
+/// 都道府県別最低賃金（円/時間）
+fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
+    match pref {
+        "北海道" => Some(1075), "青森県" => Some(1029), "岩手県" => Some(1031),
+        "宮城県" => Some(1038), "秋田県" => Some(1031), "山形県" => Some(1032),
+        "福島県" => Some(1038), "茨城県" => Some(1074), "栃木県" => Some(1058),
+        "群馬県" => Some(1063), "埼玉県" => Some(1141), "千葉県" => Some(1140),
+        "東京都" => Some(1226), "神奈川県" => Some(1225), "新潟県" => Some(1050),
+        "富山県" => Some(1062), "石川県" => Some(1054), "福井県" => Some(1053),
+        "山梨県" => Some(1052), "長野県" => Some(1061), "岐阜県" => Some(1065),
+        "静岡県" => Some(1097), "愛知県" => Some(1140), "三重県" => Some(1087),
+        "滋賀県" => Some(1080), "京都府" => Some(1122), "大阪府" => Some(1177),
+        "兵庫県" => Some(1116), "奈良県" => Some(1051), "和歌山県" => Some(1045),
+        "鳥取県" => Some(1030), "島根県" => Some(1033), "岡山県" => Some(1047),
+        "広島県" => Some(1085), "山口県" => Some(1043), "徳島県" => Some(1046),
+        "香川県" => Some(1038), "愛媛県" => Some(1033), "高知県" => Some(1023),
+        "福岡県" => Some(1057), "佐賀県" => Some(1030), "長崎県" => Some(1031),
+        "熊本県" => Some(1034), "大分県" => Some(1035), "宮崎県" => Some(1023),
+        "鹿児島県" => Some(1026), "沖縄県" => Some(1023),
+        _ => None,
+    }
+}
+
+const _MIN_WAGE_NATIONAL_AVG: i64 = 1121;
+
+// ============================================================
 // セクション3-3: 相関分析（散布図）
 // ============================================================
 
@@ -646,6 +692,90 @@ fn render_scatter_plot_svg(
 
     svg.push_str("</svg>\n");
     svg
+}
+
+// ============================================================
+// セクション6: 最低賃金比較分析
+// ============================================================
+
+fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
+    if agg.by_prefecture_salary.is_empty() { return; }
+
+    // 都道府県ごとに最低賃金比較データを構築
+    struct MinWageEntry {
+        name: String,
+        avg_min: i64,
+        min_wage: i64,
+        hourly_160: i64,  // 月給÷160h
+        diff_160: i64,
+        ratio_160: f64,
+    }
+    let mut entries: Vec<MinWageEntry> = agg.by_prefecture_salary.iter()
+        .filter_map(|p| {
+            let mw = min_wage_for_prefecture(&p.name)?;
+            if p.avg_min_salary <= 0 { return None; }
+            let hourly_160 = p.avg_min_salary / 160;
+            let diff_160 = hourly_160 - mw;
+            let ratio_160 = hourly_160 as f64 / mw as f64;
+            Some(MinWageEntry {
+                name: p.name.clone(), avg_min: p.avg_min_salary,
+                min_wage: mw, hourly_160, diff_160, ratio_160,
+            })
+        })
+        .collect();
+
+    if entries.is_empty() { return; }
+    entries.sort_by(|a, b| a.diff_160.cmp(&b.diff_160)); // 差が小さい順
+
+    // 全体の平均比率
+    let avg_ratio: f64 = entries.iter().map(|e| e.ratio_160).sum::<f64>() / entries.len() as f64;
+    let avg_diff_pct = (avg_ratio - 1.0) * 100.0;
+
+    html.push_str("<div class=\"section page-start\">\n");
+    html.push_str("<h2>最低賃金比較分析</h2>\n");
+    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【読み方ガイド】</strong>月給を160h（8h×20日）で割り時給換算して最低賃金と比較。\
+        全国加重平均: <strong>1,121円</strong>（2025年10月施行）\
+    </p>\n");
+
+    // 概要カード
+    html.push_str("<div class=\"stats-grid\">\n");
+    render_stat_box(html, "平均最低賃金比率", &format!("{:.2}倍", avg_ratio));
+    render_stat_box(html, "全体差分", &format!("{:+.1}%", avg_diff_pct));
+    render_stat_box(html, "分析対象", &format!("{}都道府県", entries.len()));
+    html.push_str("</div>\n");
+
+    // 最低賃金との差が小さい都道府県TOP10
+    html.push_str("<h3>時給換算で最低賃金に近い都道府県 TOP10</h3>\n");
+    html.push_str("<table>\n<tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
+        <th style=\"text-align:right\">160h換算</th><th style=\"text-align:right\">最低賃金</th>\
+        <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr>\n");
+    for (i, e) in entries.iter().take(10).enumerate() {
+        let diff_color = if e.diff_160 < 0 { "negative" } else if e.diff_160 < 50 { "color:#fb8c00;font-weight:bold" } else { "" };
+        let diff_style = if diff_color.starts_with("color:") {
+            format!(" style=\"text-align:right;{}\"", diff_color)
+        } else {
+            format!(" class=\"num {}\"", diff_color)
+        };
+        html.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td><td class=\"num\">{}円</td>\
+             <td{}>{:+}円</td><td class=\"num\">{:.2}倍</td></tr>\n",
+            i + 1, escape_html(&e.name),
+            format_man_yen(e.avg_min),
+            format_number(e.hourly_160), format_number(e.min_wage),
+            diff_style, e.diff_160, e.ratio_160,
+        ));
+    }
+    html.push_str("</table>\n");
+
+    // 活用ポイント
+    html.push_str("<div class=\"note\">\
+        <strong>活用ポイント:</strong> 160h=所定労働時間（8h×20日）で換算。\
+        最低賃金水準の求人は応募者が集まりにくい傾向。+10%以上の求人を優先検討すると効率的です。\
+    </div>\n");
+
+    html.push_str("</div>\n");
 }
 
 // ============================================================
