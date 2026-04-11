@@ -46,7 +46,7 @@ pub async fn labor_flow(
 
     let pref = prefecture.clone();
     let muni = municipality.clone();
-    let location_label = if !municipality.is_empty() {
+    let _location_label = if !municipality.is_empty() {
         format!("{} {}", prefecture, municipality)
     } else {
         prefecture.clone()

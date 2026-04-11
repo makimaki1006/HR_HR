@@ -571,7 +571,7 @@ pub fn fetch_nearby_companies(
     db: &crate::db::local_sqlite::LocalDb,
     postal_code: &str,
     exclude_corp: &str,
-    prefecture: &str,
+    _prefecture: &str,
 ) -> Vec<NearbyCompany> {
     if postal_code.len() < 3 {
         return vec![];

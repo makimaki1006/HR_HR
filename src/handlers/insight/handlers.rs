@@ -222,6 +222,15 @@ pub async fn insight_report_html(
 
     let pref = filters.prefecture.clone();
     let muni = filters.municipality.clone();
+
+    // キャッシュ確認（レポート生成は重いため）
+    let cache_key = format!("report_html_{}_{}", pref, muni);
+    if let Some(cached) = state.cache.get(&cache_key) {
+        if let Some(html) = cached.as_str() {
+            return Html(html.to_string());
+        }
+    }
+
     let turso = state.turso_db.clone();
 
     let html = tokio::task::spawn_blocking(move || {
@@ -233,5 +242,6 @@ pub async fn insight_report_html(
         "<html><body><p>レポート生成エラー</p></body></html>".to_string()
     });
 
+    state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
