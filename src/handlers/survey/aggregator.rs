@@ -26,6 +26,31 @@ pub struct TagSalaryAgg {
     pub diff_percent: f64,    // 差分率（%）
 }
 
+/// 市区町村別給与集計
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MunicipalitySalaryAgg {
+    pub name: String,
+    pub prefecture: String,
+    pub count: usize,
+    pub avg_salary: i64,
+    pub median_salary: i64,
+}
+
+/// 散布図データ点
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScatterPoint {
+    pub x: i64,
+    pub y: i64,
+}
+
+/// 回帰分析結果
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RegressionResult {
+    pub slope: f64,
+    pub intercept: f64,
+    pub r_squared: f64,
+}
+
 /// 雇用形態別給与
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EmpTypeSalary {
@@ -55,6 +80,9 @@ pub struct SurveyAggregation {
     pub salary_min_values: Vec<i64>,
     pub salary_max_values: Vec<i64>,
     pub by_tag_salary: Vec<TagSalaryAgg>,
+    pub by_municipality_salary: Vec<MunicipalitySalaryAgg>,
+    pub scatter_min_max: Vec<ScatterPoint>,
+    pub regression_min_max: Option<RegressionResult>,
 }
 
 /// パース済みレコードを集計
@@ -219,6 +247,42 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .collect();
     by_emp_type_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
 
+    // 散布図データ（下限 vs 上限）
+    let scatter_min_max: Vec<ScatterPoint> = records.iter()
+        .filter_map(|r| {
+            let min = r.salary_parsed.min_value?;
+            let max = r.salary_parsed.max_value?;
+            if min > 0 && max > 0 && max >= min { Some(ScatterPoint { x: min, y: max }) } else { None }
+        })
+        .collect();
+    let regression_min_max = linear_regression_points(&scatter_min_max);
+
+    // 市区町村別給与集計
+    let mut muni_salary_map: HashMap<(String, String), Vec<i64>> = HashMap::new();
+    for r in records {
+        if let (Some(pref), Some(muni)) = (&r.location_parsed.prefecture, &r.location_parsed.municipality) {
+            if let Some(sal) = r.salary_parsed.unified_monthly {
+                if sal > 0 {
+                    muni_salary_map.entry((pref.clone(), muni.clone())).or_default().push(sal);
+                }
+            }
+        }
+    }
+    let mut by_municipality_salary: Vec<MunicipalitySalaryAgg> = muni_salary_map.into_iter()
+        .map(|((pref, name), salaries)| {
+            let count = salaries.len();
+            let avg_salary = salaries.iter().sum::<i64>() / count as i64;
+            let median_salary = {
+                let mut sorted = salaries;
+                sorted.sort();
+                sorted[sorted.len() / 2]
+            };
+            MunicipalitySalaryAgg { name, prefecture: pref, count, avg_salary, median_salary }
+        })
+        .collect();
+    by_municipality_salary.sort_by(|a, b| b.count.cmp(&a.count));
+    by_municipality_salary.truncate(15);
+
     SurveyAggregation {
         total_count: total,
         new_count,
@@ -237,5 +301,36 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         salary_min_values,
         salary_max_values,
         by_tag_salary,
+        by_municipality_salary,
+        scatter_min_max,
+        regression_min_max,
     }
+}
+
+/// 線形回帰（最小二乗法）
+fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult> {
+    let n = points.len();
+    if n < 3 { return None; }
+    let n_f = n as f64;
+    let sum_x: f64 = points.iter().map(|p| p.x as f64).sum();
+    let sum_y: f64 = points.iter().map(|p| p.y as f64).sum();
+    let sum_xy: f64 = points.iter().map(|p| p.x as f64 * p.y as f64).sum();
+    let sum_x2: f64 = points.iter().map(|p| (p.x as f64).powi(2)).sum();
+
+    let denom = n_f * sum_x2 - sum_x.powi(2);
+    if denom.abs() < 1e-10 { return None; }
+
+    let slope = (n_f * sum_xy - sum_x * sum_y) / denom;
+    let intercept = (sum_y - slope * sum_x) / n_f;
+
+    // R²計算
+    let mean_y = sum_y / n_f;
+    let ss_tot: f64 = points.iter().map(|p| (p.y as f64 - mean_y).powi(2)).sum();
+    let ss_res: f64 = points.iter().map(|p| {
+        let pred = slope * p.x as f64 + intercept;
+        (p.y as f64 - pred).powi(2)
+    }).sum();
+    let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+
+    Some(RegressionResult { slope, intercept, r_squared })
 }
