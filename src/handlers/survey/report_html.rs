@@ -1,9 +1,11 @@
 //! PDF印刷用HTMLレポート生成（GAS createPdfReportHtml() 移植）
 //! CSVアップロード分析結果をA4縦向き印刷用HTMLとして出力する
+//! EChartsによるインタラクティブチャート + ソート可能テーブル
 
-use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary, ScatterPoint, RegressionResult};
+use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary};
 use super::job_seeker::JobSeekerAnalysis;
 use super::super::helpers::{escape_html, format_number};
+use serde_json::json;
 
 // ============================================================
 // メイン関数
@@ -36,7 +38,10 @@ pub(crate) fn render_survey_report_page(
     html.push_str("<title>競合調査レポート</title>\n");
     html.push_str("<style>\n");
     html.push_str(&render_css());
-    html.push_str("</style>\n</head>\n<body>\n");
+    html.push_str("</style>\n");
+    // ECharts CDN
+    html.push_str("<script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>\n");
+    html.push_str("</head>\n<body>\n");
 
     // --- 印刷ボタン ---
     html.push_str("<div class=\"no-print\" style=\"text-align:right;padding:8px 16px;\">\n");
@@ -87,8 +92,62 @@ pub(crate) fn render_survey_report_page(
     html.push_str("※本レポートはアップロードされたCSVデータに基づく分析です。ハローワーク掲載求人のみが対象であり、全求人市場を反映するものではありません。\n");
     html.push_str("</div>\n");
 
+    // --- ECharts初期化スクリプト + ソート可能テーブル ---
+    html.push_str(&render_scripts());
+
     html.push_str("</body>\n</html>");
     html
+}
+
+// ============================================================
+// JavaScript（ECharts初期化 + ソート可能テーブル）
+// ============================================================
+
+fn render_scripts() -> String {
+    r#"<script>
+(function() {
+  var charts = [];
+  document.querySelectorAll('.echart[data-chart-config]').forEach(function(el) {
+    if (el.offsetHeight === 0) return;
+    try {
+      var config = JSON.parse(el.getAttribute('data-chart-config'));
+      config.animation = false;
+      config.backgroundColor = '#fff';
+      var chart = echarts.init(el, null, { renderer: 'svg' });
+      chart.setOption(config);
+      charts.push(chart);
+    } catch(e) { console.warn('ECharts init error:', e); }
+  });
+  window.addEventListener('beforeprint', function() { charts.forEach(function(c) { c.resize(); }); });
+  window.addEventListener('resize', function() { charts.forEach(function(c) { c.resize(); }); });
+})();
+
+function initSortableTables() {
+  document.querySelectorAll('.sortable-table').forEach(function(table) {
+    table.querySelectorAll('th').forEach(function(th, colIdx) {
+      th.addEventListener('click', function() {
+        var tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var isAsc = th.classList.contains('sort-asc');
+        table.querySelectorAll('th').forEach(function(h) { h.classList.remove('sort-asc','sort-desc'); });
+        th.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+        rows.sort(function(a,b) {
+          var at = a.children[colIdx] ? a.children[colIdx].textContent.trim() : '';
+          var bt = b.children[colIdx] ? b.children[colIdx].textContent.trim() : '';
+          var an = parseFloat(at.replace(/[,件%万円倍+]/g,''));
+          var bn = parseFloat(bt.replace(/[,件%万円倍+]/g,''));
+          if (!isNaN(an) && !isNaN(bn)) return isAsc ? bn-an : an-bn;
+          return isAsc ? bt.localeCompare(at,'ja') : at.localeCompare(bt,'ja');
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+      });
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded', initSortableTables);
+</script>
+"#.to_string()
 }
 
 // ============================================================
@@ -97,6 +156,19 @@ pub(crate) fn render_survey_report_page(
 
 fn render_css() -> String {
     r#"
+:root {
+  --c-primary: #1565C0;
+  --c-primary-light: #42A5F5;
+  --c-success: #009E73;
+  --c-danger: #D55E00;
+  --c-text: #1a1a2e;
+  --c-text-muted: #888;
+  --c-border: #e0e0e0;
+  --c-bg-card: #f5f9ff;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
+  --radius: 8px;
+}
+
 @page {
   size: A4 portrait;
   margin: 8mm 10mm;
@@ -108,14 +180,14 @@ body {
   font-family: "Hiragino Kaku Gothic ProN", "Meiryo", "Noto Sans JP", sans-serif;
   font-size: 12px;
   line-height: 1.5;
-  color: #333;
+  color: var(--c-text);
   margin: 0;
   padding: 8px 16px;
   background: #fff;
 }
 
 h1 { font-size: 20px; }
-h2 { font-size: 15px; margin: 12px 0 6px; border-bottom: 2px solid #2196F3; padding-bottom: 4px; color: #1565C0; }
+h2 { font-size: 15px; margin: 12px 0 6px; border-bottom: 2px solid #2196F3; padding-bottom: 4px; color: var(--c-primary); }
 h3 { font-size: 13px; margin: 8px 0 4px; color: #333; }
 
 .section {
@@ -134,16 +206,30 @@ h3 { font-size: 13px; margin: 8px 0 4px; color: #333; }
   gap: 8px;
   margin-bottom: 12px;
 }
-.summary-card {
-  background: #f5f9ff;
+.summary-card, .kpi-card {
+  background: var(--c-bg-card);
   border: 1px solid #bbdefb;
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 10px 14px;
   text-align: center;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
-.summary-card .label { font-size: 11px; color: #666; margin-bottom: 2px; }
-.summary-card .value { font-size: 22px; font-weight: bold; color: #1565C0; }
-.summary-card .unit { font-size: 11px; color: #888; }
+.summary-card::before, .kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--c-primary), var(--c-primary-light));
+}
+.summary-card:hover, .kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.summary-card .label, .kpi-card .label { font-size: 11px; color: #666; margin-bottom: 2px; }
+.summary-card .value, .kpi-card .value { font-size: 22px; font-weight: bold; color: var(--c-primary); }
+.summary-card .unit, .kpi-card .unit { font-size: 11px; color: var(--c-text-muted); }
 
 /* 統計ボックス 3列 */
 .stats-grid {
@@ -154,12 +240,12 @@ h3 { font-size: 13px; margin: 8px 0 4px; color: #333; }
 }
 .stat-box {
   background: #fafafa;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--c-border);
   border-radius: 4px;
   padding: 8px 12px;
   text-align: center;
 }
-.stat-box .label { font-size: 10px; color: #888; }
+.stat-box .label { font-size: 10px; color: var(--c-text-muted); }
 .stat-box .value { font-size: 18px; font-weight: bold; color: #333; }
 
 /* 色分け */
@@ -208,7 +294,7 @@ table {
 }
 th {
   background: #e3f2fd;
-  color: #1565C0;
+  color: var(--c-primary);
   font-weight: 600;
   padding: 5px 8px;
   text-align: left;
@@ -222,6 +308,12 @@ td {
 }
 tr:nth-child(even) td { background: #fafafa; }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ソート可能テーブル */
+.sortable-table th { cursor: pointer; user-select: none; position: relative; padding-right: 18px; }
+.sortable-table th::after { content: '\u2195'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #999; opacity: 0.5; }
+.sortable-table th.sort-asc::after { content: '\u25B2'; opacity: 1; color: var(--c-primary); }
+.sortable-table th.sort-desc::after { content: '\u25BC'; opacity: 1; color: var(--c-primary); }
 
 /* 読み方ガイド */
 .guide-grid {
@@ -237,10 +329,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 6px 8px;
   font-size: 10px;
 }
-.guide-item .guide-title { font-weight: bold; color: #1565C0; font-size: 10px; margin-bottom: 2px; }
+.guide-item .guide-title { font-weight: bold; color: var(--c-primary); font-size: 10px; margin-bottom: 2px; }
 
-/* SVGチャート */
-svg { max-width: 100%; height: auto; }
+/* EChartsコンテナ */
+.echart { max-width: 100%; }
 
 /* 印刷時非表示 */
 .no-print { }
@@ -248,7 +340,12 @@ svg { max-width: 100%; height: auto; }
   .no-print { display: none !important; }
   body { padding: 0; }
   .section { page-break-inside: avoid; }
-  svg { max-width: 100% !important; }
+  .summary-card, .kpi-card { box-shadow: none !important; transform: none !important; }
+  .echart { break-inside: avoid; }
+  .sortable-table th::after { display: none; }
+  thead { display: table-header-group; }
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 "#.to_string()
 }
@@ -333,6 +430,71 @@ fn render_guide_item(html: &mut String, title: &str, description: &str) {
 }
 
 // ============================================================
+// ECharts config生成ヘルパー
+// ============================================================
+
+/// ヒストグラム用ECharts設定JSONを生成（平均・中央値のmarkLine付き）
+fn build_histogram_echart_config(
+    labels: &[String],
+    values: &[usize],
+    color: &str,
+    mean: Option<i64>,
+    median: Option<i64>,
+) -> String {
+    let mut mark_lines = vec![];
+    if let Some(m) = mean {
+        mark_lines.push(json!({
+            "xAxis": format!("{}万", m / 10_000),
+            "name": "平均",
+            "lineStyle": {"color": "#e74c3c", "type": "dashed", "width": 2},
+            "label": {"formatter": "平均", "fontSize": 10}
+        }));
+    }
+    if let Some(m) = median {
+        mark_lines.push(json!({
+            "xAxis": format!("{}万", m / 10_000),
+            "name": "中央値",
+            "lineStyle": {"color": "#27ae60", "type": "dashed", "width": 2},
+            "label": {"formatter": "中央値", "fontSize": 10}
+        }));
+    }
+
+    let config = json!({
+        "tooltip": {"trigger": "axis"},
+        "xAxis": {
+            "type": "category",
+            "data": labels,
+            "axisLabel": {"rotate": 30, "fontSize": 9}
+        },
+        "yAxis": {
+            "type": "value",
+            "axisLabel": {"fontSize": 9}
+        },
+        "grid": {"left": "10%", "right": "5%", "bottom": "20%", "top": "10%"},
+        "series": [{
+            "type": "bar",
+            "data": values,
+            "itemStyle": {"color": color},
+            "markLine": {
+                "data": mark_lines,
+                "symbol": "none"
+            }
+        }]
+    });
+    config.to_string()
+}
+
+/// ECharts divタグを生成（data-chart-config属性付き）
+fn render_echart_div(config_json: &str, height: u32) -> String {
+    // シングルクォートをHTMLエンティティにエスケープ
+    let escaped = config_json.replace('\'', "&#39;");
+    format!(
+        "<div class=\"echart\" style=\"height:{}px;width:100%;\" data-chart-config='{}'></div>\n",
+        height, escaped
+    )
+}
+
+// ============================================================
 // セクション3: 給与分布 統計情報
 // ============================================================
 
@@ -365,26 +527,20 @@ fn render_section_salary_stats(
         ));
     }
 
-    // 下限給与ヒストグラム（統計ライン付き）
+    // 下限給与ヒストグラム（ECharts棒グラフ + markLine）
     if !salary_min_values.is_empty() {
         html.push_str("<h3>下限給与の分布</h3>\n");
-        let (labels, values, boundaries) = build_salary_histogram(salary_min_values, 20_000);
-        let svg = render_bar_chart_svg_with_stats(
-            &labels, &values, "#42A5F5", 600, 200,
-            &boundaries, Some(stats.mean), Some(stats.median),
-        );
-        html.push_str(&svg);
+        let (labels, values) = build_salary_histogram(salary_min_values, 20_000);
+        let config = build_histogram_echart_config(&labels, &values, "#42A5F5", Some(stats.mean), Some(stats.median));
+        html.push_str(&render_echart_div(&config, 220));
     }
 
-    // 上限給与ヒストグラム（統計ライン付き）
+    // 上限給与ヒストグラム（ECharts棒グラフ + markLine）
     if !salary_max_values.is_empty() {
         html.push_str("<h3>上限給与の分布</h3>\n");
-        let (labels, values, boundaries) = build_salary_histogram(salary_max_values, 20_000);
-        let svg = render_bar_chart_svg_with_stats(
-            &labels, &values, "#66BB6A", 600, 200,
-            &boundaries, Some(stats.mean), Some(stats.median),
-        );
-        html.push_str(&svg);
+        let (labels, values) = build_salary_histogram(salary_max_values, 20_000);
+        let config = build_histogram_echart_config(&labels, &values, "#66BB6A", Some(stats.mean), Some(stats.median));
+        html.push_str(&render_echart_div(&config, 220));
     }
 
     html.push_str("</div>\n");
@@ -413,20 +569,40 @@ fn render_section_employment(
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>雇用形態分布</h2>\n");
 
-    // 水平棒グラフ TOP6
-    let colors = ["#1565C0", "#2196F3", "#42A5F5", "#64B5F6", "#90CAF9", "#BBDEFB"];
-    let top6: Vec<(String, usize, String)> = agg.by_employment_type.iter()
+    // EChartsドーナツチャート TOP6
+    let colors = ["#1565C0","#E69F00","#009E73","#D55E00","#CC79A7","#56B4E9"];
+    let pie_data: Vec<serde_json::Value> = agg.by_employment_type.iter()
         .take(6)
         .enumerate()
-        .map(|(i, (label, count))| (label.clone(), *count, colors[i % colors.len()].to_string()))
+        .map(|(i, (name, count))| json!({
+            "value": count,
+            "name": name,
+            "itemStyle": {"color": colors[i % colors.len()]}
+        }))
         .collect();
-    let svg = render_horizontal_bar_svg(&top6, 600, 180);
-    html.push_str(&svg);
 
-    // 雇用形態別給与テーブル
+    let config = json!({
+        "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
+        "legend": {
+            "orient": "vertical",
+            "right": "5%",
+            "top": "center",
+            "textStyle": {"fontSize": 10}
+        },
+        "series": [{
+            "type": "pie",
+            "radius": ["35%", "65%"],
+            "center": ["35%", "50%"],
+            "data": pie_data,
+            "label": {"formatter": "{b}\n{d}%", "fontSize": 10}
+        }]
+    });
+    html.push_str(&render_echart_div(&config.to_string(), 250));
+
+    // 雇用形態別給与テーブル（ソート可能）
     if !by_emp_type_salary.is_empty() {
         html.push_str("<h3>雇用形態別 給与水準</h3>\n");
-        html.push_str("<table>\n<tr><th>雇用形態</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">中央値</th></tr>\n");
+        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>雇用形態</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n");
         for e in by_emp_type_salary {
             html.push_str(&format!(
                 "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
@@ -436,7 +612,7 @@ fn render_section_employment(
                 format_man_yen(e.median_salary),
             ));
         }
-        html.push_str("</table>\n");
+        html.push_str("</tbody></table>\n");
     }
 
     html.push_str("</div>\n");
@@ -454,7 +630,7 @@ fn render_section_region(html: &mut String, agg: &SurveyAggregation) {
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>地域分析</h2>\n");
 
-    html.push_str("<table>\n<tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">割合</th></tr>\n");
+    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">割合</th></tr></thead>\n<tbody>\n");
     let total = agg.total_count.max(1);
     for (i, (pref, count)) in agg.by_prefecture.iter().take(10).enumerate() {
         let pct = *count as f64 / total as f64 * 100.0;
@@ -466,7 +642,7 @@ fn render_section_region(html: &mut String, agg: &SurveyAggregation) {
             pct,
         ));
     }
-    html.push_str("</table>\n");
+    html.push_str("</tbody></table>\n");
 
     // 残りの都道府県数を注記
     if agg.by_prefecture.len() > 10 {
@@ -497,12 +673,12 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
         format_number(by_company.len() as i64)
     ));
 
-    // 求人数ランキング TOP15
+    // 求人数ランキング TOP15（ソート可能テーブル）
     let mut by_count = by_company.to_vec();
     by_count.sort_by(|a, b| b.count.cmp(&a.count));
 
     html.push_str("<h3>求人数ランキング TOP15</h3>\n");
-    html.push_str("<table>\n<tr><th>#</th><th>企業名</th><th style=\"text-align:right\">求人数</th><th style=\"text-align:right\">平均月給</th></tr>\n");
+    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">求人数</th><th style=\"text-align:right\">平均月給</th></tr></thead>\n<tbody>\n");
     for (i, c) in by_count.iter().take(15).enumerate() {
         html.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
@@ -512,7 +688,7 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
             format_man_yen(c.avg_salary),
         ));
     }
-    html.push_str("</table>\n");
+    html.push_str("</tbody></table>\n");
 
     // 給与ランキング TOP15（件数2件以上のみ）
     let mut by_salary: Vec<&CompanyAgg> = by_company.iter()
@@ -522,7 +698,7 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 
     if !by_salary.is_empty() {
         html.push_str("<h3>給与ランキング TOP15（2件以上の企業）</h3>\n");
-        html.push_str("<table>\n<tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">求人数</th></tr>\n");
+        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">求人数</th></tr></thead>\n<tbody>\n");
         for (i, c) in by_salary.iter().take(15).enumerate() {
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
@@ -532,7 +708,7 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
                 format_number(c.count as i64),
             ));
         }
-        html.push_str("</table>\n");
+        html.push_str("</tbody></table>\n");
     }
 
     html.push_str("</div>\n");
@@ -568,7 +744,7 @@ fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
 const _MIN_WAGE_NATIONAL_AVG: i64 = 1121;
 
 // ============================================================
-// セクション3-3: 相関分析（散布図）
+// セクション3-3: 相関分析（散布図） → ECharts scatter
 // ============================================================
 
 fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
@@ -581,117 +757,76 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
         R²（決定係数）は0〜1で、1に近いほど相関が強い。\
     </p>\n");
 
-    // 下限 vs 上限 散布図
+    // ECharts scatter データ生成（最大200点）
     html.push_str("<h3>月給下限 vs 上限</h3>\n");
-    let svg = render_scatter_plot_svg(
-        &agg.scatter_min_max, agg.regression_min_max.as_ref(),
-        "月給下限（万円）", "月給上限（万円）", 600, 250,
-    );
-    html.push_str(&svg);
+
+    let scatter_data: Vec<serde_json::Value> = agg.scatter_min_max.iter()
+        .take(200)
+        .map(|p| json!([p.x as f64 / 10_000.0, p.y as f64 / 10_000.0]))
+        .collect();
+
+    // 回帰線のmarkLine（2点指定）
+    let mut series_list = vec![json!({
+        "type": "scatter",
+        "data": scatter_data,
+        "symbolSize": 6,
+        "itemStyle": {"color": "rgba(59,130,246,0.5)"}
+    })];
+
+    if let Some(reg) = &agg.regression_min_max {
+        // 回帰線の2端点を計算
+        let xs: Vec<f64> = agg.scatter_min_max.iter().map(|p| p.x as f64).collect();
+        let x_min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let x_max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let y1 = (reg.slope * x_min + reg.intercept) / 10_000.0;
+        let y2 = (reg.slope * x_max + reg.intercept) / 10_000.0;
+        let x1_man = x_min / 10_000.0;
+        let x2_man = x_max / 10_000.0;
+
+        series_list.push(json!({
+            "type": "line",
+            "data": [[x1_man, y1], [x2_man, y2]],
+            "symbol": "none",
+            "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
+            "tooltip": {"show": false}
+        }));
+    }
+
+    let config = json!({
+        "tooltip": {
+            "trigger": "item",
+            "formatter": "下限: {c0}万円"
+        },
+        "xAxis": {
+            "name": "下限（万円）",
+            "nameLocation": "center",
+            "nameGap": 25,
+            "type": "value",
+            "axisLabel": {"fontSize": 9}
+        },
+        "yAxis": {
+            "name": "上限（万円）",
+            "nameLocation": "center",
+            "nameGap": 35,
+            "type": "value",
+            "axisLabel": {"fontSize": 9}
+        },
+        "grid": {"left": "12%", "right": "5%", "bottom": "15%", "top": "5%"},
+        "series": series_list
+    });
+    html.push_str(&render_echart_div(&config.to_string(), 280));
 
     if let Some(reg) = &agg.regression_min_max {
         let strength = if reg.r_squared > 0.7 { "強い相関" }
             else if reg.r_squared > 0.4 { "中程度の相関" }
             else { "弱い相関" };
         html.push_str(&format!(
-            "<p style=\"font-size:9px;color:#666;\">データ点: {}件 / R² = {:.3}（{}）</p>\n",
+            "<p style=\"font-size:9px;color:#666;\">データ点: {}件 / R\u{00B2} = {:.3}（{}）</p>\n",
             agg.scatter_min_max.len(), reg.r_squared, strength
         ));
     }
 
     html.push_str("</div>\n");
-}
-
-/// SVG散布図生成（回帰線+R²付き）
-fn render_scatter_plot_svg(
-    points: &[ScatterPoint], regression: Option<&RegressionResult>,
-    x_label: &str, y_label: &str, width: u32, height: u32,
-) -> String {
-    if points.is_empty() { return String::new(); }
-
-    let pad_l = 55u32;
-    let pad_r = 20u32;
-    let pad_t = 15u32;
-    let pad_b = 35u32;
-    let plot_w = width - pad_l - pad_r;
-    let plot_h = height - pad_t - pad_b;
-
-    // 万円換算
-    let xs: Vec<f64> = points.iter().map(|p| p.x as f64 / 10_000.0).collect();
-    let ys: Vec<f64> = points.iter().map(|p| p.y as f64 / 10_000.0).collect();
-    let x_min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
-    let x_max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let y_min = ys.iter().cloned().fold(f64::INFINITY, f64::min);
-    let y_max = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let x_range = if (x_max - x_min).abs() < 0.01 { 1.0 } else { x_max - x_min };
-    let y_range = if (y_max - y_min).abs() < 0.01 { 1.0 } else { y_max - y_min };
-
-    let to_sx = |v: f64| -> f64 { pad_l as f64 + ((v - x_min) / x_range) * plot_w as f64 };
-    let to_sy = |v: f64| -> f64 { pad_t as f64 + plot_h as f64 - ((v - y_min) / y_range) * plot_h as f64 };
-
-    let mut svg = format!(
-        "<svg width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" \
-         style=\"background:#fafafa;border-radius:8px;max-width:100%;\">"
-    );
-
-    // 軸線
-    svg.push_str(&format!(
-        "<line x1=\"{pl}\" y1=\"{b}\" x2=\"{r}\" y2=\"{b}\" stroke=\"#ccc\" stroke-width=\"1\"/>\
-         <line x1=\"{pl}\" y1=\"{t}\" x2=\"{pl}\" y2=\"{b}\" stroke=\"#ccc\" stroke-width=\"1\"/>",
-        pl = pad_l, b = height - pad_b, r = width - pad_r, t = pad_t
-    ));
-
-    // 目盛り（5刻み）
-    for i in 0..=4 {
-        let xv = x_min + x_range * i as f64 / 4.0;
-        let yv = y_min + y_range * i as f64 / 4.0;
-        svg.push_str(&format!(
-            "<text x=\"{:.0}\" y=\"{}\" text-anchor=\"middle\" font-size=\"8\" fill=\"#999\">{:.1}</text>",
-            to_sx(xv), height - pad_b + 12, xv
-        ));
-        svg.push_str(&format!(
-            "<text x=\"{}\" y=\"{:.0}\" text-anchor=\"end\" font-size=\"8\" fill=\"#999\">{:.1}</text>",
-            pad_l - 5, to_sy(yv) + 3.0, yv
-        ));
-    }
-
-    // 軸ラベル
-    svg.push_str(&format!(
-        "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-size=\"9\" fill=\"#666\">{}</text>",
-        width / 2, height - 3, x_label
-    ));
-    svg.push_str(&format!(
-        "<text x=\"12\" y=\"{}\" text-anchor=\"middle\" font-size=\"9\" fill=\"#666\" \
-         transform=\"rotate(-90,12,{})\">{}</text>",
-        height / 2, height / 2, y_label
-    ));
-
-    // データ点（最大100点サンプリング）
-    let sample_rate = if points.len() > 100 { points.len() / 100 } else { 1 };
-    for (i, p) in points.iter().enumerate() {
-        if i % sample_rate != 0 { continue; }
-        let sx = to_sx(p.x as f64 / 10_000.0);
-        let sy = to_sy(p.y as f64 / 10_000.0);
-        svg.push_str(&format!(
-            "<circle cx=\"{sx:.1}\" cy=\"{sy:.1}\" r=\"3\" fill=\"rgba(59,130,246,0.5)\" stroke=\"#3b82f6\" stroke-width=\"0.5\"/>"
-        ));
-    }
-
-    // 回帰線
-    if let Some(reg) = regression {
-        let y1 = reg.slope * (x_min * 10_000.0) + reg.intercept;
-        let y2 = reg.slope * (x_max * 10_000.0) + reg.intercept;
-        let y1d = y1 / 10_000.0;
-        let y2d = y2 / 10_000.0;
-        svg.push_str(&format!(
-            "<line x1=\"{:.0}\" y1=\"{:.0}\" x2=\"{:.0}\" y2=\"{:.0}\" \
-             stroke=\"#ef4444\" stroke-width=\"2\" stroke-dasharray=\"4,2\"/>",
-            to_sx(x_min), to_sy(y1d), to_sx(x_max), to_sy(y2d)
-        ));
-    }
-
-    svg.push_str("</svg>\n");
-    svg
 }
 
 // ============================================================
@@ -745,11 +880,11 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
     render_stat_box(html, "分析対象", &format!("{}都道府県", entries.len()));
     html.push_str("</div>\n");
 
-    // 最低賃金との差が小さい都道府県TOP10
+    // 最低賃金との差が小さい都道府県TOP10（ソート可能テーブル）
     html.push_str("<h3>時給換算で最低賃金に近い都道府県 TOP10</h3>\n");
-    html.push_str("<table>\n<tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
+    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
         <th style=\"text-align:right\">160h換算</th><th style=\"text-align:right\">最低賃金</th>\
-        <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr>\n");
+        <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
     for (i, e) in entries.iter().take(10).enumerate() {
         let diff_color = if e.diff_160 < 0 { "negative" } else if e.diff_160 < 50 { "color:#fb8c00;font-weight:bold" } else { "" };
         let diff_style = if diff_color.starts_with("color:") {
@@ -767,7 +902,7 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
             diff_style, e.diff_160, e.ratio_160,
         ));
     }
-    html.push_str("</table>\n");
+    html.push_str("</tbody></table>\n");
 
     // 活用ポイント
     html.push_str("<div class=\"note\">\
@@ -792,9 +927,9 @@ fn render_section_municipality_salary(html: &mut String, agg: &SurveyAggregation
         同じ都道府県内でも市区町村により給与差があります。\
     </p>\n");
 
-    html.push_str("<table>\n<tr><th>#</th><th>市区町村</th><th>都道府県</th>\
+    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>市区町村</th><th>都道府県</th>\
         <th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th>\
-        <th style=\"text-align:right\">中央値</th></tr>\n");
+        <th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n");
     for (i, m) in agg.by_municipality_salary.iter().take(15).enumerate() {
         html.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td style=\"font-size:10px;color:#666\">{}</td>\
@@ -807,7 +942,7 @@ fn render_section_municipality_salary(html: &mut String, agg: &SurveyAggregation
             format_man_yen(m.median_salary),
         ));
     }
-    html.push_str("</table>\n");
+    html.push_str("</tbody></table>\n");
     html.push_str("</div>\n");
 }
 
@@ -834,10 +969,29 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
         format_man_yen(overall_mean)
     ));
 
+    // タグ件数のツリーマップ（テーブルの上に配置）
     if !agg.by_tag_salary.is_empty() {
-        // タグ別給与差分テーブル（完全版）
-        html.push_str("<table>\n<tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
-            <th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">全体比</th></tr>\n");
+        let tree_data: Vec<serde_json::Value> = agg.by_tag_salary.iter()
+            .map(|t| json!({"name": &t.tag, "value": t.count}))
+            .collect();
+        let config = json!({
+            "tooltip": {"formatter": "{b}: {c}件"},
+            "series": [{
+                "type": "treemap",
+                "data": tree_data,
+                "roam": false,
+                "label": {"show": true, "formatter": "{b}\n{c}件", "fontSize": 10},
+                "breadcrumb": {"show": false},
+                "levels": [{"colorSaturation": [0.3, 0.7]}]
+            }]
+        });
+        html.push_str(&render_echart_div(&config.to_string(), 250));
+    }
+
+    if !agg.by_tag_salary.is_empty() {
+        // タグ別給与差分テーブル（ソート可能・完全版）
+        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
+            <th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">全体比</th></tr></thead>\n<tbody>\n");
         for (i, ts) in agg.by_tag_salary.iter().enumerate() {
             let diff_class = if ts.diff_from_avg > 0 { "positive" } else if ts.diff_from_avg < 0 { "negative" } else { "" };
             let diff_sign = if ts.diff_from_avg > 0 { "+" } else { "" };
@@ -854,17 +1008,17 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
                 pct = ts.diff_percent,
             ));
         }
-        html.push_str("</table>\n");
+        html.push_str("</tbody></table>\n");
     } else {
-        // フォールバック: 件数のみテーブル
-        html.push_str("<table>\n<tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th></tr>\n");
+        // フォールバック: 件数のみテーブル（ソート可能）
+        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th></tr></thead>\n<tbody>\n");
         for (i, (tag, count)) in agg.by_tags.iter().take(20).enumerate() {
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td></tr>\n",
                 i + 1, escape_html(tag), format_number(*count as i64),
             ));
         }
-        html.push_str("</table>\n");
+        html.push_str("</tbody></table>\n");
     }
 
     html.push_str("</div>\n");
@@ -981,177 +1135,6 @@ fn render_range_type_box(html: &mut String, label: &str, count: usize, bg_color:
 }
 
 // ============================================================
-// SVGチャート生成
-// ============================================================
-
-/// SVG縦棒グラフ生成
-fn render_bar_chart_svg(
-    labels: &[String],
-    values: &[usize],
-    color: &str,
-    width: u32,
-    height: u32,
-) -> String {
-    if labels.is_empty() || values.is_empty() {
-        return String::new();
-    }
-
-    let margin_left: u32 = 40;
-    let margin_right: u32 = 10;
-    let margin_top: u32 = 20;
-    let margin_bottom: u32 = 60;
-    let available_width = width.saturating_sub(margin_left + margin_right);
-    let available_height = height.saturating_sub(margin_top + margin_bottom);
-    let n = labels.len() as u32;
-    let bar_width = ((available_width / n) as i32 - 2).max(8) as u32;
-    let bar_gap = if n > 1 { (available_width - bar_width * n) / n } else { 0 };
-    let max_val = *values.iter().max().unwrap_or(&1) as f64;
-
-    let mut svg = format!(
-        "<svg viewBox=\"0 0 {} {}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background:#fafafa;border-radius:4px;\">\n",
-        width, height
-    );
-
-    // 背景グリッド線（5本）
-    for i in 0..=4 {
-        let y = margin_top + available_height - (available_height * i / 4);
-        let val = (max_val * i as f64 / 4.0) as i64;
-        svg.push_str(&format!(
-            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#e0e0e0\" stroke-width=\"0.5\"/>\n",
-            margin_left, y, width - margin_right, y
-        ));
-        svg.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"9\" fill=\"#999\" text-anchor=\"end\">{}</text>\n",
-            margin_left - 4, y + 3, val
-        ));
-    }
-
-    // バー描画
-    let show_label_every = if bar_width < 15 {
-        (15.0 / bar_width as f64).ceil() as usize
-    } else {
-        1
-    };
-
-    for (i, (label, &val)) in labels.iter().zip(values.iter()).enumerate() {
-        let x = margin_left + (i as u32) * (bar_width + bar_gap) + bar_gap / 2;
-        let bar_h = if max_val > 0.0 {
-            (val as f64 / max_val * available_height as f64) as u32
-        } else {
-            0
-        };
-        let y = margin_top + available_height - bar_h;
-
-        svg.push_str(&format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"{}\" rx=\"2\"/>\n",
-            x, y, bar_width, bar_h, color
-        ));
-
-        // 値ラベル（バー幅12px以上）
-        if bar_width >= 12 && val > 0 {
-            svg.push_str(&format!(
-                "<text x=\"{}\" y=\"{}\" font-size=\"8\" fill=\"#333\" text-anchor=\"middle\">{}</text>\n",
-                x + bar_width / 2, y.saturating_sub(3), val
-            ));
-        }
-
-        // X軸ラベル（間引き対応）
-        if i % show_label_every == 0 {
-            if bar_width < 15 {
-                // 回転ラベル
-                svg.push_str(&format!(
-                    "<text x=\"{}\" y=\"{}\" font-size=\"8\" fill=\"#666\" text-anchor=\"end\" transform=\"rotate(-45,{},{})\">{}</text>\n",
-                    x + bar_width / 2, margin_top + available_height + 12,
-                    x + bar_width / 2, margin_top + available_height + 12,
-                    escape_html(label)
-                ));
-            } else {
-                svg.push_str(&format!(
-                    "<text x=\"{}\" y=\"{}\" font-size=\"9\" fill=\"#666\" text-anchor=\"middle\">{}</text>\n",
-                    x + bar_width / 2, margin_top + available_height + 14,
-                    escape_html(label)
-                ));
-            }
-        }
-    }
-
-    svg.push_str("</svg>\n");
-    svg
-}
-
-/// SVG水平棒グラフ生成
-fn render_horizontal_bar_svg(
-    items: &[(String, usize, String)],  // (ラベル, 値, 色)
-    width: u32,
-    height: u32,
-) -> String {
-    if items.is_empty() {
-        return String::new();
-    }
-
-    let margin_left: u32 = 120;
-    let margin_right: u32 = 60;
-    let margin_top: u32 = 10;
-    let margin_bottom: u32 = 10;
-    let n = items.len() as u32;
-    let available_width = width.saturating_sub(margin_left + margin_right);
-    let available_height = height.saturating_sub(margin_top + margin_bottom);
-    let bar_height = (available_height / n).min(28);
-    let bar_gap = if n > 1 { (available_height - bar_height * n) / n } else { 4 };
-    let max_val = items.iter().map(|(_, v, _)| *v).max().unwrap_or(1) as f64;
-
-    let mut svg = format!(
-        "<svg viewBox=\"0 0 {} {}\" xmlns=\"http://www.w3.org/2000/svg\" style=\"background:#fafafa;border-radius:4px;\">\n",
-        width, height
-    );
-
-    // グラデーション定義
-    svg.push_str("<defs>\n");
-    for (i, (_, _, color)) in items.iter().enumerate() {
-        svg.push_str(&format!(
-            "<linearGradient id=\"hgrad{}\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\">\
-             <stop offset=\"0%\" style=\"stop-color:{};stop-opacity:0.9\"/>\
-             <stop offset=\"100%\" style=\"stop-color:{};stop-opacity:0.6\"/>\
-             </linearGradient>\n",
-            i, color, color
-        ));
-    }
-    svg.push_str("</defs>\n");
-
-    for (i, (label, val, _)) in items.iter().enumerate() {
-        let y = margin_top + (i as u32) * (bar_height + bar_gap) + bar_gap / 2;
-        let bar_w = if max_val > 0.0 {
-            (*val as f64 / max_val * available_width as f64) as u32
-        } else {
-            0
-        };
-
-        // ラベル（左側）
-        svg.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#333\" text-anchor=\"end\" dominant-baseline=\"middle\">{}</text>\n",
-            margin_left - 6, y + bar_height / 2,
-            escape_html(label)
-        ));
-
-        // バー
-        svg.push_str(&format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"url(#hgrad{})\" rx=\"3\"/>\n",
-            margin_left, y, bar_w, bar_height, i
-        ));
-
-        // 件数（バーの右）
-        svg.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#333\" dominant-baseline=\"middle\">{}件</text>\n",
-            margin_left + bar_w + 4, y + bar_height / 2,
-            format_number(*val as i64)
-        ));
-    }
-
-    svg.push_str("</svg>\n");
-    svg
-}
-
-// ============================================================
 // ヘルパー関数
 // ============================================================
 
@@ -1166,15 +1149,14 @@ fn format_man_yen(yen: i64) -> String {
 
 /// ヒストグラム用バケット集計
 /// 給与値配列をbin_size刻みでバケットに分類し、ラベルと件数を返す
-/// ヒストグラムデータ構築（bin境界値付き）
-fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>, Vec<i64>) {
+fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>) {
     if values.is_empty() || bin_size <= 0 {
-        return (vec![], vec![], vec![]);
+        return (vec![], vec![]);
     }
 
     let valid: Vec<i64> = values.iter().filter(|&&v| v > 0).copied().collect();
     if valid.is_empty() {
-        return (vec![], vec![], vec![]);
+        return (vec![], vec![]);
     }
 
     let min_val = *valid.iter().min().unwrap();
@@ -1185,7 +1167,6 @@ fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<us
 
     let mut labels = Vec::new();
     let mut counts = Vec::new();
-    let mut boundaries = Vec::new();
 
     let mut boundary = start;
     while boundary < end {
@@ -1195,88 +1176,10 @@ fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<us
             .count();
         labels.push(format!("{}万", boundary / 10_000));
         counts.push(count);
-        boundaries.push(boundary);
         boundary = upper;
     }
 
-    (labels, counts, boundaries)
-}
-
-/// 統計ライン付きSVG棒グラフ（平均=赤破線、中央値=緑破線）
-fn render_bar_chart_svg_with_stats(
-    labels: &[String], values: &[usize], color: &str,
-    width: u32, height: u32,
-    boundaries: &[i64], mean: Option<i64>, median: Option<i64>,
-) -> String {
-    if labels.is_empty() { return String::new(); }
-
-    // まず基本棒グラフを生成（</svg>を除く）
-    let base = render_bar_chart_svg(labels, values, color, width, height);
-    let trimmed = base.trim_end();
-    let close_tag = "</svg>";
-    let base_without_close = if trimmed.ends_with(close_tag) {
-        &trimmed[..trimmed.len() - close_tag.len()]
-    } else {
-        return base;
-    };
-
-    let mut svg = base_without_close.to_string();
-
-    // 統計ラインの描画ヘルパー
-    let left_margin = 40u32;
-    let right_margin = 10u32;
-    let available_width = width - left_margin - right_margin;
-    let bar_w = if labels.is_empty() { 20 } else {
-        std::cmp::max(8, available_width as usize / labels.len() - 2)
-    };
-    let top = 20u32;
-    let bottom = height - 60;
-
-    let stat_line = |value: i64, line_color: &str, label_text: &str| -> String {
-        if boundaries.is_empty() { return String::new(); }
-        // valueに最も近いbinを見つけて補間
-        let mut idx = boundaries.len() - 1;
-        for (i, &b) in boundaries.iter().enumerate() {
-            if b >= value { idx = i; break; }
-        }
-        let x = if idx == 0 || boundaries[idx] == value {
-            left_margin as f64 + idx as f64 * (bar_w + 2) as f64 + bar_w as f64 / 2.0
-        } else {
-            let ratio = (value - boundaries[idx - 1]) as f64
-                / (boundaries[idx] - boundaries[idx - 1]) as f64;
-            let x1 = left_margin as f64 + (idx - 1) as f64 * (bar_w + 2) as f64 + bar_w as f64 / 2.0;
-            let x2 = left_margin as f64 + idx as f64 * (bar_w + 2) as f64 + bar_w as f64 / 2.0;
-            x1 + ratio * (x2 - x1)
-        };
-        format!(
-            "<line x1=\"{x:.0}\" y1=\"{top}\" x2=\"{x:.0}\" y2=\"{bottom}\" \
-             stroke=\"{line_color}\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\
-             <text x=\"{x:.0}\" y=\"{lt}\" text-anchor=\"middle\" font-size=\"9\" \
-             fill=\"{line_color}\" font-weight=\"bold\">{label_text}</text>",
-            lt = top - 4,
-        )
-    };
-
-    if let Some(m) = mean {
-        svg.push_str(&stat_line(m, "#e74c3c", "平均"));
-    }
-    if let Some(m) = median {
-        svg.push_str(&stat_line(m, "#27ae60", "中央"));
-    }
-
-    // 凡例
-    let legend_x = width - 160;
-    svg.push_str(&format!(
-        "<g transform=\"translate({legend_x},5)\">\
-         <rect x=\"0\" y=\"0\" width=\"150\" height=\"18\" fill=\"white\" fill-opacity=\"0.85\" rx=\"3\"/>\
-         <line x1=\"5\" y1=\"9\" x2=\"18\" y2=\"9\" stroke=\"#e74c3c\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\
-         <text x=\"22\" y=\"12\" font-size=\"8\">平均</text>\
-         <line x1=\"55\" y1=\"9\" x2=\"68\" y2=\"9\" stroke=\"#27ae60\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\
-         <text x=\"72\" y=\"12\" font-size=\"8\">中央値</text></g>"
-    ));
-
-    svg.push_str("</svg>");
-    svg
+    (labels, counts)
 }
 
 // ============================================================
@@ -1298,68 +1201,51 @@ mod tests {
     #[test]
     fn test_build_salary_histogram() {
         let values = vec![200_000, 210_000, 250_000, 270_000, 300_000];
-        let (labels, counts, boundaries) = build_salary_histogram(&values, 20_000);
+        let (labels, counts) = build_salary_histogram(&values, 20_000);
         assert!(!labels.is_empty());
         assert_eq!(labels.len(), counts.len());
-        assert_eq!(labels.len(), boundaries.len());
         let total: usize = counts.iter().sum();
         assert_eq!(total, 5);
-        // bin境界が昇順であること
-        for w in boundaries.windows(2) {
-            assert!(w[0] < w[1]);
-        }
     }
 
     #[test]
     fn test_build_salary_histogram_empty() {
-        let (labels, counts, boundaries) = build_salary_histogram(&[], 20_000);
+        let (labels, counts) = build_salary_histogram(&[], 20_000);
         assert!(labels.is_empty());
         assert!(counts.is_empty());
-        assert!(boundaries.is_empty());
     }
 
     #[test]
     fn test_build_salary_histogram_zeros() {
         let values = vec![0, 0, 0];
-        let (labels, counts, boundaries) = build_salary_histogram(&values, 20_000);
+        let (labels, counts) = build_salary_histogram(&values, 20_000);
         assert!(labels.is_empty());
         assert!(counts.is_empty());
-        assert!(boundaries.is_empty());
     }
 
     #[test]
-    fn test_render_bar_chart_with_stats() {
+    fn test_histogram_echart_config() {
         let labels = vec!["20万".to_string(), "22万".to_string(), "24万".to_string()];
         let values = vec![5, 12, 8];
-        let boundaries = vec![200_000, 220_000, 240_000];
-        let svg = render_bar_chart_svg_with_stats(
-            &labels, &values, "#42A5F5", 600, 200,
-            &boundaries, Some(220_000), Some(215_000),
+        let config = build_histogram_echart_config(
+            &labels, &values, "#42A5F5", Some(220_000), Some(215_000),
         );
-        assert!(svg.contains("stroke-dasharray"));
-        assert!(svg.contains("平均"));
-        assert!(svg.contains("中央"));
+        assert!(config.contains("bar"));
+        assert!(config.contains("markLine"));
+        assert!(config.contains("平均"));
+        assert!(config.contains("中央値"));
+        // JSON として妥当か
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(&config);
+        assert!(parsed.is_ok());
     }
 
     #[test]
-    fn test_render_bar_chart_svg_not_empty() {
-        let labels = vec!["10万".to_string(), "20万".to_string(), "30万".to_string()];
-        let values = vec![5, 12, 8];
-        let svg = render_bar_chart_svg(&labels, &values, "#42A5F5", 400, 200);
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("</svg>"));
-        assert!(svg.contains("rect"));
-    }
-
-    #[test]
-    fn test_render_horizontal_bar_svg_not_empty() {
-        let items = vec![
-            ("正社員".to_string(), 100, "#1565C0".to_string()),
-            ("パート".to_string(), 60, "#2196F3".to_string()),
-        ];
-        let svg = render_horizontal_bar_svg(&items, 500, 100);
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("linearGradient"));
+    fn test_echart_div_output() {
+        let config = r#"{"type":"bar"}"#;
+        let div = render_echart_div(config, 200);
+        assert!(div.contains("data-chart-config"));
+        assert!(div.contains("echart"));
+        assert!(div.contains("200px"));
     }
 
     #[test]
@@ -1369,7 +1255,20 @@ mod tests {
         let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[]);
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("</html>"));
-        // 空データでもサマリーセクションは出力される
+        // ECharts CDN が含まれること
+        assert!(html.contains("echarts"));
+        // サマリーセクションは出力される
         assert!(html.contains("サマリー"));
+        // ソート可能テーブルのスクリプトが含まれること
+        assert!(html.contains("initSortableTables"));
+    }
+
+    #[test]
+    fn test_render_scripts_contains_echart_init() {
+        let scripts = render_scripts();
+        assert!(scripts.contains("data-chart-config"));
+        assert!(scripts.contains("echarts.init"));
+        assert!(scripts.contains("initSortableTables"));
+        assert!(scripts.contains("beforeprint"));
     }
 }
