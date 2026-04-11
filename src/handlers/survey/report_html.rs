@@ -1,7 +1,7 @@
 //! PDF印刷用HTMLレポート生成（GAS createPdfReportHtml() 移植）
 //! CSVアップロード分析結果をA4縦向き印刷用HTMLとして出力する
 
-use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary};
+use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary, ScatterPoint, RegressionResult};
 use super::job_seeker::JobSeekerAnalysis;
 use super::super::helpers::{escape_html, format_number};
 
@@ -59,8 +59,14 @@ pub(crate) fn render_survey_report_page(
     // --- セクション4: 雇用形態分布 ---
     render_section_employment(&mut html, agg, by_emp_type_salary);
 
+    // --- セクション3-3: 相関分析（散布図） ---
+    render_section_scatter(&mut html, agg);
+
     // --- セクション5: 地域分析 ---
     render_section_region(&mut html, agg);
+
+    // --- セクション5-2: 市区町村別給与 ---
+    render_section_municipality_salary(&mut html, agg);
 
     // --- セクション8: 企業分析 ---
     render_section_company(&mut html, by_company);
@@ -512,6 +518,166 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
         html.push_str("</table>\n");
     }
 
+    html.push_str("</div>\n");
+}
+
+// ============================================================
+// セクション3-3: 相関分析（散布図）
+// ============================================================
+
+fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
+    if agg.scatter_min_max.len() < 6 { return; }
+
+    html.push_str("<div class=\"section page-start\">\n");
+    html.push_str("<h2>相関分析（散布図）</h2>\n");
+    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【読み方ガイド】</strong>各点が1件の求人。回帰線（赤破線）は全体傾向。\
+        R²（決定係数）は0〜1で、1に近いほど相関が強い。\
+    </p>\n");
+
+    // 下限 vs 上限 散布図
+    html.push_str("<h3>月給下限 vs 上限</h3>\n");
+    let svg = render_scatter_plot_svg(
+        &agg.scatter_min_max, agg.regression_min_max.as_ref(),
+        "月給下限（万円）", "月給上限（万円）", 600, 250,
+    );
+    html.push_str(&svg);
+
+    if let Some(reg) = &agg.regression_min_max {
+        let strength = if reg.r_squared > 0.7 { "強い相関" }
+            else if reg.r_squared > 0.4 { "中程度の相関" }
+            else { "弱い相関" };
+        html.push_str(&format!(
+            "<p style=\"font-size:9px;color:#666;\">データ点: {}件 / R² = {:.3}（{}）</p>\n",
+            agg.scatter_min_max.len(), reg.r_squared, strength
+        ));
+    }
+
+    html.push_str("</div>\n");
+}
+
+/// SVG散布図生成（回帰線+R²付き）
+fn render_scatter_plot_svg(
+    points: &[ScatterPoint], regression: Option<&RegressionResult>,
+    x_label: &str, y_label: &str, width: u32, height: u32,
+) -> String {
+    if points.is_empty() { return String::new(); }
+
+    let pad_l = 55u32;
+    let pad_r = 20u32;
+    let pad_t = 15u32;
+    let pad_b = 35u32;
+    let plot_w = width - pad_l - pad_r;
+    let plot_h = height - pad_t - pad_b;
+
+    // 万円換算
+    let xs: Vec<f64> = points.iter().map(|p| p.x as f64 / 10_000.0).collect();
+    let ys: Vec<f64> = points.iter().map(|p| p.y as f64 / 10_000.0).collect();
+    let x_min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+    let x_max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let y_min = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+    let y_max = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let x_range = if (x_max - x_min).abs() < 0.01 { 1.0 } else { x_max - x_min };
+    let y_range = if (y_max - y_min).abs() < 0.01 { 1.0 } else { y_max - y_min };
+
+    let to_sx = |v: f64| -> f64 { pad_l as f64 + ((v - x_min) / x_range) * plot_w as f64 };
+    let to_sy = |v: f64| -> f64 { pad_t as f64 + plot_h as f64 - ((v - y_min) / y_range) * plot_h as f64 };
+
+    let mut svg = format!(
+        "<svg width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\" \
+         style=\"background:#fafafa;border-radius:8px;max-width:100%;\">"
+    );
+
+    // 軸線
+    svg.push_str(&format!(
+        "<line x1=\"{pl}\" y1=\"{b}\" x2=\"{r}\" y2=\"{b}\" stroke=\"#ccc\" stroke-width=\"1\"/>\
+         <line x1=\"{pl}\" y1=\"{t}\" x2=\"{pl}\" y2=\"{b}\" stroke=\"#ccc\" stroke-width=\"1\"/>",
+        pl = pad_l, b = height - pad_b, r = width - pad_r, t = pad_t
+    ));
+
+    // 目盛り（5刻み）
+    for i in 0..=4 {
+        let xv = x_min + x_range * i as f64 / 4.0;
+        let yv = y_min + y_range * i as f64 / 4.0;
+        svg.push_str(&format!(
+            "<text x=\"{:.0}\" y=\"{}\" text-anchor=\"middle\" font-size=\"8\" fill=\"#999\">{:.1}</text>",
+            to_sx(xv), height - pad_b + 12, xv
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{}\" y=\"{:.0}\" text-anchor=\"end\" font-size=\"8\" fill=\"#999\">{:.1}</text>",
+            pad_l - 5, to_sy(yv) + 3.0, yv
+        ));
+    }
+
+    // 軸ラベル
+    svg.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-size=\"9\" fill=\"#666\">{}</text>",
+        width / 2, height - 3, x_label
+    ));
+    svg.push_str(&format!(
+        "<text x=\"12\" y=\"{}\" text-anchor=\"middle\" font-size=\"9\" fill=\"#666\" \
+         transform=\"rotate(-90,12,{})\">{}</text>",
+        height / 2, height / 2, y_label
+    ));
+
+    // データ点（最大100点サンプリング）
+    let sample_rate = if points.len() > 100 { points.len() / 100 } else { 1 };
+    for (i, p) in points.iter().enumerate() {
+        if i % sample_rate != 0 { continue; }
+        let sx = to_sx(p.x as f64 / 10_000.0);
+        let sy = to_sy(p.y as f64 / 10_000.0);
+        svg.push_str(&format!(
+            "<circle cx=\"{sx:.1}\" cy=\"{sy:.1}\" r=\"3\" fill=\"rgba(59,130,246,0.5)\" stroke=\"#3b82f6\" stroke-width=\"0.5\"/>"
+        ));
+    }
+
+    // 回帰線
+    if let Some(reg) = regression {
+        let y1 = reg.slope * (x_min * 10_000.0) + reg.intercept;
+        let y2 = reg.slope * (x_max * 10_000.0) + reg.intercept;
+        let y1d = y1 / 10_000.0;
+        let y2d = y2 / 10_000.0;
+        svg.push_str(&format!(
+            "<line x1=\"{:.0}\" y1=\"{:.0}\" x2=\"{:.0}\" y2=\"{:.0}\" \
+             stroke=\"#ef4444\" stroke-width=\"2\" stroke-dasharray=\"4,2\"/>",
+            to_sx(x_min), to_sy(y1d), to_sx(x_max), to_sy(y2d)
+        ));
+    }
+
+    svg.push_str("</svg>\n");
+    svg
+}
+
+// ============================================================
+// セクション5-2: 市区町村別給与分析
+// ============================================================
+
+fn render_section_municipality_salary(html: &mut String, agg: &SurveyAggregation) {
+    if agg.by_municipality_salary.is_empty() { return; }
+
+    html.push_str("<div class=\"section\">\n");
+    html.push_str("<h2>市区町村別 給与分析</h2>\n");
+    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【読み方ガイド】</strong>求人数が多い市区町村の給与水準を比較。\
+        同じ都道府県内でも市区町村により給与差があります。\
+    </p>\n");
+
+    html.push_str("<table>\n<tr><th>#</th><th>市区町村</th><th>都道府県</th>\
+        <th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th>\
+        <th style=\"text-align:right\">中央値</th></tr>\n");
+    for (i, m) in agg.by_municipality_salary.iter().take(15).enumerate() {
+        html.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td style=\"font-size:10px;color:#666\">{}</td>\
+             <td class=\"num\">{}件</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
+            i + 1,
+            escape_html(&m.name),
+            escape_html(&m.prefecture),
+            m.count,
+            format_man_yen(m.avg_salary),
+            format_man_yen(m.median_salary),
+        ));
+    }
+    html.push_str("</table>\n");
     html.push_str("</div>\n");
 }
 
