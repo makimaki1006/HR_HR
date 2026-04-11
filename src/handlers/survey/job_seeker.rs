@@ -1,10 +1,10 @@
 //! 求職者心理分析（GAS JobSeekerAnalysis.js移植）
 //! 求職者の期待給与モデル、未経験タグ分析、市場暗黙レート
 
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use super::upload::SurveyRecord;
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JobSeekerAnalysis {
     pub expected_salary: Option<i64>,
     pub salary_range_perception: Option<SalaryRangePerception>,
@@ -13,7 +13,7 @@ pub struct JobSeekerAnalysis {
     pub total_analyzed: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SalaryRangePerception {
     pub avg_range_width: i64,
     pub avg_lower: i64,
@@ -24,7 +24,7 @@ pub struct SalaryRangePerception {
     pub wide_count: usize,    // > 10万
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InexperienceAnalysis {
     pub inexperience_count: usize,
     pub experience_count: usize,

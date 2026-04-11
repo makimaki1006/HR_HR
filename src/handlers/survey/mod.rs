@@ -13,5 +13,6 @@ pub mod integration;
 pub mod handlers;
 pub mod render;
 pub mod report;
+pub mod report_html;
 
-pub use handlers::{tab_survey, upload_csv, analyze_survey, integrate_report, report_json};
+pub use handlers::{tab_survey, upload_csv, analyze_survey, integrate_report, report_json, survey_report_html};

@@ -200,3 +200,42 @@ pub async fn report_json(
 ) -> axum::response::Json<serde_json::Value> {
     axum::response::Json(serde_json::json!({"status": "upload_csv_first"}))
 }
+
+/// 競合調査PDF/印刷用HTMLレポート
+pub async fn survey_report_html(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(query): Query<IntegrateQuery>,
+) -> Html<String> {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return Html("<html><body><p>セッションIDが必要です。CSVをアップロードしてください。</p></body></html>".to_string()),
+    };
+
+    // キャッシュから集計データを復元
+    let agg_cached = state.cache.get(&format!("survey_agg_{}", session_id));
+    let seeker_cached = state.cache.get(&format!("survey_seeker_{}", session_id));
+
+    let agg: super::aggregator::SurveyAggregation = match agg_cached {
+        Some(v) => serde_json::from_value(v).unwrap_or_default(),
+        None => return Html("<html><body><p>分析データが期限切れです。CSVを再アップロードしてください。</p></body></html>".to_string()),
+    };
+    let seeker: super::job_seeker::JobSeekerAnalysis = seeker_cached
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+
+    // 企業別・雇用形態別の集計はレコードキャッシュから再計算が必要だが、
+    // 現時点ではaggの既存フィールドのみで生成（企業別集計はレコード不要の仮実装）
+    let by_company = agg.by_company.clone();
+    let by_emp_type_salary = agg.by_emp_type_salary.clone();
+    let salary_min_values = agg.salary_min_values.clone();
+    let salary_max_values = agg.salary_max_values.clone();
+
+    let html = super::report_html::render_survey_report_page(
+        &agg, &seeker,
+        &by_company, &by_emp_type_salary,
+        &salary_min_values, &salary_max_values,
+    );
+
+    Html(html)
+}

@@ -1,13 +1,31 @@
 //! 集計モジュール
 //! パース済みレコードを地域別・給与帯別・雇用形態別・タグ別に集計
 
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 
 use super::upload::SurveyRecord;
 use super::statistics::enhanced_salary_statistics;
 
-#[derive(Debug, Clone, Serialize, Default)]
+/// 企業別集計
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CompanyAgg {
+    pub name: String,
+    pub count: usize,
+    pub avg_salary: i64,
+    pub median_salary: i64,
+}
+
+/// 雇用形態別給与
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EmpTypeSalary {
+    pub emp_type: String,
+    pub count: usize,
+    pub avg_salary: i64,
+    pub median_salary: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SurveyAggregation {
     pub total_count: usize,
     pub new_count: usize,
@@ -21,6 +39,11 @@ pub struct SurveyAggregation {
     pub by_tags: Vec<(String, usize)>,
     pub salary_values: Vec<i64>,
     pub enhanced_stats: Option<super::statistics::EnhancedStats>,
+    // レポート用追加フィールド
+    pub by_company: Vec<CompanyAgg>,
+    pub by_emp_type_salary: Vec<EmpTypeSalary>,
+    pub salary_min_values: Vec<i64>,
+    pub salary_max_values: Vec<i64>,
 }
 
 /// パース済みレコードを集計
@@ -99,6 +122,60 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .collect();
     let enhanced_stats = enhanced_salary_statistics(&salary_values);
 
+    // 下限/上限給与（レポート用）
+    let salary_min_values: Vec<i64> = records.iter()
+        .filter_map(|r| r.salary_parsed.min_value)
+        .collect();
+    let salary_max_values: Vec<i64> = records.iter()
+        .filter_map(|r| r.salary_parsed.max_value)
+        .collect();
+
+    // 企業別集計
+    let mut company_map: HashMap<String, Vec<i64>> = HashMap::new();
+    for r in records {
+        if !r.company_name.is_empty() {
+            let salary = r.salary_parsed.unified_monthly.unwrap_or(0);
+            company_map.entry(r.company_name.clone()).or_default().push(salary);
+        }
+    }
+    let mut by_company: Vec<CompanyAgg> = company_map.into_iter()
+        .map(|(name, salaries)| {
+            let count = salaries.len();
+            let valid: Vec<i64> = salaries.iter().filter(|&&s| s > 0).copied().collect();
+            let avg_salary = if valid.is_empty() { 0 } else { valid.iter().sum::<i64>() / valid.len() as i64 };
+            let median_salary = if valid.is_empty() { 0 } else {
+                let mut sorted = valid.clone();
+                sorted.sort();
+                sorted[sorted.len() / 2]
+            };
+            CompanyAgg { name, count, avg_salary, median_salary }
+        })
+        .collect();
+    by_company.sort_by(|a, b| b.count.cmp(&a.count));
+
+    // 雇用形態別給与
+    let mut emp_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
+    for r in records {
+        let emp = if r.employment_type.is_empty() { "不明".to_string() }
+            else { r.employment_type.clone() };
+        if let Some(sal) = r.salary_parsed.unified_monthly {
+            emp_salary_map.entry(emp).or_default().push(sal);
+        }
+    }
+    let mut by_emp_type_salary: Vec<EmpTypeSalary> = emp_salary_map.into_iter()
+        .map(|(emp_type, salaries)| {
+            let count = salaries.len();
+            let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
+            let median_salary = if salaries.is_empty() { 0 } else {
+                let mut sorted = salaries;
+                sorted.sort();
+                sorted[sorted.len() / 2]
+            };
+            EmpTypeSalary { emp_type, count, avg_salary, median_salary }
+        })
+        .collect();
+    by_emp_type_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
+
     SurveyAggregation {
         total_count: total,
         new_count,
@@ -112,5 +189,9 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         by_tags,
         salary_values,
         enhanced_stats,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
     }
 }

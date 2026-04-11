@@ -98,6 +98,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/survey/analyze", get(handlers::survey::analyze_survey))
         .route("/api/survey/integrate", get(handlers::survey::integrate_report))
         .route("/api/survey/report", get(handlers::survey::report_json))
+        .route("/report/survey", get(handlers::survey::survey_report_html))
         .route("/tab/company", get(handlers::company::tab_company))
         .route("/api/company/search", get(handlers::company::company_search))
         .route("/api/company/profile/{corporate_number}", get(handlers::company::company_profile))
