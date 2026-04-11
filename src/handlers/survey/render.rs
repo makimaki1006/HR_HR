@@ -391,14 +391,20 @@ pub(crate) fn render_analysis_result(
 
     html.push_str("</div>"); // grid終了
 
-    // 統合レポート生成ボタン
+    // 統合レポート生成ボタン + PDF出力
     html.push_str(&format!(
         r##"<div class="stat-card text-center">
-            <button hx-get="/api/survey/integrate?session_id={session_id}" hx-target="#survey-integration-result" hx-swap="innerHTML"
-                class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
-                🔗 HWデータ・外部統計と統合レポートを生成
-            </button>
-            <p class="text-xs text-slate-500 mt-2">主要地域のHW求人データ・人口統計と統合して分析します</p>
+            <div class="flex gap-3 justify-center flex-wrap">
+                <button hx-get="/api/survey/integrate?session_id={session_id}" hx-target="#survey-integration-result" hx-swap="innerHTML"
+                    class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors">
+                    🔗 HWデータと統合分析
+                </button>
+                <a href="/report/survey?session_id={session_id}" target="_blank"
+                    class="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition-colors inline-block">
+                    📄 印刷用レポート出力
+                </a>
+            </div>
+            <p class="text-xs text-slate-500 mt-2">統合分析: HW求人データと統合 / レポート: A4印刷用のPDF出力</p>
         </div>
         <div id="survey-integration-result"></div>"##
     ));

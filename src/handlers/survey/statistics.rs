@@ -6,7 +6,7 @@ use serde::Serialize;
 
 // ======== Bootstrap信頼区間 ========
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct BootstrapCI {
     pub lower: i64,
     pub upper: i64,
@@ -71,7 +71,7 @@ pub fn bootstrap_confidence_interval(data: &[i64], iterations: usize) -> Option<
 
 // ======== トリム平均 ========
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct TrimmedMeanResult {
     pub trimmed_mean: i64,
     pub original_mean: i64,
@@ -114,7 +114,7 @@ pub fn trimmed_mean(data: &[i64], trim_percent: f64) -> Option<TrimmedMeanResult
 
 // ======== 四分位統計 ========
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct QuartileStats {
     pub q1: i64,
     pub q2: i64, // median
@@ -165,7 +165,7 @@ fn percentile(sorted: &[i64], p: f64) -> i64 {
 
 // ======== 統合統計 ========
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct EnhancedStats {
     pub count: usize,
     pub mean: i64,
@@ -176,7 +176,7 @@ pub struct EnhancedStats {
     pub bootstrap_ci: Option<BootstrapCI>,
     pub trimmed_mean: Option<TrimmedMeanResult>,
     pub quartiles: Option<QuartileStats>,
-    pub reliability: &'static str,
+    pub reliability: String,
 }
 
 /// 統合的な給与統計
@@ -222,7 +222,7 @@ pub fn enhanced_salary_statistics(values: &[i64]) -> Option<EnhancedStats> {
 
     Some(EnhancedStats {
         count: n, mean, median, min, max, std_dev,
-        bootstrap_ci, trimmed_mean: trimmed, quartiles, reliability,
+        bootstrap_ci, trimmed_mean: trimmed, quartiles, reliability: reliability.to_string(),
     })
 }
 
