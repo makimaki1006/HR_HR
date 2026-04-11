@@ -2,6 +2,11 @@
 
 use serde_json::{json, Value};
 use super::helpers::*;
+use super::fetch::InsightContext;
+use super::super::helpers::{get_f64, get_str_ref, format_number};
+
+/// 全国平均欠員率（HWデータ全体統計より）
+pub(crate) const NATIONAL_AVG_VACANCY_RATE: f64 = 0.266;
 
 /// レポートJSON構築
 pub fn build_report_json(insights: &[Insight], pref: &str, muni: &str) -> Value {
@@ -13,7 +18,7 @@ pub fn build_report_json(insights: &[Insight], pref: &str, muni: &str) -> Value 
         "全国".to_string()
     };
 
-    let executive_summary = generate_executive_summary_text(insights);
+    let executive_summary = generate_executive_summary_text_simple(insights);
 
     let chapters = vec![
         build_chapter(1, "現状把握 — この地域の求人市場は今どうなっているか",
@@ -46,14 +51,27 @@ pub fn build_report_json(insights: &[Insight], pref: &str, muni: &str) -> Value 
     })
 }
 
-/// エグゼクティブサマリー生成
-pub(crate) fn generate_executive_summary_text(insights: &[Insight]) -> String {
+/// エグゼクティブサマリー生成（具体的な数値を含む）
+pub(crate) fn generate_executive_summary_text(insights: &[Insight], ctx: &InsightContext) -> String {
     let critical = insights.iter().filter(|i| i.severity == Severity::Critical).count();
     let warning = insights.iter().filter(|i| i.severity == Severity::Warning).count();
     let positive = insights.iter().filter(|i| i.severity == Severity::Positive).count();
     let total = insights.len();
 
-    let overall = if critical >= 3 {
+    // 欠員率（正社員）
+    let vacancy_rate = ctx.vacancy.iter()
+        .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "vacancy_rate"))
+        .unwrap_or(0.0);
+
+    // 平均月給（正社員）
+    let avg_salary = ctx.cascade.iter()
+        .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "avg_salary_min") as i64)
+        .unwrap_or(0);
+
+    // 全国平均との比較で判定
+    let overall = if critical >= 3 && vacancy_rate > 0.30 {
         "深刻な課題を抱えています"
     } else if critical >= 1 {
         "いくつかの重要な課題があります"
@@ -65,18 +83,59 @@ pub(crate) fn generate_executive_summary_text(insights: &[Insight]) -> String {
         "標準的な状態です"
     };
 
-    let mut summary = format!(
-        "この地域の求人市場は{}。全{}件の分析指標のうち、\
-         重大な課題{}件、注意すべき点{}件、良好な指標{}件が検出されました。",
-        overall, total, critical, warning, positive
-    );
+    let mut summary = format!("この地域の求人市場は{}。", overall);
 
-    // 最も重要な示唆を1文で要約
-    if let Some(top) = insights.first() {
-        summary.push_str(&format!(" 最も優先度が高い課題は「{}」です。", top.title));
+    // 具体的なKPIを記載
+    let vr_pct = vacancy_rate * 100.0;
+    let national_pct = NATIONAL_AVG_VACANCY_RATE * 100.0;
+    let vr_compare = if vacancy_rate > NATIONAL_AVG_VACANCY_RATE {
+        format!("全国平均{:.1}%を上回る", national_pct)
+    } else {
+        format!("全国平均{:.1}%を下回る", national_pct)
+    };
+    summary.push_str(&format!("欠員率{:.1}%（{}）", vr_pct, vr_compare));
+
+    if avg_salary > 0 {
+        summary.push_str(&format!("、正社員平均月給{}円", format_number(avg_salary)));
+    }
+
+    if ctx.commute_zone_total_pop > 0 {
+        let pop_man = ctx.commute_zone_total_pop as f64 / 10_000.0;
+        summary.push_str(&format!("、通勤圏人口{:.1}万人", pop_man));
+    }
+
+    summary.push_str(&format!(
+        "。全{}件の分析指標のうち、重大{}件・注意{}件・良好{}件。",
+        total, critical, warning, positive
+    ));
+
+    // 最優先アクションを明示
+    if let Some(top_action) = insights.iter().find(|i| i.category == InsightCategory::ActionProposal) {
+        summary.push_str(&format!("最優先アクション: {}。", top_action.title));
+    } else if let Some(top) = insights.first() {
+        summary.push_str(&format!("最優先課題: {}。", top.title));
     }
 
     summary
+}
+
+/// 旧シグネチャ互換（report JSON用）
+pub(crate) fn generate_executive_summary_text_simple(insights: &[Insight]) -> String {
+    let critical = insights.iter().filter(|i| i.severity == Severity::Critical).count();
+    let warning = insights.iter().filter(|i| i.severity == Severity::Warning).count();
+    let positive = insights.iter().filter(|i| i.severity == Severity::Positive).count();
+    let total = insights.len();
+    let overall = if critical >= 3 { "深刻な課題を抱えています" }
+    else if critical >= 1 { "いくつかの重要な課題があります" }
+    else if warning >= 3 { "改善の余地があります" }
+    else if positive >= 2 { "比較的良好な状態です" }
+    else { "標準的な状態です" };
+    let mut s = format!("この地域の求人市場は{}。全{}件中、重大{}件・注意{}件・良好{}件。",
+        overall, total, critical, warning, positive);
+    if let Some(top) = insights.first() {
+        s.push_str(&format!("最優先課題: {}。", top.title));
+    }
+    s
 }
 
 /// 章の構築
@@ -129,7 +188,111 @@ fn build_chapter(
     })
 }
 
-// ======== レポートHTML用ナラティブ生成 ========
+// ======== レポートHTML用 章ナラティブ生成 ========
+
+/// 章ごとのナラティブ（「問い→答え」形式、具体数値入り）
+pub(crate) fn generate_chapter_narrative(
+    category: &InsightCategory,
+    insights: &[&Insight],
+    ctx: &InsightContext,
+) -> String {
+    if insights.is_empty() {
+        return "現時点では特筆すべき事項は検出されませんでした。".to_string();
+    }
+    let critical_count = insights.iter().filter(|i| i.severity == Severity::Critical).count();
+    let warning_count = insights.iter().filter(|i| i.severity == Severity::Warning).count();
+
+    match category {
+        InsightCategory::HiringStructure => {
+            let vacancy_rate = ctx.vacancy.iter()
+                .find(|r| get_str_ref(r, "emp_group") == "正社員")
+                .map(|r| get_f64(r, "vacancy_rate"))
+                .unwrap_or(0.0);
+            let vr_pct = vacancy_rate * 100.0;
+            let vr_judge = if vacancy_rate > 0.30 { "深刻な水準" }
+                else if vacancy_rate > NATIONAL_AVG_VACANCY_RATE { "全国平均以上" }
+                else { "全国平均以下" };
+
+            let mut text = format!(
+                "構造的課題は{}件（重大{}件、注意{}件）。正社員欠員率{:.1}%（{}）。",
+                insights.len(), critical_count, warning_count, vr_pct, vr_judge
+            );
+            if ctx.commute_self_rate > 0.0 {
+                text.push_str(&format!("地元就業率{:.1}%。", ctx.commute_self_rate * 100.0));
+            }
+            if let Some(top) = insights.first() {
+                text.push_str(&format!("最も深刻な課題は「{}」。", top.title));
+            }
+            text
+        }
+        InsightCategory::Forecast => {
+            let mut text = format!(
+                "{}件のトレンド指標を検出。",
+                insights.len()
+            );
+            // 高齢化率
+            if !ctx.ext_pyramid.is_empty() {
+                let mut elderly: i64 = 0;
+                let mut total: i64 = 0;
+                for row in &ctx.ext_pyramid {
+                    let pop = super::super::helpers::get_i64(row, "male_count")
+                        + super::super::helpers::get_i64(row, "female_count");
+                    total += pop;
+                    let age = get_str_ref(row, "age_group");
+                    match age {
+                        "65-69"|"70-74"|"75-79"|"80-84"|"85+"|"70-79"|"80+" => elderly += pop,
+                        _ => {}
+                    }
+                }
+                if total > 0 {
+                    let aging_rate = elderly as f64 / total as f64 * 100.0;
+                    let aging_judge = if aging_rate > 30.0 { "深刻" }
+                        else if aging_rate > 25.0 { "進行中" }
+                        else { "比較的若い" };
+                    text.push_str(&format!("高齢化率{:.1}%（{}）。", aging_rate, aging_judge));
+                }
+            }
+            if critical_count > 0 {
+                if let Some(top) = insights.iter().find(|i| i.severity == Severity::Critical) {
+                    text.push_str(&format!("最も警戒すべきは「{}」。", top.title));
+                }
+            } else {
+                text.push_str("現時点で重大なトレンドリスクは検出されていない。");
+            }
+            text
+        }
+        InsightCategory::RegionalCompare => {
+            let inferior = insights.iter()
+                .filter(|i| i.severity == Severity::Critical || i.severity == Severity::Warning)
+                .count();
+            let mut text = format!(
+                "{}件の地域比較指標のうち、{}件が他地域に対して劣位。",
+                insights.len(), inferior
+            );
+            if inferior == 0 {
+                text.push_str("地域間比較では概ね良好な位置にある。");
+            } else if let Some(top) = insights.first() {
+                text.push_str(&format!("最も改善が必要な指標は「{}」。", top.title));
+            }
+            text
+        }
+        InsightCategory::ActionProposal => {
+            let mut text = format!("{}件の改善施策を提案。", insights.len());
+            if let Some(top) = insights.first() {
+                let cost_hint = match top.id.as_str() {
+                    "AP-1" => "コストあり・高インパクト",
+                    "AP-2" => "コストゼロ・即日実行可能",
+                    "AP-3" => "低コスト・中インパクト",
+                    _ => "優先度高",
+                };
+                text.push_str(&format!("最優先は「{}」（{}）。", top.title, cost_hint));
+            }
+            text
+        }
+    }
+}
+
+// ======== その他ナラティブ生成 ========
 
 /// 採用困難度グレード
 pub(crate) struct DifficultyGrade {

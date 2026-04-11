@@ -220,7 +220,7 @@ pub(crate) fn render_insight_report_page(
     let info = insights.iter().filter(|i| i.severity == Severity::Info).count();
     let positive = insights.iter().filter(|i| i.severity == Severity::Positive).count();
 
-    let summary = super::report::generate_executive_summary_text(insights);
+    let summary = super::report::generate_executive_summary_text(insights, ctx);
 
     let mut html = String::with_capacity(32_000);
 
@@ -248,6 +248,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 .kpi-card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; text-align: center; }
 .kpi-value { font-size: 18px; font-weight: bold; }
 .kpi-label { font-size: 9px; color: #666; margin-top: 3px; }
+.kpi-subtitle { font-size: 8px; color: #888; margin-top: 2px; }
 .section-title { font-size: 15px; color: #1a5276; margin: 16px 0 8px 0; border-left: 4px solid #1a5276; padding-left: 8px; }
 .section-question { font-size: 10px; color: #666; font-style: italic; margin-bottom: 10px; }
 .narrative { background: #f8f9fa; border-left: 3px solid #1a5276; padding: 10px 14px; margin-bottom: 12px; font-size: 11px; line-height: 1.6; color: #444; }
@@ -282,6 +283,11 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 @media print {
     .print-btn { display: none; }
     .no-break { page-break-inside: avoid; break-inside: avoid; }
+    .chart-box { page-break-inside: avoid; break-inside: avoid; }
+    .insight-card { page-break-inside: avoid; break-inside: avoid; }
+    h2, .section-title { page-break-after: avoid; break-after: avoid; }
+    .section-question { page-break-after: avoid; break-after: avoid; }
+    .narrative { page-break-after: avoid; break-after: avoid; }
     body { padding: 0; }
     .report-page { min-height: auto; }
 }
@@ -356,7 +362,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     let total_postings: i64 = ctx.vacancy.iter()
         .map(|r| super::super::helpers::get_i64(r, "total_count"))
         .sum();
-    report_kpi(&mut html, "総求人数", &format_number(total_postings), "#2563eb");
+    report_kpi(&mut html, "総求人数", &format_number(total_postings), "#2563eb", "");
 
     // 欠員率
     let vacancy_rate = ctx.vacancy.iter()
@@ -364,7 +370,12 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         .map(|r| super::super::helpers::get_f64(r, "vacancy_rate"))
         .unwrap_or(0.0);
     let vr_color = if vacancy_rate > 0.3 { "#dc2626" } else if vacancy_rate > 0.2 { "#d97706" } else { "#059669" };
-    report_kpi(&mut html, "欠員率(正社員)", &format!("{:.1}%", vacancy_rate * 100.0), vr_color);
+    let vr_sub = if vacancy_rate > super::report::NATIONAL_AVG_VACANCY_RATE {
+        "▲ 全国平均以上"
+    } else {
+        "▼ 全国平均以下"
+    };
+    report_kpi(&mut html, "欠員率(正社員)", &format!("{:.1}%", vacancy_rate * 100.0), vr_color, vr_sub);
 
     // 平均月給
     let avg_salary = ctx.cascade.iter()
@@ -372,23 +383,28 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         .map(|r| super::super::helpers::get_f64(r, "avg_salary_min") as i64)
         .unwrap_or(0);
     if avg_salary > 0 {
-        report_kpi(&mut html, "平均月給", &format!("{}円", format_number(avg_salary)), "#333");
+        report_kpi(&mut html, "平均月給", &format!("{}円", format_number(avg_salary)), "#333", "");
     } else {
-        report_kpi(&mut html, "平均月給", "-", "#999");
+        report_kpi(&mut html, "平均月給", "-", "#999", "");
     }
 
     // 通勤圏人口
     if ctx.commute_zone_total_pop > 0 {
-        report_kpi(&mut html, "通勤圏人口", &format!("{}人", format_number(ctx.commute_zone_total_pop)), "#0891b2");
+        let zone_sub = format!("{}市区町村 / {}県",
+            ctx.commute_zone_count, ctx.commute_zone_pref_count);
+        report_kpi(&mut html, "通勤圏人口", &format!("{}人", format_number(ctx.commute_zone_total_pop)), "#0891b2", &zone_sub);
     } else {
-        report_kpi(&mut html, "通勤圏人口", "-", "#999");
+        report_kpi(&mut html, "通勤圏人口", "-", "#999", "");
     }
 
     // 通勤流入
     if ctx.commute_inflow_total > 0 {
-        report_kpi(&mut html, "通勤流入数", &format!("{}人", format_number(ctx.commute_inflow_total)), "#7c3aed");
+        let flow_sub = if ctx.commute_self_rate > 0.0 {
+            format!("地元就業率 {:.0}%", ctx.commute_self_rate * 100.0)
+        } else { String::new() };
+        report_kpi(&mut html, "通勤流入数", &format!("{}人", format_number(ctx.commute_inflow_total)), "#7c3aed", &flow_sub);
     } else {
-        report_kpi(&mut html, "通勤流入数", "-", "#999");
+        report_kpi(&mut html, "通勤流入数", "-", "#999", "");
     }
     html.push_str("</div>");
 
@@ -543,10 +559,8 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         html.push_str("</section>"); // End Page 4 (commute)
     }
 
-    // ===== Page 5-6: 示唆詳細 =====
-    html.push_str("<section class=\"report-page\">");
+    // ===== Page 5+: 示唆詳細（章ごとに独立section） =====
 
-    // 示唆一覧（4章構成）
     let categories = [
         (InsightCategory::HiringStructure, "第1章: 採用構造分析"),
         (InsightCategory::Forecast, "第2章: 将来予測"),
@@ -565,25 +579,22 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         let filtered: Vec<_> = insights.iter().filter(|i| &i.category == cat).collect();
         if filtered.is_empty() { continue; }
 
+        // 章ごとに独立したsection（印刷ページ分割）
+        html.push_str("<section class=\"report-page\">");
         html.push_str(&format!(r#"<h2>{title}</h2>"#));
         html.push_str(&format!("<div class=\"section-question\">{}</div>", chapter_questions[idx]));
 
-        // ナラティブ（章の概要テキスト）
-        if let Some(top) = filtered.first() {
-            let narrative = if filtered.len() == 1 {
-                format!("この章では1件の分析結果を報告します。最も重要な点は「{}」です。", top.title)
-            } else {
-                let critical_count = filtered.iter().filter(|i| i.severity == Severity::Critical || i.severity == Severity::Warning).count();
-                if critical_count > 0 {
-                    format!("{}件の分析結果のうち、注意が必要な項目が{}件あります。最優先は「{}」です。",
-                        filtered.len(), critical_count, top.title)
-                } else {
-                    format!("{}件の分析結果があります。全体的に良好な状態です。", filtered.len())
-                }
-            };
-            html.push_str(&format!("<div class=\"narrative\">{}</div>", escape_html(&narrative)));
-        }
-        for insight in &filtered {
+        // 章ナラティブ（具体数値入り）
+        let narrative = super::report::generate_chapter_narrative(cat, &filtered, ctx);
+        html.push_str(&format!("<div class=\"narrative\">{}</div>", escape_html(&narrative)));
+
+        for (card_idx, insight) in filtered.iter().enumerate() {
+            // 5件ごとにpage-break挿入
+            if card_idx > 0 && card_idx % 5 == 0 {
+                html.push_str("</section><section class=\"report-page\">");
+                html.push_str(&format!("<h2>{title}（続き）</h2>"));
+            }
+
             let cls = match insight.severity {
                 Severity::Critical => "critical",
                 Severity::Warning => "warning",
@@ -592,28 +603,53 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
             };
             html.push_str(&format!(
                 r#"<div class="insight-card {cls} no-break">
-                    <div class="insight-title">[{}] {}</div>
-                    <div class="insight-body">{}</div>"#,
+                    <div class="insight-title">[{}] {}</div>"#,
                 escape_html(insight.severity.label()),
                 escape_html(&insight.title),
-                escape_html(&insight.body),
             ));
-            if !insight.evidence.is_empty() {
-                let ev_text: Vec<String> = insight.evidence.iter()
-                    .map(|e| format!("{}: {}", e.metric, e.context))
-                    .collect();
-                html.push_str(&format!(r#"<div class="evidence">{}</div>"#, escape_html(&ev_text.join(" | "))));
-            }
-            // So What? テキスト
-            let so_what = super::report::generate_so_what(insight);
-            if !so_what.is_empty() {
-                html.push_str(&format!(r#"<div class="so-what">{}</div>"#, escape_html(&so_what)));
+
+            // severity別の表示量制御
+            match insight.severity {
+                Severity::Critical | Severity::Warning => {
+                    // 全項目表示
+                    html.push_str(&format!(
+                        r#"<div class="insight-body">{}</div>"#,
+                        escape_html(&insight.body),
+                    ));
+                    if !insight.evidence.is_empty() {
+                        let ev_text: Vec<String> = insight.evidence.iter()
+                            .map(|e| format!("{}: {}", e.metric, e.context))
+                            .collect();
+                        html.push_str(&format!(r#"<div class="evidence">{}</div>"#, escape_html(&ev_text.join(" | "))));
+                    }
+                    let so_what = super::report::generate_so_what(insight);
+                    if !so_what.is_empty() {
+                        html.push_str(&format!(r#"<div class="so-what">{}</div>"#, escape_html(&so_what)));
+                    }
+                }
+                Severity::Info => {
+                    // 本文のみ（evidence非表示）
+                    html.push_str(&format!(
+                        r#"<div class="insight-body" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{}</div>"#,
+                        escape_html(&insight.body),
+                    ));
+                    let so_what = super::report::generate_so_what(insight);
+                    if !so_what.is_empty() {
+                        html.push_str(&format!(r#"<div class="so-what">{}</div>"#, escape_html(&so_what)));
+                    }
+                }
+                Severity::Positive => {
+                    // 本文1行のみ（so-what/evidence非表示）
+                    html.push_str(&format!(
+                        r#"<div class="insight-body" style="display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden">{}</div>"#,
+                        escape_html(&insight.body),
+                    ));
+                }
             }
             html.push_str("</div>");
         }
+        html.push_str("</section>"); // 章の終わり
     }
-
-    html.push_str("</section>"); // End insight pages
 
     // ===== 最終ページ: 注記 =====
     html.push_str("<section class=\"report-page\">");
@@ -651,11 +687,16 @@ fn report_metric(html: &mut String, label: &str, value: &str) {
     ));
 }
 
-fn report_kpi(html: &mut String, label: &str, value: &str, color: &str) {
+fn report_kpi(html: &mut String, label: &str, value: &str, color: &str, subtitle: &str) {
     html.push_str(&format!(
         r#"<div class="kpi-card no-break">
             <div class="kpi-value" style="color:{color}">{value}</div>
-            <div class="kpi-label">{label}</div>
-        </div>"#
+            <div class="kpi-label">{label}</div>"#
     ));
+    if !subtitle.is_empty() {
+        html.push_str(&format!(
+            r#"<div class="kpi-subtitle">{subtitle}</div>"#
+        ));
+    }
+    html.push_str("</div>");
 }
