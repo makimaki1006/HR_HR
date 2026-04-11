@@ -342,19 +342,25 @@ fn render_section_salary_stats(
         ));
     }
 
-    // 下限給与ヒストグラム
+    // 下限給与ヒストグラム（統計ライン付き）
     if !salary_min_values.is_empty() {
         html.push_str("<h3>下限給与の分布</h3>\n");
-        let (labels, values) = build_salary_histogram(salary_min_values, 20_000);
-        let svg = render_bar_chart_svg(&labels, &values, "#42A5F5", 600, 200);
+        let (labels, values, boundaries) = build_salary_histogram(salary_min_values, 20_000);
+        let svg = render_bar_chart_svg_with_stats(
+            &labels, &values, "#42A5F5", 600, 200,
+            &boundaries, Some(stats.mean), Some(stats.median),
+        );
         html.push_str(&svg);
     }
 
-    // 上限給与ヒストグラム
+    // 上限給与ヒストグラム（統計ライン付き）
     if !salary_max_values.is_empty() {
         html.push_str("<h3>上限給与の分布</h3>\n");
-        let (labels, values) = build_salary_histogram(salary_max_values, 20_000);
-        let svg = render_bar_chart_svg(&labels, &values, "#66BB6A", 600, 200);
+        let (labels, values, boundaries) = build_salary_histogram(salary_max_values, 20_000);
+        let svg = render_bar_chart_svg_with_stats(
+            &labels, &values, "#66BB6A", 600, 200,
+            &boundaries, Some(stats.mean), Some(stats.median),
+        );
         html.push_str(&svg);
     }
 
@@ -514,35 +520,56 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 // ============================================================
 
 fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
-    if agg.by_tags.is_empty() || agg.enhanced_stats.is_none() {
+    if agg.by_tag_salary.is_empty() && agg.by_tags.is_empty() {
         return;
     }
 
-    // タグ別平均給与を計算するには元データが必要だが、
-    // 現時点ではby_tagsは(タグ名, 件数)のみ。
-    // ここではタグ件数テーブルとして出力し、
-    // Step 2 でタグ別給与データが追加されたら拡張する。
     let overall_mean = agg.enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0);
 
     html.push_str("<div class=\"section\">\n");
-    html.push_str("<h2>タグ分析</h2>\n");
+    html.push_str("<h2>タグ×給与相関分析</h2>\n");
+    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【読み方ガイド】</strong>各タグが付いた求人の平均給与と、全体平均との差を示します。\
+        正の値（緑）=そのタグが付くと給与が高い傾向、負の値（赤）=低い傾向。\
+    </p>\n");
 
     html.push_str(&format!(
         "<p>全体平均月給: <strong>{}</strong></p>\n",
         format_man_yen(overall_mean)
     ));
 
-    html.push_str("<table>\n<tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th></tr>\n");
-    for (i, (tag, count)) in agg.by_tags.iter().take(20).enumerate() {
-        html.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td></tr>\n",
-            i + 1,
-            escape_html(tag),
-            format_number(*count as i64),
-        ));
+    if !agg.by_tag_salary.is_empty() {
+        // タグ別給与差分テーブル（完全版）
+        html.push_str("<table>\n<tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
+            <th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">全体比</th></tr>\n");
+        for (i, ts) in agg.by_tag_salary.iter().enumerate() {
+            let diff_class = if ts.diff_from_avg > 0 { "positive" } else if ts.diff_from_avg < 0 { "negative" } else { "" };
+            let diff_sign = if ts.diff_from_avg > 0 { "+" } else { "" };
+            html.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num {diff_class}\">{sign}{diff}万円 ({sign}{pct:.1}%)</td></tr>\n",
+                i + 1,
+                escape_html(&ts.tag),
+                format_number(ts.count as i64),
+                format_man_yen(ts.avg_salary),
+                diff = format!("{:.1}", ts.diff_from_avg as f64 / 10_000.0),
+                sign = diff_sign,
+                pct = ts.diff_percent,
+            ));
+        }
+        html.push_str("</table>\n");
+    } else {
+        // フォールバック: 件数のみテーブル
+        html.push_str("<table>\n<tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th></tr>\n");
+        for (i, (tag, count)) in agg.by_tags.iter().take(20).enumerate() {
+            html.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td></tr>\n",
+                i + 1, escape_html(tag), format_number(*count as i64),
+            ));
+        }
+        html.push_str("</table>\n");
     }
-    html.push_str("</table>\n");
-    html.push_str("<p class=\"note\">※ タグ別の給与差分析は、タグ別給与データが追加された段階で拡張されます。</p>\n");
 
     html.push_str("</div>\n");
 }
@@ -843,25 +870,26 @@ fn format_man_yen(yen: i64) -> String {
 
 /// ヒストグラム用バケット集計
 /// 給与値配列をbin_size刻みでバケットに分類し、ラベルと件数を返す
-fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>) {
+/// ヒストグラムデータ構築（bin境界値付き）
+fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>, Vec<i64>) {
     if values.is_empty() || bin_size <= 0 {
-        return (vec![], vec![]);
+        return (vec![], vec![], vec![]);
     }
 
     let valid: Vec<i64> = values.iter().filter(|&&v| v > 0).copied().collect();
     if valid.is_empty() {
-        return (vec![], vec![]);
+        return (vec![], vec![], vec![]);
     }
 
     let min_val = *valid.iter().min().unwrap();
     let max_val = *valid.iter().max().unwrap();
 
-    // バケット開始値を計算（bin_sizeの倍数に切り下げ）
     let start = (min_val / bin_size) * bin_size;
     let end = ((max_val / bin_size) + 1) * bin_size;
 
     let mut labels = Vec::new();
     let mut counts = Vec::new();
+    let mut boundaries = Vec::new();
 
     let mut boundary = start;
     while boundary < end {
@@ -871,10 +899,88 @@ fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<us
             .count();
         labels.push(format!("{}万", boundary / 10_000));
         counts.push(count);
+        boundaries.push(boundary);
         boundary = upper;
     }
 
-    (labels, counts)
+    (labels, counts, boundaries)
+}
+
+/// 統計ライン付きSVG棒グラフ（平均=赤破線、中央値=緑破線）
+fn render_bar_chart_svg_with_stats(
+    labels: &[String], values: &[usize], color: &str,
+    width: u32, height: u32,
+    boundaries: &[i64], mean: Option<i64>, median: Option<i64>,
+) -> String {
+    if labels.is_empty() { return String::new(); }
+
+    // まず基本棒グラフを生成（</svg>を除く）
+    let base = render_bar_chart_svg(labels, values, color, width, height);
+    let trimmed = base.trim_end();
+    let close_tag = "</svg>";
+    let base_without_close = if trimmed.ends_with(close_tag) {
+        &trimmed[..trimmed.len() - close_tag.len()]
+    } else {
+        return base;
+    };
+
+    let mut svg = base_without_close.to_string();
+
+    // 統計ラインの描画ヘルパー
+    let left_margin = 40u32;
+    let right_margin = 10u32;
+    let available_width = width - left_margin - right_margin;
+    let bar_w = if labels.is_empty() { 20 } else {
+        std::cmp::max(8, available_width as usize / labels.len() - 2)
+    };
+    let top = 20u32;
+    let bottom = height - 60;
+
+    let stat_line = |value: i64, line_color: &str, label_text: &str| -> String {
+        if boundaries.is_empty() { return String::new(); }
+        // valueに最も近いbinを見つけて補間
+        let mut idx = boundaries.len() - 1;
+        for (i, &b) in boundaries.iter().enumerate() {
+            if b >= value { idx = i; break; }
+        }
+        let x = if idx == 0 || boundaries[idx] == value {
+            left_margin as f64 + idx as f64 * (bar_w + 2) as f64 + bar_w as f64 / 2.0
+        } else {
+            let ratio = (value - boundaries[idx - 1]) as f64
+                / (boundaries[idx] - boundaries[idx - 1]) as f64;
+            let x1 = left_margin as f64 + (idx - 1) as f64 * (bar_w + 2) as f64 + bar_w as f64 / 2.0;
+            let x2 = left_margin as f64 + idx as f64 * (bar_w + 2) as f64 + bar_w as f64 / 2.0;
+            x1 + ratio * (x2 - x1)
+        };
+        format!(
+            "<line x1=\"{x:.0}\" y1=\"{top}\" x2=\"{x:.0}\" y2=\"{bottom}\" \
+             stroke=\"{line_color}\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\
+             <text x=\"{x:.0}\" y=\"{lt}\" text-anchor=\"middle\" font-size=\"9\" \
+             fill=\"{line_color}\" font-weight=\"bold\">{label_text}</text>",
+            lt = top - 4,
+        )
+    };
+
+    if let Some(m) = mean {
+        svg.push_str(&stat_line(m, "#e74c3c", "平均"));
+    }
+    if let Some(m) = median {
+        svg.push_str(&stat_line(m, "#27ae60", "中央"));
+    }
+
+    // 凡例
+    let legend_x = width - 160;
+    svg.push_str(&format!(
+        "<g transform=\"translate({legend_x},5)\">\
+         <rect x=\"0\" y=\"0\" width=\"150\" height=\"18\" fill=\"white\" fill-opacity=\"0.85\" rx=\"3\"/>\
+         <line x1=\"5\" y1=\"9\" x2=\"18\" y2=\"9\" stroke=\"#e74c3c\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\
+         <text x=\"22\" y=\"12\" font-size=\"8\">平均</text>\
+         <line x1=\"55\" y1=\"9\" x2=\"68\" y2=\"9\" stroke=\"#27ae60\" stroke-width=\"2\" stroke-dasharray=\"5,3\"/>\
+         <text x=\"72\" y=\"12\" font-size=\"8\">中央値</text></g>"
+    ));
+
+    svg.push_str("</svg>");
+    svg
 }
 
 // ============================================================
@@ -896,27 +1002,47 @@ mod tests {
     #[test]
     fn test_build_salary_histogram() {
         let values = vec![200_000, 210_000, 250_000, 270_000, 300_000];
-        let (labels, counts) = build_salary_histogram(&values, 20_000);
+        let (labels, counts, boundaries) = build_salary_histogram(&values, 20_000);
         assert!(!labels.is_empty());
         assert_eq!(labels.len(), counts.len());
-        // 全件が含まれていること
+        assert_eq!(labels.len(), boundaries.len());
         let total: usize = counts.iter().sum();
         assert_eq!(total, 5);
+        // bin境界が昇順であること
+        for w in boundaries.windows(2) {
+            assert!(w[0] < w[1]);
+        }
     }
 
     #[test]
     fn test_build_salary_histogram_empty() {
-        let (labels, counts) = build_salary_histogram(&[], 20_000);
+        let (labels, counts, boundaries) = build_salary_histogram(&[], 20_000);
         assert!(labels.is_empty());
         assert!(counts.is_empty());
+        assert!(boundaries.is_empty());
     }
 
     #[test]
     fn test_build_salary_histogram_zeros() {
         let values = vec![0, 0, 0];
-        let (labels, counts) = build_salary_histogram(&values, 20_000);
+        let (labels, counts, boundaries) = build_salary_histogram(&values, 20_000);
         assert!(labels.is_empty());
         assert!(counts.is_empty());
+        assert!(boundaries.is_empty());
+    }
+
+    #[test]
+    fn test_render_bar_chart_with_stats() {
+        let labels = vec!["20万".to_string(), "22万".to_string(), "24万".to_string()];
+        let values = vec![5, 12, 8];
+        let boundaries = vec![200_000, 220_000, 240_000];
+        let svg = render_bar_chart_svg_with_stats(
+            &labels, &values, "#42A5F5", 600, 200,
+            &boundaries, Some(220_000), Some(215_000),
+        );
+        assert!(svg.contains("stroke-dasharray"));
+        assert!(svg.contains("平均"));
+        assert!(svg.contains("中央"));
     }
 
     #[test]
