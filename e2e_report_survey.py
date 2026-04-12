@@ -155,13 +155,27 @@ def main():
         """)
         print(f"  [INFO] /tab/survey 直接fetch: {raw_resp}")
 
-        # もう一度 innerHTML 書き換えを試す
+        # もう一度 innerHTML 書き換えを試す（scriptタグ再実行あり）
         if content_state.get('textLen', 0) == 0:
-            print("  [WARN] タブクリックで#contentが空のため、直接fetchで埋める")
+            print("  [WARN] タブクリックで#contentが空のため、直接fetchで埋める（htmx.process + script再実行）")
             page.evaluate("""
                 fetch('/tab/survey', {credentials: 'include'})
                     .then(r => r.text())
-                    .then(t => { document.getElementById('content').innerHTML = t; })
+                    .then(function(t) {
+                        var content = document.getElementById('content');
+                        content.innerHTML = t;
+                        // scriptタグを手動で再実行（innerHTML代入だけでは実行されない仕様対応）
+                        content.querySelectorAll('script').forEach(function(oldScript) {
+                            var newScript = document.createElement('script');
+                            Array.from(oldScript.attributes).forEach(function(a) {
+                                newScript.setAttribute(a.name, a.value);
+                            });
+                            newScript.textContent = oldScript.textContent;
+                            oldScript.parentNode.replaceChild(newScript, oldScript);
+                        });
+                        // HTMX属性を再処理
+                        if (typeof htmx !== 'undefined') htmx.process(content);
+                    });
             """)
             time.sleep(5)
         print(f"  [INFO] クリックしたタブのhx-get: {clicked}")

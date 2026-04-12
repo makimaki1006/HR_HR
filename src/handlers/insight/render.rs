@@ -241,12 +241,75 @@ pub(crate) fn render_insight_report_page(
   --c-text-muted: #888;
   --c-border: #e0e0e0;
   --c-bg-card: #f5f9ff;
+  --bg: #ffffff;
+  --text: #1a1a2e;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
   --radius: 6px;
 }
-@page { size: A4 landscape; margin: 12mm 10mm 15mm 10mm; }
+body.theme-dark {
+  --c-primary: #5b9bd5;
+  --c-primary-light: #80b4e0;
+  --c-text: #e6e6f0;
+  --c-text-muted: #aaa;
+  --c-border: #37415a;
+  --c-bg-card: #232946;
+  --bg: #1a1a2e;
+  --text: #e6e6f0;
+}
+body.theme-dark { background: var(--bg) !important; color: var(--text) !important; }
+body.theme-dark .flow-table th { background: #283350; }
+body.theme-dark .flow-table tr:nth-child(even) { background: #20283d; }
+body.theme-dark .flow-table td { color: var(--text); border-bottom-color: #2a3450; }
+body.theme-dark .narrative { background: #232946; color: var(--text); }
+body.theme-dark .chart-box { background: var(--bg); border-color: var(--c-border); }
+body.theme-dark .notes { background: #232946; color: #bbb; }
+body.theme-dark .insight-card.critical { background: #3a1f22; }
+body.theme-dark .insight-card.warning { background: #3a2e1a; }
+body.theme-dark .insight-card.info { background: #202a3a; }
+body.theme-dark .insight-card.positive { background: #1f3a2a; }
+body.theme-dark h1, body.theme-dark h2, body.theme-dark .section-title { color: var(--c-primary-light); }
+@page {
+  size: A4 landscape;
+  margin: 12mm 10mm 18mm 10mm;
+  @bottom-right { content: "Page " counter(page); font-size: 8px; color: #999; }
+  @bottom-left { content: "F-A-C株式会社 | ハローワーク求人データ分析レポート"; font-size: 8px; color: #999; }
+}
+.cover-page {
+  min-height: 180mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 20mm 15mm;
+  page-break-after: always;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--c-bg-card) 0%, var(--bg) 100%);
+  position: relative;
+  margin-bottom: 16px;
+}
+.cover-logo { width: 200px; height: 70px; display: flex; align-items: center; justify-content: center; color: var(--c-text-muted); font-size: 12px; border: 1px dashed var(--c-border); border-radius: 6px; margin-bottom: 30px; }
+.cover-title { font-size: 28px; font-weight: 700; color: var(--c-primary); margin: 8px 0 6px; letter-spacing: 0.04em; }
+.cover-sub { font-size: 16px; color: var(--text); margin-bottom: 24px; }
+.cover-grade { font-size: 14px; color: var(--text); margin-bottom: 30px; padding: 8px 16px; border: 2px solid var(--c-primary); border-radius: 6px; display: inline-block; font-weight: bold; }
+.cover-confidential { margin-top: 40px; font-size: 11px; color: var(--c-text-muted); border-top: 1px solid var(--c-border); padding-top: 14px; width: 70%; }
+.cover-footer-cov { position: absolute; bottom: 10mm; left: 0; right: 0; font-size: 10px; color: var(--c-text-muted); }
+.theme-toggle {
+  position: fixed; top: 10px; right: 160px; z-index: 100;
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--c-border); border-radius: 4px;
+  background: var(--bg); color: var(--text);
+}
+.theme-toggle:focus { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+.screen-footer {
+  margin-top: 24px; padding: 10px 16px;
+  border-top: 1px solid var(--c-border);
+  font-size: 10px; color: var(--c-text-muted);
+  display: flex; justify-content: space-between;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: "Yu Gothic","Meiryo","Hiragino Sans",sans-serif; font-size: 11px; color: #333; background: #fff; padding: 20px; }
+body { font-family: "Yu Gothic","Meiryo","Hiragino Sans",sans-serif; font-size: 11px; color: var(--text); background: var(--bg); padding: 20px; transition: background 0.2s, color 0.2s; }
 h1 { font-size: 20px; color: var(--c-primary); border-bottom: 3px solid var(--c-primary); padding-bottom: 8px; margin-bottom: 6px; }
 h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
 .subtitle { color: #666; font-size: 12px; margin-bottom: 12px; }
@@ -306,6 +369,18 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     .print-btn { display: none; }
+    .theme-toggle, .screen-footer, .no-print { display: none !important; }
+    body, body.theme-dark { background: #fff !important; color: #333 !important; }
+    body.theme-dark .flow-table th { background: #2c3e50 !important; color: #fff !important; }
+    body.theme-dark .flow-table td { color: #333 !important; background: transparent !important; }
+    body.theme-dark .flow-table tr:nth-child(even) { background: #f8f9fa !important; }
+    body.theme-dark .narrative { background: #f8f9fa !important; color: #444 !important; }
+    body.theme-dark .notes { background: #f1f5f9 !important; color: #64748b !important; }
+    body.theme-dark .insight-card.critical { background: #fef2f2 !important; }
+    body.theme-dark .insight-card.warning { background: #fffbeb !important; }
+    body.theme-dark .insight-card.info { background: #f8fafc !important; }
+    body.theme-dark .insight-card.positive { background: #f0fdf4 !important; }
+    .cover-page { page-break-after: always; border: none !important; background: #fff !important; min-height: 85vh; }
     .no-break { page-break-inside: avoid; break-inside: avoid; }
     .chart-box { page-break-inside: avoid; break-inside: avoid; }
     .insight-card { page-break-inside: avoid; break-inside: avoid; }
@@ -327,7 +402,8 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 </head>
 <body>
-<button class="print-btn" onclick="window.print()">印刷 / PDF保存</button>
+<button class="theme-toggle no-print" type="button" onclick="toggleTheme()" aria-label="ダークモード/ライトモードを切替">🌙 ダーク / ☀ ライト</button>
+<button class="print-btn" onclick="window.print()" aria-label="印刷またはPDFで保存">印刷 / PDF保存</button>
 "#);
 
     // 採用困難度グレード算出
@@ -337,6 +413,25 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         .unwrap_or(0.0);
     let grade = super::report::compute_difficulty_grade(insights, vacancy_rate);
     let top_findings = super::report::extract_top_findings(insights);
+
+    // ===== 表紙ページ =====
+    html.push_str(&format!(
+        r#"<section class="cover-page" role="region" aria-labelledby="cover-title-id">
+<!-- LOGO -->
+<div class="cover-logo" aria-label="会社ロゴ枠">[会社ロゴ]</div>
+<div class="cover-title" id="cover-title-id">ハローワーク求人市場 総合診断レポート</div>
+<div class="cover-sub">{location} &nbsp;|&nbsp; {today}</div>
+<div class="cover-grade" style="border-color:{gcolor};color:{gcolor}">採用困難度: {gletter} {glabel}</div>
+<div class="cover-confidential">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>
+<div class="cover-footer-cov">F-A-C株式会社 &nbsp;|&nbsp; 生成日時: {today}</div>
+</section>
+"#,
+        location = escape_html(&location),
+        today = escape_html(&today),
+        gcolor = grade.color,
+        gletter = grade.letter,
+        glabel = grade.label,
+    ));
 
     // ===== Page 1: エグゼクティブサマリー =====
     html.push_str("<section class=\"report-page\">");
@@ -477,6 +572,12 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     }
 
     html.push_str("</section>"); // End Page 2
+
+    // ===== 追加セクションA: 地域経済環境 =====
+    render_regional_economy_section(&mut html, ctx);
+
+    // ===== 追加セクションB: 労働力の将来リスク =====
+    render_labor_future_risk_section(&mut html, ctx);
 
     // ===== Page 3: チャート + 将来予測 =====
     html.push_str("<section class=\"report-page\">");
@@ -712,8 +813,48 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 
     html.push_str("</section>"); // End notes page
 
+    // ===== 画面用フッター =====
+    html.push_str(&format!(
+        r#"<div class="screen-footer no-print">
+<span>F-A-C株式会社 | ハローワーク求人データ分析レポート</span>
+<span>生成日時: {today}</span>
+</div>
+"#, today = escape_html(&today)));
+
     // ECharts初期化スクリプト（SVGレンダラー + 印刷/リサイズ対応）
     html.push_str(r#"<script>
+function toggleTheme() {
+  document.body.classList.toggle('theme-dark');
+  try {
+    localStorage.setItem('report-theme',
+      document.body.classList.contains('theme-dark') ? 'dark' : 'light');
+  } catch(e) {}
+}
+(function() {
+  try {
+    if (localStorage.getItem('report-theme') === 'dark') {
+      document.body.classList.add('theme-dark');
+    }
+  } catch(e) {}
+})();
+document.addEventListener('DOMContentLoaded', function() {
+  // a11y: セクション/テーブルに role/aria を付与
+  document.querySelectorAll('.report-page').forEach(function(s, i) {
+    if (!s.getAttribute('role')) s.setAttribute('role', 'region');
+    var h = s.querySelector('h1, h2, .section-title');
+    if (h) {
+      if (!h.id) h.id = 'rp-heading-' + i;
+      s.setAttribute('aria-labelledby', h.id);
+    }
+  });
+  document.querySelectorAll('.sortable-table').forEach(function(t) {
+    t.setAttribute('role', 'grid');
+    t.querySelectorAll('th').forEach(function(th) {
+      th.setAttribute('aria-sort', 'none');
+      th.setAttribute('tabindex', '0');
+    });
+  });
+});
 document.addEventListener('DOMContentLoaded', function() {
     var charts = [];
     document.querySelectorAll('.report-chart[data-chart-config]').forEach(function(el) {
@@ -737,8 +878,9 @@ function initSortableTables() {
         if (!tbody) return;
         var rows = Array.from(tbody.querySelectorAll('tr'));
         var isAsc = th.classList.contains('sort-asc');
-        table.querySelectorAll('th').forEach(function(h) { h.classList.remove('sort-asc','sort-desc'); });
+        table.querySelectorAll('th').forEach(function(h) { h.classList.remove('sort-asc','sort-desc'); h.setAttribute('aria-sort','none'); });
         th.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+        th.setAttribute('aria-sort', isAsc ? 'descending' : 'ascending');
         rows.sort(function(a,b) {
           var at = a.children[colIdx] ? a.children[colIdx].textContent.trim() : '';
           var bt = b.children[colIdx] ? b.children[colIdx].textContent.trim() : '';
@@ -777,4 +919,340 @@ fn report_kpi(html: &mut String, label: &str, value: &str, color: &str, subtitle
         ));
     }
     html.push_str("</div>");
+}
+
+// ======== 追加セクション: 外部統計データ統合 ========
+
+/// ECharts設定JSONをdata属性に埋め込んだチャートdivを生成
+/// （既存の .report-chart[data-chart-config] 初期化スクリプトで描画される）
+fn render_echarts_div(chart_json: &str, height_px: u32) -> String {
+    // data属性内のシングルクオート衝突を回避
+    let escaped = chart_json.replace('\'', "&#39;");
+    format!(
+        r#"<div class="report-chart" style="width:100%;height:{}px;" data-chart-config='{}'></div>"#,
+        height_px, escaped
+    )
+}
+
+/// セクションA: 地域経済環境（Page 2の後に挿入）
+/// - 事業所統計 TOP10（水平棒グラフ）
+/// - 企業新陳代謝（開業率/廃業率 折れ線）
+/// - 人口移動（転入超過KPI）
+fn render_regional_economy_section(html: &mut String, ctx: &InsightContext) {
+    // 3データ全て空ならセクション自体をスキップ
+    if ctx.ext_establishments.is_empty()
+        && ctx.ext_business_dynamics.is_empty()
+        && ctx.ext_migration.is_empty()
+    {
+        return;
+    }
+
+    html.push_str("<section class=\"report-page\">");
+    html.push_str("<div class=\"section-title\">地域経済環境</div>");
+    html.push_str("<div class=\"section-question\">この地域の経済規模・新陳代謝・人口の流出入はどうなっているか?</div>");
+
+    // --- 1. 事業所統計 TOP10 ---
+    if !ctx.ext_establishments.is_empty() {
+        let top: Vec<(String, i64)> = ctx.ext_establishments.iter()
+            .map(|r| (get_str_ref(r, "industry").to_string(), get_i64(r, "establishment_count")))
+            .filter(|(_, c)| *c > 0)
+            .take(10)
+            .collect();
+
+        if !top.is_empty() {
+            // 水平棒グラフ: 上位を上に表示するためデータを逆順に
+            let mut ordered = top.clone();
+            ordered.reverse();
+            let categories = serde_json::Value::Array(
+                ordered.iter().map(|(n, _)| serde_json::Value::String(n.clone())).collect()
+            );
+            let values = serde_json::Value::Array(
+                ordered.iter().map(|(_, v)| serde_json::json!(*v)).collect()
+            );
+            let chart = serde_json::json!({
+                "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+                "grid": {"left": "3%", "right": "8%", "top": "3%", "bottom": "3%", "containLabel": true},
+                "xAxis": {"type": "value"},
+                "yAxis": {"type": "category", "data": categories, "axisLabel": {"fontSize": 9}},
+                "series": [{
+                    "type": "bar",
+                    "data": values,
+                    "itemStyle": {"color": "#1a5276"},
+                    "label": {"show": true, "position": "right", "fontSize": 9}
+                }]
+            });
+
+            html.push_str("<div class=\"chart-box no-break\">");
+            html.push_str("<h3>産業別事業所数 TOP10</h3>");
+            html.push_str(&render_echarts_div(&chart.to_string(), 320));
+            let total: i64 = top.iter().map(|(_, v)| *v).sum();
+            html.push_str(&format!(
+                r#"<div class="chart-interp">TOP10合計: {}件。事業所数が多い産業は雇用の受け皿となるが、同時に採用競合も多い。</div>"#,
+                format_number(total)
+            ));
+            html.push_str("</div>");
+        }
+    }
+
+    // --- 2. 企業新陳代謝（開業率/廃業率） ---
+    if !ctx.ext_business_dynamics.is_empty() {
+        let years: Vec<String> = ctx.ext_business_dynamics.iter()
+            .map(|r| get_str_ref(r, "fiscal_year").to_string())
+            .collect();
+        let opening: Vec<f64> = ctx.ext_business_dynamics.iter()
+            .map(|r| get_f64(r, "opening_rate"))
+            .collect();
+        let closure: Vec<f64> = ctx.ext_business_dynamics.iter()
+            .map(|r| get_f64(r, "closure_rate"))
+            .collect();
+
+        let has_data = opening.iter().any(|v| *v > 0.0) || closure.iter().any(|v| *v > 0.0);
+
+        if has_data {
+            let chart = serde_json::json!({
+                "tooltip": {"trigger": "axis"},
+                "legend": {"data": ["開業率", "廃業率"], "textStyle": {"fontSize": 10}, "top": 0},
+                "grid": {"left": "3%", "right": "3%", "top": "18%", "bottom": "8%", "containLabel": true},
+                "xAxis": {"type": "category", "data": years, "axisLabel": {"fontSize": 9}},
+                "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
+                "series": [
+                    {"name": "開業率", "type": "line", "data": opening, "smooth": true, "itemStyle": {"color": "#059669"}},
+                    {"name": "廃業率", "type": "line", "data": closure, "smooth": true, "itemStyle": {"color": "#dc2626"}}
+                ]
+            });
+
+            html.push_str("<div class=\"chart-box no-break\">");
+            html.push_str("<h3>企業新陳代謝（開業率 / 廃業率の推移）</h3>");
+            html.push_str(&render_echarts_div(&chart.to_string(), 260));
+
+            // 最新年度の開業-廃業ギャップを解釈
+            let latest_open = opening.last().copied().unwrap_or(0.0);
+            let latest_close = closure.last().copied().unwrap_or(0.0);
+            let net = latest_open - latest_close;
+            let interp = if net > 0.5 {
+                format!("最新年度は開業率({:.1}%)が廃業率({:.1}%)を上回り、新規参入が活発な成長市場。", latest_open, latest_close)
+            } else if net < -0.5 {
+                format!("最新年度は廃業率({:.1}%)が開業率({:.1}%)を上回り、企業減少局面。既存企業の採用枠確保に注意。", latest_close, latest_open)
+            } else {
+                format!("開業率{:.1}% / 廃業率{:.1}%で均衡。市場は安定局面。", latest_open, latest_close)
+            };
+            html.push_str(&format!(r#"<div class="chart-interp">{}</div>"#, escape_html(&interp)));
+            html.push_str("</div>");
+        }
+    }
+
+    // --- 3. 人口移動（転入・転出・社会増減） ---
+    if let Some(row) = ctx.ext_migration.first() {
+        let inflow = get_i64(row, "inflow");
+        let outflow = get_i64(row, "outflow");
+        let net = get_i64(row, "net_migration");
+        let net_rate = get_f64(row, "net_migration_rate");
+
+        if inflow > 0 || outflow > 0 {
+            html.push_str(r#"<div class="chart-box no-break"><h3>人口移動（転入・転出）</h3>"#);
+            html.push_str(r#"<div class="kpi-grid">"#);
+            report_kpi(html, "転入数", &format!("{}人", format_number(inflow)), "#059669", "他地域から流入");
+            report_kpi(html, "転出数", &format!("{}人", format_number(outflow)), "#dc2626", "他地域へ流出");
+            let (net_color, net_label) = if net > 0 { ("#059669", "転入超過") }
+                else if net < 0 { ("#dc2626", "転出超過") }
+                else { ("#666", "均衡") };
+            report_kpi(html, "社会増減", &format!("{:+}人", net), net_color, net_label);
+            if net_rate.abs() > 0.01 {
+                report_kpi(html, "社会増減率", &format!("{:+.2}‰", net_rate), net_color, "千人当たり");
+            }
+            html.push_str("</div>");
+            let interp = if net > 0 {
+                "転入超過 = 労働力の外部流入があり、採用の供給源として期待できる。".to_string()
+            } else if net < 0 {
+                "転出超過 = 若年層流出の可能性。地域内採用が難化する構造要因。".to_string()
+            } else {
+                "人口移動は均衡。地域内の労働力供給が中心。".to_string()
+            };
+            html.push_str(&format!(r#"<div class="chart-interp">{}</div>"#, escape_html(&interp)));
+            html.push_str("</div>");
+        }
+    }
+
+    // --- 4. 読み方ガイド ---
+    html.push_str(r#"<div class="guide-grid">
+<div class="guide-item"><strong>事業所数</strong>この地域に立地する事業所の数。多い=ビジネス集積地=採用競合も多い。</div>
+<div class="guide-item"><strong>開業率</strong>新設事業所の登場率。高い=成長市場、新規求人の創出余地あり。</div>
+<div class="guide-item"><strong>廃業率</strong>事業所の退出率。高い=競争激化または市場縮小の兆候。</div>
+<div class="guide-item"><strong>社会増減</strong>転入-転出の差。プラス=人口流入地域、マイナス=流出地域。</div>
+</div>"#);
+
+    html.push_str("</section>");
+}
+
+/// セクションB: 労働力の将来リスク（Page 3の前に挿入）
+/// - 介護需要（施設数 vs 高齢者数）
+/// - 気象条件（降雪日数・日照時間）
+/// - 家計支出（カテゴリ別構成比）
+fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
+    if ctx.ext_care_demand.is_empty()
+        && ctx.ext_climate.is_empty()
+        && ctx.ext_household_spending.is_empty()
+    {
+        return;
+    }
+
+    html.push_str("<section class=\"report-page\">");
+    html.push_str("<div class=\"section-title\">労働力の将来リスク</div>");
+    html.push_str("<div class=\"section-question\">将来の労働需要・地域特性・生活コストにどんなリスクが潜むか?</div>");
+
+    // --- 1. 介護需要（最新年度のスナップショット） ---
+    if let Some(row) = ctx.ext_care_demand.last() {
+        let nursing_home = get_i64(row, "nursing_home_count");
+        let health_facility = get_i64(row, "health_facility_count");
+        let home_care = get_i64(row, "home_care_offices");
+        let day_service = get_i64(row, "day_service_offices");
+        let pop_65 = get_i64(row, "pop_65_over");
+        let pop_75 = get_i64(row, "pop_75_over");
+        let rate_65 = get_f64(row, "pop_65_over_rate");
+        let year = get_str_ref(row, "fiscal_year");
+
+        let total_facilities = nursing_home + health_facility + home_care + day_service;
+
+        if total_facilities > 0 || pop_65 > 0 {
+            html.push_str(r#"<div class="chart-box no-break">"#);
+            html.push_str(&format!(r#"<h3>介護需要（{}年度）</h3>"#, escape_html(&year)));
+            html.push_str(r#"<div class="two-col">"#);
+
+            // 左: 施設数
+            html.push_str(r#"<div>"#);
+            if nursing_home > 0 {
+                report_metric(html, "特養（特別養護老人ホーム）", &format!("{}施設", format_number(nursing_home)));
+            }
+            if health_facility > 0 {
+                report_metric(html, "老健（介護老人保健施設）", &format!("{}施設", format_number(health_facility)));
+            }
+            if home_care > 0 {
+                report_metric(html, "訪問介護事業所", &format!("{}事業所", format_number(home_care)));
+            }
+            if day_service > 0 {
+                report_metric(html, "通所介護事業所", &format!("{}事業所", format_number(day_service)));
+            }
+            html.push_str(r#"</div>"#);
+
+            // 右: 高齢者人口
+            html.push_str(r#"<div>"#);
+            if pop_65 > 0 {
+                report_metric(html, "65歳以上人口", &format!("{}人", format_number(pop_65)));
+            }
+            if pop_75 > 0 {
+                report_metric(html, "75歳以上人口", &format!("{}人", format_number(pop_75)));
+            }
+            if rate_65 > 0.0 {
+                report_metric(html, "高齢化率", &format!("{:.1}%", rate_65));
+            }
+            // 施設あたり高齢者数
+            if total_facilities > 0 && pop_65 > 0 {
+                let per_facility = pop_65 / total_facilities;
+                report_metric(html, "施設1件あたり65歳以上", &format!("{}人", format_number(per_facility)));
+            }
+            html.push_str(r#"</div>"#);
+
+            html.push_str("</div>"); // two-col
+
+            let interp = if rate_65 >= 30.0 {
+                "高齢化率30%超。介護職採用需要が構造的に高く、長期的に供給逼迫が続く可能性。"
+            } else if rate_65 >= 25.0 {
+                "高齢化率25%以上。介護需要は今後も拡大基調。採用競合との差別化が必要。"
+            } else if rate_65 > 0.0 {
+                "高齢化率は全国平均水準。介護採用は中長期で漸増の見込み。"
+            } else {
+                "介護需要の参考データ。施設数と人口規模から市場規模を把握。"
+            };
+            html.push_str(&format!(r#"<div class="chart-interp">{}</div>"#, escape_html(interp)));
+            html.push_str("</div>");
+        }
+    }
+
+    // --- 2. 気象条件（最新年度） ---
+    if let Some(row) = ctx.ext_climate.last() {
+        let snow_days = get_f64(row, "snow_days");
+        let sunshine = get_f64(row, "sunshine_hours");
+        let avg_temp = get_f64(row, "avg_temperature");
+        let precipitation = get_f64(row, "precipitation");
+        let year = get_str_ref(row, "fiscal_year");
+
+        if snow_days > 0.0 || sunshine > 0.0 || avg_temp.abs() > 0.01 {
+            html.push_str(r#"<div class="chart-box no-break">"#);
+            html.push_str(&format!(r#"<h3>気象条件（{}年度・地域特性理解）</h3>"#, escape_html(&year)));
+            html.push_str(r#"<div class="kpi-grid">"#);
+            if avg_temp.abs() > 0.01 {
+                report_kpi(html, "年平均気温", &format!("{:.1}℃", avg_temp), "#2874a6", "");
+            }
+            if snow_days > 0.0 {
+                let snow_color = if snow_days > 60.0 { "#dc2626" } else if snow_days > 20.0 { "#d97706" } else { "#2874a6" };
+                let snow_sub = if snow_days > 60.0 { "多雪地域" } else if snow_days > 20.0 { "一定の積雪" } else { "少雪" };
+                report_kpi(html, "降雪日数", &format!("{:.0}日", snow_days), snow_color, snow_sub);
+            }
+            if sunshine > 0.0 {
+                report_kpi(html, "年間日照時間", &format!("{:.0}h", sunshine), "#f59e0b", "");
+            }
+            if precipitation > 0.0 {
+                report_kpi(html, "年間降水量", &format!("{:.0}mm", precipitation), "#0891b2", "");
+            }
+            html.push_str("</div>");
+            let interp = if snow_days > 60.0 {
+                "多雪地域は冬季の通勤負荷が高く、通勤圏が狭くなりやすい。屋内勤務の訴求が有効。"
+            } else if snow_days > 20.0 {
+                "積雪期がある地域。冬季の通勤条件（除雪、車通勤可否等）が採用訴求ポイント。"
+            } else {
+                "気候条件による通勤制約は限定的。広域採用が設計しやすい。"
+            };
+            html.push_str(&format!(r#"<div class="chart-interp">{}</div>"#, escape_html(interp)));
+            html.push_str("</div>");
+        }
+    }
+
+    // --- 3. 家計支出（カテゴリ別構成比） ---
+    if !ctx.ext_household_spending.is_empty() {
+        let items: Vec<(String, f64)> = ctx.ext_household_spending.iter()
+            .map(|r| (get_str_ref(r, "category").to_string(), get_f64(r, "monthly_amount")))
+            .filter(|(_, v)| *v > 0.0)
+            .take(8)
+            .collect();
+
+        if !items.is_empty() {
+            let data: Vec<serde_json::Value> = items.iter()
+                .map(|(name, value)| serde_json::json!({"name": name, "value": *value}))
+                .collect();
+
+            let chart = serde_json::json!({
+                "tooltip": {"trigger": "item", "formatter": "{b}: {c}円 ({d}%)"},
+                "legend": {"orient": "vertical", "right": 10, "top": "center", "textStyle": {"fontSize": 9}},
+                "series": [{
+                    "type": "pie",
+                    "radius": ["40%", "70%"],
+                    "center": ["35%", "50%"],
+                    "data": data,
+                    "label": {"show": true, "fontSize": 9, "formatter": "{b}\n{d}%"},
+                    "itemStyle": {"borderRadius": 4, "borderColor": "#fff", "borderWidth": 1}
+                }]
+            });
+
+            let total: f64 = items.iter().map(|(_, v)| *v).sum();
+
+            html.push_str("<div class=\"chart-box no-break\">");
+            html.push_str("<h3>家計支出（カテゴリ別月額構成比）</h3>");
+            html.push_str(&render_echarts_div(&chart.to_string(), 280));
+            html.push_str(&format!(
+                r#"<div class="chart-interp">月額合計: 約{}円。支出構成は地域の生活コスト水準を示し、賃金設計の基準となる。</div>"#,
+                format_number(total as i64)
+            ));
+            html.push_str("</div>");
+        }
+    }
+
+    // --- 4. 読み方ガイド ---
+    html.push_str(r#"<div class="guide-grid">
+<div class="guide-item"><strong>高齢化率</strong>65歳以上人口比率。高い=介護需要増、労働力供給減のダブルリスク。</div>
+<div class="guide-item"><strong>降雪日数</strong>冬季の通勤負荷の目安。多雪地域は実質通勤圏が縮小する。</div>
+<div class="guide-item"><strong>日照時間</strong>気候快適性の指標。地域生活の魅力度の一要素。</div>
+<div class="guide-item"><strong>家計支出</strong>地域の生活コスト水準。賃金設定と実質可処分所得の評価に使用。</div>
+</div>"#);
+
+    html.push_str("</section>");
 }
