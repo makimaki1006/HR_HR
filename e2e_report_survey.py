@@ -60,8 +60,11 @@ def make_mock_csv():
 def ss(page, name, full=False):
     time.sleep(2)
     path = os.path.join(DIR, f"rep_{name}.png")
-    page.screenshot(path=path, full_page=full)
-    print(f"    [screenshot] rep_{name}.png")
+    try:
+        page.screenshot(path=path, full_page=full, timeout=15000)
+        print(f"    [screenshot] rep_{name}.png")
+    except Exception as e:
+        print(f"    [screenshot-FAIL] rep_{name}.png: {type(e).__name__}")
 
 def check(label, cond):
     status = "PASS" if cond else "FAIL"
@@ -208,13 +211,41 @@ def main():
         time.sleep(2)
         ss(page, "02b_file_selected")
 
-        # onchange発火しない場合に備えて submitSurveyCSV を手動で呼ぶ
-        page.evaluate(
+        # submitSurveyCSV呼び出し前のデバッグ
+        debug = page.evaluate(
             "(function(){var i=document.querySelector('input[type=\"file\"]');"
-            "if(i&&i.files&&i.files[0]&&typeof window.submitSurveyCSV==='function')"
-            "{window.submitSurveyCSV(i.files[0]);}})()"
+            "return {"
+            "hasInput: !!i,"
+            "fileCount: i && i.files ? i.files.length : -1,"
+            "firstFileName: i && i.files && i.files[0] ? i.files[0].name : null,"
+            "firstFileSize: i && i.files && i.files[0] ? i.files[0].size : null,"
+            "hasSubmitFunc: typeof window.submitSurveyCSV === 'function'"
+            "};})()"
         )
-        time.sleep(15)
+        print(f"  [INFO] アップロード前デバッグ: {debug}")
+
+        if debug.get('fileCount', 0) > 0 and debug.get('hasSubmitFunc'):
+            upload_result = page.evaluate(
+                "(function(){var i=document.querySelector('input[type=\"file\"]');"
+                "try { window.submitSurveyCSV(i.files[0]); return 'called'; }"
+                "catch(e) { return 'error: ' + e.message; }})()"
+            )
+            print(f"  [INFO] submitSurveyCSV呼び出し結果: {upload_result}")
+        else:
+            print(f"  [ERROR] 前提条件満たさず: {debug}")
+
+        # アップロードレスポンスを待つ（最大25秒）
+        for wait_sec in range(25):
+            result_text = page.evaluate("""
+                (function(){
+                    var r = document.getElementById('survey-result');
+                    return r ? (r.textContent || '').length : 0;
+                })()
+            """)
+            if result_text > 100:
+                print(f"  [INFO] アップロード結果受信 ({wait_sec+1}秒, {result_text}文字)")
+                break
+            time.sleep(1)
         ss(page, "02c_after_upload")
 
         body = page.text_content("body") or ""

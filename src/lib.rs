@@ -6,7 +6,7 @@ pub mod handlers;
 pub mod models;
 
 use axum::{
-    extract::{Form, FromRequest, State},
+    extract::{DefaultBodyLimit, Form, FromRequest, State},
     middleware,
     response::{Html, IntoResponse, Redirect},
     routing::{get, post},
@@ -26,6 +26,12 @@ use auth::{
 use config::AppConfig;
 use db::cache::AppCache;
 use models::job_seeker::PREFECTURE_ORDER;
+
+/// アップロード上限（ボディサイズ）: 20MB
+/// - CSVは通常 数MB 以下。20MBで常用範囲を大幅にカバーしつつ、
+///   意図しない巨大アップロード(50MB/100MB 等)は 413 で即拒否。
+/// - 将来、allowlisted なルートで 100MB 等へ拡張するため定数で定義。
+pub const UPLOAD_BODY_LIMIT_BYTES: usize = 20 * 1024 * 1024;
 
 /// アプリケーション共有状態
 pub struct AppState {
@@ -94,7 +100,13 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/insight/report/xlsx", get(handlers::insight::insight_report_xlsx))
         .route("/report/insight", get(handlers::insight::insight_report_html))
         .route("/tab/survey", get(handlers::survey::tab_survey))
-        .route("/api/survey/upload", post(handlers::survey::upload_csv))
+        .route(
+            "/api/survey/upload",
+            post(handlers::survey::upload_csv)
+                // 20MB超のアップロードは 413 Payload Too Large で即拒否。
+                // Render無料プランのタイムアウト(502)より前にアプリ層で明示拒否する。
+                .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
+        )
         .route("/api/survey/analyze", get(handlers::survey::analyze_survey))
         .route("/api/survey/integrate", get(handlers::survey::integrate_report))
         .route("/api/survey/report", get(handlers::survey::report_json))

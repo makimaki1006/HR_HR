@@ -55,6 +55,23 @@ pub fn escape_html(s: &str) -> String {
         .replace('\'', "&#x27;")
 }
 
+/// URL/href/src属性用のエスケープ。
+/// javascript:, data:, vbscript: などの危険スキームを拒否して
+/// "#" に置換する。安全なURL(http/https/相対/アンカー)はHTMLエスケープのみ適用。
+pub fn escape_url_attr(url: &str) -> String {
+    let lower = url.trim().to_lowercase();
+    const DANGEROUS_SCHEMES: &[&str] = &[
+        "javascript:", "data:", "vbscript:", "file:",
+    ];
+    for scheme in DANGEROUS_SCHEMES {
+        if lower.starts_with(scheme) {
+            return "#".to_string();
+        }
+    }
+    // さらに &, <, >, " をエスケープ
+    escape_html(url)
+}
+
 /// 数値を3桁区切りフォーマット
 pub fn format_number(n: i64) -> String {
     let s = n.to_string();
@@ -114,4 +131,39 @@ pub fn table_exists(db: &crate::db::local_sqlite::LocalDb, name: &str) -> bool {
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
         &[&name],
     ).unwrap_or(0) > 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_url_attr_javascript() {
+        assert_eq!(escape_url_attr("javascript:alert(1)"), "#");
+        assert_eq!(escape_url_attr("JAVASCRIPT:alert(1)"), "#");  // 大文字小文字無視
+        assert_eq!(escape_url_attr("  javascript:alert(1)"), "#");  // 前後空白
+    }
+
+    #[test]
+    fn test_escape_url_attr_data() {
+        assert_eq!(escape_url_attr("data:text/html,<script>alert(1)</script>"), "#");
+    }
+
+    #[test]
+    fn test_escape_url_attr_safe() {
+        assert_eq!(escape_url_attr("https://example.com/"), "https://example.com/");
+        assert_eq!(escape_url_attr("/relative/path"), "/relative/path");
+        assert_eq!(escape_url_attr("#anchor"), "#anchor");
+    }
+
+    #[test]
+    fn test_escape_url_attr_html_special() {
+        assert_eq!(escape_url_attr("https://example.com/?a=1&b=2"), "https://example.com/?a=1&amp;b=2");
+    }
+
+    #[test]
+    fn test_escape_url_attr_vbscript_file() {
+        assert_eq!(escape_url_attr("vbscript:msgbox(1)"), "#");
+        assert_eq!(escape_url_attr("file:///etc/passwd"), "#");
+    }
 }
