@@ -201,6 +201,64 @@ pub fn build_app(state: Arc<AppState>) -> Router {
 
 // --- ミドルウェア ---
 
+/// 許可されたOriginのリスト（本番ドメインとローカル開発）
+const ALLOWED_ORIGINS: &[&str] = &[
+    "https://hr-hw.onrender.com",
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8080",
+];
+
+/// CSRF保護: POSTリクエストに対してOrigin/Refererヘッダーを検証
+fn check_csrf(request: &axum::extract::Request) -> Result<(), &'static str> {
+    // GET/HEAD/OPTIONSは安全メソッドなのでスキップ
+    let method = request.method();
+    if method == axum::http::Method::GET
+        || method == axum::http::Method::HEAD
+        || method == axum::http::Method::OPTIONS {
+        return Ok(());
+    }
+
+    let headers = request.headers();
+
+    // Originヘッダー優先、なければRefererフォールバック
+    let origin = headers.get("origin")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let referer_origin = headers.get("referer")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| {
+            // refererから origin部分（scheme://host[:port]）を手動抽出
+            // 例: "https://hr-hw.onrender.com/tab/market" → "https://hr-hw.onrender.com"
+            let after_scheme = if let Some(pos) = s.find("://") {
+                let scheme = &s[..pos];
+                let rest = &s[pos + 3..];
+                let host_end = rest.find('/').unwrap_or(rest.len());
+                Some(format!("{}://{}", scheme, &rest[..host_end]))
+            } else {
+                None
+            };
+            after_scheme
+        });
+
+    let check_origin = origin.as_deref().or(referer_origin.as_deref());
+
+    match check_origin {
+        Some(o) if ALLOWED_ORIGINS.contains(&o) => Ok(()),
+        Some(o) => {
+            tracing::warn!("CSRF: rejected origin/referer: {}", o);
+            Err("CSRF: invalid origin")
+        }
+        None => {
+            // Originもrefererもない場合は拒否（same-originフェッチは通常どちらかが付く）
+            tracing::warn!("CSRF: missing origin and referer headers");
+            Err("CSRF: missing origin header")
+        }
+    }
+}
+
 async fn auth_middleware(
     session: Session,
     State(_state): State<Arc<AppState>>,
@@ -211,6 +269,15 @@ async fn auth_middleware(
     if path == "/login" || path == "/logout" || path == "/health" || path.starts_with("/static") {
         return next.run(request).await;
     }
+
+    // CSRF保護: 書き込み系リクエストに対してOrigin/Referer検証
+    if let Err(msg) = check_csrf(&request) {
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            format!("Forbidden: {}", msg),
+        ).into_response();
+    }
+
     require_auth(session, request, next).await
 }
 
