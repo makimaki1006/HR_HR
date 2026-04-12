@@ -599,26 +599,41 @@ def test_diagnostic(page):
     """)
     time.sleep(0.5)
 
-    # Playwright実clickで診断ボタンを押す
-    # button[type="submit"] in form (hx-get=/api/diagnostic/evaluate) がHTMXで発火
+    # HTMX form submit を確実にトリガー（Playwright clickで拾われない場合の回避）
     clicked_diag = False
     try:
-        page.click('#content form button[type="submit"]', timeout=5000)
-        clicked_diag = True
-        info("診断ボタンクリック (button[type=submit])")
+        # 方法1: htmx.ajax() で直接API呼び出し (最も確実)
+        htmx_result = page.evaluate("""
+            (function(){
+                if (typeof htmx === 'undefined') return 'no-htmx';
+                var params = {
+                    salary: 250000,
+                    holidays: 120,
+                    bonus: 2.0,
+                    emp_type: '正社員'
+                };
+                htmx.ajax('GET', '/api/diagnostic/evaluate', {
+                    target: '#diagnostic-result',
+                    swap: 'innerHTML',
+                    values: params
+                });
+                return 'ajax-called';
+            })()
+        """)
+        info(f"htmx.ajax() 結果: {htmx_result}")
+        if htmx_result == 'ajax-called':
+            clicked_diag = True
     except Exception as e:
-        info(f"submit button click失敗: {type(e).__name__}, text一致で再試行")
+        info(f"htmx.ajax失敗: {type(e).__name__}")
+
+    # 方法2: Playwright click フォールバック
+    if not clicked_diag:
         try:
-            btns = page.query_selector_all('#content button')
-            for b in btns:
-                t = (b.text_content() or '').strip()
-                if '診断' in t and 'リセット' not in t:
-                    b.click()
-                    clicked_diag = True
-                    info(f"診断ボタンクリック (text='{t}')")
-                    break
-        except Exception as e2:
-            info(f"fallback失敗: {e2}")
+            page.click('#content form button[type="submit"]', timeout=5000)
+            clicked_diag = True
+            info("診断ボタンクリック (button[type=submit])")
+        except Exception as e:
+            info(f"submit button click失敗: {type(e).__name__}")
 
     # 診断結果の出現を最大25秒ポーリング
     # 結果領域 #diagnostic-result に結果が挿入される

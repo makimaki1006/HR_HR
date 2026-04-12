@@ -43,13 +43,30 @@ pub(crate) fn render_survey_report_page(
     html.push_str("<script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>\n");
     html.push_str("</head>\n<body>\n");
 
-    // --- 印刷ボタン ---
+    // --- テーマ切替 + 印刷ボタン ---
     html.push_str("<div class=\"no-print\" style=\"text-align:right;padding:8px 16px;\">\n");
-    html.push_str("<button onclick=\"window.print()\" style=\"padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #666;border-radius:4px;background:#fff;\">印刷 / PDF保存</button>\n");
+    html.push_str("<button class=\"theme-toggle\" type=\"button\" onclick=\"toggleTheme()\" aria-label=\"ダークモード/ライトモードを切替\">\u{1F319} ダーク / \u{2600} ライト</button>\n");
+    html.push_str("<button onclick=\"window.print()\" aria-label=\"印刷またはPDFで保存\" style=\"padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #666;border-radius:4px;background:#fff;\">印刷 / PDF保存</button>\n");
     html.push_str("</div>\n");
 
+    // --- 表紙ページ ---
+    let today_short = chrono::Local::now().format("%Y年%m月").to_string();
+    html.push_str("<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n");
+    html.push_str("<!-- LOGO -->\n");
+    html.push_str("<div class=\"cover-logo\" aria-label=\"会社ロゴ枠\">[会社ロゴ]</div>\n");
+    html.push_str("<div class=\"cover-title\" id=\"cover-title\">ハローワーク求人市場 総合診断レポート</div>\n");
+    html.push_str("<div class=\"cover-sub\">競合調査分析 &nbsp;|&nbsp; ");
+    html.push_str(&escape_html(&today_short));
+    html.push_str("</div>\n");
+    html.push_str("<div class=\"cover-confidential\">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>\n");
+    html.push_str(&format!(
+        "<div class=\"cover-footer\">F-A-C株式会社 &nbsp;|&nbsp; 生成日時: {}</div>\n",
+        escape_html(&now)
+    ));
+    html.push_str("</section>\n");
+
     // --- ヘッダー ---
-    html.push_str("<h1 style=\"text-align:center;margin:0 0 4px;\">競合調査レポート</h1>\n");
+    html.push_str("<h1 style=\"text-align:center;margin:0 0 4px;\" id=\"report-main-title\">競合調査レポート</h1>\n");
     html.push_str(&format!(
         "<p style=\"text-align:center;color:#666;margin:0 0 16px;font-size:12px;\">生成日時: {}</p>\n",
         escape_html(&now)
@@ -85,11 +102,17 @@ pub(crate) fn render_survey_report_page(
     // --- セクション10: 求職者心理分析 ---
     render_section_job_seeker(&mut html, seeker);
 
-    // --- フッター ---
+    // --- フッター（本文末尾の注記） ---
     html.push_str("<div class=\"section\" style=\"text-align:center;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:8px;margin-top:24px;\">\n");
     html.push_str(&format!("生成日時: {} | ", escape_html(&now)));
     html.push_str("データソース: CSVアップロード分析結果 | ");
     html.push_str("※本レポートはアップロードされたCSVデータに基づく分析です。ハローワーク掲載求人のみが対象であり、全求人市場を反映するものではありません。\n");
+    html.push_str("</div>\n");
+
+    // --- 画面下部フッター（印刷時は @page footer を使用） ---
+    html.push_str("<div class=\"screen-footer no-print\">\n");
+    html.push_str("<span>F-A-C株式会社 | ハローワーク求人データ分析レポート</span>\n");
+    html.push_str(&format!("<span>生成日時: {}</span>\n", escape_html(&now)));
     html.push_str("</div>\n");
 
     // --- ECharts初期化スクリプト + ソート可能テーブル ---
@@ -105,6 +128,41 @@ pub(crate) fn render_survey_report_page(
 
 fn render_scripts() -> String {
     r#"<script>
+function toggleTheme() {
+  document.body.classList.toggle('theme-dark');
+  try {
+    localStorage.setItem('report-theme',
+      document.body.classList.contains('theme-dark') ? 'dark' : 'light');
+  } catch(e) {}
+}
+(function() {
+  try {
+    if (localStorage.getItem('report-theme') === 'dark') {
+      document.body.classList.add('theme-dark');
+    }
+  } catch(e) {}
+})();
+(function() {
+  // ソート可能テーブルに role=grid / aria-sort を付与
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.sortable-table').forEach(function(t) {
+      t.setAttribute('role', 'grid');
+      t.querySelectorAll('th').forEach(function(th) {
+        th.setAttribute('aria-sort', 'none');
+        th.setAttribute('tabindex', '0');
+      });
+    });
+    // セクションに role=region 付与
+    document.querySelectorAll('.section').forEach(function(s, i) {
+      if (!s.getAttribute('role')) s.setAttribute('role', 'region');
+      var h = s.querySelector('h2');
+      if (h && !h.id) {
+        h.id = 'section-' + i;
+        s.setAttribute('aria-labelledby', h.id);
+      }
+    });
+  });
+})();
 (function() {
   var charts = [];
   document.querySelectorAll('.echart[data-chart-config]').forEach(function(el) {
@@ -130,8 +188,9 @@ function initSortableTables() {
         if (!tbody) return;
         var rows = Array.from(tbody.querySelectorAll('tr'));
         var isAsc = th.classList.contains('sort-asc');
-        table.querySelectorAll('th').forEach(function(h) { h.classList.remove('sort-asc','sort-desc'); });
+        table.querySelectorAll('th').forEach(function(h) { h.classList.remove('sort-asc','sort-desc'); h.setAttribute('aria-sort','none'); });
         th.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+        th.setAttribute('aria-sort', isAsc ? 'descending' : 'ascending');
         rows.sort(function(a,b) {
           var at = a.children[colIdx] ? a.children[colIdx].textContent.trim() : '';
           var bt = b.children[colIdx] ? b.children[colIdx].textContent.trim() : '';
@@ -165,13 +224,35 @@ fn render_css() -> String {
   --c-text-muted: #888;
   --c-border: #e0e0e0;
   --c-bg-card: #f5f9ff;
+  --bg: #ffffff;
+  --text: #1a1a2e;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
   --radius: 8px;
 }
 
+body.theme-dark {
+  --c-primary: #64b5f6;
+  --c-primary-light: #90caf9;
+  --c-text: #e6e6f0;
+  --c-text-muted: #aaa;
+  --c-border: #37415a;
+  --c-bg-card: #232946;
+  --bg: #1a1a2e;
+  --text: #e6e6f0;
+}
+body.theme-dark table th { background: #283350; color: #90caf9; border-bottom-color: #3a4a6a; }
+body.theme-dark table td { border-bottom-color: #2a3450; }
+body.theme-dark tr:nth-child(even) td { background: #20283d; }
+body.theme-dark .highlight-box { background: #1f3a2a; border-color: #2e5b40; color: #d4f4dd; }
+body.theme-dark .warning-box { background: #3a2e1a; border-color: #6b5020; color: #ffe0b2; }
+body.theme-dark .stat-box { background: #232946; border-color: #37415a; }
+body.theme-dark .guide-item { background: #232946; border-color: #37415a; }
+
 @page {
   size: A4 portrait;
-  margin: 8mm 10mm;
+  margin: 8mm 10mm 18mm 10mm;
+  @bottom-right { content: "Page " counter(page); font-size: 8px; color: #999; }
+  @bottom-left { content: "F-A-C株式会社 | ハローワーク求人データ分析レポート"; font-size: 8px; color: #999; }
 }
 
 * { box-sizing: border-box; }
@@ -180,10 +261,50 @@ body {
   font-family: "Hiragino Kaku Gothic ProN", "Meiryo", "Noto Sans JP", sans-serif;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--c-text);
+  color: var(--text);
   margin: 0;
   padding: 8px 16px;
-  background: #fff;
+  background: var(--bg);
+  transition: background 0.2s, color 0.2s;
+}
+
+/* 表紙 */
+.cover-page {
+  min-height: 260mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 20mm 10mm;
+  page-break-after: always;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  position: relative;
+  background: linear-gradient(180deg, var(--c-bg-card) 0%, var(--bg) 100%);
+}
+.cover-logo { width: 180px; height: 60px; display: flex; align-items: center; justify-content: center; color: var(--c-text-muted); font-size: 11px; border: 1px dashed var(--c-border); border-radius: 4px; margin-bottom: 28px; }
+.cover-title { font-size: 28px; font-weight: 700; color: var(--c-primary); margin: 10px 0 6px; letter-spacing: 0.05em; }
+.cover-sub { font-size: 16px; color: var(--text); margin-bottom: 40px; }
+.cover-confidential { margin-top: auto; font-size: 11px; color: var(--c-text-muted); border-top: 1px solid var(--c-border); padding-top: 14px; width: 70%; }
+.cover-footer { position: absolute; bottom: 12mm; left: 0; right: 0; font-size: 10px; color: var(--c-text-muted); }
+
+/* テーマ切替ボタン */
+.theme-toggle {
+  position: fixed; top: 10px; right: 200px; z-index: 100;
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--c-border); border-radius: 4px;
+  background: var(--bg); color: var(--text);
+}
+.theme-toggle:focus { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+
+/* 画面下部フッター（画面表示のみ） */
+.screen-footer {
+  margin-top: 24px; padding: 10px 16px;
+  border-top: 1px solid var(--c-border);
+  font-size: 10px; color: var(--c-text-muted);
+  display: flex; justify-content: space-between;
 }
 
 h1 { font-size: 20px; }
@@ -338,12 +459,17 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .no-print { }
 @media print {
   .no-print { display: none !important; }
-  body { padding: 0; }
+  body { padding: 0; background: #fff !important; color: #1a1a2e !important; }
+  body.theme-dark { background: #fff !important; color: #1a1a2e !important; }
+  body.theme-dark table th { background: #e3f2fd !important; color: #1565C0 !important; }
+  body.theme-dark table td { background: transparent !important; color: #1a1a2e !important; }
   .section { page-break-inside: avoid; }
   .summary-card, .kpi-card { box-shadow: none !important; transform: none !important; }
   .echart { break-inside: avoid; }
   .sortable-table th::after { display: none; }
   thead { display: table-header-group; }
+  .cover-page { page-break-after: always; border: none; background: #fff !important; min-height: 90vh; }
+  .screen-footer { display: none !important; }
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }

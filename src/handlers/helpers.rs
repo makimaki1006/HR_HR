@@ -72,6 +72,24 @@ pub fn escape_url_attr(url: &str) -> String {
     escape_html(url)
 }
 
+/// タグ/自由入力テキストから危険URLプレフィックスを検出し安全な文字列に置換。
+/// `escape_html` は `<`, `>`, `&`, `"`, `'` をエスケープするが、
+/// `javascript:alert(1)` のような文字列はそのまま表示される（実行はされないが
+/// スキャナーやコピペで悪用可能）。本関数はそれをブロックする。
+pub fn sanitize_tag_text(text: &str) -> String {
+    let trimmed = text.trim();
+    let lower = trimmed.to_lowercase();
+    const DANGEROUS_PREFIXES: &[&str] = &[
+        "javascript:", "data:", "vbscript:", "file:",
+    ];
+    for prefix in DANGEROUS_PREFIXES {
+        if lower.starts_with(prefix) {
+            return "[unsafe]".to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
 /// 数値を3桁区切りフォーマット
 pub fn format_number(n: i64) -> String {
     let s = n.to_string();
@@ -142,6 +160,25 @@ mod tests {
         assert_eq!(escape_url_attr("javascript:alert(1)"), "#");
         assert_eq!(escape_url_attr("JAVASCRIPT:alert(1)"), "#");  // 大文字小文字無視
         assert_eq!(escape_url_attr("  javascript:alert(1)"), "#");  // 前後空白
+    }
+
+    #[test]
+    fn test_sanitize_tag_text_dangerous() {
+        assert_eq!(sanitize_tag_text("javascript:alert(1)"), "[unsafe]");
+        assert_eq!(sanitize_tag_text("JAVASCRIPT:alert(1)"), "[unsafe]");
+        assert_eq!(sanitize_tag_text("  javascript:alert(1)  "), "[unsafe]");
+        assert_eq!(sanitize_tag_text("data:text/html,..."), "[unsafe]");
+        assert_eq!(sanitize_tag_text("vbscript:msgbox"), "[unsafe]");
+        assert_eq!(sanitize_tag_text("file:///etc/passwd"), "[unsafe]");
+    }
+
+    #[test]
+    fn test_sanitize_tag_text_safe() {
+        assert_eq!(sanitize_tag_text("週休2日"), "週休2日");
+        assert_eq!(sanitize_tag_text("  残業少なめ  "), "残業少なめ");
+        assert_eq!(sanitize_tag_text("年間休日120日"), "年間休日120日");
+        assert_eq!(sanitize_tag_text(""), "");
+        assert_eq!(sanitize_tag_text("未経験可"), "未経験可");
     }
 
     #[test]

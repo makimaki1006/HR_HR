@@ -167,14 +167,15 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     let mut by_employment_type: Vec<(String, usize)> = emp_map.into_iter().collect();
     by_employment_type.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // タグ別（カンマ/スペース区切りで分解）
+    // タグ別（カンマ/スペース区切りで分解、危険URLプレフィックスをサニタイズ）
+    use super::super::helpers::sanitize_tag_text;
     let mut tag_map: HashMap<String, usize> = HashMap::new();
     for r in records {
         if !r.tags_raw.is_empty() {
             for tag in r.tags_raw.split(|c: char| c == ',' || c == '、' || c == '/' || c == '\t') {
-                let tag = tag.trim();
-                if !tag.is_empty() && tag.chars().count() <= 20 {
-                    *tag_map.entry(tag.to_string()).or_default() += 1;
+                let sanitized = sanitize_tag_text(tag);
+                if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
+                    *tag_map.entry(sanitized).or_default() += 1;
                 }
             }
         }
@@ -183,15 +184,15 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     by_tags.sort_by(|a, b| b.1.cmp(&a.1));
     by_tags.truncate(30); // 上位30タグ
 
-    // タグ別給与集計
+    // タグ別給与集計（サニタイズ済みタグで集計）
     let mut tag_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
     for r in records {
         if let Some(sal) = r.salary_parsed.unified_monthly {
             if sal > 0 && !r.tags_raw.is_empty() {
                 for tag in r.tags_raw.split(|c: char| c == ',' || c == '、' || c == '/' || c == '\t') {
-                    let tag = tag.trim();
-                    if !tag.is_empty() && tag.chars().count() <= 20 {
-                        tag_salary_map.entry(tag.to_string()).or_default().push(sal);
+                    let sanitized = sanitize_tag_text(tag);
+                    if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
+                        tag_salary_map.entry(sanitized).or_default().push(sal);
                     }
                 }
             }
