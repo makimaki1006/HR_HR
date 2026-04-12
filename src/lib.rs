@@ -248,13 +248,15 @@ fn check_csrf(request: &axum::extract::Request) -> Result<(), &'static str> {
     match check_origin {
         Some(o) if ALLOWED_ORIGINS.contains(&o) => Ok(()),
         Some(o) => {
+            // 明示的に別オリジンを指定された場合のみ拒否（ブラウザからのCSRF攻撃対策）
             tracing::warn!("CSRF: rejected origin/referer: {}", o);
             Err("CSRF: invalid origin")
         }
         None => {
-            // Originもrefererもない場合は拒否（same-originフェッチは通常どちらかが付く）
-            tracing::warn!("CSRF: missing origin and referer headers");
-            Err("CSRF: missing origin header")
+            // Origin/Referer無し = curl/API client/モバイルアプリ等からのリクエスト
+            // ブラウザからのsame-originは Origin ヘッダーが付くため、これが無い場合は
+            // スクリプト経由アクセスとみなして通す。認証はAuth middlewareで別途チェック済み。
+            Ok(())
         }
     }
 }

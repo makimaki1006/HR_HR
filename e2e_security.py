@@ -547,48 +547,52 @@ def test_csrf(page, ctx):
     cookie_header = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
     evil_origin = "https://evil.example.com"
 
-    # 5-1. POST /api/set_prefecture
+    # 5-1. POST /api/set_prefecture (curlで正確にOriginを偽装)
+    import subprocess
     try:
-        resp = page.request.post(
-            f"{BASE}/api/set_prefecture",
-            form={"prefecture": "東京都"},
-            headers={
-                "Cookie": cookie_header,
-                "Origin": evil_origin,
-                "Referer": evil_origin + "/attack.html",
-            },
-            timeout=30000,
+        result = subprocess.run(
+            ["curl", "-s", "-X", "POST",
+             "-H", f"Origin: {evil_origin}",
+             "-H", f"Referer: {evil_origin}/attack.html",
+             "-H", f"Cookie: {cookie_header}",
+             f"{BASE}/api/set_prefecture",
+             "-d", "prefecture=東京都",
+             "-o", "/dev/null",
+             "-w", "%{http_code}"],
+            capture_output=True, text=True, timeout=30
         )
-        status = resp.status
+        status_str = result.stdout.strip()
+        status = int(status_str) if status_str.isdigit() else 0
         if status in (403, 401, 400):
             record("CSRF", "POST /api/set_prefecture (evil Origin)", "SECURE",
                    f"HTTP {status} 拒否")
         elif status in (200, 204, 302):
             record("CSRF", "POST /api/set_prefecture (evil Origin)", "VULNERABLE",
-                   f"HTTP {status} 受理 (CSRF未対策の可能性)")
+                   f"HTTP {status} 受理 (CSRF未対策)")
         else:
             record("CSRF", "POST /api/set_prefecture (evil Origin)", "INCONCLUSIVE",
                    f"HTTP {status}")
     except Exception as e:
         record("CSRF", "POST /api/set_prefecture", "INCONCLUSIVE", f"例外: {type(e).__name__}")
 
-    # 5-2. POST /api/survey/upload
+    # 5-2. POST /api/survey/upload (curlで正確にOriginを偽装)
     try:
         csv_path = os.path.join(TMP, "csrf.csv")
         make_size_csv(csv_path, 10)
-        with open(csv_path, "rb") as f:
-            data = f.read()
-        resp = page.request.post(
-            f"{BASE}/api/survey/upload",
-            multipart={"file": {"name": "csrf.csv", "mimeType": "text/csv", "buffer": data}},
-            headers={
-                "Cookie": cookie_header,
-                "Origin": evil_origin,
-                "Referer": evil_origin + "/x.html",
-            },
-            timeout=60000,
+        import subprocess
+        result = subprocess.run(
+            ["curl", "-s", "-X", "POST",
+             "-H", f"Origin: {evil_origin}",
+             "-H", f"Referer: {evil_origin}/x.html",
+             "-H", f"Cookie: {cookie_header}",
+             f"{BASE}/api/survey/upload",
+             "-F", f"csv_file=@{csv_path}",
+             "-o", "/dev/null",
+             "-w", "%{http_code}"],
+            capture_output=True, text=True, timeout=60
         )
-        status = resp.status
+        status_str = result.stdout.strip()
+        status = int(status_str) if status_str.isdigit() else 0
         if status in (403, 401, 400):
             record("CSRF", "POST /api/survey/upload (evil Origin)", "SECURE",
                    f"HTTP {status} 拒否")
