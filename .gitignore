@@ -30,6 +30,8 @@ build_release.bat
 scripts/*.bat
 scripts/*.sh
 !scripts/download_db.sh
+!scripts/setup.sh
+!scripts/run_all_e2e.sh
 scripts/!compute_v2_*.py
 
 # Dev docs

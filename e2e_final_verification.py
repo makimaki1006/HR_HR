@@ -249,8 +249,8 @@ def test_auth_infra(page, cookie_header: str) -> None:
     try:
         code, headers, _ = curl_get(f"{BASE}/tab/market", "", timeout=20)
         # Cookieなしで保護ルートにアクセス。403/401/302/200(ログイン画面)を期待
-        ok = code in (401, 403, 302) or (code == 200)
-        # 200の場合はログイン画面にリダイレクトされたとみなす（bodyで確認しない簡易版）
+        # 200(ログイン画面返却) / 302/303/307/308(リダイレクト) / 401/403(拒否) いずれもOK
+        ok = code in (200, 301, 302, 303, 307, 308, 401, 403)
         check("INFRA", "INFRA-02", "P0", "未認証 protected route 拒否",
               ok, f"HTTP {code}")
     except Exception as e:
@@ -259,9 +259,10 @@ def test_auth_infra(page, cookie_header: str) -> None:
 
     # INFRA-03: 静的ファイル配信
     static_candidates = [
-        "/static/app.css", "/static/app.js",
-        "/static/style.css", "/static/main.css",
-        "/static/echarts.min.js",
+        "/static/css/dashboard.css",
+        "/static/css/tailwind-precompiled.css",
+        "/static/js/app.js",
+        "/static/js/charts.js",
     ]
     static_ok = False
     static_detail = "全候補404"
@@ -338,27 +339,40 @@ def test_tabs(page) -> None:
             wait_sec = 12 if tab_name == "市場概況" else 6
             time.sleep(wait_sec)
 
-            # #content の textLen 確認
+            # #content の textLen + DOM要素数を確認
+            # 条件診断/企業検索はフォーム中心でtextContentが短いため要素数でも判定
             content_info = page.evaluate("""
                 (function(){
                     var c = document.getElementById('content');
-                    if (!c) return {textLen: 0, hasAriaCurrent: false};
+                    if (!c) return {textLen: 0, elemCount: 0, hasAriaCurrent: false};
                     var txt = (c.textContent || '').trim();
+                    var elems = c.querySelectorAll('*').length;
+                    var inputs = c.querySelectorAll('input, select, textarea, button, form').length;
                     var activeTab = document.querySelector(
                         '.tab-btn[aria-current="page"], .tab-btn.active, .tab-btn[aria-selected="true"]'
                     );
                     return {
                         textLen: txt.length,
+                        elemCount: elems,
+                        inputCount: inputs,
                         hasAriaCurrent: !!activeTab,
                         activeLabel: activeTab ? (activeTab.textContent || '').trim() : ''
                     };
                 })()
-            """) or {"textLen": 0, "hasAriaCurrent": False, "activeLabel": ""}
+            """) or {"textLen": 0, "elemCount": 0, "inputCount": 0, "hasAriaCurrent": False, "activeLabel": ""}
 
             text_len = int(content_info.get("textLen", 0))
-            ok = text_len > 500
+            elem_count = int(content_info.get("elemCount", 0))
+            input_count = int(content_info.get("inputCount", 0))
+            # 通常タブ: textLen > 500
+            # フォーム中心タブ(条件診断/企業検索): textLen >= 50 かつ フォーム要素 >= 1
+            form_heavy = tab_name in ("条件診断", "企業検索")
+            if form_heavy:
+                ok = (text_len >= 50 and input_count >= 1) or elem_count >= 10
+            else:
+                ok = text_len > 500
             check("NAV", code_id, "P0", f"{tab_name}タブ",
-                  ok, f"textLen={text_len} active={content_info.get('activeLabel', '')}")
+                  ok, f"textLen={text_len} elems={elem_count} inputs={input_count} active={content_info.get('activeLabel', '')}")
         except Exception as e:
             check("NAV", code_id, "P0", f"{tab_name}タブ", False,
                   f"例外: {type(e).__name__}: {e}")
@@ -445,7 +459,8 @@ def test_data(page, cookie_header: str) -> None:
         check("DATA", "DATA-03", "P1", "47都道府県", False,
               f"例外: {type(e).__name__}")
 
-    # DATA-04: /api/company/search で「株式会社」→ >=5件
+    # DATA-04: /api/company/search で「株式会社」→ HTMX HTML応答から>=5件確認
+    # 実装はJSONではなくHTML行を返す（hx-get用）
     try:
         import urllib.parse
         q = urllib.parse.quote("株式会社")
@@ -455,20 +470,24 @@ def test_data(page, cookie_header: str) -> None:
         detail = f"HTTP {code}"
         count = 0
         if code == 200:
-            try:
-                j = json.loads(body.decode("utf-8", errors="replace"))
-                # 既存実装に合わせて複数キーをチェック
-                if isinstance(j, dict):
-                    results = (j.get("results") or j.get("companies")
-                               or j.get("data") or [])
-                    count = (j.get("count") if isinstance(j.get("count"), int)
-                             else len(results) if isinstance(results, list) else 0)
-                elif isinstance(j, list):
-                    count = len(j)
-                ok = count >= 5
-                detail = f"HTTP 200 count={count}"
-            except Exception as e:
-                detail = f"JSON parse error: {e}"
+            text = body.decode("utf-8", errors="replace")
+            # HTMX応答は企業1件ごとに /api/company/profile/ リンクを持つ想定
+            count = text.count("/api/company/profile/")
+            if count == 0:
+                # フォールバック: JSON応答の可能性も一応確認
+                try:
+                    j = json.loads(text)
+                    if isinstance(j, dict):
+                        results = (j.get("results") or j.get("companies")
+                                   or j.get("data") or [])
+                        count = (j.get("count") if isinstance(j.get("count"), int)
+                                 else len(results) if isinstance(results, list) else 0)
+                    elif isinstance(j, list):
+                        count = len(j)
+                except Exception:
+                    pass
+            ok = count >= 5
+            detail = f"HTTP 200 count={count} (HTMX HTML)"
         check("DATA", "DATA-04", "P1", "/api/company/search 株式会社 >=5件",
               ok, detail)
     except Exception as e:
@@ -683,7 +702,8 @@ def test_security(page, cookie_header: str) -> None:
         leak_keys = ["sqlite", "sqlx", "syntax error", "panic",
                      "no such table", "postgres", "unrecognized token"]
         leak = any(k in low for k in leak_keys)
-        ok = not leak and code in (200, 400, 404, 422)
+        # 403 は Cloudflare WAF 等のエッジブロック。データ漏洩がなければSQLi防御としてOK
+        ok = not leak and code in (200, 400, 403, 404, 422)
         check("SEC", "SEC-04", "P0",
               "SQLi /api/company/search ?q=' OR 1=1-- 正常応答",
               ok, f"HTTP {code} leak={leak}")
@@ -750,13 +770,32 @@ def test_new_features(page, cookie_header: str) -> None:
                 written += len(line.encode("utf-8"))
         actual_mb = os.path.getsize(big_path) / (1024 * 1024)
 
-        code, _ = curl_post(f"{BASE}/api/survey/upload", cookie_header,
-                            form_file=("csv_file", big_path), timeout=180)
-        # 413 が理想だが、400/422/500 でも「受理されていない」ならOK (P1)
-        ok = code in (400, 413, 422, 500, 503)
+        code, body = curl_post(f"{BASE}/api/survey/upload", cookie_header,
+                               form_file=("csv_file", big_path), timeout=180)
+        body_text = body.decode("utf-8", errors="replace") if body else ""
+        # 413 が理想。400/408/413/422/500/503 は拒否系。
+        # HTTP 0 は curl がサーバーから接続リセットを受けた場合（CF/Render 早期切断）も
+        # 「受理されなかった」証拠としてOK。
+        # 実装(survey/handlers.rs)は body_size 超過時に HTTP 200 + 日本語エラーHTML を返すため
+        # body に "ファイルサイズ" や "超えて" 等のマーカーがあれば拒否成功とみなす。
+        rejected_by_status = code in (0, 400, 408, 413, 422, 500, 503)
+        low = body_text.lower()
+        rejected_by_body = (code == 200 and (
+            "アップロード可能なファイルサイズ" in body_text
+            or "超えています" in body_text
+            or "body limit" in low
+            or "too large" in low
+            or "length limit" in low
+            # DefaultBodyLimitにより multipart ストリームが途中で切れた場合の
+            # axum_extra 既定エラーメッセージ
+            or ("error parsing" in low and "multipart/form-data" in low)
+            or "ファイル読み取りエラー" in body_text
+        ))
+        ok = rejected_by_status or rejected_by_body
+        snippet = body_text[:120].replace("\n", " ")
         check("NEW", "NEW-04", "P1",
               f"20MB超アップロード拒否 (送信={actual_mb:.1f}MB)",
-              ok, f"HTTP {code}")
+              ok, f"HTTP {code} rejected_by_body={rejected_by_body} body_head={snippet!r}")
     except Exception as e:
         check("NEW", "NEW-04", "P1", "20MB超アップロード拒否", False,
               f"例外: {type(e).__name__}")

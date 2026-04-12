@@ -72,3 +72,12 @@ http-body-util = "0.1"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+[lints.clippy]
+# エラーにすべきもの（既存コード配慮のため段階的にwarnへ昇格予定）
+unwrap_used = "allow"
+expect_used = "allow"
+panic = "allow"
+# 推奨するpattern
+redundant_clone = "warn"
+needless_collect = "warn"
