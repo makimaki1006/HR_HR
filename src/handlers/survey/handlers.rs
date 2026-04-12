@@ -30,6 +30,10 @@ fn is_body_size_error(msg: &str) -> bool {
         || lower.contains("body limit")
         || lower.contains("request body")  // "failed to read request body..."
         || lower.contains("too large")
+        // DefaultBodyLimit により multipart 入力途中で接続が打ち切られた場合、
+        // axum_extra は "Error parsing `multipart/form-data` request" を返す。
+        // これも body limit 超過の強いシグナルとして扱う。
+        || (lower.contains("error parsing") && lower.contains("multipart/form-data"))
 }
 
 /// ボディサイズ超過時のユーザー向け日本語メッセージ
@@ -272,10 +276,42 @@ pub async fn survey_report_html(
     let salary_min_values = agg.salary_min_values.clone();
     let salary_max_values = agg.salary_max_values.clone();
 
+    // HWデータ＋外部統計を取得（オプション。失敗・未接続時もレポート生成は継続）
+    let pref = state.cache.get(&format!("survey_pref_{}", session_id))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let muni = state.cache.get(&format!("survey_muni_{}", session_id))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    let hw_ctx = if !pref.is_empty() {
+        if let Some(db) = state.hw_db.clone() {
+            let turso = state.turso_db.clone();
+            let pref2 = pref.clone();
+            let muni2 = muni.clone();
+            match tokio::task::spawn_blocking(move || {
+                super::super::insight::fetch::build_insight_context(
+                    &db, turso.as_ref(), &pref2, &muni2,
+                )
+            }).await {
+                Ok(ctx) => Some(ctx),
+                Err(e) => {
+                    tracing::warn!("HW context build failed for survey report: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let html = super::report_html::render_survey_report_page(
         &agg, &seeker,
         &by_company, &by_emp_type_salary,
         &salary_min_values, &salary_max_values,
+        hw_ctx.as_ref(),
     );
 
     Html(html)

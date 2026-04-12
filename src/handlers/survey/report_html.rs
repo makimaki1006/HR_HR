@@ -4,7 +4,8 @@
 
 use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary};
 use super::job_seeker::JobSeekerAnalysis;
-use super::super::helpers::{escape_html, format_number};
+use super::super::helpers::{escape_html, format_number, get_f64};
+use super::super::insight::fetch::InsightContext;
 use serde_json::json;
 
 // ============================================================
@@ -27,6 +28,7 @@ pub(crate) fn render_survey_report_page(
     by_emp_type_salary: &[EmpTypeSalary],
     salary_min_values: &[i64],
     salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
 ) -> String {
     let now = chrono::Local::now().format("%Y年%m月%d日 %H:%M").to_string();
     let mut html = String::with_capacity(64_000);
@@ -74,6 +76,11 @@ pub(crate) fn render_survey_report_page(
 
     // --- セクション1: サマリー ---
     render_section_summary(&mut html, agg);
+
+    // --- セクション1-2: HW市場比較（HWデータがある場合のみ） ---
+    if let Some(ctx) = hw_context {
+        render_section_hw_comparison(&mut html, agg, ctx);
+    }
 
     // --- セクション3: 給与分布 統計情報 ---
     render_section_salary_stats(&mut html, agg, salary_min_values, salary_max_values);
@@ -452,6 +459,40 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .guide-item .guide-title { font-weight: bold; color: var(--c-primary); font-size: 10px; margin-bottom: 2px; }
 
+/* HW市場比較カード */
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.comparison-card {
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--c-bg-card);
+}
+.comparison-card h3 {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  margin: 0 0 4px;
+  font-weight: bold;
+}
+.comparison-card .value-pair {
+  display: flex;
+  gap: 12px;
+  margin: 6px 0;
+}
+.comparison-card .value-pair > div {
+  display: flex;
+  flex-direction: column;
+}
+.comparison-card .value-pair .label { font-size: 9px; color: var(--c-text-muted); }
+.comparison-card .value-pair .value { font-size: 14px; font-weight: bold; color: var(--c-primary); }
+.comparison-card .diff { font-size: 11px; margin-top: 4px; font-weight: bold; }
+.comparison-card .diff.positive { color: var(--c-success); }
+.comparison-card .diff.negative { color: var(--c-danger); }
+
 /* EChartsコンテナ */
 .echart { max-width: 100%; }
 
@@ -552,6 +593,218 @@ fn render_guide_item(html: &mut String, title: &str, description: &str) {
     html.push_str("<div class=\"guide-item\">\n");
     html.push_str(&format!("<div class=\"guide-title\">{}</div>\n", escape_html(title)));
     html.push_str(&format!("{}\n", escape_html(description)));
+    html.push_str("</div>\n");
+}
+
+// ============================================================
+// セクション1-2: HW市場比較（CSVデータ vs HW全体データ）
+// ============================================================
+
+/// 比較カード: 媒体（CSV）の値とHW全体の値を並列表示し、差分を算出
+///
+/// - `label`: 指標名
+/// - `csv_value`: CSVから算出した値（整形済み文字列）
+/// - `hw_value`: HWから算出した値（整形済み文字列）
+/// - `diff_text`: 差分表示（正負込みのフォーマット済み文字列、Noneなら非表示）
+/// - `positive`: 差分が「媒体が上回る（良い方向）」かどうか
+fn render_comparison_card(
+    html: &mut String,
+    label: &str,
+    csv_value: &str,
+    hw_value: &str,
+    diff_text: Option<&str>,
+    positive: bool,
+) {
+    html.push_str("<div class=\"comparison-card\">\n");
+    html.push_str(&format!("<h3>{}</h3>\n", escape_html(label)));
+    html.push_str("<div class=\"value-pair\">\n");
+    html.push_str(&format!(
+        "<div><span class=\"label\">媒体</span><span class=\"value\">{}</span></div>\n",
+        escape_html(csv_value)
+    ));
+    html.push_str(&format!(
+        "<div><span class=\"label\">HW</span><span class=\"value\">{}</span></div>\n",
+        escape_html(hw_value)
+    ));
+    html.push_str("</div>\n");
+    if let Some(d) = diff_text {
+        let cls = if positive { "positive" } else { "negative" };
+        html.push_str(&format!("<div class=\"diff {}\">{}</div>\n", cls, escape_html(d)));
+    }
+    html.push_str("</div>\n");
+}
+
+fn render_section_hw_comparison(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    ctx: &InsightContext,
+) {
+    html.push_str("<div class=\"section\">\n");
+    html.push_str("<h2>HW市場比較</h2>\n");
+    html.push_str("<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【読み方ガイド】</strong>CSV（媒体データ）とハローワーク全体データを並列比較。\
+        媒体 vs ハローワークで給与帯・雇用形態が異なる可能性があります。\
+    </p>\n");
+    html.push_str("<div class=\"comparison-grid\">\n");
+
+    // --- カード1: 平均月給（媒体 vs HW） ---
+    // 時給データの場合は比較スキップ（HW側は月給ベースのため）
+    if !agg.is_hourly {
+        let csv_mean_yen = agg.enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0);
+        let csv_display = if csv_mean_yen > 0 {
+            format!("{:.1}万円", csv_mean_yen as f64 / 10_000.0)
+        } else {
+            "-".to_string()
+        };
+
+        // HW平均月給: cascade の正社員 avg_salary_min を採用（integration.rs と同じ方針）
+        let hw_mean_yen: i64 = ctx.cascade.iter()
+            .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
+            .map(|r| get_f64(r, "avg_salary_min") as i64)
+            .unwrap_or(0);
+        let hw_display = if hw_mean_yen > 0 {
+            format!("{:.1}万円", hw_mean_yen as f64 / 10_000.0)
+        } else {
+            "-".to_string()
+        };
+
+        let (diff_text, positive) = if csv_mean_yen > 0 && hw_mean_yen > 0 {
+            let diff = csv_mean_yen - hw_mean_yen;
+            let pct = diff as f64 / hw_mean_yen as f64 * 100.0;
+            (
+                Some(format!("{:+.1}万円 ({:+.1}%)", diff as f64 / 10_000.0, pct)),
+                diff >= 0,
+            )
+        } else {
+            (None, true)
+        };
+        render_comparison_card(
+            html, "平均月給", &csv_display, &hw_display,
+            diff_text.as_deref(), positive,
+        );
+    }
+
+    // --- カード2: 正社員率（媒体 vs HW） ---
+    let csv_fulltime_count: usize = agg.by_employment_type.iter()
+        .filter(|(t, _)| t.contains("正社員") || t.contains("正職員"))
+        .map(|(_, c)| c)
+        .sum();
+    let csv_fulltime_rate = if agg.total_count > 0 {
+        csv_fulltime_count as f64 / agg.total_count as f64 * 100.0
+    } else {
+        -1.0
+    };
+    let csv_rate_display = if csv_fulltime_rate >= 0.0 {
+        format!("{:.1}%", csv_fulltime_rate)
+    } else {
+        "-".to_string()
+    };
+
+    // HW正社員率: vacancy の emp_group 別 total_count から算出
+    let hw_fulltime_total: i64 = ctx.vacancy.iter()
+        .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "total_count") as i64)
+        .unwrap_or(0);
+    let hw_all_total: i64 = ctx.vacancy.iter()
+        .map(|r| get_f64(r, "total_count") as i64)
+        .sum();
+    let hw_fulltime_rate = if hw_all_total > 0 {
+        hw_fulltime_total as f64 / hw_all_total as f64 * 100.0
+    } else {
+        -1.0
+    };
+    let hw_rate_display = if hw_fulltime_rate >= 0.0 {
+        format!("{:.1}%", hw_fulltime_rate)
+    } else {
+        "-".to_string()
+    };
+
+    let (rate_diff_text, rate_positive) = if csv_fulltime_rate >= 0.0 && hw_fulltime_rate >= 0.0 {
+        let d = csv_fulltime_rate - hw_fulltime_rate;
+        (Some(format!("{:+.1}pt", d)), d >= 0.0)
+    } else {
+        (None, true)
+    };
+    render_comparison_card(
+        html, "正社員率", &csv_rate_display, &hw_rate_display,
+        rate_diff_text.as_deref(), rate_positive,
+    );
+
+    // --- カード3: 対象地域の人口（通勤圏優先、なければ市区町村／都道府県人口） ---
+    let population: i64 = if ctx.commute_zone_total_pop > 0 {
+        ctx.commute_zone_total_pop
+    } else {
+        ctx.ext_population.first()
+            .map(|r| get_f64(r, "total_population") as i64)
+            .unwrap_or(0)
+    };
+    let pop_source = if ctx.commute_zone_total_pop > 0 {
+        format!("通勤圏内 {}自治体", ctx.commute_zone_count)
+    } else if !ctx.muni.is_empty() {
+        ctx.muni.clone()
+    } else {
+        ctx.pref.clone()
+    };
+    let pop_display = if population > 0 {
+        format!("{}人", format_number(population))
+    } else {
+        "-".to_string()
+    };
+    render_comparison_card(
+        html, "対象地域の人口",
+        &pop_display,
+        &pop_source,
+        None, true,
+    );
+
+    // --- カード4: 最低賃金比較（CSV平均下限の160h換算 vs 都道府県最低賃金） ---
+    if !agg.is_hourly {
+        // CSV平均下限（月給→時給160h換算）
+        let csv_avg_min: i64 = if !agg.by_prefecture_salary.is_empty() {
+            let total: i64 = agg.by_prefecture_salary.iter()
+                .filter(|p| p.avg_min_salary > 0)
+                .map(|p| p.avg_min_salary)
+                .sum();
+            let n = agg.by_prefecture_salary.iter()
+                .filter(|p| p.avg_min_salary > 0).count();
+            if n > 0 { total / n as i64 } else { 0 }
+        } else {
+            0
+        };
+        let csv_hourly = csv_avg_min / 160;
+        let csv_display = if csv_hourly > 0 {
+            format!("{}円/h", format_number(csv_hourly))
+        } else {
+            "-".to_string()
+        };
+
+        // 都道府県最低賃金（ctx.prefから取得）
+        let mw = min_wage_for_prefecture(&ctx.pref).unwrap_or(0);
+        let mw_display = if mw > 0 {
+            format!("{}円/h", format_number(mw))
+        } else {
+            "-".to_string()
+        };
+
+        let (mw_diff_text, mw_positive) = if csv_hourly > 0 && mw > 0 {
+            let d = csv_hourly - mw;
+            let pct = d as f64 / mw as f64 * 100.0;
+            (Some(format!("{:+}円 ({:+.1}%)", d, pct)), d >= 0)
+        } else {
+            (None, true)
+        };
+        render_comparison_card(
+            html, "最低賃金比較（160h換算）",
+            &csv_display, &mw_display,
+            mw_diff_text.as_deref(), mw_positive,
+        );
+    }
+
+    html.push_str("</div>\n"); // comparison-grid
+    html.push_str("<div class=\"note\" style=\"font-size:9pt;color:#555;margin-top:8px;\">\
+        ※HW側データは「ハローワーク掲載求人のみ」が対象であり、全求人市場を反映するものではありません。\
+        媒体（CSV）との差異は、掲載媒体の選定バイアスによる可能性があります。\
+    </div>\n");
     html.push_str("</div>\n");
 }
 
@@ -1378,7 +1631,7 @@ mod tests {
     fn test_render_empty_data() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[]);
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None);
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("</html>"));
         // ECharts CDN が含まれること
@@ -1417,6 +1670,57 @@ mod tests {
             let val = mw.unwrap();
             assert!(val >= 1000 && val <= 1300,
                 "{} の最低賃金 {} が妥当範囲(1000-1300円)を逸脱", pref, val);
+        }
+    }
+
+    /// hw_context 有無で「HW市場比較」セクションの出力有無が切り替わる
+    #[test]
+    fn test_render_with_hw_context_adds_comparison_section() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+
+        // None の場合、比較セクションは出ない
+        let html_without = render_survey_report_page(
+            &agg, &seeker, &[], &[], &[], &[], None,
+        );
+        // h2 見出し（HTMLタグ付き）が存在しないことを確認
+        assert!(!html_without.contains("<h2>HW市場比較</h2>"),
+            "hw_context=None のときは HW市場比較セクション（h2）を出さない");
+        assert!(!html_without.contains("<div class=\"comparison-grid\">"),
+            "hw_context=None のときは comparison-grid コンテナは出さない（CSS内の定義は除く）");
+
+        // Some の場合は出る（空の InsightContext でもヘッダーは出力される）
+        let ctx = mock_empty_insight_ctx();
+        let html_with = render_survey_report_page(
+            &agg, &seeker, &[], &[], &[], &[], Some(&ctx),
+        );
+        assert!(html_with.contains("<h2>HW市場比較</h2>"),
+            "hw_context=Some のときは HW市場比較セクション（h2）を出す");
+        assert!(html_with.contains("<div class=\"comparison-grid\">"),
+            "comparison-grid コンテナ（div）が出力されている");
+    }
+
+    /// テスト用: 空の InsightContext を生成
+    fn mock_empty_insight_ctx() -> super::super::super::insight::fetch::InsightContext {
+        use super::super::super::insight::fetch::InsightContext;
+        InsightContext {
+            vacancy: vec![], resilience: vec![], transparency: vec![], temperature: vec![],
+            competition: vec![], cascade: vec![], salary_comp: vec![], monopsony: vec![],
+            spatial_mismatch: vec![], wage_compliance: vec![], region_benchmark: vec![],
+            text_quality: vec![],
+            ts_counts: vec![], ts_vacancy: vec![], ts_salary: vec![],
+            ts_fulfillment: vec![], ts_tracking: vec![],
+            ext_job_ratio: vec![], ext_labor_stats: vec![],
+            ext_min_wage: vec![], ext_turnover: vec![],
+            ext_population: vec![], ext_pyramid: vec![], ext_migration: vec![],
+            ext_daytime_pop: vec![], ext_establishments: vec![],
+            ext_business_dynamics: vec![], ext_care_demand: vec![],
+            ext_household_spending: vec![], ext_climate: vec![],
+            commute_zone_count: 0, commute_zone_pref_count: 0,
+            commute_zone_total_pop: 0, commute_zone_working_age: 0, commute_zone_elderly: 0,
+            commute_inflow_total: 0, commute_outflow_total: 0,
+            commute_self_rate: 0.0, commute_inflow_top3: vec![],
+            pref: "東京都".to_string(), muni: String::new(),
         }
     }
 
