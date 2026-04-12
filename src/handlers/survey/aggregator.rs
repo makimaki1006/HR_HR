@@ -96,6 +96,23 @@ pub struct SurveyAggregation {
     pub is_hourly: bool,
 }
 
+/// スライスの中央値を計算（コピー＆ソートする）
+/// - 空: 0
+/// - 奇数件: 中央要素
+/// - 偶数件: 中央2要素の平均（整数割り算）
+/// `enhanced_salary_statistics` の定義と整合。
+fn median_of(values: &[i64]) -> i64 {
+    if values.is_empty() { return 0; }
+    let mut sorted: Vec<i64> = values.to_vec();
+    sorted.sort();
+    let n = sorted.len();
+    if n % 2 == 0 {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+    } else {
+        sorted[n / 2]
+    }
+}
+
 /// パース済みレコードを集計
 pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     let total = records.len();
@@ -233,23 +250,24 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .collect();
 
     // 企業別集計
+    // count/avg/median の意味論一致のため、給与情報（unified_monthly > 0）があるレコードのみ集計。
+    // これにより count == 集計対象件数 となり、avg/median の計算母集団と一致する。
+    // 表示上は「給与情報のある求人数」として扱う。
     let mut company_map: HashMap<String, Vec<i64>> = HashMap::new();
     for r in records {
         if !r.company_name.is_empty() {
-            let salary = r.salary_parsed.unified_monthly.unwrap_or(0);
-            company_map.entry(r.company_name.clone()).or_default().push(salary);
+            if let Some(sal) = r.salary_parsed.unified_monthly {
+                if sal > 0 {
+                    company_map.entry(r.company_name.clone()).or_default().push(sal);
+                }
+            }
         }
     }
     let mut by_company: Vec<CompanyAgg> = company_map.into_iter()
         .map(|(name, salaries)| {
             let count = salaries.len();
-            let valid: Vec<i64> = salaries.iter().filter(|&&s| s > 0).copied().collect();
-            let avg_salary = if valid.is_empty() { 0 } else { valid.iter().sum::<i64>() / valid.len() as i64 };
-            let median_salary = if valid.is_empty() { 0 } else {
-                let mut sorted = valid.clone();
-                sorted.sort();
-                sorted[sorted.len() / 2]
-            };
+            let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
+            let median_salary = median_of(&salaries);
             CompanyAgg { name, count, avg_salary, median_salary }
         })
         .collect();
@@ -268,11 +286,7 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .map(|(emp_type, salaries)| {
             let count = salaries.len();
             let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
-            let median_salary = if salaries.is_empty() { 0 } else {
-                let mut sorted = salaries;
-                sorted.sort();
-                sorted[sorted.len() / 2]
-            };
+            let median_salary = median_of(&salaries);
             EmpTypeSalary { emp_type, count, avg_salary, median_salary }
         })
         .collect();
@@ -303,7 +317,10 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .collect();
     by_prefecture_salary.sort_by(|a, b| b.count.cmp(&a.count));
 
-    // 時給モード判定（時給レコードが過半数なら時給モード）
+    // 時給モード判定
+    // 時給レコードが過半数（半数超）の場合 true。
+    // 境界値（同数、例: 5-5）は整数割り算のため strict 比較で false となり、
+    // Monthly として扱う（より保守的な挙動）。
     let hourly_count = records.iter()
         .filter(|r| r.salary_parsed.salary_type == super::salary_parser::SalaryType::Hourly)
         .count();
@@ -337,11 +354,7 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .map(|((pref, name), salaries)| {
             let count = salaries.len();
             let avg_salary = salaries.iter().sum::<i64>() / count as i64;
-            let median_salary = {
-                let mut sorted = salaries;
-                sorted.sort();
-                sorted[sorted.len() / 2]
-            };
+            let median_salary = median_of(&salaries);
             MunicipalitySalaryAgg { name, prefecture: pref, count, avg_salary, median_salary }
         })
         .collect();
@@ -397,6 +410,8 @@ fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult>
         let pred = slope * p.x as f64 + intercept;
         (p.y as f64 - pred).powi(2)
     }).sum();
+    // ss_tot=0（全yが同値、ゼロ分散）の場合、統計的には R² は定義されない。
+    // 本実装では 0.0 を返す（ゼロ分散データは「相関なし」として扱う保守的挙動）。
     let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
 
     Some(RegressionResult { slope, intercept, r_squared })
@@ -524,10 +539,11 @@ mod tests {
             ScatterPoint { x: 3, y: 100 },
         ];
         let result = linear_regression_points(&points).expect("xは分散しているのでSome");
-        // slope≈0, intercept=100, r_squared=0.0 (ss_tot=0時のドキュメント化)
+        // ss_tot=0（ゼロ分散）の場合、統計的には R² 未定義だが、
+        // 本実装では 0.0 を返す仕様（「相関なし」として扱う保守的挙動、ドキュメント化済）。
         assert!(result.slope.abs() < 1e-9, "slope should be ~0, got {}", result.slope);
         assert!((result.intercept - 100.0).abs() < 1e-6);
-        assert_eq!(result.r_squared, 0.0, "ss_tot=0時はr_squared=0.0を返す現状動作");
+        assert_eq!(result.r_squared, 0.0, "ss_tot=0時はr_squared=0.0を返す仕様");
     }
 
     #[test]
@@ -564,10 +580,11 @@ mod tests {
         ];
         let agg = aggregate_records(&records);
 
-        // 企業A: unified_monthly=None のレコードは unwrap_or(0) で 0 が push される
-        //   → salaries=[300_000, 0], count=2, valid=[300_000]
+        // count/avg/median の意味論を一致させるため、給与情報のあるレコードのみ集計対象。
+        // 企業A: unified_monthly=None のレコードはスキップ → salaries=[300_000]
+        //   → count=1, avg=300_000, median=300_000
         let a = agg.by_company.iter().find(|c| c.name == "企業A").expect("企業A");
-        assert_eq!(a.count, 2, "企業Aは2レコード（給与なしも含む）");
+        assert_eq!(a.count, 1, "企業Aは給与情報のある1件のみ（Noneレコードは除外）");
         assert_eq!(a.avg_salary, 300_000);
         assert_eq!(a.median_salary, 300_000);
 
@@ -645,7 +662,8 @@ mod tests {
         }
         let agg = aggregate_records(&records);
         assert!(!agg.is_hourly,
-            "境界（5-5）: strict比較 hourly_count > total/2 なので false で固定");
+            "境界（5-5）: hourly_count > total/2 の strict 比較により false。\
+             同数時は Monthly として扱う保守的仕様（ドキュメント化済）");
     }
 
     #[test]
@@ -672,10 +690,10 @@ mod tests {
             .expect("千代田区");
         assert_eq!(muni.count, 4);
         assert_eq!(muni.avg_salary, 250_000);
-        // 現状動作: sorted[len/2] = sorted[2] = 300_000
-        // 厳密な中央値 (200_000+300_000)/2=250_000 ではないことを固定
-        assert_eq!(muni.median_salary, 300_000,
-            "偶数件の中央値は現状 sorted[len/2] = 上側の要素を返す");
+        // 偶数件の中央値は中央2要素の平均: (sorted[1]+sorted[2])/2 = (200_000+300_000)/2 = 250_000
+        // enhanced_salary_statistics と一貫した定義。
+        assert_eq!(muni.median_salary, 250_000,
+            "偶数件の中央値は中央2要素の平均");
     }
 
     #[test]

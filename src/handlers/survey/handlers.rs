@@ -21,6 +21,25 @@ pub async fn tab_survey(
     Html(render_upload_form())
 }
 
+/// multipartエラーがボディサイズ超過に起因するかを判定
+fn is_body_size_error(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    // axum/axum_extraがbody limit超過時に返すメッセージのバリエーションに対応
+    lower.contains("length limit")
+        || lower.contains("payload too large")
+        || lower.contains("body limit")
+        || lower.contains("request body")  // "failed to read request body..."
+        || lower.contains("too large")
+}
+
+/// ボディサイズ超過時のユーザー向け日本語メッセージ
+fn body_size_error_html() -> String {
+    format!(
+        r#"<div class="stat-card"><p class="text-red-400 text-sm">アップロード可能なファイルサイズ({}MB)を超えています。CSVを分割するか、列数を減らしてから再度お試しください。</p></div>"#,
+        crate::UPLOAD_BODY_LIMIT_BYTES / (1024 * 1024)
+    )
+}
+
 /// CSVアップロード（multipart/form-data）
 pub async fn upload_csv(
     State(state): State<Arc<AppState>>,
@@ -31,17 +50,39 @@ pub async fn upload_csv(
     let mut csv_data: Option<Vec<u8>> = None;
     let mut filename = String::from("unknown.csv");
 
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() == Some("csv_file") {
-            filename = field.file_name().unwrap_or("upload.csv").to_string();
-            match field.bytes().await {
-                Ok(bytes) => csv_data = Some(bytes.to_vec()),
-                Err(e) => {
-                    return Html(format!(
-                        r#"<div class="stat-card"><p class="text-red-400 text-sm">ファイル読み取りエラー: {}</p></div>"#,
-                        super::super::helpers::escape_html(&e.to_string())
-                    ));
+    loop {
+        match multipart.next_field().await {
+            Ok(Some(field)) => {
+                if field.name() == Some("csv_file") {
+                    filename = field.file_name().unwrap_or("upload.csv").to_string();
+                    match field.bytes().await {
+                        Ok(bytes) => csv_data = Some(bytes.to_vec()),
+                        Err(e) => {
+                            let msg = e.to_string();
+                            if is_body_size_error(&msg) {
+                                tracing::warn!("Upload rejected (size exceeded): {}", msg);
+                                return Html(body_size_error_html());
+                            }
+                            return Html(format!(
+                                r#"<div class="stat-card"><p class="text-red-400 text-sm">ファイル読み取りエラー: {}</p></div>"#,
+                                super::super::helpers::escape_html(&msg)
+                            ));
+                        }
+                    }
                 }
+            }
+            Ok(None) => break,
+            Err(e) => {
+                // next_field() が body size 超過で失敗するケース
+                let msg = e.to_string();
+                if is_body_size_error(&msg) {
+                    tracing::warn!("Upload rejected (size exceeded at next_field): {}", msg);
+                    return Html(body_size_error_html());
+                }
+                return Html(format!(
+                    r#"<div class="stat-card"><p class="text-red-400 text-sm">アップロード解析エラー: {}</p></div>"#,
+                    super::super::helpers::escape_html(&msg)
+                ));
             }
         }
     }

@@ -677,8 +677,8 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
     let mut by_count = by_company.to_vec();
     by_count.sort_by(|a, b| b.count.cmp(&a.count));
 
-    html.push_str("<h3>求人数ランキング TOP15</h3>\n");
-    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">求人数</th><th style=\"text-align:right\">平均月給</th></tr></thead>\n<tbody>\n");
+    html.push_str("<h3>求人数ランキング TOP15（給与情報あり）</h3>\n");
+    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">給与付き求人数</th><th style=\"text-align:right\">平均月給</th></tr></thead>\n<tbody>\n");
     for (i, c) in by_count.iter().take(15).enumerate() {
         html.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
@@ -697,8 +697,8 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
     by_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
 
     if !by_salary.is_empty() {
-        html.push_str("<h3>給与ランキング TOP15（2件以上の企業）</h3>\n");
-        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">求人数</th></tr></thead>\n<tbody>\n");
+        html.push_str("<h3>給与ランキング TOP15（給与付き2件以上の企業）</h3>\n");
+        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">給与付き求人数</th></tr></thead>\n<tbody>\n");
         for (i, c) in by_salary.iter().take(15).enumerate() {
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
