@@ -311,9 +311,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ソート可能テーブル */
 .sortable-table th { cursor: pointer; user-select: none; position: relative; padding-right: 18px; }
-.sortable-table th::after { content: '\u2195'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #999; opacity: 0.5; }
-.sortable-table th.sort-asc::after { content: '\u25B2'; opacity: 1; color: var(--c-primary); }
-.sortable-table th.sort-desc::after { content: '\u25BC'; opacity: 1; color: var(--c-primary); }
+.sortable-table th::after { content: '↕'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #999; opacity: 0.5; }
+.sortable-table th.sort-asc::after { content: '▲'; opacity: 1; color: var(--c-primary); }
+.sortable-table th.sort-desc::after { content: '▼'; opacity: 1; color: var(--c-primary); }
 
 /* 読み方ガイド */
 .guide-grid {
