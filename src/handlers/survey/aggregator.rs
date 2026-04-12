@@ -381,3 +381,310 @@ fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult>
 
     Some(RegressionResult { slope, intercept, r_squared })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::upload::{SurveyRecord, CsvSource};
+    use super::super::salary_parser::{ParsedSalary, SalaryType};
+    use super::super::location_parser::ParsedLocation;
+
+    // ======== テストヘルパー ========
+
+    fn empty_salary() -> ParsedSalary {
+        ParsedSalary {
+            original_text: String::new(),
+            salary_type: SalaryType::Monthly,
+            min_value: None,
+            max_value: None,
+            has_range: false,
+            unified_monthly: None,
+            unified_annual: None,
+            range_category: None,
+            confidence: 0.0,
+        }
+    }
+
+    fn empty_location() -> ParsedLocation {
+        ParsedLocation {
+            original_text: String::new(),
+            prefecture: None,
+            municipality: None,
+            region_block: None,
+            city_type: None,
+            confidence: 0.0,
+            method: "empty".to_string(),
+        }
+    }
+
+    /// テスト用SurveyRecord作成ヘルパー
+    fn mock_record(
+        company: &str,
+        prefecture: Option<&str>,
+        municipality: Option<&str>,
+        salary_monthly: Option<i64>,
+        salary_min: Option<i64>,
+        salary_max: Option<i64>,
+        salary_type: SalaryType,
+        emp_type: &str,
+        tags: &str,
+    ) -> SurveyRecord {
+        let mut sal = empty_salary();
+        sal.salary_type = salary_type;
+        sal.unified_monthly = salary_monthly;
+        sal.min_value = salary_min;
+        sal.max_value = salary_max;
+
+        let mut loc = empty_location();
+        loc.prefecture = prefecture.map(|s| s.to_string());
+        loc.municipality = municipality.map(|s| s.to_string());
+
+        SurveyRecord {
+            row_index: 0,
+            source: CsvSource::Unknown,
+            job_title: String::new(),
+            company_name: company.to_string(),
+            location_raw: String::new(),
+            salary_raw: String::new(),
+            employment_type: emp_type.to_string(),
+            tags_raw: tags.to_string(),
+            url: None,
+            is_new: false,
+            description: String::new(),
+            salary_parsed: sal,
+            location_parsed: loc,
+            annual_holidays: None,
+        }
+    }
+
+    // ======== A. 線形回帰テスト ========
+
+    #[test]
+    fn test_linear_regression_known_points() {
+        // y = 2x + 1 の5点
+        let points = vec![
+            ScatterPoint { x: 1, y: 3 },
+            ScatterPoint { x: 2, y: 5 },
+            ScatterPoint { x: 3, y: 7 },
+            ScatterPoint { x: 4, y: 9 },
+            ScatterPoint { x: 5, y: 11 },
+        ];
+        let result = linear_regression_points(&points).expect("5点あるのでSomeを返すはず");
+        assert!((result.slope - 2.0).abs() < 0.01, "slope={}", result.slope);
+        assert!((result.intercept - 1.0).abs() < 0.01, "intercept={}", result.intercept);
+        assert!((result.r_squared - 1.0).abs() < 0.01, "r_squared={}", result.r_squared);
+    }
+
+    #[test]
+    fn test_linear_regression_n_less_than_3() {
+        let points = vec![
+            ScatterPoint { x: 1, y: 2 },
+            ScatterPoint { x: 2, y: 4 },
+        ];
+        assert!(linear_regression_points(&points).is_none(), "n<3ではNoneを返すべき");
+    }
+
+    #[test]
+    fn test_linear_regression_all_same_x() {
+        // 垂直分布: denom = n*sum(x^2) - sum(x)^2 = 0
+        let points = vec![
+            ScatterPoint { x: 5, y: 10 },
+            ScatterPoint { x: 5, y: 20 },
+            ScatterPoint { x: 5, y: 30 },
+        ];
+        assert!(linear_regression_points(&points).is_none(), "denom≈0ではNoneを返すべき");
+    }
+
+    #[test]
+    fn test_linear_regression_r_squared_zero_ss_tot() {
+        // 水平分布: 全点のyが同じ → ss_tot=0 → r_squared=0.0（現状動作）
+        let points = vec![
+            ScatterPoint { x: 1, y: 100 },
+            ScatterPoint { x: 2, y: 100 },
+            ScatterPoint { x: 3, y: 100 },
+        ];
+        let result = linear_regression_points(&points).expect("xは分散しているのでSome");
+        // slope≈0, intercept=100, r_squared=0.0 (ss_tot=0時のドキュメント化)
+        assert!(result.slope.abs() < 1e-9, "slope should be ~0, got {}", result.slope);
+        assert!((result.intercept - 100.0).abs() < 1e-6);
+        assert_eq!(result.r_squared, 0.0, "ss_tot=0時はr_squared=0.0を返す現状動作");
+    }
+
+    #[test]
+    fn test_linear_regression_points_struct_sanity() {
+        // 大きな値でも正しくf64変換されて処理される
+        let points = vec![
+            ScatterPoint { x: 100_000, y: 200_000 },
+            ScatterPoint { x: 150_000, y: 250_000 },
+            ScatterPoint { x: 200_000, y: 300_000 },
+            ScatterPoint { x: 250_000, y: 350_000 },
+        ];
+        let result = linear_regression_points(&points).expect("4点あればSome");
+        // y = x + 100_000 → slope=1.0, intercept=100_000
+        assert!((result.slope - 1.0).abs() < 0.01);
+        assert!((result.intercept - 100_000.0).abs() < 1.0);
+        assert!((result.r_squared - 1.0).abs() < 0.01);
+    }
+
+    // ======== B. 集計ロジックテスト ========
+
+    #[test]
+    fn test_aggregate_by_company_count_vs_valid() {
+        // 企業A: 給与あり + 給与なし / 企業B: 給与あり
+        let records = vec![
+            mock_record("企業A", Some("東京都"), Some("千代田区"),
+                Some(300_000), Some(280_000), Some(320_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("企業A", Some("東京都"), Some("千代田区"),
+                None, None, None,
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("企業B", Some("東京都"), Some("新宿区"),
+                Some(400_000), Some(380_000), Some(420_000),
+                SalaryType::Monthly, "正社員", ""),
+        ];
+        let agg = aggregate_records(&records);
+
+        // 企業A: unified_monthly=None のレコードは unwrap_or(0) で 0 が push される
+        //   → salaries=[300_000, 0], count=2, valid=[300_000]
+        let a = agg.by_company.iter().find(|c| c.name == "企業A").expect("企業A");
+        assert_eq!(a.count, 2, "企業Aは2レコード（給与なしも含む）");
+        assert_eq!(a.avg_salary, 300_000);
+        assert_eq!(a.median_salary, 300_000);
+
+        let b = agg.by_company.iter().find(|c| c.name == "企業B").expect("企業B");
+        assert_eq!(b.count, 1);
+        assert_eq!(b.avg_salary, 400_000);
+    }
+
+    #[test]
+    fn test_aggregate_by_tag_salary_overall_mean_zero() {
+        // 全レコードでunified_monthly=None → tag_salary_mapが populate されない
+        let records = vec![
+            mock_record("X社", Some("東京都"), Some("千代田区"),
+                None, None, None, SalaryType::Monthly, "正社員", "タグA,タグB"),
+            mock_record("Y社", Some("東京都"), Some("新宿区"),
+                None, None, None, SalaryType::Monthly, "正社員", "タグA,タグB"),
+            mock_record("Z社", Some("東京都"), Some("渋谷区"),
+                None, None, None, SalaryType::Monthly, "正社員", "タグA,タグB"),
+        ];
+        let agg = aggregate_records(&records);
+        // tag_salary は全給与Noneなので空（3件フィルタ以前に populate されない）
+        assert!(agg.by_tag_salary.is_empty(),
+            "全給与None時は by_tag_salary が空であること（巨大正値の diff_from_avg が出ないこと）");
+    }
+
+    #[test]
+    fn test_aggregate_is_hourly_detection_majority() {
+        // 6 Hourly + 4 Monthly = 10件。hourly_count=6 > 10/2=5 → true
+        let mut records = Vec::new();
+        for _ in 0..6 {
+            records.push(mock_record("H", Some("東京都"), Some("千代田区"),
+                Some(200_000), Some(1200), Some(1500),
+                SalaryType::Hourly, "パート", ""));
+        }
+        for _ in 0..4 {
+            records.push(mock_record("M", Some("東京都"), Some("千代田区"),
+                Some(250_000), Some(200_000), Some(300_000),
+                SalaryType::Monthly, "正社員", ""));
+        }
+        let agg = aggregate_records(&records);
+        assert!(agg.is_hourly, "時給6 vs 月給4 → is_hourly=true");
+    }
+
+    #[test]
+    fn test_aggregate_is_hourly_detection_minority() {
+        // 3 Hourly + 7 Monthly = 10件。hourly_count=3, 3>5=false
+        let mut records = Vec::new();
+        for _ in 0..3 {
+            records.push(mock_record("H", Some("東京都"), Some("千代田区"),
+                Some(200_000), Some(1200), Some(1500),
+                SalaryType::Hourly, "パート", ""));
+        }
+        for _ in 0..7 {
+            records.push(mock_record("M", Some("東京都"), Some("千代田区"),
+                Some(250_000), Some(200_000), Some(300_000),
+                SalaryType::Monthly, "正社員", ""));
+        }
+        let agg = aggregate_records(&records);
+        assert!(!agg.is_hourly, "時給3 vs 月給7 → is_hourly=false");
+    }
+
+    #[test]
+    fn test_aggregate_is_hourly_detection_boundary() {
+        // 5 Hourly + 5 Monthly = 10件。hourly_count=5, 5>10/2=5 は strict比較で false
+        let mut records = Vec::new();
+        for _ in 0..5 {
+            records.push(mock_record("H", Some("東京都"), Some("千代田区"),
+                Some(200_000), Some(1200), Some(1500),
+                SalaryType::Hourly, "パート", ""));
+        }
+        for _ in 0..5 {
+            records.push(mock_record("M", Some("東京都"), Some("千代田区"),
+                Some(250_000), Some(200_000), Some(300_000),
+                SalaryType::Monthly, "正社員", ""));
+        }
+        let agg = aggregate_records(&records);
+        assert!(!agg.is_hourly,
+            "境界（5-5）: strict比較 hourly_count > total/2 なので false で固定");
+    }
+
+    #[test]
+    fn test_aggregate_by_municipality_salary_median_even_count() {
+        // 同一市区町村に4件: [100_000, 200_000, 300_000, 400_000]
+        // sorted[4/2] = sorted[2] = 300_000 （現状: 偶数件でも上側要素を取る）
+        let records = vec![
+            mock_record("A", Some("東京都"), Some("千代田区"),
+                Some(100_000), Some(100_000), Some(100_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("B", Some("東京都"), Some("千代田区"),
+                Some(200_000), Some(200_000), Some(200_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("C", Some("東京都"), Some("千代田区"),
+                Some(300_000), Some(300_000), Some(300_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("D", Some("東京都"), Some("千代田区"),
+                Some(400_000), Some(400_000), Some(400_000),
+                SalaryType::Monthly, "正社員", ""),
+        ];
+        let agg = aggregate_records(&records);
+        let muni = agg.by_municipality_salary.iter()
+            .find(|m| m.name == "千代田区" && m.prefecture == "東京都")
+            .expect("千代田区");
+        assert_eq!(muni.count, 4);
+        assert_eq!(muni.avg_salary, 250_000);
+        // 現状動作: sorted[len/2] = sorted[2] = 300_000
+        // 厳密な中央値 (200_000+300_000)/2=250_000 ではないことを固定
+        assert_eq!(muni.median_salary, 300_000,
+            "偶数件の中央値は現状 sorted[len/2] = 上側の要素を返す");
+    }
+
+    #[test]
+    fn test_aggregate_by_prefecture_salary() {
+        // 東京都: 2件、大阪府: 2件
+        let records = vec![
+            mock_record("A", Some("東京都"), Some("千代田区"),
+                Some(300_000), Some(280_000), Some(320_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("B", Some("東京都"), Some("新宿区"),
+                Some(400_000), Some(380_000), Some(420_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("C", Some("大阪府"), Some("大阪市"),
+                Some(250_000), Some(200_000), Some(300_000),
+                SalaryType::Monthly, "正社員", ""),
+            mock_record("D", Some("大阪府"), Some("堺市"),
+                Some(270_000), Some(240_000), Some(300_000),
+                SalaryType::Monthly, "正社員", ""),
+        ];
+        let agg = aggregate_records(&records);
+
+        let tokyo = agg.by_prefecture_salary.iter().find(|p| p.name == "東京都").expect("東京都");
+        assert_eq!(tokyo.count, 2);
+        assert_eq!(tokyo.avg_salary, 350_000);  // (300_000+400_000)/2
+        assert_eq!(tokyo.avg_min_salary, 330_000);  // (280_000+380_000)/2
+
+        let osaka = agg.by_prefecture_salary.iter().find(|p| p.name == "大阪府").expect("大阪府");
+        assert_eq!(osaka.count, 2);
+        assert_eq!(osaka.avg_salary, 260_000);  // (250_000+270_000)/2
+        assert_eq!(osaka.avg_min_salary, 220_000);  // (200_000+240_000)/2
+    }
+}

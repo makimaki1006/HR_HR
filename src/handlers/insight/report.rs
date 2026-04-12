@@ -413,3 +413,191 @@ pub(crate) fn extract_top_findings(insights: &[Insight]) -> Vec<String> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::fetch::InsightContext;
+
+    // ======== テストヘルパー ========
+
+    /// 空の InsightContext を生成（全フィールド0/空）
+    fn mock_empty_ctx() -> InsightContext {
+        InsightContext {
+            vacancy: vec![],
+            resilience: vec![],
+            transparency: vec![],
+            temperature: vec![],
+            competition: vec![],
+            cascade: vec![],
+            salary_comp: vec![],
+            monopsony: vec![],
+            spatial_mismatch: vec![],
+            wage_compliance: vec![],
+            region_benchmark: vec![],
+            text_quality: vec![],
+            ts_counts: vec![],
+            ts_vacancy: vec![],
+            ts_salary: vec![],
+            ts_fulfillment: vec![],
+            ts_tracking: vec![],
+            ext_job_ratio: vec![],
+            ext_labor_stats: vec![],
+            ext_min_wage: vec![],
+            ext_turnover: vec![],
+            ext_population: vec![],
+            ext_pyramid: vec![],
+            ext_migration: vec![],
+            ext_daytime_pop: vec![],
+            ext_establishments: vec![],
+            ext_business_dynamics: vec![],
+            ext_care_demand: vec![],
+            ext_household_spending: vec![],
+            ext_climate: vec![],
+            commute_zone_count: 0,
+            commute_zone_pref_count: 0,
+            commute_zone_total_pop: 0,
+            commute_zone_working_age: 0,
+            commute_zone_elderly: 0,
+            commute_inflow_total: 0,
+            commute_outflow_total: 0,
+            commute_self_rate: 0.0,
+            commute_inflow_top3: vec![],
+            pref: String::new(),
+            muni: String::new(),
+        }
+    }
+
+    /// vacancy_rate を指定した InsightContext を生成
+    fn mock_ctx_with_vacancy(vacancy_rate: f64) -> InsightContext {
+        use std::collections::HashMap;
+        use serde_json::Value;
+        let mut ctx = mock_empty_ctx();
+        let mut row: HashMap<String, Value> = HashMap::new();
+        row.insert("emp_group".to_string(), Value::String("正社員".to_string()));
+        row.insert("vacancy_rate".to_string(),
+            Value::Number(serde_json::Number::from_f64(vacancy_rate).unwrap()));
+        ctx.vacancy.push(row);
+        ctx
+    }
+
+    /// テスト用 Insight 作成
+    fn mock_insight(
+        id: &str,
+        category: InsightCategory,
+        severity: Severity,
+        title: &str,
+    ) -> Insight {
+        Insight {
+            id: id.to_string(),
+            category,
+            severity,
+            title: title.to_string(),
+            body: "test body".to_string(),
+            evidence: vec![],
+            related_tabs: vec![],
+        }
+    }
+
+    // ======== C. レポートテキスト生成テスト ========
+
+    #[test]
+    fn test_generate_executive_summary_text_zero_insights() {
+        // insights空 + 空InsightContext → パニックせず何らかの文字列を返す
+        let insights: Vec<Insight> = vec![];
+        let ctx = mock_empty_ctx();
+        let result = generate_executive_summary_text(&insights, &ctx);
+        assert!(!result.is_empty(), "空insightsでも何らかの文字列を返すべき");
+        // 「標準的な状態」判定に落ちる（critical=0, warning=0, positive=0）
+        assert!(result.contains("標準的な状態"),
+            "insights空時は「標準的な状態です」が含まれる: {}", result);
+    }
+
+    #[test]
+    fn test_generate_executive_summary_text_with_critical_insights() {
+        // Critical 3件 + vacancy_rate=0.35 → 「深刻」が含まれる
+        let insights = vec![
+            mock_insight("HS-1", InsightCategory::HiringStructure, Severity::Critical, "欠員深刻"),
+            mock_insight("HS-2", InsightCategory::HiringStructure, Severity::Critical, "給与低迷"),
+            mock_insight("FC-1", InsightCategory::Forecast, Severity::Critical, "減少トレンド"),
+        ];
+        let ctx = mock_ctx_with_vacancy(0.35);
+        let result = generate_executive_summary_text(&insights, &ctx);
+        // critical>=3 && vacancy_rate>0.30 → 「深刻な課題を抱えています」
+        assert!(result.contains("深刻"),
+            "Critical 3件+vacancy>0.30時は「深刻」が含まれるべき: {}", result);
+    }
+
+    #[test]
+    fn test_generate_chapter_narrative_hiring_structure_empty() {
+        // HiringStructure + 空insights → 「特筆すべき事項は検出されませんでした」
+        let insights: Vec<&Insight> = vec![];
+        let ctx = mock_empty_ctx();
+        let result = generate_chapter_narrative(
+            &InsightCategory::HiringStructure,
+            &insights,
+            &ctx,
+        );
+        assert!(result.contains("特筆すべき事項は検出されませんでした"),
+            "空insights時は特筆なし文言: {}", result);
+    }
+
+    #[test]
+    fn test_generate_chapter_narrative_hiring_structure_critical() {
+        // HiringStructure + Critical insight → 「構造的課題」「重大」が含まれる
+        let critical = mock_insight(
+            "HS-1",
+            InsightCategory::HiringStructure,
+            Severity::Critical,
+            "慢性的人材不足",
+        );
+        let insights: Vec<&Insight> = vec![&critical];
+        let ctx = mock_ctx_with_vacancy(0.35);
+        let result = generate_chapter_narrative(
+            &InsightCategory::HiringStructure,
+            &insights,
+            &ctx,
+        );
+        assert!(result.contains("構造的課題"),
+            "HiringStructure章は「構造的課題」で始まる: {}", result);
+        assert!(result.contains("重大"),
+            "Critical count は「重大N件」で表示: {}", result);
+    }
+
+    #[test]
+    fn test_generate_chapter_narrative_all_four_categories() {
+        // 4カテゴリ全てでパニックせず戻り値が返る
+        let ctx = mock_empty_ctx();
+        let dummy = mock_insight(
+            "AP-1",
+            InsightCategory::ActionProposal,
+            Severity::Info,
+            "テスト施策",
+        );
+        let insights: Vec<&Insight> = vec![&dummy];
+
+        for cat in &[
+            InsightCategory::HiringStructure,
+            InsightCategory::Forecast,
+            InsightCategory::RegionalCompare,
+            InsightCategory::ActionProposal,
+        ] {
+            let result = generate_chapter_narrative(cat, &insights, &ctx);
+            assert!(!result.is_empty(),
+                "カテゴリ {:?} の narrative が空ではないこと", cat);
+        }
+
+        // 空insightsでも4カテゴリ全てOK
+        let empty: Vec<&Insight> = vec![];
+        for cat in &[
+            InsightCategory::HiringStructure,
+            InsightCategory::Forecast,
+            InsightCategory::RegionalCompare,
+            InsightCategory::ActionProposal,
+        ] {
+            let result = generate_chapter_narrative(cat, &empty, &ctx);
+            assert!(!result.is_empty(),
+                "カテゴリ {:?} の空insights narrative が空ではないこと", cat);
+        }
+    }
+}
