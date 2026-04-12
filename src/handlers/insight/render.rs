@@ -231,10 +231,23 @@ pub(crate) fn render_insight_report_page(
 <meta charset="UTF-8">
 <title>総合診断レポート</title>
 <style>
+:root {
+  --c-primary: #1a5276;
+  --c-primary-light: #2874a6;
+  --c-success: #059669;
+  --c-danger: #dc2626;
+  --c-warning: #f59e0b;
+  --c-text: #1a1a2e;
+  --c-text-muted: #888;
+  --c-border: #e0e0e0;
+  --c-bg-card: #f5f9ff;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
+  --radius: 6px;
+}
 @page { size: A4 landscape; margin: 12mm 10mm 15mm 10mm; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Yu Gothic","Meiryo","Hiragino Sans",sans-serif; font-size: 11px; color: #333; background: #fff; padding: 20px; }
-h1 { font-size: 20px; color: #1a5276; border-bottom: 3px solid #1a5276; padding-bottom: 8px; margin-bottom: 6px; }
+h1 { font-size: 20px; color: var(--c-primary); border-bottom: 3px solid var(--c-primary); padding-bottom: 8px; margin-bottom: 6px; }
 h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
 .subtitle { color: #666; font-size: 12px; margin-bottom: 12px; }
 .grade-box { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; padding: 16px; border: 2px solid; border-radius: 8px; }
@@ -245,13 +258,22 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 .findings-list { margin: 12px 0; padding-left: 20px; }
 .findings-list li { font-size: 11px; line-height: 1.8; color: #333; }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.kpi-card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; text-align: center; }
+.kpi-card { border: 1px solid var(--c-border); border-radius: var(--radius); padding: 12px; text-align: center; position: relative; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; background: #fff; box-shadow: var(--shadow-card); }
+.kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, var(--c-primary), var(--c-primary-light)); }
+.kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
 .kpi-value { font-size: 18px; font-weight: bold; }
 .kpi-label { font-size: 9px; color: #666; margin-top: 3px; }
-.kpi-subtitle { font-size: 8px; color: #888; margin-top: 2px; }
-.section-title { font-size: 15px; color: #1a5276; margin: 16px 0 8px 0; border-left: 4px solid #1a5276; padding-left: 8px; }
+.kpi-subtitle { font-size: 8px; color: var(--c-text-muted); margin-top: 2px; }
+.section-title { font-size: 15px; color: var(--c-primary); margin: 16px 0 8px 0; border-left: 4px solid var(--c-primary); padding-left: 8px; }
 .section-question { font-size: 10px; color: #666; font-style: italic; margin-bottom: 10px; }
-.narrative { background: #f8f9fa; border-left: 3px solid #1a5276; padding: 10px 14px; margin-bottom: 12px; font-size: 11px; line-height: 1.6; color: #444; }
+.narrative { background: #f8f9fa; border-left: 3px solid var(--c-primary); padding: 10px 14px; margin-bottom: 12px; font-size: 11px; line-height: 1.6; color: #444; }
+.sortable-table th { cursor: pointer; user-select: none; position: relative; padding-right: 18px; }
+.sortable-table th::after { content: '↕'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #999; opacity: 0.5; }
+.sortable-table th.sort-asc::after { content: '▲'; opacity: 1; color: var(--c-primary); }
+.sortable-table th.sort-desc::after { content: '▼'; opacity: 1; color: var(--c-primary); }
+.guide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; margin: 8px 0 12px; }
+.guide-item { background: var(--c-bg-card); border-left: 3px solid var(--c-primary-light); padding: 6px 8px; font-size: 9px; line-height: 1.4; }
+.guide-item strong { color: var(--c-primary); display: block; margin-bottom: 2px; }
 .chart-box { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
 .chart-box h3 { font-size: 11px; color: #666; margin-bottom: 6px; }
 .chart-interp { font-size: 9px; color: #666; margin-top: 6px; font-style: italic; border-top: 1px solid #eee; padding-top: 4px; }
@@ -281,6 +303,8 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 .report-page { page-break-after: always; }
 .report-page:last-child { page-break-after: auto; }
 @media print {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     .print-btn { display: none; }
     .no-break { page-break-inside: avoid; break-inside: avoid; }
     .chart-box { page-break-inside: avoid; break-inside: avoid; }
@@ -290,6 +314,11 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     .narrative { page-break-after: avoid; break-after: avoid; }
     body { padding: 0; }
     .report-page { min-height: auto; }
+    .kpi-card { box-shadow: none !important; transform: none !important; }
+    .sortable-table th::after { display: none; }
+    .sortable-table th { cursor: default; padding-right: 8px; }
+    thead { display: table-header-group; }
+    .echart, [data-chart-config] { page-break-inside: avoid; break-inside: avoid; }
 }
 .metric-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
 .metric-label { color: #64748b; font-size: 10px; }
@@ -422,11 +451,16 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     html.push_str("<section class=\"report-page\">");
     html.push_str("<div class=\"section-title\">市場概況</div>");
     html.push_str("<div class=\"section-question\">この地域の求人市場は今どういう状態か?</div>");
+    html.push_str(r#"<div class="guide-grid">
+<div class="guide-item"><strong>通勤フロー</strong>他県から働きに来る人の割合。高い=広域採用エリア。</div>
+<div class="guide-item"><strong>地元就業率</strong>地元在住者で地元就業する割合。低い=外部流入依存。</div>
+<div class="guide-item"><strong>流入元TOP3</strong>通勤者数が多い他地域。採用広告の配信対象として有効。</div>
+</div>"#);
 
     // 通勤フローテーブル
     if !ctx.commute_inflow_top3.is_empty() {
         html.push_str(r#"<h2>通勤フロー（国勢調査実データ）</h2>"#);
-        html.push_str(r#"<table class="flow-table"><thead><tr><th>流入元</th><th>通勤者数</th></tr></thead><tbody>"#);
+        html.push_str(r#"<table class="sortable-table flow-table"><thead><tr><th>流入元</th><th>通勤者数</th></tr></thead><tbody>"#);
         for (p, m, c) in &ctx.commute_inflow_top3 {
             html.push_str(&format!(
                 "<tr><td>{}{}</td><td style=\"text-align:right\">{}</td></tr>",
@@ -448,6 +482,11 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     html.push_str("<section class=\"report-page\">");
     html.push_str("<div class=\"section-title\">市場構造と将来予測</div>");
     html.push_str("<div class=\"section-question\">人材はこの先どうなるか?</div>");
+    html.push_str(r#"<div class="guide-grid">
+<div class="guide-item"><strong>産業別求人</strong>正社員求人数の多い業界TOP10。市場の主要プレーヤー。</div>
+<div class="guide-item"><strong>人口ピラミッド</strong>性別×年齢の人口分布。労働力供給の将来予測に活用。</div>
+<div class="guide-item"><strong>若年層比率</strong>15〜39歳の人口割合。低い=採用難易度が上昇する地域。</div>
+</div>"#);
 
     // 給与帯分布（cascadeテーブルから）
     let salary_data: Vec<(String, i64)> = ctx.cascade.iter()
@@ -517,13 +556,18 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         html.push_str("<section class=\"report-page\">");
         html.push_str("<div class=\"section-title\">通勤フロー分析</div>");
         html.push_str("<div class=\"section-question\">実際に誰がどこから通勤しているか?</div>");
+        html.push_str(r#"<div class="guide-grid">
+<div class="guide-item"><strong>通勤流入</strong>他地域から当該地域へ通勤する人数。採用の供給源。</div>
+<div class="guide-item"><strong>昼夜間人口比</strong>1.0超=昼間流入（都市型）、1.0未満=流出（ベッドタウン型）。</div>
+<div class="guide-item"><strong>30km圏</strong>実質的な採用商圏。この範囲内の人口が採用対象。</div>
+</div>"#);
 
         // 流入テーブル（詳細版）
         html.push_str(r#"<div class="two-col">"#);
 
         // 流入側
         html.push_str(r#"<div class="chart-box"><h3>通勤流入 Top10（この地域に通勤してくる人）</h3>"#);
-        html.push_str(r#"<table class="flow-table"><thead><tr><th>流入元</th><th>通勤者数</th><th>男性</th><th>女性</th></tr></thead><tbody>"#);
+        html.push_str(r#"<table class="sortable-table flow-table"><thead><tr><th>流入元</th><th>通勤者数</th><th>男性</th><th>女性</th></tr></thead><tbody>"#);
         for (p, m, c) in &ctx.commute_inflow_top3 {
             html.push_str(&format!(
                 "<tr><td>{}{}</td><td style=\"text-align:right\">{}</td><td></td><td></td></tr>",
@@ -583,6 +627,12 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         html.push_str("<section class=\"report-page\">");
         html.push_str(&format!(r#"<h2>{title}</h2>"#));
         html.push_str(&format!("<div class=\"section-question\">{}</div>", chapter_questions[idx]));
+        html.push_str(r#"<div class="guide-grid">
+<div class="guide-item"><strong>重大</strong>早急な対応が必要な課題。放置すると採用難が深刻化する可能性。</div>
+<div class="guide-item"><strong>注意</strong>モニタリングが必要な項目。トレンド次第で重大化。</div>
+<div class="guide-item"><strong>情報</strong>参考情報。戦略立案時の補助データとして活用。</div>
+<div class="guide-item"><strong>良好</strong>現状で優位な領域。強みとして訴求可能。</div>
+</div>"#);
 
         // 章ナラティブ（具体数値入り）
         let narrative = super::report::generate_chapter_narrative(cat, &filtered, ctx);
@@ -662,19 +712,47 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 
     html.push_str("</section>"); // End notes page
 
-    // ECharts初期化スクリプト
+    // ECharts初期化スクリプト（SVGレンダラー + 印刷/リサイズ対応）
     html.push_str(r#"<script>
 document.addEventListener('DOMContentLoaded', function() {
+    var charts = [];
     document.querySelectorAll('.report-chart[data-chart-config]').forEach(function(el) {
         try {
             var config = JSON.parse(el.getAttribute('data-chart-config'));
             config.animation = false;
             config.backgroundColor = '#ffffff';
-            var chart = echarts.init(el, null);
+            var chart = echarts.init(el, null, { renderer: 'svg' });
             chart.setOption(config);
+            charts.push(chart);
         } catch(e) { console.warn('Chart init error:', e); }
     });
+    window.addEventListener('beforeprint', function() { charts.forEach(function(c) { c.resize(); }); });
+    window.addEventListener('resize', function() { charts.forEach(function(c) { c.resize(); }); });
 });
+function initSortableTables() {
+  document.querySelectorAll('.sortable-table').forEach(function(table) {
+    table.querySelectorAll('th').forEach(function(th, colIdx) {
+      th.addEventListener('click', function() {
+        var tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var isAsc = th.classList.contains('sort-asc');
+        table.querySelectorAll('th').forEach(function(h) { h.classList.remove('sort-asc','sort-desc'); });
+        th.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+        rows.sort(function(a,b) {
+          var at = a.children[colIdx] ? a.children[colIdx].textContent.trim() : '';
+          var bt = b.children[colIdx] ? b.children[colIdx].textContent.trim() : '';
+          var an = parseFloat(at.replace(/[,件%万円倍+人]/g,''));
+          var bn = parseFloat(bt.replace(/[,件%万円倍+人]/g,''));
+          if (!isNaN(an) && !isNaN(bn)) return isAsc ? bn-an : an-bn;
+          return isAsc ? bt.localeCompare(at,'ja') : at.localeCompare(bt,'ja');
+        });
+        rows.forEach(function(r) { tbody.appendChild(r); });
+      });
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded', initSortableTables);
 </script>"#);
 
     html.push_str("</body></html>");
