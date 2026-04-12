@@ -204,12 +204,32 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     by_tag_salary.sort_by(|a, b| b.diff_from_avg.cmp(&a.diff_from_avg));
     by_tag_salary.truncate(20);
 
-    // 下限/上限給与（レポート用）
+    // 下限/上限給与（レポート用、月給換算）
+    // 時給データは160h倍して月給相当に変換、月給はそのまま
+    use super::salary_parser::SalaryType;
     let salary_min_values: Vec<i64> = records.iter()
-        .filter_map(|r| r.salary_parsed.min_value)
+        .filter_map(|r| {
+            let v = r.salary_parsed.min_value?;
+            match r.salary_parsed.salary_type {
+                SalaryType::Hourly => Some(v * 160),
+                SalaryType::Daily => Some(v * 20),  // 月20日想定
+                SalaryType::Annual => Some(v / 12),
+                _ => Some(v),
+            }
+        })
+        .filter(|&v| v >= 50_000)  // 5万円未満は異常値として除外
         .collect();
     let salary_max_values: Vec<i64> = records.iter()
-        .filter_map(|r| r.salary_parsed.max_value)
+        .filter_map(|r| {
+            let v = r.salary_parsed.max_value?;
+            match r.salary_parsed.salary_type {
+                SalaryType::Hourly => Some(v * 160),
+                SalaryType::Daily => Some(v * 20),
+                SalaryType::Annual => Some(v / 12),
+                _ => Some(v),
+            }
+        })
+        .filter(|&v| v >= 50_000)
         .collect();
 
     // 企業別集計

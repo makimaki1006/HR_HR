@@ -255,6 +255,64 @@ def main():
         check("タグ分析", "タグ" in rbody)
         check("求職者心理", "求職者" in rbody or "レンジ" in rbody)
 
+        # === 5b. データ妥当性検証（目視で見逃したバグを検出する） ===
+        print("\n=== 5b. データ妥当性検証 ===")
+        # 給与ヒストグラムの「0万」バケットが総件数の10%未満であること（時給混入バグ検出）
+        zero_bucket_issue = report_page.evaluate("""
+            (function(){
+                var result = {checked: false, zero_ratios: []};
+                var charts = document.querySelectorAll('[data-chart-config]');
+                charts.forEach(function(el, idx){
+                    try {
+                        var cfg = JSON.parse(el.getAttribute('data-chart-config'));
+                        if (cfg.xAxis && cfg.xAxis.data && cfg.series && cfg.series[0] && cfg.series[0].type === 'bar') {
+                            var labels = cfg.xAxis.data;
+                            var values = cfg.series[0].data;
+                            var zeroIdx = labels.findIndex(function(l){return l === '0万' || l === '0';});
+                            if (zeroIdx >= 0) {
+                                var total = values.reduce(function(a,b){return a+b;}, 0);
+                                var zeroVal = values[zeroIdx] || 0;
+                                var ratio = total > 0 ? zeroVal/total : 0;
+                                result.zero_ratios.push({chart: idx, zero: zeroVal, total: total, ratio: ratio});
+                                result.checked = true;
+                            }
+                        }
+                    } catch(e) {}
+                });
+                return result;
+            })()
+        """)
+        print(f"  [INFO] 給与ヒストグラム0バケット検証: {zero_bucket_issue}")
+        for r in zero_bucket_issue.get('zero_ratios', []):
+            check(
+                f"給与ヒストグラム chart[{r['chart']}] の0バケットが10%未満 (実際: {r['ratio']*100:.1f}%)",
+                r['ratio'] < 0.1
+            )
+
+        # KPIサマリーの平均月給が妥当な範囲（5万〜200万）
+        kpi_values = report_page.evaluate("""
+            (function(){
+                var cards = document.querySelectorAll('.kpi-card');
+                return Array.from(cards).map(function(c){
+                    var label = c.querySelector('.kpi-label');
+                    var value = c.querySelector('.kpi-value');
+                    return {
+                        label: label ? label.textContent.trim() : '',
+                        value: value ? value.textContent.trim() : ''
+                    };
+                });
+            })()
+        """)
+        print(f"  [INFO] KPIカード: {kpi_values}")
+        for kpi in kpi_values:
+            if "月給" in kpi.get('label', '') or "時給" in kpi.get('label', ''):
+                # 数値抽出
+                import re
+                m = re.search(r'([\d.]+)', kpi.get('value', ''))
+                if m:
+                    val = float(m.group(1))
+                    check(f"KPI {kpi['label']} が妥当な範囲 ({val})", 5.0 <= val <= 300.0)
+
         # === 6. ECharts実描画確認 ===
         print("\n=== 6. ECharts描画検証 ===")
         echart_count = report_page.evaluate(
