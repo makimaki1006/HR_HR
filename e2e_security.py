@@ -239,18 +239,25 @@ def test_xss(page):
                 submitted = True
             except Exception:
                 pass
-        # レスポンス描画待機（最大25秒）
+        # レスポンス描画待機（最大25秒、ナビゲーション例外を捕捉）
         rendered_html = ""
         for _ in range(25):
             time.sleep(1)
-            html = page.evaluate(
-                "(function(){var r=document.getElementById('survey-result');"
-                "return r ? r.innerHTML : '';})()"
-            ) or ""
+            try:
+                html = page.evaluate(
+                    "(function(){var r=document.getElementById('survey-result');"
+                    "return r ? r.innerHTML : '';})()"
+                ) or ""
+            except Exception:
+                # Execution context destroyed (navigation in progress) - retry
+                continue
             if html and len(html) > 100:
                 rendered_html = html
                 break
-        body_text = page.text_content("body") or ""
+        try:
+            body_text = page.text_content("body") or ""
+        except Exception:
+            body_text = ""
 
         for p in payloads:
             # 生のペイロードがそのままHTMLに入っていたら VULNERABLE
