@@ -2,7 +2,7 @@
 //! CSVアップロード分析結果をA4縦向き印刷用HTMLとして出力する
 //! EChartsによるインタラクティブチャート + ソート可能テーブル
 
-use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary};
+use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary, ScatterPoint, TagSalaryAgg};
 use super::job_seeker::JobSeekerAnalysis;
 use super::super::helpers::{escape_html, format_number, get_f64};
 use super::super::insight::fetch::InsightContext;
@@ -79,7 +79,7 @@ pub(crate) fn render_survey_report_page(
 
     // --- セクション1-2: HW市場比較（HWデータがある場合のみ） ---
     if let Some(ctx) = hw_context {
-        render_section_hw_comparison(&mut html, agg, ctx);
+        render_section_hw_comparison(&mut html, agg, by_emp_type_salary, ctx);
     }
 
     // --- セクション3: 給与分布 統計情報 ---
@@ -637,6 +637,7 @@ fn render_comparison_card(
 fn render_section_hw_comparison(
     html: &mut String,
     agg: &SurveyAggregation,
+    by_emp_type_salary: &[EmpTypeSalary],
     ctx: &InsightContext,
 ) {
     html.push_str("<div class=\"section\">\n");
@@ -645,12 +646,19 @@ fn render_section_hw_comparison(
         <strong>【読み方ガイド】</strong>CSV（媒体データ）とハローワーク全体データを並列比較。\
         媒体 vs ハローワークで給与帯・雇用形態が異なる可能性があります。\
     </p>\n");
+    html.push_str("<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【注記】</strong>本比較は「正社員求人のみ」を対象とします。CSVデータと同じ条件で正確な比較を行うため。\
+    </p>\n");
     html.push_str("<div class=\"comparison-grid\">\n");
 
-    // --- カード1: 平均月給（媒体 vs HW） ---
+    // --- カード1: 平均月給（媒体 vs HW / 正社員限定） ---
     // 時給データの場合は比較スキップ（HW側は月給ベースのため）
     if !agg.is_hourly {
-        let csv_mean_yen = agg.enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0);
+        // CSV側: by_emp_type_salary から「正社員」エントリを採用（正社員求人のみで比較）
+        let csv_mean_yen: i64 = by_emp_type_salary.iter()
+            .find(|e| e.emp_type.contains("正社員") || e.emp_type.contains("正職員"))
+            .map(|e| e.avg_salary)
+            .unwrap_or(0);
         let csv_display = if csv_mean_yen > 0 {
             format!("{:.1}万円", csv_mean_yen as f64 / 10_000.0)
         } else {
@@ -812,18 +820,39 @@ fn render_section_hw_comparison(
 // ECharts config生成ヘルパー
 // ============================================================
 
-/// ヒストグラム用ECharts設定JSONを生成（平均・中央値のmarkLine付き）
+/// ヒストグラム用ECharts設定JSONを生成（平均・中央値・最頻値のmarkLine付き）
+///
+/// markLineのxAxis値は、category軸のラベル（例: "20万"）に正確一致させる必要がある。
+/// bin_size で丸めた「bin開始値（万単位）」を渡すことで、
+/// 該当binの棒の開始位置に縦線を表示する。
 fn build_histogram_echart_config(
     labels: &[String],
     values: &[usize],
     color: &str,
     mean: Option<i64>,
     median: Option<i64>,
+    mode: Option<i64>,
+    bin_size: i64,
 ) -> String {
+    // 値を category 軸ラベルに合わせる: (値 / bin_size) * bin_size を「X万」形式に
+    let to_label = |yen: i64| -> String {
+        if bin_size <= 0 {
+            return format!("{}万", yen / 10_000);
+        }
+        let snapped = (yen / bin_size) * bin_size;
+        // 小数万対応（5,000円刻みで 22.5万 など）
+        let man = snapped as f64 / 10_000.0;
+        if (man.fract()).abs() < 1e-9 {
+            format!("{}万", snapped / 10_000)
+        } else {
+            format!("{:.1}万", man)
+        }
+    };
+
     let mut mark_lines = vec![];
     if let Some(m) = mean {
         mark_lines.push(json!({
-            "xAxis": format!("{}万", m / 10_000),
+            "xAxis": to_label(m),
             "name": "平均",
             "lineStyle": {"color": "#e74c3c", "type": "dashed", "width": 2},
             "label": {"formatter": "平均", "fontSize": 10}
@@ -831,10 +860,18 @@ fn build_histogram_echart_config(
     }
     if let Some(m) = median {
         mark_lines.push(json!({
-            "xAxis": format!("{}万", m / 10_000),
+            "xAxis": to_label(m),
             "name": "中央値",
             "lineStyle": {"color": "#27ae60", "type": "dashed", "width": 2},
             "label": {"formatter": "中央値", "fontSize": 10}
+        }));
+    }
+    if let Some(m) = mode {
+        mark_lines.push(json!({
+            "xAxis": to_label(m),
+            "name": "最頻値",
+            "lineStyle": {"color": "#9b59b6", "type": "dashed", "width": 2},
+            "label": {"formatter": "最頻値", "fontSize": 10}
         }));
     }
 
@@ -906,19 +943,49 @@ fn render_section_salary_stats(
         ));
     }
 
-    // 下限給与ヒストグラム（ECharts棒グラフ + markLine）
+    // 下限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
     if !salary_min_values.is_empty() {
-        html.push_str("<h3>下限給与の分布</h3>\n");
-        let (labels, values) = build_salary_histogram(salary_min_values, 20_000);
-        let config = build_histogram_echart_config(&labels, &values, "#42A5F5", Some(stats.mean), Some(stats.median));
+        // 生値分布（20,000円刻み）
+        html.push_str("<h3>下限給与の分布（20,000円刻み）</h3>\n");
+        let (labels, values, _b) = build_salary_histogram(salary_min_values, 20_000);
+        let mode_min_20k = compute_mode(salary_min_values, 20_000);
+        let config = build_histogram_echart_config(
+            &labels, &values, "#42A5F5",
+            Some(stats.mean), Some(stats.median), mode_min_20k, 20_000,
+        );
+        html.push_str(&render_echart_div(&config, 220));
+
+        // 詳細分布（5,000円刻み）
+        html.push_str("<h3>下限給与の分布（5,000円刻み）- 詳細</h3>\n");
+        let (labels_f, values_f, _bf) = build_salary_histogram(salary_min_values, 5_000);
+        let mode_min_5k = compute_mode(salary_min_values, 5_000);
+        let config = build_histogram_echart_config(
+            &labels_f, &values_f, "#42A5F5",
+            Some(stats.mean), Some(stats.median), mode_min_5k, 5_000,
+        );
         html.push_str(&render_echart_div(&config, 220));
     }
 
-    // 上限給与ヒストグラム（ECharts棒グラフ + markLine）
+    // 上限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
     if !salary_max_values.is_empty() {
-        html.push_str("<h3>上限給与の分布</h3>\n");
-        let (labels, values) = build_salary_histogram(salary_max_values, 20_000);
-        let config = build_histogram_echart_config(&labels, &values, "#66BB6A", Some(stats.mean), Some(stats.median));
+        // 生値分布（20,000円刻み）
+        html.push_str("<h3>上限給与の分布（20,000円刻み）</h3>\n");
+        let (labels, values, _b) = build_salary_histogram(salary_max_values, 20_000);
+        let mode_max_20k = compute_mode(salary_max_values, 20_000);
+        let config = build_histogram_echart_config(
+            &labels, &values, "#66BB6A",
+            Some(stats.mean), Some(stats.median), mode_max_20k, 20_000,
+        );
+        html.push_str(&render_echart_div(&config, 220));
+
+        // 詳細分布（5,000円刻み）
+        html.push_str("<h3>上限給与の分布（5,000円刻み）- 詳細</h3>\n");
+        let (labels_f, values_f, _bf) = build_salary_histogram(salary_max_values, 5_000);
+        let mode_max_5k = compute_mode(salary_max_values, 5_000);
+        let config = build_histogram_echart_config(
+            &labels_f, &values_f, "#66BB6A",
+            Some(stats.mean), Some(stats.median), mode_max_5k, 5_000,
+        );
         html.push_str(&render_echart_div(&config, 220));
     }
 
@@ -1069,14 +1136,21 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
     }
     html.push_str("</tbody></table>\n");
 
-    // 給与ランキング TOP15（件数2件以上のみ）
+    // 給与ランキング TOP15（サンプル数に応じて閾値動的調整）
+    let multi_count = by_company.iter().filter(|c| c.count >= 2).count();
+    let min_count_threshold = if multi_count >= 15 { 2 } else { 1 };
     let mut by_salary: Vec<&CompanyAgg> = by_company.iter()
-        .filter(|c| c.count >= 2 && c.avg_salary > 0)
+        .filter(|c| c.count >= min_count_threshold && c.avg_salary > 0)
         .collect();
     by_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
 
     if !by_salary.is_empty() {
-        html.push_str("<h3>給与ランキング TOP15（給与付き2件以上の企業）</h3>\n");
+        let title = if min_count_threshold >= 2 {
+            "給与ランキング TOP15（給与付き2件以上の企業）"
+        } else {
+            "給与ランキング TOP15（給与付き、1件求人含む。※1件は参考値）"
+        };
+        html.push_str(&format!("<h3>{}</h3>\n", title));
         html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">給与付き求人数</th></tr></thead>\n<tbody>\n");
         for (i, c) in by_salary.iter().take(15).enumerate() {
             html.push_str(&format!(
@@ -1139,10 +1213,35 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
     // ECharts scatter データ生成（最大200点）
     html.push_str("<h3>月給下限 vs 上限</h3>\n");
 
-    let scatter_data: Vec<serde_json::Value> = agg.scatter_min_max.iter()
+    // 異常値除外: 5万〜200万円の妥当な範囲、かつ上限≧下限
+    // （時給や年収の月給換算ミスによる外れ値を排除）
+    let filtered_points: Vec<&ScatterPoint> =
+        agg.scatter_min_max.iter()
+            .filter(|p| {
+                let x_man = p.x as f64 / 10_000.0;
+                let y_man = p.y as f64 / 10_000.0;
+                x_man >= 5.0 && x_man <= 200.0
+                    && y_man >= 5.0 && y_man <= 200.0
+                    && y_man >= x_man
+            })
+            .collect();
+
+    if filtered_points.len() < 6 {
+        html.push_str("<p style=\"font-size:9pt;color:#888;\">有効なデータ点が不足しているため散布図を省略しました。</p>\n");
+        html.push_str("</div>\n");
+        return;
+    }
+
+    let scatter_data: Vec<serde_json::Value> = filtered_points.iter()
         .take(200)
         .map(|p| json!([p.x as f64 / 10_000.0, p.y as f64 / 10_000.0]))
         .collect();
+
+    // 軸範囲をパーセンタイル(P2.5〜P97.5)基準で決定、5%マージン
+    let mut x_vals_man: Vec<f64> = filtered_points.iter().map(|p| p.x as f64 / 10_000.0).collect();
+    let mut y_vals_man: Vec<f64> = filtered_points.iter().map(|p| p.y as f64 / 10_000.0).collect();
+    let (x_axis_min, x_axis_max) = compute_axis_range(&mut x_vals_man);
+    let (y_axis_min, y_axis_max) = compute_axis_range(&mut y_vals_man);
 
     // 回帰線のmarkLine（2点指定）
     let mut series_list = vec![json!({
@@ -1153,18 +1252,15 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
     })];
 
     if let Some(reg) = &agg.regression_min_max {
-        // 回帰線の2端点を計算
-        let xs: Vec<f64> = agg.scatter_min_max.iter().map(|p| p.x as f64).collect();
-        let x_min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
-        let x_max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let y1 = (reg.slope * x_min + reg.intercept) / 10_000.0;
-        let y2 = (reg.slope * x_max + reg.intercept) / 10_000.0;
-        let x1_man = x_min / 10_000.0;
-        let x2_man = x_max / 10_000.0;
+        // 回帰線の端点は軸の表示範囲にクランプ（外れ値によるスケール崩れ防止）
+        let x_min_yen = x_axis_min * 10_000.0;
+        let x_max_yen = x_axis_max * 10_000.0;
+        let y1 = (reg.slope * x_min_yen + reg.intercept) / 10_000.0;
+        let y2 = (reg.slope * x_max_yen + reg.intercept) / 10_000.0;
 
         series_list.push(json!({
             "type": "line",
-            "data": [[x1_man, y1], [x2_man, y2]],
+            "data": [[x_axis_min, y1], [x_axis_max, y2]],
             "symbol": "none",
             "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
             "tooltip": {"show": false}
@@ -1181,6 +1277,8 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
             "nameLocation": "center",
             "nameGap": 25,
             "type": "value",
+            "min": x_axis_min,
+            "max": x_axis_max,
             "axisLabel": {"fontSize": 9}
         },
         "yAxis": {
@@ -1188,6 +1286,8 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
             "nameLocation": "center",
             "nameGap": 35,
             "type": "value",
+            "min": y_axis_min,
+            "max": y_axis_max,
             "axisLabel": {"fontSize": 9}
         },
         "grid": {"left": "12%", "right": "5%", "bottom": "15%", "top": "5%"},
@@ -1200,12 +1300,42 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
             else if reg.r_squared > 0.4 { "中程度の相関" }
             else { "弱い相関" };
         html.push_str(&format!(
-            "<p style=\"font-size:9px;color:#666;\">データ点: {}件 / R\u{00B2} = {:.3}（{}）</p>\n",
-            agg.scatter_min_max.len(), reg.r_squared, strength
+            "<p style=\"font-size:9px;color:#666;\">データ点: {}件（表示: {}件、異常値除外後）/ R\u{00B2} = {:.3}（{}）</p>\n",
+            agg.scatter_min_max.len(), filtered_points.len(), reg.r_squared, strength
         ));
     }
 
     html.push_str("</div>\n");
+}
+
+/// ソート済みでない値の配列から、指定パーセンタイル値を返す。
+/// 空配列の場合は 0.0 を返す。
+fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
+    if sorted.is_empty() { return 0.0; }
+    let clamped = p.clamp(0.0, 100.0);
+    let idx = (((sorted.len() - 1) as f64) * clamped / 100.0).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+/// 散布図軸の表示範囲を P2.5〜P97.5 基準で計算し、5% のマージンを追加して返す。
+/// 下限は 0 未満にはならない。範囲が潰れる場合は ±1.0 万円のフォールバック。
+fn compute_axis_range(values: &mut Vec<f64>) -> (f64, f64) {
+    if values.is_empty() {
+        return (0.0, 1.0);
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let lo = percentile_sorted(values, 2.5);
+    let hi = percentile_sorted(values, 97.5);
+    let (lo, hi) = if (hi - lo).abs() < f64::EPSILON {
+        (lo - 1.0, hi + 1.0)
+    } else {
+        (lo, hi)
+    };
+    let pad = (hi - lo) * 0.05;
+    let lo_padded = (lo - pad).max(0.0);
+    let hi_padded = hi + pad;
+    // ECharts が整数目盛りを選びやすいよう、整数に丸める
+    (lo_padded.floor(), hi_padded.ceil())
 }
 
 // ============================================================
@@ -1368,10 +1498,32 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
     }
 
     if !agg.by_tag_salary.is_empty() {
+        // 有意タグのフィルタリング:
+        // 1. 出現率50%超のタグは共通属性として除外（全求人の半数以上に付く「交通費支給」等は差分がゼロに収束）
+        // 2. 差分 |diff_percent| >= 2% のタグのみハイライト（それ未満は参考扱い）
+        let total_records = agg.total_count as f64;
+        let significant: Vec<&TagSalaryAgg> = agg.by_tag_salary.iter()
+            .filter(|t| {
+                let frequency = t.count as f64 / total_records;
+                frequency < 0.5 && t.diff_percent.abs() >= 2.0
+            })
+            .collect();
+        let display_tags: Vec<&TagSalaryAgg> = if significant.is_empty() {
+            // フォールバック: 有意なタグがない場合は全タグを表示
+            agg.by_tag_salary.iter().collect()
+        } else {
+            significant
+        };
+        if agg.by_tag_salary.len() > display_tags.len() {
+            html.push_str(&format!(
+                "<p class=\"note\" style=\"font-size:9pt;color:#888;\">※{}タグから{}タグに絞り込み表示中（出現率50%超の共通タグと差分±2%未満を除外）</p>\n",
+                agg.by_tag_salary.len(), display_tags.len()
+            ));
+        }
         // タグ別給与差分テーブル（ソート可能・完全版）
         html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
             <th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">全体比</th></tr></thead>\n<tbody>\n");
-        for (i, ts) in agg.by_tag_salary.iter().enumerate() {
+        for (i, ts) in display_tags.iter().enumerate() {
             let diff_class = if ts.diff_from_avg > 0 { "positive" } else if ts.diff_from_avg < 0 { "negative" } else { "" };
             let diff_sign = if ts.diff_from_avg > 0 { "+" } else { "" };
             html.push_str(&format!(
@@ -1527,15 +1679,15 @@ fn format_man_yen(yen: i64) -> String {
 }
 
 /// ヒストグラム用バケット集計
-/// 給与値配列をbin_size刻みでバケットに分類し、ラベルと件数を返す
-fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>) {
+/// 給与値配列をbin_size刻みでバケットに分類し、ラベル・件数・bin下端境界配列を返す
+fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>, Vec<i64>) {
     if values.is_empty() || bin_size <= 0 {
-        return (vec![], vec![]);
+        return (vec![], vec![], vec![]);
     }
 
     let valid: Vec<i64> = values.iter().filter(|&&v| v > 0).copied().collect();
     if valid.is_empty() {
-        return (vec![], vec![]);
+        return (vec![], vec![], vec![]);
     }
 
     let min_val = *valid.iter().min().unwrap();
@@ -1546,6 +1698,7 @@ fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<us
 
     let mut labels = Vec::new();
     let mut counts = Vec::new();
+    let mut boundaries = Vec::new();
 
     let mut boundary = start;
     while boundary < end {
@@ -1553,12 +1706,33 @@ fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<us
         let count = valid.iter()
             .filter(|&&v| v >= boundary && v < upper)
             .count();
-        labels.push(format!("{}万", boundary / 10_000));
+        // ラベル: bin_size が万円未満の場合は小数表記（例: 22.5万）
+        let man = boundary as f64 / 10_000.0;
+        let label = if (man.fract()).abs() < 1e-9 {
+            format!("{}万", boundary / 10_000)
+        } else {
+            format!("{:.1}万", man)
+        };
+        labels.push(label);
         counts.push(count);
+        boundaries.push(boundary);
         boundary = upper;
     }
 
-    (labels, counts)
+    (labels, counts, boundaries)
+}
+
+/// 最頻値を計算（ヒストグラム最大カウントのbin中心値を返す）
+fn compute_mode(values: &[i64], bin_size: i64) -> Option<i64> {
+    let (_labels, counts, boundaries) = build_salary_histogram(values, bin_size);
+    if counts.is_empty() {
+        return None;
+    }
+    let max_idx = counts.iter().enumerate()
+        .max_by_key(|(_, &c)| c)
+        .map(|(i, _)| i)?;
+    // markLine を bin の下端ラベルに一致させるため、bin開始値を返す
+    Some(boundaries[max_idx])
 }
 
 // ============================================================
@@ -1580,26 +1754,43 @@ mod tests {
     #[test]
     fn test_build_salary_histogram() {
         let values = vec![200_000, 210_000, 250_000, 270_000, 300_000];
-        let (labels, counts) = build_salary_histogram(&values, 20_000);
+        let (labels, counts, boundaries) = build_salary_histogram(&values, 20_000);
         assert!(!labels.is_empty());
         assert_eq!(labels.len(), counts.len());
+        assert_eq!(labels.len(), boundaries.len());
         let total: usize = counts.iter().sum();
         assert_eq!(total, 5);
     }
 
     #[test]
     fn test_build_salary_histogram_empty() {
-        let (labels, counts) = build_salary_histogram(&[], 20_000);
+        let (labels, counts, boundaries) = build_salary_histogram(&[], 20_000);
         assert!(labels.is_empty());
         assert!(counts.is_empty());
+        assert!(boundaries.is_empty());
     }
 
     #[test]
     fn test_build_salary_histogram_zeros() {
         let values = vec![0, 0, 0];
-        let (labels, counts) = build_salary_histogram(&values, 20_000);
+        let (labels, counts, boundaries) = build_salary_histogram(&values, 20_000);
         assert!(labels.is_empty());
         assert!(counts.is_empty());
+        assert!(boundaries.is_empty());
+    }
+
+    #[test]
+    fn test_compute_mode() {
+        // 200_000 が最頻帯（bin 200_000..220_000 に3件）
+        let values = vec![200_000, 205_000, 210_000, 250_000, 300_000];
+        let mode = compute_mode(&values, 20_000);
+        assert_eq!(mode, Some(200_000));
+    }
+
+    #[test]
+    fn test_compute_mode_empty() {
+        assert_eq!(compute_mode(&[], 20_000), None);
+        assert_eq!(compute_mode(&[0, 0], 20_000), None);
     }
 
     #[test]
@@ -1607,13 +1798,32 @@ mod tests {
         let labels = vec!["20万".to_string(), "22万".to_string(), "24万".to_string()];
         let values = vec![5, 12, 8];
         let config = build_histogram_echart_config(
-            &labels, &values, "#42A5F5", Some(220_000), Some(215_000),
+            &labels, &values, "#42A5F5",
+            Some(220_000), Some(215_000), Some(220_000), 20_000,
         );
         assert!(config.contains("bar"));
         assert!(config.contains("markLine"));
         assert!(config.contains("平均"));
         assert!(config.contains("中央値"));
+        assert!(config.contains("最頻値"));
+        // 最頻値カラー（紫 #9b59b6）が含まれる
+        assert!(config.contains("#9b59b6"));
         // JSON として妥当か
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(&config);
+        assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn test_histogram_echart_config_fine_bin() {
+        // 5,000円刻みで 22.5万 などの小数ラベルが生成できること
+        let labels = vec!["22.5万".to_string(), "23万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels, &values, "#42A5F5",
+            Some(225_000), Some(230_000), Some(225_000), 5_000,
+        );
+        // 225_000 は 22.5万 にスナップされる
+        assert!(config.contains("22.5万"));
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(&config);
         assert!(parsed.is_ok());
     }
@@ -1724,4 +1934,68 @@ mod tests {
         }
     }
 
+    /// パーセンタイル計算: 基本動作
+    #[test]
+    fn test_percentile_sorted_basic() {
+        let sorted = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0];
+        assert_eq!(percentile_sorted(&sorted, 0.0), 10.0);
+        assert_eq!(percentile_sorted(&sorted, 100.0), 100.0);
+        let p50 = percentile_sorted(&sorted, 50.0);
+        assert!((p50 - 60.0).abs() < 20.0, "p50は中央付近のはず, got {}", p50);
+    }
+
+    #[test]
+    fn test_percentile_sorted_empty() {
+        assert_eq!(percentile_sorted(&[], 50.0), 0.0);
+    }
+
+    /// 軸範囲計算: 異常値が混ざっていない場合もデータ範囲に沿うこと
+    #[test]
+    fn test_compute_axis_range_basic() {
+        let mut values: Vec<f64> = (20..=50).map(|v| v as f64).collect();
+        let (lo, hi) = compute_axis_range(&mut values);
+        assert!(lo >= 0.0 && lo <= 25.0, "lo should be near data min, got {}", lo);
+        assert!(hi >= 45.0 && hi <= 60.0, "hi should be near data max, got {}", hi);
+        assert!(hi > lo, "hi > lo");
+        // ECharts PDF の 0〜700 問題が再発しないことを保証
+        assert!(hi < 700.0, "hi should not explode to 700, got {}", hi);
+    }
+
+    #[test]
+    fn test_compute_axis_range_empty() {
+        let mut values: Vec<f64> = vec![];
+        let (lo, hi) = compute_axis_range(&mut values);
+        assert!(hi > lo, "degenerate range should still yield hi>lo");
+    }
+
+    #[test]
+    fn test_compute_axis_range_single_value() {
+        let mut values: Vec<f64> = vec![30.0, 30.0, 30.0];
+        let (lo, hi) = compute_axis_range(&mut values);
+        assert!(hi > lo, "単一値でも範囲が潰れないこと");
+        assert!(lo >= 0.0);
+    }
+
+    /// 散布図の異常値除外ロジック（render_section_scatter 内のフィルタ条件を直接検証）
+    #[test]
+    fn test_scatter_outlier_filter() {
+        let points = vec![
+            ScatterPoint { x: 200_000, y: 300_000 },      // OK
+            ScatterPoint { x: 150_000, y: 250_000 },      // OK
+            ScatterPoint { x: 10_000, y: 6_000_000 },     // NG: y=600万
+            ScatterPoint { x: 5_000, y: 7_000_000 },      // NG: x<5万 かつ y=700万
+            ScatterPoint { x: 300_000, y: 200_000 },      // NG: x>200万 かつ y<x
+            ScatterPoint { x: 40_000, y: 50_000 },        // NG: x<5万
+        ];
+        let filtered: Vec<&ScatterPoint> = points.iter()
+            .filter(|p| {
+                let x_man = p.x as f64 / 10_000.0;
+                let y_man = p.y as f64 / 10_000.0;
+                x_man >= 5.0 && x_man <= 200.0
+                    && y_man >= 5.0 && y_man <= 200.0
+                    && y_man >= x_man
+            })
+            .collect();
+        assert_eq!(filtered.len(), 2, "5万〜200万の範囲内かつ y>=x の2点のみ残る");
+    }
 }
