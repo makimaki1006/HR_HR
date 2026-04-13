@@ -417,8 +417,6 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     // ===== 表紙ページ =====
     html.push_str(&format!(
         r#"<section class="cover-page" role="region" aria-labelledby="cover-title-id">
-<!-- LOGO -->
-<div class="cover-logo" aria-label="会社ロゴ枠">[会社ロゴ]</div>
 <div class="cover-title" id="cover-title-id">ハローワーク求人市場 総合診断レポート</div>
 <div class="cover-sub">{location} &nbsp;|&nbsp; {today}</div>
 <div class="cover-grade" style="border-color:{gcolor};color:{gcolor}">採用困難度: {gletter} {glabel}</div>
@@ -434,10 +432,10 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     ));
 
     // ===== Page 1: エグゼクティブサマリー =====
+    // タイトルは cover-page に出力済み、本文冒頭ではサブタイトル（地域+日付）のみ表示
     html.push_str("<section class=\"report-page\">");
     html.push_str(&format!(
-        r#"<h1>ハローワーク求人市場 総合診断レポート</h1>
-        <div class="subtitle">{location} | {today}</div>"#
+        r#"<div class="subtitle" style="font-size:14px;margin-bottom:12px;">{location} | {today}</div>"#
     ));
 
     // 採用困難度グレード（大きく表示）

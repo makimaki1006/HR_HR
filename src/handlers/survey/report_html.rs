@@ -37,7 +37,7 @@ pub(crate) fn render_survey_report_page(
     html.push_str("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
-    html.push_str("<title>競合調査レポート</title>\n");
+    html.push_str("<title>ハローワーク求人市場 総合診断レポート（競合調査分析）</title>\n");
     html.push_str("<style>\n");
     html.push_str(&render_css());
     html.push_str("</style>\n");
@@ -54,8 +54,8 @@ pub(crate) fn render_survey_report_page(
     // --- 表紙ページ ---
     let today_short = chrono::Local::now().format("%Y年%m月").to_string();
     html.push_str("<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n");
-    html.push_str("<!-- LOGO -->\n");
-    html.push_str("<div class=\"cover-logo\" aria-label=\"会社ロゴ枠\">[会社ロゴ]</div>\n");
+    // ロゴはREADME等で別途提供される想定。現状はプレースホルダーを出さず、
+    // CSS .cover-logo クラスで display:none で非表示化（render_css内）
     html.push_str("<div class=\"cover-title\" id=\"cover-title\">ハローワーク求人市場 総合診断レポート</div>\n");
     html.push_str("<div class=\"cover-sub\">競合調査分析 &nbsp;|&nbsp; ");
     html.push_str(&escape_html(&today_short));
@@ -67,13 +67,8 @@ pub(crate) fn render_survey_report_page(
     ));
     html.push_str("</section>\n");
 
-    // --- ヘッダー ---
-    html.push_str("<h1 style=\"text-align:center;margin:0 0 4px;\" id=\"report-main-title\">競合調査レポート</h1>\n");
-    html.push_str(&format!(
-        "<p style=\"text-align:center;color:#666;margin:0 0 16px;font-size:12px;\">生成日時: {}</p>\n",
-        escape_html(&now)
-    ));
-
+    // ヘッダーは表紙（cover-page）に出力済みのためPage 2冒頭では省略
+    // フッター（@page @bottom-left）で全ページに文書名・日時を表示しているため重複を回避
     // --- セクション1: サマリー ---
     render_section_summary(&mut html, agg);
 
