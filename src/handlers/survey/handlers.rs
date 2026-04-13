@@ -288,7 +288,11 @@ pub async fn survey_report_html(
         if let Some(db) = state.hw_db.clone() {
             let turso = state.turso_db.clone();
             let pref2 = pref.clone();
-            let muni2 = muni.clone();
+            // 市区町村レベルでは cascade_summary が0件になる場合があるため、
+            // 都道府県レベル（muni="")で取得してマクロ比較を優先する。
+            // 地域指標（人口・最低賃金）は dominant_pref/muni に依存しない。
+            let muni2 = String::new();
+            let _orig_muni = muni.clone();
             match tokio::task::spawn_blocking(move || {
                 super::super::insight::fetch::build_insight_context(
                     &db, turso.as_ref(), &pref2, &muni2,
