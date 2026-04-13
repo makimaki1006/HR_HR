@@ -643,100 +643,146 @@ fn render_section_hw_comparison(
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>HW市場比較</h2>\n");
     html.push_str("<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
-        <strong>【読み方ガイド】</strong>CSV（媒体データ）とハローワーク全体データを並列比較。\
-        媒体 vs ハローワークで給与帯・雇用形態が異なる可能性があります。\
+        <strong>【読み方ガイド】</strong>CSV（媒体データ）とハローワーク全体データを\
+        <strong>雇用形態ごと</strong>に並列比較。媒体に出現する雇用形態を動的に検出し、\
+        対応するHWデータと同条件で比較します。\
     </p>\n");
-    html.push_str("<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
-        <strong>【注記】</strong>本比較は「正社員求人のみ」を対象とします。CSVデータと同じ条件で正確な比較を行うため。\
-    </p>\n");
+
+    // CSV側の雇用形態を正規化してHW側のemp_group（正社員/パート/その他）にマッピング
+    // - "正社員"/"正職員" → HW "正社員"
+    // - "パート"/"アルバイト" → HW "パート"
+    // - "契約社員"/"派遣社員"/その他 → HW "その他"
+    fn normalize_emp_type(csv_type: &str) -> Option<&'static str> {
+        if csv_type.contains("正社員") || csv_type.contains("正職員") {
+            Some("正社員")
+        } else if csv_type.contains("パート") || csv_type.contains("アルバイト") {
+            Some("パート")
+        } else if csv_type.contains("契約") || csv_type.contains("派遣")
+            || csv_type.contains("嘱託") || csv_type.contains("臨時")
+            || csv_type.contains("その他") {
+            Some("その他")
+        } else {
+            None
+        }
+    }
+
+    // CSV側の雇用形態を集約（HWのemp_groupごとに合算）
+    use std::collections::HashMap;
+    let mut csv_by_hw_group: HashMap<&str, (usize, i64)> = HashMap::new();  // (件数, 給与合計)
+    for e in by_emp_type_salary {
+        if let Some(hw_key) = normalize_emp_type(&e.emp_type) {
+            let entry = csv_by_hw_group.entry(hw_key).or_insert((0, 0));
+            entry.0 += e.count;
+            entry.1 += e.avg_salary * e.count as i64;
+        }
+    }
+
+    // 対象とする雇用形態を出現順に並べる（正社員 > パート > その他）
+    let emp_order = ["正社員", "パート", "その他"];
+    let present_groups: Vec<&str> = emp_order.iter()
+        .filter(|g| csv_by_hw_group.contains_key(*g))
+        .copied()
+        .collect();
+
+    if present_groups.is_empty() {
+        html.push_str("<p style=\"color:#888;font-size:10pt;\">\
+            CSVデータの雇用形態が判別できなかったため、HW比較をスキップしました。</p>\n");
+        html.push_str("</div>\n");
+        return;
+    }
+
+    // --- 雇用形態別 平均月給比較（動的生成） ---
+    if !agg.is_hourly {
+        html.push_str("<h3 style=\"font-size:11pt;margin:8px 0;\">雇用形態別 平均月給比較</h3>\n");
+        html.push_str("<div class=\"comparison-grid\">\n");
+        for &group in &present_groups {
+            let (count, salary_sum) = csv_by_hw_group[group];
+            let csv_avg = if count > 0 { salary_sum / count as i64 } else { 0 };
+            let csv_display = if csv_avg > 0 {
+                format!("{:.1}万円 (n={})", csv_avg as f64 / 10_000.0, count)
+            } else {
+                format!("- (n={})", count)
+            };
+
+            // HW側: cascade の emp_group 一致
+            let hw_avg: i64 = ctx.cascade.iter()
+                .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == group)
+                .map(|r| get_f64(r, "avg_salary_min") as i64)
+                .unwrap_or(0);
+            let hw_display = if hw_avg > 0 {
+                format!("{:.1}万円", hw_avg as f64 / 10_000.0)
+            } else {
+                "データなし".to_string()
+            };
+
+            let (diff_text, positive) = if csv_avg > 0 && hw_avg > 0 {
+                let diff = csv_avg - hw_avg;
+                let pct = diff as f64 / hw_avg as f64 * 100.0;
+                (
+                    Some(format!("{:+.1}万円 ({:+.1}%)", diff as f64 / 10_000.0, pct)),
+                    diff >= 0,
+                )
+            } else {
+                (None, true)
+            };
+            render_comparison_card(
+                html,
+                &format!("{} 平均月給", group),
+                &csv_display, &hw_display,
+                diff_text.as_deref(), positive,
+            );
+        }
+        html.push_str("</div>\n");
+    }
+
+    // --- 雇用形態構成比（媒体 vs HW） ---
+    html.push_str("<h3 style=\"font-size:11pt;margin:16px 0 8px;\">雇用形態構成比</h3>\n");
     html.push_str("<div class=\"comparison-grid\">\n");
 
-    // --- カード1: 平均月給（媒体 vs HW / 正社員限定） ---
-    // 時給データの場合は比較スキップ（HW側は月給ベースのため）
-    if !agg.is_hourly {
-        // CSV側: by_emp_type_salary から「正社員」エントリを採用（正社員求人のみで比較）
-        let csv_mean_yen: i64 = by_emp_type_salary.iter()
-            .find(|e| e.emp_type.contains("正社員") || e.emp_type.contains("正職員"))
-            .map(|e| e.avg_salary)
-            .unwrap_or(0);
-        let csv_display = if csv_mean_yen > 0 {
-            format!("{:.1}万円", csv_mean_yen as f64 / 10_000.0)
-        } else {
-            "-".to_string()
-        };
+    // 雇用形態構成比（CSV vs HW の割合）を雇用形態ごとに表示
+    let csv_total: usize = csv_by_hw_group.values().map(|(c, _)| c).sum();
+    let hw_total: i64 = ctx.vacancy.iter()
+        .map(|r| get_f64(r, "total_count") as i64)
+        .sum();
 
-        // HW平均月給: cascade の正社員 avg_salary_min を採用（integration.rs と同じ方針）
-        let hw_mean_yen: i64 = ctx.cascade.iter()
-            .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
-            .map(|r| get_f64(r, "avg_salary_min") as i64)
-            .unwrap_or(0);
-        let hw_display = if hw_mean_yen > 0 {
-            format!("{:.1}万円", hw_mean_yen as f64 / 10_000.0)
-        } else {
-            "-".to_string()
-        };
+    for &group in &present_groups {
+        let (csv_count, _) = csv_by_hw_group[group];
+        let csv_rate = if csv_total > 0 {
+            csv_count as f64 / csv_total as f64 * 100.0
+        } else { -1.0 };
+        let csv_display = if csv_rate >= 0.0 {
+            format!("{:.1}% ({}件)", csv_rate, csv_count)
+        } else { "-".to_string() };
 
-        let (diff_text, positive) = if csv_mean_yen > 0 && hw_mean_yen > 0 {
-            let diff = csv_mean_yen - hw_mean_yen;
-            let pct = diff as f64 / hw_mean_yen as f64 * 100.0;
-            (
-                Some(format!("{:+.1}万円 ({:+.1}%)", diff as f64 / 10_000.0, pct)),
-                diff >= 0,
-            )
+        let hw_count: i64 = ctx.vacancy.iter()
+            .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == group)
+            .map(|r| get_f64(r, "total_count") as i64)
+            .unwrap_or(0);
+        let hw_rate = if hw_total > 0 {
+            hw_count as f64 / hw_total as f64 * 100.0
+        } else { -1.0 };
+        let hw_display = if hw_rate >= 0.0 && hw_total > 0 {
+            format!("{:.1}% ({}件)", hw_rate, format_number(hw_count))
+        } else { "データなし".to_string() };
+
+        let (diff_text, positive) = if csv_rate >= 0.0 && hw_rate >= 0.0 {
+            let d = csv_rate - hw_rate;
+            (Some(format!("{:+.1}pt", d)), d >= 0.0)
         } else {
             (None, true)
         };
         render_comparison_card(
-            html, "平均月給", &csv_display, &hw_display,
+            html,
+            &format!("{} 構成比", group),
+            &csv_display, &hw_display,
             diff_text.as_deref(), positive,
         );
     }
+    html.push_str("</div>\n"); // comparison-grid (構成比)
 
-    // --- カード2: 正社員率（媒体 vs HW） ---
-    let csv_fulltime_count: usize = agg.by_employment_type.iter()
-        .filter(|(t, _)| t.contains("正社員") || t.contains("正職員"))
-        .map(|(_, c)| c)
-        .sum();
-    let csv_fulltime_rate = if agg.total_count > 0 {
-        csv_fulltime_count as f64 / agg.total_count as f64 * 100.0
-    } else {
-        -1.0
-    };
-    let csv_rate_display = if csv_fulltime_rate >= 0.0 {
-        format!("{:.1}%", csv_fulltime_rate)
-    } else {
-        "-".to_string()
-    };
-
-    // HW正社員率: vacancy の emp_group 別 total_count から算出
-    let hw_fulltime_total: i64 = ctx.vacancy.iter()
-        .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
-        .map(|r| get_f64(r, "total_count") as i64)
-        .unwrap_or(0);
-    let hw_all_total: i64 = ctx.vacancy.iter()
-        .map(|r| get_f64(r, "total_count") as i64)
-        .sum();
-    let hw_fulltime_rate = if hw_all_total > 0 {
-        hw_fulltime_total as f64 / hw_all_total as f64 * 100.0
-    } else {
-        -1.0
-    };
-    let hw_rate_display = if hw_fulltime_rate >= 0.0 {
-        format!("{:.1}%", hw_fulltime_rate)
-    } else {
-        "-".to_string()
-    };
-
-    let (rate_diff_text, rate_positive) = if csv_fulltime_rate >= 0.0 && hw_fulltime_rate >= 0.0 {
-        let d = csv_fulltime_rate - hw_fulltime_rate;
-        (Some(format!("{:+.1}pt", d)), d >= 0.0)
-    } else {
-        (None, true)
-    };
-    render_comparison_card(
-        html, "正社員率", &csv_rate_display, &hw_rate_display,
-        rate_diff_text.as_deref(), rate_positive,
-    );
+    // --- 地域人口/最低賃金の比較カード（従来通り、正社員雇用前提でない） ---
+    html.push_str("<h3 style=\"font-size:11pt;margin:16px 0 8px;\">地域指標</h3>\n");
+    html.push_str("<div class=\"comparison-grid\">\n");
 
     // --- カード3: 対象地域の人口（通勤圏優先、なければ市区町村／都道府県人口） ---
     let population: i64 = if ctx.commute_zone_total_pop > 0 {
@@ -1906,8 +1952,11 @@ mod tests {
         );
         assert!(html_with.contains("<h2>HW市場比較</h2>"),
             "hw_context=Some のときは HW市場比較セクション（h2）を出す");
-        assert!(html_with.contains("<div class=\"comparison-grid\">"),
-            "comparison-grid コンテナ（div）が出力されている");
+        // by_emp_type_salary が空なので雇用形態判別不能メッセージが出る想定
+        assert!(
+            html_with.contains("comparison-grid") || html_with.contains("雇用形態が判別できなかった"),
+            "comparison-grid か 判別不能メッセージのどちらかが出る"
+        );
     }
 
     /// テスト用: 空の InsightContext を生成
