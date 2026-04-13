@@ -704,11 +704,16 @@ fn render_section_hw_comparison(
                 format!("- (n={})", count)
             };
 
-            // HW側: cascade の emp_group 一致
-            let hw_avg: i64 = ctx.cascade.iter()
-                .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == group)
-                .map(|r| get_f64(r, "avg_salary_min") as i64)
-                .unwrap_or(0);
+            // HW側: cascade は industry_raw × emp_group の複合集計のため、
+            // 同じ emp_group の全業種の avg_salary_min を平均化する
+            let salaries: Vec<f64> = ctx.cascade.iter()
+                .filter(|r| super::super::helpers::get_str_ref(r, "emp_group") == group)
+                .map(|r| get_f64(r, "avg_salary_min"))
+                .filter(|&v| v > 0.0)
+                .collect();
+            let hw_avg: i64 = if !salaries.is_empty() {
+                (salaries.iter().sum::<f64>() / salaries.len() as f64) as i64
+            } else { 0 };
             let hw_display = if hw_avg > 0 {
                 format!("{:.1}万円", hw_avg as f64 / 10_000.0)
             } else {
