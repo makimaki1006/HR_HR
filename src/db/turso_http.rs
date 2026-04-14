@@ -111,11 +111,7 @@ impl TursoDb {
     }
 
     /// Turso HTTP Pipeline API呼び出し
-    fn execute_pipeline(
-        &self,
-        sql: &str,
-        args: &[TursoArg],
-    ) -> Result<Value, String> {
+    fn execute_pipeline(&self, sql: &str, args: &[TursoArg]) -> Result<Value, String> {
         let mut stmt = serde_json::json!({"sql": sql});
 
         if !args.is_empty() {
@@ -153,7 +149,10 @@ impl TursoDb {
         if resp.status() != 200 {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
-            return Err(format!("Turso API error {status}: {}", &body[..body.len().min(200)]));
+            return Err(format!(
+                "Turso API error {status}: {}",
+                &body[..body.len().min(200)]
+            ));
         }
 
         let data: Value = resp

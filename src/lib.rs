@@ -19,9 +19,9 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_sessions::{Expiry, MemoryStore, Session, SessionManagerLayer};
 
 use auth::{
-    require_auth, validate_email_domain, verify_password_with_externals,
-    SESSION_JOB_TYPE_KEY, SESSION_JOB_TYPES_KEY, SESSION_INDUSTRY_RAWS_KEY,
-    SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY, SESSION_USER_KEY,
+    require_auth, validate_email_domain, verify_password_with_externals, SESSION_INDUSTRY_RAWS_KEY,
+    SESSION_JOB_TYPES_KEY, SESSION_JOB_TYPE_KEY, SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY,
+    SESSION_USER_KEY,
 };
 use config::AppConfig;
 use db::cache::AppCache;
@@ -55,10 +55,19 @@ pub fn build_app(state: Arc<AppState>) -> Router {
     let protected_routes = Router::new()
         .route("/", get(dashboard_page))
         .route("/tab/market", get(handlers::market::tab_market))
-        .route("/api/market/population", get(handlers::market::market_population))
-        .route("/api/market/workstyle", get(handlers::market::market_workstyle))
+        .route(
+            "/api/market/population",
+            get(handlers::market::market_population),
+        )
+        .route(
+            "/api/market/workstyle",
+            get(handlers::market::market_workstyle),
+        )
         .route("/api/market/balance", get(handlers::market::market_balance))
-        .route("/api/market/demographics", get(handlers::market::market_demographics))
+        .route(
+            "/api/market/demographics",
+            get(handlers::market::market_demographics),
+        )
         .route("/tab/overview", get(handlers::overview::tab_overview))
         .route(
             "/tab/demographics",
@@ -67,26 +76,71 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/tab/balance", get(handlers::balance::tab_balance))
         .route("/tab/workstyle", get(handlers::workstyle::tab_workstyle))
         .route("/tab/analysis", get(handlers::analysis::tab_analysis))
-        .route("/api/analysis/subtab/{id}", get(handlers::analysis::analysis_subtab))
+        .route(
+            "/api/analysis/subtab/{id}",
+            get(handlers::analysis::analysis_subtab),
+        )
         .route("/tab/diagnostic", get(handlers::diagnostic::tab_diagnostic))
-        .route("/api/diagnostic/evaluate", get(handlers::diagnostic::evaluate_diagnostic))
-        .route("/api/diagnostic/reset", get(handlers::diagnostic::reset_diagnostic))
+        .route(
+            "/api/diagnostic/evaluate",
+            get(handlers::diagnostic::evaluate_diagnostic),
+        )
+        .route(
+            "/api/diagnostic/reset",
+            get(handlers::diagnostic::reset_diagnostic),
+        )
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
         .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
-        .route("/api/jobmap/detail/{id}", get(handlers::jobmap::jobmap_detail))
-        .route("/api/jobmap/detail-json/{id}", get(handlers::jobmap::jobmap_detail_json))
+        .route(
+            "/api/jobmap/detail/{id}",
+            get(handlers::jobmap::jobmap_detail),
+        )
+        .route(
+            "/api/jobmap/detail-json/{id}",
+            get(handlers::jobmap::jobmap_detail_json),
+        )
         .route("/api/jobmap/stats", post(handlers::jobmap::jobmap_stats))
-        .route("/api/jobmap/municipalities", get(handlers::jobmap::jobmap_municipalities))
+        .route(
+            "/api/jobmap/municipalities",
+            get(handlers::jobmap::jobmap_municipalities),
+        )
         .route("/api/jobmap/seekers", get(handlers::jobmap::jobmap_seekers))
-        .route("/api/jobmap/seeker-detail", get(handlers::jobmap::jobmap_seeker_detail))
-        .route("/api/jobmap/choropleth", get(handlers::jobmap::jobmap_choropleth))
-        .route("/api/jobmap/region/summary", get(handlers::jobmap::region_summary))
-        .route("/api/jobmap/region/age_gender", get(handlers::jobmap::region_age_gender))
-        .route("/api/jobmap/region/posting_stats", get(handlers::jobmap::region_posting_stats))
-        .route("/api/jobmap/region/segments", get(handlers::jobmap::region_segments))
-        .route("/api/jobmap/company-markers", get(handlers::jobmap::jobmap_company_markers))
-        .route("/api/jobmap/labor-flow", get(handlers::jobmap::jobmap_labor_flow))
-        .route("/api/jobmap/industry-companies", get(handlers::jobmap::jobmap_industry_companies))
+        .route(
+            "/api/jobmap/seeker-detail",
+            get(handlers::jobmap::jobmap_seeker_detail),
+        )
+        .route(
+            "/api/jobmap/choropleth",
+            get(handlers::jobmap::jobmap_choropleth),
+        )
+        .route(
+            "/api/jobmap/region/summary",
+            get(handlers::jobmap::region_summary),
+        )
+        .route(
+            "/api/jobmap/region/age_gender",
+            get(handlers::jobmap::region_age_gender),
+        )
+        .route(
+            "/api/jobmap/region/posting_stats",
+            get(handlers::jobmap::region_posting_stats),
+        )
+        .route(
+            "/api/jobmap/region/segments",
+            get(handlers::jobmap::region_segments),
+        )
+        .route(
+            "/api/jobmap/company-markers",
+            get(handlers::jobmap::jobmap_company_markers),
+        )
+        .route(
+            "/api/jobmap/labor-flow",
+            get(handlers::jobmap::jobmap_labor_flow),
+        )
+        .route(
+            "/api/jobmap/industry-companies",
+            get(handlers::jobmap::jobmap_industry_companies),
+        )
         .route(
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),
@@ -94,11 +148,26 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/tab/trend", get(handlers::trend::tab_trend))
         .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
         .route("/tab/insight", get(handlers::insight::tab_insight))
-        .route("/api/insight/subtab/{id}", get(handlers::insight::insight_subtab))
-        .route("/api/insight/widget/{tab}", get(handlers::insight::insight_widget))
-        .route("/api/insight/report", get(handlers::insight::insight_report_json))
-        .route("/api/insight/report/xlsx", get(handlers::insight::insight_report_xlsx))
-        .route("/report/insight", get(handlers::insight::insight_report_html))
+        .route(
+            "/api/insight/subtab/{id}",
+            get(handlers::insight::insight_subtab),
+        )
+        .route(
+            "/api/insight/widget/{tab}",
+            get(handlers::insight::insight_widget),
+        )
+        .route(
+            "/api/insight/report",
+            get(handlers::insight::insight_report_json),
+        )
+        .route(
+            "/api/insight/report/xlsx",
+            get(handlers::insight::insight_report_xlsx),
+        )
+        .route(
+            "/report/insight",
+            get(handlers::insight::insight_report_html),
+        )
         .route("/tab/survey", get(handlers::survey::tab_survey))
         .route(
             "/api/survey/upload",
@@ -108,38 +177,38 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
         )
         .route("/api/survey/analyze", get(handlers::survey::analyze_survey))
-        .route("/api/survey/integrate", get(handlers::survey::integrate_report))
+        .route(
+            "/api/survey/integrate",
+            get(handlers::survey::integrate_report),
+        )
         .route("/api/survey/report", get(handlers::survey::report_json))
         .route("/report/survey", get(handlers::survey::survey_report_html))
         .route("/tab/company", get(handlers::company::tab_company))
-        .route("/api/company/search", get(handlers::company::company_search))
-        .route("/api/company/profile/{corporate_number}", get(handlers::company::company_profile))
-        .route("/report/company/{corporate_number}", get(handlers::company::company_report))
-        .route("/tab/guide", get(handlers::guide::tab_guide))
         .route(
-            "/api/geojson/{filename}",
-            get(handlers::api::get_geojson),
+            "/api/company/search",
+            get(handlers::company::company_search),
         )
+        .route(
+            "/api/company/profile/{corporate_number}",
+            get(handlers::company::company_profile),
+        )
+        .route(
+            "/report/company/{corporate_number}",
+            get(handlers::company::company_report),
+        )
+        .route("/tab/guide", get(handlers::guide::tab_guide))
+        .route("/api/geojson/{filename}", get(handlers::api::get_geojson))
         .route("/api/markers", get(handlers::api::get_markers))
         .route("/api/set_job_type", post(set_job_type))
         .route("/api/set_prefecture", post(set_prefecture))
         .route("/api/set_municipality", post(set_municipality))
-        .route(
-            "/api/prefectures",
-            get(handlers::api::get_prefectures),
-        )
+        .route("/api/prefectures", get(handlers::api::get_prefectures))
         .route(
             "/api/municipalities_cascade",
             get(handlers::api::get_municipalities_cascade),
         )
-        .route(
-            "/api/industries",
-            get(handlers::api::get_industries),
-        )
-        .route(
-            "/api/industry_tree",
-            get(handlers::api::get_industry_tree),
-        )
+        .route("/api/industries", get(handlers::api::get_industries))
+        .route("/api/industry_tree", get(handlers::api::get_industry_tree))
         .route("/api/set_industry_filter", post(set_industry_filter))
         .route(
             "/api/competitive/filter",
@@ -207,7 +276,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .layer(
             tower::ServiceBuilder::new()
                 .layer(session_layer)
-                .layer(CompressionLayer::new())
+                .layer(CompressionLayer::new()),
         )
 }
 
@@ -228,18 +297,21 @@ fn check_csrf(request: &axum::extract::Request) -> Result<(), &'static str> {
     let method = request.method();
     if method == axum::http::Method::GET
         || method == axum::http::Method::HEAD
-        || method == axum::http::Method::OPTIONS {
+        || method == axum::http::Method::OPTIONS
+    {
         return Ok(());
     }
 
     let headers = request.headers();
 
     // Originヘッダー優先、なければRefererフォールバック
-    let origin = headers.get("origin")
+    let origin = headers
+        .get("origin")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    let referer_origin = headers.get("referer")
+    let referer_origin = headers
+        .get("referer")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| {
             // refererから origin部分（scheme://host[:port]）を手動抽出
@@ -289,7 +361,8 @@ async fn auth_middleware(
         return (
             axum::http::StatusCode::FORBIDDEN,
             format!("Forbidden: {}", msg),
-        ).into_response();
+        )
+            .into_response();
     }
 
     require_auth(session, request, next).await
@@ -312,11 +385,13 @@ async fn login_submit(
     session: Session,
     req: axum::extract::Request,
 ) -> impl IntoResponse {
-    let socket_ip = req.extensions()
+    let socket_ip = req
+        .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|ci| ci.0.ip().to_string());
 
-    let client_ip = req.headers()
+    let client_ip = req
+        .headers()
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
@@ -324,7 +399,8 @@ async fn login_submit(
         .or(socket_ip)
         .unwrap_or_else(|| "unknown".to_string());
 
-    let req_ua = req.headers()
+    let req_ua = req
+        .headers()
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown")
@@ -346,7 +422,10 @@ async fn login_submit(
     }
 
     // ドメインチェック: 社内ドメイン + 外部追加ドメインの両方を許可
-    let all_domains: Vec<String> = state.config.allowed_domains.iter()
+    let all_domains: Vec<String> = state
+        .config
+        .allowed_domains
+        .iter()
         .chain(state.config.allowed_domains_extra.iter())
         .cloned()
         .collect();
@@ -374,7 +453,8 @@ async fn login_submit(
     if !pw_ok {
         tracing::warn!(
             "LOGIN_FAILED: email={}, ip={}, reason={}",
-            form.email, client_ip,
+            form.email,
+            client_ip,
             expired_msg.as_deref().unwrap_or("wrong_password"),
         );
         state.rate_limiter.record_failure(&client_ip);
@@ -405,10 +485,7 @@ async fn logout(session: Session) -> Redirect {
 
 // --- ダッシュボード ---
 
-async fn dashboard_page(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> impl IntoResponse {
+async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) -> impl IntoResponse {
     let user_email: String = session
         .get(SESSION_USER_KEY)
         .await
@@ -462,8 +539,7 @@ async fn dashboard_page(
 
     // 市区町村オプション（都道府県選択時のみ）
     let muni_options = if !current_prefecture.is_empty() {
-        let muni_list =
-            fetch_municipality_list(&state, &current_prefecture).await;
+        let muni_list = fetch_municipality_list(&state, &current_prefecture).await;
         muni_list
             .iter()
             .map(|m| {
@@ -497,7 +573,10 @@ async fn dashboard_page(
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
         .replace("{{SELECTED_JOB_TYPES_JSON}}", &selected_job_types_json)
-        .replace("{{SELECTED_INDUSTRY_RAWS_JSON}}", &selected_industry_raws_json)
+        .replace(
+            "{{SELECTED_INDUSTRY_RAWS_JSON}}",
+            &selected_industry_raws_json,
+        )
         .replace("{{USER_EMAIL}}", &user_email)
         .replace("{{TURSO_WARNING}}", &db_warning);
 
@@ -537,11 +616,15 @@ async fn set_industry_filter(
     Form(form): Form<SetIndustryFilterForm>,
 ) -> impl IntoResponse {
     // カンマ区切り → JSON配列に変換してセッション保存
-    let jt_list: Vec<String> = form.job_types.split(',')
+    let jt_list: Vec<String> = form
+        .job_types
+        .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let ir_list: Vec<String> = form.industry_raws.split(',')
+    let ir_list: Vec<String> = form
+        .industry_raws
+        .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
@@ -593,10 +676,7 @@ async fn set_municipality(
 // --- ヘルパー ---
 
 /// 市区町村一覧取得（job_typeフィルタなし）
-async fn fetch_municipality_list(
-    state: &AppState,
-    prefecture: &str,
-) -> Vec<String> {
+async fn fetch_municipality_list(state: &AppState, prefecture: &str) -> Vec<String> {
     let db = match &state.hw_db {
         Some(db) => db.clone(),
         None => return Vec::new(),
@@ -626,7 +706,9 @@ async fn health_check(
         tokio::task::spawn_blocking(move || {
             db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
                 .unwrap_or(-1)
-        }).await.unwrap_or(-1)
+        })
+        .await
+        .unwrap_or(-1)
     } else {
         -1
     };
@@ -639,16 +721,16 @@ async fn health_check(
 }
 
 /// ステータスAPI
-async fn api_status(
-    State(state): State<Arc<AppState>>,
-) -> axum::response::Json<serde_json::Value> {
+async fn api_status(State(state): State<Arc<AppState>>) -> axum::response::Json<serde_json::Value> {
     let db_ok = state.hw_db.is_some();
     let db_count = if let Some(db) = &state.hw_db {
         let db = db.clone();
         tokio::task::spawn_blocking(move || {
             db.query_scalar::<i64>("SELECT COUNT(*) FROM postings", &[])
                 .unwrap_or(0)
-        }).await.unwrap_or(0)
+        })
+        .await
+        .unwrap_or(0)
     } else {
         0
     };
@@ -851,7 +933,7 @@ pub fn precompress_geojson() {
     let mut count = 0;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().map_or(true, |e| e != "json") {
+        if path.extension().is_none_or(|e| e != "json") {
             continue;
         }
         let gz_path_str = format!("{}.gz", path.display());
@@ -868,10 +950,8 @@ pub fn precompress_geojson() {
             Err(_) => continue,
         };
         let mut encoder = GzEncoder::new(gz_file, Compression::best());
-        if encoder.write_all(&data).is_ok() {
-            if encoder.finish().is_ok() {
-                count += 1;
-            }
+        if encoder.write_all(&data).is_ok() && encoder.finish().is_ok() {
+            count += 1;
         }
     }
     if count > 0 {

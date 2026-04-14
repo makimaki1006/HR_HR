@@ -1,7 +1,7 @@
 //! データ取得関数（全 fetch_* 関数）
 
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use super::super::helpers::table_exists;
 
@@ -20,8 +20,10 @@ fn query_turso_or_local(
 ) -> Vec<Row> {
     // Turso優先
     if let Some(tdb) = turso {
-        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> = params
+            .iter()
+            .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
+            .collect();
         match tdb.query(sql, &p) {
             Ok(rows) if !rows.is_empty() => return rows,
             Ok(_) => {} // 空結果 → ローカルにフォールバック
@@ -35,8 +37,10 @@ fn query_turso_or_local(
     if !local_table_check.is_empty() && !table_exists(local_db, local_table_check) {
         return vec![];
     }
-    let p: Vec<&dyn rusqlite::types::ToSql> =
-        params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     local_db.query(sql, &p).unwrap_or_default()
 }
 
@@ -51,21 +55,38 @@ fn query_3level(
     national_select: &str,
     national_suffix: &str,
 ) -> Vec<Row> {
-    if !table_exists(db, table) { return vec![]; }
+    if !table_exists(db, table) {
+        return vec![];
+    }
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        (format!("SELECT {} FROM {} WHERE prefecture = ?1 AND municipality = ?2 {}",
-            select_cols, table, filter_suffix),
-         vec![pref.to_string(), muni.to_string()])
+        (
+            format!(
+                "SELECT {} FROM {} WHERE prefecture = ?1 AND municipality = ?2 {}",
+                select_cols, table, filter_suffix
+            ),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
-        (format!("SELECT {} FROM {} WHERE prefecture = ?1 AND municipality = '' {}",
-            select_cols, table, filter_suffix),
-         vec![pref.to_string()])
+        (
+            format!(
+                "SELECT {} FROM {} WHERE prefecture = ?1 AND municipality = '' {}",
+                select_cols, table, filter_suffix
+            ),
+            vec![pref.to_string()],
+        )
     } else {
-        (format!("SELECT {} FROM {} WHERE municipality = '' {}",
-            national_select, table, national_suffix),
-         vec![])
+        (
+            format!(
+                "SELECT {} FROM {} WHERE municipality = '' {}",
+                national_select, table, national_suffix
+            ),
+            vec![],
+        )
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -88,21 +109,31 @@ pub(crate) fn fetch_vacancy_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
           FROM v2_vacancy_rate WHERE municipality = '' AND industry_raw = '' \
           GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
 /// C-4 業種別: 正社員とパートの欠員補充率上位10業種
 pub(crate) fn fetch_vacancy_by_industry(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     let (filter, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("prefecture = ?1 AND municipality = ?2 AND length(industry_raw) > 0".to_string(),
-         vec![pref.to_string(), muni.to_string()])
+        (
+            "prefecture = ?1 AND municipality = ?2 AND length(industry_raw) > 0".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
-        ("prefecture = ?1 AND municipality = '' AND length(industry_raw) > 0".to_string(),
-         vec![pref.to_string()])
+        (
+            "prefecture = ?1 AND municipality = '' AND length(industry_raw) > 0".to_string(),
+            vec![pref.to_string()],
+        )
     } else {
         // 全国: 業種集計
-        ("municipality = '' AND length(industry_raw) > 0".to_string(), vec![])
+        (
+            "municipality = '' AND length(industry_raw) > 0".to_string(),
+            vec![],
+        )
     };
 
     let sql = format!(
@@ -110,28 +141,42 @@ pub(crate) fn fetch_vacancy_by_industry(db: &Db, pref: &str, muni: &str) -> Vec<
          FROM v2_vacancy_rate WHERE {filter} AND total_count >= 30 \
          ORDER BY vacancy_rate DESC LIMIT 30"
     );
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
 pub(crate) fn fetch_resilience_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT emp_group, total_count, industry_count, shannon_index, evenness, \
+        (
+            "SELECT emp_group, total_count, industry_count, shannon_index, evenness, \
           top_industry, top_industry_share, hhi \
           FROM v2_regional_resilience WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group".to_string(), vec![pref.to_string(), muni.to_string()])
+          ORDER BY emp_group"
+                .to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
-        ("SELECT emp_group, total_count, industry_count, shannon_index, evenness, \
+        (
+            "SELECT emp_group, total_count, industry_count, shannon_index, evenness, \
           top_industry, top_industry_share, hhi \
           FROM v2_regional_resilience WHERE prefecture = ?1 AND municipality = '' \
-          ORDER BY emp_group".to_string(), vec![pref.to_string()])
+          ORDER BY emp_group"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
         ("SELECT prefecture as emp_group, total_count, industry_count, shannon_index, evenness, \
           top_industry, top_industry_share, hhi \
           FROM v2_regional_resilience WHERE municipality = '' AND emp_group = '正社員' \
           ORDER BY shannon_index DESC LIMIT 10".to_string(), vec![])
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -164,7 +209,10 @@ pub(crate) fn fetch_transparency_data(db: &Db, pref: &str, muni: &str) -> Vec<Ro
           FROM v2_transparency_score WHERE municipality = '' AND industry_raw = '' \
           GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -180,9 +228,16 @@ pub(crate) fn fetch_temperature_data(db: &Db, pref: &str, muni: &str) -> Vec<Row
         SUM(selectivity_density * sample_count) / SUM(sample_count) as selectivity_density, \
         SUM(urgency_hit_rate * sample_count) / SUM(sample_count) as urgency_hit_rate, \
         SUM(selectivity_hit_rate * sample_count) / SUM(sample_count) as selectivity_hit_rate";
-    query_3level(db, "v2_text_temperature", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group",
-        nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_text_temperature",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 pub(crate) fn fetch_competition_data(db: &Db, pref: &str) -> Vec<Row> {
@@ -201,7 +256,10 @@ pub(crate) fn fetch_competition_data(db: &Db, pref: &str) -> Vec<Row> {
           GROUP BY salary_band, education_group, emp_group \
           ORDER BY AVG(industry_count) DESC LIMIT 30".to_string(), vec![])
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -213,15 +271,29 @@ pub(crate) fn fetch_anomaly_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
         CAST(SUM(anomaly_count) AS REAL) / SUM(total_count) as anomaly_rate, \
         AVG(avg_value) as avg_value, AVG(stddev_value) as stddev_value, \
         SUM(anomaly_high_count) as anomaly_high_count, SUM(anomaly_low_count) as anomaly_low_count";
-    query_3level(db, "v2_anomaly_stats", pref, muni,
-        cols, "ORDER BY emp_group, metric_name",
-        nat, "GROUP BY emp_group, metric_name ORDER BY emp_group, metric_name")
+    query_3level(
+        db,
+        "v2_anomaly_stats",
+        pref,
+        muni,
+        cols,
+        "ORDER BY emp_group, metric_name",
+        nat,
+        "GROUP BY emp_group, metric_name ORDER BY emp_group, metric_name",
+    )
 }
 
 pub(crate) fn fetch_cascade_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if db.query_scalar::<i64>(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v2_cascade_summary'", &[]
-    ).unwrap_or(0) == 0 { return vec![]; }
+    if db
+        .query_scalar::<i64>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='v2_cascade_summary'",
+            &[],
+        )
+        .unwrap_or(0)
+        == 0
+    {
+        return vec![];
+    }
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         ("SELECT emp_group, industry_raw, posting_count, facility_count, \
@@ -246,7 +318,10 @@ pub(crate) fn fetch_cascade_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
           GROUP BY emp_group, industry_raw HAVING SUM(posting_count) >= 100 \
           ORDER BY SUM(posting_count) DESC LIMIT 20".to_string(), vec![])
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -262,9 +337,16 @@ pub(crate) fn fetch_salary_structure(db: &Db, pref: &str, muni: &str) -> Vec<Row
         AVG(p75_salary_min) as p75_salary_min, AVG(p90_salary_min) as p90_salary_min, \
         AVG(salary_spread) as salary_spread, AVG(avg_bonus_months) as avg_bonus_months, \
         AVG(estimated_annual_min) as estimated_annual_min";
-    query_3level(db, "v2_salary_structure", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group, salary_type",
-        nat, "AND industry_raw = '' GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type")
+    query_3level(
+        db,
+        "v2_salary_structure",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group, salary_type",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type",
+    )
 }
 
 pub(crate) fn fetch_salary_competitiveness(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
@@ -274,9 +356,16 @@ pub(crate) fn fetch_salary_competitiveness(db: &Db, pref: &str, muni: &str) -> V
         AVG(national_avg_salary) as national_avg_salary, \
         AVG(competitiveness_index) as competitiveness_index, \
         AVG(percentile_rank) as percentile_rank, SUM(sample_count) as sample_count";
-    query_3level(db, "v2_salary_competitiveness", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group",
-        nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_salary_competitiveness",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 pub(crate) fn fetch_compensation_package(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
@@ -288,9 +377,16 @@ pub(crate) fn fetch_compensation_package(db: &Db, pref: &str, muni: &str) -> Vec
         AVG(salary_pctile) as salary_pctile, AVG(holidays_pctile) as holidays_pctile, \
         AVG(bonus_pctile) as bonus_pctile, AVG(composite_score) as composite_score, \
         '' as rank_label";
-    query_3level(db, "v2_compensation_package", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group",
-        nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_compensation_package",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 // ======== データ取得: Phase 2B（テキスト分析） ========
@@ -302,9 +398,16 @@ pub(crate) fn fetch_text_quality(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
         AVG(avg_char_count) as avg_char_count, AVG(avg_unique_char_ratio) as avg_unique_char_ratio, \
         AVG(avg_kanji_ratio) as avg_kanji_ratio, AVG(avg_numeric_ratio) as avg_numeric_ratio, \
         AVG(avg_punctuation_density) as avg_punctuation_density, AVG(information_score) as information_score";
-    query_3level(db, "v2_text_quality", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group",
-        nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_text_quality",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 pub(crate) fn fetch_keyword_profile(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
@@ -318,24 +421,27 @@ pub(crate) fn fetch_keyword_profile(db: &Db, pref: &str, muni: &str) -> Vec<Row>
 // ======== データ取得: Phase 3（市場構造） ========
 
 pub(crate) fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_employer_strategy_summary") { return vec![]; }
+    if !table_exists(db, "v2_employer_strategy_summary") {
+        return vec![];
+    }
 
     // Python側テーブルはピボット形式（premium_count/premium_pct/salary_focus_count/...）
     // Rust側はrow形式（strategy_type/count/pct）で表示するため、UNION ALLで変換
     let base_filter = if !muni.is_empty() {
-        format!("WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = ''")
+        "WHERE prefecture = ?1 AND municipality = ?2 AND industry_raw = ''".to_string()
     } else if !pref.is_empty() {
-        format!("WHERE prefecture = ?1 AND municipality = '' AND industry_raw = ''")
+        "WHERE prefecture = ?1 AND municipality = '' AND industry_raw = ''".to_string()
     } else {
-        format!("WHERE municipality = '' AND industry_raw = ''")
+        "WHERE municipality = '' AND industry_raw = ''".to_string()
     };
 
-    let agg = if muni.is_empty() && pref.is_empty() { true } else { false };
+    let agg = muni.is_empty() && pref.is_empty();
 
     let (sql, params): (String, Vec<String>) = if agg {
         // 全国集計: SUMでピボットカラムを集計後、UNION ALL
-        (format!(
-            "SELECT emp_group, 'プレミアム型' as strategy_type, SUM(premium_count) as count, \
+        (
+            format!(
+                "SELECT emp_group, 'プレミアム型' as strategy_type, SUM(premium_count) as count, \
                CAST(SUM(premium_count) AS REAL) / SUM(total_count) * 100.0 as pct \
              FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
              UNION ALL \
@@ -350,7 +456,11 @@ pub(crate) fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Ro
              SELECT emp_group, 'コスト優先型', SUM(cost_focus_count), \
                CAST(SUM(cost_focus_count) AS REAL) / SUM(total_count) * 100.0 \
              FROM v2_employer_strategy_summary {f} GROUP BY emp_group \
-             ORDER BY emp_group, strategy_type", f = base_filter), vec![])
+             ORDER BY emp_group, strategy_type",
+                f = base_filter
+            ),
+            vec![],
+        )
     } else {
         let params = if !muni.is_empty() {
             vec![pref.to_string(), muni.to_string()]
@@ -371,12 +481,17 @@ pub(crate) fn fetch_employer_strategy(db: &Db, pref: &str, muni: &str) -> Vec<Ro
              FROM v2_employer_strategy_summary {f} \
              ORDER BY emp_group, strategy_type", f = base_filter), params)
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
 pub(crate) fn fetch_monopsony_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_monopsony_index") { return vec![]; }
+    if !table_exists(db, "v2_monopsony_index") {
+        return vec![];
+    }
 
     // Python側テーブルにtop1_nameカラムは存在しない
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
@@ -390,29 +505,42 @@ pub(crate) fn fetch_monopsony_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> 
           FROM v2_monopsony_index WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
           ORDER BY emp_group".to_string(), vec![pref.to_string()])
     } else {
-        ("SELECT emp_group, SUM(total_postings) as total_postings, \
+        (
+            "SELECT emp_group, SUM(total_postings) as total_postings, \
           SUM(unique_facilities) as unique_facilities, \
           AVG(hhi) as hhi, '' as concentration_level, \
           AVG(top1_share) as top1_share, \
           AVG(top3_share) as top3_share, AVG(top5_share) as top5_share, AVG(gini) as gini \
           FROM v2_monopsony_index WHERE municipality = '' AND industry_raw = '' \
-          GROUP BY emp_group ORDER BY emp_group".to_string(), vec![])
+          GROUP BY emp_group ORDER BY emp_group"
+                .to_string(),
+            vec![],
+        )
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
 pub(crate) fn fetch_spatial_mismatch(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_spatial_mismatch") { return vec![]; }
+    if !table_exists(db, "v2_spatial_mismatch") {
+        return vec![];
+    }
 
     // 空間ミスマッチは市区町村レベルのみ（industry_rawフィルタなし）
     let sql = "SELECT emp_group, posting_count, avg_salary_min, \
           accessible_postings_30km, accessible_avg_salary_30km, \
           accessible_postings_60km, salary_gap_vs_accessible, isolation_score \
           FROM v2_spatial_mismatch WHERE prefecture = ?1 AND municipality = ?2 \
-          ORDER BY emp_group".to_string();
-    let params = vec![pref.to_string(), muni.to_string()];
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+          ORDER BY emp_group"
+        .to_string();
+    let params = [pref.to_string(), muni.to_string()];
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -420,17 +548,29 @@ pub(crate) fn fetch_spatial_mismatch(db: &Db, pref: &str, muni: &str) -> Vec<Row
 
 /// Phase 4-1: 最低賃金マスタ
 pub(crate) fn fetch_minimum_wage(db: &Db, pref: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_external_minimum_wage") { return vec![]; }
+    if !table_exists(db, "v2_external_minimum_wage") {
+        return vec![];
+    }
 
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, hourly_min_wage \
-          FROM v2_external_minimum_wage WHERE prefecture = ?1".to_string(),
-         vec![pref.to_string()])
+        (
+            "SELECT prefecture, hourly_min_wage \
+          FROM v2_external_minimum_wage WHERE prefecture = ?1"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT prefecture, hourly_min_wage \
-          FROM v2_external_minimum_wage ORDER BY hourly_min_wage DESC".to_string(), vec![])
+        (
+            "SELECT prefecture, hourly_min_wage \
+          FROM v2_external_minimum_wage ORDER BY hourly_min_wage DESC"
+                .to_string(),
+            vec![],
+        )
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -442,9 +582,16 @@ pub(crate) fn fetch_wage_compliance(db: &Db, pref: &str, muni: &str) -> Vec<Row>
         AVG(min_wage) as min_wage, SUM(below_min_count) as below_min_count, \
         CAST(SUM(below_min_count) AS REAL) / SUM(total_hourly_postings) as below_min_rate, \
         AVG(avg_hourly_wage) as avg_hourly_wage, AVG(median_hourly_wage) as median_hourly_wage";
-    query_3level(db, "v2_wage_compliance", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group",
-        nat, "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_wage_compliance",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 /// Phase 4-3: 地域ベンチマーク（12軸レーダー用）
@@ -467,28 +614,47 @@ pub(crate) fn fetch_region_benchmark(db: &Db, pref: &str, muni: &str) -> Vec<Row
         AVG(population_growth) as population_growth, \
         AVG(foreign_workforce) as foreign_workforce, \
         AVG(composite_benchmark) as composite_benchmark";
-    query_3level(db, "v2_region_benchmark", pref, muni,
-        cols, "ORDER BY emp_group",
-        nat, "GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_region_benchmark",
+        pref,
+        muni,
+        cols,
+        "ORDER BY emp_group",
+        nat,
+        "GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 /// Phase 4-4: 都道府県別外部指標マスタ（Turso優先）
 pub(crate) fn fetch_prefecture_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, unemployment_rate, job_change_desire_rate, non_regular_rate, \
+        (
+            "SELECT prefecture, unemployment_rate, job_change_desire_rate, non_regular_rate, \
           avg_monthly_wage, price_index, fulfillment_rate, real_wage_index \
-          FROM v2_external_prefecture_stats WHERE prefecture = ?1".to_string(),
-         vec![pref.to_string()])
+          FROM v2_external_prefecture_stats WHERE prefecture = ?1"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT prefecture, unemployment_rate, job_change_desire_rate, non_regular_rate, \
+        (
+            "SELECT prefecture, unemployment_rate, job_change_desire_rate, non_regular_rate, \
           avg_monthly_wage, price_index, fulfillment_rate, real_wage_index \
-          FROM v2_external_prefecture_stats ORDER BY prefecture".to_string(), vec![])
+          FROM v2_external_prefecture_stats ORDER BY prefecture"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_prefecture_stats")
 }
 
 /// Phase B: 人口ピラミッドデータ（市区町村レベル、Turso優先）
-pub(crate) fn fetch_population_data(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+pub(crate) fn fetch_population_data(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         ("SELECT prefecture, municipality, total_population, male_population, female_population, \
           age_0_14, age_15_64, age_65_over, aging_rate, working_age_rate, youth_rate \
@@ -516,7 +682,12 @@ pub(crate) fn fetch_population_data(db: &Db, turso: Option<&TursoDb>, pref: &str
 }
 
 /// Phase B: 人口ピラミッド詳細（5歳階級×男女、Turso優先）
-pub(crate) fn fetch_population_pyramid(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+pub(crate) fn fetch_population_pyramid(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
     let order_clause = "ORDER BY CASE age_group \
           WHEN '0-9' THEN 0 WHEN '10-19' THEN 10 WHEN '20-29' THEN 20 \
           WHEN '30-39' THEN 30 WHEN '40-49' THEN 40 WHEN '50-59' THEN 50 \
@@ -524,10 +695,14 @@ pub(crate) fn fetch_population_pyramid(db: &Db, turso: Option<&TursoDb>, pref: &
           WHEN '0-14' THEN 0 WHEN '15-64' THEN 15 WHEN '65-74' THEN 65 WHEN '75+' THEN 75 \
           ELSE 999 END";
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        (format!("SELECT age_group, male_count, female_count \
+        (
+            format!(
+                "SELECT age_group, male_count, female_count \
           FROM v2_external_population_pyramid WHERE prefecture = ?1 AND municipality = ?2 \
-          {order_clause}"),
-         vec![pref.to_string(), muni.to_string()])
+          {order_clause}"
+            ),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
         (format!("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
           FROM v2_external_population_pyramid WHERE prefecture = ?1 \
@@ -545,11 +720,19 @@ pub(crate) fn fetch_population_pyramid(db: &Db, turso: Option<&TursoDb>, pref: &
 }
 
 /// Phase B: 社会動態（転入転出、Turso優先）
-pub(crate) fn fetch_migration_data(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+pub(crate) fn fetch_migration_data(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT inflow, outflow, net_migration, net_migration_rate \
-          FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ?2".to_string(),
-         vec![pref.to_string(), muni.to_string()])
+        (
+            "SELECT inflow, outflow, net_migration, net_migration_rate \
+          FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
         ("SELECT SUM(inflow) as inflow, SUM(outflow) as outflow, \
           SUM(net_migration) as net_migration, \
@@ -566,22 +749,37 @@ pub(crate) fn fetch_migration_data(db: &Db, turso: Option<&TursoDb>, pref: &str,
 }
 
 /// Phase B: 昼夜間人口（Turso優先）
-pub(crate) fn fetch_daytime_population(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> Vec<Row> {
+pub(crate) fn fetch_daytime_population(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
-          FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2".to_string(),
-         vec![pref.to_string(), muni.to_string()])
+        (
+            "SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
+          FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
-        ("SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
+        (
+            "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
           CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
           SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
-          FROM v2_external_daytime_population WHERE prefecture = ?1".to_string(),
-         vec![pref.to_string()])
+          FROM v2_external_daytime_population WHERE prefecture = ?1"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
+        (
+            "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
           CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
           SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
-          FROM v2_external_daytime_population".to_string(), vec![])
+          FROM v2_external_daytime_population"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_daytime_population")
 }
@@ -590,16 +788,23 @@ pub(crate) fn fetch_daytime_population(db: &Db, turso: Option<&TursoDb>, pref: &
 /// 全国 + 選択都道府県のデータを取得し、時系列チャートで比較表示する
 pub(crate) fn fetch_job_openings_ratio(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, fiscal_year, ratio_total, ratio_excl_part \
+        (
+            "SELECT prefecture, fiscal_year, ratio_total, ratio_excl_part \
           FROM v2_external_job_openings_ratio \
           WHERE prefecture IN ('全国', ?1) \
-          ORDER BY fiscal_year ASC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT prefecture, fiscal_year, ratio_total, ratio_excl_part \
+        (
+            "SELECT prefecture, fiscal_year, ratio_total, ratio_excl_part \
           FROM v2_external_job_openings_ratio \
           WHERE prefecture = '全国' \
-          ORDER BY fiscal_year ASC".to_string(), vec![])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_job_openings_ratio")
 }
@@ -607,22 +812,29 @@ pub(crate) fn fetch_job_openings_ratio(db: &Db, turso: Option<&TursoDb>, pref: &
 /// 労働市場指標の年度次推移（Turso優先）
 pub(crate) fn fetch_labor_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, fiscal_year, unemployment_rate, \
+        (
+            "SELECT prefecture, fiscal_year, unemployment_rate, \
           separation_rate, monthly_salary_male, monthly_salary_female, \
           working_hours_male, working_hours_female, \
           part_time_wage_male, part_time_wage_female \
           FROM v2_external_labor_stats \
           WHERE prefecture IN ('全国', ?1) \
-          ORDER BY fiscal_year ASC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT prefecture, fiscal_year, unemployment_rate, \
+        (
+            "SELECT prefecture, fiscal_year, unemployment_rate, \
           separation_rate, monthly_salary_male, monthly_salary_female, \
           working_hours_male, working_hours_female, \
           part_time_wage_male, part_time_wage_female \
           FROM v2_external_labor_stats \
           WHERE prefecture = '全国' \
-          ORDER BY fiscal_year ASC".to_string(), vec![])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_labor_stats")
 }
@@ -630,11 +842,14 @@ pub(crate) fn fetch_labor_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
 /// 事業所数データ（都道府県別×産業分類、Turso優先）
 pub(crate) fn fetch_establishments(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, industry, establishment_count, reference_year \
+        (
+            "SELECT prefecture, industry, establishment_count, reference_year \
           FROM v2_external_establishments \
           WHERE prefecture = ?1 \
-          ORDER BY establishment_count DESC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY establishment_count DESC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
         ("SELECT '全国' as prefecture, industry, SUM(establishment_count) as establishment_count, \
           MAX(reference_year) as reference_year \
@@ -648,16 +863,23 @@ pub(crate) fn fetch_establishments(db: &Db, turso: Option<&TursoDb>, pref: &str)
 /// 入職率・離職率データ（都道府県別×産業、Turso優先）
 pub(crate) fn fetch_turnover(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, fiscal_year, industry, entry_rate, separation_rate, net_rate \
+        (
+            "SELECT prefecture, fiscal_year, industry, entry_rate, separation_rate, net_rate \
           FROM v2_external_turnover \
           WHERE prefecture IN ('全国', ?1) AND industry = '医療，福祉' \
-          ORDER BY fiscal_year ASC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT prefecture, fiscal_year, industry, entry_rate, separation_rate, net_rate \
+        (
+            "SELECT prefecture, fiscal_year, industry, entry_rate, separation_rate, net_rate \
           FROM v2_external_turnover \
           WHERE prefecture = '全国' AND industry = '医療，福祉' \
-          ORDER BY fiscal_year ASC".to_string(), vec![])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_turnover")
 }
@@ -665,18 +887,25 @@ pub(crate) fn fetch_turnover(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Ve
 /// 家計消費支出データ（都道府県別×カテゴリ、Turso優先）
 pub(crate) fn fetch_household_spending(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, category, monthly_amount, reference_year \
+        (
+            "SELECT prefecture, category, monthly_amount, reference_year \
           FROM v2_external_household_spending \
           WHERE prefecture = ?1 \
-          ORDER BY monthly_amount DESC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY monthly_amount DESC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
         // 全国選択時: 全47県の平均を計算
-        ("SELECT '全国' as prefecture, category, \
+        (
+            "SELECT '全国' as prefecture, category, \
           AVG(monthly_amount) as monthly_amount, MAX(reference_year) as reference_year \
           FROM v2_external_household_spending \
           GROUP BY category \
-          ORDER BY monthly_amount DESC".to_string(), vec![])
+          ORDER BY monthly_amount DESC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_household_spending")
 }
@@ -686,21 +915,28 @@ pub(crate) fn fetch_household_spending(db: &Db, turso: Option<&TursoDb>, pref: &
 /// 事業所動態データ（開業率・廃業率、Turso優先）
 pub(crate) fn fetch_business_dynamics(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, fiscal_year, opening_rate, closure_rate, \
+        (
+            "SELECT prefecture, fiscal_year, opening_rate, closure_rate, \
           new_establishments, closed_establishments, net_change \
           FROM v2_external_business_dynamics \
           WHERE prefecture = ?1 \
-          ORDER BY fiscal_year ASC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
         // 全国: 全都道府県の合計から算出
-        ("SELECT '全国' as prefecture, fiscal_year, \
+        (
+            "SELECT '全国' as prefecture, fiscal_year, \
           AVG(opening_rate) as opening_rate, AVG(closure_rate) as closure_rate, \
           SUM(new_establishments) as new_establishments, \
           SUM(closed_establishments) as closed_establishments, \
           SUM(net_change) as net_change \
           FROM v2_external_business_dynamics \
-          GROUP BY fiscal_year ORDER BY fiscal_year ASC".to_string(), vec![])
+          GROUP BY fiscal_year ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_business_dynamics")
 }
@@ -708,14 +944,18 @@ pub(crate) fn fetch_business_dynamics(db: &Db, turso: Option<&TursoDb>, pref: &s
 /// 気象データ（都道府県別、Turso優先）
 pub(crate) fn fetch_climate(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, fiscal_year, avg_temperature, max_temperature, \
+        (
+            "SELECT prefecture, fiscal_year, avg_temperature, max_temperature, \
           min_temperature, snow_days, sunshine_hours, precipitation \
           FROM v2_external_climate \
           WHERE prefecture = ?1 \
-          ORDER BY fiscal_year ASC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT '全国' as prefecture, fiscal_year, \
+        (
+            "SELECT '全国' as prefecture, fiscal_year, \
           AVG(avg_temperature) as avg_temperature, \
           MAX(max_temperature) as max_temperature, \
           MIN(min_temperature) as min_temperature, \
@@ -723,7 +963,10 @@ pub(crate) fn fetch_climate(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec
           AVG(sunshine_hours) as sunshine_hours, \
           AVG(precipitation) as precipitation \
           FROM v2_external_climate \
-          GROUP BY fiscal_year ORDER BY fiscal_year ASC".to_string(), vec![])
+          GROUP BY fiscal_year ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_climate")
 }
@@ -731,16 +974,20 @@ pub(crate) fn fetch_climate(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec
 /// 介護需要データ（給付件数・施設数等、Turso優先）
 pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        ("SELECT prefecture, fiscal_year, insurance_benefit_cases, \
+        (
+            "SELECT prefecture, fiscal_year, insurance_benefit_cases, \
           nursing_home_count, health_facility_count, \
           home_care_offices, day_service_offices, \
           pop_65_over, pop_75_over, pop_65_over_rate \
           FROM v2_external_care_demand \
           WHERE prefecture = ?1 \
-          ORDER BY fiscal_year ASC".to_string(),
-         vec![pref.to_string()])
+          ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
-        ("SELECT '全国' as prefecture, fiscal_year, \
+        (
+            "SELECT '全国' as prefecture, fiscal_year, \
           SUM(insurance_benefit_cases) as insurance_benefit_cases, \
           SUM(nursing_home_count) as nursing_home_count, \
           SUM(health_facility_count) as health_facility_count, \
@@ -749,7 +996,10 @@ pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
           SUM(pop_65_over) as pop_65_over, SUM(pop_75_over) as pop_75_over, \
           AVG(pop_65_over_rate) as pop_65_over_rate \
           FROM v2_external_care_demand \
-          GROUP BY fiscal_year ORDER BY fiscal_year ASC".to_string(), vec![])
+          GROUP BY fiscal_year ORDER BY fiscal_year ASC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_care_demand")
 }
@@ -758,27 +1008,42 @@ pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
 
 /// Phase 5-1: 充足困難度予測
 pub(crate) fn fetch_fulfillment_summary(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    let cols = "emp_group, total_count, avg_score, grade_a_pct, grade_b_pct, grade_c_pct, grade_d_pct";
+    let cols =
+        "emp_group, total_count, avg_score, grade_a_pct, grade_b_pct, grade_c_pct, grade_d_pct";
     let nat = "emp_group, SUM(total_count) as total_count, \
         AVG(avg_score) as avg_score, AVG(grade_a_pct) as grade_a_pct, \
         AVG(grade_b_pct) as grade_b_pct, AVG(grade_c_pct) as grade_c_pct, \
         AVG(grade_d_pct) as grade_d_pct";
-    query_3level(db, "v2_fulfillment_summary", pref, muni,
-        cols, "ORDER BY emp_group",
-        nat, "GROUP BY emp_group ORDER BY emp_group")
+    query_3level(
+        db,
+        "v2_fulfillment_summary",
+        pref,
+        muni,
+        cols,
+        "ORDER BY emp_group",
+        nat,
+        "GROUP BY emp_group ORDER BY emp_group",
+    )
 }
 
 /// Phase 5-2: 地域間流動性推定（市区町村選択時のみ）
 pub(crate) fn fetch_mobility_estimate(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
-    if muni.is_empty() { return vec![]; }
-    if !table_exists(db, "v2_mobility_estimate") { return vec![]; }
+    if muni.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "v2_mobility_estimate") {
+        return vec![];
+    }
 
     let sql = "SELECT emp_group, local_postings, local_avg_salary, gravity_attractiveness, \
                gravity_outflow, net_gravity, top3_destinations \
                FROM v2_mobility_estimate WHERE prefecture = ?1 AND municipality = ?2 \
                ORDER BY emp_group";
-    let params = vec![pref.to_string(), muni.to_string()];
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let params = [pref.to_string(), muni.to_string()];
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(sql, &p).unwrap_or_default()
 }
 
@@ -788,9 +1053,16 @@ pub(crate) fn fetch_shadow_wage(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     let nat = "emp_group, salary_type, SUM(total_count) as total_count, \
         AVG(p10) as p10, AVG(p25) as p25, AVG(p50) as p50, AVG(p75) as p75, AVG(p90) as p90, \
         AVG(mean) as mean, AVG(stddev) as stddev, AVG(iqr) as iqr";
-    query_3level(db, "v2_shadow_wage", pref, muni,
-        cols, "AND industry_raw = '' ORDER BY emp_group, salary_type",
-        nat, "AND industry_raw = '' GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type")
+    query_3level(
+        db,
+        "v2_shadow_wage",
+        pref,
+        muni,
+        cols,
+        "AND industry_raw = '' ORDER BY emp_group, salary_type",
+        nat,
+        "AND industry_raw = '' GROUP BY emp_group, salary_type ORDER BY emp_group, salary_type",
+    )
 }
 
 // ======== 通勤圏（コミュートゾーン）分析 ========
@@ -813,18 +1085,24 @@ pub(crate) fn fetch_commute_zone(
     center_muni: &str,
     radius_km: f64,
 ) -> Vec<CommuteMunicipality> {
-    if center_muni.is_empty() { return vec![]; }
+    if center_muni.is_empty() {
+        return vec![];
+    }
 
     // 中心座標取得
     let center = db.query(
         "SELECT latitude, longitude FROM municipality_geocode WHERE prefecture = ?1 AND municipality = ?2",
         &[&center_pref as &dyn rusqlite::types::ToSql, &center_muni],
     ).unwrap_or_default();
-    if center.is_empty() { return vec![]; }
+    if center.is_empty() {
+        return vec![];
+    }
 
     let center_lat = super::super::helpers::get_f64(&center[0], "latitude");
     let center_lng = super::super::helpers::get_f64(&center[0], "longitude");
-    if center_lat.abs() < 1.0 { return vec![]; }
+    if center_lat.abs() < 1.0 {
+        return vec![];
+    }
 
     // Bounding box計算
     let lat_delta = radius_km / 111.0;
@@ -835,19 +1113,22 @@ pub(crate) fn fetch_commute_zone(
     let lng_max = center_lng + lng_delta;
 
     // Bounding boxクエリ
-    let candidates = db.query(
-        "SELECT prefecture, municipality, latitude, longitude FROM municipality_geocode \
+    let candidates = db
+        .query(
+            "SELECT prefecture, municipality, latitude, longitude FROM municipality_geocode \
          WHERE latitude BETWEEN ?1 AND ?2 AND longitude BETWEEN ?3 AND ?4",
-        &[
-            &lat_min as &dyn rusqlite::types::ToSql,
-            &lat_max,
-            &lng_min,
-            &lng_max,
-        ],
-    ).unwrap_or_default();
+            &[
+                &lat_min as &dyn rusqlite::types::ToSql,
+                &lat_max,
+                &lng_min,
+                &lng_max,
+            ],
+        )
+        .unwrap_or_default();
 
     // Haversineフィルタ + ソート
-    let mut result: Vec<CommuteMunicipality> = candidates.iter()
+    let mut result: Vec<CommuteMunicipality> = candidates
+        .iter()
         .filter_map(|row| {
             let pref = super::super::helpers::get_str(row, "prefecture");
             let muni = super::super::helpers::get_str(row, "municipality");
@@ -855,14 +1136,24 @@ pub(crate) fn fetch_commute_zone(
             let lng = super::super::helpers::get_f64(row, "longitude");
             let dist = haversine(center_lat, center_lng, lat, lng);
             if dist <= radius_km && !muni.is_empty() {
-                Some(CommuteMunicipality { prefecture: pref, municipality: muni, distance_km: dist, _lat: lat, _lng: lng })
+                Some(CommuteMunicipality {
+                    prefecture: pref,
+                    municipality: muni,
+                    distance_km: dist,
+                    _lat: lat,
+                    _lng: lng,
+                })
             } else {
                 None
             }
         })
         .collect();
 
-    result.sort_by(|a, b| a.distance_km.partial_cmp(&b.distance_km).unwrap_or(std::cmp::Ordering::Equal));
+    result.sort_by(|a, b| {
+        a.distance_km
+            .partial_cmp(&b.distance_km)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     result
 }
 
@@ -891,19 +1182,40 @@ pub(crate) fn fetch_commute_zone_pyramid(
     // 年齢順ソート用の変換
     let age_order = |a: &str| -> i32 {
         match a {
-            "0-4" => 0, "5-9" => 1, "10-14" => 2, "15-19" => 3,
-            "20-24" => 4, "25-29" => 5, "30-34" => 6, "35-39" => 7,
-            "40-44" => 8, "45-49" => 9, "50-54" => 10, "55-59" => 11,
-            "60-64" => 12, "65-69" => 13, "70-74" => 14, "75-79" => 15,
-            "80-84" => 16, "85+" => 17,
+            "0-4" => 0,
+            "5-9" => 1,
+            "10-14" => 2,
+            "15-19" => 3,
+            "20-24" => 4,
+            "25-29" => 5,
+            "30-34" => 6,
+            "35-39" => 7,
+            "40-44" => 8,
+            "45-49" => 9,
+            "50-54" => 10,
+            "55-59" => 11,
+            "60-64" => 12,
+            "65-69" => 13,
+            "70-74" => 14,
+            "75-79" => 15,
+            "80-84" => 16,
+            "85+" => 17,
             // 9区分フォールバック
-            "0-9" => 0, "10-19" => 2, "20-29" => 4, "30-39" => 6,
-            "40-49" => 8, "50-59" => 10, "60-69" => 12, "70-79" => 14, "80+" => 16,
+            "0-9" => 0,
+            "10-19" => 2,
+            "20-29" => 4,
+            "30-39" => 6,
+            "40-49" => 8,
+            "50-59" => 10,
+            "60-69" => 12,
+            "70-79" => 14,
+            "80+" => 16,
             _ => 99,
         }
     };
 
-    let mut rows: Vec<Row> = agg.into_iter()
+    let mut rows: Vec<Row> = agg
+        .into_iter()
         .map(|(age, (male, female))| {
             let mut row = HashMap::new();
             row.insert("age_group".to_string(), serde_json::Value::String(age));
@@ -934,53 +1246,71 @@ pub(crate) struct CommuteFlow {
 
 /// この市区町村への通勤流入（実フロー: v2_external_commute_od）
 pub(crate) fn fetch_commute_inflow(db: &Db, pref: &str, muni: &str) -> Vec<CommuteFlow> {
-    if muni.is_empty() { return vec![]; }
-    if !table_exists(db, "v2_external_commute_od") { return vec![]; }
+    if muni.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "v2_external_commute_od") {
+        return vec![];
+    }
 
-    let rows = db.query(
-        "SELECT origin_pref, origin_muni, total_commuters, male_commuters, female_commuters \
+    let rows = db
+        .query(
+            "SELECT origin_pref, origin_muni, total_commuters, male_commuters, female_commuters \
          FROM v2_external_commute_od \
          WHERE dest_pref = ?1 AND dest_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
          ORDER BY total_commuters DESC LIMIT 20",
-        &[&pref as &dyn rusqlite::types::ToSql, &muni],
-    ).unwrap_or_default();
+            &[&pref as &dyn rusqlite::types::ToSql, &muni],
+        )
+        .unwrap_or_default();
 
-    rows.iter().map(|r| CommuteFlow {
-        partner_pref: super::super::helpers::get_str(r, "origin_pref"),
-        partner_muni: super::super::helpers::get_str(r, "origin_muni"),
-        total_commuters: super::super::helpers::get_i64(r, "total_commuters"),
-        male_commuters: super::super::helpers::get_i64(r, "male_commuters"),
-        female_commuters: super::super::helpers::get_i64(r, "female_commuters"),
-    }).collect()
+    rows.iter()
+        .map(|r| CommuteFlow {
+            partner_pref: super::super::helpers::get_str(r, "origin_pref"),
+            partner_muni: super::super::helpers::get_str(r, "origin_muni"),
+            total_commuters: super::super::helpers::get_i64(r, "total_commuters"),
+            male_commuters: super::super::helpers::get_i64(r, "male_commuters"),
+            female_commuters: super::super::helpers::get_i64(r, "female_commuters"),
+        })
+        .collect()
 }
 
 /// この市区町村からの通勤流出（実フロー）
 pub(crate) fn fetch_commute_outflow(db: &Db, pref: &str, muni: &str) -> Vec<CommuteFlow> {
-    if muni.is_empty() { return vec![]; }
-    if !table_exists(db, "v2_external_commute_od") { return vec![]; }
+    if muni.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "v2_external_commute_od") {
+        return vec![];
+    }
 
-    let rows = db.query(
-        "SELECT dest_pref, dest_muni, total_commuters, male_commuters, female_commuters \
+    let rows = db
+        .query(
+            "SELECT dest_pref, dest_muni, total_commuters, male_commuters, female_commuters \
          FROM v2_external_commute_od \
          WHERE origin_pref = ?1 AND origin_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
          ORDER BY total_commuters DESC LIMIT 20",
-        &[&pref as &dyn rusqlite::types::ToSql, &muni],
-    ).unwrap_or_default();
+            &[&pref as &dyn rusqlite::types::ToSql, &muni],
+        )
+        .unwrap_or_default();
 
-    rows.iter().map(|r| CommuteFlow {
-        partner_pref: super::super::helpers::get_str(r, "dest_pref"),
-        partner_muni: super::super::helpers::get_str(r, "dest_muni"),
-        total_commuters: super::super::helpers::get_i64(r, "total_commuters"),
-        male_commuters: super::super::helpers::get_i64(r, "male_commuters"),
-        female_commuters: super::super::helpers::get_i64(r, "female_commuters"),
-    }).collect()
+    rows.iter()
+        .map(|r| CommuteFlow {
+            partner_pref: super::super::helpers::get_str(r, "dest_pref"),
+            partner_muni: super::super::helpers::get_str(r, "dest_muni"),
+            total_commuters: super::super::helpers::get_i64(r, "total_commuters"),
+            male_commuters: super::super::helpers::get_i64(r, "male_commuters"),
+            female_commuters: super::super::helpers::get_i64(r, "female_commuters"),
+        })
+        .collect()
 }
 
 /// 地元就業率（自市区町村内で働く人の割合）
 pub(crate) fn fetch_self_commute_rate(db: &Db, pref: &str, muni: &str) -> f64 {
-    if muni.is_empty() || !table_exists(db, "v2_external_commute_od") { return 0.0; }
+    if muni.is_empty() || !table_exists(db, "v2_external_commute_od") {
+        return 0.0;
+    }
 
     let self_count = db.query_scalar::<i64>(
         "SELECT total_commuters FROM v2_external_commute_od WHERE origin_pref=?1 AND origin_muni=?2 AND dest_pref=?1 AND dest_muni=?2",
@@ -992,5 +1322,9 @@ pub(crate) fn fetch_self_commute_rate(db: &Db, pref: &str, muni: &str) -> f64 {
         &[&pref as &dyn rusqlite::types::ToSql, &muni],
     ).unwrap_or(0);
 
-    if total_outflow > 0 { self_count as f64 / total_outflow as f64 } else { 0.0 }
+    if total_outflow > 0 {
+        self_count as f64 / total_outflow as f64
+    } else {
+        0.0
+    }
 }

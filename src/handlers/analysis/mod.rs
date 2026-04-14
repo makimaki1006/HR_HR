@@ -13,4 +13,4 @@ mod handlers;
 mod helpers;
 mod render;
 
-pub use handlers::{tab_analysis, analysis_subtab};
+pub use handlers::{analysis_subtab, tab_analysis};

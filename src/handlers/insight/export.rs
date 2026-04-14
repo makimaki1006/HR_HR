@@ -5,11 +5,11 @@ use axum::response::IntoResponse;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use super::super::overview::get_session_filters;
 use super::engine::generate_insights;
 use super::fetch::build_insight_context;
 use super::helpers::*;
+use crate::AppState;
 
 /// Excel レポート出力 (/api/insight/report/xlsx)
 pub async fn insight_report_xlsx(
@@ -36,23 +36,29 @@ pub async fn insight_report_xlsx(
         let ctx = build_insight_context(&db, turso.as_ref(), &pref, &muni);
         let insights = generate_insights(&ctx);
         build_xlsx(&insights, &pref, &muni, &ctx)
-    }).await.unwrap_or_else(|_| Err("処理エラー".to_string()));
+    })
+    .await
+    .unwrap_or_else(|_| Err("処理エラー".to_string()));
 
     match xlsx_bytes {
         Ok(bytes) => {
             let filename = format!("hw_report_{}.xlsx", chrono::Local::now().format("%Y%m%d"));
             axum::response::Response::builder()
-                .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                .header("Content-Disposition", format!("attachment; filename=\"{}\"", filename))
+                .header(
+                    "Content-Type",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+                .header(
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}\"", filename),
+                )
                 .body(axum::body::Body::from(bytes))
                 .unwrap()
         }
-        Err(e) => {
-            axum::response::Response::builder()
-                .status(500)
-                .body(axum::body::Body::from(format!("Excel生成エラー: {}", e)))
-                .unwrap()
-        }
+        Err(e) => axum::response::Response::builder()
+            .status(500)
+            .body(axum::body::Body::from(format!("Excel生成エラー: {}", e)))
+            .unwrap(),
     }
 }
 
@@ -72,40 +78,76 @@ fn build_xlsx(
         .set_bold()
         .set_font_size(11)
         .set_background_color(Color::RGB(0xE2E8F0));
-    let title_fmt = Format::new()
-        .set_bold()
-        .set_font_size(14);
+    let title_fmt = Format::new().set_bold().set_font_size(14);
     let subtitle_fmt = Format::new()
         .set_font_size(10)
         .set_font_color(Color::RGB(0x64748B));
 
-    let location = if !muni.is_empty() { format!("{} {}", pref, muni) }
-        else if !pref.is_empty() { pref.to_string() }
-        else { "全国".to_string() };
+    let location = if !muni.is_empty() {
+        format!("{} {}", pref, muni)
+    } else if !pref.is_empty() {
+        pref.to_string()
+    } else {
+        "全国".to_string()
+    };
 
     // ======== Sheet1: サマリー ========
     let sheet1 = workbook.add_worksheet();
     sheet1.set_name("サマリー").map_err(|e| e.to_string())?;
-    sheet1.write_string_with_format(0, 0, "ハローワーク求人市場 総合診断レポート", &title_fmt).ok();
-    sheet1.write_string_with_format(1, 0, &format!("{} | {}", location, chrono::Local::now().format("%Y年%m月")), &subtitle_fmt).ok();
+    sheet1
+        .write_string_with_format(0, 0, "ハローワーク求人市場 総合診断レポート", &title_fmt)
+        .ok();
+    sheet1
+        .write_string_with_format(
+            1,
+            0,
+            format!("{} | {}", location, chrono::Local::now().format("%Y年%m月")),
+            &subtitle_fmt,
+        )
+        .ok();
 
-    let critical = insights.iter().filter(|i| i.severity == Severity::Critical).count();
-    let warning = insights.iter().filter(|i| i.severity == Severity::Warning).count();
-    let info = insights.iter().filter(|i| i.severity == Severity::Info).count();
-    let positive = insights.iter().filter(|i| i.severity == Severity::Positive).count();
+    let critical = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Critical)
+        .count();
+    let warning = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Warning)
+        .count();
+    let info = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Info)
+        .count();
+    let positive = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Positive)
+        .count();
 
     sheet1.write_string(3, 0, "示唆件数").ok();
-    sheet1.write_string(4, 0, "重大").ok(); sheet1.write_number(4, 1, critical as f64).ok();
-    sheet1.write_string(5, 0, "注意").ok(); sheet1.write_number(5, 1, warning as f64).ok();
-    sheet1.write_string(6, 0, "情報").ok(); sheet1.write_number(6, 1, info as f64).ok();
-    sheet1.write_string(7, 0, "良好").ok(); sheet1.write_number(7, 1, positive as f64).ok();
+    sheet1.write_string(4, 0, "重大").ok();
+    sheet1.write_number(4, 1, critical as f64).ok();
+    sheet1.write_string(5, 0, "注意").ok();
+    sheet1.write_number(5, 1, warning as f64).ok();
+    sheet1.write_string(6, 0, "情報").ok();
+    sheet1.write_number(6, 1, info as f64).ok();
+    sheet1.write_string(7, 0, "良好").ok();
+    sheet1.write_number(7, 1, positive as f64).ok();
 
     // 通勤圏情報
     if ctx.commute_zone_count > 0 {
         sheet1.write_string(9, 0, "通勤圏（30km）").ok();
-        sheet1.write_string(10, 0, "圏内市区町村数").ok(); sheet1.write_number(10, 1, ctx.commute_zone_count as f64).ok();
-        sheet1.write_string(11, 0, "圏内総人口").ok(); sheet1.write_number(11, 1, ctx.commute_zone_total_pop as f64).ok();
-        sheet1.write_string(12, 0, "通勤流入数").ok(); sheet1.write_number(12, 1, ctx.commute_inflow_total as f64).ok();
+        sheet1.write_string(10, 0, "圏内市区町村数").ok();
+        sheet1
+            .write_number(10, 1, ctx.commute_zone_count as f64)
+            .ok();
+        sheet1.write_string(11, 0, "圏内総人口").ok();
+        sheet1
+            .write_number(11, 1, ctx.commute_zone_total_pop as f64)
+            .ok();
+        sheet1.write_string(12, 0, "通勤流入数").ok();
+        sheet1
+            .write_number(12, 1, ctx.commute_inflow_total as f64)
+            .ok();
     }
 
     // ======== Sheet2: 示唆一覧 ========
@@ -114,7 +156,9 @@ fn build_xlsx(
 
     let cols = ["ID", "重要度", "カテゴリ", "タイトル", "内容"];
     for (i, col) in cols.iter().enumerate() {
-        sheet2.write_string_with_format(0, i as u16, *col, &header_fmt).ok();
+        sheet2
+            .write_string_with_format(0, i as u16, *col, &header_fmt)
+            .ok();
     }
     sheet2.set_column_width(3, 30).ok();
     sheet2.set_column_width(4, 60).ok();
@@ -135,7 +179,9 @@ fn build_xlsx(
 
         let flow_cols = ["流入元都道府県", "流入元市区町村", "通勤者数"];
         for (i, col) in flow_cols.iter().enumerate() {
-            sheet3.write_string_with_format(0, i as u16, *col, &header_fmt).ok();
+            sheet3
+                .write_string_with_format(0, i as u16, *col, &header_fmt)
+                .ok();
         }
 
         for (row, (p, m, c)) in ctx.commute_inflow_top3.iter().enumerate() {

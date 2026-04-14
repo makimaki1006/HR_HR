@@ -1,12 +1,12 @@
 use axum::extract::State;
 use axum::response::Html;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use crate::db::local_sqlite::LocalDb;
+use crate::AppState;
 
 use super::overview::{
     build_filter_clause, cross_nav, format_number, get_i64, get_session_filters, get_str,
@@ -14,10 +14,7 @@ use super::overview::{
 };
 
 /// タブ3: 求人条件分析
-pub async fn tab_workstyle(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_workstyle(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
@@ -25,7 +22,12 @@ pub async fn tab_workstyle(
         None => return Html(render_no_db_data("求人条件")),
     };
 
-    let cache_key = format!("workstyle_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "workstyle_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -34,9 +36,9 @@ pub async fn tab_workstyle(
 
     let db = db.clone();
     let filters_clone = filters.clone();
-    let stats = tokio::task::spawn_blocking(move || {
-        fetch_workstyle(&db, &filters_clone)
-    }).await.unwrap_or_default();
+    let stats = tokio::task::spawn_blocking(move || fetch_workstyle(&db, &filters_clone))
+        .await
+        .unwrap_or_default();
 
     let mut html = render_workstyle(&filters, &stats);
     html.push_str(r#"<div class="text-[10px] text-slate-600 mt-4 border-t border-slate-800 pt-2">出典: ハローワーク掲載求人データ / 外部統計: e-Stat API / SSDSE-A（総務省統計局）</div>"#);
@@ -46,10 +48,7 @@ pub async fn tab_workstyle(
 }
 
 /// 市場概況タブ用: 条件分析セクションHTML生成（fetch + render）
-pub(crate) fn build_workstyle_html(
-    db: &LocalDb,
-    filters: &SessionFilters,
-) -> String {
+pub(crate) fn build_workstyle_html(db: &LocalDb, filters: &SessionFilters) -> String {
     let stats = fetch_workstyle(db, filters);
     render_workstyle(filters, &stats)
 }
@@ -120,15 +119,15 @@ impl Default for WorkstyleStats {
     }
 }
 
-fn fetch_workstyle(
-    db: &LocalDb,
-    filters: &SessionFilters,
-) -> WorkstyleStats {
+fn fetch_workstyle(db: &LocalDb, filters: &SessionFilters) -> WorkstyleStats {
     let mut stats = WorkstyleStats::default();
     let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
-        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+        filter_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect()
     };
 
     // 0. 総件数
@@ -372,21 +371,24 @@ fn fetch_workstyle(
             if let Ok(rows) = db.query(&sql, &mk_bind()) {
                 if let Some(row) = rows.first() {
                     let cnt = get_i64(row, "cnt");
-                    let rate = if total > 0.0 { cnt as f64 / total * 100.0 } else { 0.0 };
+                    let rate = if total > 0.0 {
+                        cnt as f64 / total * 100.0
+                    } else {
+                        0.0
+                    };
                     stats.benefits_list.push((label.to_string(), cnt, rate));
                 }
             }
         }
-        stats.benefits_list.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        stats
+            .benefits_list
+            .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
     }
 
     stats
 }
 
-fn render_workstyle(
-    filters: &SessionFilters,
-    stats: &WorkstyleStats,
-) -> String {
+fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String {
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
 
@@ -408,9 +410,7 @@ fn render_workstyle(
     let ws_pie_data: Vec<serde_json::Value> = stats
         .distribution
         .iter()
-        .map(|(w, v)| {
-            json!({"value": v, "name": w, "itemStyle": {"color": ws_colors(w)}})
-        })
+        .map(|(w, v)| json!({"value": v, "name": w, "itemStyle": {"color": ws_colors(w)}}))
         .collect();
 
     // KPIカード
@@ -529,11 +529,7 @@ fn render_workstyle(
         .iter()
         .map(|(l, _)| l.as_str())
         .collect();
-    let holiday_values_data: Vec<i64> = stats
-        .annual_holiday_hist
-        .iter()
-        .map(|(_, v)| *v)
-        .collect();
+    let holiday_values_data: Vec<i64> = stats.annual_holiday_hist.iter().map(|(_, v)| *v).collect();
 
     // 残業時間ヒストグラム
     let overtime_labels_data: Vec<&str> = stats
@@ -541,22 +537,23 @@ fn render_workstyle(
         .iter()
         .map(|(l, _)| l.as_str())
         .collect();
-    let overtime_values_data: Vec<i64> = stats
-        .overtime_hist
-        .iter()
-        .map(|(_, v)| *v)
-        .collect();
+    let overtime_values_data: Vec<i64> = stats.overtime_hist.iter().map(|(_, v)| *v).collect();
 
     // アクセシビリティ: 各チャートのaria-label生成
     let ws_pie_aria = {
         let total: i64 = stats.distribution.iter().map(|(_, v)| *v).sum();
-        let top3: Vec<String> = stats.distribution.iter().take(3).map(|(name, val)| {
-            if total > 0 {
-                format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
-            } else {
-                format!("{} {}件", name, val)
-            }
-        }).collect();
+        let top3: Vec<String> = stats
+            .distribution
+            .iter()
+            .take(3)
+            .map(|(name, val)| {
+                if total > 0 {
+                    format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
+                } else {
+                    format!("{} {}件", name, val)
+                }
+            })
+            .collect();
         format!("雇用形態分布: {}", top3.join("、"))
     };
 
@@ -566,38 +563,58 @@ fn render_workstyle(
     };
 
     let insurance_aria = {
-        let top3: Vec<String> = stats.insurance_rates.iter().take(3).map(|(l, r, _)| {
-            format!("{} {:.1}%", l, r)
-        }).collect();
+        let top3: Vec<String> = stats
+            .insurance_rates
+            .iter()
+            .take(3)
+            .map(|(l, r, _)| format!("{} {:.1}%", l, r))
+            .collect();
         format!("社会保険加入率: {}", top3.join("、"))
     };
 
     let weekly_pie_aria = {
         let total: i64 = stats.weekly_holiday_dist.iter().map(|(_, v)| *v).sum();
-        let top3: Vec<String> = stats.weekly_holiday_dist.iter().take(3).map(|(name, val)| {
-            if total > 0 {
-                format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
-            } else {
-                format!("{} {}件", name, val)
-            }
-        }).collect();
+        let top3: Vec<String> = stats
+            .weekly_holiday_dist
+            .iter()
+            .take(3)
+            .map(|(name, val)| {
+                if total > 0 {
+                    format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
+                } else {
+                    format!("{} {}件", name, val)
+                }
+            })
+            .collect();
         format!("週休二日制の割合: {}", top3.join("、"))
     };
 
     let holiday_aria = {
-        let top3: Vec<String> = stats.annual_holiday_hist.iter().take(3).map(|(l, v)| {
-            format!("{} {}件", l, v)
-        }).collect();
-        if top3.is_empty() { "年間休日分布".to_string() }
-        else { format!("年間休日分布: {}", top3.join("、")) }
+        let top3: Vec<String> = stats
+            .annual_holiday_hist
+            .iter()
+            .take(3)
+            .map(|(l, v)| format!("{} {}件", l, v))
+            .collect();
+        if top3.is_empty() {
+            "年間休日分布".to_string()
+        } else {
+            format!("年間休日分布: {}", top3.join("、"))
+        }
     };
 
     let overtime_aria = {
-        let top3: Vec<String> = stats.overtime_hist.iter().take(3).map(|(l, v)| {
-            format!("{} {}件", l, v)
-        }).collect();
-        if top3.is_empty() { "月平均残業時間分布".to_string() }
-        else { format!("月平均残業時間分布: {}", top3.join("、")) }
+        let top3: Vec<String> = stats
+            .overtime_hist
+            .iter()
+            .take(3)
+            .map(|(l, v)| format!("{} {}件", l, v))
+            .collect();
+        if top3.is_empty() {
+            "月平均残業時間分布".to_string()
+        } else {
+            format!("月平均残業時間分布: {}", top3.join("、"))
+        }
     };
 
     // --- チャート設定をserde_jsonで安全に生成 ---
@@ -622,7 +639,9 @@ fn render_workstyle(
         "xAxis": {"type": "category", "data": emp_labels_data},
         "yAxis": {"type": "value", "max": 100, "axisLabel": {"formatter": "{value}%"}},
         "series": age_series_data
-    }).to_string().replace('\'', "&#39;");
+    })
+    .to_string()
+    .replace('\'', "&#39;");
 
     let insurance_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}, "formatter": "{b}: {c}%"},
@@ -635,7 +654,9 @@ fn render_workstyle(
             "itemStyle": {"color": "#10B981", "borderRadius": [0, 8, 8, 0]},
             "label": {"show": true, "position": "right", "formatter": "{c}%", "color": "#e2e8f0"}
         }]
-    }).to_string().replace('\'', "&#39;");
+    })
+    .to_string()
+    .replace('\'', "&#39;");
 
     let weekly_pie_config = json!({
         "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
@@ -644,7 +665,9 @@ fn render_workstyle(
             "radius": ["35%", "65%"],
             "data": weekly_pie_data
         }]
-    }).to_string().replace('\'', "&#39;");
+    })
+    .to_string()
+    .replace('\'', "&#39;");
 
     let holiday_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -655,7 +678,9 @@ fn render_workstyle(
             "data": holiday_values_data,
             "itemStyle": {"color": "#6366F1", "borderRadius": [4, 4, 0, 0]}
         }]
-    }).to_string().replace('\'', "&#39;");
+    })
+    .to_string()
+    .replace('\'', "&#39;");
 
     let overtime_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -667,7 +692,9 @@ fn render_workstyle(
             "data": overtime_values_data,
             "itemStyle": {"color": "#F59E0B", "borderRadius": [4, 4, 0, 0]}
         }]
-    }).to_string().replace('\'', "&#39;");
+    })
+    .to_string()
+    .replace('\'', "&#39;");
 
     format!(
         r##"<div class="space-y-6">
@@ -771,7 +798,12 @@ fn render_workstyle(
         retirement_rate = stats.retirement_rate,
         retirement_count = format_number(stats.retirement_count),
         holiday_text_bars = {
-            let max_cnt = stats.holiday_text_dist.first().map(|(_, c)| *c).unwrap_or(1).max(1);
+            let max_cnt = stats
+                .holiday_text_dist
+                .first()
+                .map(|(_, c)| *c)
+                .unwrap_or(1)
+                .max(1);
             let mut bars = String::new();
             for (text, cnt) in &stats.holiday_text_dist {
                 let w = (*cnt as f64 / max_cnt as f64 * 100.0).min(100.0);
@@ -787,10 +819,15 @@ fn render_workstyle(
                     super::helpers::format_number(*cnt),
                 ));
             }
-            if bars.is_empty() { "<p class=\"text-slate-500 text-sm\">データなし</p>".to_string() } else { bars }
+            if bars.is_empty() {
+                "<p class=\"text-slate-500 text-sm\">データなし</p>".to_string()
+            } else {
+                bars
+            }
         },
         overtime_chart = if overtime_labels_data.is_empty() {
-            r#"<p class="text-slate-500 text-sm text-center py-8">残業時間データがありません</p>"#.to_string()
+            r#"<p class="text-slate-500 text-sm text-center py-8">残業時間データがありません</p>"#
+                .to_string()
         } else {
             format!(
                 "<div class=\"echart\" role=\"img\" aria-label=\"{}\" style=\"height:300px;\" data-chart-config='{}'></div>",
@@ -801,7 +838,13 @@ fn render_workstyle(
             let mut bars = String::new();
             for (label, _cnt, rate) in &stats.benefits_list {
                 let w = rate.min(100.0);
-                let color = if *rate > 70.0 { "#22c55e" } else if *rate > 40.0 { "#3b82f6" } else { "#64748b" };
+                let color = if *rate > 70.0 {
+                    "#22c55e"
+                } else if *rate > 40.0 {
+                    "#3b82f6"
+                } else {
+                    "#64748b"
+                };
                 bars.push_str(&format!(
                     "<div class=\"flex items-center gap-2\">\
                      <div class=\"w-28 text-xs text-slate-400 text-right flex-shrink-0\">{label}</div>\

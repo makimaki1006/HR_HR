@@ -21,33 +21,75 @@ pub struct ParsedLocation {
 // ======== 都道府県リスト ========
 
 const PREFECTURES: [&str; 47] = [
-    "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
-    "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
-    "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
-    "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
-    "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
-    "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
-    "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+    "北海道",
+    "青森県",
+    "岩手県",
+    "宮城県",
+    "秋田県",
+    "山形県",
+    "福島県",
+    "茨城県",
+    "栃木県",
+    "群馬県",
+    "埼玉県",
+    "千葉県",
+    "東京都",
+    "神奈川県",
+    "新潟県",
+    "富山県",
+    "石川県",
+    "福井県",
+    "山梨県",
+    "長野県",
+    "岐阜県",
+    "静岡県",
+    "愛知県",
+    "三重県",
+    "滋賀県",
+    "京都府",
+    "大阪府",
+    "兵庫県",
+    "奈良県",
+    "和歌山県",
+    "鳥取県",
+    "島根県",
+    "岡山県",
+    "広島県",
+    "山口県",
+    "徳島県",
+    "香川県",
+    "愛媛県",
+    "高知県",
+    "福岡県",
+    "佐賀県",
+    "長崎県",
+    "熊本県",
+    "大分県",
+    "宮崎県",
+    "鹿児島県",
+    "沖縄県",
 ];
 
 // ======== 地域ブロック ========
 
 fn prefecture_to_region(pref: &str) -> &'static str {
     match pref {
-        "北海道" | "青森県" | "岩手県" | "宮城県" | "秋田県" | "山形県" | "福島県"
-            => "北海道・東北",
-        "茨城県" | "栃木県" | "群馬県" | "埼玉県" | "千葉県" | "東京都" | "神奈川県"
-            => "関東",
-        "新潟県" | "富山県" | "石川県" | "福井県" | "山梨県" | "長野県" | "岐阜県" | "静岡県" | "愛知県"
-            => "中部",
-        "三重県" | "滋賀県" | "京都府" | "大阪府" | "兵庫県" | "奈良県" | "和歌山県"
-            => "近畿",
-        "鳥取県" | "島根県" | "岡山県" | "広島県" | "山口県"
-            => "中国",
-        "徳島県" | "香川県" | "愛媛県" | "高知県"
-            => "四国",
-        "福岡県" | "佐賀県" | "長崎県" | "熊本県" | "大分県" | "宮崎県" | "鹿児島県" | "沖縄県"
-            => "九州・沖縄",
+        "北海道" | "青森県" | "岩手県" | "宮城県" | "秋田県" | "山形県" | "福島県" => {
+            "北海道・東北"
+        }
+        "茨城県" | "栃木県" | "群馬県" | "埼玉県" | "千葉県" | "東京都" | "神奈川県" => {
+            "関東"
+        }
+        "新潟県" | "富山県" | "石川県" | "福井県" | "山梨県" | "長野県" | "岐阜県" | "静岡県"
+        | "愛知県" => "中部",
+        "三重県" | "滋賀県" | "京都府" | "大阪府" | "兵庫県" | "奈良県" | "和歌山県" => {
+            "近畿"
+        }
+        "鳥取県" | "島根県" | "岡山県" | "広島県" | "山口県" => "中国",
+        "徳島県" | "香川県" | "愛媛県" | "高知県" => "四国",
+        "福岡県" | "佐賀県" | "長崎県" | "熊本県" | "大分県" | "宮崎県" | "鹿児島県" | "沖縄県" => {
+            "九州・沖縄"
+        }
         _ => "不明",
     }
 }
@@ -64,123 +106,663 @@ fn station_map() -> &'static HashMap<&'static str, StationInfo> {
     MAP.get_or_init(|| {
         let mut m = HashMap::new();
         // 北海道
-        m.insert("札幌駅", StationInfo { city: "札幌市中央区", prefecture: "北海道" });
-        m.insert("函館駅", StationInfo { city: "函館市", prefecture: "北海道" });
-        m.insert("旭川駅", StationInfo { city: "旭川市", prefecture: "北海道" });
-        m.insert("帯広駅", StationInfo { city: "帯広市", prefecture: "北海道" });
-        m.insert("釧路駅", StationInfo { city: "釧路市", prefecture: "北海道" });
-        m.insert("小樽駅", StationInfo { city: "小樽市", prefecture: "北海道" });
+        m.insert(
+            "札幌駅",
+            StationInfo {
+                city: "札幌市中央区",
+                prefecture: "北海道",
+            },
+        );
+        m.insert(
+            "函館駅",
+            StationInfo {
+                city: "函館市",
+                prefecture: "北海道",
+            },
+        );
+        m.insert(
+            "旭川駅",
+            StationInfo {
+                city: "旭川市",
+                prefecture: "北海道",
+            },
+        );
+        m.insert(
+            "帯広駅",
+            StationInfo {
+                city: "帯広市",
+                prefecture: "北海道",
+            },
+        );
+        m.insert(
+            "釧路駅",
+            StationInfo {
+                city: "釧路市",
+                prefecture: "北海道",
+            },
+        );
+        m.insert(
+            "小樽駅",
+            StationInfo {
+                city: "小樽市",
+                prefecture: "北海道",
+            },
+        );
         // 東北
-        m.insert("仙台駅", StationInfo { city: "仙台市青葉区", prefecture: "宮城県" });
-        m.insert("盛岡駅", StationInfo { city: "盛岡市", prefecture: "岩手県" });
-        m.insert("青森駅", StationInfo { city: "青森市", prefecture: "青森県" });
-        m.insert("秋田駅", StationInfo { city: "秋田市", prefecture: "秋田県" });
-        m.insert("山形駅", StationInfo { city: "山形市", prefecture: "山形県" });
-        m.insert("福島駅", StationInfo { city: "福島市", prefecture: "福島県" });
-        m.insert("郡山駅", StationInfo { city: "郡山市", prefecture: "福島県" });
+        m.insert(
+            "仙台駅",
+            StationInfo {
+                city: "仙台市青葉区",
+                prefecture: "宮城県",
+            },
+        );
+        m.insert(
+            "盛岡駅",
+            StationInfo {
+                city: "盛岡市",
+                prefecture: "岩手県",
+            },
+        );
+        m.insert(
+            "青森駅",
+            StationInfo {
+                city: "青森市",
+                prefecture: "青森県",
+            },
+        );
+        m.insert(
+            "秋田駅",
+            StationInfo {
+                city: "秋田市",
+                prefecture: "秋田県",
+            },
+        );
+        m.insert(
+            "山形駅",
+            StationInfo {
+                city: "山形市",
+                prefecture: "山形県",
+            },
+        );
+        m.insert(
+            "福島駅",
+            StationInfo {
+                city: "福島市",
+                prefecture: "福島県",
+            },
+        );
+        m.insert(
+            "郡山駅",
+            StationInfo {
+                city: "郡山市",
+                prefecture: "福島県",
+            },
+        );
         // 関東（埼玉）
-        m.insert("大宮駅", StationInfo { city: "さいたま市大宮区", prefecture: "埼玉県" });
-        m.insert("浦和駅", StationInfo { city: "さいたま市浦和区", prefecture: "埼玉県" });
-        m.insert("川口駅", StationInfo { city: "川口市", prefecture: "埼玉県" });
-        m.insert("川越駅", StationInfo { city: "川越市", prefecture: "埼玉県" });
-        m.insert("所沢駅", StationInfo { city: "所沢市", prefecture: "埼玉県" });
-        m.insert("越谷駅", StationInfo { city: "越谷市", prefecture: "埼玉県" });
-        m.insert("草加駅", StationInfo { city: "草加市", prefecture: "埼玉県" });
-        m.insert("春日部駅", StationInfo { city: "春日部市", prefecture: "埼玉県" });
-        m.insert("熊谷駅", StationInfo { city: "熊谷市", prefecture: "埼玉県" });
+        m.insert(
+            "大宮駅",
+            StationInfo {
+                city: "さいたま市大宮区",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "浦和駅",
+            StationInfo {
+                city: "さいたま市浦和区",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "川口駅",
+            StationInfo {
+                city: "川口市",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "川越駅",
+            StationInfo {
+                city: "川越市",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "所沢駅",
+            StationInfo {
+                city: "所沢市",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "越谷駅",
+            StationInfo {
+                city: "越谷市",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "草加駅",
+            StationInfo {
+                city: "草加市",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "春日部駅",
+            StationInfo {
+                city: "春日部市",
+                prefecture: "埼玉県",
+            },
+        );
+        m.insert(
+            "熊谷駅",
+            StationInfo {
+                city: "熊谷市",
+                prefecture: "埼玉県",
+            },
+        );
         // 関東（千葉）
-        m.insert("千葉駅", StationInfo { city: "千葉市中央区", prefecture: "千葉県" });
-        m.insert("船橋駅", StationInfo { city: "船橋市", prefecture: "千葉県" });
-        m.insert("松戸駅", StationInfo { city: "松戸市", prefecture: "千葉県" });
-        m.insert("柏駅", StationInfo { city: "柏市", prefecture: "千葉県" });
-        m.insert("市川駅", StationInfo { city: "市川市", prefecture: "千葉県" });
-        m.insert("津田沼駅", StationInfo { city: "習志野市", prefecture: "千葉県" });
-        m.insert("海浜幕張駅", StationInfo { city: "千葉市美浜区", prefecture: "千葉県" });
+        m.insert(
+            "千葉駅",
+            StationInfo {
+                city: "千葉市中央区",
+                prefecture: "千葉県",
+            },
+        );
+        m.insert(
+            "船橋駅",
+            StationInfo {
+                city: "船橋市",
+                prefecture: "千葉県",
+            },
+        );
+        m.insert(
+            "松戸駅",
+            StationInfo {
+                city: "松戸市",
+                prefecture: "千葉県",
+            },
+        );
+        m.insert(
+            "柏駅",
+            StationInfo {
+                city: "柏市",
+                prefecture: "千葉県",
+            },
+        );
+        m.insert(
+            "市川駅",
+            StationInfo {
+                city: "市川市",
+                prefecture: "千葉県",
+            },
+        );
+        m.insert(
+            "津田沼駅",
+            StationInfo {
+                city: "習志野市",
+                prefecture: "千葉県",
+            },
+        );
+        m.insert(
+            "海浜幕張駅",
+            StationInfo {
+                city: "千葉市美浜区",
+                prefecture: "千葉県",
+            },
+        );
         // 関東（東京）
-        m.insert("東京駅", StationInfo { city: "千代田区", prefecture: "東京都" });
-        m.insert("新宿駅", StationInfo { city: "新宿区", prefecture: "東京都" });
-        m.insert("渋谷駅", StationInfo { city: "渋谷区", prefecture: "東京都" });
-        m.insert("池袋駅", StationInfo { city: "豊島区", prefecture: "東京都" });
-        m.insert("品川駅", StationInfo { city: "港区", prefecture: "東京都" });
-        m.insert("上野駅", StationInfo { city: "台東区", prefecture: "東京都" });
-        m.insert("秋葉原駅", StationInfo { city: "千代田区", prefecture: "東京都" });
-        m.insert("六本木駅", StationInfo { city: "港区", prefecture: "東京都" });
-        m.insert("銀座駅", StationInfo { city: "中央区", prefecture: "東京都" });
-        m.insert("立川駅", StationInfo { city: "立川市", prefecture: "東京都" });
-        m.insert("八王子駅", StationInfo { city: "八王子市", prefecture: "東京都" });
-        m.insert("町田駅", StationInfo { city: "町田市", prefecture: "東京都" });
-        m.insert("吉祥寺駅", StationInfo { city: "武蔵野市", prefecture: "東京都" });
-        m.insert("北千住駅", StationInfo { city: "足立区", prefecture: "東京都" });
-        m.insert("錦糸町駅", StationInfo { city: "墨田区", prefecture: "東京都" });
-        m.insert("蒲田駅", StationInfo { city: "大田区", prefecture: "東京都" });
-        m.insert("恵比寿駅", StationInfo { city: "渋谷区", prefecture: "東京都" });
-        m.insert("中野駅", StationInfo { city: "中野区", prefecture: "東京都" });
-        m.insert("赤羽駅", StationInfo { city: "北区", prefecture: "東京都" });
+        m.insert(
+            "東京駅",
+            StationInfo {
+                city: "千代田区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "新宿駅",
+            StationInfo {
+                city: "新宿区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "渋谷駅",
+            StationInfo {
+                city: "渋谷区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "池袋駅",
+            StationInfo {
+                city: "豊島区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "品川駅",
+            StationInfo {
+                city: "港区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "上野駅",
+            StationInfo {
+                city: "台東区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "秋葉原駅",
+            StationInfo {
+                city: "千代田区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "六本木駅",
+            StationInfo {
+                city: "港区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "銀座駅",
+            StationInfo {
+                city: "中央区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "立川駅",
+            StationInfo {
+                city: "立川市",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "八王子駅",
+            StationInfo {
+                city: "八王子市",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "町田駅",
+            StationInfo {
+                city: "町田市",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "吉祥寺駅",
+            StationInfo {
+                city: "武蔵野市",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "北千住駅",
+            StationInfo {
+                city: "足立区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "錦糸町駅",
+            StationInfo {
+                city: "墨田区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "蒲田駅",
+            StationInfo {
+                city: "大田区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "恵比寿駅",
+            StationInfo {
+                city: "渋谷区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "中野駅",
+            StationInfo {
+                city: "中野区",
+                prefecture: "東京都",
+            },
+        );
+        m.insert(
+            "赤羽駅",
+            StationInfo {
+                city: "北区",
+                prefecture: "東京都",
+            },
+        );
         // 関東（神奈川）
-        m.insert("横浜駅", StationInfo { city: "横浜市西区", prefecture: "神奈川県" });
-        m.insert("川崎駅", StationInfo { city: "川崎市川崎区", prefecture: "神奈川県" });
-        m.insert("武蔵小杉駅", StationInfo { city: "川崎市中原区", prefecture: "神奈川県" });
-        m.insert("藤沢駅", StationInfo { city: "藤沢市", prefecture: "神奈川県" });
-        m.insert("小田原駅", StationInfo { city: "小田原市", prefecture: "神奈川県" });
-        m.insert("海老名駅", StationInfo { city: "海老名市", prefecture: "神奈川県" });
+        m.insert(
+            "横浜駅",
+            StationInfo {
+                city: "横浜市西区",
+                prefecture: "神奈川県",
+            },
+        );
+        m.insert(
+            "川崎駅",
+            StationInfo {
+                city: "川崎市川崎区",
+                prefecture: "神奈川県",
+            },
+        );
+        m.insert(
+            "武蔵小杉駅",
+            StationInfo {
+                city: "川崎市中原区",
+                prefecture: "神奈川県",
+            },
+        );
+        m.insert(
+            "藤沢駅",
+            StationInfo {
+                city: "藤沢市",
+                prefecture: "神奈川県",
+            },
+        );
+        m.insert(
+            "小田原駅",
+            StationInfo {
+                city: "小田原市",
+                prefecture: "神奈川県",
+            },
+        );
+        m.insert(
+            "海老名駅",
+            StationInfo {
+                city: "海老名市",
+                prefecture: "神奈川県",
+            },
+        );
         // 中部
-        m.insert("名古屋駅", StationInfo { city: "名古屋市中村区", prefecture: "愛知県" });
-        m.insert("栄駅", StationInfo { city: "名古屋市中区", prefecture: "愛知県" });
-        m.insert("静岡駅", StationInfo { city: "静岡市葵区", prefecture: "静岡県" });
-        m.insert("浜松駅", StationInfo { city: "浜松市中央区", prefecture: "静岡県" });
-        m.insert("新潟駅", StationInfo { city: "新潟市中央区", prefecture: "新潟県" });
-        m.insert("長野駅", StationInfo { city: "長野市", prefecture: "長野県" });
-        m.insert("金沢駅", StationInfo { city: "金沢市", prefecture: "石川県" });
-        m.insert("富山駅", StationInfo { city: "富山市", prefecture: "富山県" });
-        m.insert("岐阜駅", StationInfo { city: "岐阜市", prefecture: "岐阜県" });
-        m.insert("甲府駅", StationInfo { city: "甲府市", prefecture: "山梨県" });
+        m.insert(
+            "名古屋駅",
+            StationInfo {
+                city: "名古屋市中村区",
+                prefecture: "愛知県",
+            },
+        );
+        m.insert(
+            "栄駅",
+            StationInfo {
+                city: "名古屋市中区",
+                prefecture: "愛知県",
+            },
+        );
+        m.insert(
+            "静岡駅",
+            StationInfo {
+                city: "静岡市葵区",
+                prefecture: "静岡県",
+            },
+        );
+        m.insert(
+            "浜松駅",
+            StationInfo {
+                city: "浜松市中央区",
+                prefecture: "静岡県",
+            },
+        );
+        m.insert(
+            "新潟駅",
+            StationInfo {
+                city: "新潟市中央区",
+                prefecture: "新潟県",
+            },
+        );
+        m.insert(
+            "長野駅",
+            StationInfo {
+                city: "長野市",
+                prefecture: "長野県",
+            },
+        );
+        m.insert(
+            "金沢駅",
+            StationInfo {
+                city: "金沢市",
+                prefecture: "石川県",
+            },
+        );
+        m.insert(
+            "富山駅",
+            StationInfo {
+                city: "富山市",
+                prefecture: "富山県",
+            },
+        );
+        m.insert(
+            "岐阜駅",
+            StationInfo {
+                city: "岐阜市",
+                prefecture: "岐阜県",
+            },
+        );
+        m.insert(
+            "甲府駅",
+            StationInfo {
+                city: "甲府市",
+                prefecture: "山梨県",
+            },
+        );
         // 近畿
-        m.insert("大阪駅", StationInfo { city: "大阪市北区", prefecture: "大阪府" });
-        m.insert("梅田駅", StationInfo { city: "大阪市北区", prefecture: "大阪府" });
-        m.insert("難波駅", StationInfo { city: "大阪市中央区", prefecture: "大阪府" });
-        m.insert("天王寺駅", StationInfo { city: "大阪市天王寺区", prefecture: "大阪府" });
-        m.insert("京都駅", StationInfo { city: "京都市下京区", prefecture: "京都府" });
-        m.insert("三宮駅", StationInfo { city: "神戸市中央区", prefecture: "兵庫県" });
-        m.insert("神戸駅", StationInfo { city: "神戸市中央区", prefecture: "兵庫県" });
-        m.insert("姫路駅", StationInfo { city: "姫路市", prefecture: "兵庫県" });
-        m.insert("奈良駅", StationInfo { city: "奈良市", prefecture: "奈良県" });
+        m.insert(
+            "大阪駅",
+            StationInfo {
+                city: "大阪市北区",
+                prefecture: "大阪府",
+            },
+        );
+        m.insert(
+            "梅田駅",
+            StationInfo {
+                city: "大阪市北区",
+                prefecture: "大阪府",
+            },
+        );
+        m.insert(
+            "難波駅",
+            StationInfo {
+                city: "大阪市中央区",
+                prefecture: "大阪府",
+            },
+        );
+        m.insert(
+            "天王寺駅",
+            StationInfo {
+                city: "大阪市天王寺区",
+                prefecture: "大阪府",
+            },
+        );
+        m.insert(
+            "京都駅",
+            StationInfo {
+                city: "京都市下京区",
+                prefecture: "京都府",
+            },
+        );
+        m.insert(
+            "三宮駅",
+            StationInfo {
+                city: "神戸市中央区",
+                prefecture: "兵庫県",
+            },
+        );
+        m.insert(
+            "神戸駅",
+            StationInfo {
+                city: "神戸市中央区",
+                prefecture: "兵庫県",
+            },
+        );
+        m.insert(
+            "姫路駅",
+            StationInfo {
+                city: "姫路市",
+                prefecture: "兵庫県",
+            },
+        );
+        m.insert(
+            "奈良駅",
+            StationInfo {
+                city: "奈良市",
+                prefecture: "奈良県",
+            },
+        );
         // 中国・四国・九州
-        m.insert("広島駅", StationInfo { city: "広島市南区", prefecture: "広島県" });
-        m.insert("岡山駅", StationInfo { city: "岡山市北区", prefecture: "岡山県" });
-        m.insert("高松駅", StationInfo { city: "高松市", prefecture: "香川県" });
-        m.insert("松山駅", StationInfo { city: "松山市", prefecture: "愛媛県" });
-        m.insert("博多駅", StationInfo { city: "福岡市博多区", prefecture: "福岡県" });
-        m.insert("天神駅", StationInfo { city: "福岡市中央区", prefecture: "福岡県" });
-        m.insert("小倉駅", StationInfo { city: "北九州市小倉北区", prefecture: "福岡県" });
-        m.insert("熊本駅", StationInfo { city: "熊本市西区", prefecture: "熊本県" });
-        m.insert("鹿児島中央駅", StationInfo { city: "鹿児島市", prefecture: "鹿児島県" });
-        m.insert("長崎駅", StationInfo { city: "長崎市", prefecture: "長崎県" });
-        m.insert("大分駅", StationInfo { city: "大分市", prefecture: "大分県" });
-        m.insert("那覇駅", StationInfo { city: "那覇市", prefecture: "沖縄県" });
+        m.insert(
+            "広島駅",
+            StationInfo {
+                city: "広島市南区",
+                prefecture: "広島県",
+            },
+        );
+        m.insert(
+            "岡山駅",
+            StationInfo {
+                city: "岡山市北区",
+                prefecture: "岡山県",
+            },
+        );
+        m.insert(
+            "高松駅",
+            StationInfo {
+                city: "高松市",
+                prefecture: "香川県",
+            },
+        );
+        m.insert(
+            "松山駅",
+            StationInfo {
+                city: "松山市",
+                prefecture: "愛媛県",
+            },
+        );
+        m.insert(
+            "博多駅",
+            StationInfo {
+                city: "福岡市博多区",
+                prefecture: "福岡県",
+            },
+        );
+        m.insert(
+            "天神駅",
+            StationInfo {
+                city: "福岡市中央区",
+                prefecture: "福岡県",
+            },
+        );
+        m.insert(
+            "小倉駅",
+            StationInfo {
+                city: "北九州市小倉北区",
+                prefecture: "福岡県",
+            },
+        );
+        m.insert(
+            "熊本駅",
+            StationInfo {
+                city: "熊本市西区",
+                prefecture: "熊本県",
+            },
+        );
+        m.insert(
+            "鹿児島中央駅",
+            StationInfo {
+                city: "鹿児島市",
+                prefecture: "鹿児島県",
+            },
+        );
+        m.insert(
+            "長崎駅",
+            StationInfo {
+                city: "長崎市",
+                prefecture: "長崎県",
+            },
+        );
+        m.insert(
+            "大分駅",
+            StationInfo {
+                city: "大分市",
+                prefecture: "大分県",
+            },
+        );
+        m.insert(
+            "那覇駅",
+            StationInfo {
+                city: "那覇市",
+                prefecture: "沖縄県",
+            },
+        );
         m
     })
 }
 
 // 東京23区
 const TOKYO_23_WARDS: [&str; 23] = [
-    "千代田区", "中央区", "港区", "新宿区", "文京区", "台東区", "墨田区", "江東区",
-    "品川区", "目黒区", "大田区", "世田谷区", "渋谷区", "中野区", "杉並区", "豊島区",
-    "北区", "荒川区", "板橋区", "練馬区", "足立区", "葛飾区", "江戸川区",
+    "千代田区",
+    "中央区",
+    "港区",
+    "新宿区",
+    "文京区",
+    "台東区",
+    "墨田区",
+    "江東区",
+    "品川区",
+    "目黒区",
+    "大田区",
+    "世田谷区",
+    "渋谷区",
+    "中野区",
+    "杉並区",
+    "豊島区",
+    "北区",
+    "荒川区",
+    "板橋区",
+    "練馬区",
+    "足立区",
+    "葛飾区",
+    "江戸川区",
 ];
 
 // 政令指定都市→都道府県
 fn designated_city_pref(city: &str) -> Option<&'static str> {
     match city {
-        "札幌市" => Some("北海道"), "仙台市" => Some("宮城県"),
-        "さいたま市" => Some("埼玉県"), "千葉市" => Some("千葉県"),
-        "横浜市" => Some("神奈川県"), "川崎市" => Some("神奈川県"),
-        "相模原市" => Some("神奈川県"), "新潟市" => Some("新潟県"),
-        "静岡市" => Some("静岡県"), "浜松市" => Some("静岡県"),
-        "名古屋市" => Some("愛知県"), "京都市" => Some("京都府"),
-        "大阪市" => Some("大阪府"), "堺市" => Some("大阪府"),
-        "神戸市" => Some("兵庫県"), "岡山市" => Some("岡山県"),
-        "広島市" => Some("広島県"), "北九州市" => Some("福岡県"),
-        "福岡市" => Some("福岡県"), "熊本市" => Some("熊本県"),
+        "札幌市" => Some("北海道"),
+        "仙台市" => Some("宮城県"),
+        "さいたま市" => Some("埼玉県"),
+        "千葉市" => Some("千葉県"),
+        "横浜市" => Some("神奈川県"),
+        "川崎市" => Some("神奈川県"),
+        "相模原市" => Some("神奈川県"),
+        "新潟市" => Some("新潟県"),
+        "静岡市" => Some("静岡県"),
+        "浜松市" => Some("静岡県"),
+        "名古屋市" => Some("愛知県"),
+        "京都市" => Some("京都府"),
+        "大阪市" => Some("大阪府"),
+        "堺市" => Some("大阪府"),
+        "神戸市" => Some("兵庫県"),
+        "岡山市" => Some("岡山県"),
+        "広島市" => Some("広島県"),
+        "北九州市" => Some("福岡県"),
+        "福岡市" => Some("福岡県"),
+        "熊本市" => Some("熊本県"),
         _ => None,
     }
 }
@@ -189,16 +771,26 @@ fn designated_city_pref(city: &str) -> Option<&'static str> {
 #[allow(dead_code)]
 fn resolve_city_alias(name: &str) -> Option<&'static str> {
     match name {
-        "札幌" => Some("札幌市"), "仙台" => Some("仙台市"),
-        "さいたま" => Some("さいたま市"), "横浜" => Some("横浜市"),
-        "川崎" => Some("川崎市"), "名古屋" => Some("名古屋市"),
-        "京都" => Some("京都市"), "大阪" => Some("大阪市"),
-        "神戸" => Some("神戸市"), "広島" => Some("広島市"),
-        "福岡" => Some("福岡市"), "熊本" => Some("熊本市"),
-        "岡山" => Some("岡山市"), "北九州" => Some("北九州市"),
-        "新潟" => Some("新潟市"), "静岡" => Some("静岡市"),
-        "浜松" => Some("浜松市"), "堺" => Some("堺市"),
-        "千葉" => Some("千葉市"), "相模原" => Some("相模原市"),
+        "札幌" => Some("札幌市"),
+        "仙台" => Some("仙台市"),
+        "さいたま" => Some("さいたま市"),
+        "横浜" => Some("横浜市"),
+        "川崎" => Some("川崎市"),
+        "名古屋" => Some("名古屋市"),
+        "京都" => Some("京都市"),
+        "大阪" => Some("大阪市"),
+        "神戸" => Some("神戸市"),
+        "広島" => Some("広島市"),
+        "福岡" => Some("福岡市"),
+        "熊本" => Some("熊本市"),
+        "岡山" => Some("岡山市"),
+        "北九州" => Some("北九州市"),
+        "新潟" => Some("新潟市"),
+        "静岡" => Some("静岡市"),
+        "浜松" => Some("浜松市"),
+        "堺" => Some("堺市"),
+        "千葉" => Some("千葉市"),
+        "相模原" => Some("相模原市"),
         _ => None,
     }
 }
@@ -214,22 +806,32 @@ pub fn parse_location(text: &str, context_pref: Option<&str>) -> ParsedLocation 
     let text = text.trim();
 
     // 1. 曖昧表現チェック（リモート、首都圏、都内等）
-    if let Some(r) = try_ambiguous(text) { return r; }
+    if let Some(r) = try_ambiguous(text) {
+        return r;
+    }
 
     // 2. 駅名マッチ
-    if let Some(r) = try_station(text) { return r; }
+    if let Some(r) = try_station(text) {
+        return r;
+    }
 
     // 3. 都道府県直接マッチ
     let prefecture = extract_prefecture(text);
 
     // 4. 東京23区マッチ
-    if let Some(r) = try_tokyo_ward(text, prefecture.as_deref()) { return r; }
+    if let Some(r) = try_tokyo_ward(text, prefecture.as_deref()) {
+        return r;
+    }
 
     // 5. 政令指定都市マッチ
-    if let Some(r) = try_designated_city(text, prefecture.as_deref()) { return r; }
+    if let Some(r) = try_designated_city(text, prefecture.as_deref()) {
+        return r;
+    }
 
     // 6. 市区町村パターンマッチ
-    if let Some(r) = try_municipality_pattern(text, prefecture.as_deref()) { return r; }
+    if let Some(r) = try_municipality_pattern(text, prefecture.as_deref()) {
+        return r;
+    }
 
     // 7. 都道府県のみ
     if let Some(pref) = &prefecture {
@@ -263,18 +865,24 @@ pub fn parse_location(text: &str, context_pref: Option<&str>) -> ParsedLocation 
 fn empty_location() -> ParsedLocation {
     ParsedLocation {
         original_text: String::new(),
-        prefecture: None, municipality: None,
-        region_block: None, city_type: None,
-        confidence: 0.0, method: "empty".to_string(),
+        prefecture: None,
+        municipality: None,
+        region_block: None,
+        city_type: None,
+        confidence: 0.0,
+        method: "empty".to_string(),
     }
 }
 
 fn empty_location_with_text(text: &str) -> ParsedLocation {
     ParsedLocation {
         original_text: text.to_string(),
-        prefecture: None, municipality: None,
-        region_block: None, city_type: None,
-        confidence: 0.0, method: "unmatched".to_string(),
+        prefecture: None,
+        municipality: None,
+        region_block: None,
+        city_type: None,
+        confidence: 0.0,
+        method: "unmatched".to_string(),
     }
 }
 
@@ -361,8 +969,12 @@ fn extract_prefecture(text: &str) -> Option<String> {
         }
     }
     // 略称マッチ
-    if text.contains("北海道") { return Some("北海道".to_string()); }
-    if text.contains("大阪") { return Some("大阪府".to_string()); }
+    if text.contains("北海道") {
+        return Some("北海道".to_string());
+    }
+    if text.contains("大阪") {
+        return Some("大阪府".to_string());
+    }
     if text.contains("京都") && !text.contains("東京") {
         return Some("京都府".to_string());
     }
@@ -396,9 +1008,26 @@ fn try_tokyo_ward(text: &str, pref: Option<&str>) -> Option<ParsedLocation> {
 fn try_designated_city(text: &str, _pref: Option<&str>) -> Option<ParsedLocation> {
     // 正式名称でマッチ
     let designated_cities = [
-        "札幌市", "仙台市", "さいたま市", "千葉市", "横浜市", "川崎市", "相模原市",
-        "新潟市", "静岡市", "浜松市", "名古屋市", "京都市", "大阪市", "堺市",
-        "神戸市", "岡山市", "広島市", "北九州市", "福岡市", "熊本市",
+        "札幌市",
+        "仙台市",
+        "さいたま市",
+        "千葉市",
+        "横浜市",
+        "川崎市",
+        "相模原市",
+        "新潟市",
+        "静岡市",
+        "浜松市",
+        "名古屋市",
+        "京都市",
+        "大阪市",
+        "堺市",
+        "神戸市",
+        "岡山市",
+        "広島市",
+        "北九州市",
+        "福岡市",
+        "熊本市",
     ];
 
     for city in &designated_cities {
@@ -418,12 +1047,23 @@ fn try_designated_city(text: &str, _pref: Option<&str>) -> Option<ParsedLocation
 
     // 略称マッチ（テキスト中に都市略称が含まれるか直接チェック）
     let city_aliases = [
-        ("名古屋", "名古屋市"), ("札幌", "札幌市"), ("仙台", "仙台市"),
-        ("横浜", "横浜市"), ("川崎", "川崎市"), ("福岡", "福岡市"),
-        ("広島", "広島市"), ("神戸", "神戸市"), ("京都", "京都市"),
-        ("大阪", "大阪市"), ("熊本", "熊本市"), ("岡山", "岡山市"),
-        ("北九州", "北九州市"), ("新潟", "新潟市"), ("静岡", "静岡市"),
-        ("浜松", "浜松市"), ("さいたま", "さいたま市"),
+        ("名古屋", "名古屋市"),
+        ("札幌", "札幌市"),
+        ("仙台", "仙台市"),
+        ("横浜", "横浜市"),
+        ("川崎", "川崎市"),
+        ("福岡", "福岡市"),
+        ("広島", "広島市"),
+        ("神戸", "神戸市"),
+        ("京都", "京都市"),
+        ("大阪", "大阪市"),
+        ("熊本", "熊本市"),
+        ("岡山", "岡山市"),
+        ("北九州", "北九州市"),
+        ("新潟", "新潟市"),
+        ("静岡", "静岡市"),
+        ("浜松", "浜松市"),
+        ("さいたま", "さいたま市"),
     ];
     for (alias, city) in &city_aliases {
         if text.contains(alias) {
@@ -460,11 +1100,15 @@ fn try_municipality_pattern(text: &str, pref: Option<&str>) -> Option<ParsedLoca
             let chars: Vec<char> = before.chars().collect();
             // 末尾から最大8文字分のひらがな・カタカナ・漢字を取得
             let start = chars.len().saturating_sub(8);
-            let name_chars: Vec<char> = chars[start..].iter()
+            let name_chars: Vec<char> = chars[start..]
+                .iter()
                 .rev()
                 .take_while(|c| !c.is_whitespace() && **c != '・' && **c != '/')
                 .copied()
-                .collect::<Vec<_>>().into_iter().rev().collect();
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             if !name_chars.is_empty() {
                 let muni_name = format!("{}{}", name_chars.iter().collect::<String>(), suffix);
                 let prefecture = pref.map(|s| s.to_string());

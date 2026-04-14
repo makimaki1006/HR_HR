@@ -14,10 +14,10 @@ pub(crate) const INSIGHT_SUBTABS: [(u8, &str); 4] = [
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub enum InsightCategory {
-    HiringStructure,  // 採用構造分析
-    Forecast,         // 将来予測
-    RegionalCompare,  // 地域間比較
-    ActionProposal,   // アクション提案
+    HiringStructure, // 採用構造分析
+    Forecast,        // 将来予測
+    RegionalCompare, // 地域間比較
+    ActionProposal,  // アクション提案
 }
 
 impl InsightCategory {
@@ -71,10 +71,10 @@ impl Severity {
 
     pub fn color(&self) -> &'static str {
         match self {
-            Self::Critical => "#ef4444",  // red-500
-            Self::Warning => "#f59e0b",   // amber-500
-            Self::Info => "#3b82f6",      // blue-500
-            Self::Positive => "#10b981",  // emerald-500
+            Self::Critical => "#ef4444", // red-500
+            Self::Warning => "#f59e0b",  // amber-500
+            Self::Info => "#3b82f6",     // blue-500
+            Self::Positive => "#10b981", // emerald-500
         }
     }
 
@@ -152,23 +152,35 @@ pub const TREND_DECREASE_THRESHOLD: f64 = -0.05;
 
 /// 安全な除算（ゼロ除算ガード）
 pub fn safe_divide(numerator: f64, denominator: f64) -> Option<f64> {
-    if denominator.abs() < f64::EPSILON { None } else { Some(numerator / denominator) }
+    if denominator.abs() < f64::EPSILON {
+        None
+    } else {
+        Some(numerator / denominator)
+    }
 }
 
 /// f64取得（NaN/Infガード付き）
 pub fn get_f64_safe(row: &Row, key: &str) -> f64 {
     let v = super::super::helpers::get_f64(row, key);
-    if v.is_nan() || v.is_infinite() { 0.0 } else { v }
+    if v.is_nan() || v.is_infinite() {
+        0.0
+    } else {
+        v
+    }
 }
 
 /// 線形回帰の傾きを計算（正規化済み: 月あたり変化率）
 pub fn linear_slope(values: &[f64]) -> Option<f64> {
     let n = values.len();
-    if n < 3 { return None; }
+    if n < 3 {
+        return None;
+    }
     let n_f = n as f64;
     let x_mean = (n_f - 1.0) / 2.0;
     let y_mean: f64 = values.iter().sum::<f64>() / n_f;
-    if y_mean.abs() < f64::EPSILON { return None; }
+    if y_mean.abs() < f64::EPSILON {
+        return None;
+    }
 
     let mut num = 0.0;
     let mut den = 0.0;
@@ -177,7 +189,9 @@ pub fn linear_slope(values: &[f64]) -> Option<f64> {
         num += x * (y - y_mean);
         den += x * x;
     }
-    if den.abs() < f64::EPSILON { return None; }
+    if den.abs() < f64::EPSILON {
+        return None;
+    }
     // 月あたり変化率として正規化
     Some((num / den) / y_mean)
 }

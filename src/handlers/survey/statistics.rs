@@ -19,12 +19,11 @@ pub struct BootstrapCI {
 
 /// Bootstrap法による95%信頼区間
 pub fn bootstrap_confidence_interval(data: &[i64], iterations: usize) -> Option<BootstrapCI> {
-    let valid: Vec<f64> = data.iter()
-        .filter(|&&v| v > 0)
-        .map(|&v| v as f64)
-        .collect();
+    let valid: Vec<f64> = data.iter().filter(|&&v| v > 0).map(|&v| v as f64).collect();
     let n = valid.len();
-    if n == 0 { return None; }
+    if n == 0 {
+        return None;
+    }
 
     let sample_mean = valid.iter().sum::<f64>() / n as f64;
 
@@ -84,7 +83,9 @@ pub struct TrimmedMeanResult {
 pub fn trimmed_mean(data: &[i64], trim_percent: f64) -> Option<TrimmedMeanResult> {
     let mut valid: Vec<i64> = data.iter().filter(|&&v| v > 0).copied().collect();
     let n = valid.len();
-    if n == 0 { return None; }
+    if n == 0 {
+        return None;
+    }
 
     let original_mean = valid.iter().sum::<i64>() / n as i64;
 
@@ -129,7 +130,9 @@ pub struct QuartileStats {
 /// 四分位統計（IQR法）
 pub fn quartile_stats(data: &[i64]) -> Option<QuartileStats> {
     let mut valid: Vec<i64> = data.iter().filter(|&&v| v > 0).copied().collect();
-    if valid.len() < 4 { return None; }
+    if valid.len() < 4 {
+        return None;
+    }
 
     valid.sort();
     let n = valid.len();
@@ -140,10 +143,16 @@ pub fn quartile_stats(data: &[i64]) -> Option<QuartileStats> {
     let lower_bound = q1 - (iqr as f64 * 1.5) as i64;
     let upper_bound = q3 + (iqr as f64 * 1.5) as i64;
 
-    let outlier_count = valid.iter().filter(|&&v| v < lower_bound || v > upper_bound).count();
+    let outlier_count = valid
+        .iter()
+        .filter(|&&v| v < lower_bound || v > upper_bound)
+        .count();
 
     Some(QuartileStats {
-        q1, q2, q3, iqr,
+        q1,
+        q2,
+        q3,
+        iqr,
         lower_bound,
         upper_bound,
         outlier_count,
@@ -183,12 +192,14 @@ pub struct EnhancedStats {
 pub fn enhanced_salary_statistics(values: &[i64]) -> Option<EnhancedStats> {
     let valid: Vec<i64> = values.iter().filter(|&&v| v > 0).copied().collect();
     let n = valid.len();
-    if n == 0 { return None; }
+    if n == 0 {
+        return None;
+    }
 
     let mean = valid.iter().sum::<i64>() / n as i64;
     let mut sorted = valid.clone();
     sorted.sort();
-    let median = if n % 2 == 0 {
+    let median = if n.is_multiple_of(2) {
         (sorted[n / 2 - 1] + sorted[n / 2]) / 2
     } else {
         sorted[n / 2]
@@ -196,9 +207,11 @@ pub fn enhanced_salary_statistics(values: &[i64]) -> Option<EnhancedStats> {
     let min = sorted[0];
     let max = sorted[n - 1];
 
-    let variance = valid.iter()
+    let variance = valid
+        .iter()
         .map(|&v| ((v - mean) as f64).powi(2))
-        .sum::<f64>() / n as f64;
+        .sum::<f64>()
+        / n as f64;
     let std_dev = variance.sqrt() as i64;
 
     let bootstrap_ci = if n >= 5 {
@@ -221,8 +234,16 @@ pub fn enhanced_salary_statistics(values: &[i64]) -> Option<EnhancedStats> {
     };
 
     Some(EnhancedStats {
-        count: n, mean, median, min, max, std_dev,
-        bootstrap_ci, trimmed_mean: trimmed, quartiles, reliability: reliability.to_string(),
+        count: n,
+        mean,
+        median,
+        min,
+        max,
+        std_dev,
+        bootstrap_ci,
+        trimmed_mean: trimmed,
+        quartiles,
+        reliability: reliability.to_string(),
     })
 }
 
@@ -232,7 +253,9 @@ mod tests {
 
     #[test]
     fn test_bootstrap() {
-        let data = vec![200_000, 250_000, 230_000, 280_000, 260_000, 240_000, 270_000];
+        let data = vec![
+            200_000, 250_000, 230_000, 280_000, 260_000, 240_000, 270_000,
+        ];
         let ci = bootstrap_confidence_interval(&data, 1000).unwrap();
         assert!(ci.lower < ci.upper);
         assert!(ci.lower >= 200_000);
@@ -242,7 +265,10 @@ mod tests {
 
     #[test]
     fn test_trimmed_mean() {
-        let data = vec![100_000, 200_000, 250_000, 260_000, 270_000, 280_000, 290_000, 300_000, 350_000, 500_000];
+        let data = vec![
+            100_000, 200_000, 250_000, 260_000, 270_000, 280_000, 290_000, 300_000, 350_000,
+            500_000,
+        ];
         let tm = trimmed_mean(&data, 0.1).unwrap();
         // 外れ値100kと500kが除外されるのでtrimmed_meanはoriginalより中央寄り
         assert!(tm.trimmed_mean > tm.original_mean - 50_000);
@@ -251,7 +277,9 @@ mod tests {
 
     #[test]
     fn test_quartile() {
-        let data = vec![200_000, 220_000, 250_000, 260_000, 280_000, 300_000, 350_000, 400_000];
+        let data = vec![
+            200_000, 220_000, 250_000, 260_000, 280_000, 300_000, 350_000, 400_000,
+        ];
         let qs = quartile_stats(&data).unwrap();
         assert!(qs.q1 < qs.q2);
         assert!(qs.q2 < qs.q3);

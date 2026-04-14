@@ -21,12 +21,17 @@ pub fn truncate_str(s: &str, max_chars: usize) -> String {
 
 /// <option>タグを生成（api.rsから参照）
 pub fn build_option(value: &str, label: &str) -> String {
-    format!(r#"<option value="{}">{}</option>"#, escape_html(value), escape_html(label))
+    format!(
+        r#"<option value="{}">{}</option>"#,
+        escape_html(value),
+        escape_html(label)
+    )
 }
 
 /// serde_json::Valueから数値を取得（REAL/INTEGER両対応）
 pub(crate) fn value_to_i64(v: &Value) -> i64 {
-    v.as_i64().unwrap_or_else(|| v.as_f64().map(|f| f as i64).unwrap_or(0))
+    v.as_i64()
+        .unwrap_or_else(|| v.as_f64().map(|f| f as i64).unwrap_or(0))
 }
 
 /// Haversine公式で2点間の距離を計算（km）

@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn test_cache_eviction_on_max() {
         let cache = AppCache::new(0, 3); // TTL=0, max=3
-        // 全てTTL=0なので即期限切れ
+                                         // 全てTTL=0なので即期限切れ
         cache.set("a".to_string(), Value::Null);
         cache.set("b".to_string(), Value::Null);
         cache.set("c".to_string(), Value::Null);

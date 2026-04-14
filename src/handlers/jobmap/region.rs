@@ -4,10 +4,10 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
-use crate::handlers::competitive::{escape_html, truncate_str};
-use crate::handlers::overview::{get_i64, get_f64, get_str, get_session_filters, SessionFilters};
 use super::render::format_yen;
+use crate::handlers::competitive::{escape_html, truncate_str};
+use crate::handlers::overview::{get_f64, get_i64, get_session_filters, get_str, SessionFilters};
+use crate::AppState;
 
 /// 地域フィルタ（産業+都道府県+市区町村）のWHERE句と連番?パラメータを構築
 fn build_region_filter(filters: &SessionFilters, pref: &str, muni: &str) -> (String, Vec<String>) {
@@ -44,10 +44,13 @@ pub async fn region_summary(
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Html(r#"<p class="text-gray-400 text-xs">データベースなし</p>"#.to_string()),
+        None => {
+            return Html(r#"<p class="text-gray-400 text-xs">データベースなし</p>"#.to_string())
+        }
     };
 
-    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
+    let (where_clause, filter_params) =
+        build_region_filter(&filters, &params.prefecture, &params.municipality);
 
     // postingsテーブルから求人件数・給与統計を集計
     let sql = format!(
@@ -55,7 +58,10 @@ pub async fn region_summary(
          AVG(salary_min) as avg_sal_min, AVG(salary_max) as avg_sal_max \
          FROM postings WHERE {where_clause}"
     );
-    let bind: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let bind: Vec<&dyn rusqlite::types::ToSql> = filter_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let rows = match db.query(&sql, &bind) {
         Ok(r) => r,
@@ -84,11 +90,16 @@ pub async fn region_summary(
          AND employment_type IS NOT NULL AND employment_type != '' \
          GROUP BY employment_type ORDER BY cnt DESC LIMIT 3"
     );
-    let emp_bind: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let emp_bind: Vec<&dyn rusqlite::types::ToSql> = filter_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let emp_info = if let Ok(emp_rows) = db.query(&emp_sql, &emp_bind) {
-        emp_rows.iter().map(|r| {
-            format!("{}: {}件", get_str(r, "employment_type"), get_i64(r, "cnt"))
-        }).collect::<Vec<_>>().join(", ")
+        emp_rows
+            .iter()
+            .map(|r| format!("{}: {}件", get_str(r, "employment_type"), get_i64(r, "cnt")))
+            .collect::<Vec<_>>()
+            .join(", ")
     } else {
         String::new()
     };
@@ -115,7 +126,11 @@ pub async fn region_summary(
         posting_count,
         format_yen(avg_sal_min as i64),
         format_yen(avg_sal_max as i64),
-        if emp_info.is_empty() { "データなし".to_string() } else { emp_info }
+        if emp_info.is_empty() {
+            "データなし".to_string()
+        } else {
+            emp_info
+        }
     );
 
     Html(html)
@@ -136,10 +151,13 @@ pub async fn region_age_gender(
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Html(r#"<p class="text-gray-400 text-xs">データベースなし</p>"#.to_string()),
+        None => {
+            return Html(r#"<p class="text-gray-400 text-xs">データベースなし</p>"#.to_string())
+        }
     };
 
-    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
+    let (where_clause, filter_params) =
+        build_region_filter(&filters, &params.prefecture, &params.municipality);
 
     // postingsテーブルから雇用形態別・給与区分別の件数を集計
     let sql = format!(
@@ -148,7 +166,10 @@ pub async fn region_age_gender(
          AND employment_type IS NOT NULL AND employment_type != '' \
          GROUP BY employment_type ORDER BY cnt DESC"
     );
-    let bind: Vec<&dyn rusqlite::types::ToSql> = filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let bind: Vec<&dyn rusqlite::types::ToSql> = filter_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let rows = match db.query(&sql, &bind) {
         Ok(r) => r,
@@ -231,9 +252,13 @@ pub async fn region_posting_stats(
         return Html(r#"<p class="text-gray-400 text-xs">地域を選択してください</p>"#.to_string());
     }
 
-    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
+    let (where_clause, filter_params) =
+        build_region_filter(&filters, &params.prefecture, &params.municipality);
     let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
-        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+        filter_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect()
     };
 
     let mut html = String::with_capacity(2048);
@@ -336,9 +361,13 @@ pub async fn region_segments(
         return Html(r#"<p class="text-gray-400 text-xs">地域を選択してください</p>"#.to_string());
     }
 
-    let (where_clause, filter_params) = build_region_filter(&filters, &params.prefecture, &params.municipality);
+    let (where_clause, filter_params) =
+        build_region_filter(&filters, &params.prefecture, &params.municipality);
     let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
-        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+        filter_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect()
     };
 
     let mut html = String::with_capacity(2048);

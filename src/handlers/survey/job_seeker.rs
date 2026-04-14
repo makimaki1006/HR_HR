@@ -1,8 +1,8 @@
 //! 求職者心理分析（GAS JobSeekerAnalysis.js移植）
 //! 求職者の期待給与モデル、未経験タグ分析、市場暗黙レート
 
-use serde::{Serialize, Deserialize};
 use super::upload::SurveyRecord;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JobSeekerAnalysis {
@@ -18,10 +18,10 @@ pub struct SalaryRangePerception {
     pub avg_range_width: i64,
     pub avg_lower: i64,
     pub avg_upper: i64,
-    pub expected_point: i64,  // lower + (upper - lower) * 0.33
-    pub narrow_count: usize,  // レンジ幅 < 5万
-    pub medium_count: usize,  // 5万〜10万
-    pub wide_count: usize,    // > 10万
+    pub expected_point: i64, // lower + (upper - lower) * 0.33
+    pub narrow_count: usize, // レンジ幅 < 5万
+    pub medium_count: usize, // 5万〜10万
+    pub wide_count: usize,   // > 10万
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,7 +30,7 @@ pub struct InexperienceAnalysis {
     pub experience_count: usize,
     pub inexperience_avg_salary: Option<i64>,
     pub experience_avg_salary: Option<i64>,
-    pub salary_gap: Option<i64>,  // 経験者 - 未経験者
+    pub salary_gap: Option<i64>, // 経験者 - 未経験者
 }
 
 /// 求職者心理分析を実行
@@ -58,24 +58,35 @@ pub fn analyze_job_seeker(records: &[SurveyRecord]) -> JobSeekerAnalysis {
 /// 求職者は給与レンジの下限〜1/3地点を期待値とする
 fn analyze_salary_range_perception(records: &[SurveyRecord]) -> Option<SalaryRangePerception> {
     // unified_monthlyベースでレンジを取得（時給・年俸を月給換算済み）
-    let ranges: Vec<(i64, i64)> = records.iter()
+    let ranges: Vec<(i64, i64)> = records
+        .iter()
         .filter_map(|r| {
             // min/maxが両方ある場合のみレンジ分析対象
             let min_raw = r.salary_parsed.min_value?;
             let max_raw = r.salary_parsed.max_value?;
-            if min_raw <= 0 || max_raw <= min_raw { return None; }
+            if min_raw <= 0 || max_raw <= min_raw {
+                return None;
+            }
             // unified_monthlyで統一（年俸÷12、時給×173.8等の変換済み値を使用）
             let monthly = r.salary_parsed.unified_monthly?;
-            if monthly <= 0 { return None; }
+            if monthly <= 0 {
+                return None;
+            }
             // レンジ幅も月給換算で計算
-            let ratio = if min_raw > 0 { monthly as f64 / ((min_raw + max_raw) as f64 / 2.0) } else { 1.0 };
+            let ratio = if min_raw > 0 {
+                monthly as f64 / ((min_raw + max_raw) as f64 / 2.0)
+            } else {
+                1.0
+            };
             let min_monthly = (min_raw as f64 * ratio) as i64;
             let max_monthly = (max_raw as f64 * ratio) as i64;
             Some((min_monthly, max_monthly))
         })
         .collect();
 
-    if ranges.is_empty() { return None; }
+    if ranges.is_empty() {
+        return None;
+    }
 
     let n = ranges.len() as i64;
     let avg_lower = ranges.iter().map(|(l, _)| l).sum::<i64>() / n;
@@ -112,7 +123,8 @@ fn analyze_inexperience_tag(records: &[SurveyRecord]) -> Option<InexperienceAnal
             Some(v) if v > 0 => v,
             _ => continue,
         };
-        let is_inexperience = inexperience_keywords.iter()
+        let is_inexperience = inexperience_keywords
+            .iter()
             .any(|kw| r.tags_raw.contains(kw) || r.job_title.contains(kw));
         if is_inexperience {
             inexp_salaries.push(monthly);
@@ -121,12 +133,20 @@ fn analyze_inexperience_tag(records: &[SurveyRecord]) -> Option<InexperienceAnal
         }
     }
 
-    if inexp_salaries.is_empty() && exp_salaries.is_empty() { return None; }
+    if inexp_salaries.is_empty() && exp_salaries.is_empty() {
+        return None;
+    }
 
-    let inexp_avg = if inexp_salaries.is_empty() { None }
-        else { Some(inexp_salaries.iter().sum::<i64>() / inexp_salaries.len() as i64) };
-    let exp_avg = if exp_salaries.is_empty() { None }
-        else { Some(exp_salaries.iter().sum::<i64>() / exp_salaries.len() as i64) };
+    let inexp_avg = if inexp_salaries.is_empty() {
+        None
+    } else {
+        Some(inexp_salaries.iter().sum::<i64>() / inexp_salaries.len() as i64)
+    };
+    let exp_avg = if exp_salaries.is_empty() {
+        None
+    } else {
+        Some(exp_salaries.iter().sum::<i64>() / exp_salaries.len() as i64)
+    };
 
     let gap = match (exp_avg, inexp_avg) {
         (Some(e), Some(i)) => Some(e - i),
@@ -144,18 +164,22 @@ fn analyze_inexperience_tag(records: &[SurveyRecord]) -> Option<InexperienceAnal
 
 /// 新着求人のプレミアム分析
 fn analyze_new_listings_premium(records: &[SurveyRecord]) -> Option<i64> {
-    let new_salaries: Vec<i64> = records.iter()
+    let new_salaries: Vec<i64> = records
+        .iter()
         .filter(|r| r.is_new)
         .filter_map(|r| r.salary_parsed.unified_monthly)
         .filter(|&v| v > 0)
         .collect();
-    let old_salaries: Vec<i64> = records.iter()
+    let old_salaries: Vec<i64> = records
+        .iter()
         .filter(|r| !r.is_new)
         .filter_map(|r| r.salary_parsed.unified_monthly)
         .filter(|&v| v > 0)
         .collect();
 
-    if new_salaries.is_empty() || old_salaries.is_empty() { return None; }
+    if new_salaries.is_empty() || old_salaries.is_empty() {
+        return None;
+    }
 
     let new_avg = new_salaries.iter().sum::<i64>() / new_salaries.len() as i64;
     let old_avg = old_salaries.iter().sum::<i64>() / old_salaries.len() as i64;

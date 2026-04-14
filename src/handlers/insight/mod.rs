@@ -11,5 +11,7 @@ pub mod helpers;
 pub mod render;
 pub mod report;
 
-pub use handlers::{tab_insight, insight_subtab, insight_widget, insight_report_json, insight_report_html};
 pub use export::insight_report_xlsx;
+pub use handlers::{
+    insight_report_html, insight_report_json, insight_subtab, insight_widget, tab_insight,
+};

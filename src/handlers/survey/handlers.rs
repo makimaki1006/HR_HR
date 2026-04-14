@@ -6,18 +6,15 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use super::super::overview::get_session_filters;
-use super::upload::parse_csv_bytes;
 use super::aggregator::aggregate_records;
 use super::job_seeker::analyze_job_seeker;
-use super::render::{render_upload_form, render_analysis_result};
+use super::render::{render_analysis_result, render_upload_form};
+use super::upload::parse_csv_bytes;
+use crate::AppState;
 
 /// 競合調査タブ（初期表示: アップロードフォーム）
-pub async fn tab_survey(
-    State(_state): State<Arc<AppState>>,
-    _session: Session,
-) -> Html<String> {
+pub async fn tab_survey(State(_state): State<Arc<AppState>>, _session: Session) -> Html<String> {
     Html(render_upload_form())
 }
 
@@ -100,14 +97,18 @@ pub async fn upload_csv(
 
     // コンテキスト都道府県（セッションから取得）
     let filters = get_session_filters(&session).await;
-    let context_pref = if filters.prefecture.is_empty() { None } else { Some(filters.prefecture.as_str()) };
+    let context_pref = if filters.prefecture.is_empty() {
+        None
+    } else {
+        Some(filters.prefecture.as_str())
+    };
 
     // CSVパース（CPU重い処理をspawn_blocking）
     let data_clone = data.clone();
     let ctx_pref = context_pref.map(|s| s.to_string());
-    let result = tokio::task::spawn_blocking(move || {
-        parse_csv_bytes(&data_clone, ctx_pref.as_deref())
-    }).await;
+    let result =
+        tokio::task::spawn_blocking(move || parse_csv_bytes(&data_clone, ctx_pref.as_deref()))
+            .await;
 
     let records = match result {
         Ok(Ok(records)) => records,
@@ -135,8 +136,12 @@ pub async fn upload_csv(
     // 集計結果をキャッシュに保存（統合レポートで再利用）
     let agg_json = serde_json::to_value(&agg).unwrap_or_default();
     let seeker_json = serde_json::to_value(&seeker).unwrap_or_default();
-    state.cache.set(format!("survey_agg_{}", session_id), agg_json);
-    state.cache.set(format!("survey_seeker_{}", session_id), seeker_json);
+    state
+        .cache
+        .set(format!("survey_agg_{}", session_id), agg_json);
+    state
+        .cache
+        .set(format!("survey_seeker_{}", session_id), seeker_json);
 
     // 主要地域もキャッシュ
     if let Some(pref) = &agg.dominant_prefecture {
@@ -154,7 +159,9 @@ pub async fn upload_csv(
 
     tracing::info!(
         "Survey CSV uploaded: {} records from {}, dominant region: {:?}",
-        records.len(), filename, agg.dominant_prefecture
+        records.len(),
+        filename,
+        agg.dominant_prefecture
     );
 
     Html(render_analysis_result(&agg, &seeker, &session_id))
@@ -173,7 +180,11 @@ pub async fn integrate_report(
 ) -> Html<String> {
     let session_id = match &query.session_id {
         Some(id) if !id.is_empty() => id.clone(),
-        _ => return Html(r#"<p class="text-red-400 text-sm">セッションIDが必要です</p>"#.to_string()),
+        _ => {
+            return Html(
+                r#"<p class="text-red-400 text-sm">セッションIDが必要です</p>"#.to_string(),
+            )
+        }
     };
 
     // キャッシュからCSV分析結果を取得
@@ -187,7 +198,9 @@ pub async fn integrate_report(
         return Html(r#"<div class="stat-card"><p class="text-amber-400 text-sm">地域が特定できませんでした。CSVに住所データが含まれていることを確認してください。</p></div>"#.to_string());
     }
 
-    let muni = state.cache.get(&format!("survey_muni_{}", session_id))
+    let muni = state
+        .cache
+        .get(&format!("survey_muni_{}", session_id))
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
@@ -203,9 +216,9 @@ pub async fn integrate_report(
     let muni2 = muni.clone();
 
     let content = tokio::task::spawn_blocking(move || {
-        use super::super::insight::fetch::build_insight_context;
-        use super::super::insight::engine::generate_insights;
         use super::super::company::fetch::fetch_companies_by_region;
+        use super::super::insight::engine::generate_insights;
+        use super::super::insight::fetch::build_insight_context;
 
         let ctx = build_insight_context(&db, turso.as_ref(), &pref2, &muni2);
         let insights = generate_insights(&ctx);
@@ -219,10 +232,10 @@ pub async fn integrate_report(
         };
 
         // 統合レポートHTML生成
-        super::integration::render_integration(
-            &pref2, &muni2, &insights, &ctx, &companies
-        )
-    }).await.unwrap_or_else(|e| {
+        super::integration::render_integration(&pref2, &muni2, &insights, &ctx, &companies)
+    })
+    .await
+    .unwrap_or_else(|e| {
         tracing::error!("Integration report failed: {e}");
         r#"<p class="text-red-400 text-sm">統合レポート生成に失敗しました</p>"#.to_string()
     });
@@ -277,10 +290,14 @@ pub async fn survey_report_html(
     let salary_max_values = agg.salary_max_values.clone();
 
     // HWデータ＋外部統計を取得（オプション。失敗・未接続時もレポート生成は継続）
-    let pref = state.cache.get(&format!("survey_pref_{}", session_id))
+    let pref = state
+        .cache
+        .get(&format!("survey_pref_{}", session_id))
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
-    let muni = state.cache.get(&format!("survey_muni_{}", session_id))
+    let muni = state
+        .cache
+        .get(&format!("survey_muni_{}", session_id))
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
@@ -295,9 +312,14 @@ pub async fn survey_report_html(
             let _orig_muni = muni.clone();
             match tokio::task::spawn_blocking(move || {
                 super::super::insight::fetch::build_insight_context(
-                    &db, turso.as_ref(), &pref2, &muni2,
+                    &db,
+                    turso.as_ref(),
+                    &pref2,
+                    &muni2,
                 )
-            }).await {
+            })
+            .await
+            {
                 Ok(ctx) => Some(ctx),
                 Err(e) => {
                     tracing::warn!("HW context build failed for survey report: {e}");
@@ -312,9 +334,12 @@ pub async fn survey_report_html(
     };
 
     let html = super::report_html::render_survey_report_page(
-        &agg, &seeker,
-        &by_company, &by_emp_type_salary,
-        &salary_min_values, &salary_max_values,
+        &agg,
+        &seeker,
+        &by_company,
+        &by_emp_type_salary,
+        &salary_min_values,
+        &salary_max_values,
         hw_ctx.as_ref(),
     );
 

@@ -25,7 +25,11 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
             format_yen(d.salary_max)
         )
     } else if d.salary_min > 0 {
-        format!("{} {}〜", escape_html(&d.salary_type), format_yen(d.salary_min))
+        format!(
+            "{} {}〜",
+            escape_html(&d.salary_type),
+            format_yen(d.salary_min)
+        )
     } else {
         "記載なし".to_string()
     };

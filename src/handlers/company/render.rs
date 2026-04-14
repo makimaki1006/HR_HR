@@ -1,5 +1,5 @@
 use super::fetch::CompanyContext;
-use crate::handlers::helpers::{escape_html, format_number, get_str, get_i64, truncate_str, Row};
+use crate::handlers::helpers::{escape_html, format_number, get_i64, get_str, truncate_str, Row};
 
 /// 検索ページ（タブのシェル）
 pub fn render_search_page() -> String {
@@ -99,7 +99,9 @@ pub fn render_search_results(results: &[Row]) -> String {
         html.push_str("<div class=\"px-4 py-3 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50 transition-colors\" ");
         html.push_str(&format!("hx-get=\"/api/company/profile/{}\" ", corp));
         html.push_str("hx-target=\"#company-profile-area\" hx-swap=\"innerHTML\" ");
-        html.push_str("onclick=\"document.getElementById('company-search-results').textContent=''\">");
+        html.push_str(
+            "onclick=\"document.getElementById('company-search-results').textContent=''\">",
+        );
         html.push_str(&format!(
             r##"<div class="flex justify-between items-start">
                     <div>
@@ -130,10 +132,15 @@ pub fn render_search_results(results: &[Row]) -> String {
 
 fn credit_score_class(score_str: &str) -> &'static str {
     let score: f64 = score_str.parse().unwrap_or(0.0);
-    if score >= 70.0 { "bg-green-900/50 text-green-400" }
-    else if score >= 50.0 { "bg-blue-900/50 text-blue-400" }
-    else if score >= 30.0 { "bg-yellow-900/50 text-yellow-400" }
-    else { "bg-slate-700 text-slate-400" }
+    if score >= 70.0 {
+        "bg-green-900/50 text-green-400"
+    } else if score >= 50.0 {
+        "bg-blue-900/50 text-blue-400"
+    } else if score >= 30.0 {
+        "bg-yellow-900/50 text-yellow-400"
+    } else {
+        "bg-slate-700 text-slate-400"
+    }
 }
 
 /// 企業プロフィール全体（サブタブ構成）
@@ -165,21 +172,27 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
     html.push_str("</div>");
 
     // ===== サブタブ1: 人材フロー =====
-    html.push_str(r#"<div class="company-tab-panel" data-company-panel="1" style="display:none;">"#);
+    html.push_str(
+        r#"<div class="company-tab-panel" data-company-panel="1" style="display:none;">"#,
+    );
     render_region_vs_company(&mut html, ctx);
     render_demographics(&mut html, ctx);
     render_insights(&mut html, ctx);
     html.push_str("</div>");
 
     // ===== サブタブ2: 給与・競合 =====
-    html.push_str(r#"<div class="company-tab-panel" data-company-panel="2" style="display:none;">"#);
+    html.push_str(
+        r#"<div class="company-tab-panel" data-company-panel="2" style="display:none;">"#,
+    );
     render_salary_gap_table(&mut html, ctx);
     render_salary_section(&mut html, ctx);
     render_competitor_section(&mut html, ctx);
     html.push_str("</div>");
 
     // ===== サブタブ3: 求人詳細 =====
-    html.push_str(r#"<div class="company-tab-panel" data-company-panel="3" style="display:none;">"#);
+    html.push_str(
+        r#"<div class="company-tab-panel" data-company-panel="3" style="display:none;">"#,
+    );
     render_hw_postings(&mut html, ctx);
     render_nearby_companies(&mut html, ctx);
     html.push_str("</div>");
@@ -223,11 +236,20 @@ function showCompanyTab(idx) {
 
 fn render_header(html: &mut String, ctx: &CompanyContext) {
     let delta_arrow = if ctx.employee_delta_1y > 0.5 {
-        format!(r#"<span class="text-green-400">+{:.1}%↑</span>"#, ctx.employee_delta_1y)
+        format!(
+            r#"<span class="text-green-400">+{:.1}%↑</span>"#,
+            ctx.employee_delta_1y
+        )
     } else if ctx.employee_delta_1y < -0.5 {
-        format!(r#"<span class="text-red-400">{:.1}%↓</span>"#, ctx.employee_delta_1y)
+        format!(
+            r#"<span class="text-red-400">{:.1}%↓</span>"#,
+            ctx.employee_delta_1y
+        )
     } else {
-        format!(r#"<span class="text-slate-400">{:.1}%→</span>"#, ctx.employee_delta_1y)
+        format!(
+            r#"<span class="text-slate-400">{:.1}%→</span>"#,
+            ctx.employee_delta_1y
+        )
     };
 
     // 成長シグナルバッジ
@@ -285,7 +307,8 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         match age {
             Some(a) if a > 0 => format!(
                 r#"<span class="text-xs text-slate-400">設立 {} ({}年)</span>"#,
-                escape_html(&ctx.established_date), a
+                escape_html(&ctx.established_date),
+                a
             ),
             _ => format!(
                 r#"<span class="text-xs text-slate-400">設立 {}</span>"#,
@@ -298,7 +321,9 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
 
     // 事業タグ（カンマ区切りをバッジ化）
     let tags_html = if !ctx.business_tags.is_empty() && ctx.business_tags != "-" {
-        let tags: Vec<&str> = ctx.business_tags.split(',')
+        let tags: Vec<&str> = ctx
+            .business_tags
+            .split(',')
             .map(|t| t.trim())
             .filter(|t| !t.is_empty())
             .take(5) // 最大5つ表示
@@ -331,26 +356,40 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
     let has_any_delta = deltas.iter().any(|(_, v)| v.abs() > 0.01);
     let delta_trend = if has_any_delta {
         // aria-label用のフォールバックテキスト
-        let aria_parts: Vec<String> = deltas.iter().map(|(label, val)| {
-            if val.abs() < 0.01 { format!("{} -", label) }
-            else { format!("{} {:+.1}%", label, val) }
-        }).collect();
+        let aria_parts: Vec<String> = deltas
+            .iter()
+            .map(|(label, val)| {
+                if val.abs() < 0.01 {
+                    format!("{} -", label)
+                } else {
+                    format!("{} {:+.1}%", label, val)
+                }
+            })
+            .collect();
         let aria_label = format!("従業員数推移: {}", aria_parts.join(", "));
 
         // 各バーの色: 正=緑、負=赤、ゼロ=グレー
         let bar_color = |v: f64| -> &str {
-            if v.abs() < 0.01 { "\\u00239ca3af" }
-            else if v >= 0.0 { "\\u002322c55e" }
-            else { "\\u0023ef4444" }
+            if v.abs() < 0.01 {
+                "\\u00239ca3af"
+            } else if v >= 0.0 {
+                "\\u002322c55e"
+            } else {
+                "\\u0023ef4444"
+            }
         };
 
         // 各バーのデータ項目JSONを生成
-        let data_items: Vec<String> = deltas.iter().map(|(_, val)| {
-            format!(
-                "{{\"value\":{:.1},\"itemStyle\":{{\"color\":\"{}\"}}}}",
-                val, bar_color(*val)
-            )
-        }).collect();
+        let data_items: Vec<String> = deltas
+            .iter()
+            .map(|(_, val)| {
+                format!(
+                    "{{\"value\":{:.1},\"itemStyle\":{{\"color\":\"{}\"}}}}",
+                    val,
+                    bar_color(*val)
+                )
+            })
+            .collect();
 
         // ECharts chart config JSON（#はUnicodeエスケープで記述してraw string衝突を回避）
         let chart_config = format!(
@@ -380,8 +419,10 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
 
         // HTML要素としてチャートとアクセシビリティを出力
         let mut trend_html = String::with_capacity(2048);
-        trend_html.push_str("<div class=\"stat-card mt-3\" style=\"border-left:4px solid #3b82f6\">");
-        trend_html.push_str("<h4 class=\"text-xs text-slate-400 mb-2\">従業員数推移（増減率%）</h4>");
+        trend_html
+            .push_str("<div class=\"stat-card mt-3\" style=\"border-left:4px solid #3b82f6\">");
+        trend_html
+            .push_str("<h4 class=\"text-xs text-slate-400 mb-2\">従業員数推移（増減率%）</h4>");
         trend_html.push_str("<div class=\"echart\" role=\"img\" aria-label=\"");
         trend_html.push_str(&aria_label);
         trend_html.push_str("\" data-chart-config='");
@@ -395,12 +436,19 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
 
     // 企業スコア表示
     let sn_score_display = if ctx.salesnow_score > 0.0 {
-        let sn_color = if ctx.salesnow_score >= 70.0 { "text-green-400" }
-                       else if ctx.salesnow_score >= 50.0 { "text-blue-400" }
-                       else if ctx.salesnow_score >= 30.0 { "text-yellow-400" }
-                       else { "text-slate-400" };
-        format!(r#"<div class="text-xl font-bold {}">{:.0}<span class="text-sm text-slate-400">/100</span></div>"#,
-                sn_color, ctx.salesnow_score)
+        let sn_color = if ctx.salesnow_score >= 70.0 {
+            "text-green-400"
+        } else if ctx.salesnow_score >= 50.0 {
+            "text-blue-400"
+        } else if ctx.salesnow_score >= 30.0 {
+            "text-yellow-400"
+        } else {
+            "text-slate-400"
+        };
+        format!(
+            r#"<div class="text-xl font-bold {}">{:.0}<span class="text-sm text-slate-400">/100</span></div>"#,
+            sn_color, ctx.salesnow_score
+        )
     } else {
         r#"<div class="text-lg text-slate-600">-</div>"#.to_string()
     };
@@ -520,9 +568,15 @@ fn render_market_snapshot(html: &mut String, ctx: &CompanyContext) {
     let salary_diff = ctx.market_avg_salary_min - ctx.national_avg_salary;
     let salary_diff_display = if ctx.market_avg_salary_min > 0.0 && ctx.national_avg_salary > 0.0 {
         if salary_diff > 0.0 {
-            format!(r#"<span class="text-green-400 text-xs">全国比 +{:.0}円</span>"#, salary_diff)
+            format!(
+                r#"<span class="text-green-400 text-xs">全国比 +{:.0}円</span>"#,
+                salary_diff
+            )
         } else {
-            format!(r#"<span class="text-red-400 text-xs">全国比 {:.0}円</span>"#, salary_diff)
+            format!(
+                r#"<span class="text-red-400 text-xs">全国比 {:.0}円</span>"#,
+                salary_diff
+            )
         }
     } else {
         String::new()
@@ -556,10 +610,14 @@ fn render_salary_section(html: &mut String, ctx: &CompanyContext) {
         return;
     }
 
-    let labels: Vec<String> = ctx.salary_distribution.iter()
+    let labels: Vec<String> = ctx
+        .salary_distribution
+        .iter()
         .map(|(l, _)| format!("\"{}\"", l))
         .collect();
-    let values: Vec<String> = ctx.salary_distribution.iter()
+    let values: Vec<String> = ctx
+        .salary_distribution
+        .iter()
         .map(|(_, v)| v.to_string())
         .collect();
 
@@ -591,7 +649,9 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
 
     // 求人理由ドーナツ
     if !ctx.recruitment_reasons.is_empty() {
-        let pie_data: Vec<String> = ctx.recruitment_reasons.iter()
+        let pie_data: Vec<String> = ctx
+            .recruitment_reasons
+            .iter()
             .map(|(name, cnt)| {
                 let color = match name.as_str() {
                     "欠員補充" => "#ef4444",
@@ -599,7 +659,10 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
                     "新設" => "#3b82f6",
                     _ => "#6b7280",
                 };
-                format!(r#"{{"value": {}, "name": "{}", "itemStyle": {{"color": "{}"}}}}"#, cnt, name, color)
+                format!(
+                    r#"{{"value": {}, "name": "{}", "itemStyle": {{"color": "{}"}}}}"#,
+                    cnt, name, color
+                )
             })
             .collect();
 
@@ -624,10 +687,14 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
 
     // 福利厚生レーダー
     if !ctx.benefit_rates.is_empty() {
-        let indicators: Vec<String> = ctx.benefit_rates.iter()
+        let indicators: Vec<String> = ctx
+            .benefit_rates
+            .iter()
             .map(|(name, _)| format!(r#"{{"name": "{}", "max": 100}}"#, name))
             .collect();
-        let values: Vec<String> = ctx.benefit_rates.iter()
+        let values: Vec<String> = ctx
+            .benefit_rates
+            .iter()
             .map(|(_, v)| format!("{:.1}", v))
             .collect();
 
@@ -662,10 +729,16 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
 
     // 従業員規模分布
     if !ctx.emp_size_distribution.is_empty() {
-        let labels: Vec<String> = ctx.emp_size_distribution.iter().rev()
+        let labels: Vec<String> = ctx
+            .emp_size_distribution
+            .iter()
+            .rev()
             .map(|(l, _)| format!("\"{}\"", l))
             .collect();
-        let values: Vec<String> = ctx.emp_size_distribution.iter().rev()
+        let values: Vec<String> = ctx
+            .emp_size_distribution
+            .iter()
+            .rev()
             .map(|(_, v)| v.to_string())
             .collect();
 
@@ -720,7 +793,11 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
     // 1. 給与ポジショニング
     if ctx.market_avg_salary_min > 0.0 {
         let diff = ctx.market_avg_salary_min - ctx.national_avg_salary;
-        let diff_pct = if ctx.national_avg_salary > 0.0 { diff / ctx.national_avg_salary * 100.0 } else { 0.0 };
+        let diff_pct = if ctx.national_avg_salary > 0.0 {
+            diff / ctx.national_avg_salary * 100.0
+        } else {
+            0.0
+        };
         let (sev_class, sev_label) = if diff_pct < -10.0 {
             ("bg-red-900/50 border-red-700", "注意")
         } else if diff_pct < -3.0 {
@@ -758,10 +835,14 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
                 ctx.market_vacancy_rate, ctx.national_vacancy_rate
             ))
         } else {
-            ("bg-blue-900/50 border-blue-700", "情報", format!(
+            (
+                "bg-blue-900/50 border-blue-700",
+                "情報",
+                format!(
                 "地域の欠員補充率は{:.1}%で安定しています。計画的な採用活動が可能な市場環境です。",
                 ctx.market_vacancy_rate
-            ))
+            ),
+            )
         };
         html.push_str(&format!(
             r#"<div class="border rounded-lg p-3 {cls}">
@@ -818,9 +899,11 @@ fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
         return;
     }
 
-    html.push_str(r#"<div class="stat-card border-l-4 border-cyan-400 mb-4">
+    html.push_str(
+        r#"<div class="stat-card border-l-4 border-cyan-400 mb-4">
         <h4 class="text-sm font-bold text-cyan-400 mb-3">&#x1F4A1; 提案ポイント</h4>
-        <div class="space-y-3">"#);
+        <div class="space-y-3">"#,
+    );
 
     for (i, (headline, body)) in ctx.sales_pitches.iter().enumerate() {
         html.push_str(&format!(
@@ -917,9 +1000,15 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
 
     let gap_display = if ctx.company_vs_region_gap.abs() > 0.1 {
         if ctx.company_vs_region_gap > 0.0 {
-            format!(r#"<span class="text-green-400">+{:.1}pt 上回る</span>"#, ctx.company_vs_region_gap)
+            format!(
+                r#"<span class="text-green-400">+{:.1}pt 上回る</span>"#,
+                ctx.company_vs_region_gap
+            )
         } else {
-            format!(r#"<span class="text-red-400">{:.1}pt 下回る</span>"#, ctx.company_vs_region_gap)
+            format!(
+                r#"<span class="text-red-400">{:.1}pt 下回る</span>"#,
+                ctx.company_vs_region_gap
+            )
         }
     } else {
         r#"<span class="text-slate-400">同水準</span>"#.to_string()
@@ -962,7 +1051,11 @@ fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
     }
 
     let gap = ctx.company_avg_salary_min - ctx.market_avg_salary_min;
-    let gap_color = if gap > 0.0 { "text-green-400" } else { "text-red-400" };
+    let gap_color = if gap > 0.0 {
+        "text-green-400"
+    } else {
+        "text-red-400"
+    };
     let gap_display = if gap.abs() > 0.0 {
         format!(r#"<span class="{}">{:+.0}円</span>"#, gap_color, gap)
     } else {
@@ -1015,20 +1108,34 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
     let total = ctx.hw_matched_total_count;
     let shown = ctx.hw_matched_postings.len();
     let label = if total as usize > shown {
-        format!("企業名「{}」でマッチした求人 {}件（上位{}件表示）", escape_html(&ctx.company_name), total, shown)
+        format!(
+            "企業名「{}」でマッチした求人 {}件（上位{}件表示）",
+            escape_html(&ctx.company_name),
+            total,
+            shown
+        )
     } else {
-        format!("企業名「{}」でマッチした求人 {}件", escape_html(&ctx.company_name), total)
+        format!(
+            "企業名「{}」でマッチした求人 {}件",
+            escape_html(&ctx.company_name),
+            total
+        )
     };
-    html.push_str(&format!(r##"<p class="text-xs text-slate-500 mb-2">{}</p>"##, label));
+    html.push_str(&format!(
+        r##"<p class="text-xs text-slate-500 mb-2">{}</p>"##,
+        label
+    ));
 
-    html.push_str(r##"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">
+    html.push_str(
+        r##"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">
         <thead><tr class="text-slate-500 border-b border-slate-700">
             <th class="text-left py-1.5 px-2">職種</th>
             <th class="text-left py-1.5 px-2">雇用形態</th>
             <th class="text-left py-1.5 px-2">勤務地</th>
             <th class="text-right py-1.5 px-2">給与</th>
             <th class="text-left py-1.5 px-2">見出し</th>
-        </tr></thead><tbody>"##);
+        </tr></thead><tbody>"##,
+    );
 
     for row in &ctx.hw_matched_postings {
         let rowid = get_i64(row, "rowid");
@@ -1046,9 +1153,18 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
         let reason = get_str(row, "recruitment_reason");
 
         let salary_display = if salary_min > 0 && salary_max > 0 {
-            format!("{} {}-{}", escape_html(&salary_type), format_number(salary_min), format_number(salary_max))
+            format!(
+                "{} {}-{}",
+                escape_html(&salary_type),
+                format_number(salary_min),
+                format_number(salary_max)
+            )
         } else if salary_min > 0 {
-            format!("{} {}~", escape_html(&salary_type), format_number(salary_min))
+            format!(
+                "{} {}~",
+                escape_html(&salary_type),
+                format_number(salary_min)
+            )
         } else {
             "-".to_string()
         };
@@ -1123,7 +1239,11 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         return;
     }
 
-    let postal_prefix = if ctx.postal_code.len() >= 3 { &ctx.postal_code[..3] } else { &ctx.postal_code };
+    let postal_prefix = if ctx.postal_code.len() >= 3 {
+        &ctx.postal_code[..3]
+    } else {
+        &ctx.postal_code
+    };
 
     html.push_str(&format!(
         r##"<div class="stat-card mt-4">
@@ -1142,14 +1262,22 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
 
     for nc in &ctx.nearby_companies {
         let hw_badge = if nc.hw_posting_count > 0 {
-            format!(r##"<span class="text-blue-400 font-medium">{}件</span>"##, nc.hw_posting_count)
+            format!(
+                r##"<span class="text-blue-400 font-medium">{}件</span>"##,
+                nc.hw_posting_count
+            )
         } else {
             r##"<span class="text-slate-600">-</span>"##.to_string()
         };
 
         // クリックで同タブ内に企業プロフィールを展開
-        html.push_str("<tr class=\"border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer\" ");
-        html.push_str(&format!("hx-get=\"/api/company/profile/{}\" ", escape_html(&nc.corporate_number)));
+        html.push_str(
+            "<tr class=\"border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer\" ",
+        );
+        html.push_str(&format!(
+            "hx-get=\"/api/company/profile/{}\" ",
+            escape_html(&nc.corporate_number)
+        ));
         html.push_str("hx-target=\"#content\" hx-swap=\"innerHTML\">");
 
         html.push_str(&format!(
@@ -1161,8 +1289,16 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
             </tr>"##,
             escape_html(&nc.company_name),
             escape_html(&nc.sn_industry),
-            if nc.employee_count > 0 { format_number(nc.employee_count) } else { "-".to_string() },
-            if nc.credit_score > 0.0 { format!("{:.0}", nc.credit_score) } else { "-".to_string() },
+            if nc.employee_count > 0 {
+                format_number(nc.employee_count)
+            } else {
+                "-".to_string()
+            },
+            if nc.credit_score > 0.0 {
+                format!("{:.0}", nc.credit_score)
+            } else {
+                "-".to_string()
+            },
             hw_badge,
         ));
     }

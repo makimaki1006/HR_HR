@@ -1,19 +1,17 @@
 //! Turso時系列集計テーブルからのデータ取得関数
 
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
 /// Tursoクエリ実行ヘルパー（Turso専用、ローカルフォールバックなし）
-fn query_turso(
-    turso: &TursoDb,
-    sql: &str,
-    params: &[String],
-) -> Vec<Row> {
-    let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-        params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+fn query_turso(turso: &TursoDb, sql: &str, params: &[String]) -> Vec<Row> {
+    let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> = params
+        .iter()
+        .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
+        .collect();
     match turso.query(sql, &p) {
         Ok(rows) => rows,
         Err(e) => {
@@ -34,7 +32,8 @@ pub(crate) fn fetch_ts_counts(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(facility_count) as facility_count \
              FROM ts_turso_counts WHERE prefecture = ?1 \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -44,7 +43,8 @@ pub(crate) fn fetch_ts_counts(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(facility_count) as facility_count \
              FROM ts_turso_counts \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![],
         )
     };
@@ -63,7 +63,8 @@ pub(crate) fn fetch_ts_vacancy(turso: &TursoDb, pref: &str) -> Vec<Row> {
              CAST(SUM(growth_count) AS REAL) / NULLIF(SUM(total_count), 0) as growth_rate \
              FROM ts_turso_vacancy WHERE prefecture = ?1 \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -76,7 +77,8 @@ pub(crate) fn fetch_ts_vacancy(turso: &TursoDb, pref: &str) -> Vec<Row> {
              CAST(SUM(growth_count) AS REAL) / NULLIF(SUM(total_count), 0) as growth_rate \
              FROM ts_turso_vacancy \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![],
         )
     };
@@ -96,7 +98,8 @@ pub(crate) fn fetch_ts_salary(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(count) as count \
              FROM ts_turso_salary WHERE prefecture = ?1 \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -107,7 +110,8 @@ pub(crate) fn fetch_ts_salary(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(count) as count \
              FROM ts_turso_salary \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![],
         )
     };
@@ -125,7 +129,8 @@ pub(crate) fn fetch_ts_workstyle(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(count) as count \
              FROM ts_agg_workstyle WHERE prefecture = ?1 \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -136,7 +141,8 @@ pub(crate) fn fetch_ts_workstyle(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(count) as count \
              FROM ts_agg_workstyle \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![],
         )
     };
@@ -157,7 +163,8 @@ pub(crate) fn fetch_ts_fulfillment(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(count) as count \
              FROM ts_turso_fulfillment WHERE prefecture = ?1 \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -169,7 +176,8 @@ pub(crate) fn fetch_ts_fulfillment(turso: &TursoDb, pref: &str) -> Vec<Row> {
              SUM(count) as count \
              FROM ts_turso_fulfillment \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![],
         )
     };
@@ -190,7 +198,8 @@ pub(crate) fn fetch_ts_tracking(turso: &TursoDb, pref: &str) -> Vec<Row> {
              AVG(churn_rate) as churn_rate \
              FROM ts_agg_tracking WHERE prefecture = ?1 \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -202,7 +211,8 @@ pub(crate) fn fetch_ts_tracking(turso: &TursoDb, pref: &str) -> Vec<Row> {
              AVG(churn_rate) as churn_rate \
              FROM ts_agg_tracking \
              GROUP BY snapshot_id, emp_group \
-             ORDER BY snapshot_id, emp_group".to_string(),
+             ORDER BY snapshot_id, emp_group"
+                .to_string(),
             vec![],
         )
     };

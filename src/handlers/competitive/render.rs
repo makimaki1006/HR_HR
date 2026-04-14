@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use axum::response::Html;
+use std::collections::HashMap;
 
-use crate::handlers::overview::format_number;
 use super::analysis::AnalysisData;
 use super::fetch::{CompStats, PostingRow, SalaryStats};
 use super::utils::{escape_html, truncate_str};
+use crate::handlers::overview::format_number;
 
 /// 同一施設の重複求人をグルーピング（施設名+職種+雇用形態+給与でdedup）
 fn dedup_postings(postings: &[PostingRow]) -> Vec<(PostingRow, usize)> {
@@ -12,8 +12,10 @@ fn dedup_postings(postings: &[PostingRow]) -> Vec<(PostingRow, usize)> {
     let mut result: Vec<(PostingRow, usize)> = Vec::new();
 
     for p in postings {
-        let key = format!("{}|{}|{}|{}|{}",
-            p.facility_name, p.job_type, p.employment_type, p.salary_min, p.salary_max);
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            p.facility_name, p.job_type, p.employment_type, p.salary_min, p.salary_max
+        );
         if let Some(&idx) = seen.get(&key) {
             result[idx].1 += 1;
         } else {
@@ -32,8 +34,16 @@ pub(crate) fn render_competitive(
     ftype_options: &[(String, i64)],
     stype_options: &[(String, i64)],
 ) -> String {
-    let pref_labels: Vec<String> = stats.pref_ranking.iter().map(|(p, _)| format!("\"{}\"", p)).collect();
-    let pref_values: Vec<String> = stats.pref_ranking.iter().map(|(_, v)| v.to_string()).collect();
+    let pref_labels: Vec<String> = stats
+        .pref_ranking
+        .iter()
+        .map(|(p, _)| format!("\"{}\"", p))
+        .collect();
+    let pref_values: Vec<String> = stats
+        .pref_ranking
+        .iter()
+        .map(|(_, v)| v.to_string())
+        .collect();
 
     let pref_rows: String = stats
         .pref_ranking
@@ -113,7 +123,11 @@ pub(crate) fn render_posting_table(
     let mut html = String::new();
 
     // 統計サマリー
-    let nearby_label = if nearby { format!("（半径{}km）", radius_km) } else { String::new() };
+    let nearby_label = if nearby {
+        format!("（半径{}km）", radius_km)
+    } else {
+        String::new()
+    };
     if stats.has_data {
         html.push_str(&format!(
             r#"<div class="stat-card mb-4">
@@ -180,8 +194,12 @@ pub(crate) fn render_posting_table(
     html.push_str(r#"<th class="text-right">給与上限</th>"#);
     html.push_str(r#"<th class="comp-col-extra" style="display:none">職種詳細</th>"#);
     html.push_str(r#"<th class="comp-col-extra" style="display:none">学歴</th>"#);
-    html.push_str(r#"<th class="comp-col-extra" style="display:none;min-width:180px">応募要件</th>"#);
-    html.push_str(r#"<th class="comp-col-extra" style="display:none;min-width:120px">必要経験</th>"#);
+    html.push_str(
+        r#"<th class="comp-col-extra" style="display:none;min-width:180px">応募要件</th>"#,
+    );
+    html.push_str(
+        r#"<th class="comp-col-extra" style="display:none;min-width:120px">必要経験</th>"#,
+    );
     html.push_str("<th>昇給・賞与</th>");
     html.push_str(r#"<th class="comp-col-extra" style="display:none">勤務時間</th>"#);
     html.push_str("<th>従業員数</th>");
@@ -201,27 +219,54 @@ pub(crate) fn render_posting_table(
     for (i, (p, dup_count)) in deduped.iter().enumerate() {
         let fname_raw = escape_html(&p.facility_name);
         let fname = if *dup_count > 1 {
-            format!("{} <span class='text-amber-400 text-[10px]'>({}件)</span>",
-                truncate_str(&fname_raw, 36), dup_count)
+            format!(
+                "{} <span class='text-amber-400 text-[10px]'>({}件)</span>",
+                truncate_str(&fname_raw, 36),
+                dup_count
+            )
         } else {
             truncate_str(&fname_raw, 40)
         };
         let area = format!("{} {}", p.prefecture, p.municipality);
         let sal_type = escape_html(&p.salary_type);
         let is_hourly = p.salary_type.contains("時給");
-        let sal_unit = if is_hourly { "<span class='text-slate-500 text-[10px]'>/時</span>" } else { "" };
-        let sal_min = if p.salary_min > 0 { format!("{}{}", format_number(p.salary_min), sal_unit) } else { "-".to_string() };
-        let sal_max = if p.salary_max > 0 { format!("{}{}", format_number(p.salary_max), sal_unit) } else { "-".to_string() };
+        let sal_unit = if is_hourly {
+            "<span class='text-slate-500 text-[10px]'>/時</span>"
+        } else {
+            ""
+        };
+        let sal_min = if p.salary_min > 0 {
+            format!("{}{}", format_number(p.salary_min), sal_unit)
+        } else {
+            "-".to_string()
+        };
+        let sal_max = if p.salary_max > 0 {
+            format!("{}{}", format_number(p.salary_max), sal_unit)
+        } else {
+            "-".to_string()
+        };
         let reqs = escape_html(&p.requirements);
-        let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
+        let holidays = if p.annual_holidays > 0 {
+            p.annual_holidays.to_string()
+        } else {
+            "-".to_string()
+        };
         let job_num = escape_html(&p.job_number);
         let hw_office = truncate_str(&escape_html(&p.hello_work_office), 15);
         let recruit_reason = truncate_str(&escape_html(&p.recruitment_reason), 20);
         let jt = truncate_str(&escape_html(&p.job_type), 20);
         let working_hrs = truncate_str(&escape_html(&p.working_hours), 30);
         let occ_detail = truncate_str(&escape_html(&p.occupation_detail), 30);
-        let education = if p.education_required.is_empty() { "-".to_string() } else { escape_html(&p.education_required) };
-        let exp_req = if p.experience_required.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.experience_required), 40) };
+        let education = if p.education_required.is_empty() {
+            "-".to_string()
+        } else {
+            escape_html(&p.education_required)
+        };
+        let exp_req = if p.experience_required.is_empty() {
+            "-".to_string()
+        } else {
+            truncate_str(&escape_html(&p.experience_required), 40)
+        };
 
         // 昇給・賞与を結合表示
         let raise_bonus = {
@@ -236,9 +281,17 @@ pub(crate) fn render_posting_table(
                     parts.push(format!("賞与:{}", p.bonus_amount));
                 }
             }
-            if parts.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&parts.join(" ")), 35) }
+            if parts.is_empty() {
+                "-".to_string()
+            } else {
+                truncate_str(&escape_html(&parts.join(" ")), 35)
+            }
         };
-        let emp_count = if p.employee_count > 0 { format!("{}人", p.employee_count) } else { "-".to_string() };
+        let emp_count = if p.employee_count > 0 {
+            format!("{}人", p.employee_count)
+        } else {
+            "-".to_string()
+        };
 
         let seg_label = if p.tier3_label_short.is_empty() {
             "-".to_string()
@@ -258,7 +311,10 @@ pub(crate) fn render_posting_table(
             hw_office, recruit_reason, seg_label,
         ));
         if show_distance {
-            let dist = p.distance_km.map(|d| format!("{:.1}km", d)).unwrap_or("-".to_string());
+            let dist = p
+                .distance_km
+                .map(|d| format!("{:.1}km", d))
+                .unwrap_or("-".to_string());
             html.push_str(&format!(r#"<td class="text-right">{}</td>"#, dist));
         }
         html.push_str("</tr>");
@@ -319,39 +375,87 @@ pub(crate) fn render_report_html(
     } else {
         format!("{} {}", pref, muni)
     };
-    let emp_label = if emp.is_empty() || emp == "全て" { String::new() } else { format!(" x {}", emp) };
+    let emp_label = if emp.is_empty() || emp == "全て" {
+        String::new()
+    } else {
+        format!(" x {}", emp)
+    };
 
     let show_distance = nearby && postings.iter().any(|p| p.distance_km.is_some());
 
     let mut table_rows = String::new();
     for (i, p) in postings.iter().enumerate() {
         let fname = truncate_str(&escape_html(&p.facility_name), 40);
-        let area = format!("{} {}", escape_html(&p.prefecture), escape_html(&p.municipality));
+        let area = format!(
+            "{} {}",
+            escape_html(&p.prefecture),
+            escape_html(&p.municipality)
+        );
         let sal_type = escape_html(&p.salary_type);
-        let sal_min = if p.salary_min > 0 { format_number(p.salary_min) } else { "-".to_string() };
-        let sal_max = if p.salary_max > 0 { format_number(p.salary_max) } else { "-".to_string() };
+        let sal_min = if p.salary_min > 0 {
+            format_number(p.salary_min)
+        } else {
+            "-".to_string()
+        };
+        let sal_max = if p.salary_max > 0 {
+            format_number(p.salary_max)
+        } else {
+            "-".to_string()
+        };
         let reqs = escape_html(&p.requirements);
-        let holidays = if p.annual_holidays > 0 { p.annual_holidays.to_string() } else { "-".to_string() };
+        let holidays = if p.annual_holidays > 0 {
+            p.annual_holidays.to_string()
+        } else {
+            "-".to_string()
+        };
         let dist_cell = if show_distance {
-            let d = p.distance_km.map(|d| format!("{:.1}km", d)).unwrap_or("-".to_string());
+            let d = p
+                .distance_km
+                .map(|d| format!("{:.1}km", d))
+                .unwrap_or("-".to_string());
             format!(r#"<td class="num">{}</td>"#, d)
         } else {
             String::new()
         };
 
-        let occ_detail = if p.occupation_detail.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.occupation_detail), 30) };
-        let education = if p.education_required.is_empty() { "-".to_string() } else { escape_html(&p.education_required) };
-        let exp_req = if p.experience_required.is_empty() { "-".to_string() } else { truncate_str(&escape_html(&p.experience_required), 40) };
+        let occ_detail = if p.occupation_detail.is_empty() {
+            "-".to_string()
+        } else {
+            truncate_str(&escape_html(&p.occupation_detail), 30)
+        };
+        let education = if p.education_required.is_empty() {
+            "-".to_string()
+        } else {
+            escape_html(&p.education_required)
+        };
+        let exp_req = if p.experience_required.is_empty() {
+            "-".to_string()
+        } else {
+            truncate_str(&escape_html(&p.experience_required), 40)
+        };
         let raise_bonus = {
             let mut parts = Vec::new();
-            if !p.raise_amount.is_empty() { parts.push(format!("昇給:{}", p.raise_amount)); }
-            if !p.bonus_amount.is_empty() {
-                if p.bonus_months > 0.0 { parts.push(format!("賞与:{}({}ヶ月)", p.bonus_amount, p.bonus_months)); }
-                else { parts.push(format!("賞与:{}", p.bonus_amount)); }
+            if !p.raise_amount.is_empty() {
+                parts.push(format!("昇給:{}", p.raise_amount));
             }
-            if parts.is_empty() { "-".to_string() } else { escape_html(&parts.join(" ")) }
+            if !p.bonus_amount.is_empty() {
+                if p.bonus_months > 0.0 {
+                    parts.push(format!("賞与:{}({}ヶ月)", p.bonus_amount, p.bonus_months));
+                } else {
+                    parts.push(format!("賞与:{}", p.bonus_amount));
+                }
+            }
+            if parts.is_empty() {
+                "-".to_string()
+            } else {
+                escape_html(&parts.join(" "))
+            }
         };
-        let emp_count = if p.employee_count > 0 { format!("{}人", p.employee_count) } else { "-".to_string() };
+        let emp_count = if p.employee_count > 0 {
+            format!("{}人", p.employee_count)
+        } else {
+            "-".to_string()
+        };
 
         let seg = if p.tier3_label_short.is_empty() {
             "-".to_string()
@@ -376,11 +480,16 @@ pub(crate) fn render_report_html(
             r#"<td>{}</td><td>{}</td><td>{}</td>{}</tr>"#,
             truncate_str(&escape_html(&p.hello_work_office), 15),
             truncate_str(&escape_html(&p.recruitment_reason), 20),
-            seg, dist_cell,
+            seg,
+            dist_cell,
         ));
     }
 
-    let distance_th = if show_distance { r#"<th>距離</th>"# } else { "" };
+    let distance_th = if show_distance {
+        r#"<th>距離</th>"#
+    } else {
+        ""
+    };
 
     let stats_html = if stats.has_data {
         format!(
@@ -394,10 +503,14 @@ pub(crate) fn render_report_html(
                 </tbody>
             </table>
             <p>件数: {} | 平均年間休日: {}</p>"#,
-            stats.salary_min_mode, stats.salary_max_mode,
-            stats.salary_min_median, stats.salary_max_median,
-            stats.salary_min_avg, stats.salary_max_avg,
-            stats.count, stats.avg_holidays,
+            stats.salary_min_mode,
+            stats.salary_max_mode,
+            stats.salary_min_median,
+            stats.salary_max_median,
+            stats.salary_min_avg,
+            stats.salary_max_avg,
+            stats.count,
+            stats.avg_holidays,
         )
     } else {
         String::new()
@@ -474,7 +587,11 @@ pub(crate) fn render_analysis_html(job_type: &str, data: &AnalysisData) -> Strin
     render_analysis_html_with_scope(job_type, "全国", data)
 }
 
-pub(crate) fn render_analysis_html_with_scope(job_type: &str, scope: &str, data: &AnalysisData) -> String {
+pub(crate) fn render_analysis_html_with_scope(
+    job_type: &str,
+    scope: &str,
+    data: &AnalysisData,
+) -> String {
     if data.total == 0 {
         return format!(
             r#"<p class="text-slate-400 text-sm">「{}」の求人データがありません</p>"#,
@@ -482,21 +599,29 @@ pub(crate) fn render_analysis_html_with_scope(job_type: &str, scope: &str, data:
         );
     }
 
-    let emp_chart_data: String = data.employment_dist.iter()
+    let emp_chart_data: String = data
+        .employment_dist
+        .iter()
         .map(|(name, cnt)| format!(r#"{{"value":{},"name":"{}"}}"#, cnt, escape_html(name)))
         .collect::<Vec<_>>()
         .join(",");
 
-    let sal_type_data: String = data.salary_type_dist.iter()
+    let sal_type_data: String = data
+        .salary_type_dist
+        .iter()
         .map(|(name, cnt)| format!(r#"{{"value":{},"name":"{}"}}"#, cnt, escape_html(name)))
         .collect::<Vec<_>>()
         .join(",");
 
-    let range_labels: String = data.salary_range_dist.iter()
+    let range_labels: String = data
+        .salary_range_dist
+        .iter()
         .map(|(label, _)| format!(r#""{}""#, label))
         .collect::<Vec<_>>()
         .join(",");
-    let range_values: String = data.salary_range_dist.iter()
+    let range_values: String = data
+        .salary_range_dist
+        .iter()
         .map(|(_, cnt)| cnt.to_string())
         .collect::<Vec<_>>()
         .join(",");
@@ -573,8 +698,16 @@ pub(crate) fn render_analysis_html_with_scope(job_type: &str, scope: &str, data:
 </div>"##,
         scope = escape_html(scope),
         total = format_number(data.total),
-        salary_avg_fmt = if data.salary_avg > 0 { format!("{}円", format_number(data.salary_avg)) } else { "-".to_string() },
-        salary_median_fmt = if data.salary_median > 0 { format!("{}円", format_number(data.salary_median)) } else { "-".to_string() },
+        salary_avg_fmt = if data.salary_avg > 0 {
+            format!("{}円", format_number(data.salary_avg))
+        } else {
+            "-".to_string()
+        },
+        salary_median_fmt = if data.salary_median > 0 {
+            format!("{}円", format_number(data.salary_median))
+        } else {
+            "-".to_string()
+        },
         holidays_avg = data.holidays_avg,
         holidays_with_data = format_number(data.holidays_with_data),
         emp_chart_data = emp_chart_data,

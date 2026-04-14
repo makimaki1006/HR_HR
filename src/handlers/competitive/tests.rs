@@ -1,6 +1,6 @@
 use super::analysis::calc_salary_stats;
 use super::fetch::PostingRow;
-use super::utils::{escape_html, truncate_str, value_to_i64, haversine};
+use super::utils::{escape_html, haversine, truncate_str, value_to_i64};
 use crate::handlers::overview::format_number;
 use serde_json::Value;
 
@@ -21,7 +21,11 @@ fn make_posting(salary_min: i64, salary_max: i64, bonus: &str, holidays: i64) ->
         job_number: String::new(),
         hello_work_office: String::new(),
         recruitment_reason: String::new(),
-        benefits: if bonus.is_empty() { String::new() } else { format!("賞与{}", bonus) },
+        benefits: if bonus.is_empty() {
+            String::new()
+        } else {
+            format!("賞与{}", bonus)
+        },
         working_hours: String::new(),
         experience_required: String::new(),
         occupation_detail: String::new(),
@@ -120,8 +124,10 @@ fn test_truncate_short_string() {
 // テスト34: escape_html: <script> → &lt;script&gt; (シングルクォートもエスケープ)
 #[test]
 fn test_escape_html_script() {
-    assert_eq!(escape_html("<script>alert('xss')</script>"),
-               "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;");
+    assert_eq!(
+        escape_html("<script>alert('xss')</script>"),
+        "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+    );
 }
 
 // テスト: escape_html シングルクォート
@@ -207,8 +213,11 @@ fn test_salary_mode_rounding_275000() {
         make_posting(300000, 350000, "", 0),
     ];
     let stats = calc_salary_stats(&postings);
-    assert!(stats.salary_min_mode.contains("280,000"),
-        "275000は1万円単位丸めで280,000になるべき: got {}", stats.salary_min_mode);
+    assert!(
+        stats.salary_min_mode.contains("280,000"),
+        "275000は1万円単位丸めで280,000になるべき: got {}",
+        stats.salary_min_mode
+    );
 }
 
 // テスト41: 丸め境界値 245000 → ((245000+5000)/10000)*10000 = 250000
@@ -220,8 +229,11 @@ fn test_salary_mode_rounding_245000() {
         make_posting(300000, 350000, "", 0),
     ];
     let stats = calc_salary_stats(&postings);
-    assert!(stats.salary_min_mode.contains("250,000"),
-        "245000は1万円単位丸めで250,000になるべき: got {}", stats.salary_min_mode);
+    assert!(
+        stats.salary_min_mode.contains("250,000"),
+        "245000は1万円単位丸めで250,000になるべき: got {}",
+        stats.salary_min_mode
+    );
 }
 
 // テスト42: 丸め境界値 255000 → ((255000+5000)/10000)*10000 = 260000
@@ -233,6 +245,9 @@ fn test_salary_mode_rounding_255000() {
         make_posting(300000, 350000, "", 0),
     ];
     let stats = calc_salary_stats(&postings);
-    assert!(stats.salary_min_mode.contains("260,000"),
-        "255000は1万円単位丸めで260,000になるべき: got {}", stats.salary_min_mode);
+    assert!(
+        stats.salary_min_mode.contains("260,000"),
+        "255000は1万円単位丸めで260,000になるべき: got {}",
+        stats.salary_min_mode
+    );
 }

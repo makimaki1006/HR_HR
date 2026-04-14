@@ -1,6 +1,6 @@
-use crate::handlers::overview::format_number;
 use super::fetch::{PostingRow, SalaryStats};
 use super::utils::value_to_i64;
+use crate::handlers::overview::format_number;
 
 // --- 分析データ型 ---
 
@@ -15,7 +15,10 @@ pub(crate) struct AnalysisData {
     pub(crate) holidays_with_data: i64,
 }
 
-pub(crate) fn fetch_analysis(db: &crate::db::local_sqlite::LocalDb, job_type: &str) -> AnalysisData {
+pub(crate) fn fetch_analysis(
+    db: &crate::db::local_sqlite::LocalDb,
+    job_type: &str,
+) -> AnalysisData {
     fetch_analysis_filtered(db, job_type, "", "", "", "")
 }
 
@@ -171,8 +174,9 @@ pub(crate) fn fetch_analysis_filtered(
         ),
         &params,
     ) {
-        let vals: Vec<i64> = rows.iter()
-            .filter_map(|r| r.get("salary_min").map(|v| value_to_i64(v)))
+        let vals: Vec<i64> = rows
+            .iter()
+            .filter_map(|r| r.get("salary_min").map(value_to_i64))
             .collect();
         if !vals.is_empty() {
             data.salary_avg = vals.iter().sum::<i64>() / vals.len() as i64;
@@ -201,24 +205,30 @@ pub(crate) fn calc_salary_stats(postings: &[PostingRow]) -> SalaryStats {
         };
     }
 
-    let min_vals: Vec<i64> = postings.iter()
+    let min_vals: Vec<i64> = postings
+        .iter()
         .filter(|p| p.salary_min >= 50000)
         .map(|p| p.salary_min)
         .collect();
-    let max_vals: Vec<i64> = postings.iter()
+    let max_vals: Vec<i64> = postings
+        .iter()
         .filter(|p| p.salary_max >= 50000)
         .map(|p| p.salary_max)
         .collect();
 
     // bonus_rateはbenefitsフィールドで近似（「賞与」を含むかどうか）
-    let bonus_count = postings.iter().filter(|p| p.benefits.contains("賞与")).count();
+    let bonus_count = postings
+        .iter()
+        .filter(|p| p.benefits.contains("賞与"))
+        .count();
     let bonus_rate = if !postings.is_empty() {
         format!("{:.0}%", bonus_count as f64 / postings.len() as f64 * 100.0)
     } else {
         "-".to_string()
     };
 
-    let holidays: Vec<i64> = postings.iter()
+    let holidays: Vec<i64> = postings
+        .iter()
         .filter(|p| p.annual_holidays >= 80 && p.annual_holidays <= 200)
         .map(|p| p.annual_holidays)
         .collect();
@@ -243,11 +253,13 @@ pub(crate) fn calc_salary_stats(postings: &[PostingRow]) -> SalaryStats {
 }
 
 pub(crate) fn calc_median_str(vals: &[i64]) -> String {
-    if vals.is_empty() { return "-".to_string(); }
+    if vals.is_empty() {
+        return "-".to_string();
+    }
     let mut sorted = vals.to_vec();
     sorted.sort();
     let mid = sorted.len() / 2;
-    let median = if sorted.len() % 2 == 0 {
+    let median = if sorted.len().is_multiple_of(2) {
         (sorted[mid - 1] + sorted[mid]) / 2
     } else {
         sorted[mid]
@@ -256,18 +268,26 @@ pub(crate) fn calc_median_str(vals: &[i64]) -> String {
 }
 
 pub(crate) fn calc_avg_str(vals: &[i64]) -> String {
-    if vals.is_empty() { return "-".to_string(); }
+    if vals.is_empty() {
+        return "-".to_string();
+    }
     let avg = vals.iter().sum::<i64>() / vals.len() as i64;
     format!("{}円", format_number(avg))
 }
 
 pub(crate) fn calc_mode_str(vals: &[i64]) -> String {
-    if vals.is_empty() { return "-".to_string(); }
+    if vals.is_empty() {
+        return "-".to_string();
+    }
     let mut freq: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
     for v in vals {
         let rounded = ((v + 5000) / 10000) * 10000;
         *freq.entry(rounded).or_insert(0) += 1;
     }
-    let mode = freq.into_iter().max_by_key(|(_, c)| *c).map(|(v, _)| v).unwrap_or(0);
+    let mode = freq
+        .into_iter()
+        .max_by_key(|(_, c)| *c)
+        .map(|(v, _)| v)
+        .unwrap_or(0);
     format!("{}円", format_number(mode))
 }

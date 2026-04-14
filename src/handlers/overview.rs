@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::auth::{
-    SESSION_JOB_TYPE_KEY, SESSION_JOB_TYPES_KEY, SESSION_INDUSTRY_RAWS_KEY,
+    SESSION_INDUSTRY_RAWS_KEY, SESSION_JOB_TYPES_KEY, SESSION_JOB_TYPE_KEY,
     SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY,
 };
 use crate::AppState;
@@ -35,8 +35,12 @@ impl SessionFilters {
 
         // 全名前リストを構築（大分類優先）
         let mut all_names: Vec<&str> = Vec::with_capacity(total);
-        for jt in &self.job_types { all_names.push(jt.as_str()); }
-        for ir in &self.industry_raws { all_names.push(ir.as_str()); }
+        for jt in &self.job_types {
+            all_names.push(jt.as_str());
+        }
+        for ir in &self.industry_raws {
+            all_names.push(ir.as_str());
+        }
 
         if total <= 2 {
             all_names.join(", ")
@@ -48,8 +52,12 @@ impl SessionFilters {
     /// ツールチップ用の全名前リスト
     pub fn industry_label_full(&self) -> String {
         let mut all_names: Vec<&str> = Vec::new();
-        for jt in &self.job_types { all_names.push(jt.as_str()); }
-        for ir in &self.industry_raws { all_names.push(ir.as_str()); }
+        for jt in &self.job_types {
+            all_names.push(jt.as_str());
+        }
+        for ir in &self.industry_raws {
+            all_names.push(ir.as_str());
+        }
         if all_names.is_empty() {
             "全産業".to_string()
         } else {
@@ -66,7 +74,9 @@ impl SessionFilters {
             key.push_str(&format!("jt:{}", sorted.join("+")));
         }
         if !self.industry_raws.is_empty() {
-            if !key.is_empty() { key.push('|'); }
+            if !key.is_empty() {
+                key.push('|');
+            }
             let mut sorted = self.industry_raws.clone();
             sorted.sort();
             key.push_str(&format!("ir:{}", sorted.join("+")));
@@ -76,7 +86,11 @@ impl SessionFilters {
 
     /// 「未分類」を除いた実質的な大分類リスト
     fn real_job_types(&self) -> Vec<String> {
-        self.job_types.iter().filter(|jt| *jt != "未分類").cloned().collect()
+        self.job_types
+            .iter()
+            .filter(|jt| *jt != "未分類")
+            .cloned()
+            .collect()
     }
 
     /// 「未分類」が選択されているか
@@ -102,12 +116,25 @@ impl SessionFilters {
         let mut params: Vec<String> = Vec::new();
 
         if has_jt {
-            let ph: Vec<String> = real_jt.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            let ph: Vec<String> = real_jt
+                .iter()
+                .map(|_| {
+                    idx += 1;
+                    format!("?{}", idx)
+                })
+                .collect();
             parts.push(format!("job_type IN ({})", ph.join(",")));
             params.extend(real_jt);
         }
         if has_ir {
-            let ph: Vec<String> = self.industry_raws.iter().map(|_| { idx += 1; format!("?{}", idx) }).collect();
+            let ph: Vec<String> = self
+                .industry_raws
+                .iter()
+                .map(|_| {
+                    idx += 1;
+                    format!("?{}", idx)
+                })
+                .collect();
             parts.push(format!("industry_raw IN ({})", ph.join(",")));
             params.extend(self.industry_raws.iter().cloned());
         }
@@ -167,12 +194,30 @@ pub async fn get_session_filters(session: &Session) -> SessionFilters {
                 parsed
             } else {
                 // 旧キーからフォールバック
-                let old: String = session.get(SESSION_JOB_TYPE_KEY).await.ok().flatten().unwrap_or_default();
-                if old.is_empty() { Vec::new() } else { vec![old] }
+                let old: String = session
+                    .get(SESSION_JOB_TYPE_KEY)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                if old.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![old]
+                }
             }
         } else {
-            let old: String = session.get(SESSION_JOB_TYPE_KEY).await.ok().flatten().unwrap_or_default();
-            if old.is_empty() { Vec::new() } else { vec![old] }
+            let old: String = session
+                .get(SESSION_JOB_TYPE_KEY)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if old.is_empty() {
+                Vec::new()
+            } else {
+                vec![old]
+            }
         }
     };
 
@@ -194,16 +239,18 @@ pub async fn get_session_filters(session: &Session) -> SessionFilters {
         .flatten()
         .unwrap_or_default();
 
-    SessionFilters { job_types, industry_raws, prefecture, municipality }
+    SessionFilters {
+        job_types,
+        industry_raws,
+        prefecture,
+        municipality,
+    }
 }
 
 /// SQLのWHERE句とパラメータインデックスを構築するヘルパー（hw_db用）
 /// SessionFiltersの産業フィルタ+地域フィルタを構築
 /// 戻り値: (WHERE句文字列, パラメータ値のVec)
-pub fn build_filter_clause(
-    filters: &SessionFilters,
-    base_index: usize,
-) -> (String, Vec<String>) {
+pub fn build_filter_clause(filters: &SessionFilters, base_index: usize) -> (String, Vec<String>) {
     let mut clause = String::new();
     let mut params = Vec::new();
 
@@ -249,10 +296,7 @@ pub fn build_hw_location_filter(
 }
 
 /// タブ1: 地域概況 - HTMXパーシャルHTML
-pub async fn tab_overview(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_overview(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
@@ -262,8 +306,12 @@ pub async fn tab_overview(
         }
     };
 
-    let cache_key = format!("overview_{}_{}_{}",
-        filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "overview_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -272,23 +320,29 @@ pub async fn tab_overview(
 
     let db = db.clone();
     let filters_clone = filters.clone();
-    let stats = tokio::task::spawn_blocking(move || {
-        fetch_overview_stats(&db, &filters_clone)
-    }).await.unwrap_or_default();
+    let stats = tokio::task::spawn_blocking(move || fetch_overview_stats(&db, &filters_clone))
+        .await
+        .unwrap_or_default();
 
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
 
-    let mut html = render_overview(&industry_label, &stats, &location_label, &filters.prefecture);
+    let mut html = render_overview(
+        &industry_label,
+        &stats,
+        &location_label,
+        &filters.prefecture,
+    );
 
     // 外部統計データ（人口コンテキスト）
     if let Some(turso) = &state.turso_db {
         let turso = turso.clone();
         let pref = filters.prefecture.clone();
         let muni = filters.municipality.clone();
-        let ext_section = tokio::task::spawn_blocking(move || {
-            build_population_context(&turso, &pref, &muni)
-        }).await.unwrap_or_default();
+        let ext_section =
+            tokio::task::spawn_blocking(move || build_population_context(&turso, &pref, &muni))
+                .await
+                .unwrap_or_default();
         if !ext_section.is_empty() {
             html.push_str(&ext_section);
         }
@@ -334,7 +388,12 @@ pub(crate) fn build_overview_html(
     let stats = fetch_overview_stats(db, filters);
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
-    render_overview(&industry_label, &stats, &location_label, &filters.prefecture)
+    render_overview(
+        &industry_label,
+        &stats,
+        &location_label,
+        &filters.prefecture,
+    )
 }
 
 /// 市場概況タブ用: 人口コンテキストセクションHTML生成
@@ -404,8 +463,10 @@ fn fetch_overview_stats(
     let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     // bind_refs を一度だけ構築して全クエリで再利用
-    let bind_refs: Vec<&dyn rusqlite::types::ToSql> =
-        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let bind_refs: Vec<&dyn rusqlite::types::ToSql> = filter_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
     // 1. 集約統計 + 雇用形態分布 + 求人理由分布を1回のクエリで取得
     //    旧クエリ1(総数/事業所数/平均給与/正社員数) + 旧クエリ4(雇用形態) + 旧クエリ6(求人理由)を統合
@@ -557,8 +618,10 @@ fn fetch_overview_stats(
              SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt \
              FROM postings WHERE 1=1{jt_filter}"
         );
-        let nat_refs: Vec<&dyn rusqlite::types::ToSql> =
-            jt_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let nat_refs: Vec<&dyn rusqlite::types::ToSql> = jt_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
         if let Ok(rows) = db.query(&sql, &nat_refs) {
             if let Some(row) = rows.first() {
                 stats.national_total = get_i64(row, "cnt");
@@ -698,20 +761,12 @@ fn render_overview(
     let comparison_section = build_comparison_section(stats, prefecture, location_label);
 
     // 産業別横棒グラフ
-    let industry_chart = build_horizontal_bar_chart(
-        &stats.industry_dist,
-        "産業別求人数",
-        "#3B82F6",
-        400,
-    );
+    let industry_chart =
+        build_horizontal_bar_chart(&stats.industry_dist, "産業別求人数", "#3B82F6", 400);
 
     // 職業大分類横棒グラフ
-    let occupation_chart = build_horizontal_bar_chart(
-        &stats.occupation_dist,
-        "職業大分類別求人数",
-        "#8B5CF6",
-        400,
-    );
+    let occupation_chart =
+        build_horizontal_bar_chart(&stats.occupation_dist, "職業大分類別求人数", "#8B5CF6", 400);
 
     // 雇用形態ドーナツ
     let emp_colors = |e: &str| -> &str {
@@ -743,7 +798,11 @@ fn render_overview(
         .iter()
         .map(|(l, _)| format!("\"{}\"", l))
         .collect();
-    let salary_values: Vec<String> = stats.salary_ranges.iter().map(|(_, v)| v.to_string()).collect();
+    let salary_values: Vec<String> = stats
+        .salary_ranges
+        .iter()
+        .map(|(_, v)| v.to_string())
+        .collect();
 
     // 求人理由ドーナツ
     let reason_pie_data: Vec<String> = stats
@@ -756,21 +815,29 @@ fn render_overview(
     // アクセシビリティ: 雇用形態パイチャートのaria-label生成
     let emp_aria_label = {
         let total: i64 = stats.employment_dist.iter().map(|(_, v)| *v).sum();
-        let top3: Vec<String> = stats.employment_dist.iter().take(3).map(|(name, val)| {
-            if total > 0 {
-                format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
-            } else {
-                format!("{} {}件", name, val)
-            }
-        }).collect();
+        let top3: Vec<String> = stats
+            .employment_dist
+            .iter()
+            .take(3)
+            .map(|(name, val)| {
+                if total > 0 {
+                    format!("{} {:.1}%", name, *val as f64 / total as f64 * 100.0)
+                } else {
+                    format!("{} {}件", name, val)
+                }
+            })
+            .collect();
         format!("雇用形態分布: {}", top3.join("、"))
     };
 
     // アクセシビリティ: 給与帯バーチャートのaria-label生成
     let salary_aria_label = {
-        let top3: Vec<String> = stats.salary_ranges.iter().take(3).map(|(label, val)| {
-            format!("{} {}件", label, val)
-        }).collect();
+        let top3: Vec<String> = stats
+            .salary_ranges
+            .iter()
+            .take(3)
+            .map(|(label, val)| format!("{} {}件", label, val))
+            .collect();
         if top3.is_empty() {
             "給与帯分布（月給下限ベース）".to_string()
         } else {
@@ -780,9 +847,12 @@ fn render_overview(
 
     // アクセシビリティ: 求人理由パイチャートのaria-label生成
     let reason_aria_label = {
-        let top3: Vec<String> = stats.recruitment_reasons.iter().take(3).map(|(r, v)| {
-            format!("{} {}件", r, v)
-        }).collect();
+        let top3: Vec<String> = stats
+            .recruitment_reasons
+            .iter()
+            .take(3)
+            .map(|(r, v)| format!("{} {}件", r, v))
+            .collect();
         if top3.is_empty() {
             "求人理由分布".to_string()
         } else {
@@ -929,12 +999,18 @@ fn build_horizontal_bar_chart(
     }
 
     // アクセシビリティ: 上位3項目をaria-labelに含める
-    let aria_summary: Vec<String> = data.iter().take(3).map(|(l, v)| {
-        format!("{} {}件", l, format_number(*v))
-    }).collect();
+    let aria_summary: Vec<String> = data
+        .iter()
+        .take(3)
+        .map(|(l, v)| format!("{} {}件", l, format_number(*v)))
+        .collect();
     let aria_label = format!("{}: {}", title, aria_summary.join("、"));
 
-    let labels: Vec<String> = data.iter().rev().map(|(l, _)| format!("\"{}\"", l)).collect();
+    let labels: Vec<String> = data
+        .iter()
+        .rev()
+        .map(|(l, _)| format!("\"{}\"", l))
+        .collect();
     let values: Vec<String> = data.iter().rev().map(|(_, v)| v.to_string()).collect();
 
     format!(
@@ -959,7 +1035,9 @@ fn build_horizontal_bar_chart(
 }
 
 // ヘルパー関数はhelpers.rsに統一、後方互換のため再エクスポート
-pub use super::helpers::{cross_nav, escape_html, format_number, get_str, get_i64, get_f64, get_str_html};
+pub use super::helpers::{
+    cross_nav, escape_html, format_number, get_f64, get_i64, get_str, get_str_html,
+};
 
 /// 外部統計データ: 人口コンテキストセクション
 fn build_population_context(
@@ -967,7 +1045,9 @@ fn build_population_context(
     pref: &str,
     muni: &str,
 ) -> String {
-    if pref.is_empty() { return String::new(); }
+    if pref.is_empty() {
+        return String::new();
+    }
 
     // 人口データ取得
     let effective_pref = pref;
@@ -983,8 +1063,10 @@ fn build_population_context(
         vec![effective_pref.to_string()]
     };
 
-    let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-        params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+    let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> = params
+        .iter()
+        .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
+        .collect();
     let rows = match turso.query(pop_sql, &p) {
         Ok(r) if !r.is_empty() => r,
         _ => return String::new(),
@@ -993,12 +1075,18 @@ fn build_population_context(
     let row = &rows[0];
     let total_pop = get_f64(row, "total_population");
     let daytime_pop = get_f64(row, "daytime_population");
-    if total_pop < 1.0 { return String::new(); }
+    if total_pop < 1.0 {
+        return String::new();
+    }
 
     let daytime_ratio = daytime_pop / total_pop;
-    let pop_type = if daytime_ratio > 1.05 { "都市型（通勤流入）" }
-        else if daytime_ratio < 0.95 { "ベッドタウン型（通勤流出）" }
-        else { "均衡型" };
+    let pop_type = if daytime_ratio > 1.05 {
+        "都市型（通勤流入）"
+    } else if daytime_ratio < 0.95 {
+        "ベッドタウン型（通勤流出）"
+    } else {
+        "均衡型"
+    };
 
     format!(
         r#"<div class="stat-card mt-4">
@@ -1133,7 +1221,10 @@ mod tests {
             municipality: "新宿区".to_string(),
         };
         let (clause, params) = build_filter_clause(&filters, 0);
-        assert_eq!(clause, " AND (job_type IN (?1)) AND prefecture = ?2 AND municipality = ?3");
+        assert_eq!(
+            clause,
+            " AND (job_type IN (?1)) AND prefecture = ?2 AND municipality = ?3"
+        );
         assert_eq!(params, vec!["建設業", "東京都", "新宿区"]);
     }
 
@@ -1147,7 +1238,10 @@ mod tests {
             municipality: String::new(),
         };
         let (clause, params) = build_filter_clause(&filters, 0);
-        assert_eq!(clause, " AND (job_type IN (?1) OR industry_raw IN (?2,?3)) AND prefecture = ?4");
+        assert_eq!(
+            clause,
+            " AND (job_type IN (?1) OR industry_raw IN (?2,?3)) AND prefecture = ?4"
+        );
         assert_eq!(params, vec!["建設業", "病院", "ソフトウェア業", "東京都"]);
 
         // industry_rawsのみの場合
@@ -1196,7 +1290,10 @@ mod tests {
             municipality: String::new(),
         };
         let (clause2, params2) = build_filter_clause(&filters2, 0);
-        assert_eq!(clause2, " AND (job_type IN (?1) OR (industry_raw IS NULL OR industry_raw = ''))");
+        assert_eq!(
+            clause2,
+            " AND (job_type IN (?1) OR (industry_raw IS NULL OR industry_raw = ''))"
+        );
         assert_eq!(params2, vec!["建設業"]);
     }
 }

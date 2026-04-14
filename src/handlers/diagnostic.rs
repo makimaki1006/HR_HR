@@ -10,9 +10,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
+use super::helpers::{format_number, get_f64, table_exists};
 use super::overview::{get_session_filters, make_location_label, render_no_db_data};
-use super::helpers::{get_f64, format_number, table_exists};
+use crate::AppState;
 
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
@@ -24,25 +24,24 @@ fn get_str<'a>(row: &'a Row, key: &str) -> &'a str {
 /// クエリパラメータ: 条件入力
 #[derive(Debug, Deserialize)]
 pub struct DiagnosticQuery {
-    pub salary: Option<i64>,        // 月給（円）
-    pub holidays: Option<i64>,      // 年間休日
-    pub bonus: Option<f64>,         // 賞与月数
-    pub emp_type: Option<String>,   // 正社員/パート
-    pub industry: Option<String>,   // 産業（任意）
+    pub salary: Option<i64>,      // 月給（円）
+    pub holidays: Option<i64>,    // 年間休日
+    pub bonus: Option<f64>,       // 賞与月数
+    pub emp_type: Option<String>, // 正社員/パート
+    pub industry: Option<String>, // 産業（任意）
 }
 
 /// HTMXパーシャル: 市場診断フォーム（初期表示）
-pub async fn tab_diagnostic(
-    State(_state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_diagnostic(State(_state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
     let location = make_location_label(&filters.prefecture, &filters.municipality);
 
     let mut html = String::with_capacity(8_000);
-    html.push_str("<div class=\"space-y-6\">\
+    html.push_str(
+        "<div class=\"space-y-6\">\
         <h2 class=\"text-xl font-bold text-white\">市場診断ツール \
-            <span class=\"text-blue-400 text-base font-normal\">");
+            <span class=\"text-blue-400 text-base font-normal\">",
+    );
     html.push_str(&location);
     html.push_str("</span></h2>\
         <p class=\"text-xs text-slate-500\">求人条件を入力すると、市場内でのポジションを診断します</p>\
@@ -119,10 +118,14 @@ pub async fn evaluate_diagnostic(
         let salary_pct = compute_salary_percentile(&db, &pref2, &muni2, &emp2, salary);
         let holidays_pct = if holidays > 0 {
             compute_holidays_percentile(&db, &pref2, &muni2, &emp2, holidays)
-        } else { None };
+        } else {
+            None
+        };
         let bonus_pct = if bonus > 0.0 {
             compute_bonus_percentile(&db, &pref2, &muni2, &emp2, bonus)
-        } else { None };
+        } else {
+            None
+        };
 
         let benchmark = fetch_benchmark_for_diagnostic(&db, &pref2, &muni2, &emp2);
         let comp_pkg = fetch_compensation_for_diagnostic(&db, &pref2, &muni2, &emp2);
@@ -132,16 +135,43 @@ pub async fn evaluate_diagnostic(
         // 通勤圏データ
         let commute_inflow_total: i64 = if !muni2.is_empty() {
             super::analysis::fetch::fetch_commute_inflow(&db, &pref2, &muni2)
-                .iter().map(|f| f.total_commuters).sum()
-        } else { 0 };
+                .iter()
+                .map(|f| f.total_commuters)
+                .sum()
+        } else {
+            0
+        };
         let spatial = if !muni2.is_empty() {
             super::analysis::fetch::fetch_spatial_mismatch(&db, &pref2, &muni2)
-        } else { vec![] };
+        } else {
+            vec![]
+        };
 
-        (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment, commute_inflow_total, spatial)
-    }).await;
+        (
+            salary_pct,
+            holidays_pct,
+            bonus_pct,
+            benchmark,
+            comp_pkg,
+            shadow,
+            fulfillment,
+            commute_inflow_total,
+            spatial,
+        )
+    })
+    .await;
 
-    let (salary_pct, holidays_pct, bonus_pct, benchmark, comp_pkg, shadow, fulfillment, commute_inflow_total, spatial) = match db_data {
+    let (
+        salary_pct,
+        holidays_pct,
+        bonus_pct,
+        benchmark,
+        comp_pkg,
+        shadow,
+        fulfillment,
+        commute_inflow_total,
+        spatial,
+    ) = match db_data {
         Ok(data) => data,
         Err(_) => return Html(render_no_db_data("市場診断")),
     };
@@ -149,9 +179,8 @@ pub async fn evaluate_diagnostic(
     let mut html = String::with_capacity(32_000);
 
     // 3. 総合評価（加重平均: 給与50%, 休日30%, 賞与20%）
-    let (overall_pct, overall_grade, grade_color) = compute_composite_grade(
-        salary_pct, holidays_pct, bonus_pct
-    );
+    let (overall_pct, overall_grade, grade_color) =
+        compute_composite_grade(salary_pct, holidays_pct, bonus_pct);
 
     // ========================================
     // ヘッダー + 総合グレード
@@ -182,7 +211,11 @@ pub async fn evaluate_diagnostic(
     // ECharts レーダーチャート（6軸）
     // ========================================
     html.push_str(&render_radar_chart(
-        salary_pct, holidays_pct, bonus_pct, &benchmark, &comp_pkg,
+        salary_pct,
+        holidays_pct,
+        bonus_pct,
+        &benchmark,
+        &comp_pkg,
     ));
 
     // ========================================
@@ -191,19 +224,25 @@ pub async fn evaluate_diagnostic(
     html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-3">"#);
 
     html.push_str(&render_percentile_bar(
-        "月給", &format!("{}円", format_number(salary)),
-        salary_pct, "#3B82F6",
+        "月給",
+        &format!("{}円", format_number(salary)),
+        salary_pct,
+        "#3B82F6",
     ));
     if let Some(hp) = holidays_pct {
         html.push_str(&render_percentile_bar(
-            "年間休日", &format!("{}日", holidays),
-            Some(hp), "#10B981",
+            "年間休日",
+            &format!("{}日", holidays),
+            Some(hp),
+            "#10B981",
         ));
     }
     if let Some(bp) = bonus_pct {
         html.push_str(&render_percentile_bar(
-            "賞与", &format!("{:.1}ヶ月", bonus),
-            Some(bp), "#8B5CF6",
+            "賞与",
+            &format!("{:.1}ヶ月", bonus),
+            Some(bp),
+            "#8B5CF6",
         ));
     }
 
@@ -220,9 +259,13 @@ pub async fn evaluate_diagnostic(
     // 充足困難度
     // ========================================
     if let Some((avg_score, grade_label)) = fulfillment {
-        let fc = if avg_score >= 75.0 { "#EF4444" }
-            else if avg_score >= 50.0 { "#F59E0B" }
-            else { "#10B981" };
+        let fc = if avg_score >= 75.0 {
+            "#EF4444"
+        } else if avg_score >= 50.0 {
+            "#F59E0B"
+        } else {
+            "#10B981"
+        };
         html.push_str(&format!(
             r#"<div class="stat-card">
                 <div class="flex items-center justify-between">
@@ -240,8 +283,15 @@ pub async fn evaluate_diagnostic(
     // 具体的改善提案（数値付き）
     // ========================================
     html.push_str(&render_actionable_suggestions(
-        salary, holidays, bonus, salary_pct, holidays_pct, bonus_pct,
-        &shadow, overall_grade, &pref,
+        salary,
+        holidays,
+        bonus,
+        salary_pct,
+        holidays_pct,
+        bonus_pct,
+        &shadow,
+        overall_grade,
+        &pref,
     ));
 
     // ========================================
@@ -269,7 +319,8 @@ pub async fn evaluate_diagnostic(
                     <div class="text-[10px] text-slate-500">30km圏内の競合求人数</div>
                     <div class="text-[10px] text-slate-600">孤立スコア: {:.2}</div>
                 </div>"#,
-                format_number(acc30), iso
+                format_number(acc30),
+                iso
             ));
         }
         html.push_str("</div></div>");
@@ -284,13 +335,19 @@ pub async fn evaluate_diagnostic(
         // shadow_wageからp50/p75を取得
         let (p50, p75): (i64, i64) = if let Some(s) = shadow.first() {
             (get_f64(s, "p50") as i64, get_f64(s, "p75") as i64)
-        } else { (0, 0) };
+        } else {
+            (0, 0)
+        };
         let current_pct = salary_pct.unwrap_or(0.0);
 
         // シナリオ1: 給与改善（p50またはp75到達）
-        let target_salary = if current_pct < 50.0 && p50 > salary { p50 }
-            else if current_pct < 75.0 && p75 > salary { p75 }
-            else { 0 };
+        let target_salary = if current_pct < 50.0 && p50 > salary {
+            p50
+        } else if current_pct < 75.0 && p75 > salary {
+            p75
+        } else {
+            0
+        };
 
         // シナリオ推定期間計算ヘルパー
         let has_scenarios = target_salary > 0 || holidays == 0;
@@ -298,48 +355,70 @@ pub async fn evaluate_diagnostic(
         if has_scenarios {
             html.push_str(r#"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-3">シナリオ比較</h4>"#);
             html.push_str(r#"<div class="overflow-x-auto"><table class="w-full text-xs">"#);
-            html.push_str(r#"<thead><tr class="text-slate-500 border-b border-slate-700">
+            html.push_str(
+                r#"<thead><tr class="text-slate-500 border-b border-slate-700">
                 <th class="text-left py-2 px-2">指標</th>
-                <th class="text-center py-2 px-2">現状</th>"#);
+                <th class="text-center py-2 px-2">現状</th>"#,
+            );
 
             // シナリオヘッダー
             if target_salary > 0 {
                 let diff = target_salary - salary;
-                html.push_str(&format!(r#"<th class="text-center py-2 px-2 text-blue-400">月給+{}円</th>"#, format_number(diff)));
+                html.push_str(&format!(
+                    r#"<th class="text-center py-2 px-2 text-blue-400">月給+{}円</th>"#,
+                    format_number(diff)
+                ));
             }
             if holidays == 0 {
-                html.push_str(r#"<th class="text-center py-2 px-2 text-emerald-400">休日120日明記</th>"#);
+                html.push_str(
+                    r#"<th class="text-center py-2 px-2 text-emerald-400">休日120日明記</th>"#,
+                );
             }
             if commute_inflow_total > 0 {
-                html.push_str(r#"<th class="text-center py-2 px-2 text-amber-400">エリア拡大</th>"#);
+                html.push_str(
+                    r#"<th class="text-center py-2 px-2 text-amber-400">エリア拡大</th>"#,
+                );
             }
             html.push_str("</tr></thead><tbody>");
 
             // グレード行
-            html.push_str(&format!(r#"<tr class="border-b border-slate-800">
+            html.push_str(&format!(
+                r#"<tr class="border-b border-slate-800">
                 <td class="py-2 px-2 text-slate-400">グレード</td>
-                <td class="text-center py-2 px-2 text-white font-bold">{overall_grade}</td>"#));
+                <td class="text-center py-2 px-2 text-white font-bold">{overall_grade}</td>"#
+            ));
             if target_salary > 0 {
                 let target_label = if target_salary >= p75 { "A〜B" } else { "B" };
                 html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-blue-400 font-bold">{target_label}</td>"#));
             }
             if holidays == 0 {
-                html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-emerald-400">{overall_grade}+</td>"#));
+                html.push_str(&format!(
+                    r#"<td class="text-center py-2 px-2 text-emerald-400">{overall_grade}+</td>"#
+                ));
             }
             if commute_inflow_total > 0 {
-                html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-slate-400">{overall_grade}</td>"#));
+                html.push_str(&format!(
+                    r#"<td class="text-center py-2 px-2 text-slate-400">{overall_grade}</td>"#
+                ));
             }
             html.push_str("</tr>");
 
             // 年間コスト行（給与改善時のみ）
             if target_salary > 0 {
                 let annual_cost = (target_salary - salary) * 12;
-                html.push_str(&format!(r#"<tr class="border-b border-slate-800">
+                html.push_str(&format!(
+                    r#"<tr class="border-b border-slate-800">
                     <td class="py-2 px-2 text-slate-400">年間コスト増</td>
                     <td class="text-center py-2 px-2 text-slate-500">-</td>
-                    <td class="text-center py-2 px-2 text-red-400">+{}円/人</td>"#, format_number(annual_cost)));
-                if holidays == 0 { html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#); }
-                if commute_inflow_total > 0 { html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#); }
+                    <td class="text-center py-2 px-2 text-red-400">+{}円/人</td>"#,
+                    format_number(annual_cost)
+                ));
+                if holidays == 0 {
+                    html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#);
+                }
+                if commute_inflow_total > 0 {
+                    html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#);
+                }
                 html.push_str("</tr>");
             }
 
@@ -352,13 +431,17 @@ pub async fn evaluate_diagnostic(
     // ========================================
     {
         let industry = q.industry.as_deref().unwrap_or("");
-        let is_low_hw = industry.contains("情報") || industry.contains("IT")
-            || industry.contains("ソフト") || industry.contains("インターネット")
+        let is_low_hw = industry.contains("情報")
+            || industry.contains("IT")
+            || industry.contains("ソフト")
+            || industry.contains("インターネット")
             || industry.contains("通信");
 
-        html.push_str(r#"<div class="stat-card border-l-4 border-slate-600 mt-4">
+        html.push_str(
+            r#"<div class="stat-card border-l-4 border-slate-600 mt-4">
             <h4 class="text-sm text-slate-400 mb-2">データソースと注意事項</h4>
-            <ul class="text-xs text-slate-500 space-y-1 list-disc list-inside">"#);
+            <ul class="text-xs text-slate-500 space-y-1 list-disc list-inside">"#,
+        );
         html.push_str(r#"<li>ハローワーク掲載求人ベースの分析です</li>"#);
         if is_low_hw {
             html.push_str(r#"<li class="text-amber-400">選択された産業はHW掲載が少なく、実際の市場とは乖離がある可能性があります</li>"#);
@@ -400,13 +483,23 @@ fn compute_composite_grade(
         total_weight += 0.20;
     }
 
-    let overall = if total_weight > 0.0 { weighted_sum / total_weight } else { 50.0 };
+    let overall = if total_weight > 0.0 {
+        weighted_sum / total_weight
+    } else {
+        50.0
+    };
 
-    let (grade, color) = if overall >= 85.0 { ("S", "#FFD700") }
-        else if overall >= 70.0 { ("A", "#10B981") }
-        else if overall >= 50.0 { ("B", "#3B82F6") }
-        else if overall >= 30.0 { ("C", "#F59E0B") }
-        else { ("D", "#EF4444") };
+    let (grade, color) = if overall >= 85.0 {
+        ("S", "#FFD700")
+    } else if overall >= 70.0 {
+        ("A", "#10B981")
+    } else if overall >= 50.0 {
+        ("B", "#3B82F6")
+    } else if overall >= 30.0 {
+        ("C", "#F59E0B")
+    } else {
+        ("D", "#EF4444")
+    };
 
     (overall, grade, color)
 }
@@ -426,20 +519,32 @@ fn render_radar_chart(
     let v_bonus = bonus_pct.unwrap_or(50.0);
 
     // ベンチマークデータがあれば活用、なければ50.0
-    let v_transparency = benchmark.as_ref()
-        .map(|r| get_f64(r, "info_transparency")).unwrap_or(50.0);
-    let v_text_temp = benchmark.as_ref()
-        .map(|r| get_f64(r, "text_urgency")).unwrap_or(50.0);
-    let v_retention = benchmark.as_ref()
-        .map(|r| get_f64(r, "posting_freshness")).unwrap_or(50.0);
+    let v_transparency = benchmark
+        .as_ref()
+        .map(|r| get_f64(r, "info_transparency"))
+        .unwrap_or(50.0);
+    let v_text_temp = benchmark
+        .as_ref()
+        .map(|r| get_f64(r, "text_urgency"))
+        .unwrap_or(50.0);
+    let v_retention = benchmark
+        .as_ref()
+        .map(|r| get_f64(r, "posting_freshness"))
+        .unwrap_or(50.0);
 
     // 地域平均のコンパレータ
-    let avg_salary = comp_pkg.as_ref()
-        .map(|r| get_f64(r, "salary_pctile")).unwrap_or(50.0);
-    let avg_holidays = comp_pkg.as_ref()
-        .map(|r| get_f64(r, "holidays_pctile")).unwrap_or(50.0);
-    let avg_bonus = comp_pkg.as_ref()
-        .map(|r| get_f64(r, "bonus_pctile")).unwrap_or(50.0);
+    let avg_salary = comp_pkg
+        .as_ref()
+        .map(|r| get_f64(r, "salary_pctile"))
+        .unwrap_or(50.0);
+    let avg_holidays = comp_pkg
+        .as_ref()
+        .map(|r| get_f64(r, "holidays_pctile"))
+        .unwrap_or(50.0);
+    let avg_bonus = comp_pkg
+        .as_ref()
+        .map(|r| get_f64(r, "bonus_pctile"))
+        .unwrap_or(50.0);
 
     let mut html = String::with_capacity(4_000);
     html.push_str(r#"<div class="stat-card">"#);
@@ -503,7 +608,9 @@ fn render_industry_comparison(salary: i64, shadow: &[Row]) -> String {
     let mut html = String::with_capacity(3_000);
     html.push_str(r#"<div class="stat-card">"#);
     html.push_str(r#"<h4 class="text-sm text-slate-400 mb-2">📊 給与分布における位置</h4>"#);
-    html.push_str(r#"<p class="text-xs text-slate-500 mb-3">地域の給与分布（月給）と入力値の比較</p>"#);
+    html.push_str(
+        r#"<p class="text-xs text-slate-500 mb-3">地域の給与分布（月給）と入力値の比較</p>"#,
+    );
 
     // shadow_wage から月給データを取得
     let monthly = shadow.iter().find(|r| {
@@ -574,24 +681,47 @@ fn render_industry_comparison(salary: i64, shadow: &[Row]) -> String {
 
 // ======== パーセンタイル計算 ========
 
-fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, salary: i64) -> Option<f64> {
+fn compute_salary_percentile(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    emp_type: &str,
+    salary: i64,
+) -> Option<f64> {
     // 雇用形態でフィルタ: 正社員の月給とパートの月給を混同しない
-    let emp_filter = if emp_type == "パート" { " AND employment_type='パート'" } else { " AND employment_type='正社員'" };
+    let emp_filter = if emp_type == "パート" {
+        " AND employment_type='パート'"
+    } else {
+        " AND employment_type='正社員'"
+    };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        (format!("SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 AND municipality=?2 \
-          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?3{}", emp_filter),
-         vec![pref.to_string(), muni.to_string(), salary.to_string()])
+        (
+            format!(
+                "SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 AND municipality=?2 \
+          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?3{}",
+                emp_filter
+            ),
+            vec![pref.to_string(), muni.to_string(), salary.to_string()],
+        )
     } else if !pref.is_empty() {
-        (format!("SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 \
-          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?2{}", emp_filter),
-         vec![pref.to_string(), salary.to_string()])
+        (
+            format!(
+                "SELECT COUNT(*) as below FROM postings WHERE prefecture=?1 \
+          AND salary_min > 0 AND salary_type='月給' AND salary_min <= ?2{}",
+                emp_filter
+            ),
+            vec![pref.to_string(), salary.to_string()],
+        )
     } else {
         (format!("SELECT COUNT(*) as below FROM postings WHERE salary_min > 0 AND salary_type='月給' AND salary_min <= ?1{}", emp_filter),
          vec![salary.to_string()])
     };
 
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
     let total_sql = if !muni.is_empty() {
@@ -599,7 +729,10 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, sa
     } else if !pref.is_empty() {
         format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND salary_min > 0 AND salary_type='月給'{}", emp_filter)
     } else {
-        format!("SELECT COUNT(*) FROM postings WHERE salary_min > 0 AND salary_type='月給'{}", emp_filter)
+        format!(
+            "SELECT COUNT(*) FROM postings WHERE salary_min > 0 AND salary_type='月給'{}",
+            emp_filter
+        )
     };
 
     let total_params: Vec<String> = if !muni.is_empty() {
@@ -609,7 +742,10 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, sa
     } else {
         vec![]
     };
-    let tp: Vec<&dyn rusqlite::types::ToSql> = total_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let tp: Vec<&dyn rusqlite::types::ToSql> = total_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let total = db.query_scalar::<i64>(&total_sql, &tp).unwrap_or(0);
 
     if total > 0 {
@@ -619,8 +755,18 @@ fn compute_salary_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, sa
     }
 }
 
-fn compute_holidays_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, holidays: i64) -> Option<f64> {
-    let emp_filter = if emp_type == "パート" { " AND employment_type='パート'" } else { " AND employment_type='正社員'" };
+fn compute_holidays_percentile(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    emp_type: &str,
+    holidays: i64,
+) -> Option<f64> {
+    let emp_filter = if emp_type == "パート" {
+        " AND employment_type='パート'"
+    } else {
+        " AND employment_type='正社員'"
+    };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND annual_holidays > 0 AND annual_holidays <= ?3{}", emp_filter),
@@ -632,29 +778,57 @@ fn compute_holidays_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, 
         (format!("SELECT COUNT(*) FROM postings WHERE annual_holidays > 0 AND annual_holidays <= ?1{}", emp_filter),
          vec![holidays.to_string()])
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
     let total_sql = if !muni.is_empty() {
         format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND annual_holidays > 0{}", emp_filter)
     } else if !pref.is_empty() {
-        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0{}", emp_filter)
+        format!(
+            "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND annual_holidays > 0{}",
+            emp_filter
+        )
     } else {
-        format!("SELECT COUNT(*) FROM postings WHERE annual_holidays > 0{}", emp_filter)
+        format!(
+            "SELECT COUNT(*) FROM postings WHERE annual_holidays > 0{}",
+            emp_filter
+        )
     };
     let tp: Vec<String> = if !muni.is_empty() {
         vec![pref.to_string(), muni.to_string()]
     } else if !pref.is_empty() {
         vec![pref.to_string()]
-    } else { vec![] };
-    let tpp: Vec<&dyn rusqlite::types::ToSql> = tp.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    } else {
+        vec![]
+    };
+    let tpp: Vec<&dyn rusqlite::types::ToSql> = tp
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let total = db.query_scalar::<i64>(&total_sql, &tpp).unwrap_or(0);
 
-    if total > 0 { Some((below as f64 / total as f64) * 100.0) } else { None }
+    if total > 0 {
+        Some((below as f64 / total as f64) * 100.0)
+    } else {
+        None
+    }
 }
 
-fn compute_bonus_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, bonus: f64) -> Option<f64> {
-    let emp_filter = if emp_type == "パート" { " AND employment_type='パート'" } else { " AND employment_type='正社員'" };
+fn compute_bonus_percentile(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    emp_type: &str,
+    bonus: f64,
+) -> Option<f64> {
+    let emp_filter = if emp_type == "パート" {
+        " AND employment_type='パート'"
+    } else {
+        " AND employment_type='正社員'"
+    };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND bonus_months > 0 AND bonus_months <= ?3{}", emp_filter),
@@ -663,60 +837,106 @@ fn compute_bonus_percentile(db: &Db, pref: &str, muni: &str, emp_type: &str, bon
         (format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0 AND bonus_months <= ?2{}", emp_filter),
          vec![pref.to_string(), format!("{:.1}", bonus)])
     } else {
-        (format!("SELECT COUNT(*) FROM postings WHERE bonus_months > 0 AND bonus_months <= ?1{}", emp_filter),
-         vec![format!("{:.1}", bonus)])
+        (
+            format!(
+                "SELECT COUNT(*) FROM postings WHERE bonus_months > 0 AND bonus_months <= ?1{}",
+                emp_filter
+            ),
+            vec![format!("{:.1}", bonus)],
+        )
     };
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let below = db.query_scalar::<i64>(&sql, &p).unwrap_or(0);
 
     let total_sql = if !muni.is_empty() {
         format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND municipality=?2 AND bonus_months > 0{}", emp_filter)
     } else if !pref.is_empty() {
-        format!("SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0{}", emp_filter)
+        format!(
+            "SELECT COUNT(*) FROM postings WHERE prefecture=?1 AND bonus_months > 0{}",
+            emp_filter
+        )
     } else {
-        format!("SELECT COUNT(*) FROM postings WHERE bonus_months > 0{}", emp_filter)
+        format!(
+            "SELECT COUNT(*) FROM postings WHERE bonus_months > 0{}",
+            emp_filter
+        )
     };
     let tp: Vec<String> = if !muni.is_empty() {
         vec![pref.to_string(), muni.to_string()]
     } else if !pref.is_empty() {
         vec![pref.to_string()]
-    } else { vec![] };
-    let tpp: Vec<&dyn rusqlite::types::ToSql> = tp.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    } else {
+        vec![]
+    };
+    let tpp: Vec<&dyn rusqlite::types::ToSql> = tp
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let total = db.query_scalar::<i64>(&total_sql, &tpp).unwrap_or(0);
 
-    if total > 0 { Some((below as f64 / total as f64) * 100.0) } else { None }
+    if total > 0 {
+        Some((below as f64 / total as f64) * 100.0)
+    } else {
+        None
+    }
 }
 
 // ======== 事前計算テーブル参照 ========
 
-fn fetch_fulfillment_grade(db: &Db, pref: &str, muni: &str, _emp_type: &str) -> Option<(f64, String)> {
-    if !table_exists(db, "v2_fulfillment_summary") { return None; }
+fn fetch_fulfillment_grade(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    _emp_type: &str,
+) -> Option<(f64, String)> {
+    if !table_exists(db, "v2_fulfillment_summary") {
+        return None;
+    }
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT avg_score, \
+        (
+            "SELECT avg_score, \
           CASE WHEN avg_score < 25 THEN 'A(容易)' WHEN avg_score < 50 THEN 'B(普通)' \
           WHEN avg_score < 75 THEN 'C(やや困難)' ELSE 'D(困難)' END as grade \
-          FROM v2_fulfillment_summary WHERE prefecture=?1 AND municipality=?2 LIMIT 1".to_string(),
-         vec![pref.to_string(), muni.to_string()])
+          FROM v2_fulfillment_summary WHERE prefecture=?1 AND municipality=?2 LIMIT 1"
+                .to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
     } else if !pref.is_empty() {
-        ("SELECT avg_score, \
+        (
+            "SELECT avg_score, \
           CASE WHEN avg_score < 25 THEN 'A(容易)' WHEN avg_score < 50 THEN 'B(普通)' \
           WHEN avg_score < 75 THEN 'C(やや困難)' ELSE 'D(困難)' END as grade \
-          FROM v2_fulfillment_summary WHERE prefecture=?1 AND municipality='' LIMIT 1".to_string(),
-         vec![pref.to_string()])
+          FROM v2_fulfillment_summary WHERE prefecture=?1 AND municipality='' LIMIT 1"
+                .to_string(),
+            vec![pref.to_string()],
+        )
     } else {
         return None;
     };
 
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = db.query(&sql, &p).unwrap_or_default();
-    rows.first().map(|r| (get_f64(r, "avg_score"), get_str(r, "grade").to_string()))
+    rows.first()
+        .map(|r| (get_f64(r, "avg_score"), get_str(r, "grade").to_string()))
 }
 
 fn fetch_benchmark_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Option<Row> {
-    if !table_exists(db, "v2_region_benchmark") { return None; }
+    if !table_exists(db, "v2_region_benchmark") {
+        return None;
+    }
 
-    let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
+    let emp_group = if emp_type == "パート" {
+        "パート"
+    } else {
+        "正社員"
+    };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         ("SELECT salary_competitiveness, job_market_tightness, wage_compliance, \
@@ -736,15 +956,29 @@ fn fetch_benchmark_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &st
         return None;
     };
 
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = db.query(&sql, &p).unwrap_or_default();
     rows.into_iter().next()
 }
 
-fn fetch_compensation_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Option<Row> {
-    if !table_exists(db, "v2_compensation_package") { return None; }
+fn fetch_compensation_for_diagnostic(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    emp_type: &str,
+) -> Option<Row> {
+    if !table_exists(db, "v2_compensation_package") {
+        return None;
+    }
 
-    let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
+    let emp_group = if emp_type == "パート" {
+        "パート"
+    } else {
+        "正社員"
+    };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         ("SELECT avg_salary_min, avg_annual_holidays, avg_bonus_months, \
@@ -760,15 +994,24 @@ fn fetch_compensation_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: 
         return None;
     };
 
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = db.query(&sql, &p).unwrap_or_default();
     rows.into_iter().next()
 }
 
 fn fetch_shadow_wage_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &str) -> Vec<Row> {
-    if !table_exists(db, "v2_shadow_wage") { return vec![]; }
+    if !table_exists(db, "v2_shadow_wage") {
+        return vec![];
+    }
 
-    let emp_group = if emp_type == "パート" { "パート" } else { "正社員" };
+    let emp_group = if emp_type == "パート" {
+        "パート"
+    } else {
+        "正社員"
+    };
 
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         ("SELECT salary_type, total_count, p10, p25, p50, p75, p90, mean \
@@ -788,7 +1031,10 @@ fn fetch_shadow_wage_for_diagnostic(db: &Db, pref: &str, muni: &str, emp_type: &
          vec![emp_group.to_string()])
     };
 
-    let p: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
 
@@ -824,9 +1070,15 @@ fn render_percentile_bar(label: &str, value_str: &str, pct: Option<f64>, color: 
 
 /// 具体的数値を含む改善提案
 fn render_actionable_suggestions(
-    salary: i64, holidays: i64, bonus: f64,
-    salary_pct: Option<f64>, holidays_pct: Option<f64>, bonus_pct: Option<f64>,
-    shadow: &[Row], overall_grade: &str, _pref: &str,
+    salary: i64,
+    holidays: i64,
+    bonus: f64,
+    salary_pct: Option<f64>,
+    holidays_pct: Option<f64>,
+    bonus_pct: Option<f64>,
+    shadow: &[Row],
+    overall_grade: &str,
+    _pref: &str,
 ) -> String {
     let mut suggestions: Vec<(String, &str)> = Vec::new(); // (提案テキスト, 重要度色)
 
@@ -852,8 +1104,9 @@ fn render_actionable_suggestions(
             }
         } else {
             suggestions.push((
-                "給与水準が下位25%に位置しています。中央値以上への引き上げを検討してください".to_string(),
-                "#EF4444"
+                "給与水準が下位25%に位置しています。中央値以上への引き上げを検討してください"
+                    .to_string(),
+                "#EF4444",
             ));
         }
     } else if sp < 50.0 {
@@ -862,10 +1115,12 @@ fn render_actionable_suggestions(
             let diff = p75 - salary;
             if diff > 0 {
                 suggestions.push((
-                    format!("月給を{diff_s}円増額して{p75_s}円にすると上位25%に入り、ランクAが狙えます",
+                    format!(
+                        "月給を{diff_s}円増額して{p75_s}円にすると上位25%に入り、ランクAが狙えます",
                         diff_s = format_number(diff),
-                        p75_s = format_number(p75)),
-                    "#F59E0B"
+                        p75_s = format_number(p75)
+                    ),
+                    "#F59E0B",
                 ));
             }
         }
@@ -875,21 +1130,27 @@ fn render_actionable_suggestions(
     if let Some(hp) = holidays_pct {
         if hp < 30.0 && holidays > 0 && holidays < 105 {
             suggestions.push((
-                format!("年間休日{}日は下位圏です。105日以上にすると法令遵守面でも安心です", holidays),
-                "#EF4444"
+                format!(
+                    "年間休日{}日は下位圏です。105日以上にすると法令遵守面でも安心です",
+                    holidays
+                ),
+                "#EF4444",
             ));
         } else if hp < 50.0 && holidays < 120 {
             let target = 120;
             suggestions.push((
-                format!("年間休日を{}日から{}日に増やすと、中央値を超えてランクアップが見込めます",
-                    holidays, target),
-                "#F59E0B"
+                format!(
+                    "年間休日を{}日から{}日に増やすと、中央値を超えてランクアップが見込めます",
+                    holidays, target
+                ),
+                "#F59E0B",
             ));
         }
     } else if holidays == 0 {
         suggestions.push((
-            "年間休日を明示すると求職者の安心感が向上します。120日以上が競争力の目安です".to_string(),
-            "#3B82F6"
+            "年間休日を明示すると求職者の安心感が向上します。120日以上が競争力の目安です"
+                .to_string(),
+            "#3B82F6",
         ));
     }
 
@@ -897,14 +1158,17 @@ fn render_actionable_suggestions(
     if let Some(bp) = bonus_pct {
         if bp < 25.0 && bonus > 0.0 {
             suggestions.push((
-                format!("賞与{:.1}ヶ月は下位25%です。3.0ヶ月以上にすると競争力が大幅に向上します", bonus),
-                "#F59E0B"
+                format!(
+                    "賞与{:.1}ヶ月は下位25%です。3.0ヶ月以上にすると競争力が大幅に向上します",
+                    bonus
+                ),
+                "#F59E0B",
             ));
         }
     } else if bonus <= 0.0 {
         suggestions.push((
             "賞与の明示は応募率向上に効果的です。業界平均は2.0〜3.5ヶ月です".to_string(),
-            "#3B82F6"
+            "#3B82F6",
         ));
     }
 
@@ -921,9 +1185,11 @@ fn render_actionable_suggestions(
     }
 
     let mut html = String::new();
-    html.push_str(r#"<div class="stat-card border-l-4 border-blue-500">
+    html.push_str(
+        r#"<div class="stat-card border-l-4 border-blue-500">
         <h4 class="text-sm font-medium text-blue-400 mb-3">💡 具体的改善提案</h4>
-        <ul class="space-y-2">"#);
+        <ul class="space-y-2">"#,
+    );
     for (text, color) in &suggestions {
         html.push_str(&format!(
             r#"<li class="flex items-start gap-2 p-2 rounded bg-slate-800/50">

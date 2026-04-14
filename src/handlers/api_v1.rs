@@ -4,9 +4,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use crate::AppState;
 use crate::handlers::company::fetch;
 use crate::handlers::helpers::{get_f64, get_i64, get_str};
+use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct SearchParams {
@@ -38,10 +38,9 @@ pub async fn search_companies(
         None => return Json(json!({"error": "企業DB未接続", "results": [], "count": 0})),
     };
     let q = params.q.clone();
-    let results =
-        tokio::task::spawn_blocking(move || fetch::search_companies(&sn_db, &q))
-            .await
-            .unwrap_or_default();
+    let results = tokio::task::spawn_blocking(move || fetch::search_companies(&sn_db, &q))
+        .await
+        .unwrap_or_default();
 
     let items: Vec<Value> = results
         .iter()
@@ -114,8 +113,7 @@ pub async fn nearby_companies(
         if postal.is_empty() {
             return None;
         }
-        let nearby =
-            fetch::fetch_nearby_companies(&sn_db, &db, &postal, &corp, &pref);
+        let nearby = fetch::fetch_nearby_companies(&sn_db, &db, &postal, &corp, &pref);
         Some((postal, nearby))
     })
     .await
@@ -192,7 +190,9 @@ pub async fn company_postings(
                     })
                 })
                 .collect();
-            Json(json!({"company_name": name, "postings": items, "count": total_count, "shown": items.len()}))
+            Json(
+                json!({"company_name": name, "postings": items, "count": total_count, "shown": items.len()}),
+            )
         }
         None => Json(json!({"error": "企業が見つかりません", "postings": []})),
     }
@@ -230,7 +230,9 @@ fn context_to_json(ctx: &fetch::CompanyContext) -> Value {
         })
         .collect();
 
-    let pitches: Vec<Value> = ctx.sales_pitches.iter()
+    let pitches: Vec<Value> = ctx
+        .sales_pitches
+        .iter()
         .map(|(h, b)| json!({"headline": h, "body": b}))
         .collect();
 
