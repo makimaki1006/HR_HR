@@ -200,7 +200,7 @@ pub fn build_company_context(
         ..Default::default()
     };
 
-    // 業界マッピング（SalesNow DB）
+    // 業界マッピング（Turso 1 query）
     ctx.hw_job_types = fetch_industry_mapping(sn_db, &ctx.sn_industry);
     ctx.primary_hw_job_type = ctx
         .hw_job_types
@@ -208,7 +208,99 @@ pub fn build_company_context(
         .map(|(jt, _)| jt.clone())
         .unwrap_or_default();
 
-    // HW市場データ取得（primary_hw_job_type × prefecture）
+    // === Phase 3: Turso 依存クエリを std::thread::scope で並列実行 ===
+    // Why: Turso HTTP API は Render (US) ↔ Turso (日本) の往復で 2〜5秒/クエリ。
+    //      並列化前は 3 つの独立 Turso クエリ（external_stats / region_flow / nearby）
+    //      + nearby 内部の多数 HW count クエリが直列で 30〜100秒かかっていた。
+    //      3 スレッドに分割することで実測 3 倍近くの短縮が見込める。
+    let pref_snap = ctx.prefecture.clone();
+    let sn_industry_snap = ctx.sn_industry.clone();
+    let postal_snap = ctx.postal_code.clone();
+    let corp_snap = ctx.corporate_number.clone();
+
+    let (ext_result, flow_result, nearby_result) = std::thread::scope(|s| {
+        // Thread A: 外部統計（人口 / 昼夜比 / 高齢化率）
+        let h_ext = s.spawn(|| {
+            if let Some(ext) = ext_db {
+                if pref_snap.is_empty() {
+                    return (0i64, 0.0f64, 0.0f64);
+                }
+                let sql = "SELECT total_population, daytime_population_ratio, aging_rate \
+                           FROM v2_external_prefecture_stats WHERE prefecture = ?1";
+                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref_snap];
+                if let Ok(rows) = ext.query(sql, &params) {
+                    if let Some(r) = rows.first() {
+                        return (
+                            get_i64(r, "total_population"),
+                            get_f64(r, "daytime_population_ratio"),
+                            get_f64(r, "aging_rate"),
+                        );
+                    }
+                }
+            }
+            (0, 0.0, 0.0)
+        });
+
+        // Thread B: 地域×業種 人材フロー
+        let h_flow = s.spawn(|| {
+            if pref_snap.is_empty() || sn_industry_snap.is_empty() {
+                return (0i64, 0i64, 0i64, 0.0f64);
+            }
+            let sql = r#"
+                SELECT COUNT(*) as companies,
+                       COALESCE(SUM(employee_count), 0) as total_employees,
+                       COALESCE(SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)), 0) as net_change,
+                       COALESCE(AVG(employee_delta_1y), 0.0) as avg_delta
+                FROM v2_salesnow_companies
+                WHERE prefecture = ?1 AND sn_industry = ?2
+                  AND employee_count > 0 AND employee_delta_1y IS NOT NULL
+            "#;
+            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                vec![&pref_snap, &sn_industry_snap];
+            if let Ok(rows) = sn_db.query(sql, &params) {
+                if let Some(r) = rows.first() {
+                    return (
+                        get_i64(r, "companies"),
+                        get_i64(r, "total_employees"),
+                        get_i64(r, "net_change"),
+                        get_f64(r, "avg_delta"),
+                    );
+                }
+            }
+            (0, 0, 0, 0.0)
+        });
+
+        // Thread C: 近隣企業（郵便番号prefixマッチ、最も重い）
+        let h_nearby = s.spawn(|| {
+            if postal_snap.is_empty() {
+                return Vec::<NearbyCompany>::new();
+            }
+            fetch_nearby_companies(sn_db, db, &postal_snap, &corp_snap, &pref_snap)
+        });
+
+        (
+            h_ext.join().unwrap_or((0, 0.0, 0.0)),
+            h_flow.join().unwrap_or((0, 0, 0, 0.0)),
+            h_nearby.join().unwrap_or_default(),
+        )
+    });
+
+    // Thread A 結果を ctx に反映
+    ctx.population = ext_result.0;
+    ctx.daytime_ratio = ext_result.1;
+    ctx.aging_rate = ext_result.2;
+
+    // Thread B 結果
+    ctx.region_industry_company_count = flow_result.0;
+    ctx.region_industry_total_employees = flow_result.1;
+    ctx.region_industry_net_change = flow_result.2;
+    ctx.region_industry_avg_delta = flow_result.3;
+    ctx.company_vs_region_gap = ctx.employee_delta_1y - ctx.region_industry_avg_delta;
+
+    // Thread C 結果
+    ctx.nearby_companies = nearby_result;
+
+    // === Phase 4: HW ローカル SQLite クエリ（高速なので直列でよい）===
     if !ctx.primary_hw_job_type.is_empty() && !ctx.prefecture.is_empty() {
         fetch_market_stats(db, &mut ctx);
         fetch_salary_distribution(db, &mut ctx);
@@ -217,35 +309,11 @@ pub fn build_company_context(
         fetch_benefit_rates(db, &mut ctx);
     }
 
-    // 全国平均
     fetch_national_stats(db, &mut ctx);
-
-    // 外部統計（country-statistics Turso: 人口等）
-    if let Some(ext) = ext_db {
-        fetch_external_stats(ext, &mut ctx);
-    }
 
     // HW求人マッチング（企業名でfacility_nameを検索）
     ctx.hw_matched_total_count = count_hw_postings(db, &ctx.company_name, &ctx.prefecture);
     ctx.hw_matched_postings = fetch_hw_postings_for_company(db, &ctx.company_name, &ctx.prefecture);
-
-    // 近隣企業検索（郵便番号上3桁マッチ）
-    if !ctx.postal_code.is_empty() {
-        ctx.nearby_companies = fetch_nearby_companies(
-            sn_db,
-            db,
-            &ctx.postal_code,
-            &ctx.corporate_number,
-            &ctx.prefecture,
-        );
-    }
-
-    // --- クロス分析機能 ---
-
-    // 地域×業種の人材フロー（SalesNow集計）
-    if !ctx.prefecture.is_empty() && !ctx.sn_industry.is_empty() {
-        fetch_region_industry_flow(sn_db, &mut ctx);
-    }
 
     // 自社の給与 vs 市場
     if !ctx.company_name.is_empty() && !ctx.prefecture.is_empty() {
@@ -444,20 +512,6 @@ fn fetch_national_stats(db: &crate::db::local_sqlite::LocalDb, ctx: &mut Company
     }
 }
 
-/// 外部統計（Turso: 人口、昼夜間比、高齢化率）
-fn fetch_external_stats(turso: &TursoDb, ctx: &mut CompanyContext) {
-    let sql = "SELECT total_population, daytime_population_ratio, aging_rate \
-               FROM v2_external_prefecture_stats WHERE prefecture = ?1";
-    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&ctx.prefecture];
-    if let Ok(rows) = turso.query(sql, &params) {
-        if let Some(r) = rows.first() {
-            ctx.population = get_i64(r, "total_population");
-            ctx.daytime_ratio = get_f64(r, "daytime_population_ratio");
-            ctx.aging_rate = get_f64(r, "aging_rate");
-        }
-    }
-}
-
 /// 企業名正規化（法人格除去）
 fn normalize_company_name(name: &str) -> String {
     name.replace("株式会社", "")
@@ -627,30 +681,6 @@ pub fn fetch_nearby_companies(
 // ===== クロス分析用の新規fetch関数 =====
 
 /// Turso: 地域×業種の人材フロー集計
-fn fetch_region_industry_flow(turso: &TursoDb, ctx: &mut CompanyContext) {
-    let sql = r#"
-        SELECT COUNT(*) as companies,
-               COALESCE(SUM(employee_count), 0) as total_employees,
-               COALESCE(SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)), 0) as net_change,
-               COALESCE(AVG(employee_delta_1y), 0.0) as avg_delta
-        FROM v2_salesnow_companies
-        WHERE prefecture = ?1 AND sn_industry = ?2
-          AND employee_count > 0 AND employee_delta_1y IS NOT NULL
-    "#;
-    let pref = &ctx.prefecture;
-    let ind = &ctx.sn_industry;
-    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![pref, ind];
-    if let Ok(rows) = turso.query(sql, &params) {
-        if let Some(r) = rows.first() {
-            ctx.region_industry_company_count = get_i64(r, "companies");
-            ctx.region_industry_total_employees = get_i64(r, "total_employees");
-            ctx.region_industry_net_change = get_i64(r, "net_change");
-            ctx.region_industry_avg_delta = get_f64(r, "avg_delta");
-            ctx.company_vs_region_gap = ctx.employee_delta_1y - ctx.region_industry_avg_delta;
-        }
-    }
-}
-
 /// SQLite: 自社求人の給与分析（月給のみ）
 fn fetch_company_salary_analysis(db: &crate::db::local_sqlite::LocalDb, ctx: &mut CompanyContext) {
     let normalized = normalize_company_name(&ctx.company_name);
