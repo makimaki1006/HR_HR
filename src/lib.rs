@@ -192,6 +192,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/company/profile/{corporate_number}",
             get(handlers::company::company_profile),
         )
+        .route("/api/company/bulk-csv", get(handlers::company::bulk_csv))
         .route(
             "/report/company/{corporate_number}",
             get(handlers::company::company_report),
