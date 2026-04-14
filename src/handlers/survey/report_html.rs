@@ -500,6 +500,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   body.theme-dark table th { background: #e3f2fd !important; color: #1565C0 !important; }
   body.theme-dark table td { background: transparent !important; color: #1a1a2e !important; }
   .section { page-break-inside: avoid; }
+  .section.page-start { page-break-before: always; }
   .summary-card, .kpi-card { box-shadow: none !important; transform: none !important; }
   .echart { break-inside: avoid; }
   .sortable-table th::after { display: none; }
@@ -1161,9 +1162,40 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 
     // 企業数サマリー
     html.push_str(&format!(
-        "<p>分析対象企業数: <strong>{}</strong>社</p>\n",
+        "<p>分析対象企業数: <strong>{}</strong>社（給与情報のある求人を持つ企業のみ）</p>\n",
         format_number(by_company.len() as i64)
     ));
+
+    // 市場集中度（HHI: Herfindahl-Hirschman Index）の計算と表示
+    // HHI = Σ(各企業の求人シェア%)² / 公正取引委員会基準:
+    //   < 1500: 分散型市場 / 1500-2500: 中程度集中 / > 2500: 集中型市場
+    // サンプル数不足（企業数<3）時は非表示
+    if by_company.len() >= 3 {
+        let total_count: i64 = by_company.iter().map(|c| c.count as i64).sum();
+        if total_count > 0 {
+            let hhi: f64 = by_company.iter()
+                .map(|c| {
+                    let share_pct = c.count as f64 / total_count as f64 * 100.0;
+                    share_pct * share_pct
+                })
+                .sum();
+            let (judgment, color) = if hhi < 1500.0 {
+                ("分散型市場（競合多数・多様な選択肢）", "var(--c-success)")
+            } else if hhi < 2500.0 {
+                ("中程度集中（主要プレイヤー複数）", "var(--c-warning)")
+            } else {
+                ("集中型市場（少数企業が支配的）", "var(--c-danger)")
+            };
+            html.push_str(&format!(
+                "<p style=\"margin:8px 0;font-size:10pt;\">\
+                 <strong>市場集中度（HHI）: <span style=\"color:{}\">{:.0}</span></strong> \
+                 / 判定: <span style=\"color:{}\">{}</span> \
+                 <span style=\"font-size:9pt;color:#888;\">（公正取引委員会基準: &lt;1500=分散 / 1500-2500=中程度 / &gt;2500=集中）</span>\
+                 </p>\n",
+                color, hhi, color, judgment
+            ));
+        }
+    }
 
     // 求人数ランキング TOP15（ソート可能テーブル）
     let mut by_count = by_company.to_vec();
