@@ -2,6 +2,7 @@
 //! CSVアップロード分析結果をA4縦向き印刷用HTMLとして出力する
 //! EChartsによるインタラクティブチャート + ソート可能テーブル
 
+use super::super::company::fetch::NearbyCompany;
 use super::super::helpers::{escape_html, format_number, get_f64};
 use super::super::insight::fetch::InsightContext;
 use super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
@@ -29,6 +30,7 @@ pub(crate) fn render_survey_report_page(
     salary_min_values: &[i64],
     salary_max_values: &[i64],
     hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
 ) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
@@ -109,6 +111,11 @@ pub(crate) fn render_survey_report_page(
 
     // --- セクション10: 求職者心理分析 ---
     render_section_job_seeker(&mut html, seeker);
+
+    // --- セクション11 (F-2): SalesNow 地域注目企業 ---
+    if !salesnow_companies.is_empty() {
+        render_section_salesnow_companies(&mut html, salesnow_companies);
+    }
 
     // --- フッター（本文末尾の注記） ---
     html.push_str("<div class=\"section\" style=\"text-align:center;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:8px;margin-top:24px;\">\n");
@@ -1885,6 +1892,55 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
 // セクション10: 求職者心理分析
 // ============================================================
 
+/// F-2: SalesNow 地域注目企業テーブル
+/// Why: 競合調査レポートから実際にアプローチ可能な企業リストへ繋げる
+/// How: employee_count 降順の上位30社を印刷レポートに追加
+fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompany]) {
+    html.push_str("<div class=\"section\">\n");
+    html.push_str("<h2>地域の注目企業 (SalesNow)</h2>\n");
+    html.push_str(
+        "<p class=\"note\">地域内で従業員数の多い上位30社。採用アプローチ先の選定に。</p>\n",
+    );
+    html.push_str("<table class=\"data-table\">\n");
+    html.push_str("<thead><tr>");
+    for h in [
+        "順位",
+        "企業名",
+        "都道府県",
+        "業種",
+        "従業員数",
+        "信用スコア",
+        "HW求人数",
+    ] {
+        html.push_str(&format!("<th>{}</th>", escape_html(h)));
+    }
+    html.push_str("</tr></thead><tbody>\n");
+    for (i, c) in companies.iter().take(30).enumerate() {
+        html.push_str("<tr>");
+        html.push_str(&format!("<td>{}</td>", i + 1));
+        html.push_str(&format!("<td>{}</td>", escape_html(&c.company_name)));
+        html.push_str(&format!("<td>{}</td>", escape_html(&c.prefecture)));
+        html.push_str(&format!("<td>{}</td>", escape_html(&c.sn_industry)));
+        html.push_str(&format!(
+            "<td class=\"right\">{}</td>",
+            format_number(c.employee_count)
+        ));
+        let credit = if c.credit_score > 0.0 {
+            format!("{:.0}", c.credit_score)
+        } else {
+            "-".to_string()
+        };
+        html.push_str(&format!("<td class=\"right\">{}</td>", credit));
+        html.push_str(&format!(
+            "<td class=\"right\">{}</td>",
+            format_number(c.hw_posting_count)
+        ));
+        html.push_str("</tr>\n");
+    }
+    html.push_str("</tbody></table>\n");
+    html.push_str("</div>\n");
+}
+
 fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAnalysis) {
     if seeker.total_analyzed == 0 {
         return;
@@ -2206,7 +2262,7 @@ mod tests {
     fn test_render_empty_data() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None);
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("</html>"));
         // ECharts CDN が含まれること
@@ -2299,7 +2355,7 @@ mod tests {
         let seeker = JobSeekerAnalysis::default();
 
         // None の場合、比較セクションは出ない
-        let html_without = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None);
+        let html_without = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
         // h2 見出し（HTMLタグ付き）が存在しないことを確認
         assert!(
             !html_without.contains("<h2>HW市場比較</h2>"),
@@ -2312,7 +2368,8 @@ mod tests {
 
         // Some の場合は出る（空の InsightContext でもヘッダーは出力される）
         let ctx = mock_empty_insight_ctx();
-        let html_with = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], Some(&ctx));
+        let html_with =
+            render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], Some(&ctx), &[]);
         assert!(
             html_with.contains("<h2>HW市場比較</h2>"),
             "hw_context=Some のときは HW市場比較セクション（h2）を出す"

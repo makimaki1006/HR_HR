@@ -2,7 +2,7 @@ use crate::db::turso_http::TursoDb;
 use crate::handlers::helpers::{get_f64, get_i64, get_str, Row};
 
 /// 近隣企業データ（郵便番号上3桁マッチ）
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct NearbyCompany {
     pub corporate_number: String,
     pub company_name: String,
@@ -658,24 +658,42 @@ pub fn fetch_nearby_companies(
     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&like_pattern, &exclude_corp];
     let rows = sn_db.query(sql, &params).unwrap_or_default();
 
-    rows.iter()
-        .map(|r| {
-            let name = get_str(r, "company_name");
-            let pref = get_str(r, "prefecture");
-            // HW求人数を集計
-            let hw_count = count_hw_postings(db, &name, &pref);
-            NearbyCompany {
-                corporate_number: get_str(r, "corporate_number"),
-                company_name: name,
-                prefecture: pref,
-                sn_industry: get_str(r, "sn_industry"),
-                employee_count: get_i64(r, "employee_count"),
-                credit_score: get_f64(r, "credit_score"),
-                postal_code: get_str(r, "postal_code"),
-                hw_posting_count: hw_count,
-            }
+    // 企業リストを先に構築（hw_posting_count=0 初期値）
+    let mut companies: Vec<NearbyCompany> = rows
+        .iter()
+        .map(|r| NearbyCompany {
+            corporate_number: get_str(r, "corporate_number"),
+            company_name: get_str(r, "company_name"),
+            prefecture: get_str(r, "prefecture"),
+            sn_industry: get_str(r, "sn_industry"),
+            employee_count: get_i64(r, "employee_count"),
+            credit_score: get_f64(r, "credit_score"),
+            postal_code: get_str(r, "postal_code"),
+            hw_posting_count: 0,
         })
-        .collect()
+        .collect();
+
+    // N+1 回避: batch_count_hw_postings を使って企業ごとの HW 求人数を一括取得
+    // Why: 旧実装は50社 × count_hw_postings 直列 = N+1 パターンで、
+    //      各クエリ 5〜30ms の積み重ねで 数百ms〜1s のオーバーヘッドが発生
+    // 注: 企業ごとに prefecture が異なりうるが、batch_count_hw_postings は
+    //     共通 prefecture を要求するため、prefecture ごとにグループ化する
+    use std::collections::HashMap;
+    let mut by_pref: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, c) in companies.iter().enumerate() {
+        by_pref.entry(c.prefecture.clone()).or_default().push(i);
+    }
+    for (pref, indices) in by_pref.iter() {
+        // 同一 prefecture の企業だけ抽出して batch_count に渡す
+        let mut sub: Vec<NearbyCompany> = indices.iter().map(|&i| companies[i].clone()).collect();
+        batch_count_hw_postings(db, &mut sub, pref);
+        // 結果を元の位置に書き戻す
+        for (j, &idx) in indices.iter().enumerate() {
+            companies[idx].hw_posting_count = sub[j].hw_posting_count;
+        }
+    }
+
+    companies
 }
 
 // ===== クロス分析用の新規fetch関数 =====
