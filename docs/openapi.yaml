@@ -1,0 +1,284 @@
+openapi: 3.1.0
+info:
+  title: HelloWork Dashboard API
+  description: |
+    HelloWork 求人データ + SalesNow 企業データ + 外部統計を統合した
+    分析ダッシュボードの内部API仕様。
+    認証はセッションCookie (tower_sessions) が必須。
+  version: "1.0.0"
+  contact:
+    name: F-A-C株式会社
+servers:
+  - url: https://hr-hw.onrender.com
+    description: Production (Render)
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Analysis
+    description: 詳細分析サブタブ (欠員率/給与分布/キーワード等)
+  - name: Jobmap
+    description: 求人地図・マーカー・地域統計
+  - name: Company
+    description: SalesNow 企業検索・プロフィール・比較
+  - name: Insight
+    description: 示唆レポート生成
+  - name: Survey
+    description: 競合調査CSV分析
+  - name: Trend
+    description: 時系列トレンド分析
+
+paths:
+  /api/analysis/subtab/{id}:
+    get:
+      tags: [Analysis]
+      summary: 詳細分析サブタブHTML取得
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1, maximum: 7}
+      responses:
+        "200":
+          description: HTMXパーシャルHTML
+          content:
+            text/html:
+              schema: {type: string}
+
+  /api/jobmap/markers:
+    get:
+      tags: [Jobmap]
+      summary: 地図マーカー取得 (市区町村指定必須)
+      parameters:
+        - {name: prefecture, in: query, required: true, schema: {type: string}}
+        - {name: municipality, in: query, required: true, schema: {type: string}}
+        - {name: radius, in: query, schema: {type: number, default: 10}}
+        - {name: employment_type, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: マーカー一覧
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  markers: {type: array, items: {$ref: "#/components/schemas/Marker"}}
+                  total: {type: integer}
+
+  /api/jobmap/detail-json/{id}:
+    get:
+      tags: [Jobmap]
+      summary: 求人詳細JSON
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        "200":
+          content: {application/json: {schema: {$ref: "#/components/schemas/JobDetail"}}}
+
+  /api/jobmap/choropleth:
+    get:
+      tags: [Jobmap]
+      summary: コロプレス (塗り分け地図) 用統計
+      parameters:
+        - {name: prefecture, in: query, required: true, schema: {type: string}}
+      responses:
+        "200": {description: GeoJSON拡張, content: {application/json: {}}}
+
+  /api/jobmap/region/summary:
+    get:
+      tags: [Jobmap]
+      summary: 地域サマリー (市区町村必須)
+      parameters:
+        - {name: prefecture, in: query, required: true, schema: {type: string}}
+        - {name: municipality, in: query, required: true, schema: {type: string}}
+      responses:
+        "200": {description: HTMLフラグメント, content: {text/html: {}}}
+
+  /api/jobmap/municipalities:
+    get:
+      tags: [Jobmap]
+      summary: 市区町村option一覧 (HTMLセレクタ用)
+      parameters:
+        - {name: prefecture, in: query, required: true, schema: {type: string}}
+      responses:
+        "200": {description: "<option>要素群", content: {text/html: {}}}
+
+  /api/jobmap/labor-flow:
+    get:
+      tags: [Jobmap]
+      summary: 業種別人材フロー集計
+      parameters:
+        - {name: prefecture, in: query, required: true, schema: {type: string}}
+        - {name: municipality, in: query, schema: {type: string}}
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  industries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sn_industry: {type: string}
+                        companies: {type: integer}
+                        total_emp: {type: integer}
+                        net_change_1y: {type: integer}
+                        avg_delta_1y: {type: number}
+
+  /api/jobmap/industry-companies:
+    get:
+      tags: [Jobmap]
+      summary: 業種×地域の企業一覧 (上位500社)
+      parameters:
+        - {name: prefecture, in: query, required: true, schema: {type: string}}
+        - {name: industry, in: query, required: true, schema: {type: string}}
+        - {name: municipality, in: query, schema: {type: string}}
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  companies: {type: array, items: {$ref: "#/components/schemas/Company"}}
+                  count: {type: integer}
+
+  /api/company/search:
+    get:
+      tags: [Company]
+      summary: 企業タイプアヘッド検索 (2文字以上)
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 2}}
+      responses:
+        "200": {description: 検索結果HTMLリスト, content: {text/html: {}}}
+
+  /api/company/profile/{corporate_number}:
+    get:
+      tags: [Company]
+      summary: 企業プロフィール (SalesNow+HW+外部統計統合, 15分キャッシュ)
+      parameters:
+        - {name: corporate_number, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: プロフィールHTML, content: {text/html: {}}}
+
+  /api/company/bulk-csv:
+    get:
+      tags: [Company]
+      summary: 選択した企業をCSVダウンロード (最大100社)
+      parameters:
+        - name: corps
+          in: query
+          required: true
+          description: カンマ区切り法人番号
+          schema: {type: string}
+      responses:
+        "200":
+          description: UTF-8 BOM CSV (16カラム)
+          content:
+            text/csv:
+              schema: {type: string}
+
+  /api/insight/subtab/{id}:
+    get:
+      tags: [Insight]
+      summary: 示唆サブタブHTML
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+      responses:
+        "200": {content: {text/html: {}}}
+
+  /api/insight/report:
+    get:
+      tags: [Insight]
+      summary: 印刷用 示唆レポート (フルHTML)
+      responses:
+        "200": {content: {text/html: {}}}
+
+  /api/insight/report/xlsx:
+    get:
+      tags: [Insight]
+      summary: 示唆レポートExcelエクスポート
+      responses:
+        "200":
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: {}
+
+  /api/survey/upload:
+    post:
+      tags: [Survey]
+      summary: 競合調査CSVアップロード (最大20MB)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                csv_file: {type: string, format: binary}
+      responses:
+        "200": {description: 分析結果HTML, content: {text/html: {}}}
+
+  /report/survey:
+    get:
+      tags: [Survey]
+      summary: 印刷用 競合調査レポート
+      parameters:
+        - {name: session_id, in: query, required: true, schema: {type: string}}
+      responses:
+        "200": {description: PDF印刷向けHTML, content: {text/html: {}}}
+
+  /api/trend/subtab/{id}:
+    get:
+      tags: [Trend]
+      summary: トレンドタブ (HW時系列)
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        "200": {content: {text/html: {}}}
+
+components:
+  schemas:
+    Marker:
+      type: object
+      properties:
+        id: {type: integer}
+        lat: {type: number}
+        lng: {type: number}
+        facility_name: {type: string}
+        salary_min: {type: integer}
+        salary_max: {type: integer}
+
+    JobDetail:
+      type: object
+      properties:
+        facility_name: {type: string}
+        job_type: {type: string}
+        access: {type: string}
+        employment_type: {type: string}
+        salary_type: {type: string}
+        salary_min: {type: integer}
+        salary_max: {type: integer}
+
+    Company:
+      type: object
+      properties:
+        corporate_number: {type: string}
+        company_name: {type: string}
+        employee_count: {type: integer}
+        employee_delta_1m: {type: number}
+        employee_delta_3m: {type: number}
+        employee_delta_1y: {type: number}
+        credit_score: {type: number}
+        address: {type: string}
+
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: id
+
+security:
+  - sessionCookie: []

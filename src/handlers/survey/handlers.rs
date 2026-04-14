@@ -333,6 +333,26 @@ pub async fn survey_report_html(
         None
     };
 
+    // F-2: SalesNow 企業データ取得（同じ地域の注目企業）
+    // 印刷レポートにも SalesNow 企業トップリストを掲載する
+    let salesnow_companies = if !pref.is_empty() {
+        if let (Some(sn_db), Some(hw_db)) = (state.salesnow_db.clone(), state.hw_db.clone()) {
+            let pref2 = pref.clone();
+            let muni2 = muni.clone();
+            tokio::task::spawn_blocking(move || {
+                super::super::company::fetch::fetch_companies_by_region(
+                    &sn_db, &hw_db, &pref2, &muni2, 30,
+                )
+            })
+            .await
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let html = super::report_html::render_survey_report_page(
         &agg,
         &seeker,
@@ -341,6 +361,7 @@ pub async fn survey_report_html(
         &salary_min_values,
         &salary_max_values,
         hw_ctx.as_ref(),
+        &salesnow_companies,
     );
 
     Html(html)
