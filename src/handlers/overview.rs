@@ -1084,7 +1084,9 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_get_f64_float() {
+        // 3.14 はPI近似ではなく任意のテスト用float
         let mut map = HashMap::new();
         map.insert("score".to_string(), serde_json::json!(3.14));
         assert!((get_f64(&map, "score") - 3.14).abs() < 0.001);

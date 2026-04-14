@@ -214,8 +214,9 @@ fn line_chart_config_days_format() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn line_chart_config_rounding() {
-    // 値が小数点2桁に丸められるか
+    // 値が小数点2桁に丸められるか（PI近似ではなく小数丸めテスト）
     let labels = vec!["2024/01".to_string()];
     let series = vec![
         ("テスト".to_string(), "#000".to_string(), vec![3.14159]),
