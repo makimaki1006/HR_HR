@@ -546,17 +546,27 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
         "-".to_string()
     };
 
-    let new_rate = if agg.total_count > 0 {
-        format!("{:.1}%", agg.new_count as f64 / agg.total_count as f64 * 100.0)
+    // 4つ目のKPI: 新着率 が取得可能なら新着率、0件なら企業数に動的置換
+    //   Why: 求人ボックス等「新着」列がないCSVでは new_count==0 となり常に 0.0% 表示になり無意味
+    //   How: new_count > 0 なら新着率、それ以外は企業数（募集主の多様性指標）
+    let (kpi4_label, kpi4_value, kpi4_unit, kpi4_guide) = if agg.new_count > 0 {
+        let nr = format!("{:.1}%", agg.new_count as f64 / agg.total_count.max(1) as f64 * 100.0);
+        ("新着率", nr, "", "新着求人の割合です。高いほど求人の入れ替わりが活発です。")
     } else {
-        "-".to_string()
+        let companies = agg.by_company.len();
+        (
+            "掲載企業数",
+            format_number(companies as i64),
+            "社",
+            "求人を出している企業の数です。多いほど選択肢が豊富です。",
+        )
     };
 
     html.push_str("<div class=\"summary-grid\">\n");
     render_summary_card(html, "総求人数", &format_number(agg.total_count as i64), "件");
     render_summary_card(html, salary_label, &avg_salary_display, salary_unit);
     render_summary_card(html, "正社員率", &fulltime_rate, "");
-    render_summary_card(html, "新着率", &new_rate, "");
+    render_summary_card(html, kpi4_label, &kpi4_value, kpi4_unit);
     html.push_str("</div>\n");
 
     // 読み方ガイド
@@ -569,7 +579,7 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
     render_guide_item(html, "総求人数", "CSVに含まれる求人の総数です。市場規模の目安になります。");
     render_guide_item(html, salary_label, salary_guide);
     render_guide_item(html, "正社員率", "正社員・正職員の求人割合です。高いほど安定雇用が多い市場です。");
-    render_guide_item(html, "新着率", "新着求人の割合です。高いほど求人の入れ替わりが活発です。");
+    render_guide_item(html, kpi4_label, kpi4_guide);
     html.push_str("</div>\n");
 
     html.push_str("</div>\n");
