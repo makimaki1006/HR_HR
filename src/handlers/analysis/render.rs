@@ -1,16 +1,18 @@
 //! HTML描画関数（全 render_* 関数 + render_subtab_1..6）
 
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
-use super::super::helpers::{cross_nav, get_f64, get_i64, get_str_html, escape_html, format_number, pct, pct_bar, truncate_str};
-use super::helpers::{
-    get_str, vacancy_color, transparency_color, evenness_color, temp_color,
-    salary_color, rank_badge_color, info_score_color,
-    keyword_category_label, keyword_category_color,
-    strategy_color, concentration_badge,
+use super::super::helpers::{
+    cross_nav, escape_html, format_number, get_f64, get_i64, get_str_html, pct, pct_bar,
+    truncate_str,
 };
 use super::fetch::*;
+use super::helpers::{
+    concentration_badge, evenness_color, get_str, info_score_color, keyword_category_color,
+    keyword_category_label, rank_badge_color, salary_color, strategy_color, temp_color,
+    transparency_color, vacancy_color,
+};
 
 type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
@@ -48,7 +50,9 @@ pub(crate) fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
     let compensation = fetch_compensation_package(db, pref, muni);
 
     // 正社員データの有無をチェック（フォールバック判定用）
-    let has_seishain = salary_structure.iter().any(|r| get_str(r, "emp_group").contains("正社員"));
+    let has_seishain = salary_structure
+        .iter()
+        .any(|r| get_str(r, "emp_group").contains("正社員"));
     let is_fallback = !has_seishain && !salary_structure.is_empty();
 
     let mut html = String::with_capacity(12_000);
@@ -111,7 +115,11 @@ pub(crate) fn render_subtab_3(db: &Db, pref: &str, muni: &str) -> String {
 pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
     let employer_strategy = fetch_employer_strategy(db, pref, muni);
     let monopsony = fetch_monopsony_data(db, pref, muni);
-    let spatial = if !muni.is_empty() { fetch_spatial_mismatch(db, pref, muni) } else { vec![] };
+    let spatial = if !muni.is_empty() {
+        fetch_spatial_mismatch(db, pref, muni)
+    } else {
+        vec![]
+    };
     let competition = fetch_competition_data(db, pref);
     let cascade = fetch_cascade_data(db, pref, muni);
 
@@ -138,8 +146,12 @@ pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
     if !cascade.is_empty() {
         html.push_str(&render_cascade_section(&cascade));
     }
-    if employer_strategy.is_empty() && monopsony.is_empty() && spatial.is_empty()
-        && competition.is_empty() && cascade.is_empty() {
+    if employer_strategy.is_empty()
+        && monopsony.is_empty()
+        && spatial.is_empty()
+        && competition.is_empty()
+        && cascade.is_empty()
+    {
         html.push_str(r#"<p class="text-slate-500 text-sm">市場構造データがありません</p>"#);
     }
 
@@ -179,15 +191,25 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
         html.push_str(&render_anomaly_section(&anomaly));
     }
 
-    let has_external = !minimum_wage.is_empty() || !wage_compliance.is_empty()
-        || !prefecture_stats.is_empty() || !population.is_empty() || !region_benchmark.is_empty()
-        || !job_openings_ratio.is_empty() || !labor_stats.is_empty() || !establishments.is_empty()
-        || !turnover.is_empty() || !household_spending.is_empty()
-        || !business_dynamics.is_empty() || !climate.is_empty() || !care_demand.is_empty();
+    let has_external = !minimum_wage.is_empty()
+        || !wage_compliance.is_empty()
+        || !prefecture_stats.is_empty()
+        || !population.is_empty()
+        || !region_benchmark.is_empty()
+        || !job_openings_ratio.is_empty()
+        || !labor_stats.is_empty()
+        || !establishments.is_empty()
+        || !turnover.is_empty()
+        || !household_spending.is_empty()
+        || !business_dynamics.is_empty()
+        || !climate.is_empty()
+        || !care_demand.is_empty();
 
     if has_external {
-        html.push_str(r#"<div class="border-t border-slate-700 my-4 pt-4">
-            <h3 class="text-lg font-semibold text-slate-300 mb-4">外部データ統合分析</h3></div>"#);
+        html.push_str(
+            r#"<div class="border-t border-slate-700 my-4 pt-4">
+            <h3 class="text-lg font-semibold text-slate-300 mb-4">外部データ統合分析</h3></div>"#,
+        );
     }
     if !minimum_wage.is_empty() {
         html.push_str(&render_minimum_wage_section(&minimum_wage, pref));
@@ -199,7 +221,10 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
         html.push_str(&render_prefecture_stats_section(&prefecture_stats, pref));
     }
     if !job_openings_ratio.is_empty() {
-        html.push_str(&render_job_openings_ratio_section(&job_openings_ratio, pref));
+        html.push_str(&render_job_openings_ratio_section(
+            &job_openings_ratio,
+            pref,
+        ));
     }
     if !labor_stats.is_empty() {
         html.push_str(&render_labor_stats_section(&labor_stats, pref));
@@ -217,7 +242,10 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
         html.push_str(&render_turnover_section(&turnover, pref));
     }
     if !household_spending.is_empty() {
-        html.push_str(&render_household_spending_section(&household_spending, pref));
+        html.push_str(&render_household_spending_section(
+            &household_spending,
+            pref,
+        ));
     }
     if !business_dynamics.is_empty() {
         html.push_str(&render_business_dynamics_section(&business_dynamics, pref));
@@ -311,7 +339,11 @@ fn render_vacancy_section(data: &[Row], by_industry: &[Row]) -> String {
         let grow_cnt = get_i64(row, "growth_count");
         let new_cnt = get_i64(row, "new_facility_count");
         let vc = vacancy_color(vr);
-        let new_rate = if total > 0 { new_cnt as f64 / total as f64 } else { 0.0 };
+        let new_rate = if total > 0 {
+            new_cnt as f64 / total as f64
+        } else {
+            0.0
+        };
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -353,7 +385,9 @@ fn render_vacancy_section(data: &[Row], by_industry: &[Row]) -> String {
                 <td class="text-right" style="color:{vc}">{vr_s}</td>
                 <td class="text-right text-cyan-400">{gr_s}</td>
                 <td>{bar}</td></tr>"#,
-                n_s = format_number(n), vr_s = pct(vr), gr_s = pct(gr),
+                n_s = format_number(n),
+                vr_s = pct(vr),
+                gr_s = pct(gr),
                 bar = pct_bar(vr, vc),
             ));
         }
@@ -378,8 +412,14 @@ fn render_resilience_section(data: &[Row]) -> String {
     if data.len() > 1 {
         let colors = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"];
         // 正規化用の最大値を計算
-        let max_ind: f64 = data.iter().map(|r| get_f64(r, "industry_count") as f64).fold(1.0_f64, f64::max);
-        let max_hhi: f64 = data.iter().map(|r| get_f64(r, "hhi")).fold(1.0_f64, f64::max);
+        let max_ind: f64 = data
+            .iter()
+            .map(|r| get_f64(r, "industry_count"))
+            .fold(1.0_f64, f64::max);
+        let max_hhi: f64 = data
+            .iter()
+            .map(|r| get_f64(r, "hhi"))
+            .fold(1.0_f64, f64::max);
 
         let mut series_json = vec![];
         for (i, row) in data.iter().enumerate() {
@@ -391,8 +431,16 @@ fn render_resilience_section(data: &[Row]) -> String {
             // 正規化: 多様性(shannon max~4), 均等度(0-1→0-100), 産業数(比率), 分散度(HHI逆数)
             let diversity_norm = (shannon / 4.0 * 100.0).min(100.0);
             let evenness_norm = evenness * 100.0;
-            let industry_norm = if max_ind > 0.0 { n_ind / max_ind * 100.0 } else { 0.0 };
-            let dispersion_norm = if max_hhi > 0.0 { (1.0 - hhi / max_hhi) * 100.0 } else { 50.0 };
+            let industry_norm = if max_ind > 0.0 {
+                n_ind / max_ind * 100.0
+            } else {
+                0.0
+            };
+            let dispersion_norm = if max_hhi > 0.0 {
+                (1.0 - hhi / max_hhi) * 100.0
+            } else {
+                50.0
+            };
             let c = colors[i % colors.len()];
             series_json.push(format!(
                 r#"{{"name":"{grp}","type":"radar","data":[{{"value":[{d:.1},{e:.1},{ind:.1},{disp:.1}],"name":"{grp}"}}],"lineStyle":{{"color":"{c}"}},"itemStyle":{{"color":"{c}"}},"areaStyle":{{"color":"{c}","opacity":0.15}}}}"#,
@@ -418,7 +466,13 @@ fn render_resilience_section(data: &[Row]) -> String {
         let top_share = get_f64(row, "top_industry_share");
         let hhi = get_f64(row, "hhi");
         let ec = evenness_color(evenness);
-        let label = if evenness >= 0.7 { "分散（良好）" } else if evenness >= 0.5 { "やや集中" } else { "集中（リスク）" };
+        let label = if evenness >= 0.7 {
+            "分散（良好）"
+        } else if evenness >= 0.5 {
+            "やや集中"
+        } else {
+            "集中（リスク）"
+        };
         let bar_html = pct_bar(evenness, ec);
         let top_ind_short = truncate_str(&top_ind, 12);
         let top_share_s = pct(top_share);
@@ -472,23 +526,34 @@ fn render_transparency_section(data: &[Row]) -> String {
                 <div class="text-xs text-slate-400 mb-2">平均開示率 ({total_s} 件)</div>
                 {bar}
             </div>"#,
-            avg_s = pct(avg), total_s = format_number(total), bar = pct_bar(avg, tc),
+            avg_s = pct(avg),
+            total_s = format_number(total),
+            bar = pct_bar(avg, tc),
         ));
     }
 
-    html.push_str(r#"</div><h4 class="text-xs text-slate-400 mb-2">項目別開示率</h4>
-        <div style="overflow-x:auto;"><table class="data-table text-xs"><thead><tr><th>項目</th>"#);
+    html.push_str(
+        r#"</div><h4 class="text-xs text-slate-400 mb-2">項目別開示率</h4>
+        <div style="overflow-x:auto;"><table class="data-table text-xs"><thead><tr><th>項目</th>"#,
+    );
 
     for row in data {
-        html.push_str(&format!(r#"<th class="text-center">{}</th>"#, get_str(row, "emp_group")));
+        html.push_str(&format!(
+            r#"<th class="text-center">{}</th>"#,
+            get_str(row, "emp_group")
+        ));
     }
     html.push_str("</tr></thead><tbody>");
 
     let items = [
-        ("disclosure_annual_holidays", "年間休日"), ("disclosure_bonus_months", "賞与（月数）"),
-        ("disclosure_employee_count", "従業員数"), ("disclosure_capital", "資本金"),
-        ("disclosure_overtime", "残業時間"), ("disclosure_female_ratio", "女性従業員数"),
-        ("disclosure_parttime_ratio", "パート従業員数"), ("disclosure_founding_year", "設立年"),
+        ("disclosure_annual_holidays", "年間休日"),
+        ("disclosure_bonus_months", "賞与（月数）"),
+        ("disclosure_employee_count", "従業員数"),
+        ("disclosure_capital", "資本金"),
+        ("disclosure_overtime", "残業時間"),
+        ("disclosure_female_ratio", "女性従業員数"),
+        ("disclosure_parttime_ratio", "パート従業員数"),
+        ("disclosure_founding_year", "設立年"),
     ];
 
     for (key, label) in &items {
@@ -496,7 +561,10 @@ fn render_transparency_section(data: &[Row]) -> String {
         for row in data {
             let v = get_f64(row, key);
             let c = transparency_color(v);
-            html.push_str(&format!(r#"<td class="text-center"><span style="color:{c}">{}</span></td>"#, pct(v)));
+            html.push_str(&format!(
+                r#"<td class="text-center"><span style="color:{c}">{}</span></td>"#,
+                pct(v)
+            ));
         }
         html.push_str("</tr>");
     }
@@ -522,10 +590,15 @@ fn render_temperature_section(data: &[Row]) -> String {
         let sel = get_f64(row, "selectivity_density");
         let tc = temp_color(avg_t);
 
-        let temp_label = if avg_t >= 0.5 { "人手不足（条件緩和）" }
-            else if avg_t >= 0.2 { "やや緩和" }
-            else if avg_t >= -0.2 { "標準" }
-            else { "選り好み（高選択性）" };
+        let temp_label = if avg_t >= 0.5 {
+            "人手不足（条件緩和）"
+        } else if avg_t >= 0.2 {
+            "やや緩和"
+        } else if avg_t >= -0.2 {
+            "標準"
+        } else {
+            "選り好み（高選択性）"
+        };
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -563,7 +636,13 @@ fn render_competition_section(data: &[Row]) -> String {
         let tops = get_str_html(row, "top_industries");
         let tops_short = truncate_str(&tops, 30);
 
-        let ic_color = if ic >= 30.0 { "#ef4444" } else if ic >= 15.0 { "#f97316" } else { "#eab308" };
+        let ic_color = if ic >= 30.0 {
+            "#ef4444"
+        } else if ic >= 15.0 {
+            "#f97316"
+        } else {
+            "#eab308"
+        };
 
         html.push_str(&format!(
             r#"<tr><td class="text-slate-300">{band}</td><td class="text-slate-300">{edu}</td>
@@ -597,8 +676,16 @@ fn render_cascade_section(data: &[Row]) -> String {
         let vc = vacancy_color(vr);
         let ind_short = truncate_str(&ind, 18);
 
-        let sal_s = if avg_sal > 0.0 { format!("{}円", format_number(avg_sal as i64)) } else { "-".to_string() };
-        let hol_s = if holidays > 0.0 { format!("{holidays:.0}日") } else { "-".to_string() };
+        let sal_s = if avg_sal > 0.0 {
+            format!("{}円", format_number(avg_sal as i64))
+        } else {
+            "-".to_string()
+        };
+        let hol_s = if holidays > 0.0 {
+            format!("{holidays:.0}日")
+        } else {
+            "-".to_string()
+        };
 
         html.push_str(&format!(
             r#"<tr><td class="text-slate-300" title="{ind}">{ind_short}</td>
@@ -609,8 +696,10 @@ fn render_cascade_section(data: &[Row]) -> String {
             <td class="text-right text-cyan-400">{hol_s}</td>
             <td class="text-right" style="color:{vc}">{vr_s}</td>
             <td>{bar}</td></tr>"#,
-            n_s = format_number(n), fac_s = format_number(fac),
-            vr_s = pct(vr), bar = pct_bar(vr, vc),
+            n_s = format_number(n),
+            fac_s = format_number(fac),
+            vr_s = pct(vr),
+            bar = pct_bar(vr, vc),
         ));
     }
 
@@ -627,9 +716,13 @@ fn render_anomaly_section(data: &[Row]) -> String {
         <thead><tr><th>指標</th><th>雇用形態</th><th class="text-right">件数</th><th class="text-right">異常値数</th><th class="text-right">異常率</th><th class="text-right">平均</th><th class="text-right">バラツキ</th><th class="text-right">高異常</th><th class="text-right">低異常</th></tr></thead><tbody>"#);
 
     let metric_labels: HashMap<&str, &str> = [
-        ("salary_min", "最低給与"), ("employee_count", "従業員数"),
-        ("annual_holidays", "年間休日"), ("bonus_months", "賞与月数"),
-    ].into_iter().collect();
+        ("salary_min", "最低給与"),
+        ("employee_count", "従業員数"),
+        ("annual_holidays", "年間休日"),
+        ("bonus_months", "賞与月数"),
+    ]
+    .into_iter()
+    .collect();
 
     for row in data {
         let grp = get_str(row, "emp_group");
@@ -643,12 +736,22 @@ fn render_anomaly_section(data: &[Row]) -> String {
         let high = get_i64(row, "anomaly_high_count");
         let low = get_i64(row, "anomaly_low_count");
 
-        let rc = if rate >= 0.1 { "#ef4444" } else if rate >= 0.05 { "#f97316" } else { "#eab308" };
+        let rc = if rate >= 0.1 {
+            "#ef4444"
+        } else if rate >= 0.05 {
+            "#f97316"
+        } else {
+            "#eab308"
+        };
 
         // 指標によって表示形式を変える
-        let avg_s = if metric == "salary_min" { format!("{}円", format_number(avg as i64)) }
-            else if metric == "bonus_months" { format!("{avg:.1}月") }
-            else { format!("{avg:.0}") };
+        let avg_s = if metric == "salary_min" {
+            format!("{}円", format_number(avg as i64))
+        } else if metric == "bonus_months" {
+            format!("{avg:.1}月")
+        } else {
+            format!("{avg:.0}")
+        };
 
         html.push_str(&format!(
             r#"<tr><td class="text-slate-300">{label}</td><td class="text-slate-400">{grp}</td>
@@ -659,8 +762,11 @@ fn render_anomaly_section(data: &[Row]) -> String {
             <td class="text-right text-slate-400">{std:.0}</td>
             <td class="text-right text-red-400">{high_s}</td>
             <td class="text-right text-blue-400">{low_s}</td></tr>"#,
-            total_s = format_number(total), anom_s = format_number(anom),
-            rate_s = pct(rate), high_s = format_number(high), low_s = format_number(low),
+            total_s = format_number(total),
+            anom_s = format_number(anom),
+            rate_s = pct(rate),
+            high_s = format_number(high),
+            low_s = format_number(low),
         ));
     }
 
@@ -697,10 +803,12 @@ fn render_salary_structure_section(data: &[Row]) -> String {
             let left_pct = (p25 / p90 * 100.0).min(100.0).max(0.0);
             let width_pct = ((p75 - p25) / p90 * 100.0).min(100.0 - left_pct).max(0.0);
             let median_pct = (median / p90 * 100.0).min(100.0).max(0.0);
-            format!(r#"<div class="w-full bg-slate-700 rounded h-3 relative">
+            format!(
+                r#"<div class="w-full bg-slate-700 rounded h-3 relative">
                 <div class="rounded h-3 opacity-60" style="position:absolute;left:{left_pct:.0}%;width:{width_pct:.0}%;background:{sc}"></div>
                 <div style="position:absolute;left:{median_pct:.0}%;top:0;bottom:0;width:2px;background:#ffffff"></div>
-            </div>"#)
+            </div>"#
+            )
         } else {
             String::new()
         };
@@ -714,7 +822,11 @@ fn render_salary_structure_section(data: &[Row]) -> String {
         } else {
             "-".to_string()
         };
-        let bonus_s = if bonus > 0.0 { format!("{bonus:.1}月") } else { "-".to_string() };
+        let bonus_s = if bonus > 0.0 {
+            format!("{bonus:.1}月")
+        } else {
+            "-".to_string()
+        };
 
         html.push_str(&format!(
             r#"<tr><td class="text-slate-300">{grp}</td>
@@ -730,7 +842,11 @@ fn render_salary_structure_section(data: &[Row]) -> String {
             <td class="text-right text-emerald-400">{annual_s}</td>
             <td>{bar_html}</td></tr>"#,
             stype_display = stype,
-            unit = if is_hourly { "<span class='text-[10px] text-slate-500'>/時</span>" } else { "" },
+            unit = if is_hourly {
+                "<span class='text-[10px] text-slate-500'>/時</span>"
+            } else {
+                ""
+            },
             total_s = format_number(total),
             avg_s = format_number(avg_min as i64),
             med_s = format_number(median as i64),
@@ -754,7 +870,8 @@ fn render_salary_competitiveness_section(data: &[Row]) -> String {
     if !data.is_empty() {
         let colors = ["#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6"];
         let n = data.len();
-        let axis_color_arr = r##"[[0.25,"#ef4444"],[0.5,"#eab308"],[0.75,"#3b82f6"],[1,"#22c55e"]]"##;
+        let axis_color_arr =
+            r##"[[0.25,"#ef4444"],[0.5,"#eab308"],[0.75,"#3b82f6"],[1,"#22c55e"]]"##;
         let title_color = "#94a3b8";
         let mut series_json = vec![];
         for (i, row) in data.iter().enumerate() {
@@ -763,7 +880,9 @@ fn render_salary_competitiveness_section(data: &[Row]) -> String {
             let c = colors[i % colors.len()];
             let center_x = if n > 1 {
                 (100.0 / (n as f64 + 1.0)) * (i as f64 + 1.0)
-            } else { 50.0 };
+            } else {
+                50.0
+            };
             let s = format!(
                 r#"{{"type":"gauge","center":["{cx:.0}%","55%"],"radius":"70%","startAngle":200,"endAngle":-20,"min":0,"max":100,"detail":{{"formatter":"P{{value}}","fontSize":14,"color":"{c}","offsetCenter":[0,"70%"]}},"title":{{"fontSize":11,"color":"{tc}","offsetCenter":[0,"90%"]}},"data":[{{"value":{pctile:.0},"name":"{grp}"}}],"axisLine":{{"lineStyle":{{"width":12,"color":{acol}}}}},"axisTick":{{"show":false}},"splitLine":{{"show":false}},"axisLabel":{{"show":false}},"pointer":{{"length":"60%","width":4,"itemStyle":{{"color":"{c}"}}}},"progress":{{"show":false}}}}"#,
                 cx = center_x,
@@ -792,7 +911,15 @@ fn render_salary_competitiveness_section(data: &[Row]) -> String {
 
         let ci_color = if ci >= 0.0 { "#22c55e" } else { "#ef4444" };
         let ci_sign = if ci >= 0.0 { "+" } else { "" };
-        let pctile_color = if pctile >= 75.0 { "#22c55e" } else if pctile >= 50.0 { "#3b82f6" } else if pctile >= 25.0 { "#eab308" } else { "#ef4444" };
+        let pctile_color = if pctile >= 75.0 {
+            "#22c55e"
+        } else if pctile >= 50.0 {
+            "#3b82f6"
+        } else if pctile >= 25.0 {
+            "#eab308"
+        } else {
+            "#ef4444"
+        };
 
         // 地域 vs 全国 比較バー
         let max_sal = local.max(national).max(1.0);
@@ -847,7 +974,15 @@ fn render_compensation_section(data: &[Row]) -> String {
         let (badge_bg, badge_fg) = rank_badge_color(rank);
 
         let composite_w = (composite * 100.0).min(100.0).max(0.0);
-        let composite_color = if composite >= 0.7 { "#22c55e" } else if composite >= 0.5 { "#3b82f6" } else if composite >= 0.3 { "#eab308" } else { "#ef4444" };
+        let composite_color = if composite >= 0.7 {
+            "#22c55e"
+        } else if composite >= 0.5 {
+            "#3b82f6"
+        } else if composite >= 0.3 {
+            "#eab308"
+        } else {
+            "#ef4444"
+        };
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -1066,7 +1201,15 @@ fn render_monopsony_section(data: &[Row]) -> String {
 
         // HHI ゲージ（0-10000スケール、>2500で高度集中）
         let hhi_w = (hhi / 10000.0 * 100.0).min(100.0).max(0.0);
-        let hhi_color = if hhi >= 2500.0 { "#ef4444" } else if hhi >= 1500.0 { "#f97316" } else if hhi >= 1000.0 { "#eab308" } else { "#22c55e" };
+        let hhi_color = if hhi >= 2500.0 {
+            "#ef4444"
+        } else if hhi >= 1500.0 {
+            "#f97316"
+        } else if hhi >= 1000.0 {
+            "#eab308"
+        } else {
+            "#22c55e"
+        };
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -1130,8 +1273,24 @@ fn render_spatial_mismatch_section(data: &[Row]) -> String {
         let sal_gap = get_f64(row, "salary_gap_vs_accessible");
         let isolation = get_f64(row, "isolation_score");
 
-        let iso_color = if isolation >= 0.7 { "#ef4444" } else if isolation >= 0.4 { "#f97316" } else if isolation >= 0.2 { "#eab308" } else { "#22c55e" };
-        let iso_label = if isolation >= 0.7 { "高孤立（求人砂漠）" } else if isolation >= 0.4 { "やや孤立" } else if isolation >= 0.2 { "標準" } else { "アクセス良好" };
+        let iso_color = if isolation >= 0.7 {
+            "#ef4444"
+        } else if isolation >= 0.4 {
+            "#f97316"
+        } else if isolation >= 0.2 {
+            "#eab308"
+        } else {
+            "#22c55e"
+        };
+        let iso_label = if isolation >= 0.7 {
+            "高孤立（求人砂漠）"
+        } else if isolation >= 0.4 {
+            "やや孤立"
+        } else if isolation >= 0.2 {
+            "標準"
+        } else {
+            "アクセス良好"
+        };
 
         let gap_color = if sal_gap >= 0.0 { "#22c55e" } else { "#ef4444" };
         let gap_sign = if sal_gap >= 0.0 { "+" } else { "" };
@@ -1204,12 +1363,18 @@ fn render_minimum_wage_section(data: &[Row], pref: &str) -> String {
         html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
 
         // 上位10
-        html.push_str(r#"<div class="bg-navy-700/50 rounded-lg p-4">
-            <h4 class="text-xs font-semibold text-emerald-400 mb-3">上位10都道府県</h4>"#);
+        html.push_str(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+            <h4 class="text-xs font-semibold text-emerald-400 mb-3">上位10都道府県</h4>"#,
+        );
         for row in data.iter().take(10) {
             let prefecture = get_str(row, "prefecture");
             let wage = get_f64(row, "hourly_min_wage");
-            let ratio = if national_avg > 0.0 { wage / national_avg } else { 1.0 };
+            let ratio = if national_avg > 0.0 {
+                wage / national_avg
+            } else {
+                1.0
+            };
             let bar_w = (ratio * 50.0).min(100.0).max(0.0);
             html.push_str(&format!(
                 r#"<div class="flex items-center gap-2 mb-1">
@@ -1224,13 +1389,19 @@ fn render_minimum_wage_section(data: &[Row], pref: &str) -> String {
         html.push_str("</div>");
 
         // 下位10
-        html.push_str(r#"<div class="bg-navy-700/50 rounded-lg p-4">
-            <h4 class="text-xs font-semibold text-rose-400 mb-3">下位10都道府県</h4>"#);
+        html.push_str(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4">
+            <h4 class="text-xs font-semibold text-rose-400 mb-3">下位10都道府県</h4>"#,
+        );
         let bottom: Vec<&Row> = data.iter().rev().take(10).collect();
         for row in &bottom {
             let prefecture = get_str(row, "prefecture");
             let wage = get_f64(row, "hourly_min_wage");
-            let ratio = if national_avg > 0.0 { wage / national_avg } else { 1.0 };
+            let ratio = if national_avg > 0.0 {
+                wage / national_avg
+            } else {
+                1.0
+            };
             let bar_w = (ratio * 50.0).min(100.0).max(0.0);
             html.push_str(&format!(
                 r#"<div class="flex items-center gap-2 mb-1">
@@ -1272,11 +1443,31 @@ fn render_wage_compliance_section(data: &[Row]) -> String {
         let avg_wage = get_f64(row, "avg_hourly_wage");
         let median_wage = get_f64(row, "median_hourly_wage");
 
-        let rate_color = if below_rate > 0.05 { "#ef4444" } else if below_rate > 0.01 { "#f97316" } else if below_rate > 0.0 { "#eab308" } else { "#22c55e" };
-        let rate_label = if below_rate > 0.05 { "要改善" } else if below_rate > 0.01 { "注意" } else if below_rate > 0.0 { "微量" } else { "適正" };
+        let rate_color = if below_rate > 0.05 {
+            "#ef4444"
+        } else if below_rate > 0.01 {
+            "#f97316"
+        } else if below_rate > 0.0 {
+            "#eab308"
+        } else {
+            "#22c55e"
+        };
+        let rate_label = if below_rate > 0.05 {
+            "要改善"
+        } else if below_rate > 0.01 {
+            "注意"
+        } else if below_rate > 0.0 {
+            "微量"
+        } else {
+            "適正"
+        };
 
         // 平均時給 vs 最低賃金の比較バー
-        let wage_ratio = if min_wage > 0.0 { (avg_wage / min_wage * 100.0).min(200.0) } else { 100.0 };
+        let wage_ratio = if min_wage > 0.0 {
+            (avg_wage / min_wage * 100.0).min(200.0)
+        } else {
+            100.0
+        };
         let min_ratio = 50.0_f64;
 
         html.push_str(&format!(
@@ -1332,7 +1523,9 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
         let p = get_str(row, "prefecture");
         let fy = get_str(row, "fiscal_year");
         let ratio = get_f64(row, "ratio_total");
-        if fy.is_empty() || ratio <= 0.0 { continue; }
+        if fy.is_empty() || ratio <= 0.0 {
+            continue;
+        }
         if p == "全国" {
             national.push((fy, ratio));
         } else {
@@ -1345,7 +1538,11 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
     }
 
     // Y軸の範囲を自動計算
-    let all_ratios: Vec<f64> = national.iter().chain(regional.iter()).map(|(_, r)| *r).collect();
+    let all_ratios: Vec<f64> = national
+        .iter()
+        .chain(regional.iter())
+        .map(|(_, r)| *r)
+        .collect();
     let y_min_raw = all_ratios.iter().cloned().fold(f64::INFINITY, f64::min);
     let y_max_raw = all_ratios.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     // 余白を持たせる（0.1刻みで切り捨て/切り上げ）
@@ -1369,12 +1566,12 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
 
     // 座標変換ヘルパー
     let x_pos = |i: usize, total: usize| -> f64 {
-        if total <= 1 { return margin_left + plot_w / 2.0; }
+        if total <= 1 {
+            return margin_left + plot_w / 2.0;
+        }
         margin_left + (i as f64) / ((total - 1) as f64) * plot_w
     };
-    let y_pos = |val: f64| -> f64 {
-        margin_top + plot_h - ((val - y_min) / y_range) * plot_h
-    };
+    let y_pos = |val: f64| -> f64 { margin_top + plot_h - ((val - y_min) / y_range) * plot_h };
 
     let mut svg = String::with_capacity(8_000);
     svg.push_str(&format!(
@@ -1398,12 +1595,18 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
         // Y軸ラベル
         svg.push_str(&format!(
             r##"<text x="{}" y="{}" text-anchor="end" fill="#94a3b8" font-size="11">{:.2}</text>"##,
-            margin_left - 8.0, y + 4.0, val
+            margin_left - 8.0,
+            y + 4.0,
+            val
         ));
     }
 
     // X軸ラベル（年度ごと）— 全国データ基準で表示
-    let x_labels = if !national.is_empty() { &national } else { &regional };
+    let x_labels = if !national.is_empty() {
+        &national
+    } else {
+        &regional
+    };
     let total_points = x_labels.len();
     for (i, (fy, _)) in x_labels.iter().enumerate() {
         let x = x_pos(i, total_points);
@@ -1485,7 +1688,11 @@ fn render_job_openings_ratio_section(data: &[Row], pref: &str) -> String {
     svg.push_str("</svg>");
 
     // 凡例
-    let pref_label = if pref.is_empty() { "（都道府県を選択してください）" } else { pref };
+    let pref_label = if pref.is_empty() {
+        "（都道府県を選択してください）"
+    } else {
+        pref
+    };
     let legend = format!(
         r##"<div class="flex justify-center gap-6 mt-2 text-xs">
             <span class="flex items-center gap-1">
@@ -1526,27 +1733,43 @@ fn render_labor_stats_section(data: &[Row], pref: &str) -> String {
         let fy = get_str(row, "fiscal_year").to_string();
         let sm = get_f64(row, "monthly_salary_male");
         let sf = get_f64(row, "monthly_salary_female");
-        if fy.is_empty() { continue; }
+        if fy.is_empty() {
+            continue;
+        }
         if p == "全国" {
-            if sm > 0.0 { nat_male.push((fy.clone(), sm)); }
-            if sf > 0.0 { nat_female.push((fy.clone(), sf)); }
+            if sm > 0.0 {
+                nat_male.push((fy.clone(), sm));
+            }
+            if sf > 0.0 {
+                nat_female.push((fy.clone(), sf));
+            }
         } else {
-            if sm > 0.0 { reg_male.push((fy.clone(), sm)); }
-            if sf > 0.0 { reg_female.push((fy.clone(), sf)); }
+            if sm > 0.0 {
+                reg_male.push((fy.clone(), sm));
+            }
+            if sf > 0.0 {
+                reg_female.push((fy.clone(), sf));
+            }
         }
     }
 
     // データがなければ非表示
-    if nat_male.is_empty() && reg_male.is_empty() && nat_female.is_empty() && reg_female.is_empty() {
+    if nat_male.is_empty() && reg_male.is_empty() && nat_female.is_empty() && reg_female.is_empty()
+    {
         return String::new();
     }
 
     // 全系列の値を収集してY軸範囲を計算
-    let all_vals: Vec<f64> = nat_male.iter().chain(nat_female.iter())
-        .chain(reg_male.iter()).chain(reg_female.iter())
+    let all_vals: Vec<f64> = nat_male
+        .iter()
+        .chain(nat_female.iter())
+        .chain(reg_male.iter())
+        .chain(reg_female.iter())
         .map(|(_, v)| *v)
         .collect();
-    if all_vals.is_empty() { return String::new(); }
+    if all_vals.is_empty() {
+        return String::new();
+    }
 
     let y_min_raw = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
     let y_max_raw = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -1555,25 +1778,27 @@ fn render_labor_stats_section(data: &[Row], pref: &str) -> String {
     let y_min = if y_min < 0.0 { 0.0 } else { y_min };
     let y_max = ((y_max_raw + 10.0) / 10.0).ceil() * 10.0;
     let y_range = y_max - y_min;
-    if y_range <= 0.0 { return String::new(); }
+    if y_range <= 0.0 {
+        return String::new();
+    }
 
     // SVG描画エリア
     let svg_w: f64 = 800.0;
     let svg_h: f64 = 300.0;
-    let ml: f64 = 60.0;  // margin_left
-    let mr: f64 = 70.0;  // margin_right
-    let mt: f64 = 20.0;  // margin_top
-    let mb: f64 = 50.0;  // margin_bottom
+    let ml: f64 = 60.0; // margin_left
+    let mr: f64 = 70.0; // margin_right
+    let mt: f64 = 20.0; // margin_top
+    let mb: f64 = 50.0; // margin_bottom
     let pw = svg_w - ml - mr;
     let ph = svg_h - mt - mb;
 
     let x_pos = |i: usize, total: usize| -> f64 {
-        if total <= 1 { return ml + pw / 2.0; }
+        if total <= 1 {
+            return ml + pw / 2.0;
+        }
         ml + (i as f64) / ((total - 1) as f64) * pw
     };
-    let y_pos = |val: f64| -> f64 {
-        mt + ph - ((val - y_min) / y_range) * ph
-    };
+    let y_pos = |val: f64| -> f64 { mt + ph - ((val - y_min) / y_range) * ph };
 
     let mut svg = String::with_capacity(10_000);
     svg.push_str(&format!(
@@ -1594,15 +1819,22 @@ fn render_labor_stats_section(data: &[Row], pref: &str) -> String {
         ));
         svg.push_str(&format!(
             r##"<text x="{}" y="{}" text-anchor="end" fill="#94a3b8" font-size="11">{:.0}</text>"##,
-            ml - 8.0, y + 4.0, val
+            ml - 8.0,
+            y + 4.0,
+            val
         ));
     }
 
     // X軸ラベル — 全国男性基準（最も多いデータ）
-    let x_labels = if !nat_male.is_empty() { &nat_male }
-        else if !reg_male.is_empty() { &reg_male }
-        else if !nat_female.is_empty() { &nat_female }
-        else { &reg_female };
+    let x_labels = if !nat_male.is_empty() {
+        &nat_male
+    } else if !reg_male.is_empty() {
+        &reg_male
+    } else if !nat_female.is_empty() {
+        &nat_female
+    } else {
+        &reg_female
+    };
     let total_pts = x_labels.len();
     for (i, (fy, _)) in x_labels.iter().enumerate() {
         let x = x_pos(i, total_pts);
@@ -1613,16 +1845,29 @@ fn render_labor_stats_section(data: &[Row], pref: &str) -> String {
     }
 
     // 折れ線描画ヘルパー
-    let draw_line = |svg: &mut String, series: &[(String, f64)], color: &str, dash: bool, w: &str| {
-        if series.len() < 2 { return; }
+    let draw_line = |svg: &mut String,
+                     series: &[(String, f64)],
+                     color: &str,
+                     dash: bool,
+                     w: &str| {
+        if series.len() < 2 {
+            return;
+        }
         let mut path = String::new();
         for (i, (_, v)) in series.iter().enumerate() {
             let x = x_pos(i, series.len());
             let y = y_pos(*v);
-            if i == 0 { path.push_str(&format!("M{x:.1},{y:.1}")); }
-            else { path.push_str(&format!(" L{x:.1},{y:.1}")); }
+            if i == 0 {
+                path.push_str(&format!("M{x:.1},{y:.1}"));
+            } else {
+                path.push_str(&format!(" L{x:.1},{y:.1}"));
+            }
         }
-        let dash_attr = if dash { r#" stroke-dasharray="6,3""# } else { "" };
+        let dash_attr = if dash {
+            r#" stroke-dasharray="6,3""#
+        } else {
+            ""
+        };
         svg.push_str(&format!(
             r##"<path d="{path}" fill="none" stroke="{color}" stroke-width="{w}"{dash_attr}/>"##
         ));
@@ -1658,7 +1903,11 @@ fn render_labor_stats_section(data: &[Row], pref: &str) -> String {
     svg.push_str("</svg>");
 
     // 凡例
-    let pref_label = if pref.is_empty() { "（都道府県を選択してください）" } else { pref };
+    let pref_label = if pref.is_empty() {
+        "（都道府県を選択してください）"
+    } else {
+        pref
+    };
     let legend = format!(
         r##"<div class="flex flex-wrap justify-center gap-4 mt-2 text-xs">
             <span class="flex items-center gap-1">
@@ -1713,13 +1962,48 @@ fn render_prefecture_stats_section(data: &[Row], pref: &str) -> String {
         html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
 
         let cards: [(&str, String, &str, &str); 7] = [
-            ("完全失業率", format!("{unemp:.1}%"), "顕在求職者率", "#ef4444"),
-            ("転職希望者比率", format!("{desire:.1}%"), "潜在労働力流動性", "#f59e0b"),
-            ("非正規雇用比率", format!("{non_reg:.1}%"), "就業構造", "#8b5cf6"),
-            ("平均所定内給与", format!("{wage:.0}千円"), "賃金構造基本統計", "#22c55e"),
-            ("物価地域差指数", format!("{price:.1}"), "全国=100", "#06b6d4"),
-            ("有効求人充足率", format!("{fulfill:.1}%"), "充足数/新規求人", "#3b82f6"),
-            ("実質賃金力", format!("{real_wage:.1}千円"), "物価調整後", "#ec4899"),
+            (
+                "完全失業率",
+                format!("{unemp:.1}%"),
+                "顕在求職者率",
+                "#ef4444",
+            ),
+            (
+                "転職希望者比率",
+                format!("{desire:.1}%"),
+                "潜在労働力流動性",
+                "#f59e0b",
+            ),
+            (
+                "非正規雇用比率",
+                format!("{non_reg:.1}%"),
+                "就業構造",
+                "#8b5cf6",
+            ),
+            (
+                "平均所定内給与",
+                format!("{wage:.0}千円"),
+                "賃金構造基本統計",
+                "#22c55e",
+            ),
+            (
+                "物価地域差指数",
+                format!("{price:.1}"),
+                "全国=100",
+                "#06b6d4",
+            ),
+            (
+                "有効求人充足率",
+                format!("{fulfill:.1}%"),
+                "充足数/新規求人",
+                "#3b82f6",
+            ),
+            (
+                "実質賃金力",
+                format!("{real_wage:.1}千円"),
+                "物価調整後",
+                "#ec4899",
+            ),
         ];
 
         for (label, value, sub, color) in &cards {
@@ -1748,9 +2032,12 @@ fn render_prefecture_stats_section(data: &[Row], pref: &str) -> String {
                 <td class="text-right">{:.1}%</td><td class="text-right">{:.0}</td>
                 <td class="text-right">{:.1}</td><td class="text-right">{:.1}%</td>
                 <td class="text-right">{:.1}</td></tr>"#,
-                get_f64(row, "unemployment_rate"), get_f64(row, "job_change_desire_rate"),
-                get_f64(row, "non_regular_rate"), get_f64(row, "avg_monthly_wage"),
-                get_f64(row, "price_index"), get_f64(row, "fulfillment_rate"),
+                get_f64(row, "unemployment_rate"),
+                get_f64(row, "job_change_desire_rate"),
+                get_f64(row, "non_regular_rate"),
+                get_f64(row, "avg_monthly_wage"),
+                get_f64(row, "price_index"),
+                get_f64(row, "fulfillment_rate"),
                 get_f64(row, "real_wage_index"),
             ));
         }
@@ -1764,9 +2051,11 @@ fn render_prefecture_stats_section(data: &[Row], pref: &str) -> String {
 
 fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
     let mut html = String::with_capacity(8_000);
-    html.push_str(r#"<div class="stat-card">
+    html.push_str(
+        r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">👥 人口構成</h3>
-        <p class="text-xs text-slate-500 mb-4">住民基本台帳に基づく人口・年齢構成データ。</p>"#);
+        <p class="text-xs text-slate-500 mb-4">住民基本台帳に基づく人口・年齢構成データ。</p>"#,
+    );
 
     if let Some(row) = pop_data.first() {
         let total = get_i64(row, "total_population");
@@ -1777,7 +2066,13 @@ fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
         let youth = get_f64(row, "youth_rate");
 
         // 年齢3区分バー
-        let aging_color = if aging >= 35.0 { "#ef4444" } else if aging >= 28.0 { "#f97316" } else { "#22c55e" };
+        let aging_color = if aging >= 35.0 {
+            "#ef4444"
+        } else if aging >= 28.0 {
+            "#f97316"
+        } else {
+            "#22c55e"
+        };
 
         html.push_str(&format!(
             r#"<div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
@@ -1822,9 +2117,11 @@ fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
 
     // 人口ピラミッドチャート（横棒グラフ左右対称）
     if !pyramid.is_empty() {
-        let max_count: i64 = pyramid.iter()
+        let max_count: i64 = pyramid
+            .iter()
             .map(|r| get_i64(r, "male_count").max(get_i64(r, "female_count")))
-            .max().unwrap_or(1);
+            .max()
+            .unwrap_or(1);
 
         html.push_str(r#"<div class="mt-4">
             <div class="text-xs text-slate-400 font-semibold mb-2">人口ピラミッド</div>
@@ -1835,8 +2132,16 @@ fn render_population_section(pop_data: &[Row], pyramid: &[Row]) -> String {
             let ag = get_str(row, "age_group");
             let m = get_i64(row, "male_count");
             let f = get_i64(row, "female_count");
-            let m_pct = if max_count > 0 { m as f64 / max_count as f64 * 100.0 } else { 0.0 };
-            let f_pct = if max_count > 0 { f as f64 / max_count as f64 * 100.0 } else { 0.0 };
+            let m_pct = if max_count > 0 {
+                m as f64 / max_count as f64 * 100.0
+            } else {
+                0.0
+            };
+            let f_pct = if max_count > 0 {
+                f as f64 / max_count as f64 * 100.0
+            } else {
+                0.0
+            };
 
             html.push_str(&format!(
                 r#"<div class="flex items-center" style="height:1.1rem;margin-bottom:1px">
@@ -1893,7 +2198,11 @@ fn render_demographics_section(migration: &[Row], daytime: &[Row]) -> String {
         let day = get_i64(row, "daytime_pop");
         let ratio = get_f64(row, "day_night_ratio");
         let ratio_color = if ratio >= 100.0 { "#22c55e" } else { "#f59e0b" };
-        let label = if ratio >= 100.0 { "昼間流入超過" } else { "昼間流出超過" };
+        let label = if ratio >= 100.0 {
+            "昼間流入超過"
+        } else {
+            "昼間流出超過"
+        };
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -1917,21 +2226,27 @@ fn render_demographics_section(migration: &[Row], daytime: &[Row]) -> String {
 
 /// 産業別事業所数（横棒グラフ、上位15産業）
 fn render_establishment_section(data: &[Row], pref: &str) -> String {
-    if data.is_empty() { return String::new(); }
+    if data.is_empty() {
+        return String::new();
+    }
 
     // 上位15産業に絞る（fetch側でDESCソート済み）
     let top: Vec<&Row> = data.iter().take(15).collect();
-    if top.is_empty() { return String::new(); }
+    if top.is_empty() {
+        return String::new();
+    }
 
     // 最大値を取得（バー幅の基準）
-    let max_count = top.iter()
+    let max_count = top
+        .iter()
         .map(|r| get_i64(r, "establishment_count"))
         .max()
         .unwrap_or(1)
         .max(1);
 
     // 基準年を取得
-    let ref_year = top.first()
+    let ref_year = top
+        .first()
         .map(|r| get_str(r, "reference_year").to_string())
         .unwrap_or_default();
 
@@ -1985,63 +2300,85 @@ fn render_turnover_section(data: &[Row], pref: &str) -> String {
         let fy = get_str(row, "fiscal_year").to_string();
         let entry = get_f64(row, "entry_rate");
         let sep = get_f64(row, "separation_rate");
-        if fy.is_empty() { continue; }
+        if fy.is_empty() {
+            continue;
+        }
         if p == "全国" {
-            if entry > 0.0 { nat_entry.push((fy.clone(), entry)); }
-            if sep > 0.0 { nat_sep.push((fy, sep)); }
+            if entry > 0.0 {
+                nat_entry.push((fy.clone(), entry));
+            }
+            if sep > 0.0 {
+                nat_sep.push((fy, sep));
+            }
         } else {
-            if entry > 0.0 { reg_entry.push((fy.clone(), entry)); }
-            if sep > 0.0 { reg_sep.push((fy, sep)); }
+            if entry > 0.0 {
+                reg_entry.push((fy.clone(), entry));
+            }
+            if sep > 0.0 {
+                reg_sep.push((fy, sep));
+            }
         }
     }
 
     // 入職率・離職率ともに空ならセクション非表示
-    if nat_entry.is_empty() && nat_sep.is_empty()
-        && reg_entry.is_empty() && reg_sep.is_empty()
-    {
+    if nat_entry.is_empty() && nat_sep.is_empty() && reg_entry.is_empty() && reg_sep.is_empty() {
         return String::new();
     }
 
     // Y軸の範囲を自動計算（全系列の最大最小）
-    let all_vals: Vec<f64> = nat_entry.iter().chain(nat_sep.iter())
-        .chain(reg_entry.iter()).chain(reg_sep.iter())
-        .map(|(_, v)| *v).collect();
+    let all_vals: Vec<f64> = nat_entry
+        .iter()
+        .chain(nat_sep.iter())
+        .chain(reg_entry.iter())
+        .chain(reg_sep.iter())
+        .map(|(_, v)| *v)
+        .collect();
     let y_min_raw = all_vals.iter().cloned().fold(f64::INFINITY, f64::min);
     let y_max_raw = all_vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let y_min = ((y_min_raw - 1.0) * 1.0).floor().max(0.0);
     let y_max = ((y_max_raw + 1.0) * 1.0).ceil();
     let y_range = y_max - y_min;
-    if y_range <= 0.0 { return String::new(); }
+    if y_range <= 0.0 {
+        return String::new();
+    }
 
     // SVG描画パラメータ
     let svg_w: f64 = 800.0;
     let svg_h: f64 = 300.0;
-    let ml: f64 = 60.0;  // margin_left
-    let mr: f64 = 70.0;  // margin_right
-    let mt: f64 = 20.0;  // margin_top
-    let mb: f64 = 50.0;  // margin_bottom
+    let ml: f64 = 60.0; // margin_left
+    let mr: f64 = 70.0; // margin_right
+    let mt: f64 = 20.0; // margin_top
+    let mb: f64 = 50.0; // margin_bottom
     let pw = svg_w - ml - mr; // plot_width
     let ph = svg_h - mt - mb; // plot_height
 
     // X軸基準（全系列のfiscal_yearを統合して一意な昇順リストを作成）
     let x_labels: Vec<String> = {
-        let mut all_fy: Vec<String> = nat_entry.iter()
-            .chain(nat_sep.iter()).chain(reg_entry.iter()).chain(reg_sep.iter())
-            .map(|(fy, _)| fy.clone()).collect();
+        let mut all_fy: Vec<String> = nat_entry
+            .iter()
+            .chain(nat_sep.iter())
+            .chain(reg_entry.iter())
+            .chain(reg_sep.iter())
+            .map(|(fy, _)| fy.clone())
+            .collect();
         all_fy.sort();
         all_fy.dedup();
         all_fy
     };
     let total_pts = x_labels.len();
-    if total_pts == 0 { return String::new(); }
+    if total_pts == 0 {
+        return String::new();
+    }
 
     // 座標変換クロージャ
     let x_pos = |fy: &str| -> Option<f64> {
-        x_labels.iter().position(|f| f == fy)
-            .map(|i| {
-                if total_pts <= 1 { ml + pw / 2.0 }
-                else { ml + (i as f64) / ((total_pts - 1) as f64) * pw }
-            })
+        x_labels.iter().position(|f| f == fy).map(|i| {
+            if total_pts <= 1 {
+                ml + pw / 2.0
+            } else {
+                ml + (i as f64) / ((total_pts - 1) as f64) * pw
+            }
+        })
     };
     let y_pos = |val: f64| -> f64 { mt + ph - ((val - y_min) / y_range) * ph };
 
@@ -2070,8 +2407,11 @@ fn render_turnover_section(data: &[Row], pref: &str) -> String {
 
     // X軸ラベル
     for (i, fy) in x_labels.iter().enumerate() {
-        let x = if total_pts <= 1 { ml + pw / 2.0 }
-                else { ml + (i as f64) / ((total_pts - 1) as f64) * pw };
+        let x = if total_pts <= 1 {
+            ml + pw / 2.0
+        } else {
+            ml + (i as f64) / ((total_pts - 1) as f64) * pw
+        };
         svg.push_str(&format!(
             r##"<text x="{x:.1}" y="{}" text-anchor="middle" fill="#94a3b8" font-size="10">{fy}</text>"##,
             svg_h - 10.0
@@ -2084,15 +2424,17 @@ fn render_turnover_section(data: &[Row], pref: &str) -> String {
     let reg_sep_label = format!("{}離職率", if pref.is_empty() { "" } else { pref });
     let series: Vec<(&Vec<(String, f64)>, &str, &str, f64, &str)> = vec![
         (&nat_entry, "#22c55e", "6,3", 2.5, "全国入職率"),
-        (&nat_sep,   "#ef4444", "6,3", 2.5, "全国離職率"),
-        (&reg_entry, "#22c55e", "",    3.0, &reg_entry_label),
-        (&reg_sep,   "#ef4444", "",    3.0, &reg_sep_label),
+        (&nat_sep, "#ef4444", "6,3", 2.5, "全国離職率"),
+        (&reg_entry, "#22c55e", "", 3.0, &reg_entry_label),
+        (&reg_sep, "#ef4444", "", 3.0, &reg_sep_label),
     ];
 
     for (pts, color, dash, radius, label) in &series {
-        if pts.len() < 2 { continue; }
+        if pts.len() < 2 {
+            continue;
+        }
         let mut path = String::new();
-        for (_j, (fy, val)) in pts.iter().enumerate() {
+        for (fy, val) in pts.iter() {
             if let Some(x) = x_pos(fy) {
                 let y = y_pos(*val);
                 if path.is_empty() {
@@ -2103,8 +2445,11 @@ fn render_turnover_section(data: &[Row], pref: &str) -> String {
             }
         }
         if !path.is_empty() {
-            let dash_attr = if dash.is_empty() { String::new() }
-                else { format!(r#" stroke-dasharray="{dash}""#) };
+            let dash_attr = if dash.is_empty() {
+                String::new()
+            } else {
+                format!(r#" stroke-dasharray="{dash}""#)
+            };
             let width = if dash.is_empty() { "2" } else { "1.5" };
             svg.push_str(&format!(
                 r##"<path d="{path}" fill="none" stroke="{color}" stroke-width="{width}"{dash_attr}/>"##
@@ -2134,7 +2479,11 @@ fn render_turnover_section(data: &[Row], pref: &str) -> String {
     svg.push_str("</svg>");
 
     // 凡例
-    let pref_label = if pref.is_empty() { "（都道府県を選択）" } else { pref };
+    let pref_label = if pref.is_empty() {
+        "（都道府県を選択）"
+    } else {
+        pref
+    };
     let legend = format!(
         r##"<div class="flex flex-wrap justify-center gap-4 mt-2 text-xs">
             <span class="flex items-center gap-1">
@@ -2175,26 +2524,33 @@ fn render_turnover_section(data: &[Row], pref: &str) -> String {
 
 /// 消費支出プロファイル（横棒グラフ、CSSベース）
 fn render_household_spending_section(data: &[Row], pref: &str) -> String {
-    if data.is_empty() { return String::new(); }
+    if data.is_empty() {
+        return String::new();
+    }
 
     // 「消費支出」（総計）を除外し、内訳カテゴリのみ上位10件に絞る
-    let filtered: Vec<&Row> = data.iter()
+    let filtered: Vec<&Row> = data
+        .iter()
         .filter(|r| {
             let cat = get_str(r, "category");
             cat != "消費支出" && !cat.is_empty()
         })
         .take(10)
         .collect();
-    if filtered.is_empty() { return String::new(); }
+    if filtered.is_empty() {
+        return String::new();
+    }
 
     // 最大値を取得（バー幅の基準）
-    let max_amount = filtered.iter()
+    let max_amount = filtered
+        .iter()
         .map(|r| get_f64(r, "monthly_amount"))
         .fold(0.0_f64, f64::max)
         .max(1.0);
 
     // 基準年を取得
-    let ref_year = filtered.first()
+    let ref_year = filtered
+        .first()
         .map(|r| get_str(r, "reference_year").to_string())
         .unwrap_or_default();
 
@@ -2254,12 +2610,15 @@ fn render_household_spending_section(data: &[Row], pref: &str) -> String {
 
 /// 事業所動態セクション（開業率 vs 廃業率の横棒グラフ）
 fn render_business_dynamics_section(data: &[Row], pref: &str) -> String {
-    if data.is_empty() { return String::new(); }
+    if data.is_empty() {
+        return String::new();
+    }
 
     let pref_label = if pref.is_empty() { "全国" } else { pref };
 
     // バーの最大幅を決定するため、開業率・廃業率の最大値を取得
-    let max_rate = data.iter()
+    let max_rate = data
+        .iter()
         .flat_map(|r| vec![get_f64(r, "opening_rate"), get_f64(r, "closure_rate")])
         .fold(0.0_f64, f64::max)
         .max(0.1);
@@ -2317,7 +2676,9 @@ fn render_business_dynamics_section(data: &[Row], pref: &str) -> String {
 
 /// 気象特性セクション（最新年度のサマリーカード、2x3グリッド）
 fn render_climate_section(data: &[Row], pref: &str) -> String {
-    if data.is_empty() { return String::new(); }
+    if data.is_empty() {
+        return String::new();
+    }
 
     let pref_label = if pref.is_empty() { "全国" } else { pref };
 
@@ -2370,12 +2731,15 @@ fn render_climate_section(data: &[Row], pref: &str) -> String {
 
 /// 介護需要推移セクション（SVG折れ線グラフ: 介護給付件数）
 fn render_care_demand_section(data: &[Row], pref: &str) -> String {
-    if data.is_empty() { return String::new(); }
+    if data.is_empty() {
+        return String::new();
+    }
 
     let pref_label = if pref.is_empty() { "全国" } else { pref };
 
     // 介護保険給付件数を抽出
-    let points: Vec<(String, f64)> = data.iter()
+    let points: Vec<(String, f64)> = data
+        .iter()
         .map(|r| {
             let fy = get_str(r, "fiscal_year").to_string();
             let cases = get_f64(r, "insurance_benefit_cases");
@@ -2384,7 +2748,9 @@ fn render_care_demand_section(data: &[Row], pref: &str) -> String {
         .filter(|(_, v)| *v > 0.0)
         .collect();
 
-    if points.is_empty() { return String::new(); }
+    if points.is_empty() {
+        return String::new();
+    }
 
     let min_val = points.iter().map(|(_, v)| *v).fold(f64::MAX, f64::min);
     let max_val = points.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max);
@@ -2407,7 +2773,12 @@ fn render_care_demand_section(data: &[Row], pref: &str) -> String {
     let mut x_labels = String::new();
 
     for (i, (fy, val)) in points.iter().enumerate() {
-        let x = pad_l + if n > 1 { chart_w * (i as f64) / ((n - 1) as f64) } else { chart_w / 2.0 };
+        let x = pad_l
+            + if n > 1 {
+                chart_w * (i as f64) / ((n - 1) as f64)
+            } else {
+                chart_w / 2.0
+            };
         let y = pad_t + chart_h - chart_h * (val - min_val) / range;
 
         if i == 0 {
@@ -2499,7 +2870,13 @@ fn render_region_benchmark_section(data: &[Row]) -> String {
     for row in data {
         let grp = get_str(row, "emp_group");
         let composite = get_f64(row, "composite_benchmark");
-        let comp_color = if composite >= 70.0 { "#22c55e" } else if composite >= 50.0 { "#eab308" } else { "#ef4444" };
+        let comp_color = if composite >= 70.0 {
+            "#22c55e"
+        } else if composite >= 50.0 {
+            "#eab308"
+        } else {
+            "#ef4444"
+        };
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -2553,8 +2930,20 @@ fn render_fulfillment_section(data: &[Row]) -> String {
         let c_pct = get_f64(row, "grade_c_pct");
         let d_pct = get_f64(row, "grade_d_pct");
 
-        let score_color = if score >= 75.0 { "#ef4444" } else if score >= 50.0 { "#f59e0b" } else { "#22c55e" };
-        let score_label = if score >= 75.0 { "充足困難" } else if score >= 50.0 { "やや困難" } else { "充足容易" };
+        let score_color = if score >= 75.0 {
+            "#ef4444"
+        } else if score >= 50.0 {
+            "#f59e0b"
+        } else {
+            "#22c55e"
+        };
+        let score_label = if score >= 75.0 {
+            "充足困難"
+        } else if score >= 50.0 {
+            "やや困難"
+        } else {
+            "充足容易"
+        };
 
         let a_w = a_pct.min(100.0).max(0.0);
         let b_w = b_pct.min(100.0).max(0.0);
@@ -2615,9 +3004,17 @@ fn render_mobility_section(data: &[Row]) -> String {
 
         let net_color = if net >= 0.0 { "#22c55e" } else { "#ef4444" };
         let net_arrow = if net >= 0.0 { "+" } else { "-" };
-        let net_label = if net >= 0.0 { "流入超過（人材吸引力あり）" } else { "流出超過（人材流出リスク）" };
+        let net_label = if net >= 0.0 {
+            "流入超過（人材吸引力あり）"
+        } else {
+            "流出超過（人材流出リスク）"
+        };
 
-        let destinations: Vec<&str> = top3.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let destinations: Vec<&str> = top3
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
 
         html.push_str(&format!(
             r#"<div class="bg-navy-700/50 rounded-lg p-4">
@@ -2639,11 +3036,15 @@ fn render_mobility_section(data: &[Row]) -> String {
         ));
 
         if !destinations.is_empty() {
-            html.push_str(r#"<div class="mt-2 pt-2 border-t border-slate-700">
-                <div class="text-xs text-slate-500 mb-1">主要流出先</div>"#);
+            html.push_str(
+                r#"<div class="mt-2 pt-2 border-t border-slate-700">
+                <div class="text-xs text-slate-500 mb-1">主要流出先</div>"#,
+            );
             for (i, dest) in destinations.iter().enumerate().take(3) {
                 html.push_str(&format!(
-                    r#"<div class="text-xs text-slate-300">{}. {}</div>"#, i + 1, dest
+                    r#"<div class="text-xs text-slate-300">{}. {}</div>"#,
+                    i + 1,
+                    dest
                 ));
             }
             html.push_str("</div>");
@@ -2662,14 +3063,16 @@ fn render_shadow_wage_section(data: &[Row]) -> String {
         <h3 class="text-sm text-slate-400 mb-1">📐 給与分位表</h3>
         <p class="text-xs text-slate-500 mb-4">給与分布の詳細（10/25/50/75/90パーセンタイル）。箱ひげ風バーでP25-P75の範囲を可視化します。</p>"#);
 
-    html.push_str(r#"<div style="overflow-x:auto;"><table class="data-table text-xs">
+    html.push_str(
+        r#"<div style="overflow-x:auto;"><table class="data-table text-xs">
         <thead><tr>
             <th>雇用形態</th><th>給与種別</th><th class="text-right">件数</th>
             <th class="text-right">P10</th><th class="text-right">P25</th>
             <th class="text-right">P50</th><th class="text-right">P75</th>
             <th class="text-right">P90</th><th class="text-right">平均</th>
             <th style="width:120px">分布</th>
-        </tr></thead><tbody>"#);
+        </tr></thead><tbody>"#,
+    );
 
     for row in data {
         let grp = get_str(row, "emp_group");
@@ -2685,7 +3088,9 @@ fn render_shadow_wage_section(data: &[Row]) -> String {
         // 箱ひげ風バー: P90を100%として P25-P75の範囲を表示
         let max_val = p90.max(1.0);
         let box_left = (p25 / max_val * 100.0).min(100.0);
-        let box_width = ((p75 - p25) / max_val * 100.0).min(100.0 - box_left).max(0.0);
+        let box_width = ((p75 - p25) / max_val * 100.0)
+            .min(100.0 - box_left)
+            .max(0.0);
         let median_pos = (p50 / max_val * 100.0).min(100.0);
 
         html.push_str(&format!(
@@ -2730,7 +3135,10 @@ pub(crate) fn render_subtab_7(
     pref: &str,
     muni: &str,
 ) -> String {
-    use super::fetch::{fetch_commute_zone, fetch_commute_zone_pyramid, fetch_population_pyramid, fetch_spatial_mismatch};
+    use super::fetch::{
+        fetch_commute_zone, fetch_commute_zone_pyramid, fetch_population_pyramid,
+        fetch_spatial_mismatch,
+    };
 
     let mut html = String::with_capacity(8_000);
     html.push_str(r#"<div class="space-y-4">"#);
@@ -2759,7 +3167,9 @@ pub(crate) fn render_subtab_7(
 
     // 都道府県カウント
     let mut pref_set = std::collections::HashSet::new();
-    for m in &zone { pref_set.insert(m.prefecture.as_str()); }
+    for m in &zone {
+        pref_set.insert(m.prefecture.as_str());
+    }
     let pref_count = pref_set.len();
 
     // 通勤圏人口集計
@@ -2773,16 +3183,24 @@ pub(crate) fn render_subtab_7(
         zone_total_pop += total;
         let age = get_str(row, "age_group");
         match age {
-            "15-19"|"20-24"|"25-29"|"30-34"|"35-39"|"40-44"|"45-49"|"50-54"|"55-59"|"60-64"
-            | "10-19"|"20-29"|"30-39"|"40-49"|"50-59"|"60-69" => zone_working_age += total,
+            "15-19" | "20-24" | "25-29" | "30-34" | "35-39" | "40-44" | "45-49" | "50-54"
+            | "55-59" | "60-64" | "10-19" | "20-29" | "30-39" | "40-49" | "50-59" | "60-69" => {
+                zone_working_age += total
+            }
             _ => {}
         }
         match age {
-            "65-69"|"70-74"|"75-79"|"80-84"|"85+" | "70-79"|"80+" => zone_elderly += total,
+            "65-69" | "70-74" | "75-79" | "80-84" | "85+" | "70-79" | "80+" => {
+                zone_elderly += total
+            }
             _ => {}
         }
     }
-    let aging_rate = if zone_total_pop > 0 { zone_elderly as f64 / zone_total_pop as f64 } else { 0.0 };
+    let aging_rate = if zone_total_pop > 0 {
+        zone_elderly as f64 / zone_total_pop as f64
+    } else {
+        0.0
+    };
 
     // ヘッダー
     html.push_str(&format!(
@@ -2793,11 +3211,36 @@ pub(crate) fn render_subtab_7(
 
     // KPIカード
     html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
-    kpi(&mut html, "圏内総人口", &format!("{}人", format_number(zone_total_pop)), "text-blue-400");
-    kpi(&mut html, "生産年齢人口", &format!("{}人", format_number(zone_working_age)), "text-emerald-400");
-    kpi(&mut html, "高齢化率", &format!("{:.1}%", aging_rate * 100.0),
-        if aging_rate > 0.30 { "text-red-400" } else if aging_rate > 0.25 { "text-amber-400" } else { "text-green-400" });
-    kpi(&mut html, "対象市区町村", &format!("{}件 / {}県", zone.len(), pref_count), "text-cyan-400");
+    kpi(
+        &mut html,
+        "圏内総人口",
+        &format!("{}人", format_number(zone_total_pop)),
+        "text-blue-400",
+    );
+    kpi(
+        &mut html,
+        "生産年齢人口",
+        &format!("{}人", format_number(zone_working_age)),
+        "text-emerald-400",
+    );
+    kpi(
+        &mut html,
+        "高齢化率",
+        &format!("{:.1}%", aging_rate * 100.0),
+        if aging_rate > 0.30 {
+            "text-red-400"
+        } else if aging_rate > 0.25 {
+            "text-amber-400"
+        } else {
+            "text-green-400"
+        },
+    );
+    kpi(
+        &mut html,
+        "対象市区町村",
+        &format!("{}件 / {}県", zone.len(), pref_count),
+        "text-cyan-400",
+    );
     html.push_str("</div>");
 
     // 蝶形ピラミッドチャート
@@ -2814,14 +3257,17 @@ pub(crate) fn render_subtab_7(
 
     // 空間ミスマッチ情報
     if !spatial.is_empty() {
-        html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">通勤圏求人市場</h4>"#);
+        html.push_str(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">通勤圏求人市場</h4>"#,
+        );
         html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
         // 正社員優先、なければfirst()にフォールバック
-        let (sm_row, is_fallback) = if let Some(row) = spatial.iter().find(|r| get_str(r, "emp_group") == "正社員") {
-            (Some(row), false)
-        } else {
-            (spatial.first(), true)
-        };
+        let (sm_row, is_fallback) =
+            if let Some(row) = spatial.iter().find(|r| get_str(r, "emp_group") == "正社員") {
+                (Some(row), false)
+            } else {
+                (spatial.first(), true)
+            };
         if let Some(row) = sm_row {
             if is_fallback {
                 let grp = get_str(row, "emp_group");
@@ -2831,25 +3277,56 @@ pub(crate) fn render_subtab_7(
             let local = get_i64(row, "posting_count");
             let gap = get_f64(row, "salary_gap_vs_accessible");
             let iso = get_f64(row, "isolation_score");
-            kpi(&mut html, "30km圏内求人数", &format_number(acc30), "text-blue-400");
+            kpi(
+                &mut html,
+                "30km圏内求人数",
+                &format_number(acc30),
+                "text-blue-400",
+            );
             kpi(&mut html, "地元求人数", &format_number(local), "text-white");
-            kpi(&mut html, "給与差(対圏内)", &format!("{:+.0}円", gap), if gap < 0.0 { "text-red-400" } else { "text-green-400" });
-            kpi(&mut html, "孤立スコア", &format!("{:.2}", iso), if iso > 0.5 { "text-red-400" } else { "text-green-400" });
+            kpi(
+                &mut html,
+                "給与差(対圏内)",
+                &format!("{:+.0}円", gap),
+                if gap < 0.0 {
+                    "text-red-400"
+                } else {
+                    "text-green-400"
+                },
+            );
+            kpi(
+                &mut html,
+                "孤立スコア",
+                &format!("{:.2}", iso),
+                if iso > 0.5 {
+                    "text-red-400"
+                } else {
+                    "text-green-400"
+                },
+            );
         }
         html.push_str("</div></div>");
     }
 
     // 圏内市区町村テーブル
-    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">圏内市区町村一覧</h4>"#);
+    html.push_str(
+        r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">圏内市区町村一覧</h4>"#,
+    );
     html.push_str(r#"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">"#);
-    html.push_str(r#"<thead><tr class="text-slate-500 border-b border-slate-700">
+    html.push_str(
+        r#"<thead><tr class="text-slate-500 border-b border-slate-700">
         <th class="text-left py-1 px-2">県</th>
         <th class="text-left py-1 px-2">市区町村</th>
         <th class="text-right py-1 px-2">距離</th>
-    </tr></thead><tbody>"#);
+    </tr></thead><tbody>"#,
+    );
     for m in zone.iter().take(50) {
         let is_self = m.prefecture == pref && m.municipality == muni;
-        let style = if is_self { r#" class="text-blue-400 font-medium""# } else { "" };
+        let style = if is_self {
+            r#" class="text-blue-400 font-medium""#
+        } else {
+            ""
+        };
         html.push_str(&format!(
             r#"<tr class="border-b border-slate-800"><td class="py-1 px-2"{style}>{}</td><td class="py-1 px-2"{style}>{}</td><td class="text-right py-1 px-2">{:.1}km</td></tr>"#,
             escape_html(&m.prefecture), escape_html(&m.municipality), m.distance_km
@@ -2885,14 +3362,20 @@ pub(crate) fn render_subtab_7(
         if !inflow.is_empty() {
             html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">📥 通勤流入元 Top 10（実フロー）</h4>"#);
             html.push_str(r#"<div class="overflow-x-auto"><table class="w-full text-xs">"#);
-            html.push_str(r#"<thead><tr class="text-slate-500 border-b border-slate-700">
+            html.push_str(
+                r#"<thead><tr class="text-slate-500 border-b border-slate-700">
                 <th class="text-left py-1 px-2">流入元</th>
                 <th class="text-right py-1 px-2">通勤者数</th>
                 <th class="text-right py-1 px-2">男性</th>
                 <th class="text-right py-1 px-2">女性</th>
-            </tr></thead><tbody>"#);
+            </tr></thead><tbody>"#,
+            );
             for f in inflow.iter().take(10) {
-                let loc = format!("{}{}", escape_html(&f.partner_pref), escape_html(&f.partner_muni));
+                let loc = format!(
+                    "{}{}",
+                    escape_html(&f.partner_pref),
+                    escape_html(&f.partner_muni)
+                );
                 let cross_pref = if f.partner_pref != pref { " 🔀" } else { "" };
                 html.push_str(&format!(
                     r#"<tr class="border-b border-slate-800">
@@ -2976,19 +3459,17 @@ fn build_commute_sankey(
 fn build_butterfly_pyramid(zone: &[Row], local: &[Row], muni_name: &str) -> String {
     use serde_json::json;
 
-    let ages: Vec<String> = zone.iter()
+    let ages: Vec<String> = zone
+        .iter()
         .map(|r| get_str(r, "age_group").to_string())
         .collect();
 
-    let zone_male: Vec<i64> = zone.iter()
-        .map(|r| -get_i64(r, "male_count"))
-        .collect();
-    let zone_female: Vec<i64> = zone.iter()
-        .map(|r| get_i64(r, "female_count"))
-        .collect();
+    let zone_male: Vec<i64> = zone.iter().map(|r| -get_i64(r, "male_count")).collect();
+    let zone_female: Vec<i64> = zone.iter().map(|r| get_i64(r, "female_count")).collect();
 
     // ローカルピラミッド（年齢順にマッチング）
-    let local_map: std::collections::HashMap<String, (i64, i64)> = local.iter()
+    let local_map: std::collections::HashMap<String, (i64, i64)> = local
+        .iter()
         .map(|r| {
             let age = get_str(r, "age_group").to_string();
             let m = get_i64(r, "male_count");
@@ -2997,11 +3478,13 @@ fn build_butterfly_pyramid(zone: &[Row], local: &[Row], muni_name: &str) -> Stri
         })
         .collect();
 
-    let local_male: Vec<i64> = ages.iter()
-        .map(|a| -local_map.get(a).map(|(m,_)| *m).unwrap_or(0))
+    let local_male: Vec<i64> = ages
+        .iter()
+        .map(|a| -local_map.get(a).map(|(m, _)| *m).unwrap_or(0))
         .collect();
-    let local_female: Vec<i64> = ages.iter()
-        .map(|a| local_map.get(a).map(|(_,f)| *f).unwrap_or(0))
+    let local_female: Vec<i64> = ages
+        .iter()
+        .map(|a| local_map.get(a).map(|(_, f)| *f).unwrap_or(0))
         .collect();
 
     let legend_male_local = format!("男性({})", muni_name);

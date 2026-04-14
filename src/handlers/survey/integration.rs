@@ -14,7 +14,11 @@ pub(crate) fn render_integration(
     companies: &[NearbyCompany],
 ) -> String {
     let mut html = String::with_capacity(12_000);
-    let location = if !muni.is_empty() { format!("{} {}", pref, muni) } else { pref.to_string() };
+    let location = if !muni.is_empty() {
+        format!("{} {}", pref, muni)
+    } else {
+        pref.to_string()
+    };
 
     html.push_str(&format!(
         r#"<div class="space-y-4 mt-4">
@@ -49,19 +53,57 @@ fn render_hw_section(ctx: &InsightContext) -> String {
     } else {
         html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
         // 正社員の欠員率
-        if let Some(row) = ctx.vacancy.iter().find(|r| get_str_ref(r, "emp_group") == "正社員") {
+        if let Some(row) = ctx
+            .vacancy
+            .iter()
+            .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        {
             let total = get_f64(row, "total_count") as i64;
             let vacancy_rate = get_f64(row, "vacancy_rate");
-            kpi_card(&mut html, "HW求人数", &format_number(total), "text-blue-400");
-            let vr_color = if vacancy_rate > 0.3 { "text-red-400" } else if vacancy_rate > 0.2 { "text-amber-400" } else { "text-green-400" };
-            kpi_card(&mut html, "欠員率(正社員)", &format!("{:.1}%", vacancy_rate * 100.0), vr_color);
+            kpi_card(
+                &mut html,
+                "HW求人数",
+                &format_number(total),
+                "text-blue-400",
+            );
+            let vr_color = if vacancy_rate > 0.3 {
+                "text-red-400"
+            } else if vacancy_rate > 0.2 {
+                "text-amber-400"
+            } else {
+                "text-green-400"
+            };
+            kpi_card(
+                &mut html,
+                "欠員率(正社員)",
+                &format!("{:.1}%", vacancy_rate * 100.0),
+                vr_color,
+            );
         }
         // カスケードから給与
-        if let Some(row) = ctx.cascade.iter().find(|r| get_str_ref(r, "emp_group") == "正社員") {
+        if let Some(row) = ctx
+            .cascade
+            .iter()
+            .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        {
             let avg_sal = get_f64(row, "avg_salary_min") as i64;
             let holidays = get_f64(row, "avg_annual_holidays") as i64;
-            if avg_sal > 0 { kpi_card(&mut html, "HW平均月給", &format!("{}円", format_number(avg_sal)), "text-white"); }
-            if holidays > 0 { kpi_card(&mut html, "HW平均休日", &format!("{}日", holidays), "text-white"); }
+            if avg_sal > 0 {
+                kpi_card(
+                    &mut html,
+                    "HW平均月給",
+                    &format!("{}円", format_number(avg_sal)),
+                    "text-white",
+                );
+            }
+            if holidays > 0 {
+                kpi_card(
+                    &mut html,
+                    "HW平均休日",
+                    &format!("{}日", holidays),
+                    "text-white",
+                );
+            }
         }
         html.push_str("</div>");
 
@@ -71,7 +113,8 @@ fn render_hw_section(ctx: &InsightContext) -> String {
                 let days = get_f64(last, "avg_listing_days");
                 if days > 0.0 {
                     html.push_str(&format!(
-                        r#"<div class="text-xs text-slate-500 mt-2">平均掲載日数: {:.0}日</div>"#, days
+                        r#"<div class="text-xs text-slate-500 mt-2">平均掲載日数: {:.0}日</div>"#,
+                        days
                     ));
                 }
             }
@@ -94,7 +137,12 @@ fn render_external_section(ctx: &InsightContext) -> String {
     if let Some(row) = ctx.ext_population.first() {
         let pop = get_f64(row, "total_population") as i64;
         if pop > 0 {
-            kpi_card(&mut html, "総人口", &format!("{}人", format_number(pop)), "text-white");
+            kpi_card(
+                &mut html,
+                "総人口",
+                &format!("{}人", format_number(pop)),
+                "text-white",
+            );
             has_data = true;
         }
     }
@@ -103,8 +151,19 @@ fn render_external_section(ctx: &InsightContext) -> String {
     if let Some(row) = ctx.ext_daytime_pop.first() {
         let ratio = get_f64(row, "daytime_ratio");
         if ratio > 0.0 {
-            let label = if ratio > 1.05 { "都市型（通勤流入）" } else if ratio < 0.95 { "ベッドタウン型（通勤流出）" } else { "均衡型" };
-            kpi_card(&mut html, &format!("昼夜間人口比 ({})", label), &format!("{:.2}", ratio), "text-cyan-400");
+            let label = if ratio > 1.05 {
+                "都市型（通勤流入）"
+            } else if ratio < 0.95 {
+                "ベッドタウン型（通勤流出）"
+            } else {
+                "均衡型"
+            };
+            kpi_card(
+                &mut html,
+                &format!("昼夜間人口比 ({})", label),
+                &format!("{:.2}", ratio),
+                "text-cyan-400",
+            );
             has_data = true;
         }
     }
@@ -114,7 +173,11 @@ fn render_external_section(ctx: &InsightContext) -> String {
         let in_m = get_f64(row, "in_migration") as i64;
         let out_m = get_f64(row, "out_migration") as i64;
         let net = in_m - out_m;
-        let color = if net > 0 { "text-green-400" } else { "text-red-400" };
+        let color = if net > 0 {
+            "text-green-400"
+        } else {
+            "text-red-400"
+        };
         kpi_card(&mut html, "純移動数", &format!("{:+}人", net), color);
         has_data = true;
     }
@@ -123,7 +186,13 @@ fn render_external_section(ctx: &InsightContext) -> String {
     if let Some(row) = ctx.ext_job_ratio.last() {
         let ratio = get_f64(row, "ratio_total");
         if ratio > 0.0 {
-            let color = if ratio > 1.5 { "text-red-400" } else if ratio > 1.0 { "text-amber-400" } else { "text-green-400" };
+            let color = if ratio > 1.5 {
+                "text-red-400"
+            } else if ratio > 1.0 {
+                "text-amber-400"
+            } else {
+                "text-green-400"
+            };
             kpi_card(&mut html, "有効求人倍率", &format!("{:.2}倍", ratio), color);
             has_data = true;
         }
@@ -141,9 +210,13 @@ fn render_external_section(ctx: &InsightContext) -> String {
     html.push_str("</div>");
 
     if !has_data {
-        html.push_str(r#"<p class="text-slate-500 text-xs">この地域の外部統計データはありません</p>"#);
+        html.push_str(
+            r#"<p class="text-slate-500 text-xs">この地域の外部統計データはありません</p>"#,
+        );
     } else {
-        html.push_str(r#"<div class="text-xs text-slate-600 mt-2">※外部統計データ（e-Stat / SSDSE-A）</div>"#);
+        html.push_str(
+            r#"<div class="text-xs text-slate-600 mt-2">※外部統計データ（e-Stat / SSDSE-A）</div>"#,
+        );
     }
 
     html.push_str("</div>");
@@ -157,17 +230,33 @@ fn render_insights_section(insights: &[Insight]) -> String {
     }
 
     let mut html = String::with_capacity(2_000);
-    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">💡 自動診断結果</h4>"#);
+    html.push_str(
+        r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">💡 自動診断結果</h4>"#,
+    );
 
-    let critical = insights.iter().filter(|i| i.severity == Severity::Critical).count();
-    let warning = insights.iter().filter(|i| i.severity == Severity::Warning).count();
-    let positive = insights.iter().filter(|i| i.severity == Severity::Positive).count();
+    let critical = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Critical)
+        .count();
+    let warning = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Warning)
+        .count();
+    let positive = insights
+        .iter()
+        .filter(|i| i.severity == Severity::Positive)
+        .count();
 
     // サマリー
-    let assessment = if critical >= 2 { "深刻な課題あり" }
-        else if critical >= 1 || warning >= 3 { "注意が必要" }
-        else if positive >= 2 { "比較的良好" }
-        else { "標準的" };
+    let assessment = if critical >= 2 {
+        "深刻な課題あり"
+    } else if critical >= 1 || warning >= 3 {
+        "注意が必要"
+    } else if positive >= 2 {
+        "比較的良好"
+    } else {
+        "標準的"
+    };
     html.push_str(&format!(
         r#"<div class="text-sm text-white mb-3">総合評価: <span class="font-bold">{}</span> (重大{}件 / 注意{}件 / 良好{}件)</div>"#,
         assessment, critical, warning, positive
@@ -212,7 +301,8 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
     let total = companies.len();
     let with_hw = companies.iter().filter(|c| c.hw_posting_count > 0).count();
     let industries: Vec<&str> = {
-        let mut inds: Vec<&str> = companies.iter()
+        let mut inds: Vec<&str> = companies
+            .iter()
             .map(|c| c.sn_industry.as_str())
             .filter(|s| !s.is_empty())
             .collect();
@@ -242,7 +332,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             <th class="text-right py-1.5 px-2">信用スコア</th>
             <th class="text-right py-1.5 px-2">HW求人</th>
             <th class="text-center py-1.5 px-2">詳細</th>
-        </tr></thead><tbody>"#
+        </tr></thead><tbody>"#,
     );
 
     for c in companies.iter().take(50) {
@@ -263,7 +353,10 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
         };
 
         let hw_badge = if c.hw_posting_count > 0 {
-            format!(r#"<span class="text-blue-400 font-medium">{}</span>"#, c.hw_posting_count)
+            format!(
+                r#"<span class="text-blue-400 font-medium">{}</span>"#,
+                c.hw_posting_count
+            )
         } else {
             r#"<span class="text-slate-600">-</span>"#.to_string()
         };
@@ -292,7 +385,8 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             escape_html(&c.company_name),
             escape_html(&c.sn_industry),
             emp_text,
-            score_color, score_text,
+            score_color,
+            score_text,
             hw_badge,
             escape_html(&c.corporate_number),
         ));

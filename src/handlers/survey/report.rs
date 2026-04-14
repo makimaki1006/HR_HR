@@ -1,8 +1,8 @@
 //! 統合レポートJSON生成
 
-use serde_json::{json, Value};
 use super::aggregator::SurveyAggregation;
 use super::job_seeker::JobSeekerAnalysis;
+use serde_json::{json, Value};
 
 /// 統合レポートJSON構築
 pub fn build_survey_report(

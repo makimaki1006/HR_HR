@@ -8,8 +8,8 @@ use tower_sessions::Session;
 use crate::AppState;
 
 use super::overview::{
-    build_filter_clause, get_i64, get_session_filters, get_str,
-    make_location_label, render_no_db_data, SessionFilters,
+    build_filter_clause, get_i64, get_session_filters, get_str, make_location_label,
+    render_no_db_data, SessionFilters,
 };
 
 /// タブ4: 採用動向 - HTMXパーシャルHTML
@@ -24,7 +24,12 @@ pub async fn tab_demographics(
         None => return Html(render_no_db_data("採用動向")),
     };
 
-    let cache_key = format!("demographics_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "demographics_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -33,9 +38,9 @@ pub async fn tab_demographics(
 
     let db = db.clone();
     let filters_clone = filters.clone();
-    let stats = tokio::task::spawn_blocking(move || {
-        fetch_demographics(&db, &filters_clone)
-    }).await.unwrap_or_default();
+    let stats = tokio::task::spawn_blocking(move || fetch_demographics(&db, &filters_clone))
+        .await
+        .unwrap_or_default();
 
     let html = render_demographics(&filters, &stats);
     state.cache.set(cache_key, Value::String(html.clone()));
@@ -51,6 +56,7 @@ pub(crate) fn build_demographics_html(
     render_demographics(filters, &stats)
 }
 
+#[derive(Default)]
 struct DemoStats {
     total_postings: i64,
     /// 求人理由内訳 (recruitment_reason, count)
@@ -71,24 +77,6 @@ struct DemoStats {
     selection_method_dist: Vec<(String, i64)>,
     /// 試用期間分布 (range, count)
     trial_period_dist: Vec<(String, i64)>,
-}
-
-impl Default for DemoStats {
-    fn default() -> Self {
-        Self {
-            total_postings: 0,
-            recruitment_reasons: Vec::new(),
-            reason_industry_cross: Vec::new(),
-            top_reasons: Vec::new(),
-            top_industries_for_cross: Vec::new(),
-            recruitment_count_dist: Vec::new(),
-            age_restriction_dist: Vec::new(),
-            education_dist: Vec::new(),
-            license_top: Vec::new(),
-            selection_method_dist: Vec::new(),
-            trial_period_dist: Vec::new(),
-        }
-    }
 }
 
 fn fetch_demographics(
@@ -317,10 +305,7 @@ fn fetch_demographics(
     stats
 }
 
-fn render_demographics(
-    filters: &SessionFilters,
-    stats: &DemoStats,
-) -> String {
+fn render_demographics(filters: &SessionFilters, stats: &DemoStats) -> String {
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
 
@@ -568,9 +553,7 @@ fn build_reason_industry_cross(
         pivot.insert((reason.as_str(), jt.as_str()), *cnt);
     }
 
-    let industry_colors = [
-        "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
-    ];
+    let industry_colors = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
 
     let reason_labels: Vec<String> = top_reasons
         .iter()

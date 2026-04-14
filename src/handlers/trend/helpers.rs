@@ -1,7 +1,7 @@
 //! ヘルパー関数・定数定義（trend モジュール内部用）
 
-use std::collections::HashMap;
 use serde_json::json;
+use std::collections::HashMap;
 
 /// サブタブ定義
 pub(crate) const TREND_SUBTABS: [(u8, &str); 5] = [
@@ -31,7 +31,10 @@ pub(crate) fn snapshot_label(id: i64) -> String {
 /// snapshot_id文字列をi64に変換
 /// "202501" → 202501（そのままパース）
 /// "2025-01" → 202501（ハイフン除去してパース）
-pub(crate) fn parse_snapshot_id(row: &std::collections::HashMap<String, serde_json::Value>, key: &str) -> i64 {
+pub(crate) fn parse_snapshot_id(
+    row: &std::collections::HashMap<String, serde_json::Value>,
+    key: &str,
+) -> i64 {
     row.get(key)
         .and_then(|v| {
             // まずi64として試行
@@ -63,21 +66,31 @@ pub(crate) fn line_chart_config(
     series: &[(String, String, Vec<f64>)],
     y_format: &str,
 ) -> String {
-    let series_arr: Vec<serde_json::Value> = series.iter().map(|(name, color, data)| {
-        let data_vals: Vec<serde_json::Value> = data.iter().map(|v| {
-            if v.is_nan() || v.is_infinite() { serde_json::Value::Null } else { json!((*v * 100.0).round() / 100.0) }
-        }).collect();
-        json!({
-            "name": name,
-            "type": "line",
-            "smooth": true,
-            "symbol": "circle",
-            "symbolSize": 4,
-            "lineStyle": {"width": 2, "color": color},
-            "itemStyle": {"color": color},
-            "data": data_vals
+    let series_arr: Vec<serde_json::Value> = series
+        .iter()
+        .map(|(name, color, data)| {
+            let data_vals: Vec<serde_json::Value> = data
+                .iter()
+                .map(|v| {
+                    if v.is_nan() || v.is_infinite() {
+                        serde_json::Value::Null
+                    } else {
+                        json!((*v * 100.0).round() / 100.0)
+                    }
+                })
+                .collect();
+            json!({
+                "name": name,
+                "type": "line",
+                "smooth": true,
+                "symbol": "circle",
+                "symbolSize": 4,
+                "lineStyle": {"width": 2, "color": color},
+                "itemStyle": {"color": color},
+                "data": data_vals
+            })
         })
-    }).collect();
+        .collect();
 
     let legend_data: Vec<&str> = series.iter().map(|(n, _, _)| n.as_str()).collect();
 
@@ -116,22 +129,32 @@ pub(crate) fn stacked_area_config(
     x_labels: &[String],
     series: &[(String, String, Vec<f64>)],
 ) -> String {
-    let series_arr: Vec<serde_json::Value> = series.iter().map(|(name, color, data)| {
-        let data_vals: Vec<serde_json::Value> = data.iter().map(|v| {
-            if v.is_nan() || v.is_infinite() { serde_json::Value::Null } else { json!(v.round()) }
-        }).collect();
-        json!({
-            "name": name,
-            "type": "line",
-            "stack": "total",
-            "areaStyle": {"opacity": 0.4},
-            "smooth": true,
-            "symbol": "none",
-            "lineStyle": {"width": 1.5, "color": color},
-            "itemStyle": {"color": color},
-            "data": data_vals
+    let series_arr: Vec<serde_json::Value> = series
+        .iter()
+        .map(|(name, color, data)| {
+            let data_vals: Vec<serde_json::Value> = data
+                .iter()
+                .map(|v| {
+                    if v.is_nan() || v.is_infinite() {
+                        serde_json::Value::Null
+                    } else {
+                        json!(v.round())
+                    }
+                })
+                .collect();
+            json!({
+                "name": name,
+                "type": "line",
+                "stack": "total",
+                "areaStyle": {"opacity": 0.4},
+                "smooth": true,
+                "symbol": "none",
+                "lineStyle": {"width": 1.5, "color": color},
+                "itemStyle": {"color": color},
+                "data": data_vals
+            })
         })
-    }).collect();
+        .collect();
 
     let legend_data: Vec<&str> = series.iter().map(|(n, _, _)| n.as_str()).collect();
 
@@ -154,18 +177,28 @@ pub(crate) fn stacked_bar_config(
     x_labels: &[String],
     series: &[(String, String, Vec<f64>)],
 ) -> String {
-    let series_arr: Vec<serde_json::Value> = series.iter().map(|(name, color, data)| {
-        let data_vals: Vec<serde_json::Value> = data.iter().map(|v| {
-            if v.is_nan() || v.is_infinite() { serde_json::Value::Null } else { json!(v.round()) }
-        }).collect();
-        json!({
-            "name": name,
-            "type": "bar",
-            "stack": "total",
-            "itemStyle": {"color": color},
-            "data": data_vals
+    let series_arr: Vec<serde_json::Value> = series
+        .iter()
+        .map(|(name, color, data)| {
+            let data_vals: Vec<serde_json::Value> = data
+                .iter()
+                .map(|v| {
+                    if v.is_nan() || v.is_infinite() {
+                        serde_json::Value::Null
+                    } else {
+                        json!(v.round())
+                    }
+                })
+                .collect();
+            json!({
+                "name": name,
+                "type": "bar",
+                "stack": "total",
+                "itemStyle": {"color": color},
+                "data": data_vals
+            })
         })
-    }).collect();
+        .collect();
 
     let legend_data: Vec<&str> = series.iter().map(|(n, _, _)| n.as_str()).collect();
 
@@ -193,40 +226,60 @@ pub(crate) fn dual_axis_chart_config(
     right_label: &str,
 ) -> String {
     // 左軸シリーズ（実線、yAxisIndex: 0）
-    let left_arr: Vec<serde_json::Value> = left_series.iter().map(|(name, color, data)| {
-        let data_vals: Vec<serde_json::Value> = data.iter().map(|v| {
-            if v.is_nan() || v.is_infinite() { serde_json::Value::Null } else { json!((*v * 100.0).round() / 100.0) }
-        }).collect();
-        json!({
-            "name": name,
-            "type": "line",
-            "smooth": true,
-            "symbol": "circle",
-            "symbolSize": 4,
-            "yAxisIndex": 0,
-            "lineStyle": {"width": 2, "color": color},
-            "itemStyle": {"color": color},
-            "data": data_vals
+    let left_arr: Vec<serde_json::Value> = left_series
+        .iter()
+        .map(|(name, color, data)| {
+            let data_vals: Vec<serde_json::Value> = data
+                .iter()
+                .map(|v| {
+                    if v.is_nan() || v.is_infinite() {
+                        serde_json::Value::Null
+                    } else {
+                        json!((*v * 100.0).round() / 100.0)
+                    }
+                })
+                .collect();
+            json!({
+                "name": name,
+                "type": "line",
+                "smooth": true,
+                "symbol": "circle",
+                "symbolSize": 4,
+                "yAxisIndex": 0,
+                "lineStyle": {"width": 2, "color": color},
+                "itemStyle": {"color": color},
+                "data": data_vals
+            })
         })
-    }).collect();
+        .collect();
 
     // 右軸シリーズ（破線、yAxisIndex: 1）
-    let right_arr: Vec<serde_json::Value> = right_series.iter().map(|(name, color, data)| {
-        let data_vals: Vec<serde_json::Value> = data.iter().map(|v| {
-            if v.is_nan() || v.is_infinite() { serde_json::Value::Null } else { json!((*v * 100.0).round() / 100.0) }
-        }).collect();
-        json!({
-            "name": name,
-            "type": "line",
-            "smooth": true,
-            "symbol": "diamond",
-            "symbolSize": 6,
-            "yAxisIndex": 1,
-            "lineStyle": {"width": 2, "type": "dashed", "color": color},
-            "itemStyle": {"color": color},
-            "data": data_vals
+    let right_arr: Vec<serde_json::Value> = right_series
+        .iter()
+        .map(|(name, color, data)| {
+            let data_vals: Vec<serde_json::Value> = data
+                .iter()
+                .map(|v| {
+                    if v.is_nan() || v.is_infinite() {
+                        serde_json::Value::Null
+                    } else {
+                        json!((*v * 100.0).round() / 100.0)
+                    }
+                })
+                .collect();
+            json!({
+                "name": name,
+                "type": "line",
+                "smooth": true,
+                "symbol": "diamond",
+                "symbolSize": 6,
+                "yAxisIndex": 1,
+                "lineStyle": {"width": 2, "type": "dashed", "color": color},
+                "itemStyle": {"color": color},
+                "data": data_vals
+            })
         })
-    }).collect();
+        .collect();
 
     let mut all_series = left_arr;
     all_series.extend(right_arr);
@@ -300,29 +353,32 @@ pub(crate) fn align_yearly_to_monthly(
     let mut sorted_years: Vec<i64> = fy_map.keys().copied().collect();
     sorted_years.sort();
 
-    monthly_snapshots.iter().map(|&snap| {
-        let year = snap / 100;
-        let month = snap % 100;
+    monthly_snapshots
+        .iter()
+        .map(|&snap| {
+            let year = snap / 100;
+            let month = snap % 100;
 
-        // 1. カレンダー年で完全一致
-        if let Some(&v) = fy_map.get(&year) {
-            return v;
-        }
-
-        // 2. 会計年度（4月始まり）で一致
-        let fy = if month >= 4 { year } else { year - 1 };
-        if let Some(&v) = fy_map.get(&fy) {
-            return v;
-        }
-
-        // 3. 直近の過去年度データをフォールバック
-        // 該当月より前の最新の年度データを使用
-        for &y in sorted_years.iter().rev() {
-            if y <= year {
-                return *fy_map.get(&y).unwrap();
+            // 1. カレンダー年で完全一致
+            if let Some(&v) = fy_map.get(&year) {
+                return v;
             }
-        }
 
-        f64::NAN
-    }).collect()
+            // 2. 会計年度（4月始まり）で一致
+            let fy = if month >= 4 { year } else { year - 1 };
+            if let Some(&v) = fy_map.get(&fy) {
+                return v;
+            }
+
+            // 3. 直近の過去年度データをフォールバック
+            // 該当月より前の最新の年度データを使用
+            for &y in sorted_years.iter().rev() {
+                if y <= year {
+                    return *fy_map.get(&y).unwrap();
+                }
+            }
+
+            f64::NAN
+        })
+        .collect()
 }

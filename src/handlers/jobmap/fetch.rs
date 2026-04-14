@@ -95,13 +95,26 @@ fn append_industry_sqlval(
     if has_jt && has_ir {
         let jt_ph = vec!["?"; filters.job_types.len()].join(",");
         let ir_ph = vec!["?"; filters.industry_raws.len()].join(",");
-        sql.push_str(&format!(" AND (job_type IN ({}) OR industry_raw IN ({}))", jt_ph, ir_ph));
+        sql.push_str(&format!(
+            " AND (job_type IN ({}) OR industry_raw IN ({}))",
+            jt_ph, ir_ph
+        ));
         params.extend(filters.job_types.iter().map(|s| SqlValue::Text(s.clone())));
-        params.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+        params.extend(
+            filters
+                .industry_raws
+                .iter()
+                .map(|s| SqlValue::Text(s.clone())),
+        );
     } else if has_ir {
         let placeholders = vec!["?"; filters.industry_raws.len()].join(",");
         sql.push_str(&format!(" AND industry_raw IN ({})", placeholders));
-        params.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+        params.extend(
+            filters
+                .industry_raws
+                .iter()
+                .map(|s| SqlValue::Text(s.clone())),
+        );
     } else if has_jt {
         let placeholders = vec!["?"; filters.job_types.len()].join(",");
         sql.push_str(&format!(" AND job_type IN ({})", placeholders));
@@ -327,7 +340,8 @@ pub(crate) fn fetch_markers_by_pref(
         }
     };
 
-    let mut result: Vec<MarkerRow> = rows.iter()
+    let mut result: Vec<MarkerRow> = rows
+        .iter()
         .map(|r| MarkerRow {
             id: r.get("id").map(value_to_i64).unwrap_or(0),
             lat: r.get("latitude").map(value_to_f64).unwrap_or(0.0),
@@ -400,7 +414,8 @@ pub(crate) fn fetch_municipalities(
     prefecture: &str,
 ) -> Vec<String> {
     let mut sql = "SELECT DISTINCT municipality FROM postings \
-         WHERE prefecture = ? AND municipality != ''".to_string();
+         WHERE prefecture = ? AND municipality != ''"
+        .to_string();
     let mut param_values: Vec<String> = vec![prefecture.to_string()];
 
     filters.append_industry_filter_str(&mut sql, &mut param_values);
@@ -414,7 +429,11 @@ pub(crate) fn fetch_municipalities(
     let rows = db.query(&sql, &params).unwrap_or_default();
 
     rows.iter()
-        .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .filter_map(|r| {
+            r.get("municipality")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
         .collect()
 }
 
@@ -472,6 +491,10 @@ pub(crate) fn fetch_prefectures(db: &LocalDb, filters: &SessionFilters) -> Vec<S
     let rows = db.query(&sql, &params).unwrap_or_default();
 
     rows.iter()
-        .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .filter_map(|r| {
+            r.get("prefecture")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
         .collect()
 }

@@ -60,9 +60,7 @@ pub fn escape_html(s: &str) -> String {
 /// "#" に置換する。安全なURL(http/https/相対/アンカー)はHTMLエスケープのみ適用。
 pub fn escape_url_attr(url: &str) -> String {
     let lower = url.trim().to_lowercase();
-    const DANGEROUS_SCHEMES: &[&str] = &[
-        "javascript:", "data:", "vbscript:", "file:",
-    ];
+    const DANGEROUS_SCHEMES: &[&str] = &["javascript:", "data:", "vbscript:", "file:"];
     for scheme in DANGEROUS_SCHEMES {
         if lower.starts_with(scheme) {
             return "#".to_string();
@@ -79,9 +77,7 @@ pub fn escape_url_attr(url: &str) -> String {
 pub fn sanitize_tag_text(text: &str) -> String {
     let trimmed = text.trim();
     let lower = trimmed.to_lowercase();
-    const DANGEROUS_PREFIXES: &[&str] = &[
-        "javascript:", "data:", "vbscript:", "file:",
-    ];
+    const DANGEROUS_PREFIXES: &[&str] = &["javascript:", "data:", "vbscript:", "file:"];
     for prefix in DANGEROUS_PREFIXES {
         if lower.starts_with(prefix) {
             return "[unsafe]".to_string();
@@ -148,7 +144,9 @@ pub fn table_exists(db: &crate::db::local_sqlite::LocalDb, name: &str) -> bool {
     db.query_scalar::<i64>(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
         &[&name],
-    ).unwrap_or(0) > 0
+    )
+    .unwrap_or(0)
+        > 0
 }
 
 #[cfg(test)]
@@ -158,8 +156,8 @@ mod tests {
     #[test]
     fn test_escape_url_attr_javascript() {
         assert_eq!(escape_url_attr("javascript:alert(1)"), "#");
-        assert_eq!(escape_url_attr("JAVASCRIPT:alert(1)"), "#");  // 大文字小文字無視
-        assert_eq!(escape_url_attr("  javascript:alert(1)"), "#");  // 前後空白
+        assert_eq!(escape_url_attr("JAVASCRIPT:alert(1)"), "#"); // 大文字小文字無視
+        assert_eq!(escape_url_attr("  javascript:alert(1)"), "#"); // 前後空白
     }
 
     #[test]
@@ -183,19 +181,28 @@ mod tests {
 
     #[test]
     fn test_escape_url_attr_data() {
-        assert_eq!(escape_url_attr("data:text/html,<script>alert(1)</script>"), "#");
+        assert_eq!(
+            escape_url_attr("data:text/html,<script>alert(1)</script>"),
+            "#"
+        );
     }
 
     #[test]
     fn test_escape_url_attr_safe() {
-        assert_eq!(escape_url_attr("https://example.com/"), "https://example.com/");
+        assert_eq!(
+            escape_url_attr("https://example.com/"),
+            "https://example.com/"
+        );
         assert_eq!(escape_url_attr("/relative/path"), "/relative/path");
         assert_eq!(escape_url_attr("#anchor"), "#anchor");
     }
 
     #[test]
     fn test_escape_url_attr_html_special() {
-        assert_eq!(escape_url_attr("https://example.com/?a=1&b=2"), "https://example.com/?a=1&amp;b=2");
+        assert_eq!(
+            escape_url_attr("https://example.com/?a=1&b=2"),
+            "https://example.com/?a=1&amp;b=2"
+        );
     }
 
     #[test]

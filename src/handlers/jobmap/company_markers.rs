@@ -37,11 +37,13 @@ pub async fn labor_flow(
 
     let sn_db = match &state.salesnow_db {
         Some(db) => db.clone(),
-        None => return Json(json!({
-            "prefecture": prefecture,
-            "industries": [],
-            "error": "企業DB未接続"
-        })),
+        None => {
+            return Json(json!({
+                "prefecture": prefecture,
+                "industries": [],
+                "error": "企業DB未接続"
+            }))
+        }
     };
 
     let pref = prefecture.clone();
@@ -58,7 +60,7 @@ pub async fn labor_flow(
         // 市区町村が指定されている場合、address LIKE で絞り込む
         let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) = if !muni.is_empty() {
             let muni_pattern = format!("%{}%", muni);
-            (format!(r#"
+            (r#"
                 SELECT sn_industry,
                        COUNT(*) as companies,
                        SUM(employee_count) as total_emp,
@@ -72,11 +74,11 @@ pub async fn labor_flow(
                   AND sn_industry IS NOT NULL AND sn_industry != ''
                 GROUP BY sn_industry
                 ORDER BY net_change_1y DESC
-            "#),
+            "#.to_string(),
             vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
                  Box::new(muni_pattern)])
         } else {
-            (format!(r#"
+            (r#"
                 SELECT sn_industry,
                        COUNT(*) as companies,
                        SUM(employee_count) as total_emp,
@@ -90,7 +92,7 @@ pub async fn labor_flow(
                   AND sn_industry IS NOT NULL AND sn_industry != ''
                 GROUP BY sn_industry
                 ORDER BY net_change_1y DESC
-            "#),
+            "#.to_string(),
             vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>])
         };
 
@@ -170,12 +172,14 @@ pub async fn industry_companies(
     let muni = municipality.clone();
     let ind = industry.clone();
 
-    let result = tokio::task::spawn_blocking(move || {
-        use crate::handlers::helpers::{get_f64, get_i64, get_str};
+    let result =
+        tokio::task::spawn_blocking(move || {
+            use crate::handlers::helpers::{get_f64, get_i64, get_str};
 
-        let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) = if !muni.is_empty() {
-            let muni_pattern = format!("%{}%", muni);
-            ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
+            let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) =
+                if !muni.is_empty() {
+                    let muni_pattern = format!("%{}%", muni);
+                    ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
                     employee_delta_3m, employee_delta_1y, credit_score, address \
              FROM v2_salesnow_companies \
              WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry = ?3 \
@@ -184,8 +188,8 @@ pub async fn industry_companies(
             vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
                  Box::new(muni_pattern),
                  Box::new(ind.clone())])
-        } else {
-            ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
+                } else {
+                    ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
                     employee_delta_3m, employee_delta_1y, credit_score, address \
              FROM v2_salesnow_companies \
              WHERE prefecture = ?1 AND sn_industry = ?2 \
@@ -193,32 +197,37 @@ pub async fn industry_companies(
              ORDER BY employee_count DESC LIMIT 500".to_string(),
             vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
                  Box::new(ind.clone())])
-        };
+                };
 
-        let param_refs: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            params_db.iter().map(|p| p.as_ref()).collect();
+            let param_refs: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                params_db.iter().map(|p| p.as_ref()).collect();
 
-        let rows = sn_db.query(&sql, &param_refs).unwrap_or_default();
-        let companies: Vec<Value> = rows.iter().map(|r| {
+            let rows = sn_db.query(&sql, &param_refs).unwrap_or_default();
+            let companies: Vec<Value> = rows
+                .iter()
+                .map(|r| {
+                    json!({
+                        "corporate_number": get_str(r, "corporate_number"),
+                        "company_name": get_str(r, "company_name"),
+                        "employee_count": get_i64(r, "employee_count"),
+                        "employee_delta_1m": get_f64(r, "employee_delta_1m"),
+                        "employee_delta_3m": get_f64(r, "employee_delta_3m"),
+                        "employee_delta_1y": get_f64(r, "employee_delta_1y"),
+                        "credit_score": get_f64(r, "credit_score"),
+                        "address": get_str(r, "address"),
+                    })
+                })
+                .collect();
+
             json!({
-                "corporate_number": get_str(r, "corporate_number"),
-                "company_name": get_str(r, "company_name"),
-                "employee_count": get_i64(r, "employee_count"),
-                "employee_delta_1m": get_f64(r, "employee_delta_1m"),
-                "employee_delta_3m": get_f64(r, "employee_delta_3m"),
-                "employee_delta_1y": get_f64(r, "employee_delta_1y"),
-                "credit_score": get_f64(r, "credit_score"),
-                "address": get_str(r, "address"),
+                "industry": ind,
+                "prefecture": pref,
+                "companies": companies,
+                "count": companies.len(),
             })
-        }).collect();
-
-        json!({
-            "industry": ind,
-            "prefecture": pref,
-            "companies": companies,
-            "count": companies.len(),
         })
-    }).await.unwrap_or_else(|_| json!({"companies": [], "error": "query failed"}));
+        .await
+        .unwrap_or_else(|_| json!({"companies": [], "error": "query failed"}));
 
     Json(result)
 }
@@ -282,11 +291,16 @@ pub async fn company_markers(
         filtered.sort_by(|a, b| b.employee_count.cmp(&a.employee_count));
         let total = filtered.len();
         filtered.truncate(500);
-        let markers: Vec<Value> = filtered.iter().map(|e| json!({
-            "corporate_number": e.corporate_number, "lat": e.lat, "lng": e.lng,
-            "company_name": e.company_name, "sn_industry": e.sn_industry,
-            "employee_count": e.employee_count, "credit_score": e.credit_score,
-        })).collect();
+        let markers: Vec<Value> = filtered
+            .iter()
+            .map(|e| {
+                json!({
+                    "corporate_number": e.corporate_number, "lat": e.lat, "lng": e.lng,
+                    "company_name": e.company_name, "sn_industry": e.sn_industry,
+                    "employee_count": e.employee_count, "credit_score": e.credit_score,
+                })
+            })
+            .collect();
         return Json(json!({"markers": markers, "total": total, "shown": markers.len()}));
     }
 
@@ -296,7 +310,10 @@ pub async fn company_markers(
         None => return Json(json!({"markers": [], "total": 0, "error": "SalesNow DB未接続"})),
     };
 
-    let s = south; let n = north; let w = west; let e = east;
+    let s = south;
+    let n = north;
+    let w = west;
+    let e = east;
     let result = tokio::task::spawn_blocking(move || {
         use crate::handlers::helpers::{get_f64, get_i64, get_str};
         let sql = r#"
@@ -310,25 +327,30 @@ pub async fn company_markers(
         "#;
         let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&s, &n, &w, &e];
         let rows = sn_db.query(sql, &params).unwrap_or_default();
-        let markers: Vec<Value> = rows.iter().map(|r| json!({
-            "corporate_number": get_str(r, "corporate_number"),
-            "lat": get_f64(r, "lat"), "lng": get_f64(r, "lng"),
-            "company_name": get_str(r, "company_name"),
-            "sn_industry": get_str(r, "sn_industry"),
-            "employee_count": get_i64(r, "employee_count"),
-            "credit_score": get_f64(r, "credit_score"),
-        })).collect();
+        let markers: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "corporate_number": get_str(r, "corporate_number"),
+                    "lat": get_f64(r, "lat"), "lng": get_f64(r, "lng"),
+                    "company_name": get_str(r, "company_name"),
+                    "sn_industry": get_str(r, "sn_industry"),
+                    "employee_count": get_i64(r, "employee_count"),
+                    "credit_score": get_f64(r, "credit_score"),
+                })
+            })
+            .collect();
         let total = markers.len();
         json!({"markers": markers, "total": total, "shown": total})
-    }).await.unwrap_or_else(|_| json!({"markers": [], "total": 0, "error": "query failed"}));
+    })
+    .await
+    .unwrap_or_else(|_| json!({"markers": [], "total": 0, "error": "query failed"}));
 
     Json(result)
 }
 
 /// 起動時にTursoから企業ジオコードデータをロード
-pub fn load_company_geo_cache(
-    sn_db: &crate::db::turso_http::TursoDb,
-) -> Vec<CompanyGeoEntry> {
+pub fn load_company_geo_cache(sn_db: &crate::db::turso_http::TursoDb) -> Vec<CompanyGeoEntry> {
     use crate::handlers::helpers::{get_f64, get_i64, get_str};
 
     let sql = r#"

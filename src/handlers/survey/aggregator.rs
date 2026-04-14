@@ -1,11 +1,11 @@
 //! 集計モジュール
 //! パース済みレコードを地域別・給与帯別・雇用形態別・タグ別に集計
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::upload::SurveyRecord;
 use super::statistics::enhanced_salary_statistics;
+use super::upload::SurveyRecord;
 
 /// 企業別集計
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -22,8 +22,8 @@ pub struct TagSalaryAgg {
     pub tag: String,
     pub count: usize,
     pub avg_salary: i64,
-    pub diff_from_avg: i64,   // 全体平均との差分（円）
-    pub diff_percent: f64,    // 差分率（%）
+    pub diff_from_avg: i64, // 全体平均との差分（円）
+    pub diff_percent: f64,  // 差分率（%）
 }
 
 /// 市区町村別給与集計
@@ -42,7 +42,7 @@ pub struct PrefectureSalaryAgg {
     pub name: String,
     pub count: usize,
     pub avg_salary: i64,
-    pub avg_min_salary: i64,  // 下限給与の平均
+    pub avg_min_salary: i64, // 下限給与の平均
 }
 
 /// 散布図データ点
@@ -102,11 +102,13 @@ pub struct SurveyAggregation {
 /// - 偶数件: 中央2要素の平均（整数割り算）
 /// `enhanced_salary_statistics` の定義と整合。
 fn median_of(values: &[i64]) -> i64 {
-    if values.is_empty() { return 0; }
+    if values.is_empty() {
+        return 0;
+    }
     let mut sorted: Vec<i64> = values.to_vec();
     sorted.sort();
     let n = sorted.len();
-    if n % 2 == 0 {
+    if n.is_multiple_of(2) {
         (sorted[n / 2 - 1] + sorted[n / 2]) / 2
     } else {
         sorted[n / 2]
@@ -116,13 +118,21 @@ fn median_of(values: &[i64]) -> i64 {
 /// パース済みレコードを集計
 pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     let total = records.len();
-    if total == 0 { return SurveyAggregation::default(); }
+    if total == 0 {
+        return SurveyAggregation::default();
+    }
 
     let new_count = records.iter().filter(|r| r.is_new).count();
 
     // パース成功率
-    let salary_ok = records.iter().filter(|r| r.salary_parsed.min_value.is_some()).count();
-    let location_ok = records.iter().filter(|r| r.location_parsed.prefecture.is_some()).count();
+    let salary_ok = records
+        .iter()
+        .filter(|r| r.salary_parsed.min_value.is_some())
+        .count();
+    let location_ok = records
+        .iter()
+        .filter(|r| r.location_parsed.prefecture.is_some())
+        .count();
 
     // 都道府県別
     let mut pref_map: HashMap<String, usize> = HashMap::new();
@@ -143,9 +153,7 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
             *muni_map.entry(muni.clone()).or_default() += 1;
         }
     }
-    let dominant_municipality = muni_map.into_iter()
-        .max_by_key(|(_, c)| *c)
-        .map(|(m, _)| m);
+    let dominant_municipality = muni_map.into_iter().max_by_key(|(_, c)| *c).map(|(m, _)| m);
 
     // 給与レンジ別
     let mut salary_range_map: HashMap<String, usize> = HashMap::new();
@@ -160,8 +168,11 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     // 雇用形態別
     let mut emp_map: HashMap<String, usize> = HashMap::new();
     for r in records {
-        let emp = if r.employment_type.is_empty() { "不明".to_string() }
-            else { r.employment_type.clone() };
+        let emp = if r.employment_type.is_empty() {
+            "不明".to_string()
+        } else {
+            r.employment_type.clone()
+        };
         *emp_map.entry(emp).or_default() += 1;
     }
     let mut by_employment_type: Vec<(String, usize)> = emp_map.into_iter().collect();
@@ -172,7 +183,7 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     let mut tag_map: HashMap<String, usize> = HashMap::new();
     for r in records {
         if !r.tags_raw.is_empty() {
-            for tag in r.tags_raw.split(|c: char| c == ',' || c == '、' || c == '/' || c == '\t') {
+            for tag in r.tags_raw.split([',', '、', '/', '\t']) {
                 let sanitized = sanitize_tag_text(tag);
                 if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
                     *tag_map.entry(sanitized).or_default() += 1;
@@ -189,7 +200,7 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     for r in records {
         if let Some(sal) = r.salary_parsed.unified_monthly {
             if sal > 0 && !r.tags_raw.is_empty() {
-                for tag in r.tags_raw.split(|c: char| c == ',' || c == '、' || c == '/' || c == '\t') {
+                for tag in r.tags_raw.split([',', '、', '/', '\t']) {
                     let sanitized = sanitize_tag_text(tag);
                     if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
                         tag_salary_map.entry(sanitized).or_default().push(sal);
@@ -200,14 +211,16 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     }
 
     // 給与統計
-    let salary_values: Vec<i64> = records.iter()
+    let salary_values: Vec<i64> = records
+        .iter()
         .filter_map(|r| r.salary_parsed.unified_monthly)
         .collect();
     let enhanced_stats = enhanced_salary_statistics(&salary_values);
 
     // タグ別給与差分の計算
     let overall_mean = enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0);
-    let mut by_tag_salary: Vec<TagSalaryAgg> = tag_salary_map.into_iter()
+    let mut by_tag_salary: Vec<TagSalaryAgg> = tag_salary_map
+        .into_iter()
         .filter(|(_, salaries)| salaries.len() >= 3) // 3件以上のタグのみ
         .map(|(tag, salaries)| {
             let count = salaries.len();
@@ -215,8 +228,16 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
             let diff_from_avg = avg_salary - overall_mean;
             let diff_percent = if overall_mean > 0 {
                 diff_from_avg as f64 / overall_mean as f64 * 100.0
-            } else { 0.0 };
-            TagSalaryAgg { tag, count, avg_salary, diff_from_avg, diff_percent }
+            } else {
+                0.0
+            };
+            TagSalaryAgg {
+                tag,
+                count,
+                avg_salary,
+                diff_from_avg,
+                diff_percent,
+            }
         })
         .collect();
     by_tag_salary.sort_by(|a, b| b.diff_from_avg.cmp(&a.diff_from_avg));
@@ -225,19 +246,21 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     // 下限/上限給与（レポート用、月給換算）
     // 時給データは160h倍して月給相当に変換、月給はそのまま
     use super::salary_parser::SalaryType;
-    let salary_min_values: Vec<i64> = records.iter()
+    let salary_min_values: Vec<i64> = records
+        .iter()
         .filter_map(|r| {
             let v = r.salary_parsed.min_value?;
             match r.salary_parsed.salary_type {
                 SalaryType::Hourly => Some(v * 160),
-                SalaryType::Daily => Some(v * 20),  // 月20日想定
+                SalaryType::Daily => Some(v * 20), // 月20日想定
                 SalaryType::Annual => Some(v / 12),
                 _ => Some(v),
             }
         })
-        .filter(|&v| v >= 50_000)  // 5万円未満は異常値として除外
+        .filter(|&v| v >= 50_000) // 5万円未満は異常値として除外
         .collect();
-    let salary_max_values: Vec<i64> = records.iter()
+    let salary_max_values: Vec<i64> = records
+        .iter()
         .filter_map(|r| {
             let v = r.salary_parsed.max_value?;
             match r.salary_parsed.salary_type {
@@ -259,17 +282,30 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         if !r.company_name.is_empty() {
             if let Some(sal) = r.salary_parsed.unified_monthly {
                 if sal > 0 {
-                    company_map.entry(r.company_name.clone()).or_default().push(sal);
+                    company_map
+                        .entry(r.company_name.clone())
+                        .or_default()
+                        .push(sal);
                 }
             }
         }
     }
-    let mut by_company: Vec<CompanyAgg> = company_map.into_iter()
+    let mut by_company: Vec<CompanyAgg> = company_map
+        .into_iter()
         .map(|(name, salaries)| {
             let count = salaries.len();
-            let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
+            let avg_salary = if salaries.is_empty() {
+                0
+            } else {
+                salaries.iter().sum::<i64>() / count as i64
+            };
             let median_salary = median_of(&salaries);
-            CompanyAgg { name, count, avg_salary, median_salary }
+            CompanyAgg {
+                name,
+                count,
+                avg_salary,
+                median_salary,
+            }
         })
         .collect();
     by_company.sort_by(|a, b| b.count.cmp(&a.count));
@@ -277,18 +313,31 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     // 雇用形態別給与
     let mut emp_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
     for r in records {
-        let emp = if r.employment_type.is_empty() { "不明".to_string() }
-            else { r.employment_type.clone() };
+        let emp = if r.employment_type.is_empty() {
+            "不明".to_string()
+        } else {
+            r.employment_type.clone()
+        };
         if let Some(sal) = r.salary_parsed.unified_monthly {
             emp_salary_map.entry(emp).or_default().push(sal);
         }
     }
-    let mut by_emp_type_salary: Vec<EmpTypeSalary> = emp_salary_map.into_iter()
+    let mut by_emp_type_salary: Vec<EmpTypeSalary> = emp_salary_map
+        .into_iter()
         .map(|(emp_type, salaries)| {
             let count = salaries.len();
-            let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
+            let avg_salary = if salaries.is_empty() {
+                0
+            } else {
+                salaries.iter().sum::<i64>() / count as i64
+            };
             let median_salary = median_of(&salaries);
-            EmpTypeSalary { emp_type, count, avg_salary, median_salary }
+            EmpTypeSalary {
+                emp_type,
+                count,
+                avg_salary,
+                median_salary,
+            }
         })
         .collect();
     by_emp_type_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
@@ -299,21 +348,37 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         if let Some(pref) = &r.location_parsed.prefecture {
             let entry = pref_salary_map.entry(pref.clone()).or_default();
             if let Some(sal) = r.salary_parsed.unified_monthly {
-                if sal > 0 { entry.0.push(sal); }
+                if sal > 0 {
+                    entry.0.push(sal);
+                }
             }
             if let Some(min_sal) = r.salary_parsed.min_value {
-                if min_sal > 0 { entry.1.push(min_sal); }
+                if min_sal > 0 {
+                    entry.1.push(min_sal);
+                }
             }
         }
     }
-    let mut by_prefecture_salary: Vec<PrefectureSalaryAgg> = pref_salary_map.into_iter()
+    let mut by_prefecture_salary: Vec<PrefectureSalaryAgg> = pref_salary_map
+        .into_iter()
         .map(|(name, (salaries, min_salaries))| {
             let count = salaries.len();
-            let avg_salary = if salaries.is_empty() { 0 } else { salaries.iter().sum::<i64>() / count as i64 };
-            let avg_min_salary = if min_salaries.is_empty() { 0 } else {
+            let avg_salary = if salaries.is_empty() {
+                0
+            } else {
+                salaries.iter().sum::<i64>() / count as i64
+            };
+            let avg_min_salary = if min_salaries.is_empty() {
+                0
+            } else {
                 min_salaries.iter().sum::<i64>() / min_salaries.len() as i64
             };
-            PrefectureSalaryAgg { name, count, avg_salary, avg_min_salary }
+            PrefectureSalaryAgg {
+                name,
+                count,
+                avg_salary,
+                avg_min_salary,
+            }
         })
         .collect();
     by_prefecture_salary.sort_by(|a, b| b.count.cmp(&a.count));
@@ -322,20 +387,27 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     // 時給レコードが過半数（半数超）の場合 true。
     // 境界値（同数、例: 5-5）は整数割り算のため strict 比較で false となり、
     // Monthly として扱う（より保守的な挙動）。
-    let hourly_count = records.iter()
+    let hourly_count = records
+        .iter()
         .filter(|r| r.salary_parsed.salary_type == super::salary_parser::SalaryType::Hourly)
         .count();
-    let total_with_salary = records.iter()
+    let total_with_salary = records
+        .iter()
         .filter(|r| r.salary_parsed.min_value.is_some())
         .count();
     let is_hourly = total_with_salary > 0 && hourly_count > total_with_salary / 2;
 
     // 散布図データ（下限 vs 上限）
-    let scatter_min_max: Vec<ScatterPoint> = records.iter()
+    let scatter_min_max: Vec<ScatterPoint> = records
+        .iter()
         .filter_map(|r| {
             let min = r.salary_parsed.min_value?;
             let max = r.salary_parsed.max_value?;
-            if min > 0 && max > 0 && max >= min { Some(ScatterPoint { x: min, y: max }) } else { None }
+            if min > 0 && max > 0 && max >= min {
+                Some(ScatterPoint { x: min, y: max })
+            } else {
+                None
+            }
         })
         .collect();
     let regression_min_max = linear_regression_points(&scatter_min_max);
@@ -343,20 +415,33 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
     // 市区町村別給与集計
     let mut muni_salary_map: HashMap<(String, String), Vec<i64>> = HashMap::new();
     for r in records {
-        if let (Some(pref), Some(muni)) = (&r.location_parsed.prefecture, &r.location_parsed.municipality) {
+        if let (Some(pref), Some(muni)) = (
+            &r.location_parsed.prefecture,
+            &r.location_parsed.municipality,
+        ) {
             if let Some(sal) = r.salary_parsed.unified_monthly {
                 if sal > 0 {
-                    muni_salary_map.entry((pref.clone(), muni.clone())).or_default().push(sal);
+                    muni_salary_map
+                        .entry((pref.clone(), muni.clone()))
+                        .or_default()
+                        .push(sal);
                 }
             }
         }
     }
-    let mut by_municipality_salary: Vec<MunicipalitySalaryAgg> = muni_salary_map.into_iter()
+    let mut by_municipality_salary: Vec<MunicipalitySalaryAgg> = muni_salary_map
+        .into_iter()
         .map(|((pref, name), salaries)| {
             let count = salaries.len();
             let avg_salary = salaries.iter().sum::<i64>() / count as i64;
             let median_salary = median_of(&salaries);
-            MunicipalitySalaryAgg { name, prefecture: pref, count, avg_salary, median_salary }
+            MunicipalitySalaryAgg {
+                name,
+                prefecture: pref,
+                count,
+                avg_salary,
+                median_salary,
+            }
         })
         .collect();
     by_municipality_salary.sort_by(|a, b| b.count.cmp(&a.count));
@@ -391,7 +476,9 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
 /// 線形回帰（最小二乗法）
 fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult> {
     let n = points.len();
-    if n < 3 { return None; }
+    if n < 3 {
+        return None;
+    }
     let n_f = n as f64;
     let sum_x: f64 = points.iter().map(|p| p.x as f64).sum();
     let sum_y: f64 = points.iter().map(|p| p.y as f64).sum();
@@ -399,7 +486,9 @@ fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult>
     let sum_x2: f64 = points.iter().map(|p| (p.x as f64).powi(2)).sum();
 
     let denom = n_f * sum_x2 - sum_x.powi(2);
-    if denom.abs() < 1e-10 { return None; }
+    if denom.abs() < 1e-10 {
+        return None;
+    }
 
     let slope = (n_f * sum_xy - sum_x * sum_y) / denom;
     let intercept = (sum_y - slope * sum_x) / n_f;
@@ -407,23 +496,34 @@ fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult>
     // R²計算
     let mean_y = sum_y / n_f;
     let ss_tot: f64 = points.iter().map(|p| (p.y as f64 - mean_y).powi(2)).sum();
-    let ss_res: f64 = points.iter().map(|p| {
-        let pred = slope * p.x as f64 + intercept;
-        (p.y as f64 - pred).powi(2)
-    }).sum();
+    let ss_res: f64 = points
+        .iter()
+        .map(|p| {
+            let pred = slope * p.x as f64 + intercept;
+            (p.y as f64 - pred).powi(2)
+        })
+        .sum();
     // ss_tot=0（全yが同値、ゼロ分散）の場合、統計的には R² は定義されない。
     // 本実装では 0.0 を返す（ゼロ分散データは「相関なし」として扱う保守的挙動）。
-    let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+    let r_squared = if ss_tot > 0.0 {
+        1.0 - ss_res / ss_tot
+    } else {
+        0.0
+    };
 
-    Some(RegressionResult { slope, intercept, r_squared })
+    Some(RegressionResult {
+        slope,
+        intercept,
+        r_squared,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::upload::{SurveyRecord, CsvSource};
-    use super::super::salary_parser::{ParsedSalary, SalaryType};
     use super::super::location_parser::ParsedLocation;
+    use super::super::salary_parser::{ParsedSalary, SalaryType};
+    use super::super::upload::{CsvSource, SurveyRecord};
+    use super::*;
 
     // ======== テストヘルパー ========
 
@@ -507,17 +607,25 @@ mod tests {
         ];
         let result = linear_regression_points(&points).expect("5点あるのでSomeを返すはず");
         assert!((result.slope - 2.0).abs() < 0.01, "slope={}", result.slope);
-        assert!((result.intercept - 1.0).abs() < 0.01, "intercept={}", result.intercept);
-        assert!((result.r_squared - 1.0).abs() < 0.01, "r_squared={}", result.r_squared);
+        assert!(
+            (result.intercept - 1.0).abs() < 0.01,
+            "intercept={}",
+            result.intercept
+        );
+        assert!(
+            (result.r_squared - 1.0).abs() < 0.01,
+            "r_squared={}",
+            result.r_squared
+        );
     }
 
     #[test]
     fn test_linear_regression_n_less_than_3() {
-        let points = vec![
-            ScatterPoint { x: 1, y: 2 },
-            ScatterPoint { x: 2, y: 4 },
-        ];
-        assert!(linear_regression_points(&points).is_none(), "n<3ではNoneを返すべき");
+        let points = vec![ScatterPoint { x: 1, y: 2 }, ScatterPoint { x: 2, y: 4 }];
+        assert!(
+            linear_regression_points(&points).is_none(),
+            "n<3ではNoneを返すべき"
+        );
     }
 
     #[test]
@@ -528,7 +636,10 @@ mod tests {
             ScatterPoint { x: 5, y: 20 },
             ScatterPoint { x: 5, y: 30 },
         ];
-        assert!(linear_regression_points(&points).is_none(), "denom≈0ではNoneを返すべき");
+        assert!(
+            linear_regression_points(&points).is_none(),
+            "denom≈0ではNoneを返すべき"
+        );
     }
 
     #[test]
@@ -542,7 +653,11 @@ mod tests {
         let result = linear_regression_points(&points).expect("xは分散しているのでSome");
         // ss_tot=0（ゼロ分散）の場合、統計的には R² 未定義だが、
         // 本実装では 0.0 を返す仕様（「相関なし」として扱う保守的挙動、ドキュメント化済）。
-        assert!(result.slope.abs() < 1e-9, "slope should be ~0, got {}", result.slope);
+        assert!(
+            result.slope.abs() < 1e-9,
+            "slope should be ~0, got {}",
+            result.slope
+        );
         assert!((result.intercept - 100.0).abs() < 1e-6);
         assert_eq!(result.r_squared, 0.0, "ss_tot=0時はr_squared=0.0を返す仕様");
     }
@@ -551,10 +666,22 @@ mod tests {
     fn test_linear_regression_points_struct_sanity() {
         // 大きな値でも正しくf64変換されて処理される
         let points = vec![
-            ScatterPoint { x: 100_000, y: 200_000 },
-            ScatterPoint { x: 150_000, y: 250_000 },
-            ScatterPoint { x: 200_000, y: 300_000 },
-            ScatterPoint { x: 250_000, y: 350_000 },
+            ScatterPoint {
+                x: 100_000,
+                y: 200_000,
+            },
+            ScatterPoint {
+                x: 150_000,
+                y: 250_000,
+            },
+            ScatterPoint {
+                x: 200_000,
+                y: 300_000,
+            },
+            ScatterPoint {
+                x: 250_000,
+                y: 350_000,
+            },
         ];
         let result = linear_regression_points(&points).expect("4点あればSome");
         // y = x + 100_000 → slope=1.0, intercept=100_000
@@ -569,27 +696,62 @@ mod tests {
     fn test_aggregate_by_company_count_vs_valid() {
         // 企業A: 給与あり + 給与なし / 企業B: 給与あり
         let records = vec![
-            mock_record("企業A", Some("東京都"), Some("千代田区"),
-                Some(300_000), Some(280_000), Some(320_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("企業A", Some("東京都"), Some("千代田区"),
-                None, None, None,
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("企業B", Some("東京都"), Some("新宿区"),
-                Some(400_000), Some(380_000), Some(420_000),
-                SalaryType::Monthly, "正社員", ""),
+            mock_record(
+                "企業A",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(300_000),
+                Some(280_000),
+                Some(320_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "企業A",
+                Some("東京都"),
+                Some("千代田区"),
+                None,
+                None,
+                None,
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "企業B",
+                Some("東京都"),
+                Some("新宿区"),
+                Some(400_000),
+                Some(380_000),
+                Some(420_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
         ];
         let agg = aggregate_records(&records);
 
         // count/avg/median の意味論を一致させるため、給与情報のあるレコードのみ集計対象。
         // 企業A: unified_monthly=None のレコードはスキップ → salaries=[300_000]
         //   → count=1, avg=300_000, median=300_000
-        let a = agg.by_company.iter().find(|c| c.name == "企業A").expect("企業A");
-        assert_eq!(a.count, 1, "企業Aは給与情報のある1件のみ（Noneレコードは除外）");
+        let a = agg
+            .by_company
+            .iter()
+            .find(|c| c.name == "企業A")
+            .expect("企業A");
+        assert_eq!(
+            a.count, 1,
+            "企業Aは給与情報のある1件のみ（Noneレコードは除外）"
+        );
         assert_eq!(a.avg_salary, 300_000);
         assert_eq!(a.median_salary, 300_000);
 
-        let b = agg.by_company.iter().find(|c| c.name == "企業B").expect("企業B");
+        let b = agg
+            .by_company
+            .iter()
+            .find(|c| c.name == "企業B")
+            .expect("企業B");
         assert_eq!(b.count, 1);
         assert_eq!(b.avg_salary, 400_000);
     }
@@ -598,17 +760,46 @@ mod tests {
     fn test_aggregate_by_tag_salary_overall_mean_zero() {
         // 全レコードでunified_monthly=None → tag_salary_mapが populate されない
         let records = vec![
-            mock_record("X社", Some("東京都"), Some("千代田区"),
-                None, None, None, SalaryType::Monthly, "正社員", "タグA,タグB"),
-            mock_record("Y社", Some("東京都"), Some("新宿区"),
-                None, None, None, SalaryType::Monthly, "正社員", "タグA,タグB"),
-            mock_record("Z社", Some("東京都"), Some("渋谷区"),
-                None, None, None, SalaryType::Monthly, "正社員", "タグA,タグB"),
+            mock_record(
+                "X社",
+                Some("東京都"),
+                Some("千代田区"),
+                None,
+                None,
+                None,
+                SalaryType::Monthly,
+                "正社員",
+                "タグA,タグB",
+            ),
+            mock_record(
+                "Y社",
+                Some("東京都"),
+                Some("新宿区"),
+                None,
+                None,
+                None,
+                SalaryType::Monthly,
+                "正社員",
+                "タグA,タグB",
+            ),
+            mock_record(
+                "Z社",
+                Some("東京都"),
+                Some("渋谷区"),
+                None,
+                None,
+                None,
+                SalaryType::Monthly,
+                "正社員",
+                "タグA,タグB",
+            ),
         ];
         let agg = aggregate_records(&records);
         // tag_salary は全給与Noneなので空（3件フィルタ以前に populate されない）
-        assert!(agg.by_tag_salary.is_empty(),
-            "全給与None時は by_tag_salary が空であること（巨大正値の diff_from_avg が出ないこと）");
+        assert!(
+            agg.by_tag_salary.is_empty(),
+            "全給与None時は by_tag_salary が空であること（巨大正値の diff_from_avg が出ないこと）"
+        );
     }
 
     #[test]
@@ -616,14 +807,30 @@ mod tests {
         // 6 Hourly + 4 Monthly = 10件。hourly_count=6 > 10/2=5 → true
         let mut records = Vec::new();
         for _ in 0..6 {
-            records.push(mock_record("H", Some("東京都"), Some("千代田区"),
-                Some(200_000), Some(1200), Some(1500),
-                SalaryType::Hourly, "パート", ""));
+            records.push(mock_record(
+                "H",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(200_000),
+                Some(1200),
+                Some(1500),
+                SalaryType::Hourly,
+                "パート",
+                "",
+            ));
         }
         for _ in 0..4 {
-            records.push(mock_record("M", Some("東京都"), Some("千代田区"),
-                Some(250_000), Some(200_000), Some(300_000),
-                SalaryType::Monthly, "正社員", ""));
+            records.push(mock_record(
+                "M",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(250_000),
+                Some(200_000),
+                Some(300_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ));
         }
         let agg = aggregate_records(&records);
         assert!(agg.is_hourly, "時給6 vs 月給4 → is_hourly=true");
@@ -634,14 +841,30 @@ mod tests {
         // 3 Hourly + 7 Monthly = 10件。hourly_count=3, 3>5=false
         let mut records = Vec::new();
         for _ in 0..3 {
-            records.push(mock_record("H", Some("東京都"), Some("千代田区"),
-                Some(200_000), Some(1200), Some(1500),
-                SalaryType::Hourly, "パート", ""));
+            records.push(mock_record(
+                "H",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(200_000),
+                Some(1200),
+                Some(1500),
+                SalaryType::Hourly,
+                "パート",
+                "",
+            ));
         }
         for _ in 0..7 {
-            records.push(mock_record("M", Some("東京都"), Some("千代田区"),
-                Some(250_000), Some(200_000), Some(300_000),
-                SalaryType::Monthly, "正社員", ""));
+            records.push(mock_record(
+                "M",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(250_000),
+                Some(200_000),
+                Some(300_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ));
         }
         let agg = aggregate_records(&records);
         assert!(!agg.is_hourly, "時給3 vs 月給7 → is_hourly=false");
@@ -652,19 +875,37 @@ mod tests {
         // 5 Hourly + 5 Monthly = 10件。hourly_count=5, 5>10/2=5 は strict比較で false
         let mut records = Vec::new();
         for _ in 0..5 {
-            records.push(mock_record("H", Some("東京都"), Some("千代田区"),
-                Some(200_000), Some(1200), Some(1500),
-                SalaryType::Hourly, "パート", ""));
+            records.push(mock_record(
+                "H",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(200_000),
+                Some(1200),
+                Some(1500),
+                SalaryType::Hourly,
+                "パート",
+                "",
+            ));
         }
         for _ in 0..5 {
-            records.push(mock_record("M", Some("東京都"), Some("千代田区"),
-                Some(250_000), Some(200_000), Some(300_000),
-                SalaryType::Monthly, "正社員", ""));
+            records.push(mock_record(
+                "M",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(250_000),
+                Some(200_000),
+                Some(300_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ));
         }
         let agg = aggregate_records(&records);
-        assert!(!agg.is_hourly,
+        assert!(
+            !agg.is_hourly,
             "境界（5-5）: hourly_count > total/2 の strict 比較により false。\
-             同数時は Monthly として扱う保守的仕様（ドキュメント化済）");
+             同数時は Monthly として扱う保守的仕様（ドキュメント化済）"
+        );
     }
 
     #[test]
@@ -672,58 +913,134 @@ mod tests {
         // 同一市区町村に4件: [100_000, 200_000, 300_000, 400_000]
         // sorted[4/2] = sorted[2] = 300_000 （現状: 偶数件でも上側要素を取る）
         let records = vec![
-            mock_record("A", Some("東京都"), Some("千代田区"),
-                Some(100_000), Some(100_000), Some(100_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("B", Some("東京都"), Some("千代田区"),
-                Some(200_000), Some(200_000), Some(200_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("C", Some("東京都"), Some("千代田区"),
-                Some(300_000), Some(300_000), Some(300_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("D", Some("東京都"), Some("千代田区"),
-                Some(400_000), Some(400_000), Some(400_000),
-                SalaryType::Monthly, "正社員", ""),
+            mock_record(
+                "A",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(100_000),
+                Some(100_000),
+                Some(100_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "B",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(200_000),
+                Some(200_000),
+                Some(200_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "C",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(300_000),
+                Some(300_000),
+                Some(300_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "D",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(400_000),
+                Some(400_000),
+                Some(400_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
         ];
         let agg = aggregate_records(&records);
-        let muni = agg.by_municipality_salary.iter()
+        let muni = agg
+            .by_municipality_salary
+            .iter()
             .find(|m| m.name == "千代田区" && m.prefecture == "東京都")
             .expect("千代田区");
         assert_eq!(muni.count, 4);
         assert_eq!(muni.avg_salary, 250_000);
         // 偶数件の中央値は中央2要素の平均: (sorted[1]+sorted[2])/2 = (200_000+300_000)/2 = 250_000
         // enhanced_salary_statistics と一貫した定義。
-        assert_eq!(muni.median_salary, 250_000,
-            "偶数件の中央値は中央2要素の平均");
+        assert_eq!(
+            muni.median_salary, 250_000,
+            "偶数件の中央値は中央2要素の平均"
+        );
     }
 
     #[test]
     fn test_aggregate_by_prefecture_salary() {
         // 東京都: 2件、大阪府: 2件
         let records = vec![
-            mock_record("A", Some("東京都"), Some("千代田区"),
-                Some(300_000), Some(280_000), Some(320_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("B", Some("東京都"), Some("新宿区"),
-                Some(400_000), Some(380_000), Some(420_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("C", Some("大阪府"), Some("大阪市"),
-                Some(250_000), Some(200_000), Some(300_000),
-                SalaryType::Monthly, "正社員", ""),
-            mock_record("D", Some("大阪府"), Some("堺市"),
-                Some(270_000), Some(240_000), Some(300_000),
-                SalaryType::Monthly, "正社員", ""),
+            mock_record(
+                "A",
+                Some("東京都"),
+                Some("千代田区"),
+                Some(300_000),
+                Some(280_000),
+                Some(320_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "B",
+                Some("東京都"),
+                Some("新宿区"),
+                Some(400_000),
+                Some(380_000),
+                Some(420_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "C",
+                Some("大阪府"),
+                Some("大阪市"),
+                Some(250_000),
+                Some(200_000),
+                Some(300_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
+            mock_record(
+                "D",
+                Some("大阪府"),
+                Some("堺市"),
+                Some(270_000),
+                Some(240_000),
+                Some(300_000),
+                SalaryType::Monthly,
+                "正社員",
+                "",
+            ),
         ];
         let agg = aggregate_records(&records);
 
-        let tokyo = agg.by_prefecture_salary.iter().find(|p| p.name == "東京都").expect("東京都");
+        let tokyo = agg
+            .by_prefecture_salary
+            .iter()
+            .find(|p| p.name == "東京都")
+            .expect("東京都");
         assert_eq!(tokyo.count, 2);
-        assert_eq!(tokyo.avg_salary, 350_000);  // (300_000+400_000)/2
-        assert_eq!(tokyo.avg_min_salary, 330_000);  // (280_000+380_000)/2
+        assert_eq!(tokyo.avg_salary, 350_000); // (300_000+400_000)/2
+        assert_eq!(tokyo.avg_min_salary, 330_000); // (280_000+380_000)/2
 
-        let osaka = agg.by_prefecture_salary.iter().find(|p| p.name == "大阪府").expect("大阪府");
+        let osaka = agg
+            .by_prefecture_salary
+            .iter()
+            .find(|p| p.name == "大阪府")
+            .expect("大阪府");
         assert_eq!(osaka.count, 2);
-        assert_eq!(osaka.avg_salary, 260_000);  // (250_000+270_000)/2
-        assert_eq!(osaka.avg_min_salary, 220_000);  // (200_000+240_000)/2
+        assert_eq!(osaka.avg_salary, 260_000); // (250_000+270_000)/2
+        assert_eq!(osaka.avg_min_salary, 220_000); // (200_000+240_000)/2
     }
 }

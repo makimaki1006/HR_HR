@@ -7,11 +7,11 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum SalaryType {
-    Hourly,   // 時給
-    Daily,    // 日給
-    Weekly,   // 週給
-    Monthly,  // 月給
-    Annual,   // 年俸
+    Hourly,  // 時給
+    Daily,   // 日給
+    Weekly,  // 週給
+    Monthly, // 月給
+    Annual,  // 年俸
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,8 +31,8 @@ pub struct ParsedSalary {
 
 // GASのSALARY_CONVERSION_RATES相当
 const HOURLY_TO_MONTHLY: f64 = 173.8; // 8h × 21.7日
-const DAILY_TO_MONTHLY: f64 = 21.7;   // 月間勤務日数
-const WEEKLY_TO_MONTHLY: f64 = 4.33;  // 月間週数
+const DAILY_TO_MONTHLY: f64 = 21.7; // 月間勤務日数
+const WEEKLY_TO_MONTHLY: f64 = 4.33; // 月間週数
 
 // ======== メインパース関数 ========
 
@@ -46,7 +46,7 @@ pub fn parse_salary(text: &str, default_type: SalaryType) -> ParsedSalary {
     let salary_type = detect_salary_type(&normalized, &default_type);
     let (min_val, max_val, has_range) = extract_salary_values(&normalized);
     let (unified_monthly, unified_annual) = calculate_unified(min_val, max_val, &salary_type);
-    let range_category = unified_monthly.map(|m| get_salary_range_category(m));
+    let range_category = unified_monthly.map(get_salary_range_category);
     let confidence = calculate_confidence(&normalized, min_val, &salary_type);
 
     ParsedSalary {
@@ -113,13 +113,25 @@ fn normalize_text(text: &str) -> String {
 // ======== 給与タイプ判定 ========
 
 fn detect_salary_type(text: &str, default: &SalaryType) -> SalaryType {
-    if text.contains("時給") { return SalaryType::Hourly; }
-    if text.contains("日給") { return SalaryType::Daily; }
-    if text.contains("週給") { return SalaryType::Weekly; }
-    if text.contains("月給") || text.contains("月収") || text.contains("基本給") || text.contains("固定給") {
+    if text.contains("時給") {
+        return SalaryType::Hourly;
+    }
+    if text.contains("日給") {
+        return SalaryType::Daily;
+    }
+    if text.contains("週給") {
+        return SalaryType::Weekly;
+    }
+    if text.contains("月給")
+        || text.contains("月収")
+        || text.contains("基本給")
+        || text.contains("固定給")
+    {
         return SalaryType::Monthly;
     }
-    if text.contains("年俸") || text.contains("年収") { return SalaryType::Annual; }
+    if text.contains("年俸") || text.contains("年収") {
+        return SalaryType::Annual;
+    }
     default.clone()
 }
 
@@ -152,13 +164,21 @@ fn extract_salary_values(text: &str) -> (Option<i64>, Option<i64>, bool) {
 /// 単一の給与値を抽出
 fn extract_single_value(text: &str) -> Option<i64> {
     // パターン1: XX.X万円 (例: 25.9万円 → 259,000)
-    if let Some(v) = try_parse_decimal_man(text) { return Some(v); }
+    if let Some(v) = try_parse_decimal_man(text) {
+        return Some(v);
+    }
     // パターン2: XX万YYYY円 (例: 25万3000円 → 253,000)
-    if let Some(v) = try_parse_man_format(text) { return Some(v); }
+    if let Some(v) = try_parse_man_format(text) {
+        return Some(v);
+    }
     // パターン3: X千円 (例: 5千円 → 5,000)
-    if let Some(v) = try_parse_sen_format(text) { return Some(v); }
+    if let Some(v) = try_parse_sen_format(text) {
+        return Some(v);
+    }
     // パターン4: 純粋な数値（4桁以上）
-    if let Some(v) = try_parse_plain_number(text) { return Some(v); }
+    if let Some(v) = try_parse_plain_number(text) {
+        return Some(v);
+    }
     None
 }
 
@@ -167,10 +187,17 @@ fn try_parse_decimal_man(text: &str) -> Option<i64> {
     let man_pos = text.find('万')?;
     let before = &text[..man_pos];
     // 数字と小数点のみ抽出（末尾から遡る）
-    let num_str: String = before.chars().rev()
+    let num_str: String = before
+        .chars()
+        .rev()
         .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .collect::<String>().chars().rev().collect();
-    if !num_str.contains('.') { return None; }
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if !num_str.contains('.') {
+        return None;
+    }
     let val: f64 = num_str.parse().ok()?;
     Some((val * 10_000.0) as i64)
 }
@@ -180,23 +207,24 @@ fn try_parse_man_format(text: &str) -> Option<i64> {
     let man_pos = text.find('万')?;
     let before = &text[..man_pos];
     // 万の前の数字
-    let man_str: String = before.chars().rev()
+    let man_str: String = before
+        .chars()
+        .rev()
         .take_while(|c| c.is_ascii_digit())
-        .collect::<String>().chars().rev().collect();
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let man_val: i64 = man_str.parse().ok()?;
 
     // 万の後の数字（あれば）
     let after = &text[man_pos + '万'.len_utf8()..];
     let extra: i64 = if after.contains('千') {
         // X千パターン
-        let sen_str: String = after.chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let sen_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         sen_str.parse::<i64>().unwrap_or(0) * 1000
     } else {
-        let extra_str: String = after.chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let extra_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         extra_str.parse().unwrap_or(0)
     };
 
@@ -208,9 +236,14 @@ fn try_parse_sen_format(text: &str) -> Option<i64> {
     let sen_pos = text.find('千')?;
     let before = &text[..sen_pos];
     // 千の前の数字
-    let num_str: String = before.chars().rev()
+    let num_str: String = before
+        .chars()
+        .rev()
         .take_while(|c| c.is_ascii_digit())
-        .collect::<String>().chars().rev().collect();
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let sen_val: i64 = num_str.parse().ok()?;
     let mut total = sen_val * 1_000;
 
@@ -218,7 +251,8 @@ fn try_parse_sen_format(text: &str) -> Option<i64> {
     let after_sen = &text[sen_pos + '千'.len_utf8()..];
     if let Some(hyaku_pos) = after_sen.find('百') {
         let before_hyaku = &after_sen[..hyaku_pos];
-        let hyaku_str: String = before_hyaku.chars()
+        let hyaku_str: String = before_hyaku
+            .chars()
             .take_while(|c| c.is_ascii_digit())
             .collect();
         if let Ok(h) = hyaku_str.parse::<i64>() {
@@ -228,7 +262,8 @@ fn try_parse_sen_format(text: &str) -> Option<i64> {
         let after_hyaku = &after_sen[hyaku_pos + '百'.len_utf8()..];
         if let Some(juu_pos) = after_hyaku.find('十') {
             let before_juu = &after_hyaku[..juu_pos];
-            let juu_str: String = before_juu.chars()
+            let juu_str: String = before_juu
+                .chars()
                 .take_while(|c| c.is_ascii_digit())
                 .collect();
             if let Ok(j) = juu_str.parse::<i64>() {
@@ -238,7 +273,8 @@ fn try_parse_sen_format(text: &str) -> Option<i64> {
     } else if let Some(juu_pos) = after_sen.find('十') {
         // 千の後に百なしで「十」がある場合
         let before_juu = &after_sen[..juu_pos];
-        let juu_str: String = before_juu.chars()
+        let juu_str: String = before_juu
+            .chars()
             .take_while(|c| c.is_ascii_digit())
             .collect();
         if let Ok(j) = juu_str.parse::<i64>() {
@@ -305,12 +341,8 @@ fn calculate_unified(
             let m = base * WEEKLY_TO_MONTHLY;
             (m, m * 12.0)
         }
-        SalaryType::Monthly => {
-            (base, base * 12.0)
-        }
-        SalaryType::Annual => {
-            (base / 12.0, base)
-        }
+        SalaryType::Monthly => (base, base * 12.0),
+        SalaryType::Annual => (base / 12.0, base),
     };
 
     (Some(monthly as i64), Some(annual as i64))
@@ -337,8 +369,13 @@ fn calculate_confidence(text: &str, min_val: Option<i64>, salary_type: &SalaryTy
     let mut conf: f64 = 0.5;
 
     // 明示的な給与種別キーワード
-    if text.contains("時給") || text.contains("日給") || text.contains("月給")
-        || text.contains("月収") || text.contains("年俸") || text.contains("年収") {
+    if text.contains("時給")
+        || text.contains("日給")
+        || text.contains("月給")
+        || text.contains("月収")
+        || text.contains("年俸")
+        || text.contains("年収")
+    {
         conf += 0.2;
     }
 
@@ -356,7 +393,9 @@ fn calculate_confidence(text: &str, min_val: Option<i64>, salary_type: &SalaryTy
             SalaryType::Annual => (1_000_000..=50_000_000).contains(&val),
             SalaryType::Weekly => (20_000..=500_000).contains(&val),
         };
-        if reasonable { conf += 0.2; }
+        if reasonable {
+            conf += 0.2;
+        }
     }
 
     conf.min(1.0)

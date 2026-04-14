@@ -2,13 +2,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
-use rust_dashboard::{
-    build_app, decompress_db_if_needed, decompress_geojson_if_needed, AppState,
-};
 use rust_dashboard::auth::session::RateLimiter;
 use rust_dashboard::config::AppConfig;
 use rust_dashboard::db::cache::AppCache;
 use rust_dashboard::db::local_sqlite::LocalDb;
+use rust_dashboard::{build_app, decompress_db_if_needed, decompress_geojson_if_needed, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -23,7 +21,11 @@ async fn main() {
     tracing::info!("Starting hellowork_dashboard on port {}", port);
     tracing::info!(
         "Auth: internal={}, external={} passwords, domains={:?}, domains_extra={:?}",
-        if config.auth_password.is_empty() && config.auth_password_hash.is_empty() { "none" } else { "set" },
+        if config.auth_password.is_empty() && config.auth_password_hash.is_empty() {
+            "none"
+        } else {
+            "set"
+        },
         config.external_passwords.len(),
         config.allowed_domains,
         config.allowed_domains_extra,
@@ -84,7 +86,9 @@ async fn main() {
         (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
             match tokio::task::spawn_blocking(move || {
                 rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
-            }).await {
+            })
+            .await
+            {
                 Ok(Ok(db)) => Some(db),
                 Ok(Err(e)) => {
                     tracing::warn!("Turso external DB not available: {e}");
@@ -97,7 +101,9 @@ async fn main() {
             }
         }
         _ => {
-            tracing::info!("Turso external DB not configured (TURSO_EXTERNAL_URL / TURSO_EXTERNAL_TOKEN)");
+            tracing::info!(
+                "Turso external DB not configured (TURSO_EXTERNAL_URL / TURSO_EXTERNAL_TOKEN)"
+            );
             None
         }
     };
@@ -110,9 +116,14 @@ async fn main() {
         (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
             match tokio::task::spawn_blocking(move || {
                 rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
-            }).await {
+            })
+            .await
+            {
                 Ok(Ok(db)) => {
-                    tracing::info!("SalesNow DB connected: {}", std::env::var("SALESNOW_TURSO_URL").unwrap_or_default());
+                    tracing::info!(
+                        "SalesNow DB connected: {}",
+                        std::env::var("SALESNOW_TURSO_URL").unwrap_or_default()
+                    );
                     Some(db)
                 }
                 Ok(Err(e)) => {
@@ -126,17 +137,24 @@ async fn main() {
             }
         }
         _ => {
-            tracing::info!("SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)");
+            tracing::info!(
+                "SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)"
+            );
             None
         }
     };
 
     let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
-    let rate_limiter = RateLimiter::new(config.rate_limit_max_attempts, config.rate_limit_lockout_secs);
+    let rate_limiter = RateLimiter::new(
+        config.rate_limit_max_attempts,
+        config.rate_limit_lockout_secs,
+    );
 
     // 企業ジオコードキャッシュは無効化（Render無料プラン512MBでOOM発生のため）
     // 代わりにリクエスト時にTursoに直接クエリする方式に変更
-    let company_geo_cache: Option<Vec<rust_dashboard::handlers::jobmap::company_markers::CompanyGeoEntry>> = None;
+    let company_geo_cache: Option<
+        Vec<rust_dashboard::handlers::jobmap::company_markers::CompanyGeoEntry>,
+    > = None;
     tracing::info!("企業ジオコードキャッシュ: 無効（オンデマンドクエリモード）");
 
     let state = Arc::new(AppState {
@@ -155,5 +173,10 @@ async fn main() {
     tracing::info!("Listening on http://localhost:{port}");
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }

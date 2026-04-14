@@ -1,8 +1,8 @@
 //! 全データソースからの一括取得 → InsightContext構築
 //! 既存の analysis/fetch.rs と trend/fetch.rs の関数を再利用
 
-use super::super::helpers::Row;
 use super::super::analysis::fetch as af;
+use super::super::helpers::Row;
 use super::super::trend::fetch as tf;
 
 type Db = crate::db::local_sqlite::LocalDb;
@@ -55,7 +55,7 @@ pub struct InsightContext {
     pub commute_inflow_total: i64,
     pub commute_outflow_total: i64,
     pub commute_self_rate: f64,
-    pub commute_inflow_top3: Vec<(String, String, i64)>,  // (pref, muni, count)
+    pub commute_inflow_top3: Vec<(String, String, i64)>, // (pref, muni, count)
     // === メタ ===
     pub pref: String,
     pub muni: String,
@@ -69,18 +69,17 @@ pub(crate) fn build_insight_context(
     muni: &str,
 ) -> InsightContext {
     // Turso時系列データ（Turso必須）
-    let (ts_counts, ts_vacancy, ts_salary, ts_fulfillment, ts_tracking) =
-        if let Some(tdb) = turso {
-            (
-                tf::fetch_ts_counts(tdb, pref),
-                tf::fetch_ts_vacancy(tdb, pref),
-                tf::fetch_ts_salary(tdb, pref),
-                tf::fetch_ts_fulfillment(tdb, pref),
-                tf::fetch_ts_tracking(tdb, pref),
-            )
-        } else {
-            (vec![], vec![], vec![], vec![], vec![])
-        };
+    let (ts_counts, ts_vacancy, ts_salary, ts_fulfillment, ts_tracking) = if let Some(tdb) = turso {
+        (
+            tf::fetch_ts_counts(tdb, pref),
+            tf::fetch_ts_vacancy(tdb, pref),
+            tf::fetch_ts_salary(tdb, pref),
+            tf::fetch_ts_fulfillment(tdb, pref),
+            tf::fetch_ts_tracking(tdb, pref),
+        )
+    } else {
+        (vec![], vec![], vec![], vec![], vec![])
+    };
 
     // Turso外部統計（trend/fetch.rsの関数）
     let (ext_job_ratio, ext_labor_stats, ext_min_wage_ts, ext_turnover_ts) =
@@ -151,7 +150,9 @@ pub(crate) fn build_insight_context(
         let zone = af::fetch_commute_zone(db, pref, muni, 30.0);
         if !zone.is_empty() {
             let mut pref_set = std::collections::HashSet::new();
-            for m in &zone { pref_set.insert(m.prefecture.clone()); }
+            for m in &zone {
+                pref_set.insert(m.prefecture.clone());
+            }
             ctx.commute_zone_count = zone.len();
             ctx.commute_zone_pref_count = pref_set.len();
 
@@ -163,12 +164,15 @@ pub(crate) fn build_insight_context(
                 ctx.commute_zone_total_pop += total;
                 let age = super::super::helpers::get_str_ref(row, "age_group");
                 match age {
-                    "15-19"|"20-24"|"25-29"|"30-34"|"35-39"|"40-44"|"45-49"|"50-54"|"55-59"|"60-64"
-                    | "10-19"|"20-29"|"30-39"|"40-49"|"50-59"|"60-69" => ctx.commute_zone_working_age += total,
+                    "15-19" | "20-24" | "25-29" | "30-34" | "35-39" | "40-44" | "45-49"
+                    | "50-54" | "55-59" | "60-64" | "10-19" | "20-29" | "30-39" | "40-49"
+                    | "50-59" | "60-69" => ctx.commute_zone_working_age += total,
                     _ => {}
                 }
                 match age {
-                    "65-69"|"70-74"|"75-79"|"80-84"|"85+" | "70-79"|"80+" => ctx.commute_zone_elderly += total,
+                    "65-69" | "70-74" | "75-79" | "80-84" | "85+" | "70-79" | "80+" => {
+                        ctx.commute_zone_elderly += total
+                    }
                     _ => {}
                 }
             }
@@ -179,8 +183,16 @@ pub(crate) fn build_insight_context(
     if !muni.is_empty() {
         let inflow = af::fetch_commute_inflow(db, pref, muni);
         ctx.commute_inflow_total = inflow.iter().map(|f| f.total_commuters).sum();
-        ctx.commute_inflow_top3 = inflow.iter().take(3)
-            .map(|f| (f.partner_pref.clone(), f.partner_muni.clone(), f.total_commuters))
+        ctx.commute_inflow_top3 = inflow
+            .iter()
+            .take(3)
+            .map(|f| {
+                (
+                    f.partner_pref.clone(),
+                    f.partner_muni.clone(),
+                    f.total_commuters,
+                )
+            })
             .collect();
 
         let outflow = af::fetch_commute_outflow(db, pref, muni);

@@ -2,10 +2,10 @@
 //! CSVアップロード分析結果をA4縦向き印刷用HTMLとして出力する
 //! EChartsによるインタラクティブチャート + ソート可能テーブル
 
-use super::aggregator::{SurveyAggregation, CompanyAgg, EmpTypeSalary, ScatterPoint, TagSalaryAgg};
-use super::job_seeker::JobSeekerAnalysis;
 use super::super::helpers::{escape_html, format_number, get_f64};
 use super::super::insight::fetch::InsightContext;
+use super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
+use super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
 
 // ============================================================
@@ -30,7 +30,9 @@ pub(crate) fn render_survey_report_page(
     salary_max_values: &[i64],
     hw_context: Option<&InsightContext>,
 ) -> String {
-    let now = chrono::Local::now().format("%Y年%m月%d日 %H:%M").to_string();
+    let now = chrono::Local::now()
+        .format("%Y年%m月%d日 %H:%M")
+        .to_string();
     let mut html = String::with_capacity(64_000);
 
     // --- DOCTYPE + HEAD ---
@@ -42,7 +44,9 @@ pub(crate) fn render_survey_report_page(
     html.push_str(&render_css());
     html.push_str("</style>\n");
     // ECharts CDN
-    html.push_str("<script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>\n");
+    html.push_str(
+        "<script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>\n",
+    );
     html.push_str("</head>\n<body>\n");
 
     // --- テーマ切替 + 印刷ボタン ---
@@ -53,7 +57,9 @@ pub(crate) fn render_survey_report_page(
 
     // --- 表紙ページ ---
     let today_short = chrono::Local::now().format("%Y年%m月").to_string();
-    html.push_str("<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n");
+    html.push_str(
+        "<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n",
+    );
     // ロゴはREADME等で別途提供される想定。現状はプレースホルダーを出さず、
     // CSS .cover-logo クラスで display:none で非表示化（render_css内）
     html.push_str("<div class=\"cover-title\" id=\"cover-title\">ハローワーク求人市場 総合診断レポート</div>\n");
@@ -518,14 +524,20 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 // ============================================================
 
 fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
-    let salary_label = if agg.is_hourly { "平均時給" } else { "平均月給" };
+    let salary_label = if agg.is_hourly {
+        "平均時給"
+    } else {
+        "平均月給"
+    };
     let salary_unit = if agg.is_hourly { "円" } else { "万円" };
 
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>サマリー</h2>\n");
 
     // KPIカード 2x2
-    let avg_salary_display = agg.enhanced_stats.as_ref()
+    let avg_salary_display = agg
+        .enhanced_stats
+        .as_ref()
         .map(|s| {
             if agg.is_hourly {
                 format_number(s.mean)
@@ -536,12 +548,17 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
         .unwrap_or_else(|| "-".to_string());
 
     // 正社員率の計算
-    let fulltime_count = agg.by_employment_type.iter()
+    let fulltime_count = agg
+        .by_employment_type
+        .iter()
         .filter(|(t, _)| t.contains("正社員") || t.contains("正職員"))
         .map(|(_, c)| c)
         .sum::<usize>();
     let fulltime_rate = if agg.total_count > 0 {
-        format!("{:.1}%", fulltime_count as f64 / agg.total_count as f64 * 100.0)
+        format!(
+            "{:.1}%",
+            fulltime_count as f64 / agg.total_count as f64 * 100.0
+        )
     } else {
         "-".to_string()
     };
@@ -550,8 +567,16 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
     //   Why: 求人ボックス等「新着」列がないCSVでは new_count==0 となり常に 0.0% 表示になり無意味
     //   How: new_count > 0 なら新着率、それ以外は企業数（募集主の多様性指標）
     let (kpi4_label, kpi4_value, kpi4_unit, kpi4_guide) = if agg.new_count > 0 {
-        let nr = format!("{:.1}%", agg.new_count as f64 / agg.total_count.max(1) as f64 * 100.0);
-        ("新着率", nr, "", "新着求人の割合です。高いほど求人の入れ替わりが活発です。")
+        let nr = format!(
+            "{:.1}%",
+            agg.new_count as f64 / agg.total_count.max(1) as f64 * 100.0
+        );
+        (
+            "新着率",
+            nr,
+            "",
+            "新着求人の割合です。高いほど求人の入れ替わりが活発です。",
+        )
     } else {
         let companies = agg.by_company.len();
         (
@@ -563,7 +588,12 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
     };
 
     html.push_str("<div class=\"summary-grid\">\n");
-    render_summary_card(html, "総求人数", &format_number(agg.total_count as i64), "件");
+    render_summary_card(
+        html,
+        "総求人数",
+        &format_number(agg.total_count as i64),
+        "件",
+    );
     render_summary_card(html, salary_label, &avg_salary_display, salary_unit);
     render_summary_card(html, "正社員率", &fulltime_rate, "");
     render_summary_card(html, kpi4_label, &kpi4_value, kpi4_unit);
@@ -576,9 +606,17 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
         "全求人の月給換算平均値です。時給・年俸は月給に統一計算しています。"
     };
     html.push_str("<div class=\"guide-grid\">\n");
-    render_guide_item(html, "総求人数", "CSVに含まれる求人の総数です。市場規模の目安になります。");
+    render_guide_item(
+        html,
+        "総求人数",
+        "CSVに含まれる求人の総数です。市場規模の目安になります。",
+    );
     render_guide_item(html, salary_label, salary_guide);
-    render_guide_item(html, "正社員率", "正社員・正職員の求人割合です。高いほど安定雇用が多い市場です。");
+    render_guide_item(
+        html,
+        "正社員率",
+        "正社員・正職員の求人割合です。高いほど安定雇用が多い市場です。",
+    );
     render_guide_item(html, kpi4_label, kpi4_guide);
     html.push_str("</div>\n");
 
@@ -587,17 +625,29 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
 
 fn render_summary_card(html: &mut String, label: &str, value: &str, unit: &str) {
     html.push_str("<div class=\"summary-card\">\n");
-    html.push_str(&format!("<div class=\"label\">{}</div>\n", escape_html(label)));
-    html.push_str(&format!("<div class=\"value\">{}</div>\n", escape_html(value)));
+    html.push_str(&format!(
+        "<div class=\"label\">{}</div>\n",
+        escape_html(label)
+    ));
+    html.push_str(&format!(
+        "<div class=\"value\">{}</div>\n",
+        escape_html(value)
+    ));
     if !unit.is_empty() {
-        html.push_str(&format!("<div class=\"unit\">{}</div>\n", escape_html(unit)));
+        html.push_str(&format!(
+            "<div class=\"unit\">{}</div>\n",
+            escape_html(unit)
+        ));
     }
     html.push_str("</div>\n");
 }
 
 fn render_guide_item(html: &mut String, title: &str, description: &str) {
     html.push_str("<div class=\"guide-item\">\n");
-    html.push_str(&format!("<div class=\"guide-title\">{}</div>\n", escape_html(title)));
+    html.push_str(&format!(
+        "<div class=\"guide-title\">{}</div>\n",
+        escape_html(title)
+    ));
     html.push_str(&format!("{}\n", escape_html(description)));
     html.push_str("</div>\n");
 }
@@ -635,7 +685,11 @@ fn render_comparison_card(
     html.push_str("</div>\n");
     if let Some(d) = diff_text {
         let cls = if positive { "positive" } else { "negative" };
-        html.push_str(&format!("<div class=\"diff {}\">{}</div>\n", cls, escape_html(d)));
+        html.push_str(&format!(
+            "<div class=\"diff {}\">{}</div>\n",
+            cls,
+            escape_html(d)
+        ));
     }
     html.push_str("</div>\n");
 }
@@ -648,11 +702,13 @@ fn render_section_hw_comparison(
 ) {
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>HW市場比較</h2>\n");
-    html.push_str("<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+    html.push_str(
+        "<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>CSV（媒体データ）とハローワーク全体データを\
         <strong>雇用形態ごと</strong>に並列比較。媒体に出現する雇用形態を動的に検出し、\
         対応するHWデータと同条件で比較します。\
-    </p>\n");
+    </p>\n",
+    );
 
     // CSV側の雇用形態を正規化してHW側のemp_group（正社員/パート/その他）にマッピング
     // - "正社員"/"正職員" → HW "正社員"
@@ -663,9 +719,12 @@ fn render_section_hw_comparison(
             Some("正社員")
         } else if csv_type.contains("パート") || csv_type.contains("アルバイト") {
             Some("パート")
-        } else if csv_type.contains("契約") || csv_type.contains("派遣")
-            || csv_type.contains("嘱託") || csv_type.contains("臨時")
-            || csv_type.contains("その他") {
+        } else if csv_type.contains("契約")
+            || csv_type.contains("派遣")
+            || csv_type.contains("嘱託")
+            || csv_type.contains("臨時")
+            || csv_type.contains("その他")
+        {
             Some("その他")
         } else {
             None
@@ -674,7 +733,7 @@ fn render_section_hw_comparison(
 
     // CSV側の雇用形態を集約（HWのemp_groupごとに合算）
     use std::collections::HashMap;
-    let mut csv_by_hw_group: HashMap<&str, (usize, i64)> = HashMap::new();  // (件数, 給与合計)
+    let mut csv_by_hw_group: HashMap<&str, (usize, i64)> = HashMap::new(); // (件数, 給与合計)
     for e in by_emp_type_salary {
         if let Some(hw_key) = normalize_emp_type(&e.emp_type) {
             let entry = csv_by_hw_group.entry(hw_key).or_insert((0, 0));
@@ -685,14 +744,17 @@ fn render_section_hw_comparison(
 
     // 対象とする雇用形態を出現順に並べる（正社員 > パート > その他）
     let emp_order = ["正社員", "パート", "その他"];
-    let present_groups: Vec<&str> = emp_order.iter()
+    let present_groups: Vec<&str> = emp_order
+        .iter()
         .filter(|g| csv_by_hw_group.contains_key(*g))
         .copied()
         .collect();
 
     if present_groups.is_empty() {
-        html.push_str("<p style=\"color:#888;font-size:10pt;\">\
-            CSVデータの雇用形態が判別できなかったため、HW比較をスキップしました。</p>\n");
+        html.push_str(
+            "<p style=\"color:#888;font-size:10pt;\">\
+            CSVデータの雇用形態が判別できなかったため、HW比較をスキップしました。</p>\n",
+        );
         html.push_str("</div>\n");
         return;
     }
@@ -703,7 +765,11 @@ fn render_section_hw_comparison(
         html.push_str("<div class=\"comparison-grid\">\n");
         for &group in &present_groups {
             let (count, salary_sum) = csv_by_hw_group[group];
-            let csv_avg = if count > 0 { salary_sum / count as i64 } else { 0 };
+            let csv_avg = if count > 0 {
+                salary_sum / count as i64
+            } else {
+                0
+            };
             let csv_display = if csv_avg > 0 {
                 format!("{:.1}万円 (n={})", csv_avg as f64 / 10_000.0, count)
             } else {
@@ -712,14 +778,18 @@ fn render_section_hw_comparison(
 
             // HW側: cascade は industry_raw × emp_group の複合集計のため、
             // 同じ emp_group の全業種の avg_salary_min を平均化する
-            let salaries: Vec<f64> = ctx.cascade.iter()
+            let salaries: Vec<f64> = ctx
+                .cascade
+                .iter()
                 .filter(|r| super::super::helpers::get_str_ref(r, "emp_group") == group)
                 .map(|r| get_f64(r, "avg_salary_min"))
                 .filter(|&v| v > 0.0)
                 .collect();
             let hw_avg: i64 = if !salaries.is_empty() {
                 (salaries.iter().sum::<f64>() / salaries.len() as f64) as i64
-            } else { 0 };
+            } else {
+                0
+            };
             let hw_display = if hw_avg > 0 {
                 format!("{:.1}万円", hw_avg as f64 / 10_000.0)
             } else {
@@ -739,8 +809,10 @@ fn render_section_hw_comparison(
             render_comparison_card(
                 html,
                 &format!("{} 平均月給", group),
-                &csv_display, &hw_display,
-                diff_text.as_deref(), positive,
+                &csv_display,
+                &hw_display,
+                diff_text.as_deref(),
+                positive,
             );
         }
         html.push_str("</div>\n");
@@ -752,7 +824,9 @@ fn render_section_hw_comparison(
 
     // 雇用形態構成比（CSV vs HW の割合）を雇用形態ごとに表示
     let csv_total: usize = csv_by_hw_group.values().map(|(c, _)| c).sum();
-    let hw_total: i64 = ctx.vacancy.iter()
+    let hw_total: i64 = ctx
+        .vacancy
+        .iter()
         .map(|r| get_f64(r, "total_count") as i64)
         .sum();
 
@@ -760,21 +834,31 @@ fn render_section_hw_comparison(
         let (csv_count, _) = csv_by_hw_group[group];
         let csv_rate = if csv_total > 0 {
             csv_count as f64 / csv_total as f64 * 100.0
-        } else { -1.0 };
+        } else {
+            -1.0
+        };
         let csv_display = if csv_rate >= 0.0 {
             format!("{:.1}% ({}件)", csv_rate, csv_count)
-        } else { "-".to_string() };
+        } else {
+            "-".to_string()
+        };
 
-        let hw_count: i64 = ctx.vacancy.iter()
+        let hw_count: i64 = ctx
+            .vacancy
+            .iter()
             .find(|r| super::super::helpers::get_str_ref(r, "emp_group") == group)
             .map(|r| get_f64(r, "total_count") as i64)
             .unwrap_or(0);
         let hw_rate = if hw_total > 0 {
             hw_count as f64 / hw_total as f64 * 100.0
-        } else { -1.0 };
+        } else {
+            -1.0
+        };
         let hw_display = if hw_rate >= 0.0 && hw_total > 0 {
             format!("{:.1}% ({}件)", hw_rate, format_number(hw_count))
-        } else { "データなし".to_string() };
+        } else {
+            "データなし".to_string()
+        };
 
         let (diff_text, positive) = if csv_rate >= 0.0 && hw_rate >= 0.0 {
             let d = csv_rate - hw_rate;
@@ -785,8 +869,10 @@ fn render_section_hw_comparison(
         render_comparison_card(
             html,
             &format!("{} 構成比", group),
-            &csv_display, &hw_display,
-            diff_text.as_deref(), positive,
+            &csv_display,
+            &hw_display,
+            diff_text.as_deref(),
+            positive,
         );
     }
     html.push_str("</div>\n"); // comparison-grid (構成比)
@@ -799,7 +885,8 @@ fn render_section_hw_comparison(
     let population: i64 = if ctx.commute_zone_total_pop > 0 {
         ctx.commute_zone_total_pop
     } else {
-        ctx.ext_population.first()
+        ctx.ext_population
+            .first()
             .map(|r| get_f64(r, "total_population") as i64)
             .unwrap_or(0)
     };
@@ -816,23 +903,34 @@ fn render_section_hw_comparison(
         "-".to_string()
     };
     render_comparison_card(
-        html, "対象地域の人口",
+        html,
+        "対象地域の人口",
         &pop_display,
         &pop_source,
-        None, true,
+        None,
+        true,
     );
 
     // --- カード4: 最低賃金比較（CSV平均下限の160h換算 vs 都道府県最低賃金） ---
     if !agg.is_hourly {
         // CSV平均下限（月給→時給160h換算）
         let csv_avg_min: i64 = if !agg.by_prefecture_salary.is_empty() {
-            let total: i64 = agg.by_prefecture_salary.iter()
+            let total: i64 = agg
+                .by_prefecture_salary
+                .iter()
                 .filter(|p| p.avg_min_salary > 0)
                 .map(|p| p.avg_min_salary)
                 .sum();
-            let n = agg.by_prefecture_salary.iter()
-                .filter(|p| p.avg_min_salary > 0).count();
-            if n > 0 { total / n as i64 } else { 0 }
+            let n = agg
+                .by_prefecture_salary
+                .iter()
+                .filter(|p| p.avg_min_salary > 0)
+                .count();
+            if n > 0 {
+                total / n as i64
+            } else {
+                0
+            }
         } else {
             0
         };
@@ -859,9 +957,12 @@ fn render_section_hw_comparison(
             (None, true)
         };
         render_comparison_card(
-            html, "最低賃金比較（160h換算）",
-            &csv_display, &mw_display,
-            mw_diff_text.as_deref(), mw_positive,
+            html,
+            "最低賃金比較（160h換算）",
+            &csv_display,
+            &mw_display,
+            mw_diff_text.as_deref(),
+            mw_positive,
         );
     }
 
@@ -989,14 +1090,24 @@ fn render_section_salary_stats(
     html.push_str("<div class=\"stats-grid\">\n");
     render_stat_box(html, "平均月給", &format_man_yen(stats.mean));
     render_stat_box(html, "中央値", &format_man_yen(stats.median));
-    render_stat_box(html, "給与範囲", &format!("{} 〜 {}", format_man_yen(stats.min), format_man_yen(stats.max)));
+    render_stat_box(
+        html,
+        "給与範囲",
+        &format!(
+            "{} 〜 {}",
+            format_man_yen(stats.min),
+            format_man_yen(stats.max)
+        ),
+    );
     html.push_str("</div>\n");
 
     // 信頼区間・四分位がある場合
     if let Some(ci) = &stats.bootstrap_ci {
         html.push_str(&format!(
             "<p class=\"note\">95%信頼区間: {} 〜 {} (Bootstrap法, n={})</p>\n",
-            format_man_yen(ci.lower), format_man_yen(ci.upper), ci.sample_size
+            format_man_yen(ci.lower),
+            format_man_yen(ci.upper),
+            ci.sample_size
         ));
     }
 
@@ -1007,8 +1118,13 @@ fn render_section_salary_stats(
         let (labels, values, _b) = build_salary_histogram(salary_min_values, 20_000);
         let mode_min_20k = compute_mode(salary_min_values, 20_000);
         let config = build_histogram_echart_config(
-            &labels, &values, "#42A5F5",
-            Some(stats.mean), Some(stats.median), mode_min_20k, 20_000,
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(stats.mean),
+            Some(stats.median),
+            mode_min_20k,
+            20_000,
         );
         html.push_str(&render_echart_div(&config, 220));
 
@@ -1017,8 +1133,13 @@ fn render_section_salary_stats(
         let (labels_f, values_f, _bf) = build_salary_histogram(salary_min_values, 5_000);
         let mode_min_5k = compute_mode(salary_min_values, 5_000);
         let config = build_histogram_echart_config(
-            &labels_f, &values_f, "#42A5F5",
-            Some(stats.mean), Some(stats.median), mode_min_5k, 5_000,
+            &labels_f,
+            &values_f,
+            "#42A5F5",
+            Some(stats.mean),
+            Some(stats.median),
+            mode_min_5k,
+            5_000,
         );
         html.push_str(&render_echart_div(&config, 220));
     }
@@ -1030,8 +1151,13 @@ fn render_section_salary_stats(
         let (labels, values, _b) = build_salary_histogram(salary_max_values, 20_000);
         let mode_max_20k = compute_mode(salary_max_values, 20_000);
         let config = build_histogram_echart_config(
-            &labels, &values, "#66BB6A",
-            Some(stats.mean), Some(stats.median), mode_max_20k, 20_000,
+            &labels,
+            &values,
+            "#66BB6A",
+            Some(stats.mean),
+            Some(stats.median),
+            mode_max_20k,
+            20_000,
         );
         html.push_str(&render_echart_div(&config, 220));
 
@@ -1040,8 +1166,13 @@ fn render_section_salary_stats(
         let (labels_f, values_f, _bf) = build_salary_histogram(salary_max_values, 5_000);
         let mode_max_5k = compute_mode(salary_max_values, 5_000);
         let config = build_histogram_echart_config(
-            &labels_f, &values_f, "#66BB6A",
-            Some(stats.mean), Some(stats.median), mode_max_5k, 5_000,
+            &labels_f,
+            &values_f,
+            "#66BB6A",
+            Some(stats.mean),
+            Some(stats.median),
+            mode_max_5k,
+            5_000,
         );
         html.push_str(&render_echart_div(&config, 220));
     }
@@ -1051,8 +1182,14 @@ fn render_section_salary_stats(
 
 fn render_stat_box(html: &mut String, label: &str, value: &str) {
     html.push_str("<div class=\"stat-box\">\n");
-    html.push_str(&format!("<div class=\"label\">{}</div>\n", escape_html(label)));
-    html.push_str(&format!("<div class=\"value\">{}</div>\n", escape_html(value)));
+    html.push_str(&format!(
+        "<div class=\"label\">{}</div>\n",
+        escape_html(label)
+    ));
+    html.push_str(&format!(
+        "<div class=\"value\">{}</div>\n",
+        escape_html(value)
+    ));
     html.push_str("</div>\n");
 }
 
@@ -1073,15 +1210,21 @@ fn render_section_employment(
     html.push_str("<h2>雇用形態分布</h2>\n");
 
     // EChartsドーナツチャート TOP6
-    let colors = ["#1565C0","#E69F00","#009E73","#D55E00","#CC79A7","#56B4E9"];
-    let pie_data: Vec<serde_json::Value> = agg.by_employment_type.iter()
+    let colors = [
+        "#1565C0", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9",
+    ];
+    let pie_data: Vec<serde_json::Value> = agg
+        .by_employment_type
+        .iter()
         .take(6)
         .enumerate()
-        .map(|(i, (name, count))| json!({
-            "value": count,
-            "name": name,
-            "itemStyle": {"color": colors[i % colors.len()]}
-        }))
+        .map(|(i, (name, count))| {
+            json!({
+                "value": count,
+                "name": name,
+                "itemStyle": {"color": colors[i % colors.len()]}
+            })
+        })
         .collect();
 
     let config = json!({
@@ -1183,7 +1326,8 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
     if by_company.len() >= 3 {
         let total_count: i64 = by_company.iter().map(|c| c.count as i64).sum();
         if total_count > 0 {
-            let hhi: f64 = by_company.iter()
+            let hhi: f64 = by_company
+                .iter()
                 .map(|c| {
                     let share_pct = c.count as f64 / total_count as f64 * 100.0;
                     share_pct * share_pct
@@ -1227,7 +1371,8 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
     // 給与ランキング TOP15（サンプル数に応じて閾値動的調整）
     let multi_count = by_company.iter().filter(|c| c.count >= 2).count();
     let min_count_threshold = if multi_count >= 15 { 2 } else { 1 };
-    let mut by_salary: Vec<&CompanyAgg> = by_company.iter()
+    let mut by_salary: Vec<&CompanyAgg> = by_company
+        .iter()
         .filter(|c| c.count >= min_count_threshold && c.avg_salary > 0)
         .collect();
     by_salary.sort_by(|a, b| b.avg_salary.cmp(&a.avg_salary));
@@ -1262,22 +1407,53 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 /// 都道府県別最低賃金（円/時間）
 fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
     match pref {
-        "北海道" => Some(1075), "青森県" => Some(1029), "岩手県" => Some(1031),
-        "宮城県" => Some(1038), "秋田県" => Some(1031), "山形県" => Some(1032),
-        "福島県" => Some(1038), "茨城県" => Some(1074), "栃木県" => Some(1058),
-        "群馬県" => Some(1063), "埼玉県" => Some(1141), "千葉県" => Some(1140),
-        "東京都" => Some(1226), "神奈川県" => Some(1225), "新潟県" => Some(1050),
-        "富山県" => Some(1062), "石川県" => Some(1054), "福井県" => Some(1053),
-        "山梨県" => Some(1052), "長野県" => Some(1061), "岐阜県" => Some(1065),
-        "静岡県" => Some(1097), "愛知県" => Some(1140), "三重県" => Some(1087),
-        "滋賀県" => Some(1080), "京都府" => Some(1122), "大阪府" => Some(1177),
-        "兵庫県" => Some(1116), "奈良県" => Some(1051), "和歌山県" => Some(1045),
-        "鳥取県" => Some(1030), "島根県" => Some(1033), "岡山県" => Some(1047),
-        "広島県" => Some(1085), "山口県" => Some(1043), "徳島県" => Some(1046),
-        "香川県" => Some(1038), "愛媛県" => Some(1033), "高知県" => Some(1023),
-        "福岡県" => Some(1057), "佐賀県" => Some(1030), "長崎県" => Some(1031),
-        "熊本県" => Some(1034), "大分県" => Some(1035), "宮崎県" => Some(1023),
-        "鹿児島県" => Some(1026), "沖縄県" => Some(1023),
+        "北海道" => Some(1075),
+        "青森県" => Some(1029),
+        "岩手県" => Some(1031),
+        "宮城県" => Some(1038),
+        "秋田県" => Some(1031),
+        "山形県" => Some(1032),
+        "福島県" => Some(1038),
+        "茨城県" => Some(1074),
+        "栃木県" => Some(1058),
+        "群馬県" => Some(1063),
+        "埼玉県" => Some(1141),
+        "千葉県" => Some(1140),
+        "東京都" => Some(1226),
+        "神奈川県" => Some(1225),
+        "新潟県" => Some(1050),
+        "富山県" => Some(1062),
+        "石川県" => Some(1054),
+        "福井県" => Some(1053),
+        "山梨県" => Some(1052),
+        "長野県" => Some(1061),
+        "岐阜県" => Some(1065),
+        "静岡県" => Some(1097),
+        "愛知県" => Some(1140),
+        "三重県" => Some(1087),
+        "滋賀県" => Some(1080),
+        "京都府" => Some(1122),
+        "大阪府" => Some(1177),
+        "兵庫県" => Some(1116),
+        "奈良県" => Some(1051),
+        "和歌山県" => Some(1045),
+        "鳥取県" => Some(1030),
+        "島根県" => Some(1033),
+        "岡山県" => Some(1047),
+        "広島県" => Some(1085),
+        "山口県" => Some(1043),
+        "徳島県" => Some(1046),
+        "香川県" => Some(1038),
+        "愛媛県" => Some(1033),
+        "高知県" => Some(1023),
+        "福岡県" => Some(1057),
+        "佐賀県" => Some(1030),
+        "長崎県" => Some(1031),
+        "熊本県" => Some(1034),
+        "大分県" => Some(1035),
+        "宮崎県" => Some(1023),
+        "鹿児島県" => Some(1026),
+        "沖縄県" => Some(1023),
         _ => None,
     }
 }
@@ -1289,30 +1465,33 @@ const _MIN_WAGE_NATIONAL_AVG: i64 = 1121;
 // ============================================================
 
 fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
-    if agg.scatter_min_max.len() < 6 { return; }
+    if agg.scatter_min_max.len() < 6 {
+        return;
+    }
 
     html.push_str("<div class=\"section page-start\">\n");
     html.push_str("<h2>相関分析（散布図）</h2>\n");
-    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+    html.push_str(
+        "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>各点が1件の求人。回帰線（赤破線）は全体傾向。\
         R²（決定係数）は0〜1で、1に近いほど相関が強い。\
-    </p>\n");
+    </p>\n",
+    );
 
     // ECharts scatter データ生成（最大200点）
     html.push_str("<h3>月給下限 vs 上限</h3>\n");
 
     // 異常値除外: 5万〜200万円の妥当な範囲、かつ上限≧下限
     // （時給や年収の月給換算ミスによる外れ値を排除）
-    let filtered_points: Vec<&ScatterPoint> =
-        agg.scatter_min_max.iter()
-            .filter(|p| {
-                let x_man = p.x as f64 / 10_000.0;
-                let y_man = p.y as f64 / 10_000.0;
-                x_man >= 5.0 && x_man <= 200.0
-                    && y_man >= 5.0 && y_man <= 200.0
-                    && y_man >= x_man
-            })
-            .collect();
+    let filtered_points: Vec<&ScatterPoint> = agg
+        .scatter_min_max
+        .iter()
+        .filter(|p| {
+            let x_man = p.x as f64 / 10_000.0;
+            let y_man = p.y as f64 / 10_000.0;
+            (5.0..=200.0).contains(&x_man) && (5.0..=200.0).contains(&y_man) && y_man >= x_man
+        })
+        .collect();
 
     if filtered_points.len() < 6 {
         html.push_str("<p style=\"font-size:9pt;color:#888;\">有効なデータ点が不足しているため散布図を省略しました。</p>\n");
@@ -1320,14 +1499,21 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
         return;
     }
 
-    let scatter_data: Vec<serde_json::Value> = filtered_points.iter()
+    let scatter_data: Vec<serde_json::Value> = filtered_points
+        .iter()
         .take(200)
         .map(|p| json!([p.x as f64 / 10_000.0, p.y as f64 / 10_000.0]))
         .collect();
 
     // 軸範囲をパーセンタイル(P2.5〜P97.5)基準で決定、5%マージン
-    let mut x_vals_man: Vec<f64> = filtered_points.iter().map(|p| p.x as f64 / 10_000.0).collect();
-    let mut y_vals_man: Vec<f64> = filtered_points.iter().map(|p| p.y as f64 / 10_000.0).collect();
+    let mut x_vals_man: Vec<f64> = filtered_points
+        .iter()
+        .map(|p| p.x as f64 / 10_000.0)
+        .collect();
+    let mut y_vals_man: Vec<f64> = filtered_points
+        .iter()
+        .map(|p| p.y as f64 / 10_000.0)
+        .collect();
     let (x_axis_min, x_axis_max) = compute_axis_range(&mut x_vals_man);
     let (y_axis_min, y_axis_max) = compute_axis_range(&mut y_vals_man);
 
@@ -1384,9 +1570,13 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
     html.push_str(&render_echart_div(&config.to_string(), 280));
 
     if let Some(reg) = &agg.regression_min_max {
-        let strength = if reg.r_squared > 0.7 { "強い相関" }
-            else if reg.r_squared > 0.4 { "中程度の相関" }
-            else { "弱い相関" };
+        let strength = if reg.r_squared > 0.7 {
+            "強い相関"
+        } else if reg.r_squared > 0.4 {
+            "中程度の相関"
+        } else {
+            "弱い相関"
+        };
         html.push_str(&format!(
             "<p style=\"font-size:9px;color:#666;\">データ点: {}件（表示: {}件、異常値除外後）/ R\u{00B2} = {:.3}（{}）</p>\n",
             agg.scatter_min_max.len(), filtered_points.len(), reg.r_squared, strength
@@ -1399,7 +1589,9 @@ fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
 /// ソート済みでない値の配列から、指定パーセンタイル値を返す。
 /// 空配列の場合は 0.0 を返す。
 fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() { return 0.0; }
+    if sorted.is_empty() {
+        return 0.0;
+    }
     let clamped = p.clamp(0.0, 100.0);
     let idx = (((sorted.len() - 1) as f64) * clamped / 100.0).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
@@ -1431,32 +1623,44 @@ fn compute_axis_range(values: &mut Vec<f64>) -> (f64, f64) {
 // ============================================================
 
 fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
-    if agg.by_prefecture_salary.is_empty() { return; }
+    if agg.by_prefecture_salary.is_empty() {
+        return;
+    }
 
     // 都道府県ごとに最低賃金比較データを構築
     struct MinWageEntry {
         name: String,
         avg_min: i64,
         min_wage: i64,
-        hourly_160: i64,  // 月給÷160h
+        hourly_160: i64, // 月給÷160h
         diff_160: i64,
         ratio_160: f64,
     }
-    let mut entries: Vec<MinWageEntry> = agg.by_prefecture_salary.iter()
+    let mut entries: Vec<MinWageEntry> = agg
+        .by_prefecture_salary
+        .iter()
         .filter_map(|p| {
             let mw = min_wage_for_prefecture(&p.name)?;
-            if p.avg_min_salary <= 0 { return None; }
+            if p.avg_min_salary <= 0 {
+                return None;
+            }
             let hourly_160 = p.avg_min_salary / 160;
             let diff_160 = hourly_160 - mw;
             let ratio_160 = hourly_160 as f64 / mw as f64;
             Some(MinWageEntry {
-                name: p.name.clone(), avg_min: p.avg_min_salary,
-                min_wage: mw, hourly_160, diff_160, ratio_160,
+                name: p.name.clone(),
+                avg_min: p.avg_min_salary,
+                min_wage: mw,
+                hourly_160,
+                diff_160,
+                ratio_160,
             })
         })
         .collect();
 
-    if entries.is_empty() { return; }
+    if entries.is_empty() {
+        return;
+    }
     entries.sort_by(|a, b| a.diff_160.cmp(&b.diff_160)); // 差が小さい順
 
     // 全体の平均比率
@@ -1465,10 +1669,12 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str("<div class=\"section page-start\">\n");
     html.push_str("<h2>最低賃金比較分析</h2>\n");
-    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+    html.push_str(
+        "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>月給を160h（8h×20日）で割り時給換算して最低賃金と比較。\
         全国加重平均: <strong>1,121円</strong>（2025年10月施行）\
-    </p>\n");
+    </p>\n",
+    );
 
     // 概要カード
     html.push_str("<div class=\"stats-grid\">\n");
@@ -1483,7 +1689,13 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
         <th style=\"text-align:right\">160h換算</th><th style=\"text-align:right\">最低賃金</th>\
         <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
     for (i, e) in entries.iter().take(10).enumerate() {
-        let diff_color = if e.diff_160 < 0 { "negative" } else if e.diff_160 < 50 { "color:#fb8c00;font-weight:bold" } else { "" };
+        let diff_color = if e.diff_160 < 0 {
+            "negative"
+        } else if e.diff_160 < 50 {
+            "color:#fb8c00;font-weight:bold"
+        } else {
+            ""
+        };
         let diff_style = if diff_color.starts_with("color:") {
             format!(" style=\"text-align:right;{}\"", diff_color)
         } else {
@@ -1493,19 +1705,25 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
             "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td>\
              <td class=\"num\">{}</td><td class=\"num\">{}円</td>\
              <td{}>{:+}円</td><td class=\"num\">{:.2}倍</td></tr>\n",
-            i + 1, escape_html(&e.name),
+            i + 1,
+            escape_html(&e.name),
             format_man_yen(e.avg_min),
-            format_number(e.hourly_160), format_number(e.min_wage),
-            diff_style, e.diff_160, e.ratio_160,
+            format_number(e.hourly_160),
+            format_number(e.min_wage),
+            diff_style,
+            e.diff_160,
+            e.ratio_160,
         ));
     }
     html.push_str("</tbody></table>\n");
 
     // 活用ポイント
-    html.push_str("<div class=\"note\">\
+    html.push_str(
+        "<div class=\"note\">\
         <strong>活用ポイント:</strong> 160h=所定労働時間（8h×20日）で換算。\
         最低賃金水準の求人は応募者が集まりにくい傾向。+10%以上の求人を優先検討すると効率的です。\
-    </div>\n");
+    </div>\n",
+    );
 
     html.push_str("</div>\n");
 }
@@ -1515,18 +1733,24 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
 // ============================================================
 
 fn render_section_municipality_salary(html: &mut String, agg: &SurveyAggregation) {
-    if agg.by_municipality_salary.is_empty() { return; }
+    if agg.by_municipality_salary.is_empty() {
+        return;
+    }
 
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>市区町村別 給与分析</h2>\n");
-    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+    html.push_str(
+        "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>求人数が多い市区町村の給与水準を比較。\
         同じ都道府県内でも市区町村により給与差があります。\
-    </p>\n");
+    </p>\n",
+    );
 
-    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>市区町村</th><th>都道府県</th>\
+    html.push_str(
+        "<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>市区町村</th><th>都道府県</th>\
         <th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th>\
-        <th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n");
+        <th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n",
+    );
     for (i, m) in agg.by_municipality_salary.iter().take(15).enumerate() {
         html.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td style=\"font-size:10px;color:#666\">{}</td>\
@@ -1556,10 +1780,12 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>タグ×給与相関分析</h2>\n");
-    html.push_str("<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+    html.push_str(
+        "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>各タグが付いた求人の平均給与と、全体平均との差を示します。\
         正の値（緑）=そのタグが付くと給与が高い傾向、負の値（赤）=低い傾向。\
-    </p>\n");
+    </p>\n",
+    );
 
     html.push_str(&format!(
         "<p>全体平均月給: <strong>{}</strong></p>\n",
@@ -1568,7 +1794,9 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
 
     // タグ件数のツリーマップ（テーブルの上に配置）
     if !agg.by_tag_salary.is_empty() {
-        let tree_data: Vec<serde_json::Value> = agg.by_tag_salary.iter()
+        let tree_data: Vec<serde_json::Value> = agg
+            .by_tag_salary
+            .iter()
             .map(|t| json!({"name": &t.tag, "value": t.count}))
             .collect();
         let config = json!({
@@ -1590,7 +1818,9 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
         // 1. 出現率50%超のタグは共通属性として除外（全求人の半数以上に付く「交通費支給」等は差分がゼロに収束）
         // 2. 差分 |diff_percent| >= 2% のタグのみハイライト（それ未満は参考扱い）
         let total_records = agg.total_count as f64;
-        let significant: Vec<&TagSalaryAgg> = agg.by_tag_salary.iter()
+        let significant: Vec<&TagSalaryAgg> = agg
+            .by_tag_salary
+            .iter()
             .filter(|t| {
                 let frequency = t.count as f64 / total_records;
                 frequency < 0.5 && t.diff_percent.abs() >= 2.0
@@ -1612,7 +1842,13 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
         html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
             <th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">全体比</th></tr></thead>\n<tbody>\n");
         for (i, ts) in display_tags.iter().enumerate() {
-            let diff_class = if ts.diff_from_avg > 0 { "positive" } else if ts.diff_from_avg < 0 { "negative" } else { "" };
+            let diff_class = if ts.diff_from_avg > 0 {
+                "positive"
+            } else if ts.diff_from_avg < 0 {
+                "negative"
+            } else {
+                ""
+            };
             let diff_sign = if ts.diff_from_avg > 0 { "+" } else { "" };
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td>\
@@ -1634,7 +1870,9 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
         for (i, (tag, count)) in agg.by_tags.iter().take(20).enumerate() {
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td></tr>\n",
-                i + 1, escape_html(tag), format_number(*count as i64),
+                i + 1,
+                escape_html(tag),
+                format_number(*count as i64),
             ));
         }
         html.push_str("</tbody></table>\n");
@@ -1661,9 +1899,17 @@ fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAnalysis) {
         html.push_str("<h3>給与レンジ認知</h3>\n");
 
         html.push_str("<div class=\"stats-grid\">\n");
-        render_stat_box(html, "平均レンジ幅", &format_man_yen(perception.avg_range_width));
+        render_stat_box(
+            html,
+            "平均レンジ幅",
+            &format_man_yen(perception.avg_range_width),
+        );
         render_stat_box(html, "平均下限", &format_man_yen(perception.avg_lower));
-        render_stat_box(html, "求職者期待値", &format_man_yen(perception.expected_point));
+        render_stat_box(
+            html,
+            "求職者期待値",
+            &format_man_yen(perception.expected_point),
+        );
         html.push_str("</div>\n");
 
         // レンジ幅分類
@@ -1686,9 +1932,15 @@ fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAnalysis) {
 
         // 経験者
         html.push_str("<div class=\"stat-box\">\n");
-        html.push_str(&format!("<div class=\"label\">経験者求人 ({}件)</div>\n", format_number(inexp.experience_count as i64)));
+        html.push_str(&format!(
+            "<div class=\"label\">経験者求人 ({}件)</div>\n",
+            format_number(inexp.experience_count as i64)
+        ));
         if let Some(avg) = inexp.experience_avg_salary {
-            html.push_str(&format!("<div class=\"value\">{}</div>\n", format_man_yen(avg)));
+            html.push_str(&format!(
+                "<div class=\"value\">{}</div>\n",
+                format_man_yen(avg)
+            ));
         } else {
             html.push_str("<div class=\"value\">-</div>\n");
         }
@@ -1696,9 +1948,15 @@ fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAnalysis) {
 
         // 未経験者
         html.push_str("<div class=\"stat-box\">\n");
-        html.push_str(&format!("<div class=\"label\">未経験可求人 ({}件)</div>\n", format_number(inexp.inexperience_count as i64)));
+        html.push_str(&format!(
+            "<div class=\"label\">未経験可求人 ({}件)</div>\n",
+            format_number(inexp.inexperience_count as i64)
+        ));
         if let Some(avg) = inexp.inexperience_avg_salary {
-            html.push_str(&format!("<div class=\"value\">{}</div>\n", format_man_yen(avg)));
+            html.push_str(&format!(
+                "<div class=\"value\">{}</div>\n",
+                format_man_yen(avg)
+            ));
         } else {
             html.push_str("<div class=\"value\">-</div>\n");
         }
@@ -1748,8 +2006,14 @@ fn render_range_type_box(html: &mut String, label: &str, count: usize, bg_color:
         "<div style=\"background:{};border:1px solid #e0e0e0;border-radius:4px;padding:6px 8px;text-align:center;\">\n",
         bg_color
     ));
-    html.push_str(&format!("<div style=\"font-size:10px;color:#666;\">{}</div>\n", escape_html(label)));
-    html.push_str(&format!("<div style=\"font-size:16px;font-weight:bold;\">{}件</div>\n", format_number(count as i64)));
+    html.push_str(&format!(
+        "<div style=\"font-size:10px;color:#666;\">{}</div>\n",
+        escape_html(label)
+    ));
+    html.push_str(&format!(
+        "<div style=\"font-size:16px;font-weight:bold;\">{}件</div>\n",
+        format_number(count as i64)
+    ));
     html.push_str("</div>\n");
 }
 
@@ -1791,7 +2055,8 @@ fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<us
     let mut boundary = start;
     while boundary < end {
         let upper = boundary + bin_size;
-        let count = valid.iter()
+        let count = valid
+            .iter()
             .filter(|&&v| v >= boundary && v < upper)
             .count();
         // ラベル: bin_size が万円未満の場合は小数表記（例: 22.5万）
@@ -1816,7 +2081,9 @@ fn compute_mode(values: &[i64], bin_size: i64) -> Option<i64> {
     if counts.is_empty() {
         return None;
     }
-    let max_idx = counts.iter().enumerate()
+    let max_idx = counts
+        .iter()
+        .enumerate()
         .max_by_key(|(_, &c)| c)
         .map(|(i, _)| i)?;
     // markLine を bin の下端ラベルに一致させるため、bin開始値を返す
@@ -1886,8 +2153,13 @@ mod tests {
         let labels = vec!["20万".to_string(), "22万".to_string(), "24万".to_string()];
         let values = vec![5, 12, 8];
         let config = build_histogram_echart_config(
-            &labels, &values, "#42A5F5",
-            Some(220_000), Some(215_000), Some(220_000), 20_000,
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(215_000),
+            Some(220_000),
+            20_000,
         );
         assert!(config.contains("bar"));
         assert!(config.contains("markLine"));
@@ -1907,8 +2179,13 @@ mod tests {
         let labels = vec!["22.5万".to_string(), "23万".to_string()];
         let values = vec![3, 7];
         let config = build_histogram_echart_config(
-            &labels, &values, "#42A5F5",
-            Some(225_000), Some(230_000), Some(225_000), 5_000,
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(225_000),
+            Some(230_000),
+            Some(225_000),
+            5_000,
         );
         // 225_000 は 22.5万 にスナップされる
         assert!(config.contains("22.5万"));
@@ -1953,21 +2230,65 @@ mod tests {
     fn test_min_wage_all_47_prefectures() {
         // 47都道府県全てで Some を返すことを確認（地域比較の基準データ欠落検出）
         let prefectures = [
-            "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
-            "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
-            "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
-            "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
-            "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
-            "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
-            "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+            "北海道",
+            "青森県",
+            "岩手県",
+            "宮城県",
+            "秋田県",
+            "山形県",
+            "福島県",
+            "茨城県",
+            "栃木県",
+            "群馬県",
+            "埼玉県",
+            "千葉県",
+            "東京都",
+            "神奈川県",
+            "新潟県",
+            "富山県",
+            "石川県",
+            "福井県",
+            "山梨県",
+            "長野県",
+            "岐阜県",
+            "静岡県",
+            "愛知県",
+            "三重県",
+            "滋賀県",
+            "京都府",
+            "大阪府",
+            "兵庫県",
+            "奈良県",
+            "和歌山県",
+            "鳥取県",
+            "島根県",
+            "岡山県",
+            "広島県",
+            "山口県",
+            "徳島県",
+            "香川県",
+            "愛媛県",
+            "高知県",
+            "福岡県",
+            "佐賀県",
+            "長崎県",
+            "熊本県",
+            "大分県",
+            "宮崎県",
+            "鹿児島県",
+            "沖縄県",
         ];
         assert_eq!(prefectures.len(), 47, "都道府県リストは47件");
         for pref in &prefectures {
             let mw = min_wage_for_prefecture(pref);
             assert!(mw.is_some(), "最低賃金データが欠落: {}", pref);
             let val = mw.unwrap();
-            assert!(val >= 1000 && val <= 1300,
-                "{} の最低賃金 {} が妥当範囲(1000-1300円)を逸脱", pref, val);
+            assert!(
+                (1000..=1300).contains(&val),
+                "{} の最低賃金 {} が妥当範囲(1000-1300円)を逸脱",
+                pref,
+                val
+            );
         }
     }
 
@@ -1978,25 +2299,28 @@ mod tests {
         let seeker = JobSeekerAnalysis::default();
 
         // None の場合、比較セクションは出ない
-        let html_without = render_survey_report_page(
-            &agg, &seeker, &[], &[], &[], &[], None,
-        );
+        let html_without = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None);
         // h2 見出し（HTMLタグ付き）が存在しないことを確認
-        assert!(!html_without.contains("<h2>HW市場比較</h2>"),
-            "hw_context=None のときは HW市場比較セクション（h2）を出さない");
-        assert!(!html_without.contains("<div class=\"comparison-grid\">"),
-            "hw_context=None のときは comparison-grid コンテナは出さない（CSS内の定義は除く）");
+        assert!(
+            !html_without.contains("<h2>HW市場比較</h2>"),
+            "hw_context=None のときは HW市場比較セクション（h2）を出さない"
+        );
+        assert!(
+            !html_without.contains("<div class=\"comparison-grid\">"),
+            "hw_context=None のときは comparison-grid コンテナは出さない（CSS内の定義は除く）"
+        );
 
         // Some の場合は出る（空の InsightContext でもヘッダーは出力される）
         let ctx = mock_empty_insight_ctx();
-        let html_with = render_survey_report_page(
-            &agg, &seeker, &[], &[], &[], &[], Some(&ctx),
+        let html_with = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], Some(&ctx));
+        assert!(
+            html_with.contains("<h2>HW市場比較</h2>"),
+            "hw_context=Some のときは HW市場比較セクション（h2）を出す"
         );
-        assert!(html_with.contains("<h2>HW市場比較</h2>"),
-            "hw_context=Some のときは HW市場比較セクション（h2）を出す");
         // by_emp_type_salary が空なので雇用形態判別不能メッセージが出る想定
         assert!(
-            html_with.contains("comparison-grid") || html_with.contains("雇用形態が判別できなかった"),
+            html_with.contains("comparison-grid")
+                || html_with.contains("雇用形態が判別できなかった"),
             "comparison-grid か 判別不能メッセージのどちらかが出る"
         );
     }
@@ -2005,23 +2329,47 @@ mod tests {
     fn mock_empty_insight_ctx() -> super::super::super::insight::fetch::InsightContext {
         use super::super::super::insight::fetch::InsightContext;
         InsightContext {
-            vacancy: vec![], resilience: vec![], transparency: vec![], temperature: vec![],
-            competition: vec![], cascade: vec![], salary_comp: vec![], monopsony: vec![],
-            spatial_mismatch: vec![], wage_compliance: vec![], region_benchmark: vec![],
+            vacancy: vec![],
+            resilience: vec![],
+            transparency: vec![],
+            temperature: vec![],
+            competition: vec![],
+            cascade: vec![],
+            salary_comp: vec![],
+            monopsony: vec![],
+            spatial_mismatch: vec![],
+            wage_compliance: vec![],
+            region_benchmark: vec![],
             text_quality: vec![],
-            ts_counts: vec![], ts_vacancy: vec![], ts_salary: vec![],
-            ts_fulfillment: vec![], ts_tracking: vec![],
-            ext_job_ratio: vec![], ext_labor_stats: vec![],
-            ext_min_wage: vec![], ext_turnover: vec![],
-            ext_population: vec![], ext_pyramid: vec![], ext_migration: vec![],
-            ext_daytime_pop: vec![], ext_establishments: vec![],
-            ext_business_dynamics: vec![], ext_care_demand: vec![],
-            ext_household_spending: vec![], ext_climate: vec![],
-            commute_zone_count: 0, commute_zone_pref_count: 0,
-            commute_zone_total_pop: 0, commute_zone_working_age: 0, commute_zone_elderly: 0,
-            commute_inflow_total: 0, commute_outflow_total: 0,
-            commute_self_rate: 0.0, commute_inflow_top3: vec![],
-            pref: "東京都".to_string(), muni: String::new(),
+            ts_counts: vec![],
+            ts_vacancy: vec![],
+            ts_salary: vec![],
+            ts_fulfillment: vec![],
+            ts_tracking: vec![],
+            ext_job_ratio: vec![],
+            ext_labor_stats: vec![],
+            ext_min_wage: vec![],
+            ext_turnover: vec![],
+            ext_population: vec![],
+            ext_pyramid: vec![],
+            ext_migration: vec![],
+            ext_daytime_pop: vec![],
+            ext_establishments: vec![],
+            ext_business_dynamics: vec![],
+            ext_care_demand: vec![],
+            ext_household_spending: vec![],
+            ext_climate: vec![],
+            commute_zone_count: 0,
+            commute_zone_pref_count: 0,
+            commute_zone_total_pop: 0,
+            commute_zone_working_age: 0,
+            commute_zone_elderly: 0,
+            commute_inflow_total: 0,
+            commute_outflow_total: 0,
+            commute_self_rate: 0.0,
+            commute_inflow_top3: vec![],
+            pref: "東京都".to_string(),
+            muni: String::new(),
         }
     }
 
@@ -2032,7 +2380,11 @@ mod tests {
         assert_eq!(percentile_sorted(&sorted, 0.0), 10.0);
         assert_eq!(percentile_sorted(&sorted, 100.0), 100.0);
         let p50 = percentile_sorted(&sorted, 50.0);
-        assert!((p50 - 60.0).abs() < 20.0, "p50は中央付近のはず, got {}", p50);
+        assert!(
+            (p50 - 60.0).abs() < 20.0,
+            "p50は中央付近のはず, got {}",
+            p50
+        );
     }
 
     #[test]
@@ -2045,8 +2397,16 @@ mod tests {
     fn test_compute_axis_range_basic() {
         let mut values: Vec<f64> = (20..=50).map(|v| v as f64).collect();
         let (lo, hi) = compute_axis_range(&mut values);
-        assert!(lo >= 0.0 && lo <= 25.0, "lo should be near data min, got {}", lo);
-        assert!(hi >= 45.0 && hi <= 60.0, "hi should be near data max, got {}", hi);
+        assert!(
+            (0.0..=25.0).contains(&lo),
+            "lo should be near data min, got {}",
+            lo
+        );
+        assert!(
+            (45.0..=60.0).contains(&hi),
+            "hi should be near data max, got {}",
+            hi
+        );
         assert!(hi > lo, "hi > lo");
         // ECharts PDF の 0〜700 問題が再発しないことを保証
         assert!(hi < 700.0, "hi should not explode to 700, got {}", hi);
@@ -2071,22 +2431,43 @@ mod tests {
     #[test]
     fn test_scatter_outlier_filter() {
         let points = vec![
-            ScatterPoint { x: 200_000, y: 300_000 },      // OK
-            ScatterPoint { x: 150_000, y: 250_000 },      // OK
-            ScatterPoint { x: 10_000, y: 6_000_000 },     // NG: y=600万
-            ScatterPoint { x: 5_000, y: 7_000_000 },      // NG: x<5万 かつ y=700万
-            ScatterPoint { x: 300_000, y: 200_000 },      // NG: x>200万 かつ y<x
-            ScatterPoint { x: 40_000, y: 50_000 },        // NG: x<5万
+            ScatterPoint {
+                x: 200_000,
+                y: 300_000,
+            }, // OK
+            ScatterPoint {
+                x: 150_000,
+                y: 250_000,
+            }, // OK
+            ScatterPoint {
+                x: 10_000,
+                y: 6_000_000,
+            }, // NG: y=600万
+            ScatterPoint {
+                x: 5_000,
+                y: 7_000_000,
+            }, // NG: x<5万 かつ y=700万
+            ScatterPoint {
+                x: 300_000,
+                y: 200_000,
+            }, // NG: x>200万 かつ y<x
+            ScatterPoint {
+                x: 40_000,
+                y: 50_000,
+            }, // NG: x<5万
         ];
-        let filtered: Vec<&ScatterPoint> = points.iter()
+        let filtered: Vec<&ScatterPoint> = points
+            .iter()
             .filter(|p| {
                 let x_man = p.x as f64 / 10_000.0;
                 let y_man = p.y as f64 / 10_000.0;
-                x_man >= 5.0 && x_man <= 200.0
-                    && y_man >= 5.0 && y_man <= 200.0
-                    && y_man >= x_man
+                (5.0..=200.0).contains(&x_man) && (5.0..=200.0).contains(&y_man) && y_man >= x_man
             })
             .collect();
-        assert_eq!(filtered.len(), 2, "5万〜200万の範囲内かつ y>=x の2点のみ残る");
+        assert_eq!(
+            filtered.len(),
+            2,
+            "5万〜200万の範囲内かつ y>=x の2点のみ残る"
+        );
     }
 }

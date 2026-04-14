@@ -1,25 +1,16 @@
 use serde_json::Value;
 
-use crate::AppState;
+use super::utils::{haversine, value_to_i64};
 use crate::handlers::overview::SessionFilters;
-use super::utils::{value_to_i64, haversine};
+use crate::AppState;
 
 // --- 内部データ型 ---
 
+#[derive(Default)]
 pub(crate) struct CompStats {
     pub(crate) total_postings: i64,
     pub(crate) total_facilities: i64,
     pub(crate) pref_ranking: Vec<(String, i64)>,
-}
-
-impl Default for CompStats {
-    fn default() -> Self {
-        Self {
-            total_postings: 0,
-            total_facilities: 0,
-            pref_ranking: Vec::new(),
-        }
-    }
 }
 
 #[allow(dead_code)]
@@ -103,9 +94,11 @@ pub(crate) fn fetch_competitive(state: &AppState, filters: &SessionFilters) -> C
     // パラメータはサブクエリ分 + メインクエリ分の2セット必要
     let mut params: Vec<String> = Vec::new();
     params.extend(filter_params.iter().cloned()); // サブクエリ用
-    params.extend(filter_params);                 // メインクエリ用
-    let bind: Vec<&dyn rusqlite::types::ToSql> =
-        params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    params.extend(filter_params); // メインクエリ用
+    let bind: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let rows = match db.query(&sql, &bind) {
         Ok(r) => r,
@@ -117,24 +110,19 @@ pub(crate) fn fetch_competitive(state: &AppState, filters: &SessionFilters) -> C
 
     let mut stats = CompStats::default();
     if let Some(row) = rows.first() {
-        stats.total_postings = row.get("total_cnt")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        stats.total_facilities = row.get("fac_cnt")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        stats.total_postings = row.get("total_cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+        stats.total_facilities = row.get("fac_cnt").and_then(|v| v.as_i64()).unwrap_or(0);
 
         // JSON文字列からpref_rankingをパース
         if let Some(json_str) = row.get("pref_ranking_json").and_then(|v| v.as_str()) {
             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(json_str) {
                 for item in &arr {
-                    let pref = item.get("pref")
+                    let pref = item
+                        .get("pref")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    let cnt = item.get("cnt")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
+                    let cnt = item.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
                     if !pref.is_empty() {
                         stats.pref_ranking.push((pref, cnt));
                     }
@@ -167,7 +155,11 @@ pub(crate) fn fetch_prefectures(state: &AppState, filters: &SessionFilters) -> V
     let rows = db.query(&sql, &params).unwrap_or_default();
 
     rows.iter()
-        .filter_map(|r| r.get("prefecture").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .filter_map(|r| {
+            r.get("prefecture")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
         .collect()
 }
 
@@ -182,14 +174,16 @@ pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)
         (
             "SELECT job_type, COUNT(*) as cnt \
              FROM postings WHERE job_type IS NOT NULL AND job_type != '' \
-             GROUP BY job_type ORDER BY cnt DESC".to_string(),
+             GROUP BY job_type ORDER BY cnt DESC"
+                .to_string(),
             vec![],
         )
     } else {
         (
             "SELECT job_type, COUNT(*) as cnt \
              FROM postings WHERE prefecture = ? AND job_type IS NOT NULL AND job_type != '' \
-             GROUP BY job_type ORDER BY cnt DESC".to_string(),
+             GROUP BY job_type ORDER BY cnt DESC"
+                .to_string(),
             vec![pref.to_string()],
         )
     };
@@ -205,13 +199,21 @@ pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)
         .filter_map(|r| {
             let jt = r.get("job_type").and_then(|v| v.as_str())?.to_string();
             let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-            if jt.is_empty() { None } else { Some((jt, cnt)) }
+            if jt.is_empty() {
+                None
+            } else {
+                Some((jt, cnt))
+            }
         })
         .collect()
 }
 
 /// 事業所形態（job_type）一覧取得（都道府県+市区町村フィルタ対応）
-pub(crate) fn fetch_job_types_filtered(state: &AppState, pref: &str, muni: &str) -> Vec<(String, i64)> {
+pub(crate) fn fetch_job_types_filtered(
+    state: &AppState,
+    pref: &str,
+    muni: &str,
+) -> Vec<(String, i64)> {
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Vec::new(),
@@ -241,7 +243,11 @@ pub(crate) fn fetch_job_types_filtered(state: &AppState, pref: &str, muni: &str)
         .filter_map(|r| {
             let jt = r.get("job_type").and_then(|v| v.as_str())?.to_string();
             let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-            if jt.is_empty() { None } else { Some((jt, cnt)) }
+            if jt.is_empty() {
+                None
+            } else {
+                Some((jt, cnt))
+            }
         })
         .collect()
 }
@@ -252,7 +258,11 @@ pub(crate) fn fetch_industry_raws(state: &AppState, pref: &str) -> Vec<(String, 
 }
 
 /// 産業分類（industry_raw）一覧取得（都道府県+市区町村フィルタ対応）
-pub(crate) fn fetch_industry_raws_filtered(state: &AppState, pref: &str, muni: &str) -> Vec<(String, i64)> {
+pub(crate) fn fetch_industry_raws_filtered(
+    state: &AppState,
+    pref: &str,
+    muni: &str,
+) -> Vec<(String, i64)> {
     let db = match &state.hw_db {
         Some(db) => db,
         None => return Vec::new(),
@@ -282,7 +292,11 @@ pub(crate) fn fetch_industry_raws_filtered(state: &AppState, pref: &str, muni: &
         .filter_map(|r| {
             let ir = r.get("industry_raw").and_then(|v| v.as_str())?.to_string();
             let cnt = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-            if ir.is_empty() { None } else { Some((ir, cnt)) }
+            if ir.is_empty() {
+                None
+            } else {
+                Some((ir, cnt))
+            }
         })
         .collect()
 }
@@ -319,7 +333,7 @@ pub(crate) fn fetch_postings(
          COALESCE(bonus_months,0) as bonus_months, \
          COALESCE(employee_count,0) as employee_count, \
          COALESCE(company_features,'') as company_features \
-         FROM postings WHERE prefecture = ?"
+         FROM postings WHERE prefecture = ?",
     );
     let mut param_values: Vec<String> = vec![pref.to_string()];
 
@@ -386,9 +400,7 @@ pub(crate) fn count_postings(
     stype: &str,
     ftype: &str,
 ) -> i64 {
-    let mut sql = String::from(
-        "SELECT COUNT(*) as cnt FROM postings WHERE prefecture = ?"
-    );
+    let mut sql = String::from("SELECT COUNT(*) as cnt FROM postings WHERE prefecture = ?");
     let mut param_values: Vec<String> = vec![pref.to_string()];
 
     filters.append_industry_filter_str(&mut sql, &mut param_values);
@@ -423,7 +435,8 @@ pub(crate) fn count_postings(
         .collect();
 
     match db.query(&sql, &params) {
-        Ok(rows) => rows.first()
+        Ok(rows) => rows
+            .first()
             .and_then(|r| r.get("cnt"))
             .map(value_to_i64)
             .unwrap_or(0),
@@ -496,7 +509,8 @@ pub(crate) fn fetch_salary_stats_sql(
             .map(|s| s as &dyn rusqlite::types::ToSql)
             .collect();
         match db.query(&sql, &params) {
-            Ok(rows) => rows.first()
+            Ok(rows) => rows
+                .first()
                 .and_then(|r| r.get("cnt"))
                 .map(value_to_i64)
                 .unwrap_or(0),
@@ -509,8 +523,14 @@ pub(crate) fn fetch_salary_stats_sql(
     }
 
     // salary_min の集計統計（AVG）
-    let sal_min_filter = format!("{} AND salary_type = '月給' AND salary_min >= 50000", where_clause);
-    let sal_max_filter = format!("{} AND salary_type = '月給' AND salary_max >= 50000", where_clause);
+    let sal_min_filter = format!(
+        "{} AND salary_type = '月給' AND salary_min >= 50000",
+        where_clause
+    );
+    let sal_max_filter = format!(
+        "{} AND salary_type = '月給' AND salary_max >= 50000",
+        where_clause
+    );
 
     // クエリ1: salary_min の基本統計（件数, 平均）
     let (min_count, min_avg) = {
@@ -526,8 +546,14 @@ pub(crate) fn fetch_salary_stats_sql(
         match db.query(&sql, &params) {
             Ok(rows) => {
                 let row = rows.first();
-                let cnt = row.and_then(|r| r.get("cnt")).map(value_to_i64).unwrap_or(0);
-                let avg = row.and_then(|r| r.get("avg_sal")).map(value_to_i64).unwrap_or(0);
+                let cnt = row
+                    .and_then(|r| r.get("cnt"))
+                    .map(value_to_i64)
+                    .unwrap_or(0);
+                let avg = row
+                    .and_then(|r| r.get("avg_sal"))
+                    .map(value_to_i64)
+                    .unwrap_or(0);
                 (cnt, avg)
             }
             Err(_) => (0, 0),
@@ -548,8 +574,14 @@ pub(crate) fn fetch_salary_stats_sql(
         match db.query(&sql, &params) {
             Ok(rows) => {
                 let row = rows.first();
-                let cnt = row.and_then(|r| r.get("cnt")).map(value_to_i64).unwrap_or(0);
-                let avg = row.and_then(|r| r.get("avg_sal")).map(value_to_i64).unwrap_or(0);
+                let cnt = row
+                    .and_then(|r| r.get("cnt"))
+                    .map(value_to_i64)
+                    .unwrap_or(0);
+                let avg = row
+                    .and_then(|r| r.get("avg_sal"))
+                    .map(value_to_i64)
+                    .unwrap_or(0);
                 (cnt, avg)
             }
             Err(_) => (0, 0),
@@ -576,13 +608,16 @@ pub(crate) fn fetch_salary_stats_sql(
             .map(|s| s as &dyn rusqlite::types::ToSql)
             .collect();
         match db.query(&sql, &params) {
-            Ok(rows) => rows.first()
+            Ok(rows) => rows
+                .first()
                 .and_then(|r| r.get("salary_min"))
                 .map(value_to_i64)
                 .unwrap_or(0),
             Err(_) => 0,
         }
-    } else { 0 };
+    } else {
+        0
+    };
 
     // クエリ4: salary_max の中央値
     let max_median = if max_count > 0 {
@@ -596,13 +631,16 @@ pub(crate) fn fetch_salary_stats_sql(
             .map(|s| s as &dyn rusqlite::types::ToSql)
             .collect();
         match db.query(&sql, &params) {
-            Ok(rows) => rows.first()
+            Ok(rows) => rows
+                .first()
                 .and_then(|r| r.get("salary_max"))
                 .map(value_to_i64)
                 .unwrap_or(0),
             Err(_) => 0,
         }
-    } else { 0 };
+    } else {
+        0
+    };
 
     // クエリ5: salary_min の最頻値（1万円帯）
     let min_mode = if min_count > 0 {
@@ -616,13 +654,16 @@ pub(crate) fn fetch_salary_stats_sql(
             .map(|s| s as &dyn rusqlite::types::ToSql)
             .collect();
         match db.query(&sql, &params) {
-            Ok(rows) => rows.first()
+            Ok(rows) => rows
+                .first()
                 .and_then(|r| r.get("band"))
                 .map(value_to_i64)
                 .unwrap_or(0),
             Err(_) => 0,
         }
-    } else { 0 };
+    } else {
+        0
+    };
 
     // クエリ6: salary_max の最頻値（1万円帯）
     let max_mode = if max_count > 0 {
@@ -636,13 +677,16 @@ pub(crate) fn fetch_salary_stats_sql(
             .map(|s| s as &dyn rusqlite::types::ToSql)
             .collect();
         match db.query(&sql, &params) {
-            Ok(rows) => rows.first()
+            Ok(rows) => rows
+                .first()
                 .and_then(|r| r.get("band"))
                 .map(value_to_i64)
                 .unwrap_or(0),
             Err(_) => 0,
         }
-    } else { 0 };
+    } else {
+        0
+    };
 
     // クエリ7: 賞与率（benefitsに「賞与」を含む割合）
     let bonus_rate = {
@@ -655,7 +699,8 @@ pub(crate) fn fetch_salary_stats_sql(
             .map(|s| s as &dyn rusqlite::types::ToSql)
             .collect();
         let bonus_count = match db.query(&sql, &params) {
-            Ok(rows) => rows.first()
+            Ok(rows) => rows
+                .first()
                 .and_then(|r| r.get("cnt"))
                 .map(value_to_i64)
                 .unwrap_or(0),
@@ -681,11 +726,16 @@ pub(crate) fn fetch_salary_stats_sql(
             .collect();
         match db.query(&sql, &params) {
             Ok(rows) => {
-                let val = rows.first()
+                let val = rows
+                    .first()
                     .and_then(|r| r.get("avg_hol"))
                     .map(value_to_i64)
                     .unwrap_or(0);
-                if val > 0 { format!("{}日", val) } else { "-".to_string() }
+                if val > 0 {
+                    format!("{}日", val)
+                } else {
+                    "-".to_string()
+                }
             }
             Err(_) => "-".to_string(),
         }
@@ -694,7 +744,11 @@ pub(crate) fn fetch_salary_stats_sql(
     // フォーマットして返す
     use crate::handlers::overview::format_number;
     let fmt = |v: i64| -> String {
-        if v > 0 { format!("{}円", format_number(v)) } else { "-".to_string() }
+        if v > 0 {
+            format!("{}円", format_number(v))
+        } else {
+            "-".to_string()
+        }
     };
 
     SalaryStats {
@@ -754,7 +808,7 @@ pub(crate) fn fetch_nearby_postings(
          COALESCE(company_features,'') as company_features, \
          latitude, longitude \
          FROM postings WHERE \
-         latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?"
+         latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?",
     );
     // REAL列にはREAL型でバインド（String→TEXT型だとBETWEENが常にFALSEになる）
     use rusqlite::types::Value as SqlValue;
@@ -772,13 +826,26 @@ pub(crate) fn fetch_nearby_postings(
         if has_jt && has_ir {
             let jt_ph = vec!["?"; filters.job_types.len()].join(",");
             let ir_ph = vec!["?"; filters.industry_raws.len()].join(",");
-            sql.push_str(&format!(" AND (job_type IN ({}) OR industry_raw IN ({}))", jt_ph, ir_ph));
+            sql.push_str(&format!(
+                " AND (job_type IN ({}) OR industry_raw IN ({}))",
+                jt_ph, ir_ph
+            ));
             param_values.extend(filters.job_types.iter().map(|s| SqlValue::Text(s.clone())));
-            param_values.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+            param_values.extend(
+                filters
+                    .industry_raws
+                    .iter()
+                    .map(|s| SqlValue::Text(s.clone())),
+            );
         } else if has_ir {
             let placeholders = vec!["?"; filters.industry_raws.len()].join(",");
             sql.push_str(&format!(" AND industry_raw IN ({})", placeholders));
-            param_values.extend(filters.industry_raws.iter().map(|s| SqlValue::Text(s.clone())));
+            param_values.extend(
+                filters
+                    .industry_raws
+                    .iter()
+                    .map(|s| SqlValue::Text(s.clone())),
+            );
         } else if has_jt {
             let placeholders = vec!["?"; filters.job_types.len()].join(",");
             sql.push_str(&format!(" AND job_type IN ({})", placeholders));
@@ -837,7 +904,11 @@ pub(crate) fn fetch_nearby_postings(
         .collect()
 }
 
-pub(crate) fn get_geocode(db: &crate::db::local_sqlite::LocalDb, pref: &str, muni: &str) -> Option<(f64, f64)> {
+pub(crate) fn get_geocode(
+    db: &crate::db::local_sqlite::LocalDb,
+    pref: &str,
+    muni: &str,
+) -> Option<(f64, f64)> {
     let rows = db.query(
         "SELECT latitude, longitude FROM municipality_geocode WHERE prefecture = ? AND municipality = ?",
         &[&pref as &dyn rusqlite::types::ToSql, &muni as &dyn rusqlite::types::ToSql],
@@ -849,32 +920,114 @@ pub(crate) fn get_geocode(db: &crate::db::local_sqlite::LocalDb, pref: &str, mun
     Some((lat, lng))
 }
 
-fn row_to_posting(r: &std::collections::HashMap<String, Value>, distance: Option<f64>) -> PostingRow {
+fn row_to_posting(
+    r: &std::collections::HashMap<String, Value>,
+    distance: Option<f64>,
+) -> PostingRow {
     PostingRow {
-        facility_name: r.get("facility_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        job_type: r.get("job_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        prefecture: r.get("prefecture").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        municipality: r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        employment_type: r.get("employment_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        salary_type: r.get("salary_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        facility_name: r
+            .get("facility_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        job_type: r
+            .get("job_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        prefecture: r
+            .get("prefecture")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        municipality: r
+            .get("municipality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        employment_type: r
+            .get("employment_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        salary_type: r
+            .get("salary_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
         salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
-        requirements: r.get("requirements").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        requirements: r
+            .get("requirements")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         annual_holidays: r.get("annual_holidays").map(value_to_i64).unwrap_or(0),
         distance_km: distance,
-        tier3_label_short: r.get("tier3_label_short").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        job_number: r.get("job_number").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        hello_work_office: r.get("hello_work_office").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        recruitment_reason: r.get("recruitment_reason").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        benefits: r.get("benefits").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        working_hours: r.get("working_hours").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        experience_required: r.get("experience_required").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        occupation_detail: r.get("occupation_detail").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        education_required: r.get("education_required").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        raise_amount: r.get("raise_amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        bonus_amount: r.get("bonus_amount").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        bonus_months: r.get("bonus_months").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        tier3_label_short: r
+            .get("tier3_label_short")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        job_number: r
+            .get("job_number")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        hello_work_office: r
+            .get("hello_work_office")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        recruitment_reason: r
+            .get("recruitment_reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        benefits: r
+            .get("benefits")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        working_hours: r
+            .get("working_hours")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        experience_required: r
+            .get("experience_required")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        occupation_detail: r
+            .get("occupation_detail")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        education_required: r
+            .get("education_required")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        raise_amount: r
+            .get("raise_amount")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        bonus_amount: r
+            .get("bonus_amount")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        bonus_months: r
+            .get("bonus_months")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
         employee_count: r.get("employee_count").map(value_to_i64).unwrap_or(0),
-        company_features: r.get("company_features").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        company_features: r
+            .get("company_features")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
     }
 }

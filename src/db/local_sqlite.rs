@@ -16,7 +16,7 @@ impl r2d2::CustomizeConnection<rusqlite::Connection, rusqlite::Error> for Pragma
              PRAGMA synchronous=NORMAL;
              PRAGMA cache_size=10000;
              PRAGMA temp_store=MEMORY;
-             PRAGMA mmap_size=268435456;"
+             PRAGMA mmap_size=268435456;",
         )?;
         Ok(())
     }
@@ -60,11 +60,7 @@ impl LocalDb {
             .prepare(sql)
             .map_err(|e| format!("SQLite prepare failed: {e}"))?;
 
-        let columns: Vec<String> = stmt
-            .column_names()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let columns: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
 
         let rows = stmt
             .query_map(params_from_iter(params.iter()), |row| {
@@ -73,11 +69,9 @@ impl LocalDb {
                     let val: Value = match row.get_ref(i) {
                         Ok(rusqlite::types::ValueRef::Null) => Value::Null,
                         Ok(rusqlite::types::ValueRef::Integer(n)) => Value::from(n),
-                        Ok(rusqlite::types::ValueRef::Real(f)) => {
-                            serde_json::Number::from_f64(f)
-                                .map(Value::Number)
-                                .unwrap_or(Value::Null)
-                        }
+                        Ok(rusqlite::types::ValueRef::Real(f)) => serde_json::Number::from_f64(f)
+                            .map(Value::Number)
+                            .unwrap_or(Value::Null),
                         Ok(rusqlite::types::ValueRef::Text(s)) => {
                             Value::String(String::from_utf8_lossy(s).to_string())
                         }
@@ -139,7 +133,8 @@ mod tests {
         let path = tmp.path().to_str().unwrap();
         // テーブル作成
         let conn = rusqlite::Connection::open(path).unwrap();
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             CREATE TABLE test_data (
                 id INTEGER PRIMARY KEY,
                 name TEXT,
@@ -149,7 +144,9 @@ mod tests {
             INSERT INTO test_data VALUES (1, 'Alice', 95.5, X'DEADBEEF');
             INSERT INTO test_data VALUES (2, '', 0.0, X'');
             INSERT INTO test_data VALUES (3, NULL, NULL, NULL);
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         drop(conn);
         let db = LocalDb::new(path).unwrap();
         (tmp, db)
@@ -174,7 +171,9 @@ mod tests {
     #[test]
     fn test_real_value_to_number() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT score FROM test_data WHERE id = 1", &[]).unwrap();
+        let rows = db
+            .query("SELECT score FROM test_data WHERE id = 1", &[])
+            .unwrap();
         let val = rows[0].get("score").unwrap();
         assert_eq!(val.as_f64(), Some(95.5));
     }
@@ -183,7 +182,9 @@ mod tests {
     #[test]
     fn test_integer_value() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT id FROM test_data WHERE id = 1", &[]).unwrap();
+        let rows = db
+            .query("SELECT id FROM test_data WHERE id = 1", &[])
+            .unwrap();
         let val = rows[0].get("id").unwrap();
         assert_eq!(val.as_i64(), Some(1));
     }
@@ -192,7 +193,9 @@ mod tests {
     #[test]
     fn test_text_value_empty() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT name FROM test_data WHERE id = 2", &[]).unwrap();
+        let rows = db
+            .query("SELECT name FROM test_data WHERE id = 2", &[])
+            .unwrap();
         let val = rows[0].get("name").unwrap();
         assert_eq!(val.as_str(), Some(""));
     }
@@ -201,7 +204,9 @@ mod tests {
     #[test]
     fn test_null_value() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT name FROM test_data WHERE id = 3", &[]).unwrap();
+        let rows = db
+            .query("SELECT name FROM test_data WHERE id = 3", &[])
+            .unwrap();
         let val = rows[0].get("name").unwrap();
         assert!(val.is_null());
     }
@@ -210,7 +215,9 @@ mod tests {
     #[test]
     fn test_blob_value() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT data FROM test_data WHERE id = 1", &[]).unwrap();
+        let rows = db
+            .query("SELECT data FROM test_data WHERE id = 1", &[])
+            .unwrap();
         let val = rows[0].get("data").unwrap();
         assert_eq!(val.as_str(), Some("[blob: 4 bytes]"));
     }
@@ -219,7 +226,9 @@ mod tests {
     #[test]
     fn test_blob_zero_bytes() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT data FROM test_data WHERE id = 2", &[]).unwrap();
+        let rows = db
+            .query("SELECT data FROM test_data WHERE id = 2", &[])
+            .unwrap();
         let val = rows[0].get("data").unwrap();
         assert_eq!(val.as_str(), Some("[blob: 0 bytes]"));
     }
@@ -229,13 +238,17 @@ mod tests {
     fn test_parameterized_query_safe() {
         let (_tmp, db) = create_test_db();
         let name = "'; DROP TABLE test_data; --";
-        let rows = db.query(
-            "SELECT id FROM test_data WHERE name = ?",
-            &[&name as &dyn rusqlite::types::ToSql],
-        ).unwrap();
+        let rows = db
+            .query(
+                "SELECT id FROM test_data WHERE name = ?",
+                &[&name as &dyn rusqlite::types::ToSql],
+            )
+            .unwrap();
         assert_eq!(rows.len(), 0);
         // テーブルがまだ存在することを確認
-        let count: i64 = db.query_scalar("SELECT COUNT(*) FROM test_data", &[]).unwrap();
+        let count: i64 = db
+            .query_scalar("SELECT COUNT(*) FROM test_data", &[])
+            .unwrap();
         assert_eq!(count, 3);
     }
 
@@ -243,7 +256,9 @@ mod tests {
     #[test]
     fn test_query_scalar_success() {
         let (_tmp, db) = create_test_db();
-        let count: i64 = db.query_scalar("SELECT COUNT(*) FROM test_data", &[]).unwrap();
+        let count: i64 = db
+            .query_scalar("SELECT COUNT(*) FROM test_data", &[])
+            .unwrap();
         assert_eq!(count, 3);
     }
 
@@ -251,10 +266,8 @@ mod tests {
     #[test]
     fn test_query_scalar_no_rows() {
         let (_tmp, db) = create_test_db();
-        let result: Result<i64, String> = db.query_scalar(
-            "SELECT id FROM test_data WHERE id = 999",
-            &[],
-        );
+        let result: Result<i64, String> =
+            db.query_scalar("SELECT id FROM test_data WHERE id = 999", &[]);
         assert!(result.is_err());
     }
 
@@ -262,7 +275,9 @@ mod tests {
     #[test]
     fn test_query_returns_multiple_columns() {
         let (_tmp, db) = create_test_db();
-        let rows = db.query("SELECT id, name, score FROM test_data ORDER BY id", &[]).unwrap();
+        let rows = db
+            .query("SELECT id, name, score FROM test_data ORDER BY id", &[])
+            .unwrap();
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].get("name").unwrap().as_str(), Some("Alice"));
     }

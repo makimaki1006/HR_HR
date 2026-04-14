@@ -81,10 +81,37 @@ pub(crate) fn render_analysis_result(
 
     // KPIカード
     html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
-    render_kpi(&mut html, "総求人数", &format_number(agg.total_count as i64), "text-blue-400");
-    render_kpi(&mut html, "新着率", &format!("{:.1}%", if agg.total_count > 0 { agg.new_count as f64 / agg.total_count as f64 * 100.0 } else { 0.0 }), "text-emerald-400");
-    render_kpi(&mut html, "給与パース率", &format!("{:.0}%", agg.salary_parse_rate * 100.0), "text-amber-400");
-    render_kpi(&mut html, "住所パース率", &format!("{:.0}%", agg.location_parse_rate * 100.0), "text-cyan-400");
+    render_kpi(
+        &mut html,
+        "総求人数",
+        &format_number(agg.total_count as i64),
+        "text-blue-400",
+    );
+    render_kpi(
+        &mut html,
+        "新着率",
+        &format!(
+            "{:.1}%",
+            if agg.total_count > 0 {
+                agg.new_count as f64 / agg.total_count as f64 * 100.0
+            } else {
+                0.0
+            }
+        ),
+        "text-emerald-400",
+    );
+    render_kpi(
+        &mut html,
+        "給与パース率",
+        &format!("{:.0}%", agg.salary_parse_rate * 100.0),
+        "text-amber-400",
+    );
+    render_kpi(
+        &mut html,
+        "住所パース率",
+        &format!("{:.0}%", agg.location_parse_rate * 100.0),
+        "text-cyan-400",
+    );
     html.push_str("</div>");
 
     // 主要地域
@@ -94,19 +121,44 @@ pub(crate) fn render_analysis_result(
             escape_html(pref)
         ));
         if let Some(muni) = &agg.dominant_municipality {
-            html.push_str(&format!(r#" <span class="text-blue-400">{}</span>"#, escape_html(muni)));
+            html.push_str(&format!(
+                r#" <span class="text-blue-400">{}</span>"#,
+                escape_html(muni)
+            ));
         }
         html.push_str("</div>");
     }
 
     // 給与統計
     if let Some(stats) = &agg.enhanced_stats {
-        html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">給与統計</h4>"#);
+        html.push_str(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">給与統計</h4>"#,
+        );
         html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
-        render_kpi(&mut html, "平均月給", &format!("{}円", format_number(stats.mean)), "text-white");
-        render_kpi(&mut html, "中央値", &format!("{}円", format_number(stats.median)), "text-white");
-        render_kpi(&mut html, "最低", &format!("{}円", format_number(stats.min)), "text-slate-400");
-        render_kpi(&mut html, "最高", &format!("{}円", format_number(stats.max)), "text-slate-400");
+        render_kpi(
+            &mut html,
+            "平均月給",
+            &format!("{}円", format_number(stats.mean)),
+            "text-white",
+        );
+        render_kpi(
+            &mut html,
+            "中央値",
+            &format!("{}円", format_number(stats.median)),
+            "text-white",
+        );
+        render_kpi(
+            &mut html,
+            "最低",
+            &format!("{}円", format_number(stats.min)),
+            "text-slate-400",
+        );
+        render_kpi(
+            &mut html,
+            "最高",
+            &format!("{}円", format_number(stats.max)),
+            "text-slate-400",
+        );
         html.push_str("</div>");
 
         // Bootstrap CI
@@ -132,7 +184,9 @@ pub(crate) fn render_analysis_result(
 
     // 求職者心理分析
     if let Some(perception) = &seeker.salary_range_perception {
-        html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">求職者心理分析</h4>"#);
+        html.push_str(
+            r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">求職者心理分析</h4>"#,
+        );
         html.push_str(&format!(
             r#"<div class="text-sm text-white">期待給与（推定）: <span class="text-amber-400 font-bold">{}円</span></div>
             <div class="text-[10px] text-slate-600">※ 求職者は給与レンジの下限〜1/3地点を期待値とする傾向（下限+レンジ幅×33%）</div>"#,
@@ -153,7 +207,11 @@ pub(crate) fn render_analysis_result(
     if let Some(inexp) = &seeker.inexperience_analysis {
         if let Some(gap) = inexp.salary_gap {
             html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">未経験可タグ分析</h4>"#);
-            let color = if gap > 0 { "text-red-400" } else { "text-green-400" };
+            let color = if gap > 0 {
+                "text-red-400"
+            } else {
+                "text-green-400"
+            };
             html.push_str(&format!(
                 r#"<div class="text-sm text-white">経験者vs未経験者 給与差: <span class="{color} font-bold">{:+}円</span></div>"#,
                 gap
@@ -161,9 +219,9 @@ pub(crate) fn render_analysis_result(
             html.push_str(&format!(
                 r#"<div class="text-xs text-slate-500">未経験可: {}件 (平均{}円) / その他: {}件 (平均{}円)</div>"#,
                 inexp.inexperience_count,
-                inexp.inexperience_avg_salary.map(|v| format_number(v)).unwrap_or_default(),
+                inexp.inexperience_avg_salary.map(format_number).unwrap_or_default(),
                 inexp.experience_count,
-                inexp.experience_avg_salary.map(|v| format_number(v)).unwrap_or_default(),
+                inexp.experience_avg_salary.map(format_number).unwrap_or_default(),
             ));
             html.push_str("</div>");
         }
@@ -174,12 +232,10 @@ pub(crate) fn render_analysis_result(
 
     // チャート1: 給与帯分布（縦棒グラフ）
     if !agg.by_salary_range.is_empty() {
-        let labels: Vec<serde_json::Value> = agg.by_salary_range.iter()
-            .map(|(l, _)| json!(l))
-            .collect();
-        let values: Vec<serde_json::Value> = agg.by_salary_range.iter()
-            .map(|(_, v)| json!(v))
-            .collect();
+        let labels: Vec<serde_json::Value> =
+            agg.by_salary_range.iter().map(|(l, _)| json!(l)).collect();
+        let values: Vec<serde_json::Value> =
+            agg.by_salary_range.iter().map(|(_, v)| json!(v)).collect();
 
         let mut chart = json!({
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -221,13 +277,20 @@ pub(crate) fn render_analysis_result(
 
     // チャート2: 雇用形態分布（ドーナツ）
     if !agg.by_employment_type.is_empty() {
-        let colors = ["#0072B2","#E69F00","#009E73","#D55E00","#CC79A7","#56B4E9","#F0E442","#999999"];
-        let pie_data: Vec<serde_json::Value> = agg.by_employment_type.iter().enumerate()
-            .map(|(i, (name, val))| json!({
-                "value": val,
-                "name": name,
-                "itemStyle": {"color": colors[i % colors.len()]}
-            }))
+        let colors = [
+            "#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#F0E442", "#999999",
+        ];
+        let pie_data: Vec<serde_json::Value> = agg
+            .by_employment_type
+            .iter()
+            .enumerate()
+            .map(|(i, (name, val))| {
+                json!({
+                    "value": val,
+                    "name": name,
+                    "itemStyle": {"color": colors[i % colors.len()]}
+                })
+            })
             .collect();
 
         let chart = json!({
@@ -256,12 +319,8 @@ pub(crate) fn render_analysis_result(
     if !agg.by_prefecture.is_empty() {
         // 横棒は下から上に表示するので逆順
         let top15: Vec<&(String, usize)> = agg.by_prefecture.iter().take(15).collect();
-        let labels: Vec<serde_json::Value> = top15.iter().rev()
-            .map(|(l, _)| json!(l))
-            .collect();
-        let values: Vec<serde_json::Value> = top15.iter().rev()
-            .map(|(_, v)| json!(v))
-            .collect();
+        let labels: Vec<serde_json::Value> = top15.iter().rev().map(|(l, _)| json!(l)).collect();
+        let values: Vec<serde_json::Value> = top15.iter().rev().map(|(_, v)| json!(v)).collect();
 
         let chart = json!({
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -289,12 +348,8 @@ pub(crate) fn render_analysis_result(
     // チャート4: 求人タグ Top15（横棒グラフ）
     if !agg.by_tags.is_empty() {
         let top15: Vec<&(String, usize)> = agg.by_tags.iter().take(15).collect();
-        let labels: Vec<serde_json::Value> = top15.iter().rev()
-            .map(|(l, _)| json!(l))
-            .collect();
-        let values: Vec<serde_json::Value> = top15.iter().rev()
-            .map(|(_, v)| json!(v))
-            .collect();
+        let labels: Vec<serde_json::Value> = top15.iter().rev().map(|(l, _)| json!(l)).collect();
+        let values: Vec<serde_json::Value> = top15.iter().rev().map(|(_, v)| json!(v)).collect();
 
         let chart = json!({
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -321,7 +376,9 @@ pub(crate) fn render_analysis_result(
 
     // チャート5: 経験者 vs 未経験可 給与比較（縦棒グラフ）
     if let Some(inexp) = &seeker.inexperience_analysis {
-        if let (Some(inexp_sal), Some(exp_sal)) = (inexp.inexperience_avg_salary, inexp.experience_avg_salary) {
+        if let (Some(inexp_sal), Some(exp_sal)) =
+            (inexp.inexperience_avg_salary, inexp.experience_avg_salary)
+        {
             let chart = json!({
                 "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
                 "grid": {"left": "15%", "right": "5%", "top": "15%", "bottom": "15%"},

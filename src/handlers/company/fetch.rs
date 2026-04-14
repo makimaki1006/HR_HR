@@ -231,7 +231,13 @@ pub fn build_company_context(
 
     // 近隣企業検索（郵便番号上3桁マッチ）
     if !ctx.postal_code.is_empty() {
-        ctx.nearby_companies = fetch_nearby_companies(sn_db, db, &ctx.postal_code, &ctx.corporate_number, &ctx.prefecture);
+        ctx.nearby_companies = fetch_nearby_companies(
+            sn_db,
+            db,
+            &ctx.postal_code,
+            &ctx.corporate_number,
+            &ctx.prefecture,
+        );
     }
 
     // --- クロス分析機能 ---
@@ -272,15 +278,13 @@ pub fn build_company_context(
 
 /// HW基本統計（求人数、事業所数、平均給与、正社員率、欠員率）
 fn fetch_market_stats(db: &crate::db::local_sqlite::LocalDb, ctx: &mut CompanyContext) {
-    let sql = format!(
-        "SELECT COUNT(*) as cnt, \
+    let sql = "SELECT COUNT(*) as cnt, \
          COUNT(DISTINCT facility_name) as fac_cnt, \
          AVG(CASE WHEN salary_type = '月給' AND salary_min > 0 THEN salary_min END) as avg_min, \
          AVG(CASE WHEN salary_type = '月給' AND salary_max > 0 THEN salary_max END) as avg_max, \
          SUM(CASE WHEN employment_type = '正社員' THEN 1 ELSE 0 END) as ft_cnt, \
          SUM(CASE WHEN recruitment_reason LIKE '%欠員%' OR recruitment_reason LIKE '%補充%' THEN 1 ELSE 0 END) as vacancy_cnt \
-         FROM postings WHERE job_type = ?1 AND prefecture = ?2"
-    );
+         FROM postings WHERE job_type = ?1 AND prefecture = ?2".to_string();
     let jt = &ctx.primary_hw_job_type;
     let pref = &ctx.prefecture;
     let params: Vec<&dyn rusqlite::types::ToSql> = vec![jt, pref];
@@ -399,11 +403,20 @@ fn fetch_benefit_rates(db: &crate::db::local_sqlite::LocalDb, ctx: &mut CompanyC
             let total = get_i64(r, "total") as f64;
             if total > 0.0 {
                 ctx.benefit_rates = vec![
-                    ("退職金".into(), get_i64(r, "b_retirement") as f64 / total * 100.0),
+                    (
+                        "退職金".into(),
+                        get_i64(r, "b_retirement") as f64 / total * 100.0,
+                    ),
                     ("賞与".into(), get_i64(r, "b_bonus") as f64 / total * 100.0),
                     ("昇給".into(), get_i64(r, "b_raise") as f64 / total * 100.0),
-                    ("育児休業".into(), get_i64(r, "b_childcare") as f64 / total * 100.0),
-                    ("社会保険".into(), get_i64(r, "b_insurance") as f64 / total * 100.0),
+                    (
+                        "育児休業".into(),
+                        get_i64(r, "b_childcare") as f64 / total * 100.0,
+                    ),
+                    (
+                        "社会保険".into(),
+                        get_i64(r, "b_insurance") as f64 / total * 100.0,
+                    ),
                 ];
             }
         }
@@ -514,13 +527,13 @@ pub fn fetch_companies_by_region(
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 \
                    ORDER BY employee_count DESC LIMIT ?2";
-        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            vec![&prefecture, &lim];
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&prefecture, &lim];
         sn_db.query(sql, &params).unwrap_or_default()
     };
 
     // まず企業リストを構築（HWカウントなし）
-    let mut companies: Vec<NearbyCompany> = rows.iter()
+    let mut companies: Vec<NearbyCompany> = rows
+        .iter()
         .map(|r| NearbyCompany {
             corporate_number: get_str(r, "corporate_number"),
             company_name: get_str(r, "company_name"),
@@ -555,7 +568,8 @@ fn batch_count_hw_postings(
             continue;
         }
         let like_pattern = format!("%{}%", normalized);
-        let sql = "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
+        let sql =
+            "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
         let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
         if let Ok(rows) = db.query(sql, &params) {
             if let Some(r) = rows.first() {
@@ -590,22 +604,24 @@ pub fn fetch_nearby_companies(
     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&like_pattern, &exclude_corp];
     let rows = sn_db.query(sql, &params).unwrap_or_default();
 
-    rows.iter().map(|r| {
-        let name = get_str(r, "company_name");
-        let pref = get_str(r, "prefecture");
-        // HW求人数を集計
-        let hw_count = count_hw_postings(db, &name, &pref);
-        NearbyCompany {
-            corporate_number: get_str(r, "corporate_number"),
-            company_name: name,
-            prefecture: pref,
-            sn_industry: get_str(r, "sn_industry"),
-            employee_count: get_i64(r, "employee_count"),
-            credit_score: get_f64(r, "credit_score"),
-            postal_code: get_str(r, "postal_code"),
-            hw_posting_count: hw_count,
-        }
-    }).collect()
+    rows.iter()
+        .map(|r| {
+            let name = get_str(r, "company_name");
+            let pref = get_str(r, "prefecture");
+            // HW求人数を集計
+            let hw_count = count_hw_postings(db, &name, &pref);
+            NearbyCompany {
+                corporate_number: get_str(r, "corporate_number"),
+                company_name: name,
+                prefecture: pref,
+                sn_industry: get_str(r, "sn_industry"),
+                employee_count: get_i64(r, "employee_count"),
+                credit_score: get_f64(r, "credit_score"),
+                postal_code: get_str(r, "postal_code"),
+                hw_posting_count: hw_count,
+            }
+        })
+        .collect()
 }
 
 // ===== クロス分析用の新規fetch関数 =====
@@ -818,7 +834,7 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
             ));
         } else if gap > 10000.0 {
             pitches.push((
-                format!("御社の給与水準は市場上位に位置しています"),
+                "御社の給与水準は市場上位に位置しています".to_string(),
                 format!(
                     "御社の平均月給（下限）{:.0}円は市場平均{:.0}円を{:.0}円上回っており、給与面での競争力は高い状態です。",
                     ctx.company_avg_salary_min, ctx.market_avg_salary_min, gap
@@ -876,13 +892,18 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
 }
 
 /// HW求人数カウント（近隣企業用）
-pub fn count_hw_postings(db: &crate::db::local_sqlite::LocalDb, company_name: &str, prefecture: &str) -> i64 {
+pub fn count_hw_postings(
+    db: &crate::db::local_sqlite::LocalDb,
+    company_name: &str,
+    prefecture: &str,
+) -> i64 {
     let normalized = normalize_company_name(company_name);
     if normalized.len() < 2 {
         return 0;
     }
     let like_pattern = format!("%{}%", normalized);
-    let sql = "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
+    let sql =
+        "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
     let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
     if let Ok(rows) = db.query(sql, &params) {
         if let Some(r) = rows.first() {

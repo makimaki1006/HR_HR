@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use crate::db::local_sqlite::LocalDb;
+use crate::AppState;
 
 use super::overview::{
     build_filter_clause, format_number, get_f64, get_i64, get_session_filters, get_str,
@@ -14,10 +14,7 @@ use super::overview::{
 };
 
 /// タブ2: 企業分析
-pub async fn tab_balance(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_balance(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
@@ -25,7 +22,12 @@ pub async fn tab_balance(
         None => return Html(render_no_db_data("企業分析")),
     };
 
-    let cache_key = format!("balance_{}_{}_{}", filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "balance_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -34,22 +36,21 @@ pub async fn tab_balance(
 
     let db = db.clone();
     let filters_clone = filters.clone();
-    let stats = tokio::task::spawn_blocking(move || {
-        fetch_balance(&db, &filters_clone)
-    }).await.unwrap_or_default();
+    let stats = tokio::task::spawn_blocking(move || fetch_balance(&db, &filters_clone))
+        .await
+        .unwrap_or_default();
 
     let mut html = render_balance(&filters, &stats);
     html.push_str(r#"<div class="text-[10px] text-slate-600 mt-4 border-t border-slate-800 pt-2">出典: ハローワーク掲載求人データ / 外部統計: e-Stat API / SSDSE-A（総務省統計局）</div>"#);
-    html.push_str(r#"<div hx-get="/api/insight/widget/balance" hx-trigger="load" hx-swap="innerHTML"></div>"#);
+    html.push_str(
+        r#"<div hx-get="/api/insight/widget/balance" hx-trigger="load" hx-swap="innerHTML"></div>"#,
+    );
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
 /// 市場概況タブ用: 企業分析セクションHTML生成（fetch + render）
-pub(crate) fn build_balance_html(
-    db: &LocalDb,
-    filters: &SessionFilters,
-) -> String {
+pub(crate) fn build_balance_html(db: &LocalDb, filters: &SessionFilters) -> String {
     let stats = fetch_balance(db, filters);
     render_balance(filters, &stats)
 }
@@ -74,9 +75,9 @@ struct BalanceStats {
     /// KPI
     total_postings: i64,
     total_facilities: i64,
-    avg_employee_count: f64,     // 平均
-    median_employee_count: f64,  // 中央値
-    mode_employee_count: i64,    // 最頻値
+    avg_employee_count: f64,    // 平均
+    median_employee_count: f64, // 中央値
+    mode_employee_count: i64,   // 最頻値
 }
 
 impl Default for BalanceStats {
@@ -99,15 +100,15 @@ impl Default for BalanceStats {
     }
 }
 
-fn fetch_balance(
-    db: &LocalDb,
-    filters: &SessionFilters,
-) -> BalanceStats {
+fn fetch_balance(db: &LocalDb, filters: &SessionFilters) -> BalanceStats {
     let mut stats = BalanceStats::default();
     let (filter_clause, filter_params) = build_filter_clause(filters, 0);
 
     let mk_bind = || -> Vec<&dyn rusqlite::types::ToSql> {
-        filter_params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect()
+        filter_params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect()
     };
 
     // 0. KPI基本 + 従業員数（平均/中央値/最頻値の3指標）
@@ -293,8 +294,13 @@ fn fetch_balance(
         }
 
         // クロス集計
-        let size_bands_list = vec![
-            "~5人", "6~20人", "21~50人", "51~100人", "101~300人", "300人~",
+        let size_bands_list = [
+            "~5人",
+            "6~20人",
+            "21~50人",
+            "51~100人",
+            "101~300人",
+            "300人~",
         ];
         stats.size_bands = size_bands_list.iter().map(|s| s.to_string()).collect();
 
@@ -327,10 +333,7 @@ fn fetch_balance(
     stats
 }
 
-fn render_balance(
-    filters: &SessionFilters,
-    stats: &BalanceStats,
-) -> String {
+fn render_balance(filters: &SessionFilters, stats: &BalanceStats) -> String {
     let location_label = make_location_label(&filters.prefecture, &filters.municipality);
     let industry_label = filters.industry_label();
 
@@ -360,13 +363,26 @@ fn render_balance(
 </div>"##,
         format_number(stats.total_postings),
         format_number(stats.total_facilities),
-        if stats.median_employee_count > 0.0 { format!("{:.0}", stats.median_employee_count) } else { "-".to_string() },
-        if stats.avg_employee_count > 0.0 { format!("{:.0}", stats.avg_employee_count) } else { "-".to_string() },
-        if stats.mode_employee_count > 0 { format_number(stats.mode_employee_count) } else { "-".to_string() },
+        if stats.median_employee_count > 0.0 {
+            format!("{:.0}", stats.median_employee_count)
+        } else {
+            "-".to_string()
+        },
+        if stats.avg_employee_count > 0.0 {
+            format!("{:.0}", stats.avg_employee_count)
+        } else {
+            "-".to_string()
+        },
+        if stats.mode_employee_count > 0 {
+            format_number(stats.mode_employee_count)
+        } else {
+            "-".to_string()
+        },
     );
 
     // 従業員規模分布
-    let emp_size_chart = build_bar_chart(&stats.employee_size_dist, "従業員規模分布", "#3B82F6", 320);
+    let emp_size_chart =
+        build_bar_chart(&stats.employee_size_dist, "従業員規模分布", "#3B82F6", 320);
 
     // 資本金分布
     let capital_chart = build_bar_chart(&stats.capital_dist, "資本金分布", "#10B981", 320);
@@ -375,10 +391,16 @@ fn render_balance(
     let founding_chart = build_bar_chart(&stats.founding_era_dist, "設立年代分布", "#F59E0B", 320);
 
     // 女性従業員比率
-    let female_ratio_chart = build_bar_chart(&stats.female_ratio_hist, "女性従業員比率分布", "#EC4899", 280);
+    let female_ratio_chart = build_bar_chart(
+        &stats.female_ratio_hist,
+        "女性従業員比率分布",
+        "#EC4899",
+        280,
+    );
 
     // パート比率
-    let parttime_ratio_chart = build_bar_chart(&stats.parttime_ratio_hist, "パート比率分布", "#8B5CF6", 280);
+    let parttime_ratio_chart =
+        build_bar_chart(&stats.parttime_ratio_hist, "パート比率分布", "#8B5CF6", 280);
 
     // 産業×従業員規模クロス（スタックバー）
     let cross_chart = build_industry_size_cross(
@@ -449,9 +471,11 @@ fn build_bar_chart(data: &[(String, i64)], title: &str, color: &str, height: u32
     }
 
     // アクセシビリティ: 上位3項目をaria-labelに含める
-    let aria_summary: Vec<String> = data.iter().take(3).map(|(l, v)| {
-        format!("{} {}件", l, format_number(*v))
-    }).collect();
+    let aria_summary: Vec<String> = data
+        .iter()
+        .take(3)
+        .map(|(l, v)| format!("{} {}件", l, format_number(*v)))
+        .collect();
     let aria_label = format!("{}: {}", title, aria_summary.join("、"));
 
     let labels: Vec<&str> = data.iter().map(|(l, _)| l.as_str()).collect();
@@ -512,7 +536,10 @@ fn build_industry_size_cross(
                 .iter()
                 .rev()
                 .map(|jt| {
-                    pivot.get(&(jt.as_str(), band.as_str())).copied().unwrap_or(0)
+                    pivot
+                        .get(&(jt.as_str(), band.as_str()))
+                        .copied()
+                        .unwrap_or(0)
                 })
                 .collect();
             let color = band_colors.get(i).unwrap_or(&"#999");

@@ -6,23 +6,19 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use super::super::overview::{get_session_filters, make_location_label, render_no_db_data};
 use super::engine::generate_insights;
 use super::fetch::build_insight_context;
 use super::helpers::INSIGHT_SUBTABS;
 use super::render::{
-    render_subtab_hiring, render_subtab_forecast,
-    render_subtab_regional, render_subtab_action,
-    render_insight_widget_html,
+    render_insight_widget_html, render_subtab_action, render_subtab_forecast, render_subtab_hiring,
+    render_subtab_regional,
 };
 use super::report::build_report_json;
+use crate::AppState;
 
 /// HTMXパーシャル: 総合診断タブ（サブタブナビゲーション付き）
-pub async fn tab_insight(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_insight(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
@@ -50,7 +46,9 @@ pub async fn tab_insight(
         let ctx = build_insight_context(&db, turso.as_ref(), &pref2, &muni2);
         let insights = generate_insights(&ctx);
         render_subtab_hiring(&insights)
-    }).await.unwrap_or_else(|e| {
+    })
+    .await
+    .unwrap_or_else(|e| {
         tracing::error!("Insight tab render failed: {e}");
         render_no_db_data("総合診断")
     });
@@ -79,14 +77,16 @@ pub async fn tab_insight(
     html.push_str("</div>");
 
     // サブタブ切替用JS
-    html.push_str(r#"<script>
+    html.push_str(
+        r#"<script>
 function setInsightSubtab(el) {
     el.closest('.flex').querySelectorAll('.analysis-subtab').forEach(function(btn) {
         btn.classList.remove('active');
     });
     el.classList.add('active');
 }
-</script>"#);
+</script>"#,
+    );
 
     html.push_str("</div>");
 
@@ -109,7 +109,11 @@ pub async fn insight_subtab(
 
     let db = match &state.hw_db {
         Some(db) => db.clone(),
-        None => return Html(r#"<p class="text-slate-500 text-sm p-4">データベース未接続</p>"#.to_string()),
+        None => {
+            return Html(
+                r#"<p class="text-slate-500 text-sm p-4">データベース未接続</p>"#.to_string(),
+            )
+        }
     };
 
     let pref = filters.prefecture.clone();
@@ -133,7 +137,9 @@ pub async fn insight_subtab(
             4 => render_subtab_action(&insights),
             _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
         }
-    }).await.unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
+    })
+    .await
+    .unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
 
     state.cache.set(cache_key, Value::String(content.clone()));
     Html(content)
@@ -155,7 +161,7 @@ pub async fn insight_widget(
     let pref = filters.prefecture.clone();
     let muni = filters.municipality.clone();
 
-    let cache_key = format!("insight_widget_{}_{}_{}",  tab, pref, muni);
+    let cache_key = format!("insight_widget_{}_{}_{}", tab, pref, muni);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -168,14 +174,19 @@ pub async fn insight_widget(
         let insights = generate_insights(&ctx);
 
         // タブに関連する示唆のみ抽出（最大3件）
-        let relevant: Vec<_> = insights.iter()
+        let relevant: Vec<_> = insights
+            .iter()
             .filter(|i| i.related_tabs.contains(&tab.as_str()))
             .take(3)
             .collect();
 
-        if relevant.is_empty() { return String::new(); }
+        if relevant.is_empty() {
+            return String::new();
+        }
         render_insight_widget_html(&relevant)
-    }).await.unwrap_or_default();
+    })
+    .await
+    .unwrap_or_default();
 
     if !content.is_empty() {
         state.cache.set(cache_key, Value::String(content.clone()));
@@ -203,7 +214,9 @@ pub async fn insight_report_json(
         let ctx = build_insight_context(&db, turso.as_ref(), &pref, &muni);
         let insights = generate_insights(&ctx);
         build_report_json(&insights, &pref, &muni)
-    }).await.unwrap_or_else(|_| serde_json::json!({"error": "処理エラー"}));
+    })
+    .await
+    .unwrap_or_else(|_| serde_json::json!({"error": "処理エラー"}));
 
     axum::response::Json(report)
 }
@@ -237,7 +250,9 @@ pub async fn insight_report_html(
         let ctx = build_insight_context(&db, turso.as_ref(), &pref, &muni);
         let insights = generate_insights(&ctx);
         super::render::render_insight_report_page(&insights, &ctx, &pref, &muni)
-    }).await.unwrap_or_else(|e| {
+    })
+    .await
+    .unwrap_or_else(|e| {
         tracing::error!("Report HTML generation failed: {e}");
         "<html><body><p>レポート生成エラー</p></body></html>".to_string()
     });

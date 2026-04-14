@@ -6,15 +6,10 @@ use tower_sessions::Session;
 
 use crate::AppState;
 
-use super::overview::{
-    get_session_filters, make_location_label, render_no_db_data,
-};
+use super::overview::{get_session_filters, make_location_label, render_no_db_data};
 
 /// 市場概況タブ: 概況セクションを即時表示、残りは即時遅延ロード
-pub async fn tab_market(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_market(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
@@ -26,16 +21,21 @@ pub async fn tab_market(
     let industry_label = filters.industry_label();
 
     // 概況セクションはキャッシュ済みなら高速
-    let cache_key = format!("overview_{}_{}_{}",
-        filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "overview_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     let overview_html = if let Some(cached) = state.cache.get(&cache_key) {
         cached.as_str().unwrap_or("").to_string()
     } else {
         let db1 = db.clone();
         let f1 = filters.clone();
-        let html = tokio::task::spawn_blocking(move || {
-            super::overview::build_overview_html(&db1, &f1)
-        }).await.unwrap_or_default();
+        let html =
+            tokio::task::spawn_blocking(move || super::overview::build_overview_html(&db1, &f1))
+                .await
+                .unwrap_or_default();
         state.cache.set(cache_key, Value::String(html.clone()));
         html
     };
@@ -52,7 +52,11 @@ pub async fn tab_market(
             </h2>
         </div>"#,
         location = location_label,
-        industry = if industry_label == "全産業" { String::new() } else { format!("({})", industry_label) },
+        industry = if industry_label == "全産業" {
+            String::new()
+        } else {
+            format!("({})", industry_label)
+        },
     ));
 
     // セクションナビ（ページ内スクロール）
@@ -76,25 +80,31 @@ pub async fn tab_market(
     }
 
     // セクション2: 雇用条件（即時ロード）
-    html.push_str(r##"<section id="sec-workstyle" class="mt-8">
+    html.push_str(
+        r##"<section id="sec-workstyle" class="mt-8">
         <div hx-get="/api/market/workstyle" hx-trigger="load" hx-swap="innerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
-    </section>"##);
+    </section>"##,
+    );
 
     // セクション3: 企業分析（即時ロード）
-    html.push_str(r##"<section id="sec-balance" class="mt-8">
+    html.push_str(
+        r##"<section id="sec-balance" class="mt-8">
         <div hx-get="/api/market/balance" hx-trigger="load" hx-swap="innerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
-    </section>"##);
+    </section>"##,
+    );
 
     // セクション4: 採用動向（即時ロード）
-    html.push_str(r##"<section id="sec-demographics" class="mt-8">
+    html.push_str(
+        r##"<section id="sec-demographics" class="mt-8">
         <div hx-get="/api/market/demographics" hx-trigger="load" hx-swap="innerHTML">
             <div class="flex justify-center py-8"><div class="loading-spinner"></div></div>
         </div>
-    </section>"##);
+    </section>"##,
+    );
 
     // 関連示唆ウィジェット
     html.push_str(r##"<div hx-get="/api/insight/widget/overview" hx-trigger="load" hx-swap="innerHTML"></div>"##);
@@ -117,7 +127,9 @@ pub async fn market_population(
         let muni = filters.municipality.clone();
         let html = tokio::task::spawn_blocking(move || {
             super::overview::build_population_context_html(&turso, &pref, &muni)
-        }).await.unwrap_or_default();
+        })
+        .await
+        .unwrap_or_default();
         Html(html)
     } else {
         Html(String::new())
@@ -134,42 +146,47 @@ pub async fn market_workstyle(
         Some(db) => db.clone(),
         None => return Html(String::new()),
     };
-    let cache_key = format!("workstyle_{}_{}_{}",
-        filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "workstyle_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
     let f = filters.clone();
-    let html = tokio::task::spawn_blocking(move || {
-        super::workstyle::build_workstyle_html(&db, &f)
-    }).await.unwrap_or_default();
+    let html = tokio::task::spawn_blocking(move || super::workstyle::build_workstyle_html(&db, &f))
+        .await
+        .unwrap_or_default();
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
 
 /// 市場概況タブ用: 企業分析セクション（キャッシュ対応）
-pub async fn market_balance(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn market_balance(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
     let db = match &state.hw_db {
         Some(db) => db.clone(),
         None => return Html(String::new()),
     };
-    let cache_key = format!("balance_{}_{}_{}",
-        filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "balance_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
     let f = filters.clone();
-    let html = tokio::task::spawn_blocking(move || {
-        super::balance::build_balance_html(&db, &f)
-    }).await.unwrap_or_default();
+    let html = tokio::task::spawn_blocking(move || super::balance::build_balance_html(&db, &f))
+        .await
+        .unwrap_or_default();
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -184,17 +201,22 @@ pub async fn market_demographics(
         Some(db) => db.clone(),
         None => return Html(String::new()),
     };
-    let cache_key = format!("demographics_{}_{}_{}",
-        filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "demographics_{}_{}_{}",
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
         }
     }
     let f = filters.clone();
-    let html = tokio::task::spawn_blocking(move || {
-        super::demographics::build_demographics_html(&db, &f)
-    }).await.unwrap_or_default();
+    let html =
+        tokio::task::spawn_blocking(move || super::demographics::build_demographics_html(&db, &f))
+            .await
+            .unwrap_or_default();
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }

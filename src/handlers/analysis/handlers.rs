@@ -6,19 +6,16 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use super::super::overview::{get_session_filters, make_location_label, render_no_db_data};
 use super::helpers::ANALYSIS_SUBTABS;
 use super::render::{
-    render_subtab_1, render_subtab_2, render_subtab_3,
-    render_subtab_4, render_subtab_5, render_subtab_6,
+    render_subtab_1, render_subtab_2, render_subtab_3, render_subtab_4, render_subtab_5,
+    render_subtab_6,
 };
+use crate::AppState;
 
 /// HTMXパーシャル: V2独自分析（サブタブナビゲーション付き）
-pub async fn tab_analysis(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_analysis(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
@@ -34,9 +31,9 @@ pub async fn tab_analysis(
     // サブタブ1のコンテンツを初期表示（spawn_blockingで実行）
     let pref2 = pref.clone();
     let muni2 = muni.clone();
-    let subtab1_content = tokio::task::spawn_blocking(move || {
-        render_subtab_1(&db, &pref2, &muni2)
-    }).await.unwrap_or_else(|_| render_no_db_data("雇用形態別分析"));
+    let subtab1_content = tokio::task::spawn_blocking(move || render_subtab_1(&db, &pref2, &muni2))
+        .await
+        .unwrap_or_else(|_| render_no_db_data("雇用形態別分析"));
 
     let mut html = String::with_capacity(16_000);
 
@@ -59,7 +56,9 @@ pub async fn tab_analysis(
     "##);
 
     // グループA: 構造分析 サブタブナビゲーション
-    html.push_str(r##"<p class="text-xs text-slate-500 mb-2">正社員/パートで分けた求人市場の構造指標</p>"##);
+    html.push_str(
+        r##"<p class="text-xs text-slate-500 mb-2">正社員/パートで分けた求人市場の構造指標</p>"##,
+    );
     html.push_str(r##"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"##);
     for (id, label) in &ANALYSIS_SUBTABS {
         let active = if *id == 1 { " active" } else { "" };
@@ -77,7 +76,8 @@ pub async fn tab_analysis(
     html.push_str("</div>"); // analysis-group-content
 
     // グループ切替+サブタブ切替用JS
-    html.push_str(r#"<script>
+    html.push_str(
+        r#"<script>
 function setAnalysisGroup(el) {
     document.querySelectorAll('.analysis-group').forEach(function(btn) {
         btn.classList.remove('active');
@@ -90,7 +90,8 @@ function setAnalysisSubtab(el) {
     });
     el.classList.add('active');
 }
-</script>"#);
+</script>"#,
+    );
 
     html.push_str(r##"<div hx-get="/api/insight/widget/analysis" hx-trigger="load" hx-swap="innerHTML"></div>"##);
     html.push_str("</div>");
@@ -108,14 +109,23 @@ pub async fn analysis_subtab(
 
     let db = match &state.hw_db {
         Some(db) => db.clone(),
-        None => return Html(r#"<p class="text-slate-500 text-sm p-4">データベース未接続</p>"#.to_string()),
+        None => {
+            return Html(
+                r#"<p class="text-slate-500 text-sm p-4">データベース未接続</p>"#.to_string(),
+            )
+        }
     };
 
     let pref = filters.prefecture.clone();
     let muni = filters.municipality.clone();
 
-    let cache_key = format!("v2analysis_sub{}_{}_{}_{}",
-        id, filters.industry_cache_key(), filters.prefecture, filters.municipality);
+    let cache_key = format!(
+        "v2analysis_sub{}_{}_{}_{}",
+        id,
+        filters.industry_cache_key(),
+        filters.prefecture,
+        filters.municipality
+    );
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(html) = cached.as_str() {
             return Html(html.to_string());
@@ -123,18 +133,18 @@ pub async fn analysis_subtab(
     }
 
     let turso_db = state.turso_db.clone();
-    let content = tokio::task::spawn_blocking(move || {
-        match id {
-            1 => render_subtab_1(&db, &pref, &muni),
-            2 => render_subtab_2(&db, &pref, &muni),
-            3 => render_subtab_3(&db, &pref, &muni),
-            4 => render_subtab_4(&db, &pref, &muni),
-            5 => render_subtab_5(&db, turso_db.as_ref(), &pref, &muni),
-            6 => render_subtab_6(&db, &pref, &muni),
-            7 => super::render::render_subtab_7(&db, turso_db.as_ref(), &pref, &muni),
-            _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
-        }
-    }).await.unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
+    let content = tokio::task::spawn_blocking(move || match id {
+        1 => render_subtab_1(&db, &pref, &muni),
+        2 => render_subtab_2(&db, &pref, &muni),
+        3 => render_subtab_3(&db, &pref, &muni),
+        4 => render_subtab_4(&db, &pref, &muni),
+        5 => render_subtab_5(&db, turso_db.as_ref(), &pref, &muni),
+        6 => render_subtab_6(&db, &pref, &muni),
+        7 => super::render::render_subtab_7(&db, turso_db.as_ref(), &pref, &muni),
+        _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
+    })
+    .await
+    .unwrap_or_else(|_| r#"<p class="text-slate-500 text-sm p-4">処理エラー</p>"#.to_string());
 
     state.cache.set(cache_key, Value::String(content.clone()));
     Html(content)

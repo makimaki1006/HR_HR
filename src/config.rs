@@ -107,10 +107,17 @@ mod tests {
 
     fn clear_env() {
         for key in &[
-            "PORT", "AUTH_PASSWORD", "AUTH_PASSWORD_HASH", "AUTH_PASSWORDS_EXTRA",
-            "ALLOWED_DOMAINS", "ALLOWED_DOMAINS_EXTRA",
-            "HELLOWORK_DB_PATH", "CACHE_TTL_SECS",
-            "CACHE_MAX_ENTRIES", "RATE_LIMIT_MAX_ATTEMPTS", "RATE_LIMIT_LOCKOUT_SECONDS",
+            "PORT",
+            "AUTH_PASSWORD",
+            "AUTH_PASSWORD_HASH",
+            "AUTH_PASSWORDS_EXTRA",
+            "ALLOWED_DOMAINS",
+            "ALLOWED_DOMAINS_EXTRA",
+            "HELLOWORK_DB_PATH",
+            "CACHE_TTL_SECS",
+            "CACHE_MAX_ENTRIES",
+            "RATE_LIMIT_MAX_ATTEMPTS",
+            "RATE_LIMIT_LOCKOUT_SECONDS",
         ] {
             env::remove_var(key);
         }

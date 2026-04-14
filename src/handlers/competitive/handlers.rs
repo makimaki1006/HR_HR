@@ -5,25 +5,22 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
-use crate::handlers::overview::{format_number, get_session_filters};
 use super::analysis::{calc_salary_stats, fetch_analysis, fetch_analysis_filtered};
 use super::fetch::{
     count_postings, fetch_competitive, fetch_industry_raws, fetch_job_types,
-    fetch_job_types_filtered, fetch_nearby_postings, fetch_postings,
-    fetch_prefectures, fetch_salary_stats_sql,
+    fetch_job_types_filtered, fetch_nearby_postings, fetch_postings, fetch_prefectures,
+    fetch_salary_stats_sql,
 };
 use super::render::{
     render_analysis_html, render_analysis_html_with_scope, render_competitive,
     render_posting_table, render_report_html,
 };
 use super::utils::escape_html;
+use crate::handlers::overview::{format_number, get_session_filters};
+use crate::AppState;
 
 /// タブ8: 競合調査（ヘッダーフィルタ統合版）
-pub async fn tab_competitive(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_competitive(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
     let industry_label = filters.industry_label();
 
@@ -38,7 +35,13 @@ pub async fn tab_competitive(
     let pref_options = fetch_prefectures(&state, &filters);
     let ftype_options = fetch_job_types(&state, "");
     let stype_options = fetch_industry_raws(&state, "");
-    let mut html = render_competitive(&industry_label, &stats, &pref_options, &ftype_options, &stype_options);
+    let mut html = render_competitive(
+        &industry_label,
+        &stats,
+        &pref_options,
+        &ftype_options,
+        &stype_options,
+    );
     html.push_str(r#"<div hx-get="/api/insight/widget/competitive" hx-trigger="load" hx-swap="innerHTML"></div>"#);
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
@@ -68,12 +71,18 @@ pub async fn comp_filter(
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
+        None => {
+            return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string())
+        }
     };
 
     // クエリパラメータ優先、なければセッションから取得
     let pref = params.prefecture.as_deref().unwrap_or("");
-    let pref = if pref.is_empty() { &filters.prefecture } else { pref };
+    let pref = if pref.is_empty() {
+        &filters.prefecture
+    } else {
+        pref
+    };
     let muni = params.municipality.as_deref().unwrap_or("");
     let emp = params.employment_type.as_deref().unwrap_or("");
     let stype = params.service_type.as_deref().unwrap_or("");
@@ -92,29 +101,70 @@ pub async fn comp_filter(
 
     // 近隣検索はhaversineフィルタがあるためRust側でページネーション
     if nearby && !muni.is_empty() {
-        let postings = fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp, stype, ftype);
+        let postings =
+            fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp, stype, ftype);
         let total = postings.len() as i64;
-        let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
+        let total_pages = if total == 0 {
+            1
+        } else {
+            (total - 1) / page_size + 1
+        };
         let start = ((page - 1) * page_size) as usize;
         let start = start.min(postings.len());
         let end = (start + page_size as usize).min(postings.len());
         let page_data = &postings[start..end];
         let salary_stats = calc_salary_stats(&postings);
         return render_posting_table(
-            &industry_label, pref, muni, page_data, &salary_stats,
-            page, total_pages, total, nearby, radius_km, emp, stype, ftype,
+            &industry_label,
+            pref,
+            muni,
+            page_data,
+            &salary_stats,
+            page,
+            total_pages,
+            total,
+            nearby,
+            radius_km,
+            emp,
+            stype,
+            ftype,
         );
     }
 
     // 通常検索: SQLレベルのページネーション + SQL給与統計
     let total = count_postings(db, &filters, pref, muni_opt, emp, stype, ftype);
-    let total_pages = if total == 0 { 1 } else { (total - 1) / page_size + 1 };
-    let postings = fetch_postings(db, &filters, pref, muni_opt, emp, stype, ftype, Some(page), Some(page_size));
+    let total_pages = if total == 0 {
+        1
+    } else {
+        (total - 1) / page_size + 1
+    };
+    let postings = fetch_postings(
+        db,
+        &filters,
+        pref,
+        muni_opt,
+        emp,
+        stype,
+        ftype,
+        Some(page),
+        Some(page_size),
+    );
     let salary_stats = fetch_salary_stats_sql(db, &filters, pref, muni_opt, emp, stype, ftype);
 
     render_posting_table(
-        &industry_label, pref, muni, &postings, &salary_stats,
-        page, total_pages, total, nearby, radius_km, emp, stype, ftype,
+        &industry_label,
+        pref,
+        muni,
+        &postings,
+        &salary_stats,
+        page,
+        total_pages,
+        total,
+        nearby,
+        radius_km,
+        emp,
+        stype,
+        ftype,
     )
 }
 
@@ -156,7 +206,8 @@ pub async fn comp_municipalities(
 
     let mut html = String::from(r#"<option value="">全て</option>"#);
     for row in &rows {
-        let m = row.get("municipality")
+        let m = row
+            .get("municipality")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if !m.is_empty() {
@@ -177,7 +228,9 @@ pub async fn comp_facility_types(
     let job_types = fetch_job_types_filtered(&state, pref, muni);
 
     if job_types.is_empty() {
-        return Html(r#"<div class="text-sm text-slate-400 p-2">データがありません</div>"#.to_string());
+        return Html(
+            r#"<div class="text-sm text-slate-400 p-2">データがありません</div>"#.to_string(),
+        );
     }
 
     let mut html = String::new();
@@ -212,7 +265,9 @@ pub async fn comp_service_types(
 
     let pref = params.prefecture.as_deref().unwrap_or("");
     let muni = params.municipality.as_deref().unwrap_or("");
-    let mut sql = "SELECT industry_raw, COUNT(*) as cnt FROM postings WHERE length(industry_raw) > 0".to_string();
+    let mut sql =
+        "SELECT industry_raw, COUNT(*) as cnt FROM postings WHERE length(industry_raw) > 0"
+            .to_string();
     let mut param_values: Vec<String> = Vec::new();
 
     if !pref.is_empty() {
@@ -235,7 +290,10 @@ pub async fn comp_service_types(
 
     let mut html = String::from(r#"<option value="">全て</option>"#);
     for row in &rows {
-        let name = row.get("industry_raw").and_then(|v| v.as_str()).unwrap_or("");
+        let name = row
+            .get("industry_raw")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let cnt = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
         if !name.is_empty() {
             // valueにはraw値を使い、表示名のみエスケープ
@@ -251,16 +309,15 @@ pub async fn comp_service_types(
 }
 
 /// 求人データ分析API（HTMXパーシャル）
-pub async fn comp_analysis(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn comp_analysis(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
     let industry_label = filters.industry_label();
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
+        None => {
+            return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string())
+        }
     };
 
     let analysis = fetch_analysis(db, &industry_label);
@@ -286,7 +343,9 @@ pub async fn comp_analysis_filtered(
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string()),
+        None => {
+            return Html("<p class=\"text-red-400\">ローカルDBが利用できません</p>".to_string())
+        }
     };
 
     let pref = params.prefecture.as_deref().unwrap_or("");
@@ -301,7 +360,11 @@ pub async fn comp_analysis_filtered(
     } else {
         "全国".to_string()
     };
-    Html(render_analysis_html_with_scope(&industry_label, &scope_label, &analysis))
+    Html(render_analysis_html_with_scope(
+        &industry_label,
+        &scope_label,
+        &analysis,
+    ))
 }
 
 /// HTMLレポート生成API
@@ -333,11 +396,31 @@ pub async fn comp_report(
     let postings = if nearby && !muni.is_empty() {
         fetch_nearby_postings(db, &filters, pref, muni, radius_km, emp, stype, ftype)
     } else {
-        fetch_postings(db, &filters, pref, if muni.is_empty() { None } else { Some(muni) }, emp, stype, ftype, None, None)
+        fetch_postings(
+            db,
+            &filters,
+            pref,
+            if muni.is_empty() { None } else { Some(muni) },
+            emp,
+            stype,
+            ftype,
+            None,
+            None,
+        )
     };
 
     let stats = calc_salary_stats(&postings);
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-    render_report_html(&industry_label, pref, muni, emp, &postings, &stats, &today, nearby, radius_km)
+    render_report_html(
+        &industry_label,
+        pref,
+        muni,
+        emp,
+        &postings,
+        &stats,
+        &today,
+        nearby,
+        radius_km,
+    )
 }

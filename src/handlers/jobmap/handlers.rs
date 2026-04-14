@@ -5,10 +5,10 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tower_sessions::Session;
 
-use crate::AppState;
 use crate::geo::pref_name_to_code;
 use crate::handlers::competitive::{build_option, escape_html};
 use crate::handlers::overview::get_session_filters;
+use crate::AppState;
 
 use super::fetch;
 use super::render;
@@ -43,10 +43,7 @@ pub struct MuniParams {
 }
 
 /// タブ6: 求人地図（初期ページ）
-pub async fn tab_jobmap(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-) -> Html<String> {
+pub async fn tab_jobmap(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
     let industry_label = filters.industry_label();
 
@@ -85,7 +82,12 @@ pub async fn tab_jobmap(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let html = render::render_jobmap_page(&industry_label, &filters.prefecture, &filters.municipality, &pref_options);
+    let html = render::render_jobmap_page(
+        &industry_label,
+        &filters.prefecture,
+        &filters.municipality,
+        &pref_options,
+    );
     Html(html)
 }
 
@@ -148,11 +150,10 @@ pub async fn jobmap_markers(
 
     // 市区町村中心座標を取得
     let center = state.hw_db.as_ref().and_then(|db| {
-        fetch::get_muni_center(db, pref, &params.municipality)
-            .or_else(|| {
-                extract_parent_city(&params.municipality)
-                    .and_then(|parent| fetch::get_muni_center(db, pref, &parent))
-            })
+        fetch::get_muni_center(db, pref, &params.municipality).or_else(|| {
+            extract_parent_city(&params.municipality)
+                .and_then(|parent| fetch::get_muni_center(db, pref, &parent))
+        })
     });
 
     let (markers, total_available) = if let Some((clat, clng)) = center {
@@ -198,9 +199,7 @@ pub async fn jobmap_detail(
 }
 
 /// ピン留め統計API
-pub async fn jobmap_stats(
-    Json(req): Json<stats::StatsRequest>,
-) -> Json<stats::StatsResult> {
+pub async fn jobmap_stats(Json(req): Json<stats::StatsRequest>) -> Json<stats::StatsResult> {
     Json(stats::compute_stats(&req))
 }
 
@@ -301,22 +300,23 @@ pub async fn jobmap_seekers(
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Json(serde_json::json!({
-            "markers": [],
-            "choropleth": {},
-            "total": 0
-        })),
+        None => {
+            return Json(serde_json::json!({
+                "markers": [],
+                "choropleth": {},
+                "total": 0
+            }))
+        }
     };
 
     // postingsテーブルから市区町村別の求人件数・平均座標を集計
     use crate::handlers::overview::{get_f64, get_i64};
 
-    let mut actual_sql = format!(
-        "SELECT municipality, COUNT(*) as cnt, \
+    let mut actual_sql = "SELECT municipality, COUNT(*) as cnt, \
          AVG(latitude) as avg_lat, AVG(longitude) as avg_lng \
          FROM postings \
          WHERE prefecture = ? AND latitude IS NOT NULL AND latitude != 0"
-    );
+        .to_string();
     let mut actual_params: Vec<String> = vec![pref.to_string()];
 
     if !muni.is_empty() && muni != "すべて" {
@@ -348,10 +348,19 @@ pub async fn jobmap_seekers(
     let mut markers = Vec::new();
     let mut choropleth = serde_json::Map::new();
     let mut total_count: i64 = 0;
-    let max_count = rows.iter().map(|r| get_i64(r, "cnt")).max().unwrap_or(1).max(1);
+    let max_count = rows
+        .iter()
+        .map(|r| get_i64(r, "cnt"))
+        .max()
+        .unwrap_or(1)
+        .max(1);
 
     for row in &rows {
-        let m_name = row.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let m_name = row
+            .get("municipality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let cnt = get_i64(row, "cnt");
         let avg_lat = get_f64(row, "avg_lat");
         let avg_lng = get_f64(row, "avg_lng");
@@ -372,12 +381,15 @@ pub async fn jobmap_seekers(
         let g_val = (130.0 + (125.0 * (1.0 - intensity))) as u8;
         let b_val = (246.0) as u8;
         let opacity = 0.2 + 0.6 * intensity;
-        choropleth.insert(m_name, serde_json::json!({
-            "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
-            "fillOpacity": opacity,
-            "weight": 1,
-            "color": "#475569",
-        }));
+        choropleth.insert(
+            m_name,
+            serde_json::json!({
+                "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
+                "fillOpacity": opacity,
+                "weight": 1,
+                "color": "#475569",
+            }),
+        );
     }
 
     // GeoJSON URL
@@ -385,7 +397,10 @@ pub async fn jobmap_seekers(
         let code_map = pref_name_to_code();
         if let Some(code) = code_map.get(pref.as_str()) {
             // pref_code_to_romajiが利用できないので、コードのみで構築
-            format!("/api/geojson/{}", crate::geo::pref_code_to_geojson_filename(code))
+            format!(
+                "/api/geojson/{}",
+                crate::geo::pref_code_to_geojson_filename(code)
+            )
         } else {
             String::new()
         }
@@ -393,13 +408,18 @@ pub async fn jobmap_seekers(
 
     // 中心座標
     let (center_lat, center_lng) = if !markers.is_empty() {
-        let sum_lat: f64 = markers.iter()
+        let sum_lat: f64 = markers
+            .iter()
             .filter_map(|m| m.get("lat").and_then(|v| v.as_f64()))
             .sum();
-        let sum_lng: f64 = markers.iter()
+        let sum_lng: f64 = markers
+            .iter()
             .filter_map(|m| m.get("lng").and_then(|v| v.as_f64()))
             .sum();
-        (sum_lat / markers.len() as f64, sum_lng / markers.len() as f64)
+        (
+            sum_lat / markers.len() as f64,
+            sum_lng / markers.len() as f64,
+        )
     } else {
         (36.5, 138.0)
     };
@@ -427,15 +447,23 @@ pub async fn jobmap_seeker_detail(
     } else {
         &params.prefecture
     };
-    let muni = if params.municipality.is_empty() { "" } else { &params.municipality };
+    let muni = if params.municipality.is_empty() {
+        ""
+    } else {
+        &params.municipality
+    };
 
     if pref.is_empty() || muni.is_empty() {
-        return Html(r#"<p class="text-gray-400 text-sm">市区町村を選択してください</p>"#.to_string());
+        return Html(
+            r#"<p class="text-gray-400 text-sm">市区町村を選択してください</p>"#.to_string(),
+        );
     }
 
     let db = match &state.hw_db {
         Some(db) => db,
-        None => return Html(r#"<p class="text-gray-400 text-sm">データベースなし</p>"#.to_string()),
+        None => {
+            return Html(r#"<p class="text-gray-400 text-sm">データベースなし</p>"#.to_string())
+        }
     };
 
     use crate::handlers::overview::{get_f64, get_i64};
@@ -444,7 +472,8 @@ pub async fn jobmap_seeker_detail(
     let mut stats_sql = "SELECT COUNT(*) as cnt, \
                          AVG(salary_min) as avg_sal_min, AVG(salary_max) as avg_sal_max \
                          FROM postings \
-                         WHERE prefecture = ? AND municipality = ?".to_string();
+                         WHERE prefecture = ? AND municipality = ?"
+        .to_string();
     let mut params_vec: Vec<String> = vec![pref.to_string(), muni.to_string()];
     filters.append_industry_filter_str(&mut stats_sql, &mut params_vec);
 
@@ -457,7 +486,8 @@ pub async fn jobmap_seeker_detail(
     html.push_str(r#"<div class="space-y-3 text-sm">"#);
     html.push_str(&format!(
         r#"<div class="text-lg font-bold text-white border-b border-gray-600 pb-1">{} {}</div>"#,
-        escape_html(pref), escape_html(muni)
+        escape_html(pref),
+        escape_html(muni)
     ));
 
     if let Ok(rows) = db.query(&stats_sql, &params_ref) {
@@ -486,11 +516,14 @@ pub async fn jobmap_seeker_detail(
 
     // 雇用形態別
     let mut emp_sql = "SELECT employment_type, COUNT(*) as cnt FROM postings \
-                       WHERE prefecture = ? AND municipality = ?".to_string();
+                       WHERE prefecture = ? AND municipality = ?"
+        .to_string();
     let mut emp_params: Vec<String> = vec![pref.to_string(), muni.to_string()];
     filters.append_industry_filter_str(&mut emp_sql, &mut emp_params);
-    emp_sql.push_str(" AND employment_type IS NOT NULL AND employment_type != '' \
-                       GROUP BY employment_type ORDER BY cnt DESC LIMIT 5");
+    emp_sql.push_str(
+        " AND employment_type IS NOT NULL AND employment_type != '' \
+                       GROUP BY employment_type ORDER BY cnt DESC LIMIT 5",
+    );
 
     let emp_ref: Vec<&dyn rusqlite::types::ToSql> = emp_params
         .iter()
@@ -501,7 +534,10 @@ pub async fn jobmap_seeker_detail(
         if !rows.is_empty() {
             html.push_str(r#"<div class="text-xs text-gray-400 mt-2">雇用形態</div>"#);
             for row in &rows {
-                let emp = row.get("employment_type").and_then(|v| v.as_str()).unwrap_or("");
+                let emp = row
+                    .get("employment_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let cnt = get_i64(row, "cnt");
                 html.push_str(&format!(
                     r#"<div class="flex justify-between text-xs"><span class="text-gray-300">{}</span><span class="text-white font-medium">{}件</span></div>"#,
@@ -601,15 +637,23 @@ pub async fn jobmap_choropleth(
     let filters_clone = filters.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        choropleth_data(&hw_db, turso_db.as_ref(), &pref_clone, &layer_clone, &filters_clone)
+        choropleth_data(
+            &hw_db,
+            turso_db.as_ref(),
+            &pref_clone,
+            &layer_clone,
+            &filters_clone,
+        )
     })
     .await
-    .unwrap_or_else(|_| serde_json::json!({
-        "choropleth": {},
-        "legend": [],
-        "geojsonUrl": "",
-        "error": "処理エラー"
-    }));
+    .unwrap_or_else(|_| {
+        serde_json::json!({
+            "choropleth": {},
+            "legend": [],
+            "geojsonUrl": "",
+            "error": "処理エラー"
+        })
+    });
 
     state.cache.set(cache_key, result.clone());
     Json(result)
@@ -633,7 +677,8 @@ fn choropleth_data(
                 None => return empty_choropleth(pref),
             };
             let mut sql = "SELECT municipality, COUNT(*) as cnt FROM postings \
-                           WHERE prefecture = ? AND municipality != ''".to_string();
+                           WHERE prefecture = ? AND municipality != ''"
+                .to_string();
             let mut p: Vec<String> = vec![pref.to_string()];
             filters.append_industry_filter_str(&mut sql, &mut p);
             sql.push_str(" GROUP BY municipality");
@@ -643,7 +688,11 @@ fn choropleth_data(
                 .unwrap_or_default()
                 .iter()
                 .map(|r| {
-                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let m = r
+                        .get("municipality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let v = get_i64(r, "cnt") as f64;
                     (m, v)
                 })
@@ -655,7 +704,8 @@ fn choropleth_data(
                 None => return empty_choropleth(pref),
             };
             let mut sql = "SELECT municipality, AVG(salary_min) as avg_sal FROM postings \
-                           WHERE prefecture = ? AND municipality != '' AND salary_min > 0".to_string();
+                           WHERE prefecture = ? AND municipality != '' AND salary_min > 0"
+                .to_string();
             let mut p: Vec<String> = vec![pref.to_string()];
             filters.append_industry_filter_str(&mut sql, &mut p);
             sql.push_str(" GROUP BY municipality");
@@ -665,7 +715,11 @@ fn choropleth_data(
                 .unwrap_or_default()
                 .iter()
                 .map(|r| {
-                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let m = r
+                        .get("municipality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let v = get_f64(r, "avg_sal");
                     (m, v)
                 })
@@ -677,10 +731,20 @@ fn choropleth_data(
                        FROM v2_external_daytime_population \
                        WHERE prefecture = ?1 AND municipality != ''";
             let params = vec![pref.to_string()];
-            let rows = query_turso_or_local_choropleth(turso, hw_db, sql, &params, "v2_external_daytime_population");
+            let rows = query_turso_or_local_choropleth(
+                turso,
+                hw_db,
+                sql,
+                &params,
+                "v2_external_daytime_population",
+            );
             rows.iter()
                 .map(|r| {
-                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let m = r
+                        .get("municipality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let v = get_f64(r, "day_night_ratio");
                     (m, v)
                 })
@@ -691,10 +755,20 @@ fn choropleth_data(
                        FROM v2_external_migration \
                        WHERE prefecture = ?1 AND municipality != ''";
             let params = vec![pref.to_string()];
-            let rows = query_turso_or_local_choropleth(turso, hw_db, sql, &params, "v2_external_migration");
+            let rows = query_turso_or_local_choropleth(
+                turso,
+                hw_db,
+                sql,
+                &params,
+                "v2_external_migration",
+            );
             rows.iter()
                 .map(|r| {
-                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let m = r
+                        .get("municipality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let v = get_f64(r, "net_migration_rate");
                     (m, v)
                 })
@@ -715,7 +789,11 @@ fn choropleth_data(
                 .unwrap_or_default()
                 .iter()
                 .map(|r| {
-                    let m = r.get("municipality").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let m = r
+                        .get("municipality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let v = get_f64(r, "vacancy_rate");
                     (m, v)
                 })
@@ -725,8 +803,17 @@ fn choropleth_data(
             // 都道府県単位の単一値 → 全市区町村に同じ値を設定
             let sql = "SELECT hourly_min_wage FROM v2_external_minimum_wage WHERE prefecture = ?1";
             let params = vec![pref.to_string()];
-            let rows = query_turso_or_local_choropleth(turso, hw_db, sql, &params, "v2_external_minimum_wage");
-            let wage = rows.first().map(|r| get_f64(r, "hourly_min_wage")).unwrap_or(0.0);
+            let rows = query_turso_or_local_choropleth(
+                turso,
+                hw_db,
+                sql,
+                &params,
+                "v2_external_minimum_wage",
+            );
+            let wage = rows
+                .first()
+                .map(|r| get_f64(r, "hourly_min_wage"))
+                .unwrap_or(0.0);
             if wage == 0.0 {
                 return empty_choropleth(pref);
             }
@@ -739,9 +826,12 @@ fn choropleth_data(
                 "SELECT DISTINCT municipality FROM postings WHERE prefecture = ? AND municipality != ''",
                 &[&pref as &dyn rusqlite::types::ToSql],
             ).unwrap_or_default();
-            muni_rows.iter()
+            muni_rows
+                .iter()
                 .filter_map(|r| {
-                    r.get("municipality").and_then(|v| v.as_str()).map(|m| (m.to_string(), wage))
+                    r.get("municipality")
+                        .and_then(|v| v.as_str())
+                        .map(|m| (m.to_string(), wage))
                 })
                 .collect()
         }
@@ -771,7 +861,8 @@ fn choropleth_data(
 
     if is_diverging {
         // ダイバージングカラーマップ: 中心値からの偏差で青/赤
-        let max_deviation = muni_values.iter()
+        let max_deviation = muni_values
+            .iter()
             .map(|(_, v)| (v - center_value).abs())
             .fold(0.0_f64, f64::max)
             .max(0.001);
@@ -797,17 +888,21 @@ fn choropleth_data(
                 )
             };
             let opacity = 0.3 + 0.5 * norm.abs();
-            choropleth.insert(muni.clone(), serde_json::json!({
-                "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
-                "fillOpacity": opacity,
-                "weight": 1,
-                "color": "#475569",
-                "value": val,
-            }));
+            choropleth.insert(
+                muni.clone(),
+                serde_json::json!({
+                    "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
+                    "fillOpacity": opacity,
+                    "weight": 1,
+                    "color": "#475569",
+                    "value": val,
+                }),
+            );
         }
     } else {
         // グラデーションカラーマップ（薄→濃）
-        let max_val = muni_values.iter()
+        let max_val = muni_values
+            .iter()
             .map(|(_, v)| *v)
             .fold(0.0_f64, f64::max)
             .max(0.001);
@@ -819,13 +914,16 @@ fn choropleth_data(
             let g_val = (234.0 + (64.0 - 234.0) * intensity) as u8;
             let b_val = (254.0 + (175.0 - 254.0) * intensity) as u8;
             let opacity = 0.2 + 0.6 * intensity;
-            choropleth.insert(muni.clone(), serde_json::json!({
-                "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
-                "fillOpacity": opacity,
-                "weight": 1,
-                "color": "#475569",
-                "value": val,
-            }));
+            choropleth.insert(
+                muni.clone(),
+                serde_json::json!({
+                    "fillColor": format!("rgb({},{},{})", r_val, g_val, b_val),
+                    "fillOpacity": opacity,
+                    "weight": 1,
+                    "color": "#475569",
+                    "value": val,
+                }),
+            );
         }
     }
 
@@ -836,7 +934,10 @@ fn choropleth_data(
     let geojson_url = {
         let code_map = pref_name_to_code();
         if let Some(code) = code_map.get(pref) {
-            format!("/api/geojson/{}", crate::geo::pref_code_to_geojson_filename(code))
+            format!(
+                "/api/geojson/{}",
+                crate::geo::pref_code_to_geojson_filename(code)
+            )
         } else {
             String::new()
         }
@@ -866,8 +967,10 @@ fn query_turso_or_local_choropleth(
 ) -> Vec<std::collections::HashMap<String, serde_json::Value>> {
     // Turso優先
     if let Some(tdb) = turso {
-        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            params.iter().map(|s| s as &dyn crate::db::turso_http::ToSqlTurso).collect();
+        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> = params
+            .iter()
+            .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
+            .collect();
         match tdb.query(sql, &p) {
             Ok(rows) if !rows.is_empty() => return rows,
             Ok(_) => {}
@@ -881,8 +984,10 @@ fn query_turso_or_local_choropleth(
         if !crate::handlers::helpers::table_exists(db, local_table) {
             return vec![];
         }
-        let p: Vec<&dyn rusqlite::types::ToSql> =
-            params.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+        let p: Vec<&dyn rusqlite::types::ToSql> = params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
         return db.query(sql, &p).unwrap_or_default();
     }
     vec![]
@@ -940,7 +1045,10 @@ fn empty_choropleth(pref: &str) -> serde_json::Value {
     let geojson_url = {
         let code_map = pref_name_to_code();
         if let Some(code) = code_map.get(pref) {
-            format!("/api/geojson/{}", crate::geo::pref_code_to_geojson_filename(code))
+            format!(
+                "/api/geojson/{}",
+                crate::geo::pref_code_to_geojson_filename(code)
+            )
         } else {
             String::new()
         }

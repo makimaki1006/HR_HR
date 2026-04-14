@@ -74,10 +74,13 @@ pub fn verify_password_with_externals(
                 return (true, None);
             } else {
                 // パスワード一致だが期限切れ
-                return (false, Some(format!(
+                return (
+                    false,
+                    Some(format!(
                     "このパスワードの利用期間は {} で終了しました。管理者にお問い合わせください。",
                     ext.expires
-                )));
+                )),
+                );
             }
         }
     }

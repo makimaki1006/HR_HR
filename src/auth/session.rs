@@ -54,10 +54,8 @@ impl RateLimiter {
 
         info.count += 1;
         if info.count >= self.max_attempts {
-            info.lockout_until = Some(
-                Instant::now()
-                    + std::time::Duration::from_secs(self.lockout_duration_secs),
-            );
+            info.lockout_until =
+                Some(Instant::now() + std::time::Duration::from_secs(self.lockout_duration_secs));
         }
     }
 
