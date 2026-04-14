@@ -298,6 +298,43 @@
         header.appendChild(countSpan);
         tableEl.appendChild(header);
 
+        // 一括操作バー（選択件数 + CSVダウンロード）
+        var bulkBar = document.createElement("div");
+        bulkBar.className = "mb-2 flex items-center gap-2 text-xs";
+        var selInfo = document.createElement("span");
+        selInfo.id = "jm-bulk-sel-count";
+        selInfo.className = "text-slate-400";
+        selInfo.textContent = "0 社選択中";
+        var dlBtn = document.createElement("button");
+        dlBtn.id = "jm-bulk-dl-btn";
+        dlBtn.className = "px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed";
+        dlBtn.textContent = "選択した企業をCSVダウンロード";
+        dlBtn.disabled = true;
+        dlBtn.onclick = function() {
+          var checked = Array.prototype.slice
+            .call(document.querySelectorAll(".jm-comp-chk:checked"))
+            .map(function(el) { return el.value; })
+            .filter(Boolean);
+          if (checked.length === 0) return;
+          var url = "/api/company/bulk-csv?corps=" + encodeURIComponent(checked.join(","));
+          // 新規タブでダウンロード
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = "companies_compare.csv";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        };
+        bulkBar.appendChild(selInfo);
+        bulkBar.appendChild(dlBtn);
+        tableEl.appendChild(bulkBar);
+
+        function updateBulkUI() {
+          var n = document.querySelectorAll(".jm-comp-chk:checked").length;
+          selInfo.textContent = n + " \u793e\u9078\u629e\u4e2d"; // 社選択中
+          dlBtn.disabled = n === 0;
+        }
+
         // テーブル構築（DOM API使用、XSS安全）
         var scrollDiv = document.createElement("div");
         scrollDiv.className = "overflow-y-auto";
@@ -307,6 +344,21 @@
         var thead = document.createElement("thead");
         var headRow = document.createElement("tr");
         headRow.className = "border-b border-gray-700 text-gray-400 sticky top-0 bg-gray-900";
+        // 全選択チェックボックス列
+        var thChk = document.createElement("th");
+        thChk.className = "py-1 pr-1 w-6";
+        var thChkInput = document.createElement("input");
+        thChkInput.type = "checkbox";
+        thChkInput.title = "全選択/全解除";
+        thChkInput.onclick = function(e) {
+          var checked = e.target.checked;
+          document.querySelectorAll(".jm-comp-chk").forEach(function(chk) { chk.checked = checked; });
+          updateBulkUI();
+          e.stopPropagation();
+        };
+        thChk.appendChild(thChkInput);
+        headRow.appendChild(thChk);
+
         ["企業名","従業員","1M","3M","1Y","信用"].forEach(function(t, idx) {
           var th = document.createElement("th");
           th.className = idx === 0 ? "py-1 pr-2" : "py-1 px-2 text-right";
@@ -319,18 +371,30 @@
         var tbody = document.createElement("tbody");
         companies.forEach(function(c) {
           var tr = document.createElement("tr");
-          tr.className = "border-b border-gray-800 hover:bg-gray-700/50 cursor-pointer";
-          tr.onclick = function() {
+          tr.className = "border-b border-gray-800 hover:bg-gray-700/50";
+
+          // チェックボックス列（行クリックとは独立）
+          var tdChk = document.createElement("td");
+          tdChk.className = "py-1 pr-1 text-center";
+          var chk = document.createElement("input");
+          chk.type = "checkbox";
+          chk.className = "jm-comp-chk cursor-pointer";
+          chk.value = c.corporate_number;
+          chk.onclick = function(e) { updateBulkUI(); e.stopPropagation(); };
+          tdChk.appendChild(chk);
+          tdChk.onclick = function(e) { e.stopPropagation(); };
+          tr.appendChild(tdChk);
+
+          var tdName = document.createElement("td");
+          tdName.className = "py-1 pr-2 text-blue-400 cursor-pointer";
+          tdName.textContent = c.company_name;
+          tdName.onclick = function() {
             window._lastTab = "/tab/jobmap";
             var el = document.getElementById("content");
             if (el && typeof htmx !== "undefined") {
               htmx.ajax("GET", "/api/company/profile/" + encodeURIComponent(c.corporate_number), {target: el, swap: "innerHTML"});
             }
           };
-
-          var tdName = document.createElement("td");
-          tdName.className = "py-1 pr-2 text-blue-400";
-          tdName.textContent = c.company_name;
           tr.appendChild(tdName);
 
           var tdEmp = document.createElement("td");
