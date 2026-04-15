@@ -226,6 +226,17 @@ pub async fn insight_report_html(
     State(state): State<Arc<AppState>>,
     session: Session,
 ) -> Html<String> {
+    // 監査: 示唆レポート生成
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "generate_insight_report",
+        "report",
+        "insight",
+        "",
+    )
+    .await;
+
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {

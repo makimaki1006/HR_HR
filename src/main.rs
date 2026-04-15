@@ -157,6 +157,55 @@ async fn main() {
     > = None;
     tracing::info!("企業ジオコードキャッシュ: 無効（オンデマンドクエリモード）");
 
+    // 監査DB (AUDIT_TURSO_URL 未設定なら None = 監査機能OFF)
+    let audit = if !config.audit_turso_url.is_empty() && !config.audit_turso_token.is_empty() {
+        let url = config.audit_turso_url.clone();
+        let token = config.audit_turso_token.clone();
+        let salt = config.audit_ip_salt.clone();
+        match tokio::task::spawn_blocking(move || {
+            rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+        })
+        .await
+        {
+            Ok(Ok(turso)) => {
+                let audit_db = rust_dashboard::audit::AuditDb::new(turso, salt);
+                // テーブル初期化（冪等）
+                let turso_clone = audit_db.turso().clone();
+                let init_res = tokio::task::spawn_blocking(move || {
+                    rust_dashboard::audit::schema::ensure_audit_tables(&turso_clone)
+                })
+                .await;
+                match init_res {
+                    Ok(Ok(())) => {
+                        tracing::info!("Audit DB ready");
+                        Some(audit_db)
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!("Audit schema init failed: {e}");
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!("Audit schema init task failed: {e}");
+                        None
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("Audit DB connection failed: {e}");
+                None
+            }
+            Err(e) => {
+                tracing::warn!("Audit DB init task failed: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!(
+            "Audit DB not configured (AUDIT_TURSO_URL / AUDIT_TURSO_TOKEN) - 監査機能OFF"
+        );
+        None
+    };
+
     let state = Arc::new(AppState {
         config,
         hw_db,
@@ -165,6 +214,7 @@ async fn main() {
         cache,
         rate_limiter,
         company_geo_cache,
+        audit,
     });
 
     let app = build_app(state);

@@ -94,6 +94,16 @@ impl TursoDb {
         Ok(results)
     }
 
+    /// 書き込み系SQL (INSERT/UPDATE/DELETE/CREATE/DROP/ALTER) 実行。
+    /// query() は cols/rows を期待するため書き込みで失敗する。execute() は
+    /// レスポンス形式を問わず成功/失敗だけ判定する。
+    pub(crate) fn execute(&self, sql: &str, params: &[&dyn ToSqlTurso]) -> Result<(), String> {
+        let args: Vec<TursoArg> = params.iter().map(|p| p.to_turso_arg()).collect();
+        // execute_pipeline が Err を返したら失敗、そうでなければ成功扱い。
+        // 書き込みクエリのレスポンスには cols/rows が無いのは正常。
+        self.execute_pipeline(sql, &args).map(|_| ())
+    }
+
     /// スカラー値を取得（i64用の簡易版）
     #[allow(dead_code)]
     pub(crate) fn query_scalar_i64(

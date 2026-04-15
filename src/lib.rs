@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
@@ -23,6 +24,10 @@ use auth::{
     SESSION_JOB_TYPES_KEY, SESSION_JOB_TYPE_KEY, SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY,
     SESSION_USER_KEY,
 };
+
+/// 監査: Cookie セッションに保持する account_id / login_session_id のキー
+pub const SESSION_ACCOUNT_ID_KEY: &str = "audit_account_id";
+pub const SESSION_LOGIN_SESSION_ID_KEY: &str = "audit_login_session_id";
 use config::AppConfig;
 use db::cache::AppCache;
 use models::job_seeker::PREFECTURE_ORDER;
@@ -43,6 +48,9 @@ pub struct AppState {
     pub rate_limiter: auth::session::RateLimiter,
     /// SalesNow企業の座標キャッシュ（起動時にTursoからロード）
     pub company_geo_cache: Option<Vec<handlers::jobmap::company_markers::CompanyGeoEntry>>,
+    /// 監査DB (アカウント自動登録 + ログイン履歴 + 操作ログ)。
+    /// AUDIT_TURSO_URL が未設定なら None (監査機能無効)
+    pub audit: Option<audit::AuditDb>,
 }
 
 /// アプリケーションRouter構築
@@ -432,6 +440,17 @@ async fn login_submit(
         .collect();
     if !validate_email_domain(&form.email, &all_domains) {
         state.rate_limiter.record_failure(&client_ip);
+        if let Some(audit) = &state.audit {
+            let ip_hash = audit.hash_ip(&client_ip);
+            let _ = audit::log_failed_login(
+                audit,
+                &form.email,
+                &ip_hash,
+                &req_ua,
+                "internal",
+                "domain_not_allowed",
+            );
+        }
         return render_login(
             &state,
             Some("許可されていないメールドメインです".to_string()),
@@ -459,6 +478,16 @@ async fn login_submit(
             expired_msg.as_deref().unwrap_or("wrong_password"),
         );
         state.rate_limiter.record_failure(&client_ip);
+        if let Some(audit) = &state.audit {
+            let ip_hash = audit.hash_ip(&client_ip);
+            let reason = if expired_msg.is_some() {
+                "password_expired"
+            } else {
+                "wrong_password"
+            };
+            let _ =
+                audit::log_failed_login(audit, &form.email, &ip_hash, &req_ua, "internal", reason);
+        }
         let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
         return render_login(&state, Some(msg)).into_response();
     }
@@ -476,10 +505,59 @@ async fn login_submit(
     let _ = session.insert(SESSION_PREFECTURE_KEY, "").await;
     let _ = session.insert(SESSION_MUNICIPALITY_KEY, "").await;
 
+    // 監査: アカウント自動登録 + login_session 作成 + 'login' イベント記録
+    // 失敗しても本番動作に影響させないため _ で ignore する
+    if let Some(audit) = &state.audit {
+        let ip_hash = audit.hash_ip(&client_ip);
+        let login_method = "internal";
+        match audit::upsert_account(audit, &form.email, &state.config.admin_emails) {
+            Ok(account_id) => {
+                let session_id_str = audit::insert_login_session(
+                    audit,
+                    &account_id,
+                    &ip_hash,
+                    &req_ua,
+                    login_method,
+                )
+                .unwrap_or_default();
+                let _ = session.insert(SESSION_ACCOUNT_ID_KEY, &account_id).await;
+                if !session_id_str.is_empty() {
+                    let _ = session
+                        .insert(SESSION_LOGIN_SESSION_ID_KEY, &session_id_str)
+                        .await;
+                    audit::insert_activity(
+                        audit,
+                        &account_id,
+                        &session_id_str,
+                        "login",
+                        "",
+                        "",
+                        "",
+                    );
+                }
+            }
+            Err(e) => tracing::warn!("audit upsert_account failed: {e}"),
+        }
+    }
+
     Redirect::to("/").into_response()
 }
 
-async fn logout(session: Session) -> Redirect {
+async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirect {
+    // 監査: ログイン履歴の ended_at を埋める + 'logout' イベント記録
+    if let Some(audit) = &state.audit {
+        let account_id: Option<String> = session.get(SESSION_ACCOUNT_ID_KEY).await.unwrap_or(None);
+        let login_session_id: Option<String> = session
+            .get(SESSION_LOGIN_SESSION_ID_KEY)
+            .await
+            .unwrap_or(None);
+        if let Some(ref sid) = login_session_id {
+            let _ = audit::dao::mark_session_ended(audit, sid);
+            if let Some(ref aid) = account_id {
+                audit::insert_activity(audit, aid, sid, "logout", "", "", "");
+            }
+        }
+    }
     session.flush().await.ok();
     Redirect::to("/login")
 }
