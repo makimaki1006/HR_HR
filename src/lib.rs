@@ -245,6 +245,32 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::competitive::comp_analysis_filtered),
         )
         .route("/api/status", get(api_status))
+        // Phase 3: 自己サービス画面（ログイン済なら誰でも可）
+        .route(
+            "/my/profile",
+            get(handlers::my::my_profile_get).post(handlers::my::my_profile_post),
+        )
+        .route("/my/activity", get(handlers::my::my_activity))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    // Phase 3: 管理者専用画面。require_auth(auth_middleware) + require_admin を重ねがけ
+    let admin_routes = Router::new()
+        .route("/admin/users", get(handlers::admin::admin_users_list))
+        .route(
+            "/admin/users/{account_id}",
+            get(handlers::admin::admin_user_detail),
+        )
+        .route(
+            "/admin/login-failures",
+            get(handlers::admin::admin_login_failures),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_admin_mw,
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -280,6 +306,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/logout", get(logout))
         .merge(api_v1)
         .merge(protected_routes)
+        .merge(admin_routes)
         .with_state(state)
         .merge(static_router)
         .layer(
@@ -375,6 +402,35 @@ async fn auth_middleware(
     }
 
     require_auth(session, request, next).await
+}
+
+/// 管理者専用ミドルウェア (require_auth 配下で動作)。
+/// Cookie セッションの account_id を accounts.role と照合。
+async fn require_admin_mw(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    request: axum::extract::Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let Some(audit) = &state.audit else {
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            "管理者権限が必要です (監査DB未接続)",
+        )
+            .into_response();
+    };
+    let account_id: Option<String> = session.get(SESSION_ACCOUNT_ID_KEY).await.unwrap_or(None);
+    let Some(account_id) = account_id else {
+        return (axum::http::StatusCode::FORBIDDEN, "管理者権限が必要です").into_response();
+    };
+    let is_admin = audit::dao::find_account_by_id(audit.turso(), &account_id)
+        .map(|a| a.role == "admin")
+        .unwrap_or(false);
+    if is_admin {
+        next.run(request).await
+    } else {
+        (axum::http::StatusCode::FORBIDDEN, "管理者権限が必要です").into_response()
+    }
 }
 
 // --- ログイン ---

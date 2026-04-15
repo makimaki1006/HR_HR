@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod analysis;
 pub mod api;
 pub mod api_v1;
@@ -11,6 +12,7 @@ pub mod helpers;
 pub mod insight;
 pub mod jobmap;
 pub mod market;
+pub mod my;
 pub mod overview;
 pub mod survey;
 pub mod trend;
