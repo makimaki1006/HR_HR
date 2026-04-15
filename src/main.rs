@@ -217,6 +217,30 @@ async fn main() {
         audit,
     });
 
+    // Phase 3-C: 監査ログ自動削除バッチ (1年より古い entry を削除)
+    // 24時間ごとに purge_old_activity を実行。失敗しても本番継続。
+    if let Some(audit_for_purge) = state.audit.clone() {
+        tokio::spawn(async move {
+            // 起動時に 10分 待ってから初回実行 (cold start と競合避け)
+            tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+            loop {
+                let audit_clone = audit_for_purge.clone();
+                let res = tokio::task::spawn_blocking(move || {
+                    rust_dashboard::audit::purge_old_activity(&audit_clone)
+                })
+                .await;
+                match res {
+                    Ok(Ok(())) => tracing::info!("audit purge completed"),
+                    Ok(Err(e)) => tracing::warn!("audit purge failed: {e}"),
+                    Err(e) => tracing::warn!("audit purge task join failed: {e}"),
+                }
+                // 次回は 24時間後
+                tokio::time::sleep(std::time::Duration::from_secs(86_400)).await;
+            }
+        });
+        tracing::info!("Audit purge scheduler started (every 24h)");
+    }
+
     let app = build_app(state);
 
     let addr = format!("0.0.0.0:{port}");
