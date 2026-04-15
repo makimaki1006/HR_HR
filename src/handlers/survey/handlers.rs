@@ -47,6 +47,16 @@ pub async fn upload_csv(
     session: Session,
     mut multipart: axum_extra::extract::Multipart,
 ) -> Html<String> {
+    // 監査: CSV アップロード (バイト数は後で判明するので最初に記録)
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "upload_survey_csv",
+        "upload",
+        "start",
+        "",
+    )
+    .await;
     // ファイルデータ読み取り
     let mut csv_data: Option<Vec<u8>> = None;
     let mut filename = String::from("unknown.csv");
@@ -262,13 +272,24 @@ pub async fn report_json(
 /// 競合調査PDF/印刷用HTMLレポート
 pub async fn survey_report_html(
     State(state): State<Arc<AppState>>,
-    _session: Session,
+    session: Session,
     Query(query): Query<IntegrateQuery>,
 ) -> Html<String> {
     let session_id = match &query.session_id {
         Some(id) if !id.is_empty() => id.clone(),
         _ => return Html("<html><body><p>セッションIDが必要です。CSVをアップロードしてください。</p></body></html>".to_string()),
     };
+
+    // 監査: 競合調査レポート生成
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "generate_survey_report",
+        "report",
+        &session_id,
+        "",
+    )
+    .await;
 
     // キャッシュから集計データを復元
     let agg_cached = state.cache.get(&format!("survey_agg_{}", session_id));

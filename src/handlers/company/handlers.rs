@@ -61,9 +61,20 @@ pub async fn company_search(
 /// 高速化のため生成済み HTML を AppCache に 15分 TTL で保持する。
 pub async fn company_profile(
     State(state): State<Arc<AppState>>,
-    _session: Session,
+    session: Session,
     Path(corporate_number): Path<String>,
 ) -> Html<String> {
+    // 監査: 企業プロフィール閲覧を記録
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "view_company_profile",
+        "company",
+        &corporate_number,
+        "",
+    )
+    .await;
+
     let cache_key = format!("company_profile_html_{}", corporate_number);
     if let Some(cached) = state.cache.get(&cache_key) {
         if let Some(s) = cached.as_str() {
@@ -153,7 +164,7 @@ pub async fn company_report(
 /// build_company_context は使わず単一Tursoクエリで取得（高速）。
 pub async fn bulk_csv(
     State(state): State<Arc<AppState>>,
-    _session: Session,
+    session: Session,
     Query(query): Query<BulkCsvQuery>,
 ) -> Response {
     let corps_raw = query.corps.trim();
@@ -171,6 +182,17 @@ pub async fn bulk_csv(
     if corp_list.is_empty() {
         return (StatusCode::BAD_REQUEST, "no valid corps").into_response();
     }
+
+    // 監査: CSVダウンロードを記録 (何社DLしたか target_id に)
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "download_csv",
+        "csv",
+        &format!("{}社", corp_list.len()),
+        "",
+    )
+    .await;
 
     let sn_db = match &state.salesnow_db {
         Some(t) => t.clone(),

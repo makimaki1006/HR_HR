@@ -153,6 +153,7 @@ pub struct IndustryCompaniesParams {
 /// 人材フローの業種をクリックした際に、その業種の企業一覧を返す
 pub async fn industry_companies(
     State(state): State<Arc<AppState>>,
+    session: tower_sessions::Session,
     Query(params): Query<IndustryCompaniesParams>,
 ) -> Json<Value> {
     let prefecture = params.prefecture.trim().to_string();
@@ -162,6 +163,17 @@ pub async fn industry_companies(
     if prefecture.is_empty() || industry.is_empty() {
         return Json(json!({"companies": [], "error": "prefecture and industry required"}));
     }
+
+    // 監査: 業種別企業一覧閲覧
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "view_industry_companies",
+        "industry",
+        &industry,
+        &format!(r#"{{"pref":"{}","muni":"{}"}}"#, prefecture, municipality),
+    )
+    .await;
 
     let sn_db = match &state.salesnow_db {
         Some(db) => db.clone(),

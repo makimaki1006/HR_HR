@@ -35,6 +35,14 @@ pub struct AppConfig {
     pub rate_limit_max_attempts: u32,
     /// レート制限: ロックアウト秒数
     pub rate_limit_lockout_secs: u64,
+    /// 監査DB URL (Turso。空なら監査機能OFF)
+    pub audit_turso_url: String,
+    /// 監査DB 認証トークン
+    pub audit_turso_token: String,
+    /// IP ハッシュ化ソルト
+    pub audit_ip_salt: String,
+    /// 管理者メールアドレス（カンマ区切り）。ログイン時に role=admin 付与
+    pub admin_emails: Vec<String>,
 }
 
 impl AppConfig {
@@ -93,6 +101,16 @@ impl AppConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(300),
+            audit_turso_url: env::var("AUDIT_TURSO_URL").unwrap_or_default(),
+            audit_turso_token: env::var("AUDIT_TURSO_TOKEN").unwrap_or_default(),
+            audit_ip_salt: env::var("AUDIT_IP_SALT")
+                .unwrap_or_else(|_| "hellowork-default-salt".to_string()),
+            admin_emails: env::var("ADMIN_EMAILS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect(),
         }
     }
 }
@@ -118,6 +136,10 @@ mod tests {
             "CACHE_MAX_ENTRIES",
             "RATE_LIMIT_MAX_ATTEMPTS",
             "RATE_LIMIT_LOCKOUT_SECONDS",
+            "AUDIT_TURSO_URL",
+            "AUDIT_TURSO_TOKEN",
+            "AUDIT_IP_SALT",
+            "ADMIN_EMAILS",
         ] {
             env::remove_var(key);
         }
