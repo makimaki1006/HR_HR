@@ -1083,14 +1083,24 @@ pub(crate) fn fetch_household_type(db: &Db, turso: Option<&TursoDb>, pref: &str)
 }
 
 /// 日銀短観DI（全国データ、都道府県フィルタなし、Turso優先）
+/// レスポンスサイズ削減のため、表示に必要な産業・DI種別のみSQLレベルでフィルタし
+/// 最新24四半期分（約6年）に限定する
 pub(crate) fn fetch_boj_tankan(db: &Db, turso: Option<&TursoDb>) -> Vec<Row> {
-    let sql = "SELECT survey_date, industry_code, industry_j, enterprise_size, \
+    // render_boj_tankan_section が使う産業・DI種別のみ取得
+    // 全3060行を取得するとTursoレスポンスサイズが大きくなりタイムアウトする恐れがある
+    let (sql, params): (String, Vec<String>) = (
+        "SELECT survey_date, industry_code, industry_j, enterprise_size, \
           di_type, result_type, di_value \
           FROM v2_external_boj_tankan \
           WHERE result_type = 'actual' \
-          ORDER BY survey_date DESC, industry_j";
-    let params: &[String] = &[];
-    query_turso_or_local(turso, db, sql, params, "v2_external_boj_tankan")
+          AND (industry_j LIKE '%製造業%' OR industry_j LIKE '%非製造業%') \
+          AND di_type IN ('business_condition', 'employment_excess') \
+          ORDER BY survey_date DESC, industry_j \
+          LIMIT 400"
+            .to_string(),
+        vec![],
+    );
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_boj_tankan")
 }
 
 /// 社会生活基本調査（サイコグラフィック、Turso優先）
