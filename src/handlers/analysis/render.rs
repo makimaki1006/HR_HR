@@ -159,7 +159,7 @@ pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
     html
 }
 
-/// サブタブ5: 異常値・外部（anomaly, minimum_wage, wage_compliance, prefecture_stats, population, region_benchmark）
+/// サブタブ5: 異常値・外部（anomaly, minimum_wage, wage_compliance, prefecture_stats, population, region_benchmark + 新外部データ7セクション）
 pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> String {
     let anomaly = fetch_anomaly_data(db, pref, muni);
     let minimum_wage = fetch_minimum_wage(db, pref);
@@ -178,6 +178,15 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     let climate = fetch_climate(db, turso, pref);
     let care_demand = fetch_care_demand(db, turso, pref);
     let region_benchmark = fetch_region_benchmark(db, pref, muni);
+    // ── 新外部データセクション（Phase 4-7） ──
+    let education_data = fetch_education(db, turso, pref);
+    let household_type = fetch_household_type(db, turso, pref);
+    let foreign_residents = fetch_foreign_residents(db, turso, pref);
+    let land_price = fetch_land_price(db, turso, pref);
+    let car_ownership = fetch_car_ownership(db, turso, pref);
+    let internet_usage = fetch_internet_usage(db, turso, pref);
+    let social_life = fetch_social_life(db, turso, pref);
+    let boj_tankan = fetch_boj_tankan(db, turso);
 
     let mut html = String::with_capacity(40_000);
     html.push_str(r#"<div class="space-y-6">"#);
@@ -203,7 +212,15 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
         || !household_spending.is_empty()
         || !business_dynamics.is_empty()
         || !climate.is_empty()
-        || !care_demand.is_empty();
+        || !care_demand.is_empty()
+        || !education_data.is_empty()
+        || !household_type.is_empty()
+        || !foreign_residents.is_empty()
+        || !land_price.is_empty()
+        || !car_ownership.is_empty()
+        || !internet_usage.is_empty()
+        || !social_life.is_empty()
+        || !boj_tankan.is_empty();
 
     if has_external {
         html.push_str(
@@ -255,6 +272,35 @@ pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni
     }
     if !care_demand.is_empty() {
         html.push_str(&render_care_demand_section(&care_demand, pref));
+    }
+    // ── デモグラフィック新セクション ──
+    if !education_data.is_empty() {
+        html.push_str(&render_education_section(&education_data, pref));
+    }
+    if !household_type.is_empty() {
+        html.push_str(&render_household_type_section(&household_type, pref));
+    }
+    if !foreign_residents.is_empty() {
+        html.push_str(&render_foreign_residents_section(&foreign_residents, pref));
+    }
+    // ── ジオグラフィック新セクション ──
+    if !land_price.is_empty() {
+        html.push_str(&render_land_price_section(&land_price, pref));
+    }
+    if !car_ownership.is_empty() || !internet_usage.is_empty() {
+        html.push_str(&render_regional_infra_section(
+            &car_ownership,
+            &internet_usage,
+            pref,
+        ));
+    }
+    // ── サイコグラフィック新セクション ──
+    if !social_life.is_empty() {
+        html.push_str(&render_social_life_section(&social_life, pref));
+    }
+    // ── マクロ経済セクション ──
+    if !boj_tankan.is_empty() {
+        html.push_str(&render_boj_tankan_section(&boj_tankan));
     }
     if !region_benchmark.is_empty() {
         html.push_str(&render_region_benchmark_section(&region_benchmark));
@@ -3539,4 +3585,469 @@ fn kpi(html: &mut String, label: &str, value: &str, color: &str) {
             <div class="text-xs text-slate-500">{label}</div>
         </div>"#
     ));
+}
+
+// ======== HTML描画: Phase 4-7（新外部データセクション） ========
+
+/// 学歴分布セクション（横棒グラフ + テーブル）
+fn render_education_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // 合計人数を計算して構成比を算出
+    let total_all: i64 = data.iter().map(|r| get_i64(r, "total_count")).sum();
+    if total_all == 0 {
+        return String::new();
+    }
+
+    // ECharts 横棒グラフ用データ（学歴ラベル・構成比）
+    let labels_json: Vec<String> = data
+        .iter()
+        .map(|r| format!("\"{}\"", escape_html(&get_str(r, "education_level"))))
+        .collect();
+    let pct_vals: Vec<String> = data
+        .iter()
+        .map(|r| {
+            let cnt = get_i64(r, "total_count");
+            format!("{:.1}", cnt as f64 / total_all as f64 * 100.0)
+        })
+        .collect();
+
+    let chart_config = format!(
+        r##"{{"tooltip":{{"trigger":"axis","axisPointer":{{"type":"shadow"}},"formatter":"{{b}}: {{c}}%"}},"grid":{{"left":"22%","right":"5%","top":"5%","bottom":"5%"}},"xAxis":{{"type":"value","axisLabel":{{"formatter":"{{value}}%","color":"#94a3b8"}},"max":100}},"yAxis":{{"type":"category","data":[{labels}],"axisLabel":{{"color":"#94a3b8","fontSize":11}}}},"series":[{{"type":"bar","data":[{vals}],"itemStyle":{{"color":"#6366f1"}},"label":{{"show":true,"position":"right","formatter":"{{c}}%","color":"#94a3b8","fontSize":10}}}}]}}"##,
+        labels = labels_json.join(","),
+        vals = pct_vals.join(","),
+    );
+
+    let mut html = String::with_capacity(4_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🎓 学歴分布（国勢調査2020年）<span class="text-blue-400 ml-2">【{pref_label}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">就業者・求職者層の学歴構成。採用基準策定や研修計画の参考指標。</p>
+        <div class="echart" style="height:220px;" data-chart-config='{chart_config}'></div>"#,
+        pref_label = escape_html(pref_label),
+        chart_config = chart_config.replace('\'', "&#39;"),
+    ));
+
+    // テーブル
+    html.push_str(r#"<table class="min-w-full text-sm mt-4"><thead><tr class="text-slate-400 border-b border-slate-700"><th class="text-left py-1 pr-3">学歴</th><th class="text-right py-1 pr-3">男性</th><th class="text-right py-1 pr-3">女性</th><th class="text-right py-1">合計</th></tr></thead><tbody>"#);
+    for row in data {
+        let level = escape_html(&get_str(row, "education_level"));
+        let male = get_i64(row, "male_count");
+        let female = get_i64(row, "female_count");
+        let total = get_i64(row, "total_count");
+        html.push_str(&format!(
+            r#"<tr class="border-b border-slate-800 hover:bg-slate-800/30"><td class="py-1 pr-3 text-slate-300">{level}</td><td class="py-1 pr-3 text-right text-slate-400">{male}</td><td class="py-1 pr-3 text-right text-slate-400">{female}</td><td class="py-1 text-right text-slate-200 font-semibold">{total}</td></tr>"#,
+            male = format_number(male),
+            female = format_number(female),
+            total = format_number(total),
+        ));
+    }
+    html.push_str(r#"</tbody></table>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 国勢調査2020年 e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 世帯構成セクション（ドーナツチャート + テーブル）
+fn render_household_type_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // ECharts ドーナツチャート用データ
+    let pie_data: Vec<String> = data
+        .iter()
+        .map(|r| {
+            let name = escape_html(&get_str(r, "household_type"));
+            let cnt = get_i64(r, "count");
+            format!(r#"{{"name":"{name}","value":{cnt}}}"#)
+        })
+        .collect();
+
+    let chart_config = format!(
+        r##"{{"tooltip":{{"trigger":"item","formatter":"{{b}}: {{c}}世帯 ({{d}}%)"}},"legend":{{"orient":"vertical","right":"5%","top":"center","textStyle":{{"color":"#94a3b8","fontSize":11}}}},"series":[{{"type":"pie","radius":["40%","70%"],"center":["40%","50%"],"data":[{data}],"label":{{"show":false}},"itemStyle":{{"borderRadius":4}}}}]}}"##,
+        data = pie_data.join(","),
+    );
+
+    let mut html = String::with_capacity(3_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🏠 世帯構成（国勢調査2020年）<span class="text-blue-400 ml-2">【{pref_label}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">世帯類型の分布。単独世帯比率が高い地域では若年・単身向け求人ニーズが高い傾向。</p>
+        <div class="echart" style="height:220px;" data-chart-config='{chart_config}'></div>"#,
+        pref_label = escape_html(pref_label),
+        chart_config = chart_config.replace('\'', "&#39;"),
+    ));
+
+    // テーブル
+    html.push_str(r#"<table class="min-w-full text-sm mt-4"><thead><tr class="text-slate-400 border-b border-slate-700"><th class="text-left py-1 pr-3">世帯類型</th><th class="text-right py-1 pr-3">世帯数</th><th class="text-right py-1">構成比</th></tr></thead><tbody>"#);
+    for row in data {
+        let htype = escape_html(&get_str(row, "household_type"));
+        let cnt = get_i64(row, "count");
+        let ratio = get_f64(row, "ratio");
+        html.push_str(&format!(
+            r#"<tr class="border-b border-slate-800 hover:bg-slate-800/30"><td class="py-1 pr-3 text-slate-300">{htype}</td><td class="py-1 pr-3 text-right text-slate-400">{cnt}</td><td class="py-1 text-right text-slate-200">{ratio:.1}%</td></tr>"#,
+            cnt = format_number(cnt),
+        ));
+    }
+    html.push_str(r#"</tbody></table>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 国勢調査2020年 e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 在留外国人セクション（テーブルのみ）
+fn render_foreign_residents_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    let mut html = String::with_capacity(3_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🌏 在留外国人（在留資格別）<span class="text-blue-400 ml-2">【{pref_label}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">在留資格別の外国人数。外国人労働者の雇用可能性や多文化対応ニーズの把握に活用。</p>"#,
+        pref_label = escape_html(pref_label),
+    ));
+
+    html.push_str(r#"<table class="min-w-full text-sm"><thead><tr class="text-slate-400 border-b border-slate-700"><th class="text-left py-1 pr-3">在留資格</th><th class="text-right py-1 pr-3">人数</th><th class="text-right py-1">調査時点</th></tr></thead><tbody>"#);
+    for row in data {
+        let visa = escape_html(&get_str(row, "visa_status"));
+        let cnt = get_i64(row, "count");
+        let period = escape_html(&get_str(row, "survey_period"));
+        html.push_str(&format!(
+            r#"<tr class="border-b border-slate-800 hover:bg-slate-800/30"><td class="py-1 pr-3 text-slate-300">{visa}</td><td class="py-1 pr-3 text-right text-slate-200 font-semibold">{cnt}</td><td class="py-1 text-right text-slate-500 text-xs">{period}</td></tr>"#,
+            cnt = format_number(cnt),
+        ));
+    }
+    html.push_str(r#"</tbody></table>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 在留外国人統計（法務省） e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 地価公示セクション（KPIカード3枚）
+fn render_land_price_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // 用途別（住宅地・商業地・工業地）にデータを取り出す
+    let land_uses = [("住宅地", "🏘️"), ("商業地", "🏬"), ("工業地", "🏭")];
+
+    let mut html = String::with_capacity(3_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🏗️ 地価（国土交通省 地価公示）<span class="text-blue-400 ml-2">【{pref_label}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">用途別平均地価（円/m²）と前年比変動率。事業所開設コストや地域経済活力の参考指標。</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">"#,
+        pref_label = escape_html(pref_label),
+    ));
+
+    for (use_name, icon) in &land_uses {
+        // 用途名が前方一致するデータを探す
+        let row_opt = data.iter().find(|r| {
+            let lu = get_str(r, "land_use");
+            lu.contains(use_name)
+        });
+        if let Some(row) = row_opt {
+            let price = get_f64(row, "avg_price_per_sqm");
+            let yoy = get_f64(row, "yoy_change_pct");
+            let year = get_i64(row, "year");
+            let pts = get_i64(row, "point_count");
+            // 前年比の色（プラスは緑、マイナスは赤）
+            let yoy_color = if yoy >= 0.0 { "#22c55e" } else { "#ef4444" };
+            let yoy_sign = if yoy >= 0.0 { "+" } else { "" };
+            html.push_str(&format!(
+                r#"<div class="bg-navy-700/50 rounded-lg p-4 text-center">
+                    <div class="text-2xl mb-1">{icon}</div>
+                    <div class="text-sm font-semibold text-slate-300 mb-2">{use_name}</div>
+                    <div class="text-xl font-bold text-white">{price:.0}<span class="text-xs text-slate-400 ml-1">円/m²</span></div>
+                    <div class="text-sm font-semibold mt-1" style="color:{yoy_color}">{yoy_sign}{yoy:.1}%</div>
+                    <div class="text-xs text-slate-500 mt-1">{year}年 ({pts}地点)</div>
+                </div>"#,
+            ));
+        } else {
+            html.push_str(&format!(
+                r#"<div class="bg-navy-700/50 rounded-lg p-4 text-center">
+                    <div class="text-2xl mb-1">{icon}</div>
+                    <div class="text-sm font-semibold text-slate-300 mb-2">{use_name}</div>
+                    <div class="text-xs text-slate-500">データなし</div>
+                </div>"#,
+            ));
+        }
+    }
+
+    html.push_str(r#"</div>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 地価公示（国土交通省） e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 地域インフラ指標セクション（自動車保有率 + ネット利用率 KPIカード）
+fn render_regional_infra_section(car_data: &[Row], net_data: &[Row], pref: &str) -> String {
+    if car_data.is_empty() && net_data.is_empty() {
+        return String::new();
+    }
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    let mut html = String::with_capacity(2_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🚗 地域インフラ指標<span class="text-blue-400 ml-2">【{pref_label}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">自動車保有率とインターネット利用率。通勤手段や採用チャネル（SNS・WEB）の有効性を判断する参考指標。</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#,
+        pref_label = escape_html(pref_label),
+    ));
+
+    // 自動車保有率KPI
+    if let Some(row) = car_data.first() {
+        let rate = get_f64(row, "cars_per_100people");
+        let year = get_i64(row, "year");
+        let color = if rate >= 70.0 {
+            "#22c55e"
+        } else if rate >= 50.0 {
+            "#eab308"
+        } else {
+            "#94a3b8"
+        };
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4 text-center">
+                <div class="text-2xl mb-1">🚗</div>
+                <div class="text-sm font-semibold text-slate-300 mb-2">自動車保有率</div>
+                <div class="text-2xl font-bold" style="color:{color}">{rate:.1}<span class="text-sm text-slate-400 ml-1">台/100人</span></div>
+                <div class="text-xs text-slate-500 mt-1">{year}年</div>
+            </div>"#,
+        ));
+    }
+
+    // ネット利用率KPI
+    if let Some(row) = net_data.first() {
+        let net_rate = get_f64(row, "internet_usage_rate");
+        let sp_rate = get_f64(row, "smartphone_ownership_rate");
+        let year = get_i64(row, "year");
+        let color = if net_rate >= 80.0 {
+            "#22c55e"
+        } else if net_rate >= 60.0 {
+            "#eab308"
+        } else {
+            "#ef4444"
+        };
+        html.push_str(&format!(
+            r#"<div class="bg-navy-700/50 rounded-lg p-4 text-center">
+                <div class="text-2xl mb-1">📱</div>
+                <div class="text-sm font-semibold text-slate-300 mb-2">インターネット利用率</div>
+                <div class="text-2xl font-bold" style="color:{color}">{net_rate:.1}<span class="text-sm text-slate-400 ml-1">%</span></div>
+                <div class="text-xs text-slate-500 mt-1">スマートフォン保有率 {sp_rate:.1}% ({year}年)</div>
+            </div>"#,
+        ));
+    }
+
+    html.push_str(r#"</div>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 自動車保有台数統計（国土交通省）・通信利用動向調査（総務省） e-Stat API ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 住民の行動特性セクション（レーダーチャート: 社会生活基本調査）
+fn render_social_life_section(data: &[Row], pref: &str) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+    let pref_label = if pref.is_empty() { "全国" } else { pref };
+
+    // レーダー軸: カテゴリ別の行動者率を集約
+    // category列でグループ化し、平均行動者率を算出
+    let mut category_map: std::collections::HashMap<String, Vec<f64>> =
+        std::collections::HashMap::new();
+    for row in data {
+        let cat = get_str(row, "category").to_string();
+        let rate = get_f64(row, "participation_rate");
+        category_map.entry(cat).or_default().push(rate);
+    }
+    // 各カテゴリの平均行動者率
+    let mut categories: Vec<(String, f64)> = category_map
+        .into_iter()
+        .map(|(cat, vals)| {
+            let avg = vals.iter().sum::<f64>() / vals.len() as f64;
+            (cat, avg)
+        })
+        .collect();
+    categories.sort_by(|a, b| a.0.cmp(&b.0));
+
+    if categories.is_empty() {
+        return String::new();
+    }
+
+    // ECharts レーダーチャート用データ
+    let indicators: Vec<String> = categories
+        .iter()
+        .map(|(cat, _)| format!(r#"{{"name":"{}","max":100}}"#, escape_html(cat)))
+        .collect();
+    let values: Vec<String> = categories
+        .iter()
+        .map(|(_, v)| format!("{:.1}", v))
+        .collect();
+
+    let chart_config = format!(
+        r##"{{"tooltip":{{}},"radar":{{"indicator":[{indicators}],"radius":"60%","axisName":{{"color":"#94a3b8","fontSize":11}},"splitLine":{{"lineStyle":{{"color":"#334155"}}}},"splitArea":{{"areaStyle":{{"color":["rgba(51,65,85,0.3)","rgba(51,65,85,0.1)"]}}}}}},"series":[{{"type":"radar","data":[{{"value":[{values}],"name":"行動者率 (%)","areaStyle":{{"color":"rgba(99,102,241,0.3)"}},"lineStyle":{{"color":"#6366f1"}},"itemStyle":{{"color":"#6366f1"}}}}]}}]}}"##,
+        indicators = indicators.join(","),
+        values = values.join(","),
+    );
+
+    let mut html = String::with_capacity(3_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">🧭 住民の行動特性（社会生活基本調査2021年）<span class="text-blue-400 ml-2">【{pref_label}】</span></h3>
+        <p class="text-xs text-slate-500 mb-4">趣味・スポーツ・ボランティア・学習等の行動者率。地域住民の志向性・価値観を把握し、職場文化の設計や福利厚生施策の参考に。</p>
+        <div class="echart" style="height:300px;" data-chart-config='{chart_config}'></div>"#,
+        pref_label = escape_html(pref_label),
+        chart_config = chart_config.replace('\'', "&#39;"),
+    ));
+
+    // 詳細テーブル（サブカテゴリあり）
+    html.push_str(r#"<table class="min-w-full text-sm mt-4"><thead><tr class="text-slate-400 border-b border-slate-700"><th class="text-left py-1 pr-3">カテゴリ</th><th class="text-left py-1 pr-3">サブカテゴリ</th><th class="text-right py-1">行動者率</th></tr></thead><tbody>"#);
+    for row in data {
+        let cat = escape_html(&get_str(row, "category"));
+        let sub = escape_html(&get_str(row, "subcategory"));
+        let rate = get_f64(row, "participation_rate");
+        html.push_str(&format!(
+            r#"<tr class="border-b border-slate-800 hover:bg-slate-800/30"><td class="py-1 pr-3 text-slate-400 text-xs">{cat}</td><td class="py-1 pr-3 text-slate-300">{sub}</td><td class="py-1 text-right text-slate-200">{rate:.1}%</td></tr>"#,
+        ));
+    }
+    html.push_str(r#"</tbody></table>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 社会生活基本調査2021年（総務省統計局） ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
+}
+
+/// 日銀短観DIセクション（時系列ラインチャート）
+fn render_boj_tankan_section(data: &[Row]) -> String {
+    if data.is_empty() {
+        return String::new();
+    }
+
+    // 製造業/非製造業 × 業況DI/雇用人員DIをライングラフで表示
+    // survey_date でソートされた全国データ
+    // di_type: "business_condition" or "employment_excess" 等
+    // industry_code: "製造業" / "非製造業" など主要カテゴリを抽出
+
+    // 日付一覧（ユニーク、昇順）
+    let mut dates: Vec<String> = data
+        .iter()
+        .map(|r| get_str(r, "survey_date").to_string())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    dates.sort();
+    dates.dedup();
+
+    // 主要産業コードのみ抽出（industry_j で製造業・非製造業を識別）
+    let target_industries = ["製造業", "非製造業"];
+    let target_di_types = ["business_condition", "employment_excess"];
+
+    // (industry_j, di_type) → 時系列データのマップ
+    let mut series_map: std::collections::HashMap<
+        (String, String),
+        std::collections::HashMap<String, f64>,
+    > = std::collections::HashMap::new();
+
+    for row in data {
+        let industry_j = get_str(row, "industry_j").to_string();
+        let di_type = get_str(row, "di_type").to_string();
+        let survey_date = get_str(row, "survey_date").to_string();
+        let di_value = get_f64(row, "di_value");
+
+        // 対象産業・対象DI種別のみ収集
+        if target_industries.iter().any(|t| industry_j.contains(t))
+            && target_di_types.contains(&di_type.as_str())
+        {
+            series_map
+                .entry((industry_j, di_type))
+                .or_default()
+                .insert(survey_date, di_value);
+        }
+    }
+
+    if series_map.is_empty() || dates.is_empty() {
+        return String::new();
+    }
+
+    // シリーズ定義（色とラベル）
+    let series_defs = [
+        (
+            ("製造業".to_string(), "business_condition".to_string()),
+            "製造業 業況DI",
+            "#3b82f6",
+        ),
+        (
+            ("非製造業".to_string(), "business_condition".to_string()),
+            "非製造業 業況DI",
+            "#22c55e",
+        ),
+        (
+            ("製造業".to_string(), "employment_excess".to_string()),
+            "製造業 雇用人員DI",
+            "#f59e0b",
+        ),
+        (
+            ("非製造業".to_string(), "employment_excess".to_string()),
+            "非製造業 雇用人員DI",
+            "#ec4899",
+        ),
+    ];
+
+    let dates_json: Vec<String> = dates
+        .iter()
+        .map(|d| format!("\"{}\"", escape_html(d)))
+        .collect();
+
+    let mut series_json_list = Vec::new();
+    for (key, label, color) in &series_defs {
+        if let Some(date_map) = series_map.get(key) {
+            let values: Vec<String> = dates
+                .iter()
+                .map(|d| {
+                    if let Some(&v) = date_map.get(d.as_str()) {
+                        format!("{:.1}", v)
+                    } else {
+                        "null".to_string()
+                    }
+                })
+                .collect();
+            series_json_list.push(format!(
+                r#"{{"name":"{label}","type":"line","data":[{vals}],"smooth":true,"itemStyle":{{"color":"{color}"}},"lineStyle":{{"width":2}}}}"#,
+                vals = values.join(","),
+            ));
+        }
+    }
+
+    if series_json_list.is_empty() {
+        return String::new();
+    }
+
+    let chart_config = format!(
+        r##"{{"tooltip":{{"trigger":"axis"}},"legend":{{"bottom":0,"textStyle":{{"color":"#94a3b8","fontSize":10}}}},"grid":{{"left":"5%","right":"3%","top":"5%","bottom":"15%","containLabel":true}},"xAxis":{{"type":"category","data":[{dates}],"axisLabel":{{"color":"#94a3b8","rotate":45,"fontSize":10}}}},"yAxis":{{"type":"value","axisLabel":{{"color":"#94a3b8"}},"splitLine":{{"lineStyle":{{"color":"#334155"}}}}}},"series":[{series}]}}"##,
+        dates = dates_json.join(","),
+        series = series_json_list.join(","),
+    );
+
+    let mut html = String::with_capacity(4_000);
+    html.push_str(&format!(
+        r#"<div class="stat-card">
+        <h3 class="text-sm text-slate-400 mb-1">📈 業況判断DI（日銀短観）</h3>
+        <p class="text-xs text-slate-500 mb-4">製造業・非製造業の業況DIと雇用人員DIの時系列推移。DIがプラスであれば「良い」超、マイナスは「悪い」超。採用タイミングの判断や競合企業の採用活況を把握する参考指標。</p>
+        <div class="echart" style="height:300px;" data-chart-config='{chart_config}'></div>"#,
+        chart_config = chart_config.replace('\'', "&#39;"),
+    ));
+
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 日銀短観（全国企業短期経済観測調査）日本銀行 ※外部統計データ</p>"#);
+    html.push_str("</div>");
+    html
 }
