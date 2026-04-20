@@ -1094,7 +1094,7 @@ pub(crate) fn fetch_boj_tankan(db: &Db, turso: Option<&TursoDb>) -> Vec<Row> {
           FROM v2_external_boj_tankan \
           WHERE result_type = 'actual' \
           AND (industry_j LIKE '%製造業%' OR industry_j LIKE '%非製造業%') \
-          AND di_type IN ('business_condition', 'employment_excess') \
+          AND di_type IN ('business', 'employment') \
           ORDER BY survey_date DESC, industry_j \
           LIMIT 400"
             .to_string(),

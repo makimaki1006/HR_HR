@@ -3935,7 +3935,7 @@ fn render_boj_tankan_section(data: &[Row]) -> String {
 
     // 製造業/非製造業 × 業況DI/雇用人員DIをライングラフで表示
     // survey_date でソートされた全国データ
-    // di_type: "business_condition" or "employment_excess" 等
+    // di_type: "business" or "employment"
     // industry_code: "製造業" / "非製造業" など主要カテゴリを抽出
 
     // 日付一覧（ユニーク、昇順）
@@ -3950,7 +3950,7 @@ fn render_boj_tankan_section(data: &[Row]) -> String {
 
     // 主要産業コードのみ抽出（industry_j で製造業・非製造業を識別）
     let target_industries = ["製造業", "非製造業"];
-    let target_di_types = ["business_condition", "employment_excess"];
+    let target_di_types = ["business", "employment"];
 
     // (industry_j, di_type) → 時系列データのマップ
     let mut series_map: std::collections::HashMap<
@@ -3982,22 +3982,22 @@ fn render_boj_tankan_section(data: &[Row]) -> String {
     // シリーズ定義（色とラベル）
     let series_defs = [
         (
-            ("製造業".to_string(), "business_condition".to_string()),
+            ("製造業".to_string(), "business".to_string()),
             "製造業 業況DI",
             "#3b82f6",
         ),
         (
-            ("非製造業".to_string(), "business_condition".to_string()),
+            ("非製造業".to_string(), "business".to_string()),
             "非製造業 業況DI",
             "#22c55e",
         ),
         (
-            ("製造業".to_string(), "employment_excess".to_string()),
+            ("製造業".to_string(), "employment".to_string()),
             "製造業 雇用人員DI",
             "#f59e0b",
         ),
         (
-            ("非製造業".to_string(), "employment_excess".to_string()),
+            ("非製造業".to_string(), "employment".to_string()),
             "非製造業 雇用人員DI",
             "#ec4899",
         ),
