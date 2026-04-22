@@ -1,0 +1,834 @@
+<!-- タブ: 採用診断（人事向け統合レポート）
+     Agent D（フロントエンド）担当。
+     API は Agent A/B/C が /api/recruitment_diag/* で実装。
+     パネル8枚を Promise.all で並列取得し、各パネル独立で lazy update。
+-->
+
+<div class="space-y-6" id="rd-root">
+
+  <!-- ヘッダー -->
+  <header class="stat-card">
+    <div class="flex items-start justify-between flex-wrap gap-3">
+      <div>
+        <h2 class="text-xl font-bold text-white">📊 採用診断
+          <span class="text-blue-400 text-base font-normal">人事向け統合レポート</span>
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+          業種・エリア・雇用形態を選択すると、採用難度／人材プール／競合／市場動向を一括診断します。
+          すべて HW 求人データに基づく相対分析です。
+        </p>
+      </div>
+      <div class="text-xs text-slate-500 text-right">
+        <div>データ範囲: HW掲載求人のみ</div>
+        <div>更新: 直近スナップショット</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 入力フォーム -->
+  <section class="stat-card" aria-labelledby="rd-form-title">
+    <h3 id="rd-form-title" class="text-sm font-semibold text-slate-200 mb-3">🎯 診断条件</h3>
+
+    <div class="flex flex-wrap items-end gap-3">
+      <!-- 業種 -->
+      <div>
+        <label for="rd-job-type" class="block text-xs text-gray-400 mb-1">業種</label>
+        <select id="rd-job-type"
+          class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 min-w-[160px]">
+          <option value="">選択してください</option>
+          <option value="医療">医療</option>
+          <option value="老人福祉・介護">老人福祉・介護</option>
+          <option value="児童福祉">児童福祉</option>
+          <option value="建設業">建設業</option>
+          <option value="製造業">製造業</option>
+          <option value="IT・通信">IT・通信</option>
+          <option value="運輸・物流">運輸・物流</option>
+          <option value="小売業">小売業</option>
+          <option value="飲食業">飲食業</option>
+          <option value="宿泊業">宿泊業</option>
+          <option value="サービス業">サービス業</option>
+          <option value="教育">教育</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+
+      <!-- 雇用形態 -->
+      <div>
+        <label for="rd-emp-type" class="block text-xs text-gray-400 mb-1">雇用形態</label>
+        <select id="rd-emp-type"
+          class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+          <option value="正社員">正社員</option>
+          <option value="パート">パート</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+
+      <!-- 都道府県 -->
+      <div>
+        <label for="rd-pref" class="block text-xs text-gray-400 mb-1">都道府県</label>
+        <select id="rd-pref"
+          class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 min-w-[140px]">
+          <option value="">選択してください</option>
+          {{PREFECTURE_OPTIONS}}
+        </select>
+      </div>
+
+      <!-- 市区町村（カスケード） -->
+      <div>
+        <label for="rd-city" class="block text-xs text-gray-400 mb-1">市区町村</label>
+        <select id="rd-city"
+          class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 min-w-[140px]">
+          <option value="">-- 都道府県を先に選択 --</option>
+        </select>
+      </div>
+
+      <!-- 実行ボタン -->
+      <button id="rd-run-btn" type="button"
+        class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors">
+        🔍 診断実行
+      </button>
+
+      <span id="rd-global-status" class="text-xs text-slate-400 ml-2"></span>
+    </div>
+
+    <!-- 自社条件（折りたたみ） -->
+    <details class="mt-3 border-t border-slate-700 pt-3">
+      <summary class="cursor-pointer text-xs text-slate-300 hover:text-white select-none">
+        ⚙️ 自社条件を入力（Panel 5 条件ギャップ診断で使用）
+      </summary>
+      <div class="flex flex-wrap gap-3 mt-3">
+        <div>
+          <label for="rd-own-salary" class="block text-xs text-gray-400 mb-1">想定年収（万円）</label>
+          <input type="number" id="rd-own-salary" placeholder="例: 400" min="0" step="10"
+            class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-28">
+        </div>
+        <div>
+          <label for="rd-own-holidays" class="block text-xs text-gray-400 mb-1">年間休日数</label>
+          <input type="number" id="rd-own-holidays" placeholder="例: 120" min="0" max="365" step="1"
+            class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-28">
+        </div>
+        <div>
+          <label for="rd-own-bonus" class="block text-xs text-gray-400 mb-1">賞与（月数）</label>
+          <input type="number" id="rd-own-bonus" placeholder="例: 2.0" min="0" max="12" step="0.1"
+            class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-28">
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- 初期メッセージ（診断実行前） -->
+  <div id="rd-initial-msg" class="stat-card text-center py-10 text-slate-400">
+    <p class="text-sm">上のフォームで業種・エリアを選択して「🔍 診断実行」を押してください。</p>
+    <p class="text-xs text-slate-500 mt-2">本診断は HW 掲載求人に限定された相対分析です（求人市場全体ではありません）。</p>
+  </div>
+
+  <!-- 結果表示エリア（初期非表示） -->
+  <div id="rd-results" class="space-y-6 hidden">
+
+    <!-- Panel 1: 採用難度スコア -->
+    <section class="stat-card" data-panel="difficulty">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">🎯 Panel 1: 採用難度スコア</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 2: 人材プール診断 -->
+    <section class="stat-card" data-panel="talent_pool">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">👥 Panel 2: 人材プール診断</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 3: 流入元分析 -->
+    <section class="stat-card" data-panel="inflow">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">🔄 Panel 3: 流入元分析</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 4: 競合企業ランキング -->
+    <section class="stat-card" data-panel="competitors">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">🏢 Panel 4: 競合企業ランキング</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 5: 条件ギャップ診断（HW注意書きバナー常時表示） -->
+    <section class="stat-card" data-panel="condition_gap">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">💰 Panel 5: 条件ギャップ診断</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+
+      <!-- HW注意書きバナー: 常時表示・省略禁止 -->
+      <div class="bg-amber-900/40 border border-amber-600/60 rounded-lg p-3 mb-4 text-xs text-amber-100">
+        <div class="font-bold text-amber-300 mb-1">⚠️ HW求人データの限界</div>
+        <ul class="list-disc ml-5 space-y-1">
+          <li>HW求人は市場実勢より給与を低めに設定する慣習あり
+            <span class="text-amber-200">→ HW中央値で勝っていても民間サイト中央値では負けている可能性</span>
+          </li>
+          <li>賞与月数は記載企業のみの集計（未記載求人は平均化に含まず）</li>
+          <li>この診断は「HW 内の相対位置」であり絶対的競争力の保証ではありません</li>
+          <li>給料の比較は別途競合調査を参照してください</li>
+        </ul>
+      </div>
+
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 6: 市場動向グラフ -->
+    <section class="stat-card" data-panel="market_trend">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">📈 Panel 6: 市場動向</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 7: 穴場マップ -->
+    <section class="stat-card" data-panel="opportunity_map">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">🗺️ Panel 7: 穴場マップ（市区町村）</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- Panel 8: AI示唆 -->
+    <section class="stat-card" data-panel="insights">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">💡 Panel 8: AI 示唆（So What / Next Action）</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
+    <!-- フッター注意書き -->
+    <footer class="text-xs text-slate-500 border-t border-slate-700 pt-3">
+      <p>※ 本診断は HW（ハローワーク）掲載求人データに基づく相対分析です。民間求人媒体・非公開求人は含まれません。</p>
+      <p>※ 相関関係と因果関係は別物です。「傾向がある」「可能性がある」という表現に留めています。絶対的な保証ではありません。</p>
+    </footer>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ECharts インスタンス管理（タブ切替時の破棄用）
+  if (!window._rdCharts) window._rdCharts = {};
+
+  const RD = {
+    endpoints: {
+      difficulty:       '/api/recruitment_diag/difficulty',
+      talent_pool:      '/api/recruitment_diag/talent_pool',
+      inflow:           '/api/recruitment_diag/inflow',
+      competitors:      '/api/recruitment_diag/competitors',
+      condition_gap:    '/api/recruitment_diag/condition_gap',
+      market_trend:     '/api/recruitment_diag/market_trend',
+      opportunity_map:  '/api/recruitment_diag/opportunity_map',
+      insights:         '/api/recruitment_diag/insights',
+    },
+  };
+
+  // ---- ユーティリティ ----
+  function fmt(n, digits) {
+    if (n == null || isNaN(n)) return '—';
+    digits = digits == null ? 0 : digits;
+    return Number(n).toLocaleString('ja-JP', {
+      minimumFractionDigits: digits, maximumFractionDigits: digits
+    });
+  }
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function qs(params) {
+    const u = new URLSearchParams();
+    Object.keys(params).forEach(k => {
+      const v = params[k];
+      if (v !== null && v !== undefined && v !== '') u.append(k, v);
+    });
+    return u.toString();
+  }
+  function getPanelSection(name) {
+    return document.querySelector('[data-panel="' + name + '"]');
+  }
+  function setPanelStatus(name, text, cls) {
+    const sec = getPanelSection(name);
+    if (!sec) return;
+    const st = sec.querySelector('.rd-panel-status');
+    if (!st) return;
+    st.textContent = text;
+    st.className = 'rd-panel-status text-xs ' + (cls || 'text-slate-400');
+  }
+  function setPanelBody(name, html) {
+    const sec = getPanelSection(name);
+    if (!sec) return;
+    const b = sec.querySelector('.rd-panel-body');
+    if (!b) return;
+    b.innerHTML = html;
+  }
+  function setPanelLoading(name) {
+    setPanelStatus(name, '取得中...', 'text-blue-300');
+    setPanelBody(name,
+      '<div class="flex items-center justify-center py-8 text-slate-400 text-sm">' +
+      '<div class="animate-pulse">⏳ データ取得中...</div></div>');
+  }
+  function setPanelError(name, err) {
+    setPanelStatus(name, '取得失敗', 'text-red-400');
+    setPanelBody(name,
+      '<div class="bg-red-900/30 border border-red-600/50 rounded p-3 text-sm text-red-200">' +
+      '❌ 取得失敗: ' + escapeHtml(err) + '</div>');
+  }
+
+  // ECharts lazy init: 空コンテナに init → resize 保証
+  function initChart(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return null;
+    // 既存インスタンスがあれば破棄
+    if (window._rdCharts[containerId]) {
+      try { window._rdCharts[containerId].dispose(); } catch(e) {}
+      delete window._rdCharts[containerId];
+    }
+    if (typeof echarts === 'undefined') {
+      console.warn('[RD] echarts not loaded');
+      return null;
+    }
+    const chart = echarts.init(el, 'dark');
+    window._rdCharts[containerId] = chart;
+    // 次フレームで resize（隠れ要素からの復帰対応）
+    requestAnimationFrame(() => { try { chart.resize(); } catch(e) {} });
+    return chart;
+  }
+
+  // ---- 市区町村カスケード ----
+  async function loadMunicipalities(prefValue) {
+    const citySel = document.getElementById('rd-city');
+    if (!citySel) return;
+    citySel.innerHTML = '<option value="">-- 取得中... --</option>';
+    if (!prefValue) {
+      citySel.innerHTML = '<option value="">-- 都道府県を先に選択 --</option>';
+      return;
+    }
+    try {
+      // 既存API: /api/municipalities_cascade は <option> HTML を返す
+      const r = await fetch('/api/municipalities_cascade?prefecture=' + encodeURIComponent(prefValue));
+      const html = await r.text();
+      citySel.innerHTML = '<option value="">すべて（都道府県全体）</option>' + html;
+    } catch (e) {
+      console.error('[RD] municipalities fetch failed', e);
+      citySel.innerHTML = '<option value="">取得失敗</option>';
+    }
+  }
+
+  // ---- 共通クエリ ----
+  function buildCommonParams() {
+    return {
+      job_type:  document.getElementById('rd-job-type').value || '',
+      emp_type:  document.getElementById('rd-emp-type').value || '正社員',
+      prefcode:  document.getElementById('rd-pref').value || '',
+      citycode:  document.getElementById('rd-city').value || '',
+    };
+  }
+  function buildGapParams() {
+    const p = buildCommonParams();
+    p.own_salary   = document.getElementById('rd-own-salary').value || '';
+    p.own_holidays = document.getElementById('rd-own-holidays').value || '';
+    p.own_bonus    = document.getElementById('rd-own-bonus').value || '';
+    return p;
+  }
+
+  // ---- 各パネル描画 ----
+
+  // Panel 1: 採用難度スコア（KPIカード + 全国比較棒グラフ）
+  function renderDifficulty(data) {
+    if (!data || typeof data !== 'object') {
+      setPanelError('difficulty', 'データ形式不正'); return;
+    }
+    const score = data.score != null ? fmt(data.score, 1) : '—';
+    const level = data.level || '—';
+    const levelColor = ({
+      '非常に困難': 'text-red-400', '困難': 'text-orange-400',
+      '普通': 'text-yellow-300', '容易': 'text-green-400', '非常に容易': 'text-blue-400',
+    })[level] || 'text-slate-300';
+    const vr  = data.vacancy_rate != null ? fmt(data.vacancy_rate, 2) : '—';
+    const comp = data.competition_ratio != null ? fmt(data.competition_ratio, 2) : '—';
+
+    const html =
+      '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">総合難度スコア（0-100）</div>' +
+          '<div class="text-3xl font-bold text-white">' + score + '</div>' +
+          '<div class="text-sm ' + levelColor + ' mt-1">' + escapeHtml(level) + '</div>' +
+        '</div>' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">欠員補充率</div>' +
+          '<div class="text-2xl font-bold text-white">' + vr + '<span class="text-sm text-slate-400 ml-1">%</span></div>' +
+        '</div>' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">有効求人倍率（HW内）</div>' +
+          '<div class="text-2xl font-bold text-white">' + comp + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="rd-chart-difficulty" style="width:100%;height:260px;"></div>' +
+      (data.interpretation
+        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
+          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+        : '');
+    setPanelBody('difficulty', html);
+
+    // 全国比較棒グラフ
+    const comparison = Array.isArray(data.comparison) ? data.comparison : [];
+    if (comparison.length > 0) {
+      const chart = initChart('rd-chart-difficulty');
+      if (chart) {
+        chart.setOption({
+          tooltip: { trigger: 'axis' },
+          grid: { left: 80, right: 20, top: 20, bottom: 40 },
+          xAxis: { type: 'value', name: 'スコア' },
+          yAxis: { type: 'category', data: comparison.map(c => c.label) },
+          series: [{
+            type: 'bar',
+            data: comparison.map(c => ({
+              value: c.score,
+              itemStyle: { color: c.highlight ? '#3b82f6' : '#64748b' }
+            })),
+            label: { show: true, position: 'right', formatter: '{c}' }
+          }]
+        });
+      }
+    }
+    setPanelStatus('difficulty', '完了', 'text-green-400');
+  }
+
+  // Panel 2: 人材プール診断（昼夜人口 + 差分）
+  function renderTalentPool(data) {
+    if (!data) { setPanelError('talent_pool', 'データなし'); return; }
+    const day = data.day_population;
+    const night = data.night_population;
+    const diff = (day != null && night != null) ? (day - night) : null;
+    const ratio = (day != null && night != null && night > 0) ? (day / night) : null;
+
+    const html =
+      '<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">昼間人口</div>' +
+          '<div class="text-xl font-bold text-white">' + fmt(day) + '</div>' +
+        '</div>' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">夜間人口</div>' +
+          '<div class="text-xl font-bold text-white">' + fmt(night) + '</div>' +
+        '</div>' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">差分（昼-夜）</div>' +
+          '<div class="text-xl font-bold ' + (diff != null && diff >= 0 ? 'text-blue-400' : 'text-orange-400') + '">' +
+          (diff != null && diff >= 0 ? '+' : '') + fmt(diff) + '</div>' +
+        '</div>' +
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs text-slate-400">昼夜比</div>' +
+          '<div class="text-xl font-bold text-white">' + (ratio != null ? fmt(ratio, 2) : '—') + '</div>' +
+        '</div>' +
+      '</div>' +
+      (data.interpretation
+        ? '<div class="text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
+          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+        : '<div class="text-xs text-slate-500">※ 昼間人口＞夜間人口 の地域は通勤流入が多く、求職プール候補が広い傾向。</div>');
+    setPanelBody('talent_pool', html);
+    setPanelStatus('talent_pool', '完了', 'text-green-400');
+  }
+
+  // Panel 3: 流入元分析（sankey + 83%警告）
+  function renderInflow(data) {
+    if (!data) { setPanelError('inflow', 'データなし'); return; }
+    const sankeyNodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const sankeyLinks = Array.isArray(data.links) ? data.links : [];
+    const localRatio = data.local_ratio;  // 自地域内比率
+
+    let warnBanner = '';
+    if (localRatio != null && localRatio >= 0.83) {
+      warnBanner =
+        '<div class="bg-orange-900/40 border border-orange-600/60 rounded p-3 mb-3 text-sm text-orange-100">' +
+          '<span class="font-bold text-orange-300">⚠️ 流入元が極端に局地化</span>: ' +
+          '同一市区町村内からの通勤が ' + fmt(localRatio * 100, 1) + '% を占めています。' +
+          '<br><span class="text-xs">広域募集の効果が出にくい可能性があります。</span>' +
+        '</div>';
+    }
+
+    const html =
+      warnBanner +
+      '<div id="rd-chart-inflow" style="width:100%;height:360px;"></div>' +
+      (data.interpretation
+        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
+          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+        : '');
+    setPanelBody('inflow', html);
+
+    if (sankeyNodes.length > 0 && sankeyLinks.length > 0) {
+      const chart = initChart('rd-chart-inflow');
+      if (chart) {
+        chart.setOption({
+          tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+          series: [{
+            type: 'sankey',
+            data: sankeyNodes,
+            links: sankeyLinks,
+            emphasis: { focus: 'adjacency' },
+            lineStyle: { color: 'gradient', curveness: 0.5 },
+            label: { color: '#e2e8f0' }
+          }]
+        });
+      }
+    } else {
+      const el = document.getElementById('rd-chart-inflow');
+      if (el) el.innerHTML =
+        '<div class="flex items-center justify-center h-full text-slate-500 text-sm">' +
+        'Agoop 人流データなし</div>';
+    }
+    setPanelStatus('inflow', '完了', 'text-green-400');
+  }
+
+  // Panel 4: 競合企業ランキング（テーブル TOP20）
+  function renderCompetitors(data) {
+    if (!data || !Array.isArray(data.companies)) {
+      setPanelError('competitors', 'データ形式不正'); return;
+    }
+    const rows = data.companies.slice(0, 20);
+    if (rows.length === 0) {
+      setPanelBody('competitors', '<div class="text-sm text-slate-400 py-4">該当する競合企業がありません。</div>');
+      setPanelStatus('competitors', '完了（0件）', 'text-slate-400');
+      return;
+    }
+    let html = '<div class="overflow-x-auto">' +
+      '<table class="w-full text-xs text-slate-200">' +
+      '<thead class="bg-navy-900/70 text-slate-300">' +
+        '<tr>' +
+          '<th class="px-2 py-2 text-left">#</th>' +
+          '<th class="px-2 py-2 text-left">企業名</th>' +
+          '<th class="px-2 py-2 text-right">求人数</th>' +
+          '<th class="px-2 py-2 text-right">給与中央値</th>' +
+          '<th class="px-2 py-2 text-right">年休中央値</th>' +
+          '<th class="px-2 py-2 text-left">特徴</th>' +
+        '</tr>' +
+      '</thead><tbody>';
+    rows.forEach((c, i) => {
+      html += '<tr class="border-b border-slate-700/50 hover:bg-navy-900/40">' +
+        '<td class="px-2 py-1.5 text-slate-400">' + (i + 1) + '</td>' +
+        '<td class="px-2 py-1.5 font-medium text-white">' + escapeHtml(c.company_name || '—') + '</td>' +
+        '<td class="px-2 py-1.5 text-right">' + fmt(c.posting_count) + '</td>' +
+        '<td class="px-2 py-1.5 text-right">' + (c.salary_median != null ? fmt(c.salary_median) + '万' : '—') + '</td>' +
+        '<td class="px-2 py-1.5 text-right">' + (c.holidays_median != null ? fmt(c.holidays_median) + '日' : '—') + '</td>' +
+        '<td class="px-2 py-1.5 text-slate-300">' + escapeHtml(c.feature || '') + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<p class="text-xs text-slate-500 mt-2">※ HW掲載求人件数ベースの上位20社。民間媒体のみ利用の企業は含まれません。</p>';
+    setPanelBody('competitors', html);
+    setPanelStatus('competitors', '完了（' + rows.length + '社）', 'text-green-400');
+  }
+
+  // Panel 5: 条件ギャップ診断（業界内 + 全業界 の2列比較）
+  function renderConditionGap(data) {
+    if (!data) { setPanelError('condition_gap', 'データなし'); return; }
+
+    const own = data.own || {};
+    const industry = data.industry_benchmark || {};
+    const all = data.all_benchmark || {};
+
+    function gapCell(ownV, benchV, unit) {
+      if (ownV == null || benchV == null) return '<span class="text-slate-500">—</span>';
+      const diff = ownV - benchV;
+      const cls = diff >= 0 ? 'text-green-400' : 'text-red-400';
+      const sign = diff >= 0 ? '+' : '';
+      return '<span class="' + cls + '">' + sign + fmt(diff, 1) + unit + '</span>';
+    }
+
+    const html =
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
+        // 業界内比較
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<h4 class="text-sm font-semibold text-blue-300 mb-2">業界内 中央値との差</h4>' +
+          '<table class="w-full text-xs"><tbody>' +
+            '<tr><td class="py-1 text-slate-400">年収</td>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(industry.salary_median) + '万</td>' +
+              '<td class="py-1 text-right">' + gapCell(own.salary, industry.salary_median, '万') + '</td></tr>' +
+            '<tr><td class="py-1 text-slate-400">年休</td>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(industry.holidays_median) + '日</td>' +
+              '<td class="py-1 text-right">' + gapCell(own.holidays, industry.holidays_median, '日') + '</td></tr>' +
+            '<tr><td class="py-1 text-slate-400">賞与月数</td>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(industry.bonus_months, 1) + 'ヶ月</td>' +
+              '<td class="py-1 text-right">' + gapCell(own.bonus, industry.bonus_months, 'ヶ月') + '</td></tr>' +
+          '</tbody></table>' +
+        '</div>' +
+        // 全業界比較
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<h4 class="text-sm font-semibold text-purple-300 mb-2">全業界 中央値との差</h4>' +
+          '<table class="w-full text-xs"><tbody>' +
+            '<tr><td class="py-1 text-slate-400">年収</td>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(all.salary_median) + '万</td>' +
+              '<td class="py-1 text-right">' + gapCell(own.salary, all.salary_median, '万') + '</td></tr>' +
+            '<tr><td class="py-1 text-slate-400">年休</td>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(all.holidays_median) + '日</td>' +
+              '<td class="py-1 text-right">' + gapCell(own.holidays, all.holidays_median, '日') + '</td></tr>' +
+            '<tr><td class="py-1 text-slate-400">賞与月数</td>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(all.bonus_months, 1) + 'ヶ月</td>' +
+              '<td class="py-1 text-right">' + gapCell(own.bonus, all.bonus_months, 'ヶ月') + '</td></tr>' +
+          '</tbody></table>' +
+        '</div>' +
+      '</div>' +
+      (data.interpretation
+        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
+          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+        : '');
+    setPanelBody('condition_gap', html);
+    setPanelStatus('condition_gap', '完了', 'text-green-400');
+  }
+
+  // Panel 6: 市場動向グラフ（line chart 6/12ヶ月）
+  function renderMarketTrend(data) {
+    if (!data || !Array.isArray(data.series)) {
+      setPanelError('market_trend', 'データ形式不正'); return;
+    }
+    const html =
+      '<div id="rd-chart-trend" style="width:100%;height:320px;"></div>' +
+      (data.interpretation
+        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
+          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+        : '');
+    setPanelBody('market_trend', html);
+
+    const labels = Array.isArray(data.labels) ? data.labels : [];
+    const chart = initChart('rd-chart-trend');
+    if (chart && labels.length > 0) {
+      chart.setOption({
+        tooltip: { trigger: 'axis' },
+        legend: { data: data.series.map(s => s.name), textStyle: { color: '#cbd5e1' } },
+        grid: { left: 50, right: 30, top: 40, bottom: 40 },
+        xAxis: { type: 'category', data: labels, axisLabel: { color: '#94a3b8' } },
+        yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+        series: data.series.map(s => ({
+          name: s.name, type: 'line', data: s.data, smooth: true, symbol: 'circle'
+        }))
+      });
+    }
+    setPanelStatus('market_trend', '完了', 'text-green-400');
+  }
+
+  // Panel 7: 穴場マップ（市区町村 heatmap）
+  function renderOpportunityMap(data) {
+    if (!data || !Array.isArray(data.cities)) {
+      setPanelError('opportunity_map', 'データ形式不正'); return;
+    }
+    const cities = data.cities;
+    if (cities.length === 0) {
+      setPanelBody('opportunity_map',
+        '<div class="text-sm text-slate-400 py-4">該当データなし。都道府県を選択してください。</div>');
+      setPanelStatus('opportunity_map', '完了（0件）', 'text-slate-400');
+      return;
+    }
+    // Bar ベースの簡易 heatmap（値=穴場スコア、横軸=市区町村）
+    const html =
+      '<div id="rd-chart-opportunity" style="width:100%;height:360px;"></div>' +
+      '<p class="text-xs text-slate-500 mt-2">※ スコアが高い市区町村ほど「求人少 × 人材プール多」の傾向（相関であり因果ではありません）。</p>' +
+      (data.interpretation
+        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
+          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+        : '');
+    setPanelBody('opportunity_map', html);
+
+    const chart = initChart('rd-chart-opportunity');
+    if (chart) {
+      const top = cities.slice(0, 25);
+      chart.setOption({
+        tooltip: { trigger: 'axis' },
+        grid: { left: 140, right: 30, top: 20, bottom: 30 },
+        xAxis: { type: 'value', name: '穴場スコア' },
+        yAxis: {
+          type: 'category',
+          data: top.map(c => c.city_name),
+          axisLabel: { color: '#cbd5e1', fontSize: 11 }
+        },
+        series: [{
+          type: 'bar',
+          data: top.map(c => ({
+            value: c.score,
+            itemStyle: {
+              color: c.score >= 70 ? '#22c55e' : c.score >= 50 ? '#3b82f6' : '#64748b'
+            }
+          })),
+          label: { show: true, position: 'right', formatter: '{c}' }
+        }]
+      });
+    }
+    setPanelStatus('opportunity_map', '完了（' + cities.length + '件）', 'text-green-400');
+  }
+
+  // Panel 8: AI示唆（pattern_id + title + message + hr_action）
+  function renderInsights(data) {
+    if (!data || !Array.isArray(data.insights)) {
+      setPanelError('insights', 'データ形式不正'); return;
+    }
+    const list = data.insights;
+    if (list.length === 0) {
+      setPanelBody('insights', '<div class="text-sm text-slate-400 py-4">該当する示唆がありません。</div>');
+      setPanelStatus('insights', '完了（0件）', 'text-slate-400');
+      return;
+    }
+    let html = '<div class="space-y-3">';
+    list.forEach(ins => {
+      const sev = ins.severity || 'info';
+      const sevColor = ({
+        critical: 'border-red-500 bg-red-900/20',
+        warning:  'border-orange-500 bg-orange-900/20',
+        info:     'border-blue-500 bg-blue-900/20',
+        positive: 'border-green-500 bg-green-900/20',
+      })[sev] || 'border-slate-500 bg-navy-900/40';
+      html +=
+        '<div class="border-l-4 ' + sevColor + ' rounded p-3">' +
+          '<div class="flex items-start justify-between gap-2">' +
+            '<div class="flex-1">' +
+              '<div class="text-xs text-slate-400 mb-1">' + escapeHtml(ins.pattern_id || '') + '</div>' +
+              '<div class="text-sm font-semibold text-white">' + escapeHtml(ins.title || '') + '</div>' +
+              '<div class="text-xs text-slate-300 mt-1">' + escapeHtml(ins.message || '') + '</div>' +
+            '</div>' +
+          '</div>' +
+          (ins.hr_action
+            ? '<div class="mt-2 pt-2 border-t border-slate-700/50">' +
+              '<div class="text-xs text-slate-400">推奨アクション:</div>' +
+              '<div class="text-xs text-amber-200 mt-0.5">👉 ' + escapeHtml(ins.hr_action) + '</div>' +
+              '</div>'
+            : '') +
+        '</div>';
+    });
+    html += '</div>';
+    html += '<p class="text-xs text-slate-500 mt-3">※ 示唆は HW データからの「傾向」に基づきます。因果関係の保証ではありません。</p>';
+    setPanelBody('insights', html);
+    setPanelStatus('insights', '完了（' + list.length + '件）', 'text-green-400');
+  }
+
+  // パネル名 → 描画関数 マッピング
+  const RENDERERS = {
+    difficulty:      renderDifficulty,
+    talent_pool:     renderTalentPool,
+    inflow:          renderInflow,
+    competitors:     renderCompetitors,
+    condition_gap:   renderConditionGap,
+    market_trend:    renderMarketTrend,
+    opportunity_map: renderOpportunityMap,
+    insights:        renderInsights,
+  };
+
+  // 単一パネル fetch + render（独立 lazy update）
+  async function fetchAndRender(name, url) {
+    setPanelLoading(name);
+    try {
+      const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const fn = RENDERERS[name];
+      if (!fn) throw new Error('renderer not found');
+      fn(data);
+    } catch (e) {
+      console.error('[RD]', name, 'failed:', e);
+      setPanelError(name, e.message || String(e));
+    }
+  }
+
+  // 診断実行（全8パネル並列）
+  async function runDiagnosis() {
+    const params = buildCommonParams();
+    if (!params.job_type) {
+      alert('業種を選択してください'); return;
+    }
+    if (!params.prefcode) {
+      alert('都道府県を選択してください'); return;
+    }
+
+    // 結果エリア表示
+    document.getElementById('rd-initial-msg').classList.add('hidden');
+    document.getElementById('rd-results').classList.remove('hidden');
+
+    const runBtn = document.getElementById('rd-run-btn');
+    runBtn.disabled = true;
+    runBtn.classList.add('opacity-60');
+    document.getElementById('rd-global-status').textContent = '診断中...';
+
+    // 各パネル URL 構築
+    const commonQs = qs(params);
+    const gapQs    = qs(buildGapParams());
+    const tasks = [
+      fetchAndRender('difficulty',      RD.endpoints.difficulty      + '?' + commonQs),
+      fetchAndRender('talent_pool',     RD.endpoints.talent_pool     + '?' + commonQs),
+      fetchAndRender('inflow',          RD.endpoints.inflow          + '?' + commonQs),
+      fetchAndRender('competitors',     RD.endpoints.competitors     + '?' + commonQs),
+      fetchAndRender('condition_gap',   RD.endpoints.condition_gap   + '?' + gapQs),
+      fetchAndRender('market_trend',    RD.endpoints.market_trend    + '?' + commonQs),
+      fetchAndRender('opportunity_map', RD.endpoints.opportunity_map + '?' + commonQs),
+      fetchAndRender('insights',        RD.endpoints.insights        + '?' + commonQs),
+    ];
+
+    // Promise.all ではなく Promise.allSettled で「一部失敗しても他は表示」保証
+    await Promise.allSettled(tasks);
+
+    runBtn.disabled = false;
+    runBtn.classList.remove('opacity-60');
+    document.getElementById('rd-global-status').textContent = '診断完了';
+
+    // 遅延 resize（レイアウト確定後）
+    setTimeout(() => {
+      Object.keys(window._rdCharts).forEach(k => {
+        try { window._rdCharts[k].resize(); } catch(e) {}
+      });
+    }, 150);
+  }
+
+  // ---- イベントバインド ----
+  function bindEvents() {
+    const prefSel = document.getElementById('rd-pref');
+    if (prefSel) prefSel.addEventListener('change', function() { loadMunicipalities(this.value); });
+
+    const runBtn = document.getElementById('rd-run-btn');
+    if (runBtn) runBtn.addEventListener('click', runDiagnosis);
+
+    // ウィンドウリサイズで全チャート再描画
+    window.addEventListener('resize', function() {
+      Object.keys(window._rdCharts).forEach(k => {
+        try { window._rdCharts[k].resize(); } catch(e) {}
+      });
+    });
+  }
+
+  // 初期化: DOM 準備完了後
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindEvents);
+  } else {
+    bindEvents();
+  }
+})();
+</script>

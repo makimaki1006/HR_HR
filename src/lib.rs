@@ -97,6 +97,43 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/diagnostic/reset",
             get(handlers::diagnostic::reset_diagnostic),
         )
+        // ======== 採用診断タブ (Recruitment Diagnostics) ========
+        .route(
+            "/tab/recruitment_diag",
+            get(handlers::recruitment_diag::tab_recruitment_diag),
+        )
+        .route(
+            "/api/recruitment_diag/difficulty",
+            get(handlers::recruitment_diag::api_difficulty_score),
+        )
+        .route(
+            "/api/recruitment_diag/talent_pool",
+            get(handlers::recruitment_diag::api_talent_pool),
+        )
+        .route(
+            "/api/recruitment_diag/inflow",
+            get(handlers::recruitment_diag::api_inflow_analysis),
+        )
+        .route(
+            "/api/recruitment_diag/competitors",
+            get(handlers::recruitment_diag::api_competitors),
+        )
+        .route(
+            "/api/recruitment_diag/condition_gap",
+            get(handlers::recruitment_diag::api_condition_gap),
+        )
+        .route(
+            "/api/recruitment_diag/market_trend",
+            get(handlers::recruitment_diag::api_market_trend),
+        )
+        .route(
+            "/api/recruitment_diag/opportunity_map",
+            get(handlers::recruitment_diag::api_opportunity_map),
+        )
+        .route(
+            "/api/recruitment_diag/insights",
+            get(handlers::recruitment_diag::api_insights),
+        )
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
         .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
         .route(
