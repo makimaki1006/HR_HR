@@ -1,4 +1,5 @@
 pub mod choropleth;
+pub mod city_code;
 
 use serde_json::Value;
 use std::collections::HashMap;

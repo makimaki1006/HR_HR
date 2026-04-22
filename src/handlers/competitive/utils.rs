@@ -28,6 +28,20 @@ pub fn build_option(value: &str, label: &str) -> String {
     )
 }
 
+/// <option>タグを data 属性付きで生成
+pub fn build_option_with_data(value: &str, label: &str, data_attrs: &[(&str, String)]) -> String {
+    let mut attrs = String::new();
+    for (k, v) in data_attrs {
+        attrs.push_str(&format!(r#" data-{}="{}""#, k, escape_html(v)));
+    }
+    format!(
+        r#"<option value="{}"{}>{}</option>"#,
+        escape_html(value),
+        attrs,
+        escape_html(label)
+    )
+}
+
 /// serde_json::Valueから数値を取得（REAL/INTEGER両対応）
 pub(crate) fn value_to_i64(v: &Value) -> i64 {
     v.as_i64()
