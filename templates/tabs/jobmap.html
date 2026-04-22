@@ -105,6 +105,70 @@
     </div>
   </div>
 
+  <!-- メッシュ人口ヒートマップ（Agoop 1kmメッシュ人流） -->
+  <div id="heatmap-section" class="stat-card">
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-sm text-gray-300 font-medium">🌡️ メッシュ人口ヒートマップ
+        <span class="text-[10px] text-gray-500 ml-1">国交省 全国の人流オープンデータ（Agoop社提供、2019-2021）</span>
+      </span>
+      <button type="button" onclick="(function(){var b=document.getElementById('heatmap-body');var a=document.getElementById('heatmap-arrow');if(!b)return;var open=b.classList.toggle('hidden');if(a)a.textContent=open?'▶':'▼';})()" class="text-xs text-gray-400 hover:text-white">
+        <span id="heatmap-arrow">▶</span>
+      </button>
+    </div>
+    <div id="heatmap-body" class="hidden">
+      <div class="flex flex-wrap items-end gap-3 mb-2">
+        <div>
+          <label for="hm-year" class="block text-xs text-gray-400 mb-1">年</label>
+          <select id="hm-year" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+            <option value="2019">2019</option>
+            <option value="2020">2020</option>
+            <option value="2021" selected>2021</option>
+          </select>
+        </div>
+        <div>
+          <label for="hm-month" class="block text-xs text-gray-400 mb-1">月</label>
+          <select id="hm-month" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+            <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option>
+            <option value="4">4月</option><option value="5">5月</option><option value="6">6月</option>
+            <option value="7" selected>7月</option><option value="8">8月</option><option value="9">9月</option>
+            <option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
+          </select>
+        </div>
+        <div>
+          <label for="hm-dayflag" class="block text-xs text-gray-400 mb-1">平休</label>
+          <select id="hm-dayflag" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+            <option value="1" selected>平日</option>
+            <option value="0">休日</option>
+          </select>
+        </div>
+        <div>
+          <label for="hm-timezone" class="block text-xs text-gray-400 mb-1">時間帯</label>
+          <select id="hm-timezone" class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600">
+            <option value="0" selected>昼 (11-14h)</option>
+            <option value="1">深夜 (1-4h)</option>
+          </select>
+        </div>
+        <div>
+          <label for="hm-prefcode" class="block text-xs text-gray-400 mb-1">都道府県コード</label>
+          <input type="number" id="hm-prefcode" value="13" min="1" max="47" step="1"
+                 class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-24">
+        </div>
+        <div>
+          <label for="hm-citycode" class="block text-xs text-gray-400 mb-1">市区町村コード（任意）</label>
+          <input type="number" id="hm-citycode" placeholder="例 13101" min="1000" max="99999" step="1"
+                 class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-28">
+        </div>
+        <button type="button" id="hm-load-btn" onclick="loadHeatmap()"
+                class="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded px-4 py-1.5 transition-colors">
+          🌡️ 描画
+        </button>
+        <span id="hm-status" class="text-[11px] text-gray-400 ml-1"></span>
+      </div>
+      <div id="hm-chart" style="width:100%;height:420px;" role="img" aria-label="メッシュ人口ヒートマップ"></div>
+      <p id="hm-meta" class="text-[10px] text-gray-500 mt-1"></p>
+    </div>
+  </div>
+
   <!-- 人材フロー（業種別従業員増減）パネル -->
   <div id="jm-labor-flow" class="stat-card" style="display:none;">
     <div class="flex justify-between items-center mb-2">
@@ -114,6 +178,199 @@
     <div id="jm-labor-flow-chart" style="height:320px;" role="img" aria-label="業種別従業員増減の横棒グラフ"></div>
     <div id="jm-labor-flow-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="業種別人材フロー詳細"></div>
   </div>
+
+  <!-- 流入元サンキー図（Agoop人流データ from_area 4区分） -->
+  <div id="inflow-section" class="stat-card" style="display:none;">
+    <!-- 部分データ警告バナー -->
+    <div id="inflow-warning" class="mb-2 px-3 py-2 rounded text-xs font-medium"
+         style="background-color: #fef3c7; color: #78350f; border: 1px solid #f59e0b;">
+      <span aria-hidden="true">⚠️</span>
+      <span id="inflow-warning-text">流入データは部分投入中です。</span>
+    </div>
+    <div class="flex justify-between items-center mb-2">
+      <span class="text-sm text-gray-300 font-medium">🔀 流入元サンキー図（Agoop人流）</span>
+      <button onclick="document.getElementById('inflow-section').style.display='none'"
+              class="text-xs text-gray-400 hover:text-white" aria-label="サンキー図を閉じる">&#10005;</button>
+    </div>
+    <!-- フィルタUI -->
+    <div class="flex flex-wrap items-end gap-2 mb-2">
+      <div>
+        <label class="block text-[10px] text-gray-400 mb-0.5">年</label>
+        <select id="inflow-year" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+          <option value="2019">2019</option>
+          <option value="2020">2020</option>
+          <option value="2021" selected>2021</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] text-gray-400 mb-0.5">月</label>
+        <select id="inflow-month" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+          <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option>
+          <option value="4">4月</option><option value="5">5月</option><option value="6">6月</option>
+          <option value="7" selected>7月</option><option value="8">8月</option><option value="9">9月</option>
+          <option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] text-gray-400 mb-0.5">平休</label>
+        <select id="inflow-dayflag" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+          <option value="1" selected>平日</option>
+          <option value="0">休日</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] text-gray-400 mb-0.5">時間帯</label>
+        <select id="inflow-timezone" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+          <option value="0" selected>昼</option>
+          <option value="1">深夜</option>
+        </select>
+      </div>
+      <button onclick="loadInflowSankey()"
+              class="bg-blue-600 hover:bg-blue-500 text-white text-xs rounded px-3 py-1 transition-colors">
+        更新
+      </button>
+      <span id="inflow-status" class="text-[10px] text-gray-500 ml-2"></span>
+    </div>
+    <div id="inflow-sankey-chart" style="height:360px;" role="img" aria-label="流入元サンキー図"></div>
+    <div id="inflow-summary-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="流入元サマリー"></div>
+  </div>
+
+  <script>
+    // 流入元サンキー図ローダー
+    (function() {
+      let inflowChart = null;
+
+      function getSelectedCitycode() {
+        if (window.__jmCitycode) return window.__jmCitycode;
+        const muniEl = document.getElementById('jm-muni');
+        if (muniEl && muniEl.selectedOptions && muniEl.selectedOptions[0]) {
+          const code = muniEl.selectedOptions[0].getAttribute('data-citycode');
+          if (code) return code;
+        }
+        return null;
+      }
+
+      window.loadInflowSankey = function() {
+        const citycode = getSelectedCitycode();
+        const statusEl = document.getElementById('inflow-status');
+        const section = document.getElementById('inflow-section');
+        if (!citycode) {
+          if (statusEl) statusEl.textContent = '市区町村を選択してください';
+          return;
+        }
+        const year = document.getElementById('inflow-year').value;
+        const month = document.getElementById('inflow-month').value;
+        const dayflag = document.getElementById('inflow-dayflag').value;
+        const timezone = document.getElementById('inflow-timezone').value;
+
+        if (statusEl) statusEl.textContent = '読み込み中...';
+        section.style.display = 'block';
+
+        const url = '/api/jobmap/inflow?citycode=' + encodeURIComponent(citycode)
+          + '&year=' + year + '&month=' + month
+          + '&dayflag=' + dayflag + '&timezone=' + timezone;
+
+        fetch(url)
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.error) {
+              if (statusEl) statusEl.textContent = 'エラー: ' + data.error;
+              return;
+            }
+            if (data.data_warning) {
+              const warnEl = document.getElementById('inflow-warning-text');
+              if (warnEl) warnEl.textContent = data.data_warning;
+            }
+            renderSankey(data.sankey);
+            renderSummary(data.summary);
+            if (statusEl) statusEl.textContent = '年=' + data.year + ' 月=' + data.month
+              + ' 合計=' + Math.round(data.total_population || 0).toLocaleString();
+          })
+          .catch(function(e) {
+            if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+          });
+      };
+
+      function renderSankey(sankey) {
+        if (typeof echarts === 'undefined') return;
+        const el = document.getElementById('inflow-sankey-chart');
+        if (!el) return;
+        if (!inflowChart) {
+          inflowChart = echarts.init(el, null, {renderer: 'canvas'});
+          window.addEventListener('resize', function() { if (inflowChart) inflowChart.resize(); });
+        }
+        const option = {
+          backgroundColor: 'transparent',
+          tooltip: {
+            trigger: 'item',
+            triggerOn: 'mousemove',
+            formatter: function(p) {
+              if (p.dataType === 'edge') {
+                return p.data.source + ' → ' + p.data.target + '<br/>' + Math.round(p.data.value).toLocaleString();
+              }
+              return p.name;
+            }
+          },
+          series: [{
+            type: 'sankey',
+            data: (sankey && sankey.nodes) || [],
+            links: (sankey && sankey.links) || [],
+            emphasis: { focus: 'adjacency' },
+            nodeAlign: 'justify',
+            lineStyle: { color: 'gradient', curveness: 0.5, opacity: 0.6 },
+            label: { color: '#e5e7eb', fontSize: 11 },
+            itemStyle: { borderWidth: 0 }
+          }]
+        };
+        inflowChart.setOption(option, true);
+      }
+
+      // DOM API ベースで安全にテーブル構築（innerHTML不使用）
+      function renderSummary(summary) {
+        const el = document.getElementById('inflow-summary-table');
+        if (!el) return;
+        while (el.firstChild) el.removeChild(el.firstChild);
+        if (!summary || summary.length === 0) {
+          const p = document.createElement('p');
+          p.className = 'text-gray-500';
+          p.textContent = 'データなし';
+          el.appendChild(p);
+          return;
+        }
+        const table = document.createElement('table');
+        table.className = 'min-w-full text-left border-collapse';
+        const thead = document.createElement('thead');
+        const trh = document.createElement('tr');
+        trh.className = 'text-gray-400 border-b border-gray-700';
+        ['区分', '人口', '構成比'].forEach(function(h, i) {
+          const th = document.createElement('th');
+          th.className = 'py-1 pr-2' + (i > 0 ? ' text-right' : '');
+          th.textContent = h;
+          trh.appendChild(th);
+        });
+        thead.appendChild(trh);
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        summary.forEach(function(s) {
+          const tr = document.createElement('tr');
+          tr.className = 'border-b border-gray-800 text-gray-200';
+          const td1 = document.createElement('td');
+          td1.className = 'py-1 pr-2';
+          td1.textContent = s.area_name || '';
+          const td2 = document.createElement('td');
+          td2.className = 'py-1 pr-2 text-right';
+          td2.textContent = Math.round(s.population || 0).toLocaleString();
+          const td3 = document.createElement('td');
+          td3.className = 'py-1 pr-2 text-right';
+          td3.textContent = ((s.share || 0) * 100).toFixed(1) + '%';
+          tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        el.appendChild(table);
+      }
+    })();
+  </script>
 
   <!-- 地域統計サマリー（都道府県選択時に表示） -->
   <div id="jm-region-stats" class="stat-card" style="display:none;">
@@ -125,6 +382,85 @@
       都道府県を選択すると統計が表示されます
     </div>
   </div>
+
+  <!-- 求人×人流 相関分析セクション（SW-F04/F10 拡張） -->
+  <section id="correlation-section" class="stat-card" aria-labelledby="corr-heading">
+    <div class="flex justify-between items-center mb-2 flex-wrap gap-2">
+      <div>
+        <h3 id="corr-heading" class="text-sm font-medium text-gray-300">📊 求人×人流 相関分析（1kmメッシュ）</h3>
+        <p class="text-[11px] text-gray-500 mt-0.5">
+          HW掲載求人の求人件数と Agoop 滞在人口をメッシュ単位で突合し、ギャップメッシュを抽出します。
+        </p>
+      </div>
+      <div class="flex items-end gap-2 flex-wrap">
+        <div>
+          <label for="corr-year" class="block text-[10px] text-gray-400 mb-0.5">年</label>
+          <select id="corr-year" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+            <option value="2019">2019</option>
+            <option value="2020">2020</option>
+            <option value="2021" selected>2021</option>
+          </select>
+        </div>
+        <div>
+          <label for="corr-month" class="block text-[10px] text-gray-400 mb-0.5">月</label>
+          <select id="corr-month" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+            <option value="7" selected>7</option><option value="8">8</option><option value="9">9</option>
+            <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+          </select>
+        </div>
+        <div>
+          <label for="corr-dayflag" class="block text-[10px] text-gray-400 mb-0.5">平休日</label>
+          <select id="corr-dayflag" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+            <option value="1" selected>平日</option>
+            <option value="0">休日</option>
+          </select>
+        </div>
+        <div>
+          <label for="corr-timezone" class="block text-[10px] text-gray-400 mb-0.5">時間帯</label>
+          <select id="corr-timezone" class="bg-gray-700 text-white text-xs rounded px-2 py-1 border border-gray-600">
+            <option value="0" selected>昼(11-14h)</option>
+            <option value="1">深夜(1-4h)</option>
+          </select>
+        </div>
+        <button id="corr-run-btn" type="button"
+                class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded px-3 py-1 transition-colors">
+          🔍 分析
+        </button>
+      </div>
+    </div>
+
+    <!-- サマリーバー: 相関係数・件数・注釈 -->
+    <div id="corr-summary" class="text-[11px] text-gray-400 mb-2 flex flex-wrap gap-3 items-center">
+      <span>都道府県を選択して「分析」を押してください。</span>
+    </div>
+
+    <!-- 散布図 -->
+    <div id="corr-scatter" role="img" aria-label="求人件数と人口の散布図" style="width:100%;height:340px;"></div>
+
+    <!-- 異常値メッシュテーブル -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+      <div>
+        <div class="text-xs text-orange-400 font-medium mb-1">🔥 募集難メッシュ（求人多×人口少）</div>
+        <div id="corr-hiring-hard" class="text-[11px] text-gray-300 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-900/40">
+          <span class="text-gray-500">未分析</span>
+        </div>
+      </div>
+      <div>
+        <div class="text-xs text-emerald-400 font-medium mb-1">🌱 未開拓メッシュ（人口多×求人少）</div>
+        <div id="corr-underserved" class="text-[11px] text-gray-300 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-900/40">
+          <span class="text-gray-500">未分析</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-[10px] text-gray-500 mt-2 leading-snug">
+      ⚠️ <strong>相関係数は関連の強さを示すもので、因果関係を示すものではありません。</strong>
+      「求人が多いから人が集まる」「人が多いから求人が出る」等の方向性は本分析では判定できません。
+      データ範囲はHW掲載求人のみで、全求人市場ではありません。Agoop人流は2019-2021年（コロナ影響含む）。
+    </p>
+  </section>
 
   <!-- ピン止めカード表示項目 -->
   <div class="stat-card" id="jm-pin-fields-wrap">
@@ -473,5 +809,302 @@
           setTimeout(trySearch, 500);
         });
     }
+  })();
+
+  // ======== 求人×人流 相関分析（#correlation-section） ========
+  (function initCorrelationSection() {
+    var btn = document.getElementById('corr-run-btn');
+    if (!btn) return;
+
+    var chart = null;
+
+    function prefCodeFromSelect() {
+      // jm-pref のvalueは都道府県名のことが多いので、data-prefcode があればそれを優先
+      var sel = document.getElementById('jm-pref');
+      if (!sel || !sel.value) return null;
+      var opt = sel.options[sel.selectedIndex];
+      if (opt && opt.getAttribute('data-prefcode')) {
+        var n = parseInt(opt.getAttribute('data-prefcode'), 10);
+        return isNaN(n) ? null : n;
+      }
+      // フォールバック: 名称→コード変換テーブル
+      var PREF_CODES = {
+        '北海道':1,'青森県':2,'岩手県':3,'宮城県':4,'秋田県':5,'山形県':6,'福島県':7,
+        '茨城県':8,'栃木県':9,'群馬県':10,'埼玉県':11,'千葉県':12,'東京都':13,'神奈川県':14,
+        '新潟県':15,'富山県':16,'石川県':17,'福井県':18,'山梨県':19,'長野県':20,
+        '岐阜県':21,'静岡県':22,'愛知県':23,'三重県':24,'滋賀県':25,'京都府':26,'大阪府':27,
+        '兵庫県':28,'奈良県':29,'和歌山県':30,'鳥取県':31,'島根県':32,'岡山県':33,'広島県':34,
+        '山口県':35,'徳島県':36,'香川県':37,'愛媛県':38,'高知県':39,'福岡県':40,'佐賀県':41,
+        '長崎県':42,'熊本県':43,'大分県':44,'宮崎県':45,'鹿児島県':46,'沖縄県':47
+      };
+      return PREF_CODES[sel.value] || null;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#x27;'}[c];
+      });
+    }
+
+    function renderOutlierList(containerId, items, color) {
+      var el = document.getElementById(containerId);
+      if (!el) return;
+      if (!items || items.length === 0) {
+        el.innerHTML = '<span class="text-gray-500">該当メッシュなし</span>';
+        return;
+      }
+      var rows = items.slice(0, 20).map(function(it){
+        return '<div class="flex justify-between gap-2 border-b border-gray-700/60 py-0.5">' +
+          '<span>mesh ' + escapeHtml(it.mesh) + '</span>' +
+          '<span style="color:' + color + '">求人 ' + escapeHtml(it.job_count) + ' / 人口 ' + escapeHtml(Math.round(it.population)) + '</span>' +
+          '</div>';
+      }).join('');
+      var more = items.length > 20 ? '<div class="text-gray-500 mt-1">…他 ' + (items.length - 20) + ' 件</div>' : '';
+      el.innerHTML = rows + more;
+    }
+
+    function renderChart(data) {
+      var el = document.getElementById('corr-scatter');
+      if (!el || typeof echarts === 'undefined') return;
+      if (!chart) chart = echarts.init(el, null, { renderer: 'canvas' });
+
+      var normal = [], hh = [], us = [];
+      (data.points || []).forEach(function(p){
+        var arr = [p.population, p.job_count, p.mesh];
+        if (p.category === 'hiring_hard') hh.push(arr);
+        else if (p.category === 'underserved') us.push(arr);
+        else normal.push(arr);
+      });
+
+      chart.setOption({
+        tooltip: {
+          trigger: 'item',
+          formatter: function(p){
+            return 'mesh: ' + p.value[2] +
+              '<br/>人口: ' + p.value[0].toFixed(0) +
+              '<br/>求人件数: ' + p.value[1];
+          }
+        },
+        legend: {
+          top: 0,
+          textStyle: { color: '#d1d5db', fontSize: 11 },
+          data: ['通常', '募集難(求人多×人口少)', '未開拓(人口多×求人少)']
+        },
+        grid: { left: 50, right: 20, top: 30, bottom: 40 },
+        xAxis: {
+          name: '滞在人口',
+          nameLocation: 'middle', nameGap: 25,
+          nameTextStyle: { color: '#9ca3af', fontSize: 11 },
+          axisLabel: { color: '#9ca3af', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#374151' } }
+        },
+        yAxis: {
+          name: '求人件数',
+          nameLocation: 'middle', nameGap: 35,
+          nameTextStyle: { color: '#9ca3af', fontSize: 11 },
+          axisLabel: { color: '#9ca3af', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#374151' } }
+        },
+        series: [
+          { name: '通常', type: 'scatter', data: normal, symbolSize: 5,
+            itemStyle: { color: 'rgba(96,165,250,0.45)' } },
+          { name: '募集難(求人多×人口少)', type: 'scatter', data: hh, symbolSize: 9,
+            itemStyle: { color: '#f97316' } },
+          { name: '未開拓(人口多×求人少)', type: 'scatter', data: us, symbolSize: 9,
+            itemStyle: { color: '#10b981' } }
+        ]
+      });
+    }
+
+    btn.addEventListener('click', function() {
+      var pc = prefCodeFromSelect();
+      var summary = document.getElementById('corr-summary');
+      if (!pc) {
+        if (summary) summary.innerHTML = '<span class="text-orange-400">都道府県を選択してください。</span>';
+        return;
+      }
+      var y = document.getElementById('corr-year').value;
+      var m = document.getElementById('corr-month').value;
+      var df = document.getElementById('corr-dayflag').value;
+      var tz = document.getElementById('corr-timezone').value;
+
+      if (summary) summary.innerHTML = '<span class="text-gray-400">分析中…</span>';
+      var url = '/api/jobmap/correlation?prefcode=' + pc +
+        '&year=' + y + '&month=' + m + '&dayflag=' + df + '&timezone=' + tz;
+
+      fetch(url)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          if (data.error) {
+            if (summary) summary.innerHTML = '<span class="text-red-400">エラー: ' + escapeHtml(data.error) + '</span>';
+            return;
+          }
+          var c = data.correlation || {};
+          var rText = (c.r === null || c.r === undefined) ? 'N/A (分散不足)' : c.r.toFixed(3);
+          var interpret = '';
+          if (typeof c.r === 'number') {
+            var absR = Math.abs(c.r);
+            if (absR >= 0.7) interpret = '強い相関の傾向がみられます';
+            else if (absR >= 0.4) interpret = '中程度の相関の傾向がみられます';
+            else if (absR >= 0.2) interpret = '弱い相関の傾向がみられます';
+            else interpret = '明確な相関はみられません';
+            interpret += (c.r >= 0 ? '（正）' : '（負）');
+          }
+          if (summary) {
+            summary.innerHTML =
+              '<span class="text-white font-medium">r = ' + rText + '</span>' +
+              '<span class="text-gray-400">n = ' + (c.n || 0) + ' メッシュ</span>' +
+              '<span class="text-blue-300">' + escapeHtml(interpret) + '</span>' +
+              '<span class="text-gray-500 text-[10px]">※ ' + escapeHtml(c.note || '') + '</span>';
+          }
+          renderChart(data);
+          renderOutlierList('corr-hiring-hard', (data.outliers || {}).hiring_hard, '#f97316');
+          renderOutlierList('corr-underserved', (data.outliers || {}).underserved, '#10b981');
+        })
+        .catch(function(err){
+          if (summary) summary.innerHTML = '<span class="text-red-400">通信エラー: ' + escapeHtml(err.message || err) + '</span>';
+        });
+    });
+
+    // リサイズ対応
+    window.addEventListener('resize', function(){ if (chart) chart.resize(); });
+  })();
+
+  // ======== メッシュ人口ヒートマップ（Agoop 1km メッシュ） ========
+  (function(){
+    var hmChart = null;
+    function setStatus(msg, isError){
+      var el = document.getElementById('hm-status');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.className = 'text-[11px] ml-1 ' + (isError ? 'text-red-400' : 'text-gray-400');
+    }
+    function ensureChart(){
+      var el = document.getElementById('hm-chart');
+      if (!el || typeof echarts === 'undefined') return null;
+      if (!hmChart) hmChart = echarts.init(el, 'dark');
+      return hmChart;
+    }
+    window.loadHeatmap = function(){
+      var chart = ensureChart();
+      if (!chart) { setStatus('EChartsが読み込まれていません', true); return; }
+      var year = (document.getElementById('hm-year')||{}).value || '2021';
+      var month = (document.getElementById('hm-month')||{}).value || '7';
+      var dayflag = (document.getElementById('hm-dayflag')||{}).value || '1';
+      var timezone = (document.getElementById('hm-timezone')||{}).value || '0';
+      var prefcode = (document.getElementById('hm-prefcode')||{}).value || '';
+      var citycode = (document.getElementById('hm-citycode')||{}).value || '';
+      if (!prefcode && !citycode) {
+        setStatus('都道府県または市区町村コードを指定してください', true);
+        return;
+      }
+      var qs = 'year=' + encodeURIComponent(year)
+             + '&month=' + encodeURIComponent(month)
+             + '&dayflag=' + encodeURIComponent(dayflag)
+             + '&timezone=' + encodeURIComponent(timezone);
+      if (prefcode) qs += '&prefcode=' + encodeURIComponent(prefcode);
+      if (citycode) qs += '&citycode=' + encodeURIComponent(citycode);
+      setStatus('取得中...');
+      chart.showLoading({text: '取得中...', color: '#3b82f6', textColor: '#e5e7eb', maskColor: 'rgba(15,23,42,0.6)'});
+      fetch('/api/jobmap/heatmap?' + qs)
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+          chart.hideLoading();
+          if (data && data.error) { setStatus('エラー: ' + data.error, true); return; }
+          var pts = (data && data.points) || [];
+          if (!pts.length) { setStatus('該当データなし (' + (data.data_count||0) + '件)'); chart.clear(); return; }
+          // bbox 計算
+          var minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+          var scatterData = new Array(pts.length);
+          for (var i = 0; i < pts.length; i++) {
+            var p = pts[i];
+            if (p.lat < minLat) minLat = p.lat;
+            if (p.lat > maxLat) maxLat = p.lat;
+            if (p.lng < minLng) minLng = p.lng;
+            if (p.lng > maxLng) maxLng = p.lng;
+            scatterData[i] = [p.lng, p.lat, p.population];
+          }
+          var padLat = Math.max((maxLat - minLat) * 0.05, 0.01);
+          var padLng = Math.max((maxLng - minLng) * 0.05, 0.01);
+          var maxPop = data.max || 1;
+          var option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+              trigger: 'item',
+              formatter: function(p){
+                if (!p || !p.value) return '';
+                return '緯度: ' + p.value[1].toFixed(4) + '<br/>' +
+                       '経度: ' + p.value[0].toFixed(4) + '<br/>' +
+                       '人口: ' + Math.round(p.value[2]).toLocaleString();
+              }
+            },
+            grid: { left: 40, right: 40, top: 30, bottom: 50, containLabel: true },
+            xAxis: {
+              type: 'value',
+              name: '経度',
+              min: minLng - padLng,
+              max: maxLng + padLng,
+              scale: true,
+              axisLabel: { color: '#9ca3af', formatter: function(v){ return v.toFixed(2); } },
+              nameTextStyle: { color: '#9ca3af' },
+              splitLine: { lineStyle: { color: '#374151' } }
+            },
+            yAxis: {
+              type: 'value',
+              name: '緯度',
+              min: minLat - padLat,
+              max: maxLat + padLat,
+              scale: true,
+              axisLabel: { color: '#9ca3af', formatter: function(v){ return v.toFixed(2); } },
+              nameTextStyle: { color: '#9ca3af' },
+              splitLine: { lineStyle: { color: '#374151' } }
+            },
+            visualMap: {
+              min: 0,
+              max: maxPop,
+              dimension: 2,
+              orient: 'horizontal',
+              left: 'center',
+              bottom: 10,
+              textStyle: { color: '#e5e7eb' },
+              inRange: {
+                color: ['#1e3a8a', '#3b82f6', '#22c55e', '#eab308', '#f97316', '#ef4444']
+              },
+              calculable: true
+            },
+            series: [{
+              type: 'scatter',
+              symbolSize: function(val){
+                // population の log スケールでサイズ調整（1〜14px 程度）
+                var v = val && val[2] ? val[2] : 0;
+                if (v <= 0) return 1;
+                return Math.max(2, Math.min(14, Math.log(v + 1) * 2));
+              },
+              data: scatterData,
+              progressive: 2000,
+              progressiveThreshold: 3000,
+              itemStyle: { opacity: 0.75 }
+            }]
+          };
+          chart.setOption(option, true);
+          var metaEl = document.getElementById('hm-meta');
+          if (metaEl) {
+            var m = data.meta || {};
+            var notice = m.covid_notice ? ('<br/>⚠️ ' + m.covid_notice) : '';
+            metaEl.innerHTML =
+              'granularity=' + (m.granularity||'?') +
+              ' / mode=' + (m.aggregate_mode||'?') +
+              ' / rows=' + (data.data_count||0) +
+              (data.truncated ? (' / ⚠️ LIMIT ' + data.row_limit + ' で切り詰め（条件を絞ってください）') : '') +
+              '<br/>source: ' + (m.data_source||'') + ' (' + (m.data_period||'') + ')' + notice;
+          }
+          setStatus('描画完了 (' + (data.data_count||0) + '件)');
+        })
+        .catch(function(err){
+          if (hmChart) hmChart.hideLoading();
+          setStatus('通信エラー: ' + (err && err.message ? err.message : err), true);
+        });
+    };
+    window.addEventListener('resize', function(){ if (hmChart) hmChart.resize(); });
   })();
 </script>

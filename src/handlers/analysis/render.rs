@@ -4514,7 +4514,7 @@ mod new_section_tests {
         let row = make_row_with_float(
             &[
                 ("industry_j", "その他産業"),
-                ("di_type", "business_condition"),
+                ("di_type", "business"),
                 ("survey_date", "2024Q1"),
             ],
             &[("di_value", 10.0)],
@@ -4529,7 +4529,7 @@ mod new_section_tests {
         let row = make_row_with_float(
             &[
                 ("industry_j", "製造業"),
-                ("di_type", "business_condition"),
+                ("di_type", "business"),
                 ("survey_date", "2024Q1"),
             ],
             &[("di_value", 15.0)],
@@ -4548,7 +4548,7 @@ mod new_section_tests {
         let row = make_row_with_float(
             &[
                 ("industry_j", "非製造業"),
-                ("di_type", "employment_excess"),
+                ("di_type", "employment"),
                 ("survey_date", "2024Q1"),
             ],
             &[("di_value", -5.0)],
@@ -4568,7 +4568,7 @@ mod new_section_tests {
             make_row_with_float(
                 &[
                     ("industry_j", "製造業"),
-                    ("di_type", "business_condition"),
+                    ("di_type", "business"),
                     ("survey_date", "2024Q3"),
                 ],
                 &[("di_value", 12.0)],
@@ -4576,7 +4576,7 @@ mod new_section_tests {
             make_row_with_float(
                 &[
                     ("industry_j", "製造業"),
-                    ("di_type", "business_condition"),
+                    ("di_type", "business"),
                     ("survey_date", "2024Q1"),
                 ],
                 &[("di_value", 8.0)],

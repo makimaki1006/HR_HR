@@ -137,6 +137,44 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/jobmap/region/segments",
             get(handlers::jobmap::region_segments),
         )
+        // ======== Phase 6: Agoop 人流 API（Round 2） ========
+        .route(
+            "/api/flow/karte/profile",
+            get(handlers::jobmap::flow_karte_profile),
+        )
+        .route(
+            "/api/flow/karte/monthly",
+            get(handlers::jobmap::flow_karte_monthly),
+        )
+        .route(
+            "/api/flow/karte/daynight_ratio",
+            get(handlers::jobmap::flow_karte_daynight_ratio),
+        )
+        .route(
+            "/api/flow/karte/inflow_breakdown",
+            get(handlers::jobmap::flow_karte_inflow_breakdown),
+        )
+        .route(
+            "/api/flow/city_agg",
+            get(handlers::jobmap::flow_city_agg),
+        )
+        .route(
+            "/api/jobmap/heatmap",
+            get(handlers::jobmap::jobmap_heatmap),
+        )
+        .route(
+            "/api/jobmap/inflow",
+            get(handlers::jobmap::jobmap_inflow_sankey),
+        )
+        // ======== Round 3: 地域カルテ ========
+        .route(
+            "/tab/region_karte",
+            get(handlers::region::tab_region_karte),
+        )
+        .route(
+            "/api/region/karte/{citycode}",
+            get(handlers::region::api_region_karte),
+        )
         .route(
             "/api/jobmap/company-markers",
             get(handlers::jobmap::jobmap_company_markers),
@@ -148,6 +186,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/api/jobmap/industry-companies",
             get(handlers::jobmap::jobmap_industry_companies),
+        )
+        .route(
+            "/api/jobmap/correlation",
+            get(handlers::jobmap::jobmap_correlation),
         )
         .route(
             "/tab/competitive",

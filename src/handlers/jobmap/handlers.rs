@@ -6,7 +6,8 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use crate::geo::pref_name_to_code;
-use crate::handlers::competitive::{build_option, escape_html};
+use crate::handlers::competitive::{build_option, build_option_with_data, escape_html};
+use crate::geo::city_code;
 use crate::handlers::overview::get_session_filters;
 use crate::AppState;
 
@@ -67,16 +68,33 @@ pub async fn tab_jobmap(State(state): State<Arc<AppState>>, session: Session) ->
     }
 
     let prefs = fetch::fetch_prefectures(geocoded_db, &filters);
+    let pref_code_map = pref_name_to_code();
     let pref_options: String = std::iter::once(build_option("", "-- 都道府県 --"))
         .chain(prefs.iter().map(|p| {
-            if p == &filters.prefecture {
+            let prefcode = pref_code_map
+                .get(p.as_str())
+                .map(|c| c.trim_start_matches('0').to_string())
+                .unwrap_or_default();
+            let selected = p == &filters.prefecture;
+            let data_attrs: Vec<(&str, String)> = if !prefcode.is_empty() {
+                vec![("prefcode", prefcode)]
+            } else {
+                Vec::new()
+            };
+            if selected {
+                // selected 属性は build_option_with_data に無いため個別生成
+                let attrs: String = data_attrs
+                    .iter()
+                    .map(|(k, v)| format!(r#" data-{}="{}""#, k, escape_html(v)))
+                    .collect();
                 format!(
-                    r#"<option value="{}" selected>{}</option>"#,
+                    r#"<option value="{}"{} selected>{}</option>"#,
                     escape_html(p),
+                    attrs,
                     escape_html(p)
                 )
             } else {
-                build_option(p, p)
+                build_option_with_data(p, p, &data_attrs)
             }
         }))
         .collect::<Vec<_>>()
@@ -217,8 +235,18 @@ pub async fn jobmap_municipalities(
     };
 
     let munis = fetch::fetch_municipalities(geocoded_db, &filters, &params.prefecture);
+    let pref_name = &params.prefecture;
     let options: String = std::iter::once(build_option("", "-- 市区町村 --"))
-        .chain(munis.iter().map(|m| build_option(m, m)))
+        .chain(munis.iter().map(|m| {
+            match city_code::city_name_to_code(pref_name, m) {
+                Some(code) => build_option_with_data(
+                    m,
+                    m,
+                    &[("citycode", code.to_string())],
+                ),
+                None => build_option(m, m),
+            }
+        }))
         .collect::<Vec<_>>()
         .join("\n");
 
