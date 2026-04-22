@@ -7,7 +7,7 @@ use super::pref_name_to_code;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const MASTER_CITY_CSV: &str = include_str!("../../data/agoop/turso_csv/master_city.csv");
+const MASTER_CITY_CSV: &str = include_str!("master_city.csv");
 
 fn map() -> &'static HashMap<(String, String), u32> {
     static MAP: OnceLock<HashMap<(String, String), u32>> = OnceLock::new();
