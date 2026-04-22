@@ -12,7 +12,7 @@ use super::fetch::build_insight_context;
 use super::helpers::INSIGHT_SUBTABS;
 use super::render::{
     render_insight_widget_html, render_subtab_action, render_subtab_forecast, render_subtab_hiring,
-    render_subtab_regional,
+    render_subtab_regional, render_subtab_structural,
 };
 use super::report::build_report_json;
 use crate::AppState;
@@ -100,8 +100,8 @@ pub async fn insight_subtab(
     session: Session,
     Path(id): Path<u8>,
 ) -> Html<String> {
-    // id範囲検証（1-4のみ有効、キャッシュ汚染防止）
-    if !(1..=4).contains(&id) {
+    // id範囲検証（1-5のみ有効、キャッシュ汚染防止）
+    if !(1..=5).contains(&id) {
         return Html(r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string());
     }
 
@@ -135,6 +135,7 @@ pub async fn insight_subtab(
             2 => render_subtab_forecast(&insights),
             3 => render_subtab_regional(&insights),
             4 => render_subtab_action(&insights),
+            5 => render_subtab_structural(&insights),
             _ => r#"<p class="text-slate-500 text-sm p-4">不明なサブタブです</p>"#.to_string(),
         }
     })

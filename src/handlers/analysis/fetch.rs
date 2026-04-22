@@ -11,7 +11,7 @@ type Row = HashMap<String, Value>;
 
 /// Turso外部DBクエリ実行ヘルパー
 /// Turso接続がある場合はTursoを使い、なければローカルDBにフォールバック
-fn query_turso_or_local(
+pub(crate) fn query_turso_or_local(
     turso: Option<&TursoDb>,
     local_db: &Db,
     sql: &str,
@@ -840,21 +840,29 @@ pub(crate) fn fetch_labor_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
 }
 
 /// 事業所数データ（都道府県別×産業分類、Turso優先）
+/// Phase A 新スキーマ対応: 市区町村×産業コードのLONG形式データを都道府県別に集約
+/// SSDSE-A取込により (prefecture, municipality, industry_code, industry_name, establishments, employees, reference_year) 構造に変更
+/// 既存呼び出し側との互換のため `industry`/`establishment_count` をエイリアスで維持
 pub(crate) fn fetch_establishments(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         (
-            "SELECT prefecture, industry, establishment_count, reference_year \
+            "SELECT prefecture, industry_code as industry, industry_name, \
+          SUM(establishments) as establishment_count, SUM(employees) as employees, \
+          MAX(reference_year) as reference_year \
           FROM v2_external_establishments \
-          WHERE prefecture = ?1 \
+          WHERE prefecture = ?1 AND industry_code <> 'ALL' \
+          GROUP BY prefecture, industry_code, industry_name \
           ORDER BY establishment_count DESC"
                 .to_string(),
             vec![pref.to_string()],
         )
     } else {
-        ("SELECT '全国' as prefecture, industry, SUM(establishment_count) as establishment_count, \
+        ("SELECT '全国' as prefecture, industry_code as industry, industry_name, \
+          SUM(establishments) as establishment_count, SUM(employees) as employees, \
           MAX(reference_year) as reference_year \
           FROM v2_external_establishments \
-          GROUP BY industry \
+          WHERE industry_code <> 'ALL' \
+          GROUP BY industry_code, industry_name \
           ORDER BY establishment_count DESC".to_string(), vec![])
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_establishments")
@@ -1566,4 +1574,324 @@ pub(crate) fn fetch_self_commute_rate(db: &Db, pref: &str, muni: &str) -> f64 {
     } else {
         0.0
     }
+}
+
+// ======== Phase A: SSDSE-A 新規6関数 + 県平均補助関数 ========
+//
+// 世帯・自然動態・労働力・医療福祉・教育施設・地理の6テーブルから
+// 市区町村/都道府県/全国レベルでデータを取得する。
+// 既存 `fetch_population_data` パターンを踏襲（SUM集計で都道府県/全国レベル算出）。
+// SUM方式で比率を再計算する（北海道1次産業: SUM=6.66%が正、市区町村AVG=22%は誤）。
+
+/// Phase A: 世帯構造データ（v2_external_households）
+pub(crate) fn fetch_households(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT prefecture, municipality, total_households, general_households, \
+             general_household_members, nuclear_family_households, single_households, \
+             elderly_nuclear_households, elderly_couple_households, elderly_single_households, \
+             avg_household_size, single_rate, elderly_single_rate, reference_date \
+             FROM v2_external_households WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT ?1 as prefecture, '全体' as municipality, \
+             SUM(total_households) as total_households, \
+             SUM(general_households) as general_households, \
+             SUM(general_household_members) as general_household_members, \
+             SUM(nuclear_family_households) as nuclear_family_households, \
+             SUM(single_households) as single_households, \
+             SUM(elderly_nuclear_households) as elderly_nuclear_households, \
+             SUM(elderly_couple_households) as elderly_couple_households, \
+             SUM(elderly_single_households) as elderly_single_households, \
+             CAST(SUM(general_household_members) AS REAL) / NULLIF(SUM(general_households), 0) as avg_household_size, \
+             CAST(SUM(single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as single_rate, \
+             CAST(SUM(elderly_single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as elderly_single_rate, \
+             MAX(reference_date) as reference_date \
+             FROM v2_external_households WHERE prefecture = ?1".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT '全国' as prefecture, '' as municipality, \
+             SUM(total_households) as total_households, \
+             SUM(general_households) as general_households, \
+             SUM(general_household_members) as general_household_members, \
+             SUM(nuclear_family_households) as nuclear_family_households, \
+             SUM(single_households) as single_households, \
+             SUM(elderly_nuclear_households) as elderly_nuclear_households, \
+             SUM(elderly_couple_households) as elderly_couple_households, \
+             SUM(elderly_single_households) as elderly_single_households, \
+             CAST(SUM(general_household_members) AS REAL) / NULLIF(SUM(general_households), 0) as avg_household_size, \
+             CAST(SUM(single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as single_rate, \
+             CAST(SUM(elderly_single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as elderly_single_rate, \
+             MAX(reference_date) as reference_date \
+             FROM v2_external_households".to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_households")
+}
+
+/// Phase A: 自然動態データ（v2_external_vital_statistics）
+pub(crate) fn fetch_vital_statistics(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT prefecture, municipality, births, deaths, natural_change, marriages, divorces, \
+             birth_rate_permille, death_rate_permille, marriage_rate_permille, divorce_rate_permille, \
+             reference_year \
+             FROM v2_external_vital_statistics WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT ?1 as prefecture, '全体' as municipality, \
+             SUM(births) as births, SUM(deaths) as deaths, \
+             SUM(births) - SUM(deaths) as natural_change, \
+             SUM(marriages) as marriages, SUM(divorces) as divorces, \
+             NULL as birth_rate_permille, NULL as death_rate_permille, \
+             NULL as marriage_rate_permille, NULL as divorce_rate_permille, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_vital_statistics WHERE prefecture = ?1".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT '全国' as prefecture, '' as municipality, \
+             SUM(births) as births, SUM(deaths) as deaths, \
+             SUM(births) - SUM(deaths) as natural_change, \
+             SUM(marriages) as marriages, SUM(divorces) as divorces, \
+             NULL as birth_rate_permille, NULL as death_rate_permille, \
+             NULL as marriage_rate_permille, NULL as divorce_rate_permille, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_vital_statistics".to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_vital_statistics")
+}
+
+/// Phase A: 労働力データ（v2_external_labor_force、SUM方式で比率再計算）
+pub(crate) fn fetch_labor_force(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT prefecture, municipality, employed, employed_male, employed_female, \
+             unemployed, unemployed_male, unemployed_female, not_in_labor_force, \
+             not_in_labor_force_male, not_in_labor_force_female, \
+             primary_industry_employed, secondary_industry_employed, tertiary_industry_employed, \
+             unemployment_rate, labor_force_participation_rate, reference_date \
+             FROM v2_external_labor_force WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT ?1 as prefecture, '全体' as municipality, \
+             SUM(employed) as employed, SUM(employed_male) as employed_male, \
+             SUM(employed_female) as employed_female, SUM(unemployed) as unemployed, \
+             SUM(unemployed_male) as unemployed_male, SUM(unemployed_female) as unemployed_female, \
+             SUM(not_in_labor_force) as not_in_labor_force, \
+             SUM(not_in_labor_force_male) as not_in_labor_force_male, \
+             SUM(not_in_labor_force_female) as not_in_labor_force_female, \
+             SUM(primary_industry_employed) as primary_industry_employed, \
+             SUM(secondary_industry_employed) as secondary_industry_employed, \
+             SUM(tertiary_industry_employed) as tertiary_industry_employed, \
+             CAST(SUM(unemployed) AS REAL) / NULLIF(SUM(employed) + SUM(unemployed), 0) * 100 as unemployment_rate, \
+             NULL as labor_force_participation_rate, \
+             MAX(reference_date) as reference_date \
+             FROM v2_external_labor_force WHERE prefecture = ?1".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT '全国' as prefecture, '' as municipality, \
+             SUM(employed) as employed, SUM(employed_male) as employed_male, \
+             SUM(employed_female) as employed_female, SUM(unemployed) as unemployed, \
+             SUM(unemployed_male) as unemployed_male, SUM(unemployed_female) as unemployed_female, \
+             SUM(not_in_labor_force) as not_in_labor_force, \
+             SUM(not_in_labor_force_male) as not_in_labor_force_male, \
+             SUM(not_in_labor_force_female) as not_in_labor_force_female, \
+             SUM(primary_industry_employed) as primary_industry_employed, \
+             SUM(secondary_industry_employed) as secondary_industry_employed, \
+             SUM(tertiary_industry_employed) as tertiary_industry_employed, \
+             CAST(SUM(unemployed) AS REAL) / NULLIF(SUM(employed) + SUM(unemployed), 0) * 100 as unemployment_rate, \
+             NULL as labor_force_participation_rate, \
+             MAX(reference_date) as reference_date \
+             FROM v2_external_labor_force".to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_labor_force")
+}
+
+/// Phase A: 医療福祉データ（v2_external_medical_welfare）
+pub(crate) fn fetch_medical_welfare(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT prefecture, municipality, general_hospitals, general_clinics, dental_clinics, \
+             physicians, dentists, pharmacists, daycare_facilities, \
+             physicians_per_10k_pop, daycare_per_1k_children_0_14, reference_year \
+             FROM v2_external_medical_welfare WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT ?1 as prefecture, '全体' as municipality, \
+             SUM(general_hospitals) as general_hospitals, \
+             SUM(general_clinics) as general_clinics, \
+             SUM(dental_clinics) as dental_clinics, \
+             SUM(physicians) as physicians, SUM(dentists) as dentists, \
+             SUM(pharmacists) as pharmacists, SUM(daycare_facilities) as daycare_facilities, \
+             NULL as physicians_per_10k_pop, NULL as daycare_per_1k_children_0_14, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_medical_welfare WHERE prefecture = ?1".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT '全国' as prefecture, '' as municipality, \
+             SUM(general_hospitals) as general_hospitals, \
+             SUM(general_clinics) as general_clinics, \
+             SUM(dental_clinics) as dental_clinics, \
+             SUM(physicians) as physicians, SUM(dentists) as dentists, \
+             SUM(pharmacists) as pharmacists, SUM(daycare_facilities) as daycare_facilities, \
+             NULL as physicians_per_10k_pop, NULL as daycare_per_1k_children_0_14, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_medical_welfare".to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_medical_welfare")
+}
+
+/// Phase A: 教育施設データ（v2_external_education_facilities、既存 `fetch_education` と衝突回避）
+pub(crate) fn fetch_education_facilities(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT prefecture, municipality, kindergartens, elementary_schools, \
+             junior_high_schools, high_schools, reference_year \
+             FROM v2_external_education_facilities WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT ?1 as prefecture, '全体' as municipality, \
+             SUM(kindergartens) as kindergartens, \
+             SUM(elementary_schools) as elementary_schools, \
+             SUM(junior_high_schools) as junior_high_schools, \
+             SUM(high_schools) as high_schools, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_education_facilities WHERE prefecture = ?1".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT '全国' as prefecture, '' as municipality, \
+             SUM(kindergartens) as kindergartens, \
+             SUM(elementary_schools) as elementary_schools, \
+             SUM(junior_high_schools) as junior_high_schools, \
+             SUM(high_schools) as high_schools, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_education_facilities".to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_education_facilities")
+}
+
+/// Phase A: 地理データ（v2_external_geography、密度は動的再計算）
+pub(crate) fn fetch_geography(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT prefecture, municipality, total_area_km2, habitable_area_km2, \
+             population_density_per_km2, habitable_density_per_km2, reference_year \
+             FROM v2_external_geography WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT ?1 as prefecture, '全体' as municipality, \
+             SUM(total_area_km2) as total_area_km2, \
+             SUM(habitable_area_km2) as habitable_area_km2, \
+             NULL as population_density_per_km2, \
+             NULL as habitable_density_per_km2, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_geography WHERE prefecture = ?1".to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT '全国' as prefecture, '' as municipality, \
+             SUM(total_area_km2) as total_area_km2, \
+             SUM(habitable_area_km2) as habitable_area_km2, \
+             NULL as population_density_per_km2, \
+             NULL as habitable_density_per_km2, \
+             MAX(reference_year) as reference_year \
+             FROM v2_external_geography".to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_geography")
+}
+
+/// Phase A: 県平均（SUM方式）汎用補助関数
+///
+/// 指定テーブル・指定カラムについて、都道府県内の市区町村合計から比率を再計算する。
+/// 例: unemployment_rate の県平均 = SUM(unemployed) / SUM(employed + unemployed) × 100
+///
+/// # Arguments
+/// * `numerator_sum_sql` - 分子のSUM式 (例: "SUM(unemployed)")
+/// * `denominator_sum_sql` - 分母のSUM式 (例: "SUM(employed) + SUM(unemployed)")
+/// * `table` - テーブル名 (例: "v2_external_labor_force")
+pub(crate) fn fetch_prefecture_mean(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    numerator_sum_sql: &str,
+    denominator_sum_sql: &str,
+    table: &str,
+) -> Option<f64> {
+    let sql = format!(
+        "SELECT CAST({numerator_sum_sql} AS REAL) / NULLIF({denominator_sum_sql}, 0) * 100 as rate \
+         FROM {table} WHERE prefecture = ?1"
+    );
+    let rows = query_turso_or_local(turso, db, &sql, &[pref.to_string()], table);
+    rows.first().and_then(|r| {
+        let v = super::super::helpers::get_f64(r, "rate");
+        if v.is_nan() || v.is_infinite() {
+            None
+        } else {
+            Some(v)
+        }
+    })
 }

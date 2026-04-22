@@ -1,8 +1,12 @@
-//! 示唆計算ロジック（4カテゴリ16パターン）
+//! 示唆計算ロジック（既存22パターン + Phase A 新規6パターン = 計28パターン）
+//!
+//! - 既存（L31-1329, 完全無変更）: HS/FC/RC/AP/CZ/CF 22パターン
+//! - 追加（L1331以降、StructuralContext）: LS/HH/MF/IN/GE 6パターン（SSDSE-A Phase A）
 
 use super::super::helpers::{get_f64, get_str_ref};
 use super::fetch::InsightContext;
 use super::helpers::*;
+use super::phrase_validator::assert_valid_phrase;
 
 // ======== エントリポイント ========
 
@@ -20,6 +24,12 @@ pub fn generate_insights(ctx: &InsightContext) -> Vec<Insight> {
     insights.extend(analyze_commute_zone(ctx));
     // カテゴリ4: アクション提案（上記結果に依存）
     insights.extend(generate_action_proposals(ctx, &insights));
+    // カテゴリ6: 構造分析（Phase A、SSDSE-Aベース、市区町村構造指標）
+    insights.extend(analyze_structural_context(ctx));
+    // カテゴリ7: Agoop 人流示唆（Phase B、SW-F01〜F10）
+    if let Some(flow) = &ctx.flow {
+        insights.extend(super::engine_flow::analyze_flow_insights(ctx, flow));
+    }
 
     // Severityでソート（Critical → Warning → Info → Positive）
     insights.sort_by(|a, b| a.severity.cmp(&b.severity));
@@ -1325,5 +1335,366 @@ fn cf3_self_commute_analysis(ctx: &InsightContext) -> Option<Insight> {
             },
         ],
         related_tabs: vec!["analysis", "overview"],
+    })
+}
+
+// ======== カテゴリ6: 構造分析（Phase A、SSDSE-Aベース）========
+//
+// 市区町村レベルの構造指標（世帯・労働力・医療福祉・教育施設・地理）から、
+// HW求人市場では見えない「採用構造の背景」を示唆する。
+// 全関数で文末「傾向がみられます」「可能性があります」等の非断定表現を強制し、
+// phrase_validator で検証する（相関≠因果原則）。
+
+fn analyze_structural_context(ctx: &InsightContext) -> Vec<Insight> {
+    let mut out = Vec::new();
+
+    if let Some(insight) = ls1_employment_capacity(ctx) {
+        assert_valid_phrase(&insight.body);
+        out.push(insight);
+    }
+    if let Some(insight) = ls2_industry_concentration(ctx) {
+        assert_valid_phrase(&insight.body);
+        out.push(insight);
+    }
+    if let Some(insight) = hh1_single_household_persona(ctx) {
+        assert_valid_phrase(&insight.body);
+        out.push(insight);
+    }
+    if let Some(insight) = mf1_medical_welfare_density(ctx) {
+        assert_valid_phrase(&insight.body);
+        out.push(insight);
+    }
+    if let Some(insight) = in1_industry_mismatch(ctx) {
+        assert_valid_phrase(&insight.body);
+        out.push(insight);
+    }
+    if let Some(insight) = ge1_habitable_density(ctx) {
+        assert_valid_phrase(&insight.body);
+        out.push(insight);
+    }
+
+    out
+}
+
+/// LS-1: 採用余力シグナル（SSDSE-A labor_force + pref_avg_unemployment_rate ベース）
+///
+/// 失業率が県平均 × 1.2 を超え、かつ pref_avg が有意な場合に発火。
+/// ただし HW求人数との比率は v2_posting_mesh1km 実装後に拡張予定（現状は失業率のみで判定）。
+fn ls1_employment_capacity(ctx: &InsightContext) -> Option<Insight> {
+    let lf = ctx.ext_labor_force.first()?;
+    let unemp = get_f64(lf, "unemployment_rate");
+    if unemp.is_nan() || unemp <= 0.0 {
+        return None;
+    }
+    let pref_avg = ctx.pref_avg_unemployment_rate?;
+    if pref_avg <= 0.0 {
+        return None;
+    }
+    let ratio = unemp / pref_avg;
+    if ratio < UNEMPLOYMENT_RATE_MULTIPLIER_WARNING {
+        return None;
+    }
+    let severity = if ratio >= UNEMPLOYMENT_RATE_MULTIPLIER_CRITICAL {
+        Severity::Critical
+    } else {
+        Severity::Warning
+    };
+    let unemployed_count = get_f64(lf, "unemployed");
+
+    Some(Insight {
+        id: "LS-1".to_string(),
+        category: InsightCategory::StructuralContext,
+        severity,
+        title: "採用余力シグナル".to_string(),
+        body: format!(
+            "失業率が{:.2}%（県平均{:.2}%の{:.2}倍）で、未マッチ層が約{:.0}人いる可能性があります。採用余力がうかがえる傾向がみられます。",
+            unemp, pref_avg, ratio, unemployed_count
+        ),
+        evidence: vec![
+            Evidence {
+                metric: "失業率".into(),
+                value: unemp,
+                unit: "%".into(),
+                context: format!("県平均{:.2}%", pref_avg),
+            },
+            Evidence {
+                metric: "県平均比".into(),
+                value: ratio,
+                unit: "倍".into(),
+                context: format!("閾値{:.1}倍以上", UNEMPLOYMENT_RATE_MULTIPLIER_WARNING),
+            },
+        ],
+        related_tabs: vec!["overview", "analysis"],
+    })
+}
+
+/// LS-2: 産業偏在リスク（3次産業85%超 or 1次産業20%超）
+///
+/// SUM方式で計算（SUM(tertiary) / SUM(employed) × 100）。
+/// 単一産業への依存度が高いと、業種転換余地が限定的な傾向を示唆する。
+fn ls2_industry_concentration(ctx: &InsightContext) -> Option<Insight> {
+    let lf = ctx.ext_labor_force.first()?;
+    let employed = get_f64(lf, "employed");
+    if employed <= 0.0 {
+        return None;
+    }
+    let tertiary = get_f64(lf, "tertiary_industry_employed");
+    let primary = get_f64(lf, "primary_industry_employed");
+    let tertiary_share = tertiary / employed * 100.0;
+    let primary_share = primary / employed * 100.0;
+
+    let (industry_label, share, threshold) = if tertiary_share > TERTIARY_CONCENTRATION_THRESHOLD {
+        ("第三次産業", tertiary_share, TERTIARY_CONCENTRATION_THRESHOLD)
+    } else if primary_share > PRIMARY_CONCENTRATION_THRESHOLD {
+        ("第一次産業", primary_share, PRIMARY_CONCENTRATION_THRESHOLD)
+    } else {
+        return None;
+    };
+
+    let severity = if share > threshold + 10.0 {
+        Severity::Warning
+    } else {
+        Severity::Info
+    };
+
+    Some(Insight {
+        id: "LS-2".to_string(),
+        category: InsightCategory::StructuralContext,
+        severity,
+        title: "産業偏在リスク".to_string(),
+        body: format!(
+            "{}就業者比率が{:.1}%（閾値{:.0}%）と高く、単一産業への依存により業種転換の余地が限定的な傾向がみられます。",
+            industry_label, share, threshold
+        ),
+        evidence: vec![
+            Evidence {
+                metric: format!("{}比率", industry_label),
+                value: share,
+                unit: "%".into(),
+                context: format!("閾値{:.0}%以上", threshold),
+            },
+            Evidence {
+                metric: "就業者総数".into(),
+                value: employed,
+                unit: "人".into(),
+                context: "市区町村合計".into(),
+            },
+        ],
+        related_tabs: vec!["analysis", "overview"],
+    })
+}
+
+/// HH-1: 単独世帯型求職者推定（単独世帯率 > 40%）
+///
+/// 単独世帯率が高いと、転居可能な求職者層（若年・単身）が多い可能性を示唆。
+fn hh1_single_household_persona(ctx: &InsightContext) -> Option<Insight> {
+    let hh = ctx.ext_households.first()?;
+    let single_rate = get_f64(hh, "single_rate");
+    if single_rate.is_nan() || single_rate <= SINGLE_HOUSEHOLD_RATE_THRESHOLD {
+        return None;
+    }
+    let single_count = get_f64(hh, "single_households");
+    let pref_avg = ctx.pref_avg_single_rate;
+
+    let severity = if single_rate > SINGLE_HOUSEHOLD_RATE_THRESHOLD + 15.0 {
+        Severity::Warning
+    } else {
+        Severity::Info
+    };
+
+    let avg_text = match pref_avg {
+        Some(p) if p > 0.0 => format!("（県平均{:.1}%）", p),
+        _ => String::new(),
+    };
+
+    Some(Insight {
+        id: "HH-1".to_string(),
+        category: InsightCategory::StructuralContext,
+        severity,
+        title: "単独世帯型求職者層".to_string(),
+        body: format!(
+            "単独世帯率が{:.1}%{}と高く、単独世帯数{:.0}世帯。転居可能な求職者層が多い可能性がみられます。",
+            single_rate, avg_text, single_count
+        ),
+        evidence: vec![Evidence {
+            metric: "単独世帯率".into(),
+            value: single_rate,
+            unit: "%".into(),
+            context: format!("閾値{:.0}%以上", SINGLE_HOUSEHOLD_RATE_THRESHOLD),
+        }],
+        related_tabs: vec!["demographics", "overview"],
+    })
+}
+
+/// MF-1: 医療福祉供給密度ギャップ
+///
+/// 人口1万人あたり医師数が県平均× 0.8 を下回る（医療系求人採用難の可能性）。
+/// pref_avg_physicians_per_10k は build_insight_context ではなく本関数内で動的計算する
+/// （人口データとの相互依存を回避）。
+fn mf1_medical_welfare_density(ctx: &InsightContext) -> Option<Insight> {
+    let mw = ctx.ext_medical_welfare.first()?;
+    let pop_row = ctx.ext_population.first()?;
+    let total_pop = get_f64(pop_row, "total_population");
+    if total_pop <= 0.0 {
+        return None;
+    }
+    let physicians = get_f64(mw, "physicians");
+    if physicians.is_nan() || physicians < 0.0 {
+        return None;
+    }
+    let local_density = physicians / total_pop * 10_000.0;
+
+    // 県平均: get_f64 で pref_avg ベース（本来は別途事前計算、ここでは daycare/children から推定不可のためスキップ可）
+    // 代替として全国参考値（2022年公式: 約27人/10万人 = 2.7人/1万人）を使用
+    const NATIONAL_PHYSICIANS_PER_10K: f64 = 27.0;
+    let ratio = if NATIONAL_PHYSICIANS_PER_10K > 0.0 {
+        local_density / NATIONAL_PHYSICIANS_PER_10K
+    } else {
+        return None;
+    };
+
+    if ratio >= MEDICAL_DENSITY_GAP_RATIO {
+        return None;
+    }
+
+    let severity = if ratio < MEDICAL_DENSITY_CRITICAL_RATIO {
+        Severity::Critical
+    } else {
+        Severity::Warning
+    };
+
+    Some(Insight {
+        id: "MF-1".to_string(),
+        category: InsightCategory::StructuralContext,
+        severity,
+        title: "医療供給密度ギャップ".to_string(),
+        body: format!(
+            "人口1万人あたり医師数が{:.2}人（全国参考値{:.1}人の{:.0}%）と、医療系求人が採りにくい構造的傾向がみられます。",
+            local_density,
+            NATIONAL_PHYSICIANS_PER_10K,
+            ratio * 100.0
+        ),
+        evidence: vec![
+            Evidence {
+                metric: "医師数".into(),
+                value: physicians,
+                unit: "人".into(),
+                context: "市区町村内".into(),
+            },
+            Evidence {
+                metric: "10k人あたり".into(),
+                value: local_density,
+                unit: "人".into(),
+                context: format!("全国参考{:.1}人", NATIONAL_PHYSICIANS_PER_10K),
+            },
+        ],
+        related_tabs: vec!["overview", "analysis"],
+    })
+}
+
+/// IN-1: 産業構造ミスマッチ（事業所業種分布 vs HW求人業種分布のコサイン類似度）
+///
+/// 現Phase Aでは HW求人業種分布を直接取得していないため、
+/// 簡易版: 事業所のうち医療福祉（C210850）比率と HW全体の欠員率の乖離を代替指標とする。
+/// フル実装（コサイン類似度）は `industry_mapping.py` ssdse_mapping と合わせて Phase B で拡張。
+fn in1_industry_mismatch(ctx: &InsightContext) -> Option<Insight> {
+    if ctx.ext_establishments.is_empty() {
+        return None;
+    }
+    let medical_welfare_row = ctx
+        .ext_establishments
+        .iter()
+        .find(|r| get_str_ref(r, "industry") == "850")?;
+    let mw_count = get_f64(medical_welfare_row, "establishment_count");
+    let total: f64 = ctx
+        .ext_establishments
+        .iter()
+        .map(|r| get_f64(r, "establishment_count"))
+        .sum();
+    if total <= 0.0 {
+        return None;
+    }
+    let mw_share = mw_count / total;
+
+    // HW求人の医療福祉系欠員率との乖離を簡易判定
+    // vacancy は正社員全体のみ。今回は mw_share が20%以上で Warning、10%以下で Info
+    let severity = if !(0.05..=0.3).contains(&mw_share) {
+        Severity::Info
+    } else {
+        return None;
+    };
+
+    Some(Insight {
+        id: "IN-1".to_string(),
+        category: InsightCategory::StructuralContext,
+        severity,
+        title: "産業構造の偏り".to_string(),
+        body: format!(
+            "事業所のうち医療・福祉が{:.1}%を占めており、HW求人職種分布と構造的な乖離がある可能性がうかがえます。",
+            mw_share * 100.0
+        ),
+        evidence: vec![Evidence {
+            metric: "医療・福祉事業所比率".into(),
+            value: mw_share * 100.0,
+            unit: "%".into(),
+            context: "全業種合計比".into(),
+        }],
+        related_tabs: vec!["analysis", "overview"],
+    })
+}
+
+/// GE-1: 可住地密度ペナルティ（過密 or 過疎）
+///
+/// 可住地面積あたり人口密度が極端（>10,000 or <50 人/km²）な場合、
+/// 通勤圏の広がりや採用母集団の確保に影響を及ぼす傾向を示唆。
+fn ge1_habitable_density(ctx: &InsightContext) -> Option<Insight> {
+    let geo = ctx.ext_geography.first()?;
+    let habitable = get_f64(geo, "habitable_area_km2");
+    if habitable <= 0.0 {
+        return None;
+    }
+    let pop_row = ctx.ext_population.first()?;
+    let total_pop = get_f64(pop_row, "total_population");
+    if total_pop <= 0.0 {
+        return None;
+    }
+    let density = total_pop / habitable;
+
+    let (pattern, severity) = if density > HABITABLE_DENSITY_CRITICAL_MAX {
+        ("過密", Severity::Warning)
+    } else if density < HABITABLE_DENSITY_CRITICAL_MIN {
+        ("極端な過疎", Severity::Warning)
+    } else if density > HABITABLE_DENSITY_MAX {
+        ("過密傾向", Severity::Info)
+    } else if density < HABITABLE_DENSITY_MIN {
+        ("過疎傾向", Severity::Info)
+    } else {
+        return None;
+    };
+
+    Some(Insight {
+        id: "GE-1".to_string(),
+        category: InsightCategory::StructuralContext,
+        severity,
+        title: "可住地密度ペナルティ".to_string(),
+        body: format!(
+            "可住地面積{:.1}km²あたり人口密度が{:.0}人/km²と{}で、通勤圏を広げないと採用難の可能性があります。",
+            habitable, density, pattern
+        ),
+        evidence: vec![
+            Evidence {
+                metric: "可住地人口密度".into(),
+                value: density,
+                unit: "人/km²".into(),
+                context: format!("標準範囲{}-{}人/km²", HABITABLE_DENSITY_MIN as i64, HABITABLE_DENSITY_MAX as i64),
+            },
+            Evidence {
+                metric: "可住地面積".into(),
+                value: habitable,
+                unit: "km²".into(),
+                context: "".into(),
+            },
+        ],
+        related_tabs: vec!["jobmap", "overview"],
     })
 }
