@@ -45,6 +45,21 @@ pub struct InsightContext {
     pub ext_care_demand: Vec<Row>,
     pub ext_household_spending: Vec<Row>,
     pub ext_climate: Vec<Row>,
+    // === Phase A: SSDSE-A 新規6テーブル ===
+    pub ext_households: Vec<Row>,
+    pub ext_vital: Vec<Row>,
+    pub ext_labor_force: Vec<Row>,
+    pub ext_medical_welfare: Vec<Row>,
+    pub ext_education_facilities: Vec<Row>,
+    pub ext_geography: Vec<Row>,
+    // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
+    pub pref_avg_unemployment_rate: Option<f64>,
+    pub pref_avg_single_rate: Option<f64>,
+    pub pref_avg_physicians_per_10k: Option<f64>,
+    pub pref_avg_daycare_per_1k_children: Option<f64>,
+    pub pref_avg_habitable_density: Option<f64>,
+    // === Phase B: Agoop 人流（v2_flow_* テーブル未投入時は None） ===
+    pub flow: Option<super::flow_context::FlowIndicators>,
     // === 通勤圏（距離ベース） ===
     pub commute_zone_count: usize,
     pub commute_zone_pref_count: usize,
@@ -129,6 +144,35 @@ pub(crate) fn build_insight_context(
         ext_care_demand: af::fetch_care_demand(db, turso, pref),
         ext_household_spending: af::fetch_household_spending(db, turso, pref),
         ext_climate: af::fetch_climate(db, turso, pref),
+        // Phase A: SSDSE-A 新規6テーブル
+        ext_households: af::fetch_households(db, turso, pref, muni),
+        ext_vital: af::fetch_vital_statistics(db, turso, pref, muni),
+        ext_labor_force: af::fetch_labor_force(db, turso, pref, muni),
+        ext_medical_welfare: af::fetch_medical_welfare(db, turso, pref, muni),
+        ext_education_facilities: af::fetch_education_facilities(db, turso, pref, muni),
+        ext_geography: af::fetch_geography(db, turso, pref, muni),
+        // Phase A: 県平均（SUM方式、market-level benchmark）
+        pref_avg_unemployment_rate: af::fetch_prefecture_mean(
+            db,
+            turso,
+            pref,
+            "SUM(unemployed)",
+            "SUM(employed) + SUM(unemployed)",
+            "v2_external_labor_force",
+        ),
+        pref_avg_single_rate: af::fetch_prefecture_mean(
+            db,
+            turso,
+            pref,
+            "SUM(single_households)",
+            "SUM(total_households)",
+            "v2_external_households",
+        ),
+        pref_avg_physicians_per_10k: None, // ctx作成後に人口で計算（相互依存回避）
+        pref_avg_daycare_per_1k_children: None, // 同上
+        pref_avg_habitable_density: None, // 同上
+        // Phase B: Agoop 人流（デフォルトyear=2019、コロナバイアス最小）
+        flow: super::flow_context::build_flow_context(db, turso, pref, muni, 2019),
         // 通勤圏（距離ベース）
         commute_zone_count: 0,
         commute_zone_pref_count: 0,

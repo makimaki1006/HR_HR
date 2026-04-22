@@ -3,21 +3,23 @@
 use super::super::helpers::Row;
 
 /// サブタブ定義
-pub(crate) const INSIGHT_SUBTABS: [(u8, &str); 4] = [
+pub(crate) const INSIGHT_SUBTABS: [(u8, &str); 5] = [
     (1, "採用構造"),
     (2, "将来予測"),
     (3, "地域比較"),
     (4, "アクション"),
+    (5, "構造分析"),
 ];
 
 // ======== 示唆カテゴリ ========
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub enum InsightCategory {
-    HiringStructure, // 採用構造分析
-    Forecast,        // 将来予測
-    RegionalCompare, // 地域間比較
-    ActionProposal,  // アクション提案
+    HiringStructure,   // 採用構造分析
+    Forecast,          // 将来予測
+    RegionalCompare,   // 地域間比較
+    ActionProposal,    // アクション提案
+    StructuralContext, // 構造分析 (SSDSE-A Phase A、市区町村構造指標ベース)
 }
 
 impl InsightCategory {
@@ -27,6 +29,7 @@ impl InsightCategory {
             Self::Forecast => "将来予測",
             Self::RegionalCompare => "地域比較",
             Self::ActionProposal => "アクション",
+            Self::StructuralContext => "構造分析",
         }
     }
 
@@ -36,6 +39,7 @@ impl InsightCategory {
             Self::Forecast => "text-amber-400",
             Self::RegionalCompare => "text-blue-400",
             Self::ActionProposal => "text-green-400",
+            Self::StructuralContext => "text-purple-400",
         }
     }
 
@@ -45,6 +49,7 @@ impl InsightCategory {
             Self::Forecast => 2,
             Self::RegionalCompare => 3,
             Self::ActionProposal => 4,
+            Self::StructuralContext => 5,
         }
     }
 }
@@ -147,6 +152,71 @@ pub const DAYTIME_POP_RATIO_LOW: f64 = 0.90;
 /// FC-1: トレンド判定
 pub const TREND_INCREASE_THRESHOLD: f64 = 0.05;
 pub const TREND_DECREASE_THRESHOLD: f64 = -0.05;
+
+// ======== Phase A: SSDSE-A 構造分析（LS/HH/MF/IN/GE）========
+
+/// LS-1: 採用余力シグナル
+/// 失業率 > 県平均 × 1.2 かつ HW求人数/就業者 < 県平均 で発火
+pub const UNEMPLOYMENT_RATE_MULTIPLIER_WARNING: f64 = 1.2;
+pub const UNEMPLOYMENT_RATE_MULTIPLIER_CRITICAL: f64 = 1.5;
+
+/// LS-2: 産業偏在リスク
+pub const TERTIARY_CONCENTRATION_THRESHOLD: f64 = 85.0; // %
+pub const PRIMARY_CONCENTRATION_THRESHOLD: f64 = 20.0; // %
+
+/// HH-1: 単独世帯型求職者推定
+pub const SINGLE_HOUSEHOLD_RATE_THRESHOLD: f64 = 40.0; // %
+
+/// MF-1: 医療福祉供給密度ギャップ
+pub const MEDICAL_DENSITY_GAP_RATIO: f64 = 0.8; // 県平均 × 0.8 未満で発火
+pub const MEDICAL_DENSITY_CRITICAL_RATIO: f64 = 0.6; // 県平均 × 0.6 未満で Critical
+
+/// IN-1: 産業構造ミスマッチ
+pub const INDUSTRY_MISMATCH_COSINE_THRESHOLD: f64 = 0.5; // 類似度 < 0.5 で発火
+pub const INDUSTRY_MISMATCH_CRITICAL: f64 = 0.3; // < 0.3 で Critical
+
+/// GE-1: 可住地密度ペナルティ
+pub const HABITABLE_DENSITY_MAX: f64 = 10_000.0; // 人/km²
+pub const HABITABLE_DENSITY_MIN: f64 = 50.0;
+pub const HABITABLE_DENSITY_CRITICAL_MAX: f64 = 20_000.0;
+pub const HABITABLE_DENSITY_CRITICAL_MIN: f64 = 20.0;
+
+// ======== Phase B: Agoop 人流 SW-F01〜F10（Round 2） ========
+
+/// SW-F01: 夜勤ニーズ逼迫（深夜滞在 / 昼間滞在 の比率）
+pub const FLOW_MIDNIGHT_RATIO_WARNING: f64 = 1.2;
+pub const FLOW_MIDNIGHT_RATIO_CRITICAL: f64 = 1.5;
+
+/// SW-F02: 休日商圏不足（休日昼 / 平日昼 の比率）
+pub const FLOW_HOLIDAY_CROWD_WARNING: f64 = 1.3;
+
+/// SW-F03: ベッドタウン化（平日昼-夜差の絶対値 / 夜 比率）
+pub const FLOW_BEDTOWN_DIFF_THRESHOLD: f64 = 0.2;
+
+/// SW-F04: メッシュ人材ギャップ（求人密度 vs 滞在密度のZスコア絶対値）
+pub const FLOW_MESH_ZSCORE_THRESHOLD: f64 = 1.5;
+
+/// SW-F05: 観光ポテンシャル未活用（休日/平日比が高い × 宿泊飲食求人少ない）
+pub const FLOW_TOURISM_RATIO_THRESHOLD: f64 = 1.5;
+
+/// SW-F06: コロナ回復乖離（2021人流/2019 > 0.9 AND 2021求人/2019 < 0.8）
+pub const FLOW_COVID_FLOW_RECOVERY: f64 = 0.9;
+pub const FLOW_COVID_POSTING_LAG: f64 = 0.8;
+
+/// SW-F07: 広域流入比率偏り（from_area=3 異地方比率）
+pub const FLOW_INFLOW_DIFF_REGION_THRESHOLD: f64 = 0.15; // 15%超
+
+/// SW-F08: 昼間労働力プール（平日昼滞在 / 居住人口 比率）
+pub const FLOW_DAYTIME_POOL_RATIO: f64 = 1.3;
+
+/// SW-F09: 季節雇用ミスマッチ（月次振幅係数、最大/平均 - 1）
+pub const FLOW_SEASONAL_AMPLITUDE: f64 = 0.3;
+
+/// SW-F10: 企業立地人流マッチ（企業所在メッシュ滞在ピーク時間 vs 求人営業時間のズレ）
+pub const FLOW_COMPANY_TIME_DIFF_HOURS: f64 = 3.0;
+
+/// 共通: 最小サンプルサイズ（統計的妥当性）
+pub const FLOW_MIN_SAMPLE_SIZE: usize = 30;
 
 // ======== ヘルパー関数 ========
 

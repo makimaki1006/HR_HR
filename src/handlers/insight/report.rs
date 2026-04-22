@@ -372,6 +372,21 @@ pub(crate) fn generate_chapter_narrative(
             }
             text
         }
+        InsightCategory::StructuralContext => {
+            let mut text = format!(
+                "{}件の構造指標を検出（重大{}件、注意{}件）。",
+                insights.len(),
+                critical_count,
+                warning_count
+            );
+            if let Some(top) = insights.first() {
+                text.push_str(&format!("最も着目すべきは「{}」。", top.title));
+            }
+            if insights.is_empty() {
+                text = "構造指標での有意な示唆は検出されていない傾向がみられる。".to_string();
+            }
+            text
+        }
     }
 }
 
@@ -601,6 +616,21 @@ mod tests {
             ext_care_demand: vec![],
             ext_household_spending: vec![],
             ext_climate: vec![],
+            // Phase A: SSDSE-A 新規6テーブル
+            ext_households: vec![],
+            ext_vital: vec![],
+            ext_labor_force: vec![],
+            ext_medical_welfare: vec![],
+            ext_education_facilities: vec![],
+            ext_geography: vec![],
+            // Phase A: 県平均
+            pref_avg_unemployment_rate: None,
+            pref_avg_single_rate: None,
+            pref_avg_physicians_per_10k: None,
+            pref_avg_daycare_per_1k_children: None,
+            pref_avg_habitable_density: None,
+            // Phase B: Agoop 人流
+            flow: None,
             commute_zone_count: 0,
             commute_zone_pref_count: 0,
             commute_zone_total_pop: 0,

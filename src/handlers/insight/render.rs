@@ -59,6 +59,19 @@ pub(crate) fn render_subtab_action(insights: &[Insight]) -> String {
     html
 }
 
+/// サブタブ5: 構造分析（Phase A、SSDSE-Aベース）
+pub(crate) fn render_subtab_structural(insights: &[Insight]) -> String {
+    let filtered: Vec<_> = insights
+        .iter()
+        .filter(|i| i.category == InsightCategory::StructuralContext)
+        .collect();
+    render_insight_list(
+        "構造分析",
+        "市区町村の世帯・労働力・医療福祉・教育・地理構造から、採用の背景にある構造的要因を示唆します",
+        &filtered,
+    )
+}
+
 /// 示唆カードのリスト描画
 fn render_insight_list(title: &str, description: &str, insights: &[&Insight]) -> String {
     let mut html = String::with_capacity(4_000);
@@ -884,6 +897,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         (InsightCategory::Forecast, "第2章: 将来予測"),
         (InsightCategory::RegionalCompare, "第3章: 地域比較"),
         (InsightCategory::ActionProposal, "第4章: 推奨アクション"),
+        (InsightCategory::StructuralContext, "第5章: 構造分析"),
     ];
 
     let chapter_questions = [
@@ -891,6 +905,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         "市場はこの先どうなるか? 人材は確保できるか?",
         "他の地域と比べて優位か劣位か?",
         "具体的に何をすべきか?",
+        "地域の世帯・労働・医療・教育構造はどうなっているか?",
     ];
 
     for (idx, (cat, title)) in categories.iter().enumerate() {
