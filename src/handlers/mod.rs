@@ -14,6 +14,7 @@ pub mod jobmap;
 pub mod market;
 pub mod my;
 pub mod overview;
+pub mod recruitment_diag;
 pub mod region;
 pub mod survey;
 pub mod trend;

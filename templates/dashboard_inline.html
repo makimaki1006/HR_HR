@@ -72,12 +72,16 @@
             onclick="setActiveTab(this)">市場概況</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">地図</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/region_karte" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">地域カルテ</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">詳細分析</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">求人検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">条件診断</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/recruitment_diag" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">📊 採用診断</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">企業検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
@@ -135,6 +139,7 @@
     </script>
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/export.js"></script>
+    <script src="/static/js/region_karte.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             htmx.ajax('GET', '/tab/market', {target: '#content', swap: 'innerHTML'});
