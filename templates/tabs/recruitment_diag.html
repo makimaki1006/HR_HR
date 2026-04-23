@@ -36,18 +36,18 @@
         <select id="rd-job-type"
           class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 min-w-[160px]">
           <option value="">選択してください</option>
-          <option value="医療">医療</option>
           <option value="老人福祉・介護">老人福祉・介護</option>
-          <option value="児童福祉">児童福祉</option>
-          <option value="建設業">建設業</option>
-          <option value="製造業">製造業</option>
-          <option value="IT・通信">IT・通信</option>
-          <option value="運輸・物流">運輸・物流</option>
-          <option value="小売業">小売業</option>
-          <option value="飲食業">飲食業</option>
-          <option value="宿泊業">宿泊業</option>
           <option value="サービス業">サービス業</option>
-          <option value="教育">教育</option>
+          <option value="小売業">小売業</option>
+          <option value="建設業">建設業</option>
+          <option value="医療">医療</option>
+          <option value="教育・保育">教育・保育</option>
+          <option value="製造業">製造業</option>
+          <option value="飲食業">飲食業</option>
+          <option value="運輸業">運輸業</option>
+          <option value="派遣・人材">派遣・人材</option>
+          <option value="IT・通信">IT・通信</option>
+          <option value="宿泊業">宿泊業</option>
           <option value="その他">その他</option>
         </select>
       </div>
@@ -98,8 +98,8 @@
       </summary>
       <div class="flex flex-wrap gap-3 mt-3">
         <div>
-          <label for="rd-own-salary" class="block text-xs text-gray-400 mb-1">想定年収（万円）</label>
-          <input type="number" id="rd-own-salary" placeholder="例: 400" min="0" step="10"
+          <label for="rd-own-salary" class="block text-xs text-gray-400 mb-1">月給下限（万円）</label>
+          <input type="number" id="rd-own-salary" placeholder="例: 25" min="0" step="1"
             class="bg-gray-700 text-white text-sm rounded px-2 py-1.5 border border-gray-600 w-28">
         </div>
         <div>
@@ -369,9 +369,19 @@
   }
   function buildGapParams() {
     const p = buildCommonParams();
-    p.own_salary   = document.getElementById('rd-own-salary').value || '';
-    p.own_holidays = document.getElementById('rd-own-holidays').value || '';
-    p.own_bonus    = document.getElementById('rd-own-bonus').value || '';
+    // 月給万円 → 円（backend は salary_min を円で受けて × (12 + bonus_months) で年収算出）
+    const salaryMan = parseFloat(document.getElementById('rd-own-salary').value);
+    if (!isNaN(salaryMan) && salaryMan > 0) {
+      p.company_salary_min = Math.round(salaryMan * 10000);
+    }
+    const holidays = parseFloat(document.getElementById('rd-own-holidays').value);
+    if (!isNaN(holidays) && holidays > 0) {
+      p.company_annual_holidays = holidays;
+    }
+    const bonus = parseFloat(document.getElementById('rd-own-bonus').value);
+    if (!isNaN(bonus) && bonus >= 0) {
+      p.company_bonus_months = bonus;
+    }
     return p;
   }
 
@@ -379,72 +389,55 @@
 
   // Panel 1: 採用難度スコア（KPIカード + 全国比較棒グラフ）
   function renderDifficulty(data) {
-    if (!data || typeof data !== 'object') {
-      setPanelError('difficulty', 'データ形式不正'); return;
+    if (!data || typeof data !== 'object' || data.error) {
+      setPanelError('difficulty', data && data.error ? data.error : 'データ形式不正'); return;
     }
-    const score = data.score != null ? fmt(data.score, 1) : '—';
-    const level = data.level || '—';
+    const metrics = data.metrics || {};
+    const score = metrics.score_per_10k != null ? fmt(metrics.score_per_10k, 1) : '—';
+    const rankLabel = data.rank_label || '—';
+    const hwCount = metrics.hw_count;
+    const population = metrics.population;
+    const nationalHw = metrics.national_hw_count;
+    const areaShare = metrics.area_share_of_national;
     const levelColor = ({
-      '非常に困難': 'text-red-400', '困難': 'text-orange-400',
-      '普通': 'text-yellow-300', '容易': 'text-green-400', '非常に容易': 'text-blue-400',
-    })[level] || 'text-slate-300';
-    const vr  = data.vacancy_rate != null ? fmt(data.vacancy_rate, 2) : '—';
-    const comp = data.competition_ratio != null ? fmt(data.competition_ratio, 2) : '—';
+      '非常に激戦': 'text-red-400', '激戦': 'text-orange-400',
+      '平均的': 'text-yellow-300', '穏やか': 'text-green-400',
+    })[rankLabel] || (rankLabel && rankLabel.indexOf('穴場') === 0 ? 'text-blue-400' : 'text-slate-300');
 
     const html =
       '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">' +
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<div class="text-xs text-slate-400">総合難度スコア（0-100）</div>' +
+          '<div class="text-xs text-slate-400">採用難度スコア <span class="text-[10px] text-slate-500">(昼人口1万人あたり求人数)</span></div>' +
           '<div class="text-3xl font-bold text-white">' + score + '</div>' +
-          '<div class="text-sm ' + levelColor + ' mt-1">' + escapeHtml(level) + '</div>' +
+          '<div class="text-sm ' + levelColor + ' mt-1">' + escapeHtml(rankLabel) + '</div>' +
         '</div>' +
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<div class="text-xs text-slate-400">欠員補充率</div>' +
-          '<div class="text-2xl font-bold text-white">' + vr + '<span class="text-sm text-slate-400 ml-1">%</span></div>' +
+          '<div class="text-xs text-slate-400">HW該当求人数 / 昼間人口</div>' +
+          '<div class="text-xl font-bold text-white">' + fmt(hwCount) + ' 件</div>' +
+          '<div class="text-xs text-slate-400 mt-1">人口 ' + fmt(population) + '</div>' +
         '</div>' +
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<div class="text-xs text-slate-400">有効求人倍率（HW内）</div>' +
-          '<div class="text-2xl font-bold text-white">' + comp + '</div>' +
+          '<div class="text-xs text-slate-400">全国同条件の何%を占有</div>' +
+          '<div class="text-2xl font-bold text-white">' + (areaShare != null ? fmt(areaShare * 100, 2) : '—') + '<span class="text-sm text-slate-400 ml-1">%</span></div>' +
+          '<div class="text-xs text-slate-400 mt-1">全国 ' + fmt(nationalHw) + ' 件</div>' +
         '</div>' +
       '</div>' +
-      '<div id="rd-chart-difficulty" style="width:100%;height:260px;"></div>' +
-      (data.interpretation
+      (data.so_what
         ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
-          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+          '📝 ' + escapeHtml(data.so_what) + '</div>'
         : '');
     setPanelBody('difficulty', html);
-
-    // 全国比較棒グラフ
-    const comparison = Array.isArray(data.comparison) ? data.comparison : [];
-    if (comparison.length > 0) {
-      const chart = initChart('rd-chart-difficulty');
-      if (chart) {
-        chart.setOption({
-          tooltip: { trigger: 'axis' },
-          grid: { left: 80, right: 20, top: 20, bottom: 40 },
-          xAxis: { type: 'value', name: 'スコア' },
-          yAxis: { type: 'category', data: comparison.map(c => c.label) },
-          series: [{
-            type: 'bar',
-            data: comparison.map(c => ({
-              value: c.score,
-              itemStyle: { color: c.highlight ? '#3b82f6' : '#64748b' }
-            })),
-            label: { show: true, position: 'right', formatter: '{c}' }
-          }]
-        });
-      }
-    }
     setPanelStatus('difficulty', '完了', 'text-green-400');
   }
 
   // Panel 2: 人材プール診断（昼夜人口 + 差分）
   function renderTalentPool(data) {
-    if (!data) { setPanelError('talent_pool', 'データなし'); return; }
-    const day = data.day_population;
-    const night = data.night_population;
-    const diff = (day != null && night != null) ? (day - night) : null;
-    const ratio = (day != null && night != null && night > 0) ? (day / night) : null;
+    if (!data || data.error) { setPanelError('talent_pool', data && data.error ? data.error : 'データなし'); return; }
+    const m = data.metrics || {};
+    const day = m.day_population;
+    const night = m.night_population;
+    const diff = m.commuter_inflow;
+    const ratio = m.day_night_ratio;
 
     const html =
       '<div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">' +
@@ -463,77 +456,101 @@
         '</div>' +
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
           '<div class="text-xs text-slate-400">昼夜比</div>' +
-          '<div class="text-xl font-bold text-white">' + (ratio != null ? fmt(ratio, 2) : '—') + '</div>' +
+          '<div class="text-xl font-bold text-white">' + (ratio != null && ratio > 0 ? fmt(ratio, 2) : '—') + '</div>' +
         '</div>' +
       '</div>' +
-      (data.interpretation
+      (data.so_what
         ? '<div class="text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
-          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+          '📝 ' + escapeHtml(data.so_what) + '</div>'
         : '<div class="text-xs text-slate-500">※ 昼間人口＞夜間人口 の地域は通勤流入が多く、求職プール候補が広い傾向。</div>');
     setPanelBody('talent_pool', html);
     setPanelStatus('talent_pool', '完了', 'text-green-400');
   }
 
-  // Panel 3: 流入元分析（sankey + 83%警告）
+  // Panel 3: 流入元分析（4区分 breakdown → 棒グラフ + 83%部分データ警告）
   function renderInflow(data) {
-    if (!data) { setPanelError('inflow', 'データなし'); return; }
-    const sankeyNodes = Array.isArray(data.nodes) ? data.nodes : [];
-    const sankeyLinks = Array.isArray(data.links) ? data.links : [];
-    const localRatio = data.local_ratio;  // 自地域内比率
+    if (!data || data.error) { setPanelError('inflow', data && data.error ? data.error : 'データなし'); return; }
+    const breakdown = Array.isArray(data.breakdown) ? data.breakdown : [];
+    const totalPop = breakdown.reduce(function(s, b){ return s + (b.population || 0); }, 0);
 
+    // 83%部分データ警告（fromto_city は 2026-04-22 時点で 83% のみ投入済）
+    const dataWarning = data.data_warning || (data.notes && data.notes.data_warning);
     let warnBanner = '';
-    if (localRatio != null && localRatio >= 0.83) {
+    if (dataWarning) {
       warnBanner =
-        '<div class="bg-orange-900/40 border border-orange-600/60 rounded p-3 mb-3 text-sm text-orange-100">' +
-          '<span class="font-bold text-orange-300">⚠️ 流入元が極端に局地化</span>: ' +
-          '同一市区町村内からの通勤が ' + fmt(localRatio * 100, 1) + '% を占めています。' +
-          '<br><span class="text-xs">広域募集の効果が出にくい可能性があります。</span>' +
+        '<div class="bg-yellow-900/40 border border-yellow-600/60 rounded p-3 mb-3 text-sm text-yellow-100">' +
+          '<span class="font-bold text-yellow-300">⚠️ 部分データ警告</span>: ' +
+          escapeHtml(dataWarning) +
         '</div>';
     }
 
     const html =
       warnBanner +
-      '<div id="rd-chart-inflow" style="width:100%;height:360px;"></div>' +
-      (data.interpretation
+      (breakdown.length > 0
+        ? '<div id="rd-chart-inflow" style="width:100%;height:300px;"></div>'
+        : '<div class="flex items-center justify-center py-12 text-slate-500 text-sm">' +
+          'Agoop fromto_city データなし（対象市区町村）</div>') +
+      (data.so_what
         ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
-          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+          '📝 ' + escapeHtml(data.so_what) + '</div>'
         : '');
     setPanelBody('inflow', html);
 
-    if (sankeyNodes.length > 0 && sankeyLinks.length > 0) {
+    if (breakdown.length > 0 && totalPop > 0) {
       const chart = initChart('rd-chart-inflow');
       if (chart) {
         chart.setOption({
-          tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+          tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+              var p = params[0];
+              var pct = totalPop > 0 ? (p.value / totalPop * 100).toFixed(1) : '—';
+              return p.name + ': ' + fmt(p.value) + ' 人 (' + pct + '%)';
+            }
+          },
+          grid: { left: 110, right: 30, top: 20, bottom: 30 },
+          xAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
+          yAxis: {
+            type: 'category',
+            data: breakdown.map(function(b){ return b.area_name || b.short_name || ('from_area=' + b.from_area); }),
+            axisLabel: { color: '#cbd5e1' }
+          },
           series: [{
-            type: 'sankey',
-            data: sankeyNodes,
-            links: sankeyLinks,
-            emphasis: { focus: 'adjacency' },
-            lineStyle: { color: 'gradient', curveness: 0.5 },
-            label: { color: '#e2e8f0' }
+            type: 'bar',
+            data: breakdown.map(function(b){ return b.population || 0; }),
+            itemStyle: { color: '#3b82f6' },
+            label: {
+              show: true,
+              position: 'right',
+              color: '#e2e8f0',
+              formatter: function(p){
+                var pct = totalPop > 0 ? (p.value / totalPop * 100).toFixed(1) : '—';
+                return pct + '%';
+              }
+            }
           }]
         });
       }
-    } else {
-      const el = document.getElementById('rd-chart-inflow');
-      if (el) el.innerHTML =
-        '<div class="flex items-center justify-center h-full text-slate-500 text-sm">' +
-        'Agoop 人流データなし</div>';
     }
     setPanelStatus('inflow', '完了', 'text-green-400');
   }
 
   // Panel 4: 競合企業ランキング（テーブル TOP20）
   function renderCompetitors(data) {
-    if (!data || !Array.isArray(data.companies)) {
-      setPanelError('competitors', 'データ形式不正'); return;
-    }
+    if (!data || data.error) { setPanelError('competitors', data && data.error ? data.error : 'データ形式不正'); return; }
+    if (!Array.isArray(data.companies)) { setPanelError('competitors', 'データ形式不正'); return; }
     const rows = data.companies.slice(0, 20);
     if (rows.length === 0) {
-      setPanelBody('competitors', '<div class="text-sm text-slate-400 py-4">該当する競合企業がありません。</div>');
+      setPanelBody('competitors', '<div class="text-sm text-slate-400 py-4">該当する競合企業がありません（SalesNow に該当業種×エリアの登録なし、または HW未掲載）。</div>');
       setPanelStatus('competitors', '完了（0件）', 'text-slate-400');
       return;
+    }
+    function featureStr(c) {
+      var parts = [];
+      if (c.sn_industry) parts.push(escapeHtml(c.sn_industry));
+      if (c.sales_range) parts.push('売上: ' + escapeHtml(c.sales_range));
+      if (c.credit_score) parts.push('信用 ' + fmt(c.credit_score, 1));
+      return parts.join(' / ');
     }
     let html = '<div class="overflow-x-auto">' +
       '<table class="w-full text-xs text-slate-200">' +
@@ -541,74 +558,89 @@
         '<tr>' +
           '<th class="px-2 py-2 text-left">#</th>' +
           '<th class="px-2 py-2 text-left">企業名</th>' +
-          '<th class="px-2 py-2 text-right">求人数</th>' +
-          '<th class="px-2 py-2 text-right">給与中央値</th>' +
-          '<th class="px-2 py-2 text-right">年休中央値</th>' +
+          '<th class="px-2 py-2 text-right">HW求人数</th>' +
+          '<th class="px-2 py-2 text-right">従業員数</th>' +
+          '<th class="px-2 py-2 text-right">売上 (万円)</th>' +
           '<th class="px-2 py-2 text-left">特徴</th>' +
         '</tr>' +
       '</thead><tbody>';
-    rows.forEach((c, i) => {
+    rows.forEach(function(c, i) {
       html += '<tr class="border-b border-slate-700/50 hover:bg-navy-900/40">' +
         '<td class="px-2 py-1.5 text-slate-400">' + (i + 1) + '</td>' +
-        '<td class="px-2 py-1.5 font-medium text-white">' + escapeHtml(c.company_name || '—') + '</td>' +
-        '<td class="px-2 py-1.5 text-right">' + fmt(c.posting_count) + '</td>' +
-        '<td class="px-2 py-1.5 text-right">' + (c.salary_median != null ? fmt(c.salary_median) + '万' : '—') + '</td>' +
-        '<td class="px-2 py-1.5 text-right">' + (c.holidays_median != null ? fmt(c.holidays_median) + '日' : '—') + '</td>' +
-        '<td class="px-2 py-1.5 text-slate-300">' + escapeHtml(c.feature || '') + '</td>' +
+        '<td class="px-2 py-1.5 font-medium text-white">' + escapeHtml(c.name || c.company_name || '—') + '</td>' +
+        '<td class="px-2 py-1.5 text-right">' + fmt(c.hw_postings_count != null ? c.hw_postings_count : c.posting_count) + '</td>' +
+        '<td class="px-2 py-1.5 text-right">' + fmt(c.employees) + '</td>' +
+        '<td class="px-2 py-1.5 text-right">' + fmt(c.sales_amount) + '</td>' +
+        '<td class="px-2 py-1.5 text-slate-300">' + featureStr(c) + '</td>' +
       '</tr>';
     });
     html += '</tbody></table></div>';
-    html += '<p class="text-xs text-slate-500 mt-2">※ HW掲載求人件数ベースの上位20社。民間媒体のみ利用の企業は含まれません。</p>';
+    html += '<p class="text-xs text-slate-500 mt-2">※ SalesNow 登録企業と HW 掲載求人を名称一致でJOIN。民間媒体のみ利用の企業は HW求人数=0 で除外される可能性あり。</p>';
+    if (data.top20_insight) {
+      html += '<div class="mt-2 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">📝 ' + escapeHtml(data.top20_insight) + '</div>';
+    }
     setPanelBody('competitors', html);
     setPanelStatus('competitors', '完了（' + rows.length + '社）', 'text-green-400');
   }
 
   // Panel 5: 条件ギャップ診断（業界内 + 全業界 の2列比較）
   function renderConditionGap(data) {
-    if (!data) { setPanelError('condition_gap', 'データなし'); return; }
+    if (!data || data.error) { setPanelError('condition_gap', data && data.error ? data.error : 'データなし'); return; }
 
-    const own = data.own || {};
-    const industry = data.industry_benchmark || {};
-    const all = data.all_benchmark || {};
+    // backend MedianStats: annual_income / annual_holidays / bonus_months / sample_size
+    const industry = data.industry_median || {};
+    const all = data.all_industry_median || {};
+    const company = data.company || {};
+    const ownSalaryYen = company.annual_income_estimated;
+    const ownHolidays = company.annual_holidays;
+    const ownBonus = company.bonus_months;
+    const industrySalaryYen = industry.annual_income;
+    const industryHolidays = industry.annual_holidays;
+    const industryBonus = industry.bonus_months;
+    const allSalaryYen = all.annual_income;
+    const allHolidays = all.annual_holidays;
+    const allBonus = all.bonus_months;
 
-    function gapCell(ownV, benchV, unit) {
-      if (ownV == null || benchV == null) return '<span class="text-slate-500">—</span>';
+    function toManYen(v) { return (v != null && v > 0) ? Math.round(v / 10000) : null; }
+
+    function gapCell(ownV, benchV, unit, digits) {
+      if (ownV == null || benchV == null || ownV === 0 || benchV === 0) return '<span class="text-slate-500">—</span>';
       const diff = ownV - benchV;
       const cls = diff >= 0 ? 'text-green-400' : 'text-red-400';
       const sign = diff >= 0 ? '+' : '';
-      return '<span class="' + cls + '">' + sign + fmt(diff, 1) + unit + '</span>';
+      return '<span class="' + cls + '">' + sign + fmt(diff, digits || 0) + unit + '</span>';
     }
 
     const html =
       '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
         // 業界内比較
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<h4 class="text-sm font-semibold text-blue-300 mb-2">業界内 中央値との差</h4>' +
+          '<h4 class="text-sm font-semibold text-blue-300 mb-2">業界内 中央値との差 <span class="text-[10px] text-slate-500">(n=' + fmt(industry.sample_size) + ')</span></h4>' +
           '<table class="w-full text-xs"><tbody>' +
             '<tr><td class="py-1 text-slate-400">年収</td>' +
-              '<td class="py-1 text-right text-slate-200">' + fmt(industry.salary_median) + '万</td>' +
-              '<td class="py-1 text-right">' + gapCell(own.salary, industry.salary_median, '万') + '</td></tr>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(toManYen(industrySalaryYen)) + '万</td>' +
+              '<td class="py-1 text-right">' + gapCell(toManYen(ownSalaryYen), toManYen(industrySalaryYen), '万') + '</td></tr>' +
             '<tr><td class="py-1 text-slate-400">年休</td>' +
-              '<td class="py-1 text-right text-slate-200">' + fmt(industry.holidays_median) + '日</td>' +
-              '<td class="py-1 text-right">' + gapCell(own.holidays, industry.holidays_median, '日') + '</td></tr>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(industryHolidays) + '日</td>' +
+              '<td class="py-1 text-right">' + gapCell(ownHolidays, industryHolidays, '日') + '</td></tr>' +
             '<tr><td class="py-1 text-slate-400">賞与月数</td>' +
-              '<td class="py-1 text-right text-slate-200">' + fmt(industry.bonus_months, 1) + 'ヶ月</td>' +
-              '<td class="py-1 text-right">' + gapCell(own.bonus, industry.bonus_months, 'ヶ月') + '</td></tr>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(industryBonus, 1) + 'ヶ月</td>' +
+              '<td class="py-1 text-right">' + gapCell(ownBonus, industryBonus, 'ヶ月', 1) + '</td></tr>' +
           '</tbody></table>' +
         '</div>' +
         // 全業界比較
         '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
-          '<h4 class="text-sm font-semibold text-purple-300 mb-2">全業界 中央値との差</h4>' +
+          '<h4 class="text-sm font-semibold text-purple-300 mb-2">全業界 中央値との差 <span class="text-[10px] text-slate-500">(n=' + fmt(all.sample_size) + ')</span></h4>' +
           '<table class="w-full text-xs"><tbody>' +
             '<tr><td class="py-1 text-slate-400">年収</td>' +
-              '<td class="py-1 text-right text-slate-200">' + fmt(all.salary_median) + '万</td>' +
-              '<td class="py-1 text-right">' + gapCell(own.salary, all.salary_median, '万') + '</td></tr>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(toManYen(allSalaryYen)) + '万</td>' +
+              '<td class="py-1 text-right">' + gapCell(toManYen(ownSalaryYen), toManYen(allSalaryYen), '万') + '</td></tr>' +
             '<tr><td class="py-1 text-slate-400">年休</td>' +
-              '<td class="py-1 text-right text-slate-200">' + fmt(all.holidays_median) + '日</td>' +
-              '<td class="py-1 text-right">' + gapCell(own.holidays, all.holidays_median, '日') + '</td></tr>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(allHolidays) + '日</td>' +
+              '<td class="py-1 text-right">' + gapCell(ownHolidays, allHolidays, '日') + '</td></tr>' +
             '<tr><td class="py-1 text-slate-400">賞与月数</td>' +
-              '<td class="py-1 text-right text-slate-200">' + fmt(all.bonus_months, 1) + 'ヶ月</td>' +
-              '<td class="py-1 text-right">' + gapCell(own.bonus, all.bonus_months, 'ヶ月') + '</td></tr>' +
+              '<td class="py-1 text-right text-slate-200">' + fmt(allBonus, 1) + 'ヶ月</td>' +
+              '<td class="py-1 text-right">' + gapCell(ownBonus, allBonus, 'ヶ月', 1) + '</td></tr>' +
           '</tbody></table>' +
         '</div>' +
       '</div>' +
@@ -622,10 +654,24 @@
 
   // Panel 6: 市場動向グラフ（line chart 6/12ヶ月）
   function renderMarketTrend(data) {
-    if (!data || !Array.isArray(data.series)) {
-      setPanelError('market_trend', 'データ形式不正'); return;
+    if (!data || data.error) { setPanelError('market_trend', data && data.error ? data.error : 'データ形式不正'); return; }
+    // backend: {months: [...], counts: [...], growth_rate_pct, interpretation}
+    const labels = Array.isArray(data.months) ? data.months : [];
+    const counts = Array.isArray(data.counts) ? data.counts : [];
+    if (labels.length === 0 || counts.length === 0) {
+      setPanelBody('market_trend', '<div class="text-sm text-slate-400 py-4">HW時系列データが該当範囲で取得できませんでした。</div>');
+      setPanelStatus('market_trend', '完了（データなし）', 'text-slate-400');
+      return;
     }
+    const growth = data.growth_rate_pct;
+    const growthLabel = (growth != null)
+      ? ('6ヶ月前比 ' + (growth >= 0 ? '+' : '') + fmt(growth, 1) + '%')
+      : '';
+
     const html =
+      (growthLabel
+        ? '<div class="text-xs text-slate-400 mb-2">' + escapeHtml(growthLabel) + '</div>'
+        : '') +
       '<div id="rd-chart-trend" style="width:100%;height:320px;"></div>' +
       (data.interpretation
         ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
@@ -633,66 +679,79 @@
         : '');
     setPanelBody('market_trend', html);
 
-    const labels = Array.isArray(data.labels) ? data.labels : [];
     const chart = initChart('rd-chart-trend');
-    if (chart && labels.length > 0) {
+    if (chart) {
       chart.setOption({
         tooltip: { trigger: 'axis' },
-        legend: { data: data.series.map(s => s.name), textStyle: { color: '#cbd5e1' } },
-        grid: { left: 50, right: 30, top: 40, bottom: 40 },
-        xAxis: { type: 'category', data: labels, axisLabel: { color: '#94a3b8' } },
-        yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
-        series: data.series.map(s => ({
-          name: s.name, type: 'line', data: s.data, smooth: true, symbol: 'circle'
-        }))
+        grid: { left: 60, right: 30, top: 20, bottom: 40 },
+        xAxis: { type: 'category', data: labels, axisLabel: { color: '#94a3b8', rotate: 30 } },
+        yAxis: { type: 'value', axisLabel: { color: '#94a3b8' }, name: '求人数' },
+        series: [{
+          name: '月次求人数', type: 'line', data: counts,
+          smooth: true, symbol: 'circle',
+          itemStyle: { color: '#3b82f6' },
+          areaStyle: { color: 'rgba(59,130,246,0.1)' }
+        }]
       });
     }
     setPanelStatus('market_trend', '完了', 'text-green-400');
   }
 
-  // Panel 7: 穴場マップ（市区町村 heatmap）
+  // Panel 7: 穴場マップ（市区町村バー）
   function renderOpportunityMap(data) {
-    if (!data || !Array.isArray(data.cities)) {
-      setPanelError('opportunity_map', 'データ形式不正'); return;
-    }
-    const cities = data.cities;
+    if (!data || data.error) { setPanelError('opportunity_map', data && data.error ? data.error : 'データ形式不正'); return; }
+    // backend: {municipalities: [{name, citycode, hw_count, population, score, category}], legend, note}
+    const cities = Array.isArray(data.municipalities) ? data.municipalities : [];
     if (cities.length === 0) {
       setPanelBody('opportunity_map',
-        '<div class="text-sm text-slate-400 py-4">該当データなし。都道府県を選択してください。</div>');
+        '<div class="text-sm text-slate-400 py-4">該当データなし。都道府県を選択してください。Agoop 人流データと HW求人の両方が必要です。</div>');
       setPanelStatus('opportunity_map', '完了（0件）', 'text-slate-400');
       return;
     }
-    // Bar ベースの簡易 heatmap（値=穴場スコア、横軸=市区町村）
+    // score: 人口千人あたり求人数。小さい=穴場、大きい=激戦。Top = score 降順 なので昇順化（穴場上位）
+    const sorted = cities.slice().sort(function(a, b) { return (a.score || 0) - (b.score || 0); });
+    const top = sorted.slice(0, 25);
+    const catColor = function(cat) {
+      if (cat === '穴場') return '#22c55e';
+      if (cat === '激戦') return '#ef4444';
+      return '#64748b';
+    };
+
     const html =
-      '<div id="rd-chart-opportunity" style="width:100%;height:360px;"></div>' +
-      '<p class="text-xs text-slate-500 mt-2">※ スコアが高い市区町村ほど「求人少 × 人材プール多」の傾向（相関であり因果ではありません）。</p>' +
-      (data.interpretation
-        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
-          '📝 ' + escapeHtml(data.interpretation) + '</div>'
+      '<div id="rd-chart-opportunity" style="width:100%;height:400px;"></div>' +
+      '<p class="text-xs text-slate-500 mt-2">※ スコア = HW求人数 ÷ 昼人口 × 1000（人口千人あたり求人数）。値が小さいほど「穴場」、大きいほど「激戦」。相関であり因果ではありません。</p>' +
+      (data.note
+        ? '<div class="mt-2 text-[10px] text-slate-500 italic">' + escapeHtml(data.note) + '</div>'
         : '');
     setPanelBody('opportunity_map', html);
 
     const chart = initChart('rd-chart-opportunity');
     if (chart) {
-      const top = cities.slice(0, 25);
       chart.setOption({
-        tooltip: { trigger: 'axis' },
-        grid: { left: 140, right: 30, top: 20, bottom: 30 },
-        xAxis: { type: 'value', name: '穴場スコア' },
+        tooltip: {
+          trigger: 'axis',
+          formatter: function(params) {
+            var p = params[0];
+            var c = top[p.dataIndex];
+            return (c.name || '') + '<br/>スコア: ' + fmt(p.value, 2) +
+                   '<br/>HW求人数: ' + fmt(c.hw_count) +
+                   '<br/>昼人口: ' + fmt(c.population) +
+                   '<br/>区分: ' + (c.category || '—');
+          }
+        },
+        grid: { left: 160, right: 40, top: 20, bottom: 30 },
+        xAxis: { type: 'value', name: 'スコア（千人あたり求人数）', axisLabel: { color: '#94a3b8' } },
         yAxis: {
           type: 'category',
-          data: top.map(c => c.city_name),
+          data: top.map(function(c) { return c.name; }),
           axisLabel: { color: '#cbd5e1', fontSize: 11 }
         },
         series: [{
           type: 'bar',
-          data: top.map(c => ({
-            value: c.score,
-            itemStyle: {
-              color: c.score >= 70 ? '#22c55e' : c.score >= 50 ? '#3b82f6' : '#64748b'
-            }
-          })),
-          label: { show: true, position: 'right', formatter: '{c}' }
+          data: top.map(function(c) {
+            return { value: c.score || 0, itemStyle: { color: catColor(c.category) } };
+          }),
+          label: { show: true, position: 'right', formatter: function(p){ return p.value.toFixed(2); }, color: '#e2e8f0' }
         }]
       });
     }
