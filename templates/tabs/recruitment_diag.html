@@ -350,11 +350,21 @@
 
   // ---- 共通クエリ ----
   function buildCommonParams() {
+    const prefEl = document.getElementById('rd-pref');
+    const cityEl = document.getElementById('rd-city');
+    const prefOpt = prefEl.selectedOptions[0];
+    const cityOpt = cityEl.selectedOptions[0];
+    // select の value は都道府県名/市区町村名（人間可読）。
+    // API は prefcode/citycode（数値）を期待するので data-* 属性から取得。
+    const prefcode = (prefOpt && prefOpt.dataset && prefOpt.dataset.prefcode) || '';
+    const citycode = (cityOpt && cityOpt.dataset && cityOpt.dataset.citycode) || '';
     return {
-      job_type:  document.getElementById('rd-job-type').value || '',
-      emp_type:  document.getElementById('rd-emp-type').value || '正社員',
-      prefcode:  document.getElementById('rd-pref').value || '',
-      citycode:  document.getElementById('rd-city').value || '',
+      job_type:    document.getElementById('rd-job-type').value || '',
+      emp_type:    document.getElementById('rd-emp-type').value || '正社員',
+      prefecture:  prefEl.value || '',
+      municipality: cityEl.value || '',
+      prefcode:    prefcode,
+      citycode:    citycode,
     };
   }
   function buildGapParams() {
