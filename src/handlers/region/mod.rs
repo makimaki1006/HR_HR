@@ -14,4 +14,8 @@
 
 pub mod karte;
 
+// Team γ 監査テスト (2026-04-22): api_region_karte 契約 + データフロー逆証明
+#[cfg(test)]
+mod karte_audit_test;
+
 pub use karte::{api_region_karte, tab_region_karte};
