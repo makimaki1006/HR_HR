@@ -12,6 +12,10 @@ pub mod region;
 mod render;
 mod stats;
 
+// Team γ 監査テスト (2026-04-22): CTAS fallback 等価性 逆証明
+#[cfg(test)]
+mod flow_audit_test;
+
 // flow handlers 公開re-export
 pub use flow_handlers::{
     flow_city_agg, flow_karte_daynight_ratio, flow_karte_inflow_breakdown, flow_karte_monthly,

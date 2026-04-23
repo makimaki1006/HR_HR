@@ -162,6 +162,15 @@ pub fn get_city_agg(
 
     // FALLBACK: GROUP BY, replace with CTAS after May 1
     // mesh_count は元 CTAS のカラムと互換を保つため COUNT(DISTINCT mesh1kmid) で再現。
+    //
+    // BUG FIX 2026-04-23:
+    //   mode.where_clause() は double count 防御 (dayflag=2 混入禁止) のためで、
+    //   特定の (dayflag, timezone) スライスに絞り込むためではない。
+    //   以前は `dayflag IN (0,1) AND timezone IN (0,1)` で Raw モード 4 組合せ全行を返し
+    //   GROUP BY で 1 citycode につき 4 行が返る不具合。
+    //   API 契約通り (dayflag, timezone) specific でフィルタするよう修正。
+    //   不正組合せは上部の AggregateMode::from_params で既に遮断済み。
+    let _ = mode; // validation のみ使用
     let sql = format!(
         "SELECT citycode, \
                 CAST(? AS INTEGER) as year, \
@@ -169,15 +178,15 @@ pub fn get_city_agg(
                 SUM(population) as pop_sum, \
                 COUNT(DISTINCT mesh1kmid) as mesh_count \
          FROM {table} \
-         WHERE month = ? \
-           AND {mode_where} \
+         WHERE month = ? AND dayflag = ? AND timezone = ? \
          GROUP BY citycode, month, dayflag, timezone \
-         ORDER BY citycode",
-        mode_where = mode.where_clause()
+         ORDER BY citycode"
     );
     let params = vec![
         year.to_string(),
         format!("{:02}", month),
+        dayflag.to_string(),
+        timezone.to_string(),
     ];
     query_db(db, turso, &sql, &params, table)
 }
