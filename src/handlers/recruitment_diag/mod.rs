@@ -28,6 +28,9 @@ mod fetch;
 mod handlers;
 mod render;
 
+#[cfg(test)]
+mod contract_tests;
+
 // Panel 4-6 (担当B)
 pub mod competitors;
 pub mod condition_gap;
