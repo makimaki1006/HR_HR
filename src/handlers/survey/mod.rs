@@ -15,6 +15,9 @@ pub mod salary_parser;
 pub mod statistics;
 pub mod upload;
 
+#[cfg(test)]
+mod location_parser_realdata_test;
+
 pub use handlers::{
     analyze_survey, integrate_report, report_json, survey_report_html, tab_survey, upload_csv,
 };

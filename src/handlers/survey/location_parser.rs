@@ -1005,7 +1005,7 @@ fn try_tokyo_ward(text: &str, pref: Option<&str>) -> Option<ParsedLocation> {
 }
 
 /// 政令指定都市マッチ
-fn try_designated_city(text: &str, _pref: Option<&str>) -> Option<ParsedLocation> {
+fn try_designated_city(text: &str, pref: Option<&str>) -> Option<ParsedLocation> {
     // 正式名称でマッチ
     let designated_cities = [
         "札幌市",
@@ -1066,18 +1066,31 @@ fn try_designated_city(text: &str, _pref: Option<&str>) -> Option<ParsedLocation
         ("さいたま", "さいたま市"),
     ];
     for (alias, city) in &city_aliases {
-        if text.contains(alias) {
-            if let Some(city_pref) = designated_city_pref(city) {
-                return Some(ParsedLocation {
-                    original_text: text.to_string(),
-                    prefecture: Some(city_pref.to_string()),
-                    municipality: Some(city.to_string()),
-                    region_block: Some(prefecture_to_region(city_pref).to_string()),
-                    city_type: Some("政令指定都市".to_string()),
-                    confidence: 0.7,
-                    method: "city_alias".to_string(),
-                });
+        if !text.contains(alias) {
+            continue;
+        }
+        // 東京都の部分文字列「京都」を京都市と誤認しないためのガード
+        // （"東京都"に"京都"が含まれる。同様に"東京都北区"等も要除外）
+        if *alias == "京都" && text.contains("東京") {
+            continue;
+        }
+        if let Some(city_pref) = designated_city_pref(city) {
+            // 呼出元で都道府県が既に特定されている場合、その都道府県の政令市と
+            // alias の所属都道府県が一致しない場合はスキップ（誤マッチ防止）
+            if let Some(p) = pref {
+                if p != city_pref {
+                    continue;
+                }
             }
+            return Some(ParsedLocation {
+                original_text: text.to_string(),
+                prefecture: Some(city_pref.to_string()),
+                municipality: Some(city.to_string()),
+                region_block: Some(prefecture_to_region(city_pref).to_string()),
+                city_type: Some("政令指定都市".to_string()),
+                confidence: 0.7,
+                method: "city_alias".to_string(),
+            });
         }
     }
     None
