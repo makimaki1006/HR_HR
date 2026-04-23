@@ -1,13 +1,22 @@
 //! Panel 6: 市場動向グラフ
 //!
-//! HW 時系列テーブル (ts_turso_counts) から過去 N ヶ月の
-//! 指定業種 × 都道府県の求人数推移と増加率を算出する。
+//! HW 時系列テーブルから過去 N ヶ月の指定都道府県×業種の件数推移と変動率を算出する。
 //!
-//! データソース: ts_turso_counts (月次スナップショット)
-//! - カラム: snapshot_id, prefecture, emp_group, posting_count, facility_count
-//! - industry_major_code カラムは現時点の集計テーブルに無いため、
-//!   job_type 指定時は ts_turso_salary (industry_major_code 有) の count 列を
-//!   代替集計として使用する。
+//! ## データソース（誤解防止のため明示）
+//!
+//! job_type が空（全業種）の場合:
+//!   - `ts_turso_counts.posting_count`（月次総求人数）
+//!   - 素直に「月次求人件数推移」として解釈可能
+//!
+//! job_type 指定時:
+//!   - `ts_turso_salary.count`（業界大分類別の給与統計サンプル件数）
+//!   - **これは総求人数ではなくサンプル件数**。ts_turso_counts には
+//!     industry_major_code 列が無いため代替使用。
+//!   - 変動率が大きく出やすい（サンプリング偏り）ため、解釈文を
+//!     「業界サンプル件数の変動」に切替え、「採用競争激化」等の断定語彙を
+//!     避ける（classify_trend_sample）。
+//!   - レスポンス `is_sample=true`, `metric_label="業界サンプル件数"` を返し、
+//!     フロントエンドで参考指標であることを明示表示する。
 //!
 //! 増加率計算:
 //!   growth_rate = (今月 - N ヶ月前) / N ヶ月前 × 100
@@ -63,7 +72,22 @@ pub async fn market_trend(
 
     let (labels, counts) = extract_series(&rows);
     let growth_rate = compute_growth_rate(&counts);
-    let interpretation = build_interpretation(growth_rate, &counts, &prefecture, &q.job_type);
+    // job_type 指定時は ts_turso_salary (給与統計サンプル) を参照。
+    // この場合の counts は「総求人件数」ではなく「業界サンプル件数」なので、
+    // 解釈文・メトリクスラベルを誤解を招かない表現に切替える。
+    let is_sample = !q.job_type.is_empty();
+    let interpretation =
+        build_interpretation(growth_rate, &counts, &prefecture, &q.job_type, is_sample);
+    let metric_label = if is_sample {
+        "業界サンプル件数"
+    } else {
+        "月次求人件数"
+    };
+    let data_source = if is_sample {
+        "ts_turso_salary（給与統計サンプル、業界大分類別）"
+    } else {
+        "ts_turso_counts（月次求人総数）"
+    };
 
     Json(json!({
         "prefecture": prefecture,
@@ -73,6 +97,9 @@ pub async fn market_trend(
         "months": labels,
         "counts": counts,
         "growth_rate_pct": growth_rate,
+        "metric_label": metric_label,
+        "is_sample": is_sample,
+        "data_source": data_source,
         "interpretation": interpretation,
         "warning": hw_data_scope_warning(),
     }))
@@ -248,11 +275,15 @@ pub(crate) fn compute_growth_rate(counts: &[i64]) -> f64 {
 }
 
 /// 解釈テキスト生成 (feedback_hypothesis_driven / feedback_correlation_not_causation)
+///
+/// `is_sample = true` の場合、counts は「業界サンプル件数」であり総求人数ではない。
+/// 成長率に対して過剰な表現を避け、「サンプル数の変動」「業界動向の参考指標」という語彙に統一。
 fn build_interpretation(
     growth: f64,
     counts: &[i64],
     prefecture: &str,
     job_type: &str,
+    is_sample: bool,
 ) -> String {
     if counts.len() < 2 {
         return "時系列データが不足しており、増加率を算出できませんでした。".to_string();
@@ -269,18 +300,31 @@ fn build_interpretation(
         job_type.to_string()
     };
 
-    let label = classify_trend(growth);
-
-    format!(
-        "{region}・{industry}の求人数は期間中 {growth:+.1}% 推移。市場動向: {label}。\
-         \n※HW 掲載求人の推移であり市場全体の動向とは異なる可能性。季節要因・月次の振れを含む。\
-         \n※あくまで傾向を示すもので因果関係を示すものではない。",
-        growth = growth,
-        label = label,
-    )
+    if is_sample {
+        // ts_turso_salary: 業界サンプル件数
+        let label = classify_trend_sample(growth);
+        format!(
+            "{region}・{industry}の業界サンプル件数は期間中 {growth:+.1}% 変動。\
+             参考指標: {label}。\
+             \n※これは給与統計用の業界サンプル件数で、市場全体の総求人数ではない。\
+             \n※HW 掲載求人のサンプルであり、市場動向の傾向把握に留めてください。季節要因・月次の振れを含む。",
+            growth = growth,
+            label = label,
+        )
+    } else {
+        // ts_turso_counts: 月次求人件数
+        let label = classify_trend(growth);
+        format!(
+            "{region}の月次求人件数は期間中 {growth:+.1}% 推移。傾向: {label}。\
+             \n※HW 掲載求人の件数推移であり、市場全体の動向とは異なる可能性。季節要因・月次の振れを含む。\
+             \n※傾向を示すもので因果関係を示すものではない。",
+            growth = growth,
+            label = label,
+        )
+    }
 }
 
-/// 増加率 → 定性ラベル
+/// 増加率 → 定性ラベル（ts_turso_counts: 月次求人総数用）
 pub(crate) fn classify_trend(growth: f64) -> &'static str {
     if growth >= 10.0 {
         "採用競争激化の傾向"
@@ -292,6 +336,19 @@ pub(crate) fn classify_trend(growth: f64) -> &'static str {
         "ゆるやかな縮小傾向"
     } else {
         "市場縮小の傾向"
+    }
+}
+
+/// 増加率 → 定性ラベル（ts_turso_salary: 業界サンプル件数用）
+/// 「採用競争激化」等の断定表現を避け、「変動が大きい / 小さい」等の中立語彙で統一。
+pub(crate) fn classify_trend_sample(growth: f64) -> &'static str {
+    let abs = growth.abs();
+    if abs < 5.0 {
+        "ほぼ横ばい（変動小）"
+    } else if abs < 30.0 {
+        "中程度の変動あり"
+    } else {
+        "変動が大きい（サンプル偏りの可能性あり、複数月の平均で判断推奨）"
     }
 }
 
@@ -358,23 +415,47 @@ mod tests {
 
     #[test]
     fn industry_major_mapping() {
-        assert_eq!(job_type_to_industry_major("医療"), "83");
-        assert_eq!(job_type_to_industry_major("老人福祉・介護"), "85");
+        assert_eq!(job_type_to_industry_major("医療"), "P");
+        assert_eq!(job_type_to_industry_major("老人福祉・介護"), "P");
+        assert_eq!(job_type_to_industry_major("飲食業"), "M");
+        assert_eq!(job_type_to_industry_major("製造業"), "E");
         assert_eq!(job_type_to_industry_major("未定義"), "");
     }
 
     #[test]
-    fn interpretation_contains_region_and_industry() {
-        let msg = build_interpretation(5.0, &[100, 105], "東京都", "医療");
+    fn interpretation_sample_mode_contains_sample_notice() {
+        // ts_turso_salary 由来（サンプル）の解釈文には「業界サンプル」「市場全体の総求人数ではない」が含まれる
+        let msg = build_interpretation(5.0, &[100, 105], "東京都", "医療", true);
         assert!(msg.contains("東京都"));
         assert!(msg.contains("医療"));
         assert!(msg.contains("+5.0%"));
+        assert!(msg.contains("業界サンプル件数"));
+        assert!(msg.contains("市場全体の総求人数ではない"));
+    }
+
+    #[test]
+    fn interpretation_non_sample_mode_uses_job_count_label() {
+        // ts_turso_counts 由来（総数）の解釈文には「月次求人件数」「因果関係を示すものではない」が含まれる
+        let msg = build_interpretation(5.0, &[100, 105], "東京都", "", false);
+        assert!(msg.contains("東京都"));
+        assert!(msg.contains("月次求人件数"));
         assert!(msg.contains("因果関係を示すものではない"));
     }
 
     #[test]
     fn interpretation_insufficient_data() {
-        let msg = build_interpretation(0.0, &[100], "", "");
+        let msg = build_interpretation(0.0, &[100], "", "", false);
         assert!(msg.contains("不足"));
+    }
+
+    #[test]
+    fn classify_trend_sample_avoids_alarmist_language() {
+        // サンプルモードでは「採用競争激化」等の断定を避ける
+        assert_eq!(classify_trend_sample(0.0), "ほぼ横ばい（変動小）");
+        assert_eq!(classify_trend_sample(10.0), "中程度の変動あり");
+        assert_eq!(classify_trend_sample(-10.0), "中程度の変動あり");
+        let large = classify_trend_sample(50.0);
+        assert!(large.contains("変動が大きい"));
+        assert!(large.contains("サンプル偏り"));
     }
 }
