@@ -18,7 +18,7 @@
 //! - 相関は示せても因果は証明できない (feedback_correlation_not_causation)。
 
 use crate::db::turso_http::TursoDb;
-use crate::handlers::helpers::{get_i64, Row};
+use crate::handlers::helpers::{get_i64, get_str, Row};
 use crate::handlers::recruitment_diag::competitors::{hw_data_scope_warning, prefcode_to_name};
 use crate::AppState;
 use axum::extract::{Query, State};
@@ -158,21 +158,34 @@ fn employment_type_to_group(emp_type: &str) -> String {
 }
 
 /// job_type (HW 業界名) → industry_major_code
-/// 13 業界の暫定マッピング。CLAUDE.md JOB_TYPES と揃える。
+/// 日本標準産業分類（大分類 A-T）への変換。
+/// ts_turso_salary.industry_major_code は A-T のアルファベットで格納（実データ確認済 2026-04-23）。
+///
+/// 参考: e-Stat 標準分類 (大分類)
+/// - D: 建設業
+/// - E: 製造業
+/// - G: 情報通信業
+/// - H: 運輸業、郵便業
+/// - I: 卸売業、小売業
+/// - L: 学術研究、専門・技術サービス業（派遣業含む）
+/// - M: 宿泊業、飲食サービス業
+/// - N: 生活関連サービス業、娯楽業
+/// - O: 教育、学習支援業
+/// - P: 医療、福祉
+/// - R: サービス業（他に分類されないもの）
+/// - T: 分類不能の産業
 pub(crate) fn job_type_to_industry_major(job_type: &str) -> String {
-    // 未確定な場合は空文字 (業界フィルタしない) を返す
     match job_type {
-        "医療" => "83".to_string(),
-        "老人福祉・介護" => "85".to_string(),
-        "建設業" => "06".to_string(),
-        "製造業" => "09".to_string(),
-        "小売業" => "56".to_string(),
-        "飲食業" | "宿泊業、飲食サービス業" => "75".to_string(),
-        "サービス業" => "88".to_string(),
-        "IT・通信" | "情報通信業" => "37".to_string(),
-        "運輸業" | "運輸業、郵便業" => "42".to_string(),
-        "教育・保育" | "教育、学習支援業" => "81".to_string(),
-        "派遣・人材" => "91".to_string(),
+        "医療" | "老人福祉・介護" => "P".to_string(),
+        "建設業" => "D".to_string(),
+        "製造業" => "E".to_string(),
+        "小売業" => "I".to_string(),
+        "飲食業" | "宿泊業" | "宿泊業、飲食サービス業" => "M".to_string(),
+        "サービス業" => "R".to_string(),
+        "IT・通信" | "情報通信業" => "G".to_string(),
+        "運輸業" | "運輸業、郵便業" => "H".to_string(),
+        "教育・保育" | "教育、学習支援業" => "O".to_string(),
+        "派遣・人材" => "L".to_string(),
         _ => String::new(),
     }
 }
@@ -182,11 +195,36 @@ fn extract_series(rows: &[Row]) -> (Vec<String>, Vec<i64>) {
     let mut labels = Vec::with_capacity(rows.len());
     let mut counts = Vec::with_capacity(rows.len());
     for r in rows {
-        let snap = get_i64(r, "snapshot_id");
-        labels.push(snapshot_label(snap));
-        counts.push(get_i64(r, "posting_count"));
+        // snapshot_id は "2026-03" 文字列 (TEXT) または YYYYMM 整数の両方の可能性に対応
+        let snap_str = get_str(r, "snapshot_id");
+        let label = if !snap_str.is_empty() {
+            normalize_snapshot_label(&snap_str)
+        } else {
+            let snap_int = get_i64(r, "snapshot_id");
+            snapshot_label(snap_int)
+        };
+        labels.push(label);
+        // count 列名: ts_turso_salary 由来は "count"、ts_turso_counts 由来は "posting_count"
+        let c = get_i64(r, "posting_count");
+        let c = if c > 0 { c } else { get_i64(r, "count") };
+        counts.push(c);
     }
     (labels, counts)
+}
+
+/// "2026-03" → "2026/03" のように表示整形（"/" に統一）。
+/// 既に YYYYMM 形式の文字列なら YYYY/MM に変換。
+fn normalize_snapshot_label(s: &str) -> String {
+    let t = s.trim();
+    if let Some(pos) = t.find('-') {
+        let (y, rest) = t.split_at(pos);
+        let m = &rest[1..];
+        format!("{}/{}", y, m)
+    } else if t.len() == 6 && t.chars().all(|c| c.is_ascii_digit()) {
+        format!("{}/{}", &t[..4], &t[4..])
+    } else {
+        t.to_string()
+    }
 }
 
 /// snapshot_id (YYYYMM) → "YYYY/MM"
