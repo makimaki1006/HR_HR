@@ -853,29 +853,45 @@ fn rc3_population_density_cross(ctx: &InsightContext) -> Option<Insight> {
         Severity::Info
     };
 
+    let (desc, caveat) = if density > 50.0 {
+        (
+            "求人密度が高く、採用競争が激しい傾向があります。",
+            "同じ母集団を複数社で取り合う状況のため、給与・働き方の差別化が重要。",
+        )
+    } else if density < 5.0 {
+        (
+            "求人1件あたりの人口が多く、競合密度という観点では穏やかな採用環境です。",
+            // GE-1（可住地密度）との矛盾誤解を防ぐためのクロスリファレンス
+            "ただし人口そのものが少ない過疎地の場合、競合が少なくても応募母集団が小さいため、\
+             「構造分析」タブの可住地人口密度も併せてご確認ください。",
+        )
+    } else {
+        ("", "")
+    };
+
+    let body = if caveat.is_empty() {
+        format!(
+            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）。{}",
+            total_pop, total_postings, density, desc
+        )
+    } else {
+        format!(
+            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）。{}\n※{}",
+            total_pop, total_postings, density, desc, caveat
+        )
+    };
+
     Some(Insight {
         id: "RC-3".to_string(),
         category: InsightCategory::RegionalCompare,
         severity,
         title: "人口あたりの求人密度".to_string(),
-        body: format!(
-            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）。{}",
-            total_pop,
-            total_postings,
-            density,
-            if density > 50.0 {
-                "求人密度が非常に高く、採用競争が激しい地域です。"
-            } else if density < 5.0 {
-                "求人密度が低く、比較的穏やかな採用環境です。"
-            } else {
-                ""
-            }
-        ),
+        body,
         evidence: vec![Evidence {
             metric: "求人密度".into(),
             value: density,
             unit: "件/千人".into(),
-            context: "人口対比".into(),
+            context: "人口対比（競合密度の指標）".into(),
         }],
         related_tabs: vec!["overview", "jobmap"],
     })
@@ -1660,14 +1676,33 @@ fn ge1_habitable_density(ctx: &InsightContext) -> Option<Insight> {
     }
     let density = total_pop / habitable;
 
-    let (pattern, severity) = if density > HABITABLE_DENSITY_CRITICAL_MAX {
-        ("過密", Severity::Warning)
+    // severity を全体的に1段緩和（Info 中心）。RC-3 と同時発火時の「良好」vs「注意」の
+    // 矛盾印象を避けるため、過疎・過密は基本的に Info の情報提供レベルに留め、
+    // 極端ケース（CRITICAL 範囲）のみ Warning にする。
+    let (pattern, severity, hint) = if density > HABITABLE_DENSITY_CRITICAL_MAX {
+        (
+            "過密",
+            Severity::Warning,
+            "通勤集中による駐車・アクセス制約の可能性があります。",
+        )
     } else if density < HABITABLE_DENSITY_CRITICAL_MIN {
-        ("極端な過疎", Severity::Warning)
+        (
+            "極端な過疎",
+            Severity::Info,
+            "応募母集団が限定的なため、通勤圏を広げた広域募集や住宅手当等の検討余地があります。",
+        )
     } else if density > HABITABLE_DENSITY_MAX {
-        ("過密傾向", Severity::Info)
+        (
+            "過密傾向",
+            Severity::Info,
+            "通勤利便性を前面に出した訴求が有効な可能性があります。",
+        )
     } else if density < HABITABLE_DENSITY_MIN {
-        ("過疎傾向", Severity::Info)
+        (
+            "過疎傾向",
+            Severity::Info,
+            "応募母集団が小さめのため、通勤圏を広げることで応募数増の余地があります。",
+        )
     } else {
         return None;
     };
@@ -1676,17 +1711,22 @@ fn ge1_habitable_density(ctx: &InsightContext) -> Option<Insight> {
         id: "GE-1".to_string(),
         category: InsightCategory::StructuralContext,
         severity,
-        title: "可住地密度ペナルティ".to_string(),
+        title: "可住地密度（母集団サイズの参考指標）".to_string(),
         body: format!(
-            "可住地面積{:.1}km²あたり人口密度が{:.0}人/km²と{}で、通勤圏を広げないと採用難の可能性があります。",
-            habitable, density, pattern
+            "可住地面積{:.1}km²あたり人口密度が{:.1}人/km²（{}）。{}\n\
+             ※これは応募母集団の大きさを示す構造指標です。\
+             「地域比較」タブの人口あたり求人密度（競合指標）と併せて解釈してください。",
+            habitable, density, pattern, hint
         ),
         evidence: vec![
             Evidence {
                 metric: "可住地人口密度".into(),
                 value: density,
                 unit: "人/km²".into(),
-                context: format!("標準範囲{}-{}人/km²", HABITABLE_DENSITY_MIN as i64, HABITABLE_DENSITY_MAX as i64),
+                context: format!(
+                    "標準範囲{}-{}人/km²（母集団サイズの目安）",
+                    HABITABLE_DENSITY_MIN as i64, HABITABLE_DENSITY_MAX as i64
+                ),
             },
             Evidence {
                 metric: "可住地面積".into(),
