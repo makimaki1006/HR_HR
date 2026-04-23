@@ -14,6 +14,9 @@ pub mod phrase_validator;
 pub mod render;
 pub mod report;
 
+#[cfg(test)]
+mod pattern_audit_test;
+
 pub use export::insight_report_xlsx;
 pub use handlers::{
     insight_report_html, insight_report_json, insight_subtab, insight_widget, tab_insight,
