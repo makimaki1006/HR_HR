@@ -1351,9 +1351,10 @@ pub fn render_company_report(ctx: &CompanyContext) -> String {
     </div>
 </div>
 <script src="/static/js/charts.js"></script>
+<script src="/static/js/app.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {{
-    if (typeof initECharts === 'function') initECharts(document.body);
+    if (typeof window.initECharts === 'function') window.initECharts(document.body);
 }});
 </script>
 </body>
