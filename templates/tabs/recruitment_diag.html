@@ -459,87 +459,26 @@
           '<div class="text-xl font-bold text-white">' + (ratio != null && ratio > 0 ? fmt(ratio, 2) : '—') + '</div>' +
         '</div>' +
       '</div>' +
-      (data.so_what
-        ? '<div class="text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
-          '📝 ' + escapeHtml(data.so_what) + '</div>'
-        : '<div class="text-xs text-slate-500">※ 昼間人口＞夜間人口 の地域は通勤流入が多く、求職プール候補が広い傾向。</div>');
+      '<div class="text-xs text-slate-500">※ 数値は Agoop 人流データ（平日 昼/深夜 の月平均滞在人口）。' +
+      '解釈・採用戦略への示唆は下部の Panel 8「AI 示唆」を参照してください。</div>';
     setPanelBody('talent_pool', html);
     setPanelStatus('talent_pool', '完了', 'text-green-400');
   }
 
-  // Panel 3: 流入元分析（4区分 breakdown → 棒グラフ + 83%部分データ警告）
-  function renderInflow(data) {
-    if (!data || data.error) { setPanelError('inflow', data && data.error ? data.error : 'データなし'); return; }
-    const breakdown = Array.isArray(data.breakdown) ? data.breakdown : [];
-    const totalPop = breakdown.reduce(function(s, b){ return s + (b.population || 0); }, 0);
-
-    // 83%部分データ警告（fromto_city は 2026-04-22 時点で 83% のみ投入済）
-    const dataWarning = data.data_warning || (data.notes && data.notes.data_warning);
-    let warnBanner = '';
-    if (dataWarning) {
-      warnBanner =
-        '<div class="bg-yellow-900/40 border border-yellow-600/60 rounded p-3 mb-3 text-sm text-yellow-100">' +
-          '<span class="font-bold text-yellow-300">⚠️ 部分データ警告</span>: ' +
-          escapeHtml(dataWarning) +
-        '</div>';
-    }
-
+  // Panel 3: 流入元分析（開発中）
+  function renderInflow(_data) {
     const html =
-      warnBanner +
-      (breakdown.length > 0
-        ? '<div id="rd-chart-inflow" style="width:100%;height:300px;"></div>'
-        : '<div class="flex items-center justify-center py-12 text-slate-500 text-sm">' +
-          'Agoop fromto_city データなし（対象市区町村）</div>') +
-      (data.so_what
-        ? '<div class="mt-3 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">' +
-          '📝 ' + escapeHtml(data.so_what) + '</div>'
-        : '');
+      '<div class="flex items-center justify-center py-10 text-slate-500 text-sm">' +
+      '🚧 開発中</div>';
     setPanelBody('inflow', html);
-
-    if (breakdown.length > 0 && totalPop > 0) {
-      const chart = initChart('rd-chart-inflow');
-      if (chart) {
-        chart.setOption({
-          tooltip: {
-            trigger: 'axis',
-            formatter: function(params) {
-              var p = params[0];
-              var pct = totalPop > 0 ? (p.value / totalPop * 100).toFixed(1) : '—';
-              return p.name + ': ' + fmt(p.value) + ' 人 (' + pct + '%)';
-            }
-          },
-          grid: { left: 110, right: 30, top: 20, bottom: 30 },
-          xAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
-          yAxis: {
-            type: 'category',
-            data: breakdown.map(function(b){ return b.area_name || b.short_name || ('from_area=' + b.from_area); }),
-            axisLabel: { color: '#cbd5e1' }
-          },
-          series: [{
-            type: 'bar',
-            data: breakdown.map(function(b){ return b.population || 0; }),
-            itemStyle: { color: '#3b82f6' },
-            label: {
-              show: true,
-              position: 'right',
-              color: '#e2e8f0',
-              formatter: function(p){
-                var pct = totalPop > 0 ? (p.value / totalPop * 100).toFixed(1) : '—';
-                return pct + '%';
-              }
-            }
-          }]
-        });
-      }
-    }
-    setPanelStatus('inflow', '完了', 'text-green-400');
+    setPanelStatus('inflow', '開発中', 'text-slate-400');
   }
 
-  // Panel 4: 競合企業ランキング（テーブル TOP20）
+  // Panel 4: 競合企業一覧（ソート: 従業員数降順、企業名クリックで詳細別タブ）
   function renderCompetitors(data) {
     if (!data || data.error) { setPanelError('competitors', data && data.error ? data.error : 'データ形式不正'); return; }
     if (!Array.isArray(data.companies)) { setPanelError('competitors', 'データ形式不正'); return; }
-    const rows = data.companies.slice(0, 20);
+    const rows = data.companies;
     if (rows.length === 0) {
       setPanelBody('competitors', '<div class="text-sm text-slate-400 py-4">該当する競合企業がありません（SalesNow に該当業種×エリアの登録なし、または HW未掲載）。</div>');
       setPanelStatus('competitors', '完了（0件）', 'text-slate-400');
@@ -552,22 +491,30 @@
       if (c.credit_score) parts.push('信用 ' + fmt(c.credit_score, 1));
       return parts.join(' / ');
     }
+    function nameCell(c) {
+      var raw = c.name || c.company_name || '—';
+      var safeName = escapeHtml(raw);
+      var corp = c.corporate_number;
+      if (corp) {
+        // 別タブで企業レポート
+        return '<a href="/report/company/' + encodeURIComponent(corp) + '" target="_blank" rel="noopener" class="text-blue-300 hover:text-blue-200 hover:underline">' + safeName + '</a>';
+      }
+      return safeName;
+    }
     let html = '<div class="overflow-x-auto">' +
       '<table class="w-full text-xs text-slate-200">' +
       '<thead class="bg-navy-900/70 text-slate-300">' +
         '<tr>' +
-          '<th class="px-2 py-2 text-left">#</th>' +
           '<th class="px-2 py-2 text-left">企業名</th>' +
           '<th class="px-2 py-2 text-right">HW求人数</th>' +
           '<th class="px-2 py-2 text-right">従業員数</th>' +
           '<th class="px-2 py-2 text-right">売上 (万円)</th>' +
-          '<th class="px-2 py-2 text-left">特徴</th>' +
+          '<th class="px-2 py-2 text-left">業種・特徴</th>' +
         '</tr>' +
       '</thead><tbody>';
-    rows.forEach(function(c, i) {
+    rows.forEach(function(c) {
       html += '<tr class="border-b border-slate-700/50 hover:bg-navy-900/40">' +
-        '<td class="px-2 py-1.5 text-slate-400">' + (i + 1) + '</td>' +
-        '<td class="px-2 py-1.5 font-medium text-white">' + escapeHtml(c.name || c.company_name || '—') + '</td>' +
+        '<td class="px-2 py-1.5 font-medium">' + nameCell(c) + '</td>' +
         '<td class="px-2 py-1.5 text-right">' + fmt(c.hw_postings_count != null ? c.hw_postings_count : c.posting_count) + '</td>' +
         '<td class="px-2 py-1.5 text-right">' + fmt(c.employees) + '</td>' +
         '<td class="px-2 py-1.5 text-right">' + fmt(c.sales_amount) + '</td>' +
@@ -575,10 +522,7 @@
       '</tr>';
     });
     html += '</tbody></table></div>';
-    html += '<p class="text-xs text-slate-500 mt-2">※ SalesNow 登録企業と HW 掲載求人を名称一致でJOIN。民間媒体のみ利用の企業は HW求人数=0 で除外される可能性あり。</p>';
-    if (data.top20_insight) {
-      html += '<div class="mt-2 text-xs text-slate-300 bg-navy-900/40 rounded p-2 border-l-2 border-blue-500">📝 ' + escapeHtml(data.top20_insight) + '</div>';
-    }
+    html += '<p class="text-xs text-slate-500 mt-2">※ SalesNow 登録企業と HW 求人を名称一致でJOIN。従業員数降順で並べています（ランキング評価ではありません）。企業名クリックで詳細ページを別タブ表示。</p>';
     setPanelBody('competitors', html);
     setPanelStatus('competitors', '完了（' + rows.length + '社）', 'text-green-400');
   }
@@ -855,7 +799,7 @@
       fetchAndRender('difficulty',      RD.endpoints.difficulty      + '?' + commonQs),
       fetchAndRender('talent_pool',     RD.endpoints.talent_pool     + '?' + commonQs),
       fetchAndRender('inflow',          RD.endpoints.inflow          + '?' + commonQs),
-      fetchAndRender('competitors',     RD.endpoints.competitors     + '?' + commonQs),
+      fetchAndRender('competitors',     RD.endpoints.competitors     + '?' + commonQs + '&limit=100'),
       fetchAndRender('condition_gap',   RD.endpoints.condition_gap   + '?' + gapQs),
       fetchAndRender('market_trend',    RD.endpoints.market_trend    + '?' + commonQs),
       fetchAndRender('opportunity_map', RD.endpoints.opportunity_map + '?' + commonQs),
