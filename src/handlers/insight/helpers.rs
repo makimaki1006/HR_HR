@@ -3,11 +3,12 @@
 use super::super::helpers::Row;
 
 /// サブタブ定義
-pub(crate) const INSIGHT_SUBTABS: [(u8, &str); 5] = [
+/// 旧 "アクション" タブ (id=4) は冗長のため 2026-04-23 削除。
+/// アクション系示唆は採用構造/将来予測/地域比較/構造分析の各 insight card body に統合済。
+pub(crate) const INSIGHT_SUBTABS: [(u8, &str); 4] = [
     (1, "採用構造"),
     (2, "将来予測"),
     (3, "地域比較"),
-    (4, "アクション"),
     (5, "構造分析"),
 ];
 
