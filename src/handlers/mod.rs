@@ -19,3 +19,8 @@ pub mod region;
 pub mod survey;
 pub mod trend;
 pub mod workstyle;
+
+// Team δ 監査 (2026-04-23): 全タブ Frontend⇔Backend JSON 契約 L5 逆証明
+// （採用診断以外の jobmap 主要 endpoint + 既知ミスマッチの記録テスト）
+#[cfg(test)]
+mod global_contract_audit_test;
