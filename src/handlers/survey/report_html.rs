@@ -1022,15 +1022,28 @@ fn render_section_executive_summary(
     // ---- スコープ注意書き (必須 / 仕様書 3.5) ----
     // 2026-04-24 修正: CSV は Indeed/求人ボックス等の媒体由来なので「HW 掲載求人のみ」
     // 表現は誤り。CSV 側と HW 側それぞれのスコープを明示。
-    html.push_str(
+    let outlier_note = if agg.outliers_removed_total > 0 {
+        format!(
+            "<br>\u{203B} 給与統計は IQR 法（Q1 − 1.5×IQR 〜 Q3 + 1.5×IQR）で外れ値 {} 件を除外した後の値です（除外前 {} 件、除外後 {} 件）。\
+            雇用形態グループ別集計も各グループ内で同手法の外れ値除外を適用済。",
+            agg.outliers_removed_total,
+            agg.salary_values_raw_count,
+            agg.salary_values_raw_count.saturating_sub(agg.outliers_removed_total),
+        )
+    } else {
+        "<br>\u{203B} 給与統計は IQR 法（Q1 − 1.5×IQR 〜 Q3 + 1.5×IQR）で外れ値除外を適用済（除外対象なし）。".to_string()
+    };
+
+    html.push_str(&format!(
         "<div class=\"exec-scope-note\">\
         \u{203B} 本レポートはアップロード CSV（媒体: Indeed / 求人ボックス等）の分析が主で、\
         HW データは比較参考値として併記しています。CSV はスクレイピング範囲に依存し、\
         HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。<br>\
         \u{203B} 示唆は相関に基づく仮説であり、因果を証明するものではない。\
-        実施判断は現場文脈に依存します。\
+        実施判断は現場文脈に依存します。{}\
         </div>\n",
-    );
+        outlier_note
+    ));
 
     html.push_str("</section>\n");
 }
@@ -2320,10 +2333,21 @@ fn render_section_emp_group_native(html: &mut String, agg: &SurveyAggregation) {
             "<div style=\"font-size:13pt;font-weight:700;color:var(--c-primary);\">{}</div>\n",
             escape_html(&group.group_label)
         ));
+        // 「n=100件 (IQR外れ値除外: 3件)」のような表示
+        let count_display = if group.outliers_removed > 0 {
+            format!(
+                "n={}件（IQR で {} 件除外、除外前 {}）",
+                format_number(group.count as i64),
+                format_number(group.outliers_removed as i64),
+                format_number(group.raw_count as i64)
+            )
+        } else {
+            format!("n={}件", format_number(group.count as i64))
+        };
         html.push_str(&format!(
-            "<div style=\"font-size:10pt;color:var(--c-muted);margin-bottom:8px;\">集計単位: {} / n={}件</div>\n",
+            "<div style=\"font-size:10pt;color:var(--c-muted);margin-bottom:8px;\">集計単位: {} / {}</div>\n",
             escape_html(&group.native_unit),
-            format_number(group.count as i64)
+            count_display
         ));
         html.push_str("<table style=\"width:100%;font-size:10.5pt;border-collapse:collapse;\">\n");
         html.push_str(&format!(
@@ -2356,8 +2380,9 @@ fn render_section_emp_group_native(html: &mut String, agg: &SurveyAggregation) {
         "<p class=\"print-note\">\
          ※ 「正社員」グループは月給ベース（時給は ×160 で月給換算）、\
          「パート」グループは時給ベース（月給は /160 で時給換算）。\
-         「派遣・その他」はグループ内多数派の単位を採用。\
-         単位変換を明示して直感との乖離を避けます。</p>\n",
+         「派遣・その他」はグループ内多数派の単位を採用。<br>\
+         ※ 各グループ内で IQR 法（Q1 − 1.5×IQR ～ Q3 + 1.5×IQR の範囲外）\
+         による外れ値除外を適用。除外件数は各カード内に表示。</p>\n",
     );
     html.push_str("</section>\n");
 }
@@ -3271,6 +3296,12 @@ fn render_section_notes(html: &mut String, now: &str) {
     html.push_str(
         "<li><strong>相関と因果</strong>: 本レポートに記載する「傾向」「相関」は因果関係を\
         証明するものではない。示唆は仮説であり、実施判断は現場文脈に依存する。</li>\n",
+    );
+    html.push_str(
+        "<li><strong>外れ値処理</strong>: 給与統計（中央値・平均・グループ別集計）は IQR 法\
+        （Q1 − 1.5×IQR 〜 Q3 + 1.5×IQR の範囲外を除外）を適用済。\
+        雇用形態グループ別集計も各グループ内で同手法の除外を実行。\
+        除外件数は Executive Summary および各カード内に明示表示。</li>\n",
     );
     html.push_str(
         "<li><strong>サンプル件数と求人件数</strong>: 本レポートの「サンプル件数」は分析対象求人数で\
