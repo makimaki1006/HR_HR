@@ -1,9 +1,16 @@
 //! Agent P3: PDF 競合調査レポート QA テスト
 //!
 //! 仕様書: docs/pdf_design_spec_2026_04_24.md 9節 QA チェックリスト
+//! 追加要件: 2026-04-24 ユーザー要件（Agent B 改修中）
+//!   - 「ハローワーク競合調査」文言削除
+//!   - 「SalesNow」文言 UI 上全削除 → 「地域注目企業」統一
+//!   - 地域注目企業セクション刷新（与信削除、売上/1y/3m 追加）
+//!   - HW データ連携セクション新規
+//!   - A4縦印刷 UX 最適化（page-break / contenteditable）
+//!   - HTML 自己完結性（inline CSS / 外部 link 禁止 / ECharts CDN のみ許容）
 //!
 //! 目的:
-//!   P2 が再実装する `render_survey_report_page` の出力 HTML を
+//!   P2/Agent B が再実装する `render_survey_report_page` の出力 HTML を
 //!   機械検証可能な assertion に落とし込み、仕様書の必須要件
 //!   （構造 / 印刷 CSS / 必須文言 / 禁止ワード / severity 等）を
 //!   確実にカバーする。
@@ -15,8 +22,8 @@
 //!     本ファイルのドキュメントコメントに明示
 //!
 //! 運用:
-//!   - P2 未完了時: 一部 fail が仕様未達成箇所を示す
-//!   - P2 完了時: 全 pass を最終目標
+//!   - Agent B 未完了時: 9.4 禁止ワード系/9.10-9.13 新規群の一部 fail は期待通り
+//!   - Agent B 完了時: 全 pass を最終目標
 
 use super::aggregator::{
     CompanyAgg, EmpTypeSalary, MunicipalitySalaryAgg, PrefectureSalaryAgg, RegressionResult,
@@ -190,7 +197,30 @@ fn minimal_seeker() -> JobSeekerAnalysis {
     }
 }
 
-/// P2 完了後を想定した「フル機能呼び出し」の HTML
+/// NearbyCompany mock（2026-04-24 要件: SalesNow 表示削除 / 売上 / 1y / 3m 追加）
+///
+/// 注意:
+///   - company_name には "SalesNow" を含めない（9.4 禁止ワード検証に干渉するため）
+///   - sales_amount, sales_range, employee_delta_1y, employee_delta_3m の
+///     新フィールドは B の render_section_* 実装で HTML に出力される前提
+fn mock_nearby_company() -> NearbyCompany {
+    NearbyCompany {
+        corporate_number: "1234567890123".to_string(),
+        company_name: "サンプル医療法人α".to_string(),
+        prefecture: "東京都".to_string(),
+        sn_industry: "医療・福祉".to_string(),
+        employee_count: 200,
+        credit_score: 68.0,
+        postal_code: "100".to_string(),
+        hw_posting_count: 5,
+        sales_amount: 1_200_000_000.0,
+        sales_range: "10-50億円".to_string(),
+        employee_delta_1y: 12.5,
+        employee_delta_3m: 3.2,
+    }
+}
+
+/// P2/B 完了後を想定した「フル機能呼び出し」の HTML
 fn render_full_html() -> String {
     let agg = minimal_agg();
     let seeker = minimal_seeker();
@@ -199,16 +229,7 @@ fn render_full_html() -> String {
     let smin = agg.salary_min_values.clone();
     let smax = agg.salary_max_values.clone();
     let ctx = mock_empty_insight_ctx();
-    let sn = vec![NearbyCompany {
-        corporate_number: "1234567890123".to_string(),
-        company_name: "SalesNowサンプル社".to_string(),
-        prefecture: "東京都".to_string(),
-        sn_industry: "医療・福祉".to_string(),
-        employee_count: 200,
-        credit_score: 68.0,
-        postal_code: "100".to_string(),
-        hw_posting_count: 5,
-    }];
+    let sn = vec![mock_nearby_company()];
     render_survey_report_page(&agg, &seeker, &by_company, &by_emp, &smin, &smax, Some(&ctx), &sn)
 }
 
@@ -308,26 +329,27 @@ fn p3_spec_9_1_hw_comparison_toggled_by_hw_context() {
 }
 
 #[test]
-fn p3_spec_9_1_salesnow_section_toggled_by_emptiness() {
+fn p3_spec_9_1_featured_companies_section_toggled_by_emptiness() {
+    // 2026-04-24 要件: SalesNow 表記削除 → 「地域注目企業」統一
     // CSS コメント等の偶発ヒットを避けるため <h2> 内の検出に限定
     let html_without = render_minimal_html();
-    let has_h2_salesnow_without = html_without
+    let has_h2_without = html_without
         .split("<h2")
         .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("SalesNow") || t.contains("地域注目企業")).unwrap_or(false));
+        .any(|s| s.split("</h2>").next().map(|t| t.contains("地域注目企業") || t.contains("注目企業")).unwrap_or(false));
     assert!(
-        !has_h2_salesnow_without,
-        "salesnow_companies.is_empty() のとき Section 12 の <h2> が出ない"
+        !has_h2_without,
+        "nearby_companies.is_empty() のとき 地域注目企業セクションの <h2> が出ない"
     );
 
     let html_with = render_full_html();
-    let has_h2_salesnow_with = html_with
+    let has_h2_with = html_with
         .split("<h2")
         .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("SalesNow") || t.contains("地域注目企業")).unwrap_or(false));
+        .any(|s| s.split("</h2>").next().map(|t| t.contains("地域注目企業") || t.contains("注目企業")).unwrap_or(false));
     assert!(
-        has_h2_salesnow_with,
-        "salesnow_companies 非空のとき Section 12 の <h2> が必要"
+        has_h2_with,
+        "nearby_companies 非空のとき 地域注目企業セクションの <h2> が必要"
     );
 }
 
@@ -497,7 +519,7 @@ fn p3_spec_9_3_generated_datetime_present() {
 }
 
 // ============================================================
-// 9.4 禁止ワードチェック（仕様書 1.5 節）
+// 9.4 禁止ワードチェック（仕様書 1.5 節 + 2026-04-24 追加）
 // ============================================================
 
 /// 禁止ワード完全一致チェック（リテラル文字列で出現しないこと）
@@ -508,7 +530,7 @@ fn p3_spec_9_3_generated_datetime_present() {
 fn assert_no_forbidden_word(html: &str, word: &str) {
     assert!(
         !html.contains(word),
-        "禁止ワード「{}」が HTML 出力に含まれる（仕様書 1.5 節）",
+        "禁止ワード「{}」が HTML 出力に含まれる（仕様書 1.5 節 / 2026-04-24 追加要件）",
         word
     );
 }
@@ -584,6 +606,43 @@ fn p3_spec_9_4_forbidden_word_absolute() {
         !ja_context_found,
         "日本語文脈の中に『100%』が断定語として使われている可能性（仕様書 1.5 節）"
     );
+}
+
+// ---- 2026-04-24 追加: UI 文言禁止ワード ----
+
+#[test]
+fn p3_spec_9_4_no_hw_survey_label() {
+    // 旧タイトル構成要素「ハローワーク競合調査」は全削除
+    let html = render_full_html();
+    assert_no_forbidden_word(&html, "ハローワーク競合調査");
+}
+
+#[test]
+fn p3_spec_9_4_no_salesnow_label() {
+    // 「SalesNow」は UI 表示から全削除。「地域注目企業」に統一
+    // HTML コメントや data-* 属性レベルでも出現させない方針
+    let html = render_full_html();
+    assert_no_forbidden_word(&html, "SalesNow");
+}
+
+#[test]
+fn p3_spec_9_4_no_credit_score_label() {
+    // 「与信スコア」「与信指標」等のユーザー向け表示文字列は削除
+    // （内部フィールド名 credit_score は Rust struct 名なので HTML に出ない想定）
+    let html = render_full_html();
+    assert!(
+        !html.contains("与信スコア") && !html.contains("与信指標") && !html.contains("信用スコア"),
+        "与信/信用スコアは UI に表示しない（仕様書 2026-04-24 追加要件）"
+    );
+}
+
+#[test]
+fn p3_spec_9_4_no_rival_investigation_label() {
+    // 「競合調査分析」「競合調査レポート」等の強い競争語彙も削減対象
+    // （Agent B の合意: タイトル/サブタイトルから「競合調査」系を外し「求人市場分析」系に統一）
+    let html = render_full_html();
+    // 表紙サブタイトル周辺の「競合調査分析」チェック
+    assert_no_forbidden_word(&html, "競合調査分析");
 }
 
 // ============================================================
@@ -822,6 +881,11 @@ fn p3_spec_9_9_struct_fields_unchanged_compile_check() {
     let _: f64 = nc.credit_score;
     let _: String = nc.postal_code.clone();
     let _: i64 = nc.hw_posting_count;
+    // 2026-04-24 追加フィールド（契約検証）
+    let _: f64 = nc.sales_amount;
+    let _: String = nc.sales_range.clone();
+    let _: f64 = nc.employee_delta_1y;
+    let _: f64 = nc.employee_delta_3m;
 }
 
 #[test]
@@ -846,6 +910,286 @@ fn p3_spec_9_9_render_function_signature_unchanged() {
 }
 
 // ============================================================
+// 9.10 地域注目企業セクション項目（2026-04-24 新規要件）
+// ============================================================
+//
+// 背景:
+//   - 「SalesNow」表記削除 → 「地域注目企業」に統一
+//   - 与信/信用スコア列を削除
+//   - 新列: 売上（金額 or レンジ）/ 1年人員推移 / 3ヶ月人員推移
+//
+// 注意:
+//   - B 実装の進捗次第で当面 fail する（期待通り）
+
+#[test]
+fn p3_spec_9_10_section_title_is_area_featured_companies() {
+    let html = render_full_html();
+    // 「地域注目企業」見出しが <h2> 内に存在（SalesNow は含まない）
+    let has_proper_title = html
+        .split("<h2")
+        .skip(1)
+        .any(|s| {
+            s.split("</h2>")
+                .next()
+                .map(|t| (t.contains("地域注目企業") || t.contains("注目企業")) && !t.contains("SalesNow"))
+                .unwrap_or(false)
+        });
+    assert!(
+        has_proper_title,
+        "地域注目企業セクションの <h2> が『地域注目企業』または『注目企業』のみで、\
+        『SalesNow』を含まないこと"
+    );
+}
+
+#[test]
+fn p3_spec_9_10_column_sales_shown() {
+    let html = render_full_html();
+    // 売上表示: ヘッダに「売上」または「売上高」文字列が含まれる
+    assert!(
+        html.contains("売上") || html.contains("売上高"),
+        "地域注目企業テーブルに『売上』列が必要（2026-04-24 追加要件）"
+    );
+}
+
+#[test]
+fn p3_spec_9_10_column_employee_delta_1y_shown() {
+    let html = render_full_html();
+    // 1年推移列: 「1年」と（「人員」or「推移」or「従業員」）の両方が含まれる
+    let has_1y = html.contains("1年") || html.contains("1 年") || html.contains("1ヶ年");
+    let has_head = html.contains("人員") || html.contains("推移") || html.contains("従業員");
+    assert!(
+        has_1y && has_head,
+        "地域注目企業テーブルに『1年人員推移』列が必要（2026-04-24 追加要件）。\
+        1年={} / 人員or推移or従業員={}",
+        has_1y,
+        has_head
+    );
+}
+
+#[test]
+fn p3_spec_9_10_column_employee_delta_3m_shown() {
+    let html = render_full_html();
+    // 3ヶ月推移列: 「3ヶ月」or「3か月」or「3カ月」 と（「人員」or「推移」or「従業員」）
+    let has_3m = html.contains("3ヶ月")
+        || html.contains("3か月")
+        || html.contains("3カ月")
+        || html.contains("3 ヶ月");
+    let has_head = html.contains("人員") || html.contains("推移") || html.contains("従業員");
+    assert!(
+        has_3m && has_head,
+        "地域注目企業テーブルに『3ヶ月人員推移』列が必要（2026-04-24 追加要件）。\
+        3ヶ月={} / 人員or推移or従業員={}",
+        has_3m,
+        has_head
+    );
+}
+
+#[test]
+fn p3_spec_9_10_no_credit_column_in_featured_companies() {
+    // 地域注目企業テーブルから与信/信用スコア列が削除されていること
+    let html = render_full_html();
+    // 9.4 と重複するが、特にテーブル headings（<th>...与信...</th>）を対象に強く検証
+    assert!(
+        !html.contains("<th>与信") && !html.contains("<th>信用"),
+        "地域注目企業テーブルから与信/信用スコア列を削除（2026-04-24 追加要件）"
+    );
+}
+
+// ============================================================
+// 9.11 HW データ連携セクション（2026-04-24 新規要件）
+// ============================================================
+
+#[test]
+fn p3_spec_9_11_hw_enrichment_section_title() {
+    let html = render_full_html();
+    // セクションタイトル: 「HW データ連携」「HW状況」「地域別 HW」等の柔軟マッチ
+    let has_section_title = html
+        .split("<h2")
+        .skip(1)
+        .any(|s| {
+            s.split("</h2>")
+                .next()
+                .map(|t| {
+                    (t.contains("HW") || t.contains("ハローワーク"))
+                        && (t.contains("連携")
+                            || t.contains("状況")
+                            || t.contains("求人動向")
+                            || t.contains("求人状況")
+                            || t.contains("掲載動向"))
+                })
+                .unwrap_or(false)
+        });
+    assert!(
+        has_section_title,
+        "HW データ連携セクションの <h2> が必要（例: 『HW データ連携』『地域別 HW 状況』等）"
+    );
+}
+
+#[test]
+fn p3_spec_9_11_trend_labels_present() {
+    let html = render_full_html();
+    // 増加/横ばい/減少 の定性ラベルのいずれかが含まれる
+    let has_any_trend = html.contains("増加")
+        || html.contains("横ばい")
+        || html.contains("減少");
+    assert!(
+        has_any_trend,
+        "HW データ連携セクションに定性的推移ラベル（増加/横ばい/減少）のいずれかが必要"
+    );
+}
+
+#[test]
+fn p3_spec_9_11_vacancy_rate_placeholder_exists() {
+    let html = render_full_html();
+    // 欠員率表示: データあり→数値（%）、なし→「—」または「-」
+    // 少なくとも「欠員率」ラベルとプレースホルダ記号が併存
+    let has_vacancy_label = html.contains("欠員率");
+    let has_placeholder =
+        html.contains("\u{2014}") || html.contains("—") || html.contains("%");
+    assert!(
+        has_vacancy_label && has_placeholder,
+        "欠員率ラベルと値（%）orプレースホルダ（—）が必要。label={} / placeholder={}",
+        has_vacancy_label,
+        has_placeholder
+    );
+}
+
+#[test]
+fn p3_spec_9_11_hw_posting_count_displayed() {
+    let html = render_full_html();
+    // HW 掲載求人数: 「HW求人数」「HW 掲載求人」「掲載求人数」等のラベル
+    let has_label = html.contains("HW求人数")
+        || html.contains("HW 掲載求人")
+        || html.contains("掲載求人数")
+        || html.contains("HW掲載");
+    assert!(
+        has_label,
+        "HW 掲載求人数ラベルが必要（ダッシュボード本体との表記整合）"
+    );
+}
+
+// ============================================================
+// 9.12 HTML 自己完結性（2026-04-24 新規要件）
+// ============================================================
+//
+// 背景:
+//   - ユーザーはダウンロード後にブラウザだけで編集→印刷する
+//   - 外部依存は ECharts CDN のみ（画像/CSSの外部 link は禁止）
+//   - <style> タグに主要 CSS が inline で含まれること
+
+#[test]
+fn p3_spec_9_12_inline_style_block_present() {
+    let html = render_full_html();
+    // <style> タグに実質的な CSS が含まれる（空タグは NG）
+    assert!(html.contains("<style"), "<style> タグが必要（inline CSS）");
+    // 主要 CSS キーワードが style 内に出現することを緩くチェック
+    // （font-family は既に 9.2 で検証済みなので、body/section/table 等の基本セレクタを確認）
+    let has_basic_selectors = html.contains("body")
+        && (html.contains("section") || html.contains(".section") || html.contains("div"))
+        && (html.contains("table") || html.contains(".data-table"));
+    assert!(
+        has_basic_selectors,
+        "inline <style> に主要セレクタ（body/section/table 等）が含まれるべき"
+    );
+}
+
+#[test]
+fn p3_spec_9_12_no_external_stylesheet_link() {
+    let html = render_full_html();
+    // 外部 CSS <link rel="stylesheet" ...> が存在しないこと
+    // ECharts CDN は <script> タグなので対象外
+    let has_external_css = html.contains("rel=\"stylesheet\"")
+        || html.contains("rel='stylesheet'");
+    assert!(
+        !has_external_css,
+        "外部 CSS link は禁止（HTML 自己完結性、ECharts CDN のみ許容）"
+    );
+}
+
+#[test]
+fn p3_spec_9_12_echarts_cdn_allowed() {
+    let html = render_full_html();
+    // 唯一許容される外部依存: ECharts CDN の <script src="https://cdn.jsdelivr.net/...echarts..."
+    let has_echarts_script = html.contains("echarts");
+    assert!(
+        has_echarts_script,
+        "ECharts CDN script は必要（グラフ描画のため）"
+    );
+}
+
+#[test]
+fn p3_spec_9_12_contenteditable_attributes_exist() {
+    let html = render_full_html();
+    // ダウンロード後編集想定で、主要テキスト箇所に contenteditable="true" が付与されている
+    let count = html.matches("contenteditable=\"true\"").count()
+        + html.matches("contenteditable='true'").count()
+        + html.matches("contenteditable=true").count();
+    assert!(
+        count >= 3,
+        "contenteditable=\"true\" が主要テキスト箇所に最低 3 箇所必要（現在 {}）\
+        （2026-04-24 追加要件: ダウンロード後編集 UX）",
+        count
+    );
+}
+
+// ============================================================
+// 9.13 A4 縦印刷 UX（2026-04-24 新規要件強化）
+// ============================================================
+
+#[test]
+fn p3_spec_9_13_page_size_a4_portrait_strict() {
+    let html = render_full_html();
+    // @page { size: A4 portrait; ... } を strict に検証
+    // 空白許容: "A4 portrait", "A4  portrait" 等
+    let has_portrait = html.contains("A4 portrait")
+        || html.contains("A4  portrait")
+        || html.contains("A4\tportrait")
+        || html.contains("portrait A4")
+        || (html.contains("@page") && html.contains("A4") && html.contains("portrait"));
+    assert!(
+        has_portrait,
+        "@page {{ size: A4 portrait; }} が必要（2026-04-24: A4縦印刷 UX 最適化）"
+    );
+}
+
+#[test]
+fn p3_spec_9_13_page_break_rules_exist() {
+    let html = render_full_html();
+    // page-break-inside: avoid は 9.2 で検証済み
+    // 追加: page-break-before / page-break-after のいずれかが存在
+    let has_before_or_after = html.contains("page-break-before")
+        || html.contains("page-break-after")
+        || html.contains("break-before")
+        || html.contains("break-after");
+    assert!(
+        has_before_or_after,
+        "page-break-before/after ルールが必要（章区切りの明示 / 2026-04-24 追加要件）"
+    );
+}
+
+#[test]
+fn p3_spec_9_13_media_print_rule_exists() {
+    let html = render_full_html();
+    // @media print ルールが存在（印刷専用スタイル）
+    assert!(
+        html.contains("@media print"),
+        "@media print ルールが必要（印刷専用スタイル / 2026-04-24 追加要件）"
+    );
+}
+
+#[test]
+fn p3_spec_9_13_no_print_class_for_ui_controls() {
+    let html = render_full_html();
+    // 画面用 UI コントロール（印刷ボタン等）は no-print クラスで印刷時非表示
+    // @media print 内の .no-print { display: none } 相当が存在
+    let has_no_print_class = html.contains("no-print") || html.contains(".no-print");
+    assert!(
+        has_no_print_class,
+        "画面専用 UI に no-print クラスが必要（印刷時に非表示化）"
+    );
+}
+
+// ============================================================
 // 付記: 機械検証不可能な手動確認項目
 // ============================================================
 //
@@ -859,6 +1203,7 @@ fn p3_spec_9_9_render_function_signature_unchanged() {
 //    severity がアイコン文字により判別可能
 // 6. CDN オフライン環境下での ECharts フォールバック挙動
 // 7. 日本語フォントレンダリング品質
+// 8. contenteditable で編集後の印刷 PDF 反映確認
 //
 // 手順:
 //   1) cargo run --release

@@ -5,6 +5,7 @@
 pub mod aggregator;
 pub mod fetch;
 pub mod handlers;
+pub mod hw_enrichment;
 pub mod integration;
 pub mod job_seeker;
 pub mod location_parser;
@@ -25,5 +26,6 @@ mod parser_aggregator_audit_test;
 mod report_html_qa_test;
 
 pub use handlers::{
-    analyze_survey, integrate_report, report_json, survey_report_html, tab_survey, upload_csv,
+    analyze_survey, integrate_report, report_json, survey_report_download, survey_report_html,
+    tab_survey, upload_csv,
 };
