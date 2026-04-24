@@ -374,6 +374,7 @@ pub async fn survey_report_html(
         Vec::new()
     };
 
+    let _ = (&pref, &muni); // 次期 PDF エージェントで再導入予定
     let html = super::report_html::render_survey_report_page(
         &agg,
         &seeker,

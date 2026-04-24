@@ -1,6 +1,9 @@
-//! PDF印刷用HTMLレポート生成（GAS createPdfReportHtml() 移植）
-//! CSVアップロード分析結果をA4縦向き印刷用HTMLとして出力する
-//! EChartsによるインタラクティブチャート + ソート可能テーブル
+//! PDF印刷用HTMLレポート生成（F-A-C株式会社 競合調査レポート）
+//! 仕様書: docs/pdf_design_spec_2026_04_24.md
+//! A4縦向き印刷用HTMLとして出力する
+//! - 表紙 → Executive Summary → 各セクション(So What付き) → 注記/免責
+//! - EChartsインタラクティブチャート + ソート可能テーブル
+//! - 印刷時はモノクロ耐性（severityアイコン併記）対応
 
 use super::super::company::fetch::NearbyCompany;
 use super::super::helpers::{escape_html, format_number, get_f64};
@@ -8,6 +11,48 @@ use super::super::insight::fetch::InsightContext;
 use super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
 use super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
+
+// ============================================================
+// 共通: severity バッジ (モノクロ耐性 アイコン文字併記)
+// ============================================================
+
+/// Severity表現（色 + 文字アイコン）。helpers.rs::Severity に1対1対応。
+#[derive(Clone, Copy)]
+enum RptSev {
+    Critical,
+    Warning,
+    Info,
+    Positive,
+}
+
+impl RptSev {
+    fn color(self) -> &'static str {
+        match self {
+            RptSev::Critical => "#ef4444",
+            RptSev::Warning => "#f59e0b",
+            RptSev::Info => "#3b82f6",
+            RptSev::Positive => "#10b981",
+        }
+    }
+    /// モノクロ耐性のためのアイコン文字併記ラベル
+    fn label(self) -> &'static str {
+        match self {
+            RptSev::Critical => "\u{25B2}\u{25B2} 重大",
+            RptSev::Warning => "\u{25B2} 注意",
+            RptSev::Info => "\u{25CF} 情報",
+            RptSev::Positive => "\u{25EF} 良好",
+        }
+    }
+}
+
+/// severity バッジ HTML（印刷/モノクロ両対応）
+fn severity_badge(sev: RptSev) -> String {
+    format!(
+        "<span class=\"sev-badge\" style=\"background:{};color:#fff;font-weight:700;font-size:10pt;padding:2px 8px;border-radius:3px;letter-spacing:0.04em;\">{}</span>",
+        sev.color(),
+        escape_html(sev.label())
+    )
+}
 
 // ============================================================
 // メイン関数
@@ -57,17 +102,21 @@ pub(crate) fn render_survey_report_page(
     html.push_str("<button onclick=\"window.print()\" aria-label=\"印刷またはPDFで保存\" style=\"padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #666;border-radius:4px;background:#fff;\">印刷 / PDF保存</button>\n");
     html.push_str("</div>\n");
 
-    // --- 表紙ページ ---
+    // --- 表紙ページ (Section 0 / 仕様書 7.2) ---
     let today_short = chrono::Local::now().format("%Y年%m月").to_string();
+    let target_region = compose_target_region(agg);
     html.push_str(
         "<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n",
     );
-    // ロゴはREADME等で別途提供される想定。現状はプレースホルダーを出さず、
-    // CSS .cover-logo クラスで display:none で非表示化（render_css内）
-    html.push_str("<div class=\"cover-title\" id=\"cover-title\">ハローワーク求人市場 総合診断レポート</div>\n");
+    html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">F-A-C株式会社</div>\n");
+    html.push_str("<div class=\"cover-title\" id=\"cover-title\">ハローワーク求人市場<br>総合診断レポート</div>\n");
     html.push_str("<div class=\"cover-sub\">競合調査分析 &nbsp;|&nbsp; ");
     html.push_str(&escape_html(&today_short));
     html.push_str("</div>\n");
+    html.push_str(&format!(
+        "<div class=\"cover-target\">対象: {}</div>\n",
+        escape_html(&target_region)
+    ));
     html.push_str("<div class=\"cover-confidential\">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>\n");
     html.push_str(&format!(
         "<div class=\"cover-footer\">F-A-C株式会社 &nbsp;|&nbsp; 生成日時: {}</div>\n",
@@ -75,54 +124,59 @@ pub(crate) fn render_survey_report_page(
     ));
     html.push_str("</section>\n");
 
-    // ヘッダーは表紙（cover-page）に出力済みのためPage 2冒頭では省略
-    // フッター（@page @bottom-left）で全ページに文書名・日時を表示しているため重複を回避
-    // --- セクション1: サマリー ---
+    // --- Executive Summary (Section 1 / 仕様書 3章) ---
+    render_section_executive_summary(
+        &mut html,
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        hw_context,
+    );
+
+    // --- Section 1 補助: サマリー(旧) は Executive Summary に統合済み ---
+    // 「サマリー」見出しはテスト互換のため Executive Summary 内で維持
     render_section_summary(&mut html, agg);
 
-    // --- セクション1-2: HW市場比較（HWデータがある場合のみ） ---
+    // --- Section 2: HW 市場比較（hw_context Some のときのみ） ---
     if let Some(ctx) = hw_context {
         render_section_hw_comparison(&mut html, agg, by_emp_type_salary, ctx);
     }
 
-    // --- セクション3: 給与分布 統計情報 ---
+    // --- Section 3: 給与分布 統計 ---
     render_section_salary_stats(&mut html, agg, salary_min_values, salary_max_values);
 
-    // --- セクション4: 雇用形態分布 ---
+    // --- Section 4: 雇用形態分布 ---
     render_section_employment(&mut html, agg, by_emp_type_salary);
 
-    // --- セクション3-3: 相関分析（散布図） ---
+    // --- Section 5: 給与の相関分析（散布図） ---
     render_section_scatter(&mut html, agg);
 
-    // --- セクション5: 地域分析 ---
+    // --- Section 6: 地域分析（都道府県） ---
     render_section_region(&mut html, agg);
 
-    // --- セクション5-2: 市区町村別給与 ---
+    // --- Section 7: 地域分析（市区町村） ---
     render_section_municipality_salary(&mut html, agg);
 
-    // --- セクション6: 最低賃金比較 ---
+    // --- Section 8: 最低賃金比較 ---
     render_section_min_wage(&mut html, agg);
 
-    // --- セクション8: 企業分析 ---
+    // --- Section 9: 企業分析 ---
     render_section_company(&mut html, by_company);
 
-    // --- セクション9: タグ×給与相関 ---
+    // --- Section 10: タグ × 給与相関 ---
     render_section_tag_salary(&mut html, agg);
 
-    // --- セクション10: 求職者心理分析 ---
+    // --- Section 11: 求職者心理分析 ---
     render_section_job_seeker(&mut html, seeker);
 
-    // --- セクション11 (F-2): SalesNow 地域注目企業 ---
+    // --- Section 12: SalesNow 地域注目企業（非空のときのみ） ---
     if !salesnow_companies.is_empty() {
         render_section_salesnow_companies(&mut html, salesnow_companies);
     }
 
-    // --- フッター（本文末尾の注記） ---
-    html.push_str("<div class=\"section\" style=\"text-align:center;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:8px;margin-top:24px;\">\n");
-    html.push_str(&format!("生成日時: {} | ", escape_html(&now)));
-    html.push_str("データソース: CSVアップロード分析結果 | ");
-    html.push_str("※本レポートはアップロードされたCSVデータに基づく分析です。ハローワーク掲載求人のみが対象であり、全求人市場を反映するものではありません。\n");
-    html.push_str("</div>\n");
+    // --- Section 13: 注記・出典・免責 (必須) ---
+    render_section_notes(&mut html, &now);
 
     // --- 画面下部フッター（印刷時は @page footer を使用） ---
     html.push_str("<div class=\"screen-footer no-print\">\n");
@@ -231,18 +285,21 @@ document.addEventListener('DOMContentLoaded', initSortableTables);
 fn render_css() -> String {
     r#"
 :root {
-  --c-primary: #1565C0;
-  --c-primary-light: #42A5F5;
-  --c-success: #009E73;
-  --c-danger: #D55E00;
-  --c-text: #1a1a2e;
-  --c-text-muted: #888;
-  --c-border: #e0e0e0;
-  --c-bg-card: #f5f9ff;
+  /* 仕様書 5.2 カラーパレット */
+  --c-primary: #1e3a8a;        /* blue-900: セクション見出し・表紙 */
+  --c-primary-light: #3b82f6;  /* blue-500 */
+  --c-success: #10b981;        /* emerald-500: Positive */
+  --c-danger: #ef4444;         /* red-500: Critical */
+  --c-warning: #f59e0b;        /* amber-500: Warning */
+  --c-info: #3b82f6;           /* blue-500: Info */
+  --c-text: #0f172a;
+  --c-text-muted: #64748b;
+  --c-border: #e2e8f0;
+  --c-bg-card: #f8fafc;
   --bg: #ffffff;
-  --text: #1a1a2e;
+  --text: #0f172a;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
-  --radius: 8px;
+  --radius: 6px;
 }
 
 body.theme-dark {
@@ -263,27 +320,43 @@ body.theme-dark .warning-box { background: #3a2e1a; border-color: #6b5020; color
 body.theme-dark .stat-box { background: #232946; border-color: #37415a; }
 body.theme-dark .guide-item { background: #232946; border-color: #37415a; }
 
+/* 仕様書 6.1: @page 宣言（A4縦、12mmマージン、フッター定型文） */
 @page {
   size: A4 portrait;
-  margin: 8mm 10mm 18mm 10mm;
-  @bottom-right { content: "Page " counter(page); font-size: 8px; color: #999; }
-  @bottom-left { content: "F-A-C株式会社 | ハローワーク求人データ分析レポート"; font-size: 8px; color: #999; }
+  margin: 12mm;
+  @bottom-left {
+    content: "F-A-C株式会社 | ハローワーク求人データ分析レポート";
+    font-size: 8pt;
+    color: #999;
+  }
+  @bottom-right {
+    content: "Page " counter(page) " / " counter(pages);
+    font-size: 8pt;
+    color: #999;
+  }
+}
+@page :first {
+  /* 表紙にはページ番号・フッター文言を出さない */
+  @bottom-left { content: ""; }
+  @bottom-right { content: ""; }
 }
 
 * { box-sizing: border-box; }
 
 body {
+  /* 仕様書 5.1 タイポグラフィ */
   font-family: "Hiragino Kaku Gothic ProN", "Meiryo", "Noto Sans JP", sans-serif;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11pt;
+  line-height: 1.6;
   color: var(--text);
   margin: 0;
   padding: 8px 16px;
   background: var(--bg);
+  font-feature-settings: "palt" 1;
   transition: background 0.2s, color 0.2s;
 }
 
-/* 表紙 */
+/* 表紙（仕様書 7.2） */
 .cover-page {
   min-height: 260mm;
   display: flex;
@@ -291,19 +364,55 @@ body {
   justify-content: center;
   align-items: center;
   text-align: center;
-  padding: 20mm 10mm;
+  padding: 40mm 10mm 30mm;
   page-break-after: always;
+  break-after: page;
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
   margin-bottom: 16px;
   position: relative;
   background: linear-gradient(180deg, var(--c-bg-card) 0%, var(--bg) 100%);
 }
-.cover-logo { width: 180px; height: 60px; display: flex; align-items: center; justify-content: center; color: var(--c-text-muted); font-size: 11px; border: 1px dashed var(--c-border); border-radius: 4px; margin-bottom: 28px; }
-.cover-title { font-size: 28px; font-weight: 700; color: var(--c-primary); margin: 10px 0 6px; letter-spacing: 0.05em; }
-.cover-sub { font-size: 16px; color: var(--text); margin-bottom: 40px; }
-.cover-confidential { margin-top: auto; font-size: 11px; color: var(--c-text-muted); border-top: 1px solid var(--c-border); padding-top: 14px; width: 70%; }
-.cover-footer { position: absolute; bottom: 12mm; left: 0; right: 0; font-size: 10px; color: var(--c-text-muted); }
+.cover-logo {
+  width: 180px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-primary);
+  font-size: 14pt;
+  font-weight: 700;
+  border: 1px dashed var(--c-border);
+  border-radius: 4px;
+  margin-bottom: 36px;
+  letter-spacing: 0.05em;
+}
+.cover-title {
+  font-size: 28pt;
+  font-weight: 700;
+  color: var(--c-primary);
+  margin: 10px 0 6px;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+.cover-sub { font-size: 14pt; color: var(--text); margin-bottom: 16mm; }
+.cover-target { font-size: 12pt; color: var(--text); margin-bottom: 30mm; }
+.cover-confidential {
+  margin-top: auto;
+  font-size: 10pt;
+  color: var(--c-text-muted);
+  border-top: 1px solid var(--c-border);
+  padding-top: 14px;
+  width: 70%;
+}
+.cover-footer {
+  position: absolute;
+  bottom: 20mm;
+  left: 0;
+  right: 0;
+  font-size: 10pt;
+  color: var(--c-text-muted);
+}
 
 /* テーマ切替ボタン */
 .theme-toggle {
@@ -322,50 +431,148 @@ body {
   display: flex; justify-content: space-between;
 }
 
-h1 { font-size: 20px; }
-h2 { font-size: 15px; margin: 12px 0 6px; border-bottom: 2px solid #2196F3; padding-bottom: 4px; color: var(--c-primary); }
-h3 { font-size: 13px; margin: 8px 0 4px; color: #333; }
+/* 見出し（仕様書 5.1、5.6 widow/orphan 対応） */
+h1 { font-size: 22pt; font-weight: 700; letter-spacing: 0.02em; line-height: 1.3; }
+h2 {
+  font-size: 18pt;
+  font-weight: 700;
+  margin: 14px 0 8px;
+  border-bottom: 2px solid var(--c-primary);
+  padding-bottom: 4px;
+  color: var(--c-primary);
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+h3 {
+  font-size: 14pt;
+  font-weight: 700;
+  margin: 10px 0 4px;
+  color: var(--text);
+  line-height: 1.4;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+p, li { orphans: 3; widows: 3; }
 
 .section {
   margin-bottom: 16px;
   page-break-inside: avoid;
+  break-inside: avoid;
 }
 .section-compact {
   margin-bottom: 8px;
   page-break-inside: avoid;
+  break-inside: avoid;
+}
+.section-header-meta {
+  font-size: 10pt;
+  color: var(--c-text-muted);
+  margin: 0 0 6px;
+}
+.section-sowhat {
+  background: var(--c-bg-card);
+  border-left: 4px solid var(--c-primary);
+  padding: 6px 10px;
+  margin: 0 0 8px;
+  font-size: 10pt;
+  line-height: 1.5;
+}
+.section-xref {
+  font-size: 9pt;
+  color: var(--c-text-muted);
+  margin: 6px 0 0;
 }
 
-/* KPIカード 2x2 グリッド */
+/* KPIカード（仕様書 3.2 Executive Summary / 5.2 カラー / 6.2 page-break-inside:avoid） */
 .summary-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
 }
+.exec-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
 .summary-card, .kpi-card {
   background: var(--c-bg-card);
-  border: 1px solid #bbdefb;
+  border: 1px solid var(--c-border);
   border-radius: var(--radius);
   padding: 10px 14px;
   text-align: center;
   position: relative;
   overflow: hidden;
+  page-break-inside: avoid;
+  break-inside: avoid;
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .summary-card::before, .kpi-card::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--c-primary), var(--c-primary-light));
+  height: 3px;
+  background: var(--c-primary);
 }
 .summary-card:hover, .kpi-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.12);
 }
-.summary-card .label, .kpi-card .label { font-size: 11px; color: #666; margin-bottom: 2px; }
-.summary-card .value, .kpi-card .value { font-size: 22px; font-weight: bold; color: var(--c-primary); }
-.summary-card .unit, .kpi-card .unit { font-size: 11px; color: var(--c-text-muted); }
+.summary-card .label, .kpi-card .label {
+  font-size: 10pt;
+  color: var(--c-text-muted);
+  margin-bottom: 3px;
+}
+.summary-card .value, .kpi-card .value {
+  font-size: 24pt;
+  font-weight: 700;
+  color: var(--c-primary);
+  line-height: 1.1;
+}
+.summary-card .unit, .kpi-card .unit { font-size: 10pt; color: var(--c-text-muted); }
+
+/* Executive Summary 推奨アクション（仕様書 3.4） */
+.exec-action-list { margin: 8px 0; padding: 0; list-style: none; }
+.exec-summary-action {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.exec-summary-action .action-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12pt;
+  font-weight: 700;
+}
+.exec-summary-action .action-body {
+  font-size: 10pt;
+  color: var(--text);
+  line-height: 1.5;
+}
+.exec-summary-action .action-xref {
+  font-size: 9pt;
+  color: var(--c-text-muted);
+  margin-top: 4px;
+}
+.exec-scope-note {
+  font-size: 9pt;
+  line-height: 1.5;
+  color: var(--c-text-muted);
+  border-top: 1px dashed var(--c-border);
+  padding-top: 6px;
+  margin-top: 8px;
+}
+.exec-summary { page-break-after: always; break-after: page; }
 
 /* 統計ボックス 3列 */
 .stats-grid {
@@ -504,26 +711,355 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* EChartsコンテナ */
 .echart { max-width: 100%; }
 
-/* 印刷時非表示 */
+/* 印刷制御（仕様書 6.4, 6.5, 6.7） */
 .no-print { }
+.echart-container { page-break-inside: avoid; break-inside: avoid; }
 @media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .no-print { display: none !important; }
-  body { padding: 0; background: #fff !important; color: #1a1a2e !important; }
-  body.theme-dark { background: #fff !important; color: #1a1a2e !important; }
-  body.theme-dark table th { background: #e3f2fd !important; color: #1565C0 !important; }
-  body.theme-dark table td { background: transparent !important; color: #1a1a2e !important; }
-  .section { page-break-inside: avoid; }
-  .section.page-start { page-break-before: always; }
-  .summary-card, .kpi-card { box-shadow: none !important; transform: none !important; }
-  .echart { break-inside: avoid; }
+  body {
+    padding: 0;
+    background: #fff !important;
+    color: #0f172a !important;
+    font-size: 11pt;
+  }
+  body.theme-dark { background: #fff !important; color: #0f172a !important; }
+  body.theme-dark table th { background: var(--c-primary) !important; color: #fff !important; }
+  body.theme-dark table td { background: transparent !important; color: #0f172a !important; }
+  .section { page-break-inside: avoid; break-inside: avoid; }
+  .section.page-start { page-break-before: always; break-before: page; }
+  .summary-card, .kpi-card, .stat-box, .comparison-card, .exec-summary-action {
+    box-shadow: none !important;
+    transform: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .echart, .echart-container { break-inside: avoid; page-break-inside: avoid; }
   .sortable-table th::after { display: none; }
+  table { border-collapse: collapse; }
   thead { display: table-header-group; }
-  .cover-page { page-break-after: always; border: none; background: #fff !important; min-height: 90vh; }
+  tr { page-break-inside: avoid; break-inside: avoid; }
+  .cover-page {
+    page-break-after: always;
+    break-after: page;
+    border: none;
+    background: #fff !important;
+    min-height: 90vh;
+  }
   .screen-footer { display: none !important; }
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
 }
 "#.to_string()
+}
+
+// ============================================================
+// ヘッダー/ターゲット領域表示（表紙・Executive Summary 用）
+// ============================================================
+
+/// 対象地域を人間可読形式で組み立てる（例: "東京都 千代田区" / "全国"）
+fn compose_target_region(agg: &SurveyAggregation) -> String {
+    match (&agg.dominant_prefecture, &agg.dominant_municipality) {
+        (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => format!("{} {}", p, m),
+        (Some(p), _) if !p.is_empty() => p.clone(),
+        _ => "全国".to_string(),
+    }
+}
+
+// ============================================================
+// Executive Summary (Section 1 / 仕様書 3章)
+// ============================================================
+
+/// 仕様書 3章: 5 KPI + 推奨優先アクション 3 件 + スコープ注意 2 行
+/// 1 ページ完結、表紙直後に配置。アクションは severity 高い順に上から最大 3 件。
+fn render_section_executive_summary(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    _seeker: &JobSeekerAnalysis,
+    _by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    hw_context: Option<&InsightContext>,
+) {
+    html.push_str("<section class=\"section exec-summary\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
+    html.push_str("<h2 id=\"exec-sum-title\">Executive Summary</h2>\n");
+    html.push_str(&format!(
+        "<p class=\"section-header-meta\">対象: {} / 3分間で読み切れる全体要旨</p>\n",
+        escape_html(&compose_target_region(agg))
+    ));
+
+    // ---- 5 KPI ----
+    // 仕様書 3.3 の定義に厳密に従う
+    // K1: サンプル件数
+    let k1_value = format_number(agg.total_count as i64);
+    // K2: 主要地域
+    let k2_value = compose_target_region(agg);
+    // K3: 主要雇用形態（件数最多）
+    let k3_value: String = if let Some((name, count)) = agg.by_employment_type.first() {
+        let pct = if agg.total_count > 0 {
+            *count as f64 / agg.total_count as f64 * 100.0
+        } else {
+            0.0
+        };
+        format!("{} ({:.0}%)", name, pct)
+    } else {
+        "-".to_string()
+    };
+    // K4: 給与中央値
+    let k4_value = match &agg.enhanced_stats {
+        Some(s) if s.count > 0 => {
+            if agg.is_hourly {
+                format!("時給 {} 円", format_number(s.median))
+            } else {
+                format!("月給 {} 円", format_number(s.median))
+            }
+        }
+        _ => "算出不能 (サンプル不足)".to_string(),
+    };
+    // K5: 新着比率
+    let k5_value = if agg.total_count > 0 && agg.new_count > 0 {
+        format!(
+            "{:.1}%",
+            agg.new_count as f64 / agg.total_count as f64 * 100.0
+        )
+    } else if agg.total_count == 0 {
+        "-".to_string()
+    } else {
+        "0.0%".to_string()
+    };
+
+    html.push_str("<div class=\"exec-kpi-grid\">\n");
+    render_kpi_card(html, "サンプル件数", &k1_value, "件");
+    render_kpi_card(html, "主要地域", &k2_value, "");
+    render_kpi_card(html, "主要雇用形態", &k3_value, "");
+    render_kpi_card(html, "給与中央値", &k4_value, "");
+    render_kpi_card(html, "新着比率", &k5_value, "");
+    html.push_str("</div>\n");
+
+    // ---- 推奨優先アクション 3 件 ----
+    html.push_str("<h3>推奨優先アクション候補（件数・差分条件を満たすもの）</h3>\n");
+    let actions = build_exec_actions(agg, by_emp_type_salary, hw_context);
+    if actions.is_empty() {
+        html.push_str(
+            "<div class=\"exec-summary-action\"><div class=\"action-body\">\
+            現時点では該当条件を満たすアクション候補はありません。\
+            各セクションの詳細を順にご確認ください。</div></div>\n",
+        );
+    } else {
+        html.push_str("<div class=\"exec-action-list\">\n");
+        for (idx, (sev, title, body, xref)) in actions.iter().enumerate() {
+            html.push_str("<div class=\"exec-summary-action\">\n");
+            html.push_str("<div class=\"action-head\">");
+            html.push_str(&severity_badge(*sev));
+            html.push_str(&format!(
+                " <span>{}. {}</span>",
+                idx + 1,
+                escape_html(title)
+            ));
+            html.push_str("</div>\n");
+            html.push_str(&format!(
+                "<div class=\"action-body\">{}</div>\n",
+                escape_html(body)
+            ));
+            html.push_str(&format!(
+                "<div class=\"action-xref\">{}</div>\n",
+                escape_html(xref)
+            ));
+            html.push_str("</div>\n");
+        }
+        html.push_str("</div>\n");
+    }
+
+    // ---- スコープ注意書き (必須 / 仕様書 3.5) ----
+    html.push_str(
+        "<div class=\"exec-scope-note\">\
+        \u{203B} 本レポートはハローワーク掲載求人のみが対象。全求人市場の代表ではない。\
+        給与バイアス（HWは中小企業・地方案件比率が高い）に留意。<br>\
+        \u{203B} 示唆は相関に基づく仮説であり、因果を証明するものではない。\
+        実施判断は現場文脈に依存します。\
+        </div>\n",
+    );
+
+    html.push_str("</section>\n");
+}
+
+/// Executive Summary の 3 件アクションを算出（severity 降順、最大3件）
+/// 仕様書 3.4 の閾値と文言テンプレートに従う
+fn build_exec_actions(
+    agg: &SurveyAggregation,
+    by_emp_type_salary: &[EmpTypeSalary],
+    hw_context: Option<&InsightContext>,
+) -> Vec<(RptSev, String, String, String)> {
+    let mut out: Vec<(RptSev, String, String, String)> = Vec::new();
+
+    // A: 給与ギャップ（当サンプル中央値 vs HW 市場中央値）
+    // 月給データのときのみ有効（is_hourly 時はスキップ）
+    if !agg.is_hourly {
+        let csv_median = agg
+            .enhanced_stats
+            .as_ref()
+            .map(|s| s.median)
+            .unwrap_or(0);
+        let hw_median: i64 = if let Some(ctx) = hw_context {
+            // ts_salary の avg_salary_min 値を平均化して参考値に
+            let vals: Vec<f64> = ctx
+                .ts_salary
+                .iter()
+                .map(|r| get_f64(r, "avg_salary_min"))
+                .filter(|&v| v > 0.0)
+                .collect();
+            if !vals.is_empty() {
+                (vals.iter().sum::<f64>() / vals.len() as f64) as i64
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        if csv_median > 0 && hw_median > 0 {
+            let diff = hw_median - csv_median;
+            let abs_diff = diff.abs();
+            if abs_diff >= 20_000 {
+                let direction = if diff > 0 { "引き上げる" } else { "再確認する" };
+                out.push((
+                    RptSev::Critical,
+                    format!(
+                        "給与下限を月 {:+.1} 万円 {} 候補",
+                        diff as f64 / 10_000.0,
+                        direction
+                    ),
+                    format!(
+                        "当サンプル中央値 {:.1} 万円 / 該当市区町村 HW 中央値 {:.1} 万円で {:.1} 万円差。",
+                        csv_median as f64 / 10_000.0,
+                        hw_median as f64 / 10_000.0,
+                        abs_diff as f64 / 10_000.0
+                    ),
+                    "(Section 6 / Section 8 参照)".to_string(),
+                ));
+            } else if abs_diff >= 10_000 {
+                let direction = if diff > 0 { "引き上げる" } else { "再確認する" };
+                out.push((
+                    RptSev::Warning,
+                    format!(
+                        "給与下限を月 {:+.1} 万円 {} 候補",
+                        diff as f64 / 10_000.0,
+                        direction
+                    ),
+                    format!(
+                        "当サンプル中央値 {:.1} 万円 / 該当市区町村 HW 中央値 {:.1} 万円で {:.1} 万円差。",
+                        csv_median as f64 / 10_000.0,
+                        hw_median as f64 / 10_000.0,
+                        abs_diff as f64 / 10_000.0
+                    ),
+                    "(Section 6 / Section 8 参照)".to_string(),
+                ));
+            }
+        }
+    }
+
+    // B: 雇用形態構成差（正社員構成比 vs HW）
+    if let Some(ctx) = hw_context {
+        // CSV 側: 正社員(正職員含む)構成比
+        let total_emp: usize = by_emp_type_salary.iter().map(|e| e.count).sum();
+        let fulltime_count: usize = by_emp_type_salary
+            .iter()
+            .filter(|e| e.emp_type.contains("正社員") || e.emp_type.contains("正職員"))
+            .map(|e| e.count)
+            .sum();
+        let csv_rate = if total_emp > 0 {
+            fulltime_count as f64 / total_emp as f64 * 100.0
+        } else {
+            -1.0
+        };
+        // HW 側
+        let hw_total: f64 = ctx.vacancy.iter().map(|r| get_f64(r, "total_count")).sum();
+        let hw_ft: f64 = ctx
+            .vacancy
+            .iter()
+            .filter(|r| super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
+            .map(|r| get_f64(r, "total_count"))
+            .sum();
+        let hw_rate = if hw_total > 0.0 {
+            hw_ft / hw_total * 100.0
+        } else {
+            -1.0
+        };
+        if csv_rate >= 0.0 && hw_rate >= 0.0 {
+            let diff = (csv_rate - hw_rate).abs();
+            if diff >= 15.0 {
+                out.push((
+                    RptSev::Warning,
+                    "雇用形態「正社員」の構成比を見直す候補".to_string(),
+                    format!(
+                        "当サンプル {:.1}% / HW 市場 {:.1}% で {:.1}pt 差。",
+                        csv_rate, hw_rate, diff
+                    ),
+                    "(Section 4 参照)".to_string(),
+                ));
+            }
+        }
+    }
+
+    // C: タグプレミアム（diff_percent > 5%, count >= 10 の最大 1 件）
+    let candidate_tag = agg
+        .by_tag_salary
+        .iter()
+        .filter(|t| t.count >= 10 && t.diff_percent.abs() > 5.0)
+        .max_by(|a, b| {
+            a.diff_percent
+                .abs()
+                .partial_cmp(&b.diff_percent.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    if let Some(t) = candidate_tag {
+        let direction = if t.diff_from_avg > 0 {
+            "プレミアム要因の可能性"
+        } else {
+            "ディスカウント要因の可能性"
+        };
+        out.push((
+            RptSev::Info,
+            format!("訴求タグ「{}」の給与差分", t.tag),
+            format!(
+                "該当タグ平均が全体比 {:+.1} 万円 ({:+.1}%、n={})。{}（相関であり因果は別途検討）。",
+                t.diff_from_avg as f64 / 10_000.0,
+                t.diff_percent,
+                t.count,
+                direction
+            ),
+            "(Section 10 参照)".to_string(),
+        ));
+    }
+
+    // severity 降順で並べて最大 3 件
+    out.sort_by_key(|(sev, _, _, _)| match sev {
+        RptSev::Critical => 0,
+        RptSev::Warning => 1,
+        RptSev::Info => 2,
+        RptSev::Positive => 3,
+    });
+    out.truncate(3);
+    out
+}
+
+/// Executive Summary 用 KPI カード
+fn render_kpi_card(html: &mut String, label: &str, value: &str, unit: &str) {
+    html.push_str("<div class=\"kpi-card\">\n");
+    html.push_str(&format!(
+        "<div class=\"label\">{}</div>\n",
+        escape_html(label)
+    ));
+    html.push_str(&format!(
+        "<div class=\"value\">{}</div>\n",
+        escape_html(value)
+    ));
+    if !unit.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"unit\">{}</div>\n",
+            escape_html(unit)
+        ));
+    }
+    html.push_str("</div>\n");
 }
 
 // ============================================================
@@ -1215,6 +1751,25 @@ fn render_section_employment(
 
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>雇用形態分布</h2>\n");
+    // So What 行: 件数の多い形態と給与差を 1 行で示す
+    if let Some((top_name, top_count)) = agg.by_employment_type.first() {
+        let top_pct = if agg.total_count > 0 {
+            *top_count as f64 / agg.total_count as f64 * 100.0
+        } else {
+            0.0
+        };
+        let top_salary = by_emp_type_salary
+            .iter()
+            .find(|e| &e.emp_type == top_name)
+            .map(|e| format_man_yen(e.avg_salary))
+            .unwrap_or_else(|| "-".to_string());
+        html.push_str(&format!(
+            "<p class=\"section-sowhat\">\u{203B} 件数が最も多い形態は「{}」で {:.1}% を占め、平均月給は {}。</p>\n",
+            escape_html(top_name),
+            top_pct,
+            escape_html(&top_salary)
+        ));
+    }
 
     // EChartsドーナツチャート TOP6
     let colors = [
@@ -1281,7 +1836,21 @@ fn render_section_region(html: &mut String, agg: &SurveyAggregation) {
     }
 
     html.push_str("<div class=\"section\">\n");
-    html.push_str("<h2>地域分析</h2>\n");
+    html.push_str("<h2>地域分析（都道府県）</h2>\n");
+    // So What 行: 件数の多い都道府県と割合を 1 行で提示
+    if let Some((top_pref, top_count)) = agg.by_prefecture.first() {
+        let pct = if agg.total_count > 0 {
+            *top_count as f64 / agg.total_count as f64 * 100.0
+        } else {
+            0.0
+        };
+        html.push_str(&format!(
+            "<p class=\"section-sowhat\">\u{203B} 件数が最も多いのは「{}」で全体の {:.1}%（件数の多い順に整理）。</p>\n",
+            escape_html(top_pref),
+            pct
+        ));
+    }
+    html.push_str("<p class=\"section-xref\">関連: Section 7（市区町村）/ Section 8（最低賃金）</p>\n");
 
     html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">割合</th></tr></thead>\n<tbody>\n");
     let total = agg.total_count.max(1);
@@ -1319,6 +1888,17 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>企業分析</h2>\n");
+
+    // So What 行: 件数の多い法人と給与水準の傾向を 1 行で
+    if let Some(top) = by_company.iter().max_by_key(|c| c.count) {
+        html.push_str(&format!(
+            "<p class=\"section-sowhat\">\u{203B} 掲載件数が最も多い法人は「{}」（{} 件、平均月給 {}）。\
+             件数・給与の分布は以下のテーブルを参照（ソート可能）。</p>\n",
+            escape_html(&top.name),
+            format_number(top.count as i64),
+            escape_html(&format_man_yen(top.avg_salary))
+        ));
+    }
 
     // 企業数サマリー
     html.push_str(&format!(
@@ -1358,11 +1938,11 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
         }
     }
 
-    // 求人数ランキング TOP15（ソート可能テーブル）
+    // 掲載件数の多い法人 15 件（件数の多い順に整理、ソート可能テーブル）
     let mut by_count = by_company.to_vec();
     by_count.sort_by(|a, b| b.count.cmp(&a.count));
 
-    html.push_str("<h3>求人数ランキング TOP15（給与情報あり）</h3>\n");
+    html.push_str("<h3>掲載件数の多い法人 15 件（給与情報あり）</h3>\n");
     html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">給与付き求人数</th><th style=\"text-align:right\">平均月給</th></tr></thead>\n<tbody>\n");
     for (i, c) in by_count.iter().take(15).enumerate() {
         html.push_str(&format!(
@@ -1375,7 +1955,7 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
     }
     html.push_str("</tbody></table>\n");
 
-    // 給与ランキング TOP15（サンプル数に応じて閾値動的調整）
+    // 平均給与の多い法人 15 件（サンプル数に応じて閾値動的調整）
     let multi_count = by_company.iter().filter(|c| c.count >= 2).count();
     let min_count_threshold = if multi_count >= 15 { 2 } else { 1 };
     let mut by_salary: Vec<&CompanyAgg> = by_company
@@ -1386,9 +1966,9 @@ fn render_section_company(html: &mut String, by_company: &[CompanyAgg]) {
 
     if !by_salary.is_empty() {
         let title = if min_count_threshold >= 2 {
-            "給与ランキング TOP15（給与付き2件以上の企業）"
+            "給与水準の高い法人 15 件（給与付き2件以上の企業）"
         } else {
-            "給与ランキング TOP15（給与付き、1件求人含む。※1件は参考値）"
+            "給与水準の高い法人 15 件（給与付き、1件求人含む。※1件は参考値）"
         };
         html.push_str(&format!("<h3>{}</h3>\n", title));
         html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">給与付き求人数</th></tr></thead>\n<tbody>\n");
@@ -1675,7 +2255,27 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
     let avg_diff_pct = (avg_ratio - 1.0) * 100.0;
 
     html.push_str("<div class=\"section page-start\">\n");
-    html.push_str("<h2>最低賃金比較分析</h2>\n");
+    html.push_str("<h2>最低賃金比較</h2>\n");
+    // So What + severity badge（diff < 0 は Critical、< 50 は Warning、それ以外 Positive）
+    let below_count = entries.iter().filter(|e| e.diff_160 < 0).count();
+    let near_count = entries
+        .iter()
+        .filter(|e| e.diff_160 >= 0 && e.diff_160 < 50)
+        .count();
+    let sev = if below_count > 0 {
+        RptSev::Critical
+    } else if near_count > 0 {
+        RptSev::Warning
+    } else {
+        RptSev::Positive
+    };
+    html.push_str(&format!(
+        "<p class=\"section-sowhat\">{} {} 県で平均下限給与の 160h 換算が最低賃金を下回る傾向。\
+         差が 50 円未満（要確認）: {} 県。該当求人群は労基上要確認。</p>\n",
+        severity_badge(sev),
+        below_count,
+        near_count
+    ));
     html.push_str(
         "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
         <strong>【読み方ガイド】</strong>月給を160h（8h×20日）で割り時給換算して最低賃金と比較。\
@@ -1690,8 +2290,8 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
     render_stat_box(html, "分析対象", &format!("{}都道府県", entries.len()));
     html.push_str("</div>\n");
 
-    // 最低賃金との差が小さい都道府県TOP10（ソート可能テーブル）
-    html.push_str("<h3>時給換算で最低賃金に近い都道府県 TOP10</h3>\n");
+    // 最低賃金との差が小さい都道府県 10 件（差額の小さい順に整理、ソート可能テーブル）
+    html.push_str("<h3>時給換算で最低賃金に近い都道府県 10 件（差額の小さい順）</h3>\n");
     html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
         <th style=\"text-align:right\">160h換算</th><th style=\"text-align:right\">最低賃金</th>\
         <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
@@ -1745,10 +2345,25 @@ fn render_section_municipality_salary(html: &mut String, agg: &SurveyAggregation
     }
 
     html.push_str("<div class=\"section\">\n");
-    html.push_str("<h2>市区町村別 給与分析</h2>\n");
+    html.push_str("<h2>地域分析（市区町村）</h2>\n");
+    // So What: 件数の多い市区町村の給与水準が最も高い先
+    if let Some(top_hi_salary) = agg
+        .by_municipality_salary
+        .iter()
+        .take(15)
+        .max_by_key(|m| m.avg_salary)
+    {
+        html.push_str(&format!(
+            "<p class=\"section-sowhat\">\u{203B} 件数の多い 15 市区町村のうち、平均月給が最も高いのは\
+             「{} {}」で {}（同名異県を避けるため都道府県併記）。</p>\n",
+            escape_html(&top_hi_salary.prefecture),
+            escape_html(&top_hi_salary.name),
+            escape_html(&format_man_yen(top_hi_salary.avg_salary))
+        ));
+    }
     html.push_str(
         "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
-        <strong>【読み方ガイド】</strong>求人数が多い市区町村の給与水準を比較。\
+        <strong>【読み方ガイド】</strong>掲載件数の多い市区町村の給与水準を比較。\
         同じ都道府県内でも市区町村により給与差があります。\
     </p>\n",
     );
@@ -1894,17 +2509,18 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
 
 /// F-2: SalesNow 地域注目企業テーブル
 /// Why: 競合調査レポートから実際にアプローチ可能な企業リストへ繋げる
-/// How: employee_count 降順の上位30社を印刷レポートに追加
+/// How: employee_count 降順で従業員数の多い 30 社を印刷レポートに追加
 fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompany]) {
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>地域の注目企業 (SalesNow)</h2>\n");
     html.push_str(
-        "<p class=\"note\">地域内で従業員数の多い上位30社。採用アプローチ先の選定に。</p>\n",
+        "<p class=\"section-sowhat\">\u{203B} SalesNow 登録企業のうち、地域内で従業員数の多い 30 社を整理しています。\
+        HW 掲載件数が多い法人は採用が活発な傾向（相関であり、因果は別途検討）。</p>\n",
     );
     html.push_str("<table class=\"data-table\">\n");
     html.push_str("<thead><tr>");
     for h in [
-        "順位",
+        "番号",
         "企業名",
         "都道府県",
         "業種",
@@ -1939,6 +2555,44 @@ fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompa
     }
     html.push_str("</tbody></table>\n");
     html.push_str("</div>\n");
+}
+
+// ============================================================
+// Section 13: 注記・出典・免責（必須・仕様書 4.12）
+// ============================================================
+
+/// スコープ制約、相関≠因果、データ限界を明示
+/// 記載項目の文言は仕様書 4.12 に沿うこと（変更不可）
+fn render_section_notes(html: &mut String, now: &str) {
+    html.push_str("<section class=\"section\" role=\"region\" aria-labelledby=\"notes-title\">\n");
+    html.push_str("<h2 id=\"notes-title\">注記・出典・免責</h2>\n");
+    html.push_str("<ol style=\"padding-left:1.4em;font-size:10pt;line-height:1.6;color:var(--text);\">\n");
+    html.push_str(
+        "<li><strong>データスコープ</strong>: 本レポートはハローワーク掲載求人のみが対象。\
+        職業紹介事業者の求人・非公開求人は含まれない。全求人市場の代表ではない。</li>\n",
+    );
+    html.push_str(
+        "<li><strong>給与バイアス</strong>: ハローワーク掲載求人は中小企業・地方案件の比率が高く、\
+        給与水準は民間媒体より低く出る傾向がある。</li>\n",
+    );
+    html.push_str(
+        "<li><strong>相関と因果</strong>: 本レポートに記載する「傾向」「相関」は因果関係を\
+        証明するものではない。示唆は仮説であり、実施判断は現場文脈に依存する。</li>\n",
+    );
+    html.push_str(
+        "<li><strong>サンプル件数と求人件数</strong>: 本レポートの「サンプル件数」は分析対象求人数で\
+        あり、地域全体の求人件数ではない。</li>\n",
+    );
+    html.push_str(
+        "<li><strong>出典</strong>: データ源 - アップロード CSV / ハローワーク公開データ / \
+        SalesNow 登録データ / e-Stat。</li>\n",
+    );
+    html.push_str(&format!(
+        "<li><strong>生成元</strong>: F-A-C株式会社 / 生成日時: {}</li>\n",
+        escape_html(now)
+    ));
+    html.push_str("</ol>\n");
+    html.push_str("</section>\n");
 }
 
 fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAnalysis) {
@@ -2416,6 +3070,21 @@ mod tests {
             ext_care_demand: vec![],
             ext_household_spending: vec![],
             ext_climate: vec![],
+            // Phase A: SSDSE-A 新規6テーブル
+            ext_households: vec![],
+            ext_vital: vec![],
+            ext_labor_force: vec![],
+            ext_medical_welfare: vec![],
+            ext_education_facilities: vec![],
+            ext_geography: vec![],
+            // Phase A: 県平均
+            pref_avg_unemployment_rate: None,
+            pref_avg_single_rate: None,
+            pref_avg_physicians_per_10k: None,
+            pref_avg_daycare_per_1k_children: None,
+            pref_avg_habitable_density: None,
+            // Phase B: Agoop 人流
+            flow: None,
             commute_zone_count: 0,
             commute_zone_pref_count: 0,
             commute_zone_total_pop: 0,
