@@ -810,13 +810,20 @@ pub fn parse_location(text: &str, context_pref: Option<&str>) -> ParsedLocation 
         return r;
     }
 
-    // 2. 駅名マッチ
-    if let Some(r) = try_station(text) {
-        return r;
-    }
-
-    // 3. 都道府県直接マッチ
+    // 0. 都道府県を先に抽出（駅名マッチより優先するガード値として使う）
+    // Why: 「東京都 立川市 高松駅」のように先頭に都道府県があるのに、
+    //   駅名マップ「高松駅 → 香川県高松市」に引っ張られる誤分類を防ぐため。
     let prefecture = extract_prefecture(text);
+
+    // 2. 駅名マッチ（prefecture と矛盾する場合はスキップ）
+    if let Some(r) = try_station(text) {
+        match (&prefecture, &r.prefecture) {
+            (Some(p_from_text), Some(p_from_station)) if p_from_text != p_from_station => {
+                // text に既に別の都道府県名が含まれているなら駅名マッチを採用しない
+            }
+            _ => return r,
+        }
+    }
 
     // 4. 東京23区マッチ
     if let Some(r) = try_tokyo_ward(text, prefecture.as_deref()) {
