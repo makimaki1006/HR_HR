@@ -68,3 +68,33 @@ fn no_false_positive_when_text_has_no_prefecture() {
     // 駅名マッチで神奈川県になるはず
     assert_eq!(r.prefecture.as_deref(), Some("神奈川県"));
 }
+
+#[test]
+fn tokyo_tachikawa_takamatsu_not_kagawa() {
+    // 2026-04-24 バグ再現: 「東京都 立川市 高松駅」が station_map の
+    // 「高松駅 → 香川県高松市」に引っ張られて香川県に誤分類されていた。
+    // 先頭の「東京都」が優先されるべき。
+    let samples = [
+        "東京都 立川市 高松駅",
+        "東京都 立川市 高松町",
+        "東京都 立川市 高松町 駅前徒歩5分",
+    ];
+    for s in &samples {
+        let r = parse_location(s, None);
+        assert_eq!(
+            r.prefecture.as_deref(),
+            Some("東京都"),
+            "{:?} should resolve to 東京都 not 香川県 (got pref={:?} via {})",
+            s,
+            r.prefecture,
+            r.method
+        );
+    }
+}
+
+#[test]
+fn takamatsu_station_still_works_when_no_tokyo_context() {
+    // コンテキストが無ければ駅名マッチで香川県高松市に解決される（本来の用途）
+    let r = parse_location("高松駅", None);
+    assert_eq!(r.prefecture.as_deref(), Some("香川県"));
+}
