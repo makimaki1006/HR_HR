@@ -160,6 +160,73 @@ pub fn quartile_stats(data: &[i64]) -> Option<QuartileStats> {
     })
 }
 
+/// IQR 法による外れ値除外
+///
+/// 2026-04-24 追加: ユーザー要求「CSV読み込み時に外れ値削除」対応。
+///
+/// - Q1 - iqr_multiplier × IQR 未満 / Q3 + iqr_multiplier × IQR 超 を除外
+/// - iqr_multiplier=1.5 が標準的 (Tukey の箱ひげ図)
+/// - 件数不足 (n<4) の場合は全件通過（IQR 計算不能のため）
+///
+/// # Returns
+/// `(filtered_values, removed_count)`
+pub fn filter_outliers_iqr(values: &[i64], iqr_multiplier: f64) -> (Vec<i64>, usize) {
+    let valid: Vec<i64> = values.iter().filter(|&&v| v > 0).copied().collect();
+    let n = valid.len();
+    if n < 4 {
+        return (valid, 0);
+    }
+    let mut sorted = valid.clone();
+    sorted.sort();
+    let q1 = percentile(&sorted, 25.0);
+    let q3 = percentile(&sorted, 75.0);
+    let iqr = q3 - q1;
+    if iqr <= 0 {
+        return (valid, 0); // IQR=0 は全部同値に近く除外不要
+    }
+    let margin = (iqr as f64 * iqr_multiplier) as i64;
+    let lower = q1 - margin;
+    let upper = q3 + margin;
+    let filtered: Vec<i64> = valid
+        .iter()
+        .filter(|&&v| v >= lower && v <= upper)
+        .copied()
+        .collect();
+    let removed = valid.len() - filtered.len();
+    (filtered, removed)
+}
+
+#[cfg(test)]
+mod outlier_tests {
+    use super::*;
+
+    #[test]
+    fn filter_removes_high_outlier() {
+        // 200-300 のレンジに 1000 の外れ値
+        let data = vec![200, 220, 240, 250, 260, 280, 300, 1000];
+        let (filtered, removed) = filter_outliers_iqr(&data, 1.5);
+        assert_eq!(removed, 1);
+        assert!(!filtered.contains(&1000));
+        assert_eq!(filtered.len(), 7);
+    }
+
+    #[test]
+    fn filter_keeps_normal_data() {
+        let data = vec![200, 220, 240, 260, 280, 300];
+        let (filtered, removed) = filter_outliers_iqr(&data, 1.5);
+        assert_eq!(removed, 0);
+        assert_eq!(filtered.len(), 6);
+    }
+
+    #[test]
+    fn filter_small_sample_passes_through() {
+        let data = vec![100, 1_000_000]; // n<4
+        let (filtered, removed) = filter_outliers_iqr(&data, 1.5);
+        assert_eq!(removed, 0);
+        assert_eq!(filtered, data);
+    }
+}
+
 fn percentile(sorted: &[i64], p: f64) -> i64 {
     let idx = (sorted.len() as f64 - 1.0) * p / 100.0;
     let lower = idx.floor() as usize;

@@ -98,6 +98,12 @@ pub struct SurveyAggregation {
     /// 正社員系 → 月給 / パート系 → 時給 で別々に集計
     #[serde(default)]
     pub by_emp_group_native: Vec<EmpGroupNativeAgg>,
+    /// 2026-04-24 全体 IQR 外れ値除外 (raw salary_values → filtered) で除外された件数
+    #[serde(default)]
+    pub outliers_removed_total: usize,
+    /// IQR 除外前の raw 件数
+    #[serde(default)]
+    pub salary_values_raw_count: usize,
 }
 
 /// 雇用形態グループ別 ネイティブ単位集計
@@ -111,7 +117,7 @@ pub struct EmpGroupNativeAgg {
     pub group_label: String,
     /// 表示単位: "月給" / "時給"
     pub native_unit: String,
-    /// そのグループの件数
+    /// そのグループの件数（IQR 除外後）
     pub count: usize,
     /// そのグループに含まれる雇用形態の内訳（表示用）
     pub included_emp_types: Vec<String>,
@@ -121,8 +127,14 @@ pub struct EmpGroupNativeAgg {
     pub mean: i64,
     pub min: i64,
     pub max: i64,
-    /// ヒストグラム描画用
+    /// ヒストグラム描画用 (IQR 除外後)
     pub values: Vec<i64>,
+    /// 2026-04-24 グループ内 IQR で除外された件数
+    #[serde(default)]
+    pub outliers_removed: usize,
+    /// IQR 除外前の件数（count + outliers_removed）
+    #[serde(default)]
+    pub raw_count: usize,
 }
 
 /// スライスの中央値を計算（コピー＆ソートする）
@@ -265,10 +277,13 @@ fn aggregate_records_core(
     }
 
     // 給与統計
-    let salary_values: Vec<i64> = records
+    // 2026-04-24: IQR 法 (Q±1.5IQR) で外れ値除外後に統計計算
+    let salary_values_raw: Vec<i64> = records
         .iter()
         .filter_map(|r| r.salary_parsed.unified_monthly)
         .collect();
+    let (salary_values, outliers_removed_total) =
+        super::statistics::filter_outliers_iqr(&salary_values_raw, 1.5);
     let enhanced_stats = enhanced_salary_statistics(&salary_values);
 
     // タグ別給与差分の計算
@@ -530,6 +545,8 @@ fn aggregate_records_core(
         by_prefecture_salary,
         is_hourly,
         by_emp_group_native: aggregate_by_emp_group_native(records),
+        outliers_removed_total,
+        salary_values_raw_count: salary_values_raw.len(),
     }
 }
 
@@ -606,11 +623,18 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
                 }
             }
         };
-        let values = if native_unit == "時給" {
+        let raw_values = if native_unit == "時給" {
             bucket.hourly_values.clone()
         } else {
             bucket.monthly_values.clone()
         };
+        if raw_values.is_empty() {
+            continue;
+        }
+        // 2026-04-24: グループ内で IQR 外れ値除外
+        let raw_count = raw_values.len();
+        let (values, outliers_removed) =
+            super::statistics::filter_outliers_iqr(&raw_values, 1.5);
         if values.is_empty() {
             continue;
         }
@@ -638,6 +662,8 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
             min,
             max,
             values,
+            outliers_removed,
+            raw_count,
         });
     }
     // 件数降順
