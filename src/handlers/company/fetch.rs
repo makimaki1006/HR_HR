@@ -576,9 +576,16 @@ pub fn fetch_companies_by_region(
 
     let rows = if !municipality.is_empty() {
         // 市区町村フィルタあり
+        // 2026-04-24 BUG FIX:
+        //   旧実装は SELECT 列に sales_amount / sales_range / employee_delta_1y /
+        //   employee_delta_3m が含まれておらず、survey report の
+        //   「地域注目企業」セクションで売上・人員推移が 0 / "" になっていた。
+        //   都道府県のみ版 (下ブランチ) と同じ 11 列構成に揃える。
         let muni_pattern = format!("%{}%", municipality);
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                   employee_count, credit_score, postal_code \
+                   employee_count, credit_score, postal_code, \
+                   sales_amount, sales_range, \
+                   employee_delta_1y, employee_delta_3m \
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 AND address LIKE ?2 \
                    ORDER BY employee_count DESC LIMIT ?3";
