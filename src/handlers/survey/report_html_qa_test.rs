@@ -334,27 +334,23 @@ fn p3_spec_9_1_required_sections_exist() {
 }
 
 #[test]
-fn p3_spec_9_1_hw_comparison_toggled_by_hw_context() {
-    // CSS コメント等の偶発ヒットを避けるため <h2> 内の検出に限定
+fn p3_spec_9_1_hw_comparison_section_removed() {
+    // 2026-04-24 ユーザー指摘により HW市場比較セクションは**削除**
+    // (任意スクレイピング件数 vs HW 全体の非同質比較は無意味)
+    // hw_context の有無に関わらず HW市場比較 <h2> は出ないことを検証
     let html_without = render_minimal_html();
-    let has_h2_comparison_without = html_without
+    let has_h2_without = html_without
         .split("<h2")
         .skip(1)
         .any(|s| s.split("</h2>").next().map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較")).unwrap_or(false));
-    assert!(
-        !has_h2_comparison_without,
-        "hw_context=None のとき Section 2（HW 市場比較）の <h2> が出ない"
-    );
+    assert!(!has_h2_without, "hw_context=None: HW市場比較は削除済");
 
     let html_with = render_full_html();
-    let has_h2_comparison_with = html_with
+    let has_h2_with = html_with
         .split("<h2")
         .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較") || t.contains("市場比較")).unwrap_or(false));
-    assert!(
-        has_h2_comparison_with,
-        "hw_context=Some のとき Section 2（HW 市場比較）の <h2> が必要"
-    );
+        .any(|s| s.split("</h2>").next().map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較")).unwrap_or(false));
+    assert!(!has_h2_with, "hw_context=Some でも HW市場比較は削除済");
 }
 
 #[test]
@@ -1057,13 +1053,17 @@ fn p3_spec_9_11_hw_enrichment_section_title() {
 #[test]
 fn p3_spec_9_11_trend_labels_present() {
     let html = render_full_html();
-    // 増加/横ばい/減少 の定性ラベルのいずれかが含まれる
-    let has_any_trend = html.contains("増加")
-        || html.contains("横ばい")
-        || html.contains("減少");
+    // 2026-04-24 ユーザー指摘により、表内 trend 列（3ヶ月/1年推移）は削除。
+    // ts_turso_counts の初期スナップショット不安定で「+374.3%」等の暴走値を
+    // 全行に同じ値として出してしまっていたため。
+    // テーブルでは CSV件数 / HW現在件数のみ、時系列推移は注記レベルに留める。
+    let h2_has_hw_enrich = html
+        .split("<h2")
+        .skip(1)
+        .any(|s| s.split("</h2>").next().map(|t| t.contains("地域 × HW")).unwrap_or(false));
     assert!(
-        has_any_trend,
-        "HW データ連携セクションに定性的推移ラベル（増加/横ばい/減少）のいずれかが必要"
+        h2_has_hw_enrich,
+        "地域 × HW データ連携セクションの <h2> が必要（trend 列は削除済）"
     );
 }
 

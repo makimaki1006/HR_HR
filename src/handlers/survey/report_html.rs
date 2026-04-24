@@ -188,10 +188,14 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     // 「サマリー」見出しはテスト互換のため Executive Summary 内で維持
     render_section_summary(&mut html, agg);
 
-    // --- Section 2: HW 市場比較（hw_context Some のときのみ） ---
-    if let Some(ctx) = hw_context {
-        render_section_hw_comparison(&mut html, agg, by_emp_type_salary, ctx);
-    }
+    // --- Section 2: HW 市場比較 ---
+    // 2026-04-24 ユーザー指摘により削除:
+    //   「任意でスクレイピングしている件数 VS ハローワークデータ」という
+    //   非同質データ比較は無意味。雇用形態構成比・最低賃金比較の "媒体" 値も
+    //   出どころ不明の誤誘導になるため、HW 市場比較セクション自体を非表示化。
+    //   HW 側の補完数値は Section 3 (地域×HW データ連携) と Exec Summary で
+    //   参考値として併記するに留める。
+    let _ = hw_context;
 
     // --- Section 3: 給与分布 統計 ---
     render_section_salary_stats(&mut html, agg, salary_min_values, salary_max_values);
@@ -424,18 +428,25 @@ body {
   background: linear-gradient(180deg, var(--c-bg-card) 0%, var(--bg) 100%);
 }
 .cover-logo {
-  width: 180px;
+  min-width: 200px;
+  width: auto;
+  max-width: 360px;
+  padding: 0 16px;
   height: 60px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--c-primary);
-  font-size: 14pt;
+  font-size: 13pt;
   font-weight: 700;
   border: 1px dashed var(--c-border);
   border-radius: 4px;
   margin-bottom: 36px;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
+  /* ASCII 名「For A-career」がハイフンで折り返されるのを防ぐ */
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 .cover-title {
   font-size: 28pt;
@@ -982,10 +993,13 @@ fn render_section_executive_summary(
     }
 
     // ---- スコープ注意書き (必須 / 仕様書 3.5) ----
+    // 2026-04-24 修正: CSV は Indeed/求人ボックス等の媒体由来なので「HW 掲載求人のみ」
+    // 表現は誤り。CSV 側と HW 側それぞれのスコープを明示。
     html.push_str(
         "<div class=\"exec-scope-note\">\
-        \u{203B} 本レポートはハローワーク掲載求人のみが対象。全求人市場の代表ではない。\
-        給与バイアス（HWは中小企業・地方案件比率が高い）に留意。<br>\
+        \u{203B} 本レポートはアップロード CSV（媒体: Indeed / 求人ボックス等）の分析が主で、\
+        HW データは比較参考値として併記しています。CSV はスクレイピング範囲に依存し、\
+        HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。<br>\
         \u{203B} 示唆は相関に基づく仮説であり、因果を証明するものではない。\
         実施判断は現場文脈に依存します。\
         </div>\n",
@@ -1217,61 +1231,55 @@ fn render_section_summary(html: &mut String, agg: &SurveyAggregation) {
         "-".to_string()
     };
 
-    // 4つ目のKPI: 新着率 が取得可能なら新着率、0件なら企業数に動的置換
-    //   Why: 求人ボックス等「新着」列がないCSVでは new_count==0 となり常に 0.0% 表示になり無意味
-    //   How: new_count > 0 なら新着率、それ以外は企業数（募集主の多様性指標）
-    let (kpi4_label, kpi4_value, kpi4_unit, kpi4_guide) = if agg.new_count > 0 {
-        let nr = format!(
-            "{:.1}%",
-            agg.new_count as f64 / agg.total_count.max(1) as f64 * 100.0
-        );
-        (
-            "新着率",
-            nr,
-            "",
-            "新着求人の割合です。高いほど求人の入れ替わりが活発です。",
-        )
-    } else {
-        let companies = agg.by_company.len();
-        (
-            "掲載企業数",
-            format_number(companies as i64),
-            "社",
-            "求人を出している企業の数です。多いほど選択肢が豊富です。",
-        )
-    };
+    // 2026-04-24 ユーザー指摘反映:
+    //   - 「掲載企業数」KPI 削除（CSV は任意スクレイピング件数なので母集団を示さず誤解）
+    //   - 「正社員率」→「CSV内 正社員割合」: 「安定雇用が多い市場」表現は不正確なので削除
+    //   - 新着率は CSV 側に新着列がある場合のみ表示（無ければ KPI 自体を省略）
+    let has_new_rate = agg.new_count > 0;
 
     html.push_str("<div class=\"summary-grid\">\n");
     render_summary_card(
         html,
-        "総求人数",
+        "CSV上の求人件数",
         &format_number(agg.total_count as i64),
         "件",
     );
     render_summary_card(html, salary_label, &avg_salary_display, salary_unit);
-    render_summary_card(html, "正社員率", &fulltime_rate, "");
-    render_summary_card(html, kpi4_label, &kpi4_value, kpi4_unit);
+    render_summary_card(html, "CSV内 正社員割合", &fulltime_rate, "");
+    if has_new_rate {
+        let nr = format!(
+            "{:.1}%",
+            agg.new_count as f64 / agg.total_count.max(1) as f64 * 100.0
+        );
+        render_summary_card(html, "新着率", &nr, "");
+    }
     html.push_str("</div>\n");
 
     // 読み方ガイド
     let salary_guide = if agg.is_hourly {
-        "時給データとして解析されています。"
+        "CSV 行の時給平均値。月給・年俸は時給へ換算。"
     } else {
-        "全求人の月給換算平均値です。時給・年俸は月給に統一計算しています。"
+        "CSV 行の月給換算平均（時給・年俸は月給へ統一計算）。"
     };
     html.push_str("<div class=\"guide-grid\">\n");
     render_guide_item(
         html,
-        "総求人数",
-        "CSVに含まれる求人の総数です。市場規模の目安になります。",
+        "CSV上の求人件数",
+        "アップロードされた CSV 行数。CSV スクレイピング範囲に依存するため市場全体の指標ではありません。",
     );
     render_guide_item(html, salary_label, salary_guide);
     render_guide_item(
         html,
-        "正社員率",
-        "正社員・正職員の求人割合です。高いほど安定雇用が多い市場です。",
+        "CSV内 正社員割合",
+        "CSV 内で雇用形態「正社員・正職員」の行が占める比率。ソース媒体の収集方針により値は変動します。",
     );
-    render_guide_item(html, kpi4_label, kpi4_guide);
+    if has_new_rate {
+        render_guide_item(
+            html,
+            "新着率",
+            "CSV 行のうち「新着」フラグが付与された比率。",
+        );
+    }
     html.push_str("</div>\n");
 
     html.push_str("</div>\n");
@@ -1381,17 +1389,24 @@ fn render_section_hw_enrichment(
     html.push_str("<h2 id=\"hw-enrich-title\">地域 × HW データ連携</h2>\n");
     html.push_str(
         "<p class=\"section-header-meta\">\
-         アップロード CSV の地域情報を HW 掲載データ（件数・推移・欠員率）と突合。\
-         市区町村粒度で HW 現在件数を取得、推移・欠員率は都道府県参考値。</p>\n",
+         アップロード CSV の地域情報を HW postings の市区町村実件数と突合。</p>\n",
     );
-    html.push_str("<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">");
-    html.push_str(&build_hw_enrichment_sowhat(
-        fallback_3m,
-        fallback_1y,
-        fallback_vacancy,
-    ));
-    html.push_str("</div>\n");
-
+    // 2026-04-24: build_hw_enrichment_sowhat は ts_turso_counts の初期ノイズで
+    //   「+374.3%」など暴れやすく誤誘導になるため非表示化。欠員率（外部統計）
+    //   のみ意味があるケースで別途言及する運用にする。
+    let _ = (fallback_3m, fallback_1y);
+    if let Some(vrate) = fallback_vacancy {
+        html.push_str(
+            "<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">",
+        );
+        html.push_str(&format!(
+            "※ {} 正社員欠員率（外部統計 e-Stat 由来）は {:.1}%。\
+             単一値のため市区町村別の差は表示していません。",
+            escape_html(&rows.first().map(|(e, _)| e.prefecture.clone()).unwrap_or_default()),
+            vrate
+        ));
+        html.push_str("</div>\n");
+    }
     html.push_str("<table class=\"hw-enrichment-table\">\n");
     html.push_str(
         "<thead><tr>\
@@ -1399,11 +1414,15 @@ fn render_section_hw_enrichment(
          <th>市区町村</th>\
          <th class=\"num\">CSV件数</th>\
          <th class=\"num\">HW現在件数</th>\
-         <th>3ヶ月推移</th>\
-         <th>1年推移</th>\
-         <th class=\"num\">欠員率(参考)</th>\
          </tr></thead><tbody>\n",
     );
+    // 2026-04-24 ユーザー指摘:
+    //   旧実装は 3ヶ月推移/1年推移/欠員率 を各行に出したが、これらは都道府県
+    //   粒度の単一値を全行に同じ値で表示していたため誤誘導だった。
+    //   また ts_turso_counts 由来の変動率は初期スナップショットのノイズで
+    //   「+374.3%」など現実離れした値が出やすく、実用性が低い。
+    //   → テーブルからは市区町村粒度で確実に取れる CSV 件数 / HW 件数 のみに
+    //      絞り、推移・欠員率は「注記」として都道府県代表値で別記する。
     for (e, csv_count) in &rows {
         html.push_str("<tr>");
         html.push_str(&format!("<td>{}</td>", escape_html(&e.prefecture)));
@@ -1417,23 +1436,14 @@ fn render_section_hw_enrichment(
                 "—".to_string()
             }
         ));
-        html.push_str(&render_trend_cell(e.posting_change_3m_pct, e.change_label_3m()));
-        html.push_str(&render_trend_cell(e.posting_change_1y_pct, e.change_label_1y()));
-        html.push_str(&format!(
-            "<td class=\"num\">{}</td>",
-            match e.vacancy_rate_pct {
-                Some(v) => format!("{:.1}%", v),
-                None => "—".to_string(),
-            }
-        ));
         html.push_str("</tr>\n");
     }
     html.push_str("</tbody></table>\n");
     html.push_str(
         "<p class=\"print-note\">\
-         ※ HW現在件数 = postings テーブル (pref×muni) の実件数。\
-         推移・欠員率は ts_counts と外部統計由来（都道府県単位、季節要因含む参考指標）。\
-         CSV の各エリアの競合密度感と HW 実掲載件数を比較する際の参考値。</p>\n",
+         ※ 表示は「CSV 件数（アップロード行数）」と「HW 現在件数（HW postings の市区町村実件数）」の 2 軸。\
+         CSV 件数は掲載媒体スクレイピング範囲に依存し、HW 件数はハローワーク側の掲載求人のみ。\
+         単純比較ではなく、どのエリアに媒体側の露出が集中しているかの参考値として参照してください。</p>\n",
     );
     html.push_str("</section>\n");
 }
@@ -3136,12 +3146,16 @@ fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<h2 id=\"notes-title\">注記・出典・免責</h2>\n");
     html.push_str("<ol style=\"padding-left:1.4em;font-size:10pt;line-height:1.6;color:var(--text);\">\n");
     html.push_str(
-        "<li><strong>データスコープ</strong>: 本レポートはハローワーク掲載求人のみが対象。\
-        職業紹介事業者の求人・非公開求人は含まれない。全求人市場の代表ではない。</li>\n",
+        "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV（Indeed / 求人ボックス等）\
+        の行に基づく分析が主で、HW 掲載データは比較参考値として併記している。\
+        CSV はスクレイピング範囲に依存し、HW は掲載求人のみに限定されるため、\
+        いずれも全求人市場を代表するものではない。\
+        職業紹介事業者の求人・非公開求人は本レポートに含まれない。</li>\n",
     );
     html.push_str(
-        "<li><strong>給与バイアス</strong>: ハローワーク掲載求人は中小企業・地方案件の比率が高く、\
-        給与水準は民間媒体より低く出る傾向がある。</li>\n",
+        "<li><strong>給与バイアス</strong>: HW 掲載求人は中小企業・地方案件の比率が高く民間媒体より\
+        給与水準が低く出る傾向がある。CSV 側も掲載元媒体のバイアスを内包するため、\
+        両者の単純比較には注意が必要。</li>\n",
     );
     html.push_str(
         "<li><strong>相関と因果</strong>: 本レポートに記載する「傾向」「相関」は因果関係を\
@@ -3570,37 +3584,26 @@ mod tests {
         }
     }
 
-    /// hw_context 有無で「HW市場比較」セクションの出力有無が切り替わる
+    /// 2026-04-24 ユーザー指摘により HW市場比較セクションは削除済み
+    /// (任意スクレイピング件数 vs HW 全体の非同質比較は無意味)
+    /// → hw_context の有無に関わらず <h2>HW市場比較</h2> が **出ないこと** を検証
     #[test]
-    fn test_render_with_hw_context_adds_comparison_section() {
+    fn test_render_hw_market_comparison_section_removed() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
 
-        // None の場合、比較セクションは出ない
         let html_without = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
-        // h2 見出し（HTMLタグ付き）が存在しないことを確認
         assert!(
             !html_without.contains("<h2>HW市場比較</h2>"),
-            "hw_context=None のときは HW市場比較セクション（h2）を出さない"
-        );
-        assert!(
-            !html_without.contains("<div class=\"comparison-grid\">"),
-            "hw_context=None のときは comparison-grid コンテナは出さない（CSS内の定義は除く）"
+            "hw_context=None: HW市場比較は削除済"
         );
 
-        // Some の場合は出る（空の InsightContext でもヘッダーは出力される）
         let ctx = mock_empty_insight_ctx();
         let html_with =
             render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], Some(&ctx), &[]);
         assert!(
-            html_with.contains("<h2>HW市場比較</h2>"),
-            "hw_context=Some のときは HW市場比較セクション（h2）を出す"
-        );
-        // by_emp_type_salary が空なので雇用形態判別不能メッセージが出る想定
-        assert!(
-            html_with.contains("comparison-grid")
-                || html_with.contains("雇用形態が判別できなかった"),
-            "comparison-grid か 判別不能メッセージのどちらかが出る"
+            !html_with.contains("<h2>HW市場比較</h2>"),
+            "hw_context=Some でも HW市場比較は削除済（2026-04-24 ユーザー指摘）"
         );
     }
 
