@@ -225,15 +225,28 @@ pub async fn integrate_report(
     let pref2 = pref.clone();
     let muni2 = muni.clone();
 
+    // CSV集計結果をキャッシュから復元（地域×HWデータ連携用の pref/muni ペア取得）
+    let agg_cached = state.cache.get(&format!("survey_agg_{}", session_id));
+    let pref_muni_pairs: Vec<(String, String)> = agg_cached
+        .and_then(|v| serde_json::from_value::<super::aggregator::SurveyAggregation>(v).ok())
+        .map(|a| {
+            a.by_municipality_salary
+                .iter()
+                .map(|m| (m.prefecture.clone(), m.name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let content = tokio::task::spawn_blocking(move || {
         use super::super::company::fetch::fetch_companies_by_region;
         use super::super::insight::engine::generate_insights;
         use super::super::insight::fetch::build_insight_context;
+        use super::hw_enrichment::enrich_areas;
 
         let ctx = build_insight_context(&db, turso.as_ref(), &pref2, &muni2);
         let insights = generate_insights(&ctx);
 
-        // SalesNow企業データ取得（該当地域）
+        // 地域注目企業データ取得（該当地域）
         let companies = if let Some(ref sn_db) = salesnow {
             // 業種フィルタは空（全業種）で地域の企業を取得
             fetch_companies_by_region(sn_db, &db, &pref2, &muni2, 50)
@@ -241,8 +254,20 @@ pub async fn integrate_report(
             vec![]
         };
 
+        // CSV内の pref/muni ペアごとに HW DB を突合
+        let enrichment_map = enrich_areas(&db, turso.as_ref(), &pref_muni_pairs);
+        let mut hw_enrichments: Vec<_> = enrichment_map.into_values().collect();
+        hw_enrichments.sort_by(|a, b| b.hw_posting_count.cmp(&a.hw_posting_count));
+
         // 統合レポートHTML生成
-        super::integration::render_integration(&pref2, &muni2, &insights, &ctx, &companies)
+        super::integration::render_integration(
+            &pref2,
+            &muni2,
+            &insights,
+            &ctx,
+            &companies,
+            &hw_enrichments,
+        )
     })
     .await
     .unwrap_or_else(|e| {
@@ -374,7 +399,7 @@ pub async fn survey_report_html(
         Vec::new()
     };
 
-    let _ = (&pref, &muni); // 次期 PDF エージェントで再導入予定
+    let _ = (&pref, &muni); // Phase 2 エージェントで HW 連携に再導入予定
     let html = super::report_html::render_survey_report_page(
         &agg,
         &seeker,
@@ -387,4 +412,42 @@ pub async fn survey_report_html(
     );
 
     Html(html)
+}
+
+/// 競合調査レポートを HTML ファイルとしてダウンロード
+///
+/// GAS 踏襲: ユーザーが HTML をローカルに保存 → 手元で文言編集 → ブラウザで開き
+/// 直して印刷 → PDF 保存、というワークフローを支援する。
+///
+/// `/report/survey/download` エンドポイント。
+/// Content-Type: text/html; charset=utf-8
+/// Content-Disposition: attachment; filename="hellowork_report_YYYY-MM-DD.html"
+pub async fn survey_report_download(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<IntegrateQuery>,
+) -> axum::response::Response {
+    use axum::http::{header, StatusCode};
+    use axum::response::IntoResponse;
+
+    // 内部で survey_report_html と同じロジックを再利用するため、先に HTML を生成
+    let html_resp = survey_report_html(State(state), session, Query(query)).await;
+    let html_body = html_resp.0;
+
+    // ダウンロードファイル名: 日付付きで上書き衝突を避ける
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let filename = format!("hellowork_report_{}.html", today);
+
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!(r#"attachment; filename="{}""#, filename),
+            ),
+        ],
+        html_body,
+    )
+        .into_response()
 }

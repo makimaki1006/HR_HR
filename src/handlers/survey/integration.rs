@@ -4,14 +4,20 @@ use super::super::company::fetch::NearbyCompany;
 use super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::insight::fetch::InsightContext;
 use super::super::insight::helpers::{Insight, Severity};
+use super::hw_enrichment::HwAreaEnrichment;
 
 /// 統合レポートHTML生成
+///
+/// # Args
+/// - `hw_enrichments`: CSV に含まれる pref/muni ペアごとの HW 連携指標
+///   （空スライスなら「地域×HW データ連携」セクションは非表示）
 pub(crate) fn render_integration(
     pref: &str,
     muni: &str,
     insights: &[Insight],
     ctx: &InsightContext,
     companies: &[NearbyCompany],
+    hw_enrichments: &[HwAreaEnrichment],
 ) -> String {
     let mut html = String::with_capacity(12_000);
     let location = if !muni.is_empty() {
@@ -21,14 +27,31 @@ pub(crate) fn render_integration(
     };
 
     html.push_str(&format!(
-        r#"<div class="space-y-4 mt-4">
-        <h3 class="text-lg font-bold text-white">🔗 統合分析: <span class="text-blue-400">{}</span></h3>
-        <p class="text-xs text-slate-500">HW求人データ・外部統計データ・企業データとの統合分析結果</p>"#,
+        r#"<div class="space-y-4 mt-6" id="survey-integration">
+        <section class="stat-card border-l-4 border-blue-500">
+            <div class="flex items-start justify-between flex-wrap gap-3">
+                <div>
+                    <h3 class="text-lg font-bold text-white">HW統合分析
+                        <span class="text-blue-400 text-base font-normal ml-2">{}</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 mt-1">
+                        アップロードCSVの主要地域に対して、HW求人・外部統計・企業データを突き合わせた参考比較です。
+                    </p>
+                </div>
+                <div class="text-xs text-slate-500 text-right">
+                    <div>スコープ: HW掲載求人のみ</div>
+                    <div>外部統計: e-Stat / SSDSE-A</div>
+                </div>
+            </div>
+        </section>"#,
         escape_html(&location)
     ));
 
     // HWデータセクション
     html.push_str(&render_hw_section(ctx));
+
+    // 地域×HW データ連携セクション（CSV の pref/muni ペア × HW DB 突合）
+    html.push_str(&render_hw_area_enrichment_section(hw_enrichments, ctx));
 
     // 外部統計セクション
     html.push_str(&render_external_section(ctx));
@@ -46,7 +69,7 @@ pub(crate) fn render_integration(
 /// HW求人データセクション
 fn render_hw_section(ctx: &InsightContext) -> String {
     let mut html = String::with_capacity(2_000);
-    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">📋 ハローワーク求人市場</h4>"#);
+    html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">ハローワーク求人市場</h4>"#);
 
     if ctx.vacancy.is_empty() && ctx.cascade.is_empty() {
         html.push_str(r#"<p class="text-slate-500 text-xs">この地域のHWデータはありません</p>"#);
@@ -120,15 +143,15 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             }
         }
     }
-    html.push_str(r#"<div class="text-xs text-slate-600 mt-2">※HW掲載求人に基づく分析。IT・通信等のHW掲載が少ない産業は参考値。</div>"#);
-    html.push_str("</div>");
+    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">HW掲載求人のみを対象とした集計です。IT・通信等でHW掲載が少ない産業では参考値となります。</div>"#);
+    html.push_str("</section>");
     html
 }
 
 /// 外部統計セクション
 fn render_external_section(ctx: &InsightContext) -> String {
     let mut html = String::with_capacity(2_000);
-    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">🏙️ 地域特性（外部統計）</h4>"#);
+    html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">地域特性（外部統計）</h4>"#);
 
     let mut has_data = false;
     html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-3 gap-3">"#);
@@ -215,11 +238,11 @@ fn render_external_section(ctx: &InsightContext) -> String {
         );
     } else {
         html.push_str(
-            r#"<div class="text-xs text-slate-600 mt-2">※外部統計データ（e-Stat / SSDSE-A）</div>"#,
+            r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">出典: e-Stat / SSDSE-A。地域特性と採用難度には相関が見られますが、因果関係を示すものではありません。</div>"#,
         );
     }
 
-    html.push_str("</div>");
+    html.push_str("</section>");
     html
 }
 
@@ -231,7 +254,7 @@ fn render_insights_section(insights: &[Insight]) -> String {
 
     let mut html = String::with_capacity(2_000);
     html.push_str(
-        r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">💡 自動診断結果</h4>"#,
+        r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-amber-500 pl-2">自動診断の示唆</h4>"#,
     );
 
     let critical = insights
@@ -247,31 +270,38 @@ fn render_insights_section(insights: &[Insight]) -> String {
         .filter(|i| i.severity == Severity::Positive)
         .count();
 
-    // サマリー
-    let assessment = if critical >= 2 {
-        "深刻な課題あり"
+    // 傾向サマリ（「評価」ではなく「傾向」として記述）
+    let tendency = if critical >= 2 {
+        ("採用課題の傾向が強く見られる", "text-red-400")
     } else if critical >= 1 || warning >= 3 {
-        "注意が必要"
+        ("注意を要する傾向が見られる", "text-amber-400")
     } else if positive >= 2 {
-        "比較的良好"
+        ("比較的良好な傾向が見られる", "text-emerald-400")
     } else {
-        "標準的"
+        ("標準的な傾向", "text-slate-300")
     };
     html.push_str(&format!(
-        r#"<div class="text-sm text-white mb-3">総合評価: <span class="font-bold">{}</span> (重大{}件 / 注意{}件 / 良好{}件)</div>"#,
-        assessment, critical, warning, positive
+        r#"<div class="text-sm text-white mb-3">傾向: <span class="font-bold {color}">{label}</span>
+            <span class="text-xs text-slate-400 ml-2">(重大{c}件 / 注意{w}件 / 良好{p}件)</span>
+        </div>"#,
+        label = tendency.0,
+        color = tendency.1,
+        c = critical,
+        w = warning,
+        p = positive,
     ));
 
     // 上位5件の示唆をカード表示
     for insight in insights.iter().take(5) {
         let badge = insight.severity.badge_class();
+        let bg = insight.severity.bg_class();
         let label = insight.severity.label();
         html.push_str(&format!(
-            r#"<div class="flex items-start gap-2 p-2 rounded bg-slate-800/50 mb-2">
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {badge} shrink-0">{label}</span>
-                <div class="min-w-0">
+            r#"<div class="flex items-start gap-2 p-2.5 rounded border {bg} mb-2">
+                <span class="px-2 py-0.5 rounded text-[10px] font-medium {badge} shrink-0">{label}</span>
+                <div class="min-w-0 flex-1">
                     <p class="text-xs text-white font-medium">{}</p>
-                    <p class="text-[10px] text-slate-400 line-clamp-2">{}</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">{}</p>
                 </div>
             </div>"#,
             escape_html(&insight.title),
@@ -279,21 +309,26 @@ fn render_insights_section(insights: &[Insight]) -> String {
         ));
     }
 
-    html.push_str("</div>");
+    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
+        示唆はHW掲載求人と外部統計に基づく相対的観察です。採用判断の唯一の根拠とせず、詳細分析タブでの個別検証を推奨します。
+    </div>"#);
+    html.push_str("</section>");
     html
 }
 
-/// 該当地域の企業セクション
+/// 地域注目企業セクション
+/// （旧: SalesNow 表示。ラベルから SalesNow 文言を削除し、
+///  与信スコア → 売上 / 1年人員推移 / 3ヶ月人員推移 に置換）
 fn render_companies_section(companies: &[NearbyCompany], location: &str) -> String {
     let mut html = String::with_capacity(3_000);
-    html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-3">🏢 該当地域の企業データ</h4>"#);
+    html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">地域注目企業</h4>"#);
 
     if companies.is_empty() {
         html.push_str(&format!(
             r#"<p class="text-slate-500 text-xs">{}に該当する企業データはありません</p>"#,
             escape_html(location)
         ));
-        html.push_str("</div>");
+        html.push_str("</section>");
         return html;
     }
 
@@ -322,36 +357,22 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
         escape_html(location), total, escape_html(&ind_text), with_hw
     ));
 
-    // テーブル
+    // テーブル（モバイル対応: overflow-x-auto + 最小幅確保）
     html.push_str(
-        r#"<div class="overflow-x-auto"><table class="w-full text-xs">
+        r#"<div class="overflow-x-auto"><table class="w-full text-xs min-w-[720px]">
         <thead><tr class="text-slate-400 border-b border-slate-700">
             <th class="text-left py-1.5 px-2">企業名</th>
             <th class="text-left py-1.5 px-2">業種</th>
             <th class="text-right py-1.5 px-2">従業員数</th>
-            <th class="text-right py-1.5 px-2">信用スコア</th>
+            <th class="text-right py-1.5 px-2">売上</th>
+            <th class="text-right py-1.5 px-2">1年人員推移</th>
+            <th class="text-right py-1.5 px-2">3ヶ月人員推移</th>
             <th class="text-right py-1.5 px-2">HW求人</th>
             <th class="text-center py-1.5 px-2">詳細</th>
         </tr></thead><tbody>"#,
     );
 
     for c in companies.iter().take(50) {
-        let score_color = if c.credit_score >= 70.0 {
-            "text-green-400"
-        } else if c.credit_score >= 50.0 {
-            "text-amber-400"
-        } else if c.credit_score > 0.0 {
-            "text-red-400"
-        } else {
-            "text-slate-500"
-        };
-
-        let score_text = if c.credit_score > 0.0 {
-            format!("{:.0}", c.credit_score)
-        } else {
-            "-".to_string()
-        };
-
         let hw_badge = if c.hw_posting_count > 0 {
             format!(
                 r#"<span class="text-blue-400 font-medium">{}</span>"#,
@@ -367,13 +388,27 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             "-".to_string()
         };
 
+        // 売上: sales_range（ラベル）優先、なければ sales_amount 円表記
+        let sales_text = if !c.sales_range.is_empty() {
+            escape_html(&c.sales_range)
+        } else if c.sales_amount > 0.0 {
+            format!("{}円", format_number(c.sales_amount as i64))
+        } else {
+            "-".to_string()
+        };
+
+        // 人員推移（%）: 符号付き・色分け
+        let delta_1y_html = render_delta_cell(c.employee_delta_1y);
+        let delta_3m_html = render_delta_cell(c.employee_delta_3m);
+
         html.push_str(&format!(
             r##"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
                 <td class="py-1.5 px-2 text-white">{}</td>
                 <td class="py-1.5 px-2 text-slate-400">{}</td>
                 <td class="py-1.5 px-2 text-right text-slate-300">{}</td>
-                <td class="py-1.5 px-2 text-right {}">{}
-                </td>
+                <td class="py-1.5 px-2 text-right text-slate-300">{}</td>
+                <td class="py-1.5 px-2 text-right">{}</td>
+                <td class="py-1.5 px-2 text-right">{}</td>
                 <td class="py-1.5 px-2 text-right">{}</td>
                 <td class="py-1.5 px-2 text-center">
                     <button class="text-blue-400 hover:text-blue-300 text-[10px]"
@@ -385,17 +420,176 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             escape_html(&c.company_name),
             escape_html(&c.sn_industry),
             emp_text,
-            score_color,
-            score_text,
+            sales_text,
+            delta_1y_html,
+            delta_3m_html,
             hw_badge,
             escape_html(&c.corporate_number),
         ));
     }
 
     html.push_str("</tbody></table></div>");
-    html.push_str(r#"<div class="text-xs text-slate-600 mt-2">※企業データベースに基づく。従業員数降順。</div>"#);
-    html.push_str("</div>");
+    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">地域注目企業（従業員数降順）。売上・人員推移は外部企業DB由来の参考値で、直近の組織改編や統計粒度による揺らぎを含みます。</div>"#);
+    html.push_str("</section>");
     html
+}
+
+/// 人員推移(%)セル生成: 符号付き + 色分け
+fn render_delta_cell(delta_pct: f64) -> String {
+    // 0.0 も「変化なし」として表示する（データ欠損はフェッチ層で 0.0 想定）
+    if delta_pct.abs() < 0.05 {
+        return r#"<span class="text-slate-500">±0.0%</span>"#.to_string();
+    }
+    let color = if delta_pct > 0.0 {
+        "text-emerald-400"
+    } else {
+        "text-red-400"
+    };
+    format!(
+        r#"<span class="{color} font-medium">{sign}{val:.1}%</span>"#,
+        color = color,
+        sign = if delta_pct > 0.0 { "+" } else { "" },
+        val = delta_pct,
+    )
+}
+
+/// 地域×HW データ連携セクション
+/// CSV に含まれる (pref, muni) ペアごとに HW DB と突合した結果を表示
+fn render_hw_area_enrichment_section(
+    enrichments: &[HwAreaEnrichment],
+    ctx: &InsightContext,
+) -> String {
+    let mut html = String::with_capacity(3_000);
+    html.push_str(r#"<section class="stat-card">
+        <h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-cyan-500 pl-2">地域×HW データ連携</h4>"#);
+
+    if enrichments.is_empty() {
+        html.push_str(
+            r#"<p class="text-slate-500 text-xs">CSV から地域（都道府県＋市区町村）を特定できなかったため、地域別 HW 連携は表示できません。</p>
+            </section>"#,
+        );
+        return html;
+    }
+
+    // 外部統計由来の欠員率（正社員）を pref 単位で補填用に抽出
+    // InsightContext.vacancy は単一地域のものなので、同一都道府県の全行に同じ値を当てる簡易運用
+    let vacancy_hint = ctx
+        .vacancy
+        .iter()
+        .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "vacancy_rate") * 100.0);
+
+    html.push_str(&format!(
+        r#"<div class="text-xs text-slate-400 mb-3">
+            CSV に含まれる {n} 件の地域について、HW DB から現在掲載件数・過去3ヶ月／1年の推移を突合しています。
+            欠員率は外部統計由来（参考値）。
+        </div>"#,
+        n = enrichments.len()
+    ));
+
+    html.push_str(
+        r#"<div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
+        <thead><tr class="text-slate-400 border-b border-slate-700">
+            <th class="text-left py-1.5 px-2">都道府県</th>
+            <th class="text-left py-1.5 px-2">市区町村</th>
+            <th class="text-right py-1.5 px-2">HW現在掲載件数</th>
+            <th class="text-right py-1.5 px-2">3ヶ月推移</th>
+            <th class="text-right py-1.5 px-2">1年推移</th>
+            <th class="text-right py-1.5 px-2">欠員率</th>
+        </tr></thead><tbody>"#,
+    );
+
+    // 件数降順で上位 30 件まで表示
+    let mut sorted: Vec<&HwAreaEnrichment> = enrichments.iter().collect();
+    sorted.sort_by(|a, b| b.hw_posting_count.cmp(&a.hw_posting_count));
+
+    for e in sorted.iter().take(30) {
+        let count_html = if e.hw_posting_count > 0 {
+            format!(
+                r#"<span class="text-blue-400 font-medium">{}</span>"#,
+                format_number(e.hw_posting_count)
+            )
+        } else {
+            r#"<span class="text-slate-600">-</span>"#.to_string()
+        };
+
+        let change_3m_html = render_pct_change_cell(e.posting_change_3m_pct, e.change_label_3m());
+        let change_1y_html = render_pct_change_cell(e.posting_change_1y_pct, e.change_label_1y());
+
+        // 欠員率は enrichment 固有値を優先、無ければ ctx の都道府県値でヒント表示
+        let vacancy_html = match e.vacancy_rate_pct.or(vacancy_hint) {
+            Some(v) if v > 0.0 => {
+                let color = if v > 30.0 {
+                    "text-red-400"
+                } else if v > 20.0 {
+                    "text-amber-400"
+                } else {
+                    "text-emerald-400"
+                };
+                format!(r#"<span class="{}">{:.1}%</span>"#, color, v)
+            }
+            _ => r#"<span class="text-slate-600">-</span>"#.to_string(),
+        };
+
+        html.push_str(&format!(
+            r#"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
+                <td class="py-1.5 px-2 text-slate-200">{}</td>
+                <td class="py-1.5 px-2 text-white">{}</td>
+                <td class="py-1.5 px-2 text-right">{}</td>
+                <td class="py-1.5 px-2 text-right">{}</td>
+                <td class="py-1.5 px-2 text-right">{}</td>
+                <td class="py-1.5 px-2 text-right">{}</td>
+            </tr>"#,
+            escape_html(&e.prefecture),
+            escape_html(&e.municipality),
+            count_html,
+            change_3m_html,
+            change_1y_html,
+            vacancy_html,
+        ));
+    }
+
+    html.push_str("</tbody></table></div>");
+
+    if enrichments.len() > 30 {
+        html.push_str(&format!(
+            r#"<div class="text-[11px] text-slate-600 mt-2">※ 掲載件数上位 30 件を表示（全 {} 件中）</div>"#,
+            enrichments.len()
+        ));
+    }
+
+    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
+        3ヶ月／1年推移は HW 時系列 DB 由来（都道府県×雇用形態グループの月次推移）。
+        欠員率は外部統計由来の参考値（市区町村粒度で欠損する場合があります）。
+        HW掲載求人のみを対象としており、全求人市場の動向ではありません。
+    </div>"#);
+    html.push_str("</section>");
+    html
+}
+
+/// 推移率(%)セル生成: None / 0 / +/- の区別と定性ラベル併記
+fn render_pct_change_cell(pct: Option<f64>, label: &str) -> String {
+    match pct {
+        None => r#"<span class="text-slate-600">-</span>"#.to_string(),
+        Some(v) => {
+            let color = if v > 3.0 {
+                "text-emerald-400"
+            } else if v < -3.0 {
+                "text-red-400"
+            } else {
+                "text-slate-300"
+            };
+            let sign = if v > 0.0 { "+" } else { "" };
+            format!(
+                r#"<div class="{color} font-medium">{sign}{v:.1}%</div>
+                <div class="text-[10px] text-slate-500">{label}</div>"#,
+                color = color,
+                sign = sign,
+                v = v,
+                label = escape_html(label),
+            )
+        }
+    }
 }
 
 fn kpi_card(html: &mut String, label: &str, value: &str, color: &str) {

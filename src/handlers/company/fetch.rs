@@ -2,6 +2,13 @@ use crate::db::turso_http::TursoDb;
 use crate::handlers::helpers::{get_f64, get_i64, get_str, Row};
 
 /// 近隣企業データ（郵便番号上3桁マッチ）
+///
+/// 2026-04-24 拡張: 媒体分析タブ/PDF の表示項目刷新のため以下を追加:
+/// - sales_amount (f64): 推定売上金額
+/// - sales_range (String): 売上レンジ分類ラベル
+/// - employee_delta_1y (f64): 過去1年の人員増減率 (%)
+/// - employee_delta_3m (f64): 過去3ヶ月の人員増減率 (%)
+/// (credit_score は struct には保持するが UI 表示から除外)
 #[derive(Default, Clone)]
 pub struct NearbyCompany {
     pub corporate_number: String,
@@ -12,6 +19,10 @@ pub struct NearbyCompany {
     pub credit_score: f64,
     pub postal_code: String,
     pub hw_posting_count: i64,
+    pub sales_amount: f64,
+    pub sales_range: String,
+    pub employee_delta_1y: f64,
+    pub employee_delta_3m: f64,
 }
 
 /// 企業プロフィール + 市場コンテキストの統合データ
@@ -577,7 +588,9 @@ pub fn fetch_companies_by_region(
     } else {
         // 都道府県のみ
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                   employee_count, credit_score, postal_code \
+                   employee_count, credit_score, postal_code, \
+                   sales_amount, sales_range, \
+                   employee_delta_1y, employee_delta_3m \
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 \
                    ORDER BY employee_count DESC LIMIT ?2";
@@ -597,6 +610,10 @@ pub fn fetch_companies_by_region(
             credit_score: get_f64(r, "credit_score"),
             postal_code: get_str(r, "postal_code"),
             hw_posting_count: 0,
+            sales_amount: get_f64(r, "sales_amount"),
+            sales_range: get_str(r, "sales_range"),
+            employee_delta_1y: get_f64(r, "employee_delta_1y"),
+            employee_delta_3m: get_f64(r, "employee_delta_3m"),
         })
         .collect();
 
@@ -649,7 +666,9 @@ pub fn fetch_nearby_companies(
     let like_pattern = format!("{}%", prefix);
     let sql = r#"
         SELECT corporate_number, company_name, prefecture, sn_industry,
-               employee_count, credit_score, postal_code
+               employee_count, credit_score, postal_code,
+               sales_amount, sales_range,
+               employee_delta_1y, employee_delta_3m
         FROM v2_salesnow_companies
         WHERE postal_code LIKE ?1 AND corporate_number != ?2
         ORDER BY employee_count DESC
@@ -670,6 +689,10 @@ pub fn fetch_nearby_companies(
             credit_score: get_f64(r, "credit_score"),
             postal_code: get_str(r, "postal_code"),
             hw_posting_count: 0,
+            sales_amount: get_f64(r, "sales_amount"),
+            sales_range: get_str(r, "sales_range"),
+            employee_delta_1y: get_f64(r, "employee_delta_1y"),
+            employee_delta_3m: get_f64(r, "employee_delta_3m"),
         })
         .collect();
 

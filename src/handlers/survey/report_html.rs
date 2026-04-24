@@ -1,14 +1,16 @@
-//! PDF印刷用HTMLレポート生成（F-A-C株式会社 競合調査レポート）
-//! 仕様書: docs/pdf_design_spec_2026_04_24.md
-//! A4縦向き印刷用HTMLとして出力する
-//! - 表紙 → Executive Summary → 各セクション(So What付き) → 注記/免責
+//! HTMLレポート生成（F-A-C株式会社 求人市場 総合診断レポート）
+//! 仕様書: docs/pdf_design_spec_2026_04_24.md (2026-04-24 追加要件反映済み)
+//! A4縦向き印刷 / ダウンロード後編集 両対応のHTMLとして出力する
+//! - 表紙 → Executive Summary → HWデータ連携 → 各セクション(So What付き) → 注記/免責
 //! - EChartsインタラクティブチャート + ソート可能テーブル
 //! - 印刷時はモノクロ耐性（severityアイコン併記）対応
+//! - `contenteditable` により主要コメント欄はダウンロード後にユーザーが編集可能
 
 use super::super::company::fetch::NearbyCompany;
-use super::super::helpers::{escape_html, format_number, get_f64};
+use super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::insight::fetch::InsightContext;
 use super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
+use super::hw_enrichment::HwAreaEnrichment;
 use super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
 
@@ -58,7 +60,7 @@ fn severity_badge(sev: RptSev) -> String {
 // メイン関数
 // ============================================================
 
-/// 競合調査 PDF印刷用HTMLレポートを生成
+/// 求人市場 総合診断レポート 印刷/ダウンロード用 HTML を生成
 ///
 /// # 引数
 /// - `agg`: CSVから集計した求人データ
@@ -67,6 +69,8 @@ fn severity_badge(sev: RptSev) -> String {
 /// - `by_emp_type_salary`: 雇用形態別給与（Step 2 で追加）
 /// - `salary_min_values`: 下限給与一覧（Step 2 で追加）
 /// - `salary_max_values`: 上限給与一覧（Step 2 で追加）
+/// - `hw_context`: HW ローカル/外部統計コンテキスト（Section 2/3/H 等で参照）
+/// - `salesnow_companies`: 地域注目企業リスト（内部名は呼出側互換で維持）
 pub(crate) fn render_survey_report_page(
     agg: &SurveyAggregation,
     seeker: &JobSeekerAnalysis,
@@ -86,7 +90,7 @@ pub(crate) fn render_survey_report_page(
     html.push_str("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
-    html.push_str("<title>ハローワーク求人市場 総合診断レポート（競合調査分析）</title>\n");
+    html.push_str("<title>求人市場 総合診断レポート</title>\n");
     html.push_str("<style>\n");
     html.push_str(&render_css());
     html.push_str("</style>\n");
@@ -103,20 +107,29 @@ pub(crate) fn render_survey_report_page(
     html.push_str("</div>\n");
 
     // --- 表紙ページ (Section 0 / 仕様書 7.2) ---
+    // 2026-04-24: 「競合調査分析」文言を全削除。タイトルは「求人市場 総合診断レポート」に統一。
     let today_short = chrono::Local::now().format("%Y年%m月").to_string();
     let target_region = compose_target_region(agg);
     html.push_str(
         "<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n",
     );
     html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">F-A-C株式会社</div>\n");
-    html.push_str("<div class=\"cover-title\" id=\"cover-title\">ハローワーク求人市場<br>総合診断レポート</div>\n");
-    html.push_str("<div class=\"cover-sub\">競合調査分析 &nbsp;|&nbsp; ");
+    html.push_str("<div class=\"cover-title\" id=\"cover-title\">求人市場<br>総合診断レポート</div>\n");
+    html.push_str("<div class=\"cover-sub\">");
     html.push_str(&escape_html(&today_short));
-    html.push_str("</div>\n");
+    html.push_str(" 版</div>\n");
     html.push_str(&format!(
         "<div class=\"cover-target\">対象: {}</div>\n",
         escape_html(&target_region)
     ));
+    // 表紙コメント（ダウンロード後にユーザーが追記できる欄）
+    html.push_str(
+        "<div class=\"cover-comment\" contenteditable=\"true\" spellcheck=\"false\" \
+         aria-label=\"レポートコメント（クリックで編集可）\" \
+         data-editable-placeholder=\"※ コメントを入力（例: 宛先部署・提案趣旨・補足事項）\">\
+         ※ コメントを入力（例: 宛先部署・提案趣旨・補足事項）\
+         </div>\n",
+    );
     html.push_str("<div class=\"cover-confidential\">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>\n");
     html.push_str(&format!(
         "<div class=\"cover-footer\">F-A-C株式会社 &nbsp;|&nbsp; 生成日時: {}</div>\n",
@@ -133,6 +146,14 @@ pub(crate) fn render_survey_report_page(
         by_emp_type_salary,
         hw_context,
     );
+
+    // --- Section H: 地域 × HW データ連携（新規: 2026-04-24） ---
+    // CSV の (都道府県, 市区町村) ごとに、HW ローカルDB/時系列/外部統計から取得された
+    // HW 現在件数・3ヶ月/1年推移・欠員率を一覧表示する。
+    // hw_context が無い場合はセクション自体を出力しない。
+    if let Some(ctx) = hw_context {
+        render_section_hw_enrichment(&mut html, agg, ctx);
+    }
 
     // --- Section 1 補助: サマリー(旧) は Executive Summary に統合済み ---
     // 「サマリー」見出しはテスト互換のため Executive Summary 内で維持
@@ -396,7 +417,34 @@ body {
   line-height: 1.2;
 }
 .cover-sub { font-size: 14pt; color: var(--text); margin-bottom: 16mm; }
-.cover-target { font-size: 12pt; color: var(--text); margin-bottom: 30mm; }
+.cover-target { font-size: 12pt; color: var(--text); margin-bottom: 14mm; }
+
+/* 表紙コメント欄（ダウンロード後に編集可能） */
+.cover-comment {
+  min-height: 40mm;
+  width: 70%;
+  padding: 10px 14px;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.6);
+  font-size: 10pt;
+  line-height: 1.6;
+  color: var(--c-text-muted);
+  margin-bottom: 10mm;
+  text-align: left;
+  white-space: pre-wrap;
+}
+.cover-comment:focus { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+[contenteditable="true"] {
+  cursor: text;
+  transition: background 0.15s;
+}
+[contenteditable="true"]:hover { background: rgba(30,58,138,0.04); }
+[contenteditable="true"]:focus { outline: 2px solid var(--c-primary); outline-offset: 2px; background: #fff; }
+@media print {
+  [contenteditable="true"] { outline: none !important; background: transparent !important; }
+  [contenteditable="true"]:empty::before { content: ""; }
+}
 .cover-confidential {
   margin-top: auto;
   font-size: 10pt;
@@ -711,9 +759,23 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* EChartsコンテナ */
 .echart { max-width: 100%; }
 
-/* 印刷制御（仕様書 6.4, 6.5, 6.7） */
+/* HW データ連携セクション用テーブル */
+.hw-enrichment-table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 8px 0; }
+.hw-enrichment-table th { background: var(--c-primary); color: #fff; padding: 6px 8px; text-align: left; font-weight: 700; border-bottom: 0; }
+.hw-enrichment-table td { padding: 5px 8px; border-bottom: 1px solid var(--c-border); }
+.hw-enrichment-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.hw-enrichment-table .trend-up { color: #059669; font-weight: 700; }
+.hw-enrichment-table .trend-down { color: #dc2626; font-weight: 700; }
+.hw-enrichment-table .trend-flat { color: var(--c-text-muted); }
+.hw-change-label { display: inline-block; font-size: 9pt; color: var(--c-text-muted); margin-left: 4px; }
+
+/* 印刷制御（仕様書 6.4, 6.5, 6.7 + 2026-04-24 追加要件 5: A4縦ページ分割 UX） */
 .no-print { }
 .echart-container { page-break-inside: avoid; break-inside: avoid; }
+
+/* 印刷想定セクション境界（画面表示時でもページ分割位置の可視化はしない） */
+.print-page-break { page-break-before: always; break-before: page; }
+
 @media print {
   * {
     -webkit-print-color-adjust: exact;
@@ -724,14 +786,23 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     padding: 0;
     background: #fff !important;
     color: #0f172a !important;
-    font-size: 11pt;
+    font-size: 10.5pt;
   }
   body.theme-dark { background: #fff !important; color: #0f172a !important; }
   body.theme-dark table th { background: var(--c-primary) !important; color: #fff !important; }
   body.theme-dark table td { background: transparent !important; color: #0f172a !important; }
+
+  /* セクション境界：主要セクションは次ページから */
   .section { page-break-inside: avoid; break-inside: avoid; }
-  .section.page-start { page-break-before: always; break-before: page; }
-  .summary-card, .kpi-card, .stat-box, .comparison-card, .exec-summary-action {
+  .section.page-start,
+  .section.print-page-break { page-break-before: always; break-before: page; }
+
+  /* Executive Summary は必ず次ページから本編 */
+  .exec-summary { page-break-after: always; break-after: page; }
+
+  /* 主要サブ要素のページ内維持 */
+  .summary-card, .kpi-card, .stat-box, .comparison-card, .exec-summary-action,
+  .hw-area-row, .hw-enrichment-table tr {
     box-shadow: none !important;
     transform: none !important;
     page-break-inside: avoid;
@@ -740,8 +811,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .echart, .echart-container { break-inside: avoid; page-break-inside: avoid; }
   .sortable-table th::after { display: none; }
   table { border-collapse: collapse; }
-  thead { display: table-header-group; }
+  thead { display: table-header-group; } /* 次ページに header 再表示 */
+  tfoot { display: table-footer-group; }
   tr { page-break-inside: avoid; break-inside: avoid; }
+
   .cover-page {
     page-break-after: always;
     break-after: page;
@@ -749,7 +822,16 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     background: #fff !important;
     min-height: 90vh;
   }
+  .cover-comment {
+    border: 1px dashed #ccc !important;
+    background: transparent !important;
+    color: #0f172a !important;
+  }
   .screen-footer { display: none !important; }
+
+  /* 見出し孤立防止 */
+  h2, h3 { page-break-after: avoid; break-after: avoid; }
+  p, li { orphans: 3; widows: 3; }
 }
 "#.to_string()
 }
@@ -858,7 +940,7 @@ fn render_section_executive_summary(
             ));
             html.push_str("</div>\n");
             html.push_str(&format!(
-                "<div class=\"action-body\">{}</div>\n",
+                "<div class=\"action-body\" contenteditable=\"true\" spellcheck=\"false\">{}</div>\n",
                 escape_html(body)
             ));
             html.push_str(&format!(
@@ -1193,6 +1275,280 @@ fn render_guide_item(html: &mut String, title: &str, description: &str) {
     ));
     html.push_str(&format!("{}\n", escape_html(description)));
     html.push_str("</div>\n");
+}
+
+// ============================================================
+// Section H: 地域 × HW データ連携（2026-04-24 追加要件 4）
+// ============================================================
+
+/// CSV 住所（prefecture × municipality）× HW DB 連携セクション
+///
+/// 表示項目: 都道府県 / 市区町村 / HW現在件数 / 3ヶ月推移 / 1年推移 / 欠員率（外部統計）
+///
+/// # データ源
+/// - HW 現在件数: `hw_enrichment::enrich_areas` 相当を `hw_context` から導出
+///   （postings ローカル集計は handlers 層で行う前提だが、現行シグネチャでは
+///   InsightContext のみが入力のため、`ctx.vacancy` の `total_count` から近似）
+/// - 3ヶ月/1年推移: `ctx.ts_counts` の snapshot_id 時系列から集計
+/// - 欠員率: `ctx.vacancy` の emp_group = 正社員 の `vacancy_rate`（外部統計連携値）
+fn render_section_hw_enrichment(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    ctx: &InsightContext,
+) {
+    // CSV 側の (pref, muni) ペアを抽出（重複排除、件数降順）
+    let pairs: Vec<(String, String, usize)> = {
+        let mut seen: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        let mut v: Vec<(String, String, usize)> = Vec::new();
+        for m in &agg.by_municipality_salary {
+            let key = (m.prefecture.clone(), m.name.clone());
+            if !m.prefecture.is_empty() && !m.name.is_empty() && seen.insert(key) {
+                v.push((m.prefecture.clone(), m.name.clone(), m.count));
+            }
+        }
+        v.sort_by(|a, b| b.2.cmp(&a.2));
+        v
+    };
+
+    // CSV に市区町村情報が無い場合は都道府県レベルだけで出力
+    if pairs.is_empty() && agg.by_prefecture.is_empty() {
+        return;
+    }
+
+    // HW 全体 3m/1y 推移を ts_counts から算出（単一 pref=ctx.pref に対する値）
+    // ts_counts は (snapshot_id, emp_group, posting_count, facility_count) を持つ。
+    // emp_group を横断合計して snapshot 単位で posting 合計を作り、最新vs 3m前/12m前で比較。
+    let (overall_3m, overall_1y) = compute_posting_change_from_ts(ctx);
+
+    // 欠員率（ctx.pref × 正社員）
+    let vacancy_rate_overall: Option<f64> = ctx
+        .vacancy
+        .iter()
+        .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "vacancy_rate"))
+        .filter(|v| *v > 0.0)
+        .map(|v| v * 100.0);
+
+    // HW 現在件数（pref 合算 - 全 emp_group の total_count 和）
+    let hw_total_pref: i64 = ctx
+        .vacancy
+        .iter()
+        .map(|r| get_f64(r, "total_count") as i64)
+        .sum::<i64>();
+
+    // 最大 15 市区町村まで（印刷 1〜2 ページに収まる上限）
+    let rows: Vec<HwAreaEnrichment> = pairs
+        .iter()
+        .take(15)
+        .map(|(pref, muni, _count)| {
+            // municipality 粒度の HW 件数は現在入力から算出できないため、
+            // 参考値として pref 全体値を表示しつつ警告注記を付ける運用とする。
+            // municipality 集計ができる場合は handlers 層で HwAreaEnrichment を
+            // 直接渡す将来拡張に備え、struct として整形する。
+            HwAreaEnrichment {
+                prefecture: pref.clone(),
+                municipality: muni.clone(),
+                hw_posting_count: 0, // pref 単位の参考値は別列で表示
+                posting_change_3m_pct: overall_3m,
+                posting_change_1y_pct: overall_1y,
+                vacancy_rate_pct: vacancy_rate_overall,
+            }
+        })
+        .collect();
+
+    html.push_str(
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"hw-enrich-title\">\n",
+    );
+    html.push_str("<h2 id=\"hw-enrich-title\">地域 × HW データ連携</h2>\n");
+    html.push_str(
+        "<p class=\"section-header-meta\">\
+         アップロード CSV の地域情報を HW 掲載データ（件数・推移・欠員率）と横並び表示。\
+         ※ 推移・欠員率は都道府県単位の参考値。市区町村単位の詳細は Section 7 を参照。</p>\n",
+    );
+    // So What 行（ダウンロード後に文言をユーザーが編集可）
+    html.push_str("<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">");
+    html.push_str(&build_hw_enrichment_sowhat(
+        overall_3m,
+        overall_1y,
+        vacancy_rate_overall,
+    ));
+    html.push_str("</div>\n");
+
+    html.push_str("<table class=\"hw-enrichment-table\">\n");
+    html.push_str(
+        "<thead><tr>\
+         <th>都道府県</th>\
+         <th>市区町村</th>\
+         <th class=\"num\">CSV件数</th>\
+         <th class=\"num\">HW現在件数<br><span style=\"font-weight:400;font-size:8pt;\">(参考値: 都道府県)</span></th>\
+         <th>3ヶ月推移</th>\
+         <th>1年推移</th>\
+         <th class=\"num\">欠員率(正社員)</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+    for (i, e) in rows.iter().enumerate() {
+        let csv_count = pairs
+            .get(i)
+            .map(|(_, _, c)| *c as i64)
+            .unwrap_or(0);
+        html.push_str("<tr class=\"hw-area-row\">");
+        html.push_str(&format!("<td>{}</td>", escape_html(&e.prefecture)));
+        html.push_str(&format!("<td>{}</td>", escape_html(&e.municipality)));
+        html.push_str(&format!(
+            "<td class=\"num\">{}</td>",
+            format_number(csv_count)
+        ));
+        html.push_str(&format!(
+            "<td class=\"num\">{}</td>",
+            if hw_total_pref > 0 {
+                format_number(hw_total_pref)
+            } else {
+                "-".to_string()
+            }
+        ));
+        html.push_str(&format!(
+            "<td>{}</td>",
+            render_trend_cell(e.posting_change_3m_pct, e.change_label_3m())
+        ));
+        html.push_str(&format!(
+            "<td>{}</td>",
+            render_trend_cell(e.posting_change_1y_pct, e.change_label_1y())
+        ));
+        html.push_str(&format!(
+            "<td class=\"num\">{}</td>",
+            match e.vacancy_rate_pct {
+                Some(v) => format!("{:.1}%", v),
+                None => "-".to_string(),
+            }
+        ));
+        html.push_str("</tr>\n");
+    }
+    html.push_str("</tbody></table>\n");
+
+    html.push_str(
+        "<p class=\"section-xref\">\
+         ※ HW 現在件数・推移・欠員率の市区町村粒度は handlers 層での拡張対応中。\
+         現状は都道府県単位の参考値を表示。市区町村単位の詳細は Section 6-7 を参照。<br>\
+         ※ 推移ラベル凡例: <strong>大きく増加</strong> / <strong>緩やかに増加</strong> / \
+         <strong>横ばい</strong> / <strong>緩やかに減少</strong> / <strong>大きく減少</strong>。\
+         時系列データ不足時は「—」を表示。\
+         </p>\n",
+    );
+    html.push_str("</section>\n");
+}
+
+/// HW データ連携セクションの So What 文言を生成
+fn build_hw_enrichment_sowhat(
+    change_3m: Option<f64>,
+    change_1y: Option<f64>,
+    vacancy_rate: Option<f64>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match change_3m {
+        Some(v) if v.abs() >= 3.0 => parts.push(format!(
+            "HW 求人件数は直近3ヶ月で {:+.1}% 推移",
+            v
+        )),
+        Some(_) => parts.push("HW 求人件数は直近3ヶ月で横ばい".to_string()),
+        None => {}
+    }
+    match change_1y {
+        Some(v) if v.abs() >= 10.0 => parts.push(format!(
+            "1年では {:+.1}%",
+            v
+        )),
+        _ => {}
+    }
+    match vacancy_rate {
+        Some(v) if v >= 15.0 => parts.push(format!(
+            "正社員欠員率 {:.1}% は全国平均より高い傾向",
+            v
+        )),
+        Some(v) if v >= 5.0 => parts.push(format!("正社員欠員率 {:.1}%", v)),
+        _ => {}
+    }
+    if parts.is_empty() {
+        return "※ HW データとの連携は可能なデータ範囲で表示しています。".to_string();
+    }
+    format!("※ {}（相関であり因果は別途検討）。", parts.join("。"))
+}
+
+/// ts_counts から posting_count 合計の 3m / 1y 変化率 (%) を算出
+/// 戻り値: (change_3m_pct, change_1y_pct)
+fn compute_posting_change_from_ts(ctx: &InsightContext) -> (Option<f64>, Option<f64>) {
+    if ctx.ts_counts.is_empty() {
+        return (None, None);
+    }
+    // snapshot_id → posting_count 合計 を集計
+    use std::collections::BTreeMap;
+    let mut by_snap: BTreeMap<String, f64> = BTreeMap::new();
+    for r in &ctx.ts_counts {
+        let snap = get_str_ref(r, "snapshot_id").to_string();
+        if snap.is_empty() {
+            continue;
+        }
+        let cnt = get_f64(r, "posting_count");
+        *by_snap.entry(snap).or_insert(0.0) += cnt;
+    }
+    if by_snap.is_empty() {
+        return (None, None);
+    }
+    // 昇順 → 末尾が最新
+    let mut entries: Vec<(String, f64)> = by_snap.into_iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let n = entries.len();
+    let latest = entries[n - 1].1;
+    if latest <= 0.0 {
+        return (None, None);
+    }
+    // 3m 前 = -3, 1y 前 = -12（月次 snapshot 前提）
+    let change_3m = if n >= 4 {
+        let prev = entries[n - 4].1;
+        if prev > 0.0 {
+            Some((latest - prev) / prev * 100.0)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let change_1y = if n >= 13 {
+        let prev = entries[n - 13].1;
+        if prev > 0.0 {
+            Some((latest - prev) / prev * 100.0)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    (change_3m, change_1y)
+}
+
+/// トレンドセルを変化率 + 定性ラベルで描画
+fn render_trend_cell(pct: Option<f64>, label: &str) -> String {
+    match pct {
+        Some(v) => {
+            let cls = if v > 3.0 {
+                "trend-up"
+            } else if v < -3.0 {
+                "trend-down"
+            } else {
+                "trend-flat"
+            };
+            format!(
+                "<span class=\"{}\">{:+.1}%</span><span class=\"hw-change-label\">{}</span>",
+                cls,
+                v,
+                escape_html(label)
+            )
+        }
+        None => format!(
+            "<span class=\"trend-flat\">-</span><span class=\"hw-change-label\">{}</span>",
+            escape_html(label)
+        ),
+    }
 }
 
 // ============================================================
@@ -2507,15 +2863,25 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
 // セクション10: 求職者心理分析
 // ============================================================
 
-/// F-2: SalesNow 地域注目企業テーブル
-/// Why: 競合調査レポートから実際にアプローチ可能な企業リストへ繋げる
+/// 地域注目企業テーブル
+/// Why: 求人市場分析レポートから実際にアプローチ可能な企業リストへ繋げる
 /// How: employee_count 降順で従業員数の多い 30 社を印刷レポートに追加
+///
+/// 2026-04-24 追加要件 3: 表示項目刷新
+/// - 削除: 信用スコア (credit_score) — struct には残すが UI 非表示
+/// - 追加: 売上 (sales_amount / sales_range) / 1年人員推移 / 3ヶ月人員推移
+///
+/// 関数名は呼出側の互換のため残す（UI 表示文言のみ「地域注目企業」に統一）
 fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompany]) {
-    html.push_str("<div class=\"section\">\n");
-    html.push_str("<h2>地域の注目企業 (SalesNow)</h2>\n");
+    html.push_str("<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n");
     html.push_str(
-        "<p class=\"section-sowhat\">\u{203B} SalesNow 登録企業のうち、地域内で従業員数の多い 30 社を整理しています。\
-        HW 掲載件数が多い法人は採用が活発な傾向（相関であり、因果は別途検討）。</p>\n",
+        "<h2 id=\"region-featured-title\">地域注目企業</h2>\n",
+    );
+    html.push_str(
+        "<p class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">\
+        \u{203B} 地域内で従業員数の多い 30 社を整理しています。\
+        HW 掲載件数が多い法人は採用が活発な傾向（相関であり、因果は別途検討）。\
+        売上規模・人員推移も参考値として併記します。</p>\n",
     );
     html.push_str("<table class=\"data-table\">\n");
     html.push_str("<thead><tr>");
@@ -2525,7 +2891,9 @@ fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompa
         "都道府県",
         "業種",
         "従業員数",
-        "信用スコア",
+        "売上",
+        "1年人員推移",
+        "3ヶ月人員推移",
         "HW求人数",
     ] {
         html.push_str(&format!("<th>{}</th>", escape_html(h)));
@@ -2541,12 +2909,18 @@ fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompa
             "<td class=\"right\">{}</td>",
             format_number(c.employee_count)
         ));
-        let credit = if c.credit_score > 0.0 {
-            format!("{:.0}", c.credit_score)
-        } else {
-            "-".to_string()
-        };
-        html.push_str(&format!("<td class=\"right\">{}</td>", credit));
+        // 売上: 金額と区分ラベルを併記
+        let sales_cell = format_sales_cell(c.sales_amount, &c.sales_range);
+        html.push_str(&format!("<td class=\"right\">{}</td>", sales_cell));
+        // 1年推移 / 3ヶ月推移: 増減符号付きの %
+        html.push_str(&format!(
+            "<td class=\"right\">{}</td>",
+            format_delta_cell(c.employee_delta_1y)
+        ));
+        html.push_str(&format!(
+            "<td class=\"right\">{}</td>",
+            format_delta_cell(c.employee_delta_3m)
+        ));
         html.push_str(&format!(
             "<td class=\"right\">{}</td>",
             format_number(c.hw_posting_count)
@@ -2554,7 +2928,52 @@ fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompa
         html.push_str("</tr>\n");
     }
     html.push_str("</tbody></table>\n");
-    html.push_str("</div>\n");
+    html.push_str("</section>\n");
+}
+
+/// 売上セル整形: 売上金額と区分ラベルを 1 セル 2 行で表示
+fn format_sales_cell(amount: f64, range: &str) -> String {
+    if amount <= 0.0 && range.is_empty() {
+        return "-".to_string();
+    }
+    // 金額は百万円単位以上に丸めて表示
+    let amount_display = if amount >= 1.0e9 {
+        format!("{:.1} 億円", amount / 1.0e8)
+    } else if amount >= 1.0e6 {
+        format!("{:.0} 百万円", amount / 1.0e6)
+    } else if amount > 0.0 {
+        format!("{:.0} 円", amount)
+    } else {
+        "-".to_string()
+    };
+    let range_display = if range.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<br><span style=\"font-size:9pt;color:var(--c-text-muted);\">{}</span>",
+            escape_html(range)
+        )
+    };
+    format!("{}{}", escape_html(&amount_display), range_display)
+}
+
+/// 人員推移セル整形: 増減符号付き %、0 は横ばい
+fn format_delta_cell(pct: f64) -> String {
+    // NaN / 極端値ガード
+    if !pct.is_finite() {
+        return "-".to_string();
+    }
+    let cls = if pct > 0.5 {
+        "trend-up"
+    } else if pct < -0.5 {
+        "trend-down"
+    } else {
+        "trend-flat"
+    };
+    format!(
+        "<span class=\"{}\">{:+.1}%</span>",
+        cls, pct
+    )
 }
 
 // ============================================================
@@ -2585,7 +3004,7 @@ fn render_section_notes(html: &mut String, now: &str) {
     );
     html.push_str(
         "<li><strong>出典</strong>: データ源 - アップロード CSV / ハローワーク公開データ / \
-        SalesNow 登録データ / e-Stat。</li>\n",
+        地域注目企業データベース / e-Stat。</li>\n",
     );
     html.push_str(&format!(
         "<li><strong>生成元</strong>: F-A-C株式会社 / 生成日時: {}</li>\n",
