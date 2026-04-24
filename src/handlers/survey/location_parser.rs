@@ -961,21 +961,49 @@ fn try_station(text: &str) -> Option<ParsedLocation> {
     None
 }
 
-/// 都道府県抽出（東京/京都問題対策付き）
+/// 都道府県抽出
+///
+/// 2026-04-24 MECE 監査で判明したバグ修正:
+///   旧実装は「東京」「京都」「大阪」部分文字列を優先してマッチしていたため、
+///   「北海道 東京駅」のように他都道府県が先頭にあるテキストでも東京都と
+///   誤分類していた。
+///
+/// 新実装:
+///   1. 47 都道府県の**フル名（都/道/府/県 含む）**を text 内で検索
+///   2. 見つかった都道府県のうち、**最も早い位置（最左）** を採用
+///   3. 同位置タイの場合は最も長い名前（和歌山県>和歌山 など）を優先
+///
+/// 部分文字列マッチ（東京/京都/大阪/北海道 等）による誤分類を完全排除。
 fn extract_prefecture(text: &str) -> Option<String> {
-    // 「東京」が含まれる場合は先に東京都チェック（京都との衝突防止）
-    if text.contains("東京") {
-        return Some("東京都".to_string());
-    }
-    // 長い順にマッチ（和歌山県→山県の誤マッチ防止）
-    let mut sorted = PREFECTURES.to_vec();
-    sorted.sort_by(|a, b| b.chars().count().cmp(&a.chars().count()));
-    for pref in &sorted {
-        if text.contains(pref) {
-            return Some(pref.to_string());
+    // 長い順にソート（和歌山県 4文字 > 東京都 3文字 等、substring 誤マッチ防止）
+    let mut candidates: Vec<&&str> = PREFECTURES.iter().collect();
+    candidates.sort_by(|a, b| b.chars().count().cmp(&a.chars().count()));
+
+    // 各都道府県のフル名が text 中で最初に出現する位置を記録
+    let mut best_pos: Option<usize> = None;
+    let mut best_pref: Option<String> = None;
+    let mut best_len: usize = 0;
+    for pref in &candidates {
+        if let Some(pos) = text.find(**pref) {
+            let plen = pref.chars().count();
+            let should_replace = match (best_pos, plen) {
+                (None, _) => true,
+                (Some(bp), _) if pos < bp => true,
+                (Some(bp), _) if pos == bp && plen > best_len => true,
+                _ => false,
+            };
+            if should_replace {
+                best_pos = Some(pos);
+                best_pref = Some((**pref).to_string());
+                best_len = plen;
+            }
         }
     }
-    // 略称マッチ
+    if best_pref.is_some() {
+        return best_pref;
+    }
+
+    // フル名が無い場合の略称マッチ（「北海道」以外は実質到達しない）
     if text.contains("北海道") {
         return Some("北海道".to_string());
     }

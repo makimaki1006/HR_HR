@@ -98,3 +98,115 @@ fn takamatsu_station_still_works_when_no_tokyo_context() {
     let r = parse_location("高松駅", None);
     assert_eq!(r.prefecture.as_deref(), Some("香川県"));
 }
+
+// ========================================================================
+// MECE 監査: 47 都道府県 × 主要駅名 / city alias / 共有区名 の cross-check
+// 2026-04-24 ユーザー要求「誤変換について徹底的にMECEに対応」対応
+// ========================================================================
+
+/// 47 都道府県フル名
+const ALL_PREFS: [&str; 47] = [
+    "北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県",
+    "茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県",
+    "新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県",
+    "静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県",
+    "奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県",
+    "徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県",
+    "熊本県","大分県","宮崎県","鹿児島県","沖縄県",
+];
+
+/// station_map 所収の主要駅（他都道府県にも地名として存在しうるもの中心）
+const MAJOR_STATIONS: [&str; 21] = [
+    "新宿駅","渋谷駅","東京駅","品川駅","上野駅","池袋駅","横浜駅",
+    "大阪駅","梅田駅","名古屋駅","札幌駅","仙台駅","福岡駅","高松駅",
+    "松山駅","岡山駅","広島駅","鹿児島中央駅","那覇駅","京都駅","神戸駅",
+];
+
+/// 政令指定都市の略称（city_alias）
+const CITY_ALIASES: [&str; 17] = [
+    "名古屋","札幌","仙台","横浜","川崎","福岡","広島","神戸",
+    "京都","大阪","熊本","岡山","北九州","新潟","静岡","浜松","さいたま",
+];
+
+/// 東京23区 の共有区名（他政令指定都市にも同名の区がある）
+const SHARED_WARDS: [&str; 6] = ["北区", "中央区", "港区", "南区", "東区", "西区"];
+
+#[test]
+fn mece_prefecture_prefix_beats_station_name() {
+    // 各都道府県 + 主要駅名の組み合わせで、先頭の都道府県が必ず勝つこと
+    let mut failures: Vec<String> = Vec::new();
+    for pref in ALL_PREFS {
+        for station in MAJOR_STATIONS {
+            let text = format!("{} {}", pref, station);
+            let r = parse_location(&text, None);
+            if r.prefecture.as_deref() != Some(pref) {
+                failures.push(format!(
+                    "{:?} expected {:?} got {:?} via {}",
+                    text, pref, r.prefecture, r.method
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "MECE 監査: 47pref × {}駅 = {} 組合せで、先頭都道府県が駅名マッチに負けてはいけない\nFailures ({}):\n{}",
+        MAJOR_STATIONS.len(),
+        ALL_PREFS.len() * MAJOR_STATIONS.len(),
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn mece_prefecture_prefix_beats_city_alias() {
+    // 各都道府県 + city alias の組合せで、先頭の都道府県が勝つこと
+    let mut failures: Vec<String> = Vec::new();
+    for pref in ALL_PREFS {
+        for alias in CITY_ALIASES {
+            let text = format!("{} ○○町 {}", pref, alias);
+            let r = parse_location(&text, None);
+            if r.prefecture.as_deref() != Some(pref) {
+                failures.push(format!(
+                    "{:?} expected {:?} got {:?} via {}",
+                    text, pref, r.prefecture, r.method
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "MECE 監査: 47pref × {}alias 全組合せで都道府県が勝つべき\nFailures:\n{}",
+        CITY_ALIASES.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn mece_prefecture_prefix_beats_shared_ward() {
+    // 東京以外の 46 都道府県 + 共有区名 で、先頭の都道府県が勝つ
+    // （東京都は当然 23区として OK）
+    let mut failures: Vec<String> = Vec::new();
+    for pref in ALL_PREFS {
+        if pref == "東京都" {
+            continue;
+        }
+        for ward in SHARED_WARDS {
+            let text = format!("{} ○○市 {}", pref, ward);
+            let r = parse_location(&text, None);
+            // 都道府県が合えば OK、None でも許容（本来マッチしないケース）
+            let got = r.prefecture.as_deref();
+            if got != Some(pref) && got.is_some() {
+                failures.push(format!(
+                    "{:?} expected {:?} got {:?} via {}",
+                    text, pref, r.prefecture, r.method
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "MECE 監査: 46pref × {}ward で都道府県が負けないこと\nFailures:\n{}",
+        SHARED_WARDS.len(),
+        failures.join("\n")
+    );
+}
