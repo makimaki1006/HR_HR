@@ -94,6 +94,35 @@ pub struct SurveyAggregation {
     pub regression_min_max: Option<RegressionResult>,
     pub by_prefecture_salary: Vec<PrefectureSalaryAgg>,
     pub is_hourly: bool,
+    /// 2026-04-24 Phase 2: 雇用形態グループ別 ネイティブ単位集計
+    /// 正社員系 → 月給 / パート系 → 時給 で別々に集計
+    #[serde(default)]
+    pub by_emp_group_native: Vec<EmpGroupNativeAgg>,
+}
+
+/// 雇用形態グループ別 ネイティブ単位集計
+///
+/// Phase 2: 正社員・契約社員・業務委託 → 月給ベース
+///          パート・アルバイト・派遣パート → 時給ベース
+///          派遣社員 → グループ内多数派で動的決定
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EmpGroupNativeAgg {
+    /// グループラベル: "正社員" / "パート" / "派遣・その他"
+    pub group_label: String,
+    /// 表示単位: "月給" / "時給"
+    pub native_unit: String,
+    /// そのグループの件数
+    pub count: usize,
+    /// そのグループに含まれる雇用形態の内訳（表示用）
+    pub included_emp_types: Vec<String>,
+    /// ネイティブ単位の給与値 (円)
+    /// native_unit=月給 なら月給値、native_unit=時給 なら時給値
+    pub median: i64,
+    pub mean: i64,
+    pub min: i64,
+    pub max: i64,
+    /// ヒストグラム描画用
+    pub values: Vec<i64>,
 }
 
 /// スライスの中央値を計算（コピー＆ソートする）
@@ -500,6 +529,134 @@ fn aggregate_records_core(
         regression_min_max,
         by_prefecture_salary,
         is_hourly,
+        by_emp_group_native: aggregate_by_emp_group_native(records),
+    }
+}
+
+/// 雇用形態グループ別にネイティブ単位で集計する
+///
+/// グループ分類:
+/// - **正社員**: employment_type に "正社員" / "正職員" / "契約" / "業務委託" を含む
+///   → 月給ベース (月給/年俸/日給は月給換算)
+/// - **パート**: "パート" / "アルバイト" / "派遣パート" を含む
+///   → 時給ベース (月給/日給は時給換算)
+/// - **派遣・その他**: 上記以外
+///   → グループ内の salary_type 多数派で動的決定
+pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNativeAgg> {
+    use super::salary_parser::SalaryType;
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    struct Bucket {
+        emp_types: HashMap<String, usize>,
+        monthly_values: Vec<i64>,
+        hourly_values: Vec<i64>,
+    }
+
+    let mut buckets: HashMap<&'static str, Bucket> = HashMap::new();
+    for record in records {
+        let emp = &record.employment_type;
+        let group = classify_emp_group_label(emp);
+        let bucket = buckets.entry(group).or_default();
+        *bucket.emp_types.entry(emp.clone()).or_insert(0) += 1;
+        if let Some(v) = record.salary_parsed.min_value {
+            if v > 0 {
+                match record.salary_parsed.salary_type {
+                    SalaryType::Hourly => {
+                        bucket.hourly_values.push(v);
+                        bucket.monthly_values.push(v * 160);
+                    }
+                    SalaryType::Monthly => {
+                        bucket.monthly_values.push(v);
+                        bucket.hourly_values.push(v / 160);
+                    }
+                    SalaryType::Annual => {
+                        let monthly = v / 12;
+                        bucket.monthly_values.push(monthly);
+                        bucket.hourly_values.push(monthly / 160);
+                    }
+                    SalaryType::Daily => {
+                        let monthly = v * 20;
+                        bucket.monthly_values.push(monthly);
+                        bucket.hourly_values.push(v / 8);
+                    }
+                    SalaryType::Weekly => {
+                        // 週給 → 月給 (×4) と時給 (/40)
+                        let monthly = v * 4;
+                        bucket.monthly_values.push(monthly);
+                        bucket.hourly_values.push(v / 40);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<EmpGroupNativeAgg> = Vec::new();
+    for (group_label, bucket) in buckets {
+        // native_unit: グループに応じて自動選択
+        let native_unit = match group_label {
+            "正社員" => "月給",
+            "パート" => "時給",
+            _ => {
+                // 派遣・その他: monthly と hourly のうち件数多い方
+                if bucket.hourly_values.len() > bucket.monthly_values.len() {
+                    "時給"
+                } else {
+                    "月給"
+                }
+            }
+        };
+        let values = if native_unit == "時給" {
+            bucket.hourly_values.clone()
+        } else {
+            bucket.monthly_values.clone()
+        };
+        if values.is_empty() {
+            continue;
+        }
+        let count = values.len();
+        let mean = (values.iter().sum::<i64>() as f64 / count as f64) as i64;
+        let min = *values.iter().min().unwrap_or(&0);
+        let max = *values.iter().max().unwrap_or(&0);
+        let median = median_of(&values);
+        // 雇用形態内訳は降順で最大 5 件まで
+        let mut emp_list: Vec<(String, usize)> =
+            bucket.emp_types.into_iter().collect();
+        emp_list.sort_by(|a, b| b.1.cmp(&a.1));
+        let included_emp_types: Vec<String> = emp_list
+            .into_iter()
+            .take(5)
+            .map(|(s, n)| format!("{} ({}件)", s, n))
+            .collect();
+        result.push(EmpGroupNativeAgg {
+            group_label: group_label.to_string(),
+            native_unit: native_unit.to_string(),
+            count,
+            included_emp_types,
+            median,
+            mean,
+            min,
+            max,
+            values,
+        });
+    }
+    // 件数降順
+    result.sort_by(|a, b| b.count.cmp(&a.count));
+    result
+}
+
+/// 雇用形態文字列からグループラベルを判定
+fn classify_emp_group_label(emp: &str) -> &'static str {
+    if emp.contains("パート") || emp.contains("アルバイト") {
+        "パート"
+    } else if emp.contains("正社員")
+        || emp.contains("正職員")
+        || emp.contains("契約")
+        || emp.contains("業務委託")
+    {
+        "正社員"
+    } else {
+        "派遣・その他"
     }
 }
 

@@ -203,6 +203,10 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     // --- Section 4: 雇用形態分布 ---
     render_section_employment(&mut html, agg, by_emp_type_salary);
 
+    // --- Section 4B: 雇用形態グループ別 ネイティブ単位集計 (2026-04-24 Phase 2) ---
+    // 正社員 → 月給, パート → 時給 を並列表示
+    render_section_emp_group_native(&mut html, agg);
+
     // --- Section 5: 給与の相関分析（散布図） ---
     render_section_scatter(&mut html, agg);
 
@@ -927,16 +931,39 @@ fn render_section_executive_summary(
     } else {
         "-".to_string()
     };
-    // K4: 給与中央値
-    let k4_value = match &agg.enhanced_stats {
-        Some(s) if s.count > 0 => {
-            if agg.is_hourly {
-                format!("時給 {} 円", format_number(s.median))
-            } else {
-                format!("月給 {} 円", format_number(s.median))
+    // K4: 給与中央値（雇用形態グループ別のネイティブ単位を優先）
+    // 2026-04-24 Phase 2: 正社員 月給 / パート 時給 を並列表示して
+    //   「月給/時給の単位が混ざって直感と合わない」問題を解消
+    let k4_value = {
+        let mut parts: Vec<String> = Vec::new();
+        for g in &agg.by_emp_group_native {
+            if g.count == 0 {
+                continue;
             }
+            let v_str = if g.native_unit == "時給" {
+                format!("{}円", format_number(g.median))
+            } else {
+                format!("{:.1}万円", g.median as f64 / 10_000.0)
+            };
+            parts.push(format!(
+                "{} ({}): {} (n={})",
+                g.group_label, g.native_unit, v_str, g.count
+            ));
         }
-        _ => "算出不能 (サンプル不足)".to_string(),
+        if parts.is_empty() {
+            match &agg.enhanced_stats {
+                Some(s) if s.count > 0 => {
+                    if agg.is_hourly {
+                        format!("時給 {} 円", format_number(s.median))
+                    } else {
+                        format!("月給 {} 円", format_number(s.median))
+                    }
+                }
+                _ => "算出不能 (サンプル不足)".to_string(),
+            }
+        } else {
+            parts.join(" / ")
+        }
     };
     // K5: 新着比率
     let k5_value = if agg.total_count > 0 && agg.new_count > 0 {
@@ -2249,6 +2276,90 @@ fn render_stat_box(html: &mut String, label: &str, value: &str) {
         escape_html(value)
     ));
     html.push_str("</div>\n");
+}
+
+// ============================================================
+// セクション4B: 雇用形態グループ別 ネイティブ単位集計（2026-04-24 Phase 2）
+// 正社員 → 月給ベース / パート → 時給ベース で別々に集計・表示
+// ============================================================
+
+fn render_section_emp_group_native(html: &mut String, agg: &SurveyAggregation) {
+    if agg.by_emp_group_native.is_empty() {
+        return;
+    }
+    html.push_str(
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"emp-group-native-title\">\n",
+    );
+    html.push_str(
+        "<h2 id=\"emp-group-native-title\">雇用形態グループ別 給与分析（ネイティブ単位）</h2>\n",
+    );
+    html.push_str(
+        "<p class=\"section-header-meta\">\
+         正社員は月給、パートは時給、と各グループのネイティブ単位で集計。\
+         単位の異なる給与を混ぜず、直感と一致する単位で評価します。</p>\n",
+    );
+
+    html.push_str("<div class=\"emp-group-grid\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:12px;\">\n");
+
+    for group in &agg.by_emp_group_native {
+        let unit_suffix = if group.native_unit == "時給" { "円" } else { "円" };
+        let is_hourly = group.native_unit == "時給";
+        // 月給は「万円表示」、時給は「円表示」
+        let format_salary = |v: i64| -> String {
+            if is_hourly {
+                format!("{}円", format_number(v))
+            } else {
+                format!("{:.1}万円", v as f64 / 10_000.0)
+            }
+        };
+
+        html.push_str(&format!(
+            "<div class=\"emp-group-card\" style=\"border:1px solid var(--c-border);border-radius:8px;padding:14px 16px;background:var(--c-bg-card);\">\n"
+        ));
+        html.push_str(&format!(
+            "<div style=\"font-size:13pt;font-weight:700;color:var(--c-primary);\">{}</div>\n",
+            escape_html(&group.group_label)
+        ));
+        html.push_str(&format!(
+            "<div style=\"font-size:10pt;color:var(--c-muted);margin-bottom:8px;\">集計単位: {} / n={}件</div>\n",
+            escape_html(&group.native_unit),
+            format_number(group.count as i64)
+        ));
+        html.push_str("<table style=\"width:100%;font-size:10.5pt;border-collapse:collapse;\">\n");
+        html.push_str(&format!(
+            "<tr><td style=\"padding:3px 0;color:var(--c-muted);\">中央値</td><td style=\"padding:3px 0;text-align:right;font-weight:600;\">{}</td></tr>\n",
+            format_salary(group.median)
+        ));
+        html.push_str(&format!(
+            "<tr><td style=\"padding:3px 0;color:var(--c-muted);\">平均値</td><td style=\"padding:3px 0;text-align:right;\">{}</td></tr>\n",
+            format_salary(group.mean)
+        ));
+        html.push_str(&format!(
+            "<tr><td style=\"padding:3px 0;color:var(--c-muted);\">範囲</td><td style=\"padding:3px 0;text-align:right;font-size:9pt;\">{} 〜 {}</td></tr>\n",
+            format_salary(group.min),
+            format_salary(group.max)
+        ));
+        html.push_str("</table>\n");
+
+        if !group.included_emp_types.is_empty() {
+            html.push_str(&format!(
+                "<div style=\"margin-top:6px;font-size:9pt;color:var(--c-muted);\">含まれる雇用形態: {}</div>\n",
+                escape_html(&group.included_emp_types.join(" / "))
+            ));
+        }
+        let _ = unit_suffix;
+        html.push_str("</div>\n");
+    }
+    html.push_str("</div>\n");
+
+    html.push_str(
+        "<p class=\"print-note\">\
+         ※ 「正社員」グループは月給ベース（時給は ×160 で月給換算）、\
+         「パート」グループは時給ベース（月給は /160 で時給換算）。\
+         「派遣・その他」はグループ内多数派の単位を採用。\
+         単位変換を明示して直感との乖離を避けます。</p>\n",
+    );
+    html.push_str("</section>\n");
 }
 
 // ============================================================
