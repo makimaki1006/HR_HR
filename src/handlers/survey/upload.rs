@@ -68,10 +68,67 @@ pub fn detect_csv_source(headers: &[String]) -> CsvSource {
 
 // ======== CSVパース ========
 
+/// ユーザー明示指定の給与単位 (UI の「給与単位」選択に対応)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WageMode {
+    /// 月給ベース（正社員・契約社員中心想定、時給レコードは月給換算 x160）
+    Monthly,
+    /// 時給ベース（パート・アルバイト中心想定、月給レコードは時給換算 /160）
+    Hourly,
+    /// 自動判定（従来ロジック互換: 全体多数派）
+    Auto,
+}
+
+impl WageMode {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "monthly" => Self::Monthly,
+            "hourly" => Self::Hourly,
+            _ => Self::Auto,
+        }
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Monthly => "月給",
+            Self::Hourly => "時給",
+            Self::Auto => "自動判定",
+        }
+    }
+}
+
+/// ユーザー明示指定の CSV ソース (UI の「ソース媒体」選択に対応)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UserSourceHint {
+    Indeed,
+    JobBox,
+    Other,
+    Auto,
+}
+
+impl UserSourceHint {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "indeed" => Self::Indeed,
+            "jobbox" => Self::JobBox,
+            "other" => Self::Other,
+            _ => Self::Auto,
+        }
+    }
+}
+
 /// CSVバイト列をパースしてSurveyRecordのVecに変換
 pub fn parse_csv_bytes(
     data: &[u8],
     context_pref: Option<&str>,
+) -> Result<Vec<SurveyRecord>, String> {
+    parse_csv_bytes_with_hints(data, context_pref, UserSourceHint::Auto)
+}
+
+/// ソース媒体の明示指定ありバージョン
+pub fn parse_csv_bytes_with_hints(
+    data: &[u8],
+    context_pref: Option<&str>,
+    source_hint: UserSourceHint,
 ) -> Result<Vec<SurveyRecord>, String> {
     // BOM除去
     let data = if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
@@ -92,7 +149,13 @@ pub fn parse_csv_bytes(
         .map(|s| s.to_string())
         .collect();
 
-    let source = detect_csv_source(&headers);
+    // ユーザー明示指定があれば優先、それ以外は自動判定
+    let source = match source_hint {
+        UserSourceHint::Indeed => CsvSource::Indeed,
+        UserSourceHint::JobBox => CsvSource::JobBox,
+        UserSourceHint::Other => CsvSource::Unknown,
+        UserSourceHint::Auto => detect_csv_source(&headers),
+    };
     let mut col_map = build_column_map(&headers, &source);
 
     // ヘッダーマッチが不十分な場合、データ内容ベースの動的検出にフォールバック（GASのdetectColumnsAutomatically移植）

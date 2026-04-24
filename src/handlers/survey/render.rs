@@ -43,6 +43,29 @@ pub(crate) fn render_upload_form() -> String {
                 CSVファイルをアップロード
             </h3>
             <form id="survey-upload-form" enctype="multipart/form-data">
+                <!-- アップロード前の明示指定（自動判定より精度が高い） -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1.5">ソース媒体 <span class="text-red-400">*</span></label>
+                        <select name="source_type" id="source-type"
+                            class="w-full bg-slate-700 text-white text-sm rounded px-3 py-2 border border-slate-600 focus:border-blue-500 outline-none">
+                            <option value="indeed">Indeed</option>
+                            <option value="jobbox">求人ボックス</option>
+                            <option value="other">その他 / 手動編集</option>
+                        </select>
+                        <p class="text-[10px] text-slate-500 mt-1">列名マッピングの精度向上のために明示指定</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1.5">給与単位 <span class="text-red-400">*</span></label>
+                        <select name="wage_mode" id="wage-mode"
+                            class="w-full bg-slate-700 text-white text-sm rounded px-3 py-2 border border-slate-600 focus:border-blue-500 outline-none">
+                            <option value="monthly">月給ベース（正社員・契約社員などの長期雇用中心）</option>
+                            <option value="hourly">時給ベース（パート・アルバイト・派遣中心）</option>
+                            <option value="auto">自動判定（雇用形態ごとに時給/月給を切替）</option>
+                        </select>
+                        <p class="text-[10px] text-slate-500 mt-1">分析結果の単位が直感と一致するよう選択</p>
+                    </div>
+                </div>
                 <div id="drop-zone"
                      class="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-800/30 transition-colors"
                      ondragover="event.preventDefault();this.classList.add('border-blue-500','bg-slate-800/30')"
@@ -91,6 +114,11 @@ pub(crate) fn render_upload_form() -> String {
         status.innerHTML = '<div class="text-sm text-blue-400">アップロード中: ' + file.name + '...</div>';
         var fd = new FormData();
         fd.append('csv_file', file);
+        // ユーザー明示指定を同送信（自動判定より優先）
+        var src = document.getElementById('source-type');
+        var wage = document.getElementById('wage-mode');
+        if (src) fd.append('source_type', src.value);
+        if (wage) fd.append('wage_mode', wage.value);
         fetch('/api/survey/upload', { method: 'POST', body: fd })
             .then(function(r) { return r.text(); })
             .then(function(serverHtml) {

@@ -116,7 +116,32 @@ fn median_of(values: &[i64]) -> i64 {
 }
 
 /// パース済みレコードを集計
+/// 後方互換: 自動判定モードで集計
 pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
+    aggregate_records_with_mode(records, super::upload::WageMode::Auto)
+}
+
+/// ユーザー明示の給与単位モードで集計
+///
+/// - Monthly: 全レコードを月給換算で扱う（時給×160）
+/// - Hourly:  全レコードを時給換算で扱う（月給/160）
+/// - Auto:    多数派で自動判定（従来動作）
+pub fn aggregate_records_with_mode(
+    records: &[SurveyRecord],
+    wage_mode: super::upload::WageMode,
+) -> SurveyAggregation {
+    use super::upload::WageMode;
+    let forced_hourly = matches!(wage_mode, WageMode::Hourly);
+    let forced_monthly = matches!(wage_mode, WageMode::Monthly);
+    // forced_* は後段で is_hourly を上書きする際に使う
+    let _ = (forced_hourly, forced_monthly);
+    aggregate_records_core(records, wage_mode)
+}
+
+fn aggregate_records_core(
+    records: &[SurveyRecord],
+    wage_mode: super::upload::WageMode,
+) -> SurveyAggregation {
     let total = records.len();
     if total == 0 {
         return SurveyAggregation::default();
@@ -395,7 +420,12 @@ pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
         .iter()
         .filter(|r| r.salary_parsed.min_value.is_some())
         .count();
-    let is_hourly = total_with_salary > 0 && hourly_count > total_with_salary / 2;
+    use super::upload::WageMode;
+    let is_hourly = match wage_mode {
+        WageMode::Hourly => true,
+        WageMode::Monthly => false,
+        WageMode::Auto => total_with_salary > 0 && hourly_count > total_with_salary / 2,
+    };
 
     // 散布図データ（下限 vs 上限）
     let scatter_min_max: Vec<ScatterPoint> = records
