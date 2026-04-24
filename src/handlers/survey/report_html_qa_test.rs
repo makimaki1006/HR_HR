@@ -228,7 +228,36 @@ fn render_full_html() -> String {
     let by_emp = agg.by_emp_type_salary.clone();
     let smin = agg.salary_min_values.clone();
     let smax = agg.salary_max_values.clone();
-    let ctx = mock_empty_insight_ctx();
+    let mut ctx = mock_empty_insight_ctx();
+    // Minimal ts_counts so compute_posting_change_from_ts returns non-None
+    // (4 snapshots required for 3m, 13 for 1y. Provide 13 to trigger both)
+    use std::collections::HashMap as StdHashMap;
+    ctx.ts_counts = (0..13)
+        .map(|i| {
+            let mut row: StdHashMap<String, serde_json::Value> = StdHashMap::new();
+            row.insert(
+                "snapshot_id".into(),
+                serde_json::Value::String(format!("2025-{:02}", (12 - i).max(1))),
+            );
+            row.insert("emp_group".into(), serde_json::Value::String("正社員".into()));
+            row.insert(
+                "posting_count".into(),
+                serde_json::Value::Number(((1000 + i * 50) as i64).into()),
+            );
+            row.insert("facility_count".into(), serde_json::Value::Number(100_i64.into()));
+            row
+        })
+        .collect();
+    ctx.vacancy = vec![{
+        let mut row: StdHashMap<String, serde_json::Value> = StdHashMap::new();
+        row.insert("emp_group".into(), serde_json::Value::String("正社員".into()));
+        row.insert(
+            "vacancy_rate".into(),
+            serde_json::Value::Number(serde_json::Number::from_f64(0.12).unwrap()),
+        );
+        row.insert("total_count".into(), serde_json::Value::Number(500_i64.into()));
+        row
+    }];
     let sn = vec![mock_nearby_company()];
     render_survey_report_page(&agg, &seeker, &by_company, &by_emp, &smin, &smax, Some(&ctx), &sn)
 }
@@ -445,10 +474,10 @@ fn p3_spec_9_2_font_family_specified() {
 #[test]
 fn p3_spec_9_2_footer_contains_fac_company_name() {
     let html = render_full_html();
-    // @bottom-left または static footer で F-A-C株式会社 を含む
+    // @bottom-left または static footer で 株式会社For A-career を含む
     assert!(
-        html.contains("F-A-C株式会社"),
-        "@page @bottom-left 等に F-A-C株式会社 が必須（仕様書 7.3 / 6.1）"
+        html.contains("株式会社For A-career"),
+        "@page @bottom-left 等に 株式会社For A-career が必須（仕様書 7.3 / 6.1）"
     );
 }
 
@@ -824,16 +853,16 @@ fn p3_spec_9_7_all_edge_cases_combined() {
 #[test]
 fn p3_spec_9_8_fac_company_name_present() {
     let html = render_full_html();
-    // 仕様書 7.1: 「F-A-C株式会社」（半角ハイフン、株式会社は全角、間スペースなし）
+    // 仕様書 7.1: 「株式会社For A-career」（半角ハイフン、株式会社は全角、間スペースなし）
     assert!(
-        html.contains("F-A-C株式会社"),
-        "F-A-C株式会社 ブランド表記が必須（仕様書 7.1）"
+        html.contains("株式会社For A-career"),
+        "株式会社For A-career ブランド表記が必須（仕様書 7.1）"
     );
     // 3 箇所以上（表紙、@page footer、本文末尾）（仕様書 9.3）
-    let count = html.matches("F-A-C株式会社").count();
+    let count = html.matches("株式会社For A-career").count();
     assert!(
         count >= 1,
-        "F-A-C株式会社 が少なくとも 1 箇所必要。仕様書 9.3 では 3 箇所以上が期待される（現在 {}）",
+        "株式会社For A-career が少なくとも 1 箇所必要。仕様書 9.3 では 3 箇所以上が期待される（現在 {}）",
         count
     );
 }
