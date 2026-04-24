@@ -399,8 +399,26 @@ pub async fn survey_report_html(
         Vec::new()
     };
 
-    let _ = (&pref, &muni); // Phase 2 エージェントで HW 連携に再導入予定
-    let html = super::report_html::render_survey_report_page(
+    // HW enrichment map: CSV の (pref, muni) ごとに postings 実件数 + 時系列推移 + 欠員率
+    let hw_enrichment_map = if let Some(hw_db) = state.hw_db.clone() {
+        let turso = state.turso_db.clone();
+        let pairs: Vec<(String, String)> = agg
+            .by_municipality_salary
+            .iter()
+            .filter(|m| !m.prefecture.is_empty() && !m.name.is_empty())
+            .map(|m| (m.prefecture.clone(), m.name.clone()))
+            .collect();
+        tokio::task::spawn_blocking(move || {
+            super::hw_enrichment::enrich_areas(&hw_db, turso.as_ref(), &pairs)
+        })
+        .await
+        .unwrap_or_default()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let _ = (&pref, &muni);
+    let html = super::report_html::render_survey_report_page_with_enrichment(
         &agg,
         &seeker,
         &by_company,
@@ -409,6 +427,7 @@ pub async fn survey_report_html(
         &salary_max_values,
         hw_ctx.as_ref(),
         &salesnow_companies,
+        &hw_enrichment_map,
     );
 
     Html(html)

@@ -1,4 +1,4 @@
-//! HTMLレポート生成（F-A-C株式会社 求人市場 総合診断レポート）
+//! HTMLレポート生成（株式会社For A-career 求人市場 総合診断レポート）
 //! 仕様書: docs/pdf_design_spec_2026_04_24.md (2026-04-24 追加要件反映済み)
 //! A4縦向き印刷 / ダウンロード後編集 両対応のHTMLとして出力する
 //! - 表紙 → Executive Summary → HWデータ連携 → 各セクション(So What付き) → 注記/免責
@@ -81,6 +81,35 @@ pub(crate) fn render_survey_report_page(
     hw_context: Option<&InsightContext>,
     salesnow_companies: &[NearbyCompany],
 ) -> String {
+    // 後方互換: enrichment マップなしでの呼び出し
+    render_survey_report_page_with_enrichment(
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
+        hw_context,
+        salesnow_companies,
+        &std::collections::HashMap::new(),
+    )
+}
+
+/// 市区町村別 HW enrichment map を受け取る拡張版
+///
+/// `hw_enrichment_map`: key = `"{prefecture}:{municipality}"` の HashMap
+/// 各エントリに市区町村単位の HW 現在件数 / 推移 / 欠員率 を格納
+pub(crate) fn render_survey_report_page_with_enrichment(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
         .to_string();
@@ -113,7 +142,7 @@ pub(crate) fn render_survey_report_page(
     html.push_str(
         "<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n",
     );
-    html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">F-A-C株式会社</div>\n");
+    html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">株式会社For A-career</div>\n");
     html.push_str("<div class=\"cover-title\" id=\"cover-title\">求人市場<br>総合診断レポート</div>\n");
     html.push_str("<div class=\"cover-sub\">");
     html.push_str(&escape_html(&today_short));
@@ -132,7 +161,7 @@ pub(crate) fn render_survey_report_page(
     );
     html.push_str("<div class=\"cover-confidential\">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>\n");
     html.push_str(&format!(
-        "<div class=\"cover-footer\">F-A-C株式会社 &nbsp;|&nbsp; 生成日時: {}</div>\n",
+        "<div class=\"cover-footer\">株式会社For A-career &nbsp;|&nbsp; 生成日時: {}</div>\n",
         escape_html(&now)
     ));
     html.push_str("</section>\n");
@@ -152,7 +181,7 @@ pub(crate) fn render_survey_report_page(
     // HW 現在件数・3ヶ月/1年推移・欠員率を一覧表示する。
     // hw_context が無い場合はセクション自体を出力しない。
     if let Some(ctx) = hw_context {
-        render_section_hw_enrichment(&mut html, agg, ctx);
+        render_section_hw_enrichment(&mut html, agg, ctx, hw_enrichment_map);
     }
 
     // --- Section 1 補助: サマリー(旧) は Executive Summary に統合済み ---
@@ -201,7 +230,7 @@ pub(crate) fn render_survey_report_page(
 
     // --- 画面下部フッター（印刷時は @page footer を使用） ---
     html.push_str("<div class=\"screen-footer no-print\">\n");
-    html.push_str("<span>F-A-C株式会社 | ハローワーク求人データ分析レポート</span>\n");
+    html.push_str("<span>株式会社For A-career | ハローワーク求人データ分析レポート</span>\n");
     html.push_str(&format!("<span>生成日時: {}</span>\n", escape_html(&now)));
     html.push_str("</div>\n");
 
@@ -346,7 +375,7 @@ body.theme-dark .guide-item { background: #232946; border-color: #37415a; }
   size: A4 portrait;
   margin: 12mm;
   @bottom-left {
-    content: "F-A-C株式会社 | ハローワーク求人データ分析レポート";
+    content: "株式会社For A-career | ハローワーク求人データ分析レポート";
     font-size: 8pt;
     color: #999;
   }
@@ -1291,7 +1320,127 @@ fn render_guide_item(html: &mut String, title: &str, description: &str) {
 ///   InsightContext のみが入力のため、`ctx.vacancy` の `total_count` から近似）
 /// - 3ヶ月/1年推移: `ctx.ts_counts` の snapshot_id 時系列から集計
 /// - 欠員率: `ctx.vacancy` の emp_group = 正社員 の `vacancy_rate`（外部統計連携値）
+/// 市区町村粒度 HW enrichment map を受け取るバージョン
+///
+/// handlers.rs で `hw_enrichment::enrich_areas` を呼び、(pref,muni) ごとの
+/// HW 現在件数 / 推移 / 欠員率 を渡す。都道府県粒度コピーのバグを解消。
 fn render_section_hw_enrichment(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    ctx: &InsightContext,
+    enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+) {
+    let pairs: Vec<(String, String, usize)> = {
+        let mut seen: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        let mut v: Vec<(String, String, usize)> = Vec::new();
+        for m in &agg.by_municipality_salary {
+            let key = (m.prefecture.clone(), m.name.clone());
+            if !m.prefecture.is_empty() && !m.name.is_empty() && seen.insert(key) {
+                v.push((m.prefecture.clone(), m.name.clone(), m.count));
+            }
+        }
+        v.sort_by(|a, b| b.2.cmp(&a.2));
+        v
+    };
+
+    if pairs.is_empty() && agg.by_prefecture.is_empty() {
+        return;
+    }
+
+    // フォールバック: map が空または map に無いエントリ用に ctx からの単一値を用意
+    let (fallback_3m, fallback_1y) = compute_posting_change_from_ts(ctx);
+    let fallback_vacancy: Option<f64> = ctx
+        .vacancy
+        .iter()
+        .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "vacancy_rate"))
+        .filter(|v| *v > 0.0)
+        .map(|v| v * 100.0);
+
+    let rows: Vec<(HwAreaEnrichment, usize)> = pairs
+        .iter()
+        .take(15)
+        .map(|(pref, muni, count)| {
+            let key = format!("{}:{}", pref, muni);
+            let enrich = enrichment_map.get(&key).cloned().unwrap_or_else(|| HwAreaEnrichment {
+                prefecture: pref.clone(),
+                municipality: muni.clone(),
+                hw_posting_count: 0,
+                posting_change_3m_pct: fallback_3m,
+                posting_change_1y_pct: fallback_1y,
+                vacancy_rate_pct: fallback_vacancy,
+            });
+            (enrich, *count)
+        })
+        .collect();
+
+    html.push_str(
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"hw-enrich-title\">\n",
+    );
+    html.push_str("<h2 id=\"hw-enrich-title\">地域 × HW データ連携</h2>\n");
+    html.push_str(
+        "<p class=\"section-header-meta\">\
+         アップロード CSV の地域情報を HW 掲載データ（件数・推移・欠員率）と突合。\
+         市区町村粒度で HW 現在件数を取得、推移・欠員率は都道府県参考値。</p>\n",
+    );
+    html.push_str("<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">");
+    html.push_str(&build_hw_enrichment_sowhat(
+        fallback_3m,
+        fallback_1y,
+        fallback_vacancy,
+    ));
+    html.push_str("</div>\n");
+
+    html.push_str("<table class=\"hw-enrichment-table\">\n");
+    html.push_str(
+        "<thead><tr>\
+         <th>都道府県</th>\
+         <th>市区町村</th>\
+         <th class=\"num\">CSV件数</th>\
+         <th class=\"num\">HW現在件数</th>\
+         <th>3ヶ月推移</th>\
+         <th>1年推移</th>\
+         <th class=\"num\">欠員率(参考)</th>\
+         </tr></thead><tbody>\n",
+    );
+    for (e, csv_count) in &rows {
+        html.push_str("<tr>");
+        html.push_str(&format!("<td>{}</td>", escape_html(&e.prefecture)));
+        html.push_str(&format!("<td>{}</td>", escape_html(&e.municipality)));
+        html.push_str(&format!("<td class=\"num\">{}</td>", csv_count));
+        html.push_str(&format!(
+            "<td class=\"num\">{}</td>",
+            if e.hw_posting_count > 0 {
+                format!("{}", e.hw_posting_count)
+            } else {
+                "—".to_string()
+            }
+        ));
+        html.push_str(&render_trend_cell(e.posting_change_3m_pct, e.change_label_3m()));
+        html.push_str(&render_trend_cell(e.posting_change_1y_pct, e.change_label_1y()));
+        html.push_str(&format!(
+            "<td class=\"num\">{}</td>",
+            match e.vacancy_rate_pct {
+                Some(v) => format!("{:.1}%", v),
+                None => "—".to_string(),
+            }
+        ));
+        html.push_str("</tr>\n");
+    }
+    html.push_str("</tbody></table>\n");
+    html.push_str(
+        "<p class=\"print-note\">\
+         ※ HW現在件数 = postings テーブル (pref×muni) の実件数。\
+         推移・欠員率は ts_counts と外部統計由来（都道府県単位、季節要因含む参考指標）。\
+         CSV の各エリアの競合密度感と HW 実掲載件数を比較する際の参考値。</p>\n",
+    );
+    html.push_str("</section>\n");
+}
+
+// === 以下は旧実装（未使用、将来削除予定） ===
+#[allow(dead_code)]
+fn render_section_hw_enrichment_legacy_unused(
     html: &mut String,
     agg: &SurveyAggregation,
     ctx: &InsightContext,
@@ -3007,7 +3156,7 @@ fn render_section_notes(html: &mut String, now: &str) {
         地域注目企業データベース / e-Stat。</li>\n",
     );
     html.push_str(&format!(
-        "<li><strong>生成元</strong>: F-A-C株式会社 / 生成日時: {}</li>\n",
+        "<li><strong>生成元</strong>: 株式会社For A-career / 生成日時: {}</li>\n",
         escape_html(now)
     ));
     html.push_str("</ol>\n");
