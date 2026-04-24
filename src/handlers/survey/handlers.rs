@@ -7,10 +7,10 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use super::super::overview::get_session_filters;
-use super::aggregator::aggregate_records;
+use super::aggregator::{aggregate_records, aggregate_records_with_mode};
 use super::job_seeker::analyze_job_seeker;
 use super::render::{render_analysis_result, render_upload_form};
-use super::upload::parse_csv_bytes;
+use super::upload::{parse_csv_bytes, parse_csv_bytes_with_hints, UserSourceHint, WageMode};
 use crate::AppState;
 
 /// 競合調査タブ（初期表示: アップロードフォーム）
@@ -57,14 +57,17 @@ pub async fn upload_csv(
         "",
     )
     .await;
-    // ファイルデータ読み取り
+    // ファイルデータ読み取り + ユーザー明示指定
     let mut csv_data: Option<Vec<u8>> = None;
     let mut filename = String::from("unknown.csv");
+    let mut source_type = String::from("auto"); // "indeed" | "jobbox" | "other" | "auto"
+    let mut wage_mode = String::from("auto"); // "monthly" | "hourly" | "auto"
 
     loop {
         match multipart.next_field().await {
             Ok(Some(field)) => {
-                if field.name() == Some("csv_file") {
+                let field_name = field.name().unwrap_or("").to_string();
+                if field_name == "csv_file" {
                     filename = field.file_name().unwrap_or("upload.csv").to_string();
                     match field.bytes().await {
                         Ok(bytes) => csv_data = Some(bytes.to_vec()),
@@ -78,6 +81,20 @@ pub async fn upload_csv(
                                 r#"<div class="stat-card"><p class="text-red-400 text-sm">ファイル読み取りエラー: {}</p></div>"#,
                                 super::super::helpers::escape_html(&msg)
                             ));
+                        }
+                    }
+                } else if field_name == "source_type" {
+                    if let Ok(s) = field.text().await {
+                        let t = s.trim().to_lowercase();
+                        if matches!(t.as_str(), "indeed" | "jobbox" | "other" | "auto") {
+                            source_type = t;
+                        }
+                    }
+                } else if field_name == "wage_mode" {
+                    if let Ok(s) = field.text().await {
+                        let t = s.trim().to_lowercase();
+                        if matches!(t.as_str(), "monthly" | "hourly" | "auto") {
+                            wage_mode = t;
                         }
                     }
                 }
@@ -113,12 +130,18 @@ pub async fn upload_csv(
         Some(filters.prefecture.as_str())
     };
 
+    // ユーザー明示指定
+    let source_hint = UserSourceHint::from_str(&source_type);
+    let wage_mode_enum = WageMode::from_str(&wage_mode);
+
     // CSVパース（CPU重い処理をspawn_blocking）
     let data_clone = data.clone();
     let ctx_pref = context_pref.map(|s| s.to_string());
-    let result =
-        tokio::task::spawn_blocking(move || parse_csv_bytes(&data_clone, ctx_pref.as_deref()))
-            .await;
+    let result = tokio::task::spawn_blocking(move || {
+        parse_csv_bytes_with_hints(&data_clone, ctx_pref.as_deref(), source_hint)
+    })
+    .await;
+    let _ = parse_csv_bytes; // silence unused-import (kept for backward API compat)
 
     let records = match result {
         Ok(Ok(records)) => records,
@@ -137,7 +160,8 @@ pub async fn upload_csv(
     };
 
     // 集計 + 求職者分析
-    let agg = aggregate_records(&records);
+    let agg = aggregate_records_with_mode(&records, wage_mode_enum);
+    let _ = aggregate_records; // silence unused-import (backward API compat)
     let seeker = analyze_job_seeker(&records);
 
     // セッションID生成（UUID v4: 予測不可能）
