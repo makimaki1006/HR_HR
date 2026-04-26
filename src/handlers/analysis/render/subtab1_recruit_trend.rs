@@ -146,7 +146,7 @@ pub(super) fn render_resilience_section(data: &[Row]) -> String {
     let mut html = String::new();
     html.push_str(r#"<div class="stat-card">
         <h3 class="text-sm text-slate-400 mb-1">地域レジリエンス（産業多様性）</h3>
-        <p class="text-xs text-slate-500 mb-4">産業の分散度を評価。業界分散度が高いほど特定産業への依存リスクが低い健全な雇用構造です。</p>"#);
+        <p class="text-xs text-slate-500 mb-4">産業の分散度を評価。業界分散度が高いほど特定産業への依存リスクが相対的に低い傾向がみられます（雇用構造の健全性そのものを保証するものではありません。HW求人ベースの観測値）。</p>"#);
 
     // ECharts レーダーチャート: 4指標 × 雇用形態
     if data.len() > 1 {

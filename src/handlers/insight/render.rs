@@ -1299,16 +1299,18 @@ fn render_regional_economy_section(html: &mut String, ctx: &InsightContext) {
             let latest_open = opening.last().copied().unwrap_or(0.0);
             let latest_close = closure.last().copied().unwrap_or(0.0);
             let net = latest_open - latest_close;
+            // feedback_correlation_not_causation.md 準拠:
+            // 「成長市場」「減少局面」等の因果断定を避け、観測表現に統一。
             let interp = if net > 0.5 {
                 format!(
-                    "最新年度は開業率({:.1}%)が廃業率({:.1}%)を上回り、新規参入が活発な成長市場。",
+                    "最新年度は開業率({:.1}%)が廃業率({:.1}%)を上回る傾向がみられ、新規参入が相対的に多い可能性があります（HW参考: 統計の業種範囲は地域全産業）。",
                     latest_open, latest_close
                 )
             } else if net < -0.5 {
-                format!("最新年度は廃業率({:.1}%)が開業率({:.1}%)を上回り、企業減少局面。既存企業の採用枠確保に注意。", latest_close, latest_open)
+                format!("最新年度は廃業率({:.1}%)が開業率({:.1}%)を上回る傾向がみられ、既存企業の採用枠確保に留意が必要な可能性があります。", latest_close, latest_open)
             } else {
                 format!(
-                    "開業率{:.1}% / 廃業率{:.1}%で均衡。市場は安定局面。",
+                    "開業率{:.1}% / 廃業率{:.1}%でほぼ均衡している傾向がみられます。",
                     latest_open, latest_close
                 )
             };
@@ -1496,14 +1498,16 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
 
             html.push_str("</div>"); // two-col
 
+            // feedback_correlation_not_causation.md 準拠:
+            // 「拡大基調」「漸増の見込み」等の将来断定を避け、傾向観測 + 可能性表現に修正。
             let interp = if rate_65 >= 30.0 {
-                "高齢化率30%超。介護職採用需要が構造的に高く、長期的に供給逼迫が続く可能性。"
+                "高齢化率30%超。介護職採用需要が相対的に高い可能性があり、中長期で供給逼迫が続く可能性に留意。"
             } else if rate_65 >= 25.0 {
-                "高齢化率25%以上。介護需要は今後も拡大基調。採用競合との差別化が必要。"
+                "高齢化率25%以上。介護需要が増加傾向となる可能性があり、採用競合との差別化が有効な可能性があります。"
             } else if rate_65 > 0.0 {
-                "高齢化率は全国平均水準。介護採用は中長期で漸増の見込み。"
+                "高齢化率は全国平均水準。介護採用需要は中長期で漸増する可能性があります。"
             } else {
-                "介護需要の参考データ。施設数と人口規模から市場規模を把握。"
+                "介護需要の参考データ。施設数と人口規模から市場規模を把握できます。"
             };
             write!(
                 html,

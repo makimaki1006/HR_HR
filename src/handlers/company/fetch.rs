@@ -906,15 +906,15 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
                     ctx.salary_percentile
                 ),
                 format!(
-                    "御社の平均月給（下限）は{:.0}円で、市場平均{:.0}円を{:.0}円下回っています。給与改善により応募数増加が見込めます。",
+                    "御社の平均月給（下限）は{:.0}円で、市場平均{:.0}円を{:.0}円下回っています。給与水準の見直しにより応募数が増加する可能性があります（相関であり因果は別途検証要）。",
                     ctx.company_avg_salary_min, ctx.market_avg_salary_min, gap.abs()
                 ),
             ));
         } else if gap > 10000.0 {
             pitches.push((
-                "御社の給与水準は市場上位に位置しています".to_string(),
+                "御社の給与水準は相対的に市場上位の傾向がみられます".to_string(),
                 format!(
-                    "御社の平均月給（下限）{:.0}円は市場平均{:.0}円を{:.0}円上回っており、給与面での競争力は高い状態です。",
+                    "御社の平均月給（下限）{:.0}円は市場平均{:.0}円を{:.0}円上回っており、給与面での競争力が相対的に高い可能性があります（HW掲載求人ベースの観測値）。",
                     ctx.company_avg_salary_min, ctx.market_avg_salary_min, gap
                 ),
             ));
