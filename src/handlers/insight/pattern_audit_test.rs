@@ -1470,7 +1470,10 @@ fn swf05_no_fire_below_1_5() {
 }
 
 #[test]
-fn swf05_info_at_1_6_with_f02_also() {
+fn swf05_info_at_1_6_excludes_f02() {
+    // M-2 修正 (2026-04-26): 1.5 以上では SW-F05 のみ発火、SW-F02 は抑制 (矛盾排他)
+    // 修正前: ratio=1.6 で F02/F05 両方発火 (人材不足 vs 機会あり が矛盾)
+    // 修正後: ratio=1.6 で F05 のみ発火 (観光ポテンシャル領域)
     let ctx = Ctx::new().build();
     let mut f = mock_flow();
     f.holiday_day_ratio = Some(1.6);
@@ -1478,8 +1481,8 @@ fn swf05_info_at_1_6_with_f02_also() {
     let f05 = out.iter().find(|i| i.id == "SW-F05").cloned().unwrap();
     assert_eq!(f05.severity, Severity::Info);
     assert!(
-        out.iter().any(|i| i.id == "SW-F02"),
-        "SW-F05 fires implies SW-F02 also fires (same field, lower threshold)"
+        !out.iter().any(|i| i.id == "SW-F02"),
+        "M-2 mutual exclusion: SW-F05 fires (>=1.5) implies SW-F02 must NOT fire"
     );
 }
 
@@ -1763,5 +1766,421 @@ fn anomaly_hs4_null_temperature_is_treated_as_zero() {
     assert!(
         gen_find(&ctx, "HS-4").is_none(),
         "HS-4 cannot fire without explicitly negative temperature; null is silently treated as 0.0"
+    );
+}
+
+// ============================================================================
+// P2 修正の逆証明テスト群 (2026-04-26 / E2 チーム実装)
+// memory `feedback_reverse_proof_tests.md` に基づき、修正前/修正後の具体値を assert する。
+// ============================================================================
+
+use super::phrase_validator::validate_insight_phrase;
+
+/// 全 38 patterns の body が phrase_validator を通過することを保証する回帰テスト。
+/// 修正前: HS-1 (「維持しています」) / HS-2 (「不足しています」) / GE-1 (「限定的なため」)
+///         / SW-F06 (「100%」) などが検証 NG だった。
+/// 修正後: 全 patterns の body にヘッジ語 (「傾向」「可能性」「みられ」「うかがえ」) を含む。
+#[test]
+fn p2_all_patterns_pass_phrase_validator() {
+    // HS/FC/RC/AP/CZ/CF/LS/HH/MF/IN/GE 系を maximally に発火させる
+    let ctx = Ctx::new()
+        .vacancy_seishain(0.35, 200.0)
+        .ts_vacancy_seishain(&[0.32, 0.33, 0.35])
+        .salary_comp_seishain(0.70, 180_000.0, 270_000.0, 265_000.0)
+        .transparency(0.30, "disclosure_overtime", 0.10)
+        .temperature(-0.2, 0.05)
+        .monopsony(0.30, 0.40)
+        .spatial_mismatch(0.70, 250_000.0)
+        .ext_daytime_ratio(0.85)
+        .ts_counts_seishain(&[100.0, 80.0, 60.0])
+        .ts_salary_seishain(&[200_000.0, 210_000.0, 215_000.0])
+        .ext_min_wage(&[1000.0, 1010.0, 1020.0])
+        .pyramid("55-59", 100.0, 100.0)
+        .pyramid("60-64", 100.0, 100.0)
+        .pyramid("30-34", 50.0, 50.0)
+        .migration(50.0, 100.0)
+        .ts_fulfillment_seishain(&[20.0, 30.0, 40.0])
+        .ts_tracking_seishain(&[0.05, 0.07, 0.10])
+        .region_benchmark(20.0)
+        .cascade_seishain(220_000.0, 110.0)
+        .ext_population(50_000.0)
+        .ext_labor_force(4.5, 200.0, 4_500.0, 4_000.0, 100.0)
+        .pref_unemp(2.5)
+        .households(45.0, 8_000.0)
+        .medical_welfare(5.0)
+        .establishments("850", 35.0)
+        .establishments("800", 65.0)
+        .geography(10.0)
+        .commute_zone(5, 2, 100_000, 60_000, 25_000)
+        .commute_flow(
+            500,
+            300,
+            0.85,
+            vec![("東京都".into(), "新宿区".into(), 200)],
+        )
+        .build();
+
+    let core = generate_insights(&ctx);
+
+    // Flow 系も別 ctx で網羅検証
+    let mut f = mock_flow();
+    f.midnight_ratio = Some(1.6);
+    f.holiday_day_ratio = Some(1.4); // F02 fires (1.3..1.5)
+    f.daynight_ratio = Some(0.7); // F03 fires
+    f.covid_recovery_ratio = Some(0.95); // F06 fires
+    f.diff_region_inflow_ratio = Some(0.20);
+    f.monthly_amplitude = Some(0.5);
+    let flow_insights = analyze_flow_insights(&Ctx::new().build(), &f);
+
+    // 観光地用に F05 を別途確認
+    let mut f2 = mock_flow();
+    f2.holiday_day_ratio = Some(1.6); // F05 fires (>=1.5)
+    let flow_insights2 = analyze_flow_insights(&Ctx::new().build(), &f2);
+
+    let mut all = core;
+    all.extend(flow_insights);
+    all.extend(flow_insights2);
+
+    let mut failures: Vec<(String, String, String)> = vec![];
+    for ins in &all {
+        if let Err(e) = validate_insight_phrase(&ins.body) {
+            failures.push((ins.id.clone(), e, ins.body.clone()));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "P2 phrase validator regression: {} patterns failed.\n{:#?}",
+        failures.len(),
+        failures
+    );
+    assert!(
+        all.len() >= 20,
+        "Maximally-loaded ctx must fire >= 20 patterns (got {})",
+        all.len()
+    );
+}
+
+/// 修正前 (engine.rs:1426): body に「未マッチ層」が含まれていた
+/// 修正後: 「未マッチ層」を排除し、HW 媒体スコープの限界を明記する
+#[test]
+fn p2_ls1_body_excludes_unmatched_layer_terminology() {
+    let ctx = Ctx::new()
+        .ext_labor_force(5.0, 600.0, 10_000.0, 8_000.0, 200.0)
+        .pref_unemp(3.0)
+        .build();
+    let i = gen_find(&ctx, "LS-1").expect("LS-1 must fire");
+    assert!(
+        !i.body.contains("未マッチ層"),
+        "Forbidden term '未マッチ層' must be removed (P2 #7)"
+    );
+    assert!(
+        i.body.contains("失業者数"),
+        "Body must use neutral term '失業者数'"
+    );
+    assert!(
+        i.body.contains("HW") || i.body.contains("媒体"),
+        "Body must clarify HW media scope limitation"
+    );
+}
+
+/// M-2 修正の逆証明: SW-F02 と SW-F05 は holiday_day_ratio=1.6 で同時発火しない
+/// 修正前: ratio=1.6 で F02/F05 両方発火 (人材不足 vs 機会あり が矛盾)
+/// 修正後: ratio=1.6 で F05 のみ、ratio=1.4 で F02 のみ
+#[test]
+fn p2_swf02_swf05_mutually_exclusive_at_high_ratio() {
+    let ctx = Ctx::new().build();
+    let mut f_high = mock_flow();
+    f_high.holiday_day_ratio = Some(1.6);
+    let out_high = analyze_flow_insights(&ctx, &f_high);
+    let f02_count_high = out_high.iter().filter(|i| i.id == "SW-F02").count();
+    let f05_count_high = out_high.iter().filter(|i| i.id == "SW-F05").count();
+    assert_eq!(
+        f02_count_high, 0,
+        "M-2: F02 must NOT fire at ratio=1.6 (F05 territory)"
+    );
+    assert_eq!(f05_count_high, 1, "M-2: F05 fires at ratio=1.6");
+
+    let mut f_mid = mock_flow();
+    f_mid.holiday_day_ratio = Some(1.4);
+    let out_mid = analyze_flow_insights(&ctx, &f_mid);
+    let f02_count_mid = out_mid.iter().filter(|i| i.id == "SW-F02").count();
+    let f05_count_mid = out_mid.iter().filter(|i| i.id == "SW-F05").count();
+    assert_eq!(f02_count_mid, 1, "M-2: F02 fires at ratio=1.4 (intermediate)");
+    assert_eq!(f05_count_mid, 0, "M-2: F05 does NOT fire at ratio=1.4");
+}
+
+/// M-8 修正の逆証明: SW-F06 が ts_counts に 2019/9 vs 2021/9 のサンプルがある場合、
+/// 求人側回復済 (>= 0.8) なら抑制される。
+/// 修正前: 人流 recovery >= 0.9 のみで発火 (求人側未参照)
+/// 修正後: 人流 >= 0.9 AND 求人 < 0.8 が必要
+#[test]
+fn p2_swf06_suppressed_when_posting_also_recovered() {
+    // posting_count: 2019-09 = 100、2021-09 = 90 → recovery = 0.9 (>= 0.8 → 抑制)
+    let mut ctx_inner = Ctx::new().build();
+    ctx_inner.ts_counts.push(row(&[
+        ("emp_group", v_s("正社員")),
+        ("year_month", v_s("2019-09")),
+        ("posting_count", v_f(100.0)),
+    ]));
+    ctx_inner.ts_counts.push(row(&[
+        ("emp_group", v_s("正社員")),
+        ("year_month", v_s("2021-09")),
+        ("posting_count", v_f(90.0)),
+    ]));
+
+    let mut f = mock_flow();
+    f.covid_recovery_ratio = Some(0.95);
+    let out = analyze_flow_insights(&ctx_inner, &f);
+    assert!(
+        !out.iter().any(|i| i.id == "SW-F06"),
+        "M-8: F06 must NOT fire when posting_recovery >= 0.8"
+    );
+
+    // posting_count: 2019-09 = 100、2021-09 = 70 → recovery = 0.7 (< 0.8 → 発火)
+    let mut ctx_inner2 = Ctx::new().build();
+    ctx_inner2.ts_counts.push(row(&[
+        ("emp_group", v_s("正社員")),
+        ("year_month", v_s("2019-09")),
+        ("posting_count", v_f(100.0)),
+    ]));
+    ctx_inner2.ts_counts.push(row(&[
+        ("emp_group", v_s("正社員")),
+        ("year_month", v_s("2021-09")),
+        ("posting_count", v_f(70.0)),
+    ]));
+    let out2 = analyze_flow_insights(&ctx_inner2, &f);
+    let f06 = out2
+        .iter()
+        .find(|i| i.id == "SW-F06")
+        .expect("M-8: F06 must fire when flow recovered AND posting lags");
+    assert!(
+        f06.body.contains("0.95倍") || f06.body.contains("0.7"),
+        "F06 body must reference both ratios, got: {}",
+        f06.body
+    );
+}
+
+/// M-13 修正の逆証明: AP-1 年間人件費が「賞与4ヶ月+法定福利16%」を含む
+/// 修正前: increase × 12
+/// 修正後: increase × (12 + 4) × 1.16 ≈ increase × 18.56
+#[test]
+fn p2_ap1_annual_cost_includes_bonus_and_legal_welfare() {
+    // increase = 270000 - 250000 = 20000
+    // 修正前: 20000 × 12 = 240000
+    // 修正後: 20000 × 16 × 1.16 = 371200
+    let ctx = Ctx::new()
+        .salary_comp_seishain(0.78, 250_000.0, 280_000.0, 270_000.0)
+        .build();
+    let ap1 = gen_find(&ctx, "AP-1").expect("AP-1 must fire (HS-2 prerequisite)");
+    let cost_evidence = ap1
+        .evidence
+        .iter()
+        .find(|e| e.metric == "年間コスト増")
+        .expect("year cost evidence missing");
+    // 期待値: 20000 × (12 + 4) × 1.16 = 371200
+    let expected = 20000.0 * 16.0 * 1.16;
+    assert!(
+        (cost_evidence.value - expected).abs() < 1.0,
+        "Annual cost mismatch. Expected {}, got {}",
+        expected,
+        cost_evidence.value
+    );
+    // 旧値 (12ヶ月単純換算) を上回ることを確認
+    assert!(
+        cost_evidence.value > 20000.0 * 12.0,
+        "M-13: bonus/welfare補正後の年間コストが補正前を上回ること"
+    );
+    assert!(ap1.body.contains("賞与"), "Body must mention 賞与");
+    assert!(ap1.body.contains("法定福利"), "Body must mention 法定福利");
+}
+
+/// M-10 修正の逆証明: RC-2 給与差が相対閾値 (-10%/+5%) で判定
+/// 修正前: 固定 -20000円 で Warning → 高給与職種では発火不足、低給与職種では誤発火
+/// 修正後: 全国平均比 -10% で Warning
+#[test]
+fn p2_rc2_uses_relative_threshold() {
+    // 介護想定: local=230k vs national=240k → diff_pct = -4.2% (-10%閾値以上) → Info
+    let ctx_low = Ctx::new()
+        .cascade_seishain(230_000.0, 120.0)
+        .salary_comp_seishain(0.96, 230_000.0, 240_000.0, 235_000.0)
+        .build();
+    let rc2_low = gen_find(&ctx_low, "RC-2").expect("RC-2 must fire");
+    assert_eq!(
+        rc2_low.severity,
+        Severity::Info,
+        "Low-salary -4.2% gap stays Info (was Info even before)"
+    );
+
+    // IT 想定: local=380k vs national=400k → diff_pct = -5.0% → Info (旧 Warning だった)
+    let ctx_it_mid = Ctx::new()
+        .cascade_seishain(380_000.0, 120.0)
+        .salary_comp_seishain(0.95, 380_000.0, 400_000.0, 390_000.0)
+        .build();
+    let rc2_it_mid = gen_find(&ctx_it_mid, "RC-2").expect("RC-2 must fire");
+    assert_eq!(
+        rc2_it_mid.severity,
+        Severity::Info,
+        "M-10: IT -5% gap is Info (修正前は Warning だった誤発火)"
+    );
+
+    // IT 想定: local=350k vs national=400k → diff_pct = -12.5% → Warning
+    let ctx_it_low = Ctx::new()
+        .cascade_seishain(350_000.0, 120.0)
+        .salary_comp_seishain(0.875, 350_000.0, 400_000.0, 390_000.0)
+        .build();
+    let rc2_it_low = gen_find(&ctx_it_low, "RC-2").expect("RC-2 must fire");
+    assert_eq!(
+        rc2_it_low.severity,
+        Severity::Warning,
+        "M-10: IT -12.5% gap is Warning (修正後の動的閾値)"
+    );
+}
+
+/// emp_classifier 統一の逆証明: 契約社員/業務委託 が Other に分類される
+/// 修正前 (survey/aggregator.rs): 契約/業務委託 → Regular
+/// 修正後 (emp_classifier::classify): 契約社員/業務委託 → Other
+#[test]
+fn p2_emp_classifier_contract_and_gyomu_itaku_are_other() {
+    use crate::handlers::emp_classifier::{classify, EmpGroup};
+    assert_eq!(classify("契約社員"), EmpGroup::Other);
+    assert_eq!(classify("業務委託"), EmpGroup::Other);
+    assert_eq!(classify("正社員以外"), EmpGroup::Other);
+    // 「正社員」「正職員」は Regular のまま
+    assert_eq!(classify("正社員"), EmpGroup::Regular);
+    assert_eq!(classify("正職員"), EmpGroup::Regular);
+    // 「派遣」は Other
+    assert_eq!(classify("派遣"), EmpGroup::Other);
+}
+
+/// emp_classifier expand_to_db_values: その他 = 4 件 (旧3件)
+/// 修正前 (recruitment_diag/mod.rs:78): その他 = [正社員以外, 派遣, 契約社員] (3件)
+/// 修正後: [正社員以外, 派遣, 契約社員, 業務委託] (4件)
+#[test]
+fn p2_emp_classifier_expand_other_includes_gyomu_itaku() {
+    use crate::handlers::emp_classifier::{expand_to_db_values, EmpGroup};
+    let v = expand_to_db_values(EmpGroup::Other);
+    assert_eq!(v.len(), 4, "Other group must include 4 db values now");
+    assert!(v.contains(&"業務委託"), "Must include 業務委託");
+    assert!(v.contains(&"契約社員"));
+    assert!(v.contains(&"派遣"));
+    assert!(v.contains(&"正社員以外"));
+}
+
+/// GE-1 body の逆証明: 修正前 = 「限定的なため」(ヘッジなし)、修正後 = 「限定的な傾向がみられ」
+/// 3 件の pre-existing test failures のうち 2 件 (GE-1 関連) を解決した修正の証跡。
+#[test]
+fn p2_ge1_extreme_sparse_body_has_hedge_phrase() {
+    let ctx = Ctx::new()
+        .ext_population(100.0)
+        .geography(10.0)
+        .build();
+    let ge1 = gen_find(&ctx, "GE-1").expect("GE-1 must fire");
+    assert_eq!(ge1.severity, Severity::Info);
+    assert!(
+        ge1.body.contains("極端な過疎"),
+        "Body must mention 極端な過疎"
+    );
+    // ヘッジ phrase が含まれること (「傾向」or「うかがえ」)
+    assert!(
+        ge1.body.contains("傾向") || ge1.body.contains("うかがえ"),
+        "P2 fix: hedge word must be present (was 限定的なため = NG)"
+    );
+    assert!(
+        validate_insight_phrase(&ge1.body).is_ok(),
+        "Body must pass phrase_validator"
+    );
+}
+
+/// SW-F06 body の逆証明: 修正前 = 「100%」(禁止語)、修正後 = 「1.00 倍」表記
+/// 3 件の pre-existing test failures のうち 1 件を解決した修正の証跡。
+#[test]
+fn p2_swf06_full_recovery_body_no_100_percent() {
+    let ctx = Ctx::new().build();
+    let mut f = mock_flow();
+    f.covid_recovery_ratio = Some(1.0);
+    let out = analyze_flow_insights(&ctx, &f);
+    let f06 = out
+        .iter()
+        .find(|i| i.id == "SW-F06")
+        .expect("SW-F06 must fire at recovery=1.0");
+    assert_eq!(f06.severity, Severity::Info);
+    assert!(
+        !f06.body.contains("100%"),
+        "P2 fix: 100% (forbidden) must be replaced with 倍率表記"
+    );
+    assert!(
+        f06.body.contains("1.00倍") || f06.body.contains("1.00 倍"),
+        "Body must use 倍率表記, got: {}",
+        f06.body
+    );
+    assert!(
+        validate_insight_phrase(&f06.body).is_ok(),
+        "Body must pass phrase_validator"
+    );
+}
+
+// ============================================================================
+// F1 修正の逆証明テスト群 (2026-04-26 / F1 チーム実装)
+// memory `feedback_reverse_proof_tests.md` に基づき、修正前/修正後の具体値を assert する。
+// ============================================================================
+
+/// HS-4 TEMP_LOW_THRESHOLD 相対閾値化 (F1 #1) の逆証明。
+///
+/// **修正前**: TEMP_LOW_THRESHOLD = 0.0 (中立)
+/// **修正後**: TEMP_LOW_THRESHOLD = -0.15 (市区町村 P25 -0.1417 の保守的丸め)
+///
+/// 実データ分布 (hellowork.db, 2026-04-26 直接照会):
+/// - 都道府県(47件): min=-0.4063, P25=-0.0377, P50=0.1331, max=0.6063
+/// - 市区町村(1004件): min=-2.7286, P25=-0.1417, P50=0.1020, P75=0.4515, max=3.3639
+/// - 負値割合: 県27.7% / 市37.8%
+///
+/// 旧閾値 0.0 では低温区域の半数近くで発火 → 過剰検出。
+/// 新閾値 -0.15 で「真に下位四分位」のみ発火に変更。
+#[test]
+fn f1_hs4_threshold_negative_015_no_fire_for_temp_minus_010() {
+    // temp=-0.10: 旧閾値0.0なら発火、新閾値-0.15なら発火しないこと
+    let ctx = Ctx::new()
+        .vacancy_seishain(0.40, 100.0)
+        .temperature(-0.10, 0.05)
+        .build();
+    assert!(
+        gen_find(&ctx, "HS-4").is_none(),
+        "F1 fix: HS-4 must not fire at temp=-0.10 (>= -0.15 new threshold).          Was firing under old 0.0 threshold."
+    );
+}
+
+#[test]
+fn f1_hs4_threshold_negative_015_fires_for_temp_minus_020() {
+    // temp=-0.20: 新閾値 -0.15 を下回り、依然として発火する
+    let ctx = Ctx::new()
+        .vacancy_seishain(0.40, 100.0)
+        .temperature(-0.20, 0.05)
+        .build();
+    let i = gen_find(&ctx, "HS-4").expect("HS-4 must fire at temp=-0.20 < -0.15");
+    assert_eq!(i.severity, Severity::Warning);
+    // body に温度値表示があること
+    assert!(i.body.contains("-0.20") || i.body.contains("-0.2"));
+}
+
+#[test]
+fn f1_hs4_threshold_boundary_at_minus_015() {
+    // temp=-0.15 (境界): >= -0.15 で発火しないため、ちょうど境界では発火しない
+    let ctx = Ctx::new()
+        .vacancy_seishain(0.40, 100.0)
+        .temperature(-0.15, 0.05)
+        .build();
+    assert!(
+        gen_find(&ctx, "HS-4").is_none(),
+        "F1 fix: HS-4 boundary check (>= TEMP_LOW_THRESHOLD は不発火)"
+    );
+}
+
+#[test]
+fn f1_hs4_threshold_constant_value_is_negative_015() {
+    // helpers.rs の定数値そのものを逆証明
+    use super::helpers::TEMP_LOW_THRESHOLD;
+    assert_eq!(
+        TEMP_LOW_THRESHOLD, -0.15,
+        "F1 #1: TEMP_LOW_THRESHOLD must be -0.15 (mun-P25 -0.1417 を保守側丸め)"
     );
 }

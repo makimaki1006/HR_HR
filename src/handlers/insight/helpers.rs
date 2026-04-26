@@ -139,8 +139,16 @@ pub const SALARY_COMP_WARNING: f64 = 0.90;
 pub const TRANSPARENCY_CRITICAL: f64 = 0.40;
 pub const TRANSPARENCY_WARNING: f64 = 0.50;
 
-/// HS-4: テキスト温度
-pub const TEMP_LOW_THRESHOLD: f64 = 0.0;
+/// HS-4: テキスト温度（F1 修正、2026-04-26）
+/// 修正前: 0.0（中立）。実データ分布調査で v2_text_temperature 市区町村レベル正社員 1004件の
+/// P25 = -0.1417、負値割合 37.8% であることが判明（hellowork.db 直接照会、2026-04-26）。
+/// 「中立0.0以下で発火」では低温区域の半数近くで発火し、過剰検出となる傾向。
+/// 都道府県レベル(47件)でも P25 = -0.0377 と 0.0 周辺に集中、min=-0.4063, max=0.6063。
+/// 統計的下位四分位を「真に低温」と判定するため、固定閾値を -0.15 に変更
+/// (市区町村 P25 -0.1417 を保守側に丸めた値)。
+/// 単位: temperature = (urgency_words - selectivity_words) / total_chars * 1000 (パーミル)
+/// 出典: scripts/compute_v2_phase2.py:104, ETL 計算ロジック
+pub const TEMP_LOW_THRESHOLD: f64 = -0.15;
 
 /// HS-5: 雇用者集中
 pub const HHI_CRITICAL: f64 = 0.25;
@@ -153,6 +161,18 @@ pub const DAYTIME_POP_RATIO_LOW: f64 = 0.90;
 /// FC-1: トレンド判定
 pub const TREND_INCREASE_THRESHOLD: f64 = 0.05;
 pub const TREND_DECREASE_THRESHOLD: f64 = -0.05;
+
+/// RC-2: 給与差の相対閾値（M-10 修正、2026-04-26）
+/// 全国平均比 -10% 以下で Warning、+5% 超で Positive。
+/// 固定額 (±10000/-20000円) では低給与職種(介護)で誤発火、高給与職種(IT)で過小発火していた。
+pub const RC2_SALARY_GAP_WARNING_PCT: f64 = -0.10;
+pub const RC2_SALARY_GAP_POSITIVE_PCT: f64 = 0.05;
+
+/// AP-1: 年間人件費換算（M-13 修正、2026-04-26）
+/// 月給 × (12 + 賞与4ヶ月) × (1 + 法定福利16%)
+/// 厚労省「就業条件総合調査」中央値ベースの簡易補正。
+pub const AP1_BONUS_MONTHS_DEFAULT: f64 = 4.0;
+pub const AP1_LEGAL_WELFARE_RATIO: f64 = 0.16;
 
 // ======== Phase A: SSDSE-A 構造分析（LS/HH/MF/IN/GE）========
 

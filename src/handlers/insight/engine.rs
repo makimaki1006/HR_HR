@@ -38,33 +38,21 @@ pub fn generate_insights(ctx: &InsightContext) -> Vec<Insight> {
 
 // ======== カテゴリ1: 採用構造分析（なぜ採れないか）========
 
+/// 既存 22 patterns に phrase_validator を統一適用するための helper (2026-04-26 P2修正)
+fn push_validated(out: &mut Vec<Insight>, ins: Insight) {
+    assert_valid_phrase(&ins.body);
+    out.push(ins);
+}
+
 fn analyze_hiring_structure(ctx: &InsightContext) -> Vec<Insight> {
     let mut out = Vec::new();
 
-    // HS-1: 慢性的人材不足シグナル
-    if let Some(insight) = hs1_chronic_shortage(ctx) {
-        out.push(insight);
-    }
-    // HS-2: 給与競争力不足
-    if let Some(insight) = hs2_salary_competitiveness(ctx) {
-        out.push(insight);
-    }
-    // HS-3: 情報開示不足
-    if let Some(insight) = hs3_transparency_gap(ctx) {
-        out.push(insight);
-    }
-    // HS-4: テキスト温度と採用難の乖離
-    if let Some(insight) = hs4_temperature_mismatch(ctx) {
-        out.push(insight);
-    }
-    // HS-5: 雇用者集中（独占的市場）
-    if let Some(insight) = hs5_monopsony(ctx) {
-        out.push(insight);
-    }
-    // HS-6: 空間的ミスマッチ
-    if let Some(insight) = hs6_spatial_mismatch(ctx) {
-        out.push(insight);
-    }
+    if let Some(i) = hs1_chronic_shortage(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = hs2_salary_competitiveness(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = hs3_transparency_gap(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = hs4_temperature_mismatch(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = hs5_monopsony(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = hs6_spatial_mismatch(ctx) { push_validated(&mut out, i); }
 
     out
 }
@@ -118,23 +106,24 @@ fn hs1_chronic_shortage(ctx: &InsightContext) -> Option<Insight> {
         "時系列データなし".to_string()
     };
 
+    let chronic_text = if chronic {
+        "で、過去3ヶ月連続で高水準を維持する傾向がみられます"
+    } else {
+        "の水準にあり、人材確保に困難が生じる可能性があります"
+    };
     Some(Insight {
         id: "HS-1".to_string(),
         category: InsightCategory::HiringStructure,
         severity,
         title: "慢性的人材不足シグナル".to_string(),
         body: format!(
-            "正社員の欠員率は{:.1}%{}。{}",
+            "正社員の欠員補充率（求人理由が「欠員補充」の比率）は{:.1}%{}。{}",
             vacancy_rate * 100.0,
-            if chronic {
-                "で、過去3ヶ月連続で高水準を維持しています"
-            } else {
-                "です"
-            },
+            chronic_text,
             trend_text
         ),
         evidence: vec![Evidence {
-            metric: "欠員率".into(),
+            metric: "欠員補充率".into(),
             value: vacancy_rate,
             unit: "%".into(),
             context: format!("閾値{:.0}%", VACANCY_CRITICAL * 100.0),
@@ -177,12 +166,12 @@ fn hs2_salary_competitiveness(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "給与競争力不足".to_string(),
         body: format!(
-            "正社員の平均月給({:.0}円)は全国平均({:.0}円)の{:.0}%で、競争力が不足しています。{}",
+            "正社員の平均月給({:.0}円)は全国平均({:.0}円)の{:.0}%で、競争力が不足する傾向がみられます。{}",
             local_avg,
             national_avg,
             comp_index * 100.0,
             if below_count > 0 {
-                format!("最低賃金未満の求人が{}件あります。", below_count)
+                format!("最低賃金未満の求人が{}件あり、応募回避につながる可能性があります。", below_count)
             } else {
                 String::new()
             }
@@ -296,15 +285,15 @@ fn hs4_temperature_mismatch(ctx: &InsightContext) -> Option<Insight> {
         severity: Severity::Warning,
         title: "求人テキストと実態の乖離".to_string(),
         body: format!(
-            "欠員率{:.1}%と高いにもかかわらず、求人文のテキスト温度は{:.2}と低く、\
-             緊急性が伝わっていません。急募キーワードの密度は{:.2}です。",
+            "欠員補充率{:.1}%（求人理由が「欠員補充」の比率）が高いにもかかわらず、求人文のテキスト温度は{:.2}と低く、\
+             緊急性が伝わりにくい傾向がみられます。急募キーワードの密度は{:.2}で、応募行動の喚起力が弱い可能性があります。",
             vacancy_rate * 100.0,
             temperature,
             urgency_density
         ),
         evidence: vec![
             Evidence {
-                metric: "欠員率".into(),
+                metric: "欠員補充率".into(),
                 value: vacancy_rate,
                 unit: "%".into(),
                 context: "高水準".into(),
@@ -386,13 +375,13 @@ fn hs6_spatial_mismatch(ctx: &InsightContext) -> Option<Insight> {
     let body = if daytime_ratio < DAYTIME_POP_RATIO_LOW {
         format!(
             "孤立スコア{:.2}（通勤圏内のアクセス可能求人が少ない）。\
-             昼夜間人口比{:.2}から、通勤で人口が流出するベッドタウン型の地域です。\
-             求人エリアの拡大が有効です。",
+             昼夜間人口比{:.2}から、通勤で人口が流出するベッドタウン型の地域である傾向がみられます。\
+             求人エリアの拡大が有効な可能性があります。",
             isolation, daytime_ratio
         )
     } else {
         format!(
-            "孤立スコア{:.2}で、通勤圏内のアクセス可能求人が限られています。",
+            "孤立スコア{:.2}で、通勤圏内のアクセス可能求人が限られる傾向がみられます。",
             isolation
         )
     };
@@ -425,18 +414,10 @@ fn hs6_spatial_mismatch(ctx: &InsightContext) -> Option<Insight> {
 
 fn analyze_forecast(ctx: &InsightContext) -> Vec<Insight> {
     let mut out = Vec::new();
-    if let Some(i) = fc1_posting_trend(ctx) {
-        out.push(i);
-    }
-    if let Some(i) = fc2_salary_pressure(ctx) {
-        out.push(i);
-    }
-    if let Some(i) = fc3_population_outlook(ctx) {
-        out.push(i);
-    }
-    if let Some(i) = fc4_fulfillment_worsening(ctx) {
-        out.push(i);
-    }
+    if let Some(i) = fc1_posting_trend(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = fc2_salary_pressure(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = fc3_population_outlook(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = fc4_fulfillment_worsening(ctx) { push_validated(&mut out, i); }
     out
 }
 
@@ -467,8 +448,8 @@ fn fc1_posting_trend(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: format!("求人数は{}トレンド", direction),
         body: format!(
-            "過去{}ヶ月で求人数は月平均{:+.1}%のペースで{}しています。\
-             現在{:.0}件 → 6ヶ月後の推定{:.0}件。",
+            "過去{}ヶ月で求人数は月平均{:+.1}%のペースで{}する傾向にあります。\
+             現在{:.0}件 → 6ヶ月後の推定{:.0}件 (線形外挿、季節要因未調整のため幅をもって解釈する可能性が必要です)。",
             values.len(),
             slope * 100.0,
             direction,
@@ -507,11 +488,11 @@ fn fc2_salary_pressure(ctx: &InsightContext) -> Option<Insight> {
     let wage_slope_monthly = wage_slope_annual / 12.0;
 
     let comparison = if salary_slope > wage_slope_monthly {
-        "上回っています"
+        "上回る傾向がみられます"
     } else if salary_slope < wage_slope_monthly * 0.5 {
-        "大きく下回っています"
+        "大きく下回る傾向がみられ、賃金停滞の可能性があります"
     } else {
-        "ほぼ同水準です"
+        "ほぼ同水準で推移する傾向がみられます"
     };
 
     let severity = if salary_slope < wage_slope_monthly * 0.5 {
@@ -607,13 +588,13 @@ fn fc3_population_outlook(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "人口動態による労働力予測".to_string(),
         body: format!(
-            "生産年齢人口のうち{:.0}%が55歳以上で、10年以内に大量退職が見込まれます。\
-             人口移動は{}（純移動{:+.0}人）。{}",
+            "生産年齢人口のうち{:.0}%が55歳以上で、10年以内に大量退職が見込まれる可能性があります。\
+             人口移動は{}（純移動{:+.0}人）の傾向にあります。{}",
             decline_rate * 100.0,
             migration_text,
             net_migration,
             if decline_rate > 0.25 && net_migration < 0.0 {
-                "人口流出と高齢化の二重圧力で、労働力の確保が困難になるリスクがあります。"
+                "人口流出と高齢化の二重圧力により、労働力の確保が困難になる可能性があります。"
             } else {
                 ""
             }
@@ -674,8 +655,8 @@ fn fc4_fulfillment_worsening(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "充足困難度の悪化傾向".to_string(),
         body: format!(
-            "求人の平均掲載日数{:.0}日（月次変化{:+.1}%）、離職率{:.1}%（月次変化{:+.1}%）。\
-             充足が困難になるリスクがあります。",
+            "求人の平均掲載日数{:.0}日（月次変化{:+.1}%）、離職率{:.1}%（月次変化{:+.1}%）の傾向にあります。\
+             充足が困難になる可能性がうかがえます。",
             latest_days,
             days_slope * 100.0,
             latest_churn * 100.0,
@@ -703,15 +684,9 @@ fn fc4_fulfillment_worsening(ctx: &InsightContext) -> Option<Insight> {
 
 fn analyze_regional_comparison(ctx: &InsightContext) -> Vec<Insight> {
     let mut out = Vec::new();
-    if let Some(i) = rc1_benchmark_ranking(ctx) {
-        out.push(i);
-    }
-    if let Some(i) = rc2_salary_gap(ctx) {
-        out.push(i);
-    }
-    if let Some(i) = rc3_population_density_cross(ctx) {
-        out.push(i);
-    }
+    if let Some(i) = rc1_benchmark_ranking(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = rc2_salary_gap(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = rc3_population_density_cross(ctx) { push_validated(&mut out, i); }
     out
 }
 
@@ -741,15 +716,15 @@ fn rc1_benchmark_ranking(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "地域総合ベンチマーク".to_string(),
         body: format!(
-            "{}の総合ベンチマークスコアは{:.1}点です。{}",
+            "{}の総合ベンチマークスコアは{:.1}点の傾向がみられます。{}",
             ctx.muni,
             composite,
             if composite < 30.0 {
-                "県内で下位に位置しており、改善が必要です。"
+                "県内で下位に位置しており、改善余地がうかがえます。"
             } else if composite > 70.0 {
-                "県内で上位に位置しています。"
+                "県内で上位に位置している可能性があります。"
             } else {
-                "県内で中位の水準です。"
+                "県内で中位の水準にとどまる傾向です。"
             }
         ),
         evidence: vec![Evidence {
@@ -792,13 +767,25 @@ fn rc2_salary_gap(ctx: &InsightContext) -> Option<Insight> {
         return None;
     }
     let diff = local_salary - national_avg;
+    let diff_pct = diff / national_avg;
 
-    let severity = if diff < -20000.0 {
+    // M-10 修正 (2026-04-26): 固定閾値 ±20000/10000 円を相対閾値 ±10%/+5% に変更
+    // 介護職など低給与職種で誤発火、IT職など高給与職種で過小発火していた問題を解消。
+    // 閾値定数は helpers.rs の RC2_SALARY_GAP_*_PCT を参照。
+    let severity = if diff_pct < RC2_SALARY_GAP_WARNING_PCT {
         Severity::Warning
-    } else if diff > 10000.0 {
+    } else if diff_pct > RC2_SALARY_GAP_POSITIVE_PCT {
         Severity::Positive
     } else {
         Severity::Info
+    };
+
+    let trend_phrase = if diff_pct < RC2_SALARY_GAP_WARNING_PCT {
+        "全国平均を10%以上下回る傾向がみられ、応募回避の可能性があります"
+    } else if diff_pct > RC2_SALARY_GAP_POSITIVE_PCT {
+        "全国平均を上回る傾向がみられ、競争力の優位がうかがえます"
+    } else {
+        "全国平均と概ね同水準で推移する傾向がみられます"
     };
 
     Some(Insight {
@@ -807,8 +794,8 @@ fn rc2_salary_gap(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "給与水準の地域差".to_string(),
         body: format!(
-            "正社員の平均月給{:.0}円は全国平均比{:+.0}円。年間休日は平均{:.0}日。",
-            local_salary, diff, local_holidays
+            "正社員の平均月給{:.0}円は全国平均比{:+.0}円 ({:+.1}%)。年間休日は平均{:.0}日。{}。",
+            local_salary, diff, diff_pct * 100.0, local_holidays, trend_phrase
         ),
         evidence: vec![
             Evidence {
@@ -856,13 +843,13 @@ fn rc3_population_density_cross(ctx: &InsightContext) -> Option<Insight> {
     let (desc, caveat) = if density > 50.0 {
         (
             "求人密度が高く、採用競争が激しい傾向があります。",
-            "同じ母集団を複数社で取り合う状況のため、給与・働き方の差別化が重要。",
+            "同じ母集団を複数社で取り合う状況のため、給与・働き方の差別化が重要となる可能性があります。",
         )
     } else if density < 5.0 {
         (
-            "求人1件あたりの人口が多く、競合密度という観点では穏やかな採用環境です。",
+            "求人1件あたりの人口が多く、競合密度という観点では穏やかな採用環境がうかがえる傾向がみられます。",
             // GE-1（可住地密度）との矛盾誤解を防ぐためのクロスリファレンス
-            "ただし人口そのものが少ない過疎地の場合、競合が少なくても応募母集団が小さいため、\
+            "ただし人口そのものが少ない過疎地の場合、競合が少なくても応募母集団が小さい可能性があるため、\
              「構造分析」タブの可住地人口密度も併せてご確認ください。",
         )
     } else {
@@ -871,12 +858,12 @@ fn rc3_population_density_cross(ctx: &InsightContext) -> Option<Insight> {
 
     let body = if caveat.is_empty() {
         format!(
-            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）。{}",
+            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）の傾向にあります。{}",
             total_pop, total_postings, density, desc
         )
     } else {
         format!(
-            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）。{}\n※{}",
+            "人口{:.0}人に対し求人{:.0}件（1,000人あたり{:.1}件）の傾向にあります。{}\n※{}",
             total_pop, total_postings, density, desc, caveat
         )
     };
@@ -904,21 +891,15 @@ fn generate_action_proposals(ctx: &InsightContext, existing: &[Insight]) -> Vec<
 
     // AP-1: HS-2（給与競争力不足）が発火していれば給与改善提案
     if existing.iter().any(|i| i.id == "HS-2") {
-        if let Some(i) = ap1_salary_improvement(ctx) {
-            out.push(i);
-        }
+        if let Some(i) = ap1_salary_improvement(ctx) { push_validated(&mut out, i); }
     }
     // AP-2: HS-3 or HS-4 が発火していれば求人原稿改善提案
     if existing.iter().any(|i| i.id == "HS-3" || i.id == "HS-4") {
-        if let Some(i) = ap2_posting_improvement(ctx) {
-            out.push(i);
-        }
+        if let Some(i) = ap2_posting_improvement(ctx) { push_validated(&mut out, i); }
     }
     // AP-3: HS-6 が発火していれば採用エリア拡大提案
     if existing.iter().any(|i| i.id == "HS-6") {
-        if let Some(i) = ap3_area_expansion(ctx) {
-            out.push(i);
-        }
+        if let Some(i) = ap3_area_expansion(ctx) { push_validated(&mut out, i); }
     }
 
     out
@@ -940,7 +921,10 @@ fn ap1_salary_improvement(ctx: &InsightContext) -> Option<Insight> {
     if increase <= 0.0 {
         return None;
     }
-    let annual_cost = increase * 12.0;
+    // M-13 修正 (2026-04-26): 月給×12 だけでは賞与・法定福利費を見落とすため、
+    // 「賞与4ヶ月 + 法定福利16%」の簡易補正を入れて年間人件費増を算出する。
+    let annual_cost =
+        increase * (12.0 + AP1_BONUS_MONTHS_DEFAULT) * (1.0 + AP1_LEGAL_WELFARE_RATIO);
 
     Some(Insight {
         id: "AP-1".to_string(),
@@ -948,9 +932,14 @@ fn ap1_salary_improvement(ctx: &InsightContext) -> Option<Insight> {
         severity: Severity::Info,
         title: "給与水準の改善提案".to_string(),
         body: format!(
-            "月給を{:+.0}円引き上げ({:.0}円→{:.0}円)すれば全国中央値に到達できます。\
-             1人あたり年間人件費増は約{:.0}円です。",
-            increase, local_avg, national_median, annual_cost
+            "月給を{:+.0}円引き上げ({:.0}円→{:.0}円)すれば全国中央値に到達する可能性があります。\
+             1人あたり年間人件費増は約{:.0}円 (賞与{:.0}ヶ月+法定福利{:.0}%含む) と試算される傾向にあります。",
+            increase,
+            local_avg,
+            national_median,
+            annual_cost,
+            AP1_BONUS_MONTHS_DEFAULT,
+            AP1_LEGAL_WELFARE_RATIO * 100.0
         ),
         evidence: vec![
             Evidence {
@@ -963,7 +952,12 @@ fn ap1_salary_improvement(ctx: &InsightContext) -> Option<Insight> {
                 metric: "年間コスト増".into(),
                 value: annual_cost,
                 unit: "円/人".into(),
-                context: "12ヶ月換算".into(),
+                context: format!(
+                    "({}ヶ月+賞与{}ヶ月)×法定福利{:.0}%",
+                    12,
+                    AP1_BONUS_MONTHS_DEFAULT as i64,
+                    AP1_LEGAL_WELFARE_RATIO * 100.0
+                ),
             },
         ],
         related_tabs: vec!["workstyle"],
@@ -1055,27 +1049,15 @@ fn analyze_commute_zone(ctx: &InsightContext) -> Vec<Insight> {
     }
     // 距離ベース
     if ctx.commute_zone_count > 0 {
-        if let Some(i) = cz1_population_distribution(ctx) {
-            out.push(i);
-        }
-        if let Some(i) = cz2_salary_gap(ctx) {
-            out.push(i);
-        }
-        if let Some(i) = cz3_aging_risk(ctx) {
-            out.push(i);
-        }
+        if let Some(i) = cz1_population_distribution(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = cz2_salary_gap(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = cz3_aging_risk(ctx) { push_validated(&mut out, i); }
     }
     // 実フローベース（国勢調査OD）
     if ctx.commute_inflow_total > 0 {
-        if let Some(i) = cf1_actual_commute_zone(ctx) {
-            out.push(i);
-        }
-        if let Some(i) = cf2_inflow_targeting(ctx) {
-            out.push(i);
-        }
-        if let Some(i) = cf3_self_commute_analysis(ctx) {
-            out.push(i);
-        }
+        if let Some(i) = cf1_actual_commute_zone(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = cf2_inflow_targeting(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = cf3_self_commute_analysis(ctx) { push_validated(&mut out, i); }
     }
     out
 }
@@ -1105,14 +1087,14 @@ fn cz1_population_distribution(ctx: &InsightContext) -> Option<Insight> {
         },
         title: "通勤圏の人口ポテンシャル".to_string(),
         body: format!(
-            "30km通勤圏内に{}市区町村（{}県）、総人口{}人。{}は圏内の{:.1}%。{}",
+            "30km通勤圏内に{}市区町村（{}県）、総人口{}人の傾向にあります。{}は圏内の{:.1}%。{}",
             ctx.commute_zone_count,
             ctx.commute_zone_pref_count,
             super::super::helpers::format_number(ctx.commute_zone_total_pop),
             ctx.muni,
             local_share * 100.0,
             if local_share < 0.05 {
-                "広域採用戦略が有効です。"
+                "広域採用戦略が有効な可能性があります。"
             } else {
                 ""
             }
@@ -1157,14 +1139,14 @@ fn cz2_salary_gap(ctx: &InsightContext) -> Option<Insight> {
         },
         title: "通勤圏内の給与格差".to_string(),
         body: format!(
-            "地元月給({:.0}円) vs 圏内平均({:.0}円) = {:+.1}%。{}",
+            "地元月給({:.0}円) vs 圏内平均({:.0}円) = {:+.1}%の傾向がみられます。{}",
             local_sal,
             acc_sal,
             gap_pct,
             if gap_pct < -10.0 {
-                "周辺に人材が流出するリスクあり。"
+                "周辺へ人材が流出するリスクの可能性があります。"
             } else if gap_pct > 5.0 {
-                "人材を引き付けやすい環境。"
+                "人材を引き付けやすい環境がうかがえます。"
             } else {
                 ""
             }
@@ -1199,11 +1181,11 @@ fn cz3_aging_risk(ctx: &InsightContext) -> Option<Insight> {
         },
         title: "通勤圏の高齢化動向".to_string(),
         body: format!(
-            "通勤圏高齢化率{:.1}%。生産年齢人口{}人。{}",
+            "通勤圏高齢化率{:.1}%、生産年齢人口{}人の傾向にあります。{}",
             rate * 100.0,
             super::super::helpers::format_number(ctx.commute_zone_working_age),
             if rate > 0.30 {
-                "長期的な労働力減少が懸念されます。"
+                "長期的な労働力減少が懸念される可能性があります。"
             } else {
                 ""
             }
@@ -1243,7 +1225,7 @@ fn cf1_actual_commute_zone(ctx: &InsightContext) -> Option<Insight> {
         },
         title: "実通勤フローの発見".to_string(),
         body: format!(
-            "距離圏(30km)の人口{}人に対し、実際の通勤流入は{}人({:.2}%)。主要流入元: {}。{}",
+            "距離圏(30km)の人口{}人に対し、実際の通勤流入は{}人({:.2}%)の傾向がみられます。主要流入元: {}。{}",
             super::super::helpers::format_number(ctx.commute_zone_total_pop),
             super::super::helpers::format_number(ctx.commute_inflow_total),
             actual_ratio * 100.0,
@@ -1253,7 +1235,7 @@ fn cf1_actual_commute_zone(ctx: &InsightContext) -> Option<Insight> {
                 top3_text.join("、")
             },
             if actual_ratio < 0.01 {
-                "距離ポテンシャルと実態の乖離が大きく、地理的障壁の可能性。"
+                "距離ポテンシャルと実態の乖離が大きく、地理的障壁の可能性がうかがえます。"
             } else {
                 ""
             }
@@ -1291,7 +1273,7 @@ fn cf2_inflow_targeting(ctx: &InsightContext) -> Option<Insight> {
         severity: Severity::Info,
         title: "通勤流入元ターゲティング".to_string(),
         body: format!(
-            "最大の通勤流入元は{}{} ({}人)。{}求人掲載エリアにこの地域を追加することで応募者プールの拡大が見込めます。",
+            "最大の通勤流入元は{}{} ({}人)の傾向がみられます。{}求人掲載エリアにこの地域を追加することで応募者プールの拡大が見込める可能性があります。",
             top_pref, top_muni,
             super::super::helpers::format_number(*top_count),
             if is_cross_pref { format!("都道府県をまたぐ通勤フロー（{}→{}）。", top_pref, ctx.pref) }
@@ -1325,12 +1307,12 @@ fn cf3_self_commute_analysis(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "地元就業率".to_string(),
         body: format!(
-            "住民の{:.1}%が地元で就業。{}通勤流出先への人材流出は{}人。",
+            "住民の{:.1}%が地元で就業する傾向がみられます。{}通勤流出先への人材流出は{}人の可能性があります。",
             ctx.commute_self_rate * 100.0,
             if ctx.commute_self_rate < 0.3 {
-                "地元就業率が低く、多くの住民が他地域に流出。"
+                "地元就業率が低く、多くの住民が他地域に流出する傾向がうかがえます。"
             } else if ctx.commute_self_rate > 0.7 {
-                "地元就業率が高く、地域内で労働力が循環。"
+                "地元就業率が高く、地域内で労働力が循環する傾向がみられます。"
             } else {
                 ""
             },
@@ -1422,8 +1404,11 @@ fn ls1_employment_capacity(ctx: &InsightContext) -> Option<Insight> {
         category: InsightCategory::StructuralContext,
         severity,
         title: "採用余力シグナル".to_string(),
+        // M-7 改訂 (2026-04-26): 「未マッチ層」用語は誤誘導 (失業者全員が HW 未マッチではない) のため削除し、
+        // 「失業者数」と「HW 以外への応募状況は本データから判定不可」を明記する。
         body: format!(
-            "失業率が{:.2}%（県平均{:.2}%の{:.2}倍）で、未マッチ層が約{:.0}人いる可能性があります。採用余力がうかがえる傾向がみられます。",
+            "失業率が{:.2}%（県平均{:.2}%の{:.2}倍）で、失業者数は約{:.0}人の可能性があります。\
+             ただし HW 媒体以外への応募・自営業希望・進学準備等を含むため、HW 求人への応募余力は別途判定が必要な傾向がみられます。",
             unemp, pref_avg, ratio, unemployed_count
         ),
         evidence: vec![
@@ -1561,7 +1546,7 @@ fn mf1_medical_welfare_density(ctx: &InsightContext) -> Option<Insight> {
     let local_density = physicians / total_pop * 10_000.0;
 
     // 県平均: get_f64 で pref_avg ベース（本来は別途事前計算、ここでは daycare/children から推定不可のためスキップ可）
-    // 代替として全国参考値（2022年公式: 約27人/10万人 = 2.7人/1万人）を使用
+    // 代替として全国参考値（2022年医師数約34万人 / 人口約1.25億人 = 約270人/10万人 = 約27人/1万人）を使用
     const NATIONAL_PHYSICIANS_PER_10K: f64 = 27.0;
     let ratio = if NATIONAL_PHYSICIANS_PER_10K > 0.0 {
         local_density / NATIONAL_PHYSICIANS_PER_10K
@@ -1632,12 +1617,19 @@ fn in1_industry_mismatch(ctx: &InsightContext) -> Option<Insight> {
     }
     let mw_share = mw_count / total;
 
-    // HW求人の医療福祉系欠員率との乖離を簡易判定
-    // vacancy は正社員全体のみ。今回は mw_share が20%以上で Warning、10%以下で Info
+    // M-7 (2026-04-26): 簡易版は mw_share の絶対値判定で発火する (HW 求人業種分布との
+    // コサイン類似度はデータ未投入のため Phase B 拡張時に置換予定)。
+    // 0.05..=0.30 範囲外 (極端に少ない or 多い) のみ Info で発火する。
     let severity = if !(0.05..=0.3).contains(&mw_share) {
         Severity::Info
     } else {
         return None;
+    };
+
+    let bias_text = if mw_share < 0.05 {
+        "医療系求人の母集団が薄い"
+    } else {
+        "他業種求人が相対的に薄い"
     };
 
     Some(Insight {
@@ -1646,8 +1638,8 @@ fn in1_industry_mismatch(ctx: &InsightContext) -> Option<Insight> {
         severity,
         title: "産業構造の偏り".to_string(),
         body: format!(
-            "事業所のうち医療・福祉が{:.1}%を占めており、HW求人職種分布と構造的な乖離がある可能性がうかがえます。",
-            mw_share * 100.0
+            "事業所のうち医療・福祉が{:.1}%を占めており、{}傾向がみられ、HW求人職種分布と構造的な乖離がある可能性がうかがえます。",
+            mw_share * 100.0, bias_text
         ),
         evidence: vec![Evidence {
             metric: "医療・福祉事業所比率".into(),
@@ -1689,7 +1681,7 @@ fn ge1_habitable_density(ctx: &InsightContext) -> Option<Insight> {
         (
             "極端な過疎",
             Severity::Info,
-            "応募母集団が限定的なため、通勤圏を広げた広域募集や住宅手当等の検討余地があります。",
+            "応募母集団が限定的な傾向がみられ、通勤圏を広げた広域募集や住宅手当等の検討余地がうかがえます。",
         )
     } else if density > HABITABLE_DENSITY_MAX {
         (
@@ -1701,7 +1693,7 @@ fn ge1_habitable_density(ctx: &InsightContext) -> Option<Insight> {
         (
             "過疎傾向",
             Severity::Info,
-            "応募母集団が小さめのため、通勤圏を広げることで応募数増の余地があります。",
+            "応募母集団が小さめの傾向がみられ、通勤圏を広げることで応募数増の余地がうかがえます。",
         )
     } else {
         return None;

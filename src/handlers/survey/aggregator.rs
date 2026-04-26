@@ -7,6 +7,30 @@ use std::collections::HashMap;
 use super::statistics::enhanced_salary_statistics;
 use super::upload::SurveyRecord;
 
+// ======== 月給換算定数（F1 #2 修正、2026-04-26）========
+//
+// 旧定数: 月160h（= 8h × 20日）。
+// 新定数: 月167h（= 8h × 20.875日）— 厚労省「就業条件総合調査 2024」の
+// 1企業平均所定労働時間 169.0h を保守側に丸めた値。
+//
+// 注意: salary_parser.rs::HOURLY_TO_MONTHLY = 173.8 (= 8h × 21.7日, GAS 互換) との
+// 不整合は別問題として認識。本タスク (P2 #14) は集計層の 160 → 167 への移行のみ。
+// 整合性統一は P3 で release notes と合わせて実施予定。
+//
+// 影響: 給与表示の数値が約 4.4% (167/160) 上昇する。リリースノートで告知必須。
+//
+/// 時給→月給 換算係数 (時間/月)
+pub(crate) const HOURLY_TO_MONTHLY_HOURS: i64 = 167;
+/// 日給→月給 換算係数 (日/月) — 20.875 を整数丸め
+pub(crate) const DAILY_TO_MONTHLY_DAYS: i64 = 21;
+/// 1日所定労働時間 (時間) — 日給→時給で使用
+pub(crate) const DAILY_HOURS: i64 = 8;
+/// 週給→月給 換算: scale 433 / 100 = 4.33 (= 52週/12月)
+pub(crate) const WEEKLY_TO_MONTHLY_NUM: i64 = 433;
+pub(crate) const WEEKLY_TO_MONTHLY_DEN: i64 = 100;
+/// 週所定労働時間 (時間) — 週給→時給で使用
+pub(crate) const WEEKLY_HOURS: i64 = 40;
+
 /// 企業別集計
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompanyAgg {
@@ -320,8 +344,8 @@ fn aggregate_records_core(
         .filter_map(|r| {
             let v = r.salary_parsed.min_value?;
             match r.salary_parsed.salary_type {
-                SalaryType::Hourly => Some(v * 160),
-                SalaryType::Daily => Some(v * 20), // 月20日想定
+                SalaryType::Hourly => Some(v * HOURLY_TO_MONTHLY_HOURS),
+                SalaryType::Daily => Some(v * DAILY_TO_MONTHLY_DAYS),
                 SalaryType::Annual => Some(v / 12),
                 _ => Some(v),
             }
@@ -333,8 +357,8 @@ fn aggregate_records_core(
         .filter_map(|r| {
             let v = r.salary_parsed.max_value?;
             match r.salary_parsed.salary_type {
-                SalaryType::Hourly => Some(v * 160),
-                SalaryType::Daily => Some(v * 20),
+                SalaryType::Hourly => Some(v * HOURLY_TO_MONTHLY_HOURS),
+                SalaryType::Daily => Some(v * DAILY_TO_MONTHLY_DAYS),
                 SalaryType::Annual => Some(v / 12),
                 _ => Some(v),
             }
@@ -581,27 +605,27 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
                 match record.salary_parsed.salary_type {
                     SalaryType::Hourly => {
                         bucket.hourly_values.push(v);
-                        bucket.monthly_values.push(v * 160);
+                        bucket.monthly_values.push(v * HOURLY_TO_MONTHLY_HOURS);
                     }
                     SalaryType::Monthly => {
                         bucket.monthly_values.push(v);
-                        bucket.hourly_values.push(v / 160);
+                        bucket.hourly_values.push(v / HOURLY_TO_MONTHLY_HOURS);
                     }
                     SalaryType::Annual => {
                         let monthly = v / 12;
                         bucket.monthly_values.push(monthly);
-                        bucket.hourly_values.push(monthly / 160);
+                        bucket.hourly_values.push(monthly / HOURLY_TO_MONTHLY_HOURS);
                     }
                     SalaryType::Daily => {
-                        let monthly = v * 20;
+                        let monthly = v * DAILY_TO_MONTHLY_DAYS;
                         bucket.monthly_values.push(monthly);
-                        bucket.hourly_values.push(v / 8);
+                        bucket.hourly_values.push(v / DAILY_HOURS);
                     }
                     SalaryType::Weekly => {
-                        // 週給 → 月給 (×4) と時給 (/40)
-                        let monthly = v * 4;
+                        // 週給 → 月給 (×4.33 = 52週/12月) と時給 (/40h/週)
+                        let monthly = v * WEEKLY_TO_MONTHLY_NUM / WEEKLY_TO_MONTHLY_DEN;
                         bucket.monthly_values.push(monthly);
-                        bucket.hourly_values.push(v / 40);
+                        bucket.hourly_values.push(v / WEEKLY_HOURS);
                     }
                 }
             }

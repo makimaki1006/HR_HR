@@ -122,6 +122,10 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
         audit_turso_token: String::new(),
         audit_ip_salt: String::new(),
         admin_emails: Vec::new(),
+        turso_external_url: String::new(),
+        turso_external_token: String::new(),
+        salesnow_turso_url: String::new(),
+        salesnow_turso_token: String::new(),
     };
     Arc::new(AppState {
         config: cfg,
@@ -269,6 +273,10 @@ async fn api_region_karte_handles_missing_db() {
         audit_turso_token: String::new(),
         audit_ip_salt: String::new(),
         admin_emails: Vec::new(),
+        turso_external_url: String::new(),
+        turso_external_token: String::new(),
+        salesnow_turso_url: String::new(),
+        salesnow_turso_token: String::new(),
     };
     let state = Arc::new(AppState {
         config: cfg,

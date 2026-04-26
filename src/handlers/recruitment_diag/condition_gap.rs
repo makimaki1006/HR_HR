@@ -173,10 +173,32 @@ pub(crate) fn compute_median(
         params_own.push(job_type.to_string());
         idx += 1;
     }
+    // Panel 5 修正 (2026-04-26 / P2 #9): UI 値「パート」「その他」を DB の実値リストに展開する
+    // 修正前: emp_type="パート" → "employment_type = 'パート'" → ヒット 0 件
+    // 修正後: emp_type="パート" → IN ('パート労働者', '有期雇用派遣パート', '無期雇用派遣パート')
     if !emp_type.is_empty() {
-        wc.push(format!("employment_type = ?{}", idx));
-        params_own.push(emp_type.to_string());
-        idx += 1;
+        let expanded = crate::handlers::emp_classifier::from_ui_value(emp_type)
+            .map(crate::handlers::emp_classifier::expand_to_db_values)
+            .unwrap_or_default();
+        if expanded.is_empty() {
+            // 既知の UI 3 値以外 (空文字含まず) はそのままマッチ (後方互換)
+            wc.push(format!("employment_type = ?{}", idx));
+            params_own.push(emp_type.to_string());
+            idx += 1;
+        } else if expanded.len() == 1 {
+            wc.push(format!("employment_type = ?{}", idx));
+            params_own.push(expanded[0].to_string());
+            idx += 1;
+        } else {
+            let placeholders: Vec<String> = (0..expanded.len())
+                .map(|i| format!("?{}", idx + i))
+                .collect();
+            wc.push(format!("employment_type IN ({})", placeholders.join(", ")));
+            for v in expanded {
+                params_own.push(v.to_string());
+                idx += 1;
+            }
+        }
     }
     if !prefecture.is_empty() {
         wc.push(format!("prefecture = ?{}", idx));

@@ -1070,14 +1070,15 @@ fn p3_spec_9_11_trend_labels_present() {
 #[test]
 fn p3_spec_9_11_vacancy_rate_placeholder_exists() {
     let html = render_full_html();
-    // 欠員率表示: データあり→数値（%）、なし→「—」または「-」
-    // 少なくとも「欠員率」ラベルとプレースホルダ記号が併存
-    let has_vacancy_label = html.contains("欠員率");
+    // 欠員補充率表示: データあり→数値（%）、なし→「—」または「-」
+    // 少なくとも「欠員補充率」ラベルとプレースホルダ記号が併存
+    // (2026-04-26 vacancy_rate 概念整理: 「欠員率」→「欠員補充率」)
+    let has_vacancy_label = html.contains("欠員補充率");
     let has_placeholder =
         html.contains("\u{2014}") || html.contains("—") || html.contains("%");
     assert!(
         has_vacancy_label && has_placeholder,
-        "欠員率ラベルと値（%）orプレースホルダ（—）が必要。label={} / placeholder={}",
+        "欠員補充率ラベルと値（%）orプレースホルダ（—）が必要。label={} / placeholder={}",
         has_vacancy_label,
         has_placeholder
     );

@@ -70,9 +70,12 @@ fn swf01_nightshift_demand(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
 }
 
 // ======== SW-F02: 休日商圏不足 ========
+// M-2 修正 (2026-04-26): 1.5 以上は SW-F05 (観光ポテンシャル未活用) のシグナル領域として
+// F02 を抑制し、矛盾する示唆 (人材不足 vs 機会あり) の同時発火を回避する。
+// 1.3..1.5 の中間範囲のみ「休日商圏不足」として発火する。
 fn swf02_holiday_commerce(_ctx: &InsightContext, flow: &FlowIndicators) -> Option<Insight> {
     let ratio = flow.holiday_day_ratio?;
-    if ratio < FLOW_HOLIDAY_CROWD_WARNING {
+    if !(FLOW_HOLIDAY_CROWD_WARNING..FLOW_TOURISM_RATIO_THRESHOLD).contains(&ratio) {
         return None;
     }
     Some(Insight {
@@ -124,19 +127,26 @@ fn swf03_bedtown_detection(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
     })
 }
 
-// ======== SW-F04: メッシュ人材ギャップ（簡易版、v2_posting_mesh1km依存を暫定回避） ========
+// ======== SW-F04: メッシュ人材ギャップ（Phase C 待機、F1 #4 確定: 現状維持） ========
+//
+// **F1 #4 (2026-04-26) 最終判断**: 選択肢 B 採用（プレースホルダ維持、Phase C で本実装）。
+// E2 で SSDSE-A 業種マッピング整備後の実装が確認済。本関数は呼び出されるが必ず None を返す。
+//
+// **Phase C 仕様未確定**: SSDSE-A 業種マッピング (e-Stat 産業分類 14 業種) と
+// v2_posting_mesh1km (Agoop メッシュ単位求人密度) の両方が必要。投入後に
+// メッシュ単位 Z-score (求人密度 vs 滞在密度の標準化偏差) で発火条件を実装する。
+//
+// 既存テスト `swf04_always_none_placeholder` が None 返却を確認済。
 fn swf04_mesh_gap_simplified(ctx: &InsightContext, flow: &FlowIndicators) -> Option<Insight> {
-    // v2_posting_mesh1km 未投入時は簡易判定: 滞在人口と既存求人密度の乖離を概算
+    // ガード条件は維持（将来実装時に同じ前提を共有するため）
     let daynight = flow.daynight_ratio?;
-    // 昼夜比が極端（流入超過 or 流出超過）でかつ既存 vacancy が低くない場合
     if !(0.6..=2.0).contains(&daynight) {
         return None;
     }
-    // 既存 vacancy のサンプルがなければ発火しない
     if ctx.vacancy.is_empty() {
         return None;
     }
-    // 現時点ではプレースホルダ。v2_posting_mesh1km 投入後にメッシュ単位の Z-score に拡張予定
+    // Phase C 仕様未確定。SSDSE-A 業種マッピング整備後に実装予定。
     None
 }
 
@@ -166,20 +176,43 @@ fn swf05_tourism_potential(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
 }
 
 // ======== SW-F06: コロナ回復乖離 ========
-fn swf06_covid_recovery_divergence(_ctx: &InsightContext, flow: &FlowIndicators) -> Option<Insight> {
+//
+// 仕様 (helpers.rs:203-205): 「2021人流/2019 > 0.9 AND 2021求人/2019 < 0.8」
+// 求人側 ts_counts に 2019/2021 サンプルがある場合は AND 条件で発火 (M-8 仕様乖離修正)、
+// データ未投入の場合は人流側のみの簡易判定にフォールバック (graceful degradation)。
+fn swf06_covid_recovery_divergence(ctx: &InsightContext, flow: &FlowIndicators) -> Option<Insight> {
     let recovery = flow.covid_recovery_ratio?;
     if recovery < FLOW_COVID_FLOW_RECOVERY {
         return None;
     }
-    // 求人側の回復率データは InsightContext.ts_counts にあるが、簡易版は人流回復のみで判定
+
+    // 求人側の回復率を ts_counts から取得 (year_month カラム想定)
+    let posting_recovery = compute_posting_recovery_2021_vs_2019(ctx);
+
+    // AND 条件: 求人側データありで posting_recovery が閾値以上なら抑制 (両方回復済 → 慎重化シグナル不在)
+    if let Some(p_rec) = posting_recovery {
+        if p_rec >= FLOW_COVID_POSTING_LAG {
+            return None;
+        }
+    }
+
+    // body 文言: 「100%」表示は phrase_validator 禁止語のため倍率表記を採用。
+    let recovery_text = format!("{:.2}倍", recovery);
+    let posting_text = match posting_recovery {
+        Some(p) => format!(
+            " 一方、求人数は2019年比{:.2}倍にとどまる傾向がみられ、採用マインドの慎重化の可能性がうかがえます。",
+            p
+        ),
+        None => " 求人側の回復率との比較で採用マインドの慎重化の可能性を評価できる傾向がみられます。".to_string(),
+    };
     Some(Insight {
         id: "SW-F06".to_string(),
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "コロナ期人流回復".to_string(),
         body: format!(
-            "2021年9月の滞在人口が2019年比{:.0}%と高水準で回復している傾向がみられます。求人側の回復率と比較することで採用マインドの慎重化の可能性を評価できます（2021年時点データ）。",
-            recovery * 100.0
+            "2021年9月の滞在人口が2019年比{}と高水準で回復している傾向がみられます。{}",
+            recovery_text, posting_text
         ),
         evidence: vec![Evidence {
             metric: "2021/2019 比".into(),
@@ -189,6 +222,37 @@ fn swf06_covid_recovery_divergence(_ctx: &InsightContext, flow: &FlowIndicators)
         }],
         related_tabs: vec!["trend", "analysis"],
     })
+}
+
+/// ts_counts から 2019/9 vs 2021/9 の posting_count 比率を取得 (M-8 仕様準拠)
+///
+/// year_month カラムが "2019-09" / "2021-09" 形式で含まれている場合のみ計算。
+/// 未投入時は None を返し、呼出側が graceful degradation する。
+fn compute_posting_recovery_2021_vs_2019(ctx: &InsightContext) -> Option<f64> {
+    use super::super::helpers::get_str_ref;
+    if ctx.ts_counts.is_empty() {
+        return None;
+    }
+    let mut count_2019 = 0.0_f64;
+    let mut count_2021 = 0.0_f64;
+    let mut found_any = false;
+    for r in &ctx.ts_counts {
+        let ym = get_str_ref(r, "year_month");
+        if ym.is_empty() {
+            continue;
+        }
+        if ym.starts_with("2019-09") {
+            count_2019 += super::super::helpers::get_f64(r, "posting_count");
+            found_any = true;
+        } else if ym.starts_with("2021-09") {
+            count_2021 += super::super::helpers::get_f64(r, "posting_count");
+            found_any = true;
+        }
+    }
+    if !found_any || count_2019 <= 0.0 {
+        return None;
+    }
+    Some(count_2021 / count_2019)
 }
 
 // ======== SW-F07: 広域流入比率偏り（UC-07 改訂版） ========
@@ -268,11 +332,20 @@ fn swf09_seasonal_mismatch(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
     })
 }
 
-// ======== SW-F10: 企業立地人流マッチ（簡易版、v2_posting_mesh1km未投入時はスキップ） ========
+// ======== SW-F10: 企業立地人流マッチ（Phase C 待機、F1 #4 確定: 現状維持） ========
+//
+// **F1 #4 (2026-04-26) 最終判断**: 選択肢 B 採用（プレースホルダ維持、Phase C で本実装）。
+// 時間帯プロファイル単独では企業立地との時間ズレを評価できないため、現時点で発火しない。
+//
+// **Phase C 仕様未確定**: 以下の 3 データソース統合後に実装予定:
+//   1. v2_posting_mesh1km (Agoop メッシュ単位求人密度)
+//   2. 求人営業時間 (postings.working_hours のパース結果)
+//   3. メッシュ別滞在ピーク時間帯
+// 統合後、メッシュ毎の「企業所在ピーク時間 vs 求人営業時間ズレ」≥3h で発火条件を実装。
+//
+// 既存テスト `swf10_always_none_phase_c_pending` が None 返却を確認済。
 fn swf10_company_location_match(_ctx: &InsightContext, flow: &FlowIndicators) -> Option<Insight> {
-    // 時間帯プロファイル単独では企業立地との時間ズレを評価できないため、
-    // Phase C で v2_posting_mesh1km + 求人営業時間との統合時に拡張予定。
-    // 現時点では v2_posting_mesh1km に依存する pattern は発火しない（安全策）。
+    // Phase C 仕様未確定。v2_posting_mesh1km 投入後に拡張予定。
     let _ = flow;
     None
 }

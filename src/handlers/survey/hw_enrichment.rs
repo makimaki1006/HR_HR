@@ -5,18 +5,23 @@
 //! 各エリアの HW 求人数・3ヶ月増員率・1年増員率を算出する。
 //!
 //! ## 指標の定義
-//! - `hw_posting_count`: HW に現在掲載されている求人件数（postings テーブル直接カウント）
+//! - `hw_posting_count`: HW に現在掲載されている求人件数（postings テーブル直接カウント、**市区町村粒度**）
 //! - `posting_change_3m_pct`: 過去3ヶ月の HW 求人件数変化率 (%)。
 //!   ts_turso_counts 由来。最新月と 3ヶ月前の比較。
+//!   **🔴 注意: ts_turso_counts は都道府県粒度しか持たないため、
+//!   同一都道府県内の全市区町村が同じ値を示す。市区町村単位の動向ではない**。
 //! - `posting_change_1y_pct`: 過去1年の HW 求人件数変化率 (%)。同上、12ヶ月前比較。
-//! - `vacancy_rate_external`: 外部統計由来の欠員率（InsightContext を利用する場合）。
-//!   本モジュールでは直接取得せず、呼び出し元で設定する想定。
+//!   **🔴 同様に都道府県粒度の値を市区町村に流し込んでいる**。
+//! - `vacancy_rate_external`: 外部統計由来の欠員補充率（求人理由が「欠員補充」の比率）。
+//!   InsightContext を利用する場合は呼び出し元で設定する想定。
 //!
 //! ## MEMORY 遵守 (feedback_hw_data_scope)
 //! - HW掲載求人のみの指標。市場全体ではない。
 //! - 3ヶ月/1年の比較は季節要因を含む。
 //! - 「増員率」はサンプル件数変動の可能性を含む（業界フィルタ時は
 //!   ts_turso_salary 由来のサンプル件数のため、より慎重な解釈が必要）。
+//! - **粒度の不一致**: posting_change_*m_pct は都道府県単位の集計値であり、
+//!   市区町村独自の動向を表すものではない。UI 表示時に明記すること。
 
 use crate::db::local_sqlite::LocalDb;
 use crate::db::turso_http::TursoDb;
