@@ -404,8 +404,12 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
 
 fn render_distribution_charts(agg: &SurveyAggregation) -> String {
     let mut html = String::with_capacity(4_000);
+    // 2026-04-26 Fix-A: ラベル整合性修正。「分布」(by_salary_range / by_employment_type) は
+    // パース直後の生レコードを件数集計しており、IQR は適用されていない。
+    // 旧ラベル「外れ値除外（IQR法）適用済」は事実と異なるため「件数集計（生値ベース）」に変更。
+    // IQR は給与統計（mean/median/Q1/Q3）と雇用形態グループ別集計の数値計算側のみに適用。
     html.push_str(r#"<section>
-        <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">分布<span class="ml-2 text-[10px] font-normal text-slate-500">外れ値除外（IQR法）適用済</span></h3>
+        <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">分布<span class="ml-2 text-[10px] font-normal text-slate-500">件数集計（生値ベース・IQR 未適用）</span></h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
 
     // 給与帯分布

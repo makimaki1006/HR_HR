@@ -1609,6 +1609,7 @@ dependencies = [
  "csv",
  "dashmap",
  "dotenvy",
+ "encoding_rs",
  "flate2",
  "http",
  "http-body-util",

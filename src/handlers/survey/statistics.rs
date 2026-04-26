@@ -225,6 +225,29 @@ mod outlier_tests {
         assert_eq!(removed, 0);
         assert_eq!(filtered, data);
     }
+
+    // 2026-04-26 Fix-A 逆証明テスト: IQR は両側適用 (Q1-1.5×IQR / Q3+1.5×IQR の両端で除外)
+    // notes.rs / executive_summary.rs / employment.rs のドキュメント文言と整合。
+    #[test]
+    fn fixa_iqr_filter_removes_low_outlier_proves_two_sided() {
+        // 修正前: 「下側のみ」と説明されたケースでも実装は両側 → ドキュメントとコードの不一致疑義
+        // 修正後: 両側適用がコード上の事実であることを逆証明
+        // 200-300 のレンジに 1 円の下側外れ値 → 除外されることを assert
+        let data = vec![1, 200, 220, 240, 250, 260, 280, 300];
+        let (filtered, removed) = filter_outliers_iqr(&data, 1.5);
+        assert_eq!(removed, 1, "下側 1 円は両側 IQR で除外される");
+        assert!(!filtered.contains(&1), "下側外れ値が残ってはいけない");
+    }
+
+    #[test]
+    fn fixa_iqr_filter_removes_both_sides_simultaneously() {
+        // 上下両端に外れ値がある場合、両方除外される
+        let data = vec![1, 200, 220, 240, 250, 260, 280, 300, 99_999_999];
+        let (filtered, removed) = filter_outliers_iqr(&data, 1.5);
+        assert_eq!(removed, 2, "上下両側の外れ値を同時除外");
+        assert!(!filtered.contains(&1));
+        assert!(!filtered.contains(&99_999_999));
+    }
 }
 
 fn percentile(sorted: &[i64], p: f64) -> i64 {
