@@ -20,8 +20,7 @@ use std::path::Path;
 fn read_src(rel_path: &str) -> String {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let p = Path::new(manifest).join(rel_path);
-    fs::read_to_string(&p)
-        .unwrap_or_else(|e| panic!("failed to read {:?}: {}", p, e))
+    fs::read_to_string(&p).unwrap_or_else(|e| panic!("failed to read {:?}: {}", p, e))
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +107,9 @@ fn reverse_proof_insight_render_aging_has_kanousei() {
 fn reverse_proof_company_render_hiring_risk_no_dantei() {
     let src = read_src("src/handlers/company/render.rs");
     assert!(
-        !src.contains("採用環境は良好です。給与水準・地域特性ともに人材確保に有利な条件が揃っています。"),
+        !src.contains(
+            "採用環境は良好です。給与水準・地域特性ともに人材確保に有利な条件が揃っています。"
+        ),
         "company/render.rs: 旧文言「採用環境は良好です」(断定) が残っている"
     );
     assert!(
