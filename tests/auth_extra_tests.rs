@@ -10,7 +10,9 @@
 //!
 //! 2026-04-26 Cov agent
 
-use rust_dashboard::auth::{validate_email_domain, verify_password, verify_password_with_externals};
+use rust_dashboard::auth::{
+    validate_email_domain, verify_password, verify_password_with_externals,
+};
 use rust_dashboard::config::ExternalPassword;
 
 // ===========================================================================
@@ -38,7 +40,10 @@ fn test_email_domain_no_local_part_with_domain_rejected() {
     let actual = validate_email_domain("@example.com", &domains);
     // 現状: ドメイン部分一致のみ見るので true
     // 注: この振る舞いが望ましくない場合、実装側に local part 非空チェックを追加すべき
-    assert!(actual, "現実装は local part 空でも true を返す (要修正候補)");
+    assert!(
+        actual,
+        "現実装は local part 空でも true を返す (要修正候補)"
+    );
 }
 
 #[test]
@@ -46,7 +51,10 @@ fn test_email_domain_multiple_at_signs_uses_second_part() {
     let domains = vec!["evil.com".to_string()];
     // "user@example.com@evil.com" の場合 split('@').nth(1) は "example.com"
     // → "evil.com" マッチではない
-    assert!(!validate_email_domain("user@example.com@evil.com", &domains));
+    assert!(!validate_email_domain(
+        "user@example.com@evil.com",
+        &domains
+    ));
 }
 
 #[test]
@@ -165,8 +173,8 @@ fn test_external_password_multiple_entries_first_match_wins() {
             expires: "2099-01-01".to_string(),
         },
         ExternalPassword {
-            password: "pw1".to_string(),  // 重複
-            expires: "2020-01-01".to_string(),  // 期限切れ
+            password: "pw1".to_string(),       // 重複
+            expires: "2020-01-01".to_string(), // 期限切れ
         },
     ];
     // 1 つ目がヒットするので OK
