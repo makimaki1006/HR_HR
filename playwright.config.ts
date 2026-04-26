@@ -24,16 +24,16 @@ export default defineConfig({
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
   ],
-  timeout: 30_000,
-  expect: { timeout: 10_000 },
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
 
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:9216',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    actionTimeout: 10_000,
-    navigationTimeout: 15_000,
+    actionTimeout: 15_000,
+    navigationTimeout: 60_000, // Render free tier cold start 対応
   },
 
   projects: [
