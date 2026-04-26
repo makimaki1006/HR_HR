@@ -482,29 +482,41 @@ fn render_hw_area_enrichment_section(
 
     // 外部統計由来の欠員率（正社員）を pref 単位で補填用に抽出
     // InsightContext.vacancy は単一地域のものなので、同一都道府県の全行に同じ値を当てる簡易運用
-    let vacancy_hint = ctx
+    // 2026-04-26 監査 Q1.3: DB 側 vacancy_rate は 0-1 比率なので
+    //   VacancyRatePct::from_ratio() で % 単位 Newtype に明示変換する
+    let vacancy_hint: Option<crate::handlers::types::VacancyRatePct> = ctx
         .vacancy
         .iter()
         .find(|r| get_str_ref(r, "emp_group") == "正社員")
-        .map(|r| get_f64(r, "vacancy_rate") * 100.0);
+        .map(|r| get_f64(r, "vacancy_rate"))
+        .filter(|v| *v > 0.0)
+        .map(crate::handlers::types::VacancyRatePct::from_ratio);
 
     write!(html,
         r#"<div class="text-xs text-slate-400 mb-3">
-            CSV に含まれる {n} 件の地域について、HW DB から現在掲載件数・過去3ヶ月／1年の推移を突合しています。
-            欠員率は外部統計由来（参考値）。
+            CSV に含まれる {n} 件の地域について、HW DB から現在掲載件数を市区町村粒度で突合しています。
         </div>"#,
         n = enrichments.len()
     ).unwrap();
 
+    // D-2 監査 Q1.1 / Q3.3 対応 / feedback_hw_data_scope.md 準拠:
+    //   旧 UI は posting_change_3m / 1y を市区町村行に表示していたが、
+    //   ts_turso_counts は都道府県粒度しか持たないため、同一都道府県内の
+    //   全市区町村が同じ値（粒度詐称）になっていた。
+    //   印刷版は P0 #4 で削除済だが、Tab UI は残存していたため、ここで列を削除し、
+    //   推移は別カードで都道府県代表値として明示分離する。
+    let pref_summary = build_pref_change_summary(enrichments);
+    if !pref_summary.is_empty() {
+        html.push_str(&pref_summary);
+    }
+
     html.push_str(
-        r#"<div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
+        r#"<div class="overflow-x-auto"><table class="w-full text-xs min-w-[480px]" data-testid="hw-area-enrichment-table">
         <thead><tr class="text-slate-400 border-b border-slate-700">
             <th class="text-left py-1.5 px-2">都道府県</th>
             <th class="text-left py-1.5 px-2">市区町村</th>
             <th class="text-right py-1.5 px-2">HW現在掲載件数</th>
-            <th class="text-right py-1.5 px-2">3ヶ月推移</th>
-            <th class="text-right py-1.5 px-2">1年推移</th>
-            <th class="text-right py-1.5 px-2">欠員率</th>
+            <th class="text-right py-1.5 px-2">欠員率（都道府県）</th>
         </tr></thead><tbody>"#,
     );
 
@@ -522,12 +534,12 @@ fn render_hw_area_enrichment_section(
             r#"<span class="text-slate-600">-</span>"#.to_string()
         };
 
-        let change_3m_html = render_pct_change_cell(e.posting_change_3m_pct, e.change_label_3m());
-        let change_1y_html = render_pct_change_cell(e.posting_change_1y_pct, e.change_label_1y());
-
         // 欠員率は enrichment 固有値を優先、無ければ ctx の都道府県値でヒント表示
+        // 2026-04-26 監査 Q1.3: VacancyRatePct (% 単位) で統一済
+        // 注: 欠員率は都道府県粒度の参考値であり、市区町村単位の差は反映しない
         let vacancy_html = match e.vacancy_rate_pct.or(vacancy_hint) {
-            Some(v) if v > 0.0 => {
+            Some(vp) if vp.as_f64() > 0.0 => {
+                let v = vp.as_f64();
                 let color = if v > 30.0 {
                     "text-red-400"
                 } else if v > 20.0 {
@@ -547,14 +559,10 @@ fn render_hw_area_enrichment_section(
                 <td class="py-1.5 px-2 text-white">{}</td>
                 <td class="py-1.5 px-2 text-right">{}</td>
                 <td class="py-1.5 px-2 text-right">{}</td>
-                <td class="py-1.5 px-2 text-right">{}</td>
-                <td class="py-1.5 px-2 text-right">{}</td>
             </tr>"#,
             escape_html(&e.prefecture),
             escape_html(&e.municipality),
             count_html,
-            change_3m_html,
-            change_1y_html,
             vacancy_html,
         )
         .unwrap();
@@ -571,16 +579,86 @@ fn render_hw_area_enrichment_section(
 
     html.push_str(
         r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
-        3ヶ月／1年推移は HW 時系列 DB 由来（都道府県×雇用形態グループの月次推移）。
-        欠員率は外部統計由来の参考値（市区町村粒度で欠損する場合があります）。
-        HW掲載求人のみを対象としており、全求人市場の動向ではありません。
+        ※ HW現在掲載件数は市区町村粒度の値ですが、3ヶ月／1年の求人件数推移と欠員率は HW 時系列 DB / 外部統計の都道府県粒度のため、市区町村別の差分は反映していません。
+        市区町村行に都道府県値をコピー表示すると粒度の誤誘導となるため、推移は上部の都道府県別カードに分離しています。
+        本セクションはハローワーク掲載求人のみを対象としており、全求人市場の動向ではありません。
+        集計値は傾向の観測であり、因果関係を主張するものではありません。
     </div>"#,
     );
     html.push_str("</section>");
     html
 }
 
+/// 都道府県粒度の posting_change_3m/1y を「市区町村テーブルとは分離した」カード群として描画。
+///
+/// D-2 監査 Q1.1 / Q3.3 対応:
+///   旧仕様では市区町村テーブルの各行に都道府県値をコピー表示していたため、
+///   同一都道府県内の muni 行で値が同一になる粒度詐称が発生していた。
+///   ここでは pref ごとに 1 つのカードを描画し、都道府県粒度であることを
+///   ラベルで明示する。
+///
+/// feedback_hw_data_scope.md 準拠:
+///   暴走値はサニティチェックで除外済み（hw_enrichment::sanitize_change_pct）。
+fn build_pref_change_summary(enrichments: &[HwAreaEnrichment]) -> String {
+    use std::collections::BTreeMap;
+    // pref → (3m, 1y) を最初に出てきた値で固定（同 pref 内で同値前提）
+    let mut by_pref: BTreeMap<String, (Option<f64>, Option<f64>)> = BTreeMap::new();
+    for e in enrichments {
+        if e.prefecture.is_empty() {
+            continue;
+        }
+        by_pref
+            .entry(e.prefecture.clone())
+            .or_insert((e.posting_change_3m_pct, e.posting_change_1y_pct));
+    }
+    // 推移データがどれか 1 つでも存在する pref のみ表示
+    let visible: Vec<(&String, &(Option<f64>, Option<f64>))> = by_pref
+        .iter()
+        .filter(|(_, (c3, c1))| c3.is_some() || c1.is_some())
+        .collect();
+    if visible.is_empty() {
+        return String::new();
+    }
+    let mut html = String::with_capacity(1_500);
+    html.push_str(
+        r#"<div class="mb-3 p-3 rounded bg-slate-800/40 border border-slate-700" data-testid="hw-pref-trend-card">
+            <div class="text-[11px] text-slate-400 mb-2">
+                <strong class="text-slate-200">都道府県粒度の参考値</strong>
+                ／ HW 時系列 DB は都道府県単位の集計のため、市区町村別の差分は反映していません。
+                ※ ETL 初期スナップショットによるノイズ（暴走値）はサニティチェックで除外しています。
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">"#,
+    );
+    for (pref, (c3, c1)) in visible.iter().take(8) {
+        let c3_text = match c3 {
+            Some(v) => format!("{:+.1}%", v),
+            None => "—".to_string(),
+        };
+        let c1_text = match c1 {
+            Some(v) => format!("{:+.1}%", v),
+            None => "—".to_string(),
+        };
+        write!(
+            html,
+            r#"<div class="p-2 rounded bg-slate-900/50">
+                <div class="text-slate-300 font-medium">{pref}</div>
+                <div class="text-[11px] text-slate-400 mt-0.5">3ヶ月推移: <span class="text-white">{c3}</span> ／ 1年推移: <span class="text-white">{c1}</span></div>
+            </div>"#,
+            pref = escape_html(pref),
+            c3 = c3_text,
+            c1 = c1_text,
+        )
+        .unwrap();
+    }
+    html.push_str("</div></div>");
+    html
+}
+
 /// 推移率(%)セル生成: None / 0 / +/- の区別と定性ラベル併記
+///
+/// D-2 監査 Q1.1 対応: 市区町村テーブルから列削除済 (Tab UI からも削除)。
+/// 関数自体は今後の都道府県別カード等での再利用を想定し残置。
+#[allow(dead_code)]
 fn render_pct_change_cell(pct: Option<f64>, label: &str) -> String {
     match pct {
         None => r#"<span class="text-slate-600">-</span>"#.to_string(),
@@ -616,4 +694,199 @@ fn kpi_card(html: &mut String, label: &str, value: &str, color: &str) {
         escape_html(label),
     )
     .unwrap();
+}
+
+#[cfg(test)]
+mod fixb_tests {
+    //! Fix-B (D-2 監査 Q1.1 / Q3.3) 逆証明テスト群
+    //!
+    //! 旧 Tab UI は posting_change_3m_pct / posting_change_1y_pct を市区町村テーブルの
+    //! 列として表示していたため、同一都道府県内の muni 行で値が同一になる粒度詐称
+    //! が発生していた。Fix-B で列を削除し、推移は都道府県カードに分離した。
+
+    use super::*;
+    use crate::handlers::types::VacancyRatePct;
+
+    fn empty_ctx() -> InsightContext {
+        // テスト用の最小 InsightContext。InsightContext は外部依存が多いため
+        // ここでは Default が使えるかを確認しつつ、ベースラインで構築する。
+        // 実 fixture は survey/report_html_qa_test.rs の mock_empty_insight_ctx を参照。
+        InsightContext {
+            vacancy: vec![],
+            resilience: vec![],
+            transparency: vec![],
+            temperature: vec![],
+            competition: vec![],
+            cascade: vec![],
+            salary_comp: vec![],
+            monopsony: vec![],
+            spatial_mismatch: vec![],
+            wage_compliance: vec![],
+            region_benchmark: vec![],
+            text_quality: vec![],
+            ts_counts: vec![],
+            ts_vacancy: vec![],
+            ts_salary: vec![],
+            ts_fulfillment: vec![],
+            ts_tracking: vec![],
+            ext_job_ratio: vec![],
+            ext_labor_stats: vec![],
+            ext_min_wage: vec![],
+            ext_turnover: vec![],
+            ext_population: vec![],
+            ext_pyramid: vec![],
+            ext_migration: vec![],
+            ext_daytime_pop: vec![],
+            ext_establishments: vec![],
+            ext_business_dynamics: vec![],
+            ext_care_demand: vec![],
+            ext_household_spending: vec![],
+            ext_climate: vec![],
+            ext_households: vec![],
+            ext_vital: vec![],
+            ext_labor_force: vec![],
+            ext_medical_welfare: vec![],
+            ext_education_facilities: vec![],
+            ext_geography: vec![],
+            pref_avg_unemployment_rate: None,
+            pref_avg_single_rate: None,
+            pref_avg_physicians_per_10k: None,
+            pref_avg_daycare_per_1k_children: None,
+            pref_avg_habitable_density: None,
+            flow: None,
+            commute_zone_count: 0,
+            commute_zone_pref_count: 0,
+            commute_zone_total_pop: 0,
+            commute_zone_working_age: 0,
+            commute_zone_elderly: 0,
+            commute_inflow_total: 0,
+            commute_outflow_total: 0,
+            commute_self_rate: 0.0,
+            commute_inflow_top3: vec![],
+            pref: "東京都".to_string(),
+            muni: "千代田区".to_string(),
+        }
+    }
+
+    fn build_two_muni_same_pref() -> Vec<HwAreaEnrichment> {
+        vec![
+            HwAreaEnrichment {
+                prefecture: "東京都".to_string(),
+                municipality: "千代田区".to_string(),
+                hw_posting_count: 100,
+                posting_change_3m_pct: Some(12.3),
+                posting_change_1y_pct: Some(8.5),
+                vacancy_rate_pct: Some(VacancyRatePct::from_ratio(0.15)),
+            },
+            HwAreaEnrichment {
+                prefecture: "東京都".to_string(),
+                municipality: "中央区".to_string(),
+                hw_posting_count: 80,
+                posting_change_3m_pct: Some(12.3), // 同一県なので同じ値
+                posting_change_1y_pct: Some(8.5),
+                vacancy_rate_pct: Some(VacancyRatePct::from_ratio(0.15)),
+            },
+        ]
+    }
+
+    /// Tab UI のテーブルから「3ヶ月推移」「1年推移」列が消えていること
+    #[test]
+    fn fixb_tab_table_no_3m_or_1y_columns() {
+        let ctx = empty_ctx();
+        let enrichments = build_two_muni_same_pref();
+        let html = render_hw_area_enrichment_section(&enrichments, &ctx);
+
+        // テーブル本体だけを切り出し（pref カードと混同しないため）
+        let table_html = html
+            .split("data-testid=\"hw-area-enrichment-table\"")
+            .nth(1)
+            .unwrap_or("")
+            .split("</table>")
+            .next()
+            .unwrap_or("");
+
+        assert!(
+            !table_html.contains("3ヶ月推移"),
+            "市区町村テーブルから「3ヶ月推移」列が削除されているべき (D-2 Q1.1)"
+        );
+        assert!(
+            !table_html.contains("1年推移"),
+            "市区町村テーブルから「1年推移」列が削除されているべき (D-2 Q1.1)"
+        );
+    }
+
+    /// 都道府県別の推移カードが分離表示されている
+    #[test]
+    fn fixb_pref_trend_separated_into_card() {
+        let ctx = empty_ctx();
+        let enrichments = build_two_muni_same_pref();
+        let html = render_hw_area_enrichment_section(&enrichments, &ctx);
+
+        assert!(
+            html.contains("hw-pref-trend-card"),
+            "都道府県別推移カードが必須 (D-2 Q1.1 構造的解決)"
+        );
+        assert!(
+            html.contains("都道府県粒度の参考値"),
+            "粒度を明示するラベルが必須"
+        );
+        assert!(
+            html.contains("市区町村別の差分は反映していません"),
+            "市区町村粒度詐称を防ぐ注記が必須"
+        );
+    }
+
+    /// 推移データなし（None）の muni のみの場合は pref カード自体が出ない
+    #[test]
+    fn fixb_pref_card_hidden_when_no_change_data() {
+        let no_change = vec![HwAreaEnrichment {
+            prefecture: "東京都".to_string(),
+            municipality: "千代田区".to_string(),
+            hw_posting_count: 100,
+            posting_change_3m_pct: None,
+            posting_change_1y_pct: None,
+            vacancy_rate_pct: None,
+        }];
+        let summary = build_pref_change_summary(&no_change);
+        assert!(
+            summary.is_empty(),
+            "推移データなしのとき pref カードは出ないべき"
+        );
+    }
+
+    /// 同一県の 2 muni を入力すると pref カードは 1 つだけ
+    #[test]
+    fn fixb_pref_card_dedupes_within_same_prefecture() {
+        let enrichments = build_two_muni_same_pref();
+        let summary = build_pref_change_summary(&enrichments);
+
+        // 「東京都」が pref ラベルとして 1 回だけ出る（カードラベル）
+        // grid 内の "<div class=\"text-slate-300 font-medium\">東京都</div>" の出現数
+        let pref_label_count = summary
+            .matches(r#"<div class="text-slate-300 font-medium">東京都</div>"#)
+            .count();
+        assert_eq!(
+            pref_label_count, 1,
+            "同一県の複数 muni でも pref カードは 1 つに統合されるべき"
+        );
+    }
+
+    /// HW 限定スコープと因果非主張の注記が必ず含まれる
+    #[test]
+    fn fixb_section_has_hw_scope_and_no_causation_note() {
+        let ctx = empty_ctx();
+        let enrichments = build_two_muni_same_pref();
+        let html = render_hw_area_enrichment_section(&enrichments, &ctx);
+
+        assert!(
+            html.contains("ハローワーク掲載求人のみ")
+                || html.contains("HW 掲載求人のみ")
+                || html.contains("ハローワーク掲載"),
+            "HW 限定スコープの注記が必須 (feedback_hw_data_scope.md)"
+        );
+        assert!(
+            html.contains("因果関係を主張するものではありません"),
+            "因果非主張の注記が必須 (feedback_correlation_not_causation.md)"
+        );
+    }
 }

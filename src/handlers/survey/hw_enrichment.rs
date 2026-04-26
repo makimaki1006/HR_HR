@@ -26,6 +26,7 @@
 use crate::db::local_sqlite::LocalDb;
 use crate::db::turso_http::TursoDb;
 use crate::handlers::helpers::{get_f64, get_i64};
+use crate::handlers::types::VacancyRatePct;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -40,9 +41,14 @@ pub struct HwAreaEnrichment {
     pub posting_change_3m_pct: Option<f64>,
     /// 1年前比の求人件数変化率 (%)。
     pub posting_change_1y_pct: Option<f64>,
-    /// 欠員率 (%) — 外部統計由来。None は未取得。
-    /// 呼び出し元で InsightContext から補填する想定（仕様書 4 節 Section H 参照）。
-    pub vacancy_rate_pct: Option<f64>,
+    /// 欠員補充率（% 単位 = `VacancyRatePct`）— 外部統計由来。None は未取得。
+    ///
+    /// **2026-04-26 監査 Q1.3 修正**:
+    /// 以前は `Option<f64>` で 0-1 比率と 0-100% が UI/補填経路で混在していた。
+    /// `VacancyRatePct` Newtype で **% 単位（0-100）** に固定。
+    /// DB 側 `vacancy_rate` カラム（0-1 比率）からの代入は
+    /// `VacancyRatePct::from_ratio()` で必ず変換すること。
+    pub vacancy_rate_pct: Option<VacancyRatePct>,
 }
 
 impl HwAreaEnrichment {
@@ -155,10 +161,46 @@ fn fetch_hw_posting_count(db: &LocalDb, pref: &str, muni: &str) -> i64 {
         .unwrap_or(0)
 }
 
+/// ts_turso_counts の初期スナップショットによる「+374%」級の暴走値を抑止する閾値。
+///
+/// 求人件数の月次/年次変動が ±200% を超える地域は、現実の市場動向ではなく
+/// ETL 初期月のサンプリングカバレッジ不安定（feedback_hw_data_scope.md 参照）に
+/// 起因する可能性が極めて高いため、None として欠損扱いする。
+///
+/// D-2 監査 Q1.2 対応:
+/// - 経済指標（CPI 等）の典型的な月次/年次変動は ±20% 以内に収まる
+/// - +374% のような値は ts_turso_counts の初期スナップショットでのみ観測される
+/// - 値の妥当性検証なしに UI に流すと誤誘導になるため、サニティチェックで除去
+pub(crate) const POSTING_CHANGE_SANITY_LIMIT: f64 = 200.0;
+
+/// スナップショット数の最小要件（これ未満では時系列比較不能）
+pub(crate) const MIN_SNAPSHOTS_FOR_3M: usize = 4;
+pub(crate) const MIN_SNAPSHOTS_FOR_1Y: usize = 13;
+
+/// 値が現実離れしていないかチェック。NaN/Inf も None 化。
+///
+/// D-2 監査 Q1.2 対応 / feedback_hw_data_scope.md 準拠:
+/// - NaN / +Inf / -Inf は None
+/// - |value| > 200% は ETL 初期ノイズとして None
+pub(crate) fn sanitize_change_pct(value: Option<f64>) -> Option<f64> {
+    let v = value?;
+    if !v.is_finite() {
+        return None;
+    }
+    if v.abs() > POSTING_CHANGE_SANITY_LIMIT {
+        return None;
+    }
+    Some(v)
+}
+
 /// 都道府県単位の 3ヶ月・1年 posting 件数変化率 (%)
 ///
 /// 注意: ts_turso_counts は posting_count（正社員/パート/その他合計）の snapshot を持つ。
 /// 最新 snapshot と 3ヶ月前（または1年前）snapshot を比較して変化率を算出。
+///
+/// D-2 監査 Q1.2 対応:
+/// - スナップショット数が不足する場合 (< 4 / < 13) は None
+/// - 計算結果の絶対値が ±200% を超える場合は ETL 初期ノイズとみなして None
 ///
 /// Return: (change_3m_pct, change_1y_pct)
 fn fetch_pref_posting_changes(turso: &TursoDb, pref: &str) -> (Option<f64>, Option<f64>) {
@@ -181,17 +223,28 @@ fn fetch_pref_posting_changes(turso: &TursoDb, pref: &str) -> (Option<f64>, Opti
     if latest <= 0.0 {
         return (None, None);
     }
-    let change_3m = rows
-        .get(3)
-        .map(|r| get_f64(r, "total"))
-        .filter(|v| *v > 0.0)
-        .map(|prev| (latest - prev) / prev * 100.0);
-    let change_1y = rows
-        .get(12)
-        .map(|r| get_f64(r, "total"))
-        .filter(|v| *v > 0.0)
-        .map(|prev| (latest - prev) / prev * 100.0);
-    (change_3m, change_1y)
+    // スナップショット数が時系列比較に必要な数を満たさない場合は None
+    let change_3m = if rows.len() >= MIN_SNAPSHOTS_FOR_3M {
+        rows.get(3)
+            .map(|r| get_f64(r, "total"))
+            .filter(|v| *v > 0.0)
+            .map(|prev| (latest - prev) / prev * 100.0)
+    } else {
+        None
+    };
+    let change_1y = if rows.len() >= MIN_SNAPSHOTS_FOR_1Y {
+        rows.get(12)
+            .map(|r| get_f64(r, "total"))
+            .filter(|v| *v > 0.0)
+            .map(|prev| (latest - prev) / prev * 100.0)
+    } else {
+        None
+    };
+    // サニティチェック: 暴走値（±200%超）/ NaN / Inf は ETL 初期ノイズとして除外
+    (
+        sanitize_change_pct(change_3m),
+        sanitize_change_pct(change_1y),
+    )
 }
 
 #[cfg(test)]
@@ -228,5 +281,73 @@ mod tests {
         assert_eq!(e.change_label_1y(), "緩やかに減少");
         e.posting_change_1y_pct = Some(-40.0);
         assert_eq!(e.change_label_1y(), "大きく減少");
+    }
+
+    // ========================================================
+    // D-2 監査 Q1.2 対応: sanitize_change_pct テスト群
+    // feedback_test_data_validation.md / feedback_reverse_proof_tests.md 準拠
+    // ========================================================
+
+    /// 暴走値 +374.3% は None になる（実観測された ETL 初期ノイズの再現）
+    #[test]
+    fn sanitize_rejects_374_percent_runaway_value() {
+        let result = sanitize_change_pct(Some(374.3));
+        assert_eq!(
+            result, None,
+            "+374.3% は ETL 初期ノイズとして None 化されるべき"
+        );
+    }
+
+    /// 暴走値 -90% も同様に None になる（しきい値 200% を超えないが、
+    /// 別の問題: ここでは 200% 以内なので Some として通すのが正解）
+    #[test]
+    fn sanitize_keeps_minus_90_percent_within_limit() {
+        // -90% は ±200% 以内なので Some のまま通す（市場崩壊的だが計算上は妥当範囲）
+        let result = sanitize_change_pct(Some(-90.0));
+        assert_eq!(result, Some(-90.0));
+    }
+
+    /// しきい値ちょうど 200% は通す
+    #[test]
+    fn sanitize_passes_exactly_200_percent() {
+        assert_eq!(sanitize_change_pct(Some(200.0)), Some(200.0));
+        assert_eq!(sanitize_change_pct(Some(-200.0)), Some(-200.0));
+    }
+
+    /// 200.01% は弾く
+    #[test]
+    fn sanitize_rejects_just_over_200_percent() {
+        assert_eq!(sanitize_change_pct(Some(200.01)), None);
+        assert_eq!(sanitize_change_pct(Some(-200.01)), None);
+    }
+
+    /// NaN / Inf は弾く
+    #[test]
+    fn sanitize_rejects_nan_and_inf() {
+        assert_eq!(sanitize_change_pct(Some(f64::NAN)), None);
+        assert_eq!(sanitize_change_pct(Some(f64::INFINITY)), None);
+        assert_eq!(sanitize_change_pct(Some(f64::NEG_INFINITY)), None);
+    }
+
+    /// 通常値（±15% 等）はそのまま通す
+    #[test]
+    fn sanitize_passes_normal_values() {
+        assert_eq!(sanitize_change_pct(Some(15.5)), Some(15.5));
+        assert_eq!(sanitize_change_pct(Some(-7.2)), Some(-7.2));
+        assert_eq!(sanitize_change_pct(Some(0.0)), Some(0.0));
+    }
+
+    /// None はそのまま None
+    #[test]
+    fn sanitize_none_passthrough() {
+        assert_eq!(sanitize_change_pct(None), None);
+    }
+
+    /// 定数値の妥当性検証: しきい値が 200, 最小スナップショットが 4/13
+    #[test]
+    fn constants_are_documented_values() {
+        assert_eq!(POSTING_CHANGE_SANITY_LIMIT, 200.0);
+        assert_eq!(MIN_SNAPSHOTS_FOR_3M, 4);
+        assert_eq!(MIN_SNAPSHOTS_FOR_1Y, 13);
     }
 }

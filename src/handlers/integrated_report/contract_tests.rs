@@ -319,3 +319,101 @@ async fn integrated_report_no_db_returns_minimal_error_page() {
     // それでも 1 つの <!DOCTYPE> ドキュメントとして返ってくる
     assert_eq!(html.matches("<!DOCTYPE html>").count(), 1);
 }
+
+// ========================================================
+// Fix-B 追加 (D-2 監査 Q4.4): 表紙スコープ注記の充実検証
+// feedback_hw_data_scope.md / feedback_correlation_not_causation.md 準拠
+// ========================================================
+
+#[tokio::test]
+async fn fixb_cover_has_explicit_hw_only_scope_warning() {
+    let (_tmp, db) = create_test_db();
+    let state = test_state(db);
+    let session = empty_session().await;
+
+    let q = IntegratedReportQuery {
+        prefecture: Some("東京都".to_string()),
+        municipality: Some("千代田区".to_string()),
+        logo_url: None,
+    };
+    let html = integrated_report(State(state), session, Query(q)).await.0;
+
+    // 表紙セクションの抽出（最初の </section> までが cover-page）
+    let cover_section = match html.split("class=\"cover-page\"").nth(1) {
+        Some(s) => match s.split("</section>").next() {
+            Some(c) => c,
+            None => panic!("cover-page section の終端が見つからない"),
+        },
+        None => panic!("cover-page section が見つからない"),
+    };
+
+    // 表紙にハローワーク限定スコープが明記されている
+    assert!(
+        cover_section.contains("ハローワーク"),
+        "表紙に「ハローワーク」が明記されているべき (D-2 Q4.4)"
+    );
+    // 民間求人サイトの除外を明記
+    assert!(
+        cover_section.contains("民間求人サイト") || cover_section.contains("Indeed"),
+        "表紙に民間求人サイト除外の明記が必須"
+    );
+    // 「全求人市場の代表ではない」旨
+    assert!(
+        cover_section.contains("全求人市場") || cover_section.contains("HW 限定"),
+        "表紙に全求人市場の代表ではない旨が必須"
+    );
+}
+
+#[tokio::test]
+async fn fixb_cover_has_filter_conditions_and_data_date() {
+    let (_tmp, db) = create_test_db();
+    let state = test_state(db);
+    let session = empty_session().await;
+
+    let q = IntegratedReportQuery {
+        prefecture: Some("東京都".to_string()),
+        municipality: Some("千代田区".to_string()),
+        logo_url: None,
+    };
+    let html = integrated_report(State(state), session, Query(q)).await.0;
+
+    // 表紙にデータ取得日 / フィルタ条件 / 対象期間
+    assert!(
+        html.contains("データ取得日"),
+        "表紙にデータ取得日が必須 (D-2 Q4.4)"
+    );
+    assert!(html.contains("フィルタ条件"), "表紙にフィルタ条件が必須");
+    assert!(html.contains("対象期間"), "表紙に対象期間が必須");
+    // フィルタ値が反映されていること
+    assert!(
+        html.contains("東京都") && html.contains("千代田区"),
+        "表紙にフィルタ値（pref/muni）が反映されているべき"
+    );
+}
+
+#[tokio::test]
+async fn fixb_each_chapter_has_hw_only_scope_banner() {
+    let (_tmp, db) = create_test_db();
+    let state = test_state(db);
+    let session = empty_session().await;
+
+    let q = IntegratedReportQuery {
+        prefecture: Some("東京都".to_string()),
+        municipality: Some("千代田区".to_string()),
+        logo_url: None,
+    };
+    let html = integrated_report(State(state), session, Query(q)).await.0;
+
+    // 各章ヘッダー直下に HW 限定スコープバナーが存在
+    let banner_count = html.matches("chapter-scope-banner").count();
+    assert!(
+        banner_count >= 3,
+        "各章 (第1-4章) にスコープバナーが必須。検出数: {}",
+        banner_count
+    );
+    // バナー内に必須キーワード
+    assert!(
+        html.contains("HW 限定スコープ"),
+        "章スコープバナーに「HW 限定スコープ」表記が必須"
+    );
+}

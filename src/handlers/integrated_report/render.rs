@@ -330,23 +330,50 @@ fn render_integrated_html(
     } else {
         html.push_str(r#"<div class="cover-logo">F-A-C 株式会社</div>"#);
     }
+    // 表紙のスコープ注記（D-2 監査 Q4.4 対応 / feedback_hw_data_scope.md 準拠）
+    //   - 「ハローワーク掲載求人」を太字で明記
+    //   - 民間求人サイトを含まない旨を明示（Indeed・求人ボックス等）
+    //   - データ取得日 / 対象期間 / フィルタ条件を表示（部分閲覧者対策）
+    //   - 因果関係を主張しない旨を明記（feedback_correlation_not_causation.md 準拠）
+    let pref_disp = if pref.is_empty() {
+        "全国".to_string()
+    } else {
+        pref.to_string()
+    };
+    let muni_disp = if muni.is_empty() {
+        "—（市区町村フィルタ未指定）".to_string()
+    } else {
+        muni.to_string()
+    };
     write!(
         html,
         r#"
 <div class="cover-title">採用市場 統合レポート</div>
 <div class="cover-sub">{loc} ／ 産業: {ind}</div>
 <div class="cover-sub" style="font-size:13px;color:#666">作成日: {today}</div>
-<div class="cover-confidential">
-    本レポートは <strong>ハローワーク掲載求人データ</strong> および公的統計（e-Stat / Agoop 人流）に基づきます。<br>
-    民間求人サイト（Indeed・マイナビ等）は含まれません。<br>
-    集計値は「傾向」を示すものであり、因果関係を主張するものではありません。
+<div class="cover-scope" style="margin-top:24px;font-size:12px;color:#1a1a2e;border:2px solid #c0392b;background:#fff5f5;padding:14px 20px;border-radius:6px;line-height:1.8;max-width:80%;text-align:left;">
+    <div style="font-weight:700;color:#c0392b;font-size:13px;margin-bottom:6px;">⚠ データスコープ（必読）</div>
+    本レポートは <strong>ハローワーク（HW）に掲載された求人</strong>のみを対象としています。<br>
+    <strong>民間求人サイト（Indeed・求人ボックス・マイナビ・リクナビ等）は含まれません。</strong><br>
+    したがって全求人市場の代表ではなく、HW 掲載求人を通じた採用活動に限定された分析です。
 </div>
-<div class="cover-footer-cov">機密情報 ／ 取扱注意</div>
+<div class="cover-meta" style="margin-top:14px;font-size:11px;color:#333;border:1px solid #ddd;background:#fafafa;padding:10px 16px;border-radius:6px;line-height:1.7;max-width:80%;text-align:left;">
+    <strong>フィルタ条件</strong>: 都道府県 = {pref_disp} ／ 市区町村 = {muni_disp} ／ 産業 = {ind}<br>
+    <strong>データ取得日</strong>: {today}（HW DB スナップショット時点）<br>
+    <strong>対象期間</strong>: HW 時系列は直近最大 14 ヶ月分の月次スナップショット
+</div>
+<div class="cover-confidential">
+    集計値はデータ間の「傾向」を示すものであり、因果関係を主張するものではありません。<br>
+    意思決定に当たっては、業界動向・経営戦略・労働関連法令等の外部要因も併せてご検討ください。
+</div>
+<div class="cover-footer-cov">機密情報 ／ 取扱注意 ／ HW 限定スコープ</div>
 </section>
 "#,
         loc = escape_html(&location),
         ind = escape_html(industry_label),
         today = escape_html(&today),
+        pref_disp = escape_html(&pref_disp),
+        muni_disp = escape_html(&muni_disp),
     )
     .unwrap();
 
@@ -456,8 +483,11 @@ fn render_integrated_html(
     html.push_str("</section>");
 
     // === 第 1 章: 採用診断 KPI ===
+    // 各章ヘッダーに「HW 限定スコープ」バナーを追加（部分閲覧者・PDF 抜粋への対策）
+    // feedback_hw_data_scope.md: 各画面で HW 限定であることを明示する
     html.push_str(r#"<div class="page-break"></div>"#);
     html.push_str(r#"<section class="report-page"><h1>第 1 章 採用診断（HW 求人 KPI）</h1>"#);
+    html.push_str(&render_chapter_scope_banner());
     write!(
         html,
         r#"<div class="subtitle">{loc} ／ 産業: {ind}</div>"#,
@@ -517,6 +547,7 @@ fn render_integrated_html(
     // === 第 2 章: 地域カルテ KPI ===
     html.push_str(r#"<div class="page-break"></div>"#);
     html.push_str(r#"<section class="report-page"><h1>第 2 章 地域カルテ（構造指標）</h1>"#);
+    html.push_str(&render_chapter_scope_banner());
     write!(
         html,
         r#"<div class="subtitle">{loc} の人口・労働・福祉 KPI</div>"#,
@@ -573,6 +604,7 @@ fn render_integrated_html(
     // === 第 3 章: So What 示唆（Forecast / Structural / Regional 全カテゴリ） ===
     html.push_str(r#"<div class="page-break"></div>"#);
     html.push_str(r#"<section class="report-page"><h1>第 3 章 So What 示唆</h1>"#);
+    html.push_str(&render_chapter_scope_banner());
     let categories = [
         (InsightCategory::Forecast, "将来予測"),
         (InsightCategory::StructuralContext, "構造的課題"),
@@ -604,6 +636,7 @@ fn render_integrated_html(
     if !action_proposals.is_empty() {
         html.push_str(r#"<div class="page-break"></div>"#);
         html.push_str(r#"<section class="report-page"><h1>第 4 章 推奨アクション</h1>"#);
+        html.push_str(&render_chapter_scope_banner());
         for a in &action_proposals {
             html.push_str(&render_insight_card(a));
         }
@@ -645,6 +678,17 @@ fn render_integrated_html(
 
     html.push_str("</body></html>");
     html
+}
+
+/// 各章ヘッダー直下に挿入する「HW 限定スコープ」バナー
+/// （feedback_hw_data_scope.md 準拠 / D-2 監査 Q4.4 対応）
+///
+/// PDF を章単位で抜粋共有された場合でも、ハローワーク掲載求人のみが対象である
+/// ことを必ず読者に提示するため、各章で繰り返し明示する。
+fn render_chapter_scope_banner() -> String {
+    r#"<div class="chapter-scope-banner" style="margin:6px 0 14px;padding:6px 12px;font-size:10px;color:#6b3a0a;background:#fffaf0;border-left:3px solid #c0392b;border-radius:3px;line-height:1.6;">
+        ⚠ <strong>HW 限定スコープ</strong>: 本章の数値はハローワーク掲載求人のみを対象とした参考値です。民間求人サイトは含まれません。集計値は傾向を示すものであり、因果関係を主張するものではありません。
+    </div>"#.to_string()
 }
 
 fn write_kpi_card(html: &mut String, label: &str, value: &str, unit: &str) {

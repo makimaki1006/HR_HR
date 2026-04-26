@@ -129,11 +129,13 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
     }
     html.push_str("</tbody></table>\n");
 
-    // 活用ポイント
+    // 活用ポイント（feedback_correlation_not_causation.md 準拠: 因果断定を避け「傾向」「観測」で表現）
     html.push_str(
         "<div class=\"note\">\
         <strong>活用ポイント:</strong> 167h=所定労働時間（8h×20.875日、厚労省「就業条件総合調査 2024」基準）で換算。\
-        最低賃金水準の求人は応募者が集まりにくい傾向。+10%以上の求人を優先検討すると効率的です。\
+        最低賃金水準の求人は応募者が集まりにくい傾向が観測されます。\
+        +10% 以上の求人は地域内で目立つ存在感を持つ傾向があり、応募状況や採用実績に応じて検討材料の 1 つになる可能性があります。\
+        ※ 給与水準と応募状況の関係は相関であり、因果関係を示すものではありません。\
     </div>\n",
     );
 
