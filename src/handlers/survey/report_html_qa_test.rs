@@ -1240,6 +1240,90 @@ fn p3_spec_9_13_no_print_class_for_ui_controls() {
 }
 
 // ============================================================
+// Fix-B 追加 (D-2 監査 / 2026-04-26): 逆因果文言修正の逆証明テスト
+// feedback_correlation_not_causation.md 準拠
+// ============================================================
+
+/// wage.rs: 旧文言「優先検討すると効率的」が出ない（因果断定の削除）
+/// + 新文言「目立つ存在感を持つ傾向」が出る
+#[test]
+fn fixb_wage_no_efficient_priority_phrasing() {
+    let html = render_full_html();
+    assert!(
+        !html.contains("優先検討すると効率的"),
+        "wage.rs: 因果断定文言「優先検討すると効率的」が残っている (feedback_correlation_not_causation.md 違反)"
+    );
+}
+
+#[test]
+fn fixb_wage_has_correlation_safe_phrasing() {
+    let html = render_full_html();
+    // 最低賃金セクションは agg.by_prefecture_salary に依存する
+    // minimal_agg() に存在するため出力されるはず
+    assert!(
+        html.contains("目立つ存在感を持つ傾向"),
+        "wage.rs: 新文言「目立つ存在感を持つ傾向」が見つからない"
+    );
+    assert!(
+        html.contains("因果関係を示すものではありません"),
+        "wage.rs: 因果断定回避文言が必須"
+    );
+}
+
+/// seeker.rs: 旧文言「給与水準が上昇傾向」が出ない（因果断定の削除）
+/// + 新文言「正の関連が観測」が出る
+#[test]
+fn fixb_seeker_no_salary_rising_trend_phrasing() {
+    let html = render_full_html();
+    assert!(
+        !html.contains("給与水準が上昇傾向"),
+        "seeker.rs: 因果断定文言「給与水準が上昇傾向」が残っている"
+    );
+}
+
+#[test]
+fn fixb_seeker_has_correlation_safe_phrasing() {
+    let html = render_full_html();
+    assert!(
+        html.contains("正の関連が観測"),
+        "seeker.rs: 新文言「正の関連が観測」が見つからない"
+    );
+    assert!(
+        html.contains("因果関係を主張するものでもありません"),
+        "seeker.rs: 因果断定回避文言が必須"
+    );
+}
+
+/// salesnow.rs: 旧文言「採用が活発な傾向」が出ない（因果断定の削除）
+/// + 新文言「採用活動が活発な可能性」が出る + 両方向解釈の注記
+#[test]
+fn fixb_salesnow_no_active_hiring_assertion() {
+    let html = render_full_html();
+    // 厳密な旧文言「採用が活発な傾向（相関であり、因果は別途検討）」が消えていること
+    assert!(
+        !html.contains("採用が活発な傾向（相関であり、因果は別途検討）"),
+        "salesnow.rs: 旧文言が残っている"
+    );
+}
+
+#[test]
+fn fixb_salesnow_has_two_way_interpretation() {
+    let html = render_full_html();
+    assert!(
+        html.contains("採用活動が活発な可能性"),
+        "salesnow.rs: 新文言「採用活動が活発な可能性」が見つからない"
+    );
+    assert!(
+        html.contains("採用が難航しているために HW にも掲載しているケース"),
+        "salesnow.rs: 両方向解釈の注記（逆方向ケース）が必須"
+    );
+    assert!(
+        html.contains("組織改編") || html.contains("統計粒度"),
+        "salesnow.rs: 印刷版に組織改編/統計粒度の揺らぎ注記が必要 (D-2 Q2.4 対応)"
+    );
+}
+
+// ============================================================
 // 付記: 機械検証不可能な手動確認項目
 // ============================================================
 //

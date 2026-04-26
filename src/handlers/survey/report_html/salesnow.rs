@@ -28,11 +28,18 @@ pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[
         "<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
     );
     html.push_str("<h2 id=\"region-featured-title\">地域注目企業</h2>\n");
+    // feedback_correlation_not_causation.md 準拠:
+    //   「HW多 = 採用活発」のような因果断定を避け、両方向の解釈余地を明示する。
+    //   採用困難ゆえに HW にも掲載しているケース（逆方向）も含まれることを注記。
+    // feedback_hw_data_scope.md 準拠:
+    //   組織改編・統計粒度の揺らぎを含む参考値であることを明示。
     html.push_str(
         "<p class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">\
         \u{203B} 地域内で従業員数の多い 30 社を整理しています。\
-        HW 掲載件数が多い法人は採用が活発な傾向（相関であり、因果は別途検討）。\
-        売上規模・人員推移も参考値として併記します。</p>\n",
+        HW 求人件数が多い法人は採用活動が活発な可能性がありますが、\
+        反対に採用が難航しているために HW にも掲載しているケースも含まれるため、両方向の解釈に注意してください。\
+        売上規模・人員推移は外部企業 DB 由来の参考値で、直近の組織改編や統計粒度による揺らぎを含む点にご留意ください。\
+        本セクションの数値は相関の観測であり、因果関係を主張するものではありません。</p>\n",
     );
     html.push_str("<table class=\"data-table\">\n");
     html.push_str("<thead><tr>");

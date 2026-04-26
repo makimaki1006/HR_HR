@@ -72,6 +72,15 @@ pub async fn competitors(
     let muni = q.municipality.clone();
     let pref_snap = prefecture.clone();
 
+    // industry_mapping の confidence サマリ（D-2 監査 Q2.5 対応）
+    let sn_db_clone = sn_db.clone();
+    let job_type_for_mapping = q.job_type.clone();
+    let (mapping_top_confidence, mapping_warning) = tokio::task::spawn_blocking(move || {
+        build_mapping_confidence_warning(&sn_db_clone, &job_type_for_mapping)
+    })
+    .await
+    .unwrap_or((None, None));
+
     let result = tokio::task::spawn_blocking(move || {
         build_competitors(&sn_db, hw_db.as_ref(), &job_type, &pref_snap, &muni, limit)
     })
@@ -87,6 +96,8 @@ pub async fn competitors(
         "companies": result,
         "top20_insight": top20_insight,
         "warning": hw_data_scope_warning(),
+        "mapping_confidence": mapping_top_confidence,
+        "mapping_warning": mapping_warning,
     }))
 }
 
@@ -131,21 +142,95 @@ pub(crate) fn build_competitors(
     companies
 }
 
-/// HW 職種 → SalesNow sn_industry マッピング取得
-fn fetch_sn_industries_for_job_type(sn_db: &TursoDb, job_type: &str) -> Vec<String> {
+/// industry_mapping の信頼度しきい値。これ未満は「精度低」とみなし UI で注記する。
+///
+/// D-2 監査 Q2.5 対応 / feedback_test_data_validation.md 準拠:
+///   v2_industry_mapping の confidence 列は SN industry ⇄ HW job_type の
+///   マッピング信頼度を 0.0-1.0 で持つ。0.7 未満のマッピングは
+///   「企業の実態（病院/介護法人など）に依存して誤マッチが起き得る」ため、
+///   UI で「※ マッピング精度低」注記を出す。
+pub(crate) const INDUSTRY_MAPPING_CONFIDENCE_THRESHOLD: f64 = 0.7;
+
+/// HW 職種 → SalesNow sn_industry マッピングの 1 エントリ
+#[derive(Debug, Clone)]
+pub(crate) struct IndustryMappingEntry {
+    pub sn_industry: String,
+    pub confidence: f64,
+}
+
+impl IndustryMappingEntry {
+    /// confidence が信頼度しきい値以上か
+    pub fn is_high_confidence(&self) -> bool {
+        self.confidence >= INDUSTRY_MAPPING_CONFIDENCE_THRESHOLD
+    }
+}
+
+/// HW 職種 → SalesNow sn_industry マッピング取得（confidence 付き）
+fn fetch_industry_mapping_entries(sn_db: &TursoDb, job_type: &str) -> Vec<IndustryMappingEntry> {
     if job_type.is_empty() {
         return vec![];
     }
-    let sql = "SELECT sn_industry FROM v2_industry_mapping WHERE hw_job_type = ?1 ORDER BY confidence DESC";
+    let sql = "SELECT sn_industry, confidence \
+               FROM v2_industry_mapping \
+               WHERE hw_job_type = ?1 \
+               ORDER BY confidence DESC";
     let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&job_type];
     match sn_db.query(sql, &params) {
         Ok(rows) => rows
             .iter()
-            .map(|r| get_str(r, "sn_industry"))
-            .filter(|s| !s.is_empty())
+            .map(|r| IndustryMappingEntry {
+                sn_industry: get_str(r, "sn_industry"),
+                confidence: get_f64(r, "confidence"),
+            })
+            .filter(|e| !e.sn_industry.is_empty())
             .collect(),
         Err(_) => vec![],
     }
+}
+
+/// HW 職種 → SalesNow sn_industry マッピング取得（後方互換: 名前のみ）
+fn fetch_sn_industries_for_job_type(sn_db: &TursoDb, job_type: &str) -> Vec<String> {
+    fetch_industry_mapping_entries(sn_db, job_type)
+        .into_iter()
+        .map(|e| e.sn_industry)
+        .collect()
+}
+
+/// 上位マッピングの信頼度サマリ（UI 注記用）
+///
+/// 戻り値: (top_confidence, low_confidence_warning)
+///   - top_confidence: トップマッピングの confidence。マッピングなしなら None。
+///   - low_confidence_warning: top_confidence < 0.7 のとき注記文を返す。
+pub(crate) fn build_mapping_confidence_warning(
+    sn_db: &TursoDb,
+    job_type: &str,
+) -> (Option<f64>, Option<String>) {
+    let entries = fetch_industry_mapping_entries(sn_db, job_type);
+    if entries.is_empty() {
+        return (
+            None,
+            Some(format!(
+                "⚠️ マッピング失敗: 職種「{}」に対応する SalesNow 業種が登録されていません。\
+                 unknown バケットとして集計します。",
+                job_type
+            )),
+        );
+    }
+    let top = &entries[0];
+    if !top.is_high_confidence() {
+        return (
+            Some(top.confidence),
+            Some(format!(
+                "※ マッピング精度低: 職種「{}」→ 業種「{}」の信頼度は {:.2}（しきい値 {:.2} 未満）。\
+                 企業の実態によっては別業種が正解の可能性があります。傾向値として参照してください。",
+                job_type,
+                top.sn_industry,
+                top.confidence,
+                INDUSTRY_MAPPING_CONFIDENCE_THRESHOLD
+            )),
+        );
+    }
+    (Some(top.confidence), None)
 }
 
 /// SalesNow 企業取得 (業種 × 都道府県 × 任意で市区町村)
@@ -336,6 +421,47 @@ mod tests {
         let msg = build_top20_insight(&[], "東京都", "医療");
         assert!(msg.contains("SalesNow 登録企業"));
         assert!(msg.contains("東京都"));
+    }
+
+    // ========================================================
+    // Fix-B (D-2 監査 Q2.5): industry_mapping 信頼度ロジックテスト
+    // feedback_test_data_validation.md 準拠
+    // ========================================================
+
+    #[test]
+    fn fixb_mapping_confidence_threshold_is_07() {
+        assert_eq!(
+            INDUSTRY_MAPPING_CONFIDENCE_THRESHOLD, 0.7,
+            "信頼度しきい値は 0.7 で固定 (D-2 Q2.5)"
+        );
+    }
+
+    #[test]
+    fn fixb_high_confidence_entry_passes() {
+        let e = IndustryMappingEntry {
+            sn_industry: "病院".into(),
+            confidence: 0.85,
+        };
+        assert!(e.is_high_confidence(), "0.85 は高信頼度として通る");
+    }
+
+    #[test]
+    fn fixb_low_confidence_entry_flagged() {
+        let e = IndustryMappingEntry {
+            sn_industry: "介護".into(),
+            confidence: 0.65,
+        };
+        assert!(!e.is_high_confidence(), "0.65 は低信頼度として UI 注記対象");
+    }
+
+    #[test]
+    fn fixb_threshold_boundary_inclusive() {
+        // しきい値ちょうど 0.7 は通る
+        let e = IndustryMappingEntry {
+            sn_industry: "医療".into(),
+            confidence: 0.7,
+        };
+        assert!(e.is_high_confidence(), "境界値 0.7 は高信頼度扱い");
     }
 
     #[test]

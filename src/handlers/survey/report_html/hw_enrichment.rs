@@ -53,14 +53,16 @@ pub(super) fn render_section_hw_enrichment(
     }
 
     // フォールバック: map が空または map に無いエントリ用に ctx からの単一値を用意
+    // 2026-04-26 監査 Q1.3: vacancy_rate (DB) は 0-1 比率で保存されているため、
+    //   VacancyRatePct::from_ratio() で % 単位に明示変換する。
     let (fallback_3m, fallback_1y) = compute_posting_change_from_ts(ctx);
-    let fallback_vacancy: Option<f64> = ctx
+    let fallback_vacancy: Option<crate::handlers::types::VacancyRatePct> = ctx
         .vacancy
         .iter()
         .find(|r| get_str_ref(r, "emp_group") == "正社員")
         .map(|r| get_f64(r, "vacancy_rate"))
         .filter(|v| *v > 0.0)
-        .map(|v| v * 100.0);
+        .map(crate::handlers::types::VacancyRatePct::from_ratio);
 
     let rows: Vec<(HwAreaEnrichment, usize)> = pairs
         .iter()
@@ -102,7 +104,7 @@ pub(super) fn render_section_hw_enrichment(
             "※ {} 正社員欠員補充率（求人理由が「欠員補充」の比率、外部統計 e-Stat 由来）は {:.1}%。\
              この値は都道府県粒度の単一値であり、市区町村別の差は反映していません。",
             escape_html(&rows.first().map(|(e, _)| e.prefecture.clone()).unwrap_or_default()),
-            vrate
+            vrate.as_f64()
         ));
         html.push_str("</div>\n");
     }
@@ -149,6 +151,11 @@ pub(super) fn render_section_hw_enrichment(
 
 /// ts_counts から posting_count 合計の 3m / 1y 変化率 (%) を算出
 /// 戻り値: (change_3m_pct, change_1y_pct)
+///
+/// D-2 監査 Q1.2 対応:
+/// - スナップショット数不足は None
+/// - |値| > 200% / NaN / Inf は ETL 初期ノイズとして None
+///   （`hw_enrichment::sanitize_change_pct` と同一ロジック）
 pub(super) fn compute_posting_change_from_ts(ctx: &InsightContext) -> (Option<f64>, Option<f64>) {
     if ctx.ts_counts.is_empty() {
         return (None, None);
@@ -196,7 +203,13 @@ pub(super) fn compute_posting_change_from_ts(ctx: &InsightContext) -> (Option<f6
     } else {
         None
     };
-    (change_3m, change_1y)
+    // 暴走値除去（fetch_pref_posting_changes と同一ポリシー）
+    // |値| > 200% / NaN / Inf は ETL 初期ノイズとして None
+    use super::super::hw_enrichment::sanitize_change_pct;
+    (
+        sanitize_change_pct(change_3m),
+        sanitize_change_pct(change_1y),
+    )
 }
 
 /// 比較カード: 媒体（CSV）の値とHW全体の値を並列表示し、差分を算出

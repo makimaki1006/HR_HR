@@ -123,7 +123,9 @@ pub(super) fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAna
             sign,
             format_man_yen(premium),
         ));
-        html.push_str("<p class=\"note\">※ 新着求人は市場の最新トレンドを反映しています。プラスなら給与水準が上昇傾向です。</p>\n");
+        // feedback_correlation_not_causation.md 準拠: 因果断定（「上昇傾向」）を避け、相関の観測表現に修正
+        html.push_str("<p class=\"note\">※ 新着求人と既存求人の給与水準の間に正の関連が観測される場合があります。\
+            ただし再掲載・採用失敗続き・繁忙期等の要因も含まれるため、給与の時系列的な上昇を断定するものではなく、因果関係を主張するものでもありません。</p>\n");
         html.push_str("</div>\n");
     }
 
