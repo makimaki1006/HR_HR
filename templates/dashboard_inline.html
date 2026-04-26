@@ -58,6 +58,8 @@
             </div>
         </div>
         <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
+            <button type="button" onclick="openIntegratedReport()" title="採用市場 統合PDFレポート（新しいタブで開く）"
+                class="px-2 py-1 bg-blue-700 hover:bg-blue-600 text-white text-xs rounded transition">📄 統合PDF</button>
             <button type="button" onclick="navigateToTab('/tab/guide')" title="使い方ガイド"
                 class="text-slate-400 hover:text-white text-sm transition p-1.5 rounded hover:bg-navy-700">?</button>
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
@@ -80,6 +82,8 @@
             onclick="setActiveTab(this)">総合診断</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/trend" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">トレンド</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/comparison" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)" title="47都道府県横断比較ビュー">都道府県比較</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">求人検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
@@ -657,6 +661,19 @@
             var isHidden = hidden[0].style.display === 'none' || hidden[0].style.display === '';
             hidden.forEach(function(el) { el.style.display = isHidden ? '' : 'none'; });
             if (btn) btn.textContent = isHidden ? '主要カラムのみ表示' : '全カラム表示';
+        }
+
+        // 統合PDFレポートを新しいタブで開く（現在のフィルタ条件を引き継ぐ）
+        function openIntegratedReport() {
+            var prefSel = document.getElementById('pref-select');
+            var muniSel = document.getElementById('muni-select');
+            var pref = prefSel ? prefSel.value : '';
+            var muni = muniSel ? muniSel.value : '';
+            var qs = [];
+            if (pref) qs.push('prefecture=' + encodeURIComponent(pref));
+            if (muni) qs.push('municipality=' + encodeURIComponent(muni));
+            var url = '/report/integrated' + (qs.length ? ('?' + qs.join('&')) : '');
+            window.open(url, '_blank', 'noopener,noreferrer');
         }
 
         // 総合診断レポートJSON出力

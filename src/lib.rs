@@ -246,6 +246,16 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/insight",
             get(handlers::insight::insight_report_html),
         )
+        // ======== P1-03: 統合 PDF レポート（採用コンサル A 決定打）========
+        .route(
+            "/report/integrated",
+            get(handlers::integrated_report::integrated_report),
+        )
+        // ======== P1-04: 47 都道府県横断比較ビュー（リサーチャー C 決定打）========
+        .route(
+            "/tab/comparison",
+            get(handlers::comparison::tab_comparison),
+        )
         .route("/tab/survey", get(handlers::survey::tab_survey))
         .route(
             "/api/survey/upload",
