@@ -36,12 +36,12 @@ pub fn resolve_table_by_year(year: i32) -> Result<&'static str, AggregateModeErr
 }
 
 /// 年別テーブルが最低1つ Turso 側で利用可能か（ローカルは has_flow_table に依存）
+///
+/// 設計意図: Turso 専用環境ではローカル table_exists が常に false になるため、
+/// 現状は常に true を返して Turso 側のクエリに委ねる。clippy `overly_complex_bool_expr`
+/// は意図的に許可（将来 Turso 直接 table_exists 実装時にローカル + Turso のブール判定に戻す予定）。
+#[allow(clippy::overly_complex_bool_expr)]
 fn any_mesh1km_table_exists(db: &Db) -> bool {
-    // Tursoのみ存在する場合はローカル table_exists が false になるが、
-    // query_turso_or_local が Turso を先に試すため、
-    // ここでは「全て無い」時だけ早期returnに使う用途。常に true を返してクエリ側に委ねる。
-    // ただし、完全オフライン（Turso 接続無し & ローカル DB にもテーブル無し）だと
-    // 無駄なクエリ発行が走るため、ローカル存在チェックだけは実施。
     table_exists(db, "v2_flow_mesh1km_2019")
         || table_exists(db, "v2_flow_mesh1km_2020")
         || table_exists(db, "v2_flow_mesh1km_2021")
