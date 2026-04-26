@@ -37,3 +37,26 @@ scripts/!compute_v2_*.py
 # Dev docs
 GAP_ANALYSIS.md
 STATUS.md
+
+# === E3 (2026-04-26) workspace hygiene ===
+
+# E2E test artifacts (auto-generated screenshots)
+*.png
+chart_verify*.png
+check_*.png
+d??_*.png
+# 例外: ドキュメント・ガイド用 PNG はコミット対象
+!docs/screenshots/*.png
+!static/guide/*.png
+
+# Test mocks (CSV upload tests)
+_*_mock.csv
+_sec_tmp/
+
+# Backups
+*.bak
+*.old
+
+# Coverage / lcov
+*.profraw
+target/llvm-cov/

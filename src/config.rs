@@ -43,12 +43,23 @@ pub struct AppConfig {
     pub audit_ip_salt: String,
     /// 管理者メールアドレス（カンマ区切り）。ログイン時に role=admin 付与
     pub admin_emails: Vec<String>,
+    /// 外部統計 Turso DB URL (空なら未設定扱い、監査と同パターン)
+    pub turso_external_url: String,
+    /// 外部統計 Turso DB 認証トークン
+    pub turso_external_token: String,
+    /// SalesNow Turso DB URL (空なら未設定扱い)
+    pub salesnow_turso_url: String,
+    /// SalesNow Turso DB 認証トークン
+    pub salesnow_turso_token: String,
 }
+
+/// AUDIT_IP_SALT のデフォルト値（本番未設定時に warn 警告を出す対象）
+pub(crate) const DEFAULT_AUDIT_IP_SALT: &str = "hellowork-default-salt";
 
 impl AppConfig {
     /// 環境変数から設定を読み込む
     pub fn from_env() -> Self {
-        Self {
+        let cfg = Self {
             port: env::var("PORT")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -104,14 +115,28 @@ impl AppConfig {
             audit_turso_url: env::var("AUDIT_TURSO_URL").unwrap_or_default(),
             audit_turso_token: env::var("AUDIT_TURSO_TOKEN").unwrap_or_default(),
             audit_ip_salt: env::var("AUDIT_IP_SALT")
-                .unwrap_or_else(|_| "hellowork-default-salt".to_string()),
+                .unwrap_or_else(|_| DEFAULT_AUDIT_IP_SALT.to_string()),
             admin_emails: env::var("ADMIN_EMAILS")
                 .unwrap_or_default()
                 .split(',')
                 .map(|s| s.trim().to_lowercase())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            turso_external_url: env::var("TURSO_EXTERNAL_URL").unwrap_or_default(),
+            turso_external_token: env::var("TURSO_EXTERNAL_TOKEN").unwrap_or_default(),
+            salesnow_turso_url: env::var("SALESNOW_TURSO_URL").unwrap_or_default(),
+            salesnow_turso_token: env::var("SALESNOW_TURSO_TOKEN").unwrap_or_default(),
+        };
+
+        // 起動時セキュリティ警告: AUDIT_IP_SALT がデフォルト値のまま本番運用されると
+        // レインボーテーブル攻撃で IP ハッシュが復元可能になるため、運用者に通知する
+        if cfg.audit_ip_salt == DEFAULT_AUDIT_IP_SALT {
+            tracing::warn!(
+                "AUDIT_IP_SALT がデフォルト値です。本番では必ず固有の salt を環境変数に設定してください（IP ハッシュのレインボーテーブル攻撃対策）"
+            );
         }
+
+        cfg
     }
 }
 
@@ -140,6 +165,10 @@ mod tests {
             "AUDIT_TURSO_TOKEN",
             "AUDIT_IP_SALT",
             "ADMIN_EMAILS",
+            "TURSO_EXTERNAL_URL",
+            "TURSO_EXTERNAL_TOKEN",
+            "SALESNOW_TURSO_URL",
+            "SALESNOW_TURSO_TOKEN",
         ] {
             env::remove_var(key);
         }
@@ -159,5 +188,36 @@ mod tests {
         clear_env();
         let config = AppConfig::from_env();
         assert_eq!(config.hellowork_db_path, "data/hellowork.db");
+    }
+
+    #[test]
+    fn test_turso_external_default_empty() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        let config = AppConfig::from_env();
+        assert_eq!(config.turso_external_url, "");
+        assert_eq!(config.turso_external_token, "");
+    }
+
+    #[test]
+    fn test_salesnow_turso_default_empty() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        let config = AppConfig::from_env();
+        assert_eq!(config.salesnow_turso_url, "");
+        assert_eq!(config.salesnow_turso_token, "");
+    }
+
+    #[test]
+    fn test_turso_external_from_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_env();
+        env::set_var("TURSO_EXTERNAL_URL", "libsql://example.turso.io");
+        env::set_var("TURSO_EXTERNAL_TOKEN", "tok123");
+        let config = AppConfig::from_env();
+        assert_eq!(config.turso_external_url, "libsql://example.turso.io");
+        assert_eq!(config.turso_external_token, "tok123");
+        env::remove_var("TURSO_EXTERNAL_URL");
+        env::remove_var("TURSO_EXTERNAL_TOKEN");
     }
 }
