@@ -252,10 +252,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::integrated_report::integrated_report),
         )
         // ======== P1-04: 47 都道府県横断比較ビュー（リサーチャー C 決定打）========
-        .route(
-            "/tab/comparison",
-            get(handlers::comparison::tab_comparison),
-        )
+        .route("/tab/comparison", get(handlers::comparison::tab_comparison))
         .route("/tab/survey", get(handlers::survey::tab_survey))
         .route(
             "/api/survey/upload",

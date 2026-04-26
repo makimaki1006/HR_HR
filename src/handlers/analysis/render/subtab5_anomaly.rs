@@ -7,14 +7,13 @@ use super::super::super::helpers::{
     cross_nav, escape_html, format_number, get_f64, get_i64, pct, pct_bar, truncate_str,
 };
 use super::super::fetch::*;
-use super::super::helpers::{get_str};
+use super::super::helpers::get_str;
 
 #[allow(dead_code)]
 type Db = crate::db::local_sqlite::LocalDb;
 #[allow(dead_code)]
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
-
 
 pub(crate) fn render_subtab_5(db: &Db, turso: Option<&TursoDb>, pref: &str, muni: &str) -> String {
     let anomaly = fetch_anomaly_data(db, pref, muni);
@@ -1942,7 +1941,11 @@ pub(super) fn render_land_price_section(data: &[Row], pref: &str) -> String {
     html
 }
 
-pub(super) fn render_regional_infra_section(car_data: &[Row], net_data: &[Row], pref: &str) -> String {
+pub(super) fn render_regional_infra_section(
+    car_data: &[Row],
+    net_data: &[Row],
+    pref: &str,
+) -> String {
     if car_data.is_empty() && net_data.is_empty() {
         return String::new();
     }

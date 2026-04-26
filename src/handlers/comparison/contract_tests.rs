@@ -107,7 +107,12 @@ async fn empty_session() -> Session {
 fn fetch_returns_exactly_47_prefectures() {
     let (_tmp, db) = create_test_db();
     let kpi = fetch_all_prefecture_kpi(&db, &[]);
-    assert_eq!(kpi.len(), 47, "must return all 47 prefectures, got {}", kpi.len());
+    assert_eq!(
+        kpi.len(),
+        47,
+        "must return all 47 prefectures, got {}",
+        kpi.len()
+    );
 }
 
 #[test]
@@ -224,7 +229,10 @@ async fn tab_comparison_returns_47_table_rows() {
     assert!(s.contains("5 件"), "must show 5 件 (Tokyo posting count)");
 
     // 北海道の正社員比率 1/2 = 50.0%
-    assert!(s.contains("50.0"), "must show 50.0% somewhere (Hokkaido seishain_ratio)");
+    assert!(
+        s.contains("50.0"),
+        "must show 50.0% somewhere (Hokkaido seishain_ratio)"
+    );
 }
 
 #[tokio::test]
@@ -258,7 +266,9 @@ async fn tab_comparison_sort_desc_actually_sorts_descending() {
         t_pos < h_pos,
         "東京都 (5件) must come before 北海道 (2件) in desc sort. \
          html positions tokyo={} hokkaido={} osaka={}",
-        tokyo_pos, hokkaido_pos, osaka_pos
+        tokyo_pos,
+        hokkaido_pos,
+        osaka_pos
     );
     assert!(
         h_pos < o_pos,
@@ -284,7 +294,10 @@ async fn tab_comparison_sort_asc_inverts_order() {
     let o_pos = table_part.find(r#">大阪府<"#).unwrap_or(usize::MAX);
 
     // 昇順なら 0件県が上に、東京都(5件) が後ろに
-    assert!(o_pos < t_pos, "ascending sort: 大阪府 must come before 東京都");
+    assert!(
+        o_pos < t_pos,
+        "ascending sort: 大阪府 must come before 東京都"
+    );
 }
 
 #[tokio::test]

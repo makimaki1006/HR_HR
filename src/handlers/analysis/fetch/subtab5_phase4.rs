@@ -10,7 +10,6 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
-
 pub(crate) fn fetch_anomaly_data(db: &Db, pref: &str, muni: &str) -> Vec<Row> {
     let cols = "emp_group, metric_name, total_count, anomaly_count, anomaly_rate, \
         avg_value, stddev_value, anomaly_high_count, anomaly_low_count";

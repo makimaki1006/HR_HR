@@ -5,13 +5,14 @@
 use super::super::super::company::fetch::NearbyCompany;
 use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::super::insight::fetch::InsightContext;
-use super::super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
+use super::super::aggregator::{
+    CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg,
+};
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
 
 use super::helpers::*;
-
 
 pub(super) fn render_section_region(html: &mut String, agg: &SurveyAggregation) {
     if agg.by_prefecture.is_empty() {

@@ -5,11 +5,12 @@
 use super::super::super::company::fetch::NearbyCompany;
 use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::super::insight::fetch::InsightContext;
-use super::super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
+use super::super::aggregator::{
+    CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg,
+};
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
-
 
 /// Severity表現（色 + 文字アイコン）。helpers.rs::Severity に1対1対応。
 #[derive(Clone, Copy)]
@@ -219,7 +220,10 @@ pub(super) fn build_histogram_echart_config(
 
 /// ヒストグラム用バケット集計
 /// 給与値配列をbin_size刻みでバケットに分類し、ラベル・件数・bin下端境界配列を返す
-pub(super) fn build_salary_histogram(values: &[i64], bin_size: i64) -> (Vec<String>, Vec<usize>, Vec<i64>) {
+pub(super) fn build_salary_histogram(
+    values: &[i64],
+    bin_size: i64,
+) -> (Vec<String>, Vec<usize>, Vec<i64>) {
     if values.is_empty() || bin_size <= 0 {
         return (vec![], vec![], vec![]);
     }

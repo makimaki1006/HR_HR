@@ -16,7 +16,6 @@ type TursoDb = crate::db::turso_http::TursoDb;
 #[allow(dead_code)]
 type Row = HashMap<String, Value>;
 
-
 pub(crate) fn fetch_foreign_residents(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         (

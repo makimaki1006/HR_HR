@@ -193,9 +193,14 @@ fn extract_kpi_summary(ctx: &crate::handlers::insight::fetch::InsightContext) ->
         .iter()
         .filter(|r| {
             let band = get_str_ref(r, "age_band");
-            band.starts_with("65") || band.starts_with("70") || band.starts_with("75")
-                || band.starts_with("80") || band.starts_with("85") || band.starts_with("90")
-                || band.starts_with("95") || band == "100歳以上"
+            band.starts_with("65")
+                || band.starts_with("70")
+                || band.starts_with("75")
+                || band.starts_with("80")
+                || band.starts_with("85")
+                || band.starts_with("90")
+                || band.starts_with("95")
+                || band == "100歳以上"
         })
         .map(|r| get_f64(r, "value"))
         .sum();
@@ -358,7 +363,12 @@ fn render_integrated_html(
 
     // KPI 6 枚
     html.push_str(r#"<h2>主要 KPI</h2><div class="kpi-grid">"#);
-    write_kpi_card(&mut html, "求人件数", &format_number(kpis.posting_count), "件");
+    write_kpi_card(
+        &mut html,
+        "求人件数",
+        &format_number(kpis.posting_count),
+        "件",
+    );
     write_kpi_card(
         &mut html,
         "正社員比率",
@@ -538,9 +548,7 @@ fn render_integrated_html(
         )
         .unwrap();
     } else {
-        html.push_str(
-            r#"<tr><td>失業率</td><td>未投入</td><td>SSDSE-A 労働力</td></tr>"#,
-        );
+        html.push_str(r#"<tr><td>失業率</td><td>未投入</td><td>SSDSE-A 労働力</td></tr>"#);
     }
     html.push_str("</tbody></table>");
 
