@@ -60,3 +60,7 @@ _sec_tmp/
 # Coverage / lcov
 *.profraw
 target/llvm-cov/
+
+# Python bytecode
+__pycache__/
+*.pyc
