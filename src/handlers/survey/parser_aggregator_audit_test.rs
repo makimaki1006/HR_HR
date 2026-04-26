@@ -123,16 +123,16 @@ fn alpha_real_indeed_decimal_man_exact() {
 }
 
 /// 実データ `日給 1.2万円 以上` — Daily 検出 + unified 変換
-/// 手計算:
+/// 手計算 (C-3 統一後):
 ///   base = 1.2 * 10_000 = 12_000 (円/日)
-///   unified_monthly = 12_000 * 21.7 = 260_400
+///   unified_monthly = 12_000 * 21.0 = 252_000
 #[test]
 fn alpha_real_indeed_daily_decimal_exact() {
     let r = parse_salary("日給 1.2万円 以上", SalaryType::Monthly);
     assert_eq!(r.salary_type, SalaryType::Daily, "日給キーワードで Daily");
     assert_eq!(r.min_value, Some(12_000));
-    // 12_000 * 21.7 = 260_400 (f64 → i64 キャスト)
-    assert_eq!(r.unified_monthly, Some(260_400));
+    // C-3 統一後: 12_000 * 21.0 = 252_000 (f64 → i64 キャスト)
+    assert_eq!(r.unified_monthly, Some(252_000));
 }
 
 /// `月給 22万円 ~ 29万円` (実データ典型)
@@ -163,14 +163,14 @@ fn alpha_annual_division_exact() {
 }
 
 /// 時給境界値 (信頼度範囲 800..=50_000)
-/// 手計算: 時給1500 → 1500 * 173.8 = 260_700
+/// 手計算 (C-3 統一後): 時給1500 → 1500 * 167 = 250_500
 #[test]
 fn alpha_hourly_unified_exact_computation() {
     let r = parse_salary("時給1500円", SalaryType::Monthly);
     assert_eq!(r.salary_type, SalaryType::Hourly);
     assert_eq!(r.min_value, Some(1_500));
-    // 1500 * 173.8 = 260_700.0 → i64 = 260_700
-    assert_eq!(r.unified_monthly, Some(260_700));
+    // C-3 統一後: 1500 * 167.0 = 250_500.0 → i64 = 250_500
+    assert_eq!(r.unified_monthly, Some(250_500));
 }
 
 /// 週給の変換 (仕様書通り):
@@ -594,14 +594,16 @@ fn alpha_is_hourly_exact_half_false() {
 #[test]
 fn alpha_salary_min_values_type_conversion_exact() {
     // Hourly: min=1500, max=2000 → 1500*167=250_500, 2000*167=334_000
+    // C-3 統一後: salary_parser も 167h なので unified_monthly = 250_500
     let mut hourly =
-        rec_with_salary_and_pref(Some("東京都"), None, Some(260_700), SalaryType::Hourly);
+        rec_with_salary_and_pref(Some("東京都"), None, Some(250_500), SalaryType::Hourly);
     hourly.salary_parsed.min_value = Some(1500);
     hourly.salary_parsed.max_value = Some(2000);
 
     // Daily: min=12000, max=15000 → 12000*21=252_000, 15000*21=315_000
+    // C-3 統一後: salary_parser も 21日 なので unified_monthly = 252_000
     let mut daily =
-        rec_with_salary_and_pref(Some("東京都"), None, Some(260_400), SalaryType::Daily);
+        rec_with_salary_and_pref(Some("東京都"), None, Some(252_000), SalaryType::Daily);
     daily.salary_parsed.min_value = Some(12_000);
     daily.salary_parsed.max_value = Some(15_000);
 
@@ -1086,7 +1088,8 @@ fn f1_weekly_to_monthly_conversion_specific_value() {
 #[test]
 fn f1_aggregate_by_emp_group_native_hourly_uses_167() {
     use super::aggregator::aggregate_by_emp_group_native;
-    let mut rec = rec_with_salary_and_pref(Some("東京都"), None, Some(260_700), SalaryType::Hourly);
+    // C-3 統一後: salary_parser も 167h なので unified_monthly = 1500 * 167 = 250_500
+    let mut rec = rec_with_salary_and_pref(Some("東京都"), None, Some(250_500), SalaryType::Hourly);
     rec.salary_parsed.min_value = Some(1_500);
     rec.employment_type = "パート".to_string();
 
@@ -1103,34 +1106,33 @@ fn f1_aggregate_by_emp_group_native_hourly_uses_167() {
     assert!(part_group.count > 0, "サンプル件数が正");
 }
 
-/// **F1 #2-6**: 月給 200,000 円の時給換算 (内部仕様)
-/// salary_parser::HOURLY_TO_MONTHLY (173.8) と aggregator::HOURLY_TO_MONTHLY_HOURS (167) の
-/// 不整合を逆証明。両者を統一するか別問題として認識する判断材料。
+/// **F1 #2-6 → C-3 統一 (2026-04-26)**: salary_parser と aggregator の 167h 統一の逆証明
 ///
-/// - salary_parser: 200_000 / 173.8 ≈ 1,150 円/h
-/// - aggregator:    200_000 / 167   = 1,197 円/h
-/// 47 円 (4%) のズレ。本タスク (P2 #14) は aggregator のみ修正、salary_parser は別途。
+/// **改名前** (F1 完了時): `f1_constant_inconsistency_between_parser_and_aggregator`
+/// 当時は parser=173.8h / aggregator=167h で 47 円差を意識的に許容するテストだった。
+///
+/// **C-3 統一後**: salary_parser::HOURLY_TO_MONTHLY を 167.0 に変更し、両者の換算結果を一致させた。
+/// 本テストは「両者の差が ±1 円以内 (整数除算切り捨て誤差のみ)」であることを検証する。
+///
+/// - salary_parser: 200_000 / 167.0 = 1,197.6 円/h (f64)
+/// - aggregator:    200_000 / 167   = 1,197 円/h (i64 切り捨て)
 #[test]
-fn f1_constant_inconsistency_between_parser_and_aggregator() {
+fn f1_consistent_173_to_167_migration() {
     use super::aggregator::HOURLY_TO_MONTHLY_HOURS;
-    // parser 側は f64 const で 173.8。直接インポートできないため値を再計算で確認。
-    // salary_parser::parse_salary("時給1500円", _) → unified_monthly = 260_700 = 1500 * 173.8
-    let parser_const: f64 = 260_700.0 / 1_500.0;
+    // parser 側は f64 const で 167.0。salary_parser::parse_salary("時給1500円", _) → 250_500
+    let parser_const: f64 = 250_500.0 / 1_500.0;
     assert!(
-        (parser_const - 173.8).abs() < 0.01,
-        "salary_parser::HOURLY_TO_MONTHLY は 173.8 (8h × 21.7日)"
+        (parser_const - 167.0).abs() < 0.01,
+        "C-3 統一後: salary_parser::HOURLY_TO_MONTHLY は 167.0 (旧 173.8)"
     );
-    // aggregator 側は 167 (8h × 20.875日 → 厚労省「就業条件総合調査 2024」)
+    // aggregator 側も 167
     assert_eq!(HOURLY_TO_MONTHLY_HOURS, 167);
-    // 不整合は意識的: 月給 200_000 で 47 円のズレ
+    // 統一後: 月給 200_000 円 の時給換算は両者で 1 円以内一致
     let parser_hourly = 200_000.0 / parser_const;
     let agg_hourly = 200_000_i64 / HOURLY_TO_MONTHLY_HOURS;
     let diff = (agg_hourly as f64 - parser_hourly).abs();
     assert!(
-        (40.0..60.0).contains(&diff),
-        "差は 40-60 円範囲: parser={} agg={} diff={}",
-        parser_hourly,
-        agg_hourly,
-        diff
+        diff < 1.5,
+        "C-3 統一後の差は 1 円未満 (整数除算誤差のみ): parser={parser_hourly} agg={agg_hourly} diff={diff}"
     );
 }

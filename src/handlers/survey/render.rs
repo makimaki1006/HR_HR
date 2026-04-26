@@ -393,7 +393,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
     )
     .unwrap();
 
-    html.push_str(r#"<p class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">月給換算は時給×173.8h/月、年俸÷12で統一。中央値は外れ値の影響を受けにくいため、平均より実勢に近い目安として推奨されます。</p>"#);
+    html.push_str(r#"<p class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">月給換算は時給×167h/月（厚労省「就業条件総合調査 2024」基準）、年俸÷12で統一。中央値は外れ値の影響を受けにくいため、平均より実勢に近い目安として推奨されます。</p>"#);
     html.push_str("</section>");
     html
 }

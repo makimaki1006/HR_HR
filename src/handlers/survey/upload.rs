@@ -530,56 +530,59 @@ pub fn detect_columns_from_data(
                 continue;
             }
 
+            // SAFETY (C-3): すべてのキーは line 513-523 で初期化済 → if let Some で防御的に
             // 勤務地スコア（都道府県パターン）
             let loc_score = score_location(val);
             if loc_score > 0 {
-                scores
-                    .get_mut("location")
-                    .unwrap()
-                    .push((col_idx, loc_score));
+                if let Some(v) = scores.get_mut("location") {
+                    v.push((col_idx, loc_score));
+                }
             }
 
             // 給与スコア
             let sal_score = score_salary(val);
             if sal_score > 0 {
-                scores.get_mut("salary").unwrap().push((col_idx, sal_score));
+                if let Some(v) = scores.get_mut("salary") {
+                    v.push((col_idx, sal_score));
+                }
             }
 
             // 会社名スコア
             let comp_score = score_company(val);
             if comp_score > 0 {
-                scores
-                    .get_mut("company_name")
-                    .unwrap()
-                    .push((col_idx, comp_score));
+                if let Some(v) = scores.get_mut("company_name") {
+                    v.push((col_idx, comp_score));
+                }
             }
 
             // URLスコア
             if val.starts_with("http") {
-                scores.get_mut("url").unwrap().push((col_idx, 100));
+                if let Some(v) = scores.get_mut("url") {
+                    v.push((col_idx, 100));
+                }
             }
 
             // 雇用形態スコア
             let emp_score = score_employment_type(val);
             if emp_score > 0 {
-                scores
-                    .get_mut("employment_type")
-                    .unwrap()
-                    .push((col_idx, emp_score));
+                if let Some(v) = scores.get_mut("employment_type") {
+                    v.push((col_idx, emp_score));
+                }
             }
 
             // 求人タイトルスコア
             let title_score = score_job_title(val);
             if title_score > 0 {
-                scores
-                    .get_mut("job_title")
-                    .unwrap()
-                    .push((col_idx, title_score));
+                if let Some(v) = scores.get_mut("job_title") {
+                    v.push((col_idx, title_score));
+                }
             }
 
             // 新着スコア
             if val.contains("新着") || val.contains("NEW") || val.contains("日前") {
-                scores.get_mut("is_new").unwrap().push((col_idx, 100));
+                if let Some(v) = scores.get_mut("is_new") {
+                    v.push((col_idx, 100));
+                }
             }
         }
     }
@@ -600,8 +603,11 @@ pub fn detect_columns_from_data(
     ] {
         let mut col_totals: std::collections::HashMap<usize, i32> =
             std::collections::HashMap::new();
-        for (col, score) in scores.get(key).unwrap() {
-            *col_totals.entry(*col).or_default() += score;
+        // SAFETY (C-3): static keys は上で初期化済。なくても空処理で続行
+        if let Some(score_list) = scores.get(key) {
+            for (col, score) in score_list {
+                *col_totals.entry(*col).or_default() += score;
+            }
         }
         if let Some((&best_col, &best_score)) = col_totals
             .iter()

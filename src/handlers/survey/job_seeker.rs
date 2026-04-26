@@ -67,7 +67,7 @@ fn analyze_salary_range_perception(records: &[SurveyRecord]) -> Option<SalaryRan
             if min_raw <= 0 || max_raw <= min_raw {
                 return None;
             }
-            // unified_monthlyで統一（年俸÷12、時給×173.8等の変換済み値を使用）
+            // unified_monthlyで統一（年俸÷12、時給×167等の変換済み値を使用、C-3 統一）
             let monthly = r.salary_parsed.unified_monthly?;
             if monthly <= 0 {
                 return None;

@@ -29,10 +29,13 @@ pub struct ParsedSalary {
 
 // ======== 変換レート ========
 
-// GASのSALARY_CONVERSION_RATES相当
-const HOURLY_TO_MONTHLY: f64 = 173.8; // 8h × 21.7日
-const DAILY_TO_MONTHLY: f64 = 21.7; // 月間勤務日数
-const WEEKLY_TO_MONTHLY: f64 = 4.33; // 月間週数
+// 厚労省「就業条件総合調査 2024」基準。aggregator.rs と統一済み (C-3, 2026-04-26)。
+// 旧値 (GAS 互換): HOURLY=173.8 (8h×21.7日), DAILY=21.7。GAS 互換性は V2 HW では要件外と判断し統一。
+// 月給換算は (時給 × 167) または (日給 × 21)、週給は ×4.33 (=52週/12月)。
+// 影響: 既存テストで一部期待値変更あり (リリースノート参照)。
+const HOURLY_TO_MONTHLY: f64 = 167.0; // 8h × 20.875日 (厚労省基準)
+const DAILY_TO_MONTHLY: f64 = 21.0; // 月間勤務日数 (20.875 切り上げ、aggregator と一致)
+const WEEKLY_TO_MONTHLY: f64 = 4.33; // 月間週数 (= 52週/12月、aggregator と一致)
 
 // ======== メインパース関数 ========
 
@@ -429,8 +432,8 @@ mod tests {
         let r = parse_salary("時給1200円", SalaryType::Monthly);
         assert_eq!(r.salary_type, SalaryType::Hourly);
         assert_eq!(r.min_value, Some(1_200));
-        // 1200 * 173.8 ≈ 208,560
-        assert!(r.unified_monthly.unwrap() > 200_000);
+        // C-3 統一後 (167h): 1200 * 167 = 200,400
+        assert_eq!(r.unified_monthly, Some(200_400));
     }
 
     #[test]
@@ -507,9 +510,8 @@ mod tests {
         let r = parse_salary("日給12000円", SalaryType::Monthly);
         assert_eq!(r.salary_type, SalaryType::Daily);
         assert_eq!(r.min_value, Some(12_000));
-        // 12000 * 21.7 ≈ 260,400
-        let m = r.unified_monthly.unwrap();
-        assert!(m > 250_000 && m < 270_000);
+        // C-3 統一後 (21日/月): 12000 * 21 = 252,000
+        assert_eq!(r.unified_monthly, Some(252_000));
     }
 
     #[test]
