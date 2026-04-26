@@ -42,6 +42,7 @@ fn empty_salary() -> ParsedSalary {
         unified_annual: None,
         range_category: None,
         confidence: 0.0,
+        bonus_months: None,
     }
 }
 

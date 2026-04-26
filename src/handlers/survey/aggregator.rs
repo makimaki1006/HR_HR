@@ -578,13 +578,14 @@ fn aggregate_records_core(
 
 /// 雇用形態グループ別にネイティブ単位で集計する
 ///
-/// グループ分類:
-/// - **正社員**: employment_type に "正社員" / "正職員" / "契約" / "業務委託" を含む
+/// グループ分類 (2026-04-26 Fix-A: `crate::handlers::emp_classifier::classify` に統一):
+/// - **正社員**: 「正社員」「正職員」(「以外」を含まない場合)
 ///   → 月給ベース (月給/年俸/日給は月給換算)
-/// - **パート**: "パート" / "アルバイト" / "派遣パート" を含む
+/// - **パート**: 「パート」「アルバイト」(派遣パート含む)
 ///   → 時給ベース (月給/日給は時給換算)
-/// - **派遣・その他**: 上記以外
-///   → グループ内の salary_type 多数派で動的決定
+/// - **派遣・その他**: 契約社員 / 業務委託 / 派遣 / 正社員以外 等
+///   → グループ内の salary_type **多数派 (件数同数なら月給優先)** で動的決定。
+///     完全に同件数の場合は salary_type 出現比率の多数派 (Hourly が過半数なら時給) を採用。
 pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNativeAgg> {
     use super::salary_parser::SalaryType;
     use std::collections::HashMap;
@@ -594,6 +595,8 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
         emp_types: HashMap<String, usize>,
         monthly_values: Vec<i64>,
         hourly_values: Vec<i64>,
+        // 派遣・その他グループの native_unit 動的決定用: 元レコードの salary_type 出現数
+        salary_type_counts: HashMap<&'static str, usize>,
     }
 
     let mut buckets: HashMap<&'static str, Bucket> = HashMap::new();
@@ -604,6 +607,14 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
         *bucket.emp_types.entry(emp.clone()).or_insert(0) += 1;
         if let Some(v) = record.salary_parsed.min_value {
             if v > 0 {
+                let stype_key = match record.salary_parsed.salary_type {
+                    SalaryType::Hourly => "hourly",
+                    SalaryType::Monthly => "monthly",
+                    SalaryType::Annual => "monthly",
+                    SalaryType::Daily => "monthly",
+                    SalaryType::Weekly => "monthly",
+                };
+                *bucket.salary_type_counts.entry(stype_key).or_insert(0) += 1;
                 match record.salary_parsed.salary_type {
                     SalaryType::Hourly => {
                         bucket.hourly_values.push(v);
@@ -637,12 +648,18 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
     let mut result: Vec<EmpGroupNativeAgg> = Vec::new();
     for (group_label, bucket) in buckets {
         // native_unit: グループに応じて自動選択
+        // 2026-04-26 Fix-A: 「派遣・その他」の判定を実 salary_type 出現数ベースに修正。
+        // 旧実装では monthly_values と hourly_values が常に同件数 (Hourly レコードでも両方 push)
+        // だったため `>` 比較が常に false → 常に「月給」選択という silent bug があった。
         let native_unit = match group_label {
             "正社員" => "月給",
             "パート" => "時給",
             _ => {
-                // 派遣・その他: monthly と hourly のうち件数多い方
-                if bucket.hourly_values.len() > bucket.monthly_values.len() {
+                // 派遣・その他: 元レコードの salary_type で「時給」が過半数なら時給、
+                //               同数 (タイ) は月給優先 (保守的)。
+                let h = *bucket.salary_type_counts.get("hourly").unwrap_or(&0);
+                let m = *bucket.salary_type_counts.get("monthly").unwrap_or(&0);
+                if h > m {
                     "時給"
                 } else {
                     "月給"
@@ -696,17 +713,22 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
 }
 
 /// 雇用形態文字列からグループラベルを判定
+///
+/// 2026-04-26 Fix-A: `crate::handlers::emp_classifier::classify` (EmpGroup) を
+/// 唯一の真実源として委譲する。旧実装では「契約」「業務委託」を **正社員** に分類
+/// していたが、これは経済的本質 (有期/報酬形態) と整合しない誤分類だった。
+/// 修正により契約社員・業務委託は「派遣・その他」グループへ。
+///
+/// 戻り値ラベル:
+/// - `"正社員"` (EmpGroup::Regular)
+/// - `"パート"` (EmpGroup::PartTime)
+/// - `"派遣・その他"` (EmpGroup::Other) — 表示は感性的に「派遣・その他」とする
 fn classify_emp_group_label(emp: &str) -> &'static str {
-    if emp.contains("パート") || emp.contains("アルバイト") {
-        "パート"
-    } else if emp.contains("正社員")
-        || emp.contains("正職員")
-        || emp.contains("契約")
-        || emp.contains("業務委託")
-    {
-        "正社員"
-    } else {
-        "派遣・その他"
+    use crate::handlers::emp_classifier::{classify, EmpGroup};
+    match classify(emp) {
+        EmpGroup::Regular => "正社員",
+        EmpGroup::PartTime => "パート",
+        EmpGroup::Other => "派遣・その他",
     }
 }
 
@@ -775,6 +797,7 @@ mod tests {
             unified_annual: None,
             range_category: None,
             confidence: 0.0,
+            bonus_months: None,
         }
     }
 
@@ -1279,5 +1302,144 @@ mod tests {
         assert_eq!(osaka.count, 2);
         assert_eq!(osaka.avg_salary, 260_000); // (250_000+270_000)/2
         assert_eq!(osaka.avg_min_salary, 220_000); // (200_000+240_000)/2
+    }
+
+    // =========================================================================
+    // 2026-04-26 Fix-A 雇用形態分類統一の逆証明テスト
+    // 修正前 (旧 classify_emp_group_label): 「契約」「業務委託」を含む文字列も「正社員」
+    //   グループに分類していた。
+    // 修正後 (crate::handlers::emp_classifier::classify): 契約社員/業務委託 → 「派遣・その他」
+    // 影響: 正社員月給バケットに混入していた契約社員/業務委託の固定報酬が分離され、
+    //   正社員グループの中央値・平均が経済的本質に整合した値になる。
+    // =========================================================================
+
+    fn rec_emp(emp: &str, salary: i64, salary_type: SalaryType) -> SurveyRecord {
+        mock_record(
+            "TestCo",
+            Some("東京都"),
+            Some("新宿区"),
+            Some(salary),
+            Some(salary),
+            Some(salary),
+            salary_type,
+            emp,
+            "",
+        )
+    }
+
+    #[test]
+    fn fixa_emp_group_contract_worker_routes_to_other_not_seishain() {
+        // 修正前: 契約社員 → 「正社員」グループに混入 (旧 classify_emp_group_label)
+        // 修正後: 契約社員 → 「派遣・その他」グループに分離
+        let records = vec![
+            rec_emp("正社員", 300_000, SalaryType::Monthly),
+            rec_emp("契約社員", 250_000, SalaryType::Monthly),
+        ];
+        let groups = aggregate_by_emp_group_native(&records);
+        let seishain = groups.iter().find(|g| g.group_label == "正社員");
+        let other = groups.iter().find(|g| g.group_label == "派遣・その他");
+        assert!(seishain.is_some(), "正社員グループ存在");
+        assert_eq!(
+            seishain.unwrap().count,
+            1,
+            "正社員グループは1件のみ (契約社員は混入しない)"
+        );
+        assert!(other.is_some(), "派遣・その他グループ存在");
+        assert_eq!(other.unwrap().count, 1, "契約社員1件 → 派遣・その他");
+        // 旧仕様逆証明: もし旧分類なら 正社員グループ count=2 / 平均 = (300k+250k)/2 = 275k
+        // 新分類: 正社員 count=1 / 平均 = 300k
+        assert_eq!(
+            seishain.unwrap().mean,
+            300_000,
+            "契約社員除外で正社員平均 = 300k (旧仕様の 275k ではない)"
+        );
+    }
+
+    #[test]
+    fn fixa_emp_group_gyomu_itaku_routes_to_other_not_seishain() {
+        // 修正前: 業務委託 → 「正社員」グループ (誤)
+        // 修正後: 業務委託 → 「派遣・その他」 (正)
+        let records = vec![
+            rec_emp("正社員", 300_000, SalaryType::Monthly),
+            rec_emp("業務委託", 800_000, SalaryType::Monthly), // 高額な業務委託報酬
+        ];
+        let groups = aggregate_by_emp_group_native(&records);
+        let seishain = groups.iter().find(|g| g.group_label == "正社員").unwrap();
+        let other = groups
+            .iter()
+            .find(|g| g.group_label == "派遣・その他")
+            .unwrap();
+        // 旧仕様: 正社員グループに業務委託 80万が混入 → 正社員平均 = (300k+800k)/2 = 550k
+        // 新仕様: 正社員 = 300k のみ / 業務委託は派遣・その他に
+        assert_eq!(seishain.count, 1);
+        assert_eq!(seishain.mean, 300_000);
+        assert_eq!(other.count, 1);
+        assert_eq!(other.mean, 800_000);
+    }
+
+    #[test]
+    fn fixa_emp_group_seishain_igai_routes_to_other() {
+        // 「正社員以外」 → emp_classifier では Other (修正前は contains("正社員") で Regular 誤分類)
+        let records = vec![rec_emp("正社員以外", 200_000, SalaryType::Monthly)];
+        let groups = aggregate_by_emp_group_native(&records);
+        assert!(groups.iter().any(|g| g.group_label == "派遣・その他"));
+        assert!(!groups.iter().any(|g| g.group_label == "正社員"));
+    }
+
+    #[test]
+    fn fixa_native_unit_other_group_majority_hourly_picks_jikyu() {
+        // 派遣・その他 グループで時給レコードが過半数 → native_unit = "時給"
+        // 修正前: monthly_values と hourly_values が常に同件数 (全レコードで両方 push) で
+        //         `>` 比較が false → 常に「月給」
+        // 修正後: salary_type_counts (元レコードベース) で動的決定
+        let records = vec![
+            rec_emp("派遣社員", 1500, SalaryType::Hourly),
+            rec_emp("派遣社員", 1600, SalaryType::Hourly),
+            rec_emp("派遣社員", 1700, SalaryType::Hourly),
+            rec_emp("派遣社員", 250_000, SalaryType::Monthly),
+        ];
+        let groups = aggregate_by_emp_group_native(&records);
+        let other = groups
+            .iter()
+            .find(|g| g.group_label == "派遣・その他")
+            .unwrap();
+        assert_eq!(
+            other.native_unit, "時給",
+            "時給3件 vs 月給1件 → 時給選択 (旧仕様: 常に月給)"
+        );
+    }
+
+    #[test]
+    fn fixa_native_unit_other_group_majority_monthly_picks_gekkyu() {
+        // 派遣・その他 グループで月給レコード過半数 → native_unit = "月給"
+        let records = vec![
+            rec_emp("派遣社員", 250_000, SalaryType::Monthly),
+            rec_emp("派遣社員", 260_000, SalaryType::Monthly),
+            rec_emp("派遣社員", 1500, SalaryType::Hourly),
+        ];
+        let groups = aggregate_by_emp_group_native(&records);
+        let other = groups
+            .iter()
+            .find(|g| g.group_label == "派遣・その他")
+            .unwrap();
+        assert_eq!(other.native_unit, "月給", "月給2件 vs 時給1件 → 月給選択");
+    }
+
+    #[test]
+    fn fixa_native_unit_other_group_tie_picks_gekkyu_conservative() {
+        // 件数同数 (タイ) → 月給を保守的に選択
+        // 修正前: 同数時の挙動が「monthly_values と hourly_values 同件数」で常に false → 月給
+        //         (期せずして同じ結果だが、ロジックは破綻していた)
+        // 修正後: 明示的に月給優先と仕様化
+        let records = vec![
+            rec_emp("派遣社員", 250_000, SalaryType::Monthly),
+            rec_emp("派遣社員", 1500, SalaryType::Hourly),
+        ];
+        let groups = aggregate_by_emp_group_native(&records);
+        let other = groups
+            .iter()
+            .find(|g| g.group_label == "派遣・その他")
+            .unwrap();
+        assert_eq!(other.native_unit, "月給", "タイは月給選択");
     }
 }

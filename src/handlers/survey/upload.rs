@@ -124,18 +124,69 @@ pub fn parse_csv_bytes(
     parse_csv_bytes_with_hints(data, context_pref, UserSourceHint::Auto)
 }
 
+/// CSV バイト列のエンコーディング検出 + UTF-8 への正規化
+///
+/// 2026-04-26 Fix-A: 媒体分析タブ CSV アップロードの文字化け対策。
+/// 検出順 (BOM 優先 → ヒューリスティック):
+/// 1. UTF-8 BOM (0xEF 0xBB 0xBF) → そのまま (BOM 除去)
+/// 2. UTF-16 LE BOM (0xFF 0xFE) → UTF-16LE デコード
+/// 3. UTF-16 BE BOM (0xFE 0xFF) → UTF-16BE デコード
+/// 4. UTF-8 として有効 → UTF-8 採用
+/// 5. Shift-JIS (CP932) として decode → 文字化け率 (U+FFFD) <= 5% なら採用
+/// 6. すべて失敗時は UTF-8 (lossy) で続行
+///
+/// # 戻り値
+/// 正規化後の UTF-8 バイト列 (Vec<u8>) と検出したエンコーディング名
+pub fn decode_csv_bytes(data: &[u8]) -> (Vec<u8>, &'static str) {
+    // 1. UTF-8 BOM
+    if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        return (data[3..].to_vec(), "UTF-8 (BOM)");
+    }
+    // 2. UTF-16 LE BOM
+    if data.starts_with(&[0xFF, 0xFE]) {
+        let (cow, _, _) = encoding_rs::UTF_16LE.decode(&data[2..]);
+        return (cow.into_owned().into_bytes(), "UTF-16LE");
+    }
+    // 3. UTF-16 BE BOM
+    if data.starts_with(&[0xFE, 0xFF]) {
+        let (cow, _, _) = encoding_rs::UTF_16BE.decode(&data[2..]);
+        return (cow.into_owned().into_bytes(), "UTF-16BE");
+    }
+    // 4. UTF-8 valid?
+    if std::str::from_utf8(data).is_ok() {
+        return (data.to_vec(), "UTF-8");
+    }
+    // 5. Shift-JIS (CP932 superset)
+    let (cow, _, had_errors) = encoding_rs::SHIFT_JIS.decode(data);
+    if !had_errors {
+        return (cow.into_owned().into_bytes(), "Shift-JIS");
+    }
+    // 文字化け率を測定: U+FFFD (\u{FFFD}) の比率が 5% 以下なら SJIS 採用
+    let total_chars = cow.chars().count().max(1);
+    let replacement_count = cow.chars().filter(|c| *c == '\u{FFFD}').count();
+    if (replacement_count as f64 / total_chars as f64) <= 0.05 {
+        return (
+            cow.into_owned().into_bytes(),
+            "Shift-JIS (with replacements)",
+        );
+    }
+    // 6. fallback: UTF-8 lossy
+    let utf8_lossy = String::from_utf8_lossy(data).into_owned();
+    (utf8_lossy.into_bytes(), "UTF-8 (lossy fallback)")
+}
+
 /// ソース媒体の明示指定ありバージョン
 pub fn parse_csv_bytes_with_hints(
     data: &[u8],
     context_pref: Option<&str>,
     source_hint: UserSourceHint,
 ) -> Result<Vec<SurveyRecord>, String> {
-    // BOM除去
-    let data = if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        &data[3..]
-    } else {
-        data
-    };
+    // 2026-04-26 Fix-A: BOM 検出 + Shift-JIS フォールバックで多エンコーディング対応
+    let (decoded, encoding_name) = decode_csv_bytes(data);
+    if encoding_name != "UTF-8" {
+        tracing::info!("CSV encoding detected: {}", encoding_name);
+    }
+    let data: &[u8] = &decoded;
 
     let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
@@ -160,16 +211,11 @@ pub fn parse_csv_bytes_with_hints(
 
     // ヘッダーマッチが不十分な場合、データ内容ベースの動的検出にフォールバック（GASのdetectColumnsAutomatically移植）
     if col_map.len() < 3 {
-        // サンプル行を先に読み取って動的検出
-        let data_bytes = if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            &data[3..]
-        } else {
-            data
-        };
+        // 2026-04-26 Fix-A: data はすでに decode_csv_bytes() で BOM 除去 + UTF-8 化済
         let mut sample_rdr = csv::ReaderBuilder::new()
             .flexible(true)
             .has_headers(true)
-            .from_reader(data_bytes);
+            .from_reader(data);
         let sample_rows: Vec<csv::StringRecord> = sample_rdr
             .records()
             .take(20)
@@ -191,6 +237,12 @@ pub fn parse_csv_bytes_with_hints(
     let mut records = Vec::new();
     let mut skipped_metadata = 0_usize;
     let mut skipped_incomplete = 0_usize;
+    // 2026-04-26 Fix-A: CSV 行レベル重複検出
+    // hash(job_title + company_name + location_raw + salary_raw + employment_type) で
+    // 完全一致行 (典型例: 同一求人を媒体内で複数日に渡って収集) を 1 件にまとめる。
+    // 注意: 異なる雇用形態 (正社員/パート) は別求人として扱うため key に含める。
+    let mut seen_row_hashes: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut duplicates_removed = 0_usize;
     for (idx, result) in rdr.records().enumerate() {
         let row = match result {
             Ok(r) => r,
@@ -327,6 +379,24 @@ pub fn parse_csv_bytes_with_hints(
         let location_parsed = parse_location(&location_raw, context_pref);
         let annual_holidays = extract_annual_holidays(&description);
 
+        // 2026-04-26 Fix-A: 行レベル重複検出
+        // employment_type を key に含めることで「正社員/パート」が別レコード扱いになる
+        // (V2 ルール: 同一施設の正社員/パートは別求人。MEMORY: feedback_dedup_rules)
+        {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            job_title.hash(&mut hasher);
+            company_name.hash(&mut hasher);
+            location_raw.hash(&mut hasher);
+            salary_raw.hash(&mut hasher);
+            employment_type.hash(&mut hasher);
+            let row_hash = hasher.finish();
+            if !seen_row_hashes.insert(row_hash) {
+                duplicates_removed += 1;
+                continue;
+            }
+        }
+
         records.push(SurveyRecord {
             row_index: idx,
             source: source.clone(),
@@ -346,10 +416,11 @@ pub fn parse_csv_bytes_with_hints(
     }
 
     tracing::info!(
-        "CSV parse: {} records accepted, {} metadata rows skipped, {} incomplete rows skipped",
+        "CSV parse: {} records accepted, {} metadata rows skipped, {} incomplete rows skipped, {} duplicates removed",
         records.len(),
         skipped_metadata,
-        skipped_incomplete
+        skipped_incomplete,
+        duplicates_removed
     );
 
     if records.is_empty() {
@@ -874,4 +945,109 @@ fn extract_annual_holidays(text: &str) -> Option<i64> {
     }
 
     None
+}
+
+// =============================================================================
+// 2026-04-26 Fix-A 逆証明テスト (Shift-JIS / UTF-8 BOM / 行レベル重複)
+// =============================================================================
+
+#[cfg(test)]
+mod fixa_upload_tests {
+    use super::*;
+
+    #[test]
+    fn fixa_decode_utf8_bom_strips_bom() {
+        // UTF-8 BOM 付きヘッダーが正しく除去される
+        let bytes = b"\xEF\xBB\xBF\xE6\x9C\x88\xE7\xB5\xA6"; // BOM + "月給"
+        let (out, name) = decode_csv_bytes(bytes);
+        assert_eq!(name, "UTF-8 (BOM)");
+        assert_eq!(String::from_utf8(out).unwrap(), "月給");
+    }
+
+    #[test]
+    fn fixa_decode_plain_utf8_passes_through() {
+        // BOM なし UTF-8 はそのまま
+        let bytes = "会社名,給与\nA,月給25万円".as_bytes();
+        let (out, name) = decode_csv_bytes(bytes);
+        assert_eq!(name, "UTF-8");
+        assert_eq!(out, bytes.to_vec());
+    }
+
+    #[test]
+    fn fixa_decode_shift_jis_excel_save() {
+        // 修正前: Shift-JIS バイト列 → csv crate が UTF-8 解釈失敗 → 全行 skip → records=0
+        // 修正後: SHIFT_JIS デコードで日本語が復元される
+        // 「会社名」(SJIS 6 bytes): 8E 51 8E 90 96 BC, 「月給」: 8C 8E 8B 8B
+        let sjis_bytes: &[u8] = &[
+            // "会社名,給与\n"
+            0x89, 0xEF, 0x8E, 0xD0, 0x96, 0xBC, 0x2C, 0x8B, 0x8B, 0x97, 0x5E, 0x0A,
+            // "A,月給25万円\n"
+            0x41, 0x2C, 0x8C, 0x8E, 0x8B, 0x8B, 0x32, 0x35, 0x96, 0x9C, 0x89, 0x7E, 0x0A,
+        ];
+        // UTF-8 として無効である事を逆証明 (lint 抑止: 意図的に不正 UTF-8 を扱う)
+        #[allow(invalid_from_utf8)]
+        let utf8_check = std::str::from_utf8(sjis_bytes);
+        assert!(utf8_check.is_err(), "fixture is non-UTF-8");
+        let (out, name) = decode_csv_bytes(sjis_bytes);
+        assert_eq!(name, "Shift-JIS");
+        let s = String::from_utf8(out).unwrap();
+        assert!(
+            s.contains("会社名") || s.contains("月給"),
+            "SJIS decode must contain Japanese: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn fixa_parse_csv_bytes_accepts_shift_jis() {
+        // 修正前: SJIS の CSV は records=0 で「CSVにデータ行がありません」エラー
+        // 修正後: 正しくパースされて records >= 1
+        // SJIS encoded CSV
+        let utf8_csv = "会社名,給与,雇用形態,勤務地\n株式会社A,月給25万円,正社員,東京都新宿区\n";
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode(utf8_csv);
+        let records = parse_csv_bytes(&sjis, None).expect("SJIS CSV parsed");
+        assert_eq!(
+            records.len(),
+            1,
+            "Shift-JIS CSV must produce 1 record (旧仕様: 0件で error)"
+        );
+        assert_eq!(records[0].company_name, "株式会社A");
+        assert_eq!(records[0].employment_type, "正社員");
+    }
+
+    #[test]
+    fn fixa_dedupe_removes_exact_duplicate_rows() {
+        // 修正前: 完全一致行が複数あれば全て records に追加 → 集計バイアス
+        // 修正後: hash(title+company+location+salary+emp_type) で 1 件にまとめる
+        let csv = "会社名,給与,雇用形態,勤務地,求人名\n\
+                   株式会社A,月給25万円,正社員,東京都新宿区,事務スタッフ\n\
+                   株式会社A,月給25万円,正社員,東京都新宿区,事務スタッフ\n\
+                   株式会社A,月給25万円,正社員,東京都新宿区,事務スタッフ\n";
+        let records = parse_csv_bytes(csv.as_bytes(), None).expect("parse");
+        assert_eq!(records.len(), 1, "3 件の完全重複は 1 件にまとめる");
+    }
+
+    #[test]
+    fn fixa_dedupe_keeps_different_employment_type_as_separate() {
+        // 同一会社・同一給与でも雇用形態が違えば別求人 (V2 ルール / MEMORY feedback_dedup_rules)
+        let csv = "会社名,給与,雇用形態,勤務地,求人名\n\
+                   株式会社A,月給25万円,正社員,東京都新宿区,事務\n\
+                   株式会社A,月給25万円,パート,東京都新宿区,事務\n";
+        let records = parse_csv_bytes(csv.as_bytes(), None).expect("parse");
+        assert_eq!(
+            records.len(),
+            2,
+            "正社員/パートは別レコード (employment_type を dedupe key に含む)"
+        );
+    }
+
+    #[test]
+    fn fixa_dedupe_keeps_different_location_as_separate() {
+        // 同一会社・同一給与でも勤務地が違えば別求人
+        let csv = "会社名,給与,雇用形態,勤務地,求人名\n\
+                   株式会社A,月給25万円,正社員,東京都新宿区,事務\n\
+                   株式会社A,月給25万円,正社員,東京都港区,事務\n";
+        let records = parse_csv_bytes(csv.as_bytes(), None).expect("parse");
+        assert_eq!(records.len(), 2, "勤務地違い → 別レコード");
+    }
 }
