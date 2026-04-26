@@ -76,13 +76,13 @@ pub(crate) fn render_subtab_structural(insights: &[Insight]) -> String {
 fn render_insight_list(title: &str, description: &str, insights: &[&Insight]) -> String {
     let mut html = String::with_capacity(4_000);
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="space-y-4">
         <div class="mb-4">
             <h3 class="text-lg font-semibold text-white">{title}</h3>
             <p class="text-xs text-slate-500">{description}</p>
         </div>"#
-    ));
+    ).unwrap();
 
     if insights.is_empty() {
         html.push_str(
@@ -110,7 +110,7 @@ fn render_insight_card(insight: &Insight) -> String {
     let badge = insight.severity.badge_class();
     let label = insight.severity.label();
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="rounded-lg border p-4 {bg}">
         <div class="flex items-start gap-3">
             <span class="px-2 py-0.5 rounded text-xs font-medium {badge}">{label}</span>
@@ -119,7 +119,7 @@ fn render_insight_card(insight: &Insight) -> String {
                 <p class="text-xs text-slate-300 mt-1">{body}</p>"#,
         title = escape_html(&insight.title),
         body = escape_html(&insight.body),
-    ));
+    ).unwrap();
 
     // エビデンス表示
     if !insight.evidence.is_empty() {
@@ -136,7 +136,7 @@ fn render_insight_card(insight: &Insight) -> String {
             } else {
                 format!("{:.2}{}", ev.value, ev.unit)
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="text-xs">
                     <span class="text-slate-500">{metric}:</span>
                     <span class="text-white font-mono">{value}</span>
@@ -145,7 +145,7 @@ fn render_insight_card(insight: &Insight) -> String {
                 metric = escape_html(&ev.metric),
                 value = escape_html(&formatted_value),
                 context = escape_html(&ev.context),
-            ));
+            ).unwrap();
         }
         html.push_str("</div>");
     }
@@ -160,16 +160,16 @@ fn render_insight_card(insight: &Insight) -> String {
                 "workstyle" => "雇用形態",
                 "analysis" => "分析",
                 "trend" => "トレンド",
-                "competitive" => "競合",
+                "competitive" => "求人検索",
                 "jobmap" => "地図",
                 "diagnostic" => "診断",
                 "insight" => "総合診断",
-                "survey" => "競合調査",
+                "survey" => "媒体分析",
                 _ => tab,
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<a class="text-xs text-blue-400/60 hover:text-blue-300 cursor-pointer" onclick="navigateToTab('/tab/{tab}')">{tab_label}→</a>"#
-            ));
+            ).unwrap();
         }
         html.push_str("</div>");
     }
@@ -215,7 +215,7 @@ pub(crate) fn render_insight_widget_html(insights: &[&Insight]) -> String {
     for insight in insights {
         let badge = insight.severity.badge_class();
         let label = insight.severity.label();
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2 p-2 rounded bg-slate-800/50">
                 <span class="px-1.5 py-0.5 rounded text-[10px] font-medium {badge} shrink-0">{label}</span>
                 <div class="min-w-0">
@@ -225,7 +225,7 @@ pub(crate) fn render_insight_widget_html(insights: &[&Insight]) -> String {
             </div>"#,
             title = escape_html(&insight.title),
             body = escape_html(&insight.body),
-        ));
+        ).unwrap();
     }
 
     // 総合診断タブへの誘導
@@ -239,6 +239,7 @@ pub(crate) fn render_insight_widget_html(insights: &[&Insight]) -> String {
 use super::super::helpers::{format_number, get_f64, get_i64, get_str_ref};
 use super::fetch::InsightContext;
 
+use std::fmt::Write as _;
 /// 完全なHTMLページとしてレポートを生成（/report/insight）
 /// 7ページ構成: サマリー/市場/将来/課題/地域/アクション/付録
 pub(crate) fn render_insight_report_page(
@@ -470,7 +471,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     let top_findings = super::report::extract_top_findings(insights);
 
     // ===== 表紙ページ =====
-    html.push_str(&format!(
+    write!(html,
         r#"<section class="cover-page" role="region" aria-labelledby="cover-title-id">
 <div class="cover-title" id="cover-title-id">ハローワーク求人市場 総合診断レポート</div>
 <div class="cover-sub">{location} &nbsp;|&nbsp; {today}</div>
@@ -484,17 +485,17 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         gcolor = grade.color,
         gletter = grade.letter,
         glabel = grade.label,
-    ));
+    ).unwrap();
 
     // ===== Page 1: エグゼクティブサマリー =====
     // タイトルは cover-page に出力済み、本文冒頭ではサブタイトル（地域+日付）のみ表示
     html.push_str("<section class=\"report-page\">");
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="subtitle" style="font-size:14px;margin-bottom:12px;">{location} | {today}</div>"#
-    ));
+    ).unwrap();
 
     // 採用困難度グレード（大きく表示）
-    html.push_str(&format!(
+    write!(html,
         "<div class=\"grade-box\" style=\"border-color:{color}\">
             <div class=\"grade-circle\" style=\"background:{color}\">{letter}</div>
             <div class=\"grade-detail\">
@@ -506,13 +507,13 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         letter = grade.letter,
         label = grade.label,
         summary = escape_html(&summary),
-    ));
+    ).unwrap();
 
     // Top3発見
     if !top_findings.is_empty() {
         html.push_str("<h2>主な発見</h2><ol class=\"findings-list\">");
         for f in &top_findings {
-            html.push_str(&format!("<li>{}</li>", escape_html(f)));
+            write!(html, "<li>{}</li>", escape_html(f)).unwrap();
         }
         html.push_str("</ol>");
     }
@@ -527,11 +528,11 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         html.push_str("<h2>推奨アクション</h2><ol class=\"findings-list\">");
         for a in &actions {
             let so_what = super::report::generate_so_what(a);
-            html.push_str(&format!(
+            write!(html,
                 "<li><strong>{}</strong> {}</li>",
                 escape_html(&a.title),
                 escape_html(&so_what)
-            ));
+            ).unwrap();
         }
         html.push_str("</ol>");
     }
@@ -574,7 +575,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     };
     report_kpi(
         &mut html,
-        "欠員率(正社員)",
+        "欠員補充率(正社員)",
         &format!("{:.1}%", vacancy_rate * 100.0),
         vr_color,
         vr_sub,
@@ -638,28 +639,28 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     // 示唆サマリーバッジ
     html.push_str(r#"<div class="badge-row">"#);
     if critical > 0 {
-        html.push_str(&format!(
+        write!(html,
             r#"<span class="badge badge-critical">重大 {}件</span>"#,
             critical
-        ));
+        ).unwrap();
     }
     if warning > 0 {
-        html.push_str(&format!(
+        write!(html,
             r#"<span class="badge badge-warning">注意 {}件</span>"#,
             warning
-        ));
+        ).unwrap();
     }
     if info > 0 {
-        html.push_str(&format!(
+        write!(html,
             r#"<span class="badge badge-info">情報 {}件</span>"#,
             info
-        ));
+        ).unwrap();
     }
     if positive > 0 {
-        html.push_str(&format!(
+        write!(html,
             r#"<span class="badge badge-positive">良好 {}件</span>"#,
             positive
-        ));
+        ).unwrap();
     }
     html.push_str("</div>");
 
@@ -680,19 +681,19 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         html.push_str(r#"<h2>通勤フロー（国勢調査実データ）</h2>"#);
         html.push_str(r#"<table class="sortable-table flow-table"><thead><tr><th>流入元</th><th>通勤者数</th></tr></thead><tbody>"#);
         for (p, m, c) in &ctx.commute_inflow_top3 {
-            html.push_str(&format!(
+            write!(html,
                 "<tr><td>{}{}</td><td style=\"text-align:right\">{}</td></tr>",
                 escape_html(p),
                 escape_html(m),
                 format_number(*c)
-            ));
+            ).unwrap();
         }
         html.push_str("</tbody></table>");
         if ctx.commute_self_rate > 0.0 {
-            html.push_str(&format!(
+            write!(html,
                 r#"<div style="font-size:9px;color:#888;margin-top:4px">地元就業率: {:.1}%</div>"#,
                 ctx.commute_self_rate * 100.0
-            ));
+            ).unwrap();
         }
     }
 
@@ -742,12 +743,12 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         let interp = super::report::interpret_industry_chart(&salary_data);
         html.push_str("<div class=\"chart-box no-break\">");
         html.push_str("<h3>産業別求人数（正社員 Top10）</h3>");
-        html.push_str(&format!("<div class=\"report-chart\" style=\"width:100%;height:280px;\" data-chart-config='{}'></div>", chart_json));
+        write!(html, "<div class=\"report-chart\" style=\"width:100%;height:280px;\" data-chart-config='{}'></div>", chart_json).unwrap();
         if !interp.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 "<div class=\"chart-interp\">{}</div>",
                 escape_html(&interp)
-            ));
+            ).unwrap();
         }
         html.push_str("</div>");
     }
@@ -788,13 +789,13 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 
         html.push_str("<div class=\"chart-box no-break\" style=\"margin-top:16px\">");
         html.push_str("<h3>人口ピラミッド（性別×年齢）</h3>");
-        html.push_str(&format!("<div class=\"report-chart\" style=\"width:100%;height:400px;\" data-chart-config='{}'></div>", pyramid_json));
+        write!(html, "<div class=\"report-chart\" style=\"width:100%;height:400px;\" data-chart-config='{}'></div>", pyramid_json).unwrap();
         let pyramid_interp = super::report::interpret_pyramid(&ctx.ext_pyramid);
         if !pyramid_interp.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 "<div class=\"chart-interp\">{}</div>",
                 escape_html(&pyramid_interp)
-            ));
+            ).unwrap();
         }
         html.push_str(
             "<div style=\"font-size:8px;color:#999;margin-top:4px\">※外部統計データ(SSDSE-A)</div>",
@@ -825,12 +826,12 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         );
         html.push_str(r#"<table class="sortable-table flow-table"><thead><tr><th>流入元</th><th>通勤者数</th><th>男性</th><th>女性</th></tr></thead><tbody>"#);
         for (p, m, c) in &ctx.commute_inflow_top3 {
-            html.push_str(&format!(
+            write!(html,
                 "<tr><td>{}{}</td><td style=\"text-align:right\">{}</td><td></td><td></td></tr>",
                 escape_html(p),
                 escape_html(m),
                 format_number(*c)
-            ));
+            ).unwrap();
         }
         html.push_str("</tbody></table></div>");
 
@@ -916,11 +917,11 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 
         // 章ごとに独立したsection（印刷ページ分割）
         html.push_str("<section class=\"report-page\">");
-        html.push_str(&format!(r#"<h2>{title}</h2>"#));
-        html.push_str(&format!(
+        write!(html, r#"<h2>{title}</h2>"#).unwrap();
+        write!(html,
             "<div class=\"section-question\">{}</div>",
             chapter_questions[idx]
-        ));
+        ).unwrap();
         html.push_str(r#"<div class="guide-grid">
 <div class="guide-item"><strong>重大</strong>早急な対応が必要な課題。放置すると採用難が深刻化する可能性。</div>
 <div class="guide-item"><strong>注意</strong>モニタリングが必要な項目。トレンド次第で重大化。</div>
@@ -930,16 +931,16 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 
         // 章ナラティブ（具体数値入り）
         let narrative = super::report::generate_chapter_narrative(cat, &filtered, ctx);
-        html.push_str(&format!(
+        write!(html,
             "<div class=\"narrative\">{}</div>",
             escape_html(&narrative)
-        ));
+        ).unwrap();
 
         for (card_idx, insight) in filtered.iter().enumerate() {
             // 5件ごとにpage-break挿入
             if card_idx > 0 && card_idx % 5 == 0 {
                 html.push_str("</section><section class=\"report-page\">");
-                html.push_str(&format!("<h2>{title}（続き）</h2>"));
+                write!(html, "<h2>{title}（続き）</h2>").unwrap();
             }
 
             let cls = match insight.severity {
@@ -948,60 +949,60 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
                 Severity::Info => "info",
                 Severity::Positive => "positive",
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="insight-card {cls} no-break">
                     <div class="insight-title">[{}] {}</div>"#,
                 escape_html(insight.severity.label()),
                 escape_html(&insight.title),
-            ));
+            ).unwrap();
 
             // severity別の表示量制御
             match insight.severity {
                 Severity::Critical | Severity::Warning => {
                     // 全項目表示
-                    html.push_str(&format!(
+                    write!(html,
                         r#"<div class="insight-body">{}</div>"#,
                         escape_html(&insight.body),
-                    ));
+                    ).unwrap();
                     if !insight.evidence.is_empty() {
                         let ev_text: Vec<String> = insight
                             .evidence
                             .iter()
                             .map(|e| format!("{}: {}", e.metric, e.context))
                             .collect();
-                        html.push_str(&format!(
+                        write!(html,
                             r#"<div class="evidence">{}</div>"#,
                             escape_html(&ev_text.join(" | "))
-                        ));
+                        ).unwrap();
                     }
                     let so_what = super::report::generate_so_what(insight);
                     if !so_what.is_empty() {
-                        html.push_str(&format!(
+                        write!(html,
                             r#"<div class="so-what">{}</div>"#,
                             escape_html(&so_what)
-                        ));
+                        ).unwrap();
                     }
                 }
                 Severity::Info => {
                     // 本文のみ（evidence非表示）
-                    html.push_str(&format!(
+                    write!(html,
                         r#"<div class="insight-body" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{}</div>"#,
                         escape_html(&insight.body),
-                    ));
+                    ).unwrap();
                     let so_what = super::report::generate_so_what(insight);
                     if !so_what.is_empty() {
-                        html.push_str(&format!(
+                        write!(html,
                             r#"<div class="so-what">{}</div>"#,
                             escape_html(&so_what)
-                        ));
+                        ).unwrap();
                     }
                 }
                 Severity::Positive => {
                     // 本文1行のみ（so-what/evidence非表示）
-                    html.push_str(&format!(
+                    write!(html,
                         r#"<div class="insight-body" style="display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden">{}</div>"#,
                         escape_html(&insight.body),
-                    ));
+                    ).unwrap();
                 }
             }
             html.push_str("</div>");
@@ -1021,14 +1022,14 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     html.push_str("</section>"); // End notes page
 
     // ===== 画面用フッター =====
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="screen-footer no-print">
 <span>F-A-C株式会社 | ハローワーク求人データ分析レポート</span>
 <span>生成日時: {today}</span>
 </div>
 "#,
         today = escape_html(&today)
-    ));
+    ).unwrap();
 
     // ECharts初期化スクリプト（SVGレンダラー + 印刷/リサイズ対応）
     html.push_str(r#"<script>
@@ -1111,19 +1112,19 @@ document.addEventListener('DOMContentLoaded', initSortableTables);
 }
 
 fn report_metric(html: &mut String, label: &str, value: &str) {
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="metric-row"><span class="metric-label">{label}</span><span class="metric-value">{value}</span></div>"#
-    ));
+    ).unwrap();
 }
 
 fn report_kpi(html: &mut String, label: &str, value: &str, color: &str, subtitle: &str) {
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="kpi-card no-break">
             <div class="kpi-value" style="color:{color}">{value}</div>
             <div class="kpi-label">{label}</div>"#
-    ));
+    ).unwrap();
     if !subtitle.is_empty() {
-        html.push_str(&format!(r#"<div class="kpi-subtitle">{subtitle}</div>"#));
+        write!(html, r#"<div class="kpi-subtitle">{subtitle}</div>"#).unwrap();
     }
     html.push_str("</div>");
 }
@@ -1203,10 +1204,10 @@ fn render_regional_economy_section(html: &mut String, ctx: &InsightContext) {
             html.push_str("<h3>産業別事業所数 TOP10</h3>");
             html.push_str(&render_echarts_div(&chart.to_string(), 320));
             let total: i64 = top.iter().map(|(_, v)| *v).sum();
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="chart-interp">TOP10合計: {}件。事業所数が多い産業は雇用の受け皿となるが、同時に採用競合も多い。</div>"#,
                 format_number(total)
-            ));
+            ).unwrap();
             html.push_str("</div>");
         }
     }
@@ -1265,10 +1266,10 @@ fn render_regional_economy_section(html: &mut String, ctx: &InsightContext) {
                     latest_open, latest_close
                 )
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="chart-interp">{}</div>"#,
                 escape_html(&interp)
-            ));
+            ).unwrap();
             html.push_str("</div>");
         }
     }
@@ -1328,10 +1329,10 @@ fn render_regional_economy_section(html: &mut String, ctx: &InsightContext) {
             } else {
                 "人口移動は均衡。地域内の労働力供給が中心。".to_string()
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="chart-interp">{}</div>"#,
                 escape_html(&interp)
-            ));
+            ).unwrap();
             html.push_str("</div>");
         }
     }
@@ -1378,10 +1379,10 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
 
         if total_facilities > 0 || pop_65 > 0 {
             html.push_str(r#"<div class="chart-box no-break">"#);
-            html.push_str(&format!(
+            write!(html,
                 r#"<h3>介護需要（{}年度）</h3>"#,
                 escape_html(year)
-            ));
+            ).unwrap();
             html.push_str(r#"<div class="two-col">"#);
 
             // 左: 施設数
@@ -1457,10 +1458,10 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
             } else {
                 "介護需要の参考データ。施設数と人口規模から市場規模を把握。"
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="chart-interp">{}</div>"#,
                 escape_html(interp)
-            ));
+            ).unwrap();
             html.push_str("</div>");
         }
     }
@@ -1475,10 +1476,10 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
 
         if snow_days > 0.0 || sunshine > 0.0 || avg_temp.abs() > 0.01 {
             html.push_str(r#"<div class="chart-box no-break">"#);
-            html.push_str(&format!(
+            write!(html,
                 r#"<h3>気象条件（{}年度・地域特性理解）</h3>"#,
                 escape_html(year)
-            ));
+            ).unwrap();
             html.push_str(r#"<div class="kpi-grid">"#);
             if avg_temp.abs() > 0.01 {
                 report_kpi(
@@ -1538,10 +1539,10 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
             } else {
                 "気候条件による通勤制約は限定的。広域採用が設計しやすい。"
             };
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="chart-interp">{}</div>"#,
                 escape_html(interp)
-            ));
+            ).unwrap();
             html.push_str("</div>");
         }
     }
@@ -1585,10 +1586,10 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
             html.push_str("<div class=\"chart-box no-break\">");
             html.push_str("<h3>家計支出（カテゴリ別月額構成比）</h3>");
             html.push_str(&render_echarts_div(&chart.to_string(), 280));
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="chart-interp">月額合計: 約{}円。支出構成は地域の生活コスト水準を示し、賃金設計の基準となる。</div>"#,
                 format_number(total as i64)
-            ));
+            ).unwrap();
             html.push_str("</div>");
         }
     }

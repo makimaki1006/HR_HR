@@ -21,7 +21,7 @@ pub struct BulkCsvQuery {
     pub corps: String,
 }
 
-/// タブ: 企業分析（検索ボックスを表示）
+/// タブ: 企業検索（検索ボックスを表示）
 pub async fn tab_company(State(_state): State<Arc<AppState>>, _session: Session) -> Html<String> {
     Html(render::render_search_page())
 }

@@ -6,6 +6,7 @@ use super::fetch::{CompStats, PostingRow, SalaryStats};
 use super::utils::{escape_html, truncate_str};
 use crate::handlers::overview::format_number;
 
+use std::fmt::Write as _;
 /// 同一施設の重複求人をグルーピング（施設名+職種+雇用形態+給与でdedup）
 fn dedup_postings(postings: &[PostingRow]) -> Vec<(PostingRow, usize)> {
     let mut seen: HashMap<String, usize> = HashMap::new();
@@ -26,7 +27,7 @@ fn dedup_postings(postings: &[PostingRow]) -> Vec<(PostingRow, usize)> {
     result
 }
 
-/// 競合調査タブの初期HTML
+/// 求人検索タブの初期HTML
 pub(crate) fn render_competitive(
     job_type: &str,
     stats: &CompStats,
@@ -77,14 +78,14 @@ pub(crate) fn render_competitive(
                 let raw = jt.replace('"', "&quot;");
                 let disp = escape_html(jt);
                 let cnt_s = format_number(*cnt);
-                html.push_str(&format!(
+                write!(html,
                     r#"<label class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded cursor-pointer">
                         <input type="checkbox" class="ftype-major-cb rounded" value="{raw}" data-group="g{i}"
                             onchange="onMajorToggle(this)">
                         <span class="text-sm text-white flex-1">{disp}</span>
                         <span class="text-xs text-slate-400">{cnt_s}</span>
                     </label>"#,
-                ));
+                ).unwrap();
             }
             html
         })
@@ -94,9 +95,9 @@ pub(crate) fn render_competitive(
                 let raw = name.replace('"', "&quot;");
                 let disp = escape_html(name);
                 let cnt_s = format_number(*cnt);
-                html.push_str(&format!(
+                write!(html,
                     r#"<option value="{raw}">{disp} ({cnt_s})</option>"#,
-                ));
+                ).unwrap();
             }
             html
         })
@@ -129,7 +130,7 @@ pub(crate) fn render_posting_table(
         String::new()
     };
     if stats.has_data {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="stat-card mb-4">
                 <h3 class="text-sm text-slate-400 mb-2">給与統計（{} {}{} / {}件）</h3>
                 <div class="overflow-x-auto">
@@ -152,11 +153,11 @@ pub(crate) fn render_posting_table(
             stats.salary_min_median, stats.salary_max_median,
             stats.salary_min_avg, stats.salary_max_avg,
             stats.avg_holidays,
-        ));
+        ).unwrap();
     }
 
     // ページ情報
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="flex justify-between items-center mb-2">
             <span class="text-sm text-slate-400">全{}件中 {}〜{}件</span>
             <a href="/api/report?prefecture={}&municipality={}&employment_type={}&nearby={}&radius_km={}&service_type={}&facility_type={}"
@@ -175,7 +176,7 @@ pub(crate) fn render_posting_table(
         radius_km,
         urlencoding::encode(stype),
         urlencoding::encode(ftype),
-    ));
+    ).unwrap();
 
     // カラム表示トグルボタン
     html.push_str(r#"<div class="mb-2"><button id="comp-col-toggle" onclick="toggleCompColumns()" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded transition">全カラム表示</button></div>"#);
@@ -298,24 +299,24 @@ pub(crate) fn render_posting_table(
         } else {
             truncate_str(&escape_html(&p.tier3_label_short), 25)
         };
-        html.push_str(&format!(
+        write!(html,
             r#"<tr><td class="text-center">{}</td><td class="comp-col-extra font-mono text-xs" style="display:none">{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td class="comp-col-extra" style="display:none">{}</td><td class="text-right">{}</td><td class="text-right">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra" style="display:none"><div class="cell-wrap">{}</div></td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="text-xs">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="text-right">{}</td><td class="text-right">{}</td>"#,
             start_num + i as i64 + 1, job_num, fname, jt, area, escape_html(&p.employment_type),
             sal_type, sal_min, sal_max,
             occ_detail, education,
             reqs, exp_req, raise_bonus, working_hrs,
             emp_count, holidays,
-        ));
-        html.push_str(&format!(
+        ).unwrap();
+        write!(html,
             r#"<td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td><td class="comp-col-extra text-xs" style="display:none">{}</td>"#,
             hw_office, recruit_reason, seg_label,
-        ));
+        ).unwrap();
         if show_distance {
             let dist = p
                 .distance_km
                 .map(|d| format!("{:.1}km", d))
                 .unwrap_or("-".to_string());
-            html.push_str(&format!(r#"<td class="text-right">{}</td>"#, dist));
+            write!(html, r#"<td class="text-right">{}</td>"#, dist).unwrap();
         }
         html.push_str("</tr>");
     }
@@ -335,20 +336,20 @@ pub(crate) fn render_posting_table(
             urlencoding::encode(ftype),
         );
         if page > 1 {
-            html.push_str(&format!(
+            write!(html,
                 r##"<button class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm" hx-get="{}&page={}" hx-target="#comp-results" hx-swap="innerHTML">前へ</button>"##,
                 base_url, page - 1
-            ));
+            ).unwrap();
         }
-        html.push_str(&format!(
+        write!(html,
             r#"<span class="px-3 py-1 text-sm text-slate-400">{} / {} ページ</span>"#,
             page, total_pages
-        ));
+        ).unwrap();
         if page < total_pages {
-            html.push_str(&format!(
+            write!(html,
                 r##"<button class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm" hx-get="{}&page={}" hx-target="#comp-results" hx-swap="innerHTML">次へ</button>"##,
                 base_url, page + 1
-            ));
+            ).unwrap();
         }
         html.push_str("</div>");
     }
@@ -521,7 +522,7 @@ pub(crate) fn render_report_html(
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>競合調査レポート - {job_type} x {region}{emp_label}</title>
+<title>求人検索レポート - {job_type} x {region}{emp_label}</title>
 <style>
 @page {{ size: A4 landscape; margin: 10mm; }}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -542,7 +543,7 @@ tr:nth-child(even) {{ background-color: #f8f9fa; }}
 </style>
 </head>
 <body>
-<h1>競合調査レポート</h1>
+<h1>求人検索レポート</h1>
 <div class="meta">
     <span>産業: {job_type}</span>
     <span>地域: {region}</span>

@@ -1,6 +1,7 @@
 use super::fetch::DetailRow;
 use crate::handlers::competitive::{escape_html, truncate_str};
 
+use std::fmt::Write as _;
 /// 初期ページHTML（テンプレート読み込み + 変数置換）
 pub(crate) fn render_jobmap_page(
     job_type: &str,
@@ -39,124 +40,124 @@ pub(crate) fn render_detail_card(d: &DetailRow) -> String {
 
     // ヘッドライン
     if !d.headline.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="text-base font-bold text-blue-300 border-b border-gray-600 pb-1">{}</div>"#,
             escape_html(&d.headline)
-        ));
+        ).unwrap();
     }
 
     // 求人番号（Hello Work固有）
     if !d.job_number.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">求人番号</span><span class="font-mono text-cyan-300">{}</span></div>"#,
             escape_html(&d.job_number)
-        ));
+        ).unwrap();
     }
 
     // 施設名
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">事業所名</span><span class="font-medium text-white">{}</span></div>"#,
         escape_html(&d.facility_name)
-    ));
+    ).unwrap();
 
     // 所在地
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">所在地</span><span>{} {}</span></div>"#,
         escape_html(&d.prefecture),
         escape_html(&d.municipality)
-    ));
+    ).unwrap();
 
     // アクセス
     if !d.access.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">アクセス</span><span>{}</span></div>"#,
             escape_html(&d.access)
-        ));
+        ).unwrap();
     }
 
     // ハローワーク管轄（Hello Work固有）
     if !d.hello_work_office.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">管轄HW</span><span class="text-xs text-gray-300">{}</span></div>"#,
             escape_html(&d.hello_work_office)
-        ));
+        ).unwrap();
     }
 
     // 産業分類
     if !d.job_type.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">産業</span><span>{}</span></div>"#,
             escape_html(&d.job_type)
-        ));
+        ).unwrap();
     }
 
     // 雇用形態
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">雇用形態</span><span class="px-2 py-0.5 rounded text-xs {}">{}</span></div>"#,
         emp_badge_class(&d.employment_type),
         escape_html(&d.employment_type)
-    ));
+    ).unwrap();
 
     // 給与
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">給与</span><span class="text-yellow-300 font-medium">{}</span></div>"#,
         salary_display
-    ));
+    ).unwrap();
 
     // 仕事内容
     if !d.job_description.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">仕事内容</span><span class="text-xs">{}</span></div>"#,
             escape_html(&truncate_str(&d.job_description, 200))
-        ));
+        ).unwrap();
     }
 
     // 応募要件
     if !d.requirements.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">応募要件</span><span class="text-xs">{}</span></div>"#,
             escape_html(&truncate_str(&d.requirements, 150))
-        ));
+        ).unwrap();
     }
 
     // 勤務時間
     if !d.working_hours.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">勤務時間</span><span class="text-xs">{}</span></div>"#,
             escape_html(&truncate_str(&d.working_hours, 100))
-        ));
+        ).unwrap();
     }
 
     // 休日
     if !d.holidays.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">休日</span><span class="text-xs">{}</span></div>"#,
             escape_html(&truncate_str(&d.holidays, 100))
-        ));
+        ).unwrap();
     }
 
     // 待遇
     if !d.benefits.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">待遇</span><span class="text-xs">{}</span></div>"#,
             escape_html(&truncate_str(&d.benefits, 150))
-        ));
+        ).unwrap();
     }
 
     // 募集理由（Hello Work固有）
     if !d.recruitment_reason.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2"><span class="text-gray-400 w-24 flex-shrink-0">募集理由</span><span class="text-xs text-gray-300">{}</span></div>"#,
             escape_html(&d.recruitment_reason)
-        ));
+        ).unwrap();
     }
 
     // セグメント情報
     if !d.tier3_label_short.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2 border-t border-gray-700 pt-1 mt-1"><span class="text-gray-400 w-24 flex-shrink-0">分類</span><span class="text-xs text-purple-300">{}</span></div>"#,
             escape_html(&d.tier3_label_short)
-        ));
+        ).unwrap();
     }
 
     html.push_str("</div>");

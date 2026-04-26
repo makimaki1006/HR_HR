@@ -13,6 +13,7 @@ use super::render::{
 };
 use crate::AppState;
 
+use std::fmt::Write as _;
 /// HTMXパーシャル: 時系列トレンド分析（サブタブナビゲーション付き）
 pub async fn tab_trend(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
@@ -30,19 +31,19 @@ pub async fn tab_trend(State(state): State<Arc<AppState>>, session: Session) -> 
 
     let mut html = String::with_capacity(8_000);
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="space-y-4">
         <h2 class="text-xl font-bold text-white">時系列トレンド分析 <span class="text-blue-400 text-base font-normal">{location}</span></h2>
         <p class="text-xs text-slate-500">HW過去データ（20月次スナップショット）の時系列推移。都道府県フィルタのみ対応。</p>"#
-    ));
+    ).unwrap();
 
     // サブタブナビゲーションバー
     html.push_str(r#"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"#);
     for (id, label) in &TREND_SUBTABS {
         let active = if *id == 1 { " active" } else { "" };
-        html.push_str(&format!(
+        write!(html,
             r##"<button class="analysis-subtab{active}" hx-get="/api/trend/subtab/{id}" hx-target="#trend-content" hx-swap="innerHTML" onclick="setTrendSubtab(this)">{label}</button>"##
-        ));
+        ).unwrap();
     }
     html.push_str("</div>");
 

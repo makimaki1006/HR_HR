@@ -39,6 +39,7 @@ use crate::handlers::insight::helpers::{Insight, InsightCategory};
 use crate::handlers::jobmap::{flow as fflow, fromto as fft};
 use crate::handlers::overview::{get_session_filters, make_location_label};
 use crate::AppState;
+use std::fmt::Write as _;
 
 /// カルテデフォルト年（Agoop最新 = 2021。DB未投入時は None）
 const KARTE_DEFAULT_YEAR: i32 = 2021;
@@ -120,7 +121,17 @@ pub async fn api_region_karte(
         }));
     }
 
-    let db = state.hw_db.as_ref().unwrap().clone();
+    // SAFETY: pref/muni が空でない = lookup_pref_muni が Some を返した = state.hw_db は Some
+    // それでも graceful な空応答に置換し panic 経路を除去
+    let db = match state.hw_db.as_ref() {
+        Some(db) => db.clone(),
+        None => {
+            return axum::Json(json!({
+                "error": "hw_db unavailable",
+                "citycode": citycode,
+            }));
+        }
+    };
     let turso = state.turso_db.clone();
     let p = pref.clone();
     let m = muni.clone();
@@ -442,7 +453,7 @@ fn render_karte(pref: &str, muni: &str, b: &KarteBundle, insights: &[Insight]) -
     let mut html = String::with_capacity(32_000);
 
     // ========== ヘッダー ==========
-    html.push_str(&format!(
+    write!(html,
         r##"<div class="space-y-6 karte-container">
 <header class="karte-header">
     <div class="flex items-start justify-between flex-wrap gap-3">
@@ -467,7 +478,7 @@ fn render_karte(pref: &str, muni: &str, b: &KarteBundle, insights: &[Insight]) -
         pref = escape_html(pref),
         muni = escape_html(muni),
         badges = render_badges(b),
-    ));
+    ).unwrap();
 
     // ========== S1: 構造KPI 9枚 ==========
     html.push_str(&render_section_kpi(b));
@@ -544,7 +555,7 @@ fn render_section_kpi(b: &KarteBundle) -> String {
     <div class="karte-kpi-grid">"##,
     );
     for (icon, label, value, color) in cards {
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="karte-kpi-card">
                 <div class="karte-kpi-icon">{icon}</div>
                 <div class="karte-kpi-label">{label}</div>
@@ -554,7 +565,7 @@ fn render_section_kpi(b: &KarteBundle) -> String {
             label = escape_html(label),
             value = escape_html(&value),
             color = color,
-        ));
+        ).unwrap();
     }
     html.push_str("</div></section>");
     html
@@ -1122,7 +1133,7 @@ fn build_medical_cards(row: Option<&Row>) -> String {
 
     let mut html = String::new();
     for (icon, label, val, color) in cards {
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="karte-mini-card">
                 <div class="karte-mini-icon">{icon}</div>
                 <div class="karte-mini-label">{label}</div>
@@ -1132,7 +1143,7 @@ fn build_medical_cards(row: Option<&Row>) -> String {
             label = escape_html(label),
             value = format_i64_or_dash(val, ""),
             color = color,
-        ));
+        ).unwrap();
     }
     html
 }
@@ -1158,7 +1169,7 @@ fn build_education_cards(row: Option<&Row>) -> String {
     ];
     let mut html = String::new();
     for (icon, label, val, color) in cards {
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="karte-mini-card">
                 <div class="karte-mini-icon">{icon}</div>
                 <div class="karte-mini-label">{label}</div>
@@ -1168,7 +1179,7 @@ fn build_education_cards(row: Option<&Row>) -> String {
             label = escape_html(label),
             value = format_i64_or_dash(val, ""),
             color = color,
-        ));
+        ).unwrap();
     }
     html
 }

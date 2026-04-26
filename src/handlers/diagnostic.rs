@@ -14,6 +14,7 @@ use super::helpers::{format_number, get_f64, table_exists};
 use super::overview::{get_session_filters, make_location_label, render_no_db_data};
 use crate::AppState;
 
+use std::fmt::Write as _;
 type Db = crate::db::local_sqlite::LocalDb;
 type Row = HashMap<String, Value>;
 
@@ -189,7 +190,7 @@ pub async fn evaluate_diagnostic(
     html.push_str(r#"<h3 class="text-lg font-bold text-white">📊 総合診断結果</h3>"#);
 
     // 総合グレードカード
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="stat-card border-l-4" style="border-color:{grade_color}">
             <div class="flex items-center justify-between">
                 <div>
@@ -205,7 +206,7 @@ pub async fn evaluate_diagnostic(
             </div>
         </div>"#,
         top_pct = 100.0 - overall_pct,
-    ));
+    ).unwrap();
 
     // ========================================
     // ECharts レーダーチャート（6軸）
@@ -266,7 +267,7 @@ pub async fn evaluate_diagnostic(
         } else {
             "#10B981"
         };
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="stat-card">
                 <div class="flex items-center justify-between">
                     <span class="text-sm text-slate-400">この地域の充足困難度</span>
@@ -276,7 +277,7 @@ pub async fn evaluate_diagnostic(
                     <div class="h-2 rounded" style="width:{avg_score:.0}%;background:{fc}"></div>
                 </div>
             </div>"#
-        ));
+        ).unwrap();
     }
 
     // ========================================
@@ -301,19 +302,19 @@ pub async fn evaluate_diagnostic(
         html.push_str(r#"<div class="stat-card mt-4"><h4 class="text-sm text-slate-400 mb-2">地理的競争力</h4>"#);
         html.push_str(r#"<div class="grid grid-cols-2 gap-3">"#);
         if commute_inflow_total > 0 {
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="text-center p-2 bg-slate-800/50 rounded">
                     <div class="text-lg font-bold text-blue-400">{}人</div>
                     <div class="text-[10px] text-slate-500">通勤圏人材プール</div>
                     <div class="text-[10px] text-slate-600">（実際にこの地域に通勤している人数）</div>
                 </div>"#,
                 format_number(commute_inflow_total)
-            ));
+            ).unwrap();
         }
         if let Some(sm) = spatial.first() {
             let acc30 = super::helpers::get_i64(sm, "accessible_postings_30km");
             let iso = super::helpers::get_f64(sm, "isolation_score");
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="text-center p-2 bg-slate-800/50 rounded">
                     <div class="text-lg font-bold text-amber-400">{}</div>
                     <div class="text-[10px] text-slate-500">30km圏内の競合求人数</div>
@@ -321,7 +322,7 @@ pub async fn evaluate_diagnostic(
                 </div>"#,
                 format_number(acc30),
                 iso
-            ));
+            ).unwrap();
         }
         html.push_str("</div></div>");
     }
@@ -364,10 +365,10 @@ pub async fn evaluate_diagnostic(
             // シナリオヘッダー
             if target_salary > 0 {
                 let diff = target_salary - salary;
-                html.push_str(&format!(
+                write!(html,
                     r#"<th class="text-center py-2 px-2 text-blue-400">月給+{}円</th>"#,
                     format_number(diff)
-                ));
+                ).unwrap();
             }
             if holidays == 0 {
                 html.push_str(
@@ -382,37 +383,37 @@ pub async fn evaluate_diagnostic(
             html.push_str("</tr></thead><tbody>");
 
             // グレード行
-            html.push_str(&format!(
+            write!(html,
                 r#"<tr class="border-b border-slate-800">
                 <td class="py-2 px-2 text-slate-400">グレード</td>
                 <td class="text-center py-2 px-2 text-white font-bold">{overall_grade}</td>"#
-            ));
+            ).unwrap();
             if target_salary > 0 {
                 let target_label = if target_salary >= p75 { "A〜B" } else { "B" };
-                html.push_str(&format!(r#"<td class="text-center py-2 px-2 text-blue-400 font-bold">{target_label}</td>"#));
+                write!(html, r#"<td class="text-center py-2 px-2 text-blue-400 font-bold">{target_label}</td>"#).unwrap();
             }
             if holidays == 0 {
-                html.push_str(&format!(
+                write!(html,
                     r#"<td class="text-center py-2 px-2 text-emerald-400">{overall_grade}+</td>"#
-                ));
+                ).unwrap();
             }
             if commute_inflow_total > 0 {
-                html.push_str(&format!(
+                write!(html,
                     r#"<td class="text-center py-2 px-2 text-slate-400">{overall_grade}</td>"#
-                ));
+                ).unwrap();
             }
             html.push_str("</tr>");
 
             // 年間コスト行（給与改善時のみ）
             if target_salary > 0 {
                 let annual_cost = (target_salary - salary) * 12;
-                html.push_str(&format!(
+                write!(html,
                     r#"<tr class="border-b border-slate-800">
                     <td class="py-2 px-2 text-slate-400">年間コスト増</td>
                     <td class="text-center py-2 px-2 text-slate-500">-</td>
                     <td class="text-center py-2 px-2 text-red-400">+{}円/人</td>"#,
                     format_number(annual_cost)
-                ));
+                ).unwrap();
                 if holidays == 0 {
                     html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#);
                 }
@@ -552,7 +553,7 @@ fn render_radar_chart(
     html.push_str(r#"<p class="text-xs text-slate-500 mb-3">青=あなたの条件 / 灰=地域平均</p>"#);
 
     // ECharts レーダーチャート
-    html.push_str(&format!(
+    write!(html,
         r##"<div class="echart" style="height:350px;" data-chart-config='{{
             "tooltip": {{"trigger": "item"}},
             "legend": {{
@@ -596,7 +597,7 @@ fn render_radar_chart(
                 ]
             }}]
         }}'></div>"##
-    ));
+    ).unwrap();
 
     html.push_str("</div>");
     html
@@ -630,7 +631,7 @@ fn render_industry_comparison(salary: i64, shadow: &[Row]) -> String {
         let user_pos = ((salary - p10) as f64 / range * 100.0).clamp(2.0, 98.0);
 
         // 横バーで分位点を可視化
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="relative">
                 <div class="flex items-center gap-1 mb-2">
                     <span class="text-xs text-slate-500 w-16">P10</span>
@@ -670,7 +671,7 @@ fn render_industry_comparison(salary: i64, shadow: &[Row]) -> String {
             p75_s = format_number(p75),
             p90_s = format_number(p90),
             user_s = format_number(salary),
-        ));
+        ).unwrap();
     } else {
         html.push_str(r#"<p class="text-xs text-slate-500">給与分布データがありません</p>"#);
     }
@@ -1191,12 +1192,12 @@ fn render_actionable_suggestions(
         <ul class="space-y-2">"#,
     );
     for (text, color) in &suggestions {
-        html.push_str(&format!(
+        write!(html,
             r#"<li class="flex items-start gap-2 p-2 rounded bg-slate-800/50">
                 <span class="mt-0.5 text-lg" style="color:{color}">●</span>
                 <span class="text-sm text-slate-300">{text}</span>
             </li>"#
-        ));
+        ).unwrap();
     }
     html.push_str("</ul></div>");
     html

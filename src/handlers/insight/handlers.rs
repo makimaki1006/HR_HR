@@ -17,6 +17,7 @@ use super::render::{
 use super::report::build_report_json;
 use crate::AppState;
 
+use std::fmt::Write as _;
 /// HTMXパーシャル: 総合診断タブ（サブタブナビゲーション付き）
 pub async fn tab_insight(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
@@ -55,19 +56,19 @@ pub async fn tab_insight(State(state): State<Arc<AppState>>, session: Session) -
 
     let mut html = String::with_capacity(8_000);
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="space-y-4">
         <h2 class="text-xl font-bold text-white">総合診断 <span class="text-blue-400 text-base font-normal">{location}</span></h2>
         <p class="text-xs text-slate-500">全データソースを複合的に分析し、採用課題と改善アクションを示します</p>"#
-    ));
+    ).unwrap();
 
     // サブタブナビゲーションバー
     html.push_str(r#"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"#);
     for (id, label) in &INSIGHT_SUBTABS {
         let active = if *id == 1 { " active" } else { "" };
-        html.push_str(&format!(
+        write!(html,
             r##"<button class="analysis-subtab{active}" hx-get="/api/insight/subtab/{id}" hx-target="#insight-content" hx-swap="innerHTML" onclick="setInsightSubtab(this)">{label}</button>"##
-        ));
+        ).unwrap();
     }
     html.push_str("</div>");
 

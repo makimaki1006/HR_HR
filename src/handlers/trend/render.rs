@@ -10,6 +10,7 @@ use super::helpers::{
     line_chart_config, parse_snapshot_id, snapshot_label, stacked_area_config, stacked_bar_config,
 };
 
+use std::fmt::Write as _;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
@@ -109,10 +110,10 @@ pub(crate) fn render_subtab_1(turso: Option<&TursoDb>, pref: &str) -> String {
                 }) {
                     let cnt = get_i64(row, "posting_count");
                     let color = emp_group_color(group);
-                    html.push_str(&format!(
+                    write!(html,
                         r#"<div class="text-center"><span class="text-xs text-slate-500">{}</span><div class="text-lg font-bold" style="color:{}">{}</div></div>"#,
                         group, color, format_number(cnt)
-                    ));
+                    ).unwrap();
                 }
             }
             html.push_str("</div>");

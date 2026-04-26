@@ -8,6 +8,7 @@ use super::render::format_yen;
 use crate::handlers::competitive::{escape_html, truncate_str};
 use crate::handlers::overview::{get_f64, get_i64, get_session_filters, get_str, SessionFilters};
 use crate::AppState;
+use std::fmt::Write as _;
 
 /// 地域フィルタ（産業+都道府県+市区町村）のWHERE句と連番?パラメータを構築
 fn build_region_filter(filters: &SessionFilters, pref: &str, muni: &str) -> (String, Vec<String>) {
@@ -276,11 +277,11 @@ pub async fn region_posting_stats(
         for row in rows {
             let emp = get_str(row, "employment_type");
             let cnt = get_i64(row, "cnt");
-            html.push_str(&format!(
+            write!(html,
                 r#"<tr><td class="text-gray-300 py-0.5">{}</td><td class="text-right text-white font-medium">{}件</td></tr>"#,
                 escape_html(&emp),
                 cnt
-            ));
+            ).unwrap();
         }
     }
     html.push_str("</tbody></table></div>");
@@ -297,13 +298,13 @@ pub async fn region_posting_stats(
             let avg_min = get_f64(row, "avg_min");
             let avg_max = get_f64(row, "avg_max");
             let cnt = get_i64(row, "cnt");
-            html.push_str(&format!(
+            write!(html,
                 r#"<tr><td class="text-gray-300 py-0.5">{}</td><td class="text-right text-yellow-300">{}</td><td class="text-right text-yellow-300">{}</td><td class="text-right text-white">{}</td></tr>"#,
                 escape_html(&st),
                 format_yen(avg_min as i64),
                 format_yen(avg_max as i64),
                 cnt
-            ));
+            ).unwrap();
         }
     }
     html.push_str("</tbody></table></div>");
@@ -319,7 +320,7 @@ pub async fn region_posting_stats(
             let ind = get_str(row, "job_type");
             let cnt = get_i64(row, "cnt");
             let pct = (cnt as f64 / max_cnt as f64) * 100.0;
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="flex items-center gap-2 py-0.5">
   <span class="text-gray-300 w-32 truncate" title="{full}">{label}</span>
   <div class="flex-1 bg-gray-700 rounded h-3">
@@ -331,7 +332,7 @@ pub async fn region_posting_stats(
                 label = escape_html(&truncate_str(&ind, 16)),
                 pct = pct,
                 cnt = cnt
-            ));
+            ).unwrap();
         }
     }
     html.push_str("</div>");
@@ -387,7 +388,7 @@ pub async fn region_segments(
                 let label = get_str(row, "tier3_label_short");
                 let cnt = get_i64(row, "cnt");
                 let pct = (cnt as f64 / max_cnt as f64) * 100.0;
-                html.push_str(&format!(
+                write!(html,
                     r#"<div class="flex items-center gap-2 py-0.5">
   <span class="text-gray-300 w-36 truncate" title="{full}">{short}</span>
   <div class="flex-1 bg-gray-700 rounded h-3">
@@ -399,7 +400,7 @@ pub async fn region_segments(
                     short = escape_html(&truncate_str(&label, 20)),
                     pct = pct,
                     cnt = cnt
-                ));
+                ).unwrap();
             }
         }
     }
@@ -419,7 +420,7 @@ pub async fn region_segments(
                 let label = get_str(row, "employment_type");
                 let cnt = get_i64(row, "cnt");
                 let pct = (cnt as f64 / max_cnt as f64) * 100.0;
-                html.push_str(&format!(
+                write!(html,
                     r#"<div class="flex items-center gap-2 py-0.5">
   <span class="text-gray-300 w-36 truncate" title="{full}">{short}</span>
   <div class="flex-1 bg-gray-700 rounded h-3">
@@ -431,7 +432,7 @@ pub async fn region_segments(
                     short = escape_html(&truncate_str(&label, 20)),
                     pct = pct,
                     cnt = cnt
-                ));
+                ).unwrap();
             }
         }
     }

@@ -11,6 +11,8 @@
 //! 将来拡張（自動テスト・API バリデーション）用途で `job_type_options_html` /
 //! `emp_type_options_html` を残す。
 
+use std::fmt::Write as _;
+
 /// 採用診断タブの初期ページ HTML を生成。
 ///
 /// Agent D テンプレとの接続は `{{PREFECTURE_OPTIONS}}` のみ。
@@ -44,11 +46,11 @@ pub(crate) fn job_type_options_html(selected: &str) -> String {
     let mut html = String::from(r#"<option value="">-- 業種を選択 --</option>"#);
     for jt in JOB_TYPES {
         let sel = if *jt == selected { " selected" } else { "" };
-        html.push_str(&format!(
+        write!(html,
             r#"<option value="{v}"{sel}>{v}</option>"#,
             v = escape_html(jt),
             sel = sel
-        ));
+        ).unwrap();
     }
     html
 }
@@ -68,12 +70,12 @@ pub(crate) fn emp_type_options_html(selected: &str) -> String {
     let mut html = String::from(r#"<option value="">-- 雇用形態を選択 --</option>"#);
     for (v, label) in EMP_TYPES {
         let sel = if *v == selected { " selected" } else { "" };
-        html.push_str(&format!(
+        write!(html,
             r#"<option value="{v}"{sel}>{label}</option>"#,
             v = escape_html(v),
             label = escape_html(label),
             sel = sel
-        ));
+        ).unwrap();
     }
     html
 }
