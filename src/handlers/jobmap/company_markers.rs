@@ -40,6 +40,7 @@ pub async fn labor_flow(
         None => {
             return Json(json!({
                 "prefecture": prefecture,
+                "municipality": municipality,
                 "industries": [],
                 "error": "企業DB未接続"
             }))
@@ -105,6 +106,7 @@ pub async fn labor_flow(
                 tracing::warn!("人材フロー集計エラー: {e}");
                 return json!({
                     "prefecture": pref,
+                    "municipality": muni,
                     "industries": [],
                     "error": format!("クエリエラー: {e}")
                 });
@@ -125,12 +127,14 @@ pub async fn labor_flow(
         let loc = if !muni.is_empty() { format!("{} {}", pref, muni) } else { pref.clone() };
         json!({
             "prefecture": pref,
+            "municipality": muni,
             "location": loc,
             "industries": industries,
             "total_industries": industries.len(),
         })
     }).await.unwrap_or_else(|_| json!({
         "prefecture": prefecture,
+        "municipality": municipality,
         "industries": [],
         "error": "タスク実行エラー"
     }));

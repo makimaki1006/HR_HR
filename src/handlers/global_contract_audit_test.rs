@@ -176,6 +176,10 @@ fn make_test_state(hw_db: LocalDb) -> Arc<AppState> {
         audit_turso_token: String::new(),
         audit_ip_salt: String::new(),
         admin_emails: Vec::new(),
+        turso_external_url: String::new(),
+        turso_external_token: String::new(),
+        salesnow_turso_url: String::new(),
+        salesnow_turso_token: String::new(),
     };
     Arc::new(AppState {
         config: cfg,
@@ -448,7 +452,6 @@ async fn jobmap_labor_flow_contract_error_path_when_no_salesnow() {
 /// 修正完了後は本アサートが通過するようになるので `#[ignore]` を外して
 /// CI に永続組み込むこと。
 #[tokio::test]
-#[ignore = "Known contract mismatch #4 (docs/contract_audit_2026_04_23.md Section 4)"]
 async fn bug_marker_labor_flow_returns_municipality_key() {
     let (_tmp, db) = make_tmp_hw_db();
     let state = make_test_state(db);
