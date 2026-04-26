@@ -36,6 +36,41 @@ jobs:
           python e2e_other_tabs.py || echo "other_tabs failed (non-blocking)"
           python e2e_report_insight.py || echo "report_insight failed (non-blocking)"
 
+      # 2026-04-26 リリース: タブ呼称・ナビ昇格・用語統一の回帰検証 (TypeScript Playwright)
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install npm deps + Playwright browsers
+        run: |
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run regression_2026_04_26 (TS Playwright, 13 シナリオ)
+        id: regression_2026_04_26
+        env:
+          BASE_URL: ${{ secrets.E2E_BASE_URL || 'https://hr-hw.onrender.com' }}
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASS: ${{ secrets.E2E_PASS }}
+        run: |
+          if [ -z "$E2E_EMAIL" ] || [ -z "$E2E_PASS" ]; then
+            echo "::warning ::E2E_EMAIL/E2E_PASS が未設定。regression_2026_04_26 をスキップ"
+            exit 0
+          fi
+          npx playwright test tests/e2e/regression_2026_04_26.spec.ts --reporter=list
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
       - name: Notify Slack on failure
         if: failure()
         env:
