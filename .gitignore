@@ -64,3 +64,9 @@ target/llvm-cov/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Node.js / Playwright (E2E)
+node_modules/
+playwright-report/
+test-results/
+.playwright/
