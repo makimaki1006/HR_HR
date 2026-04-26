@@ -12,7 +12,6 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
-
 /// 通勤圏内の市区町村
 pub(crate) struct CommuteMunicipality {
     pub prefecture: String,
@@ -117,8 +116,12 @@ pub(crate) fn fetch_commute_zone_pyramid(
     let mut agg: HashMap<String, (i64, i64)> = HashMap::new(); // age_group -> (male_sum, female_sum)
 
     for m in munis {
-        let rows =
-            super::subtab5_phase4::fetch_population_pyramid(db, turso, &m.prefecture, &m.municipality);
+        let rows = super::subtab5_phase4::fetch_population_pyramid(
+            db,
+            turso,
+            &m.prefecture,
+            &m.municipality,
+        );
         for row in &rows {
             let age = get_str(row, "age_group");
             let male = get_i64(row, "male_count");

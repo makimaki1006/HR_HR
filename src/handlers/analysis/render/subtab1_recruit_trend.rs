@@ -15,7 +15,6 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
-
 pub(crate) fn render_subtab_1(db: &Db, pref: &str, muni: &str) -> String {
     let vacancy = fetch_vacancy_data(db, pref, muni);
     let vacancy_by_industry = fetch_vacancy_by_industry(db, pref, muni);

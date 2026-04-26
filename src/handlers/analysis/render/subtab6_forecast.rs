@@ -5,14 +5,13 @@ use std::collections::HashMap;
 
 use super::super::super::helpers::{format_number, get_f64, get_i64};
 use super::super::fetch::*;
-use super::super::helpers::{get_str};
+use super::super::helpers::get_str;
 
 #[allow(dead_code)]
 type Db = crate::db::local_sqlite::LocalDb;
 #[allow(dead_code)]
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
-
 
 pub(crate) fn render_subtab_6(db: &Db, pref: &str, muni: &str) -> String {
     let fulfillment = fetch_fulfillment_summary(db, pref, muni);

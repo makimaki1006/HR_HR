@@ -146,10 +146,7 @@ async fn integrated_report_contains_all_required_sections() {
     );
 
     // window.print() ボタン
-    assert!(
-        html.contains("window.print()"),
-        "must contain print button"
-    );
+    assert!(html.contains("window.print()"), "must contain print button");
 }
 
 #[tokio::test]
@@ -166,10 +163,7 @@ async fn integrated_report_mentions_hw_scope_and_no_causation() {
     let html = integrated_report(State(state), session, Query(q)).await.0;
 
     // HW 限定性
-    assert!(
-        html.contains("ハローワーク"),
-        "must mention ハローワーク"
-    );
+    assert!(html.contains("ハローワーク"), "must mention ハローワーク");
     assert!(
         html.contains("民間"),
         "must mention 民間 to clarify exclusion"

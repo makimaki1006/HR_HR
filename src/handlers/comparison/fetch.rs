@@ -109,15 +109,13 @@ impl ComparisonMetric {
 /// `industry_raws`: 産業大分類フィルタ（空ならば全産業）
 ///
 /// 返り値: 47 件 (PREFECTURE_ORDER 順)。postings にない県は 0 件で埋める。
-pub fn fetch_all_prefecture_kpi(
-    db: &LocalDb,
-    industry_raws: &[String],
-) -> Vec<PrefectureKpi> {
+pub fn fetch_all_prefecture_kpi(db: &LocalDb, industry_raws: &[String]) -> Vec<PrefectureKpi> {
     // 産業フィルタ句を構築（プレースホルダ ?1, ?2... をバインド）
     let (filter_clause, params): (String, Vec<String>) = if industry_raws.is_empty() {
         (String::new(), Vec::new())
     } else {
-        let placeholders: Vec<String> = (1..=industry_raws.len()).map(|i| format!("?{i}")).collect();
+        let placeholders: Vec<String> =
+            (1..=industry_raws.len()).map(|i| format!("?{i}")).collect();
         (
             format!(" AND job_type IN ({})", placeholders.join(",")),
             industry_raws.to_vec(),
@@ -201,9 +199,6 @@ mod tests {
             ComparisonMetric::from_str("../../../etc/passwd").as_str(),
             "posting_count"
         );
-        assert_eq!(
-            ComparisonMetric::from_str("").as_str(),
-            "posting_count"
-        );
+        assert_eq!(ComparisonMetric::from_str("").as_str(), "posting_count");
     }
 }

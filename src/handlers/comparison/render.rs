@@ -59,11 +59,10 @@ pub async fn tab_comparison(
     }
 
     let db_clone = db.clone();
-    let kpi_list = tokio::task::spawn_blocking(move || {
-        fetch_all_prefecture_kpi(&db_clone, &industry_filter)
-    })
-    .await
-    .unwrap_or_default();
+    let kpi_list =
+        tokio::task::spawn_blocking(move || fetch_all_prefecture_kpi(&db_clone, &industry_filter))
+            .await
+            .unwrap_or_default();
 
     // ソート（指標の数値降順/昇順）
     let mut sorted = kpi_list.clone();
@@ -77,7 +76,13 @@ pub async fn tab_comparison(
         }
     });
 
-    let html = render_comparison_html(&sorted, metric, asc, &filters.industry_label(), &filters.prefecture);
+    let html = render_comparison_html(
+        &sorted,
+        metric,
+        asc,
+        &filters.industry_label(),
+        &filters.prefecture,
+    );
     state.cache.set(cache_key, Value::String(html.clone()));
     Html(html)
 }
@@ -469,7 +474,10 @@ mod tests {
     fn build_chart_config_contains_47_prefs() {
         // 47 件のダミー KPI を作成
         let mut sorted = Vec::new();
-        for (i, p) in crate::models::job_seeker::PREFECTURE_ORDER.iter().enumerate() {
+        for (i, p) in crate::models::job_seeker::PREFECTURE_ORDER
+            .iter()
+            .enumerate()
+        {
             sorted.push(PrefectureKpi {
                 prefecture: p.to_string(),
                 posting_count: (i + 1) as i64 * 100,
@@ -499,7 +507,8 @@ mod tests {
             posting_count: 100,
             ..Default::default()
         }];
-        let html = render_comparison_html(&kpi, ComparisonMetric::PostingCount, false, "全産業", "");
+        let html =
+            render_comparison_html(&kpi, ComparisonMetric::PostingCount, false, "全産業", "");
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     }

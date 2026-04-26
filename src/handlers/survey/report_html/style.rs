@@ -1,7 +1,5 @@
 //! 分割: report_html/style.rs (物理移動・内容変更なし)
 
-
-
 pub(super) fn render_css() -> String {
     r#"
 :root {

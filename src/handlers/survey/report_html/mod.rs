@@ -6,51 +6,50 @@
 //! - 印刷時はモノクロ耐性（severityアイコン併記）対応
 //! - `contenteditable` により主要コメント欄はダウンロード後にユーザーが編集可能
 
-
 use super::super::company::fetch::NearbyCompany;
 use super::super::helpers::escape_html;
 use super::super::insight::fetch::InsightContext;
-use super::aggregator::{CompanyAgg, EmpTypeSalary, SurveyAggregation};
 #[cfg(test)]
 use super::aggregator::ScatterPoint;
+use super::aggregator::{CompanyAgg, EmpTypeSalary, SurveyAggregation};
 use super::hw_enrichment::HwAreaEnrichment;
 use super::job_seeker::JobSeekerAnalysis;
 
 // ======== サブモジュール宣言 (大規模ファイル分割: C-2) ========
-mod helpers;
-mod style;
-mod executive_summary;
-mod summary;
-mod hw_enrichment;
-mod salary_stats;
 mod employment;
-mod scatter;
-mod region;
-mod wage;
-mod seeker;
-mod salesnow;
+mod executive_summary;
+mod helpers;
+mod hw_enrichment;
 mod notes;
+mod region;
+mod salary_stats;
+mod salesnow;
+mod scatter;
+mod seeker;
+mod style;
+mod summary;
+mod wage;
 
 // 各サブモジュール公開 API (本 mod.rs 内のエントリ関数から呼出)
 use executive_summary::render_section_executive_summary;
-use summary::render_section_summary;
 use hw_enrichment::render_section_hw_enrichment;
+use summary::render_section_summary;
 // render_section_hw_comparison / render_comparison_card は hw_enrichment.rs 内で legacy として保持
 // (#[allow(dead_code)] でモジュール内で抑制済み)
-use salary_stats::render_section_salary_stats;
-use employment::render_section_employment;
 use employment::render_section_emp_group_native;
-use scatter::render_section_scatter;
-use region::render_section_region;
-use region::render_section_municipality_salary;
-use wage::render_section_min_wage;
-use wage::render_section_company;
-use wage::render_section_tag_salary;
-use seeker::render_section_job_seeker;
-use salesnow::render_section_salesnow_companies;
-use notes::render_section_notes;
-use style::render_css;
+use employment::render_section_employment;
 use helpers::{compose_target_region, render_scripts};
+use notes::render_section_notes;
+use region::render_section_municipality_salary;
+use region::render_section_region;
+use salary_stats::render_section_salary_stats;
+use salesnow::render_section_salesnow_companies;
+use scatter::render_section_scatter;
+use seeker::render_section_job_seeker;
+use style::render_css;
+use wage::render_section_company;
+use wage::render_section_min_wage;
+use wage::render_section_tag_salary;
 
 // テストモジュールが helpers / scatter 等の関数を直接呼び出すための再エクスポート
 #[cfg(test)]

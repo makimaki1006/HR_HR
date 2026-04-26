@@ -5,13 +5,14 @@
 use super::super::super::company::fetch::NearbyCompany;
 use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::super::insight::fetch::InsightContext;
-use super::super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
+use super::super::aggregator::{
+    CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg,
+};
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
 
 use super::helpers::*;
-
 
 /// 仕様書 3章: 5 KPI + 推奨優先アクション 3 件 + スコープ注意 2 行
 /// 1 ページ完結、表紙直後に配置。アクションは severity 高い順に上から最大 3 件。

@@ -14,7 +14,6 @@ type TursoDb = crate::db::turso_http::TursoDb;
 #[allow(dead_code)]
 type Row = HashMap<String, Value>;
 
-
 pub(crate) fn fetch_households(
     db: &Db,
     turso: Option<&TursoDb>,

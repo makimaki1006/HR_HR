@@ -3,9 +3,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::super::super::helpers::{
-    escape_html, format_number, get_f64, get_i64, pct, pct_bar,
-};
+use super::super::super::helpers::{escape_html, format_number, get_f64, get_i64, pct, pct_bar};
 use super::super::fetch::*;
 use super::super::helpers::{
     get_str, info_score_color, keyword_category_color, keyword_category_label, temp_color,
@@ -16,7 +14,6 @@ type Db = crate::db::local_sqlite::LocalDb;
 #[allow(dead_code)]
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
-
 
 pub(crate) fn render_subtab_3(db: &Db, pref: &str, muni: &str) -> String {
     let text_quality = fetch_text_quality(db, pref, muni);
