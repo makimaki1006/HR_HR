@@ -1,0 +1,136 @@
+//! 分割: report_html/scatter.rs (物理移動・内容変更なし)
+
+#![allow(unused_imports, dead_code)]
+
+use super::super::super::company::fetch::NearbyCompany;
+use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
+use super::super::super::insight::fetch::InsightContext;
+use super::super::aggregator::{CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg};
+use super::super::hw_enrichment::HwAreaEnrichment;
+use super::super::job_seeker::JobSeekerAnalysis;
+use serde_json::json;
+
+use super::helpers::*;
+
+
+pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation) {
+    if agg.scatter_min_max.len() < 6 {
+        return;
+    }
+
+    html.push_str("<div class=\"section page-start\">\n");
+    html.push_str("<h2>相関分析（散布図）</h2>\n");
+    html.push_str(
+        "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
+        <strong>【読み方ガイド】</strong>各点が1件の求人。回帰線（赤破線）は全体傾向。\
+        R²（決定係数）は0〜1で、1に近いほど相関が強い。\
+    </p>\n",
+    );
+
+    // ECharts scatter データ生成（最大200点）
+    html.push_str("<h3>月給下限 vs 上限</h3>\n");
+
+    // 異常値除外: 5万〜200万円の妥当な範囲、かつ上限≧下限
+    // （時給や年収の月給換算ミスによる外れ値を排除）
+    let filtered_points: Vec<&ScatterPoint> = agg
+        .scatter_min_max
+        .iter()
+        .filter(|p| {
+            let x_man = p.x as f64 / 10_000.0;
+            let y_man = p.y as f64 / 10_000.0;
+            (5.0..=200.0).contains(&x_man) && (5.0..=200.0).contains(&y_man) && y_man >= x_man
+        })
+        .collect();
+
+    if filtered_points.len() < 6 {
+        html.push_str("<p style=\"font-size:9pt;color:#888;\">有効なデータ点が不足しているため散布図を省略しました。</p>\n");
+        html.push_str("</div>\n");
+        return;
+    }
+
+    let scatter_data: Vec<serde_json::Value> = filtered_points
+        .iter()
+        .take(200)
+        .map(|p| json!([p.x as f64 / 10_000.0, p.y as f64 / 10_000.0]))
+        .collect();
+
+    // 軸範囲をパーセンタイル(P2.5〜P97.5)基準で決定、5%マージン
+    let mut x_vals_man: Vec<f64> = filtered_points
+        .iter()
+        .map(|p| p.x as f64 / 10_000.0)
+        .collect();
+    let mut y_vals_man: Vec<f64> = filtered_points
+        .iter()
+        .map(|p| p.y as f64 / 10_000.0)
+        .collect();
+    let (x_axis_min, x_axis_max) = compute_axis_range(&mut x_vals_man);
+    let (y_axis_min, y_axis_max) = compute_axis_range(&mut y_vals_man);
+
+    // 回帰線のmarkLine（2点指定）
+    let mut series_list = vec![json!({
+        "type": "scatter",
+        "data": scatter_data,
+        "symbolSize": 6,
+        "itemStyle": {"color": "rgba(59,130,246,0.5)"}
+    })];
+
+    if let Some(reg) = &agg.regression_min_max {
+        // 回帰線の端点は軸の表示範囲にクランプ（外れ値によるスケール崩れ防止）
+        let x_min_yen = x_axis_min * 10_000.0;
+        let x_max_yen = x_axis_max * 10_000.0;
+        let y1 = (reg.slope * x_min_yen + reg.intercept) / 10_000.0;
+        let y2 = (reg.slope * x_max_yen + reg.intercept) / 10_000.0;
+
+        series_list.push(json!({
+            "type": "line",
+            "data": [[x_axis_min, y1], [x_axis_max, y2]],
+            "symbol": "none",
+            "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
+            "tooltip": {"show": false}
+        }));
+    }
+
+    let config = json!({
+        "tooltip": {
+            "trigger": "item",
+            "formatter": "下限: {c0}万円"
+        },
+        "xAxis": {
+            "name": "下限（万円）",
+            "nameLocation": "center",
+            "nameGap": 25,
+            "type": "value",
+            "min": x_axis_min,
+            "max": x_axis_max,
+            "axisLabel": {"fontSize": 9}
+        },
+        "yAxis": {
+            "name": "上限（万円）",
+            "nameLocation": "center",
+            "nameGap": 35,
+            "type": "value",
+            "min": y_axis_min,
+            "max": y_axis_max,
+            "axisLabel": {"fontSize": 9}
+        },
+        "grid": {"left": "12%", "right": "5%", "bottom": "15%", "top": "5%"},
+        "series": series_list
+    });
+    html.push_str(&render_echart_div(&config.to_string(), 280));
+
+    if let Some(reg) = &agg.regression_min_max {
+        let strength = if reg.r_squared > 0.7 {
+            "強い相関"
+        } else if reg.r_squared > 0.4 {
+            "中程度の相関"
+        } else {
+            "弱い相関"
+        };
+        html.push_str(&format!(
+            "<p style=\"font-size:9px;color:#666;\">データ点: {}件（表示: {}件、異常値除外後）/ R\u{00B2} = {:.3}（{}）</p>\n",
+            agg.scatter_min_max.len(), filtered_points.len(), reg.r_squared, strength
+        ));
+    }
+
+    html.push_str("</div>\n");
+}

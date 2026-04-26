@@ -8,9 +8,11 @@
 //! - `subtab2`: 給与分析（salary_structure / competitiveness / compensation）
 //! - `subtab3`: テキスト分析（text_quality / keyword_profile / temperature）
 //! - `subtab4`: 市場構造（employer_strategy / monopsony / spatial_mismatch / competition / cascade）
-//! - `subtab5`: 異常値・外部データ（anomaly + Phase 4 外部 + Phase 4-7 外部）
+//! - `subtab5_phase4`: Phase 4 外部データ統合（最賃・違反・地域ベンチマーク・人口/社会動態 等 17 関数）
+//! - `subtab5_phase4_7`: Phase 4-7 外部データ（外国人・学歴・世帯・日銀短観 等 9 関数）
 //! - `subtab6`: 予測・推定（fulfillment / mobility / shadow_wage）
-//! - `subtab7`: 通勤圏 + Phase A SSDSE-A 6関数 + 県平均
+//! - `subtab7_other`: 通勤圏（CommuteMunicipality + CommuteFlow + commute_* + 県平均）
+//! - `subtab7_phase_a`: Phase A SSDSE-A 6 テーブル（households / vital_statistics / labor_force / medical_welfare / education_facilities / geography）
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -25,9 +27,11 @@ mod subtab1;
 mod subtab2;
 mod subtab3;
 mod subtab4;
-mod subtab5;
+mod subtab5_phase4;
+mod subtab5_phase4_7;
 mod subtab6;
-mod subtab7;
+mod subtab7_other;
+mod subtab7_phase_a;
 
 // ======== 公開 API: 旧 `analysis::fetch` 名前空間互換 ========
 //
@@ -46,26 +50,30 @@ pub(crate) use subtab4::{
     fetch_cascade_data, fetch_competition_data, fetch_employer_strategy, fetch_monopsony_data,
     fetch_spatial_mismatch,
 };
-pub(crate) use subtab5::{
-    fetch_anomaly_data, fetch_boj_tankan, fetch_business_dynamics, fetch_car_ownership,
-    fetch_care_demand, fetch_climate, fetch_daytime_population, fetch_education,
-    fetch_establishments, fetch_foreign_residents, fetch_household_spending, fetch_household_type,
-    fetch_internet_usage, fetch_job_openings_ratio, fetch_labor_stats, fetch_land_price,
-    fetch_migration_data, fetch_minimum_wage, fetch_population_data, fetch_population_pyramid,
-    fetch_prefecture_stats, fetch_region_benchmark, fetch_social_life, fetch_turnover,
-    fetch_wage_compliance,
+pub(crate) use subtab5_phase4::{
+    fetch_anomaly_data, fetch_business_dynamics, fetch_care_demand, fetch_climate,
+    fetch_daytime_population, fetch_establishments, fetch_household_spending,
+    fetch_job_openings_ratio, fetch_labor_stats, fetch_migration_data, fetch_minimum_wage,
+    fetch_population_data, fetch_population_pyramid, fetch_prefecture_stats,
+    fetch_region_benchmark, fetch_turnover, fetch_wage_compliance,
+};
+pub(crate) use subtab5_phase4_7::{
+    fetch_boj_tankan, fetch_car_ownership, fetch_education, fetch_foreign_residents,
+    fetch_household_type, fetch_internet_usage, fetch_land_price, fetch_social_life,
 };
 // fetch_industry_structure は将来の subtab5 拡張用 (現在 dead code、ベースラインから継続)
 #[allow(unused_imports)]
-pub(crate) use subtab5::fetch_industry_structure;
+pub(crate) use subtab5_phase4_7::fetch_industry_structure;
 pub(crate) use subtab6::{fetch_fulfillment_summary, fetch_mobility_estimate, fetch_shadow_wage};
-pub(crate) use subtab7::{
+pub(crate) use subtab7_other::{
     fetch_commute_inflow, fetch_commute_outflow, fetch_commute_zone, fetch_commute_zone_pyramid,
-    fetch_education_facilities, fetch_geography, fetch_households, fetch_labor_force,
-    fetch_medical_welfare, fetch_prefecture_mean, fetch_self_commute_rate, fetch_vital_statistics,
-    CommuteFlow,
+    fetch_prefecture_mean, fetch_self_commute_rate, CommuteFlow,
 };
-// CommuteMunicipality は subtab7 内部のみで使用 (fetch_commute_zone の戻り値型として fetch_commute_zone_pyramid に渡される)
+pub(crate) use subtab7_phase_a::{
+    fetch_education_facilities, fetch_geography, fetch_households, fetch_labor_force,
+    fetch_medical_welfare, fetch_vital_statistics,
+};
+// CommuteMunicipality は subtab7_other 内部のみで使用 (fetch_commute_zone の戻り値型として fetch_commute_zone_pyramid に渡される)
 // 外部からは直接参照されないため再エクスポートしない
 
 // ======== 共通ヘルパー ========
