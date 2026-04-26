@@ -227,10 +227,7 @@ async fn api_region_karte_returns_error_for_unknown_citycode() {
     let resp = api_region_karte(State(state), Path(99999i64)).await;
     let json = resp.0;
 
-    assert!(
-        json.get("error").is_some(),
-        "未知 citycode は error を返す"
-    );
+    assert!(json.get("error").is_some(), "未知 citycode は error を返す");
     assert_eq!(json["citycode"].as_i64(), Some(99999));
 }
 

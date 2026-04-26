@@ -103,7 +103,8 @@ pub fn render_search_results(results: &[Row]) -> String {
         html.push_str(
             "onclick=\"document.getElementById('company-search-results').textContent=''\">",
         );
-        write!(html,
+        write!(
+            html,
             r##"<div class="flex justify-between items-start">
                     <div>
                         <span class="text-white font-medium">{name}</span>
@@ -124,7 +125,8 @@ pub fn render_search_results(results: &[Row]) -> String {
             credit_badge = credit_badge,
             listing_badge = listing_badge,
             sn_score_badge = sn_score_badge,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     html.push_str("</div>");
@@ -667,7 +669,8 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             })
             .collect();
 
-        write!(html,
+        write!(
+            html,
             r##"<div class="stat-card">
             <h4 class="text-sm text-slate-400 mb-2">📋 求人理由</h4>
             <div class="echart" style="height:280px;" data-chart-config='{{
@@ -683,7 +686,8 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             }}'></div>
         </div>"##,
             data = pie_data.join(","),
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // 福利厚生レーダー
@@ -743,7 +747,8 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             .map(|(_, v)| v.to_string())
             .collect();
 
-        write!(html,
+        write!(
+            html,
             r##"<div class="stat-card mt-4">
             <h4 class="text-sm text-slate-400 mb-2">🏢 競合企業の従業員規模分布</h4>
             <div class="echart" style="height:250px;" data-chart-config='{{
@@ -761,7 +766,8 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
         </div>"##,
             labels = labels.join(","),
             values = values.join(","),
-        ).unwrap();
+        )
+        .unwrap();
     }
 }
 
@@ -907,7 +913,8 @@ fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
     );
 
     for (i, (headline, body)) in ctx.sales_pitches.iter().enumerate() {
-        write!(html,
+        write!(
+            html,
             r#"<div class="bg-slate-800/50 rounded-lg p-3">
                 <div class="flex items-start gap-2">
                     <span class="text-blue-400 font-bold text-sm shrink-0">{num}.</span>
@@ -920,7 +927,8 @@ fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
             num = i + 1,
             headline = escape_html(headline),
             body = escape_html(body),
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     html.push_str("</div></div>");
@@ -1122,10 +1130,12 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
             total
         )
     };
-    write!(html,
+    write!(
+        html,
         r##"<p class="text-xs text-slate-500 mb-2">{}</p>"##,
         label
-    ).unwrap();
+    )
+    .unwrap();
 
     html.push_str(
         r##"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">
@@ -1194,11 +1204,13 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
         ).unwrap();
 
         // 展開時の詳細行（初期非表示）
-        write!(html,
+        write!(
+            html,
             r##"<tr id="{detail_id}" style="display:none" class="bg-slate-800/80">
                 <td colspan="5" class="px-4 py-3">
                     <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">"##,
-        ).unwrap();
+        )
+        .unwrap();
         if !job_number.is_empty() {
             write!(html,
                 r##"<div><span class="text-slate-500">求人番号:</span> <span class="text-cyan-300 font-mono">{}</span></div>"##,
@@ -1246,7 +1258,8 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         &ctx.postal_code
     };
 
-    write!(html,
+    write!(
+        html,
         r##"<div class="stat-card mt-4">
         <h4 class="text-sm text-slate-400 mb-3">🏢 近隣企業（〒{}xxx エリア、{}社）</h4>
         <div class="overflow-x-auto max-h-96"><table class="w-full text-xs">
@@ -1259,7 +1272,8 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         </tr></thead><tbody>"##,
         escape_html(postal_prefix),
         ctx.nearby_companies.len(),
-    ).unwrap();
+    )
+    .unwrap();
 
     for nc in &ctx.nearby_companies {
         let hw_badge = if nc.hw_posting_count > 0 {
@@ -1275,13 +1289,16 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         html.push_str(
             "<tr class=\"border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer\" ",
         );
-        write!(html,
+        write!(
+            html,
             "hx-get=\"/api/company/profile/{}\" ",
             escape_html(&nc.corporate_number)
-        ).unwrap();
+        )
+        .unwrap();
         html.push_str("hx-target=\"#content\" hx-swap=\"innerHTML\">");
 
-        write!(html,
+        write!(
+            html,
             r##"<td class="py-1.5 px-2 text-white">{}</td>
                 <td class="py-1.5 px-2 text-slate-400">{}</td>
                 <td class="text-right py-1.5 px-2">{}</td>
@@ -1301,7 +1318,8 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
                 "-".to_string()
             },
             hw_badge,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     html.push_str("</tbody></table></div></div>");

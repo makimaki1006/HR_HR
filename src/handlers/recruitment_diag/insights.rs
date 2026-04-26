@@ -157,7 +157,7 @@ pub fn is_hr_relevant(id: &str) -> bool {
         "AP-", // アクション提案（3パターン）
         "CZ-", // 通勤圏（3パターン）
         "CF-", // 通勤フロー（3パターン）
-        "LS-", "HH-", "MF-", "IN-", "GE-", // SSDSE-A 構造分析（6パターン）
+        "LS-", "HH-", "MF-", "IN-", "GE-",  // SSDSE-A 構造分析（6パターン）
         "SW-F", // Agoop 人流（10パターン）
     ];
     HR_PREFIXES.iter().any(|p| id.starts_with(p))
@@ -221,7 +221,8 @@ fn hr_action_for(id: &str, insight: &Insight) -> String {
 
 fn build_summary(insights: &[Value]) -> String {
     if insights.is_empty() {
-        return "このエリアでは有効な示唆が検出されませんでした。データ未整備の可能性があります。".to_string();
+        return "このエリアでは有効な示唆が検出されませんでした。データ未整備の可能性があります。"
+            .to_string();
     }
 
     let mut critical = 0;
@@ -284,9 +285,8 @@ fn citycode_to_name(pref_name: &str, target_code: u32) -> Option<String> {
     //
     // ただし重複を避けるため geo::city_code 側に getter を足さず、
     // 起動時 1 回のマッピング構築で済ませる。
-    static REVERSE: std::sync::OnceLock<
-        std::collections::HashMap<u32, (String, String)>,
-    > = std::sync::OnceLock::new();
+    static REVERSE: std::sync::OnceLock<std::collections::HashMap<u32, (String, String)>> =
+        std::sync::OnceLock::new();
     let map = REVERSE.get_or_init(build_reverse_map);
     map.get(&target_code).and_then(|(p, m)| {
         if p == pref_name {
@@ -398,9 +398,7 @@ mod tests {
     #[test]
     fn hr_action_avoids_assertive_language() {
         let forbidden = ["必ず", "絶対"];
-        for id in [
-            "HS-1", "HS-2", "HS-5", "HH-1", "MF-1", "SW-F01", "SW-F04",
-        ] {
+        for id in ["HS-1", "HS-2", "HS-5", "HH-1", "MF-1", "SW-F01", "SW-F04"] {
             let ins = dummy_insight(id, Severity::Warning);
             let action = hr_action_for(id, &ins);
             for bad in forbidden {

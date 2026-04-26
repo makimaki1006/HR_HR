@@ -304,7 +304,8 @@ pub async fn comp_service_types(
                 raw = name.replace('"', "&quot;"),
                 disp = escape_html(name),
                 cnt_s = format_number(cnt),
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
     Html(html)

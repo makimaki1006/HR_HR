@@ -518,10 +518,8 @@ fn fromto_inflow_breakdown_empty_when_table_missing() {
     let tmp = NamedTempFile::new().unwrap();
     let path = tmp.path().to_str().unwrap();
     let conn = rusqlite::Connection::open(path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE dummy (id INTEGER); INSERT INTO dummy VALUES (1);",
-    )
-    .unwrap();
+    conn.execute_batch("CREATE TABLE dummy (id INTEGER); INSERT INTO dummy VALUES (1);")
+        .unwrap();
     drop(conn);
     let db = LocalDb::new(path).unwrap();
 
@@ -644,7 +642,10 @@ fn z_score_calculation_matches_threshold_logic() {
     assert!(z > 2.0, "z=3.0 は > 2.0");
     // 境界値 2.0 ちょうどは strict greater を満たさない → normal
     let z_edge = 2.0;
-    assert!(!(z_edge > 2.0), "z=2.0 は > 2.0 ではない (境界は normal 扱い)");
+    assert!(
+        !(z_edge > 2.0),
+        "z=2.0 は > 2.0 ではない (境界は normal 扱い)"
+    );
     // z=2.001 は分類
     assert!(2.001_f64 > 2.0);
     // z=1.999 は分類外

@@ -191,23 +191,14 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/flow/karte/inflow_breakdown",
             get(handlers::jobmap::flow_karte_inflow_breakdown),
         )
-        .route(
-            "/api/flow/city_agg",
-            get(handlers::jobmap::flow_city_agg),
-        )
-        .route(
-            "/api/jobmap/heatmap",
-            get(handlers::jobmap::jobmap_heatmap),
-        )
+        .route("/api/flow/city_agg", get(handlers::jobmap::flow_city_agg))
+        .route("/api/jobmap/heatmap", get(handlers::jobmap::jobmap_heatmap))
         .route(
             "/api/jobmap/inflow",
             get(handlers::jobmap::jobmap_inflow_sankey),
         )
         // ======== Round 3: 地域カルテ ========
-        .route(
-            "/tab/region_karte",
-            get(handlers::region::tab_region_karte),
-        )
+        .route("/tab/region_karte", get(handlers::region::tab_region_karte))
         .route(
             "/api/region/karte/{citycode}",
             get(handlers::region::api_region_karte),

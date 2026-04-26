@@ -14,6 +14,6 @@ pub use handlers::{
 };
 
 // 他モジュールから参照されるユーティリティ
-pub use utils::{build_option, build_option_with_data};
 pub use utils::escape_html;
 pub use utils::truncate_str;
+pub use utils::{build_option, build_option_with_data};

@@ -657,8 +657,7 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
         }
         // 2026-04-24: グループ内で IQR 外れ値除外
         let raw_count = raw_values.len();
-        let (values, outliers_removed) =
-            super::statistics::filter_outliers_iqr(&raw_values, 1.5);
+        let (values, outliers_removed) = super::statistics::filter_outliers_iqr(&raw_values, 1.5);
         if values.is_empty() {
             continue;
         }
@@ -668,8 +667,7 @@ pub fn aggregate_by_emp_group_native(records: &[SurveyRecord]) -> Vec<EmpGroupNa
         let max = *values.iter().max().unwrap_or(&0);
         let median = median_of(&values);
         // 雇用形態内訳は降順で最大 5 件まで
-        let mut emp_list: Vec<(String, usize)> =
-            bucket.emp_types.into_iter().collect();
+        let mut emp_list: Vec<(String, usize)> = bucket.emp_types.into_iter().collect();
         emp_list.sort_by(|a, b| b.1.cmp(&a.1));
         let included_emp_types: Vec<String> = emp_list
             .into_iter()

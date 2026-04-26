@@ -135,11 +135,10 @@ pub async fn api_region_karte(
     let turso = state.turso_db.clone();
     let p = pref.clone();
     let m = muni.clone();
-    let bundle = tokio::task::spawn_blocking(move || {
-        fetch_karte_bundle(&db, turso.as_ref(), &p, &m)
-    })
-    .await
-    .unwrap_or_default();
+    let bundle =
+        tokio::task::spawn_blocking(move || fetch_karte_bundle(&db, turso.as_ref(), &p, &m))
+            .await
+            .unwrap_or_default();
 
     axum::Json(json!({
         "citycode": citycode,
@@ -163,7 +162,10 @@ pub async fn api_region_karte(
 }
 
 /// citycode → (prefecture, municipality) 逆引き
-fn lookup_pref_muni(db: &crate::db::local_sqlite::LocalDb, citycode: i64) -> Option<(String, String)> {
+fn lookup_pref_muni(
+    db: &crate::db::local_sqlite::LocalDb,
+    citycode: i64,
+) -> Option<(String, String)> {
     if !crate::handlers::helpers::table_exists(db, "v2_flow_master_prefcity") {
         return None;
     }
@@ -173,12 +175,8 @@ fn lookup_pref_muni(db: &crate::db::local_sqlite::LocalDb, citycode: i64) -> Opt
             &[&citycode as &dyn rusqlite::types::ToSql],
         )
         .unwrap_or_default();
-    rows.first().map(|r| {
-        (
-            get_str(r, "prefname"),
-            get_str(r, "cityname"),
-        )
-    })
+    rows.first()
+        .map(|r| (get_str(r, "prefname"), get_str(r, "cityname")))
 }
 
 // ========== データバンドル ==========
@@ -189,13 +187,13 @@ struct KarteBundle {
     // --- 構造KPI 9枚 ---
     total_population: i64,
     total_households: i64,
-    elderly_rate: f64,          // %
-    single_rate: f64,           // %
-    unemployment_rate: f64,     // %
+    elderly_rate: f64,      // %
+    single_rate: f64,       // %
+    unemployment_rate: f64, // %
     physicians_per_10k: f64,
     daycare_per_1k: f64,
     establishment_count: i64,
-    habitable_density: f64,     // 人/km²
+    habitable_density: f64, // 人/km²
     total_area_km2: f64,
     habitable_area_km2: f64,
 
@@ -205,7 +203,7 @@ struct KarteBundle {
     vital_row: Option<Row>,
 
     // --- S3: 産業・労働 ---
-    establishments_top: Vec<Row>,    // industry_name, establishment_count, employees
+    establishments_top: Vec<Row>, // industry_name, establishment_count, employees
     primary_employed: i64,
     secondary_employed: i64,
     tertiary_employed: i64,
@@ -217,10 +215,10 @@ struct KarteBundle {
 
     // --- S5: 人流パターン (Agoop) ---
     citycode: Option<i64>,
-    karte_profile: Vec<Row>,          // month × dayflag × timezone
-    monthly_trend: Vec<Row>,          // year, month, pop_sum
+    karte_profile: Vec<Row>, // month × dayflag × timezone
+    monthly_trend: Vec<Row>, // year, month, pop_sum
     daynight_ratio: Option<f64>,
-    inflow_breakdown: Vec<Row>,       // from_area, total_population
+    inflow_breakdown: Vec<Row>, // from_area, total_population
     covid_recovery_ratio: Option<f64>,
 
     // --- HW求人集計 ---
@@ -537,15 +535,60 @@ fn render_badges(b: &KarteBundle) -> String {
 // ---------- S1: 構造KPI 9枚 ----------
 fn render_section_kpi(b: &KarteBundle) -> String {
     let cards = [
-        ("👥", "総人口", format_i64_or_dash(b.total_population, "人"), "text-blue-400"),
-        ("🏠", "世帯数", format_i64_or_dash(b.total_households, "世帯"), "text-emerald-400"),
-        ("👴", "高齢化率", format_pct_or_dash(b.elderly_rate), "text-amber-400"),
-        ("🚪", "単独世帯率", format_pct_or_dash(b.single_rate), "text-rose-400"),
-        ("📉", "失業率", format_pct_or_dash(b.unemployment_rate), "text-orange-400"),
-        ("🩺", "医師数 (人/10k)", format_f64_or_dash(b.physicians_per_10k, 1), "text-cyan-400"),
-        ("👶", "保育所 (/1k児)", format_f64_or_dash(b.daycare_per_1k, 2), "text-lime-400"),
-        ("🏢", "事業所数 (県)", format_i64_or_dash(b.establishment_count, "事業所"), "text-violet-400"),
-        ("🏘", "可住地密度", format_density_or_dash(b.habitable_density), "text-pink-400"),
+        (
+            "👥",
+            "総人口",
+            format_i64_or_dash(b.total_population, "人"),
+            "text-blue-400",
+        ),
+        (
+            "🏠",
+            "世帯数",
+            format_i64_or_dash(b.total_households, "世帯"),
+            "text-emerald-400",
+        ),
+        (
+            "👴",
+            "高齢化率",
+            format_pct_or_dash(b.elderly_rate),
+            "text-amber-400",
+        ),
+        (
+            "🚪",
+            "単独世帯率",
+            format_pct_or_dash(b.single_rate),
+            "text-rose-400",
+        ),
+        (
+            "📉",
+            "失業率",
+            format_pct_or_dash(b.unemployment_rate),
+            "text-orange-400",
+        ),
+        (
+            "🩺",
+            "医師数 (人/10k)",
+            format_f64_or_dash(b.physicians_per_10k, 1),
+            "text-cyan-400",
+        ),
+        (
+            "👶",
+            "保育所 (/1k児)",
+            format_f64_or_dash(b.daycare_per_1k, 2),
+            "text-lime-400",
+        ),
+        (
+            "🏢",
+            "事業所数 (県)",
+            format_i64_or_dash(b.establishment_count, "事業所"),
+            "text-violet-400",
+        ),
+        (
+            "🏘",
+            "可住地密度",
+            format_density_or_dash(b.habitable_density),
+            "text-pink-400",
+        ),
     ];
 
     let mut html = String::from(
@@ -555,7 +598,8 @@ fn render_section_kpi(b: &KarteBundle) -> String {
     <div class="karte-kpi-grid">"##,
     );
     for (icon, label, value, color) in cards {
-        write!(html,
+        write!(
+            html,
             r##"<div class="karte-kpi-card">
                 <div class="karte-kpi-icon">{icon}</div>
                 <div class="karte-kpi-label">{label}</div>
@@ -565,7 +609,8 @@ fn render_section_kpi(b: &KarteBundle) -> String {
             label = escape_html(label),
             value = escape_html(&value),
             color = color,
-        ).unwrap();
+        )
+        .unwrap();
     }
     html.push_str("</div></section>");
     html
@@ -913,7 +958,8 @@ fn build_household_stack_chart(row: Option<&Row>) -> String {
     let elderly_couple = get_i64(r, "elderly_couple_households");
     let elderly_single = get_i64(r, "elderly_single_households");
     let total = get_i64(r, "total_households");
-    let other = (total - nuclear - single - elderly_nuclear - elderly_couple - elderly_single).max(0);
+    let other =
+        (total - nuclear - single - elderly_nuclear - elderly_couple - elderly_single).max(0);
 
     let config = json!({
         "tooltip": {"trigger": "item", "formatter": "{b}: {c} 世帯 ({d}%)"},
@@ -1133,7 +1179,8 @@ fn build_medical_cards(row: Option<&Row>) -> String {
 
     let mut html = String::new();
     for (icon, label, val, color) in cards {
-        write!(html,
+        write!(
+            html,
             r##"<div class="karte-mini-card">
                 <div class="karte-mini-icon">{icon}</div>
                 <div class="karte-mini-label">{label}</div>
@@ -1143,7 +1190,8 @@ fn build_medical_cards(row: Option<&Row>) -> String {
             label = escape_html(label),
             value = format_i64_or_dash(val, ""),
             color = color,
-        ).unwrap();
+        )
+        .unwrap();
     }
     html
 }
@@ -1169,7 +1217,8 @@ fn build_education_cards(row: Option<&Row>) -> String {
     ];
     let mut html = String::new();
     for (icon, label, val, color) in cards {
-        write!(html,
+        write!(
+            html,
             r##"<div class="karte-mini-card">
                 <div class="karte-mini-icon">{icon}</div>
                 <div class="karte-mini-label">{label}</div>
@@ -1179,7 +1228,8 @@ fn build_education_cards(row: Option<&Row>) -> String {
             label = escape_html(label),
             value = format_i64_or_dash(val, ""),
             color = color,
-        ).unwrap();
+        )
+        .unwrap();
     }
     html
 }

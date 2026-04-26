@@ -117,7 +117,13 @@ pub fn enrich_areas(
             let mut set = std::collections::HashSet::new();
             unique
                 .iter()
-                .filter_map(|(p, _)| if set.insert(p.clone()) { Some(p.clone()) } else { None })
+                .filter_map(|(p, _)| {
+                    if set.insert(p.clone()) {
+                        Some(p.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect()
         };
         let mut pref_changes: HashMap<String, (Option<f64>, Option<f64>)> = HashMap::new();

@@ -233,14 +233,16 @@ pub async fn get_municipalities_cascade(
 
     let html: String = munis
         .iter()
-        .map(|m| match crate::geo::city_code::city_name_to_code(prefecture, m) {
-            Some(code) => super::competitive::build_option_with_data(
-                m,
-                m,
-                &[("citycode", code.to_string())],
-            ),
-            None => super::competitive::build_option(m, m),
-        })
+        .map(
+            |m| match crate::geo::city_code::city_name_to_code(prefecture, m) {
+                Some(code) => super::competitive::build_option_with_data(
+                    m,
+                    m,
+                    &[("citycode", code.to_string())],
+                ),
+                None => super::competitive::build_option(m, m),
+            },
+        )
         .collect::<Vec<_>>()
         .join("\n");
 

@@ -113,7 +113,8 @@ pub(crate) fn fetch_commute_zone_pyramid(
     let mut agg: HashMap<String, (i64, i64)> = HashMap::new(); // age_group -> (male_sum, female_sum)
 
     for m in munis {
-        let rows = super::subtab5::fetch_population_pyramid(db, turso, &m.prefecture, &m.municipality);
+        let rows =
+            super::subtab5::fetch_population_pyramid(db, turso, &m.prefecture, &m.municipality);
         for row in &rows {
             let age = get_str(row, "age_group");
             let male = get_i64(row, "male_count");
@@ -289,7 +290,8 @@ pub(crate) fn fetch_households(
              general_household_members, nuclear_family_households, single_households, \
              elderly_nuclear_households, elderly_couple_households, elderly_single_households, \
              avg_household_size, single_rate, elderly_single_rate, reference_date \
-             FROM v2_external_households WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+             FROM v2_external_households WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
             vec![pref.to_string(), muni.to_string()],
         )
     } else if !pref.is_empty() {
@@ -356,7 +358,8 @@ pub(crate) fn fetch_vital_statistics(
              NULL as birth_rate_permille, NULL as death_rate_permille, \
              NULL as marriage_rate_permille, NULL as divorce_rate_permille, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_vital_statistics WHERE prefecture = ?1".to_string(),
+             FROM v2_external_vital_statistics WHERE prefecture = ?1"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -368,7 +371,8 @@ pub(crate) fn fetch_vital_statistics(
              NULL as birth_rate_permille, NULL as death_rate_permille, \
              NULL as marriage_rate_permille, NULL as divorce_rate_permille, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_vital_statistics".to_string(),
+             FROM v2_external_vital_statistics"
+                .to_string(),
             vec![],
         )
     };
@@ -389,7 +393,8 @@ pub(crate) fn fetch_labor_force(
              not_in_labor_force_male, not_in_labor_force_female, \
              primary_industry_employed, secondary_industry_employed, tertiary_industry_employed, \
              unemployment_rate, labor_force_participation_rate, reference_date \
-             FROM v2_external_labor_force WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+             FROM v2_external_labor_force WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
             vec![pref.to_string(), muni.to_string()],
         )
     } else if !pref.is_empty() {
@@ -444,7 +449,8 @@ pub(crate) fn fetch_medical_welfare(
             "SELECT prefecture, municipality, general_hospitals, general_clinics, dental_clinics, \
              physicians, dentists, pharmacists, daycare_facilities, \
              physicians_per_10k_pop, daycare_per_1k_children_0_14, reference_year \
-             FROM v2_external_medical_welfare WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+             FROM v2_external_medical_welfare WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
             vec![pref.to_string(), muni.to_string()],
         )
     } else if !pref.is_empty() {
@@ -457,7 +463,8 @@ pub(crate) fn fetch_medical_welfare(
              SUM(pharmacists) as pharmacists, SUM(daycare_facilities) as daycare_facilities, \
              NULL as physicians_per_10k_pop, NULL as daycare_per_1k_children_0_14, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_medical_welfare WHERE prefecture = ?1".to_string(),
+             FROM v2_external_medical_welfare WHERE prefecture = ?1"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -470,7 +477,8 @@ pub(crate) fn fetch_medical_welfare(
              SUM(pharmacists) as pharmacists, SUM(daycare_facilities) as daycare_facilities, \
              NULL as physicians_per_10k_pop, NULL as daycare_per_1k_children_0_14, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_medical_welfare".to_string(),
+             FROM v2_external_medical_welfare"
+                .to_string(),
             vec![],
         )
     };
@@ -488,7 +496,8 @@ pub(crate) fn fetch_education_facilities(
         (
             "SELECT prefecture, municipality, kindergartens, elementary_schools, \
              junior_high_schools, high_schools, reference_year \
-             FROM v2_external_education_facilities WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+             FROM v2_external_education_facilities WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
             vec![pref.to_string(), muni.to_string()],
         )
     } else if !pref.is_empty() {
@@ -499,7 +508,8 @@ pub(crate) fn fetch_education_facilities(
              SUM(junior_high_schools) as junior_high_schools, \
              SUM(high_schools) as high_schools, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_education_facilities WHERE prefecture = ?1".to_string(),
+             FROM v2_external_education_facilities WHERE prefecture = ?1"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -510,7 +520,8 @@ pub(crate) fn fetch_education_facilities(
              SUM(junior_high_schools) as junior_high_schools, \
              SUM(high_schools) as high_schools, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_education_facilities".to_string(),
+             FROM v2_external_education_facilities"
+                .to_string(),
             vec![],
         )
     };
@@ -528,7 +539,8 @@ pub(crate) fn fetch_geography(
         (
             "SELECT prefecture, municipality, total_area_km2, habitable_area_km2, \
              population_density_per_km2, habitable_density_per_km2, reference_year \
-             FROM v2_external_geography WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+             FROM v2_external_geography WHERE prefecture = ?1 AND municipality = ?2"
+                .to_string(),
             vec![pref.to_string(), muni.to_string()],
         )
     } else if !pref.is_empty() {
@@ -539,7 +551,8 @@ pub(crate) fn fetch_geography(
              NULL as population_density_per_km2, \
              NULL as habitable_density_per_km2, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_geography WHERE prefecture = ?1".to_string(),
+             FROM v2_external_geography WHERE prefecture = ?1"
+                .to_string(),
             vec![pref.to_string()],
         )
     } else {
@@ -550,7 +563,8 @@ pub(crate) fn fetch_geography(
              NULL as population_density_per_km2, \
              NULL as habitable_density_per_km2, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_geography".to_string(),
+             FROM v2_external_geography"
+                .to_string(),
             vec![],
         )
     };

@@ -56,11 +56,7 @@ pub fn classify(emp: &str) -> EmpGroup {
 pub fn expand_to_db_values(group: EmpGroup) -> Vec<&'static str> {
     match group {
         EmpGroup::Regular => vec!["正社員", "正職員"],
-        EmpGroup::PartTime => vec![
-            "パート労働者",
-            "有期雇用派遣パート",
-            "無期雇用派遣パート",
-        ],
+        EmpGroup::PartTime => vec!["パート労働者", "有期雇用派遣パート", "無期雇用派遣パート"],
         EmpGroup::Other => vec!["正社員以外", "派遣", "契約社員", "業務委託"],
     }
 }

@@ -320,7 +320,8 @@ pub async fn region_posting_stats(
             let ind = get_str(row, "job_type");
             let cnt = get_i64(row, "cnt");
             let pct = (cnt as f64 / max_cnt as f64) * 100.0;
-            write!(html,
+            write!(
+                html,
                 r#"<div class="flex items-center gap-2 py-0.5">
   <span class="text-gray-300 w-32 truncate" title="{full}">{label}</span>
   <div class="flex-1 bg-gray-700 rounded h-3">
@@ -332,7 +333,8 @@ pub async fn region_posting_stats(
                 label = escape_html(&truncate_str(&ind, 16)),
                 pct = pct,
                 cnt = cnt
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
     html.push_str("</div>");
@@ -388,7 +390,8 @@ pub async fn region_segments(
                 let label = get_str(row, "tier3_label_short");
                 let cnt = get_i64(row, "cnt");
                 let pct = (cnt as f64 / max_cnt as f64) * 100.0;
-                write!(html,
+                write!(
+                    html,
                     r#"<div class="flex items-center gap-2 py-0.5">
   <span class="text-gray-300 w-36 truncate" title="{full}">{short}</span>
   <div class="flex-1 bg-gray-700 rounded h-3">
@@ -400,7 +403,8 @@ pub async fn region_segments(
                     short = escape_html(&truncate_str(&label, 20)),
                     pct = pct,
                     cnt = cnt
-                ).unwrap();
+                )
+                .unwrap();
             }
         }
     }
@@ -420,7 +424,8 @@ pub async fn region_segments(
                 let label = get_str(row, "employment_type");
                 let cnt = get_i64(row, "cnt");
                 let pct = (cnt as f64 / max_cnt as f64) * 100.0;
-                write!(html,
+                write!(
+                    html,
                     r#"<div class="flex items-center gap-2 py-0.5">
   <span class="text-gray-300 w-36 truncate" title="{full}">{short}</span>
   <div class="flex-1 bg-gray-700 rounded h-3">
@@ -432,7 +437,8 @@ pub async fn region_segments(
                     short = escape_html(&truncate_str(&label, 20)),
                     pct = pct,
                     cnt = cnt
-                ).unwrap();
+                )
+                .unwrap();
             }
         }
     }

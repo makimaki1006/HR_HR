@@ -25,6 +25,8 @@
 //!   - Agent B 未完了時: 9.4 禁止ワード系/9.10-9.13 新規群の一部 fail は期待通り
 //!   - Agent B 完了時: 全 pass を最終目標
 
+use super::super::company::fetch::NearbyCompany;
+use super::super::insight::fetch::InsightContext;
 use super::aggregator::{
     CompanyAgg, EmpTypeSalary, MunicipalitySalaryAgg, PrefectureSalaryAgg, RegressionResult,
     ScatterPoint, SurveyAggregation, TagSalaryAgg,
@@ -32,8 +34,6 @@ use super::aggregator::{
 use super::job_seeker::{InexperienceAnalysis, JobSeekerAnalysis, SalaryRangePerception};
 use super::report_html::render_survey_report_page;
 use super::statistics::EnhancedStats;
-use super::super::company::fetch::NearbyCompany;
-use super::super::insight::fetch::InsightContext;
 
 // ============================================================
 // Mock / ヘルパー
@@ -239,27 +239,48 @@ fn render_full_html() -> String {
                 "snapshot_id".into(),
                 serde_json::Value::String(format!("2025-{:02}", (12 - i).max(1))),
             );
-            row.insert("emp_group".into(), serde_json::Value::String("正社員".into()));
+            row.insert(
+                "emp_group".into(),
+                serde_json::Value::String("正社員".into()),
+            );
             row.insert(
                 "posting_count".into(),
                 serde_json::Value::Number(((1000 + i * 50) as i64).into()),
             );
-            row.insert("facility_count".into(), serde_json::Value::Number(100_i64.into()));
+            row.insert(
+                "facility_count".into(),
+                serde_json::Value::Number(100_i64.into()),
+            );
             row
         })
         .collect();
     ctx.vacancy = vec![{
         let mut row: StdHashMap<String, serde_json::Value> = StdHashMap::new();
-        row.insert("emp_group".into(), serde_json::Value::String("正社員".into()));
+        row.insert(
+            "emp_group".into(),
+            serde_json::Value::String("正社員".into()),
+        );
         row.insert(
             "vacancy_rate".into(),
             serde_json::Value::Number(serde_json::Number::from_f64(0.12).unwrap()),
         );
-        row.insert("total_count".into(), serde_json::Value::Number(500_i64.into()));
+        row.insert(
+            "total_count".into(),
+            serde_json::Value::Number(500_i64.into()),
+        );
         row
     }];
     let sn = vec![mock_nearby_company()];
-    render_survey_report_page(&agg, &seeker, &by_company, &by_emp, &smin, &smax, Some(&ctx), &sn)
+    render_survey_report_page(
+        &agg,
+        &seeker,
+        &by_company,
+        &by_emp,
+        &smin,
+        &smax,
+        Some(&ctx),
+        &sn,
+    )
 }
 
 /// hw_context=None, salesnow=空 のケース
@@ -312,10 +333,7 @@ fn p3_spec_9_1_required_sections_exist() {
     // 仕様書 2.4 の「必須（削除不可）」: 0, 1, 4, 6, 8, 9, 13
     let html = render_full_html();
     // セクション 4 雇用形態分布
-    assert!(
-        html.contains("雇用形態"),
-        "Section 4（雇用形態分布）が必須"
-    );
+    assert!(html.contains("雇用形態"), "Section 4（雇用形態分布）が必須");
     // セクション 6 地域分析
     assert!(
         html.contains("地域") || html.contains("都道府県"),
@@ -339,17 +357,21 @@ fn p3_spec_9_1_hw_comparison_section_removed() {
     // (任意スクレイピング件数 vs HW 全体の非同質比較は無意味)
     // hw_context の有無に関わらず HW市場比較 <h2> は出ないことを検証
     let html_without = render_minimal_html();
-    let has_h2_without = html_without
-        .split("<h2")
-        .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較")).unwrap_or(false));
+    let has_h2_without = html_without.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較"))
+            .unwrap_or(false)
+    });
     assert!(!has_h2_without, "hw_context=None: HW市場比較は削除済");
 
     let html_with = render_full_html();
-    let has_h2_with = html_with
-        .split("<h2")
-        .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較")).unwrap_or(false));
+    let has_h2_with = html_with.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| t.contains("HW市場比較") || t.contains("HW 市場比較"))
+            .unwrap_or(false)
+    });
     assert!(!has_h2_with, "hw_context=Some でも HW市場比較は削除済");
 }
 
@@ -358,20 +380,24 @@ fn p3_spec_9_1_featured_companies_section_toggled_by_emptiness() {
     // 2026-04-24 要件: SalesNow 表記削除 → 「地域注目企業」統一
     // CSS コメント等の偶発ヒットを避けるため <h2> 内の検出に限定
     let html_without = render_minimal_html();
-    let has_h2_without = html_without
-        .split("<h2")
-        .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("地域注目企業") || t.contains("注目企業")).unwrap_or(false));
+    let has_h2_without = html_without.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| t.contains("地域注目企業") || t.contains("注目企業"))
+            .unwrap_or(false)
+    });
     assert!(
         !has_h2_without,
         "nearby_companies.is_empty() のとき 地域注目企業セクションの <h2> が出ない"
     );
 
     let html_with = render_full_html();
-    let has_h2_with = html_with
-        .split("<h2")
-        .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("地域注目企業") || t.contains("注目企業")).unwrap_or(false));
+    let has_h2_with = html_with.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| t.contains("地域注目企業") || t.contains("注目企業"))
+            .unwrap_or(false)
+    });
     assert!(
         has_h2_with,
         "nearby_companies 非空のとき 地域注目企業セクションの <h2> が必要"
@@ -423,8 +449,7 @@ fn p3_spec_9_2_page_margin_defined() {
 fn p3_spec_9_2_page_break_inside_avoid_exists() {
     let html = render_full_html();
     assert!(
-        html.contains("page-break-inside")
-            && html.contains("avoid"),
+        html.contains("page-break-inside") && html.contains("avoid"),
         "page-break-inside: avoid が必須（仕様書 6.2）"
     );
 }
@@ -432,8 +457,7 @@ fn p3_spec_9_2_page_break_inside_avoid_exists() {
 #[test]
 fn p3_spec_9_2_print_color_adjust_exact() {
     let html = render_full_html();
-    let has_webkit = html.contains("-webkit-print-color-adjust")
-        && html.contains("exact");
+    let has_webkit = html.contains("-webkit-print-color-adjust") && html.contains("exact");
     let has_std = html.contains("print-color-adjust") && html.contains("exact");
     assert!(
         has_webkit || has_std,
@@ -950,15 +974,14 @@ fn p3_spec_9_9_render_function_signature_unchanged() {
 fn p3_spec_9_10_section_title_is_area_featured_companies() {
     let html = render_full_html();
     // 「地域注目企業」見出しが <h2> 内に存在（SalesNow は含まない）
-    let has_proper_title = html
-        .split("<h2")
-        .skip(1)
-        .any(|s| {
-            s.split("</h2>")
-                .next()
-                .map(|t| (t.contains("地域注目企業") || t.contains("注目企業")) && !t.contains("SalesNow"))
-                .unwrap_or(false)
-        });
+    let has_proper_title = html.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| {
+                (t.contains("地域注目企業") || t.contains("注目企業")) && !t.contains("SalesNow")
+            })
+            .unwrap_or(false)
+    });
     assert!(
         has_proper_title,
         "地域注目企業セクションの <h2> が『地域注目企業』または『注目企業』のみで、\
@@ -1028,22 +1051,19 @@ fn p3_spec_9_10_no_credit_column_in_featured_companies() {
 fn p3_spec_9_11_hw_enrichment_section_title() {
     let html = render_full_html();
     // セクションタイトル: 「HW データ連携」「HW状況」「地域別 HW」等の柔軟マッチ
-    let has_section_title = html
-        .split("<h2")
-        .skip(1)
-        .any(|s| {
-            s.split("</h2>")
-                .next()
-                .map(|t| {
-                    (t.contains("HW") || t.contains("ハローワーク"))
-                        && (t.contains("連携")
-                            || t.contains("状況")
-                            || t.contains("求人動向")
-                            || t.contains("求人状況")
-                            || t.contains("掲載動向"))
-                })
-                .unwrap_or(false)
-        });
+    let has_section_title = html.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| {
+                (t.contains("HW") || t.contains("ハローワーク"))
+                    && (t.contains("連携")
+                        || t.contains("状況")
+                        || t.contains("求人動向")
+                        || t.contains("求人状況")
+                        || t.contains("掲載動向"))
+            })
+            .unwrap_or(false)
+    });
     assert!(
         has_section_title,
         "HW データ連携セクションの <h2> が必要（例: 『HW データ連携』『地域別 HW 状況』等）"
@@ -1057,10 +1077,12 @@ fn p3_spec_9_11_trend_labels_present() {
     // ts_turso_counts の初期スナップショット不安定で「+374.3%」等の暴走値を
     // 全行に同じ値として出してしまっていたため。
     // テーブルでは CSV件数 / HW現在件数のみ、時系列推移は注記レベルに留める。
-    let h2_has_hw_enrich = html
-        .split("<h2")
-        .skip(1)
-        .any(|s| s.split("</h2>").next().map(|t| t.contains("地域 × HW")).unwrap_or(false));
+    let h2_has_hw_enrich = html.split("<h2").skip(1).any(|s| {
+        s.split("</h2>")
+            .next()
+            .map(|t| t.contains("地域 × HW"))
+            .unwrap_or(false)
+    });
     assert!(
         h2_has_hw_enrich,
         "地域 × HW データ連携セクションの <h2> が必要（trend 列は削除済）"
@@ -1074,8 +1096,7 @@ fn p3_spec_9_11_vacancy_rate_placeholder_exists() {
     // 少なくとも「欠員補充率」ラベルとプレースホルダ記号が併存
     // (2026-04-26 vacancy_rate 概念整理: 「欠員率」→「欠員補充率」)
     let has_vacancy_label = html.contains("欠員補充率");
-    let has_placeholder =
-        html.contains("\u{2014}") || html.contains("—") || html.contains("%");
+    let has_placeholder = html.contains("\u{2014}") || html.contains("—") || html.contains("%");
     assert!(
         has_vacancy_label && has_placeholder,
         "欠員補充率ラベルと値（%）orプレースホルダ（—）が必要。label={} / placeholder={}",
@@ -1128,8 +1149,7 @@ fn p3_spec_9_12_no_external_stylesheet_link() {
     let html = render_full_html();
     // 外部 CSS <link rel="stylesheet" ...> が存在しないこと
     // ECharts CDN は <script> タグなので対象外
-    let has_external_css = html.contains("rel=\"stylesheet\"")
-        || html.contains("rel='stylesheet'");
+    let has_external_css = html.contains("rel=\"stylesheet\"") || html.contains("rel='stylesheet'");
     assert!(
         !has_external_css,
         "外部 CSS link は禁止（HTML 自己完結性、ECharts CDN のみ許容）"

@@ -370,7 +370,10 @@ async fn jobmap_correlation_contract_contains_required_keys() {
         // frontend (templates/tabs/jobmap.html 相関散布図) 参照キー
         assert!(v.get("correlation").is_some(), "correlation missing: {v}");
         let corr = v.get("correlation").unwrap();
-        assert!(corr.get("r").is_some(), "correlation.r key missing (値が null は許容)");
+        assert!(
+            corr.get("r").is_some(),
+            "correlation.r key missing (値が null は許容)"
+        );
         assert!(corr.get("n").is_some(), "correlation.n missing");
         assert!(
             corr.get("note").is_some(),
@@ -393,14 +396,8 @@ async fn jobmap_correlation_contract_contains_required_keys() {
         let points = v.get("points").unwrap().as_array().unwrap();
         if !points.is_empty() {
             let p = &points[0];
-            assert!(
-                p.get("population").is_some(),
-                "point.population missing"
-            );
-            assert!(
-                p.get("job_count").is_some(),
-                "point.job_count missing"
-            );
+            assert!(p.get("population").is_some(), "point.population missing");
+            assert!(p.get("job_count").is_some(), "point.job_count missing");
             assert!(p.get("mesh").is_some(), "point.mesh missing");
             assert!(p.get("category").is_some(), "point.category missing");
         }

@@ -341,10 +341,12 @@ pub(crate) fn render_posting_table(
                 base_url, page - 1
             ).unwrap();
         }
-        write!(html,
+        write!(
+            html,
             r#"<span class="px-3 py-1 text-sm text-slate-400">{} / {} ページ</span>"#,
             page, total_pages
-        ).unwrap();
+        )
+        .unwrap();
         if page < total_pages {
             write!(html,
                 r##"<button class="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-sm" hx-get="{}&page={}" hx-target="#comp-results" hx-swap="innerHTML">次へ</button>"##,

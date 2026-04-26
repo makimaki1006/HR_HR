@@ -5,9 +5,9 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tower_sessions::Session;
 
+use crate::geo::city_code;
 use crate::geo::pref_name_to_code;
 use crate::handlers::competitive::{build_option, build_option_with_data, escape_html};
-use crate::geo::city_code;
 use crate::handlers::overview::get_session_filters;
 use crate::AppState;
 
@@ -238,16 +238,14 @@ pub async fn jobmap_municipalities(
     let munis = fetch::fetch_municipalities(geocoded_db, &filters, &params.prefecture);
     let pref_name = &params.prefecture;
     let options: String = std::iter::once(build_option("", "-- 市区町村 --"))
-        .chain(munis.iter().map(|m| {
-            match city_code::city_name_to_code(pref_name, m) {
-                Some(code) => build_option_with_data(
-                    m,
-                    m,
-                    &[("citycode", code.to_string())],
-                ),
-                None => build_option(m, m),
-            }
-        }))
+        .chain(
+            munis
+                .iter()
+                .map(|m| match city_code::city_name_to_code(pref_name, m) {
+                    Some(code) => build_option_with_data(m, m, &[("citycode", code.to_string())]),
+                    None => build_option(m, m),
+                }),
+        )
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -514,11 +512,13 @@ pub async fn jobmap_seeker_detail(
 
     let mut html = String::with_capacity(2048);
     html.push_str(r#"<div class="space-y-3 text-sm">"#);
-    write!(html,
+    write!(
+        html,
         r#"<div class="text-lg font-bold text-white border-b border-gray-600 pb-1">{} {}</div>"#,
         escape_html(pref),
         escape_html(muni)
-    ).unwrap();
+    )
+    .unwrap();
 
     if let Ok(rows) = db.query(&stats_sql, &params_ref) {
         if let Some(row) = rows.first() {
@@ -526,7 +526,8 @@ pub async fn jobmap_seeker_detail(
             let avg_min = get_f64(row, "avg_sal_min");
             let avg_max = get_f64(row, "avg_sal_max");
 
-            write!(html,
+            write!(
+                html,
                 r#"<div class="grid grid-cols-2 gap-2">
   <div class="bg-gray-700/50 rounded p-2 text-center">
     <div class="text-xs text-gray-400">求人件数</div>
@@ -540,7 +541,8 @@ pub async fn jobmap_seeker_detail(
                 cnt,
                 format_yen_simple(avg_min as i64),
                 format_yen_simple(avg_max as i64),
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
 

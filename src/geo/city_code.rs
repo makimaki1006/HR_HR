@@ -41,7 +41,9 @@ fn map() -> &'static HashMap<(String, String), u32> {
 pub fn city_name_to_code(pref_name: &str, city_name: &str) -> Option<u32> {
     let pref_map = pref_name_to_code();
     let prefcode = pref_map.get(pref_name)?;
-    map().get(&(prefcode.to_string(), city_name.to_string())).copied()
+    map()
+        .get(&(prefcode.to_string(), city_name.to_string()))
+        .copied()
 }
 
 #[cfg(test)]

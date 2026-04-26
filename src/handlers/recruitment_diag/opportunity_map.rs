@@ -230,9 +230,8 @@ fn collect_hw_counts_by_muni(
     // postings はローカル SQLite のみ（Turso 未同期）。query_turso_or_local は
     // Turso 未定義テーブルで 0 件 → ローカルにフォールバックするため、
     // 第一引数に None を渡してローカル直接参照にする。
-    let rows = super::super::analysis::fetch::query_turso_or_local(
-        None, db, &sql, &params, "postings",
-    );
+    let rows =
+        super::super::analysis::fetch::query_turso_or_local(None, db, &sql, &params, "postings");
     let mut map = std::collections::HashMap::new();
     for r in rows {
         let muni = super::super::helpers::get_str(&r, "municipality");

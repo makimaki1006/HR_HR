@@ -46,11 +46,13 @@ pub(crate) fn job_type_options_html(selected: &str) -> String {
     let mut html = String::from(r#"<option value="">-- 業種を選択 --</option>"#);
     for jt in JOB_TYPES {
         let sel = if *jt == selected { " selected" } else { "" };
-        write!(html,
+        write!(
+            html,
             r#"<option value="{v}"{sel}>{v}</option>"#,
             v = escape_html(jt),
             sel = sel
-        ).unwrap();
+        )
+        .unwrap();
     }
     html
 }
@@ -70,12 +72,14 @@ pub(crate) fn emp_type_options_html(selected: &str) -> String {
     let mut html = String::from(r#"<option value="">-- 雇用形態を選択 --</option>"#);
     for (v, label) in EMP_TYPES {
         let sel = if *v == selected { " selected" } else { "" };
-        write!(html,
+        write!(
+            html,
             r#"<option value="{v}"{sel}>{label}</option>"#,
             v = escape_html(v),
             label = escape_html(label),
             sel = sel
-        ).unwrap();
+        )
+        .unwrap();
     }
     html
 }

@@ -61,8 +61,7 @@ pub fn build_flow_context(
         return None;
     }
 
-    let monthly_trend =
-        super::super::jobmap::flow::get_karte_monthly_trend(db, turso, citycode);
+    let monthly_trend = super::super::jobmap::flow::get_karte_monthly_trend(db, turso, citycode);
 
     let daynight_ratio =
         super::super::jobmap::flow::get_karte_daynight_ratio(db, turso, citycode, default_year);
@@ -155,13 +154,7 @@ fn calc_ratio_from_profile(
         dayflag_b.to_string(),
         timezone_b.to_string(),
     ];
-    let rows = super::super::analysis::fetch::query_turso_or_local(
-        turso,
-        db,
-        &sql,
-        &params,
-        table,
-    );
+    let rows = super::super::analysis::fetch::query_turso_or_local(turso, db, &sql, &params, table);
     let mut num = 0.0;
     let mut den = 0.0;
     for r in &rows {
@@ -267,8 +260,8 @@ fn calc_monthly_amplitude(monthly_trend: &[Row]) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::super::helpers::Row;
+    use super::*;
 
     /// diff_region_ratio: from_area=3 の比率計算
     #[test]
@@ -284,14 +277,8 @@ mod tests {
             .drain(..)
             .map(|(from_area, pop)| {
                 let mut r = Row::new();
-                r.insert(
-                    "from_area".to_string(),
-                    serde_json::Value::from(from_area),
-                );
-                r.insert(
-                    "total_population".to_string(),
-                    serde_json::Value::from(pop),
-                );
+                r.insert("from_area".to_string(), serde_json::Value::from(from_area));
+                r.insert("total_population".to_string(), serde_json::Value::from(pop));
                 r
             })
             .collect();

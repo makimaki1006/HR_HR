@@ -136,10 +136,12 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             if let Some(last) = ctx.ts_fulfillment.last() {
                 let days = get_f64(last, "avg_listing_days");
                 if days > 0.0 {
-                    write!(html,
+                    write!(
+                        html,
                         r#"<div class="text-xs text-slate-500 mt-2">平均掲載日数: {:.0}日</div>"#,
                         days
-                    ).unwrap();
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -281,7 +283,8 @@ fn render_insights_section(insights: &[Insight]) -> String {
     } else {
         ("標準的な傾向", "text-slate-300")
     };
-    write!(html,
+    write!(
+        html,
         r#"<div class="text-sm text-white mb-3">傾向: <span class="font-bold {color}">{label}</span>
             <span class="text-xs text-slate-400 ml-2">(重大{c}件 / 注意{w}件 / 良好{p}件)</span>
         </div>"#,
@@ -290,7 +293,8 @@ fn render_insights_section(insights: &[Insight]) -> String {
         c = critical,
         w = warning,
         p = positive,
-    ).unwrap();
+    )
+    .unwrap();
 
     // 上位5件の示唆をカード表示
     for insight in insights.iter().take(5) {
@@ -325,10 +329,12 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
     html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">地域注目企業</h4>"#);
 
     if companies.is_empty() {
-        write!(html,
+        write!(
+            html,
             r#"<p class="text-slate-500 text-xs">{}に該当する企業データはありません</p>"#,
             escape_html(location)
-        ).unwrap();
+        )
+        .unwrap();
         html.push_str("</section>");
         return html;
     }
@@ -402,7 +408,8 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
         let delta_1y_html = render_delta_cell(c.employee_delta_1y);
         let delta_3m_html = render_delta_cell(c.employee_delta_3m);
 
-        write!(html,
+        write!(
+            html,
             r##"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
                 <td class="py-1.5 px-2 text-white">{}</td>
                 <td class="py-1.5 px-2 text-slate-400">{}</td>
@@ -426,7 +433,8 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             delta_3m_html,
             hw_badge,
             escape_html(&c.corporate_number),
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     html.push_str("</tbody></table></div>");
@@ -532,7 +540,8 @@ fn render_hw_area_enrichment_section(
             _ => r#"<span class="text-slate-600">-</span>"#.to_string(),
         };
 
-        write!(html,
+        write!(
+            html,
             r#"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
                 <td class="py-1.5 px-2 text-slate-200">{}</td>
                 <td class="py-1.5 px-2 text-white">{}</td>
@@ -547,7 +556,8 @@ fn render_hw_area_enrichment_section(
             change_3m_html,
             change_1y_html,
             vacancy_html,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     html.push_str("</tbody></table></div>");
@@ -559,11 +569,13 @@ fn render_hw_area_enrichment_section(
         ).unwrap();
     }
 
-    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
         3ヶ月／1年推移は HW 時系列 DB 由来（都道府県×雇用形態グループの月次推移）。
         欠員率は外部統計由来の参考値（市区町村粒度で欠損する場合があります）。
         HW掲載求人のみを対象としており、全求人市場の動向ではありません。
-    </div>"#);
+    </div>"#,
+    );
     html.push_str("</section>");
     html
 }
@@ -594,12 +606,14 @@ fn render_pct_change_cell(pct: Option<f64>, label: &str) -> String {
 }
 
 fn kpi_card(html: &mut String, label: &str, value: &str, color: &str) {
-    write!(html,
+    write!(
+        html,
         r#"<div class="text-center p-2 bg-slate-800/50 rounded">
             <div class="text-sm font-bold {color}">{}</div>
             <div class="text-[10px] text-slate-500">{}</div>
         </div>"#,
         escape_html(value),
         escape_html(label),
-    ).unwrap();
+    )
+    .unwrap();
 }

@@ -143,7 +143,9 @@ pub(crate) fn render_survey_report_page_with_enrichment(
         "<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n",
     );
     html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">株式会社For A-career</div>\n");
-    html.push_str("<div class=\"cover-title\" id=\"cover-title\">求人市場<br>総合診断レポート</div>\n");
+    html.push_str(
+        "<div class=\"cover-title\" id=\"cover-title\">求人市場<br>総合診断レポート</div>\n",
+    );
     html.push_str("<div class=\"cover-sub\">");
     html.push_str(&escape_html(&today_short));
     html.push_str(" 版</div>\n");
@@ -1060,11 +1062,7 @@ fn build_exec_actions(
     // A: 給与ギャップ（当サンプル中央値 vs HW 市場中央値）
     // 月給データのときのみ有効（is_hourly 時はスキップ）
     if !agg.is_hourly {
-        let csv_median = agg
-            .enhanced_stats
-            .as_ref()
-            .map(|s| s.median)
-            .unwrap_or(0);
+        let csv_median = agg.enhanced_stats.as_ref().map(|s| s.median).unwrap_or(0);
         let hw_median: i64 = if let Some(ctx) = hw_context {
             // ts_salary の avg_salary_min 値を平均化して参考値に
             let vals: Vec<f64> = ctx
@@ -1085,7 +1083,11 @@ fn build_exec_actions(
             let diff = hw_median - csv_median;
             let abs_diff = diff.abs();
             if abs_diff >= 20_000 {
-                let direction = if diff > 0 { "引き上げる" } else { "再確認する" };
+                let direction = if diff > 0 {
+                    "引き上げる"
+                } else {
+                    "再確認する"
+                };
                 out.push((
                     RptSev::Critical,
                     format!(
@@ -1102,7 +1104,11 @@ fn build_exec_actions(
                     "(Section 6 / Section 8 参照)".to_string(),
                 ));
             } else if abs_diff >= 10_000 {
-                let direction = if diff > 0 { "引き上げる" } else { "再確認する" };
+                let direction = if diff > 0 {
+                    "引き上げる"
+                } else {
+                    "再確認する"
+                };
                 out.push((
                     RptSev::Warning,
                     format!(
@@ -1411,14 +1417,17 @@ fn render_section_hw_enrichment(
         .take(15)
         .map(|(pref, muni, count)| {
             let key = format!("{}:{}", pref, muni);
-            let enrich = enrichment_map.get(&key).cloned().unwrap_or_else(|| HwAreaEnrichment {
-                prefecture: pref.clone(),
-                municipality: muni.clone(),
-                hw_posting_count: 0,
-                posting_change_3m_pct: fallback_3m,
-                posting_change_1y_pct: fallback_1y,
-                vacancy_rate_pct: fallback_vacancy,
-            });
+            let enrich = enrichment_map
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| HwAreaEnrichment {
+                    prefecture: pref.clone(),
+                    municipality: muni.clone(),
+                    hw_posting_count: 0,
+                    posting_change_3m_pct: fallback_3m,
+                    posting_change_1y_pct: fallback_1y,
+                    vacancy_rate_pct: fallback_vacancy,
+                });
             (enrich, *count)
         })
         .collect();
@@ -2105,7 +2114,11 @@ fn render_section_emp_group_native(html: &mut String, agg: &SurveyAggregation) {
     html.push_str("<div class=\"emp-group-grid\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:12px;\">\n");
 
     for group in &agg.by_emp_group_native {
-        let unit_suffix = if group.native_unit == "時給" { "円" } else { "円" };
+        let unit_suffix = if group.native_unit == "時給" {
+            "円"
+        } else {
+            "円"
+        };
         let is_hourly = group.native_unit == "時給";
         // 月給は「万円表示」、時給は「円表示」
         let format_salary = |v: i64| -> String {
@@ -2291,7 +2304,9 @@ fn render_section_region(html: &mut String, agg: &SurveyAggregation) {
             pct
         ));
     }
-    html.push_str("<p class=\"section-xref\">関連: Section 7（市区町村）/ Section 8（最低賃金）</p>\n");
+    html.push_str(
+        "<p class=\"section-xref\">関連: Section 7（市区町村）/ Section 8（最低賃金）</p>\n",
+    );
 
     html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">割合</th></tr></thead>\n<tbody>\n");
     let total = agg.total_count.max(1);
@@ -2958,10 +2973,10 @@ fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregation) {
 ///
 /// 関数名は呼出側の互換のため残す（UI 表示文言のみ「地域注目企業」に統一）
 fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompany]) {
-    html.push_str("<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n");
     html.push_str(
-        "<h2 id=\"region-featured-title\">地域注目企業</h2>\n",
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
     );
+    html.push_str("<h2 id=\"region-featured-title\">地域注目企業</h2>\n");
     html.push_str(
         "<p class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">\
         \u{203B} 地域内で従業員数の多い 30 社を整理しています。\
@@ -3055,10 +3070,7 @@ fn format_delta_cell(pct: f64) -> String {
     } else {
         "trend-flat"
     };
-    format!(
-        "<span class=\"{}\">{:+.1}%</span>",
-        cls, pct
-    )
+    format!("<span class=\"{}\">{:+.1}%</span>", cls, pct)
 }
 
 // ============================================================
@@ -3070,7 +3082,9 @@ fn format_delta_cell(pct: f64) -> String {
 fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<section class=\"section\" role=\"region\" aria-labelledby=\"notes-title\">\n");
     html.push_str("<h2 id=\"notes-title\">注記・出典・免責</h2>\n");
-    html.push_str("<ol style=\"padding-left:1.4em;font-size:10pt;line-height:1.6;color:var(--text);\">\n");
+    html.push_str(
+        "<ol style=\"padding-left:1.4em;font-size:10pt;line-height:1.6;color:var(--text);\">\n",
+    );
     html.push_str(
         "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV（Indeed / 求人ボックス等）\
         の行に基づく分析が主で、HW 掲載データは比較参考値として併記している。\

@@ -164,7 +164,10 @@ pub(crate) fn compute_median(
     municipality: &str,
 ) -> MedianStats {
     // where 構築
-    let mut wc: Vec<String> = vec!["salary_min > 0".to_string(), "salary_type = '月給'".to_string()];
+    let mut wc: Vec<String> = vec![
+        "salary_min > 0".to_string(),
+        "salary_type = '月給'".to_string(),
+    ];
     let mut params_own: Vec<String> = Vec::new();
     let mut idx: usize = 1;
 
@@ -235,7 +238,10 @@ pub(crate) fn compute_median(
         .map(|s| s as &dyn rusqlite::types::ToSql)
         .collect();
 
-    let avg_row = db.query(&sql, &params).ok().and_then(|r| r.into_iter().next());
+    let avg_row = db
+        .query(&sql, &params)
+        .ok()
+        .and_then(|r| r.into_iter().next());
     let (cnt, avg_salary, avg_bonus, avg_holidays) = if let Some(r) = avg_row {
         (
             crate::handlers::helpers::get_i64(&r, "cnt"),
@@ -252,7 +258,8 @@ pub(crate) fn compute_median(
     }
 
     // より正確な中央値 (salary_min のみ、負荷を考慮)
-    let median_salary = median_via_offset(db, &where_sql, &params_own, "salary_min").unwrap_or(avg_salary);
+    let median_salary =
+        median_via_offset(db, &where_sql, &params_own, "salary_min").unwrap_or(avg_salary);
     let median_bonus = median_via_offset(
         db,
         &format!("{} AND bonus_months > 0", where_sql),
@@ -350,9 +357,15 @@ fn build_interpretation(
     let holiday_label = if gap.annual_holidays_diff.abs() < 1.0 {
         "年間休日は業界中央値とほぼ同水準".to_string()
     } else if gap.annual_holidays_diff > 0.0 {
-        format!("年間休日は業界中央値より {:.0}日多い傾向", gap.annual_holidays_diff)
+        format!(
+            "年間休日は業界中央値より {:.0}日多い傾向",
+            gap.annual_holidays_diff
+        )
     } else {
-        format!("年間休日は業界中央値より {:.0}日少ない傾向", gap.annual_holidays_diff.abs())
+        format!(
+            "年間休日は業界中央値より {:.0}日少ない傾向",
+            gap.annual_holidays_diff.abs()
+        )
     };
 
     format!(

@@ -47,12 +47,24 @@ fn push_validated(out: &mut Vec<Insight>, ins: Insight) {
 fn analyze_hiring_structure(ctx: &InsightContext) -> Vec<Insight> {
     let mut out = Vec::new();
 
-    if let Some(i) = hs1_chronic_shortage(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = hs2_salary_competitiveness(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = hs3_transparency_gap(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = hs4_temperature_mismatch(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = hs5_monopsony(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = hs6_spatial_mismatch(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = hs1_chronic_shortage(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = hs2_salary_competitiveness(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = hs3_transparency_gap(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = hs4_temperature_mismatch(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = hs5_monopsony(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = hs6_spatial_mismatch(ctx) {
+        push_validated(&mut out, i);
+    }
 
     out
 }
@@ -414,10 +426,18 @@ fn hs6_spatial_mismatch(ctx: &InsightContext) -> Option<Insight> {
 
 fn analyze_forecast(ctx: &InsightContext) -> Vec<Insight> {
     let mut out = Vec::new();
-    if let Some(i) = fc1_posting_trend(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = fc2_salary_pressure(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = fc3_population_outlook(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = fc4_fulfillment_worsening(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = fc1_posting_trend(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = fc2_salary_pressure(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = fc3_population_outlook(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = fc4_fulfillment_worsening(ctx) {
+        push_validated(&mut out, i);
+    }
     out
 }
 
@@ -684,9 +704,15 @@ fn fc4_fulfillment_worsening(ctx: &InsightContext) -> Option<Insight> {
 
 fn analyze_regional_comparison(ctx: &InsightContext) -> Vec<Insight> {
     let mut out = Vec::new();
-    if let Some(i) = rc1_benchmark_ranking(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = rc2_salary_gap(ctx) { push_validated(&mut out, i); }
-    if let Some(i) = rc3_population_density_cross(ctx) { push_validated(&mut out, i); }
+    if let Some(i) = rc1_benchmark_ranking(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = rc2_salary_gap(ctx) {
+        push_validated(&mut out, i);
+    }
+    if let Some(i) = rc3_population_density_cross(ctx) {
+        push_validated(&mut out, i);
+    }
     out
 }
 
@@ -795,7 +821,11 @@ fn rc2_salary_gap(ctx: &InsightContext) -> Option<Insight> {
         title: "給与水準の地域差".to_string(),
         body: format!(
             "正社員の平均月給{:.0}円は全国平均比{:+.0}円 ({:+.1}%)。年間休日は平均{:.0}日。{}。",
-            local_salary, diff, diff_pct * 100.0, local_holidays, trend_phrase
+            local_salary,
+            diff,
+            diff_pct * 100.0,
+            local_holidays,
+            trend_phrase
         ),
         evidence: vec![
             Evidence {
@@ -891,15 +921,21 @@ fn generate_action_proposals(ctx: &InsightContext, existing: &[Insight]) -> Vec<
 
     // AP-1: HS-2（給与競争力不足）が発火していれば給与改善提案
     if existing.iter().any(|i| i.id == "HS-2") {
-        if let Some(i) = ap1_salary_improvement(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = ap1_salary_improvement(ctx) {
+            push_validated(&mut out, i);
+        }
     }
     // AP-2: HS-3 or HS-4 が発火していれば求人原稿改善提案
     if existing.iter().any(|i| i.id == "HS-3" || i.id == "HS-4") {
-        if let Some(i) = ap2_posting_improvement(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = ap2_posting_improvement(ctx) {
+            push_validated(&mut out, i);
+        }
     }
     // AP-3: HS-6 が発火していれば採用エリア拡大提案
     if existing.iter().any(|i| i.id == "HS-6") {
-        if let Some(i) = ap3_area_expansion(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = ap3_area_expansion(ctx) {
+            push_validated(&mut out, i);
+        }
     }
 
     out
@@ -1049,15 +1085,27 @@ fn analyze_commute_zone(ctx: &InsightContext) -> Vec<Insight> {
     }
     // 距離ベース
     if ctx.commute_zone_count > 0 {
-        if let Some(i) = cz1_population_distribution(ctx) { push_validated(&mut out, i); }
-        if let Some(i) = cz2_salary_gap(ctx) { push_validated(&mut out, i); }
-        if let Some(i) = cz3_aging_risk(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = cz1_population_distribution(ctx) {
+            push_validated(&mut out, i);
+        }
+        if let Some(i) = cz2_salary_gap(ctx) {
+            push_validated(&mut out, i);
+        }
+        if let Some(i) = cz3_aging_risk(ctx) {
+            push_validated(&mut out, i);
+        }
     }
     // 実フローベース（国勢調査OD）
     if ctx.commute_inflow_total > 0 {
-        if let Some(i) = cf1_actual_commute_zone(ctx) { push_validated(&mut out, i); }
-        if let Some(i) = cf2_inflow_targeting(ctx) { push_validated(&mut out, i); }
-        if let Some(i) = cf3_self_commute_analysis(ctx) { push_validated(&mut out, i); }
+        if let Some(i) = cf1_actual_commute_zone(ctx) {
+            push_validated(&mut out, i);
+        }
+        if let Some(i) = cf2_inflow_targeting(ctx) {
+            push_validated(&mut out, i);
+        }
+        if let Some(i) = cf3_self_commute_analysis(ctx) {
+            push_validated(&mut out, i);
+        }
     }
     out
 }
@@ -1445,7 +1493,11 @@ fn ls2_industry_concentration(ctx: &InsightContext) -> Option<Insight> {
     let primary_share = primary / employed * 100.0;
 
     let (industry_label, share, threshold) = if tertiary_share > TERTIARY_CONCENTRATION_THRESHOLD {
-        ("第三次産業", tertiary_share, TERTIARY_CONCENTRATION_THRESHOLD)
+        (
+            "第三次産業",
+            tertiary_share,
+            TERTIARY_CONCENTRATION_THRESHOLD,
+        )
     } else if primary_share > PRIMARY_CONCENTRATION_THRESHOLD {
         ("第一次産業", primary_share, PRIMARY_CONCENTRATION_THRESHOLD)
     } else {
