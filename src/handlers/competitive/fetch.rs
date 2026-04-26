@@ -61,7 +61,7 @@ pub(crate) struct SalaryStats {
 
 // --- データ取得関数 ---
 
-/// 競合調査の基本統計
+/// 求人検索タブの基本統計
 /// job_typeが空の場合は全体集計
 /// 3つのクエリを1つに統合し、JSON_GROUP_ARRAYでpref_rankingを取得
 pub(crate) fn fetch_competitive(state: &AppState, filters: &SessionFilters) -> CompStats {
@@ -163,7 +163,7 @@ pub(crate) fn fetch_prefectures(state: &AppState, filters: &SessionFilters) -> V
         .collect()
 }
 
-/// 産業（job_type）一覧取得（競合調査フィルタ用）
+/// 産業（job_type）一覧取得（求人検索フィルタ用）
 pub(crate) fn fetch_job_types(state: &AppState, pref: &str) -> Vec<(String, i64)> {
     let db = match &state.hw_db {
         Some(db) => db,

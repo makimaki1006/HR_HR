@@ -866,6 +866,9 @@ fn render_overview(
     format!(
         r##"<div class="space-y-6">
     <h2 class="text-xl font-bold text-white">📊 地域概況 <span class="text-blue-400 text-base font-normal">{industry_label} / {location_label}</span></h2>
+    <div class="p-3 bg-amber-900/20 border-l-4 border-amber-500 rounded text-xs text-amber-200 leading-relaxed">
+        ⚠️ 本ダッシュボードは <span class="font-semibold">ハローワーク掲載求人のみ</span> が対象です。民間求人サイト（Indeed・求人ボックス・自社サイト等）の求人は含まれません。
+    </div>
     <p class="text-xs text-slate-500 mb-2">ハローワーク求人データベースから地域・産業別の採用市場動向を分析するダッシュボードです。フィルタで地域・産業を絞り込み、各タブで詳細を確認できます。</p>
 
     {comparison_section}
@@ -880,9 +883,9 @@ fn render_overview(
             <div class="stat-value text-emerald-400">{facility_count}</div>
             <div class="stat-label">事業所数</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" title="HW求人は市場実勢より給与を低めに設定する慣習があります">
             <div class="stat-value text-amber-400">{avg_salary}<span class="text-lg">円</span></div>
-            <div class="stat-label">平均月給（下限） {nav_salary}</div>
+            <div class="stat-label">平均月給（下限） <span class="text-slate-500 text-[10px]" title="HW求人は市場実勢より給与を低めに設定する慣習があります">ⓘ</span> {nav_salary}</div>
         </div>
         <div class="stat-card">
             <div class="stat-value text-cyan-400">{ft_rate}</div>

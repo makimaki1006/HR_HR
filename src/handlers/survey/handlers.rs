@@ -13,7 +13,7 @@ use super::render::{render_analysis_result, render_upload_form};
 use super::upload::{parse_csv_bytes, parse_csv_bytes_with_hints, UserSourceHint, WageMode};
 use crate::AppState;
 
-/// 競合調査タブ（初期表示: アップロードフォーム）
+/// 媒体分析タブ（初期表示: アップロードフォーム）
 pub async fn tab_survey(State(_state): State<Arc<AppState>>, _session: Session) -> Html<String> {
     Html(render_upload_form())
 }
@@ -318,7 +318,7 @@ pub async fn report_json(
     axum::response::Json(serde_json::json!({"status": "upload_csv_first"}))
 }
 
-/// 競合調査PDF/印刷用HTMLレポート
+/// 媒体分析PDF/印刷用HTMLレポート
 pub async fn survey_report_html(
     State(state): State<Arc<AppState>>,
     session: Session,
@@ -329,7 +329,7 @@ pub async fn survey_report_html(
         _ => return Html("<html><body><p>セッションIDが必要です。CSVをアップロードしてください。</p></body></html>".to_string()),
     };
 
-    // 監査: 競合調査レポート生成
+    // 監査: 媒体分析レポート生成
     crate::audit::record_event(
         &state.audit,
         &session,
@@ -457,7 +457,7 @@ pub async fn survey_report_html(
     Html(html)
 }
 
-/// 競合調査レポートを HTML ファイルとしてダウンロード
+/// 媒体分析レポートを HTML ファイルとしてダウンロード
 ///
 /// GAS 踏襲: ユーザーが HTML をローカルに保存 → 手元で文言編集 → ブラウザで開き
 /// 直して印刷 → PDF 保存、というワークフローを支援する。

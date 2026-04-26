@@ -1440,8 +1440,8 @@ fn render_section_hw_enrichment(
             "<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">",
         );
         html.push_str(&format!(
-            "※ {} 正社員欠員率（外部統計 e-Stat 由来）は {:.1}%。\
-             単一値のため市区町村別の差は表示していません。",
+            "※ {} 正社員欠員補充率（求人理由が「欠員補充」の比率、外部統計 e-Stat 由来）は {:.1}%。\
+             この値は都道府県粒度の単一値であり、市区町村別の差は反映していません。",
             escape_html(&rows.first().map(|(e, _)| e.prefecture.clone()).unwrap_or_default()),
             vrate
         ));
@@ -1486,191 +1486,6 @@ fn render_section_hw_enrichment(
          単純比較ではなく、どのエリアに媒体側の露出が集中しているかの参考値として参照してください。</p>\n",
     );
     html.push_str("</section>\n");
-}
-
-// === 以下は旧実装（未使用、将来削除予定） ===
-#[allow(dead_code)]
-fn render_section_hw_enrichment_legacy_unused(
-    html: &mut String,
-    agg: &SurveyAggregation,
-    ctx: &InsightContext,
-) {
-    // CSV 側の (pref, muni) ペアを抽出（重複排除、件数降順）
-    let pairs: Vec<(String, String, usize)> = {
-        let mut seen: std::collections::HashSet<(String, String)> =
-            std::collections::HashSet::new();
-        let mut v: Vec<(String, String, usize)> = Vec::new();
-        for m in &agg.by_municipality_salary {
-            let key = (m.prefecture.clone(), m.name.clone());
-            if !m.prefecture.is_empty() && !m.name.is_empty() && seen.insert(key) {
-                v.push((m.prefecture.clone(), m.name.clone(), m.count));
-            }
-        }
-        v.sort_by(|a, b| b.2.cmp(&a.2));
-        v
-    };
-
-    // CSV に市区町村情報が無い場合は都道府県レベルだけで出力
-    if pairs.is_empty() && agg.by_prefecture.is_empty() {
-        return;
-    }
-
-    // HW 全体 3m/1y 推移を ts_counts から算出（単一 pref=ctx.pref に対する値）
-    // ts_counts は (snapshot_id, emp_group, posting_count, facility_count) を持つ。
-    // emp_group を横断合計して snapshot 単位で posting 合計を作り、最新vs 3m前/12m前で比較。
-    let (overall_3m, overall_1y) = compute_posting_change_from_ts(ctx);
-
-    // 欠員率（ctx.pref × 正社員）
-    let vacancy_rate_overall: Option<f64> = ctx
-        .vacancy
-        .iter()
-        .find(|r| get_str_ref(r, "emp_group") == "正社員")
-        .map(|r| get_f64(r, "vacancy_rate"))
-        .filter(|v| *v > 0.0)
-        .map(|v| v * 100.0);
-
-    // HW 現在件数（pref 合算 - 全 emp_group の total_count 和）
-    let hw_total_pref: i64 = ctx
-        .vacancy
-        .iter()
-        .map(|r| get_f64(r, "total_count") as i64)
-        .sum::<i64>();
-
-    // 最大 15 市区町村まで（印刷 1〜2 ページに収まる上限）
-    let rows: Vec<HwAreaEnrichment> = pairs
-        .iter()
-        .take(15)
-        .map(|(pref, muni, _count)| {
-            // municipality 粒度の HW 件数は現在入力から算出できないため、
-            // 参考値として pref 全体値を表示しつつ警告注記を付ける運用とする。
-            // municipality 集計ができる場合は handlers 層で HwAreaEnrichment を
-            // 直接渡す将来拡張に備え、struct として整形する。
-            HwAreaEnrichment {
-                prefecture: pref.clone(),
-                municipality: muni.clone(),
-                hw_posting_count: 0, // pref 単位の参考値は別列で表示
-                posting_change_3m_pct: overall_3m,
-                posting_change_1y_pct: overall_1y,
-                vacancy_rate_pct: vacancy_rate_overall,
-            }
-        })
-        .collect();
-
-    html.push_str(
-        "<section class=\"section\" role=\"region\" aria-labelledby=\"hw-enrich-title\">\n",
-    );
-    html.push_str("<h2 id=\"hw-enrich-title\">地域 × HW データ連携</h2>\n");
-    html.push_str(
-        "<p class=\"section-header-meta\">\
-         アップロード CSV の地域情報を HW 掲載データ（件数・推移・欠員率）と横並び表示。\
-         ※ 推移・欠員率は都道府県単位の参考値。市区町村単位の詳細は Section 7 を参照。</p>\n",
-    );
-    // So What 行（ダウンロード後に文言をユーザーが編集可）
-    html.push_str("<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">");
-    html.push_str(&build_hw_enrichment_sowhat(
-        overall_3m,
-        overall_1y,
-        vacancy_rate_overall,
-    ));
-    html.push_str("</div>\n");
-
-    html.push_str("<table class=\"hw-enrichment-table\">\n");
-    html.push_str(
-        "<thead><tr>\
-         <th>都道府県</th>\
-         <th>市区町村</th>\
-         <th class=\"num\">CSV件数</th>\
-         <th class=\"num\">HW現在件数<br><span style=\"font-weight:400;font-size:8pt;\">(参考値: 都道府県)</span></th>\
-         <th>3ヶ月推移</th>\
-         <th>1年推移</th>\
-         <th class=\"num\">欠員率(正社員)</th>\
-         </tr></thead>\n<tbody>\n",
-    );
-    for (i, e) in rows.iter().enumerate() {
-        let csv_count = pairs
-            .get(i)
-            .map(|(_, _, c)| *c as i64)
-            .unwrap_or(0);
-        html.push_str("<tr class=\"hw-area-row\">");
-        html.push_str(&format!("<td>{}</td>", escape_html(&e.prefecture)));
-        html.push_str(&format!("<td>{}</td>", escape_html(&e.municipality)));
-        html.push_str(&format!(
-            "<td class=\"num\">{}</td>",
-            format_number(csv_count)
-        ));
-        html.push_str(&format!(
-            "<td class=\"num\">{}</td>",
-            if hw_total_pref > 0 {
-                format_number(hw_total_pref)
-            } else {
-                "-".to_string()
-            }
-        ));
-        html.push_str(&format!(
-            "<td>{}</td>",
-            render_trend_cell(e.posting_change_3m_pct, e.change_label_3m())
-        ));
-        html.push_str(&format!(
-            "<td>{}</td>",
-            render_trend_cell(e.posting_change_1y_pct, e.change_label_1y())
-        ));
-        html.push_str(&format!(
-            "<td class=\"num\">{}</td>",
-            match e.vacancy_rate_pct {
-                Some(v) => format!("{:.1}%", v),
-                None => "-".to_string(),
-            }
-        ));
-        html.push_str("</tr>\n");
-    }
-    html.push_str("</tbody></table>\n");
-
-    html.push_str(
-        "<p class=\"section-xref\">\
-         ※ HW 現在件数・推移・欠員率の市区町村粒度は handlers 層での拡張対応中。\
-         現状は都道府県単位の参考値を表示。市区町村単位の詳細は Section 6-7 を参照。<br>\
-         ※ 推移ラベル凡例: <strong>大きく増加</strong> / <strong>緩やかに増加</strong> / \
-         <strong>横ばい</strong> / <strong>緩やかに減少</strong> / <strong>大きく減少</strong>。\
-         時系列データ不足時は「—」を表示。\
-         </p>\n",
-    );
-    html.push_str("</section>\n");
-}
-
-/// HW データ連携セクションの So What 文言を生成
-fn build_hw_enrichment_sowhat(
-    change_3m: Option<f64>,
-    change_1y: Option<f64>,
-    vacancy_rate: Option<f64>,
-) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    match change_3m {
-        Some(v) if v.abs() >= 3.0 => parts.push(format!(
-            "HW 求人件数は直近3ヶ月で {:+.1}% 推移",
-            v
-        )),
-        Some(_) => parts.push("HW 求人件数は直近3ヶ月で横ばい".to_string()),
-        None => {}
-    }
-    match change_1y {
-        Some(v) if v.abs() >= 10.0 => parts.push(format!(
-            "1年では {:+.1}%",
-            v
-        )),
-        _ => {}
-    }
-    match vacancy_rate {
-        Some(v) if v >= 15.0 => parts.push(format!(
-            "正社員欠員率 {:.1}% は全国平均より高い傾向",
-            v
-        )),
-        Some(v) if v >= 5.0 => parts.push(format!("正社員欠員率 {:.1}%", v)),
-        _ => {}
-    }
-    if parts.is_empty() {
-        return "※ HW データとの連携は可能なデータ範囲で表示しています。".to_string();
-    }
-    format!("※ {}（相関であり因果は別途検討）。", parts.join("。"))
 }
 
 /// ts_counts から posting_count 合計の 3m / 1y 変化率 (%) を算出
@@ -1723,31 +1538,6 @@ fn compute_posting_change_from_ts(ctx: &InsightContext) -> (Option<f64>, Option<
         None
     };
     (change_3m, change_1y)
-}
-
-/// トレンドセルを変化率 + 定性ラベルで描画
-fn render_trend_cell(pct: Option<f64>, label: &str) -> String {
-    match pct {
-        Some(v) => {
-            let cls = if v > 3.0 {
-                "trend-up"
-            } else if v < -3.0 {
-                "trend-down"
-            } else {
-                "trend-flat"
-            };
-            format!(
-                "<span class=\"{}\">{:+.1}%</span><span class=\"hw-change-label\">{}</span>",
-                cls,
-                v,
-                escape_html(label)
-            )
-        }
-        None => format!(
-            "<span class=\"trend-flat\">-</span><span class=\"hw-change-label\">{}</span>",
-            escape_html(label)
-        ),
-    }
 }
 
 // ============================================================
@@ -2032,7 +1822,7 @@ fn render_section_hw_comparison(
         } else {
             0
         };
-        let csv_hourly = csv_avg_min / 160;
+        let csv_hourly = csv_avg_min / super::aggregator::HOURLY_TO_MONTHLY_HOURS;
         let csv_display = if csv_hourly > 0 {
             format!("{}円/h", format_number(csv_hourly))
         } else {
@@ -2056,7 +1846,7 @@ fn render_section_hw_comparison(
         };
         render_comparison_card(
             html,
-            "最低賃金比較（160h換算）",
+            "最低賃金比較（167h換算）",
             &csv_display,
             &mw_display,
             mw_diff_text.as_deref(),
@@ -2378,8 +2168,8 @@ fn render_section_emp_group_native(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str(
         "<p class=\"print-note\">\
-         ※ 「正社員」グループは月給ベース（時給は ×160 で月給換算）、\
-         「パート」グループは時給ベース（月給は /160 で時給換算）。\
+         ※ 「正社員」グループは月給ベース（時給は ×167 で月給換算）、\
+         「パート」グループは時給ベース（月給は /167 で時給換算）。\
          「派遣・その他」はグループ内多数派の単位を採用。<br>\
          ※ 各グループ内で IQR 法（Q1 − 1.5×IQR ～ Q3 + 1.5×IQR の範囲外）\
          による外れ値除外を適用。除外件数は各カード内に表示。</p>\n",
@@ -2882,7 +2672,7 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
             if p.avg_min_salary <= 0 {
                 return None;
             }
-            let hourly_160 = p.avg_min_salary / 160;
+            let hourly_160 = p.avg_min_salary / super::aggregator::HOURLY_TO_MONTHLY_HOURS;
             let diff_160 = hourly_160 - mw;
             let ratio_160 = hourly_160 as f64 / mw as f64;
             Some(MinWageEntry {
@@ -2921,7 +2711,7 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
         RptSev::Positive
     };
     html.push_str(&format!(
-        "<p class=\"section-sowhat\">{} {} 県で平均下限給与の 160h 換算が最低賃金を下回る傾向。\
+        "<p class=\"section-sowhat\">{} {} 県で平均下限給与の 167h 換算が最低賃金を下回る傾向。\
          差が 50 円未満（要確認）: {} 県。該当求人群は労基上要確認。</p>\n",
         severity_badge(sev),
         below_count,
@@ -2929,7 +2719,7 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
     ));
     html.push_str(
         "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
-        <strong>【読み方ガイド】</strong>月給を160h（8h×20日）で割り時給換算して最低賃金と比較。\
+        <strong>【読み方ガイド】</strong>月給を167h（8h×20.875日、厚労省基準）で割り時給換算して最低賃金と比較。\
         全国加重平均: <strong>1,121円</strong>（2025年10月施行）\
     </p>\n",
     );
@@ -2944,7 +2734,7 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
     // 最低賃金との差が小さい都道府県 10 件（差額の小さい順に整理、ソート可能テーブル）
     html.push_str("<h3>時給換算で最低賃金に近い都道府県 10 件（差額の小さい順）</h3>\n");
     html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
-        <th style=\"text-align:right\">160h換算</th><th style=\"text-align:right\">最低賃金</th>\
+        <th style=\"text-align:right\">167h換算</th><th style=\"text-align:right\">最低賃金</th>\
         <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
     for (i, e) in entries.iter().take(10).enumerate() {
         let diff_color = if e.diff_160 < 0 {
@@ -2978,7 +2768,7 @@ fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
     // 活用ポイント
     html.push_str(
         "<div class=\"note\">\
-        <strong>活用ポイント:</strong> 160h=所定労働時間（8h×20日）で換算。\
+        <strong>活用ポイント:</strong> 167h=所定労働時間（8h×20.875日、厚労省「就業条件総合調査 2024」基準）で換算。\
         最低賃金水準の求人は応募者が集まりにくい傾向。+10%以上の求人を優先検討すると効率的です。\
     </div>\n",
     );

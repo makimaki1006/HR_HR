@@ -14,13 +14,14 @@ use super::render::{
 };
 use crate::AppState;
 
+use std::fmt::Write as _;
 /// HTMXパーシャル: V2独自分析（サブタブナビゲーション付き）
 pub async fn tab_analysis(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
 
     let db = match &state.hw_db {
         Some(db) => db.clone(),
-        None => return Html(render_no_db_data("雇用形態別分析")),
+        None => return Html(render_no_db_data("詳細分析")),
     };
 
     let pref = filters.prefecture.clone();
@@ -33,14 +34,14 @@ pub async fn tab_analysis(State(state): State<Arc<AppState>>, session: Session) 
     let muni2 = muni.clone();
     let subtab1_content = tokio::task::spawn_blocking(move || render_subtab_1(&db, &pref2, &muni2))
         .await
-        .unwrap_or_else(|_| render_no_db_data("雇用形態別分析"));
+        .unwrap_or_else(|_| render_no_db_data("詳細分析"));
 
     let mut html = String::with_capacity(16_000);
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="space-y-4">
         <h2 class="text-xl font-bold text-white">詳細分析 <span class="text-blue-400 text-base font-normal">{location} {industry}</span></h2>"#
-    ));
+    ).unwrap();
 
     // グループナビゲーション（構造分析 / トレンド / 総合診断）
     html.push_str(r##"
@@ -62,9 +63,9 @@ pub async fn tab_analysis(State(state): State<Arc<AppState>>, session: Session) 
     html.push_str(r##"<div class="flex gap-1 mb-4 border-b border-slate-700 overflow-x-auto">"##);
     for (id, label) in &ANALYSIS_SUBTABS {
         let active = if *id == 1 { " active" } else { "" };
-        html.push_str(&format!(
+        write!(html,
             r##"<button class="analysis-subtab{active}" hx-get="/api/analysis/subtab/{id}" hx-target="#analysis-content" hx-swap="innerHTML" onclick="setAnalysisSubtab(this)">{label}</button>"##
-        ));
+        ).unwrap();
     }
     html.push_str("</div>");
 
@@ -94,6 +95,16 @@ function setAnalysisSubtab(el) {
     );
 
     html.push_str(r##"<div hx-get="/api/insight/widget/analysis" hx-trigger="load" hx-swap="innerHTML"></div>"##);
+
+    // フッター注意書き: 相関≠因果 / HW掲載求人ベース
+    html.push_str(
+        r##"<div class="mt-6 p-3 bg-slate-900/40 border-l-4 border-amber-500 rounded text-[11px] text-slate-400 leading-relaxed">
+            <p class="font-semibold text-amber-400 mb-1">⚠️ 本分析の前提</p>
+            <p>本分析は <span class="text-slate-300">ハローワーク掲載求人</span> ベースです。民間求人サイト（Indeed等）は含まれません。</p>
+            <p>また、相関関係と因果関係は別物のため、本ダッシュボードでは「傾向」「可能性」表現に留めています。</p>
+        </div>"##,
+    );
+
     html.push_str("</div>");
 
     Html(html)

@@ -12,6 +12,7 @@ use super::aggregator::SurveyAggregation;
 use super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
 
+use std::fmt::Write as _;
 // =============================================================================
 // Phase A: アップロードフォーム
 // =============================================================================
@@ -218,7 +219,7 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
         0.0
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<section class="stat-card border-l-4 border-blue-500">
             <div class="flex items-start justify-between flex-wrap gap-3 mb-3">
                 <div>
@@ -256,7 +257,7 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
         region = escape_html(&region_text),
         median = median_text,
         expected = expected_text,
-    ));
+    ).unwrap();
 
     html
 }
@@ -338,7 +339,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
     let mut html = String::with_capacity(2_000);
     html.push_str(
         r#"<section class="stat-card">
-            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">給与統計（月給換算）</h3>
+            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">給与統計（月給換算）<span class="ml-2 text-[10px] font-normal text-slate-500">外れ値除外（IQR法）</span></h3>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#,
     );
 
@@ -379,7 +380,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
         "中" => "text-amber-400",
         _ => "text-slate-400",
     };
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="flex items-center gap-3 mt-3 text-xs">
             <span class="text-slate-500">信頼性:</span>
             <span class="font-bold {rc}">{rel}</span>
@@ -388,7 +389,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
         rc = reliability_color,
         rel = escape_html(&stats.reliability),
         n = stats.count,
-    ));
+    ).unwrap();
 
     html.push_str(r#"<p class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">月給換算は時給×173.8h/月、年俸÷12で統一。中央値は外れ値の影響を受けにくいため、平均より実勢に近い目安として推奨されます。</p>"#);
     html.push_str("</section>");
@@ -402,7 +403,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
 fn render_distribution_charts(agg: &SurveyAggregation) -> String {
     let mut html = String::with_capacity(4_000);
     html.push_str(r#"<section>
-        <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">分布</h3>
+        <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">分布<span class="ml-2 text-[10px] font-normal text-slate-500">外れ値除外（IQR法）適用済</span></h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
 
     // 給与帯分布
@@ -556,12 +557,12 @@ fn render_breakdown_section(agg: &SurveyAggregation) -> String {
         });
 
         let config_str = chart.to_string().replace('\'', "&#39;");
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="bg-slate-900/50 rounded p-3">
                 <h4 class="text-xs font-semibold text-slate-300 mb-2">都道府県別 掲載件数</h4>
                 <div class="echart" style="height:400px" data-chart-config='{config_str}'></div>
             </div>"#
-        ));
+        ).unwrap();
     }
 
     // タグ分布
@@ -588,12 +589,12 @@ fn render_breakdown_section(agg: &SurveyAggregation) -> String {
         });
 
         let config_str = chart.to_string().replace('\'', "&#39;");
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="bg-slate-900/50 rounded p-3">
                 <h4 class="text-xs font-semibold text-slate-300 mb-2">求人タグ 頻出Top 15</h4>
                 <div class="echart" style="height:400px" data-chart-config='{config_str}'></div>
             </div>"#
-        ));
+        ).unwrap();
     }
 
     html.push_str(r#"</div>
@@ -625,7 +626,7 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
 
     // 給与レンジ知覚
     if let Some(perception) = &seeker.salary_range_perception {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="bg-slate-900/50 rounded p-3">
                 <h4 class="text-xs font-semibold text-slate-300 mb-2">給与レンジ知覚モデル</h4>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
@@ -661,7 +662,7 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
             narrow = perception.narrow_count,
             medium = perception.medium_count,
             wide = perception.wide_count,
-        ));
+        ).unwrap();
 
         // レンジ幅ドーナツチャート
         let total = perception.narrow_count + perception.medium_count + perception.wide_count;
@@ -688,12 +689,12 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
             });
 
             let config_str = chart.to_string().replace('\'', "&#39;");
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="bg-slate-900/50 rounded p-3">
                     <h4 class="text-xs font-semibold text-slate-300 mb-2">給与レンジ幅 分布</h4>
                     <div class="echart" style="height:280px" data-chart-config='{config_str}'></div>
                 </div>"#
-            ));
+            ).unwrap();
         }
     }
 
@@ -709,7 +710,7 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
                 ("text-slate-400", "差なし")
             };
 
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="bg-slate-900/50 rounded p-3">
                     <h4 class="text-xs font-semibold text-slate-300 mb-2">未経験可タグの給与影響</h4>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
@@ -739,7 +740,7 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
                 gap = gap,
                 color = gap_color,
                 label = gap_label,
-            ));
+            ).unwrap();
         }
     }
 
@@ -773,7 +774,7 @@ fn render_detailed_stats_section(agg: &SurveyAggregation) -> String {
             <div class="mt-4 space-y-2 text-xs text-slate-300">"#);
 
     if let Some(ci) = &stats.bootstrap_ci {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="p-2 bg-slate-900/50 rounded">
                 <div class="text-slate-400 text-[11px] mb-1">95%信頼区間（Bootstrap）</div>
                 <div>{lower}円 〜 {upper}円</div>
@@ -783,11 +784,11 @@ fn render_detailed_stats_section(agg: &SurveyAggregation) -> String {
             upper = format_number(ci.upper),
             n = ci.sample_size,
             iter = ci.iterations,
-        ));
+        ).unwrap();
     }
 
     if let Some(tm) = &stats.trimmed_mean {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="p-2 bg-slate-900/50 rounded">
                 <div class="text-slate-400 text-[11px] mb-1">トリム平均（10%）</div>
                 <div>{val}円</div>
@@ -795,11 +796,11 @@ fn render_detailed_stats_section(agg: &SurveyAggregation) -> String {
             </div>"#,
             val = format_number(tm.trimmed_mean),
             rm = tm.removed_count,
-        ));
+        ).unwrap();
     }
 
     if let Some(q) = &stats.quartiles {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="p-2 bg-slate-900/50 rounded">
                 <div class="text-slate-400 text-[11px] mb-1">四分位</div>
                 <div>Q1: {q1}円 / Q2(中央値): {q2}円 / Q3: {q3}円 / IQR: {iqr}円</div>
@@ -808,7 +809,7 @@ fn render_detailed_stats_section(agg: &SurveyAggregation) -> String {
             q2 = format_number(q.q2),
             q3 = format_number(q.q3),
             iqr = format_number(q.iqr),
-        ));
+        ).unwrap();
     }
 
     html.push_str(r#"</div>
@@ -887,7 +888,7 @@ fn render_data_quality_section(agg: &SurveyAggregation) -> String {
 // =============================================================================
 
 fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &str, note: &str) {
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="p-3 bg-slate-800/50 rounded text-center">
             <div class="text-[11px] text-slate-500 mb-1">{label}</div>
             <div class="text-sm font-bold {color}">{value}</div>
@@ -897,5 +898,5 @@ fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &st
         value = value,
         color = value_color,
         note = escape_html(note),
-    ));
+    ).unwrap();
 }

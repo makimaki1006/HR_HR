@@ -19,7 +19,8 @@ use super::utils::escape_html;
 use crate::handlers::overview::{format_number, get_session_filters};
 use crate::AppState;
 
-/// タブ8: 競合調査（ヘッダーフィルタ統合版）
+use std::fmt::Write as _;
+/// タブ8: 求人検索（ヘッダーフィルタ統合版）
 pub async fn tab_competitive(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
     let industry_label = filters.industry_label();
@@ -211,7 +212,7 @@ pub async fn comp_municipalities(
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if !m.is_empty() {
-            html.push_str(&format!(r#"<option value="{m}">{m}</option>"#));
+            write!(html, r#"<option value="{m}">{m}</option>"#).unwrap();
         }
     }
     Html(html)
@@ -237,7 +238,7 @@ pub async fn comp_facility_types(
     for (i, (jt, cnt)) in job_types.iter().enumerate() {
         let raw = jt.replace('"', "&quot;");
         let disp = escape_html(jt);
-        html.push_str(&format!(
+        write!(html,
             r#"<label class="flex items-center gap-2 py-1 px-2 hover:bg-slate-700 rounded cursor-pointer">
                 <input type="checkbox" class="ftype-major-cb rounded" value="{raw}" data-group="g{i}"
                     onchange="onMajorToggle(this)">
@@ -245,7 +246,7 @@ pub async fn comp_facility_types(
                 <span class="text-xs text-slate-400">{cnt_s}</span>
             </label>"#,
             cnt_s = format_number(*cnt),
-        ));
+        ).unwrap();
     }
 
     Html(html)
@@ -297,12 +298,13 @@ pub async fn comp_service_types(
         let cnt = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
         if !name.is_empty() {
             // valueにはraw値を使い、表示名のみエスケープ
-            html.push_str(&format!(
+            write!(
+                html,
                 r#"<option value="{raw}">{disp} ({cnt_s})</option>"#,
                 raw = name.replace('"', "&quot;"),
                 disp = escape_html(name),
                 cnt_s = format_number(cnt),
-            ));
+            ).unwrap();
         }
     }
     Html(html)

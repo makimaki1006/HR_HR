@@ -8,6 +8,7 @@ use crate::AppState;
 
 use super::overview::{get_session_filters, make_location_label, render_no_db_data};
 
+use std::fmt::Write as _;
 /// 市場概況タブ: 概況セクションを即時表示、残りは即時遅延ロード
 pub async fn tab_market(State(state): State<Arc<AppState>>, session: Session) -> Html<String> {
     let filters = get_session_filters(&session).await;
@@ -44,7 +45,7 @@ pub async fn tab_market(State(state): State<Arc<AppState>>, session: Session) ->
     let mut html = String::with_capacity(overview_html.len() + 4096);
 
     // ヘッダー
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="space-y-6">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold text-gray-100">
@@ -57,7 +58,7 @@ pub async fn tab_market(State(state): State<Arc<AppState>>, session: Session) ->
         } else {
             format!("({})", industry_label)
         },
-    ));
+    ).unwrap();
 
     // セクションナビ（ページ内スクロール）
     html.push_str(r##"

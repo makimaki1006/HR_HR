@@ -21,7 +21,7 @@ pub fn build_survey_report(
     };
 
     json!({
-        "title": "競合調査 統合レポート",
+        "title": "媒体分析 統合レポート",
         "subtitle": format!("{} | {}", location, chrono::Local::now().format("%Y年%m月")),
         "generated_at": chrono::Local::now().to_rfc3339(),
         "survey": {

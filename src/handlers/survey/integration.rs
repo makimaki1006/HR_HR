@@ -6,6 +6,7 @@ use super::super::insight::fetch::InsightContext;
 use super::super::insight::helpers::{Insight, Severity};
 use super::hw_enrichment::HwAreaEnrichment;
 
+use std::fmt::Write as _;
 /// 統合レポートHTML生成
 ///
 /// # Args
@@ -26,7 +27,7 @@ pub(crate) fn render_integration(
         pref.to_string()
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="space-y-4 mt-6" id="survey-integration">
         <section class="stat-card border-l-4 border-blue-500">
             <div class="flex items-start justify-between flex-wrap gap-3">
@@ -45,7 +46,7 @@ pub(crate) fn render_integration(
             </div>
         </section>"#,
         escape_html(&location)
-    ));
+    ).unwrap();
 
     // HWデータセクション
     html.push_str(&render_hw_section(ctx));
@@ -135,10 +136,10 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             if let Some(last) = ctx.ts_fulfillment.last() {
                 let days = get_f64(last, "avg_listing_days");
                 if days > 0.0 {
-                    html.push_str(&format!(
+                    write!(html,
                         r#"<div class="text-xs text-slate-500 mt-2">平均掲載日数: {:.0}日</div>"#,
                         days
-                    ));
+                    ).unwrap();
                 }
             }
         }
@@ -280,7 +281,7 @@ fn render_insights_section(insights: &[Insight]) -> String {
     } else {
         ("標準的な傾向", "text-slate-300")
     };
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="text-sm text-white mb-3">傾向: <span class="font-bold {color}">{label}</span>
             <span class="text-xs text-slate-400 ml-2">(重大{c}件 / 注意{w}件 / 良好{p}件)</span>
         </div>"#,
@@ -289,14 +290,14 @@ fn render_insights_section(insights: &[Insight]) -> String {
         c = critical,
         w = warning,
         p = positive,
-    ));
+    ).unwrap();
 
     // 上位5件の示唆をカード表示
     for insight in insights.iter().take(5) {
         let badge = insight.severity.badge_class();
         let bg = insight.severity.bg_class();
         let label = insight.severity.label();
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="flex items-start gap-2 p-2.5 rounded border {bg} mb-2">
                 <span class="px-2 py-0.5 rounded text-[10px] font-medium {badge} shrink-0">{label}</span>
                 <div class="min-w-0 flex-1">
@@ -306,7 +307,7 @@ fn render_insights_section(insights: &[Insight]) -> String {
             </div>"#,
             escape_html(&insight.title),
             escape_html(&insight.body),
-        ));
+        ).unwrap();
     }
 
     html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
@@ -324,10 +325,10 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
     html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">地域注目企業</h4>"#);
 
     if companies.is_empty() {
-        html.push_str(&format!(
+        write!(html,
             r#"<p class="text-slate-500 text-xs">{}に該当する企業データはありません</p>"#,
             escape_html(location)
-        ));
+        ).unwrap();
         html.push_str("</section>");
         return html;
     }
@@ -352,10 +353,10 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
         format!(" / {}", industries.join("・"))
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="text-xs text-slate-300 mb-3">{}の企業 <span class="text-white font-bold">{}社</span>{}（うちHW求人あり: {}社）</div>"#,
         escape_html(location), total, escape_html(&ind_text), with_hw
-    ));
+    ).unwrap();
 
     // テーブル（モバイル対応: overflow-x-auto + 最小幅確保）
     html.push_str(
@@ -401,7 +402,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
         let delta_1y_html = render_delta_cell(c.employee_delta_1y);
         let delta_3m_html = render_delta_cell(c.employee_delta_3m);
 
-        html.push_str(&format!(
+        write!(html,
             r##"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
                 <td class="py-1.5 px-2 text-white">{}</td>
                 <td class="py-1.5 px-2 text-slate-400">{}</td>
@@ -425,7 +426,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             delta_3m_html,
             hw_badge,
             escape_html(&c.corporate_number),
-        ));
+        ).unwrap();
     }
 
     html.push_str("</tbody></table></div>");
@@ -479,13 +480,13 @@ fn render_hw_area_enrichment_section(
         .find(|r| get_str_ref(r, "emp_group") == "正社員")
         .map(|r| get_f64(r, "vacancy_rate") * 100.0);
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="text-xs text-slate-400 mb-3">
             CSV に含まれる {n} 件の地域について、HW DB から現在掲載件数・過去3ヶ月／1年の推移を突合しています。
             欠員率は外部統計由来（参考値）。
         </div>"#,
         n = enrichments.len()
-    ));
+    ).unwrap();
 
     html.push_str(
         r#"<div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
@@ -531,7 +532,7 @@ fn render_hw_area_enrichment_section(
             _ => r#"<span class="text-slate-600">-</span>"#.to_string(),
         };
 
-        html.push_str(&format!(
+        write!(html,
             r#"<tr class="border-b border-slate-800 hover:bg-slate-800/50">
                 <td class="py-1.5 px-2 text-slate-200">{}</td>
                 <td class="py-1.5 px-2 text-white">{}</td>
@@ -546,16 +547,16 @@ fn render_hw_area_enrichment_section(
             change_3m_html,
             change_1y_html,
             vacancy_html,
-        ));
+        ).unwrap();
     }
 
     html.push_str("</tbody></table></div>");
 
     if enrichments.len() > 30 {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="text-[11px] text-slate-600 mt-2">※ 掲載件数上位 30 件を表示（全 {} 件中）</div>"#,
             enrichments.len()
-        ));
+        ).unwrap();
     }
 
     html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
@@ -593,12 +594,12 @@ fn render_pct_change_cell(pct: Option<f64>, label: &str) -> String {
 }
 
 fn kpi_card(html: &mut String, label: &str, value: &str, color: &str) {
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="text-center p-2 bg-slate-800/50 rounded">
             <div class="text-sm font-bold {color}">{}</div>
             <div class="text-[10px] text-slate-500">{}</div>
         </div>"#,
         escape_html(value),
         escape_html(label),
-    ));
+    ).unwrap();
 }

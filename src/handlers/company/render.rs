@@ -1,11 +1,12 @@
 use super::fetch::CompanyContext;
 use crate::handlers::helpers::{escape_html, format_number, get_i64, get_str, truncate_str, Row};
 
+use std::fmt::Write as _;
 /// 検索ページ（タブのシェル）
 pub fn render_search_page() -> String {
     r##"<div class="space-y-6">
     <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-white">🔎 企業分析
+        <h2 class="text-xl font-bold text-white">🔎 企業検索
             <span class="text-blue-400 text-base font-normal">企業データ × ハローワーク市場データ</span>
         </h2>
         <div class="flex gap-2">
@@ -97,12 +98,12 @@ pub fn render_search_results(results: &[Row]) -> String {
 
         // hx-target に # が含まれるため push_str で構築
         html.push_str("<div class=\"px-4 py-3 hover:bg-slate-700 cursor-pointer border-b border-slate-700/50 transition-colors\" ");
-        html.push_str(&format!("hx-get=\"/api/company/profile/{}\" ", corp));
+        write!(html, "hx-get=\"/api/company/profile/{}\" ", corp).unwrap();
         html.push_str("hx-target=\"#company-profile-area\" hx-swap=\"innerHTML\" ");
         html.push_str(
             "onclick=\"document.getElementById('company-search-results').textContent=''\">",
         );
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="flex justify-between items-start">
                     <div>
                         <span class="text-white font-medium">{name}</span>
@@ -123,7 +124,7 @@ pub fn render_search_results(results: &[Row]) -> String {
             credit_badge = credit_badge,
             listing_badge = listing_badge,
             sn_score_badge = sn_score_badge,
-        ));
+        ).unwrap();
     }
 
     html.push_str("</div>");
@@ -198,7 +199,7 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
     html.push_str("</div>");
 
     // レポートリンク（常に表示）
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="text-right mt-4">
             <a href="/report/company/{}" target="_blank"
                class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-colors text-sm">
@@ -206,7 +207,7 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
             </a>
         </div>"#,
         escape_html(&ctx.corporate_number)
-    ));
+    ).unwrap();
 
     // サブタブ切り替えJavaScript
     html.push_str(r##"<script>
@@ -486,7 +487,7 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         String::new()
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="stat-card border-l-4 border-blue-500">
         <div class="flex justify-between items-start mb-4">
             <div>
@@ -555,7 +556,7 @@ fn render_header(html: &mut String, ctx: &CompanyContext) {
         },
         growth_badge = growth_badge,
         delta_trend = delta_trend,
-    ));
+    ).unwrap();
 }
 
 fn render_market_snapshot(html: &mut String, ctx: &CompanyContext) {
@@ -582,7 +583,7 @@ fn render_market_snapshot(html: &mut String, ctx: &CompanyContext) {
         String::new()
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="mt-4">
         <h4 class="text-sm text-slate-400 mb-3">📊 {pref} × {ind} の採用市場</h4>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -602,7 +603,7 @@ fn render_market_snapshot(html: &mut String, ctx: &CompanyContext) {
                     else if ctx.market_vacancy_rate > 25.0 { "text-amber-400" }
                     else { "text-green-400" },
         ft_rate = ctx.market_fulltime_rate,
-    ));
+    ).unwrap();
 }
 
 fn render_salary_section(html: &mut String, ctx: &CompanyContext) {
@@ -621,7 +622,7 @@ fn render_salary_section(html: &mut String, ctx: &CompanyContext) {
         .map(|(_, v)| v.to_string())
         .collect();
 
-    html.push_str(&format!(
+    write!(html,
         r##"<div class="stat-card mt-4">
         <h4 class="text-sm text-slate-400 mb-2">💰 給与帯分布（{pref} × {ind}）</h4>
         <div class="echart" style="height:300px;" data-chart-config='{{
@@ -641,7 +642,7 @@ fn render_salary_section(html: &mut String, ctx: &CompanyContext) {
         ind = escape_html(&ctx.primary_hw_job_type),
         labels = labels.join(","),
         values = values.join(","),
-    ));
+    ).unwrap();
 }
 
 fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
@@ -666,7 +667,7 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             })
             .collect();
 
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="stat-card">
             <h4 class="text-sm text-slate-400 mb-2">📋 求人理由</h4>
             <div class="echart" style="height:280px;" data-chart-config='{{
@@ -682,7 +683,7 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             }}'></div>
         </div>"##,
             data = pie_data.join(","),
-        ));
+        ).unwrap();
     }
 
     // 福利厚生レーダー
@@ -698,7 +699,7 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             .map(|(_, v)| format!("{:.1}", v))
             .collect();
 
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="stat-card">
             <h4 class="text-sm text-slate-400 mb-2">🎯 福利厚生普及率（正社員）</h4>
             <div class="echart" style="height:280px;" data-chart-config='{{
@@ -722,7 +723,7 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
         </div>"##,
             indicators = indicators.join(","),
             values = values.join(","),
-        ));
+        ).unwrap();
     }
 
     html.push_str("</div>");
@@ -742,7 +743,7 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
             .map(|(_, v)| v.to_string())
             .collect();
 
-        html.push_str(&format!(
+        write!(html,
             r##"<div class="stat-card mt-4">
             <h4 class="text-sm text-slate-400 mb-2">🏢 競合企業の従業員規模分布</h4>
             <div class="echart" style="height:250px;" data-chart-config='{{
@@ -760,7 +761,7 @@ fn render_competitor_section(html: &mut String, ctx: &CompanyContext) {
         </div>"##,
             labels = labels.join(","),
             values = values.join(","),
-        ));
+        ).unwrap();
     }
 }
 
@@ -768,7 +769,7 @@ fn render_demographics(html: &mut String, ctx: &CompanyContext) {
     if ctx.population == 0 {
         return;
     }
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="mt-4">
         <h4 class="text-sm text-slate-400 mb-3">👥 {pref} の人口コンテキスト</h4>
         <div class="grid grid-cols-3 gap-3">
@@ -784,7 +785,7 @@ fn render_demographics(html: &mut String, ctx: &CompanyContext) {
         aging_color = if ctx.aging_rate > 30.0 { "text-red-400" }
                       else if ctx.aging_rate > 25.0 { "text-amber-400" }
                       else { "text-green-400" },
-    ));
+    ).unwrap();
 }
 
 fn render_insights(html: &mut String, ctx: &CompanyContext) {
@@ -805,7 +806,7 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
         } else {
             ("bg-green-900/50 border-green-700", "良好")
         };
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="border rounded-lg p-3 {cls}">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-xs font-bold px-1.5 py-0.5 rounded bg-slate-800">{label}</span>
@@ -819,7 +820,7 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
             salary = ctx.market_avg_salary_min,
             nat = ctx.national_avg_salary,
             diff = diff, diff_pct = diff_pct,
-        ));
+        ).unwrap();
     }
 
     // 2. 採用圧力
@@ -844,7 +845,7 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
             ),
             )
         };
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="border rounded-lg p-3 {cls}">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-xs font-bold px-1.5 py-0.5 rounded bg-slate-800">{label}</span>
@@ -853,12 +854,12 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
                 <p class="text-xs text-slate-300">{body}</p>
             </div>"#,
             cls = pressure.0, label = pressure.1, body = pressure.2,
-        ));
+        ).unwrap();
     }
 
     // 3. 高齢化リスク
     if ctx.aging_rate > 28.0 {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="border rounded-lg p-3 bg-amber-900/50 border-amber-700">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-xs font-bold px-1.5 py-0.5 rounded bg-slate-800">注意</span>
@@ -868,13 +869,13 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
             </div>"#,
             pref = escape_html(&ctx.prefecture),
             rate = ctx.aging_rate,
-        ));
+        ).unwrap();
     }
 
     // 4. 市場規模
     if ctx.market_posting_count > 0 {
         let competition = ctx.market_posting_count as f64 / ctx.market_facility_count.max(1) as f64;
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="border rounded-lg p-3 bg-blue-900/50 border-blue-700">
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-xs font-bold px-1.5 py-0.5 rounded bg-slate-800">情報</span>
@@ -887,7 +888,7 @@ fn render_insights(html: &mut String, ctx: &CompanyContext) {
             posts = format_number(ctx.market_posting_count),
             facs = format_number(ctx.market_facility_count),
             ratio = competition,
-        ));
+        ).unwrap();
     }
 
     html.push_str("</div></div>");
@@ -906,7 +907,7 @@ fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
     );
 
     for (i, (headline, body)) in ctx.sales_pitches.iter().enumerate() {
-        html.push_str(&format!(
+        write!(html,
             r#"<div class="bg-slate-800/50 rounded-lg p-3">
                 <div class="flex items-start gap-2">
                     <span class="text-blue-400 font-bold text-sm shrink-0">{num}.</span>
@@ -919,7 +920,7 @@ fn render_sales_pitches(html: &mut String, ctx: &CompanyContext) {
             num = i + 1,
             headline = escape_html(headline),
             body = escape_html(body),
-        ));
+        ).unwrap();
     }
 
     html.push_str("</div></div>");
@@ -943,7 +944,7 @@ fn render_hiring_risk(html: &mut String, ctx: &CompanyContext) {
         _ => "採用環境は非常に厳しい状態です。早急な対策が必要です。",
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="stat-card mt-4 border {grade_bg}">
         <div class="flex items-center gap-6">
             <div class="text-center">
@@ -955,7 +956,7 @@ fn render_hiring_risk(html: &mut String, ctx: &CompanyContext) {
                 <p class="text-sm text-slate-300">{explanation}</p>
                 <div class="flex gap-4 mt-2 text-xs text-slate-500">
                     <span>高齢化率: {aging:.1}%</span>
-                    <span>欠員率: {vacancy:.1}%</span>
+                    <span>欠員補充率: {vacancy:.1}%</span>
                     <span>給与: {salary_pct}パーセンタイル</span>
                     <span>与信: {credit:.0}</span>
                 </div>
@@ -975,7 +976,7 @@ fn render_hiring_risk(html: &mut String, ctx: &CompanyContext) {
             "-".to_string()
         },
         credit = ctx.credit_score,
-    ));
+    ).unwrap();
 }
 
 /// 地域 vs 自社 比較セクション
@@ -1014,7 +1015,7 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         r#"<span class="text-slate-400">同水準</span>"#.to_string()
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="stat-card mt-4 border-l-4 border-purple-500">
         <h4 class="text-sm text-slate-400 mb-3">&#x1F4CA; 地域×業種 人材フロー比較</h4>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1040,7 +1041,7 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         emp = format_number(ctx.employee_count),
         delta = ctx.employee_delta_1y,
         gap = gap_display,
-    ));
+    ).unwrap();
 }
 
 /// 給与ギャップテーブル
@@ -1062,7 +1063,7 @@ fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
         "±0円".to_string()
     };
 
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="stat-card mt-4 border-l-4 border-amber-500">
         <h4 class="text-sm text-slate-400 mb-3">&#x1F4B0; 給与ギャップ分析（月給下限）</h4>
         <table class="w-full text-sm">
@@ -1094,7 +1095,7 @@ fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
         pct_color = if ctx.salary_percentile > 50.0 { "text-green-400" } else { "text-amber-400" },
         pct = 100.0 - ctx.salary_percentile,
         market_sal = ctx.market_avg_salary_min,
-    ));
+    ).unwrap();
 }
 
 fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
@@ -1121,10 +1122,10 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
             total
         )
     };
-    html.push_str(&format!(
+    write!(html,
         r##"<p class="text-xs text-slate-500 mb-2">{}</p>"##,
         label
-    ));
+    ).unwrap();
 
     html.push_str(
         r##"<div class="overflow-x-auto max-h-80"><table class="w-full text-xs">
@@ -1176,7 +1177,7 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
 
         // クリックで詳細を展開/折りたたみ
         let detail_id = format!("hw-detail-{}", rowid);
-        html.push_str(&format!(
+        write!(html,
             r##"<tr class="border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer" onclick="var d=document.getElementById('{detail_id}');d.style.display=d.style.display==='none'?'table-row':'none'">
                 <td class="py-1.5 px-2">{}</td>
                 <td class="py-1.5 px-2 {}"><span class="font-medium">{}</span></td>
@@ -1190,43 +1191,43 @@ fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
             escape_html(&muni),
             salary_display,
             escape_html(&truncate_str(&headline, 40)),
-        ));
+        ).unwrap();
 
         // 展開時の詳細行（初期非表示）
-        html.push_str(&format!(
+        write!(html,
             r##"<tr id="{detail_id}" style="display:none" class="bg-slate-800/80">
                 <td colspan="5" class="px-4 py-3">
                     <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">"##,
-        ));
+        ).unwrap();
         if !job_number.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 r##"<div><span class="text-slate-500">求人番号:</span> <span class="text-cyan-300 font-mono">{}</span></div>"##,
-                escape_html(&job_number)));
+                escape_html(&job_number)).unwrap();
         }
         if !headline.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 r##"<div class="col-span-2"><span class="text-slate-500">見出し:</span> <span class="text-white">{}</span></div>"##,
-                escape_html(&headline)));
+                escape_html(&headline)).unwrap();
         }
         if !working_hours.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 r##"<div><span class="text-slate-500">勤務時間:</span> <span class="text-slate-300">{}</span></div>"##,
-                escape_html(&truncate_str(&working_hours, 60))));
+                escape_html(&truncate_str(&working_hours, 60))).unwrap();
         }
         if !holidays.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 r##"<div><span class="text-slate-500">休日:</span> <span class="text-slate-300">{}</span></div>"##,
-                escape_html(&truncate_str(&holidays, 60))));
+                escape_html(&truncate_str(&holidays, 60))).unwrap();
         }
         if !benefits.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 r##"<div class="col-span-2"><span class="text-slate-500">福利厚生:</span> <span class="text-slate-300">{}</span></div>"##,
-                escape_html(&truncate_str(&benefits, 100))));
+                escape_html(&truncate_str(&benefits, 100))).unwrap();
         }
         if !reason.is_empty() {
-            html.push_str(&format!(
+            write!(html,
                 r##"<div><span class="text-slate-500">募集理由:</span> <span class="text-slate-300">{}</span></div>"##,
-                escape_html(&reason)));
+                escape_html(&reason)).unwrap();
         }
         html.push_str("</div></td></tr>");
     }
@@ -1245,7 +1246,7 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         &ctx.postal_code
     };
 
-    html.push_str(&format!(
+    write!(html,
         r##"<div class="stat-card mt-4">
         <h4 class="text-sm text-slate-400 mb-3">🏢 近隣企業（〒{}xxx エリア、{}社）</h4>
         <div class="overflow-x-auto max-h-96"><table class="w-full text-xs">
@@ -1258,7 +1259,7 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         </tr></thead><tbody>"##,
         escape_html(postal_prefix),
         ctx.nearby_companies.len(),
-    ));
+    ).unwrap();
 
     for nc in &ctx.nearby_companies {
         let hw_badge = if nc.hw_posting_count > 0 {
@@ -1274,13 +1275,13 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
         html.push_str(
             "<tr class=\"border-b border-slate-800 hover:bg-slate-700/50 cursor-pointer\" ",
         );
-        html.push_str(&format!(
+        write!(html,
             "hx-get=\"/api/company/profile/{}\" ",
             escape_html(&nc.corporate_number)
-        ));
+        ).unwrap();
         html.push_str("hx-target=\"#content\" hx-swap=\"innerHTML\">");
 
-        html.push_str(&format!(
+        write!(html,
             r##"<td class="py-1.5 px-2 text-white">{}</td>
                 <td class="py-1.5 px-2 text-slate-400">{}</td>
                 <td class="text-right py-1.5 px-2">{}</td>
@@ -1300,7 +1301,7 @@ fn render_nearby_companies(html: &mut String, ctx: &CompanyContext) {
                 "-".to_string()
             },
             hw_badge,
-        ));
+        ).unwrap();
     }
 
     html.push_str("</tbody></table></div></div>");
