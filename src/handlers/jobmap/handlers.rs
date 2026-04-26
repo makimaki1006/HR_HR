@@ -14,6 +14,7 @@ use crate::AppState;
 use super::fetch;
 use super::render;
 use super::stats;
+use std::fmt::Write as _;
 
 #[derive(Deserialize)]
 pub struct MarkerParams {
@@ -396,6 +397,7 @@ pub async fn jobmap_seekers(
 
         if avg_lat != 0.0 && avg_lng != 0.0 {
             markers.push(serde_json::json!({
+                "name": m_name,
                 "municipality": m_name,
                 "lat": avg_lat,
                 "lng": avg_lng,
@@ -512,11 +514,11 @@ pub async fn jobmap_seeker_detail(
 
     let mut html = String::with_capacity(2048);
     html.push_str(r#"<div class="space-y-3 text-sm">"#);
-    html.push_str(&format!(
+    write!(html,
         r#"<div class="text-lg font-bold text-white border-b border-gray-600 pb-1">{} {}</div>"#,
         escape_html(pref),
         escape_html(muni)
-    ));
+    ).unwrap();
 
     if let Ok(rows) = db.query(&stats_sql, &params_ref) {
         if let Some(row) = rows.first() {
@@ -524,7 +526,7 @@ pub async fn jobmap_seeker_detail(
             let avg_min = get_f64(row, "avg_sal_min");
             let avg_max = get_f64(row, "avg_sal_max");
 
-            html.push_str(&format!(
+            write!(html,
                 r#"<div class="grid grid-cols-2 gap-2">
   <div class="bg-gray-700/50 rounded p-2 text-center">
     <div class="text-xs text-gray-400">求人件数</div>
@@ -538,7 +540,7 @@ pub async fn jobmap_seeker_detail(
                 cnt,
                 format_yen_simple(avg_min as i64),
                 format_yen_simple(avg_max as i64),
-            ));
+            ).unwrap();
         }
     }
 
@@ -567,10 +569,10 @@ pub async fn jobmap_seeker_detail(
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let cnt = get_i64(row, "cnt");
-                html.push_str(&format!(
+                write!(html,
                     r#"<div class="flex justify-between text-xs"><span class="text-gray-300">{}</span><span class="text-white font-medium">{}件</span></div>"#,
                     escape_html(emp), cnt
-                ));
+                ).unwrap();
             }
         }
     }
@@ -696,7 +698,6 @@ fn choropleth_data(
     filters: &crate::handlers::overview::SessionFilters,
 ) -> serde_json::Value {
     use crate::handlers::overview::{get_f64, get_i64};
-
     // 市区町村別の値を取得
     let muni_values: Vec<(String, f64)> = match layer {
         "posting_count" => {
