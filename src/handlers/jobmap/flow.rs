@@ -28,7 +28,10 @@ pub fn resolve_table_by_year(year: i32) -> Result<&'static str, AggregateModeErr
         2019 => Ok("v2_flow_mesh1km_2019"),
         2020 => Ok("v2_flow_mesh1km_2020"),
         2021 => Ok("v2_flow_mesh1km_2021"),
-        _ => Err(AggregateModeError::InvalidParams { dayflag: -1, timezone: year }),
+        _ => Err(AggregateModeError::InvalidParams {
+            dayflag: -1,
+            timezone: year,
+        }),
     }
 }
 
@@ -196,12 +199,7 @@ pub fn get_city_agg(
 /// FALLBACK: GROUP BY, replace with CTAS after May 1
 ///
 /// 単一 citycode 絞り込みのため `idx_mesh1km_YYYY_city(citycode, month, dayflag, timezone)` が効き高速。
-pub fn get_karte_profile(
-    db: &Db,
-    turso: Option<&TursoDb>,
-    citycode: i64,
-    year: i32,
-) -> Vec<Row> {
+pub fn get_karte_profile(db: &Db, turso: Option<&TursoDb>, citycode: i64, year: i32) -> Vec<Row> {
     let table = match resolve_table_by_year(year) {
         Ok(t) => t,
         Err(_) => return vec![],
@@ -317,7 +315,13 @@ fn has_flow_table(db: &Db, name: &str) -> bool {
 }
 
 /// Turso → ローカルフォールバッククエリ（analysis/fetch.rs の pub(crate) 関数を経由）
-fn query_db(db: &Db, turso: Option<&TursoDb>, sql: &str, params: &[String], table: &str) -> Vec<Row> {
+fn query_db(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    sql: &str,
+    params: &[String],
+    table: &str,
+) -> Vec<Row> {
     super::super::analysis::fetch::query_turso_or_local(turso, db, sql, params, table)
 }
 

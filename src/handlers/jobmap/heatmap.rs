@@ -182,8 +182,8 @@ fn query_heatmap(
     citycode: Option<i64>,
 ) -> Vec<super::super::helpers::Row> {
     let _ = year; // テーブル名に既に年が含まれる
-    // attribute_mesh1km と JOIN して lat/lng 取得
-    // 生値のみ（dayflag IN (0,1) AND timezone IN (0,1)）を強制
+                  // attribute_mesh1km と JOIN して lat/lng 取得
+                  // 生値のみ（dayflag IN (0,1) AND timezone IN (0,1)）を強制
     let mut sql = String::from(
         "SELECT f.mesh1kmid AS mesh1kmid, \
                 a.center_lat AS center_lat, \

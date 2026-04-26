@@ -170,10 +170,8 @@ impl Ctx {
             "disclosure_female_ratio",
             "disclosure_parttime_ratio",
         ];
-        let mut pairs: Vec<(&str, Value)> = vec![
-            ("emp_group", v_s("正社員")),
-            ("avg_transparency", v_f(avg)),
-        ];
+        let mut pairs: Vec<(&str, Value)> =
+            vec![("emp_group", v_s("正社員")), ("avg_transparency", v_f(avg))];
         for c in cols.iter() {
             let v = if *c == worst_col { worst_rate } else { 0.8 };
             pairs.push((c, v_f(v)));
@@ -228,10 +226,9 @@ impl Ctx {
 
     fn ts_salary_seishain(mut self, values: &[f64]) -> Self {
         for v in values {
-            self.inner.ts_salary.push(row(&[
-                ("emp_group", v_s("正社員")),
-                ("mean_min", v_f(*v)),
-            ]));
+            self.inner
+                .ts_salary
+                .push(row(&[("emp_group", v_s("正社員")), ("mean_min", v_f(*v))]));
         }
         self
     }
@@ -255,10 +252,9 @@ impl Ctx {
     }
 
     fn migration(mut self, inflow: f64, outflow: f64) -> Self {
-        self.inner.ext_migration.push(row(&[
-            ("inflow", v_f(inflow)),
-            ("outflow", v_f(outflow)),
-        ]));
+        self.inner
+            .ext_migration
+            .push(row(&[("inflow", v_f(inflow)), ("outflow", v_f(outflow))]));
         self
     }
 
@@ -1016,26 +1012,20 @@ fn cz2_positive_local_premium() {
 
 #[test]
 fn cz3_no_fire_low_elderly() {
-    let ctx = Ctx::new()
-        .commute_zone(5, 1, 10_000, 7_000, 1_500)
-        .build();
+    let ctx = Ctx::new().commute_zone(5, 1, 10_000, 7_000, 1_500).build();
     assert!(gen_find(&ctx, "CZ-3").is_none());
 }
 
 #[test]
 fn cz3_info_moderate_aging() {
-    let ctx = Ctx::new()
-        .commute_zone(5, 1, 10_000, 7_000, 2_500)
-        .build();
+    let ctx = Ctx::new().commute_zone(5, 1, 10_000, 7_000, 2_500).build();
     let i = gen_find(&ctx, "CZ-3").unwrap();
     assert_eq!(i.severity, Severity::Info);
 }
 
 #[test]
 fn cz3_warning_severe_aging() {
-    let ctx = Ctx::new()
-        .commute_zone(5, 1, 10_000, 5_000, 3_500)
-        .build();
+    let ctx = Ctx::new().commute_zone(5, 1, 10_000, 5_000, 3_500).build();
     let i = gen_find(&ctx, "CZ-3").unwrap();
     assert_eq!(i.severity, Severity::Warning);
 }
@@ -1046,9 +1036,7 @@ fn cz3_warning_severe_aging() {
 
 #[test]
 fn cf1_no_fire_zero_inflow() {
-    let ctx = Ctx::new()
-        .commute_zone(5, 1, 10_000, 7_000, 2_000)
-        .build();
+    let ctx = Ctx::new().commute_zone(5, 1, 10_000, 7_000, 2_000).build();
     assert!(gen_find(&ctx, "CF-1").is_none());
 }
 
@@ -1056,12 +1044,7 @@ fn cf1_no_fire_zero_inflow() {
 fn cf1_warning_very_low_actual_ratio() {
     let ctx = Ctx::new()
         .commute_zone(5, 1, 100_000, 70_000, 20_000)
-        .commute_flow(
-            50,
-            30,
-            0.5,
-            vec![("千葉県".into(), "船橋市".into(), 20)],
-        )
+        .commute_flow(50, 30, 0.5, vec![("千葉県".into(), "船橋市".into(), 20)])
         .build();
     let i = gen_find(&ctx, "CF-1").unwrap();
     assert_eq!(i.severity, Severity::Warning);
@@ -1071,12 +1054,7 @@ fn cf1_warning_very_low_actual_ratio() {
 fn cf1_info_typical_ratio() {
     let ctx = Ctx::new()
         .commute_zone(5, 1, 10_000, 7_000, 2_000)
-        .commute_flow(
-            500,
-            300,
-            0.5,
-            vec![("千葉県".into(), "船橋市".into(), 200)],
-        )
+        .commute_flow(500, 300, 0.5, vec![("千葉県".into(), "船橋市".into(), 200)])
         .build();
     let i = gen_find(&ctx, "CF-1").unwrap();
     assert_eq!(i.severity, Severity::Info);
@@ -1118,12 +1096,7 @@ fn cf2_info_cross_pref() {
 #[test]
 fn cf3_no_fire_zero_rate() {
     let ctx = Ctx::new()
-        .commute_flow(
-            100,
-            100,
-            0.0,
-            vec![("千葉県".into(), "船橋市".into(), 50)],
-        )
+        .commute_flow(100, 100, 0.0, vec![("千葉県".into(), "船橋市".into(), 50)])
         .build();
     assert!(gen_find(&ctx, "CF-3").is_none());
 }
@@ -1349,10 +1322,7 @@ fn ge1_no_fire_normal_density() {
 
 #[test]
 fn ge1_warning_extreme_urban() {
-    let ctx = Ctx::new()
-        .ext_population(250_000.0)
-        .geography(10.0)
-        .build();
+    let ctx = Ctx::new().ext_population(250_000.0).geography(10.0).build();
     let i = gen_find(&ctx, "GE-1").unwrap();
     assert_eq!(i.severity, Severity::Warning);
     assert!(i.body.contains("過密"));
@@ -1372,10 +1342,7 @@ fn ge1_info_extreme_sparse_2026_04_23() {
 
 #[test]
 fn ge1_info_mild_urban() {
-    let ctx = Ctx::new()
-        .ext_population(150_000.0)
-        .geography(10.0)
-        .build();
+    let ctx = Ctx::new().ext_population(150_000.0).geography(10.0).build();
     let i = gen_find(&ctx, "GE-1").unwrap();
     assert_eq!(i.severity, Severity::Info);
     assert!(i.body.contains("過密傾向"));
@@ -1681,9 +1648,7 @@ fn cross_ls1_hs1_simultaneous_mismatch() {
 
 #[test]
 fn meta_cz3_category_is_forecast() {
-    let ctx = Ctx::new()
-        .commute_zone(5, 1, 10_000, 5_000, 3_500)
-        .build();
+    let ctx = Ctx::new().commute_zone(5, 1, 10_000, 5_000, 3_500).build();
     let i = gen_find(&ctx, "CZ-3").unwrap();
     assert_eq!(
         i.category,
@@ -1905,7 +1870,10 @@ fn p2_swf02_swf05_mutually_exclusive_at_high_ratio() {
     let out_mid = analyze_flow_insights(&ctx, &f_mid);
     let f02_count_mid = out_mid.iter().filter(|i| i.id == "SW-F02").count();
     let f05_count_mid = out_mid.iter().filter(|i| i.id == "SW-F05").count();
-    assert_eq!(f02_count_mid, 1, "M-2: F02 fires at ratio=1.4 (intermediate)");
+    assert_eq!(
+        f02_count_mid, 1,
+        "M-2: F02 fires at ratio=1.4 (intermediate)"
+    );
     assert_eq!(f05_count_mid, 0, "M-2: F05 does NOT fire at ratio=1.4");
 }
 
@@ -2070,10 +2038,7 @@ fn p2_emp_classifier_expand_other_includes_gyomu_itaku() {
 /// 3 件の pre-existing test failures のうち 2 件 (GE-1 関連) を解決した修正の証跡。
 #[test]
 fn p2_ge1_extreme_sparse_body_has_hedge_phrase() {
-    let ctx = Ctx::new()
-        .ext_population(100.0)
-        .geography(10.0)
-        .build();
+    let ctx = Ctx::new().ext_population(100.0).geography(10.0).build();
     let ge1 = gen_find(&ctx, "GE-1").expect("GE-1 must fire");
     assert_eq!(ge1.severity, Severity::Info);
     assert!(

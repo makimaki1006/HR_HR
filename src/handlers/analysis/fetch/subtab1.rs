@@ -132,4 +132,3 @@ pub(crate) fn fetch_transparency_data(db: &Db, pref: &str, muni: &str) -> Vec<Ro
         .collect();
     db.query(&sql, &p).unwrap_or_default()
 }
-

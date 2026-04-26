@@ -226,8 +226,16 @@ fn build_top20_insight(rows: &[CompetitorRow], prefecture: &str, job_type: &str)
     if rows.is_empty() {
         return format!(
             "{}の{}業界は SalesNow 登録企業が少なく、競合ランキングを生成できませんでした。",
-            if prefecture.is_empty() { "全国" } else { prefecture },
-            if job_type.is_empty() { "該当" } else { job_type }
+            if prefecture.is_empty() {
+                "全国"
+            } else {
+                prefecture
+            },
+            if job_type.is_empty() {
+                "該当"
+            } else {
+                job_type
+            }
         );
     }
 

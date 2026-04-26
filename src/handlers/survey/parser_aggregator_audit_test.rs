@@ -360,7 +360,7 @@ fn alpha_bug_katakana_prolongation_triggers_false_range() {
 fn alpha_all_dash_variants_normalize_to_range() {
     for (text, expected_min, expected_max) in [
         ("月給25万円－30万円", 250_000, 300_000), // 全角ハイフン
-        ("月給25万円―30万円", 250_000, 300_000), // 全角ダッシュ
+        ("月給25万円―30万円", 250_000, 300_000),  // 全角ダッシュ
         ("月給25万円ー30万円", 250_000, 300_000), // 長音符 (意図せずとも統一)
     ] {
         let r = parse_salary(text, SalaryType::Monthly);
@@ -426,17 +426,32 @@ fn alpha_empty_string_returns_zero_confidence() {
 fn alpha_by_salary_range_counts_exact() {
     let mut records = Vec::new();
     for &m in &[270_000, 280_000, 290_000] {
-        let mut r = rec_with_salary_and_pref(Some("東京都"), Some("千代田区"), Some(m), SalaryType::Monthly);
+        let mut r = rec_with_salary_and_pref(
+            Some("東京都"),
+            Some("千代田区"),
+            Some(m),
+            SalaryType::Monthly,
+        );
         r.salary_parsed.range_category = Some("25~30万".to_string());
         records.push(r);
     }
     for &m in &[320_000, 340_000] {
-        let mut r = rec_with_salary_and_pref(Some("東京都"), Some("千代田区"), Some(m), SalaryType::Monthly);
+        let mut r = rec_with_salary_and_pref(
+            Some("東京都"),
+            Some("千代田区"),
+            Some(m),
+            SalaryType::Monthly,
+        );
         r.salary_parsed.range_category = Some("30~35万".to_string());
         records.push(r);
     }
     {
-        let mut r = rec_with_salary_and_pref(Some("東京都"), Some("千代田区"), Some(220_000), SalaryType::Monthly);
+        let mut r = rec_with_salary_and_pref(
+            Some("東京都"),
+            Some("千代田区"),
+            Some(220_000),
+            SalaryType::Monthly,
+        );
         r.salary_parsed.range_category = Some("20~25万".to_string());
         records.push(r);
     }
@@ -457,12 +472,27 @@ fn alpha_by_salary_range_counts_exact() {
 fn alpha_dominant_prefecture_max_count_wins() {
     let mut records = Vec::new();
     for _ in 0..3 {
-        records.push(rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly));
+        records.push(rec_with_salary_and_pref(
+            Some("東京都"),
+            None,
+            Some(300_000),
+            SalaryType::Monthly,
+        ));
     }
     for _ in 0..2 {
-        records.push(rec_with_salary_and_pref(Some("大阪府"), None, Some(250_000), SalaryType::Monthly));
+        records.push(rec_with_salary_and_pref(
+            Some("大阪府"),
+            None,
+            Some(250_000),
+            SalaryType::Monthly,
+        ));
     }
-    records.push(rec_with_salary_and_pref(Some("北海道"), None, Some(200_000), SalaryType::Monthly));
+    records.push(rec_with_salary_and_pref(
+        Some("北海道"),
+        None,
+        Some(200_000),
+        SalaryType::Monthly,
+    ));
 
     let agg = aggregate_records(&records);
     assert_eq!(agg.dominant_prefecture.as_deref(), Some("東京都"));
@@ -503,10 +533,20 @@ fn alpha_dominant_prefecture_tied_nondeterministic_documented() {
 fn alpha_is_hourly_majority_edge_3_of_5() {
     let mut records = Vec::new();
     for _ in 0..3 {
-        records.push(rec_with_salary_and_pref(Some("東京都"), None, Some(200_000), SalaryType::Hourly));
+        records.push(rec_with_salary_and_pref(
+            Some("東京都"),
+            None,
+            Some(200_000),
+            SalaryType::Hourly,
+        ));
     }
     for _ in 0..2 {
-        records.push(rec_with_salary_and_pref(Some("東京都"), None, Some(250_000), SalaryType::Monthly));
+        records.push(rec_with_salary_and_pref(
+            Some("東京都"),
+            None,
+            Some(250_000),
+            SalaryType::Monthly,
+        ));
     }
     let agg = aggregate_records(&records);
     // total_with_salary = 5, hourly = 3, 3 > 5/2(=2) → true
@@ -518,13 +558,26 @@ fn alpha_is_hourly_majority_edge_3_of_5() {
 fn alpha_is_hourly_exact_half_false() {
     let mut records = Vec::new();
     for _ in 0..5 {
-        records.push(rec_with_salary_and_pref(Some("東京都"), None, Some(200_000), SalaryType::Hourly));
+        records.push(rec_with_salary_and_pref(
+            Some("東京都"),
+            None,
+            Some(200_000),
+            SalaryType::Hourly,
+        ));
     }
     for _ in 0..5 {
-        records.push(rec_with_salary_and_pref(Some("東京都"), None, Some(250_000), SalaryType::Monthly));
+        records.push(rec_with_salary_and_pref(
+            Some("東京都"),
+            None,
+            Some(250_000),
+            SalaryType::Monthly,
+        ));
     }
     let agg = aggregate_records(&records);
-    assert!(!agg.is_hourly, "5/10 → strict 比較 5>5=false → is_hourly=false");
+    assert!(
+        !agg.is_hourly,
+        "5/10 → strict 比較 5>5=false → is_hourly=false"
+    );
 }
 
 /// 📊 salary_min_values / salary_max_values の型変換ロジック逆証明 (F1 #2 修正版):
@@ -541,22 +594,26 @@ fn alpha_is_hourly_exact_half_false() {
 #[test]
 fn alpha_salary_min_values_type_conversion_exact() {
     // Hourly: min=1500, max=2000 → 1500*167=250_500, 2000*167=334_000
-    let mut hourly = rec_with_salary_and_pref(Some("東京都"), None, Some(260_700), SalaryType::Hourly);
+    let mut hourly =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(260_700), SalaryType::Hourly);
     hourly.salary_parsed.min_value = Some(1500);
     hourly.salary_parsed.max_value = Some(2000);
 
     // Daily: min=12000, max=15000 → 12000*21=252_000, 15000*21=315_000
-    let mut daily = rec_with_salary_and_pref(Some("東京都"), None, Some(260_400), SalaryType::Daily);
+    let mut daily =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(260_400), SalaryType::Daily);
     daily.salary_parsed.min_value = Some(12_000);
     daily.salary_parsed.max_value = Some(15_000);
 
     // Annual: min=6_000_000, max=8_400_000 → /12 = 500_000, 700_000
-    let mut annual = rec_with_salary_and_pref(Some("東京都"), None, Some(500_000), SalaryType::Annual);
+    let mut annual =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(500_000), SalaryType::Annual);
     annual.salary_parsed.min_value = Some(6_000_000);
     annual.salary_parsed.max_value = Some(8_400_000);
 
     // Monthly: そのまま 300_000, 400_000
-    let mut monthly = rec_with_salary_and_pref(Some("東京都"), None, Some(350_000), SalaryType::Monthly);
+    let mut monthly =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(350_000), SalaryType::Monthly);
     monthly.salary_parsed.min_value = Some(300_000);
     monthly.salary_parsed.max_value = Some(400_000);
 
@@ -653,15 +710,18 @@ fn alpha_tag_salary_min_sample_filter() {
 /// scatter_min_max: min <= max フィルタ。max < min のデータは除外。
 #[test]
 fn alpha_scatter_filters_inverted_min_max() {
-    let mut good = rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly);
+    let mut good =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly);
     good.salary_parsed.min_value = Some(200_000);
     good.salary_parsed.max_value = Some(400_000);
 
-    let mut inverted = rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly);
+    let mut inverted =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly);
     inverted.salary_parsed.min_value = Some(500_000); // min > max は不正
     inverted.salary_parsed.max_value = Some(400_000);
 
-    let mut zero = rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly);
+    let mut zero =
+        rec_with_salary_and_pref(Some("東京都"), None, Some(300_000), SalaryType::Monthly);
     zero.salary_parsed.min_value = Some(0); // min=0 は除外
     zero.salary_parsed.max_value = Some(400_000);
 
@@ -689,7 +749,8 @@ fn alpha_regression_y_3x_minus_5_exact() {
     // 直接は呼べないため、aggregate_records 経由で検証する。
     let mut records = Vec::new();
     for (x, y) in [(10_i64, 25_i64), (20, 55), (30, 85), (40, 115)] {
-        let mut r = rec_with_salary_and_pref(Some("東京都"), None, Some(100_000), SalaryType::Monthly);
+        let mut r =
+            rec_with_salary_and_pref(Some("東京都"), None, Some(100_000), SalaryType::Monthly);
         r.salary_parsed.min_value = Some(x);
         r.salary_parsed.max_value = Some(y);
         records.push(r);
@@ -880,13 +941,17 @@ fn alpha_parse_rate_exact() {
     }
     // 給与なし・住所あり: 2件
     for _ in 0..2 {
-        let mut r =
-            rec_with_salary_and_pref(Some("東京都"), None, None, SalaryType::Monthly);
+        let mut r = rec_with_salary_and_pref(Some("東京都"), None, None, SalaryType::Monthly);
         r.salary_parsed.min_value = None;
         records.push(r);
     }
     // 給与なし・住所なし: 1件
-    records.push(rec_with_salary_and_pref(None, None, None, SalaryType::Monthly));
+    records.push(rec_with_salary_and_pref(
+        None,
+        None,
+        None,
+        SalaryType::Monthly,
+    ));
 
     let agg = aggregate_records(&records);
     assert_eq!(agg.total_count, 10);
@@ -1008,7 +1073,10 @@ fn f1_weekly_to_monthly_conversion_specific_value() {
     assert_eq!(WEEKLY_TO_MONTHLY_DEN, 100);
     let weekly: i64 = 50_000;
     let monthly = weekly * WEEKLY_TO_MONTHLY_NUM / WEEKLY_TO_MONTHLY_DEN;
-    assert_eq!(monthly, 216_500, "50,000 * 4.33 = 216,500 (salary_parser と一致)");
+    assert_eq!(
+        monthly, 216_500,
+        "50,000 * 4.33 = 216,500 (salary_parser と一致)"
+    );
     assert_ne!(monthly, 200_000, "修正前 (×4) の値ではない");
 }
 
@@ -1018,12 +1086,7 @@ fn f1_weekly_to_monthly_conversion_specific_value() {
 #[test]
 fn f1_aggregate_by_emp_group_native_hourly_uses_167() {
     use super::aggregator::aggregate_by_emp_group_native;
-    let mut rec = rec_with_salary_and_pref(
-        Some("東京都"),
-        None,
-        Some(260_700),
-        SalaryType::Hourly,
-    );
+    let mut rec = rec_with_salary_and_pref(Some("東京都"), None, Some(260_700), SalaryType::Hourly);
     rec.salary_parsed.min_value = Some(1_500);
     rec.employment_type = "パート".to_string();
 
@@ -1071,4 +1134,3 @@ fn f1_constant_inconsistency_between_parser_and_aggregator() {
         diff
     );
 }
-

@@ -79,32 +79,31 @@ async fn main() {
     // Turso外部統計DB接続（AppConfig 経由 - 空文字列なら未設定扱い）
     // reqwest::blocking::Client はasyncコンテキスト内で作成するとパニックするため
     // spawn_blocking で別スレッドで初期化する
-    let turso_db = if !config.turso_external_url.is_empty()
-        && !config.turso_external_token.is_empty()
-    {
-        let url = config.turso_external_url.clone();
-        let token = config.turso_external_token.clone();
-        match tokio::task::spawn_blocking(move || {
-            rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
-        })
-        .await
-        {
-            Ok(Ok(db)) => Some(db),
-            Ok(Err(e)) => {
-                tracing::warn!("Turso external DB not available: {e}");
-                None
+    let turso_db =
+        if !config.turso_external_url.is_empty() && !config.turso_external_token.is_empty() {
+            let url = config.turso_external_url.clone();
+            let token = config.turso_external_token.clone();
+            match tokio::task::spawn_blocking(move || {
+                rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+            })
+            .await
+            {
+                Ok(Ok(db)) => Some(db),
+                Ok(Err(e)) => {
+                    tracing::warn!("Turso external DB not available: {e}");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("Turso external DB init failed: {e}");
+                    None
+                }
             }
-            Err(e) => {
-                tracing::warn!("Turso external DB init failed: {e}");
-                None
-            }
-        }
-    } else {
-        tracing::info!(
-            "Turso external DB not configured (TURSO_EXTERNAL_URL / TURSO_EXTERNAL_TOKEN)"
-        );
-        None
-    };
+        } else {
+            tracing::info!(
+                "Turso external DB not configured (TURSO_EXTERNAL_URL / TURSO_EXTERNAL_TOKEN)"
+            );
+            None
+        };
 
     // SalesNow Turso DB接続（企業分析タブ用、AppConfig 経由）
     let salesnow_db = if !config.salesnow_turso_url.is_empty()
@@ -132,9 +131,7 @@ async fn main() {
             }
         }
     } else {
-        tracing::info!(
-            "SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)"
-        );
+        tracing::info!("SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)");
         None
     };
 

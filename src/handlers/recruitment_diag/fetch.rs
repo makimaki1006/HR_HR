@@ -62,11 +62,7 @@ pub(crate) fn count_hw_postings(
 }
 
 /// 全国平均: 全 postings の業種 × 雇用形態件数（エリア無視）
-pub(crate) fn count_hw_postings_national(
-    db: &LocalDb,
-    job_type: &str,
-    emp_types: &[&str],
-) -> i64 {
+pub(crate) fn count_hw_postings_national(db: &LocalDb, job_type: &str, emp_types: &[&str]) -> i64 {
     count_hw_postings(db, job_type, emp_types, "", "")
 }
 
@@ -103,7 +99,11 @@ pub(crate) fn sum_mesh_population(
          FROM {table} \
          WHERE citycode = ?1 AND dayflag = ?2 AND timezone = ?3"
     );
-    let params = vec![citycode.to_string(), dayflag.to_string(), timezone.to_string()];
+    let params = vec![
+        citycode.to_string(),
+        dayflag.to_string(),
+        timezone.to_string(),
+    ];
     let rows = af::query_turso_or_local(turso, db, &sql, &params, table);
     if let Some(r) = rows.first() {
         let total = crate::handlers::helpers::get_f64(r, "total");

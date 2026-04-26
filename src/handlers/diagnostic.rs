@@ -314,7 +314,8 @@ pub async fn evaluate_diagnostic(
         if let Some(sm) = spatial.first() {
             let acc30 = super::helpers::get_i64(sm, "accessible_postings_30km");
             let iso = super::helpers::get_f64(sm, "isolation_score");
-            write!(html,
+            write!(
+                html,
                 r#"<div class="text-center p-2 bg-slate-800/50 rounded">
                     <div class="text-lg font-bold text-amber-400">{}</div>
                     <div class="text-[10px] text-slate-500">30km圏内の競合求人数</div>
@@ -322,7 +323,8 @@ pub async fn evaluate_diagnostic(
                 </div>"#,
                 format_number(acc30),
                 iso
-            ).unwrap();
+            )
+            .unwrap();
         }
         html.push_str("</div></div>");
     }
@@ -365,10 +367,12 @@ pub async fn evaluate_diagnostic(
             // シナリオヘッダー
             if target_salary > 0 {
                 let diff = target_salary - salary;
-                write!(html,
+                write!(
+                    html,
                     r#"<th class="text-center py-2 px-2 text-blue-400">月給+{}円</th>"#,
                     format_number(diff)
-                ).unwrap();
+                )
+                .unwrap();
             }
             if holidays == 0 {
                 html.push_str(
@@ -383,37 +387,45 @@ pub async fn evaluate_diagnostic(
             html.push_str("</tr></thead><tbody>");
 
             // グレード行
-            write!(html,
+            write!(
+                html,
                 r#"<tr class="border-b border-slate-800">
                 <td class="py-2 px-2 text-slate-400">グレード</td>
                 <td class="text-center py-2 px-2 text-white font-bold">{overall_grade}</td>"#
-            ).unwrap();
+            )
+            .unwrap();
             if target_salary > 0 {
                 let target_label = if target_salary >= p75 { "A〜B" } else { "B" };
                 write!(html, r#"<td class="text-center py-2 px-2 text-blue-400 font-bold">{target_label}</td>"#).unwrap();
             }
             if holidays == 0 {
-                write!(html,
+                write!(
+                    html,
                     r#"<td class="text-center py-2 px-2 text-emerald-400">{overall_grade}+</td>"#
-                ).unwrap();
+                )
+                .unwrap();
             }
             if commute_inflow_total > 0 {
-                write!(html,
+                write!(
+                    html,
                     r#"<td class="text-center py-2 px-2 text-slate-400">{overall_grade}</td>"#
-                ).unwrap();
+                )
+                .unwrap();
             }
             html.push_str("</tr>");
 
             // 年間コスト行（給与改善時のみ）
             if target_salary > 0 {
                 let annual_cost = (target_salary - salary) * 12;
-                write!(html,
+                write!(
+                    html,
                     r#"<tr class="border-b border-slate-800">
                     <td class="py-2 px-2 text-slate-400">年間コスト増</td>
                     <td class="text-center py-2 px-2 text-slate-500">-</td>
                     <td class="text-center py-2 px-2 text-red-400">+{}円/人</td>"#,
                     format_number(annual_cost)
-                ).unwrap();
+                )
+                .unwrap();
                 if holidays == 0 {
                     html.push_str(r#"<td class="text-center py-2 px-2 text-slate-500">0円</td>"#);
                 }
@@ -1192,12 +1204,14 @@ fn render_actionable_suggestions(
         <ul class="space-y-2">"#,
     );
     for (text, color) in &suggestions {
-        write!(html,
+        write!(
+            html,
             r#"<li class="flex items-start gap-2 p-2 rounded bg-slate-800/50">
                 <span class="mt-0.5 text-lg" style="color:{color}">●</span>
                 <span class="text-sm text-slate-300">{text}</span>
             </li>"#
-        ).unwrap();
+        )
+        .unwrap();
     }
     html.push_str("</ul></div>");
     html

@@ -340,13 +340,17 @@ pub(crate) fn fetch_establishments(db: &Db, turso: Option<&TursoDb>, pref: &str)
             vec![pref.to_string()],
         )
     } else {
-        ("SELECT '全国' as prefecture, industry_code as industry, industry_name, \
+        (
+            "SELECT '全国' as prefecture, industry_code as industry, industry_name, \
           SUM(establishments) as establishment_count, SUM(employees) as employees, \
           MAX(reference_year) as reference_year \
           FROM v2_external_establishments \
           WHERE industry_code <> 'ALL' \
           GROUP BY industry_code, industry_name \
-          ORDER BY establishment_count DESC".to_string(), vec![])
+          ORDER BY establishment_count DESC"
+                .to_string(),
+            vec![],
+        )
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_establishments")
 }

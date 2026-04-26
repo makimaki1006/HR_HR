@@ -157,21 +157,45 @@ async fn panel1_difficulty_shape_contains_required_keys() {
     let Json(v) = handlers::api_difficulty_score(State(state), session, Query(params)).await;
 
     // frontend renderer が参照する key が存在すること
-    assert!(
-        v.get("metrics").is_some(),
-        "metrics key missing, got: {v}"
-    );
+    assert!(v.get("metrics").is_some(), "metrics key missing, got: {v}");
     let metrics = v.get("metrics").unwrap();
-    assert!(metrics.get("score_per_10k").is_some(), "metrics.score_per_10k missing");
-    assert!(metrics.get("hw_count").is_some(), "metrics.hw_count missing");
-    assert!(metrics.get("population").is_some(), "metrics.population missing");
-    assert!(metrics.get("national_hw_count").is_some(), "metrics.national_hw_count missing");
-    assert!(metrics.get("area_share_of_national").is_some(), "metrics.area_share_of_national missing");
+    assert!(
+        metrics.get("score_per_10k").is_some(),
+        "metrics.score_per_10k missing"
+    );
+    assert!(
+        metrics.get("hw_count").is_some(),
+        "metrics.hw_count missing"
+    );
+    assert!(
+        metrics.get("population").is_some(),
+        "metrics.population missing"
+    );
+    assert!(
+        metrics.get("national_hw_count").is_some(),
+        "metrics.national_hw_count missing"
+    );
+    assert!(
+        metrics.get("area_share_of_national").is_some(),
+        "metrics.area_share_of_national missing"
+    );
     // F1 #3: 観光地補正で追加された keys
-    assert!(metrics.get("day_population").is_some(), "metrics.day_population missing (F1 #3)");
-    assert!(metrics.get("night_population").is_some(), "metrics.night_population missing (F1 #3)");
-    assert!(metrics.get("day_night_ratio").is_some(), "metrics.day_night_ratio missing (F1 #3)");
-    assert!(metrics.get("is_tourist_area").is_some(), "metrics.is_tourist_area missing (F1 #3)");
+    assert!(
+        metrics.get("day_population").is_some(),
+        "metrics.day_population missing (F1 #3)"
+    );
+    assert!(
+        metrics.get("night_population").is_some(),
+        "metrics.night_population missing (F1 #3)"
+    );
+    assert!(
+        metrics.get("day_night_ratio").is_some(),
+        "metrics.day_night_ratio missing (F1 #3)"
+    );
+    assert!(
+        metrics.get("is_tourist_area").is_some(),
+        "metrics.is_tourist_area missing (F1 #3)"
+    );
     assert!(v.get("rank_label").is_some(), "rank_label missing");
     assert!(v.get("so_what").is_some(), "so_what missing");
     assert!(v.get("notes").is_some(), "notes missing");
@@ -206,10 +230,22 @@ async fn panel2_talent_pool_shape_contains_required_keys() {
     // frontend が読む keys
     assert!(v.get("metrics").is_some(), "metrics missing");
     let m = v.get("metrics").unwrap();
-    assert!(m.get("day_population").is_some(), "metrics.day_population missing");
-    assert!(m.get("night_population").is_some(), "metrics.night_population missing");
-    assert!(m.get("commuter_inflow").is_some(), "metrics.commuter_inflow missing");
-    assert!(m.get("day_night_ratio").is_some(), "metrics.day_night_ratio missing");
+    assert!(
+        m.get("day_population").is_some(),
+        "metrics.day_population missing"
+    );
+    assert!(
+        m.get("night_population").is_some(),
+        "metrics.night_population missing"
+    );
+    assert!(
+        m.get("commuter_inflow").is_some(),
+        "metrics.commuter_inflow missing"
+    );
+    assert!(
+        m.get("day_night_ratio").is_some(),
+        "metrics.day_night_ratio missing"
+    );
     assert!(v.get("so_what").is_some(), "so_what missing");
     assert!(v.get("notes").is_some(), "notes missing");
 }
@@ -232,7 +268,10 @@ async fn panel3_inflow_shape_when_citycode_missing_returns_error() {
     let Json(v) = handlers::api_inflow_analysis(State(state), session, Query(params)).await;
 
     // citycode なしは error_body を返す契約
-    assert!(v.get("error").is_some(), "error key missing in citycode-absent case");
+    assert!(
+        v.get("error").is_some(),
+        "error key missing in citycode-absent case"
+    );
 }
 
 #[tokio::test]
@@ -277,15 +316,33 @@ async fn panel5_condition_gap_shape_and_reverse_proof() {
     let Json(v) = condition_gap::condition_gap(State(state), Query(params)).await;
 
     // frontend renderer が読む key
-    assert!(v.get("industry_median").is_some(), "industry_median missing: {v}");
-    assert!(v.get("all_industry_median").is_some(), "all_industry_median missing");
+    assert!(
+        v.get("industry_median").is_some(),
+        "industry_median missing: {v}"
+    );
+    assert!(
+        v.get("all_industry_median").is_some(),
+        "all_industry_median missing"
+    );
     assert!(v.get("company").is_some(), "company missing");
 
     let industry = v.get("industry_median").unwrap();
-    assert!(industry.get("annual_income").is_some(), "industry_median.annual_income missing");
-    assert!(industry.get("annual_holidays").is_some(), "industry_median.annual_holidays missing");
-    assert!(industry.get("bonus_months").is_some(), "industry_median.bonus_months missing");
-    assert!(industry.get("sample_size").is_some(), "industry_median.sample_size missing");
+    assert!(
+        industry.get("annual_income").is_some(),
+        "industry_median.annual_income missing"
+    );
+    assert!(
+        industry.get("annual_holidays").is_some(),
+        "industry_median.annual_holidays missing"
+    );
+    assert!(
+        industry.get("bonus_months").is_some(),
+        "industry_median.bonus_months missing"
+    );
+    assert!(
+        industry.get("sample_size").is_some(),
+        "industry_median.sample_size missing"
+    );
 
     let company = v.get("company").unwrap();
     assert!(
@@ -343,7 +400,10 @@ async fn panel7_opportunity_map_shape() {
 
     // frontend renderer が読む key
     if v.get("error").is_none() {
-        assert!(v.get("municipalities").is_some(), "municipalities missing: {v}");
+        assert!(
+            v.get("municipalities").is_some(),
+            "municipalities missing: {v}"
+        );
     }
 }
 

@@ -147,15 +147,13 @@ pub async fn api_difficulty_score(
     let turso = state.turso_db.clone();
 
     // citycode 解決: 明示パラメータ優先、なければ pref+muni から解決
-    let citycode = params
-        .citycode
-        .or_else(|| {
-            if !pref.is_empty() && !muni.is_empty() {
-                city_code::city_name_to_code(&pref, &muni).map(|c| c as i64)
-            } else {
-                None
-            }
-        });
+    let citycode = params.citycode.or_else(|| {
+        if !pref.is_empty() && !muni.is_empty() {
+            city_code::city_name_to_code(&pref, &muni).map(|c| c as i64)
+        } else {
+            None
+        }
+    });
 
     let job_type = params.job_type.clone();
     let emp_types: Vec<&'static str> = expand_employment_type(&params.emp_type);
@@ -167,34 +165,16 @@ pub async fn api_difficulty_score(
 
     let result = tokio::task::spawn_blocking(move || {
         // 1. HW件数（該当エリア）
-        let hw_count = fetch::count_hw_postings(
-            &db,
-            &job_type_c,
-            &emp_types_c,
-            &pref_c,
-            &muni_c,
-        );
+        let hw_count = fetch::count_hw_postings(&db, &job_type_c, &emp_types_c, &pref_c, &muni_c);
 
         // 2. Agoop mesh1km 昼夜人口（F1 #3: 観光地補正のため両方取得）
         //    - day  : 平日昼滞在 (dayflag=1, timezone=0)
         //    - night: 平日深夜滞在 (dayflag=1, timezone=1) ≒ 居住人口の代理
         let (day_population, night_population) = if let Some(code) = citycode {
-            let day = fetch::sum_mesh_population(
-                &db,
-                turso.as_ref(),
-                code,
-                DEFAULT_AGOOP_YEAR,
-                1,
-                0,
-            );
-            let night = fetch::sum_mesh_population(
-                &db,
-                turso.as_ref(),
-                code,
-                DEFAULT_AGOOP_YEAR,
-                1,
-                1,
-            );
+            let day =
+                fetch::sum_mesh_population(&db, turso.as_ref(), code, DEFAULT_AGOOP_YEAR, 1, 0);
+            let night =
+                fetch::sum_mesh_population(&db, turso.as_ref(), code, DEFAULT_AGOOP_YEAR, 1, 1);
             (day, night)
         } else {
             (0.0, 0.0)
@@ -308,8 +288,7 @@ pub(crate) fn compute_difficulty_score_with_tourist_correction(
     } else {
         0.0
     };
-    let is_tourist_area =
-        night_population > 0.0 && day_night_ratio > TOURIST_AREA_DAYNIGHT_RATIO;
+    let is_tourist_area = night_population > 0.0 && day_night_ratio > TOURIST_AREA_DAYNIGHT_RATIO;
     let population = if is_tourist_area {
         night_population
     } else {
@@ -840,7 +819,11 @@ mod tests {
         assert!(is_tourist, "昼夜比 3.0 は観光地判定されること");
         assert!((ratio - 3.0).abs() < 1e-9, "ratio は 3.0");
         // 補正後 population は night
-        assert!((population - night).abs() < 1e-9, "補正後分母は night={}", night);
+        assert!(
+            (population - night).abs() < 1e-9,
+            "補正後分母は night={}",
+            night
+        );
         // 補正後 score = 20 / 10000 * 10000 = 20.00
         assert!(
             (score - 20.0).abs() < 1e-6,

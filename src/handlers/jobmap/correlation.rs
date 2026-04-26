@@ -211,7 +211,11 @@ fn collect_mesh_points(
         timezone.to_string(),
     ];
     let flow_rows = super::super::analysis::fetch::query_turso_or_local(
-        turso, db, &sql_flow, &params_flow, flow_table,
+        turso,
+        db,
+        &sql_flow,
+        &params_flow,
+        flow_table,
     );
 
     // Turso/SQLite どちらでも動く。v2_flow_attribute_mesh1km が無ければ空になる。

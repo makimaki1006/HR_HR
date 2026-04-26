@@ -380,7 +380,8 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
         "中" => "text-amber-400",
         _ => "text-slate-400",
     };
-    write!(html,
+    write!(
+        html,
         r#"<div class="flex items-center gap-3 mt-3 text-xs">
             <span class="text-slate-500">信頼性:</span>
             <span class="font-bold {rc}">{rel}</span>
@@ -389,7 +390,8 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
         rc = reliability_color,
         rel = escape_html(&stats.reliability),
         n = stats.count,
-    ).unwrap();
+    )
+    .unwrap();
 
     html.push_str(r#"<p class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">月給換算は時給×173.8h/月、年俸÷12で統一。中央値は外れ値の影響を受けにくいため、平均より実勢に近い目安として推奨されます。</p>"#);
     html.push_str("</section>");
@@ -557,12 +559,14 @@ fn render_breakdown_section(agg: &SurveyAggregation) -> String {
         });
 
         let config_str = chart.to_string().replace('\'', "&#39;");
-        write!(html,
+        write!(
+            html,
             r#"<div class="bg-slate-900/50 rounded p-3">
                 <h4 class="text-xs font-semibold text-slate-300 mb-2">都道府県別 掲載件数</h4>
                 <div class="echart" style="height:400px" data-chart-config='{config_str}'></div>
             </div>"#
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // タグ分布
@@ -589,12 +593,14 @@ fn render_breakdown_section(agg: &SurveyAggregation) -> String {
         });
 
         let config_str = chart.to_string().replace('\'', "&#39;");
-        write!(html,
+        write!(
+            html,
             r#"<div class="bg-slate-900/50 rounded p-3">
                 <h4 class="text-xs font-semibold text-slate-300 mb-2">求人タグ 頻出Top 15</h4>
                 <div class="echart" style="height:400px" data-chart-config='{config_str}'></div>
             </div>"#
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     html.push_str(r#"</div>
@@ -689,12 +695,14 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
             });
 
             let config_str = chart.to_string().replace('\'', "&#39;");
-            write!(html,
+            write!(
+                html,
                 r#"<div class="bg-slate-900/50 rounded p-3">
                     <h4 class="text-xs font-semibold text-slate-300 mb-2">給与レンジ幅 分布</h4>
                     <div class="echart" style="height:280px" data-chart-config='{config_str}'></div>
                 </div>"#
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
 
@@ -744,9 +752,11 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
         }
     }
 
-    html.push_str(r#"</div>
+    html.push_str(
+        r#"</div>
         </details>
-    </section>"#);
+    </section>"#,
+    );
 
     html
 }
@@ -800,7 +810,8 @@ fn render_detailed_stats_section(agg: &SurveyAggregation) -> String {
     }
 
     if let Some(q) = &stats.quartiles {
-        write!(html,
+        write!(
+            html,
             r#"<div class="p-2 bg-slate-900/50 rounded">
                 <div class="text-slate-400 text-[11px] mb-1">四分位</div>
                 <div>Q1: {q1}円 / Q2(中央値): {q2}円 / Q3: {q3}円 / IQR: {iqr}円</div>
@@ -809,12 +820,15 @@ fn render_detailed_stats_section(agg: &SurveyAggregation) -> String {
             q2 = format_number(q.q2),
             q3 = format_number(q.q3),
             iqr = format_number(q.iqr),
-        ).unwrap();
+        )
+        .unwrap();
     }
 
-    html.push_str(r#"</div>
+    html.push_str(
+        r#"</div>
         </details>
-    </section>"#);
+    </section>"#,
+    );
 
     html
 }
@@ -888,7 +902,8 @@ fn render_data_quality_section(agg: &SurveyAggregation) -> String {
 // =============================================================================
 
 fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &str, note: &str) {
-    write!(html,
+    write!(
+        html,
         r#"<div class="p-3 bg-slate-800/50 rounded text-center">
             <div class="text-[11px] text-slate-500 mb-1">{label}</div>
             <div class="text-sm font-bold {color}">{value}</div>
@@ -898,5 +913,6 @@ fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &st
         value = value,
         color = value_color,
         note = escape_html(note),
-    ).unwrap();
+    )
+    .unwrap();
 }

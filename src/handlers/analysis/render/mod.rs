@@ -1,4 +1,4 @@
-﻿//! HTML描画関数（全 render_* 関数 + render_subtab_1..6）
+//! HTML描画関数（全 render_* 関数 + render_subtab_1..6）
 //!
 //! ## サブモジュール構成（リファクタ F2: ファイル肥大化解消）
 //! - `subtab7`: 通勤圏分析（render_subtab_7 + build_commute_sankey/build_butterfly_pyramid + kpi）
@@ -3185,7 +3185,6 @@ fn render_shadow_wage_section(data: &[Row]) -> String {
 // render_subtab_7, build_commute_sankey, build_butterfly_pyramid, kpi は
 // `subtab7.rs` 内に移動。本 mod.rs 冒頭で `pub(crate) use subtab7::render_subtab_7;` 済み
 
-
 // ======== HTML描画: Phase 4-7（新外部データセクション） ========
 
 /// 学歴分布セクション（横棒グラフ + テーブル）
@@ -3725,7 +3724,11 @@ mod new_section_tests {
             ],
         );
         let html = render_education_section(&[row], "東京都");
-        assert!(html.contains("大学院"), "学歴レベルがHTMLに含まれるべき: {}", &html[..html.len().min(500)]);
+        assert!(
+            html.contains("大学院"),
+            "学歴レベルがHTMLに含まれるべき: {}",
+            &html[..html.len().min(500)]
+        );
     }
 
     /// 都道府県ラベルがHTMLに含まれる
@@ -3740,7 +3743,10 @@ mod new_section_tests {
             ],
         );
         let html = render_education_section(&[row], "大阪府");
-        assert!(html.contains("大阪府"), "都道府県ラベルがHTMLに含まれるべき");
+        assert!(
+            html.contains("大阪府"),
+            "都道府県ラベルがHTMLに含まれるべき"
+        );
     }
 
     /// ECharts クラスとデータ属性がHTMLに含まれる
@@ -3774,7 +3780,11 @@ mod new_section_tests {
         );
         let html = render_education_section(&[row], "東京都");
         // format_number により「3,102,649」形式になる
-        assert!(html.contains("3,102,649"), "total_countが3桁区切りでフォーマットされるべき: actual html snippets = {}", &html[..html.len().min(1000)]);
+        assert!(
+            html.contains("3,102,649"),
+            "total_countが3桁区切りでフォーマットされるべき: actual html snippets = {}",
+            &html[..html.len().min(1000)]
+        );
     }
 
     // ======================================================
@@ -3791,10 +3801,7 @@ mod new_section_tests {
     /// 世帯類型名がHTMLに含まれる
     #[test]
     fn test_household_contains_type_name() {
-        let row = make_row_with_float(
-            &[("household_type", "単独世帯")],
-            &[("ratio", 35.2)],
-        );
+        let row = make_row_with_float(&[("household_type", "単独世帯")], &[("ratio", 35.2)]);
         let row = {
             let mut r = row;
             r.insert("count".to_string(), Value::from(5000000_i64));
@@ -3830,7 +3837,10 @@ mod new_section_tests {
             Value::Number(serde_json::Number::from_f64(25.0).unwrap()),
         );
         let html = render_household_type_section(&[row], "大阪府");
-        assert!(html.contains("1,234,567"), "世帯数が3桁区切りでフォーマットされるべき");
+        assert!(
+            html.contains("1,234,567"),
+            "世帯数が3桁区切りでフォーマットされるべき"
+        );
     }
 
     // ======================================================
@@ -3848,7 +3858,10 @@ mod new_section_tests {
     #[test]
     fn test_foreign_contains_visa_status() {
         let row = make_row_with_int(
-            &[("visa_status", "技術・人文知識・国際業務"), ("survey_period", "2023年")],
+            &[
+                ("visa_status", "技術・人文知識・国際業務"),
+                ("survey_period", "2023年"),
+            ],
             &[("count", 987654)],
         );
         let html = render_foreign_residents_section(&[row], "東京都");
@@ -3877,7 +3890,10 @@ mod new_section_tests {
             &[("count", 1234567)],
         );
         let html = render_foreign_residents_section(&[row], "大阪府");
-        assert!(html.contains("1,234,567"), "人数が3桁区切りでフォーマットされるべき");
+        assert!(
+            html.contains("1,234,567"),
+            "人数が3桁区切りでフォーマットされるべき"
+        );
     }
 
     // ======================================================
@@ -3923,7 +3939,10 @@ mod new_section_tests {
         };
         let html = render_land_price_section(&[row], "東京都");
         // プラスYoY → 緑色 (#22c55e)
-        assert!(html.contains("#22c55e"), "前年比プラス時は緑色コードが含まれるべき");
+        assert!(
+            html.contains("#22c55e"),
+            "前年比プラス時は緑色コードが含まれるべき"
+        );
     }
 
     /// 前年比がマイナスのとき赤色コードが含まれる
@@ -3941,7 +3960,10 @@ mod new_section_tests {
         };
         let html = render_land_price_section(&[row], "北海道");
         // マイナスYoY → 赤色 (#ef4444)
-        assert!(html.contains("#ef4444"), "前年比マイナス時は赤色コードが含まれるべき");
+        assert!(
+            html.contains("#ef4444"),
+            "前年比マイナス時は赤色コードが含まれるべき"
+        );
     }
 
     /// マッチしない用途名 → 「データなし」が含まれる
@@ -3959,7 +3981,10 @@ mod new_section_tests {
             r
         };
         let html = render_land_price_section(&[row], "東京都");
-        assert!(html.contains("データなし"), "マッチしない用途名の場合「データなし」が表示されるべき");
+        assert!(
+            html.contains("データなし"),
+            "マッチしない用途名の場合「データなし」が表示されるべき"
+        );
     }
 
     // ======================================================
@@ -3970,7 +3995,10 @@ mod new_section_tests {
     #[test]
     fn test_regional_infra_both_empty_returns_empty() {
         let result = render_regional_infra_section(&[], &[], "東京都");
-        assert!(result.is_empty(), "car_data・net_data両方空では空文字列を返すべき");
+        assert!(
+            result.is_empty(),
+            "car_data・net_data両方空では空文字列を返すべき"
+        );
     }
 
     /// car_dataのみあり → 自動車保有率KPIが含まれる
@@ -3983,7 +4011,10 @@ mod new_section_tests {
             r
         };
         let html = render_regional_infra_section(&[row], &[], "群馬県");
-        assert!(html.contains("自動車保有率"), "自動車保有率KPIが含まれるべき");
+        assert!(
+            html.contains("自動車保有率"),
+            "自動車保有率KPIが含まれるべき"
+        );
         assert!(html.contains("群馬県"), "都道府県ラベルが含まれるべき");
     }
 
@@ -3997,7 +4028,10 @@ mod new_section_tests {
         );
         row.insert("year".to_string(), Value::from(2022_i64));
         let html = render_regional_infra_section(&[row], &[], "栃木県");
-        assert!(html.contains("#22c55e"), "保有率≥70の場合は緑色コードが含まれるべき");
+        assert!(
+            html.contains("#22c55e"),
+            "保有率≥70の場合は緑色コードが含まれるべき"
+        );
     }
 
     /// net_dataのみあり → インターネット利用率KPIが含まれる
@@ -4005,7 +4039,10 @@ mod new_section_tests {
     fn test_regional_infra_net_data_only_renders() {
         let row = make_row_with_float(
             &[],
-            &[("internet_usage_rate", 85.0), ("smartphone_ownership_rate", 78.0)],
+            &[
+                ("internet_usage_rate", 85.0),
+                ("smartphone_ownership_rate", 78.0),
+            ],
         );
         let row = {
             let mut r = row;
@@ -4013,7 +4050,10 @@ mod new_section_tests {
             r
         };
         let html = render_regional_infra_section(&[], &[row], "神奈川県");
-        assert!(html.contains("インターネット利用率"), "インターネット利用率KPIが含まれるべき");
+        assert!(
+            html.contains("インターネット利用率"),
+            "インターネット利用率KPIが含まれるべき"
+        );
     }
 
     /// 両方あり → 両方のKPIが含まれる
@@ -4027,14 +4067,23 @@ mod new_section_tests {
         let net_row = {
             let mut r = make_row_with_float(
                 &[],
-                &[("internet_usage_rate", 82.0), ("smartphone_ownership_rate", 75.0)],
+                &[
+                    ("internet_usage_rate", 82.0),
+                    ("smartphone_ownership_rate", 75.0),
+                ],
             );
             r.insert("year".to_string(), Value::from(2022_i64));
             r
         };
         let html = render_regional_infra_section(&[car_row], &[net_row], "埼玉県");
-        assert!(html.contains("自動車保有率"), "自動車保有率KPIが含まれるべき");
-        assert!(html.contains("インターネット利用率"), "インターネット利用率KPIが含まれるべき");
+        assert!(
+            html.contains("自動車保有率"),
+            "自動車保有率KPIが含まれるべき"
+        );
+        assert!(
+            html.contains("インターネット利用率"),
+            "インターネット利用率KPIが含まれるべき"
+        );
     }
 
     // ======================================================
@@ -4052,7 +4101,10 @@ mod new_section_tests {
     #[test]
     fn test_social_life_contains_category() {
         let row = make_row_with_float(
-            &[("category", "スポーツ"), ("subcategory", "ジョギング・マラソン")],
+            &[
+                ("category", "スポーツ"),
+                ("subcategory", "ジョギング・マラソン"),
+            ],
             &[("participation_rate", 42.5)],
         );
         let html = render_social_life_section(&[row], "東京都");
@@ -4092,7 +4144,10 @@ mod new_section_tests {
             &[("participation_rate", 12.3)],
         );
         let html = render_social_life_section(&[row], "福岡県");
-        assert!(html.contains("12.3"), "行動者率の具体値がHTMLに含まれるべき");
+        assert!(
+            html.contains("12.3"),
+            "行動者率の具体値がHTMLに含まれるべき"
+        );
     }
 
     // ======================================================
@@ -4138,7 +4193,10 @@ mod new_section_tests {
             html.contains("echart") && html.contains("data-chart-config"),
             "EChartsチャートが含まれるべき"
         );
-        assert!(html.contains("業況判断DI"), "タイトル「業況判断DI」が含まれるべき");
+        assert!(
+            html.contains("業況判断DI"),
+            "タイトル「業況判断DI」が含まれるべき"
+        );
     }
 
     /// 非製造業 雇用人員DI → シリーズ名がchart_configに含まれる

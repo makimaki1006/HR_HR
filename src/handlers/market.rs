@@ -45,7 +45,8 @@ pub async fn tab_market(State(state): State<Arc<AppState>>, session: Session) ->
     let mut html = String::with_capacity(overview_html.len() + 4096);
 
     // ヘッダー
-    write!(html,
+    write!(
+        html,
         r#"<div class="space-y-6">
         <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold text-gray-100">
@@ -58,7 +59,8 @@ pub async fn tab_market(State(state): State<Arc<AppState>>, session: Session) ->
         } else {
             format!("({})", industry_label)
         },
-    ).unwrap();
+    )
+    .unwrap();
 
     // セクションナビ（ページ内スクロール）
     html.push_str(r##"

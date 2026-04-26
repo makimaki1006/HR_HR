@@ -98,7 +98,15 @@ pub async fn jobmap_inflow_sankey(
     let timezone = params.timezone;
 
     let rows = tokio::task::spawn_blocking(move || {
-        fromto::get_inflow_sankey(&db, turso.as_ref(), citycode, year, month, dayflag, timezone)
+        fromto::get_inflow_sankey(
+            &db,
+            turso.as_ref(),
+            citycode,
+            year,
+            month,
+            dayflag,
+            timezone,
+        )
     })
     .await
     .unwrap_or_default();

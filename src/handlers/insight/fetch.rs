@@ -170,7 +170,7 @@ pub(crate) fn build_insight_context(
         ),
         pref_avg_physicians_per_10k: None, // ctx作成後に人口で計算（相互依存回避）
         pref_avg_daycare_per_1k_children: None, // 同上
-        pref_avg_habitable_density: None, // 同上
+        pref_avg_habitable_density: None,  // 同上
         // Phase B: Agoop 人流（デフォルトyear=2019、コロナバイアス最小）
         flow: super::flow_context::build_flow_context(db, turso, pref, muni, 2019),
         // 通勤圏（距離ベース）

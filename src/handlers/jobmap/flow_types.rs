@@ -54,10 +54,7 @@ impl AggregateMode {
             (2, 0) | (2, 1) => Ok(Self::DayAgg),
             (0, 2) | (1, 2) => Ok(Self::TimeAgg),
             (2, 2) => Ok(Self::FullAgg),
-            _ => Err(AggregateModeError::InvalidParams {
-                dayflag,
-                timezone,
-            }),
+            _ => Err(AggregateModeError::InvalidParams { dayflag, timezone }),
         }
     }
 
@@ -156,7 +153,11 @@ mod tests {
         for (i, a) in clauses.iter().enumerate() {
             for (j, b) in clauses.iter().enumerate() {
                 if i != j {
-                    assert_ne!(a, b, "Modes {:?} and {:?} produce same SQL", modes[i], modes[j]);
+                    assert_ne!(
+                        a, b,
+                        "Modes {:?} and {:?} produce same SQL",
+                        modes[i], modes[j]
+                    );
                 }
             }
         }
@@ -164,11 +165,26 @@ mod tests {
 
     #[test]
     fn from_params_valid_combinations() {
-        assert_eq!(AggregateMode::from_params(0, 0).unwrap(), AggregateMode::Raw);
-        assert_eq!(AggregateMode::from_params(1, 1).unwrap(), AggregateMode::Raw);
-        assert_eq!(AggregateMode::from_params(2, 0).unwrap(), AggregateMode::DayAgg);
-        assert_eq!(AggregateMode::from_params(1, 2).unwrap(), AggregateMode::TimeAgg);
-        assert_eq!(AggregateMode::from_params(2, 2).unwrap(), AggregateMode::FullAgg);
+        assert_eq!(
+            AggregateMode::from_params(0, 0).unwrap(),
+            AggregateMode::Raw
+        );
+        assert_eq!(
+            AggregateMode::from_params(1, 1).unwrap(),
+            AggregateMode::Raw
+        );
+        assert_eq!(
+            AggregateMode::from_params(2, 0).unwrap(),
+            AggregateMode::DayAgg
+        );
+        assert_eq!(
+            AggregateMode::from_params(1, 2).unwrap(),
+            AggregateMode::TimeAgg
+        );
+        assert_eq!(
+            AggregateMode::from_params(2, 2).unwrap(),
+            AggregateMode::FullAgg
+        );
     }
 
     #[test]
