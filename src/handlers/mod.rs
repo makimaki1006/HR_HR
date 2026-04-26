@@ -21,6 +21,7 @@ pub mod recruitment_diag;
 pub mod region;
 pub mod survey;
 pub mod trend;
+pub mod types;
 pub mod workstyle;
 
 // Team δ 監査 (2026-04-23): 全タブ Frontend⇔Backend JSON 契約 L5 逆証明
