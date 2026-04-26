@@ -7,6 +7,7 @@ pub mod company;
 pub mod competitive;
 pub mod demographics;
 pub mod diagnostic;
+pub mod emp_classifier;
 pub mod guide;
 pub mod helpers;
 pub mod insight;

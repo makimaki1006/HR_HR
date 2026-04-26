@@ -114,6 +114,10 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
         audit_turso_token: String::new(),
         audit_ip_salt: String::new(),
         admin_emails: Vec::new(),
+        turso_external_url: String::new(),
+        turso_external_token: String::new(),
+        salesnow_turso_url: String::new(),
+        salesnow_turso_token: String::new(),
     };
     Arc::new(AppState {
         config: cfg,
@@ -163,6 +167,11 @@ async fn panel1_difficulty_shape_contains_required_keys() {
     assert!(metrics.get("population").is_some(), "metrics.population missing");
     assert!(metrics.get("national_hw_count").is_some(), "metrics.national_hw_count missing");
     assert!(metrics.get("area_share_of_national").is_some(), "metrics.area_share_of_national missing");
+    // F1 #3: 観光地補正で追加された keys
+    assert!(metrics.get("day_population").is_some(), "metrics.day_population missing (F1 #3)");
+    assert!(metrics.get("night_population").is_some(), "metrics.night_population missing (F1 #3)");
+    assert!(metrics.get("day_night_ratio").is_some(), "metrics.day_night_ratio missing (F1 #3)");
+    assert!(metrics.get("is_tourist_area").is_some(), "metrics.is_tourist_area missing (F1 #3)");
     assert!(v.get("rank_label").is_some(), "rank_label missing");
     assert!(v.get("so_what").is_some(), "so_what missing");
     assert!(v.get("notes").is_some(), "notes missing");

@@ -22,6 +22,15 @@ const DEFAULT_AGOOP_YEAR: i32 = 2021;
 const INFLOW_DATA_WARNING: &str =
     "v2_flow_fromto_city は Turso 書き込み制限により約83%のみ投入済み。残り17%は完全投入後に反映予定。";
 
+/// Panel 1 観光地・繁華街判定閾値（F1 #3 修正、2026-04-26）
+/// 平日昼滞在 / 平日夜滞在 (≒居住人口) の比が本値を超える地域は
+/// 「観光地・繁華街型」と判定し、採用難度スコアの分母を居住人口側に補正する。
+///
+/// 値の根拠: build_talent_pool_so_what の流入超過型閾値 1.2 より厳しめに設定。
+/// 1.5 は "通勤流入超過 50% 以上" に相当する強い昼夜不均衡。
+/// 銀座・京都四条河原町など昼間の外来流入が著しいエリアを対象とする傾向。
+pub(crate) const TOURIST_AREA_DAYNIGHT_RATIO: f64 = 1.5;
+
 // ========== タブ骨格 ==========
 
 /// `GET /tab/recruitment_diag` : 初期ページ
@@ -166,36 +175,56 @@ pub async fn api_difficulty_score(
             &muni_c,
         );
 
-        // 2. Agoop mesh1km 昼人口合計（平日昼: dayflag=1, timezone=0）
-        let population = if let Some(code) = citycode {
-            fetch::sum_mesh_population(
+        // 2. Agoop mesh1km 昼夜人口（F1 #3: 観光地補正のため両方取得）
+        //    - day  : 平日昼滞在 (dayflag=1, timezone=0)
+        //    - night: 平日深夜滞在 (dayflag=1, timezone=1) ≒ 居住人口の代理
+        let (day_population, night_population) = if let Some(code) = citycode {
+            let day = fetch::sum_mesh_population(
                 &db,
                 turso.as_ref(),
                 code,
                 DEFAULT_AGOOP_YEAR,
                 1,
                 0,
-            )
+            );
+            let night = fetch::sum_mesh_population(
+                &db,
+                turso.as_ref(),
+                code,
+                DEFAULT_AGOOP_YEAR,
+                1,
+                1,
+            );
+            (day, night)
         } else {
-            0.0
+            (0.0, 0.0)
         };
 
         // 3. 全国同業種平均スコア
         let national_hw = fetch::count_hw_postings_national(&db, &job_type_c, &emp_types_c);
 
-        (hw_count, population, national_hw)
+        (hw_count, day_population, night_population, national_hw)
     })
     .await
-    .unwrap_or((0, 0.0, 0));
+    .unwrap_or((0, 0.0, 0.0, 0));
 
-    let (hw_count, population, national_hw) = result;
+    let (hw_count, day_population, night_population, national_hw) = result;
 
-    // スコア計算（人口1万人あたり件数）
-    let score = if population > 0.0 {
-        (hw_count as f64) / population * 10_000.0
-    } else {
-        0.0
-    };
+    // F1 #3: 観光地・繁華街補正（compute_difficulty_score_with_tourist_correction を経由）
+    //
+    // 銀座・京都四条河原町などの繁華街は平日昼の外来滞在が膨張するため、
+    // day 単独を分母にすると「穴場」と誤判定されやすい傾向がうかがえる。
+    // 昼夜比が TOURIST_AREA_DAYNIGHT_RATIO (1.5) を超える場合は
+    // 居住人口の代理である night を分母に採用し、実態的な採用難度を算出。
+    //
+    // 注意: 相関≠因果。本補正は「居住人口ベースで見ても激戦傾向」という
+    //       傾向把握用であり、外来求職者を完全に排除する保証はない。
+    let (score, population, day_night_ratio, is_tourist_area) =
+        compute_difficulty_score_with_tourist_correction(
+            hw_count,
+            day_population,
+            night_population,
+        );
 
     // 全国平均スコア（近似: 全国総人口1.25億とする簡易値。より厳密には全国mesh合計が必要）
     // ただし国勢調査ベースではなく Agoop 滞在値のため、安易な国全体合計は double count 要注意。
@@ -209,6 +238,20 @@ pub async fn api_difficulty_score(
     // rank 判定（5段階、人口1万人あたり件数ベース）
     let (rank, rank_label, so_what) = classify_difficulty(score, hw_count, population);
 
+    let calculation_note = if is_tourist_area {
+        "score = (HW該当求人件数) ÷ (Agoop平日深夜滞在人口=居住人口代理) × 10,000 [F1 #3: 観光地補正適用、平日昼滞在は外来流入で膨張するため不採用]"
+    } else {
+        "score = (HW該当求人件数) ÷ (Agoop平日昼滞在人口) × 10,000"
+    };
+    let tourist_note = if is_tourist_area {
+        Some(format!(
+            "※観光地・繁華街判定（昼夜比 {:.2} > {:.1}）。昼間滞在膨張による『穴場』誤判定を避けるため、居住人口側で再算出した値です。",
+            day_night_ratio, TOURIST_AREA_DAYNIGHT_RATIO
+        ))
+    } else {
+        None
+    };
+
     Json(json!({
         "panel": "difficulty_score",
         "inputs": {
@@ -221,6 +264,10 @@ pub async fn api_difficulty_score(
         "metrics": {
             "hw_count": hw_count,
             "population": population,
+            "day_population": day_population,
+            "night_population": night_population,
+            "day_night_ratio": day_night_ratio,
+            "is_tourist_area": is_tourist_area,
             "score_per_10k": score,
             "national_hw_count": national_hw,
             "area_share_of_national": relative_vs_national,
@@ -228,13 +275,52 @@ pub async fn api_difficulty_score(
         "rank": rank,
         "rank_label": rank_label,
         "so_what": so_what,
+        "tourist_correction_note": tourist_note,
         "notes": {
             "hw_scope": HW_SCOPE_NOTE,
             "causation": CAUSATION_NOTE,
-            "calculation": "score = (HW該当求人件数) ÷ (Agoop平日昼滞在人口) × 10,000",
+            "calculation": calculation_note,
             "population_year": DEFAULT_AGOOP_YEAR,
+            "tourist_threshold": TOURIST_AREA_DAYNIGHT_RATIO,
         },
     }))
+}
+
+/// F1 #3: 観光地補正後の採用難度スコア計算（純粋関数、ユニットテスト用）
+///
+/// **戻り値**: `(score, population_used, day_night_ratio, is_tourist_area)`
+///
+/// **ロジック**:
+/// 1. day_night_ratio = day / night (night=0 ならば 0.0)
+/// 2. is_tourist_area = (night > 0 AND ratio > TOURIST_AREA_DAYNIGHT_RATIO)
+/// 3. population = if is_tourist_area { night } else { day }
+/// 4. score = if population > 0 { hw_count / population * 10_000 } else { 0 }
+///
+/// **注意**: 相関≠因果。本補正は「居住人口ベースで見ても激戦傾向」を示すための
+/// 統計的傾向把握用であり、外来求職者の応募行動を完全に排除する保証はない。
+pub(crate) fn compute_difficulty_score_with_tourist_correction(
+    hw_count: i64,
+    day_population: f64,
+    night_population: f64,
+) -> (f64, f64, f64, bool) {
+    let day_night_ratio = if night_population > 0.0 {
+        day_population / night_population
+    } else {
+        0.0
+    };
+    let is_tourist_area =
+        night_population > 0.0 && day_night_ratio > TOURIST_AREA_DAYNIGHT_RATIO;
+    let population = if is_tourist_area {
+        night_population
+    } else {
+        day_population
+    };
+    let score = if population > 0.0 {
+        (hw_count as f64) / population * 10_000.0
+    } else {
+        0.0
+    };
+    (score, population, day_night_ratio, is_tourist_area)
 }
 
 /// 採用難度の rank 分類 + So What 生成。
@@ -720,5 +806,138 @@ mod tests {
         let b = error_body("test");
         assert_eq!(b["error"], "test");
         assert!(b["notes"]["hw_scope"].as_str().unwrap().contains("HW"));
+    }
+
+    // ========================================================================
+    // F1 #3: Panel 1 観光地補正 逆証明テスト群（2026-04-26）
+    // memory `feedback_reverse_proof_tests.md` 準拠で修正前/修正後の具体値を assert する。
+    // ========================================================================
+
+    /// **F1 #3-1**: TOURIST_AREA_DAYNIGHT_RATIO 定数の値が 1.5 であること
+    #[test]
+    fn f1_panel1_tourist_threshold_constant_is_1_5() {
+        assert!(
+            (TOURIST_AREA_DAYNIGHT_RATIO - 1.5).abs() < 1e-9,
+            "F1 #3: 観光地閾値は 1.5 (build_talent_pool 流入超過 1.2 より厳しい)"
+        );
+    }
+
+    /// **F1 #3-2**: 銀座的な観光地（昼夜比 3.0）でスコアが補正される
+    ///
+    /// シナリオ: hw_count=20, day=30,000人, night=10,000人 (昼夜比 3.0)
+    /// - 修正前: score = 20 / 30000 * 10000 = 6.67 → rank 3「平均的」(穴場誤判定)
+    /// - 修正後: score = 20 / 10000 * 10000 = 20.00 → rank 5「超激戦」(実態反映)
+    #[test]
+    fn f1_panel1_tourist_correction_ginza_like_increases_score() {
+        let hw_count: i64 = 20;
+        let day = 30_000.0_f64;
+        let night = 10_000.0_f64;
+
+        let (score, population, ratio, is_tourist) =
+            compute_difficulty_score_with_tourist_correction(hw_count, day, night);
+
+        // 昼夜比 3.0 > 1.5 → 観光地判定
+        assert!(is_tourist, "昼夜比 3.0 は観光地判定されること");
+        assert!((ratio - 3.0).abs() < 1e-9, "ratio は 3.0");
+        // 補正後 population は night
+        assert!((population - night).abs() < 1e-9, "補正後分母は night={}", night);
+        // 補正後 score = 20 / 10000 * 10000 = 20.00
+        assert!(
+            (score - 20.0).abs() < 1e-6,
+            "F1 #3 補正後 score = 20.00 (修正前 6.67 から大幅上昇)"
+        );
+
+        // 補正後の rank は 5「超激戦」
+        let (rank, label, _) = classify_difficulty(score, hw_count, population);
+        assert_eq!(rank, 5);
+        assert_eq!(label, "超激戦");
+
+        // 修正前 (補正なし、day を分母にした場合) の参考値
+        let pre_correction_score = (hw_count as f64) / day * 10_000.0;
+        assert!(
+            (pre_correction_score - 6.667).abs() < 0.01,
+            "修正前 score ≈ 6.67 ('平均的' 誤判定)"
+        );
+    }
+
+    /// **F1 #3-3**: 京都四条河原町的な観光地（昼夜比 2.0）でも補正発動
+    ///
+    /// シナリオ: hw_count=10, day=20,000人, night=10,000人 (昼夜比 2.0)
+    /// - 修正前: score = 10 / 20000 * 10000 = 5.00 → rank 3 「平均的」
+    /// - 修正後: score = 10 / 10000 * 10000 = 10.00 → rank 4 「激戦」
+    #[test]
+    fn f1_panel1_tourist_correction_kyoto_like_changes_rank() {
+        let (score, _pop, ratio, is_tourist) =
+            compute_difficulty_score_with_tourist_correction(10, 20_000.0, 10_000.0);
+        assert!(is_tourist);
+        assert!((ratio - 2.0).abs() < 1e-9);
+        assert!((score - 10.0).abs() < 1e-6);
+        let (rank, label, _) = classify_difficulty(score, 10, 10_000.0);
+        assert_eq!(rank, 4);
+        assert_eq!(label, "激戦");
+    }
+
+    /// **F1 #3-4**: 通常エリア（昼夜比 1.2）では補正発動しない
+    ///
+    /// シナリオ: hw_count=5, day=12,000人, night=10,000人 (昼夜比 1.2)
+    /// 1.2 <= 1.5 → 観光地ではない → day を分母にする
+    #[test]
+    fn f1_panel1_no_tourist_correction_for_normal_area() {
+        let (score, population, ratio, is_tourist) =
+            compute_difficulty_score_with_tourist_correction(5, 12_000.0, 10_000.0);
+        assert!(!is_tourist, "昼夜比 1.2 は観光地判定されない");
+        assert!((ratio - 1.2).abs() < 1e-9);
+        // population は day (補正なし)
+        assert!((population - 12_000.0).abs() < 1e-9);
+        // score = 5 / 12000 * 10000 = 4.166...
+        assert!((score - 4.1667).abs() < 0.01);
+    }
+
+    /// **F1 #3-5**: 境界値検証（昼夜比 = 1.5 ちょうど）
+    ///
+    /// 1.5 は **>** 比較なので発動しない（境界では補正なし）
+    #[test]
+    fn f1_panel1_tourist_correction_boundary_at_1_5() {
+        let (_score, _pop, ratio, is_tourist) =
+            compute_difficulty_score_with_tourist_correction(5, 15_000.0, 10_000.0);
+        assert!((ratio - 1.5).abs() < 1e-9);
+        assert!(
+            !is_tourist,
+            "境界値 1.5 では > 1.5 を満たさず観光地判定されない"
+        );
+    }
+
+    /// **F1 #3-6**: night_population が 0 の場合は補正不能、day を使う
+    #[test]
+    fn f1_panel1_no_tourist_correction_when_night_zero() {
+        let (score, population, ratio, is_tourist) =
+            compute_difficulty_score_with_tourist_correction(5, 10_000.0, 0.0);
+        assert_eq!(ratio, 0.0);
+        assert!(!is_tourist);
+        assert!((population - 10_000.0).abs() < 1e-9);
+        assert!((score - 5.0).abs() < 1e-6);
+    }
+
+    /// **F1 #3-7**: 補正前後の score 差は分母を切り替えた値そのもの
+    /// （傾向把握用、因果ではない: feedback_correlation_not_causation 遵守）
+    #[test]
+    fn f1_panel1_correction_score_delta_matches_population_swap() {
+        let hw: i64 = 50;
+        let day = 25_000.0_f64;
+        let night = 10_000.0_f64;
+        let (corrected_score, _pop, _ratio, is_tourist) =
+            compute_difficulty_score_with_tourist_correction(hw, day, night);
+        assert!(is_tourist);
+        let pre = (hw as f64) / day * 10_000.0;
+        let post = (hw as f64) / night * 10_000.0;
+        assert!((corrected_score - post).abs() < 1e-6);
+        // 修正前後の差は night/day の比率の逆数
+        let ratio_change = post / pre;
+        let expected = day / night;
+        assert!(
+            (ratio_change - expected).abs() < 1e-6,
+            "score 比 = day/night の比 = {}",
+            expected
+        );
     }
 }
