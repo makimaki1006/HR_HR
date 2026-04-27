@@ -593,6 +593,201 @@ role=\"img\" aria-label=\"{aria} ({action})\">\
     )
 }
 
+// =====================================================================
+// Design v2 強化（2026-04-26）: コンサル提案資料品質のプロフェッショナル版
+// helpers (dv2-* 名前空間)
+// =====================================================================
+
+/// dv2 Section 番号バッジ + 見出し
+///
+/// 例: `render_dv2_section_badge(html, "01", "Executive Summary")`
+/// → `<div class="dv2-section-heading"><span class="dv2-section-badge">01</span>...`
+pub(super) fn render_dv2_section_badge(html: &mut String, num: &str, title: &str) {
+    html.push_str(&format!(
+        "<div class=\"dv2-section-heading\">\
+<span class=\"dv2-section-badge\" aria-hidden=\"true\">{}</span>\
+<span class=\"dv2-section-heading-title\">{}</span>\
+</div>\n",
+        escape_html(num),
+        escape_html(title)
+    ));
+}
+
+/// dv2 強化 KPI カード（modern design）
+///
+/// - status: "good" / "warn" / "crit" / "" のいずれか
+/// - large: true なら 2 カラム幅で強調表示（給与中央値などの主要 KPI 用）
+pub(super) fn render_dv2_kpi_card(
+    html: &mut String,
+    label: &str,
+    value: &str,
+    unit: &str,
+    compare: &str,
+    status: &str,
+    large: bool,
+) {
+    let mut cls = String::from("dv2-kpi-card");
+    if large {
+        cls.push_str(" dv2-kpi-large");
+    }
+    let status_attr = if matches!(status, "good" | "warn" | "crit") {
+        format!(" data-status=\"{}\"", status)
+    } else {
+        String::new()
+    };
+    html.push_str(&format!(
+        "<div class=\"{}\"{}>\n",
+        cls, status_attr
+    ));
+    html.push_str(&format!(
+        "<div class=\"dv2-kpi-card-label\">{}</div>\n",
+        escape_html(label)
+    ));
+    html.push_str("<div>");
+    html.push_str(&format!(
+        "<span class=\"dv2-kpi-card-value\">{}</span>",
+        escape_html(value)
+    ));
+    if !unit.is_empty() {
+        html.push_str(&format!(
+            "<span class=\"dv2-kpi-card-unit\">{}</span>",
+            escape_html(unit)
+        ));
+    }
+    html.push_str("</div>\n");
+    if !compare.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"dv2-kpi-card-compare\">{}</div>\n",
+            escape_html(compare)
+        ));
+    }
+    html.push_str("</div>\n");
+}
+
+/// dv2 データバー（テーブル内の数値の隣に視覚的バー）
+///
+/// `value / max` の比率でバーを描画。tone: "good" / "warn" / "crit" / "" (=primary)
+pub(super) fn render_dv2_data_bar(value: f64, max: f64, tone: &str) -> String {
+    let pct = if max > 0.0 {
+        (value / max * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let tone_attr = if matches!(tone, "good" | "warn" | "crit") {
+        format!(" data-tone=\"{}\"", tone)
+    } else {
+        String::new()
+    };
+    format!(
+        "<span class=\"dv2-databar\"{}><span class=\"dv2-databar-fill\" style=\"width:{:.1}%\"></span></span>",
+        tone_attr, pct
+    )
+}
+
+/// dv2 進捗バー（充足度 / パーセンタイル）
+///
+/// `percent`: 0..100 のパーセント値
+pub(super) fn render_dv2_progress_bar(html: &mut String, percent: f64, label: &str) {
+    let p = percent.clamp(0.0, 100.0);
+    html.push_str("<div class=\"dv2-progress\">");
+    html.push_str(&format!(
+        "<div class=\"dv2-progress-track\"><div class=\"dv2-progress-fill\" style=\"width:{:.1}%\" role=\"progressbar\" aria-valuenow=\"{:.0}\" aria-valuemin=\"0\" aria-valuemax=\"100\"></div></div>",
+        p, p
+    ));
+    if !label.is_empty() {
+        html.push_str(&format!(
+            "<span class=\"dv2-progress-label\">{}</span>",
+            escape_html(label)
+        ));
+    }
+    html.push_str("</div>\n");
+}
+
+/// dv2 SVG inline icon (svg + path)
+///
+/// kind: "check" / "warn" / "crit" / "info"
+/// - 印刷時もカラーで表示される（`-webkit-print-color-adjust: exact`）
+pub(super) fn render_dv2_icon(kind: &str) -> String {
+    let (cls, path) = match kind {
+        "check" => (
+            "dv2-icon dv2-icon-check",
+            // checkmark
+            "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+        ),
+        "warn" => (
+            "dv2-icon dv2-icon-warn",
+            // warning triangle
+            "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
+        ),
+        "crit" => (
+            "dv2-icon dv2-icon-crit",
+            // exclamation circle
+            "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z",
+        ),
+        "info" | _ => (
+            "dv2-icon dv2-icon-info",
+            // info circle
+            "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z",
+        ),
+    };
+    format!(
+        "<svg class=\"{}\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"{}\"/></svg>",
+        cls, path
+    )
+}
+
+/// dv2 トレンド矢印（上↑ / 横→ / 下↓）
+///
+/// direction: "up" / "down" / "flat"
+/// 数値変化 (例: "+5.2%") と組み合わせて表示
+pub(super) fn render_dv2_trend(direction: &str, text: &str) -> String {
+    let (cls, arrow) = match direction {
+        "up" => ("dv2-trend dv2-trend-up", "\u{2191}"),
+        "down" => ("dv2-trend dv2-trend-down", "\u{2193}"),
+        _ => ("dv2-trend dv2-trend-flat", "\u{2192}"),
+    };
+    format!(
+        "<span class=\"{}\" aria-label=\"{}\">{} {}</span>",
+        cls,
+        match direction {
+            "up" => "上昇",
+            "down" => "下落",
+            _ => "横ばい",
+        },
+        arrow,
+        escape_html(text)
+    )
+}
+
+/// dv2 表紙のハイライト 3 KPI を出力
+///
+/// 各 KPI: ラベル + 値 + 単位
+pub(super) fn render_dv2_cover_highlights(
+    html: &mut String,
+    items: &[(&str, &str, &str)], // (label, value, unit)
+) {
+    html.push_str("<div class=\"dv2-cover-highlights\">\n");
+    for (label, value, unit) in items {
+        html.push_str("<div class=\"dv2-cover-hl\">\n");
+        html.push_str(&format!(
+            "<div class=\"dv2-cover-hl-label\">{}</div>\n",
+            escape_html(label)
+        ));
+        html.push_str(&format!(
+            "<div><span class=\"dv2-cover-hl-value\">{}</span>",
+            escape_html(value)
+        ));
+        if !unit.is_empty() {
+            html.push_str(&format!(
+                "<span class=\"dv2-cover-hl-unit\">{}</span>",
+                escape_html(unit)
+            ));
+        }
+        html.push_str("</div>\n</div>\n");
+    }
+    html.push_str("</div>\n");
+}
+
 /// 都道府県別最低賃金（円/時間）
 pub(super) fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
     match pref {

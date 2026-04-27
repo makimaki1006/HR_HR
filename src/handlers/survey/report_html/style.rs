@@ -1343,5 +1343,472 @@ h2 .chapter-num {
     font-size: 8pt !important;
   }
 }
+
+/* =====================================================================
+   Design v2 刷新（2026-04-26）: コンサル提案資料品質のプロフェッショナル版
+   ・既存クラスは一切変更しない（dv2-* / --dv2-* 名前空間で完全分離）
+   ・印刷時 (PDF/HTML download) に design-v2 を主役として有効化
+   ・タブ UI（画面表示）でも一部の dv2-* を上書き的に重ねて適用可能
+   ・色 + タイポ + 余白 + ビジュアル要素 の 4 軸で刷新
+   ===================================================================== */
+
+:root {
+  /* dv2 カラーパレット: light theme 中心、severity ベースのアクセント */
+  --dv2-bg: #ffffff;
+  --dv2-bg-card: #f8fafc;
+  --dv2-bg-subtle: #f1f5f9;
+  --dv2-border: #e2e8f0;
+  --dv2-border-strong: #cbd5e1;
+  --dv2-text: #1e293b;
+  --dv2-text-muted: #64748b;
+  --dv2-text-faint: #94a3b8;
+  --dv2-accent: #4f46e5;       /* indigo-600: primary accent */
+  --dv2-accent-light: #6366f1; /* indigo-500 */
+  --dv2-accent-soft: #eef2ff;  /* indigo-50: 背景強調 */
+  --dv2-good: #10b981;         /* emerald-500 */
+  --dv2-warn: #f59e0b;         /* amber-500 */
+  --dv2-crit: #ef4444;         /* red-500 */
+  --dv2-navy: #1e293b;         /* slate-800: 見出し色 */
+  --dv2-shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
+  --dv2-shadow-md: 0 2px 8px rgba(15,23,42,0.06);
+  --dv2-radius-sm: 4px;
+  --dv2-radius-md: 8px;
+  --dv2-radius-lg: 12px;
+  /* タイポグラフィ 4 階層 */
+  --dv2-fs-display: 32pt;
+  --dv2-fs-display-lg: 40pt;
+  --dv2-fs-heading: 18pt;
+  --dv2-fs-heading-lg: 24pt;
+  --dv2-fs-body: 11pt;
+  --dv2-fs-body-sm: 10.5pt;
+  --dv2-fs-caption: 9pt;
+  --dv2-fs-caption-sm: 8.5pt;
+  /* 等幅数字（KPI 整列用） */
+  --dv2-num-feature: tabular-nums;
+}
+
+/* dv2 表紙刷新（3 段構成: タイトル / 対象 / ハイライト KPI） */
+.dv2-cover {
+  page-break-after: always;
+  break-after: page;
+  position: relative;
+  min-height: 250mm;
+  padding: 24mm 16mm 18mm;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background:
+    linear-gradient(180deg, var(--dv2-bg) 0%, var(--dv2-accent-soft) 100%);
+  border-radius: var(--dv2-radius-lg);
+  margin-bottom: 16px;
+}
+.dv2-cover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--dv2-accent);
+}
+.dv2-cover-brand {
+  font-size: 12pt;
+  font-weight: 700;
+  color: var(--dv2-navy);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.dv2-cover-meta {
+  font-size: 10pt;
+  color: var(--dv2-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.dv2-cover-main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10mm;
+  padding: 12mm 0;
+}
+.dv2-cover-title {
+  font-size: var(--dv2-fs-display-lg);
+  font-weight: 700;
+  color: var(--dv2-navy);
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+.dv2-cover-title-accent {
+  display: inline-block;
+  width: 64px;
+  height: 4px;
+  background: var(--dv2-accent);
+  margin-bottom: 12px;
+  border-radius: 2px;
+}
+.dv2-cover-subtitle {
+  font-size: 14pt;
+  color: var(--dv2-text-muted);
+  font-weight: 400;
+  margin: 0;
+}
+.dv2-cover-target {
+  font-size: 16pt;
+  color: var(--dv2-navy);
+  font-weight: 600;
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.7);
+  border-left: 4px solid var(--dv2-accent);
+  border-radius: 0 var(--dv2-radius-sm) var(--dv2-radius-sm) 0;
+}
+.dv2-cover-highlights {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding-top: 12mm;
+}
+.dv2-cover-hl {
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--dv2-border);
+  border-radius: var(--dv2-radius-md);
+  padding: 12px 14px;
+  text-align: left;
+}
+.dv2-cover-hl-label {
+  font-size: var(--dv2-fs-caption);
+  color: var(--dv2-text-muted);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.dv2-cover-hl-value {
+  font-size: 18pt;
+  font-weight: 700;
+  color: var(--dv2-accent);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.dv2-cover-hl-unit {
+  font-size: 10pt;
+  color: var(--dv2-text-muted);
+  margin-left: 4px;
+}
+.dv2-cover-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--dv2-border);
+  font-size: 9pt;
+  color: var(--dv2-text-muted);
+}
+
+/* dv2 Section 番号バッジ */
+.dv2-section-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--dv2-accent);
+  color: #fff;
+  font-size: 12pt;
+  font-weight: 700;
+  border-radius: var(--dv2-radius-sm);
+  margin-right: 12px;
+  vertical-align: middle;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--dv2-shadow-sm);
+}
+.dv2-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 18px 0 10px;
+  padding-left: 0;
+  border-left: 4px solid var(--dv2-accent);
+  padding: 6px 0 6px 12px;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+.dv2-section-heading-title {
+  font-size: var(--dv2-fs-heading);
+  font-weight: 700;
+  color: var(--dv2-navy);
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+/* dv2 KPI カード（modern: 左ラベル / 右値 / 下比較） */
+.dv2-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+.dv2-kpi-grid.dv2-kpi-2x3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+.dv2-kpi-card {
+  background: var(--dv2-bg-card);
+  border: 1px solid var(--dv2-border);
+  border-radius: var(--dv2-radius-md);
+  padding: 12px 14px;
+  position: relative;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dv2-kpi-card.dv2-kpi-large {
+  grid-column: span 2;
+  background: linear-gradient(135deg, var(--dv2-accent-soft) 0%, var(--dv2-bg-card) 100%);
+  border-color: var(--dv2-accent-light);
+}
+.dv2-kpi-card-label {
+  font-size: var(--dv2-fs-caption);
+  color: var(--dv2-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dv2-kpi-card-value {
+  font-size: 26pt;
+  font-weight: 700;
+  color: var(--dv2-navy);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.dv2-kpi-card.dv2-kpi-large .dv2-kpi-card-value {
+  font-size: 32pt;
+  color: var(--dv2-accent);
+}
+.dv2-kpi-card-unit {
+  font-size: 11pt;
+  color: var(--dv2-text-muted);
+  margin-left: 4px;
+  font-weight: 400;
+}
+.dv2-kpi-card-compare {
+  font-size: var(--dv2-fs-caption-sm);
+  color: var(--dv2-text-muted);
+  line-height: 1.4;
+}
+.dv2-kpi-card[data-status="good"] { border-left: 4px solid var(--dv2-good); }
+.dv2-kpi-card[data-status="warn"] { border-left: 4px solid var(--dv2-warn); }
+.dv2-kpi-card[data-status="crit"] { border-left: 4px solid var(--dv2-crit); }
+
+/* dv2 データバー（テーブル内の数値の隣に視覚的バー） */
+.dv2-databar {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 8px;
+  background: var(--dv2-bg-subtle);
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-left: 6px;
+  overflow: hidden;
+}
+.dv2-databar-fill {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  background: var(--dv2-accent);
+  border-radius: 2px;
+}
+.dv2-databar[data-tone="good"] .dv2-databar-fill { background: var(--dv2-good); }
+.dv2-databar[data-tone="warn"] .dv2-databar-fill { background: var(--dv2-warn); }
+.dv2-databar[data-tone="crit"] .dv2-databar-fill { background: var(--dv2-crit); }
+
+/* dv2 進捗バー（充足度 / パーセンタイル） */
+.dv2-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.dv2-progress-track {
+  flex: 1;
+  height: 8px;
+  background: var(--dv2-bg-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.dv2-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--dv2-accent-light) 0%, var(--dv2-accent) 100%);
+  transition: width 0.3s;
+}
+.dv2-progress-label {
+  font-size: var(--dv2-fs-caption);
+  color: var(--dv2-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 40px;
+  text-align: right;
+}
+
+/* dv2 SVG inline icon (✓ checkmark, ⚠ warning) のサイズ統一 */
+.dv2-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  fill: currentColor;
+}
+.dv2-icon-check { color: var(--dv2-good); }
+.dv2-icon-warn { color: var(--dv2-warn); }
+.dv2-icon-crit { color: var(--dv2-crit); }
+.dv2-icon-info { color: var(--dv2-accent); }
+
+/* dv2 トレンド矢印 (上↑ / 横→ / 下↓) */
+.dv2-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--dv2-fs-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.dv2-trend-up { color: var(--dv2-good); }
+.dv2-trend-down { color: var(--dv2-crit); }
+.dv2-trend-flat { color: var(--dv2-text-muted); }
+
+/* dv2 アクションカード（recommended actions） */
+.dv2-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+.dv2-action-card {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 14px;
+  background: var(--dv2-bg);
+  border: 1px solid var(--dv2-border);
+  border-radius: var(--dv2-radius-md);
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.dv2-action-card[data-priority="now"] { border-left: 4px solid var(--dv2-crit); }
+.dv2-action-card[data-priority="week"] { border-left: 4px solid var(--dv2-warn); }
+.dv2-action-card[data-priority="later"] { border-left: 4px solid var(--dv2-good); }
+.dv2-action-priority {
+  font-size: var(--dv2-fs-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--dv2-text-muted);
+  text-align: center;
+  padding: 4px 0;
+}
+.dv2-action-body {
+  font-size: var(--dv2-fs-body-sm);
+  line-height: 1.5;
+  color: var(--dv2-text);
+}
+
+/* dv2 印刷時専用: design-v2 を主役に切替 */
+@media print {
+  body {
+    /* dv2 タイポグラフィを印刷時の標準に */
+    font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif !important;
+    color: var(--dv2-text) !important;
+    background: var(--dv2-bg) !important;
+  }
+  /* 印刷余白の刷新（A4 縦: 上下 15mm / 左右 12mm） */
+  @page {
+    size: A4 portrait;
+    margin: 15mm 12mm;
+  }
+  /* ヘッダー（running header）と footer */
+  @page {
+    @top-left {
+      content: "求人市場 総合診断レポート";
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+    @top-right {
+      content: counter(page) " / " counter(pages);
+      font-size: 8pt;
+      color: #94a3b8;
+      font-variant-numeric: tabular-nums;
+    }
+    @bottom-left {
+      content: "株式会社For A-career | 機密情報";
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+    @bottom-right {
+      content: "";
+    }
+  }
+  @page :first {
+    @top-left { content: ""; }
+    @top-right { content: ""; }
+    @bottom-left { content: ""; }
+    @bottom-right { content: ""; }
+  }
+  /* dv2 カードは hover 効果無効 */
+  .dv2-kpi-card,
+  .dv2-action-card,
+  .dv2-cover-hl {
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  /* dv2 表紙: 印刷時は背景グラデーションを薄く */
+  .dv2-cover {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+    border-radius: 0 !important;
+  }
+  /* Section 番号バッジは印刷時も色を維持 */
+  .dv2-section-badge {
+    background: var(--dv2-accent) !important;
+    color: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* dv2 印刷時のフォントサイズ微調整 */
+  .dv2-cover-title { font-size: 32pt !important; }
+  .dv2-cover-target { font-size: 14pt !important; }
+  .dv2-cover-hl-value { font-size: 16pt !important; }
+  .dv2-section-heading-title { font-size: 16pt !important; }
+  .dv2-kpi-card-value { font-size: 22pt !important; }
+  .dv2-kpi-card.dv2-kpi-large .dv2-kpi-card-value { font-size: 28pt !important; }
+}
+
+/* dv2 アクセシビリティ: フォーカス表示 */
+.dv2-kpi-card:focus-within,
+.dv2-action-card:focus-within {
+  outline: 2px solid var(--dv2-accent);
+  outline-offset: 2px;
+}
+
+/* dv2 タブ UI 用（画面表示） KPI 強化 */
+body.theme-dark .dv2-kpi-card {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+body.theme-dark .dv2-kpi-card-value {
+  color: #f1f5f9;
+}
+body.theme-dark .dv2-kpi-card-label,
+body.theme-dark .dv2-kpi-card-compare {
+  color: #94a3b8;
+}
+body.theme-dark .dv2-section-heading-title {
+  color: #e2e8f0;
+}
+body.theme-dark .dv2-cover {
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+}
+body.theme-dark .dv2-cover-title,
+body.theme-dark .dv2-cover-target {
+  color: #f1f5f9;
+}
 "#.to_string()
 }
