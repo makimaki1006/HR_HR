@@ -251,12 +251,26 @@ pub async fn integrate_report(
 
     // CSV集計結果をキャッシュから復元（地域×HWデータ連携用の pref/muni ペア取得）
     let agg_cached = state.cache.get(&format!("survey_agg_{}", session_id));
-    let pref_muni_pairs: Vec<(String, String)> = agg_cached
-        .and_then(|v| serde_json::from_value::<super::aggregator::SurveyAggregation>(v).ok())
+    let agg_parsed: Option<super::aggregator::SurveyAggregation> = agg_cached
+        .and_then(|v| serde_json::from_value::<super::aggregator::SurveyAggregation>(v).ok());
+    let pref_muni_pairs: Vec<(String, String)> = agg_parsed
+        .as_ref()
         .map(|a| {
             a.by_municipality_salary
                 .iter()
                 .map(|m| (m.prefecture.clone(), m.name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    // Impl-1 #6: CSV 上位 3 都道府県（件数降順）
+    let top3_prefs: Vec<String> = agg_parsed
+        .as_ref()
+        .map(|a| {
+            a.by_prefecture
+                .iter()
+                .filter(|(p, _)| !p.is_empty())
+                .take(3)
+                .map(|(p, _)| p.clone())
                 .collect()
         })
         .unwrap_or_default();
@@ -283,14 +297,18 @@ pub async fn integrate_report(
         let mut hw_enrichments: Vec<_> = enrichment_map.into_values().collect();
         hw_enrichments.sort_by(|a, b| b.hw_posting_count.cmp(&a.hw_posting_count));
 
+        // Impl-1: 媒体分析データ活用 #6 / D-3 用の追加 fetch
+        let ext = build_survey_extension_data(&db, turso.as_ref(), &pref2, &top3_prefs);
+
         // 統合レポートHTML生成
-        super::integration::render_integration(
+        super::integration::render_integration_with_ext(
             &pref2,
             &muni2,
             &insights,
             &ctx,
             &companies,
             &hw_enrichments,
+            &ext,
         )
     })
     .await
@@ -300,6 +318,52 @@ pub async fn integrate_report(
     });
 
     Html(content)
+}
+
+/// Impl-1 (#6 / D-3) 用の拡張データを取得
+///
+/// - `top3_prefs`: CSV 件数上位 3 都道府県（最大 3 件）。空なら radar 非表示。
+/// - dominant `pref` から industry_structure Top10 を取得。
+fn build_survey_extension_data(
+    db: &crate::db::local_sqlite::LocalDb,
+    _turso: Option<&crate::db::turso_http::TursoDb>,
+    pref: &str,
+    top3_prefs: &[String],
+) -> super::integration::SurveyExtensionData {
+    use super::super::analysis::fetch as af;
+    use super::super::helpers::get_i64;
+
+    // #6: 主要 3 都道府県の region_benchmark
+    let top3_region_benchmark = if top3_prefs.is_empty() {
+        Vec::new()
+    } else {
+        af::fetch_region_benchmarks_for_prefs(db, top3_prefs)
+    };
+
+    // D-3: dominant pref の産業別就業者構成 Top10
+    // prefecture_code が必要なので geo::pref_name_to_code でマップ
+    let industry_structure_top10 = if pref.is_empty() {
+        Vec::new()
+    } else {
+        let code_map = crate::geo::pref_name_to_code();
+        let pref_code = code_map.get(pref).copied().unwrap_or("");
+        if pref_code.is_empty() {
+            Vec::new()
+        } else {
+            // turso 渡しは Option パラメタ仕様。本来は state.turso.as_ref() を渡すべきだが
+            // ローカル DB フォールバックでも動作する設計のため None でも可。
+            let rows = af::fetch_industry_structure(db, _turso, pref_code);
+            rows.into_iter()
+                .filter(|r| get_i64(r, "employees_total") > 0)
+                .take(10)
+                .collect()
+        }
+    };
+
+    super::integration::SurveyExtensionData {
+        top3_region_benchmark,
+        industry_structure_top10,
+    }
 }
 
 /// 分析実行（予備エンドポイント）

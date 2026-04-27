@@ -1,13 +1,31 @@
 //! CSV × HW × 外部統計 統合レポート描画
 
 use super::super::company::fetch::NearbyCompany;
-use super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
+use super::super::helpers::{escape_html, format_number, get_f64, get_i64, get_str_ref, Row};
 use super::super::insight::fetch::InsightContext;
 use super::super::insight::helpers::{Insight, Severity};
 use super::hw_enrichment::HwAreaEnrichment;
 
 use std::fmt::Write as _;
-/// 統合レポートHTML生成
+
+/// 媒体分析タブ拡張データ（Impl-1 #6/#18/D-3/D-4 用）
+///
+/// `render_integration` 互換性のため、Default で空構造体を返せる設計。
+/// 全 vec 空ならば各拡張セクションは描画されない（fail-soft）。
+///
+/// `feedback_correlation_not_causation.md` 準拠: スコア / KPI は傾向参照で
+/// 因果を主張しないことを各セクションの注記で明示する。
+#[derive(Debug, Default, Clone)]
+pub(crate) struct SurveyExtensionData {
+    /// 案 #6: 主要 3 都道府県の region_benchmark 行（pref → 正社員行）
+    /// 各 Row は salary_competitiveness / job_market_tightness / wage_compliance /
+    /// working_age_ratio / population_growth / labor_fluidity 等の 0-1 正規化スコアを持つ。
+    pub top3_region_benchmark: Vec<(String, Row)>,
+    /// 案 D-3: dominant 都道府県の産業別就業者構成 Top10（v2_external_industry_structure）
+    pub industry_structure_top10: Vec<Row>,
+}
+
+/// 統合レポートHTML生成（後方互換: SurveyExtensionData 無し）
 ///
 /// # Args
 /// - `hw_enrichments`: CSV に含まれる pref/muni ペアごとの HW 連携指標
@@ -19,6 +37,29 @@ pub(crate) fn render_integration(
     ctx: &InsightContext,
     companies: &[NearbyCompany],
     hw_enrichments: &[HwAreaEnrichment],
+) -> String {
+    render_integration_with_ext(
+        pref,
+        muni,
+        insights,
+        ctx,
+        companies,
+        hw_enrichments,
+        &SurveyExtensionData::default(),
+    )
+}
+
+/// 統合レポートHTML生成（拡張版: 媒体分析データ活用 #6/#18/D-3/D-4）
+///
+/// 拡張データ `ext` が空であれば旧 render_integration と同一動作。
+pub(crate) fn render_integration_with_ext(
+    pref: &str,
+    muni: &str,
+    insights: &[Insight],
+    ctx: &InsightContext,
+    companies: &[NearbyCompany],
+    hw_enrichments: &[HwAreaEnrichment],
+    ext: &SurveyExtensionData,
 ) -> String {
     let mut html = String::with_capacity(12_000);
     let location = if !muni.is_empty() {
@@ -56,6 +97,20 @@ pub(crate) fn render_integration(
 
     // 外部統計セクション
     html.push_str(&render_external_section(ctx));
+
+    // Impl-1 #6: 主要地域 6 軸ベンチマーク レーダーチャート（top3_region_benchmark あり時のみ）
+    html.push_str(&render_region_benchmark_radar_section(
+        &ext.top3_region_benchmark,
+    ));
+
+    // Impl-1 #18 / D-4: 可住地密度 + 高齢化率 KPI カード（地域特性補足）
+    html.push_str(&render_geography_aging_section(ctx));
+
+    // Impl-1 D-3: 産業別就業者構成 Top10（dominant 都道府県）
+    html.push_str(&render_industry_structure_section(
+        &ext.industry_structure_top10,
+        pref,
+    ));
 
     // 該当地域の企業データセクション
     html.push_str(&render_companies_section(companies, &location));
@@ -696,6 +751,375 @@ fn kpi_card(html: &mut String, label: &str, value: &str, color: &str) {
     .unwrap();
 }
 
+// =====================================================================
+// Impl-1 (2026-04-26): 媒体分析データ活用 #6 / #18 / D-3 / D-4
+// =====================================================================
+
+/// 6 軸レーダーチャート用の軸定義
+///
+/// region_benchmark テーブルのカラム名 → 表示ラベル。スコアは 0-1 正規化値で、
+/// 表示時に 100 倍する。
+const REGION_BENCHMARK_RADAR_AXES: &[(&str, &str)] = &[
+    ("salary_competitiveness", "給与競争力"),
+    ("job_market_tightness", "求人量"),
+    ("posting_freshness", "充足度"),
+    ("working_age_ratio", "人口動態"),
+    ("wage_compliance", "賃金遵守"),
+    ("industry_diversity", "産業多様性"),
+];
+
+/// 0-1 スコアを 0-100 に変換し、範囲外を clamp。
+fn radar_score_to_pct(score: f64) -> f64 {
+    if !score.is_finite() {
+        return 0.0;
+    }
+    (score * 100.0).clamp(0.0, 100.0)
+}
+
+/// 案 #6: 主要地域 6 軸ベンチマーク レーダーチャート
+///
+/// CSV 上位 3 都道府県の region_benchmark 6 軸スコアを ECharts radar で重ね描き。
+/// データが空 / 1 県のみの場合はセクション非表示（fail-soft）。
+///
+/// 必須注記: 「6 軸スコアは相対値。地域間の戦略的優劣ではなく特性の違いを示す」
+fn render_region_benchmark_radar_section(top3: &[(String, Row)]) -> String {
+    if top3.is_empty() {
+        return String::new();
+    }
+
+    let mut html = String::with_capacity(2_500);
+    html.push_str(r#"<section class="stat-card" data-testid="region-benchmark-radar"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-purple-500 pl-2">主要地域 6 軸ベンチマーク</h4>"#);
+
+    write!(
+        html,
+        r#"<div class="text-xs text-slate-400 mb-2">
+            CSV 上位 {n} 都道府県を 6 軸（給与 / 求人量 / 充足 / 人口動態 / 賃金遵守 / 産業多様性）でレーダー比較。\
+            軸ごとに 0-100 で正規化された相対値を重ね描きしています。
+        </div>"#,
+        n = top3.len()
+    )
+    .unwrap();
+
+    // ECharts radar config 構築
+    let indicators: Vec<serde_json::Value> = REGION_BENCHMARK_RADAR_AXES
+        .iter()
+        .map(|(_, label)| serde_json::json!({"name": label, "max": 100}))
+        .collect();
+
+    let colors = ["#a855f7", "#22d3ee", "#f59e0b"]; // 紫 / シアン / アンバー
+    let series_data: Vec<serde_json::Value> = top3
+        .iter()
+        .enumerate()
+        .map(|(i, (pref, row))| {
+            let values: Vec<f64> = REGION_BENCHMARK_RADAR_AXES
+                .iter()
+                .map(|(col, _)| radar_score_to_pct(get_f64(row, col)))
+                .collect();
+            serde_json::json!({
+                "name": pref,
+                "value": values,
+                "lineStyle": {"color": colors[i % colors.len()], "width": 2},
+                "areaStyle": {"color": colors[i % colors.len()], "opacity": 0.15},
+            })
+        })
+        .collect();
+
+    let legend_names: Vec<&String> = top3.iter().map(|(p, _)| p).collect();
+
+    let config = serde_json::json!({
+        "tooltip": {"trigger": "item"},
+        "legend": {
+            "data": legend_names,
+            "textStyle": {"color": "#cbd5e1", "fontSize": 11},
+            "bottom": 0,
+        },
+        "radar": {
+            "indicator": indicators,
+            "shape": "polygon",
+            "splitNumber": 4,
+            "axisName": {"color": "#94a3b8", "fontSize": 11},
+            "splitLine": {"lineStyle": {"color": "#334155"}},
+            "splitArea": {"areaStyle": {"color": ["#1e293b80", "#0f172a80"]}},
+            "axisLine": {"lineStyle": {"color": "#475569"}},
+        },
+        "series": [{
+            "type": "radar",
+            "data": series_data,
+        }],
+    });
+    let cfg_str = config.to_string().replace('\'', "&#39;");
+
+    write!(
+        html,
+        r#"<div class="echart" style="height:340px;width:100%;" data-chart-config='{}'></div>"#,
+        cfg_str
+    )
+    .unwrap();
+
+    // 凡例（テキストフォールバック: チャート非対応環境向け）
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2 text-[11px]">"#);
+    for (i, (pref, row)) in top3.iter().enumerate() {
+        let color = colors[i % colors.len()];
+        let scores: Vec<String> = REGION_BENCHMARK_RADAR_AXES
+            .iter()
+            .map(|(col, label)| {
+                let v = radar_score_to_pct(get_f64(row, col));
+                format!("{}={:.0}", label, v)
+            })
+            .collect();
+        write!(
+            html,
+            r#"<div class="p-2 rounded bg-slate-800/40">
+                <div class="font-semibold" style="color:{color}">{pref}</div>
+                <div class="text-[10px] text-slate-400 mt-1">{scores}</div>
+            </div>"#,
+            color = color,
+            pref = escape_html(pref),
+            scores = escape_html(&scores.join(" / "))
+        )
+        .unwrap();
+    }
+    html.push_str("</div>");
+
+    // 図番号 + 必須注記
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-500 mt-2">図 6-2: 主要地域 6 軸ベンチマーク</div>"#,
+    );
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
+        6 軸スコアは相対値です。地域間の戦略的優劣ではなく特性の違いを示す傾向参照値であり、因果関係や採用成功の保証ではありません。
+        スコープは HW 掲載求人および外部統計に基づきます。
+    </div>"#,
+    );
+    html.push_str("</section>");
+    html
+}
+
+/// 都市分類ラベル（可住地密度 人/km²）
+fn classify_habitable_density(density: f64) -> &'static str {
+    if density >= 5_000.0 {
+        "都市型"
+    } else if density >= 1_000.0 {
+        "中間型"
+    } else {
+        "郊外型"
+    }
+}
+
+/// 65+ 人口比率 を pyramid 行から計算（karte の calc_elderly_rate_from_pyramid と同等ロジック）
+fn calc_aging_rate_from_pyramid(pyramid: &[Row]) -> f64 {
+    if pyramid.is_empty() {
+        return 0.0;
+    }
+    let mut total: i64 = 0;
+    let mut elderly: i64 = 0;
+    for r in pyramid {
+        let grp = get_str_ref(r, "age_group");
+        let m = get_i64(r, "male_count");
+        let f = get_i64(r, "female_count");
+        total += m + f;
+        if grp == "65-74" || grp == "75+" || grp == "70-79" || grp == "80+" {
+            elderly += m + f;
+        } else if grp == "60-69" {
+            elderly += (m + f) / 2;
+        }
+    }
+    if total > 0 {
+        (elderly as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    }
+}
+
+/// 案 #18 + D-4: 可住地密度 + 高齢化率 KPI カード
+///
+/// 単独 KPI では意味が薄いため、可住地密度には都市分類ラベルを併記し、
+/// 高齢化率には全国（pyramid 全国合算が無いため代替値）との差分を併記する。
+///
+/// 必須注記:
+/// - #18: 「可住地密度は地理特性。求人配信戦略との因果ではなく傾向参照」
+/// - D-4: 「65 歳以上人口比率。労働人口希少性の参考指標」
+fn render_geography_aging_section(ctx: &InsightContext) -> String {
+    // データの可用性チェック
+    let geo_density = ctx
+        .ext_geography
+        .first()
+        .map(|r| {
+            let d = get_f64(r, "habitable_density_per_km2");
+            if d > 0.0 {
+                d
+            } else {
+                let pop = get_i64(r, "total_population") as f64;
+                let area = get_f64(r, "habitable_area_km2");
+                if pop > 0.0 && area > 0.0 {
+                    pop / area
+                } else {
+                    0.0
+                }
+            }
+        })
+        .unwrap_or(0.0);
+    // 高齢化率: ext_population.aging_rate を優先、無ければ pyramid から再計算
+    let aging_rate_from_pop = ctx
+        .ext_population
+        .first()
+        .map(|r| get_f64(r, "aging_rate"))
+        .unwrap_or(0.0);
+    let aging_rate = if aging_rate_from_pop > 0.0 {
+        aging_rate_from_pop
+    } else {
+        calc_aging_rate_from_pyramid(&ctx.ext_pyramid)
+    };
+
+    if geo_density <= 0.0 && aging_rate <= 0.0 {
+        return String::new();
+    }
+
+    // 全国比較: 全国平均値（参考、定数）
+    // 出典: 総務省 人口推計 2023 - 全国の高齢化率は約 29.0%
+    const NATIONAL_AGING_RATE_PCT: f64 = 29.0;
+
+    let mut html = String::with_capacity(1_500);
+    html.push_str(
+        r#"<section class="stat-card" data-testid="geo-aging-kpi"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">地域特性 補足（地理 / 人口構成）</h4>"#,
+    );
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-2 gap-3">"#);
+
+    // 可住地密度カード
+    if geo_density > 0.0 {
+        let cls = classify_habitable_density(geo_density);
+        let color = match cls {
+            "都市型" => "text-pink-400",
+            "中間型" => "text-amber-400",
+            _ => "text-cyan-400",
+        };
+        write!(
+            html,
+            r#"<div class="p-3 bg-slate-800/50 rounded" data-testid="habitable-density-card">
+                <div class="text-[10px] text-slate-500 mb-1">可住地密度</div>
+                <div class="text-lg font-bold {color}">{val} 人/km<sup>2</sup></div>
+                <div class="text-xs text-slate-400 mt-1" data-testid="city-class-label">分類: <span class="font-semibold {color}">{cls}</span></div>
+                <div class="text-[10px] text-slate-500 mt-1">基準: 5000+ 都市型 / 1000+ 中間型 / それ未満 郊外型</div>
+            </div>"#,
+            val = format_number(geo_density.round() as i64),
+            cls = cls,
+            color = color,
+        )
+        .unwrap();
+    }
+
+    // 高齢化率カード
+    if aging_rate > 0.0 {
+        let diff = aging_rate - NATIONAL_AGING_RATE_PCT;
+        let (sign, color) = if diff > 0.0 {
+            ("+", "text-amber-400")
+        } else if diff < 0.0 {
+            ("", "text-emerald-400")
+        } else {
+            ("", "text-slate-300")
+        };
+        write!(
+            html,
+            r#"<div class="p-3 bg-slate-800/50 rounded" data-testid="aging-rate-card">
+                <div class="text-[10px] text-slate-500 mb-1">高齢化率（65+ 人口比率）</div>
+                <div class="text-lg font-bold {color}">{val:.1}%</div>
+                <div class="text-xs text-slate-400 mt-1" data-testid="national-compare">全国 {nat:.0}% / 差分 <span class="{color}">{sign}{diff:.1}pt</span></div>
+                <div class="text-[10px] text-slate-500 mt-1">労働人口希少性の参考指標</div>
+            </div>"#,
+            val = aging_rate,
+            nat = NATIONAL_AGING_RATE_PCT,
+            sign = sign,
+            diff = diff,
+            color = color,
+        )
+        .unwrap();
+    }
+
+    html.push_str("</div>");
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
+        可住地密度は地理特性、求人配信戦略との因果ではなく傾向参照です。\
+        高齢化率は 65 歳以上人口比率で労働人口希少性の参考指標です。\
+        全国値は総務省 人口推計（2023）に基づく定数です。
+    </div>"#,
+    );
+    html.push_str("</section>");
+    html
+}
+
+/// 案 D-3: 産業別就業者構成 Top10
+///
+/// dominant 都道府県の v2_external_industry_structure から取得した
+/// industry_code / industry_name / employees_total をベースに横バー形式で表示。
+///
+/// 必須注記: 「産業分類は国勢調査 2020 ベース。HW industry_raw と粒度が異なる可能性」
+fn render_industry_structure_section(rows: &[Row], pref: &str) -> String {
+    if rows.is_empty() {
+        return String::new();
+    }
+    // 合計就業者数
+    let total: i64 = rows.iter().map(|r| get_i64(r, "employees_total")).sum();
+    if total <= 0 {
+        return String::new();
+    }
+
+    let mut html = String::with_capacity(2_000);
+    html.push_str(
+        r#"<section class="stat-card" data-testid="industry-structure-section"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-cyan-500 pl-2">地域の産業構成（就業者 Top 10）</h4>"#,
+    );
+    write!(
+        html,
+        r#"<div class="text-xs text-slate-400 mb-2">{pref} の産業別就業者数（国勢調査ベース）。CSV 求人地域に対する人材プールサイズの参考値です。</div>"#,
+        pref = escape_html(pref)
+    )
+    .unwrap();
+
+    // 横バーで上位 10
+    html.push_str(r#"<div class="space-y-1.5" data-testid="industry-bars">"#);
+    let max_v = rows
+        .iter()
+        .take(10)
+        .map(|r| get_i64(r, "employees_total"))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    for r in rows.iter().take(10) {
+        let name = get_str_ref(r, "industry_name");
+        let emp = get_i64(r, "employees_total");
+        if emp <= 0 {
+            continue;
+        }
+        let pct = emp as f64 / total as f64 * 100.0;
+        let width_pct = (emp as f64 / max_v as f64 * 100.0).clamp(0.0, 100.0);
+        write!(
+            html,
+            r#"<div class="flex items-center gap-2 text-xs">
+                <div class="w-32 text-slate-300 truncate" title="{name_attr}">{name}</div>
+                <div class="flex-1 h-4 bg-slate-800 rounded overflow-hidden">
+                    <div class="h-4 bg-cyan-600" style="width:{w:.1}%"></div>
+                </div>
+                <div class="w-24 text-right text-slate-400 tabular-nums">{val} ({pct:.1}%)</div>
+            </div>"#,
+            name = escape_html(name),
+            name_attr = escape_html(name),
+            w = width_pct,
+            val = format_number(emp),
+            pct = pct,
+        )
+        .unwrap();
+    }
+    html.push_str("</div>");
+
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
+        産業分類は国勢調査 2020 ベース。HW industry_raw と粒度が異なる可能性があるため、HW 求人の業種比率と直接の対応は保証されません。\
+        産業別就業者数と採用容易性に相関が見られる場合がありますが、職種・条件マッチングが本質的要因です。
+    </div>"#,
+    );
+    html.push_str("</section>");
+    html
+}
+
 #[cfg(test)]
 mod fixb_tests {
     //! Fix-B (D-2 監査 Q1.1 / Q3.3) 逆証明テスト群
@@ -742,12 +1166,16 @@ mod fixb_tests {
             ext_care_demand: vec![],
             ext_household_spending: vec![],
             ext_climate: vec![],
+            // Impl-3: ライフスタイル特性 (P-1/P-2)
+            ext_social_life: vec![],
+            ext_internet_usage: vec![],
             ext_households: vec![],
             ext_vital: vec![],
             ext_labor_force: vec![],
             ext_medical_welfare: vec![],
             ext_education_facilities: vec![],
             ext_geography: vec![],
+            ext_education: vec![],
             pref_avg_unemployment_rate: None,
             pref_avg_single_rate: None,
             pref_avg_physicians_per_10k: None,
@@ -887,6 +1315,461 @@ mod fixb_tests {
         assert!(
             html.contains("因果関係を主張するものではありません"),
             "因果非主張の注記が必須 (feedback_correlation_not_causation.md)"
+        );
+    }
+}
+
+// =====================================================================
+// Impl-1 (2026-04-26): 媒体分析データ活用 #6 / #18 / D-3 / D-4 contract tests
+//
+// 設計:
+// - 各案で「具体値検証」(feedback_test_data_validation / reverse_proof_tests 準拠)
+// - 必須注記・図番号・data-testid を逆証明形式で検証
+// - 各案 2 件以上、合計 8 件以上
+// =====================================================================
+#[cfg(test)]
+mod impl1_contract_tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn make_row(pairs: &[(&str, serde_json::Value)]) -> Row {
+        let mut m: Row = HashMap::new();
+        for (k, v) in pairs {
+            m.insert((*k).to_string(), v.clone());
+        }
+        m
+    }
+
+    fn ctx_with_geography_and_pyramid() -> InsightContext {
+        // 東京都千代田区相当: 高密度 + 高齢化中位
+        let geo_row = make_row(&[
+            ("habitable_density_per_km2", json!(5_200.0)),
+            ("habitable_area_km2", json!(11.66)),
+            ("total_population", json!(60_000_i64)),
+        ]);
+        // ext_population.aging_rate = 0 → pyramid から再計算
+        // pyramid: 0-14: 100, 15-64: 600, 65-74: 200, 75+: 100 → 65+ = 300/1000 = 30.0%
+        let p1 = make_row(&[
+            ("age_group", json!("0-14")),
+            ("male_count", json!(50_i64)),
+            ("female_count", json!(50_i64)),
+        ]);
+        let p2 = make_row(&[
+            ("age_group", json!("15-64")),
+            ("male_count", json!(300_i64)),
+            ("female_count", json!(300_i64)),
+        ]);
+        let p3 = make_row(&[
+            ("age_group", json!("65-74")),
+            ("male_count", json!(100_i64)),
+            ("female_count", json!(100_i64)),
+        ]);
+        let p4 = make_row(&[
+            ("age_group", json!("75+")),
+            ("male_count", json!(50_i64)),
+            ("female_count", json!(50_i64)),
+        ]);
+
+        InsightContext {
+            ext_geography: vec![geo_row],
+            ext_pyramid: vec![p1, p2, p3, p4],
+            ..empty_ctx_for_impl1()
+        }
+    }
+
+    fn empty_ctx_for_impl1() -> InsightContext {
+        // empty_ctx() を fixb_tests から流用したいが private のため再構築
+        InsightContext {
+            vacancy: vec![],
+            resilience: vec![],
+            transparency: vec![],
+            temperature: vec![],
+            competition: vec![],
+            cascade: vec![],
+            salary_comp: vec![],
+            monopsony: vec![],
+            spatial_mismatch: vec![],
+            wage_compliance: vec![],
+            region_benchmark: vec![],
+            text_quality: vec![],
+            ts_counts: vec![],
+            ts_vacancy: vec![],
+            ts_salary: vec![],
+            ts_fulfillment: vec![],
+            ts_tracking: vec![],
+            ext_job_ratio: vec![],
+            ext_labor_stats: vec![],
+            ext_min_wage: vec![],
+            ext_turnover: vec![],
+            ext_population: vec![],
+            ext_pyramid: vec![],
+            ext_migration: vec![],
+            ext_daytime_pop: vec![],
+            ext_establishments: vec![],
+            ext_business_dynamics: vec![],
+            ext_care_demand: vec![],
+            ext_household_spending: vec![],
+            ext_climate: vec![],
+            ext_social_life: vec![],
+            ext_internet_usage: vec![],
+            ext_households: vec![],
+            ext_vital: vec![],
+            ext_labor_force: vec![],
+            ext_medical_welfare: vec![],
+            ext_education_facilities: vec![],
+            ext_geography: vec![],
+            ext_education: vec![],
+            pref_avg_unemployment_rate: None,
+            pref_avg_single_rate: None,
+            pref_avg_physicians_per_10k: None,
+            pref_avg_daycare_per_1k_children: None,
+            pref_avg_habitable_density: None,
+            flow: None,
+            commute_zone_count: 0,
+            commute_zone_pref_count: 0,
+            commute_zone_total_pop: 0,
+            commute_zone_working_age: 0,
+            commute_zone_elderly: 0,
+            commute_inflow_total: 0,
+            commute_outflow_total: 0,
+            commute_self_rate: 0.0,
+            commute_inflow_top3: vec![],
+            pref: "東京都".to_string(),
+            muni: "千代田区".to_string(),
+        }
+    }
+
+    // ------ 案 #6: 主要地域 6 軸ベンチマーク レーダーチャート ------
+
+    #[test]
+    fn impl1_radar_section_emits_6axis_data_with_3_prefs() {
+        let mk_score_row =
+            |emp: &str, sal: f64, tight: f64, fresh: f64, wa: f64, wage: f64, div: f64| -> Row {
+                make_row(&[
+                    ("emp_group", json!(emp)),
+                    ("salary_competitiveness", json!(sal)),
+                    ("job_market_tightness", json!(tight)),
+                    ("posting_freshness", json!(fresh)),
+                    ("working_age_ratio", json!(wa)),
+                    ("wage_compliance", json!(wage)),
+                    ("industry_diversity", json!(div)),
+                ])
+            };
+        let top3 = vec![
+            (
+                "東京都".to_string(),
+                mk_score_row("正社員", 0.85, 0.78, 0.72, 0.92, 0.95, 0.88),
+            ),
+            (
+                "神奈川県".to_string(),
+                mk_score_row("正社員", 0.70, 0.65, 0.60, 0.85, 0.90, 0.75),
+            ),
+            (
+                "千葉県".to_string(),
+                mk_score_row("正社員", 0.60, 0.55, 0.50, 0.80, 0.88, 0.65),
+            ),
+        ];
+        let html = render_region_benchmark_radar_section(&top3);
+
+        // セクションが描画される
+        assert!(
+            html.contains("data-testid=\"region-benchmark-radar\""),
+            "radar section data-testid 必須"
+        );
+        // 図番号
+        assert!(html.contains("図 6-2"), "図 6-2 番号必須");
+        // 6 軸ラベル
+        for axis in &[
+            "給与競争力",
+            "求人量",
+            "充足度",
+            "人口動態",
+            "賃金遵守",
+            "産業多様性",
+        ] {
+            assert!(html.contains(axis), "軸ラベル {} が必須", axis);
+        }
+        // 3 県名すべて表示
+        assert!(html.contains("東京都"), "1 番手県");
+        assert!(html.contains("神奈川県"), "2 番手県");
+        assert!(html.contains("千葉県"), "3 番手県");
+
+        // ECharts data-chart-config に radar series + 6 軸 indicator
+        assert!(
+            html.contains("data-chart-config="),
+            "ECharts config 属性必須"
+        );
+        assert!(html.contains("\"type\":\"radar\""), "radar series type");
+        assert!(
+            html.contains("\"max\":100"),
+            "indicator max=100 (0-100 正規化)"
+        );
+
+        // 必須注記 (memory feedback_correlation_not_causation 準拠)
+        assert!(
+            html.contains("地域間の戦略的優劣ではなく特性の違い"),
+            "因果ではなく特性の違いの注記必須"
+        );
+        assert!(
+            html.contains("因果関係や採用成功の保証ではありません"),
+            "因果非主張の注記必須"
+        );
+
+        // 具体値検証: 東京都の給与競争力 0.85 → 85 (0-100 変換)
+        // 凡例フォールバックに「給与競争力=85」が出る
+        assert!(
+            html.contains("給与競争力=85"),
+            "東京都 salary_competitiveness 0.85→85 表示"
+        );
+        assert!(
+            html.contains("人口動態=92"),
+            "東京都 working_age_ratio 0.92→92 表示"
+        );
+    }
+
+    #[test]
+    fn impl1_radar_section_hidden_when_top3_empty() {
+        let html = render_region_benchmark_radar_section(&[]);
+        assert!(html.is_empty(), "top3 空時は radar セクション非表示");
+    }
+
+    #[test]
+    fn impl1_radar_score_clamps_invalid_values() {
+        // 範囲外の値が入力されても 0-100 に clamp されることを保証
+        assert_eq!(radar_score_to_pct(0.5), 50.0);
+        assert_eq!(radar_score_to_pct(0.0), 0.0);
+        assert_eq!(radar_score_to_pct(1.0), 100.0);
+        assert_eq!(radar_score_to_pct(1.5), 100.0, "上限 clamp");
+        assert_eq!(radar_score_to_pct(-0.1), 0.0, "下限 clamp");
+        assert_eq!(radar_score_to_pct(f64::NAN), 0.0, "NaN は 0 fallback");
+    }
+
+    // ------ 案 #18: 可住地密度 + 都市分類 ------
+
+    #[test]
+    fn impl1_habitable_density_kpi_with_city_class() {
+        let ctx = ctx_with_geography_and_pyramid();
+        let html = render_geography_aging_section(&ctx);
+
+        assert!(
+            html.contains("data-testid=\"geo-aging-kpi\""),
+            "geo-aging KPI セクション必須"
+        );
+        assert!(
+            html.contains("data-testid=\"habitable-density-card\""),
+            "可住地密度カード必須"
+        );
+        assert!(
+            html.contains("data-testid=\"city-class-label\""),
+            "都市分類ラベル必須"
+        );
+        // 具体値: 5200 → "5,200" + 都市型 (>=5000)
+        assert!(html.contains("5,200"), "可住地密度 5200 人/km² 表示");
+        assert!(html.contains("都市型"), "5200 ≥ 5000 ⇒ 都市型分類");
+        // 必須注記
+        assert!(
+            html.contains("可住地密度は地理特性") && html.contains("傾向参照"),
+            "#18 必須注記: 地理特性、因果ではなく傾向参照"
+        );
+    }
+
+    #[test]
+    fn impl1_habitable_density_classification_thresholds() {
+        // 境界値の逆証明: 5000 / 1000 をまたぐと分類が変わる
+        assert_eq!(classify_habitable_density(5_000.0), "都市型");
+        assert_eq!(classify_habitable_density(4_999.0), "中間型");
+        assert_eq!(classify_habitable_density(1_000.0), "中間型");
+        assert_eq!(classify_habitable_density(999.9), "郊外型");
+        assert_eq!(classify_habitable_density(0.0), "郊外型");
+    }
+
+    // ------ 案 D-3: 産業別就業者構成 ------
+
+    #[test]
+    fn impl1_industry_section_top10_with_pct() {
+        let mk = |name: &str, emp: i64| -> Row {
+            make_row(&[
+                ("industry_code", json!("XX")),
+                ("industry_name", json!(name)),
+                ("employees_total", json!(emp)),
+            ])
+        };
+        let rows = vec![
+            mk("医療,福祉", 200_000),
+            mk("製造業", 150_000),
+            mk("卸売業,小売業", 120_000),
+            mk("建設業", 80_000),
+            mk("サービス業", 60_000),
+        ];
+        let html = render_industry_structure_section(&rows, "東京都");
+
+        // セクションテストID
+        assert!(
+            html.contains("data-testid=\"industry-structure-section\""),
+            "産業構成セクション ID 必須"
+        );
+        assert!(
+            html.contains("data-testid=\"industry-bars\""),
+            "産業バーリスト必須"
+        );
+        // 上位 5 産業すべて表示
+        for n in &[
+            "医療,福祉",
+            "製造業",
+            "卸売業,小売業",
+            "建設業",
+            "サービス業",
+        ] {
+            assert!(html.contains(n), "産業名 {} 必須", n);
+        }
+        // 具体値: 200,000 (35.1%) - 200000/610000=32.79% → 構成比表示
+        // total = 610000、医療福祉 = 200000 → 32.8%
+        assert!(
+            html.contains("200,000"),
+            "医療福祉 employees_total 200000 表示"
+        );
+        // 都道府県名表示
+        assert!(html.contains("東京都"), "対象都道府県表示");
+        // 必須注記
+        assert!(
+            html.contains("国勢調査 2020 ベース"),
+            "D-3 必須注記: 国勢調査 2020 ベース"
+        );
+        assert!(
+            html.contains("HW industry_raw と粒度が異なる可能性"),
+            "粒度差異の注記必須"
+        );
+        assert!(
+            html.contains("職種・条件マッチングが本質的要因"),
+            "因果ではない旨"
+        );
+    }
+
+    #[test]
+    fn impl1_industry_section_hidden_when_empty_or_zero_total() {
+        // 空入力は非表示
+        assert_eq!(
+            render_industry_structure_section(&[], "東京都"),
+            String::new()
+        );
+        // total 0 (employees_total 全行 0) も非表示（fail-soft 逆証明）
+        let zero_rows = vec![make_row(&[
+            ("industry_name", json!("---")),
+            ("employees_total", json!(0_i64)),
+        ])];
+        assert_eq!(
+            render_industry_structure_section(&zero_rows, "東京都"),
+            String::new()
+        );
+    }
+
+    // ------ 案 D-4: 高齢化率 KPI ------
+
+    #[test]
+    fn impl1_aging_rate_kpi_with_national_compare() {
+        let ctx = ctx_with_geography_and_pyramid();
+        let html = render_geography_aging_section(&ctx);
+
+        assert!(
+            html.contains("data-testid=\"aging-rate-card\""),
+            "aging KPI カード必須"
+        );
+        assert!(
+            html.contains("data-testid=\"national-compare\""),
+            "全国比較ラベル必須"
+        );
+        // 具体値検証: pyramid から (200+100)/1000 = 30.0%
+        assert!(html.contains("30.0%"), "計算済み高齢化率 30.0% 表示");
+        // 全国 29% との差分 +1.0pt 表示
+        assert!(html.contains("全国 29%"), "全国 29% 表示");
+        assert!(
+            html.contains("+1.0pt"),
+            "30 - 29 = +1.0pt 差分（具体値検証）"
+        );
+        // 必須注記
+        assert!(
+            html.contains("65 歳以上人口比率") || html.contains("65+ 人口比率"),
+            "D-4 必須注記: 65 歳以上 = 高齢化率定義"
+        );
+        assert!(
+            html.contains("労働人口希少性の参考指標"),
+            "D-4 必須注記: 参考指標"
+        );
+    }
+
+    #[test]
+    fn impl1_aging_rate_calc_specific_values_reverse_proof() {
+        // 逆証明: 0-14:100, 15-64:600, 65-74:200, 75+:100 → elderly = 300, total = 1000
+        let p1 = make_row(&[
+            ("age_group", json!("0-14")),
+            ("male_count", json!(50_i64)),
+            ("female_count", json!(50_i64)),
+        ]);
+        let p2 = make_row(&[
+            ("age_group", json!("15-64")),
+            ("male_count", json!(300_i64)),
+            ("female_count", json!(300_i64)),
+        ]);
+        let p3 = make_row(&[
+            ("age_group", json!("65-74")),
+            ("male_count", json!(100_i64)),
+            ("female_count", json!(100_i64)),
+        ]);
+        let p4 = make_row(&[
+            ("age_group", json!("75+")),
+            ("male_count", json!(50_i64)),
+            ("female_count", json!(50_i64)),
+        ]);
+        let rate = calc_aging_rate_from_pyramid(&[p1, p2, p3, p4]);
+        assert!(
+            (rate - 30.0).abs() < 0.01,
+            "30.0% であるべきだが {} だった",
+            rate
+        );
+
+        // 空入力 → 0.0
+        assert_eq!(calc_aging_rate_from_pyramid(&[]), 0.0);
+    }
+
+    #[test]
+    fn impl1_geo_aging_section_hidden_when_no_data() {
+        let ctx = empty_ctx_for_impl1();
+        let html = render_geography_aging_section(&ctx);
+        assert!(
+            html.is_empty(),
+            "geography / pyramid 全空時はセクション非表示 (fail-soft 逆証明)"
+        );
+    }
+
+    // ------ 共通: SurveyExtensionData Default + render_integration 互換 ------
+
+    #[test]
+    fn impl1_survey_extension_data_default_is_empty() {
+        let ext = SurveyExtensionData::default();
+        assert!(ext.top3_region_benchmark.is_empty(), "Default は空の top3");
+        assert!(
+            ext.industry_structure_top10.is_empty(),
+            "Default は空の industry"
+        );
+    }
+
+    #[test]
+    fn impl1_render_integration_legacy_signature_still_works() {
+        // 旧 render_integration が SurveyExtensionData::default() を内部で使い、
+        // 既存挙動を保つことを保証（後方互換の逆証明）
+        let ctx = empty_ctx_for_impl1();
+        let html = render_integration("東京都", "千代田区", &[], &ctx, &[], &[]);
+        // HW統合分析 見出しは出る
+        assert!(html.contains("HW統合分析"), "見出しは旧と同じ");
+        // 拡張セクションは出ない（データなし、ext default empty）
+        assert!(
+            !html.contains("data-testid=\"region-benchmark-radar\""),
+            "ext default 時は radar 出ない"
+        );
+        assert!(
+            !html.contains("data-testid=\"industry-structure-section\""),
+            "ext default 時は industry 出ない"
         );
     }
 }
