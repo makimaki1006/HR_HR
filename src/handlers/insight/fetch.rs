@@ -45,6 +45,11 @@ pub struct InsightContext {
     pub ext_care_demand: Vec<Row>,
     pub ext_household_spending: Vec<Row>,
     pub ext_climate: Vec<Row>,
+    // === Impl-3 (2026-04-26): 媒体分析タブ ライフスタイル特性 ===
+    // P-1: v2_external_social_life (47県 × 4カテゴリ: 趣味/スポーツ/ボランティア/学習)
+    pub ext_social_life: Vec<Row>,
+    // P-2: v2_external_internet_usage (47県 × internet_usage_rate / smartphone_ownership_rate)
+    pub ext_internet_usage: Vec<Row>,
     // === Phase A: SSDSE-A 新規6テーブル ===
     pub ext_households: Vec<Row>,
     pub ext_vital: Vec<Row>,
@@ -52,6 +57,10 @@ pub struct InsightContext {
     pub ext_medical_welfare: Vec<Row>,
     pub ext_education_facilities: Vec<Row>,
     pub ext_geography: Vec<Row>,
+    // === Impl-2 (2026-04-26): 媒体分析タブ「人材デモグラフィック」section の D-2 で利用 ===
+    // v2_external_education (47県 × education_level: 中卒/高卒/短大高専/大卒/大学院)
+    // 国勢調査 2020 / 25 歳以上人口の最終学歴別構成
+    pub ext_education: Vec<Row>,
     // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
     pub pref_avg_unemployment_rate: Option<f64>,
     pub pref_avg_single_rate: Option<f64>,
@@ -144,6 +153,9 @@ pub(crate) fn build_insight_context(
         ext_care_demand: af::fetch_care_demand(db, turso, pref),
         ext_household_spending: af::fetch_household_spending(db, turso, pref),
         ext_climate: af::fetch_climate(db, turso, pref),
+        // Impl-3 (2026-04-26): ライフスタイル特性
+        ext_social_life: af::fetch_social_life(db, turso, pref),
+        ext_internet_usage: af::fetch_internet_usage(db, turso, pref),
         // Phase A: SSDSE-A 新規6テーブル
         ext_households: af::fetch_households(db, turso, pref, muni),
         ext_vital: af::fetch_vital_statistics(db, turso, pref, muni),
@@ -151,6 +163,8 @@ pub(crate) fn build_insight_context(
         ext_medical_welfare: af::fetch_medical_welfare(db, turso, pref, muni),
         ext_education_facilities: af::fetch_education_facilities(db, turso, pref, muni),
         ext_geography: af::fetch_geography(db, turso, pref, muni),
+        // Impl-2 (2026-04-26): 学歴分布 (subtab5_phase4_7::fetch_education を再利用)
+        ext_education: af::fetch_education(db, turso, pref),
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate: af::fetch_prefecture_mean(
             db,

@@ -107,6 +107,39 @@ pub(crate) fn fetch_region_benchmark(db: &Db, pref: &str, muni: &str) -> Vec<Row
     )
 }
 
+/// 複数都道府県分の region_benchmark を一括取得（survey 媒体分析の主要 3 地域比較用）
+///
+/// 戻り値は (pref → 正社員行) の Vec。各行は emp_group / *_score 列を持つ。
+/// 該当データが無い県は結果に含まれない。
+///
+/// # 注意
+/// - 取得は muni='' (都道府県粒度) のみ。市区町村レベル比較は仕様外。
+/// - スコアは 0-1 正規化値の前提（DB 仕様）。表示側で 0-100 に変換すること。
+pub(crate) fn fetch_region_benchmarks_for_prefs(db: &Db, prefs: &[String]) -> Vec<(String, Row)> {
+    let mut out: Vec<(String, Row)> = Vec::new();
+    for pref in prefs {
+        if pref.is_empty() {
+            continue;
+        }
+        let rows = fetch_region_benchmark(db, pref, "");
+        // 正社員行を優先、無ければ先頭行
+        let chosen = rows
+            .iter()
+            .find(|r| {
+                r.get("emp_group")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == "正社員")
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .or_else(|| rows.first().cloned());
+        if let Some(row) = chosen {
+            out.push((pref.clone(), row));
+        }
+    }
+    out
+}
+
 pub(crate) fn fetch_prefecture_stats(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         (
