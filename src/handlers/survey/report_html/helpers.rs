@@ -322,6 +322,277 @@ pub(super) fn format_man_yen(yen: i64) -> String {
     format!("{:.1}万円", yen as f64 / 10_000.0)
 }
 
+// ============================================================
+// UI-2 強化（2026-04-26）: 図表番号・読み方ヒント・物語のあるレポート
+// ============================================================
+
+/// 図表キャプション。`fig_no` 例: "図 1-1" / "表 3-2"。
+/// 視覚と意味の両方で図表番号を識別できるよう、見出しと並列に配置する。
+pub(super) fn render_figure_caption(html: &mut String, fig_no: &str, title: &str) {
+    html.push_str(&format!(
+        "<div class=\"figure-caption\"><span class=\"fig-no\">{}</span>{}</div>\n",
+        escape_html(fig_no),
+        escape_html(title)
+    ));
+}
+
+/// 読み方ヒント吹き出し（結論先取り 1-2 行）。
+/// 因果断定を避け、「傾向」「目安」等の語彙で記述する想定。
+pub(super) fn render_read_hint(html: &mut String, body: &str) {
+    html.push_str(&format!(
+        "<div class=\"read-hint\"><span class=\"read-hint-label\">\u{1F4D6} 読み方</span>{}</div>\n",
+        escape_html(body)
+    ));
+}
+
+/// 読み方ヒント（HTML 直挿し版。`<strong>` 等の埋め込み用）
+pub(super) fn render_read_hint_html(html: &mut String, body_html: &str) {
+    html.push_str(&format!(
+        "<div class=\"read-hint\"><span class=\"read-hint-label\">\u{1F4D6} 読み方</span>{}</div>\n",
+        body_html
+    ));
+}
+
+/// 「このページの読み方」ガイド（セクション冒頭の 3 行ガイド）
+pub(super) fn render_section_howto(html: &mut String, lines: &[&str]) {
+    html.push_str("<div class=\"section-howto\">\n");
+    html.push_str("<div class=\"howto-title\">\u{1F4DD} このページの読み方</div>\n");
+    html.push_str("<ol>\n");
+    for line in lines {
+        html.push_str(&format!("<li>{}</li>\n", escape_html(line)));
+    }
+    html.push_str("</ol>\n");
+    html.push_str("</div>\n");
+}
+
+/// 次セクションへのつなぎテキスト（物語性向上）
+pub(super) fn render_section_bridge(html: &mut String, text: &str) {
+    html.push_str(&format!(
+        "<p class=\"section-bridge\">{}</p>\n",
+        escape_html(text)
+    ));
+}
+
+/// 強化版 KPI カード（アイコン + 大きな数値 + 単位 + 比較値 + 状態）
+///
+/// status: "good" / "warn" / "crit" / "" のいずれか
+pub(super) fn render_kpi_card_v2(
+    html: &mut String,
+    icon: &str,
+    label: &str,
+    value: &str,
+    unit: &str,
+    compare: &str,
+    status: &str,
+    status_label: &str,
+) {
+    let card_cls = match status {
+        "good" => "kpi-card-v2 kpi-good",
+        "warn" => "kpi-card-v2 kpi-warn",
+        "crit" => "kpi-card-v2 kpi-crit",
+        _ => "kpi-card-v2",
+    };
+    html.push_str(&format!("<div class=\"{}\">\n", card_cls));
+    html.push_str("<div class=\"kpi-head\">");
+    if !icon.is_empty() {
+        html.push_str(&format!(
+            "<span class=\"kpi-icon\" aria-hidden=\"true\">{}</span>",
+            escape_html(icon)
+        ));
+    }
+    html.push_str(&format!("<span>{}</span>", escape_html(label)));
+    if !status_label.is_empty() {
+        let status_cls = match status {
+            "good" => "good",
+            "warn" => "warn",
+            "crit" => "crit",
+            _ => "",
+        };
+        html.push_str(&format!(
+            "<span class=\"kpi-status {}\">{}</span>",
+            status_cls,
+            escape_html(status_label)
+        ));
+    }
+    html.push_str("</div>\n");
+    html.push_str("<div class=\"kpi-value-line\">");
+    html.push_str(&format!(
+        "<span class=\"kpi-value\">{}</span>",
+        escape_html(value)
+    ));
+    if !unit.is_empty() {
+        html.push_str(&format!(
+            "<span class=\"kpi-unit\">{}</span>",
+            escape_html(unit)
+        ));
+    }
+    html.push_str("</div>\n");
+    if !compare.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"kpi-compare\">{}</div>\n",
+            escape_html(compare)
+        ));
+    }
+    html.push_str("</div>\n");
+}
+
+/// 推奨アクションの優先度バッジ（severity から導出）
+pub(super) fn priority_badge_html(sev: RptSev) -> String {
+    let (cls, label) = match sev {
+        RptSev::Critical => ("priority-badge priority-now", "\u{1F534} 即対応"),
+        RptSev::Warning => ("priority-badge priority-week", "\u{1F7E1} 1週間以内"),
+        RptSev::Info => ("priority-badge priority-later", "\u{1F7E2} 後回し可"),
+        RptSev::Positive => ("priority-badge priority-later", "\u{1F7E2} 維持"),
+    };
+    format!("<span class=\"{}\">{}</span>", cls, escape_html(label))
+}
+
+// =====================================================================
+// UI-3 強化: 用語ツールチップ / 図表番号 / 凡例 / 重要度バッジ
+// （媒体分析印刷レポート 残 sections + 凡例/用語/style 統合用）
+//
+// 設計方針:
+// - HTML として埋め込めるシンプルな inline 表現を返す（JS 不要・印刷耐性）
+// - すべて `escape_html` で安全化済みの内容を返す
+// - 図表番号は「図 X-Y: タイトル」「表 X-Y: タイトル」の表記に統一
+// - severity / 凡例の絵文字は a11y 用に `aria-label` を併記
+// - tooltip は `<abbr title="...">` をベースに `data-term-tooltip="1"` で識別可能に
+//
+// pub(crate) として survey 配下の他モジュールからも使えるよう公開する。
+// =====================================================================
+
+/// レポート横断で使う用語の重大度カテゴリ。CSS class と絵文字を同一視する。
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ReportSeverity {
+    /// 即対応（赤）
+    Critical,
+    /// 1 週間以内（黄）
+    Warning,
+    /// 後回し可（緑）
+    Info,
+}
+
+impl ReportSeverity {
+    pub(crate) fn emoji(self) -> &'static str {
+        match self {
+            ReportSeverity::Critical => "\u{1F534}", // 🔴
+            ReportSeverity::Warning => "\u{1F7E1}",  // 🟡
+            ReportSeverity::Info => "\u{1F7E2}",     // 🟢
+        }
+    }
+    pub(crate) fn aria_label(self) -> &'static str {
+        match self {
+            ReportSeverity::Critical => "重大",
+            ReportSeverity::Warning => "注意",
+            ReportSeverity::Info => "情報",
+        }
+    }
+    pub(crate) fn class(self) -> &'static str {
+        match self {
+            ReportSeverity::Critical => "report-sev-critical",
+            ReportSeverity::Warning => "report-sev-warning",
+            ReportSeverity::Info => "report-sev-info",
+        }
+    }
+    pub(crate) fn action_text(self) -> &'static str {
+        match self {
+            ReportSeverity::Critical => "即対応",
+            ReportSeverity::Warning => "1週間以内",
+            ReportSeverity::Info => "後回し可",
+        }
+    }
+}
+
+/// 用語ツールチップを描画。
+///
+/// `<abbr>` 要素 + `title` + `aria-describedby` ベースで実装し、印刷時にも
+/// 注釈として残るようにする。`description` は escape_html で安全化される。
+///
+/// 例:
+/// ```ignore
+/// render_info_tooltip("IQR", "1.5 倍の四分位範囲、Tukey 1977 由来の外れ値除外法")
+/// // → <span class="report-tooltip">...<abbr title="...">IQR</abbr><span class="report-tooltip-icon"...>ⓘ</span></span>
+/// ```
+pub(crate) fn render_info_tooltip(label: &str, description: &str) -> String {
+    let safe_label = escape_html(label);
+    let safe_desc = escape_html(description);
+    format!(
+        "<span class=\"report-tooltip\" data-term-tooltip=\"1\">\
+<abbr title=\"{desc}\" tabindex=\"0\" aria-label=\"{label}: {desc}\">{label}</abbr>\
+<span class=\"report-tooltip-icon\" role=\"tooltip\" aria-hidden=\"true\">\u{24D8}</span>\
+</span>",
+        label = safe_label,
+        desc = safe_desc,
+    )
+}
+
+/// 凡例: severity 絵文字 + テキスト
+///
+/// 例: `🟡 注意`（aria-label 付き）
+pub(crate) fn render_legend_emoji(severity: ReportSeverity, text: &str) -> String {
+    format!(
+        "<span class=\"report-legend {cls}\">\
+<span class=\"report-legend-emoji\" role=\"img\" aria-label=\"{aria}\">{emoji}</span>\
+<span class=\"report-legend-text\">{text}</span>\
+</span>",
+        cls = severity.class(),
+        aria = severity.aria_label(),
+        emoji = severity.emoji(),
+        text = escape_html(text),
+    )
+}
+
+/// 図表番号: 「図 chapter-num: タイトル」
+pub(crate) fn render_figure_number(chapter: u32, num: u32, title: &str) -> String {
+    format!(
+        "<div class=\"report-figure-num\" data-figure=\"{c}-{n}\">\
+\u{56F3} {c}-{n}: {t}\
+</div>",
+        c = chapter,
+        n = num,
+        t = escape_html(title),
+    )
+}
+
+/// 表番号: 「表 chapter-num: タイトル」
+pub(crate) fn render_table_number(chapter: u32, num: u32, title: &str) -> String {
+    format!(
+        "<div class=\"report-figure-num report-table-num\" data-table=\"{c}-{n}\">\
+\u{8868} {c}-{n}: {t}\
+</div>",
+        c = chapter,
+        n = num,
+        t = escape_html(title),
+    )
+}
+
+/// 「読み方」吹き出し
+pub(crate) fn render_reading_callout(text: &str) -> String {
+    format!(
+        "<div class=\"report-callout\" role=\"note\" aria-label=\"読み方\">\
+<span class=\"report-callout-icon\" aria-hidden=\"true\">\u{1F4A1}</span>\
+<span class=\"report-callout-label\">読み方</span>\
+<span class=\"report-callout-body\">{}</span>\
+</div>",
+        escape_html(text)
+    )
+}
+
+/// 重要度バッジ: 🔴 即対応 / 🟡 1週間 / 🟢 後回し
+pub(crate) fn render_severity_badge(severity: ReportSeverity) -> String {
+    format!(
+        "<span class=\"report-severity-badge {cls}\" \
+role=\"img\" aria-label=\"{aria} ({action})\">\
+<span class=\"report-severity-emoji\" aria-hidden=\"true\">{emoji}</span>\
+<span class=\"report-severity-text\">{action}</span>\
+</span>",
+        cls = severity.class(),
+        aria = severity.aria_label(),
+        action = severity.action_text(),
+        emoji = severity.emoji(),
+    )
+}
+
 /// 都道府県別最低賃金（円/時間）
 pub(super) fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
     match pref {
@@ -468,4 +739,142 @@ function initSortableTables() {
 document.addEventListener('DOMContentLoaded', initSortableTables);
 </script>
 "#.to_string()
+}
+
+// =====================================================================
+// UI-3 単体テスト: helpers の新規関数群
+// =====================================================================
+#[cfg(test)]
+mod ui3_helpers_tests {
+    use super::*;
+
+    /// info tooltip: ⓘ アイコン + abbr + tabindex + aria-label が出力される
+    #[test]
+    fn test_render_info_tooltip_contains_required_attrs() {
+        let html = render_info_tooltip("IQR", "1.5 倍の四分位範囲、Tukey 1977 由来の外れ値除外法");
+        // 用語識別子
+        assert!(html.contains("data-term-tooltip=\"1\""), "識別属性が必要");
+        // 元ラベル表示
+        assert!(html.contains(">IQR<"), "ラベルがそのまま表示されること");
+        // 説明が title に入る
+        assert!(html.contains("Tukey 1977"), "説明文が含まれること");
+        // a11y: aria-label / role=tooltip
+        assert!(
+            html.contains("aria-label=\"IQR:"),
+            "aria-label に用語＋説明"
+        );
+        assert!(html.contains("role=\"tooltip\""), "tooltip role 必須");
+        // tabindex でキーボードアクセス可能
+        assert!(html.contains("tabindex=\"0\""), "キーボードフォーカス可能");
+        // ⓘ アイコン (U+24D8)
+        assert!(html.contains("\u{24D8}"), "ⓘ アイコン (U+24D8) を含む");
+    }
+
+    /// info tooltip: HTML エスケープが効く
+    #[test]
+    fn test_render_info_tooltip_escapes_html() {
+        let html = render_info_tooltip("a<b>", "x&y");
+        assert!(!html.contains("<b>"), "ラベルのタグはエスケープされる");
+        assert!(html.contains("&lt;b&gt;"), "ラベルが HTML エスケープされる");
+        assert!(html.contains("x&amp;y"), "説明の & がエスケープされる");
+    }
+
+    /// 凡例 emoji: severity ごとに 3 種類の絵文字 + aria-label
+    #[test]
+    fn test_render_legend_emoji_all_severities() {
+        let critical = render_legend_emoji(ReportSeverity::Critical, "即対応");
+        assert!(critical.contains("\u{1F534}"), "🔴 が含まれる");
+        assert!(critical.contains("aria-label=\"重大\""), "aria-label=重大");
+        assert!(critical.contains("即対応"), "テキスト本文");
+
+        let warning = render_legend_emoji(ReportSeverity::Warning, "1週間以内");
+        assert!(warning.contains("\u{1F7E1}"), "🟡 が含まれる");
+        assert!(warning.contains("aria-label=\"注意\""));
+
+        let info = render_legend_emoji(ReportSeverity::Info, "後回し可");
+        assert!(info.contains("\u{1F7E2}"), "🟢 が含まれる");
+        assert!(info.contains("aria-label=\"情報\""));
+    }
+
+    /// 図番号: 「図 X-Y: タイトル」 + data-figure 属性
+    #[test]
+    fn test_render_figure_number_format() {
+        let html = render_figure_number(3, 1, "CSV-HW 求人件数対応マップ");
+        assert!(html.contains("\u{56F3} 3-1:"), "図番号フォーマット");
+        assert!(html.contains("CSV-HW 求人件数対応マップ"), "タイトル");
+        assert!(html.contains("data-figure=\"3-1\""), "data 属性");
+        assert!(
+            html.contains("class=\"report-figure-num\""),
+            "CSS class 付与"
+        );
+    }
+
+    /// 表番号: 「表 X-Y: タイトル」 + data-table 属性
+    #[test]
+    fn test_render_table_number_format() {
+        let html = render_table_number(5, 2, "注目企業ランキング");
+        assert!(html.contains("\u{8868} 5-2:"), "表番号フォーマット");
+        assert!(html.contains("注目企業ランキング"));
+        assert!(html.contains("data-table=\"5-2\""));
+        assert!(
+            html.contains("report-table-num"),
+            "report-table-num class 付与"
+        );
+    }
+
+    /// 読み方吹き出し: 💡 アイコン + role=note + 「読み方」ラベル
+    #[test]
+    fn test_render_reading_callout_a11y() {
+        let html = render_reading_callout("バーが長いほど件数が多いことを示します");
+        assert!(html.contains("\u{1F4A1}"), "💡 アイコン");
+        assert!(html.contains("role=\"note\""), "role=note");
+        assert!(html.contains("aria-label=\"読み方\""), "aria-label");
+        assert!(html.contains("バーが長いほど"), "本文表示");
+        assert!(html.contains("class=\"report-callout\""), "CSS class");
+    }
+
+    /// 重要度バッジ: 3 段階で色 + 絵文字 + テキスト
+    #[test]
+    fn test_render_severity_badge_critical() {
+        let html = render_severity_badge(ReportSeverity::Critical);
+        assert!(html.contains("\u{1F534}"));
+        assert!(html.contains("即対応"));
+        assert!(html.contains("report-sev-critical"));
+        assert!(html.contains("aria-label=\"重大 (即対応)\""));
+    }
+
+    #[test]
+    fn test_render_severity_badge_warning_info() {
+        let warning = render_severity_badge(ReportSeverity::Warning);
+        assert!(warning.contains("1週間以内"));
+        assert!(warning.contains("report-sev-warning"));
+
+        let info = render_severity_badge(ReportSeverity::Info);
+        assert!(info.contains("後回し可"));
+        assert!(info.contains("report-sev-info"));
+    }
+
+    /// ReportSeverity の 3 値はすべて異なる class / 絵文字を持つこと（逆証明）
+    #[test]
+    fn test_severity_distinct_outputs() {
+        let cls = [
+            ReportSeverity::Critical.class(),
+            ReportSeverity::Warning.class(),
+            ReportSeverity::Info.class(),
+        ];
+        let mut sorted = cls.to_vec();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 3, "3 つの severity で class が重複しないこと");
+
+        let emojis = [
+            ReportSeverity::Critical.emoji(),
+            ReportSeverity::Warning.emoji(),
+            ReportSeverity::Info.emoji(),
+        ];
+        let mut sorted_e = emojis.to_vec();
+        sorted_e.sort();
+        sorted_e.dedup();
+        assert_eq!(sorted_e.len(), 3, "絵文字も重複しないこと");
+    }
 }
