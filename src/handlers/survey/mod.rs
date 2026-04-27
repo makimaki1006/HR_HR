@@ -25,6 +25,9 @@ mod parser_aggregator_audit_test;
 #[cfg(test)]
 mod report_html_qa_test;
 
+#[cfg(test)]
+mod render_ui1_test;
+
 pub use handlers::{
     analyze_survey, integrate_report, report_json, survey_report_download, survey_report_html,
     tab_survey, upload_csv,

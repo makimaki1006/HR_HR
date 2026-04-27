@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 
 /// 初期表示: CSVアップロードフォーム
 pub(crate) fn render_upload_form() -> String {
-    r##"<div class="space-y-6" id="survey-root">
+    r##"<div class="space-y-6" id="survey-root" data-survey-ui-version="ui1-2026-04-26">
         <!-- ヘッダー -->
         <header class="stat-card">
             <div class="flex items-start justify-between flex-wrap gap-3">
@@ -38,73 +38,216 @@ pub(crate) fn render_upload_form() -> String {
             </div>
         </header>
 
+        <!-- 使い方ステップ表示（番号付き図） -->
+        <section class="stat-card" id="survey-howto-steps" aria-label="使い方ステップ">
+            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-slate-500 pl-2">使い方</h3>
+            <ol class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" role="list">
+                <li class="bg-slate-800/40 rounded p-3 flex gap-3 items-start">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">1</div>
+                    <div>
+                        <div class="text-xs font-semibold text-white mb-0.5">CSVエクスポート</div>
+                        <div class="text-[11px] text-slate-400">IndeedまたはExcelで求人一覧をUTF-8 CSVに出力</div>
+                    </div>
+                </li>
+                <li class="bg-slate-800/40 rounded p-3 flex gap-3 items-start">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">2</div>
+                    <div>
+                        <div class="text-xs font-semibold text-white mb-0.5">アップロード</div>
+                        <div class="text-[11px] text-slate-400">下のドロップゾーンへドラッグ＆ドロップで自動パース</div>
+                    </div>
+                </li>
+                <li class="bg-slate-800/40 rounded p-3 flex gap-3 items-start">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-600 text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">3</div>
+                    <div>
+                        <div class="text-xs font-semibold text-white mb-0.5">サマリ確認</div>
+                        <div class="text-[11px] text-slate-400">給与中央値・地域分布・雇用形態を即時表示</div>
+                    </div>
+                </li>
+                <li class="bg-slate-800/40 rounded p-3 flex gap-3 items-start">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-600 text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">4</div>
+                    <div>
+                        <div class="text-xs font-semibold text-white mb-0.5">HW統合分析</div>
+                        <div class="text-[11px] text-slate-400">「HWデータと統合分析」で比較レポート生成</div>
+                    </div>
+                </li>
+            </ol>
+        </section>
+
         <!-- アップロードセクション -->
         <section class="stat-card">
             <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">
                 CSVファイルをアップロード
             </h3>
             <form id="survey-upload-form" enctype="multipart/form-data">
-                <!-- アップロード前の明示指定（自動判定より精度が高い） -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1.5">ソース媒体 <span class="text-red-400">*</span></label>
-                        <select name="source_type" id="source-type"
-                            class="w-full bg-slate-700 text-white text-sm rounded px-3 py-2 border border-slate-600 focus:border-blue-500 outline-none">
-                            <option value="indeed">Indeed</option>
-                            <option value="jobbox">求人ボックス</option>
-                            <option value="other">その他 / 手動編集</option>
-                        </select>
-                        <p class="text-[10px] text-slate-500 mt-1">列名マッピングの精度向上のために明示指定</p>
-                    </div>
-                    <div>
-                        <label class="block text-xs text-slate-400 mb-1.5">給与単位 <span class="text-red-400">*</span></label>
-                        <select name="wage_mode" id="wage-mode"
-                            class="w-full bg-slate-700 text-white text-sm rounded px-3 py-2 border border-slate-600 focus:border-blue-500 outline-none">
-                            <option value="monthly">月給ベース（正社員・契約社員などの長期雇用中心）</option>
-                            <option value="hourly">時給ベース（パート・アルバイト・派遣中心）</option>
-                            <option value="auto">自動判定（雇用形態ごとに時給/月給を切替）</option>
-                        </select>
-                        <p class="text-[10px] text-slate-500 mt-1">分析結果の単位が直感と一致するよう選択</p>
+                <!-- ソース媒体: ラジオカード形式で視覚化 -->
+                <div class="mb-4" id="source-type-cards" role="radiogroup" aria-label="ソース媒体">
+                    <label class="block text-xs text-slate-400 mb-2">ソース媒体 <span class="text-red-400" aria-label="必須">*</span>
+                        <span class="text-[10px] text-slate-500 ml-2">列名マッピングの精度向上のため明示指定してください</span>
+                    </label>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="indeed">
+                            <input type="radio" name="source_type" value="indeed" class="mt-1" checked aria-describedby="src-indeed-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-full bg-blue-500" aria-hidden="true"></span>
+                                    Indeed
+                                </div>
+                                <div id="src-indeed-desc" class="text-[10px] text-slate-400 mt-0.5">広域求人サイト・列名は英字混在</div>
+                            </div>
+                        </label>
+                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="jobbox">
+                            <input type="radio" name="source_type" value="jobbox" class="mt-1" aria-describedby="src-jobbox-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-full bg-emerald-500" aria-hidden="true"></span>
+                                    求人ボックス
+                                </div>
+                                <div id="src-jobbox-desc" class="text-[10px] text-slate-400 mt-0.5">国内求人ポータル・日本語列名</div>
+                            </div>
+                        </label>
+                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="other">
+                            <input type="radio" name="source_type" value="other" class="mt-1" aria-describedby="src-other-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-full bg-amber-500" aria-hidden="true"></span>
+                                    その他 / 手動編集
+                                </div>
+                                <div id="src-other-desc" class="text-[10px] text-slate-400 mt-0.5">汎用CSV・列名フリー</div>
+                            </div>
+                        </label>
                     </div>
                 </div>
+
+                <!-- 給与単位: ラジオカード形式で視覚化 -->
+                <div class="mb-4" id="wage-mode-cards" role="radiogroup" aria-label="給与単位">
+                    <label class="block text-xs text-slate-400 mb-2">給与単位 <span class="text-red-400" aria-label="必須">*</span>
+                        <span class="text-[10px] text-slate-500 ml-2">分析結果の単位が直感と一致するよう選択</span>
+                    </label>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <label class="wage-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-wage="monthly">
+                            <input type="radio" name="wage_mode" value="monthly" class="mt-1" checked aria-describedby="wage-monthly-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5" aria-hidden="true">
+                                    <span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+                                    月給ベース
+                                </div>
+                                <div id="wage-monthly-desc" class="text-[10px] text-slate-400 mt-0.5">正社員・契約社員 など長期雇用中心</div>
+                            </div>
+                        </label>
+                        <label class="wage-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-wage="hourly">
+                            <input type="radio" name="wage_mode" value="hourly" class="mt-1" aria-describedby="wage-hourly-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5" aria-hidden="true">
+                                    <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                                    時給ベース
+                                </div>
+                                <div id="wage-hourly-desc" class="text-[10px] text-slate-400 mt-0.5">パート・アルバイト・派遣 中心</div>
+                            </div>
+                        </label>
+                        <label class="wage-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-wage="auto">
+                            <input type="radio" name="wage_mode" value="auto" class="mt-1" aria-describedby="wage-auto-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5" aria-hidden="true">
+                                    <span class="inline-block w-2 h-2 rounded-full bg-slate-400"></span>
+                                    自動判定
+                                </div>
+                                <div id="wage-auto-desc" class="text-[10px] text-slate-400 mt-0.5">雇用形態ごとに時給/月給を切替</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- ドロップゾーン（強化版） -->
                 <div id="drop-zone"
-                     class="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-800/30 transition-colors"
-                     ondragover="event.preventDefault();this.classList.add('border-blue-500','bg-slate-800/30')"
-                     ondragleave="this.classList.remove('border-blue-500','bg-slate-800/30')"
-                     ondrop="event.preventDefault();this.classList.remove('border-blue-500','bg-slate-800/30');handleDrop(event)">
-                    <svg class="w-8 h-8 mx-auto mb-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     class="border-2 border-dashed border-slate-600 rounded-lg p-10 text-center cursor-pointer hover:border-blue-500 hover:bg-slate-800/30 transition-all duration-200"
+                     role="button" tabindex="0" aria-label="CSVファイルをドラッグ＆ドロップ、またはクリックで選択"
+                     ondragover="event.preventDefault();this.classList.add('border-blue-500','bg-blue-500/10','scale-[1.01]')"
+                     ondragleave="this.classList.remove('border-blue-500','bg-blue-500/10','scale-[1.01]')"
+                     ondrop="event.preventDefault();this.classList.remove('border-blue-500','bg-blue-500/10','scale-[1.01]');handleDrop(event)">
+                    <svg class="w-12 h-12 mx-auto mb-3 text-blue-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
                     </svg>
-                    <div class="text-slate-400 text-sm mb-2">CSVファイルをドラッグ&ドロップ</div>
-                    <div class="text-slate-500 text-xs mb-3">または</div>
-                    <label class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm cursor-pointer transition-colors">
+                    <div class="text-slate-200 text-base font-semibold mb-1">CSVをここにドロップ</div>
+                    <div class="text-slate-500 text-xs mb-4">または</div>
+                    <label class="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium cursor-pointer transition-colors min-h-[44px]">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                        </svg>
                         ファイルを選択
                         <input type="file" name="csv_file" accept=".csv,.txt" class="hidden" onchange="submitSurveyCSV(this.files[0])">
                     </label>
-                    <div class="text-slate-600 text-xs mt-4">対応形式: Indeed, 求人ボックス (CSV/UTF-8)</div>
+                    <div class="text-slate-500 text-xs mt-4">対応形式: Indeed / 求人ボックス (CSV/UTF-8)</div>
                 </div>
             </form>
-            <div id="upload-status" class="mt-3"></div>
+            <div id="upload-status" class="mt-3" aria-live="polite"></div>
             <div class="text-xs text-slate-600 mt-3 border-t border-slate-800 pt-3">
                 アップロードしたCSVはブラウザセッション内でのみ処理され、永続保存されません。
                 HW掲載求人との比較は相対的な参考値であり、採用判断の唯一の根拠としないでください。
             </div>
         </section>
 
-        <!-- 使い方ガイド -->
-        <section class="stat-card">
-            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-slate-500 pl-2">使い方</h3>
-            <ol class="text-xs text-slate-400 space-y-1.5 list-decimal list-inside">
-                <li>IndeedまたはExcelで求人リストをCSVエクスポート（UTF-8）</li>
-                <li>本画面でCSVをアップロード → 給与・地域・雇用形態を自動パース</li>
-                <li>TL;DRと給与分布を確認後、「HWデータと統合分析」で比較レポート生成</li>
-                <li>印刷用レポート出力でA4印刷／PDF化が可能</li>
-            </ol>
+        <!-- サンプルCSV列の折畳展開 -->
+        <section class="stat-card" id="survey-csv-samples">
+            <details>
+                <summary class="cursor-pointer text-sm font-semibold text-slate-200 border-l-4 border-slate-500 pl-2 select-none hover:text-white">
+                    対応CSV列の例（クリックで展開）
+                </summary>
+                <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div class="bg-slate-900/50 rounded p-3">
+                        <div class="text-xs font-semibold text-blue-400 mb-2">Indeed CSV 主要列</div>
+                        <table class="w-full text-[11px] text-slate-300">
+                            <thead><tr class="border-b border-slate-700"><th class="text-left py-1 pr-2">列名</th><th class="text-left py-1">用途</th></tr></thead>
+                            <tbody class="text-slate-400">
+                                <tr><td class="py-0.5 pr-2 font-mono">Job Title</td><td>求人タイトル</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">Location</td><td>勤務地（都道府県・市区町村）</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">Salary</td><td>給与（時給/月給/年俸）</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">Job Type</td><td>雇用形態</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">Date Posted</td><td>掲載日</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="bg-slate-900/50 rounded p-3">
+                        <div class="text-xs font-semibold text-emerald-400 mb-2">求人ボックス CSV 主要列</div>
+                        <table class="w-full text-[11px] text-slate-300">
+                            <thead><tr class="border-b border-slate-700"><th class="text-left py-1 pr-2">列名</th><th class="text-left py-1">用途</th></tr></thead>
+                            <tbody class="text-slate-400">
+                                <tr><td class="py-0.5 pr-2 font-mono">求人タイトル</td><td>タイトル</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">勤務地</td><td>都道府県・市区町村</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">給与</td><td>時給/月給/年俸表記</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">雇用形態</td><td>正社員・パート 等</td></tr>
+                                <tr><td class="py-0.5 pr-2 font-mono">掲載日</td><td>日付</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-600 mt-3">列名が一致しない場合も自動マッピングを試行します。マッピング失敗時は「データ品質」セクションでパース率を確認してください。</p>
+            </details>
         </section>
 
         <div id="survey-result"></div>
     </div>
     <script>
+    // ラジオカード選択時のハイライト（source/wage 共通）
+    (function() {
+        function syncCards(groupSelector, activeClasses) {
+            document.querySelectorAll(groupSelector).forEach(function(card) {
+                var input = card.querySelector('input[type="radio"]');
+                if (!input) return;
+                var apply = function() {
+                    document.querySelectorAll(groupSelector).forEach(function(c) {
+                        c.classList.remove('border-blue-500','bg-blue-500/10','ring-1','ring-blue-500');
+                    });
+                    if (input.checked) {
+                        card.classList.add('border-blue-500','bg-blue-500/10','ring-1','ring-blue-500');
+                    }
+                };
+                input.addEventListener('change', apply);
+                apply();
+            });
+        }
+        syncCards('.source-card');
+        syncCards('.wage-card');
+    })();
     function handleDrop(e) {
         var files = e.dataTransfer.files;
         if (files.length > 0) submitSurveyCSV(files[0]);
@@ -116,8 +259,8 @@ pub(crate) fn render_upload_form() -> String {
         var fd = new FormData();
         fd.append('csv_file', file);
         // ユーザー明示指定を同送信（自動判定より優先）
-        var src = document.getElementById('source-type');
-        var wage = document.getElementById('wage-mode');
+        var src = document.querySelector('input[name="source_type"]:checked');
+        var wage = document.querySelector('input[name="wage_mode"]:checked');
         if (src) fd.append('source_type', src.value);
         if (wage) fd.append('wage_mode', wage.value);
         fetch('/api/survey/upload', { method: 'POST', body: fd })
@@ -169,6 +312,9 @@ pub(crate) fn render_analysis_result(
     // 4. 給与分布・雇用形態分布（チャート群）
     html.push_str(&render_distribution_charts(agg));
 
+    // 4b. 都道府県別 KPI ヒートマップ（新規）
+    html.push_str(&render_prefecture_heatmap_section(agg));
+
     // 5. 地域・タグ分布（折りたたみ）
     html.push_str(&render_breakdown_section(agg));
 
@@ -219,44 +365,136 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
         0.0
     };
 
+    // 中央値と期待値のギャップを評価（読み手の判断材料）
+    let median_val = agg.enhanced_stats.as_ref().map(|s| s.median).unwrap_or(0);
+    let expected_val = seeker.expected_salary.unwrap_or(0);
+    let (gap_pct, gap_color, gap_label) = if median_val > 0 && expected_val > 0 {
+        let pct = (median_val - expected_val) as f64 / expected_val as f64 * 100.0;
+        if pct >= 5.0 {
+            (
+                pct,
+                "text-emerald-400",
+                "🟢 求職者期待値より中央値が高水準です。応募集まりやすい給与帯。",
+            )
+        } else if pct <= -5.0 {
+            (
+                pct,
+                "text-rose-400",
+                "🔴 求職者期待値より中央値が低水準です。給与訴求の強化を検討。",
+            )
+        } else {
+            (
+                pct,
+                "text-amber-400",
+                "🟡 求職者期待値とほぼ同等です。差別化要素を給与以外でも訴求してください。",
+            )
+        }
+    } else {
+        (
+            0.0,
+            "text-slate-500",
+            "（期待値推定不能のため比較スキップ）",
+        )
+    };
+    let gap_pct_text = if median_val > 0 && expected_val > 0 {
+        format!("{:+.1}%", gap_pct)
+    } else {
+        "—".to_string()
+    };
+
+    // 新着率の色判定（高いほど鮮度良）
+    let new_rate_color = if new_rate >= 30.0 {
+        "text-emerald-400"
+    } else if new_rate >= 15.0 {
+        "text-amber-400"
+    } else {
+        "text-slate-400"
+    };
+
     write!(html,
-        r#"<section class="stat-card border-l-4 border-blue-500">
-            <div class="flex items-start justify-between flex-wrap gap-3 mb-3">
+        r#"<section class="stat-card border-l-4 border-blue-500" id="survey-executive-summary" data-total="{total_raw}">
+            <div class="flex items-start justify-between flex-wrap gap-3 mb-4">
                 <div>
-                    <h3 class="text-lg font-bold text-white">分析サマリ</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">アップロードされたCSVから抽出した主要指標</p>
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                        エグゼクティブサマリ
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">アップロードCSVから抽出した「この地域・職種で見るべき主要KPI」</p>
                 </div>
                 <div class="text-xs text-slate-500 text-right">
-                    <div>分析対象: {total}件</div>
-                    <div>新着率: {new_rate:.1}%</div>
+                    <div>分析対象: <span class="text-white font-semibold">{total}件</span></div>
+                    <div>新着率: <span class="font-semibold {new_rate_color}">{new_rate:.1}%</span></div>
                 </div>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div class="p-3 bg-slate-800/50 rounded">
-                    <div class="text-[10px] text-slate-500 mb-1">主要地域</div>
-                    <div class="text-sm font-bold text-white truncate">{region}</div>
-                    <div class="text-[10px] text-slate-600 mt-0.5">最多掲載エリア</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3" id="survey-kpi-grid">
+                <!-- KPI 1: 主要地域 -->
+                <div class="p-4 bg-slate-800/60 rounded border border-slate-700/50" data-kpi="region">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            主要地域
+                        </div>
+                        <span class="kpi-info" tabindex="0" role="button" aria-label="主要地域の説明" title="掲載件数が最も多い都道府県・市区町村。求人の主戦場を示します。">ⓘ</span>
+                    </div>
+                    <div class="text-base font-bold text-white truncate" title="{region}">{region}</div>
+                    <div class="text-[10px] text-slate-500 mt-1">最多掲載エリア（CSV基準）</div>
                 </div>
-                <div class="p-3 bg-slate-800/50 rounded">
-                    <div class="text-[10px] text-slate-500 mb-1">給与中央値（月給換算）</div>
-                    <div class="text-sm font-bold text-emerald-400">{median}</div>
-                    <div class="text-[10px] text-slate-600 mt-0.5">時給・年俸は統一月給換算後</div>
+                <!-- KPI 2: 給与中央値 -->
+                <div class="p-4 bg-slate-800/60 rounded border border-slate-700/50" data-kpi="median">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            給与中央値
+                        </div>
+                        <span class="kpi-info" tabindex="0" role="button" aria-label="給与中央値の説明" title="50パーセンタイル。外れ値の影響を受けにくく、平均より実勢に近い指標です（時給・年俸は月給換算後）。">ⓘ</span>
+                    </div>
+                    <div class="text-2xl font-bold text-emerald-400 leading-tight">{median}</div>
+                    <div class="text-[10px] text-slate-500 mt-1">月給換算（時給×167h / 年俸÷12）</div>
                 </div>
-                <div class="p-3 bg-slate-800/50 rounded">
-                    <div class="text-[10px] text-slate-500 mb-1">求職者期待値（推定）</div>
-                    <div class="text-sm font-bold text-amber-400">{expected}</div>
-                    <div class="text-[10px] text-slate-600 mt-0.5">レンジ下限+幅×33%の目安</div>
+                <!-- KPI 3: 求職者期待値 -->
+                <div class="p-4 bg-slate-800/60 rounded border border-slate-700/50" data-kpi="expected">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            求職者期待値
+                        </div>
+                        <span class="kpi-info" tabindex="0" role="button" aria-label="求職者期待値の説明" title="レンジ下限 + 幅 × 1/3 で推定。求職者が現実的に意識する応募ライン（一般的応募行動モデル）。">ⓘ</span>
+                    </div>
+                    <div class="text-2xl font-bold text-amber-400 leading-tight">{expected}</div>
+                    <div class="text-[10px] text-slate-500 mt-1">推定モデル（応募行動研究ベース）</div>
                 </div>
+                <!-- KPI 4: 中央値 vs 期待値 ギャップ -->
+                <div class="p-4 bg-slate-800/60 rounded border border-slate-700/50" data-kpi="gap">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                            期待値ギャップ
+                        </div>
+                        <span class="kpi-info" tabindex="0" role="button" aria-label="ギャップの説明" title="(中央値 − 期待値) ÷ 期待値 × 100。プラスは求職者期待を上回る訴求力、マイナスは応募集まりにくさのシグナル。">ⓘ</span>
+                    </div>
+                    <div class="text-2xl font-bold {gap_color} leading-tight">{gap_pct_text}</div>
+                    <div class="text-[10px] text-slate-500 mt-1">中央値 − 期待値 の相対差</div>
+                </div>
+            </div>
+            <!-- 読み方吹き出し -->
+            <div class="mt-4 p-3 bg-slate-900/50 rounded border-l-2 border-blue-500" id="survey-summary-readout">
+                <div class="text-[11px] text-slate-400 mb-1">この画面の読み方</div>
+                <div class="text-xs text-slate-200">{gap_label}</div>
             </div>
             <div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
-                本サマリはアップロードされたCSVのみに基づく参考指標です。HWデータとの比較は下部「HWデータと統合分析」で確認してください。
+                本サマリはアップロードされたCSVのみに基づく参考指標です。HW掲載求人との比較は下部「HWデータと統合分析」で確認してください。
             </div>
         </section>"#,
         total = format_number(agg.total_count as i64),
+        total_raw = agg.total_count,
         new_rate = new_rate,
+        new_rate_color = new_rate_color,
         region = escape_html(&region_text),
         median = median_text,
         expected = expected_text,
+        gap_pct_text = gap_pct_text,
+        gap_color = gap_color,
+        gap_label = gap_label,
     ).unwrap();
 
     html
@@ -268,31 +506,45 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
 
 fn render_action_bar(session_id: &str) -> String {
     format!(
-        r##"<section class="stat-card">
+        r##"<section class="stat-card" id="survey-action-bar" data-session-id="{sid}">
             <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">次のアクション</h3>
-            <div class="flex gap-3 flex-wrap">
+            <!-- プライマリ動線: HW統合分析（最も目立たせる） -->
+            <div class="mb-3">
                 <button hx-get="/api/survey/integrate?session_id={sid}"
                         hx-target="#survey-integration-result" hx-swap="innerHTML"
-                        class="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors">
+                        id="btn-hw-integrate"
+                        class="group w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg text-base font-bold shadow-lg shadow-blue-500/20 transition-all hover:shadow-blue-500/40 min-h-[44px]"
+                        title="この地域のHW求人・外部統計・企業データと突合した比較レポートを生成します">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                     HWデータと統合分析
+                    <span class="hidden group-hover:inline text-[10px] opacity-75 ml-1">（地域×HW×統計の比較レポート）</span>
                 </button>
-                <a href="/report/survey?session_id={sid}" target="_blank"
-                   class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-medium transition-colors inline-block">
-                    印刷用レポート表示
-                    <span class="text-[10px] opacity-75 block">新しいタブで印刷／PDF化</span>
+            </div>
+            <!-- セカンダリ動線: ボタングループ化（レポート出力 + 別CSV） -->
+            <div class="flex flex-wrap gap-2" role="group" aria-label="レポート出力とその他">
+                <a href="/report/survey?session_id={sid}" target="_blank" rel="noopener"
+                   class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
+                   title="印刷用レポートを新しいタブで開き、ブラウザの印刷機能でPDF化できます">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                    印刷用レポート
+                    <span class="text-[10px] opacity-75">PDF化対応</span>
                 </a>
                 <button type="button" onclick="downloadReportHtml('{sid}')"
-                        class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-sm font-medium transition-colors">
-                    📄 HTML ダウンロード
-                    <span class="text-[10px] opacity-75 block">編集後ブラウザで印刷 → PDF</span>
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
+                        title="HTMLファイルをダウンロード。後からブラウザで開いて印刷・編集が可能">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    HTMLダウンロード
+                    <span class="text-[10px] opacity-75">編集可</span>
                 </button>
                 <a href="#" onclick="document.getElementById('survey-result').innerHTML='';document.getElementById('survey-root').scrollIntoView({{behavior:'smooth'}});return false;"
-                   class="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors inline-block">
+                   class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px]"
+                   title="アップロード画面に戻り、別のCSVを取り込み直します">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     別のCSVをアップロード
                 </a>
             </div>
             <p class="text-[11px] text-slate-500 mt-3">
-                統合分析: この地域のHW求人・外部統計・企業データと突合 ／ 印刷用レポート: A4縦向けPDF用レイアウト
+                統合分析を最初に実行することを推奨します。HW・外部統計と突き合わせた相対評価により、本CSVの位置付けが明確になります。
             </p>
         </section>
         <script>
@@ -338,23 +590,27 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
 
     let mut html = String::with_capacity(2_000);
     html.push_str(
-        r#"<section class="stat-card">
-            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">給与統計（月給換算）<span class="ml-2 text-[10px] font-normal text-slate-500">外れ値除外（IQR法）</span></h3>
+        r#"<section class="stat-card" id="survey-salary-stats">
+            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-2">
+                給与統計（月給換算）
+                <span class="text-[10px] font-normal text-slate-500" tabindex="0" title="IQR×1.5 (Tukey法) で外れ値を除外した統計値。中央値は外れ値の影響を受けにくく、実勢に近い指標です。">ⓘ</span>
+                <span class="ml-2 text-[10px] font-normal text-slate-500">外れ値除外（IQR法）</span>
+            </h3>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#,
     );
 
     render_kpi_card(
         &mut html,
-        "中央値",
+        "🟢 中央値",
         &format!("{}円", format_number(stats.median)),
         "text-emerald-400",
-        "50パーセンタイル",
+        "50パーセンタイル / 推奨指標",
     );
     render_kpi_card(
         &mut html,
-        "平均",
+        "🟡 平均",
         &format!("{}円", format_number(stats.mean)),
-        "text-white",
+        "text-amber-300",
         "算術平均（外れ値影響あり）",
     );
     render_kpi_card(
@@ -453,25 +709,96 @@ fn render_salary_range_chart(agg: &SurveyAggregation) -> String {
         }]
     });
 
+    // 中央値・平均の縦線オーバーレイと IQR シェード
+    let mut readout = String::from("破線: 中央値（緑）/ 平均（橙）");
     if let Some(stats) = &agg.enhanced_stats {
         chart["series"][0]["markLine"] = json!({
             "silent": true,
             "symbol": "none",
-            "lineStyle": {"type": "dashed", "width": 1},
+            "lineStyle": {"type": "dashed", "width": 2},
             "label": {"color": "#e2e8f0", "fontSize": 10},
             "data": [
                 {"yAxis": stats.median, "name": "中央値", "lineStyle": {"color": "#10b981"}},
                 {"yAxis": stats.mean, "name": "平均", "lineStyle": {"color": "#f59e0b"}}
             ]
         });
+
+        // IQR (Q1-Q3) シェード表示
+        if let Some(q) = &stats.quartiles {
+            chart["series"][0]["markArea"] = json!({
+                "silent": true,
+                "itemStyle": {"color": "rgba(16, 185, 129, 0.08)"},
+                "label": {"show": true, "color": "#10b981", "fontSize": 10, "position": "insideTop"},
+                "data": [[
+                    {"yAxis": q.q1, "name": "IQR (Q1-Q3)"},
+                    {"yAxis": q.q3}
+                ]]
+            });
+
+            // 中央値・期待値の差を読み手に伝える
+            readout = format!(
+                "中央値 {}円が「ボリュームゾーン」。IQR (Q1〜Q3) 範囲は {}円〜{}円で、求人の中央50%がこの帯に集中しています。",
+                format_number(stats.median),
+                format_number(q.q1),
+                format_number(q.q3)
+            );
+        }
     }
 
     let config_str = chart.to_string().replace('\'', "&#39;");
+
+    // 外れ値除外件数のビジュアル（除外前/後の比較バー）
+    let outlier_bar = if agg.outliers_removed_total > 0 && agg.salary_values_raw_count > 0 {
+        let raw = agg.salary_values_raw_count;
+        let kept = raw.saturating_sub(agg.outliers_removed_total);
+        let raw_pct = 100.0;
+        let kept_pct = kept as f64 / raw as f64 * 100.0;
+        format!(
+            r#"<div class="mt-3 p-2 bg-slate-900/40 rounded text-[11px]" id="outlier-removal-bar">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-slate-400">外れ値除外（IQR×1.5 / Tukey法）</span>
+                    <span class="text-amber-400">{removed}件除外 / 残{kept}件</span>
+                </div>
+                <div class="space-y-1">
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-500 w-12">除外前</span>
+                        <div class="flex-1 h-2 bg-slate-700 rounded overflow-hidden"><div class="h-full bg-slate-400" style="width:{raw_pct:.0}%"></div></div>
+                        <span class="text-slate-300 w-14 text-right">{raw_n}件</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-slate-500 w-12">除外後</span>
+                        <div class="flex-1 h-2 bg-slate-700 rounded overflow-hidden"><div class="h-full bg-emerald-500" style="width:{kept_pct:.1}%"></div></div>
+                        <span class="text-emerald-300 w-14 text-right">{kept_n}件</span>
+                    </div>
+                </div>
+            </div>"#,
+            removed = agg.outliers_removed_total,
+            kept = format_number(kept as i64),
+            raw_pct = raw_pct,
+            kept_pct = kept_pct,
+            raw_n = format_number(raw as i64),
+            kept_n = format_number(kept as i64),
+        )
+    } else {
+        String::new()
+    };
+
     format!(
-        r#"<div class="stat-card">
-            <h4 class="text-xs font-semibold text-slate-300 mb-2">給与帯分布</h4>
+        r#"<div class="stat-card" data-chart="salary-range">
+            <div class="flex items-start justify-between mb-2 gap-2">
+                <h4 class="text-xs font-semibold text-slate-300">給与帯分布
+                    <span class="ml-1 text-[10px] text-slate-500" tabindex="0" title="緑線=中央値、橙線=平均、緑シェード=IQR (Q1-Q3) で求人の中央50%が集中する帯">ⓘ</span>
+                </h4>
+                <div class="text-[10px] text-slate-500 flex gap-2">
+                    <span>🟢 中央値</span>
+                    <span>🟡 平均</span>
+                </div>
+            </div>
             <div class="echart" style="height:300px" data-chart-config='{config_str}'></div>
-            <p class="text-[11px] text-slate-600 mt-2">破線: 中央値（緑）/ 平均（橙）</p>
+            <div class="mt-2 p-2 bg-blue-500/5 border-l-2 border-blue-500/40 rounded text-[11px] text-slate-300">
+                <span class="text-blue-400 font-semibold">読み方:</span> {readout}
+            </div>
+            {outlier_bar}
         </div>"#
     )
 }
@@ -513,12 +840,235 @@ fn render_employment_type_chart(agg: &SurveyAggregation) -> String {
     });
 
     let config_str = chart.to_string().replace('\'', "&#39;");
+
+    // 100% stacked bar (横長の帯) を補助として追加。比率を1次元で直感的に把握できる。
+    let total: usize = agg.by_employment_type.iter().map(|(_, v)| *v).sum();
+    let mut stacked_html = String::from(
+        r#"<div class="mt-3 mb-2" data-stack="employment-100"><div class="flex h-4 rounded overflow-hidden border border-slate-700" role="img" aria-label="雇用形態100%帯">"#,
+    );
+    if total > 0 {
+        for (i, (name, val)) in agg.by_employment_type.iter().enumerate() {
+            let pct = *val as f64 / total as f64 * 100.0;
+            if pct < 0.1 {
+                continue;
+            }
+            write!(
+                stacked_html,
+                r#"<div style="width:{pct:.2}%;background:{color}" title="{name} {val}件 ({pct:.1}%)"></div>"#,
+                pct = pct,
+                color = colors[i % colors.len()],
+                name = escape_html(name),
+                val = val,
+            )
+            .unwrap();
+        }
+    }
+    stacked_html.push_str(r#"</div></div>"#);
+
+    // ボリューム最多の雇用形態を抽出して読み方に反映
+    let dominant = agg
+        .by_employment_type
+        .iter()
+        .max_by_key(|(_, v)| *v)
+        .map(|(n, v)| {
+            let pct = if total > 0 {
+                *v as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
+            format!("最多は「{}」({:.1}%)", n, pct)
+        })
+        .unwrap_or_else(|| "—".to_string());
+
     format!(
-        r#"<div class="stat-card">
-            <h4 class="text-xs font-semibold text-slate-300 mb-2">雇用形態分布</h4>
-            <div class="echart" style="height:300px" data-chart-config='{config_str}'></div>
-            <p class="text-[11px] text-slate-600 mt-2">雇用形態別の掲載件数比率</p>
+        r#"<div class="stat-card" data-chart="employment-type">
+            <div class="flex items-start justify-between mb-2 gap-2">
+                <h4 class="text-xs font-semibold text-slate-300">雇用形態分布
+                    <span class="ml-1 text-[10px] text-slate-500" tabindex="0" title="掲載件数の比率。給与単位（月給/時給）は雇用形態によって異なるため、比較時は単位を確認してください。">ⓘ</span>
+                </h4>
+                <div class="text-[10px] text-slate-500">n={total}</div>
+            </div>
+            <div class="echart" style="height:280px" data-chart-config='{config_str}'></div>
+            {stacked_html}
+            <div class="mt-2 p-2 bg-blue-500/5 border-l-2 border-blue-500/40 rounded text-[11px] text-slate-300">
+                <span class="text-blue-400 font-semibold">読み方:</span> {dominant}。雇用形態の偏りは給与水準や応募層に直結します。
+            </div>
         </div>"#
+    )
+}
+
+// =============================================================================
+// セクション: 都道府県別 KPI ヒートマップ（8x9 グリッド近似配置）
+// =============================================================================
+
+/// 47都道府県の配置 (row, col) - 日本地図を 8 row × 12 col のグリッドで近似
+/// row 0=北、row 7=南。col は 0(西)〜11(東)。九州・沖縄を col 0-2 に配置。
+/// 注: 同じセルに複数県が来る箇所があるが、ECharts heatmap は data 配列で全件描画。
+const PREFECTURE_GRID: &[(&str, usize, usize)] = &[
+    ("北海道", 0, 11),
+    ("青森県", 1, 10),
+    ("秋田県", 1, 9),
+    ("岩手県", 1, 11),
+    ("山形県", 2, 9),
+    ("宮城県", 2, 10),
+    ("福島県", 2, 11),
+    ("新潟県", 3, 8),
+    ("群馬県", 3, 9),
+    ("栃木県", 3, 10),
+    ("茨城県", 3, 11),
+    ("石川県", 4, 7),
+    ("富山県", 4, 8),
+    ("長野県", 4, 9),
+    ("埼玉県", 4, 10),
+    ("東京都", 4, 11),
+    ("千葉県", 5, 11),
+    ("福井県", 5, 7),
+    ("岐阜県", 5, 8),
+    ("山梨県", 5, 9),
+    ("神奈川県", 5, 10),
+    ("滋賀県", 6, 7),
+    ("愛知県", 6, 8),
+    ("静岡県", 6, 9),
+    ("京都府", 6, 6),
+    ("奈良県", 7, 7),
+    ("三重県", 7, 8),
+    ("大阪府", 7, 6),
+    ("兵庫県", 6, 5),
+    ("和歌山県", 7, 5),
+    ("鳥取県", 5, 4),
+    ("岡山県", 6, 4),
+    ("島根県", 5, 3),
+    ("広島県", 6, 3),
+    ("山口県", 7, 3),
+    ("香川県", 7, 4),
+    ("徳島県", 7, 5),
+    ("愛媛県", 6, 2),
+    ("高知県", 7, 4),
+    ("福岡県", 6, 1),
+    ("佐賀県", 6, 0),
+    ("長崎県", 7, 0),
+    ("熊本県", 7, 1),
+    ("大分県", 5, 2),
+    ("宮崎県", 7, 2),
+    ("鹿児島県", 5, 1),
+    ("沖縄県", 5, 0),
+];
+
+fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
+    if agg.by_prefecture.is_empty() {
+        return String::new();
+    }
+
+    // 県名 → 件数 のマップ
+    let pref_count: std::collections::HashMap<&str, usize> = agg
+        .by_prefecture
+        .iter()
+        .map(|(k, v)| (k.as_str(), *v))
+        .collect();
+
+    // 件数ベースのデータ配列（ECharts heatmap 用 [col, row, value, name]）
+    let mut data: Vec<serde_json::Value> = Vec::new();
+    let mut max_val: i64 = 1;
+    let mut covered = 0usize;
+
+    for (name, row, col) in PREFECTURE_GRID {
+        let cnt = pref_count.get(name).copied().unwrap_or(0) as i64;
+        if cnt > 0 {
+            covered += 1;
+        }
+        max_val = max_val.max(cnt);
+        data.push(json!([*col as i64, *row as i64, cnt, name]));
+    }
+
+    // 県別給与中央値マップ（オプショナル）
+    let pref_salary: std::collections::HashMap<&str, i64> = agg
+        .by_prefecture_salary
+        .iter()
+        .map(|p| (p.name.as_str(), p.avg_salary))
+        .collect();
+
+    // ECharts heatmap config
+    let chart = json!({
+        "tooltip": {
+            "position": "top",
+            "formatter": "function(p){return p.data[3]+'<br/>掲載: '+p.data[2]+'件';}"
+        },
+        "grid": {"left": "3%", "right": "3%", "top": "3%", "bottom": "12%", "containLabel": true},
+        "xAxis": {
+            "type": "category",
+            "show": false,
+            "data": ["c0","c1","c2","c3","c4","c5","c6","c7","c8","c9","c10","c11","c12"],
+            "splitArea": {"show": false}
+        },
+        "yAxis": {
+            "type": "category",
+            "show": false,
+            "data": ["r0","r1","r2","r3","r4","r5","r6","r7"],
+            "inverse": true,
+            "splitArea": {"show": false}
+        },
+        "visualMap": {
+            "min": 0,
+            "max": max_val,
+            "calculable": true,
+            "orient": "horizontal",
+            "left": "center",
+            "bottom": "0%",
+            "textStyle": {"color": "#94a3b8", "fontSize": 10},
+            "inRange": {"color": ["#1e293b", "#1e40af", "#3b82f6", "#10b981", "#f59e0b"]}
+        },
+        "series": [{
+            "type": "heatmap",
+            "data": data,
+            "label": {"show": true, "color": "#e2e8f0", "fontSize": 9, "formatter": "function(p){return p.data[3].replace(/[県府都道]$/,'').slice(0,2);}"},
+            "itemStyle": {"borderColor": "#334155", "borderWidth": 1},
+            "emphasis": {"itemStyle": {"shadowBlur": 10, "shadowColor": "rgba(59,130,246,0.5)"}}
+        }]
+    });
+
+    let config_str = chart.to_string().replace('\'', "&#39;");
+
+    // 補助テーブル（Top 5 + 給与中央値）
+    let mut table_html = String::from(
+        r#"<table class="w-full text-[11px] text-slate-300 mt-2"><thead><tr class="border-b border-slate-700"><th class="text-left py-1">都道府県</th><th class="text-right py-1">掲載件数</th><th class="text-right py-1">平均給与</th></tr></thead><tbody>"#,
+    );
+    for (name, cnt) in agg.by_prefecture.iter().take(5) {
+        let sal = pref_salary
+            .get(name.as_str())
+            .map(|v| format!("{}円", format_number(*v)))
+            .unwrap_or_else(|| "—".to_string());
+        write!(
+            table_html,
+            r#"<tr class="border-b border-slate-800"><td class="py-1">{name}</td><td class="text-right text-emerald-400">{cnt}件</td><td class="text-right text-amber-400">{sal}</td></tr>"#,
+            name = escape_html(name),
+            cnt = format_number(*cnt as i64),
+            sal = sal,
+        )
+        .unwrap();
+    }
+    table_html.push_str("</tbody></table>");
+
+    format!(
+        r##"<section class="stat-card" id="survey-prefecture-heatmap" data-pref-count="{covered}">
+            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-2">
+                都道府県別ヒートマップ
+                <span class="text-[10px] font-normal text-slate-500" tabindex="0" title="47都道府県を地理的に配置したヒートマップ。色濃度が掲載件数を表します。データのある県のみ着色。">ⓘ</span>
+                <span class="ml-auto text-[10px] font-normal text-slate-500">対象: {covered}/47県</span>
+            </h3>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <div class="lg:col-span-2 bg-slate-900/40 rounded p-2">
+                    <div class="echart" style="height:340px" data-chart-config='{config_str}'></div>
+                </div>
+                <div class="bg-slate-900/40 rounded p-3">
+                    <div class="text-xs font-semibold text-slate-300 mb-1">掲載件数 Top 5</div>
+                    {table_html}
+                    <p class="text-[10px] text-slate-500 mt-2">クリックで都道府県別の詳細統計を「地域・タグの内訳」セクションで確認できます。</p>
+                </div>
+            </div>
+            <div class="mt-3 p-2 bg-blue-500/5 border-l-2 border-blue-500/40 rounded text-[11px] text-slate-300">
+                <span class="text-blue-400 font-semibold">読み方:</span> 色が濃いほど掲載件数が多い地域。空白セルはデータなし（0件）です。求人の地理的偏在を一目で確認できます。
+            </div>
+        </section>"##
     )
 }
 
