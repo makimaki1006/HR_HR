@@ -61,6 +61,13 @@ pub struct InsightContext {
     // v2_external_education (47県 × education_level: 中卒/高卒/短大高専/大卒/大学院)
     // 国勢調査 2020 / 25 歳以上人口の最終学歴別構成
     pub ext_education: Vec<Row>,
+    // === CR-9 (2026-04-27): 産業ミスマッチ警戒 section で利用 ===
+    // 国勢調査 v2_external_industry_structure (集計コード AS/AR/CR 除外済み、都道府県粒度)
+    // 列: industry_code, industry_name, employees_total ほか
+    pub ext_industry_employees: Vec<Row>,
+    // HW 求人の産業大分類別件数 (12 大分類にマッピング済み、件数降順)
+    // 例: [("医療,福祉", 1200), ("製造業", 800), ...]
+    pub hw_industry_counts: Vec<(String, i64)>,
     // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
     pub pref_avg_unemployment_rate: Option<f64>,
     pub pref_avg_single_rate: Option<f64>,
@@ -165,6 +172,18 @@ pub(crate) fn build_insight_context(
         ext_geography: af::fetch_geography(db, turso, pref, muni),
         // Impl-2 (2026-04-26): 学歴分布 (subtab5_phase4_7::fetch_education を再利用)
         ext_education: af::fetch_education(db, turso, pref),
+        // CR-9 (2026-04-27): 産業ミスマッチ警戒
+        // 国勢調査 産業構造 (prefecture_code 経由、市区町村集計済み)
+        ext_industry_employees: {
+            use crate::geo::pref_name_to_code;
+            let pref_code = pref_name_to_code()
+                .get(pref)
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            af::fetch_industry_structure(db, turso, &pref_code)
+        },
+        // HW 求人の 12 大分類別件数 (postings.industry_raw 経由)
+        hw_industry_counts: af::fetch_hw_industry_counts(db, pref, muni),
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate: af::fetch_prefecture_mean(
             db,

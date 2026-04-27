@@ -197,6 +197,107 @@ fn normalize_industry_name(raw: &str) -> String {
         .collect()
 }
 
+/// HW の `industry_raw` (詳細分類、JSIC 小分類レベルが多い) を
+/// 国勢調査 大分類 (本モジュールの 12 大分類版) にマッピング。
+///
+/// keyword マッチング方式。完全一致せず曖昧な場合「サービス業（他に分類されないもの）」に
+/// fallback。これは雑処理だが「ギャップ表示の参考値」用途であり厳密一致は不要。
+///
+/// メモリルール `feedback_correlation_not_causation`: マッピング誤差は注記で言及。
+pub(crate) fn map_hw_to_major_industry(industry_raw: &str) -> &'static str {
+    let s = industry_raw;
+    if s.contains("病院") || s.contains("医療") || s.contains("診療") || s.contains("歯科")
+        || s.contains("助産") || s.contains("看護") || s.contains("獣医")
+        || s.contains("社会保険") || s.contains("社会福祉") || s.contains("児童福祉")
+        || s.contains("障害者") || s.contains("老人") || s.contains("介護")
+        || s.contains("保育")
+    {
+        return "医療，福祉";
+    }
+    if s.contains("建設") || s.contains("土木") || s.contains("建築")
+        || s.contains("総合工事") || s.contains("設備工事")
+    {
+        return "建設業";
+    }
+    if s.contains("製造") || s.contains("食料品") || s.contains("飲料")
+        || s.contains("繊維") || s.contains("衣服") || s.contains("木材")
+        || s.contains("家具") || s.contains("印刷") || s.contains("化学")
+        || s.contains("プラスチック") || s.contains("ゴム") || s.contains("窯業")
+        || s.contains("金属") || s.contains("機械") || s.contains("輸送用")
+        || s.contains("精密")
+    {
+        return "製造業";
+    }
+    if s.contains("運輸") || s.contains("運送") || s.contains("配送")
+        || s.contains("郵便") || s.contains("貨物") || s.contains("旅客")
+        || s.contains("鉄道") || s.contains("自動車運送") || s.contains("倉庫")
+    {
+        return "運輸業，郵便業";
+    }
+    if s.contains("卸売") || s.contains("小売") || s.contains("商店") {
+        return "卸売業，小売業";
+    }
+    if s.contains("飲食店") || s.contains("レストラン") || s.contains("食堂")
+        || s.contains("酒場") || s.contains("ビヤホール") || s.contains("バー")
+        || s.contains("喫茶") || s.contains("旅館") || s.contains("ホテル")
+        || s.contains("宿泊")
+    {
+        return "宿泊業，飲食サービス業";
+    }
+    if s.contains("ソフトウェア") || s.contains("情報サービス")
+        || s.contains("通信業") || s.contains("情報通信")
+        || s.contains("インターネット") || s.contains("放送")
+        || s.contains("映像") || s.contains("出版")
+    {
+        return "情報通信業";
+    }
+    if s.contains("学校") || s.contains("教育") || s.contains("学習支援")
+        || s.contains("塾")
+    {
+        return "教育，学習支援業";
+    }
+    if s.contains("不動産") || s.contains("物品賃貸") {
+        return "不動産業，物品賃貸業";
+    }
+    if s.contains("金融") || s.contains("銀行") || s.contains("保険")
+        || s.contains("証券")
+    {
+        return "金融業，保険業";
+    }
+    if s.contains("農業") || s.contains("林業") || s.contains("漁業")
+        || s.contains("水産")
+    {
+        return "農林漁業";
+    }
+    if s.contains("鉱業") || s.contains("採石") || s.contains("砂利") {
+        return "鉱業";
+    }
+    if s.contains("電気") && s.contains("供給") || s.contains("ガス業")
+        || s.contains("熱供給") || s.contains("水道業")
+    {
+        return "電気・ガス・熱供給・水道業";
+    }
+    if s.contains("学術") || s.contains("専門") && s.contains("技術")
+        || s.contains("広告") || s.contains("デザイン") || s.contains("法務")
+        || s.contains("会計")
+    {
+        return "学術研究，専門・技術サービス業";
+    }
+    if s.contains("理容") || s.contains("美容") || s.contains("クリーニング")
+        || s.contains("浴場") || s.contains("娯楽") || s.contains("遊技場")
+        || s.contains("興行") || s.contains("冠婚葬祭")
+    {
+        return "生活関連サービス業，娯楽業";
+    }
+    if s.contains("公務") {
+        return "公務（他に分類されるものを除く）";
+    }
+    if s.contains("複合サービス") {
+        return "複合サービス事業";
+    }
+    "サービス業（他に分類されないもの）"
+}
+
 /// 産業大分類 (本モジュール内 fail-soft 用)
 ///
 /// 呼び出し側で集計時に使用する想定の大分類リスト (順序固定で再現性確保)。
@@ -351,6 +452,78 @@ mod tests {
         m.insert("industry_name".to_string(), json!(name));
         m.insert("employees_total".to_string(), json!(total));
         m
+    }
+
+    /// CR-9 統合 (2026-04-27): HW industry_raw → 12 大分類マッピングの逆証明
+    /// 実 postings.industry_raw に存在する代表値を 12 大分類のいずれかに収束させる。
+    #[test]
+    fn map_hw_to_major_industry_real_world_values() {
+        // 医療・福祉系
+        assert_eq!(map_hw_to_major_industry("病院"), "医療，福祉");
+        assert_eq!(map_hw_to_major_industry("一般診療所"), "医療，福祉");
+        assert_eq!(map_hw_to_major_industry("歯科診療所"), "医療，福祉");
+        assert_eq!(map_hw_to_major_industry("老人福祉・介護事業"), "医療，福祉");
+        assert_eq!(map_hw_to_major_industry("障害者福祉事業"), "医療，福祉");
+        assert_eq!(
+            map_hw_to_major_industry("新聞保育・児童福祉事業"),
+            "医療，福祉"
+        );
+        // 建設系
+        assert_eq!(
+            map_hw_to_major_industry("一般土木建築工事業"),
+            "建設業"
+        );
+        assert_eq!(
+            map_hw_to_major_industry("土木工事業（舗装工事業を除く）"),
+            "建設業"
+        );
+        // 運輸系
+        assert_eq!(
+            map_hw_to_major_industry("一般貨物自動車運送業"),
+            "運輸業，郵便業"
+        );
+        assert_eq!(
+            map_hw_to_major_industry("一般乗用旅客自動車運送業"),
+            "運輸業，郵便業"
+        );
+        // 飲食宿泊系
+        assert_eq!(
+            map_hw_to_major_industry("食堂，レストラン（専門料理店を除く）"),
+            "宿泊業，飲食サービス業"
+        );
+        assert_eq!(
+            map_hw_to_major_industry("旅館，ホテル"),
+            "宿泊業，飲食サービス業"
+        );
+        // 情報通信
+        assert_eq!(
+            map_hw_to_major_industry("ソフトウェア業"),
+            "情報通信業"
+        );
+        // 不明分類は fallback
+        assert_eq!(
+            map_hw_to_major_industry("他に分類されないもの"),
+            "サービス業（他に分類されないもの）"
+        );
+    }
+
+    /// CR-9 統合: マッピング結果がすべて 12 大分類リストに収まるドメイン不変条件
+    #[test]
+    fn map_hw_to_major_industry_all_outputs_in_majors() {
+        let test_inputs = [
+            "病院", "労働者派遣業", "建物総合管理業", "ソフトウェア業",
+            "食堂", "理容業", "美容業", "農業", "製造業", "鉄道業",
+            "金融業", "保険業", "学校教育", "公務", "未知の業種XYZ",
+        ];
+        for input in &test_inputs {
+            let mapped = map_hw_to_major_industry(input);
+            assert!(
+                MAJOR_INDUSTRY_CATEGORIES.contains(&mapped),
+                "input={:?} -> mapped={:?} は 12 大分類のいずれかに収まるべき",
+                input,
+                mapped
+            );
+        }
     }
 
     /// テスト 1: 構成比計算の逆証明
