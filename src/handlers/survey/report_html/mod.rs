@@ -16,10 +16,12 @@ use super::hw_enrichment::HwAreaEnrichment;
 use super::job_seeker::JobSeekerAnalysis;
 
 // ======== サブモジュール宣言 (大規模ファイル分割: C-2) ========
+mod demographics;
 mod employment;
 mod executive_summary;
 mod helpers;
 mod hw_enrichment;
+mod lifestyle;
 mod notes;
 mod region;
 mod salary_stats;
@@ -36,18 +38,22 @@ use hw_enrichment::render_section_hw_enrichment;
 use summary::render_section_summary;
 // render_section_hw_comparison / render_comparison_card は hw_enrichment.rs 内で legacy として保持
 // (#[allow(dead_code)] でモジュール内で抑制済み)
+use demographics::render_section_demographics;
 use employment::render_section_emp_group_native;
 use employment::render_section_employment;
 use helpers::{compose_target_region, render_scripts};
+use lifestyle::render_section_lifestyle;
 use notes::render_section_notes;
 use region::render_section_municipality_salary;
 use region::render_section_region;
+use region::render_section_region_extras;
 use salary_stats::render_section_salary_stats;
 use salesnow::render_section_salesnow_companies;
 use scatter::render_section_scatter;
 use seeker::render_section_job_seeker;
 use style::render_css;
 use wage::render_section_company;
+use wage::render_section_household_vs_salary;
 use wage::render_section_min_wage;
 use wage::render_section_tag_salary;
 
@@ -199,6 +205,14 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     // --- Section 3: 給与分布 統計 ---
     render_section_salary_stats(&mut html, agg, salary_min_values, salary_max_values);
 
+    // --- Section 3D (Impl-2 案 D-1/D-2/#10/#17): 人材デモグラフィック ---
+    // 年齢層ピラミッド + 学歴分布 + 採用候補プール (失業者) + 教育施設密度を
+    // 1 つの section で「対象地域の労働力候補者」の俯瞰として表示。
+    // hw_context が None もしくは関連データ全空なら非表示。
+    if let Some(ctx) = hw_context {
+        render_section_demographics(&mut html, ctx);
+    }
+
     // --- Section 4: 雇用形態分布 ---
     render_section_employment(&mut html, agg, by_emp_type_salary);
 
@@ -212,11 +226,28 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     // --- Section 6: 地域分析（都道府県） ---
     render_section_region(&mut html, agg);
 
+    // --- Section 6 補助 (Impl-1 案 #18 / D-4): 地域特性 補足（地理 / 人口構成） ---
+    // 可住地密度 + 都市分類 + 高齢化率 KPI。ctx が無い、もしくは関連データ全空なら非表示。
+    if let Some(ctx) = hw_context {
+        render_section_region_extras(&mut html, ctx);
+    }
+
     // --- Section 7: 地域分析（市区町村） ---
     render_section_municipality_salary(&mut html, agg);
 
     // --- Section 8: 最低賃金比較 ---
     render_section_min_wage(&mut html, agg);
+
+    // --- Section 8 補助 (Impl-3 案 #8): 世帯所得 vs CSV 給与競争力（図 8-2） ---
+    // 最低賃金比較（表 8-1: 法定下限）に対し、世帯月平均支出（実生活コスト）との
+    // 比率を補完表示する。hw_context が無い、または ext_household_spending が空なら非表示。
+    render_section_household_vs_salary(&mut html, agg, hw_context);
+
+    // --- Section 8B (Impl-3 案 P-1/P-2): ライフスタイル特性 ---
+    // 社会生活参加率（v2_external_social_life）と
+    // ネット利用率（v2_external_internet_usage）から
+    // オフ活動量・オンライン媒体適合度を提示。
+    render_section_lifestyle(&mut html, hw_context);
 
     // --- Section 9: 企業分析 ---
     render_section_company(&mut html, by_company);
@@ -510,6 +541,10 @@ mod tests {
             ext_medical_welfare: vec![],
             ext_education_facilities: vec![],
             ext_geography: vec![],
+            ext_education: vec![],
+            // Impl-3: ライフスタイル
+            ext_social_life: vec![],
+            ext_internet_usage: vec![],
             // Phase A: 県平均
             pref_avg_unemployment_rate: None,
             pref_avg_single_rate: None,
