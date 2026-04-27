@@ -304,8 +304,10 @@ fn compute_metrics(ctx: &InsightContext) -> TightnessMetrics {
             m.unemployment_rate = Some(ur);
         }
     }
-    // 全国平均失業率 (pref_avg_unemployment_rate は 0-1 比率なので 100 倍)
-    m.unemployment_national = ctx.pref_avg_unemployment_rate.map(|v| v * 100.0);
+    // 全国平均失業率
+    // 注: fetch_prefecture_mean (subtab7_other.rs:282) の SQL が既に * 100 して
+    //     パーセント単位で返すため、ここで再度 100 倍してはならない (バグ修正 2026-04-27)。
+    m.unemployment_national = ctx.pref_avg_unemployment_rate;
 
     // (4) 離職率: ext_turnover.separation_rate
     //     DB: Turso v2_external_turnover (industry='産業計') / カラム: separation_rate
@@ -350,13 +352,14 @@ fn normalize_linear(v: f64, lo: f64, hi: f64) -> f64 {
 // =====================================================================
 
 /// 各 KPI カードの下に表示する小さな注記
+/// `source` には公開統計の正式名 (例: 「総務省統計局 労働力調査」) を渡す
 /// `granularity` 例: "都道府県" / "市区町村"
-fn render_data_source_note(table: &str, formula: &str, granularity: &str) -> String {
+fn render_data_source_note(source: &str, formula: &str, granularity: &str) -> String {
     format!(
         "<div class=\"data-source-note\" style=\"font-size:9px;color:#9ca3af;margin-top:4px;line-height:1.4;\">\
          <strong>出典</strong>: {} / <strong>計算</strong>: {} / <strong>粒度</strong>: {}\
          </div>",
-        escape_html(table),
+        escape_html(source),
         escape_html(formula),
         escape_html(granularity),
     )
@@ -373,61 +376,61 @@ fn render_data_sources_collapsible(html: &mut String) {
     html.push_str(
         "<thead><tr style=\"background:#eef2ff;\">\
          <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">指標</th>\
-         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">DB / テーブル</th>\
-         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">カラム</th>\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">出典 (公開統計)</th>\
          <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">計算式</th>\
          <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">粒度</th>\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">更新</th>\
          </tr></thead>\n<tbody>\n",
     );
     let rows: &[(&str, &str, &str, &str, &str)] = &[
         (
             "有効求人倍率",
-            "Turso v2_external_job_openings_ratio",
-            "ratio_total",
+            "厚生労働省 職業安定業務統計 (一般職業紹介状況)",
             "有効求人数 / 有効求職者数 (公表値)",
             "都道府県",
+            "月次",
         ),
         (
             "HW 欠員補充率",
-            "ローカル v2_vacancy_rate",
-            "vacancy_count / total_count",
+            "ハローワーク掲載求人 (自社集計、e-Stat 由来ではない)",
             "(欠員補充求人数 / 全求人数) × 100",
             "市区町村",
+            "随時",
         ),
         (
             "失業率",
-            "Turso v2_external_labor_force",
-            "unemployment_rate",
-            "完全失業率 (公表値、労働力調査)",
+            "総務省統計局 労働力調査",
+            "完全失業率 (公表値)",
             "都道府県",
+            "四半期",
         ),
         (
             "離職率",
-            "Turso v2_external_turnover (industry='産業計')",
-            "separation_rate",
-            "離職者数 / 常用労働者数 (公表値、雇用動向調査)",
+            "厚生労働省 雇用動向調査 (産業計)",
+            "離職者数 / 常用労働者数 (公表値)",
             "都道府県",
+            "年次",
         ),
         (
             "開廃業動態 (補助)",
-            "Turso v2_external_business_dynamics",
-            "opening_rate / closure_rate",
-            "純増 = opening_rate - closure_rate",
+            "経済産業省 経済センサス活動調査",
+            "純増 = 開業率 - 廃業率 (公表値)",
             "都道府県",
+            "5 年に 1 回",
         ),
     ];
-    for (metric, db, col, formula, gran) in rows {
+    for (metric, source, formula, gran, freq) in rows {
         html.push_str(&format!(
             "<tr><td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
-             <td style=\"padding:4px 6px;border:1px solid #d1d5db;font-family:monospace;\">{}</td>\
-             <td style=\"padding:4px 6px;border:1px solid #d1d5db;font-family:monospace;\">{}</td>\
+             <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
+             <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
              <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
              <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td></tr>\n",
             escape_html(metric),
-            escape_html(db),
-            escape_html(col),
+            escape_html(source),
             escape_html(formula),
             escape_html(gran),
+            escape_html(freq),
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -610,7 +613,7 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             interp,
         );
         html.push_str(&render_data_source_note(
-            "Turso v2_external_job_openings_ratio",
+            "厚生労働省 職業安定業務統計 (一般職業紹介状況)",
             "有効求人数 / 有効求職者数",
             "都道府県",
         ));
@@ -653,8 +656,8 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             label,
         );
         html.push_str(&render_data_source_note(
-            "ローカル v2_vacancy_rate",
-            "(vacancy_count / total_count) × 100",
+            "ハローワーク掲載求人 (自社集計)",
+            "(欠員補充求人数 / 全求人数) × 100",
             "市区町村",
         ));
         html.push_str("</div>\n");
@@ -693,8 +696,8 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             label,
         );
         html.push_str(&render_data_source_note(
-            "Turso v2_external_labor_force",
-            "完全失業率 (公表値、労働力調査)",
+            "総務省統計局 労働力調査",
+            "完全失業率 (公表値)",
             "都道府県",
         ));
         html.push_str("</div>\n");
@@ -732,8 +735,8 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             label,
         );
         html.push_str(&render_data_source_note(
-            "Turso v2_external_turnover (industry='産業計')",
-            "離職者数 / 常用労働者数 (公表値、雇用動向調査)",
+            "厚生労働省 雇用動向調査 (産業計)",
+            "離職者数 / 常用労働者数 (公表値)",
             "都道府県",
         ));
         html.push_str("</div>\n");
@@ -764,8 +767,8 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             escape_html(interp)
         ));
         html.push_str(&render_data_source_note(
-            "Turso v2_external_business_dynamics",
-            "純増 = opening_rate - closure_rate",
+            "経済産業省 経済センサス活動調査",
+            "純増 = 開業率 - 廃業率 (公表値)",
             "都道府県",
         ));
         html.push_str("</div>\n");
@@ -1097,14 +1100,17 @@ mod tests {
         assert!(html.contains("2.4"), "失業 2.4%");
         assert!(html.contains("14.2"), "離職 14.2%");
 
-        // データソース注記が各 KPI に存在
+        // データソース注記が各 KPI に公開統計名で存在 (内部 DB 名は意味がないため公開出典名に変更)
         assert!(
-            html.contains("v2_external_job_openings_ratio"),
-            "有効求人倍率 DB テーブル名"
+            html.contains("職業安定業務統計"),
+            "有効求人倍率は職業安定業務統計が出典"
         );
-        assert!(html.contains("v2_vacancy_rate"), "欠員補充率 DB テーブル名");
-        assert!(html.contains("v2_external_labor_force"), "失業率 DB テーブル名");
-        assert!(html.contains("v2_external_turnover"), "離職率 DB テーブル名");
+        assert!(
+            html.contains("ハローワーク掲載求人"),
+            "欠員補充率は HW 掲載求人 (自社集計) が出典"
+        );
+        assert!(html.contains("労働力調査"), "失業率は労働力調査が出典");
+        assert!(html.contains("雇用動向調査"), "離職率は雇用動向調査が出典");
 
         // 全国平均比較値
         assert!(html.contains("全国"), "全国平均比較値");
@@ -1135,13 +1141,13 @@ mod tests {
             "<details> 折りたたみが必要"
         );
         assert!(html.contains("データソース・計算方法"));
-        // テーブル形式
+        // 公開統計名がテーブル内に出現 (内部 DB 名は表示しない)
         assert!(
-            html.contains("ratio_total") && html.contains("vacancy_count"),
-            "計算式テーブル内に実カラム名が必要"
+            html.contains("職業安定業務統計") && html.contains("労働力調査"),
+            "公開統計名が出典列に表示される"
         );
-        assert!(html.contains("separation_rate"));
-        assert!(html.contains("unemployment_rate"));
+        assert!(html.contains("雇用動向調査"));
+        assert!(html.contains("経済センサス"));
     }
 
     /// 開廃業動態 (補助 KPI) が ext_business_dynamics から正しく描画される
@@ -1168,8 +1174,8 @@ mod tests {
         // 純増 = 5.2 - 3.8 = +1.4
         assert!(html.contains("+1.4"), "純増 +1.4pt");
         assert!(html.contains("拡大基調"), "拡大基調の解釈");
-        // 補助 KPI にもデータソース注記
-        assert!(html.contains("v2_external_business_dynamics"));
+        // 補助 KPI にも公開統計名のデータソース注記
+        assert!(html.contains("経済センサス"), "開廃業動態は経済センサスが出典");
     }
 
     /// 必須 caveat 文言の存在 (因果非主張・粒度制約)
@@ -1250,9 +1256,10 @@ mod tests {
     }
 
     /// 全国平均失業率比較が `pref_avg_unemployment_rate` から取得される
+    /// (fetch_prefecture_mean は SQL 内で既に * 100 してパーセントで返すため、再変換しない)
     #[test]
     fn unemployment_national_compare_from_pref_avg() {
-        // 全国平均 0.024 (=2.4%) → 100 倍されて 2.4%
+        // pref_avg_unemployment_rate は既にパーセント単位 (例: 2.4 = 2.4%)
         let ctx = build_test_ctx(
             vec![],
             vec![],
@@ -1260,11 +1267,37 @@ mod tests {
             vec![row(&[("unemployment_rate", json!(2.0))])],
             vec![],
             vec![],
-            Some(0.024),
+            Some(2.4),
         );
         let m = compute_metrics(&ctx);
         assert_eq!(m.unemployment_rate, Some(2.0));
         assert_eq!(m.unemployment_national, Some(2.4));
+    }
+
+    /// 逆証明: 100 倍二重バグの再発防止
+    /// fetch_prefecture_mean が 3.8 (パーセント) を返す場合、
+    /// unemployment_national は 380 にならず 3.8 のまま保持される
+    #[test]
+    fn unemployment_national_not_double_scaled() {
+        let ctx = build_test_ctx(
+            vec![],
+            vec![],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(3.8))])],
+            vec![],
+            vec![],
+            Some(3.8),
+        );
+        let m = compute_metrics(&ctx);
+        assert_eq!(
+            m.unemployment_national,
+            Some(3.8),
+            "pref_avg_unemployment_rate は SQL で既に * 100 されているため再度 100 倍してはならない"
+        );
+        assert!(
+            m.unemployment_national.unwrap() < 100.0,
+            "全国失業率は 100% 未満であるべき (380% のような不正値を防ぐ)"
+        );
     }
 
     /// has_any_data: 何も無ければ false / 1 つでもあれば true
@@ -1335,16 +1368,16 @@ mod tests {
         );
     }
 
-    /// データソース注記関数: 単体テスト
+    /// データソース注記関数: 単体テスト (公開統計名で出典を表示)
     #[test]
     fn render_data_source_note_format() {
         let note = render_data_source_note(
-            "Turso v2_external_test",
-            "A / B × 100",
+            "総務省統計局 労働力調査",
+            "完全失業率 (公表値)",
             "都道府県",
         );
-        assert!(note.contains("v2_external_test"));
-        assert!(note.contains("A / B × 100"));
+        assert!(note.contains("労働力調査"));
+        assert!(note.contains("完全失業率"));
         assert!(note.contains("都道府県"));
         assert!(note.contains("出典"));
         assert!(note.contains("計算"));
