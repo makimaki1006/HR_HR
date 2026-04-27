@@ -21,7 +21,7 @@ mod employment;
 mod executive_summary;
 mod helpers;
 mod hw_enrichment;
-mod industry_mismatch;
+pub(crate) mod industry_mismatch;
 mod lifestyle;
 mod market_tightness;
 mod notes;
@@ -335,10 +335,16 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     // 入力データが揃わないケースは fail-soft で section 非表示。
     // 将来 fetch 実装時はここに集計済みデータを渡す。
     // 入力契約:
-    //   - industry_employees: 集計コード除外済みの行 (industry_name + employees_total)
-    //   - hw_industry_counts: HW 産業大分類別 (name, count)
-    // 現状ともに空のため fail-soft で常に非表示 (将来の API 拡張で値を流す)。
-    render_section_industry_mismatch(&mut html, &[], &[]);
+    //   - industry_employees: 集計コード (AS/AR/CR) 除外済み (fetch_industry_structure)
+    //   - hw_industry_counts: HW industry_raw を 12 大分類にマッピング後の集計 (fetch_hw_industry_counts)
+    // 2026-04-27: InsightContext に ext_industry_employees / hw_industry_counts を populate 済み
+    if let Some(ctx) = hw_context {
+        render_section_industry_mismatch(
+            &mut html,
+            &ctx.ext_industry_employees,
+            &ctx.hw_industry_counts,
+        );
+    }
 
     // --- Section 3D (Impl-2 案 D-1/D-2/#10/#17): 人材デモグラフィック ---
     // 年齢層ピラミッド + 学歴分布 + 採用候補プール (失業者) + 教育施設密度を
@@ -688,6 +694,8 @@ mod tests {
             ext_education_facilities: vec![],
             ext_geography: vec![],
             ext_education: vec![],
+            ext_industry_employees: vec![],
+            hw_industry_counts: vec![],
             // Impl-3: ライフスタイル
             ext_social_life: vec![],
             ext_internet_usage: vec![],

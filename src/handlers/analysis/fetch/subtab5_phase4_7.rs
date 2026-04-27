@@ -199,6 +199,72 @@ pub(crate) fn fetch_internet_usage(db: &Db, turso: Option<&TursoDb>, pref: &str)
     query_turso_or_local(turso, db, &sql, &params, "v2_external_internet_usage")
 }
 
+/// HW 求人 (postings) の `industry_raw` を集計し、12 大分類 (国勢調査) に
+/// マッピングして件数降順で返す。
+///
+/// 用途: CR-9 産業ミスマッチ警戒 section (`industry_mismatch.rs`) の比較対象。
+///
+/// 粒度:
+/// - `pref` + `muni` 指定: 当該市区町村の HW 掲載求人を集計
+/// - `pref` のみ: 都道府県集計
+/// - 両方空: 全国集計
+///
+/// メモリルール準拠:
+/// - `feedback_hw_data_scope`: HW 掲載求人のみで全求人市場ではない
+/// - `feedback_never_guess_data`: postings.industry_raw は実カラム grep 確認済み
+pub(crate) fn fetch_hw_industry_counts(db: &Db, pref: &str, muni: &str) -> Vec<(String, i64)> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT industry_raw, COUNT(*) as cnt FROM postings \
+             WHERE prefecture = ?1 AND municipality = ?2 \
+               AND industry_raw IS NOT NULL AND industry_raw != '' \
+             GROUP BY industry_raw"
+                .to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT industry_raw, COUNT(*) as cnt FROM postings \
+             WHERE prefecture = ?1 \
+               AND industry_raw IS NOT NULL AND industry_raw != '' \
+             GROUP BY industry_raw"
+                .to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT industry_raw, COUNT(*) as cnt FROM postings \
+             WHERE industry_raw IS NOT NULL AND industry_raw != '' \
+             GROUP BY industry_raw"
+                .to_string(),
+            vec![],
+        )
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows: Vec<Row> = db.query(&sql, &p).unwrap_or_default();
+    use super::super::super::helpers::{get_i64, get_str_ref};
+    use super::super::super::survey::report_html::industry_mismatch::map_hw_to_major_industry;
+    let mut major_counts: HashMap<String, i64> = HashMap::new();
+    for r in &rows {
+        let raw = get_str_ref(r, "industry_raw");
+        if raw.is_empty() {
+            continue;
+        }
+        let cnt = get_i64(r, "cnt");
+        if cnt <= 0 {
+            continue;
+        }
+        let major = map_hw_to_major_industry(raw).to_string();
+        *major_counts.entry(major).or_insert(0) += cnt;
+    }
+    let mut out: Vec<(String, i64)> = major_counts.into_iter().collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1));
+    out
+}
+
 pub(crate) fn fetch_industry_structure(
     db: &Db,
     turso: Option<&TursoDb>,
