@@ -113,6 +113,37 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     salesnow_companies: &[NearbyCompany],
     hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
 ) -> String {
+    render_survey_report_page_with_municipalities(
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
+        hw_context,
+        salesnow_companies,
+        hw_enrichment_map,
+        &[],
+    )
+}
+
+/// 2026-04-26 Granularity: 市区町村別デモグラフィック付き拡張版
+///
+/// ユーザー指摘「都道府県単位は参考にならない」に対応。
+/// `municipality_demographics` に CSV 上位 N 市区町村のピラミッド・労働力・教育施設等を渡す。
+/// 空 Vec ならデフォルト (都道府県粒度のみ) で動作 (後方互換)。
+pub(crate) fn render_survey_report_page_with_municipalities(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+    municipality_demographics: &[super::granularity::MunicipalityDemographics],
+) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
         .to_string();
@@ -211,6 +242,17 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     // hw_context が None もしくは関連データ全空なら非表示。
     if let Some(ctx) = hw_context {
         render_section_demographics(&mut html, ctx);
+    }
+
+    // --- Section 3D-M (2026-04-26 Granularity): 主要市区町村別 デモグラフィック ---
+    // ユーザー指摘「都道府県単位は参考にならない」に対応。
+    // CSV 件数上位 3 市区町村について、市区町村粒度の年齢ピラミッド / 失業者 / 教育施設を
+    // 横並びカードで表示する。municipality_demographics が空ならスキップ。
+    if !municipality_demographics.is_empty() {
+        demographics::render_section_demographics_by_municipality(
+            &mut html,
+            municipality_demographics,
+        );
     }
 
     // --- Section 4: 雇用形態分布 ---
@@ -1203,6 +1245,193 @@ mod ui2_contract_tests {
                 || html.contains("代表ではありません")
                 || html.contains("掲載"),
             "HW データスコープ注意は維持（feedback_hw_data_scope.md 準拠）"
+        );
+    }
+}
+
+// ============================================================
+// Readability 強化（2026-04-26）: 見やすさ徹底改善 contract tests
+//
+// PDF 15 ページ → 10-12 ページへの圧縮を狙う CSS / 構造変更を
+// 機械検証する。情報を減らさず、見やすさを上げる方針。
+//   - <details> による折りたたみ
+//   - 章番号統一・印刷時の重複 KPI 非表示
+//   - page-break-before / break-after
+//   - 注記のフッター集約ポインタ
+// ============================================================
+#[cfg(test)]
+mod readability_contract_tests {
+    use super::super::aggregator::SurveyAggregation;
+    use super::super::job_seeker::JobSeekerAnalysis;
+    use super::render_survey_report_page;
+
+    fn render_minimal() -> String {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[])
+    }
+
+    /// (1) Executive Summary に折りたたみ details が存在する
+    #[test]
+    fn readability_collapsible_guide_present() {
+        let html = render_minimal();
+        assert!(
+            html.contains("<details class=\"collapsible-guide\""),
+            "<details class=\"collapsible-guide\"> による折りたたみが必須"
+        );
+        assert!(
+            html.contains("クリックで開閉") || html.contains("クリックで展開"),
+            "summary テキストにクリックヒントが必須"
+        );
+    }
+
+    /// (2) 重複 KPI grid が legacy class でマークされている（印刷時非表示）
+    #[test]
+    fn readability_legacy_kpi_grid_marked() {
+        let html = render_minimal();
+        assert!(
+            html.contains("exec-kpi-grid-legacy"),
+            "旧 KPI grid に exec-kpi-grid-legacy class が必須（印刷時非表示マーカー）"
+        );
+        // 印刷時非表示 CSS が含まれること
+        assert!(
+            html.contains(".exec-kpi-grid-legacy { display: none !important; }"),
+            "印刷時に旧 KPI を非表示にする CSS rule が必須"
+        );
+    }
+
+    /// (3) Executive Summary に強制改ページが設定されている
+    #[test]
+    fn readability_executive_summary_page_break() {
+        let html = render_minimal();
+        assert!(
+            html.contains("page-break-before: always") && html.contains("page-break-after: always"),
+            "Executive Summary 1 ページ完結のための page-break ルールが必須"
+        );
+    }
+
+    /// (4) 注記フッター集約のためのポインタが存在
+    #[test]
+    fn readability_notes_pointer_present() {
+        let html = render_minimal();
+        assert!(
+            html.contains("notes-pointer"),
+            "「詳細は注記参照」notes-pointer class が必須"
+        );
+        assert!(
+            html.contains("第6章 注記"),
+            "フッター注記への明示参照が必須（情報削除ではなく集約）"
+        );
+    }
+
+    /// (5) 章番号統一: 主要 section が「第N章」プレフィックスで始まる
+    #[test]
+    fn readability_chapter_numbering_consistent() {
+        let html = render_minimal();
+        // 注記セクションは第6章として統一済み
+        assert!(
+            html.contains("第6章 注記"),
+            "注記セクションに『第6章』プレフィックスが必須"
+        );
+        // 章番号統一用の chapter-num CSS class が定義されている
+        assert!(
+            html.contains(".chapter-num") || html.contains("chapter-num"),
+            "章番号統一用の chapter-num CSS class が必須"
+        );
+    }
+
+    /// (6) 印刷時のフォント・余白調整 CSS が存在
+    #[test]
+    fn readability_print_typography_optimized() {
+        let html = render_minimal();
+        // 印刷時 font-size 10pt
+        assert!(
+            html.contains("font-size: 10pt !important"),
+            "印刷時の font-size 圧縮（10pt）が必須"
+        );
+        // 印刷時 dark theme は light に強制
+        assert!(
+            html.contains("color-scheme: light !important"),
+            "印刷時 dark theme を light に強制する CSS が必須"
+        );
+    }
+
+    /// (7) zebra stripe コントラスト強化
+    #[test]
+    fn readability_zebra_stripe_enhanced() {
+        let html = render_minimal();
+        // 既存の薄い #fafafa から #f3f6fb / #eef3fa に強化
+        assert!(
+            html.contains("#eef3fa") || html.contains("#f3f6fb"),
+            "zebra stripe のコントラスト強化色 (#eef3fa / #f3f6fb) が必須"
+        );
+    }
+
+    /// (8) 折りたたみ details は印刷時に強制展開される
+    #[test]
+    fn readability_details_open_on_print() {
+        let html = render_minimal();
+        // 印刷時 summary 非表示 + details-body は強制表示
+        assert!(
+            html.contains("details.collapsible-guide > summary { display: none; }"),
+            "印刷時に summary を非表示にする CSS が必須（本文は強制表示）"
+        );
+    }
+
+    /// (9) KPI 強調クラス (kpi-emphasized) が定義されている
+    #[test]
+    fn readability_kpi_emphasized_class_defined() {
+        let html = render_minimal();
+        assert!(
+            html.contains(".kpi-emphasized"),
+            "主要 KPI 強調用 .kpi-emphasized CSS class 定義が必須"
+        );
+    }
+
+    /// (10) 注記情報は削除ではなく折りたたみ集約（feedback_correlation_not_causation 準拠）
+    #[test]
+    fn readability_no_information_loss() {
+        let html = render_minimal();
+        // 因果≠相関の警告は維持
+        assert!(
+            html.contains("相関") && (html.contains("因果") || html.contains("仮説")),
+            "相関≠因果の注記は折りたたみ後も維持必須"
+        );
+        // HW スコープ警告も維持
+        assert!(
+            html.contains("掲載") || html.contains("代表"),
+            "HW スコープ警告は折りたたみ後も維持必須"
+        );
+    }
+
+    /// (11) 図表とキャプションの分離防止
+    #[test]
+    fn readability_figure_with_caption_class_defined() {
+        let html = render_minimal();
+        assert!(
+            html.contains(".figure-with-caption") || html.contains("figure-with-caption"),
+            "図表+キャプションを分離させない figure-with-caption class 定義が必須"
+        );
+    }
+
+    /// (12) 既存テスト互換確認: section-howto は引き続き出力される
+    #[test]
+    fn readability_preserves_legacy_howto_for_tests() {
+        let agg = {
+            let mut a = SurveyAggregation::default();
+            a.total_count = 100;
+            a
+        };
+        let seeker = JobSeekerAnalysis::default();
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
+        // 折りたたみ追加後も既存 section-howto は出力（テスト互換）
+        assert!(
+            html.contains("section-howto"),
+            "既存 section-howto class は互換のため維持"
+        );
+        assert!(
+            html.contains("このページの読み方"),
+            "「このページの読み方」テキストは維持"
         );
     }
 }

@@ -139,10 +139,14 @@ pub(super) fn render_section_household_vs_salary(
     );
 
     // 必須注記
+    // 2026-04-26 Granularity: 都道府県粒度のみであることを強調
     html.push_str(
-        "<p class=\"note\" style=\"font-size:9pt;color:#666;margin:6px 0;\">\
-         <strong>注:</strong> 世帯支出は 2 人以上世帯平均（家計調査、総務省統計局）。\
+        "<p class=\"note\" style=\"font-size:9pt;color:#b45309;background:#fef3c7;padding:6px 8px;border-left:3px solid #f59e0b;border-radius:3px;margin:6px 0;\">\
+         <strong>⚠ 都道府県粒度の参考値:</strong> 世帯支出は 2 人以上世帯平均（家計調査、総務省統計局）。\
+         本データは <strong>都道府県+政令市</strong> のみで、市区町村別の差は反映されていません。\
          単独世帯・3 人以上世帯では生活費構造が異なります。\
+         CSV の主要市区町村が複数都道府県にまたがる場合、都道府県平均が必ずしも \
+         実際の対象地域の生活コストを代表しないため、参考値としてご利用ください。\
          CSV 給与は別媒体（Indeed / 求人ボックス等）からの抽出値で、家計調査と直接比較する \
          ものではなく、市場内位置の参考としてご利用ください。\
          </p>\n",
@@ -308,6 +312,7 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
     );
 
     // 活用ポイント（feedback_correlation_not_causation.md 準拠: 因果断定を避け「傾向」「観測」で表現）
+    // 2026-04-26 Granularity: 最低賃金は法定上 47 県粒度のみ
     html.push_str(
         "<div class=\"note\">\
         <strong>活用ポイント:</strong> 167h=所定労働時間（8h×20.875日、厚労省「就業条件総合調査 2024」基準）で換算。\
@@ -315,6 +320,14 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
         +10% 以上の求人は地域内で目立つ存在感を持つ傾向があり、応募状況や採用実績に応じて検討材料の 1 つになる可能性があります。\
         ※ 給与水準と応募状況の関係は相関であり、因果関係を示すものではありません。\
     </div>\n",
+    );
+    html.push_str(
+        "<p class=\"note\" style=\"font-size:9pt;color:#b45309;background:#fef3c7;padding:6px 8px;border-left:3px solid #f59e0b;border-radius:3px;margin:6px 0;\">\
+        <strong>⚠ 都道府県粒度の参考値:</strong> 最低賃金は法定で都道府県（47 県）単位のみ。\
+        市区町村別の差はありません（同一都道府県内では最低賃金は同一）。\
+        本表は給与水準が法定下限を満たすかの確認用であり、市区町村別の競争力比較には市区町村粒度の \
+        他指標（CSV 給与中央値・人材プール等）も併用してください。\
+        </p>\n",
     );
 
     html.push_str("</div>\n");
@@ -829,5 +842,28 @@ mod household_vs_salary_tests {
             "多カテゴリ集計 SUM=28万 で比率 89%"
         );
         assert!(html.contains("28.0 万円"), "合算後 28.0 万円表示");
+    }
+
+    /// 2026-04-26 Granularity: 世帯支出 (#8) の都道府県粒度警告が強化されている
+    #[test]
+    fn granularity_household_spending_pref_only_warning_strengthened() {
+        let agg = agg_with_median(250_000);
+        let mut html = String::new();
+        let rows = vec![make_row(&[
+            ("prefecture", json!("東京都")),
+            ("category", json!("食料")),
+            ("monthly_amount", json!(80_000.0)),
+        ])];
+        let ctx = ctx_with_spending(rows);
+        render_section_household_vs_salary(&mut html, &agg, Some(&ctx));
+
+        assert!(
+            html.contains("都道府県粒度の参考値"),
+            "wage 世帯支出: 都道府県粒度の警告強化必須"
+        );
+        assert!(
+            html.contains("市区町村別の差は反映されていません"),
+            "wage 世帯支出: 市区町村別差注記必須"
+        );
     }
 }
