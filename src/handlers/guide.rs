@@ -520,7 +520,7 @@ fn build_section_faq() -> String {
 
         <div class="bg-slate-800/50 rounded p-3">
           <p class="text-white font-semibold">Q: データは最新ですか？</p>
-          <p class="text-slate-400 mt-1">A: HW求人データはスクレイピング実行時点のスナップショットです。最終更新日はログイン後の画面に表示されます。外部統計データの各出典の年次はセクション末尾の出典に記載されています。</p>
+          <p class="text-slate-400 mt-1">A: HW求人データは取得時点のスナップショットです。最終更新日はログイン後の画面に表示されます。外部統計データの各出典の年次はセクション末尾の出典に記載されています。</p>
         </div>
 
         <div class="bg-slate-800/50 rounded p-3">
@@ -530,7 +530,7 @@ fn build_section_faq() -> String {
 
         <div class="bg-slate-800/50 rounded p-3">
           <p class="text-white font-semibold">Q: トレンドタブのデータはいつの期間ですか？</p>
-          <p class="text-slate-400 mt-1">A: 約20ヶ月分のHW求人スナップショットを基に集計しています。各月次のスクレイピング結果を蓄積したもので、リアルタイムの最新データではありません。</p>
+          <p class="text-slate-400 mt-1">A: 約20ヶ月分のHW求人スナップショットを基に集計しています。各月次の取得結果を蓄積したもので、リアルタイムの最新データではありません。</p>
         </div>
 
         <div class="bg-slate-800/50 rounded p-3">

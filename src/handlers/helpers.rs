@@ -83,6 +83,16 @@ pub fn sanitize_tag_text(text: &str) -> String {
             return "[unsafe]".to_string();
         }
     }
+    // 媒体側で省略された「+5」「6+」のような件数オーバーフロー表記は属性ではない
+    // 1〜2 桁の数字 + `+` (前後どちらでも) のみで構成される文字列を除外
+    let stripped = trimmed.trim_start_matches('+').trim_end_matches('+');
+    let is_overflow_marker = !trimmed.is_empty()
+        && trimmed != stripped
+        && stripped.chars().all(|c| c.is_ascii_digit())
+        && (1..=2).contains(&stripped.chars().count());
+    if is_overflow_marker {
+        return String::new();
+    }
     trimmed.to_string()
 }
 
@@ -177,6 +187,20 @@ mod tests {
         assert_eq!(sanitize_tag_text("年間休日120日"), "年間休日120日");
         assert_eq!(sanitize_tag_text(""), "");
         assert_eq!(sanitize_tag_text("未経験可"), "未経験可");
+    }
+
+    #[test]
+    fn test_sanitize_tag_text_overflow_marker() {
+        // 媒体側で「もう N 件」を意味する省略表記はタグではない
+        assert_eq!(sanitize_tag_text("5+"), "");
+        assert_eq!(sanitize_tag_text("6+"), "");
+        assert_eq!(sanitize_tag_text("+5"), "");
+        assert_eq!(sanitize_tag_text("+12"), "");
+        assert_eq!(sanitize_tag_text("99+"), "");
+        // 数字のみ・通常タグ・3桁以上数字+は通す
+        assert_eq!(sanitize_tag_text("5"), "5");
+        assert_eq!(sanitize_tag_text("週休2日"), "週休2日");
+        assert_eq!(sanitize_tag_text("100+"), "100+"); // 3桁以上は属性として扱う
     }
 
     #[test]

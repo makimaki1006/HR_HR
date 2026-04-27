@@ -309,7 +309,7 @@ pub(crate) fn render_survey_report_page_with_municipalities(
 
     // --- Section 2: HW 市場比較 ---
     // 2026-04-24 ユーザー指摘により削除:
-    //   「任意でスクレイピングしている件数 VS ハローワークデータ」という
+    //   「アップロード CSV 件数 VS ハローワークデータ」という
     //   非同質データ比較は無意味。雇用形態構成比・最低賃金比較の "媒体" 値も
     //   出どころ不明の誤誘導になるため、HW 市場比較セクション自体を非表示化。
     //   HW 側の補完数値は Section 3 (地域×HW データ連携) と Exec Summary で
@@ -611,7 +611,7 @@ mod tests {
     }
 
     /// 2026-04-24 ユーザー指摘により HW市場比較セクションは削除済み
-    /// (任意スクレイピング件数 vs HW 全体の非同質比較は無意味)
+    /// (アップロード CSV 件数 vs HW 全体の非同質比較は無意味)
     /// → hw_context の有無に関わらず <h2>HW市場比較</h2> が **出ないこと** を検証
     #[test]
     fn test_render_hw_market_comparison_section_removed() {
