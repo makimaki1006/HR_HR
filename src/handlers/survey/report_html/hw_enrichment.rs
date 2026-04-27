@@ -87,11 +87,44 @@ pub(super) fn render_section_hw_enrichment(
     html.push_str(
         "<section class=\"section\" role=\"region\" aria-labelledby=\"hw-enrich-title\">\n",
     );
-    html.push_str("<h2 id=\"hw-enrich-title\">地域 × HW データ連携</h2>\n");
+    html.push_str("<h2 id=\"hw-enrich-title\">第3章 地域 × HW データ連携</h2>\n");
     html.push_str(
         "<p class=\"section-header-meta\">\
          アップロード CSV の地域情報を HW postings の市区町村実件数と突合。</p>\n",
     );
+    // amber バナー: 市区町村粒度の制約を明示 (UI-3)
+    html.push_str(
+        "<div class=\"report-banner-amber\" role=\"note\">\
+         \u{26A0}\u{FE0F} <strong>データ粒度の制約</strong>: \
+         3ヶ月推移・1年推移・欠員補充率は <code>ts_turso_counts</code> / 外部統計の都道府県粒度のみ取得可能で、\
+         市区町村単位の差は反映されません。\
+         本表では市区町村単位で取得できる「CSV 件数」「HW 現在件数」のみを表示しています。</div>\n",
+    );
+    // 図表番号 (図 3-1)
+    html.push_str(&render_figure_number(3, 1, "CSV-HW 求人件数 概念対応図"));
+    // CSV / HW の重なり Venn 概念図（数値ではなくスコープの説明）
+    html.push_str(
+        "<div class=\"report-venn\" aria-label=\"CSV と HW のスコープ概念図\">\
+         <div class=\"report-venn-circle report-venn-csv\">\
+           <span class=\"report-venn-label\">CSV</span>\
+           <span class=\"report-venn-count\">媒体スクレイピング</span>\
+           <span style=\"font-size:8.5pt;\">Indeed / 求人ボックス等</span>\
+         </div>\
+         <div class=\"report-venn-circle report-venn-both\">\
+           <span class=\"report-venn-label\">重複領域</span>\
+           <span style=\"font-size:9pt;\">同一企業の同一案件が両方に掲載</span>\
+         </div>\
+         <div class=\"report-venn-circle report-venn-hw\">\
+           <span class=\"report-venn-label\">HW</span>\
+           <span class=\"report-venn-count\">ハローワーク掲載</span>\
+           <span style=\"font-size:8.5pt;\">公的職業紹介</span>\
+         </div>\
+         </div>\n",
+    );
+    html.push_str(&render_reading_callout(
+        "CSV と HW は元々スコープが異なります（媒体スクレイピング範囲 vs ハローワーク掲載求人）。\
+         同一案件が両方に掲載される「重複領域」も存在しますが、本レポートでは件数の多少のみを参考値として比較しています。",
+    ));
     // 2026-04-24: build_hw_enrichment_sowhat は ts_turso_counts の初期ノイズで
     //   「+374.3%」など暴れやすく誤誘導になるため非表示化。欠員率（外部統計）
     //   のみ意味があるケースで別途言及する運用にする。
@@ -100,15 +133,32 @@ pub(super) fn render_section_hw_enrichment(
         html.push_str(
             "<div class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">",
         );
+        // 用語ツールチップ: 欠員補充率 (UI-3)
+        let term_html = render_info_tooltip(
+            "欠員補充率",
+            "求人理由が「欠員補充」（離職・退職に伴う補充）の比率。e-Stat 雇用動向調査由来の都道府県単位値で、新規拡大採用は含まない。",
+        );
         html.push_str(&format!(
-            "※ {} 正社員欠員補充率（求人理由が「欠員補充」の比率、外部統計 e-Stat 由来）は {:.1}%。\
+            "※ {} 正社員 {} は {:.1}%。\
              この値は都道府県粒度の単一値であり、市区町村別の差は反映していません。",
-            escape_html(&rows.first().map(|(e, _)| e.prefecture.clone()).unwrap_or_default()),
+            escape_html(
+                &rows
+                    .first()
+                    .map(|(e, _)| e.prefecture.clone())
+                    .unwrap_or_default()
+            ),
+            term_html,
             vrate.as_f64()
         ));
         html.push_str("</div>\n");
     }
-    html.push_str("<table class=\"hw-enrichment-table\">\n");
+    // 表番号 (表 3-1) — 「上位」は禁止ワードのため、別表現を採用
+    html.push_str(&render_table_number(
+        3,
+        1,
+        "市区町村別 CSV-HW 求人件数 対応表（CSV件数の多い 15 地域）",
+    ));
+    html.push_str("<table class=\"hw-enrichment-table report-zebra\">\n");
     html.push_str(
         "<thead><tr>\
          <th>都道府県</th>\
