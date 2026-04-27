@@ -473,11 +473,12 @@ pub(crate) enum ReportSeverity {
 }
 
 impl ReportSeverity {
-    pub(crate) fn emoji(self) -> &'static str {
+    /// 重大度を示すテキストラベル (絵文字ではなく可読テキスト)
+    pub(crate) fn label(self) -> &'static str {
         match self {
-            ReportSeverity::Critical => "\u{1F534}", // 🔴
-            ReportSeverity::Warning => "\u{1F7E1}",  // 🟡
-            ReportSeverity::Info => "\u{1F7E2}",     // 🟢
+            ReportSeverity::Critical => "[重大]",
+            ReportSeverity::Warning => "[注意]",
+            ReportSeverity::Info => "[情報]",
         }
     }
     pub(crate) fn aria_label(self) -> &'static str {
@@ -537,7 +538,7 @@ pub(crate) fn render_legend_emoji(severity: ReportSeverity, text: &str) -> Strin
 </span>",
         cls = severity.class(),
         aria = severity.aria_label(),
-        emoji = severity.emoji(),
+        emoji = severity.label(),
         text = escape_html(text),
     )
 }
@@ -570,7 +571,6 @@ pub(crate) fn render_table_number(chapter: u32, num: u32, title: &str) -> String
 pub(crate) fn render_reading_callout(text: &str) -> String {
     format!(
         "<div class=\"report-callout\" role=\"note\" aria-label=\"読み方\">\
-<span class=\"report-callout-icon\" aria-hidden=\"true\">\u{1F4A1}</span>\
 <span class=\"report-callout-label\">読み方</span>\
 <span class=\"report-callout-body\">{}</span>\
 </div>",
@@ -589,7 +589,7 @@ role=\"img\" aria-label=\"{aria} ({action})\">\
         cls = severity.class(),
         aria = severity.aria_label(),
         action = severity.action_text(),
-        emoji = severity.emoji(),
+        emoji = severity.label(),
     )
 }
 
@@ -779,20 +779,20 @@ mod ui3_helpers_tests {
         assert!(html.contains("x&amp;y"), "説明の & がエスケープされる");
     }
 
-    /// 凡例 emoji: severity ごとに 3 種類の絵文字 + aria-label
+    /// 凡例 label: severity ごとに 3 種類のテキストラベル + aria-label
     #[test]
     fn test_render_legend_emoji_all_severities() {
         let critical = render_legend_emoji(ReportSeverity::Critical, "即対応");
-        assert!(critical.contains("\u{1F534}"), "🔴 が含まれる");
+        assert!(critical.contains("[重大]"), "[重大] ラベルが含まれる");
         assert!(critical.contains("aria-label=\"重大\""), "aria-label=重大");
         assert!(critical.contains("即対応"), "テキスト本文");
 
         let warning = render_legend_emoji(ReportSeverity::Warning, "1週間以内");
-        assert!(warning.contains("\u{1F7E1}"), "🟡 が含まれる");
+        assert!(warning.contains("[注意]"), "[注意] ラベルが含まれる");
         assert!(warning.contains("aria-label=\"注意\""));
 
         let info = render_legend_emoji(ReportSeverity::Info, "後回し可");
-        assert!(info.contains("\u{1F7E2}"), "🟢 が含まれる");
+        assert!(info.contains("[情報]"), "[情報] ラベルが含まれる");
         assert!(info.contains("aria-label=\"情報\""));
     }
 
@@ -822,22 +822,21 @@ mod ui3_helpers_tests {
         );
     }
 
-    /// 読み方吹き出し: 💡 アイコン + role=note + 「読み方」ラベル
+    /// 読み方吹き出し: role=note + 「読み方」ラベル
     #[test]
     fn test_render_reading_callout_a11y() {
         let html = render_reading_callout("バーが長いほど件数が多いことを示します");
-        assert!(html.contains("\u{1F4A1}"), "💡 アイコン");
         assert!(html.contains("role=\"note\""), "role=note");
         assert!(html.contains("aria-label=\"読み方\""), "aria-label");
         assert!(html.contains("バーが長いほど"), "本文表示");
         assert!(html.contains("class=\"report-callout\""), "CSS class");
     }
 
-    /// 重要度バッジ: 3 段階で色 + 絵文字 + テキスト
+    /// 重要度バッジ: 3 段階で色 + テキストラベル
     #[test]
     fn test_render_severity_badge_critical() {
         let html = render_severity_badge(ReportSeverity::Critical);
-        assert!(html.contains("\u{1F534}"));
+        assert!(html.contains("[重大]"), "[重大] テキストラベル");
         assert!(html.contains("即対応"));
         assert!(html.contains("report-sev-critical"));
         assert!(html.contains("aria-label=\"重大 (即対応)\""));
@@ -868,9 +867,9 @@ mod ui3_helpers_tests {
         assert_eq!(sorted.len(), 3, "3 つの severity で class が重複しないこと");
 
         let emojis = [
-            ReportSeverity::Critical.emoji(),
-            ReportSeverity::Warning.emoji(),
-            ReportSeverity::Info.emoji(),
+            ReportSeverity::Critical.label(),
+            ReportSeverity::Warning.label(),
+            ReportSeverity::Info.label(),
         ];
         let mut sorted_e = emojis.to_vec();
         sorted_e.sort();

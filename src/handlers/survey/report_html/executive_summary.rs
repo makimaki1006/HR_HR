@@ -184,7 +184,7 @@ pub(super) fn render_section_executive_summary(
     html.push_str("<div class=\"exec-kpi-grid-v2\">\n");
     render_kpi_card_v2(
         html,
-        "\u{1F4CA}",
+        "",
         "サンプル件数",
         &k1_value,
         "件",
@@ -194,7 +194,7 @@ pub(super) fn render_section_executive_summary(
     );
     render_kpi_card_v2(
         html,
-        "\u{1F4CD}",
+        "",
         "主要地域",
         &k2_value,
         "",
@@ -204,7 +204,7 @@ pub(super) fn render_section_executive_summary(
     );
     render_kpi_card_v2(
         html,
-        "\u{1F465}",
+        "",
         "主要雇用形態",
         &k3_value,
         "",
@@ -214,7 +214,7 @@ pub(super) fn render_section_executive_summary(
     );
     render_kpi_card_v2(
         html,
-        "\u{1F4B0}",
+        "",
         "給与中央値",
         &k4_value,
         "",
@@ -224,7 +224,7 @@ pub(super) fn render_section_executive_summary(
     );
     render_kpi_card_v2(
         html,
-        "\u{1F195}",
+        "",
         "新着比率",
         &k5_value,
         "",
@@ -237,13 +237,13 @@ pub(super) fn render_section_executive_summary(
     let k6_status = if agg.salary_parse_rate >= 0.85 {
         ("good", "\u{2713} 良好")
     } else if agg.salary_parse_rate >= 0.6 {
-        ("warn", "\u{26A0} 中程度")
+        ("warn", "\u{26A0} 中程度") // 警告アイコンは機能的に残す
     } else {
-        ("crit", "\u{1F6A8} 低")
+        ("crit", "[低]")
     };
     render_kpi_card_v2(
         html,
-        "\u{1F50D}",
+        "",
         "給与解析率",
         &k6_value,
         "",

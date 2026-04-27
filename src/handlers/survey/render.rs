@@ -374,19 +374,19 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
             (
                 pct,
                 "text-emerald-400",
-                "🟢 求職者期待値より中央値が高水準です。応募集まりやすい給与帯。",
+                "求職者期待値より中央値が高水準です。応募集まりやすい給与帯。",
             )
         } else if pct <= -5.0 {
             (
                 pct,
                 "text-rose-400",
-                "🔴 求職者期待値より中央値が低水準です。給与訴求の強化を検討。",
+                "求職者期待値より中央値が低水準です。給与訴求の強化を検討。",
             )
         } else {
             (
                 pct,
                 "text-amber-400",
-                "🟡 求職者期待値とほぼ同等です。差別化要素を給与以外でも訴求してください。",
+                "求職者期待値とほぼ同等です。差別化要素を給与以外でも訴求してください。",
             )
         }
     } else {
@@ -601,14 +601,14 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
 
     render_kpi_card(
         &mut html,
-        "🟢 中央値",
+        "中央値",
         &format!("{}円", format_number(stats.median)),
         "text-emerald-400",
         "50パーセンタイル / 推奨指標",
     );
     render_kpi_card(
         &mut html,
-        "🟡 平均",
+        "平均",
         &format!("{}円", format_number(stats.mean)),
         "text-amber-300",
         "算術平均（外れ値影響あり）",
@@ -790,8 +790,8 @@ fn render_salary_range_chart(agg: &SurveyAggregation) -> String {
                     <span class="ml-1 text-[10px] text-slate-500" tabindex="0" title="緑線=中央値、橙線=平均、緑シェード=IQR (Q1-Q3) で求人の中央50%が集中する帯">ⓘ</span>
                 </h4>
                 <div class="text-[10px] text-slate-500 flex gap-2">
-                    <span>🟢 中央値</span>
-                    <span>🟡 平均</span>
+                    <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 bg-emerald-400 rounded-full" aria-hidden="true"></span>中央値</span>
+                    <span class="inline-flex items-center gap-1"><span class="inline-block w-2 h-2 bg-amber-300 rounded-full" aria-hidden="true"></span>平均</span>
                 </div>
             </div>
             <div class="echart" style="height:300px" data-chart-config='{config_str}'></div>

@@ -29,7 +29,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     // === 冒頭サマリ ===
     html.push_str(
         "<div class=\"report-notes-leadin\">\
-         \u{1F4D6} 本レポートを正しく読むための前提: \
+         本レポートを正しく読むための前提: \
          記載される数値は <strong>HW 掲載求人＋媒体スクレイピング CSV</strong> の範囲内であり、\
          非公開求人・職業紹介事業者経由・全求人市場を代表しません。\
          また「傾向」「相関」は <strong>因果関係を主張しない</strong> 観測です。</div>\n",
@@ -37,7 +37,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
 
     // === カテゴリ 1: データソース ===
     html.push_str("<div class=\"report-notes-category report-notes-cat-data\">\n");
-    html.push_str("<h3>\u{1F4CA} データソース</h3>\n");
+    html.push_str("<h3>データソース</h3>\n");
     html.push_str("<ul>\n");
     html.push_str("<li>アップロード CSV（Indeed / 求人ボックス等のスクレイピング由来）</li>\n");
     html.push_str("<li>ハローワーク公開データ（hellowork.db / postings テーブル）</li>\n");
@@ -49,7 +49,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
 
     // === カテゴリ 2: スコープ制約 ===
     html.push_str("<div class=\"report-notes-category report-notes-cat-scope\">\n");
-    html.push_str("<h3>\u{26A0}\u{FE0F} スコープ制約</h3>\n");
+    html.push_str("<h3>\u{26A0}\u{FE0F} スコープ制約</h3>\n"); // 警告アイコンは機能的に残す
     html.push_str("<ul>\n");
     html.push_str(
         "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV（Indeed / 求人ボックス等）の行に基づく分析が主で、\
@@ -71,7 +71,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
 
     // === カテゴリ 3: 統計手法 + 用語ツールチップ ===
     html.push_str("<div class=\"report-notes-category report-notes-cat-method\">\n");
-    html.push_str("<h3>\u{1F52C} 統計手法（用語定義）</h3>\n");
+    html.push_str("<h3>統計手法（用語定義）</h3>\n");
     html.push_str("<ul>\n");
     html.push_str(&format!(
         "<li><strong>外れ値処理</strong>: 給与統計（中央値・平均・グループ別集計）は {} 法\
@@ -105,7 +105,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
 
     // === カテゴリ 4: 相関 ≠ 因果 ===
     html.push_str("<div class=\"report-notes-category report-notes-cat-corr\">\n");
-    html.push_str("<h3>\u{1F4D0} 相関 \u{2260} 因果</h3>\n");
+    html.push_str("<h3>相関 \u{2260} 因果</h3>\n"); // ≠ は数学記号として残す
     html.push_str("<ul>\n");
     html.push_str(
         "<li><strong>相関と因果</strong>: 本レポートに記載する「傾向」「相関」は因果関係を\
@@ -119,7 +119,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
 
     // === カテゴリ 5: 更新頻度 ===
     html.push_str("<div class=\"report-notes-category report-notes-cat-update\">\n");
-    html.push_str("<h3>\u{1F504} 更新頻度</h3>\n");
+    html.push_str("<h3>更新頻度</h3>\n");
     html.push_str("<ul>\n");
     html.push_str("<li>HW postings: <strong>毎晩</strong>（前日分の差分取り込み）</li>\n");
     html.push_str(
