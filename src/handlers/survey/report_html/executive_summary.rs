@@ -344,8 +344,8 @@ pub(super) fn render_section_executive_summary(
     html.push_str("<summary>データ範囲・外れ値除外の前提（クリックで展開）</summary>\n");
     html.push_str(&format!(
         "<div class=\"details-body\">\
-        本レポートはアップロード CSV（媒体: Indeed / 求人ボックス等）の分析が主で、\
-        HW データは比較参考値として併記しています。CSV はスクレイピング範囲に依存し、\
+        本レポートはアップロードされた CSV の分析が主で、\
+        HW データは比較参考値として併記しています。CSV は対象媒体の掲載範囲に依存し、\
         HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。 / \
         示唆は相関に基づく仮説であり、因果を証明するものではない。\
         実施判断は現場文脈に依存します。{}\
@@ -360,8 +360,8 @@ pub(super) fn render_section_executive_summary(
     // テスト互換: exec-scope-note クラスは保持（短縮版）
     html.push_str(&format!(
         "<div class=\"exec-scope-note\" style=\"display:none\" aria-hidden=\"true\">\
-        \u{203B} 本レポートはアップロード CSV（媒体: Indeed / 求人ボックス等）の分析が主で、\
-        HW データは比較参考値として併記しています。CSV はスクレイピング範囲に依存し、\
+        \u{203B} 本レポートはアップロードされた CSV の分析が主で、\
+        HW データは比較参考値として併記しています。CSV は対象媒体の掲載範囲に依存し、\
         HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。<br>\
         \u{203B} 示唆は相関に基づく仮説であり、因果を証明するものではない。\
         実施判断は現場文脈に依存します。{}\

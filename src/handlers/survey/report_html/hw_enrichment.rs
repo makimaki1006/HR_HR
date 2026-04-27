@@ -107,8 +107,8 @@ pub(super) fn render_section_hw_enrichment(
         "<div class=\"report-venn\" aria-label=\"CSV と HW のスコープ概念図\">\
          <div class=\"report-venn-circle report-venn-csv\">\
            <span class=\"report-venn-label\">CSV</span>\
-           <span class=\"report-venn-count\">媒体スクレイピング</span>\
-           <span style=\"font-size:8.5pt;\">Indeed / 求人ボックス等</span>\
+           <span class=\"report-venn-count\">媒体掲載</span>\
+           <span style=\"font-size:8.5pt;\">アップロード CSV 由来</span>\
          </div>\
          <div class=\"report-venn-circle report-venn-both\">\
            <span class=\"report-venn-label\">重複領域</span>\
@@ -122,7 +122,7 @@ pub(super) fn render_section_hw_enrichment(
          </div>\n",
     );
     html.push_str(&render_reading_callout(
-        "CSV と HW は元々スコープが異なります（媒体スクレイピング範囲 vs ハローワーク掲載求人）。\
+        "CSV と HW は元々スコープが異なります（媒体掲載範囲 vs ハローワーク掲載求人）。\
          同一案件が両方に掲載される「重複領域」も存在しますが、本レポートでは件数の多少のみを参考値として比較しています。",
     ));
     // 2026-04-24: build_hw_enrichment_sowhat は ts_turso_counts の初期ノイズで
@@ -193,7 +193,7 @@ pub(super) fn render_section_hw_enrichment(
     html.push_str(
         "<p class=\"print-note\">\
          ※ 表示は「CSV 件数（アップロード行数）」と「HW 現在件数（HW postings の市区町村実件数）」の 2 軸。\
-         CSV 件数は掲載媒体スクレイピング範囲に依存し、HW 件数はハローワーク側の掲載求人のみ。\
+         CSV 件数は対象媒体の掲載範囲に依存し、HW 件数はハローワーク側の掲載求人のみ。\
          単純比較ではなく、どのエリアに媒体側の露出が集中しているかの参考値として参照してください。</p>\n",
     );
     html.push_str("</section>\n");

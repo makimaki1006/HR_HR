@@ -55,7 +55,7 @@ pub(super) fn render_section_summary(html: &mut String, agg: &SurveyAggregation)
     };
 
     // 2026-04-24 ユーザー指摘反映:
-    //   - 「掲載企業数」KPI 削除（CSV は任意スクレイピング件数なので母集団を示さず誤解）
+    //   - 「掲載企業数」KPI 削除（CSV は媒体掲載分のみで母集団を示さず誤解）
     //   - 「正社員率」→「CSV内 正社員割合」: 「安定雇用が多い市場」表現は不正確なので削除
     //   - 新着率は CSV 側に新着列がある場合のみ表示（無ければ KPI 自体を省略）
     let has_new_rate = agg.new_count > 0;
@@ -88,7 +88,7 @@ pub(super) fn render_section_summary(html: &mut String, agg: &SurveyAggregation)
     render_guide_item(
         html,
         "CSV上の求人件数",
-        "アップロードされた CSV 行数。CSV スクレイピング範囲に依存するため市場全体の指標ではありません。",
+        "アップロードされた CSV 行数。CSV の掲載範囲に依存するため市場全体の指標ではありません。",
     );
     render_guide_item(html, salary_label, salary_guide);
     render_guide_item(

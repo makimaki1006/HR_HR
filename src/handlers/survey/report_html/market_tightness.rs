@@ -491,21 +491,43 @@ fn render_radar_chart(html: &mut String, m: &TightnessMetrics) {
     let scores = m.radar_scores();
     let national = m.national_radar_scores();
 
-    render_figure_caption(html, "図 MT-2", "採用市場 4 軸レーダー (0-100 正規化)");
+    render_figure_caption(html, "図 MT-2", "採用市場 4 軸レーダー (0-100 正規化スコア)");
+
+    // 軸ラベルに実値を併記し、ツールチップ混乱を防ぐ
+    // (例: 「有効求人倍率\n1.33倍 → 83」)
+    let job_ratio_label = match m.job_ratio {
+        Some(v) => format!("有効求人倍率\n({:.2}倍)", v),
+        None => "有効求人倍率\n(N/A)".to_string(),
+    };
+    let vacancy_label = match m.vacancy_rate {
+        Some(v) => format!("欠員補充率\n({:.0}%)", v * 100.0),
+        None => "欠員補充率\n(N/A)".to_string(),
+    };
+    let unemp_label = match m.unemployment_rate {
+        Some(v) => format!("採用余力\n(失業率 {:.1}%)", v),
+        None => "採用余力\n(N/A)".to_string(),
+    };
+    let sep_label = match m.separation_rate {
+        Some(v) => format!("離職率\n({:.1}%)", v),
+        None => "離職率\n(N/A)".to_string(),
+    };
 
     // ECharts radar: 4 軸定義 (時計回り、ストーリー順)
     let indicators = json!([
-        {"name": "有効求人倍率", "max": 100},
-        {"name": "欠員補充率", "max": 100},
-        {"name": "採用余力 (失業率の逆数)", "max": 100},
-        {"name": "離職率", "max": 100}
+        {"name": job_ratio_label, "max": 100},
+        {"name": vacancy_label, "max": 100},
+        {"name": unemp_label, "max": 100},
+        {"name": sep_label, "max": 100}
     ]);
 
     let target_arr = scores.to_array().to_vec();
     let national_arr = national.to_array().to_vec();
 
     let config = json!({
-        "tooltip": {"trigger": "item"},
+        "tooltip": {
+            "trigger": "item",
+            "formatter": "{b}<br/>スコア: {c} / 100"
+        },
         "legend": {
             "data": ["対象地域", "全国平均 (参考)"],
             "top": 0,
@@ -541,8 +563,9 @@ fn render_radar_chart(html: &mut String, m: &TightnessMetrics) {
 
     render_read_hint(
         html,
-        "4 軸が外側に広がるほど採用が難しい地域です。青色 (対象) の面積が大きく、\
-         グレー (全国平均) との差が顕著な軸は、媒体戦略の注視ポイントとなります。",
+        "4 軸が外側に広がるほど採用が難しい地域です。レーダー上の数値は 0-100 に正規化したスコア\
+         (実値ではない) で、軸ラベル末尾の括弧内が実際の指標値です。各指標の実値・出典は\
+         直下の KPI カードと「データソース・計算方法」も参照してください。",
     );
 }
 
@@ -1021,9 +1044,10 @@ mod tests {
         render_section_market_tightness(&mut html, Some(&ctx));
 
         // 4 軸のラベルが ECharts config 内に含まれる
+        // (軸ラベルは「指標名\n(実値)」形式、実値部分は欠損時 "(N/A)")
         assert!(html.contains("有効求人倍率"));
         assert!(html.contains("欠員補充率"));
-        assert!(html.contains("採用余力 (失業率の逆数)"));
+        assert!(html.contains("採用余力"));
         assert!(html.contains("離職率"));
 
         // 平均掲載日数は 4 軸版では含まれないこと (逆証明)
@@ -1289,10 +1313,11 @@ mod tests {
         render_section_market_tightness(&mut html, Some(&ctx));
 
         // ECharts indicator 配列内での 4 軸の出現順を確認
-        let pos_job_ratio = html.find("\"name\":\"有効求人倍率\"");
-        let pos_vacancy = html.find("\"name\":\"欠員補充率\"");
+        // (軸ラベルは「指標名\n(実値)」形式に変更されたため、prefix で検索)
+        let pos_job_ratio = html.find("\"name\":\"有効求人倍率");
+        let pos_vacancy = html.find("\"name\":\"欠員補充率");
         let pos_unemp = html.find("\"name\":\"採用余力");
-        let pos_sep = html.find("\"name\":\"離職率\"");
+        let pos_sep = html.find("\"name\":\"離職率");
 
         assert!(pos_job_ratio.is_some(), "有効求人倍率 軸");
         assert!(pos_vacancy.is_some(), "欠員補充率 軸");

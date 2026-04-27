@@ -30,7 +30,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str(
         "<div class=\"report-notes-leadin\">\
          本レポートを正しく読むための前提: \
-         記載される数値は <strong>HW 掲載求人＋媒体スクレイピング CSV</strong> の範囲内であり、\
+         記載される数値は <strong>HW 掲載求人＋アップロード CSV</strong> の範囲内であり、\
          非公開求人・職業紹介事業者経由・全求人市場を代表しません。\
          また「傾向」「相関」は <strong>因果関係を主張しない</strong> 観測です。</div>\n",
     );
@@ -39,7 +39,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<div class=\"report-notes-category report-notes-cat-data\">\n");
     html.push_str("<h3>データソース</h3>\n");
     html.push_str("<ul>\n");
-    html.push_str("<li>アップロード CSV（Indeed / 求人ボックス等のスクレイピング由来）</li>\n");
+    html.push_str("<li>アップロード CSV（媒体経由のデータ）</li>\n");
     html.push_str("<li>ハローワーク公開データ（hellowork.db / postings テーブル）</li>\n");
     html.push_str(
         "<li>外部企業 DB（地域注目企業データ由来、業種マッピングは industry_mapping を参照）</li>\n",
@@ -54,7 +54,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str(
         "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV（Indeed / 求人ボックス等）の行に基づく分析が主で、\
          HW 掲載データは比較参考値として併記している。\
-         CSV はスクレイピング範囲に依存し、HW は掲載求人のみに限定されるため、\
+         CSV は対象媒体の掲載範囲に依存し、HW は掲載求人のみに限定されるため、\
          いずれも全求人市場を代表するものではない。\
          職業紹介事業者の求人・非公開求人は本レポートに含まれない。</li>\n",
     );
