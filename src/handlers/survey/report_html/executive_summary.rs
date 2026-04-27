@@ -25,17 +25,18 @@ pub(super) fn render_section_executive_summary(
     hw_context: Option<&InsightContext>,
 ) {
     html.push_str("<section class=\"section exec-summary\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
-    // Design v2: Section 番号バッジ「01」を見出しの前に追加
+    // B4 (2026-04-27): Design v2 バッジに見出しテキストが含まれているため、
+    // 旧 h2 を非表示化 (テスト互換のため要素は残し sr-only でアクセシビリティ確保)。
     render_dv2_section_badge(html, "01", "Executive Summary");
-    html.push_str("<h2 id=\"exec-sum-title\">Executive Summary</h2>\n");
+    html.push_str("<h2 id=\"exec-sum-title\" class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">Executive Summary</h2>\n");
     html.push_str(&format!(
         "<p class=\"section-header-meta\">対象: {} / 3分間で読み切れる全体要旨</p>\n",
         escape_html(&compose_target_region(agg))
     ));
 
-    // 「このページの読み方」ガイド（折りたたみ可: 印刷時は脚注的に展開、画面では折りたたみ）
-    // 2026-04-26 Readability: <details> で折りたたみ可能に。
-    //   常時展開だと P2 を圧迫していたため、印刷時のみ強制展開。
+    // B5 (2026-04-27): 「このページの読み方」が <details> と section-howto の 2 重表示
+    // だったため、<details> 折りたたみ版のみ残し、section-howto はテスト互換のため
+    // visually-hidden で sr-only 化。
     html.push_str("<details class=\"collapsible-guide\" open>\n");
     html.push_str(
         "<summary>このページの読み方（クリックで開閉）</summary>\n\
@@ -46,7 +47,8 @@ pub(super) fn render_section_executive_summary(
          </div>\n",
     );
     html.push_str("</details>\n");
-    // テスト互換のため section-howto も従来通り出力（印刷時は CSS で圧縮表示）
+    // テスト互換のため section-howto は要素を残しつつ視覚非表示 (sr-only)
+    html.push_str("<div class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">\n");
     render_section_howto(
         html,
         &[
@@ -55,6 +57,7 @@ pub(super) fn render_section_executive_summary(
             "下段の注記でデータ範囲（CSV/HW スコープ）と外れ値除外の前提を必ず確認",
         ],
     );
+    html.push_str("</div>\n");
 
     // ---- 5 KPI ----
     // 仕様書 3.3 の定義に厳密に従う
@@ -74,25 +77,24 @@ pub(super) fn render_section_executive_summary(
         "-".to_string()
     };
     // K4: 給与中央値（雇用形態グループ別のネイティブ単位を優先）
-    // 2026-04-24 Phase 2: 正社員 月給 / パート 時給 を並列表示して
-    //   「月給/時給の単位が混ざって直感と合わない」問題を解消
+    // B3 (2026-04-27): 3 グループを縦長文字列で詰め込むとカード破綻したため、
+    //   **件数最多グループ 1 件のみを KPI カードに表示** し、他グループは
+    //   「雇用形態グループ別 給与分析」セクション (図 4-1〜4-2) で確認する設計に変更。
     let k4_value = {
-        let mut parts: Vec<String> = Vec::new();
-        for g in &agg.by_emp_group_native {
-            if g.count == 0 {
-                continue;
-            }
+        // 件数最多のグループを選定 (count 降順)
+        let top_group = agg
+            .by_emp_group_native
+            .iter()
+            .filter(|g| g.count > 0)
+            .max_by_key(|g| g.count);
+        if let Some(g) = top_group {
             let v_str = if g.native_unit == "時給" {
                 format!("{}円", format_number(g.median))
             } else {
                 format!("{:.1}万円", g.median as f64 / 10_000.0)
             };
-            parts.push(format!(
-                "{} ({}): {} (n={})",
-                g.group_label, g.native_unit, v_str, g.count
-            ));
-        }
-        if parts.is_empty() {
+            format!("{} {} (n={})", g.group_label, v_str, g.count)
+        } else {
             match &agg.enhanced_stats {
                 Some(s) if s.count > 0 => {
                     if agg.is_hourly {
@@ -103,8 +105,6 @@ pub(super) fn render_section_executive_summary(
                 }
                 _ => "算出不能 (サンプル不足)".to_string(),
             }
-        } else {
-            parts.join(" / ")
         }
     };
     // K5: 新着比率

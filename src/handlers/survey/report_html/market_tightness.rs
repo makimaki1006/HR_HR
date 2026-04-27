@@ -803,12 +803,29 @@ fn render_tightness_summary(html: &mut String, m: &TightnessMetrics) {
         None => return,
     };
 
-    let (level_label, color, bg_color) = if score >= 70.0 {
-        ("逼迫 (採用難)", "#dc2626", "#fef2f2") // 赤
-    } else if score >= 40.0 {
-        ("やや逼迫", "#f59e0b", "#fffbeb") // 黄
-    } else {
-        ("緩和 (採用容易)", "#10b981", "#ecfdf5") // 緑
+    // B8: DifficultyLabel と用語を統一 (極難/難/標準/易)
+    let label = DifficultyLabel::from_score(score);
+    let (level_label, color, bg_color): (String, &str, &str) = match label {
+        DifficultyLabel::VeryHard => (
+            format!("極難 ({})", label.description()),
+            "#dc2626",
+            "#fef2f2",
+        ),
+        DifficultyLabel::Hard => (
+            format!("難 ({})", label.description()),
+            "#f59e0b",
+            "#fffbeb",
+        ),
+        DifficultyLabel::Standard => (
+            format!("標準 ({})", label.description()),
+            "#3b82f6",
+            "#eff6ff",
+        ),
+        DifficultyLabel::Easy => (
+            format!("易 ({})", label.description()),
+            "#10b981",
+            "#ecfdf5",
+        ),
     };
 
     render_figure_caption(html, "図 MT-1", "採用市場 逼迫度 総合スコア");
@@ -826,7 +843,7 @@ fn render_tightness_summary(html: &mut String, m: &TightnessMetrics) {
         bg = bg_color,
         col = color,
         score = score,
-        label = escape_html(level_label),
+        label = escape_html(&level_label),
     ));
 
     render_read_hint_html(
@@ -884,7 +901,7 @@ fn render_radar_chart(html: &mut String, m: &TightnessMetrics) {
         },
         "legend": {
             "data": ["対象地域", "全国平均 (参考)"],
-            "top": 0,
+            "bottom": 0,
             "textStyle": {"fontSize": 10}
         },
         "radar": {
@@ -1096,15 +1113,22 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
     html.push_str("</div>\n");
 
     // 補助 KPI: 開廃業動態
+    // B1 (2026-04-27): 経済センサス基礎調査の opening_rate / closure_rate は調査周期
+    // (約 5 年) における **累積率** であるため、年率と誤認しないよう注記を強化。
+    // 表示は累積値のまま、参考として年率換算 (累積/5) を併記する。
     if m.opening_rate.is_some() || m.closure_rate.is_some() {
         html.push_str("<div data-testid=\"business-dynamics-card\" style=\"margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:6px;border-left:3px solid #6366f1;font-size:11px;\">\n");
         html.push_str("<strong style=\"color:#4338ca;\">補助 KPI: 開廃業動態</strong> ");
         let op = m.opening_rate.unwrap_or(0.0);
         let cl = m.closure_rate.unwrap_or(0.0);
         let net = op - cl;
+        // 経済センサス基礎調査は約 5 年周期。年率換算は累積 / 5
+        let op_annual = op / 5.0;
+        let cl_annual = cl / 5.0;
         html.push_str(&format!(
-            "開業率 <strong>{:.1}%</strong> / 廃業率 <strong>{:.1}%</strong> / 純増 <strong>{:+.1}pt</strong>。",
-            op, cl, net
+            "開業率 <strong>{:.1}%</strong> / 廃業率 <strong>{:.1}%</strong> / 純増 <strong>{:+.1}pt</strong> \
+             <span style=\"color:#6b7280;font-size:10px;\">(5 年累積、年率換算 開業 {:.1}% / 廃業 {:.1}%)</span>。",
+            op, cl, net, op_annual, cl_annual
         ));
         let interp = if net > 1.0 {
             "拡大基調 (採用需要拡大の可能性)"
@@ -1118,8 +1142,8 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             escape_html(interp)
         ));
         html.push_str(&render_data_source_note(
-            "経済産業省 経済センサス活動調査",
-            "純増 = 開業率 - 廃業率 (公表値)",
+            "経済産業省 経済センサス基礎調査",
+            "5 年累積率 = (新設事業所数 / 前期末事業所数) × 100",
             "都道府県",
         ));
         html.push_str("</div>\n");
@@ -1136,48 +1160,25 @@ fn render_interpretation_guide(html: &mut String, m: &TightnessMetrics) {
         None => return,
     };
 
-    let (heading, actions): (&str, Vec<&str>) = if score >= 70.0 {
-        (
-            "対象地域は逼迫度が高く、採用難度が高い傾向です。複数軸の訴求強化を検討する余地があります。",
-            vec![
-                "給与訴求強化 (基本給 +5% / 賞与額の明示 / 昇給実績の開示)",
-                "福利厚生差別化 (住宅手当 / 退職金 / 短時間正社員制度)",
-                "通勤圏拡大 (近隣市区町村への媒体配信 / リモート要素検討)",
-            ],
-        )
+    // B6 (2026-04-27): CR-1 の「推奨アクション」とこの「アクション提案」が重複表示
+    // していたため、本ブロックは **戦略的方針 (大局観)** に位置付け直し、具体的アクション
+    // 列挙は削除。CR-1 が指標別の戦術アクション、本ブロックがスコア帯別の戦略コメント。
+    let heading: &str = if score >= 70.0 {
+        "対象地域は逼迫度が高く、採用難度が高い傾向です。給与・福利・通勤圏など複数軸の訴求強化を検討する余地があります。"
     } else if score >= 40.0 {
-        (
-            "対象地域はやや逼迫の傾向です。差別化要素の整備が効果的な可能性があります。",
-            vec![
-                "競合分析に基づく差別化軸の明確化 (休日数 / 残業時間 / 教育制度)",
-                "求人原稿のキーワード見直し (応募者検索率向上)",
-                "媒体出稿コストと応募単価のバランス監視",
-            ],
-        )
+        "対象地域はやや逼迫の傾向です。差別化要素の整備 (休日数 / 教育制度 / 求人原稿の見直し等) が効果的な可能性があります。"
     } else {
-        (
-            "対象地域は緩和傾向です。採用コスト見直しとミスマッチ低減を優先できる可能性があります。",
-            vec![
-                "採用コスト見直し (媒体出稿頻度の調整)",
-                "ミスマッチ低減 (求人原稿の業務内容詳細化 / 選考フローの精査)",
-                "中長期の人材育成・定着施策へのリソース配分",
-            ],
-        )
+        "対象地域は緩和傾向です。採用コスト見直しとミスマッチ低減 (業務内容詳細化 / 選考フロー精査) を優先できる可能性があります。"
     };
 
     html.push_str("<div data-testid=\"tightness-action-guide\" style=\"margin-top:12px;padding:12px 16px;background:#eff6ff;border-radius:6px;border-left:4px solid #2563eb;\">\n");
     html.push_str(&format!(
-        "<div style=\"font-size:13px;font-weight:600;color:#1e40af;margin-bottom:6px;\">\u{1F4A1} アクション提案</div>\
+        "<div style=\"font-size:13px;font-weight:600;color:#1e40af;margin-bottom:6px;\">\u{1F3AF} 戦略的方針 (スコア帯別)</div>\
          <p style=\"font-size:11px;color:#374151;margin-bottom:6px;\">{}</p>\
-         <ol style=\"font-size:11px;color:#374151;padding-left:18px;line-height:1.6;\">\n",
+         <p style=\"font-size:10px;color:#6b7280;margin-top:6px;font-style:italic;\">\u{203B} スコア帯別の大局的方針です。指標別の具体的アクションは上部「採用難易度」ブロックを参照してください。相関的傾向であり、因果関係を示すものではありません。</p>\
+         </div>\n",
         escape_html(heading)
     ));
-    for action in &actions {
-        html.push_str(&format!("<li>{}</li>\n", escape_html(action)));
-    }
-    html.push_str("</ol>\n");
-    html.push_str("<p style=\"font-size:10px;color:#6b7280;margin-top:6px;font-style:italic;\">\u{203B} 上記提案は逼迫度スコアに基づく一般的方針であり、相関的傾向です。因果関係を示すものではありません。実施判断は職種・予算・競合状況等の個別要因と併せてご検討ください。</p>\n");
-    html.push_str("</div>\n");
 }
 
 // =====================================================================
@@ -1575,9 +1576,11 @@ mod tests {
     }
 
     /// アクション提案が逼迫度スコアに応じて 3 パターン分岐する
+    /// B6 (2026-04-27) 修正後: 「戦略的方針」見出しのみ残し具体アクション列挙は削除。
+    /// CR-1 ブロックが指標別の戦術アクションを担当する。
     #[test]
     fn action_guide_branches_by_score() {
-        // 逼迫: 給与訴求強化など
+        // 逼迫: 「複数軸の訴求強化」見出し
         let ctx_high = build_test_ctx(
             vec![row(&[("ratio_total", json!(1.5))])],
             vec![],
@@ -1589,10 +1592,10 @@ mod tests {
         );
         let mut html_high = String::new();
         render_section_market_tightness(&mut html_high, Some(&ctx_high));
-        assert!(html_high.contains("給与訴求強化"));
-        assert!(html_high.contains("通勤圏拡大"));
+        assert!(html_high.contains("逼迫度が高く"));
+        assert!(html_high.contains("複数軸の訴求強化"));
 
-        // 緩和: コスト見直し
+        // 緩和: 「採用コスト見直し」見出し
         let ctx_low = build_test_ctx(
             vec![row(&[("ratio_total", json!(0.5))])],
             vec![],
@@ -1604,8 +1607,8 @@ mod tests {
         );
         let mut html_low = String::new();
         render_section_market_tightness(&mut html_low, Some(&ctx_low));
+        assert!(html_low.contains("緩和傾向"));
         assert!(html_low.contains("採用コスト見直し"));
-        assert!(html_low.contains("ミスマッチ低減"));
     }
 
     /// 全国平均失業率比較が `pref_avg_unemployment_rate` から取得される
