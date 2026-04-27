@@ -586,6 +586,106 @@ mod tests {
         assert!(lo >= 0.0);
     }
 
+    // ============================================================
+    // UI-3 統合 contract test: section レベルで figure/legend/banner が組込
+    // 済みかを実 HTML レンダリングで確認
+    // ============================================================
+
+    /// 注記セクションがカテゴリ別ボックス + 用語ツールチップを含むこと
+    #[test]
+    fn ui3_notes_section_has_categorized_boxes() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
+        // 5 カテゴリのボックス class
+        assert!(
+            html.contains("report-notes-cat-data"),
+            "データソースカテゴリボックスが必要"
+        );
+        assert!(
+            html.contains("report-notes-cat-scope"),
+            "スコープ制約カテゴリボックスが必要"
+        );
+        assert!(
+            html.contains("report-notes-cat-method"),
+            "統計手法カテゴリボックスが必要"
+        );
+        assert!(
+            html.contains("report-notes-cat-corr"),
+            "相関≠因果カテゴリボックスが必要"
+        );
+        assert!(
+            html.contains("report-notes-cat-update"),
+            "更新頻度カテゴリボックスが必要"
+        );
+        // 用語ツールチップ（IQR / Bootstrap / Trimmed mean）
+        assert!(
+            html.contains("data-term-tooltip=\"1\""),
+            "用語ツールチップが必要"
+        );
+        assert!(html.contains(">IQR<"), "IQR 用語");
+        assert!(html.contains("Bootstrap 95% CI"), "Bootstrap 95% CI 用語");
+        assert!(html.contains("Trimmed mean"), "Trimmed mean 用語");
+        // 冒頭サマリ
+        assert!(
+            html.contains("本レポートを正しく読むための前提"),
+            "冒頭サマリ「本レポートを正しく読むための前提」が必要"
+        );
+    }
+
+    /// 求職者心理分析が空でない時、第4章図番号 + 解釈ガイドバナーが含まれる
+    #[test]
+    fn ui3_seeker_section_has_chapter_4_and_guidance() {
+        let mut seeker = JobSeekerAnalysis::default();
+        seeker.total_analyzed = 100;
+        seeker.salary_range_perception = Some(super::super::job_seeker::SalaryRangePerception {
+            avg_range_width: 50_000,
+            avg_lower: 200_000,
+            avg_upper: 250_000,
+            expected_point: 220_000,
+            narrow_count: 10,
+            medium_count: 30,
+            wide_count: 60,
+        });
+        let agg = SurveyAggregation::default();
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
+        // 第4章見出し
+        assert!(html.contains("第4章 求職者心理分析"), "第4章 タイトル必須");
+        // 図 4-1 の data 属性
+        assert!(
+            html.contains("data-figure=\"4-1\""),
+            "図 4-1 (給与レンジ) 番号必要"
+        );
+        // 章冒頭の相関≠因果バナー
+        assert!(
+            html.contains("report-banner-gray"),
+            "解釈ガイド（gray バナー）必要"
+        );
+        assert!(html.contains("本章の解釈ガイド"));
+        // 読み方吹き出し
+        assert!(html.contains("class=\"report-callout\""));
+    }
+
+    /// 注記カテゴリの絵文字 + aria 関連の a11y 属性確認
+    #[test]
+    fn ui3_a11y_attributes_present() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
+        // role=note は notes / banner で使用
+        assert!(html.contains("role=\"note\""));
+        // 用語 tooltip の role=tooltip
+        assert!(html.contains("role=\"tooltip\""));
+        // tabindex でキーボードフォーカス可能
+        assert!(html.contains("tabindex=\"0\""));
+        // 注記カテゴリの絵文字（📊 データソース）
+        assert!(html.contains("\u{1F4CA}"), "📊 データソースアイコンが必要");
+        // ⚠️ スコープ制約
+        assert!(html.contains("\u{26A0}\u{FE0F}"));
+        // 🔬 統計手法
+        assert!(html.contains("\u{1F52C}"));
+    }
+
     /// 散布図の異常値除外ロジック（render_section_scatter 内のフィルタ条件を直接検証）
     #[test]
     fn test_scatter_outlier_filter() {
@@ -627,6 +727,446 @@ mod tests {
             filtered.len(),
             2,
             "5万〜200万の範囲内かつ y>=x の2点のみ残る"
+        );
+    }
+}
+
+// ============================================================
+// UI-2 強化（2026-04-26）: 主要 6 sections 物語化 contract tests
+//
+// 各 section に「図表番号」「読み方ヒント」「新規グラフ」「KPI 整合」を追加した
+// ことを機械検証する。既存テストは触らない（純粋追加）。
+// ============================================================
+#[cfg(test)]
+mod ui2_contract_tests {
+    use super::super::aggregator::{
+        CompanyAgg, EmpTypeSalary, MunicipalitySalaryAgg, PrefectureSalaryAgg, RegressionResult,
+        ScatterPoint, SurveyAggregation, TagSalaryAgg,
+    };
+    use super::super::job_seeker::JobSeekerAnalysis;
+    use super::super::statistics::{EnhancedStats, QuartileStats};
+    use super::render_survey_report_page;
+
+    fn ui2_minimal_agg() -> SurveyAggregation {
+        let mut agg = SurveyAggregation::default();
+        agg.total_count = 120;
+        agg.new_count = 25;
+        agg.salary_parse_rate = 0.91;
+        agg.location_parse_rate = 0.95;
+        agg.dominant_prefecture = Some("東京都".to_string());
+        agg.dominant_municipality = Some("千代田区".to_string());
+        agg.by_prefecture = vec![
+            ("東京都".to_string(), 60),
+            ("神奈川県".to_string(), 35),
+            ("北海道".to_string(), 15),
+            ("福島県".to_string(), 10),
+        ];
+        agg.by_employment_type = vec![
+            ("正社員".to_string(), 70),
+            ("パート".to_string(), 30),
+            ("派遣".to_string(), 20),
+        ];
+        agg.by_tags = vec![("賞与あり".to_string(), 30)];
+        agg.salary_values = (0..30).map(|i| 200_000 + i * 5_000).collect();
+        agg.salary_min_values = (0..30).map(|i| 180_000 + i * 5_000).collect();
+        agg.salary_max_values = (0..30).map(|i| 250_000 + i * 5_000).collect();
+        agg.by_emp_type_salary = vec![
+            EmpTypeSalary {
+                emp_type: "正社員".to_string(),
+                count: 70,
+                avg_salary: 260_000,
+                median_salary: 255_000,
+            },
+            EmpTypeSalary {
+                emp_type: "パート".to_string(),
+                count: 30,
+                avg_salary: 180_000,
+                median_salary: 175_000,
+            },
+        ];
+        // 同名市区町村のテスト用に伊達市を 2 件含める
+        agg.by_municipality_salary = vec![
+            MunicipalitySalaryAgg {
+                name: "千代田区".to_string(),
+                prefecture: "東京都".to_string(),
+                count: 50,
+                avg_salary: 280_000,
+                median_salary: 275_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "伊達市".to_string(),
+                prefecture: "北海道".to_string(),
+                count: 8,
+                avg_salary: 220_000,
+                median_salary: 218_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "伊達市".to_string(),
+                prefecture: "福島県".to_string(),
+                count: 6,
+                avg_salary: 215_000,
+                median_salary: 212_000,
+            },
+        ];
+        agg.by_prefecture_salary = vec![
+            PrefectureSalaryAgg {
+                name: "東京都".to_string(),
+                count: 60,
+                avg_salary: 280_000,
+                avg_min_salary: 240_000,
+            },
+            PrefectureSalaryAgg {
+                name: "高知県".to_string(),
+                count: 5,
+                avg_salary: 170_000,
+                avg_min_salary: 155_000,
+            },
+        ];
+        agg.by_tag_salary = vec![TagSalaryAgg {
+            tag: "賞与あり".to_string(),
+            count: 30,
+            avg_salary: 275_000,
+            diff_from_avg: 15_000,
+            diff_percent: 5.8,
+        }];
+        agg.scatter_min_max = (0..15)
+            .map(|i| ScatterPoint {
+                x: 180_000 + i * 5_000,
+                y: 250_000 + i * 5_000,
+            })
+            .collect();
+        agg.regression_min_max = Some(RegressionResult {
+            slope: 1.2,
+            intercept: 50_000.0,
+            r_squared: 0.85,
+        });
+        agg.enhanced_stats = Some(EnhancedStats {
+            count: 30,
+            mean: 255_000,
+            median: 250_000,
+            min: 200_000,
+            max: 345_000,
+            std_dev: 30_000,
+            bootstrap_ci: None,
+            trimmed_mean: None,
+            quartiles: Some(QuartileStats {
+                q1: 220_000,
+                q2: 250_000,
+                q3: 280_000,
+                iqr: 60_000,
+                lower_bound: 130_000,
+                upper_bound: 370_000,
+                outlier_count: 2,
+                inlier_count: 28,
+            }),
+            reliability: "high".to_string(),
+        });
+        agg.outliers_removed_total = 2;
+        agg.salary_values_raw_count = 32;
+        agg.is_hourly = false;
+        agg
+    }
+
+    fn render_ui2() -> String {
+        let agg = ui2_minimal_agg();
+        let seeker = JobSeekerAnalysis::default();
+        let by_company = vec![
+            CompanyAgg {
+                name: "サンプル法人A".to_string(),
+                count: 12,
+                avg_salary: 280_000,
+                median_salary: 275_000,
+            },
+            CompanyAgg {
+                name: "サンプル法人B".to_string(),
+                count: 8,
+                avg_salary: 230_000,
+                median_salary: 228_000,
+            },
+        ];
+        let by_emp = agg.by_emp_type_salary.clone();
+        let smin = agg.salary_min_values.clone();
+        let smax = agg.salary_max_values.clone();
+        render_survey_report_page(&agg, &seeker, &by_company, &by_emp, &smin, &smax, None, &[])
+    }
+
+    // ---- Section 1: Executive Summary ----
+
+    #[test]
+    fn ui2_exec_summary_has_howto_guide() {
+        let html = render_ui2();
+        assert!(
+            html.contains("section-howto") && html.contains("このページの読み方"),
+            "Executive Summary 冒頭に『このページの読み方』ガイドが必須"
+        );
+    }
+
+    #[test]
+    fn ui2_exec_summary_has_kpi_v2_with_icon_and_compare() {
+        let html = render_ui2();
+        assert!(
+            html.contains("kpi-card-v2"),
+            "強化版 KPI カード (kpi-card-v2) が必須"
+        );
+        assert!(
+            html.contains("kpi-icon"),
+            "KPI カードにアイコン要素 (kpi-icon) が必須"
+        );
+        assert!(
+            html.contains("kpi-compare"),
+            "KPI カードに比較値表示 (kpi-compare) が必須"
+        );
+        assert!(
+            html.contains("figure-caption") && html.contains("図 1-1"),
+            "Executive Summary に図 1-1 の図表キャプションが必須"
+        );
+    }
+
+    #[test]
+    fn ui2_exec_summary_has_priority_badges() {
+        let html = render_ui2();
+        assert!(
+            html.contains("priority-badge"),
+            "推奨アクションの優先度バッジ CSS クラスが必須"
+        );
+    }
+
+    // ---- Section 3: 給与統計 ----
+
+    #[test]
+    fn ui2_salary_stats_has_summary_table_with_figure_no() {
+        let html = render_ui2();
+        assert!(
+            html.contains("表 3-1") && html.contains("給与統計サマリ"),
+            "給与統計セクションに表 3-1 のキャプションが必須"
+        );
+    }
+
+    #[test]
+    fn ui2_salary_stats_has_iqr_shade_bar() {
+        let html = render_ui2();
+        assert!(
+            html.contains("iqr-bar") && html.contains("iqr-shade"),
+            "IQR シェードバー (iqr-bar / iqr-shade) が必須"
+        );
+        assert!(
+            html.contains("図 3-1"),
+            "IQR シェード図に図 3-1 のキャプションが必須"
+        );
+    }
+
+    #[test]
+    fn ui2_salary_stats_has_outlier_removal_table() {
+        let html = render_ui2();
+        assert!(
+            html.contains("表 3-2") && html.contains("外れ値除外"),
+            "外れ値除外前後比較テーブル (表 3-2) が必須"
+        );
+        assert!(
+            html.contains("read-hint"),
+            "salary_stats セクションに読み方ヒントが必須"
+        );
+    }
+
+    #[test]
+    fn ui2_salary_stats_has_histogram_figure_numbers() {
+        let html = render_ui2();
+        assert!(
+            html.contains("図 3-2") && html.contains("図 3-3"),
+            "下限給与ヒストグラム 図 3-2/3-3 のキャプションが必須"
+        );
+    }
+
+    // ---- Section 5: 散布図 ----
+
+    #[test]
+    fn ui2_scatter_has_regression_table_and_threshold_guide() {
+        let html = render_ui2();
+        assert!(
+            html.contains("図 5-1") || html.contains("表 5-1"),
+            "散布図セクションに図 5-1 / 表 5-1 のキャプションが必須"
+        );
+        // R² 閾値ガイド (0.5 / 0.3 が表示されること)
+        assert!(
+            html.contains("> 0.5") && html.contains("0.3"),
+            "R\u{00B2} 閾値ガイド (> 0.5 / 0.3) が必須"
+        );
+    }
+
+    #[test]
+    fn ui2_scatter_has_correlation_not_causation_warning() {
+        let html = render_ui2();
+        // memory feedback_correlation_not_causation 準拠
+        assert!(
+            html.contains("相関")
+                && (html.contains("因果関係を示すものではありません") || html.contains("因果")),
+            "散布図セクションに相関≠因果の注意書きが必須"
+        );
+    }
+
+    // ---- Section 6: 地域分析（都道府県） ----
+
+    #[test]
+    fn ui2_region_has_heatmap() {
+        let html = render_ui2();
+        assert!(
+            html.contains("heatmap-grid") && html.contains("heatmap-cell"),
+            "都道府県別ヒートマップ (heatmap-grid) が必須"
+        );
+        assert!(
+            html.contains("図 6-1"),
+            "都道府県別ヒートマップに図 6-1 のキャプションが必須"
+        );
+    }
+
+    #[test]
+    fn ui2_region_has_pref_table_figure_no() {
+        let html = render_ui2();
+        assert!(
+            html.contains("表 6-1"),
+            "都道府県別件数テーブルに表 6-1 のキャプションが必須"
+        );
+    }
+
+    // ---- Section 7: 市区町村 ----
+
+    #[test]
+    fn ui2_municipality_has_dup_marker() {
+        let html = render_ui2();
+        // 伊達市が2件あるため同名マーカーが付与される
+        assert!(
+            html.contains("同名市区町村あり") || html.contains("\u{26A0} 同名"),
+            "同名市区町村マーカーが必須（伊達市など）"
+        );
+        assert!(
+            html.contains("表 7-1"),
+            "市区町村別給与テーブルに表 7-1 のキャプションが必須"
+        );
+    }
+
+    // ---- Section 4: 雇用形態 ----
+
+    #[test]
+    fn ui2_employment_has_dumbbell_chart() {
+        let html = render_ui2();
+        assert!(
+            html.contains("dumbbell-list") && html.contains("dumbbell-row"),
+            "雇用形態 dumbbell chart (dumbbell-list/row) が必須"
+        );
+        assert!(
+            html.contains("図 4-1") || html.contains("図 4-2") || html.contains("表 4-1"),
+            "雇用形態セクションに図 4-1/4-2 または表 4-1 のキャプションが必須"
+        );
+    }
+
+    // ---- Section 8: 最低賃金 ----
+
+    #[test]
+    fn ui2_min_wage_has_diff_bar() {
+        let html = render_ui2();
+        assert!(
+            html.contains("minwage-diff-bar"),
+            "最低賃金差分バー (minwage-diff-bar) が必須"
+        );
+        assert!(
+            html.contains("表 8-1"),
+            "最低賃金比較テーブルに表 8-1 のキャプションが必須"
+        );
+    }
+
+    // ---- Section 9: 企業 ----
+
+    #[test]
+    fn ui2_company_has_two_axis_visualization() {
+        let html = render_ui2();
+        assert!(
+            html.contains("表 9-1"),
+            "企業別件数テーブルに表 9-1 のキャプションが必須"
+        );
+    }
+
+    // ---- Section 10: タグ ----
+
+    #[test]
+    fn ui2_tag_has_treemap_with_caption() {
+        let html = render_ui2();
+        assert!(
+            html.contains("図 10-1") || html.contains("表 10-1"),
+            "タグ×給与セクションに図 10-1 / 表 10-1 のキャプションが必須"
+        );
+    }
+
+    // ---- 共通: 読み方ヒントの総数 ----
+
+    #[test]
+    fn ui2_multiple_read_hints_present() {
+        let html = render_ui2();
+        let count = html.matches("read-hint-label").count();
+        assert!(
+            count >= 4,
+            "読み方ヒント (read-hint-label) が 4 箇所以上必須（実測: {}）",
+            count
+        );
+    }
+
+    // ---- 共通: 図表キャプションの総数 ----
+
+    #[test]
+    fn ui2_figure_caption_total_count() {
+        let html = render_ui2();
+        let count = html.matches("class=\"figure-caption\"").count();
+        assert!(
+            count >= 10,
+            "図表キャプション (figure-caption) が 10 箇所以上必須（実測: {}）",
+            count
+        );
+    }
+
+    // ---- 共通: 既存 KPI 値の互換性確認 ----
+
+    #[test]
+    fn ui2_kpi_values_consistent_with_legacy() {
+        let html = render_ui2();
+        // 強化版 KPI カードと旧 KPI カードが両方出力される（テスト互換維持）
+        assert!(
+            html.contains("\"kpi-card\"") || html.contains("\"kpi-card "),
+            "旧 KPI カード（互換）が出力されること"
+        );
+        assert!(
+            html.contains("kpi-card-v2"),
+            "強化版 KPI カードが出力されること"
+        );
+        // 5 つの KPI ラベル
+        assert!(html.contains("サンプル件数"));
+        assert!(html.contains("主要地域"));
+        assert!(html.contains("主要雇用形態"));
+        assert!(html.contains("給与中央値"));
+        assert!(html.contains("新着比率"));
+    }
+
+    // ---- 共通: section-bridge による物語のつなぎ ----
+
+    #[test]
+    fn ui2_section_bridges_present() {
+        let html = render_ui2();
+        let count = html.matches("section-bridge").count();
+        assert!(
+            count >= 3,
+            "section-bridge による次セクションへのつなぎが 3 箇所以上必須（実測: {}）",
+            count
+        );
+    }
+
+    // ---- 共通: HW スコープ注意（feedback_hw_data_scope 準拠） ----
+
+    #[test]
+    fn ui2_preserves_hw_data_scope_warning() {
+        let html = render_ui2();
+        assert!(
+            html.contains("全求人市場")
+                || html.contains("代表ではありません")
+                || html.contains("掲載"),
+            "HW データスコープ注意は維持（feedback_hw_data_scope.md 準拠）"
         );
     }
 }

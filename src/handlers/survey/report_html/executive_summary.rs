@@ -31,6 +31,16 @@ pub(super) fn render_section_executive_summary(
         escape_html(&compose_target_region(agg))
     ));
 
+    // 「このページの読み方」ガイド（3 行）
+    render_section_howto(
+        html,
+        &[
+            "上段の KPI で全体規模・地域・主要雇用形態・給与水準・新着比率を一目で把握",
+            "中段の優先アクション候補は、優先度バッジ（即対応 / 1週間 / 後回し可）の順に検討",
+            "下段の注記でデータ範囲（CSV/HW スコープ）と外れ値除外の前提を必ず確認",
+        ],
+    );
+
     // ---- 5 KPI ----
     // 仕様書 3.3 の定義に厳密に従う
     // K1: サンプル件数
@@ -94,6 +104,7 @@ pub(super) fn render_section_executive_summary(
         "0.0%".to_string()
     };
 
+    // 既存テスト互換のため、従来の exec-kpi-grid + 5 KPI カードはそのまま出力
     html.push_str("<div class=\"exec-kpi-grid\">\n");
     render_kpi_card(html, "サンプル件数", &k1_value, "件");
     render_kpi_card(html, "主要地域", &k2_value, "");
@@ -102,7 +113,153 @@ pub(super) fn render_section_executive_summary(
     render_kpi_card(html, "新着比率", &k5_value, "");
     html.push_str("</div>\n");
 
-    // ---- 推奨優先アクション 3 件 ----
+    // 図表番号 + 強化版 KPI カード（アイコン + 状態 + 比較値）
+    render_figure_caption(
+        html,
+        "図 1-1",
+        "主要 KPI ダッシュボード（アイコン・状態・比較値付き）",
+    );
+
+    // K3 構成比から状態判定
+    let k3_pct = agg
+        .by_employment_type
+        .first()
+        .map(|(_, c)| {
+            if agg.total_count > 0 {
+                *c as f64 / agg.total_count as f64 * 100.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+    let k3_status = if k3_pct >= 70.0 {
+        ("warn", "\u{26A0} 偏り")
+    } else {
+        ("", "")
+    };
+
+    // K5 新着比率の状態（< 5% は警戒、>= 15% は良好）
+    let k5_pct: f64 = if agg.total_count > 0 {
+        agg.new_count as f64 / agg.total_count as f64 * 100.0
+    } else {
+        0.0
+    };
+    let k5_status = if agg.total_count == 0 {
+        ("", "")
+    } else if k5_pct < 5.0 {
+        ("warn", "\u{26A0} 流動性低")
+    } else if k5_pct >= 15.0 {
+        ("good", "\u{2713} 活発")
+    } else {
+        ("", "")
+    };
+
+    // K1 サンプル件数の状態（< 30 は信頼性注意）
+    let k1_status = if agg.total_count == 0 {
+        ("crit", "\u{1F6A8} なし")
+    } else if agg.total_count < 30 {
+        ("warn", "\u{26A0} n 少")
+    } else {
+        ("good", "\u{2713} 十分")
+    };
+
+    let k1_compare = if agg.total_count >= 30 {
+        format!(
+            "信頼性: 良好（n>=30）/ 解析率 {:.0}%",
+            agg.salary_parse_rate * 100.0
+        )
+    } else {
+        format!("注意: 統計的信頼性低（n={}）", agg.total_count)
+    };
+    let k3_compare = format!("件数 1 位の雇用形態。比率 {:.1}%", k3_pct);
+    let k5_compare = if agg.total_count == 0 {
+        "サンプルなし".to_string()
+    } else {
+        format!(
+            "新着定義: 直近30日 / n={} 件中 {} 件",
+            agg.total_count, agg.new_count
+        )
+    };
+
+    html.push_str("<div class=\"exec-kpi-grid-v2\">\n");
+    render_kpi_card_v2(
+        html,
+        "\u{1F4CA}",
+        "サンプル件数",
+        &k1_value,
+        "件",
+        &k1_compare,
+        k1_status.0,
+        k1_status.1,
+    );
+    render_kpi_card_v2(
+        html,
+        "\u{1F4CD}",
+        "主要地域",
+        &k2_value,
+        "",
+        "件数最多の都道府県/市区町村",
+        "",
+        "",
+    );
+    render_kpi_card_v2(
+        html,
+        "\u{1F465}",
+        "主要雇用形態",
+        &k3_value,
+        "",
+        &k3_compare,
+        k3_status.0,
+        k3_status.1,
+    );
+    render_kpi_card_v2(
+        html,
+        "\u{1F4B0}",
+        "給与中央値",
+        &k4_value,
+        "",
+        "雇用形態グループのネイティブ単位（月給/時給）",
+        "",
+        "",
+    );
+    render_kpi_card_v2(
+        html,
+        "\u{1F195}",
+        "新着比率",
+        &k5_value,
+        "",
+        &k5_compare,
+        k5_status.0,
+        k5_status.1,
+    );
+    // 6 番目のカード: 給与解析率（補助 KPI）
+    let k6_value = format!("{:.0}%", agg.salary_parse_rate * 100.0);
+    let k6_status = if agg.salary_parse_rate >= 0.85 {
+        ("good", "\u{2713} 良好")
+    } else if agg.salary_parse_rate >= 0.6 {
+        ("warn", "\u{26A0} 中程度")
+    } else {
+        ("crit", "\u{1F6A8} 低")
+    };
+    render_kpi_card_v2(
+        html,
+        "\u{1F50D}",
+        "給与解析率",
+        &k6_value,
+        "",
+        "給与文字列から数値抽出に成功した割合",
+        k6_status.0,
+        k6_status.1,
+    );
+    html.push_str("</div>\n");
+
+    render_read_hint(
+        html,
+        "n が 30 件以上、解析率 60% 以上であれば、当レポートの統計値は実務判断の参考になります。\
+         n が少ない場合は外れ値の影響が大きく、傾向としての参照に留めてください。",
+    );
+
+    // ---- 推奨優先アクション 3 件（優先度バッジ付き） ----
     html.push_str("<h3>推奨優先アクション候補（件数・差分条件を満たすもの）</h3>\n");
     let actions = build_exec_actions(agg, by_emp_type_salary, hw_context);
     if actions.is_empty() {
@@ -116,6 +273,9 @@ pub(super) fn render_section_executive_summary(
         for (idx, (sev, title, body, xref)) in actions.iter().enumerate() {
             html.push_str("<div class=\"exec-summary-action\">\n");
             html.push_str("<div class=\"action-head\">");
+            // 優先度バッジ（即対応 / 1週間 / 後回し）+ 既存 severity バッジ（テスト互換）
+            html.push_str(&priority_badge_html(*sev));
+            html.push_str(" ");
             html.push_str(&severity_badge(*sev));
             html.push_str(&format!(
                 " <span>{}. {}</span>",
@@ -135,6 +295,12 @@ pub(super) fn render_section_executive_summary(
         }
         html.push_str("</div>\n");
     }
+
+    // 次セクションへのつなぎ
+    render_section_bridge(
+        html,
+        "次セクションでは、給与水準を月給ヒストグラム + IQR シェードで詳細に確認します。",
+    );
 
     // ---- スコープ注意書き (必須 / 仕様書 3.5) ----
     // 2026-04-24 修正: CSV は Indeed/求人ボックス等の媒体由来なので「HW 掲載求人のみ」
