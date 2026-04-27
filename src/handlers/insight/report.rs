@@ -616,6 +616,9 @@ mod tests {
             ext_care_demand: vec![],
             ext_household_spending: vec![],
             ext_climate: vec![],
+            // Impl-3: ライフスタイル特性 (P-1/P-2)
+            ext_social_life: vec![],
+            ext_internet_usage: vec![],
             // Phase A: SSDSE-A 新規6テーブル
             ext_households: vec![],
             ext_vital: vec![],
@@ -623,6 +626,7 @@ mod tests {
             ext_medical_welfare: vec![],
             ext_education_facilities: vec![],
             ext_geography: vec![],
+            ext_education: vec![],
             // Phase A: 県平均
             pref_avg_unemployment_rate: None,
             pref_avg_single_rate: None,
