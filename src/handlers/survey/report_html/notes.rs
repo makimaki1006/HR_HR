@@ -52,7 +52,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<h3>\u{26A0}\u{FE0F} スコープ制約</h3>\n"); // 警告アイコンは機能的に残す
     html.push_str("<ul>\n");
     html.push_str(
-        "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV（Indeed / 求人ボックス等）の行に基づく分析が主で、\
+        "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV の行に基づく分析が主で、\
          HW 掲載データは比較参考値として併記している。\
          CSV は対象媒体の掲載範囲に依存し、HW は掲載求人のみに限定されるため、\
          いずれも全求人市場を代表するものではない。\

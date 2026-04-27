@@ -274,7 +274,14 @@ pub(super) fn render_section_industry_structure(
     if industry_rows.is_empty() {
         return;
     }
-    let total: i64 = industry_rows
+    // 集計行 (AS=全産業 / AR=全産業(公務除く) / CR=非農林漁業(公務除く)) を除外
+    // これらを含めると合計が 3 倍以上になり構成比が誤る (バグ修正 2026-04-27)
+    let is_aggregate = |code: &str| matches!(code, "AS" | "AR" | "CR");
+    let detail_rows: Vec<&Row> = industry_rows
+        .iter()
+        .filter(|r| !is_aggregate(get_str_ref(r, "industry_code")))
+        .collect();
+    let total: i64 = detail_rows
         .iter()
         .map(|r| get_i64_local(r, "employees_total"))
         .sum();
@@ -293,7 +300,7 @@ pub(super) fn render_section_industry_structure(
         "<table class=\"sortable-table zebra\">\n<thead><tr><th>#</th><th>産業</th>\
         <th style=\"text-align:right\">就業者数</th><th style=\"text-align:right\">構成比</th></tr></thead>\n<tbody>\n",
     );
-    for (i, r) in industry_rows.iter().take(10).enumerate() {
+    for (i, r) in detail_rows.iter().take(10).enumerate() {
         let name = get_str_ref(r, "industry_name");
         let emp = get_i64_local(r, "employees_total");
         let pct = emp as f64 / total as f64 * 100.0;

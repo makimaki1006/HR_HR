@@ -55,14 +55,27 @@ pub(super) fn render_section_household_vs_salary(
         return;
     }
 
-    // 世帯月平均総支出 = sum(monthly_amount over all categories)
-    // pref 指定時は当該都道府県の category 別行が並ぶ
+    // 世帯月平均総支出 = 「消費支出」カテゴリの値 (公式の総額)
+    // 注: v2_external_household_spending は「消費支出」(親) と「食料/住居/光熱/...」
+    //     (10 個のサブカテゴリ) を **両方** 保持している。サブカテゴリの合計 = 消費支出
+    //     なので、全行 SUM すると 2 倍に二重計上される。
+    //     (バグ修正 2026-04-27: 全行 SUM → 「消費支出」のみ抽出)
+    use super::super::super::helpers::{get_f64, get_str_ref};
     let total_spending: i64 = ctx
         .ext_household_spending
         .iter()
-        .map(|row| super::super::super::helpers::get_f64(row, "monthly_amount") as i64)
-        .filter(|&v| v > 0)
-        .sum();
+        .find(|row| get_str_ref(row, "category") == "消費支出")
+        .map(|row| get_f64(row, "monthly_amount") as i64)
+        .unwrap_or_else(|| {
+            // フォールバック: 「消費支出」が無ければサブカテゴリ合計
+            // (10 サブカテゴリすべて、または部分集合の合計)
+            ctx.ext_household_spending
+                .iter()
+                .filter(|row| get_str_ref(row, "category") != "消費支出")
+                .map(|row| get_f64(row, "monthly_amount") as i64)
+                .filter(|&v| v > 0)
+                .sum()
+        });
 
     if total_spending <= 0 {
         return;
@@ -147,7 +160,7 @@ pub(super) fn render_section_household_vs_salary(
          単独世帯・3 人以上世帯では生活費構造が異なります。\
          CSV の主要市区町村が複数都道府県にまたがる場合、都道府県平均が必ずしも \
          実際の対象地域の生活コストを代表しないため、参考値としてご利用ください。\
-         CSV 給与は別媒体（Indeed / 求人ボックス等）からの抽出値で、家計調査と直接比較する \
+         CSV 給与はアップロードされた媒体掲載値で、家計調査と直接比較する \
          ものではなく、市場内位置の参考としてご利用ください。\
          </p>\n",
     );
@@ -800,6 +813,58 @@ mod household_vs_salary_tests {
         assert!(
             html.contains("\u{25EF} 良好"),
             "Positive severity badge (>=100%)"
+        );
+    }
+
+    /// 逆証明: 「消費支出」(親) とサブカテゴリ (子) の二重計上を防ぐ
+    /// e-Stat 家計調査の v2_external_household_spending は親「消費支出」と
+    /// 10 個のサブカテゴリを両方保持するため、全行 SUM すると 2 倍になる。
+    /// 「消費支出」が存在する場合はそれを優先採用する。
+    #[test]
+    fn test_household_vs_salary_uses_total_when_present_no_double_count() {
+        let mut html = String::new();
+        let agg = agg_with_median(250_000); // 25 万
+
+        // 「消費支出」(親) = 28万 + サブカテゴリ合計 28万 が入っている状態
+        let rows = vec![
+            make_row(&[
+                ("category", json!("消費支出")),
+                ("monthly_amount", json!(280_000.0)),
+            ]),
+            make_row(&[
+                ("category", json!("食料")),
+                ("monthly_amount", json!(80_000.0)),
+            ]),
+            make_row(&[
+                ("category", json!("住居")),
+                ("monthly_amount", json!(50_000.0)),
+            ]),
+            make_row(&[
+                ("category", json!("光熱・水道")),
+                ("monthly_amount", json!(30_000.0)),
+            ]),
+            make_row(&[
+                ("category", json!("交通・通信")),
+                ("monthly_amount", json!(40_000.0)),
+            ]),
+            make_row(&[
+                ("category", json!("その他の消費支出")),
+                ("monthly_amount", json!(80_000.0)),
+            ]),
+        ];
+        let ctx = ctx_with_spending(rows);
+        render_section_household_vs_salary(&mut html, &agg, Some(&ctx));
+
+        // 「消費支出」のみを採用するため total_spending = 28 万、ratio = 25/28 = 89%
+        // (二重計上していたら total = 56 万、ratio = 25/56 = 45% という不正な値になる)
+        assert!(
+            html.contains("給与/支出 比率: 89%"),
+            "「消費支出」(親) を優先採用、サブカテゴリは合算しない (二重計上防止)"
+        );
+        // ドメイン不変条件: 比率は物理的にあり得る範囲 (50% 未満は二重計上のシグナル)
+        assert!(
+            !html.contains("給与/支出 比率: 45%"),
+            "比率 45% は 消費支出+サブ合計 の二重計上の証拠 (バグ)"
         );
     }
 

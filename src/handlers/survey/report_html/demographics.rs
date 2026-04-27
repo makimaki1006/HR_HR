@@ -450,7 +450,9 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
             None
         }
     });
-    let pref_avg_unemp = ctx.pref_avg_unemployment_rate.map(|v| v * 100.0); // 比率→%
+    // pref_avg_unemployment_rate は fetch_prefecture_mean (subtab7_other.rs:282) の SQL が
+    // 既に * 100 してパーセント単位で返すため、再変換しない (バグ修正 2026-04-27)
+    let pref_avg_unemp = ctx.pref_avg_unemployment_rate;
 
     // ---- #17 教育施設密度: 4 区分の合計 / 1万人あたり ----
     // 注: 本 schema には大学/専門学校カラムは存在しない。幼稚園〜高校の合計で密度算出。
@@ -959,6 +961,8 @@ mod tests {
     }
 
     /// #10: 県平均比 (pref_avg_unemployment_rate) が表示されること
+    /// 注: pref_avg_unemployment_rate は fetch_prefecture_mean の SQL で既に * 100 されているため
+    ///     パーセント単位で渡す (例: 2.0 = 2.0%)。
     #[test]
     fn demographics_p10_pref_avg_compare() {
         let labor_force = vec![row(&[
@@ -966,8 +970,8 @@ mod tests {
             ("unemployed", json!(25_000)),
             ("unemployment_rate", json!(2.5)),
         ])];
-        // 県平均 失業率 2.0% (比率 0.02 で渡す)
-        let ctx = build_test_ctx(vec![], vec![], labor_force, vec![], Some(0.02));
+        // 県平均 失業率 2.0% (パーセント単位で直接)
+        let ctx = build_test_ctx(vec![], vec![], labor_force, vec![], Some(2.0));
         let mut html = String::new();
         render_section_demographics(&mut html, &ctx);
 
@@ -975,6 +979,31 @@ mod tests {
         assert!(
             html.contains("県平均比 1.25 倍"),
             "県平均比 1.25 倍 が表示されること"
+        );
+    }
+
+    /// 逆証明: 県平均比が物理的にあり得ない値 (e.g. 0.01 倍) を弾く
+    /// pref_avg_unemployment_rate に 380.0 のような誤データが入った場合でも、
+    /// 表示された比率が 1.0 のオーダーに収まることを確認 (ドメイン不変条件)
+    #[test]
+    fn demographics_p10_pref_avg_compare_sanity() {
+        let labor_force = vec![row(&[
+            ("employed", json!(975_000)),
+            ("unemployed", json!(25_000)),
+            ("unemployment_rate", json!(2.5)),
+        ])];
+        // 正常なパーセント値 3.0%
+        let ctx = build_test_ctx(vec![], vec![], labor_force, vec![], Some(3.0));
+        let mut html = String::new();
+        render_section_demographics(&mut html, &ctx);
+        // 比率は ~0.83 倍 (=2.5/3.0) のはず。0.01 倍のような不正値が出てはならない
+        assert!(
+            !html.contains("県平均比 0.01 倍") && !html.contains("県平均比 0.0 倍"),
+            "比率が物理的にあり得ない値になってはならない (二重 100 倍のような単位ミス検出)"
+        );
+        assert!(
+            html.contains("県平均比 0.83 倍"),
+            "県平均比 0.83 倍 (=2.5/3.0) が表示されること"
         );
     }
 

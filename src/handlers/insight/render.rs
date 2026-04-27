@@ -1605,10 +1605,14 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
     }
 
     // --- 3. 家計支出（カテゴリ別構成比） ---
+    // 注: v2_external_household_spending は「消費支出」(親) と 10 サブカテゴリを両方
+    //     持つため、親を含めると pie chart が 50% を占有してしまう。pie はサブカテゴリ
+    //     のみで描画する (バグ修正 2026-04-27)。
     if !ctx.ext_household_spending.is_empty() {
         let items: Vec<(String, f64)> = ctx
             .ext_household_spending
             .iter()
+            .filter(|r| get_str_ref(r, "category") != "消費支出")
             .map(|r| {
                 (
                     get_str_ref(r, "category").to_string(),
@@ -1638,13 +1642,19 @@ fn render_labor_future_risk_section(html: &mut String, ctx: &InsightContext) {
                 }]
             });
 
-            let total: f64 = items.iter().map(|(_, v)| *v).sum();
+            // 「消費支出」(親) を取得して合計表示に使う。無ければサブカテゴリ合計で代用
+            let total: f64 = ctx
+                .ext_household_spending
+                .iter()
+                .find(|r| get_str_ref(r, "category") == "消費支出")
+                .map(|r| get_f64(r, "monthly_amount"))
+                .unwrap_or_else(|| items.iter().map(|(_, v)| *v).sum());
 
             html.push_str("<div class=\"chart-box no-break\">");
             html.push_str("<h3>家計支出（カテゴリ別月額構成比）</h3>");
             html.push_str(&render_echarts_div(&chart.to_string(), 280));
             write!(html,
-                r#"<div class="chart-interp">月額合計: 約{}円。支出構成は地域の生活コスト水準を示し、賃金設計の基準となる。</div>"#,
+                r#"<div class="chart-interp">月額合計: 約{}円 (消費支出)。支出構成は地域の生活コスト水準を示し、賃金設計の基準となる。</div>"#,
                 format_number(total as i64)
             ).unwrap();
             html.push_str("</div>");

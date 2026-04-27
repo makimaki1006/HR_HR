@@ -225,7 +225,7 @@ fn render_internet_usage_block(html: &mut String, ctx: &InsightContext) {
     };
     html.push_str(&format!(
         "<p style=\"margin:8px 0;font-size:10pt;\">\
-         {} <strong>Indeed / 求人ボックス等オンライン媒体への適合度: {}</strong> \
+         {} <strong>オンライン求人媒体への適合度: {}</strong> \
          <span style=\"font-size:9pt;color:#666;\">\
          （閾値: ≥75% 高 / 60-75% 中 / &lt;60% 低、internet_usage_rate ベース）\
          </span></p>\n",
