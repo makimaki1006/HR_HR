@@ -135,9 +135,13 @@ fn render_social_life_block(html: &mut String, ctx: &InsightContext) {
     );
 
     // 必須注記 (feedback_hw_data_scope.md 準拠)
+    // 2026-04-26 Granularity: 都道府県粒度のみであることを強調
     html.push_str(
-        "<p class=\"note\" style=\"font-size:9pt;color:#666;margin:6px 0;\">\
-         <strong>注:</strong> 社会生活基本調査 2021 ベース（総務省統計局、5 年に 1 回）。\
+        "<p class=\"note\" style=\"font-size:9pt;color:#b45309;background:#fef3c7;padding:6px 8px;border-left:3px solid #f59e0b;border-radius:3px;margin:6px 0;\">\
+         <strong>⚠ 都道府県粒度の参考値:</strong> 社会生活基本調査 2021 ベース（総務省統計局、5 年に 1 回）。\
+         本データは <strong>都道府県+政令市</strong> のみで、市区町村別の差は反映されていません。\
+         CSV の主要市区町村が複数都道府県にまたがる場合、都道府県平均が必ずしも \
+         実際の対象地域を代表しないため、参考値としてご利用ください。\
          participation_rate は 10 歳以上人口の自己申告。\
          </p>\n",
     );
@@ -243,11 +247,14 @@ fn render_internet_usage_block(html: &mut String, ctx: &InsightContext) {
     } else {
         "最新".to_string()
     };
+    // 2026-04-26 Granularity: 都道府県粒度のみであることを強調
     html.push_str(&format!(
-        "<p class=\"note\" style=\"font-size:9pt;color:#666;margin:6px 0;\">\
-         <strong>注:</strong> 通信利用動向調査 {} ベース（総務省）。\
+        "<p class=\"note\" style=\"font-size:9pt;color:#b45309;background:#fef3c7;padding:6px 8px;border-left:3px solid #f59e0b;border-radius:3px;margin:6px 0;\">\
+         <strong>⚠ 都道府県粒度の参考値:</strong> 通信利用動向調査 {} ベース（総務省）。\
+         本データは <strong>都道府県のみ</strong> で、市区町村別の差は反映されていません。\
          インターネット利用率は 6 歳以上人口の自己申告。\
          スマートフォン保有率は世帯単位での自己申告。\
+         オンライン媒体適合度は当該都道府県全体の平均値であり、対象市区町村の実態とは乖離する可能性があります。\
          </p>\n",
         escape_html(&year_str),
     ));
@@ -488,6 +495,55 @@ mod tests {
         assert!(
             html.is_empty(),
             "social_life / internet_usage 両方空なら section 非出力"
+        );
+    }
+
+    /// 2026-04-26 Granularity: 都道府県粒度警告が強化されていること (social_life)
+    #[test]
+    fn granularity_lifestyle_social_life_pref_only_warning_strengthened() {
+        let rows = vec![make_row(&[
+            ("prefecture", json!("東京都")),
+            ("category", json!("趣味・娯楽")),
+            ("subcategory", json!("")),
+            ("participation_rate", json!(70.0)),
+            ("survey_year", json!(2021)),
+        ])];
+        let ctx = mock_ctx_with_social_life(rows);
+        let mut html = String::new();
+        render_section_lifestyle(&mut html, Some(&ctx));
+
+        // 強化された警告: 「都道府県粒度の参考値」「市区町村別の差は反映されていません」
+        assert!(
+            html.contains("都道府県粒度の参考値"),
+            "lifestyle social_life: 都道府県粒度の警告強化必須"
+        );
+        assert!(
+            html.contains("市区町村別の差は反映されていません"),
+            "lifestyle social_life: 市区町村別差の注記必須"
+        );
+    }
+
+    /// 2026-04-26 Granularity: 都道府県粒度警告が強化されていること (internet_usage)
+    #[test]
+    fn granularity_lifestyle_internet_usage_pref_only_warning_strengthened() {
+        let rows = vec![make_row(&[
+            ("prefecture", json!("東京都")),
+            ("internet_usage_rate", json!(85.0)),
+            ("smartphone_ownership_rate", json!(70.0)),
+            ("year", json!(2023)),
+        ])];
+        let ctx = mock_ctx_with_internet(rows);
+        let mut html = String::new();
+        render_section_lifestyle(&mut html, Some(&ctx));
+
+        assert!(
+            html.contains("都道府県粒度の参考値"),
+            "lifestyle internet_usage: 都道府県粒度の警告強化必須"
+        );
+        assert!(
+            html.contains("市区町村別の差は反映されていません")
+                || html.contains("対象市区町村の実態とは乖離する可能性"),
+            "lifestyle internet_usage: 市区町村別差の注記必須"
         );
     }
 

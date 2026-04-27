@@ -20,9 +20,22 @@ pub(crate) struct SurveyExtensionData {
     /// 案 #6: 主要 3 都道府県の region_benchmark 行（pref → 正社員行）
     /// 各 Row は salary_competitiveness / job_market_tightness / wage_compliance /
     /// working_age_ratio / population_growth / labor_fluidity 等の 0-1 正規化スコアを持つ。
+    ///
+    /// 2026-04-26 ユーザー指摘により、都道府県粒度では媒体分析の参考にならないと判断。
+    /// 主たるレーダー表示は `top3_municipality_benchmark` を使用するが、
+    /// 後方互換のため本フィールドは維持（既存テスト互換）。
     pub top3_region_benchmark: Vec<(String, Row)>,
     /// 案 D-3: dominant 都道府県の産業別就業者構成 Top10（v2_external_industry_structure）
+    /// 注記: schema 上 prefecture_code のみ対応のため都道府県粒度のみ。
     pub industry_structure_top10: Vec<Row>,
+    /// 2026-04-26: CSV 上位 3 市区町村の region_benchmark 行 (label, row, is_pref_fallback)。
+    /// label は "{pref} {muni}" もしくは "{pref} {muni} (県値参考)" 形式。
+    /// is_pref_fallback=true の場合、市区町村粒度データなしで都道府県値を流用。
+    /// 媒体分析タブの主役レーダーチャート (「主要都市 6 軸ベンチマーク」)。
+    pub top3_municipality_benchmark: Vec<(String, Row, bool)>,
+    /// 2026-04-26: CSV 件数上位 N 市区町村のヒートマップデータ
+    /// `(prefecture, municipality, count)` の Vec。47 県ヒートマップを置換する。
+    pub top_municipalities_heatmap: Vec<(String, String, usize)>,
 }
 
 /// 統合レポートHTML生成（後方互換: SurveyExtensionData 無し）
@@ -98,10 +111,26 @@ pub(crate) fn render_integration_with_ext(
     // 外部統計セクション
     html.push_str(&render_external_section(ctx));
 
-    // Impl-1 #6: 主要地域 6 軸ベンチマーク レーダーチャート（top3_region_benchmark あり時のみ）
-    html.push_str(&render_region_benchmark_radar_section(
-        &ext.top3_region_benchmark,
+    // 2026-04-26: 主要市区町村ヒートマップ（CSV 件数 Top N）
+    // ユーザー指摘「都道府県単位の集計はあまり参考にならない」に対応し、
+    // CSV 上の主要市区町村に絞ったヒートマップを最初に表示する。
+    html.push_str(&render_municipality_heatmap_section(
+        &ext.top_municipalities_heatmap,
     ));
+
+    // 2026-04-26: 主要市区町村 6 軸ベンチマーク レーダー（top3_municipality_benchmark あり時）
+    // 都道府県粒度より高い解像度を提供する主役レーダー。
+    html.push_str(&render_municipality_benchmark_radar_section(
+        &ext.top3_municipality_benchmark,
+    ));
+
+    // Impl-1 #6: 主要地域 6 軸ベンチマーク レーダーチャート（top3_region_benchmark あり時のみ）
+    // ※ 後方互換維持: top3_municipality_benchmark がある場合は冗長になるため都道府県版は非表示
+    if ext.top3_municipality_benchmark.is_empty() {
+        html.push_str(&render_region_benchmark_radar_section(
+            &ext.top3_region_benchmark,
+        ));
+    }
 
     // Impl-1 #18 / D-4: 可住地密度 + 高齢化率 KPI カード（地域特性補足）
     html.push_str(&render_geography_aging_section(ctx));
@@ -889,6 +918,200 @@ fn render_region_benchmark_radar_section(top3: &[(String, Row)]) -> String {
         r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
         6 軸スコアは相対値です。地域間の戦略的優劣ではなく特性の違いを示す傾向参照値であり、因果関係や採用成功の保証ではありません。
         スコープは HW 掲載求人および外部統計に基づきます。
+    </div>"#,
+    );
+    html.push_str("</section>");
+    html
+}
+
+/// 2026-04-26: 主要市区町村 6 軸ベンチマーク レーダーチャート
+///
+/// 媒体分析タブの主役レーダー。CSV 件数上位 3 市区町村の region_benchmark を重ね描き。
+/// 市区町村粒度データが無い地域は都道府県値で fallback し、ラベルに「(県値参考)」を併記。
+///
+/// ユーザー指摘 (2026-04-26):
+/// > 都道府県単位の集計データはあまり参考にならない
+/// → 市区町村粒度に切替。
+fn render_municipality_benchmark_radar_section(top3: &[(String, Row, bool)]) -> String {
+    if top3.is_empty() {
+        return String::new();
+    }
+
+    let mut html = String::with_capacity(2_500);
+    html.push_str(r#"<section class="stat-card" data-testid="municipality-benchmark-radar"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-pink-500 pl-2">主要都市 6 軸ベンチマーク（市区町村粒度）</h4>"#);
+
+    let has_fallback = top3.iter().any(|(_, _, fb)| *fb);
+    write!(
+        html,
+        r#"<div class="text-xs text-slate-400 mb-2">
+            CSV 件数 上位 {n} 市区町村を 6 軸（給与 / 求人量 / 充足 / 人口動態 / 賃金遵守 / 産業多様性）でレーダー比較。\
+            軸ごとに 0-100 で正規化された相対値です。{fb}
+        </div>"#,
+        n = top3.len(),
+        fb = if has_fallback {
+            "<br>※ 一部地域は市区町村粒度データなしのため都道府県値で代用しています（ラベル末尾「(県値参考)」）。"
+        } else {
+            ""
+        },
+    )
+    .unwrap();
+
+    let indicators: Vec<serde_json::Value> = REGION_BENCHMARK_RADAR_AXES
+        .iter()
+        .map(|(_, label)| serde_json::json!({"name": label, "max": 100}))
+        .collect();
+
+    let colors = ["#ec4899", "#10b981", "#3b82f6"]; // ピンク / 緑 / 青
+    let series_data: Vec<serde_json::Value> = top3
+        .iter()
+        .enumerate()
+        .map(|(i, (label, row, _fb))| {
+            let values: Vec<f64> = REGION_BENCHMARK_RADAR_AXES
+                .iter()
+                .map(|(col, _)| radar_score_to_pct(get_f64(row, col)))
+                .collect();
+            serde_json::json!({
+                "name": label,
+                "value": values,
+                "lineStyle": {"color": colors[i % colors.len()], "width": 2},
+                "areaStyle": {"color": colors[i % colors.len()], "opacity": 0.15},
+            })
+        })
+        .collect();
+
+    let legend_names: Vec<&String> = top3.iter().map(|(label, _, _)| label).collect();
+
+    let config = serde_json::json!({
+        "tooltip": {"trigger": "item"},
+        "legend": {
+            "data": legend_names,
+            "textStyle": {"color": "#cbd5e1", "fontSize": 11},
+            "bottom": 0,
+        },
+        "radar": {
+            "indicator": indicators,
+            "shape": "polygon",
+            "splitNumber": 4,
+            "axisName": {"color": "#94a3b8", "fontSize": 11},
+            "splitLine": {"lineStyle": {"color": "#334155"}},
+            "splitArea": {"areaStyle": {"color": ["#1e293b80", "#0f172a80"]}},
+            "axisLine": {"lineStyle": {"color": "#475569"}},
+        },
+        "series": [{
+            "type": "radar",
+            "data": series_data,
+        }],
+    });
+    let cfg_str = config.to_string().replace('\'', "&#39;");
+
+    write!(
+        html,
+        r#"<div class="echart" style="height:340px;width:100%;" data-chart-config='{}'></div>"#,
+        cfg_str
+    )
+    .unwrap();
+
+    // 凡例（テキストフォールバック）
+    html.push_str(r#"<div class="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2 text-[11px]">"#);
+    for (i, (label, row, fb)) in top3.iter().enumerate() {
+        let color = colors[i % colors.len()];
+        let scores: Vec<String> = REGION_BENCHMARK_RADAR_AXES
+            .iter()
+            .map(|(col, lbl)| {
+                let v = radar_score_to_pct(get_f64(row, col));
+                format!("{}={:.0}", lbl, v)
+            })
+            .collect();
+        let fb_marker = if *fb {
+            r#"<span class="text-amber-400 ml-1">[県値参考]</span>"#
+        } else {
+            ""
+        };
+        write!(
+            html,
+            r#"<div class="p-2 rounded bg-slate-800/40">
+                <div class="font-semibold" style="color:{color}">{label}{fb_marker}</div>
+                <div class="text-[10px] text-slate-400 mt-1">{scores}</div>
+            </div>"#,
+            color = color,
+            label = escape_html(label),
+            fb_marker = fb_marker,
+            scores = escape_html(&scores.join(" / "))
+        )
+        .unwrap();
+    }
+    html.push_str("</div>");
+
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-500 mt-2">図 6-2M: 主要都市 6 軸ベンチマーク（市区町村粒度）</div>"#,
+    );
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
+        6 軸スコアは相対値です。市区町村間の戦略的優劣ではなく特性の違いを示す傾向参照値であり、因果関係や採用成功の保証ではありません。
+        スコープは HW 掲載求人および外部統計（市区町村粒度）に基づきます。
+    </div>"#,
+    );
+    html.push_str("</section>");
+    html
+}
+
+/// 2026-04-26: CSV 主要市区町村ヒートマップ
+///
+/// CSV 件数 上位 N 市区町村を件数順にカラーグラデーションで表示。
+/// 47 県ヒートマップを置換。「都道府県単位は参考にならない」というユーザー指摘に対応。
+fn render_municipality_heatmap_section(top: &[(String, String, usize)]) -> String {
+    if top.is_empty() {
+        return String::new();
+    }
+
+    let max_count = top.iter().map(|(_, _, c)| *c).max().unwrap_or(1).max(1);
+
+    let mut html = String::with_capacity(2_000);
+    html.push_str(r#"<section class="stat-card" data-testid="municipality-heatmap"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-rose-500 pl-2">主要市区町村ヒートマップ（CSV 件数）</h4>"#);
+
+    write!(
+        html,
+        r#"<div class="text-xs text-slate-400 mb-3">
+            CSV に登場する件数 Top {n} の市区町村を件数順に色分け表示。\
+            濃い色ほど CSV 件数が多い地域です。媒体分析の主たる対象地域は本セクションを優先参照してください。
+        </div>"#,
+        n = top.len(),
+    )
+    .unwrap();
+
+    // グリッド形式: 6 列 × 5 行 (最大 30 セル)
+    html.push_str(r#"<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2" data-testid="muni-heatmap-grid">"#);
+    for (pref, muni, count) in top {
+        let intensity = (*count as f64 / max_count as f64).clamp(0.05, 1.0);
+        // bgColor: rose-500 を intensity で透明度調整
+        let alpha = 0.15 + 0.7 * intensity;
+        let text_color = if intensity > 0.5 { "#fff" } else { "#fcd1d8" };
+        write!(
+            html,
+            r#"<div class="rounded p-2 text-center" style="background:rgba(244,63,94,{alpha:.2});color:{tc};" data-testid="muni-heatmap-cell">
+                <div class="text-[10px] truncate" title="{pref_full}">{pref_short}</div>
+                <div class="text-xs font-semibold truncate" title="{muni_full}">{muni}</div>
+                <div class="text-sm font-bold mt-1">{count}</div>
+            </div>"#,
+            alpha = alpha,
+            tc = text_color,
+            pref_full = escape_html(pref),
+            // 都道府県名末尾の "都/道/府/県" を省略してコンパクト化
+            pref_short = escape_html(pref.trim_end_matches(['都', '道', '府', '県'])),
+            muni_full = escape_html(muni),
+            muni = escape_html(muni),
+            count = format_number(*count as i64),
+        )
+        .unwrap();
+    }
+    html.push_str("</div>");
+
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-500 mt-3">図 6-1M: 主要市区町村ヒートマップ</div>"#,
+    );
+    html.push_str(
+        r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
+        件数は CSV 内の出現回数（ハローワーク全体ではありません）。重複削除後の値で、件数=求人広告本数の概算値です。
     </div>"#,
     );
     html.push_str("</section>");
@@ -1771,5 +1994,284 @@ mod impl1_contract_tests {
             !html.contains("data-testid=\"industry-structure-section\""),
             "ext default 時は industry 出ない"
         );
+    }
+
+    // ====================================================================
+    // 2026-04-26 Granularity: 市区町村粒度 contract tests (10 件以上)
+    // ユーザー指摘「都道府県単位は参考にならない」に対応した
+    // 市区町村レーダー / ヒートマップ / 注記の逆証明テスト群
+    // ====================================================================
+
+    /// 逆証明: 市区町村ヒートマップ section は top_municipalities が空ならば描画しない
+    #[test]
+    fn granularity_heatmap_hidden_when_empty() {
+        let html = render_municipality_heatmap_section(&[]);
+        assert!(html.is_empty(), "空 Vec ではヒートマップ非表示");
+    }
+
+    /// 逆証明: 市区町村ヒートマップ section に CSV 件数 Top N が表示される
+    #[test]
+    fn granularity_heatmap_shows_top_municipalities_with_counts() {
+        let top = vec![
+            ("東京都".to_string(), "千代田区".to_string(), 100),
+            ("東京都".to_string(), "新宿区".to_string(), 80),
+            ("神奈川県".to_string(), "横浜市".to_string(), 60),
+        ];
+        let html = render_municipality_heatmap_section(&top);
+
+        assert!(
+            html.contains("data-testid=\"municipality-heatmap\""),
+            "ヒートマップ data-testid 必須"
+        );
+        assert!(
+            html.contains("data-testid=\"muni-heatmap-grid\""),
+            "ヒートマップグリッド data-testid 必須"
+        );
+        // 全市区町村名表示
+        assert!(html.contains("千代田区"), "千代田区が表示される");
+        assert!(html.contains("新宿区"), "新宿区が表示される");
+        assert!(html.contains("横浜市"), "横浜市が表示される");
+        // 件数表示
+        assert!(html.contains("100"), "件数 100 表示");
+        assert!(html.contains("80"), "件数 80 表示");
+        assert!(html.contains("60"), "件数 60 表示");
+        // 図番号
+        assert!(html.contains("図 6-1M"), "図 6-1M (市区町村ヒートマップ)");
+    }
+
+    /// 逆証明: 市区町村ヒートマップは件数が多い地域ほど濃い色 (alpha 値で判定)
+    #[test]
+    fn granularity_heatmap_color_intensity_by_count() {
+        let top = vec![
+            ("東京都".to_string(), "高件数市".to_string(), 1000),
+            ("東京都".to_string(), "低件数市".to_string(), 50),
+        ];
+        let html = render_municipality_heatmap_section(&top);
+        // 1000 件は alpha = 0.15 + 0.7 = 0.85
+        assert!(
+            html.contains("rgba(244,63,94,0.85)") || html.contains("rgba(244,63,94,0.84)"),
+            "高件数の alpha 0.85 付近"
+        );
+        // 50 件は alpha = 0.15 + 0.7 * (50/1000) = 0.185
+        assert!(
+            html.contains("rgba(244,63,94,0.18)") || html.contains("rgba(244,63,94,0.19)"),
+            "低件数の alpha 0.185 付近"
+        );
+    }
+
+    /// 逆証明: 市区町村レーダー section は top3 が空なら非表示
+    #[test]
+    fn granularity_municipality_radar_hidden_when_empty() {
+        let html = render_municipality_benchmark_radar_section(&[]);
+        assert!(html.is_empty(), "空 Vec で市区町村レーダー非表示");
+    }
+
+    /// 逆証明: 市区町村レーダーが 6 軸データを ECharts 形式で描画
+    #[test]
+    fn granularity_municipality_radar_emits_6axis_data() {
+        let mk_row = |sal: f64, tight: f64, fresh: f64, wa: f64, wage: f64, div: f64| {
+            make_row(&[
+                ("emp_group", json!("正社員")),
+                ("salary_competitiveness", json!(sal)),
+                ("job_market_tightness", json!(tight)),
+                ("posting_freshness", json!(fresh)),
+                ("working_age_ratio", json!(wa)),
+                ("wage_compliance", json!(wage)),
+                ("industry_diversity", json!(div)),
+            ])
+        };
+        let top3 = vec![
+            (
+                "東京都 千代田区".to_string(),
+                mk_row(0.85, 0.78, 0.72, 0.92, 0.95, 0.88),
+                false,
+            ),
+            (
+                "東京都 新宿区".to_string(),
+                mk_row(0.70, 0.65, 0.60, 0.85, 0.90, 0.75),
+                false,
+            ),
+            (
+                "神奈川県 横浜市".to_string(),
+                mk_row(0.60, 0.55, 0.50, 0.80, 0.88, 0.65),
+                false,
+            ),
+        ];
+        let html = render_municipality_benchmark_radar_section(&top3);
+
+        assert!(
+            html.contains("data-testid=\"municipality-benchmark-radar\""),
+            "radar data-testid 必須"
+        );
+        assert!(
+            html.contains("市区町村粒度"),
+            "市区町村粒度であることを明示"
+        );
+        // 6 軸
+        for axis in &[
+            "給与競争力",
+            "求人量",
+            "充足度",
+            "人口動態",
+            "賃金遵守",
+            "産業多様性",
+        ] {
+            assert!(html.contains(axis), "軸 {} 必須", axis);
+        }
+        // 3 市区町村のラベル表示
+        assert!(html.contains("千代田区"), "千代田区ラベル");
+        assert!(html.contains("新宿区"), "新宿区ラベル");
+        assert!(html.contains("横浜市"), "横浜市ラベル");
+        // ECharts 識別属性
+        assert!(
+            html.contains("data-chart-config"),
+            "ECharts data-chart-config"
+        );
+        assert!(html.contains("\"type\":\"radar\""), "radar series type");
+        // 図番号 (M suffix で都道府県版と区別)
+        assert!(html.contains("図 6-2M"), "図 6-2M (市区町村粒度) 必須");
+    }
+
+    /// 逆証明: fallback 注記が表示される (一部地域が県値参考の場合)
+    #[test]
+    fn granularity_municipality_radar_shows_fallback_note() {
+        let mk_row = || {
+            make_row(&[
+                ("emp_group", json!("正社員")),
+                ("salary_competitiveness", json!(0.5)),
+            ])
+        };
+        let top3 = vec![
+            ("東京都 千代田区".to_string(), mk_row(), false),
+            ("東京都 新宿区 (県値参考)".to_string(), mk_row(), true),
+        ];
+        let html = render_municipality_benchmark_radar_section(&top3);
+
+        assert!(
+            html.contains("一部地域は市区町村粒度データなし") || html.contains("県値参考"),
+            "fallback 注記または県値参考ラベルが必要"
+        );
+        assert!(
+            html.contains("[県値参考]"),
+            "凡例に [県値参考] マーカー必須"
+        );
+    }
+
+    /// 逆証明: 全件 fallback ではない場合は注記なし
+    #[test]
+    fn granularity_municipality_radar_no_fallback_note_when_all_municipal() {
+        let mk_row = || {
+            make_row(&[
+                ("emp_group", json!("正社員")),
+                ("salary_competitiveness", json!(0.5)),
+            ])
+        };
+        let top3 = vec![
+            ("東京都 千代田区".to_string(), mk_row(), false),
+            ("東京都 新宿区".to_string(), mk_row(), false),
+        ];
+        let html = render_municipality_benchmark_radar_section(&top3);
+        assert!(
+            !html.contains("一部地域は市区町村粒度データなし"),
+            "全件市区町村粒度なら fallback 注記出ない"
+        );
+    }
+
+    /// 逆証明: SurveyExtensionData に top3_municipality_benchmark がある場合、
+    /// render_integration_with_ext は市区町村レーダーを描画
+    #[test]
+    fn granularity_extension_data_municipality_benchmark_renders() {
+        let ctx = empty_ctx_for_impl1();
+        let mut ext = SurveyExtensionData::default();
+        ext.top3_municipality_benchmark = vec![(
+            "東京都 千代田区".to_string(),
+            make_row(&[
+                ("emp_group", json!("正社員")),
+                ("salary_competitiveness", json!(0.85)),
+            ]),
+            false,
+        )];
+        let html = render_integration_with_ext("東京都", "千代田区", &[], &ctx, &[], &[], &ext);
+        assert!(
+            html.contains("data-testid=\"municipality-benchmark-radar\""),
+            "市区町村レーダーが描画される"
+        );
+    }
+
+    /// 逆証明: top3_municipality_benchmark がある時、都道府県レーダーは抑制される (重複回避)
+    #[test]
+    fn granularity_municipality_benchmark_suppresses_prefecture_radar() {
+        let ctx = empty_ctx_for_impl1();
+        let mut ext = SurveyExtensionData::default();
+        // 両方ある状態
+        ext.top3_municipality_benchmark = vec![(
+            "東京都 千代田区".to_string(),
+            make_row(&[
+                ("emp_group", json!("正社員")),
+                ("salary_competitiveness", json!(0.5)),
+            ]),
+            false,
+        )];
+        ext.top3_region_benchmark = vec![(
+            "東京都".to_string(),
+            make_row(&[
+                ("emp_group", json!("正社員")),
+                ("salary_competitiveness", json!(0.5)),
+            ]),
+        )];
+        let html = render_integration_with_ext("東京都", "千代田区", &[], &ctx, &[], &[], &ext);
+        // 市区町村は出る
+        assert!(
+            html.contains("data-testid=\"municipality-benchmark-radar\""),
+            "市区町村レーダーは出る"
+        );
+        // 都道府県は出ない (冗長のため)
+        assert!(
+            !html.contains("data-testid=\"region-benchmark-radar\""),
+            "市区町村ある時は都道府県レーダー抑制 (冗長回避)"
+        );
+    }
+
+    /// 逆証明: top_municipalities_heatmap がある場合、ヒートマップ section が描画される
+    #[test]
+    fn granularity_extension_data_heatmap_renders() {
+        let ctx = empty_ctx_for_impl1();
+        let mut ext = SurveyExtensionData::default();
+        ext.top_municipalities_heatmap = vec![
+            ("東京都".to_string(), "千代田区".to_string(), 100),
+            ("神奈川県".to_string(), "横浜市".to_string(), 80),
+        ];
+        let html = render_integration_with_ext("東京都", "千代田区", &[], &ctx, &[], &[], &ext);
+        assert!(
+            html.contains("data-testid=\"municipality-heatmap\""),
+            "ext.top_municipalities_heatmap で市区町村ヒートマップ描画"
+        );
+        assert!(html.contains("千代田区"));
+        assert!(html.contains("横浜市"));
+    }
+
+    /// 逆証明: 都道府県名末尾 "都/道/府/県" が省略されてコンパクト表示される
+    #[test]
+    fn granularity_heatmap_pref_short_form() {
+        let top = vec![
+            ("北海道".to_string(), "札幌市".to_string(), 50),
+            ("東京都".to_string(), "千代田区".to_string(), 100),
+            ("京都府".to_string(), "京都市".to_string(), 30),
+            ("沖縄県".to_string(), "那覇市".to_string(), 20),
+        ];
+        let html = render_municipality_heatmap_section(&top);
+        // pref_short は "東京" "京都" "北海" "沖縄" など
+        // ※ "京都府京都市" の "京都" は短縮された都道府県名と市名で同じになるが、
+        //   独立した表示要素のため div で区切られる
+        assert!(html.contains(">東京<"), "東京 (短縮) 表示");
+        assert!(html.contains(">沖縄<"), "沖縄 (短縮) 表示");
+    }
+
+    /// 逆証明: SurveyExtensionData に新フィールドが追加され、Default が空 Vec
+    #[test]
+    fn granularity_extension_data_defaults_empty() {
+        let ext = SurveyExtensionData::default();
+        assert!(ext.top3_municipality_benchmark.is_empty(), "Default は空");
+        assert!(ext.top_municipalities_heatmap.is_empty(), "Default は空");
     }
 }

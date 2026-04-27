@@ -4,6 +4,7 @@
 
 pub mod aggregator;
 pub mod fetch;
+pub mod granularity;
 pub mod handlers;
 pub mod hw_enrichment;
 pub mod integration;

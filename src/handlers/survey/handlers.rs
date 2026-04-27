@@ -275,6 +275,17 @@ pub async fn integrate_report(
         })
         .unwrap_or_default();
 
+    // 2026-04-26 (Granularity): CSV 件数 上位 30 市区町村（ヒートマップ用）+ 上位 3（レーダー用）
+    // 媒体分析タブの主役は「都道府県」ではなく CSV に登場する市区町村。
+    let top_munis_30 = agg_parsed
+        .as_ref()
+        .map(|a| super::granularity::top_municipalities(a, 30))
+        .unwrap_or_default();
+    let top_munis_3 = agg_parsed
+        .as_ref()
+        .map(|a| super::granularity::top_municipalities(a, 3))
+        .unwrap_or_default();
+
     let content = tokio::task::spawn_blocking(move || {
         use super::super::company::fetch::fetch_companies_by_region;
         use super::super::insight::engine::generate_insights;
@@ -297,8 +308,15 @@ pub async fn integrate_report(
         let mut hw_enrichments: Vec<_> = enrichment_map.into_values().collect();
         hw_enrichments.sort_by(|a, b| b.hw_posting_count.cmp(&a.hw_posting_count));
 
-        // Impl-1: 媒体分析データ活用 #6 / D-3 用の追加 fetch
-        let ext = build_survey_extension_data(&db, turso.as_ref(), &pref2, &top3_prefs);
+        // Impl-1 + Granularity (2026-04-26): 媒体分析データ活用 #6 / D-3 + 市区町村粒度
+        let ext = build_survey_extension_data(
+            &db,
+            turso.as_ref(),
+            &pref2,
+            &top3_prefs,
+            &top_munis_3,
+            &top_munis_30,
+        );
 
         // 統合レポートHTML生成
         super::integration::render_integration_with_ext(
@@ -320,24 +338,35 @@ pub async fn integrate_report(
     Html(content)
 }
 
-/// Impl-1 (#6 / D-3) 用の拡張データを取得
+/// Impl-1 + Granularity (2026-04-26) 用の拡張データを取得
 ///
-/// - `top3_prefs`: CSV 件数上位 3 都道府県（最大 3 件）。空なら radar 非表示。
+/// - `top3_prefs`: CSV 件数上位 3 都道府県（最大 3 件）。空なら都道府県レーダー非表示。
+/// - `top_munis_3`: CSV 件数上位 3 市区町村 (主役レーダー)。空なら市区町村レーダー非表示。
+/// - `top_munis_30`: CSV 件数上位 30 市区町村 (ヒートマップ)。
 /// - dominant `pref` から industry_structure Top10 を取得。
 fn build_survey_extension_data(
     db: &crate::db::local_sqlite::LocalDb,
     _turso: Option<&crate::db::turso_http::TursoDb>,
     pref: &str,
     top3_prefs: &[String],
+    top_munis_3: &[(String, String, usize)],
+    top_munis_30: &[(String, String, usize)],
 ) -> super::integration::SurveyExtensionData {
     use super::super::analysis::fetch as af;
     use super::super::helpers::get_i64;
 
-    // #6: 主要 3 都道府県の region_benchmark
+    // #6: 主要 3 都道府県の region_benchmark (後方互換維持)
     let top3_region_benchmark = if top3_prefs.is_empty() {
         Vec::new()
     } else {
         af::fetch_region_benchmarks_for_prefs(db, top3_prefs)
+    };
+
+    // 2026-04-26 Granularity: 主要 3 市区町村の region_benchmark (主役)
+    let top3_municipality_benchmark = if top_munis_3.is_empty() {
+        Vec::new()
+    } else {
+        super::granularity::fetch_region_benchmarks_for_municipalities(db, top_munis_3)
     };
 
     // D-3: dominant pref の産業別就業者構成 Top10
@@ -363,6 +392,8 @@ fn build_survey_extension_data(
     super::integration::SurveyExtensionData {
         top3_region_benchmark,
         industry_structure_top10,
+        top3_municipality_benchmark,
+        top_municipalities_heatmap: top_munis_30.to_vec(),
     }
 }
 
@@ -505,8 +536,30 @@ pub async fn survey_report_html(
         std::collections::HashMap::new()
     };
 
+    // 2026-04-26 Granularity: CSV 上位 N 市区町村別デモグラフィック
+    // ユーザー指摘「都道府県単位は参考にならない」に対応。市区町村粒度のピラミッド・労働力・教育施設等を取得
+    let municipality_demographics = if let Some(hw_db) = state.hw_db.clone() {
+        let turso = state.turso_db.clone();
+        let top_munis = super::granularity::top_municipalities(&agg, 5);
+        if top_munis.is_empty() {
+            Vec::new()
+        } else {
+            tokio::task::spawn_blocking(move || {
+                super::granularity::fetch_municipality_demographics(
+                    &hw_db,
+                    turso.as_ref(),
+                    &top_munis,
+                )
+            })
+            .await
+            .unwrap_or_default()
+        }
+    } else {
+        Vec::new()
+    };
+
     let _ = (&pref, &muni);
-    let html = super::report_html::render_survey_report_page_with_enrichment(
+    let html = super::report_html::render_survey_report_page_with_municipalities(
         &agg,
         &seeker,
         &by_company,
@@ -516,6 +569,7 @@ pub async fn survey_report_html(
         hw_ctx.as_ref(),
         &salesnow_companies,
         &hw_enrichment_map,
+        &municipality_demographics,
     );
 
     Html(html)

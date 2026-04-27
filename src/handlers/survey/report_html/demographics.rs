@@ -177,6 +177,140 @@ pub(super) fn render_section_demographics(html: &mut String, ctx: &InsightContex
 }
 
 // ============================================================
+// 2026-04-26 Granularity: 主要市区町村別 デモグラフィック section
+// ============================================================
+
+/// CSV 件数 上位 N 市区町村についてデモグラフィック指標をカード形式で並列表示。
+///
+/// ユーザー指摘 (2026-04-26):
+/// > 都道府県単位の集計データはあまり参考にならない
+/// → 市区町村粒度のピラミッド・失業者・教育施設を主要 N 都市分まとめて表示。
+///
+/// 各カードに表示する KPI:
+/// - 市区町村名 + CSV 件数
+/// - 高齢化率 (65+ 比率)
+/// - 生産年齢人口比率 (15-64)
+/// - 推定失業者数
+/// - 教育施設数 (幼〜高 合計)
+///
+/// # 注記
+/// - `feedback_correlation_not_causation.md`: KPI と採用容易性は相関であり因果ではない
+/// - 学歴データは schema 上市区町村粒度未対応のため都道府県粒度のみ表示 (注記で明示)
+pub(super) fn render_section_demographics_by_municipality(
+    html: &mut String,
+    munis: &[super::super::granularity::MunicipalityDemographics],
+) {
+    if munis.is_empty() {
+        return;
+    }
+    // 全カードのデータが空ならスキップ
+    let any_data = munis.iter().any(|m| {
+        !m.pyramid.is_empty() || !m.labor_force.is_empty() || !m.education_facilities.is_empty()
+    });
+    if !any_data {
+        return;
+    }
+
+    html.push_str("<div class=\"section\">\n");
+    html.push_str("<h2>主要市区町村別 人材デモグラフィック</h2>\n");
+
+    render_section_howto(
+        html,
+        &[
+            "CSV 件数上位の市区町村ごとに、年齢構成・失業者数・教育施設数を市区町村粒度で表示します",
+            "都道府県平均に対する各都市の特性差を確認し、媒体配信や訴求軸の地域別最適化に活用",
+            "学歴分布は schema 上市区町村粒度未対応のため都道府県値で代用 (注記参照)",
+        ],
+    );
+
+    render_figure_caption(
+        html,
+        "表 D-M",
+        "主要市区町村別 人材プール KPI (市区町村粒度)",
+    );
+
+    // カードグリッド: 1 列 / mobile 2 列 / desktop 3 列
+    html.push_str(
+        "<div class=\"stats-grid\" style=\"grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px;\" data-testid=\"municipality-demographics-grid\">\n",
+    );
+
+    for demo in munis {
+        let aging = demo.aging_rate();
+        let working_age = demo.working_age_rate();
+        let unemp = demo.estimated_unemployed();
+        let facilities = demo.total_facilities();
+
+        html.push_str(&format!(
+            "<div class=\"stat-box\" data-testid=\"municipality-demo-card\" style=\"padding:10px;border:1px solid #e5e7eb;border-radius:6px;\">\n\
+             <div style=\"font-size:11px;color:#6b7280;\">{}</div>\n\
+             <div style=\"font-size:14px;font-weight:bold;\">{}</div>\n\
+             <div style=\"font-size:10px;color:#9ca3af;margin-bottom:6px;\">CSV 件数: {} 件</div>\n",
+            escape_html(&demo.prefecture),
+            escape_html(&demo.municipality),
+            format_number(demo.csv_count as i64),
+        ));
+
+        // KPI ミニリスト
+        html.push_str(
+            "<div style=\"display:flex;flex-direction:column;gap:3px;font-size:11px;\">\n",
+        );
+
+        if aging > 0.0 {
+            html.push_str(&format!(
+                "<div>高齢化率: <strong>{:.1}%</strong></div>\n",
+                aging
+            ));
+        }
+        if working_age > 0.0 {
+            html.push_str(&format!(
+                "<div>生産年齢比率 (15-64): <strong>{:.1}%</strong></div>\n",
+                working_age
+            ));
+        }
+        if let Some(u) = unemp {
+            html.push_str(&format!(
+                "<div>推定 失業者: <strong>{} 人</strong></div>\n",
+                format_number(u),
+            ));
+        }
+        if facilities > 0 {
+            html.push_str(&format!(
+                "<div>教育施設 (幼〜高): <strong>{} 校</strong></div>\n",
+                format_number(facilities),
+            ));
+        }
+
+        // データ欠損の表示
+        if aging <= 0.0 && working_age <= 0.0 && unemp.is_none() && facilities == 0 {
+            html.push_str(
+                "<div style=\"color:#9ca3af;font-style:italic;\">市区町村粒度データなし</div>\n",
+            );
+        }
+
+        html.push_str("</div>\n</div>\n");
+    }
+
+    html.push_str("</div>\n");
+
+    // 必須注記 (feedback_correlation_not_causation, feedback_hw_data_scope)
+    html.push_str(
+        "<p class=\"note\" style=\"margin-top:8px;\">\
+        ※ 各 KPI は国勢調査・労働力調査ベースの市区町村粒度。\
+        市区町村粒度データが欠損する場合は値が表示されません（都道府県値で代用していません）。\
+        学歴分布は schema 上市区町村粒度に対応していないため、別 section の都道府県値をご参照ください。\
+        KPI と採用容易性に相関が見られる場合がありますが、職種・条件マッチングが本質的要因です。\
+        </p>\n",
+    );
+
+    render_section_bridge(
+        html,
+        "次セクションでは、これら主要市区町村を含む地域全体の給与構造へと進みます。",
+    );
+
+    html.push_str("</div>\n");
+}
+
+// ============================================================
 // D-1: 年齢層ピラミッド
 // ============================================================
 
@@ -1020,5 +1154,192 @@ mod tests {
         assert!(is_senior("65-69"));
         assert!(is_senior("80+"));
         assert!(!is_senior("60-64"));
+    }
+
+    // ========================================================================
+    // 2026-04-26 Granularity: 市区町村別デモグラフィック section の逆証明テスト
+    // ========================================================================
+
+    fn make_muni_demo(
+        pref: &str,
+        muni: &str,
+        count: usize,
+        pyramid: Vec<Row>,
+        labor_force: Vec<Row>,
+        edu_facilities: Vec<Row>,
+    ) -> super::super::super::granularity::MunicipalityDemographics {
+        super::super::super::granularity::MunicipalityDemographics {
+            prefecture: pref.to_string(),
+            municipality: muni.to_string(),
+            csv_count: count,
+            pyramid,
+            education: vec![],
+            is_education_pref_fallback: true,
+            labor_force,
+            education_facilities: edu_facilities,
+            population: vec![],
+            geography: vec![],
+        }
+    }
+
+    /// 逆証明: 空 Vec で section 出力なし (空白 section 抑止)
+    #[test]
+    fn granularity_demographics_municipality_empty_renders_nothing() {
+        let mut html = String::new();
+        render_section_demographics_by_municipality(&mut html, &[]);
+        assert!(html.is_empty(), "空 Vec ではセクション非表示");
+    }
+
+    /// 逆証明: 全 muni のデータが空でも section 出力なし
+    #[test]
+    fn granularity_demographics_municipality_all_empty_data_renders_nothing() {
+        let munis = vec![make_muni_demo(
+            "東京都",
+            "千代田区",
+            50,
+            vec![],
+            vec![],
+            vec![],
+        )];
+        let mut html = String::new();
+        render_section_demographics_by_municipality(&mut html, &munis);
+        assert!(html.is_empty(), "全データ空ならセクション非表示");
+    }
+
+    /// 逆証明: 上位 3 市区町村のカードが描画され、KPI 値が具体値で表示される
+    #[test]
+    fn granularity_demographics_municipality_renders_kpi_values() {
+        let pyramid_a = vec![
+            row(&[
+                ("age_group", json!("20-29")),
+                ("male_count", json!(2000)),
+                ("female_count", json!(2000)),
+            ]),
+            row(&[
+                ("age_group", json!("30-39")),
+                ("male_count", json!(2000)),
+                ("female_count", json!(2000)),
+            ]),
+            row(&[
+                ("age_group", json!("65-69")),
+                ("male_count", json!(1000)),
+                ("female_count", json!(1000)),
+            ]),
+        ];
+        let labor_a = vec![row(&[
+            ("employed", json!(95_000)),
+            ("unemployed", json!(5_000)),
+            ("unemployment_rate", json!(5.0)),
+        ])];
+        let edu_a = vec![row(&[
+            ("kindergartens", json!(10)),
+            ("elementary_schools", json!(20)),
+            ("junior_high_schools", json!(10)),
+            ("high_schools", json!(5)),
+        ])];
+
+        let munis = vec![make_muni_demo(
+            "東京都",
+            "千代田区",
+            100,
+            pyramid_a,
+            labor_a,
+            edu_a,
+        )];
+
+        let mut html = String::new();
+        render_section_demographics_by_municipality(&mut html, &munis);
+
+        assert!(!html.is_empty(), "section 描画される");
+        assert!(
+            html.contains("主要市区町村別 人材デモグラフィック"),
+            "見出し必須"
+        );
+        assert!(
+            html.contains("data-testid=\"municipality-demographics-grid\""),
+            "グリッド data-testid"
+        );
+        assert!(
+            html.contains("data-testid=\"municipality-demo-card\""),
+            "カード data-testid"
+        );
+        // KPI 表示
+        assert!(html.contains("千代田区"), "市区町村名");
+        assert!(html.contains("東京都"), "都道府県名");
+        assert!(html.contains("100"), "CSV 件数 100");
+        // 高齢化率 = 2000 / 10000 = 20.0%
+        assert!(html.contains("20.0%"), "高齢化率 20.0%");
+        // 生産年齢比率 = 8000 / 10000 = 80.0%
+        assert!(html.contains("80.0%"), "生産年齢比率 80.0%");
+        // 推定失業者数 = 5000
+        assert!(html.contains("5,000 人"), "失業者数 5,000 人");
+        // 教育施設 = 10+20+10+5 = 45
+        assert!(html.contains("45 校"), "施設合計 45 校");
+        // 必須注記
+        assert!(html.contains("市区町村粒度"), "市区町村粒度の注記必須");
+    }
+
+    /// 逆証明: pyramid が空のカードでは「データなし」が表示される
+    #[test]
+    fn granularity_demographics_municipality_card_no_data_shows_placeholder() {
+        let labor_present = vec![row(&[
+            ("employed", json!(50_000)),
+            ("unemployed", json!(0)),
+            ("unemployment_rate", json!(0.0)),
+        ])];
+        let pyramid_present = vec![row(&[
+            ("age_group", json!("20-29")),
+            ("male_count", json!(1000)),
+            ("female_count", json!(1000)),
+        ])];
+        // 1 番目はデータあり、2 番目は全空
+        let munis = vec![
+            make_muni_demo(
+                "東京都",
+                "千代田区",
+                100,
+                pyramid_present,
+                labor_present,
+                vec![],
+            ),
+            make_muni_demo("神奈川県", "データ欠損市", 30, vec![], vec![], vec![]),
+        ];
+        let mut html = String::new();
+        render_section_demographics_by_municipality(&mut html, &munis);
+
+        // 1 件目はデータあり
+        assert!(html.contains("千代田区"), "千代田区表示");
+        // 2 件目は欠損プレースホルダ
+        assert!(html.contains("データ欠損市"), "データ欠損市の名前は表示");
+        assert!(
+            html.contains("市区町村粒度データなし"),
+            "欠損プレースホルダ表示"
+        );
+    }
+
+    /// 逆証明: lifestyle の都道府県粒度警告強化が正しく出ること (helper test 経由)
+    /// → lifestyle_municipality_warning_present は実際の section 描画でテストするため別 module
+    #[test]
+    fn granularity_section_bridge_present() {
+        let pyramid = vec![row(&[
+            ("age_group", json!("20-29")),
+            ("male_count", json!(1000)),
+            ("female_count", json!(1000)),
+        ])];
+        let munis = vec![make_muni_demo(
+            "東京都",
+            "千代田区",
+            50,
+            pyramid,
+            vec![],
+            vec![],
+        )];
+
+        let mut html = String::new();
+        render_section_demographics_by_municipality(&mut html, &munis);
+        assert!(
+            html.contains("section-bridge"),
+            "次セクションへのつなぎ必須"
+        );
     }
 }
