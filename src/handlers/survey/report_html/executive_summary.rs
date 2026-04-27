@@ -25,6 +25,8 @@ pub(super) fn render_section_executive_summary(
     hw_context: Option<&InsightContext>,
 ) {
     html.push_str("<section class=\"section exec-summary\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
+    // Design v2: Section 番号バッジ「01」を見出しの前に追加
+    render_dv2_section_badge(html, "01", "Executive Summary");
     html.push_str("<h2 id=\"exec-sum-title\">Executive Summary</h2>\n");
     html.push_str(&format!(
         "<p class=\"section-header-meta\">対象: {} / 3分間で読み切れる全体要旨</p>\n",

@@ -7,7 +7,7 @@
 //! - `contenteditable` により主要コメント欄はダウンロード後にユーザーが編集可能
 
 use super::super::company::fetch::NearbyCompany;
-use super::super::helpers::escape_html;
+use super::super::helpers::{escape_html, format_number};
 use super::super::insight::fetch::InsightContext;
 #[cfg(test)]
 use super::aggregator::ScatterPoint;
@@ -22,6 +22,7 @@ mod executive_summary;
 mod helpers;
 mod hw_enrichment;
 mod lifestyle;
+mod market_tightness;
 mod notes;
 mod region;
 mod salary_stats;
@@ -41,8 +42,11 @@ use summary::render_section_summary;
 use demographics::render_section_demographics;
 use employment::render_section_emp_group_native;
 use employment::render_section_employment;
-use helpers::{compose_target_region, render_scripts};
+use helpers::{
+    compose_target_region, render_dv2_cover_highlights, render_dv2_section_badge, render_scripts,
+};
 use lifestyle::render_section_lifestyle;
+use market_tightness::render_section_market_tightness;
 use notes::render_section_notes;
 use region::render_section_municipality_salary;
 use region::render_section_region;
@@ -171,10 +175,89 @@ pub(crate) fn render_survey_report_page_with_municipalities(
 
     // --- 表紙ページ (Section 0 / 仕様書 7.2) ---
     // 2026-04-24: 「競合調査分析」文言を全削除。タイトルは「求人市場 総合診断レポート」に統一。
+    // 2026-04-26 Design v2: 3 段構成（タイトル / 対象 / ハイライト KPI）の刷新版表紙を
+    //   既存 cover-page の前に追加。既存はテスト互換のため維持。
     let today_short = chrono::Local::now().format("%Y年%m月").to_string();
     let target_region = compose_target_region(agg);
+
+    // dv2 表紙（刷新版: 印刷時の主役）
     html.push_str(
-        "<section class=\"cover-page\" role=\"region\" aria-labelledby=\"cover-title\">\n",
+        "<section class=\"dv2-cover\" role=\"region\" aria-labelledby=\"dv2-cover-title\">\n",
+    );
+    // 上段ヘッダー: ブランド + 生成メタ
+    html.push_str("<div class=\"dv2-cover-header\">\n");
+    html.push_str("<div class=\"dv2-cover-brand\">株式会社For A-career</div>\n");
+    html.push_str(&format!(
+        "<div class=\"dv2-cover-meta\">{} 版</div>\n",
+        escape_html(&today_short)
+    ));
+    html.push_str("</div>\n");
+    // 中央: タイトル + 対象
+    html.push_str("<div class=\"dv2-cover-main\">\n");
+    html.push_str("<div>\n");
+    html.push_str("<div class=\"dv2-cover-title-accent\" aria-hidden=\"true\"></div>\n");
+    html.push_str(
+        "<h1 id=\"dv2-cover-title\" class=\"dv2-cover-title\">求人市場<br>総合診断レポート</h1>\n",
+    );
+    html.push_str(
+        "<p class=\"dv2-cover-subtitle\">ハローワーク掲載求人 + アップロード CSV クロス分析</p>\n",
+    );
+    html.push_str("</div>\n");
+    html.push_str(&format!(
+        "<div class=\"dv2-cover-target\">対象: {}</div>\n",
+        escape_html(&target_region)
+    ));
+
+    // 下段: ハイライト 3 KPI
+    let hl_count = format_number(agg.total_count as i64);
+    let hl_region = target_region.clone();
+    let hl_median = match &agg.enhanced_stats {
+        Some(s) if s.count > 0 => {
+            if agg.is_hourly {
+                format!("{}", format_number(s.median))
+            } else {
+                format!("{:.1}", s.median as f64 / 10_000.0)
+            }
+        }
+        _ => "-".to_string(),
+    };
+    let hl_median_unit = match &agg.enhanced_stats {
+        Some(s) if s.count > 0 => {
+            if agg.is_hourly {
+                "円/時"
+            } else {
+                "万円"
+            }
+        }
+        _ => "",
+    };
+    render_dv2_cover_highlights(
+        &mut html,
+        &[
+            ("サンプル件数", &hl_count, "件"),
+            ("主要地域", &hl_region, ""),
+            ("給与中央値", &hl_median, hl_median_unit),
+        ],
+    );
+    html.push_str("</div>\n"); // /dv2-cover-main
+
+    // フッター: 機密 + 生成日時
+    html.push_str("<div class=\"dv2-cover-footer\">\n");
+    html.push_str(
+        "<span>この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</span>\n",
+    );
+    html.push_str(&format!(
+        "<span>生成日時: {}</span>\n",
+        escape_html(&now)
+    ));
+    html.push_str("</div>\n");
+    html.push_str("</section>\n");
+
+    // 既存 cover-page (テスト互換のため維持。印刷時は dv2-cover が page-break-after で先に描画され
+    // 続く既存表紙が次ページに重ねて出るのを避けるため、画面表示のみにする)
+    html.push_str("<style>@media print { .cover-page.cover-legacy { display: none !important; } }</style>\n");
+    html.push_str(
+        "<section class=\"cover-page cover-legacy no-print-cover\" role=\"region\" aria-labelledby=\"cover-title\" aria-hidden=\"true\" style=\"display:none\">\n",
     );
     html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">株式会社For A-career</div>\n");
     html.push_str(
@@ -235,6 +318,14 @@ pub(crate) fn render_survey_report_page_with_municipalities(
 
     // --- Section 3: 給与分布 統計 ---
     render_section_salary_stats(&mut html, agg, salary_min_values, salary_max_values);
+
+    // --- Section 4MT: 採用市場 逼迫度 (2026-04-26 追加 / MarketTightness 担当) ---
+    // ユーザー指摘「有効求人倍率系のデータも既に持っていたよね？反映してる？」に応答。
+    // 既存 InsightContext の 5+1 指標 (有効求人倍率 / HW 欠員補充率 / 失業率 / 離職率 /
+    // 平均掲載日数 / 開廃業動態) を「採用市場の逼迫度」として統合表示し、
+    // 給与統計 (Section 3) の次に「採用環境の難度」を提示する物語性を確保する。
+    // hw_context が None もしくは関連データ全空の場合は section ごと非表示 (fail-soft)。
+    render_section_market_tightness(&mut html, hw_context);
 
     // --- Section 3D (Impl-2 案 D-1/D-2/#10/#17): 人材デモグラフィック ---
     // 年齢層ピラミッド + 学歴分布 + 採用候補プール (失業者) + 教育施設密度を
@@ -1433,5 +1524,319 @@ mod readability_contract_tests {
             html.contains("このページの読み方"),
             "「このページの読み方」テキストは維持"
         );
+    }
+}
+
+// ============================================================
+// Design v2 強化（2026-04-26）: コンサル提案資料品質の刷新版 contract tests
+//
+// プロフェッショナルなビジュアル刷新を機械検証する。
+//   - CSS variables (--dv2-*)
+//   - dv2-* 名前空間 class
+//   - Section 番号バッジ
+//   - 印刷時 design-v2 強制適用
+//   - SVG inline icon
+//   - 表紙刷新（3 段構成）
+// ============================================================
+#[cfg(test)]
+mod design_v2_contract_tests {
+    use super::super::aggregator::SurveyAggregation;
+    use super::super::job_seeker::JobSeekerAnalysis;
+    use super::helpers::{
+        render_dv2_data_bar, render_dv2_icon, render_dv2_progress_bar, render_dv2_trend,
+    };
+    use super::render_survey_report_page;
+
+    fn render_minimal() -> String {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[])
+    }
+
+    fn render_with_data() -> String {
+        let mut agg = SurveyAggregation::default();
+        agg.total_count = 250;
+        agg.dominant_prefecture = Some("東京都".to_string());
+        agg.dominant_municipality = Some("千代田区".to_string());
+        let seeker = JobSeekerAnalysis::default();
+        render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[])
+    }
+
+    /// (1) CSS variables --dv2-* が定義されている
+    #[test]
+    fn dv2_css_variables_defined() {
+        let html = render_minimal();
+        assert!(
+            html.contains("--dv2-bg:") && html.contains("--dv2-accent:"),
+            "dv2 CSS variables (--dv2-bg / --dv2-accent) が必須"
+        );
+        assert!(
+            html.contains("--dv2-good:") && html.contains("--dv2-warn:") && html.contains("--dv2-crit:"),
+            "severity 色変数 (good/warn/crit) が必須"
+        );
+        assert!(
+            html.contains("--dv2-fs-display") && html.contains("--dv2-fs-body"),
+            "タイポグラフィ階層変数 (display/body) が必須"
+        );
+    }
+
+    /// (2) dv2 表紙が 3 段構成 (header / main / footer) で出力される
+    #[test]
+    fn dv2_cover_three_section_layout() {
+        let html = render_minimal();
+        assert!(
+            html.contains("class=\"dv2-cover\""),
+            "dv2-cover クラスが必須"
+        );
+        assert!(
+            html.contains("dv2-cover-header") && html.contains("dv2-cover-main") && html.contains("dv2-cover-footer"),
+            "3 段構成 (header / main / footer) が必須"
+        );
+        assert!(
+            html.contains("dv2-cover-title") && html.contains("求人市場"),
+            "dv2-cover-title に「求人市場」タイトルが必須"
+        );
+        assert!(
+            html.contains("dv2-cover-subtitle"),
+            "dv2-cover-subtitle 副題が必須"
+        );
+        assert!(
+            html.contains("dv2-cover-target"),
+            "dv2-cover-target 対象地域が必須"
+        );
+    }
+
+    /// (3) dv2 表紙ハイライト 3 KPI が含まれる
+    #[test]
+    fn dv2_cover_has_three_highlight_kpis() {
+        let html = render_with_data();
+        assert!(
+            html.contains("dv2-cover-highlights"),
+            "dv2-cover-highlights ラッパーが必須"
+        );
+        let hl_count = html.matches("class=\"dv2-cover-hl\"").count();
+        assert!(
+            hl_count >= 3,
+            "ハイライト KPI が 3 件以上必須（実測: {}）",
+            hl_count
+        );
+        assert!(html.contains("サンプル件数"), "サンプル件数ハイライト");
+        assert!(html.contains("主要地域"), "主要地域ハイライト");
+        assert!(html.contains("給与中央値"), "給与中央値ハイライト");
+    }
+
+    /// (4) Section 番号バッジが Executive Summary に付与されている
+    #[test]
+    fn dv2_section_badge_on_exec_summary() {
+        let html = render_minimal();
+        assert!(
+            html.contains("class=\"dv2-section-badge\""),
+            "dv2-section-badge class が必須"
+        );
+        assert!(
+            html.contains(">01<"),
+            "Executive Summary の Section 番号「01」が必須"
+        );
+        assert!(
+            html.contains("class=\"dv2-section-heading\""),
+            "dv2-section-heading ラッパーが必須"
+        );
+    }
+
+    /// (5) dv2 KPI カードクラスの CSS が定義されている
+    #[test]
+    fn dv2_kpi_card_css_defined() {
+        let html = render_minimal();
+        assert!(
+            html.contains(".dv2-kpi-card"),
+            ".dv2-kpi-card CSS rule が必須"
+        );
+        assert!(
+            html.contains("dv2-kpi-large"),
+            "dv2-kpi-large (主要 KPI 強調) が必須"
+        );
+        assert!(
+            html.contains("data-status=\"good\"") || html.contains("[data-status=\"good\"]"),
+            "data-status による severity 色分けが必須"
+        );
+    }
+
+    /// (6) 印刷時に dv2 が主役として有効化される CSS
+    #[test]
+    fn dv2_print_mode_activated() {
+        let html = render_minimal();
+        assert!(
+            html.contains("margin: 15mm 12mm"),
+            "印刷時 A4 余白 (15mm/12mm) が必須"
+        );
+        assert!(
+            html.contains("@top-left") && html.contains("求人市場 総合診断レポート"),
+            "印刷時の running header (top-left に「求人市場 総合診断レポート」) が必須"
+        );
+        assert!(
+            html.contains("@bottom-left") && html.contains("機密情報"),
+            "印刷時の bottom-left footer (機密情報) が必須"
+        );
+    }
+
+    /// (7) dv2 helpers: SVG inline icon (4 種) が描画できる
+    #[test]
+    fn dv2_svg_inline_icons_render() {
+        let check = render_dv2_icon("check");
+        let warn = render_dv2_icon("warn");
+        let crit = render_dv2_icon("crit");
+        let info = render_dv2_icon("info");
+        assert!(check.contains("<svg") && check.contains("dv2-icon-check"));
+        assert!(warn.contains("<svg") && warn.contains("dv2-icon-warn"));
+        assert!(crit.contains("<svg") && crit.contains("dv2-icon-crit"));
+        assert!(info.contains("<svg") && info.contains("dv2-icon-info"));
+        assert!(check.contains("aria-hidden=\"true\""));
+        assert!(check.contains("<path"));
+    }
+
+    /// (8) dv2 データバー: value/max からパーセント width を計算
+    #[test]
+    fn dv2_data_bar_renders_correct_percentage() {
+        let bar = render_dv2_data_bar(50.0, 100.0, "");
+        assert!(
+            bar.contains("width:50.0%"),
+            "50/100 → 50.0% の width が必須"
+        );
+        assert!(bar.contains("dv2-databar"));
+        let bar_good = render_dv2_data_bar(75.0, 100.0, "good");
+        assert!(
+            bar_good.contains("data-tone=\"good\""),
+            "tone=good 属性が必須"
+        );
+        let bar_zero = render_dv2_data_bar(50.0, 0.0, "");
+        assert!(
+            bar_zero.contains("width:0.0%"),
+            "max=0 のとき width=0% にフォールバック"
+        );
+    }
+
+    /// (9) dv2 進捗バー: aria-valuenow / aria-valuemax 等の a11y 属性
+    #[test]
+    fn dv2_progress_bar_has_a11y_attributes() {
+        let mut html = String::new();
+        render_dv2_progress_bar(&mut html, 65.0, "65%");
+        assert!(html.contains("role=\"progressbar\""), "role=progressbar");
+        assert!(html.contains("aria-valuenow=\"65\""), "aria-valuenow=65");
+        assert!(html.contains("aria-valuemin=\"0\""), "aria-valuemin");
+        assert!(html.contains("aria-valuemax=\"100\""), "aria-valuemax");
+        assert!(html.contains("dv2-progress-fill"), "fill 要素");
+        assert!(html.contains(">65%<"), "ラベル表示");
+    }
+
+    /// (10) dv2 トレンド矢印: up/down/flat の 3 種
+    #[test]
+    fn dv2_trend_arrows_three_directions() {
+        let up = render_dv2_trend("up", "+5.2%");
+        let down = render_dv2_trend("down", "-3.1%");
+        let flat = render_dv2_trend("flat", "±0.0%");
+        assert!(up.contains("\u{2191}"), "↑ (U+2191) が必須");
+        assert!(down.contains("\u{2193}"), "↓ (U+2193) が必須");
+        assert!(flat.contains("\u{2192}"), "→ (U+2192) が必須");
+        assert!(up.contains("dv2-trend-up"));
+        assert!(down.contains("dv2-trend-down"));
+        assert!(flat.contains("dv2-trend-flat"));
+        assert!(up.contains("aria-label=\"上昇\""));
+    }
+
+    /// (11) Indigo accent カラー (#4f46e5) が CSS に存在
+    #[test]
+    fn dv2_accent_color_indigo_defined() {
+        let html = render_minimal();
+        assert!(
+            html.contains("#4f46e5") || html.contains("#4F46E5"),
+            "indigo accent color (#4f46e5) が必須"
+        );
+    }
+
+    /// (12) 既存 cover-page は印刷時非表示にされる
+    #[test]
+    fn dv2_legacy_cover_hidden_in_print() {
+        let html = render_minimal();
+        assert!(
+            html.contains("cover-legacy"),
+            "既存 cover-page は cover-legacy class でマーキング"
+        );
+        assert!(
+            html.contains(".cover-page.cover-legacy { display: none !important; }"),
+            "印刷時の legacy 表紙非表示 CSS が必須"
+        );
+    }
+
+    /// (13) タイポグラフィ階層: 4 階層の font-size が CSS variable 化されている
+    #[test]
+    fn dv2_typography_four_tier_hierarchy() {
+        let html = render_minimal();
+        assert!(html.contains("--dv2-fs-display"), "Display 階層");
+        assert!(html.contains("--dv2-fs-heading"), "Heading 階層");
+        assert!(html.contains("--dv2-fs-body"), "Body 階層");
+        assert!(html.contains("--dv2-fs-caption"), "Caption 階層");
+        assert!(
+            html.contains("tabular-nums"),
+            "tabular-nums (等幅数字) が必須"
+        );
+    }
+
+    /// (14) dv2 アクセントバー (タイトル下の 4px 縦線)
+    #[test]
+    fn dv2_cover_title_accent_bar_present() {
+        let html = render_minimal();
+        assert!(
+            html.contains("dv2-cover-title-accent"),
+            "dv2-cover-title-accent (タイトル装飾バー) が必須"
+        );
+    }
+
+    /// (15) memory ルール準拠: 因果断定回避 + HW スコープは維持
+    #[test]
+    fn dv2_preserves_memory_rules() {
+        let html = render_minimal();
+        assert!(
+            html.contains("相関") && (html.contains("因果") || html.contains("仮説")),
+            "相関≠因果の注記は刷新後も維持必須"
+        );
+        assert!(
+            html.contains("掲載") || html.contains("代表"),
+            "HW スコープ警告は刷新後も維持必須"
+        );
+    }
+
+    /// (16) dv2 アクションカード CSS が定義されている
+    #[test]
+    fn dv2_action_card_css_defined() {
+        let html = render_minimal();
+        assert!(
+            html.contains(".dv2-action-card"),
+            ".dv2-action-card CSS が必須"
+        );
+        assert!(
+            html.contains("data-priority=\"now\"") || html.contains("[data-priority=\"now\"]"),
+            "data-priority による優先度色分けが必須"
+        );
+    }
+
+    /// (17) Noto Sans JP が印刷時に指定される
+    #[test]
+    fn dv2_print_typography_noto_sans_jp() {
+        let html = render_minimal();
+        assert!(
+            html.contains("Noto Sans JP"),
+            "Noto Sans JP (印刷時の本文フォント) が必須"
+        );
+    }
+
+    /// (18) 既存 908 テスト互換: 主要 KPI ラベルが維持されている
+    #[test]
+    fn dv2_preserves_existing_kpi_labels() {
+        let html = render_with_data();
+        assert!(html.contains("サンプル件数"), "サンプル件数 (互換)");
+        assert!(html.contains("主要地域"), "主要地域 (互換)");
+        assert!(html.contains("主要雇用形態"), "主要雇用形態 (互換)");
+        assert!(html.contains("給与中央値"), "給与中央値 (互換)");
+        assert!(html.contains("新着比率"), "新着比率 (互換)");
     }
 }
