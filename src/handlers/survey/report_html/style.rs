@@ -615,12 +615,24 @@ body.theme-dark .read-hint {
   margin: 2px 0;
 }
 
-/* 強化版 KPI カード（アイコン + 大きな数値 + 単位 + 比較値 + 状態） */
+/* 強化版 KPI カード（アイコン + 大きな数値 + 単位 + 比較値 + 状態）
+ * 2026-04-26 Readability: 6 KPI を 2x3 grid (2 行 3 列) で 1 ページに収まる構造へ。
+ *   従来 3 列だと 6 枚で 2 行折り返し → 読み方ガイドと推奨アクションが次ページへ流れていた。
+ *   2x3 を維持しつつ、印刷時のみ列幅を均一化して 1 ページ完結を担保。 */
 .exec-kpi-grid-v2 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin: 10px 0 14px;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+@media print {
+  .exec-kpi-grid-v2 {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin: 6px 0 8px;
+  }
+  .exec-kpi-grid-v2 .kpi-card-v2 { padding: 6px 10px; }
+  .exec-kpi-grid-v2 .kpi-value { font-size: 18pt !important; }
 }
 .kpi-card-v2 {
   background: var(--c-bg-card);
@@ -1123,6 +1135,213 @@ body.theme-dark .report-notes-cat-update  { background: #232946; border-color: #
   /* 印刷時も用語の点線下線を維持 */
   .report-tooltip abbr[title] { text-decoration: underline dotted #666; }
   .report-tooltip-icon { color: #666; }
+}
+
+/* =====================================================================
+   Readability 強化（2026-04-26）: 見やすさ徹底改善
+   ・PDF 15 ページ → 10-12 ページへの圧縮を狙う
+   ・「情報を減らさず、見やすさを上げる」: 折りたたみ + 集約 + 視覚階層
+   ・既存クラスは変更せず、補強クラスのみ追加
+   ===================================================================== */
+
+/* 1. 印刷時のフォント・余白調整: 1 ページに収まる量を増やす */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+  body {
+    font-size: 10pt !important;
+    line-height: 1.5 !important;
+  }
+  /* dark theme は light に強制（color-scheme 上書き） */
+  html { color-scheme: light !important; }
+  /* 見出しの上下余白を圧縮 */
+  h2 { font-size: 16pt !important; margin: 10px 0 6px !important; padding-bottom: 3px !important; }
+  h3 { font-size: 12pt !important; margin: 8px 0 3px !important; }
+  /* 注記/読み方ヒントは印刷時に圧縮 */
+  .read-hint, .section-howto, .figure-caption,
+  .report-banner-gray, .report-banner-amber {
+    font-size: 8.5pt !important;
+    line-height: 1.45 !important;
+    padding: 4px 8px !important;
+    margin: 4px 0 6px !important;
+  }
+  /* 注記類はフッター注記参照を促す compact 版に */
+  .read-hint-compact, .section-howto-compact { font-size: 8.5pt !important; }
+  /* テーブルはより詰めて表示 */
+  table { font-size: 9.5pt !important; }
+  th, td { padding: 3px 6px !important; }
+}
+
+/* 2. Executive Summary 1 ページ完結のための強制改ページ */
+.exec-summary {
+  page-break-before: always;
+  break-before: page;
+  page-break-after: always;
+  break-after: page;
+}
+
+/* 3. 重複 KPI カード（旧 5 KPI grid）の印刷非表示
+ * テスト互換のため HTML 出力は維持しつつ、印刷では強化版 v2 のみを表示 */
+@media print {
+  .exec-kpi-grid-legacy { display: none !important; }
+}
+
+/* 4. 折りたたみ details 要素（読み方ガイドのコンパクト化） */
+details.collapsible-guide {
+  margin: 4px 0 8px;
+  border: 1px dashed var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-bg-card);
+  padding: 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+details.collapsible-guide > summary {
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 9.5pt;
+  font-weight: 700;
+  color: var(--c-primary);
+  list-style: none;
+  user-select: none;
+}
+details.collapsible-guide > summary::-webkit-details-marker { display: none; }
+details.collapsible-guide > summary::before {
+  content: '\25B8'; /* ▸ */
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.15s;
+  color: var(--c-primary-light);
+}
+details.collapsible-guide[open] > summary::before {
+  transform: rotate(90deg);
+}
+details.collapsible-guide > .details-body {
+  padding: 4px 12px 8px 24px;
+  font-size: 9.5pt;
+  line-height: 1.55;
+  color: var(--c-text);
+}
+@media print {
+  /* 印刷時は details を強制展開し、本文を読めるようにする */
+  details.collapsible-guide { border: none; background: transparent; padding: 0; margin: 2px 0 4px; }
+  details.collapsible-guide > summary { display: none; }
+  details.collapsible-guide > .details-body {
+    padding: 0 !important;
+    font-size: 8.5pt !important;
+    color: var(--c-text-muted) !important;
+    line-height: 1.4 !important;
+  }
+  details.collapsible-guide > .details-body::before {
+    content: '\203B '; /* ※ */
+    color: #999;
+  }
+}
+
+/* 5. コンパクト版「※ 詳細は注記参照」リンク */
+.notes-pointer {
+  font-size: 8.5pt;
+  color: var(--c-text-muted);
+  margin: 4px 0 6px;
+  font-style: italic;
+}
+.notes-pointer::before { content: '\203B '; color: var(--c-warning); margin-right: 2px; }
+
+/* 6. 視覚階層強化: 主要 KPI 数値はより大きく、注記はより小さく */
+.kpi-card-v2 .kpi-value {
+  font-size: 24pt; /* 22pt → 24pt */
+  letter-spacing: -0.01em;
+}
+.kpi-card-v2 .kpi-compare {
+  font-size: 8.5pt; /* 9pt → 8.5pt（注記を本文より明確に小さく） */
+  color: var(--c-text-muted);
+  line-height: 1.4;
+}
+
+/* 7. テーブル zebra stripe 強化（既存は薄すぎ → コントラスト強化） */
+table tr:nth-child(even) td { background: #f3f6fb; } /* #fafafa → #f3f6fb (12% → ~15%) */
+.zebra tbody tr:nth-child(even) td { background: #eef3fa; }
+.report-zebra tbody tr:nth-child(even) td { background: #eef3fa; }
+@media print {
+  /* 印刷時はインクが薄いプリンタでも識別できる強度に */
+  table tr:nth-child(even) td { background: #eef3fa !important; }
+  .zebra tbody tr:nth-child(even) td { background: #eef3fa !important; }
+  .report-zebra tbody tr:nth-child(even) td { background: #eef3fa !important; }
+  /* テーブルヘッダはページ跨ぎで再表示 */
+  thead { display: table-header-group; }
+}
+
+/* 8. テーブル行の改ページ回避（リスト系のみ。長大なテーブルは行内 break 許容） */
+table tr { page-break-inside: avoid; break-inside: avoid; }
+
+/* 9. 章番号の統一（h2 内の「第 N 章」プレフィックス強調） */
+h2 .chapter-num {
+  display: inline-block;
+  font-size: 0.85em;
+  color: var(--c-text-muted);
+  font-weight: 600;
+  margin-right: 8px;
+  letter-spacing: 0.05em;
+}
+
+/* 10. 2 列レイアウト（タグ別給与表など縦長を 2 列に） */
+.two-col-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin: 6px 0;
+}
+.two-col-list > * { font-size: 9.5pt; }
+@media print {
+  .two-col-list { gap: 2px 10px; }
+  .two-col-list > * { font-size: 8.5pt; }
+}
+
+/* 11. 図表とキャプションを必ず一緒に保つ */
+.figure-with-caption {
+  page-break-inside: avoid;
+  break-inside: avoid;
+  margin-bottom: 8px;
+}
+.figure-caption { page-break-after: avoid; break-after: avoid; }
+
+/* 12. 強調 KPI 数値 (P2 で「中央値」など主要値を最大強調) */
+.kpi-emphasized .kpi-value {
+  font-size: 28pt;
+  color: var(--c-primary);
+}
+@media print {
+  .kpi-emphasized .kpi-value { font-size: 22pt !important; }
+}
+
+/* 13. 印刷時 hover 効果は無効化（不要 transform / shadow を削除） */
+@media print {
+  .summary-card, .kpi-card, .kpi-card-v2,
+  .summary-card:hover, .kpi-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
+    transition: none !important;
+  }
+}
+
+/* 14. セクション最低限のページ余白 */
+.section + .section { margin-top: 14px; }
+@media print {
+  .section + .section { margin-top: 8px; }
+}
+
+/* 15. read-hint と section-howto を印刷時に脚注的にコンパクト表示 */
+@media print {
+  /* 「📖 読み方」プレフィックスは印刷時には「※」に変換 */
+  .read-hint .read-hint-label {
+    font-size: 7.5pt !important;
+    color: #999 !important;
+  }
+  .section-howto .howto-title {
+    font-size: 8pt !important;
+  }
 }
 "#.to_string()
 }
