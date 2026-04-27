@@ -678,12 +678,13 @@ mod tests {
         assert!(html.contains("role=\"tooltip\""));
         // tabindex でキーボードフォーカス可能
         assert!(html.contains("tabindex=\"0\""));
-        // 注記カテゴリの絵文字（📊 データソース）
-        assert!(html.contains("\u{1F4CA}"), "📊 データソースアイコンが必要");
-        // ⚠️ スコープ制約
+        // 注記カテゴリのテキスト見出し (絵文字は装飾削除済、見出しテキストで識別)
+        assert!(html.contains("データソース"), "データソース見出し");
+        // ⚠️ スコープ制約 (警告アイコンは機能的に残す)
         assert!(html.contains("\u{26A0}\u{FE0F}"));
-        // 🔬 統計手法
-        assert!(html.contains("\u{1F52C}"));
+        assert!(html.contains("スコープ制約"), "スコープ制約見出し");
+        // 統計手法 (絵文字削除、テキスト見出しで識別)
+        assert!(html.contains("統計手法"), "統計手法見出し");
     }
 
     /// 散布図の異常値除外ロジック（render_section_scatter 内のフィルタ条件を直接検証）
