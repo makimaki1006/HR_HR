@@ -134,6 +134,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/recruitment_diag/insights",
             get(handlers::recruitment_diag::api_insights),
         )
+        .route(
+            "/api/recruitment_diag/talent_pool_expansion",
+            get(handlers::recruitment_diag::api_talent_pool_expansion),
+        )
         .route("/tab/jobmap", get(handlers::jobmap::tab_jobmap))
         .route("/api/jobmap/markers", get(handlers::jobmap::jobmap_markers))
         .route(

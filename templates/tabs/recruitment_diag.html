@@ -220,6 +220,17 @@
       </div>
     </section>
 
+    <!-- Panel 9: 通勤圏人材プール試算 (CR-8) -->
+    <section class="stat-card" data-panel="talent_pool_expansion">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold text-white">🚃 Panel 9: 通勤圏人材プール試算</h3>
+        <span class="rd-panel-status text-xs text-slate-400">待機中</span>
+      </div>
+      <div class="rd-panel-body">
+        <div class="text-center text-slate-500 py-6 text-sm">診断実行待ち</div>
+      </div>
+    </section>
+
     <!-- フッター注意書き -->
     <footer class="text-xs text-slate-500 border-t border-slate-700 pt-3">
       <p>※ 本診断は HW（ハローワーク）掲載求人データに基づく相対分析です。民間求人媒体・非公開求人は含まれません。</p>
@@ -245,6 +256,7 @@
       market_trend:     '/api/recruitment_diag/market_trend',
       opportunity_map:  '/api/recruitment_diag/opportunity_map',
       insights:         '/api/recruitment_diag/insights',
+      talent_pool_expansion: '/api/recruitment_diag/talent_pool_expansion',
     },
   };
 
@@ -754,6 +766,93 @@
     setPanelStatus('insights', '完了（' + list.length + '件）', 'text-green-400');
   }
 
+  // Panel 9: 通勤圏人材プール試算 (CR-8)
+  function renderTalentPoolExpansion(data) {
+    const name = 'talent_pool_expansion';
+    if (!data || typeof data !== 'object') {
+      setPanelError(name, 'データ形式不正'); return;
+    }
+    if (data.error) {
+      setPanelError(name, data.error); return;
+    }
+    if (data.is_data_available === false) {
+      setPanelBody(name,
+        '<div class="bg-slate-800/40 rounded p-3 text-xs text-slate-300">' +
+        '通勤 OD データが当該市区町村に対して未投入のため、試算できませんでした。' +
+        '（fail-soft）別エリアで再試行してください。' +
+        '</div>');
+      setPanelStatus(name, 'データなし', 'text-slate-400');
+      return;
+    }
+    const t30 = data.tier_30min || {};
+    const t60 = data.tier_60min || {};
+    const cur = data.current || {};
+    const notes = data.notes || {};
+
+    function tierBox(label, tier, color) {
+      const cnt = tier.municipality_count != null ? tier.municipality_count : 0;
+      const ump = tier.unemployment_pool != null ? tier.unemployment_pool : 0;
+      const hw = tier.hw_postings != null ? tier.hw_postings : 0;
+      return (
+        '<div class="bg-navy-900/60 rounded p-3 border border-slate-700">' +
+          '<div class="text-xs ' + color + ' font-semibold mb-1">' + escapeHtml(label) + ' (上位 ' + cnt + ' 市区町村)</div>' +
+          '<div class="grid grid-cols-2 gap-2 text-sm">' +
+            '<div><div class="text-xs text-slate-400">失業者プール</div><div class="text-xl font-bold text-white">+' + fmt(ump) + ' <span class="text-xs text-slate-400">人</span></div></div>' +
+            '<div><div class="text-xs text-slate-400">HW 求人</div><div class="text-xl font-bold text-white">+' + fmt(hw) + ' <span class="text-xs text-slate-400">件</span></div></div>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    function breakdownTable(tier) {
+      const rows = (tier.breakdown || []);
+      if (rows.length === 0) {
+        return '<div class="text-xs text-slate-500 py-2">該当データなし</div>';
+      }
+      let html = '<table class="w-full text-xs"><thead><tr class="text-slate-400 border-b border-slate-700">' +
+        '<th class="text-left py-1">市区町村</th>' +
+        '<th class="text-right py-1">通勤者数</th>' +
+        '<th class="text-right py-1">失業者</th>' +
+        '<th class="text-right py-1">HW 求人</th>' +
+        '</tr></thead><tbody>';
+      rows.forEach(r => {
+        html += '<tr class="border-b border-slate-800/50">' +
+          '<td class="py-1 text-slate-200">' + escapeHtml(r.prefecture || '') + ' ' + escapeHtml(r.municipality || '') + '</td>' +
+          '<td class="text-right text-slate-300">' + fmt(r.commuters) + '</td>' +
+          '<td class="text-right text-slate-300">' + fmt(r.unemployment) + '</td>' +
+          '<td class="text-right text-slate-300">' + fmt(r.hw_postings) + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+
+    const currentLabel = escapeHtml((cur.prefecture || '') + ' ' + (cur.municipality || ''));
+    const html =
+      '<div class="text-xs text-slate-400 mb-3">現在地: <span class="text-slate-200 font-medium">' + currentLabel + '</span></div>' +
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">' +
+        tierBox('30 分圏', t30, 'text-blue-300') +
+        tierBox('60 分圏 (30 分圏を除く)', t60, 'text-purple-300') +
+      '</div>' +
+      '<details class="mt-2">' +
+        '<summary class="cursor-pointer text-xs text-slate-300 hover:text-white">▼ 内訳 (市区町村別)</summary>' +
+        '<div class="mt-2 space-y-3">' +
+          '<div><div class="text-xs text-blue-300 mb-1">30 分圏</div>' + breakdownTable(t30) + '</div>' +
+          '<div><div class="text-xs text-purple-300 mb-1">60 分圏 (30 分圏を除く)</div>' + breakdownTable(t60) + '</div>' +
+        '</div>' +
+      '</details>' +
+      '<div class="mt-3 text-xs text-slate-400 bg-slate-800/40 rounded p-2 space-y-0.5">' +
+        '<div>※ ' + escapeHtml(notes.data_source_od || '通勤 OD は国勢調査 2020 年ベース (5 年遅れ)') + '</div>' +
+        '<div>※ ' + escapeHtml(notes.tier_definition || '30/60 分圏は OD volume 上位の固定件数 (実距離ではない)') + '</div>' +
+        '<div>※ ' + escapeHtml(notes.caveat_pool || '失業者プール拡大は通勤可能性であり応募意向ではない') + '</div>' +
+        '<div>※ ' + escapeHtml(notes.hw_scope || 'HW 求人は HW 掲載のみ') + '</div>' +
+      '</div>';
+
+    setPanelBody(name, html);
+    const totalCount = (t30.municipality_count || 0) + (t60.municipality_count || 0);
+    setPanelStatus(name, '完了（' + totalCount + ' 市区町村）', 'text-green-400');
+  }
+
   // パネル名 → 描画関数 マッピング
   const RENDERERS = {
     difficulty:      renderDifficulty,
@@ -764,6 +863,7 @@
     market_trend:    renderMarketTrend,
     opportunity_map: renderOpportunityMap,
     insights:        renderInsights,
+    talent_pool_expansion: renderTalentPoolExpansion,
   };
 
   // 単一パネル fetch + render（独立 lazy update）
@@ -813,6 +913,7 @@
       fetchAndRender('market_trend',    RD.endpoints.market_trend    + '?' + commonQs),
       fetchAndRender('opportunity_map', RD.endpoints.opportunity_map + '?' + commonQs),
       fetchAndRender('insights',        RD.endpoints.insights        + '?' + commonQs),
+      fetchAndRender('talent_pool_expansion', RD.endpoints.talent_pool_expansion + '?' + commonQs),
     ];
 
     // Promise.all ではなく Promise.allSettled で「一部失敗しても他は表示」保証

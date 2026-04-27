@@ -40,6 +40,9 @@ pub mod market_trend;
 pub mod insights;
 pub mod opportunity_map;
 
+// Panel 9 (CR-8): 通勤圏人材プール試算
+pub mod talent_pool_expansion;
+
 pub use handlers::{
     api_difficulty_score, api_inflow_analysis, api_talent_pool, tab_recruitment_diag,
 };
@@ -52,6 +55,9 @@ pub use market_trend::market_trend as api_market_trend;
 // Panel 7-8 ハンドラ (担当C)
 pub use insights::insights as api_insights;
 pub use opportunity_map::opportunity_map as api_opportunity_map;
+
+// Panel 9 ハンドラ (CR-8)
+pub use talent_pool_expansion::api_talent_pool_expansion;
 
 /// 採用診断 API 全体で返す HW データ範囲に関する標準注意書き。
 /// （`feedback_hw_data_scope.md` 遵守）

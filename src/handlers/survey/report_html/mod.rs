@@ -21,6 +21,7 @@ mod employment;
 mod executive_summary;
 mod helpers;
 mod hw_enrichment;
+mod industry_mismatch;
 mod lifestyle;
 mod market_tightness;
 mod notes;
@@ -45,6 +46,7 @@ use employment::render_section_employment;
 use helpers::{
     compose_target_region, render_dv2_cover_highlights, render_dv2_section_badge, render_scripts,
 };
+use industry_mismatch::render_section_industry_mismatch;
 use lifestyle::render_section_lifestyle;
 use market_tightness::render_section_market_tightness;
 use notes::render_section_notes;
@@ -326,6 +328,17 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     // 給与統計 (Section 3) の次に「採用環境の難度」を提示する物語性を確保する。
     // hw_context が None もしくは関連データ全空の場合は section ごと非表示 (fail-soft)。
     render_section_market_tightness(&mut html, hw_context);
+
+    // --- Section 4B (CR-9 / 2026-04-27): 産業ミスマッチ警戒 ---
+    // 地域就業者構成 (国勢調査) と HW 求人産業構成のギャップを表で可視化。
+    // 現状 InsightContext には HW 産業分布の集計フィールド未実装のため、
+    // 入力データが揃わないケースは fail-soft で section 非表示。
+    // 将来 fetch 実装時はここに集計済みデータを渡す。
+    // 入力契約:
+    //   - industry_employees: 集計コード除外済みの行 (industry_name + employees_total)
+    //   - hw_industry_counts: HW 産業大分類別 (name, count)
+    // 現状ともに空のため fail-soft で常に非表示 (将来の API 拡張で値を流す)。
+    render_section_industry_mismatch(&mut html, &[], &[]);
 
     // --- Section 3D (Impl-2 案 D-1/D-2/#10/#17): 人材デモグラフィック ---
     // 年齢層ピラミッド + 学歴分布 + 採用候補プール (失業者) + 教育施設密度を
