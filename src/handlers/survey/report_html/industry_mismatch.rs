@@ -204,97 +204,144 @@ fn normalize_industry_name(raw: &str) -> String {
 /// fallback。これは雑処理だが「ギャップ表示の参考値」用途であり厳密一致は不要。
 ///
 /// メモリルール `feedback_correlation_not_causation`: マッピング誤差は注記で言及。
+///
+/// keyword の評価順は **専門的→汎用** へ。例えば「建物管理」は「サービス業」より先に判定する。
+/// 2026-04-27 拡張: 実 postings 上位値 (派遣/建物管理/警備/清掃/その他生活関連サービス等)
+/// が「サービス業（他に分類されないもの）」一極集中する問題 (B2) を解消するため、
+/// 生活関連サービス系・職業紹介派遣業 (派遣) 系を専用カテゴリに先回しで分岐。
 pub(crate) fn map_hw_to_major_industry(industry_raw: &str) -> &'static str {
     let s = industry_raw;
+    // 医療・福祉系 (専門度高、最優先)
     if s.contains("病院") || s.contains("医療") || s.contains("診療") || s.contains("歯科")
         || s.contains("助産") || s.contains("看護") || s.contains("獣医")
         || s.contains("社会保険") || s.contains("社会福祉") || s.contains("児童福祉")
         || s.contains("障害者") || s.contains("老人") || s.contains("介護")
-        || s.contains("保育")
+        || s.contains("保育") || s.contains("精神保健") || s.contains("リハビリ")
+        || s.contains("福祉")
     {
         return "医療，福祉";
     }
+    // 建設業
     if s.contains("建設") || s.contains("土木") || s.contains("建築")
         || s.contains("総合工事") || s.contains("設備工事")
+        || s.contains("塗装工事") || s.contains("舗装工事") || s.contains("配管工事")
+        || s.contains("電気工事") || s.contains("内装")
     {
         return "建設業";
     }
+    // 製造業
     if s.contains("製造") || s.contains("食料品") || s.contains("飲料")
         || s.contains("繊維") || s.contains("衣服") || s.contains("木材")
         || s.contains("家具") || s.contains("印刷") || s.contains("化学")
         || s.contains("プラスチック") || s.contains("ゴム") || s.contains("窯業")
         || s.contains("金属") || s.contains("機械") || s.contains("輸送用")
-        || s.contains("精密")
+        || s.contains("精密") || s.contains("加工") || s.contains("工場")
+        || s.contains("生産工程")
     {
         return "製造業";
     }
+    // 運輸業，郵便業
     if s.contains("運輸") || s.contains("運送") || s.contains("配送")
         || s.contains("郵便") || s.contains("貨物") || s.contains("旅客")
         || s.contains("鉄道") || s.contains("自動車運送") || s.contains("倉庫")
+        || s.contains("配達") || s.contains("ドライバー")
     {
         return "運輸業，郵便業";
     }
-    if s.contains("卸売") || s.contains("小売") || s.contains("商店") {
+    // 卸売業，小売業 (「商店」は曖昧なので「販売」を含めて広めに)
+    if s.contains("卸売") || s.contains("小売") || s.contains("商店")
+        || s.contains("販売店") || s.contains("百貨店") || s.contains("スーパー")
+        || s.contains("コンビニ") || s.contains("商業")
+    {
         return "卸売業，小売業";
     }
+    // 宿泊業，飲食サービス業
     if s.contains("飲食店") || s.contains("レストラン") || s.contains("食堂")
         || s.contains("酒場") || s.contains("ビヤホール") || s.contains("バー")
         || s.contains("喫茶") || s.contains("旅館") || s.contains("ホテル")
-        || s.contains("宿泊")
+        || s.contains("宿泊") || s.contains("料理店") || s.contains("給食")
     {
         return "宿泊業，飲食サービス業";
     }
+    // 情報通信業
     if s.contains("ソフトウェア") || s.contains("情報サービス")
         || s.contains("通信業") || s.contains("情報通信")
         || s.contains("インターネット") || s.contains("放送")
-        || s.contains("映像") || s.contains("出版")
+        || s.contains("映像") || s.contains("出版") || s.contains("新聞")
+        || s.contains("Web")
     {
         return "情報通信業";
     }
+    // 教育，学習支援業
     if s.contains("学校") || s.contains("教育") || s.contains("学習支援")
-        || s.contains("塾")
+        || s.contains("塾") || s.contains("予備校") || s.contains("教習所")
+        || s.contains("学習教室")
     {
         return "教育，学習支援業";
     }
-    if s.contains("不動産") || s.contains("物品賃貸") {
+    // 不動産業，物品賃貸業
+    if s.contains("不動産") || s.contains("物品賃貸") || s.contains("レンタル") {
         return "不動産業，物品賃貸業";
     }
+    // 金融業，保険業
     if s.contains("金融") || s.contains("銀行") || s.contains("保険")
-        || s.contains("証券")
+        || s.contains("証券") || s.contains("信用組合") || s.contains("信用金庫")
     {
         return "金融業，保険業";
     }
+    // 農林漁業
     if s.contains("農業") || s.contains("林業") || s.contains("漁業")
         || s.contains("水産")
     {
         return "農林漁業";
     }
+    // 鉱業
     if s.contains("鉱業") || s.contains("採石") || s.contains("砂利") {
         return "鉱業";
     }
+    // 電気・ガス・熱供給・水道業
     if s.contains("電気") && s.contains("供給") || s.contains("ガス業")
         || s.contains("熱供給") || s.contains("水道業")
     {
         return "電気・ガス・熱供給・水道業";
     }
-    if s.contains("学術") || s.contains("専門") && s.contains("技術")
+    // 学術研究，専門・技術サービス業
+    if s.contains("学術") || s.contains("研究所")
+        || (s.contains("専門") && s.contains("技術"))
         || s.contains("広告") || s.contains("デザイン") || s.contains("法務")
-        || s.contains("会計")
+        || s.contains("会計") || s.contains("コンサル")
+        || s.contains("経営戦略") || s.contains("市場調査")
     {
         return "学術研究，専門・技術サービス業";
     }
+    // 生活関連サービス業，娯楽業
     if s.contains("理容") || s.contains("美容") || s.contains("クリーニング")
         || s.contains("浴場") || s.contains("娯楽") || s.contains("遊技場")
         || s.contains("興行") || s.contains("冠婚葬祭")
+        || s.contains("葬儀") || s.contains("結婚") || s.contains("写真館")
+        || s.contains("旅行") || s.contains("生活関連サービス")
     {
         return "生活関連サービス業，娯楽業";
     }
+    // 公務
     if s.contains("公務") {
         return "公務（他に分類されるものを除く）";
     }
-    if s.contains("複合サービス") {
+    // 複合サービス事業 (郵便局・農協・生協)
+    if s.contains("複合サービス") || s.contains("協同組合") {
         return "複合サービス事業";
     }
+    // 「サービス業（他に分類されないもの）」専用キーワード
+    // 派遣業 / 建物管理 / 警備 / 清掃 / その他事業サービス
+    if s.contains("派遣") || s.contains("人材紹介") || s.contains("職業紹介")
+        || s.contains("建物管理") || s.contains("ビルメンテナンス")
+        || s.contains("警備") || s.contains("清掃") || s.contains("廃棄物")
+        || s.contains("修理") || s.contains("メンテナンス") || s.contains("設備管理")
+        || s.contains("事業サービス")
+    {
+        return "サービス業（他に分類されないもの）";
+    }
+    // フォールバック: 「サービス業（他に分類されないもの）」
     "サービス業（他に分類されないもの）"
 }
 
@@ -414,6 +461,10 @@ fn build_mismatch_rows(
             gap_pt,
         });
     }
+
+    // 2026-04-27 (B9): 両側 0.5% 未満の行は可読性低下 (公務 0.0% / 鉱業 0.0% 等の冗長表示)
+    // のため除外。ただし片側でも 0.5% 以上ある場合は残す (情報損失防止)。
+    rows.retain(|r| r.emp_pct >= 0.5 || r.hw_pct >= 0.5);
 
     // ギャップ絶対値の大きい順でソート (警戒度の高いものを上に)
     rows.sort_by(|a, b| {
