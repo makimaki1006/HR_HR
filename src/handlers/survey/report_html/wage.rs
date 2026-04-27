@@ -97,9 +97,23 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
 
     // 最低賃金との差が小さい都道府県 10 件（差額の小さい順に整理、ソート可能テーブル）
     html.push_str("<h3>時給換算で最低賃金に近い都道府県 10 件（差額の小さい順）</h3>\n");
-    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
+    render_figure_caption(
+        html,
+        "表 8-1",
+        "時給換算 vs 最低賃金 差額 Top 10（差小→大）",
+    );
+
+    // 差額のレンジ（バー幅計算用）
+    let max_abs_diff = entries
+        .iter()
+        .map(|e| e.diff_160.abs())
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
+
+    html.push_str("<table class=\"sortable-table zebra\">\n<thead><tr><th>#</th><th>都道府県</th><th style=\"text-align:right\">平均月給下限</th>\
         <th style=\"text-align:right\">167h換算</th><th style=\"text-align:right\">最低賃金</th>\
-        <th style=\"text-align:right\">差額</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
+        <th style=\"text-align:right\">差額</th><th>差額バー</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
     for (i, e) in entries.iter().take(10).enumerate() {
         let diff_color = if e.diff_160 < 0 {
             "negative"
@@ -113,10 +127,30 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
         } else {
             format!(" class=\"num {}\"", diff_color)
         };
+        // 差額バー（負=赤、近接<50=橙、それ以外=緑）
+        let bar_cls = if e.diff_160 < 0 {
+            "below"
+        } else if e.diff_160 < 50 {
+            "near"
+        } else {
+            ""
+        };
+        let fill_pct = (e.diff_160.abs() as f64 / max_abs_diff * 100.0).clamp(0.0, 100.0);
+        let fill_left = if e.diff_160 < 0 {
+            (50.0 - fill_pct / 2.0).clamp(0.0, 50.0)
+        } else {
+            50.0
+        };
+        let fill_w = fill_pct / 2.0;
         html.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td>\
              <td class=\"num\">{}</td><td class=\"num\">{}円</td>\
-             <td{}>{:+}円</td><td class=\"num\">{:.2}倍</td></tr>\n",
+             <td{}>{:+}円</td>\
+             <td><div class=\"minwage-diff-bar\" aria-label=\"差額\">\
+                <div class=\"mwd-fill {}\" style=\"left:{:.1}%;width:{:.1}%;\"></div>\
+                <div class=\"mwd-baseline\" style=\"left:50%;\"></div>\
+             </div></td>\
+             <td class=\"num\">{:.2}倍</td></tr>\n",
             i + 1,
             escape_html(&e.name),
             format_man_yen(e.avg_min),
@@ -124,10 +158,19 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
             format_number(e.min_wage),
             diff_style,
             e.diff_160,
+            bar_cls,
+            fill_left,
+            fill_w,
             e.ratio_160,
         ));
     }
     html.push_str("</tbody></table>\n");
+
+    render_read_hint(
+        html,
+        "差額バーは中央線（最低賃金）からの乖離。左に伸びる赤バー=最低賃金未満、橙=50円未満で近接、緑=十分な余裕がある状態。\
+         赤・橙は労務上の確認推奨です（167h は厚労省標準・端数労働日数の調整は別途要検討）。",
+    );
 
     // 活用ポイント（feedback_correlation_not_causation.md 準拠: 因果断定を避け「傾向」「観測」で表現）
     html.push_str(
@@ -204,17 +247,55 @@ pub(super) fn render_section_company(html: &mut String, by_company: &[CompanyAgg
     by_count.sort_by(|a, b| b.count.cmp(&a.count));
 
     html.push_str("<h3>掲載件数の多い法人 15 件（給与情報あり）</h3>\n");
-    html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">給与付き求人数</th><th style=\"text-align:right\">平均月給</th></tr></thead>\n<tbody>\n");
+    render_figure_caption(
+        html,
+        "表 9-1",
+        "掲載件数の多い法人 Top 15（件数 + 平均月給 2 軸）",
+    );
+
+    // 件数バー + 平均月給ドットの 2 軸表示用に最大値計算
+    let max_count = by_count
+        .iter()
+        .take(15)
+        .map(|c| c.count)
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
+    let max_salary = by_count
+        .iter()
+        .take(15)
+        .map(|c| c.avg_salary)
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
+
+    html.push_str("<table class=\"sortable-table zebra\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">給与付き求人数</th><th>件数バー</th><th style=\"text-align:right\">平均月給</th></tr></thead>\n<tbody>\n");
     for (i, c) in by_count.iter().take(15).enumerate() {
+        let count_pct = (c.count as f64 / max_count * 100.0).clamp(0.0, 100.0);
+        let salary_pct = (c.avg_salary as f64 / max_salary * 100.0).clamp(0.0, 100.0);
         html.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
+            "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td>\
+             <td><div class=\"minwage-diff-bar\" aria-label=\"件数比\" style=\"max-width:140px;\">\
+               <div class=\"mwd-fill\" style=\"left:0;width:{:.1}%;background:var(--c-primary-light);\"></div>\
+               <div class=\"mwd-baseline\" style=\"left:{:.1}%;background:var(--c-warning);\" title=\"平均月給比\"></div>\
+             </div></td>\
+             <td class=\"num\">{}</td></tr>\n",
             i + 1,
             escape_html(&c.name),
             format_number(c.count as i64),
+            count_pct,
+            salary_pct,
             format_man_yen(c.avg_salary),
         ));
     }
     html.push_str("</tbody></table>\n");
+
+    render_read_hint(
+        html,
+        "青バー = 件数比、橙の縦線 = 平均月給比（いずれも最大値 100% 基準）。\
+         件数バーが長く橙線が右寄りなら「規模も給与も高い法人」、件数バーが長く橙線が左寄りなら\
+         「件数は多いが給与が抑えめ」の傾向（採用ボリューム重視の可能性）です。",
+    );
 
     // 平均給与の多い法人 15 件（サンプル数に応じて閾値動的調整）
     let multi_count = by_company.iter().filter(|c| c.count >= 2).count();
@@ -232,7 +313,8 @@ pub(super) fn render_section_company(html: &mut String, by_company: &[CompanyAgg
             "給与水準の高い法人 15 件（給与付き、1件求人含む。※1件は参考値）"
         };
         html.push_str(&format!("<h3>{}</h3>\n", title));
-        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">給与付き求人数</th></tr></thead>\n<tbody>\n");
+        render_figure_caption(html, "表 9-2", "給与水準の高い法人 Top 15");
+        html.push_str("<table class=\"sortable-table zebra\">\n<thead><tr><th>#</th><th>企業名</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">給与付き求人数</th></tr></thead>\n<tbody>\n");
         for (i, c) in by_salary.iter().take(15).enumerate() {
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
@@ -271,6 +353,7 @@ pub(super) fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregati
 
     // タグ件数のツリーマップ（テーブルの上に配置）
     if !agg.by_tag_salary.is_empty() {
+        render_figure_caption(html, "図 10-1", "訴求タグ件数 ツリーマップ（面積=件数）");
         let tree_data: Vec<serde_json::Value> = agg
             .by_tag_salary
             .iter()
@@ -288,6 +371,11 @@ pub(super) fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregati
             }]
         });
         html.push_str(&render_echart_div(&config.to_string(), 250));
+        render_read_hint(
+            html,
+            "面積が大きいタグほど多く付与されています。下のテーブルでは「件数 10 件以上 + 全体比 ±2% 以上」のタグに絞り、\
+             給与水準との関連を示しています（相関であり因果関係ではありません）。",
+        );
     }
 
     if !agg.by_tag_salary.is_empty() {
@@ -316,7 +404,12 @@ pub(super) fn render_section_tag_salary(html: &mut String, agg: &SurveyAggregati
             ));
         }
         // タグ別給与差分テーブル（ソート可能・完全版）
-        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
+        render_figure_caption(
+            html,
+            "表 10-1",
+            "タグ別 給与差分（全体比、件数 10+、|差分| 2% 以上）",
+        );
+        html.push_str("<table class=\"sortable-table zebra\">\n<thead><tr><th>#</th><th>タグ</th><th style=\"text-align:right\">件数</th>\
             <th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">全体比</th></tr></thead>\n<tbody>\n");
         for (i, ts) in display_tags.iter().enumerate() {
             let diff_class = if ts.diff_from_avg > 0 {

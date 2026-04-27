@@ -79,12 +79,18 @@ pub(super) fn render_section_employment(
             "label": {"formatter": "{b}\n{d}%", "fontSize": 10}
         }]
     });
+    render_figure_caption(html, "図 4-1", "雇用形態構成ドーナツチャート（Top 6）");
     html.push_str(&render_echart_div(&config.to_string(), 250));
 
     // 雇用形態別給与テーブル（ソート可能）
     if !by_emp_type_salary.is_empty() {
         html.push_str("<h3>雇用形態別 給与水準</h3>\n");
-        html.push_str("<table class=\"sortable-table\">\n<thead><tr><th>雇用形態</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n");
+        render_figure_caption(
+            html,
+            "表 4-1",
+            "雇用形態別 給与水準（件数・平均月給・中央値）",
+        );
+        html.push_str("<table class=\"sortable-table zebra\">\n<thead><tr><th>雇用形態</th><th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th><th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n");
         for e in by_emp_type_salary {
             html.push_str(&format!(
                 "<tr><td>{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
@@ -95,7 +101,66 @@ pub(super) fn render_section_employment(
             ));
         }
         html.push_str("</tbody></table>\n");
+
+        // Dumbbell chart: 正社員 vs パート など対比（給与水準の差を視覚化）
+        // 同じ求人セット内で雇用形態間の給与差を 1 行 1 雇用形態の bar+dot で表現
+        let max_salary = by_emp_type_salary
+            .iter()
+            .map(|e| e.avg_salary)
+            .max()
+            .unwrap_or(1)
+            .max(1) as f64;
+        if max_salary > 0.0 && by_emp_type_salary.len() >= 2 {
+            render_figure_caption(
+                html,
+                "図 4-2",
+                "雇用形態別 平均月給ドット比較（横棒長 = 月給比、ドット = 中央値）",
+            );
+            html.push_str("<ul class=\"dumbbell-list\" aria-label=\"雇用形態別給与比較\">\n");
+            for e in by_emp_type_salary.iter().take(6) {
+                let avg_pct = (e.avg_salary as f64 / max_salary * 100.0).clamp(0.0, 100.0);
+                let med_pct = (e.median_salary as f64 / max_salary * 100.0).clamp(0.0, 100.0);
+                let dot_cls = if e.emp_type.contains("正社員") || e.emp_type.contains("正職員")
+                {
+                    "dot-ft"
+                } else {
+                    "dot-pt"
+                };
+                html.push_str("<li class=\"dumbbell-row\">\n");
+                html.push_str(&format!(
+                    "<span class=\"db-label\">{}</span>\n",
+                    escape_html(&e.emp_type)
+                ));
+                html.push_str("<span class=\"db-track\">");
+                html.push_str(&format!(
+                    "<span class=\"db-line\" style=\"left:0;width:{:.1}%;\"></span>",
+                    avg_pct
+                ));
+                html.push_str(&format!(
+                    "<span class=\"db-dot {}\" style=\"left:calc({:.1}% - 6px);\" title=\"中央値\"></span>",
+                    dot_cls, med_pct
+                ));
+                html.push_str("</span>\n");
+                html.push_str(&format!(
+                    "<span class=\"db-diff\">{}</span>\n",
+                    format_man_yen(e.avg_salary)
+                ));
+                html.push_str("</li>\n");
+            }
+            html.push_str("</ul>\n");
+            render_read_hint(
+                html,
+                "横バー長は最大値を 100% とした相対値。ドットは中央値の位置を示します。\
+                 正社員（青）とパート（橙）の差は単位（月給/時給）が混在している可能性があるため、\
+                 次セクションのネイティブ単位集計で再確認してください。",
+            );
+        }
     }
+
+    render_section_bridge(
+        html,
+        "次セクションでは、雇用形態を月給/時給のネイティブ単位で別々に集計し、単位混在の問題を回避します。",
+    );
 
     html.push_str("</div>\n");
 }
