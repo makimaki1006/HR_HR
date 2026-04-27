@@ -95,6 +95,9 @@ pub(super) fn render_section_market_tightness(html: &mut String, ctx: Option<&In
     // ---- (1) 逼迫度 総合スコア (信号機色) ----
     render_tightness_summary(html, &metrics);
 
+    // ---- (1.5) 採用難易度ラベル + 寄与分解 + ルールベースアクション (CR-1) ----
+    render_recruit_difficulty_block(html, &metrics);
+
     // ---- (2) 4 軸レーダーチャート ----
     render_radar_chart(html, &metrics);
 
@@ -440,6 +443,354 @@ fn render_data_sources_collapsible(html: &mut String) {
          </p>\n",
     );
     html.push_str("</div>\n</details>\n");
+}
+
+// =====================================================================
+// (CR-1) 採用難易度ラベル + 寄与分解 + ルールベースアクション
+// =====================================================================
+
+/// 採用難易度のラベル分類
+///
+/// スコア閾値:
+/// - 0-30 (30 未満): 易 (採用容易)
+/// - 30-50 (30 以上 50 未満): 標準
+/// - 50-70 (50 以上 70 未満): 難
+/// - 70-100 (70 以上): 極難
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DifficultyLabel {
+    Easy,
+    Standard,
+    Hard,
+    VeryHard,
+}
+
+impl DifficultyLabel {
+    fn from_score(score: f64) -> Self {
+        if score < 30.0 {
+            DifficultyLabel::Easy
+        } else if score < 50.0 {
+            DifficultyLabel::Standard
+        } else if score < 70.0 {
+            DifficultyLabel::Hard
+        } else {
+            DifficultyLabel::VeryHard
+        }
+    }
+
+    fn ja(self) -> &'static str {
+        match self {
+            DifficultyLabel::Easy => "易",
+            DifficultyLabel::Standard => "標準",
+            DifficultyLabel::Hard => "難",
+            DifficultyLabel::VeryHard => "極難",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            DifficultyLabel::Easy => "採用容易",
+            DifficultyLabel::Standard => "標準的な採用環境",
+            DifficultyLabel::Hard => "採用やや困難",
+            DifficultyLabel::VeryHard => "採用極めて困難",
+        }
+    }
+
+    fn color(self) -> &'static str {
+        match self {
+            DifficultyLabel::Easy => "#10b981",
+            DifficultyLabel::Standard => "#3b82f6",
+            DifficultyLabel::Hard => "#f59e0b",
+            DifficultyLabel::VeryHard => "#dc2626",
+        }
+    }
+
+    fn bg_color(self) -> &'static str {
+        match self {
+            DifficultyLabel::Easy => "#ecfdf5",
+            DifficultyLabel::Standard => "#eff6ff",
+            DifficultyLabel::Hard => "#fffbeb",
+            DifficultyLabel::VeryHard => "#fef2f2",
+        }
+    }
+}
+
+/// 各軸の名前 (寄与分解で使用)
+#[derive(Debug, Clone, Copy)]
+enum AxisName {
+    JobRatio,
+    VacancyRate,
+    UnemploymentInv,
+    Separation,
+}
+
+impl AxisName {
+    fn ja(self) -> &'static str {
+        match self {
+            AxisName::JobRatio => "有効求人倍率",
+            AxisName::VacancyRate => "欠員補充率",
+            AxisName::UnemploymentInv => "失業率の逆数 (採用余力)",
+            AxisName::Separation => "離職率",
+        }
+    }
+}
+
+/// 1 軸の寄与情報
+#[derive(Debug, Clone, Copy)]
+struct AxisContribution {
+    axis: AxisName,
+    /// 0-100 の正規化スコア
+    score: f64,
+    /// 中立値 50 からの差 (正 = 押し上げ、負 = 緩和)
+    delta: f64,
+    /// 実際の指標値 (表示用)
+    raw_value: Option<f64>,
+}
+
+/// 4 軸の寄与を取得 (取得済み軸のみ)
+///
+/// 押し上げ要因 (delta > 0): 採用難度を上げる方向
+/// 緩和要因 (delta < 0): 採用難度を下げる方向
+fn extract_contributions(m: &TightnessMetrics) -> Vec<AxisContribution> {
+    let s = m.radar_scores();
+    let mut out = Vec::new();
+    if m.job_ratio.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::JobRatio,
+            score: s.job_ratio,
+            delta: s.job_ratio - 50.0,
+            raw_value: m.job_ratio,
+        });
+    }
+    if m.vacancy_rate.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::VacancyRate,
+            score: s.vacancy_rate,
+            delta: s.vacancy_rate - 50.0,
+            raw_value: m.vacancy_rate.map(|v| v * 100.0),
+        });
+    }
+    if m.unemployment_rate.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::UnemploymentInv,
+            score: s.unemployment_inv,
+            delta: s.unemployment_inv - 50.0,
+            raw_value: m.unemployment_rate,
+        });
+    }
+    if m.separation_rate.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::Separation,
+            score: s.separation,
+            delta: s.separation - 50.0,
+            raw_value: m.separation_rate,
+        });
+    }
+    out
+}
+
+/// 押し上げ要因 (delta > 0) を delta 降順で上位 N 件
+fn top_push_factors(contribs: &[AxisContribution], n: usize) -> Vec<AxisContribution> {
+    let mut v: Vec<AxisContribution> = contribs.iter().filter(|c| c.delta > 0.0).copied().collect();
+    v.sort_by(|a, b| b.delta.partial_cmp(&a.delta).unwrap_or(std::cmp::Ordering::Equal));
+    v.truncate(n);
+    v
+}
+
+/// 緩和要因 (delta < 0) を delta の絶対値降順で上位 N 件
+fn top_ease_factors(contribs: &[AxisContribution], n: usize) -> Vec<AxisContribution> {
+    let mut v: Vec<AxisContribution> = contribs.iter().filter(|c| c.delta < 0.0).copied().collect();
+    v.sort_by(|a, b| {
+        b.delta
+            .abs()
+            .partial_cmp(&a.delta.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    v.truncate(n);
+    v
+}
+
+/// ルールベースの推奨アクション (最大 3 件)
+///
+/// 分岐ロジック (優先度順):
+/// - 有効求人倍率 ≥ 1.5 → 給与訴求の優先度↑、即日勤務OK等の差別化タグ追加
+/// - 離職率 ≥ 18% → 定着支援施策の検討
+/// - 失業率 < 2.0% → 通勤圏拡大検討、リファラル採用強化
+/// - 欠員補充率 ≥ 40% → 既存従業員からのリファラル
+/// - 開業率 - 廃業率 > 1.0 → 競合増加注意・差別化要素強化
+///
+/// 押し上げ要因に対応するルールを優先し、最大 3 件まで返す。
+fn build_recommended_actions(m: &TightnessMetrics) -> Vec<&'static str> {
+    let mut actions: Vec<&'static str> = Vec::new();
+
+    // 有効求人倍率 (押し上げ系)
+    if let Some(ratio) = m.job_ratio {
+        if ratio >= 1.5 {
+            actions.push("給与訴求の優先度\u{2191}");
+            actions.push("即日勤務OK等の差別化タグ追加");
+        }
+    }
+    // 離職率 (押し上げ系)
+    if let Some(sep) = m.separation_rate {
+        if sep >= 18.0 {
+            actions.push("定着支援施策の検討");
+        }
+    }
+    // 失業率 (緩和不足 = 採用余力少 = 押し上げ系)
+    if let Some(ur) = m.unemployment_rate {
+        if ur < 2.0 {
+            actions.push("通勤圏拡大検討");
+            actions.push("リファラル採用強化");
+        }
+    }
+    // 欠員補充率 (押し上げ系)
+    if let Some(vr) = m.vacancy_rate {
+        if vr * 100.0 >= 40.0 {
+            actions.push("既存従業員からのリファラル");
+        }
+    }
+    // 開廃業動態 (補助シグナル)
+    if let (Some(op), Some(cl)) = (m.opening_rate, m.closure_rate) {
+        if op - cl > 1.0 {
+            actions.push("競合増加注意・差別化要素強化");
+        }
+    }
+
+    // 重複を保持しつつ上限 3 件
+    let mut seen: Vec<&'static str> = Vec::new();
+    for a in actions {
+        if !seen.iter().any(|x| *x == a) {
+            seen.push(a);
+            if seen.len() >= 3 {
+                break;
+            }
+        }
+    }
+    seen
+}
+
+/// 寄与分解の 1 行を整形 (例: 「有効求人倍率 1.80倍 (+30)」)
+fn format_contribution(c: &AxisContribution) -> String {
+    let raw_part = match (c.axis, c.raw_value) {
+        (AxisName::JobRatio, Some(v)) => format!("{:.2}倍", v),
+        (AxisName::VacancyRate, Some(v)) => format!("{:.0}%", v),
+        (AxisName::UnemploymentInv, Some(v)) => format!("{:.1}%", v),
+        (AxisName::Separation, Some(v)) => format!("{:.1}%", v),
+        _ => "N/A".to_string(),
+    };
+    let sign = if c.delta >= 0.0 { "+" } else { "" };
+    format!("{} {} ({}{:.0})", c.axis.ja(), raw_part, sign, c.delta)
+}
+
+/// 採用難易度ブロック全体を描画
+///
+/// 配置: 総合スコア (図 MT-1) の直後、レーダーチャート (図 MT-2) の直前
+fn render_recruit_difficulty_block(html: &mut String, m: &TightnessMetrics) {
+    let score = match m.composite_score() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let label = DifficultyLabel::from_score(score);
+    let contribs = extract_contributions(m);
+    let push = top_push_factors(&contribs, 2);
+    let ease = top_ease_factors(&contribs, 2);
+    let actions = build_recommended_actions(m);
+
+    html.push_str(&format!(
+        "<div class=\"recruit-difficulty\" data-testid=\"recruit-difficulty-block\" \
+         style=\"margin:8px 0 12px;padding:12px 16px;background:{bg};border-left:4px solid {col};border-radius:6px;\">\n",
+        bg = label.bg_color(),
+        col = label.color(),
+    ));
+
+    // 見出し: ラベル + スコア
+    html.push_str(&format!(
+        "<h3 style=\"font-size:14px;margin:0 0 8px;color:#1f2937;\">\
+         採用難易度: \
+         <span class=\"badge-{badge_key}\" data-testid=\"difficulty-label\" \
+         style=\"display:inline-block;padding:2px 10px;background:{col};color:#fff;border-radius:3px;font-weight:700;margin:0 6px;\">\
+         {label_ja}</span>\
+         <span class=\"score\" data-testid=\"difficulty-score\" \
+         style=\"color:{col};font-weight:600;\">{score:.0}/100</span>\
+         <span style=\"color:#6b7280;font-size:11px;font-weight:400;margin-left:8px;\">({desc})</span>\
+         </h3>\n",
+        badge_key = match label {
+            DifficultyLabel::Easy => "easy",
+            DifficultyLabel::Standard => "standard",
+            DifficultyLabel::Hard => "hard",
+            DifficultyLabel::VeryHard => "very-hard",
+        },
+        col = label.color(),
+        label_ja = escape_html(label.ja()),
+        score = score,
+        desc = escape_html(label.description()),
+    ));
+
+    // 寄与分解
+    html.push_str("<div class=\"contribution\" data-testid=\"contribution-breakdown\" style=\"font-size:11px;color:#374151;line-height:1.7;margin-bottom:8px;\">\n");
+    if push.is_empty() {
+        html.push_str(
+            "<div class=\"push\" data-testid=\"push-factors\">\
+             <strong style=\"color:#dc2626;\">相関的な押し上げ要因</strong>: なし (中立値以下)\
+             </div>\n",
+        );
+    } else {
+        let push_str: Vec<String> = push.iter().map(format_contribution).collect();
+        html.push_str(&format!(
+            "<div class=\"push\" data-testid=\"push-factors\">\
+             <strong style=\"color:#dc2626;\">相関的な押し上げ要因</strong>: {}\
+             </div>\n",
+            escape_html(&push_str.join(" / "))
+        ));
+    }
+    if ease.is_empty() {
+        html.push_str(
+            "<div class=\"ease\" data-testid=\"ease-factors\">\
+             <strong style=\"color:#10b981;\">相関的な緩和要因</strong>: なし (中立値以上)\
+             </div>\n",
+        );
+    } else {
+        let ease_str: Vec<String> = ease.iter().map(format_contribution).collect();
+        html.push_str(&format!(
+            "<div class=\"ease\" data-testid=\"ease-factors\">\
+             <strong style=\"color:#10b981;\">相関的な緩和要因</strong>: {}\
+             </div>\n",
+            escape_html(&ease_str.join(" / "))
+        ));
+    }
+    html.push_str(
+        "<div style=\"font-size:9px;color:#9ca3af;font-style:italic;margin-top:4px;\">\
+         \u{203B} 寄与分解は各軸の正規化スコア (0-100) と中立値 50 との差分です。値が大きいほど採用難度を押し上げる相関的傾向を示します。\
+         </div>\n",
+    );
+    html.push_str("</div>\n");
+
+    // 推奨アクション
+    if !actions.is_empty() {
+        html.push_str("<div class=\"actions\" data-testid=\"rule-based-actions\" style=\"font-size:11px;color:#374151;\">\n");
+        html.push_str(
+            "<strong>推奨アクション (相関ベース、因果ではない)</strong>:\n\
+             <ol style=\"padding-left:20px;line-height:1.6;margin:4px 0;\">\n",
+        );
+        for a in &actions {
+            html.push_str(&format!("<li>{}</li>\n", escape_html(a)));
+        }
+        html.push_str("</ol>\n");
+        html.push_str(
+            "<p style=\"font-size:9px;color:#9ca3af;font-style:italic;margin-top:4px;\">\
+             \u{203B} 上記は市場指標に基づくルールベース提案で、相関ベース・因果ではないため現場で要検証です。職種・予算・競合状況等の個別要因と併せてご検討ください。\
+             </p>\n",
+        );
+        html.push_str("</div>\n");
+    } else {
+        html.push_str(
+            "<div class=\"actions\" data-testid=\"rule-based-actions\" style=\"font-size:11px;color:#6b7280;\">\
+             <strong>推奨アクション (相関ベース、因果ではない)</strong>: 現状の市場指標では特段の追加施策トリガーは検出されません。標準的な採用運用を継続しつつ、月次でモニタリングを行うことを推奨します。\
+             </div>\n",
+        );
+    }
+
+    html.push_str("</div>\n");
 }
 
 // =====================================================================
@@ -1366,6 +1717,453 @@ mod tests {
             p1 < p2 && p2 < p3 && p3 < p4,
             "4 軸はストーリー順 (有効求人倍率 → 欠員補充率 → 失業率 → 離職率)"
         );
+    }
+
+    // =================================================================
+    // CR-1: 採用難易度ラベル + 寄与分解 + アクション提案 テスト群
+    // =================================================================
+
+    /// CR-1 #1: ラベル境界値テスト (具体値で逆証明)
+    /// スコア 29 → 易、30 → 標準、49 → 標準、50 → 難、69 → 難、70 → 極難
+    #[test]
+    fn cr1_difficulty_label_boundary_values() {
+        assert_eq!(DifficultyLabel::from_score(0.0), DifficultyLabel::Easy);
+        assert_eq!(DifficultyLabel::from_score(29.0), DifficultyLabel::Easy);
+        assert_eq!(
+            DifficultyLabel::from_score(29.999),
+            DifficultyLabel::Easy,
+            "30 未満 = 易"
+        );
+        assert_eq!(
+            DifficultyLabel::from_score(30.0),
+            DifficultyLabel::Standard,
+            "30 = 標準"
+        );
+        assert_eq!(
+            DifficultyLabel::from_score(49.0),
+            DifficultyLabel::Standard,
+            "49 = 標準"
+        );
+        assert_eq!(
+            DifficultyLabel::from_score(50.0),
+            DifficultyLabel::Hard,
+            "50 = 難"
+        );
+        assert_eq!(
+            DifficultyLabel::from_score(69.0),
+            DifficultyLabel::Hard,
+            "69 = 難"
+        );
+        assert_eq!(
+            DifficultyLabel::from_score(70.0),
+            DifficultyLabel::VeryHard,
+            "70 = 極難"
+        );
+        assert_eq!(
+            DifficultyLabel::from_score(100.0),
+            DifficultyLabel::VeryHard
+        );
+
+        // 4 種類のいずれかになる (ドメイン不変条件)
+        for s in [0.0, 25.0, 40.0, 60.0, 85.0, 100.0] {
+            let l = DifficultyLabel::from_score(s);
+            assert!(matches!(
+                l,
+                DifficultyLabel::Easy
+                    | DifficultyLabel::Standard
+                    | DifficultyLabel::Hard
+                    | DifficultyLabel::VeryHard
+            ));
+        }
+    }
+
+    /// CR-1 #2: 寄与分解の具体値検証
+    /// 4 軸スコア [80, 40, 30, 20] のとき、push 1位 = 軸1 (+30)、ease 1位 = 軸4 (-30)
+    ///
+    /// ラジアー軸スコアを意図的に作るには raw 値を逆算する:
+    /// - job_ratio: normalize_linear(v, 0.5, 1.5) = 80 → v = 0.5 + 0.8 * 1.0 = 1.3
+    /// - vacancy_rate: normalize_linear(v*100, 0.0, 50.0) = 40 → v*100 = 20 → v = 0.20
+    /// - unemployment_inv: normalize_linear(5.0 - v, 0.0, 4.0) = 30 → 5.0 - v = 1.2 → v = 3.8
+    /// - separation: normalize_linear(v, 5.0, 20.0) = 20 → v = 5.0 + 0.2 * 15.0 = 8.0
+    #[test]
+    fn cr1_contribution_breakdown_concrete_values() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.3))])], // → score 80
+            vec![row(&[
+                ("emp_group", json!("正社員")),
+                ("vacancy_rate", json!(0.20)),
+            ])], // → score 40
+            vec![],
+            vec![row(&[("unemployment_rate", json!(3.8))])], // → score 30
+            vec![row(&[("separation_rate", json!(8.0))])],   // → score 20
+            vec![],
+            None,
+        );
+        let m = compute_metrics(&ctx);
+        let contribs = extract_contributions(&m);
+        assert_eq!(contribs.len(), 4, "4 軸全て取得できる");
+
+        // 各軸の delta 確認 (誤差 0.5 程度許容)
+        let job_ratio_c = contribs
+            .iter()
+            .find(|c| matches!(c.axis, AxisName::JobRatio))
+            .expect("job_ratio");
+        assert!(
+            (job_ratio_c.delta - 30.0).abs() < 0.5,
+            "job_ratio delta = +30, got {}",
+            job_ratio_c.delta
+        );
+
+        let sep_c = contribs
+            .iter()
+            .find(|c| matches!(c.axis, AxisName::Separation))
+            .expect("sep");
+        assert!(
+            (sep_c.delta - (-30.0)).abs() < 0.5,
+            "separation delta = -30, got {}",
+            sep_c.delta
+        );
+
+        // push 1 位 = job_ratio (delta +30)
+        let push = top_push_factors(&contribs, 2);
+        assert!(!push.is_empty());
+        assert!(
+            matches!(push[0].axis, AxisName::JobRatio),
+            "push 1位 = 有効求人倍率"
+        );
+        assert!(push[0].delta > 0.0);
+
+        // ease 1 位 = separation (delta -30)
+        let ease = top_ease_factors(&contribs, 2);
+        assert!(!ease.is_empty());
+        assert!(
+            matches!(ease[0].axis, AxisName::Separation),
+            "ease 1位 = 離職率"
+        );
+        assert!(ease[0].delta < 0.0);
+        assert!(
+            (ease[0].delta.abs() - 30.0).abs() < 0.5,
+            "ease 1位 |delta| = 30"
+        );
+    }
+
+    /// CR-1 #3: アクション分岐のテスト
+    /// 有効求人倍率=1.8 → 「給与訴求」が含まれる
+    /// 離職率=20 → 「定着支援」が含まれる
+    /// 失業率=1.5 → 「通勤圏拡大」が含まれる
+    #[test]
+    fn cr1_action_branching_concrete_values() {
+        // 有効求人倍率 1.8
+        let m1 = TightnessMetrics {
+            job_ratio: Some(1.8),
+            ..Default::default()
+        };
+        let actions1 = build_recommended_actions(&m1);
+        assert!(
+            actions1.iter().any(|a| a.contains("給与訴求")),
+            "ratio>=1.5 → 給与訴求, got {:?}",
+            actions1
+        );
+
+        // 離職率 20
+        let m2 = TightnessMetrics {
+            separation_rate: Some(20.0),
+            ..Default::default()
+        };
+        let actions2 = build_recommended_actions(&m2);
+        assert!(
+            actions2.iter().any(|a| a.contains("定着支援")),
+            "sep>=18 → 定着支援, got {:?}",
+            actions2
+        );
+
+        // 失業率 1.5
+        let m3 = TightnessMetrics {
+            unemployment_rate: Some(1.5),
+            ..Default::default()
+        };
+        let actions3 = build_recommended_actions(&m3);
+        assert!(
+            actions3.iter().any(|a| a.contains("通勤圏拡大")),
+            "ur<2.0 → 通勤圏拡大, got {:?}",
+            actions3
+        );
+        assert!(
+            actions3.iter().any(|a| a.contains("リファラル")),
+            "ur<2.0 → リファラル"
+        );
+
+        // 欠員補充率 45%
+        let m4 = TightnessMetrics {
+            vacancy_rate: Some(0.45),
+            ..Default::default()
+        };
+        let actions4 = build_recommended_actions(&m4);
+        assert!(
+            actions4.iter().any(|a| a.contains("既存従業員")),
+            "vacancy>=40% → 既存従業員からのリファラル"
+        );
+
+        // 開廃業 純増 +1.5
+        let m5 = TightnessMetrics {
+            opening_rate: Some(5.0),
+            closure_rate: Some(3.0),
+            ..Default::default()
+        };
+        let actions5 = build_recommended_actions(&m5);
+        assert!(
+            actions5.iter().any(|a| a.contains("競合増加")),
+            "open-close>1.0 → 競合増加注意"
+        );
+
+        // 何もトリガーされない場合
+        let m_none = TightnessMetrics {
+            job_ratio: Some(0.8),
+            ..Default::default()
+        };
+        let actions_none = build_recommended_actions(&m_none);
+        assert!(
+            actions_none.is_empty(),
+            "閾値未満ならアクションなし, got {:?}",
+            actions_none
+        );
+    }
+
+    /// CR-1 #4: ドメイン不変条件
+    /// - 寄与の絶対値合計 ≤ 200 (4 軸 × 最大 50 ずれ)
+    /// - アクションは 0〜3 件の範囲
+    /// - ラベルは 4 種類のいずれか
+    #[test]
+    fn cr1_domain_invariants() {
+        // 極端値: 全軸最大 (job_ratio=2.0, vacancy=0.6, unemployment=0.5, separation=25)
+        let m_max = TightnessMetrics {
+            job_ratio: Some(2.0),
+            vacancy_rate: Some(0.6),
+            unemployment_rate: Some(0.5),
+            separation_rate: Some(25.0),
+            opening_rate: Some(6.0),
+            closure_rate: Some(3.0),
+            ..Default::default()
+        };
+        let contribs = extract_contributions(&m_max);
+        let total_abs: f64 = contribs.iter().map(|c| c.delta.abs()).sum();
+        assert!(
+            total_abs <= 200.0 + 1e-6,
+            "寄与の絶対値合計 ≤ 200 (4 軸 × 50), got {}",
+            total_abs
+        );
+
+        // アクション数 0..=3
+        let actions = build_recommended_actions(&m_max);
+        assert!(
+            actions.len() <= 3,
+            "アクションは最大 3 件, got {}",
+            actions.len()
+        );
+
+        // 空メトリクスでアクション 0 件
+        let m_empty = TightnessMetrics::default();
+        let actions_empty = build_recommended_actions(&m_empty);
+        assert!(
+            actions_empty.len() <= 3,
+            "空でも 0..=3 範囲, got {}",
+            actions_empty.len()
+        );
+        assert_eq!(actions_empty.len(), 0);
+
+        // ラベルは 4 種類のいずれか (網羅)
+        for s in [-10.0, 0.0, 15.0, 29.99, 30.0, 45.0, 50.0, 69.99, 70.0, 100.0, 200.0] {
+            let l = DifficultyLabel::from_score(s);
+            assert!(matches!(
+                l,
+                DifficultyLabel::Easy
+                    | DifficultyLabel::Standard
+                    | DifficultyLabel::Hard
+                    | DifficultyLabel::VeryHard
+            ));
+        }
+
+        // push と ease は重複しない (delta=0 は両方から除外、それ以外は符号で排他)
+        for c in &contribs {
+            let in_push = top_push_factors(&contribs, 4).iter().any(|x| matches!(
+                (x.axis, c.axis),
+                (AxisName::JobRatio, AxisName::JobRatio)
+                    | (AxisName::VacancyRate, AxisName::VacancyRate)
+                    | (AxisName::UnemploymentInv, AxisName::UnemploymentInv)
+                    | (AxisName::Separation, AxisName::Separation)
+            ));
+            let in_ease = top_ease_factors(&contribs, 4).iter().any(|x| matches!(
+                (x.axis, c.axis),
+                (AxisName::JobRatio, AxisName::JobRatio)
+                    | (AxisName::VacancyRate, AxisName::VacancyRate)
+                    | (AxisName::UnemploymentInv, AxisName::UnemploymentInv)
+                    | (AxisName::Separation, AxisName::Separation)
+            ));
+            if c.delta > 0.0 {
+                assert!(in_push && !in_ease, "delta>0 は push のみ");
+            } else if c.delta < 0.0 {
+                assert!(!in_push && in_ease, "delta<0 は ease のみ");
+            }
+        }
+    }
+
+    /// CR-1 #5: caveat 文言の存在検証
+    /// 「相関ベース」「因果ではない」が出力に含まれること
+    #[test]
+    fn cr1_caveat_phrases_present_in_output() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.6))])], // 押し上げトリガー
+            vec![],
+            vec![],
+            vec![],
+            vec![row(&[("separation_rate", json!(20.0))])], // 押し上げトリガー
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness(&mut html, Some(&ctx));
+
+        // 「相関ベース」と「因果ではない」が必ず存在
+        assert!(
+            html.contains("相関ベース"),
+            "推奨アクション見出しに『相関ベース』が必要"
+        );
+        assert!(
+            html.contains("因果ではない"),
+            "推奨アクション見出しに『因果ではない』が必要"
+        );
+        // 寄与分解も「相関的な押し上げ要因」表現
+        assert!(
+            html.contains("相関的な押し上げ要因"),
+            "寄与分解は『相関的な押し上げ要因』表記"
+        );
+        // 用語制約: 「総合スコア」は新ブロック直接見出しでは使わず「採用難易度」「複合指標」を用いる
+        assert!(
+            html.contains("採用難易度"),
+            "用語『採用難易度』が出力に含まれる"
+        );
+    }
+
+    /// CR-1 #6: fail-soft - スコアなし時 section 全体が出力されない
+    #[test]
+    fn cr1_fail_soft_no_score_no_block() {
+        // 全データ空 → has_any_data() = false → section 出力なし
+        let ctx = build_test_ctx(vec![], vec![], vec![], vec![], vec![], vec![], None);
+        let mut html = String::new();
+        render_section_market_tightness(&mut html, Some(&ctx));
+        assert!(html.is_empty(), "スコアなし時 section 全体非表示");
+
+        // 開廃業のみ存在 (composite_score 算出不可) でも recruit-difficulty ブロックは出ない
+        // ※ has_any_data() は opening_rate でも true になり section 自体は描画されるが、
+        //    recruit_difficulty ブロックは composite_score がないため早期 return する
+        let ctx2 = build_test_ctx(
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![row(&[
+                ("opening_rate", json!(5.0)),
+                ("closure_rate", json!(3.0)),
+            ])],
+            None,
+        );
+        let mut html2 = String::new();
+        render_section_market_tightness(&mut html2, Some(&ctx2));
+        // section 自体は出るが recruit-difficulty ブロックは出ない
+        assert!(
+            !html2.contains("data-testid=\"recruit-difficulty-block\""),
+            "composite_score なし → recruit-difficulty ブロック非表示"
+        );
+
+        // composite_score がある場合は recruit-difficulty ブロックが必ず出る
+        let ctx3 = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.0))])],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            None,
+        );
+        let mut html3 = String::new();
+        render_section_market_tightness(&mut html3, Some(&ctx3));
+        assert!(
+            html3.contains("data-testid=\"recruit-difficulty-block\""),
+            "composite_score あり → recruit-difficulty ブロック表示"
+        );
+    }
+
+    /// CR-1 補強: ラベル位置 - 図 MT-1 (総合スコア) の直後 / 図 MT-2 (レーダー) の直前
+    #[test]
+    fn cr1_block_positioned_between_summary_and_radar() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.4))])],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness(&mut html, Some(&ctx));
+
+        let pos_mt1 = html.find("図 MT-1").expect("図 MT-1 必須");
+        let pos_block = html
+            .find("data-testid=\"recruit-difficulty-block\"")
+            .expect("recruit-difficulty-block 必須");
+        let pos_mt2 = html.find("図 MT-2").expect("図 MT-2 必須");
+
+        assert!(
+            pos_mt1 < pos_block && pos_block < pos_mt2,
+            "順序: 図 MT-1 (総合スコア) < 採用難易度ブロック < 図 MT-2 (レーダー)"
+        );
+    }
+
+    /// CR-1 補強: アクション最大件数 3 の上限を逆証明
+    /// 全トリガーが発火する条件下でも 3 件で止まる
+    #[test]
+    fn cr1_actions_capped_at_three() {
+        let m = TightnessMetrics {
+            job_ratio: Some(2.0),       // → 給与訴求 + 差別化タグ (2 件)
+            separation_rate: Some(20.0), // → 定着支援 (1 件)
+            unemployment_rate: Some(1.0), // → 通勤圏拡大 + リファラル (2 件)
+            vacancy_rate: Some(0.5),    // → 既存従業員リファラル (1 件)
+            opening_rate: Some(6.0),
+            closure_rate: Some(3.0), // → 競合増加 (1 件)
+            ..Default::default()
+        };
+        let actions = build_recommended_actions(&m);
+        assert_eq!(actions.len(), 3, "上限 3 件で打ち切り, got {:?}", actions);
+        // 優先順 (有効求人倍率系が最初)
+        assert!(actions[0].contains("給与訴求"), "1 番目は給与訴求");
+    }
+
+    /// CR-1 補強: format_contribution の出力フォーマット検証
+    #[test]
+    fn cr1_format_contribution_strings() {
+        let c_pos = AxisContribution {
+            axis: AxisName::JobRatio,
+            score: 80.0,
+            delta: 30.0,
+            raw_value: Some(1.30),
+        };
+        let s = format_contribution(&c_pos);
+        assert!(s.contains("有効求人倍率"));
+        assert!(s.contains("1.30倍"));
+        assert!(s.contains("+30"));
+
+        let c_neg = AxisContribution {
+            axis: AxisName::Separation,
+            score: 20.0,
+            delta: -30.0,
+            raw_value: Some(8.0),
+        };
+        let s2 = format_contribution(&c_neg);
+        assert!(s2.contains("離職率"));
+        assert!(s2.contains("8.0%"));
+        assert!(s2.contains("-30"));
     }
 
     /// データソース注記関数: 単体テスト (公開統計名で出典を表示)
