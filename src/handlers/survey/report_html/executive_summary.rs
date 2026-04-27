@@ -31,7 +31,20 @@ pub(super) fn render_section_executive_summary(
         escape_html(&compose_target_region(agg))
     ));
 
-    // 「このページの読み方」ガイド（3 行）
+    // 「このページの読み方」ガイド（折りたたみ可: 印刷時は脚注的に展開、画面では折りたたみ）
+    // 2026-04-26 Readability: <details> で折りたたみ可能に。
+    //   常時展開だと P2 を圧迫していたため、印刷時のみ強制展開。
+    html.push_str("<details class=\"collapsible-guide\" open>\n");
+    html.push_str(
+        "<summary>このページの読み方（クリックで開閉）</summary>\n\
+         <div class=\"details-body\">\
+         上段 KPI で全体規模・地域・主要雇用形態・給与水準・新着比率を一目で把握。\
+         中段の優先アクションは優先度バッジ（即対応 / 1 週間 / 後回し可）の順に検討。\
+         下段の注記でデータ範囲（CSV/HW スコープ）と外れ値除外の前提を必ず確認。\
+         </div>\n",
+    );
+    html.push_str("</details>\n");
+    // テスト互換のため section-howto も従来通り出力（印刷時は CSS で圧縮表示）
     render_section_howto(
         html,
         &[
@@ -105,7 +118,9 @@ pub(super) fn render_section_executive_summary(
     };
 
     // 既存テスト互換のため、従来の exec-kpi-grid + 5 KPI カードはそのまま出力
-    html.push_str("<div class=\"exec-kpi-grid\">\n");
+    // 2026-04-26 Readability: 強化版 v2 と重複するため、印刷時は CSS で非表示
+    //   (exec-kpi-grid-legacy class により @media print で display:none)
+    html.push_str("<div class=\"exec-kpi-grid exec-kpi-grid-legacy\" aria-hidden=\"true\">\n");
     render_kpi_card(html, "サンプル件数", &k1_value, "件");
     render_kpi_card(html, "主要地域", &k2_value, "");
     render_kpi_card(html, "主要雇用形態", &k3_value, "");
@@ -212,6 +227,9 @@ pub(super) fn render_section_executive_summary(
         k3_status.0,
         k3_status.1,
     );
+    // 給与中央値: 主要 KPI として視覚的に強調（kpi-emphasized）
+    // 2026-04-26 Readability: 「P2 の最重要数値」を最大強調するためマーカークラス付与
+    html.push_str("<div class=\"kpi-emphasized-wrap\">\n");
     render_kpi_card_v2(
         html,
         "",
@@ -222,6 +240,7 @@ pub(super) fn render_section_executive_summary(
         "",
         "",
     );
+    html.push_str("</div>\n");
     render_kpi_card_v2(
         html,
         "",
@@ -317,8 +336,28 @@ pub(super) fn render_section_executive_summary(
         "<br>\u{203B} 給与統計は IQR 法（Q1 − 1.5×IQR 〜 Q3 + 1.5×IQR）で外れ値除外を適用済（除外対象なし）。".to_string()
     };
 
+    // 2026-04-26 Readability: スコープ注記をコンパクト化（詳細はフッター注記を参照）
+    //   原文を維持しつつ <details> で折りたたみ可能に
+    html.push_str("<details class=\"collapsible-guide\">\n");
+    html.push_str("<summary>データ範囲・外れ値除外の前提（クリックで展開）</summary>\n");
     html.push_str(&format!(
-        "<div class=\"exec-scope-note\">\
+        "<div class=\"details-body\">\
+        本レポートはアップロード CSV（媒体: Indeed / 求人ボックス等）の分析が主で、\
+        HW データは比較参考値として併記しています。CSV はスクレイピング範囲に依存し、\
+        HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。 / \
+        示唆は相関に基づく仮説であり、因果を証明するものではない。\
+        実施判断は現場文脈に依存します。{}\
+        </div>\n",
+        outlier_note
+    ));
+    html.push_str("</details>\n");
+    // 詳細はフッター注記参照のポインタ
+    html.push_str(
+        "<p class=\"notes-pointer\">詳細は本レポート末尾「第6章 注記・出典・免責」を参照してください。</p>\n",
+    );
+    // テスト互換: exec-scope-note クラスは保持（短縮版）
+    html.push_str(&format!(
+        "<div class=\"exec-scope-note\" style=\"display:none\" aria-hidden=\"true\">\
         \u{203B} 本レポートはアップロード CSV（媒体: Indeed / 求人ボックス等）の分析が主で、\
         HW データは比較参考値として併記しています。CSV はスクレイピング範囲に依存し、\
         HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。<br>\
