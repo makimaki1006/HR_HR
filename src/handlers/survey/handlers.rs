@@ -474,14 +474,37 @@ pub async fn survey_report_html(
             // 都道府県レベル（muni="")で取得してマクロ比較を優先する。
             // 地域指標（人口・最低賃金）は dominant_pref/muni に依存しない。
             let muni2 = String::new();
-            let _orig_muni = muni.clone();
+            let muni_for_industry = muni.clone();
             match tokio::task::spawn_blocking(move || {
-                super::super::insight::fetch::build_insight_context(
+                let mut ctx = super::super::insight::fetch::build_insight_context(
                     &db,
                     turso.as_ref(),
                     &pref2,
                     &muni2,
-                )
+                );
+                // CR-9 (2026-04-28): 産業ミスマッチ専用の遅いフェッチ
+                // build_insight_context から分離し、survey_report_html でのみ実行。
+                // integrate エンドポイントが影響を受けないように設計。
+                use crate::geo::pref_name_to_code;
+                let pref_code = pref_name_to_code()
+                    .get(pref2.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                if !pref_code.is_empty() {
+                    ctx.ext_industry_employees =
+                        super::super::analysis::fetch::fetch_industry_structure(
+                            &db,
+                            turso.as_ref(),
+                            &pref_code,
+                        );
+                }
+                ctx.hw_industry_counts =
+                    super::super::analysis::fetch::fetch_hw_industry_counts(
+                        &db,
+                        &pref2,
+                        &muni_for_industry,
+                    );
+                ctx
             })
             .await
             {

@@ -172,18 +172,12 @@ pub(crate) fn build_insight_context(
         ext_geography: af::fetch_geography(db, turso, pref, muni),
         // Impl-2 (2026-04-26): 学歴分布 (subtab5_phase4_7::fetch_education を再利用)
         ext_education: af::fetch_education(db, turso, pref),
-        // CR-9 (2026-04-27): 産業ミスマッチ警戒
-        // 国勢調査 産業構造 (prefecture_code 経由、市区町村集計済み)
-        ext_industry_employees: {
-            use crate::geo::pref_name_to_code;
-            let pref_code = pref_name_to_code()
-                .get(pref)
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            af::fetch_industry_structure(db, turso, &pref_code)
-        },
-        // HW 求人の 12 大分類別件数 (postings.industry_raw 経由)
-        hw_industry_counts: af::fetch_hw_industry_counts(db, pref, muni),
+        // CR-9 (2026-04-27 / 2026-04-28 修正): 産業ミスマッチ警戒
+        // 注: integrate エンドポイントが本コンテキストを使用するため、
+        //     /report/survey 専用の遅いフェッチをここに含めると integrate がタイムアウトする。
+        //     CR-9 用データは survey_report_html ハンドラ側で別途フェッチして上書きする。
+        ext_industry_employees: vec![],
+        hw_industry_counts: vec![],
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate: af::fetch_prefecture_mean(
             db,
