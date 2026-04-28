@@ -25,14 +25,14 @@ pub(crate) fn render_upload_form() -> String {
             <div class="flex items-start justify-between flex-wrap gap-3">
                 <div>
                     <h2 class="text-xl font-bold text-white">媒体分析
-                        <span class="text-blue-400 text-base font-normal">Indeed・求人ボックス CSV 取込</span>
+                        <span class="text-blue-400 text-base font-normal">求人媒体 CSV 取込</span>
                     </h2>
                     <p class="text-xs text-slate-400 mt-1">
-                        他媒体のCSVをアップロードし、HWデータ・外部統計と突き合わせて地域別の相対比較を行います。
+                        ユーザーがエクスポートした求人媒体CSVをアップロードし、HWデータ・外部統計と突き合わせて地域別の相対比較を行います。
                     </p>
                 </div>
                 <div class="text-xs text-slate-500 text-right">
-                    <div>対応形式: Indeed / 求人ボックス</div>
+                    <div>対応形式: 主要求人媒体 CSV</div>
                     <div>文字コード: UTF-8（CSV/TXT）</div>
                 </div>
             </div>
@@ -46,7 +46,7 @@ pub(crate) fn render_upload_form() -> String {
                     <div class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">1</div>
                     <div>
                         <div class="text-xs font-semibold text-white mb-0.5">CSVエクスポート</div>
-                        <div class="text-[11px] text-slate-400">IndeedまたはExcelで求人一覧をUTF-8 CSVに出力</div>
+                        <div class="text-[11px] text-slate-400">利用中の求人媒体またはExcelで求人一覧をUTF-8 CSVに出力</div>
                     </div>
                 </li>
                 <li class="bg-slate-800/40 rounded p-3 flex gap-3 items-start">
@@ -176,7 +176,7 @@ pub(crate) fn render_upload_form() -> String {
                         ファイルを選択
                         <input type="file" name="csv_file" accept=".csv,.txt" class="hidden" onchange="submitSurveyCSV(this.files[0])">
                     </label>
-                    <div class="text-slate-500 text-xs mt-4">対応形式: Indeed / 求人ボックス (CSV/UTF-8)</div>
+                    <div class="text-slate-500 text-xs mt-4">対応形式: 主要求人媒体 CSV (UTF-8)</div>
                 </div>
             </form>
             <div id="upload-status" class="mt-3" aria-live="polite"></div>
@@ -194,7 +194,7 @@ pub(crate) fn render_upload_form() -> String {
                 </summary>
                 <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
                     <div class="bg-slate-900/50 rounded p-3">
-                        <div class="text-xs font-semibold text-blue-400 mb-2">Indeed CSV 主要列</div>
+                        <div class="text-xs font-semibold text-blue-400 mb-2">英字列名形式 CSV 主要列 (例)</div>
                         <table class="w-full text-[11px] text-slate-300">
                             <thead><tr class="border-b border-slate-700"><th class="text-left py-1 pr-2">列名</th><th class="text-left py-1">用途</th></tr></thead>
                             <tbody class="text-slate-400">
@@ -207,7 +207,7 @@ pub(crate) fn render_upload_form() -> String {
                         </table>
                     </div>
                     <div class="bg-slate-900/50 rounded p-3">
-                        <div class="text-xs font-semibold text-emerald-400 mb-2">求人ボックス CSV 主要列</div>
+                        <div class="text-xs font-semibold text-emerald-400 mb-2">日本語列名形式 CSV 主要列 (例)</div>
                         <table class="w-full text-[11px] text-slate-300">
                             <thead><tr class="border-b border-slate-700"><th class="text-left py-1 pr-2">列名</th><th class="text-left py-1">用途</th></tr></thead>
                             <tbody class="text-slate-400">
