@@ -474,7 +474,6 @@ pub async fn survey_report_html(
             // 都道府県レベル（muni="")で取得してマクロ比較を優先する。
             // 地域指標（人口・最低賃金）は dominant_pref/muni に依存しない。
             let muni2 = String::new();
-            let muni_for_industry = muni.clone();
             match tokio::task::spawn_blocking(move || {
                 let mut ctx = super::super::insight::fetch::build_insight_context(
                     &db,
@@ -485,6 +484,12 @@ pub async fn survey_report_html(
                 // CR-9 (2026-04-28): 産業ミスマッチ専用の遅いフェッチ
                 // build_insight_context から分離し、survey_report_html でのみ実行。
                 // integrate エンドポイントが影響を受けないように設計。
+                //
+                // **粒度統一**: 就業者構成 (fetch_industry_structure) と
+                // HW 求人 (fetch_hw_industry_counts) は **両方とも都道府県粒度** で集計する
+                // (fetch_industry_structure は prefecture_code のみで集計、市区町村フィルタなし)。
+                // 過去 (commit c7f7cff) で HW 側のみ市区町村粒度にしてしまい
+                // 同じ表内で粒度が混在 (就業者=都道府県 / HW=市区町村) してギャップが歪んだバグを修正。
                 use crate::geo::pref_name_to_code;
                 let pref_code = pref_name_to_code()
                     .get(pref2.as_str())
@@ -498,12 +503,9 @@ pub async fn survey_report_html(
                             &pref_code,
                         );
                 }
+                // muni="" で都道府県集計 (就業者構成と粒度を揃える)
                 ctx.hw_industry_counts =
-                    super::super::analysis::fetch::fetch_hw_industry_counts(
-                        &db,
-                        &pref2,
-                        &muni_for_industry,
-                    );
+                    super::super::analysis::fetch::fetch_hw_industry_counts(&db, &pref2, "");
                 ctx
             })
             .await
