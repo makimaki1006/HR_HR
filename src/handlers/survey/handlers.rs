@@ -209,11 +209,17 @@ pub struct IntegrateQuery {
     /// - `public`: HW 最小化 + 公開オープンデータ + 地域比較強化
     pub variant: Option<String>,
     /// 業界絞込フィルタ (2026-04-29 追加)
-    /// HW 大分類名 (例: "医療,福祉" / "製造業" / "建設業" / ...) を指定すると、
-    /// SalesNow と e-Stat 業界別データを当該業界に絞り込む。
+    /// HW industry_raw (詳細分類) または HW 大分類名を受ける。
+    /// SalesNow / e-Stat 業界別データを当該業界に絞り込む。
     /// 未指定 (None) または空文字列 → 絞り込まない (異業種ベンチマーク用途)
     /// 指定時 → **同業界 + 全業界 の両方を併記**して提示する
+    /// 内部で `map_hw_to_major_industry` により 12 大分類に正規化してから利用。
     pub industry: Option<String>,
+    /// グローバルフィルタの都道府県上書き (2026-04-29 追加)
+    /// 指定時はキャッシュの dominant_prefecture より優先
+    pub pref: Option<String>,
+    /// グローバルフィルタの市区町村上書き (2026-04-29 追加)
+    pub muni: Option<String>,
 }
 
 /// 統合レポート生成
@@ -465,16 +471,30 @@ pub async fn survey_report_html(
     let salary_max_values = agg.salary_max_values.clone();
 
     // HWデータ＋外部統計を取得（オプション。失敗・未接続時もレポート生成は継続）
-    let pref = state
-        .cache
-        .get(&format!("survey_pref_{}", session_id))
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .unwrap_or_default();
-    let muni = state
-        .cache
-        .get(&format!("survey_muni_{}", session_id))
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .unwrap_or_default();
+    // 2026-04-29: グローバルフィルタからの URL クエリ (?pref=&muni=) を優先採用。
+    //   未指定時のみキャッシュの dominant_prefecture/municipality にフォールバック。
+    let pref = query
+        .pref
+        .clone()
+        .filter(|s| !s.is_empty() && s != "全国")
+        .unwrap_or_else(|| {
+            state
+                .cache
+                .get(&format!("survey_pref_{}", session_id))
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_default()
+        });
+    let muni = query
+        .muni
+        .clone()
+        .filter(|s| !s.is_empty() && s != "すべて")
+        .unwrap_or_else(|| {
+            state
+                .cache
+                .get(&format!("survey_muni_{}", session_id))
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_default()
+        });
 
     let hw_ctx = if !pref.is_empty() {
         if let Some(db) = state.hw_db.clone() {
@@ -558,11 +578,16 @@ pub async fn survey_report_html(
     //
     // 業界指定時: 全業界版 + 同業界版 の **両方** を取得し、render 側で併記表示する。
     // 業界未指定時: 全業界版のみ取得 (異業種ベンチマーク用途)。
+    // 業界フィルタ: HW industry_raw (例「病院」) または 大分類 (例「医療,福祉」) を受け、
+    // 12 大分類に正規化して downstream に渡す。
+    // map_hw_to_major_industry は industry_raw → 大分類のキーワードマッピング。
     let industry_filter = query
         .industry
         .as_ref()
         .filter(|s| !s.is_empty())
-        .cloned();
+        .map(|raw| {
+            super::report_html::industry_mismatch::map_hw_to_major_industry(raw).to_string()
+        });
 
     let (salesnow_segments_all, salesnow_segments_industry) = if !pref.is_empty() {
         if let (Some(sn_db), Some(hw_db)) = (state.salesnow_db.clone(), state.hw_db.clone()) {
