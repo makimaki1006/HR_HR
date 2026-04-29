@@ -336,8 +336,14 @@ fn ui1_analysis_action_bar_primary_hw_integrate_emphasized() {
         html.contains("shadow-lg") || html.contains("shadow-blue"),
         "プライマリボタンに shadow 必要"
     );
-    // 全 3 つのセカンダリボタンも存在 (印刷/HTML/別CSV)
-    assert!(html.contains("印刷用レポート"), "印刷レポートボタン必須");
+    // 全セカンダリボタンも存在
+    // 2026-04-29 (variant 切替): 旧「印刷用レポート」単一ボタンが
+    //   「HW併載版 PDF」「公開データ中心版 PDF」の 2 バリアント並列に置換
+    assert!(html.contains("HW併載版 PDF"), "HW 併載版 PDF ボタン必須");
+    assert!(
+        html.contains("公開データ中心版 PDF"),
+        "公開データ中心版 PDF ボタン必須"
+    );
     assert!(html.contains("HTMLダウンロード"), "HTML DL ボタン必須");
     assert!(html.contains("別のCSVをアップロード"), "別 CSV ボタン必須");
     // タッチターゲット: 全ボタン min-h-[44px]

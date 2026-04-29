@@ -166,6 +166,101 @@ body {
   color: var(--c-text-muted);
 }
 
+/* バリアントインジケータ + 切替リンク (2026-04-29)
+ * 画面表示のみ（印刷時は @media print の .no-print で非表示）
+ * 現在の PDF 出力モード（HW併載版 / 公開データ中心版）を視覚化し、
+ * 反対バリアントへワンクリックで切替できる導線を提供 */
+.variant-indicator {
+  margin: 0 16px 12px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
+  border: 1px solid #c7d2fe;
+  border-left: 5px solid #4f46e5;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+}
+.variant-indicator-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 11pt;
+  line-height: 1.5;
+  color: #1e293b;
+}
+.variant-indicator .variant-icon {
+  font-size: 14pt;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.variant-indicator .variant-current {
+  font-weight: 500;
+}
+.variant-indicator .variant-current strong {
+  color: #4f46e5;
+  font-size: 12pt;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.variant-indicator .variant-desc {
+  font-size: 9.5pt;
+  color: #64748b;
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+.variant-indicator .variant-switch-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 8px 16px;
+  min-height: 40px;
+  background: #4f46e5;
+  color: #ffffff;
+  border-radius: 6px;
+  font-size: 10.5pt;
+  font-weight: 600;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.variant-indicator .variant-switch-link:hover {
+  background: #4338ca;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(79,70,229,0.25);
+}
+.variant-indicator .variant-switch-link:focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+body.theme-dark .variant-indicator {
+  background: linear-gradient(135deg, #1e293b 0%, #232946 100%);
+  border-color: #4338ca;
+  border-left-color: #818cf8;
+  color: #e2e8f0;
+}
+body.theme-dark .variant-indicator-inner { color: #e2e8f0; }
+body.theme-dark .variant-indicator .variant-current strong { color: #a5b4fc; }
+body.theme-dark .variant-indicator .variant-desc { color: #94a3b8; }
+body.theme-dark .variant-indicator .variant-switch-link { background: #6366f1; }
+body.theme-dark .variant-indicator .variant-switch-link:hover { background: #4f46e5; }
+
+/* スマホでの折返し対応 */
+@media (max-width: 600px) {
+  .variant-indicator-inner { gap: 8px; }
+  .variant-indicator .variant-switch-link {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* 印刷時は完全非表示 (.no-print と二重に保証) */
+@media print {
+  .variant-indicator { display: none !important; }
+}
+
 /* テーマ切替ボタン */
 .theme-toggle {
   position: fixed; top: 10px; right: 200px; z-index: 100;
