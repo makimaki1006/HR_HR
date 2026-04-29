@@ -58,6 +58,7 @@ use region::render_section_region;
 use region::render_section_region_extras;
 use salary_stats::render_section_salary_stats;
 use salesnow::render_section_company_segments;
+use salesnow::render_section_company_segments_with_industry;
 use salesnow::render_section_salesnow_companies;
 use scatter::render_section_scatter;
 use seeker::render_section_job_seeker;
@@ -355,6 +356,47 @@ pub(crate) fn render_survey_report_page_with_variant_v2(
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
 ) -> String {
+    // v3 を業界フィルタなしで呼ぶ薄いラッパ (後方互換)
+    let empty_industry_segments = super::super::company::fetch::RegionalCompanySegments::default();
+    render_survey_report_page_with_variant_v3(
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
+        hw_context,
+        salesnow_companies,
+        salesnow_segments,
+        &empty_industry_segments,
+        None,
+        hw_enrichment_map,
+        municipality_demographics,
+        variant,
+    )
+}
+
+/// 2026-04-29 v3: 業界フィルタ対応版 (全業界 + 同業界 両方併記)
+///
+/// 業界フィルタが指定されている場合、salesnow_segments_industry に同業界版を渡す。
+/// 未指定の場合、`salesnow_segments_industry` は空 + `industry_filter` は None。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_survey_report_page_with_variant_v3(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    salesnow_segments: &super::super::company::fetch::RegionalCompanySegments,
+    salesnow_segments_industry: &super::super::company::fetch::RegionalCompanySegments,
+    industry_filter: Option<&str>,
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+    municipality_demographics: &[super::granularity::MunicipalityDemographics],
+    variant: ReportVariant,
+) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
         .to_string();
@@ -642,12 +684,19 @@ pub(crate) fn render_survey_report_page_with_variant_v2(
         render_section_salesnow_companies(&mut html, salesnow_companies);
     }
 
-    // --- Section 12B (2026-04-29): SalesNow 4 セグメント (大手/中堅/急成長/採用活発) ---
-    // ユーザー指摘「今は地元の大手しか表示されてない」に対応。
-    // 既存「地域注目企業」が employee_count Top のみのため、規模・成長率・HW 採用件数の
-    // 3 軸でセグメント抽出した 4 ブロックを並列表示する。
+    // --- Section 12B (2026-04-29): SalesNow 4 セグメント (規模上位/中規模/人員拡大/求人積極) ---
+    // ユーザー指摘:
+    // > 業界絞込/絞らない の両方を表示したい (異業種ベンチマーク + 同業界比較 を併記)
+    //
+    // 業界指定時: 全業界版 + 同業界版 の両方を並列表示
+    // 業界未指定時: 全業界版のみ
     if !salesnow_segments.is_empty() {
-        render_section_company_segments(&mut html, salesnow_segments);
+        render_section_company_segments_with_industry(
+            &mut html,
+            salesnow_segments,
+            salesnow_segments_industry,
+            industry_filter,
+        );
     }
 
     // --- Section 13: 注記・出典・免責 (必須) ---

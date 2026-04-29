@@ -189,6 +189,68 @@ pub(super) fn format_sales_cell(amount: f64, range: &str) -> String {
     format!("{}{}", escape_html(&amount_display), range_display)
 }
 
+/// 2026-04-29: 業界フィルタ対応版
+///
+/// 業界指定時: 全業界版 + 同業界版 の **両方** を並列表示。
+/// 業界未指定時: 全業界版のみを表示 (異業種ベンチマーク用途)。
+///
+/// 切替トグル UI ではなくレポート内に両方を併記することで、
+/// 「同業界の競合動向」と「異業種からのベンチマーク」を同時に把握可能にする。
+pub(super) fn render_section_company_segments_with_industry(
+    html: &mut String,
+    segments_all: &super::super::super::company::fetch::RegionalCompanySegments,
+    segments_industry: &super::super::super::company::fetch::RegionalCompanySegments,
+    industry_filter: Option<&str>,
+) {
+    if segments_all.is_empty() {
+        return;
+    }
+    match industry_filter {
+        Some(industry) if !industry.is_empty() => {
+            // 業界指定時: 同業界 + 全業界 両方表示
+            html.push_str(&format!(
+                "<div style=\"margin-top:10px;padding:8px 12px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:3px;font-size:10pt;\">\
+                 <strong>📌 業界フィルタ指定中:</strong> 「{}」 — 同業界版と全業界版の両方を以下に併記します。\
+                 同業界版は競合・隣接企業のベンチマーク、全業界版は地域全体の構造把握に利用してください。\
+                 </div>\n",
+                escape_html(industry)
+            ));
+            // 同業界版 (上位、ピンポイント比較)
+            if !segments_industry.is_empty() {
+                html.push_str(&format!(
+                    "<h2 style=\"margin-top:14px;\">第5章 地域企業 ベンチマーク (同業界: {})</h2>\n",
+                    escape_html(industry)
+                ));
+                html.push_str(&format!(
+                    "<p class=\"section-sowhat\">\u{203B} 業界「{}」に絞り込んだ地域内企業の規模・人員推移・求人動向。\
+                     SalesNow `sn_industry` LIKE 部分一致で抽出。サンプルが少ない場合は「全業界版」も併せて参考にしてください。</p>\n",
+                    escape_html(industry)
+                ));
+                render_section_company_segments(html, segments_industry);
+            } else {
+                html.push_str(&format!(
+                    "<div style=\"margin:10px 0;padding:8px 12px;background:#fee2e2;border-left:3px solid #dc2626;border-radius:3px;font-size:10pt;\">\
+                     <strong>⚠ 業界フィルタ「{}」では地域内マッチが 0 件でした。</strong>\
+                     業界キーワードを変えて再試行するか、下記の「全業界版」を参考にしてください。\
+                     </div>\n",
+                    escape_html(industry)
+                ));
+            }
+            // 全業界版 (異業種ベンチマーク)
+            html.push_str("<h2 style=\"margin-top:14px;\">第5章 地域企業 ベンチマーク (全業界、異業種ベンチマーク用)</h2>\n");
+            html.push_str(
+                "<p class=\"section-sowhat\">\u{203B} 業界フィルタを外した地域内企業全体。\
+                 異業種からのベンチマーク (採用施策の他業界事例参考) や未経験採用候補の検討に。</p>\n",
+            );
+            render_section_company_segments(html, segments_all);
+        }
+        _ => {
+            // 業界未指定: 全業界のみ
+            render_section_company_segments(html, segments_all);
+        }
+    }
+}
+
 /// 地域企業の 4 軸ベンチマーク (規模上位 / 中規模層 / 人員拡大期 / 求人積極期)
 ///
 /// 2026-04-29 追加 → 同日改訂 (中立化):

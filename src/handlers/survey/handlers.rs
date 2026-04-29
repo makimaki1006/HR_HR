@@ -208,6 +208,12 @@ pub struct IntegrateQuery {
     /// - `full` (デフォルト): HW データ併載 (既存仕様)
     /// - `public`: HW 最小化 + 公開オープンデータ + 地域比較強化
     pub variant: Option<String>,
+    /// 業界絞込フィルタ (2026-04-29 追加)
+    /// HW 大分類名 (例: "医療,福祉" / "製造業" / "建設業" / ...) を指定すると、
+    /// SalesNow と e-Stat 業界別データを当該業界に絞り込む。
+    /// 未指定 (None) または空文字列 → 絞り込まない (異業種ベンチマーク用途)
+    /// 指定時 → **同業界 + 全業界 の両方を併記**して提示する
+    pub industry: Option<String>,
 }
 
 /// 統合レポート生成
@@ -547,25 +553,61 @@ pub async fn survey_report_html(
         Vec::new()
     };
 
-    // F-2b (2026-04-29): SalesNow 4 セグメント企業 (大手 / 中堅 / 急成長 / 採用活発)
-    // ユーザー指摘「今は地元の大手しか表示されてない」に対応。
-    let salesnow_segments = if !pref.is_empty() {
+    // F-2b (2026-04-29): SalesNow 4 セグメント企業 (規模上位 / 中規模 / 人員拡大 / 求人積極)
+    // ユーザー指摘「今は地元の大手しか表示されてない」「業界絞込/絞らない 両方表示したい」に対応。
+    //
+    // 業界指定時: 全業界版 + 同業界版 の **両方** を取得し、render 側で併記表示する。
+    // 業界未指定時: 全業界版のみ取得 (異業種ベンチマーク用途)。
+    let industry_filter = query
+        .industry
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned();
+
+    let (salesnow_segments_all, salesnow_segments_industry) = if !pref.is_empty() {
         if let (Some(sn_db), Some(hw_db)) = (state.salesnow_db.clone(), state.hw_db.clone()) {
-            let pref2 = pref.clone();
-            let muni2 = muni.clone();
-            tokio::task::spawn_blocking(move || {
+            let pref_a = pref.clone();
+            let muni_a = muni.clone();
+            let sn_db_a = sn_db.clone();
+            let hw_db_a = hw_db.clone();
+            // 全業界版 (常に取得)
+            let all_handle = tokio::task::spawn_blocking(move || {
                 super::super::company::fetch::fetch_company_segments_by_region(
-                    &sn_db, &hw_db, &pref2, &muni2,
+                    &sn_db_a, &hw_db_a, &pref_a, &muni_a,
                 )
-            })
-            .await
-            .unwrap_or_default()
+            });
+            // 同業界版 (業界指定時のみ)
+            let industry_handle = if let Some(ref ind) = industry_filter {
+                let pref_i = pref.clone();
+                let muni_i = muni.clone();
+                let ind_owned = ind.clone();
+                Some(tokio::task::spawn_blocking(move || {
+                    super::super::company::fetch::fetch_company_segments_by_region_with_industry(
+                        &sn_db,
+                        &hw_db,
+                        &pref_i,
+                        &muni_i,
+                        Some(ind_owned.as_str()),
+                    )
+                }))
+            } else {
+                None
+            };
+            let all = all_handle.await.unwrap_or_default();
+            let industry = if let Some(h) = industry_handle {
+                h.await.unwrap_or_default()
+            } else {
+                Default::default()
+            };
+            (all, industry)
         } else {
-            Default::default()
+            (Default::default(), Default::default())
         }
     } else {
-        Default::default()
+        (Default::default(), Default::default())
     };
+    // 後方互換: 既存の `salesnow_segments` は全業界版を指す
+    let salesnow_segments = salesnow_segments_all.clone();
 
     // HW enrichment map: CSV の (pref, muni) ごとに postings 実件数 + 時系列推移 + 欠員率
     let hw_enrichment_map = if let Some(hw_db) = state.hw_db.clone() {
@@ -610,7 +652,7 @@ pub async fn survey_report_html(
     let _ = (&pref, &muni);
     // 2026-04-29: variant 切替 (?variant=full|public)
     let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
-    let html = super::report_html::render_survey_report_page_with_variant_v2(
+    let html = super::report_html::render_survey_report_page_with_variant_v3(
         &agg,
         &seeker,
         &by_company,
@@ -620,6 +662,8 @@ pub async fn survey_report_html(
         hw_ctx.as_ref(),
         &salesnow_companies,
         &salesnow_segments,
+        &salesnow_segments_industry,
+        industry_filter.as_deref(),
         &hw_enrichment_map,
         &municipality_demographics,
         variant,

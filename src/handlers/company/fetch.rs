@@ -648,34 +648,100 @@ pub fn fetch_company_segments_by_region(
     prefecture: &str,
     municipality: &str,
 ) -> RegionalCompanySegments {
+    fetch_company_segments_by_region_with_industry(sn_db, db, prefecture, municipality, None)
+}
+
+/// 2026-04-29: 業界フィルタ対応版
+///
+/// `industry` (HW 大分類名) を指定すると `WHERE sn_industry LIKE %industry%` で絞る。
+/// `None` または空 → 絞らない (異業種ベンチマーク用途)。
+///
+/// **注意**: SalesNow `sn_industry` の値は HW 大分類と完全一致しない場合があるため
+/// LIKE マッチで部分一致する。例: industry="医療,福祉" → "医療" を含む sn_industry にマッチ。
+pub fn fetch_company_segments_by_region_with_industry(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    prefecture: &str,
+    municipality: &str,
+    industry: Option<&str>,
+) -> RegionalCompanySegments {
     if prefecture.is_empty() {
         return RegionalCompanySegments::default();
     }
 
     // ベースの広めプール (上位 100 社) を取得し、Rust 側でセグメント分け
     let pool_limit: i64 = 100;
-    let rows = if !municipality.is_empty() {
-        let muni_pattern = format!("%{}%", municipality);
-        let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                   employee_count, credit_score, postal_code, \
-                   sales_amount, sales_range, \
-                   employee_delta_1y, employee_delta_3m \
-                   FROM v2_salesnow_companies \
-                   WHERE prefecture = ?1 AND address LIKE ?2 \
-                   ORDER BY employee_count DESC LIMIT ?3";
-        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            vec![&prefecture, &muni_pattern, &pool_limit];
-        sn_db.query(sql, &params).unwrap_or_default()
-    } else {
-        let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                   employee_count, credit_score, postal_code, \
-                   sales_amount, sales_range, \
-                   employee_delta_1y, employee_delta_3m \
-                   FROM v2_salesnow_companies \
-                   WHERE prefecture = ?1 \
-                   ORDER BY employee_count DESC LIMIT ?2";
-        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&prefecture, &pool_limit];
-        sn_db.query(sql, &params).unwrap_or_default()
+    // 業界 LIKE パターン (Some の場合のみ適用)
+    let industry_keyword = industry
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            // "医療,福祉" → "医療" のように 1 文字目以降をキーワードに使う
+            // (SalesNow sn_industry は HW 大分類と完全一致しない可能性が高いため部分一致)
+            let head: String = s.chars().take_while(|c| *c != ',' && *c != '，').collect();
+            if head.is_empty() {
+                s.to_string()
+            } else {
+                head
+            }
+        });
+
+    let rows = match (municipality.is_empty(), &industry_keyword) {
+        (false, Some(kw)) => {
+            // 市区町村 + 業界
+            let muni_pattern = format!("%{}%", municipality);
+            let ind_pattern = format!("%{}%", kw);
+            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                       employee_count, credit_score, postal_code, \
+                       sales_amount, sales_range, \
+                       employee_delta_1y, employee_delta_3m \
+                       FROM v2_salesnow_companies \
+                       WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
+                       ORDER BY employee_count DESC LIMIT ?4";
+            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                vec![&prefecture, &muni_pattern, &ind_pattern, &pool_limit];
+            sn_db.query(sql, &params).unwrap_or_default()
+        }
+        (true, Some(kw)) => {
+            // 都道府県のみ + 業界
+            let ind_pattern = format!("%{}%", kw);
+            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                       employee_count, credit_score, postal_code, \
+                       sales_amount, sales_range, \
+                       employee_delta_1y, employee_delta_3m \
+                       FROM v2_salesnow_companies \
+                       WHERE prefecture = ?1 AND sn_industry LIKE ?2 \
+                       ORDER BY employee_count DESC LIMIT ?3";
+            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                vec![&prefecture, &ind_pattern, &pool_limit];
+            sn_db.query(sql, &params).unwrap_or_default()
+        }
+        (false, None) => {
+            // 市区町村のみ
+            let muni_pattern = format!("%{}%", municipality);
+            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                       employee_count, credit_score, postal_code, \
+                       sales_amount, sales_range, \
+                       employee_delta_1y, employee_delta_3m \
+                       FROM v2_salesnow_companies \
+                       WHERE prefecture = ?1 AND address LIKE ?2 \
+                       ORDER BY employee_count DESC LIMIT ?3";
+            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                vec![&prefecture, &muni_pattern, &pool_limit];
+            sn_db.query(sql, &params).unwrap_or_default()
+        }
+        (true, None) => {
+            // 都道府県のみ (絞り込みなし)
+            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                       employee_count, credit_score, postal_code, \
+                       sales_amount, sales_range, \
+                       employee_delta_1y, employee_delta_3m \
+                       FROM v2_salesnow_companies \
+                       WHERE prefecture = ?1 \
+                       ORDER BY employee_count DESC LIMIT ?2";
+            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                vec![&prefecture, &pool_limit];
+            sn_db.query(sql, &params).unwrap_or_default()
+        }
     };
 
     let mut pool: Vec<NearbyCompany> = rows
