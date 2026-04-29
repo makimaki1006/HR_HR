@@ -125,8 +125,9 @@ pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[
     html.push_str("</tbody></table>\n");
     // 表 5-1 補足
     html.push_str(
-        "<p class=\"note\">採用活動度 = HW求人数（log1p 正規化）+ max(1年人員推移, 0) × 0.5。\
-         スコアは表内 30 社内での相対値（0〜100）として表示されます。</p>\n",
+        "<p class=\"note\">観測指標 = HW求人数（log1p 正規化）+ max(1年人員推移, 0) × 0.5。\
+         値は表内 30 社内での相対参考値（0〜100）として表示されます。\
+         本値は調査時点の公開情報量を機械的に示すもので、企業の優劣評価ではありません。</p>\n",
     );
     html.push_str("</section>\n");
 }
