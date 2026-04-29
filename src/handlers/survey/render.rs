@@ -520,15 +520,41 @@ fn render_action_bar(session_id: &str) -> String {
                     <span class="hidden group-hover:inline text-[10px] opacity-75 ml-1">（地域×HW×統計の比較レポート）</span>
                 </button>
             </div>
-            <!-- セカンダリ動線: ボタングループ化（レポート出力 + 別CSV） -->
-            <div class="flex flex-wrap gap-2" role="group" aria-label="レポート出力とその他">
-                <a href="/report/survey?session_id={sid}" target="_blank" rel="noopener"
-                   class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
-                   title="印刷用レポートを新しいタブで開き、ブラウザの印刷機能でPDF化できます">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-                    印刷用レポート
-                    <span class="text-[10px] opacity-75">PDF化対応</span>
-                </a>
+            <!-- PDF出力モード切替（バリアント選択） -->
+            <div class="mb-3 p-3 bg-slate-900/40 rounded border border-slate-700" role="group" aria-label="PDF出力モード切替">
+                <div class="text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    PDF出力モード切替
+                    <span class="text-[10px] font-normal text-amber-400">※ 提案先により切替推奨</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a href="/report/survey?session_id={sid}&variant=full" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                       aria-label="HW併載版PDFレポートを新しいタブで開く（推奨）"
+                       title="HW併載版: ハローワーク掲載求人と統合分析を含む完全版（社内分析・既存ワークフロー向け）">
+                        <span class="text-base" aria-hidden="true">🏢</span>
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>HW併載版 PDF</span>
+                            <span class="text-[10px] opacity-80 font-normal">推奨 / 社内分析向け</span>
+                        </span>
+                    </a>
+                    <a href="/report/survey?session_id={sid}&variant=public" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                       aria-label="公開データ中心版PDFレポートを新しいタブで開く"
+                       title="公開データ中心版: e-Stat等の公開統計を主軸とした版（対外提案・公開資料向け）">
+                        <span class="text-base" aria-hidden="true">🌍</span>
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>公開データ中心版 PDF</span>
+                            <span class="text-[10px] opacity-80 font-normal">対外提案向け</span>
+                        </span>
+                    </a>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                    同じCSVから異なる視点で2バリアントを生成可能。<strong class="text-slate-200">HW併載版</strong>はハローワーク掲載求人との統合分析を含む完全版（社内分析向け）、<strong class="text-slate-200">公開データ中心版</strong>はe-Stat等の公開データを主軸とした版（対外提案向け）です。両バリアントを試して比較できます。
+                </p>
+            </div>
+            <!-- セカンダリ動線: ボタングループ化（HTMLダウンロード + 別CSV） -->
+            <div class="flex flex-wrap gap-2" role="group" aria-label="その他の出力">
                 <button type="button" onclick="downloadReportHtml('{sid}')"
                         class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
                         title="HTMLファイルをダウンロード。後からブラウザで開いて印刷・編集が可能">
@@ -1469,4 +1495,84 @@ fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &st
         note = escape_html(note),
     )
     .unwrap();
+}
+
+// =============================================================================
+// テスト: PDF出力モード切替 UI (2026-04-29)
+// =============================================================================
+
+#[cfg(test)]
+mod variant_ui_tests {
+    use super::*;
+
+    #[test]
+    fn action_bar_contains_full_variant_button_label() {
+        // タスク 1: タブ UI に「HW併載版 PDF」ボタン文言が含まれる
+        let html = render_action_bar("test_session_123");
+        assert!(
+            html.contains("HW併載版 PDF"),
+            "action bar should contain 'HW併載版 PDF' button label"
+        );
+        // バリアント切替リンクが正しい URL を持つこと
+        assert!(
+            html.contains("variant=full"),
+            "action bar should link to ?variant=full"
+        );
+        // アクセシビリティ: aria-label を持つこと
+        assert!(
+            html.contains("HW併載版PDFレポート"),
+            "full variant button should have aria-label"
+        );
+    }
+
+    #[test]
+    fn action_bar_contains_public_variant_button_label() {
+        // タスク 1: タブ UI に「公開データ中心版 PDF」ボタン文言が含まれる
+        let html = render_action_bar("test_session_456");
+        assert!(
+            html.contains("公開データ中心版 PDF"),
+            "action bar should contain '公開データ中心版 PDF' button label"
+        );
+        // バリアント切替リンクが正しい URL を持つこと
+        assert!(
+            html.contains("variant=public"),
+            "action bar should link to ?variant=public"
+        );
+        // アクセシビリティ
+        assert!(
+            html.contains("公開データ中心版PDFレポート"),
+            "public variant button should have aria-label"
+        );
+    }
+
+    #[test]
+    fn action_bar_variant_buttons_have_min_height_for_mobile() {
+        // タスク 1: スマホでもタップしやすいサイズ (min-height:44px)
+        let html = render_action_bar("sid");
+        // 両ボタンに min-h-[44px] が含まれることを確認
+        let count = html.matches("min-h-[44px]").count();
+        assert!(
+            count >= 2,
+            "both variant buttons should have min-h-[44px] for mobile tappability (found {})",
+            count
+        );
+    }
+
+    #[test]
+    fn action_bar_explains_two_variants_difference() {
+        // タスク 4: 説明能力強化 - 両バリアントの違いと想定読者を明示
+        let html = render_action_bar("sid");
+        assert!(
+            html.contains("社内分析向け"),
+            "should describe HW併載版 as 社内分析向け"
+        );
+        assert!(
+            html.contains("対外提案向け"),
+            "should describe 公開データ中心版 as 対外提案向け"
+        );
+        assert!(
+            html.contains("両バリアントを試して比較"),
+            "should mention comparing both variants"
+        );
+    }
 }

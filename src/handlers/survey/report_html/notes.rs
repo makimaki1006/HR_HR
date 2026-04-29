@@ -115,7 +115,44 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
         "<li><strong>該当箇所</strong>: 第4章（求職者心理分析、新着プレミアム）/ 第5章（地域注目企業、HW件数 ⇄ 採用活発度）/ 各種地域比較。\
          これらは観測された関連性であり、因果関係を主張しない。</li>\n",
     );
+    // タスク3-A: 相関 vs 因果の具体例を追加
+    html.push_str(
+        "<li><strong>具体例（読み違いを避けるために）</strong>: 「失業率が高い → 採用しやすい」と短絡しないこと。\
+         高失業率の背景には「景気悪化」「特定産業偏重」「世帯外労働意欲の低さ」「年齢構成の偏り」など複数の要因があり、\
+         その地域で<em>この瞬間に応募が集まるかどうか</em>は別問題です。\
+         同様に「給与が高い求人 → 応募が多い」も常に成り立つわけではなく、\
+         職種ミスマッチ・通勤距離・勤務条件等が応募意欲を大きく左右します。</li>\n",
+    );
     html.push_str("</ul>\n</div>\n");
+
+    // === タスク3-B: 本レポートで「分からないこと」（データの限界の明示） ===
+    html.push_str("<div class=\"report-notes-category report-notes-cat-limit\" \
+        style=\"margin-top:8px;padding:8px 12px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;\">\n");
+    html.push_str("<h3>\u{26A0} 本レポートで「分からないこと」</h3>\n");
+    html.push_str("<ul>\n");
+    html.push_str("<li><strong>個別求職者の応募意向</strong>（CSV / HW は求人側の情報のみであり、応募者側の意思決定要因は含まれない）</li>\n");
+    html.push_str("<li><strong>求人媒体の選定理由・運用期間・予算配分</strong>（媒体側の運用ノウハウは観測不可）</li>\n");
+    html.push_str("<li><strong>採用後の定着率・ミスマッチ事例</strong>（時系列追跡なし、入社後データは保有していない）</li>\n");
+    html.push_str("<li><strong>競合企業の採用戦略</strong>（地域注目企業の比較表は構造比較のみで戦略意図は推測不可）</li>\n");
+    html.push_str("<li><strong>非公開求人・職業紹介事業者経由の求人</strong>（公開データのみが対象範囲）</li>\n");
+    html.push_str("<li><strong>個別案件の採用成否予測</strong>（地域マクロ統計から個別求人の結果は予測できない）</li>\n");
+    html.push_str("</ul>\n</div>\n");
+
+    // === タスク3-C: このレポートが活きる場面（推奨ユースケース） ===
+    html.push_str("<div class=\"report-notes-category report-notes-cat-usecase\" \
+        style=\"margin-top:8px;padding:8px 12px;border-left:4px solid #10b981;background:#ecfdf5;border-radius:4px;\">\n");
+    html.push_str("<h3>\u{1F4A1} このレポートが活きる場面</h3>\n");
+    html.push_str("<ol>\n");
+    html.push_str("<li><strong>新規進出地域の採用戦略策定</strong>: 該当地域のデモグラフィック・サイコグラフィック・賃金水準を把握し、\
+         初期の求人設計の前提条件を揃える。</li>\n");
+    html.push_str("<li><strong>既存地域の媒体運用の見直し</strong>: 給与水準・新着比率・主要雇用形態の構成比を確認し、\
+         CSV 媒体の掲載傾向と HW 市場との適合度を比較する。</li>\n");
+    html.push_str("<li><strong>社内提案資料の客観データ補強</strong>: 公開統計（e-Stat）・HW 公開求人を引用し、\
+         主観的な肌感覚に頼らない数値ベースの提案を構築する。</li>\n");
+    html.push_str("</ol>\n");
+    html.push_str("<p style=\"font-size:9.5pt;color:#6b7280;margin:6px 0 0;\">\u{203B} 個別案件の「採用成否予測」「内定承諾率の見積り」には別途現場ヒアリング・候補者プロファイル分析が必要です。\
+         本レポートは<strong>地域マクロの俯瞰</strong>を提供するものであり、個別ケースの判断材料ではありません。</p>\n");
+    html.push_str("</div>\n");
 
     // === カテゴリ 5: 更新頻度 ===
     html.push_str("<div class=\"report-notes-category report-notes-cat-update\">\n");
@@ -153,4 +190,111 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     ));
 
     html.push_str("</section>\n");
+}
+
+// =====================================================================
+// UX 強化テスト（2026-04-28）: タスク 3-A / 3-B / 3-C
+// =====================================================================
+#[cfg(test)]
+mod notes_enhancement_tests {
+    use super::*;
+
+    /// タスク3-A: 相関 vs 因果の具体例が含まれること
+    #[test]
+    fn test_notes_contains_correlation_example() {
+        let mut html = String::new();
+        render_section_notes(&mut html, "2026-04-28 12:00:00");
+
+        // 「失業率が高い → 採用しやすい」は短絡しないことの注意例
+        assert!(
+            html.contains("失業率"),
+            "具体例（失業率）の記述が含まれること"
+        );
+        assert!(
+            html.contains("短絡しない") || html.contains("短絡"),
+            "「短絡しない」の注意喚起が含まれること"
+        );
+        // 別問題であることの明示
+        assert!(
+            html.contains("別問題"),
+            "「別問題」と明示されること"
+        );
+    }
+
+    /// タスク3-B: 「分からないこと」セクションの主要キーワードが含まれること
+    #[test]
+    fn test_notes_contains_unknowns_section() {
+        let mut html = String::new();
+        render_section_notes(&mut html, "2026-04-28 12:00:00");
+
+        assert!(
+            html.contains("分からないこと"),
+            "「分からないこと」見出しが含まれること"
+        );
+        assert!(
+            html.contains("応募意向"),
+            "「応募意向」が分からないことに含まれること"
+        );
+        assert!(
+            html.contains("定着率"),
+            "「定着率」が分からないことに含まれること"
+        );
+        assert!(
+            html.contains("非公開求人"),
+            "「非公開求人」が範囲外として明示されること"
+        );
+        assert!(
+            html.contains("採用成否予測"),
+            "「採用成否予測」は予測対象外と明示されること"
+        );
+    }
+
+    /// タスク3-C: 「使う場面」セクションの主要キーワードが含まれること
+    #[test]
+    fn test_notes_contains_usecase_section() {
+        let mut html = String::new();
+        render_section_notes(&mut html, "2026-04-28 12:00:00");
+
+        assert!(
+            html.contains("活きる場面"),
+            "「活きる場面」見出しが含まれること"
+        );
+        assert!(
+            html.contains("新規進出地域"),
+            "ユースケース1: 新規進出地域の記述"
+        );
+        assert!(
+            html.contains("媒体運用の見直し"),
+            "ユースケース2: 媒体運用の見直しの記述"
+        );
+        assert!(
+            html.contains("提案資料") || html.contains("提案"),
+            "ユースケース3: 提案資料の記述"
+        );
+    }
+
+    /// 既存互換: 冒頭サマリ・カテゴリ別ボックス等の既存出力が引き続き含まれること
+    #[test]
+    fn test_notes_existing_structure_preserved() {
+        let mut html = String::new();
+        render_section_notes(&mut html, "2026-04-28 12:00:00");
+
+        // 既存テストで参照される文言（互換性確保）
+        assert!(
+            html.contains("第6章 注記・出典・免責"),
+            "既存の見出しが維持されること"
+        );
+        assert!(
+            html.contains("データソース"),
+            "データソースカテゴリが維持されること"
+        );
+        assert!(
+            html.contains("スコープ制約"),
+            "スコープ制約カテゴリが維持されること"
+        );
+        assert!(
+            html.contains("相関") && html.contains("因果"),
+            "相関≠因果カテゴリが維持されること"
+        );
+    }
 }

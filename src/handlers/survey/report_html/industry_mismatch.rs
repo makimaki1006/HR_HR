@@ -66,6 +66,27 @@ use super::helpers::{render_figure_caption, render_read_hint, render_section_how
 /// - `industry_employees` が空、または 全行の employees_total 合計が 0 以下
 /// - `hw_industry_counts` が空、または 件数合計が 0 以下
 /// - 両者でマッチする産業が 0 件
+/// 2026-04-29 (Public variant): CSV 媒体掲載求人 vs 国勢調査就業者構成 のミスマッチ
+///
+/// HW を介さず、ユーザーがアップロードした CSV の業種分布 (推定) と
+/// 国勢調査の就業者構成を比較する。CSV 側は SurveyAggregation の by_employment_type 等
+/// から推定。データ取得の正確性は CSV のフォーマットに依存。
+///
+/// 暫定実装: 既存 industry_mismatch は HW 求人ベースだが、
+/// 現状 CSV は産業列を持たないことが多いため、当面は section 非表示 (空コール) とする。
+/// Phase 2 で agent が CSV 側の産業推定ロジックと共に実装する。
+pub(super) fn render_section_industry_mismatch_csv(
+    html: &mut String,
+    industry_employees: &[Row],
+    agg: &super::super::aggregator::SurveyAggregation,
+) {
+    let _ = (industry_employees, agg);
+    // ここに後続 agent が CSV ベース実装を追加。
+    // 現状は何も出力せず fail-soft (HW セクションが除外された分の穴埋めは
+    // 同 variant 内の別 section で補完)。
+    let _ = html;
+}
+
 pub(super) fn render_section_industry_mismatch(
     html: &mut String,
     industry_employees: &[Row],

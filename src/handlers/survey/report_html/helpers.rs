@@ -338,9 +338,12 @@ pub(super) fn render_figure_caption(html: &mut String, fig_no: &str, title: &str
 
 /// 読み方ヒント吹き出し（結論先取り 1-2 行）。
 /// 因果断定を避け、「傾向」「目安」等の語彙で記述する想定。
+///
+/// タスク4 (2026-04-28): フォントサイズを 10.5pt に微増、アイコンは 📖 で統一。
 pub(super) fn render_read_hint(html: &mut String, body: &str) {
     html.push_str(&format!(
-        "<div class=\"read-hint\"><span class=\"read-hint-label\">\u{1F4D6} 読み方</span>{}</div>\n",
+        "<div class=\"read-hint\" style=\"font-size:10.5pt;line-height:1.6;\">\
+         <span class=\"read-hint-label\">\u{1F4D6} 読み方</span>{}</div>\n",
         escape_html(body)
     ));
 }
@@ -348,15 +351,18 @@ pub(super) fn render_read_hint(html: &mut String, body: &str) {
 /// 読み方ヒント（HTML 直挿し版。`<strong>` 等の埋め込み用）
 pub(super) fn render_read_hint_html(html: &mut String, body_html: &str) {
     html.push_str(&format!(
-        "<div class=\"read-hint\"><span class=\"read-hint-label\">\u{1F4D6} 読み方</span>{}</div>\n",
+        "<div class=\"read-hint\" style=\"font-size:10.5pt;line-height:1.6;\">\
+         <span class=\"read-hint-label\">\u{1F4D6} 読み方</span>{}</div>\n",
         body_html
     ));
 }
 
 /// 「このページの読み方」ガイド（セクション冒頭の 3 行ガイド）
+///
+/// タスク4 (2026-04-28): アイコンを 📖（read-hint と統一）にし、フォントサイズを 10.5pt に微増。
 pub(super) fn render_section_howto(html: &mut String, lines: &[&str]) {
-    html.push_str("<div class=\"section-howto\">\n");
-    html.push_str("<div class=\"howto-title\">\u{1F4DD} このページの読み方</div>\n");
+    html.push_str("<div class=\"section-howto\" style=\"font-size:10.5pt;line-height:1.65;\">\n");
+    html.push_str("<div class=\"howto-title\" style=\"font-weight:700;\">\u{1F4D6} このページの読み方</div>\n");
     html.push_str("<ol>\n");
     for line in lines {
         html.push_str(&format!("<li>{}</li>\n", escape_html(line)));

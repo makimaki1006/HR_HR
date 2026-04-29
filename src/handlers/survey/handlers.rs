@@ -204,6 +204,10 @@ pub async fn upload_csv(
 #[derive(Deserialize)]
 pub struct IntegrateQuery {
     pub session_id: Option<String>,
+    /// レポートバリアント切替 (2026-04-29 追加)
+    /// - `full` (デフォルト): HW データ併載 (既存仕様)
+    /// - `public`: HW 最小化 + 公開オープンデータ + 地域比較強化
+    pub variant: Option<String>,
 }
 
 /// 統合レポート生成
@@ -584,7 +588,9 @@ pub async fn survey_report_html(
     };
 
     let _ = (&pref, &muni);
-    let html = super::report_html::render_survey_report_page_with_municipalities(
+    // 2026-04-29: variant 切替 (?variant=full|public)
+    let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
+    let html = super::report_html::render_survey_report_page_with_variant(
         &agg,
         &seeker,
         &by_company,
@@ -595,6 +601,7 @@ pub async fn survey_report_html(
         &salesnow_companies,
         &hw_enrichment_map,
         &municipality_demographics,
+        variant,
     );
 
     Html(html)

@@ -47,6 +47,58 @@ pub(super) fn render_section_executive_summary(
          </div>\n",
     );
     html.push_str("</details>\n");
+
+    // ---- タスク1-A: 3 分で読み切るストーリー誘導 ----
+    // ユーザーがレポート全体をどう読み進めればよいか、所要時間つきで提示する。
+    html.push_str("<div class=\"exec-story-guide\" role=\"note\" aria-label=\"このレポートの読み進め方\" \
+        style=\"margin:10px 0;padding:10px 14px;border-left:4px solid #3b82f6;background:#f0f7ff;border-radius:4px;font-size:10.5pt;line-height:1.65;\">\n");
+    html.push_str("<div style=\"font-weight:700;margin-bottom:4px;color:#1e40af;\">\u{1F4D6} このレポートの読み進め方（合計 約 3〜4 分）</div>\n");
+    html.push_str("<ol style=\"margin:4px 0 0 0;padding-left:1.4em;\">\n");
+    html.push_str("<li><strong>本セクション（Executive Summary）で全体像を把握</strong>（約 30 秒）</li>\n");
+    html.push_str("<li><strong>給与統計セクション</strong>で賃金水準・分布・外れ値を確認（約 1 分）</li>\n");
+    html.push_str("<li><strong>採用市場逼迫度</strong>で「採用難度」を把握（約 1 分）</li>\n");
+    html.push_str("<li><strong>産業ミスマッチ・人材デモグラフィック</strong>で地域特性を理解（約 1 分）</li>\n");
+    html.push_str("<li><strong>最低賃金比較・ライフスタイル特性</strong>で訴求軸を選定（約 30 秒）</li>\n");
+    html.push_str("</ol>\n");
+    html.push_str("</div>\n");
+
+    // ---- タスク1-B: 数値の読み方早見表（折りたたみ可） ----
+    // 各 KPI が「いくつなら良い / 注意 / 危険か」の閾値を一覧化。初見ユーザーの理解を補助。
+    html.push_str("<details class=\"exec-threshold-guide\" \
+        style=\"margin:8px 0 14px;padding:6px 10px;border:1px solid #d4d4d8;border-radius:4px;background:#fafafa;font-size:10.5pt;\">\n");
+    html.push_str("<summary style=\"cursor:pointer;font-weight:700;color:#374151;\">\u{1F4A1} 数値の読み方早見表（クリックで開閉）</summary>\n");
+    html.push_str("<div style=\"margin-top:6px;\">\n");
+    html.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:10pt;\">\n");
+    html.push_str("<thead><tr style=\"background:#e5e7eb;\">\
+        <th style=\"text-align:left;padding:4px 8px;border-bottom:1px solid #d4d4d8;\">指標</th>\
+        <th style=\"text-align:left;padding:4px 8px;border-bottom:1px solid #d4d4d8;\">良好</th>\
+        <th style=\"text-align:left;padding:4px 8px;border-bottom:1px solid #d4d4d8;\">注意</th>\
+        <th style=\"text-align:left;padding:4px 8px;border-bottom:1px solid #d4d4d8;\">危険</th></tr></thead>\n");
+    html.push_str("<tbody>\n");
+    html.push_str("<tr><td style=\"padding:4px 8px;\">サンプル件数 (n)</td>\
+        <td style=\"padding:4px 8px;color:#10b981;\">30 件以上</td>\
+        <td style=\"padding:4px 8px;color:#f59e0b;\">10〜30 件（参考程度）</td>\
+        <td style=\"padding:4px 8px;color:#ef4444;\">10 件未満（信頼性低）</td></tr>\n");
+    html.push_str("<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">給与中央値 (HW 比)</td>\
+        <td style=\"padding:4px 8px;color:#10b981;\">+10% 以上（訴求力高）</td>\
+        <td style=\"padding:4px 8px;color:#f59e0b;\">±10% 以内（横並び）</td>\
+        <td style=\"padding:4px 8px;color:#ef4444;\">−10% 以下（改善検討）</td></tr>\n");
+    html.push_str("<tr><td style=\"padding:4px 8px;\">新着比率 (直近30日)</td>\
+        <td style=\"padding:4px 8px;color:#10b981;\">15% 以上（活発）</td>\
+        <td style=\"padding:4px 8px;color:#f59e0b;\">5〜15%（標準）</td>\
+        <td style=\"padding:4px 8px;color:#ef4444;\">5% 未満（流動性低・人材定着の可能性）</td></tr>\n");
+    html.push_str("<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">主要雇用形態 構成比</td>\
+        <td style=\"padding:4px 8px;color:#10b981;\">30〜70%（バランス良）</td>\
+        <td style=\"padding:4px 8px;color:#f59e0b;\">70〜85%（やや偏り）</td>\
+        <td style=\"padding:4px 8px;color:#ef4444;\">85% 以上（極端な偏り）</td></tr>\n");
+    html.push_str("<tr><td style=\"padding:4px 8px;\">給与解析率</td>\
+        <td style=\"padding:4px 8px;color:#10b981;\">85% 以上</td>\
+        <td style=\"padding:4px 8px;color:#f59e0b;\">60〜85%</td>\
+        <td style=\"padding:4px 8px;color:#ef4444;\">60% 未満（要 CSV 確認）</td></tr>\n");
+    html.push_str("</tbody></table>\n");
+    html.push_str("<p style=\"font-size:9.5pt;color:#6b7280;margin:6px 0 0;\">\u{203B} 閾値は経験則ベースの目安。地域・職種により適切な水準は変動します。\
+        詳細な背景は本レポート末尾の「第6章 注記・出典・免責」を参照してください。</p>\n");
+    html.push_str("</div></details>\n");
     // テスト互換のため section-howto は要素を残しつつ視覚非表示 (sr-only)
     html.push_str("<div class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">\n");
     render_section_howto(
@@ -122,7 +174,11 @@ pub(super) fn render_section_executive_summary(
     // 既存テスト互換のため、従来の exec-kpi-grid + 5 KPI カードはそのまま出力
     // 2026-04-26 Readability: 強化版 v2 と重複するため、印刷時は CSS で非表示
     //   (exec-kpi-grid-legacy class により @media print で display:none)
-    html.push_str("<div class=\"exec-kpi-grid exec-kpi-grid-legacy\" aria-hidden=\"true\">\n");
+    // タスク1-C: web 表示でも legacy KPI grid を非表示（v2 と重複表示の根本解決）。
+    //   既存テストは要素存在を前提とするため DOM には残し、display:none + aria-hidden で
+    //   視覚・アクセシビリティ両面から除外する。
+    html.push_str("<div class=\"exec-kpi-grid exec-kpi-grid-legacy\" aria-hidden=\"true\" \
+        style=\"display:none;position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);\">\n");
     render_kpi_card(html, "サンプル件数", &k1_value, "件");
     render_kpi_card(html, "主要地域", &k2_value, "");
     render_kpi_card(html, "主要雇用形態", &k3_value, "");
@@ -317,10 +373,12 @@ pub(super) fn render_section_executive_summary(
         html.push_str("</div>\n");
     }
 
-    // 次セクションへのつなぎ
+    // 次セクションへのつなぎ（タスク2: 次に何を見るべきかを具体化）
     render_section_bridge(
         html,
-        "次セクションでは、給与水準を月給ヒストグラム + IQR シェードで詳細に確認します。",
+        "次セクションでは、給与水準を月給ヒストグラム + IQR シェードで詳細に確認します。\
+         特にヒストグラム左端に厚みがある場合は「下限値が市場相場より低く設定されていないか」を、\
+         右端に外れ値が散見される場合は「特殊条件の求人が混在していないか」を意識して読み進めてください。",
     );
 
     // ---- スコープ注意書き (必須 / 仕様書 3.5) ----
@@ -533,4 +591,143 @@ pub(super) fn build_exec_actions(
     });
     out.truncate(3);
     out
+}
+
+// =====================================================================
+// UX 強化テスト（2026-04-28）: タスク 1-A / 1-B / 1-C / Bridge 強化
+// =====================================================================
+#[cfg(test)]
+mod ux_enhancement_tests {
+    use super::*;
+
+    /// テスト用の最小 SurveyAggregation を作成
+    fn minimal_agg() -> SurveyAggregation {
+        let mut a = SurveyAggregation::default();
+        a.total_count = 100;
+        a.new_count = 12;
+        a.salary_parse_rate = 0.85;
+        a
+    }
+
+    /// タスク1-A: Executive Summary に「読み進め方」誘導が含まれること
+    #[test]
+    fn test_executive_summary_contains_story_guide() {
+        let agg = minimal_agg();
+        let seeker = JobSeekerAnalysis::default();
+        let mut html = String::new();
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+
+        // 読み進め方ガイドの主要キーワード
+        assert!(
+            html.contains("このレポートの読み進め方"),
+            "ストーリー誘導タイトルが含まれること"
+        );
+        assert!(
+            html.contains("約 30 秒") || html.contains("約 1 分"),
+            "所要時間の目安が含まれること"
+        );
+        assert!(
+            html.contains("給与統計セクション"),
+            "次に読むべきセクション名が具体的に示されること"
+        );
+        assert!(
+            html.contains("採用市場逼迫度"),
+            "採用市場逼迫度への誘導があること"
+        );
+        assert!(
+            html.contains("人材デモグラフィック"),
+            "人材デモグラフィックへの誘導があること"
+        );
+    }
+
+    /// タスク1-B: 数値の読み方早見表が出力され、閾値が妥当であること
+    #[test]
+    fn test_executive_summary_threshold_guide() {
+        let agg = minimal_agg();
+        let seeker = JobSeekerAnalysis::default();
+        let mut html = String::new();
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+
+        // タイトル
+        assert!(
+            html.contains("数値の読み方早見表"),
+            "早見表タイトルが含まれること"
+        );
+
+        // サンプル件数の閾値: 30 / 10 が境界
+        assert!(html.contains("30 件以上"), "n>=30 の良好閾値");
+        assert!(
+            html.contains("10〜30 件") || html.contains("10〜30"),
+            "n=10〜30 の注意閾値"
+        );
+        assert!(
+            html.contains("10 件未満") || html.contains("信頼性低"),
+            "n<10 の危険閾値"
+        );
+
+        // 給与中央値の閾値: HW 比 +/-10%
+        assert!(html.contains("+10%"), "給与 +10% 閾値");
+        assert!(
+            html.contains("−10%") || html.contains("-10%"),
+            "給与 -10% 閾値"
+        );
+
+        // 新着比率の閾値: 15% / 5%
+        assert!(html.contains("15%"), "新着 15% 閾値");
+        assert!(html.contains("5%"), "新着 5% 閾値");
+    }
+
+    /// タスク1-C: legacy KPI grid が aria-hidden + display:none で web 表示でも非表示
+    #[test]
+    fn test_executive_summary_legacy_grid_hidden() {
+        let agg = minimal_agg();
+        let seeker = JobSeekerAnalysis::default();
+        let mut html = String::new();
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+
+        // legacy class が DOM に存在するが display:none で非表示
+        assert!(
+            html.contains("exec-kpi-grid-legacy"),
+            "legacy class は要素として残ること（テスト互換）"
+        );
+        // legacy grid 開始タグの近くで display:none が指定されていること
+        let legacy_idx = html
+            .find("exec-kpi-grid-legacy")
+            .expect("legacy class 出現位置");
+        // legacy class の開始タグから 200 文字以内に display:none が含まれること
+        let snippet = &html[legacy_idx..(legacy_idx + 200).min(html.len())];
+        assert!(
+            snippet.contains("display:none"),
+            "legacy grid 要素に display:none インラインスタイルが付与されること"
+        );
+        assert!(
+            snippet.contains("aria-hidden=\"true\""),
+            "legacy grid に aria-hidden が付与されること"
+        );
+    }
+
+    /// Bridge 強化（タスク2）: 次セクションの読み方が具体化されていること
+    #[test]
+    fn test_executive_summary_bridge_specificity() {
+        let agg = minimal_agg();
+        let seeker = JobSeekerAnalysis::default();
+        let mut html = String::new();
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+
+        // bridge 自体は存在
+        assert!(
+            html.contains("section-bridge"),
+            "section-bridge クラスが含まれること"
+        );
+        // 「次セクションの読み方」が具体化されている（ヒストグラムの読み方の手がかり）
+        assert!(
+            html.contains("ヒストグラム"),
+            "次セクションの読み方ヒントが含まれること"
+        );
+        // 具体的な読み方ガイダンス（左端 / 右端の読み方）
+        assert!(
+            html.contains("左端") || html.contains("右端"),
+            "ヒストグラム左右端の読み方ガイダンスが含まれること"
+        );
+    }
 }

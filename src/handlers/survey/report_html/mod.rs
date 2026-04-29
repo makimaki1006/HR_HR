@@ -26,6 +26,7 @@ mod lifestyle;
 mod market_tightness;
 mod notes;
 mod region;
+mod regional_compare;
 mod salary_stats;
 mod salesnow;
 mod scatter;
@@ -47,8 +48,10 @@ use helpers::{
     compose_target_region, render_dv2_cover_highlights, render_dv2_section_badge, render_scripts,
 };
 use industry_mismatch::render_section_industry_mismatch;
+use industry_mismatch::render_section_industry_mismatch_csv;
 use lifestyle::render_section_lifestyle;
 use market_tightness::render_section_market_tightness;
+use market_tightness::render_section_market_tightness_with_variant;
 use notes::render_section_notes;
 use region::render_section_municipality_salary;
 use region::render_section_region;
@@ -68,6 +71,139 @@ use wage::render_section_tag_salary;
 use helpers::*;
 #[cfg(test)]
 use scatter::*;
+
+/// レポートバリアント (2026-04-29 追加)
+///
+/// # バリアント
+/// - `Full`: HW データ併載 (既存仕様、デフォルト)
+/// - `Public`: HW 最小化 + 公開オープンデータ + 地域競合比較を強化
+///
+/// # 設計意図
+/// HW データの公開言及を抑制したい運用と、HW 比較を含む既存ワークフローを
+/// 共存させるため、URL クエリ `?variant=full|public` で切替可能とする。
+/// 各 section 関数は `ReportVariant` を受け取り、自身の出し分けを判断する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportVariant {
+    /// 既存仕様: HW データ併載
+    Full,
+    /// 公開データ中心: HW 最小化、オープンデータと地域比較を強化
+    Public,
+}
+
+impl ReportVariant {
+    /// クエリ文字列から ReportVariant を解決
+    pub fn from_query(s: Option<&str>) -> Self {
+        match s {
+            Some("public") => Self::Public,
+            _ => Self::Full,
+        }
+    }
+
+    /// クエリ文字列に変換 (URL 切替リンク用)
+    pub fn as_query(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Public => "public",
+        }
+    }
+
+    /// 表示名
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Full => "HW併載版",
+            Self::Public => "公開データ中心版",
+        }
+    }
+
+    /// HW セクションを表示するか
+    pub fn show_hw_sections(self) -> bool {
+        matches!(self, Self::Full)
+    }
+
+    /// アイコン (絵文字)
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Full => "\u{1F3E2}",   // 🏢
+            Self::Public => "\u{1F30D}", // 🌍
+        }
+    }
+
+    /// 反対バリアント (切替リンク用)
+    pub fn alternative(self) -> Self {
+        match self {
+            Self::Full => Self::Public,
+            Self::Public => Self::Full,
+        }
+    }
+
+    /// 想定読者・コンテキスト説明
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Full => "ハローワーク掲載求人と統合分析を含む完全版（社内分析向け）",
+            Self::Public => "e-Stat等の公開データを主軸とした版（対外提案向け）",
+        }
+    }
+}
+
+/// バリアントインジケータ + 切替リンク HTML を生成
+///
+/// 印刷レポート上部 (web view のみ表示) に「現在のバリアント表示 + 切替リンク」を出力。
+/// 印刷時は `.no-print` クラス + `@media print` の両方で非表示化。
+///
+/// # 設計意図
+/// - ユーザーが現在どちらのバリアントを閲覧しているか即座に判別可能にする
+/// - ワンクリックで反対バリアントへ切替できる導線を提供
+/// - 同じ CSV から異なる視点で 2 バリアント生成可能なことを明示
+fn render_variant_indicator(variant: ReportVariant) -> String {
+    let alt = variant.alternative();
+    let mut html = String::with_capacity(1_200);
+    html.push_str(
+        "<div class=\"variant-indicator no-print\" role=\"region\" aria-label=\"PDF出力モード切替\">\n",
+    );
+    html.push_str("<div class=\"variant-indicator-inner\">\n");
+    html.push_str(&format!(
+        "<span class=\"variant-current\"><span class=\"variant-icon\" aria-hidden=\"true\">{icon}</span>現在: <strong>{name}</strong></span>\n",
+        icon = variant.icon(),
+        name = escape_html(variant.display_name()),
+    ));
+    html.push_str(&format!(
+        "<span class=\"variant-desc\">{}</span>\n",
+        escape_html(variant.description())
+    ));
+    // 切替リンク: JS で session_id 等の URL パラメータを保持しつつ variant のみ書き換え
+    html.push_str(&format!(
+        "<a href=\"?variant={tv}\" class=\"variant-switch-link\" \
+         data-target-variant=\"{tv}\" \
+         onclick=\"switchReportVariant(event, '{tv}')\" \
+         aria-label=\"PDF出力モードを{name}に切替\" \
+         title=\"同じCSVから異なる視点で生成。両バリアントを試して比較できます\">\
+         <span aria-hidden=\"true\">{icon}</span> {name} に切替 \u{2192}\
+         </a>\n",
+        tv = alt.as_query(),
+        name = escape_html(alt.display_name()),
+        icon = alt.icon(),
+    ));
+    html.push_str("</div>\n");
+    html.push_str("</div>\n");
+    // 切替スクリプト: 現在の URL から variant のみ差し替えて再読み込み
+    // （session_id 等の他パラメータを保持するため URL API を利用）
+    html.push_str(
+        "<script>\n\
+         function switchReportVariant(ev, target) {\n\
+           if (ev) ev.preventDefault();\n\
+           try {\n\
+             var url = new URL(window.location.href);\n\
+             url.searchParams.set('variant', target);\n\
+             window.location.href = url.toString();\n\
+           } catch (e) {\n\
+             window.location.search = '?variant=' + encodeURIComponent(target);\n\
+           }\n\
+           return false;\n\
+         }\n\
+         </script>\n",
+    );
+    html
+}
 
 /// 求人市場 総合診断レポート 印刷/ダウンロード用 HTML を生成
 ///
@@ -150,6 +286,40 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
 ) -> String {
+    // デフォルトは Full バリアント (後方互換)
+    render_survey_report_page_with_variant(
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
+        hw_context,
+        salesnow_companies,
+        hw_enrichment_map,
+        municipality_demographics,
+        ReportVariant::Full,
+    )
+}
+
+/// 2026-04-29: バリアント切替対応版
+///
+/// `variant` で `Full` (HW併載) / `Public` (公開データ中心) を切替。
+/// 既存の `render_survey_report_page_with_municipalities` は本関数を Full で呼ぶ薄いラッパ。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_survey_report_page_with_variant(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+    municipality_demographics: &[super::granularity::MunicipalityDemographics],
+    variant: ReportVariant,
+) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
         .to_string();
@@ -174,6 +344,10 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     html.push_str("<button class=\"theme-toggle\" type=\"button\" onclick=\"toggleTheme()\" aria-label=\"ダークモード/ライトモードを切替\">\u{1F319} ダーク / \u{2600} ライト</button>\n");
     html.push_str("<button onclick=\"window.print()\" aria-label=\"印刷またはPDFで保存\" style=\"padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #666;border-radius:4px;background:#fff;\">印刷 / PDF保存</button>\n");
     html.push_str("</div>\n");
+
+    // --- バリアントインジケータ + 切替リンク (2026-04-29) ---
+    // web view では現在のバリアントと切替リンクを表示。印刷時は .no-print で非表示。
+    html.push_str(&render_variant_indicator(variant));
 
     // --- 表紙ページ (Section 0 / 仕様書 7.2) ---
     // 2026-04-24: 「競合調査分析」文言を全削除。タイトルは「求人市場 総合診断レポート」に統一。
@@ -301,8 +475,11 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     // CSV の (都道府県, 市区町村) ごとに、HW ローカルDB/時系列/外部統計から取得された
     // HW 現在件数・3ヶ月/1年推移・欠員率を一覧表示する。
     // hw_context が無い場合はセクション自体を出力しない。
-    if let Some(ctx) = hw_context {
-        render_section_hw_enrichment(&mut html, agg, ctx, hw_enrichment_map);
+    // 2026-04-29 (variant): Public バリアントでは HW 言及を最小化するため非表示。
+    if variant.show_hw_sections() {
+        if let Some(ctx) = hw_context {
+            render_section_hw_enrichment(&mut html, agg, ctx, hw_enrichment_map);
+        }
     }
 
     // --- Section 1 補助: サマリー(旧) は Executive Summary に統合済み ---
@@ -321,29 +498,44 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     // --- Section 3: 給与分布 統計 ---
     render_section_salary_stats(&mut html, agg, salary_min_values, salary_max_values);
 
-    // --- Section 4MT: 採用市場 逼迫度 (2026-04-26 追加 / MarketTightness 担当) ---
-    // ユーザー指摘「有効求人倍率系のデータも既に持っていたよね？反映してる？」に応答。
-    // 既存 InsightContext の 5+1 指標 (有効求人倍率 / HW 欠員補充率 / 失業率 / 離職率 /
-    // 平均掲載日数 / 開廃業動態) を「採用市場の逼迫度」として統合表示し、
-    // 給与統計 (Section 3) の次に「採用環境の難度」を提示する物語性を確保する。
-    // hw_context が None もしくは関連データ全空の場合は section ごと非表示 (fail-soft)。
-    render_section_market_tightness(&mut html, hw_context);
+    // --- Section 4MT: 採用市場 逼迫度 ---
+    // 4 軸 (有効求人倍率 / HW 欠員補充率 / 失業率 / 離職率) の複合指標
+    // 2026-04-29 (variant): Public バリアントでは HW 欠員補充率を除外する
+    //   バージョンに切替 (signature 互換のため variant を渡す)
+    render_section_market_tightness_with_variant(&mut html, hw_context, variant);
 
     // --- Section 4B (CR-9 / 2026-04-27): 産業ミスマッチ警戒 ---
     // 地域就業者構成 (国勢調査) と HW 求人産業構成のギャップを表で可視化。
-    // 現状 InsightContext には HW 産業分布の集計フィールド未実装のため、
-    // 入力データが揃わないケースは fail-soft で section 非表示。
-    // 将来 fetch 実装時はここに集計済みデータを渡す。
-    // 入力契約:
-    //   - industry_employees: 集計コード (AS/AR/CR) 除外済み (fetch_industry_structure)
-    //   - hw_industry_counts: HW industry_raw を 12 大分類にマッピング後の集計 (fetch_hw_industry_counts)
-    // 2026-04-27: InsightContext に ext_industry_employees / hw_industry_counts を populate 済み
+    // 2026-04-29 (variant): Public では HW 求人を CSV 媒体掲載分に置換するため、
+    //   variant=Public のときは別 section (CSV vs 国勢調査) を使う。
     if let Some(ctx) = hw_context {
-        render_section_industry_mismatch(
-            &mut html,
-            &ctx.ext_industry_employees,
-            &ctx.hw_industry_counts,
-        );
+        match variant {
+            ReportVariant::Full => {
+                render_section_industry_mismatch(
+                    &mut html,
+                    &ctx.ext_industry_employees,
+                    &ctx.hw_industry_counts,
+                );
+            }
+            ReportVariant::Public => {
+                // CSV 媒体掲載 vs 国勢調査
+                render_section_industry_mismatch_csv(
+                    &mut html,
+                    &ctx.ext_industry_employees,
+                    agg,
+                );
+            }
+        }
+    }
+
+    // --- Section 4P (2026-04-29): 対象地域 vs 競合地域 多面比較 (Public 専用) ---
+    // CSV 件数 + 外部統計 (デモグラ × サイコグラ × ジオグラ) の 3 軸で対象地域を全国平均と
+    // 比較し、媒体ミックス・訴求軸選定の参考材料として提示する。
+    // HW 求人データを一切使用せず、Public バリアント (HW 言及最小化) でのみ表示。
+    if matches!(variant, ReportVariant::Public) {
+        if let Some(ctx) = hw_context {
+            regional_compare::render_section_regional_compare(&mut html, ctx, agg);
+        }
     }
 
     // --- Section 3D (Impl-2 案 D-1/D-2/#10/#17): 人材デモグラフィック ---
@@ -1859,5 +2051,122 @@ mod design_v2_contract_tests {
         assert!(html.contains("主要雇用形態"), "主要雇用形態 (互換)");
         assert!(html.contains("給与中央値"), "給与中央値 (互換)");
         assert!(html.contains("新着比率"), "新着比率 (互換)");
+    }
+}
+
+// =============================================================================
+// テスト: バリアントインジケータ (2026-04-29)
+// =============================================================================
+
+#[cfg(test)]
+mod variant_indicator_tests {
+    use super::*;
+
+    /// タスク 2: 印刷レポート出力 (Full variant) に「現在: HW併載版」表記
+    #[test]
+    fn variant_indicator_full_shows_current_label() {
+        let html = render_variant_indicator(ReportVariant::Full);
+        assert!(
+            html.contains("現在:"),
+            "Full バリアントインジケータに「現在:」表記必須"
+        );
+        assert!(
+            html.contains("HW併載版"),
+            "Full バリアントインジケータに「HW併載版」表記必須"
+        );
+        // 反対バリアント切替リンク
+        assert!(
+            html.contains("公開データ中心版"),
+            "Full バリアントから「公開データ中心版」へ切替リンク必須"
+        );
+        assert!(
+            html.contains("variant=public"),
+            "切替リンクの URL は variant=public"
+        );
+    }
+
+    /// タスク 2: 印刷レポート出力 (Public variant) に「現在: 公開データ中心版」表記
+    #[test]
+    fn variant_indicator_public_shows_current_label() {
+        let html = render_variant_indicator(ReportVariant::Public);
+        assert!(
+            html.contains("現在:"),
+            "Public バリアントインジケータに「現在:」表記必須"
+        );
+        assert!(
+            html.contains("公開データ中心版"),
+            "Public バリアントインジケータに「公開データ中心版」表記必須"
+        );
+        // 反対バリアント切替リンク
+        assert!(
+            html.contains("HW併載版"),
+            "Public バリアントから「HW併載版」へ切替リンク必須"
+        );
+        assert!(
+            html.contains("variant=full"),
+            "切替リンクの URL は variant=full"
+        );
+    }
+
+    /// .no-print クラスで印刷時非表示が保証されている
+    #[test]
+    fn variant_indicator_is_hidden_in_print() {
+        let html_full = render_variant_indicator(ReportVariant::Full);
+        let html_public = render_variant_indicator(ReportVariant::Public);
+        assert!(
+            html_full.contains("no-print"),
+            "Full インジケータは .no-print クラスを持つ"
+        );
+        assert!(
+            html_public.contains("no-print"),
+            "Public インジケータは .no-print クラスを持つ"
+        );
+    }
+
+    /// アクセシビリティ: aria-label が両バリアントで適切に設定されている
+    #[test]
+    fn variant_indicator_has_accessibility_labels() {
+        let html_full = render_variant_indicator(ReportVariant::Full);
+        let html_public = render_variant_indicator(ReportVariant::Public);
+        assert!(
+            html_full.contains("aria-label=\"PDF出力モード切替\""),
+            "Full インジケータに region の aria-label 必須"
+        );
+        assert!(
+            html_public.contains("aria-label=\"PDF出力モード切替\""),
+            "Public インジケータに region の aria-label 必須"
+        );
+        // 切替リンクにも aria-label
+        assert!(
+            html_full.contains("PDF出力モードを公開データ中心版に切替"),
+            "Full の切替リンク aria-label 必須"
+        );
+        assert!(
+            html_public.contains("PDF出力モードを HW併載版に切替")
+                || html_public.contains("PDF出力モードをHW併載版に切替"),
+            "Public の切替リンク aria-label 必須"
+        );
+    }
+
+    /// 想定読者の説明テキストが含まれる (タスク 4)
+    #[test]
+    fn variant_indicator_describes_target_audience() {
+        let html_full = render_variant_indicator(ReportVariant::Full);
+        let html_public = render_variant_indicator(ReportVariant::Public);
+        assert!(
+            html_full.contains("社内分析向け"),
+            "Full は「社内分析向け」と説明"
+        );
+        assert!(
+            html_public.contains("対外提案向け"),
+            "Public は「対外提案向け」と説明"
+        );
+    }
+
+    /// ReportVariant の補助メソッド検証
+    #[test]
+    fn variant_alternative_swaps_correctly() {
+        assert_eq!(ReportVariant::Full.alternative(), ReportVariant::Public);
+        assert_eq!(ReportVariant::Public.alternative(), ReportVariant::Full);
     }
 }

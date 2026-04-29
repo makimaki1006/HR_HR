@@ -65,6 +65,98 @@ use super::helpers::*;
 // 公開 API
 // =====================================================================
 
+/// 2026-04-29 variant 切替対応版
+///
+/// `variant` に応じて HW 欠員補充率の表示有無を切替。
+/// - `Full`: 4 軸 (有効求人倍率 / HW 欠員補充率 / 失業率 / 離職率) すべて表示
+/// - `Public`: HW 欠員補充率を除外、3 軸 (有効求人倍率 / 失業率 / 離職率) で表示
+pub(super) fn render_section_market_tightness_with_variant(
+    html: &mut String,
+    ctx: Option<&InsightContext>,
+    variant: super::ReportVariant,
+) {
+    match variant {
+        super::ReportVariant::Full => render_section_market_tightness(html, ctx),
+        super::ReportVariant::Public => render_section_market_tightness_public(html, ctx),
+    }
+}
+
+/// 公開データ中心 variant: HW 欠員補充率を除外し 3 軸 (有効求人倍率 / 失業率 / 離職率) で構成
+///
+/// Full との差分:
+/// - レーダー: 4 軸 → 3 軸 (HW 欠員補充率を除外)
+/// - 個別 KPI カード: 4 枚 → 3 枚 (HW 欠員補充率を除外)
+/// - CR-1 採用難易度ブロック: 寄与分解・推奨アクションから HW 欠員補充率を除外
+/// - データソース折りたたみ表: HW 欠員補充率の行を除外
+/// - 補助 KPI 開廃業動態: 両 variant で表示
+/// - caveat: 「HW 掲載求人特有の指標は除外」を明記
+pub(super) fn render_section_market_tightness_public(
+    html: &mut String,
+    ctx: Option<&InsightContext>,
+) {
+    let ctx = match ctx {
+        Some(c) => c,
+        None => return,
+    };
+
+    // Public variant では HW 欠員補充率を意図的に除外して取得
+    let mut metrics = compute_metrics(ctx);
+    metrics.vacancy_rate = None;
+    metrics.vacancy_trend = Vec::new();
+
+    if !metrics.has_any_data() {
+        return;
+    }
+
+    html.push_str("<div class=\"section\">\n");
+    html.push_str("<h2>採用市場 逼迫度</h2>\n");
+
+    render_section_howto(
+        html,
+        &[
+            "対象地域における「採用のしやすさ／難しさ」を 3 つの公開市場指標で複合評価します",
+            "総合スコアは 0-100 で正規化済み。70 以上 = 逼迫 (採用難) / 30 以下 = 緩和 (採用容易)",
+            "本 variant は公開統計 (e-Stat) のみを使用。HW 掲載求人特有の指標は除外しています",
+        ],
+    );
+
+    // ---- (1) 逼迫度 総合スコア (3 軸平均) ----
+    render_tightness_summary_public(html, &metrics);
+
+    // ---- (1.5) 採用難易度ラベル + 寄与分解 + アクション (CR-1, 3 軸版) ----
+    render_recruit_difficulty_block_public(html, &metrics);
+
+    // ---- (2) 3 軸レーダーチャート ----
+    render_radar_chart_public(html, &metrics);
+
+    // ---- (3) データソース・計算方法 (折りたたみ、HW 行を除外) ----
+    render_data_sources_collapsible_public(html);
+
+    // ---- (4) 個別 KPI カード (3 枚) ----
+    render_individual_kpis_public(html, &metrics);
+
+    // ---- (5) 解釈ガイド + アクション提案 (戦略的方針) ----
+    render_interpretation_guide(html, &metrics);
+
+    html.push_str(
+        "<p class=\"note\" style=\"margin-top:8px;\">\
+        \u{203B} 本指標はオープンデータ (有効求人倍率 / 失業率 / 離職率) のみを使用しており、HW 掲載求人特有の指標は除外しています。\
+        指標粒度: 有効求人倍率 / 離職率 / 開廃業動態は都道府県粒度のみ。市区町村別の差は反映されません。\
+        失業率は労働力調査 (国勢調査ベース) 由来です。\
+        逼迫度総合スコアは複合指標で、業界・職種により本来の重み付けが異なります。\
+        本数値は採用環境の相関的傾向を示すもので、因果関係を示すものではありません。\
+        離職率は雇用動向調査 (厚労省) 由来で、産業別・規模別で差が大きい指標です。\
+        </p>\n",
+    );
+
+    render_section_bridge(
+        html,
+        "次セクションでは、この採用市場逼迫度を踏まえた雇用形態の構成と給与構造を確認します。",
+    );
+
+    html.push_str("</div>\n");
+}
+
 /// 「採用市場 逼迫度」section 全体を描画
 ///
 /// `ctx` が None もしくは関連データ全空の場合、section ごと出力しない (fail-soft)。
@@ -235,6 +327,29 @@ impl TightnessMetrics {
         }
         Some(values.iter().sum::<f64>() / values.len() as f64)
     }
+
+    /// Public variant 用 3 軸複合スコア (HW 欠員補充率を除外)
+    ///
+    /// 取得できた指標のみで平均。
+    /// - 有効求人倍率 / 失業率の逆数 / 離職率 のうち取得済みのもの
+    /// - 取得指標 0 の場合は None
+    fn composite_score_public(&self) -> Option<f64> {
+        let s = self.radar_scores();
+        let mut values: Vec<f64> = Vec::new();
+        if self.job_ratio.is_some() {
+            values.push(s.job_ratio);
+        }
+        if self.unemployment_rate.is_some() {
+            values.push(s.unemployment_inv);
+        }
+        if self.separation_rate.is_some() {
+            values.push(s.separation);
+        }
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
 }
 
 /// レーダーチャート 4 軸スコア (0-100)
@@ -259,6 +374,11 @@ impl RadarScores {
             self.unemployment_inv,
             self.separation,
         ]
+    }
+
+    /// Public variant 3 軸: 有効求人倍率 → 失業率の逆数 → 離職率 (HW 欠員補充率を除外)
+    fn to_array_public(self) -> [f64; 3] {
+        [self.job_ratio, self.unemployment_inv, self.separation]
     }
 }
 
@@ -1179,6 +1299,567 @@ fn render_interpretation_guide(html: &mut String, m: &TightnessMetrics) {
          </div>\n",
         escape_html(heading)
     ));
+}
+
+// =====================================================================
+// Public variant 用 描画関数群 (HW 欠員補充率を除外、3 軸構成)
+// =====================================================================
+
+/// Public variant: 総合スコア (信号機色) を 3 軸版で描画
+fn render_tightness_summary_public(html: &mut String, m: &TightnessMetrics) {
+    let score = match m.composite_score_public() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let label = DifficultyLabel::from_score(score);
+    let (level_label, color, bg_color): (String, &str, &str) = match label {
+        DifficultyLabel::VeryHard => (
+            format!("極難 ({})", label.description()),
+            "#dc2626",
+            "#fef2f2",
+        ),
+        DifficultyLabel::Hard => (
+            format!("難 ({})", label.description()),
+            "#f59e0b",
+            "#fffbeb",
+        ),
+        DifficultyLabel::Standard => (
+            format!("標準 ({})", label.description()),
+            "#3b82f6",
+            "#eff6ff",
+        ),
+        DifficultyLabel::Easy => (
+            format!("易 ({})", label.description()),
+            "#10b981",
+            "#ecfdf5",
+        ),
+    };
+
+    render_figure_caption(html, "図 MT-1", "採用市場 逼迫度 総合スコア (公開データ 3 軸版)");
+
+    html.push_str(&format!(
+        "<div data-testid=\"tightness-summary\" \
+         style=\"display:flex;align-items:center;gap:16px;background:{bg};border-left:6px solid {col};\
+                 padding:12px 16px;border-radius:6px;margin:8px 0 12px;\">\
+         <div style=\"font-size:11px;color:#6b7280;\">採用市場 逼迫度</div>\
+         <div style=\"font-size:28px;font-weight:700;color:{col};\" data-testid=\"tightness-score\">\
+         {score:.0}<span style=\"font-size:14px;color:#6b7280;\"> / 100</span>\
+         </div>\
+         <div style=\"font-size:14px;font-weight:600;color:{col};\">{label}</div>\
+         </div>\n",
+        bg = bg_color,
+        col = color,
+        score = score,
+        label = escape_html(&level_label),
+    ));
+
+    render_read_hint_html(
+        html,
+        "<strong>逼迫度スコア</strong>は 3 指標 (有効求人倍率 / 失業率の逆数 / 離職率) を 0-100 に正規化した複合指標です。\
+         本 variant は公開統計のみを使用し、HW 掲載求人特有の指標は除外しています。\
+         <strong>70 以上</strong>の地域では給与・福利・通勤圏など複数軸の訴求強化、\
+         <strong>30 以下</strong>では採用コスト見直しとミスマッチ低減を検討する余地があります。",
+    );
+}
+
+/// Public variant: 寄与分解を 3 軸 (HW 欠員補充率を除外) で抽出
+fn extract_contributions_public(m: &TightnessMetrics) -> Vec<AxisContribution> {
+    let s = m.radar_scores();
+    let mut out = Vec::new();
+    if m.job_ratio.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::JobRatio,
+            score: s.job_ratio,
+            delta: s.job_ratio - 50.0,
+            raw_value: m.job_ratio,
+        });
+    }
+    if m.unemployment_rate.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::UnemploymentInv,
+            score: s.unemployment_inv,
+            delta: s.unemployment_inv - 50.0,
+            raw_value: m.unemployment_rate,
+        });
+    }
+    if m.separation_rate.is_some() {
+        out.push(AxisContribution {
+            axis: AxisName::Separation,
+            score: s.separation,
+            delta: s.separation - 50.0,
+            raw_value: m.separation_rate,
+        });
+    }
+    out
+}
+
+/// Public variant: 推奨アクション (HW 欠員補充率トリガーを除外)
+///
+/// Public 限定の追加分岐:
+/// - 失業率 ≥ 3.5% → 採用候補プールが広い旨を提示
+fn build_recommended_actions_public(m: &TightnessMetrics) -> Vec<&'static str> {
+    let mut actions: Vec<&'static str> = Vec::new();
+
+    // 有効求人倍率 (押し上げ系)
+    if let Some(ratio) = m.job_ratio {
+        if ratio >= 1.5 {
+            actions.push("給与訴求の優先度\u{2191}");
+            actions.push("即日勤務OK等の差別化タグ追加");
+        }
+    }
+    // 離職率 (押し上げ系)
+    if let Some(sep) = m.separation_rate {
+        if sep >= 18.0 {
+            actions.push("定着支援施策の検討");
+        }
+    }
+    // 失業率 (緩和不足 = 採用余力少 = 押し上げ系)
+    if let Some(ur) = m.unemployment_rate {
+        if ur < 2.0 {
+            actions.push("通勤圏拡大検討");
+            actions.push("リファラル採用強化");
+        } else if ur >= 3.5 {
+            // Public variant 追加: 高失業率 = 採用候補プールが広い
+            actions.push("採用候補プール広め (失業率高め)");
+        }
+    }
+    // 開廃業動態 (補助シグナル)
+    if let (Some(op), Some(cl)) = (m.opening_rate, m.closure_rate) {
+        if op - cl > 1.0 {
+            actions.push("競合増加注意・差別化要素強化");
+        }
+    }
+
+    let mut seen: Vec<&'static str> = Vec::new();
+    for a in actions {
+        if !seen.iter().any(|x| *x == a) {
+            seen.push(a);
+            if seen.len() >= 3 {
+                break;
+            }
+        }
+    }
+    seen
+}
+
+/// Public variant: 採用難易度ブロック (CR-1 の 3 軸版)
+fn render_recruit_difficulty_block_public(html: &mut String, m: &TightnessMetrics) {
+    let score = match m.composite_score_public() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let label = DifficultyLabel::from_score(score);
+    let contribs = extract_contributions_public(m);
+    let push = top_push_factors(&contribs, 2);
+    let ease = top_ease_factors(&contribs, 2);
+    let actions = build_recommended_actions_public(m);
+
+    html.push_str(&format!(
+        "<div class=\"recruit-difficulty\" data-testid=\"recruit-difficulty-block\" \
+         style=\"margin:8px 0 12px;padding:12px 16px;background:{bg};border-left:4px solid {col};border-radius:6px;\">\n",
+        bg = label.bg_color(),
+        col = label.color(),
+    ));
+
+    html.push_str(&format!(
+        "<h3 style=\"font-size:14px;margin:0 0 8px;color:#1f2937;\">\
+         採用難易度: \
+         <span class=\"badge-{badge_key}\" data-testid=\"difficulty-label\" \
+         style=\"display:inline-block;padding:2px 10px;background:{col};color:#fff;border-radius:3px;font-weight:700;margin:0 6px;\">\
+         {label_ja}</span>\
+         <span class=\"score\" data-testid=\"difficulty-score\" \
+         style=\"color:{col};font-weight:600;\">{score:.0}/100</span>\
+         <span style=\"color:#6b7280;font-size:11px;font-weight:400;margin-left:8px;\">({desc})</span>\
+         </h3>\n",
+        badge_key = match label {
+            DifficultyLabel::Easy => "easy",
+            DifficultyLabel::Standard => "standard",
+            DifficultyLabel::Hard => "hard",
+            DifficultyLabel::VeryHard => "very-hard",
+        },
+        col = label.color(),
+        label_ja = escape_html(label.ja()),
+        score = score,
+        desc = escape_html(label.description()),
+    ));
+
+    // 寄与分解
+    html.push_str("<div class=\"contribution\" data-testid=\"contribution-breakdown\" style=\"font-size:11px;color:#374151;line-height:1.7;margin-bottom:8px;\">\n");
+    if push.is_empty() {
+        html.push_str(
+            "<div class=\"push\" data-testid=\"push-factors\">\
+             <strong style=\"color:#dc2626;\">相関的な押し上げ要因</strong>: なし (中立値以下)\
+             </div>\n",
+        );
+    } else {
+        let push_str: Vec<String> = push.iter().map(format_contribution).collect();
+        html.push_str(&format!(
+            "<div class=\"push\" data-testid=\"push-factors\">\
+             <strong style=\"color:#dc2626;\">相関的な押し上げ要因</strong>: {}\
+             </div>\n",
+            escape_html(&push_str.join(" / "))
+        ));
+    }
+    if ease.is_empty() {
+        html.push_str(
+            "<div class=\"ease\" data-testid=\"ease-factors\">\
+             <strong style=\"color:#10b981;\">相関的な緩和要因</strong>: なし (中立値以上)\
+             </div>\n",
+        );
+    } else {
+        let ease_str: Vec<String> = ease.iter().map(format_contribution).collect();
+        html.push_str(&format!(
+            "<div class=\"ease\" data-testid=\"ease-factors\">\
+             <strong style=\"color:#10b981;\">相関的な緩和要因</strong>: {}\
+             </div>\n",
+            escape_html(&ease_str.join(" / "))
+        ));
+    }
+    html.push_str(
+        "<div style=\"font-size:9px;color:#9ca3af;font-style:italic;margin-top:4px;\">\
+         \u{203B} 寄与分解は各軸の正規化スコア (0-100) と中立値 50 との差分です。値が大きいほど採用難度を押し上げる相関的傾向を示します。\
+         </div>\n",
+    );
+    html.push_str("</div>\n");
+
+    // 推奨アクション
+    if !actions.is_empty() {
+        html.push_str("<div class=\"actions\" data-testid=\"rule-based-actions\" style=\"font-size:11px;color:#374151;\">\n");
+        html.push_str(
+            "<strong>推奨アクション (相関ベース、因果ではない)</strong>:\n\
+             <ol style=\"padding-left:20px;line-height:1.6;margin:4px 0;\">\n",
+        );
+        for a in &actions {
+            html.push_str(&format!("<li>{}</li>\n", escape_html(a)));
+        }
+        html.push_str("</ol>\n");
+        html.push_str(
+            "<p style=\"font-size:9px;color:#9ca3af;font-style:italic;margin-top:4px;\">\
+             \u{203B} 上記は市場指標に基づくルールベース提案で、相関ベース・因果ではないため現場で要検証です。職種・予算・競合状況等の個別要因と併せてご検討ください。\
+             </p>\n",
+        );
+        html.push_str("</div>\n");
+    } else {
+        html.push_str(
+            "<div class=\"actions\" data-testid=\"rule-based-actions\" style=\"font-size:11px;color:#6b7280;\">\
+             <strong>推奨アクション (相関ベース、因果ではない)</strong>: 現状の市場指標では特段の追加施策トリガーは検出されません。標準的な採用運用を継続しつつ、月次でモニタリングを行うことを推奨します。\
+             </div>\n",
+        );
+    }
+
+    html.push_str("</div>\n");
+}
+
+/// Public variant: 3 軸レーダーチャート (HW 欠員補充率を除外)
+fn render_radar_chart_public(html: &mut String, m: &TightnessMetrics) {
+    let scores = m.radar_scores();
+    let national = m.national_radar_scores();
+
+    render_figure_caption(
+        html,
+        "図 MT-2",
+        "採用市場 3 軸レーダー (公開データ、0-100 正規化スコア)",
+    );
+
+    let job_ratio_label = match m.job_ratio {
+        Some(v) => format!("有効求人倍率\n({:.2}倍)", v),
+        None => "有効求人倍率\n(N/A)".to_string(),
+    };
+    let unemp_label = match m.unemployment_rate {
+        Some(v) => format!("採用余力\n(失業率 {:.1}%)", v),
+        None => "採用余力\n(N/A)".to_string(),
+    };
+    let sep_label = match m.separation_rate {
+        Some(v) => format!("離職率\n({:.1}%)", v),
+        None => "離職率\n(N/A)".to_string(),
+    };
+
+    // ECharts radar: 3 軸定義 (HW 欠員補充率を除外)
+    let indicators = json!([
+        {"name": job_ratio_label, "max": 100},
+        {"name": unemp_label, "max": 100},
+        {"name": sep_label, "max": 100}
+    ]);
+
+    let target_arr = scores.to_array_public().to_vec();
+    let national_arr = national.to_array_public().to_vec();
+
+    let config = json!({
+        "tooltip": {
+            "trigger": "item",
+            "formatter": "{b}<br/>スコア: {c} / 100"
+        },
+        "legend": {
+            "data": ["対象地域", "全国平均 (参考)"],
+            "bottom": 0,
+            "textStyle": {"fontSize": 10}
+        },
+        "radar": {
+            "indicator": indicators,
+            "shape": "polygon",
+            "splitNumber": 4,
+            "axisName": {"fontSize": 10, "color": "#374151"}
+        },
+        "series": [{
+            "type": "radar",
+            "data": [
+                {
+                    "name": "対象地域",
+                    "value": target_arr,
+                    "itemStyle": {"color": "#3b82f6"},
+                    "areaStyle": {"opacity": 0.3, "color": "#3b82f6"},
+                    "lineStyle": {"width": 2, "color": "#3b82f6"}
+                },
+                {
+                    "name": "全国平均 (参考)",
+                    "value": national_arr,
+                    "itemStyle": {"color": "#9ca3af"},
+                    "areaStyle": {"opacity": 0.1, "color": "#9ca3af"},
+                    "lineStyle": {"width": 1, "color": "#9ca3af", "type": "dashed"}
+                }
+            ]
+        }]
+    });
+    html.push_str(&render_echart_div(&config.to_string(), 320));
+
+    render_read_hint(
+        html,
+        "3 軸が外側に広がるほど採用が難しい地域です。レーダー上の数値は 0-100 に正規化したスコア\
+         (実値ではない) で、軸ラベル末尾の括弧内が実際の指標値です。本 variant は公開統計のみを\
+         使用しており、HW 掲載求人特有の指標は除外しています。",
+    );
+}
+
+/// Public variant: データソース折りたたみ (HW 欠員補充率行を除外)
+fn render_data_sources_collapsible_public(html: &mut String) {
+    html.push_str(
+        "<details class=\"collapsible-guide\" style=\"margin:8px 0;border:1px solid #e5e7eb;border-radius:6px;padding:6px 12px;background:#f9fafb;\">\n\
+         <summary style=\"cursor:pointer;font-size:12px;font-weight:600;color:#374151;\">\u{1F4C2} データソース・計算方法 (クリックで開閉)</summary>\n\
+         <div style=\"margin-top:8px;font-size:10px;color:#374151;\">\n",
+    );
+    html.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:10px;\">\n");
+    html.push_str(
+        "<thead><tr style=\"background:#eef2ff;\">\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">指標</th>\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">出典 (公開統計)</th>\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">計算式</th>\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">粒度</th>\
+         <th style=\"text-align:left;padding:4px 6px;border:1px solid #d1d5db;\">更新</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+    // HW 欠員補充率は除外
+    let rows: &[(&str, &str, &str, &str, &str)] = &[
+        (
+            "有効求人倍率",
+            "厚生労働省 職業安定業務統計 (一般職業紹介状況)",
+            "有効求人数 / 有効求職者数 (公表値)",
+            "都道府県",
+            "月次",
+        ),
+        (
+            "失業率",
+            "総務省統計局 労働力調査",
+            "完全失業率 (公表値)",
+            "都道府県",
+            "四半期",
+        ),
+        (
+            "離職率",
+            "厚生労働省 雇用動向調査 (産業計)",
+            "離職者数 / 常用労働者数 (公表値)",
+            "都道府県",
+            "年次",
+        ),
+        (
+            "開廃業動態 (補助)",
+            "経済産業省 経済センサス活動調査",
+            "純増 = 開業率 - 廃業率 (公表値)",
+            "都道府県",
+            "5 年に 1 回",
+        ),
+    ];
+    for (metric, source, formula, gran, freq) in rows {
+        html.push_str(&format!(
+            "<tr><td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
+             <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
+             <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
+             <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td>\
+             <td style=\"padding:4px 6px;border:1px solid #d1d5db;\">{}</td></tr>\n",
+            escape_html(metric),
+            escape_html(source),
+            escape_html(formula),
+            escape_html(gran),
+            escape_html(freq),
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+    html.push_str(
+        "<p style=\"margin-top:6px;font-size:9px;color:#6b7280;font-style:italic;\">\
+         \u{203B} 出典の数値は公表値をそのまま参照しています。本 variant は公開統計のみを使用しており、HW 掲載求人特有の指標は除外しています。\
+         </p>\n",
+    );
+    html.push_str("</div>\n</details>\n");
+}
+
+/// Public variant: 個別 KPI カード (3 枚、HW 欠員補充率を除外)
+fn render_individual_kpis_public(html: &mut String, m: &TightnessMetrics) {
+    render_figure_caption(html, "表 MT-1", "3 指標 個別 KPI + 補助指標 (公開データ)");
+
+    html.push_str("<div class=\"stats-grid\" style=\"grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:8px;\" data-testid=\"market-tightness-kpi-grid\">\n");
+
+    // (1) 有効求人倍率
+    if let Some(ratio) = m.job_ratio {
+        let interp = if ratio >= 1.5 {
+            "売り手市場"
+        } else if ratio >= 1.0 {
+            "拮抗"
+        } else {
+            "買い手市場"
+        };
+        let compare = match m.job_ratio_national {
+            Some(nat) => format!("全国 {:.2} 倍 ({:+.2}pt)", nat, ratio - nat),
+            None => format!("解釈: {}", interp),
+        };
+        let status = if ratio >= 1.5 {
+            "crit"
+        } else if ratio >= 1.0 {
+            "warn"
+        } else {
+            "good"
+        };
+        html.push_str("<div class=\"kpi-card-with-source\">\n");
+        render_kpi_card_v2(
+            html,
+            "\u{1F4C8}",
+            "有効求人倍率",
+            &format!("{:.2}", ratio),
+            "倍",
+            &compare,
+            status,
+            interp,
+        );
+        html.push_str(&render_data_source_note(
+            "厚生労働省 職業安定業務統計 (一般職業紹介状況)",
+            "有効求人数 / 有効求職者数",
+            "都道府県",
+        ));
+        html.push_str("</div>\n");
+    }
+
+    // (2) 失業率
+    if let Some(ur) = m.unemployment_rate {
+        let compare = match m.unemployment_national {
+            Some(nat) => format!("全国 {:.1}% ({:+.1}pt)", nat, ur - nat),
+            None => "(採用候補プール代理指標)".to_string(),
+        };
+        let status = if ur >= 3.5 {
+            "good"
+        } else if ur >= 2.0 {
+            "warn"
+        } else {
+            "crit"
+        };
+        let label = if ur >= 3.5 {
+            "余力あり"
+        } else if ur >= 2.0 {
+            "標準"
+        } else {
+            "余力少"
+        };
+        html.push_str("<div class=\"kpi-card-with-source\">\n");
+        render_kpi_card_v2(
+            html,
+            "\u{1F4CA}",
+            "失業率",
+            &format!("{:.1}", ur),
+            "%",
+            &compare,
+            status,
+            label,
+        );
+        html.push_str(&render_data_source_note(
+            "総務省統計局 労働力調査",
+            "完全失業率 (公表値)",
+            "都道府県",
+        ));
+        html.push_str("</div>\n");
+    }
+
+    // (3) 離職率
+    if let Some(sep) = m.separation_rate {
+        let entry_compare = match m.entry_rate {
+            Some(e) => format!("入職 {:.1}% / 差 {:+.1}pt", e, e - sep),
+            None => "(雇用動向調査由来)".to_string(),
+        };
+        let status = if sep >= 18.0 {
+            "crit"
+        } else if sep >= 12.0 {
+            "warn"
+        } else {
+            "good"
+        };
+        let label = if sep >= 18.0 {
+            "高流動 (定着難)"
+        } else if sep >= 12.0 {
+            "中流動"
+        } else {
+            "安定"
+        };
+        html.push_str("<div class=\"kpi-card-with-source\">\n");
+        render_kpi_card_v2(
+            html,
+            "\u{1F504}",
+            "離職率",
+            &format!("{:.1}", sep),
+            "%",
+            &entry_compare,
+            status,
+            label,
+        );
+        html.push_str(&render_data_source_note(
+            "厚生労働省 雇用動向調査 (産業計)",
+            "離職者数 / 常用労働者数 (公表値)",
+            "都道府県",
+        ));
+        html.push_str("</div>\n");
+    }
+
+    html.push_str("</div>\n");
+
+    // 補助 KPI: 開廃業動態 (両 variant で表示)
+    if m.opening_rate.is_some() || m.closure_rate.is_some() {
+        html.push_str("<div data-testid=\"business-dynamics-card\" style=\"margin-top:8px;padding:8px 12px;background:#f9fafb;border-radius:6px;border-left:3px solid #6366f1;font-size:11px;\">\n");
+        html.push_str("<strong style=\"color:#4338ca;\">補助 KPI: 開廃業動態</strong> ");
+        let op = m.opening_rate.unwrap_or(0.0);
+        let cl = m.closure_rate.unwrap_or(0.0);
+        let net = op - cl;
+        let op_annual = op / 5.0;
+        let cl_annual = cl / 5.0;
+        html.push_str(&format!(
+            "開業率 <strong>{:.1}%</strong> / 廃業率 <strong>{:.1}%</strong> / 純増 <strong>{:+.1}pt</strong> \
+             <span style=\"color:#6b7280;font-size:10px;\">(5 年累積、年率換算 開業 {:.1}% / 廃業 {:.1}%)</span>。",
+            op, cl, net, op_annual, cl_annual
+        ));
+        let interp = if net > 1.0 {
+            "拡大基調 (採用需要拡大の可能性)"
+        } else if net < -1.0 {
+            "縮小基調 (流動人材プール拡大の可能性)"
+        } else {
+            "均衡"
+        };
+        html.push_str(&format!(
+            "<span style=\"color:#6b7280;\">→ {}</span>",
+            escape_html(interp)
+        ));
+        html.push_str(&render_data_source_note(
+            "経済産業省 経済センサス基礎調査",
+            "5 年累積率 = (新設事業所数 / 前期末事業所数) × 100",
+            "都道府県",
+        ));
+        html.push_str("</div>\n");
+    }
 }
 
 // =====================================================================
@@ -2185,5 +2866,311 @@ mod tests {
         assert!(note.contains("出典"));
         assert!(note.contains("計算"));
         assert!(note.contains("粒度"));
+    }
+
+    // =================================================================
+    // Public variant (HW 欠員補充率を除外、3 軸版) テスト群
+    // =================================================================
+
+    /// Public variant: HW 欠員補充率の KPI カードが出ないこと (逆証明)
+    ///
+    /// vacancy データを与えても、HW 欠員補充率 KPI ラベル / カード data-source
+    /// (「ハローワーク掲載求人 (自社集計)」) が出力に含まれないことを確認。
+    #[test]
+    fn public_variant_excludes_hw_vacancy_kpi_card() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.4))])],
+            vec![row(&[
+                ("emp_group", json!("正社員")),
+                ("vacancy_rate", json!(0.30)),
+            ])],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(2.4))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        // HW 欠員補充率 KPI ラベルは出力されない
+        assert!(
+            !html.contains("HW 欠員補充率"),
+            "Public variant では HW 欠員補充率 KPI カード非表示"
+        );
+        // HW 由来データソース注記文言も出ない
+        assert!(
+            !html.contains("ハローワーク掲載求人 (自社集計)"),
+            "Public variant では HW 出典注記が出力されない"
+        );
+        // 他の 3 軸は表示される
+        assert!(html.contains("有効求人倍率"));
+        assert!(html.contains("失業率"));
+        assert!(html.contains("離職率"));
+    }
+
+    /// Public variant: レーダーが 3 軸 (HW 欠員補充率を除外)
+    ///
+    /// ECharts indicator 配列に「欠員補充率」軸が含まれず、3 軸 (有効求人倍率 / 採用余力 / 離職率) が含まれることを検証。
+    #[test]
+    fn public_variant_radar_has_3_axes_not_4() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.4))])],
+            vec![row(&[
+                ("emp_group", json!("正社員")),
+                ("vacancy_rate", json!(0.30)),
+            ])],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(2.4))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        // 3 軸が含まれる
+        assert!(html.contains("\"name\":\"有効求人倍率"), "有効求人倍率 軸");
+        assert!(html.contains("\"name\":\"採用余力"), "採用余力 軸");
+        assert!(html.contains("\"name\":\"離職率"), "離職率 軸");
+
+        // 「欠員補充率」軸は ECharts indicator 内に出現しない
+        assert!(
+            !html.contains("\"name\":\"欠員補充率"),
+            "Public variant レーダーは欠員補充率を含まない"
+        );
+
+        // ECharts radar config 識別属性
+        assert!(html.contains("data-chart-config"), "ECharts div 必要");
+        assert!(html.contains("\"radar\""), "radar type 必要");
+
+        // 図表番号は MT-2 のまま、3 軸版であることをタイトルで明示
+        assert!(html.contains("3 軸レーダー"), "レーダーは 3 軸版と明記");
+    }
+
+    /// Public variant: 複合スコアが 3 指標平均であること
+    ///
+    /// 軸スコアを意図的に [80, 30, 20] に設定し、平均 (80+30+20)/3 = 43.33... を検証。
+    /// raw 値の逆算:
+    /// - job_ratio: normalize_linear(v, 0.5, 1.5) = 80 → v = 1.3
+    /// - unemployment_inv: normalize_linear(5.0 - v, 0.0, 4.0) = 30 → v = 3.8
+    /// - separation: normalize_linear(v, 5.0, 20.0) = 20 → v = 8.0
+    #[test]
+    fn public_variant_composite_score_is_three_axis_mean() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.3))])], // → 80
+            vec![row(&[
+                ("emp_group", json!("正社員")),
+                ("vacancy_rate", json!(0.30)), // 与えても無視されるべき
+            ])],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(3.8))])], // → 30
+            vec![row(&[("separation_rate", json!(8.0))])],   // → 20
+            vec![],
+            None,
+        );
+        let m = compute_metrics(&ctx);
+        // Public 変種では vacancy_rate を None として扱う前提なので明示的にクリア
+        let mut m_public = m.clone();
+        m_public.vacancy_rate = None;
+
+        let score = m_public
+            .composite_score_public()
+            .expect("public composite score");
+        let expected = (80.0 + 30.0 + 20.0) / 3.0;
+        assert!(
+            (score - expected).abs() < 0.5,
+            "expected ~{:.2}, got {:.4}",
+            expected,
+            score
+        );
+
+        // ドメイン不変条件: 0..=100
+        assert!((0.0..=100.0).contains(&score));
+
+        // Full variant の 4 軸平均と異なること (vacancy=0.30 → score 60 が混ざるため)
+        let full_score = m.composite_score().expect("full composite score");
+        assert!(
+            (full_score - score).abs() > 1.0,
+            "Full と Public で複合スコアは異なる (Full {} / Public {})",
+            full_score,
+            score
+        );
+    }
+
+    /// Public variant: caveat 「HW 掲載求人特有の指標は除外」が含まれる
+    #[test]
+    fn public_variant_caveat_excludes_hw_phrase_present() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.4))])],
+            vec![],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(2.4))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        // 必須 caveat 文言
+        assert!(
+            html.contains("HW 掲載求人特有の指標は除外"),
+            "Public variant caveat 文言『HW 掲載求人特有の指標は除外』必須"
+        );
+        // オープンデータ明記
+        assert!(
+            html.contains("オープンデータ") || html.contains("公開統計"),
+            "オープンデータ / 公開統計 の明記必須"
+        );
+        // 因果非主張は両 variant 共通で必須
+        assert!(
+            html.contains("因果関係を示すものではありません"),
+            "因果非主張 caveat 必須"
+        );
+    }
+
+    /// Public variant: render_section_market_tightness_with_variant のディスパッチ確認
+    ///
+    /// Full / Public で異なる出力 (HW 欠員補充率 KPI 有無) を生成することを逆証明。
+    #[test]
+    fn variant_dispatch_full_vs_public_diverges() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.4))])],
+            vec![row(&[
+                ("emp_group", json!("正社員")),
+                ("vacancy_rate", json!(0.30)),
+            ])],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(2.4))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+
+        let mut html_full = String::new();
+        render_section_market_tightness_with_variant(
+            &mut html_full,
+            Some(&ctx),
+            super::super::ReportVariant::Full,
+        );
+        let mut html_public = String::new();
+        render_section_market_tightness_with_variant(
+            &mut html_public,
+            Some(&ctx),
+            super::super::ReportVariant::Public,
+        );
+
+        // Full には HW 欠員補充率 KPI が含まれる
+        assert!(
+            html_full.contains("HW 欠員補充率"),
+            "Full variant には HW 欠員補充率 KPI 含まれる"
+        );
+        // Public には含まれない
+        assert!(
+            !html_public.contains("HW 欠員補充率"),
+            "Public variant には HW 欠員補充率 KPI 含まれない"
+        );
+
+        // Full は 4 軸レーダー、Public は 3 軸レーダー
+        assert!(html_full.contains("4 軸レーダー"));
+        assert!(html_public.contains("3 軸レーダー"));
+    }
+
+    /// Public variant: HW 欠員補充率トリガーのアクション (「既存従業員」リファラル) が抑制される
+    ///
+    /// vacancy_rate = 0.5 でも build_recommended_actions_public は「既存従業員」を返さない。
+    #[test]
+    fn public_variant_actions_no_hw_trigger() {
+        let m = TightnessMetrics {
+            // vacancy_rate を意図的にセット (Public でも内部メトリクスとしては None ではあるが、
+            // ここでは関数単体の挙動を検証する)
+            vacancy_rate: Some(0.5),
+            ..Default::default()
+        };
+        let actions = build_recommended_actions_public(&m);
+        assert!(
+            !actions.iter().any(|a| a.contains("既存従業員")),
+            "Public variant では HW 欠員補充率トリガーのアクションは出さない, got {:?}",
+            actions
+        );
+
+        // 失業率 ≥ 3.5% で Public 限定の新トリガーが発火
+        let m2 = TightnessMetrics {
+            unemployment_rate: Some(4.0),
+            ..Default::default()
+        };
+        let actions2 = build_recommended_actions_public(&m2);
+        assert!(
+            actions2.iter().any(|a| a.contains("採用候補プール")),
+            "Public 限定: ur>=3.5 → 採用候補プール広め, got {:?}",
+            actions2
+        );
+    }
+
+    /// Public variant: 寄与分解が 3 軸のみ (VacancyRate を含まない)
+    #[test]
+    fn public_variant_contributions_exclude_vacancy() {
+        let m = TightnessMetrics {
+            job_ratio: Some(1.3),
+            vacancy_rate: Some(0.4), // セットされていてもスキップされる
+            unemployment_rate: Some(3.0),
+            separation_rate: Some(15.0),
+            ..Default::default()
+        };
+        let contribs = extract_contributions_public(&m);
+        assert_eq!(contribs.len(), 3, "Public variant 寄与分解は 3 軸");
+        assert!(
+            !contribs
+                .iter()
+                .any(|c| matches!(c.axis, AxisName::VacancyRate)),
+            "Public variant 寄与分解に VacancyRate を含まない"
+        );
+        // 3 軸全て登場
+        assert!(contribs
+            .iter()
+            .any(|c| matches!(c.axis, AxisName::JobRatio)));
+        assert!(contribs
+            .iter()
+            .any(|c| matches!(c.axis, AxisName::UnemploymentInv)));
+        assert!(contribs
+            .iter()
+            .any(|c| matches!(c.axis, AxisName::Separation)));
+    }
+
+    /// Public variant: 全データ空 → section 出力なし (fail-soft)
+    #[test]
+    fn public_variant_empty_renders_nothing() {
+        let ctx = build_test_ctx(vec![], vec![], vec![], vec![], vec![], vec![], None);
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+        assert!(html.is_empty(), "Public variant 全空でも section 非表示");
+    }
+
+    /// Public variant: 補助 KPI (開廃業動態) は Full と同様に表示される
+    #[test]
+    fn public_variant_business_dynamics_still_visible() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.0))])],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![row(&[
+                ("opening_rate", json!(5.2)),
+                ("closure_rate", json!(3.8)),
+            ])],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        assert!(
+            html.contains("data-testid=\"business-dynamics-card\""),
+            "Public variant でも補助 KPI 開廃業動態は表示"
+        );
+        assert!(html.contains("5.2"));
+        assert!(html.contains("3.8"));
+        assert!(html.contains("拡大基調"));
     }
 }
