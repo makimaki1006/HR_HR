@@ -529,9 +529,11 @@ fn render_action_bar(session_id: &str) -> String {
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <a href="/report/survey?session_id={sid}&variant=full" target="_blank" rel="noopener"
+                       onclick="return openVariantReport(event, '{sid}', 'full')"
+                       data-variant="full"
                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-400"
                        aria-label="HW併載版PDFレポートを新しいタブで開く（推奨）"
-                       title="HW併載版: ハローワーク掲載求人と統合分析を含む完全版（社内分析・既存ワークフロー向け）">
+                       title="HW併載版: ハローワーク掲載求人と統合分析を含む完全版（社内分析・既存ワークフロー向け）。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
                         <span class="text-base" aria-hidden="true">🏢</span>
                         <span class="flex flex-col items-start leading-tight">
                             <span>HW併載版 PDF</span>
@@ -539,9 +541,11 @@ fn render_action_bar(session_id: &str) -> String {
                         </span>
                     </a>
                     <a href="/report/survey?session_id={sid}&variant=public" target="_blank" rel="noopener"
+                       onclick="return openVariantReport(event, '{sid}', 'public')"
+                       data-variant="public"
                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
                        aria-label="公開データ中心版PDFレポートを新しいタブで開く"
-                       title="公開データ中心版: e-Stat等の公開統計を主軸とした版（対外提案・公開資料向け）">
+                       title="公開データ中心版: e-Stat等の公開統計を主軸とした版（対外提案・公開資料向け）。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
                         <span class="text-base" aria-hidden="true">🌍</span>
                         <span class="flex flex-col items-start leading-tight">
                             <span>公開データ中心版 PDF</span>
@@ -550,8 +554,33 @@ fn render_action_bar(session_id: &str) -> String {
                     </a>
                 </div>
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                    同じCSVから異なる視点で2バリアントを生成可能。<strong class="text-slate-200">HW併載版</strong>はハローワーク掲載求人との統合分析を含む完全版（社内分析向け）、<strong class="text-slate-200">公開データ中心版</strong>はe-Stat等の公開データを主軸とした版（対外提案向け）です。両バリアントを試して比較できます。
+                    同じCSVから異なる視点で2バリアントを生成可能。<strong class="text-slate-200">HW併載版</strong>はハローワーク掲載求人との統合分析を含む完全版（社内分析向け）、<strong class="text-slate-200">公開データ中心版</strong>はe-Stat等の公開データを主軸とした版（対外提案向け）です。両バリアントを試して比較できます。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
                 </p>
+                <script>
+                /* 2026-04-29: グローバルフィルタの値を読んでレポート URL に付与 */
+                if (typeof window.openVariantReport !== 'function') {{
+                    window.openVariantReport = function(ev, sid, variant) {{
+                        try {{
+                            var pref = (document.getElementById('pref-select') || {{}}).value || '';
+                            var muni = (document.getElementById('muni-select') || {{}}).value || '';
+                            var industries = (typeof _selectedIndustryRaws !== 'undefined' && Array.isArray(_selectedIndustryRaws))
+                                ? _selectedIndustryRaws : [];
+                            var industry = industries.length > 0 ? industries[0] : '';
+                            var url = '/report/survey?session_id=' + encodeURIComponent(sid)
+                                + '&variant=' + encodeURIComponent(variant);
+                            if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
+                            if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
+                            if (industry) url += '&industry=' + encodeURIComponent(industry);
+                            if (ev) ev.preventDefault();
+                            window.open(url, '_blank', 'noopener');
+                            return false;
+                        }} catch (e) {{
+                            console.error('openVariantReport failed', e);
+                            return true; /* fallback to static href */
+                        }}
+                    }};
+                }}
+                </script>
             </div>
             <!-- セカンダリ動線: ボタングループ化（HTMLダウンロード + 別CSV） -->
             <div class="flex flex-wrap gap-2" role="group" aria-label="その他の出力">
