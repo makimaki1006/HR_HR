@@ -221,6 +221,150 @@ pub(super) fn render_section_company_segments(
         調査時点の公開情報に基づきます。</p>\n",
     );
 
+    // 2026-04-29 (中立化 v2): バイネームに頼らない「規模帯別の構造サマリ + ルールベース示唆」
+    // ユーザー指摘:
+    // > 大手だけでもしょうがない / 中小顧客が多い / 大手顧客は大手のベンチマーク動向が気になる
+    // > 両方羅列するとメッセージが希薄化する → 共通する尖った特徴 / 規模帯別の工夫を見せる
+    let summary = segments.structural_summary();
+    if summary.total_count() > 0 {
+        // テーブル番号は 5-0 (構造サマリ) として、後続のヒストグラム 5-0 と区別するため
+        // ここでは見出しのみテキストで提示 (render_table_number は使わない)
+        html.push_str("<h3 style=\"font-size:12pt;margin:10px 0 4px;\">表 5-0a 地域企業 構造サマリ (規模帯別の傾向値、バイネーム非依存)</h3>\n");
+        html.push_str("<div class=\"structural-summary\" style=\"margin:6px 0 14px;padding:10px 14px;background:#f0f9ff;border-left:4px solid #0ea5e9;border-radius:3px;font-size:10pt;line-height:1.7;\">\n");
+        html.push_str("<div style=\"font-weight:700;color:#0c4a6e;margin-bottom:6px;\">📊 地域企業 構造サマリ (バイネーム非依存の傾向値)</div>\n");
+
+        // テーブル形式で規模帯別を提示
+        html.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:10pt;\">\n");
+        html.push_str(
+            "<thead><tr style=\"background:#bae6fd;\">\
+             <th style=\"text-align:left;padding:4px 8px;\">規模帯</th>\
+             <th style=\"text-align:right;padding:4px 8px;\">社数</th>\
+             <th style=\"text-align:right;padding:4px 8px;\">構成比</th>\
+             <th style=\"text-align:right;padding:4px 8px;\">平均 1y 人員推移</th>\
+             <th style=\"text-align:right;padding:4px 8px;\">HW 求人継続率</th>\
+             </tr></thead>\n<tbody>\n",
+        );
+        let total = summary.total_count() as f64;
+        let bands: [(&str, usize, f64, f64); 3] = [
+            (
+                "大手 (300+ 名)",
+                summary.large_count,
+                summary.large_avg_growth_pct,
+                summary.large_hw_continuity_pct,
+            ),
+            (
+                "中規模 (50-299 名)",
+                summary.mid_count,
+                summary.mid_avg_growth_pct,
+                summary.mid_hw_continuity_pct,
+            ),
+            (
+                "小規模 (<50 名)",
+                summary.small_count,
+                summary.small_avg_growth_pct,
+                summary.small_hw_continuity_pct,
+            ),
+        ];
+        for (label, count, growth, hw_cont) in bands.iter() {
+            let pct = if total > 0.0 {
+                *count as f64 / total * 100.0
+            } else {
+                0.0
+            };
+            html.push_str(&format!(
+                "<tr><td style=\"padding:4px 8px;\">{}</td>\
+                 <td style=\"text-align:right;padding:4px 8px;\">{} 社</td>\
+                 <td style=\"text-align:right;padding:4px 8px;\">{:.0}%</td>\
+                 <td style=\"text-align:right;padding:4px 8px;\">{:+.1}%</td>\
+                 <td style=\"text-align:right;padding:4px 8px;\">{:.0}%</td></tr>\n",
+                escape_html(label),
+                count,
+                pct,
+                growth,
+                hw_cont
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+
+        // ルールベース示唆: 規模帯間の乖離 / 共通点を抽出
+        let mut takeaways: Vec<String> = Vec::new();
+        let growth_spread = summary.growth_spread_pct();
+        let hw_spread = summary.hw_continuity_spread_pct();
+
+        if growth_spread >= 5.0 {
+            // 規模間で人員推移の差が大きい
+            let max = summary
+                .large_avg_growth_pct
+                .max(summary.mid_avg_growth_pct)
+                .max(summary.small_avg_growth_pct);
+            let max_label = if (max - summary.large_avg_growth_pct).abs() < 0.01 {
+                "大手"
+            } else if (max - summary.mid_avg_growth_pct).abs() < 0.01 {
+                "中規模"
+            } else {
+                "小規模"
+            };
+            takeaways.push(format!(
+                "規模帯で人員推移に <strong>{:.1}pt の差</strong>がある (最も拡大しているのは <strong>{}</strong>)。\
+                 規模により採用市況の温度感が異なる地域である可能性。",
+                growth_spread, max_label
+            ));
+        } else if growth_spread < 2.0 && summary.total_count() >= 5 {
+            // 規模を横断して傾向が揃っている
+            let avg = (summary.large_avg_growth_pct
+                + summary.mid_avg_growth_pct
+                + summary.small_avg_growth_pct)
+                / 3.0;
+            takeaways.push(format!(
+                "規模帯を横断して人員推移はほぼ均一 (差 {:.1}pt 以内、平均 {:+.1}%)。\
+                 地域全体で同方向の動き = <strong>規模に関わらず共通する地域要因</strong>がある可能性。",
+                growth_spread, avg
+            ));
+        }
+
+        if hw_spread >= 20.0 {
+            let max = summary
+                .large_hw_continuity_pct
+                .max(summary.mid_hw_continuity_pct)
+                .max(summary.small_hw_continuity_pct);
+            let max_label = if (max - summary.large_hw_continuity_pct).abs() < 0.01 {
+                "大手"
+            } else if (max - summary.mid_hw_continuity_pct).abs() < 0.01 {
+                "中規模"
+            } else {
+                "小規模"
+            };
+            takeaways.push(format!(
+                "HW 求人継続率は規模帯で <strong>{:.0}pt の差</strong> ({} が最も高い)。\
+                 規模ごとに HW 媒体の活用度が異なる傾向。",
+                hw_spread, max_label
+            ));
+        }
+
+        if takeaways.is_empty() {
+            takeaways.push(
+                "規模帯による傾向差は小さく、地域全体で標準的な分布。個別企業の動向で差別化要素を探す余地あり。"
+                    .to_string(),
+            );
+        }
+
+        html.push_str("<div style=\"margin-top:8px;padding:6px 10px;background:#fff;border-radius:3px;\">\n");
+        html.push_str("<div style=\"font-weight:600;color:#0c4a6e;margin-bottom:4px;font-size:9.5pt;\">▶ 地域全体の傾向 (ルールベース解釈、参考値)</div>\n");
+        html.push_str("<ul style=\"margin:0;padding-left:18px;font-size:9.5pt;line-height:1.7;\">\n");
+        for t in &takeaways {
+            html.push_str(&format!("<li>{}</li>\n", t));
+        }
+        html.push_str("</ul>\n");
+        html.push_str("</div>\n");
+
+        html.push_str(&format!(
+            "<p style=\"font-size:9pt;color:#64748b;margin:6px 0 0;\">\u{203B} 集計対象: 4 セグメント抽出後の重複除去ベース ({} 社)。\
+             pool は employee_count 降順 Top 100 で取得しており、極小規模 (<10 名) はサンプル少ない可能性。</p>\n",
+            summary.total_count()
+        ));
+        html.push_str("</div>\n");
+    }
+
     // 規模分布ヒストグラム (簡易バーチャート、テキストベース)
     let hist = segments.size_histogram();
     let total: usize = hist.iter().map(|(_, n)| n).sum();
