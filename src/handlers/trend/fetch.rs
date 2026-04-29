@@ -257,10 +257,54 @@ pub(crate) fn fetch_ext_minimum_wage_history(turso: &TursoDb, pref: &str) -> Vec
 /// 入職・離職率の年度別推移（v2_external_turnover）
 /// 産業計のみ取得
 pub(crate) fn fetch_ext_turnover(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    fetch_ext_turnover_with_industry(turso, pref, None)
+}
+
+/// 2026-04-30: 業界フィルタ対応版
+///
+/// `industry` が None または空 → 「産業計」(既存挙動)
+/// `industry` 指定 → 当該大分類で絞り込み (LIKE 部分一致、e-Stat の industry カラム値の揺らぎ吸収)
+///
+/// 例: industry="医療,福祉" → `industry LIKE '%医療%'` で「医療」「医療,福祉」「医療業」等にマッチ
+pub(crate) fn fetch_ext_turnover_with_industry(
+    turso: &TursoDb,
+    pref: &str,
+    industry: Option<&str>,
+) -> Vec<Row> {
     let effective_pref = if pref.is_empty() { "全国" } else { pref };
-    let sql = "SELECT fiscal_year, entry_rate, separation_rate, net_rate \
-               FROM v2_external_turnover \
-               WHERE prefecture = ?1 AND industry = '産業計' \
-               ORDER BY fiscal_year";
-    query_turso(turso, sql, &[effective_pref.to_string()])
+    match industry.filter(|s| !s.is_empty()) {
+        None => {
+            // 既存挙動: 産業計
+            let sql = "SELECT fiscal_year, entry_rate, separation_rate, net_rate \
+                       FROM v2_external_turnover \
+                       WHERE prefecture = ?1 AND industry = '産業計' \
+                       ORDER BY fiscal_year";
+            query_turso(turso, sql, &[effective_pref.to_string()])
+        }
+        Some(ind) => {
+            // 大分類 (例「医療,福祉」) → 先頭部 (「医療」) を LIKE キーワードに
+            let head: String = ind.chars().take_while(|c| *c != ',' && *c != '，').collect();
+            let kw = if head.is_empty() {
+                ind.to_string()
+            } else {
+                head
+            };
+            let pattern = format!("%{}%", kw);
+            let sql = "SELECT fiscal_year, entry_rate, separation_rate, net_rate \
+                       FROM v2_external_turnover \
+                       WHERE prefecture = ?1 AND industry LIKE ?2 AND industry != '産業計' \
+                       ORDER BY fiscal_year";
+            let rows = query_turso(turso, sql, &[effective_pref.to_string(), pattern]);
+            // 同業界マッチ 0 件時は産業計にフォールバック (caveat は呼び出し側で notes 追加)
+            if rows.is_empty() {
+                let fallback = "SELECT fiscal_year, entry_rate, separation_rate, net_rate \
+                                FROM v2_external_turnover \
+                                WHERE prefecture = ?1 AND industry = '産業計' \
+                                ORDER BY fiscal_year";
+                query_turso(turso, fallback, &[effective_pref.to_string()])
+            } else {
+                rows
+            }
+        }
+    }
 }
