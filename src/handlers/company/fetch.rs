@@ -760,6 +760,77 @@ pub struct RegionalCompanySegments {
     pub hiring: Vec<NearbyCompany>,
 }
 
+/// 規模帯別の集約サマリ (バイネームではなく傾向値ベース)
+///
+/// 2026-04-29 追加: ユーザー指摘
+/// > 大手だけ出してもしょうがない / 中小顧客が多い
+/// > エンタープライズ顧客は大手のベンチマーク動向が気になる
+/// > 両方羅列するとメッセージが希薄化する
+///
+/// 個別バイネーム表に頼らず、規模帯ごとの集約値で「規模帯別の傾向」と
+/// 「規模を横断する共通点 / 乖離点」をルールベース提示するためのデータ構造。
+#[derive(Debug, Default, Clone)]
+pub struct StructuralSummary {
+    /// 大手 (300+ 名) の社数
+    pub large_count: usize,
+    /// 中規模 (50-299 名) の社数
+    pub mid_count: usize,
+    /// 小規模 (<50 名) の社数
+    pub small_count: usize,
+    /// 大手の平均人員推移 (%、1y)
+    pub large_avg_growth_pct: f64,
+    /// 中規模の平均人員推移 (%、1y)
+    pub mid_avg_growth_pct: f64,
+    /// 小規模の平均人員推移 (%、1y)
+    pub small_avg_growth_pct: f64,
+    /// 大手の HW 求人継続率 (求人 1 件以上を出している企業の比率)
+    pub large_hw_continuity_pct: f64,
+    /// 中規模の HW 求人継続率
+    pub mid_hw_continuity_pct: f64,
+    /// 小規模の HW 求人継続率
+    pub small_hw_continuity_pct: f64,
+    /// pool サイズ (caveat 用)
+    pub pool_size: usize,
+}
+
+impl StructuralSummary {
+    pub fn total_count(&self) -> usize {
+        self.large_count + self.mid_count + self.small_count
+    }
+
+    /// 規模間の人員推移格差 (max - min)、規模間で乖離が大きいか判断する指標
+    pub fn growth_spread_pct(&self) -> f64 {
+        let vals = [
+            self.large_avg_growth_pct,
+            self.mid_avg_growth_pct,
+            self.small_avg_growth_pct,
+        ];
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        if max.is_finite() && min.is_finite() {
+            max - min
+        } else {
+            0.0
+        }
+    }
+
+    /// 規模帯別の HW 求人継続率の最大 - 最小
+    pub fn hw_continuity_spread_pct(&self) -> f64 {
+        let vals = [
+            self.large_hw_continuity_pct,
+            self.mid_hw_continuity_pct,
+            self.small_hw_continuity_pct,
+        ];
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        if max.is_finite() && min.is_finite() {
+            max - min
+        } else {
+            0.0
+        }
+    }
+}
+
 impl RegionalCompanySegments {
     /// すべて空か (fail-soft 用)
     pub fn is_empty(&self) -> bool {
@@ -767,6 +838,73 @@ impl RegionalCompanySegments {
             && self.mid.is_empty()
             && self.growth.is_empty()
             && self.hiring.is_empty()
+    }
+
+    /// 規模帯別の集約サマリを計算 (バイネーム不要のベンチマーク用)
+    ///
+    /// pool の重複除去後の集約値を返す。pool は employee_count DESC で
+    /// 取得しているため、極小規模 (<10 名) のサンプルは少ない可能性がある。
+    pub fn structural_summary(&self) -> StructuralSummary {
+        // 4 セグメントを和集合で重複除去 (corporate_number 基準)
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut all: Vec<&NearbyCompany> = Vec::new();
+        for seg in [&self.large, &self.mid, &self.growth, &self.hiring] {
+            for c in seg {
+                if seen.insert(c.corporate_number.clone()) {
+                    all.push(c);
+                }
+            }
+        }
+
+        // 規模帯ごとに集計
+        let mut large: Vec<&NearbyCompany> = Vec::new();
+        let mut mid: Vec<&NearbyCompany> = Vec::new();
+        let mut small: Vec<&NearbyCompany> = Vec::new();
+        for c in &all {
+            if c.employee_count >= 300 {
+                large.push(c);
+            } else if c.employee_count >= 50 {
+                mid.push(c);
+            } else if c.employee_count > 0 {
+                small.push(c);
+            }
+        }
+
+        let avg_growth = |v: &[&NearbyCompany]| -> f64 {
+            // employee_delta_1y は 0.10 = 10% で格納。% 換算は * 100
+            let valid: Vec<f64> = v
+                .iter()
+                .map(|c| c.employee_delta_1y)
+                .filter(|x| x.is_finite() && x.abs() < 5.0) // 異常値除去 (>500% 等)
+                .collect();
+            if valid.is_empty() {
+                0.0
+            } else {
+                valid.iter().sum::<f64>() / valid.len() as f64 * 100.0
+            }
+        };
+
+        let hw_continuity = |v: &[&NearbyCompany]| -> f64 {
+            if v.is_empty() {
+                0.0
+            } else {
+                let with_hw = v.iter().filter(|c| c.hw_posting_count > 0).count();
+                with_hw as f64 / v.len() as f64 * 100.0
+            }
+        };
+
+        StructuralSummary {
+            large_count: large.len(),
+            mid_count: mid.len(),
+            small_count: small.len(),
+            large_avg_growth_pct: avg_growth(&large),
+            mid_avg_growth_pct: avg_growth(&mid),
+            small_avg_growth_pct: avg_growth(&small),
+            large_hw_continuity_pct: hw_continuity(&large),
+            mid_hw_continuity_pct: hw_continuity(&mid),
+            small_hw_continuity_pct: hw_continuity(&small),
+            pool_size: self.pool_size,
+        }
     }
 
     /// 規模分布ヒストグラム (5 階級: <10 / 10-49 / 50-299 / 300-999 / 1000+)
