@@ -27,19 +27,20 @@ pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[
     html.push_str(
         "<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
     );
-    html.push_str("<h2 id=\"region-featured-title\">第5章 地域注目企業</h2>\n");
-    // feedback_correlation_not_causation.md 準拠:
-    //   「HW多 = 採用活発」のような因果断定を避け、両方向の解釈余地を明示する。
-    //   採用困難ゆえに HW にも掲載しているケース（逆方向）も含まれることを注記。
-    // feedback_hw_data_scope.md 準拠:
-    //   組織改編・統計粒度の揺らぎを含む参考値であることを明示。
+    html.push_str("<h2 id=\"region-featured-title\">第5章 地域注目企業 (規模の大きい順)</h2>\n");
+    // 2026-04-29 中立化:
+    //   ユーザー指摘「掲載企業は提出先企業自身を含む可能性があるため、敵対的表現は不適切」に対応。
+    //   「採用活動度 高/中/低」のような評価ラベルや、「採用活発」「逆方向」等の対立的解釈を排除。
+    //   本セクションは <strong>地域内ベンチマーク参考</strong>として位置付ける。
+    // feedback_correlation_not_causation.md / feedback_hw_data_scope.md 準拠継続。
     html.push_str(
         "<p class=\"section-sowhat\" contenteditable=\"true\" spellcheck=\"false\">\
-        \u{203B} 地域内で従業員数の多い 30 社を整理しています。\
+        \u{203B} 地域内で従業員数の多い 30 社を <strong>地域内ベンチマーク参考</strong>として整理しています。\
+        掲載企業には貴社・貴社の取引先・関連会社が含まれる可能性があり、敵対視や差別化を意図しません。\
         HW 求人件数が多い法人は採用活動が活発な可能性がありますが、\
-        反対に採用が難航しているために HW にも掲載しているケースも含まれるため、両方向の解釈に注意してください。\
-        売上規模・人員推移は外部企業 DB 由来の参考値で、直近の組織改編や統計粒度による揺らぎを含む点にご留意ください。\
-        本セクションの数値は相関の観測であり、因果関係を主張するものではありません。</p>\n",
+        反対に採用が難航しているために HW にも掲載しているケース (求人が長く埋まらず継続掲載されている等) も含まれるため、両方向の解釈に注意してください。\
+        売上規模・人員推移は外部企業 DB の参照時点に依存し、組織改編 (合併・分社) ・統計粒度 (連結⇄単体) の揺らぎを含む参考値です。\
+        本セクションの数値は相関の観測であり、因果関係や採用優劣を主張するものではありません。</p>\n",
     );
     // 組織改編・粒度ゆらぎ注記をグレーバナーで強調 (UI-3)
     html.push_str(
@@ -48,31 +49,23 @@ pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[
          直近の組織改編（合併・分社）・統計粒度の揺らぎ（連結⇄単体）により実態と乖離する場合があります。\
          また、HW industry_mapping の confidence < 0.7 の業種分類は推定を含みます。</div>\n",
     );
-    // 採用活動度スコアの読み方を凡例として提示
-    html.push_str("<div style=\"display:flex;flex-wrap:wrap;gap:12px;margin:6px 0 8px;\">");
-    html.push_str(&render_legend_emoji(
-        ReportSeverity::Critical,
-        "採用活動度 高（HW件数多×人員増）",
-    ));
-    html.push_str(&render_legend_emoji(
-        ReportSeverity::Warning,
-        "採用活動度 中（中規模採用）",
-    ));
-    html.push_str(&render_legend_emoji(
-        ReportSeverity::Info,
-        "採用活動度 低（参考値）",
-    ));
+    // 「観測指標」凡例 (採点的色分けではなく、HW 求人 + 人員推移 の参考指標として中立記述)
+    html.push_str("<div style=\"display:flex;flex-wrap:wrap;gap:12px;margin:6px 0 8px;font-size:9.5pt;color:#475569;\">");
+    html.push_str(
+        "<span>\u{2139} <strong>観測指標</strong>: HW 求人数 × 1 年人員推移 を合成した参考値です。\
+         値の大小は調査時点の公開情報の <em>多寡を機械的に示すもの</em>であり、企業の優劣評価ではありません。</span>",
+    );
     html.push_str("</div>\n");
-    // 表番号 (表 5-1) — 「ランキング」「上位」は禁止ワードのため、別表現を採用
+    // 表番号 (表 5-1)
     html.push_str(&render_table_number(
         5,
         1,
-        "地域注目企業 一覧（従業員数の多い 30 社）",
+        "地域企業 一覧（従業員数の多い 30 社、ベンチマーク参考）",
     ));
     html.push_str(&render_reading_callout(
-        "「採用活動度」列は HW 求人数と 1 年人員推移を合成した参考スコアです。\
-         スコアが高くても採用成功を意味するわけではなく、求人を出しているという観測のみを示します。\
-         接触判断は他指標と併せて行ってください。",
+        "「観測指標」列は HW 求人数と 1 年人員推移を合成した参考値です。\
+         値が大きい企業は調査時点の公開情報量が多いことを示すのみで、採用成功や経営優劣を意味しません。\
+         本表は地域全体の構造把握用ベンチマークとして参照してください。",
     ));
     html.push_str("<table class=\"data-table report-zebra\">\n");
     html.push_str("<thead><tr>");
@@ -86,7 +79,7 @@ pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[
         "1年人員推移",
         "3ヶ月人員推移",
         "HW求人数",
-        "採用活動度",
+        "観測指標", // 2026-04-29 中立化: 「採用活動度」(評価語) → 「観測指標」(中立)
     ] {
         html.push_str(&format!("<th>{}</th>", escape_html(h)));
     }
@@ -196,11 +189,17 @@ pub(super) fn format_sales_cell(amount: f64, range: &str) -> String {
     format!("{}{}", escape_html(&amount_display), range_display)
 }
 
-/// 4 セグメント (大手 / 中堅 / 急成長 / 採用活発) の地域企業を表示
+/// 地域企業の 4 軸ベンチマーク (規模上位 / 中規模層 / 人員拡大期 / 求人積極期)
 ///
-/// 2026-04-29 追加: ユーザー指摘「今は地元の大手しか表示されてない」に対応。
-/// 単一 employee_count 降順では多様な競合が見えないため、規模・成長率・HW 採用件数の
-/// 3 軸でセグメント抽出し、各 Top 10 を 4 ブロックでカード表示する。
+/// 2026-04-29 追加 → 同日改訂 (中立化):
+/// ユーザー指摘「掲載企業は提出先企業自身を含む可能性が高く、敵対表現は不適切」に対応。
+/// 「競合分析」「採用活発」のような評価的表現を、純粋な記述的セグメントに変更:
+///   - 規模上位 (employee_count Top)
+///   - 中規模層 (50-300 名)
+///   - 人員拡大期 (1y 推移 +10% 以上)
+///   - 求人積極期 (HW 求人 5 件以上)
+/// **本セクションは地域内の自社ポジション確認用ベンチマーク**であり、
+/// 個別企業の評価・優劣判定を目的としない。
 pub(super) fn render_section_company_segments(
     html: &mut String,
     segments: &super::super::super::company::fetch::RegionalCompanySegments,
@@ -211,14 +210,15 @@ pub(super) fn render_section_company_segments(
     html.push_str(
         "<section class=\"section\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
     );
-    html.push_str("<h2 id=\"region-segments-title\">第5章 地域企業 多面分析</h2>\n");
+    html.push_str("<h2 id=\"region-segments-title\">第5章 地域企業 ベンチマーク (規模・人員推移・求人動向)</h2>\n");
     html.push_str(
         "<p class=\"section-sowhat\">\
-        \u{203B} 地域内の企業を **規模・成長率・採用活発度** の 3 軸で抽出し、それぞれ最大 10 社ずつ提示します。\
-        単一の「従業員数 Top」一覧では大手しか見えないため、中堅・急成長・採用活発の 3 セグメントを併記し、\
-        媒体提案先・競合分析の幅を広げます。\
+        \u{203B} 地域内の企業を **規模・人員推移・求人動向** の 3 観点で抽出し、それぞれ最大 10 社ずつ提示します。\
+        本セクションは <strong>自社が地域内でどの位置にあるかを確認するためのベンチマーク</strong>であり、\
+        個別企業の優劣評価や敵対視を目的としません。\
+        掲載企業には貴社・貴社の取引先・関連会社が含まれる可能性があります。\
         各指標は外部企業 DB (SalesNow) と HW 公開求人データ由来の参考値で、\
-        因果関係や採用成否を保証するものではありません。</p>\n",
+        調査時点の公開情報に基づきます。</p>\n",
     );
 
     // 規模分布ヒストグラム (簡易バーチャート、テキストベース)
@@ -254,33 +254,35 @@ pub(super) fn render_section_company_segments(
         html.push_str("</div>\n");
     }
 
-    // 4 セグメントカード
+    // 4 セグメントカード (中立的な記述ラベルに統一)
+    // 評価的表現「急成長」「採用活発」「競合」「リスク」は意図的に回避し、
+    // 純粋な観測カテゴリ (拡大期 / 積極期 / 規模帯) で記述する。
     let segment_blocks: [(&str, &str, &str, &[NearbyCompany], &str); 4] = [
         (
-            "🏢 大手",
+            "🏢 規模の大きい層",
             "従業員数の多い 10 社",
-            "地域内の主要プレイヤー。求人媒体・採用施策の事例参考に。",
+            "地域内で従業員規模の大きい企業群。自社が同規模帯にある場合のベンチマーク参考。",
             &segments.large,
             "regional-segment-large",
         ),
         (
-            "🏬 中堅",
+            "🏬 中規模層 (50-300 名)",
             "50-300 名規模 10 社",
-            "中規模採用ターゲット。採用施策のスケール感が近い競合候補。",
+            "地域内の中規模帯。自社が同帯にある場合の隣接ベンチマーク参考。",
             &segments.mid,
             "regional-segment-mid",
         ),
         (
-            "📈 急成長",
-            "1 年人員推移 +10% 超 10 社",
-            "急速に人員拡大中の地域企業。採用競合化リスクあり。",
+            "📈 人員拡大期 (1y +10% 超)",
+            "過去 1 年で人員が +10% 以上増加した 10 社",
+            "公開情報上、過去 1 年で人員が拡大している地域企業群。地域全体の採用市況の参考指標。",
             &segments.growth,
             "regional-segment-growth",
         ),
         (
-            "🎯 採用活発",
-            "HW 求人 5 件以上 10 社",
-            "現在進行形で採用中の地域企業。媒体出稿の競合タイミング。",
+            "🎯 求人積極期 (HW 5 件以上)",
+            "ハローワークで 5 件以上の求人を継続している 10 社",
+            "公開情報上、HW で複数件の求人を出している地域企業群。地域の採用動向の参考指標。",
             &segments.hiring,
             "regional-segment-hiring",
         ),
@@ -331,14 +333,23 @@ pub(super) fn render_section_company_segments(
         html.push_str("</tbody></table>\n</div>\n");
     }
 
-    // 注記
+    // 注記 (中立化済み・敵対表現を排除)
     html.push_str(
-        "<p class=\"caveat\" style=\"font-size:9.5pt;color:#6b7280;margin-top:12px;\">\
-         ⚠ 各セグメントは規模・成長率・HW 求人数の閾値で機械的に抽出しています。\
-         「採用活発」は HW 掲載求人ベースで、職業紹介経由・自社サイト求人は含まれません。\
-         「急成長」は 1 年人員推移ベースで、組織改編・連結⇄単体の影響を含む可能性があります。\
-         実際の競合・接触判断は本表と他指標 (給与水準・職種マッチング等) を併せて判断してください。\
-         本セクションは相関の可視化であり、因果関係や採用成否を主張するものではありません。</p>\n",
+        "<div class=\"caveat\" style=\"font-size:9.5pt;color:#475569;margin-top:12px;padding:8px 12px;background:#f8fafc;border-left:3px solid #94a3b8;border-radius:3px;\">\
+         <p style=\"margin:0 0 6px;\"><strong>⚠ ベンチマーク利用上の注意</strong></p>\
+         <ul style=\"margin:0;padding-left:20px;line-height:1.7;\">\
+         <li>各カテゴリは規模・人員推移・HW 求人数の閾値で機械的に抽出した <strong>地域全体の構造の参考値</strong>であり、\
+             個別企業の経営判断や採用優劣を評価するものではありません。</li>\
+         <li><strong>掲載企業には貴社・貴社の取引先・関連会社・グループ企業が含まれる可能性があります。</strong>\
+             本表は調査時点の公開情報 (外部企業 DB + HW 公開求人) を機械的に集計したもので、敵対視や差別化を意図しません。</li>\
+         <li>「人員拡大期」は 1 年人員推移ベースで、組織改編 (合併・分社) ・連結⇄単体の切替の影響を含む可能性があります。\
+             実態の人員拡大かどうかは個別に確認してください。</li>\
+         <li>「求人積極期」は HW 掲載求人ベースで、職業紹介事業者経由・自社サイト求人・非公開求人は含まれません。\
+             採用活動の全体像を表すものではありません。</li>\
+         <li>本セクションは <strong>自社のポジション確認用ベンチマーク</strong>であり、\
+             相関の可視化に留まります。因果関係や採用成否を主張するものではありません。</li>\
+         </ul>\
+         </div>\n",
     );
 
     html.push_str("</section>\n");
