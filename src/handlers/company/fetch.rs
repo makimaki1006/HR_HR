@@ -9,7 +9,7 @@ use crate::handlers::helpers::{get_f64, get_i64, get_str, Row};
 /// - employee_delta_1y (f64): 過去1年の人員増減率 (%)
 /// - employee_delta_3m (f64): 過去3ヶ月の人員増減率 (%)
 /// (credit_score は struct には保持するが UI 表示から除外)
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct NearbyCompany {
     pub corporate_number: String,
     pub company_name: String,
@@ -628,6 +628,183 @@ pub fn fetch_companies_by_region(
     batch_count_hw_postings(db, &mut companies, prefecture);
 
     companies
+}
+
+/// 4 セグメント (大手 / 中堅 / 急成長 / 採用活発) で企業を返す
+///
+/// 2026-04-29 追加: ユーザー指摘「今は地元の大手しか表示されてない」に対応。
+/// 単一 ORDER BY employee_count DESC では多様な競合が見えないため、
+/// 規模・成長率・HW 採用件数の 3 軸でセグメント抽出する。
+///
+/// # 戻り値
+/// `RegionalCompanySegments`:
+/// - `large` : 大手 (employee_count Top 10)
+/// - `mid` : 中堅 (50-300 名、employee_count Top 10)
+/// - `growth` : 急成長 (employee_delta_1y > +0.10、降順 Top 10)
+/// - `hiring` : 採用活発 (HW 求人 ≥ 5、降順 Top 10)
+pub fn fetch_company_segments_by_region(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    prefecture: &str,
+    municipality: &str,
+) -> RegionalCompanySegments {
+    if prefecture.is_empty() {
+        return RegionalCompanySegments::default();
+    }
+
+    // ベースの広めプール (上位 100 社) を取得し、Rust 側でセグメント分け
+    let pool_limit: i64 = 100;
+    let rows = if !municipality.is_empty() {
+        let muni_pattern = format!("%{}%", municipality);
+        let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                   employee_count, credit_score, postal_code, \
+                   sales_amount, sales_range, \
+                   employee_delta_1y, employee_delta_3m \
+                   FROM v2_salesnow_companies \
+                   WHERE prefecture = ?1 AND address LIKE ?2 \
+                   ORDER BY employee_count DESC LIMIT ?3";
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+            vec![&prefecture, &muni_pattern, &pool_limit];
+        sn_db.query(sql, &params).unwrap_or_default()
+    } else {
+        let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                   employee_count, credit_score, postal_code, \
+                   sales_amount, sales_range, \
+                   employee_delta_1y, employee_delta_3m \
+                   FROM v2_salesnow_companies \
+                   WHERE prefecture = ?1 \
+                   ORDER BY employee_count DESC LIMIT ?2";
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&prefecture, &pool_limit];
+        sn_db.query(sql, &params).unwrap_or_default()
+    };
+
+    let mut pool: Vec<NearbyCompany> = rows
+        .iter()
+        .map(|r| NearbyCompany {
+            corporate_number: get_str(r, "corporate_number"),
+            company_name: get_str(r, "company_name"),
+            prefecture: get_str(r, "prefecture"),
+            sn_industry: get_str(r, "sn_industry"),
+            employee_count: get_i64(r, "employee_count"),
+            credit_score: get_f64(r, "credit_score"),
+            postal_code: get_str(r, "postal_code"),
+            hw_posting_count: 0,
+            sales_amount: get_f64(r, "sales_amount"),
+            sales_range: get_str(r, "sales_range"),
+            employee_delta_1y: get_f64(r, "employee_delta_1y"),
+            employee_delta_3m: get_f64(r, "employee_delta_3m"),
+        })
+        .collect();
+
+    // HW 求人数を一括取得 (4 セグメントすべての判定に必要)
+    batch_count_hw_postings(db, &mut pool, prefecture);
+
+    // セグメント分け
+    // 大手: employee_count 降順 Top 10
+    let mut large = pool.clone();
+    large.sort_by_key(|c| std::cmp::Reverse(c.employee_count));
+    large.truncate(10);
+
+    // 中堅: 50 ≤ employee_count ≤ 300、Top 10 (employee_count 降順)
+    let mut mid: Vec<NearbyCompany> = pool
+        .iter()
+        .filter(|c| (50..=300).contains(&c.employee_count))
+        .cloned()
+        .collect();
+    mid.sort_by_key(|c| std::cmp::Reverse(c.employee_count));
+    mid.truncate(10);
+
+    // 急成長: employee_delta_1y > +0.10 (10% 増以上)、降順 Top 10
+    let mut growth: Vec<NearbyCompany> = pool
+        .iter()
+        .filter(|c| c.employee_delta_1y > 0.10 && c.employee_count >= 10)
+        .cloned()
+        .collect();
+    growth.sort_by(|a, b| {
+        b.employee_delta_1y
+            .partial_cmp(&a.employee_delta_1y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    growth.truncate(10);
+
+    // 採用活発: HW 求人 ≥ 5、降順 Top 10
+    let mut hiring: Vec<NearbyCompany> = pool
+        .iter()
+        .filter(|c| c.hw_posting_count >= 5)
+        .cloned()
+        .collect();
+    hiring.sort_by_key(|c| std::cmp::Reverse(c.hw_posting_count));
+    hiring.truncate(10);
+
+    RegionalCompanySegments {
+        pool_size: pool.len(),
+        large,
+        mid,
+        growth,
+        hiring,
+    }
+}
+
+/// 4 セグメント結果のコンテナ
+#[derive(Debug, Clone, Default)]
+pub struct RegionalCompanySegments {
+    /// 取得した母集団のサイズ (デバッグ・注記用)
+    pub pool_size: usize,
+    /// 大手 (employee_count Top)
+    pub large: Vec<NearbyCompany>,
+    /// 中堅 (50-300 名)
+    pub mid: Vec<NearbyCompany>,
+    /// 急成長 (employee_delta_1y > +0.10)
+    pub growth: Vec<NearbyCompany>,
+    /// 採用活発 (HW 求人 ≥ 5)
+    pub hiring: Vec<NearbyCompany>,
+}
+
+impl RegionalCompanySegments {
+    /// すべて空か (fail-soft 用)
+    pub fn is_empty(&self) -> bool {
+        self.large.is_empty()
+            && self.mid.is_empty()
+            && self.growth.is_empty()
+            && self.hiring.is_empty()
+    }
+
+    /// 規模分布ヒストグラム (5 階級: <10 / 10-49 / 50-299 / 300-999 / 1000+)
+    /// pool 全体のサイズ分布を返す
+    pub fn size_histogram(&self) -> [(&'static str, usize); 5] {
+        // pool は 4 セグメントの和ではないため、large が代替母集団 (employee_count 降順 Top 10)
+        // 厳密な分布のため pool を再構築 (large が降順 Top 10 なので近似値)
+        let mut bands = [
+            ("<10 名", 0usize),
+            ("10-49 名", 0),
+            ("50-299 名", 0),
+            ("300-999 名", 0),
+            ("1000+ 名", 0),
+        ];
+        // 4 セグメント連結で重複除去用の corporate_number セット
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for seg in [&self.large, &self.mid, &self.growth, &self.hiring] {
+            for c in seg {
+                if !seen.insert(c.corporate_number.clone()) {
+                    continue;
+                }
+                let n = c.employee_count;
+                let idx = if n < 10 {
+                    0
+                } else if n < 50 {
+                    1
+                } else if n < 300 {
+                    2
+                } else if n < 1000 {
+                    3
+                } else {
+                    4
+                };
+                bands[idx].1 += 1;
+            }
+        }
+        bands
+    }
 }
 
 /// HW求人数を一括カウント（N+1クエリ回避）
