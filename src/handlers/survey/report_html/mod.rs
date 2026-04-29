@@ -57,6 +57,7 @@ use region::render_section_municipality_salary;
 use region::render_section_region;
 use region::render_section_region_extras;
 use salary_stats::render_section_salary_stats;
+use salesnow::render_section_company_segments;
 use salesnow::render_section_salesnow_companies;
 use scatter::render_section_scatter;
 use seeker::render_section_job_seeker;
@@ -316,6 +317,40 @@ pub(crate) fn render_survey_report_page_with_variant(
     salary_max_values: &[i64],
     hw_context: Option<&InsightContext>,
     salesnow_companies: &[NearbyCompany],
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+    municipality_demographics: &[super::granularity::MunicipalityDemographics],
+    variant: ReportVariant,
+) -> String {
+    // 4 セグメント未指定時は空 (後方互換)
+    let empty_segments = super::super::company::fetch::RegionalCompanySegments::default();
+    render_survey_report_page_with_variant_v2(
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
+        hw_context,
+        salesnow_companies,
+        &empty_segments,
+        hw_enrichment_map,
+        municipality_demographics,
+        variant,
+    )
+}
+
+/// 2026-04-29 v2: 4 セグメント企業 (大手 / 中堅 / 急成長 / 採用活発) 対応版
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_survey_report_page_with_variant_v2(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    salesnow_segments: &super::super::company::fetch::RegionalCompanySegments,
     hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
@@ -605,6 +640,14 @@ pub(crate) fn render_survey_report_page_with_variant(
     // --- Section 12: SalesNow 地域注目企業（非空のときのみ） ---
     if !salesnow_companies.is_empty() {
         render_section_salesnow_companies(&mut html, salesnow_companies);
+    }
+
+    // --- Section 12B (2026-04-29): SalesNow 4 セグメント (大手/中堅/急成長/採用活発) ---
+    // ユーザー指摘「今は地元の大手しか表示されてない」に対応。
+    // 既存「地域注目企業」が employee_count Top のみのため、規模・成長率・HW 採用件数の
+    // 3 軸でセグメント抽出した 4 ブロックを並列表示する。
+    if !salesnow_segments.is_empty() {
+        render_section_company_segments(&mut html, salesnow_segments);
     }
 
     // --- Section 13: 注記・出典・免責 (必須) ---

@@ -547,6 +547,26 @@ pub async fn survey_report_html(
         Vec::new()
     };
 
+    // F-2b (2026-04-29): SalesNow 4 セグメント企業 (大手 / 中堅 / 急成長 / 採用活発)
+    // ユーザー指摘「今は地元の大手しか表示されてない」に対応。
+    let salesnow_segments = if !pref.is_empty() {
+        if let (Some(sn_db), Some(hw_db)) = (state.salesnow_db.clone(), state.hw_db.clone()) {
+            let pref2 = pref.clone();
+            let muni2 = muni.clone();
+            tokio::task::spawn_blocking(move || {
+                super::super::company::fetch::fetch_company_segments_by_region(
+                    &sn_db, &hw_db, &pref2, &muni2,
+                )
+            })
+            .await
+            .unwrap_or_default()
+        } else {
+            Default::default()
+        }
+    } else {
+        Default::default()
+    };
+
     // HW enrichment map: CSV の (pref, muni) ごとに postings 実件数 + 時系列推移 + 欠員率
     let hw_enrichment_map = if let Some(hw_db) = state.hw_db.clone() {
         let turso = state.turso_db.clone();
@@ -590,7 +610,7 @@ pub async fn survey_report_html(
     let _ = (&pref, &muni);
     // 2026-04-29: variant 切替 (?variant=full|public)
     let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
-    let html = super::report_html::render_survey_report_page_with_variant(
+    let html = super::report_html::render_survey_report_page_with_variant_v2(
         &agg,
         &seeker,
         &by_company,
@@ -599,6 +619,7 @@ pub async fn survey_report_html(
         &salary_max_values,
         hw_ctx.as_ref(),
         &salesnow_companies,
+        &salesnow_segments,
         &hw_enrichment_map,
         &municipality_demographics,
         variant,

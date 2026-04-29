@@ -196,6 +196,154 @@ pub(super) fn format_sales_cell(amount: f64, range: &str) -> String {
     format!("{}{}", escape_html(&amount_display), range_display)
 }
 
+/// 4 セグメント (大手 / 中堅 / 急成長 / 採用活発) の地域企業を表示
+///
+/// 2026-04-29 追加: ユーザー指摘「今は地元の大手しか表示されてない」に対応。
+/// 単一 employee_count 降順では多様な競合が見えないため、規模・成長率・HW 採用件数の
+/// 3 軸でセグメント抽出し、各 Top 10 を 4 ブロックでカード表示する。
+pub(super) fn render_section_company_segments(
+    html: &mut String,
+    segments: &super::super::super::company::fetch::RegionalCompanySegments,
+) {
+    if segments.is_empty() {
+        return;
+    }
+    html.push_str(
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
+    );
+    html.push_str("<h2 id=\"region-segments-title\">第5章 地域企業 多面分析</h2>\n");
+    html.push_str(
+        "<p class=\"section-sowhat\">\
+        \u{203B} 地域内の企業を **規模・成長率・採用活発度** の 3 軸で抽出し、それぞれ最大 10 社ずつ提示します。\
+        単一の「従業員数 Top」一覧では大手しか見えないため、中堅・急成長・採用活発の 3 セグメントを併記し、\
+        媒体提案先・競合分析の幅を広げます。\
+        各指標は外部企業 DB (SalesNow) と HW 公開求人データ由来の参考値で、\
+        因果関係や採用成否を保証するものではありません。</p>\n",
+    );
+
+    // 規模分布ヒストグラム (簡易バーチャート、テキストベース)
+    let hist = segments.size_histogram();
+    let total: usize = hist.iter().map(|(_, n)| n).sum();
+    if total > 0 {
+        html.push_str(&render_table_number(
+            5,
+            0,
+            "セグメント企業の規模分布 (4 セグメント抽出後の重複除去ベース)",
+        ));
+        html.push_str("<div class=\"size-histogram\" style=\"margin:6px 0 12px;\">\n");
+        for (label, count) in hist.iter() {
+            let pct = if total > 0 {
+                (*count as f64 / total as f64 * 100.0).round() as u32
+            } else {
+                0
+            };
+            html.push_str(&format!(
+                "<div style=\"display:flex;align-items:center;gap:8px;margin:3px 0;font-size:10pt;\">\
+                 <span style=\"width:90px;\">{}</span>\
+                 <div style=\"flex:1;background:#f0f4f8;height:14px;border-radius:3px;position:relative;\">\
+                 <div style=\"background:#3b82f6;width:{}%;height:100%;border-radius:3px;\"></div>\
+                 </div>\
+                 <span style=\"width:60px;text-align:right;font-size:9.5pt;color:#6b7280;\">{} 社 ({:.0}%)</span>\
+                 </div>\n",
+                escape_html(label),
+                pct,
+                count,
+                pct
+            ));
+        }
+        html.push_str("</div>\n");
+    }
+
+    // 4 セグメントカード
+    let segment_blocks: [(&str, &str, &str, &[NearbyCompany], &str); 4] = [
+        (
+            "🏢 大手",
+            "従業員数の多い 10 社",
+            "地域内の主要プレイヤー。求人媒体・採用施策の事例参考に。",
+            &segments.large,
+            "regional-segment-large",
+        ),
+        (
+            "🏬 中堅",
+            "50-300 名規模 10 社",
+            "中規模採用ターゲット。採用施策のスケール感が近い競合候補。",
+            &segments.mid,
+            "regional-segment-mid",
+        ),
+        (
+            "📈 急成長",
+            "1 年人員推移 +10% 超 10 社",
+            "急速に人員拡大中の地域企業。採用競合化リスクあり。",
+            &segments.growth,
+            "regional-segment-growth",
+        ),
+        (
+            "🎯 採用活発",
+            "HW 求人 5 件以上 10 社",
+            "現在進行形で採用中の地域企業。媒体出稿の競合タイミング。",
+            &segments.hiring,
+            "regional-segment-hiring",
+        ),
+    ];
+
+    for (label, subtitle, hint, list, testid) in segment_blocks.iter() {
+        if list.is_empty() {
+            continue;
+        }
+        html.push_str(&format!(
+            "<div data-testid=\"{}\" style=\"margin-top:14px;\">\n\
+             <h3 style=\"font-size:12.5pt;margin:6px 0 2px;\">{} <span style=\"font-size:10pt;color:#6b7280;font-weight:400;\">— {}</span></h3>\n\
+             <p style=\"font-size:9.5pt;color:#374151;margin:0 0 6px;\">\u{203B} {}</p>\n",
+            testid, escape_html(label), escape_html(subtitle), escape_html(hint),
+        ));
+        html.push_str("<table class=\"data-table report-zebra\" style=\"font-size:10pt;\">\n");
+        html.push_str(
+            "<thead><tr>\
+             <th>#</th>\
+             <th>企業名</th>\
+             <th>業種</th>\
+             <th class=\"num\">従業員</th>\
+             <th class=\"num\">売上</th>\
+             <th class=\"num\">人員 1y</th>\
+             <th class=\"num\">HW 求人</th>\
+             </tr></thead>\n<tbody>\n",
+        );
+        for (i, c) in list.iter().enumerate() {
+            let sales_cell = format_sales_cell(c.sales_amount, &c.sales_range);
+            let delta_cell = format_delta_cell(c.employee_delta_1y * 100.0); // 0.10 → 10.0%
+            html.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td>\
+                 <td class=\"num\">{}</td><td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
+                i + 1,
+                escape_html(&c.company_name),
+                escape_html(&c.sn_industry),
+                format_number(c.employee_count),
+                sales_cell,
+                delta_cell,
+                if c.hw_posting_count > 0 {
+                    format!("{}", c.hw_posting_count)
+                } else {
+                    "—".to_string()
+                },
+            ));
+        }
+        html.push_str("</tbody></table>\n</div>\n");
+    }
+
+    // 注記
+    html.push_str(
+        "<p class=\"caveat\" style=\"font-size:9.5pt;color:#6b7280;margin-top:12px;\">\
+         ⚠ 各セグメントは規模・成長率・HW 求人数の閾値で機械的に抽出しています。\
+         「採用活発」は HW 掲載求人ベースで、職業紹介経由・自社サイト求人は含まれません。\
+         「急成長」は 1 年人員推移ベースで、組織改編・連結⇄単体の影響を含む可能性があります。\
+         実際の競合・接触判断は本表と他指標 (給与水準・職種マッチング等) を併せて判断してください。\
+         本セクションは相関の可視化であり、因果関係や採用成否を主張するものではありません。</p>\n",
+    );
+
+    html.push_str("</section>\n");
+}
+
 /// 人員推移セル整形: 増減符号付き %、0 は横ばい
 pub(super) fn format_delta_cell(pct: f64) -> String {
     // NaN / 極端値ガード
