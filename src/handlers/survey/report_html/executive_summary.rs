@@ -57,7 +57,7 @@ pub(super) fn render_section_executive_summary(
     html.push_str("<li><strong>本セクション（Executive Summary）で全体像を把握</strong>（約 30 秒）</li>\n");
     html.push_str("<li><strong>給与統計セクション</strong>で賃金水準・分布・外れ値を確認（約 1 分）</li>\n");
     html.push_str("<li><strong>採用市場逼迫度</strong>で「採用難度」を把握（約 1 分）</li>\n");
-    html.push_str("<li><strong>産業ミスマッチ・人材デモグラフィック</strong>で地域特性を理解（約 1 分）</li>\n");
+    html.push_str("<li><strong>地域企業構造・人材デモグラフィック</strong>で地域特性を理解（約 1 分）<span style=\"font-size:9pt;color:#6b7280;\">※ 産業ミスマッチ / 地域多面比較 / 規模帯ベンチマーク等、バリアントによりセクション構成が異なります</span></li>\n");
     html.push_str("<li><strong>最低賃金比較・ライフスタイル特性</strong>で訴求軸を選定（約 30 秒）</li>\n");
     html.push_str("</ol>\n");
     html.push_str("</div>\n");

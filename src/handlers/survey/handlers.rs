@@ -504,6 +504,14 @@ pub async fn survey_report_html(
             // 都道府県レベル（muni="")で取得してマクロ比較を優先する。
             // 地域指標（人口・最低賃金）は dominant_pref/muni に依存しない。
             let muni2 = String::new();
+            // 2026-04-30 (T2): 業界フィルタを ext_turnover に適用するため closure に渡す
+            let industry_for_ext = query
+                .industry
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .map(|raw| {
+                    super::report_html::industry_mismatch::map_hw_to_major_industry(raw).to_string()
+                });
             match tokio::task::spawn_blocking(move || {
                 let mut ctx = super::super::insight::fetch::build_insight_context(
                     &db,
@@ -511,6 +519,16 @@ pub async fn survey_report_html(
                     &pref2,
                     &muni2,
                 );
+                // T2 (2026-04-30): industry_filter があれば ext_turnover を業界別に上書き
+                // 既存挙動 (産業計) は industry_filter=None で保持。マッチ 0 件は産業計にフォールバック。
+                if let (Some(ind), Some(t)) = (industry_for_ext.as_deref(), turso.as_ref()) {
+                    ctx.ext_turnover =
+                        super::super::trend::fetch::fetch_ext_turnover_with_industry(
+                            t,
+                            &pref2,
+                            Some(ind),
+                        );
+                }
                 // CR-9 (2026-04-28): 産業ミスマッチ専用の遅いフェッチ
                 // build_insight_context から分離し、survey_report_html でのみ実行。
                 // integrate エンドポイントが影響を受けないように設計。
