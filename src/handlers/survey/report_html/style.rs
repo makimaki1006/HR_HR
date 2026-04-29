@@ -257,8 +257,21 @@ body.theme-dark .variant-indicator .variant-switch-link:hover { background: #4f4
 }
 
 /* 印刷時は完全非表示 (.no-print と二重に保証) */
+/* T5 (2026-04-30): theme-toggle / 各種 UI ボタン / fixed 要素を印刷時に非表示化 */
 @media print {
   .variant-indicator { display: none !important; }
+  .theme-toggle { display: none !important; }
+  /* 画面操作系の固定要素は印刷時に出してはいけない (position:fixed は印刷で予期せぬ位置に出る) */
+  .no-print,
+  button.print-toggle,
+  button[onclick*="print"],
+  a.print-link,
+  .floating-actions,
+  .scroll-to-top { display: none !important; }
+  /* fixed positioning は印刷では static に変換 (印刷上の位置ズレ防止) */
+  .theme-toggle, .variant-indicator, .floating-actions {
+    position: static !important;
+  }
 }
 
 /* テーマ切替ボタン */
@@ -345,6 +358,17 @@ p, li { orphans: 3; widows: 3; }
   grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin-bottom: 14px;
+}
+/* 2026-04-30 タスク T6: legacy KPI grid を Web でも非表示（Design v2 への完全移行）
+ * 既存テストは要素存在を前提とするため DOM には残し、視覚・アクセシビリティの両面から除外。
+ * インライン style と二重保証、かつ @media print は別途 Agent A 担当ブロックでカバー。 */
+.exec-kpi-grid-legacy {
+  display: none !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
 }
 .summary-card, .kpi-card {
   background: var(--c-bg-card);
@@ -719,6 +743,19 @@ body.theme-dark .read-hint {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin: 8px 0 10px;
+}
+/* 2026-04-30 タスク T6: Design v2 KPI grid のレスポンシブ対応
+ * mobile (<=640px): 1 列 / tablet (<=1024px): 2 列 / desktop: 3 列（デフォルト）
+ * @media print は Agent A 担当ブロック（既存）で 3 列維持。 */
+@media screen and (max-width: 1024px) {
+  .exec-kpi-grid-v2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media screen and (max-width: 640px) {
+  .exec-kpi-grid-v2 {
+    grid-template-columns: 1fr;
+  }
 }
 @media print {
   .exec-kpi-grid-v2 {

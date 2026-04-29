@@ -123,6 +123,20 @@ pub(super) fn render_section_regional_compare(
          </p>\n",
     );
 
+    // 2026-04-29 追加: 業界フィルタの適用範囲を明記
+    // ユーザー指摘:
+    // > 業界フィルタが効くのは SalesNow と一部 e-Stat のみ。本 section は地域全体値。
+    html.push_str(
+        "<div data-testid=\"regional-compare-industry-scope-note\" \
+         style=\"margin:8px 0;padding:8px 12px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:3px;font-size:10pt;line-height:1.7;\">\
+         <strong>\u{26A0} 本セクションは業界を問わない地域全体の集計値です。</strong><br>\
+         <span style=\"font-size:9.5pt;color:#78350f;\">\
+         失業率 / 単独世帯率 / 高齢化率 / 大卒率 / 教育施設密度 / 趣味娯楽参加率 / 学習自己啓発率 / インターネット利用率 / 可住地密度 等は、業界フィルタの指定有無に関わらず地域全体の値を表示しています。\
+         </span>\
+         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界別の比較には別 section (採用市場逼迫度の離職率、産業ミスマッチ等) を参照ください。本 section の数値は<strong>地域属性</strong>として活用し、業種特化施策と組み合わせる用途を想定しています。</span>\
+         </div>\n",
+    );
+
     html.push_str("</div>\n");
 }
 
@@ -1185,6 +1199,37 @@ mod tests {
             (pct - 60.0).abs() < 1e-6,
             "主要産業比率期待 60.0%, got {}",
             pct
+        );
+    }
+
+    // =====================================================================
+    // 2026-04-29 追加: 業界フィルタ範囲注記が出力されること
+    // =====================================================================
+
+    /// 逆証明: section 出力に「業界を問わない地域全体の集計値」が含まれる
+    #[test]
+    fn regional_compare_industry_scope_note_present() {
+        let mut ctx = empty_ctx();
+        // 最低 1 つデータを入れて section を有効化
+        ctx.ext_labor_force = vec![row_with(&[(
+            "unemployment_rate",
+            Value::from(3.0_f64),
+        )])];
+        let agg = SurveyAggregation::default();
+        let mut html = String::new();
+        render_section_regional_compare(&mut html, &ctx, &agg);
+
+        assert!(
+            html.contains("業界を問わない地域全体の集計値"),
+            "「業界を問わない地域全体の集計値」が含まれるはず"
+        );
+        assert!(
+            html.contains("regional-compare-industry-scope-note"),
+            "data-testid 属性が含まれるはず"
+        );
+        assert!(
+            html.contains("産業ミスマッチ"),
+            "業界別比較への誘導 (産業ミスマッチ section の参照) が含まれるはず"
         );
     }
 }

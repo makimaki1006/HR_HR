@@ -563,6 +563,22 @@ fn render_data_sources_collapsible(html: &mut String) {
          </p>\n",
     );
     html.push_str("</div>\n</details>\n");
+
+    // 2026-04-29 追加: 業界フィルタの適用範囲を明記
+    // ユーザー指摘:
+    // > 業界フィルタが効くのは SalesNow と一部 e-Stat (ext_turnover) のみ。
+    // > その他 (失業率 / 有効求人倍率 / HW 欠員補充率 / 開廃業) は業種を問わない地域全体値。
+    html.push_str(
+        "<div data-testid=\"market-tightness-industry-scope-note\" \
+         style=\"margin:8px 0;padding:8px 12px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:3px;font-size:10pt;line-height:1.7;\">\
+         <strong>\u{26A0} 業界フィルタの適用範囲</strong>\
+         <ul style=\"margin:4px 0 0;padding-left:20px;font-size:9.5pt;color:#78350f;\">\
+         <li><strong>業界別</strong>に集計: 離職率 (ext_turnover、業界指定時のみ業界値を表示)</li>\
+         <li><strong>業界を問わない地域全体値</strong>: 有効求人倍率 / 失業率 / HW 欠員補充率 / 開廃業動態</li>\
+         </ul>\
+         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) や産業ミスマッチ section を参照ください。</span>\
+         </div>\n",
+    );
 }
 
 // =====================================================================
@@ -1701,6 +1717,19 @@ fn render_data_sources_collapsible_public(html: &mut String) {
          </p>\n",
     );
     html.push_str("</div>\n</details>\n");
+
+    // 2026-04-29 追加: 業界フィルタの適用範囲を明記 (Public variant)
+    html.push_str(
+        "<div data-testid=\"market-tightness-industry-scope-note\" \
+         style=\"margin:8px 0;padding:8px 12px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:3px;font-size:10pt;line-height:1.7;\">\
+         <strong>\u{26A0} 業界フィルタの適用範囲</strong>\
+         <ul style=\"margin:4px 0 0;padding-left:20px;font-size:9.5pt;color:#78350f;\">\
+         <li><strong>業界別</strong>に集計: 離職率 (ext_turnover、業界指定時のみ業界値を表示)</li>\
+         <li><strong>業界を問わない地域全体値</strong>: 有効求人倍率 / 失業率 / 開廃業動態</li>\
+         </ul>\
+         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) や産業ミスマッチ section を参照ください。</span>\
+         </div>\n",
+    );
 }
 
 /// Public variant: 個別 KPI カード (3 枚、HW 欠員補充率を除外)
@@ -3172,5 +3201,72 @@ mod tests {
         assert!(html.contains("5.2"));
         assert!(html.contains("3.8"));
         assert!(html.contains("拡大基調"));
+    }
+
+    // =====================================================================
+    // 2026-04-29 追加: 業界フィルタ範囲注記が両 variant で出力されること
+    // =====================================================================
+
+    /// 逆証明: Full variant で「業界フィルタの適用範囲」が含まれる
+    #[test]
+    fn market_tightness_industry_scope_note_full_variant() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.2))])],
+            vec![],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(3.0))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness(&mut html, Some(&ctx));
+
+        assert!(
+            html.contains("業界フィルタの適用範囲"),
+            "Full variant に「業界フィルタの適用範囲」が含まれるはず"
+        );
+        assert!(
+            html.contains("業界を問わない地域全体値"),
+            "「業界を問わない地域全体値」が含まれるはず"
+        );
+        assert!(
+            html.contains("market-tightness-industry-scope-note"),
+            "data-testid 属性が含まれるはず"
+        );
+        // Full variant のみ: HW 欠員補充率が「地域全体値」リスト内に
+        assert!(
+            html.contains("HW 欠員補充率"),
+            "Full variant では HW 欠員補充率が地域全体値リストに含まれるはず"
+        );
+    }
+
+    /// 逆証明: Public variant でも「業界フィルタの適用範囲」が含まれる
+    #[test]
+    fn market_tightness_industry_scope_note_public_variant() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.2))])],
+            vec![],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(3.0))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        assert!(
+            html.contains("業界フィルタの適用範囲"),
+            "Public variant にも「業界フィルタの適用範囲」が含まれるはず"
+        );
+        assert!(
+            html.contains("業界を問わない地域全体値"),
+            "「業界を問わない地域全体値」が含まれるはず"
+        );
+        assert!(
+            html.contains("market-tightness-industry-scope-note"),
+            "Public variant にも data-testid 属性が含まれるはず"
+        );
     }
 }
