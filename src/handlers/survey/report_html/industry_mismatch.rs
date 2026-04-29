@@ -69,22 +69,469 @@ use super::helpers::{render_figure_caption, render_read_hint, render_section_how
 /// 2026-04-29 (Public variant): CSV 媒体掲載求人 vs 国勢調査就業者構成 のミスマッチ
 ///
 /// HW を介さず、ユーザーがアップロードした CSV の業種分布 (推定) と
-/// 国勢調査の就業者構成を比較する。CSV 側は SurveyAggregation の by_employment_type 等
-/// から推定。データ取得の正確性は CSV のフォーマットに依存。
+/// 国勢調査の就業者構成を比較する。CSV 側は SurveyAggregation の `by_tags` /
+/// `by_employment_type` 等から **キーワード推定** する。
 ///
-/// 暫定実装: 既存 industry_mismatch は HW 求人ベースだが、
-/// 現状 CSV は産業列を持たないことが多いため、当面は section 非表示 (空コール) とする。
-/// Phase 2 で agent が CSV 側の産業推定ロジックと共に実装する。
+/// # 推定優先順位 (本実装の制約)
+/// SurveyAggregation には個別レコードや産業列が含まれないため、以下の信号で推定:
+/// 1. `agg.by_tags` (タグ別集計、上位 30 件) を `map_keyword_to_major_industry` で分類
+/// 2. fallback: 推定 0 件なら section 非表示 (fail-soft)
+///
+/// **注意**: 元 CSV に独立した「業種」列がある (求人ボックス等) 場合でも、
+/// 現行 SurveyAggregation はそれを保持しないため、本関数では参照できない。
+/// この制約は出力 HTML の caveat に明記する。
+///
+/// # Fail-soft 条件
+/// - `industry_employees` が空 / 合計 0
+/// - `agg.by_tags` から推定された産業件数合計が 0
+/// - 双方 0.5% 未満の行のみ → 残行 0 件
+///
+/// # 解釈ロジック (HW 版とは符号反対)
+/// - gap ≥ +10pt: 「CSV 重点業界」(CSV に多い)
+/// - gap ≤ -10pt: 「CSV 過少」 (CSV に少ない)
+/// - |gap| < 10pt: 「整合」
+///
+/// gap = csv_pct - emp_pct
 pub(super) fn render_section_industry_mismatch_csv(
     html: &mut String,
     industry_employees: &[Row],
     agg: &super::super::aggregator::SurveyAggregation,
 ) {
-    let _ = (industry_employees, agg);
-    // ここに後続 agent が CSV ベース実装を追加。
-    // 現状は何も出力せず fail-soft (HW セクションが除外された分の穴埋めは
-    // 同 variant 内の別 section で補完)。
-    let _ = html;
+    // ---- fail-soft: 国勢調査側 ----
+    if industry_employees.is_empty() {
+        return;
+    }
+    let employee_total: i64 = industry_employees
+        .iter()
+        .map(|r| get_i64(r, "employees_total"))
+        .sum();
+    if employee_total <= 0 {
+        return;
+    }
+
+    // ---- CSV 側: タグから業種推定 ----
+    let csv_industry_counts = estimate_csv_industry_counts(agg);
+    let csv_total: i64 = csv_industry_counts.iter().map(|(_, c)| *c).sum();
+    if csv_total <= 0 || csv_industry_counts.is_empty() {
+        return;
+    }
+
+    // ---- ギャップ計算 ----
+    let rows = build_csv_mismatch_rows(industry_employees, &csv_industry_counts);
+    if rows.is_empty() {
+        return;
+    }
+
+    // ---- HTML 出力 ----
+    html.push_str(
+        "<div class=\"section\" data-testid=\"industry-mismatch-csv-section\">\n",
+    );
+    html.push_str("<h2>産業ミスマッチ (CSV 媒体掲載 vs 地域就業者構成)</h2>\n");
+
+    render_section_howto(
+        html,
+        &[
+            "アップロードした CSV の業種分布 (推定) と地域の就業者構成 (国勢調査) のギャップを表示します",
+            "ギャップ ≥ +10pt: CSV 重点業界 / ≤ -10pt: CSV 過少 / |ギャップ| < 10pt: 整合",
+            "業種は CSV のタグ列・職種列からキーワード推定したもので、原 CSV に業種列がある場合も精度には限界があります",
+        ],
+    );
+
+    render_figure_caption(
+        html,
+        "表 4B-1",
+        "CSV 業種分布 (推定) vs 国勢調査就業者構成 (大分類)",
+    );
+
+    html.push_str(
+        "<table class=\"sortable-table zebra\" data-testid=\"industry-mismatch-csv-table\">\n",
+    );
+    html.push_str(
+        "<thead><tr>\
+        <th>産業</th>\
+        <th style=\"text-align:right\">CSV 件数構成比</th>\
+        <th style=\"text-align:right\">就業者構成比</th>\
+        <th style=\"text-align:right\">ギャップ</th>\
+        <th>解釈</th>\
+        </tr></thead>\n<tbody>\n",
+    );
+
+    for r in &rows {
+        let (interp_label, color_class) = classify_csv_gap(r.gap_pt);
+        html.push_str(&format!(
+            "<tr>\
+                <td>{name}</td>\
+                <td class=\"num\">{csv_pct:.1}% ({csv_n}件)</td>\
+                <td class=\"num\">{emp_pct:.1}%</td>\
+                <td class=\"num\" style=\"color:{color};font-weight:600;\" data-gap=\"{gap_raw:.1}\">{gap_sign}{gap_abs:.1}pt</td>\
+                <td><span class=\"{cls}\">{interp}</span></td>\
+            </tr>\n",
+            name = escape_html(&r.industry_name),
+            csv_pct = r.csv_pct,
+            csv_n = r.csv_count,
+            emp_pct = r.emp_pct,
+            color = color_class,
+            gap_raw = r.gap_pt,
+            gap_sign = if r.gap_pt >= 0.0 { "+" } else { "-" },
+            gap_abs = r.gap_pt.abs(),
+            cls = match interp_label {
+                "CSV 重点業界" => "gap-pos",
+                "CSV 過少" => "gap-neg",
+                _ => "gap-neutral",
+            },
+            interp = interp_label,
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+
+    // 必須 caveat (CSV 推定の限界 + 国勢調査スコープ + 因果非主張)
+    html.push_str(
+        "<p class=\"caveat\" style=\"font-size:9pt;color:#475569;margin-top:8px;\">\
+        \u{26A0} CSV 業種は職種列・タグ列からのキーワード推定です。元 CSV に業種列がない場合精度に限界があります。\
+        就業者構成は国勢調査 (5 年に 1 回、最新 2020 年)。\
+        CSV はユーザー指定の媒体掲載求人で、地域全体を代表しません。\
+        ギャップは CSV の業種傾向と地域就業者の差を示すもので、採用優劣評価ではありません。\
+        本表は相関の可視化であり、因果の証明ではありません。\
+        </p>\n",
+    );
+
+    render_read_hint(
+        html,
+        "ギャップが大きい産業は、媒体掲載のしやすさ・採用ニーズ強度・職種特性などの複合要因を示唆します。\
+         具体的な原因解釈は別途現場ヒアリング等で検証してください。",
+    );
+
+    html.push_str("</div>\n");
+}
+
+// =====================================================================
+// CSV 業種推定
+// =====================================================================
+
+/// CSV 集計結果から「産業大分類 → 件数」の概算を推定する
+///
+/// 信号源: `agg.by_tags` (タグ別集計、件数つき)
+///
+/// 各タグ文字列を `map_keyword_to_major_industry` で分類し、件数を合算する。
+/// 分類不能 (どのキーワードにもマッチしない) なタグは合算対象外
+/// (ノイズを「サービス業 (他)」に押し込まない設計)。
+///
+/// # 戻り値
+/// `Vec<(産業大分類名, 件数)>`
+/// 件数降順、合計 0 のときは空 Vec。
+pub(crate) fn estimate_csv_industry_counts(
+    agg: &super::super::aggregator::SurveyAggregation,
+) -> Vec<(String, i64)> {
+    let mut industry_counts: std::collections::HashMap<&'static str, i64> =
+        std::collections::HashMap::new();
+
+    for (tag, count) in &agg.by_tags {
+        if let Some(industry) = map_keyword_to_major_industry(tag) {
+            *industry_counts.entry(industry).or_insert(0) += *count as i64;
+        }
+    }
+
+    let mut result: Vec<(String, i64)> = industry_counts
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+    result.sort_by(|a, b| b.1.cmp(&a.1));
+    result
+}
+
+/// キーワード (タグ・職種等) → 12 大分類マッピング
+///
+/// `map_hw_to_major_industry` と同じカテゴリ体系だが、CSV のタグ・職種は
+/// HW の `industry_raw` と語彙が異なるため、キーワードを CSV 寄りに調整。
+///
+/// **不一致の場合は `None`** を返す (HW 版は fallback で「サービス業 (他)」だが、
+/// CSV 推定では誤分類を避けるため None で除外する)。
+///
+/// メモリルール `feedback_correlation_not_causation`: マッピング誤差は caveat で言及。
+pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static str> {
+    let s = keyword;
+    if s.is_empty() {
+        return None;
+    }
+
+    // 医療・福祉系 (専門度高、最優先)
+    if s.contains("看護") || s.contains("准看")
+        || s.contains("病院") || s.contains("医療") || s.contains("診療")
+        || s.contains("歯科") || s.contains("助産") || s.contains("獣医")
+        || s.contains("社会福祉") || s.contains("児童福祉") || s.contains("障害者")
+        || s.contains("障がい者") || s.contains("老人") || s.contains("介護")
+        || s.contains("ヘルパー") || s.contains("ケアマネ") || s.contains("保育")
+        || s.contains("精神保健") || s.contains("リハビリ") || s.contains("理学療法")
+        || s.contains("作業療法") || s.contains("言語聴覚") || s.contains("薬剤師")
+        || s.contains("管理栄養士") || s.contains("栄養士") || s.contains("生活支援員")
+        || s.contains("生活相談員") || s.contains("サービス提供責任者")
+        || s.contains("サービス管理責任者") || s.contains("児童指導員")
+        || s.contains("児童発達支援") || s.contains("デイサービス")
+        || s.contains("グループホーム") || s.contains("特別養護")
+        || s.contains("有料老人ホーム") || s.contains("訪問看護")
+        || s.contains("訪問介護") || s.contains("通所介護")
+        || s.contains("福祉")
+    {
+        return Some("医療，福祉");
+    }
+    // 建設業
+    if s.contains("建設") || s.contains("土木") || s.contains("建築")
+        || s.contains("総合工事") || s.contains("設備工事")
+        || s.contains("塗装") || s.contains("舗装") || s.contains("配管")
+        || s.contains("電気工事") || s.contains("内装") || s.contains("大工")
+        || s.contains("左官") || s.contains("施工管理")
+    {
+        return Some("建設業");
+    }
+    // 製造業
+    if s.contains("製造") || s.contains("食料品") || s.contains("飲料")
+        || s.contains("繊維") || s.contains("衣服") || s.contains("木材")
+        || s.contains("家具") || s.contains("印刷") || s.contains("化学")
+        || s.contains("プラスチック") || s.contains("ゴム") || s.contains("窯業")
+        || s.contains("金属加工") || s.contains("機械加工") || s.contains("輸送用機器")
+        || s.contains("精密機器") || s.contains("組立") || s.contains("工場")
+        || s.contains("生産工程") || s.contains("溶接") || s.contains("検品")
+    {
+        return Some("製造業");
+    }
+    // 運輸業，郵便業
+    if s.contains("運輸") || s.contains("運送") || s.contains("配送")
+        || s.contains("郵便") || s.contains("貨物") || s.contains("旅客")
+        || s.contains("鉄道") || s.contains("自動車運送") || s.contains("倉庫")
+        || s.contains("配達") || s.contains("ドライバー")
+        || s.contains("トラック") || s.contains("タクシー") || s.contains("バス運転")
+    {
+        return Some("運輸業，郵便業");
+    }
+    // 卸売業，小売業
+    if s.contains("卸売") || s.contains("小売") || s.contains("販売店")
+        || s.contains("百貨店") || s.contains("スーパー") || s.contains("コンビニ")
+        || s.contains("商業") || s.contains("レジ") || s.contains("店員")
+        || s.contains("販売スタッフ") || s.contains("ショップ")
+    {
+        return Some("卸売業，小売業");
+    }
+    // 宿泊業，飲食サービス業
+    if s.contains("飲食") || s.contains("レストラン") || s.contains("食堂")
+        || s.contains("酒場") || s.contains("ビヤホール") || s.contains("バー")
+        || s.contains("喫茶") || s.contains("カフェ")
+        || s.contains("旅館") || s.contains("ホテル") || s.contains("宿泊")
+        || s.contains("料理店") || s.contains("給食") || s.contains("ホール")
+        || s.contains("キッチン") || s.contains("調理")
+    {
+        return Some("宿泊業，飲食サービス業");
+    }
+    // 情報通信業
+    if s.contains("ソフトウェア") || s.contains("情報サービス")
+        || s.contains("通信業") || s.contains("情報通信")
+        || s.contains("インターネット") || s.contains("放送")
+        || s.contains("映像") || s.contains("出版") || s.contains("新聞")
+        || s.contains("Web") || s.contains("プログラマ") || s.contains("プログラマー")
+        || s.contains("エンジニア") || s.contains("システム開発") || s.contains("SE")
+        || s.contains("IT")
+    {
+        return Some("情報通信業");
+    }
+    // 教育，学習支援業
+    if s.contains("学校") || s.contains("教育") || s.contains("学習支援")
+        || s.contains("塾") || s.contains("予備校") || s.contains("教習所")
+        || s.contains("学習教室") || s.contains("講師") || s.contains("教員")
+    {
+        return Some("教育，学習支援業");
+    }
+    // 不動産業，物品賃貸業
+    if s.contains("不動産") || s.contains("物品賃貸") || s.contains("レンタル") {
+        return Some("不動産業，物品賃貸業");
+    }
+    // 金融業，保険業
+    if s.contains("金融") || s.contains("銀行") || s.contains("保険")
+        || s.contains("証券") || s.contains("信用組合") || s.contains("信用金庫")
+    {
+        return Some("金融業，保険業");
+    }
+    // 農林漁業
+    if s.contains("農業") || s.contains("林業") || s.contains("漁業")
+        || s.contains("水産")
+    {
+        return Some("農林漁業");
+    }
+    // 鉱業
+    if s.contains("鉱業") || s.contains("採石") || s.contains("砂利") {
+        return Some("鉱業");
+    }
+    // 電気・ガス・熱供給・水道業
+    if (s.contains("電気") && s.contains("供給")) || s.contains("ガス業")
+        || s.contains("熱供給") || s.contains("水道業")
+    {
+        return Some("電気・ガス・熱供給・水道業");
+    }
+    // 学術研究，専門・技術サービス業
+    if s.contains("学術") || s.contains("研究所")
+        || (s.contains("専門") && s.contains("技術"))
+        || s.contains("広告") || s.contains("デザイン") || s.contains("法務")
+        || s.contains("会計") || s.contains("コンサル")
+        || s.contains("経営戦略") || s.contains("市場調査")
+    {
+        return Some("学術研究，専門・技術サービス業");
+    }
+    // 生活関連サービス業，娯楽業
+    if s.contains("理容") || s.contains("美容") || s.contains("クリーニング")
+        || s.contains("浴場") || s.contains("娯楽") || s.contains("遊技場")
+        || s.contains("興行") || s.contains("冠婚葬祭")
+        || s.contains("葬儀") || s.contains("結婚") || s.contains("写真館")
+        || s.contains("旅行") || s.contains("生活関連サービス")
+    {
+        return Some("生活関連サービス業，娯楽業");
+    }
+    // 公務
+    if s.contains("公務") || s.contains("公務員") {
+        return Some("公務（他に分類されるものを除く）");
+    }
+    // 複合サービス事業
+    if s.contains("複合サービス") || s.contains("協同組合") {
+        return Some("複合サービス事業");
+    }
+    // サービス業 (他)
+    if s.contains("派遣") || s.contains("人材紹介") || s.contains("職業紹介")
+        || s.contains("建物管理") || s.contains("ビルメンテナンス")
+        || s.contains("警備") || s.contains("清掃") || s.contains("廃棄物")
+        || s.contains("修理") || s.contains("メンテナンス") || s.contains("設備管理")
+        || s.contains("事業サービス")
+    {
+        return Some("サービス業（他に分類されないもの）");
+    }
+
+    // 不明 → None (CSV 推定では誤分類を避けるため除外)
+    None
+}
+
+/// CSV 推定向け Mismatch 行
+#[derive(Debug, Clone, PartialEq)]
+struct CsvMismatchRow {
+    industry_name: String,
+    csv_count: i64,
+    emp_pct: f64,
+    csv_pct: f64,
+    gap_pt: f64, // csv_pct - emp_pct (正: CSV 重点 / 負: CSV 過少)
+}
+
+/// CSV 推定値と就業者構成から CsvMismatchRow を構築
+fn build_csv_mismatch_rows(
+    industry_employees: &[Row],
+    csv_industry_counts: &[(String, i64)],
+) -> Vec<CsvMismatchRow> {
+    let employee_total: i64 = industry_employees
+        .iter()
+        .map(|r| get_i64(r, "employees_total"))
+        .sum();
+    let csv_total: i64 = csv_industry_counts.iter().map(|(_, c)| *c).sum();
+
+    if employee_total <= 0 || csv_total <= 0 {
+        return Vec::new();
+    }
+
+    // 就業者: industry_name (normalize) -> employees_total
+    let mut emp_map: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    for r in industry_employees {
+        let name = get_str_ref(r, "industry_name");
+        if name.is_empty() {
+            continue;
+        }
+        let emp = get_i64(r, "employees_total");
+        if emp <= 0 {
+            continue;
+        }
+        *emp_map.entry(normalize_industry_name(name)).or_insert(0) += emp;
+    }
+
+    // CSV 推定: industry_name (normalize) -> count
+    let mut csv_map: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    let mut csv_display_name: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for (name, c) in csv_industry_counts {
+        if name.is_empty() || *c <= 0 {
+            continue;
+        }
+        let key = normalize_industry_name(name);
+        *csv_map.entry(key.clone()).or_insert(0) += *c;
+        csv_display_name.entry(key).or_insert_with(|| name.clone());
+    }
+
+    // Union (両側 0% でも片側存在すれば残す)
+    let mut all_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for k in emp_map.keys() {
+        all_keys.insert(k.clone());
+    }
+    for k in csv_map.keys() {
+        all_keys.insert(k.clone());
+    }
+
+    let mut rows: Vec<CsvMismatchRow> = Vec::new();
+    for key in all_keys {
+        let emp = *emp_map.get(&key).unwrap_or(&0);
+        let csv = *csv_map.get(&key).unwrap_or(&0);
+        if emp == 0 && csv == 0 {
+            continue;
+        }
+        let emp_pct = (emp as f64) / (employee_total as f64) * 100.0;
+        let csv_pct = (csv as f64) / (csv_total as f64) * 100.0;
+        let gap_pt = csv_pct - emp_pct;
+
+        // 表示名: CSV 由来優先、なければ就業者の元名称
+        let display = csv_display_name
+            .get(&key)
+            .cloned()
+            .or_else(|| {
+                industry_employees.iter().find_map(|r| {
+                    let n = get_str_ref(r, "industry_name");
+                    if normalize_industry_name(n) == key {
+                        Some(n.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| key.clone());
+
+        rows.push(CsvMismatchRow {
+            industry_name: display,
+            csv_count: csv,
+            emp_pct,
+            csv_pct,
+            gap_pt,
+        });
+    }
+
+    // B9 仕様: 両側 0.5% 未満は除外
+    rows.retain(|r| r.emp_pct >= 0.5 || r.csv_pct >= 0.5);
+
+    // ギャップ絶対値降順
+    rows.sort_by(|a, b| {
+        b.gap_pt
+            .abs()
+            .partial_cmp(&a.gap_pt.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    rows
+}
+
+/// CSV 版ギャップ → (解釈ラベル, 色)
+///
+/// HW 版の `classify_gap` とは符号の意味が逆: gap = csv_pct - emp_pct
+/// - gap ≥ +10pt: CSV 重点業界 (CSV に多く、地域就業者では少ない)
+/// - gap ≤ -10pt: CSV 過少 (地域就業者が多いのに CSV では少ない)
+/// - |gap| < 10pt: 整合
+fn classify_csv_gap(gap_pt: f64) -> (&'static str, &'static str) {
+    if gap_pt >= 10.0 {
+        ("CSV 重点業界", "#10b981") // 緑系
+    } else if gap_pt <= -10.0 {
+        ("CSV 過少", "#dc2626") // 赤系
+    } else {
+        ("整合", "#64748b") // グレー
+    }
 }
 
 pub(super) fn render_section_industry_mismatch(
@@ -871,6 +1318,406 @@ mod tests {
             rows[0].industry_name
         );
         // 絶対値降順
+        for w in rows.windows(2) {
+            assert!(
+                w[0].gap_pt.abs() >= w[1].gap_pt.abs() - 0.001,
+                "ギャップ絶対値降順 (実際: {} < {})",
+                w[0].gap_pt.abs(),
+                w[1].gap_pt.abs()
+            );
+        }
+    }
+
+    // =================================================================
+    // CSV Public variant tests (CR-9 / 2026-04-29)
+    // =================================================================
+
+    fn mk_agg_with_tags(tags: &[(&str, usize)]) -> super::super::super::aggregator::SurveyAggregation {
+        let mut agg = super::super::super::aggregator::SurveyAggregation::default();
+        agg.by_tags = tags
+            .iter()
+            .map(|(t, c)| (t.to_string(), *c))
+            .collect();
+        agg
+    }
+
+    /// CSV テスト 1: タグ「看護師」「介護スタッフ」が医療,福祉に分類される (具体値検証)
+    #[test]
+    fn csv_industry_keyword_medical_welfare() {
+        // 医療・福祉系キーワード
+        assert_eq!(
+            map_keyword_to_major_industry("看護師"),
+            Some("医療，福祉")
+        );
+        assert_eq!(
+            map_keyword_to_major_industry("介護スタッフ"),
+            Some("医療，福祉")
+        );
+        assert_eq!(
+            map_keyword_to_major_industry("ヘルパー"),
+            Some("医療，福祉")
+        );
+        assert_eq!(
+            map_keyword_to_major_industry("保育士"),
+            Some("医療，福祉")
+        );
+        assert_eq!(
+            map_keyword_to_major_industry("理学療法士"),
+            Some("医療，福祉")
+        );
+        // 飲食
+        assert_eq!(
+            map_keyword_to_major_industry("カフェスタッフ"),
+            Some("宿泊業，飲食サービス業")
+        );
+        // 不明はNone
+        assert_eq!(map_keyword_to_major_industry("経験不問"), None);
+        assert_eq!(map_keyword_to_major_industry(""), None);
+    }
+
+    /// CSV テスト 2 (ドメイン不変条件): 構成比合計 ≈ 100% (誤差 0.5pt 以内)
+    #[test]
+    fn csv_industry_pct_sums_to_100() {
+        // CSV: 医療 60件、製造 30件、飲食 10件 (合計 100件)
+        let agg = mk_agg_with_tags(&[
+            ("看護師", 40),
+            ("介護スタッフ", 20),
+            ("製造工場スタッフ", 30),
+            ("カフェスタッフ", 10),
+        ]);
+        let emp = vec![
+            mk_emp("医療，福祉", 28_000),
+            mk_emp("製造業", 14_000),
+            mk_emp("宿泊業，飲食サービス業", 6_000),
+            mk_emp("その他", 52_000),
+        ];
+
+        let csv_counts = estimate_csv_industry_counts(&agg);
+        let total: i64 = csv_counts.iter().map(|(_, c)| *c).sum();
+        assert_eq!(total, 100, "推定合計件数 = 100 (実際: {})", total);
+
+        let rows = build_csv_mismatch_rows(&emp, &csv_counts);
+        let csv_sum: f64 = rows.iter().map(|r| r.csv_pct).sum();
+        let emp_sum: f64 = rows.iter().map(|r| r.emp_pct).sum();
+        // CSV 側は推定対象 (医療/製造/飲食) のみで合計 100% に達するべき
+        assert!(
+            (csv_sum - 100.0).abs() < 0.5,
+            "CSV 構成比合計 ≈ 100 (実際: {})",
+            csv_sum
+        );
+        // 就業者側は (medical + manuf + 飲食 = 28+14+6 = 48k / 100k = 48%) の部分のみ rows に出る
+        // (「その他」はマッチせず emp_map に key:"その他" として残るが、CSV 側 0 件のため
+        //  csv_pct=0、 emp_pct=52% で出現する → 合計 100%)
+        assert!(
+            (emp_sum - 100.0).abs() < 0.5,
+            "就業者構成比合計 ≈ 100 (実際: {})",
+            emp_sum
+        );
+    }
+
+    /// CSV テスト 3 (ドメイン不変条件): ギャップ ∈ [-100, 100]
+    #[test]
+    fn csv_industry_gap_invariant_range() {
+        let agg = mk_agg_with_tags(&[
+            ("看護師", 80), // 医療 80件
+            ("製造工場スタッフ", 10),
+            ("カフェスタッフ", 10),
+        ]);
+        let emp = vec![
+            mk_emp("医療，福祉", 10_000),
+            mk_emp("製造業", 14_000),
+            mk_emp("宿泊業，飲食サービス業", 6_000),
+            mk_emp("その他", 70_000),
+        ];
+
+        let csv_counts = estimate_csv_industry_counts(&agg);
+        let rows = build_csv_mismatch_rows(&emp, &csv_counts);
+        assert!(!rows.is_empty(), "rows 非空必須");
+
+        for r in &rows {
+            assert!(
+                r.csv_pct >= 0.0 && r.csv_pct <= 100.0,
+                "CSV 構成比 ∈ [0,100] (実際: {})",
+                r.csv_pct
+            );
+            assert!(
+                r.emp_pct >= 0.0 && r.emp_pct <= 100.0,
+                "就業者構成比 ∈ [0,100] (実際: {})",
+                r.emp_pct
+            );
+            assert!(
+                r.gap_pt >= -100.0 && r.gap_pt <= 100.0,
+                "ギャップ ∈ [-100,100] (実際: {})",
+                r.gap_pt
+            );
+        }
+
+        // 医療: csv=80%, emp=10% → gap=+70 (CSV重点)
+        let med = rows
+            .iter()
+            .find(|r| r.industry_name.contains("医療"))
+            .expect("医療行必須");
+        assert!(
+            (med.csv_pct - 80.0).abs() < 0.01,
+            "CSV 構成比 80% (実際: {})",
+            med.csv_pct
+        );
+        assert!(
+            (med.gap_pt - 70.0).abs() < 0.01,
+            "ギャップ +70pt (実際: {})",
+            med.gap_pt
+        );
+    }
+
+    /// CSV テスト 4: 0件業種は除外 (B9 仕様)
+    #[test]
+    fn csv_industry_excludes_zero_rows() {
+        // CSV: 医療 100件のみ (他はゼロ)
+        let agg = mk_agg_with_tags(&[("看護師", 100)]);
+        // 就業者: 医療 28k, 鉱業 0 (両側0%), その他 72k
+        let emp = vec![
+            mk_emp("医療，福祉", 28_000),
+            mk_emp("鉱業", 0), // 両側0% → 除外対象
+            mk_emp("その他", 72_000),
+        ];
+        let csv_counts = estimate_csv_industry_counts(&agg);
+        let rows = build_csv_mismatch_rows(&emp, &csv_counts);
+
+        // 鉱業は両側0なので含まれないこと
+        for r in &rows {
+            assert!(
+                !r.industry_name.contains("鉱業"),
+                "両側 0% の鉱業は除外されるべき"
+            );
+        }
+    }
+
+    /// CSV テスト 5: fail-soft (推定業種が全て不明な場合 section 非表示)
+    #[test]
+    fn csv_industry_failsoft_unknown_tags_only() {
+        // タグが全て不明 → 推定 0 件
+        let agg = mk_agg_with_tags(&[
+            ("経験不問", 50),
+            ("週休2日", 30),
+            ("交通費支給", 20),
+        ]);
+        let emp = vec![mk_emp("医療，福祉", 28_000), mk_emp("その他", 72_000)];
+
+        let csv_counts = estimate_csv_industry_counts(&agg);
+        assert!(csv_counts.is_empty(), "全タグ不明 → 推定 0 件");
+
+        let mut html = String::new();
+        render_section_industry_mismatch_csv(&mut html, &emp, &agg);
+        assert!(
+            html.is_empty(),
+            "推定 0 件 → section 非表示 (実際: {} bytes)",
+            html.len()
+        );
+
+        // 就業者ゼロでも section 非表示
+        let agg2 = mk_agg_with_tags(&[("看護師", 100)]);
+        let mut html2 = String::new();
+        render_section_industry_mismatch_csv(&mut html2, &[], &agg2);
+        assert!(html2.is_empty(), "就業者空 → section 非表示");
+    }
+
+    /// CSV テスト 6: caveat 必須文言の存在
+    #[test]
+    fn csv_industry_caveat_required_phrases() {
+        let agg = mk_agg_with_tags(&[
+            ("看護師", 50),
+            ("製造工場スタッフ", 30),
+            ("カフェスタッフ", 20),
+        ]);
+        let emp = vec![
+            mk_emp("医療，福祉", 28_000),
+            mk_emp("製造業", 14_000),
+            mk_emp("宿泊業，飲食サービス業", 6_000),
+            mk_emp("その他", 52_000),
+        ];
+        let mut html = String::new();
+        render_section_industry_mismatch_csv(&mut html, &emp, &agg);
+
+        assert!(!html.is_empty(), "section 描画必須");
+        // CSV 推定の限界
+        assert!(
+            html.contains("CSV 業種は職種列・タグ列からのキーワード推定"),
+            "CSV 推定限界 caveat 必須"
+        );
+        // 国勢調査スコープ
+        assert!(
+            html.contains("国勢調査 (5 年に 1 回"),
+            "国勢調査 caveat 必須"
+        );
+        // CSV 範囲限定
+        assert!(
+            html.contains("CSV はユーザー指定の媒体掲載求人で、地域全体を代表しません"),
+            "CSV スコープ caveat 必須 (feedback_hw_data_scope と同等の範囲制約)"
+        );
+        // 採用優劣評価ではない
+        assert!(
+            html.contains("採用優劣評価ではありません"),
+            "採用優劣否定 caveat 必須 (feedback_correlation_not_causation)"
+        );
+        // 因果非主張
+        assert!(
+            html.contains("因果の証明ではありません"),
+            "因果非主張 caveat 必須"
+        );
+    }
+
+    /// CSV テスト 7: HTML 構造の必須要素
+    #[test]
+    fn csv_industry_html_structure() {
+        let agg = mk_agg_with_tags(&[
+            ("看護師", 60),
+            ("カフェスタッフ", 40),
+        ]);
+        let emp = vec![
+            mk_emp("医療，福祉", 28_000),
+            mk_emp("宿泊業，飲食サービス業", 6_000),
+            mk_emp("その他", 66_000),
+        ];
+        let mut html = String::new();
+        render_section_industry_mismatch_csv(&mut html, &emp, &agg);
+
+        assert!(
+            html.contains("data-testid=\"industry-mismatch-csv-section\""),
+            "section data-testid 必須"
+        );
+        assert!(
+            html.contains("data-testid=\"industry-mismatch-csv-table\""),
+            "table data-testid 必須"
+        );
+        assert!(
+            html.contains("<h2>産業ミスマッチ (CSV"),
+            "h2 タイトル必須"
+        );
+        assert!(html.contains("表 4B-1"), "図番号 4B-1 必須");
+        assert!(html.contains("CSV 件数構成比"), "列ヘッダ CSV 件数構成比 必須");
+        assert!(html.contains("就業者構成比"), "列ヘッダ 就業者構成比 必須");
+        assert!(html.contains("ギャップ"), "列ヘッダ ギャップ 必須");
+    }
+
+    /// CSV テスト 8: 解釈分岐の逆証明
+    /// gap = csv_pct - emp_pct
+    /// ≥ +10 → CSV 重点 / ≤ -10 → CSV 過少 / それ以外 → 整合
+    #[test]
+    fn csv_industry_classify_gap_branches() {
+        assert_eq!(classify_csv_gap(20.0).0, "CSV 重点業界");
+        assert_eq!(classify_csv_gap(10.0).0, "CSV 重点業界"); // 境界 10 は重点側
+        assert_eq!(classify_csv_gap(9.9).0, "整合");
+        assert_eq!(classify_csv_gap(0.0).0, "整合");
+        assert_eq!(classify_csv_gap(-9.9).0, "整合");
+        assert_eq!(classify_csv_gap(-10.0).0, "CSV 過少"); // 境界 -10 は過少側
+        assert_eq!(classify_csv_gap(-30.0).0, "CSV 過少");
+
+        // 色も検証
+        assert_eq!(classify_csv_gap(20.0).1, "#10b981");
+        assert_eq!(classify_csv_gap(-30.0).1, "#dc2626");
+        assert_eq!(classify_csv_gap(0.0).1, "#64748b");
+    }
+
+    /// CSV テスト 9: industry_raw > tags_raw > job_type の優先順位 (本実装の制約説明)
+    ///
+    /// 現行 SurveyAggregation は `by_tags` のみ集約しており、
+    /// `industry_raw` / `job_title` が直接アクセスできないため、
+    /// 本実装では tags ベースのキーワード推定に統一されている。
+    /// → caveat に「業種列がない場合精度に限界」と明記されていることをテスト。
+    #[test]
+    fn csv_industry_priority_documented_in_caveat() {
+        let agg = mk_agg_with_tags(&[("看護師", 100)]);
+        let emp = vec![mk_emp("医療，福祉", 28_000), mk_emp("その他", 72_000)];
+
+        let mut html = String::new();
+        render_section_industry_mismatch_csv(&mut html, &emp, &agg);
+        assert!(
+            html.contains("元 CSV に業種列がない場合精度に限界があります"),
+            "業種推定限界の caveat 必須 (priority 説明の一部)"
+        );
+
+        // タグから推定された医療件数は 100 件 (タグ count をそのまま流用)
+        let csv_counts = estimate_csv_industry_counts(&agg);
+        assert_eq!(csv_counts.len(), 1, "1 産業のみ推定");
+        assert_eq!(csv_counts[0].0, "医療，福祉");
+        assert_eq!(csv_counts[0].1, 100);
+    }
+
+    /// CSV サンプル: 実出力 HTML の内容を eprintln で確認 (`cargo test -- --nocapture` で表示)
+    /// 介護系 CSV を想定 (看護師 + 介護スタッフ + 保育士) の典型出力例。
+    #[test]
+    fn csv_industry_sample_output_for_review() {
+        let agg = mk_agg_with_tags(&[
+            ("看護師", 30),
+            ("介護スタッフ", 25),
+            ("保育士", 15),
+            ("製造工場スタッフ", 10),
+            ("カフェスタッフ", 8),
+            ("販売スタッフ", 7),
+            ("経験不問", 50),       // 不明 → 推定対象外
+            ("週休2日", 30),        // 不明 → 推定対象外
+        ]);
+        let emp = vec![
+            mk_emp("医療，福祉", 9_700),       // 9.7%
+            mk_emp("製造業", 14_000),          // 14%
+            mk_emp("卸売業，小売業", 16_000),    // 16%
+            mk_emp("宿泊業，飲食サービス業", 6_000), // 6%
+            mk_emp("建設業", 8_000),
+            mk_emp("情報通信業", 4_000),
+            mk_emp("教育，学習支援業", 5_300),
+            mk_emp("公務（他に分類されるものを除く）", 3_000),
+            mk_emp("運輸業，郵便業", 6_000),
+            mk_emp("その他", 28_000),
+        ];
+
+        let mut html = String::new();
+        render_section_industry_mismatch_csv(&mut html, &emp, &agg);
+
+        eprintln!("=== CSV industry mismatch sample HTML ===");
+        eprintln!("{}", html);
+
+        assert!(!html.is_empty(), "サンプル出力 必須");
+        assert!(html.contains("CSV 重点業界"), "CSV 重点業界の解釈ラベル必須 (医療,福祉)");
+    }
+
+    /// CSV テスト 10: ソート順 (ギャップ絶対値降順)
+    #[test]
+    fn csv_industry_sorted_by_abs_gap_desc() {
+        let agg = mk_agg_with_tags(&[
+            ("看護師", 70),       // 医療 70件
+            ("製造工場スタッフ", 20),  // 製造 20件
+            ("カフェスタッフ", 10),  // 飲食 10件
+        ]);
+        // CSV: 医療 70%, 製造 20%, 飲食 10%
+        // 就業者 emp_total = 90k:
+        //   医療 28k → emp_pct = 31.1% → gap = 70 - 31.1 = +38.9 (最大絶対値)
+        //   製造 14k → emp_pct = 15.6% → gap = +4.4
+        //   飲食 6k → emp_pct = 6.7% → gap = +3.3
+        //   その他 42k → emp_pct = 46.7%, csv_pct = 0 → gap = -46.7 (これが最大!)
+        // → 「その他」がトップになるが、実データでは「その他」分類は estimate で出ず emp_map のみに出る
+        // この場合は意図的に emp 側の合計を CSV と相互排他的に絞る
+        let emp = vec![
+            mk_emp("医療，福祉", 25_000),       // 25%
+            mk_emp("製造業", 25_000),            // 25%
+            mk_emp("宿泊業，飲食サービス業", 25_000), // 25%
+            mk_emp("教育，学習支援業", 25_000),   // 25%
+        ];
+        // CSV: 医療 70 / 製造 20 / 飲食 10
+        // 比較対象 (両側出現する):
+        //   医療: csv=70%, emp=25% → gap=+45 (max)
+        //   製造: csv=20%, emp=25% → gap=-5
+        //   飲食: csv=10%, emp=25% → gap=-15
+        //   教育: csv=0%, emp=25% → gap=-25
+
+        let csv_counts = estimate_csv_industry_counts(&agg);
+        let rows = build_csv_mismatch_rows(&emp, &csv_counts);
+
+        assert!(
+            rows[0].industry_name.contains("医療"),
+            "1 行目は最大ギャップ |+45| の医療 (実際: {} gap={})",
+            rows[0].industry_name,
+            rows[0].gap_pt
+        );
         for w in rows.windows(2) {
             assert!(
                 w[0].gap_pt.abs() >= w[1].gap_pt.abs() - 0.001,
