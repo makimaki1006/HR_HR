@@ -187,7 +187,7 @@ pub(super) fn render_section_industry_mismatch_csv(
     // 必須 caveat (CSV 推定の限界 + 国勢調査スコープ + 因果非主張)
     html.push_str(
         "<p class=\"caveat\" style=\"font-size:9pt;color:#475569;margin-top:8px;\">\
-        \u{26A0} CSV 業種は職種列・タグ列からのキーワード推定です。元 CSV に業種列がない場合精度に限界があります。\
+        \u{26A0} CSV 業種は職種列・タグ列・会社名 (例: 「メディカル」「ケアセンター」「建設」等) からのキーワード推定です。元 CSV に業種列がない場合精度に限界があります。\
         就業者構成は国勢調査 (5 年に 1 回、最新 2020 年)。\
         CSV はユーザー指定の媒体掲載求人で、地域全体を代表しません。\
         ギャップは CSV の業種傾向と地域就業者の差を示すもので、採用優劣評価ではありません。\
@@ -225,9 +225,21 @@ pub(crate) fn estimate_csv_industry_counts(
     let mut industry_counts: std::collections::HashMap<&'static str, i64> =
         std::collections::HashMap::new();
 
+    // 信号 1: by_tags (タグ列ある場合の最優先信号)
     for (tag, count) in &agg.by_tags {
         if let Some(industry) = map_keyword_to_major_industry(tag) {
             *industry_counts.entry(industry).or_insert(0) += *count as i64;
+        }
+    }
+
+    // 信号 2 (2026-04-30 拡張): by_company の会社名から推定
+    // Indeed/求人ボックス CSV にタグ列が無い場合の主要信号源。
+    // 会社名に「メディカル」「病院」「介護」「建設」等のキーワードを含む場合、
+    // 当該企業の求人件数 (CompanyAgg.count) を該当大分類に加算。
+    // 注意: 会社名は業種を完全に表すわけではなく推定誤差を含むため、caveat で明示する。
+    for company in &agg.by_company {
+        if let Some(industry) = map_keyword_to_major_industry(&company.name) {
+            *industry_counts.entry(industry).or_insert(0) += company.count as i64;
         }
     }
 
@@ -256,11 +268,15 @@ pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static st
 
     // 医療・福祉系 (専門度高、最優先)
     if s.contains("看護") || s.contains("准看")
-        || s.contains("病院") || s.contains("医療") || s.contains("診療")
-        || s.contains("歯科") || s.contains("助産") || s.contains("獣医")
+        || s.contains("病院") || s.contains("医療") || s.contains("メディカル")
+        || s.contains("診療") || s.contains("クリニック")
+        || s.contains("歯科") || s.contains("デンタル")
+        || s.contains("助産") || s.contains("獣医")
         || s.contains("社会福祉") || s.contains("児童福祉") || s.contains("障害者")
         || s.contains("障がい者") || s.contains("老人") || s.contains("介護")
-        || s.contains("ヘルパー") || s.contains("ケアマネ") || s.contains("保育")
+        || s.contains("ケアセンター") || s.contains("ケアマネ")
+        || s.contains("ケアホーム") || s.contains("デイケア")
+        || s.contains("ヘルパー") || s.contains("保育")
         || s.contains("精神保健") || s.contains("リハビリ") || s.contains("理学療法")
         || s.contains("作業療法") || s.contains("言語聴覚") || s.contains("薬剤師")
         || s.contains("管理栄養士") || s.contains("栄養士") || s.contains("生活支援員")
@@ -1341,6 +1357,58 @@ mod tests {
         agg
     }
 
+    /// 2026-04-30: by_company を信号源に追加 (タグ列なし CSV 対応)
+    fn mk_agg_with_companies(
+        companies: &[(&str, usize)],
+    ) -> super::super::super::aggregator::SurveyAggregation {
+        use super::super::super::aggregator::CompanyAgg;
+        let mut agg = super::super::super::aggregator::SurveyAggregation::default();
+        agg.by_company = companies
+            .iter()
+            .map(|(name, count)| CompanyAgg {
+                name: name.to_string(),
+                count: *count,
+                ..Default::default()
+            })
+            .collect();
+        agg
+    }
+
+    /// CSV テスト (2026-04-30): by_company の会社名から業種推定
+    /// Indeed/求人ボックス CSV にタグ列がないとき、会社名で代替推定する
+    #[test]
+    fn csv_industry_estimate_from_company_name() {
+        let agg = mk_agg_with_companies(&[
+            ("メディカル株式会社01", 5),
+            ("ケアセンター東京", 3),
+            ("新宿病院", 2),
+            ("製造工場サンプル", 4),
+            ("カフェチェーン01", 2),
+        ]);
+        let counts = estimate_csv_industry_counts(&agg);
+        // 会社名「メディカル」「ケアセンター」「病院」→ 医療,福祉 に集約 (5+3+2=10)
+        let medical = counts
+            .iter()
+            .find(|(k, _)| k == "医療，福祉")
+            .map(|(_, v)| *v)
+            .unwrap_or(0);
+        assert_eq!(medical, 10, "医療系会社名 3 社合計 = 10 件");
+        // 製造業 (製造工場): 4
+        let manufacturing = counts
+            .iter()
+            .find(|(k, _)| k == "製造業")
+            .map(|(_, v)| *v)
+            .unwrap_or(0);
+        assert_eq!(manufacturing, 4);
+        // 宿泊業,飲食サービス業 (カフェ): 2
+        let food = counts
+            .iter()
+            .find(|(k, _)| k.contains("飲食"))
+            .map(|(_, v)| *v)
+            .unwrap_or(0);
+        assert_eq!(food, 2);
+    }
+
     /// CSV テスト 1: タグ「看護師」「介護スタッフ」が医療,福祉に分類される (具体値検証)
     #[test]
     fn csv_industry_keyword_medical_welfare() {
@@ -1541,7 +1609,7 @@ mod tests {
         assert!(!html.is_empty(), "section 描画必須");
         // CSV 推定の限界
         assert!(
-            html.contains("CSV 業種は職種列・タグ列からのキーワード推定"),
+            html.contains("CSV 業種は職種列・タグ列・会社名"),
             "CSV 推定限界 caveat 必須"
         );
         // 国勢調査スコープ
