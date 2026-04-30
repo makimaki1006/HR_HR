@@ -270,6 +270,126 @@ pub(super) fn render_section_company_segments_with_industry(
 ///   - 求人積極期 (HW 求人 5 件以上)
 /// **本セクションは地域内の自社ポジション確認用ベンチマーク**であり、
 /// 個別企業の評価・優劣判定を目的としない。
+/// 2026-04-30: 規模 × 動向 6 マトリクス表示
+///
+/// ユーザー指摘:
+/// > 増員出来ている、離職が多い、それぞれで大企業と中小企業と零細企業のセグメントがあると良い
+///
+/// 規模帯 (大企業 300+ / 中小企業 50-299 / 零細企業 <50) × 動向 (増員 / 減少) の
+/// 6 マトリクスで地域企業の動きを多面的に提示。
+///
+/// 表現は中立化:
+/// - 「離職が多い」→「人員減少傾向」(組織改編・自然減・配置転換等も含む観測)
+/// - 「増員できている」→「人員増加傾向」
+fn render_size_x_trend_matrix(
+    html: &mut String,
+    segments: &super::super::super::company::fetch::RegionalCompanySegments,
+) {
+    let total = segments.growth_large.len()
+        + segments.growth_mid.len()
+        + segments.growth_small.len()
+        + segments.decline_large.len()
+        + segments.decline_mid.len()
+        + segments.decline_small.len();
+    if total == 0 {
+        return;
+    }
+
+    html.push_str("<h3 style=\"font-size:13pt;margin:14px 0 6px;\">表 5-0b 規模 × 人員推移 6 マトリクス (各セル上位 5 社)</h3>\n");
+    html.push_str(
+        "<p style=\"font-size:9.5pt;color:#475569;margin:0 0 8px;\">\
+         \u{203B} 規模帯 (大企業 / 中小企業 / 零細企業) と 1 年人員推移 (+5% 超 / -5% 未満) の組み合わせで\
+         該当企業を抽出。「人員減少傾向」は離職だけでなく組織改編・自然減・配置転換等も含む観測です。\
+         </p>\n",
+    );
+
+    // 6 セルを 2 行 × 3 列で配置
+    html.push_str("<div style=\"display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:8px 0;\">\n");
+
+    let cells: [(&str, &str, &[NearbyCompany], &str); 6] = [
+        (
+            "📈 大企業 × 人員増加",
+            "300+ 名 / 1y +5% 超",
+            &segments.growth_large,
+            "matrix-growth-large",
+        ),
+        (
+            "📈 中小企業 × 人員増加",
+            "50-299 名 / 1y +5% 超",
+            &segments.growth_mid,
+            "matrix-growth-mid",
+        ),
+        (
+            "📈 零細企業 × 人員増加",
+            "<50 名 / 1y +5% 超",
+            &segments.growth_small,
+            "matrix-growth-small",
+        ),
+        (
+            "📉 大企業 × 人員減少",
+            "300+ 名 / 1y -5% 未満",
+            &segments.decline_large,
+            "matrix-decline-large",
+        ),
+        (
+            "📉 中小企業 × 人員減少",
+            "50-299 名 / 1y -5% 未満",
+            &segments.decline_mid,
+            "matrix-decline-mid",
+        ),
+        (
+            "📉 零細企業 × 人員減少",
+            "<50 名 / 1y -5% 未満",
+            &segments.decline_small,
+            "matrix-decline-small",
+        ),
+    ];
+
+    for (label, hint, list, testid) in cells.iter() {
+        let is_growth = label.contains("増加");
+        let bg_color = if is_growth { "#ecfdf5" } else { "#fef2f2" };
+        let border_color = if is_growth { "#10b981" } else { "#dc2626" };
+        html.push_str(&format!(
+            "<div data-testid=\"{}\" style=\"padding:8px 10px;background:{};border-left:3px solid {};border-radius:3px;font-size:9.5pt;\">\n",
+            testid, bg_color, border_color
+        ));
+        html.push_str(&format!(
+            "<div style=\"font-weight:700;margin-bottom:2px;\">{}</div>\n\
+             <div style=\"font-size:9pt;color:#6b7280;margin-bottom:4px;\">{} ・ <strong>{} 社</strong></div>\n",
+            escape_html(label),
+            escape_html(hint),
+            list.len()
+        ));
+        if list.is_empty() {
+            html.push_str(
+                "<div style=\"color:#9ca3af;font-style:italic;font-size:9pt;\">該当なし</div>\n",
+            );
+        } else {
+            html.push_str("<ol style=\"margin:0;padding-left:18px;line-height:1.55;\">\n");
+            for c in list.iter() {
+                html.push_str(&format!(
+                    "<li>{} <span style=\"color:#6b7280;font-size:8.5pt;\">({} 名 / {:+.1}%)</span></li>\n",
+                    escape_html(&c.company_name),
+                    format_number(c.employee_count),
+                    c.employee_delta_1y * 100.0,
+                ));
+            }
+            html.push_str("</ol>\n");
+        }
+        html.push_str("</div>\n");
+    }
+    html.push_str("</div>\n");
+
+    // 6 マトリクス用 caveat
+    html.push_str(
+        "<div style=\"font-size:9pt;color:#475569;margin:6px 0;padding:6px 10px;background:#f8fafc;border-left:3px solid #94a3b8;border-radius:3px;\">\
+         \u{26A0} 「人員減少傾向」は離職だけでなく組織改編・配置転換・連結⇄単体切替・自然減も含みます。\
+         「人員増加傾向」も M&A・採用・連結化等の複合要因を含むため、個別企業の動きは別途確認してください。\
+         閾値 ±5% は 1 年推移ベース (\u{B12} % 内は変化なし扱い)。\
+         </div>\n",
+    );
+}
+
 pub(super) fn render_section_company_segments(
     html: &mut String,
     segments: &super::super::super::company::fetch::RegionalCompanySegments,
@@ -375,6 +495,10 @@ pub(super) fn render_section_company_segments(
         ));
         html.push_str("</div>\n");
     }
+
+    // 2026-04-30: 規模 × 動向 6 マトリクス
+    // 既存の規模分布ヒストグラムの **直前** に配置 (構造サマリ → 6 マトリクス → ヒストグラム → 4 セグメント)
+    render_size_x_trend_matrix(html, segments);
 
     // 規模分布ヒストグラム (簡易バーチャート、テキストベース)
     let hist = segments.size_histogram();
@@ -902,20 +1026,8 @@ mod tests {
     fn industry_zero_match_banner_suggests_alternatives() {
         use super::super::super::super::company::fetch::RegionalCompanySegments;
         let mut html = String::new();
-        let segments_all = RegionalCompanySegments {
-            large: vec![],
-            mid: vec![],
-            growth: vec![],
-            hiring: vec![],
-            pool_size: 0,
-        };
-        let segments_industry = RegionalCompanySegments {
-            large: vec![],
-            mid: vec![],
-            growth: vec![],
-            hiring: vec![],
-            pool_size: 0,
-        };
+        let segments_all = RegionalCompanySegments::default();
+        let segments_industry = RegionalCompanySegments::default();
         // segments_all が空の場合 render しない (early return) ので、
         // ここでは banner テキストのみを別途検証
         // → render_section_company_segments_with_industry の banner 部分の

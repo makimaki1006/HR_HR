@@ -180,14 +180,9 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     ));
     html.push_str("</ol>\n");
 
-    // フッタ: 生成日時 + フィルタ条件 + バージョン
-    html.push_str(&format!(
-        "<div class=\"report-banner-gray\" role=\"note\" style=\"margin-top:10px;\">\
-         <strong>レポートメタ情報</strong>: \
-         生成日時 {} \u{30FB} フォーマット v2 (2026-04-24) \u{30FB} レンダリング: For A-career Dashboard\
-         </div>\n",
-        escape_html(now)
-    ));
+    // 2026-04-30: ユーザー指摘により「レポートメタ情報」「フォーマット v2」「レンダリング」等の
+    // 内部実装情報は不要のため削除。生成日時はカバーページと screen-footer に既出。
+    let _ = now;
 
     html.push_str("</section>\n");
 }

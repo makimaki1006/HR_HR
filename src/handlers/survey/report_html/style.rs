@@ -43,7 +43,7 @@ body.theme-dark .guide-item { background: #232946; border-color: #37415a; }
   size: A4 portrait;
   margin: 12mm;
   @bottom-left {
-    content: "株式会社For A-career | ハローワーク求人データ分析レポート";
+    content: "株式会社For A-career | 求人市場 総合診断レポート";
     font-size: 8pt;
     color: #999;
   }
