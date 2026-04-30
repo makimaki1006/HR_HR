@@ -1967,20 +1967,22 @@ mod design_v2_contract_tests {
     }
 
     /// (6) 印刷時に dv2 が主役として有効化される CSS
+    /// 2026-04-30: @page 重複定義を撤去したため、L42 の単一定義 (margin: 10mm 8mm 12mm 8mm)
+    /// と L46-55 のフッター定義を確認する。横幅 8mm で本文幅 194mm を確保。
     #[test]
     fn dv2_print_mode_activated() {
         let html = render_minimal();
         assert!(
-            html.contains("margin: 15mm 12mm"),
-            "印刷時 A4 余白 (15mm/12mm) が必須"
+            html.contains("margin: 10mm 8mm 12mm 8mm"),
+            "印刷時 A4 余白 (上 10mm / 左右 8mm / 下 12mm) が必須"
         );
         assert!(
-            html.contains("@top-left") && html.contains("求人市場 総合診断レポート"),
-            "印刷時の running header (top-left に「求人市場 総合診断レポート」) が必須"
+            html.contains("@bottom-left") && html.contains("求人市場 総合診断レポート"),
+            "印刷時の bottom-left footer (会社名 + レポート名) が必須"
         );
         assert!(
-            html.contains("@bottom-left") && html.contains("機密情報"),
-            "印刷時の bottom-left footer (機密情報) が必須"
+            html.contains("@bottom-right") && html.contains("counter(page)"),
+            "印刷時の bottom-right footer (ページ番号) が必須"
         );
     }
 
