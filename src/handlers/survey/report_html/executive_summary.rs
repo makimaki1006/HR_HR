@@ -770,23 +770,40 @@ mod ux_enhancement_tests {
     fn test_t6_design_v2_grid_visible_in_css() {
         let css = super::super::style::render_css();
         let selector_with_brace = ".exec-kpi-grid-v2 {";
-        let start = css
-            .find(selector_with_brace)
-            .expect(".exec-kpi-grid-v2 セレクタが CSS に存在すること");
-        let block_end = css[start..]
-            .find('}')
-            .expect("CSS rule の終端 '}' が見つかること");
-        let block = &css[start..start + block_end];
-        // display: grid であり、display: none ではない
+        // 2026-04-30: @media print 内に同セレクタを後付けしたため、グローバル定義は
+        // 「display: grid」を含むブロックを `find` で全件走査して特定する。
+        let mut found_grid = false;
+        let mut found_none = false;
+        let mut search_pos = 0;
+        while let Some(rel) = css[search_pos..].find(selector_with_brace) {
+            let start = search_pos + rel;
+            let block_end = css[start..]
+                .find('}')
+                .expect("CSS rule の終端 '}' が見つかること");
+            let block = &css[start..start + block_end];
+            if block.contains("display: grid") || block.contains("display:grid") {
+                found_grid = true;
+            }
+            if block.contains("display: none") || block.contains("display:none") {
+                found_none = true;
+            }
+            search_pos = start + block_end + 1;
+        }
         assert!(
-            block.contains("display: grid") || block.contains("display:grid"),
-            "Design v2 grid は display: grid であること: block={}",
+            found_grid,
+            "Design v2 grid は少なくとも 1 つのブロックで display: grid であること"
+        );
+        let block = "(checked all .exec-kpi-grid-v2 blocks)";
+        assert!(!found_none,
+            "Design v2 grid に display: none が誤って適用されていないこと: {}",
             block
         );
+        // 元の assertion 互換のため block 変数を維持 (後続コードで使われるなら)
+        let _ = block;
+        // ダミー条件: 一貫性確認のため再度 found_grid を assert
         assert!(
-            !block.contains("display: none") && !block.contains("display:none"),
-            "Design v2 grid に display: none が誤って適用されていないこと: block={}",
-            block
+            found_grid,
+            "Design v2 grid は display: grid を保持すること"
         );
     }
 

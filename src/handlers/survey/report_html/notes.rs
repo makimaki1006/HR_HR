@@ -23,7 +23,7 @@ use super::helpers::*;
 /// - 冒頭に「本レポートを正しく読むための前提」サマリ追加
 /// - 既存の <ol> 番号付きリスト互換のため、既存テストで参照される文言は内部で保持
 pub(super) fn render_section_notes(html: &mut String, now: &str) {
-    html.push_str("<section class=\"section\" role=\"region\" aria-labelledby=\"notes-title\">\n");
+    html.push_str("<section class=\"section page-start\" role=\"region\" aria-labelledby=\"notes-title\">\n");
     html.push_str("<h2 id=\"notes-title\">第6章 注記・出典・免責</h2>\n");
 
     // === 冒頭サマリ ===

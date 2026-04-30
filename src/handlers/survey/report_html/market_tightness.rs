@@ -108,7 +108,7 @@ pub(super) fn render_section_market_tightness_public(
         return;
     }
 
-    html.push_str("<div class=\"section\">\n");
+    html.push_str("<div class=\"section page-start\">\n");
     html.push_str("<h2>採用市場 逼迫度</h2>\n");
 
     render_section_howto(
@@ -171,7 +171,7 @@ pub(super) fn render_section_market_tightness(html: &mut String, ctx: Option<&In
         return;
     }
 
-    html.push_str("<div class=\"section\">\n");
+    html.push_str("<div class=\"section page-start\">\n");
     html.push_str("<h2>採用市場 逼迫度</h2>\n");
 
     // 章冒頭の読み方ガイド
