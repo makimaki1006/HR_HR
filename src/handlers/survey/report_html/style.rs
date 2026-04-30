@@ -18,6 +18,20 @@ pub(super) fn render_css() -> String {
   --text: #0f172a;
   --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
   --radius: 6px;
+  /* 2026-05-01 v8: Working Paper 多色パレット (歯抜け感解消) */
+  --wp-brand: #1E3A8A;
+  --wp-brand-tint: #E5EAF2;
+  --wp-accent-red: #DC2626;
+  --wp-accent-red-tint: #FEE2E2;
+  --wp-accent-orange: #EA580C;
+  --wp-accent-orange-tint: #FFEDD5;
+  --wp-accent-amber: #D97706;
+  --wp-accent-green: #16A34A;
+  --wp-accent-green-tint: #DCFCE7;
+  --wp-accent-teal: #0D9488;
+  --wp-accent-purple: #7C3AED;
+  --wp-accent-yellow: #CA8A04;
+  --wp-zebra: #F8FAFC;
 }
 
 body.theme-dark {
@@ -1989,6 +2003,145 @@ body.theme-dark .dv2-cover {
 body.theme-dark .dv2-cover-title,
 body.theme-dark .dv2-cover-target {
   color: #f1f5f9;
+}
+
+/* =====================================================================
+ * 2026-05-01 v8: Working Paper 視覚補強 (歯抜け感解消、多色化)
+ * Phase 1 監査結果反映 (PDF 32 ページ視覚監査 + 実コード整合性監査)
+ * 既存クラスを上書きせず、新規補強を追加。
+ * ===================================================================== */
+
+/* 多色 severity badge (緑/橙/赤の三段識別、色覚配慮で記号併用) */
+.wp-sev-good { color: var(--wp-accent-green); font-weight: 700; }
+.wp-sev-warn { color: var(--wp-accent-orange); font-weight: 700; }
+.wp-sev-crit { color: var(--wp-accent-red); font-weight: 700; }
+.wp-sev-good::before { content: "◯ "; }
+.wp-sev-warn::before { content: "△ "; }
+.wp-sev-crit::before { content: "× "; }
+
+/* テーブル zebra strip + ブランド色ヘッダ (補強クラス、既存 .data-table と併用可能) */
+table.data-table.wp-colorful { border-top: 2pt solid var(--wp-brand); }
+table.data-table.wp-colorful thead tr {
+  background: var(--wp-brand);
+  color: #FFFFFF;
+}
+table.data-table.wp-colorful thead th {
+  color: #FFFFFF !important;
+  background: var(--wp-brand) !important;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+table.data-table.wp-colorful tbody tr:nth-child(even) {
+  background: var(--wp-zebra);
+}
+table.data-table.wp-colorful tr.wp-self-row {
+  background: linear-gradient(90deg, var(--wp-accent-yellow) 0%, var(--wp-accent-yellow) 1mm, var(--wp-brand-tint) 1mm) !important;
+}
+table.data-table.wp-colorful tr.wp-self-row td:first-child {
+  font-weight: 700; color: var(--wp-brand);
+}
+
+/* 章バナー (青→青緑グラデ + 黄下罫) — オプトイン、既存 h2 とは独立クラス */
+.wp-chapter-band {
+  background: linear-gradient(90deg, var(--wp-brand) 0%, var(--wp-brand) 70%, var(--wp-accent-teal) 100%);
+  color: #FFFFFF;
+  padding: 4mm 6mm;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6mm;
+  align-items: baseline;
+  margin: 5mm 0;
+  border-bottom: 2pt solid var(--wp-accent-yellow);
+  break-before: page;
+  break-after: avoid;
+}
+.wp-chapter-band .ch-num {
+  font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
+  font-size: 22pt; font-weight: 700; line-height: 1;
+  color: var(--wp-accent-yellow);
+}
+.wp-chapter-band .ch-title { font-size: 18pt; font-weight: 700; line-height: 1.1; }
+.wp-chapter-band .ch-meta {
+  font-family: "JetBrains Mono", monospace; font-size: 9pt;
+  color: rgba(255,255,255,0.85); letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* リード段落 (章冒頭の要約段落、青グラデ背景 + 黄右罫) */
+.wp-lead {
+  font-size: 11pt; line-height: 1.6;
+  margin: 0 0 4mm;
+  border-left: 4pt solid var(--wp-brand);
+  border-right: 1pt solid var(--wp-accent-yellow);
+  padding: 2mm 4mm 2mm 5mm;
+  background: linear-gradient(90deg, var(--wp-brand-tint) 0%, transparent 100%);
+}
+.wp-lead strong { color: var(--wp-brand); font-weight: 700; }
+
+/* 6 マトリクス (拡大=緑系 / 縮小=赤系 / 各セル Top 5 企業名) */
+.wp-matrix6-cell.wp-mat-growth {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%) !important;
+  border-left: 3pt solid var(--wp-accent-green) !important;
+}
+.wp-matrix6-cell.wp-mat-decline {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
+  border-left: 3pt solid var(--wp-accent-red) !important;
+}
+.wp-matrix6-cell .wp-mat-count-pill {
+  display: inline-block; padding: 0.5mm 2.5mm; border-radius: 8pt;
+  color: #FFFFFF; font-family: "JetBrains Mono", monospace;
+  font-size: 8.5pt; font-weight: 700;
+}
+.wp-matrix6-cell.wp-mat-growth .wp-mat-count-pill { background: var(--wp-accent-green); }
+.wp-matrix6-cell.wp-mat-decline .wp-mat-count-pill { background: var(--wp-accent-red); }
+.wp-matrix6-cell .wp-mat-top5 {
+  margin: 2mm 0 0; padding-left: 5mm;
+  font-size: 9.5pt; line-height: 1.55;
+}
+.wp-matrix6-cell .wp-mat-top5 li { margin-bottom: 1.5mm; }
+.wp-matrix6-cell .wp-mat-top5 .wp-mat-name {
+  font-weight: 700; color: var(--c-text); font-size: 9.5pt;
+}
+.wp-matrix6-cell .wp-mat-top5 .wp-mat-meta {
+  display: block; font-family: "JetBrains Mono", monospace;
+  font-size: 8.5pt; color: var(--c-text-muted); margin-top: 0.2mm;
+}
+
+/* Findings (推奨アクション) を赤罫で強調 */
+.wp-findings {
+  border-top: 3pt solid var(--wp-accent-red);
+  padding: 3mm 0 0; margin: 5mm 0;
+  background: linear-gradient(180deg, var(--wp-accent-red-tint) 0%, transparent 5mm);
+}
+.wp-findings-title {
+  font-weight: 700; font-size: 10pt;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--wp-accent-red); margin: 0 0 3mm;
+}
+
+/* Observations (Key Takeaways) を黄罫で強調 */
+.wp-observations {
+  border-top: 2pt solid var(--wp-accent-yellow);
+  border-bottom: 1pt solid var(--c-text);
+  background: linear-gradient(180deg, #FFFBEB 0%, transparent 50%);
+  padding: 3mm 4mm; margin: 5mm 0 0;
+  break-inside: avoid;
+}
+.wp-observations h4 {
+  font-weight: 700; font-size: 9.5pt;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--wp-accent-amber); margin: 0 0 2mm;
+}
+
+/* 印刷時 multi-color preserve */
+@media print {
+  .wp-sev-good, .wp-sev-warn, .wp-sev-crit,
+  .wp-chapter-band, .wp-lead, .wp-matrix6-cell,
+  .wp-findings, .wp-observations,
+  table.data-table.wp-colorful thead tr,
+  table.data-table.wp-colorful tr.wp-self-row {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }
 "#.to_string()
 }
