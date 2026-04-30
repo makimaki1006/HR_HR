@@ -516,8 +516,10 @@ p, li { orphans: 3; widows: 3; }
   padding: 8px 12px;
   text-align: center;
 }
-.stat-box .label { font-size: 10px; color: var(--c-text-muted); }
-.stat-box .value { font-size: 18px; font-weight: bold; color: #333; }
+/* 2026-04-30: px → pt 統一 (frontend review #6/#7)。
+ * print 時に px と pt が混在すると Chrome/Edge で実寸が変わるため pt に統一。 */
+.stat-box .label { font-size: 9pt; color: var(--c-text-muted); }
+.stat-box .value { font-size: 14pt; font-weight: bold; color: #333; }
 
 /* 色分け */
 .positive { color: #2e7d32; }
@@ -551,16 +553,16 @@ p, li { orphans: 3; widows: 3; }
   margin-bottom: 8px;
 }
 .note {
-  font-size: 10px;
+  font-size: 9pt;
   color: #999;
   margin-top: 4px;
 }
 
-/* テーブル */
+/* テーブル (2026-04-30: px → pt 統一) */
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 9.5pt;
   margin-bottom: 8px;
 }
 th {
@@ -582,7 +584,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ソート可能テーブル */
 .sortable-table th { cursor: pointer; user-select: none; position: relative; padding-right: 18px; }
-.sortable-table th::after { content: '↕'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #999; opacity: 0.5; }
+.sortable-table th::after { content: '↕'; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 9pt; color: #999; opacity: 0.5; }
 .sortable-table th.sort-asc::after { content: '▲'; opacity: 1; color: var(--c-primary); }
 .sortable-table th.sort-desc::after { content: '▼'; opacity: 1; color: var(--c-primary); }
 
@@ -598,9 +600,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   border: 1px solid #eee;
   border-radius: 4px;
   padding: 6px 8px;
-  font-size: 10px;
+  font-size: 9pt;
 }
-.guide-item .guide-title { font-weight: bold; color: var(--c-primary); font-size: 10px; margin-bottom: 2px; }
+.guide-item .guide-title { font-weight: bold; color: var(--c-primary); font-size: 9pt; margin-bottom: 2px; }
 
 /* HW市場比較カード */
 .comparison-grid {
@@ -616,7 +618,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   background: var(--c-bg-card);
 }
 .comparison-card h3 {
-  font-size: 11px;
+  font-size: 9.5pt;
   color: var(--c-text-muted);
   margin: 0 0 4px;
   font-weight: bold;
@@ -630,9 +632,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   display: flex;
   flex-direction: column;
 }
-.comparison-card .value-pair .label { font-size: 9px; color: var(--c-text-muted); }
-.comparison-card .value-pair .value { font-size: 14px; font-weight: bold; color: var(--c-primary); }
-.comparison-card .diff { font-size: 11px; margin-top: 4px; font-weight: bold; }
+.comparison-card .value-pair .label { font-size: 9pt; color: var(--c-text-muted); }
+.comparison-card .value-pair .value { font-size: 11pt; font-weight: bold; color: var(--c-primary); }
+.comparison-card .diff { font-size: 9.5pt; margin-top: 4px; font-weight: bold; }
 .comparison-card .diff.positive { color: var(--c-success); }
 .comparison-card .diff.negative { color: var(--c-danger); }
 
