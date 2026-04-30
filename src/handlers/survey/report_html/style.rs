@@ -315,11 +315,12 @@ body.theme-dark .variant-indicator .variant-switch-link:hover { background: #4f4
   /* exec-kpi-grid-v2: 印刷時は 3 列維持 (A4 縦 180mm ≒ 680px で 3 列 OK) */
   .exec-kpi-grid-v2 { grid-template-columns: repeat(3, 1fr) !important; }
 
-  /* 段落・リストのwidow/orphan強化 */
-  p, li, ol, ul {
+  /* 段落・リストの widow/orphan 強化 (2026-04-30: page-break-inside avoid 撤去
+   * 長いリスト/段落が単元途中で大きな空白を生む原因だったため)。
+   * widows: 3 / orphans: 3 のみで「見出しと孤立」「末尾1行残し」を防ぐ。 */
+  p, li {
     orphans: 3;
     widows: 3;
-    page-break-inside: avoid;
   }
 
   /* 印刷時の余白調整: ベタ塗り背景はインクをセーブ (visualization は維持) */
@@ -671,8 +672,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   body.theme-dark table th { background: var(--c-primary) !important; color: #fff !important; }
   body.theme-dark table td { background: transparent !important; color: #0f172a !important; }
 
-  /* セクション境界：主要セクションは次ページから */
-  .section { page-break-inside: avoid; break-inside: avoid; }
+  /* セクション境界：主要セクションは次ページから (章単位)
+   * 2026-04-30: .section 全体の page-break-inside: avoid を再撤去。
+   * 単元コンセプトを維持しつつ、長いセクションは複数ページに自然に流れる。
+   * 内部の図表・表・KPI カードは個別に avoid 適用 (下記)。 */
   .section.page-start,
   .section.print-page-break { page-break-before: always; break-before: page; }
 
@@ -1332,12 +1335,9 @@ body.theme-dark .report-notes-cat-update  { background: #232946; border-color: #
    ・既存クラスは変更せず、補強クラスのみ追加
    ===================================================================== */
 
-/* 1. 印刷時のフォント・余白調整: 1 ページに収まる量を増やす */
+/* 1. 印刷時のフォント・余白調整: 単元コンセプトを見やすく収める
+ * @page 宣言は L42 の単一定義に集約 (重複定義を撤去、cascade による意図せぬ上書きを防ぐ) */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 12mm 10mm;
-  }
   body {
     font-size: 10pt !important;
     line-height: 1.5 !important;
@@ -1912,39 +1912,10 @@ h2 .chapter-num {
     color: var(--dv2-text) !important;
     background: var(--dv2-bg) !important;
   }
-  /* 印刷余白の刷新（A4 縦: 上下 15mm / 左右 12mm） */
-  @page {
-    size: A4 portrait;
-    margin: 15mm 12mm;
-  }
-  /* ヘッダー（running header）と footer */
-  @page {
-    @top-left {
-      content: "求人市場 総合診断レポート";
-      font-size: 8pt;
-      color: #94a3b8;
-    }
-    @top-right {
-      content: counter(page) " / " counter(pages);
-      font-size: 8pt;
-      color: #94a3b8;
-      font-variant-numeric: tabular-nums;
-    }
-    @bottom-left {
-      content: "株式会社For A-career | 機密情報";
-      font-size: 8pt;
-      color: #94a3b8;
-    }
-    @bottom-right {
-      content: "";
-    }
-  }
-  @page :first {
-    @top-left { content: ""; }
-    @top-right { content: ""; }
-    @bottom-left { content: ""; }
-    @bottom-right { content: ""; }
-  }
+  /* 2026-04-30: dv2 専用 @page 重複定義を撤去
+   * 余白は L42 の単一 @page 宣言 (margin: 10mm 8mm 12mm 8mm) を採用。
+   * フッター文言も L46-55 で定義済みのため重複削除。
+   * CSS cascade による意図せぬ上書きを防ぎ、本文幅 194mm を確保する。 */
   /* dv2 カードは hover 効果無効 */
   .dv2-kpi-card,
   .dv2-action-card,
