@@ -337,15 +337,12 @@ pub(super) fn render_section_executive_summary(
     );
 
     // ---- 推奨優先アクション 3 件（優先度バッジ付き） ----
-    html.push_str("<h3>推奨優先アクション候補（件数・差分条件を満たすもの）</h3>\n");
+    // 2026-04-30: アクション 0 件時は見出しごと非出力 (frontend review #2)。
+    // 旧実装は「該当条件を満たすアクション候補はありません」のプレースホルダで
+    // 視覚ノイズになっていた。データ不足時は素直にセクションを省略する。
     let actions = build_exec_actions(agg, by_emp_type_salary, hw_context);
-    if actions.is_empty() {
-        html.push_str(
-            "<div class=\"exec-summary-action\"><div class=\"action-body\">\
-            現時点では該当条件を満たすアクション候補はありません。\
-            各セクションの詳細を順にご確認ください。</div></div>\n",
-        );
-    } else {
+    if !actions.is_empty() {
+        html.push_str("<h3>推奨優先アクション候補（件数・差分条件を満たすもの）</h3>\n");
         html.push_str("<div class=\"exec-action-list\">\n");
         for (idx, (sev, title, body, xref)) in actions.iter().enumerate() {
             html.push_str("<div class=\"exec-summary-action\">\n");
@@ -360,9 +357,12 @@ pub(super) fn render_section_executive_summary(
                 escape_html(title)
             ));
             html.push_str("</div>\n");
+            // 2026-04-30: 3 要素 (診断 / 影響試算 / 次の打ち手) で
+            // 改行を <br> 表示。XSS 対策として escape_html 後に \n を <br> 置換。
+            let body_html = escape_html(body).replace('\n', "<br>");
             html.push_str(&format!(
                 "<div class=\"action-body\" contenteditable=\"true\" spellcheck=\"false\">{}</div>\n",
-                escape_html(body)
+                body_html
             ));
             html.push_str(&format!(
                 "<div class=\"action-xref\">{}</div>\n",
@@ -462,46 +462,34 @@ pub(super) fn build_exec_actions(
         if csv_median > 0 && hw_median > 0 {
             let diff = hw_median - csv_median;
             let abs_diff = diff.abs();
-            if abs_diff >= 20_000 {
+            if abs_diff >= 10_000 {
+                // 2026-04-30: 営業観点 #2 反映 — Critical/Warning アクションに 3 要素強制注入
+                // (診断 / 影響試算 / 次の打ち手)。経営者が翌週決裁できるようにする。
                 let direction = if diff > 0 {
                     "引き上げる"
                 } else {
                     "再確認する"
                 };
-                out.push((
-                    RptSev::Critical,
-                    format!(
-                        "給与下限を月 {:+.1} 万円 {} 候補",
-                        diff as f64 / 10_000.0,
-                        direction
-                    ),
-                    format!(
-                        "当サンプル中央値 {:.1} 万円 / 該当市区町村 HW 中央値 {:.1} 万円で {:.1} 万円差。",
-                        csv_median as f64 / 10_000.0,
-                        hw_median as f64 / 10_000.0,
-                        abs_diff as f64 / 10_000.0
-                    ),
-                    "(Section 6 / Section 8 参照)".to_string(),
-                ));
-            } else if abs_diff >= 10_000 {
-                let direction = if diff > 0 {
-                    "引き上げる"
+                let severity = if abs_diff >= 20_000 {
+                    RptSev::Critical
                 } else {
-                    "再確認する"
+                    RptSev::Warning
                 };
+                let body = build_salary_action_body(
+                    csv_median,
+                    hw_median,
+                    abs_diff,
+                    agg.total_count,
+                    diff > 0,
+                );
                 out.push((
-                    RptSev::Warning,
+                    severity,
                     format!(
                         "給与下限を月 {:+.1} 万円 {} 候補",
                         diff as f64 / 10_000.0,
                         direction
                     ),
-                    format!(
-                        "当サンプル中央値 {:.1} 万円 / 該当市区町村 HW 中央値 {:.1} 万円で {:.1} 万円差。",
-                        csv_median as f64 / 10_000.0,
-                        hw_median as f64 / 10_000.0,
-                        abs_diff as f64 / 10_000.0
-                    ),
+                    body,
                     "(Section 6 / Section 8 参照)".to_string(),
                 ));
             }
@@ -591,6 +579,50 @@ pub(super) fn build_exec_actions(
     });
     out.truncate(3);
     out
+}
+
+/// 給与アクションの body 文字列を 3 要素 (診断 / 影響試算 / 次の打ち手) で構築。
+///
+/// 2026-04-30: 営業観点レビュー #2 反映。「Section 6 参照」だけで終わっていた旧版は
+/// 経営者が稟議に持ち込めなかった。3 要素を強制注入し、原資の概算とアクション項目を
+/// レポート単体で完結させる。
+///
+/// 注: `\n` は HTML レンダリング時 escape_html → `<br>` 置換で表示する。
+fn build_salary_action_body(
+    csv_median: i64,
+    hw_median: i64,
+    abs_diff: i64,
+    total_count: usize,
+    needs_raise: bool,
+) -> String {
+    let csv_man = csv_median as f64 / 10_000.0;
+    let hw_man = hw_median as f64 / 10_000.0;
+    let diff_man = abs_diff as f64 / 10_000.0;
+    // 影響試算: 月差 × 12ヶ月 × 該当人数 (n)。total_count が母集団の代替指標。
+    let annual_impact_oku = if total_count > 0 {
+        (abs_diff as f64 * 12.0 * total_count as f64) / 100_000_000.0
+    } else {
+        0.0
+    };
+    let impact_str = if total_count >= 5 {
+        format!(
+            "n={} 名適用時、年間 約 {:.2} 億円 の人件費インパクト試算 (月 {:.1} 万円 × 12ヶ月 × {} 名)",
+            total_count, annual_impact_oku, diff_man, total_count
+        )
+    } else {
+        format!("サンプル数 n={} のため試算は参考値に留める (n≥30 推奨)", total_count)
+    };
+    let next_step = if needs_raise {
+        "等級表 下限の見直し / 初任給のみ改定 / 翌月 KPI (応募数・内定承諾率) で効果検証"
+    } else {
+        "上限値・特殊条件込み案件の精査 / 求人記述の競合差別化 / 翌月の応募質を観測"
+    };
+    format!(
+        "診断: 当サンプル中央値 {:.1} 万円 / 該当市区町村 HW 中央値 {:.1} 万円で {:.1} 万円差。\n\
+         影響試算: {}。\n\
+         次の打ち手: {}。",
+        csv_man, hw_man, diff_man, impact_str, next_step
+    )
 }
 
 // =====================================================================
