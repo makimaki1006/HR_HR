@@ -25,7 +25,7 @@ use super::helpers::*;
 /// 関数名は呼出側の互換のため残す（UI 表示文言のみ「地域注目企業」に統一）
 pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompany]) {
     html.push_str(
-        "<section class=\"section page-start\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
     );
     html.push_str("<h2 id=\"region-featured-title\">第5章 地域注目企業 (規模の大きい順)</h2>\n");
     // 2026-04-29 中立化:
@@ -418,7 +418,7 @@ pub(super) fn render_section_company_segments(
         return;
     }
     html.push_str(
-        "<section class=\"section page-start\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
+        "<section class=\"section\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
     );
     html.push_str("<h2 id=\"region-segments-title\">第5章 地域企業 ベンチマーク (規模・人員推移・求人動向)</h2>\n");
     html.push_str(

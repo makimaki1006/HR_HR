@@ -211,7 +211,7 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
     let avg_ratio: f64 = entries.iter().map(|e| e.ratio_160).sum::<f64>() / entries.len() as f64;
     let avg_diff_pct = (avg_ratio - 1.0) * 100.0;
 
-    html.push_str("<div class=\"section page-start\">\n");
+    html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>最低賃金比較</h2>\n");
     // So What + severity badge（diff < 0 は Critical、< 50 は Warning、それ以外 Positive）
     let below_count = entries.iter().filter(|e| e.diff_160 < 0).count();

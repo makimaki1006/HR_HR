@@ -19,7 +19,7 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
         return;
     }
 
-    html.push_str("<div class=\"section page-start\">\n");
+    html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>相関分析（散布図）</h2>\n");
     html.push_str(
         "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
