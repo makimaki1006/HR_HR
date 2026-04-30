@@ -669,14 +669,14 @@ pub fn fetch_company_segments_by_region_with_industry(
         return RegionalCompanySegments::default();
     }
 
-    // ベースの広めプール (上位 100 社) を取得し、Rust 側でセグメント分け
-    let pool_limit: i64 = 100;
-    // 業界 LIKE パターン (Some の場合のみ適用)
+    // 2026-04-30 修正: 単一の `ORDER BY employee_count DESC LIMIT 100` だと
+    // 小規模企業 (<50 名) がほぼ pool に含まれず、構造サマリの「小規模」帯が
+    // 常に過少になる問題があった。3 つの規模帯から **個別に上位 30 社ずつ** 取得して
+    // 多様な pool (最大 90 社) を構築する。
+    let band_limit: i64 = 30;
     let industry_keyword = industry
         .filter(|s| !s.is_empty())
         .map(|s| {
-            // "医療,福祉" → "医療" のように 1 文字目以降をキーワードに使う
-            // (SalesNow sn_industry は HW 大分類と完全一致しない可能性が高いため部分一致)
             let head: String = s.chars().take_while(|c| *c != ',' && *c != '，').collect();
             if head.is_empty() {
                 s.to_string()
@@ -685,64 +685,86 @@ pub fn fetch_company_segments_by_region_with_industry(
             }
         });
 
-    let rows = match (municipality.is_empty(), &industry_keyword) {
-        (false, Some(kw)) => {
-            // 市区町村 + 業界
-            let muni_pattern = format!("%{}%", municipality);
-            let ind_pattern = format!("%{}%", kw);
-            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                       employee_count, credit_score, postal_code, \
-                       sales_amount, sales_range, \
-                       employee_delta_1y, employee_delta_3m \
-                       FROM v2_salesnow_companies \
-                       WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
-                       ORDER BY employee_count DESC LIMIT ?4";
-            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                vec![&prefecture, &muni_pattern, &ind_pattern, &pool_limit];
-            sn_db.query(sql, &params).unwrap_or_default()
+    // 各規模帯のクエリ
+    // 大手: employee_count >= 300
+    // 中規模: 50 ≤ employee_count ≤ 299
+    // 小規模: 1 ≤ employee_count ≤ 49
+    let band_ranges: [(i64, i64, &str); 3] = [
+        (300, 9_999_999, "large"),
+        (50, 299, "mid"),
+        (1, 49, "small"),
+    ];
+
+    let mut all_rows: Vec<crate::handlers::helpers::Row> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (lo, hi, _band) in band_ranges.iter() {
+        let rows = match (municipality.is_empty(), &industry_keyword) {
+            (false, Some(kw)) => {
+                let muni_pattern = format!("%{}%", municipality);
+                let ind_pattern = format!("%{}%", kw);
+                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                           employee_count, credit_score, postal_code, \
+                           sales_amount, sales_range, \
+                           employee_delta_1y, employee_delta_3m \
+                           FROM v2_salesnow_companies \
+                           WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
+                             AND employee_count >= ?4 AND employee_count <= ?5 \
+                           ORDER BY employee_count DESC LIMIT ?6";
+                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                    vec![&prefecture, &muni_pattern, &ind_pattern, lo, hi, &band_limit];
+                sn_db.query(sql, &params).unwrap_or_default()
+            }
+            (true, Some(kw)) => {
+                let ind_pattern = format!("%{}%", kw);
+                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                           employee_count, credit_score, postal_code, \
+                           sales_amount, sales_range, \
+                           employee_delta_1y, employee_delta_3m \
+                           FROM v2_salesnow_companies \
+                           WHERE prefecture = ?1 AND sn_industry LIKE ?2 \
+                             AND employee_count >= ?3 AND employee_count <= ?4 \
+                           ORDER BY employee_count DESC LIMIT ?5";
+                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                    vec![&prefecture, &ind_pattern, lo, hi, &band_limit];
+                sn_db.query(sql, &params).unwrap_or_default()
+            }
+            (false, None) => {
+                let muni_pattern = format!("%{}%", municipality);
+                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                           employee_count, credit_score, postal_code, \
+                           sales_amount, sales_range, \
+                           employee_delta_1y, employee_delta_3m \
+                           FROM v2_salesnow_companies \
+                           WHERE prefecture = ?1 AND address LIKE ?2 \
+                             AND employee_count >= ?3 AND employee_count <= ?4 \
+                           ORDER BY employee_count DESC LIMIT ?5";
+                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                    vec![&prefecture, &muni_pattern, lo, hi, &band_limit];
+                sn_db.query(sql, &params).unwrap_or_default()
+            }
+            (true, None) => {
+                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                           employee_count, credit_score, postal_code, \
+                           sales_amount, sales_range, \
+                           employee_delta_1y, employee_delta_3m \
+                           FROM v2_salesnow_companies \
+                           WHERE prefecture = ?1 \
+                             AND employee_count >= ?2 AND employee_count <= ?3 \
+                           ORDER BY employee_count DESC LIMIT ?4";
+                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                    vec![&prefecture, lo, hi, &band_limit];
+                sn_db.query(sql, &params).unwrap_or_default()
+            }
+        };
+        for r in rows {
+            let cn = get_str(&r, "corporate_number");
+            if seen.insert(cn) {
+                all_rows.push(r);
+            }
         }
-        (true, Some(kw)) => {
-            // 都道府県のみ + 業界
-            let ind_pattern = format!("%{}%", kw);
-            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                       employee_count, credit_score, postal_code, \
-                       sales_amount, sales_range, \
-                       employee_delta_1y, employee_delta_3m \
-                       FROM v2_salesnow_companies \
-                       WHERE prefecture = ?1 AND sn_industry LIKE ?2 \
-                       ORDER BY employee_count DESC LIMIT ?3";
-            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                vec![&prefecture, &ind_pattern, &pool_limit];
-            sn_db.query(sql, &params).unwrap_or_default()
-        }
-        (false, None) => {
-            // 市区町村のみ
-            let muni_pattern = format!("%{}%", municipality);
-            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                       employee_count, credit_score, postal_code, \
-                       sales_amount, sales_range, \
-                       employee_delta_1y, employee_delta_3m \
-                       FROM v2_salesnow_companies \
-                       WHERE prefecture = ?1 AND address LIKE ?2 \
-                       ORDER BY employee_count DESC LIMIT ?3";
-            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                vec![&prefecture, &muni_pattern, &pool_limit];
-            sn_db.query(sql, &params).unwrap_or_default()
-        }
-        (true, None) => {
-            // 都道府県のみ (絞り込みなし)
-            let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
-                       employee_count, credit_score, postal_code, \
-                       sales_amount, sales_range, \
-                       employee_delta_1y, employee_delta_3m \
-                       FROM v2_salesnow_companies \
-                       WHERE prefecture = ?1 \
-                       ORDER BY employee_count DESC LIMIT ?2";
-            let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                vec![&prefecture, &pool_limit];
-            sn_db.query(sql, &params).unwrap_or_default()
-        }
-    };
+    }
+    let rows = all_rows;
 
     let mut pool: Vec<NearbyCompany> = rows
         .iter()
@@ -802,16 +824,68 @@ pub fn fetch_company_segments_by_region_with_industry(
     hiring.sort_by_key(|c| std::cmp::Reverse(c.hw_posting_count));
     hiring.truncate(10);
 
+    // 2026-04-30: 規模 × 動向 6 マトリクス
+    // 規模帯: 大企業 (300+) / 中小企業 (50-299) / 零細企業 (<50)
+    // 動向: 増員傾向 (+5% 超) / 人員減少傾向 (-5% 未満)
+    // 各セル Top 5 (10 だと表が横長になりすぎるため)
+    let cell_limit: usize = 5;
+    let pick_band = |min_emp: i64, max_emp: i64, growth_pos: bool| -> Vec<NearbyCompany> {
+        let mut v: Vec<NearbyCompany> = pool
+            .iter()
+            .filter(|c| {
+                (min_emp..=max_emp).contains(&c.employee_count)
+                    && c.employee_delta_1y.is_finite()
+                    && (if growth_pos {
+                        c.employee_delta_1y > 0.05
+                    } else {
+                        c.employee_delta_1y < -0.05
+                    })
+            })
+            .cloned()
+            .collect();
+        if growth_pos {
+            v.sort_by(|a, b| {
+                b.employee_delta_1y
+                    .partial_cmp(&a.employee_delta_1y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        } else {
+            v.sort_by(|a, b| {
+                a.employee_delta_1y
+                    .partial_cmp(&b.employee_delta_1y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        v.truncate(cell_limit);
+        v
+    };
+
+    let growth_large = pick_band(300, 9_999_999, true);
+    let growth_mid = pick_band(50, 299, true);
+    let growth_small = pick_band(1, 49, true);
+    let decline_large = pick_band(300, 9_999_999, false);
+    let decline_mid = pick_band(50, 299, false);
+    let decline_small = pick_band(1, 49, false);
+
     RegionalCompanySegments {
         pool_size: pool.len(),
         large,
         mid,
         growth,
         hiring,
+        growth_large,
+        growth_mid,
+        growth_small,
+        decline_large,
+        decline_mid,
+        decline_small,
     }
 }
 
 /// 4 セグメント結果のコンテナ
+///
+/// 2026-04-30 追加: ユーザー指摘「増員できている / 離職が多い」 × 「大企業 / 中小企業 / 零細企業」
+/// の 6 マトリクスを `growth_*` / `decline_*` フィールドで提供。既存 4 フィールドは互換性のため維持。
 #[derive(Debug, Clone, Default)]
 pub struct RegionalCompanySegments {
     /// 取得した母集団のサイズ (デバッグ・注記用)
@@ -824,6 +898,20 @@ pub struct RegionalCompanySegments {
     pub growth: Vec<NearbyCompany>,
     /// 採用活発 (HW 求人 ≥ 5)
     pub hiring: Vec<NearbyCompany>,
+    // === 2026-04-30 追加: 規模 × 動向 6 マトリクス ===
+    /// 大企業 (300+ 名) × 増員傾向 (employee_delta_1y > +5%)
+    pub growth_large: Vec<NearbyCompany>,
+    /// 中小企業 (50-299 名) × 増員傾向
+    pub growth_mid: Vec<NearbyCompany>,
+    /// 零細企業 (<50 名) × 増員傾向
+    pub growth_small: Vec<NearbyCompany>,
+    /// 大企業 × 人員減少傾向 (employee_delta_1y < -5%)
+    /// 注: 「離職が多い」だけでなく組織改編・自然減・配置転換等も含む観測
+    pub decline_large: Vec<NearbyCompany>,
+    /// 中小企業 × 人員減少傾向
+    pub decline_mid: Vec<NearbyCompany>,
+    /// 零細企業 × 人員減少傾向
+    pub decline_small: Vec<NearbyCompany>,
 }
 
 /// 規模帯別の集約サマリ (バイネームではなく傾向値ベース)

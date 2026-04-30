@@ -704,7 +704,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3(
 
     // --- 画面下部フッター（印刷時は @page footer を使用） ---
     html.push_str("<div class=\"screen-footer no-print\">\n");
-    html.push_str("<span>株式会社For A-career | ハローワーク求人データ分析レポート</span>\n");
+    html.push_str("<span>株式会社For A-career | 求人市場 総合診断レポート</span>\n");
     html.push_str(&format!("<span>生成日時: {}</span>\n", escape_html(&now)));
     html.push_str("</div>\n");
 

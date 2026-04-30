@@ -169,21 +169,46 @@ pub(super) fn render_section_emp_group_native(html: &mut String, agg: &SurveyAgg
     if agg.by_emp_group_native.is_empty() {
         return;
     }
+
+    // 2026-04-30: ユーザー指摘
+    // > 月給の分析なのでパートの情報は外れ値、わざわざ組み入れる必要はない
+    // > 月給と時給で分岐してほしい
+    //
+    // wage_mode は agg.is_hourly フラグで判定。
+    // 月給モード時 (is_hourly=false): 時給グループ (パート等) を非表示
+    // 時給モード時 (is_hourly=true): 月給グループ (正社員等) を非表示
+    let groups_filtered: Vec<&super::super::aggregator::EmpGroupNativeAgg> = agg
+        .by_emp_group_native
+        .iter()
+        .filter(|g| {
+            if agg.is_hourly {
+                g.native_unit == "時給"
+            } else {
+                g.native_unit == "月給"
+            }
+        })
+        .collect();
+    if groups_filtered.is_empty() {
+        return;
+    }
+
     html.push_str(
         "<section class=\"section\" role=\"region\" aria-labelledby=\"emp-group-native-title\">\n",
     );
     html.push_str(
         "<h2 id=\"emp-group-native-title\">雇用形態グループ別 給与分析（ネイティブ単位）</h2>\n",
     );
-    html.push_str(
+    let mode_label = if agg.is_hourly { "時給" } else { "月給" };
+    html.push_str(&format!(
         "<p class=\"section-header-meta\">\
-         正社員は月給、パートは時給、と各グループのネイティブ単位で集計。\
-         単位の異なる給与を混ぜず、直感と一致する単位で評価します。</p>\n",
-    );
+         アップロード時に指定された <strong>{} ベース</strong>のグループを抽出して集計。\
+         逆単位 (例: 月給モード時のパート時給) は集計対象から除外しています。</p>\n",
+        mode_label
+    ));
 
     html.push_str("<div class=\"emp-group-grid\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:12px;\">\n");
 
-    for group in &agg.by_emp_group_native {
+    for group in groups_filtered {
         let unit_suffix = if group.native_unit == "時給" {
             "円"
         } else {
