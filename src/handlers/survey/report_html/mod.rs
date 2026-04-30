@@ -35,6 +35,9 @@ mod style;
 mod summary;
 mod wage;
 
+#[cfg(test)]
+mod invariant_tests;
+
 // 各サブモジュール公開 API (本 mod.rs 内のエントリ関数から呼出)
 use executive_summary::render_section_executive_summary;
 use hw_enrichment::render_section_hw_enrichment;
@@ -1865,6 +1868,19 @@ mod design_v2_contract_tests {
         agg.dominant_municipality = Some("千代田区".to_string());
         let seeker = JobSeekerAnalysis::default();
         render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[])
+    }
+
+    /// 2026-04-30: LLM 視覚レビュー用 HTML ダンプ。
+    /// `cargo test --lib dump_report_html_for_review -- --ignored --nocapture` で生成。
+    #[test]
+    #[ignore = "manual: HTML dump for visual review"]
+    fn dump_report_html_for_review() {
+        use std::io::Write;
+        let html = render_with_data();
+        let path = std::env::temp_dir().join("review_report.html");
+        let mut f = std::fs::File::create(&path).expect("create file");
+        f.write_all(html.as_bytes()).expect("write html");
+        println!("WROTE {} ({} bytes)", path.display(), html.len());
     }
 
     /// (1) CSS variables --dv2-* が定義されている
