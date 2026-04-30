@@ -663,11 +663,24 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   }
   .no-print { display: none !important; }
   body {
-    padding: 0;
+    /* 2026-04-30: !important + margin 0 を追加。
+     * L72 の body padding 8px 16px と @page margin が二重に効いて
+     * 本文幅が 170mm まで縮んでいた (frontend-review #10)。
+     * @page margin 8mm のみで本文幅 194mm を確保する。 */
+    padding: 0 !important;
+    margin: 0 !important;
     background: #fff !important;
     color: #0f172a !important;
     font-size: 10.5pt;
   }
+  /* 2026-04-30: details 強制展開 (frontend-review #8)。
+   * Chromium Headless での PDF 化時、open 属性なしの <details> は
+   * 折りたたまれたまま出力され、閾値早見表/データ範囲注記等の重要情報が
+   * PDF に出ない問題があった。印刷時は summary を非表示にし内容を全表示。 */
+  details { display: block !important; }
+  details > summary { display: none !important; }
+  details > *:not(summary) { display: block !important; }
+  details.collapsible-guide { border: 1px dashed var(--c-border) !important; padding: 6px 10px !important; }
   body.theme-dark { background: #fff !important; color: #0f172a !important; }
   body.theme-dark table th { background: var(--c-primary) !important; color: #fff !important; }
   body.theme-dark table td { background: transparent !important; color: #0f172a !important; }

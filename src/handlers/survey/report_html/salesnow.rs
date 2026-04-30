@@ -391,7 +391,7 @@ fn render_size_x_trend_matrix(
                     escape_html(&c.company_name),
                     format_number(c.employee_count),
                     pct_color,
-                    c.employee_delta_1y * 100.0,
+                    c.employee_delta_1y, // 2026-04-30: DB は %単位なので *100 不要
                 ));
             }
             html.push_str("</ol>\n");
@@ -457,7 +457,7 @@ pub(super) fn render_section_company_segments(
         let total = summary.total_count() as f64;
         let bands: [(&str, usize, f64, f64); 3] = [
             (
-                "大手 (300+ 名)",
+                "大規模 (300+ 名)",
                 summary.large_count,
                 summary.large_avg_growth_pct,
                 summary.large_hw_continuity_pct,
@@ -623,7 +623,7 @@ pub(super) fn render_section_company_segments(
         );
         for (i, c) in list.iter().enumerate() {
             let sales_cell = format_sales_cell(c.sales_amount, &c.sales_range);
-            let delta_cell = format_delta_cell(c.employee_delta_1y * 100.0); // 0.10 → 10.0%
+            let delta_cell = format_delta_cell(c.employee_delta_1y); // %単位 (10.0 = +10%)
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td><td>{}</td>\
                  <td class=\"num\">{}</td><td class=\"num\">{}</td>\
@@ -735,9 +735,8 @@ pub(super) fn compute_segment_takeaways(
         && small_growth.abs() >= 0.5
     {
         takeaways.push(format!(
-            "大手と中小で人員推移の方向が逆転している (大手 <strong>{:+.1}%</strong> / 小規模 <strong>{:+.1}%</strong>)。\
-             規模帯ごとに採用市況の動きが分かれており、<strong>大手集中</strong>もしくは<strong>中小縮小</strong>の二極化市場の可能性。\
-             同規模帯のベンチマークを優先参照することが望ましい傾向。",
+            "規模帯間で人員推移の方向に差分が観測される (大規模 <strong>{:+.1}%</strong> / 小規模 <strong>{:+.1}%</strong>)。\
+             採用市況の動きが規模帯ごとに分かれている可能性があり、<strong>同規模帯のベンチマーク</strong>を優先参照することが推奨される。",
             large_growth, small_growth
         ));
     }
@@ -754,8 +753,8 @@ pub(super) fn compute_segment_takeaways(
     {
         let avg = (large_growth + mid_growth + small_growth) / 3.0;
         takeaways.push(format!(
-            "全規模帯で人員推移がマイナス (大手 {:+.1}% / 中規模 {:+.1}% / 小規模 {:+.1}%、平均 {:+.1}%)。\
-             地域全体での人員流出傾向 = <strong>地域経済の縮小局面</strong>である可能性。\
+            "全規模帯で人員推移がマイナス (大規模 {:+.1}% / 中規模 {:+.1}% / 小規模 {:+.1}%、平均 {:+.1}%)。\
+             地域全体で<strong>人員推移が縮小傾向</strong>を示している可能性。\
              採用ターゲットの広域化や通勤圏拡大の検討余地あり。",
             large_growth, mid_growth, small_growth, avg
         ));
@@ -773,8 +772,8 @@ pub(super) fn compute_segment_takeaways(
     {
         let avg = (large_growth + mid_growth + small_growth) / 3.0;
         takeaways.push(format!(
-            "全規模帯で人員推移がプラス 1% 以上 (大手 {:+.1}% / 中規模 {:+.1}% / 小規模 {:+.1}%、平均 {:+.1}%)。\
-             地域全体で<strong>拡大基調</strong>であり、採用競合化が進行している可能性。\
+            "全規模帯で人員推移がプラス 1% 以上 (大規模 {:+.1}% / 中規模 {:+.1}% / 小規模 {:+.1}%、平均 {:+.1}%)。\
+             地域全体で<strong>人員推移が拡大傾向</strong>を示しており、採用競合化が進行している可能性。\
              同地域内での求人露出強化や差別化メッセージの精緻化が有効になりやすい局面。",
             large_growth, mid_growth, small_growth, avg
         ));
@@ -791,9 +790,9 @@ pub(super) fn compute_segment_takeaways(
         && (mid_hw - large_hw).max(mid_hw - small_hw) >= 5.0
     {
         takeaways.push(format!(
-            "HW 求人継続率は中規模帯が最も高い (中規模 {:.0}% / 大手 {:.0}% / 小規模 {:.0}%)。\
-             <strong>中規模帯が HW 媒体の主戦場</strong>であり、中規模ターゲットでは HW 内競合が密集している可能性。\
-             中規模競合と差別化する求人記述・条件設計が示唆される。",
+            "HW 求人継続率は中規模帯が最も高い (中規模 {:.0}% / 大規模 {:.0}% / 小規模 {:.0}%)。\
+             中規模帯で HW 掲載が密度高く観測されており、<strong>同規模帯では HW 内での求人露出が混み合いやすい</strong>可能性。\
+             中規模帯を意識した求人記述・条件設計の差別化を検討する余地あり。",
             mid_hw, large_hw, small_hw
         ));
     }
@@ -823,9 +822,8 @@ pub(super) fn compute_segment_takeaways(
             small_growth
         };
         takeaways.push(format!(
-            "大手のみ人員拡大 ({:+.1}%)、中小は縮小 (平均 {:+.1}%) の<strong>二極化傾向</strong>。\
-             大手集中・中小縮小の地域構造の可能性があり、中小規模の自社ポジションでは\
-             採用難度が地域全体の見かけ以上に高い可能性。",
+            "大規模帯のみプラス ({:+.1}%)、中小規模帯は平均マイナス ({:+.1}%) で動向に差分が観測される。\
+             規模帯ごとに採用市況の温度感が分かれている可能性があり、自社規模帯のベンチマーク数値を優先参照することが推奨される。",
             large_growth, mid_small_avg
         ));
     }
@@ -838,7 +836,7 @@ pub(super) fn compute_segment_takeaways(
         let mid_ratio = summary.mid_count as f64 / total_f * 100.0;
         let small_ratio = summary.small_count as f64 / total_f * 100.0;
         let (max_ratio, max_label) = if large_ratio >= mid_ratio && large_ratio >= small_ratio {
-            (large_ratio, "大手 (300+ 名)")
+            (large_ratio, "大規模 (300+ 名)")
         } else if mid_ratio >= small_ratio {
             (mid_ratio, "中規模 (50-299 名)")
         } else {
@@ -860,14 +858,14 @@ pub(super) fn compute_segment_takeaways(
     if growth_spread >= 5.0 {
         let max = large_growth.max(mid_growth).max(small_growth);
         let max_label = if (max - large_growth).abs() < 0.01 {
-            "大手"
+            "大規模"
         } else if (max - mid_growth).abs() < 0.01 {
             "中規模"
         } else {
             "小規模"
         };
         takeaways.push(format!(
-            "規模帯で人員推移に <strong>{:.1}pt の差</strong>がある (最も拡大しているのは <strong>{}</strong>)。\
+            "規模帯間で人員推移に <strong>{:.1}pt の差</strong>が観測される (最もプラス幅が大きいのは <strong>{}</strong>)。\
              規模により採用市況の温度感が異なる地域である可能性。",
             growth_spread, max_label
         ));
@@ -887,14 +885,14 @@ pub(super) fn compute_segment_takeaways(
     if hw_spread >= 20.0 {
         let max = large_hw.max(mid_hw).max(small_hw);
         let max_label = if (max - large_hw).abs() < 0.01 {
-            "大手"
+            "大規模"
         } else if (max - mid_hw).abs() < 0.01 {
             "中規模"
         } else {
             "小規模"
         };
         takeaways.push(format!(
-            "HW 求人継続率は規模帯で <strong>{:.0}pt の差</strong> ({} が最も高い)。\
+            "HW 求人継続率は規模帯間で <strong>{:.0}pt の差</strong> ({} が最も高い)。\
              規模ごとに HW 媒体の活用度が異なる傾向。",
             hw_spread, max_label
         ));
@@ -944,15 +942,16 @@ mod tests {
         }
     }
 
-    /// 逆証明テスト 1: 大手 +5% / 小規模 -2% で「方向逆転」takeaway が出る
+    /// 逆証明テスト 1: 大規模 +5% / 小規模 -2% で「方向に差分」takeaway が出る
+    /// (2026-04-30 中立化: 「逆転」「二極化」を「差分が観測される」に統一)
     #[test]
     fn segment_takeaway_direction_reversal() {
         let s = summary(5, 5, 5, 5.0, 1.0, -2.0, 60.0, 50.0, 40.0);
         let t = compute_segment_takeaways(&s);
         let joined = t.join("\n");
         assert!(
-            joined.contains("逆転"),
-            "大手 +5% / 小規模 -2% で「逆転」示唆が出るはず, got:\n{}",
+            joined.contains("差分が観測される") || joined.contains("分かれている"),
+            "規模帯間で動向差がある時に中立的な「差分」表現が出るはず, got:\n{}",
             joined
         );
         // 具体値が含まれていること
@@ -963,28 +962,28 @@ mod tests {
         );
     }
 
-    /// 逆証明テスト 2: 全規模 -1% 以下で「地域全体で人員流出傾向」が出る
+    /// 逆証明テスト 2: 全規模 -1% 以下で「人員推移が縮小傾向」が出る
     #[test]
     fn segment_takeaway_all_shrinking() {
         let s = summary(3, 4, 5, -1.5, -2.0, -1.2, 30.0, 30.0, 30.0);
         let t = compute_segment_takeaways(&s);
         let joined = t.join("\n");
         assert!(
-            joined.contains("流出傾向") && joined.contains("縮小"),
-            "全規模マイナスで「流出傾向」「縮小」示唆が出るはず, got:\n{}",
+            joined.contains("縮小傾向"),
+            "全規模マイナスで「縮小傾向」示唆が出るはず, got:\n{}",
             joined
         );
     }
 
-    /// 逆証明テスト 3: 全規模 +1% 以上で「拡大基調」が出る
+    /// 逆証明テスト 3: 全規模 +1% 以上で「人員推移が拡大傾向」が出る
     #[test]
     fn segment_takeaway_all_expanding() {
         let s = summary(3, 4, 5, 2.0, 1.5, 1.2, 50.0, 50.0, 50.0);
         let t = compute_segment_takeaways(&s);
         let joined = t.join("\n");
         assert!(
-            joined.contains("拡大基調"),
-            "全規模 +1% 以上で「拡大基調」示唆が出るはず, got:\n{}",
+            joined.contains("拡大傾向"),
+            "全規模 +1% 以上で「拡大傾向」示唆が出るはず, got:\n{}",
             joined
         );
         assert!(
@@ -994,7 +993,7 @@ mod tests {
         );
     }
 
-    /// 逆証明テスト 4: 大手構成比 65% で「規模分布に偏り」が出る
+    /// 逆証明テスト 4: 大規模構成比 65% で「規模分布に偏り」が出る
     #[test]
     fn segment_takeaway_size_distribution_bias() {
         // 大手 13 / 中 4 / 小 3 → 大手 65%
@@ -1031,6 +1030,41 @@ mod tests {
                     assert!(
                         !line.contains(word),
                         "禁止ワード '{}' が含まれている (因果断定): {}",
+                        word,
+                        line
+                    );
+                }
+            }
+        }
+    }
+
+    /// ドメイン不変 2 (2026-04-30 中立化): 提案先企業を傷つける表現を含まない
+    /// 営業観点レビュー #3 で指摘された「中小縮小の二極化」「劣位」「集中」などの
+    /// 評価的・敵対的表現が takeaway 内に出ないことを保証する逆証明。
+    #[test]
+    fn segment_takeaway_no_hostile_expressions() {
+        let cases = vec![
+            summary(5, 5, 5, 5.0, 1.0, -2.0, 60.0, 50.0, 40.0),
+            summary(3, 4, 5, -1.5, -2.0, -1.2, 30.0, 30.0, 30.0),
+            summary(3, 4, 5, 2.0, 1.5, 1.2, 50.0, 50.0, 50.0),
+            summary(5, 1, 1, 5.0, -1.5, -1.0, 60.0, 30.0, 20.0),
+        ];
+        // 提案先企業を傷つける可能性のある語彙 (営業観点レビュー #3)
+        let hostile = [
+            "中小縮小",
+            "二極化",
+            "大手集中",
+            "劣位",
+            "見かけ以上に高い",
+            "縮小局面",
+        ];
+        for s in cases {
+            let t = compute_segment_takeaways(&s);
+            for line in &t {
+                for word in &hostile {
+                    assert!(
+                        !line.contains(word),
+                        "敵対的表現 '{}' が含まれている (提案先を傷つける可能性): {}",
                         word,
                         line
                     );

@@ -802,10 +802,12 @@ pub fn fetch_company_segments_by_region_with_industry(
     mid.sort_by_key(|c| std::cmp::Reverse(c.employee_count));
     mid.truncate(10);
 
-    // 急成長: employee_delta_1y > +0.10 (10% 増以上)、降順 Top 10
+    // 急成長: employee_delta_1y > +10.0% (10% 増以上)、降順 Top 10
+    // 2026-04-30: DB は %単位 (10.0 = +10%) で格納 (render.rs/company_markers.rs と整合)。
+    // 旧コード `> 0.10` は「+0.1% 超」しかフィルタしないバグだった。
     let mut growth: Vec<NearbyCompany> = pool
         .iter()
-        .filter(|c| c.employee_delta_1y > 0.10 && c.employee_count >= 10)
+        .filter(|c| c.employee_delta_1y > 10.0 && c.employee_count >= 10)
         .cloned()
         .collect();
     growth.sort_by(|a, b| {
@@ -836,9 +838,10 @@ pub fn fetch_company_segments_by_region_with_industry(
                 (min_emp..=max_emp).contains(&c.employee_count)
                     && c.employee_delta_1y.is_finite()
                     && (if growth_pos {
-                        c.employee_delta_1y > 0.05
+                        // 2026-04-30: ±5% (±5.0) growth threshold (DB は %単位)
+                        c.employee_delta_1y > 5.0
                     } else {
-                        c.employee_delta_1y < -0.05
+                        c.employee_delta_1y < -5.0
                     })
             })
             .cloned()
@@ -1025,16 +1028,17 @@ impl RegionalCompanySegments {
         }
 
         let avg_growth = |v: &[&NearbyCompany]| -> f64 {
-            // employee_delta_1y は 0.10 = 10% で格納。% 換算は * 100
+            // 2026-04-30: DB は %単位 (10.0 = +10%) で格納。
+            // 異常値除去は ±200% まで許容 (短期合併等で 100% 超は実在)。
             let valid: Vec<f64> = v
                 .iter()
                 .map(|c| c.employee_delta_1y)
-                .filter(|x| x.is_finite() && x.abs() < 5.0) // 異常値除去 (>500% 等)
+                .filter(|x| x.is_finite() && x.abs() < 200.0)
                 .collect();
             if valid.is_empty() {
                 0.0
             } else {
-                valid.iter().sum::<f64>() / valid.len() as f64 * 100.0
+                valid.iter().sum::<f64>() / valid.len() as f64
             }
         };
 
