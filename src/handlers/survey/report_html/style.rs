@@ -41,7 +41,8 @@ body.theme-dark .guide-item { background: #232946; border-color: #37415a; }
 /* 仕様書 6.1: @page 宣言（A4縦、12mmマージン、フッター定型文） */
 @page {
   size: A4 portrait;
-  margin: 12mm;
+  /* 2026-04-30: 12mm → 8mm に縮小して幅確保 (A4 = 210mm、左右 8mm で本文 194mm 確保) */
+  margin: 10mm 8mm 12mm 8mm;
   @bottom-left {
     content: "株式会社For A-career | 求人市場 総合診断レポート";
     font-size: 8pt;
@@ -373,8 +374,9 @@ p, li { orphans: 3; widows: 3; }
 
 .section {
   margin-bottom: 16px;
-  page-break-inside: avoid;
-  break-inside: avoid;
+  /* 2026-04-30: section 全体の page-break-inside: avoid を撤去。
+   * 長いセクション (給与統計・地域企業ベンチマーク等) を 1 ページに収めようとして
+   * 大きな白紙領域が生まれていた。代わりに内部の短いブロック単位で avoid 適用 (@media print 内)。 */
 }
 .section-compact {
   margin-bottom: 8px;
@@ -1355,17 +1357,23 @@ body.theme-dark .report-notes-cat-update  { background: #232946; border-color: #
   }
   /* 注記類はフッター注記参照を促す compact 版に */
   .read-hint-compact, .section-howto-compact { font-size: 8.5pt !important; }
-  /* テーブルはより詰めて表示 */
-  table { font-size: 9.5pt !important; }
-  th, td { padding: 3px 6px !important; }
+  /* テーブルはより詰めて表示 (2026-04-30: A4 縦幅 194mm 確保のため微調整) */
+  table { font-size: 9pt !important; }
+  th, td { padding: 2px 4px !important; line-height: 1.3 !important; }
+  /* 表内の改行不可テキストは縮小 */
+  .data-table th, .data-table td { font-size: 8.5pt !important; padding: 2px 3px !important; }
+  /* report-zebra でも同様 */
+  .report-zebra td, .report-zebra th { font-size: 9pt !important; padding: 2px 4px !important; }
 }
 
-/* 2. Executive Summary 1 ページ完結のための強制改ページ */
+/* Executive Summary 後の強制改ページ */
+
+/* 2. Executive Summary は表紙の次の独立ページに配置するが、
+ *    page-break-after: always は撤去 (短い場合に空白ページが発生していた)。
+ *    後続 section に .page-start クラスがあれば自然に改ページされる。*/
 .exec-summary {
   page-break-before: always;
   break-before: page;
-  page-break-after: always;
-  break-after: page;
 }
 
 /* 3. 重複 KPI カード（旧 5 KPI grid）の印刷非表示

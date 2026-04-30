@@ -88,7 +88,7 @@ pub(super) fn render_section_regional_compare(
         return;
     }
 
-    html.push_str("<div class=\"section page-start\" data-testid=\"regional-compare-section\">\n");
+    html.push_str("<div class=\"section\" data-testid=\"regional-compare-section\">\n");
     html.push_str("<h2>地域 多面比較 (デモグラ × サイコグラ × ジオグラ)</h2>\n");
 
     render_section_howto(

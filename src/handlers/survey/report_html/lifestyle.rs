@@ -48,7 +48,7 @@ pub(super) fn render_section_lifestyle(html: &mut String, hw_context: Option<&In
         return;
     }
 
-    html.push_str("<div class=\"section page-start\">\n");
+    html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>ライフスタイル特性</h2>\n");
 
     // セクション冒頭の「読み方」吹き出し（仕様書共通設計）
