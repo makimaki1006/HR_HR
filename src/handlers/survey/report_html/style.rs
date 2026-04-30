@@ -272,6 +272,60 @@ body.theme-dark .variant-indicator .variant-switch-link:hover { background: #4f4
   .theme-toggle, .variant-indicator, .floating-actions {
     position: static !important;
   }
+
+  /* ========================================================================
+     2026-04-30 Phase 3-2: A4 縦印刷品質強化
+     ヒント: A4 縦 1 ページ ≈ 縦 1100px。長大セクションのページ跨ぎ問題を解消。
+     ======================================================================== */
+
+  /* 表のヘッダーをページ跨ぎで再表示 (どのページでも何の数字か分かるように) */
+  table thead { display: table-header-group; }
+  table tfoot { display: table-footer-group; }
+  table tr { page-break-inside: avoid; break-inside: avoid; }
+
+  /* 見出し直後で改ページしない (孤立防止) */
+  h2, h3, h4 {
+    page-break-after: avoid;
+    break-after: avoid-page;
+  }
+
+  /* セクション内部での予期せぬ改ページを抑制 (短いセクションは 1 ページに収める) */
+  .section-compact, .figure-caption, .report-banner-gray, .caveat,
+  .section-howto, .read-hint, .section-bridge, .data-source-note,
+  .recruit-difficulty, .business-dynamics-card, .structural-summary {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* 画像/チャート要素のページ跨ぎ抑制 */
+  .echart, figure, img { page-break-inside: avoid; break-inside: avoid; }
+
+  /* 主要章で改ページ開始 (.page-start クラスを既存セクションに付与済み) */
+  .section.page-start, h2.page-start {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  /* 6 マトリクスを A4 縦に合わせて 2 列に変更 (3 列だと 1 セル 210px で窮屈なため) */
+  .size-x-trend-matrix {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* exec-kpi-grid-v2: 印刷時は 3 列維持 (A4 縦 180mm ≒ 680px で 3 列 OK) */
+  .exec-kpi-grid-v2 { grid-template-columns: repeat(3, 1fr) !important; }
+
+  /* 段落・リストのwidow/orphan強化 */
+  p, li, ol, ul {
+    orphans: 3;
+    widows: 3;
+    page-break-inside: avoid;
+  }
+
+  /* 印刷時の余白調整: ベタ塗り背景はインクをセーブ (visualization は維持) */
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+
+  /* リンクの URL 表示は不要 (印刷物が見苦しくなる) */
+  a[href]:after { content: none !important; }
 }
 
 /* テーマ切替ボタン */

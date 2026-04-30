@@ -25,7 +25,7 @@ use super::helpers::*;
 /// 関数名は呼出側の互換のため残す（UI 表示文言のみ「地域注目企業」に統一）
 pub(super) fn render_section_salesnow_companies(html: &mut String, companies: &[NearbyCompany]) {
     html.push_str(
-        "<section class=\"section\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
+        "<section class=\"section page-start\" role=\"region\" aria-labelledby=\"region-featured-title\">\n",
     );
     html.push_str("<h2 id=\"region-featured-title\">第5章 地域注目企業 (規模の大きい順)</h2>\n");
     // 2026-04-29 中立化:
@@ -295,16 +295,16 @@ fn render_size_x_trend_matrix(
         return;
     }
 
-    html.push_str("<h3 style=\"font-size:13pt;margin:14px 0 6px;\">表 5-0b 規模 × 人員推移 6 マトリクス (各セル上位 5 社)</h3>\n");
+    html.push_str("<h3 style=\"font-size:13pt;margin:18px 0 6px;color:#0f172a;display:flex;align-items:center;gap:8px;\"><span style=\"display:inline-block;width:5px;height:18px;background:linear-gradient(180deg, #10b981 0%, #dc2626 100%);border-radius:2px;\"></span>表 5-0b 規模 × 人員推移 6 マトリクス <span style=\"font-size:9.5pt;font-weight:400;color:#64748b;\">(各セル上位 5 社)</span></h3>\n");
     html.push_str(
-        "<p style=\"font-size:9.5pt;color:#475569;margin:0 0 8px;\">\
+        "<p style=\"font-size:9.5pt;color:#475569;margin:0 0 10px;line-height:1.6;\">\
          \u{203B} 規模帯 (大企業 / 中小企業 / 零細企業) と 1 年人員推移 (+5% 超 / -5% 未満) の組み合わせで\
          該当企業を抽出。「人員減少傾向」は離職だけでなく組織改編・自然減・配置転換等も含む観測です。\
          </p>\n",
     );
 
-    // 6 セルを 2 行 × 3 列で配置
-    html.push_str("<div style=\"display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:8px 0;\">\n");
+    // 6 セルを Web では 3 列、印刷時は @media print で 2 列に切替 (A4 縦最適化)
+    html.push_str("<div class=\"size-x-trend-matrix\" style=\"display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:8px 0;\">\n");
 
     let cells: [(&str, &str, &[NearbyCompany], &str); 6] = [
         (
@@ -347,30 +347,50 @@ fn render_size_x_trend_matrix(
 
     for (label, hint, list, testid) in cells.iter() {
         let is_growth = label.contains("増加");
-        let bg_color = if is_growth { "#ecfdf5" } else { "#fef2f2" };
+        // 装飾強化 (2026-04-30): 印刷でも視認性が高い淡色グラデーション + 4px ボーダー
+        let bg_grad = if is_growth {
+            "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)"
+        } else {
+            "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)"
+        };
         let border_color = if is_growth { "#10b981" } else { "#dc2626" };
+        let header_color = if is_growth { "#065f46" } else { "#991b1b" };
+        let count_pill_bg = if is_growth { "#10b981" } else { "#dc2626" };
+
         html.push_str(&format!(
-            "<div data-testid=\"{}\" style=\"padding:8px 10px;background:{};border-left:3px solid {};border-radius:3px;font-size:9.5pt;\">\n",
-            testid, bg_color, border_color
+            "<div data-testid=\"{}\" style=\"padding:10px 12px;background:{};border:1px solid {};border-left:4px solid {};border-radius:6px;font-size:9.5pt;page-break-inside:avoid;\">\n",
+            testid, bg_grad, border_color, border_color
         ));
+        // ヘッダー: ラベル左 + 件数 pill 右
         html.push_str(&format!(
-            "<div style=\"font-weight:700;margin-bottom:2px;\">{}</div>\n\
-             <div style=\"font-size:9pt;color:#6b7280;margin-bottom:4px;\">{} ・ <strong>{} 社</strong></div>\n",
+            "<div style=\"display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;\">\
+             <div style=\"font-weight:700;color:{};font-size:10.5pt;\">{}</div>\
+             <span style=\"display:inline-block;padding:1px 8px;background:{};color:#fff;font-size:9pt;font-weight:700;border-radius:10px;min-width:32px;text-align:center;\">{}社</span>\
+             </div>\n",
+            header_color,
             escape_html(label),
-            escape_html(hint),
+            count_pill_bg,
             list.len()
+        ));
+        // サブヘッダー: 抽出条件
+        html.push_str(&format!(
+            "<div style=\"font-size:8.5pt;color:#6b7280;margin-bottom:6px;font-style:italic;\">{}</div>\n",
+            escape_html(hint),
         ));
         if list.is_empty() {
             html.push_str(
-                "<div style=\"color:#9ca3af;font-style:italic;font-size:9pt;\">該当なし</div>\n",
+                "<div style=\"color:#9ca3af;font-style:italic;font-size:9pt;text-align:center;padding:8px 0;\">該当企業なし</div>\n",
             );
         } else {
-            html.push_str("<ol style=\"margin:0;padding-left:18px;line-height:1.55;\">\n");
+            html.push_str("<ol style=\"margin:0;padding-left:18px;line-height:1.6;\">\n");
             for c in list.iter() {
+                let pct_color = if c.employee_delta_1y > 0.0 { "#059669" } else { "#dc2626" };
                 html.push_str(&format!(
-                    "<li>{} <span style=\"color:#6b7280;font-size:8.5pt;\">({} 名 / {:+.1}%)</span></li>\n",
+                    "<li>{}<br>\
+                     <span style=\"color:#6b7280;font-size:8.5pt;\">{} 名 ・ <span style=\"color:{};font-weight:600;\">{:+.1}%</span></span></li>\n",
                     escape_html(&c.company_name),
                     format_number(c.employee_count),
+                    pct_color,
                     c.employee_delta_1y * 100.0,
                 ));
             }
@@ -398,7 +418,7 @@ pub(super) fn render_section_company_segments(
         return;
     }
     html.push_str(
-        "<section class=\"section\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
+        "<section class=\"section page-start\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
     );
     html.push_str("<h2 id=\"region-segments-title\">第5章 地域企業 ベンチマーク (規模・人員推移・求人動向)</h2>\n");
     html.push_str(
@@ -419,19 +439,19 @@ pub(super) fn render_section_company_segments(
     if summary.total_count() > 0 {
         // テーブル番号は 5-0 (構造サマリ) として、後続のヒストグラム 5-0 と区別するため
         // ここでは見出しのみテキストで提示 (render_table_number は使わない)
-        html.push_str("<h3 style=\"font-size:12pt;margin:10px 0 4px;\">表 5-0a 地域企業 構造サマリ (規模帯別の傾向値、バイネーム非依存)</h3>\n");
-        html.push_str("<div class=\"structural-summary\" style=\"margin:6px 0 14px;padding:10px 14px;background:#f0f9ff;border-left:4px solid #0ea5e9;border-radius:3px;font-size:10pt;line-height:1.7;\">\n");
-        html.push_str("<div style=\"font-weight:700;color:#0c4a6e;margin-bottom:6px;\">📊 地域企業 構造サマリ (バイネーム非依存の傾向値)</div>\n");
+        html.push_str("<h3 style=\"font-size:12pt;margin:10px 0 4px;color:#0c4a6e;\">表 5-0a 地域企業 構造サマリ (規模帯別の傾向値、バイネーム非依存)</h3>\n");
+        html.push_str("<div class=\"structural-summary\" style=\"margin:6px 0 14px;padding:12px 16px;background:linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);border-left:4px solid #0ea5e9;border-radius:6px;font-size:10pt;line-height:1.7;box-shadow:0 1px 2px rgba(14,165,233,0.08);\">\n");
+        html.push_str("<div style=\"font-weight:700;color:#0c4a6e;margin-bottom:8px;font-size:11pt;\">📊 地域企業 構造サマリ <span style=\"font-size:9pt;font-weight:400;color:#475569;\">(バイネーム非依存の傾向値)</span></div>\n");
 
         // テーブル形式で規模帯別を提示
-        html.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:10pt;\">\n");
+        html.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:10pt;background:#fff;border-radius:4px;overflow:hidden;\">\n");
         html.push_str(
-            "<thead><tr style=\"background:#bae6fd;\">\
-             <th style=\"text-align:left;padding:4px 8px;\">規模帯</th>\
-             <th style=\"text-align:right;padding:4px 8px;\">社数</th>\
-             <th style=\"text-align:right;padding:4px 8px;\">構成比</th>\
-             <th style=\"text-align:right;padding:4px 8px;\">平均 1y 人員推移</th>\
-             <th style=\"text-align:right;padding:4px 8px;\">HW 求人継続率</th>\
+            "<thead><tr style=\"background:linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);color:#fff;\">\
+             <th style=\"text-align:left;padding:6px 10px;font-weight:600;\">規模帯</th>\
+             <th style=\"text-align:right;padding:6px 10px;font-weight:600;\">社数</th>\
+             <th style=\"text-align:right;padding:6px 10px;font-weight:600;\">構成比</th>\
+             <th style=\"text-align:right;padding:6px 10px;font-weight:600;\">平均 1y 人員推移</th>\
+             <th style=\"text-align:right;padding:6px 10px;font-weight:600;\">HW 求人継続率</th>\
              </tr></thead>\n<tbody>\n",
         );
         let total = summary.total_count() as f64;
@@ -455,21 +475,33 @@ pub(super) fn render_section_company_segments(
                 summary.small_hw_continuity_pct,
             ),
         ];
-        for (label, count, growth, hw_cont) in bands.iter() {
+        for (idx, (label, count, growth, hw_cont)) in bands.iter().enumerate() {
             let pct = if total > 0.0 {
                 *count as f64 / total * 100.0
             } else {
                 0.0
             };
+            // 行交互背景 (zebra)
+            let row_bg = if idx % 2 == 0 { "#ffffff" } else { "#f8fafc" };
+            // 推移の色付け (印刷でも識別しやすい配色)
+            let growth_color = if *growth > 1.0 {
+                "#059669" // green
+            } else if *growth < -1.0 {
+                "#dc2626" // red
+            } else {
+                "#475569" // slate
+            };
             html.push_str(&format!(
-                "<tr><td style=\"padding:4px 8px;\">{}</td>\
-                 <td style=\"text-align:right;padding:4px 8px;\">{} 社</td>\
-                 <td style=\"text-align:right;padding:4px 8px;\">{:.0}%</td>\
-                 <td style=\"text-align:right;padding:4px 8px;\">{:+.1}%</td>\
-                 <td style=\"text-align:right;padding:4px 8px;\">{:.0}%</td></tr>\n",
+                "<tr style=\"background:{};\"><td style=\"padding:6px 10px;font-weight:600;\">{}</td>\
+                 <td style=\"text-align:right;padding:6px 10px;\">{} 社</td>\
+                 <td style=\"text-align:right;padding:6px 10px;color:#475569;\">{:.0}%</td>\
+                 <td style=\"text-align:right;padding:6px 10px;color:{};font-weight:600;font-variant-numeric:tabular-nums;\">{:+.1}%</td>\
+                 <td style=\"text-align:right;padding:6px 10px;font-variant-numeric:tabular-nums;\">{:.0}%</td></tr>\n",
+                row_bg,
                 escape_html(label),
                 count,
                 pct,
+                growth_color,
                 growth,
                 hw_cont
             ));
@@ -479,11 +511,11 @@ pub(super) fn render_section_company_segments(
         // ルールベース示唆: 規模帯間の乖離 / 共通点を抽出 (拡張ロジック)
         let takeaways = compute_segment_takeaways(&summary);
 
-        html.push_str("<div style=\"margin-top:8px;padding:6px 10px;background:#fff;border-radius:3px;\">\n");
-        html.push_str("<div style=\"font-weight:600;color:#0c4a6e;margin-bottom:4px;font-size:9.5pt;\">▶ 地域全体の傾向 (ルールベース解釈、参考値)</div>\n");
-        html.push_str("<ul style=\"margin:0;padding-left:18px;font-size:9.5pt;line-height:1.7;\">\n");
+        html.push_str("<div style=\"margin-top:10px;padding:10px 12px;background:#fff;border:1px solid #e0f2fe;border-radius:6px;\">\n");
+        html.push_str("<div style=\"font-weight:700;color:#0c4a6e;margin-bottom:6px;font-size:10pt;display:flex;align-items:center;gap:6px;\"><span style=\"display:inline-block;width:4px;height:14px;background:#0ea5e9;border-radius:2px;\"></span>地域全体の傾向 <span style=\"font-size:8.5pt;font-weight:400;color:#64748b;\">(ルールベース解釈、参考値)</span></div>\n");
+        html.push_str("<ul style=\"margin:0;padding-left:18px;font-size:9.5pt;line-height:1.75;color:#334155;\">\n");
         for t in &takeaways {
-            html.push_str(&format!("<li>{}</li>\n", t));
+            html.push_str(&format!("<li style=\"margin-bottom:3px;\">{}</li>\n", t));
         }
         html.push_str("</ul>\n");
         html.push_str("</div>\n");

@@ -25,7 +25,7 @@ pub(super) fn render_section_salary_stats(
         None => return, // 給与データなし → セクションスキップ
     };
 
-    html.push_str("<div class=\"section\">\n");
+    html.push_str("<div class=\"section page-start\">\n");
     html.push_str("<h2>給与分布 - 統計情報</h2>\n");
 
     // セクション冒頭ガイド
