@@ -146,7 +146,13 @@ fn extract_months_before_suffix(text: &str, suffix: &str) -> Option<f64> {
             .collect();
         if let Ok(v) = num_str.parse::<f64>() {
             // 賞与/ボーナス/年 が pos の前 30 文字以内にあるか
-            let window_start = before.len().saturating_sub(30);
+            // バイト境界ではなく char 境界で切り出す (マルチバイト対応)
+            let window_start = before
+                .char_indices()
+                .rev()
+                .nth(29)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
             let window = &before[window_start..];
             if window.contains("賞与") || window.contains("ボーナス") || window.contains("年")
             {
@@ -756,6 +762,20 @@ mod tests {
         assert_eq!(r.bonus_months, None);
         let r2 = parse_salary("月収25万円", SalaryType::Monthly);
         assert_eq!(r2.bonus_months, None);
+    }
+
+    /// 2026-05-01 マルチバイト境界パニック回帰テスト:
+    /// `before.len().saturating_sub(30)` でバイト演算していたためマルチバイト文字の
+    /// 途中でスライスして panic していたケース。
+    /// 失敗テキスト 122 byte の場合 122-30=92 が `円` (90..93) の途中。
+    #[test]
+    fn regression_multibyte_boundary_no_panic() {
+        // 求人タイトルのような長い日本語 + 末尾 ヶ月 表記
+        let text = "電気工事・通信工事スタッフ*積水ハウス専属50年の安定感*月給30万円~*20・30代活躍中*賞与5ヶ月分";
+        // panic せずに処理できればOK (extract_months_before_suffix が安全に走る)
+        let r = parse_salary(text, SalaryType::Monthly);
+        // 賞与5ヶ月の前 30 文字以内に "賞与" があるので bonus_months=5.0 を取れる
+        assert_eq!(r.bonus_months, Some(5.0));
     }
 
     #[test]
