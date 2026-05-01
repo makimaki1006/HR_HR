@@ -1,0 +1,1778 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Working Paper v7 — 求人市場 総合診断レポート [印刷修正版]</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+:root {
+  --ink: #131313; --paper: #FFFFFF; --rule: #131313; --rule-light: #C8C8C8; --rule-mid: #888888;
+  --brand: #1E3A8A; --brand-tint: #E5EAF2; --muted: #555555;
+  /* 多色パレット (官公庁レポート風アクセント) */
+  --accent-red: #DC2626;       /* Critical / 中央値 / 縮小 */
+  --accent-red-tint: #FEE2E2;
+  --accent-orange: #EA580C;    /* Warning / 経過観察 */
+  --accent-orange-tint: #FFEDD5;
+  --accent-amber: #D97706;     /* Caution */
+  --accent-green: #16A34A;     /* Good / 拡大 */
+  --accent-green-tint: #DCFCE7;
+  --accent-teal: #0D9488;      /* Auxiliary */
+  --accent-purple: #7C3AED;    /* Specialty */
+  --accent-yellow: #CA8A04;    /* Highlight */
+  --zebra: #F8FAFC;            /* テーブル zebra */
+  --mark-mode: #131313;
+  --mark-median: #DC2626;
+  --mark-mean: #888888;
+  --sans: 'BIZ UDPGothic', 'Hiragino Sans', sans-serif;
+  --mono: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+@page {
+  size: A4 portrait; margin: 12mm 11mm;
+  @top-left { content: "FOR A-CAREER  /  求人市場 総合診断レポート"; font-family: 'BIZ UDPGothic', sans-serif; font-size: 8pt; color: #555555; letter-spacing: 0.08em; }
+  @top-right { content: counter(page); font-family: 'JetBrains Mono', monospace; font-size: 8.5pt; color: #555555; }
+  @bottom-left { content: "CONFIDENTIAL — INTERNAL USE"; font-family: 'BIZ UDPGothic', sans-serif; font-size: 8pt; color: #555555; letter-spacing: 0.08em; }
+  @bottom-right { content: "Generated 2026-04-30"; font-family: 'JetBrains Mono', monospace; font-size: 8pt; color: #555555; }
+}
+@page :first { @top-left { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-right { content: ""; } }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--sans);
+  font-size: 11pt; line-height: 1.55;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+/* === Cover === */
+.cover { height: 265mm; display: grid; grid-template-rows: auto 1fr auto; padding: 4mm 0; break-after: page; overflow: hidden; }
+.cover-top { border-top: 4pt solid var(--brand); padding-top: 4mm; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9pt; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.cover-main { padding: 28mm 0; }
+.cover-num { font-family: var(--mono); font-size: 12pt; font-weight: 700; color: var(--brand); letter-spacing: 0.16em; margin-bottom: 4mm; }
+.cover-title { font-size: 38pt; font-weight: 700; line-height: 1.15; margin: 0 0 6mm; }
+.cover-subtitle { font-size: 16pt; font-weight: 400; color: var(--muted); line-height: 1.4; margin-bottom: 14mm; }
+.cover-target { font-size: 13pt; font-weight: 700; border-left: 3pt solid var(--brand); padding-left: 5mm; margin: 0; }
+.cover-target small { display: block; font-family: var(--mono); font-size: 9pt; font-weight: 400; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 1mm; }
+.cover-bottom { border-top: 1pt solid var(--ink); padding-top: 4mm; display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; font-size: 10pt; }
+.cover-bottom dt { font-family: var(--mono); font-size: 8.5pt; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.cover-bottom dd { font-size: 10.5pt; font-weight: 700; margin: 0 0 3mm; }
+
+/* === TOC === */
+.toc { break-after: page; }
+.toc h1 { font-size: 24pt; font-weight: 700; border-bottom: 2pt solid var(--ink); padding-bottom: 2mm; margin: 0 0 6mm; }
+.toc h1::before { content: "Contents — "; color: var(--brand); }
+.toc-list { list-style: none; padding: 0; margin: 0; }
+.toc-list li { display: grid; grid-template-columns: 14mm 1fr auto; gap: 4mm; align-items: baseline; padding: 2mm 0; border-bottom: 0.3pt solid var(--rule-light); font-size: 10.5pt; }
+.toc-list .toc-num { font-family: var(--mono); font-weight: 700; color: var(--brand); }
+.toc-list .toc-title { font-weight: 700; }
+.toc-list .toc-title small { display: block; font-size: 9pt; font-weight: 400; color: var(--muted); margin-top: 0.5mm; }
+.toc-list .toc-page { font-family: var(--mono); font-size: 9.5pt; color: var(--muted); }
+
+/* === Chapter Banner === */
+.chapter-band {
+  background: linear-gradient(90deg, var(--brand) 0%, var(--brand) 70%, var(--accent-teal) 100%);
+  color: var(--paper); padding: 4mm 6mm;
+  display: grid; grid-template-columns: auto 1fr auto; gap: 6mm; align-items: baseline;
+  margin-bottom: 5mm; break-before: page; break-after: avoid;
+  border-bottom: 2pt solid var(--accent-yellow);
+}
+.chapter-band .ch-num { font-family: var(--mono); font-size: 22pt; font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: var(--accent-yellow); }
+.chapter-band .ch-title { font-size: 19pt; font-weight: 700; line-height: 1.1; }
+.chapter-band .ch-meta { font-family: var(--mono); font-size: 9pt; color: rgba(255,255,255,0.85); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* === Headings === */
+h2 {
+  font-size: 14pt; font-weight: 700; margin: 4mm 0 1.5mm;
+  border-top: 1pt solid var(--ink); border-bottom: 0.5pt solid var(--accent-yellow);
+  padding: 2mm 0 0.5mm; break-after: avoid;
+}
+h2::before {
+  content: counter(chapter) "." counter(section, decimal) " "; counter-increment: section;
+  font-family: var(--mono); font-weight: 700; color: var(--accent-red);
+  margin-right: 2mm; background: var(--accent-red-tint); padding: 0 4px;
+}
+h3 {
+  font-size: 10pt; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  margin: 3mm 0 1.5mm; break-after: avoid;
+  color: var(--brand);
+}
+h3::before {
+  content: "▌"; color: var(--accent-orange); margin-right: 2mm; font-size: 12pt;
+  vertical-align: -1pt;
+}
+
+.lead {
+  font-size: 11pt; line-height: 1.6; margin: 0 0 4mm;
+  border-left: 4pt solid var(--brand);
+  border-right: 1pt solid var(--accent-yellow);
+  padding: 2mm 4mm 2mm 5mm; max-width: 100%;
+  background: linear-gradient(90deg, var(--brand-tint) 0%, transparent 100%);
+}
+.lead strong { color: var(--brand); font-weight: 700; }
+.fn-ref { font-family: var(--mono); font-size: 8pt; color: var(--brand); font-weight: 700; vertical-align: super; }
+
+p { margin: 0 0 3mm; line-height: 1.7; }
+p strong { font-weight: 700; background: linear-gradient(transparent 60%, var(--brand-tint) 60%); padding: 0 1px; }
+
+/* === KPI Board === */
+.kpi-board { width: 100%; border-collapse: collapse; border-top: 1.5pt solid var(--ink); border-bottom: 1.5pt solid var(--ink); margin: 0 0 6mm; table-layout: fixed; break-inside: avoid; }
+.kpi-board td { border-right: 0.3pt solid var(--rule-light); padding: 3mm 4mm; vertical-align: top; }
+.kpi-board td:last-child { border-right: none; }
+.kpi-board .lbl { display: block; font-weight: 700; font-size: 8pt; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 2mm; }
+.kpi-board .val { display: block; font-weight: 700; font-size: 26pt; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi-board .val.val-text { font-size: 14pt; line-height: 1.2; }
+.kpi-board .sub { display: block; font-family: var(--mono); font-size: 9pt; color: var(--muted); margin-top: 2.5mm; }
+/* KPI severity: 色 + 罫太さ の二重識別 */
+.kpi-board td.sev-good { border-top: 3pt solid var(--accent-green); background: linear-gradient(180deg, var(--accent-green-tint) 0%, transparent 30%); }
+.kpi-board td.sev-warn { border-top: 3pt solid var(--accent-orange); background: linear-gradient(180deg, var(--accent-orange-tint) 0%, transparent 30%); }
+.kpi-board td.sev-crit { border-top: 3pt solid var(--accent-red); background: linear-gradient(180deg, var(--accent-red-tint) 0%, transparent 30%); }
+.kpi-board td.sev-good .lbl { color: var(--accent-green); }
+.kpi-board td.sev-warn .lbl { color: var(--accent-orange); }
+.kpi-board td.sev-crit .lbl { color: var(--accent-red); }
+
+.salary-trio { display: grid; grid-template-columns: 1fr 1fr 1fr; margin-top: 1mm; border-top: 0.5pt solid var(--rule-light); padding-top: 2mm; }
+.salary-trio .trio-cell { border-right: 0.3pt solid var(--rule-light); padding-right: 2mm; }
+.salary-trio .trio-cell:last-child { border-right: none; }
+.salary-trio .trio-lbl { display: block; font-size: 8pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.salary-trio .trio-val { display: block; font-weight: 700; font-size: 16pt; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.salary-trio .trio-val.is-primary { color: var(--brand); font-size: 19pt; }
+.salary-trio .trio-sub { display: block; font-family: var(--mono); font-size: 8pt; color: var(--muted); }
+
+/* === Figure (印刷収まり強化 + アクセント色) === */
+figure.fig {
+  margin: 3mm 0; padding: 2mm 0;
+  border-top: 2pt solid var(--brand);
+  border-bottom: 1pt solid var(--ink);
+  break-inside: avoid !important;
+  break-before: auto;
+  page-break-inside: avoid !important;
+}
+figcaption.fc-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 10.5pt; font-weight: 700; margin-bottom: 2mm; }
+figcaption.fc-top .fig-num { font-family: var(--mono); font-size: 9pt; font-weight: 700; color: var(--brand); letter-spacing: 0.08em; text-transform: uppercase; }
+figcaption.fc-top .fig-title { flex: 1; padding-left: 3mm; }
+figcaption.fc-top .fig-axis-note { font-family: var(--mono); font-size: 8pt; color: var(--muted); }
+figcaption.fc-bot { font-family: var(--mono); font-size: 8pt; color: var(--muted); margin-top: 1.5mm; }
+.fig-howto { font-size: 9.5pt; line-height: 1.55; margin: 1.5mm 0 0; padding: 1.5mm 3mm; background: var(--brand-tint); border-left: 2pt solid var(--brand); }
+.fig-howto::before { content: "READ ME — "; font-family: var(--mono); font-size: 8pt; font-weight: 700; letter-spacing: 0.14em; color: var(--brand); }
+
+.chart { width: 100%; height: 50mm; background: var(--paper); overflow: visible; }
+.chart-tall { height: 60mm; }
+.chart-mid { height: 50mm; }
+.chart-short { height: 40mm; }
+.chart-pyramid { height: 80mm; }
+/* SVG 内テキスト rendering を crisp に */
+.chart svg text { text-rendering: geometricPrecision; }
+
+/* === ヒストグラム凡例 (新設、ダサくない) === */
+.hist-markers {
+  display: flex;
+  justify-content: center;
+  gap: 8mm;
+  padding: 2mm 4mm;
+  margin-top: 2mm;
+  border-top: 0.5pt solid var(--rule-light);
+  border-bottom: 0.5pt solid var(--rule-light);
+  font-size: 9.5pt;
+  background: #FAFAFA;
+}
+.hist-markers .marker {
+  display: flex; align-items: center; gap: 2mm;
+}
+.hist-markers .swatch {
+  display: inline-block; width: 12mm; flex: none; position: relative; height: 4mm;
+}
+.hist-markers .swatch::before {
+  content: ""; position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%);
+}
+.hist-markers .swatch.mode::before { border-top: 1.8pt solid var(--mark-mode); }
+.hist-markers .swatch.median::before { border-top: 1.8pt solid var(--mark-median); }
+.hist-markers .swatch.mean::before { border-top: 1.4pt dashed var(--mark-mean); }
+.hist-markers .label { font-weight: 700; }
+.hist-markers .value { font-family: var(--mono); font-weight: 700; }
+.hist-markers .value.mode { color: var(--mark-mode); }
+.hist-markers .value.median { color: var(--mark-median); }
+.hist-markers .value.mean { color: var(--mark-mean); }
+
+.small-multiples { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3mm; }
+.sm-cell { text-align: center; }
+.sm-cell .sm-label { font-size: 9pt; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 1mm; }
+.sm-cell .sm-label.is-target { color: var(--brand); }
+.sm-cell .chart { height: 45mm; }
+.sm-cell .sm-summary { font-family: var(--mono); font-size: 8pt; color: var(--muted); margin-top: 1mm; }
+
+/* === Tables (色付きヘッダ + zebra ストライプ) === */
+table.ledger { width: 100%; border-collapse: collapse; font-size: 10pt; border-top: 2pt solid var(--brand); border-bottom: 1pt solid var(--ink); margin: 2mm 0 2mm; break-inside: avoid; }
+table.ledger thead tr { background: var(--brand); color: var(--paper); border-bottom: 0.5pt solid var(--ink); }
+table.ledger thead th { font-size: 8.5pt; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--paper); padding: 2mm 2.5mm; text-align: left; vertical-align: middle; }
+table.ledger thead th.num { text-align: right; }
+table.ledger tbody tr:nth-child(even) { background: var(--zebra); }
+table.ledger td { padding: 1.6mm 2.5mm; vertical-align: middle; border-bottom: 0.3pt solid var(--rule-light); }
+table.ledger td.num { font-family: var(--mono); font-size: 10pt; text-align: right; font-variant-numeric: tabular-nums; }
+table.ledger tr.is-self { background: linear-gradient(90deg, var(--accent-yellow) 0%, var(--accent-yellow) 1mm, var(--brand-tint) 1mm) !important; }
+table.ledger tr.is-self td { font-weight: 700; }
+table.ledger tr.is-self td:first-child { color: var(--brand); }
+
+/* === Matrix 6 (拡大=緑系 / 縮小=赤系 / 各セルに企業名 Top 5) === */
+.matrix6 { display: grid; grid-template-columns: 24mm 1fr 1fr; border-top: 2pt solid var(--brand); border-bottom: 1pt solid var(--ink); margin: 3mm 0 2mm; break-inside: avoid; gap: 0; }
+.matrix6 .m-cell { padding: 2.5mm 3mm; border-right: 0.3pt solid var(--rule-light); border-bottom: 0.3pt solid var(--rule-light); }
+.matrix6 .m-cell:nth-child(3n) { border-right: none; }
+.matrix6 .m-cell.m-header { background: var(--brand); color: var(--paper); font-family: var(--mono); font-size: 8.5pt; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.matrix6 .m-cell.m-row-label { font-size: 10pt; font-weight: 700; border-right: 1pt solid var(--brand); display: flex; align-items: center; background: var(--brand-tint); }
+/* セルヘッダ */
+.matrix6 .m-data .m-cell-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.5mm; }
+.matrix6 .m-data .m-count { font-weight: 700; font-size: 16pt; line-height: 1; font-variant-numeric: tabular-nums; }
+.matrix6 .m-data .m-count-pill { font-family: var(--mono); font-size: 8.5pt; font-weight: 700; padding: 0.5mm 2mm; border-radius: 8pt; color: #FFFFFF; }
+.matrix6 .m-data .m-pct { font-family: var(--mono); font-size: 9pt; font-weight: 700; }
+.matrix6 .m-data .m-detail { font-family: var(--mono); font-size: 8pt; color: var(--muted); margin-bottom: 1.5mm; font-style: italic; }
+/* 企業名 Top 5 リスト (フォント大きく) */
+.matrix6 .m-data ol.m-top5 { margin: 0; padding-left: 5mm; font-size: 9.5pt; line-height: 1.55; }
+.matrix6 .m-data ol.m-top5 li { margin-bottom: 1.5mm; }
+.matrix6 .m-data ol.m-top5 .m-name { font-weight: 700; color: var(--ink); font-size: 9.5pt; }
+.matrix6 .m-data ol.m-top5 .m-meta { font-family: var(--mono); font-size: 8.5pt; color: var(--muted); display: block; margin-top: 0.2mm; }
+.matrix6 .m-data ol.m-top5 .m-delta-pos { color: var(--accent-green); font-weight: 700; }
+.matrix6 .m-data ol.m-top5 .m-delta-neg { color: var(--accent-red); font-weight: 700; }
+/* 拡大 (左カラム) は緑、縮小 (右カラム) は赤 */
+.matrix6 .m-cell:nth-child(3n+2) { background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-left: 3pt solid var(--accent-green); }
+.matrix6 .m-cell:nth-child(3n+2) .m-count { color: var(--accent-green); }
+.matrix6 .m-cell:nth-child(3n+2) .m-pct { color: var(--accent-green); }
+.matrix6 .m-cell:nth-child(3n+2) .m-count-pill { background: var(--accent-green); }
+.matrix6 .m-cell:nth-child(3n) { background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-left: 3pt solid var(--accent-red); }
+.matrix6 .m-cell:nth-child(3n) .m-count { color: var(--accent-red); }
+.matrix6 .m-cell:nth-child(3n) .m-pct { color: var(--accent-red); }
+.matrix6 .m-cell:nth-child(3n) .m-count-pill { background: var(--accent-red); }
+/* header と row-label は色付き上書きから外す */
+.matrix6 .m-cell.m-header { background: var(--brand) !important; color: var(--paper) !important; border-left: none !important; }
+.matrix6 .m-cell.m-row-label { background: var(--brand-tint) !important; border-left: none !important; }
+
+/* === Findings === */
+.findings {
+  border-top: 3pt solid var(--accent-red);
+  padding: 3mm 0 0; margin: 5mm 0;
+  background: linear-gradient(180deg, var(--accent-red-tint) 0%, transparent 5mm);
+}
+.findings-title { font-weight: 700; font-size: 10pt; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-red); margin: 0 0 3mm; }
+.finding { display: grid; grid-template-columns: 11mm 1fr; gap: 3mm; margin-bottom: 3mm; break-inside: avoid; }
+.finding-num { font-family: var(--mono); font-weight: 700; font-size: 13pt; color: var(--accent-red); border-top: 2pt solid var(--ink); padding-top: 2mm; }
+.finding-title { font-weight: 700; font-size: 12pt; margin: 0 0 2mm; border-top: 2pt solid var(--ink); padding-top: 2mm; }
+.finding-body dl { display: grid; grid-template-columns: 22mm 1fr; gap: 1mm 3mm; margin: 0; font-size: 10pt; }
+.finding-body dt { font-family: var(--mono); font-size: 8.5pt; font-weight: 700; color: var(--brand); letter-spacing: 0.06em; text-transform: uppercase; padding-top: 0.3mm; }
+.finding-body dd { margin: 0; }
+.finding-xref { font-family: var(--mono); font-size: 8.5pt; color: var(--muted); margin-top: 2mm; }
+
+/* severity 記号: 色も付与 */
+.sm-good::before { content: "◯ "; font-weight: 700; color: var(--accent-green); }
+.sm-warn::before { content: "△ "; font-weight: 700; color: var(--accent-orange); }
+.sm-crit::before { content: "× "; font-weight: 700; color: var(--accent-red); }
+.finding-title.sm-good { border-top-color: var(--accent-green); }
+.finding-title.sm-warn { border-top-color: var(--accent-orange); }
+.finding-title.sm-crit { border-top-color: var(--accent-red); }
+
+.observations {
+  border-top: 2pt solid var(--accent-yellow); border-bottom: 1pt solid var(--ink);
+  background: linear-gradient(180deg, #FFFBEB 0%, transparent 50%);
+  padding: 3mm 4mm; margin: 5mm 0 0; break-inside: avoid;
+}
+.observations h4 { font-weight: 700; font-size: 9.5pt; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent-amber); margin: 0 0 2mm; }
+.observations ol { margin: 0; padding-left: 7mm; font-size: 10.5pt; line-height: 1.6; }
+.observations ol li { margin-bottom: 1.5mm; padding-left: 1mm; }
+.observations ol li::marker { font-family: var(--mono); font-weight: 700; color: var(--brand); }
+
+.glossary { border-top: 1pt solid var(--ink); border-bottom: 1pt solid var(--ink); padding: 3mm 0; margin: 4mm 0; break-inside: avoid; }
+.glossary h4 { font-weight: 700; font-size: 10pt; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brand); margin: 0 0 2mm; }
+.glossary dl { display: grid; grid-template-columns: 36mm 1fr; gap: 1.5mm 4mm; font-size: 10pt; line-height: 1.5; margin: 0; }
+.glossary dt { font-weight: 700; }
+.glossary dd { margin: 0; color: var(--muted); }
+
+body { counter-reset: chapter section; }
+.chapter-band { counter-increment: chapter; counter-reset: section; }
+
+/* 印刷時の追加保証 */
+@media print {
+  figure.fig, table.ledger, .matrix6, .observations, .glossary, .kpi-board, .findings, .finding {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  h2, h3 { page-break-after: avoid !important; break-after: avoid !important; }
+  .chart { break-inside: avoid !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ====== Cover ====== -->
+<section class="cover">
+  <header class="cover-top"><span>For A-career — Working Paper No. 2026-Q2-03</span><span>Confidential — Internal Use</span></header>
+  <main class="cover-main">
+    <div class="cover-num">REPORT NO. 2026-Q2-03</div>
+    <h1 class="cover-title">求人市場<br>総合診断レポート</h1>
+    <p class="cover-subtitle">Recruitment Market Composite Diagnostic<br>自社データ × 公開統計の統合分析</p>
+    <p class="cover-target"><small>Target Region / 対象地域</small>東京都 千代田区 — 千代田区周辺 IT・サービス業</p>
+  </main>
+  <footer class="cover-bottom">
+    <dl><dt>Issued / 発行</dt><dd>2026-04-30 (Apr 30, 2026)</dd><dt>Sample N</dt><dd>250 件 / valid 78.3%</dd></dl>
+    <dl><dt>Issued by</dt><dd>株式会社 For A-career</dd><dt>Data Coverage</dt><dd>2025-Q4 〜 2026-04 / 国勢調査 令和 5 年</dd></dl>
+  </footer>
+</section>
+
+<!-- ====== TOC ====== -->
+<section class="toc">
+  <h1>本レポートの構成</h1>
+  <ol class="toc-list">
+    <li><span class="toc-num">1</span><span class="toc-title">Executive Summary — 経営概要<small>主要 KPI / 推奨優先アクション 3 件</small></span><span class="toc-page">p. 3</span></li>
+    <li><span class="toc-num">2</span><span class="toc-title">給与分布 — 統計情報<small>表 3-1/3-2 + 4 ヒスト + 散布図</small></span><span class="toc-page">p. 5</span></li>
+    <li><span class="toc-num">3</span><span class="toc-title">雇用形態分布<small>図 4-1 ドーナツ + 雇用形態別給与</small></span><span class="toc-page">p. 11</span></li>
+    <li><span class="toc-num">4</span><span class="toc-title">求職者心理分析<small>給与認知 / 未経験ペナルティ / 新着プレミアム</small></span><span class="toc-page">p. 13</span></li>
+    <li><span class="toc-num">5</span><span class="toc-title">採用市場 逼迫度<small>図 MT-1 総合スコア + 図 MT-2 4 軸レーダー</small></span><span class="toc-page">p. 15</span></li>
+    <li><span class="toc-num">6</span><span class="toc-title">産業ミスマッチ<small>CSV vs 国勢 / HW vs 国勢</small></span><span class="toc-page">p. 17</span></li>
+    <li><span class="toc-num">7</span><span class="toc-title">地域企業ベンチマーク<small>表 5-0a/0b/0c + 6マトリクス各セル Top 5 + 4 セグメント Top 10 × 4 + 30 社一覧 + 異業種ベンチマーク</small></span><span class="toc-page">p. 19</span></li>
+    <li><span class="toc-num">8</span><span class="toc-title">地域分析<small>都道府県 + 市区町村 + 産業構造 + 図 6-1/6-3</small></span><span class="toc-page">p. 26</span></li>
+    <li><span class="toc-num">9</span><span class="toc-title">人材デモグラフィック<small>図 D-1 人口ピラミッド + 図 D-2 学歴 + 図 D-3 主要市区町村比較 + 表 D-1</small></span><span class="toc-page">p. 30</span></li>
+    <li><span class="toc-num">10</span><span class="toc-title">地域 多面比較<small>5 軸レーダー + 表 10-2 デモグラ生値 + 表 10-3 補助指標</small></span><span class="toc-page">p. 33</span></li>
+    <li><span class="toc-num">11</span><span class="toc-title">ライフスタイル特性<small>オフ活動 / デジタル利用</small></span><span class="toc-page">p. 36</span></li>
+    <li><span class="toc-num">12</span><span class="toc-title">HW 市場比較<small>HW エンリッチメント + 雇用形態給与 / 構成比 / 地域指標</small></span><span class="toc-page">p. 38</span></li>
+    <li><span class="toc-num">13</span><span class="toc-title">給与関連 拡張分析<small>世帯支出 + 最低賃金 + 企業 + タグ ツリーマップ</small></span><span class="toc-page">p. 41</span></li>
+    <li><span class="toc-num">14</span><span class="toc-title">サマリー<small>全体集計</small></span><span class="toc-page">p. 45</span></li>
+    <li><span class="toc-num">15</span><span class="toc-title">注記・出典・免責<small>用語定義 + データソース + 統計手法 + スコープ制約 + 相関≠因果 + 更新頻度</small></span><span class="toc-page">p. 46</span></li>
+  </ol>
+</section>
+
+<!-- ====== 1. Executive Summary ====== -->
+<header class="chapter-band"><div class="ch-num">1</div><div class="ch-title">Executive Summary — 経営概要</div><div class="ch-meta">5 KPI + 3 Actions</div></header>
+<p class="lead">当サンプル 250 件 (主要地域: 東京都千代田区) の統合分析サマリ。<strong>給与水準の分布に偏りが観測</strong>され、下限値・最頻値の見直し余地が示唆される。</p>
+<table class="kpi-board">
+  <tr>
+    <td class="sev-good"><span class="lbl">Sample N</span><span class="val">250</span><span class="sub">件 / valid 78.3%</span></td>
+    <td class="sev-crit" colspan="2" style="width:50%;">
+      <span class="lbl">給与水準 (月給、3 値併記)</span>
+      <div class="salary-trio">
+        <div class="trio-cell"><span class="trio-lbl">Mean</span><span class="trio-val">26.4</span><span class="trio-sub">万円 / σ=4.2</span></div>
+        <div class="trio-cell"><span class="trio-lbl">Median</span><span class="trio-val is-primary">25.0</span><span class="trio-sub">万円 (主指標)</span></div>
+        <div class="trio-cell"><span class="trio-lbl">Mode</span><span class="trio-val">22.0</span><span class="trio-sub">万円 / 38 件</span></div>
+      </div>
+    </td>
+    <td class="sev-good"><span class="lbl">Dominant Region</span><span class="val val-text">東京都<br>千代田区</span><span class="sub">N=188 / 75.2%</span></td>
+  </tr>
+</table>
+<h2>本章の主要発見</h2>
+<p>応募者属性は <strong>正社員志向 + 30 代中心</strong>。給与の <strong>平均 26.4 / 中央値 25.0 / 最頻値 22.0 万円</strong>という 3 値の差は分布が右に裾を引く形を示し、「下限帯に厚みがある + 一部高給与求人が平均を引き上げている」典型パターン。</p>
+<section class="findings">
+  <h3 class="findings-title">Recommended Actions / 推奨優先アクション</h3>
+  <div class="finding">
+    <div class="finding-num">[1]</div>
+    <div>
+      <h4 class="finding-title sm-crit">給与下限・最頻値帯を月 +2.0〜3.0 万円 引き上げる候補</h4>
+      <div class="finding-body">
+        <dl>
+          <dt>Diagnosis</dt><dd>当サンプル 平均 26.4 / 中央値 25.0 / 最頻値 22.0 万円。最頻値帯に 38 件 (15.2%) 密集。</dd>
+          <dt>Impact estimate</dt><dd>n=250 名 ・ 月 +2.0 万円 適用時、年間 約 6.00 億円 の人件費インパクト試算。</dd>
+          <dt>Next steps</dt><dd>等級表 下限の見直し / 最頻値帯求人の比較精査 / 翌月 KPI で効果検証。</dd>
+        </dl>
+        <div class="finding-xref">→ §2 Salary Distribution</div>
+      </div>
+    </div>
+  </div>
+  <div class="finding">
+    <div class="finding-num">[2]</div>
+    <div>
+      <h4 class="finding-title sm-warn">雇用形態「正社員」構成比の見直し候補</h4>
+      <div class="finding-body"><dl><dt>Diagnosis</dt><dd>当サンプル 75.2% で正社員寄り。HW 市場 68.2% との差 +7.0pt。</dd></dl><div class="finding-xref">→ §3 Employment Distribution</div></div>
+    </div>
+  </div>
+  <div class="finding">
+    <div class="finding-num">[3]</div>
+    <div>
+      <h4 class="finding-title sm-good">訴求タグ「土日休み」の給与差分</h4>
+      <div class="finding-body"><dl><dt>Diagnosis</dt><dd>該当タグ平均が全体比 +1.2 万円 (+4.8%、n=42)。プレミアム要因の可能性。</dd></dl><div class="finding-xref">→ §13 Tag Analysis</div></div>
+    </div>
+  </div>
+</section>
+<aside class="observations">
+  <h4>§ Key Observations</h4>
+  <ol>
+    <li>給与 3 値 (平均 26.4 / 中央値 25.0 / 最頻値 22.0 万円) は右裾分布、下限・最頻値帯の見直し余地あり。</li>
+    <li>規模帯間で動向に差分が観測されるため、自社規模帯のベンチマークを優先参照 (§7)。</li>
+    <li>失業率と採用容易性は別概念。本レポートは状況示唆値であり保証ではない。</li>
+  </ol>
+</aside>
+
+<!-- ====== 2. Salary Distribution ====== -->
+<header class="chapter-band"><div class="ch-num">2</div><div class="ch-title">給与分布 — Salary Statistics</div><div class="ch-meta">salary_stats.rs</div></header>
+<p class="lead">当サンプル (N=250) の給与統計サマリ + 外れ値除外比較 + 下限/上限ヒスト 4 図 + 散布図。</p>
+
+<h3>表 3-1 給与統計サマリ (外れ値除外後)</h3>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">下限 (万円)</th><th class="num">上限 (万円)</th><th class="num">レンジ幅</th><th class="num">件数</th></tr></thead>
+  <tbody>
+    <tr><td>最小値 (Min)</td><td class="num">15.0</td><td class="num">18.0</td><td class="num">3.0</td><td class="num">—</td></tr>
+    <tr><td>Q1</td><td class="num">21.5</td><td class="num">26.0</td><td class="num">4.5</td><td class="num">62</td></tr>
+    <tr class="is-self"><td>最頻値 (Mode)</td><td class="num">22.0</td><td class="num">28.0</td><td class="num">6.0</td><td class="num">38 / 31</td></tr>
+    <tr class="is-self"><td>中央値 (Median)</td><td class="num">25.0</td><td class="num">31.0</td><td class="num">6.0</td><td class="num">125 / 121</td></tr>
+    <tr class="is-self"><td>平均値 (Mean)</td><td class="num">26.4</td><td class="num">32.8</td><td class="num">6.4</td><td class="num">—</td></tr>
+    <tr><td>Q3</td><td class="num">30.0</td><td class="num">38.0</td><td class="num">8.0</td><td class="num">187 / 182</td></tr>
+    <tr><td>標準偏差 (σ)</td><td class="num">4.2</td><td class="num">5.8</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td>95% CI (Bootstrap)</td><td class="num">24.6 〜 25.8</td><td class="num">30.2 〜 31.6</td><td class="num">—</td><td class="num">N=250</td></tr>
+  </tbody>
+</table>
+
+<h3>表 3-2 外れ値除外の前後比較 (IQR 法)</h3>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  ※ IQR 法 (Q1 − 1.5×IQR 〜 Q3 + 1.5×IQR の範囲外を除外) で外れ値処理。除外件数と統計量への影響を確認。
+</p>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">除外前 (生値)</th><th class="num">除外後</th><th class="num">差分</th><th class="num">除外件数</th></tr></thead>
+  <tbody>
+    <tr><td>サンプル数</td><td class="num">258</td><td class="num">250</td><td class="num">−8</td><td class="num">8 件</td></tr>
+    <tr><td>下限 平均</td><td class="num">28.1</td><td class="num">26.4</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−1.7</span></td><td class="num">8 件</td></tr>
+    <tr class="is-self"><td>下限 中央値</td><td class="num">25.0</td><td class="num">25.0</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">変化なし</span></td><td class="num">—</td></tr>
+    <tr><td>下限 σ</td><td class="num">7.8</td><td class="num">4.2</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−3.6</span></td><td class="num">—</td></tr>
+    <tr><td>上限 平均</td><td class="num">35.2</td><td class="num">32.8</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.4</span></td><td class="num">7 件</td></tr>
+    <tr class="is-self"><td>上限 中央値</td><td class="num">31.0</td><td class="num">31.0</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">変化なし</span></td><td class="num">—</td></tr>
+    <tr><td>上限 σ</td><td class="num">9.2</td><td class="num">5.8</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−3.4</span></td><td class="num">—</td></tr>
+  </tbody>
+</table>
+
+<h2>下限給与の分布</h2>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 3-2</span><span class="fig-title">下限月給ヒストグラム — 20,000 円刻み</span><span class="fig-axis-note">N=250</span></figcaption>
+  <div id="histA" class="chart"></div>
+  <div class="hist-markers">
+    <div class="marker"><span class="swatch mode"></span><span class="label">最頻値</span><span class="value mode">22.0 万円</span></div>
+    <div class="marker"><span class="swatch median"></span><span class="label">中央値</span><span class="value median">25.0 万円</span></div>
+    <div class="marker"><span class="swatch mean"></span><span class="label">平均</span><span class="value mean">26.4 万円</span></div>
+  </div>
+</figure>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 3-3</span><span class="fig-title">下限月給ヒストグラム — 5,000 円刻み (詳細)</span><span class="fig-axis-note">N=250</span></figcaption>
+  <div id="histB" class="chart"></div>
+  <div class="hist-markers">
+    <div class="marker"><span class="swatch mode"></span><span class="label">最頻値</span><span class="value mode">22.0 万円</span></div>
+    <div class="marker"><span class="swatch median"></span><span class="label">中央値</span><span class="value median">25.0 万円</span></div>
+    <div class="marker"><span class="swatch mean"></span><span class="label">平均</span><span class="value mean">26.0 万円</span></div>
+  </div>
+</figure>
+
+<h2>上限給与の分布</h2>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 3-4</span><span class="fig-title">上限月給ヒストグラム — 20,000 円刻み</span><span class="fig-axis-note">N=243</span></figcaption>
+  <div id="histC" class="chart"></div>
+  <div class="hist-markers">
+    <div class="marker"><span class="swatch mode"></span><span class="label">最頻値</span><span class="value mode">28.0 万円</span></div>
+    <div class="marker"><span class="swatch median"></span><span class="label">中央値</span><span class="value median">31.0 万円</span></div>
+    <div class="marker"><span class="swatch mean"></span><span class="label">平均</span><span class="value mean">32.8 万円</span></div>
+  </div>
+</figure>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 3-5</span><span class="fig-title">上限月給ヒストグラム — 5,000 円刻み (詳細)</span><span class="fig-axis-note">N=243</span></figcaption>
+  <div id="histD" class="chart"></div>
+  <div class="hist-markers">
+    <div class="marker"><span class="swatch mode"></span><span class="label">最頻値</span><span class="value mode">28.0 万円</span></div>
+    <div class="marker"><span class="swatch median"></span><span class="label">中央値</span><span class="value median">31.0 万円</span></div>
+    <div class="marker"><span class="swatch mean"></span><span class="label">平均</span><span class="value mean">32.0 万円</span></div>
+  </div>
+</figure>
+
+<h2>下限 × 上限 散布図 (相関分析)</h2>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 5-1</span><span class="fig-title">下限 × 上限 散布図 + 回帰直線</span><span class="fig-axis-note">β=1.18 / R²=0.72</span></figcaption>
+  <div id="scatter1" class="chart chart-tall"></div>
+  <p class="fig-howto">回帰係数 β &gt; 1.3: 経験差を強調 / 1.0-1.3: 中庸 / &lt; 1.0: 一律。本サンプル β=1.18 で中庸。</p>
+</figure>
+
+<h3>表 2-1 回帰分析サマリ + R² 閾値ガイド</h3>
+<table class="ledger">
+  <thead><tr><th>回帰指標</th><th class="num">値</th><th>解釈</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>β (傾き)</td><td class="num">1.18</td><td>中庸 (1.0-1.3): 経験差・能力差はそこそこ反映</td></tr>
+    <tr><td>R²</td><td class="num">0.72</td><td>高 (≥0.7): 下限と上限が連動している</td></tr>
+    <tr><td>切片 (intercept)</td><td class="num">5.0</td><td>下限 0 のとき上限 5 万円相当 (理論値、現実無効)</td></tr>
+    <tr><td>p 値</td><td class="num">&lt; 0.001</td><td>統計的有意</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 3. Employment ====== -->
+<header class="chapter-band"><div class="ch-num">3</div><div class="ch-title">雇用形態分布 — Employment Distribution</div><div class="ch-meta">employment.rs</div></header>
+<p class="lead">CSV 集計の雇用形態を Top 6 でドーナツ可視化 + 雇用形態別給与水準。</p>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 4-1</span><span class="fig-title">雇用形態構成 ドーナツチャート (Top 6)</span><span class="fig-axis-note">N=250</span></figcaption>
+  <div id="empDonut" class="chart"></div>
+</figure>
+
+<h3>雇用形態別 件数・構成比</h3>
+<table class="ledger">
+  <thead><tr><th>雇用形態</th><th class="num">件数</th><th class="num">構成比 %</th><th class="num">給与中央値</th><th class="num">σ</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>正社員</td><td class="num">188</td><td class="num">75.2</td><td class="num">25.0</td><td class="num">4.0</td></tr>
+    <tr><td>契約社員</td><td class="num">28</td><td class="num">11.2</td><td class="num">23.0</td><td class="num">3.5</td></tr>
+    <tr><td>パート・アルバイト</td><td class="num">18</td><td class="num">7.2</td><td class="num">19.0</td><td class="num">2.8</td></tr>
+    <tr><td>業務委託</td><td class="num">8</td><td class="num">3.2</td><td class="num">28.0</td><td class="num">6.5</td></tr>
+    <tr><td>派遣</td><td class="num">5</td><td class="num">2.0</td><td class="num">22.0</td><td class="num">3.0</td></tr>
+    <tr><td>その他</td><td class="num">3</td><td class="num">1.2</td><td class="num">—</td><td class="num">—</td></tr>
+  </tbody>
+</table>
+
+<h3>雇用形態別 給与水準 (図 4-2)</h3>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  ※ 各形態の給与下限〜上限レンジを並べて表示。レンジ幅と中央値で形態間の給与構造差を可視化。
+</p>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 4-2</span><span class="fig-title">雇用形態別 給与レンジ (下限〜上限)</span><span class="fig-axis-note">月給 万円</span></figcaption>
+  <div id="empWageBar" class="chart chart-mid"></div>
+</figure>
+
+<h3>雇用形態別 給与レンジ詳細</h3>
+<table class="ledger">
+  <thead><tr><th>形態</th><th class="num">N</th><th class="num">下限 中央値</th><th class="num">上限 中央値</th><th class="num">レンジ幅</th><th class="num">HW 同地域差</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>正社員</td><td class="num">188</td><td class="num">25.0</td><td class="num">32.0</td><td class="num">7.0</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.0</span></td></tr>
+    <tr><td>正職員</td><td class="num">12</td><td class="num">24.5</td><td class="num">30.0</td><td class="num">5.5</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.5</span></td></tr>
+    <tr><td>契約社員</td><td class="num">28</td><td class="num">23.0</td><td class="num">28.0</td><td class="num">5.0</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−1.5</span></td></tr>
+    <tr><td>パート (時給換算)</td><td class="num">14</td><td class="num">1,180 円</td><td class="num">1,420 円</td><td class="num">240 円</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">−30 円</span></td></tr>
+    <tr><td>アルバイト (時給換算)</td><td class="num">4</td><td class="num">1,100 円</td><td class="num">1,250 円</td><td class="num">150 円</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">−40 円</span></td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 4. Seeker ====== -->
+<header class="chapter-band"><div class="ch-num">4</div><div class="ch-title">求職者心理分析 — Job Seeker Analysis</div><div class="ch-meta">seeker.rs</div></header>
+<p class="lead">求職者心理 3 軸: <strong>給与レンジ認知</strong> / <strong>未経験ペナルティ</strong> / <strong>新着プレミアム</strong>。</p>
+
+<h3>給与レンジ認知</h3>
+<table class="ledger">
+  <thead><tr><th>レンジタイプ</th><th class="num">N</th><th class="num">給与中央値</th><th class="num">差分 (vs 全体)</th></tr></thead>
+  <tbody>
+    <tr><td>幅狭 (≤3 万円)</td><td class="num">62</td><td class="num">22.5</td><td class="num">−2.5</td></tr>
+    <tr class="is-self"><td>標準 (3-7 万円)</td><td class="num">158</td><td class="num">25.5</td><td class="num">+0.5</td></tr>
+    <tr><td>幅広 (≥8 万円)</td><td class="num">30</td><td class="num">28.0</td><td class="num">+3.0</td></tr>
+  </tbody>
+</table>
+
+<h3>未経験ペナルティ</h3>
+<table class="ledger">
+  <thead><tr><th>カテゴリ</th><th class="num">N</th><th class="num">給与中央値</th><th class="num">未経験ペナルティ (Δ)</th></tr></thead>
+  <tbody>
+    <tr><td>未経験 OK</td><td class="num">52</td><td class="num">22.5</td><td class="num">基準</td></tr>
+    <tr class="is-self"><td>経験必須</td><td class="num">198</td><td class="num">25.8</td><td class="num">+3.3</td></tr>
+  </tbody>
+</table>
+
+<h3>新着プレミアム</h3>
+<table class="ledger">
+  <thead><tr><th>掲載期間</th><th class="num">N</th><th class="num">給与中央値</th><th class="num">新着プレミアム (Δ)</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>新着 (≤30 日)</td><td class="num">95</td><td class="num">26.0</td><td class="num">+1.0</td></tr>
+    <tr><td>標準 (31-90 日)</td><td class="num">128</td><td class="num">25.0</td><td class="num">基準</td></tr>
+    <tr><td>長期掲載 (≥91 日)</td><td class="num">27</td><td class="num">23.5</td><td class="num">−1.5</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 5. Market Tightness ====== -->
+<header class="chapter-band"><div class="ch-num">5</div><div class="ch-title">採用市場 逼迫度 — Market Tightness</div><div class="ch-meta">market_tightness.rs</div></header>
+<p class="lead">採用市場逼迫度を <strong>4 軸スコア</strong> (求人倍率 / 失業率 / 欠員補充率 / 賃金水準) で総合判定。</p>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. MT-1</span><span class="fig-title">採用市場 逼迫度 総合スコア</span><span class="fig-axis-note">SCALE 0-100</span></figcaption>
+  <div id="mtGauge" class="chart chart-tall"></div>
+</figure>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. MT-2</span><span class="fig-title">採用市場 4 軸レーダー</span><span class="fig-axis-note">対象 vs 全国平均</span></figcaption>
+  <div id="mtRadar" class="chart chart-pyramid"></div>
+</figure>
+
+<h3>表 MT-1 4 指標 個別 KPI</h3>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域</th><th class="num">同業界平均</th><th class="num">全国平均</th><th class="num">スコア</th></tr></thead>
+  <tbody>
+    <tr><td>有効求人倍率</td><td class="num">1.42</td><td class="num">1.28</td><td class="num">1.20</td><td class="num">71</td></tr>
+    <tr><td>失業率 (反転スコア)</td><td class="num">3.6%</td><td class="num">2.8%</td><td class="num">2.5%</td><td class="num">28</td></tr>
+    <tr><td>欠員補充率</td><td class="num">62.4%</td><td class="num">68.2%</td><td class="num">72.5%</td><td class="num">68</td></tr>
+    <tr><td>賃金水準 (全国比)</td><td class="num">112.5</td><td class="num">105.2</td><td class="num">100.0</td><td class="num">82</td></tr>
+    <tr class="is-self"><td>総合スコア</td><td class="num">62.4</td><td class="num">53.8</td><td class="num">50.0</td><td class="num">62.4</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 6. Industry Mismatch ====== -->
+<header class="chapter-band"><div class="ch-num">6</div><div class="ch-title">産業ミスマッチ — Industry Mismatch</div><div class="ch-meta">industry_mismatch.rs</div></header>
+<p class="lead">2 種類のミスマッチ: <strong>(1) CSV 媒体掲載 vs 地域就業者構成</strong> / <strong>(2) HW 求人構成 vs 地域就業者構成</strong>。</p>
+
+<h2>CSV 媒体掲載 vs 地域就業者構成</h2>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 6-1a</span><span class="fig-title">業種構成比 — 当サンプル vs 国勢調査</span><span class="fig-axis-note">12 大産業</span></figcaption>
+  <div id="indMismatchCsv" class="chart"></div>
+</figure>
+
+<h2>HW 求人構成 vs 地域就業者構成</h2>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 6-1b</span><span class="fig-title">業種構成比 — HW 求人 vs 国勢調査</span><span class="fig-axis-note">同地域</span></figcaption>
+  <div id="indMismatchHw" class="chart"></div>
+</figure>
+
+<!-- ====== 7. Regional Companies ====== -->
+<header class="chapter-band"><div class="ch-num">7</div><div class="ch-title">地域企業ベンチマーク — Regional Companies</div><div class="ch-meta">salesnow.rs</div></header>
+<p class="lead">対象地域の企業を <strong>規模 × 動向 6 マトリクス</strong> + Top 5 ランキングで整理。</p>
+
+<h3>表 5-0a 構造サマリ (規模帯別の傾向値)</h3>
+<table class="ledger">
+  <thead><tr><th>規模帯</th><th class="num">社数</th><th class="num">構成比</th><th class="num">平均 1y 人員推移</th><th class="num">公開求人継続率</th></tr></thead>
+  <tbody>
+    <tr><td>大規模 (300+ 名)</td><td class="num">15</td><td class="num">10.6%</td><td class="num">+8.2%</td><td class="num">73.3%</td></tr>
+    <tr class="is-self"><td>中規模 (50-299 名)</td><td class="num">47</td><td class="num">33.1%</td><td class="num">+2.8%</td><td class="num">61.7%</td></tr>
+    <tr><td>小規模 (&lt;50 名)</td><td class="num">80</td><td class="num">56.3%</td><td class="num">+1.4%</td><td class="num">38.8%</td></tr>
+  </tbody>
+</table>
+
+<h2>表 5-0b 規模 × 人員推移 6 マトリクス (各セル上位 5 社)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  ※ 規模帯 (大規模 / 中規模 / 小規模) と 1 年人員推移 (+5% 超 / -5% 未満) の組み合わせで該当企業を抽出。
+  「人員減少」は離職だけでなく組織改編・自然減・配置転換等も含む観測値です。
+</p>
+<div class="matrix6">
+  <div class="m-cell m-header"></div>
+  <div class="m-cell m-header">📈 人員推移 +5% 以上 (拡大)</div>
+  <div class="m-cell m-header">📉 人員推移 −5% 以下 (縮小)</div>
+
+  <div class="m-cell m-row-label">大規模<br><span style="font-family:var(--mono);font-size:8pt;color:var(--muted);font-weight:400;">300+ 名</span></div>
+  <div class="m-cell m-data">
+    <div class="m-cell-head"><span class="m-count">12</span><span class="m-count-pill">12 社</span></div>
+    <div class="m-detail">平均 +12.4% / 上位 5 社:</div>
+    <ol class="m-top5">
+      <li><span class="m-name">株式会社 ABC</span><span class="m-meta">2,450 名 ・ <span class="m-delta-pos">+18.2%</span></span></li>
+      <li><span class="m-name">GHI 株式会社</span><span class="m-meta">980 名 ・ <span class="m-delta-pos">+15.4%</span></span></li>
+      <li><span class="m-name">PQR テクノロジーズ</span><span class="m-meta">680 名 ・ <span class="m-delta-pos">+12.8%</span></span></li>
+      <li><span class="m-name">DEF ホールディングス</span><span class="m-meta">1,820 名 ・ <span class="m-delta-pos">+10.5%</span></span></li>
+      <li><span class="m-name">XYZ コンサルティング</span><span class="m-meta">520 名 ・ <span class="m-delta-pos">+9.2%</span></span></li>
+    </ol>
+  </div>
+  <div class="m-cell m-data">
+    <div class="m-cell-head"><span class="m-count">3</span><span class="m-count-pill">3 社</span></div>
+    <div class="m-detail">平均 −7.8% / 上位 3 社:</div>
+    <ol class="m-top5">
+      <li><span class="m-name">JKL コーポレーション</span><span class="m-meta">760 名 ・ <span class="m-delta-neg">−9.2%</span></span></li>
+      <li><span class="m-name">RST フィナンシャル</span><span class="m-meta">1,150 名 ・ <span class="m-delta-neg">−7.5%</span></span></li>
+      <li><span class="m-name">UVW 商事</span><span class="m-meta">340 名 ・ <span class="m-delta-neg">−6.8%</span></span></li>
+    </ol>
+  </div>
+
+  <div class="m-cell m-row-label">中規模<br><span style="font-family:var(--mono);font-size:8pt;color:var(--muted);font-weight:400;">50-299 名</span></div>
+  <div class="m-cell m-data">
+    <div class="m-cell-head"><span class="m-count">28</span><span class="m-count-pill">28 社</span></div>
+    <div class="m-detail">平均 +8.2% / 上位 5 社:</div>
+    <ol class="m-top5">
+      <li><span class="m-name">MNO スタジオ</span><span class="m-meta">85 名 ・ <span class="m-delta-pos">+38.2%</span></span></li>
+      <li><span class="m-name">VWX ソリューションズ</span><span class="m-meta">220 名 ・ <span class="m-delta-pos">+18.7%</span></span></li>
+      <li><span class="m-name">ABC ラボ</span><span class="m-meta">142 名 ・ <span class="m-delta-pos">+15.4%</span></span></li>
+      <li><span class="m-name">DEF プラットフォーム</span><span class="m-meta">98 名 ・ <span class="m-delta-pos">+12.1%</span></span></li>
+      <li><span class="m-name">GHI コンサル</span><span class="m-meta">175 名 ・ <span class="m-delta-pos">+9.8%</span></span></li>
+    </ol>
+  </div>
+  <div class="m-cell m-data">
+    <div class="m-cell-head"><span class="m-count">19</span><span class="m-count-pill">19 社</span></div>
+    <div class="m-detail">平均 −6.1% / 上位 5 社:</div>
+    <ol class="m-top5">
+      <li><span class="m-name">JKL システム</span><span class="m-meta">220 名 ・ <span class="m-delta-neg">−12.5%</span></span></li>
+      <li><span class="m-name">MNO 商会</span><span class="m-meta">85 名 ・ <span class="m-delta-neg">−9.8%</span></span></li>
+      <li><span class="m-name">PQR エージェンシー</span><span class="m-meta">142 名 ・ <span class="m-delta-neg">−7.2%</span></span></li>
+      <li><span class="m-name">STU メディア</span><span class="m-meta">120 名 ・ <span class="m-delta-neg">−6.5%</span></span></li>
+      <li><span class="m-name">VWX 流通</span><span class="m-meta">95 名 ・ <span class="m-delta-neg">−5.8%</span></span></li>
+    </ol>
+  </div>
+
+  <div class="m-cell m-row-label">小規模<br><span style="font-family:var(--mono);font-size:8pt;color:var(--muted);font-weight:400;">&lt;50 名</span></div>
+  <div class="m-cell m-data">
+    <div class="m-cell-head"><span class="m-count">42</span><span class="m-count-pill">42 社</span></div>
+    <div class="m-detail">平均 +11.5% / 上位 5 社:</div>
+    <ol class="m-top5">
+      <li><span class="m-name">STU 株式会社</span><span class="m-meta">28 名 ・ <span class="m-delta-pos">+45.2%</span></span></li>
+      <li><span class="m-name">YZ コンサルティング</span><span class="m-meta">25 名 ・ <span class="m-delta-pos">+32.1%</span></span></li>
+      <li><span class="m-name">ZAB スタートアップ</span><span class="m-meta">18 名 ・ <span class="m-delta-pos">+28.6%</span></span></li>
+      <li><span class="m-name">CDE 工房</span><span class="m-meta">42 名 ・ <span class="m-delta-pos">+22.4%</span></span></li>
+      <li><span class="m-name">FGH デザイン</span><span class="m-meta">35 名 ・ <span class="m-delta-pos">+18.9%</span></span></li>
+    </ol>
+  </div>
+  <div class="m-cell m-data">
+    <div class="m-cell-head"><span class="m-count">38</span><span class="m-count-pill">38 社</span></div>
+    <div class="m-detail">平均 −9.2% / 上位 5 社:</div>
+    <ol class="m-top5">
+      <li><span class="m-name">IJK 商店</span><span class="m-meta">15 名 ・ <span class="m-delta-neg">−18.5%</span></span></li>
+      <li><span class="m-name">LMN サービス</span><span class="m-meta">22 名 ・ <span class="m-delta-neg">−14.2%</span></span></li>
+      <li><span class="m-name">OPQ 工務</span><span class="m-meta">38 名 ・ <span class="m-delta-neg">−12.8%</span></span></li>
+      <li><span class="m-name">RST 物流</span><span class="m-meta">28 名 ・ <span class="m-delta-neg">−10.4%</span></span></li>
+      <li><span class="m-name">UVW 印刷</span><span class="m-meta">18 名 ・ <span class="m-delta-neg">−8.6%</span></span></li>
+    </ol>
+  </div>
+</div>
+
+<h2>表 5-1 地域企業 一覧 (従業員数の多い 30 社、ベンチマーク参考)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  ※ 地域内で従業員数の多い 30 社を地域内ベンチマーク参考として整理。
+  掲載企業には貴社・貴社の取引先・関連会社が含まれる可能性があり、敵対視や差別化を意図しません。
+  HW 求人件数が多い法人は採用活動が活発な可能性がありますが、採用が難航しているために HW にも掲載しているケースも含まれるため、両方向の解釈に注意してください。
+</p>
+<table class="ledger">
+  <thead>
+    <tr>
+      <th>#</th><th>企業名</th><th>都道府県</th><th>業種</th>
+      <th class="num">従業員数</th><th class="num">売上 (推定)</th>
+      <th class="num">1y 推移</th><th class="num">3m 推移</th>
+      <th class="num">HW 求人</th><th class="num">観測指標</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>株式会社 ABC</td><td>東京都</td><td>情報通信</td><td class="num">2,450</td><td class="num">580 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.2%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+4.5%</span></td><td class="num">42</td><td class="num">98</td></tr>
+    <tr><td>2</td><td>DEF ホールディングス</td><td>東京都</td><td>金融</td><td class="num">1,820</td><td class="num">420 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+10.5%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+2.1%</span></td><td class="num">28</td><td class="num">85</td></tr>
+    <tr class="is-self"><td>3</td><td>(自社該当帯)</td><td>東京都</td><td>情報通信</td><td class="num">1,200</td><td class="num">280 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+6.4%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+1.8%</span></td><td class="num">15</td><td class="num">52</td></tr>
+    <tr><td>4</td><td>RST フィナンシャル</td><td>東京都</td><td>金融</td><td class="num">1,150</td><td class="num">320 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−7.5%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.4%</span></td><td class="num">12</td><td class="num">38</td></tr>
+    <tr><td>5</td><td>GHI 株式会社</td><td>東京都</td><td>情報通信</td><td class="num">980</td><td class="num">240 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+3.8%</span></td><td class="num">35</td><td class="num">88</td></tr>
+    <tr><td>6</td><td>JKL コーポレーション</td><td>東京都</td><td>サービス</td><td class="num">760</td><td class="num">180 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−9.2%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.8%</span></td><td class="num">8</td><td class="num">25</td></tr>
+    <tr><td>7</td><td>PQR テクノロジーズ</td><td>東京都</td><td>情報通信</td><td class="num">680</td><td class="num">160 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.8%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+3.2%</span></td><td class="num">22</td><td class="num">76</td></tr>
+    <tr><td>8</td><td>XYZ コンサルティング</td><td>東京都</td><td>サービス</td><td class="num">520</td><td class="num">125 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+9.2%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+1.5%</span></td><td class="num">18</td><td class="num">62</td></tr>
+    <tr><td>9</td><td>UVW 商事</td><td>東京都</td><td>卸売・小売</td><td class="num">340</td><td class="num">95 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−6.8%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.1%</span></td><td class="num">5</td><td class="num">18</td></tr>
+    <tr><td>10</td><td>VWX ソリューションズ</td><td>東京都</td><td>情報通信</td><td class="num">220</td><td class="num">62 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.7%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+5.4%</span></td><td class="num">14</td><td class="num">68</td></tr>
+    <tr><td>11</td><td>JKL システム</td><td>東京都</td><td>情報通信</td><td class="num">220</td><td class="num">58 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−12.5%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−4.2%</span></td><td class="num">7</td><td class="num">22</td></tr>
+    <tr><td>12</td><td>GHI コンサル</td><td>東京都</td><td>サービス</td><td class="num">175</td><td class="num">42 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+9.8%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+2.5%</span></td><td class="num">9</td><td class="num">42</td></tr>
+    <tr><td>13</td><td>ABC ラボ</td><td>東京都</td><td>情報通信</td><td class="num">142</td><td class="num">38 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+4.1%</span></td><td class="num">11</td><td class="num">55</td></tr>
+    <tr><td>14</td><td>PQR エージェンシー</td><td>東京都</td><td>サービス</td><td class="num">142</td><td class="num">35 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−7.2%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−1.8%</span></td><td class="num">4</td><td class="num">15</td></tr>
+    <tr><td>15</td><td>STU メディア</td><td>東京都</td><td>サービス</td><td class="num">120</td><td class="num">28 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−6.5%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−1.4%</span></td><td class="num">3</td><td class="num">12</td></tr>
+    <tr><td>16</td><td>DEF プラットフォーム</td><td>東京都</td><td>情報通信</td><td class="num">98</td><td class="num">25 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.1%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+3.5%</span></td><td class="num">8</td><td class="num">48</td></tr>
+    <tr><td>17</td><td>VWX 流通</td><td>東京都</td><td>卸売・小売</td><td class="num">95</td><td class="num">22 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−5.8%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−1.2%</span></td><td class="num">2</td><td class="num">8</td></tr>
+    <tr><td>18</td><td>MNO スタジオ</td><td>東京都</td><td>情報通信</td><td class="num">85</td><td class="num">20 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+38.2%</span></td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+8.4%</span></td><td class="num">12</td><td class="num">82</td></tr>
+    <tr><td>19</td><td>MNO 商会</td><td>東京都</td><td>卸売・小売</td><td class="num">85</td><td class="num">18 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−9.8%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.5%</span></td><td class="num">3</td><td class="num">10</td></tr>
+    <tr><td>20</td><td>OPQ 工務</td><td>東京都</td><td>建設</td><td class="num">38</td><td class="num">12 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−12.8%</span></td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−3.4%</span></td><td class="num">2</td><td class="num">7</td></tr>
+    <tr><td>21-30</td><td>その他 10 社 (省略)</td><td>—</td><td>—</td><td class="num">合計 320</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">合計 35</td><td class="num">—</td></tr>
+  </tbody>
+</table>
+
+<h2>表 5-0c 規模分布ヒストグラム (5 階級)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;">
+  ※ 4 セグメント抽出後の重複除去ベース。pool は employee_count 降順 Top 100 で取得しており、極小規模 (&lt;10 名) はサンプル少ない可能性。
+</p>
+<div style="margin: 3mm 0 4mm;">
+  <div style="display:flex;align-items:center;gap:3mm;margin:1.5mm 0;font-size:9.5pt;">
+    <span style="width:24mm;font-weight:700;">&lt;10 名</span>
+    <div style="flex:1;background:#F0F4F8;height:5mm;border-radius:1mm;position:relative;">
+      <div style="background:linear-gradient(90deg,#3B82F6,#1E3A8A);width:18%;height:100%;border-radius:1mm;"></div>
+    </div>
+    <span style="width:30mm;text-align:right;font-family:var(--mono);font-size:9pt;color:var(--muted);">25 社 (18%)</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:3mm;margin:1.5mm 0;font-size:9.5pt;">
+    <span style="width:24mm;font-weight:700;">10-49 名</span>
+    <div style="flex:1;background:#F0F4F8;height:5mm;border-radius:1mm;position:relative;">
+      <div style="background:linear-gradient(90deg,#3B82F6,#1E3A8A);width:38%;height:100%;border-radius:1mm;"></div>
+    </div>
+    <span style="width:30mm;text-align:right;font-family:var(--mono);font-size:9pt;color:var(--muted);">55 社 (38%)</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:3mm;margin:1.5mm 0;font-size:9.5pt;">
+    <span style="width:24mm;font-weight:700;">50-299 名</span>
+    <div style="flex:1;background:#F0F4F8;height:5mm;border-radius:1mm;position:relative;">
+      <div style="background:linear-gradient(90deg,#3B82F6,#1E3A8A);width:33%;height:100%;border-radius:1mm;"></div>
+    </div>
+    <span style="width:30mm;text-align:right;font-family:var(--mono);font-size:9pt;color:var(--muted);">47 社 (33%)</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:3mm;margin:1.5mm 0;font-size:9.5pt;">
+    <span style="width:24mm;font-weight:700;">300-999 名</span>
+    <div style="flex:1;background:#F0F4F8;height:5mm;border-radius:1mm;position:relative;">
+      <div style="background:linear-gradient(90deg,#3B82F6,#1E3A8A);width:8%;height:100%;border-radius:1mm;"></div>
+    </div>
+    <span style="width:30mm;text-align:right;font-family:var(--mono);font-size:9pt;color:var(--muted);">11 社 (8%)</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:3mm;margin:1.5mm 0;font-size:9.5pt;">
+    <span style="width:24mm;font-weight:700;">1000+ 名</span>
+    <div style="flex:1;background:#F0F4F8;height:5mm;border-radius:1mm;position:relative;">
+      <div style="background:linear-gradient(90deg,#3B82F6,#1E3A8A);width:3%;height:100%;border-radius:1mm;"></div>
+    </div>
+    <span style="width:30mm;text-align:right;font-family:var(--mono);font-size:9pt;color:var(--muted);">4 社 (3%)</span>
+  </div>
+</div>
+
+<h2>4 セグメントカード (規模・拡大・採用 別ベンチマーク)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  ※ 各セグメントは規模・人員推移・HW 求人数の閾値で機械的に抽出した <strong>地域全体の構造の参考値</strong> であり、個別企業の経営判断や採用優劣を評価するものではありません。
+</p>
+
+<h3>🏢 規模の大きい層 — 従業員数の多い 10 社</h3>
+<p style="font-size:9pt;color:var(--muted);margin:0 0 1.5mm;">※ 地域内で従業員規模の大きい企業群。自社が同規模帯にある場合のベンチマーク参考。</p>
+<table class="ledger">
+  <thead><tr><th>#</th><th>企業名</th><th>業種</th><th class="num">従業員</th><th class="num">売上</th><th class="num">人員 1y</th><th class="num">HW 求人</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>株式会社 ABC</td><td>情報通信</td><td class="num">2,450</td><td class="num">580 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.2%</span></td><td class="num">42</td></tr>
+    <tr><td>2</td><td>DEF ホールディングス</td><td>金融</td><td class="num">1,820</td><td class="num">420 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+10.5%</span></td><td class="num">28</td></tr>
+    <tr class="is-self"><td>3</td><td>(自社該当帯)</td><td>情報通信</td><td class="num">1,200</td><td class="num">280 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+6.4%</span></td><td class="num">15</td></tr>
+    <tr><td>4</td><td>RST フィナンシャル</td><td>金融</td><td class="num">1,150</td><td class="num">320 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−7.5%</span></td><td class="num">12</td></tr>
+    <tr><td>5</td><td>GHI 株式会社</td><td>情報通信</td><td class="num">980</td><td class="num">240 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num">35</td></tr>
+    <tr><td>6</td><td>JKL コーポレーション</td><td>サービス</td><td class="num">760</td><td class="num">180 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−9.2%</span></td><td class="num">8</td></tr>
+    <tr><td>7</td><td>PQR テクノロジーズ</td><td>情報通信</td><td class="num">680</td><td class="num">160 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.8%</span></td><td class="num">22</td></tr>
+    <tr><td>8</td><td>XYZ コンサルティング</td><td>サービス</td><td class="num">520</td><td class="num">125 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+9.2%</span></td><td class="num">18</td></tr>
+    <tr><td>9</td><td>UVW 商事</td><td>卸売・小売</td><td class="num">340</td><td class="num">95 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−6.8%</span></td><td class="num">5</td></tr>
+    <tr><td>10</td><td>VWX ソリューションズ</td><td>情報通信</td><td class="num">220</td><td class="num">62 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.7%</span></td><td class="num">14</td></tr>
+  </tbody>
+</table>
+
+<h3>🏬 中規模層 (50-300 名) — 50-300 名規模 10 社</h3>
+<p style="font-size:9pt;color:var(--muted);margin:0 0 1.5mm;">※ 地域内の中規模帯。自社が同帯にある場合の隣接ベンチマーク参考。</p>
+<table class="ledger">
+  <thead><tr><th>#</th><th>企業名</th><th>業種</th><th class="num">従業員</th><th class="num">売上</th><th class="num">人員 1y</th><th class="num">HW 求人</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>VWX ソリューションズ</td><td>情報通信</td><td class="num">220</td><td class="num">62 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.7%</span></td><td class="num">14</td></tr>
+    <tr><td>2</td><td>JKL システム</td><td>情報通信</td><td class="num">220</td><td class="num">58 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−12.5%</span></td><td class="num">7</td></tr>
+    <tr><td>3</td><td>GHI コンサル</td><td>サービス</td><td class="num">175</td><td class="num">42 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+9.8%</span></td><td class="num">9</td></tr>
+    <tr><td>4</td><td>ABC ラボ</td><td>情報通信</td><td class="num">142</td><td class="num">38 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num">11</td></tr>
+    <tr><td>5</td><td>PQR エージェンシー</td><td>サービス</td><td class="num">142</td><td class="num">35 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−7.2%</span></td><td class="num">4</td></tr>
+    <tr><td>6</td><td>STU メディア</td><td>サービス</td><td class="num">120</td><td class="num">28 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−6.5%</span></td><td class="num">3</td></tr>
+    <tr><td>7</td><td>DEF プラットフォーム</td><td>情報通信</td><td class="num">98</td><td class="num">25 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.1%</span></td><td class="num">8</td></tr>
+    <tr><td>8</td><td>VWX 流通</td><td>卸売・小売</td><td class="num">95</td><td class="num">22 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−5.8%</span></td><td class="num">2</td></tr>
+    <tr><td>9</td><td>MNO スタジオ</td><td>情報通信</td><td class="num">85</td><td class="num">20 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+38.2%</span></td><td class="num">12</td></tr>
+    <tr><td>10</td><td>MNO 商会</td><td>卸売・小売</td><td class="num">85</td><td class="num">18 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−9.8%</span></td><td class="num">3</td></tr>
+  </tbody>
+</table>
+
+<h3>📈 人員拡大期 (1y +10% 超) — 過去 1 年で人員が +10% 以上増加した 10 社</h3>
+<p style="font-size:9pt;color:var(--muted);margin:0 0 1.5mm;">※ 公開情報上、過去 1 年で人員が拡大している地域企業群。地域全体の採用市況の参考指標。</p>
+<table class="ledger">
+  <thead><tr><th>#</th><th>企業名</th><th>業種</th><th class="num">従業員</th><th class="num">売上</th><th class="num">人員 1y</th><th class="num">HW 求人</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>STU 株式会社</td><td>サービス</td><td class="num">28</td><td class="num">8 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+45.2%</span></td><td class="num">9</td></tr>
+    <tr><td>2</td><td>MNO スタジオ</td><td>情報通信</td><td class="num">85</td><td class="num">20 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+38.2%</span></td><td class="num">12</td></tr>
+    <tr><td>3</td><td>YZ コンサルティング</td><td>サービス</td><td class="num">25</td><td class="num">6 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+32.1%</span></td><td class="num">7</td></tr>
+    <tr><td>4</td><td>ZAB スタートアップ</td><td>情報通信</td><td class="num">18</td><td class="num">3 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+28.6%</span></td><td class="num">5</td></tr>
+    <tr><td>5</td><td>PQR テクノロジーズ</td><td>情報通信</td><td class="num">680</td><td class="num">160 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.8%</span></td><td class="num">22</td></tr>
+    <tr><td>6</td><td>CDE 工房</td><td>サービス</td><td class="num">42</td><td class="num">10 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+22.4%</span></td><td class="num">3</td></tr>
+    <tr><td>7</td><td>VWX ソリューションズ</td><td>情報通信</td><td class="num">220</td><td class="num">62 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.7%</span></td><td class="num">14</td></tr>
+    <tr><td>8</td><td>FGH デザイン</td><td>サービス</td><td class="num">35</td><td class="num">8 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.9%</span></td><td class="num">4</td></tr>
+    <tr><td>9</td><td>株式会社 ABC</td><td>情報通信</td><td class="num">2,450</td><td class="num">580 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.2%</span></td><td class="num">42</td></tr>
+    <tr><td>10</td><td>GHI 株式会社</td><td>情報通信</td><td class="num">980</td><td class="num">240 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num">35</td></tr>
+  </tbody>
+</table>
+
+<h3>🎯 求人積極期 (HW 5 件以上) — ハローワークで 5 件以上の求人を継続している 10 社</h3>
+<p style="font-size:9pt;color:var(--muted);margin:0 0 1.5mm;">※ 公開情報上、HW で複数件の求人を出している地域企業群。地域の採用動向の参考指標。</p>
+<table class="ledger">
+  <thead><tr><th>#</th><th>企業名</th><th>業種</th><th class="num">従業員</th><th class="num">売上</th><th class="num">人員 1y</th><th class="num">HW 求人</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>株式会社 ABC</td><td>情報通信</td><td class="num">2,450</td><td class="num">580 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.2%</span></td><td class="num">42</td></tr>
+    <tr><td>2</td><td>GHI 株式会社</td><td>情報通信</td><td class="num">980</td><td class="num">240 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num">35</td></tr>
+    <tr><td>3</td><td>DEF ホールディングス</td><td>金融</td><td class="num">1,820</td><td class="num">420 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+10.5%</span></td><td class="num">28</td></tr>
+    <tr><td>4</td><td>PQR テクノロジーズ</td><td>情報通信</td><td class="num">680</td><td class="num">160 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.8%</span></td><td class="num">22</td></tr>
+    <tr><td>5</td><td>XYZ コンサルティング</td><td>サービス</td><td class="num">520</td><td class="num">125 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+9.2%</span></td><td class="num">18</td></tr>
+    <tr class="is-self"><td>6</td><td>(自社該当帯)</td><td>情報通信</td><td class="num">1,200</td><td class="num">280 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+6.4%</span></td><td class="num">15</td></tr>
+    <tr><td>7</td><td>VWX ソリューションズ</td><td>情報通信</td><td class="num">220</td><td class="num">62 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+18.7%</span></td><td class="num">14</td></tr>
+    <tr><td>8</td><td>RST フィナンシャル</td><td>金融</td><td class="num">1,150</td><td class="num">320 億円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−7.5%</span></td><td class="num">12</td></tr>
+    <tr><td>9</td><td>MNO スタジオ</td><td>情報通信</td><td class="num">85</td><td class="num">20 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+38.2%</span></td><td class="num">12</td></tr>
+    <tr><td>10</td><td>ABC ラボ</td><td>情報通信</td><td class="num">142</td><td class="num">38 億円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+15.4%</span></td><td class="num">11</td></tr>
+  </tbody>
+</table>
+
+<aside style="font-size:9pt;color:var(--muted);margin-top:4mm;padding:2mm 3mm;background:#F8FAFC;border-left:3pt solid var(--rule-mid);">
+  <p style="margin:0 0 1mm;"><strong>⚠ ベンチマーク利用上の注意</strong></p>
+  各カテゴリは規模・人員推移・HW 求人数の閾値で機械的に抽出した地域全体の構造の参考値です。
+  掲載企業には貴社・貴社の取引先・関連会社・グループ企業が含まれる可能性があります。
+  HW 求人件数が多い法人は採用活発の可能性もあれば、採用難航で長期掲載中のケースも含まれるため、両方向の解釈に注意してください。
+</aside>
+
+<h2>異業種ベンチマーク用 (全業界版)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  業界フィルタを外した地域内企業全体。異業種からのベンチマーク (採用施策の他業界事例参考) や未経験採用候補の検討に活用してください。
+  <strong>業界フィルタ指定中の場合は同業界版を優先参照</strong>し、こちらは構造把握用の補助情報として読んでください。
+</p>
+<table class="ledger">
+  <thead><tr><th>業種カテゴリ</th><th class="num">企業数</th><th class="num">平均従業員</th><th class="num">平均 1y 推移</th><th class="num">HW 求人 / 社</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>情報通信業 (自社業種)</td><td class="num">42</td><td class="num">385</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.8%</span></td><td class="num">8.5</td></tr>
+    <tr><td>サービス業</td><td class="num">38</td><td class="num">182</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+5.2%</span></td><td class="num">5.2</td></tr>
+    <tr><td>金融・保険業</td><td class="num">22</td><td class="num">895</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">+1.8%</span></td><td class="num">12.0</td></tr>
+    <tr><td>卸売・小売業</td><td class="num">18</td><td class="num">156</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−4.5%</span></td><td class="num">3.2</td></tr>
+    <tr><td>不動産業</td><td class="num">12</td><td class="num">85</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+8.4%</span></td><td class="num">4.8</td></tr>
+    <tr><td>その他</td><td class="num">10</td><td class="num">62</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">+0.5%</span></td><td class="num">2.5</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 8. Region Analysis ====== -->
+<header class="chapter-band"><div class="ch-num">8</div><div class="ch-title">地域分析 — Region Analysis</div><div class="ch-meta">region.rs</div></header>
+
+<h3>表 6-1 都道府県別 求人件数 Top 10</h3>
+<table class="ledger">
+  <thead><tr><th>#</th><th>都道府県</th><th class="num">CSV 件数</th><th class="num">構成比 %</th><th class="num">下限 中央値</th><th class="num">上限 中央値</th><th class="num">レンジ幅</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>1</td><td>東京都</td><td class="num">198</td><td class="num">79.2</td><td class="num">25.5</td><td class="num">32.0</td><td class="num">6.5</td></tr>
+    <tr><td>2</td><td>神奈川県</td><td class="num">22</td><td class="num">8.8</td><td class="num">23.0</td><td class="num">28.5</td><td class="num">5.5</td></tr>
+    <tr><td>3</td><td>千葉県</td><td class="num">12</td><td class="num">4.8</td><td class="num">22.0</td><td class="num">27.0</td><td class="num">5.0</td></tr>
+    <tr><td>4</td><td>埼玉県</td><td class="num">8</td><td class="num">3.2</td><td class="num">22.5</td><td class="num">27.5</td><td class="num">5.0</td></tr>
+    <tr><td>5</td><td>大阪府</td><td class="num">5</td><td class="num">2.0</td><td class="num">24.0</td><td class="num">29.0</td><td class="num">5.0</td></tr>
+    <tr><td>6</td><td>愛知県</td><td class="num">3</td><td class="num">1.2</td><td class="num">23.0</td><td class="num">28.0</td><td class="num">5.0</td></tr>
+    <tr><td>7-10</td><td>その他 4 県</td><td class="num">2</td><td class="num">0.8</td><td class="num">21.5</td><td class="num">26.0</td><td class="num">4.5</td></tr>
+  </tbody>
+</table>
+
+<h3>図 6-1 都道府県別 求人分布 (横棒)</h3>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 6-1</span><span class="fig-title">都道府県別 求人件数 + 給与中央値 (Top 10)</span><span class="fig-axis-note">CSV N=250</span></figcaption>
+  <div id="prefBar" class="chart"></div>
+</figure>
+
+<h3>市区町村別 求人件数 Top 10</h3>
+<table class="ledger">
+  <thead><tr><th>#</th><th>市区町村</th><th class="num">CSV 件数</th><th class="num">構成比 %</th><th class="num">下限 中央値</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>1</td><td>千代田区</td><td class="num">188</td><td class="num">75.2</td><td class="num">25.0</td></tr>
+    <tr><td>2</td><td>港区</td><td class="num">22</td><td class="num">8.8</td><td class="num">28.0</td></tr>
+    <tr><td>3</td><td>中央区</td><td class="num">15</td><td class="num">6.0</td><td class="num">26.0</td></tr>
+    <tr><td>4</td><td>新宿区</td><td class="num">12</td><td class="num">4.8</td><td class="num">24.5</td></tr>
+    <tr><td>5</td><td>渋谷区</td><td class="num">8</td><td class="num">3.2</td><td class="num">27.0</td></tr>
+  </tbody>
+</table>
+
+<h3>図 6-3 可住地密度・高齢化率 KPI</h3>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域</th><th class="num">同業界平均</th><th class="num">全国平均</th></tr></thead>
+  <tbody>
+    <tr><td>可住地密度 (人/km²)</td><td class="num">22,180</td><td class="num">8,500</td><td class="num">1,170</td></tr>
+    <tr><td>高齢化率 (65 歳以上)</td><td class="num">18.5%</td><td class="num">22.4%</td><td class="num">28.6%</td></tr>
+    <tr><td>転入超過率</td><td class="num">+2.4%</td><td class="num">+0.8%</td><td class="num">±0.0%</td></tr>
+    <tr><td>就業者数</td><td class="num">112,500</td><td class="num">—</td><td class="num">—</td></tr>
+  </tbody>
+</table>
+
+<h3>表 6-2 産業別就業者数 Top 10 (国勢調査 2020)</h3>
+<table class="ledger">
+  <thead><tr><th>#</th><th>産業</th><th class="num">就業者数</th><th class="num">構成比 %</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>サービス業</td><td class="num">28,125</td><td class="num">25.0</td></tr>
+    <tr><td>2</td><td>情報通信業</td><td class="num">24,750</td><td class="num">22.0</td></tr>
+    <tr><td>3</td><td>金融・保険業</td><td class="num">16,875</td><td class="num">15.0</td></tr>
+    <tr><td>4</td><td>卸売・小売業</td><td class="num">13,500</td><td class="num">12.0</td></tr>
+    <tr><td>5</td><td>医療・福祉</td><td class="num">11,812</td><td class="num">10.5</td></tr>
+    <tr><td>6</td><td>不動産業</td><td class="num">9,000</td><td class="num">8.0</td></tr>
+    <tr><td>7</td><td>公務</td><td class="num">3,375</td><td class="num">3.0</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 9. Demographics ====== -->
+<header class="chapter-band"><div class="ch-num">9</div><div class="ch-title">人材デモグラフィック — Demographics</div><div class="ch-meta">demographics.rs</div></header>
+<p class="lead">対象地域の <strong>人口ピラミッド</strong> + <strong>最終学歴構成</strong> + <strong>人材プール KPI</strong>。</p>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. D-1</span><span class="fig-title">年齢階級別 人口ピラミッド (国勢調査ベース)</span><span class="fig-axis-note">対象地域: 千代田区</span></figcaption>
+  <div id="popPyramid" class="chart chart-pyramid"></div>
+</figure>
+
+<h3>表 D-1 人材プール 主要 KPI</h3>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域</th><th class="num">全国平均</th><th class="num">Δ</th></tr></thead>
+  <tbody>
+    <tr><td>15-64 歳人口</td><td class="num">42,500</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td>労働力人口</td><td class="num">38,200</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td>労働力率 (15-64)</td><td class="num">89.9%</td><td class="num">82.5%</td><td class="num">+7.4pt</td></tr>
+    <tr><td>失業率</td><td class="num">3.6%</td><td class="num">2.5%</td><td class="num">+1.1pt</td></tr>
+    <tr class="is-self"><td>大卒以上比率</td><td class="num">62.4%</td><td class="num">30.0%</td><td class="num">+32.4pt</td></tr>
+    <tr><td>大学院卒比率</td><td class="num">12.8%</td><td class="num">3.5%</td><td class="num">+9.3pt</td></tr>
+  </tbody>
+</table>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. D-2</span><span class="fig-title">最終学歴 構成 (国勢調査 25 歳以上)</span><span class="fig-axis-note">対象 vs 全国</span></figcaption>
+  <div id="eduBar" class="chart"></div>
+</figure>
+
+<h2>主要市区町村別 人材デモグラフィック</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;line-height:1.55;">
+  ※ 当サンプルが多く出ている上位市区町村の人材プール KPI を並列比較。地域内でのターゲットエリア再選定に活用。
+</p>
+<table class="ledger">
+  <thead>
+    <tr><th>市区町村</th><th class="num">CSV 件数</th><th class="num">15-64 歳人口</th><th class="num">大卒 %</th><th class="num">院卒 %</th><th class="num">失業率</th><th class="num">転入超過率</th></tr>
+  </thead>
+  <tbody>
+    <tr class="is-self"><td>千代田区</td><td class="num">188</td><td class="num">42,500</td><td class="num">62.4</td><td class="num">12.8</td><td class="num">3.6%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+2.4%</span></td></tr>
+    <tr><td>港区</td><td class="num">22</td><td class="num">158,200</td><td class="num">68.5</td><td class="num">15.2</td><td class="num">2.8%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+3.1%</span></td></tr>
+    <tr><td>中央区</td><td class="num">15</td><td class="num">112,800</td><td class="num">58.2</td><td class="num">10.5</td><td class="num">3.2%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+1.8%</span></td></tr>
+    <tr><td>新宿区</td><td class="num">12</td><td class="num">231,500</td><td class="num">52.8</td><td class="num">8.4</td><td class="num">3.8%</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">+0.5%</span></td></tr>
+    <tr><td>渋谷区</td><td class="num">8</td><td class="num">158,800</td><td class="num">64.5</td><td class="num">11.2</td><td class="num">3.0%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+2.8%</span></td></tr>
+  </tbody>
+</table>
+
+<h2>図 D-3 主要市区町村 学歴・年齢層 比較</h2>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. D-3</span><span class="fig-title">主要 5 市区町村 大卒・院卒比率 vs 失業率</span><span class="fig-axis-note">国勢調査</span></figcaption>
+  <div id="muniBubble" class="chart chart-mid"></div>
+</figure>
+
+<!-- ====== 10. Regional Compare ====== -->
+<header class="chapter-band"><div class="ch-num">10</div><div class="ch-title">地域 多面比較 — Regional Compare</div><div class="ch-meta">regional_compare.rs</div></header>
+<p class="lead">5 軸 (失業率水準 / 流動性 / 若年層 / 学歴 / デジタル適合) で <strong>対象 / 同業界 / 全国</strong> を比較。</p>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 10-1</span><span class="fig-title">5 軸スコア — 対象 / 同業界平均 / 全国平均</span><span class="fig-axis-note">SCALE 0-100</span></figcaption>
+  <div class="small-multiples">
+    <div class="sm-cell"><div class="sm-label is-target">対象 / 千代田区</div><div id="radar1" class="chart"></div><div class="sm-summary">5 軸平均 63.6</div></div>
+    <div class="sm-cell"><div class="sm-label">同業界平均</div><div id="radar2" class="chart"></div><div class="sm-summary">5 軸平均 54.2</div></div>
+    <div class="sm-cell"><div class="sm-label">全国平均</div><div id="radar3" class="chart"></div><div class="sm-summary">5 軸平均 50.0</div></div>
+  </div>
+</figure>
+
+<table class="ledger">
+  <thead><tr><th>軸</th><th class="num">対象</th><th class="num">同業界</th><th class="num">全国</th><th class="num">Δ (vs 全国)</th></tr></thead>
+  <tbody>
+    <tr><td>失業率水準 (参考値)</td><td class="num">72</td><td class="num">58</td><td class="num">50</td><td class="num">+22</td></tr>
+    <tr><td>流動性 (転入転出)</td><td class="num">58</td><td class="num">52</td><td class="num">50</td><td class="num">+8</td></tr>
+    <tr><td>若年層 (15-34歳)</td><td class="num">45</td><td class="num">48</td><td class="num">50</td><td class="num">−5</td></tr>
+    <tr><td>学歴 (大卒比率)</td><td class="num">75</td><td class="num">62</td><td class="num">50</td><td class="num">+25</td></tr>
+    <tr><td>デジタル適合</td><td class="num">68</td><td class="num">51</td><td class="num">50</td><td class="num">+18</td></tr>
+  </tbody>
+</table>
+
+<h2>表 10-2 デモグラフィック生値 (元データ)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;">※ 5 軸スコアの算出元となる国勢調査の生値 (絶対値) を併記。</p>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域</th><th class="num">同業界平均</th><th class="num">全国平均</th><th class="num">単位</th></tr></thead>
+  <tbody>
+    <tr><td>失業率</td><td class="num">3.6</td><td class="num">2.9</td><td class="num">2.5</td><td class="num">%</td></tr>
+    <tr><td>単独世帯率</td><td class="num">62.4</td><td class="num">52.8</td><td class="num">38.0</td><td class="num">%</td></tr>
+    <tr><td>高齢化率 (65+)</td><td class="num">18.5</td><td class="num">22.4</td><td class="num">28.6</td><td class="num">%</td></tr>
+    <tr><td>大卒以上比率</td><td class="num">62.4</td><td class="num">42.5</td><td class="num">30.0</td><td class="num">%</td></tr>
+    <tr><td>転入超過率</td><td class="num">+2.4</td><td class="num">+0.8</td><td class="num">±0.0</td><td class="num">%</td></tr>
+  </tbody>
+</table>
+
+<h2>表 10-3 サイコグラフィック・ジオグラフィック (補助指標)</h2>
+<p style="font-size:9.5pt;color:var(--muted);margin:0 0 2mm;">※ 5 軸の「デジタル適合」「流動性」を構成する補助指標群。</p>
+<table class="ledger">
+  <thead><tr><th>軸 / 指標</th><th class="num">対象地域</th><th class="num">全国</th><th class="num">Δ</th><th>解釈</th></tr></thead>
+  <tbody>
+    <tr><td>サイコ: インターネット利用率</td><td class="num">95.2%</td><td class="num">82.5%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+12.7</span></td><td>IT スキル前提の求人で訴求しやすい</td></tr>
+    <tr><td>サイコ: テレワーク経験率</td><td class="num">42.5%</td><td class="num">22.4%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+20.1</span></td><td>リモート可訴求のプレミアム期待</td></tr>
+    <tr><td>サイコ: 学習・自己啓発参加率</td><td class="num">38.5%</td><td class="num">32.1%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+6.4</span></td><td>研修制度・キャリア支援が刺さりやすい</td></tr>
+    <tr><td>ジオ: 可住地密度 (人/km²)</td><td class="num">22,180</td><td class="num">1,170</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+19倍</span></td><td>通勤圏が狭く密集、求職者プール集中</td></tr>
+    <tr><td>ジオ: 公共交通機関 アクセス</td><td class="num">98.5%</td><td class="num">62.4%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+36.1</span></td><td>交通利便性訴求の伸びしろ少</td></tr>
+    <tr><td>ジオ: 教育施設密度</td><td class="num">高</td><td class="num">中</td><td class="num">—</td><td>新卒・第二新卒の取り込み余地</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 11. Lifestyle ====== -->
+<header class="chapter-band"><div class="ch-num">11</div><div class="ch-title">ライフスタイル特性 — Lifestyle</div><div class="ch-meta">lifestyle.rs</div></header>
+
+<h2>地域住民のオフ活動 参加率</h2>
+<table class="ledger">
+  <thead><tr><th>活動</th><th class="num">対象地域 %</th><th class="num">全国 %</th><th class="num">Δ (pt)</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>スポーツ・運動</td><td class="num">62.5</td><td class="num">55.4</td><td class="num">+7.1</td></tr>
+    <tr class="is-self"><td>趣味・娯楽 (映画・音楽等)</td><td class="num">71.2</td><td class="num">65.8</td><td class="num">+5.4</td></tr>
+    <tr><td>学習・自己啓発</td><td class="num">38.5</td><td class="num">32.1</td><td class="num">+6.4</td></tr>
+    <tr><td>ボランティア</td><td class="num">14.2</td><td class="num">17.8</td><td class="num">−3.6</td></tr>
+    <tr><td>旅行・ドライブ</td><td class="num">58.4</td><td class="num">62.1</td><td class="num">−3.7</td></tr>
+  </tbody>
+</table>
+
+<h2>デジタル利用状況</h2>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域 %</th><th class="num">全国 %</th><th class="num">Δ (pt)</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>インターネット利用率 (個人)</td><td class="num">95.2</td><td class="num">82.5</td><td class="num">+12.7</td></tr>
+    <tr><td>SNS 利用率</td><td class="num">82.4</td><td class="num">75.6</td><td class="num">+6.8</td></tr>
+    <tr><td>キャッシュレス決済利用率</td><td class="num">88.6</td><td class="num">68.2</td><td class="num">+20.4</td></tr>
+    <tr><td>テレワーク経験率</td><td class="num">42.5</td><td class="num">22.4</td><td class="num">+20.1</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 12. HW Market Comparison ====== -->
+<header class="chapter-band"><div class="ch-num">12</div><div class="ch-title">HW 市場比較 — HW Market Comparison</div><div class="ch-meta">hw_enrichment.rs</div></header>
+
+<h2>地域 × HW データ連携 (HW エンリッチメント)</h2>
+<p class="lead">対象地域 (千代田区) における <strong>HW 公開求人と当サンプルの統合分析</strong>。CSV 媒体データに HW 求人スペック (給与レンジ・雇用形態構成・地域指標) を結合した時の差分を可視化。</p>
+
+<h3>表 12-1 HW vs CSV データ連携サマリ</h3>
+<table class="ledger">
+  <thead><tr><th>項目</th><th class="num">CSV (当サンプル)</th><th class="num">HW (同地域)</th><th class="num">差分</th><th>解釈</th></tr></thead>
+  <tbody>
+    <tr><td>サンプル件数</td><td class="num">250</td><td class="num">14,200</td><td class="num">—</td><td>HW は地域全体、CSV は自社取得分</td></tr>
+    <tr><td>給与中央値 (月給)</td><td class="num">25.0 万円</td><td class="num">27.0 万円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−2.0</span></td><td>当サンプルは下方寄り</td></tr>
+    <tr><td>正社員比率</td><td class="num">75.2%</td><td class="num">68.2%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+7.0</span></td><td>当サンプルは正社員寄り</td></tr>
+    <tr><td>新着求人比率 (≤30 日)</td><td class="num">38.0%</td><td class="num">42.5%</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">−4.5</span></td><td>HW より遅め掲載傾向</td></tr>
+    <tr><td>業界カバレッジ</td><td class="num">12 業種</td><td class="num">18 業種</td><td class="num">−6</td><td>CSV は業種範囲が狭い</td></tr>
+    <tr class="is-self"><td>自社業種 (情報通信) シェア</td><td class="num">42.0%</td><td class="num">28.5%</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">+13.5</span></td><td>自社業種に偏った媒体傾向</td></tr>
+  </tbody>
+</table>
+
+<h3>HW 求人エンリッチメント 効果</h3>
+<p>HW 統合により以下の追加分析が可能に:</p>
+<ul style="font-size:10pt;line-height:1.7;margin:1mm 0 3mm 6mm;">
+  <li><strong>市場相場との比較</strong>: CSV 単独では相場感が分からないが、HW 中央値との差で「+/-X 万円」の絶対値で表現可能</li>
+  <li><strong>地域カバレッジ評価</strong>: HW 14,200 件に対する CSV 250 件のカバレッジ率 (1.8%) で母集団代表性を確認</li>
+  <li><strong>業種偏り検出</strong>: HW 業種構成と CSV 業種構成の差で媒体の業種特性を把握</li>
+  <li><strong>季節変動補正</strong>: HW 月次更新で季節要因を排除した補正値を算出可能</li>
+</ul>
+
+<h2>HW 市場比較 詳細</h2>
+
+<h3>雇用形態別 平均月給比較</h3>
+<table class="ledger">
+  <thead><tr><th>雇用形態</th><th class="num">当サンプル</th><th class="num">HW 同地域</th><th class="num">Δ (万円)</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>正社員</td><td class="num">25.0</td><td class="num">27.0</td><td class="num">−2.0</td></tr>
+    <tr><td>契約社員</td><td class="num">23.0</td><td class="num">24.5</td><td class="num">−1.5</td></tr>
+    <tr><td>パート (月給換算)</td><td class="num">19.0</td><td class="num">19.5</td><td class="num">−0.5</td></tr>
+  </tbody>
+</table>
+
+<h3>雇用形態構成比</h3>
+<table class="ledger">
+  <thead><tr><th>雇用形態</th><th class="num">当サンプル %</th><th class="num">HW 同地域 %</th><th class="num">Δ (pt)</th></tr></thead>
+  <tbody>
+    <tr class="is-self"><td>正社員</td><td class="num">75.2</td><td class="num">68.2</td><td class="num">+7.0</td></tr>
+    <tr><td>契約社員</td><td class="num">11.2</td><td class="num">14.5</td><td class="num">−3.3</td></tr>
+    <tr><td>パート・アルバイト</td><td class="num">7.2</td><td class="num">12.8</td><td class="num">−5.6</td></tr>
+    <tr><td>その他</td><td class="num">6.4</td><td class="num">4.5</td><td class="num">+1.9</td></tr>
+  </tbody>
+</table>
+
+<h3>地域指標</h3>
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域</th><th class="num">全国平均</th></tr></thead>
+  <tbody>
+    <tr><td>有効求人倍率</td><td class="num">1.42</td><td class="num">1.20</td></tr>
+    <tr><td>HW 公開求人数</td><td class="num">14,200</td><td class="num">—</td></tr>
+    <tr><td>欠員補充率</td><td class="num">62.4%</td><td class="num">72.5%</td></tr>
+    <tr><td>離職率 (年間)</td><td class="num">11.2%</td><td class="num">14.5%</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 13. Wage Extended ====== -->
+<header class="chapter-band"><div class="ch-num">13</div><div class="ch-title">給与関連 拡張分析 — Wage Extended</div><div class="ch-meta">wage.rs</div></header>
+
+<h3>給与中央値 vs 世帯月平均支出</h3>
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 13-1</span><span class="fig-title">給与中央値 vs 世帯月平均支出 (家計調査)</span><span class="fig-axis-note">月額 万円</span></figcaption>
+  <div id="wageHouseBar" class="chart chart-mid"></div>
+</figure>
+
+<table class="ledger">
+  <thead><tr><th>指標</th><th class="num">対象地域</th><th class="num">全国平均</th><th class="num">差分</th></tr></thead>
+  <tbody>
+    <tr><td>当サンプル 給与中央値 (月)</td><td class="num">25.0 万円</td><td class="num">—</td><td class="num">—</td></tr>
+    <tr><td>世帯月平均支出 (家計調査)</td><td class="num">31.8 万円</td><td class="num">28.2 万円</td><td class="num"><span style="color:var(--accent-orange);font-weight:700;">+3.6</span></td></tr>
+    <tr><td>住居費 (賃貸 平均)</td><td class="num">12.5 万円</td><td class="num">7.2 万円</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">+5.3</span></td></tr>
+    <tr><td>食費</td><td class="num">7.8 万円</td><td class="num">7.4 万円</td><td class="num">+0.4</td></tr>
+    <tr><td>交通・通信</td><td class="num">3.4 万円</td><td class="num">4.2 万円</td><td class="num"><span style="color:var(--accent-green);font-weight:700;">−0.8</span></td></tr>
+    <tr class="is-self"><td>給与/支出比 (1 人世帯換算)</td><td class="num">0.79</td><td class="num">0.89</td><td class="num"><span style="color:var(--accent-red);font-weight:700;">−0.10</span></td></tr>
+  </tbody>
+</table>
+<p style="font-size:9.5pt;color:var(--muted);margin:1mm 0 3mm;">
+  ※ 給与/支出比 0.79 は「給与だけでは生活費の 79% しか賄えない」状態を示唆。家賃補助・住宅手当等の福利厚生訴求の重要度が高い地域。
+</p>
+
+<h3>最低賃金比較 — 最低賃金に近い都道府県 5 件</h3>
+<table class="ledger">
+  <thead><tr><th>#</th><th>都道府県</th><th class="num">最低賃金</th><th class="num">時給換算</th><th class="num">差額</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>沖縄県</td><td class="num">896</td><td class="num">920</td><td class="num">+24</td></tr>
+    <tr><td>2</td><td>青森県</td><td class="num">898</td><td class="num">935</td><td class="num">+37</td></tr>
+    <tr><td>3</td><td>秋田県</td><td class="num">897</td><td class="num">948</td><td class="num">+51</td></tr>
+    <tr class="is-self"><td>—</td><td>東京都 (対象)</td><td class="num">1,113</td><td class="num">1,420</td><td class="num">+307</td></tr>
+  </tbody>
+</table>
+
+<h3>表 13-1 企業分析 — 掲載件数の多い法人 Top 15 (給与情報あり)</h3>
+<table class="ledger">
+  <thead><tr><th>#</th><th>企業名</th><th class="num">CSV 件数</th><th class="num">給与中央値</th><th>業種</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>株式会社 ABC</td><td class="num">42</td><td class="num">28.0</td><td>情報通信</td></tr>
+    <tr><td>2</td><td>GHI 株式会社</td><td class="num">35</td><td class="num">27.5</td><td>情報通信</td></tr>
+    <tr><td>3</td><td>DEF ホールディングス</td><td class="num">28</td><td class="num">26.5</td><td>金融</td></tr>
+    <tr><td>4</td><td>PQR テクノロジーズ</td><td class="num">22</td><td class="num">26.0</td><td>情報通信</td></tr>
+    <tr><td>5</td><td>XYZ コンサルティング</td><td class="num">18</td><td class="num">28.5</td><td>サービス</td></tr>
+    <tr class="is-self"><td>6</td><td>(自社)</td><td class="num">15</td><td class="num">25.0</td><td>情報通信</td></tr>
+    <tr><td>7</td><td>VWX ソリューションズ</td><td class="num">14</td><td class="num">26.8</td><td>情報通信</td></tr>
+    <tr><td>8</td><td>RST フィナンシャル</td><td class="num">12</td><td class="num">26.5</td><td>金融</td></tr>
+    <tr><td>9</td><td>MNO スタジオ</td><td class="num">12</td><td class="num">24.5</td><td>情報通信</td></tr>
+    <tr><td>10</td><td>ABC ラボ</td><td class="num">11</td><td class="num">25.5</td><td>情報通信</td></tr>
+    <tr><td>11</td><td>GHI コンサル</td><td class="num">9</td><td class="num">25.0</td><td>サービス</td></tr>
+    <tr><td>12</td><td>STU 株式会社</td><td class="num">9</td><td class="num">23.5</td><td>サービス</td></tr>
+    <tr><td>13</td><td>UVW テクノロジーズ</td><td class="num">8</td><td class="num">28.0</td><td>情報通信</td></tr>
+    <tr><td>14</td><td>DEF プラットフォーム</td><td class="num">8</td><td class="num">26.2</td><td>情報通信</td></tr>
+    <tr><td>15</td><td>YZ コンサルティング</td><td class="num">7</td><td class="num">25.0</td><td>サービス</td></tr>
+  </tbody>
+</table>
+
+<h3>表 13-2 給与水準の高い法人 Top 15</h3>
+<table class="ledger">
+  <thead><tr><th>#</th><th>企業名</th><th class="num">給与中央値</th><th class="num">CSV 件数</th><th>業種</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>XYZ コンサルティング</td><td class="num">38.0</td><td class="num">5</td><td>サービス</td></tr>
+    <tr><td>2</td><td>UVW テクノロジーズ</td><td class="num">35.5</td><td class="num">8</td><td>情報通信</td></tr>
+    <tr><td>3</td><td>RST フィナンシャル</td><td class="num">34.0</td><td class="num">3</td><td>金融</td></tr>
+    <tr><td>4</td><td>株式会社 ABC</td><td class="num">33.5</td><td class="num">42</td><td>情報通信</td></tr>
+    <tr><td>5</td><td>DEF ホールディングス</td><td class="num">32.8</td><td class="num">28</td><td>金融</td></tr>
+    <tr><td>6</td><td>GHI 株式会社</td><td class="num">32.0</td><td class="num">35</td><td>情報通信</td></tr>
+    <tr><td>7</td><td>PQR テクノロジーズ</td><td class="num">31.5</td><td class="num">22</td><td>情報通信</td></tr>
+    <tr><td>8</td><td>VWX ソリューションズ</td><td class="num">31.0</td><td class="num">14</td><td>情報通信</td></tr>
+    <tr><td>9</td><td>DEF プラットフォーム</td><td class="num">30.5</td><td class="num">8</td><td>情報通信</td></tr>
+    <tr><td>10</td><td>ABC ラボ</td><td class="num">30.0</td><td class="num">11</td><td>情報通信</td></tr>
+    <tr><td>11</td><td>GHI コンサル</td><td class="num">29.5</td><td class="num">9</td><td>サービス</td></tr>
+    <tr><td>12</td><td>MNO スタジオ</td><td class="num">29.0</td><td class="num">12</td><td>情報通信</td></tr>
+    <tr class="is-self"><td>13</td><td>(自社)</td><td class="num">25.0</td><td class="num">15</td><td>情報通信</td></tr>
+    <tr><td>14</td><td>STU メディア</td><td class="num">24.5</td><td class="num">3</td><td>サービス</td></tr>
+    <tr><td>15</td><td>YZ コンサルティング</td><td class="num">24.0</td><td class="num">7</td><td>サービス</td></tr>
+  </tbody>
+</table>
+
+<figure class="fig">
+  <figcaption class="fc-top"><span class="fig-num">FIG. 13-2</span><span class="fig-title">訴求タグ件数 ツリーマップ</span><span class="fig-axis-note">面積=件数</span></figcaption>
+  <div id="tagTree" class="chart chart-tall"></div>
+</figure>
+
+<!-- ====== 14. Summary ====== -->
+<header class="chapter-band"><div class="ch-num">14</div><div class="ch-title">サマリー — Summary</div><div class="ch-meta">summary.rs</div></header>
+
+<table class="ledger">
+  <thead><tr><th>カテゴリ</th><th>指標</th><th class="num">値</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="3">サンプル</td><td>総件数</td><td class="num">250</td></tr>
+    <tr><td>有効率</td><td class="num">78.3%</td></tr>
+    <tr><td>主要地域</td><td class="num">千代田区 (75.2%)</td></tr>
+    <tr><td rowspan="3">給与</td><td>下限 中央値</td><td class="num">25.0 万円</td></tr>
+    <tr><td>下限 平均</td><td class="num">26.4 万円</td></tr>
+    <tr><td>下限 最頻値</td><td class="num">22.0 万円</td></tr>
+    <tr><td rowspan="2">雇用形態</td><td>正社員比率</td><td class="num">75.2%</td></tr>
+    <tr><td>HW 同地域差</td><td class="num">+7.0pt</td></tr>
+    <tr><td rowspan="2">採用市場</td><td>逼迫度総合スコア</td><td class="num">62.4</td></tr>
+    <tr><td>有効求人倍率</td><td class="num">1.42</td></tr>
+    <tr><td rowspan="2">人材プール</td><td>大卒以上比率</td><td class="num">62.4%</td></tr>
+    <tr><td>労働力率</td><td class="num">89.9%</td></tr>
+  </tbody>
+</table>
+
+<!-- ====== 15. Notes ====== -->
+<header class="chapter-band"><div class="ch-num">15</div><div class="ch-title">注記・出典・免責 — Notes</div><div class="ch-meta">notes.rs</div></header>
+
+<section class="glossary">
+  <h4>§ 用語定義</h4>
+  <dl>
+    <dt>規模区分 (本レポート独自)</dt><dd>大規模: 300 名以上 / 中規模: 50-299 名 / 小規模: &lt;50 名。中小企業基本法とは異なる。</dd>
+    <dt>失業率水準 (5 軸スコア)</dt><dd>令和 5 年国勢調査の地域指標 ÷ 全国平均 × 50。0-100 にクランプ。</dd>
+    <dt>給与 3 値</dt><dd>平均 (mean、外れ値 IQR 除去後) / 中央値 (median、主指標) / 最頻値 (mode、1 万円刻み bin 最大頻度)。</dd>
+    <dt>±5% growth threshold</dt><dd>employee_delta_1y を「拡大 / 横ばい / 縮小」の 3 帯に切る境界。</dd>
+    <dt>回帰係数 β</dt><dd>下限 × 上限散布図の単回帰係数。レンジの開き度合いを示す。</dd>
+  </dl>
+</section>
+
+<h2>データソース</h2>
+<table class="ledger">
+  <thead><tr><th>カテゴリ</th><th>データソース</th><th>取得時点</th></tr></thead>
+  <tbody>
+    <tr><td>当サンプル</td><td>自社応募者データ (CSV)</td><td>2026-04-30 アップロード</td></tr>
+    <tr><td>HW 公開求人</td><td>厚生労働省 ハローワーク</td><td>2025-Q4 抽出</td></tr>
+    <tr><td>国勢調査</td><td>総務省統計局</td><td>令和 5 年</td></tr>
+    <tr><td>家計調査</td><td>総務省統計局</td><td>2024 年</td></tr>
+    <tr><td>社会生活基本調査</td><td>総務省統計局</td><td>2021 年</td></tr>
+    <tr><td>通信利用動向調査</td><td>総務省</td><td>2024 年</td></tr>
+    <tr><td>最低賃金</td><td>厚生労働省</td><td>2024-10 改定</td></tr>
+    <tr><td>地域企業情報</td><td>公開企業情報</td><td>2026-04 月次</td></tr>
+  </tbody>
+</table>
+
+<h2>統計手法</h2>
+<p>外れ値除外: <strong>IQR 法</strong> (Q1 − 1.5×IQR 〜 Q3 + 1.5×IQR の範囲外を除外)。95% 信頼区間: <strong>ブートストラップ法</strong> (n=1000 反復)。回帰係数: 単回帰 (最小二乗法)、p 値は t 検定。最頻値: 1 万円刻み bin での最大頻度値。</p>
+
+<h2>⚠ スコープ制約</h2>
+<table class="ledger">
+  <thead><tr><th>制約</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td>HW 求人スコープ</td><td>厚生労働省ハローワーク <strong>公開求人</strong>のみ。スカウト型・直接応募・SNS 経路・有料求人媒体 (Indeed・求人ボックス等) は含まれない。</td></tr>
+    <tr><td>地域マッチ</td><td>都道府県・市区町村は文字列マッチで判定。住所表記の揺れ (「東京都港区」「港区」「東京港区」等) で粒度差が出る可能性。</td></tr>
+    <tr><td>業界フィルタ</td><td><code>sn_industry</code> は <strong>LIKE 部分一致</strong>で抽出。表記揺れ (「介護」/「介護スタッフ」/「介護福祉士」) で結果差。</td></tr>
+    <tr><td>規模区分</td><td>本レポート独自定義 (大規模 300+ / 中規模 50-299 / 小規模 &lt;50)。中小企業基本法 (業種別: 製造 300 / サービス 100 / 小売 50) とは異なる。</td></tr>
+    <tr><td>サンプルサイズ</td><td>N&lt;30 のセグメントは傾向値として参考扱い。N&lt;10 はサンプル少のため数値変動が大きい。</td></tr>
+  </tbody>
+</table>
+
+<h2>相関 ≠ 因果</h2>
+<p style="background:var(--accent-amber);color:#FFFFFF;padding:2mm 4mm;font-weight:700;display:inline-block;font-size:10pt;letter-spacing:0.05em;">
+  本レポートは「相関の観測」であり、「因果の証明」ではありません。
+</p>
+<table class="ledger">
+  <thead><tr><th>誤読パターン</th><th>正しい解釈</th></tr></thead>
+  <tbody>
+    <tr><td><span style="color:var(--accent-red);">×</span> 失業率が高い → 採用しやすい</td><td><span style="color:var(--accent-green);">○</span> 失業率は地域経済の状況示唆値。求人倍率・賃金水準・専門性等を併せて読む</td></tr>
+    <tr><td><span style="color:var(--accent-red);">×</span> HW 求人多い企業 → ブラック</td><td><span style="color:var(--accent-green);">○</span> 採用活発で順調に募集している可能性 / 採用難航で長期掲載中の両方ある</td></tr>
+    <tr><td><span style="color:var(--accent-red);">×</span> タグプレミアム → タグを付けたら給与上がる</td><td><span style="color:var(--accent-green);">○</span> プレミアム要因が給与水準とも相関する第三因子の可能性</td></tr>
+    <tr><td><span style="color:var(--accent-red);">×</span> 中規模で人員減少 → 中規模は不振</td><td><span style="color:var(--accent-green);">○</span> 組織改編・自然減・配置転換等の観測値、個別企業の優劣ではない</td></tr>
+  </tbody>
+</table>
+
+<h2>更新頻度</h2>
+<table class="ledger">
+  <thead><tr><th>データソース</th><th>更新頻度</th><th>次回更新予定</th></tr></thead>
+  <tbody>
+    <tr><td>HW 公開求人</td><td>月次</td><td>2026-05 月初</td></tr>
+    <tr><td>国勢調査</td><td>5 年ごと</td><td>令和 7 年 (2025) 集計、令和 8 年 (2026) 後半公開予定</td></tr>
+    <tr><td>家計調査</td><td>月次</td><td>2026-05 中旬</td></tr>
+    <tr><td>社会生活基本調査</td><td>5 年ごと</td><td>2026 年実施、2027 年集計公開</td></tr>
+    <tr><td>通信利用動向調査</td><td>年次</td><td>2025 年実施分は 2026-06 公開予定</td></tr>
+    <tr><td>最低賃金</td><td>年次 (10 月改定)</td><td>2025-10 改定済、2026-10 改定予定</td></tr>
+    <tr><td>地域企業情報</td><td>月次</td><td>2026-05 月初</td></tr>
+  </tbody>
+</table>
+
+<aside class="observations">
+  <h4>§ Colophon — 奥付</h4>
+  <ol>
+    <li>発行: 株式会社 For A-career / 2026-04-30 / Working Paper No. 2026-Q2-03</li>
+    <li>データ取得期間: 2025-Q4 〜 2026-04 / 国勢調査 令和 5 年</li>
+    <li>レンダリング: Rust + Tera + ECharts 5.4 / Chromium Headless print</li>
+  </ol>
+</aside>
+
+<script>
+const wpFont = "BIZ UDPGothic, sans-serif";
+const COLOR_BRAND = '#1E3A8A';
+const COLOR_INK = '#131313';
+const COLOR_GRID = '#C8C8C8';
+const COLOR_MUTED = '#888888';
+const COLOR_MARK_MODE = '#131313';
+const COLOR_MARK_MEDIAN = '#DC2626';
+const COLOR_MARK_MEAN = '#888888';
+
+// === 印刷時のチャート切れ対策 ===
+// ECharts の canvas renderer は印刷時に再レンダリングしないため SVG に固定。
+// SVG はベクター描画で印刷時に自動スケーリング、切れない。
+const ECHART_INIT_OPTS = { renderer: 'svg' };
+const ALL_CHARTS = [];
+function initChart(elementId, option) {
+  const el = document.getElementById(elementId);
+  if (!el) return null;
+  const chart = echarts.init(el, null, ECHART_INIT_OPTS);
+  chart.setOption(option);
+  ALL_CHARTS.push(chart);
+  return chart;
+}
+
+// 印刷直前に全チャート resize 強制 (canvas でも fallback で動作)
+window.addEventListener('beforeprint', () => {
+  ALL_CHARTS.forEach(c => { try { c.resize(); } catch(e){} });
+});
+// ウィンドウリサイズ時も resize
+window.addEventListener('resize', () => {
+  ALL_CHARTS.forEach(c => { try { c.resize(); } catch(e){} });
+});
+
+// === Histogram (markLine ラベルなし、シンプル線のみ) ===
+function buildHistOption({ data, xName, mean, median, mode }) {
+  return {
+    backgroundColor: '#FFFFFF', grid: { top: 12, right: 12, bottom: 32, left: 36 },
+    xAxis: {
+      type: 'category', data: data.map(d => d[0]),
+      name: xName, nameLocation: 'middle', nameGap: 22,
+      nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+      axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont, interval: 'auto' },
+      axisLine: { lineStyle: { color: COLOR_INK, width: 0.5 } },
+    },
+    yAxis: {
+      type: 'value', name: '件数',
+      nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+      axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+      splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } },
+      axisLine: { show: false }, min: 0,
+    },
+    series: [{
+      type: 'bar', data: data.map(d => d[1]),
+      itemStyle: { color: 'rgba(30,58,138,0.55)', borderColor: COLOR_BRAND, borderWidth: 0.7 },
+      barWidth: '90%',
+      markLine: {
+        symbol: 'none', label: { show: false },
+        data: [
+          { xAxis: String(mode), lineStyle: { color: COLOR_MARK_MODE, type: 'solid', width: 1.8 } },
+          { xAxis: String(median), lineStyle: { color: COLOR_MARK_MEDIAN, type: 'solid', width: 1.8 } },
+          { xAxis: String(mean), lineStyle: { color: COLOR_MARK_MEAN, type: 'dashed', width: 1.4 } },
+        ],
+      },
+    }],
+  };
+}
+
+initChart('histA', buildHistOption({
+  data: [['15',4],['17',9],['19',14],['21',35],['22',38],['23',24],['25',26],['27',18],['29',14],['31',11],['33',7],['35',4],['37',2],['39',1]],
+  xName: '下限月給 (万円・20k 刻み)', mean: 26, median: 25, mode: 22,
+}));
+initChart('histB', buildHistOption({
+  data: [['15.0',1],['16.5',1],['17.0',4],['18.0',6],['19.0',7],['20.0',12],['21.0',9],['22.0',18],['23.0',8],['24.0',7],['25.0',16],['26.0',6],['27.0',5],['28.0',8],['29.0',3],['30.0',9],['32.0',3],['35.0',4],['38.0',1]],
+  xName: '下限月給 (万円・5k 刻み)', mean: '26.0', median: '25.0', mode: '22.0',
+}));
+initChart('histC', buildHistOption({
+  data: [['18',2],['20',5],['22',8],['24',12],['26',16],['28',31],['30',28],['32',22],['34',18],['36',14],['38',10],['40',8],['42',5],['44',3],['46',2],['50',1]],
+  xName: '上限月給 (万円・20k 刻み)', mean: 32, median: 31, mode: 28,
+}));
+initChart('histD', buildHistOption({
+  data: [['18.0',1],['20.0',3],['22.0',4],['24.0',6],['25.0',8],['26.0',8],['27.0',6],['28.0',17],['30.0',18],['32.0',11],['33.0',5],['34.0',8],['35.0',12],['38.0',6],['40.0',6],['42.0',3],['45.0',2],['50.0',1]],
+  xName: '上限月給 (万円・5k 刻み)', mean: '32.0', median: '31.0', mode: '28.0',
+}));
+
+// 散布図
+initChart('scatter1', {
+  backgroundColor: '#FFFFFF', grid: { top: 12, right: 16, bottom: 32, left: 40 },
+  xAxis: { type: 'value', name: '下限月給 (万円)', nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } }, min: 14, max: 40 },
+  yAxis: { type: 'value', name: '上限月給 (万円)',
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } }, min: 16, max: 52 },
+  series: [
+    { type: 'scatter', data: [[18,22],[18,24],[19,24],[20,26],[20,28],[21,28],[21,30],[22,28],[22,30],[22,32],[23,30],[23,32],[24,32],[24,34],[25,30],[25,32],[25,34],[25,36],[25,38],[26,32],[26,34],[26,38],[27,35],[27,38],[28,36],[28,40],[29,38],[29,42],[30,38],[30,40],[30,45],[32,42],[32,46],[33,44],[35,48],[35,50],[38,50]],
+      symbolSize: 6, itemStyle: { color: 'rgba(30,58,138,0.55)', borderColor: COLOR_BRAND, borderWidth: 0.5 } },
+    { type: 'line', data: [[14, 14*1.18+5], [40, 40*1.18+5]], symbol: 'none',
+      lineStyle: { color: COLOR_BRAND, width: 1.5 } },
+    { type: 'line', data: [[14, 14], [40, 40]], symbol: 'none',
+      lineStyle: { color: COLOR_MUTED, width: 0.8, type: 'dashed' } },
+  ],
+});
+
+// 雇用形態別 給与レンジ (Figure 4-2)
+initChart('empWageBar', {
+  backgroundColor: '#FFFFFF', grid: { top: 12, right: 30, bottom: 28, left: 80 },
+  xAxis: { type: 'value', name: '月給 (万円)', nameLocation: 'middle', nameGap: 22, min: 15, max: 38,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  yAxis: { type: 'category', data: ['アルバイト', 'パート', '業務委託', '派遣', '契約社員', '正社員'],
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont, fontWeight: 700 },
+    axisLine: { lineStyle: { color: COLOR_INK } } },
+  series: [
+    { name: '下限', type: 'bar', stack: 'range', data: [
+        { value: 19, itemStyle: { color: 'transparent' } },
+        { value: 19, itemStyle: { color: 'transparent' } },
+        { value: 22, itemStyle: { color: 'transparent' } },
+        { value: 20, itemStyle: { color: 'transparent' } },
+        { value: 23, itemStyle: { color: 'transparent' } },
+        { value: 25, itemStyle: { color: 'transparent' } },
+      ] },
+    { name: 'レンジ', type: 'bar', stack: 'range', barWidth: '50%', data: [
+        { value: 3, itemStyle: { color: '#D97706' } },
+        { value: 3, itemStyle: { color: '#EA580C' } },
+        { value: 6, itemStyle: { color: '#16A34A' } },
+        { value: 2, itemStyle: { color: '#0D9488' } },
+        { value: 5, itemStyle: { color: '#7C3AED' } },
+        { value: 7, itemStyle: { color: COLOR_BRAND } },
+      ],
+      label: { show: true, position: 'right', fontSize: 8, fontWeight: 700,
+        formatter: p => (p.value + [19,19,22,20,23,25][p.dataIndex]) + ' 万' } },
+  ],
+});
+
+// 雇用形態 ドーナツ (label は大きいスライスのみ inside、小スライスは label 非表示で legend 参照)
+initChart('empDonut', {
+  backgroundColor: '#FFFFFF',
+  legend: { orient: 'vertical', right: '5%', top: 'center',
+    textStyle: { fontSize: 10, fontFamily: wpFont, color: COLOR_INK },
+    itemWidth: 14, itemHeight: 10, itemGap: 7,
+    formatter: name => {
+      const data = { '正社員': '188 (75.2%)', '契約社員': '28 (11.2%)',
+        'パート・アルバイト': '18 (7.2%)', '業務委託': '8 (3.2%)',
+        '派遣': '5 (2.0%)', 'その他': '3 (1.2%)' };
+      return '{b|' + name + '}  {v|' + (data[name] || '') + '}';
+    },
+    textStyle: { rich: {
+      b: { fontSize: 10, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+      v: { fontSize: 9, color: COLOR_MUTED, fontFamily: wpFont },
+    } } },
+  series: [{
+    type: 'pie', radius: ['40%', '65%'], center: ['28%', '50%'], avoidLabelOverlap: true,
+    itemStyle: { borderColor: '#FFFFFF', borderWidth: 2 },
+    // 30% 以上のスライスのみ inside label (それ以下は legend 参照で OK)
+    label: {
+      show: true, position: 'inside', fontSize: 12, fontWeight: 700,
+      fontFamily: wpFont, color: '#FFFFFF',
+      formatter: p => p.percent >= 30 ? p.percent.toFixed(0) + '%' : '',
+    },
+    labelLine: { show: false },
+    data: [
+      { value: 188, name: '正社員', itemStyle: { color: '#1E3A8A' } },
+      { value: 28, name: '契約社員', itemStyle: { color: '#0D9488' } },
+      { value: 18, name: 'パート・アルバイト', itemStyle: { color: '#EA580C' } },
+      { value: 8, name: '業務委託', itemStyle: { color: '#16A34A' } },
+      { value: 5, name: '派遣', itemStyle: { color: '#D97706' } },
+      { value: 3, name: 'その他', itemStyle: { color: '#7C3AED' } },
+    ],
+  }],
+});
+
+// 採用市場 ゲージ (横長レイアウト: 左にゲージ・右に大きな数値)
+// chart-tall 60mm + 横分割で被りを完全回避
+initChart('mtGauge', {
+  backgroundColor: '#FFFFFF',
+  graphic: [
+    // 右側に大きな数値を独立配置 (軸ラベルと絶対被らない)
+    { type: 'text', left: '70%', top: '30%',
+      style: { text: '62.4', fontSize: 56, fontWeight: 700, fontFamily: wpFont, fill: COLOR_BRAND } },
+    { type: 'text', left: '70%', top: '62%',
+      style: { text: '逼迫度 総合スコア', fontSize: 11, fontWeight: 700, fontFamily: wpFont, fill: COLOR_INK } },
+    { type: 'text', left: '70%', top: '74%',
+      style: { text: '40 以下=余裕 / 70 以上=逼迫', fontSize: 9, fontFamily: wpFont, fill: COLOR_MUTED } },
+    { type: 'text', left: '70%', top: '86%',
+      style: { text: '本サンプル: 逼迫寄り中庸', fontSize: 9, fontWeight: 700, fontFamily: wpFont, fill: '#D97706' } },
+  ],
+  series: [{
+    type: 'gauge', radius: '70%', center: ['28%', '60%'],
+    startAngle: 200, endAngle: -20, min: 0, max: 100, splitNumber: 5,
+    axisTick: { show: true, length: 4, lineStyle: { color: COLOR_INK, width: 0.5 } },
+    splitLine: { length: 8, lineStyle: { color: COLOR_INK, width: 1.2 } },
+    axisLabel: { fontSize: 9, color: COLOR_MUTED, fontFamily: wpFont, distance: 14, fontWeight: 700 },
+    axisLine: { lineStyle: { width: 12, color: [
+      [0.4, '#16A34A'], [0.7, '#D97706'], [1, '#DC2626']
+    ] } },
+    pointer: { length: '70%', width: 5, itemStyle: { color: COLOR_INK } },
+    progress: { show: false },
+    detail: { show: false },
+    title: { show: false },
+    data: [{ value: 62.4, name: '' }],
+  }],
+});
+
+// 4 軸レーダー (chart-pyramid 80mm + radius 75% で大きく描画)
+initChart('mtRadar', {
+  backgroundColor: '#FFFFFF',
+  legend: { show: true, bottom: 0, textStyle: { fontSize: 10, fontFamily: wpFont, fontWeight: 700 }, itemWidth: 14, itemHeight: 10 },
+  radar: {
+    indicator: [{ name: '求人倍率', max: 100 }, { name: '失業率反転', max: 100 },
+                { name: '欠員補充率', max: 100 }, { name: '賃金水準', max: 100 }],
+    radius: '72%', center: ['50%', '46%'], shape: 'polygon',
+    axisName: { color: COLOR_INK, fontSize: 10, fontWeight: 700, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.4 } },
+    splitArea: { show: true, areaStyle: { color: ['#FAFAFA', '#FFFFFF'] } },
+    axisLine: { lineStyle: { color: COLOR_MUTED, width: 0.5 } },
+  },
+  series: [{
+    type: 'radar', data: [
+      { value: [71, 28, 68, 82], name: '対象地域',
+        areaStyle: { color: 'rgba(30,58,138,0.30)' }, lineStyle: { color: COLOR_BRAND, width: 2 },
+        itemStyle: { color: COLOR_BRAND }, symbolSize: 6 },
+      { value: [50, 50, 50, 50], name: '全国平均',
+        areaStyle: { color: 'rgba(220,38,38,0.10)' }, lineStyle: { color: '#DC2626', width: 1.5, type: 'dashed' },
+        itemStyle: { color: '#DC2626' }, symbolSize: 4 },
+    ],
+  }],
+});
+
+// 産業ミスマッチ CSV (12 大産業すべて)
+const ind12 = ['公務', 'その他', '不動産業', '製造業', '建設業', '運輸業',
+  '教育・学習支援', '医療・福祉', '卸売・小売業', '金融・保険業', 'サービス業', '情報通信業'];
+initChart('indMismatchCsv', {
+  backgroundColor: '#FFFFFF', grid: { top: 22, right: 20, bottom: 28, left: 95 },
+  legend: { show: true, top: 0, textStyle: { fontSize: 9, fontFamily: wpFont, fontWeight: 700 }, itemWidth: 12, itemHeight: 8 },
+  xAxis: { type: 'value', name: '構成比 (%)', nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  yAxis: { type: 'category', data: ind12,
+    axisLabel: { color: COLOR_INK, fontSize: 8.5, fontFamily: wpFont },
+    axisLine: { lineStyle: { color: COLOR_INK } } },
+  series: [
+    { name: '当サンプル', type: 'bar',
+      data: [0.5, 2.0, 6.0, 3.5, 1.5, 2.0, 4.5, 2.0, 8.0, 12.0, 18.0, 42.0],
+      itemStyle: { color: 'rgba(30,58,138,0.65)', borderColor: COLOR_BRAND, borderWidth: 0.5 } },
+    { name: '国勢調査', type: 'bar',
+      data: [3.0, 4.5, 8.0, 8.5, 4.0, 5.5, 6.0, 10.5, 12.0, 15.0, 25.0, 22.0],
+      itemStyle: { color: 'rgba(80,80,80,0.30)', borderColor: COLOR_INK, borderWidth: 0.5 } },
+  ],
+});
+
+// 産業ミスマッチ HW (12 大産業すべて)
+initChart('indMismatchHw', {
+  backgroundColor: '#FFFFFF', grid: { top: 22, right: 20, bottom: 28, left: 95 },
+  legend: { show: true, top: 0, textStyle: { fontSize: 9, fontFamily: wpFont, fontWeight: 700 }, itemWidth: 12, itemHeight: 8 },
+  xAxis: { type: 'value', name: '構成比 (%)', nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  yAxis: { type: 'category', data: ind12,
+    axisLabel: { color: COLOR_INK, fontSize: 8.5, fontFamily: wpFont },
+    axisLine: { lineStyle: { color: COLOR_INK } } },
+  series: [
+    { name: 'HW 求人', type: 'bar',
+      data: [2.0, 3.5, 6.5, 5.0, 3.0, 4.0, 4.5, 18.0, 10.5, 8.0, 22.0, 28.5],
+      itemStyle: { color: 'rgba(30,58,138,0.65)', borderColor: COLOR_BRAND, borderWidth: 0.5 } },
+    { name: '国勢調査', type: 'bar',
+      data: [3.0, 4.5, 8.0, 8.5, 4.0, 5.5, 6.0, 10.5, 12.0, 15.0, 25.0, 22.0],
+      itemStyle: { color: 'rgba(80,80,80,0.30)', borderColor: COLOR_INK, borderWidth: 0.5 } },
+  ],
+});
+
+// 人口ピラミッド
+const pyramidAge = ['0-4','5-9','10-14','15-19','20-24','25-29','30-34','35-39','40-44','45-49','50-54','55-59','60-64','65-69','70-74','75-79','80-84','85+'];
+initChart('popPyramid', {
+  backgroundColor: '#FFFFFF',
+  legend: { show: true, top: 0, data: ['男性', '女性'],
+    textStyle: { fontSize: 9, fontFamily: wpFont }, itemWidth: 12, itemHeight: 8 },
+  grid: { top: 24, bottom: 28, left: 50, right: 30 },
+  xAxis: [{ type: 'value', name: '構成比 (%)', nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont, formatter: v => Math.abs(v).toFixed(1) },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } }, min: -8, max: 8 }],
+  yAxis: [{ type: 'category', data: pyramidAge, name: '年齢',
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 8.5, fontFamily: wpFont },
+    axisLine: { lineStyle: { color: COLOR_INK } } }],
+  series: [
+    { name: '男性', type: 'bar', stack: 'total',
+      data: [-1.2,-1.5,-1.8,-2.1,-3.5,-5.2,-6.8,-7.2,-6.5,-5.8,-5.2,-4.8,-4.2,-3.5,-2.8,-2.0,-1.5,-1.0],
+      itemStyle: { color: 'rgba(30,58,138,0.55)', borderColor: COLOR_BRAND, borderWidth: 0.5 },
+      barCategoryGap: '15%' },
+    { name: '女性', type: 'bar', stack: 'total',
+      data: [1.1,1.4,1.7,2.0,3.4,5.0,6.5,6.9,6.2,5.5,5.0,4.6,4.1,3.6,3.0,2.3,1.8,1.4],
+      itemStyle: { color: 'rgba(80,80,80,0.30)', borderColor: COLOR_INK, borderWidth: 0.5 },
+      barCategoryGap: '15%' },
+  ],
+});
+
+// 学歴
+initChart('eduBar', {
+  backgroundColor: '#FFFFFF', grid: { top: 24, right: 20, bottom: 30, left: 50 },
+  legend: { show: true, top: 0, textStyle: { fontSize: 9, fontFamily: wpFont }, itemWidth: 12, itemHeight: 8 },
+  xAxis: { type: 'category', data: ['中卒', '高卒', '短大・専門', '大卒', '院卒'], name: '最終学歴',
+    nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    axisLine: { lineStyle: { color: COLOR_INK } } },
+  yAxis: { type: 'value', name: '構成比 (%)',
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } }, min: 0 },
+  series: [
+    { name: '対象地域', type: 'bar', data: [2.5, 12.8, 22.3, 49.6, 12.8],
+      itemStyle: { color: 'rgba(30,58,138,0.65)', borderColor: COLOR_BRAND, borderWidth: 0.5 } },
+    { name: '全国平均', type: 'bar', data: [8.5, 38.2, 23.3, 26.5, 3.5],
+      itemStyle: { color: 'rgba(80,80,80,0.30)', borderColor: COLOR_INK, borderWidth: 0.5 } },
+  ],
+});
+
+// 5 軸レーダー
+function radarOption(values, isTarget) {
+  return {
+    backgroundColor: '#FFFFFF',
+    radar: {
+      indicator: [{ name: '失業率水準', max: 100 }, { name: '流動性', max: 100 },
+                  { name: '若年層', max: 100 }, { name: '学歴', max: 100 }, { name: 'デジタル適合', max: 100 }],
+      radius: '60%', shape: 'polygon', splitNumber: 4,
+      axisName: { color: COLOR_INK, fontSize: 8, fontWeight: 700, fontFamily: wpFont },
+      splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } },
+      splitArea: { show: false }, axisLine: { lineStyle: { color: COLOR_MUTED, width: 0.3 } },
+    },
+    series: [{
+      type: 'radar', data: [{
+        value: values,
+        areaStyle: { color: isTarget ? 'rgba(30, 58, 138, 0.20)' : 'rgba(136, 136, 136, 0.15)' },
+        lineStyle: { color: isTarget ? COLOR_BRAND : COLOR_INK, width: isTarget ? 1.5 : 1, type: isTarget ? 'solid' : 'dashed' },
+        itemStyle: { color: isTarget ? COLOR_BRAND : COLOR_INK }, symbol: 'circle', symbolSize: 3,
+      }],
+    }],
+  };
+}
+initChart('radar1', radarOption([72, 58, 45, 75, 68], true));
+initChart('radar2', radarOption([58, 52, 48, 62, 51], false));
+initChart('radar3', radarOption([50, 50, 50, 50, 50], false));
+
+// 主要市区町村バブル (D-3): 大卒比率 vs 失業率、サイズ=15-64人口
+initChart('muniBubble', {
+  backgroundColor: '#FFFFFF', grid: { top: 12, right: 30, bottom: 30, left: 50 },
+  xAxis: { type: 'value', name: '失業率 (%)', nameLocation: 'middle', nameGap: 22, min: 2, max: 5,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  yAxis: { type: 'value', name: '大卒以上比率 (%)', min: 50, max: 75,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  series: [{
+    type: 'scatter',
+    data: [
+      { value: [3.6, 62.4, 425], name: '千代田区', itemStyle: { color: COLOR_BRAND, opacity: 0.85 } },
+      { value: [2.8, 68.5, 1582], name: '港区', itemStyle: { color: '#0D9488', opacity: 0.7 } },
+      { value: [3.2, 58.2, 1128], name: '中央区', itemStyle: { color: '#16A34A', opacity: 0.7 } },
+      { value: [3.8, 52.8, 2315], name: '新宿区', itemStyle: { color: '#EA580C', opacity: 0.7 } },
+      { value: [3.0, 64.5, 1588], name: '渋谷区', itemStyle: { color: '#7C3AED', opacity: 0.7 } },
+    ],
+    symbolSize: function(val) { return Math.sqrt(val[2]) * 0.8; },
+    label: { show: true, position: 'right', fontSize: 9, fontFamily: wpFont, fontWeight: 700, formatter: '{b}' },
+  }],
+});
+
+// 都道府県別 横棒 (図 6-1)
+initChart('prefBar', {
+  backgroundColor: '#FFFFFF', grid: { top: 24, right: 60, bottom: 30, left: 70 },
+  legend: { show: true, top: 0, textStyle: { fontSize: 9, fontFamily: wpFont }, itemWidth: 12, itemHeight: 8 },
+  xAxis: { type: 'value', name: '件数', nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  yAxis: { type: 'category', data: ['その他', '愛知県', '大阪府', '埼玉県', '千葉県', '神奈川県', '東京都'],
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    axisLine: { lineStyle: { color: COLOR_INK } } },
+  series: [{
+    name: 'CSV 件数', type: 'bar',
+    data: [
+      { value: 2, itemStyle: { color: '#7C3AED' } },
+      { value: 3, itemStyle: { color: '#D97706' } },
+      { value: 5, itemStyle: { color: '#16A34A' } },
+      { value: 8, itemStyle: { color: '#0D9488' } },
+      { value: 12, itemStyle: { color: '#EA580C' } },
+      { value: 22, itemStyle: { color: '#3B82F6' } },
+      { value: 198, itemStyle: { color: COLOR_BRAND } },
+    ],
+    label: { show: true, position: 'right', fontSize: 9, fontWeight: 700, fontFamily: wpFont, formatter: '{c} 件' },
+  }],
+});
+
+// 給与 vs 世帯支出 棒 (図 13-1)
+initChart('wageHouseBar', {
+  backgroundColor: '#FFFFFF', grid: { top: 24, right: 30, bottom: 30, left: 90 },
+  legend: { show: true, top: 0, textStyle: { fontSize: 9, fontFamily: wpFont }, itemWidth: 12, itemHeight: 8 },
+  xAxis: { type: 'value', name: '月額 (万円)', nameLocation: 'middle', nameGap: 22,
+    nameTextStyle: { fontSize: 9, fontWeight: 700, color: COLOR_INK, fontFamily: wpFont },
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont },
+    splitLine: { lineStyle: { color: COLOR_GRID, width: 0.3 } } },
+  yAxis: { type: 'category', data: ['交通・通信', '食費', '住居費', '世帯支出 計', '当サンプル給与'],
+    axisLabel: { color: COLOR_INK, fontSize: 9, fontFamily: wpFont, fontWeight: 700 },
+    axisLine: { lineStyle: { color: COLOR_INK } } },
+  series: [
+    { name: '対象地域', type: 'bar', data: [
+        { value: 3.4, itemStyle: { color: '#0D9488' } },
+        { value: 7.8, itemStyle: { color: '#EA580C' } },
+        { value: 12.5, itemStyle: { color: '#DC2626' } },
+        { value: 31.8, itemStyle: { color: '#D97706' } },
+        { value: 25.0, itemStyle: { color: COLOR_BRAND } },
+      ],
+      label: { show: true, position: 'right', fontSize: 9, fontWeight: 700, formatter: '{c}' } },
+    { name: '全国平均', type: 'bar', data: [4.2, 7.4, 7.2, 28.2, null],
+      itemStyle: { color: 'rgba(80,80,80,0.40)', borderColor: COLOR_INK, borderWidth: 0.5 },
+      label: { show: true, position: 'right', fontSize: 8, formatter: '全国 {c}' } },
+  ],
+});
+
+// タグ ツリーマップ (プレミアム = 青系、ディスカウント = 暖色系)
+initChart('tagTree', {
+  backgroundColor: '#FFFFFF',
+  series: [{
+    type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false },
+    label: { show: true, formatter: '{b}\n{c} 件', fontSize: 10, fontWeight: 700, fontFamily: wpFont, color: '#FFFFFF' },
+    upperLabel: { show: false }, itemStyle: { borderColor: '#FFFFFF', borderWidth: 2, gapWidth: 2 },
+    data: [
+      { name: '在宅可・リモート', value: 35, itemStyle: { color: '#1E3A8A' } },
+      { name: '土日休み', value: 42, itemStyle: { color: '#1E40AF' } },
+      { name: '退職金あり', value: 28, itemStyle: { color: '#3B82F6' } },
+      { name: '時短勤務可', value: 22, itemStyle: { color: '#0D9488' } },
+      { name: '研修制度', value: 30, itemStyle: { color: '#16A34A' } },
+      { name: '昇給・昇格', value: 25, itemStyle: { color: '#65A30D' } },
+      { name: 'シフト勤務', value: 38, itemStyle: { color: '#EA580C' } },
+      { name: '未経験歓迎', value: 52, itemStyle: { color: '#DC2626' } },
+      { name: '残業あり', value: 18, itemStyle: { color: '#D97706' } },
+      { name: 'その他', value: 50, itemStyle: { color: '#7C3AED' } },
+    ],
+  }],
+});
+</script>
+
+</body>
+</html>

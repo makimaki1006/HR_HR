@@ -588,8 +588,7 @@ fn render_action_bar(session_id: &str) -> String {
                         class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
                         title="HTMLファイルをダウンロード。後からブラウザで開いて印刷・編集が可能">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                    HTMLダウンロード
-                    <span class="text-[10px] opacity-75">編集可</span>
+                    HTMLダウンロード <span class="text-[10px] opacity-75">編集可</span>
                 </button>
                 <a href="#" onclick="document.getElementById('survey-result').innerHTML='';document.getElementById('survey-root').scrollIntoView({{behavior:'smooth'}});return false;"
                    class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px]"
@@ -597,6 +596,29 @@ fn render_action_bar(session_id: &str) -> String {
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                     別のCSVをアップロード
                 </a>
+            </div>
+            <!-- 2026-05-01 追加: 新レポートデザイン サンプル (現場比較用、ダミーデータ) -->
+            <div class="mt-3 p-3 bg-slate-800/50 border border-slate-700 rounded">
+                <div class="text-xs text-amber-400 font-semibold mb-2">📋 新レポートデザイン サンプル (デザイン比較用・ダミーデータ)</div>
+                <div class="flex flex-wrap gap-2" role="group" aria-label="新レポートデザインサンプル">
+                    <a href="/static/sample_reports/v8_workingpaper.html" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
+                       title="新レポート案 B (Working Paper 風、青基軸 + ゴシック + 章バナー、32 ページ)">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        新案 B: Working Paper
+                        <span class="text-[10px] opacity-75">v8</span>
+                    </a>
+                    <a href="/static/sample_reports/v7a_editorial.html" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded text-sm font-medium transition-colors min-h-[44px]"
+                       title="新レポート案 A (編集者・新聞折込特集風、明朝 + 朱 + cream paper)">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"/></svg>
+                        新案 A: 編集者
+                        <span class="text-[10px] opacity-75">v7a</span>
+                    </a>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-2">
+                    現場で「新案 A / 新案 B / 旧 (上のHTMLダウンロード)」を比較し、最終採用案を決定してください。新案はダミーデータです。
+                </p>
             </div>
             <p class="text-[11px] text-slate-500 mt-3">
                 統合分析を最初に実行することを推奨します。HW・外部統計と突き合わせた相対評価により、本CSVの位置付けが明確になります。

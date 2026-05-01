@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Path A — 編集者 / 新聞折込特集 [Prototype]</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@400;700;800&family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #1A1A1A;
+  --paper: #F4EFE6;
+  --paper-deep: #E9E2D3;
+  --vermilion: #C8443C;
+  --vermilion-soft: #E8B4AF;
+  --rule: #2A2A2A;
+  --muted: #6E6358;
+  --serif: 'Shippori Mincho B1', 'Yu Mincho', serif;
+  --sans: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --mono: 'IBM Plex Mono', 'Consolas', monospace;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm 10mm 14mm 10mm;
+  @top-left {
+    content: "求人市場 総合診断レポート / 第 III 章 経営概要";
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 8pt;
+    color: #6E6358;
+    letter-spacing: 0.04em;
+  }
+  @top-right {
+    content: "iii / xxiv";
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8pt;
+    color: #6E6358;
+  }
+  @bottom-left {
+    content: "For A-career — 機密 / 配布禁止";
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 8pt;
+    color: #6E6358;
+    letter-spacing: 0.04em;
+  }
+  @bottom-right {
+    content: counter(page);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9pt;
+    color: var(--ink);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 10.5pt;
+  line-height: 1.75;
+  font-feature-settings: "palt" 1;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ==== 章扉 (chapter opener) ==== */
+.opener {
+  display: grid;
+  grid-template-columns: 70mm 1fr;
+  gap: 8mm;
+  border-top: 4px solid var(--ink);
+  padding-top: 6mm;
+  margin-bottom: 10mm;
+  break-after: avoid;
+}
+.opener .ch-num {
+  font-family: var(--serif);
+  font-weight: 800;
+  font-size: 64pt;
+  line-height: 0.85;
+  color: var(--vermilion);
+  letter-spacing: -0.03em;
+}
+.opener .ch-num small {
+  display: block;
+  font-size: 11pt;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0.3em;
+  margin-top: 2mm;
+}
+.opener .ch-title {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 22pt;
+  line-height: 1.2;
+  margin-bottom: 4mm;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 3mm;
+}
+.opener .ch-questions {
+  font-size: 9.5pt;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.opener .ch-questions li {
+  margin-bottom: 1mm;
+  list-style: none;
+  padding-left: 6mm;
+  position: relative;
+}
+.opener .ch-questions li::before {
+  content: "問.";
+  font-family: var(--serif);
+  color: var(--vermilion);
+  font-weight: 700;
+  position: absolute;
+  left: 0;
+}
+
+/* ==== Lead (リード文) ==== */
+.lead {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 12pt;
+  line-height: 1.7;
+  margin: 0 0 8mm;
+  color: var(--ink);
+  border-left: 3px solid var(--vermilion);
+  padding-left: 6mm;
+}
+.lead em {
+  color: var(--vermilion);
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* ==== 速報表 (KPI 新聞風) ==== */
+.kpi-board {
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  margin: 0 0 8mm;
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr 1fr 1fr;
+  gap: 0;
+}
+.kpi-cell {
+  padding: 4mm 4mm 4mm 0;
+  border-right: 0.5pt solid var(--rule);
+  padding-left: 4mm;
+}
+.kpi-cell:last-child { border-right: none; }
+.kpi-cell.lead-cell {
+  grid-column: span 2;
+  padding-left: 4mm;
+}
+.kpi-cell .lbl {
+  display: block;
+  font-family: var(--sans);
+  font-size: 8.5pt;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.18em;
+  margin-bottom: 2mm;
+  text-transform: uppercase;
+}
+.kpi-cell .val {
+  display: block;
+  font-family: var(--serif);
+  font-weight: 800;
+  font-size: 36pt;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-cell.lead-cell .val { font-size: 28pt; line-height: 1.05; }
+.kpi-cell .sub {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9pt;
+  color: var(--muted);
+  margin-top: 2mm;
+  letter-spacing: 0.02em;
+}
+.kpi-cell .val.crit {
+  color: var(--vermilion);
+  border-left: 4px solid var(--vermilion);
+  padding-left: 3mm;
+}
+.kpi-cell .sev {
+  font-family: var(--serif);
+  font-size: 14pt;
+  vertical-align: super;
+  margin-left: 2mm;
+}
+.sev.sev-good { color: var(--ink); }
+.sev.sev-warn { color: var(--ink); }
+.sev.sev-crit { color: var(--vermilion); }
+
+/* ==== 本文 + 欄外注 ==== */
+.layout-2col {
+  display: grid;
+  grid-template-columns: 130mm 1fr;
+  gap: 6mm;
+  margin-bottom: 8mm;
+}
+.body-main h2 {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 15pt;
+  margin: 8mm 0 3mm;
+  letter-spacing: -0.01em;
+  border-top: 1px solid var(--ink);
+  padding-top: 3mm;
+}
+.body-main h2::before {
+  content: counter(section);
+  counter-increment: section;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 9pt;
+  color: var(--vermilion);
+  margin-right: 4mm;
+  letter-spacing: 0.02em;
+}
+.body-main h3 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 11.5pt;
+  margin: 5mm 0 2mm;
+  border-left: 3px solid var(--vermilion);
+  padding-left: 3mm;
+  break-after: avoid;
+}
+.body-main p {
+  margin: 0 0 4mm;
+  font-size: 10.5pt;
+  line-height: 1.75;
+}
+.body-main strong {
+  font-weight: 700;
+  border-bottom: 0.5pt solid var(--vermilion);
+}
+
+/* sidenote */
+.sn {
+  font-size: 8.5pt;
+  line-height: 1.5;
+  color: var(--muted);
+  border-top: 0.5pt solid var(--rule);
+  padding-top: 2mm;
+  margin-bottom: 6mm;
+}
+.sn-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 7.5pt;
+  font-weight: 500;
+  color: var(--vermilion);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 1mm;
+}
+
+/* ==== Action list ==== */
+.actions {
+  border-top: 2px solid var(--ink);
+  padding-top: 4mm;
+  margin: 8mm 0;
+}
+.actions-title {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 13pt;
+  margin: 0 0 4mm;
+}
+.action-item {
+  margin-bottom: 5mm;
+  break-inside: avoid;
+}
+.action-num {
+  font-family: var(--serif);
+  font-weight: 800;
+  font-size: 22pt;
+  color: var(--vermilion);
+  line-height: 1;
+  margin-right: 3mm;
+  vertical-align: top;
+}
+.action-title {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 11pt;
+  display: inline;
+}
+.action-body {
+  font-size: 9.5pt;
+  line-height: 1.6;
+  margin: 1mm 0 1mm 9mm;
+  color: var(--ink);
+}
+.action-body .lbl {
+  font-family: var(--mono);
+  font-size: 8pt;
+  color: var(--vermilion);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-right: 2mm;
+}
+.action-xref {
+  font-family: var(--mono);
+  font-size: 8pt;
+  color: var(--muted);
+  margin-left: 9mm;
+  letter-spacing: 0.02em;
+}
+
+/* ==== 章末要点 (KEY OBSERVATIONS) ==== */
+.observations {
+  border: 1px solid var(--ink);
+  background: var(--paper-deep);
+  padding: 4mm 5mm;
+  margin: 8mm 0 0;
+  break-before: avoid;
+  break-after: page;
+}
+.observations h4 {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 11pt;
+  margin: 0 0 2mm;
+  letter-spacing: 0.08em;
+}
+.observations h4::before {
+  content: "§ ";
+  color: var(--vermilion);
+}
+.observations ol {
+  margin: 0;
+  padding-left: 6mm;
+  font-size: 10pt;
+  line-height: 1.65;
+}
+.observations ol li {
+  margin-bottom: 1.5mm;
+}
+
+/* counter */
+body { counter-reset: section; }
+</style>
+</head>
+<body>
+
+<!-- 章扉 -->
+<section class="opener">
+  <div class="ch-num">III<small>第 三 章</small></div>
+  <div>
+    <div class="ch-title">経営概要 ─ Executive Summary</div>
+    <ul class="ch-questions">
+      <li>当社の給与水準は同地域市場と比べて適正か。</li>
+      <li>採用市場の逼迫度は前年比でどう動いているか。</li>
+      <li>今期内に動かすべき優先アクションは何か。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- リード -->
+<p class="lead">
+  対象 <em>250 件</em> の応募者データ (主要地域 <em>東京都 千代田区</em>) を
+  ハローワーク公開求人 + 国勢調査 + 外部企業 DB と統合分析した結果、
+  本地域では <em>給与水準が市場中央値を月 2.0 万円下回る</em> 傾向が観測される。
+  以下、3 つの優先アクションを提示する。
+</p>
+
+<!-- 速報表 -->
+<section class="kpi-board">
+  <div class="kpi-grid">
+    <div class="kpi-cell">
+      <span class="lbl">Sample N</span>
+      <span class="val">250</span>
+      <span class="sub">件 / 解析率 78.3%</span>
+    </div>
+    <div class="kpi-cell lead-cell">
+      <span class="lbl">給与中央値 (月給)</span>
+      <span class="val crit">25.0<span class="sev sev-crit">▲</span></span>
+      <span class="sub">万円 — HW 中央値 27.0 万円との差 −2.0 万円</span>
+    </div>
+    <div class="kpi-cell">
+      <span class="lbl">主要地域</span>
+      <span class="val" style="font-size:14pt;">東京都<br>千代田区</span>
+      <span class="sub">該当 188 件 / 75.2%</span>
+    </div>
+    <div class="kpi-cell">
+      <span class="lbl">正社員比率</span>
+      <span class="val">75<span class="sev sev-good">◎</span></span>
+      <span class="sub">% — HW 同地域 68.2%</span>
+    </div>
+  </div>
+</section>
+
+<!-- 本文 + 欄外注 -->
+<div class="layout-2col">
+  <div class="body-main">
+    <h2>診断の要点</h2>
+    <p>
+      本地域の応募者属性は <strong>正社員志向 + 30 代中心</strong> で、
+      HW 公開求人の供給構成と概ね整合する。一方で、当サンプル給与中央値
+      25.0 万円は同地域 HW 求人の中央値 27.0 万円を 2.0 万円下回り、
+      <strong>下限値の見直し余地</strong> がある。
+    </p>
+    <h3>競合との位置取り</h3>
+    <p>
+      規模帯ごとに採用市況の温度感が分かれており、
+      自社規模帯のベンチマークを優先参照することが推奨される。
+      地域内の規模上位帯 (300 名以上) では平均人員推移が +2.4%
+      で拡大基調、中規模帯 (50〜299 名) では −0.8% と動向に差分が観測される。
+    </p>
+  </div>
+  <aside>
+    <div class="sn">
+      <span class="sn-label">Data Sources</span>
+      ハローワーク公開求人 (2025-Q4 抽出、N=14,200)、
+      令和 5 年国勢調査 (千代田区集計値)、
+      SalesNow 企業 DB (2026-04 月次更新、N=193K 社)。
+    </div>
+    <div class="sn">
+      <span class="sn-label">Scope</span>
+      本指標は <em>HW 掲載求人</em> + <em>当サンプル</em> の比較。
+      スカウト型・直接応募・SNS 経路は含まない。
+    </div>
+    <div class="sn">
+      <span class="sn-label">Caveat</span>
+      失業率の高低は <em>採用しやすさ</em> を直接意味しない。
+      地域経済の状況示唆値として読み解くこと。
+    </div>
+  </aside>
+</div>
+
+<!-- アクション -->
+<section class="actions">
+  <h3 class="actions-title">推奨優先アクション (n ≥ 30 / 差分 ≥ 1 万円 で発火)</h3>
+
+  <div class="action-item">
+    <span class="action-num">1.</span>
+    <span class="action-title">給与下限を月 +2.0 万円 引き上げる候補</span>
+    <p class="action-body">
+      <span class="lbl">診断</span>
+      当サンプル中央値 25.0 万円 / 該当市区町村 HW 中央値 27.0 万円で 2.0 万円差。
+    </p>
+    <p class="action-body">
+      <span class="lbl">影響試算</span>
+      n=250 名適用時、年間 約 6.00 億円 の人件費インパクト試算 (月 2.0 万円 × 12ヶ月 × 250 名)。
+    </p>
+    <p class="action-body">
+      <span class="lbl">次の打ち手</span>
+      等級表 下限の見直し / 初任給のみ改定 / 翌月 KPI (応募数・内定承諾率) で効果検証。
+    </p>
+    <div class="action-xref">→ 第 6 章 給与統計 / 第 8 章 産業ミスマッチ</div>
+  </div>
+
+  <div class="action-item">
+    <span class="action-num">2.</span>
+    <span class="action-title">雇用形態「正社員」の構成比を見直す候補</span>
+    <p class="action-body">
+      <span class="lbl">診断</span>
+      当サンプル 75.2% / HW 市場 68.2% で 7.0pt 差。市場より正社員寄りの構成。
+    </p>
+    <div class="action-xref">→ 第 4 章 雇用形態</div>
+  </div>
+
+  <div class="action-item">
+    <span class="action-num">3.</span>
+    <span class="action-title">訴求タグ「土日休み」の給与差分</span>
+    <p class="action-body">
+      該当タグ平均が全体比 +1.2 万円 (+4.8%、n=42)。プレミアム要因の可能性
+      (相関であり因果は別途検討)。
+    </p>
+    <div class="action-xref">→ 第 10 章 訴求タグ分析</div>
+  </div>
+</section>
+
+<!-- 章末要点 -->
+<aside class="observations">
+  <h4>本章の要点</h4>
+  <ol>
+    <li>給与中央値 25.0 万円は同地域 HW 中央値より 2.0 万円下方、下限見直し余地あり。</li>
+    <li>規模帯間で動向に差分が観測されるため、自社規模帯のベンチマークを優先参照。</li>
+    <li>失業率と採用容易性は別概念。本レポートは状況示唆値であり保証ではない。</li>
+  </ol>
+</aside>
+
+</body>
+</html>
