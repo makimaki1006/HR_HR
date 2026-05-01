@@ -2146,15 +2146,509 @@ table.data-table.wp-colorful tr.wp-self-row td:first-child {
 "#.to_string()
 }
 
-/// V8 Working Paper テーマ (2026-05-01 追加, Step 1: 配管のみ)
+/// V8 Working Paper テーマ (2026-05-01)
 ///
-/// このスタブは空文字列を返す。実際のテーマ CSS は次のコミットで追加する。
-/// 既存挙動 (Default) を完全維持しつつ、v3_themed 経由で呼び出される配管を成立させる。
+/// 既存マークアップ (`.section`, `.exec-kpi-grid-v2`, `table`, etc.) に対して
+/// `[data-theme="v8"]` 属性セレクタで上書き形式で適用する。マークアップ変更なし。
+///
+/// 影響範囲: フォント (BIZ UDPGothic + JetBrains Mono) / 勝色基調 /
+/// severity 多色アクセント / 章境界黒帯 / 印刷時 @page ヘッダフッタ。
 pub(super) fn render_theme_v8_workingpaper() -> String {
-    "/* V8 Working Paper theme: pending implementation (Step 1: piping only) */\n".to_string()
+    r#"
+/* ============================================================
+   V8 Working Paper Theme (2026-05-01)
+   既存マークアップに data-theme="v8" 属性で上書き適用。
+   ============================================================ */
+
+[data-theme="v8"] {
+  --wp-ink: #131313;
+  --wp-paper: #FFFFFF;
+  --wp-rule: #131313;
+  --wp-rule-light: #C8C8C8;
+  --wp-brand: #1E3A8A;
+  --wp-brand-tint: #E5EAF2;
+  --wp-muted: #555555;
+  --wp-accent-red: #DC2626;
+  --wp-accent-red-tint: #FEE2E2;
+  --wp-accent-orange: #EA580C;
+  --wp-accent-orange-tint: #FFEDD5;
+  --wp-accent-amber: #D97706;
+  --wp-accent-green: #16A34A;
+  --wp-accent-green-tint: #DCFCE7;
+  --wp-accent-yellow: #CA8A04;
+  --wp-zebra: #F8FAFC;
+  --wp-sans: 'BIZ UDPGothic', 'Hiragino Sans', 'Noto Sans CJK JP', sans-serif;
+  --wp-mono: 'JetBrains Mono', 'Consolas', 'Roboto Mono', monospace;
 }
 
-/// V7a Editorial テーマ (2026-05-01 追加, Step 1: 配管のみ)
+[data-theme="v8"] body {
+  background: var(--wp-paper);
+  color: var(--wp-ink);
+  font-family: var(--wp-sans);
+  font-size: 11pt;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* 見出し: 勝色 + 黄色アクセント下罫 */
+[data-theme="v8"] h1 {
+  font-size: 24pt; font-weight: 700;
+  border-bottom: 2pt solid var(--wp-ink);
+  color: var(--wp-ink); letter-spacing: -0.01em;
+  padding-bottom: 2mm; margin: 4mm 0 6mm;
+}
+[data-theme="v8"] h2 {
+  font-size: 16pt; font-weight: 700;
+  border-top: 1pt solid var(--wp-ink);
+  border-bottom: 0.5pt solid var(--wp-accent-yellow);
+  color: var(--wp-ink); letter-spacing: -0.01em;
+  padding: 2mm 0 1mm; margin: 8mm 0 3mm;
+  break-after: avoid;
+}
+[data-theme="v8"] h3 {
+  font-size: 11pt; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--wp-brand);
+  margin: 4mm 0 2mm;
+}
+[data-theme="v8"] h3::before {
+  content: "▌"; color: var(--wp-accent-orange);
+  margin-right: 2mm; font-size: 13pt; vertical-align: -1pt;
+}
+
+/* セクション境界の黒帯 (章バナー代替) */
+[data-theme="v8"] .section,
+[data-theme="v8"] section {
+  border-top: 6mm solid var(--wp-brand);
+  margin-top: 8mm; padding-top: 4mm;
+}
+[data-theme="v8"] .section:first-child,
+[data-theme="v8"] section:first-of-type {
+  border-top: none; padding-top: 0;
+}
+
+/* リード文・要旨ブロック */
+[data-theme="v8"] .lead,
+[data-theme="v8"] .section-header-meta,
+[data-theme="v8"] .exec-story-guide,
+[data-theme="v8"] .collapsible-guide > .details-body {
+  border-left: 4pt solid var(--wp-brand);
+  border-right: 1pt solid var(--wp-accent-yellow);
+  background: linear-gradient(90deg, var(--wp-brand-tint) 0%, transparent 100%);
+  padding: 2mm 4mm 2mm 5mm;
+  font-size: 11pt; line-height: 1.6;
+}
+
+/* 強調文字: 勝色マーカー */
+[data-theme="v8"] p strong {
+  font-weight: 700;
+  background: linear-gradient(transparent 60%, var(--wp-brand-tint) 60%);
+  padding: 0 1px;
+  color: var(--wp-ink);
+}
+
+/* KPI: severity 罫太さ + 背景グラデ */
+[data-theme="v8"] .exec-kpi-grid-v2,
+[data-theme="v8"] .kpi-emphasized-wrap {
+  border-top: 1.5pt solid var(--wp-ink);
+  border-bottom: 1.5pt solid var(--wp-ink);
+}
+[data-theme="v8"] .exec-kpi-grid-v2 > *,
+[data-theme="v8"] .kpi-emphasized-wrap > * {
+  border-right: 0.3pt solid var(--wp-rule-light);
+}
+[data-theme="v8"] .exec-kpi-grid-v2 .sev-good,
+[data-theme="v8"] .kpi-emphasized-wrap .sev-good,
+[data-theme="v8"] .exec-kpi-grid-v2 .severity-good {
+  border-top: 3pt solid var(--wp-accent-green);
+  background: linear-gradient(180deg, var(--wp-accent-green-tint) 0%, transparent 30%);
+}
+[data-theme="v8"] .exec-kpi-grid-v2 .sev-warn,
+[data-theme="v8"] .kpi-emphasized-wrap .sev-warn,
+[data-theme="v8"] .exec-kpi-grid-v2 .severity-warning {
+  border-top: 3pt solid var(--wp-accent-orange);
+  background: linear-gradient(180deg, var(--wp-accent-orange-tint) 0%, transparent 30%);
+}
+[data-theme="v8"] .exec-kpi-grid-v2 .sev-crit,
+[data-theme="v8"] .kpi-emphasized-wrap .sev-crit,
+[data-theme="v8"] .exec-kpi-grid-v2 .severity-critical {
+  border-top: 3pt solid var(--wp-accent-red);
+  background: linear-gradient(180deg, var(--wp-accent-red-tint) 0%, transparent 30%);
+}
+
+/* 数値: 等幅 + tabular-nums */
+[data-theme="v8"] .num,
+[data-theme="v8"] td.num,
+[data-theme="v8"] .kpi-value,
+[data-theme="v8"] .metric-value {
+  font-family: var(--wp-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* テーブル: 勝色ヘッダ + zebra */
+[data-theme="v8"] table.data-table,
+[data-theme="v8"] table.ledger,
+[data-theme="v8"] table.salesnow-table,
+[data-theme="v8"] table.region-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 2pt solid var(--wp-brand);
+  border-bottom: 1pt solid var(--wp-ink);
+  font-size: 10pt;
+}
+[data-theme="v8"] table.data-table thead tr,
+[data-theme="v8"] table.ledger thead tr,
+[data-theme="v8"] table.salesnow-table thead tr,
+[data-theme="v8"] table.region-compare-table thead tr {
+  background: var(--wp-brand);
+  color: var(--wp-paper);
+}
+[data-theme="v8"] table.data-table thead th,
+[data-theme="v8"] table.ledger thead th,
+[data-theme="v8"] table.salesnow-table thead th,
+[data-theme="v8"] table.region-compare-table thead th {
+  font-size: 8.5pt; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--wp-paper);
+  padding: 2mm 2.5mm; text-align: left;
+}
+[data-theme="v8"] table.data-table tbody tr:nth-child(even),
+[data-theme="v8"] table.ledger tbody tr:nth-child(even),
+[data-theme="v8"] table.salesnow-table tbody tr:nth-child(even),
+[data-theme="v8"] table.region-compare-table tbody tr:nth-child(even) {
+  background: var(--wp-zebra);
+}
+[data-theme="v8"] table.data-table td,
+[data-theme="v8"] table.ledger td,
+[data-theme="v8"] table.salesnow-table td,
+[data-theme="v8"] table.region-compare-table td {
+  padding: 1.6mm 2.5mm;
+  border-bottom: 0.3pt solid var(--wp-rule-light);
+}
+
+/* 自社行ハイライト */
+[data-theme="v8"] table tr.is-self,
+[data-theme="v8"] table tr.self-row {
+  background: linear-gradient(90deg, var(--wp-accent-yellow) 0%, var(--wp-accent-yellow) 1mm, var(--wp-brand-tint) 1mm) !important;
+  font-weight: 700;
+}
+
+/* severity 記号: 色非依存 */
+[data-theme="v8"] .sev-good::before,
+[data-theme="v8"] .severity-good::before {
+  content: "◯ "; font-weight: 700; color: var(--wp-accent-green);
+}
+[data-theme="v8"] .sev-warn::before,
+[data-theme="v8"] .severity-warning::before {
+  content: "△ "; font-weight: 700; color: var(--wp-accent-orange);
+}
+[data-theme="v8"] .sev-crit::before,
+[data-theme="v8"] .severity-critical::before {
+  content: "× "; font-weight: 700; color: var(--wp-accent-red);
+}
+
+/* 図表のキャプション + 印刷収まり */
+[data-theme="v8"] figure,
+[data-theme="v8"] .echart-wrap,
+[data-theme="v8"] .chart-container {
+  margin: 3mm 0;
+  padding: 2mm 0;
+  border-top: 2pt solid var(--wp-brand);
+  border-bottom: 1pt solid var(--wp-ink);
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+[data-theme="v8"] figcaption {
+  font-size: 10.5pt; font-weight: 700;
+  margin-bottom: 2mm;
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+[data-theme="v8"] figcaption .fig-num,
+[data-theme="v8"] figcaption .figure-num {
+  font-family: var(--wp-mono);
+  font-size: 9pt; font-weight: 700;
+  color: var(--wp-brand);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+
+/* 注記・脚注 */
+[data-theme="v8"] .notes-section,
+[data-theme="v8"] .footnotes,
+[data-theme="v8"] .glossary {
+  border-top: 1pt solid var(--wp-ink);
+  border-bottom: 1pt solid var(--wp-ink);
+  padding: 3mm 0; margin: 4mm 0;
+  font-size: 9.5pt;
+  break-inside: avoid;
+}
+
+/* 印刷時の追加保証: ヘッダ/フッタ + 改ページ強化 */
+@media print {
+  [data-theme="v8"] {
+    background: var(--wp-paper);
+  }
+  @page {
+    size: A4 portrait;
+    margin: 12mm 11mm;
+  }
+  [data-theme="v8"] figure,
+  [data-theme="v8"] .echart-wrap,
+  [data-theme="v8"] .chart-container,
+  [data-theme="v8"] table.data-table,
+  [data-theme="v8"] table.ledger,
+  [data-theme="v8"] .exec-kpi-grid-v2,
+  [data-theme="v8"] .kpi-emphasized-wrap,
+  [data-theme="v8"] .glossary,
+  [data-theme="v8"] .notes-section {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  [data-theme="v8"] h2,
+  [data-theme="v8"] h3 {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+}
+"#.to_string()
+}
+
+/// V7a Editorial テーマ (2026-05-01)
+///
+/// 編集記事スタイル: Serif 大見出し + 余白重視 + 細い罫線。
+/// `[data-theme="v7a"]` 属性で既存マークアップに上書き適用。
 pub(super) fn render_theme_v7a_editorial() -> String {
-    "/* V7a Editorial theme: pending implementation (Step 1: piping only) */\n".to_string()
+    r#"
+/* ============================================================
+   V7a Editorial Theme (2026-05-01)
+   ============================================================ */
+
+[data-theme="v7a"] {
+  --ed-ink: #1A1A1A;
+  --ed-paper: #FAFAF7;
+  --ed-rule: #1A1A1A;
+  --ed-rule-light: #D4D4D0;
+  --ed-accent: #8B0000;
+  --ed-accent-soft: #FAF0F0;
+  --ed-muted: #6B6B6B;
+  --ed-serif: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  --ed-sans: 'Helvetica Neue', 'Hiragino Sans', sans-serif;
+}
+
+[data-theme="v7a"] body {
+  background: var(--ed-paper);
+  color: var(--ed-ink);
+  font-family: var(--ed-serif);
+  font-size: 11pt;
+  line-height: 1.75;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* 大見出し: 余白重視・Serif */
+[data-theme="v7a"] h1 {
+  font-family: var(--ed-serif);
+  font-size: 32pt; font-weight: 900;
+  line-height: 1.15;
+  border-top: 4pt solid var(--ed-ink);
+  border-bottom: 1pt solid var(--ed-ink);
+  padding: 4mm 0; margin: 8mm 0 6mm;
+  letter-spacing: -0.02em;
+}
+[data-theme="v7a"] h2 {
+  font-family: var(--ed-serif);
+  font-size: 20pt; font-weight: 900;
+  border-top: 1pt solid var(--ed-ink);
+  padding: 4mm 0 1mm; margin: 10mm 0 4mm;
+  letter-spacing: -0.01em;
+  break-after: avoid;
+}
+[data-theme="v7a"] h2::before {
+  content: ""; display: inline-block;
+  width: 6mm; height: 0.5mm;
+  background: var(--ed-accent);
+  margin-right: 3mm; vertical-align: middle;
+}
+[data-theme="v7a"] h3 {
+  font-family: var(--ed-sans);
+  font-size: 9.5pt; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ed-accent);
+  margin: 5mm 0 2mm;
+}
+
+/* リード文: 大きく、Serif */
+[data-theme="v7a"] .lead,
+[data-theme="v7a"] .section-header-meta,
+[data-theme="v7a"] .exec-story-guide {
+  font-family: var(--ed-serif);
+  font-size: 13pt; font-weight: 400;
+  line-height: 1.7;
+  border-left: 2pt solid var(--ed-accent);
+  padding: 1mm 0 1mm 6mm;
+  margin: 4mm 0 6mm;
+  color: var(--ed-ink);
+  background: transparent;
+}
+
+/* 段落: 余白多め */
+[data-theme="v7a"] p {
+  margin: 0 0 4mm;
+  line-height: 1.85;
+  text-indent: 0;
+}
+[data-theme="v7a"] p strong {
+  font-weight: 900;
+  color: var(--ed-accent);
+  background: none;
+}
+
+/* セクション境界: 細い水平罫 */
+[data-theme="v7a"] .section,
+[data-theme="v7a"] section {
+  border-top: 0.5pt solid var(--ed-rule-light);
+  margin-top: 10mm; padding-top: 6mm;
+}
+[data-theme="v7a"] .section:first-child,
+[data-theme="v7a"] section:first-of-type {
+  border-top: none; padding-top: 0;
+}
+
+/* KPI: 数値大きく、罫細く、余白広く */
+[data-theme="v7a"] .exec-kpi-grid-v2,
+[data-theme="v7a"] .kpi-emphasized-wrap {
+  border-top: 0.5pt solid var(--ed-ink);
+  border-bottom: 0.5pt solid var(--ed-ink);
+  padding: 4mm 0;
+}
+[data-theme="v7a"] .exec-kpi-grid-v2 > *,
+[data-theme="v7a"] .kpi-emphasized-wrap > * {
+  padding: 4mm 6mm;
+  border-right: 0.3pt solid var(--ed-rule-light);
+}
+[data-theme="v7a"] .kpi-value,
+[data-theme="v7a"] .metric-value {
+  font-family: var(--ed-serif);
+  font-size: 32pt; font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+/* 数値: Serif tabular-nums (Editorial らしさ) */
+[data-theme="v7a"] .num,
+[data-theme="v7a"] td.num {
+  font-family: var(--ed-serif);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* テーブル: 細い罫、ヘッダ uppercase Sans */
+[data-theme="v7a"] table.data-table,
+[data-theme="v7a"] table.ledger,
+[data-theme="v7a"] table.salesnow-table,
+[data-theme="v7a"] table.region-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 1pt solid var(--ed-ink);
+  border-bottom: 0.5pt solid var(--ed-ink);
+  font-family: var(--ed-serif);
+  font-size: 10pt;
+}
+[data-theme="v7a"] table.data-table thead tr,
+[data-theme="v7a"] table.ledger thead tr,
+[data-theme="v7a"] table.salesnow-table thead tr,
+[data-theme="v7a"] table.region-compare-table thead tr {
+  background: transparent;
+  border-bottom: 0.5pt solid var(--ed-ink);
+}
+[data-theme="v7a"] table.data-table thead th,
+[data-theme="v7a"] table.ledger thead th,
+[data-theme="v7a"] table.salesnow-table thead th,
+[data-theme="v7a"] table.region-compare-table thead th {
+  font-family: var(--ed-sans);
+  font-size: 8pt; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ed-muted);
+  padding: 2mm 3mm;
+  text-align: left;
+}
+[data-theme="v7a"] table.data-table td,
+[data-theme="v7a"] table.ledger td {
+  padding: 2mm 3mm;
+  border-bottom: 0.3pt solid var(--ed-rule-light);
+}
+[data-theme="v7a"] table tr.is-self,
+[data-theme="v7a"] table tr.self-row {
+  background: var(--ed-accent-soft) !important;
+  font-weight: 700;
+}
+
+/* 図表: Serif キャプション */
+[data-theme="v7a"] figure,
+[data-theme="v7a"] .echart-wrap,
+[data-theme="v7a"] .chart-container {
+  margin: 5mm 0;
+  break-inside: avoid !important;
+  page-break-inside: avoid !important;
+}
+[data-theme="v7a"] figcaption {
+  font-family: var(--ed-sans);
+  font-size: 9pt; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ed-muted);
+  margin-top: 2mm;
+}
+
+/* severity 記号 */
+[data-theme="v7a"] .sev-good::before,
+[data-theme="v7a"] .severity-good::before {
+  content: "◯ "; font-weight: 700;
+}
+[data-theme="v7a"] .sev-warn::before,
+[data-theme="v7a"] .severity-warning::before {
+  content: "△ "; font-weight: 700;
+}
+[data-theme="v7a"] .sev-crit::before,
+[data-theme="v7a"] .severity-critical::before {
+  content: "× "; font-weight: 700; color: var(--ed-accent);
+}
+
+/* 注記・脚注 */
+[data-theme="v7a"] .notes-section,
+[data-theme="v7a"] .footnotes,
+[data-theme="v7a"] .glossary {
+  font-family: var(--ed-serif);
+  font-size: 9pt;
+  line-height: 1.7;
+  border-top: 0.5pt solid var(--ed-rule-light);
+  padding: 4mm 0; margin: 6mm 0;
+  color: var(--ed-muted);
+}
+
+@media print {
+  [data-theme="v7a"] {
+    background: var(--ed-paper);
+  }
+  @page {
+    size: A4 portrait;
+    margin: 14mm 14mm;
+  }
+  [data-theme="v7a"] figure,
+  [data-theme="v7a"] .echart-wrap,
+  [data-theme="v7a"] .chart-container,
+  [data-theme="v7a"] table.data-table,
+  [data-theme="v7a"] table.ledger,
+  [data-theme="v7a"] .exec-kpi-grid-v2,
+  [data-theme="v7a"] .kpi-emphasized-wrap {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  [data-theme="v7a"] h2,
+  [data-theme="v7a"] h3 {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+}
+"#.to_string()
 }
