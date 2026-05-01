@@ -164,6 +164,65 @@ fn setup_flow_db() -> (NamedTempFile, LocalDb) {
         INSERT INTO v2_flow_mesh1km_2019 VALUES
             (1000, 7, 1, 0, 2019, 13, 13101, 200),
             (1001, 7, 1, 0, 2019, 13, 13101, 100);
+
+        -- 2026-05-01 CTAS 戻し対応: v2_flow_city_agg / v2_flow_mesh3km_agg を本番と同 schema で作成。
+        -- 値は上記 mesh1km の dayflag IN (0,1) AND timezone IN (0,1) で SUM(population) した
+        -- 期待集計値を直接投入し、CTAS-基ベース関数の結果を逆証明する。
+        CREATE TABLE v2_flow_city_agg (
+            citycode INTEGER NOT NULL,
+            year     INTEGER NOT NULL,
+            month    TEXT    NOT NULL,
+            dayflag  INTEGER NOT NULL,
+            timezone INTEGER NOT NULL,
+            pop_sum  REAL    NOT NULL,
+            mesh_count INTEGER NOT NULL,
+            PRIMARY KEY (citycode, year, month, dayflag, timezone)
+        );
+        -- citycode=13101, 2021/07 の各 (dayflag, timezone) 集計値
+        --   (0,0): mesh1000(10)+mesh1001(5) = 15, mesh_count=2
+        --   (0,1): mesh1000(20)             = 20, mesh_count=1
+        --   (1,0): mesh1000(100)+mesh1001(40) = 140, mesh_count=2
+        --   (1,1): mesh1000(50)+mesh1001(20) = 70, mesh_count=2
+        --   double count 値 (dayflag=2 or timezone=2) は CTAS では集計値として
+        --   別レコードで保持される設計だが、テストでは Raw 値のみ確認したいので含めない
+        -- citycode=13102, 2021/07/(1,0): mesh1002(60) = 60, mesh_count=1
+        -- citycode=13101, 2019/07/(1,0): mesh1000(200)+mesh1001(100) = 300, mesh_count=2
+        INSERT INTO v2_flow_city_agg VALUES
+            -- Raw 値 (dayflag IN 0,1 AND timezone IN 0,1)
+            (13101, 2021, '07', 0, 0,  15.0, 2),
+            (13101, 2021, '07', 0, 1,  20.0, 1),
+            (13101, 2021, '07', 1, 0, 140.0, 2),
+            (13101, 2021, '07', 1, 1,  70.0, 2),
+            -- 集計値 (dayflag=2 or timezone=2): mesh1km source の事前計算済値を CTAS に保持
+            -- mesh1000 のみが集計値行を持つ (mesh1001/1002 には dayflag=2 / timezone=2 行なし)
+            (13101, 2021, '07', 0, 2,  30.0, 1), -- 休日終日: mesh1000(30)
+            (13101, 2021, '07', 1, 2, 150.0, 1), -- 平日終日: mesh1000(150)
+            (13101, 2021, '07', 2, 0, 110.0, 1), -- 全日昼: mesh1000(110)
+            (13101, 2021, '07', 2, 1,  70.0, 1), -- 全日深夜: mesh1000(70)
+            (13101, 2021, '07', 2, 2, 180.0, 1), -- 全日終日: mesh1000(180)
+            -- citycode=13102, 13101/2019 は raw 値のみ
+            (13102, 2021, '07', 1, 0,  60.0, 1),
+            (13101, 2019, '07', 1, 0, 300.0, 2);
+
+        CREATE TABLE v2_flow_mesh3km_agg (
+            mesh3kmid_approx INTEGER NOT NULL,
+            year     INTEGER NOT NULL,
+            month    TEXT    NOT NULL,
+            dayflag  INTEGER NOT NULL,
+            timezone INTEGER NOT NULL,
+            pop_sum  REAL    NOT NULL,
+            PRIMARY KEY (mesh3kmid_approx, year, month, dayflag, timezone)
+        );
+        -- mesh1kmid 1000/1001/1002 はいずれも /1000 = 1 で mesh3kmid_approx=1 に集約される。
+        -- 2021/07/(1,0): mesh1000(100)+mesh1001(40)+mesh1002(60) = 200
+        -- 2021/07/(0,0): mesh1000(10)+mesh1001(5) = 15
+        -- 2021/07/(0,1): mesh1000(20) = 20
+        -- 2021/07/(1,1): mesh1000(50)+mesh1001(20) = 70
+        INSERT INTO v2_flow_mesh3km_agg VALUES
+            (1, 2021, '07', 0, 0,  15.0),
+            (1, 2021, '07', 0, 1,  20.0),
+            (1, 2021, '07', 1, 0, 200.0),
+            (1, 2021, '07', 1, 1,  70.0);
         "#,
     )
     .unwrap();

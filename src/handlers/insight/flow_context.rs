@@ -48,15 +48,10 @@ pub fn build_flow_context(
     }
 
     let citycode = fetch_citycode(db, pref, muni)?;
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // `v2_flow_city_agg` 未作成のため、代替として `v2_flow_mesh1km_YYYY` の存在を確認。
-    // いずれか1年でもあればOK（fallback SQL が該当年のみ叩く）。
-    let flow_available = super::super::helpers::table_exists(db, "v2_flow_mesh1km_2019")
-        || super::super::helpers::table_exists(db, "v2_flow_mesh1km_2020")
-        || super::super::helpers::table_exists(db, "v2_flow_mesh1km_2021")
-        // Turso専用環境（ローカルDB未配備）では table_exists が全て false のため、
-        // turso が渡されていれば存在と見なしクエリに委ねる
-        || turso.is_some();
+    // 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接存在チェック。
+    // Turso 専用環境では turso が渡された時点で存在と見なしクエリに委ねる。
+    let flow_available =
+        super::super::helpers::table_exists(db, "v2_flow_city_agg") || turso.is_some();
     if !flow_available {
         return None;
     }
@@ -134,27 +129,26 @@ fn calc_ratio_from_profile(
     dayflag_b: i32,
     timezone_b: i32,
 ) -> Option<f64> {
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // `v2_flow_city_agg` 未作成のため、年別 mesh1km 生テーブルから動的集計する。
-    let table = match super::super::jobmap::flow::resolve_table_by_year(year) {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    let sql = format!(
-        "SELECT dayflag, timezone, SUM(population) as total \
-         FROM {table} \
-         WHERE citycode = ?1 \
-           AND ((dayflag = ?2 AND timezone = ?3) OR (dayflag = ?4 AND timezone = ?5)) \
-         GROUP BY dayflag, timezone"
-    );
+    // 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接参照。
+    if super::super::jobmap::flow::resolve_table_by_year(year).is_err() {
+        return None;
+    }
+    let sql = "SELECT dayflag, timezone, SUM(pop_sum) as total \
+               FROM v2_flow_city_agg \
+               WHERE citycode = ?1 AND year = ?2 \
+                 AND ((dayflag = ?3 AND timezone = ?4) OR (dayflag = ?5 AND timezone = ?6)) \
+               GROUP BY dayflag, timezone";
     let params = vec![
         citycode.to_string(),
+        year.to_string(),
         dayflag_a.to_string(),
         timezone_a.to_string(),
         dayflag_b.to_string(),
         timezone_b.to_string(),
     ];
-    let rows = super::super::analysis::fetch::query_turso_or_local(turso, db, &sql, &params, table);
+    let rows = super::super::analysis::fetch::query_turso_or_local(
+        turso, db, sql, &params, "v2_flow_city_agg",
+    );
     let mut num = 0.0;
     let mut den = 0.0;
     for r in &rows {
@@ -198,24 +192,21 @@ fn calc_diff_region_ratio(inflow_breakdown: &[Row]) -> Option<f64> {
 
 /// コロナ期回復率（2021年9月 / 2019年9月、平日昼）
 fn calc_covid_recovery(db: &Db, turso: Option<&TursoDb>, citycode: i64) -> Option<f64> {
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // `v2_flow_city_agg` 未作成のため 2019/2021 の mesh1km 生テーブルを UNION ALL で動的集計。
-    // 平日昼（dayflag=1, timezone=0）のみ。double count 回避のため集計値(=2)は含めない。
-    let sql = "\
-        SELECT 2019 AS year, SUM(population) AS total \
-          FROM v2_flow_mesh1km_2019 \
-          WHERE citycode = ?1 AND month = '09' AND dayflag = 1 AND timezone = 0 \
-        UNION ALL \
-        SELECT 2021 AS year, SUM(population) AS total \
-          FROM v2_flow_mesh1km_2021 \
-          WHERE citycode = ?1 AND month = '09' AND dayflag = 1 AND timezone = 0";
+    // 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接参照。
+    // 平日昼 (dayflag=1, timezone=0) × 9 月 × 2019/2021 のピンポイント。
+    let sql = "SELECT year, pop_sum AS total \
+               FROM v2_flow_city_agg \
+               WHERE citycode = ?1 \
+                 AND year IN (2019, 2021) \
+                 AND month = '09' \
+                 AND dayflag = 1 AND timezone = 0";
     let params = vec![citycode.to_string()];
     let rows = super::super::analysis::fetch::query_turso_or_local(
         turso,
         db,
         sql,
         &params,
-        "v2_flow_mesh1km_2019",
+        "v2_flow_city_agg",
     );
     let mut y2019 = 0.0;
     let mut y2021 = 0.0;
