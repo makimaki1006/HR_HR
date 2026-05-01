@@ -150,6 +150,76 @@ impl ReportVariant {
     }
 }
 
+/// テーマ別 CSS を生成 (2026-05-01 追加)
+///
+/// マークアップは共通で CSS のみ差し替えるため、各テーマは既存 CSS の **後ろに** 追加する形で
+/// ルールを上書きする。これにより既存挙動 (Default) は完全維持され、テーマ指定時のみ
+/// 上書きが効く。
+fn render_css_for_theme(theme: ReportTheme) -> String {
+    let mut css = style::render_css();
+    match theme {
+        ReportTheme::Default => {}
+        ReportTheme::V8WorkingPaper => css.push_str(&style::render_theme_v8_workingpaper()),
+        ReportTheme::V7aEditorial => css.push_str(&style::render_theme_v7a_editorial()),
+    }
+    css
+}
+
+/// レポートデザインテーマ (2026-05-01 追加)
+///
+/// 同じ CSV 分析結果を異なるデザインで出力するための切替軸。
+/// `ReportVariant` (内容の出し分け) と直交する軸として共存する。
+///
+/// マークアップ構造はテーマに関わらず共通。CSS のみで見た目を切り替えるため、
+/// テストはテーマごとに走らせる必要はなく、Default テーマで担保する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportTheme {
+    /// 既存スタイル (デフォルト)
+    Default,
+    /// Statistical Working Paper 風 (Noto Serif JP + 勝色 + 罫線 severity)
+    V8WorkingPaper,
+    /// Editorial 風
+    V7aEditorial,
+}
+
+impl ReportTheme {
+    /// クエリ文字列から ReportTheme を解決
+    pub fn from_query(s: Option<&str>) -> Self {
+        match s {
+            Some("v8") | Some("v8_workingpaper") => Self::V8WorkingPaper,
+            Some("v7a") | Some("v7a_editorial") => Self::V7aEditorial,
+            _ => Self::Default,
+        }
+    }
+
+    /// クエリ文字列に変換 (URL 切替リンク用)
+    pub fn as_query(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::V8WorkingPaper => "v8",
+            Self::V7aEditorial => "v7a",
+        }
+    }
+
+    /// 表示名
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Default => "標準デザイン",
+            Self::V8WorkingPaper => "Working Paper 版",
+            Self::V7aEditorial => "Editorial 版",
+        }
+    }
+
+    /// 短い説明
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Default => "既存のレポートデザイン",
+            Self::V8WorkingPaper => "公的統計報告書スタイル (Noto Serif JP + 勝色 + 罫線 severity)",
+            Self::V7aEditorial => "編集記事スタイル (大見出し + 余白重視)",
+        }
+    }
+}
+
 /// バリアントインジケータ + 切替リンク HTML を生成
 ///
 /// 印刷レポート上部 (web view のみ表示) に「現在のバリアント表示 + 切替リンク」を出力。
@@ -383,6 +453,8 @@ pub(crate) fn render_survey_report_page_with_variant_v2(
 ///
 /// 業界フィルタが指定されている場合、salesnow_segments_industry に同業界版を渡す。
 /// 未指定の場合、`salesnow_segments_industry` は空 + `industry_filter` は None。
+///
+/// theme=Default で従来挙動。v8/v7a 等は CSS のみ差し替えで見た目を切替 (2026-05-01 追加)。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_survey_report_page_with_variant_v3(
     agg: &SurveyAggregation,
@@ -400,18 +472,62 @@ pub(crate) fn render_survey_report_page_with_variant_v3(
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
 ) -> String {
+    // 後方互換: theme 未指定の呼び出しは Default テーマ。
+    render_survey_report_page_with_variant_v3_themed(
+        agg,
+        seeker,
+        by_company,
+        by_emp_type_salary,
+        salary_min_values,
+        salary_max_values,
+        hw_context,
+        salesnow_companies,
+        salesnow_segments,
+        salesnow_segments_industry,
+        industry_filter,
+        hw_enrichment_map,
+        municipality_demographics,
+        variant,
+        ReportTheme::Default,
+    )
+}
+
+/// v3 + theme 対応版 (2026-05-01 追加)
+///
+/// 同じ CSV 分析結果を異なるデザインで出力するため、現場で見た目を比較可能にする。
+/// マークアップ構造は theme に依存せず共通。CSS だけが切り替わる。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_survey_report_page_with_variant_v3_themed(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    salesnow_segments: &super::super::company::fetch::RegionalCompanySegments,
+    salesnow_segments_industry: &super::super::company::fetch::RegionalCompanySegments,
+    industry_filter: Option<&str>,
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+    municipality_demographics: &[super::granularity::MunicipalityDemographics],
+    variant: ReportVariant,
+    theme: ReportTheme,
+) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
         .to_string();
     let mut html = String::with_capacity(64_000);
 
     // --- DOCTYPE + HEAD ---
-    html.push_str("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n");
+    html.push_str("<!DOCTYPE html>\n<html lang=\"ja\" data-theme=\"");
+    html.push_str(theme.as_query());
+    html.push_str("\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
     html.push_str("<title>求人市場 総合診断レポート</title>\n");
     html.push_str("<style>\n");
-    html.push_str(&render_css());
+    html.push_str(&render_css_for_theme(theme));
     html.push_str("</style>\n");
     // ECharts CDN
     html.push_str(

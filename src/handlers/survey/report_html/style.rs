@@ -2145,3 +2145,16 @@ table.data-table.wp-colorful tr.wp-self-row td:first-child {
 }
 "#.to_string()
 }
+
+/// V8 Working Paper テーマ (2026-05-01 追加, Step 1: 配管のみ)
+///
+/// このスタブは空文字列を返す。実際のテーマ CSS は次のコミットで追加する。
+/// 既存挙動 (Default) を完全維持しつつ、v3_themed 経由で呼び出される配管を成立させる。
+pub(super) fn render_theme_v8_workingpaper() -> String {
+    "/* V8 Working Paper theme: pending implementation (Step 1: piping only) */\n".to_string()
+}
+
+/// V7a Editorial テーマ (2026-05-01 追加, Step 1: 配管のみ)
+pub(super) fn render_theme_v7a_editorial() -> String {
+    "/* V7a Editorial theme: pending implementation (Step 1: piping only) */\n".to_string()
+}
