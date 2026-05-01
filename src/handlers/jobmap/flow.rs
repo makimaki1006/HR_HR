@@ -9,12 +9,11 @@
 //! - bbox → mesh1kmid 範囲クエリは `BETWEEN min_id AND max_id`（IN句爆発回避、ユーザー判断#4）
 //! - Turso / ローカルSQLite の両方に対応（`query_turso_or_local`）
 //!
-//! # CTAS 未作成期間の FALLBACK 実装（2026-04-22）
+//! # CTAS 戻し完了（2026-05-01 Turso 無料枠リセット後）
 //!
-//! Turso無料枠書き込み上限により `v2_flow_city_agg` / `v2_flow_mesh3km_agg` は
-//! 未作成。本モジュールは 2026-05-01 の無料枠リセットまで、`v2_flow_mesh1km_YYYY`
-//! 生テーブルから `GROUP BY` で動的集計する暫定実装を提供する。
-//! 各 FALLBACK 関数には `// FALLBACK: GROUP BY, replace with CTAS after May 1` を明記。
+//! `v2_flow_city_agg` / `v2_flow_mesh3km_agg` を Turso 投入完了し、
+//! `GROUP BY` 動的集計から事前集計テーブル参照に戻した。本番性能 ~10x 改善見込。
+//! `has_flow_table(db, "v2_flow_city_agg")` の早期 return も復活。
 //! 戻し手順は `docs/flow_ctas_restore.md` を参照。
 
 use super::super::helpers::{table_exists, Row};
@@ -35,19 +34,9 @@ pub fn resolve_table_by_year(year: i32) -> Result<&'static str, AggregateModeErr
     }
 }
 
-/// 年別テーブルが最低1つ Turso 側で利用可能か（ローカルは has_flow_table に依存）
-///
-/// 設計意図: Turso 専用環境ではローカル table_exists が常に false になるため、
-/// 現状は常に true を返して Turso 側のクエリに委ねる。clippy `overly_complex_bool_expr`
-/// は意図的に許可（将来 Turso 直接 table_exists 実装時にローカル + Turso のブール判定に戻す予定）。
-#[allow(clippy::overly_complex_bool_expr)]
-fn any_mesh1km_table_exists(db: &Db) -> bool {
-    table_exists(db, "v2_flow_mesh1km_2019")
-        || table_exists(db, "v2_flow_mesh1km_2020")
-        || table_exists(db, "v2_flow_mesh1km_2021")
-        // Turso専用環境（ローカルDBにv2_flow_*が無いがTursoに存在）のため常に true フォールバック。
-        || true
-}
+// 2026-05-01 CTAS 戻し: any_mesh1km_table_exists は CTAS 戻し後に未使用となり削除。
+// 各 CTAS ベース関数は table_exists(db, "v2_flow_city_agg" or "v2_flow_mesh3km_agg") で個別判定。
+// 生 mesh1km 参照の get_mesh_heatmap (z≥13) は has_flow_table(db, table) で年別判定継続。
 
 /// bbox内 mesh1km ヒートマップ取得（z≥13 用）
 ///
@@ -88,10 +77,9 @@ pub fn get_mesh_heatmap(
 
 /// mesh3km 集計ヒートマップ（z10-12 用）
 ///
-/// FALLBACK: GROUP BY, replace with CTAS after May 1
-///
-/// CTAS未作成のため mesh1km 生テーブルから `mesh1kmid / 1000` で近似3km集約を動的計算する。
-/// mesh_min/mesh_max は元実装と互換のため 3km 単位で受け取り、内部で ×1000 して mesh1km レンジに展開。
+/// 2026-05-01 CTAS 戻し: `v2_flow_mesh3km_agg` 直接参照。
+/// mesh_min/mesh_max は 3km 単位（呼び出し元が `/1000` 済み）でそのまま使用。
+/// `mode.where_clause()` で dayflag=2/timezone=2 double count 防御は維持。
 pub fn get_mesh3km_heatmap(
     db: &Db,
     turso: Option<&TursoDb>,
@@ -101,47 +89,38 @@ pub fn get_mesh3km_heatmap(
     month: i32,
     mode: AggregateMode,
 ) -> Vec<Row> {
-    let table = match resolve_table_by_year(year) {
-        Ok(t) => t,
-        Err(_) => return vec![],
-    };
-    if !any_mesh1km_table_exists(db) {
+    // 年バリデーション維持 (CTAS 内 year カラムでフィルタ)
+    if resolve_table_by_year(year).is_err() {
         return vec![];
     }
-    // mesh_min/max は 3km レンジ（呼び出し元が `/1000` 済み）。mesh1km レンジに戻す。
-    let mesh1km_min = mesh_min.saturating_mul(1000);
-    let mesh1km_max = mesh_max.saturating_mul(1000).saturating_add(999);
+    // CTAS 早期 return (Turso 専用環境では turso が渡された時点で存在と見なす)
+    if !table_exists(db, "v2_flow_mesh3km_agg") && turso.is_none() {
+        return vec![];
+    }
 
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
     let sql = format!(
-        "SELECT (mesh1kmid / 1000) as mesh3kmid_approx, \
-                CAST(? AS INTEGER) as year, \
-                month, dayflag, timezone, \
-                SUM(population) as pop_sum \
-         FROM {table} \
-         WHERE mesh1kmid BETWEEN ? AND ? \
-           AND month = ? \
+        "SELECT mesh3kmid_approx, year, month, dayflag, timezone, pop_sum \
+         FROM v2_flow_mesh3km_agg \
+         WHERE mesh3kmid_approx BETWEEN ?1 AND ?2 \
+           AND year = ?3 AND month = ?4 \
            AND {mode_where} \
-         GROUP BY mesh3kmid_approx, month, dayflag, timezone \
          ORDER BY mesh3kmid_approx",
         mode_where = mode.where_clause()
     );
     let params = vec![
+        mesh_min.to_string(),
+        mesh_max.to_string(),
         year.to_string(),
-        mesh1km_min.to_string(),
-        mesh1km_max.to_string(),
         format!("{:02}", month),
     ];
-    query_db(db, turso, &sql, &params, table)
+    query_db(db, turso, &sql, &params, "v2_flow_mesh3km_agg")
 }
 
 /// city_agg 集計ヒートマップ（z≤9 用）
 ///
-/// FALLBACK: GROUP BY, replace with CTAS after May 1
-///
-/// `v2_flow_city_agg` 未作成のため `v2_flow_mesh1km_YYYY` から動的集計。
-/// `AggregateMode::from_params(dayflag, timezone)` で不正組合せを遮断し、
-/// `mode.where_clause()` により dayflag=2 と生値(0,1) の double count を防ぐ。
+/// 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接参照。
+/// `AggregateMode::from_params(dayflag, timezone)` で不正組合せを遮断は維持。
+/// CTAS 投入時点で dayflag/timezone は正規化済 (0/1/2 の値で各レコード保持)。
 pub fn get_city_agg(
     db: &Db,
     turso: Option<&TursoDb>,
@@ -150,142 +129,94 @@ pub fn get_city_agg(
     dayflag: i32,
     timezone: i32,
 ) -> Vec<Row> {
-    let table = match resolve_table_by_year(year) {
-        Ok(t) => t,
-        Err(_) => return vec![],
-    };
+    // 年バリデーション維持
+    if resolve_table_by_year(year).is_err() {
+        return vec![];
+    }
     // dayflag/timezone の double count 防御（入力検証）
-    let mode = match AggregateMode::from_params(dayflag, timezone) {
-        Ok(m) => m,
-        Err(_) => return vec![],
-    };
-    if !any_mesh1km_table_exists(db) {
+    if AggregateMode::from_params(dayflag, timezone).is_err() {
+        return vec![];
+    }
+    // CTAS 早期 return
+    if !table_exists(db, "v2_flow_city_agg") && turso.is_none() {
         return vec![];
     }
 
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // mesh_count は元 CTAS のカラムと互換を保つため COUNT(DISTINCT mesh1kmid) で再現。
-    //
-    // BUG FIX 2026-04-23:
-    //   mode.where_clause() は double count 防御 (dayflag=2 混入禁止) のためで、
-    //   特定の (dayflag, timezone) スライスに絞り込むためではない。
-    //   以前は `dayflag IN (0,1) AND timezone IN (0,1)` で Raw モード 4 組合せ全行を返し
-    //   GROUP BY で 1 citycode につき 4 行が返る不具合。
-    //   API 契約通り (dayflag, timezone) specific でフィルタするよう修正。
-    //   不正組合せは上部の AggregateMode::from_params で既に遮断済み。
-    let _ = mode; // validation のみ使用
-    let sql = format!(
-        "SELECT citycode, \
-                CAST(? AS INTEGER) as year, \
-                month, dayflag, timezone, \
-                SUM(population) as pop_sum, \
-                COUNT(DISTINCT mesh1kmid) as mesh_count \
-         FROM {table} \
-         WHERE month = ? AND dayflag = ? AND timezone = ? \
-         GROUP BY citycode, month, dayflag, timezone \
-         ORDER BY citycode"
-    );
+    let sql = "SELECT citycode, year, month, dayflag, timezone, pop_sum, mesh_count \
+               FROM v2_flow_city_agg \
+               WHERE year = ?1 AND month = ?2 AND dayflag = ?3 AND timezone = ?4 \
+               ORDER BY citycode";
     let params = vec![
         year.to_string(),
         format!("{:02}", month),
         dayflag.to_string(),
         timezone.to_string(),
     ];
-    query_db(db, turso, &sql, &params, table)
+    query_db(db, turso, sql, &params, "v2_flow_city_agg")
 }
 
 /// 地域カルテ用: 時間帯プロファイル（citycode内のmonth×dayflag×timezone集計）
 ///
-/// FALLBACK: GROUP BY, replace with CTAS after May 1
-///
-/// 単一 citycode 絞り込みのため `idx_mesh1km_YYYY_city(citycode, month, dayflag, timezone)` が効き高速。
+/// 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接参照、生値 (dayflag IN (0,1) AND timezone IN (0,1)) のみ。
 pub fn get_karte_profile(db: &Db, turso: Option<&TursoDb>, citycode: i64, year: i32) -> Vec<Row> {
-    let table = match resolve_table_by_year(year) {
-        Ok(t) => t,
-        Err(_) => return vec![],
-    };
-    if !any_mesh1km_table_exists(db) {
+    if resolve_table_by_year(year).is_err() {
+        return vec![];
+    }
+    if !table_exists(db, "v2_flow_city_agg") && turso.is_none() {
         return vec![];
     }
 
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // 生値(dayflag IN (0,1) AND timezone IN (0,1))のみ集計し double count を回避。
-    let sql = format!(
-        "SELECT month, dayflag, timezone, SUM(population) as pop_sum \
-         FROM {table} \
-         WHERE citycode = ? \
-           AND dayflag IN (0,1) AND timezone IN (0,1) \
-         GROUP BY month, dayflag, timezone \
-         ORDER BY month, dayflag, timezone"
-    );
-    let params = vec![citycode.to_string()];
-    query_db(db, turso, &sql, &params, table)
+    let sql = "SELECT month, dayflag, timezone, pop_sum \
+               FROM v2_flow_city_agg \
+               WHERE citycode = ?1 AND year = ?2 \
+                 AND dayflag IN (0,1) AND timezone IN (0,1) \
+               ORDER BY month, dayflag, timezone";
+    let params = vec![citycode.to_string(), year.to_string()];
+    query_db(db, turso, sql, &params, "v2_flow_city_agg")
 }
 
 /// 36ヶ月時系列（地域カルテ用、コロナ期markArea用）
 ///
-/// FALLBACK: GROUP BY, replace with CTAS after May 1
-///
-/// 2019-2021 × 平日昼(dayflag=1, timezone=0)のみを 3年分 UNION ALL で結合。
-/// 各年テーブルで `idx_mesh1km_YYYY_city` が利用可能。
+/// 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接参照、3 年 (2019-2021) × 12 ヶ月 × 平日昼 (dayflag=1, timezone=0) のみ。
 pub fn get_karte_monthly_trend(db: &Db, turso: Option<&TursoDb>, citycode: i64) -> Vec<Row> {
-    if !any_mesh1km_table_exists(db) {
+    if !table_exists(db, "v2_flow_city_agg") && turso.is_none() {
         return vec![];
     }
 
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // 3年テーブルを UNION ALL（同一citycode絞込でI/O最小）。
-    let sql = "\
-        SELECT year, month, SUM(pop_sum) AS pop_sum FROM ( \
-            SELECT 2019 AS year, month, SUM(population) AS pop_sum \
-              FROM v2_flow_mesh1km_2019 \
-              WHERE citycode = ?1 AND dayflag = 1 AND timezone = 0 \
-              GROUP BY month \
-            UNION ALL \
-            SELECT 2020 AS year, month, SUM(population) AS pop_sum \
-              FROM v2_flow_mesh1km_2020 \
-              WHERE citycode = ?1 AND dayflag = 1 AND timezone = 0 \
-              GROUP BY month \
-            UNION ALL \
-            SELECT 2021 AS year, month, SUM(population) AS pop_sum \
-              FROM v2_flow_mesh1km_2021 \
-              WHERE citycode = ?1 AND dayflag = 1 AND timezone = 0 \
-              GROUP BY month \
-        ) \
-        GROUP BY year, month \
-        ORDER BY year, month";
+    let sql = "SELECT year, month, pop_sum \
+               FROM v2_flow_city_agg \
+               WHERE citycode = ?1 \
+                 AND year IN (2019, 2020, 2021) \
+                 AND dayflag = 1 AND timezone = 0 \
+               ORDER BY year, month";
     let params = vec![citycode.to_string()];
-    // local_table_check に代表テーブル名を渡す（いずれか1つでも欠損なら空返却）
-    query_db(db, turso, sql, &params, "v2_flow_mesh1km_2019")
+    query_db(db, turso, sql, &params, "v2_flow_city_agg")
 }
 
 /// 昼夜比: 市区町村の平日昼滞在 / 夜間滞在
 ///
-/// FALLBACK: GROUP BY, replace with CTAS after May 1
+/// 2026-05-01 CTAS 戻し: `v2_flow_city_agg` 直接参照。
+/// 平日 (dayflag=1) × 昼/夜 (timezone IN (0,1))。集計値 timezone=2 は含めない (double count 防御)。
 pub fn get_karte_daynight_ratio(
     db: &Db,
     turso: Option<&TursoDb>,
     citycode: i64,
     year: i32,
 ) -> Option<f64> {
-    let table = match resolve_table_by_year(year) {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    if !any_mesh1km_table_exists(db) {
+    if resolve_table_by_year(year).is_err() {
+        return None;
+    }
+    if !table_exists(db, "v2_flow_city_agg") && turso.is_none() {
         return None;
     }
 
-    // FALLBACK: GROUP BY, replace with CTAS after May 1
-    // 平日(dayflag=1) × 昼/夜(timezone IN (0,1))のみ。集計値 timezone=2 は含めない（double count防御）。
-    let sql = format!(
-        "SELECT timezone, SUM(population) as total \
-         FROM {table} \
-         WHERE citycode = ? AND dayflag = 1 AND timezone IN (0,1) \
-         GROUP BY timezone"
-    );
-    let params = vec![citycode.to_string()];
-    let rows = query_db(db, turso, &sql, &params, table);
+    let sql = "SELECT timezone, SUM(pop_sum) as total \
+               FROM v2_flow_city_agg \
+               WHERE citycode = ?1 AND year = ?2 \
+                 AND dayflag = 1 AND timezone IN (0,1) \
+               GROUP BY timezone";
+    let params = vec![citycode.to_string(), year.to_string()];
+    let rows = query_db(db, turso, sql, &params, "v2_flow_city_agg");
     if rows.len() < 2 {
         return None;
     }
