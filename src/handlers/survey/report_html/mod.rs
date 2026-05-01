@@ -150,6 +150,67 @@ impl ReportVariant {
     }
 }
 
+/// テーマ切替インジケータ + 全 3 テーマ (default / v8 / v7a) への切替リンクを生成。
+///
+/// 現在のテーマを表示し、他の 2 テーマへ切替できるリンクを並べる。
+/// `?theme=` クエリパラメータのみ書き換え、他のクエリ (session_id 等) は保持。
+/// 印刷時は `.no-print` クラスで非表示。
+fn render_theme_indicator(current: ReportTheme) -> String {
+    let all = [
+        ReportTheme::Default,
+        ReportTheme::V8WorkingPaper,
+        ReportTheme::V7aEditorial,
+    ];
+    let mut html = String::with_capacity(1_500);
+    html.push_str(
+        "<div class=\"theme-indicator no-print\" role=\"region\" aria-label=\"レポートデザインテーマ切替\" \
+         style=\"max-width:880px;margin:8px auto;padding:10px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;font-size:13px;\">\n"
+    );
+    html.push_str(&format!(
+        "<div style=\"display:flex;align-items:center;gap:12px;flex-wrap:wrap;\">\n\
+         <span><strong>デザインテーマ:</strong> 現在 <strong style=\"color:#1e3a8a;\">{name}</strong> ({desc})</span>\n",
+        name = escape_html(current.display_name()),
+        desc = escape_html(current.description()),
+    ));
+    html.push_str("<span aria-hidden=\"true\" style=\"color:#94a3b8;\">|</span>\n");
+    html.push_str("<span>切替:</span>\n");
+    for t in all {
+        if t == current {
+            html.push_str(&format!(
+                "<span style=\"padding:3px 10px;border-radius:4px;background:#1e3a8a;color:#fff;font-weight:700;\">{name}</span>\n",
+                name = escape_html(t.display_name()),
+            ));
+        } else {
+            html.push_str(&format!(
+                "<a href=\"?theme={tq}\" data-target-theme=\"{tq}\" \
+                 onclick=\"switchReportTheme(event,'{tq}')\" \
+                 aria-label=\"テーマを{name}に切替\" \
+                 style=\"padding:3px 10px;border-radius:4px;background:#fff;color:#1e3a8a;border:1px solid #cbd5e1;text-decoration:none;\">{name}</a>\n",
+                tq = t.as_query(),
+                name = escape_html(t.display_name()),
+            ));
+        }
+    }
+    html.push_str("</div>\n</div>\n");
+    // テーマ切替スクリプト: variant と同様に他のクエリパラメータを保持しつつ theme のみ書き換え
+    html.push_str(
+        "<script>\n\
+         function switchReportTheme(ev, target) {\n\
+           if (ev) ev.preventDefault();\n\
+           try {\n\
+             var url = new URL(window.location.href);\n\
+             url.searchParams.set('theme', target);\n\
+             window.location.href = url.toString();\n\
+           } catch (e) {\n\
+             window.location.search = '?theme=' + encodeURIComponent(target);\n\
+           }\n\
+           return false;\n\
+         }\n\
+         </script>\n",
+    );
+    html
+}
+
 /// テーマ別 CSS を生成 (2026-05-01 追加)
 ///
 /// マークアップは共通で CSS のみ差し替えるため、各テーマは既存 CSS の **後ろに** 追加する形で
@@ -544,6 +605,10 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // --- バリアントインジケータ + 切替リンク (2026-04-29) ---
     // web view では現在のバリアントと切替リンクを表示。印刷時は .no-print で非表示。
     html.push_str(&render_variant_indicator(variant));
+
+    // --- テーマ切替リンク (2026-05-01) ---
+    // 現場で旧/新デザインを比較できるよう、3 テーマ (default / v8 / v7a) を切替可能にする。
+    html.push_str(&render_theme_indicator(theme));
 
     // --- 表紙ページ (Section 0 / 仕様書 7.2) ---
     // 2026-04-24: 「競合調査分析」文言を全削除。タイトルは「求人市場 総合診断レポート」に統一。
