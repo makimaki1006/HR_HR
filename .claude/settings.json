@@ -1,0 +1,38 @@
+{
+  "$comment": "hellowork-deploy プロジェクト限定の Claude Code hooks。詳細は .claude/hooks/README.md 参照。python -X utf8 で Windows での日本語 stdout/stderr 化けを防止。",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_completion_claim.py"},
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_verification_claim.py"},
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_reverse_proof_response.py"},
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_failure_patterns.py"}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_pre_push.py"}
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_db_write.py"}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {"type": "command", "command": "python -X utf8 .claude/hooks/inject_reverse_proof_context.py"}
+        ]
+      }
+    ]
+  }
+}
