@@ -220,6 +220,12 @@ pub struct IntegrateQuery {
     pub pref: Option<String>,
     /// グローバルフィルタの市区町村上書き (2026-04-29 追加)
     pub muni: Option<String>,
+    /// レポートデザインテーマ切替 (2026-05-01 追加)
+    /// - 未指定 / `default`: 既存スタイル
+    /// - `v8`: Statistical Working Paper 風
+    /// - `v7a`: Editorial 風
+    /// 同じ CSV 分析結果を異なるデザインで出力するため、現場で見た目を比較できる。
+    pub theme: Option<String>,
 }
 
 /// 統合レポート生成
@@ -695,7 +701,9 @@ pub async fn survey_report_html(
     let _ = (&pref, &muni);
     // 2026-04-29: variant 切替 (?variant=full|public)
     let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
-    let html = super::report_html::render_survey_report_page_with_variant_v3(
+    // 2026-05-01: theme 切替 (?theme=v8|v7a|default)
+    let theme = super::report_html::ReportTheme::from_query(query.theme.as_deref());
+    let html = super::report_html::render_survey_report_page_with_variant_v3_themed(
         &agg,
         &seeker,
         &by_company,
@@ -710,6 +718,7 @@ pub async fn survey_report_html(
         &hw_enrichment_map,
         &municipality_demographics,
         variant,
+        theme,
     );
 
     Html(html)
