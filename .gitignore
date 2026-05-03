@@ -47,6 +47,7 @@ check_*.png
 d??_*.png
 # 例外: ドキュメント・ガイド用 PNG はコミット対象
 !docs/screenshots/*.png
+!docs/audit_*/*.png
 !static/guide/*.png
 
 # Test mocks (CSV upload tests)

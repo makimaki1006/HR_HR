@@ -1,0 +1,41 @@
+{
+  "theme": "default",
+  "url": "https://hr-hw.onrender.com/report/survey?session_id=s_a1d8f558-9fc6-48ef-b2b1-e66c965a458e&variant=full&theme=default",
+  "themeAttr": "default",
+  "bodyFont": "\"Hiragino Kaku Gothic ProN\", Meiryo, \"Noto Sans JP\", sans-serif",
+  "bodyBg": "rgb(255, 255, 255)",
+  "h1Style": {
+    "text": "求人市場\n総合診断レポート",
+    "fontSize": "53.3333px",
+    "borderTop": "0px none rgb(30, 41, 59)",
+    "color": "rgb(30, 41, 59)"
+  },
+  "h2Style": {
+    "text": "第3章 地域 × HW データ連携",
+    "borderTop": "0px none rgb(30, 58, 138)",
+    "borderBottom": "2px solid rgb(30, 58, 138)",
+    "fontSize": "24px",
+    "color": "rgb(30, 58, 138)"
+  },
+  "theadCount": 20,
+  "theadAudit": [
+    {"idx": 0, "bgTr": "rgb(229, 231, 235)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "(no-class)"},
+    {"idx": 1, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(30, 58, 138)", "colorTh": "rgb(255, 255, 255)", "tableClass": "hw-enrichment-table report-zebra"},
+    {"idx": 2, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"},
+    {"idx": 3, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"},
+    {"idx": 4, "bgTr": "rgb(238, 242, 255)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "(no-class)"},
+    {"idx": 5, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"},
+    {"idx": 6, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"},
+    {"idx": 7, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"},
+    {"idx": 8, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"},
+    {"idx": 9, "bgTr": "rgba(0, 0, 0, 0)", "bgTh": "rgb(227, 242, 253)", "colorTh": "rgb(30, 58, 138)", "tableClass": "sortable-table zebra"}
+  ],
+  "kpiAudit": [
+    {"cls": "kpi-good", "borderTop": "0.666667px solid rgb(226, 232, 240)", "bg": "rgb(248, 250, 252)", "color": "rgb(15, 23, 42)"},
+    {"cls": "kpi-warn", "borderTop": "0.666667px solid rgb(226, 232, 240)", "bg": "rgb(248, 250, 252)", "color": "rgb(15, 23, 42)"},
+    {"cls": "kpi-crit", "borderTop": "0.666667px solid rgb(226, 232, 240)", "bg": "rgb(248, 250, 252)", "color": "rgb(15, 23, 42)"}
+  ],
+  "secStyle": null,
+  "indicatorPresent": true,
+  "indicatorText": "デザインテーマ: 現在 標準デザイン (既存のレポートデザイン)\n|\n切替:\n標準デザイン\nWorking Paper 版\nEditorial 版"
+}
