@@ -18,17 +18,58 @@ Worker A 設計で投入予定の `v2_external_commute_od_with_codes` (JIS 5 桁
 
 ---
 
-## 2. DDL 案
+## 2. DDL 案 (v2: area_type / area_level 対応版、2026-05-04 改訂)
+
+### 2.0 改訂理由
+
+Worker A 改修で投入される `v2_external_commute_od_with_codes` には、e-Stat の cdArea 仕様により以下のような **集約地域コード** が含まれる可能性がある:
+- `13100` = 「特別区部」 (東京 23 区を集約した擬似自治体)
+- `01100` = 「札幌市」 (政令市本体、`endswith("000")` でないため除外されない)
+- `27100` = 「大阪市」 (同上)
+
+これらと通常の市区町村 (`01101` 札幌市中央区等) を **明示的に区別する分類カラム** が必要。
+
+### 2.1 area_level / area_type 定義
+
+| `area_type` | `area_level` | 説明 | コード例 |
+|-----------|------------|------|---------|
+| `municipality` | `unit` | 一般市/町/村 (政令市・特別区以外) | `13201` 八王子市、`24202` 四日市市 |
+| `designated_ward` | `unit` | 政令指定都市の区 | `01101` 札幌市中央区、`27102` 大阪市都島区 |
+| `special_ward` | `unit` | 東京都特別区 (23 区) | `13101` 千代田区〜`13123` 江戸川区 |
+| `aggregate_city` | `aggregate` | 政令市本体 (区を束ねた集約) | `01100` 札幌市、`27100` 大阪市 |
+| `aggregate_special_wards` | `aggregate` | 特別区部 (23 区を束ねた集約) | `13100` 特別区部 |
+
+**area_level**:
+- `unit`: 集計の最小単位 (1 行 = 1 自治体)
+- `aggregate`: 複数 unit を束ねた集約地域 (区計 / 市本体)
+
+**集計時の使い分け**:
+- 純粋な市区町村単位の分析: `WHERE area_level = 'unit'`
+- 都市単位 (政令市を 1 行で扱う): `WHERE area_type IN ('municipality', 'special_ward', 'aggregate_city')` (区を捨て、市本体を採用)
+- 全データ: フィルタなし (集約と単位の両方を保持)
+
+### 2.2 DDL
 
 ```sql
 CREATE TABLE IF NOT EXISTS municipality_code_master (
-    municipality_code TEXT PRIMARY KEY,           -- JIS 5 桁 (例: '01101' = 札幌市中央区)
+    municipality_code TEXT PRIMARY KEY,           -- JIS 5 桁 [正本キー]
     prefecture TEXT NOT NULL,                     -- 表示用都道府県名
-    municipality_name TEXT NOT NULL,              -- 表示用市区町村名 (政令市の区含む)
-    pref_code TEXT NOT NULL,                      -- 上位 2 桁 (= prefecture FK 用)
-    -- 分類フラグ (将来の絞り込み用)
-    is_special_ward INTEGER NOT NULL DEFAULT 0,   -- 1=東京都特別区 (千代田区等)
-    is_designated_ward INTEGER NOT NULL DEFAULT 0,-- 1=政令指定都市の区 (札幌市中央区等)
+    municipality_name TEXT NOT NULL,              -- 表示用市区町村名
+    pref_code TEXT NOT NULL,                      -- 上位 2 桁 (47 都道府県フィルタ用)
+    -- 分類 (Worker B1 改訂: area_type / area_level 追加)
+    area_type TEXT NOT NULL CHECK (area_type IN (
+        'municipality',
+        'designated_ward',
+        'special_ward',
+        'aggregate_city',
+        'aggregate_special_wards'
+    )),
+    area_level TEXT NOT NULL CHECK (area_level IN ('unit', 'aggregate')),
+    -- 旧フラグ (後方互換、area_type から派生)
+    is_special_ward INTEGER NOT NULL DEFAULT 0,   -- area_type='special_ward' なら 1
+    is_designated_ward INTEGER NOT NULL DEFAULT 0,-- area_type='designated_ward' なら 1
+    -- 集約と unit の親子関係 (オプション、aggregate のみ NULL 以外)
+    parent_code TEXT,                             -- unit 行が aggregate に属する場合の親 code
     -- メタ情報
     source TEXT NOT NULL DEFAULT 'estat_commute_od',
     source_year INTEGER NOT NULL DEFAULT 2020,
@@ -36,33 +77,78 @@ CREATE TABLE IF NOT EXISTS municipality_code_master (
 );
 
 -- 逆引き高速化: (prefecture, municipality_name) → code
+-- 注意: 同一 prefecture 内で同名は禁止だが、aggregate と unit が同名のことはない
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mcm_pref_muni
 ON municipality_code_master (prefecture, municipality_name);
 
 -- 都道府県別フィルタ
 CREATE INDEX IF NOT EXISTS idx_mcm_pref_code
 ON municipality_code_master (pref_code);
+
+-- area_type / area_level 別フィルタ (Step 5 各テーブルで頻用される想定)
+CREATE INDEX IF NOT EXISTS idx_mcm_area_type ON municipality_code_master (area_type);
+CREATE INDEX IF NOT EXISTS idx_mcm_area_level ON municipality_code_master (area_level);
+
+-- 親 (aggregate) → 子 (unit) 検索
+CREATE INDEX IF NOT EXISTS idx_mcm_parent ON municipality_code_master (parent_code);
 ```
 
-### 2.1 設計メモ
+### 2.3 設計メモ
 
 | カラム | 型 | 用途 |
 |--------|---|------|
-| `municipality_code` | TEXT (PK) | 5 桁 JIS。先頭 2 桁が都道府県、後 3 桁が市区町村+区 |
+| `municipality_code` | TEXT (PK) | **正本キー**。5 桁 JIS。先頭 2 桁が都道府県、後 3 桁が市区町村+区 |
 | `prefecture` | TEXT NOT NULL | 表示用 (例: `"北海道"`) |
-| `municipality_name` | TEXT NOT NULL | 表示用 (例: `"札幌市中央区"`)。政令市の区も独立行 |
+| `municipality_name` | TEXT NOT NULL | 表示用。集約地域も独立 (例: `"特別区部"`、`"札幌市"`、`"札幌市中央区"`) |
 | `pref_code` | TEXT NOT NULL | `SUBSTR(municipality_code, 1, 2)`。47 都道府県別フィルタ用 |
-| `is_special_ward` | INTEGER | 特別区 (`13101`〜`13123`) を判定するフラグ |
-| `is_designated_ward` | INTEGER | 政令市の区 (例: `01101`〜`01110` 札幌市) を判定 |
-| `source` | TEXT | データソース (例: `'estat_commute_od'`、将来 `'mlit_n03'` 追加可) |
-| `source_year` | INTEGER | データ取得年 (例: 2020 = 国勢調査) |
+| **`area_type`** | TEXT (CHECK) | 5 値: `municipality` / `designated_ward` / `special_ward` / `aggregate_city` / `aggregate_special_wards` |
+| **`area_level`** | TEXT (CHECK) | `unit` または `aggregate` (粗い分類) |
+| `is_special_ward` | INTEGER | 後方互換。`area_type='special_ward'` のとき 1 |
+| `is_designated_ward` | INTEGER | 後方互換。`area_type='designated_ward'` のとき 1 |
+| **`parent_code`** | TEXT | unit が属する aggregate の code (例: 札幌市中央区 `01101` の parent_code = 札幌市 `01100`) |
+| `source` | TEXT | データソース |
+| `source_year` | INTEGER | データ取得年 |
 
-### 2.2 制約
+### 2.4 制約
 
-- **`UNIQUE (prefecture, municipality_name)`**: 同一都道府県内で同名市区町村が存在しないことを保証
-  - 注意: 全国では同名市区町村あり (例: 「府中市」が東京都/広島県、「伊達市」が北海道/福島県)
-  - 都道府県内では一意
-- **PK = `municipality_code`**: 5 桁コードで完全一意
+- **PK = `municipality_code`**: **正本キー**。5 桁コードで完全一意 (UNIQUE 制約は冗長だが PK で担保)
+- **`UNIQUE (prefecture, municipality_name)`**: 逆引き用 (同一都道府県内で同名禁止)
+  - 注意: 全国では同名市区町村あり (例: 「府中市」東京都/広島県、「伊達市」北海道/福島県) → 都道府県内なら一意
+- **`CHECK area_type IN (...)`**: 5 値以外の混入を DB レベルで防止
+- **`CHECK area_level IN ('unit', 'aggregate')`**: 同上
+- **`is_special_ward` / `is_designated_ward`**: `area_type` から派生 (CHECK で整合性チェック可、INSERT 時に自動計算推奨)
+
+### 2.5 area_type 判定ロジック (INSERT 時の派生)
+
+```python
+def derive_area_type(code: str, prefecture: str, municipality_name: str) -> tuple[str, str, str | None]:
+    """5 桁 code から area_type / area_level / parent_code を派生。"""
+    pref_code = code[:2]
+    suffix = code[2:5]  # 後 3 桁
+
+    # 集約: 札幌市 (01100) や大阪市 (27100) は後 3 桁が "100"
+    if suffix == "100" and pref_code != "13":
+        return "aggregate_city", "aggregate", None
+
+    # 集約: 特別区部 (13100)
+    if code == "13100":
+        return "aggregate_special_wards", "aggregate", None
+
+    # 特別区: 13101〜13123
+    if pref_code == "13" and "101" <= suffix <= "123":
+        return "special_ward", "unit", "13100"  # 親 = 特別区部
+
+    # 政令市の区: pref_code != 13 かつ name に "市" + "区" を含む (例: 札幌市中央区)
+    if pref_code != "13" and "市" in municipality_name and municipality_name.endswith("区"):
+        # 親 = 同じ pref_code の "100" コード (政令市本体)
+        parent = pref_code + "100"
+        return "designated_ward", "unit", parent
+
+    # 一般市町村
+    return "municipality", "unit", None
+```
+
+注意: 政令市の区を含む `municipality_name` は「札幌市中央区」のような形式を想定。e-Stat 出力が「中央区」だけなら判定ロジック調整必要 (実データを Worker A 改修後の `v2_external_commute_od_with_codes` で確認)。
 
 ---
 
