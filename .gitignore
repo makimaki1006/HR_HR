@@ -8,6 +8,8 @@ target/
 # Database files (DB is downloaded from GitHub Release at build time)
 data/*.db
 data/*.db.gz
+# Phase 3: 再生成可能な集計CSV (scripts/build_*.py で再現可能、サイズ大)
+data/generated/
 
 # Uncompressed GeoJSON (decompressed from data/geojson_gz/ at startup)
 static/geojson/
