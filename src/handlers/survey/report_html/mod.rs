@@ -93,13 +93,23 @@ pub enum ReportVariant {
     Full,
     /// 公開データ中心: HW 最小化、オープンデータと地域比較を強化
     Public,
+    /// Phase 3: 採用マーケットインテリジェンス拡張版
+    ///
+    /// Full と同じ HW セクションを残しつつ、配信地域ランキング・通勤流入元・
+    /// 生活コスト補正後給与魅力度などの追加セクションを表示する (Step 3 で実装予定)。
+    ///
+    /// 詳細: `docs/SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md` §5 Step 4
+    MarketIntelligence,
 }
 
 impl ReportVariant {
-    /// クエリ文字列から ReportVariant を解決
+    /// クエリ文字列から ReportVariant を解決。
+    ///
+    /// 既存挙動を完全維持: 未指定 / 不明値 / `"full"` はすべて `Full` にフォールバック。
     pub fn from_query(s: Option<&str>) -> Self {
         match s {
             Some("public") => Self::Public,
+            Some("market_intelligence") => Self::MarketIntelligence,
             _ => Self::Full,
         }
     }
@@ -109,6 +119,7 @@ impl ReportVariant {
         match self {
             Self::Full => "full",
             Self::Public => "public",
+            Self::MarketIntelligence => "market_intelligence",
         }
     }
 
@@ -117,27 +128,44 @@ impl ReportVariant {
         match self {
             Self::Full => "HW併載版",
             Self::Public => "公開データ中心版",
+            Self::MarketIntelligence => "採用マーケットインテリジェンス版",
         }
     }
 
     /// HW セクションを表示するか
+    ///
+    /// `MarketIntelligence` は Full と同様に HW セクションを表示する
+    /// (HW データを土台にしつつ Phase 3 拡張セクションを追加で出す設計)。
     pub fn show_hw_sections(self) -> bool {
-        matches!(self, Self::Full)
+        matches!(self, Self::Full | Self::MarketIntelligence)
+    }
+
+    /// 採用マーケットインテリジェンスセクション (Phase 3 Step 3 で追加予定) を表示するか。
+    ///
+    /// Step 4 ではこのフックメソッドを定義するのみで、HTML 側の参照はまだしない。
+    /// Step 3 でこのメソッドを `if variant.show_market_intelligence_sections() { ... }` で参照する。
+    pub fn show_market_intelligence_sections(self) -> bool {
+        matches!(self, Self::MarketIntelligence)
     }
 
     /// アイコン (絵文字)
     pub fn icon(self) -> &'static str {
         match self {
-            Self::Full => "\u{1F3E2}",   // 🏢
-            Self::Public => "\u{1F30D}", // 🌍
+            Self::Full => "\u{1F3E2}",                // 🏢
+            Self::Public => "\u{1F30D}",              // 🌍
+            Self::MarketIntelligence => "\u{1F4CA}",  // 📊
         }
     }
 
     /// 反対バリアント (切替リンク用)
+    ///
+    /// 既存挙動 (`Full ↔ Public`) を維持。`MarketIntelligence` の場合は `Full` に戻す
+    /// (一般版へのフォールバック)。これにより既存 2 値の `alternative()` テストが影響を受けない。
     pub fn alternative(self) -> Self {
         match self {
             Self::Full => Self::Public,
             Self::Public => Self::Full,
+            Self::MarketIntelligence => Self::Full,
         }
     }
 
@@ -146,6 +174,7 @@ impl ReportVariant {
         match self {
             Self::Full => "ハローワーク掲載求人と統合分析を含む完全版（社内分析向け）",
             Self::Public => "e-Stat等の公開データを主軸とした版（対外提案向け）",
+            Self::MarketIntelligence => "採用ターゲット分析を含む拡張版（媒体分析・配信地域提案向け）",
         }
     }
 }
@@ -771,7 +800,8 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     //   variant=Public のときは別 section (CSV vs 国勢調査) を使う。
     if let Some(ctx) = hw_context {
         match variant {
-            ReportVariant::Full => {
+            // Phase 3 Step 4: MarketIntelligence は Full と同じ挙動 (Step 3 で必要なら個別ブランチに分離)
+            ReportVariant::Full | ReportVariant::MarketIntelligence => {
                 render_section_industry_mismatch(
                     &mut html,
                     &ctx.ext_industry_employees,
@@ -2459,5 +2489,132 @@ mod variant_indicator_tests {
     fn variant_alternative_swaps_correctly() {
         assert_eq!(ReportVariant::Full.alternative(), ReportVariant::Public);
         assert_eq!(ReportVariant::Public.alternative(), ReportVariant::Full);
+    }
+
+    // ============================================================
+    // Phase 3 Step 4: MarketIntelligence variant
+    // ============================================================
+
+    /// `?variant=market_intelligence` が `MarketIntelligence` に解決されること。
+    #[test]
+    fn variant_query_market_intelligence_resolves() {
+        assert_eq!(
+            ReportVariant::from_query(Some("market_intelligence")),
+            ReportVariant::MarketIntelligence
+        );
+    }
+
+    /// 既存挙動完全維持: `public` / `full` / `None` / 不明値の解釈が変わらないこと。
+    #[test]
+    fn variant_query_existing_behavior_preserved() {
+        // public は既存どおり
+        assert_eq!(
+            ReportVariant::from_query(Some("public")),
+            ReportVariant::Public
+        );
+        // 未指定は default として Full
+        assert_eq!(ReportVariant::from_query(None), ReportVariant::Full);
+        // "full" 明示も Full (既存)
+        assert_eq!(ReportVariant::from_query(Some("full")), ReportVariant::Full);
+        // 不明値も Full フォールバック (既存)
+        assert_eq!(
+            ReportVariant::from_query(Some("invalid_value_xyz")),
+            ReportVariant::Full
+        );
+        assert_eq!(ReportVariant::from_query(Some("")), ReportVariant::Full);
+    }
+
+    /// `MarketIntelligence` の `as_query()` / `display_name()` / `description()` が定義されていること。
+    #[test]
+    fn variant_market_intelligence_metadata_defined() {
+        let v = ReportVariant::MarketIntelligence;
+        assert_eq!(v.as_query(), "market_intelligence");
+        assert!(!v.display_name().is_empty(), "display_name 必須");
+        assert!(!v.description().is_empty(), "description 必須");
+        assert!(!v.icon().is_empty(), "icon 必須");
+        // ラウンドトリップ: as_query → from_query で同じ variant に戻る
+        assert_eq!(
+            ReportVariant::from_query(Some(v.as_query())),
+            ReportVariant::MarketIntelligence
+        );
+    }
+
+    /// `MarketIntelligence` は HW セクションを表示する (Full と同じ動作)。
+    #[test]
+    fn variant_market_intelligence_shows_hw_sections() {
+        assert!(
+            ReportVariant::MarketIntelligence.show_hw_sections(),
+            "MarketIntelligence は HW セクションを表示する設計"
+        );
+        // 既存挙動も維持
+        assert!(ReportVariant::Full.show_hw_sections());
+        assert!(!ReportVariant::Public.show_hw_sections());
+    }
+
+    /// `show_market_intelligence_sections()` フックが MarketIntelligence のときのみ true。
+    #[test]
+    fn variant_show_market_intelligence_sections_flag() {
+        assert!(ReportVariant::MarketIntelligence.show_market_intelligence_sections());
+        assert!(!ReportVariant::Full.show_market_intelligence_sections());
+        assert!(!ReportVariant::Public.show_market_intelligence_sections());
+    }
+
+    /// `MarketIntelligence.alternative()` は `Full` (一般版に戻る)。
+    /// 既存 `Full ↔ Public` は影響を受けないこと。
+    #[test]
+    fn variant_market_intelligence_alternative_returns_full() {
+        assert_eq!(
+            ReportVariant::MarketIntelligence.alternative(),
+            ReportVariant::Full
+        );
+        // 既存挙動維持
+        assert_eq!(ReportVariant::Full.alternative(), ReportVariant::Public);
+        assert_eq!(ReportVariant::Public.alternative(), ReportVariant::Full);
+    }
+
+    /// `?theme=` クエリパラメータと `?variant=` パーサが独立であること
+    /// (theme=v8 のときも variant 解釈が干渉しない)。
+    ///
+    /// `ReportTheme::from_query` と `ReportVariant::from_query` は別関数で、
+    /// 入力文字列も互いに重複しないことを確認する。
+    #[test]
+    fn variant_and_theme_parsers_are_independent() {
+        // theme クエリ値で variant を呼んでも Full フォールバックする
+        assert_eq!(ReportVariant::from_query(Some("v8")), ReportVariant::Full);
+        assert_eq!(
+            ReportVariant::from_query(Some("v7a")),
+            ReportVariant::Full
+        );
+        assert_eq!(
+            ReportVariant::from_query(Some("default")),
+            ReportVariant::Full
+        );
+        // 逆方向: variant クエリ値で theme を呼んでも default フォールバックする
+        assert_eq!(
+            ReportTheme::from_query(Some("market_intelligence")),
+            ReportTheme::Default
+        );
+        assert_eq!(
+            ReportTheme::from_query(Some("public")),
+            ReportTheme::Default
+        );
+        assert_eq!(ReportTheme::from_query(Some("full")), ReportTheme::Default);
+    }
+
+    /// `as_query()` のラウンドトリップ完全性 (3 variant すべて)。
+    #[test]
+    fn variant_query_roundtrip_all_variants() {
+        for v in [
+            ReportVariant::Full,
+            ReportVariant::Public,
+            ReportVariant::MarketIntelligence,
+        ] {
+            let q = v.as_query();
+            assert_eq!(
+                ReportVariant::from_query(Some(q)),
+                v,
+                "ラウンドトリップ失敗: {q}"
+            );
+        }
     }
 }
