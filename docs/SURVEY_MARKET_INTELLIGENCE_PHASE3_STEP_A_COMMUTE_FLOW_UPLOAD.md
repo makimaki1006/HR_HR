@@ -1,9 +1,27 @@
 # Phase 3 Step A: `commute_flow_summary` Turso V2 upload 手順書
 
-作成日: 2026-05-03
+作成日: 2026-05-03 (初版、擬似コード前提)
+最終更新: 2026-05-04 (JIS 版実装完了反映)
 対象: `commute_flow_summary` (Phase 3 Step 5 前提テーブル 4 件のうちの 1 件)
 
 関連: `docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_STEP5_PREREQ_INGEST_PLAN.md` §2.2 / §3 (Step A)
+
+## ⚠️ 2026-05-04 重要更新: JIS 版に完全置換済
+
+本書は当初「擬似コード版 (`prefecture:municipality_name`)」前提で書かれていたが、
+JIS 整備完了 (commit `e889683`) により、ローカル `commute_flow_summary` は
+**JIS 5 桁 code 版** に完全置換された。本書の §2 (暫定キー警告) と §5 (改修案コード例) は
+擬似版時代の記述として残置するが、**現状の運用は JIS 版** である。
+
+最新 JIS 版の検証結果 + Turso upload 手順統合版は次の新規 docs を参照:
+- `SURVEY_MARKET_INTELLIGENCE_PHASE3_TURSO_UPLOAD_GUIDE_JIS.md` (Worker B 作成)
+
+主要な変更点:
+- 行数: 27,879 (擬似版と同数、形式のみ JIS に置換)
+- `municipality_code` 形式: `01100` (5 桁 JIS) ← `北海道:札幌市` (擬似)
+- `estimation_method`: `commute_od_top20_all_occupation_jis` ← `commute_od_top20_all_occupation`
+- master 突合: 0 未登録 (`municipality_code_master` 1,917 行で完備)
+- e-Stat 特殊コード `99998` (外国) / `99999` (不詳) は SELECT で除外
 
 ---
 

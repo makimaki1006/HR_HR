@@ -1,9 +1,24 @@
 # Phase 3 JIS 整備: `build_commute_flow_summary.py` JIS 移行設計 (Worker C)
 
-作成日: 2026-05-04
-対象: 既存 `scripts/build_commute_flow_summary.py` (擬似コード版) を JIS コード対応に移行
+作成日: 2026-05-04 (初版設計)
+最終更新: 2026-05-04 (実装完了反映)
+対象: `scripts/build_commute_flow_summary.py` の JIS コード対応
 
-**ステータス: 設計提示のみ (実装未着手)**
+**ステータス: ✅ 実装完了 (commit `e889683` Phase 3 Step A v2)**
+
+## 0. 実装結果サマリ (2026-05-04 完了反映)
+
+| 項目 | 結果 |
+|------|------|
+| 擬似コード版 → JIS 版置換 | ✅ 完了 (DROP + CREATE + INSERT で置換、擬似版データ消滅) |
+| 行数 | 27,879 (擬似版と同数、TOP 20 × destination 1,894 集約は同等価) |
+| municipality_code 形式 | JIS 5 桁 (例: `01100` 札幌市、`13101` 千代田区) |
+| master 突合 | ✅ 0 未登録 (e-Stat 特殊コード `99998`/`99999` は SELECT で除外) |
+| `estimation_method` | `commute_od_top20_all_occupation_jis` (版判別用) |
+| 重要 4 コード destination 出現 | ✅ 13100 / 13101 / 01100 / 01101 すべて 20/20 (TOP 上限) |
+| 検証 13 項目 | ✅ 全 pass |
+
+詳細結果は本書 §8〜§9 (旧設計) と一致。実装の差分は `git show e889683` 参照。
 
 ---
 
