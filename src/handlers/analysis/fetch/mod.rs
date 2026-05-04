@@ -23,6 +23,7 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
+mod market_intelligence;
 mod subtab1;
 mod subtab2;
 mod subtab3;
@@ -75,10 +76,45 @@ pub(crate) use subtab7_phase_a::{
     fetch_education_facilities, fetch_geography, fetch_households, fetch_labor_force,
     fetch_medical_welfare, fetch_vital_statistics,
 };
+
+// === Phase 3: 採用マーケットインテリジェンス データアクセス層 ===
+// 詳細: docs/SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md §5 Step 1
+pub(crate) use market_intelligence::{
+    fetch_commute_flow_summary, fetch_living_cost_proxy, fetch_occupation_population,
+    fetch_recruiting_scores_by_municipalities,
+};
 // CommuteMunicipality は subtab7_other 内部のみで使用 (fetch_commute_zone の戻り値型として fetch_commute_zone_pyramid に渡される)
 // 外部からは直接参照されないため再エクスポートしない
 
 // ======== 共通ヘルパー ========
+
+/// `v2_external_*` 系テーブルの「ヘッダー風文字列レコード」混入を除外する WHERE 句断片。
+///
+/// CSV 投入時に 1 行目ヘッダーがレコード化されたデータ品質問題への防御。
+/// `v2_external_population` と `v2_external_foreign_residents` で各 1 件混入が確認済 (2026-05-03)。
+///
+/// `prefecture` と `municipality` の両方を持つテーブル用。
+///
+/// 使用例:
+/// ```ignore
+/// let sql = format!(
+///     "SELECT ... FROM v2_external_population WHERE prefecture = ?1 AND {}",
+///     EXTERNAL_CLEAN_FILTER
+/// );
+/// ```
+///
+/// 詳細: `docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_HEADER_FILTER.md`
+pub(crate) const EXTERNAL_CLEAN_FILTER: &str = "prefecture IS NOT NULL \
+     AND prefecture <> '' \
+     AND prefecture <> '都道府県' \
+     AND municipality <> '市区町村'";
+
+/// `municipality` カラムがないテーブル用 (例: `v2_external_foreign_residents`)。
+///
+/// `prefecture` のみで防御する。
+pub(crate) const EXTERNAL_CLEAN_FILTER_NO_MUNI: &str = "prefecture IS NOT NULL \
+     AND prefecture <> '' \
+     AND prefecture <> '都道府県'";
 
 /// Turso外部DBクエリ実行ヘルパー
 /// Turso接続がある場合はTursoを使い、なければローカルDBにフォールバック
@@ -159,4 +195,166 @@ pub(super) fn query_3level(
         .map(|s| s as &dyn rusqlite::types::ToSql)
         .collect();
     db.query(&sql, &p).unwrap_or_default()
+}
+
+// ============================================================
+// テスト
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::local_sqlite::LocalDb;
+
+    /// 空の一時 SQLite DB を作成 (既存パターン: `db/local_sqlite.rs:131` の `create_test_db` 流用)
+    fn create_test_db() -> (tempfile::NamedTempFile, LocalDb) {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        // 一旦空ファイルを sqlite として認識可能にする (LocalDb::new は exists チェックあり)
+        let _ = rusqlite::Connection::open(path).unwrap();
+        let db = LocalDb::new(path).unwrap();
+        (tmp, db)
+    }
+
+    /// `EXTERNAL_CLEAN_FILTER` が `v2_external_population` のヘッダー混入レコードを除外することを検証する。
+    ///
+    /// シナリオ: in-memory DB に正規 2 行 + ヘッダー風 1 行を投入し、
+    /// 全国集計クエリ (WHERE filter のみ) で 2 行のみ取得されることを確認。
+    #[test]
+    fn test_external_clean_filter_excludes_header_records_in_population() {
+        let (_tmp, db) = create_test_db();
+
+        db.execute(
+            "CREATE TABLE v2_external_population (
+                prefecture TEXT,
+                municipality TEXT,
+                total_population INTEGER,
+                male_population INTEGER,
+                female_population INTEGER,
+                age_0_14 INTEGER,
+                age_15_64 INTEGER,
+                age_65_over INTEGER,
+                aging_rate REAL,
+                working_age_rate REAL,
+                youth_rate REAL,
+                reference_date TEXT,
+                PRIMARY KEY (prefecture, municipality)
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE 失敗");
+
+        // ヘッダー混入レコード (1 行)
+        db.execute(
+            "INSERT INTO v2_external_population VALUES \
+             ('都道府県', '市区町村', 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, '2020-10-01')",
+            &[],
+        )
+        .expect("ヘッダー INSERT 失敗");
+
+        // 正規レコード (2 行)
+        db.execute(
+            "INSERT INTO v2_external_population VALUES \
+             ('北海道', '札幌市', 1973395, 918682, 1054713, 217554, 1196458, 559383, 28.34, 60.62, 11.03, '2020-10-01')",
+            &[],
+        )
+        .expect("INSERT 失敗");
+        db.execute(
+            "INSERT INTO v2_external_population VALUES \
+             ('東京都', '新宿区', 349385, 174251, 175134, 30000, 250000, 69385, 19.86, 71.55, 8.59, '2020-10-01')",
+            &[],
+        )
+        .expect("INSERT 失敗");
+
+        // EXTERNAL_CLEAN_FILTER を直接使ったクエリを検証
+        let sql = format!(
+            "SELECT prefecture, municipality FROM v2_external_population WHERE {EXTERNAL_CLEAN_FILTER}"
+        );
+        let rows = db.query(&sql, &[]).expect("SELECT 失敗");
+
+        assert_eq!(rows.len(), 2, "ヘッダー除外後は正規 2 件であること (実際: {})", rows.len());
+
+        // ヘッダー文字列がレコードに含まれないこと
+        for row in &rows {
+            let pref = row.get("prefecture").and_then(|v| v.as_str()).unwrap_or("");
+            let muni = row.get("municipality").and_then(|v| v.as_str()).unwrap_or("");
+            assert_ne!(pref, "都道府県", "prefecture='都道府県' は除外されているべき");
+            assert_ne!(muni, "市区町村", "municipality='市区町村' は除外されているべき");
+        }
+    }
+
+    /// `EXTERNAL_CLEAN_FILTER_NO_MUNI` が `municipality` 列を持たないテーブル
+    /// (例: `v2_external_foreign_residents`) でヘッダーを除外することを検証する。
+    #[test]
+    fn test_external_clean_filter_no_muni_excludes_header_in_foreign_residents() {
+        let (_tmp, db) = create_test_db();
+
+        db.execute(
+            "CREATE TABLE v2_external_foreign_residents (
+                prefecture TEXT,
+                visa_status TEXT,
+                count INTEGER,
+                survey_period TEXT,
+                PRIMARY KEY (prefecture, visa_status)
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE 失敗");
+
+        // ヘッダー風 + 正規 2 件
+        db.execute(
+            "INSERT INTO v2_external_foreign_residents VALUES \
+             ('都道府県', 'visa', 0, '2024Q4'), \
+             ('東京都', '永住者', 100000, '2024Q4'), \
+             ('北海道', '技能実習', 5000, '2024Q4')",
+            &[],
+        )
+        .expect("INSERT 失敗");
+
+        let sql = format!(
+            "SELECT prefecture FROM v2_external_foreign_residents WHERE {EXTERNAL_CLEAN_FILTER_NO_MUNI}"
+        );
+        let rows = db.query(&sql, &[]).expect("SELECT 失敗");
+        assert_eq!(rows.len(), 2, "ヘッダー除外後は 2 件");
+        for row in &rows {
+            let pref = row.get("prefecture").and_then(|v| v.as_str()).unwrap_or("");
+            assert_ne!(pref, "都道府県");
+        }
+    }
+
+    /// 空文字 / NULL の prefecture も除外されること (二重防御)。
+    #[test]
+    fn test_external_clean_filter_excludes_empty_and_null_prefecture() {
+        let (_tmp, db) = create_test_db();
+
+        db.execute(
+            "CREATE TABLE v2_external_population (
+                prefecture TEXT,
+                municipality TEXT,
+                total_population INTEGER,
+                PRIMARY KEY (prefecture, municipality)
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE 失敗");
+
+        db.execute(
+            "INSERT INTO v2_external_population VALUES \
+             ('', '札幌市', 1000), \
+             (NULL, '函館市', 500), \
+             ('北海道', '小樽市', 200)",
+            &[],
+        )
+        .expect("INSERT 失敗");
+
+        let sql = format!(
+            "SELECT prefecture, municipality FROM v2_external_population WHERE {EXTERNAL_CLEAN_FILTER}"
+        );
+        let rows = db.query(&sql, &[]).expect("SELECT 失敗");
+        assert_eq!(rows.len(), 1, "正規 1 件のみ通過 (北海道/小樽市)");
+        assert_eq!(
+            rows[0].get("prefecture").and_then(|v| v.as_str()),
+            Some("北海道")
+        );
+    }
 }

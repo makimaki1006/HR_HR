@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 #[allow(unused_imports)]
 use super::super::super::helpers::table_exists;
-use super::query_turso_or_local;
+use super::{query_turso_or_local, EXTERNAL_CLEAN_FILTER_NO_MUNI};
 
 #[allow(dead_code)]
 type Db = crate::db::local_sqlite::LocalDb;
@@ -17,23 +17,27 @@ type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
 pub(crate) fn fetch_foreign_residents(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    // ヘッダー混入レコード除外 (municipality カラムなしのため EXTERNAL_CLEAN_FILTER_NO_MUNI)
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         (
-            "SELECT prefecture, visa_status, count, survey_period \
+            format!(
+                "SELECT prefecture, visa_status, count, survey_period \
           FROM v2_external_foreign_residents \
-          WHERE prefecture = ?1 \
+          WHERE prefecture = ?1 AND {EXTERNAL_CLEAN_FILTER_NO_MUNI} \
           ORDER BY count DESC"
-                .to_string(),
+            ),
             vec![pref.to_string()],
         )
     } else {
         (
-            "SELECT '全国' as prefecture, visa_status, \
+            format!(
+                "SELECT '全国' as prefecture, visa_status, \
           SUM(count) as count, MAX(survey_period) as survey_period \
           FROM v2_external_foreign_residents \
+          WHERE {EXTERNAL_CLEAN_FILTER_NO_MUNI} \
           GROUP BY visa_status \
           ORDER BY count DESC"
-                .to_string(),
+            ),
             vec![],
         )
     };
