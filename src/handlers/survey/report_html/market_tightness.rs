@@ -76,7 +76,11 @@ pub(super) fn render_section_market_tightness_with_variant(
     variant: super::ReportVariant,
 ) {
     match variant {
-        super::ReportVariant::Full => render_section_market_tightness(html, ctx),
+        // Phase 3 Step 4: MarketIntelligence は Full と同じ既存セクションを呼ぶ
+        // (Step 3 で MarketIntelligence 専用セクション追加時に分岐を変える)
+        super::ReportVariant::Full | super::ReportVariant::MarketIntelligence => {
+            render_section_market_tightness(html, ctx)
+        }
         super::ReportVariant::Public => render_section_market_tightness_public(html, ctx),
     }
 }
