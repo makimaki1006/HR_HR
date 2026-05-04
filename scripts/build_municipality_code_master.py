@@ -95,38 +95,85 @@ COLUMNS = [
 ]
 
 
+# 政令指定都市 (全国 20 市) の集約コード ハードコードマスタ (2026-05-04 Worker A 調査結果)
+# 既存 15 市 (suffix=100) + 追加 5 市 (suffix=130/140/150)
+# Worker A 調査の根拠: v2_external_commute_od_with_codes の DISTINCT で確定
+DESIGNATED_CITY_AGGREGATE_CODES = {
+    # suffix=100 (15 市)
+    "01100": "札幌市",
+    "04100": "仙台市",
+    "11100": "さいたま市",
+    "12100": "千葉市",
+    "14100": "横浜市",
+    "15100": "新潟市",
+    "22100": "静岡市",
+    "23100": "名古屋市",
+    "26100": "京都市",
+    "27100": "大阪市",
+    "28100": "神戸市",
+    "33100": "岡山市",
+    "34100": "広島市",
+    "40100": "北九州市",
+    "43100": "熊本市",
+    # 追加 5 市 (suffix=130/140/150) - Worker A 調査結果
+    "14130": "川崎市",
+    "14150": "相模原市",
+    "22130": "浜松市",
+    "27140": "堺市",
+    "40130": "福岡市",
+}
+
+# 政令市名 → 集約コードの逆引き (designated_ward の parent_code 算出用)
+# 順序固定: 市名の startswith 判定で「札幌市」と「札幌市中央区」を区別するため、
+# 文字列長の長い順にソート (全 20 市は等長 3〜5 文字なので影響軽微)
+DESIGNATED_CITY_NAME_TO_CODE = {
+    name: code for code, name in DESIGNATED_CITY_AGGREGATE_CODES.items()
+}
+# 名前 prefix 判定用に長い順
+_DC_NAMES_BY_LEN = sorted(DESIGNATED_CITY_NAME_TO_CODE.keys(), key=len, reverse=True)
+
+
 def derive_area_type(code: str, prefecture: str, municipality_name: str) -> tuple[str, str, str | None]:
     """5 桁 code + 名称から area_type / area_level / parent_code を派生。
 
     docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_MUNICIPALITY_CODE_MASTER.md §2.5 の判定ロジックを実装。
+    2026-05-04 改訂: 政令市本体の suffix が '100' 以外 (川崎=14130 等) のケースに対応するため、
+                     ハードコード DESIGNATED_CITY_AGGREGATE_CODES を導入。
     """
     if len(code) != 5 or not code.isdigit():
-        # 不正な code は municipality 扱い (フォールバック、本来 INSERT 前にバリデーションで弾く想定)
+        # 不正な code は municipality 扱い (フォールバック)
         return "municipality", "unit", None
 
     pref_code = code[:2]
     suffix = code[2:5]
 
-    # 集約: 特別区部 (13100)
+    # 1. 特別区部 (13100)
     if code == "13100":
         return "aggregate_special_wards", "aggregate", None
 
-    # 集約: 政令市本体 (suffix='100' かつ pref != '13')
-    if suffix == "100" and pref_code != "13":
+    # 2. 政令市本体 (ハードコード 20 市)
+    #    suffix='100' の単純判定では川崎/相模原/浜松/堺/福岡を取りこぼすため、
+    #    確定マスタで判定する。
+    if code in DESIGNATED_CITY_AGGREGATE_CODES:
         return "aggregate_city", "aggregate", None
 
-    # 特別区: 13101〜13123
+    # 3. 特別区: 13101〜13123
     if pref_code == "13" and "101" <= suffix <= "123":
         return "special_ward", "unit", "13100"  # 親 = 特別区部
 
-    # 政令市の区: pref != 13 かつ name に "市" + "区" を含む
-    # 例: "札幌市中央区"、"大阪市都島区"
-    # 注意: e-Stat 出力が "中央区" だけの可能性もあるため、要実データ確認
+    # 4. 政令市の区: pref != 13 かつ name に "市" を含み末尾 "区"
+    #    parent_code は名称 prefix から逆引き (e.g. "川崎市川崎区" → "14130")
     if pref_code != "13" and "市" in municipality_name and municipality_name.endswith("区"):
-        parent = pref_code + "100"
-        return "designated_ward", "unit", parent
+        for city_name in _DC_NAMES_BY_LEN:
+            if municipality_name.startswith(city_name):
+                parent = DESIGNATED_CITY_NAME_TO_CODE[city_name]
+                # 親 code の pref_code が一致する場合のみ採用 (異 pref 衝突防御)
+                if parent[:2] == pref_code:
+                    return "designated_ward", "unit", parent
+        # 逆引き失敗 (理論上発生しないはずだが) → parent_code 不明で designated_ward
+        return "designated_ward", "unit", None
 
-    # 一般市町村
+    # 5. 一般市町村
     return "municipality", "unit", None
 
 
