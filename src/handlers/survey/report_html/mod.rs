@@ -21,6 +21,8 @@ mod employment;
 mod executive_summary;
 mod helpers;
 mod hw_enrichment;
+// Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
+mod market_intelligence;
 pub(crate) mod industry_mismatch;
 mod lifestyle;
 mod market_tightness;
@@ -911,6 +913,21 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
             salesnow_segments_industry,
             industry_filter,
         );
+    }
+
+    // --- Phase 3 Step 3 (2026-05-04): 採用マーケットインテリジェンス (variant=market_intelligence 専用) ---
+    //
+    // `?variant=market_intelligence` のときだけ追加表示する 5 セクション
+    // (結論サマリー / 配信地域ランキング / 人材供給 / 給与・生活コスト / 母集団レンジ + 通勤流入元補助)。
+    // 既存 Full / Public variant では出力に一切影響しない。
+    //
+    // 現状: 事前集計テーブル (municipality_recruiting_scores 等) が未投入のため
+    // データは空 = placeholder 表示。実データ接続は Phase 3 Step 5+ で対応予定
+    // (target_municipalities 抽出 + build_market_intelligence_data の handlers.rs 統合)。
+    if variant.show_market_intelligence_sections() {
+        let mi_data =
+            super::super::analysis::fetch::SurveyMarketIntelligenceData::default();
+        market_intelligence::render_section_market_intelligence(&mut html, &mi_data);
     }
 
     // --- Section 13: 注記・出典・免責 (必須) ---
@@ -2616,5 +2633,102 @@ mod variant_indicator_tests {
                 "ラウンドトリップ失敗: {q}"
             );
         }
+    }
+
+    // ============================================================
+    // Phase 3 Step 3: MarketIntelligence セクション表示分岐
+    // ============================================================
+
+    use super::super::super::analysis::fetch::SurveyMarketIntelligenceData;
+    use super::market_intelligence;
+
+    /// `variant=market_intelligence` のときのみ採用マーケットインテリジェンスセクションが
+    /// HTML に追加される (variant=full / public では追加されない) ことを検証する。
+    ///
+    /// `render_survey_report_page_with_variant_v3_themed` パイプライン全体は引数が多く
+    /// 型準備が重いため、`if variant.show_market_intelligence_sections() {...}` の
+    /// 分岐ロジックを直接テストする。
+    #[test]
+    fn test_market_intelligence_section_only_in_market_intelligence_variant() {
+        let data = SurveyMarketIntelligenceData::default();
+
+        // Full variant: フラグ false なので render しない → 空 HTML
+        let mut html_full = String::new();
+        if ReportVariant::Full.show_market_intelligence_sections() {
+            market_intelligence::render_section_market_intelligence(&mut html_full, &data);
+        }
+        assert!(
+            html_full.is_empty(),
+            "Full では新セクションが追加されないこと (実際: {} chars)",
+            html_full.len()
+        );
+
+        // Public variant: 同じく false → 空 HTML
+        let mut html_public = String::new();
+        if ReportVariant::Public.show_market_intelligence_sections() {
+            market_intelligence::render_section_market_intelligence(&mut html_public, &data);
+        }
+        assert!(
+            html_public.is_empty(),
+            "Public でも新セクションが追加されないこと"
+        );
+
+        // MarketIntelligence variant: フラグ true → セクションが追加される
+        let mut html_mi = String::new();
+        if ReportVariant::MarketIntelligence.show_market_intelligence_sections() {
+            market_intelligence::render_section_market_intelligence(&mut html_mi, &data);
+        }
+        assert!(
+            html_mi.contains("採用マーケットインテリジェンス"),
+            "MarketIntelligence では親セクション heading 必須"
+        );
+        assert!(
+            html_mi.contains("結論サマリー"),
+            "結論サマリーカード必須"
+        );
+        assert!(
+            html_mi.contains("配信地域ランキング"),
+            "配信地域ランキング必須"
+        );
+        assert!(
+            html_mi.contains("人材供給"),
+            "人材供給ヒートマップ必須"
+        );
+        assert!(
+            html_mi.contains("給与・生活コスト比較"),
+            "給与・生活コスト比較必須"
+        );
+        assert!(
+            html_mi.contains("母集団レンジ"),
+            "保守/標準/強気 母集団レンジ必須"
+        );
+    }
+
+    /// MarketIntelligence セクションが空データでも panic せず placeholder を返すこと。
+    #[test]
+    fn test_market_intelligence_empty_data_does_not_panic() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        market_intelligence::render_section_market_intelligence(&mut html, &data);
+        // 5 セクション + 1 補助で「データ準備中」placeholder が複数出る
+        assert!(html.contains("データ準備中"));
+    }
+
+    /// 既存 `render_survey_report_page` (Full variant 相当の古い関数) の
+    /// 出力に MarketIntelligence セクションが含まれないこと (既存挙動完全維持)。
+    #[test]
+    fn test_existing_render_does_not_emit_market_intelligence() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
+        // 既存 render は variant 引数を取らないため新セクションは絶対に出ない
+        assert!(
+            !html.contains("採用マーケットインテリジェンス"),
+            "既存 render に新セクションが混入してはならない"
+        );
+        assert!(
+            !html.contains("配信地域ランキング"),
+            "既存 render に新セクションが混入してはならない"
+        );
     }
 }

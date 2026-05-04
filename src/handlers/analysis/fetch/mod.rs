@@ -78,10 +78,14 @@ pub(crate) use subtab7_phase_a::{
 };
 
 // === Phase 3: 採用マーケットインテリジェンス データアクセス層 ===
-// 詳細: docs/SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md §5 Step 1
+// 詳細: docs/SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md §5 Step 1〜2
+// Step 1: fetch 関数群
+// Step 2: 型付き DTO + 変換ヘルパー
 pub(crate) use market_intelligence::{
     fetch_commute_flow_summary, fetch_living_cost_proxy, fetch_occupation_population,
-    fetch_recruiting_scores_by_municipalities,
+    fetch_recruiting_scores_by_municipalities, to_commute_flows, to_living_cost_proxies,
+    to_occupation_populations, to_recruiting_scores, CommuteFlowSummary, LivingCostProxy,
+    MunicipalityRecruitingScore, OccupationPopulationCell, SurveyMarketIntelligenceData,
 };
 // CommuteMunicipality は subtab7_other 内部のみで使用 (fetch_commute_zone の戻り値型として fetch_commute_zone_pyramid に渡される)
 // 外部からは直接参照されないため再エクスポートしない
