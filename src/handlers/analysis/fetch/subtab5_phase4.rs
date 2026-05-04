@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::super::super::helpers::table_exists;
-use super::{query_3level, query_turso_or_local};
+use super::{query_3level, query_turso_or_local, EXTERNAL_CLEAN_FILTER};
 
 type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
@@ -167,28 +167,30 @@ pub(crate) fn fetch_population_data(
     pref: &str,
     muni: &str,
 ) -> Vec<Row> {
+    // ヘッダー混入レコード (prefecture='都道府県' / municipality='市区町村') を除外する共通ガード。
+    // 詳細: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_HEADER_FILTER.md
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
-        ("SELECT prefecture, municipality, total_population, male_population, female_population, \
+        (format!("SELECT prefecture, municipality, total_population, male_population, female_population, \
           age_0_14, age_15_64, age_65_over, aging_rate, working_age_rate, youth_rate \
-          FROM v2_external_population WHERE prefecture = ?1 AND municipality = ?2".to_string(),
+          FROM v2_external_population WHERE prefecture = ?1 AND municipality = ?2 AND {}", EXTERNAL_CLEAN_FILTER),
          vec![pref.to_string(), muni.to_string()])
     } else if !pref.is_empty() {
-        ("SELECT ?1 as prefecture, '全体' as municipality, SUM(total_population) as total_population, \
+        (format!("SELECT ?1 as prefecture, '全体' as municipality, SUM(total_population) as total_population, \
           SUM(male_population) as male_population, SUM(female_population) as female_population, \
           SUM(age_0_14) as age_0_14, SUM(age_15_64) as age_15_64, SUM(age_65_over) as age_65_over, \
           CAST(SUM(age_65_over) AS REAL) / SUM(total_population) * 100 as aging_rate, \
           CAST(SUM(age_15_64) AS REAL) / SUM(total_population) * 100 as working_age_rate, \
           CAST(SUM(age_0_14) AS REAL) / SUM(total_population) * 100 as youth_rate \
-          FROM v2_external_population WHERE prefecture = ?1".to_string(),
+          FROM v2_external_population WHERE prefecture = ?1 AND {}", EXTERNAL_CLEAN_FILTER),
          vec![pref.to_string()])
     } else {
-        ("SELECT '全国' as prefecture, '' as municipality, SUM(total_population) as total_population, \
+        (format!("SELECT '全国' as prefecture, '' as municipality, SUM(total_population) as total_population, \
           SUM(male_population) as male_population, SUM(female_population) as female_population, \
           SUM(age_0_14) as age_0_14, SUM(age_15_64) as age_15_64, SUM(age_65_over) as age_65_over, \
           CAST(SUM(age_65_over) AS REAL) / SUM(total_population) * 100 as aging_rate, \
           CAST(SUM(age_15_64) AS REAL) / SUM(total_population) * 100 as working_age_rate, \
           CAST(SUM(age_0_14) AS REAL) / SUM(total_population) * 100 as youth_rate \
-          FROM v2_external_population".to_string(), vec![])
+          FROM v2_external_population WHERE {}", EXTERNAL_CLEAN_FILTER), vec![])
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_population")
 }
@@ -205,24 +207,28 @@ pub(crate) fn fetch_population_pyramid(
           WHEN '60-69' THEN 60 WHEN '70-79' THEN 70 WHEN '80+' THEN 80 \
           WHEN '0-14' THEN 0 WHEN '15-64' THEN 15 WHEN '65-74' THEN 65 WHEN '75+' THEN 75 \
           ELSE 999 END";
+    // ヘッダー混入レコード除外 (EXTERNAL_CLEAN_FILTER)
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         (
             format!(
                 "SELECT age_group, male_count, female_count \
-          FROM v2_external_population_pyramid WHERE prefecture = ?1 AND municipality = ?2 \
+          FROM v2_external_population_pyramid \
+          WHERE prefecture = ?1 AND municipality = ?2 AND {EXTERNAL_CLEAN_FILTER} \
           {order_clause}"
             ),
             vec![pref.to_string(), muni.to_string()],
         )
     } else if !pref.is_empty() {
         (format!("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
-          FROM v2_external_population_pyramid WHERE prefecture = ?1 \
+          FROM v2_external_population_pyramid \
+          WHERE prefecture = ?1 AND {EXTERNAL_CLEAN_FILTER} \
           GROUP BY age_group \
           {order_clause}"),
          vec![pref.to_string()])
     } else {
         (format!("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
           FROM v2_external_population_pyramid \
+          WHERE {EXTERNAL_CLEAN_FILTER} \
           GROUP BY age_group \
           {order_clause}"),
          vec![])
