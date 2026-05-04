@@ -16,8 +16,9 @@
 //! - **READ-ONLY**: SELECT のみ。書き込みは Phase 3 後続スコープ。
 //! - **table_exists チェック**: テーブル不在時は空 Vec 返却 (フェイルセーフ)
 //! - **Turso 優先**: `query_turso_or_local` で Turso V2 を正本とする
-//! - **DTO 未導入**: Step 1 では `Vec<Row>` (HashMap<String, Value>) を返す。型付き構造体は Step 2 で追加
-//! - **Phase 0〜2 docs 準拠**: `SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md` §5 Step 1 の関数群を実装
+//! - **DTO 二段構成 (Step 2 で追加)**: Step 1 の `fetch_*` は `Vec<Row>` を返却 (互換維持)。
+//!   Step 2 で `to_*_dto` 変換関数 + 型付き DTO を追加 (HTML 層で使う)。
+//! - **Phase 0〜2 docs 準拠**: `SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md` §5 Step 1〜2 の関数群を実装
 //!
 //! 詳細仕様: `docs/SURVEY_MARKET_INTELLIGENCE_METRICS.md`
 
@@ -273,6 +274,428 @@ pub(crate) fn fetch_occupation_population(
 }
 
 // ============================================================
+// Phase 3 Step 2: 型付き DTO 層
+// ============================================================
+//
+// `Vec<Row>` ベースの fetch 結果を、レポート実装で安全に使える型付き DTO に変換する。
+// HTML 層は DTO だけを参照する設計とし、Row 直接参照は避ける。
+//
+// 設計:
+// - 主キー文字列カラムは `String` (空文字 fallback)
+// - 数値カラムは `Option<i64>` / `Option<f64>` (NULL 区別を保持)
+// - Turso HTTP API の文字列表現 (e.g. `"1973395"`) は変換ヘルパーで吸収
+// - `serde::Serialize` を実装し、JSON シリアライズ可能
+//
+// 詳細: docs/SURVEY_MARKET_INTELLIGENCE_METRICS.md
+
+use serde::Serialize;
+
+// -------- Turso 文字列 ↔ 数値表現の差を吸収する Option ヘルパー --------
+
+/// `Row` から `Option<i64>` を取得する。
+///
+/// JSON Number / String どちらも i64 にパース可能。
+/// NULL / 未存在 / パース不能は `None` を返す (panic しない)。
+#[allow(dead_code)]
+pub(crate) fn opt_i64(row: &Row, key: &str) -> Option<i64> {
+    let v = row.get(key)?;
+    if v.is_null() {
+        return None;
+    }
+    v.as_i64()
+        .or_else(|| v.as_f64().map(|f| f as i64))
+        .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+}
+
+/// `Row` から `Option<f64>` を取得する。
+///
+/// JSON Number / String どちらも f64 にパース可能。
+#[allow(dead_code)]
+pub(crate) fn opt_f64(row: &Row, key: &str) -> Option<f64> {
+    let v = row.get(key)?;
+    if v.is_null() {
+        return None;
+    }
+    v.as_f64()
+        .or_else(|| v.as_i64().map(|i| i as f64))
+        .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+}
+
+/// `Row` から `String` を取得する (NULL / 未存在は空文字)。
+///
+/// 既存 `helpers::get_str` と同等。Turso の文字列値 (Value::String) と
+/// JSON Number から `to_string()` の両方に対応。
+#[allow(dead_code)]
+pub(crate) fn str_or_empty(row: &Row, key: &str) -> String {
+    match row.get(key) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::Bool(b)) => b.to_string(),
+        _ => String::new(),
+    }
+}
+
+// -------- DTO: `municipality_recruiting_scores` --------
+
+/// 市区町村 × 職業グループ別の配信優先度スコア
+///
+/// 詳細仕様: `docs/SURVEY_MARKET_INTELLIGENCE_METRICS.md` §2 配信優先度スコア
+#[derive(Clone, Debug, Default, Serialize)]
+#[allow(dead_code)]
+pub struct MunicipalityRecruitingScore {
+    pub municipality_code: String,
+    pub prefecture: String,
+    pub municipality_name: String,
+    pub occupation_group_code: String,
+    pub occupation_group_name: String,
+
+    pub target_population: Option<i64>,
+    pub adjacent_population: Option<i64>,
+    pub media_job_count: Option<i64>,
+    pub competitor_job_count: Option<i64>,
+
+    pub median_salary_yen: Option<i64>,
+    pub effective_wage_index: Option<f64>,
+
+    /// 0〜100 指数 (高いほど通勤到達性が高い)
+    pub commute_reach_score: Option<f64>,
+    /// 0〜100 指数 (高いほど競合が強い、減衰寄与)
+    pub job_competition_score: Option<f64>,
+    /// 0〜100 指数 (高いほど競合事業所が多い)
+    pub establishment_competition_score: Option<f64>,
+    /// 0〜100 指数 (高いほど給与競争力が高い)
+    pub wage_competitiveness_score: Option<f64>,
+    /// 0〜100 指数 (高いほど生活コスト面で有利)
+    pub living_cost_score: Option<f64>,
+    /// 0〜100 指数
+    pub effective_wage_score: Option<f64>,
+
+    /// 0〜100 指数。METRICS.md §2.1 の `clamp(positive_score * (1 - penalty_reduction_pct/100), 0, 100)`
+    pub distribution_priority_score: Option<f64>,
+
+    pub scenario_conservative_population: Option<i64>,
+    pub scenario_standard_population: Option<i64>,
+    pub scenario_aggressive_population: Option<i64>,
+
+    pub source_year: Option<i64>,
+}
+
+#[allow(dead_code)]
+impl MunicipalityRecruitingScore {
+    /// `Row` から DTO を構築する。NULL / パース不能なフィールドは `None` / 空文字 fallback。
+    pub fn from_row(row: &Row) -> Self {
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            prefecture: str_or_empty(row, "prefecture"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            occupation_group_code: str_or_empty(row, "occupation_group_code"),
+            occupation_group_name: str_or_empty(row, "occupation_group_name"),
+            target_population: opt_i64(row, "target_population"),
+            adjacent_population: opt_i64(row, "adjacent_population"),
+            media_job_count: opt_i64(row, "media_job_count"),
+            competitor_job_count: opt_i64(row, "competitor_job_count"),
+            median_salary_yen: opt_i64(row, "median_salary_yen"),
+            effective_wage_index: opt_f64(row, "effective_wage_index"),
+            commute_reach_score: opt_f64(row, "commute_reach_score"),
+            job_competition_score: opt_f64(row, "job_competition_score"),
+            establishment_competition_score: opt_f64(row, "establishment_competition_score"),
+            wage_competitiveness_score: opt_f64(row, "wage_competitiveness_score"),
+            living_cost_score: opt_f64(row, "living_cost_score"),
+            effective_wage_score: opt_f64(row, "effective_wage_score"),
+            distribution_priority_score: opt_f64(row, "distribution_priority_score"),
+            scenario_conservative_population: opt_i64(row, "scenario_conservative_population"),
+            scenario_standard_population: opt_i64(row, "scenario_standard_population"),
+            scenario_aggressive_population: opt_i64(row, "scenario_aggressive_population"),
+            source_year: opt_i64(row, "source_year"),
+        }
+    }
+
+    /// 母集団シナリオが「保守 ≤ 標準 ≤ 強気」を満たすか。
+    ///
+    /// METRICS.md §9 の制約。3 値とも値があるときのみ厳密に検証し、
+    /// 欠損ありなら `true` (検証不可) を返す。
+    pub fn is_scenario_consistent(&self) -> bool {
+        match (
+            self.scenario_conservative_population,
+            self.scenario_standard_population,
+            self.scenario_aggressive_population,
+        ) {
+            (Some(c), Some(s), Some(a)) => c <= s && s <= a,
+            _ => true,
+        }
+    }
+
+    /// `distribution_priority_score` が `[0.0, 100.0]` の範囲内か。
+    ///
+    /// METRICS.md §2.1 の `clamp(..., 0, 100)` 制約。値があるときのみ検証。
+    pub fn is_priority_score_in_range(&self) -> bool {
+        match self.distribution_priority_score {
+            Some(s) => (0.0..=100.0).contains(&s) && !s.is_nan(),
+            None => true,
+        }
+    }
+}
+
+// -------- DTO: `municipality_living_cost_proxy` --------
+
+/// 市区町村別の生活コスト proxy
+///
+/// 詳細仕様: `docs/SURVEY_MARKET_INTELLIGENCE_METRICS.md` §7 生活コスト補正後給与魅力度
+#[derive(Clone, Debug, Default, Serialize)]
+#[allow(dead_code)]
+pub struct LivingCostProxy {
+    pub municipality_code: String,
+    pub prefecture: String,
+    pub municipality_name: String,
+
+    /// 円/月。公式統計から作る「単身向け相当」家賃 proxy。
+    pub single_household_rent_proxy: Option<i64>,
+    /// 円/月。「小世帯向け相当」。
+    pub small_household_rent_proxy: Option<i64>,
+    /// 円/㎡
+    pub rent_per_square_meter: Option<f64>,
+    /// 100 を基準値とする小売物価指数
+    pub retail_price_index_proxy: Option<f64>,
+    /// 円/年
+    pub household_spending_annual_yen: Option<i64>,
+    /// 円/㎡
+    pub land_price_residential_per_sqm: Option<f64>,
+    /// 全国順位 (1=住居コストが低い)
+    pub housing_cost_rank: Option<i64>,
+
+    pub source_year: Option<i64>,
+}
+
+#[allow(dead_code)]
+impl LivingCostProxy {
+    pub fn from_row(row: &Row) -> Self {
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            prefecture: str_or_empty(row, "prefecture"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            single_household_rent_proxy: opt_i64(row, "single_household_rent_proxy"),
+            small_household_rent_proxy: opt_i64(row, "small_household_rent_proxy"),
+            rent_per_square_meter: opt_f64(row, "rent_per_square_meter"),
+            retail_price_index_proxy: opt_f64(row, "retail_price_index_proxy"),
+            household_spending_annual_yen: opt_i64(row, "household_spending_annual_yen"),
+            land_price_residential_per_sqm: opt_f64(row, "land_price_residential_per_sqm"),
+            housing_cost_rank: opt_i64(row, "housing_cost_rank"),
+            source_year: opt_i64(row, "source_year"),
+        }
+    }
+}
+
+// -------- DTO: 通勤流入元 (commute_flow_summary or v2_external_commute_od fallback) --------
+
+/// 通勤流入元 (`commute_flow_summary` または `v2_external_commute_od` の TOP N 結果)
+///
+/// `fetch_commute_flow_summary` のフォールバック動作によりカラムが切り替わるため、
+/// 共通カラム (origin 側 prefecture / municipality + 流入数) を中心に保持し、
+/// 不在のフィールドは `None` で表現する。
+///
+/// 詳細仕様: `docs/SURVEY_MARKET_INTELLIGENCE_METRICS.md` §6 通勤到達性
+#[derive(Clone, Debug, Default, Serialize)]
+#[allow(dead_code)]
+pub struct CommuteFlowSummary {
+    /// 流入元の都道府県名 (`origin_prefecture` または `origin_pref`)
+    pub origin_prefecture: String,
+    /// 流入元の市区町村名 (`origin_municipality_name` または `origin_muni`)
+    pub origin_municipality_name: String,
+    /// 流入元の市区町村コード (commute_flow_summary 経由のみ)
+    pub origin_municipality_code: Option<String>,
+
+    /// 流入数 (`flow_count` または `total_commuters`)
+    pub flow_count: Option<i64>,
+    /// 0.0〜1.0 の流入比率 (commute_flow_summary 経由のみ)
+    pub flow_share: Option<f64>,
+
+    pub male_commuters: Option<i64>,
+    pub female_commuters: Option<i64>,
+
+    pub target_origin_population: Option<i64>,
+
+    /// 推定流入数 (3 シナリオ、commute_flow_summary 経由のみ)
+    pub estimated_flow_conservative: Option<i64>,
+    pub estimated_flow_standard: Option<i64>,
+    pub estimated_flow_aggressive: Option<i64>,
+
+    /// 流入元ランク (commute_flow_summary 経由のみ、TOP1=1)
+    pub rank_to_destination: Option<i64>,
+
+    pub source_year: Option<i64>,
+}
+
+#[allow(dead_code)]
+impl CommuteFlowSummary {
+    /// `Row` から DTO を構築する。
+    ///
+    /// `commute_flow_summary` テーブル由来の場合は `origin_prefecture / origin_municipality_name` カラム名、
+    /// `v2_external_commute_od` フォールバック由来の場合は `origin_pref / origin_muni / total_commuters` カラム名を使う。
+    /// どちらに対応するか不明でも片方の値が取れるので両方試す。
+    pub fn from_row(row: &Row) -> Self {
+        // origin の名前は両ソースで異なるので、両方試す
+        let origin_prefecture = if row.contains_key("origin_prefecture") {
+            str_or_empty(row, "origin_prefecture")
+        } else {
+            str_or_empty(row, "origin_pref")
+        };
+        let origin_municipality_name = if row.contains_key("origin_municipality_name") {
+            str_or_empty(row, "origin_municipality_name")
+        } else {
+            str_or_empty(row, "origin_muni")
+        };
+
+        // 流入数: flow_count か total_commuters
+        let flow_count = opt_i64(row, "flow_count").or_else(|| opt_i64(row, "total_commuters"));
+
+        Self {
+            origin_prefecture,
+            origin_municipality_name,
+            origin_municipality_code: row
+                .get("origin_municipality_code")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            flow_count,
+            flow_share: opt_f64(row, "flow_share"),
+            male_commuters: opt_i64(row, "male_commuters"),
+            female_commuters: opt_i64(row, "female_commuters"),
+            target_origin_population: opt_i64(row, "target_origin_population"),
+            estimated_flow_conservative: opt_i64(row, "estimated_target_flow_conservative"),
+            estimated_flow_standard: opt_i64(row, "estimated_target_flow_standard"),
+            estimated_flow_aggressive: opt_i64(row, "estimated_target_flow_aggressive"),
+            rank_to_destination: opt_i64(row, "rank_to_destination"),
+            source_year: opt_i64(row, "source_year").or_else(|| opt_i64(row, "reference_year")),
+        }
+    }
+
+    /// 推定流入数の保守 ≤ 標準 ≤ 強気 検証 (3 値とも値ありの時のみ検証)。
+    pub fn is_scenario_consistent(&self) -> bool {
+        match (
+            self.estimated_flow_conservative,
+            self.estimated_flow_standard,
+            self.estimated_flow_aggressive,
+        ) {
+            (Some(c), Some(s), Some(a)) => c <= s && s <= a,
+            _ => true,
+        }
+    }
+
+    /// `flow_share` が `[0.0, 1.0]` の範囲内か。
+    pub fn is_flow_share_in_range(&self) -> bool {
+        match self.flow_share {
+            Some(s) => (0.0..=1.0).contains(&s) && !s.is_nan(),
+            None => true,
+        }
+    }
+}
+
+// -------- DTO: `municipality_occupation_population` --------
+
+/// 市区町村 × 職業 × 年齢 × 性別 人口 (国勢調査)
+///
+/// 詳細仕様: `docs/SURVEY_MARKET_INTELLIGENCE_METRICS.md` §3 対象職業人口
+#[derive(Clone, Debug, Default, Serialize)]
+#[allow(dead_code)]
+pub struct OccupationPopulationCell {
+    pub municipality_code: String,
+    pub prefecture: String,
+    pub municipality_name: String,
+    /// "resident" (常住地) または "workplace" (従業地)
+    pub basis: String,
+    pub occupation_code: String,
+    pub occupation_name: String,
+    pub age_group: String,
+    /// "male" / "female" / "total"
+    pub gender: String,
+    pub population: Option<i64>,
+    pub source_year: Option<i64>,
+}
+
+#[allow(dead_code)]
+impl OccupationPopulationCell {
+    pub fn from_row(row: &Row) -> Self {
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            prefecture: str_or_empty(row, "prefecture"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            basis: str_or_empty(row, "basis"),
+            occupation_code: str_or_empty(row, "occupation_code"),
+            occupation_name: str_or_empty(row, "occupation_name"),
+            age_group: str_or_empty(row, "age_group"),
+            gender: str_or_empty(row, "gender"),
+            population: opt_i64(row, "population"),
+            source_year: opt_i64(row, "source_year"),
+        }
+    }
+}
+
+// -------- 上位 DTO: 主要市区町村ごとの統合データ --------
+
+/// 採用マーケットインテリジェンス分析データ (上位 DTO)
+///
+/// `fetch_*` 4 関数の結果を 1 つの構造体に束ねる。
+/// レポート HTML 層 (Step 3 で実装) に渡す唯一の入口。
+///
+/// 設計:
+/// - 全フィールドが `Vec<...>` (空でも良い、UI 側で欠損時非表示判定)
+/// - DTO は serde::Serialize 実装済み → JSON API でもそのまま返却可能
+#[derive(Clone, Debug, Default, Serialize)]
+#[allow(dead_code)]
+pub struct SurveyMarketIntelligenceData {
+    pub recruiting_scores: Vec<MunicipalityRecruitingScore>,
+    pub living_cost_proxies: Vec<LivingCostProxy>,
+    pub commute_flows: Vec<CommuteFlowSummary>,
+    pub occupation_populations: Vec<OccupationPopulationCell>,
+}
+
+#[allow(dead_code)]
+impl SurveyMarketIntelligenceData {
+    /// すべての構成 Vec が空かどうか。
+    pub fn is_empty(&self) -> bool {
+        self.recruiting_scores.is_empty()
+            && self.living_cost_proxies.is_empty()
+            && self.commute_flows.is_empty()
+            && self.occupation_populations.is_empty()
+    }
+
+    /// 内部の各スコアが METRICS.md の不変条件を満たすか。
+    /// (テストおよび monitoring 用ヘルパー)
+    pub fn all_invariants_hold(&self) -> bool {
+        self.recruiting_scores
+            .iter()
+            .all(|s| s.is_scenario_consistent() && s.is_priority_score_in_range())
+            && self
+                .commute_flows
+                .iter()
+                .all(|f| f.is_scenario_consistent() && f.is_flow_share_in_range())
+    }
+}
+
+// -------- Vec<Row> → Vec<DTO> 変換ヘルパー --------
+
+/// `Vec<Row>` を一括で `Vec<DTO>` に変換するためのトレイト風自由関数群。
+/// (Step 3 でレポート HTML が呼ぶときの入口)
+#[allow(dead_code)]
+pub(crate) fn to_recruiting_scores(rows: &[Row]) -> Vec<MunicipalityRecruitingScore> {
+    rows.iter().map(MunicipalityRecruitingScore::from_row).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_living_cost_proxies(rows: &[Row]) -> Vec<LivingCostProxy> {
+    rows.iter().map(LivingCostProxy::from_row).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_commute_flows(rows: &[Row]) -> Vec<CommuteFlowSummary> {
+    rows.iter().map(CommuteFlowSummary::from_row).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_occupation_populations(rows: &[Row]) -> Vec<OccupationPopulationCell> {
+    rows.iter().map(OccupationPopulationCell::from_row).collect()
+}
+
+// ============================================================
 // テスト
 // ============================================================
 
@@ -383,5 +806,314 @@ mod tests {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         assert_eq!(first_origin_muni, "江別市", "TOP1 流入元は江別市");
+    }
+
+    // ============================================================
+    // Phase 3 Step 2: DTO 変換テスト
+    // ============================================================
+
+    /// Turso 風の文字列値 (`Value::String("1973395")`) と JSON Number 両方を i64 に変換できること。
+    #[test]
+    fn test_opt_i64_handles_turso_string_and_local_number() {
+        let mut row: Row = HashMap::new();
+        row.insert("turso_str".into(), Value::String("1973395".into()));
+        row.insert("local_num".into(), Value::from(42_i64));
+        row.insert("float_str".into(), Value::String("3.14".into()));
+        row.insert("float_num".into(), Value::from(2.71_f64));
+        row.insert("null_val".into(), Value::Null);
+        row.insert("bool_val".into(), Value::Bool(true));
+
+        assert_eq!(opt_i64(&row, "turso_str"), Some(1_973_395));
+        assert_eq!(opt_i64(&row, "local_num"), Some(42));
+        // 小数文字列 "3.14" は as_f64 で None (SQLite REAL は別カラムで使う設計)、
+        // parse::<i64> も "3.14" を拒否するため None。
+        // 整数値のみのカラム (人口など) には影響しない。
+        assert_eq!(opt_i64(&row, "float_str"), None);
+        assert_eq!(opt_i64(&row, "float_num"), Some(2)); // JSON Number は as_f64 → as i64
+        assert_eq!(opt_i64(&row, "null_val"), None);
+        assert_eq!(opt_i64(&row, "missing"), None);
+        assert_eq!(opt_i64(&row, "bool_val"), None); // bool は数値として解釈しない
+    }
+
+    /// opt_f64 も同様に Turso 文字列・JSON Number 両対応。
+    #[test]
+    fn test_opt_f64_handles_turso_string_and_local_number() {
+        let mut row: Row = HashMap::new();
+        row.insert("turso_str".into(), Value::String("3.14".into()));
+        row.insert("local_num".into(), Value::from(42.5_f64));
+        row.insert("int_num".into(), Value::from(100_i64));
+        row.insert("null_val".into(), Value::Null);
+
+        assert_eq!(opt_f64(&row, "turso_str"), Some(3.14));
+        assert_eq!(opt_f64(&row, "local_num"), Some(42.5));
+        assert_eq!(opt_f64(&row, "int_num"), Some(100.0)); // int → f64 自動
+        assert_eq!(opt_f64(&row, "null_val"), None);
+        assert_eq!(opt_f64(&row, "missing"), None);
+    }
+
+    /// `MunicipalityRecruitingScore::from_row` が Turso 文字列値からも DTO を構築できること。
+    #[test]
+    fn test_recruiting_score_from_turso_string_row() {
+        // Turso v2/pipeline API は数値を文字列で返す
+        let mut row: Row = HashMap::new();
+        row.insert("municipality_code".into(), Value::String("01101".into()));
+        row.insert("prefecture".into(), Value::String("北海道".into()));
+        row.insert("municipality_name".into(), Value::String("札幌市".into()));
+        row.insert("occupation_group_code".into(), Value::String("driver".into()));
+        row.insert("occupation_group_name".into(), Value::String("輸送・機械運転".into()));
+        row.insert("target_population".into(), Value::String("12345".into()));
+        row.insert("distribution_priority_score".into(), Value::String("78.5".into()));
+        row.insert("scenario_conservative_population".into(), Value::String("100".into()));
+        row.insert("scenario_standard_population".into(), Value::String("300".into()));
+        row.insert("scenario_aggressive_population".into(), Value::String("500".into()));
+
+        let dto = MunicipalityRecruitingScore::from_row(&row);
+        assert_eq!(dto.municipality_code, "01101");
+        assert_eq!(dto.prefecture, "北海道");
+        assert_eq!(dto.target_population, Some(12345));
+        assert_eq!(dto.distribution_priority_score, Some(78.5));
+        assert_eq!(dto.scenario_conservative_population, Some(100));
+        assert_eq!(dto.scenario_standard_population, Some(300));
+        assert_eq!(dto.scenario_aggressive_population, Some(500));
+        // 不在カラムは None
+        assert_eq!(dto.median_salary_yen, None);
+        assert_eq!(dto.living_cost_score, None);
+    }
+
+    /// `from_row` が NULL / 欠損カラムでも panic しないこと。
+    #[test]
+    fn test_dto_from_empty_row_does_not_panic() {
+        let row: Row = HashMap::new();
+        // 全 DTO の from_row が空 Row でも default 値で構築される
+        let s = MunicipalityRecruitingScore::from_row(&row);
+        assert_eq!(s.municipality_code, "");
+        assert_eq!(s.target_population, None);
+        assert_eq!(s.distribution_priority_score, None);
+        assert!(s.is_scenario_consistent(), "欠損ありなら true");
+        assert!(s.is_priority_score_in_range(), "欠損ありなら true");
+
+        let l = LivingCostProxy::from_row(&row);
+        assert_eq!(l.municipality_code, "");
+        assert_eq!(l.single_household_rent_proxy, None);
+
+        let c = CommuteFlowSummary::from_row(&row);
+        assert_eq!(c.origin_prefecture, "");
+        assert_eq!(c.flow_count, None);
+        assert!(c.is_scenario_consistent());
+        assert!(c.is_flow_share_in_range());
+
+        let o = OccupationPopulationCell::from_row(&row);
+        assert_eq!(o.basis, "");
+        assert_eq!(o.population, None);
+    }
+
+    /// `is_scenario_consistent` が「保守 ≤ 標準 ≤ 強気」の不変条件を検証すること。
+    #[test]
+    fn test_recruiting_score_scenario_invariant() {
+        // 適合: 100 <= 300 <= 500
+        let valid = MunicipalityRecruitingScore {
+            scenario_conservative_population: Some(100),
+            scenario_standard_population: Some(300),
+            scenario_aggressive_population: Some(500),
+            ..Default::default()
+        };
+        assert!(valid.is_scenario_consistent());
+
+        // 適合: 等値 (100 = 100 = 100)
+        let edge_equal = MunicipalityRecruitingScore {
+            scenario_conservative_population: Some(100),
+            scenario_standard_population: Some(100),
+            scenario_aggressive_population: Some(100),
+            ..Default::default()
+        };
+        assert!(edge_equal.is_scenario_consistent());
+
+        // 不適合: 標準 < 保守 (順序逆転)
+        let invalid_swap = MunicipalityRecruitingScore {
+            scenario_conservative_population: Some(500),
+            scenario_standard_population: Some(300),
+            scenario_aggressive_population: Some(100),
+            ..Default::default()
+        };
+        assert!(!invalid_swap.is_scenario_consistent());
+
+        // 不適合: 強気 < 標準
+        let invalid_partial = MunicipalityRecruitingScore {
+            scenario_conservative_population: Some(100),
+            scenario_standard_population: Some(500),
+            scenario_aggressive_population: Some(300),
+            ..Default::default()
+        };
+        assert!(!invalid_partial.is_scenario_consistent());
+
+        // 欠損あり → 検証不可、true (緩いガード)
+        let missing = MunicipalityRecruitingScore {
+            scenario_conservative_population: Some(100),
+            scenario_standard_population: None,
+            scenario_aggressive_population: Some(500),
+            ..Default::default()
+        };
+        assert!(missing.is_scenario_consistent());
+    }
+
+    /// `is_priority_score_in_range` が `[0.0, 100.0]` を検証すること。
+    #[test]
+    fn test_priority_score_range_invariant() {
+        let cases = [
+            (0.0_f64, true, "下限 0"),
+            (100.0, true, "上限 100"),
+            (50.5, true, "中間値"),
+            (-0.1, false, "負値"),
+            (100.001, false, "上限超過"),
+            (f64::NAN, false, "NaN は不適合"),
+        ];
+        for (v, expected, label) in cases {
+            let s = MunicipalityRecruitingScore {
+                distribution_priority_score: Some(v),
+                ..Default::default()
+            };
+            assert_eq!(
+                s.is_priority_score_in_range(),
+                expected,
+                "{label} ({v}) で is_priority_score_in_range が想定外"
+            );
+        }
+
+        // None は検証不可、true
+        let none_score = MunicipalityRecruitingScore {
+            distribution_priority_score: None,
+            ..Default::default()
+        };
+        assert!(none_score.is_priority_score_in_range());
+    }
+
+    /// `CommuteFlowSummary::from_row` が `commute_flow_summary` テーブルのカラム名でも、
+    /// `v2_external_commute_od` フォールバックのカラム名でも DTO を構築できること。
+    #[test]
+    fn test_commute_flow_summary_handles_both_column_naming() {
+        // パターン A: commute_flow_summary 由来 (origin_prefecture, flow_count, ...)
+        let mut row_a: Row = HashMap::new();
+        row_a.insert("origin_prefecture".into(), Value::String("北海道".into()));
+        row_a.insert(
+            "origin_municipality_name".into(),
+            Value::String("江別市".into()),
+        );
+        row_a.insert("origin_municipality_code".into(), Value::String("01217".into()));
+        row_a.insert("flow_count".into(), Value::String("8000".into()));
+        row_a.insert("flow_share".into(), Value::String("0.42".into()));
+        row_a.insert("rank_to_destination".into(), Value::from(1_i64));
+
+        let dto_a = CommuteFlowSummary::from_row(&row_a);
+        assert_eq!(dto_a.origin_prefecture, "北海道");
+        assert_eq!(dto_a.origin_municipality_name, "江別市");
+        assert_eq!(dto_a.origin_municipality_code.as_deref(), Some("01217"));
+        assert_eq!(dto_a.flow_count, Some(8000));
+        assert_eq!(dto_a.flow_share, Some(0.42));
+        assert_eq!(dto_a.rank_to_destination, Some(1));
+
+        // パターン B: v2_external_commute_od フォールバック由来 (origin_pref, total_commuters, ...)
+        let mut row_b: Row = HashMap::new();
+        row_b.insert("origin_pref".into(), Value::String("北海道".into()));
+        row_b.insert("origin_muni".into(), Value::String("小樽市".into()));
+        row_b.insert("total_commuters".into(), Value::String("5000".into()));
+        row_b.insert("male_commuters".into(), Value::from(2500_i64));
+        row_b.insert("reference_year".into(), Value::from(2020_i64));
+
+        let dto_b = CommuteFlowSummary::from_row(&row_b);
+        assert_eq!(dto_b.origin_prefecture, "北海道");
+        assert_eq!(dto_b.origin_municipality_name, "小樽市");
+        assert_eq!(dto_b.origin_municipality_code, None); // フォールバック側にはない
+        assert_eq!(dto_b.flow_count, Some(5000)); // total_commuters から取れる
+        assert_eq!(dto_b.male_commuters, Some(2500));
+        assert_eq!(dto_b.source_year, Some(2020)); // reference_year を fallback で吸収
+    }
+
+    /// `flow_share` が `[0.0, 1.0]` の範囲内か検証。
+    #[test]
+    fn test_commute_flow_share_range_invariant() {
+        let in_range = CommuteFlowSummary {
+            flow_share: Some(0.5),
+            ..Default::default()
+        };
+        assert!(in_range.is_flow_share_in_range());
+
+        let upper = CommuteFlowSummary {
+            flow_share: Some(1.0),
+            ..Default::default()
+        };
+        assert!(upper.is_flow_share_in_range());
+
+        let over = CommuteFlowSummary {
+            flow_share: Some(1.5), // 1.0 超過は不適合
+            ..Default::default()
+        };
+        assert!(!over.is_flow_share_in_range());
+
+        let neg = CommuteFlowSummary {
+            flow_share: Some(-0.1),
+            ..Default::default()
+        };
+        assert!(!neg.is_flow_share_in_range());
+    }
+
+    /// `to_recruiting_scores` 等が Vec<Row> → Vec<DTO> を一括変換できること。
+    #[test]
+    fn test_vec_row_to_vec_dto_conversion() {
+        let mut row1: Row = HashMap::new();
+        row1.insert("municipality_code".into(), Value::String("01101".into()));
+        row1.insert("distribution_priority_score".into(), Value::String("85.0".into()));
+        let mut row2: Row = HashMap::new();
+        row2.insert("municipality_code".into(), Value::String("01102".into()));
+        row2.insert("distribution_priority_score".into(), Value::from(70.0_f64));
+
+        let rows = vec![row1, row2];
+        let dtos = to_recruiting_scores(&rows);
+        assert_eq!(dtos.len(), 2);
+        assert_eq!(dtos[0].municipality_code, "01101");
+        assert_eq!(dtos[0].distribution_priority_score, Some(85.0));
+        assert_eq!(dtos[1].municipality_code, "01102");
+        assert_eq!(dtos[1].distribution_priority_score, Some(70.0));
+    }
+
+    /// 上位 DTO の不変条件チェックが通ること。
+    #[test]
+    fn test_survey_market_intelligence_data_invariants() {
+        let valid_score = MunicipalityRecruitingScore {
+            distribution_priority_score: Some(75.0),
+            scenario_conservative_population: Some(100),
+            scenario_standard_population: Some(300),
+            scenario_aggressive_population: Some(500),
+            ..Default::default()
+        };
+        let valid_flow = CommuteFlowSummary {
+            flow_share: Some(0.5),
+            estimated_flow_conservative: Some(10),
+            estimated_flow_standard: Some(50),
+            estimated_flow_aggressive: Some(100),
+            ..Default::default()
+        };
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![valid_score],
+            commute_flows: vec![valid_flow],
+            ..Default::default()
+        };
+        assert!(data.all_invariants_hold());
+        assert!(!data.is_empty());
+
+        // 空 DTO は invariants 自動成立
+        let empty = SurveyMarketIntelligenceData::default();
+        assert!(empty.is_empty());
+        assert!(empty.all_invariants_hold());
+
+        // 不変条件違反を含むと all_invariants_hold が false
+        let bad_score = MunicipalityRecruitingScore {
+            distribution_priority_score: Some(150.0), // 範囲超過
+            ..Default::default()
+        };
+        let bad_data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![bad_score],
+            ..Default::default()
+        };
+        assert!(!bad_data.all_invariants_hold());
     }
 }
