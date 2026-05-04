@@ -591,7 +591,7 @@ def main():
     od_count = conn.execute("SELECT COUNT(*) FROM v2_external_commute_od").fetchone()[0]
     summary_count = conn.execute("SELECT COUNT(*) FROM v2_commute_flow_summary").fetchone()[0]
     print(f"\nResults: {od_count} OD pairs, {summary_count} summary rows")
-    if buffer_for_codes is not None:
+    if args.with_codes:
         cod_codes_count = conn.execute(
             "SELECT COUNT(*) FROM v2_external_commute_od_with_codes"
         ).fetchone()[0]
