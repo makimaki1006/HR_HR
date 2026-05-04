@@ -283,20 +283,17 @@ def insert_data_incremental(conn, data):
 
 
 def insert_data_with_codes(conn, all_data):
-    """Phase 3 JIS 整備版: v2_external_commute_od_with_codes に投入する。
+    """[Legacy] Phase 3 JIS 整備版: バッファ全件方式 (DELETE + 一括 INSERT)。
 
-    - PK は (origin_municipality_code, dest_municipality_code, reference_year)
-    - 既存 v2_external_commute_od には**触らない** (insert_data() と並行運用)
-    - origin_code/dest_code が欠損している行はスキップ (results dict は code 必須前提)
+    現在は `insert_data_with_codes_incremental()` の県単位逐次 INSERT 方式を推奨
+    (中断耐性 + 既存 v2_external_commute_od への破壊なし)。本関数は互換維持で残置。
     """
     merged = {}
     for row in all_data:
-        # code が欠損している行はスキップ (改修前に取得した古いキャッシュ等を防御)
         oc = row.get("origin_code")
         dc = row.get("dest_code")
         if not oc or not dc:
             continue
-        # PK は code ベース (Phase 3 仕様)
         key = (oc, dc)
         if key not in merged:
             merged[key] = {
@@ -313,6 +310,62 @@ def insert_data_with_codes(conn, all_data):
         merged[key][row["sex"]] = row["count"]
 
     conn.execute("DELETE FROM v2_external_commute_od_with_codes")
+    inserted = 0
+    skipped = 0
+    for d in merged.values():
+        total = d["total"] if d["total"] > 0 else d["male"] + d["female"]
+        if total < MIN_COMMUTERS:
+            skipped += 1
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO v2_external_commute_od_with_codes "
+            "(origin_municipality_code, dest_municipality_code, "
+            " origin_prefecture, origin_municipality_name, "
+            " dest_prefecture, dest_municipality_name, "
+            " total_commuters, male_commuters, female_commuters, reference_year) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 2020)",
+            (d["origin_code"], d["dest_code"],
+             d["origin_pref"], d["origin_muni"],
+             d["dest_pref"], d["dest_muni"],
+             total, d["male"], d["female"])
+        )
+        inserted += 1
+    conn.commit()
+    return inserted, skipped
+
+
+def insert_data_with_codes_incremental(conn, data):
+    """Phase 3 JIS 整備版 (推奨): v2_external_commute_od_with_codes に1都道府県分を逐次 INSERT/UPSERT。
+
+    設計:
+    - 都度 commit でクラッシュ耐性
+    - INSERT OR REPLACE で冪等 (同 PK は上書き、再実行安全)
+    - **既存 v2_external_commute_od には触らない** (insert_data_incremental() と独立)
+    - origin_code / dest_code 欠損行はスキップ (results dict は Worker A 改修後 code 必須前提)
+    - DELETE FROM v2_external_commute_od_with_codes は実行しない (再開時の既投入データ保持)
+    - PK は (origin_municipality_code, dest_municipality_code, reference_year)
+    """
+    merged = {}
+    for row in data:
+        oc = row.get("origin_code")
+        dc = row.get("dest_code")
+        if not oc or not dc:
+            continue
+        key = (oc, dc)
+        if key not in merged:
+            merged[key] = {
+                "origin_code": oc,
+                "origin_pref": row["origin_pref"],
+                "origin_muni": row["origin_muni"],
+                "dest_code": dc,
+                "dest_pref": row["dest_pref"],
+                "dest_muni": row["dest_muni"],
+                "total": 0,
+                "male": 0,
+                "female": 0,
+            }
+        merged[key][row["sex"]] = row["count"]
+
     inserted = 0
     skipped = 0
     for d in merged.values():
@@ -468,43 +521,68 @@ def main():
     area_map, cat02_map = fetch_area_names(APP_ID)
     print(f"  Areas: {len(area_map)}, Destinations: {len(cat02_map)}")
 
-    # 既に取得済みの県をスキップ
-    existing_prefs = set()
+    # 既に取得済みの県を判定 (base / with_codes 別々に判定)
+    # Phase 3 JIS 整備 (2026-05-04): existing_prefs_with_codes を別管理
+    # 理由: --with-codes モードで base 完了済 + with_codes 未完了の県を再 fetch する必要がある
+    existing_prefs_base = set()
     try:
         rows = conn.execute("SELECT DISTINCT origin_pref FROM v2_external_commute_od").fetchall()
-        existing_prefs = {r[0] for r in rows}
-        if existing_prefs:
-            print(f"Already fetched: {len(existing_prefs)} prefectures, skipping")
-    except:
+        existing_prefs_base = {r[0] for r in rows}
+        if existing_prefs_base:
+            print(f"  base table 完了済: {len(existing_prefs_base)} 都道府県")
+    except sqlite3.OperationalError:
         pass
 
-    # --with-codes モードの場合、_with_codes テーブルへ投入用に全件メモリ保持する必要があるので
-    # 既存の incremental 投入とは別にバッファを持つ
-    buffer_for_codes = [] if args.with_codes else None
+    existing_prefs_with_codes = set()
+    if args.with_codes:
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT origin_prefecture FROM v2_external_commute_od_with_codes"
+            ).fetchall()
+            existing_prefs_with_codes = {r[0] for r in rows}
+            if existing_prefs_with_codes:
+                print(f"  with_codes table 完了済: {len(existing_prefs_with_codes)} 都道府県")
+            else:
+                print(f"  with_codes table 完了済: 0 都道府県 (新規 fetch 対象)")
+        except sqlite3.OperationalError:
+            pass
 
-    total_inserted = 0
+    total_inserted_base = 0
+    total_inserted_with_codes = 0
+    skipped_count = 0
     for pref_code in PREF_CODES:
         pref_name = PREF_NAMES[pref_code]
-        if pref_name in existing_prefs:
-            print(f"Skipping {pref_name} ({pref_code}/47) - already fetched")
+        # スキップ条件: base 完了済 AND (--with-codes でない OR with_codes も完了済)
+        # → 「全ターゲットで完了済」のときのみスキップ。一方が未完なら fetch 実行。
+        base_done = pref_name in existing_prefs_base
+        with_codes_done = (
+            (not args.with_codes) or (pref_name in existing_prefs_with_codes)
+        )
+        if base_done and with_codes_done:
+            skipped_count += 1
+            print(f"Skipping {pref_name} ({pref_code}/47) - base + with_codes 完了済")
             continue
+
         print(f"Fetching {pref_name} ({pref_code}/47)...", end=" ", flush=True)
         data = fetch_pref_data(APP_ID, pref_code, area_map, cat02_map)
-        # 都道府県単位で逐次投入+commit（クラッシュ耐性）
-        count = insert_data_incremental(conn, data)
-        total_inserted += count
-        if buffer_for_codes is not None:
-            buffer_for_codes.extend(data)
-        print(f"{len(data)} rows -> {count} OD pairs")
+
+        # base 投入 (INSERT OR REPLACE で冪等 → 既投入でも安全)
+        count_base = insert_data_incremental(conn, data)
+        total_inserted_base += count_base
+
+        # with_codes 投入 (--with-codes モードのみ、県単位逐次)
+        if args.with_codes:
+            count_wc, skipped_wc = insert_data_with_codes_incremental(conn, data)
+            total_inserted_with_codes += count_wc
+            print(f"{len(data)} rows -> base {count_base} / with_codes {count_wc} (skipped {skipped_wc})")
+        else:
+            print(f"{len(data)} rows -> base {count_base} OD pairs")
         time.sleep(1)
 
-    print(f"\nTotal inserted: {total_inserted} OD pairs")
-
-    # Phase 3 JIS 版の追加投入 (--with-codes モードのみ)
-    if buffer_for_codes is not None:
-        print(f"\n[--with-codes] Phase 3 JIS 版: v2_external_commute_od_with_codes に投入中...")
-        inserted, skipped = insert_data_with_codes(conn, buffer_for_codes)
-        print(f"  inserted: {inserted:,} 行 (skipped: {skipped:,} - MIN_COMMUTERS 未満 or code 欠損)")
+    print(f"\nTotal inserted (base): {total_inserted_base} OD pairs")
+    if args.with_codes:
+        print(f"Total inserted (with_codes): {total_inserted_with_codes} OD pairs")
+    print(f"Skipped (already complete): {skipped_count} prefectures")
 
     print("Computing flow summaries...")
     compute_summaries(conn)
