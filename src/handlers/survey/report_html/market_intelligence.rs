@@ -81,6 +81,8 @@ pub(crate) fn build_market_intelligence_data(
         living_cost_proxies: to_living_cost_proxies(&living_cost_rows),
         commute_flows: to_commute_flows(&commute_rows),
         occupation_populations: to_occupation_populations(&occupation_rows),
+        // Phase 3 Step 5 Phase 2: 新規 Vec フィールド (本タスクでは fetch 未実装のため空)
+        ..Default::default()
     }
 }
 
@@ -633,6 +635,7 @@ mod tests {
                 population: Some(12_345),
                 ..Default::default()
             }],
+            ..Default::default()
         };
         render_section_market_intelligence(&mut html, &data);
 

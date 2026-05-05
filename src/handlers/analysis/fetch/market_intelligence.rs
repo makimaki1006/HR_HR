@@ -290,6 +290,30 @@ pub(crate) fn fetch_occupation_population(
 
 use serde::Serialize;
 
+// -------- Phase 3 Step 5 Phase 2: データソースラベル分類 --------
+
+/// データソース種別ラベル (basis × data_label の直積を 1 つの enum で表現)
+///
+/// XOR 不変条件:
+/// - `*Measured` / `ResidentActual` 系: `population` のみ Some
+/// - `*EstimatedBeta` 系: `estimate_index` のみ Some
+/// - `AggregateParent`: 親市集約の UI 暫定表示 (生データではない)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
+pub enum DataSourceLabel {
+    /// basis=resident + measured (将来予約、現状未投入)
+    ResidentActual,
+    /// basis=resident + estimated_beta (Model F2 推定指数)
+    ResidentEstimatedBeta,
+    /// basis=workplace + measured (e-Stat 15-1 国勢調査)
+    WorkplaceMeasured,
+    /// basis=workplace + estimated_beta (15-1 fallback)
+    WorkplaceEstimatedBeta,
+    /// 親市集約表示 (UI 暫定、生データではない)
+    AggregateParent,
+}
+
 // -------- Turso 文字列 ↔ 数値表現の差を吸収する Option ヘルパー --------
 
 /// `Row` から `Option<i64>` を取得する。
@@ -629,6 +653,146 @@ impl OccupationPopulationCell {
     }
 }
 
+// -------- Phase 3 Step 5 Phase 2: 新規 DTO 群 (Plan B 対応) --------
+
+/// 職業別人口セル DTO (workplace measured + resident estimated_beta の XOR 表現)
+///
+/// 商品の核心:
+/// - `data_label = "measured"` の場合は `population` のみ Some, `estimate_index` は None
+/// - `data_label = "estimated_beta"` の場合は `estimate_index` のみ Some, `population` は None
+/// - これは XOR 不変条件であり、UI 側で人数表示 / 指数表示を排他的に切り替える
+#[derive(Debug, Clone, Default, Serialize)]
+#[allow(dead_code)]
+pub struct OccupationCellDto {
+    pub municipality_code: String,
+    pub prefecture: String,
+    pub municipality_name: String,
+    /// 'workplace' | 'resident'
+    pub basis: String,
+    pub occupation_code: String,
+    pub occupation_name: String,
+    pub age_class: String,
+    pub gender: String,
+    /// measured 時のみ Some
+    pub population: Option<i64>,
+    /// estimated_beta 時のみ Some
+    pub estimate_index: Option<f64>,
+    /// 'measured' | 'estimated_beta'
+    pub data_label: String,
+    pub source_name: String,
+    pub source_year: i64,
+    /// estimated_beta 時のみ Some
+    pub weight_source: Option<String>,
+}
+
+#[allow(dead_code)]
+impl OccupationCellDto {
+    /// XOR 不変条件: data_label に応じて population/estimate_index のいずれか一方のみ Some
+    pub fn is_xor_consistent(&self) -> bool {
+        match self.data_label.as_str() {
+            "measured" => self.population.is_some() && self.estimate_index.is_none(),
+            "estimated_beta" => self.population.is_none() && self.estimate_index.is_some(),
+            _ => false,
+        }
+    }
+
+    /// 人数表示可否 (measured のみ true)
+    pub fn can_display_population(&self) -> bool {
+        self.data_label == "measured" && self.population.is_some()
+    }
+
+    /// 指数表示可否 (estimated_beta のみ true)
+    pub fn can_display_index(&self) -> bool {
+        self.data_label == "estimated_beta" && self.estimate_index.is_some()
+    }
+
+    /// (basis, data_label) から DataSourceLabel に変換
+    pub fn label(&self) -> DataSourceLabel {
+        match (self.basis.as_str(), self.data_label.as_str()) {
+            ("workplace", "measured") => DataSourceLabel::WorkplaceMeasured,
+            ("workplace", "estimated_beta") => DataSourceLabel::WorkplaceEstimatedBeta,
+            ("resident", "measured") => DataSourceLabel::ResidentActual,
+            ("resident", "estimated_beta") => DataSourceLabel::ResidentEstimatedBeta,
+            _ => DataSourceLabel::AggregateParent,
+        }
+    }
+}
+
+/// 政令市区 (designated_ward) thickness 詳細 DTO
+#[derive(Debug, Clone, Default, Serialize)]
+#[allow(dead_code)]
+pub struct WardThicknessDto {
+    pub municipality_code: String,
+    pub municipality_name: String,
+    pub prefecture: String,
+    /// 通常 'resident'
+    pub basis: String,
+    pub occupation_code: String,
+    pub occupation_name: String,
+    /// 0-200
+    pub thickness_index: f64,
+    pub rank_in_occupation: Option<i64>,
+    pub rank_percentile: Option<f64>,
+    /// 'A' | 'B' | 'C' | 'D'
+    pub distribution_priority: Option<String>,
+    pub scenario_conservative_index: Option<i64>,
+    pub scenario_standard_index: Option<i64>,
+    pub scenario_aggressive_index: Option<i64>,
+    /// 'A-' 等
+    pub estimate_grade: Option<String>,
+    /// 'hypothesis_v1' 等
+    pub weight_source: String,
+    pub is_industrial_anchor: bool,
+    pub source_year: i64,
+}
+
+/// 親市内ランキング DTO (parent_rank 優先、商品の核心)
+///
+/// 表示優先度: parent_rank が常に主指標、national_rank は参考のみ
+#[derive(Debug, Clone, Default, Serialize)]
+#[allow(dead_code)]
+pub struct WardRankingRowDto {
+    pub municipality_code: String,
+    pub municipality_name: String,
+    pub parent_code: String,
+    pub parent_name: String,
+    /// 主表示 (商品 UI で大きく)
+    pub parent_rank: i64,
+    /// 主表示 (分母)
+    pub parent_total: i64,
+    /// 参考表示 (UI で小さく)
+    pub national_rank: i64,
+    pub national_total: i64,
+    pub thickness_index: f64,
+    /// 'A'/'B'/'C'/'D'
+    pub priority: String,
+}
+
+#[allow(dead_code)]
+impl WardRankingRowDto {
+    /// 表示優先度: parent_rank が常に主指標 (national は参考のみ)
+    /// 商品ルール: parent_rank > national_rank の優先順位
+    pub fn uses_parent_rank_primary(&self) -> bool {
+        // parent_rank が有効 (1 以上、parent_total 以下) であること
+        self.parent_rank >= 1
+            && self.parent_total >= self.parent_rank
+            && !self.parent_code.is_empty()
+    }
+}
+
+/// 市区町村コードマスター DTO (結合キー用 lookup)
+#[derive(Debug, Clone, Default, Serialize)]
+#[allow(dead_code)]
+pub struct MunicipalityCodeMasterDto {
+    /// JIS 5 桁
+    pub municipality_code: String,
+    pub municipality_name: String,
+    pub prefecture: String,
+    /// 'designated_ward' | 'aggregate_city' | 'municipality' | 'special_ward' | 'aggregate_special_wards'
+    pub area_type: String,
+    pub parent_code: Option<String>,
+}
+
 // -------- 上位 DTO: 主要市区町村ごとの統合データ --------
 
 /// 採用マーケットインテリジェンス分析データ (上位 DTO)
@@ -646,6 +810,16 @@ pub struct SurveyMarketIntelligenceData {
     pub living_cost_proxies: Vec<LivingCostProxy>,
     pub commute_flows: Vec<CommuteFlowSummary>,
     pub occupation_populations: Vec<OccupationPopulationCell>,
+
+    // -------- Phase 3 Step 5 Phase 2 追加 (互換維持: 既存フィールド変更なし) --------
+    /// Plan B 対応 (workplace measured + resident estimated_beta)
+    pub occupation_cells: Vec<OccupationCellDto>,
+    /// designated_ward の thickness 詳細
+    pub ward_thickness: Vec<WardThicknessDto>,
+    /// parent_code 内ランキング (商品の核心)
+    pub ward_rankings: Vec<WardRankingRowDto>,
+    /// 結合キー用 lookup
+    pub code_master: Vec<MunicipalityCodeMasterDto>,
 }
 
 #[allow(dead_code)]
@@ -1115,5 +1289,135 @@ mod tests {
             ..Default::default()
         };
         assert!(!bad_data.all_invariants_hold());
+    }
+}
+
+// -------- Phase 3 Step 5 Phase 2: DTO unit tests --------
+#[cfg(test)]
+mod phase3_step5_dto_tests {
+    use super::*;
+
+    // [1] measured: population あり / estimate_index なし
+    #[test]
+    fn occupation_cell_measured_xor_ok() {
+        let cell = OccupationCellDto {
+            data_label: "measured".into(),
+            population: Some(12345),
+            estimate_index: None,
+            ..Default::default()
+        };
+        assert!(cell.is_xor_consistent());
+        assert!(cell.can_display_population());
+        assert!(!cell.can_display_index());
+    }
+
+    // [2] estimated_beta: population なし / estimate_index あり
+    #[test]
+    fn occupation_cell_estimated_xor_ok() {
+        let cell = OccupationCellDto {
+            data_label: "estimated_beta".into(),
+            population: None,
+            estimate_index: Some(142.5),
+            ..Default::default()
+        };
+        assert!(cell.is_xor_consistent());
+        assert!(!cell.can_display_population());
+        assert!(cell.can_display_index());
+    }
+
+    // [3] 不正 XOR (両方 Some) は false
+    #[test]
+    fn occupation_cell_both_some_is_invalid() {
+        let cell = OccupationCellDto {
+            data_label: "measured".into(),
+            population: Some(100),
+            estimate_index: Some(50.0), // ← 違反
+            ..Default::default()
+        };
+        assert!(!cell.is_xor_consistent());
+    }
+
+    // [4] 不正 XOR (両方 None) も false
+    #[test]
+    fn occupation_cell_both_none_is_invalid() {
+        let cell = OccupationCellDto {
+            data_label: "measured".into(),
+            population: None,
+            estimate_index: None,
+            ..Default::default()
+        };
+        assert!(!cell.is_xor_consistent());
+    }
+
+    // [5] measured のみ人数表示 OK
+    #[test]
+    fn population_display_only_when_measured() {
+        let m = OccupationCellDto {
+            data_label: "measured".into(),
+            population: Some(100),
+            estimate_index: None,
+            ..Default::default()
+        };
+        let e = OccupationCellDto {
+            data_label: "estimated_beta".into(),
+            population: None,
+            estimate_index: Some(50.0),
+            ..Default::default()
+        };
+        assert!(m.can_display_population());
+        assert!(!e.can_display_population());
+    }
+
+    // [6] label 変換
+    #[test]
+    fn label_mapping_correct() {
+        let workplace = OccupationCellDto {
+            basis: "workplace".into(),
+            data_label: "measured".into(),
+            population: Some(1),
+            ..Default::default()
+        };
+        let resident = OccupationCellDto {
+            basis: "resident".into(),
+            data_label: "estimated_beta".into(),
+            estimate_index: Some(1.0),
+            ..Default::default()
+        };
+        assert_eq!(workplace.label(), DataSourceLabel::WorkplaceMeasured);
+        assert_eq!(resident.label(), DataSourceLabel::ResidentEstimatedBeta);
+    }
+
+    // [7] parent_rank 優先判定
+    #[test]
+    fn ward_ranking_uses_parent_rank_primary() {
+        let valid = WardRankingRowDto {
+            parent_code: "14100".into(),
+            parent_rank: 3,
+            parent_total: 18,
+            national_rank: 12,
+            national_total: 1917,
+            ..Default::default()
+        };
+        assert!(valid.uses_parent_rank_primary());
+
+        let invalid_no_parent = WardRankingRowDto {
+            parent_code: "".into(), // 親市不在
+            parent_rank: 3,
+            parent_total: 18,
+            ..Default::default()
+        };
+        assert!(!invalid_no_parent.uses_parent_rank_primary());
+    }
+
+    // [8] default が空 Vec で落ちない
+    #[test]
+    fn survey_data_default_is_empty_vecs() {
+        let data = SurveyMarketIntelligenceData::default();
+        assert!(data.occupation_cells.is_empty());
+        assert!(data.ward_thickness.is_empty());
+        assert!(data.ward_rankings.is_empty());
+        assert!(data.code_master.is_empty());
+        // 既存 Vec も空
+        assert!(data.recruiting_scores.is_empty());
     }
 }
