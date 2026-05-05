@@ -4,28 +4,32 @@ fetch_estat_15_1.py
 
 e-Stat 国勢調査 R2 表 15-1 (statdisp_id=0003454508) 取得スクリプト
 
-実装ステータス: 確認モード (--metadata-only / --sample-only / --dry-run)
-- [OK] メタデータ取得 (1 API call)
-- [OK] サンプル取得 (1 ページ、1000 行)
-- [OK] Dry-run (API なし、env 確認)
-- [TODO] --fetch / --merge / --validate は skeleton (本格 fetch は appId 確定後の別タスク)
+実装ステータス:
+- [OK] --dry-run / --metadata-only / --sample-only (Worker A5)
+- [OK] --fetch / --merge / --validate (Worker A6)
 
 設計書: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_FETCH_ESTAT_15_1_PLAN.md (Worker A4)
 
 CLI:
-  python scripts/fetch_estat_15_1.py --dry-run                        # 接続なし
-  $env:ESTAT_APP_ID = "your-app-id"; \
-  python scripts/fetch_estat_15_1.py --metadata-only                  # 1 リクエスト
-  python scripts/fetch_estat_15_1.py --sample-only --limit 1000       # 1 ページ取得
-  python scripts/fetch_estat_15_1.py --fetch                          # NotImplementedError (本格 fetch)
+  python scripts/fetch_estat_15_1.py --dry-run
+  $env:ESTAT_APP_ID = "your-app-id"
+  python scripts/fetch_estat_15_1.py --metadata-only
+  python scripts/fetch_estat_15_1.py --sample-only --limit 1000
+  python scripts/fetch_estat_15_1.py --fetch                          # 本格 paginated fetch
+  python scripts/fetch_estat_15_1.py --fetch --from-page 5            # resume
+  python scripts/fetch_estat_15_1.py --merge                          # ローカル JSON のみ
+  python scripts/fetch_estat_15_1.py --validate                       # CSV 整合性検証
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
+import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,13 +47,46 @@ except (AttributeError, ValueError):
 # --------------------------------------------------------------------------- #
 
 ESTAT_API_BASE = "https://api.e-stat.go.jp/rest/3.0/app/json"
-DEFAULT_STATS_DATA_ID = "0003454508"  # 統計表 ID (statdisp_id)。API 用 ID と異なる場合は --metadata-only で確定
+DEFAULT_STATS_DATA_ID = "0003454508"
 
 OUTPUT_DIR = Path("data/generated")
 TEMP_DIR = OUTPUT_DIR / "temp"
 META_FILE = OUTPUT_DIR / "estat_15_1_metadata.json"
 SAMPLE_FILE = TEMP_DIR / "estat_15_1_sample.json"
 PROGRESS_FILE = OUTPUT_DIR / "estat_15_1_progress.json"
+MERGED_CSV = OUTPUT_DIR / "estat_15_1_merged.csv"
+
+MASTER_DB_PATH = Path("data/hellowork.db")
+
+# 除外ルール (Worker A4 計画 §6)
+EXCLUDE_AXIS_VALUES: dict[str, set[str]] = {
+    "cat01": {"00000"},          # 男女総数
+    "cat02": {"00000", "9999"},  # 年齢: 総数 / 不詳
+    "cat03": {"00000", "999"},   # 職業: 総数 / 分類不能
+    "area": set(),                # area は別ロジックで判定
+}
+
+OUTPUT_CSV_COLUMNS = [
+    "municipality_code",
+    "prefecture",
+    "municipality_name",
+    "gender",
+    "age_class",
+    "occupation_code",
+    "occupation_name",
+    "population",
+    "source_name",
+    "source_year",
+    "fetched_at",
+]
+
+SOURCE_NAME = "census_15_1"
+SOURCE_YEAR = 2020
+
+# fetch パラメータ
+SLEEP_SEC = 1.0
+MAX_RETRIES = 5
+DEFAULT_PAGE_SIZE = 100000
 
 
 # --------------------------------------------------------------------------- #
@@ -57,15 +94,7 @@ PROGRESS_FILE = OUTPUT_DIR / "estat_15_1_progress.json"
 # --------------------------------------------------------------------------- #
 
 def get_app_id(cli_arg: str | None = None) -> str:
-    """
-    appId 取得。
-
-    優先順位:
-      1. CLI 引数 --app-id
-      2. 環境変数 ESTAT_APP_ID
-
-    .env ファイルは直接 open しない (python-dotenv も使用禁止)。
-    """
+    """appId 取得。CLI 引数 > 環境変数 ESTAT_APP_ID。.env 直読禁止。"""
     app_id = cli_arg or os.environ.get("ESTAT_APP_ID")
     if not app_id:
         raise SystemExit(
@@ -77,7 +106,6 @@ def get_app_id(cli_arg: str | None = None) -> str:
 
 
 def mask_app_id(app_id: str) -> str:
-    """appId をマスク表示 (先頭 3 + 末尾 2 を残す、間はアスタリスク)。"""
     if not app_id or len(app_id) < 6:
         return "***"
     return f"{app_id[:3]}{'*' * (len(app_id) - 5)}{app_id[-2:]}"
@@ -88,7 +116,6 @@ def mask_app_id(app_id: str) -> str:
 # --------------------------------------------------------------------------- #
 
 def get_meta(stats_data_id: str, app_id: str) -> dict[str, Any]:
-    """getMetaInfo: 軸メタデータ (cat01/cat02/cat03/area) を取得。"""
     url = f"{ESTAT_API_BASE}/getMetaInfo"
     params = {"appId": app_id, "statsDataId": stats_data_id}
     resp = requests.get(url, params=params, timeout=30)
@@ -102,7 +129,6 @@ def get_stats_data(
     start_position: int = 1,
     limit: int = 1000,
 ) -> dict[str, Any]:
-    """getStatsData: データ本体取得 (1 ページ)。"""
     url = f"{ESTAT_API_BASE}/getStatsData"
     params = {
         "appId": app_id,
@@ -119,47 +145,77 @@ def get_stats_data(
 
 
 # --------------------------------------------------------------------------- #
-# モード実装
+# ヘルパー
 # --------------------------------------------------------------------------- #
 
 def ensure_dirs() -> None:
-    """出力ディレクトリを作成 (idempotent)。"""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _load_progress(path: Path, stats_data_id: str = DEFAULT_STATS_DATA_ID) -> dict[str, Any]:
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {
+        "stats_data_id": stats_data_id,
+        "next_position": 1,
+        "completed_pages": 0,
+        "total_estimated": 1762605,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "last_fetched_at": None,
+    }
+
+
+def _save_progress(progress: dict[str, Any], path: Path) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(progress, f, ensure_ascii=False, indent=2)
+
+
+def _load_master_codes() -> set[str]:
+    """master DB から市区町村コード集合を読み込む (read-only)。"""
+    if not MASTER_DB_PATH.exists():
+        print(f"[warn] master DB not found: {MASTER_DB_PATH}")
+        return set()
+    try:
+        conn = sqlite3.connect(f"file:{MASTER_DB_PATH}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT municipality_code FROM municipality_code_master"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {str(r[0]).zfill(5) for r in rows if r[0] is not None}
+    except sqlite3.Error as e:
+        print(f"[warn] master DB read failed: {e}")
+        return set()
+
+
+# --------------------------------------------------------------------------- #
+# モード: dry-run / metadata-only / sample-only (既存維持)
+# --------------------------------------------------------------------------- #
+
 def run_dry_run(app_id_arg: str | None) -> int:
-    """API 接続なしで env + 出力ディレクトリを確認。"""
     print("[mode] --dry-run")
     print(f"[time] {datetime.now(timezone.utc).isoformat()}")
-
-    # appId チェック (未設定なら SystemExit)
     app_id = get_app_id(app_id_arg)
     print(f"[appId] {mask_app_id(app_id)} (length={len(app_id)})")
-
-    # 出力ディレクトリ作成
     ensure_dirs()
     print(f"[dir] OUTPUT_DIR={OUTPUT_DIR.resolve()} exists={OUTPUT_DIR.exists()}")
     print(f"[dir] TEMP_DIR={TEMP_DIR.resolve()} exists={TEMP_DIR.exists()}")
-
-    # 想定出力先
     print(f"[plan] META_FILE   = {META_FILE}")
     print(f"[plan] SAMPLE_FILE = {SAMPLE_FILE}")
     print(f"[plan] PROGRESS    = {PROGRESS_FILE}")
-
     print("[OK] dry-run completed (no HTTP request issued).")
     return 0
 
 
 def run_metadata_only(stats_data_id: str, app_id_arg: str | None) -> int:
-    """getMetaInfo を 1 回呼び出し、軸メタデータを保存。"""
     print("[mode] --metadata-only")
     app_id = get_app_id(app_id_arg)
     print(f"[appId] {mask_app_id(app_id)}")
     print(f"[stats_data_id] {stats_data_id}")
-
     ensure_dirs()
-
     print(f"[GET] {ESTAT_API_BASE}/getMetaInfo")
     try:
         data = get_meta(stats_data_id, app_id)
@@ -167,7 +223,6 @@ def run_metadata_only(stats_data_id: str, app_id_arg: str | None) -> int:
         print(f"[ERROR] HTTP {exc.response.status_code}: {exc.response.text[:300]}")
         return 1
 
-    # API ステータス確認
     result = data.get("GET_META_INFO", {}).get("RESULT", {})
     status = result.get("STATUS")
     err_msg = result.get("ERROR_MSG", "")
@@ -176,7 +231,6 @@ def run_metadata_only(stats_data_id: str, app_id_arg: str | None) -> int:
     META_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[saved] {META_FILE} ({META_FILE.stat().st_size} bytes)")
 
-    # 軸サマリ
     class_inf = (
         data.get("GET_META_INFO", {})
         .get("METADATA_INF", {})
@@ -201,15 +255,12 @@ def run_metadata_only(stats_data_id: str, app_id_arg: str | None) -> int:
 
 
 def run_sample_only(stats_data_id: str, app_id_arg: str | None, limit: int) -> int:
-    """getStatsData を 1 ページのみ呼び出してサンプル保存。"""
     print("[mode] --sample-only")
     app_id = get_app_id(app_id_arg)
     print(f"[appId] {mask_app_id(app_id)}")
     print(f"[stats_data_id] {stats_data_id}")
     print(f"[limit] {limit}")
-
     ensure_dirs()
-
     print(f"[GET] {ESTAT_API_BASE}/getStatsData (startPosition=1)")
     try:
         data = get_stats_data(stats_data_id, app_id, start_position=1, limit=limit)
@@ -217,10 +268,7 @@ def run_sample_only(stats_data_id: str, app_id_arg: str | None, limit: int) -> i
         print(f"[ERROR] HTTP {exc.response.status_code}: {exc.response.text[:300]}")
         return 1
 
-    result = (
-        data.get("GET_STATS_DATA", {})
-        .get("RESULT", {})
-    )
+    result = data.get("GET_STATS_DATA", {}).get("RESULT", {})
     status = result.get("STATUS")
     err_msg = result.get("ERROR_MSG", "")
     print(f"[result] STATUS={status} MSG={err_msg}")
@@ -228,7 +276,6 @@ def run_sample_only(stats_data_id: str, app_id_arg: str | None, limit: int) -> i
     SAMPLE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[saved] {SAMPLE_FILE} ({SAMPLE_FILE.stat().st_size} bytes)")
 
-    # サンプル 5 行表示
     values = (
         data.get("GET_STATS_DATA", {})
         .get("STATISTICAL_DATA", {})
@@ -242,12 +289,10 @@ def run_sample_only(stats_data_id: str, app_id_arg: str | None, limit: int) -> i
     for i, row in enumerate(values[:5]):
         print(f"  [{i}] {row}")
 
-    # population 値の型確認
     if values:
         sample_val = values[0].get("$")
         print(f"[type] population value sample: {sample_val!r} (type={type(sample_val).__name__})")
 
-    # 総件数
     result_inf = (
         data.get("GET_STATS_DATA", {})
         .get("STATISTICAL_DATA", {})
@@ -261,26 +306,437 @@ def run_sample_only(stats_data_id: str, app_id_arg: str | None, limit: int) -> i
 
 
 # --------------------------------------------------------------------------- #
-# スケルトン (本タスクでは未実装)
+# モード: --fetch (本実装)
 # --------------------------------------------------------------------------- #
 
-def fetch_all_pages(*args: Any, **kwargs: Any) -> None:
-    raise NotImplementedError(
-        "本格 fetch は別タスク。--metadata-only / --sample-only で確認後、"
-        "ユーザー判断で本格 fetch を実施。"
+def fetch_all_pages(
+    stats_data_id: str,
+    app_id: str,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    from_page: int | None = None,
+    progress_path: Path = PROGRESS_FILE,
+    output_dir: Path = TEMP_DIR,
+) -> dict[str, Any]:
+    """ページング fetch。中断耐性 (progress.json 経由 resume)。"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    progress = _load_progress(progress_path, stats_data_id)
+    progress["stats_data_id"] = stats_data_id
+
+    if from_page is not None:
+        if from_page < 1:
+            raise SystemExit(f"--from-page must be >= 1 (got {from_page})")
+        progress["next_position"] = (from_page - 1) * page_size + 1
+        progress["completed_pages"] = from_page - 1
+        print(f"[resume] from_page={from_page} -> next_position={progress['next_position']}")
+
+    while True:
+        page_num = (progress["next_position"] - 1) // page_size + 1
+        page_path = output_dir / f"estat_15_1_page_{page_num:03d}.json"
+
+        # 既存ページはスキップ (idempotent)
+        if page_path.exists():
+            print(f"[skip] page {page_num} already exists: {page_path}")
+            progress["next_position"] += page_size
+            progress["completed_pages"] = max(progress["completed_pages"], page_num)
+            _save_progress(progress, progress_path)
+            continue
+
+        # API request with exponential backoff
+        resp_json: dict[str, Any] | None = None
+        last_err: Exception | None = None
+        for retry in range(MAX_RETRIES):
+            try:
+                resp_json = get_stats_data(
+                    stats_data_id, app_id,
+                    start_position=progress["next_position"],
+                    limit=page_size,
+                )
+                break
+            except (requests.HTTPError, requests.Timeout, requests.ConnectionError) as e:
+                last_err = e
+                wait = min((2 ** retry) * 2, 60)  # 2,4,8,16,32 (cap 60)
+                print(f"[retry {retry+1}/{MAX_RETRIES}] {e}, sleeping {wait}s")
+                time.sleep(wait)
+        if resp_json is None:
+            print(f"[error] page {page_num} failed after {MAX_RETRIES} retries: {last_err}")
+            raise SystemExit(1)
+
+        # API ステータス検査
+        result = resp_json.get("GET_STATS_DATA", {}).get("RESULT", {})
+        result_status = result.get("STATUS")
+        if result_status not in (0, "0"):
+            err_msg = result.get("ERROR_MSG", "unknown")
+            raise SystemExit(f"[error] API returned status {result_status}: {err_msg}")
+
+        data_inf = (
+            resp_json.get("GET_STATS_DATA", {})
+            .get("STATISTICAL_DATA", {})
+            .get("DATA_INF", {})
+        )
+        values = data_inf.get("VALUE", [])
+        if isinstance(values, dict):
+            values = [values]
+
+        # 完走判定
+        if len(values) == 0:
+            print(f"[done] no more data at page {page_num}")
+            break
+
+        # 保存
+        with open(page_path, "w", encoding="utf-8") as f:
+            json.dump(resp_json, f, ensure_ascii=False)
+        print(f"[saved] page {page_num} ({len(values)} cells) -> {page_path}")
+
+        # progress 更新
+        progress["next_position"] += len(values)
+        progress["completed_pages"] = page_num
+        progress["last_fetched_at"] = datetime.now(timezone.utc).isoformat()
+        _save_progress(progress, progress_path)
+
+        # NEXT_KEY が無ければ完走
+        result_inf = (
+            resp_json.get("GET_STATS_DATA", {})
+            .get("STATISTICAL_DATA", {})
+            .get("RESULT_INF", {})
+        )
+        next_key = result_inf.get("NEXT_KEY")
+        if not next_key:
+            print(f"[done] reached end at page {page_num} (no NEXT_KEY)")
+            break
+
+        # 次ポインタ調整 (NEXT_KEY が示す位置を優先)
+        try:
+            progress["next_position"] = int(next_key)
+            _save_progress(progress, progress_path)
+        except (TypeError, ValueError):
+            pass
+
+        time.sleep(SLEEP_SEC)
+
+    return progress
+
+
+# --------------------------------------------------------------------------- #
+# モード: --merge (本実装)
+# --------------------------------------------------------------------------- #
+
+def load_axis_metadata(metadata_path: Path) -> dict[str, dict[str, str]]:
+    """メタデータ JSON から軸コード → 名前辞書を構築。"""
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    class_inf = (
+        data.get("GET_META_INFO", {})
+        .get("METADATA_INF", {})
+        .get("CLASS_INF", {})
+        .get("CLASS_OBJ", [])
     )
+    if isinstance(class_inf, dict):
+        class_inf = [class_inf]
+
+    axis_map: dict[str, dict[str, str]] = {}
+    for axis in class_inf:
+        axis_id = axis.get("@id", "")
+        classes = axis.get("CLASS", [])
+        if isinstance(classes, dict):
+            classes = [classes]
+        code_map = {}
+        for cls in classes:
+            code = cls.get("@code", "")
+            name = cls.get("@name", "")
+            code_map[code] = name
+        axis_map[axis_id] = code_map
+
+    return axis_map
 
 
-def merge_pages(*args: Any, **kwargs: Any) -> None:
-    raise NotImplementedError(
-        "--merge は別タスク。本格 fetch 完了後に実装。"
+def is_excluded(record: dict[str, Any]) -> bool:
+    """API レスポンスの 1 セルを除外判定。True なら除外。"""
+    cat01 = str(record.get("@cat01", ""))
+    cat02 = str(record.get("@cat02", ""))
+    cat03 = str(record.get("@cat03", ""))
+    area = str(record.get("@area", ""))
+
+    if cat01 in EXCLUDE_AXIS_VALUES["cat01"]:
+        return True
+    if cat02 in EXCLUDE_AXIS_VALUES["cat02"]:
+        return True
+    if cat03 in EXCLUDE_AXIS_VALUES["cat03"]:
+        return True
+    # 全国 (area=00000)
+    if area == "00000":
+        return True
+    # 都道府県 (5 桁中末尾 3 桁が 000)
+    if len(area) == 5 and area[2:5] == "000":
+        return True
+    # 5 桁数字以外 (政令市・郡・その他集約) は除外
+    if len(area) != 5 or not area.isdigit():
+        return True
+    return False
+
+
+def _normalize_gender(cat01_code: str, cat01_name: str) -> str:
+    """男女コード/名前から 'male' / 'female' 正規化。"""
+    name = cat01_name or ""
+    if "男" in name:
+        return "male"
+    if "女" in name:
+        return "female"
+    # フォールバック (コード数字判定)
+    if cat01_code in ("01", "1"):
+        return "male"
+    if cat01_code in ("02", "2"):
+        return "female"
+    return cat01_name or cat01_code
+
+
+def _normalize_age_class(cat02_code: str, cat02_name: str) -> str:
+    """年齢階級ラベル正規化。例: '15～19歳' -> '15-19'。"""
+    name = cat02_name or ""
+    # 全角チルダ／ハイフン正規化
+    for sep in ("～", "〜", "-", "－", "ー"):
+        if sep in name:
+            parts = name.split(sep, 1)
+            left = parts[0].replace("歳", "").strip()
+            right = parts[1].replace("歳", "").replace("以上", "").strip()
+            if left and right:
+                return f"{left}-{right}"
+            if left:
+                return f"{left}+"
+    # "65歳以上" 系
+    if "以上" in name:
+        digits = "".join(ch for ch in name if ch.isdigit())
+        if digits:
+            return f"{digits}+"
+    return name or cat02_code
+
+
+def _prefecture_from_area(area_code: str, axis_map: dict[str, dict[str, str]]) -> str:
+    """area code 上 2 桁から都道府県名を取得。"""
+    if len(area_code) < 2:
+        return ""
+    pref_code = area_code[:2] + "000"  # 例: 13000
+    area_axis = axis_map.get("area", {})
+    return area_axis.get(pref_code, "")
+
+
+def merge_pages(
+    pages_dir: Path = TEMP_DIR,
+    output_csv: Path = MERGED_CSV,
+    metadata_path: Path = META_FILE,
+) -> dict[str, Any]:
+    """複数 page JSON を 1 CSV にマージ + 除外フィルタ適用。"""
+    if not metadata_path.exists():
+        raise SystemExit(f"metadata file not found: {metadata_path}. Run --metadata-only first.")
+
+    page_files = sorted(pages_dir.glob("estat_15_1_page_*.json"))
+    if not page_files:
+        raise SystemExit(f"no page JSONs found in {pages_dir}. Run --fetch first.")
+
+    print(f"[merge] {len(page_files)} page files found")
+    axis_map = load_axis_metadata(metadata_path)
+    print(f"[merge] axis codes loaded: " + ", ".join(
+        f"{k}={len(v)}" for k, v in axis_map.items()
+    ))
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    fetched_at = datetime.now(timezone.utc).isoformat()
+
+    raw_rows = 0
+    excluded_rows = 0
+    written_rows = 0
+
+    cat01_axis = axis_map.get("cat01", {})
+    cat02_axis = axis_map.get("cat02", {})
+    cat03_axis = axis_map.get("cat03", {})
+    area_axis = axis_map.get("area", {})
+
+    with open(output_csv, "w", encoding="utf-8", newline="") as f_out:
+        writer = csv.DictWriter(f_out, fieldnames=OUTPUT_CSV_COLUMNS)
+        writer.writeheader()
+
+        for page_path in page_files:
+            with open(page_path, "r", encoding="utf-8") as f_in:
+                data = json.load(f_in)
+            values = (
+                data.get("GET_STATS_DATA", {})
+                .get("STATISTICAL_DATA", {})
+                .get("DATA_INF", {})
+                .get("VALUE", [])
+            )
+            if isinstance(values, dict):
+                values = [values]
+
+            for rec in values:
+                raw_rows += 1
+                if is_excluded(rec):
+                    excluded_rows += 1
+                    continue
+
+                cat01_code = str(rec.get("@cat01", ""))
+                cat02_code = str(rec.get("@cat02", ""))
+                cat03_code = str(rec.get("@cat03", ""))
+                area_code = str(rec.get("@area", "")).zfill(5)
+                pop_raw = rec.get("$", "")
+
+                # 数値変換 (欠損記号 '-' '*' 'X' 等は 0 にフォールバック)
+                try:
+                    population = int(pop_raw)
+                except (TypeError, ValueError):
+                    try:
+                        population = int(float(pop_raw))
+                    except (TypeError, ValueError):
+                        population = 0
+
+                writer.writerow({
+                    "municipality_code": area_code,
+                    "prefecture": _prefecture_from_area(area_code, axis_map),
+                    "municipality_name": area_axis.get(area_code, ""),
+                    "gender": _normalize_gender(cat01_code, cat01_axis.get(cat01_code, "")),
+                    "age_class": _normalize_age_class(cat02_code, cat02_axis.get(cat02_code, "")),
+                    "occupation_code": cat03_code,
+                    "occupation_name": cat03_axis.get(cat03_code, ""),
+                    "population": population,
+                    "source_name": SOURCE_NAME,
+                    "source_year": SOURCE_YEAR,
+                    "fetched_at": fetched_at,
+                })
+                written_rows += 1
+
+    result = {
+        "raw_rows": raw_rows,
+        "filtered_rows": written_rows,
+        "excluded_rows": excluded_rows,
+        "csv_path": str(output_csv),
+    }
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# モード: --validate (本実装)
+# --------------------------------------------------------------------------- #
+
+def validate_clean_csv(csv_path: Path = MERGED_CSV) -> tuple[bool, list[str]]:
+    """マージ後 CSV の整合性検証 (Worker A4 計画 §9)。"""
+    errors: list[str] = []
+
+    if not csv_path.exists():
+        return False, [f"merged CSV not found: {csv_path}. Run --merge first."]
+
+    # pandas を遅延 import (validate でしか使わない)
+    try:
+        import pandas as pd
+    except ImportError:
+        return False, ["pandas is required for --validate. pip install pandas"]
+
+    df = pd.read_csv(csv_path, dtype={"municipality_code": str})
+
+    # 1. 行数
+    n_rows = len(df)
+    if not (800_000 <= n_rows <= 1_500_000):
+        errors.append(f"row count {n_rows:,} out of expected [800k, 1.5M]")
+
+    # 2. 都道府県カバレッジ
+    n_pref = df["prefecture"].dropna().nunique()
+    if n_pref != 47:
+        errors.append(f"distinct prefectures = {n_pref}, expected 47")
+
+    # 3. 市区町村カバレッジ
+    master_codes = _load_master_codes()
+    csv_codes = set(df["municipality_code"].astype(str).str.zfill(5))
+    if master_codes:
+        orphan = csv_codes - master_codes
+        orphan_rate = len(orphan) / max(len(csv_codes), 1)
+        if orphan_rate > 0.05:
+            errors.append(
+                f"orphan rate {orphan_rate:.2%} > 5% ({len(orphan)} orphans / {len(csv_codes)} codes)"
+            )
+    else:
+        errors.append("master DB unavailable; orphan check skipped (informational)")
+
+    # 4. 軸完全性
+    n_gender = df["gender"].nunique()
+    if n_gender < 2:
+        errors.append(f"distinct genders = {n_gender}, expected >= 2")
+
+    n_age = df["age_class"].nunique()
+    if n_age < 14:
+        errors.append(f"distinct age classes = {n_age}, expected >= 14")
+
+    n_occ = df["occupation_code"].nunique()
+    if n_occ < 11:
+        errors.append(f"distinct occupations = {n_occ}, expected >= 11")
+
+    # 5. 数値妥当性
+    if (df["population"] < 0).any():
+        errors.append("negative population values detected")
+    total = int(df["population"].sum())
+    if total < 50_000_000:
+        errors.append(f"sum population {total:,} < 50M (expected >= 50M for nationwide workers)")
+
+    # 6. PK 重複検査
+    pk_cols = ["municipality_code", "gender", "age_class", "occupation_code"]
+    dup_count = int(df.duplicated(subset=pk_cols).sum())
+    if dup_count > 0:
+        errors.append(f"PK duplicates detected: {dup_count}")
+
+    return (len(errors) == 0, errors)
+
+
+# --------------------------------------------------------------------------- #
+# CLI ラッパ
+# --------------------------------------------------------------------------- #
+
+def run_fetch(args: argparse.Namespace) -> int:
+    print("[mode] --fetch")
+    app_id = get_app_id(args.app_id)
+    print(f"[appId] {mask_app_id(app_id)} (length={len(app_id)})")
+    print(f"[stats_data_id] {args.stats_data_id}")
+    print(f"[page_size] {args.limit}")
+    if args.from_page:
+        print(f"[from_page] {args.from_page}")
+    ensure_dirs()
+    progress = fetch_all_pages(
+        stats_data_id=args.stats_data_id,
+        app_id=app_id,
+        page_size=args.limit,
+        from_page=args.from_page,
     )
+    print(f"[done] completed_pages={progress['completed_pages']}, "
+          f"next_position={progress['next_position']}")
+    return 0
 
 
-def validate_clean_csv(*args: Any, **kwargs: Any) -> None:
-    raise NotImplementedError(
-        "--validate は別タスク。--merge 完了後に実装。"
+def run_merge(args: argparse.Namespace) -> int:
+    print("[mode] --merge")
+    ensure_dirs()
+    if not META_FILE.exists():
+        raise SystemExit(f"metadata file not found: {META_FILE}. Run --metadata-only first.")
+    if not any(TEMP_DIR.glob("estat_15_1_page_*.json")):
+        raise SystemExit(f"no page JSONs found in {TEMP_DIR}. Run --fetch first.")
+    result = merge_pages(pages_dir=TEMP_DIR, output_csv=MERGED_CSV, metadata_path=META_FILE)
+    print(
+        f"[merged] raw={result['raw_rows']:,}, "
+        f"filtered={result['filtered_rows']:,}, "
+        f"excluded={result['excluded_rows']:,}"
     )
+    print(f"[output] {result['csv_path']}")
+    return 0
+
+
+def run_validate(args: argparse.Namespace) -> int:
+    print("[mode] --validate")
+    csv_path = MERGED_CSV
+    if not csv_path.exists():
+        raise SystemExit(f"merged CSV not found: {csv_path}. Run --merge first.")
+    is_valid, errors = validate_clean_csv(csv_path)
+    if is_valid:
+        print("[OK] CSV validation passed")
+        return 0
+    print(f"[NG] {len(errors)} errors:")
+    for e in errors:
+        print(f"  - {e}")
+    return 1
 
 
 # --------------------------------------------------------------------------- #
@@ -292,47 +748,28 @@ def build_parser() -> argparse.ArgumentParser:
         description="e-Stat 15-1 (sid=0003454508) fetch script",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument(
-        "--metadata-only", action="store_true",
-        help="Fetch axis metadata (1 API call), no data rows",
-    )
-    mode.add_argument(
-        "--sample-only", action="store_true",
-        help="Fetch first page (1000 rows) for structure check",
-    )
-    mode.add_argument(
-        "--dry-run", action="store_true",
-        help="Verify CLI args + env without API call",
-    )
-    mode.add_argument(
-        "--fetch", action="store_true",
-        help="(SKELETON) Full paginated fetch",
-    )
-    mode.add_argument(
-        "--merge", action="store_true",
-        help="(SKELETON) Merge per-page CSVs",
-    )
-    mode.add_argument(
-        "--validate", action="store_true",
-        help="(SKELETON) Validate merged CSV",
-    )
+    mode.add_argument("--metadata-only", action="store_true",
+                      help="Fetch axis metadata (1 API call), no data rows")
+    mode.add_argument("--sample-only", action="store_true",
+                      help="Fetch first page (1000 rows) for structure check")
+    mode.add_argument("--dry-run", action="store_true",
+                      help="Verify CLI args + env without API call")
+    mode.add_argument("--fetch", action="store_true",
+                      help="Full paginated fetch (uses appId, writes progress.json)")
+    mode.add_argument("--merge", action="store_true",
+                      help="Merge per-page JSONs into clean CSV (no API call)")
+    mode.add_argument("--validate", action="store_true",
+                      help="Validate merged CSV (no API call)")
 
-    parser.add_argument(
-        "--app-id", default=None,
-        help="e-Stat appId (overrides ESTAT_APP_ID env var)",
-    )
-    parser.add_argument(
-        "--stats-data-id", default=DEFAULT_STATS_DATA_ID,
-        help=f"e-Stat statsDataId (default: {DEFAULT_STATS_DATA_ID})",
-    )
-    parser.add_argument(
-        "--from-page", type=int, default=None,
-        help="(--fetch only) Resume from page N",
-    )
-    parser.add_argument(
-        "--limit", type=int, default=100000,
-        help="Rows per page (--fetch default 100000, --sample-only default 1000)",
-    )
+    parser.add_argument("--app-id", default=None,
+                        help="e-Stat appId (overrides ESTAT_APP_ID env var)")
+    parser.add_argument("--stats-data-id", default=DEFAULT_STATS_DATA_ID,
+                        help=f"e-Stat statsDataId (default: {DEFAULT_STATS_DATA_ID})")
+    parser.add_argument("--from-page", type=int, default=None,
+                        help="(--fetch) Resume from page N (1-indexed)")
+    parser.add_argument("--limit", type=int, default=DEFAULT_PAGE_SIZE,
+                        help=f"Rows per page (--fetch default {DEFAULT_PAGE_SIZE}, "
+                             "--sample-only default 1000, max 100000)")
     return parser
 
 
@@ -342,31 +779,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         return run_dry_run(args.app_id)
-
     if args.metadata_only:
         return run_metadata_only(args.stats_data_id, args.app_id)
-
     if args.sample_only:
-        # sample のデフォルト limit は 1000 (CLI で指定されない場合)
-        sample_limit = 1000 if args.limit == 100000 else args.limit
+        sample_limit = 1000 if args.limit == DEFAULT_PAGE_SIZE else args.limit
         return run_sample_only(args.stats_data_id, args.app_id, sample_limit)
-
     if args.fetch:
-        fetch_all_pages(
-            stats_data_id=args.stats_data_id,
-            app_id=get_app_id(args.app_id),
-            from_page=args.from_page,
-            limit=args.limit,
-        )
-        return 0  # unreachable (NotImplementedError)
-
+        return run_fetch(args)
     if args.merge:
-        merge_pages()
-        return 0
-
+        return run_merge(args)
     if args.validate:
-        validate_clean_csv()
-        return 0
+        return run_validate(args)
 
     parser.error("no mode selected")
     return 2
