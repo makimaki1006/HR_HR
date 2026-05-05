@@ -60,10 +60,10 @@ DEFAULT_STATS_DATA_ID = "0003445236"
 #   cat04 = 年齢 (5 歳階級)
 #   area  = 地域 (JIS 5 桁、designated_ward 含む)
 # 注意: 15 歳以上のみ (0-14 歳は本表対象外、designated_ward 補完用途として F2 推定には十分)
-# 必須 PIN: cat01=000 (国籍総数) AND cat03=000 (配偶関係総数)
+# 必須 PIN: cat01=0 (国籍総数) AND cat03=0 (配偶関係総数)
 DEFAULT_PINS = {
-    "cat01": "000",  # 国籍総数
-    "cat03": "000",  # 配偶関係総数
+    "cat01": "0",  # 国籍総数
+    "cat03": "0",  # 配偶関係総数
 }
 
 OUTPUT_DIR = Path("data/generated")
@@ -76,14 +76,14 @@ MERGED_CSV = OUTPUT_DIR / "estat_resident_merged.csv"
 MASTER_DB_PATH = Path("data/hellowork.db")
 
 # 除外ルール (sid=0003445236 実測軸ベース)
-# cat01 国籍 / cat03 配偶 は DEFAULT_PINS で 000 固定するため明示除外不要。
+# cat01 国籍 / cat03 配偶 は DEFAULT_PINS で 0 固定するため明示除外不要。
 # 名前ベースの安全網として cat02 男女総数 / cat04 年齢総数・再掲・集約 を除外。
 # (旧コメント: 15-1 と同様。職業軸 cat03 は本表に存在しない想定だが、)
 # 万一存在する場合に備えて空 set を用意。--metadata-only 後にユーザーが調整)
 EXCLUDE_AXIS_VALUES: dict[str, set[str]] = {
-    "cat01": set(),                        # 国籍 (PIN で 000 固定)
+    "cat01": set(),                        # 国籍 (PIN で 0 固定)
     "cat02": {"00000"},                    # 男女総数除外
-    "cat03": set(),                        # 配偶 (PIN で 000 固定)
+    "cat03": set(),                        # 配偶 (PIN で 0 固定)
     "cat04": {"00000", "9999"},            # 年齢総数 / 不詳
     "area": set(),                         # area は別ロジック
 }
@@ -169,7 +169,7 @@ def get_stats_data(
     """
     e-Stat getStatsData。
 
-    pins: {axis_id: code_value} (例: {"cat02": "000", "cat04": "000"})
+    pins: {axis_id: code_value} (例: {"cat01": "0", "cat03": "0"})
     指定された軸を 1 値に絞ることで取得サイズを大幅削減。
     e-Stat API の cdCat<軸> パラメータに変換される。
     """
@@ -196,7 +196,7 @@ def get_stats_data(
 
 def parse_pin_args(pin_list: list[str] | None) -> dict[str, str]:
     """
-    --pin cat02=000 --pin cat04=000 形式の引数を dict に変換。
+    --pin cat01=0 --pin cat03=0 形式の引数を dict に変換。
 
     pin_list なし → DEFAULT_PINS
     --pin none → 空 (PIN を無効化)
@@ -469,7 +469,7 @@ def fetch_all_pages(
 ) -> dict[str, Any]:
     """ページング fetch。中断耐性 (progress.json 経由 resume)。
 
-    pins: API 軸 PIN (例: {"cat02": "000", "cat04": "000"})
+    pins: API 軸 PIN (例: {"cat01": "0", "cat03": "0"})
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     progress = _load_progress(progress_path, stats_data_id)
@@ -613,9 +613,9 @@ def is_excluded(
     """API レスポンスの 1 セルを除外判定。True なら除外。
 
     実測軸 (sid=0003445236):
-      cat01 = 国籍 (PIN で 000 固定、除外不要)
+      cat01 = 国籍 (PIN で 0 固定、除外不要)
       cat02 = 男女
-      cat03 = 配偶 (PIN で 000 固定、除外不要)
+      cat03 = 配偶 (PIN で 0 固定、除外不要)
       cat04 = 年齢
     """
     cat01 = str(record.get("@cat01", ""))   # 国籍
@@ -1115,9 +1115,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"Rows per page (--fetch default {DEFAULT_PAGE_SIZE}, "
                              "--sample-only default 1000, max 100000)")
     parser.add_argument("--pin", action="append", default=None, metavar="AXIS=CODE",
-                        help=f"Pin axis to single code (e.g. --pin cat01=000). "
+                        help=f"Pin axis to single code (e.g. --pin cat01=0). "
                              f"Multiple --pin allowed. Default for sid {DEFAULT_STATS_DATA_ID}: "
-                             f"cat01=000 (国籍総数), cat03=000 (配偶関係総数). "
+                             f"cat01=0 (国籍総数), cat03=0 (配偶関係総数). "
                              f"Other axes used by merge: cat02=男女, cat04=年齢. "
                              f"Pass --pin none to disable defaults.")
     return parser
