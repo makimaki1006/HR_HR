@@ -51,14 +51,19 @@ except (AttributeError, ValueError):
 
 ESTAT_API_BASE = "https://api.e-stat.go.jp/rest/3.0/app/json"
 DEFAULT_STATS_DATA_ID = "0003445236"
-# Worker A9/A10 結果: sid=0003445236 採用確定
+# Worker A9/A10 結果 + ユーザー実測 metadata: sid=0003445236 採用確定
 # 表名: 男女, 年齢(5歳階級), 配偶関係, 国籍総数か日本人別人口(15歳以上)
-# 軸: cat02=配偶関係 / cat03=男女 / cat04=国籍 / cat05=年齢5歳 / cat06=地域
+# 実測軸 (--metadata-only ログより):
+#   cat01 = 国籍総数か日本人
+#   cat02 = 男女
+#   cat03 = 配偶関係
+#   cat04 = 年齢 (5 歳階級)
+#   area  = 地域 (JIS 5 桁、designated_ward 含む)
 # 注意: 15 歳以上のみ (0-14 歳は本表対象外、designated_ward 補完用途として F2 推定には十分)
-# 必須 PIN (--pin): cat02=000 (配偶関係総数) AND cat04=000 (国籍総数)
+# 必須 PIN: cat01=000 (国籍総数) AND cat03=000 (配偶関係総数)
 DEFAULT_PINS = {
-    "cat02": "000",  # 配偶関係総数
-    "cat04": "000",  # 国籍総数
+    "cat01": "000",  # 国籍総数
+    "cat03": "000",  # 配偶関係総数
 }
 
 OUTPUT_DIR = Path("data/generated")
@@ -70,25 +75,30 @@ MERGED_CSV = OUTPUT_DIR / "estat_resident_merged.csv"
 
 MASTER_DB_PATH = Path("data/hellowork.db")
 
-# 除外ルール (15-1 と同様。職業軸 cat03 は本表に存在しない想定だが、
+# 除外ルール (sid=0003445236 実測軸ベース)
+# cat01 国籍 / cat03 配偶 は DEFAULT_PINS で 000 固定するため明示除外不要。
+# 名前ベースの安全網として cat02 男女総数 / cat04 年齢総数・再掲・集約 を除外。
+# (旧コメント: 15-1 と同様。職業軸 cat03 は本表に存在しない想定だが、)
 # 万一存在する場合に備えて空 set を用意。--metadata-only 後にユーザーが調整)
 EXCLUDE_AXIS_VALUES: dict[str, set[str]] = {
-    "cat01": {"00000"},                    # 男女総数 (コード値、想定)
-    "cat02": {"00000", "9999"},            # 年齢: 総数 / 不詳 (想定)
-    "cat03": set(),                        # 本表に職業軸はない想定
+    "cat01": set(),                        # 国籍 (PIN で 000 固定)
+    "cat02": {"00000"},                    # 男女総数除外
+    "cat03": set(),                        # 配偶 (PIN で 000 固定)
+    "cat04": {"00000", "9999"},            # 年齢総数 / 不詳
     "area": set(),                         # area は別ロジック
 }
 
 # axis 名前ベース除外 (contains 判定)
+# cat02=男女、cat04=年齢
 EXCLUDE_NAME_PATTERNS: dict[str, list[str]] = {
-    "cat01": ["総数"],
-    "cat02": ["総数", "再掲"],
+    "cat02": ["総数"],
+    "cat04": ["総数", "再掲"],
 }
 
 # axis 名前ベース除外 (exact 一致のみ)
 # "95歳以上" は最終 5 歳階級として残す。"65/75/85歳以上" は再掲集約のため除外。
 EXCLUDE_NAME_EXACT: dict[str, set[str]] = {
-    "cat02": {"65歳以上", "75歳以上", "85歳以上"},
+    "cat04": {"65歳以上", "75歳以上", "85歳以上"},
 }
 
 OUTPUT_CSV_COLUMNS = [
@@ -292,6 +302,8 @@ def run_dry_run(app_id_arg: str | None) -> int:
     print(f"[plan] PROGRESS    = {PROGRESS_FILE}")
     print(f"[plan] MERGED_CSV  = {MERGED_CSV}")
     print(f"[plan] sid         = {DEFAULT_STATS_DATA_ID}")
+    print(f"[plan] pins        = {DEFAULT_PINS} (cat01=国籍総数, cat03=配偶関係総数)")
+    print(f"[plan] merge axes  = cat02 (男女) + cat04 (年齢) + area (地域 JIS5)")
     print("[OK] dry-run completed (no HTTP request issued).")
     return 0
 
@@ -326,13 +338,59 @@ def run_metadata_only(stats_data_id: str, app_id_arg: str | None) -> int:
     if isinstance(class_inf, dict):
         class_inf = [class_inf]
     print(f"[axes] count={len(class_inf)}")
+    axis_classes_by_id: dict[str, list[dict]] = {}
     for axis in class_inf:
         axis_id = axis.get("@id")
         axis_name = axis.get("@name")
         classes = axis.get("CLASS", [])
         if isinstance(classes, dict):
             classes = [classes]
+        axis_classes_by_id[axis_id] = classes
         print(f"  - {axis_id} ({axis_name}): {len(classes)} codes")
+
+    # PIN 軸 (cat01 国籍 / cat03 配偶) の "000" / "0" ラベル確認
+    print()
+    print("[pin candidates] checking cat01 / cat03 total-code labels:")
+    for pin_axis in ("cat01", "cat03"):
+        classes = axis_classes_by_id.get(pin_axis, [])
+        for code_try in ("000", "0", "00000"):
+            for cls in classes:
+                if str(cls.get("@code", "")) == code_try:
+                    print(f"  {pin_axis}={code_try}: {cls.get('@name', '')}")
+                    break
+            else:
+                continue
+            break
+        else:
+            print(f"  {pin_axis}: no '000'/'0'/'00000' code found "
+                  f"(distinct codes: {[c.get('@code') for c in classes[:5]]}...)")
+
+    # area 軸での 4 designated_ward サンプル存在確認
+    print()
+    print("[area sample check] designated_ward sample codes presence:")
+    sample_codes = {
+        "01101": "札幌市中央区",
+        "14131": "川崎市川崎区",
+        "27141": "堺市堺区",
+        "40131": "福岡市博多区",
+    }
+    area_classes = axis_classes_by_id.get("area", [])
+    if not area_classes:
+        # area が cat05 / cat06 等の場合のフォールバック
+        for axis_id, classes in axis_classes_by_id.items():
+            if any(str(c.get("@code", "")).startswith(("01", "13", "14", "27", "40"))
+                   and len(str(c.get("@code", ""))) == 5 for c in classes[:50]):
+                area_classes = classes
+                print(f"  (area axis detected as {axis_id}, {len(classes)} codes)")
+                break
+    area_code_set = {str(c.get("@code", "")).zfill(5): str(c.get("@name", ""))
+                     for c in area_classes}
+    for code, expected in sample_codes.items():
+        actual = area_code_set.get(code)
+        if actual:
+            print(f"  {code} ({expected}): ✓ found '{actual}'")
+        else:
+            print(f"  {code} ({expected}): ✗ NOT FOUND")
 
     if status not in (0, "0"):
         print("[WARN] non-zero STATUS. statsDataId may need confirmation.")
@@ -552,32 +610,42 @@ def is_excluded(
     record: dict[str, Any],
     axis_map: dict[str, dict[str, str]] | None = None,
 ) -> bool:
-    """API レスポンスの 1 セルを除外判定。True なら除外。"""
-    cat01 = str(record.get("@cat01", ""))
-    cat02 = str(record.get("@cat02", ""))
-    cat03 = str(record.get("@cat03", ""))
+    """API レスポンスの 1 セルを除外判定。True なら除外。
+
+    実測軸 (sid=0003445236):
+      cat01 = 国籍 (PIN で 000 固定、除外不要)
+      cat02 = 男女
+      cat03 = 配偶 (PIN で 000 固定、除外不要)
+      cat04 = 年齢
+    """
+    cat01 = str(record.get("@cat01", ""))   # 国籍
+    cat02 = str(record.get("@cat02", ""))   # 男女
+    cat03 = str(record.get("@cat03", ""))   # 配偶
+    cat04 = str(record.get("@cat04", ""))   # 年齢
     area = str(record.get("@area", ""))
 
-    # (a) コード値除外
-    if cat01 in EXCLUDE_AXIS_VALUES["cat01"]:
+    # (a) コード値除外 (cat02 男女総数 + cat04 年齢総数/不詳)
+    if cat01 in EXCLUDE_AXIS_VALUES.get("cat01", set()):
         return True
-    if cat02 in EXCLUDE_AXIS_VALUES["cat02"]:
+    if cat02 in EXCLUDE_AXIS_VALUES.get("cat02", set()):
         return True
-    if cat03 and cat03 in EXCLUDE_AXIS_VALUES["cat03"]:
+    if cat03 in EXCLUDE_AXIS_VALUES.get("cat03", set()):
+        return True
+    if cat04 in EXCLUDE_AXIS_VALUES.get("cat04", set()):
         return True
 
-    # (b)/(c) 名前ベース除外 (axis_map 提供時のみ)
+    # (b)/(c) 名前ベース除外 (axis_map 提供時のみ、cat02 男女 / cat04 年齢)
     if axis_map is not None:
-        cat01_name = axis_map.get("cat01", {}).get(cat01, "")
         cat02_name = axis_map.get("cat02", {}).get(cat02, "")
+        cat04_name = axis_map.get("cat04", {}).get(cat04, "")
 
-        for pat in EXCLUDE_NAME_PATTERNS.get("cat01", []):
-            if pat in cat01_name:
-                return True
         for pat in EXCLUDE_NAME_PATTERNS.get("cat02", []):
             if pat in cat02_name:
                 return True
-        if cat02_name in EXCLUDE_NAME_EXACT.get("cat02", set()):
+        for pat in EXCLUDE_NAME_PATTERNS.get("cat04", []):
+            if pat in cat04_name:
+                return True
+        if cat04_name in EXCLUDE_NAME_EXACT.get("cat04", set()):
             return True
 
     # (d) area: 市区町村粒度のみ採用 (designated_ward の xx101-xx118 含む)
@@ -658,8 +726,9 @@ def merge_pages(
     excluded_rows = 0
     written_rows = 0
 
-    cat01_axis = axis_map.get("cat01", {})
+    # 実測軸: cat02=男女, cat04=年齢
     cat02_axis = axis_map.get("cat02", {})
+    cat04_axis = axis_map.get("cat04", {})
     area_axis = axis_map.get("area", {})
 
     with open(output_csv, "w", encoding="utf-8", newline="") as f_out:
@@ -684,8 +753,8 @@ def merge_pages(
                     excluded_rows += 1
                     continue
 
-                cat01_code = str(rec.get("@cat01", ""))
-                cat02_code = str(rec.get("@cat02", ""))
+                cat02_code = str(rec.get("@cat02", ""))   # 男女
+                cat04_code = str(rec.get("@cat04", ""))   # 年齢
                 area_code = str(rec.get("@area", "")).zfill(5)
                 pop_raw = rec.get("$", "")
 
@@ -702,8 +771,8 @@ def merge_pages(
                     "municipality_code": area_code,
                     "prefecture": _prefecture_from_area(area_code, axis_map),
                     "municipality_name": area_axis.get(area_code, ""),
-                    "gender": _normalize_gender(cat01_code, cat01_axis.get(cat01_code, "")),
-                    "age_class": _normalize_age_class(cat02_code, cat02_axis.get(cat02_code, "")),
+                    "gender": _normalize_gender(cat02_code, cat02_axis.get(cat02_code, "")),
+                    "age_class": _normalize_age_class(cat04_code, cat04_axis.get(cat04_code, "")),
                     "population": population,
                     "source_name": SOURCE_NAME,
                     "source_year": SOURCE_YEAR,
@@ -1046,9 +1115,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"Rows per page (--fetch default {DEFAULT_PAGE_SIZE}, "
                              "--sample-only default 1000, max 100000)")
     parser.add_argument("--pin", action="append", default=None, metavar="AXIS=CODE",
-                        help=f"Pin axis to single code (e.g. --pin cat02=000). "
+                        help=f"Pin axis to single code (e.g. --pin cat01=000). "
                              f"Multiple --pin allowed. Default for sid {DEFAULT_STATS_DATA_ID}: "
-                             f"{', '.join(f'{k}={v}' for k, v in DEFAULT_PINS.items())}. "
+                             f"cat01=000 (国籍総数), cat03=000 (配偶関係総数). "
+                             f"Other axes used by merge: cat02=男女, cat04=年齢. "
                              f"Pass --pin none to disable defaults.")
     return parser
 
