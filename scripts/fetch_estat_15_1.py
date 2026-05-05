@@ -58,12 +58,25 @@ MERGED_CSV = OUTPUT_DIR / "estat_15_1_merged.csv"
 
 MASTER_DB_PATH = Path("data/hellowork.db")
 
-# 除外ルール (Worker A4 計画 §6)
+# 除外ルール (Worker A4 計画 §6 + 文字列ベース改訂)
 EXCLUDE_AXIS_VALUES: dict[str, set[str]] = {
-    "cat01": {"00000"},          # 男女総数
-    "cat02": {"00000", "9999"},  # 年齢: 総数 / 不詳
-    "cat03": {"00000", "999"},   # 職業: 総数 / 分類不能
-    "area": set(),                # area は別ロジックで判定
+    "cat01": {"00000"},                   # 男女総数 (コード値)
+    "cat02": {"00000", "9999"},           # 年齢: 総数 / 不詳 (コード値)
+    "cat03": {"00000", "999", "0"},       # 職業: 総数 / 分類不能 ("0" は分類不能の職業)
+    "area": set(),                         # area は別ロジック
+}
+
+# axis 名前ベース除外 (contains 判定)
+EXCLUDE_NAME_PATTERNS: dict[str, list[str]] = {
+    "cat01": ["総数"],
+    "cat02": ["総数", "再掲"],            # "（再掲）..." を含む集約も除外
+    "cat03": ["総数", "分類不能"],
+}
+
+# axis 名前ベース除外 (exact 一致のみ)
+# "95歳以上" は最終 5 歳階級として残す。"65/75/85歳以上" は再掲集約のため除外。
+EXCLUDE_NAME_EXACT: dict[str, set[str]] = {
+    "cat02": {"65歳以上", "75歳以上", "85歳以上"},
 }
 
 OUTPUT_CSV_COLUMNS = [
@@ -450,26 +463,54 @@ def load_axis_metadata(metadata_path: Path) -> dict[str, dict[str, str]]:
     return axis_map
 
 
-def is_excluded(record: dict[str, Any]) -> bool:
-    """API レスポンスの 1 セルを除外判定。True なら除外。"""
+def is_excluded(
+    record: dict[str, Any],
+    axis_map: dict[str, dict[str, str]] | None = None,
+) -> bool:
+    """API レスポンスの 1 セルを除外判定。True なら除外。
+
+    判定は次の順:
+      a. axis コード値除外 (EXCLUDE_AXIS_VALUES)
+      b. axis 名前 contains 除外 (EXCLUDE_NAME_PATTERNS、axis_map 必須)
+      c. axis 名前 exact 除外 (EXCLUDE_NAME_EXACT、axis_map 必須)
+      d. area 形式判定 (00000、xx000、5 桁非数字)
+    """
     cat01 = str(record.get("@cat01", ""))
     cat02 = str(record.get("@cat02", ""))
     cat03 = str(record.get("@cat03", ""))
     area = str(record.get("@area", ""))
 
+    # (a) コード値除外
     if cat01 in EXCLUDE_AXIS_VALUES["cat01"]:
         return True
     if cat02 in EXCLUDE_AXIS_VALUES["cat02"]:
         return True
     if cat03 in EXCLUDE_AXIS_VALUES["cat03"]:
         return True
-    # 全国 (area=00000)
+
+    # (b)/(c) 名前ベース除外 (axis_map 提供時のみ)
+    if axis_map is not None:
+        cat01_name = axis_map.get("cat01", {}).get(cat01, "")
+        cat02_name = axis_map.get("cat02", {}).get(cat02, "")
+        cat03_name = axis_map.get("cat03", {}).get(cat03, "")
+
+        for pat in EXCLUDE_NAME_PATTERNS.get("cat01", []):
+            if pat in cat01_name:
+                return True
+        for pat in EXCLUDE_NAME_PATTERNS.get("cat02", []):
+            if pat in cat02_name:
+                return True
+        if cat02_name in EXCLUDE_NAME_EXACT.get("cat02", set()):
+            return True
+        for pat in EXCLUDE_NAME_PATTERNS.get("cat03", []):
+            if pat in cat03_name:
+                return True
+
+    # (d) area
     if area == "00000":
         return True
-    # 都道府県 (5 桁中末尾 3 桁が 000)
     if len(area) == 5 and area[2:5] == "000":
         return True
-    # 5 桁数字以外 (政令市・郡・その他集約) は除外
     if len(area) != 5 or not area.isdigit():
         return True
     return False
@@ -569,7 +610,7 @@ def merge_pages(
 
             for rec in values:
                 raw_rows += 1
-                if is_excluded(rec):
+                if is_excluded(rec, axis_map):
                     excluded_rows += 1
                     continue
 
