@@ -49,11 +49,18 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import math
 import sqlite3
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    pd = None  # type: ignore
 
 # UTF-8 ログ出力 (Windows cp932 対策)
 try:
@@ -136,6 +143,77 @@ DEFAULT_TURNOVER_RATES = {
     "standard": 3,
     "aggressive": 5,
 }
+
+# ============================================================
+# proto から移植した計算定数
+# ============================================================
+
+# 国勢調査 R2 全国就業者の職業大分類構成比 (proto と同一値、再正規化済)
+_RAW_NATIONAL_OCCUPATION_RATIO = {
+    "01_管理": 0.030,
+    "02_専門技術": 0.183,
+    "03_事務": 0.197,
+    "04_販売": 0.139,
+    "05_サービス": 0.127,
+    "06_保安": 0.018,
+    "07_農林漁業": 0.030,
+    "08_生産工程": 0.130,
+    "09_輸送機械": 0.061,
+    "10_建設採掘": 0.064,
+    "11_運搬清掃": 0.073,
+}
+_TOTAL_OCC_RATIO = sum(_RAW_NATIONAL_OCCUPATION_RATIO.values())
+NATIONAL_OCCUPATION_RATIO = {k: v / _TOTAL_OCC_RATIO for k, v in _RAW_NATIONAL_OCCUPATION_RATIO.items()}
+
+# 出力 CSV の occupation_name 列用 (コード = 名前)
+OCCUPATION_NAMES = {k: k for k in NATIONAL_OCCUPATION_RATIO}
+
+# Model E2 F4 職業別重み (proto OCCUPATION_F4_WEIGHT と同一)
+OCCUPATION_F4_WEIGHT = {
+    "01_管理":     1.0,
+    "02_専門技術": 1.0,
+    "03_事務":     1.0,
+    "04_販売":     0.7,
+    "05_サービス": 0.5,
+    "06_保安":     0.5,
+    "07_農林漁業": 0.0,
+    "08_生産工程": 0.3,
+    "09_輸送機械": 0.3,
+    "10_建設採掘": 0.5,
+    "11_運搬清掃": 0.5,
+}
+
+# 全国就業率 (proto build_pref_occupation_ground_truth と同一)
+NATIONAL_EMPLOYMENT_RATE = 0.75
+
+# F3 べき乗指数 (proto F3_POWER_E3 = 1.5)
+F3_POWER = 1.5
+
+# Model E 用に採用する産業コード (proto と同一)
+TARGET_INDUSTRY_CODES = (
+    "AB", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R"
+)
+
+# 政令市の区を除外するための area_type 集合 (proto と同一)
+INCLUDE_AREA_TYPES = {"aggregate_city", "municipality", "special_ward",
+                      "aggregate_special_wards"}
+
+# F6 関連 (proto と同一値)
+F6_ALPHA = 0.6
+F6_BETA = 0.6
+F6_FACTORY_BOOST_THRESHOLD = 1.5
+F6_HQ_EXCESS_THRESHOLD = 2.5
+F6_HQ_EXCESS_THRESHOLD_BY_IND = {"D": 3.0, "E": 4.0, "H": 2.5}
+F6_BLUE_COLLAR_OCCUPATIONS = ("08_生産工程", "09_輸送機械", "10_建設採掘", "11_運搬清掃")
+F6_TARGET_JSIC_INDUSTRIES = ("D", "E", "H")
+
+# Anchor judgment (proto と同一値、DEFAULT_ANCHOR_THRESHOLDS_v1 と整合)
+ANCHOR_MFG_SHARE_MIN = DEFAULT_ANCHOR_THRESHOLDS_v1["mfg_share"]
+ANCHOR_EMP_PER_EST_MIN = DEFAULT_ANCHOR_THRESHOLDS_v1["mfg_emp_per_establishment"]
+ANCHOR_DN_RATIO_MAX = DEFAULT_ANCHOR_THRESHOLDS_v1["day_night_ratio"]
+ANCHOR_HQ_EXCESS_E_MAX = DEFAULT_ANCHOR_THRESHOLDS_v1["hq_excess_ratio_E"]
+ANCHOR_BOOST_GAMMA = 6.0
+ANCHOR_BOOST_CAP = 2.5
 
 
 # ============================================================
@@ -301,6 +379,105 @@ def _load_salesnow_csv(salesnow_csv: Optional[Path]) -> list[dict]:
         return list(reader)
 
 
+def _build_industry_structures(
+    industry_csv_rows: list[dict],
+    weight_csv_rows: list[dict],
+    muni_master: dict,
+) -> dict:
+    """proto load_industry_data + load_industry_establishments を移植.
+
+    Returns dict with keys:
+      industry_share, national_share, weights, industry_emp, national_emp, industry_est
+    """
+    # ---- 1. weights ----
+    weights: dict = {}
+    for row in weight_csv_rows:
+        try:
+            ind = row["industry_code"]
+            occ = row["occupation_code"]
+            w = float(row["weight"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        weights[(ind, occ)] = w
+    # AB = (A + B) / 2 補完 (proto と同一)
+    if ("A", "01_管理") in weights and ("B", "01_管理") in weights:
+        for occ in NATIONAL_OCCUPATION_RATIO:
+            wa = weights.get(("A", occ), 0.0)
+            wb = weights.get(("B", occ), 0.0)
+            weights[("AB", occ)] = (wa + wb) / 2.0
+
+    # ---- 2. master code -> (pref, muni) ----
+    code_to_pref_muni: dict = {}
+    for code, info in muni_master["by_code"].items():
+        if info["area_type"] in INCLUDE_AREA_TYPES:
+            code_to_pref_muni[code] = (info["prefecture"], info["name"])
+
+    # ---- 3. industry_emp / national_emp / industry_est ----
+    industry_emp: dict = defaultdict(lambda: defaultdict(float))
+    national_emp: dict = defaultdict(float)
+    industry_est: dict = defaultdict(lambda: defaultdict(float))
+
+    for row in industry_csv_rows:
+        ind = row.get("industry_code")
+        if ind not in TARGET_INDUSTRY_CODES:
+            continue
+        city_code_raw = row.get("city_code")
+        if not city_code_raw:
+            continue
+        try:
+            city_code = str(int(str(city_code_raw).strip())).zfill(5)
+        except (ValueError, TypeError):
+            continue
+        pref_muni = code_to_pref_muni.get(city_code)
+        if pref_muni is None:
+            continue
+        try:
+            emp = float(row["employees_total"]) if row.get("employees_total") else 0.0
+        except (ValueError, TypeError):
+            emp = 0.0
+        if emp > 0:
+            industry_emp[pref_muni][ind] += emp
+            national_emp[ind] += emp
+        try:
+            est = float(row["establishments"]) if row.get("establishments") else 0.0
+        except (ValueError, TypeError):
+            est = 0.0
+        if est > 0:
+            industry_est[pref_muni][ind] += est
+
+    # ---- 4. industry_share / national_share ----
+    industry_share: dict = {}
+    for pref_muni, ind_dict in industry_emp.items():
+        total = sum(ind_dict.values())
+        if total <= 0:
+            continue
+        industry_share[pref_muni] = {ind: emp / total for ind, emp in ind_dict.items()}
+    national_total = sum(national_emp.values())
+    national_share = ({ind: emp / national_total for ind, emp in national_emp.items()}
+                      if national_total > 0 else {})
+
+    return {
+        "weights": weights,
+        "industry_emp": {pm: dict(d) for pm, d in industry_emp.items()},
+        "industry_est": {pm: dict(d) for pm, d in industry_est.items()},
+        "industry_share": industry_share,
+        "national_share": national_share,
+        "national_emp": dict(national_emp),
+    }
+
+
+def _build_salesnow_sn_emp(salesnow_csv_rows: list[dict]) -> dict:
+    """salesnow_aggregate_for_f6.csv の集約結果を sn_emp[(pref, muni, jsic)] -> emp に変換."""
+    sn_emp: dict = {}
+    for row in salesnow_csv_rows:
+        try:
+            key = (row["prefecture"], row["municipality"], row["jsic_code"])
+            sn_emp[key] = float(row["total_employees"])
+        except (KeyError, ValueError, TypeError):
+            continue
+    return sn_emp
+
+
 def load_inputs(
     db_path: str,
     industry_csv: str,
@@ -365,6 +542,37 @@ def load_inputs(
     print(f"[INFO]   weight CSV: {len(weight_csv_rows)} rows")
     print(f"[INFO]   salesnow agg CSV: {len(salesnow_csv_rows)} rows")
 
+    # 派生構造の構築 (本実装で必要)
+    ind_struct = _build_industry_structures(industry_csv_rows, weight_csv_rows, muni_master)
+    sn_emp = _build_salesnow_sn_emp(salesnow_csv_rows)
+
+    # 都道府県集計 (生産年齢人口)
+    pref_age15_64: dict = defaultdict(int)
+    pref_total: dict = defaultdict(int)
+    for (pref, muni), v in population.items():
+        pref_total[pref] += v.get("total", 0) or 0
+        pref_age15_64[pref] += v.get("age_15_64", 0) or 0
+
+    # municipality_code_map: (pref, muni) -> 5桁 JIS
+    municipality_code_map: dict = {
+        (info["prefecture"], info["name"]): code
+        for code, info in muni_master["by_code"].items()
+        if info["area_type"] in INCLUDE_AREA_TYPES
+    }
+
+    # pref_occ_target (proto build_pref_occupation_ground_truth と同等)
+    pref_occ_target: dict = defaultdict(dict)
+    for pref, age15_64 in pref_age15_64.items():
+        pref_employment = age15_64 * NATIONAL_EMPLOYMENT_RATE
+        for occ, ratio in NATIONAL_OCCUPATION_RATIO.items():
+            pref_occ_target[pref][occ] = pref_employment * ratio
+
+    print(f"[INFO]   industry_emp: {len(ind_struct['industry_emp'])} (pref, muni) keys")
+    print(f"[INFO]   industry_share: {len(ind_struct['industry_share'])} (pref, muni) keys")
+    print(f"[INFO]   weights: {len(ind_struct['weights'])} (industry, occupation) keys")
+    print(f"[INFO]   sn_emp: {len(sn_emp)} (pref, muni, jsic) keys")
+    print(f"[INFO]   municipality_code_map: {len(municipality_code_map)} (pref, muni) keys")
+
     return {
         "population": population,
         "pyramid": pyramid,
@@ -374,6 +582,19 @@ def load_inputs(
         "industry_csv_rows": industry_csv_rows,
         "weight_csv_rows": weight_csv_rows,
         "salesnow_csv_rows": salesnow_csv_rows,
+        # 派生構造
+        "weights": ind_struct["weights"],
+        "industry_emp": ind_struct["industry_emp"],
+        "industry_est": ind_struct["industry_est"],
+        "industry_share": ind_struct["industry_share"],
+        "national_share": ind_struct["national_share"],
+        "national_emp": ind_struct["national_emp"],
+        "sn_emp": sn_emp,
+        "pref_age15_64": dict(pref_age15_64),
+        "pref_total": dict(pref_total),
+        "pref_occ_target": {p: dict(d) for p, d in pref_occ_target.items()},
+        "municipality_code_map": municipality_code_map,
+        "national_occ_ratio": NATIONAL_OCCUPATION_RATIO,
     }
 
 
@@ -632,238 +853,287 @@ def run_validation_sql(
 
 
 def compute_baseline(data: dict) -> dict:
-    """F1 (総人口) × F2 (生産年齢人口比) baseline を計算.
+    """F1 + F2: 都道府県職業就業者数を生産年齢人口比で市区町村に按分 (proto model_b 移植).
 
-    Plan B 制約:
-      - 出力は age_class='_total', gender='total' のレコードに対応する集約値のみ。
-        年齢別 / 性別の細分は 15-1 (basis='workplace', data_label='measured') の
-        専有領域であり、本関数は触れない。
-
-    アルゴリズム (proto 移植予定):
-      muni_baseline[(pref, muni)][occ]
-        = pref_employment[pref][occ]
-          × (muni_age_15_64[(pref, muni)] / pref_age_15_64[pref])
-      ここで pref_employment は都道府県 × 11 職業の就業者数 (基準年)。
-
-    Args:
-        data: load_inputs() の戻り値 dict.
-              - data['population']: {(pref, muni): {'total': int, 'age_15_64': int}}
-              - data['pyramid']:   {(pref, muni): {age_group: {'male': int, 'female': int}}}
-              - data['muni_master']: 結合用マスタ
-              - 都道府県別就業者数: 別途 data 内に格納される予定
-                (Phase 5 で _load_pref_employment ヘルパ追加)
-
-    Returns:
-        baseline: dict[tuple[str, str], dict[str, float]]
-                  {(pref, muni): {occ_code: baseline_value}}
-                  age 統合・gender 統合後の値 (Plan B: _total / total のみ)。
-
-    前提:
-      - data['population'] が 47 都道府県カバー
-      - 全 muni_key について age_15_64 > 0 (0 のものは pyramid から再計算)
-
-    副作用: なし (純関数)
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py
-        compute_model_b_baseline() (model_f2 の F1×F2 部分)
-
-    本実装: Phase 5 (sensitivity 結果反映後)
+    Plan B: age_class='_total', gender='total' の集約値のみ生成。
     """
-    raise NotImplementedError(
-        "Phase 5 で実装。proto compute_model_b_baseline を移植 + Plan B 制約 "
-        "(age_class='_total', gender='total' の集約値のみ生成) を適用。"
-    )
+    pref_age15_64 = data["pref_age15_64"]
+    pref_occ_target = data["pref_occ_target"]
+    out: dict = defaultdict(dict)
+    for (pref, muni), v in data["population"].items():
+        denom = pref_age15_64.get(pref, 0) or 0
+        if denom <= 0:
+            continue
+        ratio = (v.get("age_15_64", 0) or 0) / denom
+        for occ, pref_pop in pref_occ_target.get(pref, {}).items():
+            out[(pref, muni)][occ] = pref_pop * ratio
+    return dict(out)
 
 
-def compute_f3(data: dict, weight_matrix: dict) -> dict:
-    """F3 産業構成補正 (べき乗 1.5).
+def compute_f3(data: dict, weight_matrix: dict, power: float = F3_POWER) -> dict:
+    """F3 産業構成補正 (べき乗 1.5、proto model_e/model_f2 から移植).
 
-    アルゴリズム:
-      ind_share[muni][industry] = muni 産業別就業者数 / muni 総就業者数
-      nat_share[industry]      = 全国産業別就業者数 / 全国総就業者数
-      F3_raw[muni][occ]        = Σ_industry (ind_share × weight[industry][occ])
-                               / Σ_industry (nat_share × weight[industry][occ])
-      F3[muni][occ]            = F3_raw ** 1.5
-
-    Args:
-        data: load_inputs() の戻り値。data['industry_csv_rows'] を主に参照。
-        weight_matrix: dict[str, dict[str, float]]
-                       {industry_code: {occupation_code: weight}}
-                       weight_csv_rows から構築 (本関数の caller 責務)。
-                       weight_source = 'hypothesis_v1' を満たすこと。
-
-    Returns:
-        f3: dict[tuple[str, str], dict[str, float]]
-            {(pref, muni): {occ: factor}}
-
-    前提・assert:
-      - weight_matrix の全 industry の重み合計 ≒ 1.0 ± 0.001
-      - weight_source == PLAN_B_WEIGHT_SOURCE ('hypothesis_v1')
-      - factor は [0.1, 10.0] にクリップ (極端値除外)
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py: compute_f3() 相当
-
-    本実装: Phase 5
+    weight_matrix: dict[(industry_code, occupation_code)] -> weight
     """
-    raise NotImplementedError(
-        "Phase 5 で実装。proto compute_f3 を移植 + weight_matrix の "
-        "weight_source='hypothesis_v1' を assert。"
-    )
+    industry_share = data["industry_share"]
+    national_share = data["national_share"]
+
+    # 国内ベース denom
+    nat_denom: dict = {}
+    for occ in NATIONAL_OCCUPATION_RATIO:
+        nat_denom[occ] = sum(
+            national_share.get(ind, 0.0) * weight_matrix.get((ind, occ), 0.0)
+            for ind in TARGET_INDUSTRY_CODES
+        )
+
+    out: dict = defaultdict(dict)
+    # baseline と同じキー集合で f3 を返す (欠損 muni は f3=1.0)
+    keys = set(data["population"].keys())
+    for (pref, muni) in keys:
+        ind_share = industry_share.get((pref, muni))
+        if ind_share is None:
+            for occ in NATIONAL_OCCUPATION_RATIO:
+                out[(pref, muni)][occ] = 1.0
+            continue
+        for occ in NATIONAL_OCCUPATION_RATIO:
+            num = sum(
+                ind_share.get(ind, 0.0) * weight_matrix.get((ind, occ), 0.0)
+                for ind in TARGET_INDUSTRY_CODES
+            )
+            denom = nat_denom.get(occ, 0.0)
+            ratio = (num / denom) if denom > 0 else 1.0
+            if ratio > 0 and power != 1.0:
+                ratio = ratio ** power
+            out[(pref, muni)][occ] = ratio
+    return dict(out)
 
 
-def compute_f4_occupation_weighted(data: dict) -> dict:
-    """F4 昼夜間人口比 × 職業別重み (Worker D Model E2).
+def compute_f4_occupation_weighted(data: dict, basis: str = "resident") -> dict:
+    """F4 昼夜間人口比 × 職業別重み (Model E2).
 
-    アルゴリズム:
-      day_night = data['daytime'][(pref, muni)]['ratio'] / 100.0  # %→比率
-      f4[(pref, muni)][occ] = clamp(
-          1 + (day_night - 1) × OCCUPATION_F4_WEIGHT[occ],
-          min=0.1, max=5.0
-      )
-
-    OCCUPATION_F4_WEIGHT (Worker D Model E2 確定値):
-      事務系・販売系 = 1.0 (フル昼夜効果)
-      生産工程・建設等 = 0.3〜0.5 (限定的)
-      農林漁業 = 0.0 (effect なし)
-      → Phase 5 で proto から移植
-
-    Args:
-        data: load_inputs() の戻り値。data['daytime'] を参照。
-
-    Returns:
-        f4: dict[tuple[str, str], dict[str, float]]
-            {(pref, muni): {occ: factor in [0.1, 5.0]}}
-
-    前提:
-      - data['daytime'] が 47 都道府県カバー
-      - day_night_ratio が NULL の場合は 100.0 (= 1.0 比率) で fallback
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py: model_e2 関連
-
-    本実装: Phase 5
+    Plan B (basis='resident'): 居住地ベースなので workplace 補正は不要 → 全職業 1.0 固定。
+    workplace fallback では proto Model E2 と同じ計算。
     """
-    raise NotImplementedError(
-        "Phase 5 で実装。proto Model E2 OCCUPATION_F4_WEIGHT を移植。"
-    )
+    out: dict = defaultdict(dict)
+    if basis == "resident":
+        for key in data["population"]:
+            for occ in NATIONAL_OCCUPATION_RATIO:
+                out[key][occ] = 1.0
+        return dict(out)
+
+    # workplace fallback (将来用)
+    for (pref, muni) in data["population"]:
+        d = data["daytime"].get((pref, muni))
+        f4_raw = 1.0
+        if d and d.get("night", 0) > 0:
+            f4_raw = (d.get("day", 0) or 0) / d["night"]
+            f4_raw = max(0.1, min(f4_raw, 5.0))
+        for occ in NATIONAL_OCCUPATION_RATIO:
+            w_occ = OCCUPATION_F4_WEIGHT.get(occ, 1.0)
+            f4 = 1.0 + (f4_raw - 1.0) * w_occ
+            f4 = max(0.1, min(f4, 5.0))
+            out[(pref, muni)][occ] = f4
+    return dict(out)
 
 
-def compute_f5(data: dict) -> dict:
-    """F5 通勤流入補正 (職業非依存).
+def compute_f5(data: dict, basis: str = "resident") -> dict:
+    """F5 通勤流入補正 (職業非依存 scalar).
 
-    アルゴリズム:
-      f5[(pref, muni)] = clamp(
-          1 + (inflow / night) × 0.3,
-          min=0.5, max=2.0
-      )
-
-    Args:
-        data: load_inputs() の戻り値。data['daytime'] / data['commute_flow'] を参照。
-
-    Returns:
-        f5: dict[tuple[str, str], float]
-            {(pref, muni): scalar_factor}
-            (職業非依存、職業ごとに同じ値を適用)
-
-    前提:
-      - night > 0 (= nighttime_pop) でゼロ除算回避
-      - inflow / outflow が NULL の muni は f5 = 1.0 (中立)
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py: compute_f5() 相当
-
-    本実装: Phase 5
+    Plan B (basis='resident'): 居住者は流入元と関係ない → f5=1.0 固定。
+    workplace fallback では proto F5 と同じ計算。
     """
-    raise NotImplementedError(
-        "Phase 5 で実装。proto compute_f5 を移植。職業非依存 scalar を返す。"
-    )
+    out: dict = {}
+    if basis == "resident":
+        for key in data["population"]:
+            out[key] = 1.0
+        return out
+
+    for (pref, muni) in data["population"]:
+        d = data["daytime"].get((pref, muni))
+        f5 = 1.0
+        if d and d.get("night", 0) > 0:
+            inflow = d.get("inflow", 0) or 0
+            inflow_rate = inflow / d["night"]
+            f5 = 1.0 + (inflow_rate * 0.3)
+            f5 = max(0.5, min(f5, 2.0))
+        out[(pref, muni)] = f5
+    return out
 
 
 def compute_industrial_anchor(
     data: dict,
     thresholds: Optional[dict] = None,
 ) -> set:
-    """industrial_anchor_city 判定 (4 条件 AND, Worker A3 sensitivity 推奨閾値で固定).
-
-    判定条件 (全て満たす市区町村が anchor):
-      1. mfg_share         >= thresholds['mfg_share']
-                           (= 製造業就業者比率 12%)
-      2. mfg_emp_per_establishment >= thresholds['mfg_emp_per_establishment']
-                           (= 1 事業所あたり製造業従業者 20 人)
-      3. day_night_ratio   >= thresholds['day_night_ratio']
-                           (= 昼夜間比率 150%、流入超過)
-      4. hq_excess_ratio_E >= thresholds['hq_excess_ratio_E']
-                           (= SalesNow 本社過剰指標 5.0)
-
-    Args:
-        data: load_inputs() の戻り値。
-              - data['industry_csv_rows']: mfg_share / mfg_emp_per_establishment 計算用
-              - data['daytime']:           day_night_ratio
-              - data['salesnow_csv_rows']: hq_excess_ratio_E
-        thresholds: 4 条件の閾値 dict (None で DEFAULT_ANCHOR_THRESHOLDS_v1)
-
-    Returns:
-        anchor_set: set[tuple[str, str]]
-                    { (prefecture, municipality_name), ... }
-
-    前提:
-      - data['industry_csv_rows'] に 21 産業の就業者数あり
-      - data['daytime'] が 47 都道府県カバー
-      - SalesNow CSV が空でも fallback (hq_excess_ratio_E=0 → 該当条件 false)
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py:
-      compute_industrial_anchor_cities()
-
-    sensitivity 推奨値:
-      docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_SENSITIVITY_ANALYSIS.md (Worker A3)
-
-    本実装: Phase 5
+    """4 条件 AND で industrial_anchor_city を判定 (proto compute_industrial_anchor_cities 移植).
     """
     if thresholds is None:
         thresholds = DEFAULT_ANCHOR_THRESHOLDS_v1
-    raise NotImplementedError(
-        "Phase 5 で実装。proto compute_industrial_anchor_cities を移植 + "
-        "DEFAULT_ANCHOR_THRESHOLDS_v1 を引数として受け取る形に。"
-    )
+
+    industry_emp = data["industry_emp"]
+    industry_est = data["industry_est"]
+    sn_emp = data["sn_emp"]
+    national_emp = data["national_emp"]
+    daytime = data["daytime"]
+
+    # 全国 SalesNow 製造業 E 総数
+    national_sn_E = 0.0
+    for (pref, muni, ind), emp in sn_emp.items():
+        if ind == "E":
+            national_sn_E += emp
+    national_estat_E = national_emp.get("E", 0.0)
+
+    anchor_set: set = set()
+    all_munis = set(industry_emp.keys()) | set(data["population"].keys())
+
+    mfg_share_min = thresholds["mfg_share"]
+    emp_per_est_min = thresholds["mfg_emp_per_establishment"]
+    dn_ratio_max = thresholds["day_night_ratio"]
+    hq_excess_e_max = thresholds["hq_excess_ratio_E"]
+
+    for (pref, muni) in all_munis:
+        ind_emp = industry_emp.get((pref, muni), {})
+        ind_est = industry_est.get((pref, muni), {})
+
+        e_emp = ind_emp.get("E", 0.0)
+        total_emp = sum(v for v in ind_emp.values())
+        mfg_share = (e_emp / total_emp) if total_emp > 0 else 0.0
+        cond_a = mfg_share > mfg_share_min
+
+        e_est = ind_est.get("E", 0.0)
+        emp_per_est = (e_emp / e_est) if e_est > 0 else 0.0
+        cond_b = emp_per_est > emp_per_est_min
+
+        d = daytime.get((pref, muni))
+        dn_ratio = (d["ratio"] if d else 100.0)
+        cond_c = dn_ratio < dn_ratio_max
+
+        sn_E = sn_emp.get((pref, muni, "E"), 0.0)
+        if national_sn_E > 0 and e_emp > 0 and national_estat_E > 0:
+            sn_intensity = sn_E / national_sn_E
+            estat_intensity = e_emp / national_estat_E
+            hq_excess = (sn_intensity / estat_intensity) if estat_intensity > 0 else 999.0
+        elif national_sn_E > 0 and e_emp == 0 and sn_E > 0:
+            hq_excess = 999.0
+        else:
+            hq_excess = 0.0
+        cond_d = hq_excess < hq_excess_e_max
+
+        if cond_a and cond_b and cond_c and cond_d:
+            anchor_set.add((pref, muni))
+    return anchor_set
 
 
-def compute_f6_v2(data: dict, anchor_set: set) -> dict:
-    """F6 anchor 分岐 (本社減衰 + 工場ブースト).
+def compute_f6_v2(data: dict, anchor_set: set, basis: str = "resident") -> dict:
+    """F6 anchor 分岐 (本社減衰 + 工場ブースト、proto compute_f6_factor_v2 移植).
 
-    アルゴリズム:
-      anchor IN  ((pref, muni) in anchor_set):
-        → F6 = 1.0 (HQ 減衰スキップ、工場ブースト効果は baseline に既に反映)
-      anchor OUT:
-        → F6 = HQ_decay_factor × factory_boost
-        HQ_decay_factor = 1 / (1 + hq_excess × decay_rate)
-        factory_boost   = 1 + factory_density × boost_rate
-
-    Args:
-        data: load_inputs() の戻り値。data['salesnow_csv_rows'] を参照。
-        anchor_set: compute_industrial_anchor() の戻り値
-                    { (pref, muni), ... }
-
-    Returns:
-        f6: dict[tuple[str, str], dict[str, float]]
-            {(pref, muni): {occ: factor}}
-
-    前提:
-      - anchor 内市区町村は f6 = 1.0 (全職業)
-      - anchor 外市区町村は職業ごとに減衰係数を計算
-      - factor は [0.1, 5.0] にクリップ
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py: compute_f6_v2()
-
-    本実装: Phase 5
+    Plan B (basis='resident'): 本社過剰は workplace 概念 → f6=1.0 固定。
+    workplace fallback では proto と同じ計算。
     """
-    raise NotImplementedError(
-        "Phase 5 で実装。proto compute_f6_v2 を移植。anchor IN は f6=1.0、"
-        "anchor OUT は HQ 減衰×工場ブースト。"
-    )
+    out: dict = defaultdict(dict)
+    if basis == "resident":
+        for key in data["population"]:
+            for occ in NATIONAL_OCCUPATION_RATIO:
+                out[key][occ] = 1.0
+        return dict(out)
+
+    sn_emp = data["sn_emp"]
+    industry_emp = data["industry_emp"]
+    industry_est = data["industry_est"]
+    national_emp = data["national_emp"]
+    weights = data["weights"]
+    alpha = F6_ALPHA
+
+    national_sn_emp: dict = defaultdict(float)
+    for (pref, muni, ind), emp in sn_emp.items():
+        national_sn_emp[ind] += emp
+
+    hq_excess_ratio: dict = defaultdict(dict)
+    factory_excess_ratio: dict = defaultdict(dict)
+    all_munis: set = set()
+    for (pref, muni, ind) in sn_emp.keys():
+        all_munis.add((pref, muni))
+    for pref_muni in industry_emp.keys():
+        all_munis.add(pref_muni)
+    for pref_muni in data["population"]:
+        all_munis.add(pref_muni)
+
+    for (pref, muni) in all_munis:
+        for ind in F6_TARGET_JSIC_INDUSTRIES:
+            sn = sn_emp.get((pref, muni, ind), 0.0)
+            nat_sn = national_sn_emp.get(ind, 0.0)
+            estat_v = industry_emp.get((pref, muni), {}).get(ind, 0.0)
+            estat_total = national_emp.get(ind, 0.0)
+            if nat_sn <= 0:
+                hq_excess_ratio[(pref, muni)][ind] = 1.0
+                factory_excess_ratio[(pref, muni)][ind] = 1.0
+                continue
+            sn_intensity = sn / nat_sn if sn > 0 else 0.0
+            if estat_v > 0 and estat_total > 0:
+                estat_intensity = estat_v / estat_total
+                if sn > 0 and sn_intensity > 0:
+                    hq_ratio = sn_intensity / estat_intensity
+                    factory_ratio = estat_intensity / sn_intensity
+                else:
+                    hq_ratio = 1.0
+                    factory_ratio = 5.0
+                hq_excess_ratio[(pref, muni)][ind] = min(hq_ratio, 10.0)
+                factory_excess_ratio[(pref, muni)][ind] = min(factory_ratio, 5.0)
+            else:
+                if sn > 0 and len(all_munis) > 0:
+                    hq_ratio = sn_intensity * len(all_munis)
+                else:
+                    hq_ratio = 1.0
+                hq_excess_ratio[(pref, muni)][ind] = min(hq_ratio, 10.0)
+                factory_excess_ratio[(pref, muni)][ind] = 1.0
+
+    f6: dict = {}
+    for (pref, muni) in all_munis:
+        per_occ_factor = {occ: 1.0 for occ in NATIONAL_OCCUPATION_RATIO}
+        is_anchor = (pref, muni) in anchor_set
+        ratio_dict = hq_excess_ratio.get((pref, muni), {})
+
+        if not is_anchor:
+            for ind, ratio in ratio_dict.items():
+                ind_threshold = F6_HQ_EXCESS_THRESHOLD_BY_IND.get(ind, F6_HQ_EXCESS_THRESHOLD)
+                if ratio > ind_threshold:
+                    damping = 1.0 / (1.0 + alpha * (ratio - 1.0))
+                    for occ in F6_BLUE_COLLAR_OCCUPATIONS:
+                        bcs = weights.get((ind, occ), 0.0)
+                        damp_amount = bcs * (1.0 - damping)
+                        per_occ_factor[occ] *= (1.0 - damp_amount)
+
+        if F6_BETA > 0:
+            factory_dict = factory_excess_ratio.get((pref, muni), {})
+            for ind, f_ratio in factory_dict.items():
+                if f_ratio > F6_FACTORY_BOOST_THRESHOLD:
+                    boost = 1.0 + F6_BETA * (f_ratio - 1.0)
+                    boost = min(boost, 1.4)
+                    for occ in F6_BLUE_COLLAR_OCCUPATIONS:
+                        bcs = weights.get((ind, occ), 0.0)
+                        boost_amount = bcs * (boost - 1.0)
+                        per_occ_factor[occ] *= (1.0 + boost_amount)
+
+        if is_anchor:
+            ind_emp_local = industry_emp.get((pref, muni), {})
+            ind_est_local = industry_est.get((pref, muni), {})
+            e_emp = ind_emp_local.get("E", 0.0)
+            total_ind_emp = sum(v for v in ind_emp_local.values())
+            mfg_share_v = (e_emp / total_ind_emp) if total_ind_emp > 0 else 0.0
+            e_est = ind_est_local.get("E", 0.0)
+            emp_per_est_v = (e_emp / e_est) if e_est > 0 else 0.0
+            if mfg_share_v > ANCHOR_MFG_SHARE_MIN and emp_per_est_v > 0:
+                share_excess = max(0.0, mfg_share_v - ANCHOR_MFG_SHARE_MIN)
+                size_factor = math.sqrt(emp_per_est_v / ANCHOR_EMP_PER_EST_MIN)
+                anchor_boost = 1.0 + ANCHOR_BOOST_GAMMA * share_excess * size_factor
+                anchor_boost = min(anchor_boost, ANCHOR_BOOST_CAP)
+                for occ in F6_BLUE_COLLAR_OCCUPATIONS:
+                    bcs = weights.get(("E", occ), 0.0)
+                    boost_amount = bcs * (anchor_boost - 1.0)
+                    per_occ_factor[occ] *= (1.0 + boost_amount)
+
+        f6[(pref, muni)] = per_occ_factor
+
+    return f6
 
 
 def integrate_model_f2(
@@ -872,217 +1142,201 @@ def integrate_model_f2(
     f4: dict,
     f5: dict,
     f6: dict,
-    data: dict,
+    pref_occ_target: dict,
 ) -> dict:
-    """全要素統合 + 都道府県スケーリング.
+    """全要素統合 + 都道府県スケーリング (proto model_f2 末尾と同等)."""
+    raw: dict = defaultdict(dict)
+    for (pref, muni), occ_dict in baseline.items():
+        f3_pm = f3.get((pref, muni), {})
+        f4_pm = f4.get((pref, muni), {})
+        f5_pm = f5.get((pref, muni), 1.0)
+        f6_pm = f6.get((pref, muni), {})
+        for occ, base_pop in occ_dict.items():
+            v = (base_pop
+                 * f3_pm.get(occ, 1.0)
+                 * f4_pm.get(occ, 1.0)
+                 * f5_pm
+                 * f6_pm.get(occ, 1.0))
+            raw[(pref, muni)][occ] = v
 
-    アルゴリズム:
-      raw[(pref, muni)][occ] = baseline × f3 × f4 × f5 × f6
-      pref_raw_sum[pref][occ] = Σ_muni raw[(pref, muni)][occ]
-      scaling[pref][occ]     = pref_target[pref][occ] / pref_raw_sum[pref][occ]
-      out[(pref, muni)][occ] = raw × scaling[pref][occ]
+    pref_raw_sum: dict = defaultdict(lambda: defaultdict(float))
+    for (pref, muni), occ_dict in raw.items():
+        for occ, v in occ_dict.items():
+            pref_raw_sum[pref][occ] += v
 
-    都道府県スケーリングの目的:
-      F3〜F6 の補正で総量がずれるため、都道府県単位で
-      公式統計の就業者数に整合するようにスケール。
-
-    Args:
-        baseline: compute_baseline() 結果
-        f3:       compute_f3() 結果
-        f4:       compute_f4_occupation_weighted() 結果
-        f5:       compute_f5() 結果 (scalar、職業非依存)
-        f6:       compute_f6_v2() 結果
-        data:     load_inputs() の戻り値 (pref_target 取得用)
-
-    Returns:
-        out: dict[tuple[str, str], dict[str, float]]
-             {(pref, muni): {occ: estimated_value}}
-             estimated_value は **指数の元値** (人数換算ではない)。
-             最終的に derive_thickness_index() で 0-200 に正規化される。
-
-    前提:
-      - 全引数のキーセットが概ね一致 (欠損は 1.0 で fallback)
-      - pref_target は data 内に格納される予定 (Phase 5)
-
-    実装プロト元:
-      scripts/proto_evaluate_occupation_population_models.py: integrate_model_f2()
-
-    本実装: Phase 5
-    """
-    raise NotImplementedError(
-        "Phase 5 で実装。proto integrate_model_f2 を移植 + 都道府県 scaling。"
-    )
+    out: dict = defaultdict(dict)
+    for (pref, muni), occ_dict in raw.items():
+        for occ, v in occ_dict.items():
+            target = pref_occ_target.get(pref, {}).get(occ, 0)
+            denom = pref_raw_sum[pref].get(occ, 0)
+            scaling = (target / denom) if denom > 0 else 1.0
+            out[(pref, muni)][occ] = v * scaling
+    return dict(out)
 
 
 # ============================================================
-# 派生指標 (Phase 5 で本実装)
+# 派生指標
 # ============================================================
 
 def derive_thickness_index(model_result: dict) -> dict:
-    """0-200 正規化 (100 = 全国平均).
+    """0-200 正規化 (100 = 全国平均、cap 200)."""
+    occ_vals: dict = defaultdict(list)
+    for (_pref, _muni), occ_dict in model_result.items():
+        for occ, v in occ_dict.items():
+            occ_vals[occ].append(v)
+    nat_avg = {occ: (sum(vs) / len(vs)) if vs else 1.0 for occ, vs in occ_vals.items()}
 
-    アルゴリズム:
-      nat_avg[occ] = Σ model_result[muni][occ] / N_muni
-      thickness_index[muni][occ] = clamp(
-          model_result[muni][occ] / nat_avg[occ] × 100,
-          min=0, max=200
-      )
-
-    Args:
-        model_result: integrate_model_f2() の戻り値
-                      {(pref, muni): {occ: value}}
-
-    Returns:
-        thickness: dict[tuple[str, str], dict[str, float]]
-                   {(pref, muni): {occ: index in [0, 200]}}
-                   100 = 全国平均、200 = 全国平均の 2 倍以上 (cap)。
-
-    前提:
-      - nat_avg[occ] > 0 (ゼロ除算回避)
-      - 出力は REAL (整数化しない)
-
-    本実装: Phase 5
-    """
-    raise NotImplementedError(
-        "Phase 5 で実装。全国平均を 100 として 0-200 にクリップ。"
-    )
+    out: dict = defaultdict(dict)
+    for (pref, muni), occ_dict in model_result.items():
+        for occ, v in occ_dict.items():
+            avg = nat_avg.get(occ, 1.0) or 1.0
+            idx = (v / avg) * 100 if avg > 0 else 100.0
+            out[(pref, muni)][occ] = max(0.0, min(idx, 200.0))
+    return dict(out)
 
 
 def derive_rank_and_priority(model_result: dict) -> dict:
-    """全国順位 + percentile + 配信優先度 (A/B/C/D).
-
-    アルゴリズム:
-      rank[occ][(pref, muni)] = 全国 N_muni 中の順位 (大きい順、1-indexed)
-      percentile[occ][(pref, muni)] = (N_muni - rank + 1) / N_muni × 100
-      priority:
-        percentile >= 90  → 'A' (最重点)
-        70 <= < 90        → 'B'
-        40 <= < 70        → 'C'
-        < 40              → 'D' (低優先)
-
-    Args:
-        model_result: integrate_model_f2() の戻り値
-
-    Returns:
-        result: dict[tuple[str, str], dict[str, dict]]
-                {(pref, muni): {occ: {'rank': int, 'percentile': float, 'priority': str}}}
-
-    前提:
-      - 同点処理は dense ranking (同値は同順位、次は +1)
-      - N_muni ≒ 1740
-
-    本実装: Phase 5
-    """
-    raise NotImplementedError(
-        "Phase 5 で実装。全国順位 + percentile + A/B/C/D 配信優先度。"
-    )
+    """全国順位 + percentile + A/B/C/D priority (大きい順、1-indexed)."""
+    out: dict = defaultdict(dict)
+    for occ in NATIONAL_OCCUPATION_RATIO:
+        items = []
+        for (pref, muni), occ_dict in model_result.items():
+            v = occ_dict.get(occ, 0.0)
+            items.append(((pref, muni), v))
+        items.sort(key=lambda x: -x[1])
+        n = len(items) or 1
+        for rank, ((pref, muni), _v) in enumerate(items, start=1):
+            percentile = rank / n
+            if percentile <= 0.05:
+                priority = "A"
+            elif percentile <= 0.15:
+                priority = "B"
+            elif percentile <= 0.50:
+                priority = "C"
+            else:
+                priority = "D"
+            out[(pref, muni)][occ] = {
+                "rank": rank,
+                "percentile": round(percentile, 4),
+                "priority": priority,
+            }
+    return dict(out)
 
 
 def derive_scenario_indices(
     model_result: dict,
     turnover_rates: Optional[dict] = None,
 ) -> dict:
-    """シナリオ別索引 (1× / 3× / 5× は **指数の倍数**、人数ではない).
-
-    アルゴリズム:
-      scenario[muni][occ] = {
-          'cons': index × turnover_rates['conservative'],
-          'std':  index × turnover_rates['standard'],
-          'agg':  index × turnover_rates['aggressive'],
-      }
-      ここで index は thickness_index ではなく integrated value。
-
-    Args:
-        model_result:   integrate_model_f2() の戻り値
-        turnover_rates: シナリオ倍率 dict
-                        (None で DEFAULT_TURNOVER_RATES = {1, 3, 5})
-
-    Returns:
-        scenarios: dict[tuple[str, str], dict[str, dict[str, float]]]
-                   {(pref, muni): {occ: {'cons': float, 'std': float, 'agg': float}}}
-
-    注意: 本値は **指数の倍数** であり、推定人数ではない。
-          採用施策の感度分析用に「離職率 1× / 3× / 5× での濃淡変化」を見るための指標。
-
-    本実装: Phase 5
-    """
+    """1× / 3× / 5× の指数倍数 (人数ではない)."""
     if turnover_rates is None:
         turnover_rates = DEFAULT_TURNOVER_RATES
-    raise NotImplementedError(
-        "Phase 5 で実装。指数の倍数 (1×/3×/5×) を計算、人数ではない。"
-    )
+
+    thickness = derive_thickness_index(model_result)
+    out: dict = defaultdict(dict)
+    for (pref, muni), occ_dict in thickness.items():
+        for occ, idx in occ_dict.items():
+            out[(pref, muni)][occ] = {
+                "conservative_index": int(idx * turnover_rates["conservative"]),
+                "standard_index": int(idx * turnover_rates["standard"]),
+                "aggressive_index": int(idx * turnover_rates["aggressive"]),
+            }
+    return dict(out)
 
 
 # ============================================================
-# 出力検証 (Phase 5 で本実装、Plan B 制約)
+# 出力検証
 # ============================================================
 
-def validate_outputs(result_df) -> list[str]:
-    """Plan B 出力制約の assert (Phase 5 で本実装).
+def validate_outputs(result_df) -> list:
+    """Plan B 制約 + 拡張 4 件の assert."""
+    errors: list = []
+    if pd is None:
+        errors.append("pandas not installed; cannot validate DataFrame")
+        return errors
 
-    Plan B Workspace constraint:
-      - basis must be 'resident' only (workplace は 15-1 専有)
-      - data_label must be 'estimated_beta' only
-      - age_class must be '_total' only (年齢別は 15-1 専有)
-      - gender must be 'total' only (性別は 15-1 専有)
-
-    追加 assert (Phase 5):
-      - source_name == 'model_f2_v1'
-      - weight_source == 'hypothesis_v1'
-      - estimate_index in [0, 200]
-      - municipality_code が 5 桁数字
-
-    Args:
-        result_df: pandas.DataFrame (export_to_csv 直前の出力)
-
-    Returns:
-        errors: list[str] (空なら制約満たす)
-
-    本実装: Phase 5。Plan B 制約 4 件 + 拡張 4 件を assert する。
-    """
-    raise NotImplementedError(
-        "Phase 5 で実装。Plan B 制約 (basis/data_label/age_class/gender) と "
-        "拡張制約 (source_name/weight_source/estimate_index/code) を assert。"
-    )
+    if not (result_df["basis"] == PLAN_B_BASIS).all():
+        errors.append(f"basis must be '{PLAN_B_BASIS}' only")
+    if not (result_df["data_label"] == PLAN_B_DATA_LABEL).all():
+        errors.append(f"data_label must be '{PLAN_B_DATA_LABEL}' only")
+    if not (result_df["age_class"] == PLAN_B_AGE_CLASS).all():
+        errors.append(f"age_class must be '{PLAN_B_AGE_CLASS}' only")
+    if not (result_df["gender"] == PLAN_B_GENDER).all():
+        errors.append(f"gender must be '{PLAN_B_GENDER}' only")
+    if not (result_df["source_name"] == PLAN_B_SOURCE_NAME).all():
+        errors.append(f"source_name must be '{PLAN_B_SOURCE_NAME}' only")
+    if not (result_df["weight_source"] == PLAN_B_WEIGHT_SOURCE).all():
+        errors.append(f"weight_source must be '{PLAN_B_WEIGHT_SOURCE}' only")
+    if result_df["estimate_index"].isna().any():
+        errors.append("estimate_index has NaN")
+    bad_idx = (result_df["estimate_index"] < 0) | (result_df["estimate_index"] > 200)
+    if bad_idx.any():
+        errors.append(f"estimate_index out of [0, 200] range: {int(bad_idx.sum())} rows")
+    code_re = result_df["municipality_code"].astype(str).str.match(r"^\d{5}$")
+    if not code_re.all():
+        errors.append(f"municipality_code is not all 5-digit JIS: {int((~code_re).sum())} rows")
+    return errors
 
 
 # ============================================================
-# 出力 (Phase 5 で本実装)
+# 出力
 # ============================================================
 
-def export_to_csv(result_df, path: str) -> None:
-    """CSV 出力 (UTF-8、quoting=csv.QUOTE_MINIMAL).
+def export_to_csv(
+    thickness: dict,
+    rank_priority: dict,
+    scenario: dict,
+    anchor_set: set,
+    municipality_code_map: dict,
+    output_path,
+) -> int:
+    """Plan B 制約準拠の CSV 出力. Returns row count."""
+    if pd is None:
+        raise RuntimeError("pandas is required for export_to_csv")
 
-    Plan B 出力仕様:
-      - カラム: OUTPUT_CSV_COLUMNS (15 列、定数参照)
-      - basis = 'resident' のみ (workplace fallback は別タスク)
-      - data_label = 'estimated_beta' 固定
-      - age_class = '_total', gender = 'total' のみ
-      - source_name = 'model_f2_v1'
-      - weight_source = 'hypothesis_v1'
-      - estimated_at = ISO8601 (UTC)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    出力前に validate_outputs() を実行し、制約違反があれば ValueError raise。
+    estimated_at = datetime.now(timezone.utc).isoformat()
+    rows = []
+    skipped_no_code = 0
+    for (pref, muni), occ_dict in thickness.items():
+        muni_code = municipality_code_map.get((pref, muni))
+        if not muni_code:
+            skipped_no_code += 1
+            continue
+        is_anchor = 1 if (pref, muni) in anchor_set else 0
+        for occ_code in NATIONAL_OCCUPATION_RATIO:
+            idx = occ_dict.get(occ_code, 0.0)
+            rp = rank_priority.get((pref, muni), {}).get(occ_code, {})
+            sc = scenario.get((pref, muni), {}).get(occ_code, {})
+            rows.append({
+                "municipality_code": muni_code,
+                "prefecture": pref,
+                "municipality_name": muni,
+                "basis": PLAN_B_BASIS,
+                "occupation_code": occ_code,
+                "occupation_name": OCCUPATION_NAMES.get(occ_code, occ_code),
+                "age_class": PLAN_B_AGE_CLASS,
+                "gender": PLAN_B_GENDER,
+                "estimate_index": round(float(idx), 2),
+                "data_label": PLAN_B_DATA_LABEL,
+                "source_name": PLAN_B_SOURCE_NAME,
+                "source_year": 2026,
+                "weight_source": PLAN_B_WEIGHT_SOURCE,
+                "is_industrial_anchor": is_anchor,
+                "estimated_at": estimated_at,
+                "rank_in_occupation": rp.get("rank"),
+                "rank_percentile": rp.get("percentile"),
+                "distribution_priority": rp.get("priority"),
+                "scenario_conservative_index": sc.get("conservative_index"),
+                "scenario_standard_index": sc.get("standard_index"),
+                "scenario_aggressive_index": sc.get("aggressive_index"),
+            })
 
-    Args:
-        result_df: pandas.DataFrame
-                   integrate_model_f2 + derive_thickness_index 後の結果を
-                   long format に展開したもの。
-        path:      出力 CSV パス
-
-    Returns:
-        None (副作用: ファイル書き込み)
-
-    前提:
-      - result_df.columns ⊇ OUTPUT_CSV_COLUMNS
-      - validate_outputs(result_df) が空リストを返すこと
-
-    本実装: Phase 5
-    """
-    raise NotImplementedError(
-        "Phase 5 で実装。validate_outputs() で Plan B 制約確認後、"
-        "OUTPUT_CSV_COLUMNS の順で CSV 出力。"
-    )
+    df = pd.DataFrame(rows)
+    df.to_csv(output_path, index=False, encoding="utf-8")
+    print(f"[exported] {output_path} ({len(df):,} rows, skipped_no_code={skipped_no_code})")
+    return len(df)
 
 
 def import_to_sqlite(
@@ -1246,34 +1500,104 @@ def _run_validate_only(args: argparse.Namespace) -> int:
 
 
 def _run_build(args: argparse.Namespace) -> int:
-    """--build: NotImplementedError until sensitivity 完了."""
+    """--build [--csv-only]: フル計算 + CSV 出力 + 出力検証.
+
+    Plan B (basis='resident', estimated_beta) のみ生成。DB 投入はユーザー手動。
+    """
     print("=" * 70)
     print("[MODE] --build")
+    print(f"[INFO] csv_only={args.csv_only}")
     print("=" * 70)
+
+    print("[build] loading inputs...")
+    data = load_inputs(
+        db_path=args.db_path,
+        industry_csv=args.industry_csv,
+        weight_csv=args.weight_csv,
+        salesnow_csv=args.salesnow_csv,
+    )
+
     print()
-    print("[ERROR] --build モードは未実装です (Phase 5 sensitivity 結果待ち)")
+    print("[build] validating inputs...")
+    in_errors = validate_inputs(data)
+    if in_errors:
+        print(f"[FAIL] {len(in_errors)} input validation error(s):")
+        for i, e in enumerate(in_errors, start=1):
+            print(f"       {i}. {e}")
+        return 2
+    print("[OK] inputs valid.")
+
+    basis = PLAN_B_BASIS  # 'resident'
+
     print()
-    print("実装予定の処理フロー:")
-    print("  1. load_inputs()")
-    print("  2. compute_baseline() → F1 × F2 (生産年齢人口比按分)")
-    print("  3. compute_f3() → 産業構成補正")
-    print("  4. compute_f4_occupation_weighted() → 昼夜間 × 職業重み")
-    print("  5. compute_f5() → 通勤流入補正")
-    print("  6. compute_industrial_anchor() → 4 条件 AND")
-    print("  7. compute_f6_v2() → anchor 分岐 + HQ-with-factory boost")
-    print("  8. integrate_model_f2() → 統合 + 都道府県スケーリング")
-    print("  9. derive_thickness_index() → 0-200 正規化")
-    print(" 10. derive_rank_and_priority() → 全国順位 + A/B/C/D")
-    print(" 11. derive_scenario_indices() → 1× / 3× / 5×")
-    print(" 12. export_to_csv()")
-    if not args.csv_only:
-        print(" 13. import_to_sqlite() (Claude 単独実行禁止、--csv-only 推奨)")
+    print("[build] computing baseline (F1+F2)...")
+    baseline = compute_baseline(data)
+    print(f"[INFO]   baseline: {len(baseline)} muni keys")
+
+    print("[build] computing F3 (industry correction, power=1.5)...")
+    f3 = compute_f3(data, data["weights"])
+
+    print(f"[build] computing F4 (basis='{basis}': resident=no-op)...")
+    f4 = compute_f4_occupation_weighted(data, basis=basis)
+
+    print(f"[build] computing F5 (basis='{basis}': resident=no-op)...")
+    f5 = compute_f5(data, basis=basis)
+
+    print("[build] computing industrial_anchor (4-cond AND)...")
+    anchor_set = compute_industrial_anchor(data, thresholds=DEFAULT_ANCHOR_THRESHOLDS_v1)
+    print(f"[INFO]   anchor cities: {len(anchor_set)}")
+
+    print(f"[build] computing F6 v2 (basis='{basis}': resident=no-op)...")
+    f6 = compute_f6_v2(data, anchor_set, basis=basis)
+
+    print("[build] integrating Model F2 (raw × scaling)...")
+    model_result = integrate_model_f2(
+        baseline, f3, f4, f5, f6, data["pref_occ_target"]
+    )
+    print(f"[INFO]   model_result: {len(model_result)} muni keys")
+
+    print("[build] deriving thickness_index (0-200)...")
+    thickness = derive_thickness_index(model_result)
+
+    print("[build] deriving rank/percentile/priority (A/B/C/D)...")
+    rank_priority = derive_rank_and_priority(model_result)
+
+    print("[build] deriving scenario indices (1×/3×/5×)...")
+    scenario = derive_scenario_indices(model_result)
+
+    print("[build] exporting CSV...")
+    output_path = Path(args.output_csv)
+    n_rows = export_to_csv(
+        thickness, rank_priority, scenario, anchor_set,
+        data["municipality_code_map"], output_path,
+    )
+
     print()
-    print("次のステップ:")
-    print("  - scripts/proto_sensitivity_anchor_thresholds.py の sensitivity 分析結果を確認")
-    print("  - DEFAULT_ANCHOR_THRESHOLDS を更新")
-    print("  - compute_* 関数を proto_evaluate_occupation_population_models.py から移植")
-    return 1
+    print("[build] validating outputs...")
+    if pd is None:
+        print("[ERROR] pandas not installed; cannot validate output CSV")
+        return 3
+    df = pd.read_csv(output_path, dtype={"municipality_code": str})
+    out_errors = validate_outputs(df)
+    if out_errors:
+        print(f"[FAIL] {len(out_errors)} output validation error(s):")
+        for i, e in enumerate(out_errors, start=1):
+            print(f"       {i}. {e}")
+        return 4
+    print(f"[OK] CSV exported and validated. rows={len(df):,}")
+
+    if args.csv_only:
+        print()
+        print("[INFO] --csv-only 指定のため DB 投入はスキップ。")
+        print(f"[INFO] 次のステップ: ユーザー手動で {output_path} を Plan B 制約に従って")
+        print("       INSERT (DROP TABLE 禁止、basis='resident' 領域のみ更新)。")
+        return 0
+
+    # DB 投入は NotImplementedError 維持 (ユーザー手動実行が前提)
+    print()
+    print("[ERROR] DB 投入は Claude 実行禁止 (MEMORY 事故記録 2026-01-06)。")
+    print("[ERROR] --csv-only を指定して CSV 出力までで停止してください。")
+    return 5
 
 
 def main() -> int:
