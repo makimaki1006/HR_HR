@@ -3,19 +3,22 @@
 build_municipality_target_thickness.py
 =======================================
 
-Phase 3 Step 5 F2 estimation script (Plan B - resident/fallback only)
+Phase 3 Step 5 F2 estimation script (Plan B)
 
-役割 (案 B 並列保管):
-  - basis='resident', data_label='estimated_beta' レコード生成 (主役)
-  - basis='workplace', data_label='estimated_beta' レコード生成 (15-1 fallback、Phase 5+)
-  - basis='workplace', data_label='measured' は触れない (15-1 専有)
+役割:
+  - basis='resident', data_label='estimated_beta' レコード生成
+  - designated_ward 175 件への roll-down (本書 §designated_ward_rolldown)
+  - basis='workplace' は触れない (15-1 専有)
 
-ステータス: スケルトン (interface 詳細化済 + 計算本体は Phase 5 で実装)
-- ✅ --dry-run / --validate-only モード実装済 (READ-only)
-- ✅ 12 関数 interface + docstring + type hints 詳細化済
-- ⏳ --build モード未実装 (compute_* 関数は NotImplementedError)
+ステータス:
+  - ✅ --dry-run / --validate-only モード実装済 (READ-only)
+  - ✅ 12 関数 + 3 ヘルパー interface 詳細化済
+  - ✅ compute_baseline / compute_f3 / .. / export_to_csv 本実装済
+  - ⏳ compute_designated_ward_rolldown スケルトン (Worker A8 データ投入後に実装)
+  - ⏳ load_designated_ward_population スケルトン (同上)
 
 ロードマップ: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_IMPLEMENTATION_PLAN.md
+            + docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_DESIGNATED_WARD_F2_DESIGN.md
 DDL: docs/survey_market_intelligence_phase0_2_schema.sql (Plan B 反映済)
 プロト元: scripts/proto_evaluate_occupation_population_models.py (model_f2)
 sensitivity 推奨閾値: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_SENSITIVITY_ANALYSIS.md
@@ -23,7 +26,7 @@ sensitivity 推奨閾値: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_SENSITIVITY_
 CLI:
   python scripts/build_municipality_target_thickness.py --dry-run
   python scripts/build_municipality_target_thickness.py --validate-only
-  python scripts/build_municipality_target_thickness.py --build  # NotImplementedError
+  python scripts/build_municipality_target_thickness.py --build [--csv-only]
 
 設計原則 (本タスクで本実装):
 - READ-only な入力ロード (load_inputs)
@@ -1274,7 +1277,127 @@ def validate_outputs(result_df) -> list:
     code_re = result_df["municipality_code"].astype(str).str.match(r"^\d{5}$")
     if not code_re.all():
         errors.append(f"municipality_code is not all 5-digit JIS: {int((~code_re).sum())} rows")
+
+    # 新規 (A8 投入後に有効化): designated_ward 175 件をカバー
+    # master_designated = ... (DB から area_type='designated_ward' を読む)
+    # csv_designated = set(result_df["municipality_code"]) & master_designated
+    # if len(csv_designated) < 175:
+    #     errors.append(f"designated_ward coverage {len(csv_designated)}/175 (rolldown 未実行?)")
+
     return errors
+
+
+# ============================================================
+# Designated ward roll-down (Plan B, Worker B7 設計, A8 データ投入後に本実装)
+# ============================================================
+
+def compute_designated_ward_rolldown(
+    parent_results: dict,         # {(pref, parent_muni): {occ: thickness_index}}
+    ward_population: dict,        # {ward_code: {"total": int, "age_15_64": int}}
+    master_parent_map: dict,      # {ward_code: parent_code}
+    ward_industry_share: dict | None = None,  # {ward_code: {industry: share}} or None
+    ward_daytime_factor: dict | None = None,  # {ward_code: factor} or None
+    ward_commute_inflow: dict | None = None,  # {ward_code: factor} or None
+    ward_anchor_set: set | None = None,        # {ward_code} or None (parent inherit)
+    ward_f6_factor: dict | None = None,        # {ward_code: {occ: factor}} or None
+) -> dict:
+    """
+    parent (政令市本体、area_type='aggregate_city') から
+    designated_ward (175 区、area_type='designated_ward') への F2 推定 roll-down。
+
+    Plan B 制約:
+      - 親市は v2_municipality_target_thickness に **入れない** (aggregate)
+      - 区別 (175 件) のみ INSERT
+      - basis='resident', data_label='estimated_beta'
+
+    アルゴリズム (Worker B7 設計):
+      1. 親市の thickness_index_parent[parent, occ] を取得 (parent_results から)
+      2. 親市配下の区別人口比 share[ward] = ward_pop / sum(siblings_pop) (合計 1.0)
+      3. F1 (人口比): thickness_index_ward[ward, occ] = thickness_index_parent[parent, occ]
+                                                       × share[ward] × n_wards (再正規化)
+      4. F2/F3/F4/F6 補正:
+         - 区別データ (引数として渡される) があれば直接使用
+         - なければ親市値を全区に伝搬 (= 1.0、parent inherit)
+      5. F5 (OD): commute_flow_summary が JIS 5 桁ベースで既に区別カバー、
+                 別途呼び出し側で計算済 (本関数では F5 を引数に取らない)
+      6. 親市平均整合性: avg(thickness_index_ward over wards) ≈
+                       thickness_index_parent (誤差 < 1%)
+
+    引数:
+      parent_results: 親市の F2 推定結果 (本実装では aggregate_city コードでも
+                      F2 計算するよう build フローを拡張する必要あり)
+      ward_population: 区別人口 (Worker A8 fetch_estat_resident_population で
+                       v2_external_population に追加された後に load_inputs() が読む)
+      master_parent_map: master の parent_code を区→親にマップ
+      ward_industry_share: optional. 区別経済センサスがあれば。
+      ward_daytime_factor: optional. 区別昼夜間があれば。
+      ward_commute_inflow: optional. 区別 inflow_pop / nighttime_pop。
+      ward_anchor_set: optional. 区別 anchor (None なら親市判定を全区に伝搬)。
+      ward_f6_factor: optional. 区別 SalesNow 補正があれば。
+
+    Returns:
+      {(pref, ward_name): {occ: thickness_index_ward}}
+      Plan B 制約: basis=resident, age=_total, gender=total に変換可能な dict 構造。
+
+    本実装: A7 データ投入後 (Phase 2 of B7 ロードマップ)
+    """
+    raise NotImplementedError(
+        "compute_designated_ward_rolldown は Worker A8 の sid=0003445080 fetch 結果が "
+        "v2_external_population に追加された後に本実装。"
+        "Worker B7 docs (DESIGNATED_WARD_F2_DESIGN.md) §3-§7 を参照。"
+    )
+
+
+def load_designated_ward_population(db_path: str) -> dict:
+    """
+    v2_external_population から designated_ward (area_type='designated_ward') の
+    人口データを取得。Worker A8 投入後に本実装。
+
+    Returns: {(pref, ward_name): {"total": int, "age_15_64": int}}
+    """
+    raise NotImplementedError(
+        "load_designated_ward_population は Worker A8 の sid=0003445080 fetch 結果が "
+        "v2_external_population (area_type='designated_ward') に投入された後に本実装。"
+    )
+
+
+def load_master_parent_map(db_path: str) -> dict:
+    """
+    municipality_code_master から designated_ward → parent_code のマップを構築。
+
+    Returns: {(pref, ward_name): parent_code}  例: ('神奈川県', '横浜市鶴見区') → '14100'
+
+    Plan B 制約: aggregate_city/aggregate_special_wards は除外 (parent_code として
+    参照するのみ、出力には含めない)。
+
+    本タスクで本実装する (DB スキーマ確定済、データも既存)。
+    """
+    out: dict = {}
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        rows = conn.execute(
+            "SELECT prefecture, municipality_name, parent_code "
+            "FROM municipality_code_master "
+            "WHERE area_type='designated_ward' AND parent_code IS NOT NULL"
+        ).fetchall()
+    for pref, name, parent in rows:
+        out[(pref, name)] = parent
+    return out
+
+
+def normalize_to_parent_mean(
+    ward_results: dict, parent_results: dict, parent_for_ward: dict
+) -> dict:
+    """
+    Σ_w ward[w, occ] / N_wards == parent[parent, occ] となるよう scaling。
+
+    丸め誤差 < 1% に収まるよう正規化。
+
+    本実装: A7 データ投入後。
+    """
+    raise NotImplementedError(
+        "normalize_to_parent_mean は compute_designated_ward_rolldown 本実装と"
+        "同タイミング (A8 データ投入後) に実装。"
+    )
 
 
 # ============================================================
@@ -1555,6 +1678,16 @@ def _run_build(args: argparse.Namespace) -> int:
         baseline, f3, f4, f5, f6, data["pref_occ_target"]
     )
     print(f"[INFO]   model_result: {len(model_result)} muni keys")
+
+    # ⏳ TODO (A8 データ投入後): designated_ward roll-down
+    # ward_pop = load_designated_ward_population(args.db_path)
+    # parent_map = load_master_parent_map(args.db_path)
+    # ward_results = compute_designated_ward_rolldown(
+    #     parent_results=model_result,  # parent_results は aggregate_city も含む形に拡張要
+    #     ward_population=ward_pop,
+    #     master_parent_map=parent_map,
+    # )
+    # model_result.update(ward_results)  # 区別を追加
 
     print("[build] deriving thickness_index (0-200)...")
     thickness = derive_thickness_index(model_result)
