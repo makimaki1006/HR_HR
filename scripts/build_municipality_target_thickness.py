@@ -197,9 +197,14 @@ TARGET_INDUSTRY_CODES = (
     "AB", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R"
 )
 
-# 政令市の区を除外するための area_type 集合 (proto と同一)
-INCLUDE_AREA_TYPES = {"aggregate_city", "municipality", "special_ward",
-                      "aggregate_special_wards"}
+# municipality_code_map に含める area_type 集合
+# (designated_ward は 2026-05-06 の v2_external_population 拡張で追加。
+#  Plan B 的には aggregate を CSV に含めても ingest 段階で master JOIN unit のみ
+#  採用されるため、map に aggregate を残しておく方が politanan 的に安全。)
+INCLUDE_AREA_TYPES = {
+    "aggregate_city", "aggregate_special_wards",  # CSV には出るが ingest で除外
+    "municipality", "special_ward", "designated_ward",  # unit、ingest で採用
+}
 
 # F6 関連 (proto と同一値)
 F6_ALPHA = 0.6

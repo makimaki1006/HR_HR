@@ -147,7 +147,7 @@ def estimate(args) -> int:
         else:
             n_v2 = "(table not yet created)"
     print()
-    print(f"[db] mop rows (must remain unchanged): {n_mop:,} (expect 728,024)")
+    print(f"[db] mop rows (workplace/measured must remain at 709,104): {n_mop:,}")
     print(f"[db] existing v2_thickness F2 rows (will be replaced): {n_v2}")
     return 0
 
@@ -187,12 +187,17 @@ def apply(args) -> int:
         for ddl in DDL_INDEXES:
             conn.execute(ddl)
 
-        # mop touch しないこと確認
+        # mop touch しないこと確認 (動的に投入前後で比較、ハードコード値廃止)
         n_mop_before = conn.execute(f"SELECT COUNT(*) FROM {MOP_TABLE}").fetchone()[0]
-        if n_mop_before != 728_024:
-            print(f"[apply] ❌ mop count = {n_mop_before:,} != 728,024, abort")
+        # workplace/measured の維持を最低限ガード
+        n_workplace_before = conn.execute(
+            f"SELECT COUNT(*) FROM {MOP_TABLE} WHERE basis='workplace' AND data_label='measured'"
+        ).fetchone()[0]
+        if n_workplace_before != 709_104:
+            print(f"[apply] ❌ workplace/measured = {n_workplace_before:,} != 709,104, abort")
             return 1
-        print(f"[apply] mop rows before: {n_mop_before:,} (sentinel OK)")
+        print(f"[apply] mop rows before: {n_mop_before:,} "
+              f"(workplace/measured sentinel: {n_workplace_before:,} OK)")
 
         # rollback target
         cur = conn.execute(
@@ -208,10 +213,16 @@ def apply(args) -> int:
         n_after = conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0]
         print(f"[apply] INSERT complete, total: {n_after:,}")
 
-        # mop touch しないこと再確認
+        # mop touch しないこと再確認 (投入前後の不変を確認、+ workplace 維持)
         n_mop_after = conn.execute(f"SELECT COUNT(*) FROM {MOP_TABLE}").fetchone()[0]
-        if n_mop_after != 728_024:
-            print(f"[apply] ❌ mop count changed to {n_mop_after:,}")
+        n_workplace_after = conn.execute(
+            f"SELECT COUNT(*) FROM {MOP_TABLE} WHERE basis='workplace' AND data_label='measured'"
+        ).fetchone()[0]
+        if n_mop_after != n_mop_before:
+            print(f"[apply] ❌ mop total changed: {n_mop_before:,} -> {n_mop_after:,}")
+            return 1
+        if n_workplace_after != 709_104:
+            print(f"[apply] ❌ workplace/measured changed to {n_workplace_after:,}")
             return 1
 
     return verify(args)
@@ -259,9 +270,9 @@ def verify(args) -> int:
         print(f"[4] distinct occupations: {n_occ} (expect 11) | {'✅' if ok4 else '❌'}")
 
         # [5] municipality count
-        ok5 = n_unique_muni == 1720
+        ok5 = n_unique_muni == 1895  # 2026-05-06: 1720 + 175 designated_ward
         overall &= ok5
-        print(f"[5] distinct municipalities: {n_unique_muni:,} (expect 1,720) | {'✅' if ok5 else '❌'}")
+        print(f"[5] distinct municipalities: {n_unique_muni:,} (expect 1,895 = 1,720 + 175 designated_ward) | {'✅' if ok5 else '❌'}")
 
         # [6] rank uniqueness per occupation (occ + rank の組合せ重複なし)
         dup_rank = c.execute(f"""
@@ -358,11 +369,15 @@ def verify(args) -> int:
             note = "F2 CSV gap" if cnt == 0 else "covered"
             print(f"      {code} ({name}): {cnt} rows ({note})")
 
-        # [11] mop unchanged
+        # [11] mop workplace/measured 維持 (resident 件数は別途 §2 で確認済)
         n_mop = c.execute(f"SELECT COUNT(*) FROM {MOP_TABLE}").fetchone()[0]
-        ok11 = n_mop == 728_024
+        n_workplace = c.execute(
+            f"SELECT COUNT(*) FROM {MOP_TABLE} WHERE basis='workplace' AND data_label='measured'"
+        ).fetchone()[0]
+        ok11 = n_workplace == 709_104
         overall &= ok11
-        print(f"[11] mop rows: {n_mop:,} (expect 728,024) | {'✅' if ok11 else '❌'}")
+        print(f"[11] mop total: {n_mop:,} | workplace/measured: {n_workplace:,} "
+              f"(expect 709,104) | {'✅' if ok11 else '❌'}")
 
     print()
     print(f"=== Overall: {'✅ PASS' if overall else '❌ FAIL'} ===")
