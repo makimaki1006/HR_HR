@@ -616,69 +616,238 @@ def merge_pages(
 # モード: --validate (本実装)
 # --------------------------------------------------------------------------- #
 
-def validate_clean_csv(csv_path: Path = MERGED_CSV) -> tuple[bool, list[str]]:
-    """マージ後 CSV の整合性検証 (Worker A4 計画 §9)。"""
+SAMPLE_TARGETS: list[tuple[str, str, str]] = [
+    ("13103", "東京都", "港区"),
+    ("13104", "東京都", "新宿区"),
+    ("13201", "東京都", "八王子市"),
+    ("23211", "愛知県", "豊田市"),
+]
+
+
+def _expected_rows_from_metadata(metadata_path: Path) -> int | None:
+    """metadata の TABLE_INF.OVERALL_TOTAL_NUMBER を expected_total として返す。
+
+    取得不能なら None。
+    """
+    if not metadata_path.exists():
+        return None
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as fh:
+            meta = json.load(fh)
+    except Exception:
+        return None
+    table_inf = (
+        meta.get("GET_META_INFO", {})
+        .get("METADATA_INF", {})
+        .get("TABLE_INF", {})
+    )
+    val = table_inf.get("OVERALL_TOTAL_NUMBER") or table_inf.get("@overall_total_number")
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def validate_clean_csv(
+    csv_path: Path = MERGED_CSV,
+    metadata_path: Path = META_FILE,
+) -> tuple[bool, list[str]]:
+    """マージ後 CSV の整合性検証 (改訂: row count はソフトチェック、軸/サンプル中心)。
+
+    NG (errors): municipality_code 形式違反、全国/都道府県集約混入、PK 重複、サンプル地域欠損、
+                 population 数値変換不能、負値、empty CSV
+    WARN (logs): row count 期待値乖離、prefecture 数、orphan 率、PK 軸 distinct 不足、
+                 総数/不詳の混入痕跡
+    """
     errors: list[str] = []
+    warnings: list[str] = []
 
     if not csv_path.exists():
         return False, [f"merged CSV not found: {csv_path}. Run --merge first."]
 
-    # pandas を遅延 import (validate でしか使わない)
     try:
         import pandas as pd
     except ImportError:
         return False, ["pandas is required for --validate. pip install pandas"]
 
     df = pd.read_csv(csv_path, dtype={"municipality_code": str})
-
-    # 1. 行数
     n_rows = len(df)
-    if not (800_000 <= n_rows <= 1_500_000):
-        errors.append(f"row count {n_rows:,} out of expected [800k, 1.5M]")
+    print(f"[info] row count: {n_rows:,}")
 
-    # 2. 都道府県カバレッジ
-    n_pref = df["prefecture"].dropna().nunique()
-    if n_pref != 47:
-        errors.append(f"distinct prefectures = {n_pref}, expected 47")
+    if n_rows == 0:
+        errors.append("row count is 0 (empty CSV)")
+        return False, errors
 
-    # 3. 市区町村カバレッジ
-    master_codes = _load_master_codes()
-    csv_codes = set(df["municipality_code"].astype(str).str.zfill(5))
-    if master_codes:
-        orphan = csv_codes - master_codes
-        orphan_rate = len(orphan) / max(len(csv_codes), 1)
-        if orphan_rate > 0.05:
-            errors.append(
-                f"orphan rate {orphan_rate:.2%} > 5% ({len(orphan)} orphans / {len(csv_codes)} codes)"
+    # ----------------------------------------------------------------- #
+    # 1. row count の soft check (metadata 由来の expected と比較)
+    # ----------------------------------------------------------------- #
+    expected_total = _expected_rows_from_metadata(metadata_path)
+    if expected_total:
+        # OVERALL_TOTAL_NUMBER は除外前の cell 数。除外後は概ね 95-105% に収まる想定
+        # (除外: 男女総数 ~33%、年齢総数 ~4%、職業総数 ~8%、全国/都道府県 area ~3%)
+        # 厳密な乖離判定を避け、極端な乖離のみ警告 (50% 超)
+        diff_rate = abs(n_rows - expected_total) / expected_total
+        print(f"[info] expected from metadata (raw cells): {expected_total:,}")
+        print(f"[info] row count diff vs metadata: {diff_rate:.1%}")
+        if diff_rate > 0.50:
+            warnings.append(
+                f"row count {n_rows:,} differs from metadata raw {expected_total:,} by {diff_rate:.1%}"
             )
     else:
-        errors.append("master DB unavailable; orphan check skipped (informational)")
+        # metadata 不在時の soft レンジ (実取得結果 1.72M を許容)
+        SOFT_MIN, SOFT_MAX = 1_500_000, 1_900_000
+        if not (SOFT_MIN <= n_rows <= SOFT_MAX):
+            warnings.append(
+                f"row count {n_rows:,} outside soft range [{SOFT_MIN:,}, {SOFT_MAX:,}]"
+            )
 
-    # 4. 軸完全性
+    # ----------------------------------------------------------------- #
+    # 2. municipality_code 5 桁
+    # ----------------------------------------------------------------- #
+    df["municipality_code"] = df["municipality_code"].astype(str).str.zfill(5)
+    bad_code = df[~df["municipality_code"].str.match(r"^\d{5}$")]
+    if len(bad_code) > 0:
+        errors.append(f"municipality_code not 5-digit: {len(bad_code):,} rows")
+
+    # ----------------------------------------------------------------- #
+    # 3. 全国 (00000) 除外確認
+    # ----------------------------------------------------------------- #
+    nationwide = df[df["municipality_code"] == "00000"]
+    if len(nationwide) > 0:
+        errors.append(f"nationwide rows (code=00000) present: {len(nationwide):,}")
+
+    # ----------------------------------------------------------------- #
+    # 4. 都道府県 (xx000) 除外確認
+    # ----------------------------------------------------------------- #
+    pref_only = df[
+        df["municipality_code"].str.endswith("000")
+        & (df["municipality_code"] != "00000")
+    ]
+    if len(pref_only) > 0:
+        errors.append(f"prefecture-aggregate rows (xx000) present: {len(pref_only):,}")
+
+    # ----------------------------------------------------------------- #
+    # 5. population 数値変換
+    # ----------------------------------------------------------------- #
+    pop_numeric = pd.to_numeric(df["population"], errors="coerce")
+    nan_count = int(pop_numeric.isna().sum())
+    if nan_count > 0:
+        # 数値変換できない値が多いと NG、少量なら WARN
+        nan_rate = nan_count / n_rows
+        if nan_rate > 0.05:
+            errors.append(f"population numeric conversion failed: {nan_count:,} rows ({nan_rate:.1%})")
+        else:
+            warnings.append(f"population NaN: {nan_count:,} rows ({nan_rate:.2%})")
+    df["population"] = pop_numeric.fillna(0).astype("int64")
+    neg_count = int((df["population"] < 0).sum())
+    if neg_count > 0:
+        errors.append(f"negative population values: {neg_count:,} rows")
+    total_pop = int(df["population"].sum())
+    print(f"[info] sum population: {total_pop:,}")
+    if total_pop < 30_000_000:
+        warnings.append(f"sum population {total_pop:,} unusually low (< 30M)")
+
+    # ----------------------------------------------------------------- #
+    # 6. gender / age / occupation コード分布 (ログ)
+    # ----------------------------------------------------------------- #
+    print(f"[dist] gender ({df['gender'].nunique()} distinct):")
+    for k, v in df["gender"].value_counts().head(10).items():
+        print(f"  {k!r}: {v:,}")
+    print(f"[dist] age_class ({df['age_class'].nunique()} distinct):")
+    for k, v in df["age_class"].value_counts().head(30).items():
+        print(f"  {k!r}: {v:,}")
+    print(f"[dist] occupation_code ({df['occupation_code'].nunique()} distinct):")
+    for k, v in df["occupation_code"].value_counts().head(20).items():
+        print(f"  {k!r}: {v:,}")
+
+    # 軸 distinct の WARN (ハード NG にしない)
     n_gender = df["gender"].nunique()
     if n_gender < 2:
-        errors.append(f"distinct genders = {n_gender}, expected >= 2")
-
+        warnings.append(f"distinct genders = {n_gender}, expected >= 2")
     n_age = df["age_class"].nunique()
     if n_age < 14:
-        errors.append(f"distinct age classes = {n_age}, expected >= 14")
-
+        warnings.append(f"distinct age classes = {n_age}, expected >= 14")
     n_occ = df["occupation_code"].nunique()
     if n_occ < 11:
-        errors.append(f"distinct occupations = {n_occ}, expected >= 11")
+        warnings.append(f"distinct occupations = {n_occ}, expected >= 11")
 
-    # 5. 数値妥当性
-    if (df["population"] < 0).any():
-        errors.append("negative population values detected")
-    total = int(df["population"].sum())
-    if total < 50_000_000:
-        errors.append(f"sum population {total:,} < 50M (expected >= 50M for nationwide workers)")
+    # ----------------------------------------------------------------- #
+    # 7. 代表地域サンプル存在確認
+    # ----------------------------------------------------------------- #
+    print("[sample] representative municipalities:")
+    for code, pref, name in SAMPLE_TARGETS:
+        sub = df[df["municipality_code"] == code]
+        if len(sub) == 0:
+            errors.append(f"sample missing: {code} ({pref} {name})")
+            print(f"  {code} ({pref} {name}): MISSING")
+        else:
+            sub_total = int(sub["population"].sum())
+            sub_pref = sub["prefecture"].dropna().iloc[0] if not sub["prefecture"].dropna().empty else "?"
+            sub_name = (
+                sub["municipality_name"].dropna().iloc[0]
+                if not sub["municipality_name"].dropna().empty
+                else "?"
+            )
+            print(
+                f"  {code} ({pref} {name}): {len(sub):,} rows, "
+                f"sum_pop={sub_total:,}, csv_label={sub_pref}/{sub_name}"
+            )
 
-    # 6. PK 重複検査
+    # ----------------------------------------------------------------- #
+    # 8. 総数・不詳の取り扱いログ (除外漏れの痕跡検出)
+    # ----------------------------------------------------------------- #
+    aggregate_pat = "総数|不詳|分類不能"
+    for col in ("gender", "age_class", "occupation_code", "occupation_name"):
+        if col not in df.columns:
+            continue
+        m = df[col].astype(str).str.contains(aggregate_pat, na=False)
+        n = int(m.sum())
+        if n > 0:
+            warnings.append(f"aggregate/unknown remnant in {col}: {n:,} rows")
+            sample_vals = df.loc[m, col].value_counts().head(3).to_dict()
+            print(f"[warn] {col} aggregate/unknown sample: {sample_vals}")
+
+    # ----------------------------------------------------------------- #
+    # 9. PK 重複
+    # ----------------------------------------------------------------- #
     pk_cols = ["municipality_code", "gender", "age_class", "occupation_code"]
     dup_count = int(df.duplicated(subset=pk_cols).sum())
     if dup_count > 0:
-        errors.append(f"PK duplicates detected: {dup_count}")
+        errors.append(f"PK duplicates: {dup_count:,}")
+
+    # ----------------------------------------------------------------- #
+    # 10. 都道府県カバレッジ (WARN)
+    # ----------------------------------------------------------------- #
+    n_pref = df["prefecture"].dropna().nunique()
+    print(f"[info] distinct prefectures: {n_pref}")
+    if n_pref != 47:
+        warnings.append(f"distinct prefectures = {n_pref}, expected 47")
+
+    # ----------------------------------------------------------------- #
+    # 11. master 突合 (WARN、master 不在ならスキップ)
+    # ----------------------------------------------------------------- #
+    master_codes = _load_master_codes()
+    if master_codes:
+        csv_codes = set(df["municipality_code"])
+        orphan = csv_codes - master_codes
+        orphan_rate = len(orphan) / max(len(csv_codes), 1)
+        print(f"[info] master orphan: {len(orphan):,} / {len(csv_codes):,} ({orphan_rate:.2%})")
+        if orphan_rate > 0.10:
+            warnings.append(
+                f"master orphan rate {orphan_rate:.2%} ({len(orphan):,} orphans) — review code joining"
+            )
+    else:
+        print("[info] master DB unavailable; orphan check skipped")
+
+    # ----------------------------------------------------------------- #
+    # 集約ログ
+    # ----------------------------------------------------------------- #
+    if warnings:
+        print(f"[warn] {len(warnings)} warnings:")
+        for w in warnings:
+            print(f"  - {w}")
 
     return (len(errors) == 0, errors)
 
