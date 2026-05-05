@@ -50,7 +50,16 @@ except (AttributeError, ValueError):
 # --------------------------------------------------------------------------- #
 
 ESTAT_API_BASE = "https://api.e-stat.go.jp/rest/3.0/app/json"
-DEFAULT_STATS_DATA_ID = "0003445080"
+DEFAULT_STATS_DATA_ID = "0003445236"
+# Worker A9/A10 結果: sid=0003445236 採用確定
+# 表名: 男女, 年齢(5歳階級), 配偶関係, 国籍総数か日本人別人口(15歳以上)
+# 軸: cat02=配偶関係 / cat03=男女 / cat04=国籍 / cat05=年齢5歳 / cat06=地域
+# 注意: 15 歳以上のみ (0-14 歳は本表対象外、designated_ward 補完用途として F2 推定には十分)
+# 必須 PIN (--pin): cat02=000 (配偶関係総数) AND cat04=000 (国籍総数)
+DEFAULT_PINS = {
+    "cat02": "000",  # 配偶関係総数
+    "cat04": "000",  # 国籍総数
+}
 
 OUTPUT_DIR = Path("data/generated")
 TEMP_DIR = OUTPUT_DIR / "temp_resident"
@@ -145,9 +154,17 @@ def get_stats_data(
     app_id: str,
     start_position: int = 1,
     limit: int = 1000,
+    pins: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """
+    e-Stat getStatsData。
+
+    pins: {axis_id: code_value} (例: {"cat02": "000", "cat04": "000"})
+    指定された軸を 1 値に絞ることで取得サイズを大幅削減。
+    e-Stat API の cdCat<軸> パラメータに変換される。
+    """
     url = f"{ESTAT_API_BASE}/getStatsData"
-    params = {
+    params: dict[str, Any] = {
         "appId": app_id,
         "statsDataId": stats_data_id,
         "startPosition": start_position,
@@ -156,9 +173,40 @@ def get_stats_data(
         "cntGetFlg": "N",
         "replaceSpChars": "2",
     }
+    if pins:
+        for axis_id, code in pins.items():
+            # cat02 -> cdCat02、cat04 -> cdCat04 のように変換
+            # area, time も同様に cdArea, cdTime
+            api_key = "cd" + axis_id[0].upper() + axis_id[1:]
+            params[api_key] = code
     resp = requests.get(url, params=params, timeout=60)
     resp.raise_for_status()
     return resp.json()
+
+
+def parse_pin_args(pin_list: list[str] | None) -> dict[str, str]:
+    """
+    --pin cat02=000 --pin cat04=000 形式の引数を dict に変換。
+
+    pin_list なし → DEFAULT_PINS
+    --pin none → 空 (PIN を無効化)
+    """
+    if not pin_list:
+        return dict(DEFAULT_PINS)
+    if pin_list == ["none"] or any(s.strip().lower() == "none" for s in pin_list):
+        return {}
+    out: dict[str, str] = {}
+    for item in pin_list:
+        if "=" not in item:
+            raise SystemExit(f"--pin must be axis=code or 'none', got: {item}")
+        axis, code = item.split("=", 1)
+        out[axis.strip()] = code.strip()
+    return out
+
+
+def _resolve_pins(pin_arg: list[str] | None) -> dict[str, str]:
+    """CLI --pin から pins dict を解決 (DEFAULT_PINS + 上書き)"""
+    return parse_pin_args(pin_arg)
 
 
 # --------------------------------------------------------------------------- #
@@ -292,16 +340,21 @@ def run_metadata_only(stats_data_id: str, app_id_arg: str | None) -> int:
     return 0
 
 
-def run_sample_only(stats_data_id: str, app_id_arg: str | None, limit: int) -> int:
+def run_sample_only(
+    stats_data_id: str, app_id_arg: str | None, limit: int,
+    pins: dict[str, str] | None = None,
+) -> int:
     print("[mode] --sample-only")
     app_id = get_app_id(app_id_arg)
     print(f"[appId] {mask_app_id(app_id)}")
     print(f"[stats_data_id] {stats_data_id}")
     print(f"[limit] {limit}")
+    if pins:
+        print(f"[pins] {pins}")
     ensure_dirs()
     print(f"[GET] {ESTAT_API_BASE}/getStatsData (startPosition=1)")
     try:
-        data = get_stats_data(stats_data_id, app_id, start_position=1, limit=limit)
+        data = get_stats_data(stats_data_id, app_id, start_position=1, limit=limit, pins=pins)
     except requests.HTTPError as exc:
         print(f"[ERROR] HTTP {exc.response.status_code}: {exc.response.text[:300]}")
         return 1
@@ -354,11 +407,17 @@ def fetch_all_pages(
     from_page: int | None = None,
     progress_path: Path = PROGRESS_FILE,
     output_dir: Path = TEMP_DIR,
+    pins: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """ページング fetch。中断耐性 (progress.json 経由 resume)。"""
+    """ページング fetch。中断耐性 (progress.json 経由 resume)。
+
+    pins: API 軸 PIN (例: {"cat02": "000", "cat04": "000"})
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     progress = _load_progress(progress_path, stats_data_id)
     progress["stats_data_id"] = stats_data_id
+    if pins:
+        progress["pins"] = pins
 
     if from_page is not None:
         if from_page < 1:
@@ -388,6 +447,7 @@ def fetch_all_pages(
                     stats_data_id, app_id,
                     start_position=progress["next_position"],
                     limit=page_size,
+                    pins=pins,
                 )
                 break
             except (requests.HTTPError, requests.Timeout, requests.ConnectionError) as e:
@@ -901,9 +961,12 @@ def validate_clean_csv(
 def run_fetch(args: argparse.Namespace) -> int:
     print("[mode] --fetch")
     app_id = get_app_id(args.app_id)
+    pins = _resolve_pins(args.pin)
     print(f"[appId] {mask_app_id(app_id)} (length={len(app_id)})")
     print(f"[stats_data_id] {args.stats_data_id}")
     print(f"[page_size] {args.limit}")
+    if pins:
+        print(f"[pins] {pins}")
     if args.from_page:
         print(f"[from_page] {args.from_page}")
     ensure_dirs()
@@ -912,6 +975,7 @@ def run_fetch(args: argparse.Namespace) -> int:
         app_id=app_id,
         page_size=args.limit,
         from_page=args.from_page,
+        pins=pins,
     )
     print(f"[done] completed_pages={progress['completed_pages']}, "
           f"next_position={progress['next_position']}")
@@ -981,6 +1045,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=DEFAULT_PAGE_SIZE,
                         help=f"Rows per page (--fetch default {DEFAULT_PAGE_SIZE}, "
                              "--sample-only default 1000, max 100000)")
+    parser.add_argument("--pin", action="append", default=None, metavar="AXIS=CODE",
+                        help=f"Pin axis to single code (e.g. --pin cat02=000). "
+                             f"Multiple --pin allowed. Default for sid {DEFAULT_STATS_DATA_ID}: "
+                             f"{', '.join(f'{k}={v}' for k, v in DEFAULT_PINS.items())}. "
+                             f"Pass --pin none to disable defaults.")
     return parser
 
 
@@ -994,7 +1063,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_metadata_only(args.stats_data_id, args.app_id)
     if args.sample_only:
         sample_limit = 1000 if args.limit == DEFAULT_PAGE_SIZE else args.limit
-        return run_sample_only(args.stats_data_id, args.app_id, sample_limit)
+        return run_sample_only(args.stats_data_id, args.app_id, sample_limit,
+                               pins=_resolve_pins(args.pin))
     if args.fetch:
         return run_fetch(args)
     if args.merge:
