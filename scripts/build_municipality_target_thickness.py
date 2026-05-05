@@ -3,15 +3,22 @@
 build_municipality_target_thickness.py
 =======================================
 
-Phase 3 Step 5 本実装スクリプト (スケルトン版)
+Phase 3 Step 5 F2 estimation script (Plan B - resident/fallback only)
 
-ステータス: スケルトン (sensitivity 結果待ち)
+役割 (案 B 並列保管):
+  - basis='resident', data_label='estimated_beta' レコード生成 (主役)
+  - basis='workplace', data_label='estimated_beta' レコード生成 (15-1 fallback、Phase 5+)
+  - basis='workplace', data_label='measured' は触れない (15-1 専有)
+
+ステータス: スケルトン (interface 詳細化済 + 計算本体は Phase 5 で実装)
 - ✅ --dry-run / --validate-only モード実装済 (READ-only)
+- ✅ 12 関数 interface + docstring + type hints 詳細化済
 - ⏳ --build モード未実装 (compute_* 関数は NotImplementedError)
 
-実装ロードマップ: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_IMPLEMENTATION_PLAN.md
+ロードマップ: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_IMPLEMENTATION_PLAN.md
+DDL: docs/survey_market_intelligence_phase0_2_schema.sql (Plan B 反映済)
 プロト元: scripts/proto_evaluate_occupation_population_models.py (model_f2)
-DDL: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_TABLE_RENAME_DECISION.md (v2_municipality_target_thickness)
+sensitivity 推奨閾値: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_SENSITIVITY_ANALYSIS.md
 
 CLI:
   python scripts/build_municipality_target_thickness.py --dry-run
@@ -23,10 +30,18 @@ CLI:
 - 入力検証 (validate_inputs): 行数・キーセット・型・カバレッジ・重み合計
 - DB 検証 SQL 実行 (run_validation_sql): 既存テーブルへの READ-only 検証
 
-設計原則 (本タスクではスケルトンのみ):
+設計原則 (Phase 5 で本実装):
 - 計算ロジック (compute_baseline / compute_f3 / ... / compute_f6_v2 / integrate_model_f2)
 - 派生指標 (derive_thickness_index / derive_rank_and_priority / derive_scenario_indices)
 - 出力 (export_to_csv / import_to_sqlite)
+
+Plan B 出力制約 (validate_outputs() で assert):
+- basis = 'resident' のみ (workplace 'measured' は 15-1 専有)
+- data_label = 'estimated_beta' 固定
+- age_class = '_total' のみ (年齢別は 15-1 専有)
+- gender = 'total' のみ (性別は 15-1 専有)
+- source_name = 'model_f2_v1'
+- weight_source = 'hypothesis_v1'
 """
 
 from __future__ import annotations
@@ -74,13 +89,46 @@ EXPECTED_INDUSTRY_COUNT = 21
 EXPECTED_SALESNOW_AGG_ROWS_MIN = 10000
 EXPECTED_PREFECTURE_COUNT = 47
 
-# anchor city 閾値 (sensitivity 結果待ち、本書ではプロト値で初期化)
-DEFAULT_ANCHOR_THRESHOLDS = {
-    "mfg_share": 0.12,
+# ===========================================================
+# Sensitivity-confirmed thresholds (Worker A3 result)
+# DO NOT CHANGE without re-running sensitivity_anchor_thresholds.py
+# ===========================================================
+DEFAULT_ANCHOR_THRESHOLDS_v1 = {
+    "mfg_share": 0.12,                      # Worker A3 sensitivity 推奨
     "mfg_emp_per_establishment": 20.0,
     "day_night_ratio": 150.0,
-    "hq_excess_ratio": 5.0,
+    "hq_excess_ratio_E": 5.0,
 }
+
+# Backward-compat alias (旧キー hq_excess_ratio を参照する箇所のため)
+DEFAULT_ANCHOR_THRESHOLDS = DEFAULT_ANCHOR_THRESHOLDS_v1
+
+# Plan B 出力制約 (validate_outputs で assert される値)
+PLAN_B_BASIS = "resident"
+PLAN_B_DATA_LABEL = "estimated_beta"
+PLAN_B_AGE_CLASS = "_total"
+PLAN_B_GENDER = "total"
+PLAN_B_SOURCE_NAME = "model_f2_v1"
+PLAN_B_WEIGHT_SOURCE = "hypothesis_v1"
+
+# 出力 CSV カラム (Plan B 仕様)
+OUTPUT_CSV_COLUMNS = (
+    "municipality_code",
+    "prefecture",
+    "municipality_name",
+    "basis",
+    "occupation_code",
+    "occupation_name",
+    "age_class",
+    "gender",
+    "estimate_index",
+    "data_label",
+    "source_name",
+    "source_year",
+    "weight_source",
+    "is_industrial_anchor",
+    "estimated_at",
+)
 
 # turnover シナリオ (定数倍ラベル)
 DEFAULT_TURNOVER_RATES = {
@@ -223,11 +271,19 @@ def _load_weight_csv(weight_csv: Path) -> list[dict]:
             f"Found: {sorted(columns)}"
         )
 
-    # 値が hypothesis_v1 のみであることを確認
+    # 値が hypothesis_v1 のみであることを確認 (Plan B: 非 hypothesis_v1 は WARN)
     sources = {row[source_col] for row in rows}
-    if sources != {EXPECTED_WEIGHT_SOURCE}:
+    non_hypothesis = sources - {EXPECTED_WEIGHT_SOURCE}
+    if non_hypothesis:
+        # Plan B 制約緩和: hypothesis_v1 以外がある場合は WARN ログのみ
+        # (Phase 5 で他 weight_source を許容する可能性があるため)
+        print(
+            f"[WARN] weight_csv contains non-'{EXPECTED_WEIGHT_SOURCE}' sources: "
+            f"{sorted(non_hypothesis)}. Plan B 推奨: '{EXPECTED_WEIGHT_SOURCE}' のみ"
+        )
+    if EXPECTED_WEIGHT_SOURCE not in sources:
         raise ValueError(
-            f"weight_source must be {{'{EXPECTED_WEIGHT_SOURCE}'}} only, found: {sources}"
+            f"weight_source must include '{EXPECTED_WEIGHT_SOURCE}', found: {sources}"
         )
 
     print(f"[INFO] Weight CSV: {len(rows)} rows, source column='{source_col}', "
@@ -565,65 +621,249 @@ def run_validation_sql(
 
 
 # ============================================================
-# 計算ロジック (スケルトン、本タスクでは実装しない)
+# 計算ロジック (Plan B - interface 詳細化済 / 本体は Phase 5 実装)
 # ============================================================
 
-_NOT_IMPL_MSG = "Phase 5 sensitivity 結果待ち、本実装ラウンドで埋める"
+# 共通型エイリアス (本実装時の参照用)
+# MuniKey = tuple[str, str]   # (prefecture, municipality_name)
+# OccCode = str               # 例: '08_生産工程'
+# FactorMap = dict[MuniKey, dict[OccCode, float]]
+# ScalarMap = dict[MuniKey, float]
 
 
 def compute_baseline(data: dict) -> dict:
-    """F1 (総人口) × F2 (生産年齢人口比) → Model B 相当.
+    """F1 (総人口) × F2 (生産年齢人口比) baseline を計算.
 
-    都道府県就業者数 × (muni 生産年齢 / pref 生産年齢) で按分.
+    Plan B 制約:
+      - 出力は age_class='_total', gender='total' のレコードに対応する集約値のみ。
+        年齢別 / 性別の細分は 15-1 (basis='workplace', data_label='measured') の
+        専有領域であり、本関数は触れない。
+
+    アルゴリズム (proto 移植予定):
+      muni_baseline[(pref, muni)][occ]
+        = pref_employment[pref][occ]
+          × (muni_age_15_64[(pref, muni)] / pref_age_15_64[pref])
+      ここで pref_employment は都道府県 × 11 職業の就業者数 (基準年)。
+
+    Args:
+        data: load_inputs() の戻り値 dict.
+              - data['population']: {(pref, muni): {'total': int, 'age_15_64': int}}
+              - data['pyramid']:   {(pref, muni): {age_group: {'male': int, 'female': int}}}
+              - data['muni_master']: 結合用マスタ
+              - 都道府県別就業者数: 別途 data 内に格納される予定
+                (Phase 5 で _load_pref_employment ヘルパ追加)
+
+    Returns:
+        baseline: dict[tuple[str, str], dict[str, float]]
+                  {(pref, muni): {occ_code: baseline_value}}
+                  age 統合・gender 統合後の値 (Plan B: _total / total のみ)。
+
+    前提:
+      - data['population'] が 47 都道府県カバー
+      - 全 muni_key について age_15_64 > 0 (0 のものは pyramid から再計算)
+
+    副作用: なし (純関数)
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py
+        compute_model_b_baseline() (model_f2 の F1×F2 部分)
+
+    本実装: Phase 5 (sensitivity 結果反映後)
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。proto compute_model_b_baseline を移植 + Plan B 制約 "
+        "(age_class='_total', gender='total' の集約値のみ生成) を適用。"
+    )
 
 
 def compute_f3(data: dict, weight_matrix: dict) -> dict:
-    """F3 (産業構成補正、べき乗 1.5).
+    """F3 産業構成補正 (べき乗 1.5).
 
-    F3_per_occ = (Σ ind_share × weight) / (Σ nat_share × weight) ** 1.5
+    アルゴリズム:
+      ind_share[muni][industry] = muni 産業別就業者数 / muni 総就業者数
+      nat_share[industry]      = 全国産業別就業者数 / 全国総就業者数
+      F3_raw[muni][occ]        = Σ_industry (ind_share × weight[industry][occ])
+                               / Σ_industry (nat_share × weight[industry][occ])
+      F3[muni][occ]            = F3_raw ** 1.5
+
+    Args:
+        data: load_inputs() の戻り値。data['industry_csv_rows'] を主に参照。
+        weight_matrix: dict[str, dict[str, float]]
+                       {industry_code: {occupation_code: weight}}
+                       weight_csv_rows から構築 (本関数の caller 責務)。
+                       weight_source = 'hypothesis_v1' を満たすこと。
+
+    Returns:
+        f3: dict[tuple[str, str], dict[str, float]]
+            {(pref, muni): {occ: factor}}
+
+    前提・assert:
+      - weight_matrix の全 industry の重み合計 ≒ 1.0 ± 0.001
+      - weight_source == PLAN_B_WEIGHT_SOURCE ('hypothesis_v1')
+      - factor は [0.1, 10.0] にクリップ (極端値除外)
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py: compute_f3() 相当
+
+    本実装: Phase 5
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。proto compute_f3 を移植 + weight_matrix の "
+        "weight_source='hypothesis_v1' を assert。"
+    )
 
 
 def compute_f4_occupation_weighted(data: dict) -> dict:
-    """F4 (職業別 OCCUPATION_F4_WEIGHT 適用).
+    """F4 昼夜間人口比 × 職業別重み (Worker D Model E2).
 
-    f4 = 1 + (day/night - 1) × occ_weight,  clamp [0.1, 5.0]
+    アルゴリズム:
+      day_night = data['daytime'][(pref, muni)]['ratio'] / 100.0  # %→比率
+      f4[(pref, muni)][occ] = clamp(
+          1 + (day_night - 1) × OCCUPATION_F4_WEIGHT[occ],
+          min=0.1, max=5.0
+      )
+
+    OCCUPATION_F4_WEIGHT (Worker D Model E2 確定値):
+      事務系・販売系 = 1.0 (フル昼夜効果)
+      生産工程・建設等 = 0.3〜0.5 (限定的)
+      農林漁業 = 0.0 (effect なし)
+      → Phase 5 で proto から移植
+
+    Args:
+        data: load_inputs() の戻り値。data['daytime'] を参照。
+
+    Returns:
+        f4: dict[tuple[str, str], dict[str, float]]
+            {(pref, muni): {occ: factor in [0.1, 5.0]}}
+
+    前提:
+      - data['daytime'] が 47 都道府県カバー
+      - day_night_ratio が NULL の場合は 100.0 (= 1.0 比率) で fallback
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py: model_e2 関連
+
+    本実装: Phase 5
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。proto Model E2 OCCUPATION_F4_WEIGHT を移植。"
+    )
 
 
 def compute_f5(data: dict) -> dict:
-    """F5 (通勤流入補正).
+    """F5 通勤流入補正 (職業非依存).
 
-    f5 = 1 + (inflow / night) × 0.3,  clamp [0.5, 2.0]
+    アルゴリズム:
+      f5[(pref, muni)] = clamp(
+          1 + (inflow / night) × 0.3,
+          min=0.5, max=2.0
+      )
+
+    Args:
+        data: load_inputs() の戻り値。data['daytime'] / data['commute_flow'] を参照。
+
+    Returns:
+        f5: dict[tuple[str, str], float]
+            {(pref, muni): scalar_factor}
+            (職業非依存、職業ごとに同じ値を適用)
+
+    前提:
+      - night > 0 (= nighttime_pop) でゼロ除算回避
+      - inflow / outflow が NULL の muni は f5 = 1.0 (中立)
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py: compute_f5() 相当
+
+    本実装: Phase 5
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。proto compute_f5 を移植。職業非依存 scalar を返す。"
+    )
 
 
-def compute_industrial_anchor(data: dict, thresholds: Optional[dict] = None) -> dict:
-    """4 条件 AND で industrial_anchor_city を判定.
+def compute_industrial_anchor(
+    data: dict,
+    thresholds: Optional[dict] = None,
+) -> set:
+    """industrial_anchor_city 判定 (4 条件 AND, Worker A3 sensitivity 推奨閾値で固定).
 
-    閾値は dict 渡し:
-      {"mfg_share": 0.12, "mfg_emp_per_establishment": 20,
-       "day_night_ratio": 150, "hq_excess_ratio": 5.0}
+    判定条件 (全て満たす市区町村が anchor):
+      1. mfg_share         >= thresholds['mfg_share']
+                           (= 製造業就業者比率 12%)
+      2. mfg_emp_per_establishment >= thresholds['mfg_emp_per_establishment']
+                           (= 1 事業所あたり製造業従業者 20 人)
+      3. day_night_ratio   >= thresholds['day_night_ratio']
+                           (= 昼夜間比率 150%、流入超過)
+      4. hq_excess_ratio_E >= thresholds['hq_excess_ratio_E']
+                           (= SalesNow 本社過剰指標 5.0)
 
-    sensitivity 分析後に推奨値を本書で固定.
+    Args:
+        data: load_inputs() の戻り値。
+              - data['industry_csv_rows']: mfg_share / mfg_emp_per_establishment 計算用
+              - data['daytime']:           day_night_ratio
+              - data['salesnow_csv_rows']: hq_excess_ratio_E
+        thresholds: 4 条件の閾値 dict (None で DEFAULT_ANCHOR_THRESHOLDS_v1)
+
+    Returns:
+        anchor_set: set[tuple[str, str]]
+                    { (prefecture, municipality_name), ... }
+
+    前提:
+      - data['industry_csv_rows'] に 21 産業の就業者数あり
+      - data['daytime'] が 47 都道府県カバー
+      - SalesNow CSV が空でも fallback (hq_excess_ratio_E=0 → 該当条件 false)
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py:
+      compute_industrial_anchor_cities()
+
+    sensitivity 推奨値:
+      docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_SENSITIVITY_ANALYSIS.md (Worker A3)
+
+    本実装: Phase 5
     """
     if thresholds is None:
-        thresholds = DEFAULT_ANCHOR_THRESHOLDS
-    raise NotImplementedError(_NOT_IMPL_MSG)
+        thresholds = DEFAULT_ANCHOR_THRESHOLDS_v1
+    raise NotImplementedError(
+        "Phase 5 で実装。proto compute_industrial_anchor_cities を移植 + "
+        "DEFAULT_ANCHOR_THRESHOLDS_v1 を引数として受け取る形に。"
+    )
 
 
 def compute_f6_v2(data: dict, anchor_set: set) -> dict:
-    """F6 anchor 分岐.
+    """F6 anchor 分岐 (本社減衰 + 工場ブースト).
 
-    anchor IN: HQ 減衰スキップ + boost
-    anchor OUT: F (HQ 減衰 + 工場ブースト)
+    アルゴリズム:
+      anchor IN  ((pref, muni) in anchor_set):
+        → F6 = 1.0 (HQ 減衰スキップ、工場ブースト効果は baseline に既に反映)
+      anchor OUT:
+        → F6 = HQ_decay_factor × factory_boost
+        HQ_decay_factor = 1 / (1 + hq_excess × decay_rate)
+        factory_boost   = 1 + factory_density × boost_rate
+
+    Args:
+        data: load_inputs() の戻り値。data['salesnow_csv_rows'] を参照。
+        anchor_set: compute_industrial_anchor() の戻り値
+                    { (pref, muni), ... }
+
+    Returns:
+        f6: dict[tuple[str, str], dict[str, float]]
+            {(pref, muni): {occ: factor}}
+
+    前提:
+      - anchor 内市区町村は f6 = 1.0 (全職業)
+      - anchor 外市区町村は職業ごとに減衰係数を計算
+      - factor は [0.1, 5.0] にクリップ
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py: compute_f6_v2()
+
+    本実装: Phase 5
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。proto compute_f6_v2 を移植。anchor IN は f6=1.0、"
+        "anchor OUT は HQ 減衰×工場ブースト。"
+    )
 
 
 def integrate_model_f2(
@@ -636,52 +876,247 @@ def integrate_model_f2(
 ) -> dict:
     """全要素統合 + 都道府県スケーリング.
 
-    raw[(pref,muni)][occ] = baseline × f3 × f4 × f5 × f6
-    scaling[pref][occ] = pref_target / raw_sum
-    out[(pref,muni)][occ] = raw × scaling
+    アルゴリズム:
+      raw[(pref, muni)][occ] = baseline × f3 × f4 × f5 × f6
+      pref_raw_sum[pref][occ] = Σ_muni raw[(pref, muni)][occ]
+      scaling[pref][occ]     = pref_target[pref][occ] / pref_raw_sum[pref][occ]
+      out[(pref, muni)][occ] = raw × scaling[pref][occ]
+
+    都道府県スケーリングの目的:
+      F3〜F6 の補正で総量がずれるため、都道府県単位で
+      公式統計の就業者数に整合するようにスケール。
+
+    Args:
+        baseline: compute_baseline() 結果
+        f3:       compute_f3() 結果
+        f4:       compute_f4_occupation_weighted() 結果
+        f5:       compute_f5() 結果 (scalar、職業非依存)
+        f6:       compute_f6_v2() 結果
+        data:     load_inputs() の戻り値 (pref_target 取得用)
+
+    Returns:
+        out: dict[tuple[str, str], dict[str, float]]
+             {(pref, muni): {occ: estimated_value}}
+             estimated_value は **指数の元値** (人数換算ではない)。
+             最終的に derive_thickness_index() で 0-200 に正規化される。
+
+    前提:
+      - 全引数のキーセットが概ね一致 (欠損は 1.0 で fallback)
+      - pref_target は data 内に格納される予定 (Phase 5)
+
+    実装プロト元:
+      scripts/proto_evaluate_occupation_population_models.py: integrate_model_f2()
+
+    本実装: Phase 5
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。proto integrate_model_f2 を移植 + 都道府県 scaling。"
+    )
 
 
 # ============================================================
-# 派生指標 (スケルトン)
+# 派生指標 (Phase 5 で本実装)
 # ============================================================
 
 def derive_thickness_index(model_result: dict) -> dict:
-    """0-200 正規化 (100 = 全国平均)."""
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    """0-200 正規化 (100 = 全国平均).
+
+    アルゴリズム:
+      nat_avg[occ] = Σ model_result[muni][occ] / N_muni
+      thickness_index[muni][occ] = clamp(
+          model_result[muni][occ] / nat_avg[occ] × 100,
+          min=0, max=200
+      )
+
+    Args:
+        model_result: integrate_model_f2() の戻り値
+                      {(pref, muni): {occ: value}}
+
+    Returns:
+        thickness: dict[tuple[str, str], dict[str, float]]
+                   {(pref, muni): {occ: index in [0, 200]}}
+                   100 = 全国平均、200 = 全国平均の 2 倍以上 (cap)。
+
+    前提:
+      - nat_avg[occ] > 0 (ゼロ除算回避)
+      - 出力は REAL (整数化しない)
+
+    本実装: Phase 5
+    """
+    raise NotImplementedError(
+        "Phase 5 で実装。全国平均を 100 として 0-200 にクリップ。"
+    )
 
 
 def derive_rank_and_priority(model_result: dict) -> dict:
-    """全国順位 + percentile + A/B/C/D 配信優先度."""
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    """全国順位 + percentile + 配信優先度 (A/B/C/D).
+
+    アルゴリズム:
+      rank[occ][(pref, muni)] = 全国 N_muni 中の順位 (大きい順、1-indexed)
+      percentile[occ][(pref, muni)] = (N_muni - rank + 1) / N_muni × 100
+      priority:
+        percentile >= 90  → 'A' (最重点)
+        70 <= < 90        → 'B'
+        40 <= < 70        → 'C'
+        < 40              → 'D' (低優先)
+
+    Args:
+        model_result: integrate_model_f2() の戻り値
+
+    Returns:
+        result: dict[tuple[str, str], dict[str, dict]]
+                {(pref, muni): {occ: {'rank': int, 'percentile': float, 'priority': str}}}
+
+    前提:
+      - 同点処理は dense ranking (同値は同順位、次は +1)
+      - N_muni ≒ 1740
+
+    本実装: Phase 5
+    """
+    raise NotImplementedError(
+        "Phase 5 で実装。全国順位 + percentile + A/B/C/D 配信優先度。"
+    )
 
 
 def derive_scenario_indices(
     model_result: dict,
     turnover_rates: Optional[dict] = None,
 ) -> dict:
-    """conservative=1×, standard=3×, aggressive=5× の濃淡指数."""
+    """シナリオ別索引 (1× / 3× / 5× は **指数の倍数**、人数ではない).
+
+    アルゴリズム:
+      scenario[muni][occ] = {
+          'cons': index × turnover_rates['conservative'],
+          'std':  index × turnover_rates['standard'],
+          'agg':  index × turnover_rates['aggressive'],
+      }
+      ここで index は thickness_index ではなく integrated value。
+
+    Args:
+        model_result:   integrate_model_f2() の戻り値
+        turnover_rates: シナリオ倍率 dict
+                        (None で DEFAULT_TURNOVER_RATES = {1, 3, 5})
+
+    Returns:
+        scenarios: dict[tuple[str, str], dict[str, dict[str, float]]]
+                   {(pref, muni): {occ: {'cons': float, 'std': float, 'agg': float}}}
+
+    注意: 本値は **指数の倍数** であり、推定人数ではない。
+          採用施策の感度分析用に「離職率 1× / 3× / 5× での濃淡変化」を見るための指標。
+
+    本実装: Phase 5
+    """
     if turnover_rates is None:
         turnover_rates = DEFAULT_TURNOVER_RATES
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。指数の倍数 (1×/3×/5×) を計算、人数ではない。"
+    )
 
 
 # ============================================================
-# 出力 (スケルトン)
+# 出力検証 (Phase 5 で本実装、Plan B 制約)
+# ============================================================
+
+def validate_outputs(result_df) -> list[str]:
+    """Plan B 出力制約の assert (Phase 5 で本実装).
+
+    Plan B Workspace constraint:
+      - basis must be 'resident' only (workplace は 15-1 専有)
+      - data_label must be 'estimated_beta' only
+      - age_class must be '_total' only (年齢別は 15-1 専有)
+      - gender must be 'total' only (性別は 15-1 専有)
+
+    追加 assert (Phase 5):
+      - source_name == 'model_f2_v1'
+      - weight_source == 'hypothesis_v1'
+      - estimate_index in [0, 200]
+      - municipality_code が 5 桁数字
+
+    Args:
+        result_df: pandas.DataFrame (export_to_csv 直前の出力)
+
+    Returns:
+        errors: list[str] (空なら制約満たす)
+
+    本実装: Phase 5。Plan B 制約 4 件 + 拡張 4 件を assert する。
+    """
+    raise NotImplementedError(
+        "Phase 5 で実装。Plan B 制約 (basis/data_label/age_class/gender) と "
+        "拡張制約 (source_name/weight_source/estimate_index/code) を assert。"
+    )
+
+
+# ============================================================
+# 出力 (Phase 5 で本実装)
 # ============================================================
 
 def export_to_csv(result_df, path: str) -> None:
-    """CSV 出力 (UTF-8、quoting=csv.QUOTE_MINIMAL)."""
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    """CSV 出力 (UTF-8、quoting=csv.QUOTE_MINIMAL).
 
+    Plan B 出力仕様:
+      - カラム: OUTPUT_CSV_COLUMNS (15 列、定数参照)
+      - basis = 'resident' のみ (workplace fallback は別タスク)
+      - data_label = 'estimated_beta' 固定
+      - age_class = '_total', gender = 'total' のみ
+      - source_name = 'model_f2_v1'
+      - weight_source = 'hypothesis_v1'
+      - estimated_at = ISO8601 (UTC)
 
-def import_to_sqlite(csv_path: str, db_path: str, table_name: str) -> None:
-    """ローカル DB 投入 (DROP TABLE IF EXISTS + CREATE + INSERT batch).
+    出力前に validate_outputs() を実行し、制約違反があれば ValueError raise。
 
-    Claude 単独実行禁止 (MEMORY 事故記録)、`--build` モードでも skip 可能.
+    Args:
+        result_df: pandas.DataFrame
+                   integrate_model_f2 + derive_thickness_index 後の結果を
+                   long format に展開したもの。
+        path:      出力 CSV パス
+
+    Returns:
+        None (副作用: ファイル書き込み)
+
+    前提:
+      - result_df.columns ⊇ OUTPUT_CSV_COLUMNS
+      - validate_outputs(result_df) が空リストを返すこと
+
+    本実装: Phase 5
     """
-    raise NotImplementedError(_NOT_IMPL_MSG)
+    raise NotImplementedError(
+        "Phase 5 で実装。validate_outputs() で Plan B 制約確認後、"
+        "OUTPUT_CSV_COLUMNS の順で CSV 出力。"
+    )
+
+
+def import_to_sqlite(
+    csv_path: str,
+    db_path: str,
+    table_name: str,
+) -> None:
+    """ローカル DB 投入 (Plan B: INSERT OR REPLACE で resident 領域のみ更新).
+
+    Plan B 重要制約:
+      - DROP TABLE IF EXISTS は禁止 (15-1 投入と衝突するため)
+      - 代わりに `DELETE FROM table WHERE basis='resident' AND data_label='estimated_beta'`
+        → `INSERT` で resident/estimated_beta 領域のみ更新
+      - basis='workplace', data_label='measured' のレコードは保持 (15-1 専有)
+
+    Claude による実行禁止 (MEMORY 事故記録 2026-01-06):
+      - 本関数はユーザーが手動で `python ... --build` 実行する想定
+      - スケルトン状態でも Phase 5 でも、Claude が直接呼び出さない
+
+    Args:
+        csv_path:   export_to_csv() で出力した CSV パス
+        db_path:    ローカル SQLite DB パス
+        table_name: 出力先テーブル名 (= OUTPUT_TABLE_NAME)
+
+    Returns:
+        None
+
+    本実装: Phase 5 (DB 書き込みはユーザー手動実行)
+    """
+    raise NotImplementedError(
+        "DB 書き込みはユーザー手動実行。Plan B では INSERT OR REPLACE で "
+        "basis='resident' AND data_label='estimated_beta' 領域のみ更新する "
+        "(DROP TABLE 禁止、15-1 と衝突するため)。"
+    )
 
 
 # ============================================================
@@ -759,6 +1194,20 @@ def _run_dry_run(args: argparse.Namespace) -> int:
             print(f"       {i}. {err}")
     else:
         print("[OK] All input validations passed.")
+
+    print()
+    print("[INFO] Plan B output constraints (validate_outputs で assert 予定):")
+    print(f"[INFO]   basis        = '{PLAN_B_BASIS}' のみ")
+    print(f"[INFO]   data_label   = '{PLAN_B_DATA_LABEL}' 固定")
+    print(f"[INFO]   age_class    = '{PLAN_B_AGE_CLASS}' のみ (年齢別は 15-1 専有)")
+    print(f"[INFO]   gender       = '{PLAN_B_GENDER}' のみ (性別は 15-1 専有)")
+    print(f"[INFO]   source_name  = '{PLAN_B_SOURCE_NAME}'")
+    print(f"[INFO]   weight_source = '{PLAN_B_WEIGHT_SOURCE}'")
+
+    print()
+    print("[INFO] DEFAULT_ANCHOR_THRESHOLDS_v1 (Worker A3 sensitivity 推奨):")
+    for k, v in DEFAULT_ANCHOR_THRESHOLDS_v1.items():
+        print(f"[INFO]   {k} = {v}")
 
     print()
     print("=" * 70)

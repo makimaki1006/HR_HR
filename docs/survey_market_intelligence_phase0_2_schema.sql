@@ -11,34 +11,77 @@
 --   - 実測、推定、参考指標を混在させるため、source_type / source_year / computed_at を持たせる。
 --   - SQLite/Turso 互換を優先し、複雑な型や制約に依存しない。
 
+-- ============================================================
+-- DIFF NOTE (Plan B revision, 2026-05-04):
+-- - municipality_occupation_population: complete rewrite
+--   (population NULL-allowed, estimate_index added, data_label CHECK,
+--    PRIMARY KEY + data_label, value XOR CHECK, indices doubled,
+--    age_group renamed to age_class, weight_source / estimated_at added)
+-- See: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_DDL_PLAN_B_PARALLEL.md
+-- ============================================================
+
+-- ============================================================
+-- municipality_occupation_population (Plan B: parallel storage)
+-- ============================================================
+-- Stores both measured (e-Stat 15-1, sid=0003454508) and estimated (Model F2)
+-- occupation populations at municipality grain.
+--
+-- Axis combinations:
+--   workplace × measured       : e-Stat 15-1 actual headcounts
+--   workplace × estimated_beta : F2 fallback when 15-1 missing (rare)
+--   resident  × estimated_beta : F2 estimation (15-1 has no resident grain)
+--   resident  × measured       : reserved for future e-Stat resident actuals
+--
+-- Source documentation:
+--   docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_DDL_PLAN_B_PARALLEL.md (Worker B4)
+--   docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_ESTAT_15_1_FEASIBILITY.md (Worker D3)
+--   docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_F2_ROLE_AFTER_15_1.md (Worker D4)
+
 CREATE TABLE IF NOT EXISTS municipality_occupation_population (
+    -- 結合キー
     municipality_code TEXT NOT NULL,
-    prefecture TEXT NOT NULL,
+    prefecture        TEXT NOT NULL,
     municipality_name TEXT NOT NULL,
-    basis TEXT NOT NULL, -- resident | workplace
+
+    -- 軸
+    basis TEXT NOT NULL CHECK (basis IN ('workplace','resident')),
     occupation_code TEXT NOT NULL,
     occupation_name TEXT NOT NULL,
-    age_group TEXT NOT NULL,
-    gender TEXT NOT NULL, -- male | female | total
-    population INTEGER NOT NULL DEFAULT 0,
-    source_year INTEGER NOT NULL,
-    source_name TEXT NOT NULL DEFAULT 'census',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (
-        municipality_code,
-        basis,
-        occupation_code,
-        age_group,
-        gender,
-        source_year
+    age_class TEXT NOT NULL,                    -- '15-19'..'85+', '_total'
+    gender TEXT NOT NULL CHECK (gender IN ('male','female','total')),
+
+    -- 値 (XOR via CHECK below)
+    population     INTEGER,                      -- measured: rows have value, estimated: NULL
+    estimate_index REAL,                          -- estimated_beta: 0-200, measured: NULL
+
+    -- メタデータ
+    data_label    TEXT NOT NULL CHECK (data_label IN ('measured','estimated_beta')),
+    source_name   TEXT NOT NULL,                  -- 'census_15_1' / 'model_f2_v1'
+    source_year   INTEGER NOT NULL,
+    weight_source TEXT,                            -- estimated only: 'hypothesis_v1' / 'estat_R2_xxx'
+
+    -- 鮮度
+    estimated_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+    PRIMARY KEY (municipality_code, basis, occupation_code, age_class, gender, source_year, data_label),
+
+    -- value/label 整合性 (XOR)
+    CHECK (
+      (data_label = 'measured'        AND population IS NOT NULL AND estimate_index IS NULL) OR
+      (data_label = 'estimated_beta'  AND population IS NULL     AND estimate_index IS NOT NULL)
     )
 );
 
-CREATE INDEX IF NOT EXISTS idx_mop_muni_basis
-ON municipality_occupation_population (municipality_code, basis);
-
-CREATE INDEX IF NOT EXISTS idx_mop_occupation_age_gender
-ON municipality_occupation_population (occupation_code, age_group, gender);
+CREATE INDEX IF NOT EXISTS idx_muni_occ_pop_pref
+    ON municipality_occupation_population (prefecture, municipality_name);
+CREATE INDEX IF NOT EXISTS idx_muni_occ_pop_basis
+    ON municipality_occupation_population (basis, occupation_code);
+CREATE INDEX IF NOT EXISTS idx_muni_occ_pop_label
+    ON municipality_occupation_population (data_label);
+CREATE INDEX IF NOT EXISTS idx_muni_occ_pop_source
+    ON municipality_occupation_population (source_name, source_year);
+CREATE INDEX IF NOT EXISTS idx_muni_occ_pop_age
+    ON municipality_occupation_population (age_class);
 
 
 CREATE TABLE IF NOT EXISTS municipality_living_cost_proxy (
@@ -171,3 +214,80 @@ CREATE TABLE IF NOT EXISTS media_area_performance_future (
 
 CREATE INDEX IF NOT EXISTS idx_media_area_performance_muni
 ON media_area_performance_future (municipality_code);
+
+
+-- ============================================================
+-- DIFF NOTE (Plan B revision, 2026-05-04):
+-- - v2_municipality_target_thickness: NEW (Worker A2 design)
+--   Derived aggregation for "target thickness" UI dashboard.
+-- See: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_DDL_PLAN_B_PARALLEL.md
+--      docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_TABLE_RENAME_DECISION.md (Worker A2)
+-- ============================================================
+
+-- ============================================================
+-- v2_municipality_target_thickness (Worker A2 / Plan B derived)
+-- ============================================================
+-- Derived aggregation from municipality_occupation_population for the
+-- "target thickness" UI dashboard. Populated by ETL after both 15-1 and
+-- F2 ingest are complete.
+
+CREATE TABLE IF NOT EXISTS v2_municipality_target_thickness (
+    municipality_code TEXT NOT NULL,
+    prefecture TEXT NOT NULL,
+    municipality_name TEXT NOT NULL,
+    basis TEXT NOT NULL,
+    occupation_code TEXT NOT NULL,
+    occupation_name TEXT NOT NULL,
+    -- 指数
+    thickness_index REAL NOT NULL,
+    rank_in_occupation INTEGER,
+    rank_percentile REAL,
+    distribution_priority TEXT,
+    -- シナリオ
+    scenario_conservative_index INTEGER,
+    scenario_standard_index INTEGER,
+    scenario_aggressive_index INTEGER,
+    -- メタ
+    estimate_grade TEXT,
+    weight_source TEXT NOT NULL,
+    is_industrial_anchor INTEGER NOT NULL DEFAULT 0,
+    source_year INTEGER NOT NULL,
+    estimated_at TEXT NOT NULL,
+    PRIMARY KEY (municipality_code, basis, occupation_code, source_year)
+);
+
+CREATE INDEX IF NOT EXISTS idx_v2_muni_target_thick_idx
+    ON v2_municipality_target_thickness (occupation_code, thickness_index DESC);
+CREATE INDEX IF NOT EXISTS idx_v2_muni_target_rank
+    ON v2_municipality_target_thickness (occupation_code, rank_in_occupation);
+CREATE INDEX IF NOT EXISTS idx_v2_muni_target_pref
+    ON v2_municipality_target_thickness (prefecture, occupation_code);
+
+
+-- ============================================================
+-- DIFF NOTE (Plan B revision, 2026-05-04):
+-- - occupation_industry_weight: NEW (composite PK with weight_source)
+--   Industry-to-occupation weight master used by Model F2 (Worker C3).
+-- See: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_DDL_PLAN_B_PARALLEL.md
+-- ============================================================
+
+-- ============================================================
+-- occupation_industry_weight (Worker B 重みマスタ + Plan B 拡張)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS occupation_industry_weight (
+    industry_code TEXT NOT NULL,
+    industry_name TEXT NOT NULL,
+    occupation_code TEXT NOT NULL,
+    occupation_name TEXT NOT NULL,
+    weight REAL NOT NULL CHECK (weight >= 0.0 AND weight <= 1.0),
+    weight_source TEXT NOT NULL DEFAULT 'hypothesis_v1',
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (industry_code, occupation_code, weight_source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_occ_industry_weight_industry
+    ON occupation_industry_weight (industry_code);
+CREATE INDEX IF NOT EXISTS idx_occ_industry_weight_occupation
+    ON occupation_industry_weight (occupation_code);
