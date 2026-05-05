@@ -273,6 +273,29 @@ def remote_count(url: str, token: str, table: str) -> int | None:
         return None
 
 
+def remote_designated_ward_count(
+    url: str, token: str, table: str, designated_munis: list[str]
+) -> int | None:
+    """リモート table の WHERE municipality IN (designated_munis) の COUNT。
+
+    designated_munis: ローカル master の area_type='designated_ward' の
+                      municipality_name リスト (例: ['横浜市鶴見区', ...])
+    table: v2_external_population または v2_external_population_pyramid のみを想定
+    """
+    if not designated_munis:
+        return 0
+    placeholders = ",".join(["?"] * len(designated_munis))
+    sql = f"SELECT COUNT(*) FROM {table} WHERE municipality IN ({placeholders})"
+    try:
+        data = turso_pipeline_retry(url, token, [(sql, list(designated_munis))])
+        return int(data["results"][0]["response"]["result"]["rows"][0][0]["value"])
+    except SystemExit:
+        return None
+    except Exception as e:
+        print(f"  [remote_designated_ward_count] {table}: error {e}")
+        return None
+
+
 def remote_table_exists(url: str, token: str, table: str) -> bool:
     data = turso_pipeline_retry(
         url,
@@ -634,26 +657,56 @@ def run_verify(args, conn: sqlite3.Connection, url: str, token: str) -> None:
     print(f"  Turso host: {urlparse(url).hostname}")
     print(f"  Turso token: {mask_token(token)}")
     print("=" * 70)
+
     targets = filter_target_tables(args.tables)
+
+    # incremental 検証用: designated_ward の municipality_name 一覧をローカル master から取得
+    designated_munis = [
+        r[0] for r in conn.execute(
+            "SELECT municipality_name FROM municipality_code_master "
+            "WHERE area_type='designated_ward'"
+        ).fetchall()
+    ]
+    designated_count = len(designated_munis)
+    print(f"  designated_ward muni count (from master): {designated_count}")
+    print("=" * 70)
+
     fail = 0
     for table in targets:
         strategy = resolve_strategy(table, args.strategy)
-        local_n = get_local_count(conn, table)
-        remote_n = remote_count(url, token, table)
-        if strategy == "replace":
-            expect_remote = local_n
-        else:
-            expect_remote = TABLES[table]["incr_expect_rows"]
-        ok = remote_n == expect_remote
-        if not ok:
+        local_total = get_local_count(conn, table)
+        remote_total = remote_count(url, token, table)
+
+        # ベース検証: remote_total == local_total (両 strategy 共通)
+        total_ok = remote_total == local_total
+        if not total_ok:
             fail += 1
-        print(
-            f"  [{table:42s}] strategy={strategy:11s} local={local_n:>8,} "
-            f"remote={remote_n!s:>10s} expect_remote={expect_remote:>8,} "
-            f"{'OK' if ok else 'MISMATCH'}"
+
+        line = (
+            f"  [{table:42s}] strategy={strategy:11s} "
+            f"local_total={local_total:>8,} remote_total={remote_total!s:>10s} "
+            f"{'TOTAL_OK' if total_ok else 'TOTAL_MISMATCH'}"
         )
+        print(line)
+
+        # incremental の追加検証: designated_ward 行数
+        if strategy == "incremental":
+            spec = TABLES[table]
+            expect_designated = spec.get("incr_expect_rows", 0)
+            remote_designated = remote_designated_ward_count(
+                url, token, table, designated_munis
+            )
+            ward_ok = remote_designated == expect_designated
+            if not ward_ok:
+                fail += 1
+            print(
+                f"      └─ designated_ward: remote={remote_designated!s:>6s} "
+                f"expect={expect_designated:>6,} "
+                f"{'WARD_OK' if ward_ok else 'WARD_MISMATCH'}"
+            )
+
     if fail:
-        raise SystemExit(f"[abort] verify mismatch on {fail} table(s)")
+        raise SystemExit(f"[abort] verify mismatch on {fail} check(s)")
     print("  ALL OK")
 
 
