@@ -73,3 +73,21 @@ node_modules/
 playwright-report/
 test-results/
 .playwright/
+
+# === Round 4 / E2E generated artifacts (2026-05-06) ===
+# SQLite ジャーナル/WAL/SHM (DB 操作中に生成される一時ファイル)
+*.db-wal
+*.db-shm
+*.db-journal
+# ログ・一時ファイル
+*.log
+*.tmp
+# E2E スクリーンショット (ルート直下のみ。docs/audit_*/*.png は上の例外で保護済)
+/e2e_*.png
+/verify_*.png
+/theme_*.png
+# 印刷検証 PDF
+report_*_print.pdf
+# Playwright trace / 動画
+trace.zip
+videos/
