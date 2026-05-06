@@ -88,6 +88,7 @@ test-results/
 /theme_*.png
 # 印刷検証 PDF
 report_*_print.pdf
+tests/e2e/tmp_pdf_*.pdf
 # Playwright trace / 動画
 trace.zip
 videos/

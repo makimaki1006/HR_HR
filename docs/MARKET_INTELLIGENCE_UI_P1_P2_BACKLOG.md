@@ -4,10 +4,25 @@
 **前提**:
 - UI P0 (`5d0d86d`) 本番反映済 (配信ヒーローバー / parent_rank 主表示 / data label badge / 印刷 CSS)
 - 設計参照: `docs/MARKET_INTELLIGENCE_UI_IMPROVEMENT_PLAN.md`
+- 印刷 / PDF P1 設計: `docs/MARKET_INTELLIGENCE_PRINT_PDF_P1_SPEC.md`
 - variant 隔離 (Full / Public / default) を絶対に変えない
 - Hard NG 用語 (target_count / estimated_population / 推定人数 / 想定人数 / 母集団人数 等) を docs / コードに書かない
 - resident estimated_beta を人数化しない (Hard NG 維持)
 - 中立表現を維持 (劣位 / 集中 / 縮小 などの評価語禁止)
+
+---
+
+## 進捗サマリ (2026-05-06)
+
+| 項目 | 状態 | commit |
+|---|---|---|
+| P1-1 mi-badge-insufficient 4 種統一 | ✅ 実装済 | `b9cc610` |
+| P1-NEW Print/PDF P1 (印刷読み順 / 改ページ / 注釈再配置) | ✅ 実装済 | (今回 commit、orchestrator が確定後追記) |
+| P1-2 解釈ストリップ (so what 1 行) | ⏳ 未着手 | — |
+| P1-3 政令市区ランキング見せ方改善 | ⏳ 未着手 | — |
+| P1-4 配信ヒーローバー文言微調整 | ⏳ 未着手 | — |
+| P1-5 印刷時の余白 / 改ページ微調整 | ⏳ 未着手 (Print P1 で部分対応済 / 余白微調整は別) | — |
+| P2-1〜P2-4 | ⏳ 未着手 | — |
 
 ---
 
@@ -30,6 +45,20 @@
   - Hard NG grep (`target_count|estimated_population|推定人数|想定人数|母集団人数`) が docs / 生成 HTML で 0 件
   - E2E で 4 バッジ class が検出される
   - 印刷プレビューで色が判別可能
+
+### P1-NEW. 印刷 / PDF P1 (実装済 ✅)
+
+- **目的**: A4 縦印刷 / PDF を「営業に持ち出して即読める紙資料」として成立させる (読み順 8 ステップ + 改ページヒント + 印刷専用ブロック)
+- **設計**: `docs/MARKET_INTELLIGENCE_PRINT_PDF_P1_SPEC.md`
+- **対象ファイル**:
+  - `src/handlers/survey/report_html/market_intelligence.rs` (印刷向け要約 / 注釈ブロック追加、`@media print` CSS 拡張)
+- **状態**: ✅ 実装済 (commit hash は orchestrator が確定後に追記)
+- **テスト追加**:
+  - `tests/no_forbidden_terms.rs::no_forbidden_terms_near_mi_print_blocks` (印刷ブロック近傍の Hard NG 用語ガード)
+- **完了確認**:
+  - 印刷向けクラス (`mi-print-summary` / `mi-print-annotations` / `mi-print-only`) 周辺で Hard NG 用語混入なし
+  - 既存 `no_forbidden_identifiers_in_src` / `no_forbidden_ja_phrases_in_codebase` PASS
+  - resident estimated_beta を紙でも人数換算しない
 
 ### P1-2. 解釈ストリップ (so what 1 行) 追加
 

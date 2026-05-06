@@ -223,6 +223,10 @@ pub(crate) fn render_section_market_intelligence(
          相関は提示するが因果関係を断定しない (MEMORY ルール)。</p>\n"
     );
 
+    // P1 C: 印刷向け要約ブロック (免責直後、ヒーローバーより前)
+    //   画面では mi-print-only で非表示、印刷時のみ表示。
+    render_mi_print_summary(html, data);
+
     // P0: 配信ヒーローバー (免責直下、KPI カードより前)
     render_mi_hero_bar(html, data);
 
@@ -250,8 +254,11 @@ pub(crate) fn render_section_market_intelligence(
     // Phase 3 Step 5 Phase 4: 政令市区別ランキング (商品の核心)
     render_mi_parent_ward_ranking(html, &data.ward_rankings, &data.code_master);
 
-    // Worker D: レポート末尾の総合注記
+    // Worker D: レポート末尾の総合注記 (画面専用、機能重複回避のため mi-screen-only で囲う)
     render_mi_footer_notes(html);
+
+    // P1 D: 印刷向け注釈・データ凡例 (印刷専用)
+    render_mi_print_annotations(html);
 
     html.push_str("</section>\n");
 }
@@ -318,7 +325,37 @@ const MI_STYLE_BLOCK: &str = r#"<style>
 .mi-badge-estimated-beta { background: #fef9c3; color: #713f12; border-color: #facc15; }
 .mi-badge-reference { background: #e2e8f0; color: #334155; border-color: #94a3b8; }
 .mi-badge-insufficient { background: #f3f4f6; color: #4b5563; border: 1px dashed #6b7280; font-weight: 700; }
+/* P1 B: 印刷専用 / 画面専用 切替 (デフォルトは画面表示) */
+.mi-print-only { display: none; }
+.mi-screen-only { display: block; }
+/* P1 C: 印刷向け要約ブロック (画面では非表示) */
+.mi-print-summary { background: #f8fafc; border: 2px solid #1e3a8a; border-radius: 6px; padding: 14px 16px; margin: 12px 0 16px; font-size: 11pt; color: #0f172a; }
+.mi-print-summary h2 { margin: 0 0 8px; color: #1e3a8a; font-size: 14pt; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
+.mi-print-summary ul { margin: 6px 0 0; padding-left: 20px; line-height: 1.7; }
+/* P1 D: 印刷向け注釈ブロック */
+.mi-print-annotations { background: #f1f5f9; border-left: 4px solid #1e3a8a; padding: 10px 14px; margin: 16px 0 8px; font-size: 10pt; color: #334155; }
+.mi-print-annotations h3 { margin: 0 0 6px; font-size: 11pt; color: #1e3a8a; }
+.mi-print-annotations ul { margin: 4px 0 0; padding-left: 20px; line-height: 1.6; }
+.mi-print-annotations li { margin-bottom: 2px; }
 @media print {
+  /* P1 B: ページ設定 (重複定義は MI_STYLE_BLOCK 内で 1 箇所のみ) */
+  @page { size: A4 portrait; margin: 12mm 14mm; }
+  body { font-size: 10.5pt; }
+  /* P1 B: 印刷専用 / 画面専用 切替 */
+  .mi-print-only { display: block !important; }
+  .mi-screen-only { display: none !important; }
+  /* P1 B: 全 mi-* 要素で背景色を保持 */
+  .mi-root, .mi-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* P1 B: 見出し直後の改ページ防止 */
+  .mi-root h2, .mi-root h3 { break-after: avoid; page-break-after: avoid; }
+  /* P1 B: カード類は途中で切断しない */
+  .mi-hero-card, .mi-kpi-card, .mi-living-cost-card,
+  .mi-print-summary, .mi-print-annotations {
+    break-inside: avoid; page-break-inside: avoid;
+  }
   .mi-kpi-grid { display: block; }
   .mi-kpi-card { display: block; page-break-inside: avoid; margin-bottom: 8px; }
   .mi-living-cost-grid { display: block; }
@@ -334,11 +371,13 @@ const MI_STYLE_BLOCK: &str = r#"<style>
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  /* P0: ランキング行が途中で切断されないよう */
+  /* P1 B: ランキング行・テーブル行が途中で切断されないよう */
   .mi-rank-table thead { display: table-header-group; }
-  .mi-rank-table tr { page-break-inside: avoid; page-break-after: auto; }
+  .mi-rank-table tr, table.mi-rank-table tr {
+    break-inside: avoid; page-break-inside: avoid; page-break-after: auto;
+  }
   .mi-rank-table tbody { page-break-inside: auto; }
-  /* P0: hero は A4 でも 3 枚横並び維持 */
+  /* P1 B: hero は A4 でも 3 枚横並び維持 */
   .mi-hero-grid { display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .mi-hero-card { page-break-inside: avoid; }
   /* P0: 厚みバーは印刷時に幅縮退 (はみ出し防止) */
@@ -825,8 +864,9 @@ fn render_mi_lc_card_with_badge(html: &mut String, label: &str, value: &str, bad
 // --------------- Worker D: 末尾総合注記 ---------------
 
 fn render_mi_footer_notes(html: &mut String) {
+    // 画面専用: 印刷時は render_mi_print_annotations 側に等価情報を出すため重複回避。
     html.push_str(
-        "<aside class=\"mi-footer-notes\" role=\"note\" aria-label=\"表示についての注意書き\">\n\
+        "<aside class=\"mi-footer-notes mi-screen-only\" role=\"note\" aria-label=\"表示についての注意書き\">\n\
          <strong>\u{26A0} 表示について</strong>\n\
          <ul>\n\
          <li><span class=\"mi-badge mi-badge-measured\">実測</span> \
@@ -841,6 +881,150 @@ fn render_mi_footer_notes(html: &mut String) {
          </ul>\n\
          </aside>\n",
     );
+}
+
+// --------------- P1 C: 印刷向け要約ブロック (結論 → 採用示唆) ---------------
+//
+// 印刷/PDF 出力時にファーストページで「採用コンサルが何を言いたいか」を伝える。
+// - 配信優先度 S/A の件数 → 「配信優先度が高い地域です」
+// - 厚み指数 平均 → 厚み傾向 (相対値であることを明示)
+// - 市内 1 位の件数 → parent_rank ベースの示唆
+// - 推定 β は指数である旨を明記 (常住地ベースの厚み)
+// - 生活コスト/配信スコアは参考指標である旨
+//
+// Hard NG (人数化禁止) を厳守: 「候補者が○人」「推定人数」「想定人数」「母集団人数」は出さない。
+// `mi-print-only` class により画面では非表示、印刷時のみ display: block。
+#[allow(dead_code)]
+pub(crate) fn render_mi_print_summary(
+    html: &mut String,
+    data: &SurveyMarketIntelligenceData,
+) {
+    // 集計値: 配信優先度 S/A 件数
+    let priority_sa = data
+        .recruiting_scores
+        .iter()
+        .filter(|s| {
+            s.distribution_priority
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case("S") || p.eq_ignore_ascii_case("A"))
+                .unwrap_or(false)
+        })
+        .count();
+
+    // 集計値: 市内順位 1 位の件数 (parent_rank == 1)
+    let parent_top_count = data
+        .ward_rankings
+        .iter()
+        .filter(|w| w.parent_rank == 1)
+        .count();
+
+    // 集計値: 厚み指数 平均 (NULL 除外)
+    let thickness_vals: Vec<f64> = data
+        .recruiting_scores
+        .iter()
+        .filter_map(|s| s.target_thickness_index)
+        .collect();
+    let thickness_avg: Option<f64> = if thickness_vals.is_empty() {
+        None
+    } else {
+        Some(thickness_vals.iter().sum::<f64>() / thickness_vals.len() as f64)
+    };
+
+    html.push_str(
+        "<section class=\"mi-print-summary mi-print-only\" \
+         aria-label=\"採用コンサルレポート要約\">\n",
+    );
+    html.push_str("<h2>結論と採用示唆</h2>\n");
+    html.push_str("<ul>\n");
+
+    // 配信優先度の結論
+    if priority_sa > 0 {
+        html.push_str(&format!(
+            "<li>配信優先度 S/A 該当が <strong>{}</strong> 件。配信優先度が高い地域です。</li>\n",
+            priority_sa
+        ));
+    } else {
+        html.push_str(
+            "<li>配信優先度 S/A 該当はデータ不足のため特定できませんでした (要件再確認)。</li>\n",
+        );
+    }
+
+    // 厚み傾向の結論
+    match thickness_avg {
+        Some(v) => {
+            html.push_str(&format!(
+                "<li>厚み指数の平均は <strong>{:.0}</strong> (相対指標)。\
+                 常住地ベースの厚みは推定 β 指数で表示しています。</li>\n",
+                v
+            ));
+        }
+        None => {
+            html.push_str(
+                "<li>厚み指数は今回データ不足のため算出できませんでした。\
+                 常住地ベースの厚みは推定 β 指数で表示する設計です。</li>\n",
+            );
+        }
+    }
+
+    // 市内順位の示唆
+    if parent_top_count > 0 {
+        html.push_str(&format!(
+            "<li>市内順位 1 位 (parent_rank=1) は <strong>{}</strong> 区。\
+             商品判断は市内順位 (parent_rank) を主軸としてご利用ください。</li>\n",
+            parent_top_count
+        ));
+    } else {
+        html.push_str(
+            "<li>市内順位 (parent_rank) を主軸として地域選定をご検討ください。</li>\n",
+        );
+    }
+
+    // 参考指標の注意喚起
+    html.push_str(
+        "<li>生活コスト・最低賃金・配信スコアは参考指標です \
+         (市区町村差を完全には反映していません)。</li>\n",
+    );
+    // 全体の前提
+    html.push_str(
+        "<li>本レポートの数値は相対濃淡を示すもので、実数の保証ではありません。</li>\n",
+    );
+
+    html.push_str("</ul>\n");
+    html.push_str("</section>\n");
+}
+
+// --------------- P1 D: 印刷向け注釈・データ凡例 ---------------
+//
+// 印刷時のみ表示する固定の凡例ブロック。読者が紙面でも 5 つの主要ラベルの意味を確認できる。
+// 機能重複回避のため、画面用の `render_mi_footer_notes` は `mi-screen-only` で出し、
+// こちらは `mi-print-only` で出す (両者は印刷/画面で排他的に表示される)。
+#[allow(dead_code)]
+pub(crate) fn render_mi_print_annotations(html: &mut String) {
+    html.push_str(
+        "<aside class=\"mi-print-annotations mi-print-only\" \
+         aria-label=\"データ凡例\">\n",
+    );
+    html.push_str("<h3>データ凡例 / 注釈</h3>\n");
+    html.push_str("<ul>\n");
+    html.push_str(
+        "<li><strong>workplace measured</strong>: 従業地ベースの実測値 (国勢調査 R2 / 令和 2 年)</li>\n",
+    );
+    html.push_str(
+        "<li><strong>resident estimated_beta</strong>: 常住地ベースの推定 β 指数 \
+         (人数ではありません / 相対指標)</li>\n",
+    );
+    html.push_str(
+        "<li><strong>national_rank</strong>: 全国順位は参考表示</li>\n",
+    );
+    html.push_str(
+        "<li><strong>parent_rank</strong>: 市内順位を主軸として商品判断にご利用ください</li>\n",
+    );
+    html.push_str(
+        "<li><strong>生活コスト・最低賃金</strong>: 参考指標 \
+         (市区町村差を完全には反映していません)</li>\n",
+    );
+    html.push_str("</ul>\n");
+    html.push_str("</aside>\n");
 }
 
 // --------------- Section 7: Plan B (workplace measured + resident estimated_beta) ---------------
@@ -2674,6 +2858,247 @@ mod tests {
         assert!(
             html.contains("grid-template-columns: repeat(3, 1fr)"),
             "印刷時に hero 3 枚横並び維持"
+        );
+    }
+
+    // ============================================================
+    // P1 B+C+D: 印刷/PDF 統合テスト
+    // ============================================================
+
+    /// P1 C: MarketIntelligence variant で印刷向け要約ブロックがレンダされる
+    #[test]
+    fn print_summary_block_renders_under_mi_variant() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ..Default::default()
+        };
+        render_section_market_intelligence(&mut html, &data);
+
+        // 要約セクションのマーカー
+        assert!(
+            html.contains("mi-print-summary"),
+            "印刷向け要約 section の class が出力されること"
+        );
+        assert!(
+            html.contains("結論と採用示唆"),
+            "印刷向け要約の見出しが出力されること"
+        );
+        // mi-print-only クラスで画面非表示制御
+        assert!(
+            html.contains("mi-print-only"),
+            "mi-print-only クラスが要約に付与されること"
+        );
+    }
+
+    /// P1 C: 印刷向け要約は人数表記 (Hard NG) を絶対に出さない
+    #[test]
+    fn print_summary_does_not_render_population_numbers() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![
+                sample_score_v2("01101", "S", 180.0, 70.0, 10, 20, 30),
+                sample_score_v2("01102", "A", 142.0, 65.0, 10, 20, 30),
+            ],
+            ..Default::default()
+        };
+        let mut summary_html = String::new();
+        render_mi_print_summary(&mut summary_html, &data);
+
+        // Hard NG 用語の混入を禁止
+        for forbidden in [
+            "推定人数",
+            "想定人数",
+            "母集団人数",
+            "候補者が",
+            "人見込み",
+            "estimated_population",
+            "target_count",
+        ] {
+            assert!(
+                !summary_html.contains(forbidden),
+                "Hard NG 用語 '{}' が要約に混入: {}",
+                forbidden,
+                summary_html
+            );
+        }
+
+        // section 統合テストでも同様にチェック
+        render_section_market_intelligence(&mut html, &data);
+        for forbidden in ["推定人数", "想定人数", "母集団人数"] {
+            assert!(
+                !html.contains(forbidden),
+                "Hard NG 用語 '{}' が section に混入",
+                forbidden
+            );
+        }
+    }
+
+    /// P1 D: 印刷向け注釈ブロックに 5 つの主要凡例が含まれる
+    #[test]
+    fn print_annotations_lists_5_required_legends() {
+        let mut html = String::new();
+        render_mi_print_annotations(&mut html);
+
+        // 5 つの必須凡例
+        assert!(
+            html.contains("workplace measured"),
+            "workplace measured 凡例必須"
+        );
+        assert!(
+            html.contains("resident estimated_beta"),
+            "resident estimated_beta 凡例必須"
+        );
+        assert!(html.contains("national_rank"), "national_rank 凡例必須");
+        assert!(html.contains("parent_rank"), "parent_rank 凡例必須");
+        assert!(html.contains("生活コスト"), "生活コスト 凡例必須");
+
+        // mi-print-only で画面非表示
+        assert!(html.contains("mi-print-only"));
+        // resident estimated_beta で「人数ではありません」と明記
+        assert!(
+            html.contains("人数ではありません"),
+            "resident estimated_beta が人数ではない旨を明示"
+        );
+    }
+
+    /// P1 B: mi-print-only / mi-screen-only の表示切替 CSS が定義されている
+    #[test]
+    fn print_only_class_hidden_on_screen_visible_on_print() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+
+        // 通常時 (画面) では mi-print-only は非表示
+        assert!(
+            html.contains(".mi-print-only { display: none"),
+            "通常時に mi-print-only が display: none で隠されること"
+        );
+        // 通常時 (画面) では mi-screen-only は表示
+        assert!(
+            html.contains(".mi-screen-only { display: block"),
+            "通常時に mi-screen-only が display: block で表示されること"
+        );
+        // @media print 内で mi-print-only が表示される
+        assert!(
+            html.contains(".mi-print-only { display: block !important"),
+            "@media print で mi-print-only が display: block されること"
+        );
+        assert!(
+            html.contains(".mi-screen-only { display: none !important"),
+            "@media print で mi-screen-only が非表示にされること"
+        );
+    }
+
+    /// P1 B: hero card / kpi card / table tr に break-inside: avoid が適用される
+    #[test]
+    fn page_break_avoid_applied_to_hero_kpi_card_table_row() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+
+        // break-inside: avoid (CSS3 標準) が hero/kpi/print-summary/print-annotations に適用
+        assert!(
+            html.contains("break-inside: avoid"),
+            "break-inside: avoid が CSS に含まれること"
+        );
+        // table tr の break-inside: avoid (P1 強化版)
+        assert!(
+            html.contains("table.mi-rank-table tr"),
+            "table.mi-rank-table tr セレクタによる行分断防止"
+        );
+        // 見出し直後の改ページ防止
+        assert!(
+            html.contains("break-after: avoid"),
+            "見出し直後 (h2/h3) の改ページ防止 break-after: avoid"
+        );
+        // @page A4 portrait
+        assert!(
+            html.contains("@page") && html.contains("A4 portrait"),
+            "@page A4 portrait 設定が含まれること"
+        );
+    }
+
+    /// P1 C: 要約文が中立表現 (人数を断言しない) を使用していること
+    #[test]
+    fn print_summary_uses_neutral_phrasing() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![
+                sample_score_v2("01101", "S", 180.0, 70.0, 10, 20, 30),
+                sample_score_v2("01102", "A", 142.0, 65.0, 10, 20, 30),
+            ],
+            ..Default::default()
+        };
+        render_mi_print_summary(&mut html, &data);
+
+        // 中立表現 OK ワード
+        assert!(
+            html.contains("配信優先度が高い地域です")
+                || html.contains("配信優先度 S/A"),
+            "配信優先度の中立表現が含まれること"
+        );
+        assert!(
+            html.contains("推定 β 指数"),
+            "常住地ベースが推定 β 指数である旨を明示"
+        );
+        assert!(
+            html.contains("参考指標"),
+            "生活コスト等が参考指標である旨を明示"
+        );
+
+        // NG 表現 (営業断言調) は禁止
+        for forbidden in [
+            "候補者が",
+            "人いま",
+            "人見込み",
+            "確実に",
+            "100%",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "NG 表現 '{}' が混入",
+                forbidden
+            );
+        }
+    }
+
+    /// P1: Full / Public variant では print summary / annotations が出力されない
+    #[test]
+    fn full_variant_does_not_include_print_summary_or_annotations() {
+        use super::super::ReportVariant;
+
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ..Default::default()
+        };
+
+        // Full variant ガード
+        let mut full_html = String::new();
+        if ReportVariant::Full.show_market_intelligence_sections() {
+            render_section_market_intelligence(&mut full_html, &data);
+        }
+        assert!(
+            !full_html.contains("mi-print-summary"),
+            "Full variant に印刷要約が混入しないこと"
+        );
+        assert!(
+            !full_html.contains("mi-print-annotations"),
+            "Full variant に印刷注釈が混入しないこと"
+        );
+
+        // Public variant ガード
+        let mut public_html = String::new();
+        if ReportVariant::Public.show_market_intelligence_sections() {
+            render_section_market_intelligence(&mut public_html, &data);
+        }
+        assert!(
+            !public_html.contains("mi-print-summary"),
+            "Public variant に印刷要約が混入しないこと"
+        );
+        assert!(
+            !public_html.contains("mi-print-annotations"),
+            "Public variant に印刷注釈が混入しないこと"
         );
     }
 }
