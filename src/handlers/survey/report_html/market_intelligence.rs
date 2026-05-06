@@ -685,14 +685,13 @@ pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntellige
             ));
         }
         None => {
-            html.push_str(&format!(
+            html.push_str(
                 "<div class=\"mi-hero-card\" role=\"listitem\">\
-                 <div class=\"mi-hero-eyebrow\">市内 1 位市区 (先頭政令市)</div>\
-                 <div class=\"mi-hero-value\">該当なし</div>\
-                 <div class=\"mi-hero-context\">{badge}</div>\
+                 <div class=\"mi-hero-eyebrow\">\u{5E02}\u{5185} 1 \u{4F4D}\u{5E02}\u{533A} (\u{5148}\u{982D}\u{653F}\u{4EE4}\u{5E02})</div>\
+                 <div class=\"mi-hero-value\">\u{8A72}\u{5F53}\u{306A}\u{3057}</div>\
+                 <div class=\"mi-hero-context\">\u{653F}\u{4EE4}\u{5E02}\u{533A}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{5BFE}\u{8C61}\u{5916}</div>\
                  </div>\n",
-                badge = render_mi_data_label_badge("insufficient"),
-            ));
+            );
         }
     }
 
@@ -727,7 +726,7 @@ pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntellige
         let _ = parents_seen; // suppress unused warning if not needed elsewhere
         html.push_str(&format!(
             "<div class=\"mi-hero-card\" role=\"listitem\">\
-             <div class=\"mi-hero-eyebrow\">厚み指数 平均 (実測値準備中)</div>\
+             <div class=\"mi-hero-eyebrow\">\u{539A}\u{307F}\u{6307}\u{6570} \u{5E73}\u{5747}</div>\
              <div class=\"mi-hero-value\">{val}<span class=\"mi-hero-unit\">(指数)</span></div>\
              <div class=\"mi-hero-context\">{badge} 検証済み推定 β に基づく相対指標</div>\
              </div>\n",
@@ -1073,7 +1072,7 @@ pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationC
     if cells.is_empty() {
         render_mi_placeholder(
             html,
-            "職業セルデータが未投入です (municipality_occupation_population テーブル)。",
+            "\u{8A72}\u{5F53}\u{306A}\u{3057}\u{3067}\u{3059}\u{3002}\u{4E0A}\u{90E8}\u{30B5}\u{30DE}\u{30EA}\u{30FC}\u{3068}\u{914D}\u{4FE1}\u{5730}\u{57DF}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{3092}\u{78BA}\u{8A8D}\u{3057}\u{3066}\u{304F}\u{3060}\u{3055}\u{3044}\u{3002}",
         );
         html.push_str("</section>\n");
         return;
@@ -1359,7 +1358,7 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
     if valid.is_empty() {
         render_mi_placeholder(
             html,
-            "配信地域ランキングを表示するデータが不足しています (municipality_recruiting_scores テーブル未投入の可能性)。",
+            "\u{8A72}\u{5F53}\u{306A}\u{3057}\u{3067}\u{3059}\u{3002}\u{4E0A}\u{90E8}\u{30B5}\u{30DE}\u{30EA}\u{30FC}\u{3068}\u{914D}\u{4FE1}\u{5730}\u{57DF}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{3092}\u{78BA}\u{8A8D}\u{3057}\u{3066}\u{304F}\u{3060}\u{3055}\u{3044}\u{3002}",
         );
         html.push_str("</section>\n");
         return;
@@ -1436,7 +1435,7 @@ fn render_mi_talent_supply(html: &mut String, cells: &[OccupationPopulationCell]
     if cells.is_empty() {
         render_mi_placeholder(
             html,
-            "職業×年齢×性別人口データが未投入です (municipality_occupation_population テーブル)。",
+            "\u{8A72}\u{5F53}\u{306A}\u{3057}\u{3067}\u{3059}\u{3002}\u{4E0A}\u{90E8}\u{30B5}\u{30DE}\u{30EA}\u{30FC}\u{3068}\u{914D}\u{4FE1}\u{5730}\u{57DF}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{3092}\u{78BA}\u{8A8D}\u{3057}\u{3066}\u{304F}\u{3060}\u{3055}\u{3044}\u{3002}",
         );
         html.push_str("</section>\n");
         return;
@@ -1494,7 +1493,7 @@ fn render_mi_salary_living_cost(
     if scores.is_empty() && living.is_empty() {
         render_mi_placeholder(
             html,
-            "給与・生活コストデータが未投入です。",
+            "\u{8A72}\u{5F53}\u{306A}\u{3057}\u{3067}\u{3059}\u{3002}\u{4E0A}\u{90E8}\u{30B5}\u{30DE}\u{30EA}\u{30FC}\u{3068}\u{914D}\u{4FE1}\u{5730}\u{57DF}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{3092}\u{78BA}\u{8A8D}\u{3057}\u{3066}\u{304F}\u{3060}\u{3055}\u{3044}\u{3002}",
         );
         html.push_str("</section>\n");
         return;
@@ -1589,7 +1588,7 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
     if valid.is_empty() {
         render_mi_placeholder(
             html,
-            "母集団シナリオデータが未投入です (municipality_recruiting_scores テーブル)。",
+            "\u{8A72}\u{5F53}\u{306A}\u{3057}\u{3067}\u{3059}\u{3002}\u{4E0A}\u{90E8}\u{30B5}\u{30DE}\u{30EA}\u{30FC}\u{3068}\u{914D}\u{4FE1}\u{5730}\u{57DF}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{3092}\u{78BA}\u{8A8D}\u{3057}\u{3066}\u{304F}\u{3060}\u{3055}\u{3044}\u{3002}",
         );
         html.push_str("</section>\n");
         return;
@@ -2756,8 +2755,8 @@ mod tests {
             "fallback 時に '人' 単位を出してはいけない (人数化 NG)"
         );
         assert!(
-            html.contains("実測値準備中") || html.contains("(指数)"),
-            "fallback 表示 (指数) が出ること"
+            html.contains("(\u{6307}\u{6570})"),
+            "fallback display should use index label without internal wording"
         );
         // Hard NG 用語混入チェック
         for ng in &[
@@ -3191,6 +3190,15 @@ mod tests {
                 html
             );
         }
+    }
+
+    #[test]
+    fn hero_second_card_does_not_duplicate_insufficient_label() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_mi_hero_bar(&mut html, &data);
+        assert!(html.contains("\u{653F}\u{4EE4}\u{5E02}\u{533A}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{5BFE}\u{8C61}\u{5916}"), "Card 2 context should be explanatory: {html}");
+        assert_eq!(html.matches("\u{8A72}\u{5F53}\u{306A}\u{3057}").count(), 1, "Card 2 should not duplicate neutral empty label: {html}");
     }
 
     #[test]
