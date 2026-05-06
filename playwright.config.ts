@@ -24,7 +24,7 @@ export default defineConfig({
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
   ],
-  timeout: 90_000,
+  timeout: 150_000,
   expect: { timeout: 15_000 },
 
   use: {
@@ -33,7 +33,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     actionTimeout: 15_000,
-    navigationTimeout: 120_000, // Render free tier cold start + 連続 MI variant render 時のサーバー負荷対応
+    navigationTimeout: 180_000, // 180s に拡張: 連続 MI variant render で Render 側が一時的に CPU 飽和して 120s で timeout する事象を吸収
   },
 
   projects: [
