@@ -491,6 +491,51 @@ pub(crate) fn fetch_code_master(
     query_turso_or_local(turso, db, &sql, &params, "municipality_code_master")
 }
 
+/// (prefecture, municipality_name) のペアから JIS 5 桁コードを解決する。
+///
+/// Phase 3 Step 5 Phase 5.5 (2026-05-04) で追加: variant guard 内で
+/// `agg.by_municipality_salary` の (pref, name) から target_codes を導出し、
+/// 4 fetch (recruiting_scores / occupation_cells / ward_thickness / code_master) を
+/// 完全活性化するための解決ヘルパー。
+///
+/// # 設計
+/// - 空入力 → 空 Vec (early return、全件取得を避ける)
+/// - `area_level = 'unit'` 限定 (aggregate_city などの集約行は除外、Plan B 設計通り)
+/// - 解決不能な (pref, name) はスキップ (返却行に現れない)
+///
+/// # 引数
+/// - `pref_name_pairs`: 重複除去済みの (都道府県名, 市区町村名) ペア
+pub(crate) fn fetch_code_master_by_names(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref_name_pairs: &[(&str, &str)],
+) -> Vec<Row> {
+    if pref_name_pairs.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "municipality_code_master") && turso.is_none() {
+        return vec![];
+    }
+
+    let mut conds: Vec<String> = Vec::with_capacity(pref_name_pairs.len());
+    let mut params: Vec<String> = Vec::with_capacity(pref_name_pairs.len() * 2);
+    for (i, (pref, name)) in pref_name_pairs.iter().enumerate() {
+        let p_idx = i * 2 + 1;
+        let n_idx = i * 2 + 2;
+        conds.push(format!("(prefecture = ?{p_idx} AND municipality_name = ?{n_idx})"));
+        params.push(pref.to_string());
+        params.push(name.to_string());
+    }
+    let sql = format!(
+        "SELECT municipality_code, municipality_name, prefecture, area_type, parent_code \
+         FROM municipality_code_master \
+         WHERE area_level = 'unit' AND ({}) \
+         ORDER BY municipality_code",
+        conds.join(" OR ")
+    );
+    query_turso_or_local(turso, db, &sql, &params, "municipality_code_master")
+}
+
 // ============================================================
 // Phase 3 Step 2: 型付き DTO 層
 // ============================================================
@@ -2048,5 +2093,97 @@ mod phase3_step5_fetch_tests {
         assert_eq!(dtos[0].scenario_conservative_index, Some(100));
         assert_eq!(dtos[0].scenario_aggressive_index, Some(180));
         assert_eq!(dtos[0].distribution_priority.as_deref(), Some("A"));
+    }
+
+    // ============================================================
+    // Phase 3 Step 5 Phase 5.5 (2026-05-04): fetch_code_master_by_names
+    // ============================================================
+
+    /// Phase 5.5 用のテスト fixture: area_level 列を含む master テーブル
+    fn create_code_master_table_with_level(db: &LocalDb) {
+        db.execute(
+            "CREATE TABLE municipality_code_master (
+                municipality_code TEXT PRIMARY KEY,
+                municipality_name TEXT,
+                prefecture TEXT,
+                area_type TEXT,
+                area_level TEXT,
+                parent_code TEXT
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE master (with area_level) failed");
+    }
+
+    fn insert_unit_master_rows(db: &LocalDb) {
+        // 新宿区 / 港区 (special_ward, unit), 横浜市本体 (aggregate_city, aggregate)
+        db.execute(
+            "INSERT INTO municipality_code_master VALUES \
+             ('13104', '新宿区', '東京都', 'special_ward', 'unit', '13100'), \
+             ('13103', '港区', '東京都', 'special_ward', 'unit', '13100'), \
+             ('14100', '横浜市', '神奈川県', 'aggregate_city', 'aggregate', NULL)",
+            &[],
+        )
+        .expect("INSERT master failed");
+    }
+
+    #[test]
+    fn fetch_code_master_by_names_resolves_known_wards() {
+        let (_tmp, db) = create_test_db();
+        create_code_master_table_with_level(&db);
+        insert_unit_master_rows(&db);
+
+        let pairs = [("東京都", "新宿区"), ("東京都", "港区")];
+        let rows = fetch_code_master_by_names(&db, None, &pairs);
+        assert_eq!(rows.len(), 2);
+        let codes: Vec<String> = rows.iter().map(|r| str_or_empty(r, "municipality_code")).collect();
+        assert!(codes.contains(&"13104".to_string()), "新宿区が解決");
+        assert!(codes.contains(&"13103".to_string()), "港区が解決");
+    }
+
+    #[test]
+    fn fetch_code_master_by_names_excludes_unresolvable() {
+        let (_tmp, db) = create_test_db();
+        create_code_master_table_with_level(&db);
+        insert_unit_master_rows(&db);
+
+        let pairs = [("東京都", "新宿区"), ("不明県", "存在しない市")];
+        let rows = fetch_code_master_by_names(&db, None, &pairs);
+        assert_eq!(rows.len(), 1, "解決できる 1 件のみ");
+        assert_eq!(str_or_empty(&rows[0], "municipality_code"), "13104");
+    }
+
+    #[test]
+    fn fetch_code_master_by_names_excludes_aggregate() {
+        let (_tmp, db) = create_test_db();
+        create_code_master_table_with_level(&db);
+        insert_unit_master_rows(&db);
+
+        // 横浜市本体 (aggregate) と 新宿区 (unit) を依頼 → 横浜市は除外
+        let pairs = [("神奈川県", "横浜市"), ("東京都", "新宿区")];
+        let rows = fetch_code_master_by_names(&db, None, &pairs);
+        let codes: Vec<String> = rows
+            .iter()
+            .map(|r| str_or_empty(r, "municipality_code"))
+            .collect();
+        assert_eq!(codes.len(), 1, "aggregate (横浜市) は area_level='unit' フィルタで除外");
+        assert_eq!(codes[0], "13104", "新宿区のみ返却");
+    }
+
+    #[test]
+    fn fetch_code_master_by_names_empty_input() {
+        let (_tmp, db) = create_test_db();
+        // table 不在でも early return
+        let rows = fetch_code_master_by_names(&db, None, &[]);
+        assert!(rows.is_empty(), "空入力は早期 return で空 Vec");
+    }
+
+    #[test]
+    fn fetch_code_master_by_names_table_missing_returns_empty() {
+        let (_tmp, db) = create_test_db();
+        // テーブル不在 + turso 無し → 空 Vec
+        let pairs = [("東京都", "新宿区")];
+        let rows = fetch_code_master_by_names(&db, None, &pairs);
+        assert!(rows.is_empty(), "テーブル不在時は空 Vec");
     }
 }

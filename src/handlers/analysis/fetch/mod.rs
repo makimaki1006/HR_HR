@@ -83,8 +83,8 @@ pub(crate) use subtab7_phase_a::{
 // Step 2: 型付き DTO + 変換ヘルパー
 #[allow(unused_imports)]
 pub(crate) use market_intelligence::{
-    fetch_code_master, fetch_commute_flow_summary, fetch_living_cost_proxy,
-    fetch_occupation_cells, fetch_occupation_population,
+    fetch_code_master, fetch_code_master_by_names, fetch_commute_flow_summary,
+    fetch_living_cost_proxy, fetch_occupation_cells, fetch_occupation_population,
     fetch_recruiting_scores_by_municipalities, fetch_ward_rankings_by_parent,
     fetch_ward_thickness, to_code_master, to_commute_flows, to_living_cost_proxies,
     to_occupation_cells, to_occupation_populations, to_recruiting_scores, to_ward_rankings,
