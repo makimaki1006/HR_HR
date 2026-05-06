@@ -39,13 +39,13 @@ function hasStep5Markers(html: string): boolean {
 test.describe('MarketIntelligence variant isolation (Phase 7 Spec 3)', () => {
   test.setTimeout(360_000);
 
-  // session_id を 1 回だけ取得して全テストで共有 (Render cold start 対策)
-  let sharedSessionId: string | null = null;
-
+  // Playwright のデフォルトでは test ごとに new context (cookie 非共有)。
+  // session_id 文字列を URL に乗せても auth cookie がリセットされ /login redirect
+  // 経由で /login HTML が返るため、Public/Full の test (negative check) は
+  // 偶然 PASS、MI の test (positive check) は FAIL する。
+  // 各 test で loginAndUpload を再実行することで test isolation 整合性を保つ。
   async function getSession(page: Page): Promise<string> {
-    if (sharedSessionId) return sharedSessionId;
     const { sessionId } = await loginAndUpload(page, FIXTURE, 'indeed');
-    sharedSessionId = sessionId;
     return sessionId;
   }
 
