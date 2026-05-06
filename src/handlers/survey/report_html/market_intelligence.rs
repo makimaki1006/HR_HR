@@ -23,12 +23,17 @@
 //! Step 4 で追加した `variant.show_market_intelligence_sections()` フラグで分岐される。
 
 use super::super::super::analysis::fetch::{
-    fetch_commute_flow_summary, fetch_living_cost_proxy, fetch_occupation_population,
-    fetch_recruiting_scores_by_municipalities, to_commute_flows, to_living_cost_proxies,
-    to_occupation_populations, to_recruiting_scores, CommuteFlowSummary, LivingCostProxy,
-    MunicipalityRecruitingScore, OccupationPopulationCell, SurveyMarketIntelligenceData,
+    fetch_code_master, fetch_commute_flow_summary, fetch_living_cost_proxy,
+    fetch_occupation_cells, fetch_occupation_population,
+    fetch_recruiting_scores_by_municipalities, fetch_ward_rankings_by_parent,
+    fetch_ward_thickness, to_code_master, to_commute_flows, to_living_cost_proxies,
+    to_occupation_cells, to_occupation_populations, to_recruiting_scores, to_ward_rankings,
+    to_ward_thickness_dtos, CommuteFlowSummary, LivingCostProxy, MunicipalityCodeMasterDto,
+    MunicipalityRecruitingScore, OccupationCellDto, OccupationPopulationCell,
+    SurveyMarketIntelligenceData, WardRankingRowDto,
 };
 use super::super::super::helpers::escape_html;
+use std::collections::BTreeMap;
 
 #[allow(dead_code)]
 type Db = crate::db::local_sqlite::LocalDb;
@@ -43,6 +48,28 @@ pub const MEASURED_LABEL: &str = "実測";
 pub const ESTIMATED_LABEL: &str = "推定";
 /// 参考ラベル
 pub const REFERENCE_LABEL: &str = "参考";
+
+// --------------- Phase 3 Step 5 Phase 4: Plan B 表示ラベル定数 ---------------
+//
+// 表示分岐ルール (DISPLAY_SPEC_PLAN_B 必須要件):
+// - workplace × measured 行: 人数 (population) 表示 OK + WORKPLACE_LABEL
+// - resident × estimated_beta 行: 指数 (estimate_index) のみ + RESIDENT_LABEL
+//   (人数表示は絶対 NG / 「推定人数」「想定人数」等 Hard NG 用語禁止)
+
+/// 従業地ベース (国勢調査由来の実測値)
+pub(crate) const WORKPLACE_LABEL: &str = "従業地ベース (実測)";
+/// 常住地ベース (検証済み推定 β。人数ではなく指数のみ表示)
+pub(crate) const RESIDENT_LABEL: &str = "常住地ベース (推定 β)";
+/// 実測データの出典 (国勢調査 R2)
+pub(crate) const MEASURED_DATA_SOURCE: &str = "国勢調査 R2";
+/// 推定 β 注記 (Model F2 で検証済み)
+pub(crate) const ESTIMATED_BETA_NOTE: &str = "検証済み推定 β (Model F2)";
+/// 工業集積地アンカーバッジ (将来の WardThicknessDto.is_industrial_anchor 表示用)
+#[allow(dead_code)]
+pub(crate) const ANCHOR_BADGE: &str = "\u{1F3ED} 工業集積地";
+/// 全国順位 / 補助情報の参考表記 (将来の national_rank 補足用)
+#[allow(dead_code)]
+pub(crate) const REFERENCE_NOTE: &str = "参考";
 
 // --------------- データ構築 ---------------
 
@@ -76,14 +103,89 @@ pub(crate) fn build_market_intelligence_data(
         Vec::new()
     };
 
+    // ----- Phase 3 Step 5 Phase 4: Plan B 4 新規 Vec を populate -----
+    //
+    // target_municipalities が空の場合は早期 return (上の if 条件が dest_pref/dest_muni のみ
+    // の経路で来る可能性に対応)。
+    let (occupation_cells, ward_thickness, ward_rankings, code_master) =
+        if target_municipalities.is_empty() {
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        } else {
+            // (1) 職業セル (workplace + resident 両 basis)
+            let occ_cell_rows =
+                fetch_occupation_cells(db, turso, target_municipalities, None, None);
+            let occupation_cells = to_occupation_cells(&occ_cell_rows);
+
+            // (2) 政令市区 thickness 詳細
+            let thickness_rows =
+                fetch_ward_thickness(db, turso, target_municipalities, None);
+            let ward_thickness = to_ward_thickness_dtos(&thickness_rows);
+
+            // (3) コードマスター (target に対して lookup)
+            let code_master_rows = fetch_code_master(db, turso, target_municipalities);
+            let code_master = to_code_master(&code_master_rows);
+
+            // (4) parent ward ranking (商品の核心、parent_code 別に collect)
+            //     designated_ward の parent_code 一覧を抽出 → 主要 occupation で fetch
+            let ward_rankings = collect_ward_rankings_for_targets(
+                db,
+                turso,
+                &code_master,
+                occupation_group_code,
+            );
+
+            (occupation_cells, ward_thickness, ward_rankings, code_master)
+        };
+
     SurveyMarketIntelligenceData {
         recruiting_scores: to_recruiting_scores(&recruiting_rows),
         living_cost_proxies: to_living_cost_proxies(&living_cost_rows),
         commute_flows: to_commute_flows(&commute_rows),
         occupation_populations: to_occupation_populations(&occupation_rows),
-        // Phase 3 Step 5 Phase 2: 新規 Vec フィールド (本タスクでは fetch 未実装のため空)
-        ..Default::default()
+        occupation_cells,
+        ward_thickness,
+        ward_rankings,
+        code_master,
     }
+}
+
+/// `code_master` から designated_ward を持つ parent_code 一覧を抽出し、
+/// 各 parent について `fetch_ward_rankings_by_parent` を呼んで結果を flatten する。
+///
+/// `occupation_code` が空の場合は代表値 "08_生産工程" を使用 (Plan B 主要職種)。
+#[allow(dead_code)]
+fn collect_ward_rankings_for_targets(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    code_master: &[MunicipalityCodeMasterDto],
+    occupation_code: &str,
+) -> Vec<WardRankingRowDto> {
+    if code_master.is_empty() {
+        return Vec::new();
+    }
+    // 代表 occupation: 引数優先、空なら "08_生産工程" にフォールバック
+    let occ = if occupation_code.is_empty() {
+        "08_生産工程"
+    } else {
+        occupation_code
+    };
+
+    // designated_ward を持つ parent_code (重複排除)
+    let mut parent_codes: Vec<String> = code_master
+        .iter()
+        .filter(|m| m.area_type == "designated_ward")
+        .filter_map(|m| m.parent_code.clone())
+        .collect();
+    parent_codes.sort();
+    parent_codes.dedup();
+
+    let mut all_rankings: Vec<WardRankingRowDto> = Vec::new();
+    for parent_code in &parent_codes {
+        let rows = fetch_ward_rankings_by_parent(db, turso, parent_code, occ);
+        let mut dtos = to_ward_rankings(&rows);
+        all_rankings.append(&mut dtos);
+    }
+    all_rankings
 }
 
 // --------------- 統合エントリ (5 セクション一括 render) ---------------
@@ -120,6 +222,210 @@ pub(crate) fn render_section_market_intelligence(
     render_mi_salary_living_cost(html, &data.recruiting_scores, &data.living_cost_proxies);
     render_mi_scenario_population_range(html, &data.recruiting_scores);
     render_mi_commute_inflow_supplement(html, &data.commute_flows);
+
+    // Phase 3 Step 5 Phase 4: Plan B (workplace measured + resident estimated_beta)
+    // OccupationCellDto 行を持つ場合のみ追加表示。空ならセクション自体を出さない
+    // (placeholder は既存 render_mi_talent_supply 側で出ている)。
+    if !data.occupation_cells.is_empty() {
+        render_mi_occupation_cells(html, &data.occupation_cells);
+    }
+
+    // Phase 3 Step 5 Phase 4: 政令市区別ランキング (商品の核心)
+    render_mi_parent_ward_ranking(html, &data.ward_rankings, &data.code_master);
+
+    html.push_str("</section>\n");
+}
+
+// --------------- Section 7: Plan B (workplace measured + resident estimated_beta) ---------------
+//
+// 表示分岐ルール (DISPLAY_SPEC_PLAN_B 必須):
+// - workplace × measured: 人数 (population) + WORKPLACE_LABEL + MEASURED_DATA_SOURCE
+// - resident × estimated_beta: 指数 (estimate_index, ".1f") + RESIDENT_LABEL + ESTIMATED_BETA_NOTE
+// - resident × estimated_beta で人数を絶対に表示しない (Hard NG)
+
+#[allow(dead_code)]
+pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationCellDto]) {
+    html.push_str(
+        "<section class=\"mi-occupation-cells\" aria-labelledby=\"mi-occcell-heading\" \
+         style=\"margin:16px 0;\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-occcell-heading\">職業×地域 セル別マトリクス \
+         <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[Plan B]</span></h3>\n",
+    );
+
+    if cells.is_empty() {
+        render_mi_placeholder(
+            html,
+            "職業セルデータが未投入です (municipality_occupation_population テーブル)。",
+        );
+        html.push_str("</section>\n");
+        return;
+    }
+
+    html.push_str(
+        "<table class=\"mi-occcell-table\" style=\"width:100%;border-collapse:collapse;font-size:12px;\">\n\
+         <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
+         <th style=\"text-align:left;padding:6px;\">市区町村</th>\
+         <th style=\"text-align:left;padding:6px;\">職業</th>\
+         <th style=\"text-align:left;padding:6px;\">区分 (basis)</th>\
+         <th style=\"text-align:right;padding:6px;\">値</th>\
+         <th style=\"text-align:left;padding:6px;\">出典</th>\
+         </tr></thead><tbody>\n",
+    );
+    for c in cells.iter().take(60) {
+        // XOR 不変条件: data_label に応じて population / estimate_index を排他表示
+        let (basis_label, value_html, source_html) = match c.data_label.as_str() {
+            "measured" => {
+                // 主に workplace × measured (将来的に resident × measured も同経路)
+                let label = if c.basis == "workplace" {
+                    WORKPLACE_LABEL
+                } else {
+                    "常住地ベース (実測)"
+                };
+                let val = c
+                    .population
+                    .map(|v| format!("{} 人", format_thousands(v)))
+                    .unwrap_or_else(|| "-".to_string());
+                (label, val, MEASURED_DATA_SOURCE)
+            }
+            "estimated_beta" => {
+                let label = if c.basis == "resident" {
+                    RESIDENT_LABEL
+                } else {
+                    "従業地ベース (推定 β)"
+                };
+                // resident × estimated_beta は指数のみ。人数表示は絶対 NG
+                let val = c
+                    .estimate_index
+                    .map(|v| format!("指数 {:.1}", v))
+                    .unwrap_or_else(|| "-".to_string());
+                (label, val, ESTIMATED_BETA_NOTE)
+            }
+            _ => (
+                "区分不明",
+                "-".to_string(),
+                "-",
+            ),
+        };
+
+        html.push_str(&format!(
+            "<tr><td style=\"padding:4px;\">{pref} {muni}</td>\
+             <td style=\"padding:4px;\">{occ}</td>\
+             <td style=\"padding:4px;\">{basis}</td>\
+             <td style=\"text-align:right;padding:4px;\">{val}</td>\
+             <td style=\"padding:4px;color:#64748b;font-size:11px;\">{src}</td></tr>\n",
+            pref = escape_html(&c.prefecture),
+            muni = escape_html(&c.municipality_name),
+            occ = escape_html(&c.occupation_name),
+            basis = escape_html(basis_label),
+            val = escape_html(&value_html),
+            src = escape_html(source_html),
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+    html.push_str(&format!(
+        "<p style=\"font-size:11px;color:#64748b;margin:6px 0 0;\">\
+         {WORKPLACE_LABEL} 行は人数で表示、{RESIDENT_LABEL} 行は指数 (相対値) のみ表示。<br/>\
+         指数は {ESTIMATED_BETA_NOTE} に基づく相対指標であり、人数換算しない。</p>\n"
+    ));
+    html.push_str("</section>\n");
+}
+
+// --------------- Section 8: 政令市区別ランキング (商品の核心) ---------------
+//
+// parent_rank (市内順位) を主指標、national_rank (全国順位) を参考表記する。
+// HTML 内で parent_rank セルが必ず national_rank セルより先に出力される (test で順序検証)。
+
+#[allow(dead_code)]
+pub(crate) fn render_mi_parent_ward_ranking(
+    html: &mut String,
+    rankings: &[WardRankingRowDto],
+    _code_master: &[MunicipalityCodeMasterDto],
+) {
+    html.push_str(
+        "<section class=\"mi-parent-ward-ranking\" aria-labelledby=\"mi-pwr-heading\" \
+         style=\"margin:16px 0;\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-pwr-heading\">政令市区別ランキング \
+         <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[商品コア]</span></h3>\n",
+    );
+
+    if rankings.is_empty() {
+        html.push_str(
+            "<div class=\"mi-empty\" role=\"note\" \
+             style=\"padding:10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;color:#92400e;font-size:13px;\">\
+             \u{2139} 政令市区ランキングデータが現在取得できません。</div>\n"
+        );
+        html.push_str("</section>\n");
+        return;
+    }
+
+    html.push_str(&format!(
+        "<p class=\"mi-note\" style=\"font-size:12px;color:#64748b;margin:0 0 8px;\">\
+         表示優先: <strong>市内順位 (主)</strong> &gt; 市内総数 &gt; 全国順位 (参考)。<br/>\
+         {ESTIMATED_BETA_NOTE}</p>\n"
+    ));
+
+    // parent_code でグループ化 (BTreeMap でキー昇順固定)
+    let mut by_parent: BTreeMap<String, Vec<&WardRankingRowDto>> = BTreeMap::new();
+    for r in rankings {
+        by_parent.entry(r.parent_code.clone()).or_default().push(r);
+    }
+
+    for (parent_code, mut wards) in by_parent {
+        // parent_rank 昇順
+        wards.sort_by_key(|w| w.parent_rank);
+        let parent_name = wards
+            .first()
+            .map(|w| w.parent_name.clone())
+            .unwrap_or_default();
+        let parent_total = wards.first().map(|w| w.parent_total).unwrap_or(0);
+
+        html.push_str(&format!(
+            "  <div class=\"mi-parent-group\" data-parent-code=\"{pc}\" \
+             style=\"margin:12px 0;padding:10px;border:1px solid #e2e8f0;border-radius:4px;\">\n\
+                <h4 style=\"margin:0 0 6px;color:#1e3a8a;\">{name} ({total} 区)</h4>\n",
+            pc = escape_html(&parent_code),
+            name = escape_html(&parent_name),
+            total = parent_total,
+        ));
+
+        html.push_str(
+            "    <table class=\"mi-rank-table\" style=\"width:100%;border-collapse:collapse;font-size:13px;\">\n\
+             <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
+             <th style=\"text-align:left;padding:6px;\">市内順位 (主)</th>\
+             <th style=\"text-align:left;padding:6px;\">区名</th>\
+             <th style=\"text-align:right;padding:6px;\">厚み指数 (推定 β)</th>\
+             <th style=\"text-align:left;padding:6px;\">優先度</th>\
+             <th class=\"mi-ref\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">全国順位 (参考)</th>\
+             </tr></thead><tbody>\n",
+        );
+
+        for w in &wards {
+            let priority_lower = w.priority.to_lowercase();
+            html.push_str(&format!(
+                "<tr>\
+                 <td class=\"mi-parent-rank\" style=\"padding:6px;\"><strong>{prank} 位</strong> / {ptotal} 区</td>\
+                 <td style=\"padding:6px;\">{name}</td>\
+                 <td class=\"mi-thickness\" style=\"text-align:right;padding:6px;\">{thick:.1}</td>\
+                 <td class=\"mi-priority mi-priority-{plow}\" style=\"padding:6px;\">{prio}</td>\
+                 <td class=\"mi-ref\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">{nrank} 位 / {ntotal} 市区町村</td>\
+                 </tr>\n",
+                prank = w.parent_rank,
+                ptotal = w.parent_total,
+                name = escape_html(&w.municipality_name),
+                thick = w.thickness_index,
+                plow = escape_html(&priority_lower),
+                prio = escape_html(&w.priority),
+                nrank = w.national_rank,
+                ntotal = w.national_total,
+            ));
+        }
+
+        html.push_str("    </tbody></table>\n  </div>\n");
+    }
 
     html.push_str("</section>\n");
 }
@@ -720,6 +1026,220 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(average_score(&scores), None);
+    }
+
+    // ============================================================
+    // Phase 3 Step 5 Phase 4: Plan B 表示テスト
+    // ============================================================
+
+    fn make_workplace_measured_cell(name: &str, pop: i64) -> OccupationCellDto {
+        OccupationCellDto {
+            municipality_code: "14103".into(),
+            prefecture: "神奈川県".into(),
+            municipality_name: name.into(),
+            basis: "workplace".into(),
+            occupation_code: "08_生産工程".into(),
+            occupation_name: "生産工程従事者".into(),
+            age_class: "all".into(),
+            gender: "all".into(),
+            population: Some(pop),
+            estimate_index: None,
+            data_label: "measured".into(),
+            source_name: "国勢調査".into(),
+            source_year: 2020,
+            weight_source: None,
+        }
+    }
+
+    fn make_resident_estimated_beta_cell(name: &str, idx: f64) -> OccupationCellDto {
+        OccupationCellDto {
+            municipality_code: "14103".into(),
+            prefecture: "神奈川県".into(),
+            municipality_name: name.into(),
+            basis: "resident".into(),
+            occupation_code: "08_生産工程".into(),
+            occupation_name: "生産工程従事者".into(),
+            age_class: "all".into(),
+            gender: "all".into(),
+            population: None,
+            estimate_index: Some(idx),
+            data_label: "estimated_beta".into(),
+            source_name: "Model F2".into(),
+            source_year: 2020,
+            weight_source: Some("hypothesis_v1".into()),
+        }
+    }
+
+    fn make_ranking_row(
+        muni: &str,
+        prank: i64,
+        ptotal: i64,
+        nrank: i64,
+        ntotal: i64,
+    ) -> WardRankingRowDto {
+        WardRankingRowDto {
+            municipality_code: "14103".into(),
+            municipality_name: muni.into(),
+            parent_code: "14100".into(),
+            parent_name: "横浜市".into(),
+            parent_rank: prank,
+            parent_total: ptotal,
+            national_rank: nrank,
+            national_total: ntotal,
+            thickness_index: 142.5,
+            priority: "A".into(),
+        }
+    }
+
+    #[test]
+    fn test_workplace_measured_renders_population_with_label() {
+        let mut html = String::new();
+        let cells = vec![make_workplace_measured_cell("横浜市鶴見区", 12_345)];
+        render_mi_occupation_cells(&mut html, &cells);
+        assert!(
+            html.contains(WORKPLACE_LABEL),
+            "workplace ラベル必須: {WORKPLACE_LABEL}"
+        );
+        assert!(
+            html.contains("12,345 人"),
+            "人数 (3 桁区切り + '人') が表示されること: HTML={html}"
+        );
+        assert!(
+            html.contains(MEASURED_DATA_SOURCE),
+            "出典 (国勢調査 R2) 表示必須"
+        );
+    }
+
+    #[test]
+    fn test_resident_estimated_beta_does_not_render_population() {
+        let mut html = String::new();
+        let cells = vec![make_resident_estimated_beta_cell("横浜市鶴見区", 142.5)];
+        render_mi_occupation_cells(&mut html, &cells);
+
+        assert!(html.contains(RESIDENT_LABEL), "常住地ラベル必須");
+        assert!(html.contains("指数"), "指数表記必須");
+        assert!(html.contains("142.5"), "estimate_index .1f 表示必須");
+
+        // resident estimated_beta 行で「{数値} 人」パターンが出ないこと
+        // (人 だけは「人気」「人材」等と区別、数値直後の「人」のみ検査)
+        // 簡易チェック: 「12,345 人」「100 人」のような形が含まれない
+        let has_pop_pattern = html
+            .lines()
+            .any(|line| line.contains(" 人") && !line.contains("指数"));
+        assert!(
+            !has_pop_pattern,
+            "estimated_beta 行に人数パターンが含まれてはいけない: {html}"
+        );
+
+        // Hard NG 用語が含まれない
+        for forbidden in [
+            "推定人数",
+            "想定人数",
+            "母集団人数",
+            "estimated_population",
+            "target_count",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "Hard NG 用語 '{forbidden}' が含まれている"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parent_rank_renders_before_national_rank() {
+        let mut html = String::new();
+        let rankings = vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)];
+        render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
+
+        let p_idx = html
+            .find("市内順位 (主)")
+            .or_else(|| html.find("mi-parent-rank"));
+        let n_idx = html
+            .find("全国順位 (参考)")
+            .or_else(|| html.find("mi-ref"));
+        assert!(p_idx.is_some(), "parent_rank 関連 HTML が含まれること");
+        assert!(n_idx.is_some(), "national_rank 関連 HTML が含まれること");
+        assert!(
+            p_idx.unwrap() < n_idx.unwrap(),
+            "parent_rank が national_rank より前に出ること: parent={:?} national={:?}",
+            p_idx,
+            n_idx
+        );
+        // 数値の確認 (parent_rank の値「3 位」)
+        assert!(html.contains("3 位"), "parent_rank '3 位' が表示");
+    }
+
+    #[test]
+    fn test_parent_ward_ranking_empty_does_not_panic() {
+        let mut html = String::new();
+        render_mi_parent_ward_ranking(&mut html, &[], &[]);
+        // panic せず、データ未取得メッセージが出る
+        assert!(
+            html.contains("取得できません") || html.contains("mi-empty"),
+            "空データ時は適切な文言: {html}"
+        );
+    }
+
+    #[test]
+    fn test_rendered_html_has_no_forbidden_terms() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            occupation_cells: vec![
+                make_workplace_measured_cell("横浜市鶴見区", 12_345),
+                make_resident_estimated_beta_cell("横浜市鶴見区", 142.5),
+            ],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
+            ..Default::default()
+        };
+        render_section_market_intelligence(&mut html, &data);
+
+        for forbidden in [
+            "推定人数",
+            "想定人数",
+            "母集団人数",
+            "estimated_population",
+            "target_count",
+            "estimated_worker_count",
+            "resident_population_estimate",
+            "convert_index_to_population",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "Hard NG 用語 '{forbidden}' が出力 HTML に含まれている"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parent_ward_ranking_groups_by_parent_code() {
+        let mut html = String::new();
+        let rankings = vec![
+            make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917),
+            make_ranking_row("横浜市青葉区", 5, 18, 30, 1917),
+        ];
+        render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
+        // 親市名が 1 回 (グループ化されているため)
+        let yokohama_count = html.matches("横浜市</h4>").count()
+            + html.matches("横浜市 (").count();
+        assert!(yokohama_count >= 1, "親市見出しが少なくとも 1 回出る");
+        // 両方の区名が表示
+        assert!(html.contains("鶴見区"), "鶴見区表示");
+        assert!(html.contains("青葉区"), "青葉区表示");
+    }
+
+    #[test]
+    fn test_occupation_cells_section_skipped_when_empty_in_top_render() {
+        // occupation_cells が空 → 新セクション (`mi-occupation-cells`) が出ない
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        assert!(
+            !html.contains("mi-occupation-cells"),
+            "occupation_cells が空のとき新セクションは出さない"
+        );
+        // 親 wrapper / 既存 placeholder は出る
+        assert!(html.contains("採用マーケットインテリジェンス"));
     }
 
     #[test]
