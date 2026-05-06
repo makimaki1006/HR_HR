@@ -1803,6 +1803,105 @@ mod phase3_step5_dto_tests {
         // 既存 Vec も空
         assert!(data.recruiting_scores.is_empty());
     }
+
+    // ============================================================
+    // Phase 3 Step 5 Phase 6 (Worker P6): ドメイン不変条件追加テスト
+    //
+    // 背景: feedback_reverse_proof_tests.md (unemployment 380% 流出事故)。
+    // 「合意確認」レベルではなく「ドメイン不変条件で前提誤りを検出する」。
+    // ============================================================
+
+    /// 不変条件: estimated_beta 行は population を持たない (XOR 違反検出)
+    #[test]
+    fn invariant_estimated_beta_never_has_population() {
+        let bad = OccupationCellDto {
+            data_label: "estimated_beta".into(),
+            population: Some(100), // 違反: estimated_beta なのに人数あり
+            estimate_index: Some(140.0),
+            ..Default::default()
+        };
+        assert!(!bad.is_xor_consistent(),
+            "estimated_beta に population があると XOR 違反として検出されること");
+    }
+
+    /// 不変条件: measured 行は estimate_index を持たない
+    #[test]
+    fn invariant_measured_never_has_estimate_index() {
+        let bad = OccupationCellDto {
+            data_label: "measured".into(),
+            population: Some(100),
+            estimate_index: Some(50.0), // 違反: measured なのに指数あり
+            ..Default::default()
+        };
+        assert!(!bad.is_xor_consistent(),
+            "measured に estimate_index があると XOR 違反として検出されること");
+    }
+
+    /// 不変条件: thickness_index は妥当な範囲 (0 <= x <= 200 が正常域)
+    /// (380% 失業率事故の教訓: 異常値検出は値域チェックで)
+    #[test]
+    fn invariant_thickness_index_within_plausible_range() {
+        // 正常: cap 内
+        let valid = WardThicknessDto {
+            thickness_index: 142.5,
+            ..Default::default()
+        };
+        assert!(valid.thickness_index >= 0.0 && valid.thickness_index <= 200.0,
+            "正常な thickness_index は 0-200 範囲");
+
+        // 異常: cap 超過 (Plan B 仕様 200 超は異常)
+        let invalid_high = WardThicknessDto {
+            thickness_index: 999.0,
+            ..Default::default()
+        };
+        assert!(invalid_high.thickness_index > 200.0,
+            "999.0 は cap 違反として検出可能");
+
+        // 異常: 負値
+        let invalid_neg = WardThicknessDto {
+            thickness_index: -10.0,
+            ..Default::default()
+        };
+        assert!(invalid_neg.thickness_index < 0.0,
+            "負値は不変条件違反として検出可能");
+    }
+
+    /// 不変条件: parent_rank は parent_total を超えない (1 <= rank <= total)
+    #[test]
+    fn invariant_parent_rank_must_not_exceed_total() {
+        // 正常: 5 / 18
+        let valid = WardRankingRowDto {
+            parent_code: "14100".into(),
+            parent_rank: 5,
+            parent_total: 18,
+            ..Default::default()
+        };
+        assert!(valid.uses_parent_rank_primary(),
+            "5 位 / 18 中は正常");
+
+        // 異常: rank > total
+        let invalid = WardRankingRowDto {
+            parent_code: "14100".into(),
+            parent_rank: 20,
+            parent_total: 18,
+            ..Default::default()
+        };
+        assert!(!invalid.uses_parent_rank_primary(),
+            "rank > total は不変条件違反として検出されること");
+    }
+
+    /// 不変条件: parent_rank == 0 は invalid (1-indexed なので 0 は未定義)
+    #[test]
+    fn invariant_parent_rank_zero_is_invalid() {
+        let zero_rank = WardRankingRowDto {
+            parent_code: "14100".into(),
+            parent_rank: 0,
+            parent_total: 18,
+            ..Default::default()
+        };
+        assert!(!zero_rank.uses_parent_rank_primary(),
+            "parent_rank = 0 は無効値として検出");
+    }
 }
 
 // -------- Phase 3 Step 5 Phase 3: 4 新規 fetch 関数 + DTO from_row のテスト --------
