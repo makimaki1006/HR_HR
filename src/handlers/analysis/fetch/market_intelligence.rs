@@ -274,6 +274,224 @@ pub(crate) fn fetch_occupation_population(
 }
 
 // ============================================================
+// Phase 3 Step 5 Phase 3: 4 新規 fetch 関数 (Plan B XOR + 親市内ランキング)
+// ============================================================
+//
+// 設計参照: docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_RUST_INTEGRATION_PLAN.md §3
+//
+// すべて既存パターンに揃え、`query_turso_or_local` 経由で Turso 優先・ローカル SQLite
+// フォールバック。`Vec<Row>` 返却 (Step 2 の二段構成踏襲、DTO 変換は `to_*` ヘルパーで実施)。
+
+/// 職業別人口セル (Plan B 対応版)。`fetch_occupation_population` の上位互換。
+///
+/// `municipality_occupation_population` テーブルから XOR 列 (`population` /
+/// `estimate_index`) と出所メタ (`data_label`, `source_name`, `weight_source`) を含めて取得する。
+///
+/// # 引数
+/// - `municipality_codes`: 取得対象の市区町村コード一覧 (空なら空 Vec)
+/// - `occupation_code`: 職業コード (`None` なら全職業)
+/// - `basis_filter`: `Some("workplace")` / `Some("resident")` / `None` (両方)
+///
+/// 詳細仕様: 計画書 §3.1
+pub(crate) fn fetch_occupation_cells(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    municipality_codes: &[&str],
+    occupation_code: Option<&str>,
+    basis_filter: Option<&str>,
+) -> Vec<Row> {
+    if municipality_codes.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "municipality_occupation_population") && turso.is_none() {
+        return vec![];
+    }
+
+    let placeholders_m: String = (1..=municipality_codes.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut params: Vec<String> = municipality_codes.iter().map(|s| s.to_string()).collect();
+    let mut where_clauses = vec![format!("municipality_code IN ({placeholders_m})")];
+
+    if let Some(occ) = occupation_code {
+        if !occ.is_empty() {
+            params.push(occ.to_string());
+            where_clauses.push(format!("occupation_code = ?{}", params.len()));
+        }
+    }
+    if let Some(basis) = basis_filter {
+        if !basis.is_empty() {
+            params.push(basis.to_string());
+            where_clauses.push(format!("basis = ?{}", params.len()));
+        }
+    }
+
+    let sql = format!(
+        "SELECT municipality_code, prefecture, municipality_name, basis, \
+                occupation_code, occupation_name, age_class, gender, \
+                population, estimate_index, \
+                data_label, source_name, source_year, weight_source \
+         FROM municipality_occupation_population \
+         WHERE {where_sql} \
+         ORDER BY municipality_code, occupation_code, age_class, gender",
+        where_sql = where_clauses.join(" AND ")
+    );
+
+    query_turso_or_local(turso, db, &sql, &params, "municipality_occupation_population")
+}
+
+/// `v2_municipality_target_thickness` から designated_ward の thickness 詳細を取得する。
+///
+/// # 引数
+/// - `municipality_codes`: 取得対象の市区町村コード一覧 (空なら空 Vec)
+/// - `occupation_code`: 職業コード (`None` なら全職業)
+///
+/// 詳細仕様: 計画書 §3.2
+pub(crate) fn fetch_ward_thickness(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    municipality_codes: &[&str],
+    occupation_code: Option<&str>,
+) -> Vec<Row> {
+    if municipality_codes.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "v2_municipality_target_thickness") && turso.is_none() {
+        return vec![];
+    }
+
+    let placeholders: String = (1..=municipality_codes.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut params: Vec<String> = municipality_codes.iter().map(|s| s.to_string()).collect();
+    let occ_clause = if let Some(occ) = occupation_code.filter(|s| !s.is_empty()) {
+        params.push(occ.to_string());
+        format!(" AND occupation_code = ?{}", params.len())
+    } else {
+        String::new()
+    };
+
+    let sql = format!(
+        "SELECT municipality_code, municipality_name, prefecture, \
+                basis, occupation_code, occupation_name, \
+                thickness_index, \
+                rank_in_occupation, rank_percentile, distribution_priority, \
+                scenario_conservative_index, scenario_standard_index, scenario_aggressive_index, \
+                estimate_grade, weight_source, is_industrial_anchor, source_year \
+         FROM v2_municipality_target_thickness \
+         WHERE municipality_code IN ({placeholders}){occ_clause} \
+         ORDER BY occupation_code, thickness_index DESC"
+    );
+
+    query_turso_or_local(turso, db, &sql, &params, "v2_municipality_target_thickness")
+}
+
+/// 親市 (`parent_code`) 内ランキング SQL を構築する (Window Function 使用、商品の核心)。
+///
+/// SQL 文字列ビルダを公開することで、unit test で `RANK() OVER` / `COUNT(*) OVER` /
+/// `PARTITION BY` の含有を直接検証可能にする。
+///
+/// 詳細仕様: 計画書 §3.3、Window Function 互換性 PASS は
+/// `SURVEY_MARKET_INTELLIGENCE_PHASE3_SQL_WINDOW_COMPAT.md` 参照。
+pub(crate) fn build_ward_ranking_sql() -> &'static str {
+    "WITH ward_set AS ( \
+        SELECT v.municipality_code, v.municipality_name, \
+               mcm.parent_code, COALESCE(parent.municipality_name, '') AS parent_name, \
+               v.thickness_index, v.distribution_priority, \
+               v.rank_in_occupation, v.occupation_code \
+        FROM v2_municipality_target_thickness v \
+        JOIN municipality_code_master mcm \
+          ON v.municipality_code = mcm.municipality_code \
+        LEFT JOIN municipality_code_master parent \
+          ON mcm.parent_code = parent.municipality_code \
+        WHERE mcm.area_type = 'designated_ward' \
+          AND v.occupation_code = ?2 \
+          AND mcm.parent_code = ?1 \
+     ), \
+     national AS ( \
+        SELECT COUNT(*) AS national_total FROM v2_municipality_target_thickness \
+        WHERE occupation_code = ?2 \
+     ) \
+     SELECT \
+        w.municipality_code, w.municipality_name, \
+        w.parent_code, w.parent_name, \
+        RANK() OVER (PARTITION BY w.parent_code ORDER BY w.thickness_index DESC) AS parent_rank, \
+        COUNT(*) OVER (PARTITION BY w.parent_code) AS parent_total, \
+        w.rank_in_occupation AS national_rank, \
+        n.national_total, \
+        w.thickness_index, w.distribution_priority AS priority \
+     FROM ward_set w, national n \
+     ORDER BY parent_rank"
+}
+
+/// `v2_municipality_target_thickness` × `municipality_code_master` から
+/// 親市内ランキングを取得する (Window Function `RANK() OVER` / `COUNT(*) OVER` 使用)。
+///
+/// `parent_code` / `occupation_code` どちらかが空の場合は空 Vec を返す。
+/// テーブルが両方とも (Turso/local) 不在の場合も空 Vec。
+///
+/// 詳細仕様: 計画書 §3.3
+pub(crate) fn fetch_ward_rankings_by_parent(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    parent_code: &str,
+    occupation_code: &str,
+) -> Vec<Row> {
+    if parent_code.is_empty() || occupation_code.is_empty() {
+        return vec![];
+    }
+    // designated_ward は v2_municipality_target_thickness と municipality_code_master の両方が必要。
+    // 片方でもローカル不在 + Turso なし → 空 Vec。
+    let local_has = table_exists(db, "v2_municipality_target_thickness")
+        && table_exists(db, "municipality_code_master");
+    if !local_has && turso.is_none() {
+        return vec![];
+    }
+
+    let sql = build_ward_ranking_sql();
+    let params = vec![parent_code.to_string(), occupation_code.to_string()];
+    query_turso_or_local(turso, db, sql, &params, "v2_municipality_target_thickness")
+}
+
+/// `municipality_code_master` から市区町村コードマスター行を取得する。
+///
+/// `municipality_codes` が空の場合は全件 (1,917 行程度) を返却する。
+/// lookup 用途のため WHERE 句なしでテーブル全体を返す挙動を採用。
+///
+/// 詳細仕様: 計画書 §3.4
+pub(crate) fn fetch_code_master(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    municipality_codes: &[&str],
+) -> Vec<Row> {
+    if !table_exists(db, "municipality_code_master") && turso.is_none() {
+        return vec![];
+    }
+
+    if municipality_codes.is_empty() {
+        let sql = "SELECT municipality_code, municipality_name, prefecture, area_type, parent_code \
+                   FROM municipality_code_master \
+                   ORDER BY municipality_code";
+        return query_turso_or_local(turso, db, sql, &[], "municipality_code_master");
+    }
+
+    let placeholders: String = (1..=municipality_codes.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT municipality_code, municipality_name, prefecture, area_type, parent_code \
+         FROM municipality_code_master \
+         WHERE municipality_code IN ({placeholders}) \
+         ORDER BY municipality_code"
+    );
+    let params: Vec<String> = municipality_codes.iter().map(|s| s.to_string()).collect();
+    query_turso_or_local(turso, db, &sql, &params, "municipality_code_master")
+}
+
+// ============================================================
 // Phase 3 Step 2: 型付き DTO 層
 // ============================================================
 //
@@ -706,6 +924,34 @@ impl OccupationCellDto {
         self.data_label == "estimated_beta" && self.estimate_index.is_some()
     }
 
+    /// `Row` から DTO を構築する。
+    ///
+    /// XOR 不変条件は DB 側 CHECK で保証されるため、ここではそのままマップする。
+    /// `is_industrial_anchor` 等の bool は別 DTO で扱う。
+    pub fn from_row(row: &Row) -> Self {
+        let weight_source = match row.get("weight_source") {
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(Value::Null) | None => None,
+            Some(v) => Some(v.to_string()),
+        };
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            prefecture: str_or_empty(row, "prefecture"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            basis: str_or_empty(row, "basis"),
+            occupation_code: str_or_empty(row, "occupation_code"),
+            occupation_name: str_or_empty(row, "occupation_name"),
+            age_class: str_or_empty(row, "age_class"),
+            gender: str_or_empty(row, "gender"),
+            population: opt_i64(row, "population"),
+            estimate_index: opt_f64(row, "estimate_index"),
+            data_label: str_or_empty(row, "data_label"),
+            source_name: str_or_empty(row, "source_name"),
+            source_year: opt_i64(row, "source_year").unwrap_or(0),
+            weight_source,
+        }
+    }
+
     /// (basis, data_label) から DataSourceLabel に変換
     pub fn label(&self) -> DataSourceLabel {
         match (self.basis.as_str(), self.data_label.as_str()) {
@@ -746,6 +992,42 @@ pub struct WardThicknessDto {
     pub source_year: i64,
 }
 
+#[allow(dead_code)]
+impl WardThicknessDto {
+    pub fn from_row(row: &Row) -> Self {
+        let opt_string = |key: &str| -> Option<String> {
+            match row.get(key) {
+                Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                Some(Value::Null) | None => None,
+                Some(Value::String(_)) => None,
+                Some(v) => Some(v.to_string()),
+            }
+        };
+        let is_industrial_anchor = opt_i64(row, "is_industrial_anchor")
+            .map(|v| v != 0)
+            .unwrap_or(false);
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            prefecture: str_or_empty(row, "prefecture"),
+            basis: str_or_empty(row, "basis"),
+            occupation_code: str_or_empty(row, "occupation_code"),
+            occupation_name: str_or_empty(row, "occupation_name"),
+            thickness_index: opt_f64(row, "thickness_index").unwrap_or(0.0),
+            rank_in_occupation: opt_i64(row, "rank_in_occupation"),
+            rank_percentile: opt_f64(row, "rank_percentile"),
+            distribution_priority: opt_string("distribution_priority"),
+            scenario_conservative_index: opt_i64(row, "scenario_conservative_index"),
+            scenario_standard_index: opt_i64(row, "scenario_standard_index"),
+            scenario_aggressive_index: opt_i64(row, "scenario_aggressive_index"),
+            estimate_grade: opt_string("estimate_grade"),
+            weight_source: str_or_empty(row, "weight_source"),
+            is_industrial_anchor,
+            source_year: opt_i64(row, "source_year").unwrap_or(0),
+        }
+    }
+}
+
 /// 親市内ランキング DTO (parent_rank 優先、商品の核心)
 ///
 /// 表示優先度: parent_rank が常に主指標、national_rank は参考のみ
@@ -778,6 +1060,21 @@ impl WardRankingRowDto {
             && self.parent_total >= self.parent_rank
             && !self.parent_code.is_empty()
     }
+
+    pub fn from_row(row: &Row) -> Self {
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            parent_code: str_or_empty(row, "parent_code"),
+            parent_name: str_or_empty(row, "parent_name"),
+            parent_rank: opt_i64(row, "parent_rank").unwrap_or(0),
+            parent_total: opt_i64(row, "parent_total").unwrap_or(0),
+            national_rank: opt_i64(row, "national_rank").unwrap_or(0),
+            national_total: opt_i64(row, "national_total").unwrap_or(0),
+            thickness_index: opt_f64(row, "thickness_index").unwrap_or(0.0),
+            priority: str_or_empty(row, "priority"),
+        }
+    }
 }
 
 /// 市区町村コードマスター DTO (結合キー用 lookup)
@@ -791,6 +1088,25 @@ pub struct MunicipalityCodeMasterDto {
     /// 'designated_ward' | 'aggregate_city' | 'municipality' | 'special_ward' | 'aggregate_special_wards'
     pub area_type: String,
     pub parent_code: Option<String>,
+}
+
+#[allow(dead_code)]
+impl MunicipalityCodeMasterDto {
+    pub fn from_row(row: &Row) -> Self {
+        let parent_code = match row.get("parent_code") {
+            Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+            Some(Value::Null) | None => None,
+            Some(Value::String(_)) => None,
+            Some(v) => Some(v.to_string()),
+        };
+        Self {
+            municipality_code: str_or_empty(row, "municipality_code"),
+            municipality_name: str_or_empty(row, "municipality_name"),
+            prefecture: str_or_empty(row, "prefecture"),
+            area_type: str_or_empty(row, "area_type"),
+            parent_code,
+        }
+    }
 }
 
 // -------- 上位 DTO: 主要市区町村ごとの統合データ --------
@@ -867,6 +1183,28 @@ pub(crate) fn to_commute_flows(rows: &[Row]) -> Vec<CommuteFlowSummary> {
 #[allow(dead_code)]
 pub(crate) fn to_occupation_populations(rows: &[Row]) -> Vec<OccupationPopulationCell> {
     rows.iter().map(OccupationPopulationCell::from_row).collect()
+}
+
+// -------- Phase 3 Step 5 Phase 3: 4 新規 DTO 用変換ヘルパー --------
+
+#[allow(dead_code)]
+pub(crate) fn to_occupation_cells(rows: &[Row]) -> Vec<OccupationCellDto> {
+    rows.iter().map(OccupationCellDto::from_row).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_ward_thickness_dtos(rows: &[Row]) -> Vec<WardThicknessDto> {
+    rows.iter().map(WardThicknessDto::from_row).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_ward_rankings(rows: &[Row]) -> Vec<WardRankingRowDto> {
+    rows.iter().map(WardRankingRowDto::from_row).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_code_master(rows: &[Row]) -> Vec<MunicipalityCodeMasterDto> {
+    rows.iter().map(MunicipalityCodeMasterDto::from_row).collect()
 }
 
 // ============================================================
@@ -1419,5 +1757,296 @@ mod phase3_step5_dto_tests {
         assert!(data.code_master.is_empty());
         // 既存 Vec も空
         assert!(data.recruiting_scores.is_empty());
+    }
+}
+
+// -------- Phase 3 Step 5 Phase 3: 4 新規 fetch 関数 + DTO from_row のテスト --------
+#[cfg(test)]
+mod phase3_step5_fetch_tests {
+    use super::*;
+    use crate::db::local_sqlite::LocalDb;
+
+    /// 空の一時 SQLite DB を作成 (既存 tests と同パターン)。
+    fn create_test_db() -> (tempfile::NamedTempFile, LocalDb) {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let _ = rusqlite::Connection::open(path).unwrap();
+        let db = LocalDb::new(path).unwrap();
+        (tmp, db)
+    }
+
+    /// `municipality_occupation_population` テーブルを作成し、measured / estimated_beta の
+    /// XOR 制約付き行を投入する。
+    fn create_occupation_population_table(db: &LocalDb) {
+        db.execute(
+            "CREATE TABLE municipality_occupation_population (
+                municipality_code TEXT NOT NULL,
+                prefecture TEXT,
+                municipality_name TEXT,
+                basis TEXT NOT NULL,
+                occupation_code TEXT NOT NULL,
+                occupation_name TEXT,
+                age_class TEXT,
+                gender TEXT,
+                population INTEGER,
+                estimate_index REAL,
+                data_label TEXT NOT NULL,
+                source_name TEXT,
+                source_year INTEGER,
+                weight_source TEXT
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE failed");
+    }
+
+    fn create_thickness_table(db: &LocalDb) {
+        db.execute(
+            "CREATE TABLE v2_municipality_target_thickness (
+                municipality_code TEXT NOT NULL,
+                municipality_name TEXT,
+                prefecture TEXT,
+                basis TEXT,
+                occupation_code TEXT NOT NULL,
+                occupation_name TEXT,
+                thickness_index REAL,
+                rank_in_occupation INTEGER,
+                rank_percentile REAL,
+                distribution_priority TEXT,
+                scenario_conservative_index INTEGER,
+                scenario_standard_index INTEGER,
+                scenario_aggressive_index INTEGER,
+                estimate_grade TEXT,
+                weight_source TEXT,
+                is_industrial_anchor INTEGER,
+                source_year INTEGER
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE thickness failed");
+    }
+
+    fn create_code_master_table(db: &LocalDb) {
+        db.execute(
+            "CREATE TABLE municipality_code_master (
+                municipality_code TEXT PRIMARY KEY,
+                municipality_name TEXT,
+                prefecture TEXT,
+                area_type TEXT,
+                parent_code TEXT
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE master failed");
+    }
+
+    // [1] table 不在時は空 Vec
+    #[test]
+    fn fetch_occupation_cells_returns_empty_when_table_missing() {
+        let (_tmp, db) = create_test_db();
+        let rows = fetch_occupation_cells(&db, None, &["13103"], None, None);
+        assert!(rows.is_empty(), "table 不在時は空 Vec を期待");
+    }
+
+    // [2] measured XOR 行を読んで DTO に変換、is_xor_consistent が true
+    #[test]
+    fn fetch_occupation_cells_measured_returns_xor_consistent() {
+        let (_tmp, db) = create_test_db();
+        create_occupation_population_table(&db);
+        db.execute(
+            "INSERT INTO municipality_occupation_population VALUES \
+             ('13103', '東京都', '港区', 'workplace', '08_生産工程', '生産工程', '15_64', 'total', \
+              12345, NULL, 'measured', 'census_15_1', 2020, NULL)",
+            &[],
+        )
+        .expect("INSERT failed");
+
+        let rows = fetch_occupation_cells(&db, None, &["13103"], None, Some("workplace"));
+        assert_eq!(rows.len(), 1);
+
+        let cells = to_occupation_cells(&rows);
+        assert_eq!(cells.len(), 1);
+        for cell in &cells {
+            assert!(cell.is_xor_consistent(), "measured 行は XOR 一貫していること");
+            if cell.data_label == "measured" {
+                assert!(cell.population.is_some());
+                assert!(cell.estimate_index.is_none());
+            }
+        }
+    }
+
+    // [3] estimated_beta XOR 行
+    #[test]
+    fn fetch_occupation_cells_estimated_returns_xor_consistent() {
+        let (_tmp, db) = create_test_db();
+        create_occupation_population_table(&db);
+        db.execute(
+            "INSERT INTO municipality_occupation_population VALUES \
+             ('13103', '東京都', '港区', 'resident', '08_生産工程', '生産工程', '15_64', 'total', \
+              NULL, 142.5, 'estimated_beta', 'model_f2_target_thickness', 2020, 'hypothesis_v1')",
+            &[],
+        )
+        .expect("INSERT failed");
+
+        let rows = fetch_occupation_cells(&db, None, &["13103"], None, Some("resident"));
+        let cells = to_occupation_cells(&rows);
+        assert!(!cells.is_empty());
+        for cell in &cells {
+            assert!(cell.is_xor_consistent(), "estimated_beta 行も XOR 一貫");
+            assert!(cell.population.is_none());
+            assert!(cell.estimate_index.is_some());
+            assert_eq!(cell.weight_source.as_deref(), Some("hypothesis_v1"));
+        }
+    }
+
+    // [4] resident は人数表示不可 (estimated_beta のみ)
+    #[test]
+    fn fetch_resident_cells_cannot_display_population() {
+        let (_tmp, db) = create_test_db();
+        create_occupation_population_table(&db);
+        db.execute(
+            "INSERT INTO municipality_occupation_population VALUES \
+             ('13103', '東京都', '港区', 'resident', '08_生産工程', '生産工程', '15_64', 'total', \
+              NULL, 142.5, 'estimated_beta', 'model_f2_target_thickness', 2020, 'hypothesis_v1')",
+            &[],
+        )
+        .expect("INSERT failed");
+
+        let rows = fetch_occupation_cells(&db, None, &["13103"], None, Some("resident"));
+        let cells = to_occupation_cells(&rows);
+        assert!(!cells.is_empty());
+        for cell in &cells {
+            if cell.basis == "resident" {
+                assert!(
+                    !cell.can_display_population(),
+                    "resident + estimated_beta は人数表示不可"
+                );
+                assert!(cell.can_display_index(), "estimated_beta は指数表示可");
+            }
+        }
+    }
+
+    // [5] 親市内ランキングで parent_rank が主指標として有効
+    #[test]
+    fn fetch_ward_rankings_uses_parent_rank_primary() {
+        let (_tmp, db) = create_test_db();
+        create_thickness_table(&db);
+        create_code_master_table(&db);
+
+        // 横浜市本体 + 鶴見区 (designated_ward) を投入
+        db.execute(
+            "INSERT INTO municipality_code_master VALUES \
+             ('14100', '横浜市', '神奈川県', 'aggregate_city', NULL), \
+             ('14101', '横浜市鶴見区', '神奈川県', 'designated_ward', '14100'), \
+             ('14102', '横浜市神奈川区', '神奈川県', 'designated_ward', '14100')",
+            &[],
+        )
+        .expect("INSERT master failed");
+
+        db.execute(
+            "INSERT INTO v2_municipality_target_thickness \
+             (municipality_code, municipality_name, prefecture, basis, \
+              occupation_code, occupation_name, thickness_index, rank_in_occupation, \
+              distribution_priority, weight_source, is_industrial_anchor, source_year) VALUES \
+             ('14101', '横浜市鶴見区', '神奈川県', 'resident', '08_生産工程', '生産工程', \
+              142.5, 12, 'A', 'hypothesis_v1', 1, 2020), \
+             ('14102', '横浜市神奈川区', '神奈川県', 'resident', '08_生産工程', '生産工程', \
+              98.0, 50, 'B', 'hypothesis_v1', 0, 2020)",
+            &[],
+        )
+        .expect("INSERT thickness failed");
+
+        let rows = fetch_ward_rankings_by_parent(&db, None, "14100", "08_生産工程");
+        assert_eq!(rows.len(), 2, "designated_ward 2 区が返ること");
+
+        let dtos = to_ward_rankings(&rows);
+        for row in &dtos {
+            assert!(
+                row.uses_parent_rank_primary(),
+                "parent_rank が主指標 (>=1, <=parent_total, parent_code 非空)"
+            );
+        }
+        // 1 位は鶴見区 (thickness=142.5)
+        assert_eq!(dtos[0].municipality_name, "横浜市鶴見区");
+        assert_eq!(dtos[0].parent_rank, 1);
+        assert_eq!(dtos[0].parent_total, 2);
+    }
+
+    // [6] Window Function SQL の文字列内に RANK() OVER / COUNT(*) OVER / PARTITION BY が含まれる
+    #[test]
+    fn ward_ranking_sql_includes_window_functions() {
+        let sql = build_ward_ranking_sql();
+        assert!(sql.contains("RANK() OVER"), "SQL must use RANK() OVER");
+        assert!(sql.contains("COUNT(*) OVER"), "SQL must use COUNT(*) OVER");
+        assert!(sql.contains("PARTITION BY"), "SQL must use PARTITION BY");
+    }
+
+    // [7] empty input で fetch_ward_thickness は空 Vec
+    #[test]
+    fn fetch_ward_thickness_empty_input_returns_empty() {
+        let (_tmp, db) = create_test_db();
+        let rows = fetch_ward_thickness(&db, None, &[], None);
+        assert!(rows.is_empty());
+    }
+
+    // [8] fetch_code_master: 空 codes は全件取得
+    #[test]
+    fn fetch_code_master_returns_all_when_empty_input() {
+        let (_tmp, db) = create_test_db();
+        create_code_master_table(&db);
+        db.execute(
+            "INSERT INTO municipality_code_master VALUES \
+             ('13101', '千代田区', '東京都', 'special_ward', '13100'), \
+             ('14100', '横浜市', '神奈川県', 'aggregate_city', NULL), \
+             ('14101', '横浜市鶴見区', '神奈川県', 'designated_ward', '14100')",
+            &[],
+        )
+        .expect("INSERT master failed");
+
+        // 空 codes → 全件 3 行
+        let rows = fetch_code_master(&db, None, &[]);
+        assert_eq!(rows.len(), 3, "空 codes は全件取得");
+
+        let dtos = to_code_master(&rows);
+        assert_eq!(dtos.len(), 3);
+        // parent_code は Option<String>: aggregate_city は None、designated_ward は Some
+        let yokohama = dtos.iter().find(|d| d.municipality_code == "14100").unwrap();
+        assert!(yokohama.parent_code.is_none());
+        let tsurumi = dtos.iter().find(|d| d.municipality_code == "14101").unwrap();
+        assert_eq!(tsurumi.parent_code.as_deref(), Some("14100"));
+
+        // 特定 codes 指定 → 1 行
+        let rows_one = fetch_code_master(&db, None, &["14101"]);
+        assert_eq!(rows_one.len(), 1);
+    }
+
+    // 追加: WardThicknessDto の bool 変換と数値 helper のスモーク
+    #[test]
+    fn fetch_ward_thickness_with_industrial_anchor_flag() {
+        let (_tmp, db) = create_test_db();
+        create_thickness_table(&db);
+        db.execute(
+            "INSERT INTO v2_municipality_target_thickness \
+             (municipality_code, municipality_name, prefecture, basis, \
+              occupation_code, occupation_name, thickness_index, rank_in_occupation, \
+              distribution_priority, weight_source, is_industrial_anchor, \
+              scenario_conservative_index, scenario_standard_index, scenario_aggressive_index, \
+              source_year) VALUES \
+             ('14101', '横浜市鶴見区', '神奈川県', 'resident', '08_生産工程', '生産工程', \
+              142.5, 12, 'A', 'hypothesis_v1', 1, 100, 142, 180, 2020)",
+            &[],
+        )
+        .expect("INSERT thickness failed");
+
+        let rows = fetch_ward_thickness(&db, None, &["14101"], Some("08_生産工程"));
+        assert_eq!(rows.len(), 1);
+
+        let dtos = to_ward_thickness_dtos(&rows);
+        assert_eq!(dtos.len(), 1);
+        assert!(dtos[0].is_industrial_anchor, "is_industrial_anchor=1 → true");
+        assert_eq!(dtos[0].thickness_index, 142.5);
+        assert_eq!(dtos[0].scenario_conservative_index, Some(100));
+        assert_eq!(dtos[0].scenario_aggressive_index, Some(180));
+        assert_eq!(dtos[0].distribution_priority.as_deref(), Some("A"));
     }
 }
