@@ -1260,4 +1260,168 @@ mod tests {
         // 重点配信 (>= 80) は 01101 のみ
         assert!(html.contains("重点配信候補"));
     }
+
+    // ============================================================
+    // Phase 3 Step 5 Phase 6 (Worker P6): テスト深耕
+    //
+    // 1. parent_rank 表示順 強化 (複数 parent / 複数 ward での順序保証)
+    // 2. variant 完全分離 (Full / Public で Step5 マーカーが一切出ないこと)
+    // 3. empty fallback (空データで panic しない / placeholder 出力)
+    // ============================================================
+
+    /// `<tr>...</tr>` ブロック単位で文字列を切り出す簡易ヘルパー
+    fn find_row_blocks(html: &str) -> Vec<(usize, usize)> {
+        let mut blocks = Vec::new();
+        let mut start = 0usize;
+        while let Some(open_off) = html[start..].find("<tr") {
+            let abs_open = start + open_off;
+            if let Some(close_off) = html[abs_open..].find("</tr>") {
+                let abs_close = abs_open + close_off + 5;
+                blocks.push((abs_open, abs_close));
+                start = abs_close;
+            } else {
+                break;
+            }
+        }
+        blocks
+    }
+
+    /// 複数 parent / 複数 ward でも parent_rank が national_rank より前に出ること。
+    #[test]
+    fn parent_rank_appears_strictly_before_national_rank_in_html() {
+        let rankings = vec![
+            make_ranking_row("横浜市鶴見区", 1, 18, 5, 1917),
+            make_ranking_row("横浜市西区", 2, 18, 12, 1917),
+            WardRankingRowDto {
+                municipality_code: "27127".into(),
+                municipality_name: "大阪市北区".into(),
+                parent_code: "27100".into(),
+                parent_name: "大阪市".into(),
+                parent_rank: 1,
+                parent_total: 24,
+                national_rank: 8,
+                national_total: 1917,
+                thickness_index: 138.0,
+                priority: "A".into(),
+            },
+        ];
+        let mut html = String::new();
+        render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
+
+        // 各 <tr> ブロック内で「mi-parent-rank」が「mi-ref」より前に出ること
+        let blocks = find_row_blocks(&html);
+        let mut checked = 0usize;
+        for (s, e) in &blocks {
+            let block = &html[*s..*e];
+            let p = block.find("mi-parent-rank");
+            let n = block.find("mi-ref");
+            if let (Some(pi), Some(ni)) = (p, n) {
+                assert!(pi < ni,
+                    "行ブロックで mi-parent-rank が mi-ref より後ろ (parent={}, ref={})",
+                    pi, ni);
+                checked += 1;
+            }
+        }
+        assert!(checked >= 1,
+            "少なくとも 1 行で順序検証が走ること (実際: {} 行検査)", checked);
+    }
+
+    /// Full variant では Step 5 マーカーが一切 HTML に出ないこと。
+    ///
+    /// 設計: `render_section_market_intelligence` は variant ガードの内側で呼ばれる。
+    /// Full では `show_market_intelligence_sections() == false` なので呼ばれず、
+    /// 結果として Step5 マーカーは出力されない。本テストはガード分岐を直接シミュレート。
+    #[test]
+    fn full_variant_html_does_not_contain_any_step5_marker() {
+        use super::super::ReportVariant;
+
+        let data = SurveyMarketIntelligenceData {
+            occupation_cells: vec![
+                make_workplace_measured_cell("横浜市鶴見区", 12_345),
+                make_resident_estimated_beta_cell("横浜市鶴見区", 142.5),
+            ],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
+            ..Default::default()
+        };
+
+        // Full variant ガードを再現
+        let mut html = String::new();
+        if ReportVariant::Full.show_market_intelligence_sections() {
+            render_section_market_intelligence(&mut html, &data);
+        }
+
+        let step5_markers = [
+            "mi-parent-ward-ranking",
+            "mi-parent-rank",
+            "mi-thickness",
+            "mi-rank-table",
+            "従業地ベース",
+            "常住地ベース",
+            "市内順位",
+            "検証済み推定 β",
+            "Model F2",
+        ];
+        for marker in &step5_markers {
+            assert!(!html.contains(marker),
+                "Full variant に Step 5 マーカー '{}' が混入", marker);
+        }
+        assert!(html.is_empty(),
+            "Full variant では section 自体が呼ばれず空 HTML");
+    }
+
+    /// Public variant でも同様に Step 5 マーカーが一切出ないこと。
+    #[test]
+    fn public_variant_html_does_not_contain_any_step5_marker() {
+        use super::super::ReportVariant;
+
+        let data = SurveyMarketIntelligenceData {
+            occupation_cells: vec![
+                make_workplace_measured_cell("横浜市鶴見区", 12_345),
+            ],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
+            ..Default::default()
+        };
+
+        let mut html = String::new();
+        if ReportVariant::Public.show_market_intelligence_sections() {
+            render_section_market_intelligence(&mut html, &data);
+        }
+
+        let step5_markers = [
+            "mi-parent-ward-ranking",
+            "mi-parent-rank",
+            "従業地ベース",
+            "常住地ベース",
+            "検証済み推定 β",
+        ];
+        for marker in &step5_markers {
+            assert!(!html.contains(marker),
+                "Public variant に Step 5 マーカー '{}' が混入", marker);
+        }
+        assert!(html.is_empty(),
+            "Public variant では section 自体が呼ばれず空 HTML");
+    }
+
+    /// 空データで render_mi_parent_ward_ranking が panic しない + placeholder 出力。
+    #[test]
+    fn empty_data_renders_placeholder_not_panic() {
+        let mut html = String::new();
+        render_mi_parent_ward_ranking(&mut html, &[], &[]);
+        // panic していない & placeholder か空でない
+        assert!(html.contains("取得できません") || html.contains("mi-empty"),
+            "空データで placeholder/empty マーカーが出ること");
+    }
+
+    /// 空 occupation_cells で render_mi_occupation_cells が panic しない。
+    #[test]
+    fn empty_occupation_cells_renders_placeholder_or_empty() {
+        let mut html = String::new();
+        render_mi_occupation_cells(&mut html, &[]);
+        // 空 or placeholder どちらも許容 (panic しないこと自体が主要 invariant)
+        // 何かが書かれている場合は Hard NG が混入していないこと
+        for forbidden in ["推定人数", "想定人数", "母集団人数"] {
+            assert!(!html.contains(forbidden),
+                "空入力で Hard NG '{}' が出力されている", forbidden);
+        }
+    }
 }
