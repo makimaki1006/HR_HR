@@ -137,11 +137,20 @@ export async function clickNavTab(
 
 /**
  * 媒体分析タブで CSV をアップロードし、結果が表示されるまで待つ。
+ *
+ * 実 UI (src/handlers/survey/render.rs L83/L122) は `<select>` ではなく
+ * 以下の radio card UI:
+ *   #source-type-cards (role=radiogroup)
+ *     <label data-source="indeed|jobbox|other"> input[name="source_type"][value=...]
+ *   #wage-mode-cards   (role=radiogroup)
+ *     <label data-wage="monthly|hourly|auto"> input[name="wage_mode"][value=...]
+ *
+ * source_type に "auto" の選択肢は実 UI に存在しないため除外。
  */
 export async function uploadCsv(
   page: Page,
   csvPath: string,
-  sourceType: 'indeed' | 'jobbox' | 'other' | 'auto' = 'indeed',
+  sourceType: 'indeed' | 'jobbox' | 'other' = 'indeed',
   wageMode: 'monthly' | 'hourly' | 'auto' = 'monthly',
 ): Promise<void> {
   if (!fs.existsSync(csvPath)) {
@@ -150,9 +159,31 @@ export async function uploadCsv(
 
   await clickNavTab(page, '媒体分析');
 
-  await page.locator('select#source-type').waitFor({ state: 'visible', timeout: 30_000 });
-  await page.selectOption('select#source-type', sourceType);
-  await page.selectOption('select#wage-mode', wageMode);
+  // radio card UI 表示確認
+  await page.locator('#source-type-cards').waitFor({ state: 'visible', timeout: 30_000 });
+  await page.locator('#wage-mode-cards').waitFor({ state: 'visible', timeout: 10_000 });
+
+  // source_type / wage_mode をラベル経由で選択 (UI 意図に忠実、radio は hidden 想定でも label click で動く)
+  await page
+    .locator(`#source-type-cards label[data-source="${sourceType}"]`)
+    .click({ timeout: 10_000 });
+  await page
+    .locator(`#wage-mode-cards label[data-wage="${wageMode}"]`)
+    .click({ timeout: 10_000 });
+
+  // 選択状態確認 (radio.checked が true になっていること)
+  const srcChecked = await page
+    .locator(`input[name="source_type"][value="${sourceType}"]`)
+    .isChecked();
+  if (!srcChecked) {
+    throw new Error(`source_type radio "${sourceType}" did not become checked`);
+  }
+  const wageChecked = await page
+    .locator(`input[name="wage_mode"][value="${wageMode}"]`)
+    .isChecked();
+  if (!wageChecked) {
+    throw new Error(`wage_mode radio "${wageMode}" did not become checked`);
+  }
 
   const uploadResponsePromise = page.waitForResponse(
     (r) => r.url().includes('/api/survey/upload') && r.request().method() === 'POST',
@@ -216,7 +247,7 @@ export async function extractSessionId(page: Page): Promise<string> {
 export async function loginAndUpload(
   page: Page,
   csvPath: string,
-  sourceType: 'indeed' | 'jobbox' | 'other' | 'auto' = 'indeed',
+  sourceType: 'indeed' | 'jobbox' | 'other' = 'indeed',
 ): Promise<{ sessionId: string }> {
   await login(page);
   await uploadCsv(page, csvPath, sourceType, 'monthly');
