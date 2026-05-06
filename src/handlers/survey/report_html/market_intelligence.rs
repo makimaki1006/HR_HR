@@ -48,6 +48,8 @@ pub const MEASURED_LABEL: &str = "実測";
 pub const ESTIMATED_LABEL: &str = "推定";
 /// 参考ラベル
 pub const REFERENCE_LABEL: &str = "参考";
+/// データ不足ラベル (P1-1: 数値が存在しない / すべて NULL のとき視覚化)
+pub const INSUFFICIENT_LABEL: &str = "データ不足";
 
 // --------------- Phase 3 Step 5 Phase 4: Plan B 表示ラベル定数 ---------------
 //
@@ -271,6 +273,7 @@ const MI_STYLE_BLOCK: &str = r#"<style>
 .mi-badge-estimated-beta { background: #fef9c3; color: #854d0e; border-color: #fde047; }
 .mi-badge-estimated-beta::after { content: "β"; font-size: 8px; vertical-align: super; margin-left: 2px; }
 .mi-badge-reference { background: #e2e8f0; color: #475569; border-color: #cbd5e1; }
+.mi-badge-insufficient { background: #f3f4f6; color: #6b7280; border: 1px dashed #9ca3af; }
 .mi-priority-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; min-width: 22px; text-align: center; }
 .mi-priority-s { background: #7c3aed; color: #fff; }
 .mi-priority-a { background: #16a34a; color: #fff; }
@@ -314,6 +317,7 @@ const MI_STYLE_BLOCK: &str = r#"<style>
 .mi-badge-measured { background: #dcfce7; color: #14532d; border-color: #4ade80; }
 .mi-badge-estimated-beta { background: #fef9c3; color: #713f12; border-color: #facc15; }
 .mi-badge-reference { background: #e2e8f0; color: #334155; border-color: #94a3b8; }
+.mi-badge-insufficient { background: #f3f4f6; color: #4b5563; border: 1px dashed #6b7280; font-weight: 700; }
 @media print {
   .mi-kpi-grid { display: block; }
   .mi-kpi-card { display: block; page-break-inside: avoid; margin-bottom: 8px; }
@@ -460,6 +464,12 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         "mi-badge-estimated-beta",
         "推定",
     );
+    // P1-1: thickness_avg が None のとき insufficient badge へ切替 (人数化はしない)
+    let (thickness_badge_cls, thickness_badge_txt) = if thickness_avg.is_some() {
+        ("mi-badge-estimated-beta", ESTIMATED_LABEL)
+    } else {
+        ("mi-badge-insufficient", INSUFFICIENT_LABEL)
+    };
     render_mi_kpi_card(
         html,
         "厚み指数 平均",
@@ -467,8 +477,8 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
             .map(|v| format!("{v:.0}"))
             .unwrap_or_else(|| "-".to_string()),
         "(相対)",
-        "mi-badge-estimated-beta",
-        "推定",
+        thickness_badge_cls,
+        thickness_badge_txt,
     );
     render_mi_kpi_card(
         html,
@@ -511,19 +521,22 @@ fn render_mi_kpi_card(
     ));
 }
 
-// --------------- P0: 統一 data-label badge ---------------
+// --------------- P0/P1-1: 統一 data-label badge ---------------
 //
-// 「実測 / 推定 β / 参考」ラベルを共通の見た目で出す。kind:
+// 「実測 / 推定 β / 参考 / データ不足」ラベルを共通の見た目で出す。kind:
 //   - "measured"       → mi-badge-measured (実測)
 //   - "estimated_beta" → mi-badge-estimated-beta (推定)
 //   - "reference"      → mi-badge-reference (参考)
-// 不明な kind は参考扱いで安全側に倒す。
+//   - "insufficient"   → mi-badge-insufficient (データ不足) — 数値が存在しないことの視覚化
+// 不明な kind は空文字列 (バッジ非表示)。resident estimated_beta の人数化禁止は維持。
 #[allow(dead_code)]
 pub(crate) fn render_mi_data_label_badge(kind: &str) -> String {
     let (cls, text) = match kind {
         "measured" => ("mi-badge-measured", MEASURED_LABEL),
         "estimated_beta" => ("mi-badge-estimated-beta", ESTIMATED_LABEL),
-        "reference" | _ => ("mi-badge-reference", REFERENCE_LABEL),
+        "reference" => ("mi-badge-reference", REFERENCE_LABEL),
+        "insufficient" => ("mi-badge-insufficient", INSUFFICIENT_LABEL),
+        _ => return String::new(),
     };
     format!(
         "<span class=\"mi-badge {cls}\">{text}</span>",
@@ -737,28 +750,45 @@ pub(crate) fn render_mi_living_cost_panel(
 
     html.push_str("<div class=\"mi-living-cost-grid\">\n");
 
-    render_mi_lc_card(
+    // P1-1: 値が None のカードには mi-badge-insufficient を付与
+    render_mi_lc_card_with_badge(
         html,
         "都道府県 cost_index",
         &cost_index_avg
             .map(|v| format!("{v:.1}"))
             .unwrap_or_else(|| "-".to_string()),
+        if cost_index_avg.is_none() {
+            "insufficient"
+        } else {
+            ""
+        },
     );
-    render_mi_lc_card(
+    render_mi_lc_card_with_badge(
         html,
         "最低賃金 (時給)",
         &min_wage_yen
             .map(|v| format!("{} 円", format_thousands(v)))
             .unwrap_or_else(|| "-".to_string()),
+        if min_wage_yen.is_none() {
+            "insufficient"
+        } else {
+            ""
+        },
     );
-    render_mi_lc_card(
+    render_mi_lc_card_with_badge(
         html,
         "給与実質感 proxy",
         &salary_real_proxy
             .map(|v| format!("{v:.2}"))
             .unwrap_or_else(|| "-".to_string()),
+        if salary_real_proxy.is_none() {
+            "insufficient"
+        } else {
+            ""
+        },
     );
-    render_mi_lc_card(html, "市区町村差分", "-");
+    // 市区町村差分は現状未算出のため常に insufficient
+    render_mi_lc_card_with_badge(html, "市区町村差分", "-", "insufficient");
 
     html.push_str("</div>\n");
     html.push_str(
@@ -769,13 +799,25 @@ pub(crate) fn render_mi_living_cost_panel(
     html.push_str("</section>\n");
 }
 
+#[allow(dead_code)]
 fn render_mi_lc_card(html: &mut String, label: &str, value: &str) {
+    render_mi_lc_card_with_badge(html, label, value, "");
+}
+
+// P1-1: badge_kind が空でなければ render_mi_data_label_badge で badge を付与
+fn render_mi_lc_card_with_badge(html: &mut String, label: &str, value: &str, badge_kind: &str) {
+    let badge_html = if badge_kind.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", render_mi_data_label_badge(badge_kind))
+    };
     html.push_str(&format!(
         "<div class=\"mi-living-cost-card\">\
-         <div class=\"mi-lc-label\">{label}</div>\
+         <div class=\"mi-lc-label\">{label}{badge}</div>\
          <div class=\"mi-lc-value\">{value}</div>\
          </div>\n",
         label = escape_html(label),
+        badge = badge_html,
         value = escape_html(value),
     ));
 }
@@ -2528,15 +2570,90 @@ mod tests {
 
     #[test]
     fn test_p0_data_label_badge_renders_correct_kind() {
+        // P1-1 で 4 種統一 (measured / estimated_beta / reference / insufficient)
         let m = render_mi_data_label_badge("measured");
         let e = render_mi_data_label_badge("estimated_beta");
         let r = render_mi_data_label_badge("reference");
         assert!(m.contains("mi-badge-measured") && m.contains(MEASURED_LABEL));
         assert!(e.contains("mi-badge-estimated-beta") && e.contains(ESTIMATED_LABEL));
         assert!(r.contains("mi-badge-reference") && r.contains(REFERENCE_LABEL));
-        // 不明 kind は reference に倒れる (安全側)
+    }
+
+    // --------------- P1-1: 4 種統一 badge unit tests ---------------
+
+    #[test]
+    fn data_label_badge_renders_insufficient_kind() {
+        // P1-1: insufficient kind は mi-badge-insufficient + INSUFFICIENT_LABEL を出す
+        let html = render_mi_data_label_badge("insufficient");
+        assert!(
+            html.contains("mi-badge-insufficient"),
+            "insufficient kind は mi-badge-insufficient class を出す: {html}"
+        );
+        assert!(
+            html.contains(INSUFFICIENT_LABEL),
+            "insufficient ラベルテキスト「データ不足」が含まれること: {html}"
+        );
+    }
+
+    #[test]
+    fn data_label_badge_unknown_kind_returns_empty() {
+        // P1-1: 不明 kind は空文字列 (badge 非表示) — 旧 reference fallback は廃止
         let unk = render_mi_data_label_badge("unknown");
-        assert!(unk.contains("mi-badge-reference"));
+        assert!(
+            unk.is_empty(),
+            "不明な kind は空文字列を返す (バッジ非表示): {unk}"
+        );
+        // 空 kind も同様
+        assert!(render_mi_data_label_badge("").is_empty());
+    }
+
+    #[test]
+    fn living_cost_panel_shows_insufficient_when_all_null() {
+        // P1-1: cost_index / min_wage / salary_real_terms_proxy がすべて None のとき、
+        //       各カードに mi-badge-insufficient が表示される
+        let mut html = String::new();
+        let living: Vec<LivingCostProxy> = vec![];
+        let scores: Vec<MunicipalityRecruitingScore> = vec![];
+        render_mi_living_cost_panel(&mut html, &living, &scores);
+
+        assert!(
+            html.contains("mi-badge-insufficient"),
+            "全 NULL 時に insufficient バッジが付与されること: {html}"
+        );
+        assert!(
+            html.contains(INSUFFICIENT_LABEL),
+            "「データ不足」ラベルが表示されること: {html}"
+        );
+        // Hard NG: 人数化禁止は維持
+        for forbidden in [
+            "推定人数",
+            "想定人数",
+            "母集団人数",
+            "estimated_population",
+            "target_count",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "Hard NG 用語 '{}' が混入",
+                forbidden
+            );
+        }
+    }
+
+    #[test]
+    fn kpi_card_shows_insufficient_when_value_none() {
+        // P1-1: 厚み指数 平均 が None のとき (recruiting_scores も ward_rankings も空)、
+        //       insufficient badge が KPI カードに付与される
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_mi_kpi_cards(&mut html, &data);
+
+        assert!(
+            html.contains("mi-badge-insufficient"),
+            "全データ未投入時に insufficient バッジが KPI に付与されること: {html}"
+        );
+        // 厚み指数 平均 ラベルは存在
+        assert!(html.contains("厚み指数 平均"));
     }
 
     #[test]
