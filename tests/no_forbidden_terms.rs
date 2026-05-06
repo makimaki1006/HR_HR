@@ -293,3 +293,102 @@ fn no_forbidden_terms_near_mi_print_blocks() {
         found.join("\n")
     );
 }
+
+/// P0 (2026-05-06): Print/PDF P1 客観レビュー C 判定対応。
+///
+/// 内部 fallback 文言 (「データ不足」「要件再確認」「データ準備中」「未集計」
+/// 「参考表示なし」「本条件では表示対象がありません」「Sample」) が、
+/// 採用マーケットインテリジェンスの表示 HTML 出力ファイル
+/// (`src/handlers/survey/report_html/market_intelligence.rs`) に
+/// 出力文字列リテラルとして残っていないことを保証する。
+///
+/// スコープ:
+/// - 対象: `src/handlers/survey/report_html/market_intelligence.rs`
+/// - 除外: docs/、tests/、その他 src (テキスト引用やドメイン語彙のため)
+/// - 許容: コメント (`//` 以降)、`assert!(!...)` の否定検証、
+///   FORBIDDEN_*/NG_* 定数定義行、test 関数本体
+///
+/// 設計参照:
+/// - 客観レビュー指摘: PDF page 16 結論ブロック / ヒーロー第 2 枠
+/// - `docs/MARKET_INTELLIGENCE_PRINT_PDF_P1_SPEC.md` §7
+#[test]
+fn no_internal_fallback_terms_in_market_intelligence_render() {
+    const INTERNAL_FALLBACK_NG: &[&str] = &[
+        "データ不足",
+        "要件再確認",
+        "データ準備中",
+        "未集計",
+        "参考表示なし",
+        "本条件では表示対象がありません",
+        "Sample",
+    ];
+
+    // スコープ限定: market_intelligence.rs のみ
+    let target = Path::new("src/handlers/survey/report_html/market_intelligence.rs");
+    assert!(
+        target.exists(),
+        "対象ファイルが見つからない: {}",
+        target.display()
+    );
+
+    let content = fs::read_to_string(target).expect("market_intelligence.rs 読み込み失敗");
+
+    // `#[cfg(test)]` モジュールに入った時点以降の行はテストコードとして除外。
+    // (テスト本体で NG 用語を assert 検証する目的で参照する正当な用法のため)
+    let cfg_test_line: Option<usize> = content
+        .lines()
+        .position(|l| l.trim_start().starts_with("#[cfg(test)]"));
+
+    let mut found = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        // テストモジュール内は対象外
+        if let Some(cfg_idx) = cfg_test_line {
+            if i >= cfg_idx {
+                break;
+            }
+        }
+        let trimmed = line.trim_start();
+
+        // コメント行は許可 (実装意図の説明として用語を引用するため)
+        if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("*") {
+            continue;
+        }
+        // 否定 assertion / 禁止用語の列挙定数 / テスト用変数は許可
+        let is_negation_assert = trimmed.starts_with("assert!(!")
+            || trimmed.contains("!html.contains")
+            || trimmed.contains("forbidden")
+            || trimmed.contains("Hard NG")
+            || trimmed.contains("INTERNAL_FALLBACK_NG")
+            || trimmed.contains("FORBIDDEN_")
+            || trimmed.contains("NG_NEAR_PRINT");
+        if is_negation_assert {
+            continue;
+        }
+        // 「実測値準備中」は workplace measured fallback の固有ラベルで NG ではない
+        // (タスク NG リストには含まれないドメイン語彙)
+        // 「サンプル件数」(統計の n=サンプル件数) は統計用語で NG ではない
+        let line_for_check = line
+            .replace("実測値準備中", "")
+            .replace("サンプル件数", "")
+            .replace("業界サンプル件数", "");
+
+        for term in INTERNAL_FALLBACK_NG {
+            if line_for_check.contains(term) {
+                found.push(format!(
+                    "{}:{}: '{}' が表示 HTML 出力に混入: {}",
+                    target.display(),
+                    i + 1,
+                    term,
+                    line.trim()
+                ));
+            }
+        }
+    }
+
+    assert!(
+        found.is_empty(),
+        "内部 fallback 文言が market_intelligence.rs の出力に混入 ({} 件):\n{}",
+        found.len(),
+        found.join("\n")
+    );
+}

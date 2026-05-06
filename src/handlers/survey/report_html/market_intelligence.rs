@@ -48,8 +48,10 @@ pub const MEASURED_LABEL: &str = "実測";
 pub const ESTIMATED_LABEL: &str = "推定";
 /// 参考ラベル
 pub const REFERENCE_LABEL: &str = "参考";
-/// データ不足ラベル (P1-1: 数値が存在しない / すべて NULL のとき視覚化)
-pub const INSUFFICIENT_LABEL: &str = "データ不足";
+/// 該当なしラベル (P1-1: 数値が存在しない / すべて NULL のとき視覚化)
+/// P0 (2026-05-06): PDF 本文に「データ不足」内部 fallback 文言が出ていたため、
+/// バッジ表示テキストを「該当なし」に変更 (mi-badge-insufficient class は維持)。
+pub const INSUFFICIENT_LABEL: &str = "該当なし";
 
 // --------------- Phase 3 Step 5 Phase 4: Plan B 表示ラベル定数 ---------------
 //
@@ -379,7 +381,9 @@ const MI_STYLE_BLOCK: &str = r#"<style>
   .mi-rank-table tbody { page-break-inside: auto; }
   /* P1 B: hero は A4 でも 3 枚横並び維持 */
   .mi-hero-grid { display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .mi-hero-card { page-break-inside: avoid; }
+  /* P0 (2026-05-06): hero bar 自体もページまたぎ防止 */
+  .mi-hero-bar { break-inside: avoid; page-break-inside: avoid; }
+  .mi-hero-card { break-inside: avoid; page-break-inside: avoid; }
   /* P0: 厚みバーは印刷時に幅縮退 (はみ出し防止) */
   .mi-thickness-bar-fill { max-width: 80%; }
 }
@@ -527,9 +531,12 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         "mi-badge-measured",
         "実測",
     );
+    // P0 (2026-05-06): ヒーロー Card 1「重点配信候補 (S+A)」と同名ラベルだったが
+    // 計算定義が異なる (S/A 件数 vs スコア 80+ 件数) ため、ラベルを別名にして
+    // 同ページ内の数値矛盾を解消する。
     render_mi_kpi_card(
         html,
-        "重点配信候補",
+        "配信検証候補",
         &format!("{high_priority_score_count}"),
         "件 (スコア80+)",
         "mi-badge-estimated-beta",
@@ -659,22 +666,31 @@ pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntellige
     ));
 
     // Card 2: 市内 1 位市区
-    let (ward_label, ward_ctx) = match first_top_ward {
-        Some(w) => (
-            escape_html(&w.municipality_name).to_string(),
-            format!("市内順位 1 / {} 区", w.parent_total),
-        ),
-        None => ("-".to_string(), "データ準備中".to_string()),
-    };
-    html.push_str(&format!(
-        "<div class=\"mi-hero-card\" role=\"listitem\">\
-         <div class=\"mi-hero-eyebrow\">市内 1 位市区 (先頭政令市)</div>\
-         <div class=\"mi-hero-value\">{label}</div>\
-         <div class=\"mi-hero-context\">{ctx}</div>\
-         </div>\n",
-        label = ward_label,
-        ctx = escape_html(&ward_ctx),
-    ));
+    // P0 (2026-05-06): 値なし時に「データ準備中」「-」を出していたため、
+    // mi-badge-insufficient (「該当なし」) で統一。値表示部も「該当なし」のみ。
+    match first_top_ward {
+        Some(w) => {
+            html.push_str(&format!(
+                "<div class=\"mi-hero-card\" role=\"listitem\">\
+                 <div class=\"mi-hero-eyebrow\">市内 1 位市区 (先頭政令市)</div>\
+                 <div class=\"mi-hero-value\">{label}</div>\
+                 <div class=\"mi-hero-context\">{ctx}</div>\
+                 </div>\n",
+                label = escape_html(&w.municipality_name),
+                ctx = escape_html(&format!("市内順位 1 / {} 区", w.parent_total)),
+            ));
+        }
+        None => {
+            html.push_str(&format!(
+                "<div class=\"mi-hero-card\" role=\"listitem\">\
+                 <div class=\"mi-hero-eyebrow\">市内 1 位市区 (先頭政令市)</div>\
+                 <div class=\"mi-hero-value\">該当なし</div>\
+                 <div class=\"mi-hero-context\">{badge}</div>\
+                 </div>\n",
+                badge = render_mi_data_label_badge("insufficient"),
+            ));
+        }
+    }
 
     // Card 3: 職業人口 (workplace × measured 限定) または fallback (厚み指数 平均)
     if has_workplace_measured {
@@ -938,6 +954,8 @@ pub(crate) fn render_mi_print_summary(
     html.push_str("<ul>\n");
 
     // 配信優先度の結論
+    // P0 (2026-05-06): S/A 0 件のとき「データ不足のため特定できませんでした (要件再確認)」
+    // という内部 fallback 文言を出力していたため、配信地域ランキング案内に変更。
     if priority_sa > 0 {
         html.push_str(&format!(
             "<li>配信優先度 S/A 該当が <strong>{}</strong> 件。配信優先度が高い地域です。</li>\n",
@@ -945,11 +963,14 @@ pub(crate) fn render_mi_print_summary(
         ));
     } else {
         html.push_str(
-            "<li>配信優先度 S/A 該当はデータ不足のため特定できませんでした (要件再確認)。</li>\n",
+            "<li>配信優先度 S/A 該当はありません (該当なし)。\
+             下表の配信地域ランキングと厚み指数を確認してください。</li>\n",
         );
     }
 
     // 厚み傾向の結論
+    // P0 (2026-05-06): None 時は「データ不足のため算出できませんでした」という
+    // 内部 fallback 文言を出していたため、推定 β 指数の設計説明のみに変更。
     match thickness_avg {
         Some(v) => {
             html.push_str(&format!(
@@ -960,7 +981,7 @@ pub(crate) fn render_mi_print_summary(
         }
         None => {
             html.push_str(
-                "<li>厚み指数は今回データ不足のため算出できませんでした。\
+                "<li>厚み指数は該当なし。\
                  常住地ベースの厚みは推定 β 指数で表示する設計です。</li>\n",
             );
         }
@@ -1284,7 +1305,7 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
     );
     render_mi_kpi(
         html,
-        "重点配信候補",
+        "配信検証候補",
         &format!("{high_priority_count}"),
         "件 (スコア80+)",
         ESTIMATED_LABEL,
@@ -1686,10 +1707,12 @@ fn render_mi_kpi(html: &mut String, label: &str, value: &str, unit: &str, label_
 }
 
 fn render_mi_placeholder(html: &mut String, msg: &str) {
+    // P0 (2026-05-06): 「データ準備中」prefix を「該当なし」に変更。
+    // 印刷 PDF 本文に内部 fallback 文言を出さないため。
     html.push_str(&format!(
         "<div class=\"mi-placeholder\" role=\"note\" \
          style=\"padding:10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;color:#92400e;font-size:13px;\">\
-         \u{2139} データ準備中: {}</div>\n",
+         \u{2139} 該当なし: {}</div>\n",
         escape_html(msg)
     ));
 }
@@ -1759,9 +1782,10 @@ mod tests {
         let data = SurveyMarketIntelligenceData::default();
         render_section_market_intelligence(&mut html, &data);
         assert!(html.contains("採用マーケットインテリジェンス"));
-        assert!(html.contains("データ準備中"));
+        // P0 (2026-05-06): placeholder prefix を「データ準備中」→「該当なし」に変更
+        assert!(html.contains("該当なし"));
         // 5 セクション + 1 補助セクションの placeholder が出ること (各 section 内に 1 つずつ)
-        let placeholder_count = html.matches("データ準備中").count();
+        let placeholder_count = html.matches("mi-placeholder").count();
         assert!(placeholder_count >= 5, "placeholder が 5 セクション以上に出る (実際 {})", placeholder_count);
     }
 
@@ -2526,12 +2550,14 @@ mod tests {
             html.contains(">2<"),
             "A 件数 = 2 が表示されること: {html}"
         );
-        // 重点配信候補 = S + A = 3
+        // P0 (2026-05-06): KPI 側ラベルを「配信検証候補」にリネーム
+        // (ヒーロー Card 1「重点配信候補 (S+A)」と数値矛盾を起こさないため)
+        // S/A 計算: priority IN ('S','A') = 3 件 → fallback で score 80+ を使わずそのまま 3
         assert!(
-            html.contains("重点配信候補"),
-            "重点配信候補 KPI ラベル必須"
+            html.contains("配信検証候補"),
+            "配信検証候補 KPI ラベル必須"
         );
-        assert!(html.contains(">3<"), "重点配信候補 (S+A) = 3");
+        assert!(html.contains(">3<"), "配信検証候補 (S+A) = 3");
     }
 
     #[test]
@@ -2775,7 +2801,7 @@ mod tests {
         );
         assert!(
             html.contains(INSUFFICIENT_LABEL),
-            "insufficient ラベルテキスト「データ不足」が含まれること: {html}"
+            "insufficient ラベルテキスト「該当なし」が含まれること: {html}"
         );
     }
 
@@ -2806,7 +2832,7 @@ mod tests {
         );
         assert!(
             html.contains(INSUFFICIENT_LABEL),
-            "「データ不足」ラベルが表示されること: {html}"
+            "「該当なし」ラベルが表示されること: {html}"
         );
         // Hard NG: 人数化禁止は維持
         for forbidden in [
@@ -3099,6 +3125,109 @@ mod tests {
         assert!(
             !public_html.contains("mi-print-annotations"),
             "Public variant に印刷注釈が混入しないこと"
+        );
+    }
+
+    // ============================================================
+    // P0 (2026-05-06): 印刷 PDF 内部 fallback 文言除去ガード
+    // 客観レビュー C 判定の修正:
+    //   - 「データ不足のため特定できませんでした (要件再確認)」
+    //   - 「データ準備中」
+    //   - 「未集計」「参考表示なし」「本条件では表示対象がありません」「Sample」
+    // が render_mi_print_summary / render_mi_hero_bar 出力に出ないことを保証する。
+    // ============================================================
+
+    /// 内部 fallback 文言 (NG 7 種) のリスト。テスト共有定数。
+    const INTERNAL_FALLBACK_NG: &[&str] = &[
+        "データ不足",
+        "要件再確認",
+        "データ準備中",
+        "未集計",
+        "参考表示なし",
+        "本条件では表示対象がありません",
+        "Sample",
+    ];
+
+    #[test]
+    fn print_summary_does_not_contain_internal_fallback_terms() {
+        // S/A 0 件 + 厚み指数なしの最悪ケース (旧実装で「データ不足」「要件再確認」が出ていた)
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_mi_print_summary(&mut html, &data);
+        for term in INTERNAL_FALLBACK_NG {
+            assert!(
+                !html.contains(term),
+                "render_mi_print_summary に内部 fallback 文言 '{}' が混入: {}",
+                term,
+                html
+            );
+        }
+    }
+
+    #[test]
+    fn hero_bar_does_not_contain_internal_fallback_terms() {
+        // ward_rankings 空 (Card 2 が None) + occupation_cells 空 (Card 3 fallback)
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_mi_hero_bar(&mut html, &data);
+        for term in INTERNAL_FALLBACK_NG {
+            assert!(
+                !html.contains(term),
+                "render_mi_hero_bar に内部 fallback 文言 '{}' が混入: {}",
+                term,
+                html
+            );
+        }
+    }
+
+    #[test]
+    fn print_summary_uses_該当なし_for_zero_priority_sa() {
+        // S/A 該当 0 件のとき「該当なし」+ 配信地域ランキング案内を出す
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_mi_print_summary(&mut html, &data);
+        assert!(
+            html.contains("該当なし"),
+            "S/A 0 件のとき『該当なし』表示が必須: {html}"
+        );
+        assert!(
+            html.contains("配信地域ランキング"),
+            "S/A 0 件のとき配信地域ランキング案内が必須: {html}"
+        );
+    }
+
+    #[test]
+    fn hero_first_card_and_kpi_use_distinct_labels() {
+        // Card 1「重点配信候補 (S + A)」と KPI「配信検証候補 (スコア80+)」が
+        // 別ラベルで表示されること (0 件 vs 11 件矛盾の解消)
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ..Default::default()
+        };
+        render_mi_hero_bar(&mut html, &data);
+        render_mi_kpi_cards(&mut html, &data);
+
+        assert!(
+            html.contains("重点配信候補 (S + A)"),
+            "ヒーロー Card 1 は『重点配信候補 (S + A)』ラベル: {html}"
+        );
+        assert!(
+            html.contains("配信検証候補"),
+            "KPI 側は『配信検証候補』ラベル (スコア 80+ 計算): {html}"
+        );
+    }
+
+    #[test]
+    fn hero_bar_break_inside_avoid_in_print_media() {
+        // @media print { .mi-hero-bar { break-inside: avoid; } } を含む
+        // (P0 2026-05-06: hero がページまたぎで分断されないこと)
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        assert!(
+            html.contains(".mi-hero-bar { break-inside: avoid"),
+            "@media print 内に .mi-hero-bar の break-inside: avoid が必須: print CSS 抜粋確認"
         );
     }
 }
