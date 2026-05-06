@@ -33,12 +33,12 @@ function hasMiContent(html: string): boolean {
 test.describe('MarketIntelligence print + theme (Phase 7 Spec 4)', () => {
   test.setTimeout(420_000);
 
-  let sharedSessionId: string | null = null;
-
+  // Playwright のデフォルトでは test ごとに new context (cookie 非共有)。
+  // sharedSessionId 文字列だけ持ち回しても auth cookie がリセットされて /login
+  // redirect 経由で MI 不在 HTML が返り FAIL するため、各 test で loginAndUpload を
+  // 再実行する (display_rules.spec.ts と同じ方針)。
   async function getSession(page: Page): Promise<string> {
-    if (sharedSessionId) return sharedSessionId;
     const { sessionId } = await loginAndUpload(page, FIXTURE, 'indeed');
-    sharedSessionId = sessionId;
     return sessionId;
   }
 
