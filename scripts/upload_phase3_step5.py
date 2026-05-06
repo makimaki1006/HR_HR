@@ -97,6 +97,14 @@ TABLES: dict[str, dict[str, Any]] = {
         "incr_filter": "designated_ward",
         "incr_expect_rows": 1_575,
     },
+    "municipality_recruiting_scores": {
+        "strategy": "replace",
+        "expect_local": 20_845,
+    },
+    "municipality_living_cost_proxy": {
+        "strategy": "replace",
+        "expect_local": 1_917,
+    },
 }
 
 ALL_TABLES = list(TABLES.keys())

@@ -699,3 +699,385 @@ input:focus-visible {
         transition-duration: 0s !important;
     }
 }
+/* ==========================================================================
+ * 地域カルテ (region_karte) 専用スタイル
+ *
+ * このブロックは `static/css/dashboard.css` の **末尾に追記** してください。
+ * 既存クラスを上書きしないよう、全クラスに `karte-` プレフィックスを付与。
+ *
+ * 依存: Tailwind precompiled (text-*/bg-* 系のユーティリティ)
+ * アクセシビリティ: prefers-reduced-motion / prefers-contrast 準拠
+ * ========================================================================== */
+
+/* ----- コンテナ / ヘッダー ----- */
+.karte-container {
+    padding-bottom: 2rem;
+}
+
+.karte-header {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.4) 100%);
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+}
+
+.karte-action-bar {
+    flex-shrink: 0;
+}
+
+.karte-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.karte-btn:hover {
+    background: #334155;
+    border-color: #475569;
+}
+
+.karte-btn-print {
+    background: #1e40af;
+    border-color: #1d4ed8;
+}
+
+.karte-btn-print:hover {
+    background: #1d4ed8;
+    border-color: #2563eb;
+}
+
+.karte-btn-share {
+    background: #0f766e;
+    border-color: #14b8a6;
+}
+
+.karte-btn-share:hover {
+    background: #14b8a6;
+}
+
+/* ----- バッジ（ヘッダー基本属性） ----- */
+.karte-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.karte-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+}
+
+.karte-badge-pop { border-color: #3b82f6; color: #93c5fd; }
+.karte-badge-area { border-color: #10b981; color: #6ee7b7; }
+.karte-badge-elderly { border-color: #f59e0b; color: #fcd34d; }
+
+/* ----- セクション共通 ----- */
+.karte-section {
+    margin-top: 1.5rem;
+}
+
+.karte-section-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #f1f5f9;
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #1e293b;
+}
+
+.karte-section-hint {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 0.75rem;
+}
+
+/* ----- S1: KPI グリッド（9枚） ----- */
+.karte-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+}
+
+.karte-kpi-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    text-align: center;
+    transition: border-color 0.15s, transform 0.15s;
+}
+
+.karte-kpi-card:hover {
+    border-color: #475569;
+    transform: translateY(-1px);
+}
+
+.karte-kpi-icon {
+    font-size: 1.5rem;
+    margin-bottom: 2px;
+}
+
+.karte-kpi-label {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+}
+
+.karte-kpi-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+/* ----- チャート共通カード ----- */
+.karte-chart-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-top: 0.75rem;
+}
+
+.karte-chart-title {
+    font-size: 13px;
+    color: #cbd5e1;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.karte-chart-note {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 0.5rem;
+}
+
+.karte-chart-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+/* ----- S4: ミニカード行 ----- */
+.karte-cards-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.5rem;
+}
+
+.karte-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.5rem;
+}
+
+.karte-mini-card {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.karte-mini-icon {
+    font-size: 1.1rem;
+    margin-bottom: 2px;
+}
+
+.karte-mini-label {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+
+.karte-mini-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+/* ----- S6: 示唆カード（grid） ----- */
+.karte-insight-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 0.75rem;
+}
+
+.karte-insight-card {
+    border-radius: 10px;
+    border: 1px solid;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.karte-insight-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.karte-insight-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.karte-insight-cat {
+    font-size: 10px;
+    color: #94a3b8;
+}
+
+.karte-insight-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.3;
+}
+
+.karte-insight-body {
+    font-size: 11px;
+    color: #cbd5e1;
+    line-height: 1.5;
+}
+
+.karte-evidence-list {
+    margin-top: 0.35rem;
+    padding-left: 0;
+    list-style: none;
+    font-size: 10.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.karte-evidence-list li {
+    background: rgba(15, 23, 42, 0.5);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* ----- フッター ----- */
+.karte-footer {
+    margin-top: 2rem;
+}
+
+/* ==========================================================================
+ * アニメーション・アクセシビリティ
+ * ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+    .karte-kpi-card,
+    .karte-btn {
+        transition: none;
+    }
+    .karte-kpi-card:hover {
+        transform: none;
+    }
+}
+
+@media (prefers-contrast: more) {
+    .karte-kpi-card,
+    .karte-chart-card,
+    .karte-insight-card,
+    .karte-mini-card {
+        border-width: 2px;
+    }
+}
+
+/* ==========================================================================
+ * 印刷レイアウト (A4 1-2 ページに収まるよう調整)
+ * ========================================================================== */
+@media print {
+    /* ページ共通 */
+    @page {
+        size: A4;
+        margin: 10mm;
+    }
+
+    /* ヘッダー・ナビ・フィルタを非表示 */
+    header,
+    nav,
+    #breadcrumb-bar,
+    #loading-overlay,
+    .karte-action-bar,
+    .tab-btn {
+        display: none !important;
+    }
+
+    body {
+        background: #ffffff !important;
+        color: #0f172a !important;
+    }
+
+    .karte-container {
+        padding: 0;
+    }
+
+    .karte-header {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        padding: 0.5rem 0.75rem !important;
+    }
+
+    .karte-header h2,
+    .karte-section-title,
+    .karte-chart-title,
+    .karte-kpi-value,
+    .karte-insight-title,
+    .karte-mini-value {
+        color: #0f172a !important;
+    }
+
+    .karte-section-hint,
+    .karte-chart-note,
+    .karte-kpi-label,
+    .karte-mini-label,
+    .karte-insight-body {
+        color: #475569 !important;
+    }
+
+    .karte-section {
+        page-break-inside: avoid;
+        margin-top: 0.75rem;
+    }
+
+    .karte-kpi-card,
+    .karte-chart-card,
+    .karte-mini-card,
+    .karte-insight-card {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: none !important;
+        break-inside: avoid;
+    }
+
+    /* 印刷時は色情報を保持（ECharts chart bars） */
+    .echart,
+    .echart * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* フッター */
+    .karte-footer {
+        border-top: 1px solid #cbd5e1;
+        padding-top: 0.5rem;
+    }
+}
