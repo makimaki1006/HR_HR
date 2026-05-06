@@ -344,8 +344,20 @@ const MI_STYLE_BLOCK: &str = r#"<style>
 .mi-print-annotations ul { margin: 4px 0 0; padding-left: 20px; line-height: 1.6; }
 .mi-print-annotations li { margin-bottom: 2px; }
 @media print {
-  /* P1 B: ページ設定 (重複定義は MI_STYLE_BLOCK 内で 1 箇所のみ) */
+  /* P1 B: ページ設定 (重複定義は MI_STYLE_BLOCK 内で 1 箇所のみ)
+   * 2026-05-06: 上位 style.rs の @page (margin: 10mm 8mm 12mm 8mm) と
+   * cascade 競合する場合に備え、MI_STYLE_BLOCK は HTML 末尾側で出力されるため
+   * 後勝ちで MI 用余白 (12mm 14mm) を強制する。 */
   @page { size: A4 portrait; margin: 12mm 14mm; }
+  /* P1 B (2026-05-06): body padding (8px 16px) と @page margin の二重インデントで
+   * 本文幅が縮む問題を回避するため、印刷時は html/body の余白を 0 にして
+   * @page margin だけが効くようにする。背景色は全要素で保持する。 */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   body { font-size: 10.5pt; }
   /* P1 B: 印刷専用 / 画面専用 切替 */
   .mi-print-only { display: block !important; }
@@ -3249,6 +3261,51 @@ mod tests {
         assert!(
             html.contains(".mi-hero-bar { break-inside: avoid"),
             "@media print 内に .mi-hero-bar の break-inside: avoid が必須: print CSS 抜粋確認"
+        );
+    }
+
+    /// P1 B (2026-05-06): @page が A4 縦・margin 12mm 14mm を厳密に指定する
+    ///
+    /// 監査結果 (`docs/PRINT_PDF_P1_ROOT_CAUSE_AUDIT.md`) で下端余白が
+    /// 11.4pt (~4mm) になり MI 用 12mm が効いていなかったため、
+    /// MI_STYLE_BLOCK の @page 指定を strict に検証する。
+    #[test]
+    fn page_at_rule_specifies_a4_portrait_with_12mm_margin() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        assert!(html.contains("@page"), "@page 宣言が必要");
+        assert!(
+            html.contains("size: A4 portrait"),
+            "@page に size: A4 portrait が必要"
+        );
+        assert!(
+            html.contains("margin: 12mm 14mm"),
+            "@page margin は 12mm 14mm (上下 12mm / 左右 14mm) が必要"
+        );
+    }
+
+    /// P1 B (2026-05-06): 印刷時に html/body の margin/padding が 0 にリセットされる
+    ///
+    /// 上位 style.rs の `body { padding: 8px 16px }` と @page margin の
+    /// 二重インデントを防ぐため、@media print 内で html, body の余白を
+    /// 0 !important で上書きする。
+    #[test]
+    fn print_media_resets_html_body_margin_to_zero() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        assert!(
+            html.contains("html, body {"),
+            "@media print 内に html, body セレクタが必要"
+        );
+        assert!(
+            html.contains("margin: 0 !important"),
+            "@media print で html/body の margin: 0 !important が必要"
+        );
+        assert!(
+            html.contains("padding: 0 !important"),
+            "@media print で html/body の padding: 0 !important が必要"
         );
     }
 }
