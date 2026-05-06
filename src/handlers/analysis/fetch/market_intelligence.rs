@@ -63,20 +63,19 @@ pub(crate) fn fetch_recruiting_scores_by_municipalities(
         return vec![];
     }
 
-    let select_cols = "municipality_code, prefecture, municipality_name, \
-                       occupation_group_code, occupation_group_name, \
-                       target_population, adjacent_population, \
-                       media_job_count, competitor_job_count, \
-                       median_salary_yen, effective_wage_index, \
-                       commute_reach_score, job_competition_score, \
-                       establishment_competition_score, wage_competitiveness_score, \
-                       living_cost_score, effective_wage_score, \
-                       distribution_priority_score, \
-                       scenario_conservative_population, \
-                       scenario_standard_population, \
-                       scenario_aggressive_population, \
-                       source_year";
+    // Worker B 投入版スキーマ: basis='resident', occupation_code/_name,
+    // 4 sub-score (target_thickness/commute_access/competition/salary_living),
+    // distribution_priority_score, rank, シナリオスコア (INTEGER),
+    // 出所メタ (data_label='estimated_beta'/source_name/source_year/weight_source/estimate_grade)
+    let select_cols = "municipality_code, prefecture, municipality_name, basis, \
+                       occupation_code, occupation_name, \
+                       distribution_priority_score, target_thickness_index, \
+                       commute_access_score, competition_score, salary_living_score, \
+                       rank_in_occupation, rank_percentile, distribution_priority, \
+                       scenario_conservative_score, scenario_standard_score, scenario_aggressive_score, \
+                       data_label, source_name, source_year, weight_source, estimate_grade";
 
+    // 引数 `occupation_group_code` は後方互換のため名称維持。空文字なら全 occupation。
     let (sql, params): (String, Vec<String>) = if occupation_group_code.is_empty() {
         // ?1..?N に municipality_codes をバインド
         let placeholders: String = (1..=municipality_codes.len())
@@ -87,12 +86,12 @@ pub(crate) fn fetch_recruiting_scores_by_municipalities(
             "SELECT {select_cols} \
              FROM municipality_recruiting_scores \
              WHERE municipality_code IN ({placeholders}) \
-             ORDER BY distribution_priority_score DESC"
+             ORDER BY occupation_code, distribution_priority_score DESC"
         );
         let params = municipality_codes.iter().map(|s| s.to_string()).collect();
         (sql, params)
     } else {
-        // ?1 = occupation_group_code, ?2..?(N+1) = municipality_codes
+        // ?1 = occupation_code, ?2..?(N+1) = municipality_codes
         let placeholders: String = (2..=(municipality_codes.len() + 1))
             .map(|i| format!("?{i}"))
             .collect::<Vec<_>>()
@@ -100,7 +99,7 @@ pub(crate) fn fetch_recruiting_scores_by_municipalities(
         let sql = format!(
             "SELECT {select_cols} \
              FROM municipality_recruiting_scores \
-             WHERE occupation_group_code = ?1 \
+             WHERE occupation_code = ?1 \
                AND municipality_code IN ({placeholders}) \
              ORDER BY distribution_priority_score DESC"
         );
@@ -135,12 +134,12 @@ pub(crate) fn fetch_living_cost_proxy(
         .collect::<Vec<_>>()
         .join(",");
 
+    // Worker A 投入版スキーマ: basis/cost_index/min_wage/land_price_proxy/salary_real_terms_proxy
+    // + 出所メタ (data_label/source_name/source_year/weight_source/estimated_at)
     let sql = format!(
         "SELECT municipality_code, prefecture, municipality_name, \
-                single_household_rent_proxy, small_household_rent_proxy, \
-                rent_per_square_meter, retail_price_index_proxy, \
-                household_spending_annual_yen, land_price_residential_per_sqm, \
-                housing_cost_rank, source_year \
+                basis, cost_index, min_wage, land_price_proxy, salary_real_terms_proxy, \
+                data_label, source_name, source_year, weight_source, estimated_at \
          FROM municipality_living_cost_proxy \
          WHERE municipality_code IN ({placeholders}) \
          ORDER BY municipality_code"
@@ -665,18 +664,77 @@ pub struct MunicipalityRecruitingScore {
     pub scenario_aggressive_population: Option<i64>,
 
     pub source_year: Option<i64>,
+
+    // -------- Worker B (Round 2) 投入版スキーマ追加フィールド --------
+    /// 'resident' (本日版は resident のみ。将来 'workplace' に拡張予定)
+    pub basis: String,
+    /// 職業コード (例: '08_生産工程')
+    pub occupation_code: String,
+    /// 職業名
+    pub occupation_name: String,
+    /// 0-100 指数 (本職業の母集団厚み)
+    pub target_thickness_index: Option<f64>,
+    /// 0-100 指数 (通勤アクセス、Worker B 命名)
+    pub commute_access_score: Option<f64>,
+    /// 0-100 指数 (競合圧、Worker B 統合命名)
+    pub competition_score: Option<f64>,
+    /// 0-100 指数 (給与×生活コスト統合、Worker B 命名)
+    pub salary_living_score: Option<f64>,
+    /// 全国順位 (1=最上位)
+    pub rank_in_occupation: Option<i64>,
+    /// 0.0〜1.0 のパーセンタイル
+    pub rank_percentile: Option<f64>,
+    /// 'S' | 'A' | 'B' | 'C' | 'D' (CHECK 制約)
+    pub distribution_priority: Option<String>,
+    /// シナリオスコア (INTEGER、保守 ≤ 標準 ≤ 強気)
+    pub scenario_conservative_score: Option<i64>,
+    pub scenario_standard_score: Option<i64>,
+    pub scenario_aggressive_score: Option<i64>,
+    /// 'estimated_beta' | 'measured' | 'derived'
+    pub data_label: String,
+    /// 出所名 (例: 'national_census_2020')
+    pub source_name: String,
+    /// 例: 'hypothesis_v1'
+    pub weight_source: Option<String>,
+    /// 例: 'A-' / 'B+'
+    pub estimate_grade: Option<String>,
 }
 
 #[allow(dead_code)]
 impl MunicipalityRecruitingScore {
     /// `Row` から DTO を構築する。NULL / パース不能なフィールドは `None` / 空文字 fallback。
+    ///
+    /// Worker B (Round 2) 投入後は `occupation_code` / `occupation_name` / `basis` が
+    /// 主たるソースカラム。後方互換のため `occupation_group_code` には `occupation_code`
+    /// を fallback でコピーし、既存呼び出し元 (report_html) を壊さない。
     pub fn from_row(row: &Row) -> Self {
+        let opt_string = |key: &str| -> Option<String> {
+            match row.get(key) {
+                Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                Some(Value::Null) | None => None,
+                Some(Value::String(_)) => None,
+                Some(v) => Some(v.to_string()),
+            }
+        };
+        // Worker B 版で唯一存在する occupation_code を group_code にも反映 (後方互換)
+        let occ_code = str_or_empty(row, "occupation_code");
+        let occ_name = str_or_empty(row, "occupation_name");
+        let group_code_legacy = str_or_empty(row, "occupation_group_code");
+        let group_name_legacy = str_or_empty(row, "occupation_group_name");
         Self {
             municipality_code: str_or_empty(row, "municipality_code"),
             prefecture: str_or_empty(row, "prefecture"),
             municipality_name: str_or_empty(row, "municipality_name"),
-            occupation_group_code: str_or_empty(row, "occupation_group_code"),
-            occupation_group_name: str_or_empty(row, "occupation_group_name"),
+            occupation_group_code: if group_code_legacy.is_empty() {
+                occ_code.clone()
+            } else {
+                group_code_legacy
+            },
+            occupation_group_name: if group_name_legacy.is_empty() {
+                occ_name.clone()
+            } else {
+                group_name_legacy
+            },
             target_population: opt_i64(row, "target_population"),
             adjacent_population: opt_i64(row, "adjacent_population"),
             media_job_count: opt_i64(row, "media_job_count"),
@@ -694,6 +752,46 @@ impl MunicipalityRecruitingScore {
             scenario_standard_population: opt_i64(row, "scenario_standard_population"),
             scenario_aggressive_population: opt_i64(row, "scenario_aggressive_population"),
             source_year: opt_i64(row, "source_year"),
+            // -------- Worker B 投入版フィールド --------
+            basis: str_or_empty(row, "basis"),
+            occupation_code: occ_code,
+            occupation_name: occ_name,
+            target_thickness_index: opt_f64(row, "target_thickness_index"),
+            commute_access_score: opt_f64(row, "commute_access_score"),
+            competition_score: opt_f64(row, "competition_score"),
+            salary_living_score: opt_f64(row, "salary_living_score"),
+            rank_in_occupation: opt_i64(row, "rank_in_occupation"),
+            rank_percentile: opt_f64(row, "rank_percentile"),
+            distribution_priority: opt_string("distribution_priority"),
+            scenario_conservative_score: opt_i64(row, "scenario_conservative_score"),
+            scenario_standard_score: opt_i64(row, "scenario_standard_score"),
+            scenario_aggressive_score: opt_i64(row, "scenario_aggressive_score"),
+            data_label: str_or_empty(row, "data_label"),
+            source_name: str_or_empty(row, "source_name"),
+            weight_source: opt_string("weight_source"),
+            estimate_grade: opt_string("estimate_grade"),
+        }
+    }
+
+    /// `distribution_priority` が CHECK 制約 ('S'|'A'|'B'|'C'|'D') の値か。
+    /// None は検証不可で true。
+    pub fn is_priority_grade_in_set(&self) -> bool {
+        match self.distribution_priority.as_deref() {
+            None => true,
+            Some(g) => matches!(g, "S" | "A" | "B" | "C" | "D"),
+        }
+    }
+
+    /// Worker B 版のシナリオスコア (INTEGER) が「保守 ≤ 標準 ≤ 強気」を満たすか。
+    /// 3 値とも値ありの時のみ厳密検証、欠損時は true。
+    pub fn is_scenario_score_consistent(&self) -> bool {
+        match (
+            self.scenario_conservative_score,
+            self.scenario_standard_score,
+            self.scenario_aggressive_score,
+        ) {
+            (Some(c), Some(s), Some(a)) => c <= s && s <= a,
+            _ => true,
         }
     }
 
@@ -735,6 +833,7 @@ pub struct LivingCostProxy {
     pub prefecture: String,
     pub municipality_name: String,
 
+    // -------- 旧 spec フィールド (後方互換、SQL では選択しないため常に None) --------
     /// 円/月。公式統計から作る「単身向け相当」家賃 proxy。
     pub single_household_rent_proxy: Option<i64>,
     /// 円/月。「小世帯向け相当」。
@@ -751,15 +850,42 @@ pub struct LivingCostProxy {
     pub housing_cost_rank: Option<i64>,
 
     pub source_year: Option<i64>,
+
+    // -------- Worker A (Round 2) 投入版スキーマ追加フィールド --------
+    /// 'reference' (Worker A 版は reference のみ。CHECK 制約)
+    pub basis: String,
+    /// 100 を全国平均とする物価指数
+    pub cost_index: Option<f64>,
+    /// 最低賃金 (円/時)
+    pub min_wage: Option<i64>,
+    /// 地価 proxy (円/㎡相当の正規化値)
+    pub land_price_proxy: Option<f64>,
+    /// 物価補正後の実質賃金 proxy
+    pub salary_real_terms_proxy: Option<f64>,
+    /// 'reference' (CHECK 制約)
+    pub data_label: String,
+    /// 出所名 (例: 'mhlw_min_wage_2024 + estat_cpi_2020')
+    pub source_name: String,
+    /// 例: 'hypothesis_v1'
+    pub weight_source: Option<String>,
 }
 
 #[allow(dead_code)]
 impl LivingCostProxy {
     pub fn from_row(row: &Row) -> Self {
+        let opt_string = |key: &str| -> Option<String> {
+            match row.get(key) {
+                Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                Some(Value::Null) | None => None,
+                Some(Value::String(_)) => None,
+                Some(v) => Some(v.to_string()),
+            }
+        };
         Self {
             municipality_code: str_or_empty(row, "municipality_code"),
             prefecture: str_or_empty(row, "prefecture"),
             municipality_name: str_or_empty(row, "municipality_name"),
+            // 旧 spec カラム (Worker A 版 SQL では選択しないため None)
             single_household_rent_proxy: opt_i64(row, "single_household_rent_proxy"),
             small_household_rent_proxy: opt_i64(row, "small_household_rent_proxy"),
             rent_per_square_meter: opt_f64(row, "rent_per_square_meter"),
@@ -768,6 +894,30 @@ impl LivingCostProxy {
             land_price_residential_per_sqm: opt_f64(row, "land_price_residential_per_sqm"),
             housing_cost_rank: opt_i64(row, "housing_cost_rank"),
             source_year: opt_i64(row, "source_year"),
+            // Worker A 版フィールド
+            basis: str_or_empty(row, "basis"),
+            cost_index: opt_f64(row, "cost_index"),
+            min_wage: opt_i64(row, "min_wage"),
+            land_price_proxy: opt_f64(row, "land_price_proxy"),
+            salary_real_terms_proxy: opt_f64(row, "salary_real_terms_proxy"),
+            data_label: str_or_empty(row, "data_label"),
+            source_name: str_or_empty(row, "source_name"),
+            weight_source: opt_string("weight_source"),
+        }
+    }
+
+    /// `data_label` CHECK 制約検証: 本日版は 'reference' のみ許容。
+    /// 空文字 (Default 値) も検証不可で true。
+    pub fn is_data_label_in_set(&self) -> bool {
+        self.data_label.is_empty() || self.data_label == "reference"
+    }
+
+    /// `cost_index` が現実的範囲 (0.0 < x < 500.0) か。
+    /// 100 が全国平均、極端値検出用 (METRICS.md §7)。値なしは true。
+    pub fn is_cost_index_realistic(&self) -> bool {
+        match self.cost_index {
+            Some(v) => v.is_finite() && v > 0.0 && v < 500.0,
+            None => true,
         }
     }
 }
@@ -1672,6 +1822,195 @@ mod tests {
             ..Default::default()
         };
         assert!(!bad_data.all_invariants_hold());
+    }
+
+    // ============================================================
+    // Worker C (Round 2) 追加: Worker A/B 投入版スキーマ対応 fetch + DTO 検証
+    // ============================================================
+
+    /// Worker A 投入版スキーマで `municipality_living_cost_proxy` テーブル不在時、
+    /// fetch_living_cost_proxy が空 Vec を返すこと (フェイルセーフ)。
+    #[test]
+    fn fetch_living_cost_proxy_returns_empty_when_table_missing() {
+        let (_tmp, db) = create_test_db();
+        // テーブル不在 + Turso None
+        let result = fetch_living_cost_proxy(&db, None, &["01101", "13104"]);
+        assert!(result.is_empty(), "テーブル不在時は空 Vec");
+    }
+
+    /// Worker A 投入版スキーマの NULL 許容カラム (land_price_proxy 等) が
+    /// LivingCostProxy DTO 経由で None として復元されること。
+    #[test]
+    fn fetch_living_cost_proxy_handles_null_columns() {
+        let (_tmp, db) = create_test_db();
+
+        // Worker A の DDL を再現
+        db.execute(
+            "CREATE TABLE municipality_living_cost_proxy (
+                municipality_code TEXT NOT NULL,
+                prefecture        TEXT NOT NULL,
+                municipality_name TEXT NOT NULL,
+                basis             TEXT NOT NULL,
+                cost_index        REAL,
+                min_wage          INTEGER,
+                land_price_proxy  REAL,
+                salary_real_terms_proxy REAL,
+                data_label        TEXT NOT NULL,
+                source_name       TEXT NOT NULL,
+                source_year       INTEGER NOT NULL,
+                weight_source     TEXT,
+                estimated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (municipality_code, basis, source_year)
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE 失敗");
+
+        // 1 行投入: cost_index/min_wage は値あり、land_price_proxy / salary_real_terms_proxy / weight_source は NULL
+        db.execute(
+            "INSERT INTO municipality_living_cost_proxy \
+             (municipality_code, prefecture, municipality_name, basis, \
+              cost_index, min_wage, land_price_proxy, salary_real_terms_proxy, \
+              data_label, source_name, source_year, weight_source) \
+             VALUES ('01101', '北海道', '札幌市', 'reference', \
+                     98.5, 1010, NULL, NULL, \
+                     'reference', 'mhlw_min_wage_2024', 2024, NULL)",
+            &[],
+        )
+        .expect("INSERT 失敗");
+
+        let rows = fetch_living_cost_proxy(&db, None, &["01101"]);
+        assert_eq!(rows.len(), 1, "1 行取得期待");
+        let dto = LivingCostProxy::from_row(&rows[0]);
+        assert_eq!(dto.municipality_code, "01101");
+        assert_eq!(dto.basis, "reference");
+        assert_eq!(dto.data_label, "reference");
+        assert_eq!(dto.cost_index, Some(98.5));
+        assert_eq!(dto.min_wage, Some(1010));
+        // NULL カラムは None
+        assert_eq!(dto.land_price_proxy, None);
+        assert_eq!(dto.salary_real_terms_proxy, None);
+        assert_eq!(dto.weight_source, None);
+        assert_eq!(dto.source_year, Some(2024));
+        // 不変条件
+        assert!(dto.is_data_label_in_set());
+        assert!(dto.is_cost_index_realistic());
+    }
+
+    /// Worker B 投入版は basis='resident' のみ。fetch 結果の DTO がそれを満たし、
+    /// data_label='estimated_beta' であること。
+    #[test]
+    fn fetch_recruiting_scores_returns_basis_resident_only() {
+        let (_tmp, db) = create_test_db();
+        db.execute(
+            "CREATE TABLE municipality_recruiting_scores (
+                municipality_code TEXT NOT NULL,
+                prefecture        TEXT NOT NULL,
+                municipality_name TEXT NOT NULL,
+                basis             TEXT NOT NULL,
+                occupation_code   TEXT NOT NULL,
+                occupation_name   TEXT NOT NULL,
+                distribution_priority_score REAL NOT NULL,
+                target_thickness_index      REAL,
+                commute_access_score        REAL,
+                competition_score           REAL,
+                salary_living_score         REAL,
+                rank_in_occupation INTEGER,
+                rank_percentile    REAL,
+                distribution_priority TEXT,
+                scenario_conservative_score INTEGER,
+                scenario_standard_score     INTEGER,
+                scenario_aggressive_score   INTEGER,
+                data_label    TEXT NOT NULL,
+                source_name   TEXT NOT NULL,
+                source_year   INTEGER NOT NULL,
+                weight_source TEXT,
+                estimate_grade TEXT,
+                estimated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (municipality_code, basis, occupation_code, source_year)
+            )",
+            &[],
+        )
+        .expect("CREATE TABLE 失敗");
+
+        db.execute(
+            "INSERT INTO municipality_recruiting_scores \
+             (municipality_code, prefecture, municipality_name, basis, \
+              occupation_code, occupation_name, distribution_priority_score, \
+              target_thickness_index, commute_access_score, competition_score, salary_living_score, \
+              rank_in_occupation, rank_percentile, distribution_priority, \
+              scenario_conservative_score, scenario_standard_score, scenario_aggressive_score, \
+              data_label, source_name, source_year, weight_source, estimate_grade) \
+             VALUES ('01101', '北海道', '札幌市', 'resident', \
+                     '08_生産工程', '生産工程', 78.5, \
+                     85.0, 70.0, 60.0, 75.0, \
+                     12, 0.93, 'A', \
+                     50, 80, 120, \
+                     'estimated_beta', 'national_census_2020', 2020, 'hypothesis_v1', 'A-')",
+            &[],
+        )
+        .expect("INSERT 失敗");
+
+        let rows = fetch_recruiting_scores_by_municipalities(&db, None, &["01101"], "");
+        assert_eq!(rows.len(), 1);
+        let dto = MunicipalityRecruitingScore::from_row(&rows[0]);
+        assert_eq!(dto.basis, "resident", "本日版は basis=resident のみ");
+        assert_eq!(dto.data_label, "estimated_beta", "本日版は estimated_beta");
+        assert_eq!(dto.occupation_code, "08_生産工程");
+        assert_eq!(dto.target_thickness_index, Some(85.0));
+        assert_eq!(dto.commute_access_score, Some(70.0));
+        assert_eq!(dto.competition_score, Some(60.0));
+        assert_eq!(dto.salary_living_score, Some(75.0));
+        assert_eq!(dto.scenario_conservative_score, Some(50));
+        assert_eq!(dto.scenario_standard_score, Some(80));
+        assert_eq!(dto.scenario_aggressive_score, Some(120));
+        assert_eq!(dto.estimate_grade.as_deref(), Some("A-"));
+        assert!(dto.is_scenario_score_consistent(), "50 ≤ 80 ≤ 120");
+    }
+
+    /// `distribution_priority` が CHECK 制約セット ('S'|'A'|'B'|'C'|'D') に従うこと。
+    /// 想定外値や None の挙動も含めて検証。
+    #[test]
+    fn fetch_recruiting_scores_distribution_priority_in_set() {
+        let cases = [
+            (Some("S"), true, "S は許容"),
+            (Some("A"), true, "A は許容"),
+            (Some("B"), true, "B は許容"),
+            (Some("C"), true, "C は許容"),
+            (Some("D"), true, "D は許容"),
+            (Some("E"), false, "E は不許容"),
+            (Some("a"), false, "小文字 a は不許容 (大文字限定)"),
+            (Some(""), false, "空文字は不許容 (Some 経由)"),
+            (None, true, "None は検証不可で true"),
+        ];
+        for (val, expected, label) in cases {
+            let dto = MunicipalityRecruitingScore {
+                distribution_priority: val.map(|s| s.to_string()),
+                ..Default::default()
+            };
+            assert_eq!(
+                dto.is_priority_grade_in_set(),
+                expected,
+                "{label}: {val:?}"
+            );
+        }
+
+        // Worker B シナリオスコアの順序検証
+        let consistent = MunicipalityRecruitingScore {
+            scenario_conservative_score: Some(50),
+            scenario_standard_score: Some(80),
+            scenario_aggressive_score: Some(120),
+            ..Default::default()
+        };
+        assert!(consistent.is_scenario_score_consistent());
+
+        let inverted = MunicipalityRecruitingScore {
+            scenario_conservative_score: Some(120),
+            scenario_standard_score: Some(80),
+            scenario_aggressive_score: Some(50),
+            ..Default::default()
+        };
+        assert!(!inverted.is_scenario_score_consistent());
     }
 }
 

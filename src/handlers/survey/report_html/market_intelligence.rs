@@ -200,6 +200,11 @@ pub(crate) fn render_section_market_intelligence(
     html: &mut String,
     data: &SurveyMarketIntelligenceData,
 ) {
+    // Phase 3 Step 5 / Round 2 Worker D: variant guard 内の専用 <style> ブロック。
+    // mi-* prefix で完結し default / v8 / v7a の既存テーマと衝突しない。
+    // Full / Public variant では本関数自体が呼ばれないため影響なし。
+    html.push_str(MI_STYLE_BLOCK);
+
     html.push_str(
         "<section class=\"mi-root\" role=\"region\" aria-labelledby=\"mi-root-heading\" \
          style=\"margin-top:24px;padding:16px;border-top:4px solid #1e3a8a;\">\n"
@@ -216,10 +221,17 @@ pub(crate) fn render_section_market_intelligence(
          相関は提示するが因果関係を断定しない (MEMORY ルール)。</p>\n"
     );
 
+    // Worker D: 主要指標サマリ KPI カード (セクション冒頭)
+    render_mi_kpi_cards(html, data);
+
     render_mi_summary_card(html, data);
     render_mi_distribution_ranking(html, &data.recruiting_scores);
     render_mi_talent_supply(html, &data.occupation_populations);
     render_mi_salary_living_cost(html, &data.recruiting_scores, &data.living_cost_proxies);
+
+    // Worker D: 生活コスト・給与実質感パネル (参考統計、NULL は - 表示)
+    render_mi_living_cost_panel(html, &data.living_cost_proxies, &data.recruiting_scores);
+
     render_mi_scenario_population_range(html, &data.recruiting_scores);
     render_mi_commute_inflow_supplement(html, &data.commute_flows);
 
@@ -233,7 +245,359 @@ pub(crate) fn render_section_market_intelligence(
     // Phase 3 Step 5 Phase 4: 政令市区別ランキング (商品の核心)
     render_mi_parent_ward_ranking(html, &data.ward_rankings, &data.code_master);
 
+    // Worker D: レポート末尾の総合注記
+    render_mi_footer_notes(html);
+
     html.push_str("</section>\n");
+}
+
+// --------------- Worker D: 専用 CSS ブロック ---------------
+//
+// mi-* prefix のみ。既存テーマ (default / v8 / v7a) の class と衝突しない。
+// print 時にも視認性を維持: バッジは色 + テキスト併記、KPI grid は block fallback。
+
+const MI_STYLE_BLOCK: &str = r#"<style>
+.mi-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 8px 0 16px; }
+.mi-kpi-card { background: #fff; border: 1px solid #cbd5e1; border-left: 4px solid #1e3a8a; border-radius: 6px; padding: 12px; }
+.mi-kpi-card .mi-kpi-label { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+.mi-kpi-card .mi-kpi-value { font-size: 22px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+.mi-kpi-card .mi-kpi-unit { font-size: 11px; color: #64748b; font-weight: 400; margin-left: 3px; }
+.mi-kpi-legend { font-size: 11px; color: #64748b; margin: 0 0 12px; }
+.mi-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; vertical-align: middle; margin: 0 2px; border: 1px solid transparent; }
+.mi-badge-measured { background: #dcfce7; color: #166534; border-color: #86efac; }
+.mi-badge-estimated-beta { background: #fef9c3; color: #854d0e; border-color: #fde047; }
+.mi-badge-estimated-beta::after { content: "β"; font-size: 8px; vertical-align: super; margin-left: 2px; }
+.mi-badge-reference { background: #e2e8f0; color: #475569; border-color: #cbd5e1; }
+.mi-priority-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; min-width: 22px; text-align: center; }
+.mi-priority-s { background: #7c3aed; color: #fff; }
+.mi-priority-a { background: #16a34a; color: #fff; }
+.mi-priority-b { background: #eab308; color: #1f2937; }
+.mi-priority-c { background: #94a3b8; color: #fff; }
+.mi-priority-d { background: #e2e8f0; color: #475569; }
+.mi-anchor-badge { display: inline-block; font-size: 11px; color: #b45309; margin-left: 4px; }
+.mi-parent-rank { font-size: 16px; font-weight: 700; color: #1e3a8a; }
+.mi-parent-rank strong { font-size: 18px; }
+.mi-ref { font-size: 10px !important; color: #94a3b8 !important; }
+.mi-thickness-bar-wrap { display: inline-block; width: 80px; height: 8px; background: #e2e8f0; border-radius: 2px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
+.mi-thickness-bar-fill { display: block; height: 100%; background: linear-gradient(90deg, #60a5fa, #1e3a8a); }
+.mi-living-cost-panel { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin: 16px 0; }
+.mi-living-cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 8px 0; }
+.mi-living-cost-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px 10px; }
+.mi-living-cost-card .mi-lc-label { font-size: 10px; color: #64748b; }
+.mi-living-cost-card .mi-lc-value { font-size: 16px; font-weight: 600; color: #0f172a; }
+.mi-footer-notes { margin-top: 20px; padding: 12px; background: #f1f5f9; border-left: 4px solid #94a3b8; font-size: 11px; color: #475569; line-height: 1.7; }
+.mi-footer-notes ul { margin: 6px 0; padding-left: 20px; }
+@media print {
+  .mi-kpi-grid { display: block; }
+  .mi-kpi-card { display: block; page-break-inside: avoid; margin-bottom: 8px; }
+  .mi-living-cost-grid { display: block; }
+  .mi-living-cost-card { display: block; margin-bottom: 6px; page-break-inside: avoid; }
+  .mi-badge, .mi-priority-badge { border: 1px solid #475569 !important; }
+  .mi-thickness-bar-wrap { border: 1px solid #94a3b8; }
+  .mi-footer-notes { page-break-inside: avoid; }
+}
+</style>
+"#;
+
+// --------------- Worker D: 主要指標サマリ KPI カード ---------------
+//
+// セクション冒頭に 4 枚の KPI を grid 表示。workplace 実測 / resident β / 参考 が
+// 混在するため凡例 (mi-kpi-legend) を必ず付与。数値型 KPI でも `target_count` 等の
+// 用語は使わない (Hard NG 維持)。
+
+#[allow(dead_code)]
+pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntelligenceData) {
+    html.push_str(
+        "<section class=\"mi-kpi-summary\" aria-labelledby=\"mi-kpi-summary-heading\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-kpi-summary-heading\" style=\"margin:8px 0;\">\u{1F4CA} 主要指標サマリ \
+         <span style=\"font-size:11px;color:#64748b;font-weight:400;\">(MarketIntelligence)</span></h3>\n",
+    );
+
+    // 凡例 (3 ラベル混在)
+    html.push_str(
+        "<p class=\"mi-kpi-legend\">\
+         <span class=\"mi-badge mi-badge-measured\">実測</span> 国勢調査 R2 / \
+         <span class=\"mi-badge mi-badge-estimated-beta\">推定</span> 検証済み推定 (Model F2) / \
+         <span class=\"mi-badge mi-badge-reference\">参考</span> 都道府県家計調査・最低賃金 等</p>\n",
+    );
+
+    // 集計値 (Worker E Round 3: 新フィールドへ繋ぎ替え)
+    // 「配信優先度 A 件数」: recruiting_scores.distribution_priority == "A" の件数
+    //   ward_rankings の priority も後方互換のため fallback で利用 (新スキーマ未投入時)
+    let priority_a_from_scores = data
+        .recruiting_scores
+        .iter()
+        .filter(|s| {
+            s.distribution_priority
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case("A"))
+                .unwrap_or(false)
+        })
+        .count();
+    let priority_a_count = if priority_a_from_scores > 0 {
+        priority_a_from_scores
+    } else {
+        // fallback: ward_rankings の priority A/S を集計 (既存挙動温存)
+        data.ward_rankings
+            .iter()
+            .filter(|w| {
+                w.priority.eq_ignore_ascii_case("A") || w.priority.eq_ignore_ascii_case("S")
+            })
+            .count()
+    };
+
+    // 「厚み指数 平均」: recruiting_scores.target_thickness_index 平均 (NULL 除外)
+    //   旧来の ward_rankings.thickness_index は fallback 用に温存
+    let thickness_vals_from_scores: Vec<f64> = data
+        .recruiting_scores
+        .iter()
+        .filter_map(|s| s.target_thickness_index)
+        .collect();
+    let thickness_avg: Option<f64> = if !thickness_vals_from_scores.is_empty() {
+        Some(thickness_vals_from_scores.iter().sum::<f64>() / thickness_vals_from_scores.len() as f64)
+    } else if !data.ward_rankings.is_empty() {
+        let sum: f64 = data.ward_rankings.iter().map(|w| w.thickness_index).sum();
+        Some(sum / data.ward_rankings.len() as f64)
+    } else {
+        None
+    };
+
+    // 「政令市区 集積地」: recruiting_scores.distribution_priority == "S" 件数
+    //   未投入時は code_master の designated_ward 件数で fallback
+    let s_priority_count = data
+        .recruiting_scores
+        .iter()
+        .filter(|s| {
+            s.distribution_priority
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case("S"))
+                .unwrap_or(false)
+        })
+        .count();
+    let designated_ward_count = if s_priority_count > 0 {
+        s_priority_count
+    } else {
+        data.code_master
+            .iter()
+            .filter(|m| m.area_type == "designated_ward")
+            .count()
+    };
+
+    // 「重点配信候補」: distribution_priority IN ('S','A') 件数
+    //   未投入時は distribution_priority_score >= 80 で fallback
+    let high_priority_from_grade = data
+        .recruiting_scores
+        .iter()
+        .filter(|s| {
+            s.distribution_priority
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case("S") || p.eq_ignore_ascii_case("A"))
+                .unwrap_or(false)
+        })
+        .count();
+    let high_priority_score_count = if high_priority_from_grade > 0 {
+        high_priority_from_grade
+    } else {
+        data.recruiting_scores
+            .iter()
+            .filter(|s| s.is_priority_score_in_range())
+            .filter(|s| s.distribution_priority_score.unwrap_or(0.0) >= 80.0)
+            .count()
+    };
+
+    html.push_str("<div class=\"mi-kpi-grid\" role=\"list\">\n");
+    render_mi_kpi_card(
+        html,
+        "配信優先度 A 件数",
+        &format!("{priority_a_count}"),
+        "件",
+        "mi-badge-estimated-beta",
+        "推定",
+    );
+    render_mi_kpi_card(
+        html,
+        "厚み指数 平均",
+        &thickness_avg
+            .map(|v| format!("{v:.0}"))
+            .unwrap_or_else(|| "-".to_string()),
+        "(相対)",
+        "mi-badge-estimated-beta",
+        "推定",
+    );
+    render_mi_kpi_card(
+        html,
+        "政令市区 集積地",
+        &format!("{designated_ward_count}"),
+        "区",
+        "mi-badge-measured",
+        "実測",
+    );
+    render_mi_kpi_card(
+        html,
+        "重点配信候補",
+        &format!("{high_priority_score_count}"),
+        "件 (スコア80+)",
+        "mi-badge-estimated-beta",
+        "推定",
+    );
+    html.push_str("</div>\n");
+    html.push_str("</section>\n");
+}
+
+fn render_mi_kpi_card(
+    html: &mut String,
+    label: &str,
+    value: &str,
+    unit: &str,
+    badge_class: &str,
+    badge_text: &str,
+) {
+    html.push_str(&format!(
+        "<div class=\"mi-kpi-card\" role=\"listitem\">\
+         <div class=\"mi-kpi-label\">{label} <span class=\"mi-badge {badge_cls}\">{badge_txt}</span></div>\
+         <div class=\"mi-kpi-value\">{value}<span class=\"mi-kpi-unit\">{unit}</span></div>\
+         </div>\n",
+        label = escape_html(label),
+        badge_cls = badge_class,
+        badge_txt = escape_html(badge_text),
+        value = escape_html(value),
+        unit = escape_html(unit),
+    ));
+}
+
+// --------------- Worker D: 生活コスト・給与実質感パネル ---------------
+//
+// 都道府県家計調査 + 都道府県最低賃金の参考値。NULL は「-」表示 (ゼロ埋め禁止)。
+// 「給与実質感 proxy」は median_salary_yen / retail_price_index_proxy の比率を相対化した
+// 表示用 proxy。市区町村実態を保証しない旨をフッターで明示。
+
+#[allow(dead_code)]
+pub(crate) fn render_mi_living_cost_panel(
+    html: &mut String,
+    living: &[LivingCostProxy],
+    scores: &[MunicipalityRecruitingScore],
+) {
+    html.push_str(
+        "<section class=\"mi-living-cost-panel\" aria-labelledby=\"mi-lc-panel-heading\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-lc-panel-heading\" style=\"margin:0 0 8px;\">\u{1F4B0} 生活コスト・給与実質感 \
+         <span class=\"mi-badge mi-badge-reference\">参考</span></h3>\n",
+    );
+
+    // 代表値 (都道府県集約の発想)。ここではデータ平均で代表化。
+    // Worker E Round 3: Worker A 投入版の cost_index フィールドを使用 (旧 retail_price_index_proxy は fetch SQL から外れて常に None)
+    let cost_index_avg: Option<f64> = {
+        let vals: Vec<f64> = living
+            .iter()
+            .filter_map(|l| l.cost_index.or(l.retail_price_index_proxy))
+            .collect();
+        if vals.is_empty() {
+            None
+        } else {
+            Some(vals.iter().sum::<f64>() / vals.len() as f64)
+        }
+    };
+    // Worker E Round 3: 最低賃金は LivingCostProxy.min_wage (Worker A 投入版) から平均算出
+    let min_wage_yen: Option<i64> = {
+        let vals: Vec<i64> = living.iter().filter_map(|l| l.min_wage).collect();
+        if vals.is_empty() {
+            None
+        } else {
+            Some(vals.iter().sum::<i64>() / vals.len() as i64)
+        }
+    };
+    // Worker E Round 3: 給与実質感 proxy は LivingCostProxy.salary_real_terms_proxy (Worker A 版) を優先
+    //   未収録時は recruiting_scores.salary_living_score を 100 基準で正規化 (新フィールド)
+    //   それも無ければ NULL ("-")
+    let salary_real_proxy: Option<f64> = {
+        let direct: Vec<f64> = living
+            .iter()
+            .filter_map(|l| l.salary_real_terms_proxy)
+            .collect();
+        if !direct.is_empty() {
+            Some(direct.iter().sum::<f64>() / direct.len() as f64)
+        } else {
+            // fallback: salary_living_score (0-100 指数) を 1.0 基準に正規化
+            let salary_scores: Vec<f64> = scores
+                .iter()
+                .filter_map(|s| s.salary_living_score)
+                .collect();
+            if !salary_scores.is_empty() {
+                let avg = salary_scores.iter().sum::<f64>() / salary_scores.len() as f64;
+                Some(avg / 100.0)
+            } else {
+                None
+            }
+        }
+    };
+
+    html.push_str("<div class=\"mi-living-cost-grid\">\n");
+
+    render_mi_lc_card(
+        html,
+        "都道府県 cost_index",
+        &cost_index_avg
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "-".to_string()),
+    );
+    render_mi_lc_card(
+        html,
+        "最低賃金 (時給)",
+        &min_wage_yen
+            .map(|v| format!("{} 円", format_thousands(v)))
+            .unwrap_or_else(|| "-".to_string()),
+    );
+    render_mi_lc_card(
+        html,
+        "給与実質感 proxy",
+        &salary_real_proxy
+            .map(|v| format!("{v:.2}"))
+            .unwrap_or_else(|| "-".to_string()),
+    );
+    render_mi_lc_card(html, "市区町村差分", "-");
+
+    html.push_str("</div>\n");
+    html.push_str(
+        "<p style=\"font-size:11px;color:#64748b;margin:6px 0 0;\">\
+         \u{203B} 都道府県家計調査 + 都道府県最低賃金の参考値です。\
+         市区町村ごとの実態を保証するものではありません。NULL は「-」で表示。</p>\n",
+    );
+    html.push_str("</section>\n");
+}
+
+fn render_mi_lc_card(html: &mut String, label: &str, value: &str) {
+    html.push_str(&format!(
+        "<div class=\"mi-living-cost-card\">\
+         <div class=\"mi-lc-label\">{label}</div>\
+         <div class=\"mi-lc-value\">{value}</div>\
+         </div>\n",
+        label = escape_html(label),
+        value = escape_html(value),
+    ));
+}
+
+// --------------- Worker D: 末尾総合注記 ---------------
+
+fn render_mi_footer_notes(html: &mut String) {
+    html.push_str(
+        "<aside class=\"mi-footer-notes\" role=\"note\" aria-label=\"表示についての注意書き\">\n\
+         <strong>\u{26A0} 表示について</strong>\n\
+         <ul>\n\
+         <li><span class=\"mi-badge mi-badge-measured\">実測</span> \
+         国勢調査 R2 (令和 2 年・2020 年) の従業地ベース実測値</li>\n\
+         <li><span class=\"mi-badge mi-badge-estimated-beta\">推定</span> \
+         独自モデル F2 (estimate_grade A-) による相対指標。\
+         weight_source = hypothesis_v1 (e-Stat 実測値置換予定)</li>\n\
+         <li><span class=\"mi-badge mi-badge-reference\">参考</span> \
+         都道府県家計調査 / 最低賃金などの公開統計値。市区町村差を完全には反映していません。</li>\n\
+         <li>数値は採用ターゲット候補の相対濃淡を示すもので、実数の保証ではありません。</li>\n\
+         <li>全国順位は参考表示、商品判断は親市内ランキング (parent_rank) を主軸としてご利用ください。</li>\n\
+         </ul>\n\
+         </aside>\n",
+    );
 }
 
 // --------------- Section 7: Plan B (workplace measured + resident estimated_beta) ---------------
@@ -405,18 +769,32 @@ pub(crate) fn render_mi_parent_ward_ranking(
 
         for w in &wards {
             let priority_lower = w.priority.to_lowercase();
+            // 厚み指数 0-200 をバーで視覚化 (clamp)
+            let thick_pct = (w.thickness_index / 200.0 * 100.0).clamp(0.0, 100.0);
+            // 工業集積地アンカー: priority "S" を高優先帯マーカーとして 🏭 を付与
+            // (DTO に is_industrial_anchor 直結フィールドが無いため Worker D は priority で代替表示)
+            let anchor_html = if w.priority.eq_ignore_ascii_case("S") {
+                format!("<span class=\"mi-anchor-badge\" title=\"高優先 / 集積地候補\">{}</span>", ANCHOR_BADGE)
+            } else {
+                String::new()
+            };
             html.push_str(&format!(
                 "<tr>\
                  <td class=\"mi-parent-rank\" style=\"padding:6px;\"><strong>{prank} 位</strong> / {ptotal} 区</td>\
-                 <td style=\"padding:6px;\">{name}</td>\
-                 <td class=\"mi-thickness\" style=\"text-align:right;padding:6px;\">{thick:.1}</td>\
-                 <td class=\"mi-priority mi-priority-{plow}\" style=\"padding:6px;\">{prio}</td>\
+                 <td style=\"padding:6px;\">{name}{anchor}</td>\
+                 <td class=\"mi-thickness\" style=\"text-align:right;padding:6px;\">{thick:.1}\
+                 <span class=\"mi-thickness-bar-wrap\" aria-hidden=\"true\">\
+                 <span class=\"mi-thickness-bar-fill\" style=\"width:{tpct:.0}%;\"></span></span></td>\
+                 <td class=\"mi-priority mi-priority-{plow}\" style=\"padding:6px;\">\
+                 <span class=\"mi-priority-badge mi-priority-{plow}\">{prio}</span></td>\
                  <td class=\"mi-ref\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">{nrank} 位 / {ntotal} 市区町村</td>\
                  </tr>\n",
                 prank = w.parent_rank,
                 ptotal = w.parent_total,
                 name = escape_html(&w.municipality_name),
+                anchor = anchor_html,
                 thick = w.thickness_index,
+                tpct = thick_pct,
                 plow = escape_html(&priority_lower),
                 prio = escape_html(&w.priority),
                 nrank = w.national_rank,
@@ -545,7 +923,7 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
          <th style=\"text-align:left;padding:6px;\">順位</th>\
          <th style=\"text-align:left;padding:6px;\">市区町村</th>\
          <th style=\"text-align:right;padding:6px;\">配信優先度</th>\
-         <th style=\"text-align:right;padding:6px;\">対象人口</th>\
+         <th style=\"text-align:right;padding:6px;\">厚み指数</th>\
          <th style=\"text-align:right;padding:6px;\">競合求人数</th>\
          <th style=\"text-align:left;padding:6px;\">区分</th>\
          </tr></thead><tbody>\n"
@@ -557,18 +935,23 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
             v if v >= 50.0 => "維持/検証",
             _ => "優先度低",
         };
+        // Worker E Round 3: 旧 target_population (常に None) 表示を厚み指数に置換
+        // resident estimated_beta セクションでは「人」単位を表示しないルール (feedback_test_data_validation)
         html.push_str(&format!(
             "<tr><td style=\"padding:6px;\">{rank}</td>\
              <td style=\"padding:6px;\">{pref} {muni}</td>\
              <td style=\"text-align:right;padding:6px;\">{score}</td>\
-             <td style=\"text-align:right;padding:6px;\">{tgt}</td>\
+             <td style=\"text-align:right;padding:6px;\">{thick}</td>\
              <td style=\"text-align:right;padding:6px;\">{comp}</td>\
              <td style=\"padding:6px;color:#64748b;\">{bucket}</td></tr>\n",
             rank = rank + 1,
             pref = escape_html(&s.prefecture),
             muni = escape_html(&s.municipality_name),
             score = s.distribution_priority_score.map(|v| format!("{v:.1}")).unwrap_or("-".into()),
-            tgt = format_opt_i64(s.target_population),
+            thick = s
+                .target_thickness_index
+                .map(|v| format!("{v:.1}"))
+                .unwrap_or_else(|| "-".into()),
             comp = format_opt_i64(s.competitor_job_count),
             bucket = bucket,
         ));
@@ -667,44 +1050,62 @@ fn render_mi_salary_living_cost(
     let living_map: HashMap<&str, &LivingCostProxy> =
         living.iter().map(|l| (l.municipality_code.as_str(), l)).collect();
 
+    // Worker E Round 3: Worker A/B 投入版の新フィールドを優先使用
+    //   給与中央値 → median_salary_yen (旧) は SQL から外れたため - 表示。
+    //                代替として salary_living_score (新, 0-100 指数) を表示。
+    //   家賃 proxy → single_household_rent_proxy (旧) も廃止 → land_price_proxy へ置換。
+    //   物価指数 → cost_index (新)。retail_price_index_proxy (旧) は fallback。
+    //   生活コストスコア → salary_living_score (新) を優先、living_cost_score (旧) を fallback。
     html.push_str(
         "<table class=\"mi-living-table\" style=\"width:100%;border-collapse:collapse;font-size:12px;\">\n\
          <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
          <th style=\"text-align:left;padding:6px;\">市区町村</th>\
-         <th style=\"text-align:right;padding:6px;\">媒体給与中央値</th>\
-         <th style=\"text-align:right;padding:6px;\">単身向け相当家賃</th>\
-         <th style=\"text-align:right;padding:6px;\">物価指数</th>\
+         <th style=\"text-align:right;padding:6px;\">給与×生活 指数</th>\
+         <th style=\"text-align:right;padding:6px;\">最低賃金 (時給)</th>\
+         <th style=\"text-align:right;padding:6px;\">物価指数 (cost_index)</th>\
          <th style=\"text-align:right;padding:6px;\">生活コストスコア</th>\
          </tr></thead><tbody>\n",
     );
     for s in scores.iter().take(20) {
         let liv = living_map.get(s.municipality_code.as_str());
+        // 給与×生活 指数: salary_living_score (新) 優先
+        let salary_idx = s
+            .salary_living_score
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "-".into());
+        // 最低賃金 (時給): 新 LivingCostProxy.min_wage
+        let min_wage_html = liv
+            .and_then(|l| l.min_wage)
+            .map(|v| format!("¥{}", format_thousands(v)))
+            .unwrap_or_else(|| "-".into());
+        // 物価指数: cost_index (新) 優先 / retail_price_index_proxy (旧) を fallback
+        let price_html = liv
+            .and_then(|l| l.cost_index.or(l.retail_price_index_proxy))
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "-".into());
+        // 生活コストスコア: salary_living_score (新) を優先、living_cost_score (旧) を fallback
+        let lcs_html = s
+            .salary_living_score
+            .or(s.living_cost_score)
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "-".into());
         html.push_str(&format!(
             "<tr><td style=\"padding:4px;\">{pref} {muni}</td>\
-             <td style=\"text-align:right;padding:4px;\">{salary}</td>\
-             <td style=\"text-align:right;padding:4px;\">{rent}</td>\
-             <td style=\"text-align:right;padding:4px;\">{price}</td>\
-             <td style=\"text-align:right;padding:4px;\">{lcs}</td></tr>\n",
+             <td style=\"text-align:right;padding:4px;\">{salary_idx}</td>\
+             <td style=\"text-align:right;padding:4px;\">{min_wage_html}</td>\
+             <td style=\"text-align:right;padding:4px;\">{price_html}</td>\
+             <td style=\"text-align:right;padding:4px;\">{lcs_html}</td></tr>\n",
             pref = escape_html(&s.prefecture),
             muni = escape_html(&s.municipality_name),
-            salary = s.median_salary_yen.map(|v| format!("¥{}", format_thousands(v))).unwrap_or("-".into()),
-            rent = liv
-                .and_then(|l| l.single_household_rent_proxy)
-                .map(|v| format!("¥{}", format_thousands(v)))
-                .unwrap_or("-".into()),
-            price = liv
-                .and_then(|l| l.retail_price_index_proxy)
-                .map(|v| format!("{v:.1}"))
-                .unwrap_or("-".into()),
-            lcs = s.living_cost_score.map(|v| format!("{v:.1}")).unwrap_or("-".into()),
         ));
     }
     html.push_str("</tbody></table>\n");
     html.push_str(&format!(
         "<p style=\"font-size:11px;color:#64748b;margin:6px 0 0;\">\
-         家賃 proxy は `単身向け相当 / 小世帯向け相当` 表記 (1R/1LDK と断定しない) [{}]。\
-         物価指数は基準値 100 [{}]。</p>\n",
-        REFERENCE_LABEL, REFERENCE_LABEL
+         物価指数 (cost_index) は全国平均 100 を基準とする相対値 [{}]。\
+         最低賃金は厚労省告示の都道府県最低賃金 (時給, 円) [{}]。\
+         給与×生活 指数 / 生活コストスコアは 0-100 の相対指数 [{}]。</p>\n",
+        REFERENCE_LABEL, REFERENCE_LABEL, ESTIMATED_LABEL
     ));
     html.push_str("</section>\n");
 }
@@ -721,9 +1122,12 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
         ESTIMATED_LABEL
     ));
 
+    // Worker E Round 3: 新フィールド scenario_*_score (i64) を優先採用。
+    //   旧 scenario_*_population は SQL から外れて常に None。
+    //   両方の不変条件 (is_scenario_score_consistent / is_scenario_consistent) を満たすもののみ表示。
     let valid: Vec<&MunicipalityRecruitingScore> = scores
         .iter()
-        .filter(|s| s.is_scenario_consistent())
+        .filter(|s| s.is_scenario_consistent() && s.is_scenario_score_consistent())
         .collect();
     let invariant_excluded = scores.len() - valid.len();
 
@@ -740,12 +1144,22 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
         "<table class=\"mi-scenario-table\" style=\"width:100%;border-collapse:collapse;font-size:13px;\">\n\
          <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
          <th style=\"text-align:left;padding:6px;\">市区町村</th>\
-         <th style=\"text-align:right;padding:6px;\">保守 (1%)</th>\
-         <th style=\"text-align:right;padding:6px;\">標準 (3%)</th>\
-         <th style=\"text-align:right;padding:6px;\">強気 (5%)</th>\
+         <th style=\"text-align:right;padding:6px;\">保守シナリオスコア</th>\
+         <th style=\"text-align:right;padding:6px;\">標準シナリオスコア</th>\
+         <th style=\"text-align:right;padding:6px;\">強気シナリオスコア</th>\
          </tr></thead><tbody>\n",
     );
     for s in valid.iter().take(20) {
+        // Worker E Round 3: scenario_*_score (i64, 新) を優先、旧 *_population を fallback
+        let c_val = s
+            .scenario_conservative_score
+            .or(s.scenario_conservative_population);
+        let m_val = s
+            .scenario_standard_score
+            .or(s.scenario_standard_population);
+        let a_val = s
+            .scenario_aggressive_score
+            .or(s.scenario_aggressive_population);
         html.push_str(&format!(
             "<tr><td style=\"padding:4px;\">{pref} {muni}</td>\
              <td style=\"text-align:right;padding:4px;\">{c}</td>\
@@ -753,15 +1167,16 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
              <td style=\"text-align:right;padding:4px;\">{a}</td></tr>\n",
             pref = escape_html(&s.prefecture),
             muni = escape_html(&s.municipality_name),
-            c = format_opt_i64(s.scenario_conservative_population),
-            m = format_opt_i64(s.scenario_standard_population),
-            a = format_opt_i64(s.scenario_aggressive_population),
+            c = format_opt_i64(c_val),
+            m = format_opt_i64(m_val),
+            a = format_opt_i64(a_val),
         ));
     }
     html.push_str("</tbody></table>\n");
     html.push_str(&format!(
         "<p style=\"font-size:11px;color:#64748b;margin:6px 0 0;\">\
-         「応募者数」ではなく「配信対象として現実的に狙える母集団」(METRICS.md §9) [{}]。\
+         シナリオスコアは配信ターゲット相対指数 (METRICS.md §9) [{}]。\
+         「応募者数」ではなく「検証すべき配信地域の優先度」を示す。\
          保守 ≦ 標準 ≦ 強気 を満たすエントリのみ表示。</p>\n",
         ESTIMATED_LABEL
     ));
@@ -1423,5 +1838,400 @@ mod tests {
             assert!(!html.contains(forbidden),
                 "空入力で Hard NG '{}' が出力されている", forbidden);
         }
+    }
+
+    // ============================================================
+    // Round 2 Worker D: KPI cards / living cost panel / badges / print
+    // ============================================================
+
+    #[test]
+    fn kpi_cards_show_in_market_intelligence_only() {
+        // KPI カードは render_section_market_intelligence の冒頭で出力される。
+        // Full / Public variant では section 自体が呼ばれないため出ない。
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
+            ..Default::default()
+        };
+        render_section_market_intelligence(&mut html, &data);
+
+        // KPI grid マーカーが存在
+        assert!(html.contains("mi-kpi-grid"), "KPI grid CSS class が含まれること");
+        assert!(html.contains("mi-kpi-card"), "KPI card CSS class が含まれること");
+        assert!(html.contains("主要指標サマリ"), "KPI 見出しが含まれること");
+        assert!(html.contains("配信優先度 A 件数"), "KPI A 件数ラベル");
+        assert!(html.contains("厚み指数 平均"), "KPI 厚み指数ラベル");
+
+        // 凡例 (3 ラベル) が出ること
+        assert!(html.contains("mi-badge-measured"));
+        assert!(html.contains("mi-badge-estimated-beta"));
+        assert!(html.contains("mi-badge-reference"));
+
+        // Hard NG 用語が混入していないこと
+        for forbidden in [
+            "推定人数",
+            "想定人数",
+            "母集団人数",
+            "estimated_population",
+            "target_count",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "Hard NG 用語 '{}' が KPI に含まれている",
+                forbidden
+            );
+        }
+    }
+
+    #[test]
+    fn living_cost_panel_handles_null_values_gracefully() {
+        // 全 NULL のデータで panel が "-" を表示する (ゼロ埋め禁止)
+        let mut html = String::new();
+        let living: Vec<LivingCostProxy> = vec![];
+        let scores: Vec<MunicipalityRecruitingScore> = vec![];
+        render_mi_living_cost_panel(&mut html, &living, &scores);
+
+        assert!(html.contains("mi-living-cost-panel"));
+        assert!(html.contains("生活コスト"));
+        // NULL は「-」表示
+        assert!(html.contains(">-<"), "NULL 値が「-」で表示されること");
+        // ゼロ埋め禁止 (「0.0」「0 円」が値として現れないこと)
+        // (見出しや凡例で 0 が出る可能性があるため、value class 内のみ厳格チェック)
+        assert!(
+            !html.contains("class=\"mi-lc-value\">0<"),
+            "ゼロ埋めは禁止"
+        );
+        assert!(
+            !html.contains("class=\"mi-lc-value\">0.0<"),
+            "ゼロ埋めは禁止"
+        );
+
+        // フッター注記が必須
+        assert!(
+            html.contains("市区町村ごとの実態を保証するものではありません"),
+            "実態保証しない旨の注記必須"
+        );
+
+        // 参考統計バッジ
+        assert!(html.contains("mi-badge-reference"), "参考バッジが付与されること");
+    }
+
+    #[test]
+    fn priority_badges_render_correctly() {
+        // 各 priority (S/A/B/C/D) で対応する CSS class が出力されること
+        let mut html = String::new();
+        let rankings = vec![
+            WardRankingRowDto {
+                priority: "S".into(),
+                parent_rank: 1,
+                parent_total: 18,
+                national_rank: 5,
+                national_total: 1917,
+                thickness_index: 180.0,
+                municipality_code: "14101".into(),
+                municipality_name: "横浜市西区".into(),
+                parent_code: "14100".into(),
+                parent_name: "横浜市".into(),
+            },
+            WardRankingRowDto {
+                priority: "A".into(),
+                parent_rank: 2,
+                parent_total: 18,
+                national_rank: 12,
+                national_total: 1917,
+                thickness_index: 142.0,
+                municipality_code: "14102".into(),
+                municipality_name: "横浜市神奈川区".into(),
+                parent_code: "14100".into(),
+                parent_name: "横浜市".into(),
+            },
+            WardRankingRowDto {
+                priority: "B".into(),
+                parent_rank: 5,
+                parent_total: 18,
+                national_rank: 88,
+                national_total: 1917,
+                thickness_index: 100.0,
+                municipality_code: "14103".into(),
+                municipality_name: "横浜市鶴見区".into(),
+                parent_code: "14100".into(),
+                parent_name: "横浜市".into(),
+            },
+            WardRankingRowDto {
+                priority: "C".into(),
+                parent_rank: 10,
+                parent_total: 18,
+                national_rank: 200,
+                national_total: 1917,
+                thickness_index: 60.0,
+                municipality_code: "14104".into(),
+                municipality_name: "横浜市港北区".into(),
+                parent_code: "14100".into(),
+                parent_name: "横浜市".into(),
+            },
+            WardRankingRowDto {
+                priority: "D".into(),
+                parent_rank: 18,
+                parent_total: 18,
+                national_rank: 800,
+                national_total: 1917,
+                thickness_index: 30.0,
+                municipality_code: "14105".into(),
+                municipality_name: "横浜市瀬谷区".into(),
+                parent_code: "14100".into(),
+                parent_name: "横浜市".into(),
+            },
+        ];
+        render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
+
+        // S/A/B/C/D 全 class が出ること
+        assert!(html.contains("mi-priority-s"), "priority S class");
+        assert!(html.contains("mi-priority-a"), "priority A class");
+        assert!(html.contains("mi-priority-b"), "priority B class");
+        assert!(html.contains("mi-priority-c"), "priority C class");
+        assert!(html.contains("mi-priority-d"), "priority D class");
+
+        // priority badge wrapper が出ること
+        assert!(html.contains("mi-priority-badge"), "priority badge wrapper");
+
+        // S 行に anchor 🏭 が付くこと
+        assert!(html.contains("\u{1F3ED}"), "S priority に anchor バッジ");
+
+        // 厚み指数バー
+        assert!(html.contains("mi-thickness-bar-wrap"), "thickness bar wrapper");
+        assert!(html.contains("mi-thickness-bar-fill"), "thickness bar fill");
+    }
+
+    #[test]
+    fn print_media_keeps_kpi_text_readable() {
+        // <style> ブロックに @media print が含まれ、KPI を display:none していないこと
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ..Default::default()
+        };
+        render_section_market_intelligence(&mut html, &data);
+
+        // @media print ブロックが含まれる
+        assert!(html.contains("@media print"), "print 用 CSS ブロックが必須");
+
+        // KPI を print 時に隠していないこと
+        assert!(
+            !html.contains(".mi-kpi-card { display: none"),
+            "print で KPI を非表示にしない"
+        );
+        assert!(
+            !html.contains(".mi-kpi-grid { display: none"),
+            "print で KPI grid を非表示にしない"
+        );
+
+        // print 時に block fallback (横並び解除) されること
+        assert!(
+            html.contains(".mi-kpi-grid { display: block"),
+            "print 時は block fallback"
+        );
+
+        // フッター注記が含まれる (text-only でも読める)
+        assert!(html.contains("国勢調査 R2"), "実測注記の text 表現");
+        assert!(html.contains("Model F2"), "推定 β 注記の text 表現");
+    }
+
+    // ============================================================
+    // Round 3 Worker E: 新フィールド (target_thickness_index / cost_index /
+    // salary_living_score / distribution_priority / scenario_*_score) 接続テスト
+    // ============================================================
+
+    /// Worker B 投入版の MunicipalityRecruitingScore (新フィールドあり) を作成
+    fn sample_score_v2(
+        code: &str,
+        priority_grade: &str,
+        thickness: f64,
+        salary_living: f64,
+        scenario_c: i64,
+        scenario_s: i64,
+        scenario_a: i64,
+    ) -> MunicipalityRecruitingScore {
+        MunicipalityRecruitingScore {
+            municipality_code: code.into(),
+            prefecture: "北海道".into(),
+            municipality_name: "札幌市".into(),
+            distribution_priority: Some(priority_grade.into()),
+            distribution_priority_score: Some(75.0),
+            target_thickness_index: Some(thickness),
+            salary_living_score: Some(salary_living),
+            scenario_conservative_score: Some(scenario_c),
+            scenario_standard_score: Some(scenario_s),
+            scenario_aggressive_score: Some(scenario_a),
+            competitor_job_count: Some(300),
+            // 旧 *_population フィールドは fetch SQL で常に None になる前提
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn kpi_cards_count_priority_a_correctly() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![
+                sample_score_v2("01101", "S", 180.0, 70.0, 10, 20, 30),
+                sample_score_v2("01102", "A", 142.0, 65.0, 10, 20, 30),
+                sample_score_v2("01103", "A", 130.0, 60.0, 10, 20, 30),
+                sample_score_v2("01104", "B", 90.0, 50.0, 10, 20, 30),
+                sample_score_v2("01105", "C", 50.0, 40.0, 10, 20, 30),
+            ],
+            ..Default::default()
+        };
+        render_mi_kpi_cards(&mut html, &data);
+        // 配信優先度 A 件数 = 2 (priority "A" のみ)
+        assert!(
+            html.contains("配信優先度 A 件数"),
+            "A 件数 KPI ラベル必須"
+        );
+        assert!(
+            html.contains(">2<"),
+            "A 件数 = 2 が表示されること: {html}"
+        );
+        // 重点配信候補 = S + A = 3
+        assert!(
+            html.contains("重点配信候補"),
+            "重点配信候補 KPI ラベル必須"
+        );
+        assert!(html.contains(">3<"), "重点配信候補 (S+A) = 3");
+    }
+
+    #[test]
+    fn kpi_cards_average_thickness_index_excludes_null() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![
+                sample_score_v2("01101", "A", 100.0, 60.0, 10, 20, 30),
+                sample_score_v2("01102", "A", 200.0, 60.0, 10, 20, 30),
+                // NULL の thickness は集計から除外される
+                MunicipalityRecruitingScore {
+                    municipality_code: "01103".into(),
+                    target_thickness_index: None,
+                    distribution_priority: Some("B".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        render_mi_kpi_cards(&mut html, &data);
+        // (100 + 200) / 2 = 150 (NULL 除外、3 で割らない)
+        assert!(html.contains("150"), "thickness 平均 150 が出ること: {html}");
+    }
+
+    #[test]
+    fn living_cost_panel_uses_real_cost_index_field() {
+        // Worker A 投入版の cost_index フィールドが優先されること
+        let mut html = String::new();
+        let living = vec![LivingCostProxy {
+            municipality_code: "01101".into(),
+            cost_index: Some(98.5),
+            min_wage: Some(960),
+            salary_real_terms_proxy: Some(1.05),
+            // 旧フィールドは None で良い (SQL から外れる)
+            retail_price_index_proxy: None,
+            ..Default::default()
+        }];
+        let scores: Vec<MunicipalityRecruitingScore> = vec![];
+        render_mi_living_cost_panel(&mut html, &living, &scores);
+        assert!(html.contains("98.5"), "cost_index 値表示: {html}");
+        assert!(
+            html.contains("960"),
+            "最低賃金 960 円表示: {html}"
+        );
+        assert!(html.contains("1.05"), "salary_real_terms_proxy 値表示");
+    }
+
+    #[test]
+    fn parent_ranking_renders_thickness_bar_from_index() {
+        let mut html = String::new();
+        let rankings = vec![WardRankingRowDto {
+            priority: "A".into(),
+            thickness_index: 142.0,
+            parent_rank: 3,
+            parent_total: 18,
+            national_rank: 12,
+            national_total: 1917,
+            municipality_code: "14103".into(),
+            municipality_name: "横浜市鶴見区".into(),
+            parent_code: "14100".into(),
+            parent_name: "横浜市".into(),
+        }];
+        render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
+        // バーラッパー / fill が出力される
+        assert!(
+            html.contains("mi-thickness-bar-wrap"),
+            "thickness バー wrapper"
+        );
+        assert!(
+            html.contains("mi-thickness-bar-fill"),
+            "thickness バー fill"
+        );
+        // バー幅は 142/200*100 = 71% 付近
+        assert!(
+            html.contains("width:71%") || html.contains("width: 71%"),
+            "thickness 71% 幅: {html}"
+        );
+    }
+
+    #[test]
+    fn distribution_ranking_does_not_render_target_population() {
+        // 旧 target_population (常に None) を表示しないこと。
+        // 数値ありの target_population を渡しても HTML に「対象人口」見出しが出ないこと。
+        let mut html = String::new();
+        let scores = vec![MunicipalityRecruitingScore {
+            municipality_code: "01101".into(),
+            prefecture: "北海道".into(),
+            municipality_name: "札幌市".into(),
+            distribution_priority_score: Some(85.0),
+            target_thickness_index: Some(120.0),
+            // 旧フィールドに値があってもレンダリングされてはいけない
+            target_population: Some(99_999),
+            ..Default::default()
+        }];
+        render_mi_distribution_ranking(&mut html, &scores);
+        // 「対象人口」見出しは存在しないこと (置換済み)
+        assert!(
+            !html.contains("対象人口"),
+            "旧『対象人口』見出しは削除されているはず"
+        );
+        // 厚み指数列が出る
+        assert!(
+            html.contains("厚み指数"),
+            "厚み指数列ヘッダーが追加されていること"
+        );
+        // 旧 target_population 値が出ないこと (Hard NG: resident estimated_beta で人数表示しない)
+        assert!(
+            !html.contains("99,999"),
+            "target_population 値が表示されてはいけない"
+        );
+        // 新 thickness 値は表示される
+        assert!(html.contains("120.0"), "target_thickness_index 表示");
+    }
+
+    #[test]
+    fn scenario_columns_use_score_not_population() {
+        let mut html = String::new();
+        let scores = vec![sample_score_v2("01101", "A", 120.0, 65.0, 42, 60, 80)];
+        render_mi_scenario_population_range(&mut html, &scores);
+        // 新 column 見出し: 保守シナリオスコア
+        assert!(
+            html.contains("保守シナリオスコア"),
+            "新ヘッダー『保守シナリオスコア』必須"
+        );
+        assert!(html.contains("標準シナリオスコア"), "新ヘッダー『標準シナリオスコア』必須");
+        assert!(html.contains("強気シナリオスコア"), "新ヘッダー『強気シナリオスコア』必須");
+        // 旧 % 表記は消えていること
+        assert!(
+            !html.contains("保守 (1%)"),
+            "旧『保守 (1%)』ヘッダーは削除"
+        );
+        // scenario_*_score (i64) の値が出ること
+        assert!(html.contains(">42<"), "保守スコア 42 表示");
+        assert!(html.contains(">60<"), "標準スコア 60 表示");
+        assert!(html.contains(">80<"), "強気スコア 80 表示");
     }
 }
