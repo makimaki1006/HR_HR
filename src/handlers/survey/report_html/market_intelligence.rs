@@ -221,6 +221,9 @@ pub(crate) fn render_section_market_intelligence(
          相関は提示するが因果関係を断定しない (MEMORY ルール)。</p>\n"
     );
 
+    // P0: 配信ヒーローバー (免責直下、KPI カードより前)
+    render_mi_hero_bar(html, data);
+
     // Worker D: 主要指標サマリ KPI カード (セクション冒頭)
     render_mi_kpi_cards(html, data);
 
@@ -287,14 +290,55 @@ const MI_STYLE_BLOCK: &str = r#"<style>
 .mi-living-cost-card .mi-lc-value { font-size: 16px; font-weight: 600; color: #0f172a; }
 .mi-footer-notes { margin-top: 20px; padding: 12px; background: #f1f5f9; border-left: 4px solid #94a3b8; font-size: 11px; color: #475569; line-height: 1.7; }
 .mi-footer-notes ul { margin: 6px 0; padding-left: 20px; }
+/* P0: 配信ヒーローバー (mi-* prefix で variant 隔離) */
+.mi-hero-bar { margin: 12px 0 16px; }
+.mi-hero-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; }
+.mi-hero-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 14px 14px 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
+.mi-hero-card.mi-hero-primary { border-left: 6px solid #1e3a8a; background: linear-gradient(180deg, #eff6ff, #fff); }
+.mi-hero-eyebrow { font-size: 11px; color: #475569; font-weight: 600; letter-spacing: 0.02em; margin-bottom: 4px; }
+.mi-hero-value { font-size: 24px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+.mi-hero-value strong { font-size: 28px; }
+.mi-hero-value span.mi-hero-unit { font-size: 12px; color: #64748b; font-weight: 400; margin-left: 3px; }
+.mi-hero-context { font-size: 11px; color: #64748b; margin-top: 6px; }
+.mi-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* P0: parent_rank 列幅固定 (主表示 = 市内順位、従表示 = 全国順位) */
+.mi-rank-table { table-layout: fixed; }
+.mi-rank-table col.mi-col-prank { width: 22%; }
+.mi-rank-table col.mi-col-name  { width: 28%; }
+.mi-rank-table col.mi-col-thick { width: 22%; }
+.mi-rank-table col.mi-col-prio  { width: 12%; }
+.mi-rank-table col.mi-col-nrank { width: 16%; }
+.mi-rank-table th.mi-col-nrank, .mi-rank-table td.mi-col-nrank { font-size: 10px; color: #94a3b8; font-weight: 400; }
+/* P0: 統一 data-label badge (視認性強化) */
+.mi-badge { padding: 2px 7px; font-weight: 700; letter-spacing: 0.02em; }
+.mi-badge-measured { background: #dcfce7; color: #14532d; border-color: #4ade80; }
+.mi-badge-estimated-beta { background: #fef9c3; color: #713f12; border-color: #facc15; }
+.mi-badge-reference { background: #e2e8f0; color: #334155; border-color: #94a3b8; }
 @media print {
   .mi-kpi-grid { display: block; }
   .mi-kpi-card { display: block; page-break-inside: avoid; margin-bottom: 8px; }
   .mi-living-cost-grid { display: block; }
   .mi-living-cost-card { display: block; margin-bottom: 6px; page-break-inside: avoid; }
   .mi-badge, .mi-priority-badge { border: 1px solid #475569 !important; }
-  .mi-thickness-bar-wrap { border: 1px solid #94a3b8; }
+  .mi-thickness-bar-wrap { border: 1px solid #94a3b8; max-width: 80%; }
   .mi-footer-notes { page-break-inside: avoid; }
+  /* P0: 背景色を印刷で保持 */
+  .mi-hero-card, .mi-hero-card.mi-hero-primary,
+  .mi-kpi-card, .mi-living-cost-card, .mi-living-cost-panel,
+  .mi-summary, .mi-priority-badge, .mi-badge,
+  .mi-parent-group {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* P0: ランキング行が途中で切断されないよう */
+  .mi-rank-table thead { display: table-header-group; }
+  .mi-rank-table tr { page-break-inside: avoid; page-break-after: auto; }
+  .mi-rank-table tbody { page-break-inside: auto; }
+  /* P0: hero は A4 でも 3 枚横並び維持 */
+  .mi-hero-grid { display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .mi-hero-card { page-break-inside: avoid; }
+  /* P0: 厚みバーは印刷時に幅縮退 (はみ出し防止) */
+  .mi-thickness-bar-fill { max-width: 80%; }
 }
 </style>
 "#;
@@ -465,6 +509,163 @@ fn render_mi_kpi_card(
         value = escape_html(value),
         unit = escape_html(unit),
     ));
+}
+
+// --------------- P0: 統一 data-label badge ---------------
+//
+// 「実測 / 推定 β / 参考」ラベルを共通の見た目で出す。kind:
+//   - "measured"       → mi-badge-measured (実測)
+//   - "estimated_beta" → mi-badge-estimated-beta (推定)
+//   - "reference"      → mi-badge-reference (参考)
+// 不明な kind は参考扱いで安全側に倒す。
+#[allow(dead_code)]
+pub(crate) fn render_mi_data_label_badge(kind: &str) -> String {
+    let (cls, text) = match kind {
+        "measured" => ("mi-badge-measured", MEASURED_LABEL),
+        "estimated_beta" => ("mi-badge-estimated-beta", ESTIMATED_LABEL),
+        "reference" | _ => ("mi-badge-reference", REFERENCE_LABEL),
+    };
+    format!(
+        "<span class=\"mi-badge {cls}\">{text}</span>",
+        cls = cls,
+        text = escape_html(text),
+    )
+}
+
+// --------------- P0: 配信ヒーローバー ---------------
+//
+// 免責直下に 3 枚のカードを横一列で表示し、ファーストビューでの判断材料を提示する。
+//   1. 重点配信候補 (S+A 件数) — 推定 β
+//   2. 市内 1 位市区 (先頭政令市) — 実測 (parent_rank ベース)
+//   3. 職業人口 (実測 R2 合計) — workplace_measured 限定
+//
+// 第 3 枠の fallback ルール (Hard NG 厳守):
+//   workplace_measured データが無い場合は「実測値準備中」+ 厚み指数 平均 を
+//   指数として表示する。estimated_beta の人数化は絶対に行わない。
+#[allow(dead_code)]
+pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntelligenceData) {
+    // 1) 重点配信候補 (S + A 件数)
+    let high_priority_count = data
+        .recruiting_scores
+        .iter()
+        .filter(|s| {
+            s.distribution_priority
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case("S") || p.eq_ignore_ascii_case("A"))
+                .unwrap_or(false)
+        })
+        .count();
+    let high_priority_fallback = if high_priority_count == 0 {
+        data.ward_rankings
+            .iter()
+            .filter(|w| {
+                w.priority.eq_ignore_ascii_case("S") || w.priority.eq_ignore_ascii_case("A")
+            })
+            .count()
+    } else {
+        high_priority_count
+    };
+
+    // 2) 市内 1 位市区 (先頭政令市の parent_rank == 1)
+    //    parent_code でグループ化したうち先頭の parent_rank=1 を選ぶ
+    let mut first_top_ward: Option<&WardRankingRowDto> = None;
+    let mut parents_seen: BTreeMap<String, usize> = BTreeMap::new();
+    for r in &data.ward_rankings {
+        *parents_seen.entry(r.parent_code.clone()).or_insert(0) += 1;
+        if r.parent_rank == 1 && first_top_ward.is_none() {
+            first_top_ward = Some(r);
+        }
+    }
+
+    // 3) 職業人口 (workplace × measured の population 合計、measured 限定)
+    let workplace_measured_sum: i64 = data
+        .occupation_cells
+        .iter()
+        .filter(|c| c.basis == "workplace" && c.data_label == "measured")
+        .filter_map(|c| c.population)
+        .sum();
+    let has_workplace_measured = data
+        .occupation_cells
+        .iter()
+        .any(|c| c.basis == "workplace" && c.data_label == "measured" && c.population.is_some());
+
+    html.push_str(
+        "<section class=\"mi-hero-bar\" role=\"region\" aria-labelledby=\"mi-hero-heading\">\n",
+    );
+    html.push_str("<h3 id=\"mi-hero-heading\" class=\"mi-visually-hidden\">配信判断 ヒーロー</h3>\n");
+    html.push_str("<div class=\"mi-hero-grid\" role=\"list\">\n");
+
+    // Card 1: 重点配信候補
+    html.push_str(&format!(
+        "<div class=\"mi-hero-card mi-hero-primary\" role=\"listitem\">\
+         <div class=\"mi-hero-eyebrow\">重点配信候補 (S + A)</div>\
+         <div class=\"mi-hero-value\"><strong>{n}</strong><span class=\"mi-hero-unit\">件</span></div>\
+         <div class=\"mi-hero-context\">{badge} Model F2</div>\
+         </div>\n",
+        n = high_priority_fallback,
+        badge = render_mi_data_label_badge("estimated_beta"),
+    ));
+
+    // Card 2: 市内 1 位市区
+    let (ward_label, ward_ctx) = match first_top_ward {
+        Some(w) => (
+            escape_html(&w.municipality_name).to_string(),
+            format!("市内順位 1 / {} 区", w.parent_total),
+        ),
+        None => ("-".to_string(), "データ準備中".to_string()),
+    };
+    html.push_str(&format!(
+        "<div class=\"mi-hero-card\" role=\"listitem\">\
+         <div class=\"mi-hero-eyebrow\">市内 1 位市区 (先頭政令市)</div>\
+         <div class=\"mi-hero-value\">{label}</div>\
+         <div class=\"mi-hero-context\">{ctx}</div>\
+         </div>\n",
+        label = ward_label,
+        ctx = escape_html(&ward_ctx),
+    ));
+
+    // Card 3: 職業人口 (workplace × measured 限定) または fallback (厚み指数 平均)
+    if has_workplace_measured {
+        html.push_str(&format!(
+            "<div class=\"mi-hero-card\" role=\"listitem\">\
+             <div class=\"mi-hero-eyebrow\">職業人口 (実測 R2 合計)</div>\
+             <div class=\"mi-hero-value\"><strong>{val}</strong><span class=\"mi-hero-unit\">人</span></div>\
+             <div class=\"mi-hero-context\">{badge} 国勢調査</div>\
+             </div>\n",
+            val = format_thousands(workplace_measured_sum),
+            badge = render_mi_data_label_badge("measured"),
+        ));
+    } else {
+        // Fallback: workplace measured が無い場合は厚み指数 平均を指数表示。
+        // resident estimated_beta を人数として絶対に出さない (Hard NG 厳守)。
+        let thickness_vals: Vec<f64> = data
+            .recruiting_scores
+            .iter()
+            .filter_map(|s| s.target_thickness_index)
+            .chain(data.ward_rankings.iter().map(|w| w.thickness_index))
+            .collect();
+        let thick_avg = if thickness_vals.is_empty() {
+            None
+        } else {
+            Some(thickness_vals.iter().sum::<f64>() / thickness_vals.len() as f64)
+        };
+        let val_str = thick_avg
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or_else(|| "-".to_string());
+        let _ = parents_seen; // suppress unused warning if not needed elsewhere
+        html.push_str(&format!(
+            "<div class=\"mi-hero-card\" role=\"listitem\">\
+             <div class=\"mi-hero-eyebrow\">厚み指数 平均 (実測値準備中)</div>\
+             <div class=\"mi-hero-value\">{val}<span class=\"mi-hero-unit\">(指数)</span></div>\
+             <div class=\"mi-hero-context\">{badge} 検証済み推定 β に基づく相対指標</div>\
+             </div>\n",
+            val = escape_html(&val_str),
+            badge = render_mi_data_label_badge("estimated_beta"),
+        ));
+    }
+
+    html.push_str("</div>\n");
+    html.push_str("</section>\n");
 }
 
 // --------------- Worker D: 生活コスト・給与実質感パネル ---------------
@@ -758,12 +959,19 @@ pub(crate) fn render_mi_parent_ward_ranking(
 
         html.push_str(
             "    <table class=\"mi-rank-table\" style=\"width:100%;border-collapse:collapse;font-size:13px;\">\n\
+             <colgroup>\
+             <col class=\"mi-col-prank\" />\
+             <col class=\"mi-col-name\" />\
+             <col class=\"mi-col-thick\" />\
+             <col class=\"mi-col-prio\" />\
+             <col class=\"mi-col-nrank\" />\
+             </colgroup>\n\
              <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
-             <th style=\"text-align:left;padding:6px;\">市内順位 (主)</th>\
-             <th style=\"text-align:left;padding:6px;\">区名</th>\
-             <th style=\"text-align:right;padding:6px;\">厚み指数 (推定 β)</th>\
-             <th style=\"text-align:left;padding:6px;\">優先度</th>\
-             <th class=\"mi-ref\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">全国順位 (参考)</th>\
+             <th class=\"mi-col-prank\" scope=\"col\" style=\"text-align:left;padding:6px;\">市内順位 (主)</th>\
+             <th class=\"mi-col-name\" scope=\"col\" style=\"text-align:left;padding:6px;\">区名</th>\
+             <th class=\"mi-col-thick\" scope=\"col\" style=\"text-align:right;padding:6px;\">厚み指数 (推定 β)</th>\
+             <th class=\"mi-col-prio\" scope=\"col\" style=\"text-align:left;padding:6px;\">優先度</th>\
+             <th class=\"mi-col-nrank mi-ref\" scope=\"col\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">全国順位 (参考)</th>\
              </tr></thead><tbody>\n",
         );
 
@@ -780,14 +988,14 @@ pub(crate) fn render_mi_parent_ward_ranking(
             };
             html.push_str(&format!(
                 "<tr>\
-                 <td class=\"mi-parent-rank\" style=\"padding:6px;\"><strong>{prank} 位</strong> / {ptotal} 区</td>\
-                 <td style=\"padding:6px;\">{name}{anchor}</td>\
-                 <td class=\"mi-thickness\" style=\"text-align:right;padding:6px;\">{thick:.1}\
+                 <th class=\"mi-col-prank mi-parent-rank\" scope=\"row\" style=\"padding:6px;text-align:left;\"><strong>{prank} 位</strong> / {ptotal} 区</th>\
+                 <td class=\"mi-col-name\" style=\"padding:6px;\">{name}{anchor}</td>\
+                 <td class=\"mi-col-thick mi-thickness\" style=\"text-align:right;padding:6px;\">{thick:.1}\
                  <span class=\"mi-thickness-bar-wrap\" aria-hidden=\"true\">\
                  <span class=\"mi-thickness-bar-fill\" style=\"width:{tpct:.0}%;\"></span></span></td>\
-                 <td class=\"mi-priority mi-priority-{plow}\" style=\"padding:6px;\">\
+                 <td class=\"mi-col-prio mi-priority mi-priority-{plow}\" style=\"padding:6px;\">\
                  <span class=\"mi-priority-badge mi-priority-{plow}\">{prio}</span></td>\
-                 <td class=\"mi-ref\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">{nrank} 位 / {ntotal} 市区町村</td>\
+                 <td class=\"mi-col-nrank mi-ref\" style=\"text-align:right;padding:6px;color:#64748b;font-size:11px;\">{nrank} 位 / {ntotal} 市区町村</td>\
                  </tr>\n",
                 prank = w.parent_rank,
                 ptotal = w.parent_total,
@@ -2233,5 +2441,122 @@ mod tests {
         assert!(html.contains(">42<"), "保守スコア 42 表示");
         assert!(html.contains(">60<"), "標準スコア 60 表示");
         assert!(html.contains(">80<"), "強気スコア 80 表示");
+    }
+
+    // ============================================================
+    // P0: 配信ヒーローバー / colgroup / data-label badge / 印刷 CSS
+    // ============================================================
+
+    #[test]
+    fn test_p0_hero_bar_renders_three_cards() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 1, 18, 5, 1741)],
+            occupation_cells: vec![make_workplace_measured_cell("横浜市鶴見区", 50_000)],
+            ..Default::default()
+        };
+        render_mi_hero_bar(&mut html, &data);
+        assert!(html.contains("mi-hero-bar"), "mi-hero-bar セクション必須");
+        let card_count = html.matches("mi-hero-card").count();
+        // mi-hero-card はカード本体 3 個。mi-hero-primary は 1 個目に追加されるが、
+        // class 文字列としては "mi-hero-card mi-hero-primary" の中に "mi-hero-card" を含むため 3 でカウント
+        assert!(
+            card_count >= 3,
+            "hero card 3 枚以上 (実際 {card_count}): {html}"
+        );
+        assert!(html.contains("重点配信候補"), "Card 1 ラベル");
+        assert!(html.contains("市内 1 位市区"), "Card 2 ラベル");
+        assert!(html.contains("職業人口"), "Card 3 (workplace measured) ラベル");
+        assert!(
+            html.contains("50,000"),
+            "workplace measured 合計が 3 桁区切りで表示"
+        );
+    }
+
+    #[test]
+    fn test_p0_hero_bar_third_card_falls_back_when_no_workplace_measured() {
+        let mut html = String::new();
+        // resident estimated_beta だけ (workplace measured 無し)
+        let data = SurveyMarketIntelligenceData {
+            recruiting_scores: vec![sample_score("01101", 85.0, 100, 300, 500)],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 1, 18, 5, 1741)],
+            occupation_cells: vec![make_resident_estimated_beta_cell("横浜市鶴見区", 142.5)],
+            ..Default::default()
+        };
+        render_mi_hero_bar(&mut html, &data);
+        // Hard NG 厳守: resident estimated_beta は人数化しない
+        assert!(
+            !html.contains("人</span>"),
+            "fallback 時に '人' 単位を出してはいけない (人数化 NG)"
+        );
+        assert!(
+            html.contains("実測値準備中") || html.contains("(指数)"),
+            "fallback 表示 (指数) が出ること"
+        );
+        // Hard NG 用語混入チェック
+        for ng in &[
+            "推定人数",
+            "想定人数",
+            "母集団人数",
+            "estimated_population",
+            "estimated_worker_count",
+            "resident_population_estimate",
+            "target_count",
+        ] {
+            assert!(!html.contains(ng), "Hard NG 用語混入: {ng}");
+        }
+    }
+
+    #[test]
+    fn test_p0_parent_ranking_colgroup_fixes_widths() {
+        let mut html = String::new();
+        let rankings = vec![make_ranking_row("横浜市鶴見区", 1, 18, 5, 1741)];
+        render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
+        assert!(html.contains("<colgroup>"), "<colgroup> 必須");
+        assert!(html.contains("mi-col-prank"), "市内順位列 class");
+        assert!(html.contains("mi-col-name"), "区名列 class");
+        assert!(html.contains("mi-col-thick"), "厚み指数列 class");
+        assert!(html.contains("mi-col-prio"), "優先度列 class");
+        assert!(html.contains("mi-col-nrank"), "全国順位列 class");
+        // 主従関係: parent_rank セルは <th scope="row">
+        assert!(
+            html.contains("scope=\"row\""),
+            "市内順位セルは <th scope=\"row\"> で強調"
+        );
+    }
+
+    #[test]
+    fn test_p0_data_label_badge_renders_correct_kind() {
+        let m = render_mi_data_label_badge("measured");
+        let e = render_mi_data_label_badge("estimated_beta");
+        let r = render_mi_data_label_badge("reference");
+        assert!(m.contains("mi-badge-measured") && m.contains(MEASURED_LABEL));
+        assert!(e.contains("mi-badge-estimated-beta") && e.contains(ESTIMATED_LABEL));
+        assert!(r.contains("mi-badge-reference") && r.contains(REFERENCE_LABEL));
+        // 不明 kind は reference に倒れる (安全側)
+        let unk = render_mi_data_label_badge("unknown");
+        assert!(unk.contains("mi-badge-reference"));
+    }
+
+    #[test]
+    fn test_p0_print_css_includes_page_break_inside_avoid_and_color_adjust() {
+        // MI_STYLE_BLOCK は static const、render_section_market_intelligence で必ず出る
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        assert!(
+            html.contains("print-color-adjust: exact"),
+            "print-color-adjust: exact を主要セクションに付与"
+        );
+        assert!(
+            html.contains("page-break-inside: avoid"),
+            "tr の page-break-inside: avoid 必須"
+        );
+        // hero grid は print でも 3 枚横並び維持
+        assert!(
+            html.contains("grid-template-columns: repeat(3, 1fr)"),
+            "印刷時に hero 3 枚横並び維持"
+        );
     }
 }
