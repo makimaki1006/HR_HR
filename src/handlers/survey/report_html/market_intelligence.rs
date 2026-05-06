@@ -237,7 +237,11 @@ pub(crate) fn render_section_market_intelligence(
 
     render_mi_summary_card(html, data);
     render_mi_distribution_ranking(html, &data.recruiting_scores);
-    render_mi_talent_supply(html, &data.occupation_populations);
+    // Plan B occupation cells are the primary path.
+    // If legacy cells are empty, omit the legacy section instead of exposing fallback details.
+    if !data.occupation_populations.is_empty() {
+        render_mi_talent_supply(html, &data.occupation_populations);
+    }
     render_mi_salary_living_cost(html, &data.recruiting_scores, &data.living_cost_proxies);
 
     // Worker D: 生活コスト・給与実質感パネル (参考統計、NULL は - 表示)
@@ -1155,6 +1159,12 @@ pub(crate) fn render_mi_parent_ward_ranking(
     rankings: &[WardRankingRowDto],
     _code_master: &[MunicipalityCodeMasterDto],
 ) {
+    // If the target set has no designated wards, this section is not applicable.
+    // Omit it instead of exposing an internal unavailable-data state.
+    if rankings.is_empty() {
+        return;
+    }
+
     html.push_str(
         "<section class=\"mi-parent-ward-ranking\" aria-labelledby=\"mi-pwr-heading\" \
          style=\"margin:16px 0;\">\n",
@@ -1163,16 +1173,6 @@ pub(crate) fn render_mi_parent_ward_ranking(
         "<h3 id=\"mi-pwr-heading\">政令市区別ランキング \
          <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[商品コア]</span></h3>\n",
     );
-
-    if rankings.is_empty() {
-        html.push_str(
-            "<div class=\"mi-empty\" role=\"note\" \
-             style=\"padding:10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;color:#92400e;font-size:13px;\">\
-             \u{2139} 政令市区ランキングデータが現在取得できません。</div>\n"
-        );
-        html.push_str("</section>\n");
-        return;
-    }
 
     html.push_str(&format!(
         "<p class=\"mi-note\" style=\"font-size:12px;color:#64748b;margin:0 0 8px;\">\
@@ -1706,15 +1706,13 @@ fn render_mi_kpi(html: &mut String, label: &str, value: &str, unit: &str, label_
     ));
 }
 
-fn render_mi_placeholder(html: &mut String, msg: &str) {
-    // P0 (2026-05-06): 「データ準備中」prefix を「該当なし」に変更。
-    // 印刷 PDF 本文に内部 fallback 文言を出さないため。
-    html.push_str(&format!(
+fn render_mi_placeholder(html: &mut String, _msg: &str) {
+    // Client-facing PDF/HTML must not expose DB/fetch/internal fallback details.
+    html.push_str(
         "<div class=\"mi-placeholder\" role=\"note\" \
          style=\"padding:10px;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;color:#92400e;font-size:13px;\">\
-         \u{2139} 該当なし: {}</div>\n",
-        escape_html(msg)
-    ));
+         \u{2139} \u{8A72}\u{5F53}\u{306A}\u{3057}</div>\n"
+    );
 }
 
 fn format_opt_i64(v: Option<i64>) -> String {
@@ -2047,11 +2045,8 @@ mod tests {
     fn test_parent_ward_ranking_empty_does_not_panic() {
         let mut html = String::new();
         render_mi_parent_ward_ranking(&mut html, &[], &[]);
-        // panic せず、データ未取得メッセージが出る
-        assert!(
-            html.contains("取得できません") || html.contains("mi-empty"),
-            "空データ時は適切な文言: {html}"
-        );
+        // Empty designated-ward rankings are omitted rather than rendered as an internal fallback.
+        assert!(html.is_empty(), "empty rankings should omit the section: {html}");
     }
 
     #[test]
@@ -2276,13 +2271,12 @@ mod tests {
     }
 
     /// 空データで render_mi_parent_ward_ranking が panic しない + placeholder 出力。
+    /// Empty data for render_mi_parent_ward_ranking does not panic and emits no internal fallback.
     #[test]
     fn empty_data_renders_placeholder_not_panic() {
         let mut html = String::new();
         render_mi_parent_ward_ranking(&mut html, &[], &[]);
-        // panic していない & placeholder か空でない
-        assert!(html.contains("取得できません") || html.contains("mi-empty"),
-            "空データで placeholder/empty マーカーが出ること");
+        assert!(html.is_empty(), "empty rankings should omit the section: {html}");
     }
 
     /// 空 occupation_cells で render_mi_occupation_cells が panic しない。
@@ -2295,6 +2289,25 @@ mod tests {
         for forbidden in ["推定人数", "想定人数", "母集団人数"] {
             assert!(!html.contains(forbidden),
                 "空入力で Hard NG '{}' が出力されている", forbidden);
+        }
+    }
+
+    #[test]
+    fn placeholder_does_not_expose_internal_data_state() {
+        let mut html = String::new();
+        render_mi_placeholder(&mut html, "municipality_occupation_population internal fallback");
+        assert!(html.contains("\u{8A72}\u{5F53}\u{306A}\u{3057}"), "neutral placeholder is rendered: {html}");
+        for forbidden in [
+            "\u{30C7}\u{30FC}\u{30BF}\u{4E0D}\u{8DB3}",
+            "\u{8981}\u{4EF6}\u{518D}\u{78BA}\u{8A8D}",
+            "\u{30C7}\u{30FC}\u{30BF}\u{6E96}\u{5099}\u{4E2D}",
+            "\u{672A}\u{96C6}\u{8A08}",
+            "\u{53C2}\u{8003}\u{8868}\u{793A}\u{306A}\u{3057}",
+            "\u{5B9F}\u{6E2C}\u{5024}\u{6E96}\u{5099}\u{4E2D}",
+            "\u{672A}\u{6295}\u{5165}",
+            "municipality_occupation_population",
+        ] {
+            assert!(!html.contains(forbidden), "placeholder exposes forbidden term '{}': {html}", forbidden);
         }
     }
 
