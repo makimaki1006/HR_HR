@@ -937,6 +937,38 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         // dest_pref/dest_muni のみ CSV TOP1 から導出して commute_flow_summary を活性化する。
         // (target_municipalities が空でも、dest_pref/dest_muni があれば早期 return しない設計)
         let mi_data = if let Some(db_ref) = db {
+            // Phase 5.5 (2026-05-04): agg から (pref, name) を集めて JIS 5 桁 code を解決し、
+            // target_municipalities を完全活性化する。aggregate 行は除外 (area_level='unit')。
+            let mut pairs_owned: Vec<(String, String)> = agg
+                .by_municipality_salary
+                .iter()
+                .filter(|m| !m.prefecture.is_empty() && !m.name.is_empty())
+                .map(|m| (m.prefecture.clone(), m.name.clone()))
+                .collect();
+            pairs_owned.sort_unstable();
+            pairs_owned.dedup();
+            const MAX_TARGETS: usize = 20;
+            if pairs_owned.len() > MAX_TARGETS {
+                pairs_owned.truncate(MAX_TARGETS);
+            }
+            let pairs: Vec<(&str, &str)> = pairs_owned
+                .iter()
+                .map(|(p, n)| (p.as_str(), n.as_str()))
+                .collect();
+
+            let resolved_rows = super::super::analysis::fetch::fetch_code_master_by_names(
+                db_ref, turso, &pairs,
+            );
+            let target_codes_owned: Vec<String> = resolved_rows
+                .iter()
+                .filter_map(|row| {
+                    row.get("municipality_code")
+                        .and_then(|v| v.as_str().map(|s| s.to_string()))
+                })
+                .collect();
+            let target_codes: Vec<&str> =
+                target_codes_owned.iter().map(|s| s.as_str()).collect();
+
             let (dest_pref, dest_muni) = agg
                 .by_municipality_salary
                 .iter()
@@ -946,7 +978,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
             market_intelligence::build_market_intelligence_data(
                 db_ref,
                 turso,
-                &[],
+                &target_codes,
                 "",
                 dest_pref,
                 dest_muni,
@@ -2898,6 +2930,139 @@ mod variant_indicator_tests {
         assert!(
             html.contains("データ準備中"),
             "default() フォールバック時は placeholder が出ること"
+        );
+    }
+
+    /// Phase 5.5 (2026-05-04): MarketIntelligence variant + 実 db に対して
+    /// agg.by_municipality_salary の (pref, name) が code 解決されて
+    /// build_market_intelligence_data に渡されることを smoke レベルで検証する。
+    ///
+    /// 設計: in-memory DB に `municipality_code_master` (area_level 列入り) のみを投入。
+    /// 下流 4 fetch のテーブルは存在しないため空 Vec フォールバックになるが、
+    /// code 解決が走った結果 build が呼ばれ panic しないことを確認する。
+    #[test]
+    fn market_intelligence_variant_resolves_codes_smoke() {
+        use crate::db::local_sqlite::LocalDb;
+        use crate::handlers::survey::aggregator::MunicipalitySalaryAgg;
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let _ = rusqlite::Connection::open(path).unwrap();
+        let db = LocalDb::new(path).unwrap();
+        db.execute(
+            "CREATE TABLE municipality_code_master (
+                municipality_code TEXT PRIMARY KEY,
+                municipality_name TEXT,
+                prefecture TEXT,
+                area_type TEXT,
+                area_level TEXT,
+                parent_code TEXT
+            )",
+            &[],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO municipality_code_master VALUES \
+             ('13104', '新宿区', '東京都', 'special_ward', 'unit', '13100'), \
+             ('13103', '港区', '東京都', 'special_ward', 'unit', '13100')",
+            &[],
+        )
+        .unwrap();
+
+        let mut agg = SurveyAggregation::default();
+        agg.by_municipality_salary = vec![
+            MunicipalitySalaryAgg {
+                name: "新宿区".to_string(),
+                prefecture: "東京都".to_string(),
+                count: 5,
+                avg_salary: 250_000,
+                median_salary: 240_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "港区".to_string(),
+                prefecture: "東京都".to_string(),
+                count: 3,
+                avg_salary: 300_000,
+                median_salary: 280_000,
+            },
+        ];
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::MarketIntelligence,
+            ReportTheme::Default,
+            Some(&db),
+            None,
+        );
+        // パニックせず、MI 親セクションが出力されること
+        assert!(
+            html.contains("採用マーケットインテリジェンス"),
+            "code 解決が走っても MI セクションは描画される"
+        );
+    }
+
+    /// Full variant では (実 db を渡しても) code 解決ロジックを通らず副作用なし。
+    #[test]
+    fn full_variant_does_not_resolve_codes_with_db() {
+        use crate::db::local_sqlite::LocalDb;
+        use crate::handlers::survey::aggregator::MunicipalitySalaryAgg;
+
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let _ = rusqlite::Connection::open(path).unwrap();
+        let db = LocalDb::new(path).unwrap();
+
+        let mut agg = SurveyAggregation::default();
+        agg.by_municipality_salary = vec![MunicipalitySalaryAgg {
+            name: "新宿区".to_string(),
+            prefecture: "東京都".to_string(),
+            count: 5,
+            avg_salary: 250_000,
+            median_salary: 240_000,
+        }];
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::Full,
+            ReportTheme::Default,
+            Some(&db),
+            None,
+        );
+        assert!(
+            !html.contains("採用マーケットインテリジェンス"),
+            "Full variant では code 解決も MI セクションも実行されない"
         );
     }
 
