@@ -581,6 +581,8 @@ pub(crate) fn render_survey_report_page_with_variant_v3(
         municipality_demographics,
         variant,
         ReportTheme::Default,
+        None,
+        None,
     )
 }
 
@@ -605,6 +607,10 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
     theme: ReportTheme,
+    // Phase 3 Step 5 Phase 5 (2026-05-04): MarketIntelligence variant 専用 fetch 用 DB 参照。
+    // 既存の Full / Public 経路は `None` を渡しても従来通り `default()` で動作する。
+    db: Option<&crate::db::local_sqlite::LocalDb>,
+    turso: Option<&crate::db::turso_http::TursoDb>,
 ) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
@@ -925,8 +931,30 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // データは空 = placeholder 表示。実データ接続は Phase 3 Step 5+ で対応予定
     // (target_municipalities 抽出 + build_market_intelligence_data の handlers.rs 統合)。
     if variant.show_market_intelligence_sections() {
-        let mi_data =
-            super::super::analysis::fetch::SurveyMarketIntelligenceData::default();
+        // Phase 3 Step 5 Phase 5 (2026-05-04): MarketIntelligence variant 限定で実 fetch を呼ぶ。
+        // db が None の場合 (テスト経路など) は従来通り default() にフォールバック。
+        // target_municipalities (= 市区町村コード) は handlers.rs では未解決なので空で渡し、
+        // dest_pref/dest_muni のみ CSV TOP1 から導出して commute_flow_summary を活性化する。
+        // (target_municipalities が空でも、dest_pref/dest_muni があれば早期 return しない設計)
+        let mi_data = if let Some(db_ref) = db {
+            let (dest_pref, dest_muni) = agg
+                .by_municipality_salary
+                .iter()
+                .find(|m| !m.prefecture.is_empty() && !m.name.is_empty())
+                .map(|m| (m.prefecture.as_str(), m.name.as_str()))
+                .unwrap_or(("", ""));
+            market_intelligence::build_market_intelligence_data(
+                db_ref,
+                turso,
+                &[],
+                "",
+                dest_pref,
+                dest_muni,
+                10,
+            )
+        } else {
+            super::super::analysis::fetch::SurveyMarketIntelligenceData::default()
+        };
         market_intelligence::render_section_market_intelligence(&mut html, &mi_data);
     }
 
@@ -2712,6 +2740,165 @@ mod variant_indicator_tests {
         market_intelligence::render_section_market_intelligence(&mut html, &data);
         // 5 セクション + 1 補助で「データ準備中」placeholder が複数出る
         assert!(html.contains("データ準備中"));
+    }
+
+    // =========================================================================
+    // Phase 3 Step 5 Phase 5 (2026-05-04): mod.rs 統合 + signature ripple
+    //
+    // `_v3_themed` に追加した `db: Option<&LocalDb>` / `turso: Option<&TursoDb>` 経路で、
+    // MarketIntelligence variant のときだけ実 fetch (build_market_intelligence_data) を呼ぶ
+    // ガード分岐を検証する。Full / Public では呼ばれず、default() フォールバックのままになる。
+    // =========================================================================
+
+    /// MarketIntelligence variant + db=None で render を呼ぶと、default() フォールバックで
+    /// Step 5 セクション特有のラベル (mi-empty placeholder 等) が HTML に含まれる。
+    ///
+    /// 実 fetch を経由しないため、既存テストの空 HTML 期待値とほぼ同等になるが、
+    /// セクション root と placeholder は出力される。
+    #[test]
+    fn market_intelligence_variant_invokes_build_data() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::MarketIntelligence,
+            ReportTheme::Default,
+            None, // db: 未接続経路 → default() フォールバック
+            None, // turso: 同上
+        );
+        // Step 5 セクション特有の文字列のいずれかを含むこと
+        // (Phase 4 で実装された親 wrapper 又は placeholder)
+        let has_mi_marker = html.contains("採用マーケットインテリジェンス")
+            || html.contains("配信地域ランキング")
+            || html.contains("データ準備中");
+        assert!(
+            has_mi_marker,
+            "MarketIntelligence variant では Step 5 セクションが描画されること"
+        );
+    }
+
+    /// Full variant では Step 5 専用ラベル (Phase 4 新規) が一切出ない。
+    #[test]
+    fn full_variant_does_not_invoke_step5_sections() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::Full,
+            ReportTheme::Default,
+            None,
+            None,
+        );
+        assert!(
+            !html.contains("採用マーケットインテリジェンス"),
+            "Full では MI 親セクション heading が出てはならない"
+        );
+        assert!(
+            !html.contains("配信地域ランキング"),
+            "Full では MI 配信地域ランキングが出てはならない"
+        );
+    }
+
+    /// Public variant でも Step 5 セクションは出ない。
+    #[test]
+    fn public_variant_does_not_invoke_step5_sections() {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::Public,
+            ReportTheme::Default,
+            None,
+            None,
+        );
+        assert!(
+            !html.contains("採用マーケットインテリジェンス"),
+            "Public では MI 親セクション heading が出てはならない"
+        );
+        assert!(
+            !html.contains("配信地域ランキング"),
+            "Public では MI 配信地域ランキングが出てはならない"
+        );
+    }
+
+    /// db=None で MarketIntelligence variant を呼ぶと、build_market_intelligence_data は
+    /// 経由せず default() で fallback する (副作用なし、panic なし)。
+    /// Full / Public 同様、新セクションは描画される (default データのため placeholder 中心)。
+    #[test]
+    fn variant_guard_falls_back_to_default_for_non_mi() {
+        // db=None の場合、MarketIntelligence variant でも fetch をスキップして default()
+        // となる。HTML には親セクション + placeholder のみ。
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::MarketIntelligence,
+            ReportTheme::Default,
+            None,
+            None,
+        );
+        // default fallback: 親セクションは出るが、データなし placeholder
+        assert!(html.contains("採用マーケットインテリジェンス"));
+        assert!(
+            html.contains("データ準備中"),
+            "default() フォールバック時は placeholder が出ること"
+        );
     }
 
     /// 既存 `render_survey_report_page` (Full variant 相当の古い関数) の

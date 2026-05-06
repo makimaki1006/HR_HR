@@ -719,6 +719,12 @@ pub async fn survey_report_html(
         &municipality_demographics,
         variant,
         theme,
+        // Phase 3 Step 5 Phase 5 (2026-05-04): MarketIntelligence variant の実 fetch 用 DB。
+        // 既存 Full / Public 経路では variant guard により未使用。
+        // L264 の `db` / L269 の `turso` は L311 の spawn_blocking に move 済のため、
+        // ここでは state から再取得する。
+        state.hw_db.as_ref(),
+        state.turso_db.as_ref(),
     );
 
     Html(html)
