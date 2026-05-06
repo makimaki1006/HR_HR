@@ -2770,8 +2770,9 @@ mod variant_indicator_tests {
         let mut html = String::new();
         let data = SurveyMarketIntelligenceData::default();
         market_intelligence::render_section_market_intelligence(&mut html, &data);
-        // 5 セクション + 1 補助で「データ準備中」placeholder が複数出る
-        assert!(html.contains("データ準備中"));
+        // 5 セクション + 1 補助で placeholder が複数出る
+        // P0 (2026-05-06): prefix を「データ準備中」→「該当なし」に変更
+        assert!(html.contains("該当なし"));
     }
 
     // =========================================================================
@@ -2816,7 +2817,7 @@ mod variant_indicator_tests {
         // (Phase 4 で実装された親 wrapper 又は placeholder)
         let has_mi_marker = html.contains("採用マーケットインテリジェンス")
             || html.contains("配信地域ランキング")
-            || html.contains("データ準備中");
+            || html.contains("該当なし");
         assert!(
             has_mi_marker,
             "MarketIntelligence variant では Step 5 セクションが描画されること"
@@ -2928,7 +2929,7 @@ mod variant_indicator_tests {
         // default fallback: 親セクションは出るが、データなし placeholder
         assert!(html.contains("採用マーケットインテリジェンス"));
         assert!(
-            html.contains("データ準備中"),
+            html.contains("該当なし"),
             "default() フォールバック時は placeholder が出ること"
         );
     }
