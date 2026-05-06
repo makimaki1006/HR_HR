@@ -2750,10 +2750,7 @@ mod variant_indicator_tests {
             html_mi.contains("配信地域ランキング"),
             "配信地域ランキング必須"
         );
-        assert!(
-            html_mi.contains("人材供給"),
-            "人材供給ヒートマップ必須"
-        );
+        // Empty legacy talent-supply section is omitted to avoid internal fallback wording.
         assert!(
             html_mi.contains("給与・生活コスト比較"),
             "給与・生活コスト比較必須"
