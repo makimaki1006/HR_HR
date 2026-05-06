@@ -207,3 +207,89 @@ fn no_x_person_estimate_pattern_in_codebase() {
         found.join("\n")
     );
 }
+
+/// MarketIntelligence 印刷 / PDF P1 専用ガード (Worker F 追加 2026-05-06)
+///
+/// 印刷向けブロック (`mi-print-summary` / `mi-print-annotations` / `mi-print-only`)
+/// を含むファイルにおいて、印刷文脈で人数換算 / 推定母集団系の Hard NG 用語が
+/// 混入していないことを保証する。
+///
+/// 設計参照:
+/// - `docs/MARKET_INTELLIGENCE_PRINT_PDF_P1_SPEC.md` §7 (Hard NG 維持)
+/// - `docs/MARKET_INTELLIGENCE_UI_P1_P2_BACKLOG.md` 共通完了基準
+///
+/// 既存の `no_forbidden_identifiers_in_src` / `no_forbidden_ja_phrases_in_codebase`
+/// はファイル全体を検査するが、本テストは印刷ブロック近傍 (前後 8 行) に絞った
+/// 重複ガードであり、印刷向け新規実装で NG 用語が紛れ込む事故を早期検知する。
+#[test]
+fn no_forbidden_terms_near_mi_print_blocks() {
+    const PRINT_MARKERS: &[&str] = &[
+        "mi-print-summary",
+        "mi-print-annotations",
+        "mi-print-only",
+        "render_mi_print", // 将来追加されうる関数名 prefix
+    ];
+    const NG_NEAR_PRINT: &[&str] = &[
+        "推定人数",
+        "想定人数",
+        "母集団人数",
+        "target_count",
+        "estimated_population",
+        "estimated_worker_count",
+        "resident_population_estimate",
+        "convert_index_to_population",
+        "人見込み",
+    ];
+
+    let mut files = Vec::new();
+    for dir in &["src", "templates"] {
+        visit_rs_files(Path::new(dir), &mut files);
+    }
+
+    let mut found = Vec::new();
+    for path in &files {
+        let content = fs::read_to_string(path).unwrap_or_default();
+        if is_documentation_file(&content, path) {
+            continue;
+        }
+        let lines: Vec<&str> = content.lines().collect();
+        // 印刷ブロックを含む行の周辺 (前後 8 行) を検査範囲とする
+        let mut print_line_idx: Vec<usize> = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if PRINT_MARKERS.iter().any(|m| line.contains(m)) {
+                print_line_idx.push(i);
+            }
+        }
+        if print_line_idx.is_empty() {
+            continue;
+        }
+        for &center in &print_line_idx {
+            let start = center.saturating_sub(8);
+            let end = (center + 8).min(lines.len().saturating_sub(1));
+            for i in start..=end {
+                let line = lines[i];
+                let trimmed = line.trim_start();
+                let is_negation_assert = trimmed.starts_with("assert!(!")
+                    || trimmed.contains("!html.contains")
+                    || trimmed.contains("forbidden")
+                    || trimmed.contains("Hard NG")
+                    || trimmed.contains("NG_NEAR_PRINT")
+                    || trimmed.contains("FORBIDDEN_");
+                if is_negation_assert {
+                    continue;
+                }
+                for term in NG_NEAR_PRINT {
+                    if line.contains(term) {
+                        found.push(format!("{}:{}: {} (印刷ブロック近傍)", path.display(), i + 1, term));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "印刷ブロック近傍の Hard NG 用語 ({} 件):\n{}",
+        found.len(),
+        found.join("\n")
+    );
+}

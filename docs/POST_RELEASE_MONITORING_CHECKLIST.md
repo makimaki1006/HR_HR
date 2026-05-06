@@ -45,6 +45,7 @@
 - [ ] print emulation 確認
   - Playwright `emulateMedia({ media: 'print' })` で主要セクションが残存し、本文幅が縮まないこと。
   - 既知の `@page` 重複定義による横幅縮みデグレが再発していないこと。
+  - 印刷向けブロック (`mi-print-summary` / `mi-print-annotations`) が表示され、Hard NG 用語 (推定人数 / 想定人数 等) が紙面に出ていないこと (詳細: `docs/MARKET_INTELLIGENCE_PRINT_PDF_P1_SPEC.md` §7)。
 
 ---
 
