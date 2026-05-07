@@ -1365,6 +1365,85 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
 
 // --------------- Section 2: 配信地域ランキング ---------------
 
+/// 配信地域ランキング用に、`municipality_code` 単位で集約した 1 行分の表示データ。
+///
+/// 同一自治体に職業 (`occupation_code`) 別の複数行 (例: 11 職種分) が存在しても、
+/// `distribution_priority_score` が最大の行を「代表」として 1 行に集約し、
+/// それ以外は `other_occupation_count` (= group_size - 1) として件数のみ表示する。
+///
+/// MI レポート page 16 で同じ自治体名が連続表示される問題への対応 (P1)。
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct AggregatedMunicipalityRow {
+    municipality_code: String,
+    prefecture: String,
+    municipality_name: String,
+    /// 代表行 (group 内 score 最大) の職業名
+    top_occupation_name: String,
+    /// 代表行のスコア (0.0〜100.0)
+    top_score: f64,
+    /// 代表行の優先度区分 (S/A/B/C/D)
+    top_priority: Option<String>,
+    /// 代表行の厚み指数
+    top_thickness_index: Option<f64>,
+    /// 代表行の競合求人数
+    top_competitor_job_count: Option<i64>,
+    /// 代表以外の職業件数 (= group_size - 1)。0 のとき UI で非表示。
+    other_occupation_count: usize,
+}
+
+/// `municipality_code` 単位で集約し、`distribution_priority_score` 最大行を代表とする。
+///
+/// - 入力 `scores` は呼び出し側で不変条件 (range / scenario consistency) 通過済みを想定。
+/// - 出力は `top_score` 降順でソート済み。
+/// - 同点時は `prefecture` → `municipality_name` の lexicographic 順で安定化。
+fn aggregate_by_municipality(
+    scores: &[&MunicipalityRecruitingScore],
+) -> Vec<AggregatedMunicipalityRow> {
+    use std::collections::BTreeMap;
+    let mut by_muni: BTreeMap<String, Vec<&MunicipalityRecruitingScore>> = BTreeMap::new();
+    for s in scores {
+        by_muni
+            .entry(s.municipality_code.clone())
+            .or_default()
+            .push(s);
+    }
+
+    let mut rows: Vec<AggregatedMunicipalityRow> = by_muni
+        .into_iter()
+        .filter_map(|(_code, group)| {
+            // group 内 score 最大の行を代表に選ぶ
+            let representative = group.iter().max_by(|a, b| {
+                a.distribution_priority_score
+                    .unwrap_or(f64::NEG_INFINITY)
+                    .partial_cmp(&b.distribution_priority_score.unwrap_or(f64::NEG_INFINITY))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?;
+            Some(AggregatedMunicipalityRow {
+                municipality_code: representative.municipality_code.clone(),
+                prefecture: representative.prefecture.clone(),
+                municipality_name: representative.municipality_name.clone(),
+                top_occupation_name: representative.occupation_name.clone(),
+                top_score: representative.distribution_priority_score.unwrap_or(0.0),
+                top_priority: representative.distribution_priority.clone(),
+                top_thickness_index: representative.target_thickness_index,
+                top_competitor_job_count: representative.competitor_job_count,
+                other_occupation_count: group.len().saturating_sub(1),
+            })
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        b.top_score
+            .partial_cmp(&a.top_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.prefecture.cmp(&b.prefecture))
+            .then_with(|| a.municipality_name.cmp(&b.municipality_name))
+    });
+
+    rows
+}
+
 fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecruitingScore]) {
     html.push_str(
         "<section class=\"mi-ranking\" aria-labelledby=\"mi-ranking-heading\" \
@@ -1377,7 +1456,7 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
             .as_str()
     );
 
-    let mut valid: Vec<&MunicipalityRecruitingScore> = scores
+    let valid: Vec<&MunicipalityRecruitingScore> = scores
         .iter()
         .filter(|s| s.is_priority_score_in_range() && s.is_scenario_consistent())
         .collect();
@@ -1390,49 +1469,59 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
         return;
     }
 
-    valid.sort_by(|a, b| {
-        b.distribution_priority_score
-            .unwrap_or(0.0)
-            .partial_cmp(&a.distribution_priority_score.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // P1 (2026-05-06): 同一自治体が職業別に複数行表示される重複問題を解消。
+    // municipality_code 単位で 1 行に集約し、代表職種 + 「ほか N 職種」表示にする。
+    let aggregated = aggregate_by_municipality(&valid);
 
     html.push_str("<table class=\"mi-table\" style=\"width:100%;border-collapse:collapse;font-size:13px;\">\n");
     html.push_str(
         "<thead><tr style=\"background:#1e3a8a;color:#fff;\">\
          <th style=\"text-align:left;padding:6px;\">順位</th>\
          <th style=\"text-align:left;padding:6px;\">市区町村</th>\
+         <th style=\"text-align:left;padding:6px;\">代表職種</th>\
          <th style=\"text-align:right;padding:6px;\">配信優先度</th>\
          <th style=\"text-align:right;padding:6px;\">厚み指数</th>\
          <th style=\"text-align:right;padding:6px;\">競合求人数</th>\
          <th style=\"text-align:left;padding:6px;\">区分</th>\
          </tr></thead><tbody>\n"
     );
-    for (rank, s) in valid.iter().enumerate().take(20) {
-        let bucket = match s.distribution_priority_score.unwrap_or(0.0) {
+    for (rank, row) in aggregated.iter().enumerate().take(20) {
+        let bucket = match row.top_score {
             v if v >= 80.0 => "重点配信",
             v if v >= 65.0 => "拡張候補",
             v if v >= 50.0 => "維持/検証",
             _ => "優先度低",
+        };
+        // 代表職種セルに「ほか N 職種」サブテキストを併記 (N>0 のときのみ)
+        let occupation_cell = if row.other_occupation_count > 0 {
+            format!(
+                "{occ}<span class=\"mi-rank-other-occ\" style=\"display:block;font-size:11px;color:#64748b;\">ほか {n} 職種</span>",
+                occ = escape_html(&row.top_occupation_name),
+                n = row.other_occupation_count,
+            )
+        } else {
+            escape_html(&row.top_occupation_name)
         };
         // Worker E Round 3: 旧 target_population (常に None) 表示を厚み指数に置換
         // resident estimated_beta セクションでは「人」単位を表示しないルール (feedback_test_data_validation)
         html.push_str(&format!(
             "<tr><td style=\"padding:6px;\">{rank}</td>\
              <td style=\"padding:6px;\">{pref} {muni}</td>\
+             <td style=\"padding:6px;\">{occ_cell}</td>\
              <td style=\"text-align:right;padding:6px;\">{score}</td>\
              <td style=\"text-align:right;padding:6px;\">{thick}</td>\
              <td style=\"text-align:right;padding:6px;\">{comp}</td>\
              <td style=\"padding:6px;color:#64748b;\">{bucket}</td></tr>\n",
             rank = rank + 1,
-            pref = escape_html(&s.prefecture),
-            muni = escape_html(&s.municipality_name),
-            score = s.distribution_priority_score.map(|v| format!("{v:.1}")).unwrap_or("-".into()),
-            thick = s
-                .target_thickness_index
+            pref = escape_html(&row.prefecture),
+            muni = escape_html(&row.municipality_name),
+            occ_cell = occupation_cell,
+            score = format!("{:.1}", row.top_score),
+            thick = row
+                .top_thickness_index
                 .map(|v| format!("{v:.1}"))
                 .unwrap_or_else(|| "-".into()),
-            comp = format_opt_i64(s.competitor_job_count),
+            comp = format_opt_i64(row.top_competitor_job_count),
             bucket = bucket,
         ));
     }
@@ -1440,7 +1529,8 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
     html.push_str(&format!(
         "<p style=\"font-size:11px;color:#64748b;margin:6px 0 0;\">\
          配信優先度は METRICS.md §2.1 の `clamp(positive_score × (1 - penalty_reduction_pct/100), 0, 100)` で算出 [{}]。\
-         「採用しやすさの断定」ではなく「検証すべき配信地域の優先順位」として扱う。</p>\n",
+         「採用しやすさの断定」ではなく「検証すべき配信地域の優先順位」として扱う。\
+         同一自治体で複数職種ある場合は配信優先度が最大の職種を代表として 1 行に集約。</p>\n",
         ESTIMATED_LABEL
     ));
     html.push_str("</section>\n");
@@ -3363,6 +3453,170 @@ mod tests {
         assert!(
             html.contains("font-size: 9.5pt"),
             ".mi-print-annotations の印刷時 font-size は 9.5pt (本文 10.5pt より小さい) が必要"
+        );
+    }
+
+    // ============================================================
+    // P1 (2026-05-06): 配信地域ランキング 重複行集約
+    // ============================================================
+
+    /// 集約用ヘルパー: 任意の (code, occupation_code, score) で
+    /// 不変条件を満たす MunicipalityRecruitingScore を作る。
+    fn agg_score(code: &str, pref: &str, muni: &str, occ: &str, score: f64) -> MunicipalityRecruitingScore {
+        MunicipalityRecruitingScore {
+            municipality_code: code.into(),
+            prefecture: pref.into(),
+            municipality_name: muni.into(),
+            occupation_code: occ.into(),
+            occupation_name: occ.into(),
+            distribution_priority_score: Some(score),
+            target_thickness_index: Some(100.0),
+            // シナリオ整合: 保守 ≤ 標準 ≤ 強気
+            scenario_conservative_population: Some(10),
+            scenario_standard_population: Some(20),
+            scenario_aggressive_population: Some(30),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn ranking_aggregates_duplicate_municipalities_to_single_row() {
+        // 同一 municipality_code が 11 件 → 1 行 + 「ほか 10 職種」
+        let mut scores = Vec::new();
+        for i in 0..11 {
+            scores.push(agg_score(
+                "13104",
+                "東京都",
+                "新宿区",
+                &format!("occ_{i:02}"),
+                50.0 + i as f64,
+            ));
+        }
+        let mut html = String::new();
+        render_mi_distribution_ranking(&mut html, &scores);
+
+        // 自治体名は 1 回だけ <td> 内に出現 (集約後 1 行のため)
+        let muni_cell_count = html.matches("東京都 新宿区").count();
+        assert_eq!(
+            muni_cell_count, 1,
+            "新宿区行は集約後 1 行のみ (実際 {} 件): {html}",
+            muni_cell_count
+        );
+        // 「ほか 10 職種」が出力される
+        assert!(
+            html.contains("ほか 10 職種"),
+            "集約済み 10 職種を併記: {html}"
+        );
+    }
+
+    #[test]
+    fn ranking_uses_max_score_row_as_representative() {
+        // 同一自治体で score 50/80/30 → 代表は 80 の行 (occ_top)
+        let scores = vec![
+            agg_score("13101", "東京都", "千代田区", "occ_low", 50.0),
+            agg_score("13101", "東京都", "千代田区", "occ_top", 80.0),
+            agg_score("13101", "東京都", "千代田区", "occ_mid", 30.0),
+        ];
+        let mut html = String::new();
+        render_mi_distribution_ranking(&mut html, &scores);
+
+        // 代表職種 occ_top が表示
+        assert!(html.contains("occ_top"), "代表職種 occ_top 表示: {html}");
+        // 代表スコア 80.0 が表示
+        assert!(html.contains("80.0"), "代表スコア 80.0 表示: {html}");
+        // ほか 2 職種
+        assert!(html.contains("ほか 2 職種"), "ほか 2 職種表示: {html}");
+        // 千代田区行は 1 件のみ
+        assert_eq!(
+            html.matches("東京都 千代田区").count(),
+            1,
+            "千代田区行は 1 件のみ"
+        );
+    }
+
+    #[test]
+    fn ranking_shows_other_occupation_count_when_above_zero() {
+        // group_size=3 → 「ほか 2 職種」表示
+        // group_size=1 → 「ほか N 職種」非表示
+        let scores = vec![
+            // 港区: 3 職種
+            agg_score("13103", "東京都", "港区", "occ_a", 90.0),
+            agg_score("13103", "東京都", "港区", "occ_b", 70.0),
+            agg_score("13103", "東京都", "港区", "occ_c", 60.0),
+            // 渋谷区: 1 職種のみ
+            agg_score("13113", "東京都", "渋谷区", "occ_d", 40.0),
+        ];
+        let mut html = String::new();
+        render_mi_distribution_ranking(&mut html, &scores);
+
+        // group_size=3 → 「ほか 2 職種」
+        assert!(html.contains("ほか 2 職種"), "港区: ほか 2 職種表示: {html}");
+        // group_size=1 → 「ほか 0 職種」が出てはいけない
+        assert!(
+            !html.contains("ほか 0 職種"),
+            "単独職種で『ほか 0 職種』表示禁止: {html}"
+        );
+        // 渋谷区は表示されている
+        assert!(html.contains("東京都 渋谷区"), "渋谷区行は表示");
+    }
+
+    #[test]
+    fn ranking_resident_estimated_beta_does_not_render_population() {
+        // 集約後も resident estimated_beta セクションでは人数化禁止 (Hard NG)
+        let scores = vec![MunicipalityRecruitingScore {
+            municipality_code: "01101".into(),
+            prefecture: "北海道".into(),
+            municipality_name: "札幌市".into(),
+            occupation_code: "occ_x".into(),
+            occupation_name: "occ_x".into(),
+            distribution_priority_score: Some(75.0),
+            target_thickness_index: Some(110.0),
+            // 旧 target_population に値があってもレンダリングされてはならない
+            target_population: Some(99_999),
+            scenario_conservative_population: Some(1),
+            scenario_standard_population: Some(2),
+            scenario_aggressive_population: Some(3),
+            ..Default::default()
+        }];
+        let mut html = String::new();
+        render_mi_distribution_ranking(&mut html, &scores);
+
+        // 旧見出し / 旧値が出ない
+        assert!(!html.contains("対象人口"), "対象人口見出しは削除済");
+        assert!(!html.contains("99,999"), "target_population 値は表示禁止");
+        // Hard NG 用語の混入なし
+        assert!(!html.contains("推定人数"), "Hard NG '推定人数' 混入禁止");
+        assert!(!html.contains("想定人数"), "Hard NG '想定人数' 混入禁止");
+        assert!(!html.contains("母集団人数"), "Hard NG '母集団人数' 混入禁止");
+        // 厚み指数列は表示
+        assert!(html.contains("厚み指数"), "厚み指数列ヘッダ");
+        assert!(html.contains("110.0"), "thickness 値表示");
+    }
+
+    #[test]
+    fn ranking_aggregation_preserves_score_descending_order() {
+        // 集約後の rows が score 降順
+        let scores = vec![
+            agg_score("13101", "東京都", "千代田区", "occ_a", 60.0),
+            agg_score("13104", "東京都", "新宿区", "occ_b", 90.0),
+            agg_score("13103", "東京都", "港区", "occ_c", 75.0),
+            // 同一自治体の追加職種 (代表選択をテスト)
+            agg_score("13101", "東京都", "千代田区", "occ_a2", 45.0),
+        ];
+        let mut html = String::new();
+        render_mi_distribution_ranking(&mut html, &scores);
+
+        // 出現順序: 新宿 (90) → 港 (75) → 千代田 (60)
+        let pos_shinjuku = html.find("東京都 新宿区").expect("新宿区行存在");
+        let pos_minato = html.find("東京都 港区").expect("港区行存在");
+        let pos_chiyoda = html.find("東京都 千代田区").expect("千代田区行存在");
+        assert!(
+            pos_shinjuku < pos_minato,
+            "新宿 (90) は 港 (75) より前: shinjuku={pos_shinjuku}, minato={pos_minato}"
+        );
+        assert!(
+            pos_minato < pos_chiyoda,
+            "港 (75) は 千代田 (60) より前: minato={pos_minato}, chiyoda={pos_chiyoda}"
         );
     }
 }
