@@ -18,6 +18,7 @@
 |---|---|---|
 | P1-1 mi-badge-insufficient 4 種統一 | ✅ 実装済 | `b9cc610` |
 | P1-NEW Print/PDF P1 (印刷読み順 / 改ページ / 注釈再配置) | ✅ 実装済 | (今回 commit、orchestrator が確定後追記) |
+| P1-B PDF 下端余白 12mm 反映 | ✅ 完了 (調査の結果、計測対象誤りと確定) | `74d07fa` |
 | P1-2 解釈ストリップ (so what 1 行) | ⏳ 未着手 | — |
 | P1-3 政令市区ランキング見せ方改善 | ⏳ 未着手 | — |
 | P1-4 配信ヒーローバー文言微調整 | ⏳ 未着手 | — |
@@ -59,6 +60,15 @@
   - 印刷向けクラス (`mi-print-summary` / `mi-print-annotations` / `mi-print-only`) 周辺で Hard NG 用語混入なし
   - 既存 `no_forbidden_identifiers_in_src` / `no_forbidden_ja_phrases_in_codebase` PASS
   - resident estimated_beta を紙でも人数換算しない
+
+### P1-B. PDF 下端余白 12mm 反映 (実装済 ✅ / 計測誤認と確定)
+
+- **目的**: A4 印刷時の下マージンを 12mm に揃え、フッターと本文の重なりを防ぐ
+- **commit**: `74d07fa` (`fix(market_intelligence): apply 12mm @page margin in print media`)
+- **状態**: ✅ 完了。`74d07fa` の CSS 修正は維持。
+- **調査結論**: 当初「下端余白 11.4pt のままで改善なし」と認識されたが、これは PDF 計測スクリプトが `@page @bottom-left` / `@bottom-right` margin box 内のフッター文字列 (`Page X / 19 株式会社...`) を本文最下端として拾っていた**計測対象誤認**。実コンテンツ最下端は 12-30mm 範囲で `@page { margin: 12mm 14mm }` が概ね効いている。詳細は `docs/PDF_BOTTOM_MARGIN_ROOT_CAUSE_INVESTIGATION.md` 参照。
+- **追加対応 (任意)**: page 7 / 12 / 16 のテーブル末尾行が 12mm 未満まで到達するケースは Chromium break algorithm の限界に起因。実改善が必要なら同調査ドキュメント §7 P1 #1 (`tbody:after` で 4mm 余白確保) を別タスクとして切る。
+- **再発防止**: PDF 余白の自動検証時はフッター margin box を除外して本文 block の y1 を計測すること (`docs/POST_RELEASE_MONITORING_CHECKLIST.md` §3 補足参照)。
 
 ### P1-2. 解釈ストリップ (so what 1 行) 追加
 
