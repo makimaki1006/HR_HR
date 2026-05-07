@@ -69,6 +69,10 @@
   - parent_rank が null / 欠落していないか。
   - national_rank ≦ parent_rank の関係 (※同一被参照セットでの順序前提) が逆転していないか。
 
+### 3.1 PDF 余白計測の注意点
+
+- PDF 余白測定時は `@page` margin box (フッター / ヘッダー) を除外し、本文 block の y1 を使用すること。フッター文字列 (`Page X / 19 株式会社...`) を拾うと CSS `@page` margin の変更が誤って「反映なし」と判定される (2026-05-07 学習)。詳細: `docs/PDF_BOTTOM_MARGIN_ROOT_CAUSE_INVESTIGATION.md`。
+
 ---
 
 ## 4. rollback 判断基準
