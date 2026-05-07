@@ -402,6 +402,20 @@ const MI_STYLE_BLOCK: &str = r#"<style>
   .mi-hero-card { break-inside: avoid; page-break-inside: avoid; }
   /* P0: 厚みバーは印刷時に幅縮退 (はみ出し防止) */
   .mi-thickness-bar-fill { max-width: 80%; }
+  /* P1 (2026-05-06): 注釈ブロックを単独ページ化させない
+   * 監査では page 19 が注釈 5 行 + 余白 95% の単独ページになっていた。
+   * break-before: avoid で「前ページに入るなら入れる」挙動に変え、
+   * font-size 9.5pt + 行間圧縮で page 18 末尾に統合されやすくする。 */
+  .mi-print-annotations {
+    break-before: avoid !important;
+    page-break-before: avoid !important;
+    font-size: 9.5pt;
+    margin: 8px 0 4px;
+    padding: 6px 10px;
+  }
+  .mi-print-annotations h3 { font-size: 10pt; margin: 0 0 4px; }
+  .mi-print-annotations ul { margin: 2px 0 0; padding-left: 16px; line-height: 1.4; }
+  .mi-print-annotations li { margin: 0.1em 0; }
 }
 </style>
 "#;
@@ -3306,6 +3320,49 @@ mod tests {
         assert!(
             html.contains("padding: 0 !important"),
             "@media print で html/body の padding: 0 !important が必要"
+        );
+    }
+
+    /// P1 (2026-05-06): 注釈ブロックが単独ページ化されないよう
+    /// `.mi-print-annotations` に break-before: avoid を強制する。
+    ///
+    /// 背景: 監査で PDF 19 ページ目が注釈 5 行 + 余白 95% の単独ページに
+    /// なっていた。前ページ末尾に統合すべく break-before: avoid を必須化。
+    #[test]
+    fn print_annotations_has_break_before_avoid_for_compact_layout() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        // @media print 内に .mi-print-annotations セレクタが存在
+        assert!(
+            html.contains(".mi-print-annotations {"),
+            "@media print 内に .mi-print-annotations セレクタが必要"
+        );
+        // break-before: avoid !important が含まれる
+        assert!(
+            html.contains("break-before: avoid !important"),
+            ".mi-print-annotations に break-before: avoid !important が必要"
+        );
+        assert!(
+            html.contains("page-break-before: avoid !important"),
+            ".mi-print-annotations に page-break-before: avoid !important が必要 (旧仕様 fallback)"
+        );
+    }
+
+    /// P1 (2026-05-06): 注釈ブロックの紙面効率を上げるため、
+    /// `@media print` 内で本文 (10.5pt) より小さい 9.5pt に縮小する。
+    ///
+    /// 背景: 単独ページ化を防ぐ break-before: avoid と組み合わせ、
+    /// 前ページ末尾に収まりやすくするためのコンパクト化。
+    #[test]
+    fn print_annotations_compact_font_size() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        // 印刷用 font-size 9.5pt が含まれる
+        assert!(
+            html.contains("font-size: 9.5pt"),
+            ".mi-print-annotations の印刷時 font-size は 9.5pt (本文 10.5pt より小さい) が必要"
         );
     }
 }
