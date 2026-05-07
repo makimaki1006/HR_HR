@@ -720,6 +720,37 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     break-inside: avoid;
   }
   .echart, .echart-container { break-inside: avoid; page-break-inside: avoid; }
+
+  /* P0-2 (2026-05-06): 印刷時のチャート見切れ修正。
+   * 症状: A4 縦印刷で page 4/5/6/8/10 付近の ECharts / canvas / svg が
+   *       右端 / 下端で見切れる。
+   * 原因: chart wrapper (.echart, .echart-wrap, .echart-container, .chart-container)
+   *       に固定 width / overflow:hidden が残り、@page margin 内の本文幅
+   *       (A4 = 210mm - 8mm*2 = 194mm) を超えていた。
+   * 対策: width:100% / max-width:100% / overflow:visible を !important で強制。
+   *       内部 canvas / svg も max-width:100% / height:auto で本文幅内に収める。
+   *       `min-width` は SVG renderer の意図的な縮小回避設定との衝突を避けるため触らない。 */
+  .echart, .echart-wrap, .echart-container, .chart-container, .chart-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+  }
+  .echart canvas, .echart svg,
+  .echart-wrap canvas, .echart-wrap svg,
+  .echart-container canvas, .echart-container svg,
+  .chart-container canvas, .chart-container svg,
+  .chart-wrapper canvas, .chart-wrapper svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  /* echarts は ECharts が直接生成する子 div (位置:absolute) を持つ。
+   * 親の幅を超えた絶対配置で見切れる事象を防ぐため、子の overflow も解放。 */
+  .echart > div, .echart-wrap > div, .echart-container > div,
+  .chart-container > div, .chart-wrapper > div {
+    max-width: 100% !important;
+  }
+
   .sortable-table th::after { display: none; }
   table { border-collapse: collapse; }
   thead { display: table-header-group; } /* 次ページに header 再表示 */

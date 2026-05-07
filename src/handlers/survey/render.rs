@@ -552,6 +552,22 @@ fn render_action_bar(session_id: &str) -> String {
                             <span class="text-[10px] opacity-80 font-normal">対外提案向け</span>
                         </span>
                     </a>
+                    <!-- P0-1 (2026-05-06): 採用マーケットインテリジェンス variant ボタン追加。
+                         既存 Full / Public ボタンと同じ openVariantReport() 経路で variant 引数のみ
+                         'market_intelligence' を渡す。これによりユーザーが直接 URL を打たなくても
+                         MI セクション込みの PDF / HTML を生成できる導線を確保する。 -->
+                    <a href="/report/survey?session_id={sid}&variant=market_intelligence" target="_blank" rel="noopener"
+                       onclick="return openVariantReport(event, '{sid}', 'market_intelligence')"
+                       data-variant="market_intelligence"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-purple-400"
+                       aria-label="採用コンサルレポートPDFを新しいタブで開く（採用マーケットインテリジェンス版）"
+                       title="採用コンサルレポート: 採用マーケットインテリジェンス（職業×地域 / 常住地ベース vs 従業地ベース / 検証済み推定 β）を含む拡張版。コンサル提案・配信地域選定向け。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
+                        <span class="text-base" aria-hidden="true">📊</span>
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>採用コンサルレポート PDF</span>
+                            <span class="text-[10px] opacity-80 font-normal">マーケットインテリジェンス / コンサル提案向け</span>
+                        </span>
+                    </a>
                 </div>
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
                     同じCSVから異なる視点で2バリアントを生成可能。<strong class="text-slate-200">HW併載版</strong>はハローワーク掲載求人との統合分析を含む完全版（社内分析向け）、<strong class="text-slate-200">公開データ中心版</strong>はe-Stat等の公開データを主軸とした版（対外提案向け）です。両バリアントを試して比較できます。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
