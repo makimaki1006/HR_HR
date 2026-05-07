@@ -416,6 +416,19 @@ const MI_STYLE_BLOCK: &str = r#"<style>
   .mi-print-annotations h3 { font-size: 10pt; margin: 0 0 4px; }
   .mi-print-annotations ul { margin: 2px 0 0; padding-left: 16px; line-height: 1.4; }
   .mi-print-annotations li { margin: 0.1em 0; }
+  /* P2 (2026-05-08): page 25 情報密度改善
+   * 配信地域ランキング / 給与・生活コスト比較 / シナリオレンジの 3 表が同居して
+   * 読みづらくなる問題を解消。
+   * - mi-print-block: 表ブロック自体の途中分断を防止
+   * - mi-print-break-before: 給与・生活コスト比較を独立ページ化 (page 25 の混在を回避) */
+  .mi-print-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .mi-print-break-before {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
 }
 </style>
 "#;
@@ -1511,8 +1524,9 @@ fn aggregate_living_cost_by_municipality(
 }
 
 fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecruitingScore]) {
+    // P2 (2026-05-08): mi-print-block で印刷時の表中分断を防止 (page 25 情報密度改善)
     html.push_str(
-        "<section class=\"mi-ranking\" aria-labelledby=\"mi-ranking-heading\" \
+        "<section class=\"mi-ranking mi-print-block\" aria-labelledby=\"mi-ranking-heading\" \
          style=\"margin:16px 0;\">\n"
     );
     html.push_str(
@@ -1663,8 +1677,10 @@ fn render_mi_salary_living_cost(
     scores: &[MunicipalityRecruitingScore],
     living: &[LivingCostProxy],
 ) {
+    // P2 (2026-05-08): mi-print-break-before で給与・生活コスト比較を独立ページに分離。
+    // page 25 で配信地域ランキング + 給与生活コスト + シナリオレンジの 3 表が同居していた問題を改善。
     html.push_str(
-        "<section class=\"mi-living\" aria-labelledby=\"mi-living-heading\" style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-living mi-print-block mi-print-break-before\" aria-labelledby=\"mi-living-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(&format!(
         "<h3 id=\"mi-living-heading\">給与・生活コスト比較 \
@@ -1763,8 +1779,11 @@ fn render_mi_salary_living_cost(
 // --------------- Section 5: 保守/標準/強気 母集団レンジ ---------------
 
 fn render_mi_scenario_population_range(html: &mut String, scores: &[MunicipalityRecruitingScore]) {
+    // P2 (2026-05-08): mi-print-block で印刷時の表中分断を防止。
+    // 直前の生活コスト比較が break-before: page で独立ページ化されているため、
+    // scenario は break-before: page を付けず生活コスト直後に続けて配置する (page 数増加抑制)。
     html.push_str(
-        "<section class=\"mi-scenario\" aria-labelledby=\"mi-scenario-heading\" style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-scenario mi-print-block\" aria-labelledby=\"mi-scenario-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(&format!(
         "<h3 id=\"mi-scenario-heading\">保守 / 標準 / 強気 母集団レンジ \
@@ -3763,6 +3782,107 @@ mod tests {
         let pos_chiyoda = html.find("Tokyo Chiyoda").expect("Chiyoda exists");
         assert!(pos_shinjuku < pos_minato, "highest score should come first: {html}");
         assert!(pos_minato < pos_chiyoda, "second score should come before lowest: {html}");
+    }
+
+    // ============================================================
+    // P2 (2026-05-08): page 25 情報密度改善 - 印刷改ページ制御
+    // 配信地域ランキング / 給与・生活コスト比較 / シナリオレンジの 3 表が
+    // 同居していた問題を、mi-print-block (分断防止) +
+    // mi-print-break-before (独立ページ化) で解消する。
+    // ============================================================
+
+    /// 配信地域ランキング section に mi-print-block class が付与され、
+    /// 印刷時に表ブロックが途中で分断されないこと。
+    #[test]
+    fn print_block_class_added_to_distribution_ranking() {
+        let scores = vec![agg_score("13104", "Tokyo", "Shinjuku", "occ_a", 75.0)];
+        let mut html = String::new();
+        render_mi_distribution_ranking(&mut html, &scores);
+        assert!(
+            html.contains("mi-ranking mi-print-block"),
+            "配信地域ランキング section に mi-print-block class が必要: {html}"
+        );
+        // section 開始タグに含まれていること (内側の table 等ではなく wrapper)
+        assert!(
+            html.contains("<section class=\"mi-ranking mi-print-block\""),
+            "section 開始タグの class 属性に mi-print-block を含めること: {html}"
+        );
+    }
+
+    /// 給与・生活コスト比較 section に mi-print-break-before class が付与され、
+    /// 印刷時に独立ページとして配置されること (page 25 の 3 表混在を回避)。
+    #[test]
+    fn print_break_before_class_added_to_salary_living_cost() {
+        let scores = vec![agg_score("13104", "Tokyo", "Shinjuku", "occ_a", 75.0)];
+        let mut html = String::new();
+        render_mi_salary_living_cost(&mut html, &scores, &[]);
+        assert!(
+            html.contains("mi-print-break-before"),
+            "給与・生活コスト比較 section に mi-print-break-before class が必要: {html}"
+        );
+        // 同時に mi-print-block も付いていること (分断防止)
+        assert!(
+            html.contains("mi-print-block"),
+            "給与・生活コスト比較 section にも mi-print-block class が必要: {html}"
+        );
+        assert!(
+            html.contains("<section class=\"mi-living mi-print-block mi-print-break-before\""),
+            "section 開始タグの class 属性に両 class を含めること: {html}"
+        );
+    }
+
+    /// シナリオレンジ section に mi-print-block class が付与されること。
+    /// (mi-print-break-before は付けない: 直前の生活コスト直後に配置して page 数を抑える)
+    #[test]
+    fn print_block_class_added_to_scenario_population_range() {
+        let scores = vec![agg_score("13104", "Tokyo", "Shinjuku", "occ_a", 75.0)];
+        let mut html = String::new();
+        render_mi_scenario_population_range(&mut html, &scores);
+        assert!(
+            html.contains("mi-scenario mi-print-block"),
+            "シナリオレンジ section に mi-print-block class が必要: {html}"
+        );
+        // section 開始タグの class 属性に mi-print-break-before は付与しない
+        // (生活コスト直後に続けて配置 → page 数増加抑制)
+        assert!(
+            !html.contains("mi-scenario mi-print-block mi-print-break-before"),
+            "シナリオレンジには mi-print-break-before を付けない (page 数抑制): {html}"
+        );
+    }
+
+    /// `@media print` 内に `.mi-print-block` および `.mi-print-break-before`
+    /// の対応 CSS rules が含まれていること。
+    #[test]
+    fn print_block_break_inside_avoid_in_media_print() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        // mi-print-block: 表中分断防止
+        assert!(
+            html.contains(".mi-print-block {"),
+            "@media print 内に .mi-print-block セレクタが必要"
+        );
+        assert!(
+            html.contains("break-inside: avoid !important"),
+            ".mi-print-block に break-inside: avoid !important が必要"
+        );
+        assert!(
+            html.contains("page-break-inside: avoid !important"),
+            ".mi-print-block に page-break-inside: avoid !important (旧仕様 fallback) が必要"
+        );
+        // mi-print-break-before: 独立ページ化
+        assert!(
+            html.contains(".mi-print-break-before {"),
+            "@media print 内に .mi-print-break-before セレクタが必要"
+        );
+        assert!(
+            html.contains("break-before: page !important"),
+            ".mi-print-break-before に break-before: page !important が必要"
+        );
+        assert!(
+            html.contains("page-break-before: always !important"),
+            ".mi-print-break-before に page-break-before: always !important (旧仕様 fallback) が必要"
+        );
     }
 
 }
