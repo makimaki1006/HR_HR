@@ -1444,6 +1444,72 @@ fn aggregate_by_municipality(
     rows
 }
 
+
+#[derive(Debug, Clone, Copy)]
+struct AggregatedLivingCostRow<'a> {
+    score: &'a MunicipalityRecruitingScore,
+    score_value: Option<f64>,
+    other_occupation_count: usize,
+}
+
+fn salary_living_value(score: &MunicipalityRecruitingScore) -> Option<f64> {
+    score.salary_living_score.or(score.living_cost_score)
+}
+
+/// Aggregate salary/living-cost rows by `municipality_code`.
+///
+/// When one municipality has multiple occupation rows, the row with the highest
+/// salary/living score is shown as the representative row.
+/// This prevents page 16 from repeating the same municipality for every occupation.
+fn aggregate_living_cost_by_municipality(
+    scores: &[MunicipalityRecruitingScore],
+) -> Vec<AggregatedLivingCostRow<'_>> {
+    use std::collections::BTreeMap;
+
+    let mut by_muni: BTreeMap<String, Vec<&MunicipalityRecruitingScore>> = BTreeMap::new();
+    for score in scores {
+        by_muni
+            .entry(score.municipality_code.clone())
+            .or_default()
+            .push(score);
+    }
+
+    let mut rows: Vec<AggregatedLivingCostRow<'_>> = by_muni
+        .into_values()
+        .filter_map(|group| {
+            let representative = group.iter().max_by(|a, b| {
+                salary_living_value(a)
+                    .unwrap_or(f64::NEG_INFINITY)
+                    .partial_cmp(&salary_living_value(b).unwrap_or(f64::NEG_INFINITY))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| {
+                        a.distribution_priority_score
+                            .unwrap_or(f64::NEG_INFINITY)
+                            .partial_cmp(&b.distribution_priority_score.unwrap_or(f64::NEG_INFINITY))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+            })?;
+            Some(AggregatedLivingCostRow {
+                score: representative,
+                score_value: salary_living_value(representative),
+                other_occupation_count: group.len().saturating_sub(1),
+            })
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        b.score_value
+            .unwrap_or(f64::NEG_INFINITY)
+            .partial_cmp(&a.score_value.unwrap_or(f64::NEG_INFINITY))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.score.prefecture.cmp(&b.score.prefecture))
+            .then_with(|| a.score.municipality_name.cmp(&b.score.municipality_name))
+            .then_with(|| a.score.municipality_code.cmp(&b.score.municipality_code))
+    });
+
+    rows
+}
+
 fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecruitingScore]) {
     html.push_str(
         "<section class=\"mi-ranking\" aria-labelledby=\"mi-ranking-heading\" \
@@ -1630,14 +1696,26 @@ fn render_mi_salary_living_cost(
         "<table class=\"mi-living-table\" style=\"width:100%;border-collapse:collapse;font-size:12px;\">\n\
          <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
          <th style=\"text-align:left;padding:6px;\">市区町村</th>\
+         <th style=\"text-align:left;padding:6px;\">\u{4EE3}\u{8868}\u{8077}\u{7A2E}</th>\
          <th style=\"text-align:right;padding:6px;\">給与×生活 指数</th>\
          <th style=\"text-align:right;padding:6px;\">最低賃金 (時給)</th>\
          <th style=\"text-align:right;padding:6px;\">物価指数 (cost_index)</th>\
          <th style=\"text-align:right;padding:6px;\">生活コストスコア</th>\
          </tr></thead><tbody>\n",
     );
-    for s in scores.iter().take(20) {
+    let aggregated_living = aggregate_living_cost_by_municipality(scores);
+    for row in aggregated_living.iter().take(20) {
+        let s = row.score;
         let liv = living_map.get(s.municipality_code.as_str());
+        let occupation_cell = if row.other_occupation_count > 0 {
+            format!(
+                "{occ}<span class=\"mi-rank-other-occ\" style=\"display:block;font-size:11px;color:#64748b;\">\u{307B}\u{304B} {n} \u{8077}\u{7A2E}</span>",
+                occ = escape_html(&s.occupation_name),
+                n = row.other_occupation_count,
+            )
+        } else {
+            escape_html(&s.occupation_name)
+        };
         // 給与×生活 指数: salary_living_score (新) 優先
         let salary_idx = s
             .salary_living_score
@@ -1661,12 +1739,14 @@ fn render_mi_salary_living_cost(
             .unwrap_or_else(|| "-".into());
         html.push_str(&format!(
             "<tr><td style=\"padding:4px;\">{pref} {muni}</td>\
+             <td style=\"padding:4px;\">{occ_cell}</td>\
              <td style=\"text-align:right;padding:4px;\">{salary_idx}</td>\
              <td style=\"text-align:right;padding:4px;\">{min_wage_html}</td>\
              <td style=\"text-align:right;padding:4px;\">{price_html}</td>\
              <td style=\"text-align:right;padding:4px;\">{lcs_html}</td></tr>\n",
             pref = escape_html(&s.prefecture),
             muni = escape_html(&s.municipality_name),
+            occ_cell = occupation_cell,
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -3619,4 +3699,70 @@ mod tests {
             "港 (75) は 千代田 (60) より前: minato={pos_minato}, chiyoda={pos_chiyoda}"
         );
     }
+
+    #[test]
+    fn living_cost_aggregates_duplicate_municipalities_to_single_row() {
+        let mut scores = Vec::new();
+        for i in 0..4 {
+            let mut score = agg_score(
+                "13104",
+                "Tokyo",
+                "Shinjuku",
+                &format!("occ_{i:02}"),
+                70.0 + i as f64,
+            );
+            score.salary_living_score = Some(40.0 + i as f64);
+            scores.push(score);
+        }
+
+        let mut html = String::new();
+        render_mi_salary_living_cost(&mut html, &scores, &[]);
+
+        assert_eq!(
+            html.matches("Tokyo Shinjuku").count(),
+            1,
+            "salary/living table should aggregate duplicate municipality rows: {html}"
+        );
+        assert!(
+            html.contains("\u{307B}\u{304B} 3 \u{8077}\u{7A2E}"),
+            "other occupation count should be rendered: {html}"
+        );
+    }
+
+    #[test]
+    fn living_cost_uses_max_salary_living_score_as_representative() {
+        let mut low = agg_score("13104", "Tokyo", "Shinjuku", "occ_low", 90.0);
+        low.salary_living_score = Some(40.0);
+        let mut top = agg_score("13104", "Tokyo", "Shinjuku", "occ_top", 80.0);
+        top.salary_living_score = Some(92.0);
+        let mut mid = agg_score("13104", "Tokyo", "Shinjuku", "occ_mid", 70.0);
+        mid.salary_living_score = Some(65.0);
+
+        let mut html = String::new();
+        render_mi_salary_living_cost(&mut html, &[low, top, mid], &[]);
+
+        assert!(html.contains("occ_top"), "representative occupation should be max salary/living row: {html}");
+        assert!(html.contains("92.0"), "representative score should be rendered: {html}");
+        assert!(!html.contains("occ_low"), "non-representative occupation should not be a separate row: {html}");
+    }
+
+    #[test]
+    fn living_cost_aggregation_preserves_score_descending_order() {
+        let mut a = agg_score("13101", "Tokyo", "Chiyoda", "occ_a", 70.0);
+        a.salary_living_score = Some(62.0);
+        let mut b = agg_score("13104", "Tokyo", "Shinjuku", "occ_b", 70.0);
+        b.salary_living_score = Some(88.0);
+        let mut c = agg_score("13103", "Tokyo", "Minato", "occ_c", 70.0);
+        c.salary_living_score = Some(75.0);
+
+        let mut html = String::new();
+        render_mi_salary_living_cost(&mut html, &[a, b, c], &[]);
+
+        let pos_shinjuku = html.find("Tokyo Shinjuku").expect("Shinjuku exists");
+        let pos_minato = html.find("Tokyo Minato").expect("Minato exists");
+        let pos_chiyoda = html.find("Tokyo Chiyoda").expect("Chiyoda exists");
+        assert!(pos_shinjuku < pos_minato, "highest score should come first: {html}");
+        assert!(pos_minato < pos_chiyoda, "second score should come before lowest: {html}");
+    }
+
 }
