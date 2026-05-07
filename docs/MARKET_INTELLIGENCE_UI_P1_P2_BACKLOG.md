@@ -1,10 +1,12 @@
 # Market Intelligence UI P1/P2 バックログ
 
-**最終更新**: 2026-05-06
+**最終更新**: 2026-05-08
 **前提**:
 - UI P0 (`5d0d86d`) 本番反映済 (配信ヒーローバー / parent_rank 主表示 / data label badge / 印刷 CSS)
+- Round 6 (`ad6488d`) 本番反映済 (Print/PDF 納品品質 P0/P1 改善 13 commit)
 - 設計参照: `docs/MARKET_INTELLIGENCE_UI_IMPROVEMENT_PLAN.md`
 - 印刷 / PDF P1 設計: `docs/MARKET_INTELLIGENCE_PRINT_PDF_P1_SPEC.md`
+- Round 6 運用記録: `docs/ROUND6_PRINT_PDF_DELIVERY_QUALITY.md`
 - variant 隔離 (Full / Public / default) を絶対に変えない
 - Hard NG 用語 (target_count / estimated_population / 推定人数 / 想定人数 / 母集団人数 等) を docs / コードに書かない
 - resident estimated_beta を人数化しない (Hard NG 維持)
@@ -12,18 +14,26 @@
 
 ---
 
-## 進捗サマリ (2026-05-06)
+## 進捗サマリ (2026-05-08)
 
 | 項目 | 状態 | commit |
 |---|---|---|
 | P1-1 mi-badge-insufficient 4 種統一 | ✅ 実装済 | `b9cc610` |
-| P1-NEW Print/PDF P1 (印刷読み順 / 改ページ / 注釈再配置) | ✅ 実装済 | (今回 commit、orchestrator が確定後追記) |
+| P1-NEW Print/PDF P1 (印刷読み順 / 改ページ / 注釈再配置) | ✅ 実装済 | `f5e41c2` |
 | P1-B PDF 下端余白 12mm 反映 | ✅ 完了 (調査の結果、計測対象誤りと確定) | `74d07fa` |
+| P1-Round6-A hero polish (empty-state 文言調整) | ✅ 完了 | `7fff0fb` |
+| P1-Round6-B print annotations 統合 (空白 page 抑制) | ✅ 完了 (紙面効率削減効果は別ターゲット、副作用なし) | `9a616f9` |
+| P1-Round6-C 配信地域ランキング自治体集約 | ✅ 完了 | `89ca8f8` |
+| P0-Round6-D 通常 PDF 導線への MI variant 含有 + グラフ印刷見切れ修正 | ✅ 完了 | `556d960` |
+| P1-Round6-E 生活コスト比較表 自治体集約 | ✅ 完了 | `ad6488d` |
 | P1-2 解釈ストリップ (so what 1 行) | ⏳ 未着手 | — |
 | P1-3 政令市区ランキング見せ方改善 | ⏳ 未着手 | — |
 | P1-4 配信ヒーローバー文言微調整 | ⏳ 未着手 | — |
 | P1-5 印刷時の余白 / 改ページ微調整 | ⏳ 未着手 (Print P1 で部分対応済 / 余白微調整は別) | — |
 | P2-1〜P2-4 | ⏳ 未着手 | — |
+| P2-Round6-A page 25 情報密度改善 (3 表同居解消) | ⏳ 未着手 | — |
+| P2-Round6-B spec selector 監査 (`miParentWardCount=0` / `miSectionCount=0`) | ⏳ 未着手 (本番影響なし、HTML probe 命名規約再確認) | — |
+| P2-Round6-C ヒストグラム軸ラベル重なり (page 5/6) | ⏳ 未着手 (中央値 / 平均 / 最頻値 近接時のオーバーラップ) | — |
 
 ---
 
