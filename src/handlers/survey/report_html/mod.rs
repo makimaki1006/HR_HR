@@ -350,6 +350,11 @@ fn render_variant_indicator(variant: ReportVariant) -> String {
         name = escape_html(alt.display_name()),
         icon = alt.icon(),
     ));
+    // P0-1 (2026-05-06): MarketIntelligence variant への補助導線は媒体分析タブの
+    // アクションバー (render.rs) に「採用コンサルレポート PDF」ボタンとして配置済み。
+    // ここ (variant_indicator) に MI 切替リンクを追加すると Full/Public report の
+    // 出力に MI 用語が混入し既存 variant_isolation 設計に違反する (T2483 isolation tests)。
+    // したがって意図的に MI 切替リンクは追加しない (媒体分析タブから流入する設計)。
     html.push_str("</div>\n");
     html.push_str("</div>\n");
     // 切替スクリプト: 現在の URL から variant のみ差し替えて再読み込み
@@ -636,7 +641,11 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // --- テーマ切替 + 印刷ボタン ---
     html.push_str("<div class=\"no-print\" style=\"text-align:right;padding:8px 16px;\">\n");
     html.push_str("<button class=\"theme-toggle\" type=\"button\" onclick=\"toggleTheme()\" aria-label=\"ダークモード/ライトモードを切替\">\u{1F319} ダーク / \u{2600} ライト</button>\n");
-    html.push_str("<button onclick=\"window.print()\" aria-label=\"印刷またはPDFで保存\" style=\"padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #666;border-radius:4px;background:#fff;\">印刷 / PDF保存</button>\n");
+    /* P0-2 (2026-05-06): 印刷ボタンクリック時、ECharts インスタンスを resize() してから
+     * window.print() を呼ぶ。これにより印刷時のチャート見切れを防ぐ。
+     * `_echarts_instance_` 属性は ECharts が init 時に自動付与する DOM marker。
+     * echarts.getInstanceByDom() で外部から chart instance を取得可能。 */
+    html.push_str("<button onclick=\"(function(){try{document.querySelectorAll('[_echarts_instance_]').forEach(function(el){var c=window.echarts&&window.echarts.getInstanceByDom(el);if(c)c.resize();});}catch(e){}setTimeout(function(){window.print();},50);})()\" aria-label=\"印刷またはPDFで保存\" style=\"padding:8px 24px;font-size:14px;cursor:pointer;border:1px solid #666;border-radius:4px;background:#fff;\">印刷 / PDF保存</button>\n");
     html.push_str("</div>\n");
 
     // --- バリアントインジケータ + 切替リンク (2026-04-29) ---
@@ -2647,6 +2656,36 @@ mod variant_indicator_tests {
         // 既存挙動維持
         assert_eq!(ReportVariant::Full.alternative(), ReportVariant::Public);
         assert_eq!(ReportVariant::Public.alternative(), ReportVariant::Full);
+    }
+
+    /// P0-1 (2026-05-06): variant_indicator は MI 用語を出力しない (variant isolation 維持)。
+    /// MI 動線は媒体分析タブのアクションバー (render.rs の `data-variant="market_intelligence"`
+    /// ボタン) に集約され、レポート画面 (Full/Public) の variant_indicator には
+    /// MI への切替リンクを設置しない設計。
+    #[test]
+    fn variant_indicator_full_does_not_emit_market_intelligence_term() {
+        let html = render_variant_indicator(ReportVariant::Full);
+        assert!(
+            !html.contains("採用マーケットインテリジェンス"),
+            "Full の variant_indicator に MI 用語が混入してはならない (variant isolation)"
+        );
+        assert!(
+            !html.contains("variant=market_intelligence"),
+            "Full の variant_indicator に MI への切替リンクは置かない設計"
+        );
+    }
+
+    #[test]
+    fn variant_indicator_public_does_not_emit_market_intelligence_term() {
+        let html = render_variant_indicator(ReportVariant::Public);
+        assert!(
+            !html.contains("採用マーケットインテリジェンス"),
+            "Public の variant_indicator に MI 用語が混入してはならない (variant isolation)"
+        );
+        assert!(
+            !html.contains("variant=market_intelligence"),
+            "Public の variant_indicator に MI への切替リンクは置かない設計"
+        );
     }
 
     /// `?theme=` クエリパラメータと `?variant=` パーサが独立であること

@@ -909,8 +909,29 @@ function toggleTheme() {
       charts.push(chart);
     } catch(e) { console.warn('ECharts init error:', e); }
   });
-  window.addEventListener('beforeprint', function() { charts.forEach(function(c) { c.resize(); }); });
-  window.addEventListener('resize', function() { charts.forEach(function(c) { c.resize(); }); });
+  /* P0-2 (2026-05-06): 印刷時のチャート見切れ修正
+   * - beforeprint: 印刷ダイアログ表示前に親要素の本文幅に合わせて再 resize
+   * - afterprint: 印刷ダイアログ閉じた後も画面表示崩れが残らないよう再 resize
+   * - resize: ウィンドウサイズ変更時の従来挙動を維持
+   * Chromium / Firefox / Safari (WebKit) いずれも beforeprint/afterprint は同期発火するが、
+   * SVG renderer の場合 attribute 反映の遅延があるため double resize で安定化。 */
+  function resizeAll() {
+    charts.forEach(function(c) {
+      try { c.resize(); } catch(e) { /* swallow: chart already disposed */ }
+    });
+  }
+  window.addEventListener('beforeprint', resizeAll);
+  window.addEventListener('afterprint', resizeAll);
+  window.addEventListener('resize', resizeAll);
+  /* matchMedia print fallback: Safari 等で beforeprint が発火しない環境のため */
+  if (window.matchMedia) {
+    var mql = window.matchMedia('print');
+    if (mql && typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', resizeAll);
+    } else if (mql && typeof mql.addListener === 'function') {
+      mql.addListener(resizeAll);
+    }
+  }
 })();
 
 function initSortableTables() {
