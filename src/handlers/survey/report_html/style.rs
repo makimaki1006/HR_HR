@@ -774,6 +774,60 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   /* 見出し孤立防止 */
   h2, h3 { page-break-after: avoid; break-after: avoid; }
   p, li { orphans: 3; widows: 3; }
+
+  /* Round 2.9-B (2026-05-06): page.pdf() 経路で chart container の screen 幅
+   * (≈960pt) が PDF に持ち込まれて右端見切れする問題への CSS 側補強。
+   * 既存 P0-2 (line 733-) で .echart 等は本文幅に強制済み。本ブロックでは
+   * data-chart 属性 / ECharts 自動付与の [_echarts_instance_] 属性経路を追加。
+   * Round 2.9-A の JS resize と相互補完する (JS が onbeforeprint で resize、
+   * CSS は最終防衛線として絶対 max-width を強制)。 */
+  [data-chart],
+  [_echarts_instance_] {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+  [data-chart] svg, [data-chart] canvas,
+  [_echarts_instance_] svg, [_echarts_instance_] canvas {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* Round 2.9-B (2026-05-06): page.pdf() の Chrome DevTools Protocol 経路は
+ * @media print を一部しか honor せず、特に beforeprint hook が発火しない事象を
+ * Round 2.8-D で確定。Round 2.9-A の JS が html.pdf-rendering class を付与する
+ * ため、この class scope でも @media print と同等の chart 幅制約を再適用する。
+ * 既存 P0-2 / Round 2.9-B @media print ブロックと同じ rules を class scope で複製。 */
+html.pdf-rendering .echart,
+html.pdf-rendering .echart-wrap,
+html.pdf-rendering .echart-container,
+html.pdf-rendering .chart-container,
+html.pdf-rendering .chart-wrapper,
+html.pdf-rendering [data-chart],
+html.pdf-rendering [_echarts_instance_] {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+html.pdf-rendering .echart svg, html.pdf-rendering .echart canvas,
+html.pdf-rendering .echart-wrap svg, html.pdf-rendering .echart-wrap canvas,
+html.pdf-rendering .echart-container svg, html.pdf-rendering .echart-container canvas,
+html.pdf-rendering .chart-container svg, html.pdf-rendering .chart-container canvas,
+html.pdf-rendering .chart-wrapper svg, html.pdf-rendering .chart-wrapper canvas,
+html.pdf-rendering [data-chart] svg, html.pdf-rendering [data-chart] canvas,
+html.pdf-rendering [_echarts_instance_] svg, html.pdf-rendering [_echarts_instance_] canvas {
+  max-width: 100% !important;
+  height: auto !important;
+}
+html.pdf-rendering .echart > div,
+html.pdf-rendering .echart-wrap > div,
+html.pdf-rendering .echart-container > div,
+html.pdf-rendering .chart-container > div,
+html.pdf-rendering .chart-wrapper > div {
+  max-width: 100% !important;
 }
 
 /* ============================================================
