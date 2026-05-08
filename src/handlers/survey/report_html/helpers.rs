@@ -179,6 +179,11 @@ pub(super) fn build_histogram_echart_config(
         }
     };
 
+    // Round 2.7-AC: ラベル近接統合判定
+    // 3 値の差が bin_width * 2 以内なら近接 → graphic で統合カード化
+    // それ以外は既存の position 分散 (insideEndTop/Bottom) を維持
+    let stats_close = stats_are_close(median, mean, mode, bin_size);
+
     let mut mark_lines = vec![];
     if let Some(m) = median {
         mark_lines.push(json!({
@@ -186,7 +191,7 @@ pub(super) fn build_histogram_echart_config(
             "name": "中央値",
             "lineStyle": {"color": "#22c55e", "type": "dashed", "width": 2},
             "label": {
-                "show": true,
+                "show": !stats_close,
                 "formatter": format!("中央値 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -205,7 +210,7 @@ pub(super) fn build_histogram_echart_config(
             "name": "平均",
             "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
             "label": {
-                "show": true,
+                "show": !stats_close,
                 "formatter": format!("平均 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -224,7 +229,7 @@ pub(super) fn build_histogram_echart_config(
             "name": "最頻値",
             "lineStyle": {"color": "#3b82f6", "type": "dashed", "width": 2},
             "label": {
-                "show": true,
+                "show": !stats_close,
                 "formatter": format!("最頻値 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -238,6 +243,76 @@ pub(super) fn build_histogram_echart_config(
         }));
     }
 
+    // Round 2.7-AC: 近接時の統合ラベルカード (右上 graphic)
+    // 線色を維持: 中央値=緑 / 平均=赤 / 最頻値=青
+    let graphic = if stats_close {
+        let mut children = vec![
+            json!({
+                "type": "rect",
+                "shape": {"width": 180, "height": 64},
+                "style": {
+                    "fill": "#ffffff",
+                    "stroke": "#cbd5e1",
+                    "lineWidth": 1
+                }
+            }),
+            json!({
+                "type": "text",
+                "position": [10, 8],
+                "style": {
+                    "text": "統計値",
+                    "fill": "#0f172a",
+                    "font": "bold 11px sans-serif"
+                }
+            }),
+        ];
+        if let Some(m) = median {
+            children.push(json!({
+                "type": "text",
+                "position": [10, 24],
+                "style": {
+                    "text": format!("中央値 {}", value_label(m)),
+                    "fill": "#22c55e",
+                    "font": "bold 10px sans-serif"
+                }
+            }));
+        }
+        if let Some(m) = mean {
+            children.push(json!({
+                "type": "text",
+                "position": [10, 38],
+                "style": {
+                    "text": format!("平均 {}", value_label(m)),
+                    "fill": "#ef4444",
+                    "font": "bold 10px sans-serif"
+                }
+            }));
+        }
+        if let Some(m) = mode {
+            children.push(json!({
+                "type": "text",
+                "position": [10, 52],
+                "style": {
+                    "text": format!("最頻値 {}", value_label(m)),
+                    "fill": "#3b82f6",
+                    "font": "bold 10px sans-serif"
+                }
+            }));
+        }
+        json!([{
+            "type": "group",
+            "right": 10,
+            "top": 10,
+            "children": children
+        }])
+    } else {
+        json!([])
+    };
+
+    // Round 2.7-AC: yAxis 0 始まり強制を bulletproof 化
+    // - min: 0      → 棒高さ誇張防止
+    // - scale: false → ECharts default は scale=false だが明示化 (auto-scale 罠回避)
+    // - minInterval: 1 → 件数 (整数) なので小数 tick を抑止
     let config = json!({
         "tooltip": {"trigger": "axis"},
         "xAxis": {
@@ -248,9 +323,12 @@ pub(super) fn build_histogram_echart_config(
         "yAxis": {
             "type": "value",
             "min": 0,
+            "scale": false,
+            "minInterval": 1,
             "axisLabel": {"fontSize": 9}
         },
         "grid": {"left": "10%", "right": "5%", "bottom": "20%", "top": "10%"},
+        "graphic": graphic,
         "series": [{
             "type": "bar",
             "data": values,
@@ -262,6 +340,23 @@ pub(super) fn build_histogram_echart_config(
         }]
     });
     config.to_string()
+}
+
+/// Round 2.7-AC: 3 統計値の近接判定
+/// 中央値・平均・最頻値の最大差が bin_size * 2 以内なら近接とみなす
+pub(super) fn stats_are_close(
+    median: Option<i64>,
+    mean: Option<i64>,
+    mode: Option<i64>,
+    bin_size: i64,
+) -> bool {
+    let vals: Vec<i64> = [median, mean, mode].iter().filter_map(|v| *v).collect();
+    if vals.len() < 2 || bin_size <= 0 {
+        return false;
+    }
+    let max_v = *vals.iter().max().unwrap();
+    let min_v = *vals.iter().min().unwrap();
+    (max_v - min_v) <= bin_size * 2
 }
 
 /// ヒストグラム用バケット集計
