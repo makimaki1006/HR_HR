@@ -46,7 +46,7 @@ test.describe('MarketIntelligence smoke (Phase 7 Spec 1)', () => {
     const html = await page.content();
     const hasMiMarker =
       html.includes('mi-parent-ward-ranking') ||
-      html.includes('data-section="market-intelligence"') ||
+      html.includes('data-mi-section="market-intelligence"') ||
       html.includes('mi-rank-table') ||
       html.includes('従業地ベース') ||
       html.includes('常住地ベース') ||

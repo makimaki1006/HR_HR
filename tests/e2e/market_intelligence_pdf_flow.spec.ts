@@ -39,7 +39,7 @@ const FIXTURE = path.resolve(__dirname, 'fixtures', 'indeed_test_50.csv');
 function hasMarketIntelligenceMarker(html: string): boolean {
   return (
     html.includes('mi-parent-ward-ranking') ||
-    html.includes('data-section="market-intelligence"') ||
+    html.includes('data-mi-section="market-intelligence"') ||
     html.includes('mi-rank-table') ||
     html.includes('mi-empty') ||
     html.includes('従業地ベース') ||

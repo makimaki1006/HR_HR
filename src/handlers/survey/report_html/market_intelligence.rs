@@ -210,7 +210,8 @@ pub(crate) fn render_section_market_intelligence(
     html.push_str(MI_STYLE_BLOCK);
 
     html.push_str(
-        "<section class=\"mi-root\" role=\"region\" aria-labelledby=\"mi-root-heading\" \
+        "<section class=\"mi-root\" data-mi-section=\"market-intelligence\" \
+         role=\"region\" aria-labelledby=\"mi-root-heading\" \
          style=\"margin-top:24px;padding:16px;border-top:4px solid #1e3a8a;\">\n"
     );
     html.push_str(
@@ -442,7 +443,8 @@ const MI_STYLE_BLOCK: &str = r#"<style>
 #[allow(dead_code)]
 pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntelligenceData) {
     html.push_str(
-        "<section class=\"mi-kpi-summary\" aria-labelledby=\"mi-kpi-summary-heading\">\n",
+        "<section class=\"mi-kpi-summary\" data-mi-section=\"kpi-cards\" \
+         aria-labelledby=\"mi-kpi-summary-heading\">\n",
     );
     html.push_str(
         "<h3 id=\"mi-kpi-summary-heading\" style=\"margin:8px 0;\">\u{1F4CA} 主要指標サマリ \
@@ -692,7 +694,8 @@ pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntellige
         .any(|c| c.basis == "workplace" && c.data_label == "measured" && c.population.is_some());
 
     html.push_str(
-        "<section class=\"mi-hero-bar\" role=\"region\" aria-labelledby=\"mi-hero-heading\">\n",
+        "<section class=\"mi-hero-bar\" data-mi-section=\"hero-bar\" \
+         role=\"region\" aria-labelledby=\"mi-hero-heading\">\n",
     );
     html.push_str("<h3 id=\"mi-hero-heading\" class=\"mi-visually-hidden\">配信判断 ヒーロー</h3>\n");
     html.push_str("<div class=\"mi-hero-grid\" role=\"list\">\n");
@@ -791,7 +794,8 @@ pub(crate) fn render_mi_living_cost_panel(
     scores: &[MunicipalityRecruitingScore],
 ) {
     html.push_str(
-        "<section class=\"mi-living-cost-panel\" aria-labelledby=\"mi-lc-panel-heading\">\n",
+        "<section class=\"mi-living-cost-panel\" data-mi-section=\"living-cost-panel\" \
+         aria-labelledby=\"mi-lc-panel-heading\">\n",
     );
     html.push_str(
         "<h3 id=\"mi-lc-panel-heading\" style=\"margin:0 0 8px;\">\u{1F4B0} 生活コスト・給与実質感 \
@@ -989,7 +993,7 @@ pub(crate) fn render_mi_print_summary(
     };
 
     html.push_str(
-        "<section class=\"mi-print-summary mi-print-only\" \
+        "<section class=\"mi-print-summary mi-print-only\" data-mi-section=\"print-summary\" \
          aria-label=\"採用コンサルレポート要約\">\n",
     );
     html.push_str("<h2>結論と採用示唆</h2>\n");
@@ -1064,7 +1068,7 @@ pub(crate) fn render_mi_print_summary(
 #[allow(dead_code)]
 pub(crate) fn render_mi_print_annotations(html: &mut String) {
     html.push_str(
-        "<aside class=\"mi-print-annotations mi-print-only\" \
+        "<aside class=\"mi-print-annotations mi-print-only\" data-mi-section=\"print-annotations\" \
          aria-label=\"データ凡例\">\n",
     );
     html.push_str("<h3>データ凡例 / 注釈</h3>\n");
@@ -1100,8 +1104,8 @@ pub(crate) fn render_mi_print_annotations(html: &mut String) {
 #[allow(dead_code)]
 pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationCellDto]) {
     html.push_str(
-        "<section class=\"mi-occupation-cells\" aria-labelledby=\"mi-occcell-heading\" \
-         style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-occupation-cells\" data-mi-section=\"occupation-cells\" \
+         aria-labelledby=\"mi-occcell-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(
         "<h3 id=\"mi-occcell-heading\">職業×地域 セル別マトリクス \
@@ -1191,6 +1195,11 @@ pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationC
 // parent_rank (市内順位) を主指標、national_rank (全国順位) を参考表記する。
 // HTML 内で parent_rank セルが必ず national_rank セルより先に出力される (test で順序検証)。
 
+// NOTE (2026-05-08): `#[allow(dead_code)]` は call site (render_section_market_intelligence
+// L262) からは常時呼ばれているため CFG 上は dead ではないが、現 fixture (indeed_test_50.csv)
+// では政令市データ非空時のみ実体出力される条件付き section。E2E spec / probe では
+// 「現 fixture では 0 件が正常」として扱うこと (docs/SPEC_SELECTOR_AUDIT_2026_05_08.md §1.2 参照)。
+// 本番実顧客 CSV (政令市含む) 投入時に再評価し、必要なら dead_code 属性を外す。
 #[allow(dead_code)]
 pub(crate) fn render_mi_parent_ward_ranking(
     html: &mut String,
@@ -1204,8 +1213,8 @@ pub(crate) fn render_mi_parent_ward_ranking(
     }
 
     html.push_str(
-        "<section class=\"mi-parent-ward-ranking\" aria-labelledby=\"mi-pwr-heading\" \
-         style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-parent-ward-ranking\" data-mi-section=\"parent-ward-ranking\" \
+         aria-labelledby=\"mi-pwr-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(
         "<h3 id=\"mi-pwr-heading\">政令市区別ランキング \
@@ -1306,7 +1315,8 @@ pub(crate) fn render_mi_parent_ward_ranking(
 /// 結論サマリーカード: 主要 KPI 4 つを 1 行に並べる。
 fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData) {
     html.push_str(
-        "<section class=\"mi-summary\" aria-labelledby=\"mi-summary-heading\" \
+        "<section class=\"mi-summary\" data-mi-section=\"summary\" \
+         aria-labelledby=\"mi-summary-heading\" \
          style=\"margin:16px 0;padding:12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;\">\n"
     );
     html.push_str("<h3 id=\"mi-summary-heading\" style=\"margin:0 0 8px;\">結論サマリー</h3>\n");
@@ -1526,8 +1536,8 @@ fn aggregate_living_cost_by_municipality(
 fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecruitingScore]) {
     // P2 (2026-05-08): mi-print-block で印刷時の表中分断を防止 (page 25 情報密度改善)
     html.push_str(
-        "<section class=\"mi-ranking mi-print-block\" aria-labelledby=\"mi-ranking-heading\" \
-         style=\"margin:16px 0;\">\n"
+        "<section class=\"mi-ranking mi-print-block\" data-mi-section=\"distribution-ranking\" \
+         aria-labelledby=\"mi-ranking-heading\" style=\"margin:16px 0;\">\n"
     );
     html.push_str(
         "<h3 id=\"mi-ranking-heading\">配信地域ランキング \
@@ -1620,7 +1630,8 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
 
 fn render_mi_talent_supply(html: &mut String, cells: &[OccupationPopulationCell]) {
     html.push_str(
-        "<section class=\"mi-talent\" aria-labelledby=\"mi-talent-heading\" style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-talent\" data-mi-section=\"talent\" \
+         aria-labelledby=\"mi-talent-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(&format!(
         "<h3 id=\"mi-talent-heading\">人材供給ヒートマップ \
@@ -1680,7 +1691,7 @@ fn render_mi_salary_living_cost(
     // P2 (2026-05-08): mi-print-break-before で給与・生活コスト比較を独立ページに分離。
     // page 25 で配信地域ランキング + 給与生活コスト + シナリオレンジの 3 表が同居していた問題を改善。
     html.push_str(
-        "<section class=\"mi-living mi-print-block mi-print-break-before\" aria-labelledby=\"mi-living-heading\" style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-living mi-print-block mi-print-break-before\" data-mi-section=\"salary-living-cost\" aria-labelledby=\"mi-living-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(&format!(
         "<h3 id=\"mi-living-heading\">給与・生活コスト比較 \
@@ -1783,7 +1794,7 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
     // 直前の生活コスト比較が break-before: page で独立ページ化されているため、
     // scenario は break-before: page を付けず生活コスト直後に続けて配置する (page 数増加抑制)。
     html.push_str(
-        "<section class=\"mi-scenario mi-print-block\" aria-labelledby=\"mi-scenario-heading\" style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-scenario mi-print-block\" data-mi-section=\"scenario-population-range\" aria-labelledby=\"mi-scenario-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(&format!(
         "<h3 id=\"mi-scenario-heading\">保守 / 標準 / 強気 母集団レンジ \
@@ -1863,7 +1874,8 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
 
 fn render_mi_commute_inflow_supplement(html: &mut String, flows: &[CommuteFlowSummary]) {
     html.push_str(
-        "<section class=\"mi-commute\" aria-labelledby=\"mi-commute-heading\" style=\"margin:16px 0;\">\n",
+        "<section class=\"mi-commute\" data-mi-section=\"commute\" \
+         aria-labelledby=\"mi-commute-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(&format!(
         "<h3 id=\"mi-commute-heading\">通勤流入元 (補助表示) \
@@ -3882,6 +3894,127 @@ mod tests {
         assert!(
             html.contains("page-break-before: always !important"),
             ".mi-print-break-before に page-break-before: always !important (旧仕様 fallback) が必要"
+        );
+    }
+
+    // ----- P2-Round6-B: data-mi-section テスト識別子契約 (案 B 実装検証) -----
+    //
+    // 設計意図 (docs/SPEC_SELECTOR_AUDIT_2026_05_08.md §5 案 B):
+    // - class はスタイル用途、`data-mi-section` はテスト/probe 識別子という関心分離
+    // - root section に `data-mi-section="market-intelligence"` を付け、E2E spec が
+    //   従来探していた架空 `data-section="market-intelligence"` を実体ある属性に置換
+    // - 主要 print block にも個別 section 名を付与し、probe で安定取得可能にする
+    // - Full / Public variant では section 自体が呼ばれず空 HTML になる (variant guard)
+    //   → data-mi-section も自然に出ないこと (negative assertion)
+    // - parent-ward-ranking は現 fixture では rankings.is_empty() で early return される
+    //   ことが正常仕様 (fixture 政令市未含有時)。逆証明テストで早期 return を保証する。
+
+    /// root section (採用マーケットインテリジェンス wrapper) に
+    /// `data-mi-section="market-intelligence"` 属性が付与されていること。
+    /// monitoring grep / E2E spec の安定 selector として機能することを保証する。
+    #[test]
+    fn root_mi_section_has_data_mi_section_attribute() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        assert!(
+            html.contains("data-mi-section=\"market-intelligence\""),
+            "root section に data-mi-section=\"market-intelligence\" が必要: {html}"
+        );
+        // root section の class と data 属性が同一タグに付いていること (順序依存しない部分一致)
+        assert!(
+            html.contains("class=\"mi-root\" data-mi-section=\"market-intelligence\""),
+            "root section の class と data-mi-section が同一 <section> 開始タグに含まれること: {html}"
+        );
+    }
+
+    /// 主要 print block (distribution-ranking / salary-living-cost /
+    /// scenario-population-range / print-summary / print-annotations) の各 section に
+    /// `data-mi-section="..."` がそれぞれ 1 件以上含まれること。
+    #[test]
+    fn print_blocks_have_data_mi_section_attribute() {
+        let mut html = String::new();
+        let data = SurveyMarketIntelligenceData::default();
+        render_section_market_intelligence(&mut html, &data);
+        let expected_blocks = [
+            "data-mi-section=\"distribution-ranking\"",
+            "data-mi-section=\"salary-living-cost\"",
+            "data-mi-section=\"scenario-population-range\"",
+            "data-mi-section=\"print-summary\"",
+            "data-mi-section=\"print-annotations\"",
+        ];
+        for marker in &expected_blocks {
+            assert!(
+                html.contains(marker),
+                "印刷主要ブロック '{marker}' が data-mi-section 属性付きで出力されていること: {html}"
+            );
+        }
+    }
+
+    /// Full variant では `render_section_market_intelligence` が呼ばれず
+    /// (variant guard `show_market_intelligence_sections() == false`)、
+    /// `data-mi-section` 属性がそもそも出力されないこと。
+    #[test]
+    fn full_variant_does_not_emit_data_mi_section() {
+        use super::super::ReportVariant;
+
+        let data = SurveyMarketIntelligenceData {
+            occupation_cells: vec![make_workplace_measured_cell("横浜市鶴見区", 12_345)],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
+            ..Default::default()
+        };
+
+        let mut html = String::new();
+        if ReportVariant::Full.show_market_intelligence_sections() {
+            render_section_market_intelligence(&mut html, &data);
+        }
+        assert!(
+            !html.contains("data-mi-section="),
+            "Full variant に data-mi-section 属性が混入してはならない: {html}"
+        );
+    }
+
+    /// Public variant でも同様に `data-mi-section` が出力されないこと。
+    #[test]
+    fn public_variant_does_not_emit_data_mi_section() {
+        use super::super::ReportVariant;
+
+        let data = SurveyMarketIntelligenceData {
+            occupation_cells: vec![make_workplace_measured_cell("横浜市鶴見区", 12_345)],
+            ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
+            ..Default::default()
+        };
+
+        let mut html = String::new();
+        if ReportVariant::Public.show_market_intelligence_sections() {
+            render_section_market_intelligence(&mut html, &data);
+        }
+        assert!(
+            !html.contains("data-mi-section="),
+            "Public variant に data-mi-section 属性が混入してはならない: {html}"
+        );
+    }
+
+    /// `render_mi_parent_ward_ranking` は rankings 空入力で early return し、
+    /// 一切出力しないこと (現 fixture では政令市データ非空時のみ実体出力される正常仕様)。
+    /// 逆証明: `data-mi-section="parent-ward-ranking"` も `mi-parent-ward-ranking` も
+    /// 空入力では出ないことで、fixture 由来の 0 件が「dead code 起因の漏れ」ではなく
+    /// 「条件付き出力の正常 skip」であることを担保する。
+    #[test]
+    fn parent_ward_ranking_zero_rows_is_valid_for_current_fixture() {
+        let mut html = String::new();
+        render_mi_parent_ward_ranking(&mut html, &[], &[]);
+        assert!(
+            html.is_empty(),
+            "rankings 空入力では parent-ward-ranking section は一切出力されないこと: {html}"
+        );
+        assert!(
+            !html.contains("data-mi-section=\"parent-ward-ranking\""),
+            "空入力で data-mi-section が出てはならない (early return 保証): {html}"
+        );
+        assert!(
+            !html.contains("mi-parent-ward-ranking"),
+            "空入力で mi-parent-ward-ranking class も出てはならない: {html}"
         );
     }
 
