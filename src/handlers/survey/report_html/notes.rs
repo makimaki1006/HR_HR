@@ -27,10 +27,12 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<h2 id=\"notes-title\">第6章 注記・出典・免責</h2>\n");
 
     // === 冒頭サマリ ===
+    // 2026-05-08 Round 2.6: variant 非依存ブロックの HW 文言を中立化。
+    //   「HW 掲載求人」→「公開求人」(出典欄では postings テーブル名で具体化)
     html.push_str(
         "<div class=\"report-notes-leadin\">\
          本レポートを正しく読むための前提: \
-         記載される数値は <strong>HW 掲載求人＋アップロード CSV</strong> の範囲内であり、\
+         記載される数値は <strong>公開求人＋アップロード CSV</strong> の範囲内であり、\
          非公開求人・職業紹介事業者経由・全求人市場を代表しません。\
          また「傾向」「相関」は <strong>因果関係を主張しない</strong> 観測です。</div>\n",
     );
@@ -40,7 +42,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<h3>データソース</h3>\n");
     html.push_str("<ul>\n");
     html.push_str("<li>アップロード CSV（媒体経由のデータ）</li>\n");
-    html.push_str("<li>ハローワーク公開データ（hellowork.db / postings テーブル）</li>\n");
+    html.push_str("<li>公開求人データ（hellowork.db / postings テーブル）</li>\n");
     html.push_str(
         "<li>外部企業 DB（地域注目企業データ由来、業種マッピングは industry_mapping を参照）</li>\n",
     );
@@ -53,13 +55,13 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<ul>\n");
     html.push_str(
         "<li><strong>データスコープ</strong>: 本レポートはアップロード CSV の行に基づく分析が主で、\
-         HW 掲載データは比較参考値として併記している。\
-         CSV は対象媒体の掲載範囲に依存し、HW は掲載求人のみに限定されるため、\
+         公開求人データは比較参考値として併記している。\
+         CSV は対象媒体の掲載範囲に依存し、公開求人データは掲載分のみに限定されるため、\
          いずれも全求人市場を代表するものではない。\
          職業紹介事業者の求人・非公開求人は本レポートに含まれない。</li>\n",
     );
     html.push_str(
-        "<li><strong>給与バイアス</strong>: HW 掲載求人は中小企業・地方案件の比率が高く民間媒体より\
+        "<li><strong>給与バイアス</strong>: 公開求人は中小企業・地方案件の比率が高く民間媒体より\
          給与水準が低く出る傾向がある。CSV 側も掲載元媒体のバイアスを内包するため、\
          両者の単純比較には注意が必要。</li>\n",
     );
@@ -112,7 +114,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
          証明するものではない。示唆は仮説であり、実施判断は現場文脈に依存する。</li>\n",
     );
     html.push_str(
-        "<li><strong>該当箇所</strong>: 第4章（求職者心理分析、新着プレミアム）/ 第5章（地域注目企業、HW件数 ⇄ 採用活発度）/ 各種地域比較。\
+        "<li><strong>該当箇所</strong>: 第4章（求職者心理分析、新着プレミアム）/ 第5章（地域注目企業、公開求人件数 ⇄ 採用活発度）/ 各種地域比較。\
          これらは観測された関連性であり、因果関係を主張しない。</li>\n",
     );
     // タスク3-A: 相関 vs 因果の具体例を追加
@@ -130,7 +132,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
         style=\"margin-top:8px;padding:8px 12px;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:4px;\">\n");
     html.push_str("<h3>\u{26A0} 本レポートで「分からないこと」</h3>\n");
     html.push_str("<ul>\n");
-    html.push_str("<li><strong>個別求職者の応募意向</strong>（CSV / HW は求人側の情報のみであり、応募者側の意思決定要因は含まれない）</li>\n");
+    html.push_str("<li><strong>個別求職者の応募意向</strong>（CSV / 公開求人データは求人側の情報のみであり、応募者側の意思決定要因は含まれない）</li>\n");
     html.push_str("<li><strong>求人媒体の選定理由・運用期間・予算配分</strong>（媒体側の運用ノウハウは観測不可）</li>\n");
     html.push_str("<li><strong>採用後の定着率・ミスマッチ事例</strong>（時系列追跡なし、入社後データは保有していない）</li>\n");
     html.push_str("<li><strong>競合企業の採用戦略</strong>（地域注目企業の比較表は構造比較のみで戦略意図は推測不可）</li>\n");
@@ -149,7 +151,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     //   「HW 市場との適合度」→「公開求人市場との適合度」(出典欄に HW 公開求人記載で具体化)
     html.push_str("<li><strong>既存地域の媒体運用の見直し</strong>: 給与水準・新着比率・主要雇用形態の構成比を確認し、\
          CSV 媒体の掲載傾向と公開求人市場との適合度を比較する。</li>\n");
-    html.push_str("<li><strong>社内提案資料の客観データ補強</strong>: 公開統計（e-Stat）・HW 公開求人を引用し、\
+    html.push_str("<li><strong>社内提案資料の客観データ補強</strong>: 公開統計（e-Stat）・公開求人データを引用し、\
          主観的な肌感覚に頼らない数値ベースの提案を構築する。</li>\n");
     html.push_str("</ol>\n");
     html.push_str("<p style=\"font-size:9.5pt;color:#6b7280;margin:6px 0 0;\">\u{203B} 個別案件の「採用成否予測」「内定承諾率の見積り」には別途現場ヒアリング・候補者プロファイル分析が必要です。\
@@ -160,7 +162,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<div class=\"report-notes-category report-notes-cat-update\">\n");
     html.push_str("<h3>更新頻度</h3>\n");
     html.push_str("<ul>\n");
-    html.push_str("<li>HW postings: <strong>毎晩</strong>（前日分の差分取り込み）</li>\n");
+    html.push_str("<li>公開求人データ: <strong>毎晩</strong>（前日分の差分取り込み）</li>\n");
     html.push_str(
         "<li>ts_turso_counts（時系列）: <strong>月次</strong>（snapshot_id 単位）</li>\n",
     );
@@ -173,7 +175,7 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
         "<ol style=\"padding-left:1.4em;font-size:10pt;line-height:1.6;color:var(--text);margin-top:8px;\">\n",
     );
     html.push_str(
-        "<li><strong>出典</strong>: データ源 - アップロード CSV / ハローワーク公開データ / \
+        "<li><strong>出典</strong>: データ源 - アップロード CSV / 公開求人データ / \
          地域注目企業データベース / e-Stat。</li>\n",
     );
     html.push_str(&format!(
