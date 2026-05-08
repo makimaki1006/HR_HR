@@ -32,7 +32,7 @@ function hasMiContent(html: string): boolean {
     html.includes('mi-parent-ward-ranking') ||
     html.includes('mi-rank-table') ||
     html.includes('mi-empty') ||
-    html.includes('data-section="market-intelligence"') ||
+    html.includes('data-mi-section="market-intelligence"') ||
     html.includes('従業地ベース') ||
     html.includes('常住地ベース')
   );
@@ -117,7 +117,7 @@ test.describe('MarketIntelligence print + theme (Phase 7 Spec 4)', () => {
         const candidates = [
           document.querySelector('.mi-rank-table'),
           document.querySelector('.mi-parent-ward-ranking'),
-          document.querySelector('[data-section="market-intelligence"]'),
+          document.querySelector('[data-mi-section="market-intelligence"]'),
         ].filter((el): el is Element => el !== null);
 
         if (candidates.length === 0) return null; // セクションそのものが描画されていない

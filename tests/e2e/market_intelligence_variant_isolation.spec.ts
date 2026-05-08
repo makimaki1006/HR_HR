@@ -27,7 +27,7 @@ function hasStep5Markers(html: string): boolean {
   return (
     html.includes('mi-parent-ward-ranking') ||
     html.includes('mi-rank-table') ||
-    html.includes('data-section="market-intelligence"') ||
+    html.includes('data-mi-section="market-intelligence"') ||
     html.includes('mi-empty') ||
     // fallback: Step 5 でしか出ない用語
     html.includes('検証済み推定 β') ||

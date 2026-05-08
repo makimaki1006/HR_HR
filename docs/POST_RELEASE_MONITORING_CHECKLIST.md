@@ -26,10 +26,13 @@
   - 各 variant で想定セクションが描画されること。
 - [ ] Full / Public / default に Step 5 マーカー混入なし
   - Full / Public / default レンダリング HTML を取得し以下が含まれないこと:
-    - `mi-parent-ward-ranking`
-    - その他 Step 5 専用セクション ID (variant guard 内のみ出現する想定のもの)
-  - 検証コマンド例: `curl -s "<本番 URL>/<variant path>" | grep -c "mi-parent-ward-ranking"` が `0` であること。
-  - Step 5 (resident) variant でのみ `1` 以上を許容。
+    - `data-mi-section="market-intelligence"` (P2-Round6-B 2026-05-08 で導入。MI variant root 識別子)
+    - `data-mi-section=` を含むその他属性 (MI variant 専用 section 識別子)
+    - `mi-parent-ward-ranking` (政令市データ非空時にのみ実体出力される条件付き class。一般 fixture では 0 件が正常)
+  - 検証コマンド例: `curl -s "<本番 URL>/<variant path>" | grep -c 'data-mi-section="market-intelligence"'` が `0` であること。
+  - MarketIntelligence variant でのみ `1` 以上を許容。
+  - 注: `mi-parent-ward-ranking` は MI variant でも fixture 由来で 0 件のことがあるため、MI variant で「0 件 = 異常」とは扱わない。代わりに `data-mi-section="market-intelligence"` (root section) の有無で判定すること。
+  - 詳細根拠: `docs/SPEC_SELECTOR_AUDIT_2026_05_08.md` §1.2
 
 ---
 
