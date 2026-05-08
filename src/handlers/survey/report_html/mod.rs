@@ -136,10 +136,17 @@ impl ReportVariant {
 
     /// HW セクションを表示するか
     ///
-    /// `MarketIntelligence` は Full と同様に HW セクションを表示する
-    /// (HW データを土台にしつつ Phase 3 拡張セクションを追加で出す設計)。
+    /// 2026-05-08 Round 2-1 仕様変更:
+    /// - `Full`: HW 併載 (社内分析向け、HW データを軸に表示)
+    /// - `Public`: HW 非表示 (対外提案向け、e-Stat 等の公開データ中心)
+    /// - `MarketIntelligence`: **HW 非表示** (採用コンサル拡張版、HW 言及最小化)
+    ///
+    /// 旧仕様 (`Full | MarketIntelligence` で true) は Round 1-L 監査で
+    /// 通常導線 PDF (アクションバー = MI variant) に HW セクションが 7 系統混入する
+    /// 問題が確認されたため、ユーザー判断で MI = Public 系 + 採用コンサル拡張に再定義。
+    /// 詳細: `docs/PDF_DATA_SOURCE_MIXING_AUDIT_2026_05_08.md`
     pub fn show_hw_sections(self) -> bool {
-        matches!(self, Self::Full | Self::MarketIntelligence)
+        matches!(self, Self::Full)
     }
 
     /// 採用マーケットインテリジェンスセクション (Phase 3 Step 3 で追加予定) を表示するか。
@@ -682,9 +689,19 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     html.push_str(
         "<h1 id=\"dv2-cover-title\" class=\"dv2-cover-title\">求人市場<br>総合診断レポート</h1>\n",
     );
-    html.push_str(
-        "<p class=\"dv2-cover-subtitle\">ハローワーク掲載求人 + アップロード CSV クロス分析</p>\n",
-    );
+    // 2026-05-08 Round 2-1: cover subtitle を variant 別に切替。
+    // MI / Public は HW 言及最小化、Full は HW 併載を明示。
+    let cover_subtitle = match variant {
+        ReportVariant::Full => "ハローワーク掲載求人 + アップロード CSV クロス分析",
+        ReportVariant::MarketIntelligence => {
+            "アップロード CSV + 公開統計による採用市場・ターゲット分析"
+        }
+        ReportVariant::Public => "アップロード CSV + 公開統計クロス分析",
+    };
+    html.push_str(&format!(
+        "<p class=\"dv2-cover-subtitle\">{}</p>\n",
+        escape_html(cover_subtitle)
+    ));
     html.push_str("</div>\n");
     html.push_str(&format!(
         "<div class=\"dv2-cover-target\">対象: {}</div>\n",
@@ -769,6 +786,8 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     html.push_str("</section>\n");
 
     // --- Executive Summary (Section 1 / 仕様書 3章) ---
+    // 2026-05-08 Round 2-1: variant 引数を追加し、Full 以外では HW 比較系の
+    //   優先アクション (給与ギャップ / 雇用形態構成差) を出さないように切替。
     render_section_executive_summary(
         &mut html,
         agg,
@@ -776,6 +795,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         by_company,
         by_emp_type_salary,
         hw_context,
+        variant,
     );
 
     // --- Section H: 地域 × HW データ連携（新規: 2026-04-24） ---
@@ -809,23 +829,32 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // 4 軸 (有効求人倍率 / HW 欠員補充率 / 失業率 / 離職率) の複合指標
     // 2026-04-29 (variant): Public バリアントでは HW 欠員補充率を除外する
     //   バージョンに切替 (signature 互換のため variant を渡す)
-    render_section_market_tightness_with_variant(&mut html, hw_context, variant);
+    // 2026-05-08 Round 2-1: MarketIntelligence も HW 言及最小化方針のため
+    //   Public と同じ 3 軸版 (HW 欠員補充率除外) に切替。
+    //   _with_variant の内部分岐 (Full|MI → 4 軸 / Public → 3 軸) は触らず、
+    //   MI 経路は明示的に Public 用 render を直接呼ぶ。
+    if matches!(variant, ReportVariant::MarketIntelligence) {
+        market_tightness::render_section_market_tightness_public(&mut html, hw_context);
+    } else {
+        render_section_market_tightness_with_variant(&mut html, hw_context, variant);
+    }
 
     // --- Section 4B (CR-9 / 2026-04-27): 産業ミスマッチ警戒 ---
     // 地域就業者構成 (国勢調査) と HW 求人産業構成のギャップを表で可視化。
     // 2026-04-29 (variant): Public では HW 求人を CSV 媒体掲載分に置換するため、
     //   variant=Public のときは別 section (CSV vs 国勢調査) を使う。
+    // 2026-05-08 Round 2-1: MarketIntelligence も HW 言及最小化方針のため
+    //   Public と同じ CSV 経路 (CSV 媒体掲載 vs 国勢調査) に統一。
     if let Some(ctx) = hw_context {
         match variant {
-            // Phase 3 Step 4: MarketIntelligence は Full と同じ挙動 (Step 3 で必要なら個別ブランチに分離)
-            ReportVariant::Full | ReportVariant::MarketIntelligence => {
+            ReportVariant::Full => {
                 render_section_industry_mismatch(
                     &mut html,
                     &ctx.ext_industry_employees,
                     &ctx.hw_industry_counts,
                 );
             }
-            ReportVariant::Public => {
+            ReportVariant::Public | ReportVariant::MarketIntelligence => {
                 // CSV 媒体掲載 vs 国勢調査
                 render_section_industry_mismatch_csv(
                     &mut html,
@@ -2972,16 +3001,26 @@ mod variant_indicator_tests {
         );
     }
 
-    /// `MarketIntelligence` は HW セクションを表示する (Full と同じ動作)。
+    /// 2026-05-08 Round 2-1 仕様変更:
+    /// `MarketIntelligence` は HW セクションを表示しない (Public と同じ動作)。
+    /// HW 併載は Full のみ。MI は対外提案向け (HW 言及最小化)。
+    /// 詳細: `docs/PDF_DATA_SOURCE_MIXING_AUDIT_2026_05_08.md`
     #[test]
-    fn variant_market_intelligence_shows_hw_sections() {
+    fn variant_market_intelligence_does_not_show_hw_sections() {
         assert!(
-            ReportVariant::MarketIntelligence.show_hw_sections(),
-            "MarketIntelligence は HW セクションを表示する設計"
+            !ReportVariant::MarketIntelligence.show_hw_sections(),
+            "MarketIntelligence は HW セクションを表示しない設計 (Round 2-1)"
         );
-        // 既存挙動も維持
-        assert!(ReportVariant::Full.show_hw_sections());
-        assert!(!ReportVariant::Public.show_hw_sections());
+        // Full は HW 併載維持 (regression 防止)
+        assert!(
+            ReportVariant::Full.show_hw_sections(),
+            "Full は HW 併載維持 (regression 防止)"
+        );
+        // Public は既存挙動維持
+        assert!(
+            !ReportVariant::Public.show_hw_sections(),
+            "Public は既存挙動維持 (HW 非表示)"
+        );
     }
 
     /// `show_market_intelligence_sections()` フックが MarketIntelligence のときのみ true。
@@ -3467,4 +3506,149 @@ mod variant_indicator_tests {
             "既存 render に新セクションが混入してはならない"
         );
     }
+
+    // ========================================================================
+    // 2026-05-08 Round 2-1: HW セクション混入防止テスト群
+    //
+    // ユーザー判断 (Round 1-L 監査結果):
+    // - MarketIntelligence variant は HW 言及最小化 (Public 系 + 採用コンサル拡張)
+    // - Full は HW 併載維持 (社内分析向け)
+    // - Public は既存挙動維持 (HW 言及最小化)
+    //
+    // これらのテストは、show_hw_sections() の guard 変更が章レベルで
+    // 期待通り効くこと、および regression を起こしていないことを検証する。
+    // ========================================================================
+
+    /// HW 関連用語のプリセット (cover subtitle / Section H heading / 4 軸 KPI / 産業 vs HW)
+    /// MI / Public 出力にこれらが含まれないことを検証するために使用。
+    fn hw_forbidden_terms_for_mi() -> &'static [&'static str] {
+        &[
+            // 表紙サブタイトル (Round 1-L #1)
+            "ハローワーク掲載求人 + アップロード CSV クロス分析",
+            // Section H 見出し (Round 1-L #3)
+            "地域 × HW データ連携",
+            // Section 4 KPI (Round 1-L #4)
+            "HW 欠員補充率",
+            // Section 4B 表ヘッダ (Round 1-L #5)
+            "HW 求人構成比",
+            // Exec Summary HW 比較 (Round 1-L #2)
+            "HW 市場",
+        ]
+    }
+
+    /// 共通テストヘルパ: variant + theme で minimal render を生成
+    fn render_for_variant_r2_1(variant: ReportVariant) -> String {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            variant,
+            ReportTheme::Default,
+            None,
+            None,
+        )
+    }
+
+    /// MI variant では `show_hw_sections() == false` (新仕様)
+    #[test]
+    fn mi_variant_does_not_show_hw_sections() {
+        assert!(
+            !ReportVariant::MarketIntelligence.show_hw_sections(),
+            "Round 2-1 仕様: MI は HW セクションを表示しない"
+        );
+    }
+
+    /// Full variant では `show_hw_sections() == true` (regression 防止)
+    #[test]
+    fn full_variant_still_shows_hw_sections() {
+        assert!(
+            ReportVariant::Full.show_hw_sections(),
+            "Full は HW 併載維持 (regression 防止)"
+        );
+    }
+
+    /// Public variant では `show_hw_sections() == false` (既存挙動維持)
+    #[test]
+    fn public_variant_does_not_show_hw_sections_regression() {
+        assert!(
+            !ReportVariant::Public.show_hw_sections(),
+            "Public は既存挙動維持: HW 非表示"
+        );
+    }
+
+    /// MI variant の HTML 出力に Round 1-L 検出の P0 HW 用語 5 系統が含まれない。
+    ///
+    /// 検証対象 (cover subtitle / Section H heading / 4MT KPI / 4B header / Exec HW 比較):
+    /// `docs/PDF_DATA_SOURCE_MIXING_AUDIT_2026_05_08.md` §4.1
+    #[test]
+    fn mi_variant_html_output_does_not_contain_hw_p0_terms() {
+        let html = render_for_variant_r2_1(ReportVariant::MarketIntelligence);
+        for term in hw_forbidden_terms_for_mi() {
+            assert!(
+                !html.contains(term),
+                "MI variant 出力に Round 1-L P0 HW 用語が混入: '{}'",
+                term
+            );
+        }
+        // cover subtitle が MI 専用文言に切替わっていること (positive 証明)
+        assert!(
+            html.contains("採用市場・ターゲット分析")
+                || html.contains("公開統計クロス分析"),
+            "MI 用 cover subtitle が出力されていること"
+        );
+    }
+
+    /// Full variant の HTML 出力には HW 用語が含まれる (HW 併載維持の逆証明)。
+    ///
+    /// hw_context が None の minimal render でも、cover subtitle は variant 連動で
+    /// 「ハローワーク掲載求人 + アップロード CSV クロス分析」になる。
+    #[test]
+    fn full_variant_html_output_contains_hw_subtitle() {
+        let html = render_for_variant_r2_1(ReportVariant::Full);
+        assert!(
+            html.contains("ハローワーク掲載求人 + アップロード CSV クロス分析"),
+            "Full variant の cover subtitle に HW 文言が出ること (HW 併載維持の逆証明)"
+        );
+    }
+
+    /// Public variant の HTML 出力には HW P0 用語が含まれない (既存挙動維持の逆証明)。
+    #[test]
+    fn public_variant_html_output_does_not_contain_hw_p0_terms() {
+        let html = render_for_variant_r2_1(ReportVariant::Public);
+        for term in hw_forbidden_terms_for_mi() {
+            assert!(
+                !html.contains(term),
+                "Public variant 出力に Round 1-L P0 HW 用語が混入: '{}'",
+                term
+            );
+        }
+    }
+
+    /// cover subtitle が variant 別に切り替わる (3 variant の差分が出ること)。
+    #[test]
+    fn cover_subtitle_differs_by_variant() {
+        let html_full = render_for_variant_r2_1(ReportVariant::Full);
+        let html_mi = render_for_variant_r2_1(ReportVariant::MarketIntelligence);
+        let html_public = render_for_variant_r2_1(ReportVariant::Public);
+
+        // Full のみ HW 文言を含む
+        assert!(html_full.contains("ハローワーク掲載求人"));
+        assert!(!html_mi.contains("ハローワーク掲載求人"));
+        assert!(!html_public.contains("ハローワーク掲載求人"));
+    }
+
 }
