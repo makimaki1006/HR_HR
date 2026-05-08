@@ -1048,7 +1048,13 @@ fn render_radar_chart(html: &mut String, m: &TightnessMetrics) {
             "indicator": indicators,
             "shape": "polygon",
             "splitNumber": 4,
-            "axisName": {"fontSize": 10, "color": "#374151"}
+            "center": ["50%", "55%"],
+            "radius": "65%",
+            "axisName": {
+                "fontSize": 10,
+                "color": "#374151",
+                "padding": [3, 5]
+            }
         },
         "series": [{
             "type": "radar",
@@ -1620,7 +1626,13 @@ fn render_radar_chart_public(html: &mut String, m: &TightnessMetrics) {
             "indicator": indicators,
             "shape": "polygon",
             "splitNumber": 4,
-            "axisName": {"fontSize": 10, "color": "#374151"}
+            "center": ["50%", "55%"],
+            "radius": "65%",
+            "axisName": {
+                "fontSize": 10,
+                "color": "#374151",
+                "padding": [3, 5]
+            }
         },
         "series": [{
             "type": "radar",

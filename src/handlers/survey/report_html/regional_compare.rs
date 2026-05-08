@@ -756,7 +756,9 @@ fn render_radar_chart(
         "legend": {"data": [pref, "全国平均"], "bottom": 0},
         "radar": {
             "indicator": indicator,
-            "radius": "62%",
+            "center": ["50%", "55%"],
+            "radius": "65%",
+            "axisName": {"fontSize": 10, "color": "#374151", "padding": [3, 5]},
         },
         "series": [{
             "type": "radar",

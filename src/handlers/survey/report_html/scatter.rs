@@ -90,7 +90,8 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
     })];
 
     if let Some(reg) = &agg.regression_min_max {
-        // 回帰線の端点は軸の表示範囲にクランプ（外れ値によるスケール崩れ防止）
+        // 回帰線は X 軸の表示範囲全域 [x_axis_min .. x_axis_max] を線形補間で描画。
+        // ECharts が axis 範囲外でクリップするよう Y は計算値そのまま渡す（clamp しない）。
         let x_min_yen = x_axis_min * 10_000.0;
         let x_max_yen = x_axis_max * 10_000.0;
         let y1 = (reg.slope * x_min_yen + reg.intercept) / 10_000.0;
@@ -101,6 +102,8 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
             "data": [[x_axis_min, y1], [x_axis_max, y2]],
             "symbol": "none",
             "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
+            "clip": false,
+            "z": 10,
             "tooltip": {"show": false}
         }));
     }
@@ -115,18 +118,26 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
             "nameLocation": "center",
             "nameGap": 25,
             "type": "value",
+            "show": true,
             "min": x_axis_min,
             "max": x_axis_max,
-            "axisLabel": {"fontSize": 9}
+            "axisLine": {"show": true},
+            "axisTick": {"show": true},
+            "axisLabel": {"show": true, "fontSize": 9},
+            "splitLine": {"show": true, "lineStyle": {"type": "dashed", "color": "#e5e7eb"}}
         },
         "yAxis": {
             "name": "上限（万円）",
             "nameLocation": "center",
             "nameGap": 35,
             "type": "value",
+            "show": true,
             "min": y_axis_min,
             "max": y_axis_max,
-            "axisLabel": {"fontSize": 9}
+            "axisLine": {"show": true},
+            "axisTick": {"show": true},
+            "axisLabel": {"show": true, "fontSize": 9},
+            "splitLine": {"show": true, "lineStyle": {"type": "dashed", "color": "#e5e7eb"}}
         },
         "grid": {"left": "12%", "right": "5%", "bottom": "15%", "top": "5%"},
         "series": series_list

@@ -10,12 +10,18 @@ use super::super::aggregator::{
 };
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
+use super::ReportVariant;
 use serde_json::json;
 
 use super::helpers::*;
 
 /// 仕様書 3章: 5 KPI + 推奨優先アクション 3 件 + スコープ注意 2 行
 /// 1 ページ完結、表紙直後に配置。アクションは severity 高い順に上から最大 3 件。
+///
+/// 2026-05-08 Round 2-1 (Worker 1): `variant` 引数を追加。
+/// - `Full`: 従来通り HW 比較ベースの優先アクションを併記
+/// - `Public` / `MarketIntelligence`: HW 比較アクションを抑制し、CSV 内集計と
+///   タグプレミアムのみを採点対象とする (HW 言及最小化)
 pub(super) fn render_section_executive_summary(
     html: &mut String,
     agg: &SurveyAggregation,
@@ -23,6 +29,7 @@ pub(super) fn render_section_executive_summary(
     _by_company: &[CompanyAgg],
     by_emp_type_salary: &[EmpTypeSalary],
     hw_context: Option<&InsightContext>,
+    variant: ReportVariant,
 ) {
     html.push_str("<section class=\"section exec-summary\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
     // B4 (2026-04-27): Design v2 バッジに見出しテキストが含まれているため、
@@ -129,9 +136,10 @@ pub(super) fn render_section_executive_summary(
         "-".to_string()
     };
     // K4: 給与中央値（雇用形態グループ別のネイティブ単位を優先）
-    // B3 (2026-04-27): 3 グループを縦長文字列で詰め込むとカード破綻したため、
-    //   **件数最多グループ 1 件のみを KPI カードに表示** し、他グループは
-    //   「雇用形態グループ別 給与分析」セクション (図 4-1〜4-2) で確認する設計に変更。
+    // 2026-05-08 Round 2-2: 表示は「{グループ} {値} 中央値 (実測, n=N)」形式に統一し、
+    //   集計範囲がカードラベルに必ず出るようにする。表紙ハイライトの
+    //   「月給中央値 (CSV 全件)」とは出所が異なることをラベルで明示する。
+    //   PDF 内で 4 種混在していた「給与中央値」を、ラベル接尾辞で常に区別する設計。
     let k4_value = {
         // 件数最多のグループを選定 (count 降順)
         let top_group = agg
@@ -143,16 +151,29 @@ pub(super) fn render_section_executive_summary(
             let v_str = if g.native_unit == "時給" {
                 format!("{}円", format_number(g.median))
             } else {
-                format!("{:.1}万円", g.median as f64 / 10_000.0)
+                // 月給値の単位異常 (年俸混入 60 万超) を検出して正規化する
+                let n = super::salary_summary::normalize_monthly_salary(g.median);
+                if n.was_normalized {
+                    format!("{:.1}万円 (年俸混入を正規化)", n.value as f64 / 10_000.0)
+                } else {
+                    format!("{:.1}万円", g.median as f64 / 10_000.0)
+                }
             };
-            format!("{} {} (n={})", g.group_label, v_str, g.count)
+            format!("{} {} 中央値 (実測, n={})", g.group_label, v_str, g.count)
         } else {
+            // フォールバック: enhanced_stats を CSV 全件中央値として表示
             match &agg.enhanced_stats {
                 Some(s) if s.count > 0 => {
                     if agg.is_hourly {
-                        format!("時給 {} 円", format_number(s.median))
+                        format!("時給 {} 円 (CSV 全件)", format_number(s.median))
                     } else {
-                        format!("月給 {} 円", format_number(s.median))
+                        let n = super::salary_summary::normalize_monthly_salary(s.median);
+                        let suffix = if n.was_normalized {
+                            " (年俸混入を正規化)"
+                        } else {
+                            ""
+                        };
+                        format!("月給 {} 円 (CSV 全件){}", format_number(n.value), suffix)
                     }
                 }
                 _ => "算出不能 (サンプル不足)".to_string(),
@@ -340,7 +361,7 @@ pub(super) fn render_section_executive_summary(
     // 2026-04-30: アクション 0 件時は見出しごと非出力 (frontend review #2)。
     // 旧実装は「該当条件を満たすアクション候補はありません」のプレースホルダで
     // 視覚ノイズになっていた。データ不足時は素直にセクションを省略する。
-    let actions = build_exec_actions(agg, by_emp_type_salary, hw_context);
+    let actions = build_exec_actions(agg, by_emp_type_salary, hw_context, variant);
     if !actions.is_empty() {
         html.push_str("<h3>推奨優先アクション候補（件数・差分条件を満たすもの）</h3>\n");
         html.push_str("<div class=\"exec-action-list\">\n");
@@ -432,16 +453,26 @@ pub(super) fn render_section_executive_summary(
 
 /// Executive Summary の 3 件アクションを算出（severity 降順、最大3件）
 /// 仕様書 3.4 の閾値と文言テンプレートに従う
+///
+/// 2026-05-08 Round 2-1: `variant` 引数を追加。
+/// - `Full`: 全アクション (A: HW 給与ギャップ / B: HW 雇用形態構成差 / C: タグプレミアム)
+/// - `Public` / `MarketIntelligence`: A/B (HW 比較) はスキップ、C (タグプレミアム) のみ採点
+///   HW 言及最小化方針 (Round 1-L 監査結果) に従う。
 pub(super) fn build_exec_actions(
     agg: &SurveyAggregation,
     by_emp_type_salary: &[EmpTypeSalary],
     hw_context: Option<&InsightContext>,
+    variant: ReportVariant,
 ) -> Vec<(RptSev, String, String, String)> {
     let mut out: Vec<(RptSev, String, String, String)> = Vec::new();
 
+    // HW 比較系アクション (A/B) を出力するか。Full のみ true。
+    let allow_hw_comparison = matches!(variant, ReportVariant::Full);
+
     // A: 給与ギャップ（当サンプル中央値 vs HW 市場中央値）
     // 月給データのときのみ有効（is_hourly 時はスキップ）
-    if !agg.is_hourly {
+    // 2026-05-08 Round 2-1: HW 比較は Full のみ
+    if !agg.is_hourly && allow_hw_comparison {
         let csv_median = agg.enhanced_stats.as_ref().map(|s| s.median).unwrap_or(0);
         let hw_median: i64 = if let Some(ctx) = hw_context {
             // ts_salary の avg_salary_min 値を平均化して参考値に
@@ -497,7 +528,9 @@ pub(super) fn build_exec_actions(
     }
 
     // B: 雇用形態構成差（正社員構成比 vs HW）
-    if let Some(ctx) = hw_context {
+    // 2026-05-08 Round 2-1: HW 比較は Full のみ
+    if allow_hw_comparison {
+      if let Some(ctx) = hw_context {
         // CSV 側: 正社員(正職員含む)構成比
         let total_emp: usize = by_emp_type_salary.iter().map(|e| e.count).sum();
         let fulltime_count: usize = by_emp_type_salary
@@ -537,6 +570,7 @@ pub(super) fn build_exec_actions(
                 ));
             }
         }
+      }
     }
 
     // C: タグプレミアム（diff_percent > 5%, count >= 10 の最大 1 件）
@@ -647,7 +681,7 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
 
         // 読み進め方ガイドの主要キーワード
         assert!(
@@ -678,7 +712,7 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
 
         // タイトル
         assert!(
@@ -715,7 +749,7 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
 
         // legacy class が DOM に存在するが display:none で非表示
         assert!(
@@ -744,7 +778,7 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
 
         // bridge 自体は存在
         assert!(
@@ -894,7 +928,7 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
 
         // 両 grid が DOM に存在
         assert!(
@@ -944,7 +978,7 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None);
+        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
 
         // 5 KPI ラベルは（legacy の中に）存在
         for label in ["サンプル件数", "主要地域", "主要雇用形態", "給与中央値", "新着比率"] {

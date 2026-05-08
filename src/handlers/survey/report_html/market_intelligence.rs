@@ -588,6 +588,15 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         "推定",
     );
     html.push_str("</div>\n");
+    // 2026-05-08 Round 2-2: 「重点配信候補 (S+A)」と「配信検証候補 (スコア80+)」が
+    // 同じヒーロー / KPI 内に出るため、定義の違いを 1 行で明示する。
+    // 数値矛盾 (Round 1-K で 0 件 vs 11 件) の根本対策として、説明文を必ず併記する。
+    html.push_str(&format!(
+        "<p class=\"mi-priority-distinction-note\" \
+         style=\"font-size:9pt;color:#475569;margin:8px 0 0;border-left:3px solid #cbd5e1;padding-left:8px;\">\
+         {note}</p>\n",
+        note = escape_html(super::labels::distribution_candidates::DISTINCTION_NOTE),
+    ));
     html.push_str("</section>\n");
 }
 
