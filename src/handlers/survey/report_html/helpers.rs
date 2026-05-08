@@ -167,21 +167,35 @@ pub(super) fn build_histogram_echart_config(
         }
     };
 
+    // ラベル位置を統計種別ごとに分散させる（PDF印刷時の重なり防止）
+    // 中央値: end (デフォルト位置、distance=6)
+    // 平均:   insideEndTop (上方向にオフセット、distance=18)
+    // 最頻値: insideEndBottom (下方向にオフセット、distance=30)
     let mut mark_lines = vec![];
-    if let Some(m) = mean {
-        mark_lines.push(json!({
-            "xAxis": to_label(m),
-            "name": "平均",
-            "lineStyle": {"color": "#e74c3c", "type": "dashed", "width": 2},
-            "label": {"formatter": "平均", "fontSize": 10}
-        }));
-    }
     if let Some(m) = median {
         mark_lines.push(json!({
             "xAxis": to_label(m),
             "name": "中央値",
             "lineStyle": {"color": "#27ae60", "type": "dashed", "width": 2},
-            "label": {"formatter": "中央値", "fontSize": 10}
+            "label": {
+                "formatter": "中央値",
+                "fontSize": 11,
+                "position": "end",
+                "distance": 6
+            }
+        }));
+    }
+    if let Some(m) = mean {
+        mark_lines.push(json!({
+            "xAxis": to_label(m),
+            "name": "平均",
+            "lineStyle": {"color": "#e74c3c", "type": "dashed", "width": 2},
+            "label": {
+                "formatter": "平均",
+                "fontSize": 11,
+                "position": "insideEndTop",
+                "distance": 18
+            }
         }));
     }
     if let Some(m) = mode {
@@ -189,7 +203,12 @@ pub(super) fn build_histogram_echart_config(
             "xAxis": to_label(m),
             "name": "最頻値",
             "lineStyle": {"color": "#9b59b6", "type": "dashed", "width": 2},
-            "label": {"formatter": "最頻値", "fontSize": 10}
+            "label": {
+                "formatter": "最頻値",
+                "fontSize": 11,
+                "position": "insideEndBottom",
+                "distance": 30
+            }
         }));
     }
 
