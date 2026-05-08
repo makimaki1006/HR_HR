@@ -50,7 +50,7 @@ pub(super) fn render_section_executive_summary(
          <div class=\"details-body\">\
          上段 KPI で全体規模・地域・主要雇用形態・給与水準・新着比率を一目で把握。\
          中段の優先アクションは優先度バッジ（即対応 / 1 週間 / 後回し可）の順に検討。\
-         下段の注記でデータ範囲（CSV/HW スコープ）と外れ値除外の前提を必ず確認。\
+         下段の注記でデータ範囲（CSV/外部求人媒体スコープ）と外れ値除外の前提を必ず確認。\
          </div>\n",
     );
     html.push_str("</details>\n");
@@ -86,7 +86,7 @@ pub(super) fn render_section_executive_summary(
         <td style=\"padding:4px 8px;color:#10b981;\">30 件以上</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">10〜30 件（参考程度）</td>\
         <td style=\"padding:4px 8px;color:#ef4444;\">10 件未満（信頼性低）</td></tr>\n");
-    html.push_str("<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">給与中央値 (HW 比)</td>\
+    html.push_str("<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">給与中央値 (市場参考値比)</td>\
         <td style=\"padding:4px 8px;color:#10b981;\">+10% 以上（訴求力高）</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">±10% 以内（横並び）</td>\
         <td style=\"padding:4px 8px;color:#ef4444;\">−10% 以下（改善検討）</td></tr>\n");
@@ -113,7 +113,7 @@ pub(super) fn render_section_executive_summary(
         &[
             "上段の KPI で全体規模・地域・主要雇用形態・給与水準・新着比率を一目で把握",
             "中段の優先アクション候補は、優先度バッジ（即対応 / 1週間 / 後回し可）の順に検討",
-            "下段の注記でデータ範囲（CSV/HW スコープ）と外れ値除外の前提を必ず確認",
+            "下段の注記でデータ範囲（CSV/外部求人媒体スコープ）と外れ値除外の前提を必ず確認",
         ],
     );
     html.push_str("</div>\n");
@@ -424,8 +424,8 @@ pub(super) fn render_section_executive_summary(
     html.push_str(&format!(
         "<div class=\"details-body\">\
         本レポートはアップロードされた CSV の分析が主で、\
-        HW データは比較参考値として併記しています。CSV は対象媒体の掲載範囲に依存し、\
-        HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。 / \
+        外部求人媒体データは比較参考値として併記しています。CSV は対象媒体の掲載範囲に依存し、\
+        外部求人媒体データは掲載求人に限定されるため、どちらも全求人市場の代表ではありません。 / \
         示唆は相関に基づく仮説であり、因果を証明するものではない。\
         実施判断は現場文脈に依存します。{}\
         </div>\n",
@@ -440,8 +440,8 @@ pub(super) fn render_section_executive_summary(
     html.push_str(&format!(
         "<div class=\"exec-scope-note\" style=\"display:none\" aria-hidden=\"true\">\
         \u{203B} 本レポートはアップロードされた CSV の分析が主で、\
-        HW データは比較参考値として併記しています。CSV は対象媒体の掲載範囲に依存し、\
-        HW は掲載求人に限定されるため、どちらも全求人市場の代表ではありません。<br>\
+        外部求人媒体データは比較参考値として併記しています。CSV は対象媒体の掲載範囲に依存し、\
+        外部求人媒体データは掲載求人に限定されるため、どちらも全求人市場の代表ではありません。<br>\
         \u{203B} 示唆は相関に基づく仮説であり、因果を証明するものではない。\
         実施判断は現場文脈に依存します。{}\
         </div>\n",

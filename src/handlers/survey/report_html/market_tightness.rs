@@ -120,7 +120,7 @@ pub(super) fn render_section_market_tightness_public(
         &[
             "対象地域における「採用のしやすさ／難しさ」を 3 つの公開市場指標で複合評価します",
             "総合スコアは 0-100 で正規化済み。70 以上 = 逼迫 (採用難) / 30 以下 = 緩和 (採用容易)",
-            "本 variant は公開統計 (e-Stat) のみを使用。HW 掲載求人特有の指標は除外しています",
+            "本 variant は公開統計 (e-Stat) のみを使用。特定求人媒体特有の指標は除外しています",
         ],
     );
 
@@ -144,8 +144,8 @@ pub(super) fn render_section_market_tightness_public(
 
     html.push_str(
         "<p class=\"note\" style=\"margin-top:8px;\">\
-        \u{203B} 本指標はオープンデータ (有効求人倍率 / 失業率 / 離職率) のみを使用しており、HW 掲載求人特有の指標は除外しています。\
-        指標粒度: 有効求人倍率 / 離職率 / 開廃業動態は都道府県粒度のみ。市区町村別の差は反映されません。\
+        \u{203B} 本指標はオープンデータ (公的雇用需給指標 / 失業率 / 離職率) のみを使用しており、特定求人媒体特有の指標は除外しています。\
+        指標粒度: 公的雇用需給指標 / 離職率 / 開廃業動態は都道府県粒度のみ。市区町村別の差は反映されません。\
         失業率は労働力調査 (国勢調査ベース) 由来です。\
         逼迫度総合スコアは複合指標で、業界・職種により本来の重み付けが異なります。\
         本数値は採用環境の相関的傾向を示すもので、因果関係を示すものではありません。\
@@ -666,7 +666,9 @@ enum AxisName {
 impl AxisName {
     fn ja(self) -> &'static str {
         match self {
-            AxisName::JobRatio => "有効求人倍率",
+            // 2026-05-08 Round 2.7-B: HW 連想語を中立化 (案 B)
+            //   有効求人倍率 → 公的雇用需給指標 (e-Stat 由来の同義語)
+            AxisName::JobRatio => "公的雇用需給指標",
             AxisName::VacancyRate => "欠員補充率",
             AxisName::UnemploymentInv => "失業率の逆数 (採用余力)",
             AxisName::Separation => "離職率",
@@ -1382,8 +1384,8 @@ fn render_tightness_summary_public(html: &mut String, m: &TightnessMetrics) {
 
     render_read_hint_html(
         html,
-        "<strong>逼迫度スコア</strong>は 3 指標 (有効求人倍率 / 失業率の逆数 / 離職率) を 0-100 に正規化した複合指標です。\
-         本 variant は公開統計のみを使用し、HW 掲載求人特有の指標は除外しています。\
+        "<strong>逼迫度スコア</strong>は 3 指標 (公的雇用需給指標 / 失業率の逆数 / 離職率) を 0-100 に正規化した複合指標です。\
+         本 variant は公開統計のみを使用し、特定求人媒体特有の指標は除外しています。\
          <strong>70 以上</strong>の地域では給与・福利・通勤圏など複数軸の訴求強化、\
          <strong>30 以下</strong>では採用コスト見直しとミスマッチ低減を検討する余地があります。",
     );
@@ -1590,8 +1592,8 @@ fn render_radar_chart_public(html: &mut String, m: &TightnessMetrics) {
     );
 
     let job_ratio_label = match m.job_ratio {
-        Some(v) => format!("有効求人倍率\n({:.2}倍)", v),
-        None => "有効求人倍率\n(N/A)".to_string(),
+        Some(v) => format!("公的雇用需給指標\n({:.2}倍)", v),
+        None => "公的雇用需給指標\n(N/A)".to_string(),
     };
     let unemp_label = match m.unemployment_rate {
         Some(v) => format!("採用余力\n(失業率 {:.1}%)", v),
@@ -1660,7 +1662,7 @@ fn render_radar_chart_public(html: &mut String, m: &TightnessMetrics) {
         html,
         "3 軸が外側に広がるほど採用が難しい地域です。レーダー上の数値は 0-100 に正規化したスコア\
          (実値ではない) で、軸ラベル末尾の括弧内が実際の指標値です。本 variant は公開統計のみを\
-         使用しており、HW 掲載求人特有の指標は除外しています。",
+         使用しており、特定求人媒体特有の指標は除外しています。",
     );
 }
 
@@ -1684,9 +1686,9 @@ fn render_data_sources_collapsible_public(html: &mut String) {
     // HW 欠員補充率は除外
     let rows: &[(&str, &str, &str, &str, &str)] = &[
         (
-            "有効求人倍率",
+            "公的雇用需給指標",
             "厚生労働省 職業安定業務統計 (一般職業紹介状況)",
-            "有効求人数 / 有効求職者数 (公表値)",
+            "公的雇用需給指標 (公表値)",
             "都道府県",
             "月次",
         ),
@@ -1729,7 +1731,7 @@ fn render_data_sources_collapsible_public(html: &mut String) {
     html.push_str("</tbody></table>\n");
     html.push_str(
         "<p style=\"margin-top:6px;font-size:9px;color:#6b7280;font-style:italic;\">\
-         \u{203B} 出典の数値は公表値をそのまま参照しています。本 variant は公開統計のみを使用しており、HW 掲載求人特有の指標は除外しています。\
+         \u{203B} 出典の数値は公表値をそのまま参照しています。本 variant は公開統計のみを使用しており、特定求人媒体特有の指標は除外しています。\
          </p>\n",
     );
     html.push_str("</div>\n</details>\n");
@@ -1741,7 +1743,7 @@ fn render_data_sources_collapsible_public(html: &mut String) {
          <strong>\u{26A0} 業界フィルタの適用範囲</strong>\
          <ul style=\"margin:4px 0 0;padding-left:20px;font-size:9.5pt;color:#78350f;\">\
          <li><strong>業界別</strong>に集計: 離職率 (ext_turnover、業界指定時のみ業界値を表示)</li>\
-         <li><strong>業界を問わない地域全体値</strong>: 有効求人倍率 / 失業率 / 開廃業動態</li>\
+         <li><strong>業界を問わない地域全体値</strong>: 公的雇用需給指標 / 失業率 / 開廃業動態</li>\
          </ul>\
          <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) や産業ミスマッチ section を参照ください。</span>\
          </div>\n",
@@ -1778,7 +1780,7 @@ fn render_individual_kpis_public(html: &mut String, m: &TightnessMetrics) {
         render_kpi_card_v2(
             html,
             "\u{1F4C8}",
-            "有効求人倍率",
+            "公的雇用需給指標",
             &format!("{:.2}", ratio),
             "倍",
             &compare,
@@ -1787,7 +1789,7 @@ fn render_individual_kpis_public(html: &mut String, m: &TightnessMetrics) {
         );
         html.push_str(&render_data_source_note(
             "厚生労働省 職業安定業務統計 (一般職業紹介状況)",
-            "有効求人数 / 有効求職者数",
+            "公的雇用需給指標",
             "都道府県",
         ));
         html.push_str("</div>\n");
@@ -2881,7 +2883,8 @@ mod tests {
             raw_value: Some(1.30),
         };
         let s = format_contribution(&c_pos);
-        assert!(s.contains("有効求人倍率"));
+        // 2026-05-08 Round 2.7-B: 有効求人倍率 → 公的雇用需給指標 (中立化)
+        assert!(s.contains("公的雇用需給指標"));
         assert!(s.contains("1.30倍"));
         assert!(s.contains("+30"));
 
@@ -2949,7 +2952,8 @@ mod tests {
             "Public variant では HW 出典注記が出力されない"
         );
         // 他の 3 軸は表示される
-        assert!(html.contains("有効求人倍率"));
+        // 2026-05-08 Round 2.7-B: 有効求人倍率 → 公的雇用需給指標 (中立化)
+        assert!(html.contains("公的雇用需給指標"));
         assert!(html.contains("失業率"));
         assert!(html.contains("離職率"));
     }
@@ -2975,7 +2979,8 @@ mod tests {
         render_section_market_tightness_public(&mut html, Some(&ctx));
 
         // 3 軸が含まれる
-        assert!(html.contains("\"name\":\"有効求人倍率"), "有効求人倍率 軸");
+        // 2026-05-08 Round 2.7-B: 有効求人倍率 → 公的雇用需給指標 (中立化)
+        assert!(html.contains("\"name\":\"公的雇用需給指標"), "公的雇用需給指標 軸");
         assert!(html.contains("\"name\":\"採用余力"), "採用余力 軸");
         assert!(html.contains("\"name\":\"離職率"), "離職率 軸");
 
@@ -3059,9 +3064,10 @@ mod tests {
         render_section_market_tightness_public(&mut html, Some(&ctx));
 
         // 必須 caveat 文言
+        // 2026-05-08 Round 2.7-B: 「HW 掲載求人特有」→「特定求人媒体特有」(中立化、案 B)
         assert!(
-            html.contains("HW 掲載求人特有の指標は除外"),
-            "Public variant caveat 文言『HW 掲載求人特有の指標は除外』必須"
+            html.contains("特定求人媒体特有の指標は除外"),
+            "Public/MI variant caveat 文言『特定求人媒体特有の指標は除外』必須 (HW 連想語の中立化)"
         );
         // オープンデータ明記
         assert!(
@@ -3283,6 +3289,103 @@ mod tests {
         assert!(
             html.contains("market-tightness-industry-scope-note"),
             "Public variant にも data-testid 属性が含まれるはず"
+        );
+    }
+
+    // =================================================================
+    // Round 2.7-B (2026-05-08): MI / Public variant の HW 連想語中立化テスト
+    //
+    // 案 B 採用: 全 variant 共通で中立化 (signature 変更なし、Full でも機能維持)。
+    // notes.rs Round 2.6 と合わせて、PDF grep 上で
+    // 「HW」「ハローワーク」「有効求人倍率」「求人倍率」が完全除去されることを保証。
+    // =================================================================
+
+    /// Round 2.7-B: render_section_market_tightness_public の出力に
+    /// HW / ハローワーク / 有効求人倍率 / 求人倍率 が含まれないこと
+    #[test]
+    fn round_2_7b_public_render_does_not_emit_hw_or_keiyou_keisuu() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.4))])],
+            vec![row(&[
+                ("emp_group", json!("正社員")),
+                ("vacancy_rate", json!(0.30)),
+            ])],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(2.4))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        // HW 連想語の不混入を逆証明
+        assert!(
+            !html.contains("HW "),
+            "MI/Public 経路に「HW 」が混入してはならない (Round 2.7-B)"
+        );
+        assert!(
+            !html.contains("ハローワーク"),
+            "MI/Public 経路に「ハローワーク」が混入してはならない (Round 2.7-B)"
+        );
+        assert!(
+            !html.contains("有効求人倍率"),
+            "MI/Public 経路に「有効求人倍率」が混入してはならない (Round 2.7-B)"
+        );
+        assert!(
+            !html.contains("求人倍率"),
+            "MI/Public 経路に「求人倍率」が混入してはならない (Round 2.7-B)"
+        );
+    }
+
+    /// Round 2.7-B: 中立化後も機能維持 (公的雇用需給指標のラベル + KPI 数値が表示される)
+    #[test]
+    fn round_2_7b_public_render_keeps_neutral_label_and_numeric() {
+        let ctx = build_test_ctx(
+            vec![row(&[("ratio_total", json!(1.42))])],
+            vec![],
+            vec![],
+            vec![row(&[("unemployment_rate", json!(2.4))])],
+            vec![row(&[("separation_rate", json!(15.0))])],
+            vec![],
+            None,
+        );
+        let mut html = String::new();
+        render_section_market_tightness_public(&mut html, Some(&ctx));
+
+        // 中立用語が必ず表示される
+        assert!(
+            html.contains("公的雇用需給指標"),
+            "中立用語『公的雇用需給指標』が KPI / レーダー / 表に表示されること"
+        );
+        assert!(
+            html.contains("特定求人媒体特有"),
+            "caveat 文言『特定求人媒体特有』が表示されること"
+        );
+        // 数値ロジックは触らない: 1.42 倍が KPI 数値として表示される
+        assert!(
+            html.contains("1.42"),
+            "中立化しても KPI 数値 (1.42) は維持される"
+        );
+    }
+
+    /// Round 2.7-B: format_contribution の AxisName::JobRatio 出力が中立化されている
+    #[test]
+    fn round_2_7b_axis_name_job_ratio_is_neutral() {
+        let c = AxisContribution {
+            axis: AxisName::JobRatio,
+            score: 80.0,
+            delta: 30.0,
+            raw_value: Some(1.30),
+        };
+        let s = format_contribution(&c);
+        assert!(
+            s.contains("公的雇用需給指標"),
+            "AxisName::JobRatio.ja() は中立用語『公的雇用需給指標』を返すこと"
+        );
+        assert!(
+            !s.contains("有効求人倍率"),
+            "AxisName::JobRatio.ja() に旧用語『有効求人倍率』を残してはならない"
         );
     }
 }
