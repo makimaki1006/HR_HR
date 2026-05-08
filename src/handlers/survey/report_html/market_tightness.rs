@@ -79,10 +79,16 @@ pub(super) fn render_section_market_tightness_with_variant(
         // Phase 3 Step 4: MarketIntelligence は Full と同じ既存セクションを呼ぶ
         // (Step 3 で MarketIntelligence 専用セクション追加時に分岐を変える)
         super::ReportVariant::Full | super::ReportVariant::MarketIntelligence => {
-            render_section_market_tightness(html, ctx)
+            render_section_market_tightness_inner(html, ctx, variant)
         }
         super::ReportVariant::Public => render_section_market_tightness_public(html, ctx),
     }
+}
+
+/// Round 2.7-B' 互換 wrapper: 既存テストや外部呼出しが variant 引数なしで
+/// 呼ぶ際は Full とみなす (KPI カード見出し「有効求人倍率」を維持)。
+pub(super) fn render_section_market_tightness(html: &mut String, ctx: Option<&InsightContext>) {
+    render_section_market_tightness_inner(html, ctx, super::ReportVariant::Full);
 }
 
 /// 公開データ中心 variant: HW 欠員補充率を除外し 3 軸 (有効求人倍率 / 失業率 / 離職率) で構成
@@ -161,10 +167,19 @@ pub(super) fn render_section_market_tightness_public(
     html.push_str("</div>\n");
 }
 
-/// 「採用市場 逼迫度」section 全体を描画
+/// 「採用市場 逼迫度」section 全体を描画 (variant 認識版)
 ///
 /// `ctx` が None もしくは関連データ全空の場合、section ごと出力しない (fail-soft)。
-pub(super) fn render_section_market_tightness(html: &mut String, ctx: Option<&InsightContext>) {
+///
+/// Round 2.7-B' (2026-05-08): variant 引数を受け取り、寄与分解 (CR-1) の
+/// 軸ラベルを Full / MarketIntelligence で出し分ける。
+/// - `Full`: 「有効求人倍率」 (KPI カード見出しと統一)
+/// - `MarketIntelligence`: 「公的雇用需給指標」 (HW 連想語回避を維持)
+fn render_section_market_tightness_inner(
+    html: &mut String,
+    ctx: Option<&InsightContext>,
+    variant: super::ReportVariant,
+) {
     let ctx = match ctx {
         Some(c) => c,
         None => return,
@@ -192,7 +207,7 @@ pub(super) fn render_section_market_tightness(html: &mut String, ctx: Option<&In
     render_tightness_summary(html, &metrics);
 
     // ---- (1.5) 採用難易度ラベル + 寄与分解 + ルールベースアクション (CR-1) ----
-    render_recruit_difficulty_block(html, &metrics);
+    render_recruit_difficulty_block(html, &metrics, variant);
 
     // ---- (2) 4 軸レーダーチャート ----
     render_radar_chart(html, &metrics);
@@ -664,15 +679,44 @@ enum AxisName {
 }
 
 impl AxisName {
+    /// Default 軸ラベル (Full variant 想定: KPI カード見出しと統一)
+    ///
+    /// Round 2.7-B' (2026-05-08): variant 別出し分けは
+    /// `axis_label_for_variant` を経由する。本関数は Full 既定の互換用途のみ。
     fn ja(self) -> &'static str {
         match self {
-            // 2026-05-08 Round 2.7-B: HW 連想語を中立化 (案 B)
-            //   有効求人倍率 → 公的雇用需給指標 (e-Stat 由来の同義語)
-            AxisName::JobRatio => "公的雇用需給指標",
+            // Full variant: KPI カード見出し「有効求人倍率」と統一
+            AxisName::JobRatio => "有効求人倍率",
             AxisName::VacancyRate => "欠員補充率",
             AxisName::UnemploymentInv => "失業率の逆数 (採用余力)",
             AxisName::Separation => "離職率",
         }
+    }
+}
+
+/// variant 別の有効求人倍率系ラベル (Round 2.7-B' 2026-05-08)
+///
+/// - `Full`: 「有効求人倍率」 (HW 併載維持。KPI カードと統一)
+/// - `MarketIntelligence`: 「公的雇用需給指標」 (HW 連想語回避)
+/// - `Public`: 「公的雇用需給指標」 (HW 言及最小化)
+fn job_ratio_label_for_variant(variant: super::ReportVariant) -> &'static str {
+    match variant {
+        super::ReportVariant::Full => "有効求人倍率",
+        super::ReportVariant::MarketIntelligence | super::ReportVariant::Public => {
+            "公的雇用需給指標"
+        }
+    }
+}
+
+/// variant 別の軸ラベル (寄与分解で利用)
+///
+/// JobRatio のみ variant 別に分岐。他の軸は variant 非依存。
+fn axis_label_for_variant(axis: AxisName, variant: super::ReportVariant) -> &'static str {
+    match axis {
+        AxisName::JobRatio => job_ratio_label_for_variant(variant),
+        AxisName::VacancyRate => "欠員補充率",
+        AxisName::UnemploymentInv => "失業率の逆数 (採用余力)",
+        AxisName::Separation => "離職率",
     }
 }
 
@@ -811,7 +855,11 @@ fn build_recommended_actions(m: &TightnessMetrics) -> Vec<&'static str> {
 }
 
 /// 寄与分解の 1 行を整形 (例: 「有効求人倍率 1.80倍 (+30)」)
-fn format_contribution(c: &AxisContribution) -> String {
+///
+/// Round 2.7-B' (2026-05-08): variant 別ラベル経由に変更。
+/// - Full: 「有効求人倍率」 (KPI カード見出しと統一)
+/// - MarketIntelligence / Public: 「公的雇用需給指標」 (HW 連想語回避)
+fn format_contribution(c: &AxisContribution, variant: super::ReportVariant) -> String {
     let raw_part = match (c.axis, c.raw_value) {
         (AxisName::JobRatio, Some(v)) => format!("{:.2}倍", v),
         (AxisName::VacancyRate, Some(v)) => format!("{:.0}%", v),
@@ -820,13 +868,26 @@ fn format_contribution(c: &AxisContribution) -> String {
         _ => "N/A".to_string(),
     };
     let sign = if c.delta >= 0.0 { "+" } else { "" };
-    format!("{} {} ({}{:.0})", c.axis.ja(), raw_part, sign, c.delta)
+    format!(
+        "{} {} ({}{:.0})",
+        axis_label_for_variant(c.axis, variant),
+        raw_part,
+        sign,
+        c.delta
+    )
 }
 
 /// 採用難易度ブロック全体を描画
 ///
 /// 配置: 総合スコア (図 MT-1) の直後、レーダーチャート (図 MT-2) の直前
-fn render_recruit_difficulty_block(html: &mut String, m: &TightnessMetrics) {
+///
+/// Round 2.7-B' (2026-05-08): variant 引数を追加し、`format_contribution`
+/// に伝搬することで Full / MI で寄与分解の軸ラベルを出し分ける。
+fn render_recruit_difficulty_block(
+    html: &mut String,
+    m: &TightnessMetrics,
+    variant: super::ReportVariant,
+) {
     let score = match m.composite_score() {
         Some(s) => s,
         None => return,
@@ -877,7 +938,10 @@ fn render_recruit_difficulty_block(html: &mut String, m: &TightnessMetrics) {
              </div>\n",
         );
     } else {
-        let push_str: Vec<String> = push.iter().map(format_contribution).collect();
+        let push_str: Vec<String> = push
+            .iter()
+            .map(|c| format_contribution(c, variant))
+            .collect();
         html.push_str(&format!(
             "<div class=\"push\" data-testid=\"push-factors\">\
              <strong style=\"color:#dc2626;\">相関的な押し上げ要因</strong>: {}\
@@ -892,7 +956,10 @@ fn render_recruit_difficulty_block(html: &mut String, m: &TightnessMetrics) {
              </div>\n",
         );
     } else {
-        let ease_str: Vec<String> = ease.iter().map(format_contribution).collect();
+        let ease_str: Vec<String> = ease
+            .iter()
+            .map(|c| format_contribution(c, variant))
+            .collect();
         html.push_str(&format!(
             "<div class=\"ease\" data-testid=\"ease-factors\">\
              <strong style=\"color:#10b981;\">相関的な緩和要因</strong>: {}\
@@ -1473,6 +1540,10 @@ fn build_recommended_actions_public(m: &TightnessMetrics) -> Vec<&'static str> {
 
 /// Public variant: 採用難易度ブロック (CR-1 の 3 軸版)
 fn render_recruit_difficulty_block_public(html: &mut String, m: &TightnessMetrics) {
+    // Round 2.7-B' (2026-05-08): format_contribution が variant 引数を要求するため
+    // Public 経路では明示的に Public variant を渡す。
+    let variant = super::ReportVariant::Public;
+
     let score = match m.composite_score_public() {
         Some(s) => s,
         None => return,
@@ -1522,7 +1593,10 @@ fn render_recruit_difficulty_block_public(html: &mut String, m: &TightnessMetric
              </div>\n",
         );
     } else {
-        let push_str: Vec<String> = push.iter().map(format_contribution).collect();
+        let push_str: Vec<String> = push
+            .iter()
+            .map(|c| format_contribution(c, variant))
+            .collect();
         html.push_str(&format!(
             "<div class=\"push\" data-testid=\"push-factors\">\
              <strong style=\"color:#dc2626;\">相関的な押し上げ要因</strong>: {}\
@@ -1537,7 +1611,10 @@ fn render_recruit_difficulty_block_public(html: &mut String, m: &TightnessMetric
              </div>\n",
         );
     } else {
-        let ease_str: Vec<String> = ease.iter().map(format_contribution).collect();
+        let ease_str: Vec<String> = ease
+            .iter()
+            .map(|c| format_contribution(c, variant))
+            .collect();
         html.push_str(&format!(
             "<div class=\"ease\" data-testid=\"ease-factors\">\
              <strong style=\"color:#10b981;\">相関的な緩和要因</strong>: {}\
@@ -2874,6 +2951,9 @@ mod tests {
     }
 
     /// CR-1 補強: format_contribution の出力フォーマット検証
+    ///
+    /// 2026-05-08 Round 2.7-B': variant 別ラベルに応じて出し分け確認。
+    /// Full / MI で異なるラベルが返ることを逆証明。
     #[test]
     fn cr1_format_contribution_strings() {
         let c_pos = AxisContribution {
@@ -2882,11 +2962,18 @@ mod tests {
             delta: 30.0,
             raw_value: Some(1.30),
         };
-        let s = format_contribution(&c_pos);
-        // 2026-05-08 Round 2.7-B: 有効求人倍率 → 公的雇用需給指標 (中立化)
-        assert!(s.contains("公的雇用需給指標"));
-        assert!(s.contains("1.30倍"));
-        assert!(s.contains("+30"));
+        // Full variant: 「有効求人倍率」 (KPI カード見出しと統一)
+        let s_full = format_contribution(&c_pos, super::super::ReportVariant::Full);
+        assert!(s_full.contains("有効求人倍率"));
+        assert!(!s_full.contains("公的雇用需給指標"));
+        assert!(s_full.contains("1.30倍"));
+        assert!(s_full.contains("+30"));
+
+        // MI variant: 「公的雇用需給指標」 (HW 連想語回避)
+        let s_mi = format_contribution(&c_pos, super::super::ReportVariant::MarketIntelligence);
+        assert!(s_mi.contains("公的雇用需給指標"));
+        assert!(!s_mi.contains("有効求人倍率"));
+        assert!(s_mi.contains("1.30倍"));
 
         let c_neg = AxisContribution {
             axis: AxisName::Separation,
@@ -2894,7 +2981,7 @@ mod tests {
             delta: -30.0,
             raw_value: Some(8.0),
         };
-        let s2 = format_contribution(&c_neg);
+        let s2 = format_contribution(&c_neg, super::super::ReportVariant::Full);
         assert!(s2.contains("離職率"));
         assert!(s2.contains("8.0%"));
         assert!(s2.contains("-30"));
@@ -3369,7 +3456,10 @@ mod tests {
         );
     }
 
-    /// Round 2.7-B: format_contribution の AxisName::JobRatio 出力が中立化されている
+    /// Round 2.7-B': format_contribution の MI variant 出力は中立化される
+    ///
+    /// Round 2.7-B' で variant 別ラベルに切替後も、MI 経路では HW 連想語
+    /// 「有効求人倍率」を出さず「公的雇用需給指標」を出すことを逆証明。
     #[test]
     fn round_2_7b_axis_name_job_ratio_is_neutral() {
         let c = AxisContribution {
@@ -3378,14 +3468,91 @@ mod tests {
             delta: 30.0,
             raw_value: Some(1.30),
         };
-        let s = format_contribution(&c);
+        let s = format_contribution(&c, super::super::ReportVariant::MarketIntelligence);
         assert!(
             s.contains("公的雇用需給指標"),
-            "AxisName::JobRatio.ja() は中立用語『公的雇用需給指標』を返すこと"
+            "MI variant では中立用語『公的雇用需給指標』を返すこと"
         );
         assert!(
             !s.contains("有効求人倍率"),
-            "AxisName::JobRatio.ja() に旧用語『有効求人倍率』を残してはならない"
+            "MI variant の format_contribution に旧用語『有効求人倍率』を残してはならない"
+        );
+    }
+
+    // ===========================================================
+    // Round 2.7-B' (2026-05-08) variant 別ラベル単体テスト
+    // ===========================================================
+
+    /// Round 2.7-B': Full variant は KPI カードと統一して「有効求人倍率」を返す
+    #[test]
+    fn round_2_7b_prime_full_variant_uses_yuukou_kyuujin_bairitsu_label() {
+        let label = job_ratio_label_for_variant(super::super::ReportVariant::Full);
+        assert_eq!(
+            label, "有効求人倍率",
+            "Full variant では「有効求人倍率」 (KPI カード見出しと統一)"
+        );
+    }
+
+    /// Round 2.7-B': MarketIntelligence variant は「公的雇用需給指標」を返す
+    #[test]
+    fn round_2_7b_prime_mi_variant_uses_neutral_label() {
+        let label =
+            job_ratio_label_for_variant(super::super::ReportVariant::MarketIntelligence);
+        assert_eq!(
+            label, "公的雇用需給指標",
+            "MI variant では HW 連想語回避のため『公的雇用需給指標』"
+        );
+    }
+
+    /// Round 2.7-B': Public variant も「公的雇用需給指標」を返す
+    #[test]
+    fn round_2_7b_prime_public_variant_uses_neutral_label() {
+        let label = job_ratio_label_for_variant(super::super::ReportVariant::Public);
+        assert_eq!(
+            label, "公的雇用需給指標",
+            "Public variant では HW 言及最小化のため『公的雇用需給指標』"
+        );
+    }
+
+    /// Round 2.7-B': Full の format_contribution 出力に中立用語が混入しない
+    #[test]
+    fn round_2_7b_prime_full_format_contribution_no_neutral_label() {
+        let c = AxisContribution {
+            axis: AxisName::JobRatio,
+            score: 80.0,
+            delta: 30.0,
+            raw_value: Some(1.30),
+        };
+        let s = format_contribution(&c, super::super::ReportVariant::Full);
+        assert!(
+            s.contains("有効求人倍率"),
+            "Full では『有効求人倍率』を表示する"
+        );
+        assert!(
+            !s.contains("公的雇用需給指標"),
+            "Full の寄与分解に中立用語『公的雇用需給指標』を混入させない (用語混在防止)"
+        );
+    }
+
+    /// Round 2.7-B': MI の format_contribution 出力に「有効求人倍率」「求人倍率」が混入しない
+    #[test]
+    fn round_2_7b_prime_mi_format_contribution_no_yuukou_kyuujin_bairitsu() {
+        let c = AxisContribution {
+            axis: AxisName::JobRatio,
+            score: 80.0,
+            delta: 30.0,
+            raw_value: Some(1.30),
+        };
+        let s =
+            format_contribution(&c, super::super::ReportVariant::MarketIntelligence);
+        assert!(
+            !s.contains("有効求人倍率"),
+            "MI variant に『有効求人倍率』を出してはならない"
+        );
+        // 「求人倍率」単体も MI では出さない (中立用語のみ)
+        assert!(
+            !s.contains("求人倍率"),
+            "MI variant に『求人倍率』 (単体含む) を出してはならない"
         );
     }
 }
