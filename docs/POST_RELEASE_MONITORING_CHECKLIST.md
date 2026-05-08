@@ -74,7 +74,13 @@
 
 ### 3.1 PDF 余白計測の注意点
 
-- PDF 余白測定時は `@page` margin box (フッター / ヘッダー) を除外し、本文 block の y1 を使用すること。フッター文字列 (`Page X / 19 株式会社...`) を拾うと CSS `@page` margin の変更が誤って「反映なし」と判定される (2026-05-07 学習)。詳細: `docs/PDF_BOTTOM_MARGIN_ROOT_CAUSE_INVESTIGATION.md`。
+- PDF 余白測定時は `@page` margin box (フッター / ヘッダー) を除外し、本文 block の y1 を使用すること。フッター文字列 (`Page X / N 株式会社...`) を拾うと CSS `@page` margin の変更が誤って「反映なし」と判定される (2026-05-07 学習)。詳細: `docs/PDF_BOTTOM_MARGIN_ROOT_CAUSE_INVESTIGATION.md`。
+
+### 3.2 PDF 内容レビュー時の page 番号運用
+
+- PDF レビューで「page X を確認」と固定指定しないこと。章構成変更で page 番号がずれるため、後続ラウンドで該当 section が見つからず誤判定する事故が発生する (2026-05-08 Round 2 で実発生: 期待 page 8 レーダー / 期待 page 14 散布図がずれた)。
+- 代わりに `data-mi-section="<id>"` / `[data-chart="<type>"]` selector / 図番号 (図 X-Y) / 章見出しで指定すること。
+- 詳細手順 / 置換マトリクス: `docs/PDF_REVIEW_GATE_CRITERIA_2026_05_08.md` §1.6。
 
 ---
 
