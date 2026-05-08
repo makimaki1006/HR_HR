@@ -989,4 +989,95 @@ mod ux_enhancement_tests {
             );
         }
     }
+
+    // =====================================================================
+    // Round 2.9-B (2026-05-06): print + pdf-rendering で chart container 幅を強制
+    // 逆証明: 本文幅制約が効かないと PDF で screen 幅 (≈960pt) が持ち込まれて見切れ
+    // =====================================================================
+
+    /// Round 2.9-B-1: @media print 内で [data-chart] / [_echarts_instance_] に
+    /// max-width: 100% !important が定義されていること
+    #[test]
+    fn print_media_chart_containers_have_max_width_constraint() {
+        let css = super::super::style::render_css();
+
+        // data-chart セレクタの存在
+        assert!(
+            css.contains("[data-chart]"),
+            "[data-chart] セレクタが CSS に定義されていること"
+        );
+        // ECharts 自動付与属性のセレクタ
+        assert!(
+            css.contains("[_echarts_instance_]"),
+            "[_echarts_instance_] セレクタが CSS に定義されていること"
+        );
+        // Round 2.9-B コメント mark
+        assert!(
+            css.contains("Round 2.9-B"),
+            "Round 2.9-B コメントが CSS 内に存在すること"
+        );
+
+        // [_echarts_instance_] の最初の宣言ブロックに max-width: 100% !important が含まれる
+        let selector = "[_echarts_instance_] {";
+        let start = css
+            .find(selector)
+            .expect("[_echarts_instance_] { rule が CSS 内に存在すること");
+        let block_end = css[start..]
+            .find('}')
+            .expect("CSS rule の終端 '}' が見つかること");
+        let block = &css[start..start + block_end];
+        assert!(
+            block.contains("max-width: 100%") && block.contains("!important"),
+            "[_echarts_instance_] rule に max-width: 100% !important が含まれること: block={}",
+            block
+        );
+    }
+
+    /// Round 2.9-B-2: html.pdf-rendering class scope でも chart 幅制約が
+    /// トップレベル CSS rule として定義されていること
+    /// (page.pdf() の CDP 経路は @media print を一部しか honor しないため、
+    /// JS が付与する class 経由でも同等制約が必要)
+    #[test]
+    fn pdf_rendering_class_applies_chart_constraints() {
+        let css = super::super::style::render_css();
+
+        // html.pdf-rendering scope の存在
+        assert!(
+            css.contains("html.pdf-rendering"),
+            "html.pdf-rendering scope が CSS に存在すること"
+        );
+        // 主要 chart selector が html.pdf-rendering 配下にも展開されている
+        assert!(
+            css.contains("html.pdf-rendering .echart"),
+            "html.pdf-rendering .echart rule が存在すること"
+        );
+        assert!(
+            css.contains("html.pdf-rendering [_echarts_instance_]"),
+            "html.pdf-rendering [_echarts_instance_] rule が存在すること"
+        );
+        assert!(
+            css.contains("html.pdf-rendering [data-chart]"),
+            "html.pdf-rendering [data-chart] rule が存在すること"
+        );
+
+        // html.pdf-rendering [_echarts_instance_] ブロックに max-width: 100% !important
+        let selector = "html.pdf-rendering [_echarts_instance_]";
+        let start = css
+            .find(selector)
+            .expect("html.pdf-rendering [_echarts_instance_] が CSS に存在すること");
+        // セレクタリストから最初の '{' までスキップ、その後最初の '}' まで
+        let brace_open = css[start..]
+            .find('{')
+            .expect("html.pdf-rendering rule の '{' 位置");
+        let block_start = start + brace_open;
+        let block_end = css[block_start..]
+            .find('}')
+            .expect("html.pdf-rendering rule の '}' 位置");
+        let block = &css[block_start..block_start + block_end];
+        assert!(
+            block.contains("max-width: 100%") && block.contains("!important"),
+            "html.pdf-rendering chart rule に max-width: 100% !important が含まれること: block={}",
+            block
+        );
+    }
 }
