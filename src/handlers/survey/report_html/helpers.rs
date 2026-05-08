@@ -167,19 +167,33 @@ pub(super) fn build_histogram_echart_config(
         }
     };
 
+    // GAS 風: 色付きバッジ + 数値入りラベル（中央値 23.0万 のように値を含む）
+    // 中央値: 緑 #22c55e / 平均: 赤 #ef4444 / 最頻値: 青 #3b82f6
     // ラベル位置を統計種別ごとに分散させる（PDF印刷時の重なり防止）
-    // 中央値: end (デフォルト位置、distance=6)
-    // 平均:   insideEndTop (上方向にオフセット、distance=18)
-    // 最頻値: insideEndBottom (下方向にオフセット、distance=30)
+    let value_label = |yen: i64| -> String {
+        let man = yen as f64 / 10_000.0;
+        if (man.fract()).abs() < 0.05 {
+            format!("{:.0}万", man)
+        } else {
+            format!("{:.1}万", man)
+        }
+    };
+
     let mut mark_lines = vec![];
     if let Some(m) = median {
         mark_lines.push(json!({
             "xAxis": to_label(m),
             "name": "中央値",
-            "lineStyle": {"color": "#27ae60", "type": "dashed", "width": 2},
+            "lineStyle": {"color": "#22c55e", "type": "dashed", "width": 2},
             "label": {
-                "formatter": "中央値",
+                "show": true,
+                "formatter": format!("中央値 {}", value_label(m)),
                 "fontSize": 11,
+                "fontWeight": "bold",
+                "color": "#ffffff",
+                "backgroundColor": "#22c55e",
+                "borderRadius": 4,
+                "padding": [4, 8],
                 "position": "end",
                 "distance": 6
             }
@@ -189,10 +203,16 @@ pub(super) fn build_histogram_echart_config(
         mark_lines.push(json!({
             "xAxis": to_label(m),
             "name": "平均",
-            "lineStyle": {"color": "#e74c3c", "type": "dashed", "width": 2},
+            "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
             "label": {
-                "formatter": "平均",
+                "show": true,
+                "formatter": format!("平均 {}", value_label(m)),
                 "fontSize": 11,
+                "fontWeight": "bold",
+                "color": "#ffffff",
+                "backgroundColor": "#ef4444",
+                "borderRadius": 4,
+                "padding": [4, 8],
                 "position": "insideEndTop",
                 "distance": 18
             }
@@ -202,10 +222,16 @@ pub(super) fn build_histogram_echart_config(
         mark_lines.push(json!({
             "xAxis": to_label(m),
             "name": "最頻値",
-            "lineStyle": {"color": "#9b59b6", "type": "dashed", "width": 2},
+            "lineStyle": {"color": "#3b82f6", "type": "dashed", "width": 2},
             "label": {
-                "formatter": "最頻値",
+                "show": true,
+                "formatter": format!("最頻値 {}", value_label(m)),
                 "fontSize": 11,
+                "fontWeight": "bold",
+                "color": "#ffffff",
+                "backgroundColor": "#3b82f6",
+                "borderRadius": 4,
+                "padding": [4, 8],
                 "position": "insideEndBottom",
                 "distance": 30
             }
@@ -221,6 +247,7 @@ pub(super) fn build_histogram_echart_config(
         },
         "yAxis": {
             "type": "value",
+            "min": 0,
             "axisLabel": {"fontSize": 9}
         },
         "grid": {"left": "10%", "right": "5%", "bottom": "20%", "top": "10%"},

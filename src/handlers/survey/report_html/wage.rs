@@ -188,6 +188,12 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
             if p.avg_min_salary <= 0 {
                 return None;
             }
+            // 2026-05-08 Round 2-2: PDF2 で出た「167h 換算 11 円 / 6 円」事故は、
+            // avg_min_salary が時給値 (1,000 円台) で入っていたため発生した。
+            // 月給下限平均が 50,000 円未満は時給混入の疑いが濃いため除外する。
+            if !super::salary_summary::is_plausible_monthly_min_salary(p.avg_min_salary) {
+                return None;
+            }
             let hourly_160 = p.avg_min_salary / super::super::aggregator::HOURLY_TO_MONTHLY_HOURS;
             let diff_160 = hourly_160 - mw;
             let ratio_160 = hourly_160 as f64 / mw as f64;

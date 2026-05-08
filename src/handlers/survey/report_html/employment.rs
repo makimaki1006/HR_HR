@@ -68,15 +68,24 @@ pub(super) fn render_section_employment(
         "legend": {
             "orient": "vertical",
             "right": "5%",
-            "top": "center",
+            "top": "middle",
             "textStyle": {"fontSize": 10}
         },
         "series": [{
             "type": "pie",
             "radius": ["35%", "65%"],
             "center": ["35%", "50%"],
+            "minAngle": 5,
+            "avoidLabelOverlap": true,
             "data": pie_data,
-            "label": {"formatter": "{b}\n{d}%", "fontSize": 10}
+            "label": {
+                "show": true,
+                "formatter": "{b}\n{d}%",
+                "fontSize": 10,
+                "minMargin": 5
+            },
+            "labelLine": {"show": true, "smooth": true},
+            "emphasis": {"label": {"show": true, "fontSize": 11, "fontWeight": "bold"}}
         }]
     });
     render_figure_caption(html, "図 4-1", "雇用形態構成ドーナツチャート（Top 6）");

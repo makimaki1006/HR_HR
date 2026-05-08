@@ -145,8 +145,10 @@ pub(super) fn render_section_notes(html: &mut String, now: &str) {
     html.push_str("<ol>\n");
     html.push_str("<li><strong>新規進出地域の採用戦略策定</strong>: 該当地域のデモグラフィック・サイコグラフィック・賃金水準を把握し、\
          初期の求人設計の前提条件を揃える。</li>\n");
+    // 2026-05-08 Round 2-1: variant 非依存ブロックなので、HW 言及を中立化。
+    //   「HW 市場との適合度」→「公開求人市場との適合度」(出典欄に HW 公開求人記載で具体化)
     html.push_str("<li><strong>既存地域の媒体運用の見直し</strong>: 給与水準・新着比率・主要雇用形態の構成比を確認し、\
-         CSV 媒体の掲載傾向と HW 市場との適合度を比較する。</li>\n");
+         CSV 媒体の掲載傾向と公開求人市場との適合度を比較する。</li>\n");
     html.push_str("<li><strong>社内提案資料の客観データ補強</strong>: 公開統計（e-Stat）・HW 公開求人を引用し、\
          主観的な肌感覚に頼らない数値ベースの提案を構築する。</li>\n");
     html.push_str("</ol>\n");

@@ -1087,8 +1087,8 @@ mod tests {
         assert!(config.contains("平均"));
         assert!(config.contains("中央値"));
         assert!(config.contains("最頻値"));
-        // 最頻値カラー（紫 #9b59b6）が含まれる
-        assert!(config.contains("#9b59b6"));
+        // GAS 風 最頻値カラー（青 #3b82f6）が含まれる
+        assert!(config.contains("#3b82f6"));
         // JSON として妥当か
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(&config);
         assert!(parsed.is_ok());
@@ -1631,6 +1631,223 @@ mod tests {
             filtered.len(),
             2,
             "5万〜200万の範囲内かつ y>=x の2点のみ残る"
+        );
+    }
+
+    // ============================================================
+    // Round 2-3 P0 グラフ修正（GAS 風 markLine + 軸表示 + radar center 等）
+    // ============================================================
+
+    /// 中央値=緑 / 平均=赤 / 最頻値=青 の GAS 風バッジ色が反映されていること
+    #[test]
+    fn histogram_marklines_use_distinct_badge_colors() {
+        let labels = vec!["20万".to_string(), "22万".to_string(), "24万".to_string()];
+        let values = vec![5, 12, 8];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(215_000),
+            Some(220_000),
+            20_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let series = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .expect("markLine.data must be array");
+
+        let mut color_by_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for ml in series {
+            let name = ml["name"].as_str().unwrap().to_string();
+            let line_color = ml["lineStyle"]["color"].as_str().unwrap().to_string();
+            let bg_color = ml["label"]["backgroundColor"]
+                .as_str()
+                .expect("label.backgroundColor が GAS 風バッジ用に設定されていること")
+                .to_string();
+            // line color と badge color が同一であること（同色での視覚的一貫性）
+            assert_eq!(line_color, bg_color, "line と badge が同色 ({})", name);
+            color_by_name.insert(name, bg_color);
+        }
+
+        assert_eq!(
+            color_by_name.get("中央値").map(String::as_str),
+            Some("#22c55e")
+        );
+        assert_eq!(
+            color_by_name.get("平均").map(String::as_str),
+            Some("#ef4444")
+        );
+        assert_eq!(
+            color_by_name.get("最頻値").map(String::as_str),
+            Some("#3b82f6")
+        );
+    }
+
+    /// markLine label が「中央値 23.0万」のように値を含む文字列であること
+    #[test]
+    fn histogram_marklines_include_value_in_label() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(233_000),
+            Some(230_000),
+            Some(200_000),
+            10_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let series = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .unwrap();
+
+        let mut formatter_by_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for ml in series {
+            let name = ml["name"].as_str().unwrap().to_string();
+            let f = ml["label"]["formatter"].as_str().unwrap().to_string();
+            formatter_by_name.insert(name, f);
+        }
+
+        let median_label = formatter_by_name.get("中央値").unwrap();
+        let mean_label = formatter_by_name.get("平均").unwrap();
+        let mode_label = formatter_by_name.get("最頻値").unwrap();
+
+        // ラベルが「ラベル名 + 数値万」の形式
+        assert!(
+            median_label.starts_with("中央値 ") && median_label.contains("万"),
+            "中央値 label に値が含まれる: {}",
+            median_label
+        );
+        assert!(
+            mean_label.starts_with("平均 ") && mean_label.contains("万"),
+            "平均 label に値が含まれる: {}",
+            mean_label
+        );
+        assert!(
+            mode_label.starts_with("最頻値 ") && mode_label.contains("万"),
+            "最頻値 label に値が含まれる: {}",
+            mode_label
+        );
+    }
+
+    /// markLine label がバッジ風 (backgroundColor + borderRadius + padding + 白文字 + bold)
+    #[test]
+    fn histogram_marklines_render_badge_style_label() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(220_000),
+            Some(220_000),
+            20_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let series = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .unwrap();
+
+        for ml in series {
+            let label = &ml["label"];
+            assert!(
+                label["backgroundColor"].is_string(),
+                "backgroundColor が string ({})",
+                ml["name"]
+            );
+            assert_eq!(
+                label["color"].as_str(),
+                Some("#ffffff"),
+                "label の文字色は白 ({})",
+                ml["name"]
+            );
+            assert!(
+                label["borderRadius"].as_i64().unwrap_or(0) > 0,
+                "borderRadius が 0 超 ({})",
+                ml["name"]
+            );
+            assert!(
+                label["padding"].is_array(),
+                "padding が array ({})",
+                ml["name"]
+            );
+            assert_eq!(
+                label["fontWeight"].as_str(),
+                Some("bold"),
+                "fontWeight が bold ({})",
+                ml["name"]
+            );
+        }
+    }
+
+    /// yAxis.min == 0 (棒高さ誇張防止)
+    #[test]
+    fn histogram_yaxis_min_is_zero() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(220_000),
+            Some(220_000),
+            20_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        assert_eq!(
+            parsed["yAxis"]["min"].as_i64(),
+            Some(0),
+            "yAxis.min が 0 に強制されていること"
+        );
+    }
+
+    /// scatter.rs に xAxis.show / axisLine.show / axisTick.show が記述されていること
+    #[test]
+    fn scatter_source_contains_axis_show_directives() {
+        let src = include_str!("scatter.rs");
+        assert!(
+            src.contains("\"show\": true"),
+            "scatter.rs に show:true 指定があること"
+        );
+        assert!(
+            src.contains("\"axisLine\""),
+            "scatter.rs に axisLine 指定があること"
+        );
+        assert!(
+            src.contains("\"axisTick\""),
+            "scatter.rs に axisTick 指定があること"
+        );
+    }
+
+    /// market_tightness.rs / regional_compare.rs の radar に center が指定され中央寄せであること
+    #[test]
+    fn radar_center_is_centered() {
+        let mt_src = include_str!("market_tightness.rs");
+        let rc_src = include_str!("regional_compare.rs");
+        // どちらも center=["50%", "55%"] を含むこと
+        for (name, src) in [("market_tightness.rs", mt_src), ("regional_compare.rs", rc_src)] {
+            assert!(
+                src.contains("\"center\": [\"50%\", \"55%\"]")
+                    || src.contains("\"center\":[\"50%\",\"55%\"]"),
+                "{} radar に center=[50%,55%] が指定されていること",
+                name
+            );
+        }
+    }
+
+    /// employment.rs ドーナツに minAngle=5 が指定されていること
+    #[test]
+    fn donut_employment_has_min_angle() {
+        let src = include_str!("employment.rs");
+        assert!(
+            src.contains("\"minAngle\": 5") || src.contains("\"minAngle\":5"),
+            "employment.rs ドーナツに minAngle=5 が指定されていること"
         );
     }
 }
