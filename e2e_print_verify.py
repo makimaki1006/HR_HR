@@ -115,6 +115,15 @@ def run_report(ctx, path, pdf_name, screenshot_name, min_pages=6, max_pages=15, 
     except Exception as e:
         print(f"  [WARN] screenshot失敗: {type(e).__name__}: {e}")
 
+    # Round 2.11: viewport を A4 portrait に縮小 (Round 2.10 で確定した真因対策)
+    # page.pdf() は viewport を縮小しない仕様で、default 1280×720 のまま PDF 化されると
+    # body / section / .echart に 1280-1248px が伝搬し ECharts SVG が本文域 555pt に
+    # 押し込まれて見切れる。ECharts resize evaluate より先に viewport を揃える。
+    try:
+        page.set_viewport_size({"width": 794, "height": 1123})
+    except Exception as e:
+        print(f"  [WARN] PDF前 viewport設定失敗 (続行): {type(e).__name__}: {e}")
+
     # Round 2.9-A: page.pdf() 直前に ECharts container を強制 resize
     # 真因 (Round 2.8-D): page.pdf() (Chromium DevTools Page.printToPDF) は
     # beforeprint / matchMedia('print') を発火させないため、helpers.rs の

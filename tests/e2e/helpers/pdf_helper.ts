@@ -30,6 +30,13 @@ import type { Page } from '@playwright/test';
  *                    (A4 595pt + 余裕枠。本文域 ~555pt より緩く設定)。
  */
 export async function preparePdfRender(page: Page, maxWidthPt: number = 760): Promise<void> {
+  // Round 2.11: viewport を A4 portrait に縮小 (Round 2.10 で確定した真因対策)
+  //   page.pdf() (Chromium DevTools Page.printToPDF) は viewport を縮小しない仕様。
+  //   default 1280×720 のまま page.pdf() を呼ぶと body / section / .echart に
+  //   1280-1248px が伝搬し、ECharts SVG が PDF 本文域 555pt に押し込まれて見切れる。
+  //   ECharts resize / wait より先に viewport を A4 portrait (794×1123 px @96dpi) に揃える。
+  await page.setViewportSize({ width: 794, height: 1123 });
+
   // 1. DOM レベル: pdf-rendering クラス + container 幅を明示的に縮める
   await page.evaluate(() => {
     document.documentElement.classList.add('pdf-rendering');
