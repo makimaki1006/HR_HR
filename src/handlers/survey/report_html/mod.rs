@@ -928,7 +928,11 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     render_section_job_seeker(&mut html, seeker);
 
     // --- Section 12: SalesNow 地域注目企業（非空のときのみ） ---
-    if !salesnow_companies.is_empty() {
+    // 2026-05-08 Round 2.5: MarketIntelligence では非表示。
+    //   「観測指標」列は HW 求人 + 人員推移 の合成値、注記には HW industry_mapping や
+    //   「HW にも掲載」等の HW 文言が密に入っているため、章ごと非表示で HW 言及最小化方針に統一。
+    //   Full / Public は既存挙動維持 (regression 防止)。
+    if !salesnow_companies.is_empty() && !matches!(variant, ReportVariant::MarketIntelligence) {
         render_section_salesnow_companies(&mut html, salesnow_companies);
     }
 
@@ -938,7 +942,12 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     //
     // 業界指定時: 全業界版 + 同業界版 の両方を並列表示
     // 業界未指定時: 全業界版のみ
-    if !salesnow_segments.is_empty() {
+    //
+    // 2026-05-08 Round 2.5: MarketIntelligence では非表示。
+    //   「HW 求人継続率」列・「求人積極期 (HW 5 件以上)」セグメント・takeaway 文の
+    //   「HW 求人継続率は規模帯間で〜」等が HW データ前提のため、章ごと非表示。
+    //   Full / Public は既存挙動維持 (regression 防止)。
+    if !salesnow_segments.is_empty() && !matches!(variant, ReportVariant::MarketIntelligence) {
         render_section_company_segments_with_industry(
             &mut html,
             salesnow_segments,
@@ -3637,6 +3646,177 @@ mod variant_indicator_tests {
         assert!(html_full.contains("ハローワーク掲載求人"));
         assert!(!html_mi.contains("ハローワーク掲載求人"));
         assert!(!html_public.contains("ハローワーク掲載求人"));
+    }
+
+    // ========================================================================
+    // 2026-05-08 Round 2.5: salesnow セクション (第 12 章 / 第 12B 章) HW 混入防止
+    //
+    // Round 2-1 で残った 2 系統 (salesnow_companies / company_segments) を MI variant で
+    // 章ごと非表示にする変更の regression 防止テスト。
+    //
+    // - Full は salesnow セクションを表示する (HW 列含む全カラム維持)
+    // - MI は salesnow セクションを章ごと非表示 (HW 言及最小化方針)
+    // - Public は既存挙動維持 (Round 2-1 で salesnow を Public 経路で出していた場合は維持)
+    // ========================================================================
+
+    /// salesnow テスト用のミニデータ (1 社) を作る
+    fn salesnow_test_company() -> super::super::super::company::fetch::NearbyCompany {
+        super::super::super::company::fetch::NearbyCompany {
+            corporate_number: "1234567890123".to_string(),
+            company_name: "テスト株式会社".to_string(),
+            prefecture: "東京都".to_string(),
+            sn_industry: "医療・福祉".to_string(),
+            employee_count: 500,
+            credit_score: 0.0,
+            postal_code: "100-0001".to_string(),
+            hw_posting_count: 7,
+            sales_amount: 5.0e8,
+            sales_range: "5億円以上".to_string(),
+            employee_delta_1y: 3.5,
+            employee_delta_3m: 0.8,
+        }
+    }
+
+    /// segments テスト用ミニデータ (large に 1 社) を作る
+    fn salesnow_test_segments(
+    ) -> super::super::super::company::fetch::RegionalCompanySegments {
+        let mut s = super::super::super::company::fetch::RegionalCompanySegments::default();
+        s.pool_size = 1;
+        s.large.push(salesnow_test_company());
+        s
+    }
+
+    /// salesnow データありで variant 別 render するヘルパ
+    fn render_for_variant_r25_with_salesnow(variant: ReportVariant) -> String {
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let companies = vec![salesnow_test_company()];
+        let segments = salesnow_test_segments();
+        let empty_segments_industry =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            &companies,
+            &segments,
+            &empty_segments_industry,
+            None,
+            &empty_map,
+            &[],
+            variant,
+            ReportTheme::Default,
+            None,
+            None,
+        )
+    }
+
+    /// Round 2.5 検出対象の HW 用語 (salesnow 章テーブル / 注記 / takeaway 内)
+    ///
+    /// スコープ: salesnow.rs の 2 系統 (第 12 章 salesnow_companies / 第 12B 章 company_segments)。
+    /// notes.rs の汎用 footer (variant 非依存) に残る "HW 公開求人" は別ラウンド対応とし、
+    /// 本リストには含めない。
+    fn hw_forbidden_terms_for_salesnow_r25() -> &'static [&'static str] {
+        &[
+            // 第 12 章 (salesnow_companies) のテーブル列ヘッダ
+            "HW求人数",
+            // 第 12 章 注記
+            "HW industry_mapping",
+            "HW にも掲載",
+            // 第 12B 章 (company_segments) のテーブル列ヘッダ
+            "HW 求人継続率",
+            // 第 12B 章 セグメントラベル
+            "求人積極期 (HW",
+            "ハローワークで 5 件以上",
+        ]
+    }
+
+    /// Round 2.5: MI variant の salesnow 章は HW 用語を出さない (章ごと非表示)
+    #[test]
+    fn mi_variant_salesnow_section_excludes_hw_terms() {
+        let html = render_for_variant_r25_with_salesnow(ReportVariant::MarketIntelligence);
+        for term in hw_forbidden_terms_for_salesnow_r25() {
+            assert!(
+                !html.contains(term),
+                "MI variant 出力に Round 2.5 salesnow 章 HW 用語が混入: '{}'",
+                term
+            );
+        }
+    }
+
+    /// Round 2.5: Full variant では salesnow 章 HW 列が維持される (regression 防止)
+    #[test]
+    fn full_variant_salesnow_section_still_shows_hw_columns() {
+        let html = render_for_variant_r25_with_salesnow(ReportVariant::Full);
+        // Full は salesnow 章を表示する (companies テーブルの HW 列ヘッダが出る)
+        assert!(
+            html.contains("HW求人数"),
+            "Full variant では salesnow テーブルに HW 求人数列が維持されるはず"
+        );
+        // 第 12B 章 (segments) も large に 1 社入れているので構造サマリは出る
+        assert!(
+            html.contains("HW 求人継続率"),
+            "Full variant では segments テーブルに HW 求人継続率列が維持されるはず"
+        );
+    }
+
+    /// Round 2.5: MI variant では salesnow 章自体が出力されない (章ごと非表示の証明)
+    /// 章タイトル (h2 見出し) を直接検証することで、章レベルで非表示になっていることを確認。
+    #[test]
+    fn mi_variant_salesnow_chapter_is_hidden() {
+        let html = render_for_variant_r25_with_salesnow(ReportVariant::MarketIntelligence);
+        // 第 5 章 地域注目企業 / 地域企業 ベンチマーク のいずれの h2 タイトルも出ない
+        assert!(
+            !html.contains("第5章 地域注目企業"),
+            "MI では第 12 章 (地域注目企業) は章ごと非表示"
+        );
+        assert!(
+            !html.contains("第5章 地域企業 ベンチマーク"),
+            "MI では第 12B 章 (地域企業ベンチマーク) は章ごと非表示"
+        );
+    }
+
+    /// Round 2.5: Full では salesnow 章タイトルが表示される (regression 防止)
+    #[test]
+    fn full_variant_salesnow_chapter_is_visible() {
+        let html = render_for_variant_r25_with_salesnow(ReportVariant::Full);
+        assert!(
+            html.contains("第5章 地域注目企業"),
+            "Full では第 12 章 (地域注目企業) が表示されるはず"
+        );
+        assert!(
+            html.contains("第5章 地域企業 ベンチマーク"),
+            "Full では第 12B 章 (地域企業ベンチマーク) が表示されるはず"
+        );
+    }
+
+    /// Round 2.5 + Round 2-1 統合: MI variant の HTML 出力に
+    /// 9 系統の HW 用語 (Round 2-1 の 5 系統 + Round 2.5 の 7 系統 = 重複除いて約 9 種) が
+    /// すべて含まれないこと。
+    #[test]
+    fn mi_variant_html_excludes_all_hw_phrases_combined() {
+        let html = render_for_variant_r25_with_salesnow(ReportVariant::MarketIntelligence);
+        // Round 2-1 系統 (cover subtitle / 4MT KPI / 4B header / Exec HW 比較)
+        for term in hw_forbidden_terms_for_mi() {
+            assert!(
+                !html.contains(term),
+                "MI 出力に Round 2-1 P0 HW 用語が混入: '{}'",
+                term
+            );
+        }
+        // Round 2.5 系統 (salesnow 章テーブル列 / 注記 / takeaway)
+        for term in hw_forbidden_terms_for_salesnow_r25() {
+            assert!(
+                !html.contains(term),
+                "MI 出力に Round 2.5 salesnow 章 HW 用語が混入: '{}'",
+                term
+            );
+        }
     }
 
 }
