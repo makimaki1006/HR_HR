@@ -1833,6 +1833,153 @@ mod tests {
         );
     }
 
+    // ============================================================
+    // Round 2.7-AC: yAxis 0 強制 bulletproof 化 + ラベル近接統合
+    // ============================================================
+
+    /// 全 histogram builder で yAxis.scale が明示的に false (ECharts auto-scale 罠回避)
+    #[test]
+    fn histogram_yaxis_scale_is_false_explicitly() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(220_000),
+            Some(220_000),
+            20_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        assert_eq!(
+            parsed["yAxis"]["scale"].as_bool(),
+            Some(false),
+            "yAxis.scale が false に明示されていること (auto-scale で min:0 が無視される罠の回避)"
+        );
+    }
+
+    /// yAxis.minInterval が 1 (件数なので小数 tick 抑止)
+    #[test]
+    fn histogram_yaxis_min_interval_is_one() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(220_000),
+            Some(220_000),
+            20_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        assert_eq!(
+            parsed["yAxis"]["minInterval"].as_i64(),
+            Some(1),
+            "yAxis.minInterval が 1 (件数 = 整数なので小数 tick を抑止)"
+        );
+    }
+
+    /// 3 値が近接 (差 ≤ bin_size * 2) のとき統合ラベル (graphic) が出力される
+    #[test]
+    fn histogram_uses_combined_label_when_stats_are_close() {
+        // 中央値 230,000 / 平均 225,000 / 最頻値 240,000 (差 15,000、bin=10,000)
+        // 差 / bin = 1.5 ≤ 2 → 近接
+        let labels = vec!["22万".to_string(), "23万".to_string(), "24万".to_string()];
+        let values = vec![5, 12, 8];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(225_000),
+            Some(230_000),
+            Some(240_000),
+            10_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+
+        let graphic = parsed["graphic"]
+            .as_array()
+            .expect("graphic が配列であること");
+        assert!(!graphic.is_empty(), "近接時は graphic に統合カードが含まれる");
+
+        // markLine ラベルは show=false (graphic と二重表示にならない)
+        let ml = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .unwrap();
+        for entry in ml {
+            assert_eq!(
+                entry["label"]["show"].as_bool(),
+                Some(false),
+                "近接時は markLine label が非表示 ({})",
+                entry["name"]
+            );
+        }
+
+        // graphic に 3 統計値の名称が含まれること
+        let graphic_str = serde_json::to_string(&graphic).unwrap();
+        assert!(
+            graphic_str.contains("中央値"),
+            "graphic に中央値が含まれる"
+        );
+        assert!(graphic_str.contains("平均"), "graphic に平均が含まれる");
+        assert!(
+            graphic_str.contains("最頻値"),
+            "graphic に最頻値が含まれる"
+        );
+    }
+
+    /// 3 値が離れている (差 > bin_size * 2) のとき従来の position 分散ラベルを維持
+    #[test]
+    fn histogram_uses_distributed_labels_when_stats_are_far() {
+        // 中央値 200,000 / 平均 300,000 / 最頻値 500,000 (差 300,000、bin=10,000)
+        // 差 / bin = 30 ≫ 2 → 離れている
+        let labels = vec!["20万".to_string(), "30万".to_string(), "50万".to_string()];
+        let values = vec![3, 7, 2];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(300_000),
+            Some(200_000),
+            Some(500_000),
+            10_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+
+        let graphic = parsed["graphic"].as_array().unwrap();
+        assert!(graphic.is_empty(), "離れているとき graphic は空");
+
+        // markLine ラベルは show=true (従来通り表示)
+        let ml = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .unwrap();
+        for entry in ml {
+            assert_eq!(
+                entry["label"]["show"].as_bool(),
+                Some(true),
+                "離れているときは markLine label を表示 ({})",
+                entry["name"]
+            );
+        }
+    }
+
+    /// stats_are_close ヘルパー単体: 境界条件
+    #[test]
+    fn stats_are_close_boundary_conditions() {
+        // 1 値のみ → false
+        assert!(!stats_are_close(Some(100), None, None, 10));
+        // 同値 → true
+        assert!(stats_are_close(Some(100), Some(100), Some(100), 10));
+        // 差 = bin_size * 2 (境界) → true
+        assert!(stats_are_close(Some(100), Some(120), Some(110), 10));
+        // 差 > bin_size * 2 → false
+        assert!(!stats_are_close(Some(100), Some(121), Some(110), 10));
+        // bin_size = 0 → false (defensive)
+        assert!(!stats_are_close(Some(100), Some(100), Some(100), 0));
+    }
+
     /// scatter.rs に xAxis.show / axisLine.show / axisTick.show が記述されていること
     #[test]
     fn scatter_source_contains_axis_show_directives() {
