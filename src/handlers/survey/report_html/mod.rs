@@ -1114,6 +1114,136 @@ mod tests {
         assert!(parsed.is_ok());
     }
 
+    /// PDF印刷時の重なり防止: 中央値/平均/最頻値の label position が異なる位置に
+    /// 分散して配置されていることを検証する。
+    #[test]
+    fn test_histogram_marklines_use_distinct_label_positions() {
+        let labels = vec!["20万".to_string(), "22万".to_string(), "24万".to_string()];
+        let values = vec![5, 12, 8];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000), // mean
+            Some(220_000), // median (近接値で重なりが起きやすい状況を再現)
+            Some(220_000), // mode
+            20_000,
+        );
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&config).expect("config must be valid JSON");
+
+        let series = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .expect("markLine.data must be array");
+        assert_eq!(series.len(), 3, "中央値・平均・最頻値の3線が存在すること");
+
+        // 各 markLine の name と label.position の対応を収集
+        let mut positions: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for ml in series {
+            let name = ml["name"].as_str().expect("name").to_string();
+            let pos = ml["label"]["position"]
+                .as_str()
+                .expect("label.position must be set")
+                .to_string();
+            positions.insert(name, pos);
+        }
+
+        let median_pos = positions.get("中央値").expect("中央値 must exist");
+        let mean_pos = positions.get("平均").expect("平均 must exist");
+        let mode_pos = positions.get("最頻値").expect("最頻値 must exist");
+
+        // 3つすべての label position が異なる
+        assert_ne!(median_pos, mean_pos, "中央値と平均の position は異なる");
+        assert_ne!(mean_pos, mode_pos, "平均と最頻値の position は異なる");
+        assert_ne!(median_pos, mode_pos, "中央値と最頻値の position は異なる");
+
+        // 期待値: 縦方向に分散（end / insideEndTop / insideEndBottom）
+        assert_eq!(median_pos, "end");
+        assert_eq!(mean_pos, "insideEndTop");
+        assert_eq!(mode_pos, "insideEndBottom");
+    }
+
+    /// ラベル文字（中央値 / 平均 / 最頻値）を削除しないことを保証する回帰テスト。
+    #[test]
+    fn test_histogram_marklines_preserve_all_three_labels() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![3, 7];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(210_000),
+            Some(215_000),
+            Some(220_000),
+            20_000,
+        );
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&config).expect("config must be valid JSON");
+        let series = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .expect("markLine.data must be array");
+
+        let names: Vec<&str> = series
+            .iter()
+            .filter_map(|ml| ml["name"].as_str())
+            .collect();
+        assert!(names.contains(&"中央値"), "中央値ラベルが残っていること");
+        assert!(names.contains(&"平均"), "平均ラベルが残っていること");
+        assert!(names.contains(&"最頻値"), "最頻値ラベルが残っていること");
+
+        // 各 markLine の label.formatter も削除されていない
+        for ml in series {
+            let formatter = ml["label"]["formatter"].as_str().unwrap_or("");
+            assert!(
+                !formatter.is_empty(),
+                "label.formatter が削除されていない (name={:?})",
+                ml["name"]
+            );
+        }
+    }
+
+    /// distance（オフセット距離）も統計種別ごとに異なる値が設定されていることを検証。
+    /// 同じ position を使うフォールバック実装で重なりが残らないことを保証する。
+    #[test]
+    fn test_histogram_marklines_use_distinct_label_distances() {
+        let labels = vec!["20万".to_string(), "22万".to_string()];
+        let values = vec![5, 8];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(220_000),
+            Some(220_000),
+            Some(220_000),
+            20_000,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
+        let series = parsed["series"][0]["markLine"]["data"]
+            .as_array()
+            .expect("markLine.data must be array");
+
+        let mut distances: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        for ml in series {
+            let name = ml["name"].as_str().unwrap().to_string();
+            let dist = ml["label"]["distance"]
+                .as_i64()
+                .expect("label.distance must be set as integer");
+            distances.insert(name, dist);
+        }
+
+        let med = *distances.get("中央値").unwrap();
+        let avg = *distances.get("平均").unwrap();
+        let mod_ = *distances.get("最頻値").unwrap();
+        // 3つの distance が全て異なる
+        assert_ne!(med, avg);
+        assert_ne!(avg, mod_);
+        assert_ne!(med, mod_);
+    }
+
     #[test]
     fn test_echart_div_output() {
         let config = r#"{"type":"bar"}"#;
