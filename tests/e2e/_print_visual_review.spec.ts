@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { loginAndUpload, buildReportUrl } from './helpers/session';
+import { preparePdfRender } from './helpers/pdf_helper';
 
 test('Print/PDF P1 visual review artifact generation', async ({ page }) => {
   test.setTimeout(300_000);
@@ -63,6 +64,8 @@ test('Print/PDF P1 visual review artifact generation', async ({ page }) => {
     fs.writeFileSync(path.join(outDir, `print_${theme}.html`), html, 'utf8');
 
     if (theme === 'default') {
+      // Round 2.9-A: page.pdf() 直前に ECharts container を A4 本文域に強制 resize
+      await preparePdfRender(page);
       await page.pdf({ path: path.join(outDir, 'market_intelligence_print_default.pdf'), format: 'A4', printBackground: true });
     }
   }

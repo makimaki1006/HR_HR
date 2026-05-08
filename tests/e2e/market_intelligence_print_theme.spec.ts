@@ -22,6 +22,7 @@
 import { test, expect, Page } from '@playwright/test';
 import * as path from 'path';
 import { loginAndUpload, buildReportUrl } from './helpers/session';
+import { preparePdfRender } from './helpers/pdf_helper';
 
 const FIXTURE = path.resolve(__dirname, 'fixtures', 'indeed_test_50.csv');
 
@@ -416,6 +417,9 @@ test.describe('MarketIntelligence print + theme (Phase 7 Spec 4)', () => {
 
     await page.emulateMedia({ media: 'print' });
     await page.waitForTimeout(500);
+
+    // Round 2.9-A: page.pdf() 直前に ECharts container を A4 本文域に強制 resize
+    await preparePdfRender(page);
 
     const pdf = await page.pdf({ format: 'A4' });
     expect(
