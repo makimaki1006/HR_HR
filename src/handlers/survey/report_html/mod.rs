@@ -21,6 +21,9 @@ mod employment;
 mod executive_summary;
 mod helpers;
 mod hw_enrichment;
+mod labels;
+mod region_filter;
+mod salary_summary;
 // Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
 mod market_intelligence;
 pub(crate) mod industry_mismatch;
@@ -709,34 +712,19 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     ));
 
     // 下段: ハイライト 3 KPI
+    // 2026-05-08 Round 2-2: SalaryHeadline (single source of truth) 経由で表示し、
+    // PDF 内に「給与中央値」が複数値で出る矛盾を防ぐ。ラベルには集計範囲の接尾辞
+    // (CSV 全件 / 時給×167h 換算 / 件数最多グループ) が必ず付く。
     let hl_count = format_number(agg.total_count as i64);
     let hl_region = target_region.clone();
-    let hl_median = match &agg.enhanced_stats {
-        Some(s) if s.count > 0 => {
-            if agg.is_hourly {
-                format!("{}", format_number(s.median))
-            } else {
-                format!("{:.1}", s.median as f64 / 10_000.0)
-            }
-        }
-        _ => "-".to_string(),
-    };
-    let hl_median_unit = match &agg.enhanced_stats {
-        Some(s) if s.count > 0 => {
-            if agg.is_hourly {
-                "円/時"
-            } else {
-                "万円"
-            }
-        }
-        _ => "",
-    };
+    let salary_headline = salary_summary::SalaryHeadline::from_aggregation(agg);
+    let cover_hl = salary_headline.cover_highlight_text();
     render_dv2_cover_highlights(
         &mut html,
         &[
             ("サンプル件数", &hl_count, "件"),
             ("主要地域", &hl_region, ""),
-            ("給与中央値", &hl_median, hl_median_unit),
+            (cover_hl.label.as_str(), cover_hl.value_text.as_str(), cover_hl.unit.as_str()),
         ],
     );
     html.push_str("</div>\n"); // /dv2-cover-main
