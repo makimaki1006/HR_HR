@@ -115,6 +115,47 @@ def run_report(ctx, path, pdf_name, screenshot_name, min_pages=6, max_pages=15, 
     except Exception as e:
         print(f"  [WARN] screenshot失敗: {type(e).__name__}: {e}")
 
+    # Round 2.9-A: page.pdf() 直前に ECharts container を強制 resize
+    # 真因 (Round 2.8-D): page.pdf() (Chromium DevTools Page.printToPDF) は
+    # beforeprint / matchMedia('print') を発火させないため、helpers.rs の
+    # resize hook が動かず screen viewport 幅 (~960pt) のまま PDF 化される。
+    # 対策: 明示的に container 幅を絞り echarts.resize() を発火、
+    # bbox.width が A4 本文域 (760pt 安全枠) 以下になるまで待機。
+    try:
+        page.evaluate(
+            """
+            () => {
+              document.documentElement.classList.add('pdf-rendering');
+              const charts = Array.from(document.querySelectorAll('[_echarts_instance_]'));
+              charts.forEach(el => {
+                el.style.width = '100%';
+                el.style.maxWidth = '100%';
+                const inst = window.echarts && window.echarts.getInstanceByDom
+                  ? window.echarts.getInstanceByDom(el) : null;
+                if (inst && typeof inst.resize === 'function') {
+                  try { inst.resize(); } catch (_) {}
+                }
+              });
+            }
+            """
+        )
+        page.wait_for_timeout(800)
+        page.wait_for_function(
+            """
+            () => {
+              const charts = Array.from(document.querySelectorAll('[_echarts_instance_]'));
+              if (charts.length === 0) return true;
+              return charts.every(el => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.width <= 760;
+              });
+            }
+            """,
+            timeout=10_000,
+        )
+    except Exception as e:
+        print(f"  [WARN] PDF前 resize hook 失敗 (続行): {type(e).__name__}: {e}")
+
     # PDF 生成
     pdf_path = os.path.join(DIR, pdf_name)
     try:
