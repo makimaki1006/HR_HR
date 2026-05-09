@@ -26,6 +26,7 @@ mod region_filter;
 mod salary_summary;
 // Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
 pub(crate) mod industry_mismatch;
+mod industry_salary;
 mod lifestyle;
 mod market_intelligence;
 mod market_tightness;
@@ -57,6 +58,7 @@ use helpers::{
 };
 use industry_mismatch::render_section_industry_mismatch;
 use industry_mismatch::render_section_industry_mismatch_csv;
+use industry_salary::render_section_industry_salary;
 use lifestyle::render_section_lifestyle;
 use market_tightness::render_section_market_tightness;
 use market_tightness::render_section_market_tightness_with_variant;
@@ -876,6 +878,15 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
                 pref,
             );
         }
+    }
+
+    // --- Section 4B-3 (Round 3-B / 2026-05-06): 業界別 給与水準（CSV 推定）---
+    // Round 1-E 完全欠落 Top 2 (業界×給与) と Round 2-4 真の未実装 #8 を消化。
+    // CSV 由来の `agg.by_company` / `by_tag_salary` を業界大分類で再集計し、
+    // 件数 Top 10 業界の加重平均給与を表で提示する。MI variant 専用 (HW 言及最小化方針)。
+    // 業界推定は industry_mismatch::map_keyword_to_major_industry を再利用 (新規ロジックなし)。
+    if matches!(variant, ReportVariant::MarketIntelligence) {
+        render_section_industry_salary(&mut html, agg);
     }
 
     // --- Section 4P (2026-04-29): 対象地域 vs 競合地域 多面比較 (Public 専用) ---
