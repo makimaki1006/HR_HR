@@ -23,14 +23,13 @@
 //! Step 4 で追加した `variant.show_market_intelligence_sections()` フラグで分岐される。
 
 use super::super::super::analysis::fetch::{
-    fetch_code_master, fetch_commute_flow_summary, fetch_living_cost_proxy,
-    fetch_occupation_cells, fetch_occupation_population,
-    fetch_recruiting_scores_by_municipalities, fetch_ward_rankings_by_parent,
-    fetch_ward_thickness, to_code_master, to_commute_flows, to_living_cost_proxies,
-    to_occupation_cells, to_occupation_populations, to_recruiting_scores, to_ward_rankings,
-    to_ward_thickness_dtos, CommuteFlowSummary, LivingCostProxy, MunicipalityCodeMasterDto,
-    MunicipalityRecruitingScore, OccupationCellDto, OccupationPopulationCell,
-    SurveyMarketIntelligenceData, WardRankingRowDto,
+    fetch_code_master, fetch_commute_flow_summary, fetch_living_cost_proxy, fetch_occupation_cells,
+    fetch_occupation_population, fetch_recruiting_scores_by_municipalities,
+    fetch_ward_rankings_by_parent, fetch_ward_thickness, to_code_master, to_commute_flows,
+    to_living_cost_proxies, to_occupation_cells, to_occupation_populations, to_recruiting_scores,
+    to_ward_rankings, to_ward_thickness_dtos, CommuteFlowSummary, LivingCostProxy,
+    MunicipalityCodeMasterDto, MunicipalityRecruitingScore, OccupationCellDto,
+    OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto,
 };
 use super::super::super::helpers::escape_html;
 use std::collections::BTreeMap;
@@ -95,8 +94,12 @@ pub(crate) fn build_market_intelligence_data(
         return SurveyMarketIntelligenceData::default();
     }
 
-    let recruiting_rows =
-        fetch_recruiting_scores_by_municipalities(db, turso, target_municipalities, occupation_group_code);
+    let recruiting_rows = fetch_recruiting_scores_by_municipalities(
+        db,
+        turso,
+        target_municipalities,
+        occupation_group_code,
+    );
     let living_cost_rows = fetch_living_cost_proxy(db, turso, target_municipalities);
     let commute_rows = fetch_commute_flow_summary(db, turso, dest_pref, dest_muni, top_n_inflow);
 
@@ -111,35 +114,30 @@ pub(crate) fn build_market_intelligence_data(
     //
     // target_municipalities が空の場合は早期 return (上の if 条件が dest_pref/dest_muni のみ
     // の経路で来る可能性に対応)。
-    let (occupation_cells, ward_thickness, ward_rankings, code_master) =
-        if target_municipalities.is_empty() {
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
-        } else {
-            // (1) 職業セル (workplace + resident 両 basis)
-            let occ_cell_rows =
-                fetch_occupation_cells(db, turso, target_municipalities, None, None);
-            let occupation_cells = to_occupation_cells(&occ_cell_rows);
+    let (occupation_cells, ward_thickness, ward_rankings, code_master) = if target_municipalities
+        .is_empty()
+    {
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+    } else {
+        // (1) 職業セル (workplace + resident 両 basis)
+        let occ_cell_rows = fetch_occupation_cells(db, turso, target_municipalities, None, None);
+        let occupation_cells = to_occupation_cells(&occ_cell_rows);
 
-            // (2) 政令市区 thickness 詳細
-            let thickness_rows =
-                fetch_ward_thickness(db, turso, target_municipalities, None);
-            let ward_thickness = to_ward_thickness_dtos(&thickness_rows);
+        // (2) 政令市区 thickness 詳細
+        let thickness_rows = fetch_ward_thickness(db, turso, target_municipalities, None);
+        let ward_thickness = to_ward_thickness_dtos(&thickness_rows);
 
-            // (3) コードマスター (target に対して lookup)
-            let code_master_rows = fetch_code_master(db, turso, target_municipalities);
-            let code_master = to_code_master(&code_master_rows);
+        // (3) コードマスター (target に対して lookup)
+        let code_master_rows = fetch_code_master(db, turso, target_municipalities);
+        let code_master = to_code_master(&code_master_rows);
 
-            // (4) parent ward ranking (商品の核心、parent_code 別に collect)
-            //     designated_ward の parent_code 一覧を抽出 → 主要 occupation で fetch
-            let ward_rankings = collect_ward_rankings_for_targets(
-                db,
-                turso,
-                &code_master,
-                occupation_group_code,
-            );
+        // (4) parent ward ranking (商品の核心、parent_code 別に collect)
+        //     designated_ward の parent_code 一覧を抽出 → 主要 occupation で fetch
+        let ward_rankings =
+            collect_ward_rankings_for_targets(db, turso, &code_master, occupation_group_code);
 
-            (occupation_cells, ward_thickness, ward_rankings, code_master)
-        };
+        (occupation_cells, ward_thickness, ward_rankings, code_master)
+    };
 
     SurveyMarketIntelligenceData {
         recruiting_scores: to_recruiting_scores(&recruiting_rows),
@@ -212,7 +210,7 @@ pub(crate) fn render_section_market_intelligence(
     html.push_str(
         "<section class=\"mi-root\" data-mi-section=\"market-intelligence\" \
          role=\"region\" aria-labelledby=\"mi-root-heading\" \
-         style=\"margin-top:24px;padding:16px;border-top:4px solid #1e3a8a;\">\n"
+         style=\"margin-top:24px;padding:16px;border-top:4px solid #1e3a8a;\">\n",
     );
     html.push_str(
         "<h2 id=\"mi-root-heading\" style=\"color:#1e3a8a;\">\
@@ -251,11 +249,13 @@ pub(crate) fn render_section_market_intelligence(
     render_mi_scenario_population_range(html, &data.recruiting_scores);
     render_mi_commute_inflow_supplement(html, &data.commute_flows);
 
-    // Phase 3 Step 5 Phase 4: Plan B (workplace measured + resident estimated_beta)
-    // OccupationCellDto 行を持つ場合のみ追加表示。空ならセクション自体を出さない
-    // (placeholder は既存 render_mi_talent_supply 側で出ている)。
+    // Round 8 P0-1 (2026-05-09): 旧 render_mi_occupation_cells は raw 行を 60 件 take する
+    // 設計で対象自治体・職業・年齢・性別が混在し、PDF 上で対象外自治体 (例: 北海道伊達市) が
+    // 大量列挙される表示崩壊を起こしていた。`render_mi_occupation_segment_summary` は対象
+    // 自治体ごとに職業 Top 5 を集計し、性別比 + 年齢構成 + 採用示唆を 1〜2 ページの密度で出す。
+    // 旧 `render_mi_occupation_cells` は legacy として保持 (既存テスト互換)。
     if !data.occupation_cells.is_empty() {
-        render_mi_occupation_cells(html, &data.occupation_cells);
+        render_mi_occupation_segment_summary(html, &data.occupation_cells);
     }
 
     // Phase 3 Step 5 Phase 4: 政令市区別ランキング (商品の核心)
@@ -492,7 +492,10 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         .filter_map(|s| s.target_thickness_index)
         .collect();
     let thickness_avg: Option<f64> = if !thickness_vals_from_scores.is_empty() {
-        Some(thickness_vals_from_scores.iter().sum::<f64>() / thickness_vals_from_scores.len() as f64)
+        Some(
+            thickness_vals_from_scores.iter().sum::<f64>()
+                / thickness_vals_from_scores.len() as f64,
+        )
     } else if !data.ward_rankings.is_empty() {
         let sum: f64 = data.ward_rankings.iter().map(|w| w.thickness_index).sum();
         Some(sum / data.ward_rankings.len() as f64)
@@ -706,7 +709,9 @@ pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntellige
         "<section class=\"mi-hero-bar\" data-mi-section=\"hero-bar\" \
          role=\"region\" aria-labelledby=\"mi-hero-heading\">\n",
     );
-    html.push_str("<h3 id=\"mi-hero-heading\" class=\"mi-visually-hidden\">配信判断 ヒーロー</h3>\n");
+    html.push_str(
+        "<h3 id=\"mi-hero-heading\" class=\"mi-visually-hidden\">配信判断 ヒーロー</h3>\n",
+    );
     html.push_str("<div class=\"mi-hero-grid\" role=\"list\">\n");
 
     // Card 1: 重点配信候補
@@ -966,10 +971,7 @@ fn render_mi_footer_notes(html: &mut String) {
 // Hard NG (人数化禁止) を厳守: 「候補者が○人」「推定人数」「想定人数」「母集団人数」は出さない。
 // `mi-print-only` class により画面では非表示、印刷時のみ display: block。
 #[allow(dead_code)]
-pub(crate) fn render_mi_print_summary(
-    html: &mut String,
-    data: &SurveyMarketIntelligenceData,
-) {
+pub(crate) fn render_mi_print_summary(html: &mut String, data: &SurveyMarketIntelligenceData) {
     // 集計値: 配信優先度 S/A 件数
     let priority_sa = data
         .recruiting_scores
@@ -1050,9 +1052,7 @@ pub(crate) fn render_mi_print_summary(
             parent_top_count
         ));
     } else {
-        html.push_str(
-            "<li>市内順位 (parent_rank) を主軸として地域選定をご検討ください。</li>\n",
-        );
+        html.push_str("<li>市内順位 (parent_rank) を主軸として地域選定をご検討ください。</li>\n");
     }
 
     // 参考指標の注意喚起
@@ -1061,9 +1061,7 @@ pub(crate) fn render_mi_print_summary(
          (市区町村差を完全には反映していません)。</li>\n",
     );
     // 全体の前提
-    html.push_str(
-        "<li>本レポートの数値は相対濃淡を示すもので、実数の保証ではありません。</li>\n",
-    );
+    html.push_str("<li>本レポートの数値は相対濃淡を示すもので、実数の保証ではありません。</li>\n");
 
     html.push_str("</ul>\n");
     html.push_str("</section>\n");
@@ -1089,9 +1087,7 @@ pub(crate) fn render_mi_print_annotations(html: &mut String) {
         "<li><strong>resident estimated_beta</strong>: 常住地ベースの推定 β 指数 \
          (人数ではありません / 相対指標)</li>\n",
     );
-    html.push_str(
-        "<li><strong>national_rank</strong>: 全国順位は参考表示</li>\n",
-    );
+    html.push_str("<li><strong>national_rank</strong>: 全国順位は参考表示</li>\n");
     html.push_str(
         "<li><strong>parent_rank</strong>: 市内順位を主軸として商品判断にご利用ください</li>\n",
     );
@@ -1103,12 +1099,252 @@ pub(crate) fn render_mi_print_annotations(html: &mut String) {
     html.push_str("</aside>\n");
 }
 
-// --------------- Section 7: Plan B (workplace measured + resident estimated_beta) ---------------
+// --------------- Section 7-NEW (Round 8 P0-1): 職業 × 性別 × 年齢 セグメントサマリ ---------------
+//
+// 設計目的:
+// - 対象自治体ごとに職業 Top 5 を集計し、性別比 + 年齢構成 (3 区分) + 採用示唆を出す
+// - workplace basis × measured (population が Some) のみを使う
+// - resident は estimated_beta で全自治体一律 200.0 のため母集団推定に使えない (本セクション対象外)
+// - age='_total' / gender='total' は workplace basis に存在しないため、5歳刻み × M/F を Rust で集計
+// - 1 行 = (自治体, 職業) で、1 自治体あたり Top 5 → 4 自治体 = 20 行 → 1〜2 ページ密度
+
+const OCC_SEG_AGE_YOUNG: &[&str] = &["15-19", "20-24", "25-29"];
+const OCC_SEG_AGE_MID: &[&str] = &["30-34", "35-39", "40-44", "45-49"];
+const OCC_SEG_AGE_SENIOR: &[&str] = &[
+    "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80-84", "85-89", "90-94", "95+",
+];
+
+#[derive(Debug, Clone, Default)]
+struct OccSegmentRow {
+    municipality_code: String,
+    prefecture: String,
+    municipality_name: String,
+    #[allow(dead_code)]
+    occupation_code: String,
+    occupation_name: String,
+    total: i64,
+    female: i64,
+    young: i64,  // 15-29
+    mid: i64,    // 30-49
+    senior: i64, // 50+
+}
+
+/// 職業 × 性別 × 年齢 集計。`workplace basis` × `measured` (= population が Some) のみ採用。
+/// age='_total' / gender='total' は workplace basis では存在しない (Local DB 確認済 2026-05-09)
+/// ため、5歳刻み × M/F の raw row を Rust で合計する。同じ単位 (人数) しか扱わない設計で
+/// 二重計上は発生しない。
+fn aggregate_occupation_segments(cells: &[OccupationCellDto]) -> Vec<OccSegmentRow> {
+    use std::collections::BTreeMap;
+
+    // key: (muni_code, occupation_code) → 集計
+    let mut acc: BTreeMap<(String, String), OccSegmentRow> = BTreeMap::new();
+
+    for c in cells {
+        if c.basis != "workplace" {
+            continue;
+        }
+        if c.data_label != "measured" {
+            continue;
+        }
+        let pop = match c.population {
+            Some(p) if p > 0 => p,
+            _ => continue,
+        };
+        // workplace basis は age='_total' / gender='total' を持たない前提だが、
+        // 防御的に弾く (将来データ更新時の二重計上防止)。
+        if c.age_class == "_total" || c.gender == "total" {
+            continue;
+        }
+        if c.gender != "male" && c.gender != "female" {
+            continue;
+        }
+
+        let key = (c.municipality_code.clone(), c.occupation_code.clone());
+        let entry = acc.entry(key).or_insert_with(|| OccSegmentRow {
+            municipality_code: c.municipality_code.clone(),
+            prefecture: c.prefecture.clone(),
+            municipality_name: c.municipality_name.clone(),
+            occupation_code: c.occupation_code.clone(),
+            occupation_name: c.occupation_name.clone(),
+            ..Default::default()
+        });
+
+        entry.total += pop;
+        if c.gender == "female" {
+            entry.female += pop;
+        }
+        if OCC_SEG_AGE_YOUNG.iter().any(|a| *a == c.age_class) {
+            entry.young += pop;
+        } else if OCC_SEG_AGE_MID.iter().any(|a| *a == c.age_class) {
+            entry.mid += pop;
+        } else if OCC_SEG_AGE_SENIOR.iter().any(|a| *a == c.age_class) {
+            entry.senior += pop;
+        }
+    }
+
+    acc.into_values().filter(|r| r.total > 0).collect()
+}
+
+/// セグメント特徴から採用示唆を機械生成する。判定はすべて比率ベースで、根拠は
+/// (女性比, 若年比, 中堅比, シニア比) のみ。閾値は本実装で固定する。
+fn occupation_segment_insight(female_pct: f64, young_pct: f64, mid_pct: f64, senior_pct: f64) -> String {
+    let mut tags: Vec<&str> = Vec::new();
+    if female_pct >= 60.0 {
+        tags.push("女性中心");
+    } else if female_pct <= 30.0 {
+        tags.push("男性中心");
+    }
+    if senior_pct >= 40.0 {
+        tags.push("中高年厚め");
+    }
+    if young_pct >= 30.0 {
+        tags.push("若年層厚め");
+    }
+    if mid_pct >= 50.0 {
+        tags.push("30〜49 が主軸");
+    }
+    if tags.is_empty() {
+        tags.push("性別・年齢に大きな偏りなし");
+    }
+    tags.join(" / ")
+}
+
+/// Round 8 P0-1: 職業 × 性別 × 年齢 セグメントサマリ。
+/// - 対象自治体のみ (cells に既に target_municipalities フィルタ済が渡される前提)
+/// - 自治体ごとに total 降順で職業 Top 5
+/// - 1〜2 ページの密度を目標にしているため Top 5 で打ち切る
+pub(crate) fn render_mi_occupation_segment_summary(
+    html: &mut String,
+    cells: &[OccupationCellDto],
+) {
+    html.push_str(
+        "<section class=\"mi-occupation-segment\" data-mi-section=\"occupation-segment\" \
+         aria-labelledby=\"mi-occseg-heading\" style=\"margin:16px 0;\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-occseg-heading\">対象自治体 × 職業 × 性別 × 年齢 セグメント \
+         <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[商品コア / 国勢調査 R2]</span></h3>\n",
+    );
+    html.push_str(
+        "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;margin:0 0 8px;\">\
+         従業地ベース (実測 / 国勢調査 R2 / population 行)。各自治体について就業者数の多い職業 Top 5 を表示。\
+         女性比・年齢構成は当該自治体・当該職業の従業者母集団から算出 (求人 CSV と独立)。\
+         採用示唆は機械的に生成しています (女性比 ≥ 60% → 女性中心、50 歳以上比 ≥ 40% → 中高年厚め 等)。</p>\n",
+    );
+
+    let mut rows = aggregate_occupation_segments(cells);
+    if rows.is_empty() {
+        html.push_str(
+            "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;\">\
+             従業地ベース (workplace × measured) の population 行が対象自治体に存在しないため、\
+             職業 × 性別 × 年齢 のセグメント表示は省略します。</p>\n",
+        );
+        html.push_str("</section>\n");
+        return;
+    }
+
+    // 自治体ごとに total 降順で Top 5
+    rows.sort_by(|a, b| {
+        a.municipality_code
+            .cmp(&b.municipality_code)
+            .then(b.total.cmp(&a.total))
+    });
+
+    let mut by_muni: BTreeMap<String, Vec<OccSegmentRow>> = BTreeMap::new();
+    for r in rows {
+        by_muni.entry(r.municipality_code.clone()).or_default().push(r);
+    }
+
+    for (_muni_code, mut occs) in by_muni {
+        // 念のため total 降順を再担保
+        occs.sort_by(|a, b| b.total.cmp(&a.total));
+        occs.truncate(5);
+        if occs.is_empty() {
+            continue;
+        }
+        let pref = occs[0].prefecture.clone();
+        let name = occs[0].municipality_name.clone();
+
+        html.push_str(&format!(
+            "  <div class=\"mi-occseg-block\" style=\"margin:10px 0;page-break-inside:avoid;\">\n\
+                <h4 style=\"margin:0 0 4px;color:#1e3a8a;font-size:12px;\">{pref} {name}</h4>\n",
+            pref = escape_html(&pref),
+            name = escape_html(&name),
+        ));
+
+        html.push_str(
+            "    <table class=\"mi-occseg-table\" \
+             style=\"width:100%;border-collapse:collapse;font-size:11px;\">\n\
+             <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
+             <th style=\"text-align:left;padding:4px 6px;\">職業</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">就業者</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">女性比</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">〜29</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">30-49</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">50〜</th>\
+             <th style=\"text-align:left;padding:4px 6px;\">採用示唆</th>\
+             </tr></thead><tbody>\n",
+        );
+        for r in occs {
+            let total_f = r.total as f64;
+            let female_pct = if total_f > 0.0 {
+                100.0 * (r.female as f64) / total_f
+            } else {
+                0.0
+            };
+            let young_pct = if total_f > 0.0 {
+                100.0 * (r.young as f64) / total_f
+            } else {
+                0.0
+            };
+            let mid_pct = if total_f > 0.0 {
+                100.0 * (r.mid as f64) / total_f
+            } else {
+                0.0
+            };
+            let senior_pct = if total_f > 0.0 {
+                100.0 * (r.senior as f64) / total_f
+            } else {
+                0.0
+            };
+            let insight = occupation_segment_insight(female_pct, young_pct, mid_pct, senior_pct);
+
+            html.push_str(&format!(
+                "<tr>\
+                 <td style=\"padding:3px 6px;\">{occ}</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{tot} 人</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{f:.0}%</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{y:.0}%</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{m:.0}%</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{s:.0}%</td>\
+                 <td style=\"padding:3px 6px;color:#1e3a8a;font-size:10px;\">{ins}</td>\
+                 </tr>\n",
+                occ = escape_html(&r.occupation_name),
+                tot = format_thousands(r.total),
+                f = female_pct,
+                y = young_pct,
+                m = mid_pct,
+                s = senior_pct,
+                ins = escape_html(&insight),
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str("  </div>\n");
+    }
+
+    html.push_str("</section>\n");
+}
+
+// --------------- Section 7-LEGACY: Plan B (workplace measured + resident estimated_beta) ---------------
 //
 // 表示分岐ルール (DISPLAY_SPEC_PLAN_B 必須):
 // - workplace × measured: 人数 (population) + WORKPLACE_LABEL + MEASURED_DATA_SOURCE
 // - resident × estimated_beta: 指数 (estimate_index, ".1f") + RESIDENT_LABEL + ESTIMATED_BETA_NOTE
 // - resident × estimated_beta で人数を絶対に表示しない (Hard NG)
+//
+// Round 8 P0-1 (2026-05-09) で本セクションは call site から外された
+// (`render_mi_occupation_segment_summary` に置換)。関数定義は legacy として残す
+// (既存テスト互換、direct テスト 3 件: line 2207/2226/2541 が継続使用)。
 
 #[allow(dead_code)]
 pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationCellDto]) {
@@ -1169,11 +1405,7 @@ pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationC
                     .unwrap_or_else(|| "-".to_string());
                 (label, val, ESTIMATED_BETA_NOTE)
             }
-            _ => (
-                "区分不明",
-                "-".to_string(),
-                "-",
-            ),
+            _ => ("区分不明", "-".to_string(), "-"),
         };
 
         html.push_str(&format!(
@@ -1285,7 +1517,10 @@ pub(crate) fn render_mi_parent_ward_ranking(
             // 工業集積地アンカー: priority "S" を高優先帯マーカーとして 🏭 を付与
             // (DTO に is_industrial_anchor 直結フィールドが無いため Worker D は priority で代替表示)
             let anchor_html = if w.priority.eq_ignore_ascii_case("S") {
-                format!("<span class=\"mi-anchor-badge\" title=\"高優先 / 集積地候補\">{}</span>", ANCHOR_BADGE)
+                format!(
+                    "<span class=\"mi-anchor-badge\" title=\"高優先 / 集積地候補\">{}</span>",
+                    ANCHOR_BADGE
+                )
             } else {
                 String::new()
             };
@@ -1331,7 +1566,10 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
     html.push_str("<h3 id=\"mi-summary-heading\" style=\"margin:0 0 8px;\">結論サマリー</h3>\n");
 
     if data.is_empty() {
-        render_mi_placeholder(html, "サマリー算出に必要な事前集計データが投入されていません。");
+        render_mi_placeholder(
+            html,
+            "サマリー算出に必要な事前集計データが投入されていません。",
+        );
         html.push_str("</section>\n");
         return;
     }
@@ -1370,7 +1608,9 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
     render_mi_kpi(
         html,
         "配信優先度 平均",
-        &avg_priority.map(|v| format!("{v:.1}")).unwrap_or("-".into()),
+        &avg_priority
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or("-".into()),
         "/100",
         ESTIMATED_LABEL,
     );
@@ -1476,7 +1716,6 @@ fn aggregate_by_municipality(
     rows
 }
 
-
 #[derive(Debug, Clone, Copy)]
 struct AggregatedLivingCostRow<'a> {
     score: &'a MunicipalityRecruitingScore,
@@ -1517,7 +1756,9 @@ fn aggregate_living_cost_by_municipality(
                     .then_with(|| {
                         a.distribution_priority_score
                             .unwrap_or(f64::NEG_INFINITY)
-                            .partial_cmp(&b.distribution_priority_score.unwrap_or(f64::NEG_INFINITY))
+                            .partial_cmp(
+                                &b.distribution_priority_score.unwrap_or(f64::NEG_INFINITY),
+                            )
                             .unwrap_or(std::cmp::Ordering::Equal)
                     })
             })?;
@@ -1546,13 +1787,13 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
     // P2 (2026-05-08): mi-print-block で印刷時の表中分断を防止 (page 25 情報密度改善)
     html.push_str(
         "<section class=\"mi-ranking mi-print-block\" data-mi-section=\"distribution-ranking\" \
-         aria-labelledby=\"mi-ranking-heading\" style=\"margin:16px 0;\">\n"
+         aria-labelledby=\"mi-ranking-heading\" style=\"margin:16px 0;\">\n",
     );
     html.push_str(
         "<h3 id=\"mi-ranking-heading\">配信地域ランキング \
          <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[{label}]</span></h3>\n"
             .replace("{label}", ESTIMATED_LABEL)
-            .as_str()
+            .as_str(),
     );
 
     let valid: Vec<&MunicipalityRecruitingScore> = scores
@@ -1582,7 +1823,7 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
          <th style=\"text-align:right;padding:6px;\">厚み指数</th>\
          <th style=\"text-align:right;padding:6px;\">競合求人数</th>\
          <th style=\"text-align:left;padding:6px;\">区分</th>\
-         </tr></thead><tbody>\n"
+         </tr></thead><tbody>\n",
     );
     for (rank, row) in aggregated.iter().enumerate().take(20) {
         let bucket = match row.top_score {
@@ -1719,8 +1960,10 @@ fn render_mi_salary_living_cost(
 
     // 主キー (municipality_code) で結合
     use std::collections::HashMap;
-    let living_map: HashMap<&str, &LivingCostProxy> =
-        living.iter().map(|l| (l.municipality_code.as_str(), l)).collect();
+    let living_map: HashMap<&str, &LivingCostProxy> = living
+        .iter()
+        .map(|l| (l.municipality_code.as_str(), l))
+        .collect();
 
     // Worker E Round 3: Worker A/B 投入版の新フィールドを優先使用
     //   給与中央値 → median_salary_yen (旧) は SQL から外れたため - 表示。
@@ -1843,9 +2086,7 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
         let c_val = s
             .scenario_conservative_score
             .or(s.scenario_conservative_population);
-        let m_val = s
-            .scenario_standard_score
-            .or(s.scenario_standard_population);
+        let m_val = s.scenario_standard_score.or(s.scenario_standard_population);
         let a_val = s
             .scenario_aggressive_score
             .or(s.scenario_aggressive_population);
@@ -2019,7 +2260,11 @@ mod tests {
         assert!(html.contains("該当なし"));
         // 5 セクション + 1 補助セクションの placeholder が出ること (各 section 内に 1 つずつ)
         let placeholder_count = html.matches("mi-placeholder").count();
-        assert!(placeholder_count >= 5, "placeholder が 5 セクション以上に出る (実際 {})", placeholder_count);
+        assert!(
+            placeholder_count >= 5,
+            "placeholder が 5 セクション以上に出る (実際 {})",
+            placeholder_count
+        );
     }
 
     #[test]
@@ -2261,9 +2506,7 @@ mod tests {
         let p_idx = html
             .find("市内順位 (主)")
             .or_else(|| html.find("mi-parent-rank"));
-        let n_idx = html
-            .find("全国順位 (参考)")
-            .or_else(|| html.find("mi-ref"));
+        let n_idx = html.find("全国順位 (参考)").or_else(|| html.find("mi-ref"));
         assert!(p_idx.is_some(), "parent_rank 関連 HTML が含まれること");
         assert!(n_idx.is_some(), "national_rank 関連 HTML が含まれること");
         assert!(
@@ -2281,7 +2524,10 @@ mod tests {
         let mut html = String::new();
         render_mi_parent_ward_ranking(&mut html, &[], &[]);
         // Empty designated-ward rankings are omitted rather than rendered as an internal fallback.
-        assert!(html.is_empty(), "empty rankings should omit the section: {html}");
+        assert!(
+            html.is_empty(),
+            "empty rankings should omit the section: {html}"
+        );
     }
 
     #[test]
@@ -2323,8 +2569,7 @@ mod tests {
         ];
         render_mi_parent_ward_ranking(&mut html, &rankings, &[]);
         // 親市名が 1 回 (グループ化されているため)
-        let yokohama_count = html.matches("横浜市</h4>").count()
-            + html.matches("横浜市 (").count();
+        let yokohama_count = html.matches("横浜市</h4>").count() + html.matches("横浜市 (").count();
         assert!(yokohama_count >= 1, "親市見出しが少なくとも 1 回出る");
         // 両方の区名が表示
         assert!(html.contains("鶴見区"), "鶴見区表示");
@@ -2360,7 +2605,7 @@ mod tests {
         // 対象市区町村数 3
         assert!(html.contains("対象市区町村数"));
         assert!(html.contains(">3<")); // KPI value (between HTML tags)
-        // 重点配信 (>= 80) は 01101 のみ
+                                       // 重点配信 (>= 80) は 01101 のみ
         assert!(html.contains("重点配信候補"));
     }
 
@@ -2419,14 +2664,20 @@ mod tests {
             let p = block.find("mi-parent-rank");
             let n = block.find("mi-ref");
             if let (Some(pi), Some(ni)) = (p, n) {
-                assert!(pi < ni,
+                assert!(
+                    pi < ni,
                     "行ブロックで mi-parent-rank が mi-ref より後ろ (parent={}, ref={})",
-                    pi, ni);
+                    pi,
+                    ni
+                );
                 checked += 1;
             }
         }
-        assert!(checked >= 1,
-            "少なくとも 1 行で順序検証が走ること (実際: {} 行検査)", checked);
+        assert!(
+            checked >= 1,
+            "少なくとも 1 行で順序検証が走ること (実際: {} 行検査)",
+            checked
+        );
     }
 
     /// Full variant では Step 5 マーカーが一切 HTML に出ないこと。
@@ -2465,11 +2716,16 @@ mod tests {
             "Model F2",
         ];
         for marker in &step5_markers {
-            assert!(!html.contains(marker),
-                "Full variant に Step 5 マーカー '{}' が混入", marker);
+            assert!(
+                !html.contains(marker),
+                "Full variant に Step 5 マーカー '{}' が混入",
+                marker
+            );
         }
-        assert!(html.is_empty(),
-            "Full variant では section 自体が呼ばれず空 HTML");
+        assert!(
+            html.is_empty(),
+            "Full variant では section 自体が呼ばれず空 HTML"
+        );
     }
 
     /// Public variant でも同様に Step 5 マーカーが一切出ないこと。
@@ -2478,9 +2734,7 @@ mod tests {
         use super::super::ReportVariant;
 
         let data = SurveyMarketIntelligenceData {
-            occupation_cells: vec![
-                make_workplace_measured_cell("横浜市鶴見区", 12_345),
-            ],
+            occupation_cells: vec![make_workplace_measured_cell("横浜市鶴見区", 12_345)],
             ward_rankings: vec![make_ranking_row("横浜市鶴見区", 3, 18, 12, 1917)],
             ..Default::default()
         };
@@ -2498,11 +2752,16 @@ mod tests {
             "検証済み推定 β",
         ];
         for marker in &step5_markers {
-            assert!(!html.contains(marker),
-                "Public variant に Step 5 マーカー '{}' が混入", marker);
+            assert!(
+                !html.contains(marker),
+                "Public variant に Step 5 マーカー '{}' が混入",
+                marker
+            );
         }
-        assert!(html.is_empty(),
-            "Public variant では section 自体が呼ばれず空 HTML");
+        assert!(
+            html.is_empty(),
+            "Public variant では section 自体が呼ばれず空 HTML"
+        );
     }
 
     /// 空データで render_mi_parent_ward_ranking が panic しない + placeholder 出力。
@@ -2511,7 +2770,10 @@ mod tests {
     fn empty_data_renders_placeholder_not_panic() {
         let mut html = String::new();
         render_mi_parent_ward_ranking(&mut html, &[], &[]);
-        assert!(html.is_empty(), "empty rankings should omit the section: {html}");
+        assert!(
+            html.is_empty(),
+            "empty rankings should omit the section: {html}"
+        );
     }
 
     /// 空 occupation_cells で render_mi_occupation_cells が panic しない。
@@ -2522,16 +2784,25 @@ mod tests {
         // 空 or placeholder どちらも許容 (panic しないこと自体が主要 invariant)
         // 何かが書かれている場合は Hard NG が混入していないこと
         for forbidden in ["推定人数", "想定人数", "母集団人数"] {
-            assert!(!html.contains(forbidden),
-                "空入力で Hard NG '{}' が出力されている", forbidden);
+            assert!(
+                !html.contains(forbidden),
+                "空入力で Hard NG '{}' が出力されている",
+                forbidden
+            );
         }
     }
 
     #[test]
     fn placeholder_does_not_expose_internal_data_state() {
         let mut html = String::new();
-        render_mi_placeholder(&mut html, "municipality_occupation_population internal fallback");
-        assert!(html.contains("\u{8A72}\u{5F53}\u{306A}\u{3057}"), "neutral placeholder is rendered: {html}");
+        render_mi_placeholder(
+            &mut html,
+            "municipality_occupation_population internal fallback",
+        );
+        assert!(
+            html.contains("\u{8A72}\u{5F53}\u{306A}\u{3057}"),
+            "neutral placeholder is rendered: {html}"
+        );
         for forbidden in [
             "\u{30C7}\u{30FC}\u{30BF}\u{4E0D}\u{8DB3}",
             "\u{8981}\u{4EF6}\u{518D}\u{78BA}\u{8A8D}",
@@ -2542,7 +2813,11 @@ mod tests {
             "\u{672A}\u{6295}\u{5165}",
             "municipality_occupation_population",
         ] {
-            assert!(!html.contains(forbidden), "placeholder exposes forbidden term '{}': {html}", forbidden);
+            assert!(
+                !html.contains(forbidden),
+                "placeholder exposes forbidden term '{}': {html}",
+                forbidden
+            );
         }
     }
 
@@ -2563,8 +2838,14 @@ mod tests {
         render_section_market_intelligence(&mut html, &data);
 
         // KPI grid マーカーが存在
-        assert!(html.contains("mi-kpi-grid"), "KPI grid CSS class が含まれること");
-        assert!(html.contains("mi-kpi-card"), "KPI card CSS class が含まれること");
+        assert!(
+            html.contains("mi-kpi-grid"),
+            "KPI grid CSS class が含まれること"
+        );
+        assert!(
+            html.contains("mi-kpi-card"),
+            "KPI card CSS class が含まれること"
+        );
         assert!(html.contains("主要指標サマリ"), "KPI 見出しが含まれること");
         assert!(html.contains("配信優先度 A 件数"), "KPI A 件数ラベル");
         assert!(html.contains("厚み指数 平均"), "KPI 厚み指数ラベル");
@@ -2604,10 +2885,7 @@ mod tests {
         assert!(html.contains(">-<"), "NULL 値が「-」で表示されること");
         // ゼロ埋め禁止 (「0.0」「0 円」が値として現れないこと)
         // (見出しや凡例で 0 が出る可能性があるため、value class 内のみ厳格チェック)
-        assert!(
-            !html.contains("class=\"mi-lc-value\">0<"),
-            "ゼロ埋めは禁止"
-        );
+        assert!(!html.contains("class=\"mi-lc-value\">0<"), "ゼロ埋めは禁止");
         assert!(
             !html.contains("class=\"mi-lc-value\">0.0<"),
             "ゼロ埋めは禁止"
@@ -2620,7 +2898,10 @@ mod tests {
         );
 
         // 参考統計バッジ
-        assert!(html.contains("mi-badge-reference"), "参考バッジが付与されること");
+        assert!(
+            html.contains("mi-badge-reference"),
+            "参考バッジが付与されること"
+        );
     }
 
     #[test]
@@ -2705,7 +2986,10 @@ mod tests {
         assert!(html.contains("\u{1F3ED}"), "S priority に anchor バッジ");
 
         // 厚み指数バー
-        assert!(html.contains("mi-thickness-bar-wrap"), "thickness bar wrapper");
+        assert!(
+            html.contains("mi-thickness-bar-wrap"),
+            "thickness bar wrapper"
+        );
         assert!(html.contains("mi-thickness-bar-fill"), "thickness bar fill");
     }
 
@@ -2790,21 +3074,12 @@ mod tests {
         };
         render_mi_kpi_cards(&mut html, &data);
         // 配信優先度 A 件数 = 2 (priority "A" のみ)
-        assert!(
-            html.contains("配信優先度 A 件数"),
-            "A 件数 KPI ラベル必須"
-        );
-        assert!(
-            html.contains(">2<"),
-            "A 件数 = 2 が表示されること: {html}"
-        );
+        assert!(html.contains("配信優先度 A 件数"), "A 件数 KPI ラベル必須");
+        assert!(html.contains(">2<"), "A 件数 = 2 が表示されること: {html}");
         // P0 (2026-05-06): KPI 側ラベルを「配信検証候補」にリネーム
         // (ヒーロー Card 1「重点配信候補 (S+A)」と数値矛盾を起こさないため)
         // S/A 計算: priority IN ('S','A') = 3 件 → fallback で score 80+ を使わずそのまま 3
-        assert!(
-            html.contains("配信検証候補"),
-            "配信検証候補 KPI ラベル必須"
-        );
+        assert!(html.contains("配信検証候補"), "配信検証候補 KPI ラベル必須");
         assert!(html.contains(">3<"), "配信検証候補 (S+A) = 3");
     }
 
@@ -2827,7 +3102,10 @@ mod tests {
         };
         render_mi_kpi_cards(&mut html, &data);
         // (100 + 200) / 2 = 150 (NULL 除外、3 で割らない)
-        assert!(html.contains("150"), "thickness 平均 150 が出ること: {html}");
+        assert!(
+            html.contains("150"),
+            "thickness 平均 150 が出ること: {html}"
+        );
     }
 
     #[test]
@@ -2846,10 +3124,7 @@ mod tests {
         let scores: Vec<MunicipalityRecruitingScore> = vec![];
         render_mi_living_cost_panel(&mut html, &living, &scores);
         assert!(html.contains("98.5"), "cost_index 値表示: {html}");
-        assert!(
-            html.contains("960"),
-            "最低賃金 960 円表示: {html}"
-        );
+        assert!(html.contains("960"), "最低賃金 960 円表示: {html}");
         assert!(html.contains("1.05"), "salary_real_terms_proxy 値表示");
     }
 
@@ -2930,13 +3205,16 @@ mod tests {
             html.contains("保守シナリオスコア"),
             "新ヘッダー『保守シナリオスコア』必須"
         );
-        assert!(html.contains("標準シナリオスコア"), "新ヘッダー『標準シナリオスコア』必須");
-        assert!(html.contains("強気シナリオスコア"), "新ヘッダー『強気シナリオスコア』必須");
-        // 旧 % 表記は消えていること
         assert!(
-            !html.contains("保守 (1%)"),
-            "旧『保守 (1%)』ヘッダーは削除"
+            html.contains("標準シナリオスコア"),
+            "新ヘッダー『標準シナリオスコア』必須"
         );
+        assert!(
+            html.contains("強気シナリオスコア"),
+            "新ヘッダー『強気シナリオスコア』必須"
+        );
+        // 旧 % 表記は消えていること
+        assert!(!html.contains("保守 (1%)"), "旧『保守 (1%)』ヘッダーは削除");
         // scenario_*_score (i64) の値が出ること
         assert!(html.contains(">42<"), "保守スコア 42 表示");
         assert!(html.contains(">60<"), "標準スコア 60 表示");
@@ -2967,7 +3245,10 @@ mod tests {
         );
         assert!(html.contains("重点配信候補"), "Card 1 ラベル");
         assert!(html.contains("市内 1 位市区"), "Card 2 ラベル");
-        assert!(html.contains("職業人口"), "Card 3 (workplace measured) ラベル");
+        assert!(
+            html.contains("職業人口"),
+            "Card 3 (workplace measured) ラベル"
+        );
         assert!(
             html.contains("50,000"),
             "workplace measured 合計が 3 桁区切りで表示"
@@ -3308,8 +3589,7 @@ mod tests {
 
         // 中立表現 OK ワード
         assert!(
-            html.contains("配信優先度が高い地域です")
-                || html.contains("配信優先度 S/A"),
+            html.contains("配信優先度が高い地域です") || html.contains("配信優先度 S/A"),
             "配信優先度の中立表現が含まれること"
         );
         assert!(
@@ -3322,18 +3602,8 @@ mod tests {
         );
 
         // NG 表現 (営業断言調) は禁止
-        for forbidden in [
-            "候補者が",
-            "人いま",
-            "人見込み",
-            "確実に",
-            "100%",
-        ] {
-            assert!(
-                !html.contains(forbidden),
-                "NG 表現 '{}' が混入",
-                forbidden
-            );
+        for forbidden in ["候補者が", "人いま", "人見込み", "確実に", "100%"] {
+            assert!(!html.contains(forbidden), "NG 表現 '{}' が混入", forbidden);
         }
     }
 
@@ -3434,7 +3704,11 @@ mod tests {
         let data = SurveyMarketIntelligenceData::default();
         render_mi_hero_bar(&mut html, &data);
         assert!(html.contains("\u{653F}\u{4EE4}\u{5E02}\u{533A}\u{30E9}\u{30F3}\u{30AD}\u{30F3}\u{30B0}\u{5BFE}\u{8C61}\u{5916}"), "Card 2 context should be explanatory: {html}");
-        assert_eq!(html.matches("\u{8A72}\u{5F53}\u{306A}\u{3057}").count(), 1, "Card 2 should not duplicate neutral empty label: {html}");
+        assert_eq!(
+            html.matches("\u{8A72}\u{5F53}\u{306A}\u{3057}").count(),
+            1,
+            "Card 2 should not duplicate neutral empty label: {html}"
+        );
     }
 
     #[test]
@@ -3582,7 +3856,13 @@ mod tests {
 
     /// 集約用ヘルパー: 任意の (code, occupation_code, score) で
     /// 不変条件を満たす MunicipalityRecruitingScore を作る。
-    fn agg_score(code: &str, pref: &str, muni: &str, occ: &str, score: f64) -> MunicipalityRecruitingScore {
+    fn agg_score(
+        code: &str,
+        pref: &str,
+        muni: &str,
+        occ: &str,
+        score: f64,
+    ) -> MunicipalityRecruitingScore {
         MunicipalityRecruitingScore {
             municipality_code: code.into(),
             prefecture: pref.into(),
@@ -3670,7 +3950,10 @@ mod tests {
         render_mi_distribution_ranking(&mut html, &scores);
 
         // group_size=3 → 「ほか 2 職種」
-        assert!(html.contains("ほか 2 職種"), "港区: ほか 2 職種表示: {html}");
+        assert!(
+            html.contains("ほか 2 職種"),
+            "港区: ほか 2 職種表示: {html}"
+        );
         // group_size=1 → 「ほか 0 職種」が出てはいけない
         assert!(
             !html.contains("ほか 0 職種"),
@@ -3707,7 +3990,10 @@ mod tests {
         // Hard NG 用語の混入なし
         assert!(!html.contains("推定人数"), "Hard NG '推定人数' 混入禁止");
         assert!(!html.contains("想定人数"), "Hard NG '想定人数' 混入禁止");
-        assert!(!html.contains("母集団人数"), "Hard NG '母集団人数' 混入禁止");
+        assert!(
+            !html.contains("母集団人数"),
+            "Hard NG '母集団人数' 混入禁止"
+        );
         // 厚み指数列は表示
         assert!(html.contains("厚み指数"), "厚み指数列ヘッダ");
         assert!(html.contains("110.0"), "thickness 値表示");
@@ -3781,9 +4067,18 @@ mod tests {
         let mut html = String::new();
         render_mi_salary_living_cost(&mut html, &[low, top, mid], &[]);
 
-        assert!(html.contains("occ_top"), "representative occupation should be max salary/living row: {html}");
-        assert!(html.contains("92.0"), "representative score should be rendered: {html}");
-        assert!(!html.contains("occ_low"), "non-representative occupation should not be a separate row: {html}");
+        assert!(
+            html.contains("occ_top"),
+            "representative occupation should be max salary/living row: {html}"
+        );
+        assert!(
+            html.contains("92.0"),
+            "representative score should be rendered: {html}"
+        );
+        assert!(
+            !html.contains("occ_low"),
+            "non-representative occupation should not be a separate row: {html}"
+        );
     }
 
     #[test]
@@ -3801,8 +4096,14 @@ mod tests {
         let pos_shinjuku = html.find("Tokyo Shinjuku").expect("Shinjuku exists");
         let pos_minato = html.find("Tokyo Minato").expect("Minato exists");
         let pos_chiyoda = html.find("Tokyo Chiyoda").expect("Chiyoda exists");
-        assert!(pos_shinjuku < pos_minato, "highest score should come first: {html}");
-        assert!(pos_minato < pos_chiyoda, "second score should come before lowest: {html}");
+        assert!(
+            pos_shinjuku < pos_minato,
+            "highest score should come first: {html}"
+        );
+        assert!(
+            pos_minato < pos_chiyoda,
+            "second score should come before lowest: {html}"
+        );
     }
 
     // ============================================================
@@ -4026,5 +4327,4 @@ mod tests {
             "空入力で mi-parent-ward-ranking class も出てはならない: {html}"
         );
     }
-
 }
