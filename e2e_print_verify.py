@@ -129,7 +129,7 @@ def run_report(ctx, path, pdf_name, screenshot_name, min_pages=6, max_pages=15, 
     # beforeprint / matchMedia('print') を発火させないため、helpers.rs の
     # resize hook が動かず screen viewport 幅 (~960pt) のまま PDF 化される。
     # 対策: 明示的に container 幅を絞り echarts.resize() を発火、
-    # bbox.width が A4 本文域 (760pt 安全枠) 以下になるまで待機。
+    # bbox.width が A4 viewport 安全枠 (800px) 以下になるまで待機。
     try:
         page.evaluate(
             """
@@ -156,7 +156,7 @@ def run_report(ctx, path, pdf_name, screenshot_name, min_pages=6, max_pages=15, 
               if (charts.length === 0) return true;
               return charts.every(el => {
                 const r = el.getBoundingClientRect();
-                return r.width > 0 && r.width <= 760;
+                return r.width > 0 && r.width <= 800;
               });
             }
             """,

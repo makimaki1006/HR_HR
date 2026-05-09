@@ -301,8 +301,8 @@ pub(super) fn build_histogram_echart_config(
         }
         json!([{
             "type": "group",
-            "right": 10,
-            "top": 10,
+            "right": 18,
+            "top": 12,
             "children": children
         }])
     } else {
@@ -782,10 +782,7 @@ pub(super) fn render_dv2_kpi_card(
     } else {
         String::new()
     };
-    html.push_str(&format!(
-        "<div class=\"{}\"{}>\n",
-        cls, status_attr
-    ));
+    html.push_str(&format!("<div class=\"{}\"{}>\n", cls, status_attr));
     html.push_str(&format!(
         "<div class=\"dv2-kpi-card-label\">{}</div>\n",
         escape_html(label)
