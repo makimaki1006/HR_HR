@@ -128,7 +128,7 @@ pub(super) fn aggregate_industry_salary(agg: &SurveyAggregation) -> Vec<Industry
                     v[n / 2]
                 })
             };
-            let note = if b.count < 3 { "参考" } else { "" };
+            let note = if b.count < 3 { "参考 (低信頼)" } else { "" };
             IndustrySalaryRow {
                 industry: industry.to_string(),
                 count: b.count,
@@ -173,21 +173,32 @@ pub(super) fn render_section_industry_salary(html: &mut String, agg: &SurveyAggr
     html.push_str(
         "<div class=\"section\" data-testid=\"industry-salary-section\">\n",
     );
-    html.push_str("<h2>業界別 給与水準（CSV 推定）</h2>\n");
+    html.push_str("<h2>業界推定グループ別 給与参考</h2>\n");
 
     render_section_howto(
         html,
         &[
-            "アップロードした CSV を業界単位 (大分類、推定) で集約し、給与水準を比較します",
-            "業界推定は会社名・タグ列のキーワードに基づくため、原 CSV に業種列がない場合精度に限界があります",
-            "件数 3 件未満の業界は「参考」と表示します (サンプル不足)",
+            "アップロードした CSV を企業名・タグから推定した業界グループ単位で集約し、給与の参考値を提示します",
+            "原 CSV に業界列が無いため、企業名・タグのキーワードから推定したグループです（公的産業分類とは一致しない場合があります）",
+            "件数 3 件未満のグループは「参考 (低信頼)」と表示します",
         ],
     );
 
     render_figure_caption(
         html,
         "表 6-3",
-        "業界別 給与水準（CSV 推定、件数 Top 10）",
+        "業界推定グループ別 給与参考（企業名・タグ由来の推定、件数 Top 10）",
+    );
+
+    // 推定・参考であることを表内直前に明示（必須注記）
+    html.push_str(
+        "<p class=\"mi-table-note\" style=\"font-size:9pt;color:#6b7280;margin-bottom:6px;\">\
+        \u{26A0} 推定・参考値: 本表は CSV に業界列がないため、企業名・タグから推定した業界グループです。\
+        給与値は求人 CSV 上の給与情報を月給換算した参考値であり、\
+        公的産業分類（e-Stat 経済センサス等）や法人 DB の正式業界分類とは一致しない場合があります。\
+        全体給与中央値（表紙ハイライト KPI）と一致しない指標です。\
+        件数 3 件以上を集計対象とし、3 件未満は「参考 (低信頼)」として併記します。\
+        </p>\n",
     );
 
     html.push_str(
@@ -196,11 +207,11 @@ pub(super) fn render_section_industry_salary(html: &mut String, agg: &SurveyAggr
     html.push_str(&format!(
         "<thead><tr>\
         <th>#</th>\
-        <th>業界（推定）</th>\
+        <th>業界推定グループ</th>\
         <th style=\"text-align:right\">件数</th>\
-        <th style=\"text-align:right\">{unit} 加重平均</th>\
-        <th style=\"text-align:right\">{unit} 中央値（社別中央値の中央値）</th>\
-        <th>備考</th>\
+        <th style=\"text-align:right\">{unit} 参考平均</th>\
+        <th style=\"text-align:right\">{unit} 推定グループ中央値</th>\
+        <th>信頼度</th>\
         </tr></thead>\n<tbody>\n",
         unit = match agg.is_hourly {
             true => "時給",
@@ -237,9 +248,10 @@ pub(super) fn render_section_industry_salary(html: &mut String, agg: &SurveyAggr
     // 単位明記 + 推定限界 + 因果非主張 caveat
     html.push_str(&format!(
         "<p class=\"caveat\" style=\"font-size:9pt;color:#475569;margin-top:8px;\">\
-        \u{26A0} 業界は会社名・タグ列のキーワードからの推定 (例: 「メディカル」「ケアセンター」「建設」等) で、原 CSV に業種列がない場合精度に限界があります。\
-        加重平均は会社別件数による重み付け平均、中央値は会社別中央値 (`CompanyAgg.median_salary`) の中央値で算出 (per-record 中央値とは異なる近似)。\
-        値の単位は{unit_native}（{unit_yen}）。本表は CSV ベースの推定値であり、地域全体の業界給与水準を代表するものではありません。\
+        \u{26A0} 業界推定は企業名・タグ列のキーワードからの推定（例:「メディカル」「ケアセンター」「建設」等）で、原 CSV に業界列がない場合に限界があります。\
+        参考平均は企業別件数による重み付け平均、推定グループ中央値は企業別中央値（`CompanyAgg.median_salary`）の中央値で算出した近似値です（per-record の中央値とは異なります）。\
+        値の単位は{unit_native}（{unit_yen}）。本表は CSV ベースの参考値であり、地域全体の業界給与水準を代表するものではありません。\
+        全体給与中央値（表紙ハイライト KPI）と直接比較できる指標ではありません。\
         本表は相関の可視化であり、因果の証明ではありません。\
         </p>\n",
         unit_native = if agg.is_hourly { "時給" } else { "月給" },
@@ -248,7 +260,7 @@ pub(super) fn render_section_industry_salary(html: &mut String, agg: &SurveyAggr
 
     render_read_hint(
         html,
-        "業界間で給与水準に差が見られる場合、業務内容・経験要件・労働時間などの複合要因を示唆します。\
+        "業界推定グループ間で給与の参考値に差が見られる場合、業務内容・経験要件・労働時間などの複合要因を示唆します。\
          具体的な原因解釈は別途現場ヒアリング等で検証してください。",
     );
 
@@ -333,7 +345,10 @@ mod tests {
         let rows = aggregate_industry_salary(&agg);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].count, 2);
-        assert_eq!(rows[0].note, "参考", "件数<3 は「参考」マーク必須");
+        assert_eq!(
+            rows[0].note, "参考 (低信頼)",
+            "件数<3 は「参考 (低信頼)」マーク必須"
+        );
     }
 
     /// is_hourly=true なら unit_label="時給"、HTML も時給ラベルを採用.
@@ -346,11 +361,11 @@ mod tests {
         let mut html = String::new();
         render_section_industry_salary(&mut html, &agg);
         assert!(
-            html.contains("時給 加重平均"),
+            html.contains("時給 参考平均"),
             "is_hourly=true の場合、時給ラベルが見出しに出ること"
         );
         assert!(
-            !html.contains("月給 加重平均"),
+            !html.contains("月給 参考平均"),
             "is_hourly=true の場合、月給ラベルは出ないこと"
         );
     }
@@ -486,5 +501,99 @@ mod tests {
             rows.is_empty(),
             "by_emp_group_native は本集計で使用しないため、空集計のままであること"
         );
+    }
+
+    // ============================================================
+    // Round 3-B' 補正テスト: 表現層を「推定・参考」に揃える
+    // ============================================================
+
+    /// 見出しは断定表現（「業界別 給与水準」）を使わず、「業界推定」「参考」を含む.
+    #[test]
+    fn industry_salary_heading_uses_estimation_phrasing() {
+        let agg = agg_with_companies(vec![co("メディカル株式会社", 10, 250_000, 245_000)]);
+        let mut html = String::new();
+        render_section_industry_salary(&mut html, &agg);
+        // 「業界推定」または「推定グループ」を含む
+        assert!(
+            html.contains("業界推定") || html.contains("推定グループ"),
+            "見出しに「業界推定」「推定グループ」のいずれかを含むこと"
+        );
+        // 「参考」表現を含む
+        assert!(html.contains("参考"), "見出し or 注記に「参考」を含むこと");
+        // 断定タイトル「>業界別 給与水準<」は不在
+        assert!(
+            !html.contains(">業界別 給与水準<"),
+            "断定タイトル「業界別 給与水準」を h2 に使ってはならない"
+        );
+    }
+
+    /// 注記に CSV 業界列不在・公的分類との不一致・全体中央値との非一致を含む.
+    #[test]
+    fn industry_salary_note_includes_caveat() {
+        let agg = agg_with_companies(vec![co("メディカル株式会社", 10, 250_000, 245_000)]);
+        let mut html = String::new();
+        render_section_industry_salary(&mut html, &agg);
+        assert!(html.contains("推定"), "注記に「推定」を含むこと");
+        assert!(html.contains("参考値"), "注記に「参考値」を含むこと");
+        assert!(
+            html.contains("公的産業分類") && html.contains("一致しない"),
+            "注記に「公的産業分類…一致しない」を含むこと"
+        );
+        assert!(
+            html.contains("全体給与中央値"),
+            "注記に「全体給与中央値（表紙ハイライト KPI）と一致しない」旨を含むこと"
+        );
+    }
+
+    /// 件数 < 3 は「参考 (低信頼)」と表示される.
+    #[test]
+    fn industry_salary_low_confidence_label_for_count_under_3() {
+        let agg = agg_with_companies(vec![co("メディカル株式会社", 2, 250_000, 245_000)]);
+        let rows = aggregate_industry_salary(&agg);
+        assert_eq!(rows[0].note, "参考 (低信頼)");
+        let mut html = String::new();
+        render_section_industry_salary(&mut html, &agg);
+        assert!(
+            html.contains("参考 (低信頼)"),
+            "HTML 出力に「参考 (低信頼)」表示を含むこと"
+        );
+    }
+
+    /// 表現層が「業界別」「業種別」と断定しないこと.
+    #[test]
+    fn industry_salary_does_not_assert_industry_classification() {
+        let agg = agg_with_companies(vec![co("メディカル株式会社", 10, 250_000, 245_000)]);
+        let mut html = String::new();
+        render_section_industry_salary(&mut html, &agg);
+        // 見出しレベルでの「業界別」「業種別」断定を禁止
+        assert!(
+            !html.contains(">業界別 "),
+            "見出し / セルで「業界別 」断定表現を使わないこと"
+        );
+        assert!(
+            !html.contains(">業種別 "),
+            "見出し / セルで「業種別 」断定表現を使わないこと"
+        );
+    }
+
+    /// 列ヘッダが Round 3-B' の表現に揃っている.
+    #[test]
+    fn industry_salary_column_headers_use_reference_phrasing() {
+        let agg = agg_with_companies(vec![co("メディカル株式会社", 10, 250_000, 245_000)]);
+        let mut html = String::new();
+        render_section_industry_salary(&mut html, &agg);
+        assert!(
+            html.contains("業界推定グループ"),
+            "列ヘッダに「業界推定グループ」を含むこと"
+        );
+        assert!(
+            html.contains("参考平均"),
+            "列ヘッダに「参考平均」を含むこと"
+        );
+        assert!(
+            html.contains("推定グループ中央値"),
+            "列ヘッダに「推定グループ中央値」を含むこと"
+        );
+        assert!(html.contains("信頼度"), "列ヘッダに「信頼度」を含むこと");
     }
 }
