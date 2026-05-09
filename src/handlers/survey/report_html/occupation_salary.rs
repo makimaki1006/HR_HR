@@ -5,6 +5,11 @@
 //! Round 3-A (産業構成 e-Stat) + Round 3-B (業界推定×給与参考 CSV) に続き、
 //! 職種粒度の給与水準表を MI PDF に追加する。
 //!
+//! ## Round 3-C' (2026-05-09): MECE 16 グループ拡張 + 信頼度ルール
+//! 職種推定の語彙を 10 → 16 グループに MECE 拡張。
+//! Direct (具体職種語) / Reference (広義語) / LowConfidence (多義語・会社名由来)
+//! の信頼度ルールを導入し、note 列の表示を 3 段階に細分化。
+//!
 //! ## 設計方針
 //! - **B 案採用**: per-record 職種コード / 標準化 occupation が `SurveyAggregation`
 //!   に存在しないため、`by_tag_salary` (主信号) と `by_company` (補助) のキーワード
@@ -23,6 +28,18 @@ use super::super::aggregator::SurveyAggregation;
 use super::super::super::helpers::{escape_html, format_number};
 use super::helpers::{render_figure_caption, render_read_hint, render_section_howto};
 
+/// 職種推定の信頼度.
+///
+/// - `Direct`: 求人タグに具体職種語が hit (例: 看護師、介護福祉士、施工管理、ドライバー)
+/// - `Reference`: 求人タグに広義語が hit (例: ケア、メディカル、サービス、物流、工場)
+/// - `LowConfidence`: 多義語・会社名由来 (例: アテンダー、スタッフ、店員、by_company 経路全般)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OccupationConfidence {
+    Direct,
+    Reference,
+    LowConfidence,
+}
+
 /// 職種推定グループ別 給与参考 1 行分の集計結果.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OccupationSalaryRow {
@@ -36,7 +53,7 @@ pub(super) struct OccupationSalaryRow {
     pub median_of_company_medians: Option<i64>,
     /// "月給" / "時給"
     pub unit_label: &'static str,
-    /// 「参考 (低信頼)」/ 「-」 等
+    /// 「参考 (低信頼)」/ 「参考」/ 「-」 等
     pub note: &'static str,
 }
 
@@ -45,80 +62,257 @@ struct OccupationBucket {
     count: i64,
     sum_weighted_avg: i64,
     company_medians: Vec<i64>,
+    /// このバケットで観測された最良の信頼度 (None=未観測 / LowConfidence / Reference / Direct)
+    best_confidence: Option<OccupationConfidence>,
+}
+
+impl OccupationBucket {
+    fn upgrade_confidence(&mut self, c: OccupationConfidence) {
+        let rank = |x: OccupationConfidence| match x {
+            OccupationConfidence::Direct => 3,
+            OccupationConfidence::Reference => 2,
+            OccupationConfidence::LowConfidence => 1,
+        };
+        match self.best_confidence {
+            None => self.best_confidence = Some(c),
+            Some(cur) if rank(c) > rank(cur) => self.best_confidence = Some(c),
+            _ => {}
+        }
+    }
+}
+
+/// キーワードが「具体職種語」(Direct) かどうか判定.
+fn is_direct_keyword(s_lower: &str) -> bool {
+    const DIRECT: &[&str] = &[
+        // 具体職種語 (国家資格名・正式職種名)
+        "看護師", "准看護師", "介護福祉士", "ヘルパー", "保育士",
+        "理学療法士", "作業療法士", "言語聴覚士", "薬剤師", "ケアマネジャー",
+        "ケアマネージャー", "ケアマネ", "調理師", "管理栄養士", "栄養士",
+        "ドライバー", "運転手", "施工管理", "現場監督", "警備員", "清掃員",
+        "歯科衛生士", "歯科医師", "臨床検査技師", "放射線技師", "臨床工学技士",
+        "助産師", "保健師", "社会福祉士", "精神保健福祉士",
+        "プログラマ", "プログラマー", "エンジニア", "店長",
+        "施設長", "サービス提供責任者", "サービス管理責任者",
+        // 主要広範語でも具体性高いもの
+        "看護", "准看", "介護", "保育", "リハビリ", "調理", "警備", "清掃",
+        "事務", "営業", "販売",
+    ];
+    DIRECT.iter().any(|kw| s_lower.contains(&kw.to_lowercase()))
+}
+
+/// キーワードが「広義語」(Reference) かどうか判定 (Direct より弱いシグナル).
+fn is_reference_keyword(s_lower: &str) -> bool {
+    const REFERENCE: &[&str] = &[
+        "ケア", "メディカル", "サービス", "物流", "工場", "店舗", "フロント",
+    ];
+    REFERENCE.iter().any(|kw| s_lower.contains(&kw.to_lowercase()))
+}
+
+/// キーワードが「多義語」(LowConfidence) かどうか判定.
+fn is_ambiguous_keyword(s_lower: &str) -> bool {
+    const AMBIGUOUS: &[&str] = &["アテンダー", "スタッフ", "店員"];
+    AMBIGUOUS.iter().any(|kw| s_lower.contains(&kw.to_lowercase()))
 }
 
 /// 求人タイトル / タグ / 会社名から職種推定グループを判定する.
 ///
-/// `industry_mismatch::map_keyword_to_major_industry` (12 産業大分類) とは別軸で、
-/// 医療福祉を 6 系に細分化した 10 グループ + 未分類。
+/// MECE 16 グループ. 専門度の高い (より具体的な) グループから順にチェックし、
+/// 早期 return で優先順位を保証する。
+///
+/// 判定優先順位:
+/// 1. 看護系 → 2. 介護系 → 3. リハビリ・療法士系 → 4. 医療技術・薬局系
+/// → 5. 福祉・相談支援系 → 6. 保育・教育系 → 7. 建築・土木・設備系
+/// → 8. 物流・配送・ドライバー系 → 9. 製造・軽作業系 → 10. 警備・清掃・施設管理系
+/// → 11. 飲食・調理系 → 12. 事務・バックオフィス系 → 13. 営業・販売促進系
+/// → 14. 販売・接客・サービス系 → 15. IT・技術専門職系 → 16. 管理・マネジメント系
 pub(crate) fn map_keyword_to_occupation_group(s: &str) -> Option<&'static str> {
     let s = s.to_lowercase();
-    // 看護系
-    if s.contains("看護") || s.contains("准看") || s.contains("ナース") {
+    if s.is_empty() {
+        return None;
+    }
+    // 1. 看護系
+    if s.contains("看護") || s.contains("准看") || s.contains("ナース")
+        || s.contains("訪問看護") || s.contains("病棟") || s.contains("外来")
+    {
         return Some("看護系");
     }
-    // リハビリ系 (理学療法士 / 作業療法士 / 言語聴覚士)
-    if s.contains("理学療法") || s.contains("作業療法") || s.contains("言語聴覚")
-        || s.contains("リハビリ") || s.contains("リハ職")
-        || (s.contains("pt") && !s.contains("apt")) // PT は理学療法士略称
-        || s.contains("ｐｔ")
-    {
-        return Some("リハビリ系");
-    }
-    // 医療技術系 (薬剤師 / 検査技師 / 栄養士 / 歯科衛生士)
-    if s.contains("薬剤") || s.contains("検査技師") || s.contains("放射線")
-        || s.contains("レントゲン") || s.contains("栄養士")
-        || s.contains("歯科衛生士") || s.contains("臨床工学")
-    {
-        return Some("医療技術系");
-    }
-    // 福祉相談系 (相談員 / ケアマネ / 社会福祉士)
-    if s.contains("相談員") || s.contains("ケアマネ") || s.contains("社会福祉士")
-        || s.contains("精神保健福祉") || s.contains("ソーシャルワーカー")
-        || s.contains("生活支援員")
-    {
-        return Some("福祉相談系");
-    }
-    // 介護系
-    if s.contains("介護") || s.contains("ヘルパー") || s.contains("ケアワーカー")
-        || s.contains("介護福祉") || s.contains("訪問介護")
+    // 2. 介護系
+    // 注: "ケア" 単独は介護系扱いだが、"ケアマネ"/"ケースワーカー" は福祉・相談支援系 (5) 優先のため除外
+    if s.contains("介護") || s.contains("介護士") || s.contains("介護職")
+        || s.contains("介護福祉士") || s.contains("ケアワーカー")
+        || s.contains("介助") || s.contains("ヘルパー")
+        || s.contains("施設介護") || s.contains("老人ホーム")
+        || s.contains("デイサービス") || s.contains("グループホーム")
+        || s.contains("特養") || s.contains("老健") || s.contains("サ高住")
+        || s.contains("有料老人") || s.contains("初任者研修")
+        || s.contains("実務者研修") || s.contains("訪問介護")
+        || (s.contains("ケア")
+            && !s.contains("ケアマネ")
+            && !s.contains("ケースワーカー"))
     {
         return Some("介護系");
     }
-    // 保育系
-    if s.contains("保育") || s.contains("幼稚園教諭") || s.contains("保育士")
-        || s.contains("児童指導員")
+    // 3. リハビリ・療法士系
+    if s.contains("リハビリ") || s.contains("理学療法") || s.contains("作業療法")
+        || s.contains("言語聴覚") || s.contains("リハ職")
+        || (s.contains("pt") && !s.contains("apt") && !s.contains("opt"))
+        || s.contains("ｐｔ") || s.contains("ot") || s.contains("st")
+        || s.contains("機能訓練") || s.contains("柔道整復")
+        || s.contains("あん摩") || s.contains("鍼灸")
     {
-        return Some("保育系");
+        return Some("リハビリ・療法士系");
     }
-    // 調理系
-    if s.contains("調理") || s.contains("厨房") || s.contains("料理人")
+    // 4. 医療技術・薬局系
+    // 「メディカル」「病院」等の医療系広義語もここに分類 (Reference 信頼度)
+    if s.contains("薬剤") || s.contains("薬局") || s.contains("調剤")
+        || s.contains("歯科") || s.contains("歯科衛生士") || s.contains("歯科助手")
+        || s.contains("臨床検査") || s.contains("放射線") || s.contains("レントゲン")
+        || s.contains("検査技師") || s.contains("臨床工学")
+        || (s.contains("技師") && !s.contains("整備技師"))
+        || s.contains("メディカル") || s.contains("病院") || s.contains("クリニック")
+        || s.contains("診療")
+    {
+        return Some("医療技術・薬局系");
+    }
+    // 5. 福祉・相談支援系
+    if s.contains("相談員") || s.contains("生活相談") || s.contains("支援員")
+        || s.contains("生活支援") || s.contains("就労支援")
+        || s.contains("児童指導") || s.contains("ケースワーカー")
+        || s.contains("ソーシャルワーカー") || s.contains("社会福祉士")
+        || s.contains("精神保健福祉")
+        || s.contains("サービス管理責任者") || s.contains("サ責")
+        || s.contains("サービス提供責任者")
+        || s.contains("障害者支援") || s.contains("ケアマネ")
+    {
+        return Some("福祉・相談支援系");
+    }
+    // 6. 保育・教育系
+    if s.contains("保育") || s.contains("保育士") || s.contains("こども")
+        || s.contains("子ども") || s.contains("児童") || s.contains("学童")
+        || s.contains("幼稚園") || s.contains("教員") || s.contains("講師")
+        || s.contains("指導員")
+    {
+        return Some("保育・教育系");
+    }
+    // 7. 建築・土木・設備系
+    if s.contains("建築") || s.contains("建設") || s.contains("土木")
+        || s.contains("施工") || s.contains("施工管理") || s.contains("現場監督")
+        || s.contains("現場作業") || s.contains("設備") || s.contains("電気工事")
+        || s.contains("管工事") || s.contains("配管") || s.contains("内装")
+        || s.contains("外構") || s.contains("解体") || s.contains("cad")
+        || s.contains("ｃａｄ") || s.contains("測量") || s.contains("大工")
+        || s.contains("溶接") || s.contains("塗装") || s.contains("空調")
+    {
+        return Some("建築・土木・設備系");
+    }
+    // 8. 物流・配送・ドライバー系
+    if s.contains("ドライバー") || s.contains("運転手") || s.contains("運転")
+        || s.contains("配送") || s.contains("配達") || s.contains("送迎")
+        || s.contains("物流") || s.contains("倉庫") || s.contains("仕分け")
+        || s.contains("ピッキング") || s.contains("梱包")
+        || s.contains("フォークリフト") || s.contains("ルート配送")
+        || s.contains("軽貨物") || s.contains("トラック")
+        || s.contains("運搬") || s.contains("入出庫")
+    {
+        return Some("物流・配送・ドライバー系");
+    }
+    // 9. 製造・軽作業系
+    if s.contains("製造") || s.contains("工場") || s.contains("軽作業")
+        || s.contains("作業員") || s.contains("組立") || s.contains("加工")
+        || s.contains("検品") || s.contains("検査") || s.contains("包装")
+        || s.contains("ライン") || s.contains("生産") || s.contains("品質管理")
+        || s.contains("機械オペレーター") || s.contains("オペレーター")
+        || s.contains("仕上げ") || s.contains("部品")
+    {
+        return Some("製造・軽作業系");
+    }
+    // 10. 警備・清掃・施設管理系
+    if s.contains("警備") || s.contains("交通誘導") || s.contains("施設警備")
+        || s.contains("清掃") || s.contains("ビルメン") || s.contains("ベッドメイク")
+        || s.contains("設備管理") || s.contains("施設管理") || s.contains("管理人")
+        || s.contains("巡回") || s.contains("守衛")
+    {
+        return Some("警備・清掃・施設管理系");
+    }
+    // 11. 飲食・調理系
+    if s.contains("調理") || s.contains("厨房") || s.contains("調理補助")
+        || s.contains("栄養士") || s.contains("管理栄養士") || s.contains("飲食")
+        || s.contains("レストラン") || s.contains("カフェ") || s.contains("食堂")
+        || s.contains("キッチン") || s.contains("給食") || s.contains("洗い場")
+        || s.contains("ホールスタッフ") || s.contains("料理人")
         || s.contains("シェフ") || s.contains("クック")
     {
-        return Some("調理系");
+        return Some("飲食・調理系");
     }
-    // 運転・物流系
-    if s.contains("ドライバー") || s.contains("運転手") || s.contains("配送")
-        || s.contains("運送") || s.contains("物流") || s.contains("倉庫")
-        || s.contains("トラック")
+    // 12. 事務・バックオフィス系
+    if s.contains("事務") || s.contains("一般事務") || s.contains("医療事務")
+        || s.contains("営業事務") || s.contains("受付") || s.contains("経理")
+        || s.contains("総務") || s.contains("人事") || s.contains("労務")
+        || s.contains("庶務") || s.contains("データ入力")
+        || s.contains("コールセンター") || s.contains("カスタマーサポート")
     {
-        return Some("運転・物流系");
+        return Some("事務・バックオフィス系");
     }
-    // 製造・建設系
-    if s.contains("製造") || s.contains("工場") || s.contains("建設")
-        || s.contains("建築") || s.contains("施工") || s.contains("大工")
-        || s.contains("組立") || s.contains("溶接") || s.contains("塗装")
+    // 13. 営業・販売促進系
+    if s.contains("営業") || s.contains("法人営業") || s.contains("個人営業")
+        || s.contains("ルート営業") || s.contains("提案営業") || s.contains("反響営業")
+        || s.contains("ラウンダー") || s.contains("販促") || s.contains("販売促進")
+        || s.contains("インサイドセールス") || s.contains("テレアポ")
+        || s.contains("テレマーケティング")
+        || (s.contains("pr") && !s.contains("apr"))
+        || s.contains("広報") || s.contains("マーケティング")
     {
-        return Some("製造・建設系");
+        return Some("営業・販売促進系");
     }
-    // 事務系
-    if s.contains("事務") || s.contains("経理") || s.contains("総務")
-        || s.contains("人事") || s.contains("受付") || s.contains("一般事務")
-        || s.contains("営業事務")
+    // 14. 販売・接客・サービス系
+    if s.contains("販売") || s.contains("接客") || s.contains("店舗")
+        || s.contains("売場") || s.contains("店長") || s.contains("レジ")
+        || s.contains("フロント") || s.contains("ホール") || s.contains("サービススタッフ")
+        || s.contains("アテンダー") || s.contains("案内") || s.contains("受付案内")
+        || s.contains("カウンター")
     {
-        return Some("事務系");
+        return Some("販売・接客・サービス系");
+    }
+    // 15. IT・技術専門職系
+    if s.contains("it") || s.contains("ｉｔ") || s.contains("エンジニア")
+        || s.contains("プログラマ") || s.contains("se ")
+        || s.contains("システム") || s.contains("web") || s.contains("ｗｅｂ")
+        || s.contains("アプリ") || s.contains("インフラ") || s.contains("ネットワーク")
+        || s.contains("サーバー") || s.contains("情シス") || s.contains("dx")
+        || s.contains("ヘルプデスク")
+    {
+        return Some("IT・技術専門職系");
+    }
+    // 16. 管理・マネジメント系
+    if s.contains("管理者") || s.contains("管理職") || s.contains("施設長")
+        || s.contains("所長") || s.contains("店長候補") || s.contains("マネージャー")
+        || s.contains("リーダー") || s.contains("主任") || s.contains("責任者")
+        || s.contains("sv") || s.contains("スーパーバイザー")
+        || s.contains("係長") || s.contains("課長")
+    {
+        return Some("管理・マネジメント系");
     }
     None
+}
+
+/// グループ判定 + 信頼度判定 をまとめて返す.
+pub(crate) fn map_keyword_to_occupation_group_with_confidence(
+    s: &str,
+) -> Option<(&'static str, OccupationConfidence)> {
+    let group = map_keyword_to_occupation_group(s)?;
+    let s_lower = s.to_lowercase();
+    let confidence = if is_ambiguous_keyword(&s_lower) {
+        OccupationConfidence::LowConfidence
+    } else if is_direct_keyword(&s_lower) {
+        OccupationConfidence::Direct
+    } else if is_reference_keyword(&s_lower) {
+        OccupationConfidence::Reference
+    } else {
+        // グループには hit したが Direct/Reference/Ambiguous いずれの語彙にも含まれない
+        // → タグ由来として広義 (Reference) 扱い
+        OccupationConfidence::Reference
+    };
+    Some((group, confidence))
 }
 
 /// `SurveyAggregation` を職種推定グループ単位で再集計する.
@@ -132,19 +326,24 @@ pub(super) fn aggregate_occupation_salary(agg: &SurveyAggregation) -> Vec<Occupa
         std::collections::HashMap::new();
 
     // 信号 A (主): by_tag_salary タグ → 職種グループ → 件数 + avg_salary
+    // 信頼度: タグ語彙に応じて Direct / Reference (LowConfidence にはならない)
     for tag in &agg.by_tag_salary {
         if tag.count == 0 || tag.avg_salary <= 0 {
             continue;
         }
-        let Some(group) = map_keyword_to_occupation_group(&tag.tag) else {
+        let Some((group, confidence)) =
+            map_keyword_to_occupation_group_with_confidence(&tag.tag)
+        else {
             continue;
         };
         let bucket = buckets.entry(group).or_default();
         bucket.count += tag.count as i64;
         bucket.sum_weighted_avg += tag.avg_salary * tag.count as i64;
+        bucket.upgrade_confidence(confidence);
     }
 
     // 信号 B (補助): by_company 会社名 → 職種グループ。信号 A 未カバーのみ加算 (二重カウント防止)
+    // 信頼度: 会社名由来は常に LowConfidence (弱い信号)
     for company in &agg.by_company {
         if company.count == 0 || company.avg_salary <= 0 {
             continue;
@@ -169,6 +368,7 @@ pub(super) fn aggregate_occupation_salary(agg: &SurveyAggregation) -> Vec<Occupa
         if company.median_salary > 0 {
             bucket.company_medians.push(company.median_salary);
         }
+        bucket.upgrade_confidence(OccupationConfidence::LowConfidence);
     }
 
     let unit_label: &'static str = if agg.is_hourly { "時給" } else { "月給" };
@@ -190,7 +390,20 @@ pub(super) fn aggregate_occupation_salary(agg: &SurveyAggregation) -> Vec<Occupa
                     v[n / 2]
                 })
             };
-            let note = if b.count < 3 { "参考 (低信頼)" } else { "" };
+            // note 決定:
+            // - count < 3 → "参考 (低信頼)"
+            // - best_confidence が LowConfidence or None → "参考 (低信頼)"
+            // - best_confidence が Reference → "参考"
+            // - best_confidence が Direct → ""
+            let note: &'static str = if b.count < 3 {
+                "参考 (低信頼)"
+            } else {
+                match b.best_confidence {
+                    Some(OccupationConfidence::Direct) => "",
+                    Some(OccupationConfidence::Reference) => "参考",
+                    Some(OccupationConfidence::LowConfidence) | None => "参考 (低信頼)",
+                }
+            };
             OccupationSalaryRow {
                 occupation: group.to_string(),
                 count: b.count,
@@ -354,25 +567,110 @@ mod tests {
         }
     }
 
-    /// キーワード分類器の正当性 (主要 10 グループ + 未分類).
+    /// キーワード分類器の正当性 (主要グループ + 未分類).
     #[test]
     fn map_keyword_to_occupation_group_classifies_known_keywords() {
         assert_eq!(map_keyword_to_occupation_group("看護師"), Some("看護系"));
         assert_eq!(map_keyword_to_occupation_group("准看護師"), Some("看護系"));
         assert_eq!(map_keyword_to_occupation_group("介護福祉士"), Some("介護系"));
         assert_eq!(map_keyword_to_occupation_group("ヘルパー"), Some("介護系"));
-        assert_eq!(map_keyword_to_occupation_group("保育士"), Some("保育系"));
-        assert_eq!(map_keyword_to_occupation_group("理学療法士"), Some("リハビリ系"));
-        assert_eq!(map_keyword_to_occupation_group("作業療法士"), Some("リハビリ系"));
-        assert_eq!(map_keyword_to_occupation_group("薬剤師"), Some("医療技術系"));
-        assert_eq!(map_keyword_to_occupation_group("ケアマネジャー"), Some("福祉相談系"));
-        assert_eq!(map_keyword_to_occupation_group("調理師"), Some("調理系"));
-        assert_eq!(map_keyword_to_occupation_group("ドライバー"), Some("運転・物流系"));
-        assert_eq!(map_keyword_to_occupation_group("施工管理"), Some("製造・建設系"));
-        assert_eq!(map_keyword_to_occupation_group("一般事務"), Some("事務系"));
+        assert_eq!(map_keyword_to_occupation_group("保育士"), Some("保育・教育系"));
+        assert_eq!(map_keyword_to_occupation_group("理学療法士"), Some("リハビリ・療法士系"));
+        assert_eq!(map_keyword_to_occupation_group("作業療法士"), Some("リハビリ・療法士系"));
+        assert_eq!(map_keyword_to_occupation_group("薬剤師"), Some("医療技術・薬局系"));
+        assert_eq!(map_keyword_to_occupation_group("ケアマネジャー"), Some("福祉・相談支援系"));
+        assert_eq!(map_keyword_to_occupation_group("調理師"), Some("飲食・調理系"));
+        assert_eq!(map_keyword_to_occupation_group("ドライバー"), Some("物流・配送・ドライバー系"));
+        assert_eq!(map_keyword_to_occupation_group("施工管理"), Some("建築・土木・設備系"));
+        assert_eq!(map_keyword_to_occupation_group("一般事務"), Some("事務・バックオフィス系"));
         // 未分類
         assert_eq!(map_keyword_to_occupation_group("ABC123"), None);
         assert_eq!(map_keyword_to_occupation_group(""), None);
+    }
+
+    /// 16 グループ完全網羅テスト.
+    #[test]
+    fn map_classifies_full_16_groups() {
+        let cases = [
+            ("看護師", "看護系"),
+            ("ヘルパー", "介護系"),
+            ("ケア", "介護系"),
+            ("メディカル", "医療技術・薬局系"),
+            ("リハビリ", "リハビリ・療法士系"),
+            ("PT", "リハビリ・療法士系"),
+            ("ケアマネ", "福祉・相談支援系"),
+            ("保育士", "保育・教育系"),
+            ("施工管理", "建築・土木・設備系"),
+            ("CAD", "建築・土木・設備系"),
+            ("ドライバー", "物流・配送・ドライバー系"),
+            ("倉庫", "物流・配送・ドライバー系"),
+            ("製造", "製造・軽作業系"),
+            ("軽作業", "製造・軽作業系"),
+            ("警備", "警備・清掃・施設管理系"),
+            ("清掃", "警備・清掃・施設管理系"),
+            ("調理", "飲食・調理系"),
+            ("管理栄養士", "飲食・調理系"),
+            ("一般事務", "事務・バックオフィス系"),
+            ("コールセンター", "事務・バックオフィス系"),
+            ("法人営業", "営業・販売促進系"),
+            ("ラウンダー", "営業・販売促進系"),
+            ("販売", "販売・接客・サービス系"),
+            ("アテンダー", "販売・接客・サービス系"),
+            ("エンジニア", "IT・技術専門職系"),
+            ("ヘルプデスク", "IT・技術専門職系"),
+            ("店長候補", "販売・接客・サービス系"),
+            ("施設長", "管理・マネジメント系"),
+        ];
+        // 注: 「ケア」単独 → 介護系 (group 2)。「ケアマネ」は除外条件で福祉・相談支援系 (5) へ。
+        // 注: 「店長候補」は「店長」を含むため販売・接客・サービス系 (14) に hit (16 より優先順位上)。
+        // 注: 「施設長」は他の上位キーワードに hit せず、管理・マネジメント系 (16) に分類される。
+        for (kw, expected) in cases {
+            let actual = map_keyword_to_occupation_group(kw);
+            assert_eq!(
+                actual,
+                Some(expected),
+                "kw={} expected={} actual={:?}",
+                kw,
+                expected,
+                actual
+            );
+        }
+    }
+
+    /// 16 グループのうち、明示的に異なる優先順位検証.
+    #[test]
+    fn map_priority_order_specific_over_management() {
+        // 「販売店長」 → 販売・接客・サービス系 (14) が hit ("販売" もしくは "店長" でマッチ)
+        assert_eq!(
+            map_keyword_to_occupation_group("販売店長"),
+            Some("販売・接客・サービス系")
+        );
+        // 「建築CAD」 → 建築・土木・設備系 (7) を優先
+        assert_eq!(
+            map_keyword_to_occupation_group("建築CAD"),
+            Some("建築・土木・設備系")
+        );
+    }
+
+    /// 信頼度ルール: 具体職種語は Direct.
+    #[test]
+    fn confidence_rule_specific_keyword_is_direct() {
+        let (_, conf) = map_keyword_to_occupation_group_with_confidence("看護師").unwrap();
+        assert!(matches!(conf, OccupationConfidence::Direct));
+    }
+
+    /// 信頼度ルール: 広義語は Reference.
+    #[test]
+    fn confidence_rule_broad_keyword_is_reference() {
+        let (_, conf) = map_keyword_to_occupation_group_with_confidence("メディカル").unwrap();
+        assert!(matches!(conf, OccupationConfidence::Reference));
+    }
+
+    /// 信頼度ルール: 多義語は LowConfidence.
+    #[test]
+    fn confidence_rule_ambiguous_keyword_is_low() {
+        let (_, conf) = map_keyword_to_occupation_group_with_confidence("アテンダー").unwrap();
+        assert!(matches!(conf, OccupationConfidence::LowConfidence));
     }
 
     /// タグから職種推定 → 同グループの件数を加算、加重平均を計算する.
@@ -384,7 +682,6 @@ mod tests {
             tag("介護福祉士", 8, 220_000),
         ]);
         let rows = aggregate_occupation_salary(&agg);
-        // 看護系 (10 + 5 = 15) と 介護系 (8) の 2 グループ
         assert_eq!(rows.len(), 2, "2 グループに集約されるはず: {:?}", rows);
         assert_eq!(rows[0].occupation, "看護系");
         assert_eq!(rows[0].count, 15);
@@ -397,7 +694,7 @@ mod tests {
     #[test]
     fn occupation_salary_excludes_unclassifiable_tags() {
         let agg = agg_with_tags(vec![
-            tag("ABC123", 5, 250_000), // 非マッチ → 除外
+            tag("ABC123", 5, 250_000),
             tag("看護師", 3, 280_000),
         ]);
         let rows = aggregate_occupation_salary(&agg);
@@ -453,13 +750,11 @@ mod tests {
     /// MI variant でデータあり時に出力 / 空時は fail-soft.
     #[test]
     fn occupation_salary_section_appears_in_mi_variant_only() {
-        // 空 → 出力なし
         let agg = SurveyAggregation::default();
         let mut html = String::new();
         render_section_occupation_salary(&mut html, &agg);
         assert_eq!(html, "", "空集計時は何も出力しない");
 
-        // データあり → 出力
         let agg2 = agg_with_tags(vec![tag("看護師", 10, 280_000)]);
         let mut html2 = String::new();
         render_section_occupation_salary(&mut html2, &agg2);
@@ -504,20 +799,21 @@ mod tests {
     /// 信号 A (タグ) で既カバーのグループに信号 B (会社名) の件数を二重加算しない.
     #[test]
     fn occupation_salary_does_not_double_count_tag_and_company_signals() {
-        let mut agg = agg_with_tags(vec![tag("看護師", 10, 280_000)]); // 看護系を信号 A でカバー
+        let mut agg = agg_with_tags(vec![tag("看護師", 10, 280_000)]);
         agg.by_company = vec![
-            co("○○病院", 100, 290_000, 285_000), // 看護系 (or 医療技術系) でカバー済 → 加算しない
-            co("□□建設会社", 5, 320_000, 315_000), // 製造・建設系、信号 A 未カバー → 補完加算
+            co("○○病院", 100, 290_000, 285_000),
+            // 「□□建設会社」 → 建築・土木・設備系 (新グループ名)
+            co("□□建設会社", 5, 320_000, 315_000),
         ];
         let rows = aggregate_occupation_salary(&agg);
-        // 看護系: 信号 A の 10 件のみ (○○病院 は加算しない)
         let nursing = rows.iter().find(|r| r.occupation == "看護系").unwrap();
         assert_eq!(
             nursing.count, 10,
             "信号 A 既カバーの職種に信号 B を二重加算しないこと"
         );
-        // 製造・建設系: 信号 B のみで補完
-        let construction = rows.iter().find(|r| r.occupation == "製造・建設系");
+        let construction = rows
+            .iter()
+            .find(|r| r.occupation == "建築・土木・設備系");
         assert!(
             construction.is_some(),
             "信号 A 未カバーの職種は信号 B で補完されること"
@@ -544,5 +840,44 @@ mod tests {
         assert!(html.contains("参考平均"));
         assert!(html.contains("推定グループ中央値"));
         assert!(html.contains("信頼度"));
+    }
+
+    /// note: count >= 3 + 全 LowConfidence (会社名のみ) → "参考 (低信頼)".
+    #[test]
+    fn note_low_confidence_when_only_company_signal() {
+        let mut agg = SurveyAggregation::default();
+        agg.is_hourly = false;
+        // 「介護センター○○」 → 介護系 (group 2)、by_company 経路のみ → LowConfidence
+        agg.by_company = vec![co("介護センター○○", 5, 280_000, 270_000)];
+        let rows = aggregate_occupation_salary(&agg);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].count, 5);
+        assert_eq!(
+            rows[0].note, "参考 (低信頼)",
+            "by_company のみは LowConfidence → 参考 (低信頼)"
+        );
+    }
+
+    /// note: count >= 3 + Direct タグあり → "" (空).
+    #[test]
+    fn note_empty_when_direct_tag_signal() {
+        let agg = agg_with_tags(vec![tag("看護師", 10, 280_000)]);
+        let rows = aggregate_occupation_salary(&agg);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].count, 10);
+        assert_eq!(rows[0].note, "", "Direct タグ + count>=3 は note 空");
+    }
+
+    /// note: count >= 3 + Reference タグのみ → "参考".
+    #[test]
+    fn note_reference_when_only_broad_tag_signal() {
+        let agg = agg_with_tags(vec![tag("メディカル", 5, 250_000)]);
+        let rows = aggregate_occupation_salary(&agg);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].count, 5);
+        assert_eq!(
+            rows[0].note, "参考",
+            "Reference タグ + count>=3 は note=参考"
+        );
     }
 }
