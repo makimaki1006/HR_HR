@@ -27,6 +27,7 @@ mod salary_summary;
 // Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
 pub(crate) mod industry_mismatch;
 mod industry_salary;
+mod occupation_salary;
 mod lifestyle;
 mod market_intelligence;
 mod market_tightness;
@@ -59,6 +60,7 @@ use helpers::{
 use industry_mismatch::render_section_industry_mismatch;
 use industry_mismatch::render_section_industry_mismatch_csv;
 use industry_salary::render_section_industry_salary;
+use occupation_salary::render_section_occupation_salary;
 use lifestyle::render_section_lifestyle;
 use market_tightness::render_section_market_tightness;
 use market_tightness::render_section_market_tightness_with_variant;
@@ -887,6 +889,16 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // 業界推定は industry_mismatch::map_keyword_to_major_industry を再利用 (新規ロジックなし)。
     if matches!(variant, ReportVariant::MarketIntelligence) {
         render_section_industry_salary(&mut html, agg);
+    }
+
+    // --- Section 4B-4 (Round 3-C / 2026-05-09): 職種推定グループ別 給与参考 ---
+    // Round 1-E 完全欠落 Top 1 (職種×給与) と Round 2-4 真の未実装 #7 を消化。
+    // CSV 由来の `agg.by_tag_salary` (主) / `by_company` (補) を職種推定グループで
+    // 再集計し、件数 Top 10 職種の加重平均給与を表で提示する。MI variant 専用。
+    // 職種推定は occupation_salary::map_keyword_to_occupation_group (10 グループ)
+    // で実施 (industry_mismatch の産業大分類 12 種とは別軸、医療福祉を 6 系に細分化)。
+    if matches!(variant, ReportVariant::MarketIntelligence) {
+        render_section_occupation_salary(&mut html, agg);
     }
 
     // --- Section 4P (2026-04-29): 対象地域 vs 競合地域 多面比較 (Public 専用) ---
