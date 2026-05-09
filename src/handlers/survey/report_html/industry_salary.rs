@@ -33,6 +33,106 @@ use super::super::super::helpers::{escape_html, format_number};
 use super::helpers::{render_figure_caption, render_read_hint, render_section_howto};
 use super::industry_mismatch::map_keyword_to_major_industry;
 
+/// 業界推定の拡張 fallback (Round 3-C' / 2026-05-09).
+///
+/// `industry_mismatch::map_keyword_to_major_industry` は他 section (Round 3-A 産業構成) でも
+/// 使用されるため直接は触らない。本 section 専用の拡張語彙を fallback として追加。
+///
+/// 既存マップで hit する場合はそれを優先し、None の場合のみ拡張語彙でフォロー。
+fn map_keyword_extended_industry(s: &str) -> Option<&'static str> {
+    if let Some(m) = map_keyword_to_major_industry(s) {
+        return Some(m);
+    }
+    let s_lower = s.to_lowercase();
+    if s_lower.is_empty() {
+        return None;
+    }
+    // 物流・運輸 (既存「運輸業，郵便業」未 hit を補完)
+    if s_lower.contains("物流")
+        || s_lower.contains("ロジスティクス")
+        || s_lower.contains("トランスポート")
+        || s_lower.contains("便")
+        || s_lower.contains("バス")
+        || s_lower.contains("タクシー")
+        || s_lower.contains("運送")
+        || s_lower.contains("運輸")
+        || s_lower.contains("配送")
+        || s_lower.contains("倉庫")
+    {
+        return Some("運輸業，郵便業");
+    }
+    // 建設・設備 (既存「建設業」未 hit を補完)
+    if s_lower.contains("工務店")
+        || s_lower.contains("リフォーム")
+        || s_lower.contains("住宅")
+        || s_lower.contains("管工事")
+        || s_lower.contains("施工")
+    {
+        return Some("建設業");
+    }
+    // 警備・清掃・施設管理 → 「サービス業（他に分類されないもの）」
+    if s_lower.contains("セキュリティ")
+        || s_lower.contains("ビルメン")
+        || s_lower.contains("施設管理")
+        || s_lower.contains("メンテナンス")
+        || s_lower.contains("管理サービス")
+    {
+        return Some("サービス業（他に分類されないもの）");
+    }
+    // 製造・工場 (既存「製造業」未 hit を補完)
+    if s_lower.contains("工業")
+        || s_lower.contains("機械")
+        || s_lower.contains("電機")
+        || s_lower.contains("電子")
+        || s_lower.contains("部品")
+        || s_lower.contains("食品製造")
+        || s_lower.contains("金属")
+    {
+        return Some("製造業");
+    }
+    // 飲食・給食 (既存「宿泊業，飲食サービス業」未 hit を補完)
+    if s_lower.contains("フード")
+        || s_lower.contains("弁当")
+        || s_lower.contains("厨房")
+    {
+        return Some("宿泊業，飲食サービス業");
+    }
+    // 教育・保育 (既存「教育，学習支援業」未 hit を補完)
+    if s_lower.contains("保育園")
+        || s_lower.contains("幼稚園")
+        || s_lower.contains("学院")
+        || s_lower.contains("学習")
+        || s_lower.contains("こども園")
+    {
+        return Some("教育，学習支援業");
+    }
+    // 金融・保険 (既存「金融業，保険業」未 hit を補完)
+    if s_lower.contains("信組")
+        || s_lower.contains("リース")
+        || s_lower.contains("ファイナンス")
+    {
+        return Some("金融業，保険業");
+    }
+    // IT・情報通信 (既存「情報通信業」未 hit を補完)
+    if s_lower.contains("ソフトウェア")
+        || s_lower.contains("デジタル")
+        || s_lower.contains("情報")
+        || s_lower.contains("通信")
+    {
+        return Some("情報通信業");
+    }
+    // 人材・BPO・サービス
+    if s_lower.contains("人材")
+        || s_lower.contains("派遣")
+        || s_lower.contains("アウトソーシング")
+        || s_lower.contains("bpo")
+        || s_lower.contains("コールセンター")
+    {
+        return Some("サービス業（他に分類されないもの）");
+    }
+    None
+}
+
 /// 業界別 給与水準 1 行分の集計結果.
 ///
 /// 月給/時給の単位は `unit_label` で明示する。値はネイティブ単位 (円) で保持。
@@ -80,7 +180,7 @@ pub(super) fn aggregate_industry_salary(agg: &SurveyAggregation) -> Vec<Industry
         if company.count == 0 || company.avg_salary <= 0 {
             continue;
         }
-        let Some(industry) = map_keyword_to_major_industry(&company.name) else {
+        let Some(industry) = map_keyword_extended_industry(&company.name) else {
             continue;
         };
         let bucket = buckets.entry(industry).or_default();
@@ -97,7 +197,7 @@ pub(super) fn aggregate_industry_salary(agg: &SurveyAggregation) -> Vec<Industry
         if tag.count == 0 || tag.avg_salary <= 0 {
             continue;
         }
-        let Some(industry) = map_keyword_to_major_industry(&tag.tag) else {
+        let Some(industry) = map_keyword_extended_industry(&tag.tag) else {
             continue;
         };
         // 既に信号 A で計上済みの industry には加算しない (二重カウント防止)
@@ -573,6 +673,69 @@ mod tests {
         assert!(
             !html.contains(">業種別 "),
             "見出し / セルで「業種別 」断定表現を使わないこと"
+        );
+    }
+
+    // ============================================================
+    // Round 3-C' 業界推定拡張テスト (map_keyword_extended_industry)
+    // ============================================================
+
+    #[test]
+    fn extended_industry_classifies_logistics() {
+        assert_eq!(
+            map_keyword_extended_industry("ABC物流"),
+            Some("運輸業，郵便業")
+        );
+        assert_eq!(
+            map_keyword_extended_industry("○○運送"),
+            Some("運輸業，郵便業")
+        );
+    }
+
+    #[test]
+    fn extended_industry_classifies_construction() {
+        assert_eq!(
+            map_keyword_extended_industry("○○建設"),
+            Some("建設業")
+        );
+        assert_eq!(
+            map_keyword_extended_industry("ABC工務店"),
+            Some("建設業")
+        );
+    }
+
+    #[test]
+    fn extended_industry_falls_back_to_existing_map() {
+        // 既存マップで hit する語は元の業界を返す
+        let result = map_keyword_extended_industry("メディカル");
+        assert!(result.is_some());
+        assert_eq!(result, Some("医療，福祉"));
+    }
+
+    #[test]
+    fn extended_industry_classifies_security_and_facility() {
+        assert_eq!(
+            map_keyword_extended_industry("ABCセキュリティ"),
+            Some("サービス業（他に分類されないもの）")
+        );
+        assert_eq!(
+            map_keyword_extended_industry("ビルメンテナンス"),
+            Some("サービス業（他に分類されないもの）")
+        );
+    }
+
+    #[test]
+    fn extended_industry_classifies_education_and_finance() {
+        // 「学院」は既存マップで hit しないので拡張側で「教育，学習支援業」へ
+        assert_eq!(
+            map_keyword_extended_industry("ABC学院"),
+            Some("教育，学習支援業")
+        );
+        // 「リース」は既存マップ「物品賃貸」由来で hit する可能性あり、
+        // ここでは「ファイナンス」で拡張側のみ評価
+        assert_eq!(
+            map_keyword_extended_industry("ABCファイナンス"),
+            Some("金融業，保険業")
         );
     }
 
