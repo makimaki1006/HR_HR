@@ -25,9 +25,9 @@ mod labels;
 mod region_filter;
 mod salary_summary;
 // Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
-mod market_intelligence;
 pub(crate) mod industry_mismatch;
 mod lifestyle;
+mod market_intelligence;
 mod market_tightness;
 mod notes;
 mod region;
@@ -163,9 +163,9 @@ impl ReportVariant {
     /// アイコン (絵文字)
     pub fn icon(self) -> &'static str {
         match self {
-            Self::Full => "\u{1F3E2}",                // 🏢
-            Self::Public => "\u{1F30D}",              // 🌍
-            Self::MarketIntelligence => "\u{1F4CA}",  // 📊
+            Self::Full => "\u{1F3E2}",               // 🏢
+            Self::Public => "\u{1F30D}",             // 🌍
+            Self::MarketIntelligence => "\u{1F4CA}", // 📊
         }
     }
 
@@ -186,7 +186,9 @@ impl ReportVariant {
         match self {
             Self::Full => "ハローワーク掲載求人と統合分析を含む完全版（社内分析向け）",
             Self::Public => "e-Stat等の公開データを主軸とした版（対外提案向け）",
-            Self::MarketIntelligence => "採用ターゲット分析を含む拡張版（媒体分析・配信地域提案向け）",
+            Self::MarketIntelligence => {
+                "採用ターゲット分析を含む拡張版（媒体分析・配信地域提案向け）"
+            }
         }
     }
 }
@@ -724,7 +726,11 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         &[
             ("サンプル件数", &hl_count, "件"),
             ("主要地域", &hl_region, ""),
-            (cover_hl.label.as_str(), cover_hl.value_text.as_str(), cover_hl.unit.as_str()),
+            (
+                cover_hl.label.as_str(),
+                cover_hl.value_text.as_str(),
+                cover_hl.unit.as_str(),
+            ),
         ],
     );
     html.push_str("</div>\n"); // /dv2-cover-main
@@ -734,16 +740,15 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     html.push_str(
         "<span>この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</span>\n",
     );
-    html.push_str(&format!(
-        "<span>生成日時: {}</span>\n",
-        escape_html(&now)
-    ));
+    html.push_str(&format!("<span>生成日時: {}</span>\n", escape_html(&now)));
     html.push_str("</div>\n");
     html.push_str("</section>\n");
 
     // 既存 cover-page (テスト互換のため維持。印刷時は dv2-cover が page-break-after で先に描画され
     // 続く既存表紙が次ページに重ねて出るのを避けるため、画面表示のみにする)
-    html.push_str("<style>@media print { .cover-page.cover-legacy { display: none !important; } }</style>\n");
+    html.push_str(
+        "<style>@media print { .cover-page.cover-legacy { display: none !important; } }</style>\n",
+    );
     html.push_str(
         "<section class=\"cover-page cover-legacy no-print-cover\" role=\"region\" aria-labelledby=\"cover-title\" aria-hidden=\"true\" style=\"display:none\">\n",
     );
@@ -844,12 +849,32 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
             }
             ReportVariant::Public | ReportVariant::MarketIntelligence => {
                 // CSV 媒体掲載 vs 国勢調査
-                render_section_industry_mismatch_csv(
-                    &mut html,
-                    &ctx.ext_industry_employees,
-                    agg,
-                );
+                render_section_industry_mismatch_csv(&mut html, &ctx.ext_industry_employees, agg);
             }
+        }
+    }
+
+    // --- Section 4B-2 (Round 3-A / 2026-05-06): 産業別就業者 Top10 (国勢調査 2020) ---
+    // Round 2-4 セグメント接続監査の P0-3 消化:
+    //   region.rs:269 の `render_section_industry_structure` (実装 + unit test 完備) は
+    //   印刷版 render パイプラインから呼ばれていなかった。MI variant に 1 行で接続し、
+    //   表 6-2「産業別就業者 Top10」を有効化する。
+    // データ source は e-Stat 国勢調査 2020 (`v2_external_industry_structure`) で公的統計のみ。
+    // HW 求人データ非依存のため Round 2-1/2.5/2.7-B の HW 言及最小化方針と整合。
+    // Full / Public は Tab UI 経由 (integration.rs:139) で既に表示済みのため、
+    // 印刷経路では MI variant に限定して章追加 (regression 防止)。
+    if matches!(variant, ReportVariant::MarketIntelligence) {
+        if let Some(ctx) = hw_context {
+            let pref = agg
+                .dominant_prefecture
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("対象地域");
+            region::render_section_industry_structure(
+                &mut html,
+                &ctx.ext_industry_employees,
+                pref,
+            );
         }
     }
 
@@ -991,9 +1016,8 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
                 .map(|(p, n)| (p.as_str(), n.as_str()))
                 .collect();
 
-            let resolved_rows = super::super::analysis::fetch::fetch_code_master_by_names(
-                db_ref, turso, &pairs,
-            );
+            let resolved_rows =
+                super::super::analysis::fetch::fetch_code_master_by_names(db_ref, turso, &pairs);
             let target_codes_owned: Vec<String> = resolved_rows
                 .iter()
                 .filter_map(|row| {
@@ -1001,8 +1025,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
                         .and_then(|v| v.as_str().map(|s| s.to_string()))
                 })
                 .collect();
-            let target_codes: Vec<&str> =
-                target_codes_owned.iter().map(|s| s.as_str()).collect();
+            let target_codes: Vec<&str> = target_codes_owned.iter().map(|s| s.as_str()).collect();
 
             let (dest_pref, dest_muni) = agg
                 .by_municipality_salary
@@ -1212,10 +1235,7 @@ mod tests {
             .as_array()
             .expect("markLine.data must be array");
 
-        let names: Vec<&str> = series
-            .iter()
-            .filter_map(|ml| ml["name"].as_str())
-            .collect();
+        let names: Vec<&str> = series.iter().filter_map(|ml| ml["name"].as_str()).collect();
         assert!(names.contains(&"中央値"), "中央値ラベルが残っていること");
         assert!(names.contains(&"平均"), "平均ラベルが残っていること");
         assert!(names.contains(&"最頻値"), "最頻値ラベルが残っていること");
@@ -1726,9 +1746,7 @@ mod tests {
             10_000,
         );
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
-        let series = parsed["series"][0]["markLine"]["data"]
-            .as_array()
-            .unwrap();
+        let series = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
 
         let mut formatter_by_name: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
@@ -1775,9 +1793,7 @@ mod tests {
             20_000,
         );
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
-        let series = parsed["series"][0]["markLine"]["data"]
-            .as_array()
-            .unwrap();
+        let series = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
 
         for ml in series {
             let label = &ml["label"];
@@ -1902,12 +1918,13 @@ mod tests {
         let graphic = parsed["graphic"]
             .as_array()
             .expect("graphic が配列であること");
-        assert!(!graphic.is_empty(), "近接時は graphic に統合カードが含まれる");
+        assert!(
+            !graphic.is_empty(),
+            "近接時は graphic に統合カードが含まれる"
+        );
 
         // markLine ラベルは show=false (graphic と二重表示にならない)
-        let ml = parsed["series"][0]["markLine"]["data"]
-            .as_array()
-            .unwrap();
+        let ml = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
         for entry in ml {
             assert_eq!(
                 entry["label"]["show"].as_bool(),
@@ -1919,15 +1936,9 @@ mod tests {
 
         // graphic に 3 統計値の名称が含まれること
         let graphic_str = serde_json::to_string(&graphic).unwrap();
-        assert!(
-            graphic_str.contains("中央値"),
-            "graphic に中央値が含まれる"
-        );
+        assert!(graphic_str.contains("中央値"), "graphic に中央値が含まれる");
         assert!(graphic_str.contains("平均"), "graphic に平均が含まれる");
-        assert!(
-            graphic_str.contains("最頻値"),
-            "graphic に最頻値が含まれる"
-        );
+        assert!(graphic_str.contains("最頻値"), "graphic に最頻値が含まれる");
     }
 
     /// 3 値が離れている (差 > bin_size * 2) のとき従来の position 分散ラベルを維持
@@ -1952,9 +1963,7 @@ mod tests {
         assert!(graphic.is_empty(), "離れているとき graphic は空");
 
         // markLine ラベルは show=true (従来通り表示)
-        let ml = parsed["series"][0]["markLine"]["data"]
-            .as_array()
-            .unwrap();
+        let ml = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
         for entry in ml {
             assert_eq!(
                 entry["label"]["show"].as_bool(),
@@ -2004,7 +2013,10 @@ mod tests {
         let mt_src = include_str!("market_tightness.rs");
         let rc_src = include_str!("regional_compare.rs");
         // どちらも center=["50%", "55%"] を含むこと
-        for (name, src) in [("market_tightness.rs", mt_src), ("regional_compare.rs", rc_src)] {
+        for (name, src) in [
+            ("market_tightness.rs", mt_src),
+            ("regional_compare.rs", rc_src),
+        ] {
             assert!(
                 src.contains("\"center\": [\"50%\", \"55%\"]")
                     || src.contains("\"center\":[\"50%\",\"55%\"]"),
@@ -2709,7 +2721,9 @@ mod design_v2_contract_tests {
             "dv2 CSS variables (--dv2-bg / --dv2-accent) が必須"
         );
         assert!(
-            html.contains("--dv2-good:") && html.contains("--dv2-warn:") && html.contains("--dv2-crit:"),
+            html.contains("--dv2-good:")
+                && html.contains("--dv2-warn:")
+                && html.contains("--dv2-crit:"),
             "severity 色変数 (good/warn/crit) が必須"
         );
         assert!(
@@ -2727,7 +2741,9 @@ mod design_v2_contract_tests {
             "dv2-cover クラスが必須"
         );
         assert!(
-            html.contains("dv2-cover-header") && html.contains("dv2-cover-main") && html.contains("dv2-cover-footer"),
+            html.contains("dv2-cover-header")
+                && html.contains("dv2-cover-main")
+                && html.contains("dv2-cover-footer"),
             "3 段構成 (header / main / footer) が必須"
         );
         assert!(
@@ -3227,10 +3243,7 @@ mod variant_indicator_tests {
     fn variant_and_theme_parsers_are_independent() {
         // theme クエリ値で variant を呼んでも Full フォールバックする
         assert_eq!(ReportVariant::from_query(Some("v8")), ReportVariant::Full);
-        assert_eq!(
-            ReportVariant::from_query(Some("v7a")),
-            ReportVariant::Full
-        );
+        assert_eq!(ReportVariant::from_query(Some("v7a")), ReportVariant::Full);
         assert_eq!(
             ReportVariant::from_query(Some("default")),
             ReportVariant::Full
@@ -3311,10 +3324,7 @@ mod variant_indicator_tests {
             html_mi.contains("採用マーケットインテリジェンス"),
             "MarketIntelligence では親セクション heading 必須"
         );
-        assert!(
-            html_mi.contains("結論サマリー"),
-            "結論サマリーカード必須"
-        );
+        assert!(html_mi.contains("結論サマリー"), "結論サマリーカード必須");
         assert!(
             html_mi.contains("配信地域ランキング"),
             "配信地域ランキング必須"
@@ -3358,7 +3368,8 @@ mod variant_indicator_tests {
     fn market_intelligence_variant_invokes_build_data() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
         let empty_map = std::collections::HashMap::new();
         let html = render_survey_report_page_with_variant_v3_themed(
             &agg,
@@ -3395,7 +3406,8 @@ mod variant_indicator_tests {
     fn full_variant_does_not_invoke_step5_sections() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
         let empty_map = std::collections::HashMap::new();
         let html = render_survey_report_page_with_variant_v3_themed(
             &agg,
@@ -3431,7 +3443,8 @@ mod variant_indicator_tests {
     fn public_variant_does_not_invoke_step5_sections() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
         let empty_map = std::collections::HashMap::new();
         let html = render_survey_report_page_with_variant_v3_themed(
             &agg,
@@ -3471,7 +3484,8 @@ mod variant_indicator_tests {
         // となる。HTML には親セクション + placeholder のみ。
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
         let empty_map = std::collections::HashMap::new();
         let html = render_survey_report_page_with_variant_v3_themed(
             &agg,
@@ -3684,7 +3698,8 @@ mod variant_indicator_tests {
     fn render_for_variant_r2_1(variant: ReportVariant) -> String {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
-        let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
         let empty_map = std::collections::HashMap::new();
         render_survey_report_page_with_variant_v3_themed(
             &agg,
@@ -3750,8 +3765,7 @@ mod variant_indicator_tests {
         }
         // cover subtitle が MI 専用文言に切替わっていること (positive 証明)
         assert!(
-            html.contains("採用市場・ターゲット分析")
-                || html.contains("公開統計クロス分析"),
+            html.contains("採用市場・ターゲット分析") || html.contains("公開統計クロス分析"),
             "MI 用 cover subtitle が出力されていること"
         );
     }
@@ -3825,8 +3839,7 @@ mod variant_indicator_tests {
     }
 
     /// segments テスト用ミニデータ (large に 1 社) を作る
-    fn salesnow_test_segments(
-    ) -> super::super::super::company::fetch::RegionalCompanySegments {
+    fn salesnow_test_segments() -> super::super::super::company::fetch::RegionalCompanySegments {
         let mut s = super::super::super::company::fetch::RegionalCompanySegments::default();
         s.pool_size = 1;
         s.large.push(salesnow_test_company());
@@ -3966,4 +3979,230 @@ mod variant_indicator_tests {
         }
     }
 
+    // =========================================================================
+    // Round 3-A (2026-05-06): 産業構成 Top10 セクション (region.rs:269) を
+    // MI variant の通常導線 PDF (render_survey_report_page_with_variant_v3_themed)
+    // に接続する追加分の検証。Round 2-4 監査 P0-3 の消化。
+    // =========================================================================
+
+    /// 最小 InsightContext を構築するヘルパ (ext_industry_employees のみ設定可能)
+    fn ctx_with_industry_rows(
+        rows: Vec<super::super::super::helpers::Row>,
+    ) -> super::super::super::insight::fetch::InsightContext {
+        super::super::super::insight::fetch::InsightContext {
+            vacancy: vec![],
+            resilience: vec![],
+            transparency: vec![],
+            temperature: vec![],
+            competition: vec![],
+            cascade: vec![],
+            salary_comp: vec![],
+            monopsony: vec![],
+            spatial_mismatch: vec![],
+            wage_compliance: vec![],
+            region_benchmark: vec![],
+            text_quality: vec![],
+            ts_counts: vec![],
+            ts_vacancy: vec![],
+            ts_salary: vec![],
+            ts_fulfillment: vec![],
+            ts_tracking: vec![],
+            ext_job_ratio: vec![],
+            ext_labor_stats: vec![],
+            ext_min_wage: vec![],
+            ext_turnover: vec![],
+            ext_population: vec![],
+            ext_pyramid: vec![],
+            ext_migration: vec![],
+            ext_daytime_pop: vec![],
+            ext_establishments: vec![],
+            ext_business_dynamics: vec![],
+            ext_care_demand: vec![],
+            ext_household_spending: vec![],
+            ext_climate: vec![],
+            ext_households: vec![],
+            ext_vital: vec![],
+            ext_labor_force: vec![],
+            ext_medical_welfare: vec![],
+            ext_education_facilities: vec![],
+            ext_geography: vec![],
+            ext_education: vec![],
+            ext_industry_employees: rows,
+            hw_industry_counts: vec![],
+            ext_social_life: vec![],
+            ext_internet_usage: vec![],
+            pref_avg_unemployment_rate: None,
+            pref_avg_single_rate: None,
+            pref_avg_physicians_per_10k: None,
+            pref_avg_daycare_per_1k_children: None,
+            pref_avg_habitable_density: None,
+            flow: None,
+            commute_zone_count: 0,
+            commute_zone_pref_count: 0,
+            commute_zone_total_pop: 0,
+            commute_zone_working_age: 0,
+            commute_zone_elderly: 0,
+            commute_inflow_total: 0,
+            commute_outflow_total: 0,
+            commute_self_rate: 0.0,
+            commute_inflow_top3: vec![],
+            pref: "東京都".to_string(),
+            muni: String::new(),
+        }
+    }
+
+    /// 産業別就業者 Top10 用のサンプル Row 3 件 (集計行は混入させない)
+    fn sample_industry_rows() -> Vec<super::super::super::helpers::Row> {
+        use serde_json::json;
+        use std::collections::HashMap;
+        let mut out = Vec::new();
+        for (code, name, emp) in [
+            ("P", "医療,福祉", 120_000_i64),
+            ("E", "製造業", 90_000_i64),
+            ("I", "卸売業,小売業", 60_000_i64),
+        ] {
+            let mut m: super::super::super::helpers::Row = HashMap::new();
+            m.insert("industry_code".to_string(), json!(code));
+            m.insert("industry_name".to_string(), json!(name));
+            m.insert("employees_total".to_string(), json!(emp));
+            out.push(m);
+        }
+        out
+    }
+
+    /// MI variant + ext_industry_employees あり → 産業構成 Top10 セクションが出力される
+    #[test]
+    fn round3a_industry_structure_section_appears_in_mi_variant() {
+        let mut agg = SurveyAggregation::default();
+        agg.dominant_prefecture = Some("東京都".to_string());
+        let seeker = JobSeekerAnalysis::default();
+        let ctx = ctx_with_industry_rows(sample_industry_rows());
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            Some(&ctx),
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::MarketIntelligence,
+            ReportTheme::Default,
+            None,
+            None,
+        );
+        assert!(
+            html.contains("data-testid=\"industry-structure-print\""),
+            "MI variant では産業構成 Top10 セクション (Round 3-A 接続) が出力されるはず"
+        );
+        assert!(
+            html.contains("表 6-2"),
+            "産業構成 Top10 の図番号 6-2 が出力されること"
+        );
+        assert!(
+            html.contains("医療,福祉"),
+            "サンプル産業名 (Top1) が表に表示されること"
+        );
+        assert!(
+            html.contains("国勢調査 2020"),
+            "data source は e-Stat 国勢調査 2020 (中立ラベル) であること"
+        );
+    }
+
+    /// Full / Public variant では Round 3-A 経路は発火しない (Tab UI 経由は別系統)。
+    /// 印刷経路の章追加を MI に限定したことの regression 防止。
+    #[test]
+    fn round3a_industry_structure_section_skipped_in_full_and_public_print_path() {
+        for variant in [ReportVariant::Full, ReportVariant::Public] {
+            let mut agg = SurveyAggregation::default();
+            agg.dominant_prefecture = Some("東京都".to_string());
+            let seeker = JobSeekerAnalysis::default();
+            let ctx = ctx_with_industry_rows(sample_industry_rows());
+            let empty_segments =
+                super::super::super::company::fetch::RegionalCompanySegments::default();
+            let empty_map = std::collections::HashMap::new();
+            let html = render_survey_report_page_with_variant_v3_themed(
+                &agg,
+                &seeker,
+                &[],
+                &[],
+                &[],
+                &[],
+                Some(&ctx),
+                &[],
+                &empty_segments,
+                &empty_segments,
+                None,
+                &empty_map,
+                &[],
+                variant,
+                ReportTheme::Default,
+                None,
+                None,
+            );
+            // Round 3-A の testid (印刷経路の region::render_section_industry_structure) は
+            // MI 限定。Full/Public は Tab UI 経由で別途表示済みのため重複を避ける。
+            assert!(
+                !html.contains("data-testid=\"industry-structure-print\""),
+                "{:?} variant の印刷経路では Round 3-A 接続は発火しないはず",
+                variant
+            );
+        }
+    }
+
+    /// Round 3-A 追加章の data source ラベルは公的統計 (HW 連想語不混入)
+    #[test]
+    fn round3a_industry_structure_section_uses_neutral_data_source_label() {
+        let mut agg = SurveyAggregation::default();
+        agg.dominant_prefecture = Some("東京都".to_string());
+        let seeker = JobSeekerAnalysis::default();
+        let ctx = ctx_with_industry_rows(sample_industry_rows());
+        let empty_segments =
+            super::super::super::company::fetch::RegionalCompanySegments::default();
+        let empty_map = std::collections::HashMap::new();
+        let html = render_survey_report_page_with_variant_v3_themed(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            Some(&ctx),
+            &[],
+            &empty_segments,
+            &empty_segments,
+            None,
+            &empty_map,
+            &[],
+            ReportVariant::MarketIntelligence,
+            ReportTheme::Default,
+            None,
+            None,
+        );
+        // Round 3-A 章の section 内では HW 連想語 (HW 求人 / 欠員補充率 / industry_mapping) を出さない
+        // (region::render_section_industry_structure の注記は「HW industry_raw とは粒度が異なる可能性」
+        //  という警告文を含むため、章単体ではなく特定の HW テーブル列名のみ検査する)
+        let section_marker = "data-testid=\"industry-structure-print\"";
+        let start = html
+            .find(section_marker)
+            .expect("Round 3-A セクションが出力されている前提");
+        // section の終端を直近の </div> 検索で確定 (簡易: 最初の section close)
+        let after = &html[start..];
+        // 章単体に「HW求人数」「HW 欠員補充率」「HW 求人継続率」等の数値ラベルが含まれていないこと
+        for hw_label in ["HW求人数", "HW 欠員補充率", "HW 求人継続率"] {
+            assert!(
+                !after[..after.len().min(4_000)].contains(hw_label),
+                "Round 3-A 章に HW 数値ラベル '{}' が混入してはならない",
+                hw_label
+            );
+        }
+    }
 }
