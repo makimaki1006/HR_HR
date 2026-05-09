@@ -61,11 +61,17 @@ pub(super) fn render_section_executive_summary(
         style=\"margin:10px 0;padding:10px 14px;border-left:4px solid #3b82f6;background:#f0f7ff;border-radius:4px;font-size:10.5pt;line-height:1.65;\">\n");
     html.push_str("<div style=\"font-weight:700;margin-bottom:4px;color:#1e40af;\">\u{1F4D6} このレポートの読み進め方（合計 約 3〜4 分）</div>\n");
     html.push_str("<ol style=\"margin:4px 0 0 0;padding-left:1.4em;\">\n");
-    html.push_str("<li><strong>本セクション（Executive Summary）で全体像を把握</strong>（約 30 秒）</li>\n");
-    html.push_str("<li><strong>給与統計セクション</strong>で賃金水準・分布・外れ値を確認（約 1 分）</li>\n");
+    html.push_str(
+        "<li><strong>本セクション（Executive Summary）で全体像を把握</strong>（約 30 秒）</li>\n",
+    );
+    html.push_str(
+        "<li><strong>給与統計セクション</strong>で賃金水準・分布・外れ値を確認（約 1 分）</li>\n",
+    );
     html.push_str("<li><strong>採用市場逼迫度</strong>で「採用難度」を把握（約 1 分）</li>\n");
     html.push_str("<li><strong>地域企業構造・人材デモグラフィック</strong>で地域特性を理解（約 1 分）<span style=\"font-size:9pt;color:#6b7280;\">※ 産業ミスマッチ / 地域多面比較 / 規模帯ベンチマーク等、バリアントによりセクション構成が異なります</span></li>\n");
-    html.push_str("<li><strong>最低賃金比較・ライフスタイル特性</strong>で訴求軸を選定（約 30 秒）</li>\n");
+    html.push_str(
+        "<li><strong>最低賃金比較・ライフスタイル特性</strong>で訴求軸を選定（約 30 秒）</li>\n",
+    );
     html.push_str("</ol>\n");
     html.push_str("</div>\n");
 
@@ -82,10 +88,12 @@ pub(super) fn render_section_executive_summary(
         <th style=\"text-align:left;padding:4px 8px;border-bottom:1px solid #d4d4d8;\">注意</th>\
         <th style=\"text-align:left;padding:4px 8px;border-bottom:1px solid #d4d4d8;\">危険</th></tr></thead>\n");
     html.push_str("<tbody>\n");
-    html.push_str("<tr><td style=\"padding:4px 8px;\">サンプル件数 (n)</td>\
+    html.push_str(
+        "<tr><td style=\"padding:4px 8px;\">サンプル件数 (n)</td>\
         <td style=\"padding:4px 8px;color:#10b981;\">30 件以上</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">10〜30 件（参考程度）</td>\
-        <td style=\"padding:4px 8px;color:#ef4444;\">10 件未満（信頼性低）</td></tr>\n");
+        <td style=\"padding:4px 8px;color:#ef4444;\">10 件未満（信頼性低）</td></tr>\n",
+    );
     html.push_str("<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">給与中央値 (市場参考値比)</td>\
         <td style=\"padding:4px 8px;color:#10b981;\">+10% 以上（訴求力高）</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">±10% 以内（横並び）</td>\
@@ -94,14 +102,18 @@ pub(super) fn render_section_executive_summary(
         <td style=\"padding:4px 8px;color:#10b981;\">15% 以上（活発）</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">5〜15%（標準）</td>\
         <td style=\"padding:4px 8px;color:#ef4444;\">5% 未満（流動性低・人材定着の可能性）</td></tr>\n");
-    html.push_str("<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">主要雇用形態 構成比</td>\
+    html.push_str(
+        "<tr style=\"background:#fdfdfd;\"><td style=\"padding:4px 8px;\">主要雇用形態 構成比</td>\
         <td style=\"padding:4px 8px;color:#10b981;\">30〜70%（バランス良）</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">70〜85%（やや偏り）</td>\
-        <td style=\"padding:4px 8px;color:#ef4444;\">85% 以上（極端な偏り）</td></tr>\n");
-    html.push_str("<tr><td style=\"padding:4px 8px;\">給与解析率</td>\
+        <td style=\"padding:4px 8px;color:#ef4444;\">85% 以上（極端な偏り）</td></tr>\n",
+    );
+    html.push_str(
+        "<tr><td style=\"padding:4px 8px;\">給与解析率</td>\
         <td style=\"padding:4px 8px;color:#10b981;\">85% 以上</td>\
         <td style=\"padding:4px 8px;color:#f59e0b;\">60〜85%</td>\
-        <td style=\"padding:4px 8px;color:#ef4444;\">60% 未満（要 CSV 確認）</td></tr>\n");
+        <td style=\"padding:4px 8px;color:#ef4444;\">60% 未満（要 CSV 確認）</td></tr>\n",
+    );
     html.push_str("</tbody></table>\n");
     html.push_str("<p style=\"font-size:9.5pt;color:#6b7280;margin:6px 0 0;\">\u{203B} 閾値は経験則ベースの目安。地域・職種により適切な水準は変動します。\
         詳細な背景は本レポート末尾の「第6章 注記・出典・免責」を参照してください。</p>\n");
@@ -530,47 +542,47 @@ pub(super) fn build_exec_actions(
     // B: 雇用形態構成差（正社員構成比 vs HW）
     // 2026-05-08 Round 2-1: HW 比較は Full のみ
     if allow_hw_comparison {
-      if let Some(ctx) = hw_context {
-        // CSV 側: 正社員(正職員含む)構成比
-        let total_emp: usize = by_emp_type_salary.iter().map(|e| e.count).sum();
-        let fulltime_count: usize = by_emp_type_salary
-            .iter()
-            .filter(|e| e.emp_type.contains("正社員") || e.emp_type.contains("正職員"))
-            .map(|e| e.count)
-            .sum();
-        let csv_rate = if total_emp > 0 {
-            fulltime_count as f64 / total_emp as f64 * 100.0
-        } else {
-            -1.0
-        };
-        // HW 側
-        let hw_total: f64 = ctx.vacancy.iter().map(|r| get_f64(r, "total_count")).sum();
-        let hw_ft: f64 = ctx
-            .vacancy
-            .iter()
-            .filter(|r| super::super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
-            .map(|r| get_f64(r, "total_count"))
-            .sum();
-        let hw_rate = if hw_total > 0.0 {
-            hw_ft / hw_total * 100.0
-        } else {
-            -1.0
-        };
-        if csv_rate >= 0.0 && hw_rate >= 0.0 {
-            let diff = (csv_rate - hw_rate).abs();
-            if diff >= 15.0 {
-                out.push((
-                    RptSev::Warning,
-                    "雇用形態「正社員」の構成比を見直す候補".to_string(),
-                    format!(
-                        "当サンプル {:.1}% / HW 市場 {:.1}% で {:.1}pt 差。",
-                        csv_rate, hw_rate, diff
-                    ),
-                    "(Section 4 参照)".to_string(),
-                ));
+        if let Some(ctx) = hw_context {
+            // CSV 側: 正社員(正職員含む)構成比
+            let total_emp: usize = by_emp_type_salary.iter().map(|e| e.count).sum();
+            let fulltime_count: usize = by_emp_type_salary
+                .iter()
+                .filter(|e| e.emp_type.contains("正社員") || e.emp_type.contains("正職員"))
+                .map(|e| e.count)
+                .sum();
+            let csv_rate = if total_emp > 0 {
+                fulltime_count as f64 / total_emp as f64 * 100.0
+            } else {
+                -1.0
+            };
+            // HW 側
+            let hw_total: f64 = ctx.vacancy.iter().map(|r| get_f64(r, "total_count")).sum();
+            let hw_ft: f64 = ctx
+                .vacancy
+                .iter()
+                .filter(|r| super::super::super::helpers::get_str_ref(r, "emp_group") == "正社員")
+                .map(|r| get_f64(r, "total_count"))
+                .sum();
+            let hw_rate = if hw_total > 0.0 {
+                hw_ft / hw_total * 100.0
+            } else {
+                -1.0
+            };
+            if csv_rate >= 0.0 && hw_rate >= 0.0 {
+                let diff = (csv_rate - hw_rate).abs();
+                if diff >= 15.0 {
+                    out.push((
+                        RptSev::Warning,
+                        "雇用形態「正社員」の構成比を見直す候補".to_string(),
+                        format!(
+                            "当サンプル {:.1}% / HW 市場 {:.1}% で {:.1}pt 差。",
+                            csv_rate, hw_rate, diff
+                        ),
+                        "(Section 4 参照)".to_string(),
+                    ));
+                }
             }
         }
-      }
     }
 
     // C: タグプレミアム（diff_percent > 5%, count >= 10 の最大 1 件）
@@ -644,7 +656,10 @@ fn build_salary_action_body(
             total_count, annual_impact_oku, diff_man, total_count
         )
     } else {
-        format!("サンプル数 n={} のため試算は参考値に留める (n≥30 推奨)", total_count)
+        format!(
+            "サンプル数 n={} のため試算は参考値に留める (n≥30 推奨)",
+            total_count
+        )
     };
     let next_step = if needs_raise {
         "等級表 下限の見直し / 初任給のみ改定 / 翌月 KPI (応募数・内定承諾率) で効果検証"
@@ -681,7 +696,15 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
+        render_section_executive_summary(
+            &mut html,
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            None,
+            super::super::ReportVariant::Full,
+        );
 
         // 読み進め方ガイドの主要キーワード
         assert!(
@@ -712,7 +735,15 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
+        render_section_executive_summary(
+            &mut html,
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            None,
+            super::super::ReportVariant::Full,
+        );
 
         // タイトル
         assert!(
@@ -749,7 +780,15 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
+        render_section_executive_summary(
+            &mut html,
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            None,
+            super::super::ReportVariant::Full,
+        );
 
         // legacy class が DOM に存在するが display:none で非表示
         assert!(
@@ -778,7 +817,15 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
+        render_section_executive_summary(
+            &mut html,
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            None,
+            super::super::ReportVariant::Full,
+        );
 
         // bridge 自体は存在
         assert!(
@@ -860,17 +907,15 @@ mod ux_enhancement_tests {
             "Design v2 grid は少なくとも 1 つのブロックで display: grid であること"
         );
         let block = "(checked all .exec-kpi-grid-v2 blocks)";
-        assert!(!found_none,
+        assert!(
+            !found_none,
             "Design v2 grid に display: none が誤って適用されていないこと: {}",
             block
         );
         // 元の assertion 互換のため block 変数を維持 (後続コードで使われるなら)
         let _ = block;
         // ダミー条件: 一貫性確認のため再度 found_grid を assert
-        assert!(
-            found_grid,
-            "Design v2 grid は display: grid を保持すること"
-        );
+        assert!(found_grid, "Design v2 grid は display: grid を保持すること");
     }
 
     /// T6-3: Design v2 grid のレスポンシブ対応（mobile 1 列 / tablet 2 列）
@@ -910,7 +955,9 @@ mod ux_enhancement_tests {
             .expect("mobile ブレイクポイント位置");
         // mobile ブロックを抽出（次の "}\n}" まで）
         let mobile_slice = &css[mobile_idx..];
-        let mobile_block_end = mobile_slice.find("}\n}").unwrap_or(mobile_slice.len().min(400));
+        let mobile_block_end = mobile_slice
+            .find("}\n}")
+            .unwrap_or(mobile_slice.len().min(400));
         let mobile_block = &mobile_slice[..mobile_block_end];
         assert!(
             mobile_block.contains("grid-template-columns: 1fr")
@@ -928,7 +975,15 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
+        render_section_executive_summary(
+            &mut html,
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            None,
+            super::super::ReportVariant::Full,
+        );
 
         // 両 grid が DOM に存在
         assert!(
@@ -959,9 +1014,7 @@ mod ux_enhancement_tests {
         // v2 開始タグ近傍に display:none が「ない」こと（誤って隠していないことを保証）
         let v2_idx = html.find("exec-kpi-grid-v2").expect("v2 class 出現位置");
         // v2 開始タグの直近 100 文字（開始タグの style 属性のみを対象）
-        let v2_tag_end = html[v2_idx..]
-            .find('>')
-            .expect("v2 開始タグ '>' 位置");
+        let v2_tag_end = html[v2_idx..].find('>').expect("v2 開始タグ '>' 位置");
         let v2_open_tag = &html[v2_idx..v2_idx + v2_tag_end];
         assert!(
             !v2_open_tag.contains("display:none"),
@@ -978,10 +1031,24 @@ mod ux_enhancement_tests {
         let agg = minimal_agg();
         let seeker = JobSeekerAnalysis::default();
         let mut html = String::new();
-        render_section_executive_summary(&mut html, &agg, &seeker, &[], &[], None, super::super::ReportVariant::Full);
+        render_section_executive_summary(
+            &mut html,
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            None,
+            super::super::ReportVariant::Full,
+        );
 
         // 5 KPI ラベルは（legacy の中に）存在
-        for label in ["サンプル件数", "主要地域", "主要雇用形態", "給与中央値", "新着比率"] {
+        for label in [
+            "サンプル件数",
+            "主要地域",
+            "主要雇用形態",
+            "給与中央値",
+            "新着比率",
+        ] {
             assert!(
                 html.contains(label),
                 "KPI ラベル '{}' が HTML に維持されていること（既存テスト互換）",
@@ -1003,8 +1070,8 @@ mod ux_enhancement_tests {
 
         // data-chart セレクタの存在
         assert!(
-            css.contains("[data-chart]"),
-            "[data-chart] セレクタが CSS に定義されていること"
+            !css.contains("[data-chart]"),
+            "[data-chart] selector is unused in real report DOM and should not remain"
         );
         // ECharts 自動付与属性のセレクタ
         assert!(
@@ -1056,8 +1123,8 @@ mod ux_enhancement_tests {
             "html.pdf-rendering [_echarts_instance_] rule が存在すること"
         );
         assert!(
-            css.contains("html.pdf-rendering [data-chart]"),
-            "html.pdf-rendering [data-chart] rule が存在すること"
+            !css.contains("html.pdf-rendering [data-chart]"),
+            "html.pdf-rendering [data-chart] selector is unused in real report DOM"
         );
 
         // html.pdf-rendering [_echarts_instance_] ブロックに max-width: 100% !important

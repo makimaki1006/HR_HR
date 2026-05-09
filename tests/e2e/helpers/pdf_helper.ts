@@ -11,7 +11,7 @@
 //
 // 対策:
 //   page.pdf() 呼出直前に明示的に DOM 操作 + ECharts.resize() を発火させ、
-//   container の bbox.width が PDF 本文域 (760pt 安全枠) 以下に収まる
+//   container の bbox.width が PDF 本文域 (800px 安全枠) 以下に収まる
 //   ことを wait_for_function で保証する。
 //
 // 注意:
@@ -26,10 +26,10 @@ import type { Page } from '@playwright/test';
  * 強制リサイズする。emulateMedia({ media: 'print' }) の直後に呼ぶこと。
  *
  * @param page - Playwright Page
- * @param maxWidthPt - container bbox.width の上限 (pt)。既定 760pt
+ * @param maxWidthPt - container bbox.width の上限 (CSS px)。既定 800px
  *                    (A4 595pt + 余裕枠。本文域 ~555pt より緩く設定)。
  */
-export async function preparePdfRender(page: Page, maxWidthPt: number = 760): Promise<void> {
+export async function preparePdfRender(page: Page, maxWidthPt: number = 800): Promise<void> {
   // Round 2.11: viewport を A4 portrait に縮小 (Round 2.10 で確定した真因対策)
   //   page.pdf() (Chromium DevTools Page.printToPDF) は viewport を縮小しない仕様。
   //   default 1280×720 のまま page.pdf() を呼ぶと body / section / .echart に

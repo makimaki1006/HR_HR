@@ -724,13 +724,13 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   /* P0-2 (2026-05-06): 印刷時のチャート見切れ修正。
    * 症状: A4 縦印刷で page 4/5/6/8/10 付近の ECharts / canvas / svg が
    *       右端 / 下端で見切れる。
-   * 原因: chart wrapper (.echart, .echart-wrap, .echart-container, .chart-container)
+   * 原因: chart wrapper (.echart, .echart-wrap, .echart-container)
    *       に固定 width / overflow:hidden が残り、@page margin 内の本文幅
    *       (A4 = 210mm - 8mm*2 = 194mm) を超えていた。
    * 対策: width:100% / max-width:100% / overflow:visible を !important で強制。
    *       内部 canvas / svg も max-width:100% / height:auto で本文幅内に収める。
    *       `min-width` は SVG renderer の意図的な縮小回避設定との衝突を避けるため触らない。 */
-  .echart, .echart-wrap, .echart-container, .chart-container, .chart-wrapper {
+  .echart, .echart-wrap, .echart-container {
     width: 100% !important;
     max-width: 100% !important;
     overflow: visible !important;
@@ -738,16 +738,13 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   }
   .echart canvas, .echart svg,
   .echart-wrap canvas, .echart-wrap svg,
-  .echart-container canvas, .echart-container svg,
-  .chart-container canvas, .chart-container svg,
-  .chart-wrapper canvas, .chart-wrapper svg {
+  .echart-container canvas, .echart-container svg {
     max-width: 100% !important;
     height: auto !important;
   }
   /* echarts は ECharts が直接生成する子 div (位置:absolute) を持つ。
    * 親の幅を超えた絶対配置で見切れる事象を防ぐため、子の overflow も解放。 */
-  .echart > div, .echart-wrap > div, .echart-container > div,
-  .chart-container > div, .chart-wrapper > div {
+  .echart > div, .echart-wrap > div, .echart-container > div {
     max-width: 100% !important;
   }
 
@@ -778,17 +775,15 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   /* Round 2.9-B (2026-05-06): page.pdf() 経路で chart container の screen 幅
    * (≈960pt) が PDF に持ち込まれて右端見切れする問題への CSS 側補強。
    * 既存 P0-2 (line 733-) で .echart 等は本文幅に強制済み。本ブロックでは
-   * data-chart 属性 / ECharts 自動付与の [_echarts_instance_] 属性経路を追加。
+   * ECharts 自動付与の [_echarts_instance_] 属性経路を追加。
    * Round 2.9-A の JS resize と相互補完する (JS が onbeforeprint で resize、
    * CSS は最終防衛線として絶対 max-width を強制)。 */
-  [data-chart],
   [_echarts_instance_] {
     width: 100% !important;
     max-width: 100% !important;
     overflow: hidden !important;
     box-sizing: border-box !important;
   }
-  [data-chart] svg, [data-chart] canvas,
   [_echarts_instance_] svg, [_echarts_instance_] canvas {
     max-width: 100% !important;
     height: auto !important;
@@ -803,9 +798,6 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 html.pdf-rendering .echart,
 html.pdf-rendering .echart-wrap,
 html.pdf-rendering .echart-container,
-html.pdf-rendering .chart-container,
-html.pdf-rendering .chart-wrapper,
-html.pdf-rendering [data-chart],
 html.pdf-rendering [_echarts_instance_] {
   width: 100% !important;
   max-width: 100% !important;
@@ -815,18 +807,13 @@ html.pdf-rendering [_echarts_instance_] {
 html.pdf-rendering .echart svg, html.pdf-rendering .echart canvas,
 html.pdf-rendering .echart-wrap svg, html.pdf-rendering .echart-wrap canvas,
 html.pdf-rendering .echart-container svg, html.pdf-rendering .echart-container canvas,
-html.pdf-rendering .chart-container svg, html.pdf-rendering .chart-container canvas,
-html.pdf-rendering .chart-wrapper svg, html.pdf-rendering .chart-wrapper canvas,
-html.pdf-rendering [data-chart] svg, html.pdf-rendering [data-chart] canvas,
 html.pdf-rendering [_echarts_instance_] svg, html.pdf-rendering [_echarts_instance_] canvas {
   max-width: 100% !important;
   height: auto !important;
 }
 html.pdf-rendering .echart > div,
 html.pdf-rendering .echart-wrap > div,
-html.pdf-rendering .echart-container > div,
-html.pdf-rendering .chart-container > div,
-html.pdf-rendering .chart-wrapper > div {
+html.pdf-rendering .echart-container > div {
   max-width: 100% !important;
 }
 
@@ -2737,5 +2724,6 @@ pub(super) fn render_theme_v7a_editorial() -> String {
     break-after: avoid !important;
   }
 }
-"#.to_string()
+"#
+    .to_string()
 }
