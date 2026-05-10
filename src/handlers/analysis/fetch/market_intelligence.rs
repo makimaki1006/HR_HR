@@ -1480,6 +1480,21 @@ pub struct SurveyMarketIntelligenceData {
     // -------- Round 8 P0-2 (2026-05-10): 産業 × 性別 (経済センサス R3) --------
     /// 対象自治体 (集約変換済) の産業 × 性別データ
     pub industry_gender_rows: Vec<IndustryGenderRow>,
+
+    // -------- Round 8 P1-1 (2026-05-10): CSV 求人数 × 地域母集団 4 象限図 --------
+    /// CSV 由来の対象自治体集計 (prefecture, name, count, median_salary)
+    /// `agg.by_municipality_salary` の情報を build 後に inject する。
+    pub csv_municipalities: Vec<CsvMunicipalityCell>,
+}
+
+/// Round 8 P1-1: CSV 求人数 × 地域母集団 4 象限図用の自治体セル
+#[derive(Debug, Clone, Default, Serialize)]
+#[allow(dead_code)]
+pub struct CsvMunicipalityCell {
+    pub prefecture: String,
+    pub name: String,
+    pub count: usize,
+    pub median_salary: i64,
 }
 
 #[allow(dead_code)]

@@ -29,9 +29,9 @@ use super::super::super::analysis::fetch::{
     fetch_ward_rankings_by_parent, fetch_ward_thickness, to_code_master, to_commute_flows,
     to_industry_gender_rows, to_living_cost_proxies, to_occupation_cells,
     to_occupation_populations, to_recruiting_scores, to_ward_rankings, to_ward_thickness_dtos,
-    CommuteFlowSummary, IndustryGenderRow, LivingCostProxy, MunicipalityCodeMasterDto,
-    MunicipalityRecruitingScore, OccupationCellDto, OccupationPopulationCell,
-    SurveyMarketIntelligenceData, WardRankingRowDto,
+    CommuteFlowSummary, CsvMunicipalityCell, IndustryGenderRow, LivingCostProxy,
+    MunicipalityCodeMasterDto, MunicipalityRecruitingScore, OccupationCellDto,
+    OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto,
 };
 use super::super::super::helpers::escape_html;
 use std::collections::BTreeMap;
@@ -159,6 +159,8 @@ pub(crate) fn build_market_intelligence_data(
         ward_rankings,
         code_master,
         industry_gender_rows,
+        // Round 8 P1-1: csv_municipalities は build 後に caller (mod.rs) で inject する
+        csv_municipalities: Vec::new(),
     }
 }
 
@@ -274,6 +276,18 @@ pub(crate) fn render_section_market_intelligence(
     // 注釈で集約レベルと含まれる対象自治体名を明示する。
     if !data.industry_gender_rows.is_empty() {
         render_mi_industry_gender_summary(html, &data.industry_gender_rows, &data.code_master);
+    }
+
+    // Round 8 P1-1 (2026-05-10): CSV 求人数 × 地域母集団 4 象限図。
+    // X 軸: CSV 求人数 (csv_municipalities.count) / Y 軸: 国勢調査 employees_total (集約 city_code 単位の sum)
+    // 4 象限: 重点配信 / 条件見直し / 開拓余地 / 後回し
+    if !data.csv_municipalities.is_empty() && !data.industry_gender_rows.is_empty() {
+        render_mi_market_quadrant(
+            html,
+            &data.csv_municipalities,
+            &data.industry_gender_rows,
+            &data.code_master,
+        );
     }
 
     // Phase 3 Step 5 Phase 4: 政令市区別ランキング (商品の核心)
@@ -1513,6 +1527,210 @@ pub(crate) fn render_mi_industry_gender_summary(
     }
 
     html.push_str("</section>\n");
+}
+
+// --------------- Section 7-NEW3 (Round 8 P1-1): CSV 求人数 × 地域母集団 4 象限図 ---------------
+//
+// 設計目的:
+// - X 軸: CSV 求人数 (csv_municipalities.count) ※ Round 8 P1-1
+// - Y 軸: 国勢調査 employees_total (industry_gender_rows を集約 city_code 単位で sum)
+// - 円サイズ: 給与中央値 (csv_municipalities.median_salary)
+// - 4 象限: 重点配信 (求人多×母集団厚) / 条件見直し (求人多×母集団薄) /
+//           開拓余地 (求人少×母集団厚) / 後回し (求人少×母集団薄)
+// - 集約 city_code → 表示名は industry_gender_rows の city_name + 集約注釈
+
+#[derive(Debug, Clone)]
+struct QuadrantPoint {
+    display_name: String,
+    csv_count: i64,
+    employees_total: i64,
+    median_salary: i64,
+}
+
+/// Round 8 P1-1 + P1-7: 4 象限図 (CSV 求人数 × 国勢調査 employees_total)。
+/// 集約 city_code への注釈は industry_gender_summary と同じパターンで付与。
+pub(crate) fn render_mi_market_quadrant(
+    html: &mut String,
+    csv_municipalities: &[CsvMunicipalityCell],
+    industry_gender_rows: &[IndustryGenderRow],
+    code_master: &[MunicipalityCodeMasterDto],
+) {
+    // 1. CSV 由来 (prefecture, name) → 集約 city_code を解決するため code_master 経由で 2 step lookup
+    //    (a) (prefecture, name) → municipality_code via code_master
+    //    (b) municipality_code → 集約 city_code
+    let mut name_to_code: BTreeMap<(String, String), String> = BTreeMap::new();
+    for cm in code_master {
+        name_to_code.insert((cm.prefecture.clone(), cm.municipality_name.clone()), cm.municipality_code.clone());
+    }
+
+    // 2. 集約 city_code → employees_total 合計 (Round 8 P0-2 の industry_gender_rows を sum)
+    let mut emp_by_city: BTreeMap<String, i64> = BTreeMap::new();
+    let mut display_name_by_city: BTreeMap<String, String> = BTreeMap::new();
+    for r in industry_gender_rows {
+        *emp_by_city.entry(r.city_code.clone()).or_insert(0) += r.employees_total.unwrap_or(0);
+        if !display_name_by_city.contains_key(&r.city_code) {
+            let pref_name = crate::geo::pref_code_to_name(&r.prefecture_code).to_string();
+            let display = if pref_name.is_empty() {
+                r.city_name.clone()
+            } else {
+                format!("{} {}", pref_name, r.city_name)
+            };
+            display_name_by_city.insert(r.city_code.clone(), display);
+        }
+    }
+
+    // 3. CSV 由来集計 → 集約 city_code に紐付け、QuadrantPoint 構築
+    let mut points_map: BTreeMap<String, QuadrantPoint> = BTreeMap::new();
+    let mut aggregation_origins: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for csv in csv_municipalities {
+        let key = (csv.prefecture.clone(), csv.name.clone());
+        let muni_code = match name_to_code.get(&key) {
+            Some(c) => c.clone(),
+            None => continue, // 解決できない自治体はスキップ
+        };
+        let agg_code = aggregate_to_industry_structure_code(&muni_code);
+        let employees = match emp_by_city.get(&agg_code) {
+            Some(v) if *v > 0 => *v,
+            _ => continue, // 国勢調査データなし
+        };
+
+        // 集約された場合は origin を記録
+        if agg_code != muni_code {
+            aggregation_origins
+                .entry(agg_code.clone())
+                .or_default()
+                .push(csv.name.clone());
+        }
+
+        // 同じ集約 city_code に複数 CSV 自治体がマップされる場合は count を sum、median は加重平均は煩雑なので大きい方を採用
+        let entry = points_map.entry(agg_code.clone()).or_insert_with(|| QuadrantPoint {
+            display_name: display_name_by_city
+                .get(&agg_code)
+                .cloned()
+                .unwrap_or_else(|| csv.name.clone()),
+            csv_count: 0,
+            employees_total: employees,
+            median_salary: 0,
+        });
+        entry.csv_count += csv.count as i64;
+        if csv.median_salary > entry.median_salary {
+            entry.median_salary = csv.median_salary;
+        }
+    }
+
+    if points_map.is_empty() {
+        return;
+    }
+
+    // 4. 集約注釈付与
+    for (agg_code, origins) in &aggregation_origins {
+        if let Some(p) = points_map.get_mut(agg_code) {
+            let mut sorted = origins.clone();
+            sorted.sort();
+            sorted.dedup();
+            p.display_name = format!("{} ({} を含む)", p.display_name, sorted.join(" / "));
+        }
+    }
+
+    let points: Vec<QuadrantPoint> = points_map.into_values().collect();
+
+    // 5. 軸の中央値を計算 (median split)
+    let mut counts: Vec<i64> = points.iter().map(|p| p.csv_count).collect();
+    let mut emps: Vec<i64> = points.iter().map(|p| p.employees_total).collect();
+    counts.sort();
+    emps.sort();
+    let count_median = counts[counts.len() / 2];
+    let emp_median = emps[emps.len() / 2];
+
+    // 6. HTML 出力
+    html.push_str(
+        "<section class=\"mi-market-quadrant\" data-mi-section=\"market-quadrant\" \
+         aria-labelledby=\"mi-quad-heading\" style=\"margin:16px 0;\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-quad-heading\">CSV 求人数 × 地域母集団 4 象限図 \
+         <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[商品コア / 配信戦略]</span></h3>\n",
+    );
+    html.push_str(
+        "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;margin:0 0 8px;\">\
+         X 軸: CSV 求人数 (対象自治体)。Y 軸: 国勢調査 R3 経済センサス 全産業従業者数 (集約 city_code 単位で合算)。\
+         円サイズ: CSV 給与中央値。象限分割は 4 自治体の中央値を基準。<br/>\
+         <strong>東京都特別区部の規模注意</strong>: 23 区は「特別区部」(13100) として一括集計されるため、\
+         新宿区/千代田区などの個別求人を含む象限点は実際には特別区全体 (約 836 万人規模) に対する位置づけです。\
+         「重点配信」象限に入った場合でも、個別区での母集団は数十万人〜百万人単位で、\
+         単体自治体の求人と直接比較するには注意が必要です。</p>\n",
+    );
+
+    // 4 象限テーブル
+    html.push_str(
+        "<table class=\"mi-quad-table\" style=\"width:100%;border-collapse:collapse;font-size:11px;margin:8px 0;\">\n\
+         <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
+         <th style=\"text-align:left;padding:4px 6px;\">象限</th>\
+         <th style=\"text-align:left;padding:4px 6px;\">対象自治体</th>\
+         <th style=\"text-align:right;padding:4px 6px;\">CSV 求人数</th>\
+         <th style=\"text-align:right;padding:4px 6px;\">国勢調査 従業者</th>\
+         <th style=\"text-align:right;padding:4px 6px;\">CSV 給与中央値</th>\
+         <th style=\"text-align:left;padding:4px 6px;\">配信方針</th>\
+         </tr></thead><tbody>\n",
+    );
+
+    let mut sorted_points = points.clone();
+    sorted_points.sort_by(|a, b| b.csv_count.cmp(&a.csv_count));
+    for p in &sorted_points {
+        let q_label = quadrant_label(p.csv_count, p.employees_total, count_median, emp_median);
+        let advice = quadrant_advice(p.csv_count, p.employees_total, count_median, emp_median);
+        let median_disp = if p.median_salary > 0 {
+            format!("{} 万円", format_thousands(p.median_salary / 10000))
+        } else {
+            "-".to_string()
+        };
+        html.push_str(&format!(
+            "<tr>\
+             <td style=\"padding:3px 6px;color:#1e3a8a;font-weight:600;\">{q}</td>\
+             <td style=\"padding:3px 6px;\">{n}</td>\
+             <td style=\"text-align:right;padding:3px 6px;\">{c} 件</td>\
+             <td style=\"text-align:right;padding:3px 6px;\">{e} 人</td>\
+             <td style=\"text-align:right;padding:3px 6px;\">{m}</td>\
+             <td style=\"padding:3px 6px;color:#64748b;font-size:10px;\">{a}</td>\
+             </tr>\n",
+            q = escape_html(q_label),
+            n = escape_html(&p.display_name),
+            c = format_thousands(p.csv_count),
+            e = format_thousands(p.employees_total),
+            m = escape_html(&median_disp),
+            a = escape_html(advice),
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+
+    // 軸基準値の表示
+    html.push_str(&format!(
+        "<p style=\"font-size:10px;color:#64748b;margin:4px 0;\">\
+         象限分割基準: CSV 求人数中央値 = {c} 件、従業者中央値 = {e} 人 (対象 {n} 自治体)</p>\n",
+        c = format_thousands(count_median),
+        e = format_thousands(emp_median),
+        n = points.len(),
+    ));
+
+    html.push_str("</section>\n");
+}
+
+fn quadrant_label(count: i64, emp: i64, c_med: i64, e_med: i64) -> &'static str {
+    match (count >= c_med, emp >= e_med) {
+        (true, true) => "重点配信",
+        (true, false) => "条件見直し",
+        (false, true) => "開拓余地",
+        (false, false) => "後回し",
+    }
+}
+
+fn quadrant_advice(count: i64, emp: i64, c_med: i64, e_med: i64) -> &'static str {
+    match (count >= c_med, emp >= e_med) {
+        (true, true) => "求人数・母集団とも厚い。配信予算と訴求の主戦場",
+        (true, false) => "求人多いが母集団薄。給与・勤務条件・訴求の見直し",
+        (false, true) => "母集団あるのに求人少。新規配信候補・伸び代",
+        (false, false) => "求人・母集団とも薄い。当面は後回し",
+    }
 }
 
 // --------------- Section 7-LEGACY: Plan B (workplace measured + resident estimated_beta) ---------------

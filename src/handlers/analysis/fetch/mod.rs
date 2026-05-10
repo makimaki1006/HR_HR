@@ -89,9 +89,10 @@ pub(crate) use market_intelligence::{
     fetch_recruiting_scores_by_municipalities, fetch_ward_rankings_by_parent, fetch_ward_thickness,
     to_code_master, to_commute_flows, to_industry_gender_rows, to_living_cost_proxies,
     to_occupation_cells, to_occupation_populations, to_recruiting_scores, to_ward_rankings,
-    to_ward_thickness_dtos, CommuteFlowSummary, DataSourceLabel, IndustryGenderRow,
-    LivingCostProxy, MunicipalityCodeMasterDto, MunicipalityRecruitingScore, OccupationCellDto,
-    OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto, WardThicknessDto,
+    to_ward_thickness_dtos, CommuteFlowSummary, CsvMunicipalityCell, DataSourceLabel,
+    IndustryGenderRow, LivingCostProxy, MunicipalityCodeMasterDto, MunicipalityRecruitingScore,
+    OccupationCellDto, OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto,
+    WardThicknessDto,
 };
 // CommuteMunicipality は subtab7_other 内部のみで使用 (fetch_commute_zone の戻り値型として fetch_commute_zone_pyramid に渡される)
 // 外部からは直接参照されないため再エクスポートしない
