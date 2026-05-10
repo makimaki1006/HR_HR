@@ -269,7 +269,13 @@ pub(crate) fn fetch_occupation_population(
          ORDER BY occupation_code, age_group, gender"
     );
 
-    query_turso_or_local(turso, db, &sql, &params, "municipality_occupation_population")
+    query_turso_or_local(
+        turso,
+        db,
+        &sql,
+        &params,
+        "municipality_occupation_population",
+    )
 }
 
 // ============================================================
@@ -337,7 +343,13 @@ pub(crate) fn fetch_occupation_cells(
         where_sql = where_clauses.join(" AND ")
     );
 
-    query_turso_or_local(turso, db, &sql, &params, "municipality_occupation_population")
+    query_turso_or_local(
+        turso,
+        db,
+        &sql,
+        &params,
+        "municipality_occupation_population",
+    )
 }
 
 /// `v2_municipality_target_thickness` から designated_ward の thickness 詳細を取得する。
@@ -470,7 +482,8 @@ pub(crate) fn fetch_code_master(
     }
 
     if municipality_codes.is_empty() {
-        let sql = "SELECT municipality_code, municipality_name, prefecture, area_type, parent_code \
+        let sql =
+            "SELECT municipality_code, municipality_name, prefecture, area_type, parent_code \
                    FROM municipality_code_master \
                    ORDER BY municipality_code";
         return query_turso_or_local(turso, db, sql, &[], "municipality_code_master");
@@ -521,7 +534,9 @@ pub(crate) fn fetch_code_master_by_names(
     for (i, (pref, name)) in pref_name_pairs.iter().enumerate() {
         let p_idx = i * 2 + 1;
         let n_idx = i * 2 + 2;
-        conds.push(format!("(prefecture = ?{p_idx} AND municipality_name = ?{n_idx})"));
+        conds.push(format!(
+            "(prefecture = ?{p_idx} AND municipality_name = ?{n_idx})"
+        ));
         params.push(pref.to_string());
         params.push(name.to_string());
     }
@@ -1272,6 +1287,136 @@ impl WardRankingRowDto {
     }
 }
 
+// ============================================================
+// Round 8 P0-2 (2026-05-10): 産業 × 性別 (経済センサス R3)
+// ============================================================
+//
+// 経済センサス R3 (statsDataId=0003449718) の集約形式に合わせ、
+// 個別自治体 city_code を集約コード (特別区部 / 政令市本市) に変換してから
+// `v2_external_industry_structure` を引く。
+//
+// 設計参照: docs/MEDIA_REPORT_P0_FEASIBILITY_CHECK_2026_05_09.md
+
+/// `city_code` を経済センサス R3 の集約コードに変換する。
+///
+/// - 東京 23 区 (13101〜13123) → 13100 (特別区部)
+/// - 政令市の行政区 → 政令市本市コード
+/// - それ以外 → 入力コードをそのまま (5 桁正規化のみ)
+pub(crate) fn aggregate_to_industry_structure_code(code: &str) -> String {
+    let s = if code.len() < 5 {
+        format!("{:0>5}", code)
+    } else {
+        code.to_string()
+    };
+    if s.len() != 5 || !s.chars().all(|c| c.is_ascii_digit()) {
+        return s;
+    }
+    let n: u32 = match s.parse() {
+        Ok(v) => v,
+        Err(_) => return s,
+    };
+    // 東京 23 区
+    if (13101..=13123).contains(&n) { return "13100".to_string(); }
+    // 政令市の行政区 (各政令市の本市コード)
+    if (1101..=1110).contains(&n)   { return "01100".to_string(); } // 札幌市
+    if (4101..=4105).contains(&n)   { return "04100".to_string(); } // 仙台市
+    if (11101..=11110).contains(&n) { return "11100".to_string(); } // さいたま市
+    if (12101..=12106).contains(&n) { return "12100".to_string(); } // 千葉市
+    if (14101..=14118).contains(&n) { return "14100".to_string(); } // 横浜市
+    if (14131..=14137).contains(&n) { return "14130".to_string(); } // 川崎市
+    if (14151..=14153).contains(&n) { return "14150".to_string(); } // 相模原市
+    if (15101..=15108).contains(&n) { return "15100".to_string(); } // 新潟市
+    if (22101..=22103).contains(&n) { return "22100".to_string(); } // 静岡市
+    if (22131..=22137).contains(&n) { return "22130".to_string(); } // 浜松市
+    if (23101..=23116).contains(&n) { return "23100".to_string(); } // 名古屋市
+    if (26101..=26111).contains(&n) { return "26100".to_string(); } // 京都市
+    if (27101..=27128).contains(&n) { return "27100".to_string(); } // 大阪市
+    if (27141..=27147).contains(&n) { return "27140".to_string(); } // 堺市
+    if (28101..=28110).contains(&n) { return "28100".to_string(); } // 神戸市
+    if (33101..=33106).contains(&n) { return "33100".to_string(); } // 岡山市
+    if (34101..=34108).contains(&n) { return "34100".to_string(); } // 広島市
+    if (40101..=40109).contains(&n) { return "40100".to_string(); } // 北九州市
+    if (40131..=40137).contains(&n) { return "40130".to_string(); } // 福岡市
+    if (43101..=43105).contains(&n) { return "43100".to_string(); } // 熊本市
+    s
+}
+
+/// 対象自治体 (集約変換済) の産業 × 性別を取得する。
+///
+/// `industry_code` は産業大分類のうち、合計系 ('AS','AR','CR') と
+/// データ粒度の小さい ('AB','D') を除外する。
+pub(crate) fn fetch_industry_structure_for_municipalities(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    target_municipalities: &[&str],
+) -> Vec<Row> {
+    if target_municipalities.is_empty() {
+        return vec![];
+    }
+    if !table_exists(db, "v2_external_industry_structure") && turso.is_none() {
+        return vec![];
+    }
+
+    let mut agg_codes: Vec<String> = target_municipalities
+        .iter()
+        .map(|c| aggregate_to_industry_structure_code(c))
+        .collect();
+    agg_codes.sort();
+    agg_codes.dedup();
+
+    let placeholders: String = (1..=agg_codes.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let params: Vec<String> = agg_codes;
+
+    let sql = format!(
+        "SELECT prefecture_code, city_code, city_name, industry_code, industry_name, \
+                employees_total, employees_male, employees_female \
+         FROM v2_external_industry_structure \
+         WHERE city_code IN ({placeholders}) \
+           AND industry_code NOT IN ('AS','AR','CR','AB','D') \
+         ORDER BY city_code, employees_total DESC"
+    );
+
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_industry_structure")
+}
+
+/// 産業 × 性別 行 (経済センサス R3 / employees_male,female 列を活用)
+#[derive(Debug, Clone, Default, Serialize)]
+#[allow(dead_code)]
+pub struct IndustryGenderRow {
+    pub prefecture_code: String,
+    pub city_code: String,
+    pub city_name: String,
+    pub industry_code: String,
+    pub industry_name: String,
+    pub employees_total: Option<i64>,
+    pub employees_male: Option<i64>,
+    pub employees_female: Option<i64>,
+}
+
+#[allow(dead_code)]
+impl IndustryGenderRow {
+    pub fn from_row(row: &Row) -> Self {
+        Self {
+            prefecture_code: str_or_empty(row, "prefecture_code"),
+            city_code: str_or_empty(row, "city_code"),
+            city_name: str_or_empty(row, "city_name"),
+            industry_code: str_or_empty(row, "industry_code"),
+            industry_name: str_or_empty(row, "industry_name"),
+            employees_total: opt_i64(row, "employees_total"),
+            employees_male: opt_i64(row, "employees_male"),
+            employees_female: opt_i64(row, "employees_female"),
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn to_industry_gender_rows(rows: &[Row]) -> Vec<IndustryGenderRow> {
+    rows.iter().map(IndustryGenderRow::from_row).collect()
+}
+
 /// 市区町村コードマスター DTO (結合キー用 lookup)
 #[derive(Debug, Clone, Default, Serialize)]
 #[allow(dead_code)]
@@ -1331,6 +1476,10 @@ pub struct SurveyMarketIntelligenceData {
     pub ward_rankings: Vec<WardRankingRowDto>,
     /// 結合キー用 lookup
     pub code_master: Vec<MunicipalityCodeMasterDto>,
+
+    // -------- Round 8 P0-2 (2026-05-10): 産業 × 性別 (経済センサス R3) --------
+    /// 対象自治体 (集約変換済) の産業 × 性別データ
+    pub industry_gender_rows: Vec<IndustryGenderRow>,
 }
 
 #[allow(dead_code)]
@@ -1362,7 +1511,9 @@ impl SurveyMarketIntelligenceData {
 /// (Step 3 でレポート HTML が呼ぶときの入口)
 #[allow(dead_code)]
 pub(crate) fn to_recruiting_scores(rows: &[Row]) -> Vec<MunicipalityRecruitingScore> {
-    rows.iter().map(MunicipalityRecruitingScore::from_row).collect()
+    rows.iter()
+        .map(MunicipalityRecruitingScore::from_row)
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -1377,7 +1528,9 @@ pub(crate) fn to_commute_flows(rows: &[Row]) -> Vec<CommuteFlowSummary> {
 
 #[allow(dead_code)]
 pub(crate) fn to_occupation_populations(rows: &[Row]) -> Vec<OccupationPopulationCell> {
-    rows.iter().map(OccupationPopulationCell::from_row).collect()
+    rows.iter()
+        .map(OccupationPopulationCell::from_row)
+        .collect()
 }
 
 // -------- Phase 3 Step 5 Phase 3: 4 新規 DTO 用変換ヘルパー --------
@@ -1399,7 +1552,9 @@ pub(crate) fn to_ward_rankings(rows: &[Row]) -> Vec<WardRankingRowDto> {
 
 #[allow(dead_code)]
 pub(crate) fn to_code_master(rows: &[Row]) -> Vec<MunicipalityCodeMasterDto> {
-    rows.iter().map(MunicipalityCodeMasterDto::from_row).collect()
+    rows.iter()
+        .map(MunicipalityCodeMasterDto::from_row)
+        .collect()
 }
 
 // ============================================================
@@ -1505,7 +1660,12 @@ mod tests {
         }
 
         let rows = fetch_commute_flow_summary(&db, None, "北海道", "札幌市", 10);
-        assert_eq!(rows.len(), 3, "self-loop 除外で 3 件期待 (実際: {})", rows.len());
+        assert_eq!(
+            rows.len(),
+            3,
+            "self-loop 除外で 3 件期待 (実際: {})",
+            rows.len()
+        );
 
         // 1 位は江別市 (total_commuters=8000)
         let first_origin_muni = rows[0]
@@ -1566,13 +1726,31 @@ mod tests {
         row.insert("municipality_code".into(), Value::String("01101".into()));
         row.insert("prefecture".into(), Value::String("北海道".into()));
         row.insert("municipality_name".into(), Value::String("札幌市".into()));
-        row.insert("occupation_group_code".into(), Value::String("driver".into()));
-        row.insert("occupation_group_name".into(), Value::String("輸送・機械運転".into()));
+        row.insert(
+            "occupation_group_code".into(),
+            Value::String("driver".into()),
+        );
+        row.insert(
+            "occupation_group_name".into(),
+            Value::String("輸送・機械運転".into()),
+        );
         row.insert("target_population".into(), Value::String("12345".into()));
-        row.insert("distribution_priority_score".into(), Value::String("78.5".into()));
-        row.insert("scenario_conservative_population".into(), Value::String("100".into()));
-        row.insert("scenario_standard_population".into(), Value::String("300".into()));
-        row.insert("scenario_aggressive_population".into(), Value::String("500".into()));
+        row.insert(
+            "distribution_priority_score".into(),
+            Value::String("78.5".into()),
+        );
+        row.insert(
+            "scenario_conservative_population".into(),
+            Value::String("100".into()),
+        );
+        row.insert(
+            "scenario_standard_population".into(),
+            Value::String("300".into()),
+        );
+        row.insert(
+            "scenario_aggressive_population".into(),
+            Value::String("500".into()),
+        );
 
         let dto = MunicipalityRecruitingScore::from_row(&row);
         assert_eq!(dto.municipality_code, "01101");
@@ -1705,7 +1883,10 @@ mod tests {
             "origin_municipality_name".into(),
             Value::String("江別市".into()),
         );
-        row_a.insert("origin_municipality_code".into(), Value::String("01217".into()));
+        row_a.insert(
+            "origin_municipality_code".into(),
+            Value::String("01217".into()),
+        );
         row_a.insert("flow_count".into(), Value::String("8000".into()));
         row_a.insert("flow_share".into(), Value::String("0.42".into()));
         row_a.insert("rank_to_destination".into(), Value::from(1_i64));
@@ -1768,7 +1949,10 @@ mod tests {
     fn test_vec_row_to_vec_dto_conversion() {
         let mut row1: Row = HashMap::new();
         row1.insert("municipality_code".into(), Value::String("01101".into()));
-        row1.insert("distribution_priority_score".into(), Value::String("85.0".into()));
+        row1.insert(
+            "distribution_priority_score".into(),
+            Value::String("85.0".into()),
+        );
         let mut row2: Row = HashMap::new();
         row2.insert("municipality_code".into(), Value::String("01102".into()));
         row2.insert("distribution_priority_score".into(), Value::from(70.0_f64));
@@ -1988,11 +2172,7 @@ mod tests {
                 distribution_priority: val.map(|s| s.to_string()),
                 ..Default::default()
             };
-            assert_eq!(
-                dto.is_priority_grade_in_set(),
-                expected,
-                "{label}: {val:?}"
-            );
+            assert_eq!(dto.is_priority_grade_in_set(), expected, "{label}: {val:?}");
         }
 
         // Worker B シナリオスコアの順序検証
@@ -2159,8 +2339,10 @@ mod phase3_step5_dto_tests {
             estimate_index: Some(140.0),
             ..Default::default()
         };
-        assert!(!bad.is_xor_consistent(),
-            "estimated_beta に population があると XOR 違反として検出されること");
+        assert!(
+            !bad.is_xor_consistent(),
+            "estimated_beta に population があると XOR 違反として検出されること"
+        );
     }
 
     /// 不変条件: measured 行は estimate_index を持たない
@@ -2172,8 +2354,10 @@ mod phase3_step5_dto_tests {
             estimate_index: Some(50.0), // 違反: measured なのに指数あり
             ..Default::default()
         };
-        assert!(!bad.is_xor_consistent(),
-            "measured に estimate_index があると XOR 違反として検出されること");
+        assert!(
+            !bad.is_xor_consistent(),
+            "measured に estimate_index があると XOR 違反として検出されること"
+        );
     }
 
     /// 不変条件: thickness_index は妥当な範囲 (0 <= x <= 200 が正常域)
@@ -2185,24 +2369,30 @@ mod phase3_step5_dto_tests {
             thickness_index: 142.5,
             ..Default::default()
         };
-        assert!(valid.thickness_index >= 0.0 && valid.thickness_index <= 200.0,
-            "正常な thickness_index は 0-200 範囲");
+        assert!(
+            valid.thickness_index >= 0.0 && valid.thickness_index <= 200.0,
+            "正常な thickness_index は 0-200 範囲"
+        );
 
         // 異常: cap 超過 (Plan B 仕様 200 超は異常)
         let invalid_high = WardThicknessDto {
             thickness_index: 999.0,
             ..Default::default()
         };
-        assert!(invalid_high.thickness_index > 200.0,
-            "999.0 は cap 違反として検出可能");
+        assert!(
+            invalid_high.thickness_index > 200.0,
+            "999.0 は cap 違反として検出可能"
+        );
 
         // 異常: 負値
         let invalid_neg = WardThicknessDto {
             thickness_index: -10.0,
             ..Default::default()
         };
-        assert!(invalid_neg.thickness_index < 0.0,
-            "負値は不変条件違反として検出可能");
+        assert!(
+            invalid_neg.thickness_index < 0.0,
+            "負値は不変条件違反として検出可能"
+        );
     }
 
     /// 不変条件: parent_rank は parent_total を超えない (1 <= rank <= total)
@@ -2215,8 +2405,7 @@ mod phase3_step5_dto_tests {
             parent_total: 18,
             ..Default::default()
         };
-        assert!(valid.uses_parent_rank_primary(),
-            "5 位 / 18 中は正常");
+        assert!(valid.uses_parent_rank_primary(), "5 位 / 18 中は正常");
 
         // 異常: rank > total
         let invalid = WardRankingRowDto {
@@ -2225,8 +2414,10 @@ mod phase3_step5_dto_tests {
             parent_total: 18,
             ..Default::default()
         };
-        assert!(!invalid.uses_parent_rank_primary(),
-            "rank > total は不変条件違反として検出されること");
+        assert!(
+            !invalid.uses_parent_rank_primary(),
+            "rank > total は不変条件違反として検出されること"
+        );
     }
 
     /// 不変条件: parent_rank == 0 は invalid (1-indexed なので 0 は未定義)
@@ -2238,8 +2429,10 @@ mod phase3_step5_dto_tests {
             parent_total: 18,
             ..Default::default()
         };
-        assert!(!zero_rank.uses_parent_rank_primary(),
-            "parent_rank = 0 は無効値として検出");
+        assert!(
+            !zero_rank.uses_parent_rank_primary(),
+            "parent_rank = 0 は無効値として検出"
+        );
     }
 }
 
@@ -2350,7 +2543,10 @@ mod phase3_step5_fetch_tests {
         let cells = to_occupation_cells(&rows);
         assert_eq!(cells.len(), 1);
         for cell in &cells {
-            assert!(cell.is_xor_consistent(), "measured 行は XOR 一貫していること");
+            assert!(
+                cell.is_xor_consistent(),
+                "measured 行は XOR 一貫していること"
+            );
             if cell.data_label == "measured" {
                 assert!(cell.population.is_some());
                 assert!(cell.estimate_index.is_none());
@@ -2493,9 +2689,15 @@ mod phase3_step5_fetch_tests {
         let dtos = to_code_master(&rows);
         assert_eq!(dtos.len(), 3);
         // parent_code は Option<String>: aggregate_city は None、designated_ward は Some
-        let yokohama = dtos.iter().find(|d| d.municipality_code == "14100").unwrap();
+        let yokohama = dtos
+            .iter()
+            .find(|d| d.municipality_code == "14100")
+            .unwrap();
         assert!(yokohama.parent_code.is_none());
-        let tsurumi = dtos.iter().find(|d| d.municipality_code == "14101").unwrap();
+        let tsurumi = dtos
+            .iter()
+            .find(|d| d.municipality_code == "14101")
+            .unwrap();
         assert_eq!(tsurumi.parent_code.as_deref(), Some("14100"));
 
         // 特定 codes 指定 → 1 行
@@ -2526,7 +2728,10 @@ mod phase3_step5_fetch_tests {
 
         let dtos = to_ward_thickness_dtos(&rows);
         assert_eq!(dtos.len(), 1);
-        assert!(dtos[0].is_industrial_anchor, "is_industrial_anchor=1 → true");
+        assert!(
+            dtos[0].is_industrial_anchor,
+            "is_industrial_anchor=1 → true"
+        );
         assert_eq!(dtos[0].thickness_index, 142.5);
         assert_eq!(dtos[0].scenario_conservative_index, Some(100));
         assert_eq!(dtos[0].scenario_aggressive_index, Some(180));
@@ -2574,7 +2779,10 @@ mod phase3_step5_fetch_tests {
         let pairs = [("東京都", "新宿区"), ("東京都", "港区")];
         let rows = fetch_code_master_by_names(&db, None, &pairs);
         assert_eq!(rows.len(), 2);
-        let codes: Vec<String> = rows.iter().map(|r| str_or_empty(r, "municipality_code")).collect();
+        let codes: Vec<String> = rows
+            .iter()
+            .map(|r| str_or_empty(r, "municipality_code"))
+            .collect();
         assert!(codes.contains(&"13104".to_string()), "新宿区が解決");
         assert!(codes.contains(&"13103".to_string()), "港区が解決");
     }
@@ -2604,7 +2812,11 @@ mod phase3_step5_fetch_tests {
             .iter()
             .map(|r| str_or_empty(r, "municipality_code"))
             .collect();
-        assert_eq!(codes.len(), 1, "aggregate (横浜市) は area_level='unit' フィルタで除外");
+        assert_eq!(
+            codes.len(),
+            1,
+            "aggregate (横浜市) は area_level='unit' フィルタで除外"
+        );
         assert_eq!(codes[0], "13104", "新宿区のみ返却");
     }
 

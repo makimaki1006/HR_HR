@@ -23,13 +23,15 @@
 //! Step 4 で追加した `variant.show_market_intelligence_sections()` フラグで分岐される。
 
 use super::super::super::analysis::fetch::{
-    fetch_code_master, fetch_commute_flow_summary, fetch_living_cost_proxy, fetch_occupation_cells,
+    aggregate_to_industry_structure_code, fetch_code_master, fetch_commute_flow_summary,
+    fetch_industry_structure_for_municipalities, fetch_living_cost_proxy, fetch_occupation_cells,
     fetch_occupation_population, fetch_recruiting_scores_by_municipalities,
     fetch_ward_rankings_by_parent, fetch_ward_thickness, to_code_master, to_commute_flows,
-    to_living_cost_proxies, to_occupation_cells, to_occupation_populations, to_recruiting_scores,
-    to_ward_rankings, to_ward_thickness_dtos, CommuteFlowSummary, LivingCostProxy,
-    MunicipalityCodeMasterDto, MunicipalityRecruitingScore, OccupationCellDto,
-    OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto,
+    to_industry_gender_rows, to_living_cost_proxies, to_occupation_cells,
+    to_occupation_populations, to_recruiting_scores, to_ward_rankings, to_ward_thickness_dtos,
+    CommuteFlowSummary, IndustryGenderRow, LivingCostProxy, MunicipalityCodeMasterDto,
+    MunicipalityRecruitingScore, OccupationCellDto, OccupationPopulationCell,
+    SurveyMarketIntelligenceData, WardRankingRowDto,
 };
 use super::super::super::helpers::escape_html;
 use std::collections::BTreeMap;
@@ -139,6 +141,14 @@ pub(crate) fn build_market_intelligence_data(
         (occupation_cells, ward_thickness, ward_rankings, code_master)
     };
 
+    // ----- Round 8 P0-2 (2026-05-10): 産業 × 性別 (経済センサス R3) -----
+    let industry_gender_rows = if target_municipalities.is_empty() {
+        Vec::new()
+    } else {
+        let rows = fetch_industry_structure_for_municipalities(db, turso, target_municipalities);
+        to_industry_gender_rows(&rows)
+    };
+
     SurveyMarketIntelligenceData {
         recruiting_scores: to_recruiting_scores(&recruiting_rows),
         living_cost_proxies: to_living_cost_proxies(&living_cost_rows),
@@ -148,6 +158,7 @@ pub(crate) fn build_market_intelligence_data(
         ward_thickness,
         ward_rankings,
         code_master,
+        industry_gender_rows,
     }
 }
 
@@ -256,6 +267,13 @@ pub(crate) fn render_section_market_intelligence(
     // 旧 `render_mi_occupation_cells` は legacy として保持 (既存テスト互換)。
     if !data.occupation_cells.is_empty() {
         render_mi_occupation_segment_summary(html, &data.occupation_cells);
+    }
+
+    // Round 8 P0-2 (2026-05-10): 産業 × 性別 (経済センサス R3)。
+    // データ粒度上、東京 23 区は「特別区部 (13100)」、政令市行政区は本市コードに集約される。
+    // 注釈で集約レベルと含まれる対象自治体名を明示する。
+    if !data.industry_gender_rows.is_empty() {
+        render_mi_industry_gender_summary(html, &data.industry_gender_rows, &data.code_master);
     }
 
     // Phase 3 Step 5 Phase 4: 政令市区別ランキング (商品の核心)
@@ -1326,6 +1344,168 @@ pub(crate) fn render_mi_occupation_segment_summary(
                 m = mid_pct,
                 s = senior_pct,
                 ins = escape_html(&insight),
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str("  </div>\n");
+    }
+
+    html.push_str("</section>\n");
+}
+
+// --------------- Section 7-NEW2 (Round 8 P0-2): 対象自治体 × 産業 × 性別 ---------------
+//
+// 設計目的:
+// - 経済センサス R3 (statsDataId=0003449718) の `v2_external_industry_structure` を使う
+// - 23 区は「特別区部」、政令市行政区は本市コードに集約 (データ提供形式の制約)
+// - 対象自治体ごとに産業 Top 8 を集計、女性比 + 採用示唆を出す
+// - 集約された場合は注釈 (例: 「東京都 特別区部 (新宿区/千代田区を含む)」) を付ける
+
+fn industry_gender_insight(female_pct: f64) -> &'static str {
+    if female_pct >= 65.0 {
+        "女性中心 (採用ターゲット: 女性層)"
+    } else if female_pct >= 50.0 {
+        "女性比やや高め (女性訴求◎)"
+    } else if female_pct >= 40.0 {
+        "男女均衡"
+    } else if female_pct >= 25.0 {
+        "男性比やや高め"
+    } else {
+        "男性中心 (採用ターゲット: 男性層)"
+    }
+}
+
+/// Round 8 P0-2: 対象自治体 × 産業 × 性別 セグメントサマリ。
+/// `code_master` を参照して集約された場合は元の対象自治体名を注釈表示する。
+pub(crate) fn render_mi_industry_gender_summary(
+    html: &mut String,
+    rows: &[IndustryGenderRow],
+    code_master: &[MunicipalityCodeMasterDto],
+) {
+    html.push_str(
+        "<section class=\"mi-industry-gender\" data-mi-section=\"industry-gender\" \
+         aria-labelledby=\"mi-indgen-heading\" style=\"margin:16px 0;\">\n",
+    );
+    html.push_str(
+        "<h3 id=\"mi-indgen-heading\">対象自治体 × 産業 × 性別 \
+         <span style=\"font-size:11px;color:#64748b;font-weight:400;\">[商品コア / 経済センサス R3]</span></h3>\n",
+    );
+    html.push_str(
+        "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;margin:0 0 8px;\">\
+         事業所単位の従業者数 (実測 / 経済センサス R3 / statsDataId=0003449718)。\
+         各自治体について従業者数の多い産業 Top 8 を表示。女性比は当該自治体・産業の従業者母集団から算出。\
+         採用示唆は機械生成 (女性比 ≥ 65% → 女性中心、≤ 25% → 男性中心 等)。<br/>\
+         <strong>粒度の注意</strong>: 経済センサス R3 は東京 23 区を「特別区部」、\
+         政令市の行政区を本市コードに集約しているため、個別の区別データは表示できません。\
+         該当自治体は「(○○区を含む)」形式で注釈します。</p>\n",
+    );
+
+    // 集約 city_code → 含まれる元の対象自治体名一覧を構築。
+    // 経済センサス R3 の集約 (特別区部 / 政令市本市) は同一都道府県内のみで起こるため、
+    // 注釈には city_name のみ載せる (ヘッダ側で都道府県名は既に表示)。
+    let mut aggregation_map: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for cm in code_master {
+        let orig = &cm.municipality_code;
+        let agg = aggregate_to_industry_structure_code(orig);
+        if &agg != orig && !cm.municipality_name.is_empty() {
+            aggregation_map
+                .entry(agg.clone())
+                .or_default()
+                .push(cm.municipality_name.clone());
+        }
+    }
+
+    // city_code ごとにグループ化
+    let mut by_city: BTreeMap<String, Vec<&IndustryGenderRow>> = BTreeMap::new();
+    for r in rows {
+        by_city.entry(r.city_code.clone()).or_default().push(r);
+    }
+
+    if by_city.is_empty() {
+        html.push_str(
+            "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;\">\
+             v2_external_industry_structure の対象自治体データが空のため、産業 × 性別 表示は省略します。</p>\n",
+        );
+        html.push_str("</section>\n");
+        return;
+    }
+
+    for (city_code, mut industry_rows) in by_city {
+        // employees_total 降順で Top 8
+        industry_rows.sort_by(|a, b| {
+            b.employees_total
+                .unwrap_or(0)
+                .cmp(&a.employees_total.unwrap_or(0))
+        });
+        industry_rows.truncate(8);
+        if industry_rows.is_empty() {
+            continue;
+        }
+        // 表示自治体名 = 「都道府県名 city_name」(集約コード=13100 の場合は「東京都 特別区部」)
+        let pref_name =
+            crate::geo::pref_code_to_name(&industry_rows[0].prefecture_code).to_string();
+        let display_city_name = if pref_name.is_empty() {
+            industry_rows[0].city_name.clone()
+        } else {
+            format!("{} {}", pref_name, industry_rows[0].city_name)
+        };
+
+        // 注釈 (集約された場合)
+        let annotation = match aggregation_map.get(&city_code) {
+            Some(names) if !names.is_empty() => {
+                let mut sorted = names.clone();
+                sorted.sort();
+                sorted.dedup();
+                format!(" <span style=\"font-size:10px;color:#64748b;font-weight:400;\">({} を含む)</span>", sorted.join(" / "))
+            }
+            _ => String::new(),
+        };
+
+        html.push_str(&format!(
+            "  <div class=\"mi-indgen-block\" style=\"margin:10px 0;page-break-inside:avoid;\">\n\
+                <h4 style=\"margin:0 0 4px;color:#1e3a8a;font-size:12px;\">{name}{ann}</h4>\n",
+            name = escape_html(&display_city_name),
+            ann = annotation,
+        ));
+
+        html.push_str(
+            "    <table class=\"mi-indgen-table\" \
+             style=\"width:100%;border-collapse:collapse;font-size:11px;\">\n\
+             <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
+             <th style=\"text-align:left;padding:4px 6px;\">産業</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">従業者</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">女性</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">男性</th>\
+             <th style=\"text-align:right;padding:4px 6px;\">女性比</th>\
+             <th style=\"text-align:left;padding:4px 6px;\">採用示唆</th>\
+             </tr></thead><tbody>\n",
+        );
+        for r in industry_rows {
+            let total = r.employees_total.unwrap_or(0);
+            let female = r.employees_female.unwrap_or(0);
+            let male = r.employees_male.unwrap_or(0);
+            let female_pct = if total > 0 {
+                100.0 * (female as f64) / (total as f64)
+            } else {
+                0.0
+            };
+            let insight = industry_gender_insight(female_pct);
+
+            html.push_str(&format!(
+                "<tr>\
+                 <td style=\"padding:3px 6px;\">{ind}</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{tot} 人</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{f} 人</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{m} 人</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{fp:.0}%</td>\
+                 <td style=\"padding:3px 6px;color:#1e3a8a;font-size:10px;\">{ins}</td>\
+                 </tr>\n",
+                ind = escape_html(&r.industry_name),
+                tot = format_thousands(total),
+                f = format_thousands(female),
+                m = format_thousands(male),
+                fp = female_pct,
+                ins = escape_html(insight),
             ));
         }
         html.push_str("</tbody></table>\n");
