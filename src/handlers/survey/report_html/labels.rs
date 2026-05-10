@@ -3,9 +3,13 @@
 //! 2026-05-08 Round 2-2 (Worker 2): 数値矛盾・地域混在修正
 //!
 //! ## 背景 (Round 1-K 監査)
-//! 「重点配信候補 (S+A)」と「配信検証候補 (スコア80+)」が PDF 内で同じ「重点配信候補」
+//! 「重点配信候補 (S+A)」と「配信検証候補 (スコア160+)」が PDF 内で同じ「重点配信候補」
 //! ラベルで 2 箇所に出力され、数値が異なる (0 件 vs 11 件) ため読者が矛盾と誤読した。
-//! priority カテゴリ (S/A/B/C/D) と合成 score (0-100) は独立軸であり、本来別ラベル.
+//! priority カテゴリ (S/A/B/C/D) と合成 score (0-200) は独立軸であり、本来別ラベル.
+//!
+//! ## Round 10 Phase 1B 後 (2026-05-11) の閾値変更
+//! Round 9 P2-G でスコアスケールが 0..200 に統一され、KPI 「配信検証候補」の閾値が
+//! 80 → 160 に変更された。本ファイルの定数も合わせて改名・文言更新済み.
 //!
 //! ## 設計
 //! - 各ラベルを定数化することで、PDF 内で 2 箇所に同じラベル文字列が出るのを防ぐ.
@@ -21,13 +25,13 @@ pub(super) mod distribution_candidates {
     /// 算出: `recruiting_scores.iter().filter(|s| priority IN ('S','A')).count()`
     pub const PRIORITY_SA_LABEL: &str = "重点配信候補 (S + A)";
 
-    /// KPI: 合成スコア distribution_priority_score >= 80 の市区町村数.
-    /// 算出: `recruiting_scores.iter().filter(|s| s.distribution_priority_score >= 80.0).count()`
-    pub const SCORE_80_PLUS_LABEL: &str = "配信検証候補 (スコア80+)";
+    /// KPI: 合成スコア distribution_priority_score >= 160 の市区町村数 (Round 9 P2-G で 80→160 統一).
+    /// 算出: `recruiting_scores.iter().filter(|s| s.distribution_priority_score >= 160.0).count()`
+    pub const SCORE_160_PLUS_LABEL: &str = "配信検証候補 (スコア160+)";
 
     /// PDF 内補注: 2 つのラベルの違いを 1 行で説明する文.
     pub const DISTINCTION_NOTE: &str =
-        "重点配信候補 (S+A) はカテゴリ分類、配信検証候補 (スコア80+) は合成スコアによる別軸の集計です。";
+        "重点配信候補 (S+A) はカテゴリ分類、配信検証候補 (スコア160+) は合成スコアによる別軸の集計です。";
 }
 
 /// 給与ヘッドライン用ラベル.
@@ -48,19 +52,19 @@ pub(super) mod salary_labels {
 mod tests {
     use super::*;
 
-    /// 「重点配信候補 (S+A)」と「配信検証候補 (スコア80+)」のラベルが一意で
+    /// 「重点配信候補 (S+A)」と「配信検証候補 (スコア160+)」のラベルが一意で
     /// 衝突しない (Round 1-K の根本原因対策の逆証明)
     #[test]
-    fn priority_sa_vs_score80_have_distinct_labels() {
+    fn priority_sa_vs_score160_have_distinct_labels() {
         let sa = distribution_candidates::PRIORITY_SA_LABEL;
-        let score = distribution_candidates::SCORE_80_PLUS_LABEL;
-        assert_ne!(sa, score, "PRIORITY_SA と SCORE_80_PLUS のラベルは別文字列");
+        let score = distribution_candidates::SCORE_160_PLUS_LABEL;
+        assert_ne!(sa, score, "PRIORITY_SA と SCORE_160_PLUS のラベルは別文字列");
         // 一方が他方の prefix にもなっていないこと (PDF 内の grep を考慮)
         assert!(!sa.contains(score));
         assert!(!score.contains(sa));
         // 「重点配信候補 (S + A)」と「配信検証候補」が PDF grep で区別可能
         assert!(sa.contains("S") && sa.contains("A"));
-        assert!(score.contains("80"));
+        assert!(score.contains("160"));
     }
 
     /// 給与系ラベルがすべて異なる (PDF 内で 4 種類が衝突しないことを保証)

@@ -613,18 +613,18 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         "実測",
     );
     // P0 (2026-05-06): ヒーロー Card 1「重点配信候補 (S+A)」と同名ラベルだったが
-    // 計算定義が異なる (S/A 件数 vs スコア 80+ 件数) ため、ラベルを別名にして
+    // 計算定義が異なる (S/A 件数 vs スコア 160+ 件数) ため、ラベルを別名にして
     // 同ページ内の数値矛盾を解消する。
     render_mi_kpi_card(
         html,
         "配信検証候補",
         &format!("{high_priority_score_count}"),
-        "件 (スコア80+)",
+        "件 (スコア160+)",
         "mi-badge-estimated-beta",
         "推定",
     );
     html.push_str("</div>\n");
-    // 2026-05-08 Round 2-2: 「重点配信候補 (S+A)」と「配信検証候補 (スコア80+)」が
+    // 2026-05-08 Round 2-2: 「重点配信候補 (S+A)」と「配信検証候補 (スコア160+)」が
     // 同じヒーロー / KPI 内に出るため、定義の違いを 1 行で明示する。
     // 数値矛盾 (Round 1-K で 0 件 vs 11 件) の根本対策として、説明文を必ず併記する。
     html.push_str(&format!(
@@ -2179,7 +2179,7 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
         html,
         "配信検証候補",
         &format!("{high_priority_count}"),
-        "件 (スコア80+)",
+        "件 (スコア160+)",
         ESTIMATED_LABEL,
     );
     render_mi_kpi(
@@ -3668,7 +3668,7 @@ mod tests {
         assert!(html.contains(">2<"), "A 件数 = 2 が表示されること: {html}");
         // P0 (2026-05-06): KPI 側ラベルを「配信検証候補」にリネーム
         // (ヒーロー Card 1「重点配信候補 (S+A)」と数値矛盾を起こさないため)
-        // S/A 計算: priority IN ('S','A') = 3 件 → fallback で score 80+ を使わずそのまま 3
+        // S/A 計算: priority IN ('S','A') = 3 件 → fallback で score 160+ を使わずそのまま 3
         assert!(html.contains("配信検証候補"), "配信検証候補 KPI ラベル必須");
         assert!(html.contains(">3<"), "配信検証候補 (S+A) = 3");
     }
@@ -4319,7 +4319,7 @@ mod tests {
 
     #[test]
     fn hero_first_card_and_kpi_use_distinct_labels() {
-        // Card 1「重点配信候補 (S + A)」と KPI「配信検証候補 (スコア80+)」が
+        // Card 1「重点配信候補 (S + A)」と KPI「配信検証候補 (スコア160+)」が
         // 別ラベルで表示されること (0 件 vs 11 件矛盾の解消)
         let mut html = String::new();
         let data = SurveyMarketIntelligenceData {
@@ -4335,7 +4335,7 @@ mod tests {
         );
         assert!(
             html.contains("配信検証候補"),
-            "KPI 側は『配信検証候補』ラベル (スコア 80+ 計算): {html}"
+            "KPI 側は『配信検証候補』ラベル (スコア 160+ 計算): {html}"
         );
     }
 
