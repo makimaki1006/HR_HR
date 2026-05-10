@@ -5,6 +5,9 @@
 use super::super::super::company::fetch::NearbyCompany;
 use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::super::insight::fetch::InsightContext;
+use crate::db::local_sqlite::LocalDb;
+use crate::db::turso_http::TursoDb;
+use std::collections::HashMap;
 use super::super::aggregator::{
     CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg,
 };
@@ -166,9 +169,38 @@ pub(super) fn render_section_household_vs_salary(
     );
 }
 
-pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation) {
+pub(super) fn render_section_min_wage(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    db: Option<&LocalDb>,
+    turso: Option<&TursoDb>,
+) {
     if agg.by_prefecture_salary.is_empty() {
         return;
+    }
+
+    // Round 8 P2-C (2026-05-10): DB 値優先 + ハードコード fallback。
+    // `v2_external_minimum_wage` (Local 47 行 / Turso 同期済) から SELECT、
+    // HashMap 化して per-prefecture lookup に使う。DB 接続不可 / 該当行なしの場合は
+    // helpers.rs の `min_wage_for_prefecture` ハードコード版にフォールバック。
+    let mut wage_map: HashMap<String, i64> = HashMap::new();
+    if let Some(d) = db {
+        let rows = super::super::super::analysis::fetch::query_turso_or_local(
+            turso,
+            d,
+            "SELECT prefecture, hourly_min_wage FROM v2_external_minimum_wage",
+            &[],
+            "v2_external_minimum_wage",
+        );
+        for r in rows {
+            if let (Some(serde_json::Value::String(p)), Some(serde_json::Value::Number(w))) =
+                (r.get("prefecture"), r.get("hourly_min_wage"))
+            {
+                if let Some(v) = w.as_i64() {
+                    wage_map.insert(p.clone(), v);
+                }
+            }
+        }
     }
 
     // 都道府県ごとに最低賃金比較データを構築
@@ -184,7 +216,10 @@ pub(super) fn render_section_min_wage(html: &mut String, agg: &SurveyAggregation
         .by_prefecture_salary
         .iter()
         .filter_map(|p| {
-            let mw = min_wage_for_prefecture(&p.name)?;
+            let mw = wage_map
+                .get(&p.name)
+                .copied()
+                .or_else(|| min_wage_for_prefecture(&p.name))?;
             if p.avg_min_salary <= 0 {
                 return None;
             }
