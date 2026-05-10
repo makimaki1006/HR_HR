@@ -557,7 +557,8 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
     };
 
     // 「重点配信候補」: distribution_priority IN ('S','A') 件数
-    //   未投入時は distribution_priority_score >= 80 で fallback
+    //   未投入時は distribution_priority_score >= 160 で fallback (Round 9 P2-G:
+    //   スコアスケールが 0..200 のため、旧 80 は実態として中位 ≈ 上位 50% 相当だった)
     let high_priority_from_grade = data
         .recruiting_scores
         .iter()
@@ -574,7 +575,7 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         data.recruiting_scores
             .iter()
             .filter(|s| s.is_priority_score_in_range())
-            .filter(|s| s.distribution_priority_score.unwrap_or(0.0) >= 80.0)
+            .filter(|s| s.distribution_priority_score.unwrap_or(0.0) >= 160.0)
             .count()
     };
 
@@ -2162,7 +2163,7 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
     let high_priority_count = data
         .recruiting_scores
         .iter()
-        .filter(|s| s.distribution_priority_score.unwrap_or(0.0) >= 80.0)
+        .filter(|s| s.distribution_priority_score.unwrap_or(0.0) >= 160.0)
         .count();
     let invariant_violation = data.recruiting_scores.len() - valid_priority_count;
 
@@ -2371,6 +2372,17 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
             .replace("{label}", ESTIMATED_LABEL)
             .as_str(),
     );
+    // Round 9 P2-G (2026-05-10): スコアスケールと cap saturation の説明注記
+    html.push_str(
+        "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;margin:0 0 8px;\">\
+         配信優先度スコアは 0〜200 のスケールで、重み合計 100 + ペナルティ調整後の値です \
+         (build_municipality_recruiting_scores の clamp(0, 200))。160 以上を「重点配信」、\
+         130 以上を「拡張候補」、100 以上を「維持/検証」、それ未満を「優先度低」として分類します。<br/>\
+         <strong>大都市圏の cap saturation について</strong>: 都市部 (特別区・政令市本市等の 104 自治体) では \
+         母集団の集積により thickness 指数が上限 200 に張り付き、職業別 score が同値になる場合があります。\
+         この場合、配信ランキング上位の代表職種は同点扱いで、職業選択の判断には別途産業構成 \
+         (前述 産業 × 性別セクション) と推奨アクション (4 象限図) を併用してください。</p>\n",
+    );
 
     let valid: Vec<&MunicipalityRecruitingScore> = scores
         .iter()
@@ -2402,10 +2414,11 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
          </tr></thead><tbody>\n",
     );
     for (rank, row) in aggregated.iter().enumerate().take(20) {
+        // Round 9 P2-G: スコアスケールが 0..200 のため、各閾値を 2 倍 (80→160, 65→130, 50→100)
         let bucket = match row.top_score {
-            v if v >= 80.0 => "重点配信",
-            v if v >= 65.0 => "拡張候補",
-            v if v >= 50.0 => "維持/検証",
+            v if v >= 160.0 => "重点配信",
+            v if v >= 130.0 => "拡張候補",
+            v if v >= 100.0 => "維持/検証",
             _ => "優先度低",
         };
         // 代表職種セルに「ほか N 職種」サブテキストを併記 (N>0 のときのみ)
@@ -2883,10 +2896,10 @@ mod tests {
         let mut html = String::new();
         let data = SurveyMarketIntelligenceData {
             recruiting_scores: vec![
-                sample_score("01101", 85.0, 100, 300, 500), // 適合
+                sample_score("01101", 85.0, 100, 300, 500), // 適合 (0..200 範囲内)
                 MunicipalityRecruitingScore {
                     municipality_code: "01102".into(),
-                    distribution_priority_score: Some(150.0), // 範囲外 → 除外
+                    distribution_priority_score: Some(250.0), // 範囲外 (新上限 200 超) → 除外
                     ..Default::default()
                 },
             ],
@@ -2895,8 +2908,8 @@ mod tests {
         render_section_market_intelligence(&mut html, &data);
         // 01101 (適合) はランキングに表示
         assert!(html.contains("85"), "適合スコアは表示");
-        // 01102 (範囲外) は表示されない (municipality_code 文字列で確認)
-        assert!(!html.contains("150"), "範囲外スコアは表示されない");
+        // 01102 (範囲外) は表示されない
+        assert!(!html.contains("250"), "範囲外スコアは表示されない");
         // 不変条件違反の警告が出る
         assert!(html.contains("不変条件違反"), "違反警告必須");
     }
@@ -2934,7 +2947,7 @@ mod tests {
             sample_score("01", 80.0, 1, 1, 1),
             sample_score("02", 60.0, 1, 1, 1),
             MunicipalityRecruitingScore {
-                distribution_priority_score: Some(150.0), // 不変条件違反
+                distribution_priority_score: Some(250.0), // 不変条件違反 (新上限 200 超)
                 ..Default::default()
             },
         ];
