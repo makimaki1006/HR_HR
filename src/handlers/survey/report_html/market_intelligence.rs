@@ -1661,16 +1661,21 @@ pub(crate) fn render_mi_market_quadrant(
          単体自治体の求人と直接比較するには注意が必要です。</p>\n",
     );
 
-    // 4 象限テーブル
+    // 4 象限テーブル (Round 8 P2-A: 「配信方針」→「推奨アクション」、動的文)
     html.push_str(
-        "<table class=\"mi-quad-table\" style=\"width:100%;border-collapse:collapse;font-size:11px;margin:8px 0;\">\n\
+        "<table class=\"mi-quad-table\" style=\"width:100%;border-collapse:collapse;font-size:11px;margin:8px 0;table-layout:fixed;\">\n\
+         <colgroup>\
+         <col style=\"width:14%\" /><col style=\"width:22%\" />\
+         <col style=\"width:8%\" /><col style=\"width:12%\" />\
+         <col style=\"width:9%\" /><col style=\"width:35%\" />\
+         </colgroup>\
          <thead><tr style=\"background:#1e3a8a;color:#fff;\">\
          <th style=\"text-align:left;padding:4px 6px;\">象限</th>\
          <th style=\"text-align:left;padding:4px 6px;\">対象自治体</th>\
-         <th style=\"text-align:right;padding:4px 6px;\">CSV 求人数</th>\
-         <th style=\"text-align:right;padding:4px 6px;\">国勢調査 従業者</th>\
-         <th style=\"text-align:right;padding:4px 6px;\">CSV 給与中央値</th>\
-         <th style=\"text-align:left;padding:4px 6px;\">配信方針</th>\
+         <th style=\"text-align:right;padding:4px 6px;\">求人</th>\
+         <th style=\"text-align:right;padding:4px 6px;\">従業者</th>\
+         <th style=\"text-align:right;padding:4px 6px;\">給与</th>\
+         <th style=\"text-align:left;padding:4px 6px;\">推奨アクション</th>\
          </tr></thead><tbody>\n",
     );
 
@@ -1678,27 +1683,28 @@ pub(crate) fn render_mi_market_quadrant(
     sorted_points.sort_by(|a, b| b.csv_count.cmp(&a.csv_count));
     for p in &sorted_points {
         let q_label = quadrant_label(p.csv_count, p.employees_total, count_median, emp_median);
-        let advice = quadrant_advice(p.csv_count, p.employees_total, count_median, emp_median);
+        let is_aggregated = p.display_name.contains(" を含む)");
+        let action = quadrant_action_text(p, q_label, is_aggregated);
         let median_disp = if p.median_salary > 0 {
             format!("{} 万円", format_thousands(p.median_salary / 10000))
         } else {
             "-".to_string()
         };
         html.push_str(&format!(
-            "<tr>\
-             <td style=\"padding:3px 6px;color:#1e3a8a;font-weight:600;\">{q}</td>\
-             <td style=\"padding:3px 6px;\">{n}</td>\
-             <td style=\"text-align:right;padding:3px 6px;\">{c} 件</td>\
-             <td style=\"text-align:right;padding:3px 6px;\">{e} 人</td>\
-             <td style=\"text-align:right;padding:3px 6px;\">{m}</td>\
-             <td style=\"padding:3px 6px;color:#64748b;font-size:10px;\">{a}</td>\
+            "<tr style=\"vertical-align:top;\">\
+             <td style=\"padding:4px 6px;color:#1e3a8a;font-weight:600;\">{q}</td>\
+             <td style=\"padding:4px 6px;\">{n}</td>\
+             <td style=\"text-align:right;padding:4px 6px;\">{c} 件</td>\
+             <td style=\"text-align:right;padding:4px 6px;\">{e} 人</td>\
+             <td style=\"text-align:right;padding:4px 6px;\">{m}</td>\
+             <td style=\"padding:4px 6px;color:#1e3a8a;font-size:10px;line-height:1.5;\">{a}</td>\
              </tr>\n",
             q = escape_html(q_label),
             n = escape_html(&p.display_name),
             c = format_thousands(p.csv_count),
             e = format_thousands(p.employees_total),
             m = escape_html(&median_disp),
-            a = escape_html(advice),
+            a = escape_html(&action),
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -1724,12 +1730,58 @@ fn quadrant_label(count: i64, emp: i64, c_med: i64, e_med: i64) -> &'static str 
     }
 }
 
-fn quadrant_advice(count: i64, emp: i64, c_med: i64, e_med: i64) -> &'static str {
-    match (count >= c_med, emp >= e_med) {
-        (true, true) => "求人数・母集団とも厚い。配信予算と訴求の主戦場",
-        (true, false) => "求人多いが母集団薄。給与・勤務条件・訴求の見直し",
-        (false, true) => "母集団あるのに求人少。新規配信候補・伸び代",
-        (false, false) => "求人・母集団とも薄い。当面は後回し",
+/// Round 8 P2-A: 母集団規模を文言化 (推奨アクション文に埋め込む)
+fn scale_word(emp: i64) -> &'static str {
+    if emp >= 5_000_000 {
+        "数百万人スケール"
+    } else if emp >= 500_000 {
+        "数十万人スケール"
+    } else if emp >= 50_000 {
+        "数万人スケール"
+    } else if emp >= 5_000 {
+        "数千人スケール"
+    } else {
+        "千人未満"
+    }
+}
+
+/// Round 8 P2-A: 4 象限点ごとの推奨アクション文を動的生成。
+/// 給与中央値・母集団スケール・集約注意を含めた 1〜2 文。
+/// 給与水準の強弱判定 (高い/標準/低い) は P1-2 (最低賃金 DB 接続) 未実装のため避ける。
+fn quadrant_action_text(point: &QuadrantPoint, label: &str, is_aggregated: bool) -> String {
+    let scale = scale_word(point.employees_total);
+    let salary_band = if point.median_salary > 0 {
+        format!("給与中央値 {} 万円帯で", point.median_salary / 10000)
+    } else {
+        "".to_string()
+    };
+    let count_disp = format_thousands(point.csv_count);
+    let emp_disp = format_thousands(point.employees_total);
+
+    let base = match label {
+        "重点配信" => format!(
+            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。配信予算を最重点投下、{salary}通勤利便性・専門性・キャリア継続性を主軸に訴求。",
+            count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
+        ),
+        "条件見直し" => format!(
+            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。母集団薄に対し求人量過多、{salary}給与上限引き上げ・勤務条件 (短時間 / 土日休 / 福利厚生) の強化を優先。",
+            count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
+        ),
+        "開拓余地" => format!(
+            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。母集団あるが求人量薄、{salary}新規配信候補・地域密着訴求で求人量を増やす伸び代あり。",
+            count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
+        ),
+        "後回し" => format!(
+            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。求人・母集団とも薄く、{salary}配信効率は限定的。重点 3 象限を優先後に検討。",
+            count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
+        ),
+        _ => String::new(),
+    };
+
+    if is_aggregated {
+        format!("{} ※集約地域につき個別自治体の母集団は表示値より小スケール。", base)
+    } else {
+        base
     }
 }
 
