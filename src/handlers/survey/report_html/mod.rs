@@ -1056,7 +1056,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
                 .find(|m| !m.prefecture.is_empty() && !m.name.is_empty())
                 .map(|m| (m.prefecture.as_str(), m.name.as_str()))
                 .unwrap_or(("", ""));
-            market_intelligence::build_market_intelligence_data(
+            let mut data = market_intelligence::build_market_intelligence_data(
                 db_ref,
                 turso,
                 &target_codes,
@@ -1064,7 +1064,21 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
                 dest_pref,
                 dest_muni,
                 10,
-            )
+            );
+            // Round 8 P1-1 (2026-05-10): CSV 由来の自治体集計を mi_data に inject。
+            // 4 象限図 (CSV 求人数 × 国勢調査 employees_total) で使う。
+            data.csv_municipalities = agg
+                .by_municipality_salary
+                .iter()
+                .filter(|m| !m.prefecture.is_empty() && !m.name.is_empty())
+                .map(|m| super::super::analysis::fetch::CsvMunicipalityCell {
+                    prefecture: m.prefecture.clone(),
+                    name: m.name.clone(),
+                    count: m.count,
+                    median_salary: m.median_salary,
+                })
+                .collect();
+            data
         } else {
             super::super::analysis::fetch::SurveyMarketIntelligenceData::default()
         };
