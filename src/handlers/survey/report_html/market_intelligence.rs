@@ -1661,6 +1661,126 @@ pub(crate) fn render_mi_market_quadrant(
          単体自治体の求人と直接比較するには注意が必要です。</p>\n",
     );
 
+    // Round 8 P2-B (2026-05-10): CSS 絶対配置の 4 象限散布図 (図説)
+    // - X 軸: csv_count (log スケール、特別区部 17 件 vs 伊達 1 件のレンジ吸収)
+    // - Y 軸: employees_total (log スケール、特別区部 8M vs 伊達 1万 のレンジ吸収)
+    // - 円サイズ: median_salary に応じ 8〜18px
+    // - 色: 象限ごと (重点配信=青/条件見直し=橙/開拓余地=緑/後回し=灰)
+    // - 中央線: median split (count_median, emp_median)
+    {
+        let log_count_min = 0.0_f64;
+        let log_count_max = (counts.iter().max().copied().unwrap_or(1) as f64 + 1.0).ln();
+        let log_emp_min = (emps.iter().filter(|v| **v > 0).copied().min().unwrap_or(1) as f64).ln();
+        let log_emp_max = (emps.iter().max().copied().unwrap_or(1) as f64).ln();
+        let to_x_pct = |c: i64| -> f64 {
+            let lc = (c as f64 + 1.0).ln();
+            if log_count_max <= log_count_min {
+                50.0
+            } else {
+                10.0 + 80.0 * (lc - log_count_min) / (log_count_max - log_count_min)
+            }
+        };
+        let to_y_pct = |e: i64| -> f64 {
+            let le = if e > 0 { (e as f64).ln() } else { log_emp_min };
+            if log_emp_max <= log_emp_min {
+                50.0
+            } else {
+                // top=0, bottom=100 なので Y は反転 (大きい値が上)
+                90.0 - 80.0 * (le - log_emp_min) / (log_emp_max - log_emp_min)
+            }
+        };
+        let median_x_pct = to_x_pct(count_median);
+        let median_y_pct = to_y_pct(emp_median);
+
+        let max_salary = points.iter().map(|p| p.median_salary).max().unwrap_or(1);
+        let to_size_px = |s: i64| -> i64 {
+            if max_salary <= 0 { 10 } else { 8 + (10 * s / max_salary).max(0).min(10) }
+        };
+        let color_for = |label: &str| -> &'static str {
+            match label {
+                "重点配信" => "#1e3a8a",
+                "条件見直し" => "#c2410c",
+                "開拓余地" => "#15803d",
+                _ => "#64748b",
+            }
+        };
+
+        html.push_str(
+            "<div class=\"mi-quad-plot\" \
+             style=\"position:relative;width:100%;height:80mm;border:1px solid #cbd5e1;\
+                     background:#fafafa;margin:8px 0;\">\n",
+        );
+        // 中央線 (median split)
+        html.push_str(&format!(
+            "  <div style=\"position:absolute;left:{x:.2}%;top:0;bottom:0;width:1px;background:#94a3b8;\"></div>\n\
+             <div style=\"position:absolute;top:{y:.2}%;left:0;right:0;height:1px;background:#94a3b8;\"></div>\n",
+            x = median_x_pct, y = median_y_pct,
+        ));
+        // 4 象限ラベル (角)
+        html.push_str(
+            "  <div style=\"position:absolute;left:4px;top:4px;font-size:9px;color:#15803d;\">開拓余地</div>\n\
+             <div style=\"position:absolute;right:4px;top:4px;font-size:9px;color:#1e3a8a;\">重点配信</div>\n\
+             <div style=\"position:absolute;left:4px;bottom:4px;font-size:9px;color:#64748b;\">後回し</div>\n\
+             <div style=\"position:absolute;right:4px;bottom:4px;font-size:9px;color:#c2410c;\">条件見直し</div>\n",
+        );
+        // 軸ラベル
+        html.push_str(
+            "  <div style=\"position:absolute;left:50%;bottom:-14px;transform:translateX(-50%);\
+                     font-size:9px;color:#475569;\">CSV 求人数 (対数) →</div>\n\
+             <div style=\"position:absolute;left:-22px;top:50%;transform:translateY(-50%) rotate(-90deg);\
+                     transform-origin:center;font-size:9px;color:#475569;\">国勢調査 従業者 (対数) →</div>\n",
+        );
+        // 各点
+        for p in &points {
+            let q_label = quadrant_label(p.csv_count, p.employees_total, count_median, emp_median);
+            let x = to_x_pct(p.csv_count);
+            let y = to_y_pct(p.employees_total);
+            let sz = to_size_px(p.median_salary);
+            let color = color_for(q_label);
+            // 短縮ラベル: 集約注釈含むなら除く、長すぎる場合は city_name のみ
+            let short_label = {
+                let raw = if let Some(idx) = p.display_name.find(" (") {
+                    p.display_name[..idx].to_string()
+                } else {
+                    p.display_name.clone()
+                };
+                if raw.chars().count() > 12 {
+                    raw.chars().take(12).collect::<String>()
+                } else {
+                    raw
+                }
+            };
+            html.push_str(&format!(
+                "  <div title=\"{full}\" \
+                 style=\"position:absolute;left:{x:.2}%;top:{y:.2}%;\
+                         transform:translate(-50%,-50%);width:{sz}px;height:{sz}px;\
+                         border-radius:50%;background:{color};opacity:0.8;\
+                         box-shadow:0 0 0 1px #fff;\"></div>\n\
+                 <div style=\"position:absolute;left:{x:.2}%;top:calc({y:.2}% + {lbl_off}px);\
+                         transform:translate(-50%,0);font-size:8px;color:#1f2937;\
+                         white-space:nowrap;background:rgba(255,255,255,0.7);padding:0 2px;\">\
+                 {label} ({n} 件)</div>\n",
+                full = escape_html(&p.display_name),
+                x = x, y = y, sz = sz, color = color,
+                lbl_off = sz / 2 + 2,
+                label = escape_html(&short_label),
+                n = format_thousands(p.csv_count),
+            ));
+        }
+        html.push_str("</div>\n");
+        // 凡例
+        html.push_str(
+            "<p style=\"font-size:9px;color:#64748b;margin:14px 0 4px;\">\
+             凡例: \
+             <span style=\"display:inline-block;width:8px;height:8px;border-radius:50%;background:#1e3a8a;vertical-align:middle;\"></span> 重点配信 / \
+             <span style=\"display:inline-block;width:8px;height:8px;border-radius:50%;background:#c2410c;vertical-align:middle;\"></span> 条件見直し / \
+             <span style=\"display:inline-block;width:8px;height:8px;border-radius:50%;background:#15803d;vertical-align:middle;\"></span> 開拓余地 / \
+             <span style=\"display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b;vertical-align:middle;\"></span> 後回し \
+             / 円サイズ: 給与中央値の相対値 (大 = 高給与)。両軸は対数スケール。\
+             </p>\n",
+        );
+    }
+
     // 4 象限テーブル (Round 8 P2-A: 「配信方針」→「推奨アクション」、動的文)
     html.push_str(
         "<table class=\"mi-quad-table\" style=\"width:100%;border-collapse:collapse;font-size:11px;margin:8px 0;table-layout:fixed;\">\n\
