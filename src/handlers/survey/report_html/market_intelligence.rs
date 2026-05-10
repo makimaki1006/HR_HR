@@ -2372,16 +2372,20 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
             .replace("{label}", ESTIMATED_LABEL)
             .as_str(),
     );
-    // Round 9 P2-G (2026-05-10): スコアスケールと cap saturation の説明注記
+    // Round 10 Phase 1 (2026-05-10): cap saturation 解消後の注記更新
+    // 旧 Round 9 P2-G の「大都市圏 cap saturation により職業差ゼロ」段落は、
+    // build_municipality_target_thickness の percentile-based 化で解消されたため削除。
     html.push_str(
         "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;margin:0 0 8px;\">\
          配信優先度スコアは 0〜200 のスケールで、重み合計 100 + ペナルティ調整後の値です \
          (build_municipality_recruiting_scores の clamp(0, 200))。160 以上を「重点配信」、\
          130 以上を「拡張候補」、100 以上を「維持/検証」、それ未満を「優先度低」として分類します。<br/>\
-         <strong>大都市圏の cap saturation について</strong>: 都市部 (特別区・政令市本市等の 104 自治体) では \
-         母集団の集積により thickness 指数が上限 200 に張り付き、職業別 score が同値になる場合があります。\
-         この場合、配信ランキング上位の代表職種は同点扱いで、職業選択の判断には別途産業構成 \
-         (前述 産業 × 性別セクション) と推奨アクション (4 象限図) を併用してください。</p>\n",
+         <strong>thickness 指数の正規化方式</strong>: 全国 percentile rank で 0〜200 に正規化しています \
+         (Round 10 Phase 1 / 2026-05-10)。同一自治体でも職業ごとに分布が異なるため、\
+         職業別に異なる priority_score を取ります。thickness=200 付近は「全国 percentile 99 以上」を意味し、\
+         以前の cap saturation (上限張り付き) ではありません。<br/>\
+         配信判断は本ランキングの代表職種に加え、産業 × 性別セクション (前述) と \
+         推奨アクション (4 象限図) を併用してください。</p>\n",
     );
 
     let valid: Vec<&MunicipalityRecruitingScore> = scores

@@ -1187,19 +1187,43 @@ def integrate_model_f2(
 # ============================================================
 
 def derive_thickness_index(model_result: dict) -> dict:
-    """0-200 正規化 (100 = 全国平均、cap 200)."""
-    occ_vals: dict = defaultdict(list)
-    for (_pref, _muni), occ_dict in model_result.items():
-        for occ, v in occ_dict.items():
-            occ_vals[occ].append(v)
-    nat_avg = {occ: (sum(vs) / len(vs)) if vs else 1.0 for occ, vs in occ_vals.items()}
+    """0-200 正規化 (100 = 全国中央値、percentile rank ベース、cap saturation なし).
 
-    out: dict = defaultdict(dict)
+    Round 10 Phase 1 (2026-05-10) 改修:
+      旧方式: idx = (v / nat_avg) * 100, max(0, min(idx, 200))
+        → cap=200 で都市部 104 自治体 (大都市圏) が全 11 職業で 200 張り付き
+        → distribution_priority_score も同値化 (5.49% の muni で配信ランキング同点)
+      新方式: 同 occupation 内の percentile rank × 200
+        → 各 occupation で必ず 0..200 連続分布、cap saturation 構造的に解消
+        → 千代田区 occ A (raw=3,842) と港区 occ A (raw=3,902) が別 percentile に
+        → 職業別 priority_score 差発生
+
+    実装:
+      build_municipality_recruiting_scores.normalize_to_200 と同一の plotting position 方式
+      (pct = (i + 0.5) / n) を occupation ごとに適用。
+
+    出力構造・range 制約 ([0, 200]) は変更なし、validate_outputs は無修正で通る。
+    """
+    # occupation ごとに (pref, muni) → raw value のフラット dict を作る
+    by_occ: dict = defaultdict(dict)
     for (pref, muni), occ_dict in model_result.items():
         for occ, v in occ_dict.items():
-            avg = nat_avg.get(occ, 1.0) or 1.0
-            idx = (v / avg) * 100 if avg > 0 else 100.0
-            out[(pref, muni)][occ] = max(0.0, min(idx, 200.0))
+            by_occ[occ][(pref, muni)] = v
+
+    # 各 occ 内で percentile rank (0..1) → 0..200 にマップ
+    out: dict = defaultdict(dict)
+    for occ, vals in by_occ.items():
+        # value 昇順でソート (tie は隣接、stable sort)
+        sorted_keys = sorted(vals.keys(), key=lambda k: vals[k])
+        n = len(sorted_keys)
+        if n == 0:
+            continue
+        for i, key in enumerate(sorted_keys):
+            # plotting position: (i + 0.5) / n で 0% / 100% を避ける
+            pct = (i + 0.5) / n
+            idx = round(pct * 200.0, 4)
+            # 防御的 cap (理論上不要、percentile×200 は (0, 200) 開区間)
+            out[key][occ] = max(0.0, min(idx, 200.0))
     return dict(out)
 
 
