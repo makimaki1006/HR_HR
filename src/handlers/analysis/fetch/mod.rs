@@ -83,13 +83,14 @@ pub(crate) use subtab7_phase_a::{
 // Step 2: 型付き DTO + 変換ヘルパー
 #[allow(unused_imports)]
 pub(crate) use market_intelligence::{
-    fetch_code_master, fetch_code_master_by_names, fetch_commute_flow_summary,
+    aggregate_to_industry_structure_code, fetch_code_master, fetch_code_master_by_names,
+    fetch_commute_flow_summary, fetch_industry_structure_for_municipalities,
     fetch_living_cost_proxy, fetch_occupation_cells, fetch_occupation_population,
-    fetch_recruiting_scores_by_municipalities, fetch_ward_rankings_by_parent,
-    fetch_ward_thickness, to_code_master, to_commute_flows, to_living_cost_proxies,
+    fetch_recruiting_scores_by_municipalities, fetch_ward_rankings_by_parent, fetch_ward_thickness,
+    to_code_master, to_commute_flows, to_industry_gender_rows, to_living_cost_proxies,
     to_occupation_cells, to_occupation_populations, to_recruiting_scores, to_ward_rankings,
-    to_ward_thickness_dtos, CommuteFlowSummary, DataSourceLabel, LivingCostProxy,
-    MunicipalityCodeMasterDto, MunicipalityRecruitingScore, OccupationCellDto,
+    to_ward_thickness_dtos, CommuteFlowSummary, DataSourceLabel, IndustryGenderRow,
+    LivingCostProxy, MunicipalityCodeMasterDto, MunicipalityRecruitingScore, OccupationCellDto,
     OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto, WardThicknessDto,
 };
 // CommuteMunicipality は subtab7_other 内部のみで使用 (fetch_commute_zone の戻り値型として fetch_commute_zone_pyramid に渡される)
@@ -281,14 +282,28 @@ mod tests {
         );
         let rows = db.query(&sql, &[]).expect("SELECT 失敗");
 
-        assert_eq!(rows.len(), 2, "ヘッダー除外後は正規 2 件であること (実際: {})", rows.len());
+        assert_eq!(
+            rows.len(),
+            2,
+            "ヘッダー除外後は正規 2 件であること (実際: {})",
+            rows.len()
+        );
 
         // ヘッダー文字列がレコードに含まれないこと
         for row in &rows {
             let pref = row.get("prefecture").and_then(|v| v.as_str()).unwrap_or("");
-            let muni = row.get("municipality").and_then(|v| v.as_str()).unwrap_or("");
-            assert_ne!(pref, "都道府県", "prefecture='都道府県' は除外されているべき");
-            assert_ne!(muni, "市区町村", "municipality='市区町村' は除外されているべき");
+            let muni = row
+                .get("municipality")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            assert_ne!(
+                pref, "都道府県",
+                "prefecture='都道府県' は除外されているべき"
+            );
+            assert_ne!(
+                muni, "市区町村",
+                "municipality='市区町村' は除外されているべき"
+            );
         }
     }
 
