@@ -953,7 +953,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     render_section_municipality_salary(&mut html, agg);
 
     // --- Section 8: 最低賃金比較 ---
-    render_section_min_wage(&mut html, agg);
+    render_section_min_wage(&mut html, agg, db, turso);
 
     // --- Section 8 補助 (Impl-3 案 #8): 世帯所得 vs CSV 給与競争力（図 8-2） ---
     // 最低賃金比較（表 8-1: 法定下限）に対し、世帯月平均支出（実生活コスト）との
