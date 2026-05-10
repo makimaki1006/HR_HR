@@ -825,12 +825,15 @@ impl MunicipalityRecruitingScore {
         }
     }
 
-    /// `distribution_priority_score` が `[0.0, 100.0]` の範囲内か。
+    /// `distribution_priority_score` が `[0.0, 200.0]` の範囲内か。
     ///
-    /// METRICS.md §2.1 の `clamp(..., 0, 100)` 制約。値があるときのみ検証。
+    /// build_municipality_recruiting_scores.py:244 で `clamp(0, 200)` で投入されているため、
+    /// display 側も 200 を上限として受け入れる (Round 9 P2-G で範囲不一致バグを解消)。
+    /// METRICS.md §2.1 の旧 `clamp(..., 0, 100)` 制約は build 側の penalty 適用後 raw_score
+    /// が 100 を超えうる仕様変更で形骸化していた。実データ max=169.38 (cap saturation)。
     pub fn is_priority_score_in_range(&self) -> bool {
         match self.distribution_priority_score {
-            Some(s) => (0.0..=100.0).contains(&s) && !s.is_nan(),
+            Some(s) => (0.0..=200.0).contains(&s) && !s.is_nan(),
             None => true,
         }
     }
@@ -1856,15 +1859,18 @@ mod tests {
         assert!(missing.is_scenario_consistent());
     }
 
-    /// `is_priority_score_in_range` が `[0.0, 100.0]` を検証すること。
+    /// `is_priority_score_in_range` が `[0.0, 200.0]` を検証すること (Round 9 P2-G 拡張)。
     #[test]
     fn test_priority_score_range_invariant() {
         let cases = [
             (0.0_f64, true, "下限 0"),
-            (100.0, true, "上限 100"),
+            (100.0, true, "中間 100 (旧上限、現在は範囲内)"),
+            (169.38, true, "実データ max"),
+            (200.0, true, "新上限 200"),
             (50.5, true, "中間値"),
             (-0.1, false, "負値"),
-            (100.001, false, "上限超過"),
+            (200.001, false, "新上限超過"),
+            (201.0, false, "上限超過"),
             (f64::NAN, false, "NaN は不適合"),
         ];
         for (v, expected, label) in cases {
@@ -2013,7 +2019,7 @@ mod tests {
 
         // 不変条件違反を含むと all_invariants_hold が false
         let bad_score = MunicipalityRecruitingScore {
-            distribution_priority_score: Some(150.0), // 範囲超過
+            distribution_priority_score: Some(250.0), // 範囲超過 (新上限 200 超)
             ..Default::default()
         };
         let bad_data = SurveyMarketIntelligenceData {

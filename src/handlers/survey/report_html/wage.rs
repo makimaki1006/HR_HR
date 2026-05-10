@@ -208,9 +208,9 @@ pub(super) fn render_section_min_wage(
         name: String,
         avg_min: i64,
         min_wage: i64,
-        hourly_160: i64, // 月給÷160h
-        diff_160: i64,
-        ratio_160: f64,
+        hourly_equiv: i64, // 月給÷167h (HOURLY_TO_MONTHLY_HOURS 経由、Round 9 P2-H で命名統一)
+        diff_min_wage: i64,
+        ratio_min_wage: f64,
     }
     let mut entries: Vec<MinWageEntry> = agg
         .by_prefecture_salary
@@ -229,16 +229,16 @@ pub(super) fn render_section_min_wage(
             if !super::salary_summary::is_plausible_monthly_min_salary(p.avg_min_salary) {
                 return None;
             }
-            let hourly_160 = p.avg_min_salary / super::super::aggregator::HOURLY_TO_MONTHLY_HOURS;
-            let diff_160 = hourly_160 - mw;
-            let ratio_160 = hourly_160 as f64 / mw as f64;
+            let hourly_equiv = p.avg_min_salary / super::super::aggregator::HOURLY_TO_MONTHLY_HOURS;
+            let diff_min_wage = hourly_equiv - mw;
+            let ratio_min_wage = hourly_equiv as f64 / mw as f64;
             Some(MinWageEntry {
                 name: p.name.clone(),
                 avg_min: p.avg_min_salary,
                 min_wage: mw,
-                hourly_160,
-                diff_160,
-                ratio_160,
+                hourly_equiv,
+                diff_min_wage,
+                ratio_min_wage,
             })
         })
         .collect();
@@ -246,19 +246,19 @@ pub(super) fn render_section_min_wage(
     if entries.is_empty() {
         return;
     }
-    entries.sort_by(|a, b| a.diff_160.cmp(&b.diff_160)); // 差が小さい順
+    entries.sort_by(|a, b| a.diff_min_wage.cmp(&b.diff_min_wage)); // 差が小さい順
 
     // 全体の平均比率
-    let avg_ratio: f64 = entries.iter().map(|e| e.ratio_160).sum::<f64>() / entries.len() as f64;
+    let avg_ratio: f64 = entries.iter().map(|e| e.ratio_min_wage).sum::<f64>() / entries.len() as f64;
     let avg_diff_pct = (avg_ratio - 1.0) * 100.0;
 
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>最低賃金比較</h2>\n");
     // So What + severity badge（diff < 0 は Critical、< 50 は Warning、それ以外 Positive）
-    let below_count = entries.iter().filter(|e| e.diff_160 < 0).count();
+    let below_count = entries.iter().filter(|e| e.diff_min_wage < 0).count();
     let near_count = entries
         .iter()
-        .filter(|e| e.diff_160 >= 0 && e.diff_160 < 50)
+        .filter(|e| e.diff_min_wage >= 0 && e.diff_min_wage < 50)
         .count();
     let sev = if below_count > 0 {
         RptSev::Critical
@@ -299,7 +299,7 @@ pub(super) fn render_section_min_wage(
     // 差額のレンジ（バー幅計算用）
     let max_abs_diff = entries
         .iter()
-        .map(|e| e.diff_160.abs())
+        .map(|e| e.diff_min_wage.abs())
         .max()
         .unwrap_or(1)
         .max(1) as f64;
@@ -308,9 +308,9 @@ pub(super) fn render_section_min_wage(
         <th style=\"text-align:right\">167h換算</th><th style=\"text-align:right\">最低賃金</th>\
         <th style=\"text-align:right\">差額</th><th>差額バー</th><th style=\"text-align:right\">比率</th></tr></thead>\n<tbody>\n");
     for (i, e) in entries.iter().take(10).enumerate() {
-        let diff_color = if e.diff_160 < 0 {
+        let diff_color = if e.diff_min_wage < 0 {
             "negative"
-        } else if e.diff_160 < 50 {
+        } else if e.diff_min_wage < 50 {
             "color:#fb8c00;font-weight:bold"
         } else {
             ""
@@ -321,15 +321,15 @@ pub(super) fn render_section_min_wage(
             format!(" class=\"num {}\"", diff_color)
         };
         // 差額バー（負=赤、近接<50=橙、それ以外=緑）
-        let bar_cls = if e.diff_160 < 0 {
+        let bar_cls = if e.diff_min_wage < 0 {
             "below"
-        } else if e.diff_160 < 50 {
+        } else if e.diff_min_wage < 50 {
             "near"
         } else {
             ""
         };
-        let fill_pct = (e.diff_160.abs() as f64 / max_abs_diff * 100.0).clamp(0.0, 100.0);
-        let fill_left = if e.diff_160 < 0 {
+        let fill_pct = (e.diff_min_wage.abs() as f64 / max_abs_diff * 100.0).clamp(0.0, 100.0);
+        let fill_left = if e.diff_min_wage < 0 {
             (50.0 - fill_pct / 2.0).clamp(0.0, 50.0)
         } else {
             50.0
@@ -347,14 +347,14 @@ pub(super) fn render_section_min_wage(
             i + 1,
             escape_html(&e.name),
             format_man_yen(e.avg_min),
-            format_number(e.hourly_160),
+            format_number(e.hourly_equiv),
             format_number(e.min_wage),
             diff_style,
-            e.diff_160,
+            e.diff_min_wage,
             bar_cls,
             fill_left,
             fill_w,
-            e.ratio_160,
+            e.ratio_min_wage,
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -367,12 +367,17 @@ pub(super) fn render_section_min_wage(
 
     // 活用ポイント（feedback_correlation_not_causation.md 準拠: 因果断定を避け「傾向」「観測」で表現）
     // 2026-04-26 Granularity: 最低賃金は法定上 47 県粒度のみ
+    // Round 9 P2-D' (2026-05-10): 「業界横断比較ではない」を明記 (Agent D' 推奨案 B)
     html.push_str(
         "<div class=\"note\">\
         <strong>活用ポイント:</strong> 167h=所定労働時間（8h×20.875日、厚労省「就業条件総合調査 2024」基準）で換算。\
         最低賃金水準の求人は応募者が集まりにくい傾向が観測されます。\
         +10% 以上の求人は地域内で目立つ存在感を持つ傾向があり、応募状況や採用実績に応じて検討材料の 1 つになる可能性があります。\
-        ※ 給与水準と応募状況の関係は相関であり、因果関係を示すものではありません。\
+        ※ 給与水準と応募状況の関係は相関であり、因果関係を示すものではありません。<br/>\
+        <strong>本指標の範囲:</strong> 最賃比は対象地域の最低賃金との距離を示す指標であり、\
+        <strong>業界横断比較・職種横断比較の指標ではありません</strong>。CSV 給与中央値は媒体掲載求人の混合値で、\
+        業界別・職種別の中央値とは粒度が異なります。業界別最賃比中央値は本レポートでは作成していません \
+        (CSV に業界列がなく、推定で断定するのは採用判断として不適切なため)。\
     </div>\n",
     );
     html.push_str(
