@@ -1187,43 +1187,74 @@ def integrate_model_f2(
 # ============================================================
 
 def derive_thickness_index(model_result: dict) -> dict:
-    """0-200 正規化 (100 = 全国中央値、percentile rank ベース、cap saturation なし).
+    """0-200 正規化 (100 = 全国平均、cap saturation のみ de-tie).
 
-    Round 10 Phase 1 (2026-05-10) 改修:
-      旧方式: idx = (v / nat_avg) * 100, max(0, min(idx, 200))
-        → cap=200 で都市部 104 自治体 (大都市圏) が全 11 職業で 200 張り付き
+    Round 10 Phase 1B (2026-05-11) 改修 (案 R 採用):
+      旧方式 (Round 8 まで): idx = (v / nat_avg) * 100, max(0, min(idx, 200))
+        → cap=200 で 104 都市自治体 (大都市圏) が全 11 職業で 200 張り付き
         → distribution_priority_score も同値化 (5.49% の muni で配信ランキング同点)
-      新方式: 同 occupation 内の percentile rank × 200
-        → 各 occupation で必ず 0..200 連続分布、cap saturation 構造的に解消
-        → 千代田区 occ A (raw=3,842) と港区 occ A (raw=3,902) が別 percentile に
-        → 職業別 priority_score 差発生
+      Phase 1A (Round 10、却下): 全自治体を percentile 化
+        → 上位 100 重複率 68% に低下、cap 未満も大幅変動 → 営業説明困難
+      Phase 1B (本方式、確定): cap saturation のみ de-tie
+        → cap 未満 (raw < 200) は完全不変、cap 以上 (raw >= 200) のみ占い順位で
+          [199.001, 200.000] に展開
+        → 順序保存: 旧 raw=199.99 (199.99) > 新 cap muni 最低 (199.001) > 新 cap muni
+          最高 (200.000) > 旧 raw=199.99
+        → 同値解消: 104 muni 内で 0.001 単位の de-tie
+        → 既存 >=160 閾値 (Round 9 P2-G) も維持
 
-    実装:
-      build_municipality_recruiting_scores.normalize_to_200 と同一の plotting position 方式
-      (pct = (i + 0.5) / n) を occupation ごとに適用。
+    将来的に「全国 percentile rank ベース」への移行は商品方針判断後 (将来案 docs:
+    `docs/ROUND10_PHASE1_5_FUTURE_OPTION_2026_05_11.md`)。
 
-    出力構造・range 制約 ([0, 200]) は変更なし、validate_outputs は無修正で通る。
+    出力構造・range 制約 ([0, 200])・validate_outputs はすべて維持。
     """
-    # occupation ごとに (pref, muni) → raw value のフラット dict を作る
-    by_occ: dict = defaultdict(dict)
+    # 1. occupation 別の全国平均を計算 (旧方式と同一)
+    occ_vals: dict = defaultdict(list)
+    for (_pref, _muni), occ_dict in model_result.items():
+        for occ, v in occ_dict.items():
+            occ_vals[occ].append(v)
+    nat_avg = {occ: (sum(vs) / len(vs)) if vs else 1.0 for occ, vs in occ_vals.items()}
+
+    # 2. raw_idx を一旦全件計算 (cap 適用前)
+    raw_idx_map: dict = defaultdict(dict)
     for (pref, muni), occ_dict in model_result.items():
         for occ, v in occ_dict.items():
-            by_occ[occ][(pref, muni)] = v
+            avg = nat_avg.get(occ, 1.0) or 1.0
+            raw = (v / avg) * 100 if avg > 0 else 100.0
+            raw_idx_map[(pref, muni)][occ] = max(0.0, raw)
 
-    # 各 occ 内で percentile rank (0..1) → 0..200 にマップ
-    out: dict = defaultdict(dict)
-    for occ, vals in by_occ.items():
-        # value 昇順でソート (tie は隣接、stable sort)
-        sorted_keys = sorted(vals.keys(), key=lambda k: vals[k])
-        n = len(sorted_keys)
+    # 3. cap saturation group (raw >= 200) を職業ごとに集めて、そのグループ内 percentile を計算
+    capped_per_occ: dict = defaultdict(list)  # occ -> [(key, raw), ...]
+    for (pref, muni), occ_dict in raw_idx_map.items():
+        for occ, raw in occ_dict.items():
+            if raw >= 200.0:
+                capped_per_occ[occ].append(((pref, muni), raw))
+
+    # 各 occ で raw 昇順 (= 同職業内で値が小さい順) → plotting position percentile
+    capped_pct: dict = defaultdict(dict)  # (pref, muni) -> occ -> pct (0..1)
+    for occ, items in capped_per_occ.items():
+        items_sorted = sorted(items, key=lambda x: x[1])
+        n = len(items_sorted)
         if n == 0:
             continue
-        for i, key in enumerate(sorted_keys):
-            # plotting position: (i + 0.5) / n で 0% / 100% を避ける
+        for i, (key, _raw) in enumerate(items_sorted):
             pct = (i + 0.5) / n
-            idx = round(pct * 200.0, 4)
-            # 防御的 cap (理論上不要、percentile×200 は (0, 200) 開区間)
-            out[key][occ] = max(0.0, min(idx, 200.0))
+            capped_pct[key][occ] = pct
+
+    # 4. 出力組み立て: cap 以上は [199.001, 200.000]、cap 未満は raw 不変
+    out: dict = defaultdict(dict)
+    for (pref, muni), occ_dict in raw_idx_map.items():
+        for occ, raw in occ_dict.items():
+            if raw >= 200.0:
+                pct = capped_pct[(pref, muni)].get(occ, 0.5)
+                # 199.001 + pct * 0.999 → range [199.0015, 199.9995]
+                # ただし pct 上限 = (n-0.5)/n = 1 - 0.5/n、n が大きいと ≈1.0
+                # pct 下限 = 0.5/n、n が大きいと ≈0.0
+                # 結果は事実上 [199.001, 200.000] の連続値 (ranking 順序保存)
+                out[(pref, muni)][occ] = round(199.001 + pct * 0.999, 4)
+            else:
+                # cap 未満は完全に旧方式と同じ (raw のまま、min(raw, 200) は raw < 200 なので不要)
+                out[(pref, muni)][occ] = round(raw, 4)
     return dict(out)
 
 
