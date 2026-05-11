@@ -2318,6 +2318,19 @@ mod ui2_contract_tests {
             html.contains("図 3-2") && html.contains("図 3-3"),
             "下限給与ヒストグラム 図 3-2/3-3 のキャプションが必須"
         );
+        assert!(
+            html.contains("図 3-4")
+                && html.contains("上限月給ヒストグラム（20,000円刻み・縦線=平均/中央値/最頻値）"),
+            "上限給与ヒストグラム 図 3-4 は下限側と同じ凡例説明が必須"
+        );
+        assert!(
+            html.matches("salary-chart-block").count() >= 4,
+            "各給与ヒストグラムは見出し・caption・chart をまとめる salary-chart-block で改ページ分断を防ぐ"
+        );
+        assert!(
+            html.contains("salary-chart-page-start"),
+            "図 3-4 は前段 2 chart + 読み方ヒント後に来るため、明示改ページで分断を防ぐ"
+        );
     }
 
     // ---- Section 5: 散布図 ----
