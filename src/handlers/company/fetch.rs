@@ -674,16 +674,14 @@ pub fn fetch_company_segments_by_region_with_industry(
     // 常に過少になる問題があった。3 つの規模帯から **個別に上位 30 社ずつ** 取得して
     // 多様な pool (最大 90 社) を構築する。
     let band_limit: i64 = 30;
-    let industry_keyword = industry
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            let head: String = s.chars().take_while(|c| *c != ',' && *c != '，').collect();
-            if head.is_empty() {
-                s.to_string()
-            } else {
-                head
-            }
-        });
+    let industry_keyword = industry.filter(|s| !s.is_empty()).map(|s| {
+        let head: String = s.chars().take_while(|c| *c != ',' && *c != '，').collect();
+        if head.is_empty() {
+            s.to_string()
+        } else {
+            head
+        }
+    });
 
     // 各規模帯のクエリ
     // 大手: employee_count >= 300
@@ -711,8 +709,14 @@ pub fn fetch_company_segments_by_region_with_industry(
                            WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
                              AND employee_count >= ?4 AND employee_count <= ?5 \
                            ORDER BY employee_count DESC LIMIT ?6";
-                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&prefecture, &muni_pattern, &ind_pattern, lo, hi, &band_limit];
+                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![
+                    &prefecture,
+                    &muni_pattern,
+                    &ind_pattern,
+                    lo,
+                    hi,
+                    &band_limit,
+                ];
                 sn_db.query(sql, &params).unwrap_or_default()
             }
             (true, Some(kw)) => {

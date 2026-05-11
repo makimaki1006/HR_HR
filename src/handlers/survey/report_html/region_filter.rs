@@ -125,10 +125,7 @@ mod tests {
     /// 「全国」「すべて」「空文字」は pref フィルタ無効扱い
     #[test]
     fn region_filter_passes_through_when_no_target() {
-        let data = vec![
-            muni("群馬県", "前橋市", 30),
-            muni("埼玉県", "深谷市", 5),
-        ];
+        let data = vec![muni("群馬県", "前橋市", 30), muni("埼玉県", "深谷市", 5)];
 
         // 空文字 → 全件
         assert_eq!(filter_municipalities_by_pref(&data, "").len(), 2);

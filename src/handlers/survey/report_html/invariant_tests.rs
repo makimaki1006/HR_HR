@@ -186,12 +186,7 @@ fn make_insight_ctx(
     }
 }
 
-fn make_company(
-    corp_num: &str,
-    name: &str,
-    employee_count: i64,
-    delta_1y: f64,
-) -> NearbyCompany {
+fn make_company(corp_num: &str, name: &str, employee_count: i64, delta_1y: f64) -> NearbyCompany {
     NearbyCompany {
         corporate_number: corp_num.to_string(),
         company_name: name.to_string(),
@@ -573,7 +568,10 @@ fn invariant6_takeaways_no_contradiction_shrink_vs_expand() {
     let s_shrink = make_summary(3, 4, 5, -1.5, -2.0, -1.2, 30.0, 30.0, 30.0);
     let t = compute_segment_takeaways(&s_shrink);
     let joined = t.join("\n");
-    assert!(joined.contains("縮小傾向"), "全規模マイナス → 縮小傾向 takeaway");
+    assert!(
+        joined.contains("縮小傾向"),
+        "全規模マイナス → 縮小傾向 takeaway"
+    );
     assert!(
         !joined.contains("拡大傾向"),
         "全規模マイナス時に「拡大傾向」takeaway が同時出てはならない (矛盾)"
@@ -582,7 +580,10 @@ fn invariant6_takeaways_no_contradiction_shrink_vs_expand() {
     let s_expand = make_summary(3, 4, 5, 2.0, 1.5, 1.2, 50.0, 50.0, 50.0);
     let t2 = compute_segment_takeaways(&s_expand);
     let joined2 = t2.join("\n");
-    assert!(joined2.contains("拡大傾向"), "全規模プラス → 拡大傾向 takeaway");
+    assert!(
+        joined2.contains("拡大傾向"),
+        "全規模プラス → 拡大傾向 takeaway"
+    );
     assert!(
         !joined2.contains("縮小傾向"),
         "全規模プラス時に「縮小傾向」が出てはならない"
@@ -675,7 +676,10 @@ fn invariant8_empty_input_no_panic_no_section() {
 
     let mut html_full = String::new();
     super::market_tightness::render_section_market_tightness(&mut html_full, Some(&ctx));
-    assert!(html_full.is_empty(), "全空 → market_tightness section 非表示");
+    assert!(
+        html_full.is_empty(),
+        "全空 → market_tightness section 非表示"
+    );
 
     let mut html_pub = String::new();
     super::market_tightness::render_section_market_tightness_public(&mut html_pub, Some(&ctx));

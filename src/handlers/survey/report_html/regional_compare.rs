@@ -31,8 +31,8 @@
 use serde_json::json;
 
 use super::super::super::helpers::{get_f64, get_i64, get_str_ref};
-use super::super::aggregator::SurveyAggregation;
 use super::super::super::insight::fetch::InsightContext;
+use super::super::aggregator::SurveyAggregation;
 
 use super::helpers::*;
 
@@ -300,10 +300,7 @@ pub(super) fn extract_psychographic(ctx: &InsightContext) -> PsychographicData {
     p
 }
 
-pub(super) fn extract_geographic(
-    ctx: &InsightContext,
-    agg: &SurveyAggregation,
-) -> GeographicData {
+pub(super) fn extract_geographic(ctx: &InsightContext, agg: &SurveyAggregation) -> GeographicData {
     let mut g = GeographicData::default();
 
     // 可住地密度: ext_geography.habitable_density_per_km2 (region.rs と同じ採取方式)
@@ -350,9 +347,7 @@ fn render_demographic_table(html: &mut String, d: &DemographicData, pref: &str) 
         16,
         "デモグラフィック (人口構造・教育)",
     ));
-    html.push_str(
-        "<table class=\"sortable-table zebra\" data-testid=\"rc-demographic-table\">\n",
-    );
+    html.push_str("<table class=\"sortable-table zebra\" data-testid=\"rc-demographic-table\">\n");
     html.push_str(&format!(
         "<thead><tr>\
          <th>指標</th>\
@@ -471,24 +466,38 @@ fn render_psychographic_table(html: &mut String, p: &PsychographicData, pref: &s
         pref = escape_pref(pref)
     ));
 
-    render_pct_row(html, "趣味娯楽参加率", p.hobby_rate, NAT_HOBBY_RATE, "pt", |diff| {
-        if diff > 3.0 {
-            "余暇支出多めの傾向"
-        } else if diff < -3.0 {
-            "余暇活動消極傾向"
-        } else {
-            "全国平均並み"
-        }
-    });
-    render_pct_row(html, "スポーツ参加率", p.sports_rate, NAT_SPORTS_RATE, "pt", |diff| {
-        if diff > 3.0 {
-            "健康志向高め"
-        } else if diff < -3.0 {
-            "健康訴求の市場開拓余地"
-        } else {
-            "全国平均並み"
-        }
-    });
+    render_pct_row(
+        html,
+        "趣味娯楽参加率",
+        p.hobby_rate,
+        NAT_HOBBY_RATE,
+        "pt",
+        |diff| {
+            if diff > 3.0 {
+                "余暇支出多めの傾向"
+            } else if diff < -3.0 {
+                "余暇活動消極傾向"
+            } else {
+                "全国平均並み"
+            }
+        },
+    );
+    render_pct_row(
+        html,
+        "スポーツ参加率",
+        p.sports_rate,
+        NAT_SPORTS_RATE,
+        "pt",
+        |diff| {
+            if diff > 3.0 {
+                "健康志向高め"
+            } else if diff < -3.0 {
+                "健康訴求の市場開拓余地"
+            } else {
+                "全国平均並み"
+            }
+        },
+    );
     render_pct_row(
         html,
         "学習自己啓発率",
@@ -547,9 +556,7 @@ fn render_geographic_table(html: &mut String, g: &GeographicData, pref: &str) {
         18,
         "ジオグラフィック (地理・産業構造)",
     ));
-    html.push_str(
-        "<table class=\"sortable-table zebra\" data-testid=\"rc-geographic-table\">\n",
-    );
+    html.push_str("<table class=\"sortable-table zebra\" data-testid=\"rc-geographic-table\">\n");
     html.push_str(&format!(
         "<thead><tr>\
          <th>指標</th>\
@@ -725,12 +732,7 @@ fn render_density_row(
 ///   - デジタル: ネット利用率 / 全国平均 * 50
 ///
 /// (50 倍することで全国平均値が 50 になり、対象地域の優劣が直観的に読める)
-fn render_radar_chart(
-    html: &mut String,
-    d: &DemographicData,
-    p: &PsychographicData,
-    pref: &str,
-) {
+fn render_radar_chart(html: &mut String, d: &DemographicData, p: &PsychographicData, pref: &str) {
     html.push_str(&render_figure_number(
         4,
         16,
@@ -815,11 +817,23 @@ pub(super) fn compute_radar_scores(d: &DemographicData, p: &PsychographicData) -
     }
 
     vec![
-        norm(d.unemployment_pct.unwrap_or(NAT_UNEMPLOYMENT_PCT), NAT_UNEMPLOYMENT_PCT),
-        norm(d.single_hh_pct.unwrap_or(NAT_SINGLE_HH_PCT), NAT_SINGLE_HH_PCT),
+        norm(
+            d.unemployment_pct.unwrap_or(NAT_UNEMPLOYMENT_PCT),
+            NAT_UNEMPLOYMENT_PCT,
+        ),
+        norm(
+            d.single_hh_pct.unwrap_or(NAT_SINGLE_HH_PCT),
+            NAT_SINGLE_HH_PCT,
+        ),
         norm_inverse(d.aging_pct.unwrap_or(NAT_AGING_PCT), NAT_AGING_PCT),
-        norm(d.univ_grad_pct.unwrap_or(NAT_UNIV_GRAD_PCT), NAT_UNIV_GRAD_PCT),
-        norm(p.internet_rate.unwrap_or(NAT_INTERNET_RATE), NAT_INTERNET_RATE),
+        norm(
+            d.univ_grad_pct.unwrap_or(NAT_UNIV_GRAD_PCT),
+            NAT_UNIV_GRAD_PCT,
+        ),
+        norm(
+            p.internet_rate.unwrap_or(NAT_INTERNET_RATE),
+            NAT_INTERNET_RATE,
+        ),
     ]
 }
 
@@ -845,8 +859,8 @@ fn simple_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use serde_json::Value;
+    use std::collections::HashMap;
 
     fn empty_ctx() -> InsightContext {
         InsightContext {
@@ -927,10 +941,7 @@ mod tests {
     fn regional_compare_unemployment_diff_specific_value() {
         // 対象地域 失業率 3.6% / 全国 2.5% → 差 +1.1pt
         let mut ctx = empty_ctx();
-        ctx.ext_labor_force = vec![row_with(&[(
-            "unemployment_rate",
-            Value::from(3.6_f64),
-        )])];
+        ctx.ext_labor_force = vec![row_with(&[("unemployment_rate", Value::from(3.6_f64))])];
 
         let d = extract_demographic(&ctx);
         assert_eq!(d.unemployment_pct, Some(3.6));
@@ -947,10 +958,7 @@ mod tests {
     fn regional_compare_household_single_rate_diff() {
         // 単独世帯率 52.0% / 全国 38.1% → 差 +13.9pt
         let mut ctx = empty_ctx();
-        ctx.ext_households = vec![row_with(&[(
-            "single_rate",
-            Value::from(52.0_f64),
-        )])];
+        ctx.ext_households = vec![row_with(&[("single_rate", Value::from(52.0_f64))])];
 
         let d = extract_demographic(&ctx);
         let diff = d.single_hh_pct.unwrap() - NAT_SINGLE_HH_PCT;
@@ -1007,14 +1015,8 @@ mod tests {
     #[test]
     fn regional_compare_caveat_and_required_phrases_present() {
         let mut ctx = empty_ctx();
-        ctx.ext_labor_force = vec![row_with(&[(
-            "unemployment_rate",
-            Value::from(3.6_f64),
-        )])];
-        ctx.ext_internet_usage = vec![row_with(&[(
-            "internet_usage_rate",
-            Value::from(88.1_f64),
-        )])];
+        ctx.ext_labor_force = vec![row_with(&[("unemployment_rate", Value::from(3.6_f64))])];
+        ctx.ext_internet_usage = vec![row_with(&[("internet_usage_rate", Value::from(88.1_f64))])];
 
         let agg = SurveyAggregation::default();
         let mut html = String::new();
@@ -1033,10 +1035,7 @@ mod tests {
         assert!(html.contains("e-Stat"), "caveat に出典 e-Stat の明記が必要");
 
         // 見出し
-        assert!(
-            html.contains("地域 多面比較"),
-            "section 見出しが必要"
-        );
+        assert!(html.contains("地域 多面比較"), "section 見出しが必要");
         // 都道府県名がレンダリングされる
         assert!(html.contains("東京都"), "対象地域名が表示される");
 
@@ -1073,24 +1072,15 @@ mod tests {
     #[test]
     fn regional_compare_radar_config_valid_json() {
         let mut ctx = empty_ctx();
-        ctx.ext_labor_force = vec![row_with(&[(
-            "unemployment_rate",
-            Value::from(3.6_f64),
-        )])];
-        ctx.ext_internet_usage = vec![row_with(&[(
-            "internet_usage_rate",
-            Value::from(88.1_f64),
-        )])];
+        ctx.ext_labor_force = vec![row_with(&[("unemployment_rate", Value::from(3.6_f64))])];
+        ctx.ext_internet_usage = vec![row_with(&[("internet_usage_rate", Value::from(88.1_f64))])];
 
         let agg = SurveyAggregation::default();
         let mut html = String::new();
         render_section_regional_compare(&mut html, &ctx, &agg);
 
         // ECharts div が含まれる
-        assert!(
-            html.contains("data-chart-config"),
-            "ECharts div が必要"
-        );
+        assert!(html.contains("data-chart-config"), "ECharts div が必要");
 
         // data-chart-config の中身が valid JSON か確認
         // HTML 中の data-chart-config='...' を抽出
@@ -1222,10 +1212,7 @@ mod tests {
     fn regional_compare_industry_scope_note_present() {
         let mut ctx = empty_ctx();
         // 最低 1 つデータを入れて section を有効化
-        ctx.ext_labor_force = vec![row_with(&[(
-            "unemployment_rate",
-            Value::from(3.0_f64),
-        )])];
+        ctx.ext_labor_force = vec![row_with(&[("unemployment_rate", Value::from(3.0_f64))])];
         let agg = SurveyAggregation::default();
         let mut html = String::new();
         render_section_regional_compare(&mut html, &ctx, &agg);

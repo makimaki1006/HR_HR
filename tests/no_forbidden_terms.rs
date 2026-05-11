@@ -190,12 +190,7 @@ fn no_x_person_estimate_pattern_in_codebase() {
                     || trimmed.contains("!html.contains")
                     || trimmed.contains("forbidden");
                 if !is_negation_assert {
-                    found.push(format!(
-                        "{}:{}: {}",
-                        path.display(),
-                        i + 1,
-                        line.trim()
-                    ));
+                    found.push(format!("{}:{}: {}", path.display(), i + 1, line.trim()));
                 }
             }
         }
@@ -280,7 +275,12 @@ fn no_forbidden_terms_near_mi_print_blocks() {
                 }
                 for term in NG_NEAR_PRINT {
                     if line.contains(term) {
-                        found.push(format!("{}:{}: {} (印刷ブロック近傍)", path.display(), i + 1, term));
+                        found.push(format!(
+                            "{}:{}: {} (印刷ブロック近傍)",
+                            path.display(),
+                            i + 1,
+                            term
+                        ));
                     }
                 }
             }

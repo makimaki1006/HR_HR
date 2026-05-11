@@ -196,8 +196,11 @@ fn fetch_neighbors(db: &LocalDb, dest_pref: &str, dest_muni: &str) -> Vec<Neighb
                ORDER BY total_commuters DESC \
                LIMIT ?3";
     let limit_str = limit.to_string();
-    let params: &[&dyn rusqlite::types::ToSql] =
-        &[&dest_pref, &dest_muni, &limit_str as &dyn rusqlite::types::ToSql];
+    let params: &[&dyn rusqlite::types::ToSql] = &[
+        &dest_pref,
+        &dest_muni,
+        &limit_str as &dyn rusqlite::types::ToSql,
+    ];
     let rows = match db.query(sql, params) {
         Ok(r) => r,
         Err(e) => {
@@ -252,7 +255,9 @@ fn fetch_hw_postings_count(db: &LocalDb, pref: &str, muni: &str) -> i64 {
 /// - tier_30 の長さは TIER_30MIN_COUNT (=5) 以下
 /// - tier_60 の長さは TIER_60MIN_ADDITIONAL_COUNT (=7) 以下
 /// - tier_30 と tier_60 は (pref, muni) の重複を含まない
-pub(crate) fn split_into_tiers(entries: &[NeighborEntry]) -> (Vec<NeighborEntry>, Vec<NeighborEntry>) {
+pub(crate) fn split_into_tiers(
+    entries: &[NeighborEntry],
+) -> (Vec<NeighborEntry>, Vec<NeighborEntry>) {
     let mut iter = entries.iter().cloned();
     let tier_30: Vec<NeighborEntry> = iter.by_ref().take(TIER_30MIN_COUNT).collect();
     let tier_60: Vec<NeighborEntry> = iter.take(TIER_60MIN_ADDITIONAL_COUNT).collect();
@@ -376,7 +381,7 @@ mod tests {
     #[test]
     fn invariant_unemployment_pool_non_negative() {
         let entries = vec![
-            mk_entry("X県", "A市", 1000, 0, 0),  // 失業 0 でも OK (負ではない)
+            mk_entry("X県", "A市", 1000, 0, 0), // 失業 0 でも OK (負ではない)
             mk_entry("X県", "B市", 500, 100, 5),
         ];
         let (tier30, _) = split_into_tiers(&entries);

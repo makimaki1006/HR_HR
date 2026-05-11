@@ -384,7 +384,11 @@ fn render_size_x_trend_matrix(
         } else {
             html.push_str("<ol style=\"margin:0;padding-left:18px;line-height:1.6;\">\n");
             for c in list.iter() {
-                let pct_color = if c.employee_delta_1y > 0.0 { "#059669" } else { "#dc2626" };
+                let pct_color = if c.employee_delta_1y > 0.0 {
+                    "#059669"
+                } else {
+                    "#dc2626"
+                };
                 html.push_str(&format!(
                     "<li>{}<br>\
                      <span style=\"color:#6b7280;font-size:8.5pt;\">{} 名 ・ <span style=\"color:{};font-weight:600;\">{:+.1}%</span></span></li>\n",
@@ -914,8 +918,8 @@ pub(super) fn compute_segment_takeaways(
 // =====================================================================
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::super::super::company::fetch::StructuralSummary;
+    use super::*;
 
     fn summary(
         large_count: usize,

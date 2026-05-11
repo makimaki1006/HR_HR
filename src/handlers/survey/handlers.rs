@@ -528,12 +528,11 @@ pub async fn survey_report_html(
                 // T2 (2026-04-30): industry_filter があれば ext_turnover を業界別に上書き
                 // 既存挙動 (産業計) は industry_filter=None で保持。マッチ 0 件は産業計にフォールバック。
                 if let (Some(ind), Some(t)) = (industry_for_ext.as_deref(), turso.as_ref()) {
-                    ctx.ext_turnover =
-                        super::super::trend::fetch::fetch_ext_turnover_with_industry(
-                            t,
-                            &pref2,
-                            Some(ind),
-                        );
+                    ctx.ext_turnover = super::super::trend::fetch::fetch_ext_turnover_with_industry(
+                        t,
+                        &pref2,
+                        Some(ind),
+                    );
                 }
                 // CR-9 (2026-04-28): 産業ミスマッチ専用の遅いフェッチ
                 // build_insight_context から分離し、survey_report_html でのみ実行。
