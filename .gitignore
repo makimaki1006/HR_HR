@@ -92,3 +92,20 @@ tests/e2e/tmp_pdf_*.pdf
 # Playwright trace / 動画
 trace.zip
 videos/
+
+# === Round 10 worktree cleanup (2026-05-11) ===
+# E2E 検証 PDF / HTML / 監査出力の置き場 (再生成可)
+out/
+# 補助的な cargo target ディレクトリ (target-test/、target-e2e-print-*/ など)
+target-*/
+# pytest cache
+.pytest_cache/
+# ad-hoc サーバ起動の標準出力/エラー
+server.err
+server.out
+# 生成系 CSV / progress (build_*.py で再現可能)
+scripts/data/
+# Turso upload の補助ログ (再現可)
+data/agoop/logs/
+# レポート試作物 (HTML mockup、必要なら docs/ に移動)
+report_mockups/
