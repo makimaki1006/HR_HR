@@ -514,11 +514,9 @@ pub(super) fn render_section_municipality_salary(html: &mut String, agg: &Survey
         *name_count.entry(m.name.clone()).or_insert(0) += 1;
     }
 
-    // 2026-05-08 Round 2-2: 主要都道府県以外の市区町村を「他県」として表示
-    // PDF2 で群馬県集計に埼玉県の深谷市が混入していた事故 (Round 1-J) の再発防止策。
-    // dominant_prefecture と prefecture が異なるレコードを Top 15 内で識別する。
-    let dominant_pref = agg.dominant_prefecture.clone().unwrap_or_default();
-
+    // 以前は主要都道府県と異なる市区町村に「他県」マーカーを出していたが、
+    // 通勤圏・広域求人では隣接県が正当に含まれるため誤判定になりやすい。
+    // 同名市区町村の取り違え防止は dup_marker と都道府県列で担保する。
     render_figure_caption(
         html,
         "表 7-1",
@@ -535,19 +533,12 @@ pub(super) fn render_section_municipality_salary(html: &mut String, agg: &Survey
         } else {
             ""
         };
-        // 2026-05-08 Round 2-2: 主要都道府県と異なる場合の他県マーカー (深谷市混入事故の防御)
-        let other_pref_marker = if !dominant_pref.is_empty() && m.prefecture != dominant_pref {
-            " <span title=\"主要都道府県以外\" style=\"color:#dc2626;font-weight:700;font-size:9pt;\">\u{2691} 他県</span>"
-        } else {
-            ""
-        };
         html.push_str(&format!(
-            "<tr><td>{}</td><td>{}{}{}</td><td style=\"font-size:10px;color:#666\">{}</td>\
+            "<tr><td>{}</td><td>{}{}</td><td style=\"font-size:10px;color:#666\">{}</td>\
              <td class=\"num\">{}件</td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
             i + 1,
             escape_html(&m.name),
             dup_marker,
-            other_pref_marker,
             escape_html(&m.prefecture),
             m.count,
             format_man_yen(m.avg_salary),
