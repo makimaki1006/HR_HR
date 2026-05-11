@@ -555,7 +555,7 @@ fn render_data_sources_collapsible(html: &mut String) {
         ),
         (
             "開廃業動態 (補助)",
-            "経済産業省 経済センサス活動調査",
+            "総務省・経済産業省 経済センサス-活動調査",
             "純増 = 開業率 - 廃業率 (公表値)",
             "都道府県",
             "5 年に 1 回",
@@ -1365,7 +1365,7 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             escape_html(interp)
         ));
         html.push_str(&render_data_source_note(
-            "経済産業省 経済センサス基礎調査",
+            "総務省・経済産業省 経済センサス-基礎調査",
             "5 年累積率 = (新設事業所数 / 前期末事業所数) × 100",
             "都道府県",
         ));
@@ -1797,7 +1797,7 @@ fn render_data_sources_collapsible_public(html: &mut String) {
         ),
         (
             "開廃業動態 (補助)",
-            "経済産業省 経済センサス活動調査",
+            "総務省・経済産業省 経済センサス-活動調査",
             "純増 = 開業率 - 廃業率 (公表値)",
             "都道府県",
             "5 年に 1 回",
@@ -1990,7 +1990,7 @@ fn render_individual_kpis_public(html: &mut String, m: &TightnessMetrics) {
             escape_html(interp)
         ));
         html.push_str(&render_data_source_note(
-            "経済産業省 経済センサス基礎調査",
+            "総務省・経済産業省 経済センサス-基礎調査",
             "5 年累積率 = (新設事業所数 / 前期末事業所数) × 100",
             "都道府県",
         ));

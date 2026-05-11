@@ -1658,7 +1658,7 @@ pub(crate) fn render_mi_market_quadrant(
     );
     html.push_str(&format!(
         "<p class=\"mi-note\" style=\"font-size:11px;color:#64748b;margin:0 0 8px;\">\
-         X 軸: CSV 求人数 (対象自治体)。Y 軸: 国勢調査 R3 経済センサス 全産業従業者数 (集約 city_code 単位で合算)。\
+         X 軸: CSV 求人数 (対象自治体)。Y 軸: 令和3年 経済センサス-活動調査 全産業従業者数 (集約 city_code 単位で合算)。\
          円サイズ: CSV 給与中央値。象限分割は対象自治体の中央値を基準。<br/>\
          <strong>サンプル数について (本 CSV: {n} 集約点)</strong>: \
          本図は CSV に含まれる対象自治体数に依存します。\

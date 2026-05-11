@@ -247,6 +247,11 @@ fn render_internet_usage_block(html: &mut String, ctx: &InsightContext) {
     } else {
         "最新".to_string()
     };
+    let freshness_note = if year > 0 && year < 2020 {
+        " なお、表示年が古い場合は最新の媒体利用実態と乖離する可能性があるため、媒体選定では直近の実績データと併用してください。"
+    } else {
+        ""
+    };
     // 2026-04-26 Granularity: 都道府県粒度のみであることを強調
     html.push_str(&format!(
         "<p class=\"note\" style=\"font-size:9pt;color:#b45309;background:#fef3c7;padding:6px 8px;border-left:3px solid #f59e0b;border-radius:3px;margin:6px 0;\">\
@@ -254,9 +259,10 @@ fn render_internet_usage_block(html: &mut String, ctx: &InsightContext) {
          本データは <strong>都道府県のみ</strong> で、市区町村別の差は反映されていません。\
          インターネット利用率は 6 歳以上人口の自己申告。\
          スマートフォン保有率は世帯単位での自己申告。\
-         オンライン媒体適合度は当該都道府県全体の平均値であり、対象市区町村の実態とは乖離する可能性があります。\
+         オンライン媒体適合度は当該都道府県全体の平均値であり、対象市区町村の実態とは乖離する可能性があります。{}\
          </p>\n",
         escape_html(&year_str),
+        freshness_note,
     ));
 }
 
@@ -544,6 +550,25 @@ mod tests {
             html.contains("市区町村別の差は反映されていません")
                 || html.contains("対象市区町村の実態とは乖離する可能性"),
             "lifestyle internet_usage: 市区町村別差の注記必須"
+        );
+    }
+
+    #[test]
+    fn internet_usage_old_year_emits_freshness_warning() {
+        let rows = vec![make_row(&[
+            ("prefecture", json!("東京都")),
+            ("internet_usage_rate", json!(82.0)),
+            ("smartphone_ownership_rate", json!(72.0)),
+            ("year", json!(2016)),
+        ])];
+        let ctx = mock_ctx_with_internet(rows);
+        let mut html = String::new();
+        render_section_lifestyle(&mut html, Some(&ctx));
+
+        assert!(html.contains("通信利用動向調査 2016 年 ベース"));
+        assert!(
+            html.contains("最新の媒体利用実態と乖離する可能性"),
+            "古い通信利用動向調査を silent に見せない"
         );
     }
 
