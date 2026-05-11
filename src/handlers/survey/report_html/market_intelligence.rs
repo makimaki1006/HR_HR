@@ -34,6 +34,9 @@ use super::super::super::analysis::fetch::{
     OccupationPopulationCell, SurveyMarketIntelligenceData, WardRankingRowDto,
 };
 use super::super::super::helpers::escape_html;
+use super::labels::distribution_candidates::{
+    DISTINCTION_NOTE, PRIORITY_SA_LABEL, SCORE_160_PLUS_TITLE, SCORE_160_PLUS_UNIT,
+};
 use std::collections::BTreeMap;
 
 #[allow(dead_code)]
@@ -617,9 +620,9 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
     // 同ページ内の数値矛盾を解消する。
     render_mi_kpi_card(
         html,
-        "配信検証候補",
+        SCORE_160_PLUS_TITLE,
         &format!("{high_priority_score_count}"),
-        "件 (スコア160+)",
+        SCORE_160_PLUS_UNIT,
         "mi-badge-estimated-beta",
         "推定",
     );
@@ -631,7 +634,7 @@ pub(crate) fn render_mi_kpi_cards(html: &mut String, data: &SurveyMarketIntellig
         "<p class=\"mi-priority-distinction-note\" \
          style=\"font-size:9pt;color:#475569;margin:8px 0 0;border-left:3px solid #cbd5e1;padding-left:8px;\">\
          {note}</p>\n",
-        note = escape_html(super::labels::distribution_candidates::DISTINCTION_NOTE),
+        note = escape_html(DISTINCTION_NOTE),
     ));
     html.push_str("</section>\n");
 }
@@ -750,11 +753,12 @@ pub(crate) fn render_mi_hero_bar(html: &mut String, data: &SurveyMarketIntellige
     // Card 1: 重点配信候補
     html.push_str(&format!(
         "<div class=\"mi-hero-card mi-hero-primary\" role=\"listitem\">\
-         <div class=\"mi-hero-eyebrow\">重点配信候補 (S + A)</div>\
+         <div class=\"mi-hero-eyebrow\">{priority_label}</div>\
          <div class=\"mi-hero-value\"><strong>{n}</strong><span class=\"mi-hero-unit\">件</span></div>\
          <div class=\"mi-hero-context\">{badge} Model F2</div>\
          </div>\n",
         n = high_priority_fallback,
+        priority_label = escape_html(PRIORITY_SA_LABEL),
         badge = render_mi_data_label_badge("estimated_beta"),
     ));
 
@@ -2177,9 +2181,9 @@ fn render_mi_summary_card(html: &mut String, data: &SurveyMarketIntelligenceData
     );
     render_mi_kpi(
         html,
-        "配信検証候補",
+        SCORE_160_PLUS_TITLE,
         &format!("{high_priority_count}"),
-        "件 (スコア160+)",
+        SCORE_160_PLUS_UNIT,
         ESTIMATED_LABEL,
     );
     render_mi_kpi(
