@@ -182,6 +182,7 @@ pub(super) fn render_section_salary_stats(
     // 下限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
     if !salary_min_values.is_empty() {
         // 生値分布（20,000円刻み）
+        html.push_str("<div class=\"salary-chart-block\">\n");
         html.push_str("<h3>下限給与の分布（20,000円刻み）</h3>\n");
         render_figure_caption(
             html,
@@ -200,8 +201,10 @@ pub(super) fn render_section_salary_stats(
             20_000,
         );
         html.push_str(&render_echart_div(&config, 220));
+        html.push_str("</div>\n");
 
         // 詳細分布（5,000円刻み）
+        html.push_str("<div class=\"salary-chart-block\">\n");
         html.push_str("<h3>下限給与の分布（5,000円刻み）- 詳細</h3>\n");
         render_figure_caption(
             html,
@@ -220,6 +223,7 @@ pub(super) fn render_section_salary_stats(
             5_000,
         );
         html.push_str(&render_echart_div(&config, 220));
+        html.push_str("</div>\n");
         render_read_hint(
             html,
             "20,000円刻みは全体傾向の把握に、5,000円刻みは「ちょうど 25 万円」「20 万円ちょうど」など切り良い設定への偏在を観察するのに適しています。",
@@ -229,11 +233,18 @@ pub(super) fn render_section_salary_stats(
     // 上限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
     if !salary_max_values.is_empty() {
         // 生値分布（20,000円刻み）
+        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>上限給与の分布（20,000円刻み）</h3>\n");
-        render_figure_caption(html, "図 3-4", "上限月給ヒストグラム（20,000円刻み）");
+        render_figure_caption(
+            html,
+            "図 3-4",
+            "上限月給ヒストグラム（20,000円刻み・縦線=平均/中央値/最頻値）",
+        );
         let (labels, values, _b) = build_salary_histogram(salary_max_values, 20_000);
         let mode_max_20k = compute_mode(salary_max_values, 20_000);
-        let config = build_histogram_echart_config(
+        // 図 3-4 は下限側の 20,000 円刻みヒストグラムと凡例表現を揃える。
+        // 近接時の右上統計カードに切り替えると、この図だけ見た目が変わるため無効化する。
+        let config = build_histogram_echart_config_with_stats_card(
             &labels,
             &values,
             "#66BB6A",
@@ -241,10 +252,13 @@ pub(super) fn render_section_salary_stats(
             Some(stats.median),
             mode_max_20k,
             20_000,
+            false,
         );
         html.push_str(&render_echart_div(&config, 220));
+        html.push_str("</div>\n");
 
         // 詳細分布（5,000円刻み）
+        html.push_str("<div class=\"salary-chart-block\">\n");
         html.push_str("<h3>上限給与の分布（5,000円刻み）- 詳細</h3>\n");
         render_figure_caption(
             html,
@@ -263,6 +277,7 @@ pub(super) fn render_section_salary_stats(
             5_000,
         );
         html.push_str(&render_echart_div(&config, 220));
+        html.push_str("</div>\n");
     }
 
     render_section_bridge(

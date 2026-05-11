@@ -305,7 +305,7 @@ body.theme-dark .variant-indicator .variant-switch-link:hover { background: #4f4
   }
 
   /* セクション内部での予期せぬ改ページを抑制 (短いセクションは 1 ページに収める) */
-  .section-compact, .figure-caption, .report-banner-gray, .caveat,
+  .section-compact, .figure-caption, .salary-chart-block, .report-banner-gray, .caveat,
   .section-howto, .read-hint, .section-bridge, .data-source-note,
   .recruit-difficulty, .business-dynamics-card, .structural-summary {
     page-break-inside: avoid;
@@ -314,6 +314,7 @@ body.theme-dark .variant-indicator .variant-switch-link:hover { background: #4f4
 
   /* 画像/チャート要素のページ跨ぎ抑制 */
   .echart, figure, img { page-break-inside: avoid; break-inside: avoid; }
+  .salary-chart-page-start { page-break-before: always; break-before: page; }
 
   /* 主要章で改ページ開始 (.page-start クラスを既存セクションに付与済み) */
   .section.page-start, h2.page-start {

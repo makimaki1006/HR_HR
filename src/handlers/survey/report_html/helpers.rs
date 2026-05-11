@@ -152,6 +152,21 @@ pub(super) fn build_histogram_echart_config(
     mode: Option<i64>,
     bin_size: i64,
 ) -> String {
+    build_histogram_echart_config_with_stats_card(
+        labels, values, color, mean, median, mode, bin_size, true,
+    )
+}
+
+pub(super) fn build_histogram_echart_config_with_stats_card(
+    labels: &[String],
+    values: &[usize],
+    color: &str,
+    mean: Option<i64>,
+    median: Option<i64>,
+    mode: Option<i64>,
+    bin_size: i64,
+    use_close_stats_card: bool,
+) -> String {
     // 値を category 軸ラベルに合わせる: (値 / bin_size) * bin_size を「X万」形式に
     let to_label = |yen: i64| -> String {
         if bin_size <= 0 {
@@ -182,7 +197,7 @@ pub(super) fn build_histogram_echart_config(
     // Round 2.7-AC: ラベル近接統合判定
     // 3 値の差が bin_width * 2 以内なら近接 → graphic で統合カード化
     // それ以外は既存の position 分散 (insideEndTop/Bottom) を維持
-    let stats_close = stats_are_close(median, mean, mode, bin_size);
+    let stats_close = use_close_stats_card && stats_are_close(median, mean, mode, bin_size);
 
     let mut mark_lines = vec![];
     if let Some(m) = median {
@@ -327,7 +342,13 @@ pub(super) fn build_histogram_echart_config(
             "minInterval": 1,
             "axisLabel": {"fontSize": 9}
         },
-        "grid": {"left": "10%", "right": "5%", "bottom": "20%", "top": "10%"},
+        "grid": {
+            "left": "6%",
+            "right": "6%",
+            "bottom": "22%",
+            "top": "12%",
+            "containLabel": true
+        },
         "graphic": graphic,
         "series": [{
             "type": "bar",
