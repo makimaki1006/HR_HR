@@ -2398,6 +2398,10 @@ mod ui2_contract_tests {
             html.contains("表 7-1"),
             "市区町村別給与テーブルに表 7-1 のキャプションが必須"
         );
+        assert!(
+            !html.contains("他県") && !html.contains("主要都道府県以外"),
+            "主要都道府県との差分だけで他県扱いする表示は誤判定リスクがあるため出さない"
+        );
     }
 
     // ---- Section 4: 雇用形態 ----
