@@ -6,13 +6,14 @@ use super::super::super::company::fetch::NearbyCompany;
 use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref, Row};
 use super::super::super::insight::fetch::InsightContext;
 use super::super::aggregator::{
-    CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg,
+    CompanyAgg, EmpTypeSalary, MunicipalitySalaryAgg, ScatterPoint, SurveyAggregation, TagSalaryAgg,
 };
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
 use serde_json::json;
 
 use super::helpers::*;
+use super::region_filter::filter_municipalities_by_pref;
 
 pub(super) fn render_section_region(html: &mut String, agg: &SurveyAggregation) {
     if agg.by_prefecture.is_empty() {
@@ -476,6 +477,66 @@ mod impl1_print_tests {
         render_section_region_extras(&mut html, &ctx);
         assert!(html.is_empty(), "全空時は印刷版セクション非表示");
     }
+
+    #[test]
+    fn municipality_salary_filters_other_pref_when_scope_is_single_pref() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![("群馬県".to_string(), 2)];
+        agg.by_municipality_salary = vec![
+            MunicipalitySalaryAgg {
+                name: "前橋市".to_string(),
+                prefecture: "群馬県".to_string(),
+                count: 2,
+                avg_salary: 250_000,
+                median_salary: 240_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "深谷市".to_string(),
+                prefecture: "埼玉県".to_string(),
+                count: 1,
+                avg_salary: 260_000,
+                median_salary: 250_000,
+            },
+        ];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+
+        assert!(html.contains("前橋市"), "対象県の市区町村は表示する");
+        assert!(
+            !html.contains("深谷市"),
+            "単一都道府県スコープでは他県市区町村を表示しない"
+        );
+    }
+
+    #[test]
+    fn municipality_salary_keeps_cross_pref_rows_when_scope_is_multi_pref() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![("北海道".to_string(), 1), ("福島県".to_string(), 1)];
+        agg.by_municipality_salary = vec![
+            MunicipalitySalaryAgg {
+                name: "伊達市".to_string(),
+                prefecture: "北海道".to_string(),
+                count: 1,
+                avg_salary: 250_000,
+                median_salary: 240_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "伊達市".to_string(),
+                prefecture: "福島県".to_string(),
+                count: 1,
+                avg_salary: 260_000,
+                median_salary: 250_000,
+            },
+        ];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+
+        assert!(html.contains("北海道"), "多県CSVでは北海道側を残す");
+        assert!(html.contains("福島県"), "多県CSVでは福島県側を残す");
+        assert!(html.contains("同名"), "同名市区町村はマーカーで区別する");
+    }
 }
 
 pub(super) fn render_section_municipality_salary(html: &mut String, agg: &SurveyAggregation) {
@@ -483,11 +544,20 @@ pub(super) fn render_section_municipality_salary(html: &mut String, agg: &Survey
         return;
     }
 
+    let display_municipalities = if agg.by_prefecture.len() == 1 {
+        let target_pref = &agg.by_prefecture[0].0;
+        filter_municipalities_by_pref(&agg.by_municipality_salary, target_pref)
+    } else {
+        agg.by_municipality_salary.clone()
+    };
+    if display_municipalities.is_empty() {
+        return;
+    }
+
     html.push_str("<div class=\"section\">\n");
     html.push_str("<h2>地域分析（市区町村）</h2>\n");
     // So What: 件数の多い市区町村の給与水準が最も高い先
-    if let Some(top_hi_salary) = agg
-        .by_municipality_salary
+    if let Some(top_hi_salary) = display_municipalities
         .iter()
         .take(15)
         .max_by_key(|m| m.avg_salary)
@@ -510,7 +580,7 @@ pub(super) fn render_section_municipality_salary(html: &mut String, agg: &Survey
     // 同名市区町村の判定（伊達市・府中市など）
     use std::collections::HashMap;
     let mut name_count: HashMap<String, usize> = HashMap::new();
-    for m in agg.by_municipality_salary.iter().take(15) {
+    for m in display_municipalities.iter().take(15) {
         *name_count.entry(m.name.clone()).or_insert(0) += 1;
     }
 
@@ -527,7 +597,7 @@ pub(super) fn render_section_municipality_salary(html: &mut String, agg: &Survey
         <th style=\"text-align:right\">件数</th><th style=\"text-align:right\">平均月給</th>\
         <th style=\"text-align:right\">中央値</th></tr></thead>\n<tbody>\n",
     );
-    for (i, m) in agg.by_municipality_salary.iter().take(15).enumerate() {
+    for (i, m) in display_municipalities.iter().take(15).enumerate() {
         let dup_marker = if name_count.get(&m.name).copied().unwrap_or(0) > 1 {
             " <span title=\"同名市区町村あり\" style=\"color:#f59e0b;font-weight:700;font-size:9pt;\">\u{26A0} 同名</span>"
         } else {
