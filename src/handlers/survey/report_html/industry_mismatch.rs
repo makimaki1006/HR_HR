@@ -123,9 +123,7 @@ pub(super) fn render_section_industry_mismatch_csv(
     }
 
     // ---- HTML 出力 ----
-    html.push_str(
-        "<div class=\"section\" data-testid=\"industry-mismatch-csv-section\">\n",
-    );
+    html.push_str("<div class=\"section\" data-testid=\"industry-mismatch-csv-section\">\n");
     html.push_str("<h2>産業ミスマッチ (CSV 媒体掲載 vs 地域就業者構成)</h2>\n");
 
     render_section_howto(
@@ -267,91 +265,179 @@ pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static st
     }
 
     // 医療・福祉系 (専門度高、最優先)
-    if s.contains("看護") || s.contains("准看")
-        || s.contains("病院") || s.contains("医療") || s.contains("メディカル")
-        || s.contains("診療") || s.contains("クリニック")
-        || s.contains("歯科") || s.contains("デンタル")
-        || s.contains("助産") || s.contains("獣医")
-        || s.contains("社会福祉") || s.contains("児童福祉") || s.contains("障害者")
-        || s.contains("障がい者") || s.contains("老人") || s.contains("介護")
-        || s.contains("ケアセンター") || s.contains("ケアマネ")
-        || s.contains("ケアホーム") || s.contains("デイケア")
-        || s.contains("ヘルパー") || s.contains("保育")
-        || s.contains("精神保健") || s.contains("リハビリ") || s.contains("理学療法")
-        || s.contains("作業療法") || s.contains("言語聴覚") || s.contains("薬剤師")
-        || s.contains("管理栄養士") || s.contains("栄養士") || s.contains("生活支援員")
-        || s.contains("生活相談員") || s.contains("サービス提供責任者")
-        || s.contains("サービス管理責任者") || s.contains("児童指導員")
-        || s.contains("児童発達支援") || s.contains("デイサービス")
-        || s.contains("グループホーム") || s.contains("特別養護")
-        || s.contains("有料老人ホーム") || s.contains("訪問看護")
-        || s.contains("訪問介護") || s.contains("通所介護")
+    if s.contains("看護")
+        || s.contains("准看")
+        || s.contains("病院")
+        || s.contains("医療")
+        || s.contains("メディカル")
+        || s.contains("診療")
+        || s.contains("クリニック")
+        || s.contains("歯科")
+        || s.contains("デンタル")
+        || s.contains("助産")
+        || s.contains("獣医")
+        || s.contains("社会福祉")
+        || s.contains("児童福祉")
+        || s.contains("障害者")
+        || s.contains("障がい者")
+        || s.contains("老人")
+        || s.contains("介護")
+        || s.contains("ケアセンター")
+        || s.contains("ケアマネ")
+        || s.contains("ケアホーム")
+        || s.contains("デイケア")
+        || s.contains("ヘルパー")
+        || s.contains("保育")
+        || s.contains("精神保健")
+        || s.contains("リハビリ")
+        || s.contains("理学療法")
+        || s.contains("作業療法")
+        || s.contains("言語聴覚")
+        || s.contains("薬剤師")
+        || s.contains("管理栄養士")
+        || s.contains("栄養士")
+        || s.contains("生活支援員")
+        || s.contains("生活相談員")
+        || s.contains("サービス提供責任者")
+        || s.contains("サービス管理責任者")
+        || s.contains("児童指導員")
+        || s.contains("児童発達支援")
+        || s.contains("デイサービス")
+        || s.contains("グループホーム")
+        || s.contains("特別養護")
+        || s.contains("有料老人ホーム")
+        || s.contains("訪問看護")
+        || s.contains("訪問介護")
+        || s.contains("通所介護")
         || s.contains("福祉")
     {
         return Some("医療，福祉");
     }
     // 建設業
-    if s.contains("建設") || s.contains("土木") || s.contains("建築")
-        || s.contains("総合工事") || s.contains("設備工事")
-        || s.contains("塗装") || s.contains("舗装") || s.contains("配管")
-        || s.contains("電気工事") || s.contains("内装") || s.contains("大工")
-        || s.contains("左官") || s.contains("施工管理")
+    if s.contains("建設")
+        || s.contains("土木")
+        || s.contains("建築")
+        || s.contains("総合工事")
+        || s.contains("設備工事")
+        || s.contains("塗装")
+        || s.contains("舗装")
+        || s.contains("配管")
+        || s.contains("電気工事")
+        || s.contains("内装")
+        || s.contains("大工")
+        || s.contains("左官")
+        || s.contains("施工管理")
     {
         return Some("建設業");
     }
     // 製造業
-    if s.contains("製造") || s.contains("食料品") || s.contains("飲料")
-        || s.contains("繊維") || s.contains("衣服") || s.contains("木材")
-        || s.contains("家具") || s.contains("印刷") || s.contains("化学")
-        || s.contains("プラスチック") || s.contains("ゴム") || s.contains("窯業")
-        || s.contains("金属加工") || s.contains("機械加工") || s.contains("輸送用機器")
-        || s.contains("精密機器") || s.contains("組立") || s.contains("工場")
-        || s.contains("生産工程") || s.contains("溶接") || s.contains("検品")
+    if s.contains("製造")
+        || s.contains("食料品")
+        || s.contains("飲料")
+        || s.contains("繊維")
+        || s.contains("衣服")
+        || s.contains("木材")
+        || s.contains("家具")
+        || s.contains("印刷")
+        || s.contains("化学")
+        || s.contains("プラスチック")
+        || s.contains("ゴム")
+        || s.contains("窯業")
+        || s.contains("金属加工")
+        || s.contains("機械加工")
+        || s.contains("輸送用機器")
+        || s.contains("精密機器")
+        || s.contains("組立")
+        || s.contains("工場")
+        || s.contains("生産工程")
+        || s.contains("溶接")
+        || s.contains("検品")
     {
         return Some("製造業");
     }
     // 運輸業，郵便業
-    if s.contains("運輸") || s.contains("運送") || s.contains("配送")
-        || s.contains("郵便") || s.contains("貨物") || s.contains("旅客")
-        || s.contains("鉄道") || s.contains("自動車運送") || s.contains("倉庫")
-        || s.contains("配達") || s.contains("ドライバー")
-        || s.contains("トラック") || s.contains("タクシー") || s.contains("バス運転")
+    if s.contains("運輸")
+        || s.contains("運送")
+        || s.contains("配送")
+        || s.contains("郵便")
+        || s.contains("貨物")
+        || s.contains("旅客")
+        || s.contains("鉄道")
+        || s.contains("自動車運送")
+        || s.contains("倉庫")
+        || s.contains("配達")
+        || s.contains("ドライバー")
+        || s.contains("トラック")
+        || s.contains("タクシー")
+        || s.contains("バス運転")
     {
         return Some("運輸業，郵便業");
     }
     // 卸売業，小売業
-    if s.contains("卸売") || s.contains("小売") || s.contains("販売店")
-        || s.contains("百貨店") || s.contains("スーパー") || s.contains("コンビニ")
-        || s.contains("商業") || s.contains("レジ") || s.contains("店員")
-        || s.contains("販売スタッフ") || s.contains("ショップ")
+    if s.contains("卸売")
+        || s.contains("小売")
+        || s.contains("販売店")
+        || s.contains("百貨店")
+        || s.contains("スーパー")
+        || s.contains("コンビニ")
+        || s.contains("商業")
+        || s.contains("レジ")
+        || s.contains("店員")
+        || s.contains("販売スタッフ")
+        || s.contains("ショップ")
     {
         return Some("卸売業，小売業");
     }
     // 宿泊業，飲食サービス業
-    if s.contains("飲食") || s.contains("レストラン") || s.contains("食堂")
-        || s.contains("酒場") || s.contains("ビヤホール") || s.contains("バー")
-        || s.contains("喫茶") || s.contains("カフェ")
-        || s.contains("旅館") || s.contains("ホテル") || s.contains("宿泊")
-        || s.contains("料理店") || s.contains("給食") || s.contains("ホール")
-        || s.contains("キッチン") || s.contains("調理")
+    if s.contains("飲食")
+        || s.contains("レストラン")
+        || s.contains("食堂")
+        || s.contains("酒場")
+        || s.contains("ビヤホール")
+        || s.contains("バー")
+        || s.contains("喫茶")
+        || s.contains("カフェ")
+        || s.contains("旅館")
+        || s.contains("ホテル")
+        || s.contains("宿泊")
+        || s.contains("料理店")
+        || s.contains("給食")
+        || s.contains("ホール")
+        || s.contains("キッチン")
+        || s.contains("調理")
     {
         return Some("宿泊業，飲食サービス業");
     }
     // 情報通信業
-    if s.contains("ソフトウェア") || s.contains("情報サービス")
-        || s.contains("通信業") || s.contains("情報通信")
-        || s.contains("インターネット") || s.contains("放送")
-        || s.contains("映像") || s.contains("出版") || s.contains("新聞")
-        || s.contains("Web") || s.contains("プログラマ") || s.contains("プログラマー")
-        || s.contains("エンジニア") || s.contains("システム開発") || s.contains("SE")
+    if s.contains("ソフトウェア")
+        || s.contains("情報サービス")
+        || s.contains("通信業")
+        || s.contains("情報通信")
+        || s.contains("インターネット")
+        || s.contains("放送")
+        || s.contains("映像")
+        || s.contains("出版")
+        || s.contains("新聞")
+        || s.contains("Web")
+        || s.contains("プログラマ")
+        || s.contains("プログラマー")
+        || s.contains("エンジニア")
+        || s.contains("システム開発")
+        || s.contains("SE")
         || s.contains("IT")
     {
         return Some("情報通信業");
     }
     // 教育，学習支援業
-    if s.contains("学校") || s.contains("教育") || s.contains("学習支援")
-        || s.contains("塾") || s.contains("予備校") || s.contains("教習所")
-        || s.contains("学習教室") || s.contains("講師") || s.contains("教員")
+    if s.contains("学校")
+        || s.contains("教育")
+        || s.contains("学習支援")
+        || s.contains("塾")
+        || s.contains("予備校")
+        || s.contains("教習所")
+        || s.contains("学習教室")
+        || s.contains("講師")
+        || s.contains("教員")
     {
         return Some("教育，学習支援業");
     }
@@ -360,14 +446,17 @@ pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static st
         return Some("不動産業，物品賃貸業");
     }
     // 金融業，保険業
-    if s.contains("金融") || s.contains("銀行") || s.contains("保険")
-        || s.contains("証券") || s.contains("信用組合") || s.contains("信用金庫")
+    if s.contains("金融")
+        || s.contains("銀行")
+        || s.contains("保険")
+        || s.contains("証券")
+        || s.contains("信用組合")
+        || s.contains("信用金庫")
     {
         return Some("金融業，保険業");
     }
     // 農林漁業
-    if s.contains("農業") || s.contains("林業") || s.contains("漁業")
-        || s.contains("水産")
+    if s.contains("農業") || s.contains("林業") || s.contains("漁業") || s.contains("水産")
     {
         return Some("農林漁業");
     }
@@ -376,26 +465,41 @@ pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static st
         return Some("鉱業");
     }
     // 電気・ガス・熱供給・水道業
-    if (s.contains("電気") && s.contains("供給")) || s.contains("ガス業")
-        || s.contains("熱供給") || s.contains("水道業")
+    if (s.contains("電気") && s.contains("供給"))
+        || s.contains("ガス業")
+        || s.contains("熱供給")
+        || s.contains("水道業")
     {
         return Some("電気・ガス・熱供給・水道業");
     }
     // 学術研究，専門・技術サービス業
-    if s.contains("学術") || s.contains("研究所")
+    if s.contains("学術")
+        || s.contains("研究所")
         || (s.contains("専門") && s.contains("技術"))
-        || s.contains("広告") || s.contains("デザイン") || s.contains("法務")
-        || s.contains("会計") || s.contains("コンサル")
-        || s.contains("経営戦略") || s.contains("市場調査")
+        || s.contains("広告")
+        || s.contains("デザイン")
+        || s.contains("法務")
+        || s.contains("会計")
+        || s.contains("コンサル")
+        || s.contains("経営戦略")
+        || s.contains("市場調査")
     {
         return Some("学術研究，専門・技術サービス業");
     }
     // 生活関連サービス業，娯楽業
-    if s.contains("理容") || s.contains("美容") || s.contains("クリーニング")
-        || s.contains("浴場") || s.contains("娯楽") || s.contains("遊技場")
-        || s.contains("興行") || s.contains("冠婚葬祭")
-        || s.contains("葬儀") || s.contains("結婚") || s.contains("写真館")
-        || s.contains("旅行") || s.contains("生活関連サービス")
+    if s.contains("理容")
+        || s.contains("美容")
+        || s.contains("クリーニング")
+        || s.contains("浴場")
+        || s.contains("娯楽")
+        || s.contains("遊技場")
+        || s.contains("興行")
+        || s.contains("冠婚葬祭")
+        || s.contains("葬儀")
+        || s.contains("結婚")
+        || s.contains("写真館")
+        || s.contains("旅行")
+        || s.contains("生活関連サービス")
     {
         return Some("生活関連サービス業，娯楽業");
     }
@@ -408,10 +512,17 @@ pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static st
         return Some("複合サービス事業");
     }
     // サービス業 (他)
-    if s.contains("派遣") || s.contains("人材紹介") || s.contains("職業紹介")
-        || s.contains("建物管理") || s.contains("ビルメンテナンス")
-        || s.contains("警備") || s.contains("清掃") || s.contains("廃棄物")
-        || s.contains("修理") || s.contains("メンテナンス") || s.contains("設備管理")
+    if s.contains("派遣")
+        || s.contains("人材紹介")
+        || s.contains("職業紹介")
+        || s.contains("建物管理")
+        || s.contains("ビルメンテナンス")
+        || s.contains("警備")
+        || s.contains("清掃")
+        || s.contains("廃棄物")
+        || s.contains("修理")
+        || s.contains("メンテナンス")
+        || s.contains("設備管理")
         || s.contains("事業サービス")
     {
         return Some("サービス業（他に分類されないもの）");
@@ -447,8 +558,7 @@ fn build_csv_mismatch_rows(
     }
 
     // 就業者: industry_name (normalize) -> employees_total
-    let mut emp_map: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut emp_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in industry_employees {
         let name = get_str_ref(r, "industry_name");
         if name.is_empty() {
@@ -462,8 +572,7 @@ fn build_csv_mismatch_rows(
     }
 
     // CSV 推定: industry_name (normalize) -> count
-    let mut csv_map: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut csv_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut csv_display_name: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     for (name, c) in csv_industry_counts {
@@ -696,69 +805,127 @@ fn normalize_industry_name(raw: &str) -> String {
 pub(crate) fn map_hw_to_major_industry(industry_raw: &str) -> &'static str {
     let s = industry_raw;
     // 医療・福祉系 (専門度高、最優先)
-    if s.contains("病院") || s.contains("医療") || s.contains("診療") || s.contains("歯科")
-        || s.contains("助産") || s.contains("看護") || s.contains("獣医")
-        || s.contains("社会保険") || s.contains("社会福祉") || s.contains("児童福祉")
-        || s.contains("障害者") || s.contains("老人") || s.contains("介護")
-        || s.contains("保育") || s.contains("精神保健") || s.contains("リハビリ")
+    if s.contains("病院")
+        || s.contains("医療")
+        || s.contains("診療")
+        || s.contains("歯科")
+        || s.contains("助産")
+        || s.contains("看護")
+        || s.contains("獣医")
+        || s.contains("社会保険")
+        || s.contains("社会福祉")
+        || s.contains("児童福祉")
+        || s.contains("障害者")
+        || s.contains("老人")
+        || s.contains("介護")
+        || s.contains("保育")
+        || s.contains("精神保健")
+        || s.contains("リハビリ")
         || s.contains("福祉")
     {
         return "医療，福祉";
     }
     // 建設業
-    if s.contains("建設") || s.contains("土木") || s.contains("建築")
-        || s.contains("総合工事") || s.contains("設備工事")
-        || s.contains("塗装工事") || s.contains("舗装工事") || s.contains("配管工事")
-        || s.contains("電気工事") || s.contains("内装")
+    if s.contains("建設")
+        || s.contains("土木")
+        || s.contains("建築")
+        || s.contains("総合工事")
+        || s.contains("設備工事")
+        || s.contains("塗装工事")
+        || s.contains("舗装工事")
+        || s.contains("配管工事")
+        || s.contains("電気工事")
+        || s.contains("内装")
     {
         return "建設業";
     }
     // 製造業
-    if s.contains("製造") || s.contains("食料品") || s.contains("飲料")
-        || s.contains("繊維") || s.contains("衣服") || s.contains("木材")
-        || s.contains("家具") || s.contains("印刷") || s.contains("化学")
-        || s.contains("プラスチック") || s.contains("ゴム") || s.contains("窯業")
-        || s.contains("金属") || s.contains("機械") || s.contains("輸送用")
-        || s.contains("精密") || s.contains("加工") || s.contains("工場")
+    if s.contains("製造")
+        || s.contains("食料品")
+        || s.contains("飲料")
+        || s.contains("繊維")
+        || s.contains("衣服")
+        || s.contains("木材")
+        || s.contains("家具")
+        || s.contains("印刷")
+        || s.contains("化学")
+        || s.contains("プラスチック")
+        || s.contains("ゴム")
+        || s.contains("窯業")
+        || s.contains("金属")
+        || s.contains("機械")
+        || s.contains("輸送用")
+        || s.contains("精密")
+        || s.contains("加工")
+        || s.contains("工場")
         || s.contains("生産工程")
     {
         return "製造業";
     }
     // 運輸業，郵便業
-    if s.contains("運輸") || s.contains("運送") || s.contains("配送")
-        || s.contains("郵便") || s.contains("貨物") || s.contains("旅客")
-        || s.contains("鉄道") || s.contains("自動車運送") || s.contains("倉庫")
-        || s.contains("配達") || s.contains("ドライバー")
+    if s.contains("運輸")
+        || s.contains("運送")
+        || s.contains("配送")
+        || s.contains("郵便")
+        || s.contains("貨物")
+        || s.contains("旅客")
+        || s.contains("鉄道")
+        || s.contains("自動車運送")
+        || s.contains("倉庫")
+        || s.contains("配達")
+        || s.contains("ドライバー")
     {
         return "運輸業，郵便業";
     }
     // 卸売業，小売業 (「商店」は曖昧なので「販売」を含めて広めに)
-    if s.contains("卸売") || s.contains("小売") || s.contains("商店")
-        || s.contains("販売店") || s.contains("百貨店") || s.contains("スーパー")
-        || s.contains("コンビニ") || s.contains("商業")
+    if s.contains("卸売")
+        || s.contains("小売")
+        || s.contains("商店")
+        || s.contains("販売店")
+        || s.contains("百貨店")
+        || s.contains("スーパー")
+        || s.contains("コンビニ")
+        || s.contains("商業")
     {
         return "卸売業，小売業";
     }
     // 宿泊業，飲食サービス業
-    if s.contains("飲食店") || s.contains("レストラン") || s.contains("食堂")
-        || s.contains("酒場") || s.contains("ビヤホール") || s.contains("バー")
-        || s.contains("喫茶") || s.contains("旅館") || s.contains("ホテル")
-        || s.contains("宿泊") || s.contains("料理店") || s.contains("給食")
+    if s.contains("飲食店")
+        || s.contains("レストラン")
+        || s.contains("食堂")
+        || s.contains("酒場")
+        || s.contains("ビヤホール")
+        || s.contains("バー")
+        || s.contains("喫茶")
+        || s.contains("旅館")
+        || s.contains("ホテル")
+        || s.contains("宿泊")
+        || s.contains("料理店")
+        || s.contains("給食")
     {
         return "宿泊業，飲食サービス業";
     }
     // 情報通信業
-    if s.contains("ソフトウェア") || s.contains("情報サービス")
-        || s.contains("通信業") || s.contains("情報通信")
-        || s.contains("インターネット") || s.contains("放送")
-        || s.contains("映像") || s.contains("出版") || s.contains("新聞")
+    if s.contains("ソフトウェア")
+        || s.contains("情報サービス")
+        || s.contains("通信業")
+        || s.contains("情報通信")
+        || s.contains("インターネット")
+        || s.contains("放送")
+        || s.contains("映像")
+        || s.contains("出版")
+        || s.contains("新聞")
         || s.contains("Web")
     {
         return "情報通信業";
     }
     // 教育，学習支援業
-    if s.contains("学校") || s.contains("教育") || s.contains("学習支援")
-        || s.contains("塾") || s.contains("予備校") || s.contains("教習所")
+    if s.contains("学校")
+        || s.contains("教育")
+        || s.contains("学習支援")
+        || s.contains("塾")
+        || s.contains("予備校")
+        || s.contains("教習所")
         || s.contains("学習教室")
     {
         return "教育，学習支援業";
@@ -768,14 +935,17 @@ pub(crate) fn map_hw_to_major_industry(industry_raw: &str) -> &'static str {
         return "不動産業，物品賃貸業";
     }
     // 金融業，保険業
-    if s.contains("金融") || s.contains("銀行") || s.contains("保険")
-        || s.contains("証券") || s.contains("信用組合") || s.contains("信用金庫")
+    if s.contains("金融")
+        || s.contains("銀行")
+        || s.contains("保険")
+        || s.contains("証券")
+        || s.contains("信用組合")
+        || s.contains("信用金庫")
     {
         return "金融業，保険業";
     }
     // 農林漁業
-    if s.contains("農業") || s.contains("林業") || s.contains("漁業")
-        || s.contains("水産")
+    if s.contains("農業") || s.contains("林業") || s.contains("漁業") || s.contains("水産")
     {
         return "農林漁業";
     }
@@ -784,26 +954,41 @@ pub(crate) fn map_hw_to_major_industry(industry_raw: &str) -> &'static str {
         return "鉱業";
     }
     // 電気・ガス・熱供給・水道業
-    if s.contains("電気") && s.contains("供給") || s.contains("ガス業")
-        || s.contains("熱供給") || s.contains("水道業")
+    if s.contains("電気") && s.contains("供給")
+        || s.contains("ガス業")
+        || s.contains("熱供給")
+        || s.contains("水道業")
     {
         return "電気・ガス・熱供給・水道業";
     }
     // 学術研究，専門・技術サービス業
-    if s.contains("学術") || s.contains("研究所")
+    if s.contains("学術")
+        || s.contains("研究所")
         || (s.contains("専門") && s.contains("技術"))
-        || s.contains("広告") || s.contains("デザイン") || s.contains("法務")
-        || s.contains("会計") || s.contains("コンサル")
-        || s.contains("経営戦略") || s.contains("市場調査")
+        || s.contains("広告")
+        || s.contains("デザイン")
+        || s.contains("法務")
+        || s.contains("会計")
+        || s.contains("コンサル")
+        || s.contains("経営戦略")
+        || s.contains("市場調査")
     {
         return "学術研究，専門・技術サービス業";
     }
     // 生活関連サービス業，娯楽業
-    if s.contains("理容") || s.contains("美容") || s.contains("クリーニング")
-        || s.contains("浴場") || s.contains("娯楽") || s.contains("遊技場")
-        || s.contains("興行") || s.contains("冠婚葬祭")
-        || s.contains("葬儀") || s.contains("結婚") || s.contains("写真館")
-        || s.contains("旅行") || s.contains("生活関連サービス")
+    if s.contains("理容")
+        || s.contains("美容")
+        || s.contains("クリーニング")
+        || s.contains("浴場")
+        || s.contains("娯楽")
+        || s.contains("遊技場")
+        || s.contains("興行")
+        || s.contains("冠婚葬祭")
+        || s.contains("葬儀")
+        || s.contains("結婚")
+        || s.contains("写真館")
+        || s.contains("旅行")
+        || s.contains("生活関連サービス")
     {
         return "生活関連サービス業，娯楽業";
     }
@@ -817,10 +1002,17 @@ pub(crate) fn map_hw_to_major_industry(industry_raw: &str) -> &'static str {
     }
     // 「サービス業（他に分類されないもの）」専用キーワード
     // 派遣業 / 建物管理 / 警備 / 清掃 / その他事業サービス
-    if s.contains("派遣") || s.contains("人材紹介") || s.contains("職業紹介")
-        || s.contains("建物管理") || s.contains("ビルメンテナンス")
-        || s.contains("警備") || s.contains("清掃") || s.contains("廃棄物")
-        || s.contains("修理") || s.contains("メンテナンス") || s.contains("設備管理")
+    if s.contains("派遣")
+        || s.contains("人材紹介")
+        || s.contains("職業紹介")
+        || s.contains("建物管理")
+        || s.contains("ビルメンテナンス")
+        || s.contains("警備")
+        || s.contains("清掃")
+        || s.contains("廃棄物")
+        || s.contains("修理")
+        || s.contains("メンテナンス")
+        || s.contains("設備管理")
         || s.contains("事業サービス")
     {
         return "サービス業（他に分類されないもの）";
@@ -869,8 +1061,7 @@ fn build_mismatch_rows(
     }
 
     // 就業者: industry_name -> employees_total
-    let mut emp_map: std::collections::HashMap<String, i64> =
-        std::collections::HashMap::new();
+    let mut emp_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in industry_employees {
         let name = get_str_ref(r, "industry_name");
         if name.is_empty() {
@@ -1004,10 +1195,7 @@ mod tests {
             "医療，福祉"
         );
         // 建設系
-        assert_eq!(
-            map_hw_to_major_industry("一般土木建築工事業"),
-            "建設業"
-        );
+        assert_eq!(map_hw_to_major_industry("一般土木建築工事業"), "建設業");
         assert_eq!(
             map_hw_to_major_industry("土木工事業（舗装工事業を除く）"),
             "建設業"
@@ -1031,10 +1219,7 @@ mod tests {
             "宿泊業，飲食サービス業"
         );
         // 情報通信
-        assert_eq!(
-            map_hw_to_major_industry("ソフトウェア業"),
-            "情報通信業"
-        );
+        assert_eq!(map_hw_to_major_industry("ソフトウェア業"), "情報通信業");
         // 不明分類は fallback
         assert_eq!(
             map_hw_to_major_industry("他に分類されないもの"),
@@ -1046,9 +1231,21 @@ mod tests {
     #[test]
     fn map_hw_to_major_industry_all_outputs_in_majors() {
         let test_inputs = [
-            "病院", "労働者派遣業", "建物総合管理業", "ソフトウェア業",
-            "食堂", "理容業", "美容業", "農業", "製造業", "鉄道業",
-            "金融業", "保険業", "学校教育", "公務", "未知の業種XYZ",
+            "病院",
+            "労働者派遣業",
+            "建物総合管理業",
+            "ソフトウェア業",
+            "食堂",
+            "理容業",
+            "美容業",
+            "農業",
+            "製造業",
+            "鉄道業",
+            "金融業",
+            "保険業",
+            "学校教育",
+            "公務",
+            "未知の業種XYZ",
         ];
         for input in &test_inputs {
             let mapped = map_hw_to_major_industry(input);
@@ -1094,10 +1291,7 @@ mod tests {
     /// 就業者 28% / HW 求人 12% → ギャップ -16pt
     #[test]
     fn industry_mismatch_gap_minus_16pt() {
-        let emp = vec![
-            mk_emp("医療，福祉", 28_000),
-            mk_emp("その他", 72_000),
-        ];
+        let emp = vec![mk_emp("医療，福祉", 28_000), mk_emp("その他", 72_000)];
         // HW total = 10000, 医療 1200 → 12.0%
         let hw = vec![
             ("医療，福祉".to_string(), 1200),
@@ -1206,20 +1400,12 @@ mod tests {
 
         // 就業者のみ空
         let mut html2 = String::new();
-        render_section_industry_mismatch(
-            &mut html2,
-            &[],
-            &[("医療，福祉".to_string(), 100)],
-        );
+        render_section_industry_mismatch(&mut html2, &[], &[("医療，福祉".to_string(), 100)]);
         assert!(html2.is_empty(), "就業者空 → section 非表示");
 
         // HW のみ空
         let mut html3 = String::new();
-        render_section_industry_mismatch(
-            &mut html3,
-            &[mk_emp("医療，福祉", 28_000)],
-            &[],
-        );
+        render_section_industry_mismatch(&mut html3, &[mk_emp("医療，福祉", 28_000)], &[]);
         assert!(html3.is_empty(), "HW 空 → section 非表示");
 
         // 就業者合計 0
@@ -1304,7 +1490,10 @@ mod tests {
         assert!(html.contains("<h2>産業ミスマッチ"), "h2 タイトル必須");
         assert!(html.contains("表 4B-1"), "図番号 4B-1 必須");
         assert!(html.contains("就業者構成比"), "列ヘッダ 就業者構成比 必須");
-        assert!(html.contains("HW 求人構成比"), "列ヘッダ HW 求人構成比 必須");
+        assert!(
+            html.contains("HW 求人構成比"),
+            "列ヘッダ HW 求人構成比 必須"
+        );
         assert!(html.contains("ギャップ"), "列ヘッダ ギャップ 必須");
     }
 
@@ -1348,12 +1537,11 @@ mod tests {
     // CSV Public variant tests (CR-9 / 2026-04-29)
     // =================================================================
 
-    fn mk_agg_with_tags(tags: &[(&str, usize)]) -> super::super::super::aggregator::SurveyAggregation {
+    fn mk_agg_with_tags(
+        tags: &[(&str, usize)],
+    ) -> super::super::super::aggregator::SurveyAggregation {
         let mut agg = super::super::super::aggregator::SurveyAggregation::default();
-        agg.by_tags = tags
-            .iter()
-            .map(|(t, c)| (t.to_string(), *c))
-            .collect();
+        agg.by_tags = tags.iter().map(|(t, c)| (t.to_string(), *c)).collect();
         agg
     }
 
@@ -1413,10 +1601,7 @@ mod tests {
     #[test]
     fn csv_industry_keyword_medical_welfare() {
         // 医療・福祉系キーワード
-        assert_eq!(
-            map_keyword_to_major_industry("看護師"),
-            Some("医療，福祉")
-        );
+        assert_eq!(map_keyword_to_major_industry("看護師"), Some("医療，福祉"));
         assert_eq!(
             map_keyword_to_major_industry("介護スタッフ"),
             Some("医療，福祉")
@@ -1425,10 +1610,7 @@ mod tests {
             map_keyword_to_major_industry("ヘルパー"),
             Some("医療，福祉")
         );
-        assert_eq!(
-            map_keyword_to_major_industry("保育士"),
-            Some("医療，福祉")
-        );
+        assert_eq!(map_keyword_to_major_industry("保育士"), Some("医療，福祉"));
         assert_eq!(
             map_keyword_to_major_industry("理学療法士"),
             Some("医療，福祉")
@@ -1564,11 +1746,7 @@ mod tests {
     #[test]
     fn csv_industry_failsoft_unknown_tags_only() {
         // タグが全て不明 → 推定 0 件
-        let agg = mk_agg_with_tags(&[
-            ("経験不問", 50),
-            ("週休2日", 30),
-            ("交通費支給", 20),
-        ]);
+        let agg = mk_agg_with_tags(&[("経験不問", 50), ("週休2日", 30), ("交通費支給", 20)]);
         let emp = vec![mk_emp("医療，福祉", 28_000), mk_emp("その他", 72_000)];
 
         let csv_counts = estimate_csv_industry_counts(&agg);
@@ -1637,10 +1815,7 @@ mod tests {
     /// CSV テスト 7: HTML 構造の必須要素
     #[test]
     fn csv_industry_html_structure() {
-        let agg = mk_agg_with_tags(&[
-            ("看護師", 60),
-            ("カフェスタッフ", 40),
-        ]);
+        let agg = mk_agg_with_tags(&[("看護師", 60), ("カフェスタッフ", 40)]);
         let emp = vec![
             mk_emp("医療，福祉", 28_000),
             mk_emp("宿泊業，飲食サービス業", 6_000),
@@ -1657,12 +1832,12 @@ mod tests {
             html.contains("data-testid=\"industry-mismatch-csv-table\""),
             "table data-testid 必須"
         );
-        assert!(
-            html.contains("<h2>産業ミスマッチ (CSV"),
-            "h2 タイトル必須"
-        );
+        assert!(html.contains("<h2>産業ミスマッチ (CSV"), "h2 タイトル必須");
         assert!(html.contains("表 4B-1"), "図番号 4B-1 必須");
-        assert!(html.contains("CSV 件数構成比"), "列ヘッダ CSV 件数構成比 必須");
+        assert!(
+            html.contains("CSV 件数構成比"),
+            "列ヘッダ CSV 件数構成比 必須"
+        );
         assert!(html.contains("就業者構成比"), "列ヘッダ 就業者構成比 必須");
         assert!(html.contains("ギャップ"), "列ヘッダ ギャップ 必須");
     }
@@ -1722,13 +1897,13 @@ mod tests {
             ("製造工場スタッフ", 10),
             ("カフェスタッフ", 8),
             ("販売スタッフ", 7),
-            ("経験不問", 50),       // 不明 → 推定対象外
-            ("週休2日", 30),        // 不明 → 推定対象外
+            ("経験不問", 50), // 不明 → 推定対象外
+            ("週休2日", 30),  // 不明 → 推定対象外
         ]);
         let emp = vec![
-            mk_emp("医療，福祉", 9_700),       // 9.7%
-            mk_emp("製造業", 14_000),          // 14%
-            mk_emp("卸売業，小売業", 16_000),    // 16%
+            mk_emp("医療，福祉", 9_700),             // 9.7%
+            mk_emp("製造業", 14_000),                // 14%
+            mk_emp("卸売業，小売業", 16_000),        // 16%
             mk_emp("宿泊業，飲食サービス業", 6_000), // 6%
             mk_emp("建設業", 8_000),
             mk_emp("情報通信業", 4_000),
@@ -1745,16 +1920,19 @@ mod tests {
         eprintln!("{}", html);
 
         assert!(!html.is_empty(), "サンプル出力 必須");
-        assert!(html.contains("CSV 重点業界"), "CSV 重点業界の解釈ラベル必須 (医療,福祉)");
+        assert!(
+            html.contains("CSV 重点業界"),
+            "CSV 重点業界の解釈ラベル必須 (医療,福祉)"
+        );
     }
 
     /// CSV テスト 10: ソート順 (ギャップ絶対値降順)
     #[test]
     fn csv_industry_sorted_by_abs_gap_desc() {
         let agg = mk_agg_with_tags(&[
-            ("看護師", 70),       // 医療 70件
-            ("製造工場スタッフ", 20),  // 製造 20件
-            ("カフェスタッフ", 10),  // 飲食 10件
+            ("看護師", 70),           // 医療 70件
+            ("製造工場スタッフ", 20), // 製造 20件
+            ("カフェスタッフ", 10),   // 飲食 10件
         ]);
         // CSV: 医療 70%, 製造 20%, 飲食 10%
         // 就業者 emp_total = 90k:
@@ -1765,10 +1943,10 @@ mod tests {
         // → 「その他」がトップになるが、実データでは「その他」分類は estimate で出ず emp_map のみに出る
         // この場合は意図的に emp 側の合計を CSV と相互排他的に絞る
         let emp = vec![
-            mk_emp("医療，福祉", 25_000),       // 25%
-            mk_emp("製造業", 25_000),            // 25%
+            mk_emp("医療，福祉", 25_000),             // 25%
+            mk_emp("製造業", 25_000),                 // 25%
             mk_emp("宿泊業，飲食サービス業", 25_000), // 25%
-            mk_emp("教育，学習支援業", 25_000),   // 25%
+            mk_emp("教育，学習支援業", 25_000),       // 25%
         ];
         // CSV: 医療 70 / 製造 20 / 飲食 10
         // 比較対象 (両側出現する):

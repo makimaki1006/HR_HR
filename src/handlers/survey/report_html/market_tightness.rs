@@ -777,7 +777,11 @@ fn extract_contributions(m: &TightnessMetrics) -> Vec<AxisContribution> {
 /// 押し上げ要因 (delta > 0) を delta 降順で上位 N 件
 fn top_push_factors(contribs: &[AxisContribution], n: usize) -> Vec<AxisContribution> {
     let mut v: Vec<AxisContribution> = contribs.iter().filter(|c| c.delta > 0.0).copied().collect();
-    v.sort_by(|a, b| b.delta.partial_cmp(&a.delta).unwrap_or(std::cmp::Ordering::Equal));
+    v.sort_by(|a, b| {
+        b.delta
+            .partial_cmp(&a.delta)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     v.truncate(n);
     v
 }
@@ -1071,7 +1075,11 @@ fn render_radar_chart(html: &mut String, m: &TightnessMetrics) {
     let scores = m.radar_scores();
     let national = m.national_radar_scores();
 
-    render_figure_caption(html, "図 MT-2", "採用市場 4 軸レーダー (0-100 正規化スコア)");
+    render_figure_caption(
+        html,
+        "図 MT-2",
+        "採用市場 4 軸レーダー (0-100 正規化スコア)",
+    );
 
     // 軸ラベルに実値を併記し、ツールチップ混乱を防ぐ
     // (例: 「有効求人倍率\n1.33倍 → 83」)
@@ -1431,7 +1439,11 @@ fn render_tightness_summary_public(html: &mut String, m: &TightnessMetrics) {
         ),
     };
 
-    render_figure_caption(html, "図 MT-1", "採用市場 逼迫度 総合スコア (公開データ 3 軸版)");
+    render_figure_caption(
+        html,
+        "図 MT-1",
+        "採用市場 逼迫度 総合スコア (公開データ 3 軸版)",
+    );
 
     html.push_str(&format!(
         "<div data-testid=\"tightness-summary\" \
@@ -2334,7 +2346,10 @@ mod tests {
         assert!(html.contains("+1.4"), "純増 +1.4pt");
         assert!(html.contains("拡大基調"), "拡大基調の解釈");
         // 補助 KPI にも公開統計名のデータソース注記
-        assert!(html.contains("経済センサス"), "開廃業動態は経済センサスが出典");
+        assert!(
+            html.contains("経済センサス"),
+            "開廃業動態は経済センサスが出典"
+        );
     }
 
     /// 必須 caveat 文言の存在 (因果非主張・粒度制約)
@@ -2782,7 +2797,9 @@ mod tests {
         assert_eq!(actions_empty.len(), 0);
 
         // ラベルは 4 種類のいずれか (網羅)
-        for s in [-10.0, 0.0, 15.0, 29.99, 30.0, 45.0, 50.0, 69.99, 70.0, 100.0, 200.0] {
+        for s in [
+            -10.0, 0.0, 15.0, 29.99, 30.0, 45.0, 50.0, 69.99, 70.0, 100.0, 200.0,
+        ] {
             let l = DifficultyLabel::from_score(s);
             assert!(matches!(
                 l,
@@ -2795,20 +2812,24 @@ mod tests {
 
         // push と ease は重複しない (delta=0 は両方から除外、それ以外は符号で排他)
         for c in &contribs {
-            let in_push = top_push_factors(&contribs, 4).iter().any(|x| matches!(
-                (x.axis, c.axis),
-                (AxisName::JobRatio, AxisName::JobRatio)
-                    | (AxisName::VacancyRate, AxisName::VacancyRate)
-                    | (AxisName::UnemploymentInv, AxisName::UnemploymentInv)
-                    | (AxisName::Separation, AxisName::Separation)
-            ));
-            let in_ease = top_ease_factors(&contribs, 4).iter().any(|x| matches!(
-                (x.axis, c.axis),
-                (AxisName::JobRatio, AxisName::JobRatio)
-                    | (AxisName::VacancyRate, AxisName::VacancyRate)
-                    | (AxisName::UnemploymentInv, AxisName::UnemploymentInv)
-                    | (AxisName::Separation, AxisName::Separation)
-            ));
+            let in_push = top_push_factors(&contribs, 4).iter().any(|x| {
+                matches!(
+                    (x.axis, c.axis),
+                    (AxisName::JobRatio, AxisName::JobRatio)
+                        | (AxisName::VacancyRate, AxisName::VacancyRate)
+                        | (AxisName::UnemploymentInv, AxisName::UnemploymentInv)
+                        | (AxisName::Separation, AxisName::Separation)
+                )
+            });
+            let in_ease = top_ease_factors(&contribs, 4).iter().any(|x| {
+                matches!(
+                    (x.axis, c.axis),
+                    (AxisName::JobRatio, AxisName::JobRatio)
+                        | (AxisName::VacancyRate, AxisName::VacancyRate)
+                        | (AxisName::UnemploymentInv, AxisName::UnemploymentInv)
+                        | (AxisName::Separation, AxisName::Separation)
+                )
+            });
             if c.delta > 0.0 {
                 assert!(in_push && !in_ease, "delta>0 は push のみ");
             } else if c.delta < 0.0 {
@@ -2936,10 +2957,10 @@ mod tests {
     #[test]
     fn cr1_actions_capped_at_three() {
         let m = TightnessMetrics {
-            job_ratio: Some(2.0),       // → 給与訴求 + 差別化タグ (2 件)
-            separation_rate: Some(20.0), // → 定着支援 (1 件)
+            job_ratio: Some(2.0),         // → 給与訴求 + 差別化タグ (2 件)
+            separation_rate: Some(20.0),  // → 定着支援 (1 件)
             unemployment_rate: Some(1.0), // → 通勤圏拡大 + リファラル (2 件)
-            vacancy_rate: Some(0.5),    // → 既存従業員リファラル (1 件)
+            vacancy_rate: Some(0.5),      // → 既存従業員リファラル (1 件)
             opening_rate: Some(6.0),
             closure_rate: Some(3.0), // → 競合増加 (1 件)
             ..Default::default()
@@ -2990,11 +3011,8 @@ mod tests {
     /// データソース注記関数: 単体テスト (公開統計名で出典を表示)
     #[test]
     fn render_data_source_note_format() {
-        let note = render_data_source_note(
-            "総務省統計局 労働力調査",
-            "完全失業率 (公表値)",
-            "都道府県",
-        );
+        let note =
+            render_data_source_note("総務省統計局 労働力調査", "完全失業率 (公表値)", "都道府県");
         assert!(note.contains("労働力調査"));
         assert!(note.contains("完全失業率"));
         assert!(note.contains("都道府県"));
@@ -3067,7 +3085,10 @@ mod tests {
 
         // 3 軸が含まれる
         // 2026-05-08 Round 2.7-B: 有効求人倍率 → 公的雇用需給指標 (中立化)
-        assert!(html.contains("\"name\":\"公的雇用需給指標"), "公的雇用需給指標 軸");
+        assert!(
+            html.contains("\"name\":\"公的雇用需給指標"),
+            "公的雇用需給指標 軸"
+        );
         assert!(html.contains("\"name\":\"採用余力"), "採用余力 軸");
         assert!(html.contains("\"name\":\"離職率"), "離職率 軸");
 
@@ -3496,8 +3517,7 @@ mod tests {
     /// Round 2.7-B': MarketIntelligence variant は「公的雇用需給指標」を返す
     #[test]
     fn round_2_7b_prime_mi_variant_uses_neutral_label() {
-        let label =
-            job_ratio_label_for_variant(super::super::ReportVariant::MarketIntelligence);
+        let label = job_ratio_label_for_variant(super::super::ReportVariant::MarketIntelligence);
         assert_eq!(
             label, "公的雇用需給指標",
             "MI variant では HW 連想語回避のため『公的雇用需給指標』"
@@ -3543,8 +3563,7 @@ mod tests {
             delta: 30.0,
             raw_value: Some(1.30),
         };
-        let s =
-            format_contribution(&c, super::super::ReportVariant::MarketIntelligence);
+        let s = format_contribution(&c, super::super::ReportVariant::MarketIntelligence);
         assert!(
             !s.contains("有効求人倍率"),
             "MI variant に『有効求人倍率』を出してはならない"

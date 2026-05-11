@@ -147,7 +147,11 @@ fn calc_ratio_from_profile(
         timezone_b.to_string(),
     ];
     let rows = super::super::analysis::fetch::query_turso_or_local(
-        turso, db, sql, &params, "v2_flow_city_agg",
+        turso,
+        db,
+        sql,
+        &params,
+        "v2_flow_city_agg",
     );
     let mut num = 0.0;
     let mut den = 0.0;

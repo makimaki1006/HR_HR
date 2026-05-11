@@ -283,7 +283,10 @@ pub(crate) fn fetch_ext_turnover_with_industry(
         }
         Some(ind) => {
             // 大分類 (例「医療,福祉」) → 先頭部 (「医療」) を LIKE キーワードに
-            let head: String = ind.chars().take_while(|c| *c != ',' && *c != '，').collect();
+            let head: String = ind
+                .chars()
+                .take_while(|c| *c != ',' && *c != '，')
+                .collect();
             let kw = if head.is_empty() {
                 ind.to_string()
             } else {
