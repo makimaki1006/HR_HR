@@ -34,13 +34,49 @@ pub(super) fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAna
     if let Some(perception) = &seeker.salary_range_perception {
         html.push_str("<div class=\"section-compact\">\n");
         html.push_str("<h3>給与レンジ認知</h3>\n");
-        // 図番号 (図 4-1)
+        // 図番号 (図 11-1): 求職者心理章 (Round 12 リナンバ、雇用形態章の 4-1/4-2 との重複解消)
         html.push_str(&render_figure_number(
-            4,
+            11,
             1,
             "求人側の給与レンジ幅と求職者期待値の比較",
         ));
 
+        // Round 12 (2026-05-12) K10 修正:
+        // 旧実装は stats-grid + three-column の数字表示のみで chart 不在 (「図」を名乗っているが視覚化なし)。
+        // 横棒グラフ (平均下限 / 求職者期待値 / 平均上限 = 下限 + レンジ幅) を追加し、
+        // レンジ幅分類のドーナツも併設する。
+        let to_man = |v: i64| (v as f64) / 10_000.0;
+        let avg_upper = perception
+            .avg_lower
+            .saturating_add(perception.avg_range_width);
+        let range_chart = json!({
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "grid": {"left": "20%", "right": "12%", "top": 16, "bottom": 32, "containLabel": true},
+            "xAxis": {
+                "type": "value",
+                "name": "月給 (万円)",
+                "nameLocation": "middle",
+                "nameGap": 24,
+                "axisLabel": {"fontSize": 10}
+            },
+            "yAxis": {
+                "type": "category",
+                "data": ["平均下限", "求職者期待値", "平均上限 (下限+幅)"],
+                "axisLabel": {"fontSize": 10}
+            },
+            "series": [{
+                "type": "bar",
+                "data": [
+                    {"value": to_man(perception.avg_lower), "itemStyle": {"color": "#3b82f6"}},
+                    {"value": to_man(perception.expected_point), "itemStyle": {"color": "#22c55e"}},
+                    {"value": to_man(avg_upper), "itemStyle": {"color": "#f59e0b"}}
+                ],
+                "label": {"show": true, "position": "right", "formatter": "{c} 万円", "fontSize": 10}
+            }]
+        });
+        html.push_str(&render_echart_div(&range_chart.to_string(), 200));
+
+        // 数値 KPI も併記 (chart からの読み取り補助)
         html.push_str("<div class=\"stats-grid\">\n");
         render_stat_box(
             html,
@@ -55,12 +91,23 @@ pub(super) fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAna
         );
         html.push_str("</div>\n");
 
-        // レンジ幅分類
-        html.push_str("<div class=\"three-column\">\n");
-        render_range_type_box(html, "狭い (<5万)", perception.narrow_count, "#e8f5e9");
-        render_range_type_box(html, "中程度 (5〜10万)", perception.medium_count, "#fff8e1");
-        render_range_type_box(html, "広い (>10万)", perception.wide_count, "#fce4ec");
-        html.push_str("</div>\n");
+        // レンジ幅分類: ドーナツチャート化
+        let range_donut = json!({
+            "tooltip": {"trigger": "item", "formatter": "{b}: {c} 件 ({d}%)"},
+            "legend": {"bottom": 0, "textStyle": {"fontSize": 10}},
+            "series": [{
+                "type": "pie",
+                "radius": ["35%", "60%"],
+                "center": ["50%", "45%"],
+                "label": {"show": true, "formatter": "{b}\n{c} 件 ({d}%)", "fontSize": 9},
+                "data": [
+                    {"value": perception.narrow_count, "name": "狭い (<5万)", "itemStyle": {"color": "#a7f3d0"}},
+                    {"value": perception.medium_count, "name": "中程度 (5〜10万)", "itemStyle": {"color": "#fde68a"}},
+                    {"value": perception.wide_count, "name": "広い (>10万)", "itemStyle": {"color": "#fbcfe8"}}
+                ]
+            }]
+        });
+        html.push_str(&render_echart_div(&range_donut.to_string(), 220));
 
         html.push_str(&render_reading_callout(
             "求人側の給与「下限」と「上限」の幅が広いほど、求職者は実態として下限〜下から1/3の水準を見積もる傾向があります（媒体記載の上限値は採用後の昇給上限を含む場合があるため）。",
@@ -73,12 +120,46 @@ pub(super) fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAna
     if let Some(inexp) = &seeker.inexperience_analysis {
         html.push_str("<div class=\"section-compact\">\n");
         html.push_str("<h3>未経験ペナルティ</h3>\n");
-        // 図番号 (図 4-2)
+        // 図番号 (図 11-2): 求職者心理章 (Round 12 リナンバ)
         html.push_str(&render_figure_number(
-            4,
+            11,
             2,
             "経験者求人 vs 未経験可求人 平均給与比較",
         ));
+
+        // Round 12 (2026-05-12) K10 修正:
+        // 旧実装は two-column の数字表示のみで chart 不在。
+        // 縦棒グラフで経験者 vs 未経験可の平均給与を視覚比較する。
+        let to_man_opt = |v: Option<i64>| v.map(|x| (x as f64) / 10_000.0).unwrap_or(0.0);
+        let exp_chart = json!({
+            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+            "grid": {"left": "12%", "right": "10%", "top": 16, "bottom": 36, "containLabel": true},
+            "xAxis": {
+                "type": "category",
+                "data": [
+                    format!("経験者求人 ({}件)", inexp.experience_count),
+                    format!("未経験可求人 ({}件)", inexp.inexperience_count)
+                ],
+                "axisLabel": {"fontSize": 10}
+            },
+            "yAxis": {
+                "type": "value",
+                "name": "平均月給 (万円)",
+                "nameLocation": "middle",
+                "nameGap": 28,
+                "axisLabel": {"fontSize": 10}
+            },
+            "series": [{
+                "type": "bar",
+                "barWidth": "45%",
+                "data": [
+                    {"value": to_man_opt(inexp.experience_avg_salary), "itemStyle": {"color": "#1e40af"}},
+                    {"value": to_man_opt(inexp.inexperience_avg_salary), "itemStyle": {"color": "#f59e0b"}}
+                ],
+                "label": {"show": true, "position": "top", "formatter": "{c} 万円", "fontSize": 10, "fontWeight": "bold"}
+            }]
+        });
+        html.push_str(&render_echart_div(&exp_chart.to_string(), 220));
 
         html.push_str("<div class=\"two-column\">\n");
 
@@ -133,9 +214,9 @@ pub(super) fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAna
     if let Some(premium) = seeker.new_listings_premium {
         html.push_str("<div class=\"section-compact\">\n");
         html.push_str("<h3>新着プレミアム</h3>\n");
-        // 図番号 (図 4-3)
+        // 図番号 (図 11-3): 求職者心理章 (Round 12 リナンバ、章内連続性のため 11-1/11-2 と統一)
         html.push_str(&render_figure_number(
-            4,
+            11,
             3,
             "新着求人 vs 既存求人 給与水準比較",
         ));

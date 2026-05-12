@@ -99,11 +99,46 @@ fn is_working_age(label: &str) -> bool {
 }
 
 /// 「採用ターゲット層 (25-44)」に該当するか
+///
+/// Round 12 (2026-05-12) 修正 (K17 確定バグ):
+/// 旧実装は 10 歳刻みデータ (20-29 / 30-39 / 40-49) も「25-44 ターゲット」に含めていたが、
+/// 国勢調査標準の 5 歳階級 (25-29 / 30-34 / 35-39 / 40-44) のみを厳密に対象とするよう修正。
+/// 10 歳刻みデータでも目的のターゲット粒度を満たさない場合は false を返し、
+/// 上位レンダリングが警告 or 非表示を選択する。
 fn is_target_age(label: &str) -> bool {
-    matches!(
-        label,
-        "25-29" | "30-34" | "35-39" | "40-44" | "20-29" | "30-39" | "40-49"
-    )
+    matches!(label, "25-29" | "30-34" | "35-39" | "40-44")
+}
+
+/// データが 5 歳階級か 10 歳階級か判定
+///
+/// Round 12 (2026-05-12): K17 修正に伴い導入。
+/// caller は 10 歳階級データの場合「25-44 ターゲット層」 KPI に注釈を付けて
+/// 「ターゲット粒度より粗い (10 歳刻み)」と明示する判断に使う。
+#[allow(dead_code)] // Round 12 では未呼出、Round 13 でレンダリング側に展開予定
+fn detect_age_bucket_size(labels: &[String]) -> AgeBucketSize {
+    if labels.iter().any(|l| {
+        matches!(
+            l.as_str(),
+            "25-29" | "30-34" | "35-39" | "40-44" | "45-49" | "50-54" | "55-59" | "60-64" | "65-69"
+        )
+    }) {
+        AgeBucketSize::FiveYear
+    } else if labels
+        .iter()
+        .any(|l| matches!(l.as_str(), "20-29" | "30-39" | "40-49" | "50-59" | "60-69"))
+    {
+        AgeBucketSize::TenYear
+    } else {
+        AgeBucketSize::Unknown
+    }
+}
+
+#[allow(dead_code)] // Round 12 未呼出、Round 13 でレンダリング側に展開
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgeBucketSize {
+    FiveYear,
+    TenYear,
+    Unknown,
 }
 
 /// 65 歳以上か
@@ -359,7 +394,8 @@ fn render_pyramid_block(html: &mut String, ctx: &InsightContext) {
         "xAxis": {
             "type": "value",
             "axisLabel": {
-                "fontSize": 9
+                "fontSize": 9,
+                "formatter": "function(v){return Math.abs(v).toLocaleString();}"
             }
         },
         "yAxis": {

@@ -45,6 +45,9 @@ mod wage;
 #[cfg(test)]
 mod invariant_tests;
 
+#[cfg(test)]
+mod round12_integration_tests;
+
 // 各サブモジュール公開 API (本 mod.rs 内のエントリ関数から呼出)
 use executive_summary::render_section_executive_summary;
 use hw_enrichment::render_section_hw_enrichment;
@@ -1637,10 +1640,10 @@ mod tests {
         let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
         // 第4章見出し
         assert!(html.contains("第4章 求職者心理分析"), "第4章 タイトル必須");
-        // 図 4-1 の data 属性
+        // 図 11-1 の data 属性 (雇用形態章 4-1 / タグ×給与章 10-1 との衝突回避でリナンバ済)
         assert!(
-            html.contains("data-figure=\"4-1\""),
-            "図 4-1 (給与レンジ) 番号必要"
+            html.contains("data-figure=\"11-1\""),
+            "図 11-1 (給与レンジ) 番号必要"
         );
         // 章冒頭の相関≠因果バナー
         assert!(
