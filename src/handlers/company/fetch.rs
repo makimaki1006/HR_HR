@@ -1142,11 +1142,11 @@ pub fn fetch_nearby_companies(
     exclude_corp: &str,
     _prefecture: &str,
 ) -> Vec<NearbyCompany> {
-    if postal_code.len() < 3 {
+    // 郵便番号上3桁でエリアマッチ (char 単位で取り出し、非 ASCII 混入時の UTF-8 panic を回避)
+    let prefix: String = postal_code.chars().take(3).collect();
+    if prefix.chars().count() < 3 {
         return vec![];
     }
-    // 郵便番号上3桁でエリアマッチ
-    let prefix = &postal_code[..3];
     let like_pattern = format!("{}%", prefix);
     let sql = r#"
         SELECT corporate_number, company_name, prefecture, sn_industry,
