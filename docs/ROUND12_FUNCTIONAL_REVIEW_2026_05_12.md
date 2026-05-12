@@ -131,26 +131,68 @@ D agent の事故 (PowerShell `Add-Content` で Shift-JIS / UTF-16 書込み →
 
 ---
 
-## 6. 修正後の振り返り (TODO: 修正完了時点で記入)
+## 6. 修正後の振り返り (2026-05-12 完了)
 
 ### 6.1 実装した修正
 
-(修正完了後に記入)
+| # | 修正 | ファイル | commit |
+|---|---|---|---|
+| K9 ✅ | 人口ピラミッド xAxis に `Math.abs` formatter 追加 (負値 -1,000,000 表記の解消) | demographics.rs:359-364 | 4678a1d |
+| K10 ✅ | 求職者心理章 (図 11-1/11-2) に ECharts chart 実装 (給与レンジ横棒 + 経験者比較棒 + レンジ幅ドーナツ) | seeker.rs | 4678a1d |
+| K11 ✅ | 給与統計 IQR に ECharts boxplot 追加 (5 数要約 min/Q1/中央値/Q3/max)、iqr-bar は補助残置 | salary_stats.rs | 4678a1d |
+| K12 ✅ | `.heatmap-cell` に `min-height: 36px` + flex 中央寄せ | style.rs:1090-1098 | 4678a1d |
+| K17 ⚠️ | `is_target_age` を 5 歳階級専用に厳格化 (関数のみ修正、caller 側は別 Round) | demographics.rs:102-107 | 4678a1d |
+| K3 ✅ | 最賃割れアラート文言を「**最賃割れ: X 県** / 余裕 50 円未満 (時給ベース): Y 県」並列明示化 | wage.rs:270-276 | b4c58c0 |
+| 図番号 ✅ | 求職者心理 4-1/4-2/4-3 → **11-1/11-2/11-3** リナンバ (雇用形態 4-1/4-2 との重複解消) | seeker.rs | 4678a1d |
+| Phase 1 test ✅ | 集計・マスタ・判定・統合の unit test 169 件追加 (全 PASS) | helpers.rs / region.rs / wage.rs / market_intelligence.rs / market_tightness.rs / mod.rs::round12_integration_tests | b4c58c0 + 4678a1d |
 
-### 6.2 視覚レビュー結果
+### 6.2 視覚レビュー結果 (本番 PDF mtime 2026-05-12 16:09, deploy 反映後)
 
-(PDF 再生成 + PNG 比較で問題解消を確認)
+PNG 化 13 page を 1 枚ずつ Read で実物確認:
+
+| Page | 確認項目 | 結果 |
+|---|---|---|
+| p4 | K11 boxplot 表示 | ✅ 「図 3-1 給与分布 boxplot」横向き、min~max + Q1-Q3 box + 中央値線、補助 IQR シェード併設 |
+| p10 | K9 X 軸絶対値、K7/K8 データ完全性 | ✅ 男性 (青) と女性 (桃) 両 bar 描画、0-9〜80+ 全年齢階級表示 |
+| p15 | K12 ヒートマップ縦サイズ | ✅ セル縦サイズ改善 (min-height 36px) |
+| p16 | K3 最賃文言 | ✅ 「**最賃割れ: 5 県**...」「**最賃以上だが余裕 50 円未満 (時給ベース): 該当なし**」並列明示 |
+| p19 | K10 求職者心理 chart | ✅ **完全実装**: 図 11-1 横棒 + ドーナツ、図 11-2 縦棒、全数値が chart 内に表示 |
+
+PDF page 数: **27 → 28** (+1、K10 chart 追加で求職者心理章が拡張)。
+
+cargo test --lib: **1478 passed / 0 failed / 2 ignored**。
 
 ### 6.3 残課題 / 次 Round 持ち越し
 
-(修正未完項目、新発見バグ等)
+| # | 内容 | 重大度 |
+|---|---|---|
+| K17 caller | 10 歳階級データで「25-44 ターゲット層」KPI ラベルが依然表示 (関数は厳格化済、caller 側で「データ粒度不足」を表示する追加修正が必要) | P1 |
+| K1 (aggregator 整合性) | `dominant_prefecture` と `dominant_municipality` を独立に最頻値決定 → 「東京都 川崎市」等の不整合発生可能性。`location_parser::designated_city_pref` でガードを追加する設計が必要 | P1 |
+| ヒートマップ Top 10 → 47 県全表示 | 縦サイズは改善したが Top 10 のみ。47 県完全マップは P2 改善 | P2 |
+| 未経験 0 件の chart 表示 | 経験者比較で未経験 0 件の場合、棒が見えない (「データなし」注記推奨) | P2 (軽微) |
+| K2 表 7-1 列順 | 「市区町村→都道府県」を「都道府県→市区町村」に入替検討 (UX) | P2 |
+| K6 母集団レンジ重複行 | SQL 層で DISTINCT/GROUP BY 追加 (上位 layer 担当) | P2 |
+| K16 散布図 X 軸 | splitNumber / axisPointer 追加 | P2 |
+| K7/K8 データソース調査 | `v2_external_population_pyramid` の女性 + 0-9/10-19 データ完全性 | DB 調査 |
+| N1-N4 横展開発見 | xAxis.formatter / ヒートマップ ECharts 化 / 4 象限実図 / 軸名 cross-check test | P2 |
 
 ### 6.4 学んだ教訓
 
-(視覚レビュー軽視の根本対策、agent 事故防止策、test 設計、etc.)
+| 教訓 | 詳細 |
+|---|---|
+| **視覚レビューを工程に組み込む** | 「テスト pass」と「chart として機能している」を取り違えない。chart 修正タスクは必ず PNG 視覚レビューを工程に含める (memory `feedback_llm_visual_review` の hook 化検討) |
+| **データ critical の評価基準** | 「描画されている」≠「データが完全に表示されている」。ユーザー指摘 5 基準 (データ完全性 / 軸表示形式 / 中央軸 / 粒度整合 / 業界標準フォーマット) を chart 評価の標準項目に |
+| **PowerShell `Add-Content` で .rs ファイル禁止** | Shift-JIS / UTF-16 で書き込まれ Rust UTF-8 違反 → ファイル破壊。Agent への制約として常に明記 |
+| **agent 並列の test 追加は別ファイル分離が安全** | 同一ファイルへの並列 edit は競合・破壊リスク。`tests/round*_*.rs` 形式の独立ファイル or 末尾の独立 `#[cfg(test)] mod` で分離 |
+| **アンチパターン test 設計** | 「現状の問題挙動を assert (PASS)」→ 修正後 FAIL に転じる indicator は有用、ただし**修正完了時に assert を反転** して再度 PASS に戻すことを忘れない |
+| **agent 報告の批判的 review** | E 監査の K1-K17 確定診断に対し、Phase 1 で複数 agent が「helpers 層では K4/K6 のバグ無し、真因は上位 layer」と逆証明 → agent 報告も鵜呑みにせず複数 agent の cross-check が必要 |
+| **scope の狭さ警戒** | 「ヒストグラム改善」を「chart 改善」と取り違えるな。ユーザー指摘箇所以外の同種問題を横展開で発見する責任が私にある |
 
 ---
 
 ## 7. 関連 commit
 
-- (Round 12 修正コミット群、commit 後に追記)
+- `4678a1d` fix(survey-pdf): restore chart functionality (K9/K10/K11/K12/K17, Round 12 P0)
+- `b4c58c0` test+fix(survey): Round 12 Phase 1 unit tests + K3 alert phrasing + minor cleanup
+- `c442990` docs(round12): functional review of media report (visual + logic deep audit)
+- (本 commit) docs(round12): add post-implementation retrospective + visual review results
