@@ -1155,7 +1155,7 @@ mod round12_master_tests {
         assert!(
             html.contains("26") && html.contains("万"),
             "平均月給が万円表記される: {}",
-            &html[..html.len().min(2000)]
+            crate::text_util::truncate_char_safe(&html, 2000)
         );
     }
 }

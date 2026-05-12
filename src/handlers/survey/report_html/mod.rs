@@ -4251,7 +4251,7 @@ mod variant_indicator_tests {
         // 章単体に「HW求人数」「HW 欠員補充率」「HW 求人継続率」等の数値ラベルが含まれていないこと
         for hw_label in ["HW求人数", "HW 欠員補充率", "HW 求人継続率"] {
             assert!(
-                !after[..after.len().min(4_000)].contains(hw_label),
+                !crate::text_util::truncate_char_safe(after, 4_000).contains(hw_label),
                 "Round 3-A 章に HW 数値ラベル '{}' が混入してはならない",
                 hw_label
             );
