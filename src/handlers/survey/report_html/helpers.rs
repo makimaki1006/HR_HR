@@ -204,10 +204,22 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
         }
     };
 
-    // Round 2.7-AC: ラベル近接統合判定
-    // 3 値の差が bin_width * 2 以内なら近接 → graphic で統合カード化
-    // それ以外は既存の position 分散 (insideEndTop/Bottom) を維持
-    let stats_close = use_close_stats_card && stats_are_close(median, mean, mode, bin_size);
+    // Round 13 (2026-05-13): markLine label を常時 chart 内表示する。
+    //
+    // 過去の経緯:
+    //   Round 2.7-AC で 3 値近接時に label 非表示 + 右上 graphic stats card に切替える
+    //   ロジック (`stats_close = use_close_stats_card && stats_are_close(...)`) を導入したが、
+    //   結果として図 3-2/3-3/3-4 では markLine が縦線だけになり、ユーザー指摘
+    //   「凡例だけになっていて何の値か分からない」(2026-05-12) を引き起こしていた。
+    //   図 3-5 のみが close 判定外で個別 label が見えていたのが「望ましい」と評価された。
+    //
+    // 修正方針: 全 4 chart で 図 3-5 と同じ「縦線位置に値ラベル個別表示」に統一。
+    //   - stats_close を常に false 強制
+    //   - markLine label.show = true 常時 (chart 内 縦線位置に「中央値 X 万」「平均 Y 万」「最頻値 Z 万」)
+    //   - 右上 graphic stats card は廃止 (凡例化していたため)
+    let stats_close = false;
+    let _ = use_close_stats_card;
+    let _bin_diff_close = stats_are_close(median, mean, mode, bin_size); // 旧ロジック判定 (未使用、デバッグ用)
     let x_axis_interval = histogram_axis_interval(labels.len());
 
     let mut mark_lines = vec![];

@@ -1937,11 +1937,12 @@ mod tests {
         );
     }
 
-    /// 3 値が近接 (差 ≤ bin_size * 2) のとき統合ラベル (graphic) が出力される
+    /// Round 13 (2026-05-13): 旧仕様 (3 値近接時に graphic 統合カード + markLine label 非表示) を廃止。
+    /// 新仕様: 3 値の遠近に関わらず markLine label を常に chart 内に表示し、graphic は空。
+    /// 図 3-2/3-3/3-4 が「線だけで中央値/平均/最頻値の区別がつかない」というユーザー指摘への恒久対応。
     #[test]
-    fn histogram_uses_combined_label_when_stats_are_close() {
-        // 中央値 230,000 / 平均 225,000 / 最頻値 240,000 (差 15,000、bin=10,000)
-        // 差 / bin = 1.5 ≤ 2 → 近接
+    fn histogram_marker_labels_always_visible_regardless_of_proximity() {
+        // 3 値近接ケース (旧 stats_close=true 相当)
         let labels = vec!["22万".to_string(), "23万".to_string(), "24万".to_string()];
         let values = vec![5, 12, 8];
         let config = build_histogram_echart_config(
@@ -1955,30 +1956,24 @@ mod tests {
         );
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
 
-        let graphic = parsed["graphic"]
-            .as_array()
-            .expect("graphic が配列であること");
+        // graphic stats card は出力されない (markLine label と二重表示にならないため)
+        let graphic = parsed["graphic"].as_array().expect("graphic は配列");
         assert!(
-            !graphic.is_empty(),
-            "近接時は graphic に統合カードが含まれる"
+            graphic.is_empty(),
+            "新仕様: graphic stats card は出力しない (markLine label で表現)"
         );
 
-        // markLine ラベルは show=false (graphic と二重表示にならない)
+        // markLine ラベルは常に show=true
         let ml = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
+        assert!(!ml.is_empty(), "markLine.data が存在する");
         for entry in ml {
             assert_eq!(
                 entry["label"]["show"].as_bool(),
-                Some(false),
-                "近接時は markLine label が非表示 ({})",
+                Some(true),
+                "新仕様: 全 markLine ラベルが常時表示 ({})",
                 entry["name"]
             );
         }
-
-        // graphic に 3 統計値の名称が含まれること
-        let graphic_str = serde_json::to_string(&graphic).unwrap();
-        assert!(graphic_str.contains("中央値"), "graphic に中央値が含まれる");
-        assert!(graphic_str.contains("平均"), "graphic に平均が含まれる");
-        assert!(graphic_str.contains("最頻値"), "graphic に最頻値が含まれる");
     }
 
     /// 3 値が離れている (差 > bin_size * 2) のとき従来の position 分散ラベルを維持
