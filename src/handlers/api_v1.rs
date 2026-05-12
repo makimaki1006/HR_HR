@@ -121,8 +121,11 @@ pub async fn nearby_companies(
 
     match result {
         Some((postal, nearby)) => {
-            let prefix = if postal.len() >= 3 {
-                &postal[..3]
+            // 郵便番号は ASCII 数字想定だが、入力経路次第で非 ASCII が混入する可能性があるため
+            // char 単位で先頭 3 文字を切り出し (byte slice の UTF-8 panic を回避)。
+            let prefix_owned: String = postal.chars().take(3).collect();
+            let prefix: &str = if prefix_owned.chars().count() == 3 {
+                &prefix_owned
             } else {
                 &postal
             };
