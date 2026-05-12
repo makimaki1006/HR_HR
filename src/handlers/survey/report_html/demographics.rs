@@ -98,23 +98,29 @@ fn is_working_age(label: &str) -> bool {
     )
 }
 
-/// 「採用ターゲット層 (25-44)」に該当するか
+/// 「採用ターゲット層 (25-44)」に該当するか (5 歳階級専用)
 ///
 /// Round 12 (2026-05-12) 修正 (K17 確定バグ):
 /// 旧実装は 10 歳刻みデータ (20-29 / 30-39 / 40-49) も「25-44 ターゲット」に含めていたが、
 /// 国勢調査標準の 5 歳階級 (25-29 / 30-34 / 35-39 / 40-44) のみを厳密に対象とするよう修正。
-/// 10 歳刻みデータでも目的のターゲット粒度を満たさない場合は false を返し、
-/// 上位レンダリングが警告 or 非表示を選択する。
 fn is_target_age(label: &str) -> bool {
     matches!(label, "25-29" | "30-34" | "35-39" | "40-44")
 }
 
+/// 「採用ターゲット層 (20-49、10 歳階級粒度ベース)」に該当するか
+///
+/// Round 12 caller 修正 (2026-05-12):
+/// 10 歳階級データ (現 DB schema) では 5 歳階級判定が全件 false になるため、
+/// fallback として 10 歳階級ターゲット (20-29 / 30-39 / 40-49) を集計する。
+/// KPI ラベルは「25-44」でなく「20-49 (10 歳階級粒度)」と明示し粒度ズレを防ぐ。
+fn is_target_age_10yr(label: &str) -> bool {
+    matches!(label, "20-29" | "30-39" | "40-49")
+}
+
 /// データが 5 歳階級か 10 歳階級か判定
 ///
-/// Round 12 (2026-05-12): K17 修正に伴い導入。
-/// caller は 10 歳階級データの場合「25-44 ターゲット層」 KPI に注釈を付けて
-/// 「ターゲット粒度より粗い (10 歳刻み)」と明示する判断に使う。
-#[allow(dead_code)] // Round 12 では未呼出、Round 13 でレンダリング側に展開予定
+/// Round 12 (2026-05-12): K17 修正に伴い導入。caller (`render_section_demographics`) が
+/// bucket に応じて target_age 集計関数 + KPI ラベル + 説明文を切り替える。
 fn detect_age_bucket_size(labels: &[String]) -> AgeBucketSize {
     if labels.iter().any(|l| {
         matches!(
@@ -133,7 +139,6 @@ fn detect_age_bucket_size(labels: &[String]) -> AgeBucketSize {
     }
 }
 
-#[allow(dead_code)] // Round 12 未呼出、Round 13 でレンダリング側に展開
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AgeBucketSize {
     FiveYear,
@@ -422,10 +427,24 @@ fn render_pyramid_block(html: &mut String, ctx: &InsightContext) {
     });
     html.push_str(&render_echart_div(&config.to_string(), 360));
 
+    // Round 12 K17 caller 修正: 説明文も粒度に応じて切替
+    let target_band_text = match detect_age_bucket_size(
+        &ctx.ext_pyramid
+            .iter()
+            .map(|r| get_str_ref(r, "age_group").to_string())
+            .collect::<Vec<_>>(),
+    ) {
+        AgeBucketSize::FiveYear => "採用ターゲット層 25-44 歳",
+        AgeBucketSize::TenYear => "採用ターゲット層 20-49 歳 (10 歳階級粒度)",
+        AgeBucketSize::Unknown => "採用ターゲット層 (粒度不明)",
+    };
     render_read_hint(
         html,
-        "左 (青) が男性・右 (桃) が女性。バーが長い階級ほどその年代の人口が多いことを示します。\
-         15-64 歳が広く採用ターゲット層 25-44 歳のバーが太い地域は、生産年齢層が厚く採用候補母集団が大きい傾向にあります。",
+        &format!(
+            "左 (青) が男性・右 (桃) が女性。バーが長い階級ほどその年代の人口が多いことを示します。\
+             15-64 歳が広く{}のバーが太い地域は、生産年齢層が厚く採用候補母集団が大きい傾向にあります。",
+            target_band_text
+        ),
     );
 
     // 必須注記 (D-1)
@@ -455,6 +474,9 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
         if is_working_age(label) {
             working_age += t;
         }
+        // Round 12 K17 caller 修正:
+        // 5 歳階級時は厳密判定、10 歳階級時は 20-49 fallback 集計、
+        // どちらにも該当しない場合は target_age=0 で KPI 非表示
         if is_target_age(label) {
             target_age += t;
         }
@@ -463,6 +485,23 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
         }
     }
     let _ = senior;
+
+    // Round 12 K17 caller 修正: data 粒度判定 + 10 歳階級時の fallback 集計
+    let age_labels: Vec<String> = ctx
+        .ext_pyramid
+        .iter()
+        .map(|r| get_str_ref(r, "age_group").to_string())
+        .collect();
+    let age_bucket = detect_age_bucket_size(&age_labels);
+    let mut target_age_10yr: i64 = 0;
+    if matches!(age_bucket, AgeBucketSize::TenYear) {
+        for r in &ctx.ext_pyramid {
+            let label = get_str_ref(r, "age_group");
+            if is_target_age_10yr(label) {
+                target_age_10yr += get_i64(r, "male_count") + get_i64(r, "female_count");
+            }
+        }
+    }
 
     // ---- #10 採用候補プール計算: ext_labor_force から ----
     // 実装方針: SUM(unemployed) を直接利用 (pref レベルでは集計済み)
@@ -543,17 +582,31 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
         );
     }
 
-    // KPI: 25-44 歳 (採用ターゲット層)
-    if target_age > 0 {
+    // KPI: 採用ターゲット層 (Round 12 K17 caller 修正)
+    // - 5 歳階級時: 「25-44 歳 (採用ターゲット層)」 (target_age = 25-29+30-34+35-39+40-44)
+    // - 10 歳階級時: 「20-49 歳 (採用ターゲット層・10 歳階級粒度)」 (target_age_10yr = 20-29+30-39+40-49)
+    //   ※「25-44」厳密ターゲットは粒度上計算不能のため、20-49 を fallback 表示
+    // - Unknown / 該当データなし: KPI 非表示
+    let (target_value, target_label) = match age_bucket {
+        AgeBucketSize::FiveYear if target_age > 0 => {
+            (target_age, "25-44 歳 (採用ターゲット層)")
+        }
+        AgeBucketSize::TenYear if target_age_10yr > 0 => (
+            target_age_10yr,
+            "20-49 歳 (採用ターゲット層・10 歳階級粒度)",
+        ),
+        _ => (0, ""),
+    };
+    if target_value > 0 {
         let pct = if total_pop > 0 {
-            target_age as f64 / total_pop as f64 * 100.0
+            target_value as f64 / total_pop as f64 * 100.0
         } else {
             0.0
         };
         render_stat_box(
             html,
-            "25-44 歳 (採用ターゲット層)",
-            &format!("{} 人 ({:.1}%)", format_number(target_age), pct),
+            target_label,
+            &format!("{} 人 ({:.1}%)", format_number(target_value), pct),
         );
     }
 
