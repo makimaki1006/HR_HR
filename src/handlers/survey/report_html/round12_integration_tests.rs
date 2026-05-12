@@ -416,13 +416,9 @@ fn k9_pyramid_xaxis_formatter_missing_bug_confirmed() {
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);
-    let pyramid_pos = html.find("人口ピラミッド");
-    if let Some(start) = pyramid_pos {
-        let end = (start + 8_000).min(html.len());
-        let segment = &html[start..end];
-        let has_abs_formatter =
-            segment.contains("Math.abs") && segment.contains("\"formatter\"");
-        // Round 12 (2026-05-12) K9 修正完了: 人口ピラミッド xAxis に Math.abs formatter 追加 (絶対値表示)
+    // Round 13 (2026-05-13): UTF-8 unsafe な byte slice 廃止。HTML 全体に対し検索する。
+    if html.contains("人口ピラミッド") {
+        let has_abs_formatter = html.contains("Math.abs") && html.contains("\"formatter\"");
         assert!(
             has_abs_formatter,
             "K9 修正検証: xAxis に Math.abs formatter が必要 (負値表示防止)"
@@ -675,12 +671,10 @@ fn l5_pyramid_male_data_is_negated() {
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);
-    let pyramid_pos = html.find("人口ピラミッド");
-    if let Some(start) = pyramid_pos {
-        let end = (start + 8_000).min(html.len());
-        let segment = &html[start..end];
+    // Round 13 (2026-05-13): UTF-8 unsafe な byte slice 廃止。HTML 全体に対し検索する。
+    if html.contains("人口ピラミッド") {
         assert!(
-            segment.contains("-100"),
+            html.contains("-100"),
             "L5-7: 男性 series.data が負数化 (-100 含む)"
         );
     }
