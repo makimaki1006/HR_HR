@@ -138,6 +138,16 @@ pub(super) fn render_echart_div(config_json: &str, height: u32) -> String {
     )
 }
 
+fn histogram_axis_interval(label_count: usize) -> usize {
+    if label_count >= 28 {
+        2
+    } else if label_count >= 16 {
+        1
+    } else {
+        0
+    }
+}
+
 /// ヒストグラム用ECharts設定JSONを生成（平均・中央値・最頻値のmarkLine付き）
 ///
 /// markLineのxAxis値は、category軸のラベル（例: "20万"）に正確一致させる必要がある。
@@ -198,6 +208,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
     // 3 値の差が bin_width * 2 以内なら近接 → graphic で統合カード化
     // それ以外は既存の position 分散 (insideEndTop/Bottom) を維持
     let stats_close = use_close_stats_card && stats_are_close(median, mean, mode, bin_size);
+    let x_axis_interval = histogram_axis_interval(labels.len());
 
     let mut mark_lines = vec![];
     if let Some(m) = median {
@@ -333,7 +344,13 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
         "xAxis": {
             "type": "category",
             "data": labels,
-            "axisLabel": {"rotate": 30, "fontSize": 9}
+            "axisLabel": {
+                "rotate": 35,
+                "fontSize": 8,
+                "interval": x_axis_interval,
+                "hideOverlap": true,
+                "margin": 10
+            }
         },
         "yAxis": {
             "type": "value",
@@ -343,10 +360,10 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "axisLabel": {"fontSize": 9}
         },
         "grid": {
-            "left": "6%",
-            "right": "6%",
-            "bottom": "22%",
-            "top": "12%",
+            "left": "7%",
+            "right": "12%",
+            "bottom": "30%",
+            "top": "16%",
             "containLabel": true
         },
         "graphic": graphic,
@@ -1256,5 +1273,24 @@ mod ui3_helpers_tests {
         sorted_e.sort();
         sorted_e.dedup();
         assert_eq!(sorted_e.len(), 3, "絵文字も重複しないこと");
+    }
+
+    #[test]
+    fn histogram_config_thins_dense_x_axis_labels_for_pdf() {
+        let labels: Vec<String> = (0..30).map(|i| format!("{}万", 20 + i)).collect();
+        let values = vec![1usize; labels.len()];
+        let config = build_histogram_echart_config(
+            &labels,
+            &values,
+            "#42A5F5",
+            Some(250_000),
+            Some(260_000),
+            Some(270_000),
+            5_000,
+        );
+
+        assert!(config.contains("\"interval\":2"), "30 label chart must thin x labels");
+        assert!(config.contains("\"right\":\"12%\""), "right grid margin prevents PDF clipping");
+        assert!(config.contains("\"hideOverlap\":true"), "ECharts overlap guard required");
     }
 }

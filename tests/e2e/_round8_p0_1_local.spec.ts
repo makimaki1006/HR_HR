@@ -73,7 +73,7 @@ test.describe.serial('Round 8 P0-1: occupation_segment_summary local PDF check',
     await miPage.waitForTimeout(800);
 
     try {
-      await preparePdfRender(miPage, 760);
+      await preparePdfRender(miPage);
       console.log('preparePdfRender PASS');
     } catch (e) {
       console.log('preparePdfRender FAIL (continuing for diagnostic PDF):', String(e).slice(0, 200));

@@ -14,6 +14,28 @@ use serde_json::json;
 
 use super::helpers::*;
 
+fn distribution_mean(values: &[i64]) -> Option<i64> {
+    if values.is_empty() {
+        return None;
+    }
+    let sum: i128 = values.iter().map(|v| *v as i128).sum();
+    Some((sum / values.len() as i128) as i64)
+}
+
+fn distribution_median(values: &[i64]) -> Option<i64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let mid = sorted.len() / 2;
+    if sorted.len() % 2 == 0 {
+        Some(((sorted[mid - 1] as i128 + sorted[mid] as i128) / 2) as i64)
+    } else {
+        Some(sorted[mid])
+    }
+}
+
 pub(super) fn render_section_salary_stats(
     html: &mut String,
     agg: &SurveyAggregation,
@@ -181,6 +203,8 @@ pub(super) fn render_section_salary_stats(
 
     // 下限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
     if !salary_min_values.is_empty() {
+        let min_mean = distribution_mean(salary_min_values);
+        let min_median = distribution_median(salary_min_values);
         // 生値分布（20,000円刻み）
         html.push_str("<div class=\"salary-chart-block\">\n");
         html.push_str("<h3>下限給与の分布（20,000円刻み）</h3>\n");
@@ -195,8 +219,8 @@ pub(super) fn render_section_salary_stats(
             &labels,
             &values,
             "#42A5F5",
-            Some(stats.mean),
-            Some(stats.median),
+            min_mean,
+            min_median,
             mode_min_20k,
             20_000,
         );
@@ -217,8 +241,8 @@ pub(super) fn render_section_salary_stats(
             &labels_f,
             &values_f,
             "#42A5F5",
-            Some(stats.mean),
-            Some(stats.median),
+            min_mean,
+            min_median,
             mode_min_5k,
             5_000,
         );
@@ -232,6 +256,8 @@ pub(super) fn render_section_salary_stats(
 
     // 上限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
     if !salary_max_values.is_empty() {
+        let max_mean = distribution_mean(salary_max_values);
+        let max_median = distribution_median(salary_max_values);
         // 生値分布（20,000円刻み）
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>上限給与の分布（20,000円刻み）</h3>\n");
@@ -242,17 +268,14 @@ pub(super) fn render_section_salary_stats(
         );
         let (labels, values, _b) = build_salary_histogram(salary_max_values, 20_000);
         let mode_max_20k = compute_mode(salary_max_values, 20_000);
-        // 図 3-4 は下限側の 20,000 円刻みヒストグラムと凡例表現を揃える。
-        // 近接時の右上統計カードに切り替えると、この図だけ見た目が変わるため無効化する。
-        let config = build_histogram_echart_config_with_stats_card(
+        let config = build_histogram_echart_config(
             &labels,
             &values,
             "#66BB6A",
-            Some(stats.mean),
-            Some(stats.median),
+            max_mean,
+            max_median,
             mode_max_20k,
             20_000,
-            false,
         );
         html.push_str(&render_echart_div(&config, 220));
         html.push_str("</div>\n");
@@ -271,8 +294,8 @@ pub(super) fn render_section_salary_stats(
             &labels_f,
             &values_f,
             "#66BB6A",
-            Some(stats.mean),
-            Some(stats.median),
+            max_mean,
+            max_median,
             mode_max_5k,
             5_000,
         );
@@ -289,4 +312,20 @@ pub(super) fn render_section_salary_stats(
     );
 
     html.push_str("</div>\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distribution_stats_use_each_salary_bound_not_overall_salary() {
+        let min_values = vec![180_000, 200_000, 220_000, 240_000];
+        let max_values = vec![280_000, 320_000, 400_000, 540_000];
+
+        assert_eq!(distribution_mean(&min_values), Some(210_000));
+        assert_eq!(distribution_median(&min_values), Some(210_000));
+        assert_eq!(distribution_mean(&max_values), Some(385_000));
+        assert_eq!(distribution_median(&max_values), Some(360_000));
+    }
 }
