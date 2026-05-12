@@ -520,42 +520,15 @@ fn render_action_bar(session_id: &str) -> String {
                     <span class="hidden group-hover:inline text-[10px] opacity-75 ml-1">（地域×HW×統計の比較レポート）</span>
                 </button>
             </div>
-            <!-- PDF出力モード切替（バリアント選択） -->
-            <div class="mb-3 p-3 bg-slate-900/40 rounded border border-slate-700" role="group" aria-label="PDF出力モード切替">
+            <!-- PDF出力: 通常導線は採用コンサルレポートに一本化。旧 full/public は URL 互換のみ維持。 -->
+            <div class="mb-3 p-3 bg-slate-900/40 rounded border border-slate-700" role="group" aria-label="PDFレポート出力">
                 <div class="text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
                     <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                    PDF出力モード切替
-                    <span class="text-[10px] font-normal text-amber-400">※ 提案先により切替推奨</span>
+                    PDFレポート出力
+                    <span class="text-[10px] font-normal text-emerald-300">採用コンサル版に統一</span>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <a href="/report/survey?session_id={sid}&variant=full" target="_blank" rel="noopener"
-                       onclick="return openVariantReport(event, '{sid}', 'full')"
-                       data-variant="full"
-                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                       aria-label="HW併載版PDFレポートを新しいタブで開く（推奨）"
-                       title="HW併載版: ハローワーク掲載求人と統合分析を含む完全版（社内分析・既存ワークフロー向け）。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
-                        <span class="text-base" aria-hidden="true">🏢</span>
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>HW併載版 PDF</span>
-                            <span class="text-[10px] opacity-80 font-normal">推奨 / 社内分析向け</span>
-                        </span>
-                    </a>
-                    <a href="/report/survey?session_id={sid}&variant=public" target="_blank" rel="noopener"
-                       onclick="return openVariantReport(event, '{sid}', 'public')"
-                       data-variant="public"
-                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                       aria-label="公開データ中心版PDFレポートを新しいタブで開く"
-                       title="公開データ中心版: e-Stat等の公開統計を主軸とした版（対外提案・公開資料向け）。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
-                        <span class="text-base" aria-hidden="true">🌍</span>
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>公開データ中心版 PDF</span>
-                            <span class="text-[10px] opacity-80 font-normal">対外提案向け</span>
-                        </span>
-                    </a>
-                    <!-- P0-1 (2026-05-06): 採用マーケットインテリジェンス variant ボタン追加。
-                         既存 Full / Public ボタンと同じ openVariantReport() 経路で variant 引数のみ
-                         'market_intelligence' を渡す。これによりユーザーが直接 URL を打たなくても
-                         MI セクション込みの PDF / HTML を生成できる導線を確保する。 -->
+                    <!-- Legacy full/public variants remain URL-compatible only; the tab UI exposes one report. -->
                     <a href="/report/survey?session_id={sid}&variant=market_intelligence" target="_blank" rel="noopener"
                        onclick="return openVariantReport(event, '{sid}', 'market_intelligence')"
                        data-variant="market_intelligence"
@@ -570,7 +543,7 @@ fn render_action_bar(session_id: &str) -> String {
                     </a>
                 </div>
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                    同じCSVから異なる視点で2バリアントを生成可能。<strong class="text-slate-200">HW併載版</strong>はハローワーク掲載求人との統合分析を含む完全版（社内分析向け）、<strong class="text-slate-200">公開データ中心版</strong>はe-Stat等の公開データを主軸とした版（対外提案向け）です。両バリアントを試して比較できます。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
+                    通常のPDF出力は<strong class="text-slate-200">採用コンサルレポート</strong>に統一しました。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
                 </p>
                 <script>
                 /* 2026-04-29: グローバルフィルタの値を読んでレポート URL に付与 */
@@ -1550,73 +1523,57 @@ mod variant_ui_tests {
     use super::*;
 
     #[test]
-    fn action_bar_contains_full_variant_button_label() {
-        // タスク 1: タブ UI に「HW併載版 PDF」ボタン文言が含まれる
+    fn action_bar_exposes_single_market_intelligence_report_button() {
         let html = render_action_bar("test_session_123");
         assert!(
-            html.contains("HW併載版 PDF"),
-            "action bar should contain 'HW併載版 PDF' button label"
+            html.contains("採用コンサルレポート PDF"),
+            "action bar should contain the unified consulting report button"
         );
-        // バリアント切替リンクが正しい URL を持つこと
         assert!(
-            html.contains("variant=full"),
-            "action bar should link to ?variant=full"
+            html.contains("variant=market_intelligence"),
+            "action bar should link to the market_intelligence report"
         );
-        // アクセシビリティ: aria-label を持つこと
         assert!(
-            html.contains("HW併載版PDFレポート"),
-            "full variant button should have aria-label"
+            !html.contains("variant=full") && !html.contains("variant=public"),
+            "full/public report variants must not be exposed in the tab UI"
         );
     }
 
     #[test]
-    fn action_bar_contains_public_variant_button_label() {
-        // タスク 1: タブ UI に「公開データ中心版 PDF」ボタン文言が含まれる
+    fn action_bar_unified_report_has_accessible_label() {
         let html = render_action_bar("test_session_456");
         assert!(
-            html.contains("公開データ中心版 PDF"),
-            "action bar should contain '公開データ中心版 PDF' button label"
-        );
-        // バリアント切替リンクが正しい URL を持つこと
-        assert!(
-            html.contains("variant=public"),
-            "action bar should link to ?variant=public"
-        );
-        // アクセシビリティ
-        assert!(
-            html.contains("公開データ中心版PDFレポート"),
-            "public variant button should have aria-label"
+            html.contains("採用コンサルレポートPDFを新しいタブで開く"),
+            "unified report button should have aria-label"
         );
     }
 
     #[test]
     fn action_bar_variant_buttons_have_min_height_for_mobile() {
-        // タスク 1: スマホでもタップしやすいサイズ (min-height:44px)
+        // スマホでもタップしやすいサイズ (min-height:44px)
         let html = render_action_bar("sid");
-        // 両ボタンに min-h-[44px] が含まれることを確認
         let count = html.matches("min-h-[44px]").count();
         assert!(
-            count >= 2,
-            "both variant buttons should have min-h-[44px] for mobile tappability (found {})",
+            count >= 1,
+            "unified report button should have min-h-[44px] for mobile tappability (found {})",
             count
         );
     }
 
     #[test]
-    fn action_bar_explains_two_variants_difference() {
-        // タスク 4: 説明能力強化 - 両バリアントの違いと想定読者を明示
+    fn action_bar_explains_report_unification() {
         let html = render_action_bar("sid");
         assert!(
-            html.contains("社内分析向け"),
-            "should describe HW併載版 as 社内分析向け"
+            html.contains("採用コンサルレポート</strong>に統一"),
+            "should explain that PDF output is unified"
         );
         assert!(
-            html.contains("対外提案向け"),
-            "should describe 公開データ中心版 as 対外提案向け"
+            html.contains("旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません"),
+            "should explain why legacy variants are hidden"
         );
         assert!(
-            html.contains("両バリアントを試して比較"),
-            "should mention comparing both variants"
+            html.contains("都道府県/市区町村/業種が PDF に自動適用"),
+            "should keep filter propagation guidance"
         );
     }
 }
