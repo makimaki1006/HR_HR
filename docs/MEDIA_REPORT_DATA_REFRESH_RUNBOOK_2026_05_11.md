@@ -46,6 +46,59 @@ Round 8〜10 で、媒体分析 PDF は「CSV 単体の求人集計」から「C
 | 11 | Recruiting scores | 配信地域ランキング、KPI、スコア区分 | `municipality_recruiting_scores` | `build_municipality_recruiting_scores.py` | #10 更新後に必ず再生成 | thickness / commute / competition / living cost 更新時 |
 | 12 | GeoJSON / 地図境界 | 地図表示、将来の地域可視化 | `static/geojson/*` | 既存地図生成 / 配布 | 年1回または行政区変更時 | 市区町村合併、境界変更 |
 
+### 2.1 PDF / レポートで使用中の追加外部統計テーブル
+
+媒体分析 PDF (survey report HTML / lifestyle セクション) で実参照されているテーブル。`hellowork.db` に未投入のものも含む点に注意。
+
+| # | データソース / 派生テーブル | 用途 | ローカル / Turso / ファイル | 取得・生成スクリプト | 推奨更新頻度 | 更新トリガー |
+|---|---|---|---|---|---|---|
+| 13 | 社会生活基本調査 (社会生活参加率) | P-1 社会生活参加率 (PDF p17、`src/handlers/survey/report_html/lifestyle.rs:5`) | `v2_external_social_life` (現状 ローカル `hellowork.db` 未投入、Turso のみと推定 / 要確認) | (未確認、e-Stat 系 fetch script と推定) | 5年ごと (社会生活基本調査は 5 年周期、最新 2021) | 社会生活基本調査更新 |
+| 14 | 通信利用動向調査 (ネット利用率) | P-2 ネット利用率 (PDF p17、`lifestyle.rs:12`) | `v2_external_internet_usage` (現状 ローカル未投入、Turso のみと推定 / 要確認) | (未確認、e-Stat 系 fetch script と推定) | 年1回 (総務省 通信利用動向調査、最新参照 2016 → 要更新候補) | 通信利用動向調査更新 |
+| 15 | 人口ピラミッド | PDF p11 年齢構成可視化、survey granularity 検証で参照 (`survey/granularity.rs:17`) | `v2_external_population_pyramid` (ローカル 17,235 行) | 既存 ingest 系 | 5年ごと (国勢調査ベース) | 国勢調査更新。`reference_year` カラムなしのため source 改訂時に全置換 |
+
+### 2.2 現状未活用の V2 外部・派生テーブル (調査・拡張候補)
+
+`hellowork.db` には存在するが、媒体分析 PDF (survey report) では現状参照されていないテーブル群。Round 1-F (#168) 等の探索対象。Turso との同期方針・更新頻度は個別調査要。
+
+| # | テーブル | 行数 (ローカル) | 想定用途 (schema 推定) | 更新頻度 (暫定) |
+|---|---|---|---|---|
+| 16 | `v2_external_prefecture_stats` | 47 | 県別マクロ指標 (失業率/賃金/物価指数等) | 年1回 |
+| 17 | `v2_external_daytime_population` | 1,740 | 昼夜間人口、流入/流出。recruitment_diag opportunity_map で参照済 | 5年ごと (国勢調査) |
+| 18 | `v2_external_foreign_residents` | 1,742 | 在留外国人数・比率 | 年1回 |
+| 19 | `v2_external_migration` | 1,741 | 転入・転出、純移動 | 年1回 |
+| 20 | `v2_external_job_opening_ratio` | 47 | 都道府県別有効求人倍率 | 月次 |
+| 21 | `v2_anomaly_stats` | 10,800 | metric 別異常値検出 | 上流 HW posting 更新時 |
+| 22 | `v2_cascade_summary` | 8,382 | prefecture × municipality × industry × emp_group 集約 (件数 / 給与 / 休日 / 空き率) | HW posting 更新時 |
+| 23 | `v2_commute_flow_summary` | 3,786 | V2 版 通勤フロー集約 (`commute_flow_summary` と区別) | 5年ごと |
+| 24 | `v2_compensation_package` | 11,757 | 給与+休日+賞与複合スコア、rank_label | HW posting 更新時 |
+| 25 | `v2_cross_industry_competition` | 1,689 | 県 × 給与帯 × 学歴 × 雇用形態の業界横断競合 | HW posting 更新時 |
+| 26 | `v2_employer_strategy` | 469,027 | 施設単位の戦略タイプ (premium / salary_focus 等) | HW posting 更新時 |
+| 27 | `v2_employer_strategy_summary` | 20,605 | 上記の市区町村 × 業界 × 雇用形態集約 | HW posting 更新時 |
+| 28 | `v2_fulfillment_score` | 149,696 | 施設別充足スコア / グレード | HW posting 更新時 |
+| 29 | `v2_fulfillment_summary` | 2,762 | 市区町村 × 雇用形態の充足サマリ | HW posting 更新時 |
+| 30 | `v2_keyword_profile` | 123,630 | キーワードカテゴリ別ヒット率 / 密度 | HW posting 更新時 |
+| 31 | `v2_mobility_estimate` | 3,082 | 重力モデルによる吸引力 / 流出推定、top3_destinations | 通勤 OD + HW posting 更新時 |
+| 32 | `v2_monopsony_index` | 20,605 | HHI / Gini / 上位 N シェアによる集中度 | HW posting 更新時 |
+| 33 | `v2_region_benchmark` | 8,002 | 地域 × 雇用形態の総合ベンチマーク (14 指標 + 合成) | 上流複数テーブル更新時 |
+| 34 | `v2_regional_resilience` | 2,809 | 産業多様性 (Shannon / HHI) | HW posting 更新時 |
+| 35 | `v2_salary_competitiveness` | 11,757 | 地域給与 vs 全国給与、percentile_rank | HW posting 更新時 |
+| 36 | `v2_salary_structure` | 22,759 | 給与 p10 / p25 / p50 / p75 / p90、賞与開示率 | HW posting 更新時 |
+| 37 | `v2_shadow_wage` | 12,136 | 給与分布統計 (mean / stddev / IQR) | HW posting 更新時 |
+| 38 | `v2_spatial_mismatch` | 3,082 | 重心緯度経度、30km / 60km 圏内アクセス可能求人、孤立度 | HW posting 更新時 |
+| 39 | `v2_text_quality` | 20,605 | 文字数 / 漢字率 / 情報スコア | HW posting 更新時 |
+| 40 | `v2_text_temperature` | 8,382 | 緊急度 / 選好性密度 (テキストヒート) | HW posting 更新時 |
+| 41 | `v2_transparency_score` | 32,545 | 開示率 (年間休日 / 賞与 / 従業員数 / 設立年等) | HW posting 更新時 |
+| 42 | `v2_vacancy_rate` | 32,545 | 空席率 / 成長率 / 新規施設数 | HW posting 更新時 |
+| 43 | `v2_wage_compliance` | 2,263 | 最低賃金未達件数・比率 | 最低賃金 (#6) 改定時 + HW posting 更新時 |
+
+注意:
+
+- #13・#14 は `hellowork.db` 上に存在せず、Turso のみで保持されている可能性が高い。媒体 PDF 生成パイプラインが Turso direct query なのか、それとも別 DB / API 経由なのかは未確認。
+- #16〜#43 は schema からの推定であり、生成元スクリプトと冪等再生成手順は別途棚卸し要 (Round 1-F #168 探索対象)。
+- #26 `v2_employer_strategy` (469K 行) は単独サイズが大きいため、Turso 反映時の write budget を必ず dry-run で確認すること。
+- #23 `v2_commute_flow_summary` と #5 系の `commute_flow_summary` (派生) は別物。両者を混同しない。
+- 「更新頻度 (暫定)」は schema からの推定で、実際のソース年・ETL ジョブの依存は未確認。
+
 更新頻度の考え方:
 
 - 案件ごと: 顧客 CSV。

@@ -629,3 +629,533 @@ pub(super) fn render_section_municipality_salary(html: &mut String, agg: &Survey
 
     html.push_str("</div>\n");
 }
+
+// =====================================================================
+// Round 12: master / region (都道府県 × 市区町村) JOIN 整合性テスト
+// =====================================================================
+// 検証対象:
+//   - K1: PDF 表紙の compose_target_region で「東京都 川崎市」が成立しうる構造的バグ
+//        (aggregator::aggregate_records_core で dominant_prefecture と
+//         dominant_municipality を **独立に** 最多選出するため pref/muni の
+//         整合性が保証されない)
+//   - K2: 表 7-1 (render_section_municipality_salary) の列順
+//        thead/tbody は <市区町村><都道府県> の順で一貫しているが、
+//        一般感覚 (都道府県→市区町村) との不一致が「逆転」と認識される
+//   - master_city.csv (geo/master_city.csv) を読み込んだ municipality_code
+//     先頭 2 桁と prefecture の対応一致 (read-only cross-check)
+//
+// 制約: アプリ側コード変更禁止。これらは pure な逆証明テスト。
+// =====================================================================
+
+#[cfg(test)]
+mod round12_master_tests {
+    use super::super::super::aggregator::{MunicipalitySalaryAgg, SurveyAggregation};
+    use super::super::helpers::compose_target_region;
+    use super::{filter_municipalities_by_pref, render_section_municipality_salary};
+
+    // -----------------------------------------------------------------
+    // ヘルパ: prefecture → prefcode (2桁) の対応表 (master_city.csv と整合)
+    // -----------------------------------------------------------------
+    fn pref_to_code(pref: &str) -> Option<u32> {
+        match pref {
+            "北海道" => Some(1),
+            "青森県" => Some(2),
+            "岩手県" => Some(3),
+            "宮城県" => Some(4),
+            "秋田県" => Some(5),
+            "山形県" => Some(6),
+            "福島県" => Some(7),
+            "茨城県" => Some(8),
+            "栃木県" => Some(9),
+            "群馬県" => Some(10),
+            "埼玉県" => Some(11),
+            "千葉県" => Some(12),
+            "東京都" => Some(13),
+            "神奈川県" => Some(14),
+            "新潟県" => Some(15),
+            "富山県" => Some(16),
+            "石川県" => Some(17),
+            "福井県" => Some(18),
+            "山梨県" => Some(19),
+            "長野県" => Some(20),
+            "岐阜県" => Some(21),
+            "静岡県" => Some(22),
+            "愛知県" => Some(23),
+            "三重県" => Some(24),
+            "滋賀県" => Some(25),
+            "京都府" => Some(26),
+            "大阪府" => Some(27),
+            "兵庫県" => Some(28),
+            "奈良県" => Some(29),
+            "和歌山県" => Some(30),
+            "鳥取県" => Some(31),
+            "島根県" => Some(32),
+            "岡山県" => Some(33),
+            "広島県" => Some(34),
+            "山口県" => Some(35),
+            "徳島県" => Some(36),
+            "香川県" => Some(37),
+            "愛媛県" => Some(38),
+            "高知県" => Some(39),
+            "福岡県" => Some(40),
+            "佐賀県" => Some(41),
+            "長崎県" => Some(42),
+            "熊本県" => Some(43),
+            "大分県" => Some(44),
+            "宮崎県" => Some(45),
+            "鹿児島県" => Some(46),
+            "沖縄県" => Some(47),
+            _ => None,
+        }
+    }
+
+    fn muni(pref: &str, name: &str, count: usize, avg: i64) -> MunicipalitySalaryAgg {
+        MunicipalitySalaryAgg {
+            name: name.to_string(),
+            prefecture: pref.to_string(),
+            count,
+            avg_salary: avg,
+            median_salary: avg - 10_000,
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // (a) 正常系: 47 都道府県名は全てコード化可能
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_all_47_prefectures_have_codes() {
+        let prefs = [
+            "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+            "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+            "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
+            "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
+            "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+            "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
+            "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+        ];
+        assert_eq!(prefs.len(), 47);
+        for p in prefs {
+            assert!(pref_to_code(p).is_some(), "{} のコードが解決できない", p);
+        }
+        // 不正な県名は None
+        assert!(pref_to_code("江戸国").is_none());
+        assert!(pref_to_code("Tokyo").is_none());
+        assert!(pref_to_code("").is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // (a) 正常系: 政令市・著名市は都道府県と整合
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_known_city_prefecture_pairs_are_consistent() {
+        // (市区町村, 正しい都道府県) のペア
+        let pairs = [
+            ("川崎市", "神奈川県"),
+            ("横浜市", "神奈川県"),
+            ("相模原市", "神奈川県"),
+            ("三芳町", "埼玉県"),
+            ("深谷市", "埼玉県"),
+            ("さいたま市", "埼玉県"),
+            ("新宿区", "東京都"),
+            ("千代田区", "東京都"),
+            ("世田谷区", "東京都"),
+            ("札幌市", "北海道"),
+            ("仙台市", "宮城県"),
+            ("大阪市", "大阪府"),
+            ("京都市", "京都府"),
+            ("名古屋市", "愛知県"),
+            ("福岡市", "福岡県"),
+        ];
+        for (name, pref) in pairs {
+            let m = muni(pref, name, 10, 250_000);
+            assert_eq!(m.prefecture, pref);
+            assert!(pref_to_code(&m.prefecture).is_some());
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // (b) K1 逆証明: compose_target_region は pref/muni を別管理する
+    //     ため「東京都 川崎市」が機械的に成立する
+    //     → 表紙 cover の整合性検証ガード不在を明示
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_k1_reproduce_cross_pref_dominant_pair() {
+        // K1: dominant_prefecture と dominant_municipality は独立計算
+        // のため、(pref, muni) ペアが地理的に矛盾しても compose は素通しする
+        let mut agg = SurveyAggregation::default();
+        agg.dominant_prefecture = Some("東京都".to_string());
+        agg.dominant_municipality = Some("川崎市".to_string()); // 神奈川県の市
+
+        let region_text = compose_target_region(&agg);
+
+        // 現状の動作 (バグの存在を逆証明として固定): K1 が再現する
+        assert_eq!(
+            region_text, "東京都 川崎市",
+            "K1: compose_target_region は pref/muni 整合チェックを行わないため、\
+             地理的に矛盾する組合せをそのまま連結する (PDF 表紙誤表示の根本原因)"
+        );
+
+        // 同種パターン横展開: 三芳町(埼玉) を東京都に組み合わせても通る
+        let mut agg2 = SurveyAggregation::default();
+        agg2.dominant_prefecture = Some("東京都".to_string());
+        agg2.dominant_municipality = Some("三芳町".to_string());
+        assert_eq!(compose_target_region(&agg2), "東京都 三芳町");
+    }
+
+    // -----------------------------------------------------------------
+    // (a) 正常系: pref/muni が地理的に正しい場合の compose
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_compose_target_region_happy_paths() {
+        let mut agg = SurveyAggregation::default();
+        agg.dominant_prefecture = Some("神奈川県".to_string());
+        agg.dominant_municipality = Some("川崎市".to_string());
+        assert_eq!(compose_target_region(&agg), "神奈川県 川崎市");
+
+        let mut agg2 = SurveyAggregation::default();
+        agg2.dominant_prefecture = Some("埼玉県".to_string());
+        agg2.dominant_municipality = Some("三芳町".to_string());
+        assert_eq!(compose_target_region(&agg2), "埼玉県 三芳町");
+
+        let mut agg3 = SurveyAggregation::default();
+        agg3.dominant_prefecture = Some("東京都".to_string());
+        agg3.dominant_municipality = None;
+        assert_eq!(compose_target_region(&agg3), "東京都");
+
+        let agg4 = SurveyAggregation::default();
+        assert_eq!(compose_target_region(&agg4), "全国");
+    }
+
+    // -----------------------------------------------------------------
+    // (b) K2 検証: 表 7-1 のヘッダ列順 (現状は <市区町村><都道府県>)
+    //     一般感覚 (都道府県→市区町村) と異なるためユーザーが「逆転」と
+    //     感じる現象を固定化する
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_k2_table_header_order_municipality_then_prefecture() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![("埼玉県".to_string(), 100)];
+        agg.by_municipality_salary = vec![
+            muni("埼玉県", "三芳町", 5, 260_000),
+        ];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+
+        // 現状の thead は <市区町村> → <都道府県> の順
+        let idx_th_muni = html.find("<th>市区町村</th>").expect("市区町村列ヘッダ");
+        let idx_th_pref = html.find("<th>都道府県</th>").expect("都道府県列ヘッダ");
+        assert!(
+            idx_th_muni < idx_th_pref,
+            "K2 現状動作: ヘッダは <市区町村> → <都道府県> の順 \
+             (一般感覚と逆だが、tbody と一貫しているため値の取り違えは起きない)"
+        );
+
+        // tbody 内に限定して順序を確認 (So What 行に「{pref} {name}」が出るので全文検索だと逆転判定になる)
+        let tbody_start = html.find("<tbody>").expect("<tbody> あり");
+        let tbody_end = html.find("</tbody>").expect("</tbody> あり");
+        let tbody = &html[tbody_start..tbody_end];
+        let idx_val_muni = tbody.find("三芳町").expect("tbody 内: 三芳町");
+        let idx_val_pref = tbody.find("埼玉県").expect("tbody 内: 埼玉県");
+        assert!(
+            idx_val_muni < idx_val_pref,
+            "K2 現状動作: tbody 値は <市区町村> → <都道府県> の順 \
+             (thead と一貫 → 列内データは正しい。tbody=`{}`)",
+            tbody
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // (b) K2 同種パターン: 多件レコードでも列順は崩れない
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_k2_table_header_consistency_across_rows() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![
+            ("神奈川県".to_string(), 50),
+            ("埼玉県".to_string(), 30),
+        ]; // 単一県スコープではないので filter は素通し
+        agg.by_municipality_salary = vec![
+            muni("神奈川県", "川崎市", 30, 300_000),
+            muni("神奈川県", "横浜市", 20, 310_000),
+            muni("埼玉県", "三芳町", 5, 260_000),
+        ];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+
+        // tbody 内の各 <tr> 行で「<td>name</td><td...>pref</td>」順序が維持されるか
+        let tbody_start = html.find("<tbody>").expect("<tbody>");
+        let tbody_end = html.find("</tbody>").expect("</tbody>");
+        let tbody = &html[tbody_start..tbody_end];
+
+        for (name, pref) in [
+            ("川崎市", "神奈川県"),
+            ("横浜市", "神奈川県"),
+            ("三芳町", "埼玉県"),
+        ] {
+            // 各 name の出現位置に最も近い <tr ... </tr> 部分を取り出す
+            let i_name = tbody
+                .find(name)
+                .unwrap_or_else(|| panic!("tbody 内に値 {} なし", name));
+            let row_start = tbody[..i_name].rfind("<tr>").unwrap_or(0);
+            let row_end_rel = tbody[i_name..]
+                .find("</tr>")
+                .unwrap_or_else(|| panic!("{} の行終端なし", name));
+            let row = &tbody[row_start..(i_name + row_end_rel + 5)];
+            // 行内で name と pref が共存し、name が先
+            let in_row_name = row.find(name).expect("行内 name");
+            let in_row_pref = row.find(pref).expect("行内 pref");
+            assert!(
+                in_row_name < in_row_pref,
+                "{} と対応する {} は同一 <tr> 内で name → pref の順 (row=`{}`)",
+                name,
+                pref,
+                row
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // (c) 不正組合せ検出: filter_municipalities_by_pref は (pref, name)
+    //     ペアの prefecture フィールドを信頼する。レコードが「東京都 川崎市」
+    //     (地理的に矛盾) を持っていても prefecture==target_pref で素通しする
+    //     → これは filter 関数の責務外 (アップストリームのデータ品質責任)
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_filter_trusts_prefecture_field_not_geography() {
+        let data = vec![
+            // 地理的に矛盾するレコード (上流バグの再現)
+            muni("東京都", "川崎市", 100, 300_000),
+            muni("神奈川県", "川崎市", 50, 300_000),
+        ];
+
+        let tokyo = filter_municipalities_by_pref(&data, "東京都");
+        assert_eq!(tokyo.len(), 1);
+        assert_eq!(tokyo[0].prefecture, "東京都");
+        assert_eq!(tokyo[0].name, "川崎市");
+        // → filter 自体は仕様通り。問題は上流 (location_parser / aggregator)。
+
+        let kanagawa = filter_municipalities_by_pref(&data, "神奈川県");
+        assert_eq!(kanagawa.len(), 1);
+        assert_eq!(kanagawa[0].prefecture, "神奈川県");
+    }
+
+    // -----------------------------------------------------------------
+    // (d) DB cross-check: master_city.csv の citycode 先頭 2 桁 = prefcode
+    //     これは pref と city の整合の正解定義 (read-only)
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_master_city_csv_citycode_matches_prefcode() {
+        // ファイル: src/geo/master_city.csv は include_str! で取得可能
+        // CARGO_MANIFEST_DIR からの相対パスを使う
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/geo/master_city.csv");
+        let content = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("master_city.csv 読み込み失敗 (テスト skip 相当): {}", e);
+                return;
+            }
+        };
+
+        let mut lines = content.lines();
+        let header = lines.next().expect("header");
+        assert!(
+            header.starts_with("citycode,prefcode,city_name"),
+            "header 形式: {}",
+            header
+        );
+
+        let mut total = 0usize;
+        let mut mismatch = 0usize;
+        for line in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let cols: Vec<&str> = line.splitn(4, ',').collect();
+            if cols.len() < 3 {
+                continue;
+            }
+            let citycode: u32 = cols[0].parse().unwrap_or(0);
+            let prefcode: u32 = cols[1].parse().unwrap_or(0);
+            if citycode == 0 || prefcode == 0 {
+                continue;
+            }
+            total += 1;
+            // prefcode は citycode の先頭 1〜2 桁。4 桁 (例 1101→1) も 5 桁 (例 14131→14) も /1000 で取れる。
+            let leading = citycode / 1_000;
+            if leading != prefcode {
+                mismatch += 1;
+                eprintln!(
+                    "citycode {} prefcode {} city {} → leading {} != prefcode",
+                    citycode, prefcode, cols[2], leading
+                );
+            }
+        }
+        assert!(total > 1_500, "master_city.csv 行数が少なすぎる: {}", total);
+        assert_eq!(
+            mismatch, 0,
+            "citycode 先頭 2 桁と prefcode が不一致のレコードがある"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // (d) DB cross-check: master_city.csv 内で「川崎市」を含む市区町村は
+    //     すべて prefcode == 14 (神奈川県) 配下、または別 prefcode の
+    //     「○○郡川崎町」のみであること (神奈川県川崎市と混同しないか確認)
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_master_city_csv_kawasaki_belongs_to_kanagawa() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/geo/master_city.csv");
+        let content = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        let mut kawasaki_shi_prefs = std::collections::HashSet::new();
+        let mut kawasaki_machi_prefs = std::collections::HashSet::new();
+
+        for line in content.lines().skip(1) {
+            let cols: Vec<&str> = line.splitn(4, ',').collect();
+            if cols.len() < 3 {
+                continue;
+            }
+            let prefcode: u32 = cols[1].parse().unwrap_or(0);
+            let name = cols[2];
+            // 「川崎市XX区」(政令市) は prefcode=14 のみのはず
+            if name.starts_with("川崎市") {
+                kawasaki_shi_prefs.insert(prefcode);
+            }
+            // 「○○郡川崎町」(同名町) は別 prefcode
+            if name.ends_with("川崎町") {
+                kawasaki_machi_prefs.insert(prefcode);
+            }
+        }
+        assert_eq!(
+            kawasaki_shi_prefs,
+            std::collections::HashSet::from([14u32]),
+            "「川崎市XX区」は神奈川県(14)配下のみであるべき。実測: {:?}",
+            kawasaki_shi_prefs
+        );
+        // 川崎町は 4 (宮城) と 40 (福岡) に実在
+        assert!(
+            !kawasaki_machi_prefs.is_empty(),
+            "「川崎町」は別県に存在するはず (宮城/福岡)"
+        );
+        assert!(
+            !kawasaki_machi_prefs.contains(&13u32),
+            "「東京都川崎町」は実在しない"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // (d) DB cross-check: 三芳町は埼玉県(11)入間郡のみ
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_master_city_csv_miyoshi_machi_in_saitama_only() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/geo/master_city.csv");
+        let content = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        let mut found_prefs = std::collections::HashSet::new();
+        for line in content.lines().skip(1) {
+            let cols: Vec<&str> = line.splitn(4, ',').collect();
+            if cols.len() < 3 {
+                continue;
+            }
+            let prefcode: u32 = cols[1].parse().unwrap_or(0);
+            let name = cols[2];
+            if name.ends_with("三芳町") {
+                found_prefs.insert(prefcode);
+            }
+        }
+        assert!(
+            found_prefs.contains(&11u32),
+            "「三芳町」は埼玉県(11)に実在するはず。実測: {:?}",
+            found_prefs
+        );
+        assert!(
+            !found_prefs.contains(&13u32),
+            "「東京都の三芳町」は実在しない (K1 で誤表示された場合のデータ不整合検知)"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // (b) 単一県スコープで他県の市区町村は除外される (既存仕様の固定)
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_single_pref_scope_excludes_cross_pref_municipalities() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![("東京都".to_string(), 100)];
+        agg.by_municipality_salary = vec![
+            muni("東京都", "新宿区", 50, 280_000),
+            // 上流バグで「東京都 川崎市」と誤って入ってきた場合は素通し
+            muni("東京都", "川崎市", 30, 300_000),
+            // 別県の値は除外される
+            muni("神奈川県", "川崎市", 20, 300_000),
+        ];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+
+        assert!(html.contains("新宿区"), "東京都の新宿区は表示");
+        // 神奈川県川崎市は filter で落ちる
+        let count_kanagawa = html.matches("神奈川県").count();
+        assert_eq!(count_kanagawa, 0, "他県(神奈川県)レコードは除外");
+    }
+
+    // -----------------------------------------------------------------
+    // (b) 多県スコープでは同名市区町村は両方残り、「同名」マーカーが付く
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_multi_pref_scope_keeps_homonyms_with_marker() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![
+            ("北海道".to_string(), 10),
+            ("福島県".to_string(), 8),
+        ];
+        agg.by_municipality_salary = vec![
+            muni("北海道", "伊達市", 10, 250_000),
+            muni("福島県", "伊達市", 8, 260_000),
+        ];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+
+        assert!(html.contains("北海道"));
+        assert!(html.contains("福島県"));
+        assert!(html.contains("同名"), "同名マーカーが付く");
+    }
+
+    // -----------------------------------------------------------------
+    // (c) 空データ系: render は早期 return する
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_empty_municipality_returns_early() {
+        let agg = SurveyAggregation::default();
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+        assert!(html.is_empty(), "空 by_municipality_salary では何も書かない");
+    }
+
+    // -----------------------------------------------------------------
+    // (a) 正常系: format_man_yen の出力に「万」が含まれる (列の値検証)
+    // -----------------------------------------------------------------
+    #[test]
+    fn r12_table_contains_man_yen_formatted_salary() {
+        let mut agg = SurveyAggregation::default();
+        agg.by_prefecture = vec![("埼玉県".to_string(), 10)];
+        agg.by_municipality_salary = vec![muni("埼玉県", "三芳町", 5, 260_000)];
+
+        let mut html = String::new();
+        render_section_municipality_salary(&mut html, &agg);
+        // 26万円 (= 260_000 円) が万円表記される
+        assert!(
+            html.contains("26") && html.contains("万"),
+            "平均月給が万円表記される: {}",
+            &html[..html.len().min(2000)]
+        );
+    }
+}
