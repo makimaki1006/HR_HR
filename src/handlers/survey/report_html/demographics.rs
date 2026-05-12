@@ -953,7 +953,7 @@ mod tests {
         assert!(
             html.contains("9,000 人"),
             "生産年齢人口の具体値 9,000 人 が表示されること (got: {})",
-            &html[..html.len().min(2000)]
+            crate::text_util::truncate_char_safe(&html, 2000)
         );
         assert!(
             html.contains("90.0%"),
@@ -1055,7 +1055,7 @@ mod tests {
         assert!(
             html.contains("16,000 人"),
             "rate 経由の推定失業者数 16,000 人。html抜粋: {}",
-            &html[..html.len().min(800)]
+            crate::text_util::truncate_char_safe(&html, 800)
         );
     }
 

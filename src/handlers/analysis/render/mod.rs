@@ -115,7 +115,7 @@ mod new_section_tests {
         assert!(
             html.contains("大学院"),
             "学歴レベルがHTMLに含まれるべき: {}",
-            &html[..html.len().min(500)]
+            crate::text_util::truncate_char_safe(&html, 500)
         );
     }
 
@@ -171,7 +171,7 @@ mod new_section_tests {
         assert!(
             html.contains("3,102,649"),
             "total_countが3桁区切りでフォーマットされるべき: actual html snippets = {}",
-            &html[..html.len().min(1000)]
+            crate::text_util::truncate_char_safe(&html, 1000)
         );
     }
 

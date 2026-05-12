@@ -133,7 +133,7 @@ async fn integrated_report_contains_all_required_sections() {
             html.contains(s),
             "integrated report must contain section '{}'. Output snippet: {}",
             s,
-            &html[..html.len().min(500)]
+            crate::text_util::truncate_char_safe(&html, 500)
         );
     }
 

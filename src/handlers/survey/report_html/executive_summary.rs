@@ -799,8 +799,8 @@ mod ux_enhancement_tests {
         let legacy_idx = html
             .find("exec-kpi-grid-legacy")
             .expect("legacy class 出現位置");
-        // legacy class の開始タグから 200 文字以内に display:none が含まれること
-        let snippet = &html[legacy_idx..(legacy_idx + 200).min(html.len())];
+        // legacy class の開始タグから 200 byte 以内に display:none が含まれること (UTF-8 safe)
+        let snippet = crate::text_util::truncate_char_safe(&html[legacy_idx..], 200);
         assert!(
             snippet.contains("display:none"),
             "legacy grid 要素に display:none インラインスタイルが付与されること"
@@ -999,7 +999,7 @@ mod ux_enhancement_tests {
         let legacy_idx = html
             .find("exec-kpi-grid-legacy")
             .expect("legacy class 出現位置");
-        let legacy_snippet = &html[legacy_idx..(legacy_idx + 250).min(html.len())];
+        let legacy_snippet = crate::text_util::truncate_char_safe(&html[legacy_idx..], 250);
         assert!(
             legacy_snippet.contains("display:none"),
             "legacy grid 要素に display:none インラインスタイル: snippet={}",

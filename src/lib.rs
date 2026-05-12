@@ -5,6 +5,7 @@ pub mod db;
 pub mod geo;
 pub mod handlers;
 pub mod models;
+pub mod text_util;
 
 use axum::{
     extract::{DefaultBodyLimit, Form, FromRequest, State},
