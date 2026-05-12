@@ -43,23 +43,6 @@ pub(super) fn filter_municipalities_by_pref(
         .collect()
 }
 
-/// `(pref, muni)` ペアを対象都道府県のみに絞り込む.
-///
-/// hw_enrichment / municipality_demographics 取得用の (pref, muni) ペアを
-/// pref フィルタ対象外のものを除外する.
-pub(super) fn filter_pref_muni_pairs<'a>(
-    pairs: &'a [(String, String)],
-    target_pref: &str,
-) -> Vec<&'a (String, String)> {
-    if !is_pref_filter_active(target_pref) {
-        return pairs.iter().collect();
-    }
-    pairs
-        .iter()
-        .filter(|(pref, _)| pref == target_pref)
-        .collect()
-}
-
 /// pref フィルタが有効か (空 / "全国" / "すべて" は無効扱い)
 pub(super) fn is_pref_filter_active(target_pref: &str) -> bool {
     !target_pref.is_empty() && target_pref != "全国" && target_pref != "すべて"
@@ -133,18 +116,6 @@ mod tests {
         assert_eq!(filter_municipalities_by_pref(&data, "全国").len(), 2);
         // "すべて" → 全件
         assert_eq!(filter_municipalities_by_pref(&data, "すべて").len(), 2);
-    }
-
-    /// pref_muni ペアフィルタも同様に動作する (hw_enrichment 等で使用)
-    #[test]
-    fn pref_muni_pair_filter_works() {
-        let pairs: Vec<(String, String)> = vec![
-            ("群馬県".to_string(), "前橋市".to_string()),
-            ("埼玉県".to_string(), "深谷市".to_string()),
-        ];
-        let filtered = filter_pref_muni_pairs(&pairs, "群馬県");
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].0, "群馬県");
     }
 
     /// is_pref_filter_active の境界値を逆証明

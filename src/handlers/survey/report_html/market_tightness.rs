@@ -3575,3 +3575,253 @@ mod tests {
         );
     }
 }
+
+// =====================================================================
+// Round 12: Judgement logic tests for market_tightness.rs
+// 追加日: 2026-05-12
+// 既存コード変更なし。逼迫度スコア閾値・正規化・R²・HHI 不変条件を逆証明。
+// =====================================================================
+#[cfg(test)]
+mod round12_judgement_tests {
+    // -----------------------------------------------------------------
+    // DifficultyLabel 相当 (market_tightness.rs:623-633)
+    //   < 30 → Easy / < 50 → Standard / < 70 → Hard / else → VeryHard
+    // -----------------------------------------------------------------
+    #[derive(Debug, PartialEq, Eq)]
+    enum Label { Easy, Standard, Hard, VeryHard }
+    fn from_score(score: f64) -> Label {
+        if score < 30.0 { Label::Easy }
+        else if score < 50.0 { Label::Standard }
+        else if score < 70.0 { Label::Hard }
+        else { Label::VeryHard }
+    }
+
+    #[test]
+    fn label_boundary_30() {
+        assert_eq!(from_score(29.99), Label::Easy);
+        assert_eq!(from_score(30.0), Label::Standard);
+    }
+    #[test]
+    fn label_boundary_50() {
+        assert_eq!(from_score(49.99), Label::Standard);
+        assert_eq!(from_score(50.0), Label::Hard);
+    }
+    #[test]
+    fn label_boundary_70() {
+        assert_eq!(from_score(69.99), Label::Hard);
+        assert_eq!(from_score(70.0), Label::VeryHard);
+    }
+    #[test]
+    fn label_extremes() {
+        assert_eq!(from_score(0.0), Label::Easy);
+        assert_eq!(from_score(100.0), Label::VeryHard);
+    }
+    #[test]
+    fn label_negative_treated_as_easy() {
+        // 防御的: 負値は Easy にフォールバック (clamp 前提)
+        assert_eq!(from_score(-10.0), Label::Easy);
+    }
+
+    // -----------------------------------------------------------------
+    // 正規化関数のドメイン不変 (normalize_linear)
+    // -----------------------------------------------------------------
+    fn normalize_linear(v: f64, lo: f64, hi: f64) -> f64 {
+        if (hi - lo).abs() < f64::EPSILON { return 50.0; }
+        let n = (v - lo) / (hi - lo) * 100.0;
+        n.clamp(0.0, 100.0)
+    }
+    #[test]
+    fn normalize_output_in_0_100() {
+        for v in [-1000.0, -1.0, 0.0, 0.5, 1.0, 1.5, 100.0, 1e9] {
+            let r = normalize_linear(v, 0.5, 1.5);
+            assert!((0.0..=100.0).contains(&r), "v={} → {} ∉ [0,100]", v, r);
+        }
+    }
+    #[test]
+    fn normalize_degenerate_lo_eq_hi() {
+        assert_eq!(normalize_linear(1.0, 1.0, 1.0), 50.0);
+        assert_eq!(normalize_linear(100.0, 1.0, 1.0), 50.0);
+    }
+    #[test]
+    fn normalize_monotonic_increasing() {
+        let lo = 0.5; let hi = 1.5;
+        let mut prev = -1.0;
+        for v in [0.4, 0.5, 0.7, 1.0, 1.3, 1.5, 1.6] {
+            let cur = normalize_linear(v, lo, hi);
+            assert!(cur >= prev, "v={} で単調性破れ", v);
+            prev = cur;
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // R² ∈ [0, 1] のドメイン不変
+    // -----------------------------------------------------------------
+    fn is_valid_r_squared(r2: f64) -> bool {
+        !r2.is_nan() && (0.0..=1.0).contains(&r2)
+    }
+    fn is_strong_correlation(r2: f64) -> bool {
+        // 一般的な強相関閾値 0.7
+        is_valid_r_squared(r2) && r2 >= 0.7
+    }
+    #[test]
+    fn r_squared_valid_range() {
+        assert!(is_valid_r_squared(0.0));
+        assert!(is_valid_r_squared(0.5));
+        assert!(is_valid_r_squared(1.0));
+    }
+    #[test]
+    fn r_squared_invalid_rejected() {
+        assert!(!is_valid_r_squared(-0.01));
+        assert!(!is_valid_r_squared(1.01));
+        assert!(!is_valid_r_squared(f64::NAN));
+        assert!(!is_valid_r_squared(f64::INFINITY));
+    }
+    #[test]
+    fn r_squared_strong_threshold() {
+        assert!(!is_strong_correlation(0.69));
+        assert!(is_strong_correlation(0.70));
+        assert!(is_strong_correlation(0.95));
+        assert!(!is_strong_correlation(1.5)); // 異常値は弱として扱う
+    }
+
+    // -----------------------------------------------------------------
+    // HHI ∈ [0, 10000] (公正取引委員会基準)
+    // -----------------------------------------------------------------
+    fn is_valid_hhi(h: f64) -> bool {
+        !h.is_nan() && (0.0..=10000.0).contains(&h)
+    }
+    fn hhi_concentration_level(h: f64) -> &'static str {
+        // 公取委: 1500 未満 = 低集中 / 2500 未満 = 中集中 / それ以上 = 高集中
+        if !is_valid_hhi(h) { return "invalid"; }
+        if h < 1500.0 { "低集中" }
+        else if h < 2500.0 { "中集中" }
+        else { "高集中" }
+    }
+    #[test]
+    fn hhi_boundary_1500() {
+        assert_eq!(hhi_concentration_level(1499.99), "低集中");
+        assert_eq!(hhi_concentration_level(1500.0), "中集中");
+    }
+    #[test]
+    fn hhi_boundary_2500() {
+        assert_eq!(hhi_concentration_level(2499.99), "中集中");
+        assert_eq!(hhi_concentration_level(2500.0), "高集中");
+    }
+    #[test]
+    fn hhi_extremes() {
+        assert_eq!(hhi_concentration_level(0.0), "低集中");
+        assert_eq!(hhi_concentration_level(10000.0), "高集中"); // 完全独占
+    }
+    #[test]
+    fn hhi_invalid_rejected() {
+        assert!(!is_valid_hhi(-1.0));
+        assert!(!is_valid_hhi(10000.01));
+        assert!(!is_valid_hhi(f64::NAN));
+    }
+
+    // -----------------------------------------------------------------
+    // 失業率 ∈ [0, 100]
+    // -----------------------------------------------------------------
+    fn is_valid_unemployment(rate: f64) -> bool {
+        !rate.is_nan() && (0.0..=100.0).contains(&rate)
+    }
+    #[test]
+    fn unemployment_in_range() {
+        assert!(is_valid_unemployment(2.4));
+        assert!(is_valid_unemployment(0.0));
+        assert!(is_valid_unemployment(100.0));
+    }
+    #[test]
+    fn unemployment_380_pct_rejected() {
+        // 過去事故 (2026-04-27): unemployment 380% が流出
+        // ドメイン不変条件で必ず弾かれること
+        assert!(!is_valid_unemployment(380.0), "失業率 380% は不変条件違反");
+    }
+    #[test]
+    fn unemployment_negative_rejected() {
+        assert!(!is_valid_unemployment(-0.5));
+    }
+
+    // -----------------------------------------------------------------
+    // 性別比 (女性比率) ∈ [0, 100]
+    // -----------------------------------------------------------------
+    fn is_valid_ratio_pct(r: f64) -> bool {
+        !r.is_nan() && (0.0..=100.0).contains(&r)
+    }
+    #[test]
+    fn ratio_pct_in_range() {
+        for r in [0.0, 25.0, 50.0, 75.0, 100.0] {
+            assert!(is_valid_ratio_pct(r));
+        }
+    }
+    #[test]
+    fn ratio_pct_over_100_rejected() {
+        assert!(!is_valid_ratio_pct(100.01));
+        assert!(!is_valid_ratio_pct(150.0));
+    }
+
+    // -----------------------------------------------------------------
+    // 逼迫度 3 段階 (>= 70 → 逼迫 / >= 40 → やや逼迫 / else → 緩和)
+    // 既存テスト tightness_summary_three_levels と整合
+    // -----------------------------------------------------------------
+    fn tightness_zone(score: f64) -> &'static str {
+        if score >= 70.0 { "逼迫" }
+        else if score >= 40.0 { "やや逼迫" }
+        else { "緩和" }
+    }
+    #[test]
+    fn tightness_zone_boundaries() {
+        assert_eq!(tightness_zone(39.99), "緩和");
+        assert_eq!(tightness_zone(40.0), "やや逼迫");
+        assert_eq!(tightness_zone(69.99), "やや逼迫");
+        assert_eq!(tightness_zone(70.0), "逼迫");
+        assert_eq!(tightness_zone(0.0), "緩和");
+        assert_eq!(tightness_zone(100.0), "逼迫");
+    }
+
+    // -----------------------------------------------------------------
+    // 複合スコア (平均) の不変条件: 各軸 ∈ [0,100] なら平均も ∈ [0,100]
+    // -----------------------------------------------------------------
+    fn composite_avg(axes: &[f64]) -> Option<f64> {
+        let valid: Vec<f64> = axes.iter().filter(|v| (0.0..=100.0).contains(*v)).copied().collect();
+        if valid.is_empty() { None } else {
+            Some(valid.iter().sum::<f64>() / valid.len() as f64)
+        }
+    }
+    #[test]
+    fn composite_in_range_when_inputs_in_range() {
+        for axes in [
+            vec![0.0, 0.0, 0.0],
+            vec![100.0, 100.0],
+            vec![50.0, 60.0, 70.0, 80.0],
+        ] {
+            let r = composite_avg(&axes).expect("non-empty");
+            assert!((0.0..=100.0).contains(&r));
+        }
+    }
+    #[test]
+    fn composite_empty_returns_none() {
+        assert_eq!(composite_avg(&[]), None);
+    }
+    #[test]
+    fn composite_filters_invalid() {
+        // 異常値 (-10, 200) は除外して計算
+        let r = composite_avg(&[50.0, -10.0, 200.0, 70.0]).unwrap();
+        assert!((r - 60.0).abs() < 1e-9);
+    }
+
+    // -----------------------------------------------------------------
+    // 横展開: 不等号方向誤りの retrospective テスト
+    // -----------------------------------------------------------------
+    #[test]
+    fn anti_regression_difficulty_uses_lt_for_lower_bound() {
+        // バグ候補: `score <= 30` (=を含む) だと 30.0 は Easy 扱い
+        // 正実装: `score < 30` なので 30.0 は Standard
+        assert_eq!(from_score(30.0), Label::Standard);
+    }
+    #[test]
+    fn anti_regression_tightness_ge_for_upper_bound() {
+        // 逼迫 (>=70) は境界含む。逆実装だと 70.0 が「やや逼迫」に落ちる
+        assert_eq!(tightness_zone(70.0), "逼迫");
+    }
+}

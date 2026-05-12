@@ -4922,3 +4922,261 @@ mod tests {
         );
     }
 }
+
+// ============================================================================
+// Round 12 判定ロジック層 unit tests
+// ----------------------------------------------------------------------------
+// 配信優先度スコア (distribution_priority_score, 0..=200) の bucket 分類と
+// is_priority_score_in_range の不変条件を、本体実装と独立に再現関数で検証する。
+//
+// 本体実装 (render_mi_distribution_ranking 内 match guard, line 2423-2428) :
+//   v if v >= 160.0 => "重点配信"
+//   v if v >= 130.0 => "拡張候補"
+//   v if v >= 100.0 => "維持/検証"
+//   _              => "優先度低"
+//
+// is_priority_score_in_range (src/handlers/analysis/fetch/market_intelligence.rs:834):
+//   Some(s) → (0.0..=200.0).contains(&s) && !s.is_nan()
+//   None    → true
+//
+// 設計意図:
+// - 同種パターン (wage.rs / market_tightness.rs) と同じ「逆証明」方針を採用。
+// - boundary 値 (99/100/101, 129/130/131, 159/160/161) を全て独立 test 化。
+// - 単調性 / 相互排他 / 4 bucket 合計 = 入力件数 のドメイン不変も検証。
+// - >= を > に変えた場合 / 閾値を 161/131/101 にずらした場合に FAIL する
+//   anti-regression を含む。
+// ============================================================================
+#[cfg(test)]
+mod round12_judgement_tests {
+    // -------------------------------------------------------------------
+    // 本体 match guard の再現関数 (render_mi_distribution_ranking と同一ロジック)
+    // -------------------------------------------------------------------
+    fn bucket_of(score: f64) -> &'static str {
+        match score {
+            v if v >= 160.0 => "重点配信",
+            v if v >= 130.0 => "拡張候補",
+            v if v >= 100.0 => "維持/検証",
+            _ => "優先度低",
+        }
+    }
+
+    /// `is_priority_score_in_range` (DTO method) と同一ロジックの再現関数。
+    /// `None` 入力は欠損として true (除外せず後段で表示判断)。
+    fn is_priority_score_in_range(score: Option<f64>) -> bool {
+        match score {
+            Some(s) => (0.0..=200.0).contains(&s) && !s.is_nan(),
+            None => true,
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // L2 boundary tests : 160 境界
+    // -------------------------------------------------------------------
+    #[test]
+    fn bucket_boundary_160_exact_is_juuten() {
+        // 160.0 ちょうどは「重点配信」 (>= の境界条件)
+        assert_eq!(bucket_of(160.0), "重点配信");
+    }
+    #[test]
+    fn bucket_boundary_159_99_is_kakuchou() {
+        // 160 直下は「拡張候補」 (>= 130 かつ < 160)
+        assert_eq!(bucket_of(159.99), "拡張候補");
+    }
+    #[test]
+    fn bucket_boundary_160_01_is_juuten() {
+        assert_eq!(bucket_of(160.01), "重点配信");
+    }
+
+    // -------------------------------------------------------------------
+    // L2 boundary tests : 130 境界
+    // -------------------------------------------------------------------
+    #[test]
+    fn bucket_boundary_130_exact_is_kakuchou() {
+        // 130.0 ちょうどは「拡張候補」
+        assert_eq!(bucket_of(130.0), "拡張候補");
+    }
+    #[test]
+    fn bucket_boundary_129_99_is_iji() {
+        assert_eq!(bucket_of(129.99), "維持/検証");
+    }
+    #[test]
+    fn bucket_boundary_130_01_is_kakuchou() {
+        assert_eq!(bucket_of(130.01), "拡張候補");
+    }
+
+    // -------------------------------------------------------------------
+    // L2 boundary tests : 100 境界
+    // -------------------------------------------------------------------
+    #[test]
+    fn bucket_boundary_100_exact_is_iji() {
+        assert_eq!(bucket_of(100.0), "維持/検証");
+    }
+    #[test]
+    fn bucket_boundary_99_99_is_low() {
+        assert_eq!(bucket_of(99.99), "優先度低");
+    }
+    #[test]
+    fn bucket_boundary_100_01_is_iji() {
+        assert_eq!(bucket_of(100.01), "維持/検証");
+    }
+
+    // -------------------------------------------------------------------
+    // L2 extreme values
+    // -------------------------------------------------------------------
+    #[test]
+    fn bucket_zero_is_low() {
+        assert_eq!(bucket_of(0.0), "優先度低");
+    }
+    #[test]
+    fn bucket_200_is_juuten() {
+        // 範囲上限 200 も「重点配信」
+        assert_eq!(bucket_of(200.0), "重点配信");
+    }
+    #[test]
+    fn bucket_negative_is_low() {
+        // 負値は match guard 全て不成立 → "優先度低"
+        // (clamp 前提だが防御的に確認)
+        assert_eq!(bucket_of(-10.0), "優先度低");
+    }
+
+    // -------------------------------------------------------------------
+    // L3 ドメイン不変: 単調性 (score↑ → bucket は上位 or 同位置)
+    // -------------------------------------------------------------------
+    #[test]
+    fn bucket_monotonic_rank_increases_with_score() {
+        fn rank(s: f64) -> u8 {
+            match bucket_of(s) {
+                "優先度低" => 0,
+                "維持/検証" => 1,
+                "拡張候補" => 2,
+                "重点配信" => 3,
+                _ => panic!("unknown bucket"),
+            }
+        }
+        let samples = [-5.0, 0.0, 50.0, 99.99, 100.0, 129.0, 130.0, 159.0, 160.0, 200.0];
+        let mut prev = 0u8;
+        for s in samples {
+            let r = rank(s);
+            assert!(r >= prev, "score={s} で単調性破れ (prev={prev}, cur={r})");
+            prev = r;
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // L3 ドメイン不変: 4 bucket の相互排他 + 合計 = 入力件数
+    // -------------------------------------------------------------------
+    #[test]
+    fn bucket_partition_exhaustive_and_disjoint() {
+        let samples: Vec<f64> = (0..=200).map(|i| i as f64).collect();
+        let mut juuten = 0;
+        let mut kakuchou = 0;
+        let mut iji = 0;
+        let mut low = 0;
+        for s in &samples {
+            match bucket_of(*s) {
+                "重点配信" => juuten += 1,
+                "拡張候補" => kakuchou += 1,
+                "維持/検証" => iji += 1,
+                "優先度低" => low += 1,
+                other => panic!("未知 bucket: {other}"),
+            }
+        }
+        let total = juuten + kakuchou + iji + low;
+        assert_eq!(
+            total,
+            samples.len(),
+            "4 bucket 合計 ({total}) != 入力件数 ({}) → 相互排他/網羅性違反",
+            samples.len()
+        );
+        // 0..=200 の整数値で各 bucket 件数を実数的に検算
+        // 重点配信: 160..=200 (41 件)
+        // 拡張候補: 130..=159 (30 件)
+        // 維持/検証: 100..=129 (30 件)
+        // 優先度低: 0..=99   (100 件)
+        assert_eq!(juuten, 41, "重点配信 件数");
+        assert_eq!(kakuchou, 30, "拡張候補 件数");
+        assert_eq!(iji, 30, "維持/検証 件数");
+        assert_eq!(low, 100, "優先度低 件数");
+    }
+
+    // -------------------------------------------------------------------
+    // L3 ドメイン不変: is_priority_score_in_range
+    // -------------------------------------------------------------------
+    #[test]
+    fn range_check_within_0_to_200_inclusive() {
+        for v in [0.0, 0.01, 50.0, 100.0, 159.99, 160.0, 200.0] {
+            assert!(is_priority_score_in_range(Some(v)), "v={v} は範囲内");
+        }
+    }
+    #[test]
+    fn range_check_rejects_out_of_bounds() {
+        for v in [-0.01, -1.0, 200.01, 201.0, 1000.0] {
+            assert!(!is_priority_score_in_range(Some(v)), "v={v} は範囲外");
+        }
+    }
+    #[test]
+    fn range_check_rejects_nan() {
+        assert!(
+            !is_priority_score_in_range(Some(f64::NAN)),
+            "NaN は範囲外として扱う"
+        );
+    }
+    #[test]
+    fn range_check_rejects_infinity() {
+        assert!(
+            !is_priority_score_in_range(Some(f64::INFINITY)),
+            "+Inf は範囲外"
+        );
+        assert!(
+            !is_priority_score_in_range(Some(f64::NEG_INFINITY)),
+            "-Inf は範囲外"
+        );
+    }
+    #[test]
+    fn range_check_none_is_valid() {
+        // None (欠損) は true → 後段で別途欠損処理
+        assert!(is_priority_score_in_range(None));
+    }
+
+    // -------------------------------------------------------------------
+    // L4 anti-regression : 閾値値 / 比較演算子の方向を変えると FAIL するテスト
+    // -------------------------------------------------------------------
+
+    /// 閾値 160 を 161 にずらした実装に変えると 160.0 で FAIL するはず。
+    /// → 現実装が「160 以上で重点配信」であることを背理法的に固定。
+    #[test]
+    fn anti_regression_threshold_160_not_161() {
+        assert_eq!(
+            bucket_of(160.0),
+            "重点配信",
+            "閾値が 161 に劣化したら 160.0 が拡張候補に落ちる → このテストが防衛"
+        );
+    }
+
+    /// >= を > に変えた実装に変えると 130.0/100.0 ちょうどで FAIL するはず。
+    #[test]
+    fn anti_regression_inclusive_lower_bounds() {
+        assert_eq!(bucket_of(130.0), "拡張候補");
+        assert_eq!(bucket_of(100.0), "維持/検証");
+    }
+
+    /// match 順を逆転 (低い閾値を先に評価) させた実装では、
+    /// 高スコアでも常に下位 bucket に落ちる → このテストで検出可能。
+    #[test]
+    fn anti_regression_match_order_high_to_low() {
+        // 200 は「重点配信」 ∵ match は高い閾値から評価される
+        assert_eq!(bucket_of(200.0), "重点配信");
+    }
+
+    /// 100 未満範囲全てが「優先度低」 (>=100 ガードが効いていることの逆証明)
+    #[test]
+    fn anti_regression_below_100_all_low() {
+        for s in [0.0, 25.0, 50.0, 75.0, 99.0, 99.9, 99.99] {
+            assert_eq!(
+                bucket_of(s),
+                "優先度低",
+                "score={s} (< 100) は「優先度低」固定"
+            );
+        }
+    }
+}

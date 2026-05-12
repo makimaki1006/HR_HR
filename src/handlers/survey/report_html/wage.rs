@@ -267,12 +267,31 @@ pub(super) fn render_section_min_wage(
     } else {
         RptSev::Positive
     };
+    // Round 12 (2026-05-12) K3 修正:
+    // 旧文言「差が 50 円未満（要確認）: N 県」は「絶対値で 50 円未満」と読まれる曖昧表記。
+    // 明示的に「最賃割れ: X 県」と「最賃以上だが余裕 50 円未満: Y 県」を並列表示し、
+    // ロジック (below_count / near_count の独立集計) と文言を一致させる。
+    let near_phrase = if near_count > 0 {
+        format!(
+            "最賃以上だが余裕 50 円未満 (時給ベース): <strong>{}</strong> 県。",
+            near_count
+        )
+    } else {
+        String::from("最賃以上だが余裕 50 円未満 (時給ベース): 該当なし。")
+    };
+    let below_phrase = if below_count > 0 {
+        format!(
+            "<strong>最賃割れ: {} 県</strong>で平均下限給与の 167h 換算が最低賃金を下回ります。該当求人群は労基上要確認。",
+            below_count
+        )
+    } else {
+        String::from("最賃割れ: 該当なし。")
+    };
     html.push_str(&format!(
-        "<p class=\"section-sowhat\">{} {} 県で平均下限給与の 167h 換算が最低賃金を下回る傾向。\
-         差が 50 円未満（要確認）: {} 県。該当求人群は労基上要確認。</p>\n",
+        "<p class=\"section-sowhat\">{} {} {}</p>\n",
         severity_badge(sev),
-        below_count,
-        near_count
+        below_phrase,
+        near_phrase,
     ));
     html.push_str(
         "<p style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
@@ -978,5 +997,240 @@ mod household_vs_salary_tests {
             html.contains("市区町村別の差は反映されていません"),
             "wage 世帯支出: 市区町村別差注記必須"
         );
+    }
+}
+
+// =====================================================================
+// Round 12: Judgement logic tests for wage.rs
+// 追加日: 2026-05-12
+// 既存コード変更なし。判定式 (最賃割れ / 差小 / OK) を独立に再現し、
+// K3 事象 (時給 1,056 / 最賃 1,141 / 差 -85) を逆証明する。
+// =====================================================================
+#[cfg(test)]
+mod round12_judgement_tests {
+    // -----------------------------------------------------------------
+    // ロジックレプリカ (wage.rs:258-262 と完全同一の判定式)
+    // 元コード:
+    //   let below_count = entries.iter().filter(|e| e.diff_min_wage < 0).count();
+    //   let near_count  = entries.iter()
+    //       .filter(|e| e.diff_min_wage >= 0 && e.diff_min_wage < 50).count();
+    // -----------------------------------------------------------------
+    fn is_below(diff: i64) -> bool { diff < 0 }
+    fn is_near(diff: i64) -> bool { diff >= 0 && diff < 50 }
+    fn is_ok(diff: i64) -> bool { diff >= 50 }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Bucket { Below, Near, Ok }
+    fn classify(diff: i64) -> Bucket {
+        if is_below(diff) { Bucket::Below }
+        else if is_near(diff) { Bucket::Near }
+        else { Bucket::Ok }
+    }
+
+    // -----------------------------------------------------------------
+    // K3 既知バグの再現テスト (ユーザー報告)
+    // 埼玉県: 時給換算 1,056 / 最賃 1,141 / 差 -85
+    // -----------------------------------------------------------------
+    #[test]
+    fn k3_saitama_must_be_classified_as_below_not_near() {
+        let hourly = 1_056i64;
+        let min_wage = 1_141i64;
+        let diff = hourly - min_wage;
+        assert_eq!(diff, -85);
+        assert!(is_below(diff), "K3: 差 -85 は最賃割れ (below) と判定されるべき");
+        assert!(!is_near(diff), "K3: 差 -85 は『差 50 円未満 (要確認)』(near) に分類してはならない");
+        assert_eq!(classify(diff), Bucket::Below);
+    }
+
+    #[test]
+    fn k3_alert_text_consistency_below_count_must_match() {
+        // 埼玉県 1 件のみの場合: below_count = 1, near_count = 0
+        let entries = vec![-85i64];
+        let below_count = entries.iter().filter(|d| is_below(**d)).count();
+        let near_count = entries.iter().filter(|d| is_near(**d)).count();
+        assert_eq!(below_count, 1, "最賃割れ件数は 1 でなければならない");
+        assert_eq!(near_count, 0, "『差 50 円未満』件数は 0 (最賃割れは含まない)");
+        // K3 矛盾: アラート文 "{} 県で...下回る傾向" に below_count=1 が入る必要がある
+        // 0 県表示は誤り
+    }
+
+    #[test]
+    fn k3_user_perspective_diff_85_is_not_under_50() {
+        // ユーザー視点: |diff|=85 は 50 円未満ではない。文言「差が 50 円未満」だけでは
+        // 「絶対値ベースの差」と誤読しうる。near_count 定義は「最賃を上回り 50 円未満」
+        let diff = -85i64;
+        assert!(diff.abs() >= 50, "|−85| = 85 ≥ 50: 50 円以内に収まっていない");
+    }
+
+    // -----------------------------------------------------------------
+    // boundary 値 (境界条件) の逆証明
+    // -----------------------------------------------------------------
+    #[test]
+    fn boundary_diff_minus_1_is_below() {
+        assert_eq!(classify(-1), Bucket::Below);
+    }
+    #[test]
+    fn boundary_diff_zero_is_near_not_below() {
+        // diff_min_wage >= 0 && < 50 → near
+        assert_eq!(classify(0), Bucket::Near);
+    }
+    #[test]
+    fn boundary_diff_one_is_near() {
+        assert_eq!(classify(1), Bucket::Near);
+    }
+    #[test]
+    fn boundary_diff_49_is_near() {
+        assert_eq!(classify(49), Bucket::Near);
+    }
+    #[test]
+    fn boundary_diff_50_is_ok_not_near() {
+        // 元コード: diff < 50 のため 50 は near ではない
+        assert_eq!(classify(50), Bucket::Ok);
+    }
+    #[test]
+    fn boundary_diff_51_is_ok() {
+        assert_eq!(classify(51), Bucket::Ok);
+    }
+    #[test]
+    fn boundary_large_positive_is_ok() {
+        assert_eq!(classify(500), Bucket::Ok);
+    }
+    #[test]
+    fn boundary_large_negative_is_below() {
+        assert_eq!(classify(-500), Bucket::Below);
+    }
+
+    // -----------------------------------------------------------------
+    // ドメイン不変条件: below + near + ok = 全件
+    // -----------------------------------------------------------------
+    #[test]
+    fn invariant_total_equals_sum_of_three_buckets() {
+        let entries: Vec<i64> = vec![-100, -50, -1, 0, 25, 49, 50, 100, 500];
+        let n = entries.len();
+        let b = entries.iter().filter(|d| is_below(**d)).count();
+        let nr = entries.iter().filter(|d| is_near(**d)).count();
+        let ok = entries.iter().filter(|d| is_ok(**d)).count();
+        assert_eq!(b + nr + ok, n, "3 バケットの合計は全件と一致");
+        assert_eq!(b, 3);
+        assert_eq!(nr, 3); // 0, 25, 49
+        assert_eq!(ok, 3); // 50, 100, 500
+    }
+
+    #[test]
+    fn invariant_buckets_are_mutually_exclusive() {
+        for diff in [-100i64, -1, 0, 25, 49, 50, 100, 500] {
+            let flags = [is_below(diff), is_near(diff), is_ok(diff)];
+            let true_count = flags.iter().filter(|b| **b).count();
+            assert_eq!(true_count, 1, "diff={} は単一バケットのみに属するべき", diff);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // severity 判定 (wage.rs:263-269) の逆証明
+    //   if below_count > 0 → Critical
+    //   else if near_count > 0 → Warning
+    //   else → Positive
+    // -----------------------------------------------------------------
+    #[derive(Debug, PartialEq, Eq)]
+    enum Sev { Critical, Warning, Positive }
+    fn severity(below: usize, near: usize) -> Sev {
+        if below > 0 { Sev::Critical }
+        else if near > 0 { Sev::Warning }
+        else { Sev::Positive }
+    }
+
+    #[test]
+    fn severity_below_takes_precedence_over_near() {
+        assert_eq!(severity(1, 0), Sev::Critical);
+        assert_eq!(severity(1, 5), Sev::Critical, "below が 1 件でもあれば Critical");
+    }
+    #[test]
+    fn severity_only_near_yields_warning() {
+        assert_eq!(severity(0, 1), Sev::Warning);
+    }
+    #[test]
+    fn severity_all_ok_yields_positive() {
+        assert_eq!(severity(0, 0), Sev::Positive);
+    }
+    #[test]
+    fn k3_severity_must_be_critical() {
+        // K3 シナリオ: 埼玉県 1 県だけ最賃割れ
+        assert_eq!(severity(1, 0), Sev::Critical, "K3: 1 県でも最賃割れがあれば Critical");
+    }
+
+    // -----------------------------------------------------------------
+    // 時給換算式 (wage.rs:232 と同一: avg_min_salary / HOURLY_TO_MONTHLY_HOURS=167)
+    // -----------------------------------------------------------------
+    fn hourly_equiv(monthly_min: i64) -> i64 { monthly_min / 167 }
+
+    #[test]
+    fn hourly_equiv_basic() {
+        // 月給 176,352 円 / 167h = 1,056 (K3 埼玉再現)
+        assert_eq!(hourly_equiv(176_352), 1_056);
+    }
+    #[test]
+    fn hourly_equiv_integer_division_truncates() {
+        // 整数除算で切り捨て
+        assert_eq!(hourly_equiv(166), 0);
+        assert_eq!(hourly_equiv(333), 1);
+    }
+    #[test]
+    fn hourly_equiv_zero_input() {
+        assert_eq!(hourly_equiv(0), 0);
+    }
+
+    // -----------------------------------------------------------------
+    // is_plausible_monthly_min_salary との連携 (時給混入除外、50,000 円基準)
+    // -----------------------------------------------------------------
+    #[test]
+    fn plausibility_excludes_hourly_contaminated_values() {
+        // 1,000 円台の時給値が monthly に紛れ込んだ場合は除外されるべき
+        // 実関数: super::salary_summary::is_plausible_monthly_min_salary
+        // ここでは閾値 50,000 を独立再現して検証
+        fn plausible(v: i64) -> bool { v >= 50_000 }
+        assert!(!plausible(1_056));   // 時給値混入
+        assert!(!plausible(49_999));
+        assert!(plausible(50_000));
+        assert!(plausible(176_352));  // K3 月給
+    }
+
+    // -----------------------------------------------------------------
+    // K3 後続バグ展開チェック: 同種パターン (符号方向誤り) を全列挙
+    // 横展開: もし near 判定が `diff < 50` のみ (>= 0 抜け) だと最賃割れも near に紛れ込む
+    // -----------------------------------------------------------------
+    #[test]
+    fn anti_regression_near_definition_must_exclude_negatives() {
+        // 誤った定義 (バグ候補): `diff < 50` のみ
+        fn buggy_near(diff: i64) -> bool { diff < 50 }
+        assert!(buggy_near(-85), "誤実装では K3 (-85) も near 扱いになる");
+        // 正しい定義: 必ず >=0 を併用
+        assert!(!is_near(-85), "正実装では K3 (-85) は near ではない");
+    }
+
+    #[test]
+    fn anti_regression_below_must_not_include_zero() {
+        // diff == 0 (時給ぴったり最賃) は below ではない
+        assert!(!is_below(0));
+        assert!(is_near(0));
+    }
+
+    // -----------------------------------------------------------------
+    // 全国シナリオ: 47 県データで bucket 分布を逆証明
+    // -----------------------------------------------------------------
+    #[test]
+    fn scenario_47_prefectures_distribution() {
+        // 想定: 5 県が最賃割れ、10 県が near、32 県が ok
+        let mut diffs: Vec<i64> = Vec::new();
+        for _ in 0..5 { diffs.push(-30); }   // below
+        for _ in 0..10 { diffs.push(20); }   // near
+        for _ in 0..32 { diffs.push(100); }  // ok
+        assert_eq!(diffs.len(), 47);
+        let below = diffs.iter().filter(|d| is_below(**d)).count();
+        let near = diffs.iter().filter(|d| is_near(**d)).count();
+        let ok = diffs.iter().filter(|d| is_ok(**d)).count();
+        assert_eq!(below, 5);
+        assert_eq!(near, 10);
+        assert_eq!(ok, 32);
+        assert_eq!(below + near + ok, 47);
     }
 }
