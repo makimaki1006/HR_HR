@@ -1090,11 +1090,16 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
 .heatmap-cell {
   font-size: 8.5pt;
   text-align: center;
-  padding: 4px 2px;
+  padding: 8px 4px;
   border-radius: 3px;
   background: #eef2f7;
   color: #334155;
   border: 1px solid transparent;
+  /* Round 12 (2026-05-12) K12 修正: 縦サイズ指定がなく thumbnail 化していた問題を解消 */
+  min-height: 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .heatmap-cell.h-empty { background: #f8fafc; color: #cbd5e1; }
 .heatmap-cell.h-1 { background: #dbeafe; color: #1e3a8a; }
