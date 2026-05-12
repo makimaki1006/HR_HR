@@ -412,16 +412,18 @@ fn render_pyramid_block(html: &mut String, ctx: &InsightContext) {
             {
                 "name": "男性",
                 "type": "bar",
-                "stack": "total",
                 "data": males,
-                "itemStyle": {"color": "#3b82f6"}
+                "itemStyle": {"color": "#3b82f6"},
+                "barGap": "-100%",
+                "barCategoryGap": "20%"
             },
             {
                 "name": "女性",
                 "type": "bar",
-                "stack": "total",
                 "data": females,
-                "itemStyle": {"color": "#ec4899"}
+                "itemStyle": {"color": "#ec4899"},
+                "barGap": "-100%",
+                "barCategoryGap": "20%"
             }
         ]
     });
