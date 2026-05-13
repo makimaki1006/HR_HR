@@ -2442,6 +2442,9 @@ body.theme-navy .kpi-row {
 }
 body.theme-navy .kpi-row.kpi-row-3 { grid-template-columns: repeat(3, 1fr); }
 body.theme-navy .kpi-row.kpi-row-4 { grid-template-columns: repeat(4, 1fr); }
+body.theme-navy .kpi-row.kpi-row-6 { grid-template-columns: repeat(3, 1fr); }
+body.theme-navy .kpi-row.kpi-row-6 .kpi:nth-child(n+4) { border-top: 1px solid var(--rule); }
+body.theme-navy .kpi-row.kpi-row-6 .kpi:nth-child(3n+1) { border-left: none; }
 body.theme-navy .kpi { padding: 5mm 4mm 4mm; border-left: 1px solid var(--rule); position: relative; }
 body.theme-navy .kpi:first-child { border-left: none; }
 body.theme-navy .kpi-emphasis { background: var(--paper); }
