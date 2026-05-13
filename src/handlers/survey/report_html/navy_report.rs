@@ -447,7 +447,353 @@ fn severity_label(tag: &str) -> &'static str {
 }
 
 // ============================================================
-// Section 02-08 placeholder (Phase 2-4 で本実装に差し替え)
+// Section 03: 給与分布 統計 (Phase 2 で navy 本実装)
+// ============================================================
+
+pub(super) fn render_navy_section_03_salary(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+) {
+    html.push_str("<section class=\"page-navy navy-salary\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 03",
+        "給与分布 統計",
+        "CSV 抽出済み下限・上限給与の分布と代表値",
+    );
+
+    // 統計値計算 (下限 / 上限 それぞれ)
+    let stats_min = compute_distribution_stats(salary_min_values);
+    let stats_max = compute_distribution_stats(salary_max_values);
+
+    let salary_h = salary_summary::SalaryHeadline::from_aggregation(agg);
+    let headline = salary_h.cover_highlight_text();
+    let total = agg.total_count;
+    let parse_pct = (agg.salary_parse_rate * 100.0).round() as i64;
+
+    // -- exec-headline 風: 給与代表値を冒頭で 1 行に集約
+    let lede = format!(
+        "サンプル <strong>n={}</strong> / 給与解析率 <strong>{}%</strong>。\
+         代表値: <strong>{} {}{}</strong>。本ページでは下限・上限給与それぞれの分布を確認します。",
+        format_number(total as i64),
+        parse_pct,
+        escape_html(&headline.label),
+        escape_html(&headline.value_text),
+        escape_html(&headline.unit),
+    );
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>{}</p>\
+         </div>\n",
+        lede
+    ));
+
+    // -- KPI row 5 cell: P25 / 中央値 / 平均 / P75 / P90 (下限給与)
+    if let Some(s) = stats_min.as_ref() {
+        html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点 (月給換算 / 万円)</div>\n");
+        html.push_str("<div class=\"kpi-row\">\n");
+        push_kpi(html, "P25", &format_mm(s.p25), "万円", "neu", "下位 25% 水準", false);
+        push_kpi(html, "中央値 P50", &format_mm(s.median), "万円", "neu", "サンプル中央値", true);
+        push_kpi(html, "平均", &format_mm(s.mean), "万円", "neu", "外れ値の影響を含む", false);
+        push_kpi(html, "P75", &format_mm(s.p75), "万円", "neu", "P75 ライン (P50 より上)", false);
+        push_kpi(html, "P90", &format_mm(s.p90), "万円", "neu", "高給与帯", false);
+        html.push_str("</div>\n");
+
+        // -- histogram (10,000円刻み, 月給万単位)
+        html.push_str("<div class=\"block-title block-title-spaced\">図 3-2 &nbsp;下限給与 分布 (10,000円刻み)</div>\n");
+        html.push_str(&build_navy_histogram_svg(salary_min_values, s));
+        html.push_str("<p class=\"caption\">縦線: 緑=中央値 / 金=平均 / 灰=最頻 bin</p>\n");
+    } else {
+        html.push_str("<p class=\"caption\">下限給与の有効値が不足しています (n=0 or 全 unparsed)。</p>\n");
+    }
+
+    // -- 上限給与
+    if let Some(s) = stats_max.as_ref() {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 3-3 &nbsp;上限給与 主要分位点 (月給換算 / 万円)</div>\n");
+        html.push_str("<div class=\"kpi-row\">\n");
+        push_kpi(html, "P25", &format_mm(s.p25), "万円", "neu", "下位 25% 水準", false);
+        push_kpi(html, "中央値 P50", &format_mm(s.median), "万円", "neu", "サンプル中央値", true);
+        push_kpi(html, "平均", &format_mm(s.mean), "万円", "neu", "外れ値の影響を含む", false);
+        push_kpi(html, "P75", &format_mm(s.p75), "万円", "neu", "P75 ライン (P50 より上)", false);
+        push_kpi(html, "P90", &format_mm(s.p90), "万円", "neu", "高給与帯", false);
+        html.push_str("</div>\n");
+
+        html.push_str("<div class=\"block-title block-title-spaced\">図 3-4 &nbsp;上限給与 分布 (10,000円刻み)</div>\n");
+        html.push_str(&build_navy_histogram_svg(salary_max_values, s));
+        html.push_str("<p class=\"caption\">縦線: 緑=中央値 / 金=平均 / 灰=最頻 bin</p>\n");
+    } else {
+        html.push_str("<p class=\"caption\">上限給与の有効値が不足しています。</p>\n");
+    }
+
+    // -- 集計サマリ table-navy
+    html.push_str("<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ (月給換算 / 万円)</div>\n");
+    html.push_str(&build_navy_salary_summary_table(&stats_min, &stats_max));
+
+    // -- So What
+    let so_what = match (stats_min.as_ref(), stats_max.as_ref()) {
+        (Some(lo), Some(hi)) => {
+            let spread = hi.median - lo.median;
+            let spread_label = format!("{:.1}万円", spread as f64 / 10000.0);
+            format!(
+                "下限給与 中央値 <strong>{}万円</strong> / 上限給与 中央値 <strong>{}万円</strong>、レンジ <strong>{}</strong>。\
+                 給与レンジが <strong>5 万円未満</strong> なら「定額求人」、<strong>10 万円以上</strong> なら「歩合・等級制」の特徴が見えます。\
+                 競合の中央値と比較し、訴求軸を <strong>下限保証</strong> / <strong>上限到達</strong> / <strong>レンジ幅</strong> のいずれに置くか検討してください。",
+                format_mm(lo.median),
+                format_mm(hi.median),
+                spread_label,
+            )
+        }
+        _ => "給与統計値が不足しています。CSV の給与カラム表記揺れを点検してください。".to_string(),
+    };
+    html.push_str(&format!(
+        "<div class=\"so-what\" style=\"margin-top:6mm;\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">{}</div>\
+         </div>\n",
+        so_what
+    ));
+
+    html.push_str("</section>\n");
+}
+
+// 分布統計 (月給換算済の i64 円 を入力。万円単位での出力用)
+struct DistStats {
+    n: usize,
+    p25: i64,
+    median: i64,
+    p75: i64,
+    p90: i64,
+    mean: i64,
+    min: i64,
+    max: i64,
+    mode_bin_yen: i64, // 10000 円刻み bin の代表値
+    bins: Vec<usize>,  // ヒストグラム頻度
+    bin_step: i64,     // bin 幅 (円)
+    bin_start: i64,    // bin 0 の下端 (円)
+}
+
+fn compute_distribution_stats(values: &[i64]) -> Option<DistStats> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut v: Vec<i64> = values.iter().copied().filter(|x| *x > 0).collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_unstable();
+    let n = v.len();
+    let pct = |p: f64| -> i64 {
+        let idx = ((n as f64 - 1.0) * p).round() as usize;
+        v[idx.min(n - 1)]
+    };
+    let p25 = pct(0.25);
+    let median = pct(0.5);
+    let p75 = pct(0.75);
+    let p90 = pct(0.90);
+    let min = v[0];
+    let max = v[n - 1];
+    let sum: i64 = v.iter().sum();
+    let mean = sum / n as i64;
+
+    // ヒストグラム: 10,000 円刻みで P95 まで (それ以上は overflow バケット)
+    let bin_step: i64 = 10_000;
+    let bin_start: i64 = (min / bin_step) * bin_step;
+    let p95 = pct(0.95);
+    let upper = (p95 / bin_step + 1) * bin_step;
+    let n_bins = (((upper - bin_start) / bin_step).max(1) as usize) + 1; // 最後はoverflow
+    let mut bins = vec![0usize; n_bins];
+    for &x in &v {
+        let idx = ((x - bin_start) / bin_step) as i64;
+        let idx_u = idx.clamp(0, (n_bins - 1) as i64) as usize;
+        bins[idx_u] += 1;
+    }
+    // mode = 最頻 bin
+    let (mode_idx, _) = bins
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, c)| **c)
+        .unwrap_or((0, &0));
+    let mode_bin_yen = bin_start + mode_idx as i64 * bin_step + bin_step / 2;
+
+    Some(DistStats {
+        n,
+        p25,
+        median,
+        p75,
+        p90,
+        mean,
+        min,
+        max,
+        mode_bin_yen,
+        bins,
+        bin_step,
+        bin_start,
+    })
+}
+
+fn format_mm(yen: i64) -> String {
+    format!("{:.1}", yen as f64 / 10000.0)
+}
+
+// navy ヒストグラム SVG (固定 720×280 / 罫線 var(--rule) / バー var(--ink-soft))
+fn build_navy_histogram_svg(_values: &[i64], s: &DistStats) -> String {
+    let w: f64 = 720.0;
+    let h: f64 = 280.0;
+    let pad_l = 56.0;
+    let pad_r = 16.0;
+    let pad_t = 16.0;
+    let pad_b = 44.0;
+    let inner_w = w - pad_l - pad_r;
+    let inner_h = h - pad_t - pad_b;
+    let n_bins = s.bins.len();
+    let max_count = *s.bins.iter().max().unwrap_or(&1).max(&1) as f64;
+    let bw = inner_w / n_bins as f64;
+
+    let mut svg = String::new();
+    svg.push_str(&format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"給与ヒストグラム\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    ));
+    // y 軸グリッド + ラベル (5 段)
+    for i in 0..=5 {
+        let y = pad_t + inner_h * i as f64 / 5.0;
+        let count = (max_count * (5 - i) as f64 / 5.0).round() as i64;
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n",
+            pad_l,
+            y,
+            w - pad_r,
+            y
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">{}</text>\n",
+            pad_l - 6.0,
+            y + 3.0,
+            count
+        ));
+    }
+    // bars
+    for (i, c) in s.bins.iter().enumerate() {
+        let bh = (*c as f64 / max_count) * inner_h;
+        let bx = pad_l + i as f64 * bw;
+        let by = pad_t + inner_h - bh;
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"#1F2D4D\"/>\n",
+            bx + 0.5,
+            by,
+            (bw - 1.0).max(1.0),
+            bh
+        ));
+    }
+    // x 軸ラベル: bin の代表値 (10,000 円 ⇒ 万円表記、~6 ラベル)
+    let label_step = (n_bins / 6).max(1);
+    for (i, _c) in s.bins.iter().enumerate() {
+        if i % label_step == 0 || i == n_bins - 1 {
+            let cx = pad_l + (i as f64 + 0.5) * bw;
+            let yen = s.bin_start + i as i64 * s.bin_step;
+            let label = if i == n_bins - 1 && n_bins > 1 {
+                format!("{}+", yen as f64 / 10000.0)
+            } else {
+                format!("{}", yen as f64 / 10000.0)
+            };
+            svg.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+                cx,
+                h - pad_b + 14.0,
+                label
+            ));
+        }
+    }
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">月給 (万円)</text>\n",
+        w / 2.0,
+        h - 6.0
+    ));
+    // 中央値 (緑), 平均 (gold), 最頻 (灰) 縦線
+    let x_of = |yen: i64| -> f64 {
+        let bin_idx = ((yen - s.bin_start) as f64 / s.bin_step as f64).max(0.0);
+        pad_l + (bin_idx + 0.5) * bw
+    };
+    let lines = [
+        (x_of(s.median), "#1F6B43", "P50"),
+        (x_of(s.mean), "#C9A24B", "平均"),
+        (x_of(s.mode_bin_yen), "#9CA0AB", "最頻"),
+    ];
+    for (x, color, lbl) in lines {
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"1.5\" stroke-dasharray=\"3 2\"/>\n",
+            x, pad_t, x, pad_t + inner_h, color
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"{}\" text-anchor=\"middle\" font-weight=\"700\">{}</text>\n",
+            x, pad_t - 4.0, color, lbl
+        ));
+    }
+    svg.push_str("</svg>\n");
+    svg
+}
+
+// navy 集計テーブル (下限 / 上限 × n/P25/P50/平均/P75/P90/min/max)
+fn build_navy_salary_summary_table(
+    lo: &Option<DistStats>,
+    hi: &Option<DistStats>,
+) -> String {
+    let mut s = String::new();
+    s.push_str("<table class=\"table-navy\">\n");
+    s.push_str("<thead><tr>\
+                <th>区分</th><th class=\"num\">n</th>\
+                <th class=\"num\">最小</th>\
+                <th class=\"num\">P25</th>\
+                <th class=\"num\">中央値</th>\
+                <th class=\"num\">平均</th>\
+                <th class=\"num\">P75</th>\
+                <th class=\"num\">P90</th>\
+                <th class=\"num\">最大</th>\
+                </tr></thead>\n<tbody>\n");
+    let row = |label: &str, st: &Option<DistStats>| -> String {
+        match st {
+            Some(s) => format!(
+                "<tr><td><strong>{}</strong></td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">{}</td>\
+                 </tr>\n",
+                label,
+                format_number(s.n as i64),
+                format_mm(s.min),
+                format_mm(s.p25),
+                format_mm(s.median),
+                format_mm(s.mean),
+                format_mm(s.p75),
+                format_mm(s.p90),
+                format_mm(s.max)
+            ),
+            None => format!(
+                "<tr><td><strong>{}</strong></td><td colspan=\"8\" class=\"dim\">—</td></tr>\n",
+                label
+            ),
+        }
+    };
+    s.push_str(&row("下限給与", lo));
+    s.push_str(&row("上限給与", hi));
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">単位: 万円 (月給換算)。年俸は除外。時給×167 / 日給×21 で月給換算済み。</p>\n");
+    s
+}
+
+// ============================================================
+// Section 02 / 04-08 placeholder (Phase 2-4 で本実装に差し替え)
 // ============================================================
 
 pub(super) fn render_navy_section_placeholders(
@@ -463,7 +809,6 @@ pub(super) fn render_navy_section_placeholders(
     };
     let sections = [
         ("SECTION 02", section_02, "地域別の求人補強指標を取り扱う章。Phase 2 で実装予定。"),
-        ("SECTION 03", "給与分布 統計", "Jenks 自然分割クラスタ + 給与水準ピラミッドを取り扱う章。Phase 2 で実装予定。"),
         ("SECTION 04", "採用市場 逼迫度", "有効求人倍率 / 欠員補充率 / 失業率 を統合した複合指標を取り扱う章。Phase 3 で実装予定。"),
         ("SECTION 05", "地域企業構造", "産業構成 / 法人セグメント / 規模帯ベンチマーク。Phase 3 で実装予定。"),
         ("SECTION 06", "人材デモグラフィック", "人口ピラミッド / 労働力 / 学校教育施設密度。Phase 3 で実装予定。"),

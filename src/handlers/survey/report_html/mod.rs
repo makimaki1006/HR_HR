@@ -610,12 +610,13 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // Round 24 Push 3: 旧 cover / executive_summary 呼び出しは下記コメントブロック内で
     // 削除。テストが旧マーカー (dv2-cover / dv2-section-badge / exec-kpi-grid-v2 等)
     // を要求する場合は別 commit で更新する。
-    // Round 24 Push 3 (2026-05-13): Section 02-08 は navy_report が placeholder を
-    // 出力する。Phase 2-4 で順次本実装に差し替え。
+    // Round 24 Push 3 Phase 2 (2026-05-13): Section 03 (給与統計) は navy 本実装。
+    // Section 02 / 04-08 は placeholder のまま、Phase 3-4 で順次差し替え。
+    navy_report::render_navy_section_03_salary(&mut html, agg, salary_min_values, salary_max_values);
     navy_report::render_navy_section_placeholders(&mut html, hw_context, variant, &now);
     let _ = (
-        by_company, salary_min_values, salary_max_values, salesnow_companies,
-        hw_enrichment_map, municipality_demographics, salesnow_segments, db, turso,
+        by_company, salesnow_companies, hw_enrichment_map,
+        municipality_demographics, salesnow_segments, db, turso,
     );
 
     // --- 画面下部フッター（印刷時は @page footer を使用） ---
