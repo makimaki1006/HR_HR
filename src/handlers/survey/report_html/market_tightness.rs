@@ -595,7 +595,7 @@ fn render_data_sources_collapsible(html: &mut String) {
          <li><strong>業界別</strong>に集計: 離職率 (ext_turnover、業界指定時のみ業界値を表示)</li>\
          <li><strong>業界を問わない地域全体値</strong>: 有効求人倍率 / 失業率 / HW 欠員補充率 / 開廃業動態</li>\
          </ul>\
-         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) や産業ミスマッチ section を参照ください。</span>\
+         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) を参照ください。</span>\
          </div>\n",
     );
 }
@@ -1839,7 +1839,7 @@ fn render_data_sources_collapsible_public(html: &mut String) {
          <li><strong>業界別</strong>に集計: 離職率 (ext_turnover、業界指定時のみ業界値を表示)</li>\
          <li><strong>業界を問わない地域全体値</strong>: 公的雇用需給指標 / 失業率 / 開廃業動態</li>\
          </ul>\
-         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) や産業ミスマッチ section を参照ください。</span>\
+         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界フィルタを指定しても、上記「地域全体値」の指標は地域全体の集計値のままです。業界別の比較が必要な場合は離職率 (ext_turnover) を参照ください。</span>\
          </div>\n",
     );
 }
