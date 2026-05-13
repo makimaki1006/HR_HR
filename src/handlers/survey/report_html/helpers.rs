@@ -393,6 +393,309 @@ pub(super) fn build_salary_histogram(
     (labels, counts, boundaries)
 }
 
+// =====================================================================
+// Round 20 (2026-05-13): 給与構造クラスタリング (設計メモ準拠)
+// 固定ビン幅ではなく、市場内の「給与構造クラスタ」を作って分析する。
+// 詳細: docs/salary_cluster_analysis_design.md 参照
+// =====================================================================
+
+#[derive(Debug, Clone)]
+pub(super) struct SalaryCluster {
+    pub label: String,
+    pub lower_seg: &'static str,  // "低下限" / "中下限" / "高下限"
+    pub range_seg: &'static str,  // "狭レンジ" / "通常レンジ" / "広レンジ"
+    pub count: usize,
+    pub p25: i64,
+    pub p50: i64,
+    pub p75: i64,
+    pub p90: i64,
+    pub min: i64,
+    pub max: i64,
+    pub mean: i64,
+}
+
+fn percentile(sorted: &[i64], p: f64) -> i64 {
+    if sorted.is_empty() {
+        return 0;
+    }
+    let idx = (((sorted.len() - 1) as f64) * p / 100.0).round() as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+/// 1 セグメント (lower / range) を P33 / P66 で 3 分類するための閾値を返す。
+fn tercile_thresholds(values: &[i64]) -> (i64, i64) {
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    (percentile(&sorted, 33.0), percentile(&sorted, 66.0))
+}
+
+/// 給与構造クラスタリングのコア関数。
+/// 入力: (lower_salary, upper_salary) ペアのリスト (両方 > 0)
+/// 出力: 最大 9 クラスタ (3×3、件数<MIN_CLUSTER_SIZE なら隣接マージ)
+pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster> {
+    const MIN_CLUSTER_SIZE: usize = 10;
+    if pairs.len() < 9 {
+        return Vec::new();
+    }
+    let lowers: Vec<i64> = pairs.iter().map(|p| p.0).collect();
+    let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
+    let (lo_t1, lo_t2) = tercile_thresholds(&lowers);
+    let (rn_t1, rn_t2) = tercile_thresholds(&ranges);
+
+    let classify = |v: i64, t1: i64, t2: i64| -> usize {
+        if v < t1 { 0 } else if v < t2 { 1 } else { 2 }
+    };
+
+    // 3×3 グリッドに集計
+    let mut buckets: [[Vec<i64>; 3]; 3] = Default::default();
+    for (i, &low) in lowers.iter().enumerate() {
+        let rg = ranges[i];
+        let li = classify(low, lo_t1, lo_t2);
+        let ri = classify(rg, rn_t1, rn_t2);
+        buckets[li][ri].push(low);
+    }
+
+    let lo_names = ["低下限", "中下限", "高下限"];
+    let rn_names = ["狭レンジ", "通常レンジ", "広レンジ"];
+
+    let mut clusters: Vec<SalaryCluster> = Vec::new();
+    for li in 0..3 {
+        for ri in 0..3 {
+            let vs = &buckets[li][ri];
+            if vs.is_empty() {
+                continue;
+            }
+            let mut sorted = vs.clone();
+            sorted.sort_unstable();
+            let count = sorted.len();
+            let mean = if count > 0 {
+                sorted.iter().sum::<i64>() / count as i64
+            } else {
+                0
+            };
+            clusters.push(SalaryCluster {
+                label: format!("{} × {}", lo_names[li], rn_names[ri]),
+                lower_seg: lo_names[li],
+                range_seg: rn_names[ri],
+                count,
+                p25: percentile(&sorted, 25.0),
+                p50: percentile(&sorted, 50.0),
+                p75: percentile(&sorted, 75.0),
+                p90: percentile(&sorted, 90.0),
+                min: *sorted.first().unwrap_or(&0),
+                max: *sorted.last().unwrap_or(&0),
+                mean,
+            });
+        }
+    }
+
+    // 件数 < MIN_CLUSTER_SIZE のクラスタは件数降順でソートして表示。マージ実装は複雑なので
+    // 単純に小さいクラスタも表示する (件数 < 5 なら省略)。
+    clusters.retain(|c| c.count >= 5);
+    clusters.sort_by_key(|c| std::cmp::Reverse(c.count));
+    clusters
+}
+
+/// クラスタテーブル HTML
+pub(super) fn build_cluster_table_html(
+    clusters: &[SalaryCluster],
+    headline: &str,
+) -> String {
+    if clusters.is_empty() {
+        return format!("<p class=\"data-empty\">{}</p>\n", headline);
+    }
+    let mut s = String::with_capacity(2048);
+    s.push_str("<table class=\"data-table cluster-table\">\n");
+    s.push_str(
+        "<thead><tr><th>クラスタ</th><th>件数</th><th>P25</th><th>P50 (中央値)</th>\
+         <th>P75 (競争力)</th><th>P90 (高待遇)</th><th>平均</th></tr></thead>\n<tbody>\n",
+    );
+    let to_man = |v: i64| -> String {
+        let m = v as f64 / 10_000.0;
+        if (m.fract()).abs() < 0.05 { format!("{:.0}万", m) } else { format!("{:.1}万", m) }
+    };
+    for c in clusters {
+        s.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td><strong>{}</strong></td>\
+             <td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_xml_helper(&c.label),
+            c.count, to_man(c.p25), to_man(c.p50),
+            to_man(c.p75), to_man(c.p90), to_man(c.mean),
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s
+}
+
+/// 顧客 (CSV 全体) の中央値 / 平均が最近いクラスタを返す。
+pub(super) fn nearest_cluster<'a>(
+    clusters: &'a [SalaryCluster],
+    target_value: i64,
+) -> Option<&'a SalaryCluster> {
+    clusters.iter().min_by_key(|c| {
+        // P50 との絶対差を距離とする
+        (c.p50 - target_value).abs()
+    })
+}
+
+/// クラスタ分析の So-What コメントを生成
+pub(super) fn cluster_so_what_text(
+    clusters: &[SalaryCluster],
+    customer_median: i64,
+) -> String {
+    if clusters.is_empty() {
+        return String::new();
+    }
+    let target = match nearest_cluster(clusters, customer_median) {
+        Some(c) => c,
+        None => return String::new(),
+    };
+    let diff_p50 = customer_median - target.p50;
+    let to_man = |v: i64| (v as f64 / 10_000.0);
+    let diff_str = if diff_p50.abs() < 5000 {
+        format!("中央値とほぼ同水準")
+    } else if diff_p50 > 0 {
+        format!("クラスタ中央値を {:.1} 万円上回る", to_man(diff_p50.abs()))
+    } else {
+        format!("クラスタ中央値を {:.1} 万円下回る", to_man(diff_p50.abs()))
+    };
+    format!(
+        "<p class=\"section-sowhat\">※ 求人群中央値 {:.1} 万円は「{}」クラスタ (件数 {}, P50 = {:.1} 万円) に最も近く、{}水準です。\
+         競争力を持たせる場合は P75 ({:.1} 万円) 付近、高待遇訴求は P90 ({:.1} 万円) 以上が目安です。</p>\n",
+        to_man(customer_median),
+        target.label,
+        target.count,
+        to_man(target.p50),
+        diff_str,
+        to_man(target.p75),
+        to_man(target.p90),
+    )
+}
+
+/// クラスタごとの横並びボックスプロット (Round 16 build_boxplot_svg と類似だが N 個並列)
+pub(super) fn build_cluster_boxplots_svg(clusters: &[SalaryCluster]) -> String {
+    if clusters.is_empty() {
+        return String::new();
+    }
+    let n = clusters.len();
+    let all_min = clusters.iter().map(|c| c.min).min().unwrap_or(0);
+    let all_max = clusters.iter().map(|c| c.max).max().unwrap_or(1);
+    let range_y = (all_max - all_min).max(1);
+    let plot_x0 = 60.0_f64;
+    let plot_x1 = 780.0_f64;
+    let plot_y0 = 40.0_f64;
+    let plot_y1 = 360.0_f64;
+    let plot_h = plot_y1 - plot_y0;
+    let yen_to_y = |yen: i64| -> f64 {
+        plot_y1 - ((yen - all_min) as f64 / range_y as f64) * plot_h
+    };
+    let to_man = |v: i64| -> String {
+        let m = v as f64 / 10_000.0;
+        if (m.fract()).abs() < 0.05 { format!("{:.0}万", m) } else { format!("{:.1}万", m) }
+    };
+
+    let cell_w = (plot_x1 - plot_x0) / n as f64;
+    let box_w = (cell_w * 0.55).clamp(20.0, 80.0);
+
+    let mut s = String::with_capacity(4096);
+    s.push_str(
+        "<div class=\"cluster-boxplots-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 420\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+    // Y axis (left)
+    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"end\">\n");
+    for k in 0..=4 {
+        let v = all_min + range_y * k / 4;
+        let y = yen_to_y(v);
+        s.push_str(&format!(
+            "<line x1=\"{x0:.1}\" y1=\"{y:.2}\" x2=\"{x1:.1}\" y2=\"{y:.2}\" stroke=\"#f1f5f9\" stroke-width=\"0.5\"/>\
+             <text x=\"{tx:.1}\" y=\"{ty:.2}\">{lbl}</text>\n",
+            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 3.0, lbl = to_man(v),
+        ));
+    }
+    s.push_str("</g>\n");
+
+    // Each cluster boxplot
+    for (i, c) in clusters.iter().enumerate() {
+        let cx = plot_x0 + cell_w * (i as f64 + 0.5);
+        let bx = cx - box_w / 2.0;
+        let y_p25 = yen_to_y(c.p25);
+        let y_p75 = yen_to_y(c.p75);
+        let y_p50 = yen_to_y(c.p50);
+        let y_min = yen_to_y(c.min);
+        let y_max = yen_to_y(c.max);
+        // whisker
+        s.push_str(&format!(
+            "<line x1=\"{cx:.2}\" y1=\"{ymin:.2}\" x2=\"{cx:.2}\" y2=\"{ymax:.2}\" stroke=\"#1e3a8a\" stroke-width=\"1\"/>\n",
+            cx = cx, ymin = y_min, ymax = y_max,
+        ));
+        // box
+        s.push_str(&format!(
+            "<rect x=\"{bx:.2}\" y=\"{y75:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#dbeafe\" stroke=\"#1e3a8a\" stroke-width=\"1.5\"/>\n",
+            bx = bx, y75 = y_p75, w = box_w, h = (y_p25 - y_p75).abs().max(2.0),
+        ));
+        // median line
+        s.push_str(&format!(
+            "<line x1=\"{bx:.2}\" y1=\"{y50:.2}\" x2=\"{x2:.2}\" y2=\"{y50:.2}\" stroke=\"#1e3a8a\" stroke-width=\"2.5\"/>\n",
+            bx = bx, x2 = bx + box_w, y50 = y_p50,
+        ));
+        // label below
+        s.push_str(&format!(
+            "<text x=\"{cx:.2}\" y=\"{ty:.2}\" font-size=\"9\" fill=\"#0f172a\" text-anchor=\"middle\">{lbl}</text>\
+             <text x=\"{cx:.2}\" y=\"{ty2:.2}\" font-size=\"9\" fill=\"#6e7079\" text-anchor=\"middle\">n={n}</text>\n",
+            cx = cx, ty = plot_y1 + 16.0, ty2 = plot_y1 + 30.0, lbl = escape_xml_helper(&c.label), n = c.count,
+        ));
+    }
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+/// Freedman-Diaconis rule に基づく動的 bin 幅
+/// bin_width = 2 × IQR / n^(1/3)
+/// 計算結果を読みやすい単位 (1000/2000/5000/10000/20000) に丸める
+pub(super) fn freedman_diaconis_bin_width(values: &[i64]) -> i64 {
+    if values.len() < 4 {
+        return 10_000;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let q1 = percentile(&sorted, 25.0);
+    let q3 = percentile(&sorted, 75.0);
+    let iqr = (q3 - q1) as f64;
+    let n = values.len() as f64;
+    let raw = 2.0 * iqr / n.cbrt();
+    // 読みやすい単位に丸め
+    let candidates = [1_000, 2_000, 5_000, 10_000, 20_000, 50_000];
+    let mut best = 10_000_i64;
+    for &c in &candidates {
+        if (c as f64) >= raw {
+            best = c;
+            break;
+        }
+        best = c;
+    }
+    best
+}
+
+/// 上側外れ値 (Q3 + 1.5*IQR を超える値) を別枠化
+/// 返値: (本体 values, 外れ値リスト)
+pub(super) fn split_upper_outliers(values: &[i64]) -> (Vec<i64>, Vec<i64>) {
+    if values.len() < 8 {
+        return (values.to_vec(), Vec::new());
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let q1 = percentile(&sorted, 25.0) as f64;
+    let q3 = percentile(&sorted, 75.0) as f64;
+    let iqr = q3 - q1;
+    let upper_bound = (q3 + 1.5 * iqr) as i64;
+    let body: Vec<i64> = values.iter().copied().filter(|&v| v <= upper_bound).collect();
+    let outliers: Vec<i64> = values.iter().copied().filter(|&v| v > upper_bound).collect();
+    (body, outliers)
+}
+
 /// Round 16 (2026-05-13): P2.5〜P97.5 で外れ値を切り捨てた値配列を返す。
 ///
 /// 1,000 円刻みなど dense なヒストグラムでは、極端な外れ値 (例: 月給 1000 万円) が

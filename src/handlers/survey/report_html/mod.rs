@@ -2292,22 +2292,22 @@ mod ui2_contract_tests {
     #[test]
     fn ui2_salary_stats_has_histogram_figure_numbers() {
         let html = render_ui2();
+        // Round 20: ヒストグラム 4 chart 廃止 → 下限/上限 概観 2 chart + クラスタ分析章
         assert!(
-            html.contains("図 3-2") && html.contains("図 3-3"),
-            "下限給与ヒストグラム 図 3-2/3-3 のキャプションが必須"
-        );
-        // Round 16: bin_size を 20,000 → 1,000 / 10,000 に変更
-        assert!(
-            html.contains("図 3-4") && html.contains("上限月給ヒストグラム"),
-            "上限給与ヒストグラム 図 3-4 が必須"
+            html.contains("図 3-2"),
+            "下限給与 概観ヒストグラム 図 3-2 必須"
         );
         assert!(
-            html.matches("salary-chart-block").count() >= 4,
-            "各給与ヒストグラムは見出し・caption・chart をまとめる salary-chart-block で改ページ分断を防ぐ"
+            html.contains("図 3-3") && html.contains("上限月給ヒストグラム"),
+            "上限給与 概観ヒストグラム 図 3-3 必須"
+        );
+        assert!(
+            html.matches("salary-chart-block").count() >= 2,
+            "salary-chart-block 改ページ分断防止"
         );
         assert!(
             html.contains("salary-chart-page-start"),
-            "図 3-4 は前段 2 chart + 読み方ヒント後に来るため、明示改ページで分断を防ぐ"
+            "上限給与 chart は改ページで分断を防ぐ"
         );
     }
 
