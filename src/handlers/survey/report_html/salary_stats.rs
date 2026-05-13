@@ -204,78 +204,110 @@ pub(super) fn render_section_salary_stats(
         ));
     }
 
-    // Round 16 (2026-05-13): ECharts → SSR SVG に置換。
-    // bin_size を 5,000/20,000 円から **1,000 円 (dense) + 10,000 円** の 2 種類に変更。
-    // chart 高さも 220 → SVG viewBox 380 で markLine label box が bar 上部に確実表示される設計。
+    // Round 20 (2026-05-13): 給与クラスタ分析 (docs/salary_cluster_analysis_design.md 準拠)
+    // - 固定ビン幅ヒストグラム廃止 → 概観 1 chart (下限/上限 統合 10,000 円刻み) のみ残す
+    // - 給与構造クラスタテーブル (3×3 = 最大 9 クラスタ、件数<5 は省略)
+    // - クラスタ別 box plot 並列表示
+    // - 顧客 (CSV 全体) 中央値の最近傍クラスタ判定 + So-What
+    // - 上位 3 クラスタの動的ヒストグラム (Freedman-Diaconis rule)
+    // - 上側外れ値求人 / 上限なし求人 別表
+
+    // (1) 概観ヒストグラム: 下限 + 上限を 10,000 円刻みで 2 chart のみ
     if !salary_min_values.is_empty() {
         let min_mean = distribution_mean(salary_min_values);
         let min_median = distribution_median(salary_min_values);
-
-        // 図 3-2: 下限 給与 詳細 (1,000 円刻み・dense)
-        // dense は外れ値で X 軸が引き伸ばされて bar が点になるため P2.5-P97.5 で trim
-        let min_trimmed = trim_outliers_p2_5_p97_5(salary_min_values);
         html.push_str("<div class=\"salary-chart-block\">\n");
-        html.push_str("<h3>下限給与の分布（2,000円刻み・詳細・外れ値除外）</h3>\n");
-        render_figure_caption(
-            html,
-            "図 3-2",
-            "下限月給ヒストグラム（2,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
-        );
-        let mode_min_1k = compute_mode(&min_trimmed, 2_000);
-        html.push_str(&build_histogram_svg(
-            &min_trimmed, 2_000, "#42A5F5", min_median, min_mean, mode_min_1k,
-        ));
-        html.push_str("</div>\n");
-
-        // 図 3-3: 下限 給与 概観 (10,000 円刻み) — Round 19: 改ページで 1 chart 1 page
-        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>下限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
-            html,
-            "図 3-3",
+            html, "図 3-2",
             "下限月給ヒストグラム（10,000円刻み・縦線=平均/中央値/最頻値）",
         );
-        let mode_min_10k = compute_mode(salary_min_values, 10_000);
+        let mode_min = compute_mode(salary_min_values, 10_000);
         html.push_str(&build_histogram_svg(
-            salary_min_values, 10_000, "#42A5F5", min_median, min_mean, mode_min_10k,
+            salary_min_values, 10_000, "#42A5F5", min_median, min_mean, mode_min,
         ));
         html.push_str("</div>\n");
-        // Round 19: 補足テキスト削減 (ユーザー指摘「補足テキストが沢山あって分からない」)
     }
-
-    // 上限給与: 同様に 1,000 円刻み + 10,000 円刻み
     if !salary_max_values.is_empty() {
         let max_mean = distribution_mean(salary_max_values);
         let max_median = distribution_median(salary_max_values);
-
-        // 図 3-4: 上限 詳細 (1,000 円刻み・外れ値除外)
-        let max_trimmed = trim_outliers_p2_5_p97_5(salary_max_values);
-        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
-        html.push_str("<h3>上限給与の分布（2,000円刻み・詳細・外れ値除外）</h3>\n");
-        render_figure_caption(
-            html,
-            "図 3-4",
-            "上限月給ヒストグラム（2,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
-        );
-        let mode_max_1k = compute_mode(&max_trimmed, 2_000);
-        html.push_str(&build_histogram_svg(
-            &max_trimmed, 2_000, "#66BB6A", max_median, max_mean, mode_max_1k,
-        ));
-        html.push_str("</div>\n");
-
-        // 図 3-5: 上限 概観 (10,000 円刻み) — Round 19: 改ページで 1 chart 1 page
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>上限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
-            html,
-            "図 3-5",
+            html, "図 3-3",
             "上限月給ヒストグラム（10,000円刻み・縦線=平均/中央値/最頻値）",
         );
-        let mode_max_10k = compute_mode(salary_max_values, 10_000);
+        let mode_max = compute_mode(salary_max_values, 10_000);
         html.push_str(&build_histogram_svg(
-            salary_max_values, 10_000, "#66BB6A", max_median, max_mean, mode_max_10k,
+            salary_max_values, 10_000, "#66BB6A", max_median, max_mean, mode_max,
         ));
         html.push_str("</div>\n");
+    }
+
+    // (2) 給与構造クラスタ分析 (上限あり求人のペアから 3×3 クラスタを生成)
+    let pairs: Vec<(i64, i64)> = agg
+        .scatter_min_max
+        .iter()
+        .filter(|p| p.x > 0 && p.y >= p.x)
+        .map(|p| (p.x, p.y))
+        .collect();
+    let clusters = compute_salary_clusters(&pairs);
+
+    if !clusters.is_empty() {
+        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
+        html.push_str("<h3>給与構造クラスタ分析 (下限給与 × レンジ幅)</h3>\n");
+        render_figure_caption(
+            html, "表 3-A",
+            "給与構造クラスタ別 件数 / P25 / P50 (中央値) / P75 / P90",
+        );
+        html.push_str(&build_cluster_table_html(
+            &clusters,
+            "クラスタ生成に必要な (下限, 上限) ペアが不足しています",
+        ));
+
+        // So-What コメント (求人群全体の中央値が最近いクラスタを判定)
+        if let Some(min_median) = distribution_median(salary_min_values) {
+            html.push_str(&cluster_so_what_text(&clusters, min_median));
+        }
+
+        // クラスタ boxplot 並列
+        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
+        render_figure_caption(
+            html, "図 3-A",
+            "給与構造クラスタ別 ボックスプロット (各クラスタの下限給与分布)",
+        );
+        html.push_str(&build_cluster_boxplots_svg(&clusters));
+        html.push_str("</div>\n");
+
+        html.push_str("</div>\n");
+    }
+
+    // (3) 上限なし求人 別表 (salary_min_values 内、scatter_min_max にペアなしのもの)
+    let pair_set: std::collections::HashSet<i64> =
+        pairs.iter().map(|p| p.0).collect();
+    let unpaired_count = salary_min_values.iter().filter(|v| !pair_set.contains(v)).count();
+    if unpaired_count > 0 {
+        html.push_str("<div class=\"salary-chart-block\">\n");
+        html.push_str("<h3>上限なし求人 (下限のみ表記の求人)</h3>\n");
+        html.push_str(&format!(
+            "<p class=\"note\">対象: {} 件。上限給与が省略された求人は給与レンジ幅が不明なため、\
+             上記クラスタ分析からは除外しています。下限のみの分布として参考表示します。</p>\n",
+            unpaired_count,
+        ));
+    }
+
+    // (4) 上側外れ値求人 別表 (Q3 + 1.5*IQR 超)
+    let (_body, upper_outliers) = split_upper_outliers(salary_max_values);
+    if !upper_outliers.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"salary-chart-block\">\n\
+             <h3>上側外れ値求人 (高待遇訴求 候補)</h3>\n\
+             <p class=\"note\">上限給与が Q3 + 1.5×IQR を超える {} 件。\
+             高単価・歩合・委託・管理職候補など特殊条件求人として参考表示。\
+             クラスタ平均からは除外しています。</p>\n\
+             </div>\n",
+            upper_outliers.len(),
+        ));
     }
 
     render_section_bridge(
