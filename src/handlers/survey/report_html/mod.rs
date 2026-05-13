@@ -695,6 +695,73 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
 
     html.push_str("</section>\n");
 
+    // --- 目次 (Round 24 Push 2 で新規追加) ---
+    // navy .toc-grid / .toc-item でセクション一覧を表示。ページ番号は印刷時に
+    // ブラウザがフッターで自動採番するため、TOC 側は "—" プレースホルダーのみ。
+    // セクション構成は variant により異なるため、共通の最大集合を提示する。
+    html.push_str("<section class=\"page-navy toc-page\" role=\"region\" aria-label=\"目次\">\n");
+    html.push_str(
+        "<div class=\"page-head\">\
+         <div class=\"ph-sec\">TABLE OF CONTENTS</div>\
+         <div class=\"ph-title\">目次</div>\
+         <div class=\"ph-sub\">本レポートは A4 縦印刷を前提に構成しています</div>\
+         <div class=\"ph-rule\" aria-hidden=\"true\"></div>\
+         </div>\n",
+    );
+    html.push_str("<div class=\"toc-grid\">\n");
+    // variant 別のセクション 02 ラベル (Full のみ HW 文言、MI/Public は中立化)
+    let toc_section_02 = match variant {
+        ReportVariant::Full => "地域 × 求人媒体データ連携",
+        ReportVariant::MarketIntelligence | ReportVariant::Public => "地域データ補強",
+    };
+    // left column
+    html.push_str("<div class=\"toc-col\">\n");
+    for (no, name) in &[
+        ("01", "Executive Summary"),
+        ("02", toc_section_02),
+        ("03", "給与分布 統計"),
+        ("04", "採用市場 逼迫度"),
+    ] {
+        html.push_str(&format!(
+            "<div class=\"toc-item\"><span class=\"t-no\">{}</span>\
+             <span class=\"t-name\">{}</span><span class=\"t-pg\">—</span></div>\n",
+            no, name
+        ));
+    }
+    html.push_str("</div>\n");
+    // right column
+    html.push_str("<div class=\"toc-col\">\n");
+    for (no, name) in &[
+        ("05", "地域企業構造"),
+        ("06", "人材デモグラフィック"),
+        ("07", "最低賃金・ライフスタイル"),
+        ("08", "注記・出典・免責"),
+    ] {
+        html.push_str(&format!(
+            "<div class=\"toc-item\"><span class=\"t-no\">{}</span>\
+             <span class=\"t-name\">{}</span><span class=\"t-pg\">—</span></div>\n",
+            no, name
+        ));
+    }
+    html.push_str("</div>\n");
+    html.push_str("</div>\n"); // /toc-grid
+    // 凡例: severity chip
+    html.push_str(
+        "<div class=\"toc-foot\">\
+         <div class=\"tf-block\"><div class=\"tf-label\">SEVERITY 凡例</div>\
+         <div class=\"legend-row\">\
+         <span class=\"legend-chip pos\">POSITIVE</span>\
+         <span class=\"legend-chip neu\">NEUTRAL</span>\
+         <span class=\"legend-chip warn\">WARN</span>\
+         <span class=\"legend-chip neg\">NEGATIVE</span>\
+         </div></div>\
+         <div class=\"tf-block\"><div class=\"tf-label\">凡例の読み方</div>\
+         <p>本レポート内の指標は上記 4 段階で評価しています。NEGATIVE / WARN は\
+         「改善検討」の対象、POSITIVE は「強み」として認識してください。</p></div>\
+         </div>\n",
+    );
+    html.push_str("</section>\n");
+
     // --- Executive Summary (Section 1 / 仕様書 3章) ---
     // 2026-05-08 Round 2-1: variant 引数を追加し、Full 以外では HW 比較系の
     //   優先アクション (給与ギャップ / 雇用形態構成差) を出さないように切替。
