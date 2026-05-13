@@ -1530,7 +1530,6 @@ pub(super) fn render_navy_section_placeholders(
 ) {
     let _ = (hw_context, variant, now);
     let sections = [
-        ("SECTION 06", "人材デモグラフィック", "人口ピラミッド / 労働力 / 学校教育施設密度。Phase 3 で実装予定。"),
         ("SECTION 07", "最低賃金・ライフスタイル", "最低賃金推移 / 家計支出構成 / 通勤圏。Phase 4 で実装予定。"),
         ("SECTION 08", "注記・出典・免責", "データソース / 集計定義 / 免責事項。Phase 4 で実装予定。"),
     ];
@@ -1991,4 +1990,377 @@ fn build_companies_so_what(
     };
 
     format!("{} {}{}{}", concentration, growth_note, hw_note, pool_note)
+}
+
+// ============================================================
+// Section 06: 人材デモグラフィック (Phase 3 navy 本実装)
+// ============================================================
+
+pub(super) fn render_navy_section_06_demographics(
+    html: &mut String,
+    hw_context: Option<&InsightContext>,
+) {
+    html.push_str("<section class=\"page-navy navy-demographics\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 06",
+        "人材デモグラフィック",
+        "人口ピラミッド / 労働力 / 教育施設密度",
+    );
+
+    let ctx = match hw_context {
+        Some(c) => c,
+        None => {
+            html.push_str("<p class=\"caption\">外部統計データが取得できなかったため、本セクションは省略表示となります。</p>\n");
+            html.push_str("</section>\n");
+            return;
+        }
+    };
+
+    // -- ピラミッドデータ抽出
+    use super::super::super::helpers::{get_f64, get_i64, get_str_ref};
+    let mut bands: Vec<(String, i64, i64)> = ctx
+        .ext_pyramid
+        .iter()
+        .map(|r| {
+            (
+                get_str_ref(r, "age_group").to_string(),
+                get_i64(r, "male_count"),
+                get_i64(r, "female_count"),
+            )
+        })
+        .filter(|(l, _, _)| !l.is_empty())
+        .collect();
+    bands.sort_by_key(|(l, _, _)| age_sort_key(l));
+
+    // -- 集計
+    let total_pop: i64 = bands.iter().map(|(_, m, f)| m + f).sum();
+    let working_age: i64 = bands
+        .iter()
+        .filter(|(l, _, _)| age_lo(l) >= 15 && age_lo(l) < 65)
+        .map(|(_, m, f)| m + f)
+        .sum();
+    let target_age: i64 = bands
+        .iter()
+        .filter(|(l, _, _)| age_lo(l) >= 25 && age_lo(l) < 45)
+        .map(|(_, m, f)| m + f)
+        .sum();
+    let senior: i64 = bands
+        .iter()
+        .filter(|(l, _, _)| age_lo(l) >= 65)
+        .map(|(_, m, f)| m + f)
+        .sum();
+
+    let working_pct = if total_pop > 0 {
+        working_age as f64 / total_pop as f64 * 100.0
+    } else {
+        0.0
+    };
+    let target_pct = if total_pop > 0 {
+        target_age as f64 / total_pop as f64 * 100.0
+    } else {
+        0.0
+    };
+    let senior_pct = if total_pop > 0 {
+        senior as f64 / total_pop as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    // -- 労働力率 / 失業率
+    let labor_force_rate = ctx
+        .ext_labor_force
+        .first()
+        .map(|r| get_f64(r, "labor_force_ratio"))
+        .filter(|v| *v > 0.0);
+    let unemployment_rate = ctx
+        .ext_labor_force
+        .first()
+        .map(|r| get_f64(r, "unemployment_rate"))
+        .filter(|v| *v > 0.0);
+
+    // -- 教育施設密度
+    let school_count: i64 = ctx
+        .ext_education_facilities
+        .iter()
+        .map(|r| {
+            get_i64(r, "elementary_schools")
+                + get_i64(r, "junior_high_schools")
+                + get_i64(r, "high_schools")
+        })
+        .sum();
+
+    // -- exec-headline
+    let lede = format!(
+        "対象地域の生産年齢層厚みを把握します。総人口 <strong>{}</strong> 名 / \
+         生産年齢 (15-64) <strong>{:.1}%</strong> / 採用ターゲット (25-44) <strong>{:.1}%</strong> / \
+         高齢 (65+) <strong>{:.1}%</strong>。",
+        format_number(total_pop),
+        working_pct,
+        target_pct,
+        senior_pct,
+    );
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>{}</p>\
+         </div>\n",
+        lede
+    ));
+
+    // -- KPI 5 cell
+    let working_dot = if working_pct >= 60.0 { "pos" } else if working_pct >= 50.0 { "neu" } else { "warn" };
+    let target_dot = if target_pct >= 22.0 { "pos" } else if target_pct >= 17.0 { "neu" } else { "warn" };
+    let senior_dot = if senior_pct >= 35.0 { "warn" } else if senior_pct >= 25.0 { "neu" } else { "pos" };
+
+    html.push_str("<div class=\"block-title\">図 6-1 &nbsp;人口構造 主要 KPI</div>\n");
+    html.push_str("<div class=\"kpi-row\">\n");
+    push_kpi(
+        html,
+        "総人口",
+        &format_number(total_pop),
+        "名",
+        "neu",
+        "国勢調査 5 歳階級集計",
+        false,
+    );
+    push_kpi(
+        html,
+        "生産年齢 (15-64)",
+        &format!("{:.1}", working_pct),
+        "%",
+        working_dot,
+        &format!("実数 {} 名", format_number(working_age)),
+        true,
+    );
+    push_kpi(
+        html,
+        "ターゲット (25-44)",
+        &format!("{:.1}", target_pct),
+        "%",
+        target_dot,
+        &format!("実数 {} 名", format_number(target_age)),
+        false,
+    );
+    push_kpi(
+        html,
+        "高齢 (65+)",
+        &format!("{:.1}", senior_pct),
+        "%",
+        senior_dot,
+        &format!("実数 {} 名", format_number(senior)),
+        false,
+    );
+    let lfr_val = labor_force_rate.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "—".into());
+    let lfr_dot = match labor_force_rate {
+        Some(v) if v >= 62.0 => "pos",
+        Some(v) if v >= 55.0 => "neu",
+        Some(_) => "warn",
+        None => "neu",
+    };
+    let lfr_foot = match unemployment_rate {
+        Some(u) => format!("失業率 {:.1}%", u),
+        None => "失業率データなし".to_string(),
+    };
+    push_kpi(html, "労働力率", &lfr_val, "%", lfr_dot, &lfr_foot, false);
+    html.push_str("</div>\n");
+
+    // -- 人口ピラミッド SVG
+    if !bands.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 6-2 &nbsp;年齢階級別 人口ピラミッド</div>\n");
+        html.push_str(&build_navy_pyramid_svg(&bands));
+        html.push_str("<p class=\"caption\">左 (紺) = 男性 / 右 (金) = 女性。各バーは 5 歳階級別の人口を表示。出典: 国勢調査 v2_external_population_pyramid。</p>\n");
+    }
+
+    // -- 教育施設密度 (block-title + 1 段落)
+    if school_count > 0 {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-A &nbsp;教育施設 (小・中・高 合計)</div>\n");
+        html.push_str(&format!(
+            "<table class=\"table-navy\">\n<thead><tr>\
+             <th>区分</th><th class=\"num\">学校数</th><th>備考</th>\
+             </tr></thead>\n<tbody>\n"
+        ));
+        let mut sum_elem = 0i64;
+        let mut sum_jh = 0i64;
+        let mut sum_high = 0i64;
+        for r in &ctx.ext_education_facilities {
+            sum_elem += get_i64(r, "elementary_schools");
+            sum_jh += get_i64(r, "junior_high_schools");
+            sum_high += get_i64(r, "high_schools");
+        }
+        html.push_str(&format!(
+            "<tr><td><strong>小学校</strong></td><td class=\"num bold\">{}</td>\
+             <td><span class=\"dim\">通学圏 1-3 km 想定</span></td></tr>\n",
+            format_number(sum_elem)
+        ));
+        html.push_str(&format!(
+            "<tr><td><strong>中学校</strong></td><td class=\"num bold\">{}</td>\
+             <td><span class=\"dim\">通学圏 3-5 km 想定</span></td></tr>\n",
+            format_number(sum_jh)
+        ));
+        html.push_str(&format!(
+            "<tr class=\"hl\"><td><strong>高等学校</strong></td><td class=\"num bold\">{}</td>\
+             <td><span class=\"dim\">通学圏 10 km 級。新卒採用接点として活用可</span></td></tr>\n",
+            format_number(sum_high)
+        ));
+        html.push_str("</tbody></table>\n");
+        html.push_str("<p class=\"caption\">出典: 文部科学省 学校基本調査 v2_external_education_facilities。家族層 (子育て世帯) 採用時の生活インフラ指標として併記。</p>\n");
+    }
+
+    // -- so-what
+    let so_what = build_demographics_so_what(working_pct, target_pct, senior_pct, labor_force_rate);
+    html.push_str(&format!(
+        "<div class=\"so-what\" style=\"margin-top:6mm;\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">{}</div>\
+         </div>\n",
+        so_what
+    ));
+
+    html.push_str("</section>\n");
+}
+
+// 「20-24」「25-29」「85+」等のラベルから下端年齢を取得
+fn age_lo(label: &str) -> i32 {
+    let mut s = String::new();
+    for c in label.chars() {
+        if c.is_ascii_digit() {
+            s.push(c);
+        } else {
+            break;
+        }
+    }
+    s.parse::<i32>().unwrap_or(-1)
+}
+
+fn age_sort_key(label: &str) -> i32 {
+    let v = age_lo(label);
+    if v >= 0 {
+        v
+    } else {
+        i32::MAX
+    }
+}
+
+/// navy 人口ピラミッド SVG (左=男性 ink-soft / 右=女性 accent)
+fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
+    if bands.is_empty() {
+        return String::new();
+    }
+    let n = bands.len();
+    let row_h: f64 = 18.0;
+    let h: f64 = 40.0 + n as f64 * row_h + 24.0;
+    let w: f64 = 720.0;
+    let center: f64 = w / 2.0;
+    let label_w: f64 = 60.0;
+    let bar_max_w: f64 = (w - label_w) / 2.0 - 10.0;
+
+    let max_count: f64 = bands
+        .iter()
+        .flat_map(|(_, m, f)| [*m as f64, *f as f64])
+        .fold(0.0, f64::max)
+        .max(1.0);
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"人口ピラミッド\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+    // タイトルラベル
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"18\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\" text-anchor=\"end\">男性</text>\
+         <text x=\"{:.1}\" y=\"18\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\">女性</text>\
+         <text x=\"{:.1}\" y=\"18\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">年齢</text>\n",
+        center - 12.0, center + 12.0, center
+    ));
+    // 中央軸
+    svg.push_str(&format!(
+        "<line x1=\"{:.1}\" y1=\"30\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#D8D2C4\" stroke-width=\"0.5\"/>\n",
+        center, center, h - 24.0
+    ));
+
+    for (i, (label, male, female)) in bands.iter().rev().enumerate() {
+        let cy = 36.0 + i as f64 * row_h;
+        let mw = (*male as f64 / max_count) * bar_max_w;
+        let fw = (*female as f64 / max_count) * bar_max_w;
+        // 男性 (左)
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"14\" fill=\"#1F2D4D\"/>\n",
+            center - mw,
+            cy,
+            mw.max(0.5)
+        ));
+        // 女性 (右)
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"14\" fill=\"#C9A24B\"/>\n",
+            center,
+            cy,
+            fw.max(0.5)
+        ));
+        // 年齢ラベル (中央)
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+            center,
+            cy + 10.0,
+            escape_html(label)
+        ));
+    }
+
+    // 軸スケール
+    svg.push_str(&format!(
+        "<text x=\"4\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\">{} 名</text>\
+         <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"end\">{} 名</text>\n",
+        h - 8.0,
+        format_number(max_count as i64),
+        w - 4.0,
+        h - 8.0,
+        format_number(max_count as i64)
+    ));
+    svg.push_str("</svg>\n");
+    svg
+}
+
+fn build_demographics_so_what(
+    working_pct: f64,
+    target_pct: f64,
+    senior_pct: f64,
+    labor_force_rate: Option<f64>,
+) -> String {
+    let pool_judge = if target_pct >= 22.0 {
+        format!(
+            "採用ターゲット層 (25-44) が <strong>{:.0}%</strong> を占め、<strong>採用候補プール 厚</strong>。給与訴求 + 福利厚生の充実度で勝負できる地域です。",
+            target_pct
+        )
+    } else if target_pct >= 17.0 {
+        format!(
+            "採用ターゲット層 (25-44) は <strong>{:.0}%</strong>。<strong>採用候補プール 中</strong>。エントリー要件の柔軟化 (経験不問 / 異業種歓迎) で母集団拡大を検討してください。",
+            target_pct
+        )
+    } else {
+        format!(
+            "採用ターゲット層 (25-44) が <strong>{:.0}%</strong> と薄く、<strong>採用候補プール 細</strong>。\
+             年齢帯拡張 (45-54 層への展開) や近隣広域への採用範囲拡大が必要です。",
+            target_pct
+        )
+    };
+
+    let age_balance = if senior_pct >= 35.0 {
+        " 高齢層 35%+ で <strong>人口構造は超高齢化</strong>。退職タイミングを見据えた中期的な人員計画 (3-5 年) が必要です。"
+    } else if senior_pct >= 25.0 {
+        " 高齢層 25%+ で全国平均並み。生産年齢層の絶対数を維持する施策 (定着 / 中途採用) を継続的に。"
+    } else {
+        " 高齢層比率が低く、生産年齢層が厚い <strong>採用に有利な構造</strong> です。"
+    };
+
+    let labor_note = match labor_force_rate {
+        Some(v) if v >= 62.0 => format!(" 労働力率 {:.1}% は高水準で、既就業者の引き抜き競争が激しい可能性があります。", v),
+        Some(v) if v >= 55.0 => format!(" 労働力率 {:.1}% は標準的水準です。", v),
+        Some(v) => format!(" 労働力率 {:.1}% は低めで、潜在労働力 (非労働力人口) のリーチ施策に余地があります。", v),
+        None => String::new(),
+    };
+
+    let _ = working_pct;
+    format!("{}{}{}", pool_judge, age_balance, labor_note)
 }
