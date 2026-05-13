@@ -1530,7 +1530,6 @@ pub(super) fn render_navy_section_placeholders(
 ) {
     let _ = (hw_context, variant, now);
     let sections = [
-        ("SECTION 07", "最低賃金・ライフスタイル", "最低賃金推移 / 家計支出構成 / 通勤圏。Phase 4 で実装予定。"),
         ("SECTION 08", "注記・出典・免責", "データソース / 集計定義 / 免責事項。Phase 4 で実装予定。"),
     ];
     for (code, title, body_text) in sections {
@@ -2363,4 +2362,416 @@ fn build_demographics_so_what(
 
     let _ = working_pct;
     format!("{}{}{}", pool_judge, age_balance, labor_note)
+}
+
+// ============================================================
+// Section 07: 最低賃金・ライフスタイル (Phase 4 navy 本実装)
+// ============================================================
+
+pub(super) fn render_navy_section_07_lifestyle(
+    html: &mut String,
+    hw_context: Option<&InsightContext>,
+) {
+    html.push_str("<section class=\"page-navy navy-lifestyle\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 07",
+        "最低賃金・ライフスタイル",
+        "最低賃金推移 / 家計支出構成 / 通勤圏",
+    );
+
+    let ctx = match hw_context {
+        Some(c) => c,
+        None => {
+            html.push_str("<p class=\"caption\">外部統計データが取得できなかったため、本セクションは省略表示となります。</p>\n");
+            html.push_str("</section>\n");
+            return;
+        }
+    };
+
+    use super::super::super::helpers::{get_f64, get_i64, get_str_ref};
+
+    // -- 最低賃金: ext_min_wage 時系列。複数キー候補から取得 (Row 型は HashMap)
+    let mut wages: Vec<(i32, i64)> = ctx
+        .ext_min_wage
+        .iter()
+        .filter_map(|r| {
+            let year = get_i64(r, "year") as i32;
+            for k in ["hourly_wage", "hourly_min_wage", "min_wage", "amount"] {
+                let v = get_f64(r, k);
+                if v > 0.0 {
+                    return Some((year, v as i64));
+                }
+            }
+            None
+        })
+        .collect();
+    wages.sort_by_key(|(y, _)| *y);
+    let latest_wage = wages.last().copied();
+    let oldest_wage = wages.first().copied();
+    let wage_yoy = if wages.len() >= 2 {
+        let (_, prev) = wages[wages.len() - 2];
+        let (_, cur) = wages[wages.len() - 1];
+        if prev > 0 {
+            Some((cur - prev) as f64 / prev as f64 * 100.0)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // -- 家計支出
+    let total_consumption: i64 = ctx
+        .ext_household_spending
+        .iter()
+        .find(|r| get_str_ref(r, "category") == "消費支出")
+        .map(|r| get_f64(r, "monthly_amount") as i64)
+        .unwrap_or(0);
+    let mut category_breakdown: Vec<(String, i64)> = ctx
+        .ext_household_spending
+        .iter()
+        .filter(|r| get_str_ref(r, "category") != "消費支出")
+        .map(|r| (get_str_ref(r, "category").to_string(), get_f64(r, "monthly_amount") as i64))
+        .filter(|(n, v)| !n.is_empty() && *v > 0)
+        .collect();
+    category_breakdown.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // -- インターネット利用率 / スマホ保有率
+    let internet_rate = ctx
+        .ext_internet_usage
+        .first()
+        .map(|r| get_f64(r, "internet_usage_rate"))
+        .filter(|v| *v > 0.0);
+    let smartphone_rate = ctx
+        .ext_internet_usage
+        .first()
+        .map(|r| get_f64(r, "smartphone_ownership_rate"))
+        .filter(|v| *v > 0.0);
+
+    // -- 通勤圏
+    let commute_pop = ctx.commute_zone_total_pop;
+    let commute_working = ctx.commute_zone_working_age;
+    let commute_inflow = ctx.commute_inflow_total;
+    let commute_outflow = ctx.commute_outflow_total;
+    let commute_self_rate = ctx.commute_self_rate;
+    let commute_zone_count = ctx.commute_zone_count;
+
+    // -- exec-headline
+    let wage_str = latest_wage
+        .map(|(y, w)| format!("{} 年 <strong>{} 円/h</strong>", y, format_number(w)))
+        .unwrap_or_else(|| "—".into());
+    let lede = format!(
+        "対象地域の生活コストと通勤圏を把握します。最低賃金 {} / 月間消費支出 <strong>{}</strong> 円 / \
+         通勤圏内人口 <strong>{}</strong> 名 (生産年齢 {} 名)。給与訴求の説得力と生活インフラを併せて評価します。",
+        wage_str,
+        format_number(total_consumption),
+        format_number(commute_pop),
+        format_number(commute_working),
+    );
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>{}</p>\
+         </div>\n",
+        lede
+    ));
+
+    // -- KPI row 5 cell
+    html.push_str("<div class=\"block-title\">図 7-1 &nbsp;生活コスト・通勤圏 主要 KPI</div>\n");
+    html.push_str("<div class=\"kpi-row\">\n");
+    let wage_val = latest_wage.map(|(_, w)| format!("{}", format_number(w))).unwrap_or_else(|| "—".into());
+    let wage_foot = match (oldest_wage, latest_wage) {
+        (Some((y0, _)), Some((y1, _))) if y0 != y1 => format!("{}-{} 年推移", y0, y1),
+        _ => "最新年度のみ".to_string(),
+    };
+    push_kpi(html, "最低賃金", &wage_val, "円/h", "neu", &wage_foot, true);
+    let yoy_val = wage_yoy.map(|v| format!("{:+.1}", v)).unwrap_or_else(|| "—".into());
+    let yoy_dot = match wage_yoy {
+        Some(v) if v >= 3.0 => "pos",
+        Some(v) if v >= 1.0 => "neu",
+        Some(_) => "warn",
+        None => "neu",
+    };
+    push_kpi(html, "前年比", &yoy_val, "%", yoy_dot, "最新 vs 前年", false);
+    push_kpi(
+        html,
+        "月間消費支出",
+        &format_number(total_consumption),
+        "円",
+        "neu",
+        "世帯あたり月平均",
+        false,
+    );
+    let int_val = internet_rate.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "—".into());
+    let int_dot = match internet_rate {
+        Some(v) if v >= 90.0 => "pos",
+        Some(v) if v >= 80.0 => "neu",
+        Some(_) => "warn",
+        None => "neu",
+    };
+    let sp_foot = match smartphone_rate {
+        Some(v) => format!("スマホ保有 {:.1}%", v),
+        None => "保有率データなし".to_string(),
+    };
+    push_kpi(html, "ネット利用率", &int_val, "%", int_dot, &sp_foot, false);
+    push_kpi(
+        html,
+        "通勤圏 人口",
+        &format_number(commute_pop),
+        "名",
+        "neu",
+        &format!("対象 {} 圏", format_number(commute_zone_count as i64)),
+        false,
+    );
+    html.push_str("</div>\n");
+
+    // -- 最低賃金推移バー SVG
+    if wages.len() >= 2 {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 7-2 &nbsp;最低賃金 推移</div>\n");
+        html.push_str(&build_navy_minwage_chart(&wages));
+        html.push_str("<p class=\"caption\">出典: 厚生労働省 地域別最低賃金 (10 月発効)。年率 3% 以上は <strong>pos</strong>、1-3% は標準、1% 未満は <strong>warn</strong>。</p>\n");
+    }
+
+    // -- 家計支出構成 table-navy
+    if !category_breakdown.is_empty() && total_consumption > 0 {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-A &nbsp;家計支出構成 (件数最多 6 費目)</div>\n");
+        html.push_str(&build_navy_household_table(&category_breakdown, total_consumption));
+    }
+
+    // -- 通勤圏 table
+    if commute_pop > 0 || commute_inflow > 0 {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-B &nbsp;通勤圏 サマリ</div>\n");
+        html.push_str(&format!(
+            "<table class=\"table-navy\">\n<thead><tr>\
+             <th>指標</th><th class=\"num\">値</th><th>解釈</th>\
+             </tr></thead>\n<tbody>\n\
+             <tr><td><strong>通勤圏 自治体数</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">距離ベース通勤圏に含まれる自治体</span></td></tr>\n\
+             <tr class=\"hl\"><td><strong>通勤圏 総人口</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">採用範囲を通勤圏まで広げた場合の母集団</span></td></tr>\n\
+             <tr><td><strong>通勤圏 生産年齢</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">15-64 歳人口、即戦力候補</span></td></tr>\n\
+             <tr><td><strong>流入通勤者</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">他自治体から通勤してくる人数 (OD ベース)</span></td></tr>\n\
+             <tr><td><strong>流出通勤者</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">他自治体へ通勤していく人数</span></td></tr>\n\
+             <tr><td><strong>自市内通勤率</strong></td><td class=\"num bold\">{:.1}%</td><td><span class=\"dim\">対象自治体内で完結する通勤の比率</span></td></tr>\n\
+             </tbody></table>\n",
+            format_number(commute_zone_count as i64),
+            format_number(commute_pop),
+            format_number(commute_working),
+            format_number(commute_inflow),
+            format_number(commute_outflow),
+            commute_self_rate * 100.0,
+        ));
+        html.push_str("<p class=\"caption\">出典: 国勢調査 OD (通勤・通学従業地・通学地集計)。通勤圏は対象自治体から距離ベース (デフォルト 20-30 km 圏) で抽出。</p>\n");
+    }
+
+    // -- so-what
+    let so_what = build_lifestyle_so_what(
+        latest_wage,
+        wage_yoy,
+        total_consumption,
+        internet_rate,
+        commute_pop,
+        commute_self_rate,
+    );
+    html.push_str(&format!(
+        "<div class=\"so-what\" style=\"margin-top:6mm;\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">{}</div>\
+         </div>\n",
+        so_what
+    ));
+
+    html.push_str("</section>\n");
+}
+
+fn build_navy_minwage_chart(wages: &[(i32, i64)]) -> String {
+    if wages.len() < 2 {
+        return String::new();
+    }
+    let w = 720.0;
+    let h = 220.0;
+    let pad_l = 48.0;
+    let pad_r = 16.0;
+    let pad_t = 16.0;
+    let pad_b = 36.0;
+    let inner_w = w - pad_l - pad_r;
+    let inner_h = h - pad_t - pad_b;
+    let n = wages.len();
+    let bw = inner_w / n as f64;
+    let max_v = wages.iter().map(|(_, v)| *v).max().unwrap_or(1).max(1) as f64;
+    let min_v = wages.iter().map(|(_, v)| *v).min().unwrap_or(0) as f64;
+    let span = (max_v - min_v).max(1.0);
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"最低賃金推移\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+    // y 軸
+    for i in 0..=4 {
+        let y = pad_t + inner_h * i as f64 / 4.0;
+        let v = (max_v - span * i as f64 / 4.0) as i64;
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n",
+            pad_l, y, w - pad_r, y
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">{}</text>\n",
+            pad_l - 6.0, y + 3.0, v
+        ));
+    }
+    // bars + value labels + 折線
+    let mut prev_x = 0.0;
+    let mut prev_y = 0.0;
+    for (i, (year, v)) in wages.iter().enumerate() {
+        let ratio = (*v as f64 - min_v) / span;
+        let bh = ratio * inner_h * 0.9 + inner_h * 0.1;
+        let bx = pad_l + i as f64 * bw;
+        let by = pad_t + inner_h - bh;
+        let bar_color = if i == n - 1 { "#C9A24B" } else { "#1F2D4D" };
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"{}\"/>\n",
+            bx + 4.0,
+            by,
+            (bw - 8.0).max(2.0),
+            bh,
+            bar_color
+        ));
+        let cx = bx + bw / 2.0;
+        if i > 0 {
+            svg.push_str(&format!(
+                "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
+                prev_x, prev_y, cx, by
+            ));
+        }
+        prev_x = cx;
+        prev_y = by;
+        // x ラベル
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+            cx, h - pad_b + 14.0, year
+        ));
+        // 値ラベル
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#0B1E3F\" text-anchor=\"middle\" font-weight=\"700\">{}</text>\n",
+            cx, by - 4.0, v
+        ));
+    }
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">時給 (円)</text>\n",
+        pad_l - 36.0, pad_t + inner_h / 2.0
+    ));
+    svg.push_str("</svg>\n");
+    svg
+}
+
+fn build_navy_household_table(
+    categories: &[(String, i64)],
+    total: i64,
+) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>費目</th>");
+    s.push_str("<th class=\"num\">月額 (円)</th>");
+    s.push_str("<th class=\"num\">構成比</th>");
+    s.push_str("<th>位置づけ</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let top6: Vec<&(String, i64)> = categories.iter().take(6).collect();
+    if top6.is_empty() {
+        s.push_str("<tr><td colspan=\"5\" class=\"dim\">家計支出データなし。</td></tr>\n");
+    } else {
+        for (i, (name, amount)) in top6.iter().enumerate() {
+            let pct = if total > 0 { *amount as f64 / total as f64 * 100.0 } else { 0.0 };
+            let (tag, label) = if pct >= 20.0 {
+                ("warn", "重支出")
+            } else if pct >= 10.0 {
+                ("neu", "主要支出")
+            } else {
+                ("neu", "標準支出")
+            };
+            let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+            s.push_str(&format!(
+                "<tr{}><td class=\"num bold\">{}</td><td><strong>{}</strong></td>\
+                 <td class=\"num bold\">{}</td><td class=\"num\">{:.1}%</td>\
+                 <td><span class=\"tag tag-{}\">{}</span></td></tr>\n",
+                row_class,
+                i + 1,
+                escape_html(name),
+                format_number(*amount),
+                pct,
+                tag,
+                label
+            ));
+        }
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">出典: 総務省 家計調査 v2_external_household_spending。月間消費支出 (合計) に対する構成比。給与訴求の絶対水準と相対比較に活用。</p>\n");
+    s
+}
+
+fn build_lifestyle_so_what(
+    latest_wage: Option<(i32, i64)>,
+    wage_yoy: Option<f64>,
+    consumption: i64,
+    internet_rate: Option<f64>,
+    commute_pop: i64,
+    self_rate: f64,
+) -> String {
+    let wage_msg = match (latest_wage, wage_yoy) {
+        (Some((_, w)), Some(yoy)) if yoy >= 3.0 => format!(
+            "最低賃金 <strong>{} 円/h</strong> は前年比 <strong>{:+.1}%</strong> の上昇基調。給与下限の引き上げ圧が強く、求人給与の競争力は <strong>絶対水準</strong> ではなく <strong>付帯条件 (福利厚生 / 賞与)</strong> で勝負する局面です。",
+            format_number(w),
+            yoy
+        ),
+        (Some((_, w)), Some(yoy)) => format!(
+            "最低賃金 <strong>{} 円/h</strong> 前年比 <strong>{:+.1}%</strong>。給与下限変動は限定的なため、給与の <strong>絶対水準</strong> での差別化が可能です。",
+            format_number(w),
+            yoy
+        ),
+        (Some((_, w)), None) => format!(
+            "最低賃金 <strong>{} 円/h</strong>。時系列データが取得できないため推移評価は限定的ですが、絶対水準で時給競争力を点検してください。",
+            format_number(w)
+        ),
+        _ => "最低賃金データが取得できないため、給与競争力の評価は CSV 集計値のみで判断してください。".to_string(),
+    };
+
+    let commute_msg = if commute_pop >= 1_000_000 {
+        format!(
+            " 通勤圏内に <strong>{} 名</strong> の人口を擁する <strong>大都市圏</strong>。採用範囲を通勤圏まで拡げれば母集団は大幅に拡張可能です。",
+            format_number(commute_pop)
+        )
+    } else if commute_pop >= 300_000 {
+        format!(
+            " 通勤圏内人口 <strong>{} 名</strong>。中規模都市圏として通勤圏アプローチが有効です。",
+            format_number(commute_pop)
+        )
+    } else if commute_pop > 0 {
+        format!(
+            " 通勤圏内人口は <strong>{} 名</strong> と限定的。地域内採用に重きを置く戦略が現実的です。",
+            format_number(commute_pop)
+        )
+    } else {
+        " 通勤圏データが取得できなかったため、母集団拡大余地は別途要評価です。".to_string()
+    };
+
+    let self_msg = if self_rate >= 0.7 {
+        format!(" 自市内通勤率 <strong>{:.0}%</strong> と高く、地域内で完結する <strong>定住型</strong> 構造です。", self_rate * 100.0)
+    } else if self_rate >= 0.5 {
+        format!(" 自市内通勤率 <strong>{:.0}%</strong>。通勤者の半数程度は周辺自治体から流入しており、広域アプローチの余地があります。", self_rate * 100.0)
+    } else if self_rate > 0.0 {
+        format!(" 自市内通勤率 <strong>{:.0}%</strong> と低く、<strong>流入型</strong> 構造。通勤者を対象にした採用アプローチが有効です。", self_rate * 100.0)
+    } else {
+        String::new()
+    };
+
+    let internet_msg = match internet_rate {
+        Some(v) if v >= 90.0 => " ネット利用率 90%+ で、デジタル採用チャネル (求人 SNS / Web 媒体) が機能します。".to_string(),
+        Some(v) if v >= 80.0 => " ネット利用率は標準的水準。デジタル + 紙媒体の併用が無難です。".to_string(),
+        Some(_) => " ネット利用率がやや低めで、紙媒体・対面接点 (ハローワーク / 学校求人) の重要度が相対的に高い地域です。".to_string(),
+        None => String::new(),
+    };
+
+    let _ = consumption;
+    format!("{}{}{}{}", wage_msg, commute_msg, self_msg, internet_msg)
 }
