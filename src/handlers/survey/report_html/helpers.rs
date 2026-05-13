@@ -402,11 +402,12 @@ pub(super) fn build_salary_histogram(
 #[derive(Debug, Clone)]
 pub(super) struct SalaryCluster {
     pub label: String,
-    pub lower_seg: &'static str,  // "低下限" / "中下限" / "高下限"
+    pub lower_seg: String,  // "低下限"/"中下限"/"高下限" or "下限帯1"/"下限帯2"/... (k=4 時)
     pub range_seg: &'static str,  // "狭レンジ" / "通常レンジ" / "広レンジ"
     pub count: usize,
     pub p25: i64,
     pub p50: i64,
+    pub p60: i64,  // Round 22: 設計メモ §10.2 標準より少し強いライン
     pub p75: i64,
     pub p90: i64,
     pub min: i64,
@@ -514,52 +515,156 @@ fn classify_jenks(value: i64, breaks: &[i64]) -> usize {
     breaks.len()
 }
 
+/// Round 22 (2026-05-13): Jenks 境界の品質チェック (採用条件)。
+/// 採用判定基準 (設計メモ §「実務的には自動判定が良い」準拠):
+///   - n >= 50
+///   - ユニーク値 >= 10
+///   - 各クラスタ件数 >= 最低 10 件 (または n の 10%)
+///   - 最大クラスタ比率 < 80%
+/// false 時は呼び出し側で分位点フォールバックすべき。
+pub(super) fn jenks_quality_ok(values: &[i64], breaks: &[i64]) -> bool {
+    let n = values.len();
+    if n < 50 {
+        return false;
+    }
+    let unique_count = {
+        let mut sorted = values.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        sorted.len()
+    };
+    if unique_count < 10 {
+        return false;
+    }
+    if breaks.is_empty() {
+        return false;
+    }
+    // 各クラスタ件数
+    let mut counts = vec![0_usize; breaks.len() + 1];
+    for &v in values {
+        let mut idx = breaks.len();
+        for (i, &b) in breaks.iter().enumerate() {
+            if v < b {
+                idx = i;
+                break;
+            }
+        }
+        counts[idx] += 1;
+    }
+    let min_required = 10.max(n / 10);
+    if counts.iter().any(|&c| c < min_required) {
+        return false;
+    }
+    let max_ratio = *counts.iter().max().unwrap_or(&0) as f64 / n as f64;
+    if max_ratio >= 0.8 {
+        return false;
+    }
+    true
+}
+
+/// range の自然分割。
+/// 1) P95 超を異常広レンジ閾値として外す
+/// 2) 残りに Jenks(k=3) を試す → 採用条件 OK なら採用、NG なら tercile
+/// 3) 戻り値: (狭/通常 境界, 通常/広 境界, 異常広閾値)
+///    異常広閾値以上の値は「異常広レンジ」セグメントへ振る
+pub(super) fn classify_range_breaks(ranges: &[i64]) -> (i64, i64, i64) {
+    if ranges.is_empty() {
+        return (0, i64::MAX, i64::MAX);
+    }
+    let mut sorted = ranges.to_vec();
+    sorted.sort_unstable();
+    let p95 = percentile(&sorted, 95.0);
+    let body: Vec<i64> = sorted.iter().copied().filter(|&v| v <= p95).collect();
+    let jenks = jenks_natural_breaks(&body, 3);
+    let (t1, t2) = if jenks.len() == 2 && jenks_quality_ok(&body, &jenks) {
+        (jenks[0], jenks[1])
+    } else {
+        tercile_thresholds(&body)
+    };
+    (t1, t2, p95)
+}
+
 /// 給与構造クラスタリングのコア関数。
 /// 入力: (lower_salary, upper_salary) ペアのリスト (両方 > 0)
-/// 出力: 最大 9 クラスタ (3×3、件数<5 のセルは省略)
+/// 出力: 最大 12 クラスタ (lower k × range 3、件数<5 のセルは省略)
 ///
-/// Round 21 (2026-05-13): tercile (P33/P66 機械分割) → **Jenks natural breaks** に切替。
-/// 設計メモ §8.2 準拠。データ自身のギャップを境界に使うことで、
-/// 「20万-28万 / 30万-36万 / 45万以上」のような市場の自然な切れ目を発見できる。
-/// クラスタ境界が説明可能 (「24万円と28万円の間にギャップがある」) になる。
+/// Round 22 (2026-05-13): ユーザーレビューを反映:
+/// - Jenks は **lower_salary 軸のみ** に適用 (range は分位点 P33/P66 で十分)
+/// - lower 側の k は n に応じて動的: n<50=分位点、50<=n<150=k=3、150<=n<500=k=4、500+=k=4
+/// - lower 境界が「データの自然な切れ目」になり、説明可能性を保ちつつ精度向上
+/// - SalaryCluster に P60 追加 (設計メモ §10.2「標準より少し強いライン」)
 pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster> {
     if pairs.len() < 9 {
         return Vec::new();
     }
+    let n = pairs.len();
     let lowers: Vec<i64> = pairs.iter().map(|p| p.0).collect();
     let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
 
-    // Jenks で 3 クラスタの境界を取得 (失敗時は tercile にフォールバックされる)
-    let lo_breaks = jenks_natural_breaks(&lowers, 3);
-    let rn_breaks = jenks_natural_breaks(&ranges, 3);
-    let (lo_t1, lo_t2) = (
-        *lo_breaks.first().unwrap_or(&0),
-        *lo_breaks.get(1).unwrap_or(&i64::MAX),
-    );
-    let (rn_t1, rn_t2) = (
-        *rn_breaks.first().unwrap_or(&0),
-        *rn_breaks.get(1).unwrap_or(&i64::MAX),
-    );
-
-    let classify = |v: i64, t1: i64, t2: i64| -> usize {
-        if v < t1 { 0 } else if v < t2 { 1 } else { 2 }
+    // lower 側: n に応じて k を動的決定 + Jenks
+    let lower_k = if n < 50 { 3 } else if n < 150 { 3 } else { 4 };
+    let lo_breaks: Vec<i64> = if n < 50 {
+        // 件数少: 分位点フォールバック
+        let mut sorted = lowers.clone();
+        sorted.sort_unstable();
+        (1..lower_k).map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64)).collect()
+    } else {
+        jenks_natural_breaks(&lowers, lower_k)
     };
 
-    // 3×3 グリッドに集計
-    let mut buckets: [[Vec<i64>; 3]; 3] = Default::default();
+    // Round 22 (2026-05-13) range 側: 異常広レンジ分離 (P95超) + Jenks 採用判定付き
+    // 失敗時は tercile フォールバック。設計メモ「自動判定が良い」準拠。
+    let (rn_t1, rn_t2, rn_extreme) = classify_range_breaks(&ranges);
+    // lower 側も Jenks 採用判定: 採用条件 NG なら分位点 (k 同じ)
+    let lo_breaks: Vec<i64> = if n >= 50 && jenks_quality_ok(&lowers, &lo_breaks) {
+        lo_breaks
+    } else {
+        let mut sorted = lowers.clone();
+        sorted.sort_unstable();
+        (1..lower_k).map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64)).collect()
+    };
+
+    let classify_lower = |v: i64, breaks: &[i64]| -> usize {
+        for (i, &b) in breaks.iter().enumerate() {
+            if v < b {
+                return i;
+            }
+        }
+        breaks.len()
+    };
+    // range 分類: 0=狭、1=通常、2=広、3=異常広 (P95超)
+    let classify_range = |v: i64, t1: i64, t2: i64, ext: i64| -> usize {
+        if v >= ext { 3 } else if v < t1 { 0 } else if v < t2 { 1 } else { 2 }
+    };
+
+    // lower_k × 4 グリッドに集計 (4 = 狭/通常/広/異常広)
+    let mut buckets: Vec<Vec<Vec<i64>>> = (0..lower_k)
+        .map(|_| (0..4).map(|_| Vec::new()).collect())
+        .collect();
     for (i, &low) in lowers.iter().enumerate() {
         let rg = ranges[i];
-        let li = classify(low, lo_t1, lo_t2);
-        let ri = classify(rg, rn_t1, rn_t2);
+        let li = classify_lower(low, &lo_breaks);
+        let ri = classify_range(rg, rn_t1, rn_t2, rn_extreme);
         buckets[li][ri].push(low);
     }
 
-    let lo_names = ["低下限", "中下限", "高下限"];
-    let rn_names = ["狭レンジ", "通常レンジ", "広レンジ"];
+    // lower セグメント名: k=3 なら「低/中/高 下限」、k=4 なら「下限帯1/2/3/4」
+    let lower_seg_name = |i: usize| -> String {
+        if lower_k == 3 {
+            match i {
+                0 => "低下限".to_string(),
+                1 => "中下限".to_string(),
+                _ => "高下限".to_string(),
+            }
+        } else {
+            format!("下限帯{}", i + 1)
+        }
+    };
+    let rn_names = ["狭レンジ", "通常レンジ", "広レンジ", "異常広レンジ"];
 
     let mut clusters: Vec<SalaryCluster> = Vec::new();
-    for li in 0..3 {
-        for ri in 0..3 {
+    for li in 0..lower_k {
+        for ri in 0..4 {
             let vs = &buckets[li][ri];
             if vs.is_empty() {
                 continue;
@@ -573,12 +678,13 @@ pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster
                 0
             };
             clusters.push(SalaryCluster {
-                label: format!("{} × {}", lo_names[li], rn_names[ri]),
-                lower_seg: lo_names[li],
+                label: format!("{} × {}", lower_seg_name(li), rn_names[ri]),
+                lower_seg: lower_seg_name(li),
                 range_seg: rn_names[ri],
                 count,
                 p25: percentile(&sorted, 25.0),
                 p50: percentile(&sorted, 50.0),
+                p60: percentile(&sorted, 60.0),
                 p75: percentile(&sorted, 75.0),
                 p90: percentile(&sorted, 90.0),
                 min: *sorted.first().unwrap_or(&0),
@@ -606,8 +712,9 @@ pub(super) fn build_cluster_table_html(
     let mut s = String::with_capacity(2048);
     s.push_str("<table class=\"data-table cluster-table\">\n");
     s.push_str(
-        "<thead><tr><th>クラスタ</th><th>件数</th><th>P25</th><th>P50 (中央値)</th>\
-         <th>P75 (競争力)</th><th>P90 (高待遇)</th><th>平均</th></tr></thead>\n<tbody>\n",
+        "<thead><tr><th>クラスタ</th><th>件数</th><th>P25</th>\
+         <th>P50 (中央値)</th><th>P60 (標準+)</th><th>P75 (競争力)</th>\
+         <th>P90 (高待遇)</th><th>平均</th></tr></thead>\n<tbody>\n",
     );
     let to_man = |v: i64| -> String {
         let m = v as f64 / 10_000.0;
@@ -616,9 +723,9 @@ pub(super) fn build_cluster_table_html(
     for c in clusters {
         s.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td>{}</td><td><strong>{}</strong></td>\
-             <td>{}</td><td>{}</td><td>{}</td></tr>\n",
+             <td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
             escape_xml_helper(&c.label),
-            c.count, to_man(c.p25), to_man(c.p50),
+            c.count, to_man(c.p25), to_man(c.p50), to_man(c.p60),
             to_man(c.p75), to_man(c.p90), to_man(c.mean),
         ));
     }
@@ -671,37 +778,88 @@ pub(super) fn cluster_so_what_text(
     )
 }
 
-/// Round 21: 上位クラスタごとのヒストグラム (動的 bin width)。
-/// 各クラスタの下限給与配列を取り出し、Freedman-Diaconis rule で bin 幅を決めて描画。
+/// Round 22 (2026-05-13): クラスタ内ヒストグラム表示対象を絞り込み (ユーザーレビュー反映)。
+/// 旧: 上位 N クラスタ (件数降順)
+/// 新: 「顧客最近傍 + 最多 + 高給与×広レンジ」の最大 3 つ (重複除く)
+///
+/// markLine は中央値/平均/最頻値 を残す (build_histogram_svg 既存仕様)。
+/// 適正値 P25/P50/P60/P75/P90 はクラスタテーブルで参照。
 pub(super) fn build_cluster_histograms_svg(
     pairs: &[(i64, i64)],
     clusters: &[SalaryCluster],
-    top_n: usize,
+    customer_median: i64,
 ) -> String {
     if clusters.is_empty() || pairs.is_empty() {
         return String::new();
     }
+    let n = pairs.len();
     let lowers: Vec<i64> = pairs.iter().map(|p| p.0).collect();
     let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
-    let lo_breaks = jenks_natural_breaks(&lowers, 3);
-    let rn_breaks = jenks_natural_breaks(&ranges, 3);
-    let lo_names = ["低下限", "中下限", "高下限"];
-    let rn_names = ["狭レンジ", "通常レンジ", "広レンジ"];
+
+    // compute_salary_clusters と同じ閾値ロジックを再現
+    let lower_k = if n < 50 { 3 } else if n < 150 { 3 } else { 4 };
+    let lo_breaks: Vec<i64> = if n < 50 {
+        let mut sorted = lowers.clone();
+        sorted.sort_unstable();
+        (1..lower_k).map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64)).collect()
+    } else {
+        jenks_natural_breaks(&lowers, lower_k)
+    };
+    let (rn_t1, rn_t2, rn_extreme) = classify_range_breaks(&ranges);
+
+    let classify_lower = |v: i64| -> usize {
+        for (i, &b) in lo_breaks.iter().enumerate() {
+            if v < b { return i; }
+        }
+        lo_breaks.len()
+    };
+    let classify_range = |v: i64| -> usize {
+        if v >= rn_extreme { 3 }
+        else if v < rn_t1 { 0 }
+        else if v < rn_t2 { 1 }
+        else { 2 }
+    };
+
+    // 表示対象 3 クラスタ選定 (重複除く):
+    // (1) 顧客最近傍 (P50 差最小)
+    // (2) 最多件数
+    // (3) 高給与×広レンジ (k=3 なら 高下限×広レンジ、k=4 なら 下限帯4×広レンジ)
+    let mut selected: Vec<&SalaryCluster> = Vec::new();
+    if let Some(c) = nearest_cluster(clusters, customer_median) {
+        selected.push(c);
+    }
+    if let Some(c) = clusters.iter().max_by_key(|c| c.count) {
+        if !selected.iter().any(|s| s.label == c.label) {
+            selected.push(c);
+        }
+    }
+    let high_label_prefix = if lower_k == 3 { "高下限" } else { "下限帯" };
+    if let Some(c) = clusters.iter().find(|c| {
+        c.lower_seg.starts_with(high_label_prefix) && c.range_seg == "広レンジ"
+    }) {
+        if !selected.iter().any(|s| s.label == c.label) {
+            selected.push(c);
+        }
+    }
 
     let mut s = String::new();
-    for (rank, c) in clusters.iter().take(top_n).enumerate() {
-        let lo_idx = lo_names.iter().position(|&n| n == c.lower_seg).unwrap_or(1);
-        let rn_idx = rn_names.iter().position(|&n| n == c.range_seg).unwrap_or(1);
+    for (rank, c) in selected.iter().enumerate() {
+        let target_lower_seg = &c.lower_seg;
+        let target_range_seg = c.range_seg;
         // このクラスタに属する lower_salary 配列を再構築
         let cluster_lowers: Vec<i64> = pairs
             .iter()
             .filter(|p| {
                 let rg = (p.1 - p.0).max(0);
-                let lo_class = if p.0 < *lo_breaks.first().unwrap_or(&0) { 0 }
-                    else if p.0 < *lo_breaks.get(1).unwrap_or(&i64::MAX) { 1 } else { 2 };
-                let rn_class = if rg < *rn_breaks.first().unwrap_or(&0) { 0 }
-                    else if rg < *rn_breaks.get(1).unwrap_or(&i64::MAX) { 1 } else { 2 };
-                lo_class == lo_idx && rn_class == rn_idx
+                let lo_idx = classify_lower(p.0);
+                let rn_idx = classify_range(rg);
+                let lo_seg = if lower_k == 3 {
+                    match lo_idx { 0 => "低下限", 1 => "中下限", _ => "高下限" }.to_string()
+                } else {
+                    format!("下限帯{}", lo_idx + 1)
+                };
+                let rn_seg = match rn_idx { 0 => "狭レンジ", 1 => "通常レンジ", 2 => "広レンジ", _ => "異常広レンジ" };
+                lo_seg == *target_lower_seg && rn_seg == target_range_seg
             })
             .map(|p| p.0)
             .collect();
@@ -709,7 +867,6 @@ pub(super) fn build_cluster_histograms_svg(
             continue;
         }
         let bin_w = freedman_diaconis_bin_width(&cluster_lowers);
-        // クラスタ内 中央値/平均/最頻値
         let mean = if !cluster_lowers.is_empty() {
             Some(cluster_lowers.iter().sum::<i64>() / cluster_lowers.len() as i64)
         } else { None };
@@ -720,10 +877,16 @@ pub(super) fn build_cluster_histograms_svg(
         };
         let mode = compute_mode(&cluster_lowers, bin_w);
         let color = match rank { 0 => "#1565C0", 1 => "#009E73", _ => "#D55E00" };
+        // 役割タグ
+        let role = match rank {
+            0 => "求人群中央値に最近接",
+            1 if selected[0].label != c.label => "件数最多",
+            _ => "高給与×広レンジ (高待遇訴求群)",
+        };
         s.push_str(&format!(
             "<div class=\"salary-chart-block salary-chart-page-start\">\n\
-             <h3>クラスタ「{}」内分布 ({} 件、{} 円刻み)</h3>\n",
-            escape_xml_helper(&c.label), c.count, bin_w,
+             <h3>クラスタ「{}」内分布 ({} 件、{} 円刻み・{})</h3>\n",
+            escape_xml_helper(&c.label), c.count, bin_w, role,
         ));
         s.push_str(&build_histogram_svg(&cluster_lowers, bin_w, color, median, mean, mode));
         s.push_str("</div>\n");
