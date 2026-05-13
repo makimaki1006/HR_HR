@@ -370,6 +370,7 @@ fn k6_population_range_rendering_does_not_panic() {
 
 /// K7: 人口ピラミッド女性 series。
 /// female_count > 0 のデータを与えれば必ず女性 series が出る (= データ問題の逆証明)。
+/// Round 16 (2026-05-13): ECharts → SSR SVG に置換。「女性」凡例 text + 女性色 rect を確認。
 #[test]
 fn k7_pyramid_female_series_present_when_data_exists() {
     let mut ctx = empty_insight_ctx();
@@ -382,8 +383,12 @@ fn k7_pyramid_female_series_present_when_data_exists() {
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);
     assert!(
-        html.contains("\"女性\""),
-        "K7 確認: 女性 series ラベルが JSON に含まれる (実装健全)"
+        html.contains(">女性<"),
+        "K7: SSR SVG 凡例に女性ラベルが必要"
+    );
+    assert!(
+        html.contains("#ec4899"),
+        "K7: 女性色 (#ec4899) rect が必要"
     );
 }
 
@@ -400,11 +405,12 @@ fn k8_pyramid_young_age_bands_render_when_provided() {
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);
+    // Round 16: SSR SVG では <text>0-9</text> 形式で含まれる
     assert!(
-        html.contains("\"0-9\""),
-        "K8 確認: 0-9 階級データがあれば render される"
+        html.contains(">0-9<"),
+        "K8: SSR SVG <text>0-9</text> が必要"
     );
-    assert!(html.contains("\"10-19\""), "K8: 10-19 階級も同様");
+    assert!(html.contains(">10-19<"), "K8: 10-19 階級も SSR SVG <text>");
 }
 
 /// K9: 人口ピラミッド の X 軸 formatter 問題 (Round 14 確定対応)
@@ -666,19 +672,22 @@ fn l5_dominant_pref_muni_none_renders_ok() {
     assert!(html.contains("</html>"));
 }
 
-/// L5-7: pyramid 男性 series の data が負数 (-male) で JSON 注入されている (K9 関連)
+/// L5-7: pyramid で男性 (青) と女性 (ピンク) のバーが両方含まれている
+/// Round 16 (2026-05-13): ECharts data 負数化 → SSR SVG (男性 rect を中央線より左に配置) に変更。
+/// 「男性 data が負数」という ECharts 固有の検査は廃止し、SSR SVG の対称配置を検証する。
 #[test]
-fn l5_pyramid_male_data_is_negated() {
+fn l5_pyramid_male_female_bars_both_present() {
     let mut ctx = empty_insight_ctx();
     ctx.ext_pyramid = vec![pyramid_row("20-29", 100, 80)];
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);
-    // Round 13 (2026-05-13): UTF-8 unsafe な byte slice 廃止。HTML 全体に対し検索する。
     if html.contains("人口ピラミッド") {
+        assert!(html.contains("#3b82f6"), "L5: 男性 rect (青) 必須");
+        assert!(html.contains("#ec4899"), "L5: 女性 rect (ピンク) 必須");
         assert!(
-            html.contains("-100"),
-            "L5-7: 男性 series.data が負数化 (-100 含む)"
+            html.contains("pyramid-ssr"),
+            "L5: SSR SVG コンテナ (.pyramid-ssr) 必須"
         );
     }
 }

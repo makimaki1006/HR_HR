@@ -360,8 +360,140 @@ pub(super) fn render_section_demographics_by_municipality(
 // D-1: 年齢層ピラミッド
 // ============================================================
 
+/// SSR で人口ピラミッド SVG を組み立てる。
+///
+/// ECharts SVG renderer は `emulateMedia('print')` 経路で X 軸 axisLabel `<text>` が
+/// PDF 出力されない (DOM 上には存在するが page.pdf() で描画されない) ことを
+/// 2026-05-13 ローカル page.pdf() 実証で確定。回避策として SVG を Rust 側で
+/// 直接生成し、ブラウザ JS / ECharts の挙動に依存させない。
+///
+/// レイアウト (viewBox 0 0 800 340):
+///   - 左マージン 80, 右マージン 80 (バー領域 80..720, 中心 400)
+///   - 行 1 つあたり 24px、上部マージン 32 (凡例 + 開始)
+///   - 軸ラベル領域は y=288..310
+fn build_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
+    let n = bands.len() as i32;
+    let max_abs: i64 = bands
+        .iter()
+        .map(|(_, m, f)| m.abs().max(f.abs()))
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    // 軸 tick 候補: 7 個 (中心 + 左右 3 個ずつ)。1, 2, 5 × 10^k の "切りのいい数" から選ぶ。
+    let step = nice_step(max_abs);
+    let display_max = step * 3;
+    let center_x = 400;
+    let half_w = 320;
+    let bar_h = 24;
+    let bar_gap = 4;
+    let body_top = 32;
+    let plot_bottom = body_top + n * (bar_h + bar_gap);
+    let axis_y = plot_bottom + 2;
+    let axis_text_y = plot_bottom + 18;
+
+    let mut s = String::with_capacity(2048);
+    s.push_str(
+        "<div class=\"pyramid-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 340\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         aria-label=\"年齢階級別 人口ピラミッド\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+    // 凡例
+    s.push_str(
+        "<g font-size=\"12\">\
+         <rect x=\"340\" y=\"5\" width=\"14\" height=\"12\" fill=\"#3b82f6\"/>\
+         <text x=\"360\" y=\"15\" fill=\"#0f172a\">男性</text>\
+         <rect x=\"410\" y=\"5\" width=\"14\" height=\"12\" fill=\"#ec4899\"/>\
+         <text x=\"430\" y=\"15\" fill=\"#0f172a\">女性</text>\
+         </g>\n",
+    );
+    // バー: 入力 bands は age_group_sort_key で昇順だが、表示は上から高齢 → 若年。
+    // よって逆順で描画する (最後の要素を最上段に)。
+    for (i, (label, male, female)) in bands.iter().rev().enumerate() {
+        let row_y = body_top + (i as i32) * (bar_h + bar_gap);
+        let male_w = ((male.abs() as f64) / (display_max as f64) * (half_w as f64)).round() as i32;
+        let female_w = ((*female as f64) / (display_max as f64) * (half_w as f64)).round() as i32;
+        let male_x = center_x - male_w;
+        let female_x = center_x;
+        s.push_str(&format!(
+            "<g>\
+             <rect x=\"{mx}\" y=\"{ry}\" width=\"{mw}\" height=\"{bh}\" fill=\"#3b82f6\"/>\
+             <rect x=\"{fx}\" y=\"{ry}\" width=\"{fw}\" height=\"{bh}\" fill=\"#ec4899\"/>\
+             <text x=\"78\" y=\"{ty}\" text-anchor=\"end\" font-size=\"11\" fill=\"#6e7079\">{lbl}</text>\
+             </g>\n",
+            mx = male_x, ry = row_y, mw = male_w, bh = bar_h,
+            fx = female_x, fw = female_w,
+            ty = row_y + bar_h / 2 + 4,
+            lbl = escape_xml(label),
+        ));
+    }
+    // 中央 0 線
+    s.push_str(&format!(
+        "<line x1=\"{cx}\" y1=\"{t}\" x2=\"{cx}\" y2=\"{b}\" stroke=\"#94a3b8\" stroke-width=\"1\"/>\n",
+        cx = center_x, t = body_top - 4, b = plot_bottom + 2,
+    ));
+    // X 軸 (横線 + tick + ラベル)。tick は左右 3 つ + 中心 0 の計 7 本。
+    s.push_str(&format!(
+        "<line x1=\"80\" y1=\"{y}\" x2=\"720\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        y = axis_y,
+    ));
+    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"middle\">\n");
+    for k in -3..=3_i32 {
+        let val = step * (k.unsigned_abs() as i64);
+        let x = center_x + k * (half_w / 3);
+        s.push_str(&format!(
+            "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
+             <text x=\"{x}\" y=\"{ty}\">{lbl}</text>\n",
+            x = x, y0 = axis_y, y1 = axis_y + 5, ty = axis_text_y,
+            lbl = format_number_i64(val),
+        ));
+    }
+    s.push_str("</g>\n");
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+/// 1 / 2 / 5 × 10^k から、max_abs/3 を上回る最小の切りのいい数を選ぶ。
+fn nice_step(max_abs: i64) -> i64 {
+    let target = (max_abs as f64) / 3.0;
+    if target <= 0.0 {
+        return 1;
+    }
+    let exp = target.log10().floor();
+    let base = 10_f64.powf(exp);
+    for &m in &[1.0, 2.0, 5.0, 10.0] {
+        if m * base >= target {
+            return (m * base) as i64;
+        }
+    }
+    (10.0 * base) as i64
+}
+
+/// 3 桁区切り (Rust 標準にはないので自作)。
+fn format_number_i64(n: i64) -> String {
+    let s = n.abs().to_string();
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    let len = bytes.len();
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*b as char);
+    }
+    out
+}
+
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 /// 年齢ピラミッドブロックを描画。
-/// 主役は ECharts 横ピラミッド (左=男性 / 右=女性)。下部に「15-64 歳 / 25-44 歳」KPI を表示。
+/// SSR SVG (左=男性 / 右=女性)。下部に「15-64 歳 / 25-44 歳」KPI を表示。
 fn render_pyramid_block(html: &mut String, ctx: &InsightContext) {
     // ext_pyramid から年齢階級別 (label, male, female) を抽出
     let mut bands: Vec<(String, i64, i64)> = ctx
@@ -384,53 +516,10 @@ fn render_pyramid_block(html: &mut String, ctx: &InsightContext) {
 
     render_figure_caption(html, "図 D-1", "年齢階級別 人口ピラミッド (国勢調査ベース)");
 
-    // ECharts 横棒バー (男性: 負数 / 女性: 正数 で左右対称表示)
-    let labels: Vec<&str> = bands.iter().map(|(l, _, _)| l.as_str()).collect();
-    let males: Vec<i64> = bands.iter().map(|(_, m, _)| -m).collect(); // 左側へ
-    let females: Vec<i64> = bands.iter().map(|(_, _, f)| *f).collect();
-
-    let config = json!({
-        "tooltip": {
-            "trigger": "axis",
-            "axisPointer": {"type": "shadow"}
-        },
-        "legend": {"data": ["男性", "女性"], "top": 0},
-        "grid": {"left": "12%", "right": "8%", "top": 30, "bottom": 30, "containLabel": true},
-        // Round 14 (2026-05-13): xAxis.axisLabel.formatter は JS 関数 string を渡しても
-        // ECharts JSON 経由では evaluate されず literal 文字列が描画される (本番 PDF で確認済)。
-        // 男性側を負値で渡している関係で X 軸が「-1000, -500, 0, 500, 1000」表示になる。
-        // 業界標準 (人口ピラミッド) の表示なので注記で「軸目盛は人数の絶対値」と補足する。
-        "xAxis": {
-            "type": "value",
-            "axisLabel": {
-                "fontSize": 9
-            }
-        },
-        "yAxis": {
-            "type": "category",
-            "data": labels,
-            "axisLabel": {"fontSize": 10}
-        },
-        "series": [
-            {
-                "name": "男性",
-                "type": "bar",
-                "data": males,
-                "itemStyle": {"color": "#3b82f6"},
-                "barGap": "-100%",
-                "barCategoryGap": "20%"
-            },
-            {
-                "name": "女性",
-                "type": "bar",
-                "data": females,
-                "itemStyle": {"color": "#ec4899"},
-                "barGap": "-100%",
-                "barCategoryGap": "20%"
-            }
-        ]
-    });
-    html.push_str(&render_echart_div(&config.to_string(), 360));
+    // Round 16 (2026-05-13): ECharts SVG renderer は emulateMedia('print') 経路で
+    // X 軸 axisLabel が PDF 出力されない問題があるため、SSR で SVG を直接生成する。
+    // ローカル page.pdf() で X 軸目盛が確実に描画されることを検証済 (out/echart_local/ssr_pyramid.pdf)。
+    html.push_str(&build_pyramid_svg(&bands));
 
     // Round 12 K17 caller 修正: 説明文も粒度に応じて切替
     let target_band_text = match detect_age_bucket_size(
@@ -892,19 +981,23 @@ mod tests {
         let mut html = String::new();
         render_section_demographics(&mut html, &ctx);
 
-        // 5 歳刻みラベル全てが ECharts JSON 内に含まれる
+        // Round 16 (2026-05-13): ECharts → SSR SVG に置換済。5 歳刻みラベル全てが
+        // <text> 要素として SVG 内に含まれる。
         for label in &["20-24", "25-29", "30-34", "35-39", "40-44"] {
             assert!(
                 html.contains(label),
-                "5 歳刻みラベル {} が ECharts data-chart-config 内に必要",
+                "5 歳刻みラベル {} が SSR SVG 内 <text> として必要",
                 label
             );
         }
-        // ECharts 識別属性
+        // SSR SVG 識別属性 (pyramid-ssr クラス)
         assert!(
-            html.contains("data-chart-config"),
-            "ピラミッドの ECharts data-chart-config が必要"
+            html.contains("pyramid-ssr"),
+            "ピラミッドの SSR SVG (.pyramid-ssr) が必要"
         );
+        // SVG 内に男女系列 (色) が出力されている
+        assert!(html.contains("#3b82f6"), "男性 (青) rect 必須");
+        assert!(html.contains("#ec4899"), "女性 (ピンク) rect 必須");
         // 図表番号
         assert!(html.contains("図 D-1"), "図 D-1 ピラミッドキャプション必須");
         // section 見出し
