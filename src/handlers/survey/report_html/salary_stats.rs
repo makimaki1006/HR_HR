@@ -281,11 +281,13 @@ pub(super) fn render_section_salary_stats(
 
         html.push_str("</div>\n");
 
-        // Round 21 (2026-05-13): 上位 3 クラスタの動的 bin ヒストグラム
-        // Freedman-Diaconis rule で bin 幅自動算出。クラスタ内の分布形 (単峰/多峰) を可視化。
-        let cluster_histograms = build_cluster_histograms_svg(&pairs, &clusters, 3);
-        if !cluster_histograms.is_empty() {
-            html.push_str(&cluster_histograms);
+        // Round 22 (2026-05-13): クラスタ内動的 bin ヒストグラム (顧客最近傍 + 最多 + 高給与×広レンジ)
+        if let Some(customer_median) = distribution_median(salary_min_values) {
+            let cluster_histograms =
+                build_cluster_histograms_svg(&pairs, &clusters, customer_median);
+            if !cluster_histograms.is_empty() {
+                html.push_str(&cluster_histograms);
+            }
         }
     }
 
