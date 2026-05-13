@@ -2302,10 +2302,10 @@ mod ui2_contract_tests {
             html.contains("図 3-2") && html.contains("図 3-3"),
             "下限給与ヒストグラム 図 3-2/3-3 のキャプションが必須"
         );
+        // Round 16: bin_size を 20,000 → 1,000 / 10,000 に変更
         assert!(
-            html.contains("図 3-4")
-                && html.contains("上限月給ヒストグラム（20,000円刻み・縦線=平均/中央値/最頻値）"),
-            "上限給与ヒストグラム 図 3-4 は下限側と同じ凡例説明が必須"
+            html.contains("図 3-4") && html.contains("上限月給ヒストグラム"),
+            "上限給与ヒストグラム 図 3-4 が必須"
         );
         assert!(
             html.matches("salary-chart-block").count() >= 4,
