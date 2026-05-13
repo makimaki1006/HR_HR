@@ -447,10 +447,11 @@ pub(super) fn build_histogram_svg(
     let x_min_yen = *boundaries.first().unwrap();
     let x_max_yen = x_min_yen + (bin_count as i64) * bin_size;
 
+    // Round 19: chart 高さ拡大 (viewBox 380 → 440) で視認性向上 + 1 chart 1 page 化
     let plot_x0 = 60_i32;
     let plot_x1 = 780_i32;
-    let plot_y0 = 50_i32;
-    let plot_y1 = 320_i32;
+    let plot_y0 = 60_i32;
+    let plot_y1 = 380_i32;
     let plot_w = plot_x1 - plot_x0;
     let plot_h = plot_y1 - plot_y0;
 
@@ -473,21 +474,22 @@ pub(super) fn build_histogram_svg(
     let mut s = String::with_capacity(4096);
     s.push_str(
         "<div class=\"histogram-ssr\" style=\"width:100%;\">\n<svg \
-         viewBox=\"0 0 800 380\" preserveAspectRatio=\"xMidYMid meet\" \
+         viewBox=\"0 0 800 440\" preserveAspectRatio=\"xMidYMid meet\" \
          xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
          aria-label=\"給与ヒストグラム\" \
          style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
     );
 
-    // bars
+    // bars (Round 19: bar 最小幅 1.5px を確保し dense でも見える)
     let bin_w = plot_w as f64 / bin_count as f64;
     let bar_gap = (bin_w * 0.08).clamp(0.5, 3.0);
     for (i, &cnt) in counts.iter().enumerate() {
         if cnt == 0 {
             continue;
         }
-        let x = plot_x0 as f64 + (i as f64) * bin_w + bar_gap / 2.0;
-        let w = bin_w - bar_gap;
+        let raw_w = bin_w - bar_gap;
+        let w = raw_w.max(1.5);
+        let x = plot_x0 as f64 + (i as f64) * bin_w + (bin_w - w) / 2.0;
         let y = count_to_y(cnt);
         let h = plot_y1 as f64 - y;
         s.push_str(&format!(
@@ -549,29 +551,44 @@ pub(super) fn build_histogram_svg(
             x = x, y0 = plot_y0 - 5, y1 = plot_y1, c = color,
         ));
     }
-    // 上部 chip ラベル: 3 値の x 座標を計算して、近接していたら横並びで重ならないように配置
-    // (距離が近い場合は左→右で並べる、距離が遠い場合は markLine 直上)
-    s.push_str(
-        "<g font-size=\"11\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n",
-    );
+    // Round 19 (2026-05-13): chip 重なり問題を完全回避するため固定位置 (左/中/右) に並列配置。
+    // 3 chip が x 軸方向に近接する場合に重なって読めない問題への対応。
+    // markLine の縦線は値の位置に残し、chip 自体は chart 上部の決め打ち位置 (header 行)。
+    let mut chips: Vec<(String, &str)> = vec![];
     for (val_opt, name, color) in &stats {
-        let Some(v) = val_opt else { continue };
-        if *v < x_min_yen || *v > x_max_yen {
-            continue;
+        if let Some(v) = val_opt {
+            chips.push((format!("{} {}", name, yen_to_man(*v)), color));
         }
-        let cx = yen_to_x(*v);
-        let text = format!("{} {}", name, yen_to_man(*v));
-        let text_len = text.chars().count();
-        let chip_w = (text_len as f64) * 11.0 + 16.0;
-        // chip を中央軸線の真上に: y=20, height=22
-        let chip_x = (cx - chip_w / 2.0).clamp(plot_x0 as f64, plot_x1 as f64 - chip_w);
-        s.push_str(&format!(
-            "<rect x=\"{cx:.2}\" y=\"22\" width=\"{w:.2}\" height=\"22\" rx=\"4\" fill=\"{c}\"/>\
-             <text x=\"{tx:.2}\" y=\"37\">{txt}</text>\n",
-            cx = chip_x, w = chip_w, c = color, tx = chip_x + chip_w / 2.0, txt = escape_xml_helper(&text),
-        ));
     }
-    s.push_str("</g>\n");
+    if !chips.is_empty() {
+        // 3 個前提でなく、N 個を均等に並べる
+        let n = chips.len();
+        let chip_gap = 8.0;
+        let chip_h = 22.0;
+        let chip_y = 20.0;
+        // 各 chip の幅を文字数から推定
+        let widths: Vec<f64> = chips
+            .iter()
+            .map(|(t, _)| t.chars().count() as f64 * 11.0 + 16.0)
+            .collect();
+        let total_w: f64 = widths.iter().sum::<f64>() + chip_gap * (n as f64 - 1.0);
+        // 中央寄せの x_start
+        let plot_center = (plot_x0 + plot_x1) as f64 / 2.0;
+        let mut x_cursor = plot_center - total_w / 2.0;
+        s.push_str("<g font-size=\"11\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n");
+        for (i, (text, color)) in chips.iter().enumerate() {
+            let w = widths[i];
+            s.push_str(&format!(
+                "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" rx=\"4\" fill=\"{c}\"/>\
+                 <text x=\"{tx:.2}\" y=\"{ty:.2}\">{txt}</text>\n",
+                x = x_cursor, y = chip_y, w = w, h = chip_h, c = color,
+                tx = x_cursor + w / 2.0, ty = chip_y + 15.0,
+                txt = escape_xml_helper(text),
+            ));
+            x_cursor += w + chip_gap;
+        }
+        s.push_str("</g>\n");
+    }
 
     s.push_str("</svg>\n</div>\n");
     s

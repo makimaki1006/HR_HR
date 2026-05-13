@@ -215,20 +215,20 @@ pub(super) fn render_section_salary_stats(
         // dense は外れ値で X 軸が引き伸ばされて bar が点になるため P2.5-P97.5 で trim
         let min_trimmed = trim_outliers_p2_5_p97_5(salary_min_values);
         html.push_str("<div class=\"salary-chart-block\">\n");
-        html.push_str("<h3>下限給与の分布（1,000円刻み・詳細・外れ値除外）</h3>\n");
+        html.push_str("<h3>下限給与の分布（2,000円刻み・詳細・外れ値除外）</h3>\n");
         render_figure_caption(
             html,
             "図 3-2",
-            "下限月給ヒストグラム（1,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
+            "下限月給ヒストグラム（2,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
         );
-        let mode_min_1k = compute_mode(&min_trimmed, 1_000);
+        let mode_min_1k = compute_mode(&min_trimmed, 2_000);
         html.push_str(&build_histogram_svg(
-            &min_trimmed, 1_000, "#42A5F5", min_median, min_mean, mode_min_1k,
+            &min_trimmed, 2_000, "#42A5F5", min_median, min_mean, mode_min_1k,
         ));
         html.push_str("</div>\n");
 
-        // 図 3-3: 下限 給与 概観 (10,000 円刻み)
-        html.push_str("<div class=\"salary-chart-block\">\n");
+        // 図 3-3: 下限 給与 概観 (10,000 円刻み) — Round 19: 改ページで 1 chart 1 page
+        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>下限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
             html,
@@ -240,10 +240,7 @@ pub(super) fn render_section_salary_stats(
             salary_min_values, 10_000, "#42A5F5", min_median, min_mean, mode_min_10k,
         ));
         html.push_str("</div>\n");
-        render_read_hint(
-            html,
-            "1,000円刻みは「ちょうど 25 万円」「20 万円ちょうど」など切り良い設定への偏在を細かく観察し、10,000円刻みは全体傾向の把握に適しています。",
-        );
+        // Round 19: 補足テキスト削減 (ユーザー指摘「補足テキストが沢山あって分からない」)
     }
 
     // 上限給与: 同様に 1,000 円刻み + 10,000 円刻み
@@ -254,20 +251,20 @@ pub(super) fn render_section_salary_stats(
         // 図 3-4: 上限 詳細 (1,000 円刻み・外れ値除外)
         let max_trimmed = trim_outliers_p2_5_p97_5(salary_max_values);
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
-        html.push_str("<h3>上限給与の分布（1,000円刻み・詳細・外れ値除外）</h3>\n");
+        html.push_str("<h3>上限給与の分布（2,000円刻み・詳細・外れ値除外）</h3>\n");
         render_figure_caption(
             html,
             "図 3-4",
-            "上限月給ヒストグラム（1,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
+            "上限月給ヒストグラム（2,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
         );
-        let mode_max_1k = compute_mode(&max_trimmed, 1_000);
+        let mode_max_1k = compute_mode(&max_trimmed, 2_000);
         html.push_str(&build_histogram_svg(
-            &max_trimmed, 1_000, "#66BB6A", max_median, max_mean, mode_max_1k,
+            &max_trimmed, 2_000, "#66BB6A", max_median, max_mean, mode_max_1k,
         ));
         html.push_str("</div>\n");
 
-        // 図 3-5: 上限 概観 (10,000 円刻み)
-        html.push_str("<div class=\"salary-chart-block\">\n");
+        // 図 3-5: 上限 概観 (10,000 円刻み) — Round 19: 改ページで 1 chart 1 page
+        html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>上限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
             html,
