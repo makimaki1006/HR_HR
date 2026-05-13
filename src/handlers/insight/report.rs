@@ -343,19 +343,21 @@ pub(crate) fn generate_chapter_narrative(
             text
         }
         InsightCategory::RegionalCompare => {
-            let inferior = insights
+            // Round 18 (2026-05-13): BtoB レポートの中立表現ルール (memory:
+            // feedback_neutral_expression_for_targets.md) に準拠し「劣位」を中立表現に置換。
+            let attention = insights
                 .iter()
                 .filter(|i| i.severity == Severity::Critical || i.severity == Severity::Warning)
                 .count();
             let mut text = format!(
-                "{}件の地域比較指標のうち、{}件が他地域に対して劣位。",
+                "{}件の地域比較指標のうち、{}件で他地域とのギャップが確認された。",
                 insights.len(),
-                inferior
+                attention
             );
-            if inferior == 0 {
-                text.push_str("地域間比較では概ね良好な位置にある。");
+            if attention == 0 {
+                text.push_str("地域間比較では概ね同水準の位置にある。");
             } else if let Some(top) = insights.first() {
-                text.push_str(&format!("最も改善が必要な指標は「{}」。", top.title));
+                text.push_str(&format!("最も改善余地のある指標は「{}」。", top.title));
             }
             text
         }

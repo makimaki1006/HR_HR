@@ -276,11 +276,11 @@ fn fetch_workstyle(db: &LocalDb, filters: &SessionFilters) -> WorkstyleStats {
     {
         let sql = format!(
             "SELECT CASE \
-               WHEN annual_holidays < 80 THEN '~80日' \
-               WHEN annual_holidays < 100 THEN '80~100日' \
-               WHEN annual_holidays < 110 THEN '100~110日' \
-               WHEN annual_holidays < 120 THEN '110~120日' \
-               WHEN annual_holidays < 130 THEN '120~130日' \
+               WHEN annual_holidays < 80 THEN '〜80日' \
+               WHEN annual_holidays < 100 THEN '80〜100日' \
+               WHEN annual_holidays < 110 THEN '100〜110日' \
+               WHEN annual_holidays < 120 THEN '110〜120日' \
+               WHEN annual_holidays < 130 THEN '120〜130日' \
                ELSE '130日~' \
              END as rng, COUNT(*) as cnt \
              FROM postings WHERE 1=1{filter_clause} AND annual_holidays > 0 \
@@ -630,7 +630,7 @@ fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String 
             "label": {"show": true, "color": "#e2e8f0", "fontSize": 12, "formatter": "{b}\n{d}%"},
             "data": ws_pie_data
         }]
-    }).to_string().replace('\'', "&#39;");
+    }).to_string().replace('\'', "&#x27;");
 
     let salary_cross_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -641,7 +641,7 @@ fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String 
         "series": age_series_data
     })
     .to_string()
-    .replace('\'', "&#39;");
+    .replace('\'', "&#x27;");
 
     let insurance_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}, "formatter": "{b}: {c}%"},
@@ -656,7 +656,7 @@ fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String 
         }]
     })
     .to_string()
-    .replace('\'', "&#39;");
+    .replace('\'', "&#x27;");
 
     let weekly_pie_config = json!({
         "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
@@ -667,7 +667,7 @@ fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String 
         }]
     })
     .to_string()
-    .replace('\'', "&#39;");
+    .replace('\'', "&#x27;");
 
     let holiday_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -680,7 +680,7 @@ fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String 
         }]
     })
     .to_string()
-    .replace('\'', "&#39;");
+    .replace('\'', "&#x27;");
 
     let overtime_config = json!({
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
@@ -694,7 +694,7 @@ fn render_workstyle(filters: &SessionFilters, stats: &WorkstyleStats) -> String 
         }]
     })
     .to_string()
-    .replace('\'', "&#39;");
+    .replace('\'', "&#x27;");
 
     format!(
         r##"<div class="space-y-6">

@@ -110,7 +110,7 @@ pub struct CompanyContext {
     pub hiring_risk_score: f64,
     pub hiring_risk_grade: String,
 
-    // 提案ポイント
+    // 提案%ポイント
     pub sales_pitches: Vec<(String, String)>,
 }
 
@@ -349,7 +349,7 @@ pub fn build_company_context(
     ctx.hiring_risk_score = score;
     ctx.hiring_risk_grade = grade;
 
-    // 提案ポイント生成
+    // 提案%ポイント生成
     ctx.sales_pitches = generate_sales_pitches(&ctx);
 
     Some(ctx)
@@ -1338,7 +1338,7 @@ fn compute_hiring_risk(
     (score, grade.to_string())
 }
 
-/// 提案ポイント生成（最大3つ）
+/// 提案%ポイント生成（最大3つ）
 fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
     let mut pitches = Vec::new();
 
@@ -1352,7 +1352,7 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
                     ctx.sn_industry, ctx.region_industry_net_change, ctx.employee_delta_1y
                 ),
                 format!(
-                    "{}の{}業界{}社の平均成長率は{:.1}%です。御社は地域平均より{:.1}ポイント下回っています。人材確保の強化が競争力維持に重要です。",
+                    "{}の{}業界{}社の平均成長率は{:.1}%です。御社は地域平均より{:.1}%ポイント下回っています。人材確保の強化が競争力維持に重要です。",
                     ctx.prefecture, ctx.sn_industry, ctx.region_industry_company_count,
                     ctx.region_industry_avg_delta, gap
                 ),
@@ -1360,7 +1360,7 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
         } else if ctx.employee_delta_1y > ctx.region_industry_avg_delta + 2.0 {
             pitches.push((
                 format!(
-                    "御社は地域の{}業界平均を{:.1}ポイント上回る成長率です",
+                    "御社は地域の{}業界平均を{:.1}%ポイント上回る成長率です",
                     ctx.sn_industry,
                     ctx.employee_delta_1y - ctx.region_industry_avg_delta
                 ),

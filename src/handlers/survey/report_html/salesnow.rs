@@ -219,7 +219,7 @@ pub(super) fn render_section_company_segments_with_industry(
             // 同業界版 (上位、ピンポイント比較)
             if !segments_industry.is_empty() {
                 html.push_str(&format!(
-                    "<h2 style=\"margin-top:14px;\">第5章 地域企業 ベンチマーク (同業界: {})</h2>\n",
+                    "<h2 style=\"margin-top:14px;\">第5B章 地域企業 ベンチマーク (同業界: {})</h2>\n",
                     escape_html(industry)
                 ));
                 html.push_str(&format!(
@@ -245,7 +245,7 @@ pub(super) fn render_section_company_segments_with_industry(
                 ));
             }
             // 全業界版 (異業種ベンチマーク)
-            html.push_str("<h2 style=\"margin-top:14px;\">第5章 地域企業 ベンチマーク (全業界、異業種ベンチマーク用)</h2>\n");
+            html.push_str("<h2 style=\"margin-top:14px;\">第5B章 地域企業 ベンチマーク (全業界、異業種ベンチマーク用)</h2>\n");
             html.push_str(
                 "<p class=\"section-sowhat\">\u{203B} 業界フィルタを外した地域内企業全体。\
                  異業種からのベンチマーク (採用施策の他業界事例参考) や未経験採用候補の検討に。</p>\n",
@@ -424,7 +424,7 @@ pub(super) fn render_section_company_segments(
     html.push_str(
         "<section class=\"section\" role=\"region\" aria-labelledby=\"region-segments-title\">\n",
     );
-    html.push_str("<h2 id=\"region-segments-title\">第5章 地域企業 ベンチマーク (規模・人員推移・求人動向)</h2>\n");
+    html.push_str("<h2 id=\"region-segments-title\">第5B章 地域企業 ベンチマーク (規模・人員推移・求人動向)</h2>\n");
     html.push_str(
         "<p class=\"section-sowhat\">\
         \u{203B} 地域内の企業を **規模・人員推移・求人動向** の 3 観点で抽出し、それぞれ最大 10 社ずつ提示します。\

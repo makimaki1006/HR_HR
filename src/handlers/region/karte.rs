@@ -879,7 +879,7 @@ fn echart_div(height: u32, config: &Value, aria_label: &str) -> String {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-        .replace('\'', "&#39;");
+        .replace('\'', "&#x27;");
     format!(
         r##"<div class="echart" role="figure" aria-label="{aria}" style="height:{h}px;" data-chart-config='{cfg}'></div>"##,
         aria = escape_html(aria_label),
@@ -1564,7 +1564,7 @@ mod tests {
         let html = echart_div(200, &cfg, "test chart");
         // シングルクォートはエスケープされているべき（属性値のdelim破壊防止）
         assert!(!html.contains("it's"));
-        assert!(html.contains("it&#39;s"));
+        assert!(html.contains("it&#x27;s"));
     }
 
     #[test]

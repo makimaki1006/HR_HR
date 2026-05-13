@@ -339,7 +339,7 @@ fn build_commute_sankey(
             "label": {"color": "#e2e8f0", "fontSize": 10}
         }]
     });
-    config.to_string().replace('\'', "&#39;")
+    config.to_string().replace('\'', "&#x27;")
 }
 
 /// 蝶形ピラミッドECharts JSON生成
@@ -416,7 +416,7 @@ fn build_butterfly_pyramid(zone: &[Row], local: &[Row], muni_name: &str) -> Stri
             }
         ]
     });
-    config.to_string().replace('\'', "&#39;")
+    config.to_string().replace('\'', "&#x27;")
 }
 
 /// KPIカード描画ヘルパ（subtab7 内のみで使用）

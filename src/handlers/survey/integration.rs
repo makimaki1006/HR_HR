@@ -876,7 +876,7 @@ fn render_region_benchmark_radar_section(top3: &[(String, Row)]) -> String {
             "data": series_data,
         }],
     });
-    let cfg_str = config.to_string().replace('\'', "&#39;");
+    let cfg_str = config.to_string().replace('\'', "&#x27;");
 
     write!(
         html,
@@ -1002,7 +1002,7 @@ fn render_municipality_benchmark_radar_section(top3: &[(String, Row, bool)]) -> 
             "data": series_data,
         }],
     });
-    let cfg_str = config.to_string().replace('\'', "&#39;");
+    let cfg_str = config.to_string().replace('\'', "&#x27;");
 
     write!(
         html,

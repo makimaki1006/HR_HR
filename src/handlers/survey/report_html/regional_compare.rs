@@ -1089,8 +1089,8 @@ mod tests {
         let after = &html[start + needle.len()..];
         let end = after.find('\'').expect("ECharts config 終端 が必要");
         let raw = &after[..end];
-        // ' は &#39; にエスケープされている
-        let json_str = raw.replace("&#39;", "'");
+        // ' は &#x27; にエスケープされている
+        let json_str = raw.replace("&#x27;", "'");
         let parsed: Result<Value, _> = serde_json::from_str(&json_str);
         assert!(
             parsed.is_ok(),
