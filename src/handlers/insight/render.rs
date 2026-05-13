@@ -932,7 +932,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     let chapter_questions = [
         "この地域で採用が難しい構造的な原因は何か?",
         "市場はこの先どうなるか? 人材は確保できるか?",
-        "他の地域と比べて優位か劣位か?",
+        "他の地域と比較してどのような差分があるか?",
         "具体的に何をすべきか?",
         "地域の世帯・労働・医療・教育構造はどうなっているか?",
     ];
@@ -1181,7 +1181,7 @@ fn report_kpi(html: &mut String, label: &str, value: &str, color: &str, subtitle
 /// （既存の .report-chart[data-chart-config] 初期化スクリプトで描画される）
 fn render_echarts_div(chart_json: &str, height_px: u32) -> String {
     // data属性内のシングルクオート衝突を回避
-    let escaped = chart_json.replace('\'', "&#39;");
+    let escaped = chart_json.replace('\'', "&#x27;");
     format!(
         r#"<div class="report-chart" style="width:100%;height:{}px;" data-chart-config='{}'></div>"#,
         height_px, escaped

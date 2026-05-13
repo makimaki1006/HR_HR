@@ -788,7 +788,7 @@ fn render_salary_range_chart(agg: &SurveyAggregation) -> String {
         }
     }
 
-    let config_str = chart.to_string().replace('\'', "&#39;");
+    let config_str = chart.to_string().replace('\'', "&#x27;");
 
     // 外れ値除外件数のビジュアル（除外前/後の比較バー）
     let outlier_bar = if agg.outliers_removed_total > 0 && agg.salary_values_raw_count > 0 {
@@ -882,7 +882,7 @@ fn render_employment_type_chart(agg: &SurveyAggregation) -> String {
         }]
     });
 
-    let config_str = chart.to_string().replace('\'', "&#39;");
+    let config_str = chart.to_string().replace('\'', "&#x27;");
 
     // 100% stacked bar (横長の帯) を補助として追加。比率を1次元で直感的に把握できる。
     let total: usize = agg.by_employment_type.iter().map(|(_, v)| *v).sum();
@@ -1069,7 +1069,7 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
         }]
     });
 
-    let config_str = chart.to_string().replace('\'', "&#39;");
+    let config_str = chart.to_string().replace('\'', "&#x27;");
 
     // 補助テーブル（Top 5 + 給与中央値）
     let mut table_html = String::from(
@@ -1155,7 +1155,7 @@ fn render_breakdown_section(agg: &SurveyAggregation) -> String {
             }]
         });
 
-        let config_str = chart.to_string().replace('\'', "&#39;");
+        let config_str = chart.to_string().replace('\'', "&#x27;");
         write!(
             html,
             r#"<div class="bg-slate-900/50 rounded p-3">
@@ -1189,7 +1189,7 @@ fn render_breakdown_section(agg: &SurveyAggregation) -> String {
             }]
         });
 
-        let config_str = chart.to_string().replace('\'', "&#39;");
+        let config_str = chart.to_string().replace('\'', "&#x27;");
         write!(
             html,
             r#"<div class="bg-slate-900/50 rounded p-3">
@@ -1291,7 +1291,7 @@ fn render_job_seeker_section(seeker: &JobSeekerAnalysis) -> String {
                 }]
             });
 
-            let config_str = chart.to_string().replace('\'', "&#39;");
+            let config_str = chart.to_string().replace('\'', "&#x27;");
             write!(
                 html,
                 r#"<div class="bg-slate-900/50 rounded p-3">

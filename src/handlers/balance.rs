@@ -154,12 +154,12 @@ fn fetch_balance(db: &LocalDb, filters: &SessionFilters) -> BalanceStats {
     {
         let sql = format!(
             "SELECT CASE \
-               WHEN employee_count <= 5 THEN '~5人' \
-               WHEN employee_count <= 20 THEN '6~20人' \
-               WHEN employee_count <= 50 THEN '21~50人' \
-               WHEN employee_count <= 100 THEN '51~100人' \
-               WHEN employee_count <= 300 THEN '101~300人' \
-               ELSE '300人~' \
+               WHEN employee_count <= 5 THEN '〜5人' \
+               WHEN employee_count <= 20 THEN '6〜20人' \
+               WHEN employee_count <= 50 THEN '21〜50人' \
+               WHEN employee_count <= 100 THEN '51〜100人' \
+               WHEN employee_count <= 300 THEN '101〜300人' \
+               ELSE '300人〜' \
              END as band, COUNT(*) as cnt \
              FROM postings WHERE 1=1{filter_clause} AND employee_count > 0 \
              GROUP BY band ORDER BY MIN(employee_count)"
@@ -179,12 +179,12 @@ fn fetch_balance(db: &LocalDb, filters: &SessionFilters) -> BalanceStats {
     {
         let sql = format!(
             "SELECT CASE \
-               WHEN capital <= 100 THEN '~100万' \
-               WHEN capital <= 500 THEN '~500万' \
-               WHEN capital <= 1000 THEN '~1000万' \
-               WHEN capital <= 5000 THEN '~5000万' \
+               WHEN capital <= 100 THEN '〜100万' \
+               WHEN capital <= 500 THEN '〜500万' \
+               WHEN capital <= 1000 THEN '〜1000万' \
+               WHEN capital <= 5000 THEN '〜5000万' \
                WHEN capital <= 10000 THEN '~1億' \
-               ELSE '1億~' \
+               ELSE '1億〜' \
              END as band, COUNT(*) as cnt \
              FROM postings WHERE 1=1{filter_clause} AND capital > 0 \
              GROUP BY band ORDER BY MIN(capital)"
@@ -307,12 +307,12 @@ fn fetch_balance(db: &LocalDb, filters: &SessionFilters) -> BalanceStats {
         let sql_cross = format!(
             "SELECT job_type, \
                CASE \
-                 WHEN employee_count <= 5 THEN '~5人' \
-                 WHEN employee_count <= 20 THEN '6~20人' \
-                 WHEN employee_count <= 50 THEN '21~50人' \
-                 WHEN employee_count <= 100 THEN '51~100人' \
-                 WHEN employee_count <= 300 THEN '101~300人' \
-                 ELSE '300人~' \
+                 WHEN employee_count <= 5 THEN '〜5人' \
+                 WHEN employee_count <= 20 THEN '6〜20人' \
+                 WHEN employee_count <= 50 THEN '21〜50人' \
+                 WHEN employee_count <= 100 THEN '51〜100人' \
+                 WHEN employee_count <= 300 THEN '101〜300人' \
+                 ELSE '300人〜' \
                END as band, COUNT(*) as cnt \
              FROM postings WHERE 1=1{filter_clause} AND employee_count > 0 \
              AND job_type IS NOT NULL AND job_type != '' \
@@ -493,7 +493,7 @@ fn build_bar_chart(data: &[(String, i64)], title: &str, color: &str, height: u32
             "label": {"show": true, "position": "top", "color": "#e2e8f0", "fontSize": 11}
         }]
     });
-    let config_str = config.to_string().replace('\'', "&#39;");
+    let config_str = config.to_string().replace('\'', "&#x27;");
 
     format!(
         r#"<div class="echart" role="img" aria-label="{aria_label}" style="height:{height}px;" data-chart-config='{config_str}'></div>"#,
@@ -567,7 +567,7 @@ fn build_industry_size_cross(
         "yAxis": {"type": "category", "data": industry_labels},
         "series": series_values
     });
-    let config_str = config.to_string().replace('\'', "&#39;");
+    let config_str = config.to_string().replace('\'', "&#x27;");
 
     format!(
         r#"<div class="echart" role="img" aria-label="{aria_label}" style="height:400px;" data-chart-config='{config_str}'></div>"#,

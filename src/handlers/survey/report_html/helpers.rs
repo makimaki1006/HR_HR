@@ -131,7 +131,7 @@ pub(super) fn render_range_type_box(html: &mut String, label: &str, count: usize
 /// ECharts divタグを生成（data-chart-config属性付き）
 pub(super) fn render_echart_div(config_json: &str, height: u32) -> String {
     // シングルクォートをHTMLエンティティにエスケープ
-    let escaped = config_json.replace('\'', "&#39;");
+    let escaped = config_json.replace('\'', "&#x27;");
     format!(
         "<div class=\"echart\" style=\"height:{}px;width:100%;\" data-chart-config='{}'></div>\n",
         height, escaped

@@ -580,12 +580,12 @@ fn fetch_overview_stats(
         let sql = format!(
             "SELECT \
                CASE \
-                 WHEN salary_min < 150000 THEN '~15万' \
-                 WHEN salary_min < 200000 THEN '15~20万' \
-                 WHEN salary_min < 250000 THEN '20~25万' \
-                 WHEN salary_min < 300000 THEN '25~30万' \
-                 WHEN salary_min < 350000 THEN '30~35万' \
-                 ELSE '35万~' \
+                 WHEN salary_min < 150000 THEN '〜15万' \
+                 WHEN salary_min < 200000 THEN '15〜20万' \
+                 WHEN salary_min < 250000 THEN '20〜25万' \
+                 WHEN salary_min < 300000 THEN '25〜30万' \
+                 WHEN salary_min < 350000 THEN '30〜35万' \
+                 ELSE '35万〜' \
                END as range_label, \
                COUNT(*) as cnt \
              FROM postings \

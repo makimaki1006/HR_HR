@@ -175,10 +175,10 @@ fn fetch_demographics(
         let sql = format!(
             "SELECT CASE \
                WHEN recruitment_count = 1 THEN '1人' \
-               WHEN recruitment_count <= 3 THEN '2~3人' \
-               WHEN recruitment_count <= 5 THEN '4~5人' \
-               WHEN recruitment_count <= 10 THEN '6~10人' \
-               ELSE '11人~' \
+               WHEN recruitment_count <= 3 THEN '2〜3人' \
+               WHEN recruitment_count <= 5 THEN '4〜5人' \
+               WHEN recruitment_count <= 10 THEN '6〜10人' \
+               ELSE '11人〜' \
              END as rng, COUNT(*) as cnt \
              FROM postings WHERE 1=1{filter_clause} AND recruitment_count > 0 \
              GROUP BY rng ORDER BY MIN(recruitment_count)"
@@ -284,8 +284,8 @@ fn fetch_demographics(
             "SELECT CASE \
                WHEN trial_period IS NULL OR trial_period = '' OR trial_period = '0' THEN 'なし' \
                WHEN trial_period_months <= 1 THEN '1ヶ月以下' \
-               WHEN trial_period_months <= 3 THEN '2~3ヶ月' \
-               WHEN trial_period_months <= 6 THEN '4~6ヶ月' \
+               WHEN trial_period_months <= 3 THEN '2〜3ヶ月' \
+               WHEN trial_period_months <= 6 THEN '4〜6ヶ月' \
                ELSE '6ヶ月超' \
              END as rng, COUNT(*) as cnt \
              FROM postings WHERE 1=1{filter_clause} \

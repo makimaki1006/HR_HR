@@ -1782,7 +1782,7 @@ pub(super) fn render_education_section(data: &[Row], pref: &str) -> String {
         <p class="text-xs text-slate-500 mb-4">就業者・求職者層の学歴構成。採用基準策定や研修計画の参考指標。</p>
         <div class="echart" style="height:220px;" data-chart-config='{chart_config}'></div>"#,
         pref_label = escape_html(pref_label),
-        chart_config = chart_config.replace('\'', "&#39;"),
+        chart_config = chart_config.replace('\'', "&#x27;"),
     ));
 
     // テーブル
@@ -1833,7 +1833,7 @@ pub(super) fn render_household_type_section(data: &[Row], pref: &str) -> String 
         <p class="text-xs text-slate-500 mb-4">世帯類型の分布。単独世帯比率が高い地域では若年・単身向け求人ニーズが高い傾向。</p>
         <div class="echart" style="height:220px;" data-chart-config='{chart_config}'></div>"#,
         pref_label = escape_html(pref_label),
-        chart_config = chart_config.replace('\'', "&#39;"),
+        chart_config = chart_config.replace('\'', "&#x27;"),
     ));
 
     // テーブル
@@ -2061,7 +2061,7 @@ pub(super) fn render_social_life_section(data: &[Row], pref: &str) -> String {
         <p class="text-xs text-slate-500 mb-4">趣味・スポーツ・ボランティア・学習等の行動者率。地域住民の志向性・価値観を把握し、職場文化の設計や福利厚生施策の参考に。</p>
         <div class="echart" style="height:300px;" data-chart-config='{chart_config}'></div>"#,
         pref_label = escape_html(pref_label),
-        chart_config = chart_config.replace('\'', "&#39;"),
+        chart_config = chart_config.replace('\'', "&#x27;"),
     ));
 
     // 詳細テーブル（サブカテゴリあり）
@@ -2196,7 +2196,7 @@ pub(super) fn render_boj_tankan_section(data: &[Row]) -> String {
         <h3 class="text-sm text-slate-400 mb-1">📈 業況判断DI（日銀短観）</h3>
         <p class="text-xs text-slate-500 mb-4">製造業・非製造業の業況DIと雇用人員DIの時系列推移。DIがプラスであれば「良い」超、マイナスは「悪い」超。採用タイミングの判断や競合企業の採用活況を把握する参考指標。</p>
         <div class="echart" style="height:300px;" data-chart-config='{chart_config}'></div>"#,
-        chart_config = chart_config.replace('\'', "&#39;"),
+        chart_config = chart_config.replace('\'', "&#x27;"),
     ));
 
     html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 日銀短観（全国企業短期経済観測調査）日本銀行 ※外部統計データ</p>"#);

@@ -3974,16 +3974,17 @@ mod variant_indicator_tests {
     }
 
     /// Round 2.5: Full では salesnow 章タイトルが表示される (regression 防止)
+    /// Round 18 (2026-05-13): 章番号体系整理。salesnow の 2 セクションを 第5章 / 第5B章 に分離。
     #[test]
     fn full_variant_salesnow_chapter_is_visible() {
         let html = render_for_variant_r25_with_salesnow(ReportVariant::Full);
         assert!(
             html.contains("第5章 地域注目企業"),
-            "Full では第 12 章 (地域注目企業) が表示されるはず"
+            "Full では第5章 (地域注目企業) が表示されるはず"
         );
         assert!(
-            html.contains("第5章 地域企業 ベンチマーク"),
-            "Full では第 12B 章 (地域企業ベンチマーク) が表示されるはず"
+            html.contains("第5B章 地域企業 ベンチマーク"),
+            "Full では第5B章 (地域企業ベンチマーク) が表示されるはず"
         );
     }
 
