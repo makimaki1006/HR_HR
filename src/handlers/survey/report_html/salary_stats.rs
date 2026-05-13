@@ -130,43 +130,8 @@ pub(super) fn render_section_salary_stats(
                 "図 3-1",
                 "給与分布 boxplot（min / Q1 / 中央値 / Q3 / max）+ 補助 IQR シェード",
             );
-            // Round 12 (2026-05-12) K11 修正:
-            // 旧実装は CSS iqr-bar のみで ECharts boxplot を未使用。
-            // boxplot を主表示にして 5 数要約 (min/Q1/中央値/Q3/max) を視覚化。
-            // 既存 iqr-bar は補助シェード (印刷簡易表現) として残置。
-            let to_man = |v: i64| (v as f64) / 10_000.0;
-            let boxplot_config = serde_json::json!({
-                "tooltip": {
-                    "trigger": "item",
-                    "formatter": "function(p){return p.name + '<br/>' + p.value.slice(1).map(function(v,i){return ['min','Q1','中央値','Q3','max'][i] + ': ' + v + '万円';}).join('<br/>');}"
-                },
-                "grid": {"left": "8%", "right": "8%", "top": 24, "bottom": 36, "containLabel": true},
-                "xAxis": {
-                    "type": "value",
-                    "name": "月給 (万円)",
-                    "nameLocation": "middle",
-                    "nameGap": 26,
-                    "axisLabel": {"fontSize": 10}
-                },
-                "yAxis": {
-                    "type": "category",
-                    "data": ["給与レンジ"],
-                    "axisLabel": {"fontSize": 10}
-                },
-                "series": [{
-                    "name": "給与分布",
-                    "type": "boxplot",
-                    "data": [[
-                        to_man(stats.min),
-                        to_man(q.q1),
-                        to_man(stats.median),
-                        to_man(q.q3),
-                        to_man(stats.max),
-                    ]],
-                    "itemStyle": {"color": "#dbeafe", "borderColor": "#1e3a8a", "borderWidth": 2}
-                }]
-            });
-            html.push_str(&render_echart_div(&boxplot_config.to_string(), 160));
+            // Round 17 (2026-05-13): ECharts boxplot → SSR SVG に置換 (print emulate 対応)
+            html.push_str(&build_boxplot_svg(stats.min, q.q1, stats.median, q.q3, stats.max));
 
             html.push_str("<div class=\"iqr-bar\" aria-label=\"四分位範囲シェード (補助)\">\n");
             html.push_str(&format!(

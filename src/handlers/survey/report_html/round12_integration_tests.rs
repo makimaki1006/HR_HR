@@ -490,13 +490,11 @@ fn k11_salary_stats_iqr_is_css_div_not_boxplot_bug_confirmed() {
     let mut html = String::new();
     render_section_salary_stats(&mut html, &agg, &[], &[]);
     let has_iqr_bar = html.contains("iqr-bar");
-    let has_boxplot = html.contains("\"boxplot\"") || html.contains("type:'boxplot'");
-    // iqr-bar が出ないケースもあるため (条件次第) iqr-bar の有無は assert しない。
-    // boxplot 不使用が確定バグの本質。
-    // Round 12 (2026-05-12) K11 修正完了: IQR セクションに ECharts boxplot 追加 (iqr-bar は補助残置)
+    // Round 17 (2026-05-13): ECharts boxplot → SSR SVG (build_boxplot_svg) に置換
+    let has_ssr_boxplot = html.contains("boxplot-ssr");
     assert!(
-        has_boxplot,
-        "K11 修正検証: IQR セクションに ECharts boxplot が必要 (iqr-bar 補助シェード併設、現状 iqr-bar: {})",
+        has_ssr_boxplot,
+        "K11 (Round 17): SSR SVG boxplot (.boxplot-ssr) が必要 (iqr-bar 補助: {})",
         has_iqr_bar
     );
 }

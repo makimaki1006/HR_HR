@@ -63,86 +63,16 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
         return;
     }
 
-    let scatter_data: Vec<serde_json::Value> = filtered_points
+    // Round 17 (2026-05-13): ECharts → SSR SVG。
+    // データ整合性 fix (B-P1-1): 描画 (filtered_points) と回帰線で同じソース (5-200 万円フィルタ後)
+    // を使うため、ローカルで再 regression を計算する。aggregator.regression は時給混入で歪んでいる。
+    let points_yen: Vec<(f64, f64)> = filtered_points
         .iter()
-        .take(200)
-        .map(|p| json!([p.x as f64 / 10_000.0, p.y as f64 / 10_000.0]))
+        .take(500)
+        .map(|p| (p.x as f64, p.y as f64))
         .collect();
-
-    // 軸範囲をパーセンタイル(P2.5〜P97.5)基準で決定、5%マージン
-    let mut x_vals_man: Vec<f64> = filtered_points
-        .iter()
-        .map(|p| p.x as f64 / 10_000.0)
-        .collect();
-    let mut y_vals_man: Vec<f64> = filtered_points
-        .iter()
-        .map(|p| p.y as f64 / 10_000.0)
-        .collect();
-    let (x_axis_min, x_axis_max) = compute_axis_range(&mut x_vals_man);
-    let (y_axis_min, y_axis_max) = compute_axis_range(&mut y_vals_man);
-
-    // 回帰線のmarkLine（2点指定）
-    let mut series_list = vec![json!({
-        "type": "scatter",
-        "data": scatter_data,
-        "symbolSize": 6,
-        "itemStyle": {"color": "rgba(59,130,246,0.5)"}
-    })];
-
-    if let Some(reg) = &agg.regression_min_max {
-        // 回帰線は X 軸の表示範囲全域 [x_axis_min .. x_axis_max] を線形補間で描画。
-        // ECharts が axis 範囲外でクリップするよう Y は計算値そのまま渡す（clamp しない）。
-        let x_min_yen = x_axis_min * 10_000.0;
-        let x_max_yen = x_axis_max * 10_000.0;
-        let y1 = (reg.slope * x_min_yen + reg.intercept) / 10_000.0;
-        let y2 = (reg.slope * x_max_yen + reg.intercept) / 10_000.0;
-
-        series_list.push(json!({
-            "type": "line",
-            "data": [[x_axis_min, y1], [x_axis_max, y2]],
-            "symbol": "none",
-            "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
-            "clip": false,
-            "z": 10,
-            "tooltip": {"show": false}
-        }));
-    }
-
-    let config = json!({
-        "tooltip": {
-            "trigger": "item",
-            "formatter": "下限: {c0}万円"
-        },
-        "xAxis": {
-            "name": "下限（万円）",
-            "nameLocation": "center",
-            "nameGap": 25,
-            "type": "value",
-            "show": true,
-            "min": x_axis_min,
-            "max": x_axis_max,
-            "axisLine": {"show": true},
-            "axisTick": {"show": true},
-            "axisLabel": {"show": true, "fontSize": 9},
-            "splitLine": {"show": true, "lineStyle": {"type": "dashed", "color": "#e5e7eb"}}
-        },
-        "yAxis": {
-            "name": "上限（万円）",
-            "nameLocation": "center",
-            "nameGap": 35,
-            "type": "value",
-            "show": true,
-            "min": y_axis_min,
-            "max": y_axis_max,
-            "axisLine": {"show": true},
-            "axisTick": {"show": true},
-            "axisLabel": {"show": true, "fontSize": 9},
-            "splitLine": {"show": true, "lineStyle": {"type": "dashed", "color": "#e5e7eb"}}
-        },
-        "grid": {"left": "12%", "right": "5%", "bottom": "15%", "top": "5%"},
-        "series": series_list
-    });
-    html.push_str(&render_echart_div(&config.to_string(), 280));
+    let local_regression = compute_simple_regression(&points_yen);
+    html.push_str(&build_scatter_svg(&points_yen, local_regression));
 
     if let Some(reg) = &agg.regression_min_max {
         let strength = if reg.r_squared > 0.7 {

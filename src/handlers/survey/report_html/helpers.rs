@@ -577,8 +577,364 @@ pub(super) fn build_histogram_svg(
     s
 }
 
+/// シンプルな OLS 回帰 (slope, intercept) を返す。
+/// 点数 < 6 または分散ゼロ時は None。
+pub(super) fn compute_simple_regression(points: &[(f64, f64)]) -> Option<(f64, f64)> {
+    if points.len() < 6 {
+        return None;
+    }
+    let n = points.len() as f64;
+    let sx: f64 = points.iter().map(|p| p.0).sum();
+    let sy: f64 = points.iter().map(|p| p.1).sum();
+    let mean_x = sx / n;
+    let mean_y = sy / n;
+    let mut num = 0.0_f64;
+    let mut den = 0.0_f64;
+    for (x, y) in points {
+        let dx = x - mean_x;
+        num += dx * (y - mean_y);
+        den += dx * dx;
+    }
+    if den.abs() < 1e-9 {
+        return None;
+    }
+    let slope = num / den;
+    let intercept = mean_y - slope * mean_x;
+    if slope.is_finite() && intercept.is_finite() {
+        Some((slope, intercept))
+    } else {
+        None
+    }
+}
+
 fn escape_xml_helper(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// 横向き boxplot (5 数要約) を SSR SVG で描画。
+/// 入力は yen 単位。表示は 万円。
+pub(super) fn build_boxplot_svg(min: i64, q1: i64, median: i64, q3: i64, max: i64) -> String {
+    let plot_x0 = 60_f64;
+    let plot_x1 = 760_f64;
+    let plot_y = 90_f64;
+    let box_h = 50_f64;
+    let yen_to_x = |yen: i64| -> f64 {
+        if max <= min { return plot_x0; }
+        let frac = (yen - min) as f64 / (max - min) as f64;
+        plot_x0 + frac * (plot_x1 - plot_x0)
+    };
+    let yen_to_man = |yen: i64| -> String {
+        let man = yen as f64 / 10_000.0;
+        if (man.fract()).abs() < 0.05 { format!("{:.0}万", man) } else { format!("{:.1}万", man) }
+    };
+
+    let x_min = yen_to_x(min);
+    let x_q1 = yen_to_x(q1);
+    let x_med = yen_to_x(median);
+    let x_q3 = yen_to_x(q3);
+    let x_max = yen_to_x(max);
+
+    let mut s = String::with_capacity(2048);
+    s.push_str(
+        "<div class=\"boxplot-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 200\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         aria-label=\"給与 boxplot\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+    // whisker line (min to max horizontal)
+    s.push_str(&format!(
+        "<line x1=\"{:.2}\" y1=\"{:.2}\" x2=\"{:.2}\" y2=\"{:.2}\" stroke=\"#1e3a8a\" stroke-width=\"1.5\"/>\n",
+        x_min, plot_y + box_h / 2.0, x_max, plot_y + box_h / 2.0,
+    ));
+    // min / max whisker caps
+    for x in [x_min, x_max] {
+        s.push_str(&format!(
+            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#1e3a8a\" stroke-width=\"1.5\"/>\n",
+            x = x, y0 = plot_y + 10.0, y1 = plot_y + box_h - 10.0,
+        ));
+    }
+    // box (Q1 .. Q3)
+    s.push_str(&format!(
+        "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#dbeafe\" stroke=\"#1e3a8a\" stroke-width=\"2\"/>\n",
+        x = x_q1, y = plot_y, w = (x_q3 - x_q1).max(2.0), h = box_h,
+    ));
+    // median line
+    s.push_str(&format!(
+        "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#1e3a8a\" stroke-width=\"3\"/>\n",
+        x = x_med, y0 = plot_y, y1 = plot_y + box_h,
+    ));
+
+    // axis line (bottom)
+    s.push_str(&format!(
+        "<line x1=\"{x0:.2}\" y1=\"{y}\" x2=\"{x1:.2}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        x0 = plot_x0, x1 = plot_x1, y = plot_y + box_h + 20.0,
+    ));
+    // 5 数要約 ラベル
+    s.push_str("<g font-size=\"11\" fill=\"#0f172a\" text-anchor=\"middle\">\n");
+    for (x, label, val) in &[
+        (x_min, "min", min), (x_q1, "Q1", q1), (x_med, "中央値", median),
+        (x_q3, "Q3", q3), (x_max, "max", max),
+    ] {
+        s.push_str(&format!(
+            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
+             <text x=\"{x:.2}\" y=\"{ty:.2}\" font-weight=\"bold\">{lbl}</text>\
+             <text x=\"{x:.2}\" y=\"{ty2:.2}\" fill=\"#6e7079\">{v}</text>\n",
+            x = x, y0 = plot_y + box_h, y1 = plot_y + box_h + 20.0,
+            ty = plot_y + box_h + 36.0, ty2 = plot_y + box_h + 52.0,
+            lbl = label, v = yen_to_man(*val),
+        ));
+    }
+    s.push_str("</g>\n");
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+/// ドーナツ / pie chart を SSR SVG で描画。
+/// items: (label, value, color) のリスト。
+pub(super) fn build_donut_svg(items: &[(String, i64, &str)]) -> String {
+    let total: i64 = items.iter().map(|(_, v, _)| *v).sum();
+    if total <= 0 {
+        return String::new();
+    }
+    let cx = 200.0_f64;
+    let cy = 180.0_f64;
+    let r_outer = 120.0_f64;
+    let r_inner = 70.0_f64;
+    let mut s = String::with_capacity(2048);
+    s.push_str(
+        "<div class=\"donut-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 360\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+    // arc paths
+    let mut start_angle = -std::f64::consts::FRAC_PI_2; // 12 時方向開始
+    for (_, val, color) in items.iter() {
+        if *val <= 0 { continue; }
+        let frac = *val as f64 / total as f64;
+        let end_angle = start_angle + frac * 2.0 * std::f64::consts::PI;
+        let large_arc = if frac > 0.5 { 1 } else { 0 };
+        let (sx, sy) = (cx + r_outer * start_angle.cos(), cy + r_outer * start_angle.sin());
+        let (ex, ey) = (cx + r_outer * end_angle.cos(), cy + r_outer * end_angle.sin());
+        let (sx2, sy2) = (cx + r_inner * end_angle.cos(), cy + r_inner * end_angle.sin());
+        let (ex2, ey2) = (cx + r_inner * start_angle.cos(), cy + r_inner * start_angle.sin());
+        s.push_str(&format!(
+            "<path d=\"M {sx:.2} {sy:.2} A {r:.2} {r:.2} 0 {la} 1 {ex:.2} {ey:.2} L {sx2:.2} {sy2:.2} A {ri:.2} {ri:.2} 0 {la} 0 {ex2:.2} {ey2:.2} Z\" fill=\"{c}\"/>\n",
+            sx = sx, sy = sy, r = r_outer, la = large_arc, ex = ex, ey = ey,
+            sx2 = sx2, sy2 = sy2, ri = r_inner, ex2 = ex2, ey2 = ey2, c = color,
+        ));
+        start_angle = end_angle;
+    }
+    // legend (right side)
+    let legend_x = 380.0_f64;
+    let mut legend_y = 60.0_f64;
+    s.push_str("<g font-size=\"12\" fill=\"#0f172a\">\n");
+    for (label, val, color) in items.iter() {
+        if *val <= 0 { continue; }
+        let pct = (*val as f64 / total as f64) * 100.0;
+        s.push_str(&format!(
+            "<rect x=\"{lx:.2}\" y=\"{ly:.2}\" width=\"14\" height=\"14\" fill=\"{c}\"/>\
+             <text x=\"{tx:.2}\" y=\"{ty:.2}\">{lbl} ({v} 件 / {p:.1}%)</text>\n",
+            lx = legend_x, ly = legend_y, c = color,
+            tx = legend_x + 22.0, ty = legend_y + 12.0,
+            lbl = escape_xml_helper(label), v = val, p = pct,
+        ));
+        legend_y += 26.0;
+    }
+    s.push_str("</g>\n");
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+/// 縦棒グラフを SSR SVG で描画。
+/// items: (label, value) のリスト。color は全 bar 共通。
+pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &str) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let max_v = items.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max).max(1.0);
+    let plot_x0 = 80.0_f64;
+    let plot_x1 = 760.0_f64;
+    let plot_y0 = 40.0_f64;
+    let plot_y1 = 280.0_f64;
+    let plot_w = plot_x1 - plot_x0;
+    let plot_h = plot_y1 - plot_y0;
+    let n = items.len();
+    let bar_w = (plot_w / n as f64) * 0.6;
+    let mut s = String::with_capacity(2048);
+    s.push_str(
+        "<div class=\"vbar-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 340\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+    // Y axis grid + label
+    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"end\">\n");
+    for k in 0..=4 {
+        let v = (max_v * k as f64) / 4.0;
+        let y = plot_y1 - (v / max_v) * plot_h;
+        s.push_str(&format!(
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#f1f5f9\" stroke-width=\"0.5\"/>\
+             <text x=\"{tx}\" y=\"{ty:.2}\">{val:.1}{u}</text>\n",
+            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 3.0, val = v, u = y_unit,
+        ));
+    }
+    s.push_str("</g>\n");
+    // X axis
+    s.push_str(&format!(
+        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        x0 = plot_x0, x1 = plot_x1, y = plot_y1,
+    ));
+    // Bars
+    for (i, (label, val)) in items.iter().enumerate() {
+        let cx = plot_x0 + plot_w * (i as f64 + 0.5) / n as f64;
+        let bx = cx - bar_w / 2.0;
+        let bh = (val / max_v) * plot_h;
+        let by = plot_y1 - bh;
+        s.push_str(&format!(
+            "<rect x=\"{bx:.2}\" y=\"{by:.2}\" width=\"{bw:.2}\" height=\"{bh:.2}\" fill=\"{c}\"/>\
+             <text x=\"{tx:.2}\" y=\"{ty:.2}\" font-size=\"11\" fill=\"#0f172a\" text-anchor=\"middle\" font-weight=\"bold\">{v:.1}{u}</text>\
+             <text x=\"{tx:.2}\" y=\"{lty:.2}\" font-size=\"11\" fill=\"#6e7079\" text-anchor=\"middle\">{lbl}</text>\n",
+            bx = bx, by = by, bw = bar_w, bh = bh, c = bar_color,
+            tx = cx, ty = by - 6.0, v = val, u = y_unit,
+            lty = plot_y1 + 18.0, lbl = escape_xml_helper(label),
+        ));
+    }
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+/// 散布図 + 回帰線を SSR SVG で描画。
+/// points: (x, y) yen 単位の生値。
+/// regression: (slope, intercept) — y = slope * x + intercept (yen 単位)
+/// x/y 軸範囲は P2.5-P97.5 で trim してから決定 (外れ値で潰されない)。
+pub(super) fn build_scatter_svg(
+    points: &[(f64, f64)],
+    regression: Option<(f64, f64)>,
+) -> String {
+    if points.is_empty() {
+        return String::new();
+    }
+    let mut xs: Vec<f64> = points.iter().map(|p| p.0).collect();
+    let mut ys: Vec<f64> = points.iter().map(|p| p.1).collect();
+    xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p25 = |v: &[f64]| v.get((v.len() as f64 * 0.025) as usize).copied().unwrap_or(0.0);
+    let p975 = |v: &[f64]| v.get(((v.len() as f64 * 0.975) as usize).min(v.len().saturating_sub(1))).copied().unwrap_or(0.0);
+    let x_lo = p25(&xs);
+    let x_hi = p975(&xs).max(x_lo + 1.0);
+    let y_lo = p25(&ys);
+    let y_hi = p975(&ys).max(y_lo + 1.0);
+
+    let plot_x0 = 70.0_f64;
+    let plot_x1 = 760.0_f64;
+    let plot_y0 = 30.0_f64;
+    let plot_y1 = 280.0_f64;
+
+    let x_to_px = |x: f64| -> f64 { plot_x0 + (x - x_lo) / (x_hi - x_lo) * (plot_x1 - plot_x0) };
+    let y_to_px = |y: f64| -> f64 { plot_y1 - (y - y_lo) / (y_hi - y_lo) * (plot_y1 - plot_y0) };
+
+    let mut s = String::with_capacity(4096);
+    s.push_str(
+        "<div class=\"scatter-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 340\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+    // axes
+    s.push_str(&format!(
+        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
+         <line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        x = plot_x0, x0 = plot_x0, y = plot_y1, x1 = plot_x1, y0 = plot_y0, y1 = plot_y1,
+    ));
+    // y/x ticks (4 each)
+    s.push_str("<g font-size=\"10\" fill=\"#6e7079\">\n");
+    for k in 0..=4 {
+        let yv = y_lo + (y_hi - y_lo) * k as f64 / 4.0;
+        let xv = x_lo + (x_hi - x_lo) * k as f64 / 4.0;
+        let ypx = y_to_px(yv);
+        let xpx = x_to_px(xv);
+        s.push_str(&format!(
+            "<text x=\"{tx}\" y=\"{ty:.2}\" text-anchor=\"end\">{val:.0}万</text>\
+             <text x=\"{xpx:.2}\" y=\"{txy}\" text-anchor=\"middle\">{xval:.0}万</text>\n",
+            tx = plot_x0 - 6.0, ty = ypx + 3.0, val = yv / 10_000.0,
+            xpx = xpx, txy = plot_y1 + 16.0, xval = xv / 10_000.0,
+        ));
+    }
+    s.push_str("</g>\n");
+    // points
+    for (px_yen, py_yen) in points {
+        if *px_yen < x_lo || *px_yen > x_hi || *py_yen < y_lo || *py_yen > y_hi { continue; }
+        let px = x_to_px(*px_yen);
+        let py = y_to_px(*py_yen);
+        s.push_str(&format!(
+            "<circle cx=\"{px:.2}\" cy=\"{py:.2}\" r=\"3\" fill=\"#3b82f6\" fill-opacity=\"0.55\"/>\n",
+            px = px, py = py,
+        ));
+    }
+    // regression line (only within range, computed from trimmed points)
+    if let Some((slope, intercept)) = regression {
+        let y_at_lo = slope * x_lo + intercept;
+        let y_at_hi = slope * x_hi + intercept;
+        if y_at_lo.is_finite() && y_at_hi.is_finite() {
+            let x1px = x_to_px(x_lo);
+            let y1px = y_to_px(y_at_lo.clamp(y_lo, y_hi));
+            let x2px = x_to_px(x_hi);
+            let y2px = y_to_px(y_at_hi.clamp(y_lo, y_hi));
+            s.push_str(&format!(
+                "<line x1=\"{x1:.2}\" y1=\"{y1:.2}\" x2=\"{x2:.2}\" y2=\"{y2:.2}\" stroke=\"#ef4444\" stroke-width=\"2\" stroke-dasharray=\"6 3\"/>\n",
+                x1 = x1px, y1 = y1px, x2 = x2px, y2 = y2px,
+            ));
+        }
+    }
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+/// 半円ゲージを SSR SVG で描画。value は 0..100。
+pub(super) fn build_gauge_svg(value: f64, label: &str, color: &str) -> String {
+    let v = value.clamp(0.0, 100.0);
+    let cx = 200.0_f64;
+    let cy = 180.0_f64;
+    let r = 130.0_f64;
+    let stroke_w = 24.0_f64;
+    // 半円: 180度 (左) から 0度 (右)。SVG では x 軸正 = 角度 0。
+    // 開始 (左端) → 終了 (角度 = 180 - (v/100)*180 = 180 - 1.8*v)
+    let end_angle_deg = 180.0 - v * 1.8;
+    let end_rad = end_angle_deg.to_radians();
+    let start_x = cx - r;
+    let start_y = cy;
+    let end_x = cx + r * end_rad.cos();
+    let end_y = cy - r * end_rad.sin();
+    let large_arc = if v > 50.0 { 1 } else { 0 };
+
+    let mut s = String::with_capacity(1024);
+    s.push_str(
+        "<div class=\"gauge-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 400 240\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;max-width:400px;\">\n",
+    );
+    // 背景 (full 半円)
+    s.push_str(&format!(
+        "<path d=\"M {sx} {sy} A {r} {r} 0 1 1 {ex} {sy}\" fill=\"none\" stroke=\"#e5e7eb\" stroke-width=\"{w}\" stroke-linecap=\"round\"/>\n",
+        sx = start_x, sy = start_y, r = r, ex = cx + r, w = stroke_w,
+    ));
+    // 値 arc
+    s.push_str(&format!(
+        "<path d=\"M {sx} {sy} A {r} {r} 0 {la} 1 {ex:.2} {ey:.2}\" fill=\"none\" stroke=\"{c}\" stroke-width=\"{w}\" stroke-linecap=\"round\"/>\n",
+        sx = start_x, sy = start_y, r = r, la = large_arc, ex = end_x, ey = end_y, c = color, w = stroke_w,
+    ));
+    // 中央 値表示
+    s.push_str(&format!(
+        "<text x=\"{cx}\" y=\"{cy}\" text-anchor=\"middle\" font-size=\"42\" font-weight=\"bold\" fill=\"#0f172a\">{v:.0}</text>\
+         <text x=\"{cx}\" y=\"{cy2}\" text-anchor=\"middle\" font-size=\"12\" fill=\"#6e7079\">/100</text>\
+         <text x=\"{cx}\" y=\"{cy3}\" text-anchor=\"middle\" font-size=\"14\" fill=\"#0f172a\" font-weight=\"bold\">{lbl}</text>\n",
+        cx = cx, cy = cy - 10.0, cy2 = cy + 8.0, cy3 = cy + 32.0, v = v, lbl = escape_xml_helper(label),
+    ));
+    s.push_str("</svg>\n</div>\n");
+    s
 }
 
 /// 最頻値を計算（ヒストグラム最大カウントのbin中心値を返す）
