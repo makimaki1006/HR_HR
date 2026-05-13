@@ -1243,15 +1243,23 @@ mod tests {
         let mean_pos = positions.get("平均").expect("平均 must exist");
         let mode_pos = positions.get("最頻値").expect("最頻値 must exist");
 
-        // 3つすべての label position が異なる
-        assert_ne!(median_pos, mean_pos, "中央値と平均の position は異なる");
-        assert_ne!(mean_pos, mode_pos, "平均と最頻値の position は異なる");
-        assert_ne!(median_pos, mode_pos, "中央値と最頻値の position は異なる");
+        // Round 15 (2026-05-13): position は 3 値とも "end" (chart 上端外) で統一し、
+        // 重なり回避は distance (6 / 22 / 38) の段差で実現する。
+        assert_eq!(median_pos, "end", "Round 15: position=end 統一");
+        assert_eq!(mean_pos, "end", "Round 15: position=end 統一");
+        assert_eq!(mode_pos, "end", "Round 15: position=end 統一");
 
-        // 期待値: 縦方向に分散（end / insideEndTop / insideEndBottom）
-        assert_eq!(median_pos, "end");
-        assert_eq!(mean_pos, "insideEndTop");
-        assert_eq!(mode_pos, "insideEndBottom");
+        // 段差は distance で実現
+        let mut distances: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        for ml in series {
+            let name = ml["name"].as_str().unwrap().to_string();
+            let d = ml["label"]["distance"].as_i64().expect("distance");
+            distances.insert(name, d);
+        }
+        assert_eq!(distances.get("中央値"), Some(&6));
+        assert_eq!(distances.get("平均"), Some(&22));
+        assert_eq!(distances.get("最頻値"), Some(&38));
     }
 
     /// ラベル文字（中央値 / 平均 / 最頻値）を削除しないことを保証する回帰テスト。
@@ -1937,11 +1945,11 @@ mod tests {
         );
     }
 
-    /// Round 14 (2026-05-13): markLine 縦書きラベル廃止 + graphic 横並び chip box に統一。
-    /// 旧 Round 13 仕様 (markLine label chart 内縦書き表示) は本番 PDF で読みづらく、
-    /// 中央値だけが見やすかったので 3 値全てを中央値と同じ「上部 chip box」に揃える。
+    /// Round 15 (2026-05-13): graphic chip 廃止 + markLine label を 3 値とも
+    /// position="end" + distance 段差 (6/22/38) で chart 上端の外に縦に並べる。
+    /// ユーザー指示: 凡例 (chip) は不要、bar 位置の真上に値ラベル付与で目移動を最小化。
     #[test]
-    fn histogram_marker_labels_rendered_as_top_chip_boxes() {
+    fn histogram_marker_labels_at_end_with_distance_stagger() {
         let labels = vec!["22万".to_string(), "23万".to_string(), "24万".to_string()];
         let values = vec![5, 12, 8];
         let config = build_histogram_echart_config(
@@ -1955,64 +1963,36 @@ mod tests {
         );
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
 
-        // graphic に 3 系列分の chip box (rect + text の組) が出力される
+        // graphic chip は廃止 (空配列)
         let graphic = parsed["graphic"].as_array().expect("graphic は配列");
-        assert!(!graphic.is_empty(), "新仕様: graphic に chip box が出力される");
-        let group = &graphic[0];
-        let children = group["children"]
-            .as_array()
-            .expect("graphic group に children");
-        // 3 系列 × (rect + text) = 6 要素
-        assert_eq!(
-            children.len(),
-            6,
-            "中央値/平均/最頻値 の 3 系列 × (rect + text) = 6 children"
-        );
-        // 3 色が全て含まれることを検証
-        let serialized = serde_json::to_string(&graphic).unwrap();
-        assert!(serialized.contains("#22c55e"), "中央値 緑");
-        assert!(serialized.contains("#ef4444"), "平均 赤");
-        assert!(serialized.contains("#3b82f6"), "最頻値 青");
+        assert!(graphic.is_empty(), "Round 15: graphic chip は廃止");
 
-        // markLine ラベルは全て show=false (縦書きラベル廃止)
+        // markLine ラベルは全て show=true、position=end、distance は 6/22/38 で段差
         let ml = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
-        assert!(!ml.is_empty(), "markLine.data は縦線として残る");
-        for entry in ml {
+        let expected_distances = [(6_i64, "中央値"), (22, "平均"), (38, "最頻値")];
+        assert_eq!(ml.len(), 3, "3 値全ての markLine が並ぶ");
+        for (entry, (dist, name)) in ml.iter().zip(expected_distances.iter()) {
+            assert_eq!(entry["name"].as_str(), Some(*name));
             assert_eq!(
                 entry["label"]["show"].as_bool(),
-                Some(false),
-                "新仕様: markLine label は常に非表示 ({})",
-                entry["name"]
+                Some(true),
+                "Round 15: markLine label.show = true ({})",
+                name
+            );
+            assert_eq!(
+                entry["label"]["position"].as_str(),
+                Some("end"),
+                "Round 15: position=end 統一 ({})",
+                name
+            );
+            assert_eq!(
+                entry["label"]["distance"].as_i64(),
+                Some(*dist),
+                "Round 15: distance 段差 ({} → {})",
+                name,
+                dist
             );
         }
-    }
-
-    /// 値が None の系列は chip box を出さない
-    #[test]
-    fn histogram_chip_skips_none_entries() {
-        let labels = vec!["20万".to_string(), "30万".to_string(), "50万".to_string()];
-        let values = vec![3, 7, 2];
-        // mean のみ Some、median/mode は None
-        let config = build_histogram_echart_config(
-            &labels,
-            &values,
-            "#42A5F5",
-            Some(300_000),
-            None,
-            None,
-            10_000,
-        );
-        let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
-
-        let graphic = parsed["graphic"].as_array().unwrap();
-        assert!(!graphic.is_empty(), "mean があれば graphic は出る");
-        let children = graphic[0]["children"].as_array().unwrap();
-        assert_eq!(children.len(), 2, "1 系列 × (rect + text) = 2 children");
-
-        let s = serde_json::to_string(&graphic).unwrap();
-        assert!(s.contains("#ef4444"), "平均 (赤) のみ");
-        assert!(!s.contains("#22c55e"), "中央値 (緑) は無い");
-        assert!(!s.contains("#3b82f6"), "最頻値 (青) は無い");
     }
 
     /// stats_are_close ヘルパー単体: 境界条件
