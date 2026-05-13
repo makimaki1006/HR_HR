@@ -31,7 +31,18 @@ pub(super) fn render_section_executive_summary(
     hw_context: Option<&InsightContext>,
     variant: ReportVariant,
 ) {
-    html.push_str("<section class=\"section exec-summary\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
+    // Round 24 Push 2: section ラッパに page-navy を併記し navy paper レイアウト適用
+    html.push_str("<section class=\"section exec-summary page-navy\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
+    // Round 24 Push 2: navy page-head (ph-sec / ph-title / ph-rule) を追加。既存
+    // dv2-section-badge / sr-only h2 は互換のため維持。
+    html.push_str(
+        "<div class=\"page-head\">\
+         <div class=\"ph-sec\">SECTION 01</div>\
+         <div class=\"ph-title\">Executive Summary</div>\
+         <div class=\"ph-sub\">3 分で読み切れる全体要旨と優先アクション</div>\
+         <div class=\"ph-rule\" aria-hidden=\"true\"></div>\
+         </div>\n",
+    );
     // B4 (2026-04-27): Design v2 バッジに見出しテキストが含まれているため、
     // 旧 h2 を非表示化 (テスト互換のため要素は残し sr-only でアクセシビリティ確保)。
     render_dv2_section_badge(html, "01", "Executive Summary");
@@ -459,6 +470,19 @@ pub(super) fn render_section_executive_summary(
         </div>\n",
         outlier_note
     ));
+
+    // Round 24 Push 2: 本セクション末尾に navy so-what 帯を追加
+    // ユーザー (採用担当者) が「結局何をすべきか」を 1 行で再認識できるよう、
+    // 上記アクションの方向性 (CSV 全件分析 / 公開統計クロス) を集約。
+    html.push_str(
+        "<div class=\"so-what\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">\
+         本ページの優先アクションは <strong>即対応 → 1 週間 → 後回し可</strong> の順で検討する。\
+         サンプル件数 (n) と給与解析率は <strong>本レポートの信頼区間</strong> に直結するため、\
+         閾値外の指標があれば <strong>第 6 章 注記・出典</strong> で前提を再確認すること。\
+         </div></div>\n",
+    );
 
     html.push_str("</section>\n");
 }
