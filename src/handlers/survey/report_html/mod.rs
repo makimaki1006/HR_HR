@@ -2783,6 +2783,8 @@ mod design_v2_contract_tests {
     #[test]
     fn dv2_section_badge_on_exec_summary() {
         let html = render_minimal();
+        // Round 24 Push 2: navy 化に伴い dv2-section-badge は維持しつつ、
+        // dv2-section-heading は page-head と複合 class になる
         assert!(
             html.contains("class=\"dv2-section-badge\""),
             "dv2-section-badge class が必須"
@@ -2792,8 +2794,8 @@ mod design_v2_contract_tests {
             "Executive Summary の Section 番号「01」が必須"
         );
         assert!(
-            html.contains("class=\"dv2-section-heading\""),
-            "dv2-section-heading ラッパーが必須"
+            html.contains("dv2-section-heading"),
+            "dv2-section-heading 互換クラスが必須"
         );
     }
 

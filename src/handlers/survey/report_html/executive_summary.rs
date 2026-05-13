@@ -33,18 +33,9 @@ pub(super) fn render_section_executive_summary(
 ) {
     // Round 24 Push 2: section ラッパに page-navy を併記し navy paper レイアウト適用
     html.push_str("<section class=\"section exec-summary page-navy\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
-    // Round 24 Push 2: navy page-head (ph-sec / ph-title / ph-rule) を追加。既存
-    // dv2-section-badge / sr-only h2 は互換のため維持。
-    html.push_str(
-        "<div class=\"page-head\">\
-         <div class=\"ph-sec\">SECTION 01</div>\
-         <div class=\"ph-title\">Executive Summary</div>\
-         <div class=\"ph-sub\">3 分で読み切れる全体要旨と優先アクション</div>\
-         <div class=\"ph-rule\" aria-hidden=\"true\"></div>\
-         </div>\n",
-    );
-    // B4 (2026-04-27): Design v2 バッジに見出しテキストが含まれているため、
-    // 旧 h2 を非表示化 (テスト互換のため要素は残し sr-only でアクセシビリティ確保)。
+    // Round 24 Push 2: render_dv2_section_badge が navy .page-head を兼ねるよう改修
+    // 済みのため、独立の page-head 追加は不要。テスト互換用の dv2-section-* class
+    // と navy ph-* class が同時に出力される。
     render_dv2_section_badge(html, "01", "Executive Summary");
     html.push_str("<h2 id=\"exec-sum-title\" class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">Executive Summary</h2>\n");
     html.push_str(&format!(

@@ -114,7 +114,7 @@ pub(super) fn render_stat_box(html: &mut String, label: &str, value: &str) {
 
 pub(super) fn render_range_type_box(html: &mut String, label: &str, count: usize, bg_color: &str) {
     html.push_str(&format!(
-        "<div style=\"background:{};border:1px solid #e0e0e0;border-radius:4px;padding:6px 8px;text-align:center;\">\n",
+        "<div style=\"background:{};border:1px solid #D8D2C4;border-radius:4px;padding:6px 8px;text-align:center;\">\n",
         bg_color
     ));
     html.push_str(&format!(
@@ -992,7 +992,7 @@ pub(super) fn build_cluster_histograms_svg(
             Some(sorted[sorted.len() / 2])
         };
         let mode = compute_mode(&cluster_lowers, bin_w);
-        let color = match rank { 0 => "#1565C0", 1 => "#009E73", _ => "#D55E00" };
+        let color = match rank { 0 => "#0B1E3F", 1 => "#1F6B43", _ => "#B5731C" };
         // 役割タグ
         let role = match rank {
             0 => "求人群中央値に最近接",
@@ -1043,12 +1043,12 @@ pub(super) fn build_cluster_boxplots_svg(clusters: &[SalaryCluster]) -> String {
          style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
     );
     // Y axis (left)
-    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"end\">\n");
+    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">\n");
     for k in 0..=4 {
         let v = all_min + range_y * k / 4;
         let y = yen_to_y(v);
         s.push_str(&format!(
-            "<line x1=\"{x0:.1}\" y1=\"{y:.2}\" x2=\"{x1:.1}\" y2=\"{y:.2}\" stroke=\"#f1f5f9\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x0:.1}\" y1=\"{y:.2}\" x2=\"{x1:.1}\" y2=\"{y:.2}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\
              <text x=\"{tx:.1}\" y=\"{ty:.2}\">{lbl}</text>\n",
             x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 3.0, lbl = to_man(v),
         ));
@@ -1066,23 +1066,23 @@ pub(super) fn build_cluster_boxplots_svg(clusters: &[SalaryCluster]) -> String {
         let y_max = yen_to_y(c.max);
         // whisker
         s.push_str(&format!(
-            "<line x1=\"{cx:.2}\" y1=\"{ymin:.2}\" x2=\"{cx:.2}\" y2=\"{ymax:.2}\" stroke=\"#1e3a8a\" stroke-width=\"1\"/>\n",
+            "<line x1=\"{cx:.2}\" y1=\"{ymin:.2}\" x2=\"{cx:.2}\" y2=\"{ymax:.2}\" stroke=\"#0B1E3F\" stroke-width=\"1\"/>\n",
             cx = cx, ymin = y_min, ymax = y_max,
         ));
         // box
         s.push_str(&format!(
-            "<rect x=\"{bx:.2}\" y=\"{y75:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#dbeafe\" stroke=\"#1e3a8a\" stroke-width=\"1.5\"/>\n",
+            "<rect x=\"{bx:.2}\" y=\"{y75:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
             bx = bx, y75 = y_p75, w = box_w, h = (y_p25 - y_p75).abs().max(2.0),
         ));
         // median line
         s.push_str(&format!(
-            "<line x1=\"{bx:.2}\" y1=\"{y50:.2}\" x2=\"{x2:.2}\" y2=\"{y50:.2}\" stroke=\"#1e3a8a\" stroke-width=\"2.5\"/>\n",
+            "<line x1=\"{bx:.2}\" y1=\"{y50:.2}\" x2=\"{x2:.2}\" y2=\"{y50:.2}\" stroke=\"#0B1E3F\" stroke-width=\"2.5\"/>\n",
             bx = bx, x2 = bx + box_w, y50 = y_p50,
         ));
         // label below
         s.push_str(&format!(
-            "<text x=\"{cx:.2}\" y=\"{ty:.2}\" font-size=\"9\" fill=\"#0f172a\" text-anchor=\"middle\">{lbl}</text>\
-             <text x=\"{cx:.2}\" y=\"{ty2:.2}\" font-size=\"9\" fill=\"#6e7079\" text-anchor=\"middle\">n={n}</text>\n",
+            "<text x=\"{cx:.2}\" y=\"{ty:.2}\" font-size=\"9\" fill=\"#0B1E3F\" text-anchor=\"middle\">{lbl}</text>\
+             <text x=\"{cx:.2}\" y=\"{ty2:.2}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">n={n}</text>\n",
             cx = cx, ty = plot_y1 + 16.0, ty2 = plot_y1 + 30.0, lbl = escape_xml_helper(&c.label), n = c.count,
         ));
     }
@@ -1170,7 +1170,7 @@ pub(super) fn trim_outliers_p2_5_p97_5(values: &[i64]) -> Vec<i64> {
 ///
 /// 引数:
 ///   bin_size_yen: 1_000 (dense) または 10_000 (粗) を想定
-///   bar_color:    "#42A5F5" (下限) / "#66BB6A" (上限) など
+///   bar_color:    "#1F2D4D" (下限) / "#1F6B43" (上限) など
 pub(super) fn build_histogram_svg(
     values: &[i64],
     bin_size: i64,
@@ -1241,16 +1241,16 @@ pub(super) fn build_histogram_svg(
 
     // Y axis (left): 0 と最大件数の中間 4 ticks
     s.push_str(&format!(
-        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#cbd5e1\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#D8D2C4\" stroke-width=\"0.5\"/>\n",
         x = plot_x0, y0 = plot_y0, y1 = plot_y1,
     ));
     let y_ticks = 4;
-    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"end\">\n");
+    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">\n");
     for k in 0..=y_ticks {
         let cnt_val = (max_count * k) / y_ticks;
         let y = count_to_y(cnt_val);
         s.push_str(&format!(
-            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#f1f5f9\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\
              <text x=\"{tx}\" y=\"{ty:.2}\">{c}</text>\n",
             x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6, ty = y + 3.0, c = cnt_val,
         ));
@@ -1260,15 +1260,15 @@ pub(super) fn build_histogram_svg(
     // X axis (bottom): bin 数に応じて tick 数を 6-10 に
     let target_ticks = if bin_count <= 12 { bin_count } else { 8 };
     s.push_str(&format!(
-        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
         x0 = plot_x0, x1 = plot_x1, y = plot_y1,
     ));
-    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"middle\">\n");
+    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">\n");
     for k in 0..=target_ticks {
         let yen = x_min_yen + ((x_max_yen - x_min_yen) * k as i64) / (target_ticks.max(1) as i64);
         let x = yen_to_x(yen);
         s.push_str(&format!(
-            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
              <text x=\"{x:.2}\" y=\"{ty}\">{lbl}</text>\n",
             x = x, y0 = plot_y1, y1 = plot_y1 + 5, ty = plot_y1 + 18, lbl = yen_to_man(yen),
         ));
@@ -1402,42 +1402,42 @@ pub(super) fn build_boxplot_svg(min: i64, q1: i64, median: i64, q3: i64, max: i6
     );
     // whisker line (min to max horizontal)
     s.push_str(&format!(
-        "<line x1=\"{:.2}\" y1=\"{:.2}\" x2=\"{:.2}\" y2=\"{:.2}\" stroke=\"#1e3a8a\" stroke-width=\"1.5\"/>\n",
+        "<line x1=\"{:.2}\" y1=\"{:.2}\" x2=\"{:.2}\" y2=\"{:.2}\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
         x_min, plot_y + box_h / 2.0, x_max, plot_y + box_h / 2.0,
     ));
     // min / max whisker caps
     for x in [x_min, x_max] {
         s.push_str(&format!(
-            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#1e3a8a\" stroke-width=\"1.5\"/>\n",
+            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
             x = x, y0 = plot_y + 10.0, y1 = plot_y + box_h - 10.0,
         ));
     }
     // box (Q1 .. Q3)
     s.push_str(&format!(
-        "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#dbeafe\" stroke=\"#1e3a8a\" stroke-width=\"2\"/>\n",
+        "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"2\"/>\n",
         x = x_q1, y = plot_y, w = (x_q3 - x_q1).max(2.0), h = box_h,
     ));
     // median line
     s.push_str(&format!(
-        "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#1e3a8a\" stroke-width=\"3\"/>\n",
+        "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#0B1E3F\" stroke-width=\"3\"/>\n",
         x = x_med, y0 = plot_y, y1 = plot_y + box_h,
     ));
 
     // axis line (bottom)
     s.push_str(&format!(
-        "<line x1=\"{x0:.2}\" y1=\"{y}\" x2=\"{x1:.2}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x0:.2}\" y1=\"{y}\" x2=\"{x1:.2}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
         x0 = plot_x0, x1 = plot_x1, y = plot_y + box_h + 20.0,
     ));
     // 5 数要約 ラベル
-    s.push_str("<g font-size=\"11\" fill=\"#0f172a\" text-anchor=\"middle\">\n");
+    s.push_str("<g font-size=\"11\" fill=\"#0B1E3F\" text-anchor=\"middle\">\n");
     for (x, label, val) in &[
         (x_min, "min", min), (x_q1, "Q1", q1), (x_med, "中央値", median),
         (x_q3, "Q3", q3), (x_max, "max", max),
     ] {
         s.push_str(&format!(
-            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
              <text x=\"{x:.2}\" y=\"{ty:.2}\" font-weight=\"bold\">{lbl}</text>\
-             <text x=\"{x:.2}\" y=\"{ty2:.2}\" fill=\"#6e7079\">{v}</text>\n",
+             <text x=\"{x:.2}\" y=\"{ty2:.2}\" fill=\"#6A6E7A\">{v}</text>\n",
             x = x, y0 = plot_y + box_h, y1 = plot_y + box_h + 20.0,
             ty = plot_y + box_h + 36.0, ty2 = plot_y + box_h + 52.0,
             lbl = label, v = yen_to_man(*val),
@@ -1487,7 +1487,7 @@ pub(super) fn build_donut_svg(items: &[(String, i64, &str)]) -> String {
     // legend (right side)
     let legend_x = 380.0_f64;
     let mut legend_y = 60.0_f64;
-    s.push_str("<g font-size=\"12\" fill=\"#0f172a\">\n");
+    s.push_str("<g font-size=\"12\" fill=\"#0B1E3F\">\n");
     for (label, val, color) in items.iter() {
         if *val <= 0 { continue; }
         let pct = (*val as f64 / total as f64) * 100.0;
@@ -1528,12 +1528,12 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
          style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
     );
     // Y axis grid + label
-    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"end\">\n");
+    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">\n");
     for k in 0..=4 {
         let v = (max_v * k as f64) / 4.0;
         let y = plot_y1 - (v / max_v) * plot_h;
         s.push_str(&format!(
-            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#f1f5f9\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\
              <text x=\"{tx}\" y=\"{ty:.2}\">{val:.1}{u}</text>\n",
             x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 3.0, val = v, u = y_unit,
         ));
@@ -1541,7 +1541,7 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
     s.push_str("</g>\n");
     // X axis
     s.push_str(&format!(
-        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
         x0 = plot_x0, x1 = plot_x1, y = plot_y1,
     ));
     // Bars
@@ -1552,8 +1552,8 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
         let by = plot_y1 - bh;
         s.push_str(&format!(
             "<rect x=\"{bx:.2}\" y=\"{by:.2}\" width=\"{bw:.2}\" height=\"{bh:.2}\" fill=\"{c}\"/>\
-             <text x=\"{tx:.2}\" y=\"{ty:.2}\" font-size=\"11\" fill=\"#0f172a\" text-anchor=\"middle\" font-weight=\"bold\">{v:.1}{u}</text>\
-             <text x=\"{tx:.2}\" y=\"{lty:.2}\" font-size=\"11\" fill=\"#6e7079\" text-anchor=\"middle\">{lbl}</text>\n",
+             <text x=\"{tx:.2}\" y=\"{ty:.2}\" font-size=\"11\" fill=\"#0B1E3F\" text-anchor=\"middle\" font-weight=\"bold\">{v:.1}{u}</text>\
+             <text x=\"{tx:.2}\" y=\"{lty:.2}\" font-size=\"11\" fill=\"#6A6E7A\" text-anchor=\"middle\">{lbl}</text>\n",
             bx = bx, by = by, bw = bar_w, bh = bh, c = bar_color,
             tx = cx, ty = by - 6.0, v = val, u = y_unit,
             lty = plot_y1 + 18.0, lbl = escape_xml_helper(label),
@@ -1602,12 +1602,12 @@ pub(super) fn build_scatter_svg(
     );
     // axes
     s.push_str(&format!(
-        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
-         <line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
+         <line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
         x = plot_x0, x0 = plot_x0, y = plot_y1, x1 = plot_x1, y0 = plot_y0, y1 = plot_y1,
     ));
     // y/x ticks (4 each)
-    s.push_str("<g font-size=\"10\" fill=\"#6e7079\">\n");
+    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\">\n");
     for k in 0..=4 {
         let yv = y_lo + (y_hi - y_lo) * k as f64 / 4.0;
         let xv = x_lo + (x_hi - x_lo) * k as f64 / 4.0;
@@ -1686,9 +1686,9 @@ pub(super) fn build_gauge_svg(value: f64, label: &str, color: &str) -> String {
     ));
     // 中央 値表示
     s.push_str(&format!(
-        "<text x=\"{cx}\" y=\"{cy}\" text-anchor=\"middle\" font-size=\"42\" font-weight=\"bold\" fill=\"#0f172a\">{v:.0}</text>\
-         <text x=\"{cx}\" y=\"{cy2}\" text-anchor=\"middle\" font-size=\"12\" fill=\"#6e7079\">/100</text>\
-         <text x=\"{cx}\" y=\"{cy3}\" text-anchor=\"middle\" font-size=\"14\" fill=\"#0f172a\" font-weight=\"bold\">{lbl}</text>\n",
+        "<text x=\"{cx}\" y=\"{cy}\" text-anchor=\"middle\" font-size=\"42\" font-weight=\"bold\" fill=\"#0B1E3F\">{v:.0}</text>\
+         <text x=\"{cx}\" y=\"{cy2}\" text-anchor=\"middle\" font-size=\"12\" fill=\"#6A6E7A\">/100</text>\
+         <text x=\"{cx}\" y=\"{cy3}\" text-anchor=\"middle\" font-size=\"14\" fill=\"#0B1E3F\" font-weight=\"bold\">{lbl}</text>\n",
         cx = cx, cy = cy - 10.0, cy2 = cy + 8.0, cy3 = cy + 32.0, v = v, lbl = escape_xml_helper(label),
     ));
     s.push_str("</svg>\n</div>\n");
@@ -2038,11 +2038,17 @@ role=\"img\" aria-label=\"{aria} ({action})\">\
 /// 例: `render_dv2_section_badge(html, "01", "Executive Summary")`
 /// → `<div class="dv2-section-heading"><span class="dv2-section-badge">01</span>...`
 pub(super) fn render_dv2_section_badge(html: &mut String, num: &str, title: &str) {
+    // Round 24 Push 2: navy .page-head + .ph-sec / .ph-title / .ph-rule を併記し、
+    // 既存 dv2-section-heading / dv2-section-badge / dv2-section-heading-title
+    // クラスも保持してテスト互換性を維持する。これにより
+    // 各 section (Executive Summary 除く) の見出しが一括 navy 化される。
     html.push_str(&format!(
-        "<div class=\"dv2-section-heading\">\
-<span class=\"dv2-section-badge\" aria-hidden=\"true\">{}</span>\
-<span class=\"dv2-section-heading-title\">{}</span>\
+        "<div class=\"dv2-section-heading page-head\">\
+<div class=\"ph-sec\"><span class=\"dv2-section-badge\" aria-hidden=\"true\">{}</span>&nbsp; SECTION {}</div>\
+<div class=\"ph-title dv2-section-heading-title\">{}</div>\
+<div class=\"ph-rule\" aria-hidden=\"true\"></div>\
 </div>\n",
+        escape_html(num),
         escape_html(num),
         escape_html(title)
     ));
@@ -2567,7 +2573,7 @@ mod ui3_helpers_tests {
         let config = build_histogram_echart_config(
             &labels,
             &values,
-            "#42A5F5",
+            "#1F2D4D",
             Some(250_000),
             Some(260_000),
             Some(270_000),
