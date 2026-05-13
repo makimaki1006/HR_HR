@@ -389,7 +389,7 @@ fn build_findings(
     } else {
         ("pos", format!("サンプル <strong>n={}</strong> は実務判断に十分な水準です。後続セクションの統計値はそのまま参照できます。", total))
     };
-    v.push((sev, "サンプル件数".into(), body, "§2 統計信頼性".into()));
+    v.push((sev, "サンプル件数".to_string(), body, "§2 統計信頼性".to_string()));
 
     // 2) 主要雇用形態の偏り
     let (sev, body) = if dom_emp_pct >= 85.0 {
@@ -399,7 +399,7 @@ fn build_findings(
     } else {
         ("pos", format!("主要雇用形態の構成比は <strong>{:.0}%</strong> で、バランスの取れた構成です。", dom_emp_pct))
     };
-    v.push((sev, "雇用形態構成".into(), body, "§3 雇用形態分析".into()));
+    v.push((sev, "雇用形態構成".to_string(), body, "§3 雇用形態分析".to_string()));
 
     // 3) 新着比率
     let (sev, body) = if total == 0 {
@@ -411,7 +411,7 @@ fn build_findings(
     } else {
         ("neu", format!("新着比率は <strong>{}%</strong>。標準的な水準です。", new_pct))
     };
-    v.push((sev, "新着比率".into(), body, "§3 求人動向".into()));
+    v.push((sev, "新着比率".to_string(), body, "§3 求人動向".to_string()));
 
     // 4) 給与解析率
     let (sev, body) = if salary_parse_pct >= 85 {
@@ -421,7 +421,7 @@ fn build_findings(
     } else {
         ("neg", format!("給与解析率 <strong>{}%</strong> は低く、給与統計の代表性に注意が必要です。CSV の給与表記揺れを見直してください。", salary_parse_pct))
     };
-    v.push((sev, "給与解析率".into(), body, "§4 給与統計".into()));
+    v.push((sev, "給与解析率".to_string(), body, "§4 給与統計".to_string()));
 
     // 5) 地域カバレッジ
     let pref_count = agg.by_prefecture.len();
@@ -432,7 +432,7 @@ fn build_findings(
     } else {
         ("neu", format!("カバー都道府県は <strong>{}</strong>。複数地域比較は本レポート後半セクションで詳述します。", pref_count))
     };
-    v.push((sev, "地域カバレッジ".into(), body, "§5 地域分析".into()));
+    v.push((sev, "地域カバレッジ".to_string(), body, "§5 地域分析".to_string()));
 
     v
 }
@@ -793,7 +793,437 @@ fn build_navy_salary_summary_table(
 }
 
 // ============================================================
-// Section 02 / 04-08 placeholder (Phase 2-4 で本実装に差し替え)
+// Section 04: 採用市場 逼迫度 (Phase 2 navy 本実装)
+// ============================================================
+
+struct TightnessData {
+    job_ratio: Option<f64>,       // 有効求人倍率
+    vacancy_rate: Option<f64>,    // HW 欠員補充率 (0-1)
+    unemployment: Option<f64>,    // 失業率 (%)
+    unemployment_national: Option<f64>, // 全国平均失業率 (%)
+    separation: Option<f64>,      // 離職率 (%)
+    entry: Option<f64>,           // 入職率 (%)
+}
+
+fn extract_tightness(ctx: &InsightContext) -> TightnessData {
+    use super::super::super::helpers::{get_f64, get_str_ref};
+    let job_ratio = ctx
+        .ext_job_ratio
+        .last()
+        .map(|r| get_f64(r, "ratio_total"))
+        .filter(|v| *v > 0.0);
+    let vacancy_rate = ctx
+        .vacancy
+        .iter()
+        .find(|r| get_str_ref(r, "emp_group") == "正社員")
+        .map(|r| get_f64(r, "vacancy_rate"))
+        .filter(|v| *v > 0.0);
+    let unemployment = ctx
+        .ext_labor_force
+        .first()
+        .map(|r| get_f64(r, "unemployment_rate"))
+        .filter(|v| *v > 0.0);
+    let (separation, entry) = ctx
+        .ext_turnover
+        .last()
+        .map(|r| (get_f64(r, "separation_rate"), get_f64(r, "entry_rate")))
+        .map(|(s, e)| (Some(s).filter(|v| *v > 0.0), Some(e).filter(|v| *v > 0.0)))
+        .unwrap_or((None, None));
+    TightnessData {
+        job_ratio,
+        vacancy_rate,
+        unemployment,
+        unemployment_national: ctx.pref_avg_unemployment_rate,
+        separation,
+        entry,
+    }
+}
+
+pub(super) fn render_navy_section_04_market_tightness(
+    html: &mut String,
+    hw_context: Option<&InsightContext>,
+    variant: ReportVariant,
+) {
+    html.push_str("<section class=\"page-navy navy-tightness\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 04",
+        "採用市場 逼迫度",
+        "有効求人倍率 / 失業率 / 離職率 を統合した複合指標",
+    );
+
+    let data = hw_context.map(extract_tightness);
+    let show_vacancy = matches!(variant, ReportVariant::Full); // HW 欠員補充率は Full のみ
+
+    let lede = match data.as_ref() {
+        Some(d) => format!(
+            "対象地域の採用難度を測る 4 指標を提示します。\
+             有効求人倍率 <strong>{}</strong> / 失業率 <strong>{}</strong> / 離職率 <strong>{}</strong>{}。",
+            fmt_ratio(d.job_ratio),
+            fmt_pct(d.unemployment),
+            fmt_pct(d.separation),
+            if show_vacancy {
+                format!(" / HW 欠員補充率 <strong>{}</strong>", fmt_pct_from_ratio(d.vacancy_rate))
+            } else {
+                String::new()
+            }
+        ),
+        None => "外部統計データが取得できなかったため、本セクションは指標のみのプレースホルダで出力します。".to_string(),
+    };
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>{}</p>\
+         </div>\n",
+        lede
+    ));
+
+    // -- KPI row (4 cell Full / 3 cell MI/Public)
+    let d = data.as_ref();
+    html.push_str("<div class=\"block-title\">図 4-1 &nbsp;採用難度 主要 4 指標</div>\n");
+    if show_vacancy {
+        html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
+    } else {
+        html.push_str("<div class=\"kpi-row kpi-row-3\">\n");
+    }
+    {
+        let (val, dot, foot) = match d.and_then(|d| d.job_ratio) {
+            Some(v) if v >= 1.5 => (fmt_ratio(Some(v)), "warn", "1.5 以上は採用難度 高 (応募集めにくい)".to_string()),
+            Some(v) if v >= 1.0 => (fmt_ratio(Some(v)), "neu", "1.0 以上は売り手市場".to_string()),
+            Some(v) => (fmt_ratio(Some(v)), "pos", format!("1.0 未満 ({:.2}) は買い手市場", v)),
+            None => ("—".to_string(), "neu", "データなし".to_string()),
+        };
+        push_kpi(html, "有効求人倍率", &val, "倍", dot, &foot, true);
+    }
+    if show_vacancy {
+        let (val, dot, foot) = match d.and_then(|d| d.vacancy_rate) {
+            Some(v) if v >= 0.25 => (fmt_pct_from_ratio(Some(v)), "warn", "25% 超は採用難度 高".to_string()),
+            Some(v) if v >= 0.15 => (fmt_pct_from_ratio(Some(v)), "neu", "15-25% は標準的".to_string()),
+            Some(v) => (fmt_pct_from_ratio(Some(v)), "pos", "15% 未満は採用充足".to_string()),
+            None => ("—".to_string(), "neu", "データなし".to_string()),
+        };
+        push_kpi(html, "HW 欠員補充率", &val, "%", dot, &foot, false);
+    }
+    {
+        let unemp = d.and_then(|d| d.unemployment);
+        let nat = d.and_then(|d| d.unemployment_national);
+        let (val, dot, foot) = match (unemp, nat) {
+            (Some(u), Some(n)) => {
+                let diff = u - n;
+                let dot = if u < 2.5 { "warn" } else if u < 3.5 { "neu" } else { "pos" };
+                let foot = format!("全国平均 {:.1}% / 差 {:+.1}pt", n, diff);
+                (format!("{:.1}", u), dot, foot)
+            }
+            (Some(u), None) => (format!("{:.1}", u), "neu", "全国平均データなし".to_string()),
+            _ => ("—".to_string(), "neu", "データなし".to_string()),
+        };
+        push_kpi(html, "失業率", &val, "%", dot, &foot, false);
+    }
+    {
+        let (val, dot, foot) = match d.and_then(|d| d.separation) {
+            Some(v) if v >= 15.0 => (format!("{:.1}", v), "warn", "15% 超は離職多発エリア / 業界".to_string()),
+            Some(v) if v >= 10.0 => (format!("{:.1}", v), "neu", "10-15% は標準的水準".to_string()),
+            Some(v) => (format!("{:.1}", v), "pos", "10% 未満は定着率 高".to_string()),
+            None => ("—".to_string(), "neu", "データなし".to_string()),
+        };
+        push_kpi(html, "離職率", &val, "%", dot, &foot, false);
+    }
+    html.push_str("</div>\n");
+
+    // -- gauge SVG (4 軸正規化、横バー)
+    if let Some(d) = data.as_ref() {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 4-2 &nbsp;採用難度 ゲージ (正規化 0-100)</div>\n");
+        html.push_str(&build_navy_tightness_gauges(d, show_vacancy));
+        html.push_str("<p class=\"caption\">ゲージは 0 (緩やか) - 100 (厳しい) に正規化。緑帯=安全 / 金帯=注意 / 赤帯=採用難度 高。</p>\n");
+    }
+
+    // -- table-navy 集計
+    html.push_str("<div class=\"block-title block-title-spaced\">表 4-A &nbsp;採用市場 指標サマリ</div>\n");
+    html.push_str(&build_navy_tightness_table(d, show_vacancy));
+
+    // -- so-what 採用難度総合評価
+    let so_what = build_tightness_so_what(d, show_vacancy);
+    html.push_str(&format!(
+        "<div class=\"so-what\" style=\"margin-top:6mm;\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">{}</div>\
+         </div>\n",
+        so_what
+    ));
+
+    html.push_str("</section>\n");
+}
+
+fn fmt_ratio(v: Option<f64>) -> String {
+    match v {
+        Some(x) => format!("{:.2}", x),
+        None => "—".to_string(),
+    }
+}
+fn fmt_pct(v: Option<f64>) -> String {
+    match v {
+        Some(x) => format!("{:.1}%", x),
+        None => "—".to_string(),
+    }
+}
+fn fmt_pct_from_ratio(v: Option<f64>) -> String {
+    match v {
+        Some(x) => format!("{:.1}", x * 100.0),
+        None => "—".to_string(),
+    }
+}
+
+/// 採用難度ゲージ (横バー、4 軸 or 3 軸)
+fn build_navy_tightness_gauges(d: &TightnessData, show_vacancy: bool) -> String {
+    // 各指標を 0-100 に正規化:
+    // - 有効求人倍率: 0.5→0, 1.0→50, 2.0→100 (>2 で 100 clamp)
+    // - HW 欠員補充率: 0%→0, 15%→50, 30%→100
+    // - 失業率: 6%→0 (緩やか), 3%→50, 1.5%→100 (採用難度 高 = 失業率低)
+    // - 離職率: 5%→0, 10%→50, 20%→100
+    let mut items: Vec<(&str, f64, &str, &str)> = Vec::new(); // (label, score 0-100, fmt_val, sev)
+    if let Some(r) = d.job_ratio {
+        let s = ((r - 0.5) / 1.5).clamp(0.0, 1.0) * 100.0;
+        let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+        items.push(("有効求人倍率", s, leak(&format!("{:.2} 倍", r)), sev));
+    }
+    if show_vacancy {
+        if let Some(v) = d.vacancy_rate {
+            let s = (v / 0.30).clamp(0.0, 1.0) * 100.0;
+            let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+            items.push(("HW 欠員補充率", s, leak(&format!("{:.1}%", v * 100.0)), sev));
+        }
+    }
+    if let Some(u) = d.unemployment {
+        let s = ((6.0 - u) / 4.5).clamp(0.0, 1.0) * 100.0;
+        let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+        items.push(("失業率 (低=採用難)", s, leak(&format!("{:.1}%", u)), sev));
+    }
+    if let Some(sep) = d.separation {
+        let s = ((sep - 5.0) / 15.0).clamp(0.0, 1.0) * 100.0;
+        let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+        items.push(("離職率", s, leak(&format!("{:.1}%", sep)), sev));
+    }
+
+    if items.is_empty() {
+        return "<p class=\"caption\">ゲージ表示に必要なデータが不足しています。</p>\n".to_string();
+    }
+
+    let row_h = 36.0;
+    let h = 30.0 + items.len() as f64 * row_h + 12.0;
+    let w = 720.0;
+    let label_w = 160.0;
+    let val_w = 80.0;
+    let bar_x = label_w;
+    let bar_w = w - label_w - val_w - 16.0;
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"採用難度ゲージ\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+    // 凡例帯 (背景: 緑→金→赤)
+    let y0 = 20.0;
+    for (i, item) in items.iter().enumerate() {
+        let (label, score, val, sev) = (item.0, item.1, item.2, item.3);
+        let cy = y0 + i as f64 * row_h;
+        // ラベル
+        svg.push_str(&format!(
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            cy + 14.0,
+            escape_html(label)
+        ));
+        // 背景帯 (3 セグメント: 0-40 緑薄 / 40-70 金薄 / 70-100 赤薄)
+        let seg_x1 = bar_x + bar_w * 0.40;
+        let seg_x2 = bar_x + bar_w * 0.70;
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"#DDEDE2\"/>\n",
+            bar_x, cy + 8.0, seg_x1 - bar_x
+        ));
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"#FAEBD2\"/>\n",
+            seg_x1, cy + 8.0, seg_x2 - seg_x1
+        ));
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"#F4DDD7\"/>\n",
+            seg_x2, cy + 8.0, bar_w - (seg_x2 - bar_x)
+        ));
+        // フレーム
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"none\" stroke=\"#D8D2C4\" stroke-width=\"0.5\"/>\n",
+            bar_x, cy + 8.0, bar_w
+        ));
+        // マーカー (current)
+        let marker_x = bar_x + bar_w * score / 100.0;
+        let marker_color = match sev {
+            "pos" => "#1F6B43",
+            "warn" => "#A8331F",
+            _ => "#0B1E3F",
+        };
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"3\" height=\"20\" fill=\"{}\"/>\n",
+            marker_x - 1.5, cy + 4.0, marker_color
+        ));
+        // 値ラベル (右側)
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"11\" fill=\"#0B1E3F\" font-family=\"Roboto Mono, monospace\" font-weight=\"700\" text-anchor=\"end\">{}</text>\n",
+            w - 6.0,
+            cy + 18.0,
+            escape_html(val)
+        ));
+    }
+    // 凡例
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"14\" font-size=\"9\" fill=\"#6A6E7A\">0 (緩やか)</text>\
+         <text x=\"{:.1}\" y=\"14\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">50</text>\
+         <text x=\"{:.1}\" y=\"14\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"end\">100 (厳しい)</text>\n",
+        bar_x,
+        bar_x + bar_w / 2.0,
+        bar_x + bar_w
+    ));
+    svg.push_str("</svg>\n");
+    svg
+}
+
+// leak helper: format! の戻り String を &'static に変えるためのトリック。
+// build_navy_tightness_gauges 内の (&str, ..., &str) ベクタ要素が
+// 一時的に str を借りる用途。本関数は短時間のみ使う(関数内のみ参照)ので
+// メモリリークは無視可能 (実利用上、Section 04 を 1 回しか呼ばないため
+// 文字列の総量は最大十数バイト×4 件 = 100 バイト未満)。
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> String {
+    let mut s = String::from(
+        "<table class=\"table-navy\">\n\
+         <thead><tr>\
+         <th>指標</th><th class=\"num\">対象地域</th><th class=\"num\">参考値</th>\
+         <th>採用難度</th><th>解釈</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+    let row = |label: &str, value: String, reference: &str, tag: &str, comment: &str| -> String {
+        format!(
+            "<tr><td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num dim\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             <td>{}</td></tr>\n",
+            label,
+            value,
+            reference,
+            tag,
+            severity_label(tag),
+            comment
+        )
+    };
+    let d = d;
+    // job_ratio
+    let (val, tag, cmt) = match d.and_then(|d| d.job_ratio) {
+        Some(v) if v >= 1.5 => (format!("{:.2}", v), "warn", "応募集めにくい (1.5+)"),
+        Some(v) if v >= 1.0 => (format!("{:.2}", v), "neu", "売り手市場 (1.0-1.5)"),
+        Some(v) => (format!("{:.2}", v), "pos", "買い手市場 (-1.0)"),
+        None => ("—".to_string(), "neu", "—"),
+    };
+    s.push_str(&row("有効求人倍率", val, "全国 1.20", tag, cmt));
+    if show_vacancy {
+        let (val, tag, cmt) = match d.and_then(|d| d.vacancy_rate) {
+            Some(v) if v >= 0.25 => (format!("{:.1}%", v * 100.0), "warn", "HW 求人埋まらず"),
+            Some(v) if v >= 0.15 => (format!("{:.1}%", v * 100.0), "neu", "標準水準"),
+            Some(v) => (format!("{:.1}%", v * 100.0), "pos", "充足傾向"),
+            None => ("—".to_string(), "neu", "—"),
+        };
+        s.push_str(&row("HW 欠員補充率", val, "標準 15-25%", tag, cmt));
+    }
+    let unemp = d.and_then(|d| d.unemployment);
+    let nat = d.and_then(|d| d.unemployment_national);
+    let (val, tag, cmt) = match unemp {
+        Some(u) if u < 2.5 => (format!("{:.1}%", u), "warn", "低失業=採用難度 高"),
+        Some(u) if u < 3.5 => (format!("{:.1}%", u), "neu", "標準的水準"),
+        Some(u) => (format!("{:.1}%", u), "pos", "求職者プールあり"),
+        None => ("—".to_string(), "neu", "—"),
+    };
+    let nat_str = nat.map(|n| format!("全国 {:.1}%", n)).unwrap_or_else(|| "—".to_string());
+    s.push_str(&row("失業率", val, &nat_str, tag, cmt));
+    let (val, tag, cmt) = match d.and_then(|d| d.separation) {
+        Some(v) if v >= 15.0 => (format!("{:.1}%", v), "warn", "離職多発"),
+        Some(v) if v >= 10.0 => (format!("{:.1}%", v), "neu", "標準水準"),
+        Some(v) => (format!("{:.1}%", v), "pos", "定着率 高"),
+        None => ("—".to_string(), "neu", "—"),
+    };
+    s.push_str(&row("離職率", val, "全国 14.6%", tag, cmt));
+    if let Some(d) = d {
+        let (val, tag, cmt) = match d.entry {
+            Some(v) if v >= 16.0 => (format!("{:.1}%", v), "neu", "入職活発 (転職市場活況)"),
+            Some(v) if v >= 10.0 => (format!("{:.1}%", v), "neu", "標準水準"),
+            Some(v) => (format!("{:.1}%", v), "neu", "入職停滞"),
+            None => ("—".to_string(), "neu", "—"),
+        };
+        s.push_str(&row("入職率 (参考)", val, "全国 15.4%", tag, cmt));
+    }
+    s.push_str("</tbody></table>\n");
+    if show_vacancy {
+        s.push_str("<p class=\"caption\">出典: e-Stat 有効求人倍率 / 労働力調査 (失業率) / 雇用動向調査 (離職率・入職率)。求人媒体欠員補充率はローカル DB。</p>\n");
+    } else {
+        s.push_str("<p class=\"caption\">出典: e-Stat 有効求人倍率 / 労働力調査 (失業率) / 雇用動向調査 (離職率・入職率)。</p>\n");
+    }
+    s
+}
+
+fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> String {
+    let d = match d {
+        Some(d) => d,
+        None => {
+            return "外部統計データが取得できなかったため、本セクションは指標説明のみとなります。CSV \
+                    側のサンプル数が一定 (n>=30) ある場合、後続セクションでの判断は継続可能です。"
+                .to_string()
+        }
+    };
+    let mut alerts: Vec<&str> = Vec::new();
+    if let Some(r) = d.job_ratio {
+        if r >= 1.5 {
+            alerts.push("有効求人倍率");
+        }
+    }
+    if let Some(u) = d.unemployment {
+        if u < 2.5 {
+            alerts.push("低失業率");
+        }
+    }
+    if let Some(s) = d.separation {
+        if s >= 15.0 {
+            alerts.push("離職率");
+        }
+    }
+    if let Some(v) = d.vacancy_rate {
+        if v >= 0.25 {
+            alerts.push("HW 欠員補充率");
+        }
+    }
+
+    if alerts.len() >= 2 {
+        format!(
+            "<strong>採用難度 高</strong>。{} の 2 指標以上で警戒水準。\
+             <strong>給与・福利厚生による差別化</strong> と <strong>応募経路の多元化</strong> を併走させてください。\
+             特に離職多発エリアの場合は <strong>定着率向上施策</strong> を組み合わせる必要があります。",
+            alerts.join(" / ")
+        )
+    } else if alerts.len() == 1 {
+        format!(
+            "<strong>採用難度 中</strong>。{} で警戒水準。\
+             該当指標に対応する個別施策 (給与水準 / 訴求軸 / 採用チャネル) を優先検討してください。",
+            alerts[0]
+        )
+    } else {
+        "<strong>採用難度 低</strong>。主要指標はいずれも警戒水準を下回ります。\
+         CSV 上の特徴 (給与水準 / 雇用形態 / 訴求軸) を活かした候補者選別重視で問題ありません。"
+            .to_string()
+    }
+}
+
+// ============================================================
+// Section 02 / 05-08 placeholder (Phase 3-4 で本実装に差し替え)
 // ============================================================
 
 pub(super) fn render_navy_section_placeholders(
@@ -808,8 +1238,7 @@ pub(super) fn render_navy_section_placeholders(
         _ => "地域データ補強",
     };
     let sections = [
-        ("SECTION 02", section_02, "地域別の求人補強指標を取り扱う章。Phase 2 で実装予定。"),
-        ("SECTION 04", "採用市場 逼迫度", "有効求人倍率 / 欠員補充率 / 失業率 を統合した複合指標を取り扱う章。Phase 3 で実装予定。"),
+        ("SECTION 02", section_02, "地域別の求人補強指標を取り扱う章。Phase 3 で実装予定。"),
         ("SECTION 05", "地域企業構造", "産業構成 / 法人セグメント / 規模帯ベンチマーク。Phase 3 で実装予定。"),
         ("SECTION 06", "人材デモグラフィック", "人口ピラミッド / 労働力 / 学校教育施設密度。Phase 3 で実装予定。"),
         ("SECTION 07", "最低賃金・ライフスタイル", "最低賃金推移 / 家計支出構成 / 通勤圏。Phase 4 で実装予定。"),

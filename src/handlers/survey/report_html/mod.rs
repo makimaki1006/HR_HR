@@ -613,6 +613,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // Round 24 Push 3 Phase 2 (2026-05-13): Section 03 (給与統計) は navy 本実装。
     // Section 02 / 04-08 は placeholder のまま、Phase 3-4 で順次差し替え。
     navy_report::render_navy_section_03_salary(&mut html, agg, salary_min_values, salary_max_values);
+    navy_report::render_navy_section_04_market_tightness(&mut html, hw_context, variant);
     navy_report::render_navy_section_placeholders(&mut html, hw_context, variant, &now);
     let _ = (
         by_company, salesnow_companies, hw_enrichment_map,
