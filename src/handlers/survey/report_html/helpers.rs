@@ -393,6 +393,194 @@ pub(super) fn build_salary_histogram(
     (labels, counts, boundaries)
 }
 
+/// Round 16 (2026-05-13): P2.5〜P97.5 で外れ値を切り捨てた値配列を返す。
+///
+/// 1,000 円刻みなど dense なヒストグラムでは、極端な外れ値 (例: 月給 1000 万円) が
+/// X 軸を引き伸ばして本体 bar が点になる問題があるため、表示用に trim する。
+/// mean/median は呼び出し側で original 配列から計算した値を渡すこと。
+pub(super) fn trim_outliers_p2_5_p97_5(values: &[i64]) -> Vec<i64> {
+    if values.len() < 20 {
+        // 標本サイズが小さい場合は trim せずそのまま返す (信頼性低い)
+        return values.iter().filter(|&&v| v > 0).copied().collect();
+    }
+    let mut sorted: Vec<i64> = values.iter().filter(|&&v| v > 0).copied().collect();
+    sorted.sort_unstable();
+    if sorted.len() < 20 {
+        return sorted;
+    }
+    let lo_idx = ((sorted.len() as f64) * 0.025).round() as usize;
+    let hi_idx = ((sorted.len() as f64) * 0.975).round() as usize;
+    let lo = sorted[lo_idx.min(sorted.len() - 1)];
+    let hi = sorted[hi_idx.min(sorted.len() - 1)];
+    sorted.into_iter().filter(|&v| v >= lo && v <= hi).collect()
+}
+
+/// Round 16 (2026-05-13): SSR SVG ヒストグラム builder。
+///
+/// ECharts SVG renderer が `emulateMedia('print')` 経路で markLine label を含む
+/// 一部 text を描画しない問題を回避するため、Rust 側で SVG を直接生成する。
+/// pyramid (`build_pyramid_svg` in demographics.rs) と同じパターン。
+///
+/// レイアウト (viewBox 0 0 800 380):
+///   - plot 領域: x=60..780, y=50..320 (高さ 270, 幅 720)
+///   - 上部 50px: markLine 色付き label box 3 個 (中央値=緑 / 平均=赤 / 最頻値=青)
+///   - 下部 60px: X 軸目盛
+///   - 左 60px: Y 軸目盛
+///
+/// 引数:
+///   bin_size_yen: 1_000 (dense) または 10_000 (粗) を想定
+///   bar_color:    "#42A5F5" (下限) / "#66BB6A" (上限) など
+pub(super) fn build_histogram_svg(
+    values: &[i64],
+    bin_size: i64,
+    bar_color: &str,
+    median: Option<i64>,
+    mean: Option<i64>,
+    mode: Option<i64>,
+) -> String {
+    let (_labels_unused, counts, boundaries) = build_salary_histogram(values, bin_size);
+    if counts.is_empty() || boundaries.is_empty() {
+        return String::new();
+    }
+    let bin_count = counts.len();
+    let max_count = *counts.iter().max().unwrap_or(&1).max(&1);
+    let x_min_yen = *boundaries.first().unwrap();
+    let x_max_yen = x_min_yen + (bin_count as i64) * bin_size;
+
+    let plot_x0 = 60_i32;
+    let plot_x1 = 780_i32;
+    let plot_y0 = 50_i32;
+    let plot_y1 = 320_i32;
+    let plot_w = plot_x1 - plot_x0;
+    let plot_h = plot_y1 - plot_y0;
+
+    let yen_to_x = |yen: i64| -> f64 {
+        let frac = (yen - x_min_yen) as f64 / ((x_max_yen - x_min_yen) as f64).max(1.0);
+        plot_x0 as f64 + frac * plot_w as f64
+    };
+    let count_to_y = |c: usize| -> f64 {
+        plot_y1 as f64 - (c as f64 / max_count as f64) * plot_h as f64
+    };
+    let yen_to_man = |yen: i64| -> String {
+        let man = yen as f64 / 10_000.0;
+        if (man.fract()).abs() < 0.05 {
+            format!("{:.0}万", man)
+        } else {
+            format!("{:.1}万", man)
+        }
+    };
+
+    let mut s = String::with_capacity(4096);
+    s.push_str(
+        "<div class=\"histogram-ssr\" style=\"width:100%;\">\n<svg \
+         viewBox=\"0 0 800 380\" preserveAspectRatio=\"xMidYMid meet\" \
+         xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
+         aria-label=\"給与ヒストグラム\" \
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+    );
+
+    // bars
+    let bin_w = plot_w as f64 / bin_count as f64;
+    let bar_gap = (bin_w * 0.08).clamp(0.5, 3.0);
+    for (i, &cnt) in counts.iter().enumerate() {
+        if cnt == 0 {
+            continue;
+        }
+        let x = plot_x0 as f64 + (i as f64) * bin_w + bar_gap / 2.0;
+        let w = bin_w - bar_gap;
+        let y = count_to_y(cnt);
+        let h = plot_y1 as f64 - y;
+        s.push_str(&format!(
+            "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"{c}\"/>\n",
+            x = x, y = y, w = w, h = h, c = bar_color,
+        ));
+    }
+
+    // Y axis (left): 0 と最大件数の中間 4 ticks
+    s.push_str(&format!(
+        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#cbd5e1\" stroke-width=\"0.5\"/>\n",
+        x = plot_x0, y0 = plot_y0, y1 = plot_y1,
+    ));
+    let y_ticks = 4;
+    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"end\">\n");
+    for k in 0..=y_ticks {
+        let cnt_val = (max_count * k) / y_ticks;
+        let y = count_to_y(cnt_val);
+        s.push_str(&format!(
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#f1f5f9\" stroke-width=\"0.5\"/>\
+             <text x=\"{tx}\" y=\"{ty:.2}\">{c}</text>\n",
+            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6, ty = y + 3.0, c = cnt_val,
+        ));
+    }
+    s.push_str("</g>\n");
+
+    // X axis (bottom): bin 数に応じて tick 数を 6-10 に
+    let target_ticks = if bin_count <= 12 { bin_count } else { 8 };
+    s.push_str(&format!(
+        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\n",
+        x0 = plot_x0, x1 = plot_x1, y = plot_y1,
+    ));
+    s.push_str("<g font-size=\"10\" fill=\"#6e7079\" text-anchor=\"middle\">\n");
+    for k in 0..=target_ticks {
+        let yen = x_min_yen + ((x_max_yen - x_min_yen) * k as i64) / (target_ticks.max(1) as i64);
+        let x = yen_to_x(yen);
+        s.push_str(&format!(
+            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"#94a3b8\" stroke-width=\"0.5\"/>\
+             <text x=\"{x:.2}\" y=\"{ty}\">{lbl}</text>\n",
+            x = x, y0 = plot_y1, y1 = plot_y1 + 5, ty = plot_y1 + 18, lbl = yen_to_man(yen),
+        ));
+    }
+    s.push_str("</g>\n");
+
+    // markLine + 上部 label box (中央値/平均/最頻値)
+    let stats = [
+        (median, "中央値", "#22c55e"),
+        (mean,   "平均",   "#ef4444"),
+        (mode,   "最頻値", "#3b82f6"),
+    ];
+    for (val_opt, name, color) in &stats {
+        let Some(v) = val_opt else { continue };
+        if *v < x_min_yen || *v > x_max_yen {
+            continue;
+        }
+        let x = yen_to_x(*v);
+        s.push_str(&format!(
+            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"{c}\" stroke-width=\"2\" stroke-dasharray=\"4 3\"/>\n",
+            x = x, y0 = plot_y0 - 5, y1 = plot_y1, c = color,
+        ));
+    }
+    // 上部 chip ラベル: 3 値の x 座標を計算して、近接していたら横並びで重ならないように配置
+    // (距離が近い場合は左→右で並べる、距離が遠い場合は markLine 直上)
+    s.push_str(
+        "<g font-size=\"11\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n",
+    );
+    for (val_opt, name, color) in &stats {
+        let Some(v) = val_opt else { continue };
+        if *v < x_min_yen || *v > x_max_yen {
+            continue;
+        }
+        let cx = yen_to_x(*v);
+        let text = format!("{} {}", name, yen_to_man(*v));
+        let text_len = text.chars().count();
+        let chip_w = (text_len as f64) * 11.0 + 16.0;
+        // chip を中央軸線の真上に: y=20, height=22
+        let chip_x = (cx - chip_w / 2.0).clamp(plot_x0 as f64, plot_x1 as f64 - chip_w);
+        s.push_str(&format!(
+            "<rect x=\"{cx:.2}\" y=\"22\" width=\"{w:.2}\" height=\"22\" rx=\"4\" fill=\"{c}\"/>\
+             <text x=\"{tx:.2}\" y=\"37\">{txt}</text>\n",
+            cx = chip_x, w = chip_w, c = color, tx = chip_x + chip_w / 2.0, txt = escape_xml_helper(&text),
+        ));
+    }
+    s.push_str("</g>\n");
+
+    s.push_str("</svg>\n</div>\n");
+    s
+}
+
+fn escape_xml_helper(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// 最頻値を計算（ヒストグラム最大カウントのbin中心値を返す）
 pub(super) fn compute_mode(values: &[i64], bin_size: i64) -> Option<i64> {
     let (_labels, counts, boundaries) = build_salary_histogram(values, bin_size);

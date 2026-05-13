@@ -239,105 +239,80 @@ pub(super) fn render_section_salary_stats(
         ));
     }
 
-    // 下限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
+    // Round 16 (2026-05-13): ECharts → SSR SVG に置換。
+    // bin_size を 5,000/20,000 円から **1,000 円 (dense) + 10,000 円** の 2 種類に変更。
+    // chart 高さも 220 → SVG viewBox 380 で markLine label box が bar 上部に確実表示される設計。
     if !salary_min_values.is_empty() {
         let min_mean = distribution_mean(salary_min_values);
         let min_median = distribution_median(salary_min_values);
-        // 生値分布（20,000円刻み）
+
+        // 図 3-2: 下限 給与 詳細 (1,000 円刻み・dense)
+        // dense は外れ値で X 軸が引き伸ばされて bar が点になるため P2.5-P97.5 で trim
+        let min_trimmed = trim_outliers_p2_5_p97_5(salary_min_values);
         html.push_str("<div class=\"salary-chart-block\">\n");
-        html.push_str("<h3>下限給与の分布（20,000円刻み）</h3>\n");
+        html.push_str("<h3>下限給与の分布（1,000円刻み・詳細・外れ値除外）</h3>\n");
         render_figure_caption(
             html,
             "図 3-2",
-            "下限月給ヒストグラム（20,000円刻み・縦線=平均/中央値/最頻値）",
+            "下限月給ヒストグラム（1,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
         );
-        let (labels, values, _b) = build_salary_histogram(salary_min_values, 20_000);
-        let mode_min_20k = compute_mode(salary_min_values, 20_000);
-        let config = build_histogram_echart_config(
-            &labels,
-            &values,
-            "#42A5F5",
-            min_mean,
-            min_median,
-            mode_min_20k,
-            20_000,
-        );
-        html.push_str(&render_echart_div(&config, 220));
+        let mode_min_1k = compute_mode(&min_trimmed, 1_000);
+        html.push_str(&build_histogram_svg(
+            &min_trimmed, 1_000, "#42A5F5", min_median, min_mean, mode_min_1k,
+        ));
         html.push_str("</div>\n");
 
-        // 詳細分布（5,000円刻み）
+        // 図 3-3: 下限 給与 概観 (10,000 円刻み)
         html.push_str("<div class=\"salary-chart-block\">\n");
-        html.push_str("<h3>下限給与の分布（5,000円刻み）- 詳細</h3>\n");
+        html.push_str("<h3>下限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
             html,
             "図 3-3",
-            "下限月給ヒストグラム（5,000円刻み・微細解像度）",
+            "下限月給ヒストグラム（10,000円刻み・縦線=平均/中央値/最頻値）",
         );
-        let (labels_f, values_f, _bf) = build_salary_histogram(salary_min_values, 5_000);
-        let mode_min_5k = compute_mode(salary_min_values, 5_000);
-        let config = build_histogram_echart_config(
-            &labels_f,
-            &values_f,
-            "#42A5F5",
-            min_mean,
-            min_median,
-            mode_min_5k,
-            5_000,
-        );
-        html.push_str(&render_echart_div(&config, 220));
+        let mode_min_10k = compute_mode(salary_min_values, 10_000);
+        html.push_str(&build_histogram_svg(
+            salary_min_values, 10_000, "#42A5F5", min_median, min_mean, mode_min_10k,
+        ));
         html.push_str("</div>\n");
         render_read_hint(
             html,
-            "20,000円刻みは全体傾向の把握に、5,000円刻みは「ちょうど 25 万円」「20 万円ちょうど」など切り良い設定への偏在を観察するのに適しています。",
+            "1,000円刻みは「ちょうど 25 万円」「20 万円ちょうど」など切り良い設定への偏在を細かく観察し、10,000円刻みは全体傾向の把握に適しています。",
         );
     }
 
-    // 上限給与ヒストグラム（ECharts棒グラフ + markLine: 平均/中央値/最頻値）
+    // 上限給与: 同様に 1,000 円刻み + 10,000 円刻み
     if !salary_max_values.is_empty() {
         let max_mean = distribution_mean(salary_max_values);
         let max_median = distribution_median(salary_max_values);
-        // 生値分布（20,000円刻み）
+
+        // 図 3-4: 上限 詳細 (1,000 円刻み・外れ値除外)
+        let max_trimmed = trim_outliers_p2_5_p97_5(salary_max_values);
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
-        html.push_str("<h3>上限給与の分布（20,000円刻み）</h3>\n");
+        html.push_str("<h3>上限給与の分布（1,000円刻み・詳細・外れ値除外）</h3>\n");
         render_figure_caption(
             html,
             "図 3-4",
-            "上限月給ヒストグラム（20,000円刻み・縦線=平均/中央値/最頻値）",
+            "上限月給ヒストグラム（1,000円刻み・P2.5-P97.5 で外れ値除外・縦線=平均/中央値/最頻値）",
         );
-        let (labels, values, _b) = build_salary_histogram(salary_max_values, 20_000);
-        let mode_max_20k = compute_mode(salary_max_values, 20_000);
-        let config = build_histogram_echart_config(
-            &labels,
-            &values,
-            "#66BB6A",
-            max_mean,
-            max_median,
-            mode_max_20k,
-            20_000,
-        );
-        html.push_str(&render_echart_div(&config, 220));
+        let mode_max_1k = compute_mode(&max_trimmed, 1_000);
+        html.push_str(&build_histogram_svg(
+            &max_trimmed, 1_000, "#66BB6A", max_median, max_mean, mode_max_1k,
+        ));
         html.push_str("</div>\n");
 
-        // 詳細分布（5,000円刻み）
+        // 図 3-5: 上限 概観 (10,000 円刻み)
         html.push_str("<div class=\"salary-chart-block\">\n");
-        html.push_str("<h3>上限給与の分布（5,000円刻み）- 詳細</h3>\n");
+        html.push_str("<h3>上限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
             html,
             "図 3-5",
-            "上限月給ヒストグラム（5,000円刻み・微細解像度）",
+            "上限月給ヒストグラム（10,000円刻み・縦線=平均/中央値/最頻値）",
         );
-        let (labels_f, values_f, _bf) = build_salary_histogram(salary_max_values, 5_000);
-        let mode_max_5k = compute_mode(salary_max_values, 5_000);
-        let config = build_histogram_echart_config(
-            &labels_f,
-            &values_f,
-            "#66BB6A",
-            max_mean,
-            max_median,
-            mode_max_5k,
-            5_000,
-        );
-        html.push_str(&render_echart_div(&config, 220));
+        let mode_max_10k = compute_mode(salary_max_values, 10_000);
+        html.push_str(&build_histogram_svg(
+            salary_max_values, 10_000, "#66BB6A", max_median, max_mean, mode_max_10k,
+        ));
         html.push_str("</div>\n");
     }
 
