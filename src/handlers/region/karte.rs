@@ -919,19 +919,23 @@ fn build_population_pyramid_chart(rows: &[Row]) -> String {
             "data": age_groups,
             "axisLabel": {"color": "#cbd5e1"}
         },
+        // Round 14 (2026-05-13): stack:"total" + 男性負値で正負キャンセル → バー消失。
+        // demographics.rs の修正と horiz 同期: barGap:"-100%" で 2 系列を重ねる (人口ピラミッド標準)。
         "series": [
             {
                 "name": "男性",
                 "type": "bar",
-                "stack": "total",
                 "data": males,
+                "barGap": "-100%",
+                "barCategoryGap": "20%",
                 "itemStyle": {"color": "#0072B2"}
             },
             {
                 "name": "女性",
                 "type": "bar",
-                "stack": "total",
                 "data": females,
+                "barGap": "-100%",
+                "barCategoryGap": "20%",
                 "itemStyle": {"color": "#E69F00"}
             }
         ]

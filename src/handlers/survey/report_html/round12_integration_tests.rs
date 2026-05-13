@@ -407,21 +407,24 @@ fn k8_pyramid_young_age_bands_render_when_provided() {
     assert!(html.contains("\"10-19\""), "K8: 10-19 階級も同様");
 }
 
-/// K9: 人口ピラミッド xAxis に formatter (Math.abs) なし → 男性側が負数のまま表示。
-/// 確定バグ。現状 PASS で「formatter 不在」を固定。修正後は FAIL に転じる。
+/// K9: 人口ピラミッド の X 軸 formatter 問題 (Round 14 確定対応)
+/// Round 12-13 で `formatter: "function(v){return Math.abs(v)...}"` を追加したが、
+/// ECharts JSON 経路では JS 関数 string が evaluate されず literal 文字列が描画される
+/// (本番 PDF で確認済、2026-05-13)。よって Round 14 で formatter 削除に統一。
+/// 軸目盛は負値そのまま表示し、注記で「人数の絶対値」と補足する方針。
 #[test]
-fn k9_pyramid_xaxis_formatter_missing_bug_confirmed() {
+fn k9_pyramid_xaxis_has_no_function_string_formatter() {
     let mut ctx = empty_insight_ctx();
     ctx.ext_pyramid = vec![pyramid_row("20-29", 100, 80)];
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);
-    // Round 13 (2026-05-13): UTF-8 unsafe な byte slice 廃止。HTML 全体に対し検索する。
     if html.contains("人口ピラミッド") {
-        let has_abs_formatter = html.contains("Math.abs") && html.contains("\"formatter\"");
+        // function-string formatter は ECharts が evaluate せず literal 表示してしまう。
+        // 関連する HTML パターンが完全に除去されていることを検証する。
         assert!(
-            has_abs_formatter,
-            "K9 修正検証: xAxis に Math.abs formatter が必要 (負値表示防止)"
+            !html.contains("function(v){return Math.abs(v)"),
+            "K9: pyramid xAxis に JS 関数 string formatter が残っている (dead code 化済のはず)"
         );
     } else {
         eprintln!("K9: 人口ピラミッド セクションが render されない (環境依存)");

@@ -1937,12 +1937,11 @@ mod tests {
         );
     }
 
-    /// Round 13 (2026-05-13): 旧仕様 (3 値近接時に graphic 統合カード + markLine label 非表示) を廃止。
-    /// 新仕様: 3 値の遠近に関わらず markLine label を常に chart 内に表示し、graphic は空。
-    /// 図 3-2/3-3/3-4 が「線だけで中央値/平均/最頻値の区別がつかない」というユーザー指摘への恒久対応。
+    /// Round 14 (2026-05-13): markLine 縦書きラベル廃止 + graphic 横並び chip box に統一。
+    /// 旧 Round 13 仕様 (markLine label chart 内縦書き表示) は本番 PDF で読みづらく、
+    /// 中央値だけが見やすかったので 3 値全てを中央値と同じ「上部 chip box」に揃える。
     #[test]
-    fn histogram_marker_labels_always_visible_regardless_of_proximity() {
-        // 3 値近接ケース (旧 stats_close=true 相当)
+    fn histogram_marker_labels_rendered_as_top_chip_boxes() {
         let labels = vec!["22万".to_string(), "23万".to_string(), "24万".to_string()];
         let values = vec![5, 12, 8];
         let config = build_histogram_echart_config(
@@ -1956,57 +1955,64 @@ mod tests {
         );
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
 
-        // graphic stats card は出力されない (markLine label と二重表示にならないため)
+        // graphic に 3 系列分の chip box (rect + text の組) が出力される
         let graphic = parsed["graphic"].as_array().expect("graphic は配列");
-        assert!(
-            graphic.is_empty(),
-            "新仕様: graphic stats card は出力しない (markLine label で表現)"
+        assert!(!graphic.is_empty(), "新仕様: graphic に chip box が出力される");
+        let group = &graphic[0];
+        let children = group["children"]
+            .as_array()
+            .expect("graphic group に children");
+        // 3 系列 × (rect + text) = 6 要素
+        assert_eq!(
+            children.len(),
+            6,
+            "中央値/平均/最頻値 の 3 系列 × (rect + text) = 6 children"
         );
+        // 3 色が全て含まれることを検証
+        let serialized = serde_json::to_string(&graphic).unwrap();
+        assert!(serialized.contains("#22c55e"), "中央値 緑");
+        assert!(serialized.contains("#ef4444"), "平均 赤");
+        assert!(serialized.contains("#3b82f6"), "最頻値 青");
 
-        // markLine ラベルは常に show=true
+        // markLine ラベルは全て show=false (縦書きラベル廃止)
         let ml = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
-        assert!(!ml.is_empty(), "markLine.data が存在する");
+        assert!(!ml.is_empty(), "markLine.data は縦線として残る");
         for entry in ml {
             assert_eq!(
                 entry["label"]["show"].as_bool(),
-                Some(true),
-                "新仕様: 全 markLine ラベルが常時表示 ({})",
+                Some(false),
+                "新仕様: markLine label は常に非表示 ({})",
                 entry["name"]
             );
         }
     }
 
-    /// 3 値が離れている (差 > bin_size * 2) のとき従来の position 分散ラベルを維持
+    /// 値が None の系列は chip box を出さない
     #[test]
-    fn histogram_uses_distributed_labels_when_stats_are_far() {
-        // 中央値 200,000 / 平均 300,000 / 最頻値 500,000 (差 300,000、bin=10,000)
-        // 差 / bin = 30 ≫ 2 → 離れている
+    fn histogram_chip_skips_none_entries() {
         let labels = vec!["20万".to_string(), "30万".to_string(), "50万".to_string()];
         let values = vec![3, 7, 2];
+        // mean のみ Some、median/mode は None
         let config = build_histogram_echart_config(
             &labels,
             &values,
             "#42A5F5",
             Some(300_000),
-            Some(200_000),
-            Some(500_000),
+            None,
+            None,
             10_000,
         );
         let parsed: serde_json::Value = serde_json::from_str(&config).unwrap();
 
         let graphic = parsed["graphic"].as_array().unwrap();
-        assert!(graphic.is_empty(), "離れているとき graphic は空");
+        assert!(!graphic.is_empty(), "mean があれば graphic は出る");
+        let children = graphic[0]["children"].as_array().unwrap();
+        assert_eq!(children.len(), 2, "1 系列 × (rect + text) = 2 children");
 
-        // markLine ラベルは show=true (従来通り表示)
-        let ml = parsed["series"][0]["markLine"]["data"].as_array().unwrap();
-        for entry in ml {
-            assert_eq!(
-                entry["label"]["show"].as_bool(),
-                Some(true),
-                "離れているときは markLine label を表示 ({})",
-                entry["name"]
-            );
-        }
+        let s = serde_json::to_string(&graphic).unwrap();
+        assert!(s.contains("#ef4444"), "平均 (赤) のみ");
+        assert!(!s.contains("#22c55e"), "中央値 (緑) は無い");
+        assert!(!s.contains("#3b82f6"), "最頻値 (青) は無い");
     }
 
     /// stats_are_close ヘルパー単体: 境界条件

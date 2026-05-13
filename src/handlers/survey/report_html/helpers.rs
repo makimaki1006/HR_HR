@@ -204,22 +204,21 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
         }
     };
 
-    // Round 13 (2026-05-13): markLine label を常時 chart 内表示する。
+    // Round 14 (2026-05-13): markLine 縦書きラベルを廃止し、graphic 横並び色付き chip box に統一。
     //
-    // 過去の経緯:
-    //   Round 2.7-AC で 3 値近接時に label 非表示 + 右上 graphic stats card に切替える
-    //   ロジック (`stats_close = use_close_stats_card && stats_are_close(...)`) を導入したが、
-    //   結果として図 3-2/3-3/3-4 では markLine が縦線だけになり、ユーザー指摘
-    //   「凡例だけになっていて何の値か分からない」(2026-05-12) を引き起こしていた。
-    //   図 3-5 のみが close 判定外で個別 label が見えていたのが「望ましい」と評価された。
+    // 経緯:
+    //   Round 13 で「全 markLine label を chart 内 (縦線位置) に表示」に切替えたが、
+    //   実 PDF (本番) で平均 / 最頻値の label が縦書きで bar と重なり読みづらいことを確認。
+    //   中央値 (position:"end") だけ chart 上部に横書きで出ており見やすかった。
+    //   ユーザー要求: 3 値とも中央値と同じ「上部の横書き色付き box」に統一すること。
     //
-    // 修正方針: 全 4 chart で 図 3-5 と同じ「縦線位置に値ラベル個別表示」に統一。
-    //   - stats_close を常に false 強制
-    //   - markLine label.show = true 常時 (chart 内 縦線位置に「中央値 X 万」「平均 Y 万」「最頻値 Z 万」)
-    //   - 右上 graphic stats card は廃止 (凡例化していたため)
-    let stats_close = false;
+    // 新仕様:
+    //   - markLine の label.show は **全て false** (縦線だけ残す)
+    //   - graphic で 3 つの色付き chip box (中央値=緑 / 平均=赤 / 最頻値=青) を
+    //     chart 上部に左寄せで横並び表示
+    //   - 値が None の系列はその box を出さない
     let _ = use_close_stats_card;
-    let _bin_diff_close = stats_are_close(median, mean, mode, bin_size); // 旧ロジック判定 (未使用、デバッグ用)
+    let _ = stats_are_close(median, mean, mode, bin_size); // 旧 API 互換 (cargo warning 抑制)
     let x_axis_interval = histogram_axis_interval(labels.len());
 
     let mut mark_lines = vec![];
@@ -229,7 +228,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "name": "中央値",
             "lineStyle": {"color": "#22c55e", "type": "dashed", "width": 2},
             "label": {
-                "show": !stats_close,
+                "show": false,
                 "formatter": format!("中央値 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -248,7 +247,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "name": "平均",
             "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
             "label": {
-                "show": !stats_close,
+                "show": false,
                 "formatter": format!("平均 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -267,7 +266,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "name": "最頻値",
             "lineStyle": {"color": "#3b82f6", "type": "dashed", "width": 2},
             "label": {
-                "show": !stats_close,
+                "show": false,
                 "formatter": format!("最頻値 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -281,70 +280,54 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
         }));
     }
 
-    // Round 2.7-AC: 近接時の統合ラベルカード (右上 graphic)
-    // 線色を維持: 中央値=緑 / 平均=赤 / 最頻値=青
-    let graphic = if stats_close {
-        let mut children = vec![
-            json!({
-                "type": "rect",
-                "shape": {"width": 180, "height": 64},
-                "style": {
-                    "fill": "#ffffff",
-                    "stroke": "#cbd5e1",
-                    "lineWidth": 1
-                }
-            }),
-            json!({
-                "type": "text",
-                "position": [10, 8],
-                "style": {
-                    "text": "統計値",
-                    "fill": "#0f172a",
-                    "font": "bold 11px sans-serif"
-                }
-            }),
+    // Round 14: chart 上部に色付き chip box を横並び表示。値が None の系列は box を出さない。
+    let graphic = {
+        let entries: Vec<(Option<i64>, &str, &str)> = vec![
+            (median, "中央値", "#22c55e"),
+            (mean,   "平均",   "#ef4444"),
+            (mode,   "最頻値", "#3b82f6"),
         ];
-        if let Some(m) = median {
-            children.push(json!({
-                "type": "text",
-                "position": [10, 24],
-                "style": {
-                    "text": format!("中央値 {}", value_label(m)),
-                    "fill": "#22c55e",
-                    "font": "bold 10px sans-serif"
-                }
-            }));
+        let mut children: Vec<serde_json::Value> = vec![];
+        let mut x_offset: i32 = 0;
+        let chip_height: i32 = 22;
+        let chip_gap: i32 = 6;
+        let text_pad_x: i32 = 10;
+        for (val, name, color) in entries.into_iter() {
+            if let Some(v) = val {
+                let text = format!("{} {}", name, value_label(v));
+                // chip 幅は文字数ベース推定 (日本語 1 字 ≈ 11px, ASCII 1 字 ≈ 6.5px)
+                let char_count = text.chars().count() as i32;
+                let chip_width = char_count * 10 + text_pad_x * 2;
+                children.push(json!({
+                    "type": "rect",
+                    "left": x_offset,
+                    "top": 0,
+                    "shape": {"width": chip_width, "height": chip_height, "r": 4},
+                    "style": {"fill": color, "stroke": color, "lineWidth": 1}
+                }));
+                children.push(json!({
+                    "type": "text",
+                    "left": x_offset + text_pad_x,
+                    "top": 5,
+                    "style": {
+                        "text": text,
+                        "fill": "#ffffff",
+                        "font": "bold 12px sans-serif"
+                    }
+                }));
+                x_offset += chip_width + chip_gap;
+            }
         }
-        if let Some(m) = mean {
-            children.push(json!({
-                "type": "text",
-                "position": [10, 38],
-                "style": {
-                    "text": format!("平均 {}", value_label(m)),
-                    "fill": "#ef4444",
-                    "font": "bold 10px sans-serif"
-                }
-            }));
+        if children.is_empty() {
+            json!([])
+        } else {
+            json!([{
+                "type": "group",
+                "left": "center",
+                "top": 4,
+                "children": children
+            }])
         }
-        if let Some(m) = mode {
-            children.push(json!({
-                "type": "text",
-                "position": [10, 52],
-                "style": {
-                    "text": format!("最頻値 {}", value_label(m)),
-                    "fill": "#3b82f6",
-                    "font": "bold 10px sans-serif"
-                }
-            }));
-        }
-        json!([{
-            "type": "group",
-            "right": 18,
-            "top": 12,
-            "children": children
-        }])
-    } else {
-        json!([])
     };
 
     // Round 2.7-AC: yAxis 0 始まり強制を bulletproof 化
@@ -375,7 +358,8 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "left": "7%",
             "right": "12%",
             "bottom": "30%",
-            "top": "16%",
+            // Round 14: graphic chip box (chart 上部に 22px height で配置) のため top を拡大
+            "top": "22%",
             "containLabel": true
         },
         "graphic": graphic,
