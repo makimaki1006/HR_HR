@@ -123,22 +123,47 @@ pub(super) fn render_section_industry_mismatch_csv(
     }
 
     // ---- HTML 出力 ----
+    // Round 23 (2026-05-13): 設計メモ §18 準拠で表現中立化 + 推定信頼度警告。
+    // 「産業ミスマッチ」「CSV重点業界」「ギャップ」等の強い表現を中立化し、
+    // CSV 側が推定分類であることを明示する。
     html.push_str("<div class=\"section\" data-testid=\"industry-mismatch-csv-section\">\n");
-    html.push_str("<h2>産業ミスマッチ (CSV 媒体掲載 vs 地域就業者構成)</h2>\n");
+    html.push_str("<h2>CSV 推定業種構成と地域産業構成の比較</h2>\n");
+
+    // 上位 1 カテゴリ占有率 (推定信頼度判定)
+    let total_csv: i64 = rows.iter().map(|r| r.csv_count).sum();
+    let top_share = rows.iter().map(|r| r.csv_count).max().unwrap_or(0) as f64
+        / total_csv.max(1) as f64;
+    if top_share >= 0.85 {
+        html.push_str(
+            "<p style=\"font-size:10pt;color:#7f1d1d;background:#fef2f2;padding:8px 12px;border-left:4px solid #b91c1c;margin:8px 0;\">\
+             <strong>⚠ 推定信頼度: 低</strong> — CSV 推定業種の上位カテゴリが 85% を超えており、分類ロジックまたは検索条件の偏りが強い可能性があります。\
+             公的統計とのギャップ解釈は行わず、参考表示に留めることを推奨します。\
+             給与判断は §3-B 給与構造クラスタ分析を主軸にしてください。\
+             </p>\n",
+        );
+    } else if top_share >= 0.70 {
+        html.push_str(
+            "<p style=\"font-size:10pt;color:#78350f;background:#fef3c7;padding:8px 12px;border-left:4px solid #d97706;margin:8px 0;\">\
+             <strong>⚠ 推定信頼度: 中</strong> — CSV 推定業種の上位カテゴリが 70% を超えています。\
+             検索条件・媒体特性・分類キーワードの偏り、または推定誤差がある可能性があります。\
+             この業種構成は参考値として扱い、給与判断には §3-B 給与構造クラスタ分析を併用してください。\
+             </p>\n",
+        );
+    }
 
     render_section_howto(
         html,
         &[
-            "アップロードした CSV の業種分布 (推定) と地域の就業者構成 (国勢調査) のギャップを表示します",
-            "ギャップ ≥ +10pt: CSV 重点業界 / ≤ -10pt: CSV 過少 / |ギャップ| < 10pt: 整合",
-            "業種は CSV のタグ列・職種列からキーワード推定したもので、原 CSV に業種列がある場合も精度には限界があります",
+            "アップロードした CSV の推定業種構成と地域の就業者構成 (国勢調査) の差分を表示します",
+            "差分 ≥ +10pt: CSV 内 推定多出現 / ≤ -10pt: CSV 内 推定少数 / |差分| < 10pt: 差分小",
+            "業種は CSV のタグ列・職種列・企業名からキーワード推定したもので、推定誤差を含みます。給与判断は §3-B 給与構造クラスタ分析を主軸にしてください",
         ],
     );
 
     render_figure_caption(
         html,
         "表 4B-1",
-        "CSV 業種分布 (推定) vs 国勢調査就業者構成 (大分類)",
+        "CSV 推定業種分布 vs 国勢調査就業者構成 (大分類)",
     );
 
     html.push_str(
@@ -147,9 +172,9 @@ pub(super) fn render_section_industry_mismatch_csv(
     html.push_str(
         "<thead><tr>\
         <th>産業</th>\
-        <th style=\"text-align:right\">CSV 件数構成比</th>\
+        <th style=\"text-align:right\">CSV 推定構成比</th>\
         <th style=\"text-align:right\">就業者構成比</th>\
-        <th style=\"text-align:right\">ギャップ</th>\
+        <th style=\"text-align:right\">差分</th>\
         <th>解釈</th>\
         </tr></thead>\n<tbody>\n",
     );
@@ -173,8 +198,8 @@ pub(super) fn render_section_industry_mismatch_csv(
             gap_sign = if r.gap_pt >= 0.0 { "+" } else { "-" },
             gap_abs = r.gap_pt.abs(),
             cls = match interp_label {
-                "CSV 重点業界" => "gap-pos",
-                "CSV 過少" => "gap-neg",
+                "CSV 内 推定多出現" => "gap-pos",
+                "CSV 内 推定少数" => "gap-neg",
                 _ => "gap-neutral",
             },
             interp = interp_label,
@@ -649,13 +674,17 @@ fn build_csv_mismatch_rows(
 /// - gap ≥ +10pt: CSV 重点業界 (CSV に多く、地域就業者では少ない)
 /// - gap ≤ -10pt: CSV 過少 (地域就業者が多いのに CSV では少ない)
 /// - |gap| < 10pt: 整合
+// Round 23 (2026-05-13): 設計メモ §18.4 準拠で表現を中立化:
+//   「CSV 重点業界」→「CSV 内 推定多出現」
+//   「CSV 過少」    →「CSV 内 推定少数」
+//   「整合」         →「差分小」(整合は意味的に強すぎる)
 fn classify_csv_gap(gap_pt: f64) -> (&'static str, &'static str) {
     if gap_pt >= 10.0 {
-        ("CSV 重点業界", "#10b981") // 緑系
+        ("CSV 内 推定多出現", "#10b981") // 緑系
     } else if gap_pt <= -10.0 {
-        ("CSV 過少", "#dc2626") // 赤系
+        ("CSV 内 推定少数", "#dc2626") // 赤系
     } else {
-        ("整合", "#64748b") // グレー
+        ("差分小", "#64748b") // グレー
     }
 }
 
@@ -1159,7 +1188,7 @@ fn classify_gap(gap_pt: f64) -> (&'static str, &'static str) {
     } else if gap_pt > 10.0 {
         ("求人過剰の可能性", "#10b981") // 緑系
     } else {
-        ("整合", "#64748b") // グレー
+        ("差分小", "#64748b") // グレー
     }
 }
 
@@ -1321,10 +1350,10 @@ mod tests {
     fn industry_mismatch_classify_gap_branches() {
         assert_eq!(classify_gap(-16.0).0, "求人不足の可能性");
         assert_eq!(classify_gap(-10.5).0, "求人不足の可能性");
-        assert_eq!(classify_gap(-10.0).0, "整合"); // 境界 (-10 はちょうど整合側)
-        assert_eq!(classify_gap(0.0).0, "整合");
-        assert_eq!(classify_gap(8.0).0, "整合");
-        assert_eq!(classify_gap(10.0).0, "整合"); // 境界 (10 はちょうど整合側)
+        assert_eq!(classify_gap(-10.0).0, "差分小"); // 境界 (-10 はちょうど整合側)
+        assert_eq!(classify_gap(0.0).0, "差分小");
+        assert_eq!(classify_gap(8.0).0, "差分小");
+        assert_eq!(classify_gap(10.0).0, "差分小"); // 境界 (10 はちょうど整合側)
         assert_eq!(classify_gap(10.1).0, "求人過剰の可能性");
         assert_eq!(classify_gap(20.0).0, "求人過剰の可能性");
         // 色も同時検証
@@ -1832,11 +1861,15 @@ mod tests {
             html.contains("data-testid=\"industry-mismatch-csv-table\""),
             "table data-testid 必須"
         );
-        assert!(html.contains("<h2>産業ミスマッチ (CSV"), "h2 タイトル必須");
+        // Round 23: タイトル中立化 (設計メモ §18.3)
+        assert!(
+            html.contains("<h2>CSV 推定業種構成と地域産業構成の比較"),
+            "h2 タイトル必須"
+        );
         assert!(html.contains("表 4B-1"), "図番号 4B-1 必須");
         assert!(
-            html.contains("CSV 件数構成比"),
-            "列ヘッダ CSV 件数構成比 必須"
+            html.contains("CSV 推定構成比"),
+            "列ヘッダ CSV 推定構成比 必須 (§18.4 ラベル中立化)"
         );
         assert!(html.contains("就業者構成比"), "列ヘッダ 就業者構成比 必須");
         assert!(html.contains("ギャップ"), "列ヘッダ ギャップ 必須");
@@ -1847,13 +1880,13 @@ mod tests {
     /// ≥ +10 → CSV 重点 / ≤ -10 → CSV 過少 / それ以外 → 整合
     #[test]
     fn csv_industry_classify_gap_branches() {
-        assert_eq!(classify_csv_gap(20.0).0, "CSV 重点業界");
-        assert_eq!(classify_csv_gap(10.0).0, "CSV 重点業界"); // 境界 10 は重点側
-        assert_eq!(classify_csv_gap(9.9).0, "整合");
-        assert_eq!(classify_csv_gap(0.0).0, "整合");
-        assert_eq!(classify_csv_gap(-9.9).0, "整合");
-        assert_eq!(classify_csv_gap(-10.0).0, "CSV 過少"); // 境界 -10 は過少側
-        assert_eq!(classify_csv_gap(-30.0).0, "CSV 過少");
+        assert_eq!(classify_csv_gap(20.0).0, "CSV 内 推定多出現");
+        assert_eq!(classify_csv_gap(10.0).0, "CSV 内 推定多出現"); // 境界 10 は重点側
+        assert_eq!(classify_csv_gap(9.9).0, "差分小");
+        assert_eq!(classify_csv_gap(0.0).0, "差分小");
+        assert_eq!(classify_csv_gap(-9.9).0, "差分小");
+        assert_eq!(classify_csv_gap(-10.0).0, "CSV 内 推定少数"); // 境界 -10 は過少側
+        assert_eq!(classify_csv_gap(-30.0).0, "CSV 内 推定少数");
 
         // 色も検証
         assert_eq!(classify_csv_gap(20.0).1, "#10b981");
@@ -1921,8 +1954,8 @@ mod tests {
 
         assert!(!html.is_empty(), "サンプル出力 必須");
         assert!(
-            html.contains("CSV 重点業界"),
-            "CSV 重点業界の解釈ラベル必須 (医療,福祉)"
+            html.contains("CSV 内 推定多出現"),
+            "CSV 内 推定多出現の解釈ラベル必須 (医療,福祉)"
         );
     }
 

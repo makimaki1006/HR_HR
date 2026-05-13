@@ -625,10 +625,12 @@ fn alpha_salary_min_values_type_conversion_exact() {
     let mut maxs = agg.salary_max_values.clone();
     mins.sort();
     maxs.sort();
-    // F1 #2 修正: 1500*167=250_500, 12000*21=252_000, 6_000_000/12=500_000, monthly=300_000
-    assert_eq!(mins, vec![250_500, 252_000, 300_000, 500_000]);
-    // 2000*167=334_000, 15000*21=315_000, 8_400_000/12=700_000, monthly=400_000
-    assert_eq!(maxs, vec![315_000, 334_000, 400_000, 700_000]);
+    // Round 22 (2026-05-13): 設計メモ §5 準拠で Annual はクラスタ分析対象外として除外。
+    // 残るは Hourly (1500*167=250_500), Daily (12000*21=252_000), Monthly (300_000) の 3 件。
+    // Annual 6_000_000/12=500_000 は除外される。
+    assert_eq!(mins, vec![250_500, 252_000, 300_000]);
+    // 同様に max も Annual を除外: Hourly 334_000, Daily 315_000, Monthly 400_000
+    assert_eq!(maxs, vec![315_000, 334_000, 400_000]);
 }
 
 /// 5万円未満の異常値 (Hourly 200円など) が除外されることを検証。
