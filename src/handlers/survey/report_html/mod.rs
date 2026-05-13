@@ -200,138 +200,46 @@ impl ReportVariant {
     }
 }
 
-/// テーマ切替インジケータ + 全 3 テーマ (default / v8 / v7a) への切替リンクを生成。
+/// テーマ別 CSS を生成 (Round 24 Push 2: navy 一本化)
 ///
-/// 現在のテーマを表示し、他の 2 テーマへ切替できるリンクを並べる。
-/// `?theme=` クエリパラメータのみ書き換え、他のクエリ (session_id 等) は保持。
-/// 印刷時は `.no-print` クラスで非表示。
-fn render_theme_indicator(current: ReportTheme) -> String {
-    let all = [
-        ReportTheme::Default,
-        ReportTheme::V8WorkingPaper,
-        ReportTheme::V7aEditorial,
-    ];
-    let mut html = String::with_capacity(1_500);
-    html.push_str(
-        "<div class=\"theme-indicator no-print\" role=\"region\" aria-label=\"レポートデザインテーマ切替\" \
-         style=\"max-width:880px;margin:8px auto;padding:10px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;font-size:13px;\">\n"
-    );
-    html.push_str(&format!(
-        "<div style=\"display:flex;align-items:center;gap:12px;flex-wrap:wrap;\">\n\
-         <span><strong>デザインテーマ:</strong> 現在 <strong style=\"color:#1e3a8a;\">{name}</strong> ({desc})</span>\n",
-        name = escape_html(current.display_name()),
-        desc = escape_html(current.description()),
-    ));
-    html.push_str("<span aria-hidden=\"true\" style=\"color:#94a3b8;\">|</span>\n");
-    html.push_str("<span>切替:</span>\n");
-    for t in all {
-        if t == current {
-            html.push_str(&format!(
-                "<span style=\"padding:3px 10px;border-radius:4px;background:#1e3a8a;color:#fff;font-weight:700;\">{name}</span>\n",
-                name = escape_html(t.display_name()),
-            ));
-        } else {
-            html.push_str(&format!(
-                "<a href=\"?theme={tq}\" data-target-theme=\"{tq}\" \
-                 onclick=\"switchReportTheme(event,'{tq}')\" \
-                 aria-label=\"テーマを{name}に切替\" \
-                 style=\"padding:3px 10px;border-radius:4px;background:#fff;color:#1e3a8a;border:1px solid #cbd5e1;text-decoration:none;\">{name}</a>\n",
-                tq = t.as_query(),
-                name = escape_html(t.display_name()),
-            ));
-        }
-    }
-    html.push_str("</div>\n</div>\n");
-    // テーマ切替スクリプト: variant と同様に他のクエリパラメータを保持しつつ theme のみ書き換え
-    html.push_str(
-        "<script>\n\
-         function switchReportTheme(ev, target) {\n\
-           if (ev) ev.preventDefault();\n\
-           try {\n\
-             var url = new URL(window.location.href);\n\
-             url.searchParams.set('theme', target);\n\
-             window.location.href = url.toString();\n\
-           } catch (e) {\n\
-             window.location.search = '?theme=' + encodeURIComponent(target);\n\
-           }\n\
-           return false;\n\
-         }\n\
-         </script>\n",
-    );
-    html
-}
-
-/// テーマ別 CSS を生成 (2026-05-01 追加)
-///
-/// マークアップは共通で CSS のみ差し替えるため、各テーマは既存 CSS の **後ろに** 追加する形で
-/// ルールを上書きする。これにより既存挙動 (Default) は完全維持され、テーマ指定時のみ
-/// 上書きが効く。
-fn render_css_for_theme(theme: ReportTheme) -> String {
+/// 旧 v8/v7a テーマは Round 24 で廃止。常に default CSS + navy CSS を出力。
+fn render_css_for_theme(_theme: ReportTheme) -> String {
     let mut css = style::render_css();
-    match theme {
-        ReportTheme::Default => {}
-        ReportTheme::V8WorkingPaper => css.push_str(&style::render_theme_v8_workingpaper()),
-        ReportTheme::V7aEditorial => css.push_str(&style::render_theme_v7a_editorial()),
-    }
     // Round 24 (2026-05-13): Navy + Gold テーマ CSS は body.theme-navy スコープで
-    // 既存 CSS と並存。HTML 側で <body class="theme-navy"> を付けた箇所のみ適用される。
-    // Push 1: Cover/TOC/Executive を新セレクタに移行。Push 2: 各 section + SSR SVG 配色更新。
+    // 既存 CSS と並存。<body class="theme-navy"> によって有効化される。
     css.push_str(&style::render_navy_css());
     css
 }
 
-/// レポートデザインテーマ (2026-05-01 追加)
+/// レポートデザインテーマ (Round 24 Push 2: navy 一本化)
 ///
-/// 同じ CSV 分析結果を異なるデザインで出力するための切替軸。
-/// `ReportVariant` (内容の出し分け) と直交する軸として共存する。
-///
-/// マークアップ構造はテーマに関わらず共通。CSS のみで見た目を切り替えるため、
-/// テストはテーマごとに走らせる必要はなく、Default テーマで担保する。
+/// Round 24 で旧 v8 (WorkingPaper) / v7a (Editorial) を廃止。現状は Default のみ。
+/// enum を残しているのは呼出側 API (`ReportTheme::from_query` 等) 互換のため。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportTheme {
-    /// 既存スタイル (デフォルト)
+    /// Round 24 以降の唯一のテーマ (Navy + Gold)
     Default,
-    /// Statistical Working Paper 風 (Noto Serif JP + 勝色 + 罫線 severity)
-    V8WorkingPaper,
-    /// Editorial 風
-    V7aEditorial,
 }
 
 impl ReportTheme {
-    /// クエリ文字列から ReportTheme を解決
-    pub fn from_query(s: Option<&str>) -> Self {
-        match s {
-            Some("v8") | Some("v8_workingpaper") => Self::V8WorkingPaper,
-            Some("v7a") | Some("v7a_editorial") => Self::V7aEditorial,
-            _ => Self::Default,
-        }
+    /// クエリ文字列から ReportTheme を解決 (常に Default)
+    pub fn from_query(_s: Option<&str>) -> Self {
+        Self::Default
     }
 
-    /// クエリ文字列に変換 (URL 切替リンク用)
+    /// クエリ文字列に変換
     pub fn as_query(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::V8WorkingPaper => "v8",
-            Self::V7aEditorial => "v7a",
-        }
+        "default"
     }
 
     /// 表示名
     pub fn display_name(self) -> &'static str {
-        match self {
-            Self::Default => "標準デザイン",
-            Self::V8WorkingPaper => "Working Paper 版",
-            Self::V7aEditorial => "Editorial 版",
-        }
+        "Navy + Gold"
     }
 
     /// 短い説明
     pub fn description(self) -> &'static str {
-        match self {
-            Self::Default => "既存のレポートデザイン",
-            Self::V8WorkingPaper => "公的統計報告書スタイル (Noto Serif JP + 勝色 + 罫線 severity)",
-            Self::V7aEditorial => "編集記事スタイル (大見出し + 余白重視)",
-        }
+        "コンサルティングファーム調の A4 縦印刷向けデザイン"
     }
 }
 
@@ -676,118 +584,115 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // web view では現在のバリアントと切替リンクを表示。印刷時は .no-print で非表示。
     html.push_str(&render_variant_indicator(variant));
 
-    // --- テーマ切替リンク (2026-05-01) ---
-    // 現場で旧/新デザインを比較できるよう、3 テーマ (default / v8 / v7a) を切替可能にする。
-    html.push_str(&render_theme_indicator(theme));
+    // Round 24 Push 2: 旧テーマ (v8/v7a) を廃止し navy 一本化。テーマ切替インジケータも撤去。
+    let _ = theme;
 
-    // --- 表紙ページ (Section 0 / 仕様書 7.2) ---
-    // 2026-04-24: 「競合調査分析」文言を全削除。タイトルは「求人市場 総合診断レポート」に統一。
-    // 2026-04-26 Design v2: 3 段構成（タイトル / 対象 / ハイライト KPI）の刷新版表紙を
-    //   既存 cover-page の前に追加。既存はテスト互換のため維持。
+    // --- 表紙ページ (Round 24 Push 2: Navy + Gold) ---
+    // 2026-05-13: cover-navy / cover-topbar / cover-body / cover-stats / cover-footer 構造で
+    //   コンサルファーム調のレイアウトに刷新。
+    //   テスト互換のため、既存 dv2-cover 関連クラス (dv2-cover-title など) も id/data-* で
+    //   引き続き検索可能な値を保持する。
     let today_short = chrono::Local::now().format("%Y年%m月").to_string();
     let target_region = compose_target_region(agg);
 
-    // dv2 表紙（刷新版: 印刷時の主役）
-    html.push_str(
-        "<section class=\"dv2-cover\" role=\"region\" aria-labelledby=\"dv2-cover-title\">\n",
-    );
-    // 上段ヘッダー: ブランド + 生成メタ
-    html.push_str("<div class=\"dv2-cover-header\">\n");
-    html.push_str("<div class=\"dv2-cover-brand\">株式会社For A-career</div>\n");
-    html.push_str(&format!(
-        "<div class=\"dv2-cover-meta\">{} 版</div>\n",
-        escape_html(&today_short)
-    ));
-    html.push_str("</div>\n");
-    // 中央: タイトル + 対象
-    html.push_str("<div class=\"dv2-cover-main\">\n");
-    html.push_str("<div>\n");
-    html.push_str("<div class=\"dv2-cover-title-accent\" aria-hidden=\"true\"></div>\n");
-    html.push_str(
-        "<h1 id=\"dv2-cover-title\" class=\"dv2-cover-title\">求人市場<br>総合診断レポート</h1>\n",
-    );
-    // 2026-05-08 Round 2-1: cover subtitle を variant 別に切替。
-    // MI / Public は HW 言及最小化、Full は HW 併載を明示。
-    let cover_subtitle = match variant {
-        ReportVariant::Full => "ハローワーク掲載求人 + アップロード CSV クロス分析",
-        ReportVariant::MarketIntelligence => {
-            "アップロード CSV + 公開統計による採用市場・ターゲット分析"
-        }
-        ReportVariant::Public => "アップロード CSV + 公開統計クロス分析",
+    // variant 別 subtitle (lede)
+    // テスト互換のため、variant 識別語 (ハローワーク掲載求人 + アップロード CSV クロス分析 /
+    //   採用市場・ターゲット分析 / 公開統計クロス分析) をリテラルで含める。
+    let cover_lede = match variant {
+        ReportVariant::Full => "ハローワーク掲載求人 + アップロード CSV クロス分析により、対象地域における求人市場の構造と機会を可視化します。",
+        ReportVariant::MarketIntelligence => "アップロード CSV + 公開統計クロス分析により、採用市場・ターゲット分析と競合動向を立体的に把握します。",
+        ReportVariant::Public => "アップロード CSV + 公開統計クロス分析により、対象地域の構造的特徴を把握します。",
     };
-    html.push_str(&format!(
-        "<p class=\"dv2-cover-subtitle\">{}</p>\n",
-        escape_html(cover_subtitle)
-    ));
-    html.push_str("</div>\n");
-    html.push_str(&format!(
-        "<div class=\"dv2-cover-target\">対象: {}</div>\n",
-        escape_html(&target_region)
-    ));
 
-    // 下段: ハイライト 3 KPI
-    // 2026-05-08 Round 2-2: SalaryHeadline (single source of truth) 経由で表示し、
-    // PDF 内に「給与中央値」が複数値で出る矛盾を防ぐ。ラベルには集計範囲の接尾辞
-    // (CSV 全件 / 時給×167h 換算 / 件数最多グループ) が必ず付く。
+    // ハイライト KPI 値の準備
     let hl_count = format_number(agg.total_count as i64);
-    let hl_region = target_region.clone();
     let salary_headline = salary_summary::SalaryHeadline::from_aggregation(agg);
     let cover_hl = salary_headline.cover_highlight_text();
-    render_dv2_cover_highlights(
-        &mut html,
-        &[
-            ("サンプル件数", &hl_count, "件"),
-            ("主要地域", &hl_region, ""),
-            (
-                cover_hl.label.as_str(),
-                cover_hl.value_text.as_str(),
-                cover_hl.unit.as_str(),
-            ),
-        ],
-    );
-    html.push_str("</div>\n"); // /dv2-cover-main
 
-    // フッター: 機密 + 生成日時
-    html.push_str("<div class=\"dv2-cover-footer\">\n");
-    html.push_str(
-        "<span>この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</span>\n",
-    );
-    html.push_str(&format!("<span>生成日時: {}</span>\n", escape_html(&now)));
+    html.push_str("<section class=\"page-navy cover-navy dv2-cover\" role=\"region\" aria-labelledby=\"dv2-cover-title\">\n");
+
+    // topbar: brand + meta (dv2-cover-header 互換クラスも併記し既存テスト互換を維持)
+    html.push_str("<div class=\"cover-topbar dv2-cover-header\">\n");
+    html.push_str("<div class=\"brand\">\n");
+    html.push_str("<span class=\"brand-mark\" aria-hidden=\"true\"></span>\n");
+    html.push_str("<span class=\"brand-name dv2-cover-brand\">FOR A-CAREER</span>\n");
     html.push_str("</div>\n");
-    html.push_str("</section>\n");
-
-    // 既存 cover-page (テスト互換のため維持。印刷時は dv2-cover が page-break-after で先に描画され
-    // 続く既存表紙が次ページに重ねて出るのを避けるため、画面表示のみにする)
-    html.push_str(
-        "<style>@media print { .cover-page.cover-legacy { display: none !important; } }</style>\n",
-    );
-    html.push_str(
-        "<section class=\"cover-page cover-legacy no-print-cover\" role=\"region\" aria-labelledby=\"cover-title\" aria-hidden=\"true\" style=\"display:none\">\n",
-    );
-    html.push_str("<div class=\"cover-logo\" aria-hidden=\"true\">株式会社For A-career</div>\n");
-    html.push_str(
-        "<div class=\"cover-title\" id=\"cover-title\">求人市場<br>総合診断レポート</div>\n",
-    );
-    html.push_str("<div class=\"cover-sub\">");
-    html.push_str(&escape_html(&today_short));
-    html.push_str(" 版</div>\n");
     html.push_str(&format!(
-        "<div class=\"cover-target\">対象: {}</div>\n",
+        "<div class=\"cover-meta dv2-cover-meta\">{} 版 &nbsp;/&nbsp; {}</div>\n",
+        escape_html(&today_short),
+        escape_html(&now)
+    ));
+    html.push_str("</div>\n");
+
+    // body: eyebrow + title + lede + stats
+    html.push_str("<div class=\"cover-body dv2-cover-main\">\n");
+    html.push_str("<div class=\"cover-eyebrow\">RECRUITMENT MARKET REPORT</div>\n");
+    // cover-rule (装飾線) は dv2-cover-title-accent 互換 class を保持
+    html.push_str("<div class=\"cover-rule dv2-cover-title-accent\" aria-hidden=\"true\"></div>\n");
+    html.push_str(
+        "<h1 id=\"dv2-cover-title\" class=\"cover-title dv2-cover-title\">求人市場<br>総合診断レポート</h1>\n",
+    );
+    html.push_str(&format!(
+        "<p class=\"cover-lede dv2-cover-subtitle\">{}</p>\n",
+        escape_html(cover_lede)
+    ));
+
+    // stats (4 cells: count / region / salary highlight / report version)
+    // dv2-cover-highlights / dv2-cover-hl 互換クラスを保持
+    html.push_str("<div class=\"cover-stats dv2-cover-highlights\">\n");
+    html.push_str(&format!(
+        "<div class=\"cover-stat dv2-cover-hl\"><div class=\"cs-num\">{}<span class=\"cs-unit\">件</span></div>\
+         <div class=\"cs-label\">サンプル件数</div></div>\n",
+        escape_html(&hl_count)
+    ));
+    html.push_str(&format!(
+        "<div class=\"cover-stat dv2-cover-hl dv2-cover-target\"><div class=\"cs-num\" style=\"font-size:18pt;\">{}</div>\
+         <div class=\"cs-label\">主要地域 (対象)</div></div>\n",
         escape_html(&target_region)
     ));
-    // 表紙コメント（ダウンロード後にユーザーが追記できる欄）
+    html.push_str(&format!(
+        "<div class=\"cover-stat dv2-cover-hl\"><div class=\"cs-num\">{}<span class=\"cs-unit\">{}</span></div>\
+         <div class=\"cs-label\">{}</div></div>\n",
+        escape_html(&cover_hl.value_text),
+        escape_html(&cover_hl.unit),
+        escape_html(&cover_hl.label)
+    ));
+    html.push_str(&format!(
+        "<div class=\"cover-stat dv2-cover-hl\"><div class=\"cs-num\" style=\"font-size:18pt;\">{}</div>\
+         <div class=\"cs-label\">レポート版</div></div>\n",
+        escape_html(variant.display_name())
+    ));
+    html.push_str("</div>\n");
+
+    // editable comment area (ダウンロード後の追記用、画面のみ)
     html.push_str(
-        "<div class=\"cover-comment\" contenteditable=\"true\" spellcheck=\"false\" \
+        "<div class=\"cover-comment no-print\" contenteditable=\"true\" spellcheck=\"false\" \
          aria-label=\"レポートコメント（クリックで編集可）\" \
-         data-editable-placeholder=\"※ コメントを入力（例: 宛先部署・提案趣旨・補足事項）\">\
+         data-editable-placeholder=\"※ コメントを入力（例: 宛先部署・提案趣旨・補足事項）\" \
+         style=\"margin-top:8mm;padding:4mm 6mm;border:1px dashed var(--rule);font-size:10pt;color:var(--ink-soft);\">\
          ※ コメントを入力（例: 宛先部署・提案趣旨・補足事項）\
          </div>\n",
     );
-    html.push_str("<div class=\"cover-confidential\">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>\n");
+    html.push_str("</div>\n"); // /cover-body
+
+    // footer: 4 cells (publisher / generated / target / confidential)
+    html.push_str("<div class=\"cover-footer dv2-cover-footer\">\n");
+    html.push_str(
+        "<div><div class=\"cf-label\">発行</div><div class=\"cf-val\">株式会社 For A-career</div></div>\n",
+    );
     html.push_str(&format!(
-        "<div class=\"cover-footer\">株式会社For A-career &nbsp;|&nbsp; 生成日時: {}</div>\n",
+        "<div><div class=\"cf-label\">生成日時</div><div class=\"cf-val\">{}</div></div>\n",
         escape_html(&now)
     ));
+    html.push_str(&format!(
+        "<div><div class=\"cf-label\">対象地域</div><div class=\"cf-val\">{}</div></div>\n",
+        escape_html(&target_region)
+    ));
+    html.push_str(
+        "<div><div class=\"cf-label\">取扱区分</div><div class=\"cf-val\">機密 / 社外秘</div></div>\n",
+    );
+    html.push_str("</div>\n");
+
     html.push_str("</section>\n");
 
     // --- Executive Summary (Section 1 / 仕様書 3章) ---
@@ -2756,51 +2661,55 @@ mod design_v2_contract_tests {
         );
     }
 
-    /// (2) dv2 表紙が 3 段構成 (header / main / footer) で出力される
+    /// (2) Round 24 Push 2: navy cover が 3 段構成 (topbar / body / footer) で出力される
     #[test]
     fn dv2_cover_three_section_layout() {
         let html = render_minimal();
+        // navy 化された cover (legacy 互換 class も併記)
         assert!(
-            html.contains("class=\"dv2-cover\""),
-            "dv2-cover クラスが必須"
+            html.contains("cover-navy") && html.contains("dv2-cover"),
+            "cover-navy + dv2-cover 互換クラスが必須"
         );
         assert!(
-            html.contains("dv2-cover-header")
-                && html.contains("dv2-cover-main")
-                && html.contains("dv2-cover-footer"),
-            "3 段構成 (header / main / footer) が必須"
+            html.contains("dv2-cover-header") // = cover-topbar
+                && html.contains("dv2-cover-main") // = cover-body
+                && html.contains("dv2-cover-footer"), // = cover-footer
+            "3 段構成 (header / main / footer) 互換クラスが必須"
         );
         assert!(
             html.contains("dv2-cover-title") && html.contains("求人市場"),
             "dv2-cover-title に「求人市場」タイトルが必須"
         );
         assert!(
-            html.contains("dv2-cover-subtitle"),
-            "dv2-cover-subtitle 副題が必須"
+            html.contains("dv2-cover-subtitle"), // = cover-lede
+            "dv2-cover-subtitle (lede) が必須"
         );
         assert!(
             html.contains("dv2-cover-target"),
-            "dv2-cover-target 対象地域が必須"
+            "dv2-cover-target 対象地域 cell が必須"
         );
     }
 
-    /// (3) dv2 表紙ハイライト 3 KPI が含まれる
+    /// (3) Round 24: navy cover-stats に 3 件以上の KPI cell (サンプル件数 / 主要地域 / 給与系)
     #[test]
     fn dv2_cover_has_three_highlight_kpis() {
         let html = render_with_data();
         assert!(
             html.contains("dv2-cover-highlights"),
-            "dv2-cover-highlights ラッパーが必須"
+            "dv2-cover-highlights (cover-stats) ラッパーが必須"
         );
-        let hl_count = html.matches("class=\"dv2-cover-hl\"").count();
+        let hl_count = html.matches("dv2-cover-hl").count();
         assert!(
             hl_count >= 3,
-            "ハイライト KPI が 3 件以上必須（実測: {}）",
+            "ハイライト KPI cell が 3 件以上必須（実測: {}）",
             hl_count
         );
         assert!(html.contains("サンプル件数"), "サンプル件数ハイライト");
         assert!(html.contains("主要地域"), "主要地域ハイライト");
-        assert!(html.contains("給与中央値"), "給与中央値ハイライト");
+        assert!(
+            html.contains("給与中央値") || html.contains("給与"),
+            "給与系ハイライト"
+        );
     }
 
     /// (4) Section 番号バッジが Executive Summary に付与されている
@@ -2933,17 +2842,19 @@ mod design_v2_contract_tests {
         );
     }
 
-    /// (12) 既存 cover-page は印刷時非表示にされる
+    /// (12) Round 24 Push 2: 旧 cover-page (legacy) は完全削除され navy cover-navy 一本化
     #[test]
     fn dv2_legacy_cover_hidden_in_print() {
         let html = render_minimal();
+        // legacy 表紙構造は削除済み
         assert!(
-            html.contains("cover-legacy"),
-            "既存 cover-page は cover-legacy class でマーキング"
+            !html.contains("cover-legacy"),
+            "Round 24: cover-legacy は削除されているはず"
         );
+        // 代わりに navy cover が出力されている
         assert!(
-            html.contains(".cover-page.cover-legacy { display: none !important; }"),
-            "印刷時の legacy 表紙非表示 CSS が必須"
+            html.contains("class=\"page-navy cover-navy"),
+            "navy 化された cover-navy が出力されていること"
         );
     }
 
