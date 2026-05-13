@@ -396,11 +396,14 @@ fn render_pyramid_block(html: &mut String, ctx: &InsightContext) {
         },
         "legend": {"data": ["男性", "女性"], "top": 0},
         "grid": {"left": "12%", "right": "8%", "top": 30, "bottom": 30, "containLabel": true},
+        // Round 14 (2026-05-13): xAxis.axisLabel.formatter は JS 関数 string を渡しても
+        // ECharts JSON 経由では evaluate されず literal 文字列が描画される (本番 PDF で確認済)。
+        // 男性側を負値で渡している関係で X 軸が「-1000, -500, 0, 500, 1000」表示になる。
+        // 業界標準 (人口ピラミッド) の表示なので注記で「軸目盛は人数の絶対値」と補足する。
         "xAxis": {
             "type": "value",
             "axisLabel": {
-                "fontSize": 9,
-                "formatter": "function(v){return Math.abs(v).toLocaleString();}"
+                "fontSize": 9
             }
         },
         "yAxis": {
