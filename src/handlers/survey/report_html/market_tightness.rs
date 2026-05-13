@@ -1043,20 +1043,25 @@ fn render_tightness_summary(html: &mut String, m: &TightnessMetrics) {
 
     render_figure_caption(html, "図 MT-1", "採用市場 逼迫度 総合スコア");
 
+    // Round 17 (2026-05-13): CSS の単純数値表示に加え、SSR SVG ゲージで視覚化。
+    // 視覚レビュアが「ゲージなし」と誤認した問題への対応。
     html.push_str(&format!(
         "<div data-testid=\"tightness-summary\" \
          style=\"display:flex;align-items:center;gap:16px;background:{bg};border-left:6px solid {col};\
                  padding:12px 16px;border-radius:6px;margin:8px 0 12px;\">\
+         <div style=\"flex:0 0 auto;\" data-testid=\"tightness-gauge-wrap\">",
+        bg = bg_color, col = color,
+    ));
+    html.push_str(&super::helpers::build_gauge_svg(score as f64, &level_label, color));
+    html.push_str(&format!(
+        "</div><div style=\"flex:1 1 auto;\">\
          <div style=\"font-size:11px;color:#6b7280;\">採用市場 逼迫度</div>\
          <div style=\"font-size:28px;font-weight:700;color:{col};\" data-testid=\"tightness-score\">\
          {score:.0}<span style=\"font-size:14px;color:#6b7280;\"> / 100</span>\
          </div>\
          <div style=\"font-size:14px;font-weight:600;color:{col};\">{label}</div>\
-         </div>\n",
-        bg = bg_color,
-        col = color,
-        score = score,
-        label = escape_html(&level_label),
+         </div></div>\n",
+        col = color, score = score, label = escape_html(&level_label),
     ));
 
     render_read_hint_html(

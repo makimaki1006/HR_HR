@@ -1639,6 +1639,17 @@ pub(crate) fn render_mi_market_quadrant(
 
     let points: Vec<QuadrantPoint> = points_map.into_values().collect();
 
+    // Round 17 (2026-05-13): 小サンプル時 (n<5) の警告表示
+    // 全点が log scale で edge に集中して図がほぼ空白に見える問題 (agent 報告 #6) への緩和。
+    if points.len() < 5 {
+        html.push_str(&format!(
+            "<p style=\"font-size:9pt;color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:4px;\">\
+             ※ 対象市区町村のサンプル数が {} 件と少ないため、4 象限図上で点が偏って見える場合があります。\
+             目安として 5 件以上のサンプルがある時に空間構造を読み取れます。</p>\n",
+            points.len()
+        ));
+    }
+
     // 5. 軸の中央値を計算 (median split)
     let mut counts: Vec<i64> = points.iter().map(|p| p.csv_count).collect();
     let mut emps: Vec<i64> = points.iter().map(|p| p.employees_total).collect();

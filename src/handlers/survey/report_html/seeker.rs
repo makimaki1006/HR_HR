@@ -127,39 +127,29 @@ pub(super) fn render_section_job_seeker(html: &mut String, seeker: &JobSeekerAna
             "経験者求人 vs 未経験可求人 平均給与比較",
         ));
 
-        // Round 12 (2026-05-12) K10 修正:
-        // 旧実装は two-column の数字表示のみで chart 不在。
-        // 縦棒グラフで経験者 vs 未経験可の平均給与を視覚比較する。
-        let to_man_opt = |v: Option<i64>| v.map(|x| (x as f64) / 10_000.0).unwrap_or(0.0);
-        let exp_chart = json!({
-            "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
-            "grid": {"left": "12%", "right": "10%", "top": 16, "bottom": 36, "containLabel": true},
-            "xAxis": {
-                "type": "category",
-                "data": [
-                    format!("経験者求人 ({}件)", inexp.experience_count),
-                    format!("未経験可求人 ({}件)", inexp.inexperience_count)
-                ],
-                "axisLabel": {"fontSize": 10}
-            },
-            "yAxis": {
-                "type": "value",
-                "name": "平均月給 (万円)",
-                "nameLocation": "middle",
-                "nameGap": 28,
-                "axisLabel": {"fontSize": 10}
-            },
-            "series": [{
-                "type": "bar",
-                "barWidth": "45%",
-                "data": [
-                    {"value": to_man_opt(inexp.experience_avg_salary), "itemStyle": {"color": "#1e40af"}},
-                    {"value": to_man_opt(inexp.inexperience_avg_salary), "itemStyle": {"color": "#f59e0b"}}
-                ],
-                "label": {"show": true, "position": "top", "formatter": "{c} 万円", "fontSize": 10, "fontWeight": "bold"}
-            }]
-        });
-        html.push_str(&render_echart_div(&exp_chart.to_string(), 220));
+        // Round 17 (2026-05-13): ECharts → SSR SVG bar (print emulate 対応)
+        // 旧実装は None → 0.0 で未経験バーが消失 (B-P1 / agent 報告 #5)。
+        // SSR SVG では None の系列は items から完全に除外 (chart 範囲を歪めない)。
+        let mut items: Vec<(String, f64)> = vec![];
+        if let Some(exp) = inexp.experience_avg_salary {
+            items.push((
+                format!("経験者求人 ({}件)", inexp.experience_count),
+                exp as f64 / 10_000.0,
+            ));
+        }
+        if let Some(inx) = inexp.inexperience_avg_salary {
+            items.push((
+                format!("未経験可求人 ({}件)", inexp.inexperience_count),
+                inx as f64 / 10_000.0,
+            ));
+        }
+        if items.is_empty() {
+            html.push_str(
+                "<p class=\"data-empty\">経験者・未経験可求人いずれも平均給与データなし</p>\n",
+            );
+        } else {
+            html.push_str(&build_vbar_svg(&items, "#1e40af", "万"));
+        }
 
         html.push_str("<div class=\"two-column\">\n");
 

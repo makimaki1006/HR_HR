@@ -45,51 +45,19 @@ pub(super) fn render_section_employment(
         ));
     }
 
-    // EChartsドーナツチャート TOP6
+    // Round 17 (2026-05-13): SSR SVG ドーナツチャート (print emulate 対応)
     let colors = [
         "#1565C0", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9",
     ];
-    let pie_data: Vec<serde_json::Value> = agg
+    let items: Vec<(String, i64, &str)> = agg
         .by_employment_type
         .iter()
         .take(6)
         .enumerate()
-        .map(|(i, (name, count))| {
-            json!({
-                "value": count,
-                "name": name,
-                "itemStyle": {"color": colors[i % colors.len()]}
-            })
-        })
+        .map(|(i, (name, count))| (name.clone(), *count as i64, colors[i % colors.len()]))
         .collect();
-
-    let config = json!({
-        "tooltip": {"trigger": "item", "formatter": "{b}: {c}件 ({d}%)"},
-        "legend": {
-            "orient": "vertical",
-            "right": "5%",
-            "top": "middle",
-            "textStyle": {"fontSize": 10}
-        },
-        "series": [{
-            "type": "pie",
-            "radius": ["35%", "65%"],
-            "center": ["35%", "50%"],
-            "minAngle": 5,
-            "avoidLabelOverlap": true,
-            "data": pie_data,
-            "label": {
-                "show": true,
-                "formatter": "{b}\n{d}%",
-                "fontSize": 10,
-                "minMargin": 5
-            },
-            "labelLine": {"show": true, "smooth": true},
-            "emphasis": {"label": {"show": true, "fontSize": 11, "fontWeight": "bold"}}
-        }]
-    });
     render_figure_caption(html, "図 4-1", "雇用形態構成ドーナツチャート（Top 6）");
-    html.push_str(&render_echart_div(&config.to_string(), 250));
+    html.push_str(&build_donut_svg(&items));
 
     // 雇用形態別給与テーブル（ソート可能）
     if !by_emp_type_salary.is_empty() {

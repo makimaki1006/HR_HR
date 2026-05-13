@@ -2010,21 +2010,14 @@ mod tests {
         assert!(!stats_are_close(Some(100), Some(100), Some(100), 0));
     }
 
-    /// scatter.rs に xAxis.show / axisLine.show / axisTick.show が記述されていること
+    /// Round 17 (2026-05-13): scatter.rs を SSR SVG (build_scatter_svg) に置換。
+    /// ECharts axisLine/axisTick 設定は不要 (SVG 内で軸線を直接描画)。
     #[test]
-    fn scatter_source_contains_axis_show_directives() {
+    fn scatter_source_uses_ssr_svg_builder() {
         let src = include_str!("scatter.rs");
         assert!(
-            src.contains("\"show\": true"),
-            "scatter.rs に show:true 指定があること"
-        );
-        assert!(
-            src.contains("\"axisLine\""),
-            "scatter.rs に axisLine 指定があること"
-        );
-        assert!(
-            src.contains("\"axisTick\""),
-            "scatter.rs に axisTick 指定があること"
+            src.contains("build_scatter_svg"),
+            "scatter.rs は SSR SVG (build_scatter_svg) を使用すること"
         );
     }
 
@@ -2047,13 +2040,14 @@ mod tests {
         }
     }
 
-    /// employment.rs ドーナツに minAngle=5 が指定されていること
+    /// Round 17 (2026-05-13): employment.rs を SSR SVG ドーナツ (build_donut_svg) に置換。
+    /// ECharts minAngle 設定は不要。
     #[test]
-    fn donut_employment_has_min_angle() {
+    fn donut_employment_uses_ssr_svg_builder() {
         let src = include_str!("employment.rs");
         assert!(
-            src.contains("\"minAngle\": 5") || src.contains("\"minAngle\":5"),
-            "employment.rs ドーナツに minAngle=5 が指定されていること"
+            src.contains("build_donut_svg"),
+            "employment.rs は SSR SVG (build_donut_svg) を使用すること"
         );
     }
 }
