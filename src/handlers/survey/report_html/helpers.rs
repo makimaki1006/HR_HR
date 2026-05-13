@@ -204,19 +204,18 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
         }
     };
 
-    // Round 14 (2026-05-13): markLine 縦書きラベルを廃止し、graphic 横並び色付き chip box に統一。
+    // Round 15 (2026-05-13): bar 位置に紐付くラベルを 3 値とも残す。凡例 (chip) は廃止。
     //
     // 経緯:
-    //   Round 13 で「全 markLine label を chart 内 (縦線位置) に表示」に切替えたが、
-    //   実 PDF (本番) で平均 / 最頻値の label が縦書きで bar と重なり読みづらいことを確認。
-    //   中央値 (position:"end") だけ chart 上部に横書きで出ており見やすかった。
-    //   ユーザー要求: 3 値とも中央値と同じ「上部の横書き色付き box」に統一すること。
+    //   Round 14 で markLine label.show=false + 上部 chip box にしたが、ユーザーから
+    //   「凡例だと目を移動させないといけない、bar 表示の方が見やすい」と指摘 (2026-05-13)。
+    //   bar 位置の真上にラベル付与しつつ、3 値が近接した時の重なりは distance 段差で回避する。
     //
     // 新仕様:
-    //   - markLine の label.show は **全て false** (縦線だけ残す)
-    //   - graphic で 3 つの色付き chip box (中央値=緑 / 平均=赤 / 最頻値=青) を
-    //     chart 上部に左寄せで横並び表示
-    //   - 値が None の系列はその box を出さない
+    //   - markLine label.show = true (全て)
+    //   - position = "end" (chart 上端外、横書きで bar 位置の真上)
+    //   - distance を 6 / 22 / 38 と段差 (中央値=緑 → 平均=赤 → 最頻値=青 の縦並び)
+    //   - graphic chip box は廃止
     let _ = use_close_stats_card;
     let _ = stats_are_close(median, mean, mode, bin_size); // 旧 API 互換 (cargo warning 抑制)
     let x_axis_interval = histogram_axis_interval(labels.len());
@@ -228,7 +227,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "name": "中央値",
             "lineStyle": {"color": "#22c55e", "type": "dashed", "width": 2},
             "label": {
-                "show": false,
+                "show": true,
                 "formatter": format!("中央値 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -247,7 +246,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "name": "平均",
             "lineStyle": {"color": "#ef4444", "type": "dashed", "width": 2},
             "label": {
-                "show": false,
+                "show": true,
                 "formatter": format!("平均 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -255,8 +254,8 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
                 "backgroundColor": "#ef4444",
                 "borderRadius": 4,
                 "padding": [4, 8],
-                "position": "insideEndTop",
-                "distance": 18
+                "position": "end",
+                "distance": 22
             }
         }));
     }
@@ -266,7 +265,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "name": "最頻値",
             "lineStyle": {"color": "#3b82f6", "type": "dashed", "width": 2},
             "label": {
-                "show": false,
+                "show": true,
                 "formatter": format!("最頻値 {}", value_label(m)),
                 "fontSize": 11,
                 "fontWeight": "bold",
@@ -274,61 +273,14 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
                 "backgroundColor": "#3b82f6",
                 "borderRadius": 4,
                 "padding": [4, 8],
-                "position": "insideEndBottom",
-                "distance": 30
+                "position": "end",
+                "distance": 38
             }
         }));
     }
 
-    // Round 14: chart 上部に色付き chip box を横並び表示。値が None の系列は box を出さない。
-    let graphic = {
-        let entries: Vec<(Option<i64>, &str, &str)> = vec![
-            (median, "中央値", "#22c55e"),
-            (mean,   "平均",   "#ef4444"),
-            (mode,   "最頻値", "#3b82f6"),
-        ];
-        let mut children: Vec<serde_json::Value> = vec![];
-        let mut x_offset: i32 = 0;
-        let chip_height: i32 = 22;
-        let chip_gap: i32 = 6;
-        let text_pad_x: i32 = 10;
-        for (val, name, color) in entries.into_iter() {
-            if let Some(v) = val {
-                let text = format!("{} {}", name, value_label(v));
-                // chip 幅は文字数ベース推定 (日本語 1 字 ≈ 11px, ASCII 1 字 ≈ 6.5px)
-                let char_count = text.chars().count() as i32;
-                let chip_width = char_count * 10 + text_pad_x * 2;
-                children.push(json!({
-                    "type": "rect",
-                    "left": x_offset,
-                    "top": 0,
-                    "shape": {"width": chip_width, "height": chip_height, "r": 4},
-                    "style": {"fill": color, "stroke": color, "lineWidth": 1}
-                }));
-                children.push(json!({
-                    "type": "text",
-                    "left": x_offset + text_pad_x,
-                    "top": 5,
-                    "style": {
-                        "text": text,
-                        "fill": "#ffffff",
-                        "font": "bold 12px sans-serif"
-                    }
-                }));
-                x_offset += chip_width + chip_gap;
-            }
-        }
-        if children.is_empty() {
-            json!([])
-        } else {
-            json!([{
-                "type": "group",
-                "left": "center",
-                "top": 4,
-                "children": children
-            }])
-        }
-    };
+    // Round 15: graphic chip box は廃止 (ユーザー指示: 凡例不要、bar 位置の markLine label に統一)
+    let graphic = json!([]);
 
     // Round 2.7-AC: yAxis 0 始まり強制を bulletproof 化
     // - min: 0      → 棒高さ誇張防止
@@ -358,7 +310,7 @@ pub(super) fn build_histogram_echart_config_with_stats_card(
             "left": "7%",
             "right": "12%",
             "bottom": "30%",
-            // Round 14: graphic chip box (chart 上部に 22px height で配置) のため top を拡大
+            // Round 15: chip 廃止 + markLine label を position=end で 3 段重ねるため top に余白を確保
             "top": "22%",
             "containLabel": true
         },
