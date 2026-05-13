@@ -615,10 +615,11 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     navy_report::render_navy_section_02_region(&mut html, agg, hw_context, hw_enrichment_map, variant);
     navy_report::render_navy_section_03_salary(&mut html, agg, salary_min_values, salary_max_values);
     navy_report::render_navy_section_04_market_tightness(&mut html, hw_context, variant);
+    navy_report::render_navy_section_05_companies(&mut html, hw_context, by_company, salesnow_segments, variant);
     navy_report::render_navy_section_placeholders(&mut html, hw_context, variant, &now);
     let _ = (
-        by_company, salesnow_companies,
-        municipality_demographics, salesnow_segments, db, turso,
+        salesnow_companies,
+        municipality_demographics, db, turso,
     );
 
     // --- 画面下部フッター（印刷時は @page footer を使用） ---

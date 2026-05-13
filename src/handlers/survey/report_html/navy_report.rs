@@ -1514,7 +1514,12 @@ fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> St
 }
 
 // ============================================================
-// Section 02 / 05-08 placeholder (Phase 3-4 で本実装に差し替え)
+// Section 05: 地域企業構造 (Phase 3 navy 本実装) ※定義は別位置 (下方)
+// ============================================================
+// (実装は本ファイル末尾に追加 — render_navy_section_05_companies)
+
+// ============================================================
+// Section 06-08 placeholder (Phase 3-4 で本実装に差し替え)
 // ============================================================
 
 pub(super) fn render_navy_section_placeholders(
@@ -1525,7 +1530,6 @@ pub(super) fn render_navy_section_placeholders(
 ) {
     let _ = (hw_context, variant, now);
     let sections = [
-        ("SECTION 05", "地域企業構造", "産業構成 / 法人セグメント / 規模帯ベンチマーク。Phase 3 で実装予定。"),
         ("SECTION 06", "人材デモグラフィック", "人口ピラミッド / 労働力 / 学校教育施設密度。Phase 3 で実装予定。"),
         ("SECTION 07", "最低賃金・ライフスタイル", "最低賃金推移 / 家計支出構成 / 通勤圏。Phase 4 で実装予定。"),
         ("SECTION 08", "注記・出典・免責", "データソース / 集計定義 / 免責事項。Phase 4 で実装予定。"),
@@ -1586,4 +1590,405 @@ fn push_kpi(
         dot = dot,
         foot = foot,
     ));
+}
+
+// ============================================================
+// Section 05: 地域企業構造 — 関数本体
+// ============================================================
+
+pub(super) fn render_navy_section_05_companies(
+    html: &mut String,
+    hw_context: Option<&InsightContext>,
+    by_company: &[super::super::aggregator::CompanyAgg],
+    salesnow_segments: &super::super::super::company::fetch::RegionalCompanySegments,
+    variant: ReportVariant,
+) {
+    let show_hw = matches!(variant, ReportVariant::Full);
+
+    html.push_str("<section class=\"page-navy navy-companies\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 05",
+        "地域企業構造",
+        "産業構成 / 法人セグメント / 規模帯ベンチマーク",
+    );
+
+    let industry_employees: Vec<(String, i64)> = hw_context
+        .map(|ctx| {
+            use super::super::super::helpers::{get_f64, get_str};
+            ctx.ext_industry_employees
+                .iter()
+                .map(|r| (get_str(r, "industry_name"), get_f64(r, "employees_total") as i64))
+                .filter(|(n, c)| !n.is_empty() && *c > 0)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut industry_sorted = industry_employees.clone();
+    industry_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    let industry_total: i64 = industry_sorted.iter().map(|(_, c)| *c).sum();
+
+    let hw_industry: Vec<(String, i64)> = hw_context
+        .map(|ctx| ctx.hw_industry_counts.clone())
+        .unwrap_or_default();
+    let hw_total: i64 = hw_industry.iter().map(|(_, c)| *c).sum();
+
+    let pool_size = salesnow_segments.pool_size;
+    let n_large = salesnow_segments.large.len();
+    let n_mid = salesnow_segments.mid.len();
+    let n_growth = salesnow_segments.growth.len();
+    let n_hiring = salesnow_segments.hiring.len();
+    let n_companies_csv = by_company.len();
+
+    let lede = format!(
+        "対象地域の企業構造を把握します。国勢調査 産業大分類 <strong>{}</strong> 区分 / \
+         地域企業データ <strong>{}</strong> 社{}。CSV 上にユニーク企業 <strong>{}</strong> 社が確認できます。",
+        industry_sorted.len(),
+        format_number(pool_size as i64),
+        if show_hw && hw_total > 0 {
+            format!(" / 求人媒体 産業大分類 {} 件", format_number(hw_total))
+        } else {
+            String::new()
+        },
+        format_number(n_companies_csv as i64),
+    );
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>{}</p>\
+         </div>\n",
+        lede
+    ));
+
+    html.push_str("<div class=\"block-title\">図 5-1 &nbsp;法人セグメント (規模 × 動向)</div>\n");
+    html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
+    push_kpi(html, "大手企業", &format!("{}", n_large), "社", "neu", "従業員 300+ 名級", false);
+    push_kpi(html, "中堅企業", &format!("{}", n_mid), "社", "neu", "従業員 50-299 名", false);
+    push_kpi(
+        html,
+        "急成長企業",
+        &format!("{}", n_growth),
+        "社",
+        if n_growth > 0 { "pos" } else { "neu" },
+        "1Y 人員増加率 +10% 超",
+        true,
+    );
+    if show_hw {
+        push_kpi(
+            html,
+            "採用活発企業",
+            &format!("{}", n_hiring),
+            "社",
+            if n_hiring > 0 { "warn" } else { "neu" },
+            "求人媒体掲載 5 件以上",
+            false,
+        );
+    } else {
+        push_kpi(
+            html,
+            "母集団規模",
+            &format!("{}", format_number(pool_size as i64)),
+            "社",
+            "neu",
+            "地域企業データ取得社数",
+            false,
+        );
+    }
+    html.push_str("</div>\n");
+
+    html.push_str("<div class=\"block-title block-title-spaced\">表 5-A &nbsp;産業大分類 構成 (件数最多 8 産業)</div>\n");
+    html.push_str(&build_navy_industry_table(
+        &industry_sorted,
+        industry_total,
+        &hw_industry,
+        hw_total,
+        show_hw,
+    ));
+
+    if !industry_sorted.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 5-2 &nbsp;産業大分類シェア (国勢調査)</div>\n");
+        html.push_str(&build_navy_industry_bars(&industry_sorted, industry_total));
+        html.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_industry_structure (都道府県粒度)。集計コード AS/AR/CR 除外。</p>\n");
+    }
+
+    if !salesnow_segments.growth.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (1Y +10% 超、件数最多 8 社)</div>\n");
+        html.push_str(&build_navy_company_list(&salesnow_segments.growth, 8, show_hw));
+    }
+
+    let so_what = build_companies_so_what(
+        &industry_sorted,
+        industry_total,
+        pool_size,
+        n_growth,
+        n_hiring,
+        show_hw,
+    );
+    html.push_str(&format!(
+        "<div class=\"so-what\" style=\"margin-top:6mm;\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">{}</div>\
+         </div>\n",
+        so_what
+    ));
+
+    html.push_str("</section>\n");
+}
+
+fn build_navy_industry_table(
+    industry_sorted: &[(String, i64)],
+    industry_total: i64,
+    hw_industry: &[(String, i64)],
+    hw_total: i64,
+    show_hw: bool,
+) -> String {
+    let hw_map: std::collections::HashMap<&str, i64> =
+        hw_industry.iter().map(|(n, c)| (n.as_str(), *c)).collect();
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>産業大分類</th>");
+    s.push_str("<th class=\"num\">就業者数</th>");
+    s.push_str("<th class=\"num\">シェア</th>");
+    if show_hw {
+        s.push_str("<th class=\"num\">媒体掲載数</th>");
+        s.push_str("<th class=\"num\">媒体シェア</th>");
+        s.push_str("<th>差分</th>");
+    }
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let top8: Vec<&(String, i64)> = industry_sorted.iter().take(8).collect();
+    if top8.is_empty() {
+        let cols = if show_hw { 7 } else { 4 };
+        s.push_str(&format!(
+            "<tr><td colspan=\"{}\" class=\"dim\">国勢調査産業構造データを取得できませんでした。</td></tr>\n",
+            cols
+        ));
+    } else {
+        for (i, (name, employees)) in top8.iter().enumerate() {
+            let share_pct = if industry_total > 0 {
+                *employees as f64 / industry_total as f64 * 100.0
+            } else {
+                0.0
+            };
+            let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+            s.push_str(&format!(
+                "<tr{}><td class=\"num bold\">{}</td><td><strong>{}</strong></td>\
+                 <td class=\"num bold\">{}</td><td class=\"num\">{:.1}%</td>",
+                row_class,
+                i + 1,
+                escape_html(name),
+                format_number(*employees),
+                share_pct
+            ));
+            if show_hw {
+                let hw_count = hw_map.get(name.as_str()).copied().unwrap_or(0);
+                let hw_share = if hw_total > 0 {
+                    hw_count as f64 / hw_total as f64 * 100.0
+                } else {
+                    0.0
+                };
+                let diff = hw_share - share_pct;
+                let (tag, label) = if diff >= 5.0 {
+                    ("warn", "媒体側に偏り")
+                } else if diff <= -5.0 {
+                    ("neu", "就業者構成優位")
+                } else {
+                    ("neu", "ほぼ均衡")
+                };
+                s.push_str(&format!(
+                    "<td class=\"num\">{}</td><td class=\"num\">{:.1}%</td>\
+                     <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:+.1}pt</span></td>",
+                    format_number(hw_count),
+                    hw_share,
+                    tag,
+                    label,
+                    diff
+                ));
+            }
+            s.push_str("</tr>\n");
+        }
+    }
+    s.push_str("</tbody></table>\n");
+    if show_hw {
+        s.push_str("<p class=\"caption\">就業者数は国勢調査ベース、媒体掲載数は求人媒体ローカル DB。差分 (媒体シェア − 就業者シェア) は採用需要の偏りを示します。</p>\n");
+    } else {
+        s.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_industry_structure (都道府県粒度)。集計コード AS/AR/CR 除外。</p>\n");
+    }
+    s
+}
+
+fn build_navy_industry_bars(industry_sorted: &[(String, i64)], total: i64) -> String {
+    let top10: Vec<&(String, i64)> = industry_sorted.iter().take(10).collect();
+    if top10.is_empty() || total <= 0 {
+        return String::new();
+    }
+    let w = 720.0;
+    let row_h = 24.0;
+    let label_w = 200.0;
+    let val_w = 90.0;
+    let bar_x = label_w;
+    let bar_w = w - label_w - val_w - 16.0;
+    let h = top10.len() as f64 * row_h + 20.0;
+
+    let max_share = top10
+        .iter()
+        .map(|(_, c)| *c as f64 / total as f64)
+        .fold(0.0, f64::max)
+        .max(0.01);
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"産業構成バー\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+    for (i, (name, count)) in top10.iter().enumerate() {
+        let share = *count as f64 / total as f64;
+        let cy = 10.0 + i as f64 * row_h;
+        let bw_cur = bar_w * (share / max_share);
+        svg.push_str(&format!(
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            cy + 14.0,
+            escape_html(name)
+        ));
+        let bar_color = if i == 0 { "#C9A24B" } else { "#1F2D4D" };
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"14\" fill=\"{}\"/>\n",
+            bar_x,
+            cy + 4.0,
+            bw_cur.max(0.5),
+            bar_color
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"11\" fill=\"#0B1E3F\" font-family=\"Roboto Mono, monospace\" font-weight=\"700\" text-anchor=\"end\">{:.1}%</text>\n",
+            w - 6.0,
+            cy + 14.0,
+            share * 100.0
+        ));
+    }
+    svg.push_str("</svg>\n");
+    svg
+}
+
+fn build_navy_company_list(
+    companies: &[super::super::super::company::fetch::NearbyCompany],
+    take: usize,
+    show_hw: bool,
+) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>企業名</th><th>産業</th>");
+    s.push_str("<th class=\"num\">従業員数</th>");
+    s.push_str("<th class=\"num\">1Y 増減</th>");
+    if show_hw {
+        s.push_str("<th class=\"num\">媒体掲載数</th>");
+    }
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let top: Vec<_> = companies.iter().take(take).collect();
+    if top.is_empty() {
+        let cols = if show_hw { 6 } else { 5 };
+        s.push_str(&format!(
+            "<tr><td colspan=\"{}\" class=\"dim\">該当企業データなし。</td></tr>\n",
+            cols
+        ));
+    } else {
+        for (i, c) in top.iter().enumerate() {
+            let delta = c.employee_delta_1y;
+            let delta_tag = if delta >= 0.05 {
+                "pos"
+            } else if delta <= -0.05 {
+                "warn"
+            } else {
+                "neu"
+            };
+            s.push_str(&format!(
+                "<tr><td class=\"num bold\">{}</td><td><strong>{}</strong></td><td><span class=\"dim\">{}</span></td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\"><span class=\"tag tag-{}\">{:+.1}%</span></td>",
+                i + 1,
+                escape_html(&c.company_name),
+                escape_html(&c.sn_industry),
+                format_number(c.employee_count),
+                delta_tag,
+                delta * 100.0
+            ));
+            if show_hw {
+                s.push_str(&format!(
+                    "<td class=\"num\">{}</td>",
+                    if c.hw_posting_count > 0 {
+                        format_number(c.hw_posting_count)
+                    } else {
+                        "—".to_string()
+                    }
+                ));
+            }
+            s.push_str("</tr>\n");
+        }
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">地域企業データ (SalesNow) より、1 年人員増加率 +10% 超を「急成長」と定義。</p>\n");
+    s
+}
+
+fn build_companies_so_what(
+    industry_sorted: &[(String, i64)],
+    industry_total: i64,
+    pool_size: usize,
+    n_growth: usize,
+    n_hiring: usize,
+    show_hw: bool,
+) -> String {
+    let top_industry = industry_sorted.first();
+    let top_share = match top_industry {
+        Some((_, c)) if industry_total > 0 => *c as f64 / industry_total as f64 * 100.0,
+        _ => 0.0,
+    };
+    let top_name = top_industry.map(|(n, _)| n.as_str()).unwrap_or("—");
+
+    let concentration = if top_share >= 25.0 {
+        format!(
+            "<strong>{}</strong> が <strong>{:.0}%</strong> を占める <strong>主産業依存型</strong> です。",
+            top_name, top_share
+        )
+    } else if top_share >= 15.0 {
+        format!(
+            "<strong>{}</strong> 中心 (<strong>{:.0}%</strong>) ながら複数産業が並走する <strong>複合型</strong> 構造です。",
+            top_name, top_share
+        )
+    } else if top_share > 0.0 {
+        "産業が <strong>分散型</strong> に広がり、特定業界依存が低い構造です。".to_string()
+    } else {
+        "産業構成データが取得できなかったため、業種傾向は判定困難です。".to_string()
+    };
+
+    let growth_note = if n_growth >= 10 {
+        format!(
+            "急成長企業 <strong>{}</strong> 社が地域に存在し、人材移動が活発な可能性があります。",
+            n_growth
+        )
+    } else if n_growth >= 3 {
+        format!(
+            "急成長企業 <strong>{}</strong> 社が確認でき、新規参入 / 採用強化中の競合として注視が必要です。",
+            n_growth
+        )
+    } else {
+        format!("急成長セグメントは <strong>{}</strong> 社で、競合の人員拡大局面は限定的です。", n_growth)
+    };
+
+    let hw_note = if show_hw && n_hiring >= 5 {
+        format!(
+            " 媒体上で <strong>採用活発企業 {}</strong> 社が確認でき、競合との掲載重複度は高めです。応募導線・募集要項の差別化が必要です。",
+            n_hiring
+        )
+    } else {
+        String::new()
+    };
+
+    let pool_note = if pool_size == 0 {
+        " (地域企業データが取得できなかったため、競合分析は限定的です)"
+    } else {
+        ""
+    };
+
+    format!("{} {}{}{}", concentration, growth_note, hw_note, pool_note)
 }
