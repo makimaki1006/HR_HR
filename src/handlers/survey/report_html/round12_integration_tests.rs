@@ -228,7 +228,8 @@ fn l3_invariant_html_structure_order() {
         let html = render_with(&agg, &seeker, None, variant);
         let pos_doctype = html.find("<!DOCTYPE html>").expect("DOCTYPE");
         let pos_head_close = html.find("</head>").expect("</head>");
-        let pos_body_open = html.find("<body>").expect("<body>");
+        // Round 24: body に theme-navy class が付くため "<body" で検索
+        let pos_body_open = html.find("<body").expect("<body");
         let pos_html_close = html.find("</html>").expect("</html>");
         assert!(
             pos_doctype < pos_head_close
