@@ -128,6 +128,122 @@ pub(super) fn render_range_type_box(html: &mut String, label: &str, count: usize
     html.push_str("</div>\n");
 }
 
+// =====================================================================
+// Round 24 (2026-05-13): Navy + Gold テーマ用の共通レイアウト関数群
+// =====================================================================
+
+/// section ページの header (.page-head): ph-sec / ph-title / ph-sub / ph-rule
+pub(super) fn render_page_head_navy(
+    section_code: &str,  // "00 / EXECUTIVE SUMMARY" のような表記
+    title: &str,
+    sub: &str,
+) -> String {
+    format!(
+        "<div class=\"page-head\">\n\
+         <div class=\"ph-sec\">{}</div>\n\
+         <div class=\"ph-title\">{}</div>\n\
+         {sub}\
+         <div class=\"ph-rule\"></div>\n\
+         </div>\n",
+        super::super::super::helpers::escape_html(section_code),
+        super::super::super::helpers::escape_html(title),
+        sub = if sub.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"ph-sub\">{}</div>\n",
+                super::super::super::helpers::escape_html(sub)
+            )
+        },
+    )
+}
+
+/// KPI 1 件: label + value + unit + foot (dot color + 説明)
+pub(super) struct KpiCell<'a> {
+    pub label: &'a str,
+    pub value: String,
+    pub unit: &'a str,
+    pub dot: &'a str,    // "pos" / "warn" / "neg" / "neu"
+    pub foot: &'a str,   // 説明テキスト
+    pub emphasis: bool,  // 上端 gold ライン
+}
+
+/// KPI 行 (N 列): kpi-row-N の class が cells.len() に応じて付く (3/4/5)
+pub(super) fn render_kpi_row_navy(cells: &[KpiCell]) -> String {
+    let n = cells.len();
+    let modifier = match n {
+        3 => " kpi-row-3",
+        4 => " kpi-row-4",
+        _ => "",
+    };
+    let mut s = format!("<div class=\"kpi-row{}\">\n", modifier);
+    for c in cells {
+        let emph = if c.emphasis { " kpi-emphasis" } else { "" };
+        s.push_str(&format!(
+            "<div class=\"kpi{emph}\">\
+             <div class=\"kpi-label\">{label}</div>\
+             <div class=\"kpi-value\">{value}<span class=\"kpi-unit\">{unit}</span></div>\
+             <div class=\"kpi-foot\"><span class=\"dot {dot}\"></span>{foot}</div>\
+             </div>\n",
+            emph = emph,
+            label = super::super::super::helpers::escape_html(c.label),
+            value = super::super::super::helpers::escape_html(&c.value),
+            unit = super::super::super::helpers::escape_html(c.unit),
+            dot = c.dot,
+            foot = super::super::super::helpers::escape_html(c.foot),
+        ));
+    }
+    s.push_str("</div>\n");
+    s
+}
+
+/// findings 番号付きリスト (Key Findings 5 ポイント)
+pub(super) struct Finding<'a> {
+    pub no: &'a str,    // "01"
+    pub title: &'a str,
+    pub body: &'a str,  // HTML 許容 (strong 等)
+    pub ref_tag: &'a str, // "§01"
+}
+
+pub(super) fn render_findings_list_navy(head_no: &str, head_title: &str, items: &[Finding]) -> String {
+    let mut s = format!(
+        "<div class=\"findings\">\n\
+         <div class=\"findings-head\"><div class=\"fh-no\">{}</div><div class=\"fh-title\">{}</div></div>\n\
+         <ol class=\"findings-list\">\n",
+        super::super::super::helpers::escape_html(head_no),
+        super::super::super::helpers::escape_html(head_title),
+    );
+    for it in items {
+        s.push_str(&format!(
+            "<li>\
+             <div class=\"f-no\">{}</div>\
+             <div class=\"f-body\">\
+             <div class=\"f-title\">{}</div>\
+             <p>{}</p>\
+             </div>\
+             <div class=\"f-ref\">{}</div>\
+             </li>\n",
+            super::super::super::helpers::escape_html(it.no),
+            super::super::super::helpers::escape_html(it.title),
+            it.body, // body は HTML 許容
+            super::super::super::helpers::escape_html(it.ref_tag),
+        ));
+    }
+    s.push_str("</ol>\n</div>\n");
+    s
+}
+
+/// SO WHAT ボックス (Navy 背景 + Gold ラベル + 白文字)
+pub(super) fn render_so_what_navy(body_html: &str) -> String {
+    format!(
+        "<div class=\"so-what\">\n\
+         <div class=\"sw-label\">SO WHAT</div>\n\
+         <div class=\"sw-body\">{}</div>\n\
+         </div>\n",
+        body_html,
+    )
+}
+
 /// ECharts divタグを生成（data-chart-config属性付き）
 pub(super) fn render_echart_div(config_json: &str, height: u32) -> String {
     // シングルクォートをHTMLエンティティにエスケープ

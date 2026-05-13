@@ -273,6 +273,10 @@ fn render_css_for_theme(theme: ReportTheme) -> String {
         ReportTheme::V8WorkingPaper => css.push_str(&style::render_theme_v8_workingpaper()),
         ReportTheme::V7aEditorial => css.push_str(&style::render_theme_v7a_editorial()),
     }
+    // Round 24 (2026-05-13): Navy + Gold テーマ CSS は body.theme-navy スコープで
+    // 既存 CSS と並存。HTML 側で <body class="theme-navy"> を付けた箇所のみ適用される。
+    // Push 1: Cover/TOC/Executive を新セレクタに移行。Push 2: 各 section + SSR SVG 配色更新。
+    css.push_str(&style::render_navy_css());
     css
 }
 
@@ -655,7 +659,8 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     html.push_str(
         "<script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>\n",
     );
-    html.push_str("</head>\n<body>\n");
+    // Round 24 (2026-05-13): Navy + Gold テーマを body class で有効化
+    html.push_str("</head>\n<body class=\"theme-navy\">\n");
 
     // --- テーマ切替 + 印刷ボタン ---
     html.push_str("<div class=\"no-print\" style=\"text-align:right;padding:8px 16px;\">\n");
