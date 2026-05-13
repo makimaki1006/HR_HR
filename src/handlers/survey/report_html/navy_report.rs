@@ -1924,7 +1924,7 @@ fn build_navy_company_list(
         }
     }
     s.push_str("</tbody></table>\n");
-    s.push_str("<p class=\"caption\">地域企業データ (SalesNow) より、1 年人員増加率 +10% 超を「急成長」と定義。</p>\n");
+    s.push_str("<p class=\"caption\">地域企業データ より、1 年人員増加率 +10% 超を「急成長」と定義。</p>\n");
     s
 }
 
@@ -2774,4 +2774,151 @@ fn build_lifestyle_so_what(
 
     let _ = consumption;
     format!("{}{}{}{}", wage_msg, commute_msg, self_msg, internet_msg)
+}
+
+// ============================================================
+// Section 08: 注記・出典・免責 (Phase 4 navy 本実装)
+// ============================================================
+
+pub(super) fn render_navy_section_08_notes(
+    html: &mut String,
+    variant: ReportVariant,
+    now: &str,
+) {
+    let show_hw = matches!(variant, ReportVariant::Full);
+
+    html.push_str("<section class=\"page-navy navy-notes\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 08",
+        "注記・出典・免責",
+        "データソース / 集計定義 / 免責事項",
+    );
+
+    // -- 冒頭の lede (堅実な 1 段落)
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>本レポートで使用したデータソース、集計定義、および解釈上の前提を以下に明示します。\
+         数値は <strong>{}</strong> 時点で取得可能な最新値を採用しており、その後の更新により\
+         実態と乖離する可能性があります。施策判断には現場文脈・最新の一次情報を併用してください。</p>\
+         </div>\n",
+        escape_html(now)
+    ));
+
+    // -- 表 8-A データソース一覧
+    html.push_str("<div class=\"block-title\">表 8-A &nbsp;データソース一覧</div>\n");
+    html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+        <th>No.</th><th>名称</th><th>出典</th><th>用途</th><th>更新頻度</th>\
+        </tr></thead>\n<tbody>\n");
+    let sources: Vec<(&str, &str, &str, &str)> = if show_hw {
+        vec![
+            ("アップロード CSV",        "ユーザー提供",                 "全 Section の主集計対象",                   "都度"),
+            ("求人媒体ローカル DB",     "求人媒体 (postings テーブル)",   "Section 02 媒体掲載数 / 推移",             "日次更新"),
+            ("求人媒体時系列",          "Turso v2_ts_*",                "Section 02 3 ヶ月 / 1 年推移",              "週次"),
+            ("有効求人倍率",            "e-Stat (v2_external_job_openings_ratio)", "Section 04 採用難度",       "月次"),
+            ("労働力調査 (失業率)",      "e-Stat (v2_external_labor_force)",       "Section 04 / 06 失業率",        "月次"),
+            ("雇用動向調査 (離職率)",    "e-Stat (v2_external_turnover)",          "Section 04 離職率・入職率",     "年次"),
+            ("国勢調査 産業構造",        "e-Stat (v2_external_industry_structure)", "Section 05 産業大分類",         "5 年"),
+            ("国勢調査 人口ピラミッド",  "e-Stat (v2_external_population_pyramid)", "Section 06 人口構造",           "5 年"),
+            ("国勢調査 OD",              "e-Stat (v2_external_commute)",           "Section 07 通勤圏",             "5 年"),
+            ("学校基本調査",            "文部科学省 (v2_external_education_facilities)", "Section 06 教育施設密度",  "年次"),
+            ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
+            ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
+            ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
+            ("地域企業データ",          "地域企業データ (v2_salesnow_companies)",       "Section 05 法人セグメント",     "都度同期"),
+        ]
+    } else {
+        vec![
+            ("アップロード CSV",        "ユーザー提供",                 "全 Section の主集計対象",                   "都度"),
+            ("有効求人倍率",            "e-Stat (v2_external_job_openings_ratio)", "Section 04 採用難度",       "月次"),
+            ("労働力調査 (失業率)",      "e-Stat (v2_external_labor_force)",       "Section 04 / 06 失業率",        "月次"),
+            ("雇用動向調査 (離職率)",    "e-Stat (v2_external_turnover)",          "Section 04 離職率・入職率",     "年次"),
+            ("国勢調査 産業構造",        "e-Stat (v2_external_industry_structure)", "Section 05 産業大分類",         "5 年"),
+            ("国勢調査 人口ピラミッド",  "e-Stat (v2_external_population_pyramid)", "Section 06 人口構造",           "5 年"),
+            ("国勢調査 OD",              "e-Stat (v2_external_commute)",           "Section 07 通勤圏",             "5 年"),
+            ("学校基本調査",            "文部科学省 (v2_external_education_facilities)", "Section 06 教育施設密度",  "年次"),
+            ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
+            ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
+            ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
+            ("地域企業データ",          "地域企業データ (v2_salesnow_companies)",       "Section 05 法人セグメント",     "都度同期"),
+        ]
+    };
+    for (i, (name, source, purpose, freq)) in sources.iter().enumerate() {
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        html.push_str(&format!(
+            "<tr{}><td class=\"num bold\">{:02}</td><td><strong>{}</strong></td>\
+             <td><span class=\"dim\">{}</span></td><td>{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
+            row_class,
+            i + 1,
+            escape_html(name),
+            escape_html(source),
+            escape_html(purpose),
+            escape_html(freq)
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+    html.push_str("<p class=\"caption\">e-Stat = 政府統計の総合窓口 (https://www.e-stat.go.jp/)。各テーブルの取得 SQL とカラム定義は内部 docs を参照。</p>\n");
+
+    // -- 表 8-B 集計定義
+    html.push_str("<div class=\"block-title block-title-spaced\">表 8-B &nbsp;主要 集計定義</div>\n");
+    html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+        <th>項目</th><th>定義</th><th>備考</th>\
+        </tr></thead>\n<tbody>\n");
+    let defs: Vec<(&str, &str, &str)> = vec![
+        ("給与の月給換算", "時給 × 167 時間 / 日給 × 21 日 / 月給 = そのまま / 年俸は除外", "時給は月 167h 想定。年俸は別経路で集計するため本レポートから除外"),
+        ("給与解析率", "CSV 全件のうち給与文字列から数値抽出に成功した比率", "85%+ で実務判断可、60% 未満は CSV 給与表記揺れを点検"),
+        ("生産年齢", "15-64 歳人口 (国勢調査基準)", "実際の労働参加は労働力率 / 失業率を併用して評価"),
+        ("採用ターゲット層", "25-44 歳人口", "5 歳階級時の厳密判定 / 10 歳階級時は 20-49 fallback"),
+        ("急成長企業", "1 年人員増加率 +10% 超", "地域企業データ employee_delta_1y フィールドベース"),
+        ("採用活発企業", "求人媒体掲載 5 件以上", "ローカル DB postings テーブル件数 (Full variant 限定)"),
+        ("severity 4 段階", "POSITIVE / NEUTRAL / WARN / NEGATIVE", "本レポート全 Section 共通の評価軸。閾値は各 Section の caption を参照"),
+        ("median (中央値)", "サンプルを並べた中央位置の値", "外れ値の影響を受けにくい代表値。平均値より優先して使用"),
+        ("P25 / P75 / P90", "下位 25% / 下位 75% (P75 (P50 より上 25%)) / P90 (P50 より上 10%) のライン", "給与分布の偏りや外れ値帯を把握するための主要分位点"),
+    ];
+    for (k, v, note) in defs.iter() {
+        html.push_str(&format!(
+            "<tr><td><strong>{}</strong></td><td>{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
+            escape_html(k),
+            escape_html(v),
+            escape_html(note)
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+
+    // -- 免責事項 (so-what 風 navy 帯)
+    html.push_str("<div class=\"block-title block-title-spaced\">免責 &nbsp;解釈上の前提</div>\n");
+    html.push_str(
+        "<div class=\"so-what\" style=\"margin-top:4mm;\">\
+         <div class=\"sw-label\">DISCLAIMER</div>\
+         <div class=\"sw-body\">\
+         <strong>1. 相関 ≠ 因果。</strong> 本レポートが示す指標間の関係は <strong>相関</strong> であり、\
+         因果関係を証明するものではありません。施策実施判断は現場文脈と合わせて行ってください。<br>\
+         <strong>2. データ範囲の制約。</strong> アップロード CSV は対象媒体の掲載範囲、\
+         求人媒体ローカル DB は媒体掲載求人に限定されます。いずれも全求人市場の代表ではありません。<br>\
+         <strong>3. サンプル件数の信頼性。</strong> <strong>n &lt; 30</strong> の集計は統計的信頼性が低く、\
+         外れ値の影響が大きい状態です。傾向参照に留め、母集団追加取得を推奨します。<br>\
+         <strong>4. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
+         直近の事象とのタイムラグを認識してください。最低賃金は毎年 10 月発効、国勢調査は 5 年に一度。<br>\
+         <strong>5. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
+         外部への持ち出しは社内規定に従ってください。\
+         </div></div>\n",
+    );
+
+    // -- 末尾の連絡先 / 改版履歴 (block-title + caption)
+    html.push_str("<div class=\"block-title block-title-spaced\">改版・問合せ</div>\n");
+    html.push_str(&format!(
+        "<table class=\"table-navy\">\n<thead><tr>\
+         <th>項目</th><th>内容</th>\
+         </tr></thead>\n<tbody>\
+         <tr><td><strong>レポート版</strong></td><td>{}</td></tr>\
+         <tr><td><strong>生成日時</strong></td><td>{}</td></tr>\
+         <tr><td><strong>発行</strong></td><td>株式会社 For A-career</td></tr>\
+         <tr><td><strong>取扱区分</strong></td><td>機密 / 社外秘</td></tr>\
+         </tbody></table>\n",
+        escape_html(variant.display_name()),
+        escape_html(now)
+    ));
+
+    html.push_str("</section>\n");
 }
