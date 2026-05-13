@@ -839,27 +839,14 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         render_section_market_tightness_with_variant(&mut html, hw_context, variant);
     }
 
-    // --- Section 4B (CR-9 / 2026-04-27): 産業ミスマッチ警戒 ---
-    // 地域就業者構成 (国勢調査) と HW 求人産業構成のギャップを表で可視化。
-    // 2026-04-29 (variant): Public では HW 求人を CSV 媒体掲載分に置換するため、
-    //   variant=Public のときは別 section (CSV vs 国勢調査) を使う。
-    // 2026-05-08 Round 2-1: MarketIntelligence も HW 言及最小化方針のため
-    //   Public と同じ CSV 経路 (CSV 媒体掲載 vs 国勢調査) に統一。
-    if let Some(ctx) = hw_context {
-        match variant {
-            ReportVariant::Full => {
-                render_section_industry_mismatch(
-                    &mut html,
-                    &ctx.ext_industry_employees,
-                    &ctx.hw_industry_counts,
-                );
-            }
-            ReportVariant::Public | ReportVariant::MarketIntelligence => {
-                // CSV 媒体掲載 vs 国勢調査
-                render_section_industry_mismatch_csv(&mut html, &ctx.ext_industry_employees, agg);
-            }
-        }
-    }
+    // --- Section 4B: 産業ミスマッチ section (Round 23 で全 variant 削除) ---
+    // ユーザー判断 (2026-05-13): CSV 推定業種は分類ロジック誤差が大きく
+    // (例: ドライバー求人を「金融業, 保険業」に推定するケースあり)、
+    // また HW 産業構成も §18 信頼度低い領域として読者誤導リスクが高いため、
+    // セクション自体を削除し、給与判断は §3-B 給与構造クラスタ分析に一本化する。
+    // 設計メモ §18.9 「業界・職種推定は参考情報、給与構造クラスタは主軸」準拠。
+    let _ = render_section_industry_mismatch;
+    let _ = render_section_industry_mismatch_csv;
 
     // --- Section 4B-2 (Round 3-A / 2026-05-06): 産業別就業者 Top10 (国勢調査 2020) ---
     // Round 2-4 セグメント接続監査の P0-3 消化:

@@ -134,7 +134,7 @@ pub(super) fn render_section_regional_compare(
          <span style=\"font-size:9.5pt;color:#78350f;\">\
          失業率 / 単独世帯率 / 高齢化率 / 大卒率 / 教育施設密度 / 趣味娯楽参加率 / 学習自己啓発率 / インターネット利用率 / 可住地密度 等は、業界フィルタの指定有無に関わらず地域全体の値を表示しています。\
          </span>\
-         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界別の比較には別 section (採用市場逼迫度の離職率、産業ミスマッチ等) を参照ください。本 section の数値は<strong>地域属性</strong>として活用し、業種特化施策と組み合わせる用途を想定しています。</span>\
+         <span style=\"font-size:9pt;color:#92400e;display:block;margin-top:4px;\">\u{203B} 業界別の比較は採用市場逼迫度の離職率 (ext_turnover) を参照ください。本 section の数値は<strong>地域属性</strong>として活用し、業種特化施策と組み合わせる用途を想定しています。</span>\
          </div>\n",
     );
 
@@ -1225,9 +1225,10 @@ mod tests {
             html.contains("regional-compare-industry-scope-note"),
             "data-testid 属性が含まれるはず"
         );
+        // Round 23 (2026-05-13): 産業ミスマッチ section 削除に伴い、離職率参照に変更
         assert!(
-            html.contains("産業ミスマッチ"),
-            "業界別比較への誘導 (産業ミスマッチ section の参照) が含まれるはず"
+            html.contains("離職率"),
+            "業界別比較への誘導 (離職率 ext_turnover の参照) が含まれるはず"
         );
     }
 }
