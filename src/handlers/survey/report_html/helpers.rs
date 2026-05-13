@@ -423,24 +423,123 @@ fn percentile(sorted: &[i64], p: f64) -> i64 {
 }
 
 /// 1 セグメント (lower / range) を P33 / P66 で 3 分類するための閾値を返す。
+#[allow(dead_code)]
 fn tercile_thresholds(values: &[i64]) -> (i64, i64) {
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
     (percentile(&sorted, 33.0), percentile(&sorted, 66.0))
 }
 
+/// Round 21 (2026-05-13): Jenks natural breaks (1 次元 k-分割)。
+/// 動的計画法でクラス内分散を最小化する境界を探す。
+///
+/// 入力: ソート済 (内部でソート) 数値配列、クラス数 k (= 2〜5 推奨)
+/// 出力: クラス境界 (k-1 個)。例: k=3 なら [境界1, 境界2] を返す。
+///       value < 境界1 が class 0、境界1 <= value < 境界2 が class 1、value >= 境界2 が class 2
+///
+/// 計算量: O(n² × k)。n=500, k=3 で 750,000 演算 = 数 ms。
+/// データ件数 < k×4 では tercile にフォールバック。
+///
+/// 設計メモ §8.2 準拠。「24万→28万の間にギャップがある」のような自然境界を発見する。
+pub(super) fn jenks_natural_breaks(values: &[i64], k: usize) -> Vec<i64> {
+    let n = values.len();
+    if n < k * 4 || k < 2 {
+        // データ不足: tercile 等価へフォールバック
+        let mut sorted = values.to_vec();
+        sorted.sort_unstable();
+        return (1..k)
+            .map(|i| percentile(&sorted, 100.0 * i as f64 / k as f64))
+            .collect();
+    }
+
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let xs: Vec<f64> = sorted.iter().map(|&v| v as f64).collect();
+
+    // sse[i..=j] を計算 (区間 [i..j] の平均偏差平方和)
+    let sse = |i: usize, j: usize| -> f64 {
+        if i > j {
+            return 0.0;
+        }
+        let slice = &xs[i..=j];
+        let mean = slice.iter().sum::<f64>() / slice.len() as f64;
+        slice.iter().map(|x| (x - mean).powi(2)).sum()
+    };
+
+    // dp[m][j]: 最初の j+1 要素を m+1 クラスに分割した時の最小 SSE
+    // back[m][j]: 上記実現時の最後のクラス開始位置
+    let mut dp = vec![vec![f64::INFINITY; n]; k];
+    let mut back = vec![vec![0_usize; n]; k];
+    // m=0: 全部 1 クラス
+    for j in 0..n {
+        dp[0][j] = sse(0, j);
+    }
+    // m=1..k-1
+    for m in 1..k {
+        for j in m..n {
+            for i in m..=j {
+                let cost = dp[m - 1][i - 1] + sse(i, j);
+                if cost < dp[m][j] {
+                    dp[m][j] = cost;
+                    back[m][j] = i;
+                }
+            }
+        }
+    }
+
+    // back-track して境界を取得
+    let mut breaks: Vec<usize> = Vec::with_capacity(k - 1);
+    let mut j = n - 1;
+    for m in (1..k).rev() {
+        let i = back[m][j];
+        breaks.push(i);
+        if i == 0 {
+            break;
+        }
+        j = i - 1;
+    }
+    breaks.reverse();
+    // 境界 index → 値 (各境界は「そこから新しいクラス」なので sorted[i] を返す)
+    breaks.iter().map(|&i| sorted[i]).collect()
+}
+
+/// Jenks クラスタ境界をベースに各値を 0..k のクラス番号に分類
+#[allow(dead_code)]
+fn classify_jenks(value: i64, breaks: &[i64]) -> usize {
+    for (i, &b) in breaks.iter().enumerate() {
+        if value < b {
+            return i;
+        }
+    }
+    breaks.len()
+}
+
 /// 給与構造クラスタリングのコア関数。
 /// 入力: (lower_salary, upper_salary) ペアのリスト (両方 > 0)
-/// 出力: 最大 9 クラスタ (3×3、件数<MIN_CLUSTER_SIZE なら隣接マージ)
+/// 出力: 最大 9 クラスタ (3×3、件数<5 のセルは省略)
+///
+/// Round 21 (2026-05-13): tercile (P33/P66 機械分割) → **Jenks natural breaks** に切替。
+/// 設計メモ §8.2 準拠。データ自身のギャップを境界に使うことで、
+/// 「20万-28万 / 30万-36万 / 45万以上」のような市場の自然な切れ目を発見できる。
+/// クラスタ境界が説明可能 (「24万円と28万円の間にギャップがある」) になる。
 pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster> {
-    const MIN_CLUSTER_SIZE: usize = 10;
     if pairs.len() < 9 {
         return Vec::new();
     }
     let lowers: Vec<i64> = pairs.iter().map(|p| p.0).collect();
     let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
-    let (lo_t1, lo_t2) = tercile_thresholds(&lowers);
-    let (rn_t1, rn_t2) = tercile_thresholds(&ranges);
+
+    // Jenks で 3 クラスタの境界を取得 (失敗時は tercile にフォールバックされる)
+    let lo_breaks = jenks_natural_breaks(&lowers, 3);
+    let rn_breaks = jenks_natural_breaks(&ranges, 3);
+    let (lo_t1, lo_t2) = (
+        *lo_breaks.first().unwrap_or(&0),
+        *lo_breaks.get(1).unwrap_or(&i64::MAX),
+    );
+    let (rn_t1, rn_t2) = (
+        *rn_breaks.first().unwrap_or(&0),
+        *rn_breaks.get(1).unwrap_or(&i64::MAX),
+    );
 
     let classify = |v: i64, t1: i64, t2: i64| -> usize {
         if v < t1 { 0 } else if v < t2 { 1 } else { 2 }
@@ -570,6 +669,66 @@ pub(super) fn cluster_so_what_text(
         to_man(target.p75),
         to_man(target.p90),
     )
+}
+
+/// Round 21: 上位クラスタごとのヒストグラム (動的 bin width)。
+/// 各クラスタの下限給与配列を取り出し、Freedman-Diaconis rule で bin 幅を決めて描画。
+pub(super) fn build_cluster_histograms_svg(
+    pairs: &[(i64, i64)],
+    clusters: &[SalaryCluster],
+    top_n: usize,
+) -> String {
+    if clusters.is_empty() || pairs.is_empty() {
+        return String::new();
+    }
+    let lowers: Vec<i64> = pairs.iter().map(|p| p.0).collect();
+    let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
+    let lo_breaks = jenks_natural_breaks(&lowers, 3);
+    let rn_breaks = jenks_natural_breaks(&ranges, 3);
+    let lo_names = ["低下限", "中下限", "高下限"];
+    let rn_names = ["狭レンジ", "通常レンジ", "広レンジ"];
+
+    let mut s = String::new();
+    for (rank, c) in clusters.iter().take(top_n).enumerate() {
+        let lo_idx = lo_names.iter().position(|&n| n == c.lower_seg).unwrap_or(1);
+        let rn_idx = rn_names.iter().position(|&n| n == c.range_seg).unwrap_or(1);
+        // このクラスタに属する lower_salary 配列を再構築
+        let cluster_lowers: Vec<i64> = pairs
+            .iter()
+            .filter(|p| {
+                let rg = (p.1 - p.0).max(0);
+                let lo_class = if p.0 < *lo_breaks.first().unwrap_or(&0) { 0 }
+                    else if p.0 < *lo_breaks.get(1).unwrap_or(&i64::MAX) { 1 } else { 2 };
+                let rn_class = if rg < *rn_breaks.first().unwrap_or(&0) { 0 }
+                    else if rg < *rn_breaks.get(1).unwrap_or(&i64::MAX) { 1 } else { 2 };
+                lo_class == lo_idx && rn_class == rn_idx
+            })
+            .map(|p| p.0)
+            .collect();
+        if cluster_lowers.len() < 8 {
+            continue;
+        }
+        let bin_w = freedman_diaconis_bin_width(&cluster_lowers);
+        // クラスタ内 中央値/平均/最頻値
+        let mean = if !cluster_lowers.is_empty() {
+            Some(cluster_lowers.iter().sum::<i64>() / cluster_lowers.len() as i64)
+        } else { None };
+        let median = {
+            let mut sorted = cluster_lowers.clone();
+            sorted.sort_unstable();
+            Some(sorted[sorted.len() / 2])
+        };
+        let mode = compute_mode(&cluster_lowers, bin_w);
+        let color = match rank { 0 => "#1565C0", 1 => "#009E73", _ => "#D55E00" };
+        s.push_str(&format!(
+            "<div class=\"salary-chart-block salary-chart-page-start\">\n\
+             <h3>クラスタ「{}」内分布 ({} 件、{} 円刻み)</h3>\n",
+            escape_xml_helper(&c.label), c.count, bin_w,
+        ));
+        s.push_str(&build_histogram_svg(&cluster_lowers, bin_w, color, median, mean, mode));
+        s.push_str("</div>\n");
+    }
+    s
 }
 
 /// クラスタごとの横並びボックスプロット (Round 16 build_boxplot_svg と類似だが N 個並列)
@@ -1957,6 +2116,41 @@ document.addEventListener('DOMContentLoaded', initSortableTables);
 #[cfg(test)]
 mod ui3_helpers_tests {
     use super::*;
+
+    /// Round 21: Jenks natural breaks がギャップを境界として検出
+    #[test]
+    fn jenks_finds_natural_gap() {
+        // 3 グループ: 20-24万 / 30-36万 / 50万 — 26-30万、36-50万 にギャップ
+        let values: Vec<i64> = vec![
+            200_000, 210_000, 220_000, 220_000, 230_000, 240_000,
+            300_000, 310_000, 320_000, 330_000, 340_000, 360_000,
+            500_000, 510_000, 520_000,
+        ];
+        let breaks = jenks_natural_breaks(&values, 3);
+        assert_eq!(breaks.len(), 2, "k=3 なら境界は 2 つ");
+        // 境界 1 は 240,000 と 300,000 の間に来るはず (= sorted[6] = 300,000)
+        assert!(
+            breaks[0] >= 240_000 && breaks[0] <= 300_000,
+            "境界1 は最初のギャップ (24万-30万) を検出: 実際={}",
+            breaks[0]
+        );
+        // 境界 2 は 360,000 と 500,000 の間
+        assert!(
+            breaks[1] >= 360_000 && breaks[1] <= 500_000,
+            "境界2 は二つ目のギャップ (36万-50万) を検出: 実際={}",
+            breaks[1]
+        );
+    }
+
+    #[test]
+    fn jenks_falls_back_when_data_too_few() {
+        // データ件数 < k*4 = 8 で tercile フォールバック
+        let values: Vec<i64> = vec![100, 200, 300, 400, 500];
+        let breaks = jenks_natural_breaks(&values, 3);
+        assert_eq!(breaks.len(), 2);
+        // tercile 相当: P33 ≈ 200, P66 ≈ 400
+        assert!(breaks[0] <= breaks[1], "境界は昇順");
+    }
 
     /// info tooltip: ⓘ アイコン + abbr + tabindex + aria-label が出力される
     #[test]

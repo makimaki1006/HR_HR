@@ -280,6 +280,13 @@ pub(super) fn render_section_salary_stats(
         html.push_str("</div>\n");
 
         html.push_str("</div>\n");
+
+        // Round 21 (2026-05-13): 上位 3 クラスタの動的 bin ヒストグラム
+        // Freedman-Diaconis rule で bin 幅自動算出。クラスタ内の分布形 (単峰/多峰) を可視化。
+        let cluster_histograms = build_cluster_histograms_svg(&pairs, &clusters, 3);
+        if !cluster_histograms.is_empty() {
+            html.push_str(&cluster_histograms);
+        }
     }
 
     // (3) 上限なし求人 別表 (salary_min_values 内、scatter_min_max にペアなしのもの)
