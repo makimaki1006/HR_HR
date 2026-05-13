@@ -339,7 +339,10 @@ fn aggregate_records_core(
     by_tag_salary.truncate(20);
 
     // 下限/上限給与（レポート用、月給換算）
-    // 時給データは160h倍して月給相当に変換、月給はそのまま
+    // Round 22 (2026-05-13): 設計メモ §5「salary_type はユーザー側で事前指定する前提」準拠。
+    // Annual (年俸) は salary_type が大きく異なるため除外し、Monthly / Hourly / Daily のみ採用。
+    // Hourly は 160h、Daily は 20 日で月給相当に換算。
+    // Annual 求人は通常 700-1500万円 など極端に大きいため、月換算で混入するとクラスタ Y 軸が歪む。
     use super::salary_parser::SalaryType;
     let salary_min_values: Vec<i64> = records
         .iter()
@@ -348,8 +351,9 @@ fn aggregate_records_core(
             match r.salary_parsed.salary_type {
                 SalaryType::Hourly => Some(v * HOURLY_TO_MONTHLY_HOURS),
                 SalaryType::Daily => Some(v * DAILY_TO_MONTHLY_DAYS),
-                SalaryType::Annual => Some(v / 12),
-                _ => Some(v),
+                SalaryType::Annual => None, // 年俸はクラスタ分析対象外 (別途必要なら別経路で)
+                SalaryType::Monthly => Some(v),
+                _ => None, // Unknown / その他も除外 (設計メモ §5 準拠)
             }
         })
         .filter(|&v| v >= 50_000) // 5万円未満は異常値として除外
@@ -361,8 +365,9 @@ fn aggregate_records_core(
             match r.salary_parsed.salary_type {
                 SalaryType::Hourly => Some(v * HOURLY_TO_MONTHLY_HOURS),
                 SalaryType::Daily => Some(v * DAILY_TO_MONTHLY_DAYS),
-                SalaryType::Annual => Some(v / 12),
-                _ => Some(v),
+                SalaryType::Annual => None,
+                SalaryType::Monthly => Some(v),
+                _ => None,
             }
         })
         .filter(|&v| v >= 50_000)
@@ -498,11 +503,25 @@ fn aggregate_records_core(
     };
 
     // 散布図データ（下限 vs 上限）
+    // Round 22: クラスタ分析と整合させるため Annual / Unknown を除外し、Monthly/Hourly/Daily のみ採用。
+    // Hourly は月給換算、Daily も月給換算、Monthly はそのまま。
     let scatter_min_max: Vec<ScatterPoint> = records
         .iter()
         .filter_map(|r| {
-            let min = r.salary_parsed.min_value?;
-            let max = r.salary_parsed.max_value?;
+            let raw_min = r.salary_parsed.min_value?;
+            let raw_max = r.salary_parsed.max_value?;
+            let (min, max) = match r.salary_parsed.salary_type {
+                SalaryType::Hourly => (
+                    raw_min * HOURLY_TO_MONTHLY_HOURS,
+                    raw_max * HOURLY_TO_MONTHLY_HOURS,
+                ),
+                SalaryType::Daily => (
+                    raw_min * DAILY_TO_MONTHLY_DAYS,
+                    raw_max * DAILY_TO_MONTHLY_DAYS,
+                ),
+                SalaryType::Monthly => (raw_min, raw_max),
+                _ => return None,
+            };
             if min > 0 && max > 0 && max >= min {
                 Some(ScatterPoint { x: min, y: max })
             } else {
