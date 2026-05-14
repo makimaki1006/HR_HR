@@ -471,10 +471,15 @@ pub(crate) fn map_keyword_to_major_industry(keyword: &str) -> Option<&'static st
         return Some("不動産業，物品賃貸業");
     }
     // 金融業，保険業
-    if s.contains("金融")
+    // 注: 「保険」単独は「健康保険あり/労災保険あり/雇用保険あり」(福利厚生タグ) と
+    //     誤マッチするため、業界実体を示す複合語のみに限定する。
+    if s.contains("金融業")
         || s.contains("銀行")
-        || s.contains("保険")
-        || s.contains("証券")
+        || s.contains("保険業")
+        || s.contains("保険会社")
+        || s.contains("生命保険")
+        || s.contains("損害保険")
+        || s.contains("証券会社")
         || s.contains("信用組合")
         || s.contains("信用金庫")
     {
