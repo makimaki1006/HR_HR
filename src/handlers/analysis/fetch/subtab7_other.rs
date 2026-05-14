@@ -188,24 +188,25 @@ pub(crate) fn fetch_commute_zone_pyramid(
 
 // ======== 通勤フロー（実データ: 国勢調査OD行列） ========
 
-pub(crate) fn fetch_commute_inflow(db: &Db, pref: &str, muni: &str) -> Vec<CommuteFlow> {
+// 2026-05-14: 旧コードは local DB のみ参照していたため、v2_external_commute_od が
+//   Turso のみ投入の本番環境では永久に空 Vec を返していた。query_turso_or_local 経由で
+//   Turso 優先 + local フォールバックに変更。signature に turso 引数追加。
+pub(crate) fn fetch_commute_inflow(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<CommuteFlow> {
     if muni.is_empty() {
         return vec![];
     }
-    if !table_exists(db, "v2_external_commute_od") {
-        return vec![];
-    }
-
-    let rows = db
-        .query(
-            "SELECT origin_pref, origin_muni, total_commuters, male_commuters, female_commuters \
+    let sql = "SELECT origin_pref, origin_muni, total_commuters, male_commuters, female_commuters \
          FROM v2_external_commute_od \
          WHERE dest_pref = ?1 AND dest_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
-         ORDER BY total_commuters DESC LIMIT 20",
-            &[&pref as &dyn rusqlite::types::ToSql, &muni],
-        )
-        .unwrap_or_default();
+         ORDER BY total_commuters DESC LIMIT 20";
+    let params = vec![pref.to_string(), muni.to_string()];
+    let rows = super::query_turso_or_local(turso, db, sql, &params, "v2_external_commute_od");
 
     rows.iter()
         .map(|r| CommuteFlow {
@@ -218,24 +219,22 @@ pub(crate) fn fetch_commute_inflow(db: &Db, pref: &str, muni: &str) -> Vec<Commu
         .collect()
 }
 
-pub(crate) fn fetch_commute_outflow(db: &Db, pref: &str, muni: &str) -> Vec<CommuteFlow> {
+pub(crate) fn fetch_commute_outflow(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<CommuteFlow> {
     if muni.is_empty() {
         return vec![];
     }
-    if !table_exists(db, "v2_external_commute_od") {
-        return vec![];
-    }
-
-    let rows = db
-        .query(
-            "SELECT dest_pref, dest_muni, total_commuters, male_commuters, female_commuters \
+    let sql = "SELECT dest_pref, dest_muni, total_commuters, male_commuters, female_commuters \
          FROM v2_external_commute_od \
          WHERE origin_pref = ?1 AND origin_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
-         ORDER BY total_commuters DESC LIMIT 20",
-            &[&pref as &dyn rusqlite::types::ToSql, &muni],
-        )
-        .unwrap_or_default();
+         ORDER BY total_commuters DESC LIMIT 20";
+    let params = vec![pref.to_string(), muni.to_string()];
+    let rows = super::query_turso_or_local(turso, db, sql, &params, "v2_external_commute_od");
 
     rows.iter()
         .map(|r| CommuteFlow {
@@ -248,20 +247,39 @@ pub(crate) fn fetch_commute_outflow(db: &Db, pref: &str, muni: &str) -> Vec<Comm
         .collect()
 }
 
-pub(crate) fn fetch_self_commute_rate(db: &Db, pref: &str, muni: &str) -> f64 {
-    if muni.is_empty() || !table_exists(db, "v2_external_commute_od") {
+pub(crate) fn fetch_self_commute_rate(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> f64 {
+    if muni.is_empty() {
         return 0.0;
     }
-
-    let self_count = db.query_scalar::<i64>(
+    let params = vec![pref.to_string(), muni.to_string()];
+    let self_rows = super::query_turso_or_local(
+        turso,
+        db,
         "SELECT total_commuters FROM v2_external_commute_od WHERE origin_pref=?1 AND origin_muni=?2 AND dest_pref=?1 AND dest_muni=?2",
-        &[&pref as &dyn rusqlite::types::ToSql, &muni],
-    ).unwrap_or(0);
+        &params,
+        "v2_external_commute_od",
+    );
+    let self_count = self_rows
+        .first()
+        .map(|r| get_i64(r, "total_commuters"))
+        .unwrap_or(0);
 
-    let total_outflow = db.query_scalar::<i64>(
-        "SELECT SUM(total_commuters) FROM v2_external_commute_od WHERE origin_pref=?1 AND origin_muni=?2",
-        &[&pref as &dyn rusqlite::types::ToSql, &muni],
-    ).unwrap_or(0);
+    let out_rows = super::query_turso_or_local(
+        turso,
+        db,
+        "SELECT SUM(total_commuters) as total FROM v2_external_commute_od WHERE origin_pref=?1 AND origin_muni=?2",
+        &params,
+        "v2_external_commute_od",
+    );
+    let total_outflow = out_rows
+        .first()
+        .map(|r| get_i64(r, "total"))
+        .unwrap_or(0);
 
     if total_outflow > 0 {
         self_count as f64 / total_outflow as f64

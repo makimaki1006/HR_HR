@@ -251,8 +251,10 @@ pub(crate) fn build_insight_context(
     }
 
     // 通勤フロー（実データ）
+    // 2026-05-14: Turso fallback 対応で turso 引数を伝搬。v2_external_commute_od が
+    //   ローカル DB に投入されていなくても Turso 側にあれば取得できる。
     if !muni.is_empty() {
-        let inflow = af::fetch_commute_inflow(db, pref, muni);
+        let inflow = af::fetch_commute_inflow(db, turso, pref, muni);
         ctx.commute_inflow_total = inflow.iter().map(|f| f.total_commuters).sum();
         ctx.commute_inflow_top3 = inflow
             .iter()
@@ -266,9 +268,9 @@ pub(crate) fn build_insight_context(
             })
             .collect();
 
-        let outflow = af::fetch_commute_outflow(db, pref, muni);
+        let outflow = af::fetch_commute_outflow(db, turso, pref, muni);
         ctx.commute_outflow_total = outflow.iter().map(|f| f.total_commuters).sum();
-        ctx.commute_self_rate = af::fetch_self_commute_rate(db, pref, muni);
+        ctx.commute_self_rate = af::fetch_self_commute_rate(db, turso, pref, muni);
     }
 
     ctx
