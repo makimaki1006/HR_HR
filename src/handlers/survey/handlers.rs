@@ -629,18 +629,41 @@ pub async fn survey_report_html(
                 )
             });
             // 同業界版 (業界指定時のみ)
+            // 2026-05-15: HW 大分類「運輸業，郵便業」を直接 SalesNow sn_industry に LIKE
+            //   で当てると、表記揺れ (運送業/陸運/物流業 等) で 0 件になる問題に対応。
+            //   v2_industry_mapping (HW ⇔ SalesNow 確率マッピング) から逆引きして、
+            //   SalesNow 実値のリストを IN 句で query する。
             let industry_handle = if let Some(ref ind) = industry_filter {
                 let pref_i = pref.clone();
                 let muni_i = muni.clone();
                 let ind_owned = ind.clone();
+                let sn_db_for_map = sn_db.clone();
                 Some(tokio::task::spawn_blocking(move || {
-                    super::super::company::fetch::fetch_company_segments_by_region_with_industry(
-                        &sn_db,
-                        &hw_db,
-                        &pref_i,
-                        &muni_i,
-                        Some(ind_owned.as_str()),
-                    )
+                    // v2_industry_mapping から SalesNow 実値リストを逆引き。
+                    // Turso 接続が同じ (SalesNow と industry_mapping は同じ DB の別テーブル)
+                    // ため sn_db を再利用。
+                    let sn_industries = super::super::company::fetch::fetch_sn_industries_for_hw_industry(
+                        &sn_db_for_map,
+                        &ind_owned,
+                    );
+                    if !sn_industries.is_empty() {
+                        super::super::company::fetch::fetch_company_segments_by_region_with_sn_industries(
+                            &sn_db,
+                            &hw_db,
+                            &pref_i,
+                            &muni_i,
+                            &sn_industries,
+                        )
+                    } else {
+                        // fallback: マッピングテーブルに該当なし → 旧 LIKE 経路
+                        super::super::company::fetch::fetch_company_segments_by_region_with_industry(
+                            &sn_db,
+                            &hw_db,
+                            &pref_i,
+                            &muni_i,
+                            Some(ind_owned.as_str()),
+                        )
+                    }
                 }))
             } else {
                 None
