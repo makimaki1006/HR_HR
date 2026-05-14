@@ -3842,7 +3842,7 @@ pub(super) fn render_navy_section_aux_data(
             ));
         }
         html.push_str("</tbody></table>\n");
-        html.push_str("<p class=\"caption\">出典: 国勢調査 通勤 OD。県境を越えた通勤者の流入元上位 3 自治体。隣地域への採用範囲拡張の指針。</p>\n");
+        html.push_str("<p class=\"caption\">出典: 国勢調査 通勤 OD。対象地域以外 (隣接市町村 / 隣接都道府県含む) からの通勤者流入元 上位 3 自治体。採用範囲拡張の指針。</p>\n");
     }
 
     // --- 都道府県平均 (比較用) ---
