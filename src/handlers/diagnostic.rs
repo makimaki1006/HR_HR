@@ -135,7 +135,10 @@ pub async fn evaluate_diagnostic(
 
         // 通勤圏データ
         let commute_inflow_total: i64 = if !muni2.is_empty() {
-            super::analysis::fetch::fetch_commute_inflow(&db, &pref2, &muni2)
+            // 2026-05-14: turso=None で local DB fallback のみ (本ハンドラは
+            //   旧経路で turso 参照していなかったため挙動互換維持)。
+            //   別途 Turso 切替が必要なら state.turso_db.as_ref() を渡す。
+            super::analysis::fetch::fetch_commute_inflow(&db, None, &pref2, &muni2)
                 .iter()
                 .map(|f| f.total_commuters)
                 .sum()

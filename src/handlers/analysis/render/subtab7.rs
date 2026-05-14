@@ -222,11 +222,11 @@ pub(crate) fn render_subtab_7(
     html.push_str("</tbody></table></div></div>");
 
     // ======== 通勤フロー（実データ: 国勢調査OD） ========
-    let inflow = fetch_commute_inflow(db, pref, muni);
-    let outflow = fetch_commute_outflow(db, pref, muni);
+    let inflow = fetch_commute_inflow(db, turso, pref, muni);
+    let outflow = fetch_commute_outflow(db, turso, pref, muni);
 
     if !inflow.is_empty() || !outflow.is_empty() {
-        let self_rate = fetch_self_commute_rate(db, pref, muni);
+        let self_rate = fetch_self_commute_rate(db, turso, pref, muni);
 
         // サンキーダイアグラム
         html.push_str(r#"<div class="stat-card"><h4 class="text-sm text-slate-400 mb-2">🔄 通勤フロー（国勢調査実データ）</h4>"#);
