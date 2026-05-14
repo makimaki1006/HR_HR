@@ -644,6 +644,9 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     );
     navy_report::render_navy_section_06_demographics(&mut html, hw_context);
     navy_report::render_navy_section_07_lifestyle(&mut html, hw_context);
+    // 2026-05-14: 取得済みだが未表示だった 14 系列を一括ダンプ。Phase 2 で
+    //   表示可否のチェックボックス UI 化予定。
+    navy_report::render_navy_section_aux_data(&mut html, hw_context);
     navy_report::render_navy_section_08_notes(&mut html, variant, &now);
     let _ = (
         salesnow_companies,
