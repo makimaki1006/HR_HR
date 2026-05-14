@@ -170,6 +170,44 @@ pub fn fetch_industry_mapping(turso: &TursoDb, sn_industry: &str) -> Vec<(String
         .collect()
 }
 
+/// 2026-05-15: HW 大分類 → SalesNow sn_industry の逆マッピング。
+///
+/// 例: hw_industry="運輸業，郵便業" → ["運送業", "物流業", "陸運業", "倉庫業", ...]
+///
+/// 既存 `fetch_industry_mapping` (sn_industry → [hw_job_type]) の逆引き。
+/// `v2_industry_mapping` テーブルに confidence 付きで両者の対応が格納されているため、
+/// 信頼度 0.3 以上のものを採用する (低信頼度の混入を防ぎつつ網羅性を確保)。
+///
+/// LIKE で部分一致もサポート: hw_industry="運輸業" でも "運輸業，郵便業" の行を引く。
+pub fn fetch_sn_industries_for_hw_industry(
+    turso: &TursoDb,
+    hw_industry: &str,
+) -> Vec<String> {
+    if hw_industry.is_empty() {
+        return vec![];
+    }
+    // hw_job_type には「運輸業，郵便業」「運輸業」等の揺れがあり得るため、
+    // ヘッド (「，」で切る前の部分) で LIKE マッチして広めに取る。
+    let head: String = hw_industry
+        .chars()
+        .take_while(|c| *c != ',' && *c != '，')
+        .collect();
+    let pattern = format!("%{}%", if head.is_empty() { hw_industry } else { &head });
+    let sql = r#"
+        SELECT DISTINCT sn_industry
+        FROM v2_industry_mapping
+        WHERE hw_job_type LIKE ?1 AND confidence >= 0.3
+    "#;
+    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pattern];
+    turso
+        .query(sql, &params)
+        .unwrap_or_default()
+        .iter()
+        .map(|r| get_str(r, "sn_industry"))
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// SalesNow(Turso) + HW(SQLite) + 外部統計(Turso) を統合してCompanyContextを構築
 pub fn build_company_context(
     sn_db: &TursoDb,
@@ -658,12 +696,42 @@ pub fn fetch_company_segments_by_region(
 ///
 /// **注意**: SalesNow `sn_industry` の値は HW 大分類と完全一致しない場合があるため
 /// LIKE マッチで部分一致する。例: industry="医療,福祉" → "医療" を含む sn_industry にマッチ。
+/// 2026-05-15: HW 大分類「運輸業，郵便業」を直接 `sn_industry LIKE '%運輸業%'` で
+///   検索すると、SalesNow 実値が「運送業」「陸運」等 別表記のため 0 件になる問題に対応。
+///   呼出側 (handlers.rs) で v2_industry_mapping から HW → SalesNow 逆引きしたリストを
+///   `sn_industries_override` として渡せば、`sn_industry IN (...)` 厳密一致で query する。
+///   None / 空リストの場合は従来の LIKE 部分一致経路にフォールバック。
 pub fn fetch_company_segments_by_region_with_industry(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
     prefecture: &str,
     municipality: &str,
     industry: Option<&str>,
+) -> RegionalCompanySegments {
+    fetch_company_segments_by_region_with_industry_internal(
+        sn_db, db, prefecture, municipality, industry, &[],
+    )
+}
+
+pub fn fetch_company_segments_by_region_with_sn_industries(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    prefecture: &str,
+    municipality: &str,
+    sn_industries: &[String],
+) -> RegionalCompanySegments {
+    fetch_company_segments_by_region_with_industry_internal(
+        sn_db, db, prefecture, municipality, None, sn_industries,
+    )
+}
+
+fn fetch_company_segments_by_region_with_industry_internal(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    prefecture: &str,
+    municipality: &str,
+    industry: Option<&str>,
+    sn_industries_override: &[String],
 ) -> RegionalCompanySegments {
     if prefecture.is_empty() {
         return RegionalCompanySegments::default();
@@ -682,6 +750,9 @@ pub fn fetch_company_segments_by_region_with_industry(
             head
         }
     });
+    // 2026-05-15: sn_industries_override 指定時は LIKE でなく IN 句で厳密一致。
+    //   v2_industry_mapping から取得した SalesNow 実値リストを使う。
+    let use_sn_in_clause = !sn_industries_override.is_empty();
 
     // 各規模帯のクエリ
     // 大手: employee_count >= 300
@@ -697,7 +768,73 @@ pub fn fetch_company_segments_by_region_with_industry(
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (lo, hi, _band) in band_ranges.iter() {
-        let rows = match (municipality.is_empty(), &industry_keyword) {
+        // 2026-05-15: sn_industries_override 指定時は動的 SQL を生成して IN 句で query。
+        //   LIKE 部分一致経路 (旧) は override 不在時のみフォールバックで使う。
+        let rows = if use_sn_in_clause {
+            let in_placeholders: String = (0..sn_industries_override.len())
+                .map(|i| format!("?{}", i + 2))
+                .collect::<Vec<_>>()
+                .join(",");
+            // パラメータインデックス順:
+            //   ?1 = prefecture
+            //   ?2..?N+1 = sn_industries_override の各値
+            //   ?N+2 = (muni 指定時のみ) %muni%
+            //   ?N+3 .. = lo / hi / band_limit (省略可: ToSql は順)
+            let muni_clause: String;
+            let lo_idx: usize;
+            let hi_idx: usize;
+            let limit_idx: usize;
+            let muni_pat: String;
+            let sql: String;
+            if municipality.is_empty() {
+                muni_clause = String::new();
+                lo_idx = sn_industries_override.len() + 2;
+                hi_idx = lo_idx + 1;
+                limit_idx = hi_idx + 1;
+                muni_pat = String::new();
+                sql = format!(
+                    "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                     employee_count, credit_score, postal_code, \
+                     sales_amount, sales_range, \
+                     employee_delta_1y, employee_delta_3m \
+                     FROM v2_salesnow_companies \
+                     WHERE prefecture = ?1 AND sn_industry IN ({}) \
+                       AND employee_count >= ?{} AND employee_count <= ?{} \
+                     ORDER BY employee_count DESC LIMIT ?{}",
+                    in_placeholders, lo_idx, hi_idx, limit_idx
+                );
+            } else {
+                let muni_idx = sn_industries_override.len() + 2;
+                muni_clause = format!(" AND address LIKE ?{}", muni_idx);
+                lo_idx = muni_idx + 1;
+                hi_idx = lo_idx + 1;
+                limit_idx = hi_idx + 1;
+                muni_pat = format!("%{}%", municipality);
+                sql = format!(
+                    "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                     employee_count, credit_score, postal_code, \
+                     sales_amount, sales_range, \
+                     employee_delta_1y, employee_delta_3m \
+                     FROM v2_salesnow_companies \
+                     WHERE prefecture = ?1 AND sn_industry IN ({}){} \
+                       AND employee_count >= ?{} AND employee_count <= ?{} \
+                     ORDER BY employee_count DESC LIMIT ?{}",
+                    in_placeholders, muni_clause, lo_idx, hi_idx, limit_idx
+                );
+            }
+            let mut params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = Vec::new();
+            params.push(&prefecture);
+            for s in sn_industries_override {
+                params.push(s);
+            }
+            if !municipality.is_empty() {
+                params.push(&muni_pat);
+            }
+            params.push(lo);
+            params.push(hi);
+            params.push(&band_limit);
+            sn_db.query(&sql, &params).unwrap_or_default()
+        } else { match (municipality.is_empty(), &industry_keyword) {
             (false, Some(kw)) => {
                 let muni_pattern = format!("%{}%", municipality);
                 let ind_pattern = format!("%{}%", kw);
@@ -760,7 +897,7 @@ pub fn fetch_company_segments_by_region_with_industry(
                     vec![&prefecture, lo, hi, &band_limit];
                 sn_db.query(sql, &params).unwrap_or_default()
             }
-        };
+        } };  // ← match ... else { match { ... } } の閉じ
         for r in rows {
             let cn = get_str(&r, "corporate_number");
             if seen.insert(cn) {
