@@ -2570,11 +2570,26 @@ body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
   body.theme-navy .table-navy tr { break-inside: avoid; }
   body.theme-navy .findings-list li, body.theme-navy .kpi,
   body.theme-navy .cover-stat { break-inside: avoid; }
-  /* 2026-05-14: so-what は数行のテキスト帯。break-inside: avoid だと section 末尾で
-     直前ブロックがページ末を埋めた時に so-what が単独で次ページへ orphan する
-     (Section 03 末尾 + Section 06 末尾で空白ページ発生)。
-     break-inside: auto + orphans/widows 2 行で読みやすさを保ちつつ split を許可する。 */
-  body.theme-navy .so-what { break-inside: auto; orphans: 2; widows: 2; }
+  /* 2026-05-14: so-what は数行のテキスト帯。section 末尾で直前ブロックがページ末を
+     埋めた時に so-what が単独で次ページへ orphan し空白ページが発生する問題。
+     grid container は break-inside: auto でもブラウザによって分割されないため、
+     印刷時のみ block 表示に切り替え、テキストが split できるようにする。
+     さらにフットプリント縮小 (padding/margin 半減) で前ページ末尾に収まる確率を高める。 */
+  body.theme-navy .so-what {
+    display: block;
+    padding: 3mm 5mm;
+    margin-top: 3mm;
+    margin-bottom: 3mm;
+    break-inside: auto;
+    orphans: 2;
+    widows: 2;
+  }
+  body.theme-navy .so-what .sw-label {
+    display: inline-block;
+    margin-right: 4mm;
+    vertical-align: top;
+  }
+  body.theme-navy .so-what .sw-body { display: inline; }
   body.theme-navy .exec-headline { break-inside: avoid; }
   body.theme-navy .block-title { break-after: avoid; }
   body.theme-navy .ph-title, body.theme-navy .findings-head { break-after: avoid; }
