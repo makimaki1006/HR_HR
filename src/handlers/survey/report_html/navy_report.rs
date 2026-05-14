@@ -3755,29 +3755,34 @@ fn build_navy_auto_table(
     for r in show {
         s.push_str("<tr>");
         for k in &keys {
-            // 数値か文字列か判定して表示
+            // 2026-05-14: serde_json::Value::to_string() は文字列を "..." 引用符付きで
+            //   返してしまうため、get_str / as_str で素のテキストを取り出す。
+            //   数値は format_number / 小数桁制御。null は ダッシュ。
             let v = r.get(k);
             let cell = match v {
-                Some(jv) => {
-                    if jv.is_string() {
-                        let str_val = get_str(r, k);
-                        if str_val.is_empty() { "—".to_string() } else { escape_html(&str_val) }
-                    } else if jv.is_i64() || jv.is_u64() {
-                        format_number(get_i64(r, k))
-                    } else if jv.is_f64() {
-                        let f = get_f64(r, k);
-                        if f.fract() == 0.0 {
-                            format_number(f as i64)
-                        } else {
-                            format!("{:.2}", f)
-                        }
-                    } else if jv.is_null() {
+                Some(jv) if jv.is_string() => {
+                    let str_val = get_str(r, k);
+                    if str_val.is_empty() { "—".to_string() } else { escape_html(&str_val) }
+                }
+                Some(jv) if jv.is_i64() || jv.is_u64() => {
+                    format_number(get_i64(r, k))
+                }
+                Some(jv) if jv.is_f64() => {
+                    let f = get_f64(r, k);
+                    if f.is_nan() || !f.is_finite() {
                         "—".to_string()
+                    } else if f.fract().abs() < 1e-9 {
+                        format_number(f as i64)
                     } else {
-                        escape_html(&jv.to_string())
+                        format!("{:.2}", f)
                     }
                 }
+                Some(jv) if jv.is_boolean() => {
+                    if jv.as_bool() == Some(true) { "✓".to_string() } else { "—".to_string() }
+                }
+                Some(jv) if jv.is_null() => "—".to_string(),
                 None => "—".to_string(),
+                Some(_) => "—".to_string(),  // 配列やオブジェクト等は表示しない
             };
             s.push_str(&format!("<td>{}</td>", cell));
         }
@@ -3841,17 +3846,19 @@ pub(super) fn render_navy_section_aux_data(
     }
 
     // --- 都道府県平均 (比較用) ---
+    // 2026-05-14: physicians_per_10k / daycare_per_1k_children / habitable_density は
+    //   build_insight_context で None 初期化のまま populate されない (engine.rs:1585
+    //   のコメント: 別途人口で動的計算、未実装)。「—」を出すと欠損に見えるので
+    //   現状 populate されている 2 系列だけを表示する。
     let pref_avgs: Vec<(&str, Option<f64>, &str)> = vec![
-        ("単身世帯率", ctx.pref_avg_single_rate, "%"),
-        ("人口10千人当り医師数", ctx.pref_avg_physicians_per_10k, "人"),
-        ("子供1千人当り保育所数", ctx.pref_avg_daycare_per_1k_children, "ヶ所"),
-        ("可住地人口密度", ctx.pref_avg_habitable_density, "人/km²"),
+        ("県平均 失業率",  ctx.pref_avg_unemployment_rate, "%"),
+        ("県平均 単身世帯率", ctx.pref_avg_single_rate, "%"),
     ];
-    let any_pref_avg = pref_avgs.iter().any(|(_, v, _)| v.is_some());
-    if any_pref_avg {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7.5-B &nbsp;都道府県平均 (生活インフラ比較指標)</div>\n");
+    let pref_avgs_with_val: Vec<_> = pref_avgs.iter().filter(|(_, v, _)| v.is_some()).collect();
+    if !pref_avgs_with_val.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7.5-B &nbsp;都道府県平均 (マクロ比較指標)</div>\n");
         html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
-        for (label, val, unit) in &pref_avgs {
+        for (label, val, unit) in pref_avgs_with_val {
             let cell = val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "—".into());
             html.push_str(&format!(
                 "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
@@ -3859,7 +3866,7 @@ pub(super) fn render_navy_section_aux_data(
             ));
         }
         html.push_str("</tbody></table>\n");
-        html.push_str("<p class=\"caption\">出典: 各種公的統計の都道府県平均。子育て世帯/医療アクセス/居住密度の地域比較用。</p>\n");
+        html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計。県平均は SUM 方式 (市町村集計を県全体で再集計)。</p>\n");
     }
 
     // --- ext_* 系 (取得済みだが未表示) ---
