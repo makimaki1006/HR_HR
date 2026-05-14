@@ -107,10 +107,13 @@ fn map_keyword_extended_industry(s: &str) -> Option<&'static str> {
         return Some("教育，学習支援業");
     }
     // 金融・保険 (既存「金融業，保険業」未 hit を補完)
-    if s_lower.contains("信組")
-        || s_lower.contains("リース")
-        || s_lower.contains("ファイナンス")
-    {
+    // 2026-05-14: 「リース」「ファイナンス」は過誤判定が多い (例: 物流系の
+    //             ○○リース運送、ドライバー派遣の○○リース、人材紹介の
+    //             ○○ファイナンス採用支援 等) ため fallback から除外。
+    //             - 物品賃貸の文脈は基底マップで「物品賃貸」→不動産業に着地
+    //             - 金融文脈は基底マップで「金融/銀行/保険/証券/信用組合/信用金庫」が
+    //               既に網羅されている
+    if s_lower.contains("信組") {
         return Some("金融業，保険業");
     }
     // IT・情報通信 (既存「情報通信業」未 hit を補完)
@@ -731,12 +734,15 @@ mod tests {
             map_keyword_extended_industry("ABC学院"),
             Some("教育，学習支援業")
         );
-        // 「リース」は既存マップ「物品賃貸」由来で hit する可能性あり、
-        // ここでは「ファイナンス」で拡張側のみ評価
+        // 2026-05-14: 「リース」「ファイナンス」は過誤判定が多いため拡張から除外。
+        //             基底マップ「金融/銀行/保険/証券/信用組合/信用金庫」と
+        //             「物品賃貸」で十分網羅されているため、拡張側では「信組」のみ。
         assert_eq!(
-            map_keyword_extended_industry("ABCファイナンス"),
+            map_keyword_extended_industry("ABC信組"),
             Some("金融業，保険業")
         );
+        // 「リース」単独では拡張側 hit しない (false positive 抑止)
+        assert_eq!(map_keyword_extended_industry("ABCリース"), None);
     }
 
     /// 列ヘッダが Round 3-B' の表現に揃っている.
