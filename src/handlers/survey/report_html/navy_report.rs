@@ -532,6 +532,12 @@ pub(super) fn render_navy_section_03_salary(
     html.push_str("<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ (月給換算 / 万円)</div>\n");
     html.push_str(&build_navy_salary_summary_table(&stats_min, &stats_max));
 
+    // -- 雇用形態別給与 (旧 employment::render_section_employment 相当を navy で再構築)
+    if !agg.by_emp_type_salary.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 3-B &nbsp;雇用形態別給与 (月給換算 / 万円)</div>\n");
+        html.push_str(&build_navy_emp_type_salary_table(&agg.by_emp_type_salary, agg.total_count));
+    }
+
     // -- So What
     let so_what = match (stats_min.as_ref(), stats_max.as_ref()) {
         (Some(lo), Some(hi)) => {
@@ -737,6 +743,85 @@ fn build_navy_histogram_svg(_values: &[i64], s: &DistStats) -> String {
     }
     svg.push_str("</svg>\n");
     svg
+}
+
+// 雇用形態別給与 table-navy (No. / 雇用形態 / n / 構成比 / 平均給与 / 中央値 / 全体差分タグ)
+fn build_navy_emp_type_salary_table(
+    items: &[super::super::aggregator::EmpTypeSalary],
+    total_count: usize,
+) -> String {
+    // 全体加重平均を計算 (差分タグの基準)
+    let total_n_with_salary: i64 = items.iter().map(|e| e.count as i64).sum();
+    let weighted_sum: i64 = items
+        .iter()
+        .map(|e| e.avg_salary * e.count as i64)
+        .sum();
+    let overall_avg = if total_n_with_salary > 0 {
+        weighted_sum / total_n_with_salary
+    } else {
+        0
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>雇用形態</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">構成比</th>");
+    s.push_str("<th class=\"num\">平均給与</th>");
+    s.push_str("<th class=\"num\">中央値</th>");
+    s.push_str("<th>全体差分</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 件数降順
+    let mut sorted: Vec<&super::super::aggregator::EmpTypeSalary> = items.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+
+    for (i, e) in sorted.iter().enumerate() {
+        let pct = if total_count > 0 {
+            e.count as f64 / total_count as f64 * 100.0
+        } else {
+            0.0
+        };
+        let diff_pct = if overall_avg > 0 {
+            (e.avg_salary - overall_avg) as f64 / overall_avg as f64 * 100.0
+        } else {
+            0.0
+        };
+        let (tag, tag_label) = if diff_pct >= 10.0 {
+            ("pos", "高給与")
+        } else if diff_pct <= -10.0 {
+            ("warn", "低給与")
+        } else {
+            ("neu", "中央付近")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{:.1}%</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:+.1}%</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&e.emp_type),
+            format_number(e.count as i64),
+            pct,
+            format_mm(e.avg_salary),
+            format_mm(e.median_salary),
+            tag,
+            tag_label,
+            diff_pct,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">単位: 万円 (月給換算済み)。差分: 全体加重平均給与 ({}万円) との比較。+10% 以上 = 高給与, -10% 以下 = 低給与。</p>\n",
+        format_mm(overall_avg)
+    ));
+    s
 }
 
 // navy 集計テーブル (下限 / 上限 × n/P25/P50/平均/P75/P90/min/max)
