@@ -237,14 +237,50 @@ pub(super) fn render_navy_executive(
 
     // 2026-05-14: 「給与解析率」表記は撤去 (Section 03 で解析できた件数のみ提示する方針)。
     let _ = salary_parse_pct;
+
+    // 2026-05-14: 選択地域 (target_region) と CSV 内最多地域 (dominant) が異なる場合、
+    //   「御社の地域で検索したが、結果として隣接の地域の方が多い → 隣地域への応募流入 /
+    //   流出が多い」観点で 1 文補足する。県境スクレイピングや広域募集では頻発する。
+    //   選択地域 と dominant が一致する場合は補足なし。
+    let region_divergence_note: String = {
+        // dominant_pref を優先、無ければ by_prefecture[0]
+        let dominant_pref_owned = agg
+            .dominant_prefecture
+            .clone()
+            .or_else(|| agg.by_prefecture.first().map(|(p, _)| p.clone()));
+        // target_region と CSV 最多が文字列含み的に一致しない場合のみ補足
+        let pref_in_target = dominant_pref_owned
+            .as_deref()
+            .map(|d| !d.is_empty() && !target_region.contains(d))
+            .unwrap_or(false);
+        if pref_in_target {
+            let top_pref = dominant_pref_owned.as_deref().unwrap_or("");
+            let top_count = agg
+                .by_prefecture
+                .iter()
+                .find(|(p, _)| p == top_pref)
+                .map(|(_, c)| *c)
+                .unwrap_or(0);
+            format!(
+                " ただし CSV 内に最も多く出現したのは <strong>{}</strong> ({} 件) で、対象地域より件数が多くなっています。\
+                 県境スクレイピングなどで隣地域の求人/応募流入が多いケースが想定されます。",
+                escape_html(top_pref),
+                format_number(top_count as i64)
+            )
+        } else {
+            String::new()
+        }
+    };
+
     let headline_body = format!(
         "本レポートは <strong>{}</strong> を対象に、サンプル <strong>{} 件</strong> を分析した結果です。\
-         主要雇用形態は <strong>{}</strong>、新着比率 <strong>{}%</strong>。\
+         主要雇用形態は <strong>{}</strong>、新着比率 <strong>{}%</strong>。{}\
          本ページでは <strong>KPI</strong> と <strong>Findings</strong> を提示し、末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
         escape_html(target_region),
         format_number(total as i64),
         escape_html(&dominant_emp),
         new_pct,
+        region_divergence_note,
     );
     html.push_str(&format!(
         "<div class=\"exec-headline\">\
@@ -309,7 +345,10 @@ pub(super) fn render_navy_executive(
     let _ = (k6_value, k6_dot, k6_foot);
     html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
     push_kpi(html, "サンプル件数", &k1, "件", k1_dot, k1_foot, false);
-    push_kpi(html, "主要地域", target_region, "", "neu", "件数最多の地域", false);
+    // 2026-05-14: 主要地域 = ユーザー選択地域 (handlers.rs:482 で確定済)。
+    //   フッタは「件数最多」だと CSV 分布最多と混同するので「対象地域」に変更。
+    //   CSV 分布最多が選択地域と異なる場合は別途 SO WHAT / 注記で扱う。
+    push_kpi(html, "主要地域", target_region, "", "neu", "対象地域", false);
     push_kpi(html, "主要雇用形態", &k3_value, "", k3_dot, &k3_foot, false);
     push_kpi(
         html,

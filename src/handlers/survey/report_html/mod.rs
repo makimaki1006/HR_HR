@@ -520,6 +520,8 @@ pub(crate) fn render_survey_report_page_with_variant_v3(
         ReportTheme::Default,
         None,
         None,
+        "",
+        "",
     )
 }
 
@@ -548,6 +550,11 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // 既存の Full / Public 経路は `None` を渡しても従来通り `default()` で動作する。
     db: Option<&crate::db::local_sqlite::LocalDb>,
     turso: Option<&crate::db::turso_http::TursoDb>,
+    // 2026-05-14: ユーザーがヘッダーフィルタで選択した地域。空文字列なら未選択。
+    //   CSV 内最多 (dominant) ではなくユーザー選択を「主要地域」として優先表示する。
+    //   未指定の場合のみ dominant にフォールバック (従来挙動)。
+    selected_pref: &str,
+    selected_muni: &str,
 ) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
@@ -594,7 +601,18 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // 一切呼ばない。salary_stats 以降のセクションは旧パスで段階移行 (Phase 2-4)。
     {
         let today_short = chrono::Local::now().format("%Y年%m月").to_string();
-        let target_region = compose_target_region(agg);
+        // 2026-05-14: ユーザー選択地域があれば優先、未指定なら CSV dominant (従来動作)。
+        //   CSV 内最多と選択地域が異なる場合 (例: 群馬県選択 → CSV 最多は埼玉県) の
+        //   情報は SO WHAT / 流入流出注記で別途扱う。
+        let target_region = if !selected_pref.is_empty() {
+            if !selected_muni.is_empty() {
+                format!("{} {}", selected_pref, selected_muni)
+            } else {
+                selected_pref.to_string()
+            }
+        } else {
+            compose_target_region(agg)
+        };
         navy_report::render_navy_cover(&mut html, agg, variant, &now, &today_short, &target_region);
         navy_report::render_navy_toc(&mut html, variant);
         navy_report::render_navy_executive(

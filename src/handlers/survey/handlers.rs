@@ -724,6 +724,10 @@ pub async fn survey_report_html(
         // ここでは state から再取得する。
         state.hw_db.as_ref(),
         state.turso_db.as_ref(),
+        // 2026-05-14: ヘッダーフィルタで選択された地域を「主要地域」として優先表示。
+        //   未選択 (空文字列) の場合のみ CSV 内 dominant にフォールバック。
+        &pref,
+        &muni,
     );
 
     Html(html)
