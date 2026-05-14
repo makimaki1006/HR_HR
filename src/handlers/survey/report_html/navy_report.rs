@@ -2485,6 +2485,38 @@ pub(super) fn render_navy_section_05_companies(
     //   (旧コード: 空なら描画スキップ → ユーザーには『業界フィルタ効いてない』に見える)
     let muni_str = hw_context.map(|c| c.muni.clone()).unwrap_or_default();
     let muni_label = if muni_str.is_empty() { String::new() } else { format!("{} × ", escape_html(&muni_str)) };
+
+    // 2026-05-15 DIAG: 業界フィルタが 0 件になる真因切り分け用。
+    //   pool_all / pool_industry のサイズ、全業界 pool 内の sn_industry 分布を
+    //   HTML コメントに dump。ユーザー指摘『藤岡市の運輸業 0 件はあり得ない』への調査。
+    //   - pool_all=80 / pool_industry=0 なら業界フィルタ強すぎ (sn_industry が
+    //     「運輸業」と部分一致しない表記で格納されている可能性)
+    //   - pool_all=0 なら藤岡市の SalesNow データ自体が薄い
+    {
+        use std::collections::HashMap;
+        let mut industry_counts: HashMap<String, usize> = HashMap::new();
+        // pool_all は大手/中堅/急成長/採用活発の union (重複あり) で近似不可なので
+        // large/mid/small を結合して dedup する。salesnow_segments には公開フィールドが
+        // 限られるので large + mid をサンプルに sn_industry 分布を出す。
+        for c in salesnow_segments.large.iter().chain(salesnow_segments.mid.iter()) {
+            *industry_counts.entry(c.sn_industry.clone()).or_insert(0) += 1;
+        }
+        let mut sorted: Vec<(String, usize)> = industry_counts.into_iter().collect();
+        sorted.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
+        let top = sorted.iter().take(10).map(|(i, c)| format!("{}={}", i, c)).collect::<Vec<_>>().join(",");
+        html.push_str(&format!(
+            "<!-- DIAG_SECTION05 pool_all_size={} pool_industry_size={} large_all={} mid_all={} large_industry={} mid_industry={} growth_all={} growth_industry={} top_sn_industry_in_all=[{}] -->\n",
+            salesnow_segments.pool_size,
+            salesnow_segments_industry.pool_size,
+            salesnow_segments.large.len(),
+            salesnow_segments.mid.len(),
+            salesnow_segments_industry.large.len(),
+            salesnow_segments_industry.mid.len(),
+            salesnow_segments.growth.len(),
+            salesnow_segments_industry.growth.len(),
+            top
+        ));
+    }
     let empty_row_html = |colspan: i64| -> String {
         format!(
             "<table class=\"table-navy\"><tbody>\
