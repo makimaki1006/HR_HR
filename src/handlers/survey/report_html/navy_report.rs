@@ -2443,7 +2443,8 @@ pub(super) fn render_navy_section_05_companies(
     }
 
     if !salesnow_segments.growth.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (1Y +10% 超、件数最多 8 社)</div>\n");
+        html.push_str("<!-- build-marker: BUILD_R24_FILTER300_2026_05_14 -->\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (1Y +10%〜+300%、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.growth, 8, show_hw));
     }
 
