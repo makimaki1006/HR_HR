@@ -562,6 +562,15 @@ pub(super) fn render_navy_section_03_salary(
         html.push_str(&build_navy_occupation_salary_table(&occupation_rows, agg.is_hourly));
     }
 
+    // -- 相関分析: 給与 vs カテゴリ要因 (雇用形態 / 職種 / 業界)
+    //   採用コンサル目線で「給与差を説明する要因がどれか」を表で可視化。
+    //   ピアソン相関ではなく、各カテゴリ内 group means の分散 / 全体分散 (η² 相当) 簡易版。
+    let corr_rows = compute_navy_salary_correlation(agg);
+    if !corr_rows.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 3-F &nbsp;給与差を説明する要因 (簡易相関 / η² 風)</div>\n");
+        html.push_str(&build_navy_salary_correlation_table(&corr_rows));
+    }
+
     // -- 給与構造クラスタ分析 (旧 salary_stats の Jenks + per-cluster box) を navy で取り込み
     //   設計メモ §7-8 (給与構造クラスタリング) + §10 (適正値 P25/P50/P60/P75/P90) 準拠
     let pairs: Vec<(i64, i64)> = agg
@@ -949,6 +958,168 @@ fn build_navy_industry_salary_table(
         if is_hourly { format_number(overall_avg) } else { format_mm(overall_avg) },
         if is_hourly { "円/時" } else { "万円" }
     ));
+    s
+}
+
+// 相関分析: 給与×カテゴリ要因 (雇用形態 / 職種 / 業界)
+//   各要因の説明力 = (カテゴリ平均と全体平均の差の二乗の加重平均) / (全体分散)
+//   η² (eta squared) 相当の簡易版。0-1 範囲、1 に近いほど要因で説明できる。
+struct NavyCorrRow {
+    factor: String,
+    n_categories: usize,
+    n_total: i64,
+    max_minus_min_avg: i64,
+    eta_sq: f64, // 0.0 - 1.0
+}
+
+fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> {
+    let mut rows: Vec<NavyCorrRow> = Vec::new();
+
+    // 因子 1: 雇用形態 (by_emp_type_salary)
+    if !agg.by_emp_type_salary.is_empty() {
+        let n_total: i64 = agg.by_emp_type_salary.iter().map(|e| e.count as i64).sum();
+        let weighted_sum: i64 = agg.by_emp_type_salary.iter().map(|e| e.avg_salary * e.count as i64).sum();
+        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
+        let between_var: f64 = agg.by_emp_type_salary.iter()
+            .map(|e| {
+                let diff = (e.avg_salary - overall_avg) as f64;
+                diff * diff * e.count as f64
+            })
+            .sum::<f64>() / (n_total.max(1) as f64);
+        // 全体分散の代理: σ² ≈ overall_avg の 10% を 1σ と仮定。
+        // 実 records レベル分散が ない (agg は集計済み) ため、scatter_min_max から派生。
+        let total_var: f64 = if !agg.salary_values.is_empty() {
+            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values.iter()
+                .map(|&v| {
+                    let d = v as f64 - mean;
+                    d * d
+                })
+                .sum::<f64>() / agg.salary_values.len() as f64
+        } else {
+            between_var * 2.0 // フォールバック
+        };
+        let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
+        let max_avg = agg.by_emp_type_salary.iter().map(|e| e.avg_salary).max().unwrap_or(0);
+        let min_avg = agg.by_emp_type_salary.iter().map(|e| e.avg_salary).min().unwrap_or(0);
+        rows.push(NavyCorrRow {
+            factor: "雇用形態".to_string(),
+            n_categories: agg.by_emp_type_salary.len(),
+            n_total,
+            max_minus_min_avg: max_avg - min_avg,
+            eta_sq,
+        });
+    }
+
+    // 因子 2: 職種 (occupation_salary)
+    let occ_rows = super::occupation_salary::aggregate_occupation_salary(agg);
+    if !occ_rows.is_empty() {
+        let n_total: i64 = occ_rows.iter().map(|r| r.count).sum();
+        let weighted_sum: i64 = occ_rows.iter().map(|r| r.weighted_avg * r.count).sum();
+        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
+        let between_var: f64 = occ_rows.iter()
+            .map(|r| {
+                let diff = (r.weighted_avg - overall_avg) as f64;
+                diff * diff * r.count as f64
+            })
+            .sum::<f64>() / (n_total.max(1) as f64);
+        let total_var: f64 = if !agg.salary_values.is_empty() {
+            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values.iter().map(|&v| { let d = v as f64 - mean; d*d }).sum::<f64>() / agg.salary_values.len() as f64
+        } else {
+            between_var * 2.0
+        };
+        let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
+        let max_avg = occ_rows.iter().map(|r| r.weighted_avg).max().unwrap_or(0);
+        let min_avg = occ_rows.iter().map(|r| r.weighted_avg).min().unwrap_or(0);
+        rows.push(NavyCorrRow {
+            factor: "職種 (推定)".to_string(),
+            n_categories: occ_rows.len(),
+            n_total,
+            max_minus_min_avg: max_avg - min_avg,
+            eta_sq,
+        });
+    }
+
+    // 因子 3: 業界 (industry_salary)
+    let ind_rows = super::industry_salary::aggregate_industry_salary(agg);
+    if !ind_rows.is_empty() {
+        let n_total: i64 = ind_rows.iter().map(|r| r.count).sum();
+        let weighted_sum: i64 = ind_rows.iter().map(|r| r.weighted_avg * r.count).sum();
+        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
+        let between_var: f64 = ind_rows.iter()
+            .map(|r| {
+                let diff = (r.weighted_avg - overall_avg) as f64;
+                diff * diff * r.count as f64
+            })
+            .sum::<f64>() / (n_total.max(1) as f64);
+        let total_var: f64 = if !agg.salary_values.is_empty() {
+            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values.iter().map(|&v| { let d = v as f64 - mean; d*d }).sum::<f64>() / agg.salary_values.len() as f64
+        } else {
+            between_var * 2.0
+        };
+        let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
+        let max_avg = ind_rows.iter().map(|r| r.weighted_avg).max().unwrap_or(0);
+        let min_avg = ind_rows.iter().map(|r| r.weighted_avg).min().unwrap_or(0);
+        rows.push(NavyCorrRow {
+            factor: "業界 (推定)".to_string(),
+            n_categories: ind_rows.len(),
+            n_total,
+            max_minus_min_avg: max_avg - min_avg,
+            eta_sq,
+        });
+    }
+
+    // η² 降順
+    rows.sort_by(|a, b| b.eta_sq.partial_cmp(&a.eta_sq).unwrap_or(std::cmp::Ordering::Equal));
+    rows
+}
+
+fn build_navy_salary_correlation_table(rows: &[NavyCorrRow]) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>要因</th>");
+    s.push_str("<th class=\"num\">カテゴリ数</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">最大-最小 平均差</th>");
+    s.push_str("<th class=\"num\">η² (説明力)</th>");
+    s.push_str("<th>判定</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+    for (i, r) in rows.iter().enumerate() {
+        let (tag, label) = if r.eta_sq >= 0.10 {
+            ("pos", "強い説明力")
+        } else if r.eta_sq >= 0.05 {
+            ("neu", "中程度")
+        } else {
+            ("neu", "弱い説明力")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{:.3}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&r.factor),
+            r.n_categories,
+            format_number(r.n_total),
+            format_mm(r.max_minus_min_avg),
+            r.eta_sq,
+            tag,
+            label,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">η² は要因 (雇用形態/職種/業界) が給与差を説明する割合。\
+                0.10 以上で「強い説明力」、0.05-0.10 で「中程度」、未満で「弱い」と判定 (社会科学慣例の目安)。\
+                推定要因 (職種/業界) は CSV 自動分類のため誤差を含みます。\
+                <strong>相関 ≠ 因果</strong>: η² は分散説明であり、因果関係を証明するものではありません。</p>\n");
     s
 }
 
