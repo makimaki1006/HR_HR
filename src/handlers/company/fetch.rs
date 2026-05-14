@@ -809,9 +809,18 @@ pub fn fetch_company_segments_by_region_with_industry(
     // 急成長: employee_delta_1y > +10.0% (10% 増以上)、降順 Top 10
     // 2026-04-30: DB は %単位 (10.0 = +10%) で格納 (render.rs/company_markers.rs と整合)。
     // 旧コード `> 0.10` は「+0.1% 超」しかフィルタしないバグだった。
+    // 2026-05-14: 一部レコードに +1000% を超える非現実値 (SalesNow データ精度
+    //             由来) があり、PDF に「+3321%」等が表示されてしまう問題があった
+    //             (feedback_unit_consistency_audit / 表 5-B 急成長企業の信頼性
+    //             指摘 2026-05-14)。+300% 超は外れ値として除外し、レポートには
+    //             現実的な急成長企業のみを掲載する。
     let mut growth: Vec<NearbyCompany> = pool
         .iter()
-        .filter(|c| c.employee_delta_1y > 10.0 && c.employee_count >= 10)
+        .filter(|c| {
+            c.employee_delta_1y > 10.0
+                && c.employee_delta_1y <= 300.0
+                && c.employee_count >= 10
+        })
         .cloned()
         .collect();
     growth.sort_by(|a, b| {
@@ -836,11 +845,14 @@ pub fn fetch_company_segments_by_region_with_industry(
     // 各セル Top 5 (10 だと表が横長になりすぎるため)
     let cell_limit: usize = 5;
     let pick_band = |min_emp: i64, max_emp: i64, growth_pos: bool| -> Vec<NearbyCompany> {
+        // 2026-05-14: ±300% を超えるレコードはデータ精度由来の外れ値として除外
+        //             (表 5-B / 5-F の信頼性確保)。
+        let in_realistic_range = |d: f64| d.is_finite() && d.abs() <= 300.0;
         let mut v: Vec<NearbyCompany> = pool
             .iter()
             .filter(|c| {
                 (min_emp..=max_emp).contains(&c.employee_count)
-                    && c.employee_delta_1y.is_finite()
+                    && in_realistic_range(c.employee_delta_1y)
                     && (if growth_pos {
                         // 2026-04-30: ±5% (±5.0) growth threshold (DB は %単位)
                         c.employee_delta_1y > 5.0
