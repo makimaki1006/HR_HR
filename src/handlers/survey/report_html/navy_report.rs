@@ -538,6 +538,19 @@ pub(super) fn render_navy_section_03_salary(
         html.push_str(&build_navy_emp_type_salary_table(&agg.by_emp_type_salary, agg.total_count));
     }
 
+    // -- 業界×給与クロス (旧 industry_salary::render_section_industry_salary 相当を navy で再構築)
+    //   計算ロジック (industry_salary::aggregate_industry_salary) は副作用なしの純関数で
+    //   ロジック再実装が冗長なため再利用。HTML 出力のみ navy 新規。
+    let industry_rows = super::industry_salary::aggregate_industry_salary(agg);
+    if !industry_rows.is_empty() {
+        let unit_label = if agg.is_hourly { "時給 (円/時)" } else { "月給 (万円)" };
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 3-C &nbsp;業界×給与クロス ({})</div>\n",
+            unit_label
+        ));
+        html.push_str(&build_navy_industry_salary_table(&industry_rows, agg.is_hourly));
+    }
+
     // -- So What
     let so_what = match (stats_min.as_ref(), stats_max.as_ref()) {
         (Some(lo), Some(hi)) => {
@@ -820,6 +833,89 @@ fn build_navy_emp_type_salary_table(
     s.push_str(&format!(
         "<p class=\"caption\">単位: 万円 (月給換算済み)。差分: 全体加重平均給与 ({}万円) との比較。+10% 以上 = 高給与, -10% 以下 = 低給与。</p>\n",
         format_mm(overall_avg)
+    ));
+    s
+}
+
+// 業界×給与 table-navy (No. / 業界 / n / 平均給与 / 中央値 / 全体差分タグ / 参考)
+fn build_navy_industry_salary_table(
+    rows: &[super::industry_salary::IndustrySalaryRow],
+    is_hourly: bool,
+) -> String {
+    // 件数加重 全体平均
+    let total_n: i64 = rows.iter().map(|r| r.count).sum();
+    let weighted_sum: i64 = rows.iter().map(|r| r.weighted_avg * r.count).sum();
+    let overall_avg = if total_n > 0 { weighted_sum / total_n } else { 0 };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>業界 (推定)</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">平均給与</th>");
+    s.push_str("<th class=\"num\">中央値</th>");
+    s.push_str("<th>全体差分</th>");
+    s.push_str("<th>注記</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen) // 時給は円のまま
+        } else {
+            format_mm(yen) // 月給は万円換算
+        }
+    };
+
+    for (i, r) in rows.iter().enumerate() {
+        let diff_pct = if overall_avg > 0 {
+            (r.weighted_avg - overall_avg) as f64 / overall_avg as f64 * 100.0
+        } else {
+            0.0
+        };
+        let (tag, tag_label) = if diff_pct >= 10.0 {
+            ("pos", "高給与帯")
+        } else if diff_pct <= -10.0 {
+            ("warn", "低給与帯")
+        } else {
+            ("neu", "中央付近")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        let median_str = match r.median_of_company_medians {
+            Some(m) => fmt_val(m),
+            None => "—".to_string(),
+        };
+        let note_html = if r.note.is_empty() {
+            String::new()
+        } else {
+            format!("<span class=\"tag tag-neu\">{}</span>", escape_html(r.note))
+        };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:+.1}%</span></td>\
+             <td>{}</td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&r.industry),
+            format_number(r.count),
+            fmt_val(r.weighted_avg),
+            median_str,
+            tag,
+            tag_label,
+            diff_pct,
+            note_html,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">業界推定は CSV の企業名 + タグから自動分類。\
+         全体平均: {} {}。件数 &lt; 3 は「参考 (低信頼)」表示。\
+         <strong>相関 ≠ 因果</strong>: 業界別給与差分は要因分析ではなく分布差として読んでください。</p>\n",
+        if is_hourly { format_number(overall_avg) } else { format_mm(overall_avg) },
+        if is_hourly { "円/時" } else { "万円" }
     ));
     s
 }
