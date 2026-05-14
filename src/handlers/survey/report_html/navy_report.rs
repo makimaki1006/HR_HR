@@ -1987,6 +1987,36 @@ pub(super) fn render_navy_section_05_companies(
         html.push_str(&build_navy_company_list(&salesnow_segments.growth, 8, show_hw));
     }
 
+    // -- 大手企業 (employee_count Top)
+    if !salesnow_segments.large.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-C &nbsp;大手企業 (従業員 300+ 名級、件数最多 8 社)</div>\n");
+        html.push_str(&build_navy_company_list(&salesnow_segments.large, 8, show_hw));
+    }
+
+    // -- 中堅企業 (50-300 名)
+    if !salesnow_segments.mid.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-D &nbsp;中堅企業 (従業員 50-299 名、件数最多 8 社)</div>\n");
+        html.push_str(&build_navy_company_list(&salesnow_segments.mid, 8, show_hw));
+    }
+
+    // -- 採用活発企業 (Full のみ、求人媒体掲載 5 件以上)
+    if show_hw && !salesnow_segments.hiring.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-E &nbsp;採用活発企業 (求人媒体掲載 5 件以上、件数最多 8 社)</div>\n");
+        html.push_str(&build_navy_company_list(&salesnow_segments.hiring, 8, show_hw));
+    }
+
+    // -- 規模 × 動向 6 マトリクス: 増員傾向 (large/mid/small) + 減少傾向 (large/mid/small)
+    let g_large = salesnow_segments.growth_large.len();
+    let g_mid = salesnow_segments.growth_mid.len();
+    let g_small = salesnow_segments.growth_small.len();
+    let d_large = salesnow_segments.decline_large.len();
+    let d_mid = salesnow_segments.decline_mid.len();
+    let d_small = salesnow_segments.decline_small.len();
+    if g_large + g_mid + g_small + d_large + d_mid + d_small > 0 {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-F &nbsp;規模 × 動向 6 マトリクス (1Y 人員変動)</div>\n");
+        html.push_str(&build_navy_growth_decline_matrix(salesnow_segments));
+    }
+
     let so_what = build_companies_so_what(
         &industry_sorted,
         industry_total,
@@ -2140,6 +2170,47 @@ fn build_navy_industry_bars(industry_sorted: &[(String, i64)], total: i64) -> St
     }
     svg.push_str("</svg>\n");
     svg
+}
+
+// 規模 × 動向 6 マトリクス: 大企業 / 中小 / 零細 × 増員 / 減少
+fn build_navy_growth_decline_matrix(
+    seg: &super::super::super::company::fetch::RegionalCompanySegments,
+) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>規模帯</th>");
+    s.push_str("<th class=\"num\">増員傾向 (+5%超)</th>");
+    s.push_str("<th class=\"num\">減少傾向 (-5%未満)</th>");
+    s.push_str("<th>解釈</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+    let rows = [
+        ("大企業 (300+ 名)", seg.growth_large.len(), seg.decline_large.len()),
+        ("中小企業 (50-299 名)", seg.growth_mid.len(), seg.decline_mid.len()),
+        ("零細企業 (-49 名)", seg.growth_small.len(), seg.decline_small.len()),
+    ];
+    for (label, g, d) in rows {
+        let (tag, interp) = if g > d && g >= 3 {
+            ("pos", "純増基調")
+        } else if d > g && d >= 3 {
+            ("warn", "純減基調")
+        } else if g + d == 0 {
+            ("neu", "該当企業なし")
+        } else {
+            ("neu", "拮抗")
+        };
+        s.push_str(&format!(
+            "<tr><td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td></tr>\n",
+            label, g, d, tag, interp
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">出典: 地域企業データ employee_delta_1y。\
+                増員傾向 = +5% 超 / 減少傾向 = -5% 未満。\
+                減少傾向は離職多発だけでなく組織改編・自然減・配置転換も含むため、\
+                単純な離職率指標とは区別してください。</p>\n");
+    s
 }
 
 fn build_navy_company_list(
