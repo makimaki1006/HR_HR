@@ -562,6 +562,27 @@ pub(super) fn render_navy_section_03_salary(
         html.push_str(&build_navy_occupation_salary_table(&occupation_rows, agg.is_hourly));
     }
 
+    // -- 給与構造クラスタ分析 (旧 salary_stats の Jenks + per-cluster box) を navy で取り込み
+    //   設計メモ §7-8 (給与構造クラスタリング) + §10 (適正値 P25/P50/P60/P75/P90) 準拠
+    let pairs: Vec<(i64, i64)> = agg
+        .scatter_min_max
+        .iter()
+        .map(|p| (p.x, p.y))
+        .collect();
+    let clusters = super::helpers::compute_salary_clusters(&pairs);
+    if !clusters.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 3-E &nbsp;給与構造クラスタ (Jenks 自然分割 × レンジ分類)</div>\n");
+        html.push_str(&build_navy_cluster_table(&clusters));
+        html.push_str("<div class=\"block-title block-title-spaced\">図 3-5 &nbsp;クラスタ別 ボックスプロット (下限給与)</div>\n");
+        html.push_str(&build_navy_cluster_boxplots_svg(&clusters));
+        html.push_str(
+            "<p class=\"caption\">出典: 設計メモ <code>salary_cluster_analysis_design.md</code> §7-8 / §10。\
+             lower_salary 軸は Jenks 自然分割 (k=3 or 4)、range 軸は P33/P66 + P95 異常広判定。\
+             各クラスタ内 P25/P50/P60/P75/P90 が顧客求人の適正値の基準。\
+             <strong>適正値は全体ではなくクラスタ内で出す</strong> (§10.1)。</p>\n",
+        );
+    }
+
     // -- So What
     let so_what = match (stats_min.as_ref(), stats_max.as_ref()) {
         (Some(lo), Some(hi)) => {
@@ -929,6 +950,153 @@ fn build_navy_industry_salary_table(
         if is_hourly { "円/時" } else { "万円" }
     ));
     s
+}
+
+// 給与構造クラスタ table-navy (label / lower_seg / range_seg / n / P25/P50/P60/P75/P90/mean)
+fn build_navy_cluster_table(clusters: &[super::helpers::SalaryCluster]) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>クラスタ</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">P25</th>");
+    s.push_str("<th class=\"num\">中央値 P50</th>");
+    s.push_str("<th class=\"num\">P60</th>");
+    s.push_str("<th class=\"num\">P75</th>");
+    s.push_str("<th class=\"num\">P90</th>");
+    s.push_str("<th class=\"num\">平均</th>");
+    s.push_str("<th>解釈</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 件数降順
+    let mut sorted: Vec<&super::helpers::SalaryCluster> = clusters.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+
+    for (i, c) in sorted.iter().enumerate() {
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        let (tag, interp) = match c.range_seg {
+            "異常広レンジ" => ("warn", "高レンジ訴求 / 歩合・委託の可能性"),
+            "広レンジ" => ("neu", "上限訴求が強い帯"),
+            "狭レンジ" => ("neu", "定額型求人"),
+            _ => ("neu", "通常レンジ"),
+        };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&c.label),
+            format_number(c.count as i64),
+            format_mm(c.p25),
+            format_mm(c.p50),
+            format_mm(c.p60),
+            format_mm(c.p75),
+            format_mm(c.p90),
+            format_mm(c.mean),
+            tag,
+            interp,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">単位: 万円 (月給換算)。\
+                目的別ライン: コスト抑制 P40-P50 / 見劣り回避 P50 / 競争力 P60-P75 / 高待遇訴求 P75+ (設計メモ §10.3)。</p>\n");
+    s
+}
+
+// クラスタ別 並列ボックスプロット SVG (下限給与 P25-P75 box + min-max whisker + P50 中央線)
+fn build_navy_cluster_boxplots_svg(clusters: &[super::helpers::SalaryCluster]) -> String {
+    if clusters.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&super::helpers::SalaryCluster> = clusters.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+    sorted.truncate(8); // 上位 8 cluster
+
+    let w = 720.0;
+    let row_h = 38.0;
+    let h = 30.0 + sorted.len() as f64 * row_h + 30.0;
+    let label_w = 180.0;
+    let n_w = 50.0;
+    let plot_x = label_w + n_w;
+    let plot_w = w - plot_x - 16.0;
+
+    // 全体 max/min を決定 (スケール)
+    let max_v = sorted.iter().map(|c| c.p90).max().unwrap_or(1) as f64;
+    let min_v = sorted.iter().map(|c| c.p25).min().unwrap_or(0) as f64;
+    let span = (max_v - min_v).max(1.0);
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"クラスタ別ボックスプロット\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+
+    let x_of = |v: i64| -> f64 {
+        plot_x + ((v as f64 - min_v) / span).clamp(0.0, 1.0) * plot_w
+    };
+
+    // x軸ラベル (4 点)
+    for i in 0..=4 {
+        let v = (min_v + span * i as f64 / 4.0) as i64;
+        let x = plot_x + plot_w * i as f64 / 4.0;
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"20\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+            x, x, h - 16.0, x, h - 4.0, format_mm(v)
+        ));
+    }
+
+    // 各 cluster の box
+    for (i, c) in sorted.iter().enumerate() {
+        let cy = 30.0 + i as f64 * row_h;
+        // label
+        svg.push_str(&format!(
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"10\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            cy + 16.0,
+            escape_html(&c.label)
+        ));
+        // n
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
+            label_w, cy + 16.0, c.count
+        ));
+        // whisker (min ~ max)
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#9CA0AB\" stroke-width=\"1\"/>\n",
+            x_of(c.min), cy + 16.0, x_of(c.max), cy + 16.0
+        ));
+        // box (P25 ~ P75)
+        let box_x1 = x_of(c.p25);
+        let box_x2 = x_of(c.p75);
+        let box_h = 16.0;
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"1\"/>\n",
+            box_x1, cy + 8.0, (box_x2 - box_x1).max(1.0), box_h
+        ));
+        // median (P50) 縦線
+        let med_x = x_of(c.p50);
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#1F6B43\" stroke-width=\"2\"/>\n",
+            med_x, cy + 8.0, med_x, cy + 8.0 + box_h
+        ));
+        // mean (金色 dot)
+        svg.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"3\" fill=\"#C9A24B\" stroke=\"#0B1E3F\" stroke-width=\"0.5\"/>\n",
+            x_of(c.mean), cy + 16.0
+        ));
+    }
+    svg.push_str("</svg>\n");
+    svg
 }
 
 // 職種×給与 table-navy (industry と同型)
