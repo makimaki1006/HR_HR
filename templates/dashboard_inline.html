@@ -14,7 +14,13 @@
     </script>
 </head>
 <body class="bg-navy-900 text-slate-100 min-h-screen">
-    <header class="bg-navy-800 border-b border-slate-700 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2 overflow-x-hidden">
+    <!-- 2026-05-15: 業種プルダウン(industry-panel)が overflow-x-hidden で切り取られる
+         問題を修正。CSS 仕様で overflow-x: hidden + overflow-y 未指定だと暗黙的に
+         overflow-y: auto になり Y 軸も clipping され、mt-1 で下に開く panel が
+         header 下端で消える。overflow-x: clip は Y 軸への副作用が無く、現代
+         ブラウザ (Chrome/Edge 90+, Firefox 81+, Safari 16+) で動作。
+         未対応ブラウザは visible にフォールバックし、wrap で横スクロール抑止。 -->
+    <header class="bg-navy-800 border-b border-slate-700 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2" style="overflow-x: clip;">
         <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
             <h1 class="text-lg font-bold text-white">求人ダッシュボード</h1>
             <span class="text-slate-400 text-sm">📍</span>
