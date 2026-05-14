@@ -491,13 +491,15 @@ pub(super) fn render_navy_section_03_salary(
         lede
     ));
 
-    // -- KPI row 5 cell: P25 / 中央値 / 平均 / P75 / P90 (下限給与)
+    // -- KPI row 6 cell: P25 / 中央値 / 平均 / 最頻値 / P75 / P90 (下限給与)
+    //   2026-05-14: 最頻値 (mode) を追加。3x2 グリッド。
     if let Some(s) = stats_min.as_ref() {
         html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点</div>\n");
-        html.push_str("<div class=\"kpi-row\">\n");
+        html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
         push_kpi(html, "P25", &format_mm(s.p25), "万円", "neu", "下位 25% 水準", false);
         push_kpi(html, "中央値 P50", &format_mm(s.median), "万円", "neu", "サンプル中央値", true);
         push_kpi(html, "平均", &format_mm(s.mean), "万円", "neu", "外れ値の影響を含む", false);
+        push_kpi(html, "最頻値", &format_mm(s.mode_bin_yen), "万円", "neu", "10,000円刻みの最頻 bin", false);
         push_kpi(html, "P75", &format_mm(s.p75), "万円", "neu", "P75 ライン (P50 より上)", false);
         push_kpi(html, "P90", &format_mm(s.p90), "万円", "neu", "高給与帯", false);
         html.push_str("</div>\n");
@@ -510,13 +512,14 @@ pub(super) fn render_navy_section_03_salary(
         html.push_str("<p class=\"caption\">下限給与の有効値が不足しています (n=0 or 全 unparsed)。</p>\n");
     }
 
-    // -- 上限給与
+    // -- 上限給与 (6 cell, 最頻値含む)
     if let Some(s) = stats_max.as_ref() {
         html.push_str("<div class=\"block-title block-title-spaced\">図 3-3 &nbsp;上限給与 主要分位点</div>\n");
-        html.push_str("<div class=\"kpi-row\">\n");
+        html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
         push_kpi(html, "P25", &format_mm(s.p25), "万円", "neu", "下位 25% 水準", false);
         push_kpi(html, "中央値 P50", &format_mm(s.median), "万円", "neu", "サンプル中央値", true);
         push_kpi(html, "平均", &format_mm(s.mean), "万円", "neu", "外れ値の影響を含む", false);
+        push_kpi(html, "最頻値", &format_mm(s.mode_bin_yen), "万円", "neu", "10,000円刻みの最頻 bin", false);
         push_kpi(html, "P75", &format_mm(s.p75), "万円", "neu", "P75 ライン (P50 より上)", false);
         push_kpi(html, "P90", &format_mm(s.p90), "万円", "neu", "高給与帯", false);
         html.push_str("</div>\n");
@@ -1361,6 +1364,7 @@ fn build_navy_salary_summary_table(
                 <th class=\"num\">P25</th>\
                 <th class=\"num\">中央値</th>\
                 <th class=\"num\">平均</th>\
+                <th class=\"num\">最頻値</th>\
                 <th class=\"num\">P75</th>\
                 <th class=\"num\">P90</th>\
                 <th class=\"num\">最大</th>\
@@ -1376,6 +1380,7 @@ fn build_navy_salary_summary_table(
                  <td class=\"num\">{}</td>\
                  <td class=\"num\">{}</td>\
                  <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
                  <td class=\"num dim\">{}</td>\
                  </tr>\n",
                 label,
@@ -1384,12 +1389,13 @@ fn build_navy_salary_summary_table(
                 format_mm(s.p25),
                 format_mm(s.median),
                 format_mm(s.mean),
+                format_mm(s.mode_bin_yen),
                 format_mm(s.p75),
                 format_mm(s.p90),
                 format_mm(s.max)
             ),
             None => format!(
-                "<tr><td><strong>{}</strong></td><td colspan=\"8\" class=\"dim\">—</td></tr>\n",
+                "<tr><td><strong>{}</strong></td><td colspan=\"9\" class=\"dim\">—</td></tr>\n",
                 label
             ),
         }
@@ -3238,17 +3244,38 @@ pub(super) fn render_navy_section_07_lifestyle(
     let commute_zone_count = ctx.commute_zone_count;
 
     // -- exec-headline
-    let wage_str = latest_wage
-        .map(|(y, w)| format!("{} 年 <strong>{} 円/h</strong>", y, format_number(w)))
-        .unwrap_or_else(|| "—".into());
-    let lede = format!(
-        "対象地域の生活コストと通勤圏を把握します。最低賃金 {} / 月間消費支出 <strong>{}</strong> 円 / \
-         通勤圏内人口 <strong>{}</strong> 名 (生産年齢 {} 名)。給与訴求の説得力と生活インフラを併せて評価します。",
-        wage_str,
-        format_number(total_consumption),
-        format_number(commute_pop),
-        format_number(commute_working),
-    );
+    // 2026-05-14: 取得失敗値 (year=0, 値=0) を lede に混入させない。
+    //             「最低賃金 0 年 1,063 円/h」「月間消費支出 0 円」「通勤圏内人口 0 名」
+    //             の表示問題を解消するため、有効値のみセグメントを連結する。
+    let wage_seg = latest_wage
+        .filter(|(y, w)| *y > 0 && *w > 0)
+        .map(|(y, w)| format!("最低賃金 {} 年 <strong>{} 円/h</strong>", y, format_number(w)))
+        .or_else(|| latest_wage
+            .filter(|(_, w)| *w > 0)
+            .map(|(_, w)| format!("最低賃金 <strong>{} 円/h</strong>", format_number(w))));
+    let consumption_seg = if total_consumption > 0 {
+        Some(format!("月間消費支出 <strong>{}</strong> 円", format_number(total_consumption)))
+    } else { None };
+    let commute_seg = if commute_pop > 0 {
+        Some(format!(
+            "通勤圏内人口 <strong>{}</strong> 名{}",
+            format_number(commute_pop),
+            if commute_working > 0 {
+                format!(" (生産年齢 {} 名)", format_number(commute_working))
+            } else { String::new() }
+        ))
+    } else { None };
+    let segments: Vec<String> = [wage_seg, consumption_seg, commute_seg]
+        .into_iter().flatten().collect();
+    let lede = if segments.is_empty() {
+        "対象地域の生活コスト・通勤圏に関する公的指標が取得できませんでした。\
+         以降のセクションで給与・人口側の指標から定性評価を補完してください。".to_string()
+    } else {
+        format!(
+            "対象地域の生活コストと通勤圏を把握します。{}。給与訴求の説得力と生活インフラを併せて評価します。",
+            segments.join(" / ")
+        )
+    };
     html.push_str(&format!(
         "<div class=\"exec-headline\">\
          <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
