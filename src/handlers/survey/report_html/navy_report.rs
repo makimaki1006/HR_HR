@@ -3036,9 +3036,13 @@ fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
     let row_h: f64 = 18.0;
     let h: f64 = 40.0 + n as f64 * row_h + 24.0;
     let w: f64 = 720.0;
-    let center: f64 = w / 2.0;
-    let label_w: f64 = 60.0;
-    let bar_max_w: f64 = (w - label_w) / 2.0 - 10.0;
+    // 2026-05-14: 年齢ラベルがバーの中央 (men/women 境界) に乗り、紺/金バーと潰れて
+    //             判読困難だった問題を解消。ラベルを左外側の専用カラムに移動し、
+    //             バー描画領域を左にオフセットして重なりを除去する。
+    let label_col_w: f64 = 56.0;        // 左端のラベル列幅
+    let center_gap: f64 = 8.0;          // 男女バー間のセンター隙間
+    let bar_max_w: f64 = (w - label_col_w) / 2.0 - center_gap;
+    let center: f64 = label_col_w + bar_max_w + center_gap; // 男女境界 (シフトした中心)
 
     let max_count: f64 = bands
         .iter()
@@ -3053,12 +3057,12 @@ fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
         w = w as i64,
         h = h as i64
     );
-    // タイトルラベル
+    // タイトルラベル (左カラム = 年齢, 男性 = 中央左, 女性 = 中央右)
     svg.push_str(&format!(
-        "<text x=\"{:.1}\" y=\"18\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\" text-anchor=\"end\">男性</text>\
-         <text x=\"{:.1}\" y=\"18\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\">女性</text>\
-         <text x=\"{:.1}\" y=\"18\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">年齢</text>\n",
-        center - 12.0, center + 12.0, center
+        "<text x=\"{:.1}\" y=\"18\" font-size=\"10\" fill=\"#6A6E7A\" font-weight=\"700\">年齢</text>\
+         <text x=\"{:.1}\" y=\"18\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\" text-anchor=\"end\">男性</text>\
+         <text x=\"{:.1}\" y=\"18\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\">女性</text>\n",
+        4.0, center - 8.0, center + 8.0
     ));
     // 中央軸
     svg.push_str(&format!(
@@ -3084,10 +3088,10 @@ fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
             cy,
             fw.max(0.5)
         ));
-        // 年齢ラベル (中央)
+        // 年齢ラベル (左カラム、独立した白背景領域)
         svg.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
-            center,
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#0B1E3F\" font-weight=\"600\" text-anchor=\"start\">{}</text>\n",
+            4.0,
             cy + 10.0,
             escape_html(label)
         ));
