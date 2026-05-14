@@ -2866,7 +2866,7 @@ pub(super) fn render_navy_section_06_demographics(
     let labor_force_rate = ctx
         .ext_labor_force
         .first()
-        .map(|r| get_f64(r, "labor_force_ratio"))
+        .map(|r| get_f64(r, "labor_force_participation_rate"))
         .filter(|v| *v > 0.0);
     let unemployment_rate = ctx
         .ext_labor_force
@@ -3261,12 +3261,15 @@ pub(super) fn render_navy_section_07_lifestyle(
     // 2026-05-14: 取得失敗値 (year=0, 値=0) を lede に混入させない。
     //             「最低賃金 0 年 1,063 円/h」「月間消費支出 0 円」「通勤圏内人口 0 名」
     //             の表示問題を解消するため、有効値のみセグメントを連結する。
+    // 2026-05-14: 地域別最低賃金 (法律上同一県内は同額) であることを明示するため
+    //   都道府県名を併記する。
+    let pref_prefix = if ctx.pref.is_empty() { String::new() } else { format!("{} ", ctx.pref) };
     let wage_seg = latest_wage
         .filter(|(y, w)| *y > 0 && *w > 0)
-        .map(|(y, w)| format!("最低賃金 {} 年 <strong>{} 円/h</strong>", y, format_number(w)))
+        .map(|(y, w)| format!("{}最低賃金 {} 年 <strong>{} 円/h</strong>", pref_prefix, y, format_number(w)))
         .or_else(|| latest_wage
             .filter(|(_, w)| *w > 0)
-            .map(|(_, w)| format!("最低賃金 <strong>{} 円/h</strong>", format_number(w))));
+            .map(|(_, w)| format!("{}最低賃金 <strong>{} 円/h</strong>", pref_prefix, format_number(w))));
     let consumption_seg = if total_consumption > 0 {
         Some(format!("月間消費支出 <strong>{}</strong> 円", format_number(total_consumption)))
     } else { None };
