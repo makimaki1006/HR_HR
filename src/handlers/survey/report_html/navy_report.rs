@@ -2444,6 +2444,18 @@ pub(super) fn render_navy_section_05_companies(
 
     if !salesnow_segments.growth.is_empty() {
         html.push_str("<!-- build-marker: BUILD_R24_FILTER300_2026_05_14 -->\n");
+        // DIAG 2026-05-14: 既知バグ調査 — growth Vec の実際の delta 値を HTML
+        // コメントに出力して、フィルタが効いているかを目視できるようにする。
+        let diag_deltas: Vec<String> = salesnow_segments
+            .growth
+            .iter()
+            .map(|c| format!("{}={:+.1}", c.corporate_number, c.employee_delta_1y))
+            .collect();
+        html.push_str(&format!(
+            "<!-- DIAG growth.len()={} deltas=[{}] -->\n",
+            salesnow_segments.growth.len(),
+            diag_deltas.join(",")
+        ));
         html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (1Y +10%〜+300%、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.growth, 8, show_hw));
     }
