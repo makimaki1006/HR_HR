@@ -1845,6 +1845,14 @@ pub(super) fn render_navy_section_04_market_tightness(
     html.push_str("<div class=\"block-title block-title-spaced\">表 4-A &nbsp;採用市場 指標サマリ</div>\n");
     html.push_str(&build_navy_tightness_table(d, show_vacancy));
 
+    // -- 産業別 採用ニーズ密度 (国勢調査就業者数 + 求人媒体掲載数のクロス、Full のみ)
+    if show_vacancy {
+        if let Some(ctx) = hw_context {
+            html.push_str("<div class=\"block-title block-title-spaced\">表 4-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
+            html.push_str(&build_navy_industry_tightness_table(ctx));
+        }
+    }
+
     // -- so-what 採用難度総合評価
     let so_what = build_tightness_so_what(d, show_vacancy);
     html.push_str(&format!(
@@ -1856,6 +1864,83 @@ pub(super) fn render_navy_section_04_market_tightness(
     ));
 
     html.push_str("</section>\n");
+}
+
+// 産業別 採用ニーズ密度: 国勢調査就業者数 + 求人媒体掲載数 → 求人/就業者 比率
+fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
+    use super::super::super::helpers::{get_f64, get_str};
+    let industry_emp: Vec<(String, i64)> = ctx
+        .ext_industry_employees
+        .iter()
+        .map(|r| (get_str(r, "industry_name"), get_f64(r, "employees_total") as i64))
+        .filter(|(n, c)| !n.is_empty() && *c > 0)
+        .collect();
+    let hw_map: std::collections::HashMap<&str, i64> = ctx
+        .hw_industry_counts
+        .iter()
+        .map(|(n, c)| (n.as_str(), *c))
+        .collect();
+
+    // industry_name → (employees, hw_count, density per 10,000 employees)
+    let mut rows: Vec<(String, i64, i64, f64)> = industry_emp
+        .iter()
+        .map(|(name, emp)| {
+            let hw = hw_map.get(name.as_str()).copied().unwrap_or(0);
+            let density = if *emp > 0 { hw as f64 * 10000.0 / *emp as f64 } else { 0.0 };
+            (name.clone(), *emp, hw, density)
+        })
+        .collect();
+    // 求人密度降順
+    rows.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+    rows.truncate(8);
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>産業大分類</th>");
+    s.push_str("<th class=\"num\">就業者数</th>");
+    s.push_str("<th class=\"num\">媒体掲載数</th>");
+    s.push_str("<th class=\"num\">求人/就業者 1万人比</th>");
+    s.push_str("<th>採用ニーズ密度</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    if rows.is_empty() {
+        s.push_str("<tr><td colspan=\"6\" class=\"dim\">産業別データを取得できませんでした。</td></tr>\n");
+    } else {
+        // density の全産業平均 (上位 8 内)
+        let avg_density: f64 = rows.iter().map(|r| r.3).sum::<f64>() / rows.len() as f64;
+        for (i, (name, emp, hw, density)) in rows.iter().enumerate() {
+            let (tag, label) = if *density >= avg_density * 1.5 {
+                ("warn", "高密度 (採用ニーズ集中)")
+            } else if *density >= avg_density * 0.8 {
+                ("neu", "標準的")
+            } else {
+                ("neu", "低密度")
+            };
+            let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+            s.push_str(&format!(
+                "<tr{}>\
+                 <td class=\"num bold\">{}</td>\
+                 <td><strong>{}</strong></td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num bold\">{:.2}</td>\
+                 <td><span class=\"tag tag-{}\">{}</span></td>\
+                 </tr>\n",
+                row_class,
+                i + 1,
+                escape_html(name),
+                format_number(*emp),
+                format_number(*hw),
+                density,
+                tag,
+                label,
+            ));
+        }
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">求人/就業者 1万人比 = 媒体掲載数 × 10,000 / 就業者数。\
+                平均比 +50% で「採用ニーズ集中」、平均比 ±20% 以内で「標準」と判定。\
+                就業者数 (国勢調査) と媒体掲載数 (ローカル DB) を組み合わせた業界別需給代理指標。</p>\n");
+    s
 }
 
 fn fmt_ratio(v: Option<f64>) -> String {
