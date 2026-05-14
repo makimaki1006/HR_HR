@@ -110,3 +110,7 @@ data/agoop/logs/
 # レポート試作物 (HTML mockup、必要なら docs/ に移動)
 report_mockups/
 .claude/.audit_numeric_done
+
+# Local-only test fixtures & scripts (contain credentials/customer data)
+_tmp_pdf_test.mjs
+.playwright-mcp/
