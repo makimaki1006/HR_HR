@@ -235,15 +235,16 @@ pub(super) fn render_navy_executive(
         })
         .unwrap_or_else(|| "—".to_string());
 
+    // 2026-05-14: 「給与解析率」表記は撤去 (Section 03 で解析できた件数のみ提示する方針)。
+    let _ = salary_parse_pct;
     let headline_body = format!(
         "本レポートは <strong>{}</strong> を対象に、サンプル <strong>{} 件</strong> を分析した結果です。\
-         主要雇用形態は <strong>{}</strong>、新着比率 <strong>{}%</strong>、給与解析率 <strong>{}%</strong>。\
-         本ページでは <strong>5 KPI</strong> と <strong>5 Findings</strong> を提示し、末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
+         主要雇用形態は <strong>{}</strong>、新着比率 <strong>{}%</strong>。\
+         本ページでは <strong>KPI</strong> と <strong>Findings</strong> を提示し、末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
         escape_html(target_region),
         format_number(total as i64),
         escape_html(&dominant_emp),
         new_pct,
-        salary_parse_pct,
     );
     html.push_str(&format!(
         "<div class=\"exec-headline\">\
@@ -304,7 +305,9 @@ pub(super) fn render_navy_executive(
     };
     let k6_foot = "給与文字列から数値抽出に成功した比率";
 
-    html.push_str("<div class=\"kpi-row\">\n");
+    // 2026-05-14: 給与解析率 KPI 撤去。kpi-row → kpi-row-4 で 4 カードレイアウト。
+    let _ = (k6_value, k6_dot, k6_foot);
+    html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
     push_kpi(html, "サンプル件数", &k1, "件", k1_dot, k1_foot, false);
     push_kpi(html, "主要地域", target_region, "", "neu", "件数最多の地域", false);
     push_kpi(html, "主要雇用形態", &k3_value, "", k3_dot, &k3_foot, false);
@@ -317,7 +320,6 @@ pub(super) fn render_navy_executive(
         "本レポートの代表給与値",
         true,
     );
-    push_kpi(html, "給与解析率", &k6_value, "%", k6_dot, k6_foot, false);
     html.push_str("</div>\n");
 
     // -- findings (KEY FINDINGS, 最大 5 件)
@@ -352,13 +354,13 @@ pub(super) fn render_navy_executive(
     html.push_str("</ol>\n</div>\n");
 
     // -- so-what
+    // 2026-05-14: 給与解析率の言及を撤去。
     let new_pct_label = if total > 0 { format!("{}%", new_pct) } else { "—".to_string() };
     let so_what_body = format!(
-        "サンプル件数 <strong>n={}</strong> / 給与解析率 <strong>{}%</strong> / 新着比率 <strong>{}</strong> を踏まえ、\
+        "サンプル件数 <strong>n={}</strong> / 新着比率 <strong>{}</strong> を踏まえ、\
          <strong>給与水準と訴求軸の再点検</strong> を起点に、<strong>不足セグメント (n<30) の補完取得</strong> を併走させてください。\
          以降のセクションで具体的な分布・市場逼迫度・地域企業構造を確認します。",
         format_number(total as i64),
-        salary_parse_pct,
         new_pct_label,
     );
     html.push_str(&format!(
@@ -413,15 +415,8 @@ fn build_findings(
     };
     v.push((sev, "新着比率".to_string(), body, "§3 求人動向".to_string()));
 
-    // 4) 給与解析率
-    let (sev, body) = if salary_parse_pct >= 85 {
-        ("pos", format!("給与解析率 <strong>{}%</strong> は高水準で、給与統計の信頼性は確保されています。", salary_parse_pct))
-    } else if salary_parse_pct >= 60 {
-        ("warn", format!("給与解析率 <strong>{}%</strong> は中程度。給与統計値の参照時には未解析分の影響を考慮してください。", salary_parse_pct))
-    } else {
-        ("neg", format!("給与解析率 <strong>{}%</strong> は低く、給与統計の代表性に注意が必要です。CSV の給与表記揺れを見直してください。", salary_parse_pct))
-    };
-    v.push((sev, "給与解析率".to_string(), body, "§4 給与統計".to_string()));
+    // 2026-05-14: 「給与解析率」finding 撤去 (内部運用情報のため)。
+    let _ = salary_parse_pct;
 
     // 5) 地域カバレッジ
     let pref_count = agg.by_prefecture.len();
@@ -471,18 +466,19 @@ pub(super) fn render_navy_section_03_salary(
     let salary_h = salary_summary::SalaryHeadline::from_aggregation(agg);
     let headline = salary_h.cover_highlight_text();
     let total = agg.total_count;
-    let parse_pct = (agg.salary_parse_rate * 100.0).round() as i64;
+    // 2026-05-14: 給与解析率の表記は撤去。n は給与解析できた件数を直接表示する。
+    let parsed_n = (agg.total_count as f64 * agg.salary_parse_rate).round() as i64;
 
     // -- exec-headline 風: 給与代表値を冒頭で 1 行に集約
     let lede = format!(
-        "サンプル <strong>n={}</strong> / 給与解析率 <strong>{}%</strong>。\
+        "サンプル <strong>n={}</strong> (給与解析できた求人)。\
          代表値: <strong>{} {}{}</strong>。本ページでは下限・上限給与それぞれの分布を確認します。",
-        format_number(total as i64),
-        parse_pct,
+        format_number(parsed_n),
         escape_html(&headline.label),
         escape_html(&headline.value_text),
         escape_html(&headline.unit),
     );
+    let _ = total;
     html.push_str(&format!(
         "<div class=\"exec-headline\">\
          <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
@@ -1195,11 +1191,14 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::helpers::SalaryCluster]) -
     sorted.sort_by(|a, b| b.count.cmp(&a.count));
     sorted.truncate(8); // 上位 8 cluster
 
+    // 2026-05-14: ユーザー指摘「図 3-5 がもう少し大きくできない、見えづらい」を反映。
+    //   row_h 38→56 / label_w 180→200 / 各 font-size ↑ で実効サイズを 1.5x 程度に拡大。
+    //   viewBox は w=720 維持 + h を 1.5x 化することで、`width=100%` 表示時に縦に伸びる。
     let w = 720.0;
-    let row_h = 38.0;
-    let h = 30.0 + sorted.len() as f64 * row_h + 30.0;
-    let label_w = 180.0;
-    let n_w = 50.0;
+    let row_h = 56.0;
+    let h = 36.0 + sorted.len() as f64 * row_h + 36.0;
+    let label_w = 200.0;
+    let n_w = 60.0;
     let plot_x = label_w + n_w;
     let plot_w = w - plot_x - 16.0;
 
@@ -1225,49 +1224,52 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::helpers::SalaryCluster]) -
         let v = (min_v + span * i as f64 / 4.0) as i64;
         let x = plot_x + plot_w * i as f64 / 4.0;
         svg.push_str(&format!(
-            "<line x1=\"{:.1}\" y1=\"20\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
-             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
-            x, x, h - 16.0, x, h - 4.0, format_mm(v)
+            "<line x1=\"{:.1}\" y1=\"24\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+            x, x, h - 20.0, x, h - 6.0, format_mm(v)
         ));
     }
 
-    // 各 cluster の box
+    // 各 cluster の box (font-size 拡大 + box_h 拡大)
+    let row_center_off = row_h / 2.0;
+    let box_h = 22.0; // 16.0 → 22.0 (37% UP)
     for (i, c) in sorted.iter().enumerate() {
-        let cy = 30.0 + i as f64 * row_h;
+        let cy = 36.0 + i as f64 * row_h;
+        let text_y = cy + row_center_off;
         // label
         svg.push_str(&format!(
-            "<text x=\"4\" y=\"{:.1}\" font-size=\"10\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
-            cy + 16.0,
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"13\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            text_y,
             escape_html(&c.label)
         ));
         // n
         svg.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
-            label_w, cy + 16.0, c.count
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
+            label_w, text_y, c.count
         ));
         // whisker (min ~ max)
         svg.push_str(&format!(
-            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#9CA0AB\" stroke-width=\"1\"/>\n",
-            x_of(c.min), cy + 16.0, x_of(c.max), cy + 16.0
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#9CA0AB\" stroke-width=\"1.2\"/>\n",
+            x_of(c.min), text_y, x_of(c.max), text_y
         ));
         // box (P25 ~ P75)
         let box_x1 = x_of(c.p25);
         let box_x2 = x_of(c.p75);
-        let box_h = 16.0;
+        let box_y = text_y - box_h / 2.0;
         svg.push_str(&format!(
             "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"1\"/>\n",
-            box_x1, cy + 8.0, (box_x2 - box_x1).max(1.0), box_h
+            box_x1, box_y, (box_x2 - box_x1).max(1.0), box_h
         ));
         // median (P50) 縦線
         let med_x = x_of(c.p50);
         svg.push_str(&format!(
-            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#1F6B43\" stroke-width=\"2\"/>\n",
-            med_x, cy + 8.0, med_x, cy + 8.0 + box_h
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#1F6B43\" stroke-width=\"2.5\"/>\n",
+            med_x, box_y, med_x, box_y + box_h
         ));
         // mean (金色 dot)
         svg.push_str(&format!(
-            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"3\" fill=\"#C9A24B\" stroke=\"#0B1E3F\" stroke-width=\"0.5\"/>\n",
-            x_of(c.mean), cy + 16.0
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"4\" fill=\"#C9A24B\" stroke=\"#0B1E3F\" stroke-width=\"0.7\"/>\n",
+            x_of(c.mean), text_y
         ));
     }
     svg.push_str("</svg>\n");
