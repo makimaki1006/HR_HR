@@ -3725,6 +3725,115 @@ fn build_lifestyle_so_what(
 /// - prefecture / municipality / year / reference_date は先頭に固定
 /// - 各セル値は string/number/null をテキスト変換
 /// - rows.len() <= max_rows なら全件、超過なら先頭 max_rows 行 + 「他 N 件」表示
+/// 2026-05-15: 英語スネークケースの DB カラム名 → 日本語ラベル変換マップ。
+///   Section 7.5 補助データの列ヘッダがユーザーに読めないという指摘への対応。
+///   未登録キーは原文のままフォールバック (新規カラム追加時に気付ける)。
+fn label_for_column(key: &str) -> &str {
+    match key {
+        // 識別子・年
+        "prefecture" => "都道府県",
+        "municipality" => "市区町村",
+        "year" | "fiscal_year" | "reference_year" | "survey_year" => "年",
+        "reference_date" => "基準日",
+        // 産業・カテゴリ
+        "industry" | "industry_name" | "industry_raw" => "産業",
+        "industry_code" => "産業コード",
+        "category" | "subcategory" => "区分",
+        "name" | "label" => "名称",
+        // 人口・性別・世帯
+        "total_count" | "total" => "合計",
+        "male_count" | "male" => "男性",
+        "female_count" | "female" => "女性",
+        "total_population" | "population" => "総人口",
+        "population_density_per_km2" => "人口密度(/km²)",
+        "habitable_density_per_km2" => "可住地密度(/km²)",
+        "single_households" => "単身世帯",
+        "total_households" => "総世帯",
+        "single_household_elderly" => "高齢単身世帯",
+        "single_household_elderly_male" => "高齢単身(男)",
+        "single_household_elderly_female" => "高齢単身(女)",
+        "single_rate" => "単身率",
+        "households" => "世帯",
+        // 労働力
+        "employed" => "就業者",
+        "employed_male" => "就業者(男)",
+        "employed_female" => "就業者(女)",
+        "unemployed" => "失業者",
+        "unemployed_male" => "失業者(男)",
+        "unemployed_female" => "失業者(女)",
+        "not_in_labor_force" => "非労働力人口",
+        "not_in_labor_force_male" => "非労働力(男)",
+        "not_in_labor_force_female" => "非労働力(女)",
+        "labor_force_count" | "labor_force" => "労働力人口",
+        "unemployment_rate" => "失業率(%)",
+        "labor_force_participation_rate" => "労働力率(%)",
+        "primary_industry_employed" => "第1次産業就業者",
+        "secondary_industry_employed" => "第2次産業就業者",
+        "tertiary_industry_employed" => "第3次産業就業者",
+        // 人口移動
+        "in_migrants" | "in_migration" => "転入者数",
+        "out_migrants" | "out_migration" => "転出者数",
+        "net_migration" => "転入超過数",
+        // 昼夜間人口
+        "daytime_population" => "昼間人口",
+        "nighttime_population" => "夜間人口",
+        "daytime_nighttime_ratio" | "dn_ratio" => "昼夜間比",
+        // 事業所
+        "establishments" | "establishment_count" => "事業所数",
+        "employees" | "employees_total" => "従業者数",
+        "private_establishments" => "民営事業所",
+        "private_employees" => "民営従業者",
+        // 開廃業
+        "opened_establishments" | "open_count" => "開業数",
+        "closed_establishments" | "close_count" => "廃業数",
+        "opening_rate" => "開業率",
+        "closing_rate" => "廃業率",
+        // 介護
+        "nursing_home_count" => "老人ホーム数",
+        "care_workers" => "介護職員",
+        "care_recipients" => "要介護認定者",
+        "elderly_population" => "高齢人口",
+        // 出生・死亡
+        "births" => "出生数",
+        "deaths" => "死亡数",
+        "natural_change" => "自然増減",
+        "marriages" => "婚姻数",
+        "divorces" => "離婚数",
+        "permits" => "建築許可",
+        // 医療
+        "general_clinics" => "一般診療所",
+        "physicians" | "physicians_count" => "医師数",
+        "physicians_per_10k_pop" => "医師(/万人)",
+        "dentists" => "歯科医師",
+        "pharmacists" => "薬剤師",
+        "hospitals" => "病院数",
+        "daycare_per_1k_children_0_14" => "保育所(/千人 0-14歳)",
+        // 地理
+        "habitable_area_km2" => "可住地面積(km²)",
+        "total_area_km2" => "総面積(km²)",
+        // 学歴
+        "education_level" => "学歴",
+        // 気候
+        "mean_temperature" | "avg_temperature" => "平均気温(℃)",
+        "max_temperature" => "最高気温(℃)",
+        "min_temperature" => "最低気温(℃)",
+        "sunshine_hours" => "日照時間(h)",
+        "precipitation_mm" | "rainfall_mm" => "降水量(mm)",
+        "snowfall_days" | "snow_days" => "降雪日数",
+        // 社会生活
+        "participation_rate" => "参加率(%)",
+        // 通勤
+        "origin_pref" => "出発地(県)",
+        "origin_muni" => "出発地(市町村)",
+        "dest_pref" => "到着地(県)",
+        "dest_muni" => "到着地(市町村)",
+        "total_commuters" => "通勤者総数",
+        "male_commuters" => "通勤者(男)",
+        "female_commuters" => "通勤者(女)",
+        _ => key,
+    }
+}
+
 fn build_navy_auto_table(
     rows: &[super::super::super::helpers::Row],
     max_rows: usize,
@@ -3736,18 +3845,23 @@ fn build_navy_auto_table(
     // 列の優先順位: 識別子系を先頭、数値系を後ろ
     let mut keys: Vec<String> = rows[0].keys().cloned().collect();
     let priority = [
-        "year", "reference_date", "prefecture", "municipality",
-        "industry_name", "category", "name", "label",
+        "year", "fiscal_year", "reference_year", "reference_date",
+        "prefecture", "municipality",
+        "industry_name", "industry", "category", "subcategory", "name", "label",
     ];
     keys.sort_by_key(|k| {
         priority.iter().position(|p| *p == k.as_str()).unwrap_or(99)
     });
-    keys.truncate(8);
+    // 2026-05-15: A4 横幅に収まるよう 8 → 6 カラムに縮小 (ユーザー指摘:表示はみ出し)
+    keys.truncate(6);
 
     let mut s = String::new();
-    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-05-15: aux-data 用テーブル class を追加。CSS で font-size を小さくして
+    //   多列でも A4 横幅内に収まるようにする。
+    s.push_str("<table class=\"table-navy table-aux\" style=\"font-size:9pt;\">\n<thead><tr>");
     for k in &keys {
-        s.push_str(&format!("<th>{}</th>", escape_html(k)));
+        // 2026-05-15: 列ヘッダを 英語スネークケース → 日本語ラベルに変換
+        s.push_str(&format!("<th>{}</th>", escape_html(label_for_column(k))));
     }
     s.push_str("</tr></thead>\n<tbody>\n");
 
@@ -3802,6 +3916,12 @@ fn build_navy_auto_table(
 pub(super) fn render_navy_section_aux_data(
     html: &mut String,
     hw_context: Option<&InsightContext>,
+    // 2026-05-15: 「藤岡市選択したのに高崎市が出る」「業界選択が効いていない」
+    //   不具合調査のため、backend が受け取った値を HTML コメントとして埋め込む。
+    //   PDF にも文字として残らないため運用に影響しない。
+    selected_pref: &str,
+    selected_muni: &str,
+    industry_filter: Option<&str>,
 ) {
     let ctx = match hw_context {
         Some(c) => c,
@@ -3809,6 +3929,22 @@ pub(super) fn render_navy_section_aux_data(
     };
 
     html.push_str("<section class=\"page-navy navy-aux-data\" role=\"region\">\n");
+
+    // 2026-05-15 DIAG: backend が受け取った選択値を HTML コメントで残す。
+    //   ユーザー報告と実値の差異検証用 (例: 藤岡市選択 → backend に届く値が
+    //   実は高崎市だった等)。HTML を「ブラウザの表示ソース」で見れば確認可能。
+    html.push_str(&format!(
+        "<!-- DIAG_RECEIVED selected_pref=\"{}\" selected_muni=\"{}\" industry_filter=\"{}\" \
+         ctx_pref=\"{}\" ctx_muni=\"{}\" dominant_pref=\"{}\" dominant_muni=\"{}\" -->\n",
+        escape_html(selected_pref),
+        escape_html(selected_muni),
+        escape_html(industry_filter.unwrap_or("(none)")),
+        escape_html(&ctx.pref),
+        escape_html(&ctx.muni),
+        escape_html(""),
+        escape_html(""),
+    ));
+
     push_page_head(
         html,
         "SECTION 7.5",
