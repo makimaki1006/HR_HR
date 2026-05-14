@@ -8,7 +8,8 @@
           {"type": "command", "command": "python -X utf8 .claude/hooks/check_completion_claim.py"},
           {"type": "command", "command": "python -X utf8 .claude/hooks/check_verification_claim.py"},
           {"type": "command", "command": "python -X utf8 .claude/hooks/check_reverse_proof_response.py"},
-          {"type": "command", "command": "python -X utf8 .claude/hooks/check_failure_patterns.py"}
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_failure_patterns.py"},
+          {"type": "command", "command": "python -X utf8 .claude/hooks/check_numeric_review_skill_used.py"}
         ]
       }
     ],
