@@ -583,6 +583,25 @@ pub(super) fn render_navy_section_03_salary(
         html.push_str(&build_navy_cluster_table(&clusters));
         html.push_str("<div class=\"block-title block-title-spaced\">図 3-5 &nbsp;クラスタ別 ボックスプロット (下限給与)</div>\n");
         html.push_str(&build_navy_cluster_boxplots_svg(&clusters));
+        // 2026-05-14: ろうそく足 (ボックスプロット) の読み方を凡例で明示
+        html.push_str(
+            "<div class=\"caption\" style=\"display:grid;grid-template-columns:1fr 1fr;gap:4mm;\
+             background:var(--paper);border:1px solid var(--rule-soft);padding:3mm 4mm;margin:2mm 0 3mm;\">\
+             <div><strong>図の読み方 (ボックスプロット)</strong><br>\
+             <span style=\"display:inline-block;width:10px;height:10px;background:#F0E9D6;border:1px solid #C9A24B;vertical-align:middle;margin-right:4px;\"></span>箱 = <strong>P25 〜 P75</strong> (中央 50% の給与レンジ)<br>\
+             <span style=\"display:inline-block;width:2px;height:10px;background:#3CA46E;vertical-align:middle;margin-right:6px;\"></span>緑線 = <strong>P50 (中央値)</strong><br>\
+             <span style=\"display:inline-block;width:6px;height:6px;background:#C9A24B;border-radius:50%;vertical-align:middle;margin-right:4px;\"></span>金ドット = <strong>平均値</strong><br>\
+             ヒゲ (両端) = <strong>最小/最大</strong>。箱が長い = レンジが広い。\
+             </div>\
+             <div><strong>各クラスタの解釈</strong><br>\
+             ・箱が <strong>右寄り</strong> = 給与水準が高いクラスタ<br>\
+             ・箱が <strong>左寄り</strong> = 給与水準が低いクラスタ<br>\
+             ・箱が <strong>細い</strong> = 給与がそろっている (定額型)<br>\
+             ・箱が <strong>太い</strong> = 給与に差がある (歩合・等級型)<br>\
+             ・<strong>n が小さい行 (n&lt;10)</strong> は参考値として扱う\
+             </div>\
+             </div>\n",
+        );
         html.push_str(
             "<p class=\"caption\">出典: 設計メモ <code>salary_cluster_analysis_design.md</code> §7-8 / §10。\
              lower_salary 軸は Jenks 自然分割 (k=3 or 4)、range 軸は P33/P66 + P95 異常広判定。\
