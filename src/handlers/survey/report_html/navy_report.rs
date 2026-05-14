@@ -493,7 +493,7 @@ pub(super) fn render_navy_section_03_salary(
 
     // -- KPI row 5 cell: P25 / 中央値 / 平均 / P75 / P90 (下限給与)
     if let Some(s) = stats_min.as_ref() {
-        html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点 (月給換算 / 万円)</div>\n");
+        html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点</div>\n");
         html.push_str("<div class=\"kpi-row\">\n");
         push_kpi(html, "P25", &format_mm(s.p25), "万円", "neu", "下位 25% 水準", false);
         push_kpi(html, "中央値 P50", &format_mm(s.median), "万円", "neu", "サンプル中央値", true);
@@ -512,7 +512,7 @@ pub(super) fn render_navy_section_03_salary(
 
     // -- 上限給与
     if let Some(s) = stats_max.as_ref() {
-        html.push_str("<div class=\"block-title block-title-spaced\">図 3-3 &nbsp;上限給与 主要分位点 (月給換算 / 万円)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">図 3-3 &nbsp;上限給与 主要分位点</div>\n");
         html.push_str("<div class=\"kpi-row\">\n");
         push_kpi(html, "P25", &format_mm(s.p25), "万円", "neu", "下位 25% 水準", false);
         push_kpi(html, "中央値 P50", &format_mm(s.median), "万円", "neu", "サンプル中央値", true);
@@ -529,12 +529,12 @@ pub(super) fn render_navy_section_03_salary(
     }
 
     // -- 集計サマリ table-navy
-    html.push_str("<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ (月給換算 / 万円)</div>\n");
+    html.push_str("<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ</div>\n");
     html.push_str(&build_navy_salary_summary_table(&stats_min, &stats_max));
 
     // -- 雇用形態別給与 (旧 employment::render_section_employment 相当を navy で再構築)
     if !agg.by_emp_type_salary.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 3-B &nbsp;雇用形態別給与 (月給換算 / 万円)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 3-B &nbsp;雇用形態別給与</div>\n");
         html.push_str(&build_navy_emp_type_salary_table(&agg.by_emp_type_salary, agg.total_count));
     }
 
@@ -543,22 +543,18 @@ pub(super) fn render_navy_section_03_salary(
     //   ロジック再実装が冗長なため再利用。HTML 出力のみ navy 新規。
     let industry_rows = super::industry_salary::aggregate_industry_salary(agg);
     if !industry_rows.is_empty() {
-        let unit_label = if agg.is_hourly { "時給 (円/時)" } else { "月給 (万円)" };
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 3-C &nbsp;業界×給与クロス ({})</div>\n",
-            unit_label
-        ));
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 3-C &nbsp;業界×給与クロス</div>\n",
+        );
         html.push_str(&build_navy_industry_salary_table(&industry_rows, agg.is_hourly));
     }
 
     // -- 職種×給与クロス (旧 occupation_salary::render_section_occupation_salary 相当を navy で再構築)
     let occupation_rows = super::occupation_salary::aggregate_occupation_salary(agg);
     if !occupation_rows.is_empty() {
-        let unit_label = if agg.is_hourly { "時給 (円/時)" } else { "月給 (万円)" };
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 3-D &nbsp;職種×給与クロス ({})</div>\n",
-            unit_label
-        ));
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 3-D &nbsp;職種×給与クロス</div>\n",
+        );
         html.push_str(&build_navy_occupation_salary_table(&occupation_rows, agg.is_hourly));
     }
 
@@ -3671,6 +3667,8 @@ pub(super) fn render_navy_section_08_notes(
     html.push_str("</tbody></table>\n");
 
     // -- 免責事項 (so-what 風 navy 帯)
+    // 2026-05-14: 「サンプル件数の信頼性 (n<30)」項目を削除し 5→3 項目に整理
+    //             「改版・問合せ」セクションも削除 (取扱区分は本帯に統合)
     html.push_str("<div class=\"block-title block-title-spaced\">免責 &nbsp;解釈上の前提</div>\n");
     html.push_str(
         "<div class=\"so-what\" style=\"margin-top:4mm;\">\
@@ -3680,29 +3678,16 @@ pub(super) fn render_navy_section_08_notes(
          因果関係を証明するものではありません。施策実施判断は現場文脈と合わせて行ってください。<br>\
          <strong>2. データ範囲の制約。</strong> アップロード CSV は対象媒体の掲載範囲、\
          求人媒体ローカル DB は媒体掲載求人に限定されます。いずれも全求人市場の代表ではありません。<br>\
-         <strong>3. サンプル件数の信頼性。</strong> <strong>n &lt; 30</strong> の集計は統計的信頼性が低く、\
-         外れ値の影響が大きい状態です。傾向参照に留め、母集団追加取得を推奨します。<br>\
-         <strong>4. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
+         <strong>3. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
          直近の事象とのタイムラグを認識してください。最低賃金は毎年 10 月発効、国勢調査は 5 年に一度。<br>\
-         <strong>5. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
+         <strong>4. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
          外部への持ち出しは社内規定に従ってください。\
          </div></div>\n",
     );
 
-    // -- 末尾の連絡先 / 改版履歴 (block-title + caption)
-    html.push_str("<div class=\"block-title block-title-spaced\">改版・問合せ</div>\n");
-    html.push_str(&format!(
-        "<table class=\"table-navy\">\n<thead><tr>\
-         <th>項目</th><th>内容</th>\
-         </tr></thead>\n<tbody>\
-         <tr><td><strong>レポート版</strong></td><td>{}</td></tr>\
-         <tr><td><strong>生成日時</strong></td><td>{}</td></tr>\
-         <tr><td><strong>発行</strong></td><td>株式会社 For A-career</td></tr>\
-         <tr><td><strong>取扱区分</strong></td><td>機密 / 社外秘</td></tr>\
-         </tbody></table>\n",
-        escape_html(variant.display_name()),
-        escape_html(now)
-    ));
+    // (改版・問合せ セクションは 2026-05-14 削除)
+    let _ = variant;
+    let _ = now;
 
     html.push_str("</section>\n");
 }
