@@ -562,9 +562,15 @@ pub(super) fn render_section_hw_comparison(
         } else {
             (None, true)
         };
+        // 2026-05-14: 都道府県別最低賃金であることを明示するため、カードタイトルに pref 名を併記
+        let mw_card_title = if ctx.pref.is_empty() {
+            "最低賃金比較（167h換算）".to_string()
+        } else {
+            format!("最低賃金比較（{}・167h換算）", ctx.pref)
+        };
         render_comparison_card(
             html,
-            "最低賃金比較（167h換算）",
+            &mw_card_title,
             &csv_display,
             &mw_display,
             mw_diff_text.as_deref(),

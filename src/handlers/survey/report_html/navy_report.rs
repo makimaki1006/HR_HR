@@ -3336,15 +3336,30 @@ pub(super) fn render_navy_section_07_lifestyle(
         None => "保有率データなし".to_string(),
     };
     push_kpi(html, "ネット利用率", &int_val, "%", int_dot, &sp_foot, false);
-    push_kpi(
-        html,
-        "通勤圏 人口",
-        &format_number(commute_pop),
-        "名",
-        "neu",
-        &format!("対象 {} 圏", format_number(commute_zone_count as i64)),
-        false,
-    );
+    // 2026-05-14: 通勤圏 KPI は市区町村が特定できている時のみ意味を持つ
+    //   (commute_zone_count == 0 = ヘッダーフィルタで市区町村未指定 or 中心座標未取得)。
+    //   「対象 0 圏 / 0 名」と表示してもユーザーに誤誘導するだけのため非表示にする。
+    if commute_zone_count > 0 && commute_pop > 0 {
+        push_kpi(
+            html,
+            "通勤圏 人口",
+            &format_number(commute_pop),
+            "名",
+            "neu",
+            &format!("対象 {} 圏", format_number(commute_zone_count as i64)),
+            false,
+        );
+    } else {
+        push_kpi(
+            html,
+            "通勤圏 人口",
+            "—",
+            "",
+            "neu",
+            "市区町村を指定すると算出",
+            false,
+        );
+    }
     html.push_str("</div>\n");
 
     // -- 最低賃金推移バー SVG
@@ -3573,7 +3588,9 @@ fn build_lifestyle_so_what(
             format_number(commute_pop)
         )
     } else {
-        " 通勤圏データが取得できなかったため、母集団拡大余地は別途要評価です。".to_string()
+        // 2026-05-14: 「取得できなかった」は誤誘導 — ヘッダーフィルタで市区町村が
+        //   指定されていないことが多数の原因なので、明示する。
+        " 市区町村未指定のため通勤圏は算出していません。ヘッダーフィルタで市区町村を選択すると母集団拡大余地が評価できます。".to_string()
     };
 
     let self_msg = if self_rate >= 0.7 {
