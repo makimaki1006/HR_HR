@@ -1408,7 +1408,7 @@ fn build_navy_salary_summary_table(
     s.push_str(&row("下限給与", lo));
     s.push_str(&row("上限給与", hi));
     s.push_str("</tbody></table>\n");
-    s.push_str("<p class=\"caption\">単位: 万円 (月給換算)。年俸は除外。時給×167 / 日給×21 で月給換算済み。</p>\n");
+    s.push_str("<p class=\"caption\">単位: 万円。</p>\n");
     s
 }
 
@@ -3586,12 +3586,10 @@ fn build_lifestyle_so_what(
         String::new()
     };
 
-    let internet_msg = match internet_rate {
-        Some(v) if v >= 90.0 => " ネット利用率 90%+ で、デジタル採用チャネル (求人 SNS / Web 媒体) が機能します。".to_string(),
-        Some(v) if v >= 80.0 => " ネット利用率は標準的水準。デジタル + 紙媒体の併用が無難です。".to_string(),
-        Some(_) => " ネット利用率がやや低めで、紙媒体・対面接点 (ハローワーク / 学校求人) の重要度が相対的に高い地域です。".to_string(),
-        None => String::new(),
-    };
+    // 2026-05-14: 媒体利用 (デジタル / 紙媒体 等) への言及は本レポートの趣旨外のため撤去。
+    //   ネット利用率の数値はサマリ KPI で別途提示済み。
+    let internet_msg = String::new();
+    let _ = internet_rate;
 
     let _ = consumption;
     format!("{}{}{}{}", wage_msg, commute_msg, self_msg, internet_msg)
@@ -3647,7 +3645,7 @@ pub(super) fn render_navy_section_08_notes(
             ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
             ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
             ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
-            ("地域企業データ",          "地域企業データ (v2_salesnow_companies)",       "Section 05 法人セグメント",     "都度同期"),
+            ("地域企業データ",          "地域企業データベース",                              "Section 05 法人セグメント",     "都度同期"),
         ]
     } else {
         vec![
@@ -3662,7 +3660,7 @@ pub(super) fn render_navy_section_08_notes(
             ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
             ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
             ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
-            ("地域企業データ",          "地域企業データ (v2_salesnow_companies)",       "Section 05 法人セグメント",     "都度同期"),
+            ("地域企業データ",          "地域企業データベース",                              "Section 05 法人セグメント",     "都度同期"),
         ]
     };
     for (i, (name, source, purpose, freq)) in sources.iter().enumerate() {
@@ -3681,35 +3679,16 @@ pub(super) fn render_navy_section_08_notes(
     html.push_str("</tbody></table>\n");
     html.push_str("<p class=\"caption\">e-Stat = 政府統計の総合窓口 (https://www.e-stat.go.jp/)。各テーブルの取得 SQL とカラム定義は内部 docs を参照。</p>\n");
 
-    // -- 表 8-B 集計定義
-    html.push_str("<div class=\"block-title block-title-spaced\">表 8-B &nbsp;主要 集計定義</div>\n");
-    html.push_str("<table class=\"table-navy\">\n<thead><tr>\
-        <th>項目</th><th>定義</th><th>備考</th>\
-        </tr></thead>\n<tbody>\n");
-    let defs: Vec<(&str, &str, &str)> = vec![
-        ("給与の月給換算", "時給 × 167 時間 / 日給 × 21 日 / 月給 = そのまま / 年俸は除外", "時給は月 167h 想定。年俸は別経路で集計するため本レポートから除外"),
-        ("給与解析率", "CSV 全件のうち給与文字列から数値抽出に成功した比率", "85%+ で実務判断可、60% 未満は CSV 給与表記揺れを点検"),
-        ("生産年齢", "15-64 歳人口 (国勢調査基準)", "実際の労働参加は労働力率 / 失業率を併用して評価"),
-        ("採用ターゲット層", "25-44 歳人口", "5 歳階級時の厳密判定 / 10 歳階級時は 20-49 fallback"),
-        ("急成長企業", "1 年人員増加率 +10% 超", "地域企業データ employee_delta_1y フィールドベース"),
-        ("採用活発企業", "求人媒体掲載 5 件以上", "ローカル DB postings テーブル件数 (Full variant 限定)"),
-        ("severity 4 段階", "POSITIVE / NEUTRAL / WARN / NEGATIVE", "本レポート全 Section 共通の評価軸。閾値は各 Section の caption を参照"),
-        ("median (中央値)", "サンプルを並べた中央位置の値", "外れ値の影響を受けにくい代表値。平均値より優先して使用"),
-        ("P25 / P75 / P90", "下位 25% / 下位 75% (P75 (P50 より上 25%)) / P90 (P50 より上 10%) のライン", "給与分布の偏りや外れ値帯を把握するための主要分位点"),
-    ];
-    for (k, v, note) in defs.iter() {
-        html.push_str(&format!(
-            "<tr><td><strong>{}</strong></td><td>{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
-            escape_html(k),
-            escape_html(v),
-            escape_html(note)
-        ));
-    }
-    html.push_str("</tbody></table>\n");
+    // 2026-05-14 撤去 (ユーザー判断):
+    //   表 8-B「主要 集計定義」を全撤去。
+    //   - 「給与の月給換算」「給与解析率」等の内部運用定義はレポート受領側が
+    //     関知すべき情報ではない (Section 03 等で必要な閾値は本文に統合済み)。
 
     // -- 免責事項 (so-what 風 navy 帯)
-    // 2026-05-14: 「サンプル件数の信頼性 (n<30)」項目を削除し 5→3 項目に整理
-    //             「改版・問合せ」セクションも削除 (取扱区分は本帯に統合)
+    // 2026-05-14:
+    //   - 旧「2. データ範囲の制約 (CSV / ローカル DB)」を撤去。レポート受領側
+    //     は CSV 経由であることを意識しない設計のため、内部前提を表に出さない。
+    //   - 番号を 1〜3 に詰める。
     html.push_str("<div class=\"block-title block-title-spaced\">免責 &nbsp;解釈上の前提</div>\n");
     html.push_str(
         "<div class=\"so-what\" style=\"margin-top:4mm;\">\
@@ -3717,11 +3696,9 @@ pub(super) fn render_navy_section_08_notes(
          <div class=\"sw-body\">\
          <strong>1. 相関 ≠ 因果。</strong> 本レポートが示す指標間の関係は <strong>相関</strong> であり、\
          因果関係を証明するものではありません。施策実施判断は現場文脈と合わせて行ってください。<br>\
-         <strong>2. データ範囲の制約。</strong> アップロード CSV は対象媒体の掲載範囲、\
-         求人媒体ローカル DB は媒体掲載求人に限定されます。いずれも全求人市場の代表ではありません。<br>\
-         <strong>3. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
+         <strong>2. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
          直近の事象とのタイムラグを認識してください。最低賃金は毎年 10 月発効、国勢調査は 5 年に一度。<br>\
-         <strong>4. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
+         <strong>3. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
          外部への持ち出しは社内規定に従ってください。\
          </div></div>\n",
     );
