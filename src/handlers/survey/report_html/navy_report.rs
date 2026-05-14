@@ -3712,6 +3712,192 @@ fn build_lifestyle_so_what(
 }
 
 // ============================================================
+// Section 7.5: 補助データ全展開 (2026-05-14 追加)
+//   取得済みだが既存 Section で未表示だった 14 系列を一括ダンプする。
+//   Phase 1: 全件表示 (User 確認用)。Phase 2 で表示可否のチェックボックス UI 化予定。
+// ============================================================
+
+/// 汎用 Row テーブル描画: 渡された rows の先頭から指定行までを auto-column 抽出して
+/// navy スタイルテーブルで描画する。
+///
+/// 描画ロジック:
+/// - rows[0] の全 key を column header として採用 (最大 8 カラム)
+/// - prefecture / municipality / year / reference_date は先頭に固定
+/// - 各セル値は string/number/null をテキスト変換
+/// - rows.len() <= max_rows なら全件、超過なら先頭 max_rows 行 + 「他 N 件」表示
+fn build_navy_auto_table(
+    rows: &[super::super::super::helpers::Row],
+    max_rows: usize,
+) -> String {
+    use super::super::super::helpers::{get_f64, get_i64, get_str};
+    if rows.is_empty() {
+        return "<p class=\"caption dim\">取得値なし</p>\n".to_string();
+    }
+    // 列の優先順位: 識別子系を先頭、数値系を後ろ
+    let mut keys: Vec<String> = rows[0].keys().cloned().collect();
+    let priority = [
+        "year", "reference_date", "prefecture", "municipality",
+        "industry_name", "category", "name", "label",
+    ];
+    keys.sort_by_key(|k| {
+        priority.iter().position(|p| *p == k.as_str()).unwrap_or(99)
+    });
+    keys.truncate(8);
+
+    let mut s = String::new();
+    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    for k in &keys {
+        s.push_str(&format!("<th>{}</th>", escape_html(k)));
+    }
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let show = rows.iter().take(max_rows);
+    for r in show {
+        s.push_str("<tr>");
+        for k in &keys {
+            // 数値か文字列か判定して表示
+            let v = r.get(k);
+            let cell = match v {
+                Some(jv) => {
+                    if jv.is_string() {
+                        let str_val = get_str(r, k);
+                        if str_val.is_empty() { "—".to_string() } else { escape_html(&str_val) }
+                    } else if jv.is_i64() || jv.is_u64() {
+                        format_number(get_i64(r, k))
+                    } else if jv.is_f64() {
+                        let f = get_f64(r, k);
+                        if f.fract() == 0.0 {
+                            format_number(f as i64)
+                        } else {
+                            format!("{:.2}", f)
+                        }
+                    } else if jv.is_null() {
+                        "—".to_string()
+                    } else {
+                        escape_html(&jv.to_string())
+                    }
+                }
+                None => "—".to_string(),
+            };
+            s.push_str(&format!("<td>{}</td>", cell));
+        }
+        s.push_str("</tr>\n");
+    }
+    if rows.len() > max_rows {
+        s.push_str(&format!(
+            "<tr><td colspan=\"{}\" class=\"dim\">他 {} 件</td></tr>\n",
+            keys.len(),
+            rows.len() - max_rows
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s
+}
+
+pub(super) fn render_navy_section_aux_data(
+    html: &mut String,
+    hw_context: Option<&InsightContext>,
+) {
+    let ctx = match hw_context {
+        Some(c) => c,
+        None => return,
+    };
+
+    html.push_str("<section class=\"page-navy navy-aux-data\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 7.5",
+        "補助データ",
+        "DBに格納済みだが既存セクションで未表示だった統計群",
+    );
+
+    let lede = format!(
+        "本セクションは取得済の公的統計から、既存 Section 02-07 で未表示だった \
+         {} 系列を一括展開します。レポート構成の見直し検討用です。",
+        14
+    );
+    html.push_str(&format!(
+        "<div class=\"exec-headline\"><div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div><p>{}</p></div>\n",
+        lede
+    ));
+
+    // --- 流入元 TOP3 (OD 通勤データ、Vec<(pref, muni, count)>) ---
+    if !ctx.commute_inflow_top3.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7.5-A &nbsp;通勤流入元 TOP3 (隣地域→対象地域)</div>\n");
+        html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+            <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流入人数</th>\
+            </tr></thead>\n<tbody>\n");
+        for (i, (p, m, c)) in ctx.commute_inflow_top3.iter().take(3).enumerate() {
+            html.push_str(&format!(
+                "<tr><td class=\"num bold\">{}</td><td>{}</td><td>{}</td><td class=\"num bold\">{}</td></tr>\n",
+                i + 1,
+                escape_html(p),
+                escape_html(m),
+                format_number(*c)
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str("<p class=\"caption\">出典: 国勢調査 通勤 OD。県境を越えた通勤者の流入元上位 3 自治体。隣地域への採用範囲拡張の指針。</p>\n");
+    }
+
+    // --- 都道府県平均 (比較用) ---
+    let pref_avgs: Vec<(&str, Option<f64>, &str)> = vec![
+        ("単身世帯率", ctx.pref_avg_single_rate, "%"),
+        ("人口10千人当り医師数", ctx.pref_avg_physicians_per_10k, "人"),
+        ("子供1千人当り保育所数", ctx.pref_avg_daycare_per_1k_children, "ヶ所"),
+        ("可住地人口密度", ctx.pref_avg_habitable_density, "人/km²"),
+    ];
+    let any_pref_avg = pref_avgs.iter().any(|(_, v, _)| v.is_some());
+    if any_pref_avg {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7.5-B &nbsp;都道府県平均 (生活インフラ比較指標)</div>\n");
+        html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
+        for (label, val, unit) in &pref_avgs {
+            let cell = val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "—".into());
+            html.push_str(&format!(
+                "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
+                label, cell, unit
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str("<p class=\"caption\">出典: 各種公的統計の都道府県平均。子育て世帯/医療アクセス/居住密度の地域比較用。</p>\n");
+    }
+
+    // --- ext_* 系 (取得済みだが未表示) ---
+    let raw_tables: Vec<(&str, &str, &Vec<super::super::super::helpers::Row>, &str)> = vec![
+        ("表 7.5-C", "労働力統計 (ext_labor_stats)", &ctx.ext_labor_stats, "e-Stat 社会人口統計体系"),
+        ("表 7.5-D", "人口統計 (ext_population)", &ctx.ext_population, "国勢調査 人口集計"),
+        ("表 7.5-E", "人口移動 (ext_migration)", &ctx.ext_migration, "住民基本台帳 人口移動報告"),
+        ("表 7.5-F", "昼夜間人口 (ext_daytime_pop)", &ctx.ext_daytime_pop, "国勢調査 昼夜間人口"),
+        ("表 7.5-G", "事業所統計 (ext_establishments)", &ctx.ext_establishments, "経済センサス 事業所"),
+        ("表 7.5-H", "開廃業統計 (ext_business_dynamics)", &ctx.ext_business_dynamics, "経済センサス 動向"),
+        ("表 7.5-I", "介護需要 (ext_care_demand)", &ctx.ext_care_demand, "介護保険事業状況報告"),
+        ("表 7.5-J", "気候 (ext_climate)", &ctx.ext_climate, "気象庁 アメダス年報"),
+        ("表 7.5-K", "社会生活 (ext_social_life)", &ctx.ext_social_life, "社会生活基本調査"),
+        ("表 7.5-L", "世帯統計 (ext_households)", &ctx.ext_households, "国勢調査 世帯集計"),
+        ("表 7.5-M", "出生・死亡 (ext_vital)", &ctx.ext_vital, "人口動態統計"),
+        ("表 7.5-N", "医療福祉 (ext_medical_welfare)", &ctx.ext_medical_welfare, "医療施設調査 / 介護サービス施設"),
+        ("表 7.5-O", "地理 (ext_geography)", &ctx.ext_geography, "可住地面積 / 人口密度"),
+        ("表 7.5-P", "教育 (ext_education)", &ctx.ext_education, "学校基本調査 進学率"),
+    ];
+    for (table_id, label, rows, source) in &raw_tables {
+        if rows.is_empty() {
+            continue;
+        }
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">{} &nbsp;{}</div>\n",
+            table_id, label
+        ));
+        html.push_str(&build_navy_auto_table(rows, 5));
+        html.push_str(&format!(
+            "<p class=\"caption\">出典: {}。先頭 5 行表示。</p>\n",
+            source
+        ));
+    }
+
+    html.push_str("</section>\n");
+}
+
+// ============================================================
 // Section 08: 注記・出典・免責 (Phase 4 navy 本実装)
 // ============================================================
 
