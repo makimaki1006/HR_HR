@@ -3806,14 +3806,17 @@ fn label_for_column(key: &str) -> &str {
         "primary_industry_employed" => "第1次産業就業者",
         "secondary_industry_employed" => "第2次産業就業者",
         "tertiary_industry_employed" => "第3次産業就業者",
-        // 人口移動
-        "in_migrants" | "in_migration" => "転入者数",
-        "out_migrants" | "out_migration" => "転出者数",
+        // 人口移動 (v2_external_migration の実 SQL alias)
+        "in_migrants" | "in_migration" | "inflow" => "転入者数",
+        "out_migrants" | "out_migration" | "outflow" => "転出者数",
         "net_migration" => "転入超過数",
-        // 昼夜間人口
-        "daytime_population" => "昼間人口",
-        "nighttime_population" => "夜間人口",
-        "daytime_nighttime_ratio" | "dn_ratio" => "昼夜間比",
+        "net_migration_rate" => "転入超過率(‰)",
+        // 昼夜間人口 (v2_external_daytime_population の実 SQL alias)
+        "daytime_population" | "daytime_pop" => "昼間人口",
+        "nighttime_population" | "nighttime_pop" => "夜間人口",
+        "daytime_nighttime_ratio" | "dn_ratio" | "day_night_ratio" => "昼夜間比(%)",
+        "inflow_pop" => "流入人口",
+        "outflow_pop" => "流出人口",
         // 事業所
         "establishments" | "establishment_count" => "事業所数",
         "employees" | "employees_total" => "従業者数",
@@ -3838,12 +3841,20 @@ fn label_for_column(key: &str) -> &str {
         "permits" => "建築許可",
         // 医療
         "general_clinics" => "一般診療所",
+        "general_hospitals" => "病院",
+        "dental_clinics" => "歯科診療所",
         "physicians" | "physicians_count" => "医師数",
         "physicians_per_10k_pop" => "医師(/万人)",
         "dentists" => "歯科医師",
         "pharmacists" => "薬剤師",
         "hospitals" => "病院数",
         "daycare_per_1k_children_0_14" => "保育所(/千人 0-14歳)",
+        // 教育施設
+        "kindergartens" => "幼稚園",
+        "elementary_schools" => "小学校",
+        "junior_high_schools" => "中学校",
+        "high_schools" => "高校",
+        "general_households" => "一般世帯",
         // 地理
         "habitable_area_km2" => "可住地面積(km²)",
         "total_area_km2" => "総面積(km²)",
