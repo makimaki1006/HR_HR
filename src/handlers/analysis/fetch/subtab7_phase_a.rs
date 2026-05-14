@@ -144,7 +144,7 @@ pub(crate) fn fetch_labor_force(
              SUM(secondary_industry_employed) as secondary_industry_employed, \
              SUM(tertiary_industry_employed) as tertiary_industry_employed, \
              CAST(SUM(unemployed) AS REAL) / NULLIF(SUM(employed) + SUM(unemployed), 0) * 100 as unemployment_rate, \
-             NULL as labor_force_participation_rate, \
+             CAST(SUM(employed) + SUM(unemployed) AS REAL) / NULLIF(SUM(employed) + SUM(unemployed) + SUM(not_in_labor_force), 0) * 100 as labor_force_participation_rate, \
              MAX(reference_date) as reference_date \
              FROM v2_external_labor_force WHERE prefecture = ?1".to_string(),
             vec![pref.to_string()],
@@ -162,7 +162,7 @@ pub(crate) fn fetch_labor_force(
              SUM(secondary_industry_employed) as secondary_industry_employed, \
              SUM(tertiary_industry_employed) as tertiary_industry_employed, \
              CAST(SUM(unemployed) AS REAL) / NULLIF(SUM(employed) + SUM(unemployed), 0) * 100 as unemployment_rate, \
-             NULL as labor_force_participation_rate, \
+             CAST(SUM(employed) + SUM(unemployed) AS REAL) / NULLIF(SUM(employed) + SUM(unemployed) + SUM(not_in_labor_force), 0) * 100 as labor_force_participation_rate, \
              MAX(reference_date) as reference_date \
              FROM v2_external_labor_force".to_string(),
             vec![],
