@@ -506,10 +506,14 @@ pub async fn survey_report_html(
         if let Some(db) = state.hw_db.clone() {
             let turso = state.turso_db.clone();
             let pref2 = pref.clone();
-            // 市区町村レベルでは cascade_summary が0件になる場合があるため、
-            // 都道府県レベル（muni="")で取得してマクロ比較を優先する。
-            // 地域指標（人口・最低賃金）は dominant_pref/muni に依存しない。
-            let muni2 = String::new();
+            // 2026-05-14: 旧コメント「都道府県レベル(muni="")で取得してマクロ比較を優先」を
+            //   撤回。muni を捨てると通勤圏 / OD 流入流出 / 労働力率市町村粒度 が
+            //   永久に取れず、ユーザーが「市区町村まで選択しても OD 出ない」と
+            //   訴える原因になっていた (v16 PDF 検証で発覚)。
+            //   ユーザー選択 muni をそのまま渡し、市区町村粒度を優先する。
+            //   都道府県マクロ指標 (人口/最低賃金) は muni 指定時も
+            //   build_insight_context 内で pref ベースのカラムから取得されるため影響なし。
+            let muni2 = muni.clone();
             // 2026-04-30 (T2): 業界フィルタを ext_turnover に適用するため closure に渡す
             let industry_for_ext = query
                 .industry
