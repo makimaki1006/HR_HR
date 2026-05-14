@@ -109,3 +109,4 @@ scripts/data/
 data/agoop/logs/
 # レポート試作物 (HTML mockup、必要なら docs/ に移動)
 report_mockups/
+.claude/.audit_numeric_done
