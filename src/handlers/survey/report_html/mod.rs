@@ -615,7 +615,15 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     navy_report::render_navy_section_02_region(&mut html, agg, hw_context, hw_enrichment_map, variant);
     navy_report::render_navy_section_03_salary(&mut html, agg, salary_min_values, salary_max_values);
     navy_report::render_navy_section_04_market_tightness(&mut html, hw_context, variant);
-    navy_report::render_navy_section_05_companies(&mut html, hw_context, by_company, salesnow_segments, variant);
+    navy_report::render_navy_section_05_companies(
+        &mut html,
+        hw_context,
+        by_company,
+        salesnow_segments,
+        salesnow_segments_industry,
+        industry_filter,
+        variant,
+    );
     navy_report::render_navy_section_06_demographics(&mut html, hw_context);
     navy_report::render_navy_section_07_lifestyle(&mut html, hw_context);
     navy_report::render_navy_section_08_notes(&mut html, variant, &now);

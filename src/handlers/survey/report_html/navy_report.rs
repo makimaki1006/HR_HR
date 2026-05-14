@@ -2306,6 +2306,11 @@ pub(super) fn render_navy_section_05_companies(
     hw_context: Option<&InsightContext>,
     by_company: &[super::super::aggregator::CompanyAgg],
     salesnow_segments: &super::super::super::company::fetch::RegionalCompanySegments,
+    // 2026-05-14: 業界フィルタ指定時に同業界版を併記するための追加引数。
+    //   industry_filter=Some(...) かつ segments_industry が空でない時のみ
+    //   各表 (5-B/C/D/E/F) の直後に同業界版 (5-B'/C'/D'/E'/F') を描画する。
+    salesnow_segments_industry: &super::super::super::company::fetch::RegionalCompanySegments,
+    industry_filter: Option<&str>,
     variant: ReportVariant,
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
@@ -2428,27 +2433,62 @@ pub(super) fn render_navy_section_05_companies(
         html.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_industry_structure (都道府県粒度)。集計コード AS/AR/CR 除外。</p>\n");
     }
 
+    // 2026-05-14: 業界フィルタが指定されている時、同業界版を併記する。
+    //   各表 (5-B〜5-F) を 全業界 → 同業界 の順に描画。
+    let industry_label = industry_filter
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let has_industry = industry_label.is_some();
+
     if !salesnow_segments.growth.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (1Y +10%〜+300%、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (全業界、1Y +10%〜+300%、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.growth, 8, show_hw));
+    }
+    if has_industry && !salesnow_segments_industry.growth.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-B′ &nbsp;急成長企業 ({}、1Y +10%〜+300%、件数最多 8 社)</div>\n",
+            escape_html(industry_label.as_deref().unwrap_or(""))
+        ));
+        html.push_str(&build_navy_company_list(&salesnow_segments_industry.growth, 8, show_hw));
     }
 
     // -- 大手企業 (employee_count Top)
     if !salesnow_segments.large.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-C &nbsp;大手企業 (従業員 300+ 名級、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-C &nbsp;大手企業 (全業界、従業員 300+ 名級、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.large, 8, show_hw));
+    }
+    if has_industry && !salesnow_segments_industry.large.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-C′ &nbsp;大手企業 ({}、従業員 300+ 名級、件数最多 8 社)</div>\n",
+            escape_html(industry_label.as_deref().unwrap_or(""))
+        ));
+        html.push_str(&build_navy_company_list(&salesnow_segments_industry.large, 8, show_hw));
     }
 
     // -- 中堅企業 (50-300 名)
     if !salesnow_segments.mid.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-D &nbsp;中堅企業 (従業員 50-299 名、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-D &nbsp;中堅企業 (全業界、従業員 50-299 名、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.mid, 8, show_hw));
+    }
+    if has_industry && !salesnow_segments_industry.mid.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-D′ &nbsp;中堅企業 ({}、従業員 50-299 名、件数最多 8 社)</div>\n",
+            escape_html(industry_label.as_deref().unwrap_or(""))
+        ));
+        html.push_str(&build_navy_company_list(&salesnow_segments_industry.mid, 8, show_hw));
     }
 
     // -- 採用活発企業 (Full のみ、求人媒体掲載 5 件以上)
     if show_hw && !salesnow_segments.hiring.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-E &nbsp;採用活発企業 (求人媒体掲載 5 件以上、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-E &nbsp;採用活発企業 (全業界、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.hiring, 8, show_hw));
+    }
+    if show_hw && has_industry && !salesnow_segments_industry.hiring.is_empty() {
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-E′ &nbsp;採用活発企業 ({}、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n",
+            escape_html(industry_label.as_deref().unwrap_or(""))
+        ));
+        html.push_str(&build_navy_company_list(&salesnow_segments_industry.hiring, 8, show_hw));
     }
 
     // -- 規模 × 動向 6 マトリクス: 増員傾向 (large/mid/small) + 減少傾向 (large/mid/small)
@@ -2459,8 +2499,23 @@ pub(super) fn render_navy_section_05_companies(
     let d_mid = salesnow_segments.decline_mid.len();
     let d_small = salesnow_segments.decline_small.len();
     if g_large + g_mid + g_small + d_large + d_mid + d_small > 0 {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-F &nbsp;規模 × 動向 6 マトリクス (1Y 人員変動)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-F &nbsp;規模 × 動向 6 マトリクス (全業界、1Y 人員変動)</div>\n");
         html.push_str(&build_navy_growth_decline_matrix(salesnow_segments));
+    }
+    if has_industry {
+        let ig_l = salesnow_segments_industry.growth_large.len();
+        let ig_m = salesnow_segments_industry.growth_mid.len();
+        let ig_s = salesnow_segments_industry.growth_small.len();
+        let id_l = salesnow_segments_industry.decline_large.len();
+        let id_m = salesnow_segments_industry.decline_mid.len();
+        let id_s = salesnow_segments_industry.decline_small.len();
+        if ig_l + ig_m + ig_s + id_l + id_m + id_s > 0 {
+            html.push_str(&format!(
+                "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}、1Y 人員変動)</div>\n",
+                escape_html(industry_label.as_deref().unwrap_or(""))
+            ));
+            html.push_str(&build_navy_growth_decline_matrix(salesnow_segments_industry));
+        }
     }
 
     let so_what = build_companies_so_what(
