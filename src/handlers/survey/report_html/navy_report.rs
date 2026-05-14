@@ -1845,9 +1845,11 @@ pub(super) fn render_navy_section_04_market_tightness(
     html.push_str("<div class=\"block-title block-title-spaced\">表 4-A &nbsp;採用市場 指標サマリ</div>\n");
     html.push_str(&build_navy_tightness_table(d, show_vacancy));
 
-    // -- 産業別 採用ニーズ密度 (国勢調査就業者数 + 求人媒体掲載数のクロス、Full のみ)
-    if show_vacancy {
-        if let Some(ctx) = hw_context {
+    // -- 産業別 採用ニーズ密度 (国勢調査就業者数 + 求人媒体掲載数のクロス)
+    // 媒体分析 / Market Intelligence variant でも hw_industry_counts は populate されるため
+    // variant に依存せず ctx 由来データの有無で判定する。
+    if let Some(ctx) = hw_context {
+        if !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() {
             html.push_str("<div class=\"block-title block-title-spaced\">表 4-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
             html.push_str(&build_navy_industry_tightness_table(ctx));
         }
@@ -2356,14 +2358,27 @@ pub(super) fn render_navy_section_05_companies(
     ));
 
     html.push_str("<div class=\"block-title\">図 5-1 &nbsp;法人セグメント (規模 × 動向)</div>\n");
+    // pool_size = 0 のときは地域企業データ未取得を明示し、誤解 (0社=企業が無い) を防ぐ
+    if pool_size == 0 {
+        html.push_str(
+            "<div class=\"so-what\" style=\"margin-top:0; margin-bottom:6mm; background: var(--rule-soft); color: var(--ink-soft);\">\
+             <div class=\"sw-label\">DATA</div>\
+             <div class=\"sw-body\">地域企業データ (外部企業データベース) を取得できませんでした。\
+             以下の法人セグメント KPI は<strong>表示対象データなし</strong>のため、企業活動の評価には用いないでください。</div>\
+             </div>\n",
+        );
+    }
     html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
-    push_kpi(html, "大手企業", &format!("{}", n_large), "社", "neu", "従業員 300+ 名級", false);
-    push_kpi(html, "中堅企業", &format!("{}", n_mid), "社", "neu", "従業員 50-299 名", false);
+    let na = pool_size == 0;
+    let kpi_val = |n: usize| if na { "—".to_string() } else { format!("{}", n) };
+    let kpi_unit = if na { "" } else { "社" };
+    push_kpi(html, "大手企業", &kpi_val(n_large), kpi_unit, "neu", "従業員 300+ 名級", false);
+    push_kpi(html, "中堅企業", &kpi_val(n_mid), kpi_unit, "neu", "従業員 50-299 名", false);
     push_kpi(
         html,
         "急成長企業",
-        &format!("{}", n_growth),
-        "社",
+        &kpi_val(n_growth),
+        kpi_unit,
         if n_growth > 0 { "pos" } else { "neu" },
         "1Y 人員増加率 +10% 超",
         true,
@@ -2372,8 +2387,8 @@ pub(super) fn render_navy_section_05_companies(
         push_kpi(
             html,
             "採用活発企業",
-            &format!("{}", n_hiring),
-            "社",
+            &kpi_val(n_hiring),
+            kpi_unit,
             if n_hiring > 0 { "warn" } else { "neu" },
             "求人媒体掲載 5 件以上",
             false,
@@ -2382,10 +2397,10 @@ pub(super) fn render_navy_section_05_companies(
         push_kpi(
             html,
             "母集団規模",
-            &format!("{}", format_number(pool_size as i64)),
-            "社",
+            &if na { "—".to_string() } else { format_number(pool_size as i64) },
+            kpi_unit,
             "neu",
-            "地域企業データ取得社数",
+            if na { "地域企業データ未取得" } else { "地域企業データ取得社数" },
             false,
         );
     }
