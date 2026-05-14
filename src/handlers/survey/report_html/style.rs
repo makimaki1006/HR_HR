@@ -2570,7 +2570,12 @@ body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
   body.theme-navy .table-navy tr { break-inside: avoid; }
   body.theme-navy .findings-list li, body.theme-navy .kpi,
   body.theme-navy .cover-stat { break-inside: avoid; }
-  body.theme-navy .so-what, body.theme-navy .exec-headline { break-inside: avoid; }
+  /* 2026-05-14: so-what は数行のテキスト帯。break-inside: avoid だと section 末尾で
+     直前ブロックがページ末を埋めた時に so-what が単独で次ページへ orphan する
+     (Section 03 末尾 + Section 06 末尾で空白ページ発生)。
+     break-inside: auto + orphans/widows 2 行で読みやすさを保ちつつ split を許可する。 */
+  body.theme-navy .so-what { break-inside: auto; orphans: 2; widows: 2; }
+  body.theme-navy .exec-headline { break-inside: avoid; }
   body.theme-navy .block-title { break-after: avoid; }
   body.theme-navy .ph-title, body.theme-navy .findings-head { break-after: avoid; }
 }
