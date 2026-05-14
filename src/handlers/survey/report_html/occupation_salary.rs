@@ -254,32 +254,42 @@ pub(crate) fn map_keyword_to_occupation_group(s: &str) -> Option<&'static str> {
         return Some("事務・バックオフィス系");
     }
     // 13. 営業・販売促進系
-    if s.contains("営業") || s.contains("法人営業") || s.contains("個人営業")
+    // 2026-05-14: 単独「営業」「pr」は過誤判定が多い (例: 「営業時間」「営業所」
+    //             「営業日」「prefecture」「product」「spring」等の部分一致)。
+    //             具体的な職種語彙のみで判定する。
+    if s.contains("営業職") || s.contains("営業担当") || s.contains("営業マン")
+        || s.contains("法人営業") || s.contains("個人営業")
         || s.contains("ルート営業") || s.contains("提案営業") || s.contains("反響営業")
         || s.contains("ラウンダー") || s.contains("販促") || s.contains("販売促進")
         || s.contains("インサイドセールス") || s.contains("テレアポ")
         || s.contains("テレマーケティング")
-        || (s.contains("pr") && !s.contains("apr"))
         || s.contains("広報") || s.contains("マーケティング")
     {
         return Some("営業・販売促進系");
     }
     // 14. 販売・接客・サービス系
-    if s.contains("販売") || s.contains("接客") || s.contains("店舗")
+    // 2026-05-14: 単独「販売」「ホール」「カウンター」は過誤判定が多い (例:
+    //             「販売価格」「販売代理店」「コンサートホール」「ホールディングス」
+    //             「カウンターパート」)。具体語のみ。
+    if s.contains("販売員") || s.contains("販売職") || s.contains("販売スタッフ")
+        || s.contains("接客") || s.contains("店舗")
         || s.contains("売場") || s.contains("店長") || s.contains("レジ")
-        || s.contains("フロント") || s.contains("ホール") || s.contains("サービススタッフ")
-        || s.contains("アテンダー") || s.contains("案内") || s.contains("受付案内")
-        || s.contains("カウンター")
+        || s.contains("フロント") || s.contains("ホールスタッフ") || s.contains("ホール係")
+        || s.contains("サービススタッフ")
+        || s.contains("アテンダー") || s.contains("案内係") || s.contains("受付案内")
+        || s.contains("カウンター業務") || s.contains("カウンタースタッフ")
     {
         return Some("販売・接客・サービス系");
     }
     // 15. IT・技術専門職系
-    if s.contains("it") || s.contains("ｉｔ") || s.contains("エンジニア")
+    // 2026-05-14: 単独「it」は to_lowercase 後に "wait" "split" 等にも部分一致してしまうため除外。
+    //             「ｉｔ」(全角) は誤一致が少なく残す。
+    if s.contains("ｉｔ") || s.contains("エンジニア")
         || s.contains("プログラマ") || s.contains("se ")
         || s.contains("システム") || s.contains("web") || s.contains("ｗｅｂ")
         || s.contains("アプリ") || s.contains("インフラ") || s.contains("ネットワーク")
         || s.contains("サーバー") || s.contains("情シス") || s.contains("dx")
-        || s.contains("ヘルプデスク")
+        || s.contains("ヘルプデスク") || s.contains("it職") || s.contains("itエンジニア")
     {
         return Some("IT・技術専門職系");
     }
@@ -614,7 +624,8 @@ mod tests {
             ("コールセンター", "事務・バックオフィス系"),
             ("法人営業", "営業・販売促進系"),
             ("ラウンダー", "営業・販売促進系"),
-            ("販売", "販売・接客・サービス系"),
+            // 2026-05-14: 「販売」単独は誤マッチ過多のため「販売員」に厳格化
+            ("販売員", "販売・接客・サービス系"),
             ("アテンダー", "販売・接客・サービス系"),
             ("エンジニア", "IT・技術専門職系"),
             ("ヘルプデスク", "IT・技術専門職系"),

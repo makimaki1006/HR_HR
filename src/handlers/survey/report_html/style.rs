@@ -2581,6 +2581,12 @@ body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
     margin-top: 3mm;
     margin-bottom: 3mm;
     break-inside: auto;
+    /* 2026-05-14: SO WHAT が section 末尾で単独ページに orphan する問題への対策。
+       break-before: avoid で「直前のブロックと同じページに置く」を強く要求。
+       直前と SO WHAT が両方 next page に押し出される場合でも、SO WHAT 単独ページ
+       は発生せず必ず本文の続きと一緒に流れる。 */
+    break-before: avoid-page;
+    page-break-before: avoid;
     orphans: 2;
     widows: 2;
   }
