@@ -541,34 +541,20 @@ pub(super) fn render_navy_section_03_salary(
         html.push_str(&build_navy_emp_type_salary_table(&agg.by_emp_type_salary, agg.total_count));
     }
 
-    // -- 業界×給与クロス (旧 industry_salary::render_section_industry_salary 相当を navy で再構築)
-    //   計算ロジック (industry_salary::aggregate_industry_salary) は副作用なしの純関数で
-    //   ロジック再実装が冗長なため再利用。HTML 出力のみ navy 新規。
-    let industry_rows = super::industry_salary::aggregate_industry_salary(agg);
-    if !industry_rows.is_empty() {
-        html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 3-C &nbsp;業界×給与クロス</div>\n",
-        );
-        html.push_str(&build_navy_industry_salary_table(&industry_rows, agg.is_hourly));
-    }
-
-    // -- 職種×給与クロス (旧 occupation_salary::render_section_occupation_salary 相当を navy で再構築)
-    let occupation_rows = super::occupation_salary::aggregate_occupation_salary(agg);
-    if !occupation_rows.is_empty() {
-        html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 3-D &nbsp;職種×給与クロス</div>\n",
-        );
-        html.push_str(&build_navy_occupation_salary_table(&occupation_rows, agg.is_hourly));
-    }
-
-    // -- 相関分析: 給与 vs カテゴリ要因 (雇用形態 / 職種 / 業界)
-    //   採用コンサル目線で「給与差を説明する要因がどれか」を表で可視化。
-    //   ピアソン相関ではなく、各カテゴリ内 group means の分散 / 全体分散 (η² 相当) 簡易版。
-    let corr_rows = compute_navy_salary_correlation(agg);
-    if !corr_rows.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 3-F &nbsp;給与差を説明する要因 (簡易相関 / η² 風)</div>\n");
-        html.push_str(&build_navy_salary_correlation_table(&corr_rows));
-    }
+    // -- 表 3-C 業界×給与クロス / 表 3-D 職種×給与クロス / 表 3-F 要因分析
+    //
+    // 2026-05-14 撤去 (ユーザー判断):
+    //   業界・職種推定は keyword substring マッチングベースで分類精度が著しく低い
+    //   (例: indeed-2026-05-12.csv 物流ドライバー CSV で職種推定 n=6/265、約 2%)。
+    //   推定不可分が大半を占めるため統計指標として誤誘導になり得ると判断。
+    //   LLM ベースの分類実装まで非表示とする (#239/#240/#241 関連)。
+    //
+    //   表 3-F も推定値 (職種・業界) に η² 計算が依存するため同時撤去。
+    //
+    //   関連関数 (industry_salary::aggregate_industry_salary,
+    //   occupation_salary::aggregate_occupation_salary,
+    //   compute_navy_salary_correlation) は他箇所/テストから参照されるため
+    //   残置。Section 03 からの呼び出しのみ削除。
 
     // -- 給与構造クラスタ分析 (旧 salary_stats の Jenks + per-cluster box) を navy で取り込み
     //   設計メモ §7-8 (給与構造クラスタリング) + §10 (適正値 P25/P50/P60/P75/P90) 準拠
