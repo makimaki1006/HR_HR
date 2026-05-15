@@ -894,8 +894,9 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
         }
 
         // 昼夜間人口比
+        // 2026-05-15: DB column は `day_night_ratio` (% 単位 e.g. 96.42)。/100.0 で ratio 化
         if let Some(row) = ctx.ext_daytime_pop.first() {
-            let ratio = get_f64(row, "daytime_ratio");
+            let ratio = get_f64(row, "day_night_ratio") / 100.0;
             if ratio > 0.0 {
                 let label = if ratio > 1.05 {
                     "都市型（通勤流入）"
@@ -1211,8 +1212,10 @@ fn render_regional_economy_section(html: &mut String, ctx: &InsightContext) {
             .ext_establishments
             .iter()
             .map(|r| {
+                // 2026-05-15: industry は SQL alias で industry_code (例: P85)、
+                //   industry_name が日本語名。UI ラベルは industry_name を使う
                 (
-                    get_str_ref(r, "industry").to_string(),
+                    get_str_ref(r, "industry_name").to_string(),
                     get_i64(r, "establishment_count"),
                 )
             })
