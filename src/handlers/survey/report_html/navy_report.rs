@@ -1551,12 +1551,61 @@ pub(super) fn render_navy_section_02_region(
     );
     html.push_str("</div>\n");
 
+    // -- 表 2-B 地域基礎情報 (可住地面積・人口密度)  [旧 7.5-O 統合 2026-05-15]
+    if let Some(c) = hw_context {
+        if !c.ext_geography.is_empty() {
+            html.push_str("<div class=\"block-title block-title-spaced\">表 2-B &nbsp;地域基礎情報 (可住地面積・人口密度)</div>\n");
+            html.push_str(&build_navy_auto_table(&c.ext_geography, 5));
+            html.push_str("<p class=\"caption\">出典: SSDSE-A 地理指標 (可住地面積 / 人口密度)。先頭 5 行表示。件数最多 10 市区町村の地理規模を把握するための土台情報。</p>\n");
+        }
+    }
+
     // -- table-navy: 件数最多 10 市区町村
     html.push_str(&format!(
         "<div class=\"block-title block-title-spaced\">表 2-A &nbsp;件数最多 10 市区町村 &mdash; CSV 集計 + {}</div>\n",
         if show_hw { "求人媒体補強" } else { "外部統計" }
     ));
     html.push_str(&build_navy_region_table(agg, hw_enrichment_map, show_hw));
+
+    // -- 表 2-C 通勤流入元 TOP3 (採用範囲拡張の指針)  [旧 7.5-A 統合 2026-05-15]
+    if let Some(c) = hw_context {
+        if !c.commute_inflow_top3.is_empty() {
+            html.push_str("<div class=\"block-title block-title-spaced\">表 2-C &nbsp;通勤流入元 TOP3 (隣地域→対象地域)</div>\n");
+            html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+                <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流入人数</th>\
+                </tr></thead>\n<tbody>\n");
+            for (i, (p, m, cnt)) in c.commute_inflow_top3.iter().take(3).enumerate() {
+                html.push_str(&format!(
+                    "<tr><td class=\"num bold\">{}</td><td>{}</td><td>{}</td><td class=\"num bold\">{}</td></tr>\n",
+                    i + 1, escape_html(p), escape_html(m), format_number(*cnt)
+                ));
+            }
+            html.push_str("</tbody></table>\n");
+            html.push_str("<p class=\"caption\">出典: 国勢調査 通勤 OD。対象地域以外 (隣接市町村 / 隣接都道府県含む) からの通勤者流入元 上位 3 自治体。採用範囲拡張・近隣自治体への媒体出稿の指針。</p>\n");
+        }
+    }
+
+    // -- 表 2-D 都道府県平均比較 (マクロ指標)  [旧 7.5-B 統合 2026-05-15]
+    if let Some(c) = hw_context {
+        let pref_avgs: Vec<(&str, Option<f64>, &str)> = vec![
+            ("県平均 失業率",    c.pref_avg_unemployment_rate, "%"),
+            ("県平均 単身世帯率", c.pref_avg_single_rate,       "%"),
+        ];
+        let with_val: Vec<_> = pref_avgs.iter().filter(|(_, v, _)| v.is_some()).collect();
+        if !with_val.is_empty() {
+            html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;都道府県平均比較 (マクロ指標)</div>\n");
+            html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
+            for (label, val, unit) in with_val {
+                let cell = val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "—".into());
+                html.push_str(&format!(
+                    "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
+                    label, cell, unit
+                ));
+            }
+            html.push_str("</tbody></table>\n");
+            html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計 (SUM 方式: 市町村集計を県全体で再集計)。対象地域固有の値ではなく県全体の平均値。Section 04 の失業率と併せて読む。</p>\n");
+        }
+    }
 
     // -- so-what
     let so_what = build_region_so_what(agg, pref_top_pct, n_pref, hw_context, show_hw);
@@ -1900,6 +1949,59 @@ pub(super) fn render_navy_section_04_market_tightness(
         if !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() {
             html.push_str("<div class=\"block-title block-title-spaced\">表 4-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
             html.push_str(&build_navy_industry_tightness_table(ctx));
+        }
+
+        // -- 表 4-C 事業所統計 (採用競合規模)  [旧 7.5-G 統合 2026-05-15]
+        if !ctx.ext_establishments.is_empty() {
+            html.push_str(
+                "<div class=\"block-title block-title-spaced\">\
+                 表 4-C &nbsp;事業所統計 (採用競合規模)\
+                 </div>\n"
+            );
+            html.push_str(&build_navy_auto_table(&ctx.ext_establishments, 8));
+            html.push_str(
+                "<p class=\"caption\">\
+                 事業所数は同地域で求職者が選択しうる勤務先候補数、\
+                 従業者数は雇用市場全体の規模を示します。\
+                 自社採用ポジションがこの母集団のどの位置に置かれるかを把握する基礎指標です。\
+                 </p>\n"
+            );
+        }
+
+        // -- 表 4-D 開廃業動態 (市場成長性)  [旧 7.5-H 統合 2026-05-15]
+        if !ctx.ext_business_dynamics.is_empty() {
+            html.push_str(
+                "<div class=\"block-title block-title-spaced\">\
+                 表 4-D &nbsp;開廃業動態 (市場成長性)\
+                 </div>\n"
+            );
+            html.push_str(&build_navy_auto_table(&ctx.ext_business_dynamics, 6));
+            use super::super::super::helpers::get_f64;
+            let (open, close) = ctx
+                .ext_business_dynamics
+                .first()
+                .map(|r| (get_f64(r, "opening_rate"), get_f64(r, "closing_rate")))
+                .unwrap_or((f64::NAN, f64::NAN));
+            let comment = if open.is_finite() && close.is_finite() {
+                let net = open - close;
+                let phase = if net >= 1.0 {
+                    "成長期 (事業所の新陳代謝が活発、採用競合が増加する局面)"
+                } else if net >= -1.0 {
+                    "成熟期 (事業所数は均衡、既存企業間で人材獲得が中心)"
+                } else {
+                    "再編期 (事業所数が緩やかに減少、地域人材流動に留意)"
+                };
+                format!(
+                    "開業率 <strong>{:.1}%</strong> / 廃業率 <strong>{:.1}%</strong> \
+                     (純成長 {:+.1}pt)。全国参考値 (開業 5.0% / 廃業 4.0%) との対比で\
+                     対象地域は <strong>{}</strong> に位置すると読み取れます。",
+                    open, close, net, phase
+                )
+            } else {
+                "開業率・廃業率のいずれかが取得できないため、市場フェーズ判定は割愛します。"
+                    .to_string()
+            };
+            html.push_str(&format!("<p class=\"caption\">{}</p>\n", comment));
         }
     }
 
@@ -3133,6 +3235,55 @@ pub(super) fn render_navy_section_06_demographics(
         html.push_str("<p class=\"caption\">左 (紺) = 男性 / 右 (金) = 女性。各バーは 5 歳階級別の人口を表示。出典: 国勢調査 v2_external_population_pyramid。</p>\n");
     }
 
+    // -- 表 6-B 人口統計詳細 (ext_population) ピラミッド補強  [旧 7.5-D 統合 2026-05-15]
+    if !ctx.ext_population.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-B &nbsp;人口統計詳細 (総人口・男女別 年次推移)</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_population, 5));
+        html.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_population。ピラミッドの 5 歳階級集計に対し、本表は総人口・男女別の年次推移を示す。先頭 5 行表示。</p>\n");
+    }
+
+    // -- 表 6-C 人口移動 (ext_migration) ⭐ 採用流入/定着指標  [旧 7.5-E 統合 2026-05-15]
+    if !ctx.ext_migration.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-C &nbsp;人口移動 (転入・転出・純増減)</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_migration, 5));
+        let latest_net: i64 = ctx.ext_migration.first()
+            .map(|r| get_i64(r, "net_migration"))
+            .unwrap_or(0);
+        let migration_insight = if latest_net > 0 {
+            format!("最新値で <strong>転入超過 +{} 名</strong>。社外からの流入が継続しており、<strong>採用候補プール 拡大局面</strong>。広域採用・移住セット訴求 (住宅手当 / 引越補助) との相性 良。",
+                format_number(latest_net))
+        } else if latest_net < 0 {
+            format!("最新値で <strong>転出超過 {} 名</strong>。人口流出が継続しており、<strong>採用難 + 離職リスクの両面</strong>に注意。定着策 (キャリアパス明示 / 地元志向人材の囲い込み) を優先推奨。",
+                format_number(latest_net))
+        } else {
+            "転入・転出が均衡。人材の純流入による母集団拡大は期待しにくく、<strong>定着重視</strong>の採用方針が有効。".to_string()
+        };
+        html.push_str(&format!(
+            "<p class=\"caption\">出典: 住民基本台帳 人口移動報告 v2_external_migration。先頭 5 行表示。<br/><strong>示唆:</strong> {}</p>\n",
+            migration_insight
+        ));
+    }
+
+    // -- 表 6-D 自然増減 (出生・死亡) 中長期人口動態  [旧 7.5-M 統合 2026-05-15]
+    if !ctx.ext_vital.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-D &nbsp;自然増減 (出生・死亡)</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_vital, 5));
+        let latest_natural: i64 = ctx.ext_vital.first()
+            .map(|r| get_i64(r, "natural_change"))
+            .unwrap_or(0);
+        let vital_insight = if latest_natural < 0 {
+            format!("最新値で <strong>自然減 {} 名</strong> (死亡 > 出生)。中長期 (5-10 年) で<strong>労働力供給の構造的縮小</strong>が見込まれ、自動化投資・省人化施策の並走を推奨。",
+                format_number(latest_natural))
+        } else {
+            format!("自然増 +{} 名で人口再生産は継続。短期の採用環境は本指標より表 6-C (社会移動) の影響が支配的。",
+                format_number(latest_natural))
+        };
+        html.push_str(&format!(
+            "<p class=\"caption\">出典: 人口動態統計 v2_external_vital。先頭 5 行表示。<br/><strong>示唆:</strong> {}</p>\n",
+            vital_insight
+        ));
+    }
+
     // -- 教育施設密度 (block-title + 1 段落)
     if school_count > 0 {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-A &nbsp;教育施設 (小・中・高 合計)</div>\n");
@@ -3166,6 +3317,20 @@ pub(super) fn render_navy_section_06_demographics(
         ));
         html.push_str("</tbody></table>\n");
         html.push_str("<p class=\"caption\">出典: 文部科学省 学校基本調査 v2_external_education_facilities。家族層 (子育て世帯) 採用時の生活インフラ指標として併記。</p>\n");
+    }
+
+    // -- 表 6-E 労働力統計 詳細 (ext_labor_stats)  KPI 労働力率の明細  [旧 7.5-C 統合 2026-05-15]
+    if !ctx.ext_labor_stats.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-E &nbsp;労働力統計 詳細 (就業者・産業構成)</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_labor_stats, 5));
+        html.push_str("<p class=\"caption\">出典: e-Stat 社会人口統計体系 v2_external_labor_stats。図 6-1 KPI「労働力率」の内訳として、男女別就業者・第1-3 次産業就業者の構成比を示す。先頭 5 行表示。</p>\n");
+    }
+
+    // -- 表 6-F 教育 (ext_education) 進学率・学歴  [旧 7.5-P 統合 2026-05-15]
+    if !ctx.ext_education.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-F &nbsp;進学率・学歴 (新卒採用接点)</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_education, 5));
+        html.push_str("<p class=\"caption\">出典: 学校基本調査 v2_external_education。表 6-A の学校数 (施設密度) に対し、本表は進学率・学歴構成を示す。高校進学率は新卒採用の母集団品質、大学進学率は U ターン採用の射程に直結。先頭 5 行表示。</p>\n");
     }
 
     // -- so-what
@@ -3566,6 +3731,57 @@ pub(super) fn render_navy_section_07_lifestyle(
             commute_self_rate * 100.0,
         ));
         html.push_str("<p class=\"caption\">出典: 国勢調査 OD (通勤・通学従業地・通学地集計)。通勤圏は対象自治体から距離ベース (デフォルト 20-30 km 圏) で抽出。</p>\n");
+    }
+
+    // -- 表 7-C 昼夜間人口 (流入超過 = 職場集中度)  [旧 7.5-F 統合 2026-05-15]
+    if !ctx.ext_daytime_pop.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-C &nbsp;昼夜間人口比較</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_daytime_pop, 3));
+        let ratio_opt = ctx.ext_daytime_pop.first().and_then(|r| {
+            for k in ["daytime_nighttime_ratio", "dn_ratio", "day_night_ratio"] {
+                let v = get_f64(r, k);
+                if v > 0.0 { return Some(v); }
+            }
+            None
+        });
+        let insight = match ratio_opt {
+            Some(r) if r >= 110.0 => format!(
+                "昼夜間比 <strong>{:.1}%</strong> — 周辺地域からの<strong>通勤流入超過</strong>。職場集積エリアとして認知度が高く、通勤圏全体を採用母集団に取り込みやすい構造です。", r),
+            Some(r) if r <= 90.0 => format!(
+                "昼夜間比 <strong>{:.1}%</strong> — <strong>ベッドタウン型 (流出超過)</strong>。住民の多くは他自治体へ通勤しており、地元勤務を訴求する求人の希少性が武器になります。", r),
+            Some(r) => format!(
+                "昼夜間比 <strong>{:.1}%</strong> — 流入流出がほぼ均衡。職住一体型の自治体です。", r),
+            None => "昼夜間比データが取得できませんでした。".to_string(),
+        };
+        html.push_str(&format!(
+            "<p class=\"caption\">出典: 国勢調査 昼夜間人口集計 (v2_external_daytime_population)。{}</p>\n",
+            insight
+        ));
+    }
+
+    // -- 表 7-D 世帯構成 (単身世帯率 = 若年単身ターゲット厚み)  [旧 7.5-L 統合 2026-05-15]
+    if !ctx.ext_households.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-D &nbsp;世帯構成</div>\n");
+        html.push_str(&build_navy_auto_table(&ctx.ext_households, 3));
+        let single_rate_opt = ctx.ext_households.first()
+            .map(|r| get_f64(r, "single_rate"))
+            .filter(|v| *v > 0.0);
+        let pref_avg = ctx.pref_avg_single_rate;
+        let insight = match (single_rate_opt, pref_avg) {
+            (Some(s), Some(p)) if s >= p + 3.0 => format!(
+                "単身世帯率 <strong>{:.1}%</strong> (県平均 {:.1}% を <strong>+{:.1}pt</strong> 上回る) — 若年単身者の居住厚みがあり、転居を伴わない単身者採用ターゲットが豊富です。",
+                s, p, s - p),
+            (Some(s), Some(p)) if s <= p - 3.0 => format!(
+                "単身世帯率 <strong>{:.1}%</strong> (県平均 {:.1}% を <strong>{:.1}pt</strong> 下回る) — 世帯持ち中心の地域。家族手当・住宅補助等のファミリー訴求が効きやすい構造です。",
+                s, p, s - p),
+            (Some(s), _) => format!(
+                "単身世帯率 <strong>{:.1}%</strong> — 採用ターゲットの居住属性確認用に参照してください。", s),
+            _ => "単身世帯率データが取得できませんでした。".to_string(),
+        };
+        html.push_str(&format!(
+            "<p class=\"caption\">出典: 国勢調査 世帯集計 (v2_external_households)。{}</p>\n",
+            insight
+        ));
     }
 
     // -- so-what
@@ -3994,132 +4210,12 @@ fn build_navy_auto_table(
     s
 }
 
-pub(super) fn render_navy_section_aux_data(
-    html: &mut String,
-    hw_context: Option<&InsightContext>,
-    // 2026-05-15: 「藤岡市選択したのに高崎市が出る」「業界選択が効いていない」
-    //   不具合調査のため、backend が受け取った値を HTML コメントとして埋め込む。
-    //   PDF にも文字として残らないため運用に影響しない。
-    selected_pref: &str,
-    selected_muni: &str,
-    industry_filter: Option<&str>,
-) {
-    let ctx = match hw_context {
-        Some(c) => c,
-        None => return,
-    };
-
-    html.push_str("<section class=\"page-navy navy-aux-data\" role=\"region\">\n");
-
-    // 2026-05-15 DIAG: backend が受け取った選択値を HTML コメントで残す。
-    //   ユーザー報告と実値の差異検証用 (例: 藤岡市選択 → backend に届く値が
-    //   実は高崎市だった等)。HTML を「ブラウザの表示ソース」で見れば確認可能。
-    html.push_str(&format!(
-        "<!-- DIAG_RECEIVED selected_pref=\"{}\" selected_muni=\"{}\" industry_filter=\"{}\" \
-         ctx_pref=\"{}\" ctx_muni=\"{}\" dominant_pref=\"{}\" dominant_muni=\"{}\" -->\n",
-        escape_html(selected_pref),
-        escape_html(selected_muni),
-        escape_html(industry_filter.unwrap_or("(none)")),
-        escape_html(&ctx.pref),
-        escape_html(&ctx.muni),
-        escape_html(""),
-        escape_html(""),
-    ));
-
-    push_page_head(
-        html,
-        "SECTION 7.5",
-        "補助データ",
-        "DBに格納済みだが既存セクションで未表示だった統計群",
-    );
-
-    let lede = format!(
-        "本セクションは取得済の公的統計から、既存 Section 02-07 で未表示だった \
-         {} 系列を一括展開します。レポート構成の見直し検討用です。",
-        14
-    );
-    html.push_str(&format!(
-        "<div class=\"exec-headline\"><div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div><p>{}</p></div>\n",
-        lede
-    ));
-
-    // --- 流入元 TOP3 (OD 通勤データ、Vec<(pref, muni, count)>) ---
-    if !ctx.commute_inflow_top3.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7.5-A &nbsp;通勤流入元 TOP3 (隣地域→対象地域)</div>\n");
-        html.push_str("<table class=\"table-navy\">\n<thead><tr>\
-            <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流入人数</th>\
-            </tr></thead>\n<tbody>\n");
-        for (i, (p, m, c)) in ctx.commute_inflow_top3.iter().take(3).enumerate() {
-            html.push_str(&format!(
-                "<tr><td class=\"num bold\">{}</td><td>{}</td><td>{}</td><td class=\"num bold\">{}</td></tr>\n",
-                i + 1,
-                escape_html(p),
-                escape_html(m),
-                format_number(*c)
-            ));
-        }
-        html.push_str("</tbody></table>\n");
-        html.push_str("<p class=\"caption\">出典: 国勢調査 通勤 OD。対象地域以外 (隣接市町村 / 隣接都道府県含む) からの通勤者流入元 上位 3 自治体。採用範囲拡張の指針。</p>\n");
-    }
-
-    // --- 都道府県平均 (比較用) ---
-    // 2026-05-14: physicians_per_10k / daycare_per_1k_children / habitable_density は
-    //   build_insight_context で None 初期化のまま populate されない (engine.rs:1585
-    //   のコメント: 別途人口で動的計算、未実装)。「—」を出すと欠損に見えるので
-    //   現状 populate されている 2 系列だけを表示する。
-    let pref_avgs: Vec<(&str, Option<f64>, &str)> = vec![
-        ("県平均 失業率",  ctx.pref_avg_unemployment_rate, "%"),
-        ("県平均 単身世帯率", ctx.pref_avg_single_rate, "%"),
-    ];
-    let pref_avgs_with_val: Vec<_> = pref_avgs.iter().filter(|(_, v, _)| v.is_some()).collect();
-    if !pref_avgs_with_val.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7.5-B &nbsp;都道府県平均 (マクロ比較指標)</div>\n");
-        html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
-        for (label, val, unit) in pref_avgs_with_val {
-            let cell = val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "—".into());
-            html.push_str(&format!(
-                "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
-                label, cell, unit
-            ));
-        }
-        html.push_str("</tbody></table>\n");
-        html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計。県平均は SUM 方式 (市町村集計を県全体で再集計)。</p>\n");
-    }
-
-    // --- ext_* 系 (取得済みだが未表示) ---
-    let raw_tables: Vec<(&str, &str, &Vec<super::super::super::helpers::Row>, &str)> = vec![
-        ("表 7.5-C", "労働力統計 (ext_labor_stats)", &ctx.ext_labor_stats, "e-Stat 社会人口統計体系"),
-        ("表 7.5-D", "人口統計 (ext_population)", &ctx.ext_population, "国勢調査 人口集計"),
-        ("表 7.5-E", "人口移動 (ext_migration)", &ctx.ext_migration, "住民基本台帳 人口移動報告"),
-        ("表 7.5-F", "昼夜間人口 (ext_daytime_pop)", &ctx.ext_daytime_pop, "国勢調査 昼夜間人口"),
-        ("表 7.5-G", "事業所統計 (ext_establishments)", &ctx.ext_establishments, "経済センサス 事業所"),
-        ("表 7.5-H", "開廃業統計 (ext_business_dynamics)", &ctx.ext_business_dynamics, "経済センサス 動向"),
-        ("表 7.5-I", "介護需要 (ext_care_demand)", &ctx.ext_care_demand, "介護保険事業状況報告"),
-        ("表 7.5-J", "気候 (ext_climate)", &ctx.ext_climate, "気象庁 アメダス年報"),
-        ("表 7.5-K", "社会生活 (ext_social_life)", &ctx.ext_social_life, "社会生活基本調査"),
-        ("表 7.5-L", "世帯統計 (ext_households)", &ctx.ext_households, "国勢調査 世帯集計"),
-        ("表 7.5-M", "出生・死亡 (ext_vital)", &ctx.ext_vital, "人口動態統計"),
-        ("表 7.5-N", "医療福祉 (ext_medical_welfare)", &ctx.ext_medical_welfare, "医療施設調査 / 介護サービス施設"),
-        ("表 7.5-O", "地理 (ext_geography)", &ctx.ext_geography, "可住地面積 / 人口密度"),
-        ("表 7.5-P", "教育 (ext_education)", &ctx.ext_education, "学校基本調査 進学率"),
-    ];
-    for (table_id, label, rows, source) in &raw_tables {
-        if rows.is_empty() {
-            continue;
-        }
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">{} &nbsp;{}</div>\n",
-            table_id, label
-        ));
-        html.push_str(&build_navy_auto_table(rows, 5));
-        html.push_str(&format!(
-            "<p class=\"caption\">出典: {}。先頭 5 行表示。</p>\n",
-            source
-        ));
-    }
-
-    html.push_str("</section>\n");
-}
+// 2026-05-15: Section 7.5 (補助データ全展開) は廃止。各 ext_* 系は
+//   Section 02 (地理/通勤流入元/県平均) / Section 04 (事業所/開廃業) /
+//   Section 06 (人口/移動/出生死亡/労働力/教育) / Section 07 (昼夜間/世帯)
+//   に統合された。撤去された raw dump 経路 (介護/気候/社会生活/医療福祉)
+//   は本レポートでは非表示。fetch ロジックは insight/render.rs labor_future
+//   _risk / lifestyle.rs / engine.rs MF-1 で active 使用のため残置。
 
 // ============================================================
 // Section 08: 注記・出典・免責 (Phase 4 navy 本実装)
