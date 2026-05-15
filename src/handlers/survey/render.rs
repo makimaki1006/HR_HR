@@ -552,8 +552,14 @@ fn render_action_bar(session_id: &str) -> String {
                         try {{
                             var pref = (document.getElementById('pref-select') || {{}}).value || '';
                             var muni = (document.getElementById('muni-select') || {{}}).value || '';
-                            var industries = (typeof _selectedIndustryRaws !== 'undefined' && Array.isArray(_selectedIndustryRaws))
-                                ? _selectedIndustryRaws : [];
+                            /* 2026-05-15: _selectedIndustryRaws は dashboard_inline.html の
+                             * DOMContentLoaded コールバック内で var 宣言されており、別 script
+                             * タグ (本コード) から直接参照すると undefined。
+                             * window._selectedIndustryRaws (同コールバックで明示登録済) を
+                             * 経由で読むよう変更。これでユーザーが業界選択しても backend に
+                             * 届かない問題を解消。 */
+                            var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
+                                ? window._selectedIndustryRaws : [];
                             var industry = industries.length > 0 ? industries[0] : '';
                             var url = '/report/survey?session_id=' + encodeURIComponent(sid)
                                 + '&variant=' + encodeURIComponent(variant);
