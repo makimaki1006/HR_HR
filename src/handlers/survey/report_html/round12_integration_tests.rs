@@ -132,6 +132,10 @@ fn render_with(
         ReportTheme::Default,
         None,
         None,
+        // 2026-05-15: selected_pref/muni 追加に伴うテスト wrapper 更新
+        // (Section 7.5 振り分け作業時に pre-existing test debt として検出)
+        "",
+        "",
     )
 }
 
