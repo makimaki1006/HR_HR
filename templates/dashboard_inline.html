@@ -216,8 +216,15 @@
             }
 
             // === 産業2階層ドロップダウン ===
-            var _selectedJobTypes = {{SELECTED_JOB_TYPES_JSON}};
-            var _selectedIndustryRaws = {{SELECTED_INDUSTRY_RAWS_JSON}};
+            // 2026-05-15: `var _selectedIndustryRaws` は DOMContentLoaded コールバック内の
+            //   ローカル変数で、他の <script> タグ (survey の openVariantReport 等) から
+            //   typeof チェックすると undefined になり業界フィルタが永久に効かなかった。
+            //   window に明示登録し、以降の代入も window. プレフィックス経由で行う。
+            window._selectedJobTypes = {{SELECTED_JOB_TYPES_JSON}};
+            window._selectedIndustryRaws = {{SELECTED_INDUSTRY_RAWS_JSON}};
+            // ローカル var alias (既存コードの互換用、参照のみ。代入は window. 経由)
+            var _selectedJobTypes = window._selectedJobTypes;
+            var _selectedIndustryRaws = window._selectedIndustryRaws;
             var _industryTreeData = null;
 
             window.toggleIndustryDropdown = function() {
@@ -478,8 +485,11 @@
                 var majors = [], subs = [];
                 document.querySelectorAll('.ind-major-cb:checked').forEach(function(cb) { majors.push(cb.value); });
                 document.querySelectorAll('.ind-sub-cb:checked').forEach(function(cb) { subs.push(cb.value); });
+                // 2026-05-15: window への代入も明示的に行う (別 script tag からの参照用)
                 _selectedJobTypes = majors;
                 _selectedIndustryRaws = subs;
+                window._selectedJobTypes = majors;
+                window._selectedIndustryRaws = subs;
 
                 if (window.clearTabCache) window.clearTabCache();
                 fetch('/api/set_industry_filter', {
