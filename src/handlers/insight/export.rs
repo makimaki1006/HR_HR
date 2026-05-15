@@ -24,7 +24,10 @@ pub async fn insight_report_xlsx(
             return axum::response::Response::builder()
                 .status(400)
                 .body(axum::body::Body::from("DB未接続"))
-                .unwrap();
+                .unwrap_or_else(|e| {
+                    tracing::error!("response builder failed: {e}");
+                    axum::response::Response::new(axum::body::Body::from("Internal Error"))
+                });
         }
     };
 
@@ -53,12 +56,18 @@ pub async fn insight_report_xlsx(
                     format!("attachment; filename=\"{}\"", filename),
                 )
                 .body(axum::body::Body::from(bytes))
-                .unwrap()
+                .unwrap_or_else(|e| {
+                    tracing::error!("response builder failed: {e}");
+                    axum::response::Response::new(axum::body::Body::from("Internal Error"))
+                })
         }
         Err(e) => axum::response::Response::builder()
             .status(500)
             .body(axum::body::Body::from(format!("Excel生成エラー: {}", e)))
-            .unwrap(),
+            .unwrap_or_else(|e2| {
+                tracing::error!("response builder failed: {e2}");
+                axum::response::Response::new(axum::body::Body::from("Internal Error"))
+            }),
     }
 }
 
