@@ -629,39 +629,55 @@ pub async fn survey_report_html(
                 )
             });
             // 同業界版 (業界指定時のみ)
-            // 2026-05-15: HW 大分類「運輸業，郵便業」を直接 SalesNow sn_industry に LIKE
-            //   で当てると、表記揺れ (運送業/陸運/物流業 等) で 0 件になる問題に対応。
-            //   v2_industry_mapping (HW ⇔ SalesNow 確率マッピング) から逆引きして、
-            //   SalesNow 実値のリストを IN 句で query する。
+            // 2026-05-15: HW⇔SalesNow ID ずれ対策で v2_industry_mapping 逆引き使用。
+            // 2026-05-15 拡張: 通勤圏 (近隣市町村 30km 圏) も含めて検索。
+            //   藤岡市単独で薄い業界でも近隣 (高崎/伊勢崎/玉村等) を含めれば
+            //   実用的なベンチマークが取れる。県境越え (例: 藤岡→埼玉本庄) も対応。
             let industry_handle = if let Some(ref ind) = industry_filter {
                 let pref_i = pref.clone();
                 let muni_i = muni.clone();
                 let ind_owned = ind.clone();
                 let sn_db_for_map = sn_db.clone();
+                let hw_db_for_zone = hw_db.clone();
                 Some(tokio::task::spawn_blocking(move || {
-                    // v2_industry_mapping から SalesNow 実値リストを逆引き。
-                    // Turso 接続が同じ (SalesNow と industry_mapping は同じ DB の別テーブル)
-                    // ため sn_db を再利用。
+                    // v2_industry_mapping から SalesNow 実値リストを逆引き
                     let sn_industries = super::super::company::fetch::fetch_sn_industries_for_hw_industry(
                         &sn_db_for_map,
                         &ind_owned,
                     );
-                    if !sn_industries.is_empty() {
-                        super::super::company::fetch::fetch_company_segments_by_region_with_sn_industries(
-                            &sn_db,
-                            &hw_db,
-                            &pref_i,
-                            &muni_i,
-                            &sn_industries,
+                    if sn_industries.is_empty() {
+                        // マッピングテーブルに該当なし → 旧 LIKE 経路フォールバック
+                        return super::super::company::fetch::fetch_company_segments_by_region_with_industry(
+                            &sn_db, &hw_db, &pref_i, &muni_i, Some(ind_owned.as_str()),
+                        );
+                    }
+
+                    // 通勤圏取得 (距離ベース 30km、muni 指定時のみ)
+                    let mut neighborhood: Vec<(String, String)> = if !muni_i.is_empty() {
+                        let zone = super::super::analysis::fetch::fetch_commute_zone(
+                            &hw_db_for_zone, &pref_i, &muni_i, 30.0,
+                        );
+                        zone.iter()
+                            .map(|m| (m.prefecture.clone(), m.municipality.clone()))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                    // 自市町村も明示的に含める (zone に含まれていない場合の保険)
+                    if !muni_i.is_empty()
+                        && !neighborhood.iter().any(|(p, m)| p == &pref_i && m == &muni_i)
+                    {
+                        neighborhood.insert(0, (pref_i.clone(), muni_i.clone()));
+                    }
+
+                    if !neighborhood.is_empty() {
+                        super::super::company::fetch::fetch_company_segments_by_neighborhood_sn_industries(
+                            &sn_db, &hw_db, &neighborhood, &sn_industries,
                         )
                     } else {
-                        // fallback: マッピングテーブルに該当なし → 旧 LIKE 経路
-                        super::super::company::fetch::fetch_company_segments_by_region_with_industry(
-                            &sn_db,
-                            &hw_db,
-                            &pref_i,
-                            &muni_i,
-                            Some(ind_owned.as_str()),
+                        // muni 不在 → 通勤圏取得不能 → 単一 (pref+空 muni) で sn_industry IN
+                        super::super::company::fetch::fetch_company_segments_by_region_with_sn_industries(
+                            &sn_db, &hw_db, &pref_i, &muni_i, &sn_industries,
                         )
                     }
                 }))
