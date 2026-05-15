@@ -214,9 +214,12 @@ impl Ctx {
     }
 
     fn ext_daytime_ratio(mut self, ratio: f64) -> Self {
+        // 2026-05-15: DB column は `day_night_ratio` (% 単位 e.g. 96.42)。
+        //   テスト call sites は ratio (0.80) を受け取るので *100.0 で % に変換して格納。
+        //   engine.rs / render.rs 側で /100.0 で ratio に戻す。
         self.inner
             .ext_daytime_pop
-            .push(row(&[("daytime_ratio", v_f(ratio))]));
+            .push(row(&[("day_night_ratio", v_f(ratio * 100.0))]));
         self
     }
 

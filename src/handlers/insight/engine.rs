@@ -378,10 +378,14 @@ fn hs6_spatial_mismatch(ctx: &InsightContext) -> Option<Insight> {
     }
 
     // 昼夜間人口比を取得
+    // 2026-05-15: DB column は `day_night_ratio` (% 単位 e.g. 96.42)。
+    //   定数 DAYTIME_POP_RATIO_LOW は ratio 単位 (0.90) のため /100.0 で正規化。
+    //   旧コードは `daytime_ratio` (typo) を読んでおり常に 0.0 → 不変条件常 true で
+    //   spatial_mismatch insight が常に誤発火する状態だった。
     let daytime_ratio = ctx
         .ext_daytime_pop
         .first()
-        .map(|r| get_f64(r, "daytime_ratio"))
+        .map(|r| get_f64(r, "day_night_ratio") / 100.0)
         .unwrap_or(1.0);
 
     let body = if daytime_ratio < DAYTIME_POP_RATIO_LOW {
@@ -1048,10 +1052,11 @@ fn ap2_posting_improvement(ctx: &InsightContext) -> Option<Insight> {
 
 /// AP-3: 採用エリア拡大提案
 fn ap3_area_expansion(ctx: &InsightContext) -> Option<Insight> {
+    // 2026-05-15: DB column は `day_night_ratio` (% 単位)。/100.0 で ratio 化
     let daytime_ratio = ctx
         .ext_daytime_pop
         .first()
-        .map(|r| get_f64(r, "daytime_ratio"))
+        .map(|r| get_f64(r, "day_night_ratio") / 100.0)
         .unwrap_or(1.0);
 
     if daytime_ratio >= 1.0 {
