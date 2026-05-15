@@ -312,7 +312,7 @@ pub(super) fn render_section_demographics_by_municipality(
         }
         if let Some(u) = unemp {
             html.push_str(&format!(
-                "<div>推定 失業者: <strong>{} 人</strong></div>\n",
+                "<div>推定 失業者: <strong>{} 名</strong></div>\n",
                 format_number(u),
             ));
         }
@@ -672,7 +672,7 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
         render_stat_box(
             html,
             "15-64 歳 (生産年齢)",
-            &format!("{} 人 ({:.1}%)", format_number(working_age), pct),
+            &format!("{} 名 ({:.1}%)", format_number(working_age), pct),
         );
     }
 
@@ -700,7 +700,7 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
         render_stat_box(
             html,
             target_label,
-            &format!("{} 人 ({:.1}%)", format_number(target_value), pct),
+            &format!("{} 名 ({:.1}%)", format_number(target_value), pct),
         );
     }
 
@@ -718,9 +718,9 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
             html,
             "推定 失業者数 (採用候補プール)",
             &if compare.is_empty() {
-                format!("{} 人", format_number(unemp))
+                format!("{} 名", format_number(unemp))
             } else {
-                format!("{} 人 / {}", format_number(unemp), compare)
+                format!("{} 名 / {}", format_number(unemp), compare)
             },
         );
     }
@@ -821,7 +821,7 @@ fn render_education_distribution(html: &mut String, ctx: &InsightContext) {
              <div style=\"flex:1;height:14px;background:#eef2ff;border-radius:3px;overflow:hidden;\">\
              <div style=\"width:{:.1}%;height:100%;background:#6366f1;\"></div>\
              </div>\
-             <div style=\"min-width:96px;text-align:right;\">{} 人 ({:.1}%)</div>\
+             <div style=\"min-width:96px;text-align:right;\">{} 名 ({:.1}%)</div>\
              </div>\n",
             escape_html(level),
             pct_clamped,
@@ -1045,10 +1045,10 @@ mod tests {
             html.contains("25-44 歳 (採用ターゲット層)"),
             "採用ターゲット層 KPI 必須"
         );
-        // 9,000 人 (90.0%) が表示される
+        // 9,000 名 (90.0%) が表示される
         assert!(
-            html.contains("9,000 人"),
-            "生産年齢人口の具体値 9,000 人 が表示されること (got: {})",
+            html.contains("9,000 名"),
+            "生産年齢人口の具体値 9,000 名 が表示されること (got: {})",
             crate::text_util::truncate_char_safe(&html, 2000)
         );
         assert!(
@@ -1056,8 +1056,8 @@ mod tests {
             "生産年齢比率 90.0% が表示されること"
         );
         assert!(
-            html.contains("7,000 人"),
-            "採用ターゲット層の具体値 7,000 人 が表示されること"
+            html.contains("7,000 名"),
+            "採用ターゲット層の具体値 7,000 名 が表示されること"
         );
     }
 
@@ -1098,7 +1098,7 @@ mod tests {
             );
         }
         // 全体 = 1,000,000。大卒比率 = 40%
-        assert!(html.contains("400,000 人"), "大卒の具体値 400,000 人");
+        assert!(html.contains("400,000 名"), "大卒の具体値 400,000 名");
         assert!(html.contains("40.0%"), "大卒比率 40.0%");
         assert!(html.contains("図 D-2"), "図 D-2 キャプション必須");
         // バーレンダリング識別 class
@@ -1118,10 +1118,10 @@ mod tests {
         let mut html = String::new();
         render_section_demographics(&mut html, &ctx);
 
-        // 失業者数 25,000 人 が表示される
+        // 失業者数 25,000 名 が表示される
         assert!(
-            html.contains("25,000 人"),
-            "推定失業者数 25,000 人 が表示されること"
+            html.contains("25,000 名"),
+            "推定失業者数 25,000 名 が表示されること"
         );
         assert!(
             html.contains("失業率 2.50%"),
@@ -1149,8 +1149,8 @@ mod tests {
         // 直接値 0 -> rate × labor 計算: 400,000 × 4% = 16,000
         // 計算値: (400_000 + 0) × 4 / 100 = 16,000
         assert!(
-            html.contains("16,000 人"),
-            "rate 経由の推定失業者数 16,000 人。html抜粋: {}",
+            html.contains("16,000 名"),
+            "rate 経由の推定失業者数 16,000 名。html抜粋: {}",
             crate::text_util::truncate_char_safe(&html, 800)
         );
     }
@@ -1235,7 +1235,7 @@ mod tests {
     }
 
     /// #17: 人口データがある場合、10 万人あたり密度が計算されること
-    /// 例: 人口 100,000 人, 施設 50 校 → 50.0 / 10万人
+    /// 例: 人口 100,000 名, 施設 50 校 → 50.0 / 10万人
     #[test]
     fn demographics_p17_facility_density_per_100k() {
         let pyramid = vec![row(&[
@@ -1496,7 +1496,7 @@ mod tests {
         // 生産年齢比率 = 8000 / 10000 = 80.0%
         assert!(html.contains("80.0%"), "生産年齢比率 80.0%");
         // 推定失業者数 = 5000
-        assert!(html.contains("5,000 人"), "失業者数 5,000 人");
+        assert!(html.contains("5,000 名"), "失業者数 5,000 名");
         // 教育施設 = 10+20+10+5 = 45
         assert!(html.contains("45 校"), "施設合計 45 校");
         // 必須注記

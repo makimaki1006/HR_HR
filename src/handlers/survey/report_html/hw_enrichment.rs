@@ -542,7 +542,7 @@ pub(super) fn render_section_hw_comparison(
         };
         let csv_hourly = csv_avg_min / super::super::aggregator::HOURLY_TO_MONTHLY_HOURS;
         let csv_display = if csv_hourly > 0 {
-            format!("{}円/h", format_number(csv_hourly))
+            format!("{}円/時", format_number(csv_hourly))
         } else {
             "-".to_string()
         };
@@ -550,7 +550,7 @@ pub(super) fn render_section_hw_comparison(
         // 都道府県最低賃金（ctx.prefから取得）
         let mw = min_wage_for_prefecture(&ctx.pref).unwrap_or(0);
         let mw_display = if mw > 0 {
-            format!("{}円/h", format_number(mw))
+            format!("{}円/時", format_number(mw))
         } else {
             "-".to_string()
         };
