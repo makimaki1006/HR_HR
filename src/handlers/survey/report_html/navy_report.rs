@@ -1980,7 +1980,7 @@ pub(super) fn render_navy_section_04_market_tightness(
             let (open, close) = ctx
                 .ext_business_dynamics
                 .first()
-                .map(|r| (get_f64(r, "opening_rate"), get_f64(r, "closing_rate")))
+                .map(|r| (get_f64(r, "opening_rate"), get_f64(r, "closure_rate")))
                 .unwrap_or((f64::NAN, f64::NAN));
             let comment = if open.is_finite() && close.is_finite() {
                 let net = open - close;
@@ -4072,11 +4072,13 @@ fn label_for_column(key: &str) -> &str {
         "employees" | "employees_total" => "従業者数",
         "private_establishments" => "民営事業所",
         "private_employees" => "民営従業者",
-        // 開廃業
-        "opened_establishments" | "open_count" => "開業数",
+        // 開廃業 (v2_external_business_dynamics の実 SQL alias)
+        "opened_establishments" | "open_count" | "new_establishments" => "開業数",
         "closed_establishments" | "close_count" => "廃業数",
+        "net_change" => "純増減",
         "opening_rate" => "開業率",
-        "closing_rate" => "廃業率",
+        // 2026-05-15: DB スキーマは `closure_rate` (名詞)。`closing_rate` (continuous) は誤り
+        "closure_rate" => "廃業率",
         // 介護
         "nursing_home_count" => "老人ホーム数",
         "care_workers" => "介護職員",
