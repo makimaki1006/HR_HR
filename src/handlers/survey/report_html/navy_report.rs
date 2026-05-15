@@ -2590,37 +2590,6 @@ pub(super) fn render_navy_section_05_companies(
     //   「藤岡市」単独ではなく「藤岡市 周辺」と明示してユーザーに認識誤りを防ぐ。
     let muni_label = if muni_str.is_empty() { String::new() } else { format!("{} 周辺 × ", escape_html(&muni_str)) };
 
-    // 2026-05-15 DIAG: 業界フィルタが 0 件になる真因切り分け用。
-    //   pool_all / pool_industry のサイズ、全業界 pool 内の sn_industry 分布を
-    //   HTML コメントに dump。ユーザー指摘『藤岡市の運輸業 0 件はあり得ない』への調査。
-    //   - pool_all=80 / pool_industry=0 なら業界フィルタ強すぎ (sn_industry が
-    //     「運輸業」と部分一致しない表記で格納されている可能性)
-    //   - pool_all=0 なら藤岡市の SalesNow データ自体が薄い
-    {
-        use std::collections::HashMap;
-        let mut industry_counts: HashMap<String, usize> = HashMap::new();
-        // pool_all は大手/中堅/急成長/採用活発の union (重複あり) で近似不可なので
-        // large/mid/small を結合して dedup する。salesnow_segments には公開フィールドが
-        // 限られるので large + mid をサンプルに sn_industry 分布を出す。
-        for c in salesnow_segments.large.iter().chain(salesnow_segments.mid.iter()) {
-            *industry_counts.entry(c.sn_industry.clone()).or_insert(0) += 1;
-        }
-        let mut sorted: Vec<(String, usize)> = industry_counts.into_iter().collect();
-        sorted.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
-        let top = sorted.iter().take(10).map(|(i, c)| format!("{}={}", i, c)).collect::<Vec<_>>().join(",");
-        html.push_str(&format!(
-            "<!-- DIAG_SECTION05 pool_all_size={} pool_industry_size={} large_all={} mid_all={} large_industry={} mid_industry={} growth_all={} growth_industry={} top_sn_industry_in_all=[{}] -->\n",
-            salesnow_segments.pool_size,
-            salesnow_segments_industry.pool_size,
-            salesnow_segments.large.len(),
-            salesnow_segments.mid.len(),
-            salesnow_segments_industry.large.len(),
-            salesnow_segments_industry.mid.len(),
-            salesnow_segments.growth.len(),
-            salesnow_segments_industry.growth.len(),
-            top
-        ));
-    }
     let empty_row_html = |colspan: i64| -> String {
         format!(
             "<table class=\"table-navy\"><tbody>\
@@ -3590,17 +3559,17 @@ pub(super) fn render_navy_section_07_lifestyle(
 
     // -- exec-headline
     // 2026-05-14: 取得失敗値 (year=0, 値=0) を lede に混入させない。
-    //             「最低賃金 0 年 1,063 円/h」「月間消費支出 0 円」「通勤圏内人口 0 名」
+    //             「最低賃金 0 年 1,063 円/時」「月間消費支出 0 円」「通勤圏内人口 0 名」
     //             の表示問題を解消するため、有効値のみセグメントを連結する。
     // 2026-05-14: 地域別最低賃金 (法律上同一県内は同額) であることを明示するため
     //   都道府県名を併記する。
     let pref_prefix = if ctx.pref.is_empty() { String::new() } else { format!("{} ", ctx.pref) };
     let wage_seg = latest_wage
         .filter(|(y, w)| *y > 0 && *w > 0)
-        .map(|(y, w)| format!("{}最低賃金 {} 年 <strong>{} 円/h</strong>", pref_prefix, y, format_number(w)))
+        .map(|(y, w)| format!("{}最低賃金 {} 年 <strong>{} 円/時</strong>", pref_prefix, y, format_number(w)))
         .or_else(|| latest_wage
             .filter(|(_, w)| *w > 0)
-            .map(|(_, w)| format!("{}最低賃金 <strong>{} 円/h</strong>", pref_prefix, format_number(w))));
+            .map(|(_, w)| format!("{}最低賃金 <strong>{} 円/時</strong>", pref_prefix, format_number(w))));
     let consumption_seg = if total_consumption > 0 {
         Some(format!("月間消費支出 <strong>{}</strong> 円", format_number(total_consumption)))
     } else { None };
@@ -3640,7 +3609,7 @@ pub(super) fn render_navy_section_07_lifestyle(
         (Some((y0, _)), Some((y1, _))) if y0 != y1 => format!("{}-{} 年推移", y0, y1),
         _ => "最新年度のみ".to_string(),
     };
-    push_kpi(html, "最低賃金", &wage_val, "円/h", "neu", &wage_foot, true);
+    push_kpi(html, "最低賃金", &wage_val, "円/時", "neu", &wage_foot, true);
     let yoy_val = wage_yoy.map(|v| format!("{:+.1}", v)).unwrap_or_else(|| "—".into());
     let yoy_dot = match wage_yoy {
         Some(v) if v >= 3.0 => "pos",
@@ -3941,17 +3910,17 @@ fn build_lifestyle_so_what(
 ) -> String {
     let wage_msg = match (latest_wage, wage_yoy) {
         (Some((_, w)), Some(yoy)) if yoy >= 3.0 => format!(
-            "最低賃金 <strong>{} 円/h</strong> は前年比 <strong>{:+.1}%</strong> の上昇基調。給与下限の引き上げ圧が強く、求人給与の競争力は <strong>絶対水準</strong> ではなく <strong>付帯条件 (福利厚生 / 賞与)</strong> で勝負する局面です。",
+            "最低賃金 <strong>{} 円/時</strong> は前年比 <strong>{:+.1}%</strong> の上昇基調。給与下限の引き上げ圧が強く、求人給与の競争力は <strong>絶対水準</strong> ではなく <strong>付帯条件 (福利厚生 / 賞与)</strong> で勝負する局面です。",
             format_number(w),
             yoy
         ),
         (Some((_, w)), Some(yoy)) => format!(
-            "最低賃金 <strong>{} 円/h</strong> 前年比 <strong>{:+.1}%</strong>。給与下限変動は限定的なため、給与の <strong>絶対水準</strong> での差別化が可能です。",
+            "最低賃金 <strong>{} 円/時</strong> 前年比 <strong>{:+.1}%</strong>。給与下限変動は限定的なため、給与の <strong>絶対水準</strong> での差別化が可能です。",
             format_number(w),
             yoy
         ),
         (Some((_, w)), None) => format!(
-            "最低賃金 <strong>{} 円/h</strong>。時系列データが取得できないため推移評価は限定的ですが、絶対水準で時給競争力を点検してください。",
+            "最低賃金 <strong>{} 円/時</strong>。時系列データが取得できないため推移評価は限定的ですが、絶対水準で時給競争力を点検してください。",
             format_number(w)
         ),
         _ => "最低賃金データが取得できないため、給与競争力の評価は CSV 集計値のみで判断してください。".to_string(),

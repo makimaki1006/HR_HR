@@ -1349,7 +1349,7 @@ pub(crate) fn render_mi_occupation_segment_summary(
             html.push_str(&format!(
                 "<tr>\
                  <td style=\"padding:3px 6px;\">{occ}</td>\
-                 <td style=\"text-align:right;padding:3px 6px;\">{tot} 人</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{tot} 名</td>\
                  <td style=\"text-align:right;padding:3px 6px;\">{f:.0}%</td>\
                  <td style=\"text-align:right;padding:3px 6px;\">{y:.0}%</td>\
                  <td style=\"text-align:right;padding:3px 6px;\">{m:.0}%</td>\
@@ -1513,9 +1513,9 @@ pub(crate) fn render_mi_industry_gender_summary(
             html.push_str(&format!(
                 "<tr>\
                  <td style=\"padding:3px 6px;\">{ind}</td>\
-                 <td style=\"text-align:right;padding:3px 6px;\">{tot} 人</td>\
-                 <td style=\"text-align:right;padding:3px 6px;\">{f} 人</td>\
-                 <td style=\"text-align:right;padding:3px 6px;\">{m} 人</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{tot} 名</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{f} 名</td>\
+                 <td style=\"text-align:right;padding:3px 6px;\">{m} 名</td>\
                  <td style=\"text-align:right;padding:3px 6px;\">{fp:.0}%</td>\
                  <td style=\"padding:3px 6px;color:#1e3a8a;font-size:10px;\">{ins}</td>\
                  </tr>\n",
@@ -1837,7 +1837,7 @@ pub(crate) fn render_mi_market_quadrant(
              <td style=\"padding:4px 6px;color:#1e3a8a;font-weight:600;\">{q}</td>\
              <td style=\"padding:4px 6px;\">{n}</td>\
              <td style=\"text-align:right;padding:4px 6px;\">{c} 件</td>\
-             <td style=\"text-align:right;padding:4px 6px;\">{e} 人</td>\
+             <td style=\"text-align:right;padding:4px 6px;\">{e} 名</td>\
              <td style=\"text-align:right;padding:4px 6px;\">{m}</td>\
              <td style=\"padding:4px 6px;color:#1e3a8a;font-size:10px;line-height:1.5;\">{a}</td>\
              </tr>\n",
@@ -1854,7 +1854,7 @@ pub(crate) fn render_mi_market_quadrant(
     // 軸基準値の表示
     html.push_str(&format!(
         "<p style=\"font-size:10px;color:#64748b;margin:4px 0;\">\
-         象限分割基準: CSV 求人数中央値 = {c} 件、従業者中央値 = {e} 人 (対象 {n} 自治体)</p>\n",
+         象限分割基準: CSV 求人数中央値 = {c} 件、従業者中央値 = {e} 名 (対象 {n} 自治体)</p>\n",
         c = format_thousands(count_median),
         e = format_thousands(emp_median),
         n = points.len(),
@@ -1902,19 +1902,19 @@ fn quadrant_action_text(point: &QuadrantPoint, label: &str, is_aggregated: bool)
 
     let base = match label {
         "重点配信" => format!(
-            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。配信予算を最重点投下、{salary}通勤利便性・専門性・キャリア継続性を主軸に訴求。",
+            "求人 {count} 件 × 母集団 {emp} 名 ({scale})。配信予算を最重点投下、{salary}通勤利便性・専門性・キャリア継続性を主軸に訴求。",
             count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
         ),
         "条件見直し" => format!(
-            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。母集団薄に対し求人量過多、{salary}給与上限引き上げ・勤務条件 (短時間 / 土日休 / 福利厚生) の強化を優先。",
+            "求人 {count} 件 × 母集団 {emp} 名 ({scale})。母集団薄に対し求人量過多、{salary}給与上限引き上げ・勤務条件 (短時間 / 土日休 / 福利厚生) の強化を優先。",
             count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
         ),
         "開拓余地" => format!(
-            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。母集団あるが求人量薄、{salary}新規配信候補・地域密着訴求で求人量を増やす伸び代あり。",
+            "求人 {count} 件 × 母集団 {emp} 名 ({scale})。母集団あるが求人量薄、{salary}新規配信候補・地域密着訴求で求人量を増やす伸び代あり。",
             count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
         ),
         "後回し" => format!(
-            "求人 {count} 件 × 母集団 {emp} 人 ({scale})。求人・母集団とも薄く、{salary}配信効率は限定的。重点 3 象限を優先後に検討。",
+            "求人 {count} 件 × 母集団 {emp} 名 ({scale})。求人・母集団とも薄く、{salary}配信効率は限定的。重点 3 象限を優先後に検討。",
             count = count_disp, emp = emp_disp, scale = scale, salary = salary_band,
         ),
         _ => String::new(),
@@ -1980,7 +1980,7 @@ pub(crate) fn render_mi_occupation_cells(html: &mut String, cells: &[OccupationC
                 };
                 let val = c
                     .population
-                    .map(|v| format!("{} 人", format_thousands(v)))
+                    .map(|v| format!("{} 名", format_thousands(v)))
                     .unwrap_or_else(|| "-".to_string());
                 (label, val, MEASURED_DATA_SOURCE)
             }
@@ -3057,7 +3057,7 @@ mod tests {
             "workplace ラベル必須: {WORKPLACE_LABEL}"
         );
         assert!(
-            html.contains("12,345 人"),
+            html.contains("12,345 名"),
             "人数 (3 桁区切り + '人') が表示されること: HTML={html}"
         );
         assert!(
@@ -3076,12 +3076,12 @@ mod tests {
         assert!(html.contains("指数"), "指数表記必須");
         assert!(html.contains("142.5"), "estimate_index .1f 表示必須");
 
-        // resident estimated_beta 行で「{数値} 人」パターンが出ないこと
-        // (人 だけは「人気」「人材」等と区別、数値直後の「人」のみ検査)
-        // 簡易チェック: 「12,345 人」「100 人」のような形が含まれない
+        // resident estimated_beta 行で「{数値} 名」パターンが出ないこと
+        // (名 だけは「氏名」「指名」等と区別、数値直後の「名」のみ検査)
+        // 簡易チェック: 「12,345 名」「100 名」のような形が含まれない
         let has_pop_pattern = html
             .lines()
-            .any(|line| line.contains(" 人") && !line.contains("指数"));
+            .any(|line| line.contains(" 名") && !line.contains("指数"));
         assert!(
             !has_pop_pattern,
             "estimated_beta 行に人数パターンが含まれてはいけない: {html}"
