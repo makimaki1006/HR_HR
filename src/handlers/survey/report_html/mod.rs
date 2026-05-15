@@ -3025,6 +3025,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None, // db: 未接続経路 → default() フォールバック
             None, // turso: 同上
+            "",   // 2026-05-15: selected_pref/muni test-default
+            "",
         );
         // Step 5 セクション特有の文字列のいずれかを含むこと
         // (Phase 4 で実装された親 wrapper 又は placeholder)
@@ -3063,6 +3065,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         );
         assert!(
             !html.contains("採用マーケットインテリジェンス"),
@@ -3100,6 +3104,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         );
         assert!(
             !html.contains("採用マーケットインテリジェンス"),
@@ -3142,6 +3148,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         );
         // default fallback: 親セクションは出るが、データなし placeholder
         assert!(html.contains("採用マーケットインテリジェンス"));
@@ -3227,6 +3235,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             Some(&db),
             None,
+            "",
+            "",
         );
         // パニックせず、MI 親セクションが出力されること
         assert!(
@@ -3277,6 +3287,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             Some(&db),
             None,
+            "",
+            "",
         );
         assert!(
             !html.contains("採用マーケットインテリジェンス"),
@@ -3356,6 +3368,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         )
     }
 
@@ -3510,6 +3524,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         )
     }
 
@@ -3739,6 +3755,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         );
         assert!(
             html.contains("data-testid=\"industry-structure-print\""),
@@ -3788,6 +3806,8 @@ mod variant_indicator_tests {
                 ReportTheme::Default,
                 None,
                 None,
+                "",
+                "",
             );
             // Round 3-A の testid (印刷経路の region::render_section_industry_structure) は
             // MI 限定。Full/Public は Tab UI 経由で別途表示済みのため重複を避ける。
@@ -3828,6 +3848,8 @@ mod variant_indicator_tests {
             ReportTheme::Default,
             None,
             None,
+            "",
+            "",
         );
         // Round 3-A 章の section 内では HW 連想語 (HW 求人 / 欠員補充率 / industry_mapping) を出さない
         // (region::render_section_industry_structure の注記は「HW industry_raw とは粒度が異なる可能性」
