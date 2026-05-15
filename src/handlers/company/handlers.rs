@@ -254,15 +254,14 @@ pub async fn bulk_csv(
     }
 
     let mut headers = HeaderMap::new();
+    // 2026-05-15: HeaderValue::from_static で panic を排除 (静的文字列なら絶対安全)
     headers.insert(
         header::CONTENT_TYPE,
-        "text/csv; charset=utf-8".parse().unwrap(),
+        axum::http::HeaderValue::from_static("text/csv; charset=utf-8"),
     );
     headers.insert(
         header::CONTENT_DISPOSITION,
-        "attachment; filename=\"companies_compare.csv\""
-            .parse()
-            .unwrap(),
+        axum::http::HeaderValue::from_static("attachment; filename=\"companies_compare.csv\""),
     );
     (headers, csv).into_response()
 }
