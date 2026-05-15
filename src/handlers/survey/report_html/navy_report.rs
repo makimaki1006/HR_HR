@@ -2484,7 +2484,9 @@ pub(super) fn render_navy_section_05_companies(
     // 2026-05-15: 業界指定時、segments_industry が空でも『該当企業なし』を明示する
     //   (旧コード: 空なら描画スキップ → ユーザーには『業界フィルタ効いてない』に見える)
     let muni_str = hw_context.map(|c| c.muni.clone()).unwrap_or_default();
-    let muni_label = if muni_str.is_empty() { String::new() } else { format!("{} × ", escape_html(&muni_str)) };
+    // 2026-05-15: 業界指定時は通勤圏 (30km 圏) で SalesNow を取得しているため、
+    //   「藤岡市」単独ではなく「藤岡市 周辺」と明示してユーザーに認識誤りを防ぐ。
+    let muni_label = if muni_str.is_empty() { String::new() } else { format!("{} 周辺 × ", escape_html(&muni_str)) };
 
     // 2026-05-15 DIAG: 業界フィルタが 0 件になる真因切り分け用。
     //   pool_all / pool_industry のサイズ、全業界 pool 内の sn_industry 分布を

@@ -725,6 +725,204 @@ pub fn fetch_company_segments_by_region_with_sn_industries(
     )
 }
 
+/// 2026-05-15: 通勤圏 (近隣市町村) + 業界 で SalesNow 企業を取得。
+///
+/// `neighborhood`: (prefecture, municipality) のペアリスト (自市町村 + 通勤圏 30km 圏)
+/// `sn_industries`: v2_industry_mapping 逆引きで取得した SalesNow 実値リスト
+///
+/// SQL: WHERE sn_industry IN (...) AND ((pref=? AND address LIKE ?) OR (pref=? AND address LIKE ?) ...)
+///
+/// 県境を越えた通勤圏 (例: 藤岡市 + 埼玉県本庄市) にも対応。
+/// 近隣自治体まで含めることで 1 自治体単独で 0 件になる問題を緩和し、
+/// 「藤岡市だけでなく近隣も含めた業界動向」を見せる。
+pub fn fetch_company_segments_by_neighborhood_sn_industries(
+    sn_db: &TursoDb,
+    db: &crate::db::local_sqlite::LocalDb,
+    neighborhood: &[(String, String)],
+    sn_industries: &[String],
+) -> RegionalCompanySegments {
+    if neighborhood.is_empty() || sn_industries.is_empty() {
+        return RegionalCompanySegments::default();
+    }
+    let band_limit: i64 = 30;
+    let band_ranges: [(i64, i64, &str); 3] = [
+        (300, 9_999_999, "large"),
+        (50, 299, "mid"),
+        (1, 49, "small"),
+    ];
+
+    // SQL placeholder index map:
+    //   ?1..?N : sn_industries
+    //   ?(N+1)..?(N+1+2M) : neighborhood (pref/muni alternating)
+    //   ?(N+1+2M)..  : lo, hi, band_limit
+    let n_ind = sn_industries.len();
+    let n_nbr = neighborhood.len();
+    let in_placeholders: String = (0..n_ind)
+        .map(|i| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
+    let or_pairs: String = (0..n_nbr)
+        .map(|i| {
+            let pref_idx = n_ind + 1 + i * 2;
+            let muni_idx = pref_idx + 1;
+            format!("(prefecture = ?{} AND address LIKE ?{})", pref_idx, muni_idx)
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let lo_idx = n_ind + 1 + n_nbr * 2;
+    let hi_idx = lo_idx + 1;
+    let limit_idx = hi_idx + 1;
+    let sql = format!(
+        "SELECT corporate_number, company_name, prefecture, sn_industry, \
+         employee_count, credit_score, postal_code, \
+         sales_amount, sales_range, \
+         employee_delta_1y, employee_delta_3m \
+         FROM v2_salesnow_companies \
+         WHERE sn_industry IN ({}) AND ({}) \
+           AND employee_count >= ?{} AND employee_count <= ?{} \
+         ORDER BY employee_count DESC LIMIT ?{}",
+        in_placeholders, or_pairs, lo_idx, hi_idx, limit_idx
+    );
+
+    let mut all_rows: Vec<crate::handlers::helpers::Row> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // muni を LIKE 用に %X% で wrap した文字列を保持
+    let muni_patterns: Vec<String> = neighborhood
+        .iter()
+        .map(|(_, m)| format!("%{}%", m))
+        .collect();
+
+    for (lo, hi, _band) in band_ranges.iter() {
+        let mut params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = Vec::new();
+        for s in sn_industries {
+            params.push(s);
+        }
+        for (i, (p, _m)) in neighborhood.iter().enumerate() {
+            params.push(p);
+            params.push(&muni_patterns[i]);
+        }
+        params.push(lo);
+        params.push(hi);
+        params.push(&band_limit);
+        let rows = sn_db.query(&sql, &params).unwrap_or_default();
+        for r in rows {
+            let cn = get_str(&r, "corporate_number");
+            if seen.insert(cn) {
+                all_rows.push(r);
+            }
+        }
+    }
+
+    // ここから pool 構築 + セグメント分けは既存ロジックと同等。
+    // build_segments_from_rows() に切り出してあれば良かったが今は inline 再構築する。
+    let mut pool: Vec<NearbyCompany> = all_rows
+        .iter()
+        .map(|r| NearbyCompany {
+            corporate_number: get_str(r, "corporate_number"),
+            company_name: get_str(r, "company_name"),
+            prefecture: get_str(r, "prefecture"),
+            sn_industry: get_str(r, "sn_industry"),
+            employee_count: get_i64(r, "employee_count"),
+            credit_score: get_f64(r, "credit_score"),
+            postal_code: get_str(r, "postal_code"),
+            hw_posting_count: 0,
+            sales_amount: get_f64(r, "sales_amount"),
+            sales_range: get_str(r, "sales_range"),
+            employee_delta_1y: get_f64(r, "employee_delta_1y"),
+            employee_delta_3m: get_f64(r, "employee_delta_3m"),
+        })
+        .collect();
+
+    // HW 求人数を一括取得 (代表 prefecture を中心点として — 通勤圏全体ではないが
+    //  hw_posting_count は急成長/採用活発の判定に使うのみで地域影響は限定的)
+    let primary_pref = neighborhood.first().map(|(p, _)| p.as_str()).unwrap_or("");
+    batch_count_hw_postings(db, &mut pool, primary_pref);
+
+    let mut large = pool.clone();
+    large.sort_by_key(|c| std::cmp::Reverse(c.employee_count));
+    large.truncate(10);
+
+    let mut mid: Vec<NearbyCompany> = pool
+        .iter()
+        .filter(|c| (50..=300).contains(&c.employee_count))
+        .cloned()
+        .collect();
+    mid.sort_by_key(|c| std::cmp::Reverse(c.employee_count));
+    mid.truncate(10);
+
+    let mut growth: Vec<NearbyCompany> = pool
+        .iter()
+        .filter(|c| {
+            c.employee_delta_1y > 10.0
+                && c.employee_delta_1y <= 300.0
+                && c.employee_count >= 10
+        })
+        .cloned()
+        .collect();
+    growth.sort_by(|a, b| {
+        b.employee_delta_1y
+            .partial_cmp(&a.employee_delta_1y)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    growth.truncate(10);
+
+    let mut hiring: Vec<NearbyCompany> = pool
+        .iter()
+        .filter(|c| c.hw_posting_count >= 5)
+        .cloned()
+        .collect();
+    hiring.sort_by_key(|c| std::cmp::Reverse(c.hw_posting_count));
+    hiring.truncate(10);
+
+    let cell_limit: usize = 5;
+    let pick_band = |min_emp: i64, max_emp: i64, growth_pos: bool| -> Vec<NearbyCompany> {
+        let in_realistic_range = |d: f64| d.is_finite() && d.abs() <= 300.0;
+        let mut v: Vec<NearbyCompany> = pool
+            .iter()
+            .filter(|c| {
+                (min_emp..=max_emp).contains(&c.employee_count)
+                    && in_realistic_range(c.employee_delta_1y)
+                    && (if growth_pos {
+                        c.employee_delta_1y > 5.0
+                    } else {
+                        c.employee_delta_1y < -5.0
+                    })
+            })
+            .cloned()
+            .collect();
+        if growth_pos {
+            v.sort_by(|a, b| {
+                b.employee_delta_1y
+                    .partial_cmp(&a.employee_delta_1y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        } else {
+            v.sort_by(|a, b| {
+                a.employee_delta_1y
+                    .partial_cmp(&b.employee_delta_1y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        v.truncate(cell_limit);
+        v
+    };
+
+    RegionalCompanySegments {
+        pool_size: pool.len(),
+        large,
+        mid,
+        growth,
+        hiring,
+        growth_large: pick_band(300, 9_999_999, true),
+        growth_mid: pick_band(50, 299, true),
+        growth_small: pick_band(1, 49, true),
+        decline_large: pick_band(300, 9_999_999, false),
+        decline_mid: pick_band(50, 299, false),
+        decline_small: pick_band(1, 49, false),
+    }
+}
+
 fn fetch_company_segments_by_region_with_industry_internal(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
