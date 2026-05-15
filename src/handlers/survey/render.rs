@@ -556,11 +556,21 @@ fn render_action_bar(session_id: &str) -> String {
                              * DOMContentLoaded コールバック内で var 宣言されており、別 script
                              * タグ (本コード) から直接参照すると undefined。
                              * window._selectedIndustryRaws (同コールバックで明示登録済) を
-                             * 経由で読むよう変更。これでユーザーが業界選択しても backend に
-                             * 届かない問題を解消。 */
+                             * 経由で読むよう変更。
+                             *
+                             * 2026-05-15 追加修正: _selectedIndustryRaws は **中分類 sub** 専用、
+                             * _selectedJobTypes が **大分類 major**。ユーザーが大分類だけを
+                             * チェックすると _selectedIndustryRaws=[] のまま、_selectedJobTypes=[major]
+                             * になる。industry URL クエリには両方を考慮して、sub 優先、なければ
+                             * major (大分類名) を渡す。backend の map_hw_to_major_industry は
+                             * 「運輸業」のような大分類名も正しく正規化できる。 */
                             var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
                                 ? window._selectedIndustryRaws : [];
-                            var industry = industries.length > 0 ? industries[0] : '';
+                            var jobTypes = (typeof window._selectedJobTypes !== 'undefined' && Array.isArray(window._selectedJobTypes))
+                                ? window._selectedJobTypes : [];
+                            var industry = industries.length > 0
+                                ? industries[0]
+                                : (jobTypes.length > 0 ? jobTypes[0] : '');
                             var url = '/report/survey?session_id=' + encodeURIComponent(sid)
                                 + '&variant=' + encodeURIComponent(variant);
                             if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
