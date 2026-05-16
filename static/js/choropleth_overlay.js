@@ -447,12 +447,17 @@ var choroplethOverlay = (function () {
     }
 
     // HTMX のタブ切り替え後に初期化
-    document.body.addEventListener('htmx:afterSettle', function (evt) {
-        var target = evt.detail.target || document;
-        if (target.querySelector && target.querySelector('#jm-map')) {
-            setTimeout(init, 200);
-        }
-    });
+    // 2026-05-15: window.__choroplethAfterSettleBound guard で重複 listener 防止
+    //   (HTMX swap で script 再評価される際の累積 binding を 1 つに固定)
+    if (!window.__choroplethAfterSettleBound) {
+        window.__choroplethAfterSettleBound = true;
+        document.body.addEventListener('htmx:afterSettle', function (evt) {
+            var target = evt.detail.target || document;
+            if (target.querySelector && target.querySelector('#jm-map')) {
+                setTimeout(init, 200);
+            }
+        });
+    }
 
     // DOMContentLoaded 時の初期化
     if (document.readyState === 'loading') {

@@ -144,7 +144,10 @@
     </script>
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/export.js"></script>
-    <script src="/static/js/region_karte.js"></script>
+    <!-- 2026-05-15: region_karte.js は static/js/ に未存在 (過去削除済) で 404。
+         地域カルテタブを UI 非表示化したので参照削除 (handler は温存). -->
+    <!-- <script src="/static/js/region_karte.js"></script> -->
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // 2026-05-15: デフォルトタブを 市場概況 → 地図 に変更 (市場概況タブを UI 非表示化したため)

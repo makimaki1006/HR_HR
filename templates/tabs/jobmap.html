@@ -687,15 +687,23 @@
   });
 
   // 初期化（HTMX タブ切り替え・DOMContentLoaded 両対応）
+  // 2026-05-15: token guard で前 swap の retry chain を無効化 (Map double init 修正)
   (function() {
+    // 既存 retry chain があれば clearTimeout、新規 token で前回呼出しを invalidate
+    if (window.__jmTryInitToken) { try { clearTimeout(window.__jmTryInitToken); } catch (_) {} }
+    var myToken = {};
+    window.__jmTryInitGuard = myToken;
     var maxRetries = 10;
     var retryCount = 0;
     function tryInit() {
+      // 前 swap 由来の古い chain は guard 不一致で即 return
+      if (window.__jmTryInitGuard !== myToken) return;
       if (typeof postingMap !== 'undefined' && document.getElementById('jm-map')) {
         postingMap.init();
         // Leaflet マップインスタンスへの参照を DOM 要素に設定
         // choropleth_overlay.js がマップにアクセスするためのフォールバック
         setTimeout(function() {
+          if (window.__jmTryInitGuard !== myToken) return;
           var el = document.getElementById('jm-map');
           if (el && typeof L !== 'undefined' && !el.__choroplethMapRef) {
             // el._leaflet_id がある場合、Leaflet 内部のマップ参照を探す
@@ -719,13 +727,13 @@
       }
       retryCount++;
       if (retryCount < maxRetries) {
-        setTimeout(tryInit, 100 * retryCount);
+        window.__jmTryInitToken = setTimeout(tryInit, 100 * retryCount);
       }
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', tryInit);
     } else {
-      setTimeout(tryInit, 100);
+      window.__jmTryInitToken = setTimeout(tryInit, 100);
     }
   })();
 
