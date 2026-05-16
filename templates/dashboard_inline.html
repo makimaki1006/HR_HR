@@ -76,30 +76,20 @@
     </header>
 
     <nav class="bg-navy-800 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto scrollbar-thin" role="tablist" aria-label="ダッシュボードタブ" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
-        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/market" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">市場概況</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+        <!--
+        2026-05-15: 未使用 8 タブ (市場概況/地域カルテ/詳細分析/総合診断/トレンド/
+            都道府県比較/条件診断/採用診断) を UI から非表示。
+            handler/route コードは温存 (将来 V2 ダッシュボード再設計で再利用可能)。
+            URL 直接アクセス (/tab/market 等) は引き続き動作する。
+        -->
+        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">地図</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/region_karte" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">地域カルテ</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/analysis" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">詳細分析</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/insight" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">総合診断</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/trend" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">トレンド</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/comparison" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)" title="47都道府県横断比較ビュー">都道府県比較</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">求人検索</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/diagnostic" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">条件診断</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/recruitment_diag" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">採用診断</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">企業検索</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">媒体分析</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">求人検索</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">企業検索</button>
     </nav>
 
     <!-- ブレッドクラム: 現在の選択状態を表示 -->
@@ -157,7 +147,8 @@
     <script src="/static/js/region_karte.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            htmx.ajax('GET', '/tab/market', {target: '#content', swap: 'innerHTML'});
+            // 2026-05-15: デフォルトタブを 市場概況 → 地図 に変更 (市場概況タブを UI 非表示化したため)
+            htmx.ajax('GET', '/tab/jobmap', {target: '#content', swap: 'innerHTML'});
 
             // ブレッドクラム更新
             window.updateBreadcrumb = function() {
