@@ -456,8 +456,9 @@ pub(super) fn stats_are_close(
     if vals.len() < 2 || bin_size <= 0 {
         return false;
     }
-    let max_v = *vals.iter().max().unwrap();
-    let min_v = *vals.iter().min().unwrap();
+    // 2026-05-17: unwrap → unwrap_or 防御化 (前ガード変更時の silent regression 防止)
+    let max_v = vals.iter().max().copied().unwrap_or(0);
+    let min_v = vals.iter().min().copied().unwrap_or(0);
     (max_v - min_v) <= bin_size * 2
 }
 
@@ -476,8 +477,9 @@ pub(super) fn build_salary_histogram(
         return (vec![], vec![], vec![]);
     }
 
-    let min_val = *valid.iter().min().unwrap();
-    let max_val = *valid.iter().max().unwrap();
+    // 2026-05-17: unwrap → unwrap_or (valid.is_empty() ガード済だが防御化)
+    let min_val = valid.iter().min().copied().unwrap_or(0);
+    let max_val = valid.iter().max().copied().unwrap_or(0);
 
     let start = (min_val / bin_size) * bin_size;
     let end = ((max_val / bin_size) + 1) * bin_size;
@@ -1185,7 +1187,8 @@ pub(super) fn build_histogram_svg(
     }
     let bin_count = counts.len();
     let max_count = *counts.iter().max().unwrap_or(&1).max(&1);
-    let x_min_yen = *boundaries.first().unwrap();
+    // 2026-05-17: unwrap → unwrap_or (boundaries.is_empty() ガード済だが防御化)
+    let x_min_yen = boundaries.first().copied().unwrap_or(0);
     let x_max_yen = x_min_yen + (bin_count as i64) * bin_size;
 
     // Round 19: chart 高さ拡大 (viewBox 380 → 440) で視認性向上 + 1 chart 1 page 化

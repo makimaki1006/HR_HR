@@ -372,9 +372,12 @@ pub(crate) fn align_yearly_to_monthly(
 
             // 3. 直近の過去年度データをフォールバック
             // 該当月より前の最新の年度データを使用
+            // 2026-05-17: unwrap → if-let (構造的に y は fy_map.keys() の copy なので安全だが防御化)
             for &y in sorted_years.iter().rev() {
                 if y <= year {
-                    return *fy_map.get(&y).unwrap();
+                    if let Some(&v) = fy_map.get(&y) {
+                        return v;
+                    }
                 }
             }
 

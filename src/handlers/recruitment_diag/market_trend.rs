@@ -266,8 +266,9 @@ pub(crate) fn compute_growth_rate(counts: &[i64]) -> f64 {
     if counts.len() < 2 {
         return 0.0;
     }
-    let first = *counts.first().unwrap() as f64;
-    let last = *counts.last().unwrap() as f64;
+    // 2026-05-17: unwrap → unwrap_or (counts.len()<2 ガード済だが防御化)
+    let first = counts.first().copied().unwrap_or(0) as f64;
+    let last = counts.last().copied().unwrap_or(0) as f64;
     if first <= 0.0 {
         return 0.0;
     }

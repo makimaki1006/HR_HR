@@ -219,7 +219,9 @@ fn fetch_pref_posting_changes(turso: &TursoDb, pref: &str) -> (Option<f64>, Opti
         return (None, None);
     }
     // 最新から降順に取得済。最新 = rows[0], 3ヶ月前 = rows[3], 1年前 = rows[12] 近似
-    let latest = get_f64(rows.first().unwrap(), "total");
+    // 2026-05-17: unwrap → let-else (rows.is_empty() ガード済だが防御化)
+    let Some(first_row) = rows.first() else { return (None, None); };
+    let latest = get_f64(first_row, "total");
     if latest <= 0.0 {
         return (None, None);
     }
