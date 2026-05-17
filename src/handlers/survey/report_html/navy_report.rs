@@ -1946,9 +1946,27 @@ pub(super) fn render_navy_section_04_market_tightness(
     // 媒体分析 / Market Intelligence variant でも hw_industry_counts は populate されるため
     // variant に依存せず ctx 由来データの有無で判定する。
     if let Some(ctx) = hw_context {
+        // 2026-05-17: 表 4-B の silent skip を fallback 表示に変更 (#244 描画漏れ調査)
+        //   旧: !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() のみ描画
+        //   新: block-title は常時出し、データ欠損時は欠落データを明示
+        html.push_str("<div class=\"block-title block-title-spaced\">表 4-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
         if !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() {
-            html.push_str("<div class=\"block-title block-title-spaced\">表 4-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
             html.push_str(&build_navy_industry_tightness_table(ctx));
+        } else {
+            let missing = match (ctx.ext_industry_employees.is_empty(), ctx.hw_industry_counts.is_empty()) {
+                (true, true) => "国勢調査 産業構造 + 求人媒体 産業集計",
+                (true, false) => "国勢調査 産業構造 (v2_external_industry_structure)",
+                (false, true) => "求人媒体 産業集計 (対象地域に分類済み求人なし)",
+                _ => "",
+            };
+            html.push_str(&format!(
+                "<table class=\"table-navy\"><tbody>\
+                 <tr><td class=\"dim\" style=\"text-align:center;padding:8mm 4mm;\">\
+                 産業別 採用ニーズ密度は <strong>{}</strong> が取得できなかったため算出されません。\
+                 表 4-A の指標サマリ + 表 4-C/D で代替評価してください。\
+                 </td></tr></tbody></table>\n",
+                missing
+            ));
         }
 
         // -- 表 4-C 事業所統計 (採用競合規模)  [旧 7.5-G 統合 2026-05-15]
