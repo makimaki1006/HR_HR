@@ -112,5 +112,11 @@ report_mockups/
 .claude/.audit_numeric_done
 
 # Local-only test fixtures & scripts (contain credentials/customer data)
-_tmp_pdf_test.mjs
+# 2026-05-17: wildcard 化 (_tmp_pdf_test.mjs / _tmp_tab_check.mjs / _tmp_full_verify.mjs / _tmp_error_detail.mjs / _tmp_html_probe.mjs 等を全て対象)
+_tmp_*.mjs
+_tmp_*.js
+_tmp_*.py
 .playwright-mcp/
+
+# 2026-05-17: 過去 audit セッションの成果物 (`fac_2026` 等の sensitive 文言含む)
+audit_results/
