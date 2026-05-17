@@ -1054,10 +1054,13 @@ fn build_population_context(
 
     // 人口データ取得
     let effective_pref = pref;
+    // 2026-05-17 fix: DB スキーマは nighttime_pop (居住人口) / daytime_pop。
+    //   total_population / daytime_population は存在せず、SELECT が常に 0 を返していた
+    //   結果、人口コンテキストセクションが total_pop < 1.0 で常に空文字を返していた。
     let pop_sql = if !muni.is_empty() {
-        "SELECT total_population, daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
+        "SELECT nighttime_pop AS total_population, daytime_pop AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
     } else {
-        "SELECT SUM(total_population) as total_population, SUM(daytime_population) as daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1"
+        "SELECT SUM(nighttime_pop) AS total_population, SUM(daytime_pop) AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1"
     };
 
     let params: Vec<String> = if !muni.is_empty() {
