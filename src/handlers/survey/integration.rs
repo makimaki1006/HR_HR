@@ -258,8 +258,10 @@ fn render_external_section(ctx: &InsightContext) -> String {
     }
 
     // 昼夜間人口比
+    // 2026-05-17: DB column は `day_night_ratio` (% 単位 e.g. 96.42)。/100.0 で ratio 化
+    //   (engine.rs:384 / render.rs:898 と同パターン、前回 audit 修正漏れ)
     if let Some(row) = ctx.ext_daytime_pop.first() {
-        let ratio = get_f64(row, "daytime_ratio");
+        let ratio = get_f64(row, "day_night_ratio") / 100.0;
         if ratio > 0.0 {
             let label = if ratio > 1.05 {
                 "都市型（通勤流入）"
@@ -279,16 +281,17 @@ fn render_external_section(ctx: &InsightContext) -> String {
     }
 
     // 転入転出
+    // 2026-05-17 fix: DB column は inflow / outflow (INTEGER)。in_migration/out_migration は不存在で常に 0 を返していた。
     if let Some(row) = ctx.ext_migration.first() {
-        let in_m = get_f64(row, "in_migration") as i64;
-        let out_m = get_f64(row, "out_migration") as i64;
+        let in_m = super::super::helpers::get_i64(row, "inflow");
+        let out_m = super::super::helpers::get_i64(row, "outflow");
         let net = in_m - out_m;
         let color = if net > 0 {
             "text-green-400"
         } else {
             "text-red-400"
         };
-        kpi_card(&mut html, "純移動数", &format!("{:+}人", net), color);
+        kpi_card(&mut html, "純移動数", &format!("{:+}名", net), color);
         has_data = true;
     }
 

@@ -274,8 +274,17 @@ pub fn build_company_context(
                 if pref_snap.is_empty() {
                     return (0i64, 0.0f64, 0.0f64);
                 }
-                let sql = "SELECT total_population, daytime_population_ratio, aging_rate \
-                           FROM v2_external_prefecture_stats WHERE prefecture = ?1";
+                // 2026-05-17 fix: v2_external_prefecture_stats は人口/昼夜比/高齢化率カラムを持たない
+                //   (compute_v2_external.py:408-418 で unemployment_rate/job_change_desire_rate/non_regular_rate/
+                //    avg_monthly_wage/price_index/fulfillment_rate/real_wage_index のみ定義)
+                //   → 別テーブルから subquery で算出する。
+                //     total_population = v2_external_population の SUM
+                //     daytime_population_ratio = v2_external_daytime_population の daytime/nighttime 比 (0.0-2.0 ratio)
+                //     aging_rate = v2_external_population の age_65_over / total_population * 100 (%単位)
+                let sql = "SELECT \
+                    (SELECT SUM(total_population) FROM v2_external_population WHERE prefecture = ?1) AS total_population, \
+                    (SELECT CAST(SUM(daytime_pop) AS REAL)/NULLIF(SUM(nighttime_pop),0) FROM v2_external_daytime_population WHERE prefecture = ?1) AS daytime_population_ratio, \
+                    (SELECT CAST(SUM(age_65_over) AS REAL)/NULLIF(SUM(total_population),0)*100 FROM v2_external_population WHERE prefecture = ?1) AS aging_rate";
                 let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref_snap];
                 if let Ok(rows) = ext.query(sql, &params) {
                     if let Some(r) = rows.first() {
