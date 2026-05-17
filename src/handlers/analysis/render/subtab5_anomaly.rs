@@ -1167,7 +1167,8 @@ pub(super) fn render_establishment_section(data: &[Row], pref: &str) -> String {
     ));
 
     for row in &top {
-        let industry = get_str(row, "industry");
+        // 2026-05-17 fix: industry は SQL alias で industry_code (例: P85)。UI 表示は industry_name (日本語名) を使用
+        let industry = get_str(row, "industry_name");
         let count = get_i64(row, "establishment_count");
         let pct_width = (count as f64 / max_count as f64 * 100.0).min(100.0);
         let count_str = format_number(count);
@@ -1583,7 +1584,8 @@ pub(super) fn render_climate_section(data: &[Row], pref: &str) -> String {
     let pref_label = if pref.is_empty() { "全国" } else { pref };
 
     // 最新年度のデータ（最後の行）を使用
-    let latest = data.last().unwrap();
+    // 2026-05-17: unwrap → let-else (data.is_empty() 早期 return ガード済だが防御化)
+    let Some(latest) = data.last() else { return String::new(); };
     let fy = get_str(latest, "fiscal_year");
 
     let avg_temp = get_f64(latest, "avg_temperature");

@@ -289,7 +289,8 @@ pub(crate) fn render_posting_table(
             }
         };
         let emp_count = if p.employee_count > 0 {
-            format!("{}人", p.employee_count)
+            // 2026-05-17: 「人」→「名」(navy_report.rs:2530 と整合、Team E i18n 拡大)
+            format!("{}名", p.employee_count)
         } else {
             "-".to_string()
         };
@@ -455,7 +456,8 @@ pub(crate) fn render_report_html(
             }
         };
         let emp_count = if p.employee_count > 0 {
-            format!("{}人", p.employee_count)
+            // 2026-05-17: 「人」→「名」(navy_report.rs:2530 と整合、Team E i18n 拡大)
+            format!("{}名", p.employee_count)
         } else {
             "-".to_string()
         };
