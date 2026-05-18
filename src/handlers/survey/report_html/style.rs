@@ -2524,16 +2524,23 @@ body.theme-navy .block-title-spaced { margin-top: 7mm; }
 body.theme-navy .caption { font-size: 8.5pt; color: var(--ink-muted); margin: 2mm 0 0; line-height: 1.5; }
 
 body.theme-navy .table-navy {
+  /* 2026-05-18: 表枠 overflow 対策: table-layout:fixed + word-break で
+     長い文言が container を突き抜けるのを防止 (ユーザー報告対応) */
   width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 2mm;
+  table-layout: fixed;
 }
 body.theme-navy .table-navy th {
   font-family: "Noto Sans JP", sans-serif; font-weight: 700; font-size: 8.5pt;
   letter-spacing: 0.04em; color: var(--ink); text-align: left;
   padding: 6px 8px 6px 0; border-bottom: 1.5px solid var(--ink);
+  /* 長い列名は折り返す (英語残対策と併せ可読性確保) */
+  word-break: break-word; overflow-wrap: break-word;
 }
 body.theme-navy .table-navy td {
   padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule-soft);
   color: var(--ink-soft); vertical-align: middle; line-height: 1.4;
+  /* セル値も折り返し許可。数値は `.num` 側で white-space:nowrap で保護 */
+  word-break: break-word; overflow-wrap: break-word;
 }
 body.theme-navy .table-navy tr:last-child td { border-bottom: 1px solid var(--rule); }
 body.theme-navy .table-navy .num {
