@@ -743,7 +743,9 @@ fn build_navy_histogram_svg(_values: &[i64], s: &DistStats) -> String {
     let h: f64 = 280.0;
     let pad_l = 56.0;
     let pad_r = 16.0;
-    let pad_t = 16.0;
+    // 2026-05-18: pad_t を 16 → 36 に拡大、平均/中央値/最頻 ラベルを y-stagger で
+    //   重ねないため (ユーザー報告: 「項目の高さが全て同じでかぶると見れない」)
+    let pad_t = 36.0;
     let pad_b = 44.0;
     let inner_w = w - pad_l - pad_r;
     let inner_h = h - pad_t - pad_b;
@@ -824,14 +826,19 @@ fn build_navy_histogram_svg(_values: &[i64], s: &DistStats) -> String {
         (x_of(s.mean), "#C9A24B", "平均"),
         (x_of(s.mode_bin_yen), "#9CA0AB", "最頻"),
     ];
-    for (x, color, lbl) in lines {
+    // 2026-05-18: ラベル y を index で stagger (近接時の重なりで「どれか見えない」を解消)
+    //   idx 0 (P50): y = 8   (一番上)
+    //   idx 1 (平均): y = 20  (中)
+    //   idx 2 (最頻): y = 32  (下、線の真上に最も近い)
+    for (idx, (x, color, lbl)) in lines.iter().enumerate() {
         svg.push_str(&format!(
             "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"1.5\" stroke-dasharray=\"3 2\"/>\n",
             x, pad_t, x, pad_t + inner_h, color
         ));
+        let label_y = 8.0 + (idx as f64) * 12.0;
         svg.push_str(&format!(
             "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"{}\" text-anchor=\"middle\" font-weight=\"700\">{}</text>\n",
-            x, pad_t - 4.0, color, lbl
+            x, label_y, color, lbl
         ));
     }
     svg.push_str("</svg>\n");
@@ -4116,6 +4123,48 @@ fn label_for_column(key: &str) -> &str {
         "total_commuters" => "通勤者総数",
         "male_commuters" => "通勤者(男)",
         "female_commuters" => "通勤者(女)",
+        // 2026-05-18: Team A audit で未マップだった 22 件を追加 (英語残対策)
+        // 人口統計
+        "aging_rate" => "高齢化率(%)",
+        "working_age_rate" => "生産年齢人口比(%)",
+        "youth_rate" => "年少人口比(%)",
+        "age_0_14" => "0-14歳人口",
+        "age_15_64" => "15-64歳人口",
+        "age_65_over" => "65歳以上人口",
+        "male_population" => "男性人口",
+        "female_population" => "女性人口",
+        // 世帯統計
+        "general_household_members" => "一般世帯人員",
+        "nuclear_family_households" => "核家族世帯",
+        "elderly_nuclear_households" => "高齢核家族",
+        "elderly_couple_households" => "高齢夫婦世帯",
+        "avg_household_size" => "平均世帯人員",
+        "elderly_single_rate" => "高齢単身率(%)",
+        // 介護需要
+        "insurance_benefit_cases" => "介護給付件数",
+        "health_facility_count" => "老健施設数",
+        "home_care_offices" => "訪問介護事業所",
+        "day_service_offices" => "通所介護事業所",
+        "pop_65_over" => "65歳以上人口",
+        "pop_75_over" => "75歳以上人口",
+        "pop_65_over_rate" => "65歳以上比率(%)",
+        // 出生・死亡 (率)
+        "birth_rate_permille" => "出生率(‰)",
+        "death_rate_permille" => "死亡率(‰)",
+        "marriage_rate_permille" => "婚姻率(‰)",
+        "divorce_rate_permille" => "離婚率(‰)",
+        // 就業・労働市場
+        "entry_rate" => "入職率(%)",
+        "separation_rate" => "離職率(%)",
+        "net_rate" => "純増減率(%)",
+        "ratio_total" => "有効求人倍率",
+        "ratio_excl_part" => "有効求人倍率(パート除く)",
+        "hourly_min_wage" => "最低賃金(時給円)",
+        // IT / その他
+        "internet_usage_rate" => "ネット利用率(%)",
+        "smartphone_ownership_rate" => "スマホ所有率(%)",
+        "daycare_facilities" => "保育所数",
+        "monthly_amount" => "月額(円)",
         _ => key,
     }
 }
