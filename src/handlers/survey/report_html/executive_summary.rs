@@ -30,6 +30,9 @@ pub(super) fn render_section_executive_summary(
     by_emp_type_salary: &[EmpTypeSalary],
     hw_context: Option<&InsightContext>,
     variant: ReportVariant,
+    // 2026-05-18: 「主要地域」は CSV dominant ではなくユーザー選択を優先する
+    selected_pref: &str,
+    selected_muni: &str,
 ) {
     // Round 24 Push 2: section ラッパに page-navy を併記し navy paper レイアウト適用
     html.push_str("<section class=\"section exec-summary page-navy\" role=\"region\" aria-labelledby=\"exec-sum-title\">\n");
@@ -40,7 +43,7 @@ pub(super) fn render_section_executive_summary(
     html.push_str("<h2 id=\"exec-sum-title\" class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">Executive Summary</h2>\n");
     html.push_str(&format!(
         "<p class=\"section-header-meta\">対象: {} / 3分間で読み切れる全体要旨</p>\n",
-        escape_html(&compose_target_region(agg))
+        escape_html(&compose_target_region(agg, selected_pref, selected_muni))
     ));
 
     // B5 (2026-04-27): 「このページの読み方」が <details> と section-howto の 2 重表示
@@ -136,8 +139,8 @@ pub(super) fn render_section_executive_summary(
     // 仕様書 3.3 の定義に厳密に従う
     // K1: サンプル件数
     let k1_value = format_number(agg.total_count as i64);
-    // K2: 主要地域
-    let k2_value = compose_target_region(agg);
+    // K2: 主要地域 (2026-05-18: selected_pref/muni 優先)
+    let k2_value = compose_target_region(agg, selected_pref, selected_muni);
     // K3: 主要雇用形態（件数最多）
     let k3_value: String = if let Some((name, count)) = agg.by_employment_type.first() {
         let pct = if agg.total_count > 0 {
@@ -719,6 +722,8 @@ mod ux_enhancement_tests {
             &[],
             None,
             super::super::ReportVariant::Full,
+            "",
+            "",
         );
 
         // 読み進め方ガイドの主要キーワード
@@ -758,6 +763,8 @@ mod ux_enhancement_tests {
             &[],
             None,
             super::super::ReportVariant::Full,
+            "",
+            "",
         );
 
         // タイトル
@@ -803,6 +810,8 @@ mod ux_enhancement_tests {
             &[],
             None,
             super::super::ReportVariant::Full,
+            "",
+            "",
         );
 
         // legacy class が DOM に存在するが display:none で非表示
@@ -840,6 +849,8 @@ mod ux_enhancement_tests {
             &[],
             None,
             super::super::ReportVariant::Full,
+            "",
+            "",
         );
 
         // bridge 自体は存在
@@ -998,6 +1009,8 @@ mod ux_enhancement_tests {
             &[],
             None,
             super::super::ReportVariant::Full,
+            "",
+            "",
         );
 
         // 両 grid が DOM に存在
@@ -1054,6 +1067,8 @@ mod ux_enhancement_tests {
             &[],
             None,
             super::super::ReportVariant::Full,
+            "",
+            "",
         );
 
         // 5 KPI ラベルは（legacy の中に）存在

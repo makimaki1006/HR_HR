@@ -604,15 +604,9 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         // 2026-05-14: ユーザー選択地域があれば優先、未指定なら CSV dominant (従来動作)。
         //   CSV 内最多と選択地域が異なる場合 (例: 群馬県選択 → CSV 最多は埼玉県) の
         //   情報は SO WHAT / 流入流出注記で別途扱う。
-        let target_region = if !selected_pref.is_empty() {
-            if !selected_muni.is_empty() {
-                format!("{} {}", selected_pref, selected_muni)
-            } else {
-                selected_pref.to_string()
-            }
-        } else {
-            compose_target_region(agg)
-        };
+        // 2026-05-18: compose_target_region に selected を渡し、helper 側で
+        //   selected 優先 / 未選択時 dominant fallback ロジックを統一。
+        let target_region = compose_target_region(agg, selected_pref, selected_muni);
         navy_report::render_navy_cover(&mut html, agg, variant, &now, &today_short, &target_region);
         navy_report::render_navy_toc(&mut html, variant);
         navy_report::render_navy_executive(

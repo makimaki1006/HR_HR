@@ -786,7 +786,7 @@ mod round12_master_tests {
         agg.dominant_prefecture = Some("東京都".to_string());
         agg.dominant_municipality = Some("川崎市".to_string()); // 神奈川県の市
 
-        let region_text = compose_target_region(&agg);
+        let region_text = compose_target_region(&agg, "", "");
 
         // 現状の動作 (バグの存在を逆証明として固定): K1 が再現する
         assert_eq!(
@@ -799,7 +799,7 @@ mod round12_master_tests {
         let mut agg2 = SurveyAggregation::default();
         agg2.dominant_prefecture = Some("東京都".to_string());
         agg2.dominant_municipality = Some("三芳町".to_string());
-        assert_eq!(compose_target_region(&agg2), "東京都 三芳町");
+        assert_eq!(compose_target_region(&agg2, "", ""), "東京都 三芳町");
     }
 
     // -----------------------------------------------------------------
@@ -810,20 +810,20 @@ mod round12_master_tests {
         let mut agg = SurveyAggregation::default();
         agg.dominant_prefecture = Some("神奈川県".to_string());
         agg.dominant_municipality = Some("川崎市".to_string());
-        assert_eq!(compose_target_region(&agg), "神奈川県 川崎市");
+        assert_eq!(compose_target_region(&agg, "", ""), "神奈川県 川崎市");
 
         let mut agg2 = SurveyAggregation::default();
         agg2.dominant_prefecture = Some("埼玉県".to_string());
         agg2.dominant_municipality = Some("三芳町".to_string());
-        assert_eq!(compose_target_region(&agg2), "埼玉県 三芳町");
+        assert_eq!(compose_target_region(&agg2, "", ""), "埼玉県 三芳町");
 
         let mut agg3 = SurveyAggregation::default();
         agg3.dominant_prefecture = Some("東京都".to_string());
         agg3.dominant_municipality = None;
-        assert_eq!(compose_target_region(&agg3), "東京都");
+        assert_eq!(compose_target_region(&agg3, "", ""), "東京都");
 
         let agg4 = SurveyAggregation::default();
-        assert_eq!(compose_target_region(&agg4), "全国");
+        assert_eq!(compose_target_region(&agg4, "", ""), "全国");
     }
 
     // -----------------------------------------------------------------

@@ -2286,7 +2286,25 @@ pub(super) fn min_wage_for_prefecture(pref: &str) -> Option<i64> {
 const _MIN_WAGE_NATIONAL_AVG: i64 = 1121;
 
 /// 対象地域を人間可読形式で組み立てる（例: "東京都 千代田区" / "全国"）
-pub(super) fn compose_target_region(agg: &SurveyAggregation) -> String {
+///
+/// 2026-05-18: 「主要地域」が CSV 件数最多 (dominant) に上書きされていた
+///   Critical bug 修正。ユーザーがアプリ pref/muni プルダウンで選択した
+///   地域があれば最優先、未選択時のみ CSV dominant に fallback する。
+///   call site (executive_summary K2 / Section 表紙 等) は全て selected を
+///   伝搬する必要あり。
+pub(super) fn compose_target_region(
+    agg: &SurveyAggregation,
+    selected_pref: &str,
+    selected_muni: &str,
+) -> String {
+    // 1. ユーザー選択を最優先 (pref + muni 両方あれば結合、pref のみなら pref のみ)
+    if !selected_pref.is_empty() {
+        if !selected_muni.is_empty() {
+            return format!("{} {}", selected_pref, selected_muni);
+        }
+        return selected_pref.to_string();
+    }
+    // 2. 未選択時のみ CSV dominant (件数最多) にフォールバック
     match (&agg.dominant_prefecture, &agg.dominant_municipality) {
         (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => format!("{} {}", p, m),
         (Some(p), _) if !p.is_empty() => p.clone(),
