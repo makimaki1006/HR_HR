@@ -827,6 +827,54 @@ mod round12_master_tests {
     }
 
     // -----------------------------------------------------------------
+    // 2026-05-18: selected_pref/muni 優先の regression 防止テスト
+    //   (ユーザー報告: 主要地域が CSV dominant に上書きされる Critical bug)
+    // -----------------------------------------------------------------
+    #[test]
+    fn compose_target_region_selected_overrides_dominant() {
+        // 不変条件 1: selected_pref + selected_muni がある時、dominant は無視される
+        let mut agg = SurveyAggregation::default();
+        agg.dominant_prefecture = Some("埼玉県".to_string());
+        agg.dominant_municipality = Some("さいたま市".to_string());
+        // 選択は 群馬県 藤岡市 (dominant とは別地域)
+        assert_eq!(
+            compose_target_region(&agg, "群馬県", "藤岡市"),
+            "群馬県 藤岡市",
+            "selected_pref/muni が non-empty なら dominant (埼玉県さいたま市) を上書きすべき"
+        );
+
+        // 不変条件 2: selected_pref のみあれば pref のみ反映 (muni は dominant ではなく空)
+        assert_eq!(
+            compose_target_region(&agg, "東京都", ""),
+            "東京都",
+            "selected_muni が空なら、dominant の muni を継承せず pref のみ表示"
+        );
+
+        // 不変条件 3: selected_pref も selected_muni も空なら dominant fallback
+        assert_eq!(
+            compose_target_region(&agg, "", ""),
+            "埼玉県 さいたま市",
+            "selected 両方空のときのみ dominant にフォールバック"
+        );
+
+        // 不変条件 4: dominant も空、selected も空なら「全国」
+        let agg_empty = SurveyAggregation::default();
+        assert_eq!(
+            compose_target_region(&agg_empty, "", ""),
+            "全国",
+            "全データ欠損時は『全国』fallback"
+        );
+
+        // 不変条件 5: dominant が None でも selected があれば selected を返す
+        let agg_no_dom = SurveyAggregation::default();
+        assert_eq!(
+            compose_target_region(&agg_no_dom, "神奈川県", "横浜市"),
+            "神奈川県 横浜市",
+            "dominant が None でも selected を優先"
+        );
+    }
+
+    // -----------------------------------------------------------------
     // (b) K2 検証: 表 7-1 のヘッダ列順 (現状は <市区町村><都道府県>)
     //     一般感覚 (都道府県→市区町村) と異なるためユーザーが「逆転」と
     //     感じる現象を固定化する
