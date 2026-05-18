@@ -126,7 +126,76 @@ deploy 反映後、Playwright で 藤岡市/運輸業 の PDF を実生成し、
 
 ---
 
-## Cycle 5 (進行中): 最終総括 + Skill 適用 + ドキュメント固定
+## Cycle 6 (✅ 完了): 横展開検査 (同種パターン)
+
+### Plan
+Skill 「横展開」適用。`agg.dominant_*` を直接読む箇所が production code 全体で漏れていないか grep 全件確認。
+
+### Do
+`grep -rn "agg\.dominant_prefecture\|agg\.dominant_municipality" src/handlers/ --include="*.rs" | grep -v test`
+
+### Check
+| 場所 | 用途 | 判定 |
+|------|------|------|
+| `survey/handlers.rs:181-198` | cache に dominant を保存 (次回 URL query 未指定時の fallback 用) | ✅ 意図通り |
+| `survey/render.rs:342` | screen TL;DR (CSV upload 直後の分析画面) | ✅ 意図通り (= 「件数最多 = 主要地域」が screen 仕様) |
+| `survey/report.rs:35-36` | JSON エクスポート (データ構造として dominant を持つ) | ✅ 意図通り |
+| `survey/report_html/helpers.rs:2308` | compose_target_region 本体 | ✅ Cycle 1 で修正済 |
+
+### Act
+コード修正なし。screen path (render_tldr) は CSV 分析直後で dominant 表示が UX 妥当。PDF report path は Cycle 1 で修正済 → 完全網羅。
+
+---
+
+## Cycle 7 (✅ 完了): 別変数組合せ逆証明 (横浜市 / 製造業)
+
+### Plan
+藤岡市 (CSV dominant ≠ selected) と新宿区 (大都市) に加え、別地理 (政令市) で同じく成立するか。
+
+### Do
+神奈川県 横浜市 / 製造業 で `_tmp_pdf_content_verify.mjs` 実行。
+
+### Check
+- ✅ 本文: `本レポートは <strong>神奈川県 横浜市</strong>...`
+- ✅ KPI K2: `kpi-value">神奈川県 横浜市`
+- ✅ 表 2-C 通勤流入元 描画
+- ✅ 表 6-C 人口移動 + insight 出力
+- ✅ 英語ラベル残 0 件
+
+### Act
+3 地域 (藤岡市 / 新宿区 / 横浜市) すべてで selected_pref/muni 優先成立。Issue 1 修正は地域に依存せず一般成立を実証。
+
+---
+
+## Cycle 8 (✅ 完了): Regression 防止テスト追加 (不変条件)
+
+### Plan
+Skill 「不変条件で逆証明」適用。compose_target_region の selected 優先動作を 5 つの不変条件として固定化、リグレッション防止。
+
+### Do
+`region.rs::round12_master_tests::compose_target_region_selected_overrides_dominant` を追加 (5 assert)。
+
+### 5 不変条件
+1. selected (両方あり) > dominant 上書き (= 群馬県藤岡市が埼玉県さいたま市を override)
+2. selected_pref のみ → pref のみ表示 (dominant_muni 継承せず)
+3. selected 両方空 → dominant fallback (件数最多)
+4. dominant も selected も空 → "全国"
+5. dominant=None でも selected があれば selected
+
+### Check
+- cargo test → **1437 passed / 0 failed** (新規 1 件、regression なし)
+
+### Act
+- commit: 1077d3b
+- push: origin/main
+- 将来 compose_target_region に変更が入っても assert で意図逸脱を即検出
+
+### 副次的修正
+`_tmp_pdf_content_verify.mjs` の verify regex を 3 site (表紙 cs-num / 本文 exec-headline / KPI) 別に分離し、false negative を解消。
+
+---
+
+## Cycle 5 (✅ 完了): 最終総括 + Skill 適用 + ドキュメント固定
 
 ### Plan
 Cycle 1-4 で 4 issues 全件解消の本番検証完了。最終総括として:
@@ -163,21 +232,59 @@ Cycle 1-4 で 4 issues 全件解消の本番検証完了。最終総括として
 
 ---
 
-## 進行中のコミット履歴
+## 最終コミット履歴 (本 PDCA round)
 
 ```
-7db9723 fix(report): label_for_column 22+ + histogram label stagger + table overflow
-a224e7c fix(report): selected_pref/muni が「主要地域」に優先反映 (Critical user feedback)
-24a7d4b fix(ux): industry_name display + 表 4-B fallback + 「人」→「名」(Team D/E)
-c5af649 fix(panic-safety): defensive unwrap_or for 9 dynamic-input unwrap() (Team B)
-195d5ac fix(data-integrity): correct 4 SQL alias/column mismatches (Team C critical)
+1077d3b test(region): selected_pref/muni 優先の不変条件テスト追加 (Cycle 8)
+1e078ec docs(pdca): 2026-05-18 レポート 4 issues 全件解消 PDCA 記録 (Cycle 5)
+7db9723 fix(report): label_for_column 22+ + histogram label stagger + table overflow (Cycle 2)
+a224e7c fix(report): selected_pref/muni が「主要地域」に優先反映 (Cycle 1)
 ```
 
 ---
 
-## Next (Cycle 3 完了次第)
+## 全 Cycle サマリ
 
-1. Cycle 3 検証結果を本ドキュメントに追記
-2. Cycle 4: Issue 4 root cause 修正
-3. Cycle 5: 逆証明 (別地域)
-4. (将来) Cycle 6+: Skill review の自動化、hooks 強化
+| Cycle | 内容 | Output |
+|-------|------|--------|
+| 1 | Issue 1 (主要地域) 修正 | commit a224e7c |
+| 2 | Issue 2 (ヒストグラム y-stagger) + Issue 3 (label 29 件 + overflow) | commit 7db9723 |
+| 3 | 本番 PDF verify (藤岡市/運輸業) | 全 issue 解消確認 |
+| 4 | 逆証明 (東京都新宿区/サービス業) | 一般成立確認 |
+| 5 | docs/PDCA_2026_05_18 commit | commit 1e078ec |
+| 6 | 横展開検査 (`agg.dominant_*` 直接読 全件 grep) | 漏れなし確認 (screen path は意図的) |
+| 7 | 逆証明 (神奈川県横浜市/製造業) | 政令市でも成立確認 |
+| 8 | Regression 防止テスト 5 不変条件 | commit 1077d3b、1437 passed |
+| 9 | 本ドキュメント更新 | (本 commit) |
+| 10 | (予備) | — |
+
+User 指示 「最低 5 回 PDCA」を 8 cycle で達成。
+
+---
+
+## Skill 遵守 確認 (audit-numeric-anomaly)
+
+| Layer | 適用内容 |
+|-------|---------|
+| -1 ユーザー操作前提テスト | Playwright UI 経由 (filter / industry select / CSV upload / 3 地域分) |
+| 0 デプロイ反映確認 | Last-Modified `2026-05-18 16:13:11 GMT` 実測 |
+| 1 データ層 | compose_target_region 入出力範囲 + agg/seeker 構造確認 |
+| 2 計算層 | caller chain (mod.rs → executive_summary → helpers) 全件 grep + 横展開検査 |
+| 3 表示層 | HTML 実出力で grep 検証 (3 地域分 + 3 サイト × 5 不変条件) |
+| 完了マーカー | `.audit_numeric_done` touch (cycle 5, 8 で更新) |
+
+---
+
+## User 指示への対応
+
+| 指示 | 実施 |
+|------|------|
+| 「最低 5 回 PDCA 深掘り繰り返し」 | ✅ 8 cycle 実施 (10 まで budget あり、残 2 cycle 予備) |
+| 「逆証明することでロジック検証」 | ✅ Cycle 4 (新宿区) + Cycle 7 (横浜市) + Cycle 8 (5 不変条件 assert) |
+| 「ドキュメントに残して保存」 | ✅ 本ファイル、commit 1e078ec / 1077d3b で永続化 |
+| 「Skill によるレビュー」 | ✅ Layer -1 ~ 3 全て適用、marker touch 済 |
+| 「アプリの選択地域 (藤岡市) が反映されない」 | ✅ Cycle 1 で修正、Cycle 3 で本番検証 |
+| 「件数最多が主要地域に強制」 | ✅ Cycle 1 修正で解消、Cycle 8 で不変条件固定 |
+| 「近隣・流出入が反映されない」 | ✅ Issue 1 の副作用と判明、自動解消 |
+| 「ヒストグラム重なり」 | ✅ Cycle 2 で y-stagger 実装、Cycle 3 で SVG y="8/20/32" 確認 |
+| 「英語ラベル残 / 表はみ出し」 | ✅ Cycle 2 で label 29 件 + CSS overflow 対策、Cycle 3 で英語残 0 確認 |
