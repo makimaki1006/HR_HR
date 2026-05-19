@@ -569,28 +569,8 @@ fn render_action_bar(session_id: &str) -> String {
                 統合分析を最初に実行することを推奨します。HW・外部統計と突き合わせた相対評価により、本CSVの位置付けが明確になります。
             </p>
         </section>
-        <script>
-        async function downloadReportHtml(sessionId) {{
-            try {{
-                const url = sessionId
-                    ? '/report/survey/download?session_id=' + encodeURIComponent(sessionId)
-                    : '/report/survey/download';
-                const res = await fetch(url);
-                if (!res.ok) {{ alert('HTMLダウンロードに失敗しました (HTTP ' + res.status + ')'); return; }}
-                const blob = await res.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = 'hellowork_report_' + new Date().toISOString().slice(0, 10) + '.html';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(blobUrl);
-            }} catch (e) {{
-                alert('HTMLダウンロードでエラーが発生しました: ' + e.message);
-            }}
-        }}
-        </script>"##,
+        <!-- 2026-05-19: downloadReportHtml は templates/dashboard_inline.html へ移動。
+             HTMX 動的挿入の <script> は eval されない (openVariantReport と同根本原因)。 -->"##,
         sid = session_id
     )
 }

@@ -76,23 +76,10 @@ pub async fn tab_analysis(State(state): State<Arc<AppState>>, session: Session) 
 
     html.push_str("</div>"); // analysis-group-content
 
-    // グループ切替+サブタブ切替用JS
-    html.push_str(
-        r#"<script>
-function setAnalysisGroup(el) {
-    document.querySelectorAll('.analysis-group').forEach(function(btn) {
-        btn.classList.remove('active');
-    });
-    el.classList.add('active');
-}
-function setAnalysisSubtab(el) {
-    document.querySelectorAll('.analysis-subtab').forEach(function(btn) {
-        btn.classList.remove('active');
-    });
-    el.classList.add('active');
-}
-</script>"#,
-    );
+    // 2026-05-19: setAnalysisGroup / setAnalysisSubtab は templates/dashboard_inline.html へ移動。
+    // HTMX 動的挿入の <script> は eval されない (openVariantReport と同根本原因)。
+    // 移動先では .analysis-subtab を closest('.flex') scope で active 切替するよう改善
+    // (元コードは document.querySelectorAll で全タブの active までクリアする副作用あり)。
 
     html.push_str(r##"<div hx-get="/api/insight/widget/analysis" hx-trigger="load" hx-swap="innerHTML"></div>"##);
 
