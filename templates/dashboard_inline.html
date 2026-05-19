@@ -234,6 +234,37 @@
                 }
             };
 
+            // 2026-05-19: openVariantReport は元々 survey の HTMX 挿入レンダラ
+            //   (src/handlers/survey/render.rs) 内 <script> タグで定義していたが、
+            //   HTMX で動的挿入された <script> は eval されない → onclick で参照
+            //   した時点で ReferenceError、結果 static href (pref/muni 含まず) に
+            //   フォールバック navigate されていた。
+            //   初期 page load で評価される本ファイルに移動して window に登録する。
+            window.openVariantReport = function(ev, sid, variant) {
+                try {
+                    var pref = (document.getElementById('pref-select') || {}).value || '';
+                    var muni = (document.getElementById('muni-select') || {}).value || '';
+                    var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
+                        ? window._selectedIndustryRaws : [];
+                    var jobTypes = (typeof window._selectedJobTypes !== 'undefined' && Array.isArray(window._selectedJobTypes))
+                        ? window._selectedJobTypes : [];
+                    var industry = industries.length > 0
+                        ? industries[0]
+                        : (jobTypes.length > 0 ? jobTypes[0] : '');
+                    var url = '/report/survey?session_id=' + encodeURIComponent(sid)
+                        + '&variant=' + encodeURIComponent(variant);
+                    if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
+                    if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
+                    if (industry) url += '&industry=' + encodeURIComponent(industry);
+                    if (ev) ev.preventDefault();
+                    window.open(url, '_blank', 'noopener');
+                    return false;
+                } catch (e) {
+                    console.error('openVariantReport failed', e);
+                    return true;
+                }
+            };
+
             // 外クリックで閉じる
             document.addEventListener('click', function(e) {
                 var container = document.getElementById('industry-dropdown-container');
