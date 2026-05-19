@@ -545,47 +545,10 @@ fn render_action_bar(session_id: &str) -> String {
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
                     通常のPDF出力は<strong class="text-slate-200">採用コンサルレポート</strong>に統一しました。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
                 </p>
-                <script>
-                /* 2026-04-29: グローバルフィルタの値を読んでレポート URL に付与 */
-                if (typeof window.openVariantReport !== 'function') {{
-                    window.openVariantReport = function(ev, sid, variant) {{
-                        try {{
-                            var pref = (document.getElementById('pref-select') || {{}}).value || '';
-                            var muni = (document.getElementById('muni-select') || {{}}).value || '';
-                            /* 2026-05-15: _selectedIndustryRaws は dashboard_inline.html の
-                             * DOMContentLoaded コールバック内で var 宣言されており、別 script
-                             * タグ (本コード) から直接参照すると undefined。
-                             * window._selectedIndustryRaws (同コールバックで明示登録済) を
-                             * 経由で読むよう変更。
-                             *
-                             * 2026-05-15 追加修正: _selectedIndustryRaws は **中分類 sub** 専用、
-                             * _selectedJobTypes が **大分類 major**。ユーザーが大分類だけを
-                             * チェックすると _selectedIndustryRaws=[] のまま、_selectedJobTypes=[major]
-                             * になる。industry URL クエリには両方を考慮して、sub 優先、なければ
-                             * major (大分類名) を渡す。backend の map_hw_to_major_industry は
-                             * 「運輸業」のような大分類名も正しく正規化できる。 */
-                            var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
-                                ? window._selectedIndustryRaws : [];
-                            var jobTypes = (typeof window._selectedJobTypes !== 'undefined' && Array.isArray(window._selectedJobTypes))
-                                ? window._selectedJobTypes : [];
-                            var industry = industries.length > 0
-                                ? industries[0]
-                                : (jobTypes.length > 0 ? jobTypes[0] : '');
-                            var url = '/report/survey?session_id=' + encodeURIComponent(sid)
-                                + '&variant=' + encodeURIComponent(variant);
-                            if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
-                            if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
-                            if (industry) url += '&industry=' + encodeURIComponent(industry);
-                            if (ev) ev.preventDefault();
-                            window.open(url, '_blank', 'noopener');
-                            return false;
-                        }} catch (e) {{
-                            console.error('openVariantReport failed', e);
-                            return true; /* fallback to static href */
-                        }}
-                    }};
-                }}
-                </script>
+                <!-- 2026-05-19: openVariantReport は templates/dashboard_inline.html へ移動。
+                     HTMX で動的挿入された <script> は eval されないため、ここで定義すると
+                     onclick 実行時に ReferenceError → static href (pref/muni 無し) に
+                     フォールバック navigate されていた。 -->
             </div>
             <!-- セカンダリ動線: ボタングループ化（HTMLダウンロード + 別CSV） -->
             <div class="flex flex-wrap gap-2" role="group" aria-label="その他の出力">
