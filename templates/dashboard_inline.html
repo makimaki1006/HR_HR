@@ -265,6 +265,128 @@
                 }
             };
 
+            // 2026-05-19 同種バグ対応 (Round 2): HTMX 動的挿入される handler 内の
+            //   <script> で定義されていた function 7 件を初期 page load 側に移動。
+            //   eval 不発の同種バグを一括解消。MECE 監査 (agent 検出 8 件中
+            //   openVariantReport を除く残り 7 件)。
+            //   元位置:
+            //     - downloadReportHtml: src/handlers/survey/render.rs:573 (button DL)
+            //     - showCompanyTab: src/handlers/company/render.rs:216 (subtab 切替)
+            //     - downloadComparisonCsv: src/handlers/comparison/render.rs:309
+            //     - navigateToKarte: src/handlers/comparison/render.rs:331
+            //     - setAnalysisGroup: src/handlers/analysis/handlers.rs:82
+            //     - setAnalysisSubtab: src/handlers/analysis/handlers.rs:88
+            //     - setTrendSubtab: src/handlers/trend/handlers.rs:58
+            //     - setInsightSubtab: src/handlers/insight/handlers.rs:83
+            window.downloadReportHtml = async function(sessionId) {
+                try {
+                    var url = sessionId
+                        ? '/report/survey/download?session_id=' + encodeURIComponent(sessionId)
+                        : '/report/survey/download';
+                    var res = await fetch(url);
+                    if (!res.ok) { alert('HTMLダウンロードに失敗しました (HTTP ' + res.status + ')'); return; }
+                    var blob = await res.blob();
+                    var blobUrl = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = 'hellowork_report_' + new Date().toISOString().slice(0, 10) + '.html';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                } catch (e) {
+                    alert('HTMLダウンロードでエラーが発生しました: ' + e.message);
+                }
+            };
+
+            window.showCompanyTab = function(idx) {
+                document.querySelectorAll('.company-tab-panel').forEach(function(p) {
+                    p.style.display = p.getAttribute('data-company-panel') == idx.toString() ? '' : 'none';
+                });
+                document.querySelectorAll('#company-subtab-nav button').forEach(function(b) {
+                    if (b.getAttribute('data-company-tab') == idx.toString()) {
+                        b.className = 'px-3 py-1.5 text-xs rounded bg-blue-600 text-white font-medium transition-colors';
+                    } else {
+                        b.className = 'px-3 py-1.5 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors';
+                    }
+                });
+                var panel = document.querySelector('.company-tab-panel[data-company-panel="' + idx + '"]');
+                if (panel && typeof initECharts === 'function') {
+                    setTimeout(function() { initECharts(panel); }, 50);
+                }
+            };
+
+            window.downloadComparisonCsv = function() {
+                var rows = [['順位','都道府県','求人件数','月給下限平均(円)','正社員比率(%)','事業所数','給与開示率(%)']];
+                document.querySelectorAll('#comparison-table tbody tr').forEach(function(tr, idx) {
+                    var tds = tr.querySelectorAll('td');
+                    rows.push([
+                        idx + 1,
+                        tds[1].textContent.trim(),
+                        tds[2].textContent.replace(/[^0-9-]/g, '').trim(),
+                        tds[3].textContent.replace(/[^0-9-]/g, '').trim(),
+                        tds[4].textContent.replace('%', '').trim(),
+                        tds[5].textContent.replace(/[^0-9-]/g, '').trim(),
+                        tds[6].textContent.replace('%', '').trim()
+                    ]);
+                });
+                var bom = '﻿';
+                var csv = bom + rows.map(function(r) {
+                    return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+                }).join('\r\n');
+                var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = 'prefecture_comparison.csv'; a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            window.navigateToKarte = function(pref) {
+                var prefSel = document.getElementById('pref-select');
+                if (prefSel) {
+                    prefSel.value = pref;
+                    if (typeof setPrefecture === 'function') {
+                        setPrefecture(prefSel);
+                    } else {
+                        fetch('/api/set_prefecture', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'prefecture=' + encodeURIComponent(pref)
+                        }).then(function() {
+                            htmx.ajax('GET', '/tab/region_karte', { target: '#content', swap: 'innerHTML' });
+                        });
+                        return;
+                    }
+                }
+                htmx.ajax('GET', '/tab/region_karte', { target: '#content', swap: 'innerHTML' });
+            };
+
+            // setAnalysisGroup: .analysis-group 内 active 切替 (closest('.flex') scope)
+            window.setAnalysisGroup = function(el) {
+                if (!el) return;
+                var scope = el.closest('.flex') || document;
+                scope.querySelectorAll('.analysis-group').forEach(function(btn) {
+                    btn.classList.remove('active');
+                });
+                el.classList.add('active');
+            };
+
+            // setAnalysisSubtab / setTrendSubtab / setInsightSubtab は同一実装
+            // (.analysis-subtab を closest('.flex') の scope で active 切替)。
+            // 元コードでは setAnalysisSubtab が document.querySelectorAll で全 .analysis-subtab
+            // を対象としていたが、複数タブ存在時に他タブの active までクリアする副作用が
+            // あった。closest('.flex') scope に統一。
+            window.setAnalysisSubtab = function(el) {
+                if (!el) return;
+                var scope = el.closest('.flex') || document;
+                scope.querySelectorAll('.analysis-subtab').forEach(function(btn) {
+                    btn.classList.remove('active');
+                });
+                el.classList.add('active');
+            };
+            window.setTrendSubtab = window.setAnalysisSubtab;
+            window.setInsightSubtab = window.setAnalysisSubtab;
+
             // 外クリックで閉じる
             document.addEventListener('click', function(e) {
                 var container = document.getElementById('industry-dropdown-container');

@@ -303,54 +303,8 @@ fn render_comparison_html(
         </div>"#,
     );
 
-    // === JS: CSV ダウンロード + カルテ遷移 ===
-    html.push_str(
-        r#"<script>
-        function downloadComparisonCsv() {
-            var rows = [['順位','都道府県','求人件数','月給下限平均(円)','正社員比率(%)','事業所数','給与開示率(%)']];
-            document.querySelectorAll('#comparison-table tbody tr').forEach(function(tr, idx){
-                var tds = tr.querySelectorAll('td');
-                rows.push([
-                    idx+1,
-                    tds[1].textContent.trim(),
-                    tds[2].textContent.replace(/[^0-9-]/g,'').trim(),
-                    tds[3].textContent.replace(/[^0-9-]/g,'').trim(),
-                    tds[4].textContent.replace('%','').trim(),
-                    tds[5].textContent.replace(/[^0-9-]/g,'').trim(),
-                    tds[6].textContent.replace('%','').trim()
-                ]);
-            });
-            var bom = '﻿';
-            var csv = bom + rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','); }).join('\r\n');
-            var blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
-            var url = URL.createObjectURL(blob);
-            var a = document.createElement('a');
-            a.href = url; a.download = 'prefecture_comparison.csv'; a.click();
-            URL.revokeObjectURL(url);
-        }
-        function navigateToKarte(pref) {
-            // 都道府県セレクタを切り替え、地域カルテタブへ移動
-            var prefSel = document.getElementById('pref-select');
-            if (prefSel) {
-                prefSel.value = pref;
-                // 既存の switchLocation 関数を呼ぶ（ある場合）
-                if (typeof setPrefecture === 'function') {
-                    setPrefecture(prefSel);
-                } else {
-                    fetch('/api/set_prefecture', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                        body: 'prefecture=' + encodeURIComponent(pref)
-                    }).then(function(){
-                        htmx.ajax('GET', '/tab/region_karte', {target:'#content', swap:'innerHTML'});
-                    });
-                    return;
-                }
-            }
-            htmx.ajax('GET', '/tab/region_karte', {target:'#content', swap:'innerHTML'});
-        }
-        </script>"#,
-    );
+    // 2026-05-19: downloadComparisonCsv / navigateToKarte は templates/dashboard_inline.html へ移動。
+    // HTMX 動的挿入の <script> は eval されない (openVariantReport と同根本原因)。
 
     html.push_str("</div>");
     html

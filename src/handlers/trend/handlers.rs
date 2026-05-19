@@ -52,17 +52,8 @@ pub async fn tab_trend(State(state): State<Arc<AppState>>, session: Session) -> 
     html.push_str(&subtab1_content);
     html.push_str("</div>");
 
-    // サブタブ切替用JS
-    html.push_str(
-        r#"<script>
-function setTrendSubtab(el) {
-    el.closest('.flex').querySelectorAll('.analysis-subtab').forEach(function(btn) {
-        btn.classList.remove('active');
-    });
-    el.classList.add('active');
-}
-</script>"#,
-    );
+    // 2026-05-19: setTrendSubtab は templates/dashboard_inline.html へ移動
+    // (setAnalysisSubtab のエイリアス)。HTMX 動的挿入の <script> は eval されない。
 
     html.push_str(
         r#"<div hx-get="/api/insight/widget/trend" hx-trigger="load" hx-swap="innerHTML"></div>"#,

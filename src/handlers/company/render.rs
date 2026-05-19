@@ -211,28 +211,8 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
         escape_html(&ctx.corporate_number)
     ).unwrap();
 
-    // サブタブ切り替えJavaScript
-    html.push_str(r##"<script>
-function showCompanyTab(idx) {
-    // パネル切り替え
-    document.querySelectorAll('.company-tab-panel').forEach(function(p) {
-        p.style.display = p.getAttribute('data-company-panel') == idx.toString() ? '' : 'none';
-    });
-    // ボタンスタイル切り替え
-    document.querySelectorAll('#company-subtab-nav button').forEach(function(b) {
-        if (b.getAttribute('data-company-tab') == idx.toString()) {
-            b.className = 'px-3 py-1.5 text-xs rounded bg-blue-600 text-white font-medium transition-colors';
-        } else {
-            b.className = 'px-3 py-1.5 text-xs rounded bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors';
-        }
-    });
-    // EChartsの再初期化（非表示→表示でサイズがおかしくなる対策）
-    var panel = document.querySelector('.company-tab-panel[data-company-panel="' + idx + '"]');
-    if (panel && typeof initECharts === 'function') {
-        setTimeout(function() { initECharts(panel); }, 50);
-    }
-}
-</script>"##);
+    // 2026-05-19: showCompanyTab は templates/dashboard_inline.html へ移動。
+    // HTMX 動的挿入の <script> は eval されない (openVariantReport と同根本原因)。
 
     html
 }
