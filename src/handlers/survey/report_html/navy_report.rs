@@ -4165,6 +4165,12 @@ fn label_for_column(key: &str) -> &str {
         "smartphone_ownership_rate" => "スマホ所有率(%)",
         "daycare_facilities" => "保育所数",
         "monthly_amount" => "月額(円)",
+        // 2026-05-20: 表 6-E 労働力統計詳細で未マップだった 4 件を追加
+        "monthly_salary_male" => "月給(男)",
+        "monthly_salary_female" => "月給(女)",
+        "part_time_wage_male" => "パート時給(男)",
+        "part_time_wage_female" => "パート時給(女)",
+        "turnover_rate" => "離職率(%)",
         _ => key,
     }
 }
