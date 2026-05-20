@@ -4171,6 +4171,8 @@ fn label_for_column(key: &str) -> &str {
         "part_time_wage_male" => "パート時給(男)",
         "part_time_wage_female" => "パート時給(女)",
         "turnover_rate" => "離職率(%)",
+        // 2026-05-20 追加: 別 session で出現した 1 件 (single_household_elderly と語順違い)
+        "elderly_single_households" => "高齢単身世帯",
         _ => key,
     }
 }
