@@ -4173,6 +4173,41 @@ fn label_for_column(key: &str) -> &str {
         "turnover_rate" => "離職率(%)",
         // 2026-05-20 追加: 別 session で出現した 1 件 (single_household_elderly と語順違い)
         "elderly_single_households" => "高齢単身世帯",
+        // 2026-05-20 MECE 監査: 全 v2_external_* テーブルの SELECT 句から未マップ列を網羅追加
+        // 出典: agent (general-purpose) による SQL 抽出 + label_for_column diff
+        // 優先度 A: 現在 build_navy_auto_table 経由可能性高
+        "working_hours_male" => "労働時間(男, h)",
+        "working_hours_female" => "労働時間(女, h)",
+        // 優先度 B: 将来 build_navy_auto_table 経由になった際の保険
+        "age_group" => "年齢階級",
+        "avg_monthly_wage" => "平均月収(円)",
+        "avg_price_per_sqm" => "平均地価(円/m²)",
+        "cars_per_100people" => "自動車保有(/100人)",
+        "city_code" => "市区町村コード",
+        "city_name" => "市区町村名",
+        "di_type" => "DI種別",
+        "di_value" => "DI値",
+        "employees_female" => "従業者(女)",
+        "employees_male" => "従業者(男)",
+        "enterprise_size" => "企業規模",
+        "fulfillment_rate" => "充足率(%)",
+        "household_type" => "世帯類型",
+        "industry_j" => "産業(日本語)",
+        "job_change_desire_rate" => "転職希望率(%)",
+        "land_use" => "用途区分",
+        "non_regular_rate" => "非正規率(%)",
+        "point_count" => "地点数",
+        // 既登録の precipitation_mm / rainfall_mm と意味同じだが DB 実体は _mm サフィックス無し
+        "precipitation" => "降水量(mm)",
+        "prefecture_code" => "都道府県コード",
+        "price_index" => "物価指数",
+        "ratio" => "構成比(%)",
+        "real_wage_index" => "実質賃金指数",
+        "result_type" => "結果種別",
+        "survey_date" => "調査日",
+        "survey_period" => "調査期",
+        "visa_status" => "在留資格",
+        "yoy_change_pct" => "前年比(%)",
         _ => key,
     }
 }
