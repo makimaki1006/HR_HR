@@ -103,26 +103,34 @@ pub(crate) fn info_score_color(score: f64) -> &'static str {
     }
 }
 
+// 2026-05-21: DB と Rust の言語乖離修正。
+// scripts/compute_v2_text.py の KEYWORD_CATEGORIES が日本語キー
+// ("急募系"/"未経験系"/"待遇系"/"WLB系"/"成長系"/"安定系") で書き込んでいるのに対し、
+// 旧コードは英語キー ("urgent"/"inexperienced"/...) を想定していたため、match が
+// 一切ヒットせず color が全件 gray (#94a3b8) fallback、label は cat passthrough で
+// 結果的に日本語が出るものの色効果が完全に失われていた。
 pub(crate) fn keyword_category_label(cat: &str) -> &str {
+    // 識別キーが日本語のため label は基本的に同値返しだが、将来 DB 側で表記揺れが
+    // 入った場合の正規化ポイントとして関数を残す (例: "WLB" → "WLB系")。
     match cat {
-        "urgent" => "急募系",
-        "inexperienced" => "未経験系",
-        "benefits" => "待遇系",
-        "wlb" => "WLB系",
-        "growth" => "成長系",
-        "stability" => "安定系",
+        "急募系" => "急募系",
+        "未経験系" => "未経験系",
+        "待遇系" => "待遇系",
+        "WLB系" => "WLB系",
+        "成長系" => "成長系",
+        "安定系" => "安定系",
         _ => cat,
     }
 }
 
 pub(crate) fn keyword_category_color(cat: &str) -> &str {
     match cat {
-        "urgent" => "#ef4444",
-        "inexperienced" => "#f97316",
-        "benefits" => "#22c55e",
-        "wlb" => "#3b82f6",
-        "growth" => "#a855f7",
-        "stability" => "#14b8a6",
+        "急募系" => "#ef4444",
+        "未経験系" => "#f97316",
+        "待遇系" => "#22c55e",
+        "WLB系" => "#3b82f6",
+        "成長系" => "#a855f7",
+        "安定系" => "#14b8a6",
         _ => "#94a3b8",
     }
 }
