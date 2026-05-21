@@ -208,3 +208,119 @@ else:
         first = locs[0] if locs else (None, 0, "")
         print(f"{c}\t{','.join(tbls)}\t{os.path.basename(first[0]) if first[0] else ''}:{first[1]}")
 
+
+# ===========================================================================
+# 2026-05-21 拡張: Python ETL ↔ Rust match cross-check
+# ===========================================================================
+# 背景: 2026-05-21 keyword_category 言語乖離事故 (Python ETL は日本語キー
+# "急募系" 等で書込み、Rust match は英語キー "urgent" 等を想定 → 全件 silent
+# fallback)。同種の乖離を機械的に検出するため、定義済みの対応表を
+# cross-check する。
+#
+# 対応表: (ETL ファイル, ETL の dict / list 変数名, Rust ファイル, Rust 関数名)
+# 新規追加時はここに 1 行加えるだけで cross-check が走る。
+print()
+print("=== PYTHON ETL vs RUST MATCH CROSS-CHECK ===")
+
+ETL_RUST_PAIRS = [
+    {
+        "name": "keyword_category",
+        "etl_file": "scripts/compute_v2_text.py",
+        "etl_var": "KEYWORD_CATEGORIES",
+        "rust_files": [
+            ("src/handlers/analysis/helpers.rs", "keyword_category_label"),
+            ("src/handlers/analysis/helpers.rs", "keyword_category_color"),
+        ],
+    },
+    # 新規追加時はここに append。
+    # 例: {"name": "severity", "etl_file": "...", "etl_var": "SEVERITY_LEVELS",
+    #      "rust_files": [("...", "severity_label")]},
+]
+
+def extract_python_dict_keys(file_path, var_name):
+    """Python ソースから `VAR_NAME = {...}` の辞書キーを **AST 解析で** 抽出。
+    regex 解析だと dict value 内 (例: re.compile(r"急募|すぐ") の引数) の文字列も
+    拾ってしまうので、ast モジュールで厳密に Dict.keys だけを取り出す。"""
+    if not os.path.exists(file_path):
+        return None
+    import ast
+    src = open(file_path, "r", encoding="utf-8").read()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == var_name:
+                    if isinstance(node.value, ast.Dict):
+                        keys = set()
+                        for k in node.value.keys:
+                            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                keys.add(k.value)
+                        return keys
+                    if isinstance(node.value, (ast.List, ast.Tuple, ast.Set)):
+                        keys = set()
+                        for elt in node.value.elts:
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                keys.add(elt.value)
+                        return keys
+    return None
+
+
+def extract_rust_match_keys(file_path, fn_name):
+    """Rust ソースから `fn fn_name(...) { match x { ... } }` の match キーを抽出。"""
+    if not os.path.exists(file_path):
+        return None
+    src = open(file_path, "r", encoding="utf-8").read()
+    # fn FN_NAME ... match ... { ... _ => ... }
+    m = re.search(rf"fn\s+{re.escape(fn_name)}\s*\([\s\S]*?match\s+\w+\s*\{{([\s\S]*?)\n\s*_\s*=>", src)
+    if not m:
+        return None
+    body = m.group(1)
+    # 各 arm の左辺 "xxx" => ... を抽出
+    keys = set()
+    for line in body.splitlines():
+        if "=>" not in line:
+            continue
+        lhs = line.split("=>", 1)[0]
+        for sm in re.finditer(r'"([^"]+)"', lhs):
+            keys.add(sm.group(1))
+    return keys
+
+
+cross_check_total = 0
+cross_check_mismatch = 0
+for pair in ETL_RUST_PAIRS:
+    print()
+    print(f"--- {pair['name']} ---")
+    etl_keys = extract_python_dict_keys(pair["etl_file"], pair["etl_var"])
+    if etl_keys is None:
+        print(f"  [WARN]ETL 抽出失敗: {pair['etl_file']} の {pair['etl_var']} が見つからない")
+        continue
+    print(f"  ETL ({pair['etl_var']}): {sorted(etl_keys)}")
+    for rust_file, rust_fn in pair["rust_files"]:
+        cross_check_total += 1
+        rust_keys = extract_rust_match_keys(rust_file, rust_fn)
+        if rust_keys is None:
+            print(f"  [WARN]Rust 抽出失敗: {rust_file}::{rust_fn}")
+            continue
+        only_in_etl = etl_keys - rust_keys
+        only_in_rust = rust_keys - etl_keys
+        if not only_in_etl and not only_in_rust:
+            print(f"  [OK]{rust_fn}: 一致 ({len(etl_keys)} keys)")
+        else:
+            cross_check_mismatch += 1
+            print(f"  [NG]{rust_fn}: 乖離あり")
+            if only_in_etl:
+                print(f"     ETL のみに存在 (Rust 未対応 → silent fallback): {sorted(only_in_etl)}")
+            if only_in_rust:
+                print(f"     Rust のみに存在 (ETL 出力なし、デッドコード?): {sorted(only_in_rust)}")
+
+print()
+print(f"=== CROSS-CHECK SUMMARY: {cross_check_total - cross_check_mismatch}/{cross_check_total} 一致 ===")
+if cross_check_mismatch > 0:
+    print(f"[WARN] {cross_check_mismatch} 件の乖離あり (上記参照)")
+else:
+    print("[OK] 全 pair 整合")
+

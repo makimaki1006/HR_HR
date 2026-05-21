@@ -160,6 +160,12 @@ fn render_insight_card(insight: &Insight) -> String {
     if !insight.related_tabs.is_empty() {
         html.push_str(r#"<div class="flex gap-2 mt-2">"#);
         for tab in &insight.related_tabs {
+            // 2026-05-21: engine.rs / engine_flow.rs の related_tabs Vec で
+            // "demographics" がハードコードされているが label match に未定義 →
+            // 「demographics→」と英語のまま表示されていた。"人口" を追加。
+            // 同種の future-proofing として: 新規 related_tabs 値を追加する際は
+            // 必ず本 match arm にも追加する規約 (scripts/audit_columns.py に
+            // related_tabs ↔ tab_label の整合性チェック追加予定)。
             let tab_label = match *tab {
                 "overview" => "概況",
                 "balance" => "需給",
@@ -171,6 +177,7 @@ fn render_insight_card(insight: &Insight) -> String {
                 "diagnostic" => "診断",
                 "insight" => "総合診断",
                 "survey" => "媒体分析",
+                "demographics" => "人口",
                 _ => tab,
             };
             write!(html,

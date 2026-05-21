@@ -633,11 +633,18 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
     html.push_str("</div>");
 
     // データ信頼性インジケータ
-    let reliability_color = match stats.reliability.as_str() {
-        "高" => "text-emerald-400",
-        "中" => "text-amber-400",
-        _ => "text-slate-400",
-    };
+    // 2026-05-21: statistics.rs:319-323 が英語 ("high"/"medium"/"low"/"very_low")
+    // で reliability を返しているにも関わらず、ここの match は日本語キー想定
+    // ("高"/"中") + escape_html(&stats.reliability) で生の英語表示 → 全件 gray +
+    // 英語残。英語キーに揃えて color + 日本語 label を 1 経路で取得するよう修正。
+    let (reliability_color, reliability_label): (&str, &str) =
+        match stats.reliability.as_str() {
+            "high" => ("text-emerald-400", "高"),
+            "medium" => ("text-amber-400", "中"),
+            "low" => ("text-orange-400", "低"),
+            "very_low" => ("text-red-400", "極低"),
+            other => ("text-slate-400", other), // 想定外の値はそのまま (silent fallback で英語残検知用)
+        };
     write!(
         html,
         r#"<div class="flex items-center gap-3 mt-3 text-xs">
@@ -646,7 +653,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
             <span class="text-slate-600">(有効 n={n})</span>
         </div>"#,
         rc = reliability_color,
-        rel = escape_html(&stats.reliability),
+        rel = escape_html(reliability_label),
         n = stats.count,
     )
     .unwrap();

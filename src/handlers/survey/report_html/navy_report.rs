@@ -471,6 +471,17 @@ fn build_findings(
     v
 }
 
+/// severity tag → 表示用 3 文字英略語ラベル
+///
+/// 2026-05-21 docstring 追加: 本関数は他の i18n / label 関数と異なり、出力自体が
+/// **意図的に英語短縮形** ("POS"/"WARN"/"NEG"/"NEU") である (採用コンサル
+/// レポートのバッジ表示で短く統一するため、navy_report.rs 全体の意匠決定)。
+/// `_ => "NEU"` は silent fallback ではなく明示的な「中立」マッピング。
+///
+/// 新規 severity 種別 (例: "critical") を追加する場合は以下も同時に確認:
+/// - `build_business_findings` / `build_geo_findings` 等の sev tag 生成側
+/// - 配色 CSS (`.tag-pos`, `.tag-warn`, `.tag-neg`, `.tag-neu`)
+/// 上記を更新せず本 match だけ広げると silent fallback と同じパターンに陥る。
 fn severity_label(tag: &str) -> &'static str {
     match tag {
         "pos" => "POS",
