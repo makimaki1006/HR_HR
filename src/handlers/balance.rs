@@ -294,13 +294,17 @@ fn fetch_balance(db: &LocalDb, filters: &SessionFilters) -> BalanceStats {
         }
 
         // クロス集計
+        // 2026-05-21: 波線 (〜 U+301C) vs チルダ (~ U+007E) の文字種乖離修正。
+        // SQL CASE 式 (311-316) は波線 '〜' を生成しているのに、ここのキーは ASCII
+        // チルダ '~' だったため、pivot.get((jt, band)) が全件 None で fallback 0 →
+        // 産業×従業員規模スタック横棒グラフが silent に **全 0 描画** されていた。
         let size_bands_list = [
-            "~5人",
-            "6~20人",
-            "21~50人",
-            "51~100人",
-            "101~300人",
-            "300人~",
+            "〜5人",
+            "6〜20人",
+            "21〜50人",
+            "51〜100人",
+            "101〜300人",
+            "300人〜",
         ];
         stats.size_bands = size_bands_list.iter().map(|s| s.to_string()).collect();
 
