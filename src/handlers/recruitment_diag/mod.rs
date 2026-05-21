@@ -81,7 +81,11 @@ pub(crate) fn expand_employment_type(ui_value: &str) -> Vec<&'static str> {
     match ui_value {
         "正社員" => vec!["正社員"],
         "パート" => vec!["パート労働者", "有期雇用派遣パート", "無期雇用派遣パート"],
-        "その他" => vec!["正社員以外", "派遣", "契約社員"],
+        // 2026-05-21: "業務委託" 追加。emp_classifier::expand_to_db_values(Other) は
+        // 4 要素 (正社員以外/派遣/契約社員/業務委託) なのに対し、ここの "その他" は
+        // 3 要素しかなく、recruitment_diag タブで「その他」フィルタ時に **業務委託求人が
+        // SQL IN 句から漏れる** silent data loss が発生していた。
+        "その他" => vec!["正社員以外", "派遣", "契約社員", "業務委託"],
         _ => vec![], // 空 = 全雇用形態
     }
 }
@@ -115,10 +119,13 @@ mod tests {
 
     #[test]
     fn expand_employment_other() {
-        // その他 → 正社員以外＋派遣
+        // その他 → 正社員以外 + 派遣 + 契約社員 + 業務委託 (2026-05-21 業務委託追加)
         let v = expand_employment_type("その他");
         assert!(v.contains(&"正社員以外"));
         assert!(v.contains(&"派遣"));
+        assert!(v.contains(&"契約社員"));
+        assert!(v.contains(&"業務委託"));
+        assert_eq!(v.len(), 4);
     }
 
     #[test]

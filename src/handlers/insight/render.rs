@@ -542,14 +542,22 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     if !actions.is_empty() {
         html.push_str("<h2>推奨アクション</h2><ol class=\"findings-list\">");
         for a in &actions {
+            // 2026-05-21: so_what 空文字時の silent UI bug 予防。
+            // generate_so_what が _ => String::new() で空文字を返した場合、
+            // 旧コードは "<li><strong>title</strong> </li>" と末尾空白だけ出力していた。
+            // 空時は title のみ表示してレイアウトを保つ。
             let so_what = super::report::generate_so_what(a);
-            write!(
-                html,
-                "<li><strong>{}</strong> {}</li>",
-                escape_html(&a.title),
-                escape_html(&so_what)
-            )
-            .unwrap();
+            if so_what.is_empty() {
+                write!(html, "<li><strong>{}</strong></li>", escape_html(&a.title)).unwrap();
+            } else {
+                write!(
+                    html,
+                    "<li><strong>{}</strong> {}</li>",
+                    escape_html(&a.title),
+                    escape_html(&so_what)
+                )
+                .unwrap();
+            }
         }
         html.push_str("</ol>");
     }
