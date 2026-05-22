@@ -127,8 +127,8 @@ fn append_industry_sqlval(
 pub(crate) fn fetch_markers(
     db: &LocalDb,
     filters: &SessionFilters,
-    _prefecture: &str,
-    _municipality: &str,
+    _pref: &str,
+    _muni: &str,
     employment_type: &str,
     salary_type: &str,
     lat: f64,
@@ -298,8 +298,8 @@ pub(crate) fn fetch_markers_by_bounds(
 pub(crate) fn fetch_markers_by_pref(
     db: &LocalDb,
     filters: &SessionFilters,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     employment_type: &str,
     salary_type: &str,
 ) -> (Vec<MarkerRow>, usize) {
@@ -308,14 +308,14 @@ pub(crate) fn fetch_markers_by_pref(
          salary_type, salary_min, salary_max \
          FROM postings WHERE prefecture = ? AND latitude IS NOT NULL",
     );
-    let mut param_values: Vec<String> = vec![prefecture.to_string()];
+    let mut param_values: Vec<String> = vec![pref.to_string()];
 
     // 産業フィルタ
     filters.append_industry_filter_str(&mut sql, &mut param_values);
 
-    if !municipality.is_empty() {
+    if !muni.is_empty() {
         sql.push_str(" AND municipality = ?");
-        param_values.push(municipality.to_string());
+        param_values.push(muni.to_string());
     }
     if !employment_type.is_empty() && employment_type != "全て選択" {
         sql.push_str(" AND employment_type = ?");
@@ -411,12 +411,12 @@ pub(crate) fn fetch_detail(db: &LocalDb, posting_id: i64) -> Option<DetailRow> {
 pub(crate) fn fetch_municipalities(
     db: &LocalDb,
     filters: &SessionFilters,
-    prefecture: &str,
+    pref: &str,
 ) -> Vec<String> {
     let mut sql = "SELECT DISTINCT municipality FROM postings \
          WHERE prefecture = ? AND municipality != ''"
         .to_string();
-    let mut param_values: Vec<String> = vec![prefecture.to_string()];
+    let mut param_values: Vec<String> = vec![pref.to_string()];
 
     filters.append_industry_filter_str(&mut sql, &mut param_values);
     sql.push_str(" ORDER BY municipality");
@@ -440,16 +440,16 @@ pub(crate) fn fetch_municipalities(
 /// 市区町村の中心座標を取得
 pub(crate) fn get_muni_center(
     local_db: &LocalDb,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
 ) -> Option<(f64, f64)> {
     let rows = local_db
         .query(
             "SELECT latitude, longitude FROM municipality_geocode \
              WHERE prefecture = ? AND municipality = ?",
             &[
-                &prefecture as &dyn rusqlite::types::ToSql,
-                &municipality as &dyn rusqlite::types::ToSql,
+                &pref as &dyn rusqlite::types::ToSql,
+                &muni as &dyn rusqlite::types::ToSql,
             ],
         )
         .ok()?;

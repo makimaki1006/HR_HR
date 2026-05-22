@@ -106,15 +106,15 @@ pub(crate) fn build_competitors(
     sn_db: &TursoDb,
     hw_db: Option<&LocalDb>,
     job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     limit: i64,
 ) -> Vec<CompetitorRow> {
     // 1) job_type → sn_industry 候補を取得
     let sn_industries = fetch_sn_industries_for_job_type(sn_db, job_type);
 
     // 2) SalesNow から企業リスト取得
-    let rows = fetch_salesnow_companies(sn_db, &sn_industries, prefecture, municipality, limit);
+    let rows = fetch_salesnow_companies(sn_db, &sn_industries, pref, muni, limit);
 
     // 3) DTO へ変換
     let mut companies: Vec<CompetitorRow> = rows
@@ -237,8 +237,8 @@ pub(crate) fn build_mapping_confidence_warning(
 fn fetch_salesnow_companies(
     sn_db: &TursoDb,
     sn_industries: &[String],
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     limit: i64,
 ) -> Vec<crate::handlers::helpers::Row> {
     let base_cols = "corporate_number, company_name, prefecture, sn_industry, \
@@ -253,15 +253,15 @@ fn fetch_salesnow_companies(
     let mut params_own: Vec<String> = Vec::new();
     let mut idx: usize = 1;
 
-    if !prefecture.is_empty() {
+    if !pref.is_empty() {
         where_clauses.push(format!("prefecture = ?{}", idx));
-        params_own.push(prefecture.to_string());
+        params_own.push(pref.to_string());
         idx += 1;
     }
 
-    if !municipality.is_empty() {
+    if !muni.is_empty() {
         where_clauses.push(format!("address LIKE ?{}", idx));
-        params_own.push(format!("%{}%", municipality));
+        params_own.push(format!("%{}%", muni));
         idx += 1;
     }
 
@@ -307,14 +307,14 @@ fn fetch_salesnow_companies(
 }
 
 /// 上位 20 社の解釈テキスト生成 (feedback_hypothesis_driven)
-fn build_top20_insight(rows: &[CompetitorRow], prefecture: &str, job_type: &str) -> String {
+fn build_top20_insight(rows: &[CompetitorRow], pref: &str, job_type: &str) -> String {
     if rows.is_empty() {
         return format!(
             "{}の{}業界は SalesNow 登録企業が少なく、競合ランキングを生成できませんでした。",
-            if prefecture.is_empty() {
+            if pref.is_empty() {
                 "全国"
             } else {
-                prefecture
+                pref
             },
             if job_type.is_empty() {
                 "該当"

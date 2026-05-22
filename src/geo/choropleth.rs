@@ -37,7 +37,7 @@ fn interpolate_color(ratio: f64, from: (u8, u8, u8), to: (u8, u8, u8)) -> String
 
 /// コロプレスのスタイルJSON生成（Leaflet用）
 pub fn generate_choropleth_style(
-    municipality: &str,
+    muni: &str,
     value: f64,
     max_value: f64,
     mode: &str,
@@ -45,6 +45,6 @@ pub fn generate_choropleth_style(
     let color = get_color_by_value(value, max_value, mode);
     format!(
         r#"{{"fillColor":"{}","weight":1,"opacity":1,"color":"{}","fillOpacity":0.7,"name":"{}","value":{}}}"#,
-        color, "#666", municipality, value
+        color, "#666", muni, value
     )
 }

@@ -5,14 +5,14 @@ use std::fmt::Write as _;
 /// 初期ページHTML（テンプレート読み込み + 変数置換）
 pub(crate) fn render_jobmap_page(
     job_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     prefecture_options: &str,
 ) -> String {
     include_str!("../../../templates/tabs/jobmap.html")
         .replace("{{JOB_TYPE}}", &escape_html(job_type))
-        .replace("{{PREFECTURE}}", &escape_html(prefecture))
-        .replace("{{MUNICIPALITY}}", &escape_html(municipality))
+        .replace("{{PREFECTURE}}", &escape_html(pref))
+        .replace("{{MUNICIPALITY}}", &escape_html(muni))
         .replace("{{PREFECTURE_OPTIONS}}", prefecture_options)
 }
 

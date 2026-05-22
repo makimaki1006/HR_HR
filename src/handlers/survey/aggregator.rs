@@ -835,8 +835,8 @@ mod tests {
     /// テスト用SurveyRecord作成ヘルパー
     fn mock_record(
         company: &str,
-        prefecture: Option<&str>,
-        municipality: Option<&str>,
+        pref: Option<&str>,
+        muni: Option<&str>,
         salary_monthly: Option<i64>,
         salary_min: Option<i64>,
         salary_max: Option<i64>,
@@ -851,8 +851,8 @@ mod tests {
         sal.max_value = salary_max;
 
         let mut loc = empty_location();
-        loc.prefecture = prefecture.map(|s| s.to_string());
-        loc.municipality = municipality.map(|s| s.to_string());
+        loc.prefecture = pref.map(|s| s.to_string());
+        loc.municipality = muni.map(|s| s.to_string());
 
         SurveyRecord {
             row_index: 0,
