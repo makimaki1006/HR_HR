@@ -2297,18 +2297,141 @@ pub(super) fn compose_target_region(
     selected_pref: &str,
     selected_muni: &str,
 ) -> String {
-    // 1. ユーザー選択を最優先 (pref + muni 両方あれば結合、pref のみなら pref のみ)
+    // 2026-05-22 A6 limited: 内部 enum Region 経由に変更。silent fallback
+    // (`_ => "全国"`) を exhaustive match に格上げし、表示文字列と scope
+    // 判定ロジックを 1 箇所に集約。
+    // 外部 API (戻り値 String) は維持して影響範囲を最小化。
+    compose_region(agg, selected_pref, selected_muni).display()
+}
+
+/// 2026-05-22 A6 limited: target_region の型安全化。
+///
+/// 旧コード `compose_target_region(...) -> String` の戻り値の構造を enum で表現。
+/// `Region` 値を直接受け取れる関数群 (`push_region_scope_banner` 等) は文字列
+/// パース不要となり、scope_label / Display ロジックが 1 箇所に集約される。
+///
+/// 文字列との互換維持のため、`Region::display()` で旧文字列表現に戻せる。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Region {
+    /// 「全国」
+    National,
+    /// 「長崎県」のみ (市区町村未指定)
+    Prefecture(String),
+    /// 「長崎県 東彼杵町」
+    Municipality { pref: String, muni: String },
+}
+
+impl Region {
+    /// 旧 compose_target_region と同じ文字列表現を返す。
+    /// 「長崎県 東彼杵町」「長崎県」「全国」のいずれか。
+    pub(super) fn display(&self) -> String {
+        match self {
+            Region::National => "全国".to_string(),
+            Region::Prefecture(p) => p.clone(),
+            Region::Municipality { pref, muni } => format!("{} {}", pref, muni),
+        }
+    }
+
+    /// 集計範囲 banner で使う scope label。exhaustive match なので
+    /// 新規バリアント追加時にコンパイル時検出可能。
+    pub(super) fn scope_label(&self) -> &'static str {
+        match self {
+            Region::National => "全国単位 (47 都道府県集計)",
+            Region::Prefecture(_) => "都道府県単位 (該当都道府県集計)",
+            Region::Municipality { .. } => "市区町村単位 (該当市区町村のみ)",
+        }
+    }
+
+    /// `compose_target_region` の戻り値文字列 (互換維持用) から Region を復元。
+    /// `push_region_scope_banner` 等で内部判定に使う。
+    pub(super) fn from_target_region_str(s: &str) -> Self {
+        if s == "全国" {
+            return Region::National;
+        }
+        if let Some((pref, muni)) = s.split_once(' ') {
+            return Region::Municipality {
+                pref: pref.to_string(),
+                muni: muni.to_string(),
+            };
+        }
+        Region::Prefecture(s.to_string())
+    }
+}
+
+/// compose_target_region の enum 版。Region を直接返すので scope_label / display
+/// 判定を呼び出し側で type-safe に行える。silent fallback 防止の根幹。
+pub(super) fn compose_region(
+    agg: &SurveyAggregation,
+    selected_pref: &str,
+    selected_muni: &str,
+) -> Region {
+    // 1. ユーザー選択を最優先
     if !selected_pref.is_empty() {
         if !selected_muni.is_empty() {
-            return format!("{} {}", selected_pref, selected_muni);
+            return Region::Municipality {
+                pref: selected_pref.to_string(),
+                muni: selected_muni.to_string(),
+            };
         }
-        return selected_pref.to_string();
+        return Region::Prefecture(selected_pref.to_string());
     }
     // 2. 未選択時のみ CSV dominant (件数最多) にフォールバック
     match (&agg.dominant_prefecture, &agg.dominant_municipality) {
-        (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => format!("{} {}", p, m),
-        (Some(p), _) if !p.is_empty() => p.clone(),
-        _ => "全国".to_string(),
+        (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => Region::Municipality {
+            pref: p.clone(),
+            muni: m.clone(),
+        },
+        (Some(p), _) if !p.is_empty() => Region::Prefecture(p.clone()),
+        _ => Region::National,
+    }
+}
+
+#[cfg(test)]
+mod region_tests {
+    use super::*;
+
+    #[test]
+    fn display_matches_legacy_format() {
+        assert_eq!(Region::National.display(), "全国");
+        assert_eq!(Region::Prefecture("長崎県".to_string()).display(), "長崎県");
+        assert_eq!(
+            Region::Municipality {
+                pref: "長崎県".to_string(),
+                muni: "東彼杵町".to_string()
+            }
+            .display(),
+            "長崎県 東彼杵町"
+        );
+    }
+
+    #[test]
+    fn scope_label_distinguishes_levels() {
+        assert!(Region::National.scope_label().contains("全国単位"));
+        assert!(Region::Prefecture("X".to_string()).scope_label().contains("都道府県単位"));
+        assert!(
+            Region::Municipality {
+                pref: "X".to_string(),
+                muni: "Y".to_string()
+            }
+            .scope_label()
+            .contains("市区町村単位")
+        );
+    }
+
+    #[test]
+    fn from_target_region_str_roundtrip() {
+        let cases = [
+            Region::National,
+            Region::Prefecture("長崎県".to_string()),
+            Region::Municipality {
+                pref: "長崎県".to_string(),
+                muni: "東彼杵町".to_string(),
+            },
+        ];
+        for r in &cases {
+            let s = r.display();
+            assert_eq!(Region::from_target_region_str(&s), *r);
+        }
     }
 }
 
