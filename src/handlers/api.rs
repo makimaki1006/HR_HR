@@ -315,7 +315,7 @@ pub async fn get_industries(
             } else {
                 // 2026-05-22 セキュリティ修正 (Agent A3 H3): jt は DB 由来だが
                 // 細工値が入った場合の stored XSS 防止のため escape_html 通過。
-                let safe = escape_html(jt);
+                let safe = escape_html(&jt);
                 Some(format!(
                     r#"<option value="{}">{} ({})</option>"#,
                     safe,
