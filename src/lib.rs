@@ -57,8 +57,18 @@ pub struct AppState {
 /// アプリケーションRouter構築
 pub fn build_app(state: Arc<AppState>) -> Router {
     let session_store = MemoryStore::default();
+    // 2026-05-22 セキュリティ修正 (Agent A3 H1): 本番 (RENDER env 等) で
+    // Secure=true / SameSite=Strict を強制。Render 環境変数 `RENDER` が
+    // 設定されていれば本番判定 (Render 標準)。dev は従来通り Secure=false。
+    let is_production = std::env::var("RENDER").is_ok()
+        || std::env::var("RENDER_SERVICE_NAME").is_ok();
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false)
+        .with_secure(is_production)
+        .with_same_site(if is_production {
+            tower_sessions::cookie::SameSite::Strict
+        } else {
+            tower_sessions::cookie::SameSite::Lax
+        })
         .with_expiry(Expiry::OnInactivity(time::Duration::hours(24)));
 
     let protected_routes = Router::new()
@@ -386,6 +396,22 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::api_v1::company_postings),
         );
 
+    // 2026-05-22 セキュリティ修正 (Agent A3 H5): セキュリティヘッダ追加。
+    // CSP / X-Frame-Options / X-Content-Type-Options / HSTS / Referrer-Policy を
+    // 全エンドポイントに付与。クリックジャッキング・MIME sniffing・XSS escalation 防止。
+    // CSP は cdn.tailwindcss.com / cdn.jsdelivr.net 等の inline cdn を許可しないと
+    // 既存 UI が壊れるため、必要 origin のみ allowlist。
+    use http::HeaderValue;
+    let csp_value = "default-src 'self'; \
+         script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com; \
+         style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; \
+         img-src 'self' data: blob: https:; \
+         font-src 'self' data: https:; \
+         connect-src 'self'; \
+         frame-ancestors 'none'; \
+         base-uri 'self'; \
+         form-action 'self'";
+
     Router::new()
         .route("/health", get(health_check))
         .route("/login", get(login_page).post(login_submit))
@@ -395,6 +421,37 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(admin_routes)
         .with_state(state)
         .merge(static_router)
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                // const にできないので static 文字列で
+                "default-src 'self'; \
+                 script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com; \
+                 style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; \
+                 img-src 'self' data: blob: https:; \
+                 font-src 'self' data: https:; \
+                 connect-src 'self'; \
+                 frame-ancestors 'none'; \
+                 base-uri 'self'; \
+                 form-action 'self'",
+            ),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ))
         .layer(
             tower::ServiceBuilder::new()
                 .layer(session_layer)
@@ -641,6 +698,10 @@ async fn login_submit(
         client_ip,
         req_ua,
     );
+    // 2026-05-22 セキュリティ修正 (Agent A3 M1): session fixation 対策。
+    // login 成功後に session id を再発行する。pre-login で attacker が取得した
+    // session id を victim ログイン後も使い回せる脆弱性を防ぐ。
+    let _ = session.cycle_id().await;
     let _ = session.insert(SESSION_USER_KEY, &form.email).await;
     // デフォルト産業: 空（全産業）
     let _ = session.insert(SESSION_JOB_TYPE_KEY, "").await;
@@ -758,7 +819,9 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
         .collect::<Vec<_>>()
         .join("\n");
 
-    // 市区町村オプション（都道府県選択時のみ）
+    // 市区町村オプション(都道府県選択時のみ)
+    // 2026-05-22 セキュリティ修正 (Agent A3 M3): m (DB 由来文字列) を
+    // escape_html 経由で出力。DB 改変経路の場合の stored XSS 防止。
     let muni_options = if !current_prefecture.is_empty() {
         let muni_list = fetch_municipality_list(&state, &current_prefecture).await;
         muni_list
@@ -769,7 +832,8 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
                 } else {
                     ""
                 };
-                format!(r#"<option value="{m}"{selected}>{m}</option>"#)
+                let safe = crate::handlers::helpers::escape_html(m);
+                format!(r#"<option value="{safe}"{selected}>{safe}</option>"#)
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -790,6 +854,9 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
         String::new()
     };
 
+    // 2026-05-22 セキュリティ修正 (Agent A3 M2): user_email を escape_html 通過。
+    // session 由来だが email validation が緩い経路で stored XSS のリスク。
+    let user_email_safe = crate::handlers::helpers::escape_html(&user_email);
     let html = include_str!("../templates/dashboard_inline.html")
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
@@ -798,7 +865,7 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
             "{{SELECTED_INDUSTRY_RAWS_JSON}}",
             &selected_industry_raws_json,
         )
-        .replace("{{USER_EMAIL}}", &user_email)
+        .replace("{{USER_EMAIL}}", &user_email_safe)
         .replace("{{TURSO_WARNING}}", &db_warning);
 
     Html(html)

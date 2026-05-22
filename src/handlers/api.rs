@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tower_sessions::Session;
 
+use super::helpers::escape_html;
 use super::overview::{format_number, get_i64, get_str};
 use crate::models::job_seeker::PREFECTURE_ORDER;
 use crate::AppState;
@@ -17,11 +18,29 @@ pub struct GeoJsonQuery {
     pub pref: Option<String>,
 }
 
-/// GeoJSON API: /api/geojson/:filename（キャッシュ付き）
+/// GeoJSON API: /api/geojson/:filename(キャッシュ付き)
+///
+/// 2026-05-22 セキュリティ修正 (Agent A3 H4): filename validation 追加。
+/// 旧コードは `Path<String>` をそのまま format!("static/geojson/{filename}") に
+/// 連結していたため、`..%2F..%2Fdata%2Fhellowork.db` 等の path traversal で
+/// 任意ファイル読取の可能性があった。
 pub async fn get_geojson(
     State(state): State<Arc<AppState>>,
     Path(filename): Path<String>,
 ) -> Json<Value> {
+    // 2026-05-22 path traversal 対策: 英数字 + _ - . のみ許可 + .json 拡張子必須
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+        || !filename
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        || !filename.ends_with(".json")
+    {
+        return Json(Value::Null);
+    }
+
     // キャッシュチェック
     let cache_key = format!("geojson_{}", filename);
     if let Some(cached) = state.cache.get(&cache_key) {
@@ -294,10 +313,13 @@ pub async fn get_industries(
             if jt.is_empty() {
                 None
             } else {
+                // 2026-05-22 セキュリティ修正 (Agent A3 H3): jt は DB 由来だが
+                // 細工値が入った場合の stored XSS 防止のため escape_html 通過。
+                let safe = escape_html(jt);
                 Some(format!(
                     r#"<option value="{}">{} ({})</option>"#,
-                    jt,
-                    jt,
+                    safe,
+                    safe,
                     format_number(cnt)
                 ))
             }

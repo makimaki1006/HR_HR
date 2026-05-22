@@ -136,6 +136,18 @@ impl AppConfig {
             );
         }
 
+        // 2026-05-22 セキュリティ修正 (Agent A3 H6): 本番環境で AUTH_PASSWORD (平文)
+        // が設定されている場合、強い警告を発する。AUTH_PASSWORD_HASH (bcrypt) のみ
+        // 使うべき。本番判定は RENDER env で。
+        let is_production = env::var("RENDER").is_ok() || env::var("RENDER_SERVICE_NAME").is_ok();
+        if is_production && !cfg.auth_password.is_empty() {
+            tracing::error!(
+                "[SECURITY] 本番環境で AUTH_PASSWORD (平文) が設定されています。\
+                 AUTH_PASSWORD_HASH (bcrypt) のみを使用してください。\
+                 平文パスワードは認証ログ・メモリダンプ・config 漏洩で即漏洩します。"
+            );
+        }
+
         cfg
     }
 }
