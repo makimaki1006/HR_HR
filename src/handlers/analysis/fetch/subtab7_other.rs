@@ -3,7 +3,9 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::super::super::helpers::{get_f64, get_i64, get_str, haversine, table_exists};
+use super::super::super::helpers::{
+    get_f64, get_i64, get_str, haversine, normalize_muni_for_external, table_exists,
+};
 use super::query_turso_or_local;
 
 #[allow(dead_code)]
@@ -205,7 +207,8 @@ pub(crate) fn fetch_commute_inflow(
          WHERE dest_pref = ?1 AND dest_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
          ORDER BY total_commuters DESC LIMIT 20";
-    let params = vec![pref.to_string(), muni.to_string()];
+    // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+    let params = vec![pref.to_string(), normalize_muni_for_external(pref, muni)];
     let rows = super::query_turso_or_local(turso, db, sql, &params, "v2_external_commute_od");
 
     rows.iter()
@@ -233,7 +236,8 @@ pub(crate) fn fetch_commute_outflow(
          WHERE origin_pref = ?1 AND origin_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
          ORDER BY total_commuters DESC LIMIT 20";
-    let params = vec![pref.to_string(), muni.to_string()];
+    // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+    let params = vec![pref.to_string(), normalize_muni_for_external(pref, muni)];
     let rows = super::query_turso_or_local(turso, db, sql, &params, "v2_external_commute_od");
 
     rows.iter()
@@ -256,7 +260,8 @@ pub(crate) fn fetch_self_commute_rate(
     if muni.is_empty() {
         return 0.0;
     }
-    let params = vec![pref.to_string(), muni.to_string()];
+    // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+    let params = vec![pref.to_string(), normalize_muni_for_external(pref, muni)];
     let self_rows = super::query_turso_or_local(
         turso,
         db,

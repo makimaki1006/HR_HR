@@ -2725,14 +2725,15 @@ pub(super) fn render_navy_section_05_companies(
         let id_l = salesnow_segments_industry.decline_large.len();
         let id_m = salesnow_segments_industry.decline_mid.len();
         let id_s = salesnow_segments_industry.decline_small.len();
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1Y 人員変動)</div>\n",
-            muni_label, escape_html(ind)
-        ));
+        // 2026-05-22 ユーザー指摘: データ 0 件時に「表 5-F′ ... 該当企業なし」だけが
+        // 残るレイアウトを廃止。データ 0 件なら section 全体を skip して情報密度向上。
+        // (旧コード: タイトル + empty_row_html を常に出力していた)
         if ig_l + ig_m + ig_s + id_l + id_m + id_s > 0 {
+            html.push_str(&format!(
+                "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1Y 人員変動)</div>\n",
+                muni_label, escape_html(ind)
+            ));
             html.push_str(&build_navy_growth_decline_matrix(salesnow_segments_industry));
-        } else {
-            html.push_str(&empty_row_html(4));
         }
     }
 

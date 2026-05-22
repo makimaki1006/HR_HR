@@ -196,9 +196,11 @@ fn fetch_neighbors(db: &LocalDb, dest_pref: &str, dest_muni: &str) -> Vec<Neighb
                ORDER BY total_commuters DESC \
                LIMIT ?3";
     let limit_str = limit.to_string();
+    // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+    let dest_muni_normalized = crate::handlers::helpers::normalize_muni_for_external(dest_pref, dest_muni);
     let params: &[&dyn rusqlite::types::ToSql] = &[
         &dest_pref,
-        &dest_muni,
+        &dest_muni_normalized,
         &limit_str as &dyn rusqlite::types::ToSql,
     ];
     let rows = match db.query(sql, params) {
@@ -234,7 +236,10 @@ fn fetch_unemployment(db: &LocalDb, pref: &str, muni: &str) -> i64 {
     }
     let sql = "SELECT unemployed FROM v2_external_labor_force \
                WHERE prefecture = ?1 AND municipality = ?2";
-    let params: &[&dyn rusqlite::types::ToSql] = &[&pref, &muni];
+    // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+    // (現呼び出し元は v2_external_commute_od 由来で既に郡名なしだが、防御的に strip)
+    let muni_normalized = crate::handlers::helpers::normalize_muni_for_external(pref, muni);
+    let params: &[&dyn rusqlite::types::ToSql] = &[&pref, &muni_normalized];
     db.query_scalar::<i64>(sql, params).unwrap_or(0).max(0)
 }
 
