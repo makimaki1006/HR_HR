@@ -103,6 +103,210 @@ impl Severity {
     }
 }
 
+// ======== 示唆 ID（型安全 enum、2026-05-22 導入）========
+
+/// 示唆 ID（旧 String → enum 化）。
+///
+/// 2026-05-21 事故: `match insight.id.as_str() { ... _ => String::new() }` の
+/// silent fallback で 14 件の Insight ID が未登録だったため、推奨アクションが
+/// 空表示になっていた。
+///
+/// 本 enum を導入したことで、以下が **コンパイル時に検出される** ようになった:
+///
+/// - 新規 Insight 追加 → `InsightId::XxN` variant 追加要求
+/// - `generate_so_what` 等の exhaustive match → 漏れがあれば即 compile error
+///
+/// 各 variant の元文字列（"HS-1" 等）は `as_str()` / `Display` / `Serialize` で取得可能。
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum InsightId {
+    // 採用構造分析 (HS: HiringStructure)
+    #[serde(rename = "HS-1")]
+    Hs1,
+    #[serde(rename = "HS-2")]
+    Hs2,
+    #[serde(rename = "HS-3")]
+    Hs3,
+    #[serde(rename = "HS-4")]
+    Hs4,
+    #[serde(rename = "HS-5")]
+    Hs5,
+    #[serde(rename = "HS-6")]
+    Hs6,
+    // 将来予測 (FC: Forecast)
+    #[serde(rename = "FC-1")]
+    Fc1,
+    #[serde(rename = "FC-2")]
+    Fc2,
+    #[serde(rename = "FC-3")]
+    Fc3,
+    #[serde(rename = "FC-4")]
+    Fc4,
+    // 地域比較 (RC: RegionalCompare)
+    #[serde(rename = "RC-1")]
+    Rc1,
+    #[serde(rename = "RC-2")]
+    Rc2,
+    #[serde(rename = "RC-3")]
+    Rc3,
+    // 通勤圏 (CZ: Commuting Zone)
+    #[serde(rename = "CZ-1")]
+    Cz1,
+    #[serde(rename = "CZ-2")]
+    Cz2,
+    #[serde(rename = "CZ-3")]
+    Cz3,
+    // 通勤フロー (CF: Commuting Flow)
+    #[serde(rename = "CF-1")]
+    Cf1,
+    #[serde(rename = "CF-2")]
+    Cf2,
+    #[serde(rename = "CF-3")]
+    Cf3,
+    // アクション提案 (AP: ActionProposal)
+    #[serde(rename = "AP-1")]
+    Ap1,
+    #[serde(rename = "AP-2")]
+    Ap2,
+    #[serde(rename = "AP-3")]
+    Ap3,
+    // SSDSE-A 構造分析 Phase A
+    #[serde(rename = "LS-1")]
+    Ls1,
+    #[serde(rename = "LS-2")]
+    Ls2,
+    #[serde(rename = "HH-1")]
+    Hh1,
+    #[serde(rename = "MF-1")]
+    Mf1,
+    #[serde(rename = "IN-1")]
+    In1,
+    #[serde(rename = "GE-1")]
+    Ge1,
+    // Agoop 人流 Phase B (SW-F: Stay Workflow)
+    // 現状 engine_flow.rs 未実装の F04 / F10 も外部 recruitment_diag/insights.rs
+    // のホワイトリストに登録されているため variant として確保しておく。
+    #[serde(rename = "SW-F01")]
+    SwF01,
+    #[serde(rename = "SW-F02")]
+    SwF02,
+    #[serde(rename = "SW-F03")]
+    SwF03,
+    #[serde(rename = "SW-F04")]
+    SwF04,
+    #[serde(rename = "SW-F05")]
+    SwF05,
+    #[serde(rename = "SW-F06")]
+    SwF06,
+    #[serde(rename = "SW-F07")]
+    SwF07,
+    #[serde(rename = "SW-F08")]
+    SwF08,
+    #[serde(rename = "SW-F09")]
+    SwF09,
+    #[serde(rename = "SW-F10")]
+    SwF10,
+}
+
+impl InsightId {
+    /// 元の文字列表現（"HS-1" 等）を返す
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Hs1 => "HS-1",
+            Self::Hs2 => "HS-2",
+            Self::Hs3 => "HS-3",
+            Self::Hs4 => "HS-4",
+            Self::Hs5 => "HS-5",
+            Self::Hs6 => "HS-6",
+            Self::Fc1 => "FC-1",
+            Self::Fc2 => "FC-2",
+            Self::Fc3 => "FC-3",
+            Self::Fc4 => "FC-4",
+            Self::Rc1 => "RC-1",
+            Self::Rc2 => "RC-2",
+            Self::Rc3 => "RC-3",
+            Self::Cz1 => "CZ-1",
+            Self::Cz2 => "CZ-2",
+            Self::Cz3 => "CZ-3",
+            Self::Cf1 => "CF-1",
+            Self::Cf2 => "CF-2",
+            Self::Cf3 => "CF-3",
+            Self::Ap1 => "AP-1",
+            Self::Ap2 => "AP-2",
+            Self::Ap3 => "AP-3",
+            Self::Ls1 => "LS-1",
+            Self::Ls2 => "LS-2",
+            Self::Hh1 => "HH-1",
+            Self::Mf1 => "MF-1",
+            Self::In1 => "IN-1",
+            Self::Ge1 => "GE-1",
+            Self::SwF01 => "SW-F01",
+            Self::SwF02 => "SW-F02",
+            Self::SwF03 => "SW-F03",
+            Self::SwF04 => "SW-F04",
+            Self::SwF05 => "SW-F05",
+            Self::SwF06 => "SW-F06",
+            Self::SwF07 => "SW-F07",
+            Self::SwF08 => "SW-F08",
+            Self::SwF09 => "SW-F09",
+            Self::SwF10 => "SW-F10",
+        }
+    }
+}
+
+impl std::fmt::Display for InsightId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for InsightId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "HS-1" => Ok(Self::Hs1),
+            "HS-2" => Ok(Self::Hs2),
+            "HS-3" => Ok(Self::Hs3),
+            "HS-4" => Ok(Self::Hs4),
+            "HS-5" => Ok(Self::Hs5),
+            "HS-6" => Ok(Self::Hs6),
+            "FC-1" => Ok(Self::Fc1),
+            "FC-2" => Ok(Self::Fc2),
+            "FC-3" => Ok(Self::Fc3),
+            "FC-4" => Ok(Self::Fc4),
+            "RC-1" => Ok(Self::Rc1),
+            "RC-2" => Ok(Self::Rc2),
+            "RC-3" => Ok(Self::Rc3),
+            "CZ-1" => Ok(Self::Cz1),
+            "CZ-2" => Ok(Self::Cz2),
+            "CZ-3" => Ok(Self::Cz3),
+            "CF-1" => Ok(Self::Cf1),
+            "CF-2" => Ok(Self::Cf2),
+            "CF-3" => Ok(Self::Cf3),
+            "AP-1" => Ok(Self::Ap1),
+            "AP-2" => Ok(Self::Ap2),
+            "AP-3" => Ok(Self::Ap3),
+            "LS-1" => Ok(Self::Ls1),
+            "LS-2" => Ok(Self::Ls2),
+            "HH-1" => Ok(Self::Hh1),
+            "MF-1" => Ok(Self::Mf1),
+            "IN-1" => Ok(Self::In1),
+            "GE-1" => Ok(Self::Ge1),
+            "SW-F01" => Ok(Self::SwF01),
+            "SW-F02" => Ok(Self::SwF02),
+            "SW-F03" => Ok(Self::SwF03),
+            "SW-F04" => Ok(Self::SwF04),
+            "SW-F05" => Ok(Self::SwF05),
+            "SW-F06" => Ok(Self::SwF06),
+            "SW-F07" => Ok(Self::SwF07),
+            "SW-F08" => Ok(Self::SwF08),
+            "SW-F09" => Ok(Self::SwF09),
+            "SW-F10" => Ok(Self::SwF10),
+            other => Err(format!("unknown InsightId: {}", other)),
+        }
+    }
+}
+
 // ======== 示唆構造体 ========
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -115,7 +319,7 @@ pub struct Evidence {
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Insight {
-    pub id: String,
+    pub id: InsightId,
     pub category: InsightCategory,
     pub severity: Severity,
     pub title: String,

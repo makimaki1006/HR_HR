@@ -423,7 +423,7 @@ fn mock_flow() -> FlowIndicators {
 
 /// 所有権版: temporary value borrow 問題回避用
 fn find_owned(insights: Vec<Insight>, id: &str) -> Option<Insight> {
-    insights.into_iter().find(|i| i.id == id)
+    insights.into_iter().find(|i| i.id.as_str() == id)
 }
 
 /// generate_insights + find をワンショットで実行
@@ -910,10 +910,10 @@ fn ap1_fires_when_hs2_fires() {
         .salary_comp_seishain(0.70, 180_000.0, 270_000.0, 265_000.0)
         .build();
     let out = generate_insights(&ctx);
-    assert!(out.iter().any(|i| i.id == "HS-2"));
+    assert!(out.iter().any(|i| i.id.as_str() == "HS-2"));
     let ap = out
         .into_iter()
-        .find(|i| i.id == "AP-1")
+        .find(|i| i.id.as_str() == "AP-1")
         .expect("AP-1 should fire with HS-2");
     assert_eq!(ap.severity, Severity::Info);
 }
@@ -928,10 +928,10 @@ fn ap2_fires_when_hs3_fires() {
         .transparency(0.30, "disclosure_female_ratio", 0.05)
         .build();
     let out = generate_insights(&ctx);
-    assert!(out.iter().any(|i| i.id == "HS-3"));
+    assert!(out.iter().any(|i| i.id.as_str() == "HS-3"));
     let ap = out
         .into_iter()
-        .find(|i| i.id == "AP-2")
+        .find(|i| i.id.as_str() == "AP-2")
         .expect("AP-2 should fire when HS-3 fires and missing items");
     assert_eq!(ap.severity, Severity::Info);
     assert!(ap.body.contains("女性比率"));
@@ -948,10 +948,10 @@ fn ap3_fires_bedtown() {
         .ext_daytime_ratio(0.80)
         .build();
     let out = generate_insights(&ctx);
-    assert!(out.iter().any(|i| i.id == "HS-6"));
+    assert!(out.iter().any(|i| i.id.as_str() == "HS-6"));
     let ap = out
         .into_iter()
-        .find(|i| i.id == "AP-3")
+        .find(|i| i.id.as_str() == "AP-3")
         .expect("AP-3 should fire");
     assert_eq!(ap.severity, Severity::Info);
 }
@@ -1454,10 +1454,10 @@ fn swf05_info_at_1_6_excludes_f02() {
     let mut f = mock_flow();
     f.holiday_day_ratio = Some(1.6);
     let out = analyze_flow_insights(&ctx, &f);
-    let f05 = out.iter().find(|i| i.id == "SW-F05").cloned().unwrap();
+    let f05 = out.iter().find(|i| i.id.as_str() == "SW-F05").cloned().unwrap();
     assert_eq!(f05.severity, Severity::Info);
     assert!(
-        !out.iter().any(|i| i.id == "SW-F02"),
+        !out.iter().any(|i| i.id.as_str() == "SW-F02"),
         "M-2 mutual exclusion: SW-F05 fires (>=1.5) implies SW-F02 must NOT fire"
     );
 }
@@ -1553,12 +1553,12 @@ fn cross_rc3_positive_with_ge1_info_has_reference() {
     let out = generate_insights(&ctx);
     let rc3 = out
         .iter()
-        .find(|i| i.id == "RC-3")
+        .find(|i| i.id.as_str() == "RC-3")
         .expect("RC-3 should fire")
         .clone();
     let ge1 = out
         .iter()
-        .find(|i| i.id == "GE-1")
+        .find(|i| i.id.as_str() == "GE-1")
         .expect("GE-1 should fire")
         .clone();
     assert_eq!(rc3.severity, Severity::Positive);
@@ -1575,8 +1575,8 @@ fn cross_hs2_triggers_ap1() {
         .salary_comp_seishain(0.70, 180_000.0, 270_000.0, 265_000.0)
         .build();
     let out = generate_insights(&ctx);
-    let hs2 = out.iter().find(|i| i.id == "HS-2").unwrap().clone();
-    let ap1 = out.iter().find(|i| i.id == "AP-1").unwrap().clone();
+    let hs2 = out.iter().find(|i| i.id.as_str() == "HS-2").unwrap().clone();
+    let ap1 = out.iter().find(|i| i.id.as_str() == "AP-1").unwrap().clone();
     assert_eq!(hs2.severity, Severity::Critical);
     assert_eq!(ap1.severity, Severity::Info);
 }
@@ -1588,17 +1588,17 @@ fn cross_hs6_ap3_require_bedtown() {
         .ext_daytime_ratio(0.80)
         .build();
     let out_b = generate_insights(&ctx_bedtown);
-    assert!(out_b.iter().any(|i| i.id == "HS-6"));
-    assert!(out_b.iter().any(|i| i.id == "AP-3"));
+    assert!(out_b.iter().any(|i| i.id.as_str() == "HS-6"));
+    assert!(out_b.iter().any(|i| i.id.as_str() == "AP-3"));
 
     let ctx_urban = Ctx::new()
         .spatial_mismatch(0.70, 250_000.0)
         .ext_daytime_ratio(1.20)
         .build();
     let out_u = generate_insights(&ctx_urban);
-    assert!(out_u.iter().any(|i| i.id == "HS-6"));
+    assert!(out_u.iter().any(|i| i.id.as_str() == "HS-6"));
     assert!(
-        !out_u.iter().any(|i| i.id == "AP-3"),
+        !out_u.iter().any(|i| i.id.as_str() == "AP-3"),
         "AP-3 must skip in urban core even when HS-6 fires"
     );
 }
@@ -1612,8 +1612,8 @@ fn cross_cz2_warning_with_hs2() {
         .commute_zone(1, 1, 100, 80, 20)
         .build();
     let out = generate_insights(&ctx);
-    let cz2 = out.iter().find(|i| i.id == "CZ-2").unwrap().clone();
-    let hs2 = out.iter().find(|i| i.id == "HS-2").unwrap().clone();
+    let cz2 = out.iter().find(|i| i.id.as_str() == "CZ-2").unwrap().clone();
+    let hs2 = out.iter().find(|i| i.id.as_str() == "HS-2").unwrap().clone();
     assert_eq!(cz2.severity, Severity::Warning);
     assert_eq!(hs2.severity, Severity::Critical);
     assert!(cz2.body.contains("地元月給"));
@@ -1627,11 +1627,11 @@ fn cross_fc1_decline_cz3_aging_consistent() {
         .build();
     let out = generate_insights(&ctx);
     assert_eq!(
-        out.iter().find(|i| i.id == "FC-1").unwrap().severity,
+        out.iter().find(|i| i.id.as_str() == "FC-1").unwrap().severity,
         Severity::Warning
     );
     assert_eq!(
-        out.iter().find(|i| i.id == "CZ-3").unwrap().severity,
+        out.iter().find(|i| i.id.as_str() == "CZ-3").unwrap().severity,
         Severity::Warning
     );
 }
@@ -1646,11 +1646,11 @@ fn cross_ls1_hs1_simultaneous_mismatch() {
         .build();
     let out = generate_insights(&ctx);
     assert_eq!(
-        out.iter().find(|i| i.id == "HS-1").unwrap().severity,
+        out.iter().find(|i| i.id.as_str() == "HS-1").unwrap().severity,
         Severity::Critical
     );
     assert_eq!(
-        out.iter().find(|i| i.id == "LS-1").unwrap().severity,
+        out.iter().find(|i| i.id.as_str() == "LS-1").unwrap().severity,
         Severity::Critical
     );
 }
@@ -1818,7 +1818,7 @@ fn p2_all_patterns_pass_phrase_validator() {
     let mut failures: Vec<(String, String, String)> = vec![];
     for ins in &all {
         if let Err(e) = validate_insight_phrase(&ins.body) {
-            failures.push((ins.id.clone(), e, ins.body.clone()));
+            failures.push((ins.id.to_string(), e, ins.body.clone()));
         }
     }
     assert!(
@@ -1866,8 +1866,8 @@ fn p2_swf02_swf05_mutually_exclusive_at_high_ratio() {
     let mut f_high = mock_flow();
     f_high.holiday_day_ratio = Some(1.6);
     let out_high = analyze_flow_insights(&ctx, &f_high);
-    let f02_count_high = out_high.iter().filter(|i| i.id == "SW-F02").count();
-    let f05_count_high = out_high.iter().filter(|i| i.id == "SW-F05").count();
+    let f02_count_high = out_high.iter().filter(|i| i.id.as_str() == "SW-F02").count();
+    let f05_count_high = out_high.iter().filter(|i| i.id.as_str() == "SW-F05").count();
     assert_eq!(
         f02_count_high, 0,
         "M-2: F02 must NOT fire at ratio=1.6 (F05 territory)"
@@ -1877,8 +1877,8 @@ fn p2_swf02_swf05_mutually_exclusive_at_high_ratio() {
     let mut f_mid = mock_flow();
     f_mid.holiday_day_ratio = Some(1.4);
     let out_mid = analyze_flow_insights(&ctx, &f_mid);
-    let f02_count_mid = out_mid.iter().filter(|i| i.id == "SW-F02").count();
-    let f05_count_mid = out_mid.iter().filter(|i| i.id == "SW-F05").count();
+    let f02_count_mid = out_mid.iter().filter(|i| i.id.as_str() == "SW-F02").count();
+    let f05_count_mid = out_mid.iter().filter(|i| i.id.as_str() == "SW-F05").count();
     assert_eq!(
         f02_count_mid, 1,
         "M-2: F02 fires at ratio=1.4 (intermediate)"
@@ -1909,7 +1909,7 @@ fn p2_swf06_suppressed_when_posting_also_recovered() {
     f.covid_recovery_ratio = Some(0.95);
     let out = analyze_flow_insights(&ctx_inner, &f);
     assert!(
-        !out.iter().any(|i| i.id == "SW-F06"),
+        !out.iter().any(|i| i.id.as_str() == "SW-F06"),
         "M-8: F06 must NOT fire when posting_recovery >= 0.8"
     );
 
@@ -1928,7 +1928,7 @@ fn p2_swf06_suppressed_when_posting_also_recovered() {
     let out2 = analyze_flow_insights(&ctx_inner2, &f);
     let f06 = out2
         .iter()
-        .find(|i| i.id == "SW-F06")
+        .find(|i| i.id.as_str() == "SW-F06")
         .expect("M-8: F06 must fire when flow recovered AND posting lags");
     assert!(
         f06.body.contains("0.95倍") || f06.body.contains("0.7"),
@@ -2075,7 +2075,7 @@ fn p2_swf06_full_recovery_body_no_100_percent() {
     let out = analyze_flow_insights(&ctx, &f);
     let f06 = out
         .iter()
-        .find(|i| i.id == "SW-F06")
+        .find(|i| i.id.as_str() == "SW-F06")
         .expect("SW-F06 must fire at recovery=1.0");
     assert_eq!(f06.severity, Severity::Info);
     assert!(

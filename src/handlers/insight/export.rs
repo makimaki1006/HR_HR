@@ -174,7 +174,7 @@ fn build_xlsx(
 
     for (row, insight) in insights.iter().enumerate() {
         let r = (row + 1) as u32;
-        sheet2.write_string(r, 0, &insight.id).ok();
+        sheet2.write_string(r, 0, insight.id.as_str()).ok();
         sheet2.write_string(r, 1, insight.severity.label()).ok();
         sheet2.write_string(r, 2, insight.category.label()).ok();
         sheet2.write_string(r, 3, &insight.title).ok();

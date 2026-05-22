@@ -51,7 +51,7 @@ fn swf01_nightshift_demand(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
         Severity::Warning
     };
     Some(Insight {
-        id: "SW-F01".to_string(),
+        id: InsightId::SwF01,
         category: InsightCategory::StructuralContext,
         severity,
         title: "夜勤人材ニーズ逼迫".to_string(),
@@ -79,7 +79,7 @@ fn swf02_holiday_commerce(_ctx: &InsightContext, flow: &FlowIndicators) -> Optio
         return None;
     }
     Some(Insight {
-        id: "SW-F02".to_string(),
+        id: InsightId::SwF02,
         category: InsightCategory::StructuralContext,
         severity: Severity::Warning,
         title: "休日商圏の人材不足".to_string(),
@@ -109,7 +109,7 @@ fn swf03_bedtown_detection(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
         return None;
     }
     Some(Insight {
-        id: "SW-F03".to_string(),
+        id: InsightId::SwF03,
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "ベッドタウン構造".to_string(),
@@ -157,7 +157,7 @@ fn swf05_tourism_potential(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
         return None;
     }
     Some(Insight {
-        id: "SW-F05".to_string(),
+        id: InsightId::SwF05,
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "観光ポテンシャル未活用".to_string(),
@@ -206,7 +206,7 @@ fn swf06_covid_recovery_divergence(ctx: &InsightContext, flow: &FlowIndicators) 
         None => " 求人側の回復率との比較で採用マインドの慎重化の可能性を評価できる傾向がみられます。".to_string(),
     };
     Some(Insight {
-        id: "SW-F06".to_string(),
+        id: InsightId::SwF06,
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "コロナ期人流回復".to_string(),
@@ -262,7 +262,7 @@ fn swf07_regional_inflow_bias(_ctx: &InsightContext, flow: &FlowIndicators) -> O
         return None;
     }
     Some(Insight {
-        id: "SW-F07".to_string(),
+        id: InsightId::SwF07,
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "広域流入比率偏り".to_string(),
@@ -288,7 +288,7 @@ fn swf08_daytime_labor_pool(_ctx: &InsightContext, flow: &FlowIndicators) -> Opt
         return None;
     }
     Some(Insight {
-        id: "SW-F08".to_string(),
+        id: InsightId::SwF08,
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "昼間労働力プール".to_string(),
@@ -313,7 +313,7 @@ fn swf09_seasonal_mismatch(_ctx: &InsightContext, flow: &FlowIndicators) -> Opti
         return None;
     }
     Some(Insight {
-        id: "SW-F09".to_string(),
+        id: InsightId::SwF09,
         category: InsightCategory::StructuralContext,
         severity: Severity::Info,
         title: "季節変動の大きな人流".to_string(),

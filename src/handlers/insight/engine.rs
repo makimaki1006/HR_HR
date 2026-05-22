@@ -124,7 +124,7 @@ fn hs1_chronic_shortage(ctx: &InsightContext) -> Option<Insight> {
         "の水準にあり、人材確保に困難が生じる可能性があります"
     };
     Some(Insight {
-        id: "HS-1".to_string(),
+        id: InsightId::Hs1,
         category: InsightCategory::HiringStructure,
         severity,
         title: "慢性的人材不足シグナル".to_string(),
@@ -173,7 +173,7 @@ fn hs2_salary_competitiveness(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "HS-2".to_string(),
+        id: InsightId::Hs2,
         category: InsightCategory::HiringStructure,
         severity,
         title: "給与競争力不足".to_string(),
@@ -242,7 +242,7 @@ fn hs3_transparency_gap(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "HS-3".to_string(),
+        id: InsightId::Hs3,
         category: InsightCategory::HiringStructure,
         severity,
         title: "求人情報の開示不足".to_string(),
@@ -292,7 +292,7 @@ fn hs4_temperature_mismatch(ctx: &InsightContext) -> Option<Insight> {
     }
 
     Some(Insight {
-        id: "HS-4".to_string(),
+        id: InsightId::Hs4,
         category: InsightCategory::HiringStructure,
         severity: Severity::Warning,
         title: "求人テキストと実態の乖離".to_string(),
@@ -341,7 +341,7 @@ fn hs5_monopsony(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "HS-5".to_string(),
+        id: InsightId::Hs5,
         category: InsightCategory::HiringStructure,
         severity,
         title: "求人市場の集中（独占的構造）".to_string(),
@@ -403,7 +403,7 @@ fn hs6_spatial_mismatch(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "HS-6".to_string(),
+        id: InsightId::Hs6,
         category: InsightCategory::HiringStructure,
         severity: Severity::Warning,
         title: "空間的ミスマッチ（通勤圏の制約）".to_string(),
@@ -467,7 +467,7 @@ fn fc1_posting_trend(ctx: &InsightContext) -> Option<Insight> {
     let forecast_6m = (latest * (1.0 + slope * 6.0)).max(0.0);
 
     Some(Insight {
-        id: "FC-1".to_string(),
+        id: InsightId::Fc1,
         category: InsightCategory::Forecast,
         severity,
         title: format!("求人数は{}トレンド", direction),
@@ -528,7 +528,7 @@ fn fc2_salary_pressure(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "FC-2".to_string(),
+        id: InsightId::Fc2,
         category: InsightCategory::Forecast,
         severity,
         title: "給与上昇圧力の動向".to_string(),
@@ -607,7 +607,7 @@ fn fc3_population_outlook(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "FC-3".to_string(),
+        id: InsightId::Fc3,
         category: InsightCategory::Forecast,
         severity,
         title: "人口動態による労働力予測".to_string(),
@@ -674,7 +674,7 @@ fn fc4_fulfillment_worsening(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "FC-4".to_string(),
+        id: InsightId::Fc4,
         category: InsightCategory::Forecast,
         severity,
         title: "充足困難度の悪化傾向".to_string(),
@@ -741,7 +741,7 @@ fn rc1_benchmark_ranking(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "RC-1".to_string(),
+        id: InsightId::Rc1,
         category: InsightCategory::RegionalCompare,
         severity,
         title: "地域総合ベンチマーク".to_string(),
@@ -819,7 +819,7 @@ fn rc2_salary_gap(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "RC-2".to_string(),
+        id: InsightId::Rc2,
         category: InsightCategory::RegionalCompare,
         severity,
         title: "給与水準の地域差".to_string(),
@@ -903,7 +903,7 @@ fn rc3_population_density_cross(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "RC-3".to_string(),
+        id: InsightId::Rc3,
         category: InsightCategory::RegionalCompare,
         severity,
         title: "人口あたりの求人密度".to_string(),
@@ -924,19 +924,22 @@ fn generate_action_proposals(ctx: &InsightContext, existing: &[Insight]) -> Vec<
     let mut out = Vec::new();
 
     // AP-1: HS-2（給与競争力不足）が発火していれば給与改善提案
-    if existing.iter().any(|i| i.id == "HS-2") {
+    if existing.iter().any(|i| i.id == InsightId::Hs2) {
         if let Some(i) = ap1_salary_improvement(ctx) {
             push_validated(&mut out, i);
         }
     }
     // AP-2: HS-3 or HS-4 が発火していれば求人原稿改善提案
-    if existing.iter().any(|i| i.id == "HS-3" || i.id == "HS-4") {
+    if existing
+        .iter()
+        .any(|i| i.id == InsightId::Hs3 || i.id == InsightId::Hs4)
+    {
         if let Some(i) = ap2_posting_improvement(ctx) {
             push_validated(&mut out, i);
         }
     }
     // AP-3: HS-6 が発火していれば採用エリア拡大提案
-    if existing.iter().any(|i| i.id == "HS-6") {
+    if existing.iter().any(|i| i.id == InsightId::Hs6) {
         if let Some(i) = ap3_area_expansion(ctx) {
             push_validated(&mut out, i);
         }
@@ -967,7 +970,7 @@ fn ap1_salary_improvement(ctx: &InsightContext) -> Option<Insight> {
         increase * (12.0 + AP1_BONUS_MONTHS_DEFAULT) * (1.0 + AP1_LEGAL_WELFARE_RATIO);
 
     Some(Insight {
-        id: "AP-1".to_string(),
+        id: InsightId::Ap1,
         category: InsightCategory::ActionProposal,
         severity: Severity::Info,
         title: "給与水準の改善提案".to_string(),
@@ -1031,7 +1034,7 @@ fn ap2_posting_improvement(ctx: &InsightContext) -> Option<Insight> {
     }
 
     Some(Insight {
-        id: "AP-2".to_string(),
+        id: InsightId::Ap2,
         category: InsightCategory::ActionProposal,
         severity: Severity::Info,
         title: "求人原稿の改善提案".to_string(),
@@ -1064,7 +1067,7 @@ fn ap3_area_expansion(ctx: &InsightContext) -> Option<Insight> {
     } // 昼間人口 > 夜間人口の都市部では不要
 
     Some(Insight {
-        id: "AP-3".to_string(),
+        id: InsightId::Ap3,
         category: InsightCategory::ActionProposal,
         severity: Severity::Info,
         title: "採用エリアの拡大提案".to_string(),
@@ -1131,7 +1134,7 @@ fn cz1_population_distribution(ctx: &InsightContext) -> Option<Insight> {
     let local_share = local_pop as f64 / ctx.commute_zone_total_pop as f64;
 
     Some(Insight {
-        id: "CZ-1".to_string(),
+        id: InsightId::Cz1,
         category: InsightCategory::RegionalCompare,
         severity: if local_share < 0.05 {
             Severity::Positive
@@ -1181,7 +1184,7 @@ fn cz2_salary_gap(ctx: &InsightContext) -> Option<Insight> {
     let gap_pct = (local_sal - acc_sal) / acc_sal * 100.0;
 
     Some(Insight {
-        id: "CZ-2".to_string(),
+        id: InsightId::Cz2,
         category: InsightCategory::RegionalCompare,
         severity: if gap_pct < -10.0 {
             Severity::Warning
@@ -1225,7 +1228,7 @@ fn cz3_aging_risk(ctx: &InsightContext) -> Option<Insight> {
     }
 
     Some(Insight {
-        id: "CZ-3".to_string(),
+        id: InsightId::Cz3,
         category: InsightCategory::Forecast,
         severity: if rate > 0.30 {
             Severity::Warning
@@ -1269,7 +1272,7 @@ fn cf1_actual_commute_zone(ctx: &InsightContext) -> Option<Insight> {
         .collect();
 
     Some(Insight {
-        id: "CF-1".to_string(),
+        id: InsightId::Cf1,
         category: InsightCategory::RegionalCompare,
         severity: if actual_ratio < 0.01 {
             Severity::Warning
@@ -1321,7 +1324,7 @@ fn cf2_inflow_targeting(ctx: &InsightContext) -> Option<Insight> {
     let is_cross_pref = top_pref != &ctx.pref;
 
     Some(Insight {
-        id: "CF-2".to_string(),
+        id: InsightId::Cf2,
         category: InsightCategory::ActionProposal,
         severity: Severity::Info,
         title: "通勤流入元ターゲティング".to_string(),
@@ -1355,7 +1358,7 @@ fn cf3_self_commute_analysis(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "CF-3".to_string(),
+        id: InsightId::Cf3,
         category: InsightCategory::HiringStructure,
         severity,
         title: "地元就業率".to_string(),
@@ -1453,7 +1456,7 @@ fn ls1_employment_capacity(ctx: &InsightContext) -> Option<Insight> {
     let unemployed_count = get_f64(lf, "unemployed");
 
     Some(Insight {
-        id: "LS-1".to_string(),
+        id: InsightId::Ls1,
         category: InsightCategory::StructuralContext,
         severity,
         title: "採用余力シグナル".to_string(),
@@ -1516,7 +1519,7 @@ fn ls2_industry_concentration(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "LS-2".to_string(),
+        id: InsightId::Ls2,
         category: InsightCategory::StructuralContext,
         severity,
         title: "産業偏在リスク".to_string(),
@@ -1566,7 +1569,7 @@ fn hh1_single_household_persona(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "HH-1".to_string(),
+        id: InsightId::Hh1,
         category: InsightCategory::StructuralContext,
         severity,
         title: "単独世帯型求職者層".to_string(),
@@ -1622,7 +1625,7 @@ fn mf1_medical_welfare_density(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "MF-1".to_string(),
+        id: InsightId::Mf1,
         category: InsightCategory::StructuralContext,
         severity,
         title: "医療供給密度ギャップ".to_string(),
@@ -1690,7 +1693,7 @@ fn in1_industry_mismatch(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "IN-1".to_string(),
+        id: InsightId::In1,
         category: InsightCategory::StructuralContext,
         severity,
         title: "産業構造の偏り".to_string(),
@@ -1757,7 +1760,7 @@ fn ge1_habitable_density(ctx: &InsightContext) -> Option<Insight> {
     };
 
     Some(Insight {
-        id: "GE-1".to_string(),
+        id: InsightId::Ge1,
         category: InsightCategory::StructuralContext,
         severity,
         title: "可住地密度（母集団サイズの参考指標）".to_string(),
