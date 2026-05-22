@@ -119,7 +119,7 @@ pub async fn insights(
         let all = crate::handlers::insight::engine::generate_insights(&ctx);
         // HR文脈で有効なものだけに絞る
         all.into_iter()
-            .filter(|i| is_hr_relevant(&i.id))
+            .filter(|i| is_hr_relevant(i.id.as_str()))
             .map(|i| enrich_with_hr_action(&i, &ctx))
             .collect::<Vec<Value>>()
     })
@@ -165,8 +165,9 @@ pub fn is_hr_relevant(id: &str) -> bool {
 
 /// Insight に HR 視点のアクション提案を付与して JSON 化
 fn enrich_with_hr_action(insight: &Insight, _ctx: &InsightContext) -> Value {
-    let hr_action = hr_action_for(&insight.id, insight);
+    let hr_action = hr_action_for(insight.id.as_str(), insight);
     json!({
+        // InsightId は serde::Serialize で "HS-1" 等の文字列に変換される
         "pattern_id": insight.id,
         "category": insight.category.label(),
         "severity": severity_label(&insight.severity),
@@ -343,12 +344,13 @@ fn error_response(msg: &str) -> Value {
 mod tests {
     use super::*;
     use crate::handlers::insight::helpers::{
-        Evidence, Insight as InsightType, InsightCategory, Severity,
+        Evidence, Insight as InsightType, InsightCategory, InsightId, Severity,
     };
+    use std::str::FromStr;
 
     fn dummy_insight(id: &str, sev: Severity) -> InsightType {
         InsightType {
-            id: id.to_string(),
+            id: InsightId::from_str(id).expect("unknown InsightId in dummy_insight"),
             category: InsightCategory::HiringStructure,
             severity: sev,
             title: format!("テスト:{}", id),
@@ -448,7 +450,7 @@ mod tests {
         // enrich_with_hr_action の呼び出しには &InsightContext が必要だが、
         // この関数は現状 ctx を使わない（プレースホルダ）。テスト用に
         // field 構造のサブセットのみ確認する目的で、hr_action_for を直接検証する。
-        let action = hr_action_for(&ins.id, &ins);
+        let action = hr_action_for(ins.id.as_str(), &ins);
         assert!(!action.is_empty());
         assert!(action.contains("検討") || action.contains("余地") || action.contains("可能性"));
     }
