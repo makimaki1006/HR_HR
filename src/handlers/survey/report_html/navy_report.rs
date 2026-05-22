@@ -2533,6 +2533,42 @@ pub(super) fn render_navy_section_05_companies(
     );
     push_region_scope_banner(html, target_region);
 
+    // 2026-05-22 #246 ユーザー指摘対応: 法人セグメント 0 社時のフォールバック表示。
+    // salesnow_segments + hw_industry + ext_industry_employees すべて空の場合、
+    // 各表が個別に「該当企業なし」を出すよりも Section 全体に対する明示的な
+    // fallback message を 1 つ出して残り表を skip する方が情報密度が高い。
+    let _is_fully_empty = {
+        let sn_total = salesnow_segments.pool_size;
+        let sn_industry_total = salesnow_segments_industry.pool_size;
+        let hw_industry_count = hw_context
+            .map(|c| c.hw_industry_counts.iter().map(|(_, n)| n).sum::<i64>())
+            .unwrap_or(0);
+        let ext_industry_count = hw_context
+            .map(|c| c.ext_industry_employees.len() as i64)
+            .unwrap_or(0);
+        sn_total == 0 && sn_industry_total == 0 && hw_industry_count == 0 && ext_industry_count == 0
+    };
+    if _is_fully_empty {
+        html.push_str(
+            "<div class=\"empty-section-fallback\" style=\"margin:8mm 0;padding:12px 16px;\
+             background:#f3f4f6;border-left:4px solid #9ca3af;border-radius:4px;\
+             font-size:10pt;line-height:1.7;\">\
+             <p style=\"font-weight:600;color:#374151;margin:0 0 6px;\">\
+             📍 該当地域に企業データが見つかりませんでした</p>\
+             <p style=\"color:#6b7280;margin:0;font-size:9.5pt;\">\
+             SalesNow 企業データ・ハローワーク産業構成・e-Stat 経済センサスの\
+             いずれにも該当する事業所が登録されていません。以下が考えられます:</p>\
+             <ul style=\"margin:6px 0 0 18px;color:#6b7280;font-size:9.5pt;\">\
+             <li>該当市区町村が小規模で企業データ収録対象外</li>\
+             <li>合併等で旧自治体名のため最新 DB と不一致 (例: 合併消滅町村)</li>\
+             <li>業界フィルタが厳しすぎる (フィルタを外して再試行を推奨)</li>\
+             </ul>\
+             </div>\n",
+        );
+        html.push_str("</section>\n");
+        return;
+    }
+
     let industry_employees: Vec<(String, i64)> = hw_context
         .map(|ctx| {
             use super::super::super::helpers::{get_f64, get_str};
