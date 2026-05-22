@@ -3068,6 +3068,7 @@ fn build_companies_so_what(
 pub(super) fn render_navy_section_06_demographics(
     html: &mut String,
     hw_context: Option<&InsightContext>,
+    target_region: &str,
 ) {
     html.push_str("<section class=\"page-navy navy-demographics\" role=\"region\">\n");
     push_page_head(
@@ -3076,6 +3077,24 @@ pub(super) fn render_navy_section_06_demographics(
         "人材デモグラフィック",
         "人口ピラミッド / 労働力 / 教育施設密度",
     );
+    // 2026-05-22 ユーザー指摘: 各表が市区町村単位か都道府県単位か曖昧で
+    // 「長崎県で高校 0 のわけない」等の誤解を招く。集計範囲を banner で明示。
+    // 「長崎県 東彼杵町」のように都道府県名込みのときは市区町村単位、
+    // 「長崎県」単独 or 「全国」のときは都道府県/全国単位を示す。
+    let scope_label = if target_region == "全国" {
+        "全国単位 (47 都道府県集計)"
+    } else if target_region.contains(' ') {
+        "市区町村単位 (該当市区町村のみ)"
+    } else {
+        "都道府県単位 (該当都道府県集計)"
+    };
+    html.push_str(&format!(
+        "<div class=\"region-scope-banner\" style=\"margin:4mm 0;padding:6px 12px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:3px;font-size:10pt;\">\
+         📍 集計範囲: <strong>{}</strong> ({})\
+         </div>\n",
+        escape_html(target_region),
+        scope_label
+    ));
 
     let ctx = match hw_context {
         Some(c) => c,
