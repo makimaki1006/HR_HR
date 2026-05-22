@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::super::super::helpers::table_exists;
+use super::super::super::helpers::normalize_muni_for_external;
 use super::{query_3level, query_turso_or_local, EXTERNAL_CLEAN_FILTER};
 
 type Db = crate::db::local_sqlite::LocalDb;
@@ -173,7 +174,8 @@ pub(crate) fn fetch_population_data(
         (format!("SELECT prefecture, municipality, total_population, male_population, female_population, \
           age_0_14, age_15_64, age_65_over, aging_rate, working_age_rate, youth_rate \
           FROM v2_external_population WHERE prefecture = ?1 AND municipality = ?2 AND {}", EXTERNAL_CLEAN_FILTER),
-         vec![pref.to_string(), muni.to_string()])
+         // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+         vec![pref.to_string(), normalize_muni_for_external(pref, muni)])
     } else if !pref.is_empty() {
         (format!("SELECT ?1 as prefecture, '全体' as municipality, SUM(total_population) as total_population, \
           SUM(male_population) as male_population, SUM(female_population) as female_population, \
@@ -216,7 +218,8 @@ pub(crate) fn fetch_population_pyramid(
           WHERE prefecture = ?1 AND municipality = ?2 AND {EXTERNAL_CLEAN_FILTER} \
           {order_clause}"
             ),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (format!("SELECT age_group, SUM(male_count) as male_count, SUM(female_count) as female_count \
@@ -247,7 +250,8 @@ pub(crate) fn fetch_migration_data(
             "SELECT inflow, outflow, net_migration, net_migration_rate \
           FROM v2_external_migration WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         ("SELECT SUM(inflow) as inflow, SUM(outflow) as outflow, \
@@ -275,7 +279,8 @@ pub(crate) fn fetch_daytime_population(
             "SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
           FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (

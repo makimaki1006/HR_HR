@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 #[allow(unused_imports)]
 use super::super::super::helpers::table_exists;
+use super::super::super::helpers::normalize_muni_for_external;
 use super::query_turso_or_local;
 
 #[allow(dead_code)]
@@ -28,7 +29,8 @@ pub(crate) fn fetch_households(
              avg_household_size, single_rate, elderly_single_rate, reference_date \
              FROM v2_external_households WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (
@@ -82,7 +84,8 @@ pub(crate) fn fetch_vital_statistics(
              birth_rate_permille, death_rate_permille, marriage_rate_permille, divorce_rate_permille, \
              reference_year \
              FROM v2_external_vital_statistics WHERE prefecture = ?1 AND municipality = ?2".to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (
@@ -129,7 +132,8 @@ pub(crate) fn fetch_labor_force(
              unemployment_rate, labor_force_participation_rate, reference_date \
              FROM v2_external_labor_force WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (
@@ -184,7 +188,8 @@ pub(crate) fn fetch_medical_welfare(
              physicians_per_10k_pop, daycare_per_1k_children_0_14, reference_year \
              FROM v2_external_medical_welfare WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (
@@ -230,7 +235,8 @@ pub(crate) fn fetch_education_facilities(
              junior_high_schools, high_schools, reference_year \
              FROM v2_external_education_facilities WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (
@@ -272,7 +278,8 @@ pub(crate) fn fetch_geography(
              population_density_per_km2, habitable_density_per_km2, reference_year \
              FROM v2_external_geography WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
-            vec![pref.to_string(), muni.to_string()],
+            // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
+            vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
         (

@@ -1063,8 +1063,12 @@ fn build_population_context(
         "SELECT SUM(nighttime_pop) AS total_population, SUM(daytime_pop) AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1"
     };
 
+    // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
     let params: Vec<String> = if !muni.is_empty() {
-        vec![effective_pref.to_string(), muni.to_string()]
+        vec![
+            effective_pref.to_string(),
+            super::helpers::normalize_muni_for_external(effective_pref, muni),
+        ]
     } else {
         vec![effective_pref.to_string()]
     };

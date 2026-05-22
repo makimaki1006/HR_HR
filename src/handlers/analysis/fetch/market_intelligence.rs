@@ -25,7 +25,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::super::super::helpers::table_exists;
+use super::super::super::helpers::{normalize_muni_for_external, table_exists};
 use super::query_turso_or_local;
 
 #[allow(dead_code)]
@@ -178,6 +178,10 @@ pub(crate) fn fetch_commute_flow_summary(
     }
     let limit = top_n.min(MAX_TOP_N).max(1);
 
+    // postings (郡名込み) と v2_external_*/commute_flow_summary (郡名なし) の不一致吸収
+    // commute_flow_summary は v2_external_commute_od 由来のため同じく郡名なし運用
+    let dest_muni_normalized = normalize_muni_for_external(dest_pref, dest_muni);
+
     // 優先 1: 事前集計テーブル
     if table_exists(db, "commute_flow_summary") {
         let sql = format!(
@@ -191,7 +195,7 @@ pub(crate) fn fetch_commute_flow_summary(
              WHERE destination_prefecture = ?1 AND destination_municipality_name = ?2 \
              ORDER BY rank_to_destination LIMIT {limit}"
         );
-        let params = vec![dest_pref.to_string(), dest_muni.to_string()];
+        let params = vec![dest_pref.to_string(), dest_muni_normalized.clone()];
         return query_turso_or_local(turso, db, &sql, &params, "commute_flow_summary");
     }
 
@@ -209,7 +213,7 @@ pub(crate) fn fetch_commute_flow_summary(
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
          ORDER BY total_commuters DESC LIMIT {limit}"
     );
-    let params = vec![dest_pref.to_string(), dest_muni.to_string()];
+    let params = vec![dest_pref.to_string(), dest_muni_normalized];
     query_turso_or_local(turso, db, &sql, &params, "v2_external_commute_od")
 }
 
