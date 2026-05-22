@@ -160,8 +160,8 @@ pub(crate) fn compute_median(
     db: &LocalDb,
     job_type: &str,
     emp_type: &str,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
 ) -> MedianStats {
     // where 構築
     let mut wc: Vec<String> = vec![
@@ -203,14 +203,14 @@ pub(crate) fn compute_median(
             }
         }
     }
-    if !prefecture.is_empty() {
+    if !pref.is_empty() {
         wc.push(format!("prefecture = ?{}", idx));
-        params_own.push(prefecture.to_string());
+        params_own.push(pref.to_string());
         idx += 1;
     }
-    if !municipality.is_empty() {
+    if !muni.is_empty() {
         wc.push(format!("municipality = ?{}", idx));
-        params_own.push(municipality.to_string());
+        params_own.push(muni.to_string());
         #[allow(unused_assignments)]
         {
             idx += 1;
@@ -322,16 +322,16 @@ fn build_interpretation(
     gap: &Gap,
     median: &MedianStats,
     job_type: &str,
-    prefecture: &str,
+    pref: &str,
 ) -> String {
     if median.sample_size == 0 {
         return "該当条件での HW 求人データが不足しており、比較できませんでした。".to_string();
     }
 
-    let region = if prefecture.is_empty() {
+    let region = if pref.is_empty() {
         "全国".to_string()
     } else {
-        prefecture.to_string()
+        pref.to_string()
     };
     let industry = if job_type.is_empty() {
         "全業界".to_string()

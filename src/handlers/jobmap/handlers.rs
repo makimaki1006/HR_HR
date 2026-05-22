@@ -605,11 +605,11 @@ fn markers_to_json(
 }
 
 /// 政令指定都市の区名から親市名を抽出
-fn extract_parent_city(municipality: &str) -> Option<String> {
-    if let Some(shi_pos) = municipality.find('市') {
-        let after_shi = &municipality[shi_pos + '市'.len_utf8()..];
+fn extract_parent_city(muni: &str) -> Option<String> {
+    if let Some(shi_pos) = muni.find('市') {
+        let after_shi = &muni[shi_pos + '市'.len_utf8()..];
         if after_shi.ends_with('区') && !after_shi.is_empty() {
-            return Some(municipality[..shi_pos + '市'.len_utf8()].to_string());
+            return Some(muni[..shi_pos + '市'.len_utf8()].to_string());
         }
     }
     None

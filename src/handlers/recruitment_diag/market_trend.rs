@@ -110,7 +110,7 @@ pub async fn market_trend(
 /// job_type 有: ts_turso_salary.count を集計 (業界指標あり)
 pub(crate) fn fetch_monthly_counts(
     turso: &TursoDb,
-    prefecture: &str,
+    pref: &str,
     emp_type: &str,
     job_type: &str,
     months: usize,
@@ -119,9 +119,9 @@ pub(crate) fn fetch_monthly_counts(
     let mut params_own: Vec<String> = Vec::new();
     let mut idx = 1;
 
-    if !prefecture.is_empty() {
+    if !pref.is_empty() {
         wc.push(format!("prefecture = ?{}", idx));
-        params_own.push(prefecture.to_string());
+        params_own.push(pref.to_string());
         idx += 1;
     }
     if !emp_type.is_empty() {
@@ -282,7 +282,7 @@ pub(crate) fn compute_growth_rate(counts: &[i64]) -> f64 {
 fn build_interpretation(
     growth: f64,
     counts: &[i64],
-    prefecture: &str,
+    pref: &str,
     job_type: &str,
     is_sample: bool,
 ) -> String {
@@ -290,10 +290,10 @@ fn build_interpretation(
         return "時系列データが不足しており、増加率を算出できませんでした。".to_string();
     }
 
-    let region = if prefecture.is_empty() {
+    let region = if pref.is_empty() {
         "全国".to_string()
     } else {
-        prefecture.to_string()
+        pref.to_string()
     };
     let industry = if job_type.is_empty() {
         "全業界".to_string()

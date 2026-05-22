@@ -275,22 +275,22 @@ pub fn build_filter_clause(filters: &SessionFilters, base_index: usize) -> (Stri
 
 /// SQLのWHERE句とパラメータインデックスを構築するヘルパー（location のみ、旧互換）
 pub fn build_hw_location_filter(
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     base_index: usize,
 ) -> (String, Vec<String>) {
     let mut clause = String::new();
     let mut params = Vec::new();
     let mut idx = base_index;
-    if !prefecture.is_empty() {
+    if !pref.is_empty() {
         idx += 1;
         clause.push_str(&format!(" AND prefecture = ?{}", idx));
-        params.push(prefecture.to_string());
+        params.push(pref.to_string());
     }
-    if !municipality.is_empty() {
+    if !muni.is_empty() {
         idx += 1;
         clause.push_str(&format!(" AND municipality = ?{}", idx));
-        params.push(municipality.to_string());
+        params.push(muni.to_string());
     }
     (clause, params)
 }
@@ -642,10 +642,10 @@ fn fetch_overview_stats(
 /// 3層比較パネルのHTML生成
 fn build_comparison_section(
     stats: &OverviewStats,
-    prefecture: &str,
+    pref: &str,
     location_label: &str,
 ) -> String {
-    if prefecture.is_empty() || stats.national_total == 0 {
+    if pref.is_empty() || stats.national_total == 0 {
         return String::new();
     }
 
@@ -755,10 +755,10 @@ fn render_overview(
     industry_label: &str,
     stats: &OverviewStats,
     location_label: &str,
-    prefecture: &str,
+    pref: &str,
 ) -> String {
     // 比較セクション
-    let comparison_section = build_comparison_section(stats, prefecture, location_label);
+    let comparison_section = build_comparison_section(stats, pref, location_label);
 
     // 産業別横棒グラフ
     let industry_chart =

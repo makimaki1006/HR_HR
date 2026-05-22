@@ -589,7 +589,7 @@ fn normalize_company_name(name: &str) -> String {
 pub fn fetch_hw_postings_for_company(
     db: &crate::db::local_sqlite::LocalDb,
     company_name: &str,
-    prefecture: &str,
+    pref: &str,
 ) -> Vec<Row> {
     let normalized = normalize_company_name(company_name);
     if normalized.len() < 2 {
@@ -602,7 +602,7 @@ pub fn fetch_hw_postings_for_company(
                FROM postings \
                WHERE facility_name LIKE ?1 AND prefecture = ?2 \
                ORDER BY salary_min DESC LIMIT 30";
-    let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
+    let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &pref];
     db.query(sql, &params).unwrap_or_default()
 }
 
@@ -611,24 +611,24 @@ pub fn fetch_hw_postings_for_company(
 pub fn fetch_companies_by_region(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     limit: usize,
 ) -> Vec<NearbyCompany> {
-    if prefecture.is_empty() {
+    if pref.is_empty() {
         return vec![];
     }
 
     let lim = limit.min(50) as i64;
 
-    let rows = if !municipality.is_empty() {
+    let rows = if !muni.is_empty() {
         // 市区町村フィルタあり
         // 2026-04-24 BUG FIX:
         //   旧実装は SELECT 列に sales_amount / sales_range / employee_delta_1y /
         //   employee_delta_3m が含まれておらず、survey report の
         //   「地域注目企業」セクションで売上・人員推移が 0 / "" になっていた。
         //   都道府県のみ版 (下ブランチ) と同じ 11 列構成に揃える。
-        let muni_pattern = format!("%{}%", municipality);
+        let muni_pattern = format!("%{}%", muni);
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                    employee_count, credit_score, postal_code, \
                    sales_amount, sales_range, \
@@ -637,7 +637,7 @@ pub fn fetch_companies_by_region(
                    WHERE prefecture = ?1 AND address LIKE ?2 \
                    ORDER BY employee_count DESC LIMIT ?3";
         let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            vec![&prefecture, &muni_pattern, &lim];
+            vec![&pref, &muni_pattern, &lim];
         sn_db.query(sql, &params).unwrap_or_default()
     } else {
         // 都道府県のみ
@@ -648,7 +648,7 @@ pub fn fetch_companies_by_region(
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 \
                    ORDER BY employee_count DESC LIMIT ?2";
-        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&prefecture, &lim];
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref, &lim];
         sn_db.query(sql, &params).unwrap_or_default()
     };
 
@@ -672,7 +672,7 @@ pub fn fetch_companies_by_region(
         .collect();
 
     // HW求人数を一括取得（N+1回避: 1クエリで全企業分をカウント）
-    batch_count_hw_postings(db, &mut companies, prefecture);
+    batch_count_hw_postings(db, &mut companies, pref);
 
     companies
 }
@@ -692,10 +692,10 @@ pub fn fetch_companies_by_region(
 pub fn fetch_company_segments_by_region(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
 ) -> RegionalCompanySegments {
-    fetch_company_segments_by_region_with_industry(sn_db, db, prefecture, municipality, None)
+    fetch_company_segments_by_region_with_industry(sn_db, db, pref, muni, None)
 }
 
 /// 2026-04-29: 業界フィルタ対応版
@@ -713,24 +713,24 @@ pub fn fetch_company_segments_by_region(
 pub fn fetch_company_segments_by_region_with_industry(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     industry: Option<&str>,
 ) -> RegionalCompanySegments {
     fetch_company_segments_by_region_with_industry_internal(
-        sn_db, db, prefecture, municipality, industry, &[],
+        sn_db, db, pref, muni, industry, &[],
     )
 }
 
 pub fn fetch_company_segments_by_region_with_sn_industries(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     sn_industries: &[String],
 ) -> RegionalCompanySegments {
     fetch_company_segments_by_region_with_industry_internal(
-        sn_db, db, prefecture, municipality, None, sn_industries,
+        sn_db, db, pref, muni, None, sn_industries,
     )
 }
 
@@ -935,12 +935,12 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
 fn fetch_company_segments_by_region_with_industry_internal(
     sn_db: &TursoDb,
     db: &crate::db::local_sqlite::LocalDb,
-    prefecture: &str,
-    municipality: &str,
+    pref: &str,
+    muni: &str,
     industry: Option<&str>,
     sn_industries_override: &[String],
 ) -> RegionalCompanySegments {
-    if prefecture.is_empty() {
+    if pref.is_empty() {
         return RegionalCompanySegments::default();
     }
 
@@ -993,7 +993,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
             let limit_idx: usize;
             let muni_pat: String;
             let sql: String;
-            if municipality.is_empty() {
+            if muni.is_empty() {
                 muni_clause = String::new();
                 lo_idx = sn_industries_override.len() + 2;
                 hi_idx = lo_idx + 1;
@@ -1016,7 +1016,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                 lo_idx = muni_idx + 1;
                 hi_idx = lo_idx + 1;
                 limit_idx = hi_idx + 1;
-                muni_pat = format!("%{}%", municipality);
+                muni_pat = format!("%{}%", muni);
                 sql = format!(
                     "SELECT corporate_number, company_name, prefecture, sn_industry, \
                      employee_count, credit_score, postal_code, \
@@ -1030,20 +1030,20 @@ fn fetch_company_segments_by_region_with_industry_internal(
                 );
             }
             let mut params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = Vec::new();
-            params.push(&prefecture);
+            params.push(&pref);
             for s in sn_industries_override {
                 params.push(s);
             }
-            if !municipality.is_empty() {
+            if !muni.is_empty() {
                 params.push(&muni_pat);
             }
             params.push(lo);
             params.push(hi);
             params.push(&band_limit);
             sn_db.query(&sql, &params).unwrap_or_default()
-        } else { match (municipality.is_empty(), &industry_keyword) {
+        } else { match (muni.is_empty(), &industry_keyword) {
             (false, Some(kw)) => {
-                let muni_pattern = format!("%{}%", municipality);
+                let muni_pattern = format!("%{}%", muni);
                 let ind_pattern = format!("%{}%", kw);
                 let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
@@ -1054,7 +1054,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                              AND employee_count >= ?4 AND employee_count <= ?5 \
                            ORDER BY employee_count DESC LIMIT ?6";
                 let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![
-                    &prefecture,
+                    &pref,
                     &muni_pattern,
                     &ind_pattern,
                     lo,
@@ -1074,11 +1074,11 @@ fn fetch_company_segments_by_region_with_industry_internal(
                              AND employee_count >= ?3 AND employee_count <= ?4 \
                            ORDER BY employee_count DESC LIMIT ?5";
                 let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&prefecture, &ind_pattern, lo, hi, &band_limit];
+                    vec![&pref, &ind_pattern, lo, hi, &band_limit];
                 sn_db.query(sql, &params).unwrap_or_default()
             }
             (false, None) => {
-                let muni_pattern = format!("%{}%", municipality);
+                let muni_pattern = format!("%{}%", muni);
                 let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
@@ -1088,7 +1088,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                              AND employee_count >= ?3 AND employee_count <= ?4 \
                            ORDER BY employee_count DESC LIMIT ?5";
                 let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&prefecture, &muni_pattern, lo, hi, &band_limit];
+                    vec![&pref, &muni_pattern, lo, hi, &band_limit];
                 sn_db.query(sql, &params).unwrap_or_default()
             }
             (true, None) => {
@@ -1101,7 +1101,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                              AND employee_count >= ?2 AND employee_count <= ?3 \
                            ORDER BY employee_count DESC LIMIT ?4";
                 let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&prefecture, lo, hi, &band_limit];
+                    vec![&pref, lo, hi, &band_limit];
                 sn_db.query(sql, &params).unwrap_or_default()
             }
         } };  // ← match ... else { match { ... } } の閉じ
@@ -1133,7 +1133,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
         .collect();
 
     // HW 求人数を一括取得 (4 セグメントすべての判定に必要)
-    batch_count_hw_postings(db, &mut pool, prefecture);
+    batch_count_hw_postings(db, &mut pool, pref);
 
     // セグメント分け
     // 大手: employee_count 降順 Top 10
@@ -1467,7 +1467,7 @@ impl RegionalCompanySegments {
 fn batch_count_hw_postings(
     db: &crate::db::local_sqlite::LocalDb,
     companies: &mut [NearbyCompany],
-    prefecture: &str,
+    pref: &str,
 ) {
     if companies.is_empty() {
         return;
@@ -1481,7 +1481,7 @@ fn batch_count_hw_postings(
         let like_pattern = format!("%{}%", normalized);
         let sql =
             "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
-        let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
+        let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &pref];
         if let Ok(rows) = db.query(sql, &params) {
             if let Some(r) = rows.first() {
                 c.hw_posting_count = get_i64(r, "cnt");
@@ -1496,7 +1496,7 @@ pub fn fetch_nearby_companies(
     db: &crate::db::local_sqlite::LocalDb,
     postal_code: &str,
     exclude_corp: &str,
-    _prefecture: &str,
+    _pref: &str,
 ) -> Vec<NearbyCompany> {
     // 郵便番号上3桁でエリアマッチ (char 単位で取り出し、非 ASCII 混入時の UTF-8 panic を回避)
     let prefix: String = postal_code.chars().take(3).collect();
@@ -1806,7 +1806,7 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
 pub fn count_hw_postings(
     db: &crate::db::local_sqlite::LocalDb,
     company_name: &str,
-    prefecture: &str,
+    pref: &str,
 ) -> i64 {
     let normalized = normalize_company_name(company_name);
     if normalized.len() < 2 {
@@ -1815,7 +1815,7 @@ pub fn count_hw_postings(
     let like_pattern = format!("%{}%", normalized);
     let sql =
         "SELECT COUNT(*) as cnt FROM postings WHERE facility_name LIKE ?1 AND prefecture = ?2";
-    let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &prefecture];
+    let params: Vec<&dyn rusqlite::types::ToSql> = vec![&like_pattern, &pref];
     if let Ok(rows) = db.query(sql, &params) {
         if let Some(r) = rows.first() {
             return get_i64(r, "cnt");

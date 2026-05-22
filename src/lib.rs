@@ -964,16 +964,16 @@ async fn set_municipality(
 // --- ヘルパー ---
 
 /// 市区町村一覧取得（job_typeフィルタなし）
-async fn fetch_municipality_list(state: &AppState, prefecture: &str) -> Vec<String> {
+async fn fetch_municipality_list(state: &AppState, pref: &str) -> Vec<String> {
     let db = match &state.hw_db {
         Some(db) => db.clone(),
         None => return Vec::new(),
     };
-    let pref = prefecture.to_string();
+    let pref_owned = pref.to_string();
     tokio::task::spawn_blocking(move || {
         if let Ok(rows) = db.query(
             "SELECT DISTINCT municipality FROM postings WHERE prefecture = ?1 AND municipality IS NOT NULL AND municipality != '' ORDER BY municipality",
-            &[&pref as &dyn rusqlite::types::ToSql],
+            &[&pref_owned as &dyn rusqlite::types::ToSql],
         ) {
             rows.iter()
                 .filter_map(|r| r.get("municipality").and_then(|v| v.as_str()).map(|s| s.to_string()))
