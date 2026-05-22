@@ -324,3 +324,100 @@ if cross_check_mismatch > 0:
 else:
     print("[OK] 全 pair 整合")
 
+
+# ===========================================================================
+# 2026-05-22 拡張: Rust 内 Vec/const ↔ match arm cross-check
+# ===========================================================================
+# 背景: 2026-05-21 balance.rs:297 size_bands_list (チルダ ~) と SQL CASE 式
+# (波線 〜) の乖離で「産業×従業員規模スタックグラフが全 0 描画」事故。同種
+# 構造 (Rust の static 配列 / Vec literal が別ファイルの match キーと乖離) を
+# 機械的に検出するため、ペア定義を登録して自動 diff する。
+print()
+print("=== RUST VEC/CONST vs MATCH CROSS-CHECK ===")
+
+RUST_VEC_PAIRS = [
+    {
+        "name": "employment_type_expansion",
+        "lhs_file": "src/handlers/recruitment_diag/mod.rs",
+        "lhs_kind": "match_returns_vec",
+        "lhs_fn": "expand_employment_type",
+        "rhs_file": "src/handlers/emp_classifier.rs",
+        "rhs_kind": "match_returns_vec",
+        "rhs_fn": "expand_to_db_values",
+        # Other バリアントの値 (両関数で「その他」相当) を取り出す
+        "lhs_arm_key": "その他",
+        "rhs_arm_key": "Other",
+    },
+    # 新規追加時はここに append。
+    # 例: {"name": "size_bands_vs_sql_case",
+    #      "lhs_file": "src/handlers/balance.rs", "lhs_kind": "static_array", "lhs_var": "size_bands_list",
+    #      "rhs_file": "src/handlers/balance.rs", "rhs_kind": "sql_case_when_then",
+    #      "rhs_fn_pattern": "WHEN.+THEN '([^']+)'"},
+]
+
+
+def extract_rust_match_arm_vec(file_path, fn_name, arm_key):
+    """Rust ソースの `fn fn_name(...) { match x { "arm_key" => vec!["a", "b", ...], ... } }`
+    から、指定 arm_key の vec! の中身を文字列セットとして返す。"""
+    if not os.path.exists(file_path):
+        return None
+    src = open(file_path, "r", encoding="utf-8").read()
+    # fn FN_NAME ... match ... { ... }
+    m_fn = re.search(rf"fn\s+{re.escape(fn_name)}\s*\([\s\S]*?\{{([\s\S]*?)^\}}", src, re.MULTILINE)
+    if not m_fn:
+        return None
+    body = m_fn.group(1)
+    # 各 arm を行ごとに見て、arm_key と一致する arm の右辺の vec!["...", "..."] を抽出
+    # arm の書式は "key" => vec!["a", "b"], または KeyVariant => vec!["a", "b"]
+    for line in body.splitlines():
+        # arm_key が文字列リテラルとして登場するパターン
+        if f'"{arm_key}"' in line or (arm_key in line and "=>" in line):
+            # この行 (および続く行) の vec!["..."] を抽出
+            m_vec = re.search(r'vec!\s*\[([^\]]+)\]', line)
+            if m_vec:
+                vec_body = m_vec.group(1)
+                keys = set(re.findall(r'"([^"]+)"', vec_body))
+                if keys:
+                    return keys
+    return None
+
+
+vec_check_total = 0
+vec_check_mismatch = 0
+for pair in RUST_VEC_PAIRS:
+    print()
+    print(f"--- {pair['name']} ---")
+    lhs_keys = None
+    rhs_keys = None
+    if pair["lhs_kind"] == "match_returns_vec":
+        lhs_keys = extract_rust_match_arm_vec(pair["lhs_file"], pair["lhs_fn"], pair["lhs_arm_key"])
+    if pair["rhs_kind"] == "match_returns_vec":
+        rhs_keys = extract_rust_match_arm_vec(pair["rhs_file"], pair["rhs_fn"], pair["rhs_arm_key"])
+    if lhs_keys is None:
+        print(f"  [WARN] lhs 抽出失敗: {pair['lhs_file']}::{pair['lhs_fn']}[{pair['lhs_arm_key']}]")
+        continue
+    if rhs_keys is None:
+        print(f"  [WARN] rhs 抽出失敗: {pair['rhs_file']}::{pair['rhs_fn']}[{pair['rhs_arm_key']}]")
+        continue
+    vec_check_total += 1
+    print(f"  lhs ({pair['lhs_fn']}[{pair['lhs_arm_key']}]): {sorted(lhs_keys)}")
+    print(f"  rhs ({pair['rhs_fn']}[{pair['rhs_arm_key']}]): {sorted(rhs_keys)}")
+    only_lhs = lhs_keys - rhs_keys
+    only_rhs = rhs_keys - lhs_keys
+    if not only_lhs and not only_rhs:
+        print(f"  [OK] {pair['name']}: 一致 ({len(lhs_keys)} keys)")
+    else:
+        vec_check_mismatch += 1
+        print(f"  [NG] {pair['name']}: 乖離あり")
+        if only_lhs:
+            print(f"     lhs のみに存在: {sorted(only_lhs)}")
+        if only_rhs:
+            print(f"     rhs のみに存在: {sorted(only_rhs)}")
+
+print()
+print(f"=== RUST VEC/CONST CHECK SUMMARY: {vec_check_total - vec_check_mismatch}/{vec_check_total} 一致 ===")
+if vec_check_mismatch > 0:
+    print(f"[WARN] {vec_check_mismatch} 件の乖離あり (上記参照)")
+else:
+    print("[OK] 全 pair 整合")
+
