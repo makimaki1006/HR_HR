@@ -1481,6 +1481,7 @@ pub(super) fn render_navy_section_02_region(
     hw_context: Option<&InsightContext>,
     hw_enrichment_map: &std::collections::HashMap<String, super::super::hw_enrichment::HwAreaEnrichment>,
     variant: ReportVariant,
+    target_region: &str,
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
     let title = if show_hw { "地域 × 求人媒体データ連携" } else { "地域データ補強" };
@@ -1492,6 +1493,7 @@ pub(super) fn render_navy_section_02_region(
 
     html.push_str("<section class=\"page-navy navy-region\" role=\"region\">\n");
     push_page_head(html, "SECTION 02", title, sub);
+    push_region_scope_banner(html, target_region);
 
     let n_total = agg.total_count;
     let n_pref = agg.by_prefecture.len();
@@ -1862,6 +1864,7 @@ pub(super) fn render_navy_section_04_market_tightness(
     html: &mut String,
     hw_context: Option<&InsightContext>,
     variant: ReportVariant,
+    target_region: &str,
 ) {
     html.push_str("<section class=\"page-navy navy-tightness\" role=\"region\">\n");
     push_page_head(
@@ -1870,6 +1873,7 @@ pub(super) fn render_navy_section_04_market_tightness(
         "採用市場 逼迫度",
         "有効求人倍率 / 失業率 / 離職率 を統合した複合指標",
     );
+    push_region_scope_banner(html, target_region);
 
     let data = hw_context.map(extract_tightness);
     let show_vacancy = matches!(variant, ReportVariant::Full); // HW 欠員補充率は Full のみ
@@ -2451,6 +2455,31 @@ fn push_page_head(html: &mut String, section_code: &str, title: &str, sub: &str)
     ));
 }
 
+/// 2026-05-22: 各 Section 冒頭で集計範囲を明示する共通 banner。
+///
+/// 「総人口 0 名」「高校 0」のような表示でユーザーが
+/// 「これは都道府県単位か市区町村単位か」と困惑する UX 課題への対応。
+/// target_region (例: "長崎県 東彼杵町") を判定して 3 種類の scope label を出力。
+///
+/// 適用先: Section 02 / 04 / 05 / 06 / 07 (集計データを含む全 Section)。
+/// Section 03 (CSV 統計) と 08 (注記) は適用外 (集計単位の概念が異なる)。
+pub(super) fn push_region_scope_banner(html: &mut String, target_region: &str) {
+    let scope_label = if target_region == "全国" {
+        "全国単位 (47 都道府県集計)"
+    } else if target_region.contains(' ') {
+        "市区町村単位 (該当市区町村のみ)"
+    } else {
+        "都道府県単位 (該当都道府県集計)"
+    };
+    html.push_str(&format!(
+        "<div class=\"region-scope-banner\" style=\"margin:4mm 0;padding:6px 12px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:3px;font-size:10pt;\">\
+         📍 集計範囲: <strong>{}</strong> ({})\
+         </div>\n",
+        escape_html(target_region),
+        scope_label
+    ));
+}
+
 fn push_kpi(
     html: &mut String,
     label: &str,
@@ -2491,6 +2520,7 @@ pub(super) fn render_navy_section_05_companies(
     salesnow_segments_industry: &super::super::super::company::fetch::RegionalCompanySegments,
     industry_filter: Option<&str>,
     variant: ReportVariant,
+    target_region: &str,
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
 
@@ -2501,6 +2531,7 @@ pub(super) fn render_navy_section_05_companies(
         "地域企業構造",
         "産業構成 / 法人セグメント / 規模帯ベンチマーク",
     );
+    push_region_scope_banner(html, target_region);
 
     let industry_employees: Vec<(String, i64)> = hw_context
         .map(|ctx| {
@@ -3077,24 +3108,7 @@ pub(super) fn render_navy_section_06_demographics(
         "人材デモグラフィック",
         "人口ピラミッド / 労働力 / 教育施設密度",
     );
-    // 2026-05-22 ユーザー指摘: 各表が市区町村単位か都道府県単位か曖昧で
-    // 「長崎県で高校 0 のわけない」等の誤解を招く。集計範囲を banner で明示。
-    // 「長崎県 東彼杵町」のように都道府県名込みのときは市区町村単位、
-    // 「長崎県」単独 or 「全国」のときは都道府県/全国単位を示す。
-    let scope_label = if target_region == "全国" {
-        "全国単位 (47 都道府県集計)"
-    } else if target_region.contains(' ') {
-        "市区町村単位 (該当市区町村のみ)"
-    } else {
-        "都道府県単位 (該当都道府県集計)"
-    };
-    html.push_str(&format!(
-        "<div class=\"region-scope-banner\" style=\"margin:4mm 0;padding:6px 12px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:3px;font-size:10pt;\">\
-         📍 集計範囲: <strong>{}</strong> ({})\
-         </div>\n",
-        escape_html(target_region),
-        scope_label
-    ));
+    push_region_scope_banner(html, target_region);
 
     let ctx = match hw_context {
         Some(c) => c,
@@ -3527,6 +3541,7 @@ fn build_demographics_so_what(
 pub(super) fn render_navy_section_07_lifestyle(
     html: &mut String,
     hw_context: Option<&InsightContext>,
+    target_region: &str,
 ) {
     html.push_str("<section class=\"page-navy navy-lifestyle\" role=\"region\">\n");
     push_page_head(
@@ -3535,6 +3550,7 @@ pub(super) fn render_navy_section_07_lifestyle(
         "最低賃金・ライフスタイル",
         "最低賃金推移 / 家計支出構成 / 通勤圏",
     );
+    push_region_scope_banner(html, target_region);
 
     let ctx = match hw_context {
         Some(c) => c,
