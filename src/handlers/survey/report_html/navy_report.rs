@@ -2556,7 +2556,7 @@ pub(super) fn render_navy_section_05_companies(
              <p style=\"font-weight:600;color:#374151;margin:0 0 6px;\">\
              📍 該当地域に企業データが見つかりませんでした</p>\
              <p style=\"color:#6b7280;margin:0;font-size:9.5pt;\">\
-             SalesNow 企業データ・ハローワーク産業構成・e-Stat 経済センサスの\
+             地域注目企業データ・ハローワーク産業構成・e-Stat 経済センサスの\
              いずれにも該当する事業所が登録されていません。以下が考えられます:</p>\
              <ul style=\"margin:6px 0 0 18px;color:#6b7280;font-size:9.5pt;\">\
              <li>該当市区町村が小規模で企業データ収録対象外</li>\
