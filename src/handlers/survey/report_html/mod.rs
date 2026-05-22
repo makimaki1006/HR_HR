@@ -599,6 +599,9 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // cover / TOC / executive summary は navy_report::* が単独で出力する。
     // 既存 dv2-cover / dv2-section-badge / exec-kpi-grid-v2 / exec-action-list は
     // 一切呼ばない。salary_stats 以降のセクションは旧パスで段階移行 (Phase 2-4)。
+    // 2026-05-22: target_region を上位 scope に移動 (旧コードは block 内で
+    // L639 の render_navy_section_06_demographics で参照不可だった)。
+    let target_region = compose_target_region(agg, selected_pref, selected_muni);
     {
         let today_short = chrono::Local::now().format("%Y年%m月").to_string();
         // 2026-05-14: ユーザー選択地域があれば優先、未指定なら CSV dominant (従来動作)。
@@ -606,7 +609,6 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         //   情報は SO WHAT / 流入流出注記で別途扱う。
         // 2026-05-18: compose_target_region に selected を渡し、helper 側で
         //   selected 優先 / 未選択時 dominant fallback ロジックを統一。
-        let target_region = compose_target_region(agg, selected_pref, selected_muni);
         navy_report::render_navy_cover(&mut html, agg, variant, &now, &today_short, &target_region);
         navy_report::render_navy_toc(&mut html, variant);
         navy_report::render_navy_executive(
@@ -636,7 +638,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         industry_filter,
         variant,
     );
-    navy_report::render_navy_section_06_demographics(&mut html, hw_context);
+    navy_report::render_navy_section_06_demographics(&mut html, hw_context, &target_region);
     navy_report::render_navy_section_07_lifestyle(&mut html, hw_context);
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
