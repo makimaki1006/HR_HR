@@ -24,6 +24,7 @@ mod hw_enrichment;
 mod labels;
 mod navy_report;
 mod region_filter;
+mod render_config;
 mod salary_summary;
 // Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
 pub(crate) mod industry_mismatch;
@@ -309,7 +310,24 @@ fn render_variant_indicator(variant: ReportVariant) -> String {
     html
 }
 
-/// 求人市場 総合診断レポート 印刷/ダウンロード用 HTML を生成
+// ============================================================================
+// A3 リファクタ (2026-05-22): 7 段ラッパ統合
+//
+// 旧コード: render_survey_report_page → _with_enrichment → _with_municipalities →
+//          _with_variant → _with_variant_v2 → _with_variant_v3 → _with_variant_v3_themed
+//          の 7 段ラッパで機能拡張を積み重ねていた (最深層は引数 19 個)。
+//
+// 新コード: 全引数を `RenderConfig` 構造体に集約 + builder pattern。
+//          中核 render ロジックは `render_survey_report_page_with_config(&cfg)` に集約。
+//          既存 7 段ラッパは builder を組み立てて新関数に委譲する薄い wrapper として
+//          残置 (既存 caller の互換性維持)。
+//
+// 設計詳細: `render_config.rs` の doc コメント参照。
+// ============================================================================
+
+use render_config::RenderConfig;
+
+/// 求人市場 総合診断レポート 印刷/ダウンロード用 HTML を生成 (旧 API 互換)。
 ///
 /// # 引数
 /// - `agg`: CSVから集計した求人データ
@@ -320,6 +338,10 @@ fn render_variant_indicator(variant: ReportVariant) -> String {
 /// - `salary_max_values`: 上限給与一覧（Step 2 で追加）
 /// - `hw_context`: HW ローカル/外部統計コンテキスト（Section 2/3/H 等で参照）
 /// - `salesnow_companies`: 地域注目企業リスト（内部名は呼出側互換で維持）
+///
+/// # A3 リファクタ後
+/// 本関数は `render_survey_report_page_with_config` を builder 経由で呼ぶ薄い wrapper。
+/// 新規 caller は `RenderConfig::builder()` を直接使うこと。
 pub(crate) fn render_survey_report_page(
     agg: &SurveyAggregation,
     seeker: &JobSeekerAnalysis,
@@ -330,24 +352,24 @@ pub(crate) fn render_survey_report_page(
     hw_context: Option<&InsightContext>,
     salesnow_companies: &[NearbyCompany],
 ) -> String {
-    // 後方互換: enrichment マップなしでの呼び出し
-    render_survey_report_page_with_enrichment(
-        agg,
-        seeker,
-        by_company,
-        by_emp_type_salary,
-        salary_min_values,
-        salary_max_values,
-        hw_context,
-        salesnow_companies,
-        &std::collections::HashMap::new(),
-    )
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .build();
+    render_survey_report_page_with_config(&cfg)
 }
 
-/// 市区町村別 HW enrichment map を受け取る拡張版
+/// 市区町村別 HW enrichment map を受け取る拡張版 (旧 API 互換)。
 ///
 /// `hw_enrichment_map`: key = `"{prefecture}:{municipality}"` の HashMap
-/// 各エントリに市区町村単位の HW 現在件数 / 推移 / 欠員率 を格納
+/// 各エントリに市区町村単位の HW 現在件数 / 推移 / 欠員率 を格納。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_survey_report_page_with_enrichment(
     agg: &SurveyAggregation,
     seeker: &JobSeekerAnalysis,
@@ -359,25 +381,26 @@ pub(crate) fn render_survey_report_page_with_enrichment(
     salesnow_companies: &[NearbyCompany],
     hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
 ) -> String {
-    render_survey_report_page_with_municipalities(
-        agg,
-        seeker,
-        by_company,
-        by_emp_type_salary,
-        salary_min_values,
-        salary_max_values,
-        hw_context,
-        salesnow_companies,
-        hw_enrichment_map,
-        &[],
-    )
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .hw_enrichment_map(hw_enrichment_map)
+        .build();
+    render_survey_report_page_with_config(&cfg)
 }
 
-/// 2026-04-26 Granularity: 市区町村別デモグラフィック付き拡張版
+/// 2026-04-26 Granularity: 市区町村別デモグラフィック付き拡張版 (旧 API 互換)。
 ///
 /// ユーザー指摘「都道府県単位は参考にならない」に対応。
 /// `municipality_demographics` に CSV 上位 N 市区町村のピラミッド・労働力・教育施設等を渡す。
 /// 空 Vec ならデフォルト (都道府県粒度のみ) で動作 (後方互換)。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_survey_report_page_with_municipalities(
     agg: &SurveyAggregation,
     seeker: &JobSeekerAnalysis,
@@ -390,26 +413,24 @@ pub(crate) fn render_survey_report_page_with_municipalities(
     hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
 ) -> String {
-    // デフォルトは Full バリアント (後方互換)
-    render_survey_report_page_with_variant(
-        agg,
-        seeker,
-        by_company,
-        by_emp_type_salary,
-        salary_min_values,
-        salary_max_values,
-        hw_context,
-        salesnow_companies,
-        hw_enrichment_map,
-        municipality_demographics,
-        ReportVariant::Full,
-    )
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .hw_enrichment_map(hw_enrichment_map)
+        .municipality_demographics(municipality_demographics)
+        .build();
+    render_survey_report_page_with_config(&cfg)
 }
 
-/// 2026-04-29: バリアント切替対応版
+/// 2026-04-29: バリアント切替対応版 (旧 API 互換)。
 ///
 /// `variant` で `Full` (HW併載) / `Public` (公開データ中心) を切替。
-/// 既存の `render_survey_report_page_with_municipalities` は本関数を Full で呼ぶ薄いラッパ。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_survey_report_page_with_variant(
     agg: &SurveyAggregation,
@@ -424,25 +445,23 @@ pub(crate) fn render_survey_report_page_with_variant(
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
 ) -> String {
-    // 4 セグメント未指定時は空 (後方互換)
-    let empty_segments = super::super::company::fetch::RegionalCompanySegments::default();
-    render_survey_report_page_with_variant_v2(
-        agg,
-        seeker,
-        by_company,
-        by_emp_type_salary,
-        salary_min_values,
-        salary_max_values,
-        hw_context,
-        salesnow_companies,
-        &empty_segments,
-        hw_enrichment_map,
-        municipality_demographics,
-        variant,
-    )
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .hw_enrichment_map(hw_enrichment_map)
+        .municipality_demographics(municipality_demographics)
+        .variant(variant)
+        .build();
+    render_survey_report_page_with_config(&cfg)
 }
 
-/// 2026-04-29 v2: 4 セグメント企業 (大手 / 中堅 / 急成長 / 採用活発) 対応版
+/// 2026-04-29 v2: 4 セグメント企業 (大手 / 中堅 / 急成長 / 採用活発) 対応版 (旧 API 互換)。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_survey_report_page_with_variant_v2(
     agg: &SurveyAggregation,
@@ -458,32 +477,27 @@ pub(crate) fn render_survey_report_page_with_variant_v2(
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
 ) -> String {
-    // v3 を業界フィルタなしで呼ぶ薄いラッパ (後方互換)
-    let empty_industry_segments = super::super::company::fetch::RegionalCompanySegments::default();
-    render_survey_report_page_with_variant_v3(
-        agg,
-        seeker,
-        by_company,
-        by_emp_type_salary,
-        salary_min_values,
-        salary_max_values,
-        hw_context,
-        salesnow_companies,
-        salesnow_segments,
-        &empty_industry_segments,
-        None,
-        hw_enrichment_map,
-        municipality_demographics,
-        variant,
-    )
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .salesnow_segments(salesnow_segments)
+        .hw_enrichment_map(hw_enrichment_map)
+        .municipality_demographics(municipality_demographics)
+        .variant(variant)
+        .build();
+    render_survey_report_page_with_config(&cfg)
 }
 
-/// 2026-04-29 v3: 業界フィルタ対応版 (全業界 + 同業界 両方併記)
+/// 2026-04-29 v3: 業界フィルタ対応版 (全業界 + 同業界 両方併記) (旧 API 互換)。
 ///
 /// 業界フィルタが指定されている場合、salesnow_segments_industry に同業界版を渡す。
 /// 未指定の場合、`salesnow_segments_industry` は空 + `industry_filter` は None。
-///
-/// theme=Default で従来挙動。v8/v7a 等は CSS のみ差し替えで見た目を切替 (2026-05-01 追加)。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_survey_report_page_with_variant_v3(
     agg: &SurveyAggregation,
@@ -501,31 +515,26 @@ pub(crate) fn render_survey_report_page_with_variant_v3(
     municipality_demographics: &[super::granularity::MunicipalityDemographics],
     variant: ReportVariant,
 ) -> String {
-    // 後方互換: theme 未指定の呼び出しは Default テーマ。
-    render_survey_report_page_with_variant_v3_themed(
-        agg,
-        seeker,
-        by_company,
-        by_emp_type_salary,
-        salary_min_values,
-        salary_max_values,
-        hw_context,
-        salesnow_companies,
-        salesnow_segments,
-        salesnow_segments_industry,
-        industry_filter,
-        hw_enrichment_map,
-        municipality_demographics,
-        variant,
-        ReportTheme::Default,
-        None,
-        None,
-        "",
-        "",
-    )
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .salesnow_segments(salesnow_segments)
+        .salesnow_segments_industry(salesnow_segments_industry)
+        .industry_filter(industry_filter)
+        .hw_enrichment_map(hw_enrichment_map)
+        .municipality_demographics(municipality_demographics)
+        .variant(variant)
+        .build();
+    render_survey_report_page_with_config(&cfg)
 }
 
-/// v3 + theme 対応版 (2026-05-01 追加)
+/// v3 + theme 対応版 (2026-05-01 追加) (旧 API 互換)。
 ///
 /// 同じ CSV 分析結果を異なるデザインで出力するため、現場で見た目を比較可能にする。
 /// マークアップ構造は theme に依存せず共通。CSS だけが切り替わる。
@@ -556,6 +565,61 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     selected_pref: &str,
     selected_muni: &str,
 ) -> String {
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .salesnow_segments(salesnow_segments)
+        .salesnow_segments_industry(salesnow_segments_industry)
+        .industry_filter(industry_filter)
+        .hw_enrichment_map(hw_enrichment_map)
+        .municipality_demographics(municipality_demographics)
+        .variant(variant)
+        .theme(theme)
+        .db(db)
+        .turso(turso)
+        .selected_pref(selected_pref)
+        .selected_muni(selected_muni)
+        .build();
+    render_survey_report_page_with_config(&cfg)
+}
+
+/// 求人市場 総合診断レポート HTML を生成する中核関数 (A3 リファクタ後の新 API)。
+///
+/// # 引数
+///
+/// 全パラメータは `RenderConfig` 1 つに集約。`RenderConfig::builder()` で構築する。
+///
+/// # 旧 API との関係
+///
+/// 旧 7 段ラッパ (`render_survey_report_page` 等) は本関数を呼ぶ薄い wrapper として
+/// 残置されている。新規 caller は builder を直接使用すること。
+///
+/// # 移行例
+///
+/// ```ignore
+/// // 旧: 19 引数
+/// let html = render_survey_report_page_with_variant_v3_themed(
+///     &agg, &seeker, &by_company, &by_emp, &smin, &smax, ctx, &sn, &seg, &seg_i,
+///     filter, &map, &demo, variant, theme, db, turso, pref, muni,
+/// );
+///
+/// // 新: builder pattern
+/// let cfg = RenderConfig::builder()
+///     .agg(&agg).seeker(&seeker)
+///     .by_company(&by_company).by_emp_type_salary(&by_emp)
+///     .salary_min_values(&smin).salary_max_values(&smax)
+///     .hw_context(ctx)
+///     .variant(variant).theme(theme)
+///     .build();
+/// let html = render_survey_report_page_with_config(&cfg);
+/// ```
+pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> String {
     let now = chrono::Local::now()
         .format("%Y年%m月%d日 %H:%M")
         .to_string();
@@ -563,13 +627,13 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
 
     // --- DOCTYPE + HEAD ---
     html.push_str("<!DOCTYPE html>\n<html lang=\"ja\" data-theme=\"");
-    html.push_str(theme.as_query());
+    html.push_str(cfg.theme.as_query());
     html.push_str("\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
     html.push_str("<title>求人市場 総合診断レポート</title>\n");
     html.push_str("<style>\n");
-    html.push_str(&render_css_for_theme(theme));
+    html.push_str(&render_css_for_theme(cfg.theme));
     html.push_str("</style>\n");
     // ECharts CDN
     html.push_str(
@@ -590,10 +654,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
 
     // --- バリアントインジケータ + 切替リンク (2026-04-29) ---
     // web view では現在のバリアントと切替リンクを表示。印刷時は .no-print で非表示。
-    html.push_str(&render_variant_indicator(variant));
-
-    // Round 24 Push 2: 旧テーマ (v8/v7a) を廃止し navy 一本化。テーマ切替インジケータも撤去。
-    let _ = theme;
+    html.push_str(&render_variant_indicator(cfg.variant));
 
     // --- Round 24 Push 3 (2026-05-13): navy 専用レンダラ ---
     // cover / TOC / executive summary は navy_report::* が単独で出力する。
@@ -601,7 +662,7 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // 一切呼ばない。salary_stats 以降のセクションは旧パスで段階移行 (Phase 2-4)。
     // 2026-05-22: target_region を上位 scope に移動 (旧コードは block 内で
     // L639 の render_navy_section_06_demographics で参照不可だった)。
-    let target_region = compose_target_region(agg, selected_pref, selected_muni);
+    let target_region = compose_target_region(cfg.agg, cfg.selected_pref, cfg.selected_muni);
     {
         let today_short = chrono::Local::now().format("%Y年%m月").to_string();
         // 2026-05-14: ユーザー選択地域があれば優先、未指定なら CSV dominant (従来動作)。
@@ -609,15 +670,22 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         //   情報は SO WHAT / 流入流出注記で別途扱う。
         // 2026-05-18: compose_target_region に selected を渡し、helper 側で
         //   selected 優先 / 未選択時 dominant fallback ロジックを統一。
-        navy_report::render_navy_cover(&mut html, agg, variant, &now, &today_short, &target_region);
-        navy_report::render_navy_toc(&mut html, variant);
+        navy_report::render_navy_cover(
+            &mut html,
+            cfg.agg,
+            cfg.variant,
+            &now,
+            &today_short,
+            &target_region,
+        );
+        navy_report::render_navy_toc(&mut html, cfg.variant);
         navy_report::render_navy_executive(
             &mut html,
-            agg,
-            seeker,
-            by_emp_type_salary,
-            hw_context,
-            variant,
+            cfg.agg,
+            cfg.seeker,
+            cfg.by_emp_type_salary,
+            cfg.hw_context,
+            cfg.variant,
             &target_region,
         );
     }
@@ -626,27 +694,47 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     // を要求する場合は別 commit で更新する。
     // Round 24 Push 3 Phase 2 (2026-05-13): Section 03 (給与統計) は navy 本実装。
     // Section 02 / 04-08 は placeholder のまま、Phase 3-4 で順次差し替え。
-    navy_report::render_navy_section_02_region(&mut html, agg, hw_context, hw_enrichment_map, variant, &target_region);
-    navy_report::render_navy_section_03_salary(&mut html, agg, salary_min_values, salary_max_values);
-    navy_report::render_navy_section_04_market_tightness(&mut html, hw_context, variant, &target_region);
-    navy_report::render_navy_section_05_companies(
+    navy_report::render_navy_section_02_region(
         &mut html,
-        hw_context,
-        by_company,
-        salesnow_segments,
-        salesnow_segments_industry,
-        industry_filter,
-        variant,
+        cfg.agg,
+        cfg.hw_context,
+        cfg.hw_enrichment_map,
+        cfg.variant,
         &target_region,
     );
-    navy_report::render_navy_section_06_demographics(&mut html, hw_context, &target_region);
-    navy_report::render_navy_section_07_lifestyle(&mut html, hw_context, &target_region);
+    navy_report::render_navy_section_03_salary(
+        &mut html,
+        cfg.agg,
+        cfg.salary_min_values,
+        cfg.salary_max_values,
+    );
+    navy_report::render_navy_section_04_market_tightness(
+        &mut html,
+        cfg.hw_context,
+        cfg.variant,
+        &target_region,
+    );
+    navy_report::render_navy_section_05_companies(
+        &mut html,
+        cfg.hw_context,
+        cfg.by_company,
+        cfg.salesnow_segments,
+        cfg.salesnow_segments_industry,
+        cfg.industry_filter,
+        cfg.variant,
+        &target_region,
+    );
+    navy_report::render_navy_section_06_demographics(&mut html, cfg.hw_context, &target_region);
+    navy_report::render_navy_section_07_lifestyle(&mut html, cfg.hw_context, &target_region);
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
-    navy_report::render_navy_section_08_notes(&mut html, variant, &now);
+    navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now);
+    // 未使用引数の suppress (将来の MarketIntelligence 拡張で使用予定)
     let _ = (
-        salesnow_companies,
-        municipality_demographics, db, turso,
+        cfg.salesnow_companies,
+        cfg.municipality_demographics,
+        cfg.db,
+        cfg.turso,
     );
 
     // --- 画面下部フッター（印刷時は @page footer を使用） ---
