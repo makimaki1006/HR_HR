@@ -678,15 +678,11 @@ pub struct MunicipalityRecruitingScore {
     /// 0〜100 指数。METRICS.md §2.1 の `clamp(positive_score * (1 - penalty_reduction_pct/100), 0, 100)`
     pub distribution_priority_score: Option<f64>,
 
-    // 2026-05-24 audit_F P0-1: 命名違反の警告コメント。
-    // DISPLAY_SPEC v1.0 §9.2 で DTO に「人数」を匂わせる population フィールドは禁止。
-    // しかし `_population` サフィックスがそのまま残存している (出力 HTML は「シナリオスコア」表記で safe)。
-    // 全 45 reference を `_score` にリネームすべきだが、影響範囲が広いため別 task で対応。
-    // 当面は **値は score (Option<i64>) であり「人数」ではない** ことを明示。
-    // TODO(2026-05-24): scenario_*_population → scenario_*_score にリネーム
-    pub scenario_conservative_population: Option<i64>,
-    pub scenario_standard_population: Option<i64>,
-    pub scenario_aggressive_population: Option<i64>,
+    // DONE (2026-05-24 audit_F P0-1): scenario_*_population フィールドを削除し、
+    // Worker B Round 2 で導入済の scenario_*_score (下記 L715-717) に統合。
+    // DISPLAY_SPEC v1.0 §9.2 違反 (DTO の `_population` サフィックス) を解消。
+    // 旧 *_population は SQL カラムが既に存在せず常に None だったため、削除しても挙動変化なし。
+    // fallback (report_html/market_intelligence.rs:2691-2697 の `.or(_population)`) も併せて削除。
 
     pub source_year: Option<i64>,
 
@@ -773,9 +769,6 @@ impl MunicipalityRecruitingScore {
             living_cost_score: opt_f64(row, "living_cost_score"),
             effective_wage_score: opt_f64(row, "effective_wage_score"),
             distribution_priority_score: opt_f64(row, "distribution_priority_score"),
-            scenario_conservative_population: opt_i64(row, "scenario_conservative_population"),
-            scenario_standard_population: opt_i64(row, "scenario_standard_population"),
-            scenario_aggressive_population: opt_i64(row, "scenario_aggressive_population"),
             source_year: opt_i64(row, "source_year"),
             // -------- Worker B 投入版フィールド --------
             basis: str_or_empty(row, "basis"),
@@ -808,27 +801,15 @@ impl MunicipalityRecruitingScore {
     }
 
     /// Worker B 版のシナリオスコア (INTEGER) が「保守 ≤ 標準 ≤ 強気」を満たすか。
-    /// 3 値とも値ありの時のみ厳密検証、欠損時は true。
+    ///
+    /// METRICS.md §9 の制約。3 値とも値があるときのみ厳密に検証し、
+    /// 欠損ありなら `true` (検証不可) を返す。
+    /// 2026-05-24 audit_F P0-1: 旧 is_scenario_consistent (scenario_*_population 参照) を統合。
     pub fn is_scenario_score_consistent(&self) -> bool {
         match (
             self.scenario_conservative_score,
             self.scenario_standard_score,
             self.scenario_aggressive_score,
-        ) {
-            (Some(c), Some(s), Some(a)) => c <= s && s <= a,
-            _ => true,
-        }
-    }
-
-    /// 母集団シナリオが「保守 ≤ 標準 ≤ 強気」を満たすか。
-    ///
-    /// METRICS.md §9 の制約。3 値とも値があるときのみ厳密に検証し、
-    /// 欠損ありなら `true` (検証不可) を返す。
-    pub fn is_scenario_consistent(&self) -> bool {
-        match (
-            self.scenario_conservative_population,
-            self.scenario_standard_population,
-            self.scenario_aggressive_population,
         ) {
             (Some(c), Some(s), Some(a)) => c <= s && s <= a,
             _ => true,
@@ -1525,7 +1506,7 @@ impl SurveyMarketIntelligenceData {
     pub fn all_invariants_hold(&self) -> bool {
         self.recruiting_scores
             .iter()
-            .all(|s| s.is_scenario_consistent() && s.is_priority_score_in_range())
+            .all(|s| s.is_scenario_score_consistent() && s.is_priority_score_in_range())
             && self
                 .commute_flows
                 .iter()
@@ -1768,15 +1749,15 @@ mod tests {
             Value::String("78.5".into()),
         );
         row.insert(
-            "scenario_conservative_population".into(),
+            "scenario_conservative_score".into(),
             Value::String("100".into()),
         );
         row.insert(
-            "scenario_standard_population".into(),
+            "scenario_standard_score".into(),
             Value::String("300".into()),
         );
         row.insert(
-            "scenario_aggressive_population".into(),
+            "scenario_aggressive_score".into(),
             Value::String("500".into()),
         );
 
@@ -1785,9 +1766,9 @@ mod tests {
         assert_eq!(dto.prefecture, "北海道");
         assert_eq!(dto.target_population, Some(12345));
         assert_eq!(dto.distribution_priority_score, Some(78.5));
-        assert_eq!(dto.scenario_conservative_population, Some(100));
-        assert_eq!(dto.scenario_standard_population, Some(300));
-        assert_eq!(dto.scenario_aggressive_population, Some(500));
+        assert_eq!(dto.scenario_conservative_score, Some(100));
+        assert_eq!(dto.scenario_standard_score, Some(300));
+        assert_eq!(dto.scenario_aggressive_score, Some(500));
         // 不在カラムは None
         assert_eq!(dto.median_salary_yen, None);
         assert_eq!(dto.living_cost_score, None);
@@ -1802,7 +1783,7 @@ mod tests {
         assert_eq!(s.municipality_code, "");
         assert_eq!(s.target_population, None);
         assert_eq!(s.distribution_priority_score, None);
-        assert!(s.is_scenario_consistent(), "欠損ありなら true");
+        assert!(s.is_scenario_score_consistent(), "欠損ありなら true");
         assert!(s.is_priority_score_in_range(), "欠損ありなら true");
 
         let l = LivingCostProxy::from_row(&row);
@@ -1820,53 +1801,53 @@ mod tests {
         assert_eq!(o.population, None);
     }
 
-    /// `is_scenario_consistent` が「保守 ≤ 標準 ≤ 強気」の不変条件を検証すること。
+    /// `is_scenario_score_consistent` が「保守 ≤ 標準 ≤ 強気」の不変条件を検証すること。
     #[test]
     fn test_recruiting_score_scenario_invariant() {
         // 適合: 100 <= 300 <= 500
         let valid = MunicipalityRecruitingScore {
-            scenario_conservative_population: Some(100),
-            scenario_standard_population: Some(300),
-            scenario_aggressive_population: Some(500),
+            scenario_conservative_score: Some(100),
+            scenario_standard_score: Some(300),
+            scenario_aggressive_score: Some(500),
             ..Default::default()
         };
-        assert!(valid.is_scenario_consistent());
+        assert!(valid.is_scenario_score_consistent());
 
         // 適合: 等値 (100 = 100 = 100)
         let edge_equal = MunicipalityRecruitingScore {
-            scenario_conservative_population: Some(100),
-            scenario_standard_population: Some(100),
-            scenario_aggressive_population: Some(100),
+            scenario_conservative_score: Some(100),
+            scenario_standard_score: Some(100),
+            scenario_aggressive_score: Some(100),
             ..Default::default()
         };
-        assert!(edge_equal.is_scenario_consistent());
+        assert!(edge_equal.is_scenario_score_consistent());
 
         // 不適合: 標準 < 保守 (順序逆転)
         let invalid_swap = MunicipalityRecruitingScore {
-            scenario_conservative_population: Some(500),
-            scenario_standard_population: Some(300),
-            scenario_aggressive_population: Some(100),
+            scenario_conservative_score: Some(500),
+            scenario_standard_score: Some(300),
+            scenario_aggressive_score: Some(100),
             ..Default::default()
         };
-        assert!(!invalid_swap.is_scenario_consistent());
+        assert!(!invalid_swap.is_scenario_score_consistent());
 
         // 不適合: 強気 < 標準
         let invalid_partial = MunicipalityRecruitingScore {
-            scenario_conservative_population: Some(100),
-            scenario_standard_population: Some(500),
-            scenario_aggressive_population: Some(300),
+            scenario_conservative_score: Some(100),
+            scenario_standard_score: Some(500),
+            scenario_aggressive_score: Some(300),
             ..Default::default()
         };
-        assert!(!invalid_partial.is_scenario_consistent());
+        assert!(!invalid_partial.is_scenario_score_consistent());
 
         // 欠損あり → 検証不可、true (緩いガード)
         let missing = MunicipalityRecruitingScore {
-            scenario_conservative_population: Some(100),
-            scenario_standard_population: None,
-            scenario_aggressive_population: Some(500),
+            scenario_conservative_score: Some(100),
+            scenario_standard_score: None,
+            scenario_aggressive_score: Some(500),
             ..Default::default()
         };
-        assert!(missing.is_scenario_consistent());
+        assert!(missing.is_scenario_score_consistent());
     }
 
     /// `is_priority_score_in_range` が `[0.0, 200.0]` を検証すること (Round 9 P2-G 拡張)。
@@ -2002,9 +1983,9 @@ mod tests {
     fn test_survey_market_intelligence_data_invariants() {
         let valid_score = MunicipalityRecruitingScore {
             distribution_priority_score: Some(75.0),
-            scenario_conservative_population: Some(100),
-            scenario_standard_population: Some(300),
-            scenario_aggressive_population: Some(500),
+            scenario_conservative_score: Some(100),
+            scenario_standard_score: Some(300),
+            scenario_aggressive_score: Some(500),
             ..Default::default()
         };
         let valid_flow = CommuteFlowSummary {
