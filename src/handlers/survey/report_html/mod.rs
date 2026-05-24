@@ -994,7 +994,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn test_render_empty_data() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
@@ -1237,7 +1237,7 @@ mod tests {
 
     /// 注記セクションがカテゴリ別ボックス + 用語ツールチップを含むこと
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui3_notes_section_has_categorized_boxes() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
@@ -1280,7 +1280,7 @@ mod tests {
 
     /// 求職者心理分析が空でない時、第4章図番号 + 解釈ガイドバナーが含まれる
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui3_seeker_section_has_chapter_4_and_guidance() {
         let mut seeker = JobSeekerAnalysis::default();
         seeker.total_analyzed = 100;
@@ -1314,7 +1314,7 @@ mod tests {
 
     /// 注記カテゴリの絵文字 + aria 関連の a11y 属性確認
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui3_a11y_attributes_present() {
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
@@ -1905,7 +1905,7 @@ mod ui2_contract_tests {
     // ---- Section 3: 給与統計 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_salary_stats_has_summary_table_with_figure_no() {
         let html = render_ui2();
         assert!(
@@ -1915,7 +1915,6 @@ mod ui2_contract_tests {
     }
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
     fn ui2_salary_stats_has_iqr_shade_bar() {
         let html = render_ui2();
         assert!(
@@ -1929,7 +1928,7 @@ mod ui2_contract_tests {
     }
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_salary_stats_has_outlier_removal_table() {
         let html = render_ui2();
         assert!(
@@ -1943,7 +1942,7 @@ mod ui2_contract_tests {
     }
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_salary_stats_has_histogram_figure_numbers() {
         let html = render_ui2();
         // Round 20: ヒストグラム 4 chart 廃止 → 下限/上限 概観 2 chart + クラスタ分析章
@@ -1968,7 +1967,7 @@ mod ui2_contract_tests {
     // ---- Section 5: 散布図 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_scatter_has_regression_table_and_threshold_guide() {
         let html = render_ui2();
         assert!(
@@ -1983,7 +1982,6 @@ mod ui2_contract_tests {
     }
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
     fn ui2_scatter_has_correlation_not_causation_warning() {
         let html = render_ui2();
         // memory feedback_correlation_not_causation 準拠
@@ -1997,7 +1995,7 @@ mod ui2_contract_tests {
     // ---- Section 6: 地域分析（都道府県） ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_region_has_heatmap() {
         let html = render_ui2();
         assert!(
@@ -2011,7 +2009,7 @@ mod ui2_contract_tests {
     }
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_region_has_pref_table_figure_no() {
         let html = render_ui2();
         assert!(
@@ -2023,7 +2021,7 @@ mod ui2_contract_tests {
     // ---- Section 7: 市区町村 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_municipality_has_dup_marker() {
         let html = render_ui2();
         // 伊達市が2件あるため同名マーカーが付与される
@@ -2044,7 +2042,6 @@ mod ui2_contract_tests {
     // ---- Section 4: 雇用形態 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
     fn ui2_employment_has_dumbbell_chart() {
         let html = render_ui2();
         assert!(
@@ -2060,7 +2057,7 @@ mod ui2_contract_tests {
     // ---- Section 8: 最低賃金 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_min_wage_has_diff_bar() {
         let html = render_ui2();
         assert!(
@@ -2076,7 +2073,7 @@ mod ui2_contract_tests {
     // ---- Section 9: 企業 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_company_has_two_axis_visualization() {
         let html = render_ui2();
         assert!(
@@ -2088,7 +2085,7 @@ mod ui2_contract_tests {
     // ---- Section 10: タグ ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_tag_has_treemap_with_caption() {
         let html = render_ui2();
         assert!(
@@ -2100,7 +2097,7 @@ mod ui2_contract_tests {
     // ---- 共通: 読み方ヒントの総数 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_multiple_read_hints_present() {
         let html = render_ui2();
         let count = html.matches("read-hint-label").count();
@@ -2114,7 +2111,7 @@ mod ui2_contract_tests {
     // ---- 共通: 図表キャプションの総数 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_figure_caption_total_count() {
         let html = render_ui2();
         let count = html.matches("class=\"figure-caption\"").count();
@@ -2128,7 +2125,7 @@ mod ui2_contract_tests {
     // ---- 共通: 既存 KPI 値の互換性確認 ----
 
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn ui2_kpi_values_consistent_with_legacy() {
         let html = render_ui2();
         // 強化版 KPI カードと旧 KPI カードが両方出力される（テスト互換維持）
@@ -2199,7 +2196,7 @@ mod readability_contract_tests {
 
     /// (1) Executive Summary に折りたたみ details が存在する
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn readability_collapsible_guide_present() {
         let html = render_minimal();
         assert!(
@@ -2239,7 +2236,7 @@ mod readability_contract_tests {
 
     /// (4) 注記フッター集約のためのポインタが存在
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn readability_notes_pointer_present() {
         let html = render_minimal();
         assert!(
@@ -2254,7 +2251,7 @@ mod readability_contract_tests {
 
     /// (5) 章番号統一: 主要 section が「第N章」プレフィックスで始まる
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn readability_chapter_numbering_consistent() {
         let html = render_minimal();
         // 注記セクションは第6章として統一済み
@@ -2319,7 +2316,6 @@ mod readability_contract_tests {
 
     /// (10) 注記情報は削除ではなく折りたたみ集約（feedback_correlation_not_causation 準拠）
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
     fn readability_no_information_loss() {
         let html = render_minimal();
         // 因果≠相関の警告は維持
@@ -2487,7 +2483,7 @@ mod design_v2_contract_tests {
 
     /// (4) Section 番号バッジが Executive Summary に付与されている
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn dv2_section_badge_on_exec_summary() {
         let html = render_minimal();
         // Round 24 Push 2: navy 化に伴い dv2-section-badge は維持しつつ、
@@ -2660,7 +2656,6 @@ mod design_v2_contract_tests {
 
     /// (15) memory ルール準拠: 因果断定回避 + HW スコープは維持
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
     fn dv2_preserves_memory_rules() {
         let html = render_minimal();
         assert!(
@@ -3197,7 +3192,7 @@ mod variant_indicator_tests {
     /// 経由せず default() で fallback する (副作用なし、panic なし)。
     /// Full / Public 同様、新セクションは描画される (default データのため placeholder 中心)。
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn variant_guard_falls_back_to_default_for_non_mi() {
         // db=None の場合、MarketIntelligence variant でも fetch をスキップして default()
         // となる。HTML には親セクション + placeholder のみ。
@@ -3640,7 +3635,7 @@ mod variant_indicator_tests {
 
     /// Round 2.5: Full variant では salesnow 章 HW 列が維持される (regression 防止)
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn full_variant_salesnow_section_still_shows_hw_columns() {
         let html = render_for_variant_r25_with_salesnow(ReportVariant::Full);
         // Full は salesnow 章を表示する (companies テーブルの HW 列ヘッダが出る)
@@ -3674,7 +3669,7 @@ mod variant_indicator_tests {
     /// Round 2.5: Full では salesnow 章タイトルが表示される (regression 防止)
     /// Round 18 (2026-05-13): 章番号体系整理。salesnow の 2 セクションを 第5章 / 第5B章 に分離。
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn full_variant_salesnow_chapter_is_visible() {
         let html = render_for_variant_r25_with_salesnow(ReportVariant::Full);
         assert!(
@@ -3804,7 +3799,7 @@ mod variant_indicator_tests {
 
     /// MI variant + ext_industry_employees あり → 産業構成 Top10 セクションが出力される
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn round3a_industry_structure_section_appears_in_mi_variant() {
         let mut agg = SurveyAggregation::default();
         agg.dominant_prefecture = Some("東京都".to_string());
@@ -3897,7 +3892,7 @@ mod variant_indicator_tests {
 
     /// Round 3-A 追加章の data source ラベルは公的統計 (HW 連想語不混入)
     #[test]
-    #[ignore = "Round 24 Push 3: legacy assertions; navy migration in progress"]
+    #[ignore = "bug marker: Round 24 navy migration — legacy HTML assertions; audit 2026-05-24 confirms 37/37 still fail (re-enable per-test as navy sections replace legacy markers)"]
     fn round3a_industry_structure_section_uses_neutral_data_source_label() {
         let mut agg = SurveyAggregation::default();
         agg.dominant_prefecture = Some("東京都".to_string());
