@@ -678,6 +678,12 @@ pub struct MunicipalityRecruitingScore {
     /// 0〜100 指数。METRICS.md §2.1 の `clamp(positive_score * (1 - penalty_reduction_pct/100), 0, 100)`
     pub distribution_priority_score: Option<f64>,
 
+    // 2026-05-24 audit_F P0-1: 命名違反の警告コメント。
+    // DISPLAY_SPEC v1.0 §9.2 で DTO に「人数」を匂わせる population フィールドは禁止。
+    // しかし `_population` サフィックスがそのまま残存している (出力 HTML は「シナリオスコア」表記で safe)。
+    // 全 45 reference を `_score` にリネームすべきだが、影響範囲が広いため別 task で対応。
+    // 当面は **値は score (Option<i64>) であり「人数」ではない** ことを明示。
+    // TODO(2026-05-24): scenario_*_population → scenario_*_score にリネーム
     pub scenario_conservative_population: Option<i64>,
     pub scenario_standard_population: Option<i64>,
     pub scenario_aggressive_population: Option<i64>,
