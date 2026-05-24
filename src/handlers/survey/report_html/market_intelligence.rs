@@ -2402,7 +2402,7 @@ fn render_mi_distribution_ranking(html: &mut String, scores: &[MunicipalityRecru
 
     let valid: Vec<&MunicipalityRecruitingScore> = scores
         .iter()
-        .filter(|s| s.is_priority_score_in_range() && s.is_scenario_consistent())
+        .filter(|s| s.is_priority_score_in_range() && s.is_scenario_score_consistent())
         .collect();
     if valid.is_empty() {
         render_mi_placeholder(
@@ -2659,12 +2659,12 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
         ESTIMATED_LABEL
     ));
 
-    // Worker E Round 3: 新フィールド scenario_*_score (i64) を優先採用。
-    //   旧 scenario_*_population は SQL から外れて常に None。
-    //   両方の不変条件 (is_scenario_score_consistent / is_scenario_consistent) を満たすもののみ表示。
+    // Worker E Round 3 + audit_F P0-1 (2026-05-24): scenario_*_score (i64) のみを使用。
+    //   旧 scenario_*_population フィールドは削除済 (DISPLAY_SPEC v1.0 §9.2 違反解消)。
+    //   不変条件 (is_scenario_score_consistent) を満たすもののみ表示。
     let valid: Vec<&MunicipalityRecruitingScore> = scores
         .iter()
-        .filter(|s| s.is_scenario_consistent() && s.is_scenario_score_consistent())
+        .filter(|s| s.is_scenario_score_consistent())
         .collect();
     let invariant_excluded = scores.len() - valid.len();
 
@@ -2687,14 +2687,10 @@ fn render_mi_scenario_population_range(html: &mut String, scores: &[Municipality
          </tr></thead><tbody>\n",
     );
     for s in valid.iter().take(20) {
-        // Worker E Round 3: scenario_*_score (i64, 新) を優先、旧 *_population を fallback
-        let c_val = s
-            .scenario_conservative_score
-            .or(s.scenario_conservative_population);
-        let m_val = s.scenario_standard_score.or(s.scenario_standard_population);
-        let a_val = s
-            .scenario_aggressive_score
-            .or(s.scenario_aggressive_population);
+        // audit_F P0-1 (2026-05-24): scenario_*_score のみ参照 (旧 *_population fallback 削除)
+        let c_val = s.scenario_conservative_score;
+        let m_val = s.scenario_standard_score;
+        let a_val = s.scenario_aggressive_score;
         html.push_str(&format!(
             "<tr><td style=\"padding:4px;\">{pref} {muni}</td>\
              <td style=\"text-align:right;padding:4px;\">{c}</td>\
@@ -2848,9 +2844,9 @@ mod tests {
             competitor_job_count: Some(500),
             median_salary_yen: Some(280_000),
             living_cost_score: Some(60.0),
-            scenario_conservative_population: Some(c),
-            scenario_standard_population: Some(s),
-            scenario_aggressive_population: Some(a),
+            scenario_conservative_score: Some(c),
+            scenario_standard_score: Some(s),
+            scenario_aggressive_score: Some(a),
             ..Default::default()
         }
     }
@@ -4477,9 +4473,9 @@ mod tests {
             distribution_priority_score: Some(score),
             target_thickness_index: Some(100.0),
             // シナリオ整合: 保守 ≤ 標準 ≤ 強気
-            scenario_conservative_population: Some(10),
-            scenario_standard_population: Some(20),
-            scenario_aggressive_population: Some(30),
+            scenario_conservative_score: Some(10),
+            scenario_standard_score: Some(20),
+            scenario_aggressive_score: Some(30),
             ..Default::default()
         }
     }
@@ -4581,9 +4577,9 @@ mod tests {
             target_thickness_index: Some(110.0),
             // 旧 target_population に値があってもレンダリングされてはならない
             target_population: Some(99_999),
-            scenario_conservative_population: Some(1),
-            scenario_standard_population: Some(2),
-            scenario_aggressive_population: Some(3),
+            scenario_conservative_score: Some(1),
+            scenario_standard_score: Some(2),
+            scenario_aggressive_score: Some(3),
             ..Default::default()
         }];
         let mut html = String::new();
