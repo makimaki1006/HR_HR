@@ -2239,9 +2239,14 @@ pub(super) fn render_navy_css() -> String {
    PDF 出力対応: @page footer + ページ番号 (Chrome page.pdf() / window.print() 両対応)
    ============================================================ */
 
+/* 2026-05-24 audit_G P0-1 修正: 共通 @page (L56) と margin 統一 (本文幅 194mm 確保)。
+   旧 margin 14mm 14mm 16mm 14mm → 10mm 8mm 12mm 8mm
+   旧定義は cascade で共通定義を override し、本文幅が 194mm → 182mm に縮む可能性があった
+   (MEMORY: feedback_print_css_cascade_trap 再発防止)。
+   navy variant 用の footer 文 ("FOR A-CAREER ...") は保持。 */
 @page {
   size: A4 portrait;
-  margin: 14mm 14mm 16mm 14mm;
+  margin: 10mm 8mm 12mm 8mm;
   @bottom-left {
     content: "FOR A-CAREER  /  求人市場 総合診断レポート";
     font-family: "Noto Sans JP", sans-serif;

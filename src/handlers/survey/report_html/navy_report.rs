@@ -4904,7 +4904,15 @@ fn label_for_column(key: &str) -> &str {
         "survey_period" => "調査期",
         "visa_status" => "在留資格",
         "yoy_change_pct" => "前年比(%)",
-        _ => key,
+        // 2026-05-24 audit_G P0-2: silent fallback `_ => key` 防御。
+        // 未マップ列は English のまま `<th>` に出るため、開発時に検出 + 本番でも警告ログ出す。
+        // MEMORY: feedback_silent_fallback_audit (2026-05-20 表 6-E 英語ラベル残 30+ 件後追い事故)
+        _ => {
+            #[cfg(debug_assertions)]
+            eprintln!("[label_for_column] unmapped column: {}", key);
+            tracing::warn!(unmapped_column = key, "label_for_column: unmapped column displayed as English snake_case");
+            key
+        }
     }
 }
 

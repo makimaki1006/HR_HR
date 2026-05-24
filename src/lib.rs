@@ -566,9 +566,22 @@ async fn require_admin_mw(
     let Some(account_id) = account_id else {
         return (axum::http::StatusCode::FORBIDDEN, "管理者権限が必要です").into_response();
     };
-    let is_admin = audit::dao::find_account_by_id(audit.turso(), &account_id)
-        .map(|a| a.role == "admin")
-        .unwrap_or(false);
+    // AUDIT E P0-1: spawn_blocking で worker thread 解放
+    let audit_clone = audit.clone();
+    let aid_clone = account_id.clone();
+    let is_admin = match tokio::task::spawn_blocking(move || {
+        audit::dao::find_account_by_id(audit_clone.turso(), &aid_clone)
+            .map(|a| a.role == "admin")
+            .unwrap_or(false)
+    })
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("require_admin_mw spawn_blocking join failed: {e}");
+            false
+        }
+    };
     if is_admin {
         next.run(request).await
     } else {
@@ -641,14 +654,28 @@ async fn login_submit(
         state.rate_limiter.record_failure(&client_ip);
         if let Some(audit) = &state.audit {
             let ip_hash = audit.hash_ip(&client_ip);
-            let _ = audit::log_failed_login(
-                audit,
-                &form.email,
-                &ip_hash,
-                &req_ua,
-                "internal",
-                "domain_not_allowed",
-            );
+            // AUDIT E P0-1: spawn_blocking で worker thread 解放
+            let audit_clone = audit.clone();
+            let email = form.email.clone();
+            let ua = req_ua.clone();
+            match tokio::task::spawn_blocking(move || {
+                audit::log_failed_login(
+                    &audit_clone,
+                    &email,
+                    &ip_hash,
+                    &ua,
+                    "internal",
+                    "domain_not_allowed",
+                )
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("log_failed_login (domain) failed: {e}"),
+                Err(e) => {
+                    tracing::warn!("log_failed_login (domain) spawn_blocking join failed: {e}")
+                }
+            }
         }
         return render_login(
             &state,
@@ -684,8 +711,29 @@ async fn login_submit(
             } else {
                 "wrong_password"
             };
-            let _ =
-                audit::log_failed_login(audit, &form.email, &ip_hash, &req_ua, "internal", reason);
+            // AUDIT E P0-1: spawn_blocking で worker thread 解放
+            let audit_clone = audit.clone();
+            let email = form.email.clone();
+            let ua = req_ua.clone();
+            let reason_owned = reason.to_string();
+            match tokio::task::spawn_blocking(move || {
+                audit::log_failed_login(
+                    &audit_clone,
+                    &email,
+                    &ip_hash,
+                    &ua,
+                    "internal",
+                    &reason_owned,
+                )
+            })
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("log_failed_login (password) failed: {e}"),
+                Err(e) => {
+                    tracing::warn!("log_failed_login (password) spawn_blocking join failed: {e}")
+                }
+            }
         }
         let msg = expired_msg.unwrap_or_else(|| "パスワードが正しくありません".to_string());
         return render_login(&state, Some(msg)).into_response();
@@ -710,36 +758,66 @@ async fn login_submit(
 
     // 監査: アカウント自動登録 + login_session 作成 + 'login' イベント記録
     // 失敗しても本番動作に影響させないため _ で ignore する
+    // AUDIT E P0-1: 同期 DAO 群を spawn_blocking に閉じ込めて worker thread を解放
+    // セマンティクス保持のため session.insert(..).await を挟む箇所は 2 つに分割
     if let Some(audit) = &state.audit {
         let ip_hash = audit.hash_ip(&client_ip);
         let login_method = "internal";
-        match audit::upsert_account(audit, &form.email, &state.config.admin_emails) {
-            Ok(account_id) => {
-                let session_id_str = audit::insert_login_session(
-                    audit,
-                    &account_id,
-                    &ip_hash,
-                    &req_ua,
-                    login_method,
-                )
-                .unwrap_or_default();
+
+        // 1) upsert_account + insert_login_session (依存連鎖) を 1 spawn_blocking でまとめる
+        let audit_clone = audit.clone();
+        let email = form.email.clone();
+        let admin_emails = state.config.admin_emails.clone();
+        let ua = req_ua.clone();
+        let ip_hash_clone = ip_hash.clone();
+        let upsert_res = tokio::task::spawn_blocking(move || {
+            match audit::upsert_account(&audit_clone, &email, &admin_emails) {
+                Ok(account_id) => {
+                    let session_id_str = audit::insert_login_session(
+                        &audit_clone,
+                        &account_id,
+                        &ip_hash_clone,
+                        &ua,
+                        login_method,
+                    )
+                    .unwrap_or_default();
+                    Ok((account_id, session_id_str))
+                }
+                Err(e) => Err(e),
+            }
+        })
+        .await;
+
+        match upsert_res {
+            Ok(Ok((account_id, session_id_str))) => {
                 let _ = session.insert(SESSION_ACCOUNT_ID_KEY, &account_id).await;
                 if !session_id_str.is_empty() {
                     let _ = session
                         .insert(SESSION_LOGIN_SESSION_ID_KEY, &session_id_str)
                         .await;
-                    audit::insert_activity(
-                        audit,
-                        &account_id,
-                        &session_id_str,
-                        "login",
-                        "",
-                        "",
-                        "",
-                    );
+                    // 2) 'login' イベント INSERT を spawn_blocking でラップ
+                    let audit_clone2 = audit.clone();
+                    let aid_owned = account_id.clone();
+                    let sid_owned = session_id_str.clone();
+                    if let Err(e) = tokio::task::spawn_blocking(move || {
+                        audit::insert_activity(
+                            &audit_clone2,
+                            &aid_owned,
+                            &sid_owned,
+                            "login",
+                            "",
+                            "",
+                            "",
+                        );
+                    })
+                    .await
+                    {
+                        tracing::warn!("login insert_activity spawn_blocking join failed: {e}");
+                    }
                 }
             }
-            Err(e) => tracing::warn!("audit upsert_account failed: {e}"),
+            Ok(Err(e)) => tracing::warn!("audit upsert_account failed: {e}"),
+            Err(e) => tracing::warn!("audit upsert spawn_blocking join failed: {e}"),
         }
     }
 
@@ -754,10 +832,28 @@ async fn logout(State(state): State<Arc<AppState>>, session: Session) -> Redirec
             .get(SESSION_LOGIN_SESSION_ID_KEY)
             .await
             .unwrap_or(None);
-        if let Some(ref sid) = login_session_id {
-            let _ = audit::dao::mark_session_ended(audit, sid);
-            if let Some(ref aid) = account_id {
-                audit::insert_activity(audit, aid, sid, "logout", "", "", "");
+        if let Some(sid) = login_session_id {
+            // AUDIT E P0-1: mark_session_ended + insert_activity を 1 spawn_blocking に集約
+            let audit_clone = audit.clone();
+            let sid_owned = sid.clone();
+            let aid_owned = account_id.clone();
+            if let Err(e) = tokio::task::spawn_blocking(move || {
+                let _ = audit::dao::mark_session_ended(&audit_clone, &sid_owned);
+                if let Some(ref aid) = aid_owned {
+                    audit::insert_activity(
+                        &audit_clone,
+                        aid,
+                        &sid_owned,
+                        "logout",
+                        "",
+                        "",
+                        "",
+                    );
+                }
+            })
+            .await
+            {
+                tracing::warn!("logout audit spawn_blocking join failed: {e}");
             }
         }
     }

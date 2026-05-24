@@ -20,7 +20,20 @@ pub async fn admin_users_list(
     let Some(audit) = &state.audit else {
         return Html(render::no_audit_db());
     };
-    let accounts = dao::list_accounts(audit.turso(), 500);
+    // AUDIT E P0-1: reqwest::blocking を tokio worker thread でブロックしないよう
+    // spawn_blocking で別スレッド実行 (src/handlers/CLAUDE.md §2.3 準拠)
+    let audit_clone = audit.clone();
+    let accounts = match tokio::task::spawn_blocking(move || {
+        dao::list_accounts(audit_clone.turso(), 500)
+    })
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("admin_users_list spawn_blocking join failed: {e}");
+            Vec::new()
+        }
+    };
     Html(render::users_list_page(&accounts))
 }
 
@@ -36,11 +49,27 @@ pub async fn admin_user_detail(
     let Some(audit) = &state.audit else {
         return Html(render::no_audit_db());
     };
-    let Some(acc) = dao::find_account_by_id(audit.turso(), &account_id) else {
+    // AUDIT E P0-1: 3 つの blocking DAO 呼出を 1 度の spawn_blocking にまとめる
+    // (semantics 同一: 同期的に順次実行されるので合算 IO は変化なし)
+    let audit_clone = audit.clone();
+    let aid_clone = account_id.clone();
+    let triple = tokio::task::spawn_blocking(move || {
+        let acc = dao::find_account_by_id(audit_clone.turso(), &aid_clone);
+        let sessions = dao::list_sessions_for_account(audit_clone.turso(), &aid_clone, 100);
+        let activities = dao::list_activity_for_account(audit_clone.turso(), &aid_clone, 200);
+        (acc, sessions, activities)
+    })
+    .await;
+    let (acc_opt, sessions, activities) = match triple {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("admin_user_detail spawn_blocking join failed: {e}");
+            (None, Vec::new(), Vec::new())
+        }
+    };
+    let Some(acc) = acc_opt else {
         return Html(render::not_found(&account_id));
     };
-    let sessions = dao::list_sessions_for_account(audit.turso(), &account_id, 100);
-    let activities = dao::list_activity_for_account(audit.turso(), &account_id, 200);
     Html(render::user_detail_page(&acc, &sessions, &activities))
 }
 
@@ -52,6 +81,18 @@ pub async fn admin_login_failures(
     let Some(audit) = &state.audit else {
         return Html(render::no_audit_db());
     };
-    let failures = dao::list_recent_failures(audit.turso(), 200);
+    // AUDIT E P0-1: spawn_blocking で worker thread 解放
+    let audit_clone = audit.clone();
+    let failures = match tokio::task::spawn_blocking(move || {
+        dao::list_recent_failures(audit_clone.turso(), 200)
+    })
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("admin_login_failures spawn_blocking join failed: {e}");
+            Vec::new()
+        }
+    };
     Html(render::login_failures_page(&failures))
 }

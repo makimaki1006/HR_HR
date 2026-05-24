@@ -972,7 +972,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 <div class="guide-item"><strong>重大</strong>早急な対応が必要な課題。放置すると採用難が深刻化する可能性。</div>
 <div class="guide-item"><strong>注意</strong>モニタリングが必要な項目。トレンド次第で重大化。</div>
 <div class="guide-item"><strong>情報</strong>参考情報。戦略立案時の補助データとして活用。</div>
-<div class="guide-item"><strong>良好</strong>現状で優位な領域。強みとして訴求可能。</div>
+<div class="guide-item"><strong>良好</strong>該当指標で許容範囲内。引き続きモニタリング推奨。</div>
 </div>"#);
 
         // 章ナラティブ（具体数値入り）
@@ -1125,21 +1125,35 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 });
-document.addEventListener('DOMContentLoaded', function() {
-    var charts = [];
-    document.querySelectorAll('.report-chart[data-chart-config]').forEach(function(el) {
-        try {
-            var config = JSON.parse(el.getAttribute('data-chart-config'));
-            config.animation = false;
-            config.backgroundColor = '#ffffff';
-            var chart = echarts.init(el, null, { renderer: 'svg' });
-            chart.setOption(config);
-            charts.push(chart);
-        } catch(e) { console.warn('Chart init error:', e); }
-    });
-    window.addEventListener('beforeprint', function() { charts.forEach(function(c) { c.resize(); }); });
-    window.addEventListener('resize', function() { charts.forEach(function(c) { c.resize(); }); });
-});
+// 2026-05-24 audit_G P0-3: HTMX 動的挿入時 DOMContentLoaded 不発火対策 (IIFE readyState fallback)。
+// MEMORY: 2026-05-18 主要地域 selected override 事故 (HTMX 動的 <script> eval 不発火)
+(function initInsightCharts() {
+    var run = function() {
+        if (typeof echarts === 'undefined') {
+            console.warn('[insight] echarts not loaded, skipping chart init');
+            return;
+        }
+        var charts = [];
+        document.querySelectorAll('.report-chart[data-chart-config]').forEach(function(el) {
+            try {
+                var config = JSON.parse(el.getAttribute('data-chart-config'));
+                config.animation = false;
+                config.backgroundColor = '#ffffff';
+                var chart = echarts.init(el, null, { renderer: 'svg' });
+                chart.setOption(config);
+                charts.push(chart);
+            } catch(e) { console.warn('Chart init error:', e); }
+        });
+        window.addEventListener('beforeprint', function() { charts.forEach(function(c) { c.resize(); }); });
+        window.addEventListener('resize', function() { charts.forEach(function(c) { c.resize(); }); });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', run);
+    } else {
+        // HTMX 動的挿入 or 通常 page load 後の即時実行
+        run();
+    }
+})();
 function initSortableTables() {
   document.querySelectorAll('.sortable-table').forEach(function(table) {
     table.querySelectorAll('th').forEach(function(th, colIdx) {
