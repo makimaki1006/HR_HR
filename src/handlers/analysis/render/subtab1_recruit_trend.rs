@@ -48,8 +48,12 @@ pub(super) fn render_vacancy_section(data: &[Row], by_industry: &[Row]) -> Strin
     let mut growth_rates = vec![];
     for row in data {
         chart_labels.push(get_str(row, "emp_group").to_string());
-        vacancy_rates.push(format!("{:.1}", get_f64(row, "vacancy_rate") * 100.0));
-        growth_rates.push(format!("{:.1}", get_f64(row, "growth_rate") * 100.0));
+        // 2026-05-24 audit_B P1-2: ratio (0-1) を % 変換時に clamp。
+        // 同 file の pct_bar (helpers.rs:282) は .min(100.0).max(0.0) でクランプしており対称性を回復。
+        let vr_pct = (get_f64(row, "vacancy_rate") * 100.0).clamp(0.0, 100.0);
+        let gr_pct = (get_f64(row, "growth_rate") * 100.0).clamp(-100.0, 100.0);
+        vacancy_rates.push(format!("{:.1}", vr_pct));
+        growth_rates.push(format!("{:.1}", gr_pct));
     }
 
     let mut html = String::new();
