@@ -93,52 +93,245 @@ pub struct InsightContext {
 }
 
 /// 全データを一括取得してInsightContextを構築
+///
+/// # 並列化 (2026-05-24, audit_I P0-1)
+/// 40+ の Turso/SQLite fetch を `std::thread::scope` で 8 グループに分割し並列実行する。
+/// Render (US) → Turso (日本) の RTT が 2-5s/req のため、シリアル実行では 100-200s を要し
+/// Render 60s navigation timeout を超過していた。並列化により最遅グループで律速 (~10s 目標)。
+///
+/// 設計選択 (`company/fetch.rs:285` の前例踏襲):
+/// - `std::thread::scope` を採用。`LocalDb` / `TursoDb` は内部 `Arc` で `Send + Sync` 安全。
+/// - グループ境界は所要時間バランスを考慮 (Turso ext stat 系を 4-5 グループに分散)。
+/// - `unwrap_or` の silent fallback は警告ログ付きで回避 (MEMORY: feedback_silent_fallback_audit)。
 pub(crate) fn build_insight_context(
     db: &Db,
     turso: Option<&TursoDb>,
     pref: &str,
     muni: &str,
 ) -> InsightContext {
-    // Turso時系列データ（Turso必須）
-    let (ts_counts, ts_vacancy, ts_salary, ts_fulfillment, ts_tracking) = if let Some(tdb) = turso {
-        (
-            tf::fetch_ts_counts(tdb, pref),
-            tf::fetch_ts_vacancy(tdb, pref),
-            tf::fetch_ts_salary(tdb, pref),
-            tf::fetch_ts_fulfillment(tdb, pref),
-            tf::fetch_ts_tracking(tdb, pref),
-        )
-    } else {
-        (vec![], vec![], vec![], vec![], vec![])
-    };
+    // === 並列フェッチ (8 グループ) ===
+    // 各 thread は db (LocalDb) / turso (TursoDb) を `&` borrow で共有 (Arc 内部のため安全)。
+    // 戻り値型を tuple で明示しないと型推論が複雑になるので、グループ毎に明示する。
+    type TsBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    type ExtTsBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    type LocalBundle = (
+        Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
+        Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
+    );
+    type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    type EstBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    type LifeBundle = (Vec<Row>, Vec<Row>, Vec<Row>);
+    type PhaseABundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    type MeanFlowBundle = (Option<f64>, Option<f64>, Option<super::flow_context::FlowIndicators>);
 
-    // Turso外部統計（trend/fetch.rsの関数）
-    let (ext_job_ratio, ext_labor_stats, ext_min_wage_ts, ext_turnover_ts) =
-        if let Some(tdb) = turso {
+    let (
+        ts_bundle,
+        ext_ts_bundle,
+        local_bundle,
+        pop_bundle,
+        est_bundle,
+        life_bundle,
+        phase_a_bundle,
+        mean_flow_bundle,
+    ) = std::thread::scope(|s| {
+        // G1: Turso 時系列 (5 fetches)
+        let h_ts = s.spawn(|| -> TsBundle {
+            if let Some(tdb) = turso {
+                (
+                    tf::fetch_ts_counts(tdb, pref),
+                    tf::fetch_ts_vacancy(tdb, pref),
+                    tf::fetch_ts_salary(tdb, pref),
+                    tf::fetch_ts_fulfillment(tdb, pref),
+                    tf::fetch_ts_tracking(tdb, pref),
+                )
+            } else {
+                (vec![], vec![], vec![], vec![], vec![])
+            }
+        });
+
+        // G2: Turso 外部統計 時系列 (4 fetches)
+        let h_ext_ts = s.spawn(|| -> ExtTsBundle {
+            if let Some(tdb) = turso {
+                (
+                    tf::fetch_ext_job_openings_ratio(tdb, pref),
+                    tf::fetch_ext_labor_stats(tdb, pref),
+                    tf::fetch_ext_minimum_wage_history(tdb, pref),
+                    tf::fetch_ext_turnover(tdb, pref),
+                )
+            } else {
+                (vec![], vec![], vec![], vec![])
+            }
+        });
+
+        // G3: ローカル SQLite (12 fetches、高速だが並列化で他グループ完了待ち時間を活用)
+        let h_local = s.spawn(|| -> LocalBundle {
             (
-                tf::fetch_ext_job_openings_ratio(tdb, pref),
-                tf::fetch_ext_labor_stats(tdb, pref),
-                tf::fetch_ext_minimum_wage_history(tdb, pref),
-                tf::fetch_ext_turnover(tdb, pref),
+                af::fetch_vacancy_data(db, pref, muni),
+                af::fetch_resilience_data(db, pref, muni),
+                af::fetch_transparency_data(db, pref, muni),
+                af::fetch_temperature_data(db, pref, muni),
+                af::fetch_competition_data(db, pref),
+                af::fetch_cascade_data(db, pref, muni),
+                af::fetch_salary_competitiveness(db, pref, muni),
+                af::fetch_monopsony_data(db, pref, muni),
+                af::fetch_spatial_mismatch(db, pref, muni),
+                af::fetch_wage_compliance(db, pref, muni),
+                af::fetch_region_benchmark(db, pref, muni),
+                af::fetch_text_quality(db, pref, muni),
             )
-        } else {
+        });
+
+        // G4: Turso 人口・移動 (4 fetches)
+        let h_pop = s.spawn(|| -> PopBundle {
+            (
+                af::fetch_population_data(db, turso, pref, muni),
+                af::fetch_population_pyramid(db, turso, pref, muni),
+                af::fetch_migration_data(db, turso, pref, muni),
+                af::fetch_daytime_population(db, turso, pref, muni),
+            )
+        });
+
+        // G5: Turso 事業所・消費・気候 (5 fetches)
+        let h_est = s.spawn(|| -> EstBundle {
+            (
+                af::fetch_establishments(db, turso, pref),
+                af::fetch_business_dynamics(db, turso, pref),
+                af::fetch_care_demand(db, turso, pref),
+                af::fetch_household_spending(db, turso, pref),
+                af::fetch_climate(db, turso, pref),
+            )
+        });
+
+        // G6: Turso ライフスタイル (3 fetches)
+        let h_life = s.spawn(|| -> LifeBundle {
+            (
+                af::fetch_social_life(db, turso, pref),
+                af::fetch_internet_usage(db, turso, pref),
+                af::fetch_education(db, turso, pref),
+            )
+        });
+
+        // G7: Turso Phase A SSDSE-A (6 fetches)
+        let h_phase_a = s.spawn(|| -> PhaseABundle {
+            (
+                af::fetch_households(db, turso, pref, muni),
+                af::fetch_vital_statistics(db, turso, pref, muni),
+                af::fetch_labor_force(db, turso, pref, muni),
+                af::fetch_medical_welfare(db, turso, pref, muni),
+                af::fetch_education_facilities(db, turso, pref, muni),
+                af::fetch_geography(db, turso, pref, muni),
+            )
+        });
+
+        // G8: Turso 県平均 + Agoop 人流 (3 fetches)
+        let h_mean_flow = s.spawn(|| -> MeanFlowBundle {
+            (
+                af::fetch_prefecture_mean(
+                    db,
+                    turso,
+                    pref,
+                    "SUM(unemployed)",
+                    "SUM(employed) + SUM(unemployed)",
+                    "v2_external_labor_force",
+                ),
+                af::fetch_prefecture_mean(
+                    db,
+                    turso,
+                    pref,
+                    "SUM(single_households)",
+                    "SUM(total_households)",
+                    "v2_external_households",
+                ),
+                super::flow_context::build_flow_context(db, turso, pref, muni, 2019),
+            )
+        });
+
+        // join all. silent fallback 監査 (MEMORY: feedback_silent_fallback_audit) に従い、
+        // panic が起きたら警告ログを出してから空値を返す。
+        let ts = h_ts.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G1 (ts) thread panicked, using empty defaults");
+            (vec![], vec![], vec![], vec![], vec![])
+        });
+        let ext_ts = h_ext_ts.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G2 (ext_ts) thread panicked, using empty defaults");
             (vec![], vec![], vec![], vec![])
-        };
+        });
+        let local = h_local.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G3 (local) thread panicked, using empty defaults");
+            (
+                vec![], vec![], vec![], vec![], vec![], vec![],
+                vec![], vec![], vec![], vec![], vec![], vec![],
+            )
+        });
+        let pop = h_pop.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G4 (pop) thread panicked, using empty defaults");
+            (vec![], vec![], vec![], vec![])
+        });
+        let est = h_est.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G5 (est) thread panicked, using empty defaults");
+            (vec![], vec![], vec![], vec![], vec![])
+        });
+        let life = h_life.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G6 (life) thread panicked, using empty defaults");
+            (vec![], vec![], vec![])
+        });
+        let phase_a = h_phase_a.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G7 (phase_a) thread panicked, using empty defaults");
+            (vec![], vec![], vec![], vec![], vec![], vec![])
+        });
+        let mean_flow = h_mean_flow.join().unwrap_or_else(|e| {
+            tracing::warn!(?e, "build_insight_context G8 (mean_flow) thread panicked, using empty defaults");
+            (None, None, None)
+        });
+
+        (ts, ext_ts, local, pop, est, life, phase_a, mean_flow)
+    });
+
+    // unpack
+    let (ts_counts, ts_vacancy, ts_salary, ts_fulfillment, ts_tracking) = ts_bundle;
+    let (ext_job_ratio, ext_labor_stats, ext_min_wage_ts, ext_turnover_ts) = ext_ts_bundle;
+    let (
+        vacancy,
+        resilience,
+        transparency,
+        temperature,
+        competition,
+        cascade,
+        salary_comp,
+        monopsony,
+        spatial_mismatch,
+        wage_compliance,
+        region_benchmark,
+        text_quality,
+    ) = local_bundle;
+    let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop) = pop_bundle;
+    let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
+        est_bundle;
+    let (ext_social_life, ext_internet_usage, ext_education) = life_bundle;
+    let (
+        ext_households,
+        ext_vital,
+        ext_labor_force,
+        ext_medical_welfare,
+        ext_education_facilities,
+        ext_geography,
+    ) = phase_a_bundle;
+    let (pref_avg_unemployment_rate, pref_avg_single_rate, flow) = mean_flow_bundle;
 
     let mut ctx = InsightContext {
         // ローカルSQLite（analysis/fetch.rsの関数を再利用）
-        vacancy: af::fetch_vacancy_data(db, pref, muni),
-        resilience: af::fetch_resilience_data(db, pref, muni),
-        transparency: af::fetch_transparency_data(db, pref, muni),
-        temperature: af::fetch_temperature_data(db, pref, muni),
-        competition: af::fetch_competition_data(db, pref),
-        cascade: af::fetch_cascade_data(db, pref, muni),
-        salary_comp: af::fetch_salary_competitiveness(db, pref, muni),
-        monopsony: af::fetch_monopsony_data(db, pref, muni),
-        spatial_mismatch: af::fetch_spatial_mismatch(db, pref, muni),
-        wage_compliance: af::fetch_wage_compliance(db, pref, muni),
-        region_benchmark: af::fetch_region_benchmark(db, pref, muni),
-        text_quality: af::fetch_text_quality(db, pref, muni),
+        vacancy,
+        resilience,
+        transparency,
+        temperature,
+        competition,
+        cascade,
+        salary_comp,
+        monopsony,
+        spatial_mismatch,
+        wage_compliance,
+        region_benchmark,
+        text_quality,
         // Turso時系列
         ts_counts,
         ts_vacancy,
@@ -151,27 +344,27 @@ pub(crate) fn build_insight_context(
         ext_min_wage: ext_min_wage_ts,
         ext_turnover: ext_turnover_ts,
         // Turso外部統計（新規活用 - analysis/fetch.rsの関数を再利用）
-        ext_population: af::fetch_population_data(db, turso, pref, muni),
-        ext_pyramid: af::fetch_population_pyramid(db, turso, pref, muni),
-        ext_migration: af::fetch_migration_data(db, turso, pref, muni),
-        ext_daytime_pop: af::fetch_daytime_population(db, turso, pref, muni),
-        ext_establishments: af::fetch_establishments(db, turso, pref),
-        ext_business_dynamics: af::fetch_business_dynamics(db, turso, pref),
-        ext_care_demand: af::fetch_care_demand(db, turso, pref),
-        ext_household_spending: af::fetch_household_spending(db, turso, pref),
-        ext_climate: af::fetch_climate(db, turso, pref),
+        ext_population,
+        ext_pyramid,
+        ext_migration,
+        ext_daytime_pop,
+        ext_establishments,
+        ext_business_dynamics,
+        ext_care_demand,
+        ext_household_spending,
+        ext_climate,
         // Impl-3 (2026-04-26): ライフスタイル特性
-        ext_social_life: af::fetch_social_life(db, turso, pref),
-        ext_internet_usage: af::fetch_internet_usage(db, turso, pref),
+        ext_social_life,
+        ext_internet_usage,
         // Phase A: SSDSE-A 新規6テーブル
-        ext_households: af::fetch_households(db, turso, pref, muni),
-        ext_vital: af::fetch_vital_statistics(db, turso, pref, muni),
-        ext_labor_force: af::fetch_labor_force(db, turso, pref, muni),
-        ext_medical_welfare: af::fetch_medical_welfare(db, turso, pref, muni),
-        ext_education_facilities: af::fetch_education_facilities(db, turso, pref, muni),
-        ext_geography: af::fetch_geography(db, turso, pref, muni),
+        ext_households,
+        ext_vital,
+        ext_labor_force,
+        ext_medical_welfare,
+        ext_education_facilities,
+        ext_geography,
         // Impl-2 (2026-04-26): 学歴分布 (subtab5_phase4_7::fetch_education を再利用)
-        ext_education: af::fetch_education(db, turso, pref),
+        ext_education,
         // CR-9 (2026-04-27 / 2026-04-28 修正): 産業ミスマッチ警戒
         // 注: integrate エンドポイントが本コンテキストを使用するため、
         //     /report/survey 専用の遅いフェッチをここに含めると integrate がタイムアウトする。
@@ -179,27 +372,13 @@ pub(crate) fn build_insight_context(
         ext_industry_employees: vec![],
         hw_industry_counts: vec![],
         // Phase A: 県平均（SUM方式、market-level benchmark）
-        pref_avg_unemployment_rate: af::fetch_prefecture_mean(
-            db,
-            turso,
-            pref,
-            "SUM(unemployed)",
-            "SUM(employed) + SUM(unemployed)",
-            "v2_external_labor_force",
-        ),
-        pref_avg_single_rate: af::fetch_prefecture_mean(
-            db,
-            turso,
-            pref,
-            "SUM(single_households)",
-            "SUM(total_households)",
-            "v2_external_households",
-        ),
+        pref_avg_unemployment_rate,
+        pref_avg_single_rate,
         pref_avg_physicians_per_10k: None, // ctx作成後に人口で計算（相互依存回避）
         pref_avg_daycare_per_1k_children: None, // 同上
         pref_avg_habitable_density: None,  // 同上
         // Phase B: Agoop 人流（デフォルトyear=2019、コロナバイアス最小）
-        flow: super::flow_context::build_flow_context(db, turso, pref, muni, 2019),
+        flow,
         // 通勤圏（距離ベース）
         commute_zone_count: 0,
         commute_zone_pref_count: 0,
