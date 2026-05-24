@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod analysis;
 pub mod api;
+pub mod call_quality;
 pub mod api_v1;
 pub mod balance;
 pub mod company;

@@ -197,6 +197,30 @@ async fn main() {
         None
     };
 
+    // ---- 架電クオリティタブ (Call Quality Phase 1) 初期化 ----
+    // CALL_QUALITY_CACHE_TTL_SEC 未設定なら 3600 秒 (1 時間) デフォルト
+    let cq_cache_ttl = std::env::var("CALL_QUALITY_CACHE_TTL_SEC")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(3600);
+    let call_quality_cache = Arc::new(
+        rust_dashboard::cache::call_quality_cache::CallQualityCache::new(cq_cache_ttl),
+    );
+
+    // SheetsClient 初期化 (環境変数未設定なら None、タブは degraded 表示)
+    let sheets_client = match rust_dashboard::db::sheets_client::SheetsClient::from_env() {
+        Ok(c) => {
+            tracing::info!("SheetsClient ready (spreadsheet_id={})", c.spreadsheet_id());
+            Some(Arc::new(c))
+        }
+        Err(e) => {
+            tracing::warn!(
+                "SheetsClient 未初期化 (架電クオリティタブは degraded 状態): {e}"
+            );
+            None
+        }
+    };
+
     let state = Arc::new(AppState {
         config,
         hw_db,
@@ -206,6 +230,8 @@ async fn main() {
         rate_limiter,
         company_geo_cache,
         audit,
+        call_quality_cache,
+        sheets_client,
     });
 
     // Phase 3-C: 監査ログ自動削除バッチ (1年より古い entry を削除)

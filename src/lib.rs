@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod auth;
+pub mod cache;
 pub mod config;
 pub mod db;
 pub mod geo;
@@ -52,6 +53,11 @@ pub struct AppState {
     /// 監査DB (アカウント自動登録 + ログイン履歴 + 操作ログ)。
     /// AUDIT_TURSO_URL が未設定なら None (監査機能無効)
     pub audit: Option<audit::AuditDb>,
+    /// 架電クオリティタブ用 TTL キャッシュ (Google Sheets レスポンス)
+    pub call_quality_cache: Arc<cache::call_quality_cache::CallQualityCache>,
+    /// Google Sheets API クライアント。
+    /// GOOGLE_SA_KEY_B64 / SPREADSHEET_ID 未設定なら None (タブは degraded 表示)
+    pub sheets_client: Option<Arc<db::sheets_client::SheetsClient>>,
 }
 
 /// アプリケーションRouter構築
@@ -347,6 +353,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::my::my_profile_get).post(handlers::my::my_profile_post),
         )
         .route("/my/activity", get(handlers::my::my_activity))
+        // ======== 架電クオリティタブ (Call Quality Monitoring Phase 1) ========
+        .merge(handlers::call_quality::router())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

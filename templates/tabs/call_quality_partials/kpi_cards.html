@@ -1,0 +1,22 @@
+{# HTMX 差し替え用 partial: KPI カード 6 枚
+   将来 server-side render に切り替える場合の雛形 (Phase 1 では JS 描画) #}
+<div class="cq-kpi-grid" id="cq-kpi-grid">
+  {% for kpi in kpis %}
+  <div class="cq-kpi-card">
+    <div class="cq-kpi-label">{{ kpi.label }}</div>
+    <div class="cq-kpi-value">
+      {{ kpi.value }}<span class="cq-kpi-unit">{{ kpi.unit }}</span>
+    </div>
+    {% match kpi.delta_pct %}
+      {% when Some with (delta_pct) %}
+        <div class="cq-kpi-delta">前月比 {{ delta_pct }}%</div>
+      {% when None %}
+        {% match kpi.delta_ppt %}
+          {% when Some with (delta_ppt) %}
+            <div class="cq-kpi-delta">前月差 {{ delta_ppt }} ppt</div>
+          {% when None %}
+        {% endmatch %}
+    {% endmatch %}
+  </div>
+  {% endfor %}
+</div>
