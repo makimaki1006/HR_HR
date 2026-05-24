@@ -627,6 +627,22 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
     });
     // pref_avg_unemployment_rate は fetch_prefecture_mean (subtab7_other.rs:282) の SQL が
     // 既に * 100 してパーセント単位で返すため、再変換しない (バグ修正 2026-04-27)
+    //
+    // 2026-05-24 audit_B P1-4: コメント依存の脆弱な防御線を debug_assert + 警告ログで補強。
+    // (market_tightness.rs:451 と同じパターン。SQL 改修時の単位ずれ retro 検知)
+    if let Some(v) = ctx.pref_avg_unemployment_rate {
+        debug_assert!(
+            crate::handlers::helpers::Percentage::try_new(v).is_some(),
+            "pref_avg_unemployment_rate は % 単位 (0-100) のはず, got {} (2026-04-27 380% 流出型バグ)",
+            v
+        );
+        if !(0.0..=10.0).contains(&v) {
+            tracing::warn!(
+                value = v,
+                "pref_avg_unemployment_rate 現実値域 (0-10%) 外: 単位ずれ or ETL バグ疑い (demographics.rs)"
+            );
+        }
+    }
     let pref_avg_unemp = ctx.pref_avg_unemployment_rate;
 
     // ---- #17 教育施設密度: 4 区分の合計 / 1万人あたり ----

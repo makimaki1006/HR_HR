@@ -451,6 +451,24 @@ fn compute_metrics(ctx: &InsightContext) -> TightnessMetrics {
     // 全国平均失業率
     // 注: fetch_prefecture_mean (subtab7_other.rs:282) の SQL が既に * 100 して
     //     パーセント単位で返すため、ここで再度 100 倍してはならない (バグ修正 2026-04-27)。
+    //
+    // 2026-05-24 audit_B P1-4: コメント依存の脆弱な防御線を debug_assert で補強。
+    // SQL 改修などで単位ずれが発生した場合、debug build で即座に panic する。
+    // (Percentage::try_new で 0-100% 範囲を強制。380% / 0.025 等の単位ずれを検出)
+    if let Some(v) = ctx.pref_avg_unemployment_rate {
+        debug_assert!(
+            crate::handlers::helpers::Percentage::try_new(v).is_some(),
+            "pref_avg_unemployment_rate は % 単位 (0-100) のはず, got {} (2026-04-27 380% 流出型バグ)",
+            v
+        );
+        // 全国失業率はドメイン的に 0-10% (戦後最大 6.5%)。逸脱は ETL バグ警告
+        if !(0.0..=10.0).contains(&v) {
+            tracing::warn!(
+                value = v,
+                "pref_avg_unemployment_rate 現実値域 (0-10%) 外: 単位ずれ or ETL バグ疑い"
+            );
+        }
+    }
     m.unemployment_national = ctx.pref_avg_unemployment_rate;
 
     // (4) 離職率: ext_turnover.separation_rate

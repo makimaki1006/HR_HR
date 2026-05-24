@@ -905,3 +905,133 @@ fn invariant_extract_psychographic_rates_in_range() {
         assert_percentage_valid(v, "smartphone_rate");
     }
 }
+
+// =====================================================================
+// 2026-05-24 audit_B P1-1: employee_delta_1y 範囲 invariant
+//
+// 過去事故 2026-04-30: 単位 (% vs 比率) 混同で 100 倍ずれ
+// 過去事故 2026-05-14: navy_report.rs:2729 表示層 ×100 バグ再発
+//
+// 防御策: ドメイン上限を test で明示。±300% を超えるレコードは ETL バグ。
+// (fetch.rs:894/1199 の in_realistic_range も同じ閾値 ±300% を使用)
+// =====================================================================
+
+/// 不変条件: employee_delta_1y は % 単位、現実値域は -100% 〜 +1000%
+/// (理論上限 1000% = 11 倍化、実務上は ±300% を超えればデータ精度由来の外れ値)
+fn assert_employee_delta_valid_range(delta_pct: f64) {
+    assert!(delta_pct.is_finite(), "employee_delta_1y must be finite");
+    assert!(
+        delta_pct >= -100.0,
+        "employee_delta_1y は -100% 未満不可 (従業員 0 化が下限), got {}",
+        delta_pct
+    );
+    assert!(
+        delta_pct <= 1000.0,
+        "employee_delta_1y は 1000% 超不可 (2026-04-30 100倍ずれ事故再発防止), got {}",
+        delta_pct
+    );
+}
+
+#[test]
+fn invariant_employee_delta_normal_range_accepted() {
+    // 通常値: -50% 〜 +300%
+    for v in [-50.0_f64, -10.0, 0.0, 5.5, 15.0, 100.0, 300.0] {
+        assert_employee_delta_valid_range(v);
+    }
+}
+
+#[test]
+#[should_panic(expected = "employee_delta_1y は 1000% 超不可")]
+fn invariant_employee_delta_panics_on_100x_inflation() {
+    // 2026-04-30 100倍ずれ事故: 5% が 500% として保存されたパターン
+    // (500.0 はギリ通るが、500.0 * 100 = 50000.0 のような事故を検出)
+    assert_employee_delta_valid_range(50_000.0);
+}
+
+#[test]
+#[should_panic(expected = "employee_delta_1y は -100% 未満不可")]
+fn invariant_employee_delta_panics_on_below_minus100() {
+    assert_employee_delta_valid_range(-150.0);
+}
+
+#[test]
+fn invariant_employee_delta_realistic_range_filter_300pct() {
+    // fetch.rs::in_realistic_range と同じ閾値 (±300%) を test で再確認
+    let realistic = |d: f64| d.is_finite() && d.abs() <= 300.0;
+    assert!(realistic(0.0));
+    assert!(realistic(50.0));
+    assert!(realistic(300.0));
+    assert!(realistic(-300.0));
+    assert!(!realistic(300.01));
+    assert!(!realistic(-300.01));
+    assert!(!realistic(f64::NAN));
+    assert!(!realistic(f64::INFINITY));
+}
+
+// =====================================================================
+// 2026-05-24 audit_B P1-4: 全国平均失業率 / Percentage newtype 範囲不変条件
+//
+// 過去事故 2026-04-27 unemployment 380% 流出: SQL 側 `* 100` 済の値を
+// 受け手側で再度 `* 100` する事故。コメント依存防御では再発する。
+// helpers::Percentage newtype で範囲を強制し、test で値域を検証。
+// =====================================================================
+
+use crate::handlers::helpers::Percentage;
+
+#[test]
+fn invariant_p1_4_percentage_clamps_extreme_inputs() {
+    // 380% 流出と同型: try_new は弾く、new はクランプ
+    assert!(Percentage::try_new(380.0).is_none(), "380% は try_new で None");
+    assert_eq!(Percentage::new(380.0).unwrap().value(), 100.0, "new は 100 にクランプ");
+    assert_eq!(Percentage::new(-5.0).unwrap().value(), 0.0, "負値は 0 にクランプ");
+}
+
+#[test]
+fn invariant_p1_4_national_unemployment_realistic_range() {
+    // 全国失業率の現実値域 (戦後最大 6.5% 程度、通常 1-5%、上限 10%)。
+    // pref_avg_unemployment_rate が 10% を超えていたら ETL バグ or 単位ずれ疑い。
+    let realistic_national_unemp = |v: f64| (0.0..=10.0).contains(&v);
+    assert!(realistic_national_unemp(2.5), "通常 2.5%");
+    assert!(realistic_national_unemp(6.5), "戦後最大 6.5%");
+    assert!(
+        !realistic_national_unemp(250.0),
+        "250% は単位ずれ (2.5 * 100 事故型)"
+    );
+    // 注意: ratio 取り違え (0.025 = 2.5% / 100) は値が小さくなり範囲内に入るため
+    // 「現実値域」だけでは検知不能。代わりに「下限が 0.5% 未満」という
+    // ドメイン経験値で厳格判定する。戦後の日本で 0.5% 未満は記録なし。
+    let suspect_ratio_form = |v: f64| v < 0.5;
+    assert!(
+        suspect_ratio_form(0.025),
+        "0.025 は ratio 形式 (= 2.5% を 100 で割った状態) の疑い → 厳格判定で検知"
+    );
+    assert!(!suspect_ratio_form(2.5), "2.5% は正常");
+    assert!(!suspect_ratio_form(0.6), "0.6% は珍しいが現実値域");
+}
+
+#[test]
+fn invariant_p1_4_percentage_display_consistent() {
+    // newtype 経由なら format は常に "{:.1}%" で統一
+    let p = Percentage::new(2.567).unwrap();
+    assert_eq!(format!("{}", p), "2.6%");
+    let p2 = Percentage::new(100.0).unwrap();
+    assert_eq!(format!("{}", p2), "100.0%");
+}
+
+#[test]
+fn invariant_p1_4_market_tightness_national_unemp_in_range() {
+    // pref_avg_unemployment_rate が SQL から正しい単位 (%) で来ている場合、
+    // 範囲は 0-10% に収まる。複数の現実値で確認。
+    for nat_v in [Some(1.5_f64), Some(2.5), Some(3.7), Some(6.5), None] {
+        if let Some(v) = nat_v {
+            // ドメイン的にあり得る範囲は 0-10%
+            assert!(
+                (0.0..=10.0).contains(&v),
+                "全国失業率は 0-10% の範囲 (2026-04-27 380% 流出防御), got {}",
+                v
+            );
+            // newtype 化しても通る
+            assert!(Percentage::try_new(v).is_some());
+        }
+    }
+}

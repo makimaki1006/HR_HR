@@ -946,7 +946,12 @@ mod tests {
         let d = extract_demographic(&ctx);
         assert_eq!(d.unemployment_pct, Some(3.6));
 
-        let diff = d.unemployment_pct.unwrap() - NAT_UNEMPLOYMENT_PCT;
+        // 2026-05-24 audit_B P1-6: unwrap → expect でエラーメッセージ明確化
+        // (test 失敗時に「Some(3.6) を期待したが None」と即座に分かるように)
+        let diff = d
+            .unemployment_pct
+            .expect("ext_labor_force に unemployment_rate=3.6 を投入したため Some(3.6) のはず")
+            - NAT_UNEMPLOYMENT_PCT;
         assert!(
             (diff - 1.1).abs() < 1e-9,
             "失業率 3.6% - 全国 2.5% = +1.1pt のはず, got {}",
@@ -961,7 +966,10 @@ mod tests {
         ctx.ext_households = vec![row_with(&[("single_rate", Value::from(52.0_f64))])];
 
         let d = extract_demographic(&ctx);
-        let diff = d.single_hh_pct.unwrap() - NAT_SINGLE_HH_PCT;
+        let diff = d
+            .single_hh_pct
+            .expect("ext_households に single_rate=52.0 を投入したため Some(52.0) のはず")
+            - NAT_SINGLE_HH_PCT;
         assert!(
             (diff - 13.9).abs() < 1e-9,
             "単独世帯率 52.0% - 全国 38.1% = +13.9pt のはず, got {}",
@@ -1099,7 +1107,8 @@ mod tests {
             json_str
         );
 
-        let v = parsed.unwrap();
+        // P1-6: unwrap → expect (test 失敗時のメッセージ強化)
+        let v = parsed.expect("ECharts config JSON parse 成功するはず (上で is_ok を確認済み)");
         // radar 設定が存在
         assert!(v.get("radar").is_some(), "radar key が必要");
         // series が 1 件以上 (対象地域 + 全国平均 で 1 series 内 2 data)

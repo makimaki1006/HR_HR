@@ -25,25 +25,59 @@ pub fn get_str_html(row: &Row, key: &str) -> String {
 }
 
 /// HashMap からi64値を取得（f64/文字列からの自動変換対応）
+///
+/// 注意 (2026-05-24 audit_B P1-3): NULL → 0 の silent fallback。
+/// 「データなし」と「データ=0」を区別する必要がある場合は `get_i64_opt` を使用。
 pub fn get_i64(row: &Row, key: &str) -> i64 {
-    row.get(key)
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_f64().map(|f| f as i64))
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .unwrap_or(0)
+    get_i64_opt(row, key).unwrap_or(0)
 }
 
 /// HashMap からf64値を取得（i64/文字列からの自動変換対応）
+///
+/// 注意 (2026-05-24 audit_B P1-3): NULL → 0.0 の silent fallback。
+/// 「データなし」と「データ=0.0」を区別する必要がある場合は `get_f64_opt` を使用。
 pub fn get_f64(row: &Row, key: &str) -> f64 {
-    row.get(key)
-        .and_then(|v| {
-            v.as_f64()
-                .or_else(|| v.as_i64().map(|i| i as f64))
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .unwrap_or(0.0)
+    get_f64_opt(row, key).unwrap_or(0.0)
+}
+
+/// HashMap からi64値を取得（NULL を Option::None として返す）
+///
+/// 2026-05-24 audit_B P1-3 で追加。NULL→0 silent fallback の代替:
+/// - NULL / missing key / 型変換不能 → `None`
+/// - 数値あり (0 含む) → `Some(value)`
+///
+/// 使用例:
+/// ```ignore
+/// let male = get_i64_opt(row, "male_count");
+/// let female = get_i64_opt(row, "female_count");
+/// let total = match (male, female) {
+///     (Some(m), Some(f)) => Some(m + f),
+///     _ => None, // データなし
+/// };
+/// ```
+pub fn get_i64_opt(row: &Row, key: &str) -> Option<i64> {
+    row.get(key).and_then(|v| {
+        if v.is_null() {
+            return None;
+        }
+        v.as_i64()
+            .or_else(|| v.as_f64().map(|f| f as i64))
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    })
+}
+
+/// HashMap からf64値を取得（NULL を Option::None として返す）
+///
+/// 2026-05-24 audit_B P1-3 で追加。get_i64_opt の f64 版。
+pub fn get_f64_opt(row: &Row, key: &str) -> Option<f64> {
+    row.get(key).and_then(|v| {
+        if v.is_null() {
+            return None;
+        }
+        v.as_f64()
+            .or_else(|| v.as_i64().map(|i| i as f64))
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    })
 }
 
 /// HTMLエスケープ（XSS対策）
@@ -302,6 +336,63 @@ pub fn haversine(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
     2.0 * r * a.sqrt().asin()
 }
 
+/// パーセンテージ単位を型で保護する newtype。
+///
+/// 2026-05-24 audit_B P1-4 で導入。
+///
+/// ## 背景
+/// `pref_avg_unemployment_rate` などの SQL は `* 100` 済の % 単位で返るが、
+/// 受け手側で再度 `* 100` する事故が 2026-04-27 (380% 流出) で発生。
+/// コメントで「再変換しない」と書いても改修者が読み落とせば破綻するため、
+/// 単位を型で表明することで取り違えをコンパイル時に検出可能にする。
+///
+/// ## 不変条件
+/// - `0.0 <= value <= 100.0` (失業率・参加率・構成比などの「比率の %」用)
+/// - 構築時に `new` で範囲外を `clamp` するか `try_new` で `None` を返す。
+/// - 浮動小数誤差を許容するため、上限は `100.0 + EPS` まで認める。
+///
+/// ## 使用方針
+/// - SQL から取得した % 値: `Percentage::try_new(v)` で受ける
+/// - HTML 出力: `format!("{:.1}%", p.value())` で常に同じ単位
+/// - 再 `* 100` 防止: `Percentage` を引数に取る関数を書けば、別の `Percentage`
+///   や生 f64 を渡されたらコンパイルエラー or 範囲チェックで弾ける
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Percentage(f64);
+
+impl Percentage {
+    /// 値を `[0.0, 100.0]` にクランプして構築。
+    /// NaN / 非有限値は `None` を返す。
+    pub fn new(value: f64) -> Option<Self> {
+        if !value.is_finite() {
+            return None;
+        }
+        Some(Self(value.clamp(0.0, 100.0)))
+    }
+
+    /// 範囲チェック厳密版: `[0.0, 100.0]` (浮動小数誤差 1e-6 許容) を外れたら `None`
+    pub fn try_new(value: f64) -> Option<Self> {
+        if !value.is_finite() {
+            return None;
+        }
+        const EPS: f64 = 1e-6;
+        if value < -EPS || value > 100.0 + EPS {
+            return None;
+        }
+        Some(Self(value.clamp(0.0, 100.0)))
+    }
+
+    /// 内部の f64 を取得
+    pub fn value(self) -> f64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for Percentage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.1}%", self.0)
+    }
+}
+
 /// テーブル存在確認（パラメータバインド使用、SQLインジェクション対策済み）
 pub fn table_exists(db: &crate::db::local_sqlite::LocalDb, name: &str) -> bool {
     db.query_scalar::<i64>(
@@ -386,5 +477,95 @@ mod tests {
     fn test_escape_url_attr_vbscript_file() {
         assert_eq!(escape_url_attr("vbscript:msgbox(1)"), "#");
         assert_eq!(escape_url_attr("file:///etc/passwd"), "#");
+    }
+
+    // ---- 2026-05-24 audit_B P1-3: get_*_opt の NULL 識別 ----
+
+    #[test]
+    fn get_i64_opt_returns_none_for_null() {
+        let mut row = Row::new();
+        row.insert("k".to_string(), Value::Null);
+        assert_eq!(get_i64_opt(&row, "k"), None);
+        assert_eq!(get_i64(&row, "k"), 0, "後方互換: NULL → 0");
+    }
+
+    #[test]
+    fn get_i64_opt_returns_some_for_zero() {
+        let mut row = Row::new();
+        row.insert("k".to_string(), Value::from(0_i64));
+        assert_eq!(get_i64_opt(&row, "k"), Some(0));
+        assert_eq!(
+            get_i64_opt(&row, "k"),
+            Some(0),
+            "0 はデータ有り (None ではない)"
+        );
+    }
+
+    #[test]
+    fn get_i64_opt_returns_none_for_missing_key() {
+        let row = Row::new();
+        assert_eq!(get_i64_opt(&row, "missing"), None);
+    }
+
+    #[test]
+    fn get_f64_opt_returns_none_for_null() {
+        let mut row = Row::new();
+        row.insert("k".to_string(), Value::Null);
+        assert_eq!(get_f64_opt(&row, "k"), None);
+        assert_eq!(get_f64(&row, "k"), 0.0, "後方互換: NULL → 0.0");
+    }
+
+    #[test]
+    fn get_f64_opt_returns_some_for_zero() {
+        let mut row = Row::new();
+        row.insert("k".to_string(), Value::from(0.0_f64));
+        assert_eq!(get_f64_opt(&row, "k"), Some(0.0));
+    }
+
+    // ---- 2026-05-24 audit_B P1-4: Percentage newtype ----
+
+    #[test]
+    fn percentage_new_clamps_to_0_100() {
+        assert_eq!(Percentage::new(50.0).unwrap().value(), 50.0);
+        assert_eq!(
+            Percentage::new(380.0).unwrap().value(),
+            100.0,
+            "上限 100 にクランプ (2026-04-27 380% 流出パターン)"
+        );
+        assert_eq!(
+            Percentage::new(-10.0).unwrap().value(),
+            0.0,
+            "下限 0 にクランプ"
+        );
+        assert!(Percentage::new(f64::NAN).is_none(), "NaN は None");
+        assert!(
+            Percentage::new(f64::INFINITY).is_none(),
+            "INFINITY は None"
+        );
+    }
+
+    #[test]
+    fn percentage_try_new_rejects_out_of_range() {
+        assert_eq!(
+            Percentage::try_new(2.5).map(|p| p.value()),
+            Some(2.5),
+            "通常値は通る"
+        );
+        assert_eq!(
+            Percentage::try_new(100.0).map(|p| p.value()),
+            Some(100.0),
+            "境界 100 は通る"
+        );
+        assert!(
+            Percentage::try_new(380.0).is_none(),
+            "380% は None (380% 流出と同型を厳格弾き)"
+        );
+        assert!(Percentage::try_new(-1.0).is_none(), "負値は None");
+    }
+
+    #[test]
+    fn percentage_display_format() {
+        let p = Percentage::new(2.567).unwrap();
+        assert_eq!(format!("{}", p), "2.6%");
     }
 }

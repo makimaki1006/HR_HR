@@ -250,6 +250,20 @@ pub fn build_company_context(
         ..Default::default()
     };
 
+    // 2026-05-24 audit_B P1-1: employee_delta_1y 範囲監視警告。
+    // 単位 (%) で 2026-04-30 100倍ずれ / 2026-05-14 表示層 ×100 が再発した事故対策。
+    // ETL バグ or 単位ずれを早期検知するため、現実値域外を警告ログに残す。
+    // (現実値域: -100% 〜 +1000%。±300% 超は in_realistic_range で表示時に除外)
+    if ctx.employee_delta_1y.is_finite()
+        && !(-100.0..=1000.0).contains(&ctx.employee_delta_1y)
+    {
+        tracing::warn!(
+            corp = %ctx.corporate_number,
+            value = ctx.employee_delta_1y,
+            "employee_delta_1y 範囲逸脱 (期待 -100..=1000 %): 単位ずれ or ETL バグの可能性"
+        );
+    }
+
     // 業界マッピング（Turso 1 query）
     ctx.hw_job_types = fetch_industry_mapping(sn_db, &ctx.sn_industry);
     ctx.primary_hw_job_type = ctx
