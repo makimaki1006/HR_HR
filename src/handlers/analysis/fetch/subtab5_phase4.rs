@@ -116,26 +116,96 @@ pub(crate) fn fetch_region_benchmark(db: &Db, pref: &str, muni: &str) -> Vec<Row
 /// # 注意
 /// - 取得は muni='' (都道府県粒度) のみ。市区町村レベル比較は仕様外。
 /// - スコアは 0-1 正規化値の前提（DB 仕様）。表示側で 0-100 に変換すること。
+///
+/// # 性能 (2026-05-24 監査 C P1 N+1 解消)
+/// - 旧実装: prefs.len() N に対し v2_region_benchmark へ N クエリ (`fetch_region_benchmark` を直列呼び出し)
+/// - 新実装: `prefecture IN (?, ?, ...)` で 1 クエリにまとめ、Rust 側で pref ごとに group + 正社員行優先選択
+/// - 後方互換: 単数版 `fetch_region_benchmark(db, pref, "")` の挙動と等価
+///   (空 prefs / table 無し / DB エラー時は空 Vec を返す)
 pub(crate) fn fetch_region_benchmarks_for_prefs(db: &Db, prefs: &[String]) -> Vec<(String, Row)> {
+    // 空入力 → DB クエリ発火させず空返却 (単数版 ループの空入力等価動作)
+    if prefs.is_empty() {
+        return Vec::new();
+    }
+    // テーブル不在 → 空返却 (単数版 query_3level の table_exists ガードと等価)
+    if !table_exists(db, "v2_region_benchmark") {
+        return Vec::new();
+    }
+
+    // 空文字列除外 + 重複除去 (DB クエリにはユニーク値のみ渡す)
+    let mut seen = std::collections::HashSet::new();
+    let unique_prefs: Vec<&String> = prefs
+        .iter()
+        .filter(|p| !p.is_empty())
+        .filter(|p| seen.insert(p.as_str()))
+        .collect();
+    if unique_prefs.is_empty() {
+        return Vec::new();
+    }
+
+    // SELECT 列は単数版 fetch_region_benchmark の cols + prefecture (group 用)
+    let placeholders: Vec<String> = (0..unique_prefs.len())
+        .map(|i| format!("?{}", i + 1))
+        .collect();
+    let sql = format!(
+        "SELECT prefecture, emp_group, salary_competitiveness, job_market_tightness, wage_compliance, \
+         industry_diversity, info_transparency, text_urgency, posting_freshness, \
+         real_wage_power, labor_fluidity, working_age_ratio, population_growth, foreign_workforce, \
+         composite_benchmark \
+         FROM v2_region_benchmark \
+         WHERE prefecture IN ({}) AND municipality = '' \
+         ORDER BY prefecture, emp_group",
+        placeholders.join(",")
+    );
+
+    let owned_params: Vec<String> = unique_prefs.iter().map(|p| (**p).clone()).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = owned_params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows = db.query(&sql, &params).unwrap_or_default();
+    if rows.is_empty() {
+        return Vec::new();
+    }
+
+    // prefecture でグループ化 (順序維持のため Vec<(pref, Vec<Row>)>)
+    let mut grouped: HashMap<String, Vec<Row>> = HashMap::new();
+    for row in rows {
+        let pref = row
+            .get("prefecture")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if pref.is_empty() {
+            continue;
+        }
+        grouped.entry(pref).or_default().push(row);
+    }
+
+    // 入力順を維持しつつ、各 pref について「正社員」行を優先、無ければ先頭行を選択
+    // (単数版ループのロジックと等価)
     let mut out: Vec<(String, Row)> = Vec::new();
     for pref in prefs {
         if pref.is_empty() {
             continue;
         }
-        let rows = fetch_region_benchmark(db, pref, "");
-        // 正社員行を優先、無ければ先頭行
-        let chosen = rows
-            .iter()
-            .find(|r| {
-                r.get("emp_group")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s == "正社員")
-                    .unwrap_or(false)
-            })
-            .cloned()
-            .or_else(|| rows.first().cloned());
-        if let Some(row) = chosen {
-            out.push((pref.clone(), row));
+        // 重複した pref が prefs に複数ある場合、最初の出現に対してのみ出力
+        // (単数版ループでは同じ pref に対し毎回 fetch して同じ結果が複数出ていたが、
+        //  そもそも呼び出し側は重複 pref を渡さない前提 — 後方互換のため最初のみ採用)
+        if let Some(rows_for_pref) = grouped.remove(pref) {
+            let chosen = rows_for_pref
+                .iter()
+                .find(|r| {
+                    r.get("emp_group")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s == "正社員")
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .or_else(|| rows_for_pref.first().cloned());
+            if let Some(row) = chosen {
+                out.push((pref.clone(), row));
+            }
         }
     }
     out
