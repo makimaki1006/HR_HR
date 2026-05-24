@@ -1,0 +1,129 @@
+{# 架電クオリティ メインタブ (Phase 1 MVP)
+   既存 HR_HR の base.html (templates/base.html) を継承。 #}
+{% extends "base.html" %}
+
+{% block title %}架電クオリティ{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="/static/css/call_quality.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+{% endblock %}
+
+{% block body %}
+<section id="call-quality-root" class="cq-root"
+         data-spreadsheet-id="{{ spreadsheet_id }}">
+
+  <header class="cq-header">
+    <h1>架電クオリティ モニタリング</h1>
+    <div class="cq-header-meta">
+      <span class="cq-updated" id="cq-updated">読み込み中…</span>
+      <button type="button" class="cq-btn-refresh" id="cq-btn-refresh">
+        キャッシュクリア
+      </button>
+    </div>
+  </header>
+
+  {# ---- フィルタ ---- #}
+  <div class="cq-filters">
+    <div class="cq-filter">
+      <label for="cq-date-from">期間 開始</label>
+      <input type="date" id="cq-date-from">
+    </div>
+    <div class="cq-filter">
+      <label for="cq-date-to">期間 終了</label>
+      <input type="date" id="cq-date-to">
+    </div>
+    <div class="cq-filter">
+      <label for="cq-pipeline">パイプライン</label>
+      <select id="cq-pipeline">
+        <option value="__all__" selected>全パイプライン</option>
+      </select>
+    </div>
+    <div class="cq-filter">
+      <label for="cq-prefecture">都道府県</label>
+      <select id="cq-prefecture">
+        <option value="__all__" selected>全都道府県</option>
+      </select>
+    </div>
+    <div class="cq-filter">
+      <label for="cq-members">メンバー (Ctrl/Cmd+クリックで複数選択)</label>
+      <select id="cq-members" multiple size="3">
+        <option value="__all__" selected>全メンバー</option>
+      </select>
+    </div>
+    <div class="cq-filter">
+      <button type="button" class="cq-btn-apply" id="cq-btn-apply">フィルタ適用</button>
+    </div>
+  </div>
+
+  {# ---- KPI カード (P0) ---- #}
+  <section class="cq-section">
+    <h2 class="cq-section-title">全社サマリ (P0)</h2>
+    <div class="cq-kpi-grid" id="cq-kpi-grid">
+      {# 初期表示: スケルトン 6 枚 (静的展開で Askama 互換性確保) #}
+      <div class="cq-kpi-card cq-skeleton"><div class="cq-kpi-label">&nbsp;</div><div class="cq-kpi-value">&nbsp;</div></div>
+      <div class="cq-kpi-card cq-skeleton"><div class="cq-kpi-label">&nbsp;</div><div class="cq-kpi-value">&nbsp;</div></div>
+      <div class="cq-kpi-card cq-skeleton"><div class="cq-kpi-label">&nbsp;</div><div class="cq-kpi-value">&nbsp;</div></div>
+      <div class="cq-kpi-card cq-skeleton"><div class="cq-kpi-label">&nbsp;</div><div class="cq-kpi-value">&nbsp;</div></div>
+      <div class="cq-kpi-card cq-skeleton"><div class="cq-kpi-label">&nbsp;</div><div class="cq-kpi-value">&nbsp;</div></div>
+      <div class="cq-kpi-card cq-skeleton"><div class="cq-kpi-label">&nbsp;</div><div class="cq-kpi-value">&nbsp;</div></div>
+    </div>
+  </section>
+
+  {# ---- 時系列 (P3) ---- #}
+  <section class="cq-section">
+    <h2 class="cq-section-title">月次推移 (P3)</h2>
+    <div class="cq-chart-grid">
+      <div class="cq-chart-card">
+        <h3>月次 架電数 (直近 8 ヶ月)</h3>
+        <div class="cq-chart-wrap" id="cq-chart-monthly-call"></div>
+      </div>
+      <div class="cq-chart-card">
+        <h3>月次 アポ率 (直近 8 ヶ月)</h3>
+        <div class="cq-chart-wrap" id="cq-chart-monthly-apo-rate"></div>
+      </div>
+    </div>
+  </section>
+
+  {# ---- セグメント別 (P4 - 都道府県) ---- #}
+  <section class="cq-section">
+    <h2 class="cq-section-title">都道府県別 (P4)</h2>
+    <div class="cq-chart-card cq-chart-card-wide">
+      <h3>都道府県別 アポ率 (架電数降順 Top 20)</h3>
+      <div class="cq-chart-wrap cq-chart-tall" id="cq-chart-prefecture"></div>
+    </div>
+  </section>
+
+  {# ---- データブラウザ (P7 簡易版) ---- #}
+  <section class="cq-section">
+    <h2 class="cq-section-title">データブラウザ (P7 簡易)</h2>
+    <div class="cq-data-browser">
+      <select id="cq-raw-sheet-select">
+        <option value="">-- シートを選択 --</option>
+        {% for name in sheet_names %}
+        <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" id="cq-raw-load-btn">読み込み</button>
+      <button type="button" id="cq-raw-csv-btn" disabled>CSV ダウンロード</button>
+    </div>
+    <div class="cq-raw-table-wrap">
+      <table class="cq-raw-table" id="cq-raw-table">
+        <thead><tr><th>シートを選択してください</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="cq-footer">
+    <p class="cq-note">
+      データソース: スプレッドシート
+      <code>{{ spreadsheet_id }}</code>
+      (Python GitHub Actions で日次更新)。
+      キャッシュ TTL は 1 時間。強制更新は「キャッシュクリア」ボタンを押下。
+    </p>
+  </footer>
+</section>
+
+<script src="/static/js/call_quality.js" defer></script>
+{% endblock %}

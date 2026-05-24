@@ -1,0 +1,272 @@
+/* 架電クオリティ タブ専用スタイル (HR_HR 既存 CSS と衝突しないよう cq- prefix)
+ * Phase 1 では最小限のスタイル。Phase 2 で既存 HR_HR デザイントークンに統合予定。
+ */
+
+.cq-root {
+  --cq-primary: #3b82f6;
+  --cq-positive: #10b981;
+  --cq-negative: #ef4444;
+  --cq-text: #1f2937;
+  --cq-text-sub: #6b7280;
+  --cq-bg-card: #ffffff;
+  --cq-border: #e5e7eb;
+  --cq-bg-page: #f9fafb;
+  padding: 16px;
+  color: var(--cq-text);
+  background: var(--cq-bg-page);
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans",
+    "Noto Sans JP", sans-serif;
+}
+
+/* ---- Header ---- */
+.cq-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--cq-border);
+}
+.cq-header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+.cq-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cq-updated {
+  font-size: 12px;
+  color: var(--cq-text-sub);
+}
+.cq-btn-refresh {
+  background: var(--cq-bg-card);
+  border: 1px solid var(--cq-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cq-btn-refresh:hover {
+  background: #f3f4f6;
+}
+
+/* ---- Filters ---- */
+.cq-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 12px;
+  background: var(--cq-bg-card);
+  border: 1px solid var(--cq-border);
+  border-radius: 8px;
+}
+.cq-filter label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cq-text-sub);
+  margin-bottom: 4px;
+}
+.cq-filter input,
+.cq-filter select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--cq-border);
+  border-radius: 4px;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.cq-btn-apply {
+  width: 100%;
+  margin-top: 18px;
+  background: var(--cq-primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cq-btn-apply:hover {
+  background: #2563eb;
+}
+
+/* ---- Sections ---- */
+.cq-section {
+  margin-bottom: 28px;
+}
+.cq-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 12px;
+  padding-left: 8px;
+  border-left: 4px solid var(--cq-primary);
+}
+
+/* ---- KPI Grid ---- */
+.cq-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.cq-kpi-card {
+  background: var(--cq-bg-card);
+  border: 1px solid var(--cq-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.cq-kpi-label {
+  font-size: 12px;
+  color: var(--cq-text-sub);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.cq-kpi-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.cq-kpi-unit {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--cq-text-sub);
+  margin-left: 4px;
+}
+.cq-kpi-delta {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cq-kpi-delta.positive {
+  color: var(--cq-positive);
+}
+.cq-kpi-delta.negative {
+  color: var(--cq-negative);
+}
+.cq-skeleton {
+  background: linear-gradient(90deg, #eee 0%, #f5f5f5 50%, #eee 100%);
+  background-size: 200% 100%;
+  animation: cq-skeleton-pulse 1.5s ease-in-out infinite;
+}
+@keyframes cq-skeleton-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---- Charts ---- */
+.cq-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px;
+}
+.cq-chart-card {
+  background: var(--cq-bg-card);
+  border: 1px solid var(--cq-border);
+  border-radius: 8px;
+  padding: 14px;
+}
+.cq-chart-card-wide {
+  grid-column: 1 / -1;
+}
+.cq-chart-card h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--cq-text);
+}
+.cq-chart-wrap {
+  width: 100%;
+  height: 240px;
+}
+.cq-chart-tall {
+  height: 360px;
+}
+
+/* ---- Data Browser ---- */
+.cq-data-browser {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cq-data-browser select {
+  flex: 1;
+  min-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid var(--cq-border);
+  border-radius: 4px;
+}
+.cq-data-browser button {
+  padding: 6px 14px;
+  border: 1px solid var(--cq-border);
+  background: var(--cq-bg-card);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.cq-data-browser button:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.cq-data-browser button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cq-raw-table-wrap {
+  background: var(--cq-bg-card);
+  border: 1px solid var(--cq-border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  max-height: 500px;
+  overflow-y: auto;
+}
+.cq-raw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cq-raw-table th,
+.cq-raw-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--cq-border);
+  white-space: nowrap;
+}
+.cq-raw-table th {
+  position: sticky;
+  top: 0;
+  background: #f3f4f6;
+  font-weight: 600;
+  z-index: 1;
+}
+.cq-raw-table-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--cq-text-sub);
+}
+
+/* ---- Footer ---- */
+.cq-footer {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cq-border);
+}
+.cq-note {
+  font-size: 11px;
+  color: var(--cq-text-sub);
+}
+.cq-note code {
+  font-family: SFMono-Regular, Menlo, monospace;
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
