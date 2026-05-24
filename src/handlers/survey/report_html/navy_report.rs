@@ -642,6 +642,38 @@ pub(super) fn render_navy_section_03_salary(
         );
     }
 
+    // -- 表 3-G タグ×給与プレミアム top 10 (2026-05-23 #225 統合: market_intelligence 系の知見を navy 取り込み)
+    //   訴求タグごとに「全体平均と比べてどれだけ給与が高いか」を可視化。
+    //   求人作成時の付与タグ選択 / 自社求人と競合の差分要因分析に活用。
+    if !agg.by_tag_salary.is_empty() {
+        // 全体加重平均 (overall_mean):
+        // - 給与解析できた件数 (parsed_n) に占める各タグの avg_salary &times; count の総和を
+        //   parsed_n で割って算出。aggregator.rs の diff_from_avg と整合するため、
+        //   enhanced_stats.mean (raw 値の単純平均) ではなく加重平均で再計算する。
+        let total_weighted_n: i64 = agg.by_tag_salary.iter().map(|t| t.count as i64).sum();
+        let weighted_sum: i64 = agg
+            .by_tag_salary
+            .iter()
+            .map(|t| t.avg_salary * t.count as i64)
+            .sum();
+        let overall_mean: i64 = if total_weighted_n > 0 {
+            weighted_sum / total_weighted_n
+        } else {
+            // by_tag_salary が空でないのに total_weighted_n=0 は count=0 のみのケース。
+            // この場合は enhanced_stats.mean をフォールバックとして使う (silent fallback
+            // ではなく明示的に文脈の異なる値であることを caption に記載する経路)。
+            agg.enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0)
+        };
+        if overall_mean > 0 {
+            html.push_str("<div class=\"block-title block-title-spaced\">表 3-G &nbsp;タグ&times;給与プレミアム top 10</div>\n");
+            html.push_str(&build_navy_tag_premium_top10_table(
+                &agg.by_tag_salary,
+                overall_mean,
+                agg.is_hourly,
+            ));
+        }
+    }
+
     // -- So What
     let so_what = match (stats_min.as_ref(), stats_max.as_ref()) {
         (Some(lo), Some(hi)) => {
@@ -931,6 +963,104 @@ fn build_navy_emp_type_salary_table(
     s.push_str(&format!(
         "<p class=\"caption\">単位: 万円 (月給換算済み)。差分: 全体加重平均給与 ({}万円) との比較。+10% 以上 = 高給与, -10% 以下 = 低給与。</p>\n",
         format_mm(overall_avg)
+    ));
+    s
+}
+
+// 2026-05-23 #225: タグ×給与プレミアム top 10 (Section 03 拡張)
+//
+// 設計:
+// - `by_tag_salary` は aggregator で既に `diff_from_avg` (全体平均との差, 円) /
+//   `diff_percent` (差分率, %) を計算済み (aggregator.rs L317-339)。
+// - 全体給与平均より高い (diff_from_avg > 0) タグだけを抽出し、
+//   diff_percent 降順 で上位 10 件を提示する。
+// - サンプル数 (count) の閾値は aggregator 側で既に min_sample=3 が適用済み。
+//   ここで追加で count >= 10 にする (少数サンプルの統計的揺らぎを除外、
+//   MEMORY: feedback_test_data_validation.md「データ妥当性」)。
+// - 表示単位は月給万円。is_hourly の場合は注記する。
+// - 因果ではなく相関であることを caption で明記 (MEMORY:
+//   feedback_correlation_not_causation.md)。
+fn build_navy_tag_premium_top10_table(
+    items: &[super::super::aggregator::TagSalaryAgg],
+    overall_mean: i64,
+    is_hourly: bool,
+) -> String {
+    // diff_from_avg > 0 かつ count >= 10 のタグ (高プレミアム & 統計的に意味ある件数)
+    let mut filtered: Vec<&super::super::aggregator::TagSalaryAgg> = items
+        .iter()
+        .filter(|t| t.diff_from_avg > 0 && t.count >= 10)
+        .collect();
+    // diff_percent 降順 (プレミアム率の高い順)
+    filtered.sort_by(|a, b| {
+        b.diff_percent
+            .partial_cmp(&a.diff_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    filtered.truncate(10);
+
+    if filtered.is_empty() {
+        return "<p class=\"caption dim\">給与プレミアム (全体平均より高い) を持つタグが \
+                統計的に有意な件数 (n &ge; 10) で抽出できませんでした。タグ件数が少ないか、\
+                求人内のタグ付与傾向が均質である可能性があります。</p>\n"
+            .to_string();
+    }
+
+    let unit_label = if is_hourly { "円/時" } else { "万円" };
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>タグ</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str(&format!("<th class=\"num\">平均給与 ({})</th>", unit_label));
+    s.push_str(&format!("<th class=\"num\">全体差分 ({})</th>", unit_label));
+    s.push_str("<th class=\"num\">プレミアム率</th>");
+    s.push_str("<th>位置づけ</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    for (i, t) in filtered.iter().enumerate() {
+        // 位置づけタグ: +20% 以上 = 高プレミアム / +10% 以上 = 中プレミアム / それ以下 = 弱プレミアム
+        let (tag, label) = if t.diff_percent >= 20.0 {
+            ("pos", "高プレミアム")
+        } else if t.diff_percent >= 10.0 {
+            ("pos", "中プレミアム")
+        } else {
+            ("neu", "弱プレミアム")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">+{}</td>\
+             <td class=\"num bold\">+{:.1}%</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&t.tag),
+            format_number(t.count as i64),
+            fmt_val(t.avg_salary),
+            fmt_val(t.diff_from_avg),
+            t.diff_percent,
+            tag,
+            label,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">基準: 全体加重平均給与 <strong>{} {}</strong>。プレミアム率 = (タグ平均 - 全体平均) / 全体平均 &times; 100%。\
+         n &ge; 10 のタグに限定 (統計的揺らぎ抑制)。\
+         <strong>相関であって因果ではありません</strong>: タグが給与を高めるのではなく、給与が高い求人にこのタグが付与されやすい傾向を示します。</p>\n",
+        fmt_val(overall_mean),
+        unit_label
     ));
     s
 }
@@ -1627,6 +1757,15 @@ pub(super) fn render_navy_section_02_region(
         }
     }
 
+    // -- 表 2-E 都道府県別給与 + 地域比較 (2026-05-23 #226 統合)
+    //   件数最多 10 県の平均給与と CSV 内全体加重平均との差分を可視化。
+    //   既存の「件数最多 10 市区町村」と階層を変えた粒度 (県単位) で
+    //   給与水準のリージョン格差を補強する。
+    if !agg.by_prefecture_salary.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 2-E &nbsp;都道府県別給与 &mdash; 地域比較</div>\n");
+        html.push_str(&build_navy_prefecture_salary_table(agg, agg.is_hourly));
+    }
+
     // -- so-what
     let so_what = build_region_so_what(agg, pref_top_pct, n_pref, hw_context, show_hw);
     html.push_str(&format!(
@@ -1638,6 +1777,110 @@ pub(super) fn render_navy_section_02_region(
     ));
 
     html.push_str("</section>\n");
+}
+
+// 2026-05-23 #226: 都道府県別給与 + 地域比較 (Section 02 拡張: market_intelligence 系の知見を navy 取り込み)
+//
+// 設計:
+// - `by_prefecture_salary` は aggregator が PrefectureSalaryAgg 単位で集計済み
+//   (name / count / avg_salary / avg_min_salary)。
+// - 件数最多の県を「対象県」とし、それ以外を「他県平均」として比較する。
+// - 当該県 vs 全国 (CSV 内全件平均) / 隣接県群 (件数 2 位以下の平均) の中央給与比較を行う。
+//   ※「全国」と言っても本レポートはアップロード CSV 内の県平均であり、47 県全体ではない。
+//     その範囲制約を caption に明示 (MEMORY: feedback_hw_data_scope.md)。
+// - 件数加重平均で算出 (件数の少ない県が同等に扱われないように)。
+// - 月給/時給の単位は is_hourly フラグで切り替える。
+fn build_navy_prefecture_salary_table(
+    agg: &SurveyAggregation,
+    is_hourly: bool,
+) -> String {
+    let total_rows: Vec<&super::super::aggregator::PrefectureSalaryAgg> =
+        agg.by_prefecture_salary.iter().collect();
+    if total_rows.is_empty() {
+        return "<p class=\"caption dim\">CSV から都道府県別給与を抽出できませんでした。</p>\n"
+            .to_string();
+    }
+
+    // 件数加重 全体平均 (CSV 内)
+    let total_n: i64 = total_rows.iter().map(|p| p.count as i64).sum();
+    let weighted_sum: i64 = total_rows
+        .iter()
+        .map(|p| p.avg_salary * p.count as i64)
+        .sum();
+    let overall_avg: i64 = if total_n > 0 { weighted_sum / total_n } else { 0 };
+
+    // 件数降順
+    let mut sorted: Vec<&super::super::aggregator::PrefectureSalaryAgg> = total_rows.clone();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+
+    let unit_label = if is_hourly { "円/時" } else { "万円" };
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>都道府県</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str(&format!("<th class=\"num\">平均給与 ({})</th>", unit_label));
+    s.push_str(&format!("<th class=\"num\">全体差分 ({})</th>", unit_label));
+    s.push_str("<th class=\"num\">差分率</th>");
+    s.push_str("<th>位置づけ</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 先頭 10 県表示
+    for (i, p) in sorted.iter().take(10).enumerate() {
+        let diff = p.avg_salary - overall_avg;
+        let diff_pct = if overall_avg > 0 {
+            diff as f64 / overall_avg as f64 * 100.0
+        } else {
+            0.0
+        };
+        let (tag, label) = if diff_pct >= 5.0 {
+            ("pos", "高水準")
+        } else if diff_pct <= -5.0 {
+            ("warn", "低水準")
+        } else {
+            ("neu", "中央付近")
+        };
+        let diff_sign = if diff >= 0 { "+" } else { "" };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}{}</td>\
+             <td class=\"num bold\">{:+.1}%</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&p.name),
+            format_number(p.count as i64),
+            fmt_val(p.avg_salary),
+            diff_sign,
+            fmt_val(diff.abs()),
+            diff_pct,
+            tag,
+            label,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">基準: CSV 内 件数加重 全体平均給与 <strong>{} {}</strong>。\
+         <strong>「全体」はアップロード CSV 内の県群を対象とした集計</strong>であり、\
+         47 都道府県全体や公的統計の全国平均ではありません。\
+         他媒体・公的統計との比較を行う場合は、Section 07 最低賃金表で別途確認してください。</p>\n",
+        fmt_val(overall_avg),
+        unit_label
+    ));
+
+    s
 }
 
 fn build_navy_region_table(
@@ -3578,6 +3821,8 @@ pub(super) fn render_navy_section_07_lifestyle(
     html: &mut String,
     hw_context: Option<&InsightContext>,
     target_region: &str,
+    // 2026-05-23 #227 追加: 求人給与中央値 (家計支出 / 最低賃金との比較に使用)
+    agg: &SurveyAggregation,
 ) {
     html.push_str("<section class=\"page-navy navy-lifestyle\" role=\"region\">\n");
     push_page_head(
@@ -3861,6 +4106,57 @@ pub(super) fn render_navy_section_07_lifestyle(
         ));
     }
 
+    // -- 表 7-E 最低賃金 vs 求人給与 比較 (2026-05-23 #227 統合)
+    //   求人下限給与中央値を時給換算 (167h) し、当該地域の最低賃金との比率を提示。
+    //   既存「最低賃金推移」(図 7-2) を「求人とのギャップ」軸で補強する。
+    let median_min_salary: i64 = {
+        // salary_min_values の中央値 (>0 のみ)
+        let mut v: Vec<i64> = agg
+            .salary_min_values
+            .iter()
+            .copied()
+            .filter(|x| *x > 0)
+            .collect();
+        if v.is_empty() {
+            0
+        } else {
+            v.sort_unstable();
+            v[v.len() / 2]
+        }
+    };
+    let minwage_vs_salary = build_navy_minwage_vs_salary_table(
+        median_min_salary,
+        agg.is_hourly,
+        latest_wage,
+    );
+    if !minwage_vs_salary.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-E &nbsp;最低賃金 vs 求人給与 比較</div>\n");
+        html.push_str(&minwage_vs_salary);
+    }
+
+    // -- 表 7-F 家計支出 vs 求人給与 比較 (2026-05-23 #227 統合)
+    //   月給中央値と月間消費支出を直接比較し、生活コストカバー率を提示。
+    //   表 7-A (家計支出構成) を「給与水準との関係」軸で補強する。
+    let household_vs_salary = build_navy_household_vs_salary_table(
+        median_min_salary,
+        agg.is_hourly,
+        total_consumption,
+        &category_breakdown,
+    );
+    if !household_vs_salary.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-F &nbsp;家計支出 vs 求人給与 比較</div>\n");
+        html.push_str(&household_vs_salary);
+    }
+
+    // -- 表 7-G 社会生活・施設密度 (2026-05-23 #228 統合)
+    //   人口あたり医療・福祉・保育施設数を県平均と比較。
+    //   家族層 / 単身層採用時の生活インフラ確認指標。
+    let lifestyle_facilities = build_navy_lifestyle_facilities_table(ctx);
+    if !lifestyle_facilities.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-G &nbsp;社会生活・施設密度 (人口あたり)</div>\n");
+        html.push_str(&lifestyle_facilities);
+    }
+
     // -- so-what
     let so_what = build_lifestyle_so_what(
         latest_wage,
@@ -3879,6 +4175,323 @@ pub(super) fn render_navy_section_07_lifestyle(
     ));
 
     html.push_str("</section>\n");
+}
+
+// 2026-05-23 #227: 最低賃金 vs 求人給与 比較 (Section 07 拡張)
+//
+// 設計:
+// - 求人 CSV の中央給与 (median_min_salary) を時給換算 (月給 &divide; 167h) し、
+//   当該地域 (pref) の最低賃金との比率を提示する。
+// - 単位は必ず時給 (円/時) で統一 (MEMORY: feedback_unit_consistency_audit.md)。
+// - is_hourly = true (時給ベース CSV) の場合は換算不要、median をそのまま使用。
+// - 給与中央値が時給ベースで最賃の N 倍 になっているかを 1 行で示す。
+// - 「N 倍以上 = 余裕がある」とは断定しない (中立表現、
+//   MEMORY: feedback_neutral_expression_for_targets.md)。
+// 戻り値: HTML 文字列 (テーブル + caption)。データ不足時は空文字。
+fn build_navy_minwage_vs_salary_table(
+    median_min_salary: i64,
+    is_hourly: bool,
+    latest_minwage: Option<(i32, i64)>,
+) -> String {
+    let (mw_year, mw_yen) = match latest_minwage {
+        Some((y, w)) if w > 0 => (y, w),
+        _ => return String::new(),
+    };
+    if median_min_salary <= 0 {
+        return String::new();
+    }
+    // 時給換算 (167h は厚労省基準: 8h &times; 20.875 日)
+    let hourly_equiv: i64 = if is_hourly {
+        median_min_salary
+    } else {
+        median_min_salary / super::super::aggregator::HOURLY_TO_MONTHLY_HOURS
+    };
+    let ratio = hourly_equiv as f64 / mw_yen as f64;
+    let diff = hourly_equiv - mw_yen;
+
+    // 位置づけ (中立表現): 1.0 倍未満 = 要確認、1.0-1.2 倍 = 最賃近接、1.2 倍以上 = 上振れ
+    let (tag, label, note) = if ratio < 1.0 {
+        (
+            "warn",
+            "最賃割れ",
+            format!(
+                "求人下限給与の時給換算が最低賃金を <strong>{} 円</strong> 下回ります。労基上の妥当性を要確認 (副業案件・固定残業含むかの再検証)。",
+                diff.abs()
+            ),
+        )
+    } else if ratio < 1.2 {
+        (
+            "neu",
+            "最賃近接",
+            format!(
+                "求人下限給与の時給換算は最低賃金 +{} 円 (比率 {:.2} 倍)。最賃改定 (例年 10 月) で実質的な調整余地が縮む水準。",
+                diff, ratio
+            ),
+        )
+    } else {
+        (
+            "pos",
+            "最賃上振れ",
+            format!(
+                "求人下限給与の時給換算は最低賃金の <strong>{:.2} 倍</strong>。最賃改定の直接影響は限定的だが、求人内給与レンジの再点検は別軸で必要。",
+                ratio
+            ),
+        )
+    };
+
+    let median_repr = if is_hourly {
+        format!("{} 円/時", format_number(median_min_salary))
+    } else {
+        format!("{} 万円/月 ({} 円/時換算, &divide;167h)", format_mm(median_min_salary), format_number(hourly_equiv))
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>指標</th><th class=\"num\">値</th><th>備考</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+    s.push_str(&format!(
+        "<tr><td><strong>当該地域 最低賃金 ({} 年)</strong></td>\
+         <td class=\"num bold\">{} 円/時</td>\
+         <td><span class=\"dim\">厚労省 地域別最低賃金 (10 月改定)</span></td></tr>\n",
+        mw_year,
+        format_number(mw_yen)
+    ));
+    s.push_str(&format!(
+        "<tr class=\"hl\"><td><strong>求人下限給与 中央値</strong></td>\
+         <td class=\"num bold\">{}</td>\
+         <td><span class=\"dim\">CSV 集計 (月給は 167h で時給換算)</span></td></tr>\n",
+        median_repr
+    ));
+    s.push_str(&format!(
+        "<tr><td><strong>最低賃金との比率</strong></td>\
+         <td class=\"num bold\">{:.2} 倍</td>\
+         <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">差額 {}{} 円</span></td></tr>\n",
+        ratio,
+        tag,
+        label,
+        if diff >= 0 { "+" } else { "" },
+        diff
+    ));
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">出典: 厚労省 v2_external_minimum_wage + CSV 集計 (median_min_salary)。月給を 167h (8h &times; 20.875 日, 厚労省基準) で割って時給換算。\
+         <strong>判定:</strong> {}</p>\n",
+        note
+    ));
+    s
+}
+
+// 2026-05-23 #227: 家計支出 vs 求人給与 比較 (Section 07 拡張)
+//
+// 設計:
+// - 月間消費支出 (家計調査) と 求人 給与中央値 (月給) との比較。
+// - 単位は月額円で統一 (MEMORY: feedback_unit_consistency_audit.md)。
+// - 時給 CSV (is_hourly) の場合は &times; 167h で月給換算。
+// - 「家計支出を給与の N% で賄える」を提示し、住居費 / 教育費等の
+//   重支出費目との対比を補足する。
+// 戻り値: HTML 文字列。データ不足時は空文字。
+fn build_navy_household_vs_salary_table(
+    median_min_salary: i64,
+    is_hourly: bool,
+    total_consumption: i64,
+    category_top: &[(String, i64)],
+) -> String {
+    if median_min_salary <= 0 || total_consumption <= 0 {
+        return String::new();
+    }
+    // 月給換算
+    let monthly_salary: i64 = if is_hourly {
+        median_min_salary * super::super::aggregator::HOURLY_TO_MONTHLY_HOURS
+    } else {
+        median_min_salary
+    };
+    let coverage_ratio = total_consumption as f64 / monthly_salary as f64;
+    let coverage_pct = coverage_ratio * 100.0;
+
+    // 位置づけ (中立): 70% 未満 = 余裕、70-100% = 拮抗、100% 以上 = 単独可処分超過
+    let (tag, label) = if coverage_pct < 70.0 {
+        ("pos", "可処分余裕")
+    } else if coverage_pct <= 100.0 {
+        ("neu", "拮抗水準")
+    } else {
+        ("warn", "支出超過水準")
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>指標</th><th class=\"num\">月額 (円)</th><th>備考</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+    s.push_str(&format!(
+        "<tr><td><strong>求人下限給与 中央値 (月給換算)</strong></td>\
+         <td class=\"num bold\">{}</td>\
+         <td><span class=\"dim\">CSV 集計。時給ベースは &times; 167h で換算</span></td></tr>\n",
+        format_number(monthly_salary)
+    ));
+    s.push_str(&format!(
+        "<tr class=\"hl\"><td><strong>月間消費支出 (家計調査)</strong></td>\
+         <td class=\"num bold\">{}</td>\
+         <td><span class=\"dim\">2 人以上世帯平均</span></td></tr>\n",
+        format_number(total_consumption)
+    ));
+    s.push_str(&format!(
+        "<tr><td><strong>消費支出 / 給与 比率</strong></td>\
+         <td class=\"num bold\">{:.1}%</td>\
+         <td><span class=\"tag tag-{}\">{}</span></td></tr>\n",
+        coverage_pct, tag, label
+    ));
+    // 重支出費目 top 3 (構成比 10%+) を併記
+    let heavy: Vec<&(String, i64)> = category_top
+        .iter()
+        .filter(|(_, amt)| {
+            total_consumption > 0
+                && (*amt as f64 / total_consumption as f64 * 100.0) >= 10.0
+        })
+        .take(3)
+        .collect();
+    for (name, amt) in &heavy {
+        let pct_in_salary = if monthly_salary > 0 {
+            *amt as f64 / monthly_salary as f64 * 100.0
+        } else {
+            0.0
+        };
+        s.push_str(&format!(
+            "<tr><td><strong>うち {} (重支出)</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"dim\">給与の {:.1}% を占める</span></td></tr>\n",
+            escape_html(name),
+            format_number(*amt),
+            pct_in_salary
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(
+        "<p class=\"caption\">出典: 総務省 v2_external_household_spending + CSV 集計。\
+         消費支出は 2 人以上世帯平均で、単身世帯では構造が異なります。\
+         本指標は <strong>給与水準の生活実態適合度</strong> の概観のみを示し、\
+         可処分所得 (税・社会保険料控除後) や世帯収入の評価は含みません。</p>\n",
+    );
+    s
+}
+
+// 2026-05-23 #228: 社会生活・施設密度 (Section 07 拡張)
+//
+// 設計:
+// - `ext_medical_welfare` (病院・診療所・薬局・保育所) と
+//   `ext_social_life` (参加率) を「人口あたり施設数」観点で表示。
+// - 既存 KPI で「人口」が分かるため、ここでは absolute count と
+//   「人口 1 万人あたり」の派生指標を提示。
+// - 県平均 (pref_avg_physicians_per_10k, pref_avg_daycare_per_1k_children) と
+//   突き合わせ、対象地域の生活インフラ密度を把握する。
+// 戻り値: HTML 文字列。データ不足時は空文字。
+fn build_navy_lifestyle_facilities_table(
+    ctx: &InsightContext,
+) -> String {
+    use super::super::super::helpers::{get_f64, get_i64};
+    if ctx.ext_medical_welfare.is_empty() {
+        return String::new();
+    }
+    let row = &ctx.ext_medical_welfare[0];
+    let hospitals = get_i64(row, "general_hospitals");
+    let clinics = get_i64(row, "general_clinics");
+    let dental = get_i64(row, "dental_clinics");
+    let physicians = get_i64(row, "physicians");
+    let pharmacists = get_i64(row, "pharmacists");
+    let daycare = get_i64(row, "daycare_facilities");
+    let physicians_per_10k = get_f64(row, "physicians_per_10k_pop");
+    let daycare_per_1k_kids = get_f64(row, "daycare_per_1k_children_0_14");
+
+    if hospitals + clinics + dental + physicians + pharmacists + daycare == 0 {
+        return String::new();
+    }
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>区分</th><th class=\"num\">施設・人員数</th><th class=\"num\">県平均比較</th><th>備考</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let fmt_cmp = |target: f64, pref_avg: Option<f64>, unit: &str| -> String {
+        match pref_avg {
+            Some(p) if p > 0.0 => {
+                let diff = target - p;
+                let sign = if diff >= 0.0 { "+" } else { "" };
+                format!(
+                    "{:.1} {} <span class=\"dim\">(県平均 {:.1}{}, 差 {}{:.1}{})</span>",
+                    target, unit, p, unit, sign, diff, unit
+                )
+            }
+            _ => format!("{:.1} {}", target, unit),
+        }
+    };
+
+    if hospitals > 0 {
+        s.push_str(&format!(
+            "<tr><td><strong>病院</strong></td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">—</td>\
+             <td><span class=\"dim\">入院機能あり (20 床以上)</span></td></tr>\n",
+            format_number(hospitals)
+        ));
+    }
+    if clinics > 0 {
+        s.push_str(&format!(
+            "<tr><td><strong>一般診療所</strong></td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">—</td>\
+             <td><span class=\"dim\">外来中心 (19 床以下)</span></td></tr>\n",
+            format_number(clinics)
+        ));
+    }
+    if dental > 0 {
+        s.push_str(&format!(
+            "<tr><td><strong>歯科診療所</strong></td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">—</td>\
+             <td><span class=\"dim\">歯科医療の地域密度</span></td></tr>\n",
+            format_number(dental)
+        ));
+    }
+    if physicians > 0 {
+        let cmp_str = if physicians_per_10k > 0.0 {
+            fmt_cmp(physicians_per_10k, ctx.pref_avg_physicians_per_10k, "人/万人")
+        } else {
+            "—".to_string()
+        };
+        s.push_str(&format!(
+            "<tr class=\"hl\"><td><strong>医師数</strong></td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">{}</td>\
+             <td><span class=\"dim\">医療職採用市場の供給規模指標</span></td></tr>\n",
+            format_number(physicians),
+            cmp_str
+        ));
+    }
+    if pharmacists > 0 {
+        s.push_str(&format!(
+            "<tr><td><strong>薬剤師</strong></td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">—</td>\
+             <td><span class=\"dim\">薬局・病院薬剤部の人員規模</span></td></tr>\n",
+            format_number(pharmacists)
+        ));
+    }
+    if daycare > 0 {
+        let cmp_str = if daycare_per_1k_kids > 0.0 {
+            fmt_cmp(
+                daycare_per_1k_kids,
+                ctx.pref_avg_daycare_per_1k_children,
+                "施設/千人 (0-14 歳)",
+            )
+        } else {
+            "—".to_string()
+        };
+        s.push_str(&format!(
+            "<tr><td><strong>保育所</strong></td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">{}</td>\
+             <td><span class=\"dim\">子育て世帯採用時の生活インフラ</span></td></tr>\n",
+            format_number(daycare),
+            cmp_str
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(
+        "<p class=\"caption\">出典: 厚労省 v2_external_medical_welfare (医療・福祉施設) + \
+         県平均 (pref_avg_*)。<strong>絶対数</strong>は地域規模の影響を受けるため、\
+         <strong>人口あたり指標 (医師 / 万人, 保育所 / 千人 0-14 歳)</strong>を県平均と比較して読みます。\
+         施設密度は採用ターゲットの生活インフラ確認用 (家族層 / 単身層問わず参考)。</p>\n",
+    );
+    s
 }
 
 fn build_navy_minwage_chart(wages: &[(i32, i64)]) -> String {

@@ -2300,16 +2300,23 @@ body.theme-navy .page-navy {
   padding: 14mm 14mm 16mm;
   background: var(--paper-pure);
   border: 1px solid var(--rule-soft);
-  page-break-after: always;
-  break-after: page;
   position: relative;
+  /* 2026-05-23 #245: page-break-after: always を撤去。
+     直前の page-navy が短い場合 (Section 03 末尾 / Section 06 末尾) に
+     ブラウザが page-break-after と次要素の page-break-before を二重適用し、
+     空白ページ (p9 / p14) が混入していた。
+     兄弟 page-navy 間の改ページは下記 @media print の
+     `.page-navy + .page-navy { page-break-before: always }` のみで担保する。 */
 }
-body.theme-navy .page-navy:last-child { page-break-after: auto; break-after: auto; }
 
 @media print {
   body.theme-navy .page-navy { width:100%; max-width:none; margin:0; border:none;
                                 padding: 0; min-height:auto; }
-  body.theme-navy .page-navy + .page-navy { page-break-before: always; }
+  /* 兄弟 page-navy 間にのみ改ページを挿入 (last-child の後ろに余白を作らない) */
+  body.theme-navy .page-navy + .page-navy {
+    page-break-before: always;
+    break-before: page;
+  }
 }
 
 body.theme-navy .ph-sec {
