@@ -137,16 +137,33 @@ fn classify_habitable_density(density: f64) -> &'static str {
     }
 }
 
-fn calc_aging_rate_from_pyramid(pyramid: &[Row]) -> f64 {
+/// 人口ピラミッドから高齢化率 (%) を計算。
+///
+/// 2026-05-24 audit_B P1-3: NULL→0 silent fallback を排除。
+/// male_count / female_count のいずれかが NULL の行はスキップする
+/// (「データなし」と「データ=0」を区別しないと aging_rate=0% という
+/// 誤情報を流す原因になるため)。
+///
+/// 戻り値: `Some(rate)` = 算出成功 / `None` = 全行 NULL or 空 (= 計算不能)
+fn calc_aging_rate_from_pyramid_opt(pyramid: &[Row]) -> Option<f64> {
     if pyramid.is_empty() {
-        return 0.0;
+        return None;
     }
     let mut total: i64 = 0;
     let mut elderly: i64 = 0;
+    let mut any_valid = false;
     for r in pyramid {
+        // P1-3: NULL は計算から除外 (silent fallback の 0 を渡さない)
+        let m = match get_i64_opt_local(r, "male_count") {
+            Some(v) => v,
+            None => continue,
+        };
+        let f = match get_i64_opt_local(r, "female_count") {
+            Some(v) => v,
+            None => continue,
+        };
+        any_valid = true;
         let grp = get_str_ref(r, "age_group");
-        let m = get_i64_local(r, "male_count");
-        let f = get_i64_local(r, "female_count");
         total += m + f;
         if grp == "65-74" || grp == "75+" || grp == "70-79" || grp == "80+" {
             elderly += m + f;
@@ -154,15 +171,24 @@ fn calc_aging_rate_from_pyramid(pyramid: &[Row]) -> f64 {
             elderly += (m + f) / 2;
         }
     }
-    if total > 0 {
-        (elderly as f64 / total as f64) * 100.0
-    } else {
-        0.0
+    if !any_valid || total <= 0 {
+        return None;
     }
+    Some((elderly as f64 / total as f64) * 100.0)
+}
+
+/// 後方互換ラッパー。
+/// NULL / 空 → 0.0 を返す旧仕様 (call site が `> 0.0` で判定している前提)。
+fn calc_aging_rate_from_pyramid(pyramid: &[Row]) -> f64 {
+    calc_aging_rate_from_pyramid_opt(pyramid).unwrap_or(0.0)
 }
 
 fn get_i64_local(row: &Row, key: &str) -> i64 {
     super::super::super::helpers::get_i64(row, key)
+}
+
+fn get_i64_opt_local(row: &Row, key: &str) -> Option<i64> {
+    super::super::super::helpers::get_i64_opt(row, key)
 }
 
 /// 案 #18 + D-4: 可住地密度 + 高齢化率 KPI セクション（印刷版）
@@ -433,6 +459,96 @@ mod impl1_print_tests {
         // 必須注記
         assert!(html.contains("可住地密度は地理特性"), "#18 必須注記");
         assert!(html.contains("労働人口希少性の参考指標"), "D-4 必須注記");
+    }
+
+    // ---- 2026-05-24 audit_B P1-3: NULL→0 silent fallback 排除の逆証明 ----
+
+    /// male_count / female_count が全行 NULL の場合は
+    /// `calc_aging_rate_from_pyramid_opt` は None を返すこと。
+    /// 旧実装は 0.0 を返し、UI で「高齢化率 0.0%」という誤情報を出していた。
+    #[test]
+    fn calc_aging_rate_all_null_returns_none() {
+        let pyramid = vec![
+            make_row(&[
+                ("age_group", json!("0-9")),
+                ("male_count", json!(null)),
+                ("female_count", json!(null)),
+            ]),
+            make_row(&[
+                ("age_group", json!("60-69")),
+                ("male_count", json!(null)),
+                ("female_count", json!(null)),
+            ]),
+        ];
+        assert_eq!(
+            calc_aging_rate_from_pyramid_opt(&pyramid),
+            None,
+            "全行 NULL → データなし (None)。旧実装は 0.0 を返していた (誤情報)"
+        );
+        assert_eq!(
+            calc_aging_rate_from_pyramid(&pyramid),
+            0.0,
+            "後方互換ラッパは 0.0 を返す (call site が > 0.0 で除外する前提)"
+        );
+    }
+
+    /// 全行ゼロ (NULL ではなく明示的に 0) の場合は Some(0.0)。
+    /// 「データなし」と「データ=0」を区別できることを保証。
+    #[test]
+    fn calc_aging_rate_all_zero_returns_some_zero() {
+        let pyramid = vec![make_row(&[
+            ("age_group", json!("0-9")),
+            ("male_count", json!(0_i64)),
+            ("female_count", json!(0_i64)),
+        ])];
+        // total == 0 になるため計算不能 → None (ゼロ除算回避)
+        // データ=0 でも分母が 0 なら計算不能扱いは妥当
+        assert_eq!(
+            calc_aging_rate_from_pyramid_opt(&pyramid),
+            None,
+            "total=0 はゼロ除算回避のため None"
+        );
+    }
+
+    /// 一部 NULL を含むデータでは NULL 行を除外して計算する。
+    /// 全行に有効データがある場合と同じ結果になることを確認。
+    #[test]
+    fn calc_aging_rate_partial_null_skips_null_rows() {
+        // ケース1: 全行有効
+        let pyramid_all_valid = vec![
+            make_row(&[
+                ("age_group", json!("0-9")),
+                ("male_count", json!(100_i64)),
+                ("female_count", json!(100_i64)),
+            ]),
+            make_row(&[
+                ("age_group", json!("75+")),
+                ("male_count", json!(40_i64)),
+                ("female_count", json!(60_i64)),
+            ]),
+        ];
+        let rate_all = calc_aging_rate_from_pyramid_opt(&pyramid_all_valid).unwrap();
+        // total=300, elderly=100 → 33.333%
+        assert!(
+            (rate_all - 100.0 / 300.0 * 100.0).abs() < 1e-9,
+            "全行有効: 33.33%, got {}",
+            rate_all
+        );
+
+        // ケース2: NULL 行を 1 行追加 (除外されるはずなので結果は同じ)
+        let mut pyramid_with_null = pyramid_all_valid.clone();
+        pyramid_with_null.push(make_row(&[
+            ("age_group", json!("60-69")),
+            ("male_count", json!(null)),
+            ("female_count", json!(null)),
+        ]));
+        let rate_skipped = calc_aging_rate_from_pyramid_opt(&pyramid_with_null).unwrap();
+        assert!(
+            (rate_skipped - rate_all).abs() < 1e-9,
+            "NULL 行は除外。全行有効 ({}) と同値のはず, got {}",
+            rate_all,
+            rate_skipped
+        );
     }
 
     /// 産業構造印刷版 D-3: Top10 表 + 構成比

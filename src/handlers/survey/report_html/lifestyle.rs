@@ -85,13 +85,26 @@ fn render_social_life_block(html: &mut String, ctx: &InsightContext) {
 
     // category ごとに participation_rate を取得し、ソート (高い順)
     // category は 4 種類: 趣味・娯楽 / スポーツ / ボランティア活動 / 学習・自己啓発
+    //
+    // 2026-05-24 audit_B P1-5: 単位を明示。
+    // - participation_rate は **percent 単位** (0.0 〜 100.0) で v2_external_social_life に格納されている
+    //   (社会生活基本調査の自己申告ベース、ratio ではなく % で来る)
+    // - したがって line 122 の `format!("{:.1}%", rate)` は再度 100 倍しない (ratio→% 変換不要)
+    // - rate <= 0.0 でデータなし扱い (rate == 0.0 は participation_rate = 0% を含むが、
+    //   現実の調査で完全 0% はあり得ないため NULL fallback とみなす)
     let mut entries: Vec<(String, f64, String)> = Vec::new();
     for row in &ctx.ext_social_life {
         let category = get_str_ref(row, "category").to_string();
-        let rate = get_f64(row, "participation_rate");
+        let rate = get_f64(row, "participation_rate"); // percent 単位 (0-100)
         if category.is_empty() || rate <= 0.0 {
             continue;
         }
+        // ドメイン健全性 check (P1-5): 100% 超は ETL バグ (ratio 0.x を 100 倍済みで投入された等)
+        debug_assert!(
+            rate <= 100.0 + 1e-6,
+            "participation_rate は percent 単位 (0-100), got {} (単位ずれ疑い)",
+            rate
+        );
         // 同一 category 内に subcategory が複数ある場合は最大値を採用
         let icon = category_to_icon(&category);
         if let Some(existing) = entries.iter_mut().find(|(c, _, _)| c == &category) {
