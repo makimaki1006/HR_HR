@@ -442,7 +442,9 @@ fn compute_metrics(ctx: &InsightContext) -> TightnessMetrics {
     //     DB: Turso v2_external_labor_force / カラム: unemployment_rate
     if let Some(row) = ctx.ext_labor_force.first() {
         let ur = get_f64(row, "unemployment_rate");
-        if ur > 0.0 {
+        // 2026-05-24 audit_B P0-1: 上限 100% check 追加。
+        // 2026-04-27 unemployment 380% 流出と同型パターン (DB 不正値素通り) を投入レイヤで防御。
+        if ur > 0.0 && ur <= 100.0 {
             m.unemployment_rate = Some(ur);
         }
     }

@@ -8,6 +8,7 @@ use crate::auth::{
     SESSION_INDUSTRY_RAWS_KEY, SESSION_JOB_TYPES_KEY, SESSION_JOB_TYPE_KEY,
     SESSION_MUNICIPALITY_KEY, SESSION_PREFECTURE_KEY,
 };
+use crate::handlers::analysis::fetch::EXTERNAL_CLEAN_FILTER;
 use crate::AppState;
 
 /// セッションフィルタ（複数選択対応）
@@ -1057,10 +1058,14 @@ fn build_population_context(
     // 2026-05-17 fix: DB スキーマは nighttime_pop (居住人口) / daytime_pop。
     //   total_population / daytime_population は存在せず、SELECT が常に 0 を返していた
     //   結果、人口コンテキストセクションが total_pop < 1.0 で常に空文字を返していた。
-    let pop_sql = if !muni.is_empty() {
-        "SELECT nighttime_pop AS total_population, daytime_pop AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
+    // 2026-05-24 audit_B P0-2: SUM 集計に EXTERNAL_CLEAN_FILTER 適用 (header 行混入 silent doubling 防御)
+    let pop_sql: String = if !muni.is_empty() {
+        "SELECT nighttime_pop AS total_population, daytime_pop AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2".to_string()
     } else {
-        "SELECT SUM(nighttime_pop) AS total_population, SUM(daytime_pop) AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1"
+        format!(
+            "SELECT SUM(nighttime_pop) AS total_population, SUM(daytime_pop) AS daytime_population FROM v2_external_daytime_population WHERE prefecture = ?1 AND {}",
+            EXTERNAL_CLEAN_FILTER
+        )
     };
 
     // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
@@ -1077,7 +1082,7 @@ fn build_population_context(
         .iter()
         .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
         .collect();
-    let rows = match turso.query(pop_sql, &p) {
+    let rows = match turso.query(&pop_sql, &p) {
         Ok(r) if !r.is_empty() => r,
         _ => return String::new(),
     };

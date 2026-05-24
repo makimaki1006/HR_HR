@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[allow(unused_imports)]
 use super::super::super::helpers::table_exists;
 use super::super::super::helpers::normalize_muni_for_external;
-use super::query_turso_or_local;
+use super::{query_turso_or_local, EXTERNAL_CLEAN_FILTER};
 
 #[allow(dead_code)]
 type Db = crate::db::local_sqlite::LocalDb;
@@ -33,7 +33,9 @@ pub(crate) fn fetch_households(
             vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
+        // 2026-05-24 audit_B P0-2: EXTERNAL_CLEAN_FILTER 適用
         (
+            format!(
             "SELECT ?1 as prefecture, '全体' as municipality, \
              SUM(total_households) as total_households, \
              SUM(general_households) as general_households, \
@@ -47,11 +49,14 @@ pub(crate) fn fetch_households(
              CAST(SUM(single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as single_rate, \
              CAST(SUM(elderly_single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as elderly_single_rate, \
              MAX(reference_date) as reference_date \
-             FROM v2_external_households WHERE prefecture = ?1".to_string(),
+             FROM v2_external_households WHERE prefecture = ?1 AND {}",
+                EXTERNAL_CLEAN_FILTER
+            ),
             vec![pref.to_string()],
         )
     } else {
         (
+            format!(
             "SELECT '全国' as prefecture, '' as municipality, \
              SUM(total_households) as total_households, \
              SUM(general_households) as general_households, \
@@ -65,7 +70,9 @@ pub(crate) fn fetch_households(
              CAST(SUM(single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as single_rate, \
              CAST(SUM(elderly_single_households) AS REAL) / NULLIF(SUM(total_households), 0) * 100 as elderly_single_rate, \
              MAX(reference_date) as reference_date \
-             FROM v2_external_households".to_string(),
+             FROM v2_external_households WHERE {}",
+                EXTERNAL_CLEAN_FILTER
+            ),
             vec![],
         )
     };
@@ -88,7 +95,9 @@ pub(crate) fn fetch_vital_statistics(
             vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
+        // 2026-05-24 audit_B P0-2: EXTERNAL_CLEAN_FILTER 適用
         (
+            format!(
             "SELECT ?1 as prefecture, '全体' as municipality, \
              SUM(births) as births, SUM(deaths) as deaths, \
              SUM(births) - SUM(deaths) as natural_change, \
@@ -96,12 +105,14 @@ pub(crate) fn fetch_vital_statistics(
              NULL as birth_rate_permille, NULL as death_rate_permille, \
              NULL as marriage_rate_permille, NULL as divorce_rate_permille, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_vital_statistics WHERE prefecture = ?1"
-                .to_string(),
+             FROM v2_external_vital_statistics WHERE prefecture = ?1 AND {}",
+                EXTERNAL_CLEAN_FILTER
+            ),
             vec![pref.to_string()],
         )
     } else {
         (
+            format!(
             "SELECT '全国' as prefecture, '' as municipality, \
              SUM(births) as births, SUM(deaths) as deaths, \
              SUM(births) - SUM(deaths) as natural_change, \
@@ -109,8 +120,9 @@ pub(crate) fn fetch_vital_statistics(
              NULL as birth_rate_permille, NULL as death_rate_permille, \
              NULL as marriage_rate_permille, NULL as divorce_rate_permille, \
              MAX(reference_year) as reference_year \
-             FROM v2_external_vital_statistics"
-                .to_string(),
+             FROM v2_external_vital_statistics WHERE {}",
+                EXTERNAL_CLEAN_FILTER
+            ),
             vec![],
         )
     };

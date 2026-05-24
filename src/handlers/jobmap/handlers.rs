@@ -7,6 +7,7 @@ use tower_sessions::Session;
 
 use crate::geo::city_code;
 use crate::geo::pref_name_to_code;
+use crate::handlers::analysis::fetch::EXTERNAL_CLEAN_FILTER;
 use crate::handlers::competitive::{build_option, build_option_with_data, escape_html};
 use crate::handlers::overview::get_session_filters;
 use crate::AppState;
@@ -758,14 +759,18 @@ fn choropleth_data(
         }
         "day_night_ratio" => {
             // Turso優先、ローカルフォールバック
-            let sql = "SELECT municipality, day_night_ratio \
-                       FROM v2_external_daytime_population \
-                       WHERE prefecture = ?1 AND municipality != ''";
+            // 2026-05-24 audit_B P0-2: EXTERNAL_CLEAN_FILTER 適用 (municipality = '市区町村' 等を除外)
+            let sql = format!(
+                "SELECT municipality, day_night_ratio \
+                 FROM v2_external_daytime_population \
+                 WHERE prefecture = ?1 AND municipality != '' AND {}",
+                EXTERNAL_CLEAN_FILTER
+            );
             let params = vec![pref.to_string()];
             let rows = query_turso_or_local_choropleth(
                 turso,
                 hw_db,
-                sql,
+                &sql,
                 &params,
                 "v2_external_daytime_population",
             );
