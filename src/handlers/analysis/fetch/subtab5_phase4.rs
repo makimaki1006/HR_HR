@@ -283,21 +283,26 @@ pub(crate) fn fetch_daytime_population(
             vec![pref.to_string(), normalize_muni_for_external(pref, muni)],
         )
     } else if !pref.is_empty() {
+        // 2026-05-24 audit_B P0-2: EXTERNAL_CLEAN_FILTER 適用
         (
-            "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
+            format!(
+                "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
           CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
           SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
-          FROM v2_external_daytime_population WHERE prefecture = ?1"
-                .to_string(),
+          FROM v2_external_daytime_population WHERE prefecture = ?1 AND {}",
+                EXTERNAL_CLEAN_FILTER
+            ),
             vec![pref.to_string()],
         )
     } else {
         (
-            "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
+            format!(
+                "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
           CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
           SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
-          FROM v2_external_daytime_population"
-                .to_string(),
+          FROM v2_external_daytime_population WHERE {}",
+                EXTERNAL_CLEAN_FILTER
+            ),
             vec![],
         )
     };

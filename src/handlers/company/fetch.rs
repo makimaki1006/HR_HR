@@ -1,4 +1,5 @@
 use crate::db::turso_http::TursoDb;
+use crate::handlers::analysis::fetch::EXTERNAL_CLEAN_FILTER;
 use crate::handlers::helpers::{get_f64, get_i64, get_str, Row};
 
 /// 近隣企業データ（郵便番号上3桁マッチ）
@@ -281,12 +282,16 @@ pub fn build_company_context(
                 //     total_population = v2_external_population の SUM
                 //     daytime_population_ratio = v2_external_daytime_population の daytime/nighttime 比 (0.0-2.0 ratio)
                 //     aging_rate = v2_external_population の age_65_over / total_population * 100 (%単位)
-                let sql = "SELECT \
-                    (SELECT SUM(total_population) FROM v2_external_population WHERE prefecture = ?1) AS total_population, \
-                    (SELECT CAST(SUM(daytime_pop) AS REAL)/NULLIF(SUM(nighttime_pop),0) FROM v2_external_daytime_population WHERE prefecture = ?1) AS daytime_population_ratio, \
-                    (SELECT CAST(SUM(age_65_over) AS REAL)/NULLIF(SUM(total_population),0)*100 FROM v2_external_population WHERE prefecture = ?1) AS aging_rate";
+                // 2026-05-24 audit_B P0-2: EXTERNAL_CLEAN_FILTER 適用 (header 行混入 silent doubling 防御)
+                let sql = format!(
+                    "SELECT \
+                    (SELECT SUM(total_population) FROM v2_external_population WHERE prefecture = ?1 AND {filter}) AS total_population, \
+                    (SELECT CAST(SUM(daytime_pop) AS REAL)/NULLIF(SUM(nighttime_pop),0) FROM v2_external_daytime_population WHERE prefecture = ?1 AND {filter}) AS daytime_population_ratio, \
+                    (SELECT CAST(SUM(age_65_over) AS REAL)/NULLIF(SUM(total_population),0)*100 FROM v2_external_population WHERE prefecture = ?1 AND {filter}) AS aging_rate",
+                    filter = EXTERNAL_CLEAN_FILTER
+                );
                 let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref_snap];
-                if let Ok(rows) = ext.query(sql, &params) {
+                if let Ok(rows) = ext.query(&sql, &params) {
                     if let Some(r) = rows.first() {
                         return (
                             get_i64(r, "total_population"),
