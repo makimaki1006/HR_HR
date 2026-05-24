@@ -5108,3 +5108,133 @@ pub(super) fn render_navy_section_08_notes(
 
     html.push_str("</section>\n");
 }
+
+// ============================================================
+// Unit Tests (2026-05-24 監査 H P0 #4 対策: navy_report.rs test 0 件解消)
+// ============================================================
+// 対象: pure な内部関数のみ (HTML 生成系は invariant_tests.rs 側で別途検証)
+// 目的: A1 navy 分割前の安全担保 + 100倍ずれ / silent fallback 等の防御
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- severity_label: 全 case 網羅 (silent fallback 検証) ----
+    #[test]
+    fn severity_label_pos_returns_pos() {
+        assert_eq!(severity_label("pos"), "POS");
+    }
+    #[test]
+    fn severity_label_warn_returns_warn() {
+        assert_eq!(severity_label("warn"), "WARN");
+    }
+    #[test]
+    fn severity_label_neg_returns_neg() {
+        assert_eq!(severity_label("neg"), "NEG");
+    }
+    #[test]
+    fn severity_label_unknown_returns_neu_default() {
+        // silent fallback: 未知 tag は NEU。`_` arm 仕様確認
+        assert_eq!(severity_label(""), "NEU");
+        assert_eq!(severity_label("info"), "NEU");
+        assert_eq!(severity_label("critical"), "NEU");
+    }
+
+    // ---- format_mm: 万円換算境界値 ----
+    #[test]
+    fn format_mm_zero_returns_zero_point_zero() {
+        assert_eq!(format_mm(0), "0.0");
+    }
+    #[test]
+    fn format_mm_10000_returns_one_point_zero() {
+        assert_eq!(format_mm(10_000), "1.0");
+    }
+    #[test]
+    fn format_mm_250000_returns_25_point_zero() {
+        // 月給 25 万円 (中央値想定)
+        assert_eq!(format_mm(250_000), "25.0");
+    }
+    #[test]
+    fn format_mm_negative_does_not_panic() {
+        // 負値も format するだけ (panic 防御確認)
+        assert_eq!(format_mm(-10_000), "-1.0");
+    }
+
+    // ---- fmt_ratio / fmt_pct / fmt_pct_from_ratio: Option<f64> フォーマット ----
+    #[test]
+    fn fmt_ratio_some_formats_two_decimals() {
+        assert_eq!(fmt_ratio(Some(1.234)), "1.23");
+    }
+    #[test]
+    fn fmt_ratio_none_returns_em_dash() {
+        // データ不在は明示的に「—」(silent fallback 防御)
+        assert_eq!(fmt_ratio(None), "—");
+    }
+    #[test]
+    fn fmt_pct_some_formats_one_decimal_with_percent() {
+        assert_eq!(fmt_pct(Some(33.456)), "33.5%");
+    }
+    #[test]
+    fn fmt_pct_none_returns_em_dash() {
+        assert_eq!(fmt_pct(None), "—");
+    }
+    #[test]
+    fn fmt_pct_from_ratio_some_multiplies_by_100() {
+        // 0-1 ratio を 0-100% に変換
+        assert_eq!(fmt_pct_from_ratio(Some(0.5)), "50.0");
+        assert_eq!(fmt_pct_from_ratio(Some(0.123)), "12.3");
+    }
+    #[test]
+    fn fmt_pct_from_ratio_none_returns_em_dash() {
+        assert_eq!(fmt_pct_from_ratio(None), "—");
+    }
+
+    // ---- compute_distribution_stats: 統計計算の境界 ----
+    #[test]
+    fn compute_distribution_stats_empty_returns_none() {
+        assert!(compute_distribution_stats(&[]).is_none());
+    }
+    #[test]
+    fn compute_distribution_stats_all_zero_returns_none() {
+        // 全 0 / 負値は filter で除外 → 空配列 → None
+        assert!(compute_distribution_stats(&[0, 0, -100]).is_none());
+    }
+    #[test]
+    fn compute_distribution_stats_single_value_returns_stats() {
+        let stats = compute_distribution_stats(&[250_000])
+            .expect("single value should yield stats");
+        assert_eq!(stats.n, 1);
+        assert_eq!(stats.median, 250_000);
+        assert_eq!(stats.min, 250_000);
+        assert_eq!(stats.max, 250_000);
+        assert_eq!(stats.mean, 250_000);
+    }
+    #[test]
+    fn compute_distribution_stats_multiple_values_invariants() {
+        // ドメイン不変条件:
+        //   min <= p25 <= median <= p75 <= p90 <= max
+        //   n == values の正値件数
+        let values: Vec<i64> = vec![
+            200_000, 220_000, 250_000, 280_000, 300_000, 350_000, 400_000,
+        ];
+        let stats = compute_distribution_stats(&values)
+            .expect("non-empty positive should yield stats");
+        assert_eq!(stats.n, values.len());
+        assert!(stats.min <= stats.p25, "min <= p25");
+        assert!(stats.p25 <= stats.median, "p25 <= median");
+        assert!(stats.median <= stats.p75, "median <= p75");
+        assert!(stats.p75 <= stats.p90, "p75 <= p90");
+        assert!(stats.p90 <= stats.max, "p90 <= max");
+        assert!(!stats.bins.is_empty(), "bins must be non-empty");
+        assert_eq!(stats.bin_step, 10_000, "bin_step is fixed 10,000 yen");
+    }
+    #[test]
+    fn compute_distribution_stats_filters_negative_and_zero() {
+        // 負値 / 0 は filter (> 0 のみ採用)
+        let values: Vec<i64> = vec![0, -100, 200_000, 300_000];
+        let stats = compute_distribution_stats(&values)
+            .expect("two positive values should yield stats");
+        assert_eq!(stats.n, 2, "negative / zero are filtered out");
+        assert_eq!(stats.min, 200_000);
+        assert_eq!(stats.max, 300_000);
+    }
+}
