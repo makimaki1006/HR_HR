@@ -1081,6 +1081,21 @@ async fn fetch_municipality_list(state: &AppState, pref: &str) -> Vec<String> {
 }
 
 /// ヘルスチェック（DB接続+キャッシュ状態をJSON返却）
+/// /health endpoint
+///
+/// SQLite 接続に加え、Turso 系 (external / SalesNow / Audit) の到達性を
+/// `SELECT 1` でチェックする。MEMORY `feedback_silent_fallback_audit` に従い、
+/// 各 DB の状態を明示的にフィールド化する (silent fallback 禁止)。
+///
+/// status 判定:
+/// - "unhealthy": HW SQLite 未接続 (この場合のみ Render の auto-restart を期待)
+/// - "degraded" : SQLite OK だが Turso 系で 1 つ以上失敗 (設定済かつ ping 失敗)
+/// - "healthy"  : SQLite OK かつ 設定済の全 Turso DB が ping 成功
+///
+/// HTTP は常に 200 を返す。これは Render の healthCheckPath が 200 のみで
+/// 判定するため、外部 DB 障害で worker 全体を auto-restart させない方針
+/// (J-P0-B 改善)。Render 側で degraded を検知したい場合は body の status を
+/// 監視する別レイヤ (UptimeRobot 等) を併用する。
 async fn health_check(
     State(state): State<Arc<AppState>>,
 ) -> axum::response::Json<serde_json::Value> {
@@ -1096,12 +1111,64 @@ async fn health_check(
     } else {
         -1
     };
+
+    // Turso 系の到達性チェック。各 DB は Option (未設定なら None)。
+    // 状態は 3 値: "ok" / "error" / "not_configured" (silent fallback 禁止)
+    let turso_external_status = ping_turso_optional(state.turso_db.as_ref()).await;
+    let salesnow_status = ping_turso_optional(state.salesnow_db.as_ref()).await;
+    let audit_status = match &state.audit {
+        Some(audit) => {
+            let turso = audit.turso().clone();
+            tokio::task::spawn_blocking(move || match turso.query("SELECT 1", &[]) {
+                Ok(_) => "ok",
+                Err(_) => "error",
+            })
+            .await
+            .unwrap_or("error")
+        }
+        None => "not_configured",
+    };
+
+    // 設定済の DB のうち 1 つでも "error" があれば degraded
+    let externals_ok = [
+        turso_external_status,
+        salesnow_status,
+        audit_status,
+    ]
+    .iter()
+    .all(|s| *s != "error");
+
+    let status = if !db_ok {
+        "unhealthy"
+    } else if externals_ok {
+        "healthy"
+    } else {
+        "degraded"
+    };
+
     axum::response::Json(serde_json::json!({
-        "status": if db_ok { "healthy" } else { "degraded" },
+        "status": status,
         "db_connected": db_ok,
         "db_rows": db_rows,
         "cache_entries": state.cache.len(),
+        "turso_external": turso_external_status,
+        "salesnow": salesnow_status,
+        "audit": audit_status,
     }))
+}
+
+/// Turso DB を `SELECT 1` で軽量 ping。未設定なら "not_configured" を返す。
+async fn ping_turso_optional(db: Option<&db::turso_http::TursoDb>) -> &'static str {
+    let Some(db) = db else {
+        return "not_configured";
+    };
+    let db = db.clone();
+    tokio::task::spawn_blocking(move || match db.query("SELECT 1", &[]) {
+        Ok(_) => "ok",
+        Err(_) => "error",
+    })
+    .await
+    .unwrap_or("error")
 }
 
 /// ステータスAPI
@@ -1298,6 +1365,19 @@ fn decompress_gz_file(gz_path: &str, out_path: &str) {
 
 /// GeoJSON事前圧縮: static/geojson/*.json → *.json.gz
 /// precompressed_gzip() (ServeDir) が .gz を自動配信する
+///
+/// **deprecated since 2026-05-24 (I-P0-2)**:
+/// 起動時に呼ばないでください。理由:
+/// - 生成物 (`*.json.gz`) は現在どこからも参照されていない (dead I/O)
+/// - GeoJSON は `/api/geojson/{filename}` (handlers/api.rs) が `static/geojson/{filename}`
+///   の生 JSON を読み込んで返す経路のみ。`/static/geojson/*` 直接アクセスは未使用。
+/// - `Compression::best()` × 47 ファイルが Render cold start に 5-20s を浪費していた。
+///
+/// 将来 ServeDir 経由で `.gz` を配信する設計に戻す場合は本関数を再活用できます。
+#[deprecated(
+    since = "2026-05-24",
+    note = "I-P0-2: dead I/O. /api/geojson/* handler reads raw .json directly. Do not call from startup."
+)]
 pub fn precompress_geojson() {
     use flate2::write::GzEncoder;
     use flate2::Compression;
