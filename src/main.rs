@@ -32,7 +32,14 @@ async fn main() {
     );
 
     decompress_geojson_if_needed();
-    rust_dashboard::precompress_geojson();
+    // I-P0-2: precompress_geojson() の呼び出しを削除 (二重 I/O / dead I/O)
+    //   理由: 生成される `static/geojson/*.json.gz` はどこからも参照されない。
+    //   GeoJSON 配信は `/api/geojson/{filename}` (handlers/api.rs) が
+    //   `static/geojson/{filename}` の生 JSON を `read_to_string` で読込み、
+    //   キャッシュして Json として返す経路のみ。
+    //   `ServeDir::new("static").precompressed_gzip()` 経由 (`/static/geojson/*.json`)
+    //   は templates / JS いずれからも未参照のため、再 gzip は dead I/O。
+    //   削除により Render cold start を 5-20s 短縮見込 (AUDIT_I_PERFORMANCE.md P0-2)。
     decompress_db_if_needed(&config.hellowork_db_path);
 
     let hw_db = match LocalDb::new(&config.hellowork_db_path) {
