@@ -1,0 +1,33 @@
+name: warm-up
+
+# Render 無料プラン (https://hr-hw.onrender.com) は 15 分非アクセスで sleep し、
+# 次回アクセス時に cold start (起動時 GeoJSON 解凍 + 19 本 index 作成 + Turso 3 接続を直列実行)
+# が発生し、ユーザーが 60s 以上待たされる問題への対処。
+# 14 分毎 (15 分 sleep threshold の直前) に /health を叩いて keep-alive を維持する。
+#
+# Slack 通知は意図的に付けない:
+#  - cron 失敗は GitHub Actions 標準の通知 (workflow runs UI / メール) で十分
+#  - 15 分毎の cron で Slack を流すと通知ノイズが大量化する
+#  - 一時的な 5xx (Render 側のメンテ等) は次回 cron で自動回復する
+#
+# 関連: claudedocs/AUDIT_J_DEVOPS.md (P0-A cold start warm-up 戦略無し)
+
+on:
+  schedule:
+    # 14 分毎 (Render free tier の 15 分 sleep threshold の直前)
+    - cron: '*/14 * * * *'
+  workflow_dispatch:  # 手動起動も許可
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping production /health
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://hr-hw.onrender.com/health)
+          if [ "$response" != "200" ]; then
+            echo "Unexpected status: $response"
+            exit 1
+          fi
+          echo "Warm-up OK: $response"
