@@ -93,6 +93,14 @@ pub struct InsightContext {
     // 対角線 (下限=上限) からの乖離で「定額求人 vs 歩合・等級制」傾向を可視化する。
     // 空 Vec の場合は Section 03 では何も出力しない (silent fallback ではなく明示的に省略)。
     pub salary_scatter_pairs: Vec<(f64, f64)>,
+    // === P2-2 (2026-05-28): CSV 企業別給与ランキング (Section 05 表 5-G / 5-H) ===
+    // postings の facility_name 別 求人数 + 給与中央値ランキング (上位 30 社、月給換算済)。
+    // navy_report.rs Section 05 で「表 5-G: 企業別給与ランキング (上位 10)」
+    // および「注目企業リスト (求人数 top 5 ∩ 給与中央値 top 5 の和集合)」として描画。
+    // 単位は万円 (fetch_csv_company_salary_ranking 内で /10000 換算済)。
+    // 出典: 「CSV 求人データ集計」 (SalesNow 由来の地域企業データとは別物)。
+    // 空 Vec の場合は Section 05 拡張ブロックを表示しない (silent fallback ではなく明示省略)。
+    pub csv_company_ranking: Vec<af::CsvCompanySalary>,
     // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
     pub pref_avg_unemployment_rate: Option<f64>,
     pub pref_avg_single_rate: Option<f64>,
@@ -144,6 +152,8 @@ pub(crate) fn build_insight_context(
         Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
         // P2-1 (2026-05-28): salary_scatter_pairs (postings から最大 1000 件)
         Vec<(f64, f64)>,
+        // P2-2 (2026-05-28): csv_company_ranking (postings facility 別 給与中央値 上位 30 社)
+        Vec<af::CsvCompanySalary>,
     );
     // PopBundle 末尾要素は P1-5 Section 06 拡張で追加した「上位 3 市区町村のピラミッド」
     type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<MuniPyramid>);
@@ -191,9 +201,10 @@ pub(crate) fn build_insight_context(
             }
         });
 
-        // G3: ローカル SQLite (13 fetches、高速だが並列化で他グループ完了待ち時間を活用)
+        // G3: ローカル SQLite (14 fetches、高速だが並列化で他グループ完了待ち時間を活用)
         // 2026-05-28 P2-1: fetch_salary_scatter_pairs を追加 (Section 03 図 3-6 散布図用)。
-        // postings 直接 SELECT で他 12 fetch と同じ LocalDb 内クエリ。limit 1000 で 数ms程度。
+        // 2026-05-28 P2-2: fetch_csv_company_salary_ranking を追加 (Section 05 表 5-G / 5-H 用)。
+        //   postings 直接 SELECT で他 fetch と同じ LocalDb 内クエリ。limit 30 で 数十ms程度。
         let h_local = s.spawn(|| -> LocalBundle {
             (
                 af::fetch_vacancy_data(db, pref, muni),
@@ -209,6 +220,7 @@ pub(crate) fn build_insight_context(
                 af::fetch_region_benchmark(db, pref, muni),
                 af::fetch_text_quality(db, pref, muni),
                 af::fetch_salary_scatter_pairs(db, pref, muni, 1000),
+                af::fetch_csv_company_salary_ranking(db, pref, muni, 30),
             )
         });
 
@@ -318,6 +330,8 @@ pub(crate) fn build_insight_context(
                 vec![], vec![], vec![], vec![], vec![], vec![],
                 // P2-1: salary_scatter_pairs (空 Vec で fallback)
                 Vec::<(f64, f64)>::new(),
+                // P2-2: csv_company_ranking (空 Vec で fallback)
+                Vec::<af::CsvCompanySalary>::new(),
             )
         });
         let pop = h_pop.join().unwrap_or_else(|e| {
@@ -361,6 +375,7 @@ pub(crate) fn build_insight_context(
         region_benchmark,
         text_quality,
         salary_scatter_pairs,
+        csv_company_ranking,
     ) = local_bundle;
     let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop, muni_pyramids) = pop_bundle;
     let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
@@ -437,6 +452,8 @@ pub(crate) fn build_insight_context(
         hw_job_type_counts: vec![],
         // P2-1 (2026-05-28): G3 ローカル SQLite グループで populate 済み
         salary_scatter_pairs,
+        // P2-2 (2026-05-28): G3 ローカル SQLite グループで populate 済み (CSV 求人 facility 集計)
+        csv_company_ranking,
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate,
         pref_avg_single_rate,

@@ -85,6 +85,7 @@ fn mock_empty_insight_ctx() -> InsightContext {
         hw_industry_counts: vec![],
         hw_job_type_counts: vec![],
         salary_scatter_pairs: vec![],
+        csv_company_ranking: vec![],
         ext_social_life: vec![],
         ext_internet_usage: vec![],
         pref_avg_unemployment_rate: None,
