@@ -296,8 +296,10 @@ pub(crate) fn fetch_top_muni_names(db: &Db, pref: &str, limit: usize) -> Vec<Str
     let rows = match db.query(sql, &params) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
-                "[warn] fetch_top_muni_names: postings query failed (pref={pref}, limit={limit}): {e}"
+            // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
+            tracing::warn!(
+                "fetch_top_muni_names: postings query failed (pref={}, limit={}): {}",
+                pref, limit, e
             );
             return Vec::new();
         }
@@ -693,8 +695,10 @@ pub(crate) fn fetch_salary_scatter_pairs(
     let rows = match db.query(&sql, &params) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
-                "[warn] fetch_salary_scatter_pairs: postings query failed (pref={pref}, muni={muni}, limit={limit}): {e}"
+            // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
+            tracing::warn!(
+                "fetch_salary_scatter_pairs: postings query failed (pref={}, muni={}, limit={}): {}",
+                pref, muni, limit, e
             );
             return Vec::new();
         }
@@ -814,8 +818,10 @@ pub(crate) fn fetch_csv_company_salary_ranking(
     let rows = match db.query(&sql, &params) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
-                "[warn] fetch_csv_company_salary_ranking: postings query failed (pref={pref}, muni={muni}, limit={limit}): {e}"
+            // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
+            tracing::warn!(
+                "fetch_csv_company_salary_ranking: postings query failed (pref={}, muni={}, limit={}): {}",
+                pref, muni, limit, e
             );
             return Vec::new();
         }
@@ -1071,8 +1077,10 @@ pub(crate) fn fetch_posting_target_profile(
     let rows = match db.query(&sql, &params) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
-                "[warn] fetch_posting_target_profile: postings query failed (pref={pref}, muni={muni}): {e}"
+            // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
+            tracing::warn!(
+                "fetch_posting_target_profile: postings query failed (pref={}, muni={}): {}",
+                pref, muni, e
             );
             return PostingTargetProfile::default();
         }
