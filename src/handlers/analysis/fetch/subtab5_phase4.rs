@@ -638,3 +638,71 @@ pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
     };
     query_turso_or_local(turso, db, &sql, &params, "v2_external_care_demand")
 }
+
+/// 散布図用: postings から (下限給与, 上限給与) ペアを最大 `limit` 件取得 (P2-1)
+///
+/// 用途: navy_report.rs Section 03 図 3-6 散布図 (各点 1 求人)。
+///
+/// フィルタ条件:
+/// - `salary_type = '月給'` (時給/日給/年俸は除外、月給換算は既存パターン踏襲)
+/// - `salary_min > 0 AND salary_max > 0` (NULL / 0 を明示除外)
+/// - `salary_max >= salary_min` (異常データ除外)
+/// - pref/muni が指定されていれば一致条件を AND で追加
+///
+/// メモリルール準拠:
+/// - `feedback_silent_fallback_audit`: クエリ失敗時は警告ログを出して空 `Vec` 返却
+/// - `feedback_hw_data_scope`: HW 掲載求人 (postings) を母集団とする
+///
+/// 戻り値: `Vec<(salary_min_yen, salary_max_yen)>` (円単位、最大 `limit` 件)
+pub(crate) fn fetch_salary_scatter_pairs(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    limit: i64,
+) -> Vec<(f64, f64)> {
+    use super::super::super::helpers::get_f64;
+
+    if limit <= 0 {
+        return Vec::new();
+    }
+
+    // SQL 構築 (pref/muni を動的に AND 結合)。LIMIT は i64 を直接埋め込み。
+    let mut sql = String::from(
+        "SELECT salary_min, salary_max FROM postings \
+         WHERE salary_type = '月給' \
+           AND salary_min IS NOT NULL AND salary_max IS NOT NULL \
+           AND salary_min > 0 AND salary_max > 0 \
+           AND salary_max >= salary_min",
+    );
+    let mut params_owned: Vec<String> = Vec::new();
+    if !pref.is_empty() {
+        params_owned.push(pref.to_string());
+        sql.push_str(&format!(" AND prefecture = ?{}", params_owned.len()));
+    }
+    if !muni.is_empty() {
+        params_owned.push(muni.to_string());
+        sql.push_str(&format!(" AND municipality = ?{}", params_owned.len()));
+    }
+    sql.push_str(&format!(" LIMIT {limit}"));
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = params_owned
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[warn] fetch_salary_scatter_pairs: postings query failed (pref={pref}, muni={muni}, limit={limit}): {e}"
+            );
+            return Vec::new();
+        }
+    };
+
+    rows.iter()
+        .map(|r| (get_f64(r, "salary_min"), get_f64(r, "salary_max")))
+        // 二重防衛: SQL 側で除外済みだが get_f64 が NULL→0.0 を返す可能性あり
+        .filter(|(lo, hi)| *lo > 0.0 && *hi > 0.0 && *hi >= *lo)
+        .collect()
+}

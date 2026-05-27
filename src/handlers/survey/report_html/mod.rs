@@ -707,6 +707,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         cfg.agg,
         cfg.salary_min_values,
         cfg.salary_max_values,
+        // P2-1 (2026-05-28): 給与レンジ 散布図 (図 3-6) で
+        // ctx.salary_scatter_pairs を参照するため hw_context を渡す。
+        cfg.hw_context,
     );
     navy_report::render_navy_section_04_market_tightness(
         &mut html,
@@ -1153,6 +1156,8 @@ mod tests {
             ext_industry_employees: vec![],
             hw_industry_counts: vec![],
             hw_job_type_counts: vec![],
+            // P2-1: 給与レンジ 散布図
+            salary_scatter_pairs: vec![],
             // Impl-3: ライフスタイル
             ext_social_life: vec![],
             ext_internet_usage: vec![],
@@ -3760,6 +3765,7 @@ mod variant_indicator_tests {
             ext_industry_employees: rows,
             hw_industry_counts: vec![],
             hw_job_type_counts: vec![],
+            salary_scatter_pairs: vec![],
             ext_social_life: vec![],
             ext_internet_usage: vec![],
             pref_avg_unemployment_rate: None,

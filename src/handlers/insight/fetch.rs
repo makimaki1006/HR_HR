@@ -87,6 +87,12 @@ pub struct InsightContext {
     // navy_report.rs Section 01 Exec Summary の Finding 07 (職種偏り) で利用。
     // populate 場所: survey/handlers.rs の HW context build (industry_counts と同タイミング)
     pub hw_job_type_counts: Vec<(String, i64)>,
+    // === P2-1 (2026-05-28): 給与レンジ 散布図 (Section 03 図 3-6) ===
+    // postings から (salary_min, salary_max) の組を最大 1000 件取得 (月給換算済 / 円単位)。
+    // navy_report.rs `build_navy_salary_scatter_svg` で各点 1 求人としてプロットし、
+    // 対角線 (下限=上限) からの乖離で「定額求人 vs 歩合・等級制」傾向を可視化する。
+    // 空 Vec の場合は Section 03 では何も出力しない (silent fallback ではなく明示的に省略)。
+    pub salary_scatter_pairs: Vec<(f64, f64)>,
     // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
     pub pref_avg_unemployment_rate: Option<f64>,
     pub pref_avg_single_rate: Option<f64>,
@@ -136,6 +142,8 @@ pub(crate) fn build_insight_context(
     type LocalBundle = (
         Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
         Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
+        // P2-1 (2026-05-28): salary_scatter_pairs (postings から最大 1000 件)
+        Vec<(f64, f64)>,
     );
     // PopBundle 末尾要素は P1-5 Section 06 拡張で追加した「上位 3 市区町村のピラミッド」
     type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<MuniPyramid>);
@@ -183,7 +191,9 @@ pub(crate) fn build_insight_context(
             }
         });
 
-        // G3: ローカル SQLite (12 fetches、高速だが並列化で他グループ完了待ち時間を活用)
+        // G3: ローカル SQLite (13 fetches、高速だが並列化で他グループ完了待ち時間を活用)
+        // 2026-05-28 P2-1: fetch_salary_scatter_pairs を追加 (Section 03 図 3-6 散布図用)。
+        // postings 直接 SELECT で他 12 fetch と同じ LocalDb 内クエリ。limit 1000 で 数ms程度。
         let h_local = s.spawn(|| -> LocalBundle {
             (
                 af::fetch_vacancy_data(db, pref, muni),
@@ -198,6 +208,7 @@ pub(crate) fn build_insight_context(
                 af::fetch_wage_compliance(db, pref, muni),
                 af::fetch_region_benchmark(db, pref, muni),
                 af::fetch_text_quality(db, pref, muni),
+                af::fetch_salary_scatter_pairs(db, pref, muni, 1000),
             )
         });
 
@@ -305,6 +316,8 @@ pub(crate) fn build_insight_context(
             (
                 vec![], vec![], vec![], vec![], vec![], vec![],
                 vec![], vec![], vec![], vec![], vec![], vec![],
+                // P2-1: salary_scatter_pairs (空 Vec で fallback)
+                Vec::<(f64, f64)>::new(),
             )
         });
         let pop = h_pop.join().unwrap_or_else(|e| {
@@ -347,6 +360,7 @@ pub(crate) fn build_insight_context(
         wage_compliance,
         region_benchmark,
         text_quality,
+        salary_scatter_pairs,
     ) = local_bundle;
     let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop, muni_pyramids) = pop_bundle;
     let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
@@ -421,6 +435,8 @@ pub(crate) fn build_insight_context(
         // 実データの populate は survey/handlers.rs の HW context build 時に行う
         // (CR-9 hw_industry_counts と同じ理由: integrate エンドポイントのタイムアウト回避)
         hw_job_type_counts: vec![],
+        // P2-1 (2026-05-28): G3 ローカル SQLite グループで populate 済み
+        salary_scatter_pairs,
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate,
         pref_avg_single_rate,
