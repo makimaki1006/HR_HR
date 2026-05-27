@@ -3301,7 +3301,7 @@ fn select_notable_companies<'a>(
 fn build_navy_csv_company_salary_table(ranking: &[CsvCompanySalary], limit: usize) -> String {
     let mut s = String::from(
         "<div class=\"block-title block-title-spaced\">\
-         表 5-G &nbsp;企業別給与ランキング (CSV 求人 集計、件数最多 ",
+         表 5-G &nbsp;企業別給与ランキング (CSV 求人 集計、上限給与中央値 上位 ",
     );
     s.push_str(&format!("{}", limit));
     s.push_str(" 社、求人数 2 件以上)</div>\n");
