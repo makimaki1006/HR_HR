@@ -76,6 +76,7 @@ fn empty_insight_ctx() -> super::super::super::insight::fetch::InsightContext {
         hw_job_type_counts: vec![],
         salary_scatter_pairs: vec![],
         csv_company_ranking: vec![],
+        posting_target: None,
         ext_social_life: vec![],
         ext_internet_usage: vec![],
         pref_avg_unemployment_rate: None,
