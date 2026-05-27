@@ -518,12 +518,30 @@ fn build_findings(
     v
 }
 
+// ============================================================
+// Ext-3 (2026-05-28): SKEW 判定の閾値定数化
+// ------------------------------------------------------------
+// Round 2 P2-3: 70.0/85.0 が `compute_skew_severity` 本体にハードコードされており、
+//   A/B test や閾値チューニング時に「定数 → テスト → docstring → ガイドライン」の
+//   4 箇所を同期更新する必要があった (分散して保守事故の温床)。
+// 修正: 単一の定数定義に集約し、関数本体・境界値テストの双方がここを参照する。
+// 不変条件:
+//   - `SKEW_NEU_THRESHOLD_PCT < SKEW_WARN_THRESHOLD_PCT` (定数の順序保証)
+//   - 比較は **strict greater** (`>`) で統一: 70.0% ちょうどは "pos"、
+//     85.0% ちょうどは "neu" (境界一致は下位 severity 側)
+// ============================================================
+
+/// SKEW 判定: WARN しきい値 (この値を **超える** ＝ "warn")。
+pub(super) const SKEW_WARN_THRESHOLD_PCT: f64 = 85.0;
+/// SKEW 判定: NEU しきい値 (この値を **超える** ＝ "neu", 超えなければ "pos")。
+pub(super) const SKEW_NEU_THRESHOLD_PCT: f64 = 70.0;
+
 /// 分類分布 (`(name, count)` 配列) の偏り度を判定して severity tag と説明文を返す。
 ///
 /// # Severity (navy_report 内 4 値タグ準拠: pos / warn / neg / neu)
-/// - `max_share > 85.0%` → `"warn"` (顕著な偏り、サンプル代表性 低い)
-/// - `max_share > 70.0%` → `"neu"`  (偏りあり、データ代表性に注意)
-/// - 上記以下           → `"pos"`  (バランス良好)
+/// - `max_share > SKEW_WARN_THRESHOLD_PCT` → `"warn"` (顕著な偏り、サンプル代表性 低い)
+/// - `max_share > SKEW_NEU_THRESHOLD_PCT`  → `"neu"`  (偏りあり、データ代表性に注意)
+/// - 上記以下                              → `"pos"`  (バランス良好)
 /// - `counts.is_empty()` または `total <= 0` → `"neu"` (「{label}データなし」)
 ///
 /// # 引数
@@ -565,7 +583,8 @@ pub(super) fn compute_skew_severity(
         .expect("counts.is_empty() guarded above");
     // top_count >= 0 ∧ total > 0 ∧ top_count <= total ⇒ max_share ∈ [0, 100]
     let max_share = (*top_count as f64 / total as f64) * 100.0;
-    if max_share > 85.0 {
+    // Ext-3 (2026-05-28): ハードコード値 (70.0 / 85.0) を `SKEW_*_THRESHOLD_PCT` 定数参照に変更。
+    if max_share > SKEW_WARN_THRESHOLD_PCT {
         (
             "warn",
             format!(
@@ -573,7 +592,7 @@ pub(super) fn compute_skew_severity(
                 label, top_label, max_share
             ),
         )
-    } else if max_share > 70.0 {
+    } else if max_share > SKEW_NEU_THRESHOLD_PCT {
         (
             "neu",
             format!(
@@ -4265,10 +4284,30 @@ fn render_navy_section_06_posting_target(
     );
 }
 
-/// 分布テーブル ((ラベル, 件数) → 表) 共通ビルダ。
+/// 分布 `(label, count)` のリストから 3 列表 (ラベル / 件数 / 構成比 %) を生成する共通ビルダ。
 ///
-/// 各行は「ラベル / 求人件数 / 構成比 (%)」の 3 列。
-/// 構成比は `distribution` 内の件数合計を分母として算出 (0 件のときは "—" 表示)。
+/// # 引数
+/// - `distribution`: `(ラベル, 件数)` のリスト。
+///   - **順序は呼出側の責任**。本関数では並べ替えない (年齢/給与は表示順固定、雇用形態は降順、
+///     経験 2 値は固定順を維持するため)。
+///   - ラベルは生 String を受け、`escape_html` で安全化される (`<script>` 等の混入を防ぐ)。
+///   - 件数は i64。負値は理論上発生しないが、合計計算では負値も含めて算術する
+///     (異常データ検出を呼出側に委ねる設計)。
+/// - `label_header`: 1 列目の `<th scope="col">` 内容。例: "年齢制限ラベル" / "月給レンジ" / "雇用形態"。
+///
+/// # 戻り値
+/// HTML 表全体 (`<table class="table-navy">...</table>`)。
+/// 空 `distribution` または件数合計 `total == 0` のときは「該当データなし」を 1 行表示。
+///
+/// # 不変条件 (テストで検証)
+/// - 構成比合計 ≈ 100% (各行は `count / total * 100`、浮動誤差は `safe_pct` で [0, 100] にクランプ)
+/// - 各 `<th>` に `scope="col"` 付与 (a11y / Round 2 P1-4 で導入)
+/// - `<th>` / `<td>` 内のラベルは必ず `escape_html` を通す (XSS 防御)
+/// - 空入力時の "該当データなし" 行も `<tbody>` 内 (構造保証)
+///
+/// # silent fallback 監査
+/// - 件数合計 0 は明示的に `<td colspan="3">該当データなし</td>` で表示 (空文字列を返さない)
+/// - `total > 0` ガード後に除算するため zero-div 不可
 fn build_distribution_table(distribution: &[(String, i64)], label_header: &str) -> String {
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
     // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
@@ -6231,6 +6270,88 @@ mod tests {
     }
 
     // ============================================================
+    // Ext-6 (2026-05-28): compute_distribution_stats の n=1/2/5/100 全網羅
+    //   既存テストは「ある程度」の不変条件カバーだが、n の極端値 (1) と
+    //   大規模 (100) で 25%/50%/75%/90% 分位の順序関係 (min ≤ p25 ≤ median ≤ p75 ≤ p90 ≤ max)
+    //   が常に成立することを明示的に検証。
+    //
+    //   - n=1: 全分位 = 唯一値
+    //   - n=2: pct(0.25)=v[0], pct(0.50)=v[1] (=> p25 < median 可)
+    //   - n=5: 既存パターンの中間
+    //   - n=100: 大規模、ヒストグラム bins が複数生成される
+    // ============================================================
+
+    #[test]
+    fn compute_distribution_stats_invariants_n1() {
+        let stats = compute_distribution_stats(&[250_000])
+            .expect("n=1 yields stats");
+        assert_eq!(stats.n, 1);
+        // n=1 では全分位が唯一の値と一致 (順序不変条件は退化的に成立)
+        assert!(stats.min <= stats.p25 && stats.p25 <= stats.median);
+        assert!(stats.median <= stats.p75 && stats.p75 <= stats.p90);
+        assert!(stats.p90 <= stats.max);
+        assert_eq!(stats.min, stats.max, "n=1 で min == max");
+        assert_eq!(stats.median, 250_000);
+    }
+
+    #[test]
+    fn compute_distribution_stats_invariants_n2() {
+        // n=2: pct(p) = v[round((n-1)*p)] = v[round(p)] なので
+        //   p25 → v[round(0.25)]=v[0]=100k, median → v[round(0.5)]=v[1]=200k (round half-to-even),
+        //   p75 → v[round(0.75)]=v[1]=200k, p90 → v[round(0.90)]=v[1]=200k
+        let stats = compute_distribution_stats(&[100_000, 200_000])
+            .expect("n=2 yields stats");
+        assert_eq!(stats.n, 2);
+        assert_eq!(stats.min, 100_000);
+        assert_eq!(stats.max, 200_000);
+        assert!(stats.min <= stats.p25, "min({}) <= p25({})", stats.min, stats.p25);
+        assert!(stats.p25 <= stats.median, "p25({}) <= median({})", stats.p25, stats.median);
+        assert!(stats.median <= stats.p75, "median({}) <= p75({})", stats.median, stats.p75);
+        assert!(stats.p75 <= stats.p90, "p75({}) <= p90({})", stats.p75, stats.p90);
+        assert!(stats.p90 <= stats.max, "p90({}) <= max({})", stats.p90, stats.max);
+    }
+
+    #[test]
+    fn compute_distribution_stats_invariants_n5() {
+        // n=5: 既存テストの中間ケースを切り出して順序不変条件のみ確認
+        let stats = compute_distribution_stats(&[150_000, 200_000, 250_000, 300_000, 400_000])
+            .expect("n=5 yields stats");
+        assert_eq!(stats.n, 5);
+        assert!(stats.min <= stats.p25, "min({}) <= p25({})", stats.min, stats.p25);
+        assert!(stats.p25 <= stats.median, "p25({}) <= median({})", stats.p25, stats.median);
+        assert!(stats.median <= stats.p75, "median({}) <= p75({})", stats.median, stats.p75);
+        assert!(stats.p75 <= stats.p90, "p75({}) <= p90({})", stats.p75, stats.p90);
+        assert!(stats.p90 <= stats.max, "p90({}) <= max({})", stats.p90, stats.max);
+        // n=5 で min/max は端点
+        assert_eq!(stats.min, 150_000);
+        assert_eq!(stats.max, 400_000);
+    }
+
+    #[test]
+    fn compute_distribution_stats_invariants_n100() {
+        // n=100: 大規模ケース。均等分布で 100k〜1.1M。
+        // 順序不変条件 + bins.len() > 1 (複数 bin 生成) を確認。
+        let values: Vec<i64> = (0..100).map(|i| 100_000 + i * 10_000).collect();
+        let stats = compute_distribution_stats(&values)
+            .expect("n=100 yields stats");
+        assert_eq!(stats.n, 100);
+        assert!(stats.min <= stats.p25, "min({}) <= p25({})", stats.min, stats.p25);
+        assert!(stats.p25 <= stats.median, "p25({}) <= median({})", stats.p25, stats.median);
+        assert!(stats.median <= stats.p75, "median({}) <= p75({})", stats.median, stats.p75);
+        assert!(stats.p75 <= stats.p90, "p75({}) <= p90({})", stats.p75, stats.p90);
+        assert!(stats.p90 <= stats.max, "p90({}) <= max({})", stats.p90, stats.max);
+        assert!(
+            stats.bins.len() >= 2,
+            "n=100 で bin が複数生成されるはず: bins.len()={}",
+            stats.bins.len()
+        );
+        assert_eq!(stats.bin_step, 10_000, "bin_step 固定");
+        // 平均: (100k + 1,090k) / 2 = 595k (sum / n)
+        let expected_mean: i64 = values.iter().sum::<i64>() / 100;
+        assert_eq!(stats.mean, expected_mean);
+    }
+
+    // ============================================================
     // P1-6 (2026-05-28): compute_skew_severity 偏り判定境界値テスト
     // ------------------------------------------------------------
     // 検証範囲:
@@ -6300,15 +6421,25 @@ mod tests {
         assert!(msg.contains("50.0%"), "msg={}", msg);
     }
 
+    // Ext-3 (2026-05-28): 境界値テストは定数 (`SKEW_NEU_THRESHOLD_PCT` /
+    //   `SKEW_WARN_THRESHOLD_PCT`) の現値が 70.0 / 85.0 であることを前提とする。
+    //   閾値変更時は本テスト群と定数の双方を必ず同期更新すること。
+    //   下記 `compute_skew_severity_threshold_constants_are_documented_values` で
+    //   定数値そのものを assert し、定数だけ変えてテストを忘れたとき検出する。
+
     #[test]
     fn compute_skew_severity_70_pct_exactly_returns_pos() {
-        // 境界: 70.0% ちょうど → POS (strict >)
+        // 境界: SKEW_NEU_THRESHOLD_PCT (70.0%) ちょうど → POS (strict >)
         let counts = vec![
             ("A".to_string(), 700i64),
             ("B".to_string(), 300i64),
         ];
         let (sev, _msg) = compute_skew_severity(&counts, "職種");
-        assert_eq!(sev, "pos", "70.0% ちょうどは POS (strict >)");
+        assert_eq!(
+            sev, "pos",
+            "{}% ちょうどは POS (strict >)",
+            SKEW_NEU_THRESHOLD_PCT
+        );
     }
 
     #[test]
@@ -6319,19 +6450,27 @@ mod tests {
             ("B".to_string(), 299i64),
         ];
         let (sev, msg) = compute_skew_severity(&counts, "職種");
-        assert_eq!(sev, "neu", "70.1% は NEU (> 70%)");
+        assert_eq!(
+            sev, "neu",
+            "70.1% は NEU (> {}%)",
+            SKEW_NEU_THRESHOLD_PCT
+        );
         assert!(msg.contains("偏りあり"), "msg={}", msg);
     }
 
     #[test]
     fn compute_skew_severity_85_pct_exactly_returns_neu() {
-        // 境界: 85.0% ちょうど → NEU (strict >)
+        // 境界: SKEW_WARN_THRESHOLD_PCT (85.0%) ちょうど → NEU (strict >)
         let counts = vec![
             ("A".to_string(), 850i64),
             ("B".to_string(), 150i64),
         ];
         let (sev, _msg) = compute_skew_severity(&counts, "産業大分類");
-        assert_eq!(sev, "neu", "85.0% ちょうどは NEU (strict >)");
+        assert_eq!(
+            sev, "neu",
+            "{}% ちょうどは NEU (strict >)",
+            SKEW_WARN_THRESHOLD_PCT
+        );
     }
 
     #[test]
@@ -6342,8 +6481,36 @@ mod tests {
             ("B".to_string(), 149i64),
         ];
         let (sev, msg) = compute_skew_severity(&counts, "産業大分類");
-        assert_eq!(sev, "warn", "85.1% は WARN (> 85%)");
+        assert_eq!(
+            sev, "warn",
+            "85.1% は WARN (> {}%)",
+            SKEW_WARN_THRESHOLD_PCT
+        );
         assert!(msg.contains("顕著"), "msg={}", msg);
+    }
+
+    /// Ext-3 (2026-05-28): 閾値定数の現値が 70.0 / 85.0 であることを assert する。
+    ///
+    /// 定数だけ変えて境界値テストを更新し忘れた場合、本テストが落ちて事故を未然に防ぐ。
+    /// 不変条件: `SKEW_NEU_THRESHOLD_PCT < SKEW_WARN_THRESHOLD_PCT` (順序保証)。
+    #[test]
+    fn compute_skew_severity_threshold_constants_are_documented_values() {
+        assert_eq!(
+            SKEW_NEU_THRESHOLD_PCT, 70.0,
+            "NEU しきい値: docstring と境界値テストは 70.0 を前提"
+        );
+        assert_eq!(
+            SKEW_WARN_THRESHOLD_PCT, 85.0,
+            "WARN しきい値: docstring と境界値テストは 85.0 を前提"
+        );
+        assert!(
+            SKEW_NEU_THRESHOLD_PCT < SKEW_WARN_THRESHOLD_PCT,
+            "順序保証: NEU 閾値 < WARN 閾値"
+        );
+        assert!(
+            SKEW_NEU_THRESHOLD_PCT > 0.0 && SKEW_WARN_THRESHOLD_PCT <= 100.0,
+            "範囲: 両定数とも (0.0, 100.0] の範囲内"
+        );
     }
 
     #[test]
@@ -6721,6 +6888,69 @@ mod tests {
                 top_n,
                 result.len(),
                 2 * top_n
+            );
+        }
+    }
+
+    /// Ext-5 (2026-05-28): 不変条件 `size <= 2 * top_n` を明示的に
+    ///   `[1, 3, 5, 10]` の代表値で検証する。
+    ///
+    /// 既存 `..._size_le_2_top_n` は 1..=10 連続テストで包括的だが、
+    /// 「指定 top_n に対する明示的サイズ上限」 を docstring から直接トレース可能にし、
+    /// 仕様改訂時の影響範囲を可視化する。
+    ///
+    /// 重要 invariants:
+    /// - `result.len() <= 2 * top_n` (常に成立)
+    /// - `result.len() <= ranking.len()` (元データを超えない)
+    /// - 各要素は ranking 内に存在 (ポインタ等価)
+    /// - 重複なし (HashSet で確認)
+    #[test]
+    fn select_notable_companies_invariant_size_le_double_top_n() {
+        // 10 社の ranking。求人数と上限給与で意図的に分離 (和集合のサイズが top_n*2 に近づくよう設計)
+        let ranking: Vec<CsvCompanySalary> = (0..10)
+            .map(|i| {
+                make_csv_company(
+                    &format!("Co{}", i),
+                    if i < 5 { (10 - i) as i64 } else { 1 }, // 求人数: 前半は降順、後半は 1 で固定
+                    20.0 + (i as f64),                       // 下限
+                    50.0 - (i as f64),                       // 上限 (降順 → ranking は upper_median 降順なので index と一致)
+                )
+            })
+            .collect();
+
+        for top_n in [1usize, 3, 5, 10] {
+            let result = select_notable_companies(&ranking, top_n);
+
+            // 不変条件 1: size <= 2 * top_n
+            assert!(
+                result.len() <= 2 * top_n,
+                "top_n={} で size={} > 2*top_n={}",
+                top_n,
+                result.len(),
+                2 * top_n
+            );
+
+            // 不変条件 2: size <= ranking.len()
+            assert!(
+                result.len() <= ranking.len(),
+                "top_n={} で size={} > ranking.len()={}",
+                top_n,
+                result.len(),
+                ranking.len()
+            );
+
+            // 不変条件 3: 重複なし (ポインタ等価で確認)
+            let mut ptrs: Vec<*const CsvCompanySalary> =
+                result.iter().map(|c| *c as *const _).collect();
+            ptrs.sort();
+            ptrs.dedup();
+            assert_eq!(
+                ptrs.len(),
+                result.len(),
+                "top_n={} で duplicate detected: {} unique vs {} result",
+                top_n,
+                ptrs.len(),
+                result.len()
             );
         }
     }

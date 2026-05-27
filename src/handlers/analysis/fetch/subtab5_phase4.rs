@@ -1,4 +1,33 @@
 //! サブタブ5 Phase 4: 異常値 + 外部統計データ統合（最賃・違反・地域ベンチマーク・都道府県統計・人口/社会動態/昼夜間人口・求人倍率・労働・事業所・入離職・家計消費・業況・気象・介護需要）
+//!
+//! # 設計指針: `fetch_*` 関数のシグネチャ統一 (Ext-7, 2026-05-28)
+//!
+//! Round 2 P2-7 で「シグネチャ不一致」が指摘されたため、現状の意図を明示記録する。
+//!
+//! ## 現状の不一致 (意図的、変更しない)
+//! - `fetch_salary_scatter_pairs(db, pref, muni, limit)` — `limit` 必須引数
+//! - `fetch_csv_company_salary_ranking(db, pref, muni, limit)` — `limit` 必須引数
+//! - `fetch_posting_target_profile(db, pref, muni)` — `limit` なし (内部 LIMIT は無く、
+//!   集計対象が postings 1 行 / 1 求人で軽量、降順 sort 不要のため)
+//!
+//! ## 設計上の差分理由
+//! - `salary_scatter_pairs` / `csv_company_ranking` は **表示件数の上限指定** が必要 (PDF レンダリング
+//!   で 1000 点を超えると描画コストが急増)。呼出側 (insight/fetch.rs G3) が `1000` / `30` を
+//!   明示することで Section ごとの上限を呼出側責任で管理。
+//! - `posting_target_profile` は **全件集計** が前提 (構成比合計 100% を保証する必要があり、
+//!   LIMIT で母集団を間引くと比率が歪む)。集計列が age/salary/exp/emp の 4 列のみで I/O 軽量、
+//!   全件取得しても Rust 側の HashMap 集計は O(n) で線形。
+//!
+//! ## 将来検討事項
+//! - 全 `fetch_*` を `(db, pref, muni, FetchOptions { limit: Option<i64>, ... })` の
+//!   builder pattern に統一する案あり (構成比 vs 上位 K の意図を `Options` 内で表現)。
+//!   ただし現状の用法 (Section ごとに上限値固定) では over-engineering となるため見送り。
+//! - 共通 trait `FetchScoped { fn fetch(&self, db, pref, muni) -> Self::Output; }` を導入する案も
+//!   検討したが、戻り値型が `Vec<Row>` / `Vec<CsvCompanySalary>` / `PostingTargetProfile` と
+//!   バラバラで、trait + associated type の複雑性が増すため見送り。
+//!
+//! 結論: シグネチャ不一致は **意図的** (各 fn の用途に応じた差) であり、
+//! 統一化は将来の機能追加 (LIMIT vs 全件) の判断が安定してから検討する。
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -721,7 +750,11 @@ pub(crate) fn fetch_salary_scatter_pairs(
 /// SalesNow API 経由の企業データとは別物。出典は「CSV 求人データ集計」と明記すること。
 ///
 /// 単位: 万円 (postings.salary_min は円単位なので /10000 換算済)。
-#[derive(Debug, Clone)]
+///
+/// Ext-1 (2026-05-28): `Default` 派生を追加。`InsightContext` 全体への `#[derive(Default)]` 適用と
+/// `Vec<CsvCompanySalary>::default()` 連鎖を成立させるため (Vec の要素型は Default 必須ではないが、
+/// 将来 `Option<CsvCompanySalary>` 単独フィールドを追加する場合の即時対応用)。
+#[derive(Debug, Clone, Default)]
 pub struct CsvCompanySalary {
     /// 施設名 (CSV 実値、匿名化なし。HW 公開情報のため OK)
     pub facility_name: String,
@@ -1202,6 +1235,95 @@ mod posting_target_profile_tests {
             age_range_bucket(Some(18), Some(59)),
             "ミドル中心 (30〜44歳含む)"
         );
+    }
+
+    // ============================================================
+    // Ext-6 (2026-05-28, Round 1 P1-5): age_range_bucket 矛盾入力 + 片側 None
+    //   既存テスト群は「典型ケース」を網羅するが、ドメイン異常 (age_min > age_max) や
+    //   片側のみ指定でも match arm が安全に解決されることを明示する。
+    //   silent fallback 防御: 全入力で必ず `age_range_display_order()` 内の
+    //   ラベルが返る (panic / 空文字列なし)。
+    // ============================================================
+
+    #[test]
+    fn age_bucket_contradictory_min_gt_max_returns_age_min_priority_label() {
+        // 矛盾入力: age_min=45, age_max=44 (lo > hi)。
+        // match 順序により `(Some(lo), _) if lo >= 45` ⇒ "45〜64歳" を返す
+        // (age_min 優先で「45 歳以上の高めの age_min が支配的」と解釈)。
+        // silent fallback ではなく、定義順による明示的優先度。
+        let label = age_range_bucket(Some(45), Some(44));
+        assert_eq!(
+            label, "45〜64歳",
+            "age_min=45 が match arm の上位 → 45〜64歳に分類"
+        );
+        // ラベルは表示順 Vec に必ず含まれる
+        assert!(age_range_display_order().contains(&label));
+    }
+
+    #[test]
+    fn age_bucket_contradictory_max_lt_min_returns_age_min_or_max_label() {
+        // 矛盾入力: age_min=70, age_max=29 (lo >> hi)。
+        // match 順序: `(_, Some(hi)) if hi <= 29` が最初にマッチ ⇒ "〜29歳"
+        // (age_max が `hi <= 29` の強制条件を満たすため、age_min より優先される)
+        let label = age_range_bucket(Some(70), Some(29));
+        assert_eq!(
+            label, "〜29歳",
+            "age_max <= 29 が match arm 最上位 → 〜29歳が age_min より優先"
+        );
+        assert!(age_range_display_order().contains(&label));
+    }
+
+    #[test]
+    fn age_bucket_one_sided_min_30_no_max_returns_middle_focus() {
+        // 片側のみ: age_min=30, age_max=None。
+        // どの上位 arm にもマッチせず → "ミドル中心 (30〜44歳含む)"
+        // (age_min=30 だけでは 30〜44 / 45〜64 / 65〜 のどれにも該当しないため)
+        let label = age_range_bucket(Some(30), None);
+        assert_eq!(
+            label, "ミドル中心 (30〜44歳含む)",
+            "片側 age_min=30 のみは middle bucket にフォール"
+        );
+        assert!(age_range_display_order().contains(&label));
+    }
+
+    #[test]
+    fn age_bucket_one_sided_max_only_returns_appropriate_bucket() {
+        // 片側のみ: age_min=None, age_max=29 → "〜29歳" (上位 arm マッチ)
+        assert_eq!(age_range_bucket(None, Some(29)), "〜29歳");
+        // 片側のみ: age_min=None, age_max=44 → "30〜44歳" (上位 arm マッチ)
+        assert_eq!(age_range_bucket(None, Some(44)), "30〜44歳");
+        // 片側のみ: age_min=None, age_max=60 → 上位 arm マッチしない → middle にフォール
+        assert_eq!(
+            age_range_bucket(None, Some(60)),
+            "ミドル中心 (30〜44歳含む)"
+        );
+    }
+
+    #[test]
+    fn age_bucket_silent_fallback_defense_all_synthetic_pairs() {
+        // 不変条件: 全 synthetic 入力 (矛盾含む) で必ず display order 内のラベルが返る。
+        // panic / 空文字列が出ないことを保証 (silent fallback の網羅監査)。
+        let synthetic_pairs: Vec<(Option<i64>, Option<i64>)> = vec![
+            (None, None),
+            (Some(0), Some(0)),
+            (Some(15), Some(64)),
+            (Some(45), Some(44)),  // 矛盾
+            (Some(70), Some(29)),  // 矛盾
+            (Some(30), None),      // 片側
+            (None, Some(60)),      // 片側
+            (Some(99), None),
+            (None, Some(0)),
+        ];
+        let order = age_range_display_order();
+        for (lo, hi) in synthetic_pairs {
+            let label = age_range_bucket(lo, hi);
+            assert!(
+                order.contains(&label),
+                "({:?}, {:?}) → label {label:?} not in display order",
+                lo,
+                hi
+            );
+        }
     }
 
     // ---------------- salary_bucket ----------------
