@@ -620,6 +620,10 @@ pub(super) fn render_navy_section_03_salary(
     agg: &SurveyAggregation,
     salary_min_values: &[i64],
     salary_max_values: &[i64],
+    // P2-1 (2026-05-28): Section 03 図 3-6 散布図 (給与レンジ各点 1 求人) を追加するため、
+    // InsightContext.salary_scatter_pairs を参照する。Option はテスト fixture / 旧呼出から
+    // None を渡しても従来動作 (散布図のみ非表示) を維持する。
+    hw_context: Option<&InsightContext>,
 ) {
     html.push_str("<section class=\"page-navy navy-salary\" role=\"region\">\n");
     push_page_head(
@@ -791,6 +795,25 @@ pub(super) fn render_navy_section_03_salary(
                 overall_mean,
                 agg.is_hourly,
             ));
+        }
+    }
+
+    // -- 図 3-6 給与レンジ 散布図 (P2-1, 2026-05-28)
+    //   各点 = 1 求人、X 軸=下限給与、Y 軸=上限給与、対角線 (下限=上限) を参考線として描画。
+    //   ctx が None or salary_scatter_pairs が空なら何も出力しない (silent fallback ではなく
+    //   明示的に省略: postings に月給フィルタ後データが無い／test fixture 経由の呼出)。
+    if let Some(ctx) = hw_context {
+        let pairs = ctx.salary_scatter_pairs.as_slice();
+        if !pairs.is_empty() {
+            html.push_str(
+                "<div class=\"block-title block-title-spaced\">図 3-6 &nbsp;給与レンジ 散布図 (各点=1求人、対角線=下限=上限ライン)</div>\n",
+            );
+            html.push_str(&build_navy_salary_scatter_svg(pairs));
+            html.push_str(
+                "<p class=\"caption\">対象地域から最大 1000 件抽出。X軸=下限給与、Y軸=上限給与。\
+                 下限=上限の対角線から離れるほどレンジが広い (歩合・等級制の特徴)。</p>\n",
+            );
+            html.push_str(&build_salary_scatter_summary(pairs));
         }
     }
 
@@ -3985,6 +4008,199 @@ fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
     svg
 }
 
+/// 図 3-6 給与レンジ 散布図 SVG (P2-1, 2026-05-28)。
+///
+/// 各点 1 求人で (下限給与, 上限給与) を打点し、対角線 (下限=上限) を金破線で重ねる。
+/// 対角線から右上方向 (上方向) に離れるほどレンジが広い (歩合・等級制傾向)。
+///
+/// スタイル方針 (`build_navy_pyramid_svg` 踏襲):
+/// - 配色: 散布点 = `#1F2D4D` (navy ink-soft), 対角線 = `#C9A24B` (gold)
+/// - 散布点 opacity 0.4 で重なり可視化 (要件指定)
+/// - 軸 / グリッド色 = `#D8D2C4` (rule-soft), ラベル色 = `#6A6E7A`
+/// - 背景 = `var(--paper-pure)`、枠 = `1px solid var(--rule-soft)`
+///
+/// レンジ:
+/// - X / Y 軸とも 15-60 万円固定 (要件指定: auto fit ではなく固定して比較容易性を優先)。
+///   - 範囲外データ (< 15万 or > 60万円) は描画範囲をクランプ (打点位置のみ端に寄る)。
+///   - n 自体は配列長そのまま使うため caption と整合する。
+fn build_navy_salary_scatter_svg(pairs: &[(f64, f64)]) -> String {
+    if pairs.is_empty() {
+        return String::new();
+    }
+
+    let w: f64 = 720.0;
+    let h: f64 = 360.0;
+    let margin_left: f64 = 56.0; // Y 軸ラベル列幅
+    let margin_right: f64 = 16.0;
+    let margin_top: f64 = 24.0;
+    let margin_bottom: f64 = 36.0; // X 軸ラベル + タイトル下余白
+
+    let plot_w: f64 = w - margin_left - margin_right;
+    let plot_h: f64 = h - margin_top - margin_bottom;
+
+    // 軸スケール (万円単位, 15-60 万円)
+    let x_min_man: f64 = 15.0;
+    let x_max_man: f64 = 60.0;
+    let y_min_man: f64 = 15.0;
+    let y_max_man: f64 = 60.0;
+
+    // 円 → 万円変換
+    let to_man = |yen: f64| yen / 10_000.0;
+
+    // 万円 → SVG x 座標 (左端 = margin_left)
+    let x_of = |x_man: f64| -> f64 {
+        let clamped = x_man.clamp(x_min_man, x_max_man);
+        margin_left + (clamped - x_min_man) / (x_max_man - x_min_man) * plot_w
+    };
+    // 万円 → SVG y 座標 (上が大きい値、Y 軸反転)
+    let y_of = |y_man: f64| -> f64 {
+        let clamped = y_man.clamp(y_min_man, y_max_man);
+        margin_top + plot_h - (clamped - y_min_man) / (y_max_man - y_min_man) * plot_h
+    };
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"給与レンジ 散布図 (下限給与 × 上限給与)\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+
+    // タイトル
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"16\" font-size=\"11\" fill=\"#0B1E3F\" font-weight=\"700\">\
+         (散布図) 下限給与 × 上限給与</text>\n",
+        margin_left
+    ));
+
+    // プロットエリア枠 (薄い罫線)
+    svg.push_str(&format!(
+        "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" \
+         fill=\"none\" stroke=\"#D8D2C4\" stroke-width=\"0.5\"/>\n",
+        margin_left, margin_top, plot_w, plot_h
+    ));
+
+    // X 軸目盛り + ラベル (15, 25, 35, 45, 55 万円)
+    for tick in [15i32, 25, 35, 45, 55] {
+        let x = x_of(tick as f64);
+        // 目盛り線 (プロット内に薄い縦線)
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#E8E2D2\" stroke-width=\"0.5\"/>\n",
+            x, margin_top, x, margin_top + plot_h
+        ));
+        // ラベル (プロット下)
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}万円</text>\n",
+            x, margin_top + plot_h + 14.0, tick
+        ));
+    }
+
+    // Y 軸目盛り + ラベル (15, 25, 35, 45, 55 万円)
+    for tick in [15i32, 25, 35, 45, 55] {
+        let y = y_of(tick as f64);
+        // 目盛り線
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#E8E2D2\" stroke-width=\"0.5\"/>\n",
+            margin_left, y, margin_left + plot_w, y
+        ));
+        // ラベル (プロット左)
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"end\">{}万円</text>\n",
+            margin_left - 4.0, y + 3.0, tick
+        ));
+    }
+
+    // 軸ラベル (X = 下限給与、Y = 上限給与)
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\" font-weight=\"600\">\
+         下限給与 (万円)</text>\n",
+        margin_left + plot_w / 2.0,
+        h - 4.0
+    ));
+    // Y ラベルは縦書き (回転)
+    svg.push_str(&format!(
+        "<text x=\"12\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\" font-weight=\"600\" \
+         transform=\"rotate(-90 12 {:.1})\">上限給与 (万円)</text>\n",
+        margin_top + plot_h / 2.0,
+        margin_top + plot_h / 2.0
+    ));
+
+    // 対角線 (下限=上限ライン): 金破線
+    // (x_min_man, x_min_man) → (x_max_man, x_max_man) を結ぶ
+    svg.push_str(&format!(
+        "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" \
+         stroke=\"#C9A24B\" stroke-width=\"1.2\" stroke-dasharray=\"4,3\" opacity=\"0.7\"/>\n",
+        x_of(x_min_man), y_of(y_min_man),
+        x_of(x_max_man), y_of(y_max_man),
+    ));
+
+    // 散布点 (各 1 求人、半径 2.5px、navy ink-soft、opacity 0.4)
+    for (lo_yen, hi_yen) in pairs {
+        let lo_man = to_man(*lo_yen);
+        let hi_man = to_man(*hi_yen);
+        let cx = x_of(lo_man);
+        let cy = y_of(hi_man);
+        svg.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"2.5\" fill=\"#1F2D4D\" opacity=\"0.4\"/>\n",
+            cx, cy
+        ));
+    }
+
+    // 凡例 (右上、対角線の説明)
+    let legend_x: f64 = margin_left + plot_w - 140.0;
+    let legend_y: f64 = margin_top + 4.0;
+    svg.push_str(&format!(
+        "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" \
+         stroke=\"#C9A24B\" stroke-width=\"1.2\" stroke-dasharray=\"4,3\"/>\
+         <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\">下限=上限ライン</text>\n",
+        legend_x, legend_y + 6.0,
+        legend_x + 24.0, legend_y + 6.0,
+        legend_x + 28.0, legend_y + 9.0,
+    ));
+
+    svg.push_str("</svg>\n");
+    svg
+}
+
+/// 図 3-6 散布図直下の統計サマリ HTML (P2-1, 2026-05-28)。
+///
+/// n / 平均レンジ幅 / レンジ <5万円割合 (定額求人傾向) / レンジ >=10万円割合
+/// (歩合・等級制傾向) を 1 段組で記す。
+///
+/// 不変条件:
+/// - `pairs.len() == n >= 0`
+/// - 全 `(lo, hi)` で `hi >= lo` (fetch_salary_scatter_pairs SQL でフィルタ済)
+/// - `avg_width >= 0`, `0 <= narrow_pct <= 100`, `0 <= wide_pct <= 100`
+fn build_salary_scatter_summary(pairs: &[(f64, f64)]) -> String {
+    if pairs.is_empty() {
+        return String::new();
+    }
+
+    let n = pairs.len();
+    // レンジ幅 (円 → 万円換算は最後に行う)
+    let widths_yen: Vec<f64> = pairs.iter().map(|(lo, hi)| hi - lo).collect();
+    let sum_width: f64 = widths_yen.iter().sum();
+    let avg_width_yen: f64 = sum_width / n as f64;
+    let avg_width_man: f64 = avg_width_yen / 10_000.0;
+
+    let narrow_threshold_yen: f64 = 50_000.0; // 5 万円
+    let wide_threshold_yen: f64 = 100_000.0; // 10 万円
+
+    let narrow_count = widths_yen.iter().filter(|w| **w < narrow_threshold_yen).count();
+    let wide_count = widths_yen.iter().filter(|w| **w >= wide_threshold_yen).count();
+
+    let narrow_pct: f64 = narrow_count as f64 / n as f64 * 100.0;
+    let wide_pct: f64 = wide_count as f64 / n as f64 * 100.0;
+
+    format!(
+        "<p class=\"caption\">n={} / 平均レンジ幅 {:.1}万円 / レンジ &lt;5万円 {:.1}% (定額求人傾向) / レンジ &ge;10万円 {:.1}% (歩合・等級制傾向)</p>\n",
+        format_number(n as i64),
+        avg_width_man,
+        narrow_pct,
+        wide_pct,
+    )
+}
+
 /// 図 6-2b 用ミニピラミッド SVG (3 列横並びレイアウト想定、幅 220px)。
 ///
 /// `build_navy_pyramid_svg` の構造をベースに、グリッドカード内に収まるようサイズと
@@ -5687,5 +5903,154 @@ mod tests {
         let (sev, msg) = compute_skew_severity(&counts, "職種");
         assert_eq!(sev, "neu", "total <= 0 は NEU データなし");
         assert_eq!(msg, "職種データなし");
+    }
+
+    // ====================================================================
+    // P2-1 (2026-05-28): 給与レンジ 散布図 (Section 03 図 3-6)
+    //   - build_navy_salary_scatter_svg: 空 / 1 点 / 多数点
+    //   - build_salary_scatter_summary: n / 平均レンジ幅 / narrow% / wide%
+    //
+    // 設計メモ:
+    //   - silent fallback 防御 (空配列 → 空文字列)
+    //   - 不変条件: n >= 0, avg_width >= 0, 0 <= narrow_pct <= 100, 0 <= wide_pct <= 100
+    // ====================================================================
+
+    #[test]
+    fn build_navy_salary_scatter_svg_empty_returns_empty_string() {
+        // 不変条件: 空入力 → 空文字列 (silent fallback ではなく明示的に省略)
+        let svg = build_navy_salary_scatter_svg(&[]);
+        assert!(svg.is_empty(), "empty pairs → empty svg, got len={}", svg.len());
+    }
+
+    #[test]
+    fn build_navy_salary_scatter_svg_single_point_contains_svg_tag() {
+        // 1 点入力: <svg> タグ + 1 つの <circle> が含まれる
+        let pairs = vec![(200_000.0_f64, 300_000.0_f64)];
+        let svg = build_navy_salary_scatter_svg(&pairs);
+        assert!(svg.contains("<svg"), "svg tag missing");
+        assert!(svg.contains("</svg>"), "svg close tag missing");
+        // 散布点は 1 つ。<circle ... opacity="0.4"/> が含まれる
+        let circle_count = svg.matches("<circle").count();
+        assert_eq!(circle_count, 1, "expected 1 circle, got {circle_count}");
+        // 対角線 (金色破線) も常に描画される
+        assert!(svg.contains("#C9A24B"), "diagonal line color (gold) missing");
+    }
+
+    #[test]
+    fn build_navy_salary_scatter_svg_many_points_contains_opacity_and_navy_color() {
+        // 多数点: opacity 0.4 / navy 色 #1F2D4D / 全点数の circle 出力
+        let pairs: Vec<(f64, f64)> = (0..50)
+            .map(|i| (180_000.0 + (i as f64) * 1000.0, 280_000.0 + (i as f64) * 2000.0))
+            .collect();
+        let svg = build_navy_salary_scatter_svg(&pairs);
+        // 仕様: opacity 0.4 が散布点に含まれる
+        assert!(svg.contains("opacity=\"0.4\""), "opacity=0.4 missing for scatter points");
+        // 仕様: navy ink-soft 色
+        assert!(svg.contains("#1F2D4D"), "navy color (#1F2D4D) missing");
+        let circle_count = svg.matches("<circle").count();
+        assert_eq!(circle_count, pairs.len(), "circle count mismatch");
+    }
+
+    #[test]
+    fn build_navy_salary_scatter_svg_out_of_range_values_clamped_not_panic() {
+        // 不変条件: 範囲外 (10万 / 100万円) でも panic せず描画は範囲内にクランプ
+        let pairs = vec![
+            (50_000.0, 80_000.0),       // 範囲外 (5万 / 8万)
+            (1_000_000.0, 2_000_000.0), // 範囲外 (100万 / 200万)
+            (250_000.0, 350_000.0),     // 範囲内
+        ];
+        let svg = build_navy_salary_scatter_svg(&pairs);
+        assert!(svg.contains("<svg"), "svg should render even with out-of-range");
+        let circle_count = svg.matches("<circle").count();
+        assert_eq!(circle_count, 3);
+    }
+
+    #[test]
+    fn build_salary_scatter_summary_empty_returns_empty_string() {
+        let s = build_salary_scatter_summary(&[]);
+        assert!(s.is_empty(), "empty pairs → empty summary");
+    }
+
+    #[test]
+    fn build_salary_scatter_summary_computes_n_and_widths_correctly() {
+        // 設計テストデータ n=5:
+        //   (200000, 230000) → 幅 30000 = 3万円  (narrow: < 5万)
+        //   (200000, 240000) → 幅 40000 = 4万円  (narrow)
+        //   (200000, 260000) → 幅 60000 = 6万円  (中間)
+        //   (200000, 300000) → 幅 100000 = 10万円 (wide: >= 10万)
+        //   (200000, 350000) → 幅 150000 = 15万円 (wide)
+        //
+        //   avg_width = (30000+40000+60000+100000+150000)/5 = 76000 = 7.6 万円
+        //   narrow_pct = 2/5 = 40.0%
+        //   wide_pct = 2/5 = 40.0%
+        let pairs = vec![
+            (200_000.0, 230_000.0),
+            (200_000.0, 240_000.0),
+            (200_000.0, 260_000.0),
+            (200_000.0, 300_000.0),
+            (200_000.0, 350_000.0),
+        ];
+        let s = build_salary_scatter_summary(&pairs);
+        // n
+        assert!(s.contains("n=5"), "expected n=5 in summary: {s}");
+        // 平均レンジ幅 (7.6 万円)
+        assert!(s.contains("7.6万円"), "expected 7.6万円 in summary: {s}");
+        // narrow_pct = 40.0%
+        assert!(
+            s.contains("40.0% (定額求人傾向)"),
+            "expected narrow 40.0% (定額求人傾向) in summary: {s}"
+        );
+        // wide_pct = 40.0%
+        assert!(
+            s.contains("40.0% (歩合・等級制傾向)"),
+            "expected wide 40.0% (歩合・等級制傾向) in summary: {s}"
+        );
+    }
+
+    #[test]
+    fn build_salary_scatter_summary_invariants_pct_in_range_0_100() {
+        // 不変条件: narrow_pct + wide_pct <= 100, 各 pct ∈ [0, 100]
+        // 全件 narrow (幅 1万円固定)
+        let pairs_all_narrow: Vec<(f64, f64)> = (0..10)
+            .map(|_| (200_000.0_f64, 210_000.0_f64))
+            .collect();
+        let s = build_salary_scatter_summary(&pairs_all_narrow);
+        assert!(
+            s.contains("100.0% (定額求人傾向)"),
+            "expected narrow 100% when all narrow: {s}"
+        );
+        assert!(
+            s.contains("0.0% (歩合・等級制傾向)"),
+            "expected wide 0% when all narrow: {s}"
+        );
+
+        // 全件 wide (幅 20万円固定)
+        let pairs_all_wide: Vec<(f64, f64)> = (0..10)
+            .map(|_| (200_000.0_f64, 400_000.0_f64))
+            .collect();
+        let s = build_salary_scatter_summary(&pairs_all_wide);
+        assert!(
+            s.contains("100.0% (歩合・等級制傾向)"),
+            "expected wide 100% when all wide: {s}"
+        );
+        assert!(
+            s.contains("0.0% (定額求人傾向)"),
+            "expected narrow 0% when all wide: {s}"
+        );
+    }
+
+    #[test]
+    fn build_salary_scatter_summary_avg_width_non_negative_invariant() {
+        // 不変条件: 平均レンジ幅 >= 0 (hi >= lo を SQL で保証している前提)
+        // hi == lo のケース (レンジ幅 0) でも panic せず avg 0.0 を出力
+        let pairs = vec![
+            (250_000.0, 250_000.0),
+            (300_000.0, 300_000.0),
+        ];
+        let s = build_salary_scatter_summary(&pairs);
+        assert!(s.contains("n=2"));
+        assert!(s.contains("0.0万円"), "expected avg width 0.0万円: {s}");
+        // 全件 narrow (< 5万)
+        assert!(s.contains("100.0% (定額求人傾向)"));
     }
 }
