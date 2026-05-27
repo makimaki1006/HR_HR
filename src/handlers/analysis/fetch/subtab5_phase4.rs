@@ -800,6 +800,11 @@ pub(crate) fn fetch_csv_company_salary_ranking(
         params_owned.push(muni.to_string());
         sql.push_str(&format!(" AND municipality = ?{}", params_owned.len()));
     }
+    // P0-2 fix (ultrathink Round 1 視点 3): facility_name 別 GROUP BY を Rust 側で行う制約で
+    // 全行を Vec<Row> に展開する。月給掲載求人だけでも数万行になりうるため LIMIT 5000 で
+    // サンプリング。caption で「直近 N 件サンプル」と明示すること。
+    // 注: SQL の LIMIT 5000 は元データ件数の上限、引数 limit は返却企業数の上限 (別概念)。
+    sql.push_str(" LIMIT 5000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = params_owned
         .iter()
@@ -1053,6 +1058,10 @@ pub(crate) fn fetch_posting_target_profile(
         params_owned.push(muni.to_string());
         sql.push_str(&format!(" AND municipality = ?{}", params_owned.len()));
     }
+    // P0-1 fix (ultrathink Round 1 視点 3): pref フィルタなしの全国モードや大都市圏で
+    // 数十万行を Rust Vec<Row> に展開し Render 512MB を圧迫するリスクがあるため
+    // 直近 10,000 件にサンプリング。caption で「直近 N 件サンプル」と明示すること。
+    sql.push_str(" LIMIT 10000");
 
     let params: Vec<&dyn rusqlite::types::ToSql> = params_owned
         .iter()

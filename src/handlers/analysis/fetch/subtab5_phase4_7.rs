@@ -248,7 +248,17 @@ pub(crate) fn fetch_hw_industry_counts(db: &Db, pref: &str, muni: &str) -> Vec<(
         .iter()
         .map(|s| s as &dyn rusqlite::types::ToSql)
         .collect();
-    let rows: Vec<Row> = db.query(&sql, &p).unwrap_or_default();
+    // P1-1 fix (ultrathink Round 1 視点 1): silent fallback 防止のため警告ログ付き match に変更。
+    // fetch_hw_job_type_counts も同パターン (下記)。
+    let rows: Vec<Row> = match db.query(&sql, &p) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[warn] fetch_hw_industry_counts: postings query failed (pref={pref}, muni={muni}): {e}"
+            );
+            return Vec::new();
+        }
+    };
     use super::super::super::helpers::{get_i64, get_str_ref};
     use super::super::super::survey::report_html::industry_mismatch::map_hw_to_major_industry;
     let mut major_counts: HashMap<String, i64> = HashMap::new();
@@ -320,7 +330,17 @@ pub(crate) fn fetch_hw_job_type_counts(db: &Db, pref: &str, muni: &str) -> Vec<(
         .iter()
         .map(|s| s as &dyn rusqlite::types::ToSql)
         .collect();
-    let rows: Vec<Row> = db.query(&sql, &p).unwrap_or_default();
+    // P1-1 fix (ultrathink Round 1 視点 1): silent fallback 防止のため警告ログ付き match に変更。
+    // 既存 fetch_hw_industry_counts も同パターンで統一済 (上記)。
+    let rows: Vec<Row> = match db.query(&sql, &p) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[warn] fetch_hw_job_type_counts: postings query failed (pref={pref}, muni={muni}): {e}"
+            );
+            return Vec::new();
+        }
+    };
     use super::super::super::helpers::{get_i64, get_str_ref};
     let mut out: Vec<(String, i64)> = Vec::with_capacity(rows.len());
     for r in &rows {
