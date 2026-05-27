@@ -269,6 +269,76 @@ pub(crate) fn fetch_hw_industry_counts(db: &Db, pref: &str, muni: &str) -> Vec<(
     out
 }
 
+/// HW 求人 (postings) の `job_type` を集計し、件数降順で返す。
+///
+/// 用途: P1-6 極端な分類偏り警告 (`navy_report.rs` Section 01 Exec Summary)
+///       の職種偏り判定用データソース。
+///
+/// 粒度:
+/// - `pref` + `muni` 指定: 当該市区町村の HW 掲載求人を集計
+/// - `pref` のみ: 都道府県集計
+/// - 両方空: 全国集計
+///
+/// メモリルール準拠:
+/// - `feedback_hw_data_scope`: HW 掲載求人のみで全求人市場ではない
+/// - `feedback_never_guess_data`: postings.job_type は demographics.rs:136
+///   ほか複数箇所で集計実績あり (実カラム確認済)
+/// - `feedback_silent_fallback_audit`: `unwrap_or_default()` の戻り値は
+///   空 Vec を明示的にハンドリング (呼出側 navy_report で empty → NEU 表示)
+///
+/// LIMIT: 30 件 (上位 30 職種で偏り判定 + 表示用途には十分。SQL レベルで
+/// 切り詰めることで Turso 通信コストを削減)。
+pub(crate) fn fetch_hw_job_type_counts(db: &Db, pref: &str, muni: &str) -> Vec<(String, i64)> {
+    let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
+        (
+            "SELECT job_type, COUNT(*) as cnt FROM postings \
+             WHERE prefecture = ?1 AND municipality = ?2 \
+               AND job_type IS NOT NULL AND job_type != '' \
+             GROUP BY job_type ORDER BY cnt DESC LIMIT 30"
+                .to_string(),
+            vec![pref.to_string(), muni.to_string()],
+        )
+    } else if !pref.is_empty() {
+        (
+            "SELECT job_type, COUNT(*) as cnt FROM postings \
+             WHERE prefecture = ?1 \
+               AND job_type IS NOT NULL AND job_type != '' \
+             GROUP BY job_type ORDER BY cnt DESC LIMIT 30"
+                .to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT job_type, COUNT(*) as cnt FROM postings \
+             WHERE job_type IS NOT NULL AND job_type != '' \
+             GROUP BY job_type ORDER BY cnt DESC LIMIT 30"
+                .to_string(),
+            vec![],
+        )
+    };
+    let p: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows: Vec<Row> = db.query(&sql, &p).unwrap_or_default();
+    use super::super::super::helpers::{get_i64, get_str_ref};
+    let mut out: Vec<(String, i64)> = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let name = get_str_ref(r, "job_type").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let cnt = get_i64(r, "cnt");
+        if cnt <= 0 {
+            continue;
+        }
+        out.push((name, cnt));
+    }
+    // SQL 側で ORDER BY cnt DESC 済みだが、念のためソートを保証
+    out.sort_by(|a, b| b.1.cmp(&a.1));
+    out
+}
+
 pub(crate) fn fetch_industry_structure(
     db: &Db,
     turso: Option<&TursoDb>,

@@ -563,6 +563,10 @@ pub async fn survey_report_html(
                 // muni="" で都道府県集計 (就業者構成と粒度を揃える)
                 ctx.hw_industry_counts =
                     super::super::analysis::fetch::fetch_hw_industry_counts(&db, &pref2, "");
+                // P1-6 (2026-05-28): 職種偏り判定用データを取得 (Section 01 Finding 07)
+                // 粒度: 産業 (hw_industry_counts) と揃えて都道府県集計 (muni="")
+                ctx.hw_job_type_counts =
+                    super::super::analysis::fetch::fetch_hw_job_type_counts(&db, &pref2, "");
                 ctx
             })
             .await
