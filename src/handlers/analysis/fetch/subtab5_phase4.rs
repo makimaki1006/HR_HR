@@ -267,6 +267,48 @@ pub(crate) fn fetch_population_data(
     query_turso_or_local(turso, db, &sql, &params, "v2_external_population")
 }
 
+/// 指定都道府県内で `postings` 件数上位の市区町村名を取得（最大 `limit` 件）。
+///
+/// 用途: P1-5 Section 06 拡張 (市区町村別ピラミッド 上位 3)。
+///
+/// 粒度:
+/// - `pref` が空: 空 `Vec` を返す（全国集計の場合は muni 別ピラミッドを表示しない）
+/// - `pref` 指定: 当該都道府県内 postings を `municipality` で集計し件数降順で `limit` 件返す
+///
+/// メモリルール準拠:
+/// - `feedback_silent_fallback_audit`: クエリ失敗時は警告を出してから空 `Vec` 返却
+/// - `feedback_hw_data_scope`: HW 掲載求人 (postings) を母集団とする
+pub(crate) fn fetch_top_muni_names(db: &Db, pref: &str, limit: usize) -> Vec<String> {
+    if pref.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+    let sql = "SELECT municipality, COUNT(*) as cnt FROM postings \
+         WHERE prefecture = ?1 \
+           AND municipality IS NOT NULL AND municipality != '' \
+         GROUP BY municipality \
+         ORDER BY cnt DESC \
+         LIMIT ?2";
+    let limit_i64 = limit as i64;
+    let params: Vec<&dyn rusqlite::types::ToSql> = vec![
+        &pref as &dyn rusqlite::types::ToSql,
+        &limit_i64 as &dyn rusqlite::types::ToSql,
+    ];
+    let rows = match db.query(sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[warn] fetch_top_muni_names: postings query failed (pref={pref}, limit={limit}): {e}"
+            );
+            return Vec::new();
+        }
+    };
+    use super::super::super::helpers::get_str_ref;
+    rows.iter()
+        .map(|r| get_str_ref(r, "municipality").to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 pub(crate) fn fetch_population_pyramid(
     db: &Db,
     turso: Option<&TursoDb>,

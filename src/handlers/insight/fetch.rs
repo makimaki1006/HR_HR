@@ -8,6 +8,16 @@ use super::super::trend::fetch as tf;
 type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 
+/// 市区町村別ピラミッド（P1-5 Section 06 拡張で利用）
+///
+/// 上位 N 市区町村ごとに当該 muni の年齢階級別 男女別 人口を保持。
+/// 用途: navy_report.rs `render_navy_section_06_demographics` の図 6-2b。
+pub struct MuniPyramid {
+    pub muni_name: String,
+    /// `v2_external_population_pyramid` の row そのまま (age_group / male_count / female_count)
+    pub bands: Vec<Row>,
+}
+
 /// 示唆エンジンへの統一入力
 pub struct InsightContext {
     // === ローカルSQLite ===
@@ -37,6 +47,9 @@ pub struct InsightContext {
     // === Turso外部統計（新規活用） ===
     pub ext_population: Vec<Row>,
     pub ext_pyramid: Vec<Row>,
+    /// P1-5 Section 06 拡張: 対象都道府県内で postings 件数上位 3 市区町村のピラミッド。
+    /// `pref` が空、または上位 muni のピラミッドデータが取得できない場合は空 Vec。
+    pub muni_pyramids: Vec<MuniPyramid>,
     pub ext_migration: Vec<Row>,
     pub ext_daytime_pop: Vec<Row>,
     pub ext_establishments: Vec<Row>,
@@ -118,7 +131,8 @@ pub(crate) fn build_insight_context(
         Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
         Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
     );
-    type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    // PopBundle 末尾要素は P1-5 Section 06 拡張で追加した「上位 3 市区町村のピラミッド」
+    type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<MuniPyramid>);
     type EstBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
     type LifeBundle = (Vec<Row>, Vec<Row>, Vec<Row>);
     type PhaseABundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
@@ -181,14 +195,38 @@ pub(crate) fn build_insight_context(
             )
         });
 
-        // G4: Turso 人口・移動 (4 fetches)
+        // G4: Turso 人口・移動 (4 fetches + P1-5 muni 別ピラミッド)
+        // 上位 3 muni 別ピラミッドはこの G4 で同期取得する。muni 別 pyramid は 3 県跨ぎなど
+        // 重い処理になりうるが、他グループ (G3 ローカル / G6 ライフ等) と並列なので律速にはなりにくい。
         let h_pop = s.spawn(|| -> PopBundle {
-            (
-                af::fetch_population_data(db, turso, pref, muni),
-                af::fetch_population_pyramid(db, turso, pref, muni),
-                af::fetch_migration_data(db, turso, pref, muni),
-                af::fetch_daytime_population(db, turso, pref, muni),
-            )
+            let pop = af::fetch_population_data(db, turso, pref, muni);
+            let pyramid = af::fetch_population_pyramid(db, turso, pref, muni);
+            let migration = af::fetch_migration_data(db, turso, pref, muni);
+            let daytime = af::fetch_daytime_population(db, turso, pref, muni);
+
+            // P1-5: 対象都道府県内で postings 件数上位 3 muni のピラミッド取得
+            // pref が空のときは silent fallback を避けるため明示的に空 Vec を返す。
+            let muni_pyramids: Vec<MuniPyramid> = if pref.is_empty() {
+                Vec::new()
+            } else {
+                let top_munis = af::fetch_top_muni_names(db, pref, 3);
+                top_munis
+                    .into_iter()
+                    .filter_map(|m| {
+                        let bands = af::fetch_population_pyramid(db, turso, pref, &m);
+                        if bands.is_empty() {
+                            None
+                        } else {
+                            Some(MuniPyramid {
+                                muni_name: m,
+                                bands,
+                            })
+                        }
+                    })
+                    .collect()
+            };
+
+            (pop, pyramid, migration, daytime, muni_pyramids)
         });
 
         // G5: Turso 事業所・消費・気候 (5 fetches)
@@ -265,7 +303,7 @@ pub(crate) fn build_insight_context(
         });
         let pop = h_pop.join().unwrap_or_else(|e| {
             tracing::warn!(?e, "build_insight_context G4 (pop) thread panicked, using empty defaults");
-            (vec![], vec![], vec![], vec![])
+            (vec![], vec![], vec![], vec![], Vec::<MuniPyramid>::new())
         });
         let est = h_est.join().unwrap_or_else(|e| {
             tracing::warn!(?e, "build_insight_context G5 (est) thread panicked, using empty defaults");
@@ -304,7 +342,7 @@ pub(crate) fn build_insight_context(
         region_benchmark,
         text_quality,
     ) = local_bundle;
-    let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop) = pop_bundle;
+    let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop, muni_pyramids) = pop_bundle;
     let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
         est_bundle;
     let (ext_social_life, ext_internet_usage, ext_education) = life_bundle;
@@ -346,6 +384,8 @@ pub(crate) fn build_insight_context(
         // Turso外部統計（新規活用 - analysis/fetch.rsの関数を再利用）
         ext_population,
         ext_pyramid,
+        // P1-5 Section 06 拡張: 上位 3 市区町村のピラミッド
+        muni_pyramids,
         ext_migration,
         ext_daytime_pop,
         ext_establishments,

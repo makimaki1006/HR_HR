@@ -148,6 +148,7 @@ fn make_insight_ctx(
         ext_turnover,
         ext_population,
         ext_pyramid: vec![],
+        muni_pyramids: vec![],
         ext_migration: vec![],
         ext_daytime_pop: vec![],
         ext_establishments: vec![],

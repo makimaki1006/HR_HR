@@ -3553,6 +3553,54 @@ pub(super) fn render_navy_section_06_demographics(
         html.push_str("<p class=\"caption\">左 (紺) = 男性 / 右 (金) = 女性。各バーは 5 歳階級別の人口を表示。出典: 国勢調査 v2_external_population_pyramid。</p>\n");
     }
 
+    // -- 図 6-2b 市区町村別 人口ピラミッド (上位 3) [P1-5 (2026-05-25) 追加]
+    //    対象都道府県内で postings (HW 掲載求人) 件数上位 3 市区町村のピラミッドを並列表示。
+    //    ctx.muni_pyramids が空 (pref 未指定 / データ不足) のときは何も出力しない。
+    if !ctx.muni_pyramids.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 6-2b &nbsp;市区町村別 人口ピラミッド (上位 3)</div>\n");
+        html.push_str(
+            "<div class=\"muni-pyramid-grid\" \
+             style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6mm;margin-top:2mm;\">\n",
+        );
+        for mp in &ctx.muni_pyramids {
+            let mut sub_bands: Vec<(String, i64, i64)> = mp
+                .bands
+                .iter()
+                .map(|r| {
+                    (
+                        get_str_ref(r, "age_group").to_string(),
+                        get_i64(r, "male_count"),
+                        get_i64(r, "female_count"),
+                    )
+                })
+                .filter(|(l, _, _)| !l.is_empty())
+                .collect();
+            sub_bands.sort_by_key(|(l, _, _)| age_sort_key(l));
+
+            html.push_str(
+                "<div class=\"muni-pyramid-card\" \
+                 style=\"border:1px solid var(--rule-soft);padding:3mm;background:var(--paper-pure);\">\n",
+            );
+            html.push_str(&format!(
+                "<div style=\"text-align:center;font-weight:700;font-size:10pt;color:#0B1E3F;margin-bottom:2mm;\">{}</div>\n",
+                escape_html(&mp.muni_name)
+            ));
+            if sub_bands.is_empty() {
+                html.push_str(
+                    "<div class=\"dim\" style=\"text-align:center;font-size:9pt;\">データ取得不可</div>\n",
+                );
+            } else {
+                html.push_str(&build_navy_pyramid_svg_mini(&sub_bands));
+            }
+            html.push_str("</div>\n");
+        }
+        html.push_str("</div>\n");
+        html.push_str(
+            "<p class=\"caption\">対象都道府県の CSV 件数上位 3 市区町村のピラミッドを並列表示。\
+             出典: 国勢調査 v2_external_population_pyramid (市区町村粒度)。</p>\n",
+        );
+    }
+
     // -- 表 6-B 人口統計詳細 (ext_population) ピラミッド補強  [旧 7.5-D 統合 2026-05-15]
     if !ctx.ext_population.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-B &nbsp;人口統計詳細 (総人口・男女別 年次推移)</div>\n");
@@ -3644,10 +3692,57 @@ pub(super) fn render_navy_section_06_demographics(
         html.push_str("<p class=\"caption\">出典: e-Stat 社会人口統計体系 v2_external_labor_stats。図 6-1 KPI「労働力率」の内訳として、男女別就業者・第1-3 次産業就業者の構成比を示す。先頭 5 行表示。</p>\n");
     }
 
-    // -- 表 6-F 教育 (ext_education) 進学率・学歴  [旧 7.5-P 統合 2026-05-15]
+    // -- 表 6-F 学歴構成 (ext_education) [P1-5 (2026-05-25): 手書き化 + 構成比列追加]
+    //    旧実装: build_navy_auto_table(&ctx.ext_education, 5)
+    //    変更点: education_level / 男性人数 / 女性人数 / 合計 / 構成比 (%) の 5 列固定。
+    //    構成比 = total_count / SUM(total_count) * 100 (小数 1 桁、右寄せ + bold)。
     if !ctx.ext_education.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-F &nbsp;進学率・学歴 (新卒採用接点)</div>\n");
-        html.push_str(&build_navy_auto_table(&ctx.ext_education, 5));
+
+        // 合計算出 (構成比の分母)
+        let total_sum: i64 = ctx
+            .ext_education
+            .iter()
+            .map(|r| get_i64(r, "total_count"))
+            .sum();
+
+        html.push_str("<table class=\"table-navy\">\n");
+        html.push_str(
+            "<thead><tr>\
+             <th>学歴レベル</th>\
+             <th class=\"num\">男性人数</th>\
+             <th class=\"num\">女性人数</th>\
+             <th class=\"num\">合計</th>\
+             <th class=\"num\">構成比 (%)</th>\
+             </tr></thead>\n<tbody>\n",
+        );
+
+        for r in ctx.ext_education.iter().take(5) {
+            let level = get_str_ref(r, "education_level");
+            let male = get_i64(r, "male_count");
+            let female = get_i64(r, "female_count");
+            let total = get_i64(r, "total_count");
+            let pct = if total_sum > 0 {
+                total as f64 / total_sum as f64 * 100.0
+            } else {
+                0.0
+            };
+            html.push_str(&format!(
+                "<tr>\
+                 <td>{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num bold\">{:.1}</td>\
+                 </tr>\n",
+                escape_html(level),
+                format_number(male),
+                format_number(female),
+                format_number(total),
+                pct,
+            ));
+        }
+        html.push_str("</tbody></table>\n");
         html.push_str("<p class=\"caption\">出典: 学校基本調査 v2_external_education。表 6-A の学校数 (施設密度) に対し、本表は進学率・学歴構成を示す。高校進学率は新卒採用の母集団品質、大学進学率は U ターン採用の射程に直結。先頭 5 行表示。</p>\n");
     }
 
@@ -3764,6 +3859,91 @@ fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
         format_number(max_count as i64),
         w - 4.0,
         h - 8.0,
+        format_number(max_count as i64)
+    ));
+    svg.push_str("</svg>\n");
+    svg
+}
+
+/// 図 6-2b 用ミニピラミッド SVG (3 列横並びレイアウト想定、幅 220px)。
+///
+/// `build_navy_pyramid_svg` の構造をベースに、グリッドカード内に収まるようサイズと
+/// フォントを縮小: 幅 220px / 行高 14px / フォント 7-8pt / ラベル列幅 32px。
+/// 色 (#1F2D4D / #C9A24B) は本体ピラミッドと一貫させる。
+fn build_navy_pyramid_svg_mini(bands: &[(String, i64, i64)]) -> String {
+    if bands.is_empty() {
+        return String::new();
+    }
+    let n = bands.len();
+    let row_h: f64 = 14.0;
+    let h: f64 = 30.0 + n as f64 * row_h + 18.0;
+    let w: f64 = 220.0;
+    let label_col_w: f64 = 32.0;
+    let center_gap: f64 = 4.0;
+    let bar_max_w: f64 = (w - label_col_w) / 2.0 - center_gap;
+    let center: f64 = label_col_w + bar_max_w + center_gap;
+
+    let max_count: f64 = bands
+        .iter()
+        .flat_map(|(_, m, f)| [*m as f64, *f as f64])
+        .fold(0.0, f64::max)
+        .max(1.0);
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"市区町村別 人口ピラミッド\" \
+         style=\"display:block;background:var(--paper-pure);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+    // タイトル行 (男性 / 女性)
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"14\" font-size=\"7\" fill=\"#6A6E7A\" font-weight=\"700\">年齢</text>\
+         <text x=\"{:.1}\" y=\"14\" font-size=\"8\" fill=\"#0B1E3F\" font-weight=\"700\" text-anchor=\"end\">男</text>\
+         <text x=\"{:.1}\" y=\"14\" font-size=\"8\" fill=\"#0B1E3F\" font-weight=\"700\">女</text>\n",
+        2.0, center - 4.0, center + 4.0
+    ));
+    // 中央軸
+    svg.push_str(&format!(
+        "<line x1=\"{:.1}\" y1=\"22\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#D8D2C4\" stroke-width=\"0.5\"/>\n",
+        center, center, h - 18.0
+    ));
+
+    for (i, (label, male, female)) in bands.iter().rev().enumerate() {
+        let cy = 28.0 + i as f64 * row_h;
+        let mw = (*male as f64 / max_count) * bar_max_w;
+        let fw = (*female as f64 / max_count) * bar_max_w;
+        // 男性 (左)
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"10\" fill=\"#1F2D4D\"/>\n",
+            center - mw,
+            cy,
+            mw.max(0.5)
+        ));
+        // 女性 (右)
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"10\" fill=\"#C9A24B\"/>\n",
+            center,
+            cy,
+            fw.max(0.5)
+        ));
+        // 年齢ラベル
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"7\" fill=\"#0B1E3F\" font-weight=\"600\" text-anchor=\"start\">{}</text>\n",
+            2.0,
+            cy + 8.0,
+            escape_html(label)
+        ));
+    }
+
+    // 軸スケール (最大値)
+    svg.push_str(&format!(
+        "<text x=\"2\" y=\"{:.1}\" font-size=\"6\" fill=\"#6A6E7A\">{} 名</text>\
+         <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"6\" fill=\"#6A6E7A\" text-anchor=\"end\">{} 名</text>\n",
+        h - 4.0,
+        format_number(max_count as i64),
+        w - 2.0,
+        h - 4.0,
         format_number(max_count as i64)
     ));
     svg.push_str("</svg>\n");
