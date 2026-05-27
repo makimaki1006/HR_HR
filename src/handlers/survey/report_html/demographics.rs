@@ -392,12 +392,15 @@ fn build_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
     let axis_text_y = plot_bottom + 18;
 
     let mut s = String::with_capacity(2048);
+    // R2-P1-3 (ultrathink Round 2, 2026-05-28): a11y のため SVG 直後に <title> を挿入。
+    // スクリーンリーダーは aria-label と <title> の双方を読み上げ得るため、両立させる。
     s.push_str(
         "<div class=\"pyramid-ssr\" style=\"width:100%;\">\n<svg \
          viewBox=\"0 0 800 340\" preserveAspectRatio=\"xMidYMid meet\" \
          xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
          aria-label=\"年齢階級別 人口ピラミッド\" \
-         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
+         style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n\
+         <title>年齢階級別 人口ピラミッド</title>\n",
     );
     // 凡例
     s.push_str(
@@ -1560,6 +1563,31 @@ mod tests {
             html.contains("市区町村粒度データなし"),
             "欠損プレースホルダ表示"
         );
+    }
+
+    // ====================================================================
+    // R2-P1-3 (ultrathink Round 2, 2026-05-28): SVG <title> 要素追加 (a11y)
+    //
+    // 不変条件:
+    //   - 全 SVG レンダリング出力に <title>...</title> を含む
+    //   - aria-label と併用 (両方とも残す)
+    // ====================================================================
+
+    #[test]
+    fn build_pyramid_svg_contains_title_element_for_a11y() {
+        // a11y: SVG ルート直下に <title> 要素が必須 (R2-P1-3)
+        let bands = vec![
+            ("20-29".to_string(), 1000i64, 950i64),
+            ("30-39".to_string(), 1100i64, 1050i64),
+        ];
+        let svg = build_pyramid_svg(&bands);
+        assert!(
+            svg.contains("<title>年齢階級別 人口ピラミッド</title>"),
+            "expected <title> element for a11y: {}",
+            &svg[..svg.len().min(400)]
+        );
+        // aria-label は維持
+        assert!(svg.contains("aria-label=\"年齢階級別 人口ピラミッド\""));
     }
 
     /// 逆証明: lifestyle の都道府県粒度警告強化が正しく出ること (helper test 経由)

@@ -3305,12 +3305,13 @@ fn build_navy_csv_company_salary_table(ranking: &[CsvCompanySalary], limit: usiz
     );
     s.push_str(&format!("{}", limit));
     s.push_str(" 社、求人数 2 件以上)</div>\n");
+    // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
     s.push_str("<table class=\"table-navy\">\n<thead><tr>");
-    s.push_str("<th>順位</th><th>法人名</th>");
-    s.push_str("<th class=\"num\">求人数</th>");
-    s.push_str("<th class=\"num\">下限給与中央値<br>(万円)</th>");
-    s.push_str("<th class=\"num\">上限給与中央値<br>(万円)</th>");
-    s.push_str("<th class=\"num\">レンジ幅<br>(万円)</th>");
+    s.push_str("<th scope=\"col\">順位</th><th scope=\"col\">法人名</th>");
+    s.push_str("<th scope=\"col\" class=\"num\">求人数</th>");
+    s.push_str("<th scope=\"col\" class=\"num\">下限給与中央値<br>(万円)</th>");
+    s.push_str("<th scope=\"col\" class=\"num\">上限給与中央値<br>(万円)</th>");
+    s.push_str("<th scope=\"col\" class=\"num\">レンジ幅<br>(万円)</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
     let top: Vec<&CsvCompanySalary> = ranking.iter().take(limit).collect();
@@ -3356,10 +3357,11 @@ fn build_navy_notable_companies_block(ranking: &[CsvCompanySalary], top_n: usize
         "<div class=\"block-title block-title-spaced\">\
          表 5-H &nbsp;注目企業リスト (求人数上位 ∩ 給与上位、和集合)</div>\n",
     );
+    // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
     s.push_str("<table class=\"table-navy\">\n<thead><tr>");
-    s.push_str("<th>No.</th><th>法人名</th>");
-    s.push_str("<th class=\"num\">求人数</th>");
-    s.push_str("<th class=\"num\">給与レンジ (万円)</th>");
+    s.push_str("<th scope=\"col\">No.</th><th scope=\"col\">法人名</th>");
+    s.push_str("<th scope=\"col\" class=\"num\">求人数</th>");
+    s.push_str("<th scope=\"col\" class=\"num\">給与レンジ (万円)</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
     for (i, c) in notable.iter().enumerate() {
@@ -4108,26 +4110,39 @@ fn render_navy_section_06_posting_target(
     );
 
     // ---- KPI: 総求人件数 / 年齢制限主要層 / 給与中央レンジ / 雇用形態主流
+    //
+    // R2-P1-6 (ultrathink Round 2, 2026-05-28): `max_by_key` は同値ペアで
+    // last-wins の挙動を取る。distribution の **全カウントが 0** の場合
+    // (例: salary_type が「月給」の求人が 1 件もない地域) 、最後のラベル
+    // (例: 「〜20万」) を選んでしまい KPI に誤表示される。
+    // → max_by_key の戻り値が count == 0 の場合は「—」に明示的に置換する。
+    let take_top_or_dash = |pair_opt: Option<(String, i64)>| -> (String, i64) {
+        match pair_opt {
+            Some((l, c)) if c > 0 => (l, c),
+            _ => ("—".to_string(), 0),
+        }
+    };
     // 主要年齢層 = age_range_distribution の最多バケット (件数降順 1 位)
-    let top_age = pt
-        .age_range_distribution
-        .iter()
-        .max_by_key(|(_, c)| *c)
-        .map(|(l, c)| (l.clone(), *c))
-        .unwrap_or_else(|| ("—".to_string(), 0));
+    let top_age = take_top_or_dash(
+        pt.age_range_distribution
+            .iter()
+            .max_by_key(|(_, c)| *c)
+            .map(|(l, c)| (l.clone(), *c)),
+    );
     // 主要給与レンジ = salary_target_distribution の最多バケット
-    let top_salary = pt
-        .salary_target_distribution
-        .iter()
-        .max_by_key(|(_, c)| *c)
-        .map(|(l, c)| (l.clone(), *c))
-        .unwrap_or_else(|| ("—".to_string(), 0));
+    let top_salary = take_top_or_dash(
+        pt.salary_target_distribution
+            .iter()
+            .max_by_key(|(_, c)| *c)
+            .map(|(l, c)| (l.clone(), *c)),
+    );
     // 主流雇用形態 = employment_type_distribution の最多バケット (既に降順 sort 済)
-    let top_emp = pt
-        .employment_type_distribution
-        .first()
-        .map(|(l, c)| (l.clone(), *c))
-        .unwrap_or_else(|| ("—".to_string(), 0));
+    // R2-P1-6: first() でも count==0 ガードを適用 (employment_type も全 0 の可能性あり)
+    let top_emp = take_top_or_dash(
+        pt.employment_type_distribution
+            .first()
+            .map(|(l, c)| (l.clone(), *c)),
+    );
     // 経験不問 (実質) の比率
     let total_exp: i64 = pt
         .experience_required_distribution
@@ -4140,8 +4155,10 @@ fn render_navy_section_06_posting_target(
         .find(|(l, _)| l == "経験不問 (実質)")
         .map(|(_, c)| *c)
         .unwrap_or(0);
+    // R2-P1-1 (ultrathink Round 2, 2026-05-28): total_exp > 0 ガード後でも
+    // 浮動小数誤差で 100% 超えになる可能性をクランプで防御。
     let unspec_pct = if total_exp > 0 {
-        unspec_count as f64 / total_exp as f64 * 100.0
+        safe_pct(unspec_count as f64 / total_exp as f64 * 100.0)
     } else {
         0.0
     };
@@ -4254,8 +4271,9 @@ fn render_navy_section_06_posting_target(
 /// 構成比は `distribution` 内の件数合計を分母として算出 (0 件のときは "—" 表示)。
 fn build_distribution_table(distribution: &[(String, i64)], label_header: &str) -> String {
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
     s.push_str(&format!(
-        "<th>{}</th><th class=\"num\">求人件数</th><th class=\"num\">構成比 (%)</th>",
+        "<th scope=\"col\">{}</th><th scope=\"col\" class=\"num\">求人件数</th><th scope=\"col\" class=\"num\">構成比 (%)</th>",
         escape_html(label_header)
     ));
     s.push_str("</tr></thead>\n<tbody>\n");
@@ -4270,7 +4288,9 @@ fn build_distribution_table(distribution: &[(String, i64)], label_header: &str) 
     }
 
     for (label, count) in distribution {
-        let pct = *count as f64 / total as f64 * 100.0;
+        // R2-P1-1 (ultrathink Round 2, 2026-05-28): total > 0 ガード済だが
+        // 浮動小数誤差を safe_pct で [0, 100] にクランプ。
+        let pct = safe_pct(*count as f64 / total as f64 * 100.0);
         s.push_str(&format!(
             "<tr><td>{}</td>\
              <td class=\"num bold\">{}</td>\
@@ -4332,10 +4352,13 @@ fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
     let mut svg = format!(
         "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
          role=\"img\" aria-label=\"人口ピラミッド\" \
-         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n\
+         <title>年齢階級別 人口ピラミッド</title>\n",
         w = w as i64,
         h = h as i64
     );
+    // R2-P1-3 (ultrathink Round 2, 2026-05-28): a11y のため SVG 直後に <title> を挿入。
+    // スクリーンリーダーは aria-label と <title> の双方を読み上げ得るため、両立させる。
     // タイトルラベル (左カラム = 年齢, 男性 = 中央左, 女性 = 中央右)
     svg.push_str(&format!(
         "<text x=\"{:.1}\" y=\"18\" font-size=\"10\" fill=\"#6A6E7A\" font-weight=\"700\">年齢</text>\
@@ -4443,10 +4466,12 @@ fn build_navy_salary_scatter_svg(pairs: &[(f64, f64)]) -> String {
     let mut svg = format!(
         "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
          role=\"img\" aria-label=\"給与レンジ 散布図 (下限給与 × 上限給与)\" \
-         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n\
+         <title>給与レンジ 散布図 (下限給与 × 上限給与)</title>\n",
         w = w as i64,
         h = h as i64
     );
+    // R2-P1-3 (ultrathink Round 2, 2026-05-28): a11y のため SVG 直後に <title> を挿入。
 
     // タイトル
     svg.push_str(&format!(
@@ -4549,10 +4574,20 @@ fn build_navy_salary_scatter_svg(pairs: &[(f64, f64)]) -> String {
 /// n / 平均レンジ幅 / レンジ <5万円割合 (定額求人傾向) / レンジ >=10万円割合
 /// (歩合・等級制傾向) を 1 段組で記す。
 ///
+/// R2-P0-1 (ultrathink Round 2, 2026-05-28): build_navy_salary_scatter_svg が
+/// 軸 15-60 万円固定で範囲外データをクランプして描画する仕様に対し、
+/// caption で「N 件 (X%) が範囲外のため端点に表示」と明記し、ユーザーが
+/// 散布図の打点位置を誤読しないよう注記する。
+///
+/// R2-P1-1 (ultrathink Round 2, 2026-05-28): n=0 を早期 return で防御済みのため
+/// 0 除算は発生しないが、`safe_pct` ヘルパで NaN/Inf も明示的に 0.0% に丸める
+/// (二重防衛)。
+///
 /// 不変条件:
 /// - `pairs.len() == n >= 0`
 /// - 全 `(lo, hi)` で `hi >= lo` (fetch_salary_scatter_pairs SQL でフィルタ済)
 /// - `avg_width >= 0`, `0 <= narrow_pct <= 100`, `0 <= wide_pct <= 100`
+/// - `clamp_count <= n`, `0 <= clamp_pct <= 100`
 fn build_salary_scatter_summary(pairs: &[(f64, f64)]) -> String {
     if pairs.is_empty() {
         return String::new();
@@ -4564,6 +4599,7 @@ fn build_salary_scatter_summary(pairs: &[(f64, f64)]) -> String {
     let sum_width: f64 = widths_yen.iter().sum();
     let avg_width_yen: f64 = sum_width / n as f64;
     let avg_width_man: f64 = avg_width_yen / 10_000.0;
+    let avg_width_man_safe = safe_pct_like(avg_width_man); // NaN/Inf 防御 (avg は % ではないが同じ helper で NaN→0.0)
 
     let narrow_threshold_yen: f64 = 50_000.0; // 5 万円
     let wide_threshold_yen: f64 = 100_000.0; // 10 万円
@@ -4571,16 +4607,64 @@ fn build_salary_scatter_summary(pairs: &[(f64, f64)]) -> String {
     let narrow_count = widths_yen.iter().filter(|w| **w < narrow_threshold_yen).count();
     let wide_count = widths_yen.iter().filter(|w| **w >= wide_threshold_yen).count();
 
-    let narrow_pct: f64 = narrow_count as f64 / n as f64 * 100.0;
-    let wide_pct: f64 = wide_count as f64 / n as f64 * 100.0;
+    let narrow_pct: f64 = safe_pct(narrow_count as f64 / n as f64 * 100.0);
+    let wide_pct: f64 = safe_pct(wide_count as f64 / n as f64 * 100.0);
 
-    format!(
-        "<p class=\"caption\">n={} / 平均レンジ幅 {:.1}万円 / レンジ &lt;5万円 {:.1}% (定額求人傾向) / レンジ &ge;10万円 {:.1}% (歩合・等級制傾向)</p>\n",
+    // R2-P0-1: build_navy_salary_scatter_svg と同じ軸範囲 (15-60 万円) でクランプ件数を算出。
+    // 円→万円換算してから判定 (lo_man or hi_man が 15 未満 or 60 超のペアをカウント)。
+    let x_min_man: f64 = 15.0;
+    let x_max_man: f64 = 60.0;
+    let clamp_count = pairs
+        .iter()
+        .filter(|(lo, hi)| {
+            let lo_man = lo / 10_000.0;
+            let hi_man = hi / 10_000.0;
+            lo_man < x_min_man || lo_man > x_max_man || hi_man < x_min_man || hi_man > x_max_man
+        })
+        .count();
+    let clamp_pct: f64 = safe_pct(clamp_count as f64 / n as f64 * 100.0);
+
+    let mut s = format!(
+        "<p class=\"caption\">n={} / 平均レンジ幅 {:.1}万円 / レンジ &lt;5万円 {:.1}% (定額求人傾向) / レンジ &ge;10万円 {:.1}% (歩合・等級制傾向)",
         format_number(n as i64),
-        avg_width_man,
+        avg_width_man_safe,
         narrow_pct,
         wide_pct,
-    )
+    );
+    if clamp_count > 0 {
+        s.push_str(&format!(
+            " / 軸範囲 15-60万円のため {} 件 ({:.1}%) が範囲外として端点に表示",
+            format_number(clamp_count as i64),
+            clamp_pct
+        ));
+    }
+    s.push_str("</p>\n");
+    s
+}
+
+/// 共通 helper: 0除算結果 (NaN) や ±Inf を明示的に 0.0 に丸め、
+/// 計算上 100% を超えてしまった値 (浮動小数誤差等) も [0.0, 100.0] にクランプする。
+///
+/// R2-P1-1 (ultrathink Round 2, 2026-05-28): `format!("{:.1}%", v)` が
+/// "NaN%" / "inf%" を出力するのを防ぐ二重防衛。
+#[inline]
+fn safe_pct(v: f64) -> f64 {
+    if v.is_nan() || v.is_infinite() {
+        0.0
+    } else {
+        v.clamp(0.0, 100.0)
+    }
+}
+
+/// % 以外の数値 (平均値など) でも NaN/Inf を 0.0 に丸めるだけのヘルパ。
+/// 上限クランプはしない (大きな値が正当な範囲)。
+#[inline]
+fn safe_pct_like(v: f64) -> f64 {
+    if v.is_nan() || v.is_infinite() {
+        0.0
+    } else {
+        v
+    }
 }
 
 /// 図 6-2b 用ミニピラミッド SVG (3 列横並びレイアウト想定、幅 220px)。
@@ -4610,10 +4694,12 @@ fn build_navy_pyramid_svg_mini(bands: &[(String, i64, i64)]) -> String {
     let mut svg = format!(
         "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
          role=\"img\" aria-label=\"市区町村別 人口ピラミッド\" \
-         style=\"display:block;background:var(--paper-pure);\">\n",
+         style=\"display:block;background:var(--paper-pure);\">\n\
+         <title>市区町村別 人口ピラミッド (年齢階級別 男女別 人口)</title>\n",
         w = w as i64,
         h = h as i64
     );
+    // R2-P1-3 (ultrathink Round 2, 2026-05-28): a11y のため SVG 直後に <title> を挿入。
     // タイトル行 (男性 / 女性)
     svg.push_str(&format!(
         "<text x=\"{:.1}\" y=\"14\" font-size=\"7\" fill=\"#6A6E7A\" font-weight=\"700\">年齢</text>\
@@ -6637,5 +6723,335 @@ mod tests {
                 2 * top_n
             );
         }
+    }
+
+    // ====================================================================
+    // R2-P0-1 (ultrathink Round 2, 2026-05-28): クランプ件数 caption の追記
+    //
+    // build_navy_salary_scatter_svg は軸 15-60 万円固定でデータをクランプ描画する。
+    // ユーザーに伝わるよう、build_salary_scatter_summary に
+    // 「N 件 (X%) が範囲外として端点に表示」の文言を caption に追加。
+    //
+    // 不変条件:
+    //   - クランプ件数 == 0 のとき caption に「範囲外」文言は含まない
+    //   - クランプ件数 > 0 のとき caption に件数 / % が含まれる
+    //   - clamp_count <= n
+    // ====================================================================
+
+    #[test]
+    fn build_salary_scatter_summary_clamp_zero_no_range_note() {
+        // 全データが 15-60 万円範囲内 → クランプ件数 0 → 範囲外文言なし
+        let pairs = vec![
+            (200_000.0, 250_000.0), // 20-25 万 (範囲内)
+            (300_000.0, 400_000.0), // 30-40 万 (範囲内)
+            (450_000.0, 550_000.0), // 45-55 万 (範囲内)
+        ];
+        let s = build_salary_scatter_summary(&pairs);
+        assert!(s.contains("n=3"), "expected n=3 in summary: {s}");
+        assert!(
+            !s.contains("範囲外"),
+            "no out-of-range data → no range-clamp note expected, got: {s}"
+        );
+        assert!(
+            !s.contains("端点に表示"),
+            "no endpoint clamp text expected: {s}"
+        );
+    }
+
+    #[test]
+    fn build_salary_scatter_summary_clamp_nonzero_renders_caption() {
+        // 5 件中 2 件 (40%) が範囲外 (10 万 / 80 万) → caption に「2 件 (40.0%) が範囲外」表示
+        let pairs = vec![
+            (100_000.0, 150_000.0), // 10-15 万 (下限が範囲外)
+            (800_000.0, 900_000.0), // 80-90 万 (両方範囲外)
+            (200_000.0, 300_000.0), // 範囲内
+            (250_000.0, 350_000.0), // 範囲内
+            (400_000.0, 500_000.0), // 範囲内
+        ];
+        let s = build_salary_scatter_summary(&pairs);
+        assert!(s.contains("n=5"), "n=5 expected: {s}");
+        assert!(
+            s.contains("2 件"),
+            "expected clamp count 2: {s}"
+        );
+        assert!(
+            s.contains("40.0%"),
+            "expected clamp pct 40.0%: {s}"
+        );
+        assert!(
+            s.contains("範囲外"),
+            "expected '範囲外' wording: {s}"
+        );
+    }
+
+    #[test]
+    fn build_salary_scatter_summary_clamp_all_out_of_range() {
+        // 全件範囲外 → 100% クランプ
+        let pairs = vec![
+            (100_000.0, 140_000.0), // 10-14 万
+            (700_000.0, 800_000.0), // 70-80 万
+        ];
+        let s = build_salary_scatter_summary(&pairs);
+        assert!(s.contains("2 件"), "expected 2 件: {s}");
+        assert!(
+            s.contains("100.0%"),
+            "expected 100.0% clamp pct: {s}"
+        );
+    }
+
+    // ====================================================================
+    // R2-P1-1 (ultrathink Round 2, 2026-05-28): NaN/Inf 出力防止
+    //
+    // safe_pct helper が NaN / +Inf / -Inf / 100超 を [0, 100] にクランプ。
+    // safe_pct_like は NaN/Inf のみ 0.0 にし、上限クランプはしない。
+    // ====================================================================
+
+    #[test]
+    fn safe_pct_nan_returns_zero() {
+        let v = f64::NAN;
+        assert_eq!(safe_pct(v), 0.0, "NaN should map to 0.0");
+    }
+
+    #[test]
+    fn safe_pct_inf_returns_zero() {
+        assert_eq!(safe_pct(f64::INFINITY), 0.0, "+Inf should map to 0.0");
+        assert_eq!(safe_pct(f64::NEG_INFINITY), 0.0, "-Inf should map to 0.0");
+    }
+
+    #[test]
+    fn safe_pct_above_100_clamped() {
+        // 浮動小数誤差で 100.0000001 になる場合に対する防御
+        assert_eq!(safe_pct(100.0001), 100.0);
+        assert_eq!(safe_pct(150.0), 100.0);
+    }
+
+    #[test]
+    fn safe_pct_negative_clamped_to_zero() {
+        assert_eq!(safe_pct(-1.0), 0.0);
+        assert_eq!(safe_pct(-0.0001), 0.0);
+    }
+
+    #[test]
+    fn safe_pct_normal_value_unchanged() {
+        assert_eq!(safe_pct(42.5), 42.5);
+        assert_eq!(safe_pct(0.0), 0.0);
+        assert_eq!(safe_pct(100.0), 100.0);
+    }
+
+    #[test]
+    fn safe_pct_like_nan_returns_zero_but_no_upper_clamp() {
+        // safe_pct_like は NaN/Inf を 0 にするが、>100 の大きな値は通す (avg などの非 % 値用)
+        assert_eq!(safe_pct_like(f64::NAN), 0.0);
+        assert_eq!(safe_pct_like(f64::INFINITY), 0.0);
+        assert_eq!(safe_pct_like(500.0), 500.0, "non-% values should not be upper-clamped");
+        assert_eq!(safe_pct_like(-3.0), -3.0, "negatives also pass for non-% helper");
+    }
+
+    // ====================================================================
+    // R2-P1-3 (ultrathink Round 2, 2026-05-28): SVG <title> 要素追加 (a11y)
+    //
+    // build_navy_pyramid_svg / build_navy_pyramid_svg_mini /
+    // build_navy_salary_scatter_svg の 3 関数で <title>...</title> を含むことを確認
+    // ====================================================================
+
+    #[test]
+    fn build_navy_pyramid_svg_contains_title_element_for_a11y() {
+        let bands = vec![
+            ("20-29".to_string(), 1000i64, 950i64),
+            ("30-39".to_string(), 1100i64, 1050i64),
+        ];
+        let svg = build_navy_pyramid_svg(&bands);
+        assert!(
+            svg.contains("<title>年齢階級別 人口ピラミッド</title>"),
+            "expected <title> element in build_navy_pyramid_svg: {}",
+            &svg[..svg.len().min(400)]
+        );
+    }
+
+    #[test]
+    fn build_navy_pyramid_svg_mini_contains_title_element_for_a11y() {
+        let bands = vec![
+            ("20-29".to_string(), 100i64, 95i64),
+            ("30-39".to_string(), 110i64, 105i64),
+        ];
+        let svg = build_navy_pyramid_svg_mini(&bands);
+        assert!(
+            svg.contains("<title>市区町村別 人口ピラミッド (年齢階級別 男女別 人口)</title>"),
+            "expected <title> element in build_navy_pyramid_svg_mini: {}",
+            &svg[..svg.len().min(400)]
+        );
+    }
+
+    #[test]
+    fn build_navy_salary_scatter_svg_contains_title_element_for_a11y() {
+        let pairs = vec![(200_000.0, 300_000.0)];
+        let svg = build_navy_salary_scatter_svg(&pairs);
+        assert!(
+            svg.contains("<title>給与レンジ 散布図 (下限給与 × 上限給与)</title>"),
+            "expected <title> element in build_navy_salary_scatter_svg: {}",
+            &svg[..svg.len().min(400)]
+        );
+    }
+
+    // ====================================================================
+    // R2-P1-4 (ultrathink Round 2, 2026-05-28): 表 scope="col" 追加 (a11y)
+    //
+    // build_navy_csv_company_salary_table / build_navy_notable_companies_block /
+    // build_distribution_table の列ヘッダに scope="col" が付与されることを確認。
+    // ====================================================================
+
+    #[test]
+    fn build_navy_csv_company_salary_table_th_has_scope_col() {
+        let ranking = vec![make_csv_company("テスト病院", 3, 22.0, 32.0)];
+        let s = build_navy_csv_company_salary_table(&ranking, 10);
+        // 全 th に scope="col" が付与されているか (列ヘッダのみ存在する table)
+        // <th スペース付きで grep → <thead> 等を誤カウントしない
+        let th_count = s.matches("<th ").count();
+        let scoped_count = s.matches("scope=\"col\"").count();
+        assert!(
+            th_count > 0 && th_count == scoped_count,
+            "all <th> should have scope=\"col\": th={}, scoped={}",
+            th_count,
+            scoped_count
+        );
+    }
+
+    #[test]
+    fn build_navy_notable_companies_block_th_has_scope_col() {
+        let ranking = vec![
+            make_csv_company("A", 10, 25.0, 50.0),
+            make_csv_company("B", 8, 23.0, 45.0),
+        ];
+        let s = build_navy_notable_companies_block(&ranking, 5);
+        // <th スペース付きで grep → <thead> 等を誤カウントしない
+        let th_count = s.matches("<th ").count();
+        let scoped_count = s.matches("scope=\"col\"").count();
+        assert!(
+            th_count > 0 && th_count == scoped_count,
+            "all <th> should have scope=\"col\": th={}, scoped={}",
+            th_count,
+            scoped_count
+        );
+    }
+
+    #[test]
+    fn build_distribution_table_th_has_scope_col() {
+        let distribution = vec![
+            ("〜29歳".to_string(), 100i64),
+            ("30〜44歳".to_string(), 200i64),
+        ];
+        let s = build_distribution_table(&distribution, "年齢制限ラベル");
+        // <th スペース付きで grep → <thead> 等を誤カウントしない
+        let th_count = s.matches("<th ").count();
+        let scoped_count = s.matches("scope=\"col\"").count();
+        assert!(
+            th_count > 0 && th_count == scoped_count,
+            "all <th> should have scope=\"col\": th={}, scoped={}",
+            th_count,
+            scoped_count
+        );
+        // ヘッダラベルは引数として渡される (escape_html 通過後)
+        assert!(s.contains("年齢制限ラベル"));
+    }
+
+    // ====================================================================
+    // R2-P1-6 (ultrathink Round 2, 2026-05-28):
+    //   salary_target_distribution / age_range_distribution /
+    //   employment_type_distribution の全カウントが 0 の場合、
+    //   `max_by_key` last-wins の誤ラベルを KPI に表示しないことを確認。
+    //
+    // 直接 render_navy_section_06_posting_target を呼出して KPI HTML 出力を検査。
+    // ====================================================================
+
+    #[test]
+    fn render_navy_section_06_posting_target_all_zero_distribution_kpi_dash() {
+        use crate::handlers::analysis::fetch::PostingTargetProfile;
+
+        // 全 distribution が count == 0 のとき
+        let pt = PostingTargetProfile {
+            total_postings: 0,
+            age_range_distribution: vec![
+                ("〜29歳".to_string(), 0i64),
+                ("30〜44歳".to_string(), 0i64),
+                ("45〜64歳".to_string(), 0i64),
+            ],
+            salary_target_distribution: vec![
+                ("20〜25万".to_string(), 0i64),
+                ("25〜30万".to_string(), 0i64),
+                ("〜20万".to_string(), 0i64), // 最後のラベル (max_by_key last-wins で誤選択されうる)
+            ],
+            experience_required_distribution: vec![
+                ("経験不問 (実質)".to_string(), 0i64),
+                ("経験記載あり".to_string(), 0i64),
+            ],
+            employment_type_distribution: vec![
+                ("正社員".to_string(), 0i64),
+                ("パート".to_string(), 0i64),
+            ],
+        };
+        let mut html = String::new();
+        render_navy_section_06_posting_target(&mut html, &pt);
+
+        // 全 count == 0 → KPI は「—」(em dash) になるべき
+        // 旧バグでは last-wins により "〜20万" 等が表示されていた。
+        assert!(
+            !html.contains("〜20万"),
+            "salary KPI should not show last-wins label when all counts are 0: {}",
+            &html[..html.len().min(1500)]
+        );
+        // age も同様: 「45〜64歳」が last-wins されないこと
+        // (ただし、後段の table 6-G で同ラベルがレンダリングされる可能性はあるため、
+        // ここでは KPI 部分だけを抽出して検査するのは複雑。代替として、
+        // 主要 KPI 直後の neu フッタにある「件数 0」確認で代替する。)
+        // 「— ... 0 件」のパターンが (age, salary, emp) 3 回出ているはず
+        let dash_kpi_count = html.matches("—").count();
+        assert!(
+            dash_kpi_count >= 3,
+            "expected at least 3 '—' KPI labels for age/salary/emp: got {}",
+            dash_kpi_count
+        );
+    }
+
+    #[test]
+    fn render_navy_section_06_posting_target_partial_zero_picks_non_zero() {
+        use crate::handlers::analysis::fetch::PostingTargetProfile;
+
+        // age は count > 0、salary は全 0 のケース → age は正常、salary のみ「—」
+        let pt = PostingTargetProfile {
+            total_postings: 100,
+            age_range_distribution: vec![
+                ("30〜44歳".to_string(), 50i64),
+                ("45〜64歳".to_string(), 30i64),
+            ],
+            salary_target_distribution: vec![
+                ("20〜25万".to_string(), 0i64),
+                ("〜20万".to_string(), 0i64),
+            ],
+            experience_required_distribution: vec![
+                ("経験不問 (実質)".to_string(), 80i64),
+                ("経験記載あり".to_string(), 20i64),
+            ],
+            employment_type_distribution: vec![
+                ("正社員".to_string(), 70i64),
+                ("パート".to_string(), 30i64),
+            ],
+        };
+        let mut html = String::new();
+        render_navy_section_06_posting_target(&mut html, &pt);
+
+        // age 主要層は count > 0 のものから選ばれる
+        assert!(
+            html.contains("30〜44歳"),
+            "age KPI should show '30〜44歳' (count=50, top): {}",
+            &html[..html.len().min(800)]
+        );
+        // salary は全 0 なので「—」 (em dash) になる
+        // "〜20万" が KPI 部分に出ていないことを確認 (table 6-H の row には出ても OK)
+        // 確実な判定として、KPI label 直後に "— ... 0 件 (月給記載のみ)" が含まれることをチェック。
+        assert!(
+            html.contains("0 件 (月給記載のみ)"),
+            "salary KPI footer should indicate 0 件: {}",
+            &html[..html.len().min(2000)]
+        );
     }
 }
