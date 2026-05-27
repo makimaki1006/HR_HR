@@ -66,6 +66,7 @@ fn mock_empty_insight_ctx() -> InsightContext {
         ext_turnover: vec![],
         ext_population: vec![],
         ext_pyramid: vec![],
+        muni_pyramids: vec![],
         ext_migration: vec![],
         ext_daytime_pop: vec![],
         ext_establishments: vec![],

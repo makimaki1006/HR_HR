@@ -56,8 +56,8 @@ pub(crate) use subtab5_phase4::{
     fetch_daytime_population, fetch_establishments, fetch_household_spending,
     fetch_job_openings_ratio, fetch_labor_stats, fetch_migration_data, fetch_minimum_wage,
     fetch_population_data, fetch_population_pyramid, fetch_prefecture_stats,
-    fetch_region_benchmark, fetch_region_benchmarks_for_prefs, fetch_turnover,
-    fetch_wage_compliance,
+    fetch_region_benchmark, fetch_region_benchmarks_for_prefs, fetch_top_muni_names,
+    fetch_turnover, fetch_wage_compliance,
 };
 pub(crate) use subtab5_phase4_7::{
     fetch_boj_tankan, fetch_car_ownership, fetch_education, fetch_foreign_residents,
