@@ -8,10 +8,47 @@ use super::super::trend::fetch as tf;
 type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 
+/// `build_insight_context` G3 (ローカル SQLite) thread の戻り値。
+///
+/// Ext-2 (2026-05-28): 15 要素タプルから struct 化。要素追加時のエラーメッセージが
+/// 「expected 15-tuple, got 14-tuple」で分かりづらく、unpack 順の事故も起きやすかった
+/// (Round 1 P2-5)。struct field 名で参照可能にし、`#[derive(Default)]` で panic fallback も
+/// 簡潔に書ける ("`LocalBundleData::default()`" 一文で代替)。
+///
+/// 不変条件: 各 fetch_* が失敗 (panic) しても、`Default::default()` で `total_postings == 0` の
+/// `PostingTargetProfile` が返り、`InsightContext::posting_target` が None にダウングレード
+/// される (build_insight_context 内で `.total_postings > 0` ガード)。
+#[derive(Default, Debug, Clone)]
+struct LocalBundleData {
+    pub vacancy: Vec<Row>,
+    pub resilience: Vec<Row>,
+    pub transparency: Vec<Row>,
+    pub temperature: Vec<Row>,
+    pub competition: Vec<Row>,
+    pub cascade: Vec<Row>,
+    pub salary_comp: Vec<Row>,
+    pub monopsony: Vec<Row>,
+    pub spatial_mismatch: Vec<Row>,
+    pub wage_compliance: Vec<Row>,
+    pub region_benchmark: Vec<Row>,
+    pub text_quality: Vec<Row>,
+    /// P2-1 (2026-05-28): postings から最大 1000 件取得した給与レンジ各点 (Section 03 図 3-6 散布図用)
+    pub salary_scatter_pairs: Vec<(f64, f64)>,
+    /// P2-2 (2026-05-28): facility 別 給与中央値ランキング (上位 30 社、Section 05 表 5-G / 5-H 用)
+    pub csv_company_ranking: Vec<af::CsvCompanySalary>,
+    /// P2-3 (2026-05-28): 求人ターゲット プロファイル (Section 06 図 6-3 用)。
+    /// `total_postings == 0` のときは表示側で skip される。
+    pub posting_target: af::PostingTargetProfile,
+}
+
 /// 市区町村別ピラミッド（P1-5 Section 06 拡張で利用）
 ///
 /// 上位 N 市区町村ごとに当該 muni の年齢階級別 男女別 人口を保持。
 /// 用途: navy_report.rs `render_navy_section_06_demographics` の図 6-2b。
+///
+/// Ext-1 (2026-05-28): `#[derive(Default)]` 追加。`InsightContext::default()` の
+/// 連鎖呼び出しを可能にし、テスト fixture / 新フィールド追加時の更新コストを最小化する。
+#[derive(Default, Debug, Clone)]
 pub struct MuniPyramid {
     pub muni_name: String,
     /// `v2_external_population_pyramid` の row そのまま (age_group / male_count / female_count)
@@ -19,6 +56,18 @@ pub struct MuniPyramid {
 }
 
 /// 示唆エンジンへの統一入力
+///
+/// Ext-1 (2026-05-28): `#[derive(Default)]` 追加。
+/// - 目的: テスト fixture / 新フィールド追加時に `..Default::default()` で省略可能にする。
+/// - 既存の `InsightContext { ... }` 構文記述 (14+ fixture) は **そのまま動作する** (壊さない)。
+/// - 内包する全フィールドは Default を持つ:
+///   - `Vec<T>` / `Option<T>` / `String` / 数値型 / `bool` は標準 Default
+///   - 自作 struct (`MuniPyramid`, `af::PostingTargetProfile`, `af::CsvCompanySalary`,
+///     `flow_context::FlowIndicators`) は個別に Default 派生済み (Ext-1 で追加)
+/// - 不変条件: `InsightContext::default()` を呼ぶと `pref = ""`, `muni = ""`,
+///   各 `Vec` は空, 各 `Option` は `None`。`build_insight_context` の戻り値とは
+///   セマンティクスが異なる (本物の fetch 結果ではなく、表示側で「データなし」を期待する状態)。
+#[derive(Default)]
 pub struct InsightContext {
     // === ローカルSQLite ===
     pub vacancy: Vec<Row>,
@@ -157,18 +206,13 @@ pub(crate) fn build_insight_context(
     // === 並列フェッチ (8 グループ) ===
     // 各 thread は db (LocalDb) / turso (TursoDb) を `&` borrow で共有 (Arc 内部のため安全)。
     // 戻り値型を tuple で明示しないと型推論が複雑になるので、グループ毎に明示する。
+    //
+    // Ext-2 (2026-05-28): G3 (ローカル SQLite) は 15 要素タプルから `LocalBundleData` struct へ移行。
+    //   - 理由: 要素追加時のエラー (「expected 14-tuple, got 15-tuple」) が分かりづらく、
+    //     unpack 順の事故も起きやすい。struct 化で field 名で参照可能にする。
+    //   - `#[derive(Default)]` で panic fallback も `LocalBundleData::default()` 一文で書ける。
     type TsBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
     type ExtTsBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
-    type LocalBundle = (
-        Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
-        Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>,
-        // P2-1 (2026-05-28): salary_scatter_pairs (postings から最大 1000 件)
-        Vec<(f64, f64)>,
-        // P2-2 (2026-05-28): csv_company_ranking (postings facility 別 給与中央値 上位 30 社)
-        Vec<af::CsvCompanySalary>,
-        // P2-3 (2026-05-28): posting_target (postings 募集条件分布、Section 06 図 6-3)
-        af::PostingTargetProfile,
-    );
     // PopBundle 末尾要素は P1-5 Section 06 拡張で追加した「上位 3 市区町村のピラミッド」
     type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<MuniPyramid>);
     type EstBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
@@ -221,24 +265,27 @@ pub(crate) fn build_insight_context(
         //   postings 直接 SELECT で他 fetch と同じ LocalDb 内クエリ。limit 30 で 数十ms程度。
         // 2026-05-28 P2-3: fetch_posting_target_profile を追加 (Section 06 図 6-3 求人ターゲット用)。
         //   postings 1 回 SELECT + Rust 側集計、limit なしだが age/salary/exp/emp の各列のみで軽量。
-        let h_local = s.spawn(|| -> LocalBundle {
-            (
-                af::fetch_vacancy_data(db, pref, muni),
-                af::fetch_resilience_data(db, pref, muni),
-                af::fetch_transparency_data(db, pref, muni),
-                af::fetch_temperature_data(db, pref, muni),
-                af::fetch_competition_data(db, pref),
-                af::fetch_cascade_data(db, pref, muni),
-                af::fetch_salary_competitiveness(db, pref, muni),
-                af::fetch_monopsony_data(db, pref, muni),
-                af::fetch_spatial_mismatch(db, pref, muni),
-                af::fetch_wage_compliance(db, pref, muni),
-                af::fetch_region_benchmark(db, pref, muni),
-                af::fetch_text_quality(db, pref, muni),
-                af::fetch_salary_scatter_pairs(db, pref, muni, 1000),
-                af::fetch_csv_company_salary_ranking(db, pref, muni, 30),
-                af::fetch_posting_target_profile(db, pref, muni),
-            )
+        //
+        // Ext-2 (2026-05-28): 戻り値を `LocalBundleData` struct に変更。
+        //   要素追加時に field 名で参照可能になり、unpack 順の事故 (Round 1 P2-5) を防ぐ。
+        let h_local = s.spawn(|| -> LocalBundleData {
+            LocalBundleData {
+                vacancy: af::fetch_vacancy_data(db, pref, muni),
+                resilience: af::fetch_resilience_data(db, pref, muni),
+                transparency: af::fetch_transparency_data(db, pref, muni),
+                temperature: af::fetch_temperature_data(db, pref, muni),
+                competition: af::fetch_competition_data(db, pref),
+                cascade: af::fetch_cascade_data(db, pref, muni),
+                salary_comp: af::fetch_salary_competitiveness(db, pref, muni),
+                monopsony: af::fetch_monopsony_data(db, pref, muni),
+                spatial_mismatch: af::fetch_spatial_mismatch(db, pref, muni),
+                wage_compliance: af::fetch_wage_compliance(db, pref, muni),
+                region_benchmark: af::fetch_region_benchmark(db, pref, muni),
+                text_quality: af::fetch_text_quality(db, pref, muni),
+                salary_scatter_pairs: af::fetch_salary_scatter_pairs(db, pref, muni, 1000),
+                csv_company_ranking: af::fetch_csv_company_salary_ranking(db, pref, muni, 30),
+                posting_target: af::fetch_posting_target_profile(db, pref, muni),
+            }
         });
 
         // G4: Turso 人口・移動 (4 fetches + P1-5 muni 別ピラミッド)
@@ -342,16 +389,9 @@ pub(crate) fn build_insight_context(
         });
         let local = h_local.join().unwrap_or_else(|e| {
             tracing::warn!(?e, "build_insight_context G3 (local) thread panicked, using empty defaults");
-            (
-                vec![], vec![], vec![], vec![], vec![], vec![],
-                vec![], vec![], vec![], vec![], vec![], vec![],
-                // P2-1: salary_scatter_pairs (空 Vec で fallback)
-                Vec::<(f64, f64)>::new(),
-                // P2-2: csv_company_ranking (空 Vec で fallback)
-                Vec::<af::CsvCompanySalary>::new(),
-                // P2-3: posting_target (default profile で fallback、表示側で total_postings==0 を skip 判定)
-                af::PostingTargetProfile::default(),
-            )
+            // Ext-2 (2026-05-28): 15 要素 tuple リテラル → `LocalBundleData::default()`。
+            // 新規フィールド追加時に panic fallback の更新を忘れにくくする。
+            LocalBundleData::default()
         });
         let pop = h_pop.join().unwrap_or_else(|e| {
             tracing::warn!(?e, "build_insight_context G4 (pop) thread panicked, using empty defaults");
@@ -380,7 +420,10 @@ pub(crate) fn build_insight_context(
     // unpack
     let (ts_counts, ts_vacancy, ts_salary, ts_fulfillment, ts_tracking) = ts_bundle;
     let (ext_job_ratio, ext_labor_stats, ext_min_wage_ts, ext_turnover_ts) = ext_ts_bundle;
-    let (
+    // Ext-2 (2026-05-28): 15 要素 tuple unpack → struct destructuring。field 名で参照可能になり
+    // 順序依存の事故が起きない (Round 1 P2-5 対応)。`posting_target_profile` のローカル名は
+    // 「Option 化前」の値であることを明示するため変数名を保持。
+    let LocalBundleData {
         vacancy,
         resilience,
         transparency,
@@ -395,8 +438,8 @@ pub(crate) fn build_insight_context(
         text_quality,
         salary_scatter_pairs,
         csv_company_ranking,
-        posting_target_profile,
-    ) = local_bundle;
+        posting_target: posting_target_profile,
+    } = local_bundle;
     let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop, muni_pyramids) = pop_bundle;
     let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
         est_bundle;
