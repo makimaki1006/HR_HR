@@ -361,15 +361,22 @@ pub(super) fn render_navy_executive(
     );
     html.push_str("</div>\n");
 
-    // -- findings (KEY FINDINGS, 最大 5 件)
-    let findings = build_findings(agg, total, k3_pct, new_pct, salary_parse_pct);
-    html.push_str(
+    // -- findings (KEY FINDINGS, 最大 7 件)
+    // P1-6 (2026-05-28): hw_context 経由で業界/職種偏り Finding 2 件を追加可能。
+    // hw_context=None (CSV 単体モード等) の場合は従来通り 4 件のみ。
+    let findings = build_findings(agg, total, k3_pct, new_pct, salary_parse_pct, hw_context);
+    // P1-6: hw_context 有無で件数 4 / 6 と動的に変わるため、固定文言ではなく実数を表示。
+    // ※既存 findings は (1)サンプル件数 (2)雇用形態 (3)新着比率 (5)地域カバレッジ の 4 件
+    //   (旧 #4 給与解析率は 2026-05-14 撤去済み)。
+    let findings_title = format!("優先確認 {} ポイント", findings.len());
+    html.push_str(&format!(
         "<div class=\"findings\">\n\
          <div class=\"findings-head\">\
          <div class=\"fh-no\">KEY FINDINGS</div>\
-         <div class=\"fh-title\">優先確認 5 ポイント</div>\
+         <div class=\"fh-title\">{}</div>\
          </div>\n",
-    );
+        escape_html(&findings_title),
+    ));
     html.push_str("<ol class=\"findings-list\">\n");
     for (i, (sev_tag, title, body, refer)) in findings.iter().enumerate() {
         let no = format!("{:02}", i + 1);
@@ -419,6 +426,7 @@ fn build_findings(
     dom_emp_pct: f64,
     new_pct: i64,
     salary_parse_pct: i64,
+    hw_context: Option<&InsightContext>,
 ) -> Vec<(&'static str, String, String, String)> {
     let mut v: Vec<(&'static str, String, String, String)> = Vec::new();
 
@@ -468,7 +476,119 @@ fn build_findings(
     };
     v.push((sev, "地域カバレッジ".to_string(), body, "§5 地域分析".to_string()));
 
+    // ============================================================
+    // P1-6 (2026-05-28): 極端な分類偏り警告
+    // ------------------------------------------------------------
+    // HW 求人 (postings) の業界/職種分布が単一カテゴリに集中している場合、
+    // データ代表性 (本レポート全体の解釈) に影響する。CSV 単体モードや
+    // HW context が無い場合は Finding 06/07 をスキップ (Finding 数は <=5)。
+    //
+    // 閾値 (compute_skew_severity 参照):
+    //   - max_share > 85% → WARN (顕著)
+    //   - max_share > 70% → NEU  (偏りあり、要注意)
+    //   - それ以下        → POS  (バランス良好)
+    //   - empty / total<=0 → NEU "データなし"
+    //
+    // 用語ガード (DISPLAY_SPEC v1.0 §2): 「件数」「占有率」のみ使用。
+    // 「人数」「target_count」「推定母集団」等は禁止。
+    // ============================================================
+    if let Some(ctx) = hw_context {
+        // Finding 06: 業界 (12 大分類) の偏り
+        let (sev_ind, body_ind) =
+            compute_skew_severity(&ctx.hw_industry_counts, "産業大分類");
+        v.push((
+            sev_ind,
+            "産業構成 偏り".to_string(),
+            escape_html(&body_ind),
+            "§5 産業構成".to_string(),
+        ));
+
+        // Finding 07: 職種 (job_type) の偏り
+        let (sev_job, body_job) =
+            compute_skew_severity(&ctx.hw_job_type_counts, "職種");
+        v.push((
+            sev_job,
+            "職種構成 偏り".to_string(),
+            escape_html(&body_job),
+            "§4 採用市場".to_string(),
+        ));
+    }
+
     v
+}
+
+/// 分類分布 (`(name, count)` 配列) の偏り度を判定して severity tag と説明文を返す。
+///
+/// # Severity (navy_report 内 4 値タグ準拠: pos / warn / neg / neu)
+/// - `max_share > 85.0%` → `"warn"` (顕著な偏り、サンプル代表性 低い)
+/// - `max_share > 70.0%` → `"neu"`  (偏りあり、データ代表性に注意)
+/// - 上記以下           → `"pos"`  (バランス良好)
+/// - `counts.is_empty()` または `total <= 0` → `"neu"` (「{label}データなし」)
+///
+/// # 引数
+/// - `counts`: `(分類名, 件数)` のスライス。順序不問 (内部で `max_by_key` で
+///   top を抽出する)。
+/// - `label`: 主語ラベル。例: `"産業大分類"` / `"職種"`。
+///   生成文字列の先頭 (`{label}偏り 顕著 ...`) に挿入される。
+///
+/// # 戻り値
+/// `(severity_tag, message)` の組。severity_tag は `severity_label` で
+/// "POS"/"WARN"/"NEU" バッジに変換される。message には HTML エスケープが
+/// 必要 (呼出側で `escape_html` を通すこと)。
+///
+/// # silent fallback 監査
+/// `_ => ...` 的な暗黙分岐は無く、`empty` / `total<=0` / 3 段階閾値 (>85 / >70 /
+/// それ以下) の **4 条件全て** を明示的にカバーする。閾値境界は `>` (strict
+/// greater) で統一: 70.0% ちょうどは "pos"、85.0% ちょうどは "neu"。
+///
+/// # 不変条件 (テストで検証)
+/// - `total > 0` のときのみ `max_share = top_count / total * 100.0` を計算
+///   (zero-div 不可)
+/// - `max_share ∈ [0.0, 100.0]` (counts.iter().max() の戻り値 ≤ total)
+/// - `counts.is_empty()` または `total <= 0` の早期 return で NEU 固定
+pub(super) fn compute_skew_severity(
+    counts: &[(String, i64)],
+    label: &str,
+) -> (&'static str, String) {
+    if counts.is_empty() {
+        return ("neu", format!("{}データなし", label));
+    }
+    let total: i64 = counts.iter().map(|(_, c)| *c).sum();
+    if total <= 0 {
+        return ("neu", format!("{}データなし", label));
+    }
+    // unwrap: counts.is_empty() は上で除外済み → max_by_key は必ず Some
+    let (top_label, top_count) = counts
+        .iter()
+        .max_by_key(|(_, c)| *c)
+        .expect("counts.is_empty() guarded above");
+    // top_count >= 0 ∧ total > 0 ∧ top_count <= total ⇒ max_share ∈ [0, 100]
+    let max_share = (*top_count as f64 / total as f64) * 100.0;
+    if max_share > 85.0 {
+        (
+            "warn",
+            format!(
+                "{}偏り 顕著 (上位「{}」{:.1}%、サンプル代表性 低い)",
+                label, top_label, max_share
+            ),
+        )
+    } else if max_share > 70.0 {
+        (
+            "neu",
+            format!(
+                "{}偏りあり (上位「{}」{:.1}%、データ代表性に注意)",
+                label, top_label, max_share
+            ),
+        )
+    } else {
+        (
+            "pos",
+            format!(
+                "{}バランス 良好 (上位「{}」{:.1}%)",
+                label, top_label, max_share
+            ),
+        )
+    }
 }
 
 /// severity tag → 表示用 3 文字英略語ラベル
@@ -5424,5 +5544,148 @@ mod tests {
         assert_eq!(stats.n, 2, "negative / zero are filtered out");
         assert_eq!(stats.min, 200_000);
         assert_eq!(stats.max, 300_000);
+    }
+
+    // ============================================================
+    // P1-6 (2026-05-28): compute_skew_severity 偏り判定境界値テスト
+    // ------------------------------------------------------------
+    // 検証範囲:
+    //   1. 空入力 → NEU "{label}データなし"
+    //   2. total <= 0 → NEU "{label}データなし" (全件 0 や負値)
+    //   3. 単一カテゴリ 100% → WARN 顕著
+    //   4. 上位 75% / 残り 25% → NEU 偏りあり
+    //   5. 上位 50% / 残り 50% → POS バランス良好
+    //   6. 境界値: 70.0% ちょうど → POS (strict >)
+    //              70.01% → NEU
+    //              85.0% ちょうど → NEU (strict >)
+    //              85.01% → WARN
+    // ============================================================
+
+    #[test]
+    fn compute_skew_severity_empty_returns_neu_no_data() {
+        let (sev, msg) = compute_skew_severity(&[], "産業大分類");
+        assert_eq!(sev, "neu");
+        assert_eq!(msg, "産業大分類データなし");
+    }
+
+    #[test]
+    fn compute_skew_severity_total_zero_returns_neu_no_data() {
+        // total <= 0 ガード: 全件 0 の場合
+        let counts = vec![("A".to_string(), 0i64), ("B".to_string(), 0i64)];
+        let (sev, msg) = compute_skew_severity(&counts, "職種");
+        assert_eq!(sev, "neu");
+        assert_eq!(msg, "職種データなし");
+    }
+
+    #[test]
+    fn compute_skew_severity_single_category_returns_warn() {
+        // 1 カテゴリのみ → 100% → WARN
+        let counts = vec![("医療,福祉".to_string(), 1000i64)];
+        let (sev, msg) = compute_skew_severity(&counts, "産業大分類");
+        assert_eq!(sev, "warn", "100% は WARN (> 85%)");
+        assert!(msg.contains("顕著"), "msg={}", msg);
+        assert!(msg.contains("100.0%"), "msg={}", msg);
+        assert!(msg.contains("医療,福祉"), "msg={}", msg);
+        assert!(msg.contains("サンプル代表性"), "msg={}", msg);
+    }
+
+    #[test]
+    fn compute_skew_severity_75_pct_returns_neu_skewed() {
+        // 上位 75% (=750/1000) / 残り 25% → NEU 偏りあり
+        let counts = vec![
+            ("医療,福祉".to_string(), 750i64),
+            ("製造業".to_string(), 250i64),
+        ];
+        let (sev, msg) = compute_skew_severity(&counts, "産業大分類");
+        assert_eq!(sev, "neu", "75% は NEU (70% < 75 <= 85)");
+        assert!(msg.contains("偏りあり"), "msg={}", msg);
+        assert!(msg.contains("75.0%"), "msg={}", msg);
+        assert!(msg.contains("データ代表性に注意"), "msg={}", msg);
+    }
+
+    #[test]
+    fn compute_skew_severity_50_pct_returns_pos_balanced() {
+        // 上位 50% / 残り 50% → POS バランス良好
+        let counts = vec![
+            ("看護師".to_string(), 500i64),
+            ("介護職".to_string(), 500i64),
+        ];
+        let (sev, msg) = compute_skew_severity(&counts, "職種");
+        assert_eq!(sev, "pos", "50% は POS (<= 70%)");
+        assert!(msg.contains("バランス 良好"), "msg={}", msg);
+        assert!(msg.contains("50.0%"), "msg={}", msg);
+    }
+
+    #[test]
+    fn compute_skew_severity_70_pct_exactly_returns_pos() {
+        // 境界: 70.0% ちょうど → POS (strict >)
+        let counts = vec![
+            ("A".to_string(), 700i64),
+            ("B".to_string(), 300i64),
+        ];
+        let (sev, _msg) = compute_skew_severity(&counts, "職種");
+        assert_eq!(sev, "pos", "70.0% ちょうどは POS (strict >)");
+    }
+
+    #[test]
+    fn compute_skew_severity_above_70_pct_returns_neu() {
+        // 境界: 70.01% (701/1000) → NEU
+        let counts = vec![
+            ("A".to_string(), 701i64),
+            ("B".to_string(), 299i64),
+        ];
+        let (sev, msg) = compute_skew_severity(&counts, "職種");
+        assert_eq!(sev, "neu", "70.1% は NEU (> 70%)");
+        assert!(msg.contains("偏りあり"), "msg={}", msg);
+    }
+
+    #[test]
+    fn compute_skew_severity_85_pct_exactly_returns_neu() {
+        // 境界: 85.0% ちょうど → NEU (strict >)
+        let counts = vec![
+            ("A".to_string(), 850i64),
+            ("B".to_string(), 150i64),
+        ];
+        let (sev, _msg) = compute_skew_severity(&counts, "産業大分類");
+        assert_eq!(sev, "neu", "85.0% ちょうどは NEU (strict >)");
+    }
+
+    #[test]
+    fn compute_skew_severity_above_85_pct_returns_warn() {
+        // 境界: 85.01% (851/1000) → WARN
+        let counts = vec![
+            ("A".to_string(), 851i64),
+            ("B".to_string(), 149i64),
+        ];
+        let (sev, msg) = compute_skew_severity(&counts, "産業大分類");
+        assert_eq!(sev, "warn", "85.1% は WARN (> 85%)");
+        assert!(msg.contains("顕著"), "msg={}", msg);
+    }
+
+    #[test]
+    fn compute_skew_severity_max_share_invariant() {
+        // 不変条件: max_share ∈ [0, 100]
+        // 多カテゴリで top が小さい場合も合計に対する比率は正常範囲
+        let counts: Vec<(String, i64)> = (0..10)
+            .map(|i| (format!("cat{}", i), 100i64))
+            .collect();
+        let (sev, msg) = compute_skew_severity(&counts, "職種");
+        // 10 カテゴリ均等 → top=100/total=1000 = 10.0% → POS
+        assert_eq!(sev, "pos");
+        assert!(msg.contains("10.0%"), "msg={}", msg);
+    }
+
+    #[test]
+    fn compute_skew_severity_negative_counts_excluded_from_total() {
+        // 不変条件補足: total = sum (負値含む) なので、負値があると total が縮む。
+        // 設計通り (postings fetch は cnt > 0 を保証するが、関数自体は防御的)。
+        // 負値で total = 0 以下になれば NEU データなし。
+        let counts = vec![
+            ("A".to_string(), -50i64),
+            ("B".to_string(), -50i64),
+        ];
+        let (sev, msg) = compute_skew_severity(&counts, "職種");
+        assert_eq!(sev, "neu", "total <= 0 は NEU データなし");
+        assert_eq!(msg, "職種データなし");
     }
 }

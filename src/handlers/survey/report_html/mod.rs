@@ -1152,6 +1152,7 @@ mod tests {
             ext_education: vec![],
             ext_industry_employees: vec![],
             hw_industry_counts: vec![],
+            hw_job_type_counts: vec![],
             // Impl-3: ライフスタイル
             ext_social_life: vec![],
             ext_internet_usage: vec![],
@@ -3758,6 +3759,7 @@ mod variant_indicator_tests {
             ext_education: vec![],
             ext_industry_employees: rows,
             hw_industry_counts: vec![],
+            hw_job_type_counts: vec![],
             ext_social_life: vec![],
             ext_internet_usage: vec![],
             pref_avg_unemployment_rate: None,

@@ -67,6 +67,8 @@ pub(crate) use subtab5_phase4_7::{
 pub(crate) use subtab5_phase4_7::fetch_industry_structure;
 // fetch_hw_industry_counts: CR-9 産業ミスマッチ警戒 (postings 集計+12大分類マッピング)
 pub(crate) use subtab5_phase4_7::fetch_hw_industry_counts;
+// fetch_hw_job_type_counts: P1-6 極端な分類偏り警告 (postings.job_type 集計)
+pub(crate) use subtab5_phase4_7::fetch_hw_job_type_counts;
 pub(crate) use subtab6::{fetch_fulfillment_summary, fetch_mobility_estimate, fetch_shadow_wage};
 pub(crate) use subtab7_other::{
     fetch_commute_inflow, fetch_commute_outflow, fetch_commute_zone, fetch_commute_zone_pyramid,

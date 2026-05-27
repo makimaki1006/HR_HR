@@ -81,6 +81,12 @@ pub struct InsightContext {
     // HW 求人の産業大分類別件数 (12 大分類にマッピング済み、件数降順)
     // 例: [("医療,福祉", 1200), ("製造業", 800), ...]
     pub hw_industry_counts: Vec<(String, i64)>,
+    // === P1-6 (2026-05-28): 極端な分類偏り警告 ===
+    // HW 求人の職種 (postings.job_type) 別件数 (件数降順、上位 30 件)
+    // 例: [("看護師", 1200), ("介護職", 800), ...]
+    // navy_report.rs Section 01 Exec Summary の Finding 07 (職種偏り) で利用。
+    // populate 場所: survey/handlers.rs の HW context build (industry_counts と同タイミング)
+    pub hw_job_type_counts: Vec<(String, i64)>,
     // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
     pub pref_avg_unemployment_rate: Option<f64>,
     pub pref_avg_single_rate: Option<f64>,
@@ -411,6 +417,10 @@ pub(crate) fn build_insight_context(
         //     CR-9 用データは survey_report_html ハンドラ側で別途フェッチして上書きする。
         ext_industry_employees: vec![],
         hw_industry_counts: vec![],
+        // P1-6 (2026-05-28): build_insight_context では空初期化のみ。
+        // 実データの populate は survey/handlers.rs の HW context build 時に行う
+        // (CR-9 hw_industry_counts と同じ理由: integrate エンドポイントのタイムアウト回避)
+        hw_job_type_counts: vec![],
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate,
         pref_avg_single_rate,

@@ -661,6 +661,7 @@ mod tests {
             ext_education: vec![],
             ext_industry_employees: vec![],
             hw_industry_counts: vec![],
+            hw_job_type_counts: vec![],
             // Phase A: 県平均
             pref_avg_unemployment_rate: None,
             pref_avg_single_rate: None,

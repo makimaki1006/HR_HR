@@ -98,6 +98,7 @@ impl Ctx {
                 ext_education: vec![],
                 ext_industry_employees: vec![],
                 hw_industry_counts: vec![],
+                hw_job_type_counts: vec![],
                 pref_avg_unemployment_rate: None,
                 pref_avg_single_rate: None,
                 pref_avg_physicians_per_10k: None,
