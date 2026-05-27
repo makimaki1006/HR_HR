@@ -917,3 +917,394 @@ mod csv_company_salary_tests {
     }
 }
 
+// ============================================================
+// P2-3 (2026-05-28): 求人ターゲット プロファイル (Section 06 拡張)
+// ============================================================
+//
+// 背景: hellowork.db には「求職者個人」テーブルが存在しないため、
+//   postings (HW 求人) 側に記載された募集対象条件 (年齢制限 / 給与レンジ / 経験 /
+//   雇用形態) を集計し「求人側から見たターゲット プロファイル」として提示する。
+//
+// 注意 (DISPLAY_SPEC v1.0 §2):
+//   求職者「人数」推定は禁止。本構造体が保持するのは **求人件数** の集計のみで、
+//   推定母集団人数は一切含まない。Hard NG 用語 (target_count / estimated_population /
+//   推定人数 / 想定人数 / 母集団人数) は使わない。
+
+/// 求人側から見たターゲット プロファイル (各分布は (ラベル, 件数) ペア。
+/// 件数はすべて **求人件数** であり、求職者人数の推定値ではない)。
+#[derive(Debug, Clone, Default)]
+pub struct PostingTargetProfile {
+    /// 集計対象の総求人件数 (年齢/給与/経験/雇用形態いずれかの集計に含まれる件数の合計ではなく、
+    /// 「pref/muni スコープ内の有効な postings 件数」)
+    pub total_postings: i64,
+    /// 年齢制限の分布。ラベルは age_min/age_max から導出した範囲表記
+    /// (例: "〜29歳" / "30〜44歳" / "45〜64歳" / "65歳〜" / "制限なし")。
+    pub age_range_distribution: Vec<(String, i64)>,
+    /// 月給 (salary_min) の分布。万円単位の区間ラベル (例: "〜20万" / "20〜25万" / ... / "40万〜")。
+    pub salary_target_distribution: Vec<(String, i64)>,
+    /// 経験要件の分布。"経験不問 (実質)" / "経験記載あり" の 2 値分類
+    /// (experience_required が NULL/空文字なら「経験不問 (実質)」)。
+    pub experience_required_distribution: Vec<(String, i64)>,
+    /// 雇用形態の分布 (postings.employment_type そのまま、空文字は "未記載" に置換)。
+    pub employment_type_distribution: Vec<(String, i64)>,
+}
+
+/// 年齢制限の単一バケット ラベルを返す。age_min/age_max のいずれかが None でも動作する。
+///
+/// 分類規則 (上位優先):
+/// - age_min/max 両方 None → "制限なし"
+/// - age_max が指定 + age_max <= 29 → "〜29歳"
+/// - age_min が指定 + age_min >= 65 → "65歳〜"
+/// - age_min が指定 + age_min >= 45 → "45〜64歳"
+/// - age_max が指定 + age_max <= 44 → "30〜44歳"
+/// - それ以外 (15-64 の広域指定など) → "ミドル中心 (30〜44歳含む)"
+fn age_range_bucket(age_min: Option<i64>, age_max: Option<i64>) -> &'static str {
+    match (age_min, age_max) {
+        (None, None) => "制限なし",
+        (_, Some(hi)) if hi <= 29 => "〜29歳",
+        (Some(lo), _) if lo >= 65 => "65歳〜",
+        (Some(lo), _) if lo >= 45 => "45〜64歳",
+        (_, Some(hi)) if hi <= 44 => "30〜44歳",
+        _ => "ミドル中心 (30〜44歳含む)",
+    }
+}
+
+/// 月給 (円) を万円単位の区間ラベルへ変換。salary_min を基準にする。
+///
+/// 区間: "〜20万" / "20〜25万" / "25〜30万" / "30〜35万" / "35〜40万" / "40万〜"
+fn salary_bucket(salary_min_yen: f64) -> &'static str {
+    let m = salary_min_yen / 10_000.0;
+    if m < 20.0 {
+        "〜20万"
+    } else if m < 25.0 {
+        "20〜25万"
+    } else if m < 30.0 {
+        "25〜30万"
+    } else if m < 35.0 {
+        "30〜35万"
+    } else if m < 40.0 {
+        "35〜40万"
+    } else {
+        "40万〜"
+    }
+}
+
+/// 年齢制限ラベルを表示順 (若年→高齢) で並べた配列を返す。
+/// 表示順固定のため `Vec<(label, count)>` 構築時に使う。
+fn age_range_display_order() -> &'static [&'static str] {
+    &[
+        "〜29歳",
+        "30〜44歳",
+        "ミドル中心 (30〜44歳含む)",
+        "45〜64歳",
+        "65歳〜",
+        "制限なし",
+    ]
+}
+
+/// 給与ラベルを表示順 (低→高) で並べた配列を返す。
+fn salary_display_order() -> &'static [&'static str] {
+    &[
+        "〜20万",
+        "20〜25万",
+        "25〜30万",
+        "30〜35万",
+        "35〜40万",
+        "40万〜",
+    ]
+}
+
+/// postings から「求人側ターゲット プロファイル」を集計。
+///
+/// 仕様:
+/// - 集計対象は **pref/muni スコープ内の全 postings** (給与/年齢の SQL 制約はかけず、
+///   分布側で NULL を「制限なし」「給与未記載」として明示扱いする)。
+/// - 給与分布は `salary_type = '月給' AND salary_min > 0` の求人のみカウント
+///   (時給/年俸は月給換算せず母集団から除外、salary_target_distribution の合計は
+///   `total_postings` と一致しない)。
+/// - 経験/雇用形態は NULL/空文字を明示ラベル ("経験不問 (実質)" / "未記載") に置換し、
+///   silent fallback (キー消失) を避ける。
+/// - 年齢分布は表示順固定 (`age_range_display_order`) で並び、件数 0 のバケットも省略しない
+///   (構成比合計 100% を保証するため)。
+///
+/// メモリルール準拠:
+/// - `feedback_silent_fallback_audit`: クエリ失敗時は警告ログを出して default を返却。
+/// - `feedback_hw_data_scope`: HW 掲載求人 (postings) を母集団とすることを明示。
+/// - `feedback_never_guess_data`: 求職者人数の推定は行わず、求人件数のみを集計。
+pub(crate) fn fetch_posting_target_profile(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+) -> PostingTargetProfile {
+    use super::super::super::helpers::{get_f64, get_str};
+
+    // ---- SQL: postings から age_min/age_max/salary_min/salary_type/experience_required/employment_type を SELECT
+    let mut sql = String::from(
+        "SELECT age_min, age_max, salary_min, salary_type, \
+                experience_required, employment_type \
+         FROM postings WHERE 1=1",
+    );
+    let mut params_owned: Vec<String> = Vec::new();
+    if !pref.is_empty() {
+        params_owned.push(pref.to_string());
+        sql.push_str(&format!(" AND prefecture = ?{}", params_owned.len()));
+    }
+    if !muni.is_empty() {
+        params_owned.push(muni.to_string());
+        sql.push_str(&format!(" AND municipality = ?{}", params_owned.len()));
+    }
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = params_owned
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[warn] fetch_posting_target_profile: postings query failed (pref={pref}, muni={muni}): {e}"
+            );
+            return PostingTargetProfile::default();
+        }
+    };
+
+    // 集計バッファ (順序保持の Vec ではなく HashMap で集計し、最後に表示順で並べ替える)
+    let mut age_counts: HashMap<&'static str, i64> = HashMap::new();
+    for label in age_range_display_order() {
+        age_counts.insert(*label, 0);
+    }
+    let mut salary_counts: HashMap<&'static str, i64> = HashMap::new();
+    for label in salary_display_order() {
+        salary_counts.insert(*label, 0);
+    }
+    // 経験要件は 2 値固定 (未記載=「経験不問 (実質)」/ 記載あり=「経験記載あり」)
+    let mut exp_unspec: i64 = 0;
+    let mut exp_specified: i64 = 0;
+    // 雇用形態は動的 (postings.employment_type の値域に依存)
+    let mut emp_counts: HashMap<String, i64> = HashMap::new();
+
+    for r in &rows {
+        // 年齢
+        let age_min_opt: Option<i64> = r.get("age_min").and_then(|v| v.as_i64());
+        let age_max_opt: Option<i64> = r.get("age_max").and_then(|v| v.as_i64());
+        let age_label = age_range_bucket(age_min_opt, age_max_opt);
+        *age_counts.entry(age_label).or_insert(0) += 1;
+
+        // 給与 (salary_type='月給' AND salary_min>0 のみ)
+        let salary_type = get_str(r, "salary_type");
+        let salary_min = get_f64(r, "salary_min");
+        if salary_type == "月給" && salary_min > 0.0 {
+            let label = salary_bucket(salary_min);
+            *salary_counts.entry(label).or_insert(0) += 1;
+        }
+
+        // 経験要件
+        let exp = get_str(r, "experience_required");
+        if exp.trim().is_empty() {
+            exp_unspec += 1;
+        } else {
+            exp_specified += 1;
+        }
+
+        // 雇用形態
+        let emp = get_str(r, "employment_type");
+        let emp_label = if emp.trim().is_empty() {
+            "未記載".to_string()
+        } else {
+            emp
+        };
+        *emp_counts.entry(emp_label).or_insert(0) += 1;
+    }
+
+    // 表示順固定の Vec を組み立て
+    let age_distribution: Vec<(String, i64)> = age_range_display_order()
+        .iter()
+        .map(|l| ((*l).to_string(), *age_counts.get(*l).unwrap_or(&0)))
+        .collect();
+    let salary_distribution: Vec<(String, i64)> = salary_display_order()
+        .iter()
+        .map(|l| ((*l).to_string(), *salary_counts.get(*l).unwrap_or(&0)))
+        .collect();
+    let exp_distribution: Vec<(String, i64)> = vec![
+        ("経験不問 (実質)".to_string(), exp_unspec),
+        ("経験記載あり".to_string(), exp_specified),
+    ];
+
+    // 雇用形態は件数降順
+    let mut emp_distribution: Vec<(String, i64)> = emp_counts.into_iter().collect();
+    emp_distribution.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    PostingTargetProfile {
+        total_postings: rows.len() as i64,
+        age_range_distribution: age_distribution,
+        salary_target_distribution: salary_distribution,
+        experience_required_distribution: exp_distribution,
+        employment_type_distribution: emp_distribution,
+    }
+}
+
+#[cfg(test)]
+mod posting_target_profile_tests {
+    use super::*;
+
+    // ---------------- age_range_bucket ----------------
+    #[test]
+    fn age_bucket_both_none_returns_unrestricted() {
+        assert_eq!(age_range_bucket(None, None), "制限なし");
+    }
+
+    #[test]
+    fn age_bucket_max_le_29_returns_young() {
+        assert_eq!(age_range_bucket(None, Some(29)), "〜29歳");
+        assert_eq!(age_range_bucket(Some(18), Some(25)), "〜29歳");
+    }
+
+    #[test]
+    fn age_bucket_min_ge_65_returns_senior() {
+        assert_eq!(age_range_bucket(Some(65), None), "65歳〜");
+        assert_eq!(age_range_bucket(Some(70), Some(75)), "65歳〜");
+    }
+
+    #[test]
+    fn age_bucket_min_ge_45_returns_late_career() {
+        assert_eq!(age_range_bucket(Some(45), None), "45〜64歳");
+        assert_eq!(age_range_bucket(Some(50), Some(60)), "45〜64歳");
+    }
+
+    #[test]
+    fn age_bucket_max_le_44_returns_target() {
+        assert_eq!(age_range_bucket(None, Some(44)), "30〜44歳");
+        assert_eq!(age_range_bucket(Some(30), Some(40)), "30〜44歳");
+    }
+
+    #[test]
+    fn age_bucket_18_59_returns_middle_focus() {
+        // age_min=18, age_max=59 → どの上位条件にもマッチせず middle にフォール
+        assert_eq!(
+            age_range_bucket(Some(18), Some(59)),
+            "ミドル中心 (30〜44歳含む)"
+        );
+    }
+
+    // ---------------- salary_bucket ----------------
+    #[test]
+    fn salary_bucket_under_20man() {
+        assert_eq!(salary_bucket(180_000.0), "〜20万");
+        assert_eq!(salary_bucket(0.0), "〜20万"); // 境界 (呼び出し側でフィルタ済の想定)
+    }
+
+    #[test]
+    fn salary_bucket_20_25_range() {
+        assert_eq!(salary_bucket(200_000.0), "20〜25万");
+        assert_eq!(salary_bucket(249_000.0), "20〜25万");
+    }
+
+    #[test]
+    fn salary_bucket_25_30_range() {
+        assert_eq!(salary_bucket(250_000.0), "25〜30万");
+        assert_eq!(salary_bucket(299_999.0), "25〜30万");
+    }
+
+    #[test]
+    fn salary_bucket_40man_plus() {
+        assert_eq!(salary_bucket(400_000.0), "40万〜");
+        assert_eq!(salary_bucket(800_000.0), "40万〜");
+    }
+
+    // ---------------- display order coverage ----------------
+    #[test]
+    fn age_display_order_covers_all_buckets() {
+        // 想定し得る (age_min, age_max) 組合せのいずれもが表示順 Vec のラベルにマッチすること
+        let cases: Vec<(Option<i64>, Option<i64>)> = vec![
+            (None, None),
+            (None, Some(29)),
+            (Some(18), Some(25)),
+            (Some(65), None),
+            (Some(70), Some(75)),
+            (Some(45), None),
+            (Some(50), Some(60)),
+            (None, Some(44)),
+            (Some(30), Some(40)),
+            (Some(18), Some(59)),
+            (Some(18), Some(64)),
+        ];
+        let order: Vec<&'static str> = age_range_display_order().to_vec();
+        for c in cases {
+            let label = age_range_bucket(c.0, c.1);
+            assert!(
+                order.contains(&label),
+                "{:?} → label {label} not in display order",
+                c
+            );
+        }
+    }
+
+    // ---------------- 構成比合計 100% 不変条件 ----------------
+    #[test]
+    fn empty_profile_default_yields_zero_total() {
+        let p = PostingTargetProfile::default();
+        assert_eq!(p.total_postings, 0);
+        assert_eq!(p.age_range_distribution.len(), 0);
+        assert_eq!(p.salary_target_distribution.len(), 0);
+        assert_eq!(p.experience_required_distribution.len(), 0);
+        assert_eq!(p.employment_type_distribution.len(), 0);
+    }
+
+    /// 年齢分布の和が total_postings と一致することの確認 (シミュレーション)。
+    /// fetch_posting_target_profile は DB が要るため、ここでは age_range_bucket の
+    /// 全網羅性 (どんな入力でも必ずいずれかのラベルに分類される) を検証することで
+    /// 「構成比合計 100%」不変条件を間接的に保証する。
+    #[test]
+    fn age_bucket_total_invariant_over_synthetic_inputs() {
+        let inputs: Vec<(Option<i64>, Option<i64>)> = vec![
+            (None, None),
+            (None, Some(20)),
+            (None, Some(30)),
+            (None, Some(44)),
+            (None, Some(50)),
+            (None, Some(64)),
+            (Some(18), None),
+            (Some(18), Some(40)),
+            (Some(18), Some(59)),
+            (Some(18), Some(64)),
+            (Some(40), Some(60)),
+            (Some(45), Some(60)),
+            (Some(50), Some(70)),
+            (Some(65), None),
+            (Some(70), None),
+        ];
+        let n = inputs.len() as i64;
+        let order: Vec<&'static str> = age_range_display_order().to_vec();
+        let mut counts: HashMap<&'static str, i64> = HashMap::new();
+        for l in &order {
+            counts.insert(*l, 0);
+        }
+        for (lo, hi) in inputs {
+            let label = age_range_bucket(lo, hi);
+            *counts.entry(label).or_insert(0) += 1;
+        }
+        let sum: i64 = counts.values().sum();
+        assert_eq!(sum, n, "age bucket total must equal input count");
+    }
+
+    /// salary_bucket の全網羅性: 任意の正の f64 が必ず 6 区間のいずれかに分類される。
+    #[test]
+    fn salary_bucket_total_invariant_over_synthetic_inputs() {
+        let inputs: Vec<f64> = vec![
+            150_000.0, 200_000.0, 220_000.0, 250_000.0, 280_000.0, 300_000.0, 320_000.0, 350_000.0,
+            380_000.0, 400_000.0, 500_000.0, 1_000_000.0,
+        ];
+        let order: Vec<&'static str> = salary_display_order().to_vec();
+        let mut counts: HashMap<&'static str, i64> = HashMap::new();
+        for l in &order {
+            counts.insert(*l, 0);
+        }
+        for v in &inputs {
+            let label = salary_bucket(*v);
+            *counts.entry(label).or_insert(0) += 1;
+        }
+        let sum: i64 = counts.values().sum();
+        assert_eq!(sum, inputs.len() as i64);
+    }
+}

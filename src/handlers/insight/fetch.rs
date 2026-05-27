@@ -101,6 +101,18 @@ pub struct InsightContext {
     // 出典: 「CSV 求人データ集計」 (SalesNow 由来の地域企業データとは別物)。
     // 空 Vec の場合は Section 05 拡張ブロックを表示しない (silent fallback ではなく明示省略)。
     pub csv_company_ranking: Vec<af::CsvCompanySalary>,
+    // === P2-3 (2026-05-28): 求人ターゲット プロファイル (Section 06 図 6-3) ===
+    // hellowork.db に求職者個人テーブルが存在しないため、postings (HW 求人) 側の
+    // 募集対象条件 (年齢制限 / 給与レンジ / 経験 / 雇用形態) を集計し
+    // 「求人側から見たターゲット プロファイル」として提示する。
+    //
+    // 注意: DISPLAY_SPEC v1.0 §2 (人数表示禁止) を厳守。本フィールドが保持するのは
+    //   **求人件数** のみで、求職者人数の推定 (Hard NG: target_count / estimated_population /
+    //   推定人数 / 想定人数 / 母集団人数) は一切含まない。
+    //
+    // None の場合は Section 06 拡張ブロックを表示しない (silent fallback ではなく明示省略)。
+    // total_postings == 0 の場合も同様に Section 拡張を skip する。
+    pub posting_target: Option<af::PostingTargetProfile>,
     // === Phase A: 県平均（SUM方式、LS/MF/GE等の比較基準） ===
     pub pref_avg_unemployment_rate: Option<f64>,
     pub pref_avg_single_rate: Option<f64>,
@@ -154,6 +166,8 @@ pub(crate) fn build_insight_context(
         Vec<(f64, f64)>,
         // P2-2 (2026-05-28): csv_company_ranking (postings facility 別 給与中央値 上位 30 社)
         Vec<af::CsvCompanySalary>,
+        // P2-3 (2026-05-28): posting_target (postings 募集条件分布、Section 06 図 6-3)
+        af::PostingTargetProfile,
     );
     // PopBundle 末尾要素は P1-5 Section 06 拡張で追加した「上位 3 市区町村のピラミッド」
     type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<MuniPyramid>);
@@ -201,10 +215,12 @@ pub(crate) fn build_insight_context(
             }
         });
 
-        // G3: ローカル SQLite (14 fetches、高速だが並列化で他グループ完了待ち時間を活用)
+        // G3: ローカル SQLite (15 fetches、高速だが並列化で他グループ完了待ち時間を活用)
         // 2026-05-28 P2-1: fetch_salary_scatter_pairs を追加 (Section 03 図 3-6 散布図用)。
         // 2026-05-28 P2-2: fetch_csv_company_salary_ranking を追加 (Section 05 表 5-G / 5-H 用)。
         //   postings 直接 SELECT で他 fetch と同じ LocalDb 内クエリ。limit 30 で 数十ms程度。
+        // 2026-05-28 P2-3: fetch_posting_target_profile を追加 (Section 06 図 6-3 求人ターゲット用)。
+        //   postings 1 回 SELECT + Rust 側集計、limit なしだが age/salary/exp/emp の各列のみで軽量。
         let h_local = s.spawn(|| -> LocalBundle {
             (
                 af::fetch_vacancy_data(db, pref, muni),
@@ -221,6 +237,7 @@ pub(crate) fn build_insight_context(
                 af::fetch_text_quality(db, pref, muni),
                 af::fetch_salary_scatter_pairs(db, pref, muni, 1000),
                 af::fetch_csv_company_salary_ranking(db, pref, muni, 30),
+                af::fetch_posting_target_profile(db, pref, muni),
             )
         });
 
@@ -332,6 +349,8 @@ pub(crate) fn build_insight_context(
                 Vec::<(f64, f64)>::new(),
                 // P2-2: csv_company_ranking (空 Vec で fallback)
                 Vec::<af::CsvCompanySalary>::new(),
+                // P2-3: posting_target (default profile で fallback、表示側で total_postings==0 を skip 判定)
+                af::PostingTargetProfile::default(),
             )
         });
         let pop = h_pop.join().unwrap_or_else(|e| {
@@ -376,6 +395,7 @@ pub(crate) fn build_insight_context(
         text_quality,
         salary_scatter_pairs,
         csv_company_ranking,
+        posting_target_profile,
     ) = local_bundle;
     let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop, muni_pyramids) = pop_bundle;
     let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
@@ -454,6 +474,13 @@ pub(crate) fn build_insight_context(
         salary_scatter_pairs,
         // P2-2 (2026-05-28): G3 ローカル SQLite グループで populate 済み (CSV 求人 facility 集計)
         csv_company_ranking,
+        // P2-3 (2026-05-28): G3 ローカル SQLite グループで populate 済み (求人ターゲット プロファイル)
+        // total_postings == 0 (集計対象 0 件) の場合は None に置換し、Section 06 拡張を skip させる。
+        posting_target: if posting_target_profile.total_postings > 0 {
+            Some(posting_target_profile)
+        } else {
+            None
+        },
         // Phase A: 県平均（SUM方式、market-level benchmark）
         pref_avg_unemployment_rate,
         pref_avg_single_rate,

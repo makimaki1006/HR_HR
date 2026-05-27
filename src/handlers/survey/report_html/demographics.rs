@@ -934,6 +934,7 @@ mod tests {
             hw_job_type_counts: vec![],
             salary_scatter_pairs: vec![],
             csv_company_ranking: vec![],
+            posting_target: None,
             pref_avg_unemployment_rate: pref_avg_unemp,
             pref_avg_single_rate: None,
             pref_avg_physicians_per_10k: None,

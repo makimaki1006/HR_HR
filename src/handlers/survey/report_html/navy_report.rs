@@ -4059,6 +4059,19 @@ pub(super) fn render_navy_section_06_demographics(
         html.push_str("<p class=\"caption\">出典: 学校基本調査 v2_external_education。表 6-A の学校数 (施設密度) に対し、本表は進学率・学歴構成を示す。高校進学率は新卒採用の母集団品質、大学進学率は U ターン採用の射程に直結。先頭 5 行表示。</p>\n");
     }
 
+    // -- 図 6-3 求人ターゲット プロファイル (求人側集計) [P2-3 (2026-05-28) 追加]
+    //
+    //   背景: hellowork.db に求職者個人テーブルが存在しないため、postings (HW 求人) 側の
+    //   募集対象条件 (年齢制限 / 給与レンジ / 経験 / 雇用形態) を集計して
+    //   「求人側から見たターゲット プロファイル」として提示する。
+    //
+    //   出典明記: 「HW 求人 (postings) の募集条件集計」
+    //   人数推定は行わず、求人件数のみを集計 (DISPLAY_SPEC v1.0 §2 / Hard NG 用語不使用)。
+    //   ctx.posting_target == None または total_postings == 0 の場合は本ブロックを skip。
+    if let Some(pt) = ctx.posting_target.as_ref().filter(|p| p.total_postings > 0) {
+        render_navy_section_06_posting_target(html, pt);
+    }
+
     // -- so-what
     let so_what = build_demographics_so_what(working_pct, target_pct, senior_pct, labor_force_rate);
     html.push_str(&format!(
@@ -4070,6 +4083,205 @@ pub(super) fn render_navy_section_06_demographics(
     ));
 
     html.push_str("</section>\n");
+}
+
+/// P2-3 (2026-05-28) 図 6-3: 求人ターゲット プロファイル (求人側集計) の描画。
+///
+/// 注意:
+/// - 本関数が扱うのは **求人件数** のみ。「求職者人数」「ターゲット人数」「想定人数」
+///   「推定人数」「母集団人数」等の禁止語句 (DISPLAY_SPEC v1.0 §2 / Hard NG) を使わない。
+/// - 各分布の caption に「出典: HW 求人 (postings) の募集条件集計」を明記する。
+/// - 構成比は分布内の sum を分母にして算出 (0 件分布が混在しても合計 100%)。
+fn render_navy_section_06_posting_target(
+    html: &mut String,
+    pt: &super::super::super::analysis::fetch::PostingTargetProfile,
+) {
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\">\
+         図 6-3 &nbsp;求人ターゲット プロファイル (求人側集計)\
+         </div>\n",
+    );
+    html.push_str(
+        "<p class=\"caption\">本ブロックは <strong>HW 求人 (postings) の募集条件</strong> を集計した\
+         <strong>求人件数</strong> ベースの分布です。求職者個人データではなく、\
+         募集側がどの層を想定しているかの傾向を示します。</p>\n",
+    );
+
+    // ---- KPI: 総求人件数 / 年齢制限主要層 / 給与中央レンジ / 雇用形態主流
+    // 主要年齢層 = age_range_distribution の最多バケット (件数降順 1 位)
+    let top_age = pt
+        .age_range_distribution
+        .iter()
+        .max_by_key(|(_, c)| *c)
+        .map(|(l, c)| (l.clone(), *c))
+        .unwrap_or_else(|| ("—".to_string(), 0));
+    // 主要給与レンジ = salary_target_distribution の最多バケット
+    let top_salary = pt
+        .salary_target_distribution
+        .iter()
+        .max_by_key(|(_, c)| *c)
+        .map(|(l, c)| (l.clone(), *c))
+        .unwrap_or_else(|| ("—".to_string(), 0));
+    // 主流雇用形態 = employment_type_distribution の最多バケット (既に降順 sort 済)
+    let top_emp = pt
+        .employment_type_distribution
+        .first()
+        .map(|(l, c)| (l.clone(), *c))
+        .unwrap_or_else(|| ("—".to_string(), 0));
+    // 経験不問 (実質) の比率
+    let total_exp: i64 = pt
+        .experience_required_distribution
+        .iter()
+        .map(|(_, c)| *c)
+        .sum();
+    let unspec_count: i64 = pt
+        .experience_required_distribution
+        .iter()
+        .find(|(l, _)| l == "経験不問 (実質)")
+        .map(|(_, c)| *c)
+        .unwrap_or(0);
+    let unspec_pct = if total_exp > 0 {
+        unspec_count as f64 / total_exp as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    html.push_str("<div class=\"kpi-row\">\n");
+    push_kpi(
+        html,
+        "集計求人件数",
+        &format_number(pt.total_postings),
+        "件",
+        "neu",
+        "HW postings (pref/muni 一致)",
+        true,
+    );
+    push_kpi(
+        html,
+        "年齢制限 主要層",
+        &top_age.0,
+        "",
+        "neu",
+        &format!("{} 件", format_number(top_age.1)),
+        false,
+    );
+    push_kpi(
+        html,
+        "給与 主要レンジ",
+        &top_salary.0,
+        "",
+        "neu",
+        &format!("{} 件 (月給記載のみ)", format_number(top_salary.1)),
+        false,
+    );
+    push_kpi(
+        html,
+        "経験不問 比率",
+        &format!("{:.1}", unspec_pct),
+        "%",
+        if unspec_pct >= 70.0 {
+            "pos"
+        } else if unspec_pct >= 40.0 {
+            "neu"
+        } else {
+            "warn"
+        },
+        "experience_required 未記載求人",
+        false,
+    );
+    push_kpi(
+        html,
+        "雇用形態 主流",
+        &top_emp.0,
+        "",
+        "neu",
+        &format!("{} 件", format_number(top_emp.1)),
+        false,
+    );
+    html.push_str("</div>\n");
+
+    // ---- 表 6-G: 年齢制限 × 求人件数
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\">\
+         表 6-G &nbsp;年齢制限別 求人件数 (求人側集計)\
+         </div>\n",
+    );
+    html.push_str(&build_distribution_table(
+        &pt.age_range_distribution,
+        "年齢制限ラベル",
+    ));
+    html.push_str(
+        "<p class=\"caption\">出典: HW 求人 (postings) の age_min / age_max 列を集計。\
+         「制限なし」は両方 NULL の求人。年齢制限は雇用対策法上の例外 \
+         (試用期間/技能継承/特定職種) を含む可能性があります。</p>\n",
+    );
+
+    // ---- 表 6-H: 給与レンジ (月給) × 求人件数
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\">\
+         表 6-H &nbsp;給与レンジ別 求人件数 (月給記載のみ)\
+         </div>\n",
+    );
+    html.push_str(&build_distribution_table(
+        &pt.salary_target_distribution,
+        "月給レンジ",
+    ));
+    html.push_str(
+        "<p class=\"caption\">出典: HW 求人 (postings) の salary_min 列を月給換算なしで集計。\
+         salary_type が「月給」かつ salary_min &gt; 0 の求人のみが母集団 \
+         (時給・年俸はここでは除外)。本表の件数合計は KPI「集計求人件数」より少なくなります。</p>\n",
+    );
+
+    // ---- 表 6-I: 雇用形態 × 求人件数
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\">\
+         表 6-I &nbsp;雇用形態別 求人件数\
+         </div>\n",
+    );
+    html.push_str(&build_distribution_table(
+        &pt.employment_type_distribution,
+        "雇用形態",
+    ));
+    html.push_str(
+        "<p class=\"caption\">出典: HW 求人 (postings) の employment_type 列を集計 (件数降順)。\
+         「未記載」は元データが空文字または NULL の求人。</p>\n",
+    );
+}
+
+/// 分布テーブル ((ラベル, 件数) → 表) 共通ビルダ。
+///
+/// 各行は「ラベル / 求人件数 / 構成比 (%)」の 3 列。
+/// 構成比は `distribution` 内の件数合計を分母として算出 (0 件のときは "—" 表示)。
+fn build_distribution_table(distribution: &[(String, i64)], label_header: &str) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str(&format!(
+        "<th>{}</th><th class=\"num\">求人件数</th><th class=\"num\">構成比 (%)</th>",
+        escape_html(label_header)
+    ));
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let total: i64 = distribution.iter().map(|(_, c)| *c).sum();
+    if distribution.is_empty() || total == 0 {
+        s.push_str(
+            "<tr><td colspan=\"3\" class=\"dim\">該当データなし</td></tr>\n\
+             </tbody></table>\n",
+        );
+        return s;
+    }
+
+    for (label, count) in distribution {
+        let pct = *count as f64 / total as f64 * 100.0;
+        s.push_str(&format!(
+            "<tr><td>{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{:.1}</td></tr>\n",
+            escape_html(label),
+            format_number(*count),
+            pct
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s
 }
 
 // 「20-24」「25-29」「85+」等のラベルから下端年齢を取得

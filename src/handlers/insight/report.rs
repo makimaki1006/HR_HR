@@ -665,6 +665,8 @@ mod tests {
             // P2-1: 給与レンジ 散布図
             salary_scatter_pairs: vec![],
             csv_company_ranking: vec![],
+            // P2-3: 求人ターゲット プロファイル (Section 06 図 6-3、None=拡張ブロック skip)
+            posting_target: None,
             // Phase A: 県平均
             pref_avg_unemployment_rate: None,
             pref_avg_single_rate: None,
