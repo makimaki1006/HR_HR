@@ -1158,6 +1158,7 @@ mod tests {
             hw_job_type_counts: vec![],
             // P2-1: 給与レンジ 散布図
             salary_scatter_pairs: vec![],
+            csv_company_ranking: vec![],
             // Impl-3: ライフスタイル
             ext_social_life: vec![],
             ext_internet_usage: vec![],
@@ -3766,6 +3767,7 @@ mod variant_indicator_tests {
             hw_industry_counts: vec![],
             hw_job_type_counts: vec![],
             salary_scatter_pairs: vec![],
+            csv_company_ranking: vec![],
             ext_social_life: vec![],
             ext_internet_usage: vec![],
             pref_avg_unemployment_rate: None,

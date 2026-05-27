@@ -706,3 +706,214 @@ pub(crate) fn fetch_salary_scatter_pairs(
         .filter(|(lo, hi)| *lo > 0.0 && *hi > 0.0 && *hi >= *lo)
         .collect()
 }
+
+// ============================================================
+// P2-2 (2026-05-28): CSV 企業別給与ランキング (Section 05 拡張)
+// ============================================================
+
+/// CSV (HW 求人) 由来の facility_name 別 給与中央値レコード。
+///
+/// **データソース**: ローカル SQLite `postings` テーブル (HW 求人スクレイピング結果)。
+/// SalesNow API 経由の企業データとは別物。出典は「CSV 求人データ集計」と明記すること。
+///
+/// 単位: 万円 (postings.salary_min は円単位なので /10000 換算済)。
+#[derive(Debug, Clone)]
+pub struct CsvCompanySalary {
+    /// 施設名 (CSV 実値、匿名化なし。HW 公開情報のため OK)
+    pub facility_name: String,
+    /// 同施設の求人件数 (代表性確保のため 2 件以上のみ採用)
+    pub posting_count: i64,
+    /// 下限給与の中央値 (万円)
+    pub salary_lower_median: f64,
+    /// 上限給与の中央値 (万円)
+    pub salary_upper_median: f64,
+}
+
+/// f64 列の中央値を計算。`values` は呼び出し側で正値フィルタ済の前提。
+///
+/// - n=0 → 0.0 (silent fallback ではなく、呼び出し側で空チェックする想定)
+/// - n=1 → 値そのまま
+/// - n 奇数 → 中央 1 値
+/// - n 偶数 → 中央 2 値の平均
+fn median_f64(values: &mut [f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    // NaN は除外していないが、呼び出し側で SQL filter 済の前提。
+    // NaN が混入していたら sort 結果が未定義になるため `partial_cmp` で防御。
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = values.len();
+    if n % 2 == 1 {
+        values[n / 2]
+    } else {
+        (values[n / 2 - 1] + values[n / 2]) / 2.0
+    }
+}
+
+/// CSV (HW 求人) postings から facility_name 別 求人数 + 給与中央値ランキングを取得。
+///
+/// 用途: navy_report.rs Section 05 表 5-G (企業別給与ランキング)、表 5-H (注目企業リスト)。
+///
+/// 仕様:
+/// - `salary_type = '月給'` (時給/日給/年俸は除外、月給換算は既存 fetch_salary_scatter_pairs 踏襲)
+/// - `salary_min > 0 AND salary_max > 0 AND salary_max >= salary_min` (異常データ除外)
+/// - `facility_name IS NOT NULL AND facility_name != ''`
+/// - pref/muni 指定時のみ一致条件を AND で追加 (空文字列ならフィルタなし)
+/// - Rust 側で facility_name 別 GROUP BY + 中央値計算
+/// - 求人数 >= 2 の企業のみ採用 (代表性確保、単一求人ノイズ排除)
+/// - **上限給与中央値 (`salary_upper_median`) 降順**でソート、上位 `limit` 件を返却
+///
+/// 単位変換: postings.salary_min/max は円単位 → 戻り値は **万円単位** (/10000)
+///
+/// メモリルール準拠:
+/// - `feedback_silent_fallback_audit`: クエリ失敗時は警告ログを出して空 `Vec` 返却
+/// - `feedback_hw_data_scope`: HW 掲載求人 (postings) を母集団とする
+/// - `feedback_no_salesnow_mention`: SalesNow 表記は使わず「CSV 求人データ集計」と明記
+pub(crate) fn fetch_csv_company_salary_ranking(
+    db: &Db,
+    pref: &str,
+    muni: &str,
+    limit: i64,
+) -> Vec<CsvCompanySalary> {
+    use super::super::super::helpers::{get_f64, get_str};
+
+    if limit <= 0 {
+        return Vec::new();
+    }
+
+    // SQL 構築: pref/muni を動的に AND 結合 (fetch_salary_scatter_pairs と同パターン)。
+    // GROUP BY は Rust 側で行うため、生の facility_name + salary_min/max のみ SELECT。
+    let mut sql = String::from(
+        "SELECT facility_name, salary_min, salary_max FROM postings \
+         WHERE facility_name IS NOT NULL AND facility_name != '' \
+           AND salary_type = '月給' \
+           AND salary_min IS NOT NULL AND salary_max IS NOT NULL \
+           AND salary_min > 0 AND salary_max > 0 \
+           AND salary_max >= salary_min",
+    );
+    let mut params_owned: Vec<String> = Vec::new();
+    if !pref.is_empty() {
+        params_owned.push(pref.to_string());
+        sql.push_str(&format!(" AND prefecture = ?{}", params_owned.len()));
+    }
+    if !muni.is_empty() {
+        params_owned.push(muni.to_string());
+        sql.push_str(&format!(" AND municipality = ?{}", params_owned.len()));
+    }
+
+    let params: Vec<&dyn rusqlite::types::ToSql> = params_owned
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+
+    let rows = match db.query(&sql, &params) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "[warn] fetch_csv_company_salary_ranking: postings query failed (pref={pref}, muni={muni}, limit={limit}): {e}"
+            );
+            return Vec::new();
+        }
+    };
+
+    // Rust 側で facility_name 別 GROUP BY。
+    // Vec<(salary_min_yen, salary_max_yen)> を facility ごとに集約。
+    let mut grouped: HashMap<String, (Vec<f64>, Vec<f64>)> = HashMap::new();
+    for r in &rows {
+        let name = get_str(r, "facility_name");
+        if name.is_empty() {
+            continue;
+        }
+        let lo = get_f64(r, "salary_min");
+        let hi = get_f64(r, "salary_max");
+        // 二重防衛: SQL 側で除外済みだが get_f64 が NULL→0.0 を返す可能性あり
+        if lo <= 0.0 || hi <= 0.0 || hi < lo {
+            continue;
+        }
+        let entry = grouped.entry(name).or_insert_with(|| (Vec::new(), Vec::new()));
+        entry.0.push(lo);
+        entry.1.push(hi);
+    }
+
+    // 求人数 >= 2 の企業のみ採用 + 中央値計算 + 万円換算
+    let mut result: Vec<CsvCompanySalary> = grouped
+        .into_iter()
+        .filter(|(_, (lows, _))| lows.len() >= 2)
+        .map(|(name, (mut lows, mut highs))| {
+            let posting_count = lows.len() as i64;
+            let lower_median_yen = median_f64(&mut lows);
+            let upper_median_yen = median_f64(&mut highs);
+            CsvCompanySalary {
+                facility_name: name,
+                posting_count,
+                // 円 → 万円 換算
+                salary_lower_median: lower_median_yen / 10_000.0,
+                salary_upper_median: upper_median_yen / 10_000.0,
+            }
+        })
+        .collect();
+
+    // 上限給与中央値 降順 (同値時は posting_count 降順で安定化)
+    result.sort_by(|a, b| {
+        b.salary_upper_median
+            .partial_cmp(&a.salary_upper_median)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(b.posting_count.cmp(&a.posting_count))
+    });
+    result.truncate(limit as usize);
+    result
+}
+
+#[cfg(test)]
+mod csv_company_salary_tests {
+    use super::*;
+
+    // ---------------- median_f64 ----------------
+    #[test]
+    fn median_f64_empty_returns_zero() {
+        let mut v: Vec<f64> = vec![];
+        assert_eq!(median_f64(&mut v), 0.0);
+    }
+
+    #[test]
+    fn median_f64_single_returns_value() {
+        let mut v = vec![250_000.0];
+        assert_eq!(median_f64(&mut v), 250_000.0);
+    }
+
+    #[test]
+    fn median_f64_two_returns_mean() {
+        // n=2 偶数 → (a+b)/2
+        let mut v = vec![200_000.0, 300_000.0];
+        assert_eq!(median_f64(&mut v), 250_000.0);
+    }
+
+    #[test]
+    fn median_f64_three_returns_middle() {
+        // n=3 奇数 → 中央値
+        let mut v = vec![100_000.0, 250_000.0, 400_000.0];
+        assert_eq!(median_f64(&mut v), 250_000.0);
+        // 順序非依存 (sort される)
+        let mut v2 = vec![400_000.0, 100_000.0, 250_000.0];
+        assert_eq!(median_f64(&mut v2), 250_000.0);
+    }
+
+    #[test]
+    fn median_f64_four_returns_mean_of_middle_two() {
+        // n=4 偶数 → 中央 2 値の平均
+        let mut v = vec![100_000.0, 200_000.0, 300_000.0, 400_000.0];
+        // 中央 2 値: 200000, 300000 → 平均 250000
+        assert_eq!(median_f64(&mut v), 250_000.0);
+    }
+
+    #[test]
+    fn median_f64_invariant_min_le_median_le_max() {
+        // 不変条件: min <= median <= max
+        let mut v = vec![123.0, 456.0, 789.0, 1011.0, 1213.0];
+        let min = 123.0_f64;
+        let max = 1213.0_f64;
+        let m = median_f64(&mut v);
+        assert!(m >= min && m <= max, "median {m} out of [{min}, {max}]");
+    }
+}
+

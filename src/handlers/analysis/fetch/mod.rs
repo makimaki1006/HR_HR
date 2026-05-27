@@ -53,11 +53,11 @@ pub(crate) use subtab4::{
 };
 pub(crate) use subtab5_phase4::{
     fetch_anomaly_data, fetch_business_dynamics, fetch_care_demand, fetch_climate,
-    fetch_daytime_population, fetch_establishments, fetch_household_spending,
-    fetch_job_openings_ratio, fetch_labor_stats, fetch_migration_data, fetch_minimum_wage,
-    fetch_population_data, fetch_population_pyramid, fetch_prefecture_stats,
+    fetch_csv_company_salary_ranking, fetch_daytime_population, fetch_establishments,
+    fetch_household_spending, fetch_job_openings_ratio, fetch_labor_stats, fetch_migration_data,
+    fetch_minimum_wage, fetch_population_data, fetch_population_pyramid, fetch_prefecture_stats,
     fetch_region_benchmark, fetch_region_benchmarks_for_prefs, fetch_salary_scatter_pairs,
-    fetch_top_muni_names, fetch_turnover, fetch_wage_compliance,
+    fetch_top_muni_names, fetch_turnover, fetch_wage_compliance, CsvCompanySalary,
 };
 pub(crate) use subtab5_phase4_7::{
     fetch_boj_tankan, fetch_car_ownership, fetch_education, fetch_foreign_residents,

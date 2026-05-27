@@ -14,6 +14,7 @@
 #![allow(dead_code)]
 
 use super::super::aggregator::{EmpTypeSalary, SurveyAggregation};
+use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;
 use super::super::job_seeker::JobSeekerAnalysis;
@@ -2932,7 +2933,17 @@ pub(super) fn render_navy_section_05_companies(
         let ext_industry_count = hw_context
             .map(|c| c.ext_industry_employees.len() as i64)
             .unwrap_or(0);
-        sn_total == 0 && sn_industry_total == 0 && hw_industry_count == 0 && ext_industry_count == 0
+        // P2-2 (2026-05-28): csv_company_ranking もチェックに含める。
+        // CSV 求人データのみあって他データソース全滅のケースで「該当データなし」と
+        // 早期 return すると CSV 企業別給与ランキング (5-G/5-H) が表示されなくなる。
+        let csv_ranking_count = hw_context
+            .map(|c| c.csv_company_ranking.len() as i64)
+            .unwrap_or(0);
+        sn_total == 0
+            && sn_industry_total == 0
+            && hw_industry_count == 0
+            && ext_industry_count == 0
+            && csv_ranking_count == 0
     };
     if _is_fully_empty {
         html.push_str(
@@ -3190,6 +3201,26 @@ pub(super) fn render_navy_section_05_companies(
         }
     }
 
+    // ========================================================================
+    // P2-2 (2026-05-28): CSV 企業別給与ランキング (表 5-G) + 注目企業リスト (表 5-H)
+    //
+    // データ: ctx.csv_company_ranking (postings facility_name 別 給与中央値 上位 30 社)
+    // 出典: CSV 求人データ集計 (SalesNow 由来の地域企業データとは別)
+    // 表示条件: ctx.csv_company_ranking が空 (or hw_context が None) なら表示しない
+    // 配置: 既存 SO WHAT の直前
+    // ========================================================================
+    if let Some(ctx) = hw_context {
+        if !ctx.csv_company_ranking.is_empty() {
+            html.push_str(&build_navy_csv_company_salary_table(&ctx.csv_company_ranking, 10));
+            html.push_str(&build_navy_notable_companies_block(&ctx.csv_company_ranking, 5));
+            html.push_str(
+                "<p class=\"caption\">出典: CSV 求人データ集計。給与は月給換算後の中央値 (万円)。\
+                 注目企業 = 求人数 top 5 と 給与中央値 (上限) top 5 の和集合。\
+                 求人数 2 件未満の施設は代表性確保のため除外。</p>\n",
+            );
+        }
+    }
+
     let so_what = build_companies_so_what(
         &industry_sorted,
         industry_total,
@@ -3207,6 +3238,145 @@ pub(super) fn render_navy_section_05_companies(
     ));
 
     html.push_str("</section>\n");
+}
+
+// ============================================================
+// P2-2 (2026-05-28): 注目企業選定ロジック + テーブル / ブロック描画
+// ============================================================
+
+/// 注目企業を抽出する。
+///
+/// 定義: **求人数 top N の集合 ∪ 給与中央値 (上限) top N の集合** (重複は 1 件にまとめる)。
+///
+/// 引数:
+/// - `ranking`: 給与中央値 (上限) 降順でソート済の企業ランキング (fetch 側でソート済)
+/// - `top_n`: 各軸の上位件数 (推奨 5)
+///
+/// 戻り値: 和集合の企業参照 Vec。出現順は「求人数 top N → 給与 top N の未出現分」を維持。
+///
+/// silent fallback 防御:
+/// - `ranking` 空 → 空 Vec
+/// - `top_n` 0 → 空 Vec
+///
+/// 不変条件: 戻り値 size <= 2 * top_n (重複なし、重複時は < 2 * top_n)
+fn select_notable_companies<'a>(
+    ranking: &'a [CsvCompanySalary],
+    top_n: usize,
+) -> Vec<&'a CsvCompanySalary> {
+    if ranking.is_empty() || top_n == 0 {
+        return Vec::new();
+    }
+
+    // 求人数 top N (降順、同値時は upper_median 降順)
+    // ranking は upper_median 降順のため、元順序を壊さない indices で取得。
+    let mut by_posting: Vec<usize> = (0..ranking.len()).collect();
+    by_posting.sort_by(|&a, &b| {
+        ranking[b]
+            .posting_count
+            .cmp(&ranking[a].posting_count)
+            .then_with(|| {
+                ranking[b]
+                    .salary_upper_median
+                    .partial_cmp(&ranking[a].salary_upper_median)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    let posting_top: Vec<usize> = by_posting.into_iter().take(top_n).collect();
+
+    // 給与 top N: ranking は upper_median 降順のため先頭 N 件
+    let salary_top: Vec<usize> = (0..ranking.len()).take(top_n).collect();
+
+    // 和集合: posting_top を先に出力 → salary_top の未出現分を追加
+    let mut seen = std::collections::HashSet::new();
+    let mut result: Vec<&CsvCompanySalary> = Vec::new();
+    for idx in posting_top.iter().chain(salary_top.iter()) {
+        if seen.insert(*idx) {
+            result.push(&ranking[*idx]);
+        }
+    }
+    result
+}
+
+/// 表 5-G: 企業別給与ランキング (上位 limit 社、上限給与中央値 降順)
+fn build_navy_csv_company_salary_table(ranking: &[CsvCompanySalary], limit: usize) -> String {
+    let mut s = String::from(
+        "<div class=\"block-title block-title-spaced\">\
+         表 5-G &nbsp;企業別給与ランキング (CSV 求人 集計、件数最多 ",
+    );
+    s.push_str(&format!("{}", limit));
+    s.push_str(" 社、求人数 2 件以上)</div>\n");
+    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>順位</th><th>法人名</th>");
+    s.push_str("<th class=\"num\">求人数</th>");
+    s.push_str("<th class=\"num\">下限給与中央値<br>(万円)</th>");
+    s.push_str("<th class=\"num\">上限給与中央値<br>(万円)</th>");
+    s.push_str("<th class=\"num\">レンジ幅<br>(万円)</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let top: Vec<&CsvCompanySalary> = ranking.iter().take(limit).collect();
+    if top.is_empty() {
+        s.push_str(
+            "<tr><td colspan=\"6\" class=\"dim\" style=\"text-align:center;padding:8mm 4mm;\">\
+             該当企業なし (求人数 2 件以上 + 月給データありの施設なし)</td></tr>\n",
+        );
+    } else {
+        for (i, c) in top.iter().enumerate() {
+            // 不変条件: salary_upper_median >= salary_lower_median (fetch SQL でフィルタ済)
+            // 二重防衛として render 側でも max(0) クランプ。
+            let range_width = (c.salary_upper_median - c.salary_lower_median).max(0.0);
+            let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+            s.push_str(&format!(
+                "<tr{}><td class=\"num bold\">{}</td>\
+                 <td><strong>{}</strong></td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{:.1}</td>\
+                 <td class=\"num bold\">{:.1}</td>\
+                 <td class=\"num\">{:.1}</td></tr>\n",
+                row_class,
+                i + 1,
+                escape_html(&c.facility_name),
+                format_number(c.posting_count),
+                c.salary_lower_median,
+                c.salary_upper_median,
+                range_width,
+            ));
+        }
+    }
+    s.push_str("</tbody></table>\n");
+    s
+}
+
+/// 注目企業リスト (求人数 top N ∩ 給与 top N の和集合) を 5-H として描画
+fn build_navy_notable_companies_block(ranking: &[CsvCompanySalary], top_n: usize) -> String {
+    let notable = select_notable_companies(ranking, top_n);
+    if notable.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from(
+        "<div class=\"block-title block-title-spaced\">\
+         表 5-H &nbsp;注目企業リスト (求人数上位 ∩ 給与上位、和集合)</div>\n",
+    );
+    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>法人名</th>");
+    s.push_str("<th class=\"num\">求人数</th>");
+    s.push_str("<th class=\"num\">給与レンジ (万円)</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    for (i, c) in notable.iter().enumerate() {
+        s.push_str(&format!(
+            "<tr><td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{:.1}〜{:.1}</td></tr>\n",
+            i + 1,
+            escape_html(&c.facility_name),
+            format_number(c.posting_count),
+            c.salary_lower_median,
+            c.salary_upper_median,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s
 }
 
 fn build_navy_industry_table(
@@ -6052,5 +6222,208 @@ mod tests {
         assert!(s.contains("0.0万円"), "expected avg width 0.0万円: {s}");
         // 全件 narrow (< 5万)
         assert!(s.contains("100.0% (定額求人傾向)"));
+    }
+
+    // ====================================================================
+    // P2-2 (2026-05-28): CSV 企業別給与ランキング (表 5-G) +
+    //                    注目企業リスト (表 5-H、求人数 top ∩ 給与 top の和集合)
+    //
+    //   - select_notable_companies: 空 / 単一 / 5社 / 上位重複 / 和集合サイズ
+    //   - build_navy_csv_company_salary_table: 空 / 1社 / SO WHAT 直前挿入位置
+    //   - build_navy_notable_companies_block: 空フォールバック
+    //
+    // 不変条件 (silent fallback 防御):
+    //   - 空 ranking → 戻り値空 Vec / 空文字列
+    //   - 戻り値 size <= 2 * top_n
+    //   - レンジ幅 >= 0 (upper >= lower)
+    // ====================================================================
+
+    fn make_csv_company(name: &str, posting_count: i64, lower: f64, upper: f64) -> CsvCompanySalary {
+        CsvCompanySalary {
+            facility_name: name.to_string(),
+            posting_count,
+            salary_lower_median: lower,
+            salary_upper_median: upper,
+        }
+    }
+
+    #[test]
+    fn select_notable_companies_empty_returns_empty_vec() {
+        // 不変条件: 空 ranking → 空 Vec (silent fallback ではなく明示)
+        let result = select_notable_companies(&[], 5);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn select_notable_companies_top_n_zero_returns_empty_vec() {
+        let ranking = vec![make_csv_company("A 株式会社", 5, 20.0, 30.0)];
+        let result = select_notable_companies(&ranking, 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn select_notable_companies_single_returns_single() {
+        let ranking = vec![make_csv_company("A 株式会社", 5, 20.0, 30.0)];
+        let result = select_notable_companies(&ranking, 5);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].facility_name, "A 株式会社");
+    }
+
+    #[test]
+    fn select_notable_companies_five_companies_returns_five() {
+        // 5 社 + top_n=5 → 全件返却 (和集合サイズ = 5)
+        // ranking は upper_median 降順 (fetch 側ソート保証)
+        let ranking = vec![
+            make_csv_company("A", 10, 25.0, 50.0),
+            make_csv_company("B", 8, 23.0, 45.0),
+            make_csv_company("C", 6, 21.0, 40.0),
+            make_csv_company("D", 4, 19.0, 35.0),
+            make_csv_company("E", 2, 17.0, 30.0),
+        ];
+        let result = select_notable_companies(&ranking, 5);
+        assert_eq!(result.len(), 5);
+        // 不変条件: size <= 2 * top_n
+        assert!(result.len() <= 10);
+    }
+
+    #[test]
+    fn select_notable_companies_perfect_overlap_returns_top_n() {
+        // 求人数順序 = 給与順序 (完全重複)
+        // → 和集合サイズ = top_n (重複排除済)
+        let ranking = vec![
+            make_csv_company("A", 10, 25.0, 50.0), // 求人 #1 / 給与 #1
+            make_csv_company("B", 8, 23.0, 45.0),  // 求人 #2 / 給与 #2
+            make_csv_company("C", 6, 21.0, 40.0),  // 求人 #3 / 給与 #3
+        ];
+        let result = select_notable_companies(&ranking, 3);
+        assert_eq!(result.len(), 3, "perfect overlap should return exactly top_n");
+        // 出現順序: 求人 top → 給与 top (重複は除外) → 結果は [A, B, C]
+        assert_eq!(result[0].facility_name, "A");
+        assert_eq!(result[1].facility_name, "B");
+        assert_eq!(result[2].facility_name, "C");
+    }
+
+    #[test]
+    fn select_notable_companies_disjoint_returns_union() {
+        // 給与 top と 求人数 top が完全 disjoint
+        // ranking は upper_median 降順なので 給与 top = [A, B, C]
+        // 求人数 top は [E, D, C] (E が最多) → 重複 C
+        // 和集合: 求人 top [E, D, C] + 給与 top [A, B] = [E, D, C, A, B] = 5 件
+        let ranking = vec![
+            make_csv_company("A", 2, 30.0, 60.0),  // 給与 #1, 求人 最少
+            make_csv_company("B", 2, 28.0, 55.0),  // 給与 #2
+            make_csv_company("C", 5, 26.0, 50.0),  // 給与 #3, 求人 #3
+            make_csv_company("D", 10, 18.0, 30.0), // 給与 #4, 求人 #2
+            make_csv_company("E", 20, 15.0, 25.0), // 給与 #5, 求人 #1
+        ];
+        let result = select_notable_companies(&ranking, 3);
+        // 和集合サイズ: posting top {E, D, C} ∪ salary top {A, B, C} = {A, B, C, D, E} = 5
+        assert_eq!(result.len(), 5);
+        // 出現順: posting top を先、salary top 残りを後
+        let names: Vec<&str> = result.iter().map(|c| c.facility_name.as_str()).collect();
+        assert_eq!(names, vec!["E", "D", "C", "A", "B"]);
+        // 不変条件: size <= 2 * top_n
+        assert!(result.len() <= 6);
+    }
+
+    #[test]
+    fn select_notable_companies_top_n_larger_than_ranking_returns_all() {
+        // top_n > ranking.len() → 全件返却 (和集合は ranking 全体)
+        let ranking = vec![
+            make_csv_company("A", 5, 20.0, 30.0),
+            make_csv_company("B", 3, 18.0, 25.0),
+        ];
+        let result = select_notable_companies(&ranking, 10);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn build_navy_csv_company_salary_table_empty_renders_fallback_message() {
+        // 空 ranking → 「該当企業なし」明示メッセージ (silent fallback 防御)
+        let s = build_navy_csv_company_salary_table(&[], 10);
+        assert!(s.contains("表 5-G"));
+        assert!(
+            s.contains("該当企業なし"),
+            "empty ranking should render explicit fallback: {s}"
+        );
+    }
+
+    #[test]
+    fn build_navy_csv_company_salary_table_single_company_renders_columns() {
+        let ranking = vec![make_csv_company("テスト病院", 3, 22.5, 35.7)];
+        let s = build_navy_csv_company_salary_table(&ranking, 10);
+        // タイトル + 列ヘッダ + データ行
+        assert!(s.contains("表 5-G"));
+        assert!(s.contains("法人名"));
+        assert!(s.contains("下限給与中央値"));
+        assert!(s.contains("上限給与中央値"));
+        assert!(s.contains("レンジ幅"));
+        assert!(s.contains("テスト病院"));
+        // 中央値が万円単位で表示される
+        assert!(s.contains("22.5"));
+        assert!(s.contains("35.7"));
+        // レンジ幅 = 35.7 - 22.5 = 13.2
+        assert!(s.contains("13.2"), "expected range width 13.2: {s}");
+    }
+
+    #[test]
+    fn build_navy_csv_company_salary_table_range_width_invariant_non_negative() {
+        // 不変条件: lower == upper (固定給) でもレンジ幅 0 で panic せず描画
+        let ranking = vec![make_csv_company("固定給会社", 2, 25.0, 25.0)];
+        let s = build_navy_csv_company_salary_table(&ranking, 10);
+        assert!(s.contains("固定給会社"));
+        assert!(s.contains("0.0"), "fixed salary should render range width 0.0: {s}");
+    }
+
+    #[test]
+    fn build_navy_notable_companies_block_empty_returns_empty_string() {
+        // silent fallback 防御: 空 ranking → 空文字列 (Section に空 table を出さない)
+        let s = build_navy_notable_companies_block(&[], 5);
+        assert!(s.is_empty(), "empty ranking should yield empty string, got: {s}");
+    }
+
+    #[test]
+    fn build_navy_notable_companies_block_renders_table_header_and_rows() {
+        let ranking = vec![
+            make_csv_company("A", 10, 25.0, 50.0),
+            make_csv_company("B", 8, 23.0, 45.0),
+        ];
+        let s = build_navy_notable_companies_block(&ranking, 5);
+        assert!(s.contains("表 5-H"));
+        assert!(s.contains("注目企業"));
+        assert!(s.contains("給与レンジ"));
+        assert!(s.contains("A"));
+        assert!(s.contains("B"));
+        // 給与レンジ: "25.0〜50.0" の形式
+        assert!(
+            s.contains("25.0〜50.0"),
+            "expected salary range 25.0〜50.0: {s}"
+        );
+    }
+
+    #[test]
+    fn select_notable_companies_invariant_size_le_2_top_n() {
+        // 不変条件: |posting_top ∪ salary_top| <= |posting_top| + |salary_top| = 2 * top_n
+        // 任意の ranking に対し成立することを確認
+        let ranking: Vec<CsvCompanySalary> = (0..20)
+            .map(|i| {
+                make_csv_company(
+                    &format!("Company {}", i),
+                    (20 - i) as i64,        // 求人数: 20, 19, ..., 1 (降順)
+                    10.0 + (i as f64),      // 下限: 10, 11, ..., 29
+                    40.0 - (i as f64),      // 上限: 40, 39, ..., 21 (降順)
+                )
+            })
+            .collect();
+        for top_n in 1..=10 {
+            let result = select_notable_companies(&ranking, top_n);
+            assert!(
+                result.len() <= 2 * top_n,
+                "invariant violated at top_n={}: result.len()={} > 2 * top_n={}",
+                top_n,
+                result.len(),
+                2 * top_n
+            );
+        }
     }
 }

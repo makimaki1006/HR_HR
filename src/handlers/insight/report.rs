@@ -664,6 +664,7 @@ mod tests {
             hw_job_type_counts: vec![],
             // P2-1: 給与レンジ 散布図
             salary_scatter_pairs: vec![],
+            csv_company_ranking: vec![],
             // Phase A: 県平均
             pref_avg_unemployment_rate: None,
             pref_avg_single_rate: None,
