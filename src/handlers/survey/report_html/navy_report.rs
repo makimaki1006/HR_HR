@@ -929,6 +929,38 @@ pub(super) fn render_navy_section_03_salary(
         }
     }
 
+    // -- 図 3-7 扶養範囲到達ライン (Phase 2-B H1, 2026-05-29)
+    //   時給モードのみ表示。年収 = 時給 × 週稼働時間 × 52 を逆算し、
+    //   103 万円 / 130 万円 の扶養範囲ラインに到達する必要時給を週稼働時間別に提示。
+    //   silent fallback 防止: is_hourly == false の月給モードでは完全にこのブロックを省略する。
+    if is_hourly {
+        // 中央値は salary_min_values_native (時給ネイティブ円/時) から計算。
+        // 空 or 全 0 の場合は median = 0 となり build_navy_fuyou_table 側で "—" 表示。
+        let median_hourly_native: i64 = {
+            let mut v: Vec<i64> = agg
+                .salary_min_values_native
+                .iter()
+                .copied()
+                .filter(|x| *x > 0)
+                .collect();
+            if v.is_empty() {
+                0
+            } else {
+                v.sort_unstable();
+                v[v.len() / 2]
+            }
+        };
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 3-H &nbsp;扶養範囲到達時給 (週稼働時間別)</div>\n",
+        );
+        html.push_str(&build_navy_fuyou_table(median_hourly_native));
+        html.push_str(
+            "<p class=\"caption\">年収閾値&divide;(週稼働時間&times;52週)で算出。\
+             実際の課税範囲は社会保険加入条件 (週20h・月8.8万円・学生除外等) により異なるため別途確認。\
+             自社中央値の行は CSV 集計の下限給与中央値 (円/時)。</p>\n",
+        );
+    }
+
     // -- So What
     //   Phase 2-A (2026-05-29): is_hourly で文言を切替。
     //   - 月給: 5 万円未満=定額求人 / 10 万円以上=歩合・等級制
@@ -1056,6 +1088,86 @@ fn compute_distribution_stats(values: &[i64], bin_step: i64) -> Option<DistStats
 
 fn format_mm(yen: i64) -> String {
     format!("{:.1}", yen as f64 / 10000.0)
+}
+
+// ============================================================
+// Phase 2-B (2026-05-29): 時給モード H1 — 扶養範囲到達時給テーブル
+// ============================================================
+//
+// 仕様:
+//   - 列: 週稼働時間 (15h / 20h / 25h / 30h / 35h)
+//   - 行: 103万円ライン / 130万円ライン / 自社中央値
+//   - セル: 必要時給 (円/h)。年収閾値 ÷ (週稼働時間 × 52) で逆算。
+//
+// 不変条件 (テストで検証):
+//   - 130万円ラインの必要時給 > 103万円ラインの必要時給 (同一週時間)
+//   - 同一行内で週時間昇順 → 必要時給降順 (反転)
+//   - median_hourly_native <= 0 の場合、自社中央値は "—" 表示
+//   - 値はすべて非負整数
+//
+// silent fallback 監査:
+//   - median <= 0 → "—" を明示表示。空文字を返さない。
+//   - 週時間が 0 になることはない (定数配列のため)。
+const FUYOU_WEEKLY_HOURS: [i64; 5] = [15, 20, 25, 30, 35];
+const FUYOU_THRESHOLDS_MAN: [(i64, &str); 2] = [
+    (103, "103 万円ライン"),
+    (130, "130 万円ライン"),
+];
+
+/// 扶養範囲到達時給 (週稼働時間別) テーブルを生成。
+///
+/// # 引数
+/// - `median_hourly_native`: 自社中央値 (円/時)。0 以下なら "—" 行を出力。
+///
+/// # 戻り値
+/// HTML 表 (`<table class="table-navy">...</table>`)。
+pub(super) fn build_navy_fuyou_table(median_hourly_native: i64) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th scope=\"col\">区分</th>");
+    for h in FUYOU_WEEKLY_HOURS.iter() {
+        s.push_str(&format!("<th scope=\"col\" class=\"num\">週 {}h</th>", h));
+    }
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 103万 / 130万 行
+    for (man, label) in FUYOU_THRESHOLDS_MAN.iter() {
+        s.push_str("<tr>");
+        s.push_str(&format!("<td><strong>{}</strong></td>", escape_html(label)));
+        let annual_yen: i64 = *man * 10_000;
+        for h in FUYOU_WEEKLY_HOURS.iter() {
+            // 必要時給 = 年収閾値 / (週時間 × 52)。1 円単位で切上 (扶養超過リスク回避)。
+            let denom = *h * 52;
+            // denom は 15*52..=35*52 で常に > 0 (定数配列)
+            let needed = (annual_yen + denom - 1) / denom;
+            s.push_str(&format!(
+                "<td class=\"num bold\">{} 円/時</td>",
+                format_number(needed)
+            ));
+        }
+        s.push_str("</tr>\n");
+    }
+
+    // 自社中央値行
+    s.push_str("<tr class=\"hl\">");
+    s.push_str("<td><strong>自社 下限給与 中央値</strong></td>");
+    if median_hourly_native > 0 {
+        // 全列に中央値を表示 (週時間によらず固定値)。
+        // 各列で「103万/130万ラインを上回るか」を視覚的に比較できるよう、同値を繰り返す。
+        for _h in FUYOU_WEEKLY_HOURS.iter() {
+            s.push_str(&format!(
+                "<td class=\"num bold\">{} 円/時</td>",
+                format_number(median_hourly_native)
+            ));
+        }
+    } else {
+        for _h in FUYOU_WEEKLY_HOURS.iter() {
+            s.push_str("<td class=\"num dim\">—</td>");
+        }
+    }
+    s.push_str("</tr>\n");
+
+    s.push_str("</tbody></table>\n");
+    s
 }
 
 /// Phase 2-A (2026-05-29): `unit_label` / `bin_step` 引数化。
@@ -4325,7 +4437,8 @@ pub(super) fn render_navy_section_06_demographics(
     //   人数推定は行わず、求人件数のみを集計 (DISPLAY_SPEC v1.0 §2 / Hard NG 用語不使用)。
     //   ctx.posting_target == None または total_postings == 0 の場合は本ブロックを skip。
     if let Some(pt) = ctx.posting_target.as_ref().filter(|p| p.total_postings > 0) {
-        render_navy_section_06_posting_target(html, pt, is_hourly);
+        // Phase 2-B (2026-05-29): agg を追加 — H4 表 6-J で salary_min_values_native を使うため。
+        render_navy_section_06_posting_target(html, pt, is_hourly, agg);
     }
 
     // -- so-what
@@ -4357,10 +4470,15 @@ pub(super) fn render_navy_section_06_demographics(
 ///
 /// Phase 2-A (2026-05-29): `is_hourly` 引数追加。給与レンジの bucket 表記と
 /// salary_type フィルタの注記を時給/月給で切替える。
+///
+/// Phase 2-B (2026-05-29): `agg` 引数追加。表 6-J (H4: 時給帯別 求人件数) で
+/// `agg.salary_min_values_native` を 100 円刻みで集計するため使用。
+/// 時給モード (is_hourly == true) でのみ表 6-J を出力する。
 fn render_navy_section_06_posting_target(
     html: &mut String,
     pt: &super::super::super::analysis::fetch::PostingTargetProfile,
     is_hourly: bool,
+    agg: &SurveyAggregation,
 ) {
     html.push_str(
         "<div class=\"block-title block-title-spaced\">\
@@ -4528,6 +4646,26 @@ fn render_navy_section_06_posting_target(
     ));
     html.push_str(salary_caption);
 
+    // ---- 表 6-J: 時給帯別 求人件数 (Phase 2-B H4, 2026-05-29)
+    //   時給モードのみ表示。agg.salary_min_values_native を 100 円刻みで bucket 化。
+    //   表 6-H (salary_target_distribution: HW postings 月給 salary_min の bucket) との違い:
+    //     - 表 6-H は HW postings の salary_min を単一値で月給 bucket 化
+    //     - 表 6-J は CSV (媒体分析側) の時給ネイティブ値で 100 円刻みの価格弾力性を見る
+    //   silent fallback 防止: is_hourly == false の月給モードでは完全に省略。
+    if is_hourly {
+        let distribution = build_hourly_band_distribution(&agg.salary_min_values_native);
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 6-J &nbsp;時給帯別 求人件数 (100円刻み)</div>\n",
+        );
+        html.push_str(&build_distribution_table(&distribution, "時給帯"));
+        html.push_str(
+            "<p class=\"caption\">出典: CSV 集計 (下限給与ネイティブ円/時)。\
+             100 円刻みの求人件数分布。\
+             <strong>表 6-H との違い:</strong> 表 6-H は salary_min 単一値の bucket、\
+             本表は時給市場の価格弾力性を見る (100円帯ごとの厚みで競合密度を把握)。</p>\n",
+        );
+    }
+
     // ---- 表 6-I: 雇用形態 × 求人件数
     html.push_str(
         "<div class=\"block-title block-title-spaced\">\
@@ -4601,6 +4739,69 @@ fn build_distribution_table(distribution: &[(String, i64)], label_header: &str) 
     }
     s.push_str("</tbody></table>\n");
     s
+}
+
+// ============================================================
+// Phase 2-B (2026-05-29): 時給モード H4 — 時給帯別 求人件数分布
+// ============================================================
+//
+// 仕様:
+//   - 100 円刻みで bucket 化: <900 / 900-1000 / 1000-1100 / 1100-1200 / 1200-1300 /
+//                              1300-1400 / 1400-1500 / 1500-1600 / 1600-1700 /
+//                              1700-1800 / 1800-1900 / 1900-2000 / 2000+
+//     合計 13 段
+//   - 各 bucket: (ラベル, 件数) のペアを順序保持で返す
+//
+// 不変条件 (テストで検証):
+//   - bucket 合計 == values.iter().filter(>0).count()
+//   - 単一値 [1200, 1200, 1200] → "1200-1300円" bucket に 3 件
+//   - 境界値 1000 → "1000-1100円" (lo 包含、hi 排他)
+//   - empty → 全 bucket 0 件のリスト (build_distribution_table 側で total==0 のとき「該当データなし」)
+const HOURLY_BAND_BOUNDARIES: [(i64, i64, &str); 13] = [
+    (0, 900, "<900円"),
+    (900, 1000, "900-1000円"),
+    (1000, 1100, "1000-1100円"),
+    (1100, 1200, "1100-1200円"),
+    (1200, 1300, "1200-1300円"),
+    (1300, 1400, "1300-1400円"),
+    (1400, 1500, "1400-1500円"),
+    (1500, 1600, "1500-1600円"),
+    (1600, 1700, "1600-1700円"),
+    (1700, 1800, "1700-1800円"),
+    (1800, 1900, "1800-1900円"),
+    (1900, 2000, "1900-2000円"),
+    (2000, i64::MAX, "2000円+"),
+];
+
+/// 時給値リストを 100 円刻みの bucket 分布 `(ラベル, 件数)` に変換。
+///
+/// # 引数
+/// - `values`: 時給ネイティブ値 (円/時)。<= 0 は除外。
+///
+/// # 戻り値
+/// `(ラベル, 件数)` のリスト。順序は HOURLY_BAND_BOUNDARIES の宣言順 (昇順)。
+/// 全 bucket を返す (count==0 のものも含む) → build_distribution_table 側で
+/// total==0 のときのみ「該当データなし」を表示するため、空 Vec は返さない。
+///
+/// # 不変条件
+/// - 戻り値 .len() == HOURLY_BAND_BOUNDARIES.len() (= 13)
+/// - sum(counts) == values.iter().filter(|v| **v > 0).count()
+pub(super) fn build_hourly_band_distribution(values: &[i64]) -> Vec<(String, i64)> {
+    let mut counts: Vec<i64> = vec![0; HOURLY_BAND_BOUNDARIES.len()];
+    for v in values.iter().copied().filter(|x| *x > 0) {
+        for (i, (lo, hi, _)) in HOURLY_BAND_BOUNDARIES.iter().enumerate() {
+            // [lo, hi) 判定。最後の "2000円+" は hi = i64::MAX のため上限なし。
+            if v >= *lo && v < *hi {
+                counts[i] += 1;
+                break;
+            }
+        }
+    }
+    HOURLY_BAND_BOUNDARIES
+        .iter()
+        .zip(counts.iter())
+        .map(|((_, _, label), c)| (label.to_string(), *c))
+        .collect()
 }
 
 // 「20-24」「25-29」「85+」等のラベルから下端年齢を取得
@@ -5502,6 +5703,38 @@ pub(super) fn render_navy_section_07_lifestyle(
         html.push_str(&lifestyle_facilities);
     }
 
+    // -- 図 7-3 最賃プレミアム率分布 (Phase 2-B H3, 2026-05-29)
+    //   時給モードのみ表示。求人時給と県最低賃金の差を premium_pct = (時給-最賃)/最賃*100 で
+    //   バケット化 (5% 刻み) し、件数を縦棒で示す。
+    //   表示条件: agg.is_hourly == true かつ latest_wage が取れる (mw_yen > 0)。
+    //   silent fallback 防止:
+    //     - 月給モード: ブロック完全省略 (条件 if 内)
+    //     - 最賃データなし: "最低賃金データなし" 明示表示
+    //     - 時給データなし: "該当データなし" 明示表示
+    if agg.is_hourly {
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">図 7-3 &nbsp;最賃プレミアム率分布 (求人時給 vs 県最賃)</div>\n",
+        );
+        let mw_yen: i64 = latest_wage.map(|(_, w)| w).filter(|w| *w > 0).unwrap_or(0);
+        if mw_yen <= 0 {
+            html.push_str(
+                "<p class=\"caption dim\">該当県の最低賃金データが取得できなかったため、本図は省略します。</p>\n",
+            );
+        } else {
+            html.push_str(&build_navy_minwage_premium_histogram_svg(
+                &agg.salary_min_values_native,
+                mw_yen,
+            ));
+            html.push_str(&format!(
+                "<p class=\"caption\">出典: CSV 集計 (時給 下限ネイティブ) + 厚労省地域別最低賃金 ({} 円/時)。\
+                 プレミアム率 = (求人時給 - 最低賃金) / 最低賃金 × 100。\
+                 <strong>SO WHAT:</strong> プレミアム 10% 未満が多数なら最賃ライン求人が主流、\
+                 25% 超の高プレミアム帯に偏れば等級・専門職求人の比重が高い兆候。</p>\n",
+                format_number(mw_yen)
+            ));
+        }
+    }
+
     // -- so-what
     let so_what = build_lifestyle_so_what(
         latest_wage,
@@ -5714,6 +5947,159 @@ fn build_navy_household_vs_salary_table(
          可処分所得 (税・社会保険料控除後) や世帯収入の評価は含みません。</p>\n",
     );
     s
+}
+
+// ============================================================
+// Phase 2-B (2026-05-29): 時給モード H3 — 最賃プレミアム率分布 SVG
+// ============================================================
+//
+// 仕様:
+//   - 各求人時給について premium_pct = (時給 - 最賃) / 最賃 × 100 を算出
+//   - bucket: 5% 刻み。<0% / 0-5 / 5-10 / 10-15 / 15-20 / 20-25 / 25-30 / 30-35 / 35-40 / 40-45 / 45%+
+//     (合計 11 段、x 軸 11 ラベル)
+//   - x 軸: プレミアム率帯、y 軸: 求人件数
+//
+// 不変条件 (テストで検証):
+//   - bucket 合計件数 == values_native.iter().filter(>0).count()
+//   - 各 bucket count ∈ [0, total]
+//   - values_native empty → "該当データなし" 表示
+//   - min_wage <= 0 → "" (空文字)。呼出側で別途 caption 表示する想定
+//
+// silent fallback 監査:
+//   - empty/min_wage<=0 は呼出側でハンドリング (本関数は "" を返す)
+//   - bucket 11 段の定義は固定 (定数 PREMIUM_BUCKETS)
+const PREMIUM_BUCKETS: [(f64, f64, &str); 11] = [
+    (f64::NEG_INFINITY, 0.0, "<0%"),
+    (0.0, 5.0, "0-5%"),
+    (5.0, 10.0, "5-10%"),
+    (10.0, 15.0, "10-15%"),
+    (15.0, 20.0, "15-20%"),
+    (20.0, 25.0, "20-25%"),
+    (25.0, 30.0, "25-30%"),
+    (30.0, 35.0, "30-35%"),
+    (35.0, 40.0, "35-40%"),
+    (40.0, 45.0, "40-45%"),
+    (45.0, f64::INFINITY, "45%+"),
+];
+
+/// 最賃プレミアム率ヒストグラム SVG を生成。
+///
+/// # 引数
+/// - `values_native`: 求人時給 (円/時) のリスト。<= 0 は除外。
+/// - `min_wage`: 県最低賃金 (円/時)。<= 0 の場合は "" を返す。
+///
+/// # 戻り値
+/// SVG 文字列 (`<svg>...</svg>`)。データ不足時は `<p class="caption dim">該当データなし</p>`。
+pub(super) fn build_navy_minwage_premium_histogram_svg(
+    values_native: &[i64],
+    min_wage: i64,
+) -> String {
+    if min_wage <= 0 {
+        return String::new();
+    }
+    // filter > 0
+    let valid: Vec<f64> = values_native
+        .iter()
+        .copied()
+        .filter(|x| *x > 0)
+        .map(|x| (x as f64 - min_wage as f64) / min_wage as f64 * 100.0)
+        .collect();
+    if valid.is_empty() {
+        return String::from("<p class=\"caption dim\">該当データなし</p>\n");
+    }
+
+    // bucket 集計
+    let mut counts: Vec<usize> = vec![0; PREMIUM_BUCKETS.len()];
+    for v in valid.iter() {
+        for (i, (lo, hi, _)) in PREMIUM_BUCKETS.iter().enumerate() {
+            // [lo, hi) で判定。最後の "45%+" は hi = INFINITY のため上限なし。
+            if *v >= *lo && *v < *hi {
+                counts[i] += 1;
+                break;
+            }
+        }
+    }
+
+    let total: usize = counts.iter().sum();
+    // 不変条件: total == valid.len() (テストで検証)
+    let _ = total;
+    let max_count = *counts.iter().max().unwrap_or(&1).max(&1) as f64;
+
+    // SVG geometry (build_navy_histogram_svg と同じレイアウト)
+    let w: f64 = 720.0;
+    let h: f64 = 280.0;
+    let pad_l = 56.0;
+    let pad_r = 16.0;
+    let pad_t = 36.0;
+    let pad_b = 44.0;
+    let inner_w = w - pad_l - pad_r;
+    let inner_h = h - pad_t - pad_b;
+    let n_bins = counts.len();
+    let bw = inner_w / n_bins as f64;
+
+    let mut svg = String::new();
+    svg.push_str(&format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"最賃プレミアム率分布ヒストグラム\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    ));
+    // y 軸グリッド
+    for i in 0..=5 {
+        let y = pad_t + inner_h * i as f64 / 5.0;
+        let count = (max_count * (5 - i) as f64 / 5.0).round() as i64;
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n",
+            pad_l, y, w - pad_r, y
+        ));
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">{}</text>\n",
+            pad_l - 6.0,
+            y + 3.0,
+            count
+        ));
+    }
+    // bars
+    for (i, c) in counts.iter().enumerate() {
+        let bh = (*c as f64 / max_count) * inner_h;
+        let bx = pad_l + i as f64 * bw;
+        let by = pad_t + inner_h - bh;
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"#1F2D4D\"/>\n",
+            bx + 0.5,
+            by,
+            (bw - 1.0).max(1.0),
+            bh
+        ));
+        // 件数ラベル (バー上、0 件は省略)
+        if *c > 0 {
+            svg.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#1F2D4D\" text-anchor=\"middle\">{}</text>\n",
+                bx + bw / 2.0,
+                (by - 3.0).max(pad_t + 8.0),
+                c
+            ));
+        }
+    }
+    // x 軸ラベル
+    for (i, (_, _, label)) in PREMIUM_BUCKETS.iter().enumerate() {
+        let cx = pad_l + (i as f64 + 0.5) * bw;
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+            cx,
+            h - pad_b + 14.0,
+            escape_html(label)
+        ));
+    }
+    // 軸タイトル
+    svg.push_str(&format!(
+        "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">最賃プレミアム率 (%)</text>\n",
+        w / 2.0,
+        h - 6.0
+    ));
+    svg.push_str("</svg>\n");
+    svg
 }
 
 // 2026-05-23 #228: 社会生活・施設密度 (Section 07 拡張)
@@ -7546,7 +7932,9 @@ mod tests {
         };
         let mut html = String::new();
         // Phase 2-A (2026-05-29): is_hourly = false (旧動作互換テスト)
-        render_navy_section_06_posting_target(&mut html, &pt, false);
+        // Phase 2-B (2026-05-29): agg 引数追加 (default で月給モード=is_hourly=false。表 6-J 非表示)
+        let agg = SurveyAggregation::default();
+        render_navy_section_06_posting_target(&mut html, &pt, false, &agg);
 
         // 全 count == 0 → KPI は「—」(em dash) になるべき
         // 旧バグでは last-wins により "〜20万" 等が表示されていた。
@@ -7594,7 +7982,9 @@ mod tests {
         };
         let mut html = String::new();
         // Phase 2-A (2026-05-29): is_hourly = false (旧動作互換テスト)
-        render_navy_section_06_posting_target(&mut html, &pt, false);
+        // Phase 2-B (2026-05-29): agg 引数追加 (default で月給モード=is_hourly=false。表 6-J 非表示)
+        let agg = SurveyAggregation::default();
+        render_navy_section_06_posting_target(&mut html, &pt, false, &agg);
 
         // age 主要層は count > 0 のものから選ばれる
         assert!(

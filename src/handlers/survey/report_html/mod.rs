@@ -50,6 +50,10 @@ mod invariant_tests;
 #[cfg(test)]
 mod round12_integration_tests;
 
+// Phase 2-B (2026-05-29): 時給モード H1/H3/H4 (扶養範囲 / 最賃プレミアム / 時給帯) QA テスト
+#[cfg(test)]
+mod hourly_report_qa_test;
+
 // 各サブモジュール公開 API (本 mod.rs 内のエントリ関数から呼出)
 use executive_summary::render_section_executive_summary;
 use hw_enrichment::render_section_hw_enrichment;
