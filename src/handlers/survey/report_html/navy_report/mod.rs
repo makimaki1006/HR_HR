@@ -20,6 +20,16 @@
 pub(super) mod common;
 pub(super) use common::*;
 
+// A1 Commit 2 (β Section Team, 2026-05-29): Section 01 (Cover) / Section 08 (Notes)
+// を独立モジュールに分離。元の `render_navy_cover` / `render_navy_section_08_notes`
+// は外部 (report_html/mod.rs) から `navy_report::render_navy_*` の path で
+// 呼ばれているため、ここで `pub(super)` 再エクスポートして path 互換を維持する。
+// API 表面は不変。
+pub(super) mod section_01_cover;
+pub(super) mod section_08_notes;
+pub(super) use section_01_cover::render_navy_cover;
+pub(super) use section_08_notes::render_navy_section_08_notes;
+
 use super::super::aggregator::{EmpTypeSalary, SurveyAggregation};
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
@@ -31,109 +41,9 @@ use super::ReportVariant;
 // ============================================================
 // 公開 API
 // ============================================================
-
-/// Cover ページ全体 (1 枚)
-pub(super) fn render_navy_cover(
-    html: &mut String,
-    agg: &SurveyAggregation,
-    variant: ReportVariant,
-    now: &str,
-    today_short: &str,
-    target_region: &str,
-) {
-    let cover_lede = match variant {
-        ReportVariant::Full => "ハローワーク掲載求人 + アップロード CSV クロス分析により、対象地域における求人市場の構造と機会を可視化します。",
-        ReportVariant::MarketIntelligence => "アップロード CSV + 公開統計クロス分析により、採用市場・ターゲット分析と競合動向を立体的に把握します。",
-        ReportVariant::Public => "アップロード CSV + 公開統計クロス分析により、対象地域の構造的特徴を把握します。",
-    };
-
-    let hl_count = format_number(agg.total_count as i64);
-    let salary_headline = salary_summary::SalaryHeadline::from_aggregation(agg);
-    let cover_hl = salary_headline.cover_highlight_text();
-
-    html.push_str("<section class=\"page-navy cover-navy\" role=\"region\" aria-labelledby=\"navy-cover-title\">\n");
-
-    // topbar
-    html.push_str("<div class=\"cover-topbar\">\n");
-    html.push_str("<div class=\"brand\">\n");
-    html.push_str("<span class=\"brand-mark\" aria-hidden=\"true\"></span>\n");
-    html.push_str("<span class=\"brand-name\">FOR A-CAREER</span>\n");
-    html.push_str("</div>\n");
-    html.push_str(&format!(
-        "<div class=\"cover-meta\">{} 版 &nbsp;/&nbsp; {}</div>\n",
-        escape_html(today_short),
-        escape_html(now)
-    ));
-    html.push_str("</div>\n");
-
-    // body
-    html.push_str("<div class=\"cover-body\">\n");
-    html.push_str("<div class=\"cover-eyebrow\">RECRUITMENT MARKET REPORT</div>\n");
-    html.push_str("<div class=\"cover-rule\" aria-hidden=\"true\"></div>\n");
-    html.push_str(
-        "<h1 id=\"navy-cover-title\" class=\"cover-title\">求人市場<br>総合診断レポート</h1>\n",
-    );
-    html.push_str(&format!(
-        "<p class=\"cover-lede\">{}</p>\n",
-        escape_html(cover_lede)
-    ));
-
-    // stats
-    html.push_str("<div class=\"cover-stats\">\n");
-    push_cover_stat(html, &hl_count, "件", "サンプル件数");
-    push_cover_stat_small(html, target_region, "主要地域 (対象)");
-    push_cover_stat(
-        html,
-        &cover_hl.value_text,
-        &cover_hl.unit,
-        &cover_hl.label,
-    );
-    push_cover_stat_small(html, variant.display_name(), "レポート版");
-    html.push_str("</div>\n");
-
-    html.push_str("</div>\n"); // /cover-body
-
-    // footer
-    html.push_str("<div class=\"cover-footer\">\n");
-    push_cover_footer(html, "発行", "株式会社 For A-career");
-    push_cover_footer(html, "生成日時", now);
-    push_cover_footer(html, "対象地域", target_region);
-    push_cover_footer(html, "取扱区分", "機密 / 社外秘");
-    html.push_str("</div>\n");
-
-    html.push_str("</section>\n");
-}
-
-fn push_cover_stat(html: &mut String, value: &str, unit: &str, label: &str) {
-    html.push_str(&format!(
-        "<div class=\"cover-stat\">\
-         <div class=\"cs-num\">{}<span class=\"cs-unit\">{}</span></div>\
-         <div class=\"cs-label\">{}</div>\
-         </div>\n",
-        escape_html(value),
-        escape_html(unit),
-        escape_html(label)
-    ));
-}
-
-fn push_cover_stat_small(html: &mut String, value: &str, label: &str) {
-    html.push_str(&format!(
-        "<div class=\"cover-stat\">\
-         <div class=\"cs-num\" style=\"font-size:18pt;\">{}</div>\
-         <div class=\"cs-label\">{}</div>\
-         </div>\n",
-        escape_html(value),
-        escape_html(label)
-    ));
-}
-
-fn push_cover_footer(html: &mut String, label: &str, value: &str) {
-    html.push_str(&format!(
-        "<div><div class=\"cf-label\">{}</div><div class=\"cf-val\">{}</div></div>\n",
-        escape_html(label),
-        escape_html(value)
-    ));
-}
+// A1 Commit 2 (2026-05-29):
+//   `render_navy_cover` (Cover ページ + push_cover_* helper) は
+//   `section_01_cover.rs` に分離。mod 冒頭で再エクスポート済み。
 
 // ============================================================
 // TOC
@@ -6009,117 +5919,9 @@ fn build_navy_auto_table(
 // ============================================================
 // Section 08: 注記・出典・免責 (Phase 4 navy 本実装)
 // ============================================================
-
-pub(super) fn render_navy_section_08_notes(
-    html: &mut String,
-    variant: ReportVariant,
-    now: &str,
-) {
-    let show_hw = matches!(variant, ReportVariant::Full);
-
-    html.push_str("<section class=\"page-navy navy-notes\" role=\"region\">\n");
-    push_page_head(
-        html,
-        "SECTION 08",
-        "注記・出典・免責",
-        "データソース / 集計定義 / 免責事項",
-    );
-
-    // -- 冒頭の lede (堅実な 1 段落)
-    html.push_str(&format!(
-        "<div class=\"exec-headline\">\
-         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
-         <p>本レポートで使用したデータソース、集計定義、および解釈上の前提を以下に明示します。\
-         数値は <strong>{}</strong> 時点で取得可能な最新値を採用しており、その後の更新により\
-         実態と乖離する可能性があります。施策判断には現場文脈・最新の一次情報を併用してください。</p>\
-         </div>\n",
-        escape_html(now)
-    ));
-
-    // -- 表 8-A データソース一覧
-    html.push_str("<div class=\"block-title\">表 8-A &nbsp;データソース一覧</div>\n");
-    html.push_str("<table class=\"table-navy\">\n<thead><tr>\
-        <th>No.</th><th>名称</th><th>出典</th><th>用途</th><th>更新頻度</th>\
-        </tr></thead>\n<tbody>\n");
-    let sources: Vec<(&str, &str, &str, &str)> = if show_hw {
-        vec![
-            ("アップロード CSV",        "ユーザー提供",                 "全 Section の主集計対象",                   "都度"),
-            ("求人媒体ローカル DB",     "求人媒体 (postings テーブル)",   "Section 02 媒体掲載数 / 推移",             "日次更新"),
-            ("求人媒体時系列",          "Turso v2_ts_*",                "Section 02 3 ヶ月 / 1 年推移",              "週次"),
-            ("有効求人倍率",            "e-Stat (v2_external_job_openings_ratio)", "Section 04 採用難度",       "月次"),
-            ("労働力調査 (失業率)",      "e-Stat (v2_external_labor_force)",       "Section 04 / 06 失業率",        "月次"),
-            ("雇用動向調査 (離職率)",    "e-Stat (v2_external_turnover)",          "Section 04 離職率・入職率",     "年次"),
-            ("国勢調査 産業構造",        "e-Stat (v2_external_industry_structure)", "Section 05 産業大分類",         "5 年"),
-            ("国勢調査 人口ピラミッド",  "e-Stat (v2_external_population_pyramid)", "Section 06 人口構造",           "5 年"),
-            ("国勢調査 OD",              "e-Stat (v2_external_commute)",           "Section 07 通勤圏",             "5 年"),
-            ("学校基本調査",            "文部科学省 (v2_external_education_facilities)", "Section 06 教育施設密度",  "年次"),
-            ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
-            ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
-            ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
-            ("地域企業データ",          "地域企業データベース",                              "Section 05 法人セグメント",     "都度同期"),
-        ]
-    } else {
-        vec![
-            ("アップロード CSV",        "ユーザー提供",                 "全 Section の主集計対象",                   "都度"),
-            ("有効求人倍率",            "e-Stat (v2_external_job_openings_ratio)", "Section 04 採用難度",       "月次"),
-            ("労働力調査 (失業率)",      "e-Stat (v2_external_labor_force)",       "Section 04 / 06 失業率",        "月次"),
-            ("雇用動向調査 (離職率)",    "e-Stat (v2_external_turnover)",          "Section 04 離職率・入職率",     "年次"),
-            ("国勢調査 産業構造",        "e-Stat (v2_external_industry_structure)", "Section 05 産業大分類",         "5 年"),
-            ("国勢調査 人口ピラミッド",  "e-Stat (v2_external_population_pyramid)", "Section 06 人口構造",           "5 年"),
-            ("国勢調査 OD",              "e-Stat (v2_external_commute)",           "Section 07 通勤圏",             "5 年"),
-            ("学校基本調査",            "文部科学省 (v2_external_education_facilities)", "Section 06 教育施設密度",  "年次"),
-            ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
-            ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
-            ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
-            ("地域企業データ",          "地域企業データベース",                              "Section 05 法人セグメント",     "都度同期"),
-        ]
-    };
-    for (i, (name, source, purpose, freq)) in sources.iter().enumerate() {
-        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
-        html.push_str(&format!(
-            "<tr{}><td class=\"num bold\">{:02}</td><td><strong>{}</strong></td>\
-             <td><span class=\"dim\">{}</span></td><td>{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
-            row_class,
-            i + 1,
-            escape_html(name),
-            escape_html(source),
-            escape_html(purpose),
-            escape_html(freq)
-        ));
-    }
-    html.push_str("</tbody></table>\n");
-    html.push_str("<p class=\"caption\">e-Stat = 政府統計の総合窓口 (https://www.e-stat.go.jp/)。各テーブルの取得 SQL とカラム定義は内部 docs を参照。</p>\n");
-
-    // 2026-05-14 撤去 (ユーザー判断):
-    //   表 8-B「主要 集計定義」を全撤去。
-    //   - 「給与の月給換算」「給与解析率」等の内部運用定義はレポート受領側が
-    //     関知すべき情報ではない (Section 03 等で必要な閾値は本文に統合済み)。
-
-    // -- 免責事項 (so-what 風 navy 帯)
-    // 2026-05-14:
-    //   - 旧「2. データ範囲の制約 (CSV / ローカル DB)」を撤去。レポート受領側
-    //     は CSV 経由であることを意識しない設計のため、内部前提を表に出さない。
-    //   - 番号を 1〜3 に詰める。
-    html.push_str("<div class=\"block-title block-title-spaced\">免責 &nbsp;解釈上の前提</div>\n");
-    html.push_str(
-        "<div class=\"so-what\" style=\"margin-top:4mm;\">\
-         <div class=\"sw-label\">DISCLAIMER</div>\
-         <div class=\"sw-body\">\
-         <strong>1. 相関 ≠ 因果。</strong> 本レポートが示す指標間の関係は <strong>相関</strong> であり、\
-         因果関係を証明するものではありません。施策実施判断は現場文脈と合わせて行ってください。<br>\
-         <strong>2. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
-         直近の事象とのタイムラグを認識してください。最低賃金は毎年 10 月発効、国勢調査は 5 年に一度。<br>\
-         <strong>3. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
-         外部への持ち出しは社内規定に従ってください。\
-         </div></div>\n",
-    );
-
-    // (改版・問合せ セクションは 2026-05-14 削除)
-    let _ = variant;
-    let _ = now;
-
-    html.push_str("</section>\n");
-}
+// A1 Commit 2 (2026-05-29):
+//   `render_navy_section_08_notes` は `section_08_notes.rs` に分離。
+//   mod 冒頭で再エクスポート済み。
 
 // ============================================================
 // Unit Tests (2026-05-24 監査 H P0 #4 対策: navy_report.rs test 0 件解消)
