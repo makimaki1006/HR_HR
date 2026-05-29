@@ -727,7 +727,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         cfg.variant,
         &target_region,
     );
-    navy_report::render_navy_section_06_demographics(&mut html, cfg.hw_context, &target_region);
+    navy_report::render_navy_section_06_demographics(&mut html, cfg.agg, cfg.hw_context, &target_region);
     navy_report::render_navy_section_07_lifestyle(&mut html, cfg.hw_context, &target_region, cfg.agg);
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。

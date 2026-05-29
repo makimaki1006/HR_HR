@@ -197,11 +197,34 @@ pub struct InsightContext {
 /// - `std::thread::scope` を採用。`LocalDb` / `TursoDb` は内部 `Arc` で `Send + Sync` 安全。
 /// - グループ境界は所要時間バランスを考慮 (Turso ext stat 系を 4-5 グループに分散)。
 /// - `unwrap_or` の silent fallback は警告ログ付きで回避 (MEMORY: feedback_silent_fallback_audit)。
+/// `build_insight_context` 互換ラッパ (wage_mode 未指定 = "monthly" 旧動作)。
+///
+/// Phase 2-A (2026-05-29): wage_mode 引数を加えた `build_insight_context_with_wage_mode`
+/// を新規追加。本ラッパは旧 caller (export.rs / 旧 test fixture) との後方互換を維持するため、
+/// `wage_mode = "monthly"` (旧動作) で呼び出す。新規 caller は
+/// `build_insight_context_with_wage_mode` を直接呼ぶこと。
 pub(crate) fn build_insight_context(
     db: &Db,
     turso: Option<&TursoDb>,
     pref: &str,
     muni: &str,
+) -> InsightContext {
+    build_insight_context_with_wage_mode(db, turso, pref, muni, "monthly")
+}
+
+/// Phase 2-A (2026-05-29): wage_mode を受け取る本体実装。
+///
+/// `wage_mode`:
+/// - `"monthly"`: 月給モード (旧動作)。Section 03/05/06 で月給フィルタ
+/// - `"hourly"`: 時給モード。Section 03/05/06 で時給フィルタ
+/// - `"both"`: 月給+時給。実用上は集計値の単位整合が崩れるため Section 03 ではあまり使わない
+/// - その他: 内部で "monthly" として扱う (silent fallback ではなく明示)
+pub(crate) fn build_insight_context_with_wage_mode(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+    wage_mode: &str,
 ) -> InsightContext {
     // === 並列フェッチ (8 グループ) ===
     // 各 thread は db (LocalDb) / turso (TursoDb) を `&` borrow で共有 (Arc 内部のため安全)。
@@ -282,9 +305,10 @@ pub(crate) fn build_insight_context(
                 wage_compliance: af::fetch_wage_compliance(db, pref, muni),
                 region_benchmark: af::fetch_region_benchmark(db, pref, muni),
                 text_quality: af::fetch_text_quality(db, pref, muni),
-                salary_scatter_pairs: af::fetch_salary_scatter_pairs(db, pref, muni, 1000),
-                csv_company_ranking: af::fetch_csv_company_salary_ranking(db, pref, muni, 30),
-                posting_target: af::fetch_posting_target_profile(db, pref, muni),
+                // Phase 2-A (2026-05-29): wage_mode (monthly/hourly/both) を Section 03/05/06 用 fetcher に伝播
+                salary_scatter_pairs: af::fetch_salary_scatter_pairs(db, pref, muni, 1000, wage_mode),
+                csv_company_ranking: af::fetch_csv_company_salary_ranking(db, pref, muni, 30, wage_mode),
+                posting_target: af::fetch_posting_target_profile(db, pref, muni, wage_mode),
             }
         });
 

@@ -5,10 +5,13 @@
 //! Round 2 P2-7 で「シグネチャ不一致」が指摘されたため、現状の意図を明示記録する。
 //!
 //! ## 現状の不一致 (意図的、変更しない)
-//! - `fetch_salary_scatter_pairs(db, pref, muni, limit)` — `limit` 必須引数
-//! - `fetch_csv_company_salary_ranking(db, pref, muni, limit)` — `limit` 必須引数
-//! - `fetch_posting_target_profile(db, pref, muni)` — `limit` なし (内部 LIMIT は無く、
-//!   集計対象が postings 1 行 / 1 求人で軽量、降順 sort 不要のため)
+//! - `fetch_salary_scatter_pairs(db, pref, muni, limit, wage_mode)` — `limit` 必須引数 + Phase 2-A wage_mode
+//! - `fetch_csv_company_salary_ranking(db, pref, muni, limit, wage_mode)` — `limit` 必須引数 + Phase 2-A wage_mode
+//! - `fetch_posting_target_profile(db, pref, muni, wage_mode)` — `limit` なし (内部 LIMIT は無く、
+//!   集計対象が postings 1 行 / 1 求人で軽量、降順 sort 不要のため) + Phase 2-A wage_mode
+//!
+//! Phase 2-A (2026-05-29): `wage_mode` (`"monthly"` / `"hourly"` / `"both"`) を追加。
+//! 時給モードで Section 03 図 3-6 / Section 05 表 5-G / Section 06 図 6-3 が時給データを参照可能に。
 //!
 //! ## 設計上の差分理由
 //! - `salary_scatter_pairs` / `csv_company_ranking` は **表示件数の上限指定** が必要 (PDF レンダリング
@@ -674,8 +677,13 @@ pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
 ///
 /// 用途: navy_report.rs Section 03 図 3-6 散布図 (各点 1 求人)。
 ///
-/// フィルタ条件:
-/// - `salary_type = '月給'` (時給/日給/年俸は除外、月給換算は既存パターン踏襲)
+/// Phase 2-A (2026-05-29): `wage_mode` 引数追加で時給モード対応。
+/// - `"monthly"` (旧動作): `salary_type = '月給'` のみ
+/// - `"hourly"`: `salary_type = '時給'` のみ
+/// - `"both"`: `salary_type IN ('月給', '時給')`
+/// - その他: `"monthly"` として扱う (silent fallback ではなく明示的に旧動作)
+///
+/// フィルタ条件 (共通):
 /// - `salary_min > 0 AND salary_max > 0` (NULL / 0 を明示除外)
 /// - `salary_max >= salary_min` (異常データ除外)
 /// - pref/muni が指定されていれば一致条件を AND で追加
@@ -685,11 +693,14 @@ pub(crate) fn fetch_care_demand(db: &Db, turso: Option<&TursoDb>, pref: &str) ->
 /// - `feedback_hw_data_scope`: HW 掲載求人 (postings) を母集団とする
 ///
 /// 戻り値: `Vec<(salary_min_yen, salary_max_yen)>` (円単位、最大 `limit` 件)
+///   - 月給モード/時給モードのいずれも円単位で返す (月給は円/月、時給は円/時)。
+///   - 呼出側で表示時に万円/時給単位へ換算する。
 pub(crate) fn fetch_salary_scatter_pairs(
     db: &Db,
     pref: &str,
     muni: &str,
     limit: i64,
+    wage_mode: &str,
 ) -> Vec<(f64, f64)> {
     use super::super::super::helpers::get_f64;
 
@@ -697,13 +708,22 @@ pub(crate) fn fetch_salary_scatter_pairs(
         return Vec::new();
     }
 
+    // Phase 2-A: wage_mode に応じて salary_type フィルタを切替
+    let salary_type_clause = match wage_mode {
+        "hourly" => "salary_type = '時給'",
+        "both" => "salary_type IN ('月給', '時給')",
+        // "monthly" / 不明値はすべて旧動作 (月給のみ) に倒す。silent fallback ではなく
+        // 明示的に「未知の値は月給」として扱う方針。
+        _ => "salary_type = '月給'",
+    };
+
     // SQL 構築 (pref/muni を動的に AND 結合)。LIMIT は i64 を直接埋め込み。
-    let mut sql = String::from(
+    let mut sql = format!(
         "SELECT salary_min, salary_max FROM postings \
-         WHERE salary_type = '月給' \
+         WHERE {salary_type_clause} \
            AND salary_min IS NOT NULL AND salary_max IS NOT NULL \
            AND salary_min > 0 AND salary_max > 0 \
-           AND salary_max >= salary_min",
+           AND salary_max >= salary_min"
     );
     let mut params_owned: Vec<String> = Vec::new();
     if !pref.is_empty() {
@@ -726,8 +746,8 @@ pub(crate) fn fetch_salary_scatter_pairs(
         Err(e) => {
             // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
             tracing::warn!(
-                "fetch_salary_scatter_pairs: postings query failed (pref={}, muni={}, limit={}): {}",
-                pref, muni, limit, e
+                "fetch_salary_scatter_pairs: postings query failed (pref={}, muni={}, limit={}, wage_mode={}): {}",
+                pref, muni, limit, wage_mode, e
             );
             return Vec::new();
         }
@@ -749,21 +769,25 @@ pub(crate) fn fetch_salary_scatter_pairs(
 /// **データソース**: ローカル SQLite `postings` テーブル (HW 求人スクレイピング結果)。
 /// SalesNow API 経由の企業データとは別物。出典は「CSV 求人データ集計」と明記すること。
 ///
-/// 単位: 万円 (postings.salary_min は円単位なので /10000 換算済)。
+/// 単位:
+///   - 月給モード: 万円 (postings.salary_min は円単位なので /10000 換算済)。
+///   - 時給モード (Phase 2-A): 円/時 (postings.salary_min をそのまま、換算なし)。
 ///
-/// Ext-1 (2026-05-28): `Default` 派生を追加。`InsightContext` 全体への `#[derive(Default)]` 適用と
-/// `Vec<CsvCompanySalary>::default()` 連鎖を成立させるため (Vec の要素型は Default 必須ではないが、
-/// 将来 `Option<CsvCompanySalary>` 単独フィールドを追加する場合の即時対応用)。
+/// Phase 2-A (2026-05-29): `native_unit` フィールド追加で表示単位を明示。
+/// Ext-1 (2026-05-28): `Default` 派生。
 #[derive(Debug, Clone, Default)]
 pub struct CsvCompanySalary {
     /// 施設名 (CSV 実値、匿名化なし。HW 公開情報のため OK)
     pub facility_name: String,
     /// 同施設の求人件数 (代表性確保のため 2 件以上のみ採用)
     pub posting_count: i64,
-    /// 下限給与の中央値 (万円)
+    /// 下限給与の中央値 (月給=万円 / 時給=円/時)
     pub salary_lower_median: f64,
-    /// 上限給与の中央値 (万円)
+    /// 上限給与の中央値 (月給=万円 / 時給=円/時)
     pub salary_upper_median: f64,
+    /// Phase 2-A (2026-05-29): 表示単位 (`"月給"` (= 万円) または `"時給"` (= 円/時))。
+    /// 旧コード互換: `Default` で空文字列 → 表示側で「月給」として扱う (silent fallback ではなく明示)。
+    pub native_unit: String,
 }
 
 /// f64 列の中央値を計算。`values` は呼び出し側で正値フィルタ済の前提。
@@ -811,6 +835,7 @@ pub(crate) fn fetch_csv_company_salary_ranking(
     pref: &str,
     muni: &str,
     limit: i64,
+    wage_mode: &str,
 ) -> Vec<CsvCompanySalary> {
     use super::super::super::helpers::{get_f64, get_str};
 
@@ -818,15 +843,28 @@ pub(crate) fn fetch_csv_company_salary_ranking(
         return Vec::new();
     }
 
+    // Phase 2-A: wage_mode に応じて salary_type フィルタを切替 + 単位変換
+    let salary_type_clause = match wage_mode {
+        "hourly" => "salary_type = '時給'",
+        "both" => "salary_type IN ('月給', '時給')",
+        _ => "salary_type = '月給'",
+    };
+    let native_unit_label = match wage_mode {
+        "hourly" => "時給",
+        "both" => "混合", // both は実用上ほぼ使わないが silent fallback 防止のため明示
+        _ => "月給",
+    };
+    let is_hourly = wage_mode == "hourly";
+
     // SQL 構築: pref/muni を動的に AND 結合 (fetch_salary_scatter_pairs と同パターン)。
     // GROUP BY は Rust 側で行うため、生の facility_name + salary_min/max のみ SELECT。
-    let mut sql = String::from(
+    let mut sql = format!(
         "SELECT facility_name, salary_min, salary_max FROM postings \
          WHERE facility_name IS NOT NULL AND facility_name != '' \
-           AND salary_type = '月給' \
+           AND {salary_type_clause} \
            AND salary_min IS NOT NULL AND salary_max IS NOT NULL \
            AND salary_min > 0 AND salary_max > 0 \
-           AND salary_max >= salary_min",
+           AND salary_max >= salary_min"
     );
     let mut params_owned: Vec<String> = Vec::new();
     if !pref.is_empty() {
@@ -853,8 +891,8 @@ pub(crate) fn fetch_csv_company_salary_ranking(
         Err(e) => {
             // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
             tracing::warn!(
-                "fetch_csv_company_salary_ranking: postings query failed (pref={}, muni={}, limit={}): {}",
-                pref, muni, limit, e
+                "fetch_csv_company_salary_ranking: postings query failed (pref={}, muni={}, limit={}, wage_mode={}): {}",
+                pref, muni, limit, wage_mode, e
             );
             return Vec::new();
         }
@@ -879,7 +917,12 @@ pub(crate) fn fetch_csv_company_salary_ranking(
         entry.1.push(hi);
     }
 
-    // 求人数 >= 2 の企業のみ採用 + 中央値計算 + 万円換算
+    // 求人数 >= 2 の企業のみ採用 + 中央値計算 + 単位変換
+    //
+    // Phase 2-A (2026-05-29): 単位変換は is_hourly で切替。
+    //   - 月給モード: 円 → 万円 (/10000)
+    //   - 時給モード: 円 → 円 (換算なし)
+    let unit_div: f64 = if is_hourly { 1.0 } else { 10_000.0 };
     let mut result: Vec<CsvCompanySalary> = grouped
         .into_iter()
         .filter(|(_, (lows, _))| lows.len() >= 2)
@@ -890,9 +933,9 @@ pub(crate) fn fetch_csv_company_salary_ranking(
             CsvCompanySalary {
                 facility_name: name,
                 posting_count,
-                // 円 → 万円 換算
-                salary_lower_median: lower_median_yen / 10_000.0,
-                salary_upper_median: upper_median_yen / 10_000.0,
+                salary_lower_median: lower_median_yen / unit_div,
+                salary_upper_median: upper_median_yen / unit_div,
+                native_unit: native_unit_label.to_string(),
             }
         })
         .collect();
@@ -1033,6 +1076,30 @@ fn salary_bucket(salary_min_yen: f64) -> &'static str {
     }
 }
 
+/// Phase 2-A (2026-05-29): 時給 (円) を時給帯のラベルへ変換。
+///
+/// 区間 (6 段): `"<1000円"` / `"1000-1200円"` / `"1200-1400円"` / `"1400-1600円"` /
+///              `"1600-2000円"` / `"2000円+"`
+///
+/// パート/アルバイトの一般的時給レンジを 6 バケットで網羅。
+/// 最低賃金 (800円台) より低い値は仕様上 SQL 側でも弾かれる前提だが、本関数は
+/// 受け取った値をそのまま分類 (silent fallback ではなく明示的に `<1000円` バケット)。
+fn salary_bucket_hourly(salary_min_yen: f64) -> &'static str {
+    if salary_min_yen < 1000.0 {
+        "<1000円"
+    } else if salary_min_yen < 1200.0 {
+        "1000-1200円"
+    } else if salary_min_yen < 1400.0 {
+        "1200-1400円"
+    } else if salary_min_yen < 1600.0 {
+        "1400-1600円"
+    } else if salary_min_yen < 2000.0 {
+        "1600-2000円"
+    } else {
+        "2000円+"
+    }
+}
+
 /// 年齢制限ラベルを表示順 (若年→高齢) で並べた配列を返す。
 /// 表示順固定のため `Vec<(label, count)>` 構築時に使う。
 fn age_range_display_order() -> &'static [&'static str] {
@@ -1058,6 +1125,18 @@ fn salary_display_order() -> &'static [&'static str] {
     ]
 }
 
+/// Phase 2-A (2026-05-29): 時給帯ラベルを表示順 (低→高) で並べた配列を返す。
+fn salary_display_order_hourly() -> &'static [&'static str] {
+    &[
+        "<1000円",
+        "1000-1200円",
+        "1200-1400円",
+        "1400-1600円",
+        "1600-2000円",
+        "2000円+",
+    ]
+}
+
 /// postings から「求人側ターゲット プロファイル」を集計。
 ///
 /// 仕様:
@@ -1079,8 +1158,12 @@ pub(crate) fn fetch_posting_target_profile(
     db: &Db,
     pref: &str,
     muni: &str,
+    wage_mode: &str,
 ) -> PostingTargetProfile {
     use super::super::super::helpers::{get_f64, get_str};
+
+    // Phase 2-A (2026-05-29): wage_mode で給与 bucket と表示順を切替
+    let is_hourly = wage_mode == "hourly";
 
     // ---- SQL: postings から age_min/age_max/salary_min/salary_type/experience_required/employment_type を SELECT
     let mut sql = String::from(
@@ -1112,8 +1195,8 @@ pub(crate) fn fetch_posting_target_profile(
         Err(e) => {
             // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
             tracing::warn!(
-                "fetch_posting_target_profile: postings query failed (pref={}, muni={}): {}",
-                pref, muni, e
+                "fetch_posting_target_profile: postings query failed (pref={}, muni={}, wage_mode={}): {}",
+                pref, muni, wage_mode, e
             );
             return PostingTargetProfile::default();
         }
@@ -1124,8 +1207,14 @@ pub(crate) fn fetch_posting_target_profile(
     for label in age_range_display_order() {
         age_counts.insert(*label, 0);
     }
+    // Phase 2-A: is_hourly で表示順 (bucket ラベル集合) を切替
+    let salary_order: &'static [&'static str] = if is_hourly {
+        salary_display_order_hourly()
+    } else {
+        salary_display_order()
+    };
     let mut salary_counts: HashMap<&'static str, i64> = HashMap::new();
-    for label in salary_display_order() {
+    for label in salary_order {
         salary_counts.insert(*label, 0);
     }
     // 経験要件は 2 値固定 (未記載=「経験不問 (実質)」/ 記載あり=「経験記載あり」)
@@ -1134,6 +1223,9 @@ pub(crate) fn fetch_posting_target_profile(
     // 雇用形態は動的 (postings.employment_type の値域に依存)
     let mut emp_counts: HashMap<String, i64> = HashMap::new();
 
+    // Phase 2-A: 給与 bucket 対象 salary_type をモードで切替
+    let target_salary_type = if is_hourly { "時給" } else { "月給" };
+
     for r in &rows {
         // 年齢
         let age_min_opt: Option<i64> = r.get("age_min").and_then(|v| v.as_i64());
@@ -1141,11 +1233,15 @@ pub(crate) fn fetch_posting_target_profile(
         let age_label = age_range_bucket(age_min_opt, age_max_opt);
         *age_counts.entry(age_label).or_insert(0) += 1;
 
-        // 給与 (salary_type='月給' AND salary_min>0 のみ)
+        // 給与 (target_salary_type と一致 AND salary_min>0 のみ)
         let salary_type = get_str(r, "salary_type");
         let salary_min = get_f64(r, "salary_min");
-        if salary_type == "月給" && salary_min > 0.0 {
-            let label = salary_bucket(salary_min);
+        if salary_type == target_salary_type && salary_min > 0.0 {
+            let label = if is_hourly {
+                salary_bucket_hourly(salary_min)
+            } else {
+                salary_bucket(salary_min)
+            };
             *salary_counts.entry(label).or_insert(0) += 1;
         }
 
@@ -1172,7 +1268,7 @@ pub(crate) fn fetch_posting_target_profile(
         .iter()
         .map(|l| ((*l).to_string(), *age_counts.get(*l).unwrap_or(&0)))
         .collect();
-    let salary_distribution: Vec<(String, i64)> = salary_display_order()
+    let salary_distribution: Vec<(String, i64)> = salary_order
         .iter()
         .map(|l| ((*l).to_string(), *salary_counts.get(*l).unwrap_or(&0)))
         .collect();
