@@ -23,6 +23,7 @@ use super::super::aggregator::{CompanyAgg, EmpTypeSalary, SurveyAggregation};
 use super::super::granularity::MunicipalityDemographics;
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
+use super::super::upload::WageMode;
 use super::super::super::company::fetch::{NearbyCompany, RegionalCompanySegments};
 use super::super::super::insight::fetch::InsightContext;
 use super::{ReportTheme, ReportVariant};
@@ -94,6 +95,16 @@ pub(crate) struct RenderConfig<'a> {
     pub selected_pref: &'a str,
     /// ユーザー選択地域 (市区町村)。空文字列なら未選択 (CSV dominant にフォールバック)
     pub selected_muni: &'a str,
+    /// Phase 2-A (2026-05-29): 給与単位モード。
+    ///
+    /// - `WageMode::Monthly`: 月給ベース描画 (Section 03 万円表示)
+    /// - `WageMode::Hourly`: 時給ベース描画 (Section 03 円/時 表示)
+    /// - `WageMode::Auto`: agg.is_hourly に従う (旧動作互換)
+    ///
+    /// 現状の Section 03/05/06 描画は `agg.is_hourly` を直接読むため、本フィールドは
+    /// 将来の Section 拡張 (Phase 2-B 以降の時給特有指標 H1/H3/H4) で参照する。
+    /// silent fallback 禁止 (Option ではなく enum 必須)。デフォルトは `WageMode::Auto`。
+    pub wage_mode: WageMode,
 }
 
 impl<'a> RenderConfig<'a> {
@@ -128,6 +139,8 @@ pub(crate) struct RenderConfigBuilder<'a> {
     turso: Option<&'a crate::db::turso_http::TursoDb>,
     selected_pref: Option<&'a str>,
     selected_muni: Option<&'a str>,
+    /// Phase 2-A (2026-05-29): wage_mode (None → Auto デフォルト)
+    wage_mode: Option<WageMode>,
 }
 
 impl<'a> RenderConfigBuilder<'a> {
@@ -226,6 +239,12 @@ impl<'a> RenderConfigBuilder<'a> {
         self
     }
 
+    /// Phase 2-A (2026-05-29): 給与単位モード setter。
+    pub fn wage_mode(mut self, v: WageMode) -> Self {
+        self.wage_mode = Some(v);
+        self
+    }
+
     /// `RenderConfig<'a>` を構築する。
     ///
     /// # Panics
@@ -273,6 +292,9 @@ impl<'a> RenderConfigBuilder<'a> {
             turso: self.turso,
             selected_pref: self.selected_pref.unwrap_or(""),
             selected_muni: self.selected_muni.unwrap_or(""),
+            // Phase 2-A (2026-05-29): wage_mode デフォルトは Auto
+            // (silent fallback ではなく明示的に Auto enum 値で表現)
+            wage_mode: self.wage_mode.unwrap_or(WageMode::Auto),
         }
     }
 }

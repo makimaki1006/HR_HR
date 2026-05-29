@@ -21,17 +21,20 @@ use super::upload::SurveyRecord;
 // 影響: 給与表示の数値が aggregator 経路で約 4.4% (167/160) 上昇、
 // salary_parser 経路では時給で約 -3.9% (167/173.8) 低下、日給で約 -3.2% (21/21.7) 低下。
 //
+// Phase 2-A (2026-05-29): 換算定数を pub に変更。navy_report.rs (Section 03 表 3-E /
+// 図 3-5 で時給モード時の月給→時給逆換算) から `super::aggregator::HOURLY_TO_MONTHLY_HOURS`
+// として参照するため可視性を上げる。値は変更なし。
 /// 時給→月給 換算係数 (時間/月)
-pub(crate) const HOURLY_TO_MONTHLY_HOURS: i64 = 167;
+pub const HOURLY_TO_MONTHLY_HOURS: i64 = 167;
 /// 日給→月給 換算係数 (日/月) — 20.875 を整数丸め
-pub(crate) const DAILY_TO_MONTHLY_DAYS: i64 = 21;
+pub const DAILY_TO_MONTHLY_DAYS: i64 = 21;
 /// 1日所定労働時間 (時間) — 日給→時給で使用
-pub(crate) const DAILY_HOURS: i64 = 8;
+pub const DAILY_HOURS: i64 = 8;
 /// 週給→月給 換算: scale 433 / 100 = 4.33 (= 52週/12月)
-pub(crate) const WEEKLY_TO_MONTHLY_NUM: i64 = 433;
-pub(crate) const WEEKLY_TO_MONTHLY_DEN: i64 = 100;
+pub const WEEKLY_TO_MONTHLY_NUM: i64 = 433;
+pub const WEEKLY_TO_MONTHLY_DEN: i64 = 100;
 /// 週所定労働時間 (時間) — 週給→時給で使用
-pub(crate) const WEEKLY_HOURS: i64 = 40;
+pub const WEEKLY_HOURS: i64 = 40;
 
 /// 企業別集計
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -130,6 +133,37 @@ pub struct SurveyAggregation {
     /// IQR 除外前の raw 件数
     #[serde(default)]
     pub salary_values_raw_count: usize,
+    // ============================================================
+    // Phase 2-A (2026-05-29): 時給モード対応 ネイティブ単位給与値
+    // ------------------------------------------------------------
+    // 既存 salary_min_values / salary_max_values / scatter_min_max は
+    // 「月給換算強制」(時給×167h / 日給×21日) で集計しているが、
+    // 時給モードでは円/時のネイティブ値で表示する必要がある。
+    //
+    // 命名規則:
+    //   - salary_min_values_native:  Hourly レコードは 円/時 のまま、
+    //                                Monthly レコードは 円/月 のまま push。
+    //                                Daily / Weekly は Phase 2-A では対象外
+    //                                (時給モード時に意味のある換算先がないため未 push)。
+    //   - scatter_min_max_native:    (下限, 上限) のペア (i64, i64)。
+    //                                ScatterPoint と異なり struct ではなく tuple。
+    //
+    // 既存フィールドとの併存:
+    //   - 月給モード時は既存 salary_min_values をそのまま使用 (動作不変)。
+    //   - 時給モード時は agg.is_hourly = true なので、navy_report.rs は
+    //     これら _native フィールドを優先参照する。
+    //   - 後方互換: 既存 caller (E2E / 旧 test fixture) で新フィールドが
+    //     空 Vec でも、月給モードでは旧フィールドを使うため動作崩れなし。
+    // ============================================================
+    /// 下限給与 (ネイティブ単位): Hourly→円/時、Monthly→円/月 (換算なし)
+    #[serde(default)]
+    pub salary_min_values_native: Vec<i64>,
+    /// 上限給与 (ネイティブ単位): Hourly→円/時、Monthly→円/月 (換算なし)
+    #[serde(default)]
+    pub salary_max_values_native: Vec<i64>,
+    /// 散布図用 (下限, 上限) ペア。ネイティブ単位 (Hourly=円/時 or Monthly=円/月)
+    #[serde(default)]
+    pub scatter_min_max_native: Vec<(i64, i64)>,
 }
 
 /// 雇用形態グループ別 ネイティブ単位集計
@@ -373,6 +407,42 @@ fn aggregate_records_core(
         .filter(|&v| v >= 50_000)
         .collect();
 
+    // Phase 2-A (2026-05-29): ネイティブ単位 (時給=円/時、月給=円/月) の下限/上限給与
+    //
+    // 換算しない方針:
+    //   - Hourly レコードは円/時のまま (例: 1200円/時)
+    //   - Monthly レコードは円/月のまま (例: 250_000円/月)
+    //   - Daily / Weekly / Annual / Unknown は Phase 2-A スコープ外 (skip)
+    //
+    // フィルタ閾値:
+    //   - Hourly: 100 円/時 以上 (深夜の最低賃金 800円台より低い値は誤抽出疑い)
+    //   - Monthly: 50_000 円/月 以上 (既存 salary_min_values と同じ)
+    //
+    // is_hourly モード時の散布図軸範囲 (800-2500 円/時) との整合性を確保するため、
+    // Hourly 値は filter 後にそのまま push (×167 換算しない)。
+    let salary_min_values_native: Vec<i64> = records
+        .iter()
+        .filter_map(|r| {
+            let v = r.salary_parsed.min_value?;
+            match r.salary_parsed.salary_type {
+                SalaryType::Hourly if v >= 100 => Some(v),
+                SalaryType::Monthly if v >= 50_000 => Some(v),
+                _ => None, // Daily / Weekly / Annual / Unknown は Phase 2-A 対象外
+            }
+        })
+        .collect();
+    let salary_max_values_native: Vec<i64> = records
+        .iter()
+        .filter_map(|r| {
+            let v = r.salary_parsed.max_value?;
+            match r.salary_parsed.salary_type {
+                SalaryType::Hourly if v >= 100 => Some(v),
+                SalaryType::Monthly if v >= 50_000 => Some(v),
+                _ => None,
+            }
+        })
+        .collect();
+
     // 企業別集計
     // count/avg/median の意味論一致のため、給与情報（unified_monthly > 0）があるレコードのみ集計。
     // これにより count == 集計対象件数 となり、avg/median の計算母集団と一致する。
@@ -531,6 +601,29 @@ fn aggregate_records_core(
         .collect();
     let regression_min_max = linear_regression_points(&scatter_min_max);
 
+    // Phase 2-A (2026-05-29): ネイティブ単位 散布図ペア (時給=円/時、月給=円/月)
+    //
+    // 既存 scatter_min_max が月給換算済 (Hourly→ ×167) なのに対し、
+    // 本フィールドは換算しない値を保持。is_hourly モード時の図 3-6 散布図で
+    // 800-2500 円/時 の軸範囲に直接対応する。
+    let scatter_min_max_native: Vec<(i64, i64)> = records
+        .iter()
+        .filter_map(|r| {
+            let raw_min = r.salary_parsed.min_value?;
+            let raw_max = r.salary_parsed.max_value?;
+            let (min, max) = match r.salary_parsed.salary_type {
+                SalaryType::Hourly if raw_min >= 100 => (raw_min, raw_max),
+                SalaryType::Monthly if raw_min >= 50_000 => (raw_min, raw_max),
+                _ => return None, // Daily / Weekly / Annual / Unknown は Phase 2-A 対象外
+            };
+            if min > 0 && max > 0 && max >= min {
+                Some((min, max))
+            } else {
+                None
+            }
+        })
+        .collect();
+
     // 市区町村別給与集計
     let mut muni_salary_map: HashMap<(String, String), Vec<i64>> = HashMap::new();
     for r in records {
@@ -592,6 +685,10 @@ fn aggregate_records_core(
         by_emp_group_native: aggregate_by_emp_group_native(records),
         outliers_removed_total,
         salary_values_raw_count: salary_values_raw.len(),
+        // Phase 2-A (2026-05-29): ネイティブ単位フィールド
+        salary_min_values_native,
+        salary_max_values_native,
+        scatter_min_max_native,
     }
 }
 

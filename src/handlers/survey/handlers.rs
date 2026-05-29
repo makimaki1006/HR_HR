@@ -226,6 +226,11 @@ pub struct IntegrateQuery {
     /// - `v7a`: Editorial 風
     /// 同じ CSV 分析結果を異なるデザインで出力するため、現場で見た目を比較できる。
     pub theme: Option<String>,
+    /// Phase 2-A (2026-05-29): 給与単位モード切替。
+    /// - `"monthly"` (デフォルト) / `"hourly"` / `"auto"` (= aggregator が自動判定)
+    /// 未指定時は agg.is_hourly に応じて Section 03/05/06 でモード判定 (自動)。
+    /// 明示時はその値で SQL fetcher と Section 描画を制御する。
+    pub wage_mode: Option<String>,
 }
 
 /// 統合レポート生成
@@ -308,13 +313,29 @@ pub async fn integrate_report(
         .map(|a| super::granularity::top_municipalities(a, 3))
         .unwrap_or_default();
 
+    // Phase 2-A (2026-05-29): wage_mode 解決 (integrate_report 用)
+    //   URL query → agg.is_hourly → "monthly" (デフォルト) の優先順位
+    let wage_mode_resolved: String = query
+        .wage_mode
+        .as_deref()
+        .filter(|s| matches!(*s, "monthly" | "hourly" | "both"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            if agg_parsed.as_ref().map(|a| a.is_hourly).unwrap_or(false) {
+                "hourly".to_string()
+            } else {
+                "monthly".to_string()
+            }
+        });
+    let wage_mode_for_thread = wage_mode_resolved.clone();
+
     let content = tokio::task::spawn_blocking(move || {
         use super::super::company::fetch::fetch_companies_by_region;
         use super::super::insight::engine::generate_insights;
-        use super::super::insight::fetch::build_insight_context;
+        use super::super::insight::fetch::build_insight_context_with_wage_mode;
         use super::hw_enrichment::enrich_areas;
 
-        let ctx = build_insight_context(&db, turso.as_ref(), &pref2, &muni2);
+        let ctx = build_insight_context_with_wage_mode(&db, turso.as_ref(), &pref2, &muni2, &wage_mode_for_thread);
         let insights = generate_insights(&ctx);
 
         // 地域注目企業データ取得（該当地域）
@@ -522,12 +543,29 @@ pub async fn survey_report_html(
                 .map(|raw| {
                     super::report_html::industry_mismatch::map_hw_to_major_industry(raw).to_string()
                 });
+            // Phase 2-A (2026-05-29): wage_mode 解決
+            //   優先順位: 1) URL クエリ ?wage_mode=hourly/monthly  2) agg.is_hourly フラグ
+            //   silent fallback ではなく明示的に文字列で渡す ("monthly"/"hourly")。
+            let wage_mode_resolved: String = query
+                .wage_mode
+                .as_deref()
+                .filter(|s| matches!(*s, "monthly" | "hourly" | "both"))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    if agg.is_hourly {
+                        "hourly".to_string()
+                    } else {
+                        "monthly".to_string()
+                    }
+                });
+            let wage_mode_for_thread = wage_mode_resolved.clone();
             match tokio::task::spawn_blocking(move || {
-                let mut ctx = super::super::insight::fetch::build_insight_context(
+                let mut ctx = super::super::insight::fetch::build_insight_context_with_wage_mode(
                     &db,
                     turso.as_ref(),
                     &pref2,
                     &muni2,
+                    &wage_mode_for_thread,
                 );
                 // T2 (2026-04-30): industry_filter があれば ext_turnover を業界別に上書き
                 // 既存挙動 (産業計) は industry_filter=None で保持。マッチ 0 件は産業計にフォールバック。

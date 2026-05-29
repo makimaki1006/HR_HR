@@ -88,6 +88,10 @@ fn sample_aggregation() -> SurveyAggregation {
         by_emp_group_native: Vec::<EmpGroupNativeAgg>::new(),
         outliers_removed_total: 12,
         salary_values_raw_count: 262,
+        // Phase 2-A (2026-05-29): 時給モード対応 ネイティブ単位フィールド
+        salary_min_values_native: Vec::new(),
+        salary_max_values_native: Vec::new(),
+        scatter_min_max_native: Vec::new(),
     }
 }
 
