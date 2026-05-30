@@ -745,6 +745,19 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     );
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
+    // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を Section 08 直前に挿入。
+    //   MI variant のときだけ 6 サブセクション (9-A〜9-F) を追加表示する。
+    //   Full / Public variant では関数呼出自体をスキップ → HTML に section タグも出ない。
+    //   設計詳細: docs/NAVY_SECTION_09_DESIGN.md
+    if matches!(cfg.variant, ReportVariant::MarketIntelligence) {
+        navy_report::render_navy_section_09_market_intelligence(
+            &mut html,
+            cfg.hw_context,
+            cfg.agg,
+            cfg.variant,
+            &target_region,
+        );
+    }
     navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now);
     // 未使用引数の suppress (将来の MarketIntelligence 拡張で使用予定)
     let _ = (
