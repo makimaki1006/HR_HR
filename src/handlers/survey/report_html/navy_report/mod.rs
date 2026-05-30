@@ -141,6 +141,15 @@ pub(super) use section_07_lifestyle::{
     build_navy_minwage_premium_histogram_svg, label_for_column, render_navy_section_07_lifestyle,
 };
 
+// P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を独立モジュールに追加。
+// MarketIntelligence variant のときだけ 6 サブセクションを追加表示する。
+// 旧 `market_intelligence.rs` (handlers/survey/report_html/) は媒体分析タブ画面表示
+// (Turso ベース) として温存し、本 Section 09 は PDF レポート navy_report 経路
+// (hw_context ベース) として並立する。両モジュールはデータソースで分離。
+// 設計詳細: docs/NAVY_SECTION_09_DESIGN.md
+pub(super) mod section_09_market_intelligence;
+pub(super) use section_09_market_intelligence::render_navy_section_09_market_intelligence;
+
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;
