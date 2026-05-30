@@ -167,9 +167,27 @@ pub(crate) fn render_navy_section_06_demographics(
     ));
 
     // -- KPI 5 cell
-    let working_dot = if working_pct >= 60.0 { "pos" } else if working_pct >= 50.0 { "neu" } else { "warn" };
-    let target_dot = if target_pct >= 22.0 { "pos" } else if target_pct >= 17.0 { "neu" } else { "warn" };
-    let senior_dot = if senior_pct >= 35.0 { "warn" } else if senior_pct >= 25.0 { "neu" } else { "pos" };
+    let working_dot = if working_pct >= 60.0 {
+        "pos"
+    } else if working_pct >= 50.0 {
+        "neu"
+    } else {
+        "warn"
+    };
+    let target_dot = if target_pct >= 22.0 {
+        "pos"
+    } else if target_pct >= 17.0 {
+        "neu"
+    } else {
+        "warn"
+    };
+    let senior_dot = if senior_pct >= 35.0 {
+        "warn"
+    } else if senior_pct >= 25.0 {
+        "neu"
+    } else {
+        "pos"
+    };
 
     html.push_str("<div class=\"block-title\">図 6-1 &nbsp;人口構造 主要 KPI</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
@@ -209,7 +227,9 @@ pub(crate) fn render_navy_section_06_demographics(
         &format!("実数 {} 名", format_number(senior)),
         false,
     );
-    let lfr_val = labor_force_rate.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "—".into());
+    let lfr_val = labor_force_rate
+        .map(|v| format!("{:.1}", v))
+        .unwrap_or_else(|| "—".into());
     let lfr_dot = match labor_force_rate {
         Some(v) if v >= 62.0 => "pos",
         Some(v) if v >= 55.0 => "neu",
@@ -289,7 +309,9 @@ pub(crate) fn render_navy_section_06_demographics(
     if !ctx.ext_migration.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-C &nbsp;人口移動 (転入・転出・純増減)</div>\n");
         html.push_str(&build_navy_auto_table(&ctx.ext_migration, 5));
-        let latest_net: i64 = ctx.ext_migration.first()
+        let latest_net: i64 = ctx
+            .ext_migration
+            .first()
             .map(|r| get_i64(r, "net_migration"))
             .unwrap_or(0);
         let migration_insight = if latest_net > 0 {
@@ -311,7 +333,9 @@ pub(crate) fn render_navy_section_06_demographics(
     if !ctx.ext_vital.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-D &nbsp;自然増減 (出生・死亡)</div>\n");
         html.push_str(&build_navy_auto_table(&ctx.ext_vital, 5));
-        let latest_natural: i64 = ctx.ext_vital.first()
+        let latest_natural: i64 = ctx
+            .ext_vital
+            .first()
             .map(|r| get_i64(r, "natural_change"))
             .unwrap_or(0);
         let vital_insight = if latest_natural < 0 {
@@ -622,7 +646,11 @@ pub(crate) fn render_navy_section_06_posting_target(
     } else {
         "表 6-H &nbsp;給与レンジ別 求人件数 (月給記載のみ)"
     };
-    let salary_label_header = if is_hourly { "時給レンジ" } else { "月給レンジ" };
+    let salary_label_header = if is_hourly {
+        "時給レンジ"
+    } else {
+        "月給レンジ"
+    };
     let salary_caption = if is_hourly {
         "<p class=\"caption\">出典: HW 求人 (postings) の salary_min 列を集計 (時給帯)。\
          salary_type が「時給」かつ salary_min &gt; 0 の求人のみが母集団 \
@@ -702,7 +730,10 @@ pub(crate) fn render_navy_section_06_posting_target(
 /// # silent fallback 監査
 /// - 件数合計 0 は明示的に `<td colspan="3">該当データなし</td>` で表示 (空文字列を返さない)
 /// - `total > 0` ガード後に除算するため zero-div 不可
-pub(crate) fn build_distribution_table(distribution: &[(String, i64)], label_header: &str) -> String {
+pub(crate) fn build_distribution_table(
+    distribution: &[(String, i64)],
+    label_header: &str,
+) -> String {
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
     // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
     s.push_str(&format!(
@@ -834,8 +865,8 @@ pub(crate) fn build_navy_pyramid_svg(bands: &[(String, i64, i64)]) -> String {
     // 2026-05-14: 年齢ラベルがバーの中央 (men/women 境界) に乗り、紺/金バーと潰れて
     //             判読困難だった問題を解消。ラベルを左外側の専用カラムに移動し、
     //             バー描画領域を左にオフセットして重なりを除去する。
-    let label_col_w: f64 = 56.0;        // 左端のラベル列幅
-    let center_gap: f64 = 8.0;          // 男女バー間のセンター隙間
+    let label_col_w: f64 = 56.0; // 左端のラベル列幅
+    let center_gap: f64 = 8.0; // 男女バー間のセンター隙間
     let bar_max_w: f64 = (w - label_col_w) / 2.0 - center_gap;
     let center: f64 = label_col_w + bar_max_w + center_gap; // 男女境界 (シフトした中心)
 
@@ -1032,7 +1063,11 @@ fn build_demographics_so_what(
              年齢帯拡張 ({}) や近隣広域への採用範囲拡大が必要です。",
             target_label,
             target_pct,
-            if is_hourly { "55-69 ベテラン層を含める / 学生層 18-24 を含める" } else { "45-54 層への展開" },
+            if is_hourly {
+                "55-69 ベテラン層を含める / 学生層 18-24 を含める"
+            } else {
+                "45-54 層への展開"
+            },
         )
     };
 
@@ -1045,9 +1080,15 @@ fn build_demographics_so_what(
     };
 
     let labor_note = match labor_force_rate {
-        Some(v) if v >= 62.0 => format!(" 労働力率 {:.1}% は高水準で、既就業者の引き抜き競争が激しい可能性があります。", v),
+        Some(v) if v >= 62.0 => format!(
+            " 労働力率 {:.1}% は高水準で、既就業者の引き抜き競争が激しい可能性があります。",
+            v
+        ),
         Some(v) if v >= 55.0 => format!(" 労働力率 {:.1}% は標準的水準です。", v),
-        Some(v) => format!(" 労働力率 {:.1}% は低めで、潜在労働力 (非労働力人口) のリーチ施策に余地があります。", v),
+        Some(v) => format!(
+            " 労働力率 {:.1}% は低めで、潜在労働力 (非労働力人口) のリーチ施策に余地があります。",
+            v
+        ),
         None => String::new(),
     };
 

@@ -46,12 +46,12 @@ use super::build_navy_auto_table;
 // ============================================================
 
 struct TightnessData {
-    job_ratio: Option<f64>,       // 有効求人倍率
-    vacancy_rate: Option<f64>,    // HW 欠員補充率 (0-1)
-    unemployment: Option<f64>,    // 失業率 (%)
+    job_ratio: Option<f64>,             // 有効求人倍率
+    vacancy_rate: Option<f64>,          // HW 欠員補充率 (0-1)
+    unemployment: Option<f64>,          // 失業率 (%)
     unemployment_national: Option<f64>, // 全国平均失業率 (%)
-    separation: Option<f64>,      // 離職率 (%)
-    entry: Option<f64>,           // 入職率 (%)
+    separation: Option<f64>,            // 離職率 (%)
+    entry: Option<f64>,                 // 入職率 (%)
 }
 
 fn extract_tightness(ctx: &InsightContext) -> TightnessData {
@@ -139,18 +139,42 @@ pub(crate) fn render_navy_section_04_market_tightness(
     }
     {
         let (val, dot, foot) = match d.and_then(|d| d.job_ratio) {
-            Some(v) if v >= 1.5 => (fmt_ratio(Some(v)), "warn", "1.5 以上は採用難度 高 (応募集めにくい)".to_string()),
-            Some(v) if v >= 1.0 => (fmt_ratio(Some(v)), "neu", "1.0 以上は売り手市場".to_string()),
-            Some(v) => (fmt_ratio(Some(v)), "pos", format!("1.0 未満 ({:.2}) は買い手市場", v)),
+            Some(v) if v >= 1.5 => (
+                fmt_ratio(Some(v)),
+                "warn",
+                "1.5 以上は採用難度 高 (応募集めにくい)".to_string(),
+            ),
+            Some(v) if v >= 1.0 => (
+                fmt_ratio(Some(v)),
+                "neu",
+                "1.0 以上は売り手市場".to_string(),
+            ),
+            Some(v) => (
+                fmt_ratio(Some(v)),
+                "pos",
+                format!("1.0 未満 ({:.2}) は買い手市場", v),
+            ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
         push_kpi(html, "有効求人倍率", &val, "倍", dot, &foot, true);
     }
     if show_vacancy {
         let (val, dot, foot) = match d.and_then(|d| d.vacancy_rate) {
-            Some(v) if v >= 0.25 => (fmt_pct_from_ratio(Some(v)), "warn", "25% 超は採用難度 高".to_string()),
-            Some(v) if v >= 0.15 => (fmt_pct_from_ratio(Some(v)), "neu", "15-25% は標準的".to_string()),
-            Some(v) => (fmt_pct_from_ratio(Some(v)), "pos", "15% 未満は採用充足".to_string()),
+            Some(v) if v >= 0.25 => (
+                fmt_pct_from_ratio(Some(v)),
+                "warn",
+                "25% 超は採用難度 高".to_string(),
+            ),
+            Some(v) if v >= 0.15 => (
+                fmt_pct_from_ratio(Some(v)),
+                "neu",
+                "15-25% は標準的".to_string(),
+            ),
+            Some(v) => (
+                fmt_pct_from_ratio(Some(v)),
+                "pos",
+                "15% 未満は採用充足".to_string(),
+            ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
         push_kpi(html, "HW 欠員補充率", &val, "%", dot, &foot, false);
@@ -161,7 +185,13 @@ pub(crate) fn render_navy_section_04_market_tightness(
         let (val, dot, foot) = match (unemp, nat) {
             (Some(u), Some(n)) => {
                 let diff = u - n;
-                let dot = if u < 2.5 { "warn" } else if u < 3.5 { "neu" } else { "pos" };
+                let dot = if u < 2.5 {
+                    "warn"
+                } else if u < 3.5 {
+                    "neu"
+                } else {
+                    "pos"
+                };
                 let foot = format!("全国平均 {:.1}% / 差 {:+.1}pt", n, diff);
                 (format!("{:.1}", u), dot, foot)
             }
@@ -172,9 +202,21 @@ pub(crate) fn render_navy_section_04_market_tightness(
     }
     {
         let (val, dot, foot) = match d.and_then(|d| d.separation) {
-            Some(v) if v >= 15.0 => (format!("{:.1}", v), "warn", "15% 超は離職多発エリア / 業界".to_string()),
-            Some(v) if v >= 10.0 => (format!("{:.1}", v), "neu", "10-15% は標準的水準".to_string()),
-            Some(v) => (format!("{:.1}", v), "pos", "10% 未満は定着率 高".to_string()),
+            Some(v) if v >= 15.0 => (
+                format!("{:.1}", v),
+                "warn",
+                "15% 超は離職多発エリア / 業界".to_string(),
+            ),
+            Some(v) if v >= 10.0 => (
+                format!("{:.1}", v),
+                "neu",
+                "10-15% は標準的水準".to_string(),
+            ),
+            Some(v) => (
+                format!("{:.1}", v),
+                "pos",
+                "10% 未満は定着率 高".to_string(),
+            ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
         push_kpi(html, "離職率", &val, "%", dot, &foot, false);
@@ -189,7 +231,9 @@ pub(crate) fn render_navy_section_04_market_tightness(
     }
 
     // -- table-navy 集計
-    html.push_str("<div class=\"block-title block-title-spaced\">表 4-A &nbsp;採用市場 指標サマリ</div>\n");
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\">表 4-A &nbsp;採用市場 指標サマリ</div>\n",
+    );
     html.push_str(&build_navy_tightness_table(d, show_vacancy));
 
     // -- 産業別 採用ニーズ密度 (国勢調査就業者数 + 求人媒体掲載数のクロス)
@@ -203,7 +247,10 @@ pub(crate) fn render_navy_section_04_market_tightness(
         if !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() {
             html.push_str(&build_navy_industry_tightness_table(ctx));
         } else {
-            let missing = match (ctx.ext_industry_employees.is_empty(), ctx.hw_industry_counts.is_empty()) {
+            let missing = match (
+                ctx.ext_industry_employees.is_empty(),
+                ctx.hw_industry_counts.is_empty(),
+            ) {
                 (true, true) => "国勢調査 産業構造 + 求人媒体 産業集計",
                 (true, false) => "国勢調査 産業構造 (v2_external_industry_structure)",
                 (false, true) => "求人媒体 産業集計 (対象地域に分類済み求人なし)",
@@ -224,7 +271,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
             html.push_str(
                 "<div class=\"block-title block-title-spaced\">\
                  表 4-C &nbsp;事業所統計 (採用競合規模)\
-                 </div>\n"
+                 </div>\n",
             );
             html.push_str(&build_navy_auto_table(&ctx.ext_establishments, 8));
             html.push_str(
@@ -232,7 +279,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
                  事業所数は同地域で求職者が選択しうる勤務先候補数、\
                  従業者数は雇用市場全体の規模を示します。\
                  自社採用ポジションがこの母集団のどの位置に置かれるかを把握する基礎指標です。\
-                 </p>\n"
+                 </p>\n",
             );
         }
 
@@ -241,7 +288,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
             html.push_str(
                 "<div class=\"block-title block-title-spaced\">\
                  表 4-D &nbsp;開廃業動態 (市場成長性)\
-                 </div>\n"
+                 </div>\n",
             );
             html.push_str(&build_navy_auto_table(&ctx.ext_business_dynamics, 6));
             use super::super::super::super::helpers::get_f64;
@@ -292,7 +339,12 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
     let industry_emp: Vec<(String, i64)> = ctx
         .ext_industry_employees
         .iter()
-        .map(|r| (get_str(r, "industry_name"), get_f64(r, "employees_total") as i64))
+        .map(|r| {
+            (
+                get_str(r, "industry_name"),
+                get_f64(r, "employees_total") as i64,
+            )
+        })
         .filter(|(n, c)| !n.is_empty() && *c > 0)
         .collect();
     let hw_map: std::collections::HashMap<&str, i64> = ctx
@@ -306,7 +358,11 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
         .iter()
         .map(|(name, emp)| {
             let hw = hw_map.get(name.as_str()).copied().unwrap_or(0);
-            let density = if *emp > 0 { hw as f64 * 10000.0 / *emp as f64 } else { 0.0 };
+            let density = if *emp > 0 {
+                hw as f64 * 10000.0 / *emp as f64
+            } else {
+                0.0
+            };
             (name.clone(), *emp, hw, density)
         })
         .collect();
@@ -323,7 +379,9 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
     s.push_str("</tr></thead>\n<tbody>\n");
 
     if rows.is_empty() {
-        s.push_str("<tr><td colspan=\"6\" class=\"dim\">産業別データを取得できませんでした。</td></tr>\n");
+        s.push_str(
+            "<tr><td colspan=\"6\" class=\"dim\">産業別データを取得できませんでした。</td></tr>\n",
+        );
     } else {
         // density の全産業平均 (上位 8 内)
         let avg_density: f64 = rows.iter().map(|r| r.3).sum::<f64>() / rows.len() as f64;
@@ -373,24 +431,48 @@ fn build_navy_tightness_gauges(d: &TightnessData, show_vacancy: bool) -> String 
     let mut items: Vec<(&str, f64, &str, &str)> = Vec::new(); // (label, score 0-100, fmt_val, sev)
     if let Some(r) = d.job_ratio {
         let s = ((r - 0.5) / 1.5).clamp(0.0, 1.0) * 100.0;
-        let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+        let sev = if s >= 70.0 {
+            "warn"
+        } else if s >= 40.0 {
+            "neu"
+        } else {
+            "pos"
+        };
         items.push(("有効求人倍率", s, leak(&format!("{:.2} 倍", r)), sev));
     }
     if show_vacancy {
         if let Some(v) = d.vacancy_rate {
             let s = (v / 0.30).clamp(0.0, 1.0) * 100.0;
-            let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+            let sev = if s >= 70.0 {
+                "warn"
+            } else if s >= 40.0 {
+                "neu"
+            } else {
+                "pos"
+            };
             items.push(("HW 欠員補充率", s, leak(&format!("{:.1}%", v * 100.0)), sev));
         }
     }
     if let Some(u) = d.unemployment {
         let s = ((6.0 - u) / 4.5).clamp(0.0, 1.0) * 100.0;
-        let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+        let sev = if s >= 70.0 {
+            "warn"
+        } else if s >= 40.0 {
+            "neu"
+        } else {
+            "pos"
+        };
         items.push(("失業率 (低=採用難)", s, leak(&format!("{:.1}%", u)), sev));
     }
     if let Some(sep) = d.separation {
         let s = ((sep - 5.0) / 15.0).clamp(0.0, 1.0) * 100.0;
-        let sev = if s >= 70.0 { "warn" } else if s >= 40.0 { "neu" } else { "pos" };
+        let sev = if s >= 70.0 {
+            "warn"
+        } else if s >= 40.0 {
+            "neu"
+        } else {
+            "pos"
+        };
         items.push(("離職率", s, leak(&format!("{:.1}%", sep)), sev));
     }
 
@@ -429,15 +511,21 @@ fn build_navy_tightness_gauges(d: &TightnessData, show_vacancy: bool) -> String 
         let seg_x2 = bar_x + bar_w * 0.70;
         svg.push_str(&format!(
             "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"#DDEDE2\"/>\n",
-            bar_x, cy + 8.0, seg_x1 - bar_x
+            bar_x,
+            cy + 8.0,
+            seg_x1 - bar_x
         ));
         svg.push_str(&format!(
             "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"#FAEBD2\"/>\n",
-            seg_x1, cy + 8.0, seg_x2 - seg_x1
+            seg_x1,
+            cy + 8.0,
+            seg_x2 - seg_x1
         ));
         svg.push_str(&format!(
             "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"12\" fill=\"#F4DDD7\"/>\n",
-            seg_x2, cy + 8.0, bar_w - (seg_x2 - bar_x)
+            seg_x2,
+            cy + 8.0,
+            bar_w - (seg_x2 - bar_x)
         ));
         // フレーム
         svg.push_str(&format!(
@@ -453,7 +541,9 @@ fn build_navy_tightness_gauges(d: &TightnessData, show_vacancy: bool) -> String 
         };
         svg.push_str(&format!(
             "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"3\" height=\"20\" fill=\"{}\"/>\n",
-            marker_x - 1.5, cy + 4.0, marker_color
+            marker_x - 1.5,
+            cy + 4.0,
+            marker_color
         ));
         // 値ラベル (右側)
         svg.push_str(&format!(
@@ -525,7 +615,9 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
         Some(u) => (format!("{:.1}%", u), "pos", "求職者プールあり"),
         None => ("—".to_string(), "neu", "—"),
     };
-    let nat_str = nat.map(|n| format!("全国 {:.1}%", n)).unwrap_or_else(|| "—".to_string());
+    let nat_str = nat
+        .map(|n| format!("全国 {:.1}%", n))
+        .unwrap_or_else(|| "—".to_string());
     s.push_str(&row("失業率", val, &nat_str, tag, cmt));
     let (val, tag, cmt) = match d.and_then(|d| d.separation) {
         Some(v) if v >= 15.0 => (format!("{:.1}%", v), "warn", "離職多発"),

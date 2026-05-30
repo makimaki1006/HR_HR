@@ -80,8 +80,7 @@ pub(super) use section_04_tightness::render_navy_section_04_market_tightness;
 pub(super) mod section_05_companies;
 pub(super) use section_05_companies::{
     build_navy_csv_company_salary_table, build_navy_notable_companies_block,
-    render_navy_section_05_companies, render_navy_section_placeholders,
-    select_notable_companies,
+    render_navy_section_05_companies, render_navy_section_placeholders, select_notable_companies,
 };
 
 // A1 Commit 6 (β Section Team, 2026-05-30): Section 03 (Salary Distribution)
@@ -142,14 +141,13 @@ pub(super) use section_07_lifestyle::{
     build_navy_minwage_premium_histogram_svg, label_for_column, render_navy_section_07_lifestyle,
 };
 
-use super::super::aggregator::{EmpTypeSalary, SurveyAggregation};
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;
+use super::super::aggregator::{EmpTypeSalary, SurveyAggregation};
 use super::super::job_seeker::JobSeekerAnalysis;
 use super::salary_summary;
 use super::ReportVariant;
-
 
 // A1 Commit 4 (2026-05-29): section_02_region.rs / section_04_tightness.rs
 // から `super::build_navy_auto_table` で参照されるため pub(super) に昇格。
@@ -165,13 +163,20 @@ pub(super) fn build_navy_auto_table(
     // 列の優先順位: 識別子系を先頭、数値系を後ろ
     let mut keys: Vec<String> = rows[0].keys().cloned().collect();
     let priority = [
-        "year", "fiscal_year", "reference_year", "reference_date",
-        "prefecture", "municipality",
-        "industry_name", "industry", "category", "subcategory", "name", "label",
+        "year",
+        "fiscal_year",
+        "reference_year",
+        "reference_date",
+        "prefecture",
+        "municipality",
+        "industry_name",
+        "industry",
+        "category",
+        "subcategory",
+        "name",
+        "label",
     ];
-    keys.sort_by_key(|k| {
-        priority.iter().position(|p| *p == k.as_str()).unwrap_or(99)
-    });
+    keys.sort_by_key(|k| priority.iter().position(|p| *p == k.as_str()).unwrap_or(99));
     // 2026-05-15: A4 横幅に収まるよう 8 → 6 カラムに縮小 (ユーザー指摘:表示はみ出し)
     keys.truncate(6);
 
@@ -196,11 +201,13 @@ pub(super) fn build_navy_auto_table(
             let cell = match v {
                 Some(jv) if jv.is_string() => {
                     let str_val = get_str(r, k);
-                    if str_val.is_empty() { "—".to_string() } else { escape_html(&str_val) }
+                    if str_val.is_empty() {
+                        "—".to_string()
+                    } else {
+                        escape_html(&str_val)
+                    }
                 }
-                Some(jv) if jv.is_i64() || jv.is_u64() => {
-                    format_number(get_i64(r, k))
-                }
+                Some(jv) if jv.is_i64() || jv.is_u64() => format_number(get_i64(r, k)),
                 Some(jv) if jv.is_f64() => {
                     let f = get_f64(r, k);
                     if f.is_nan() || !f.is_finite() {
@@ -212,11 +219,15 @@ pub(super) fn build_navy_auto_table(
                     }
                 }
                 Some(jv) if jv.is_boolean() => {
-                    if jv.as_bool() == Some(true) { "✓".to_string() } else { "—".to_string() }
+                    if jv.as_bool() == Some(true) {
+                        "✓".to_string()
+                    } else {
+                        "—".to_string()
+                    }
                 }
                 Some(jv) if jv.is_null() => "—".to_string(),
                 None => "—".to_string(),
-                Some(_) => "—".to_string(),  // 配列やオブジェクト等は表示しない
+                Some(_) => "—".to_string(), // 配列やオブジェクト等は表示しない
             };
             s.push_str(&format!("<td>{}</td>", cell));
         }
