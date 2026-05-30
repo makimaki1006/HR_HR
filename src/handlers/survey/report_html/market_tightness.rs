@@ -1072,7 +1072,11 @@ fn render_tightness_summary(html: &mut String, m: &TightnessMetrics) {
          <div style=\"flex:0 0 auto;\" data-testid=\"tightness-gauge-wrap\">",
         bg = bg_color, col = color,
     ));
-    html.push_str(&super::helpers::build_gauge_svg(score as f64, &level_label, color));
+    html.push_str(&super::helpers::build_gauge_svg(
+        score as f64,
+        &level_label,
+        color,
+    ));
     html.push_str(&format!(
         "</div><div style=\"flex:1 1 auto;\">\
          <div style=\"font-size:11px;color:#6b7280;\">採用市場 逼迫度</div>\
@@ -3618,12 +3622,22 @@ mod round12_judgement_tests {
     //   < 30 → Easy / < 50 → Standard / < 70 → Hard / else → VeryHard
     // -----------------------------------------------------------------
     #[derive(Debug, PartialEq, Eq)]
-    enum Label { Easy, Standard, Hard, VeryHard }
+    enum Label {
+        Easy,
+        Standard,
+        Hard,
+        VeryHard,
+    }
     fn from_score(score: f64) -> Label {
-        if score < 30.0 { Label::Easy }
-        else if score < 50.0 { Label::Standard }
-        else if score < 70.0 { Label::Hard }
-        else { Label::VeryHard }
+        if score < 30.0 {
+            Label::Easy
+        } else if score < 50.0 {
+            Label::Standard
+        } else if score < 70.0 {
+            Label::Hard
+        } else {
+            Label::VeryHard
+        }
     }
 
     #[test]
@@ -3656,7 +3670,9 @@ mod round12_judgement_tests {
     // 正規化関数のドメイン不変 (normalize_linear)
     // -----------------------------------------------------------------
     fn normalize_linear(v: f64, lo: f64, hi: f64) -> f64 {
-        if (hi - lo).abs() < f64::EPSILON { return 50.0; }
+        if (hi - lo).abs() < f64::EPSILON {
+            return 50.0;
+        }
         let n = (v - lo) / (hi - lo) * 100.0;
         n.clamp(0.0, 100.0)
     }
@@ -3674,7 +3690,8 @@ mod round12_judgement_tests {
     }
     #[test]
     fn normalize_monotonic_increasing() {
-        let lo = 0.5; let hi = 1.5;
+        let lo = 0.5;
+        let hi = 1.5;
         let mut prev = -1.0;
         for v in [0.4, 0.5, 0.7, 1.0, 1.3, 1.5, 1.6] {
             let cur = normalize_linear(v, lo, hi);
@@ -3722,10 +3739,16 @@ mod round12_judgement_tests {
     }
     fn hhi_concentration_level(h: f64) -> &'static str {
         // 公取委: 1500 未満 = 低集中 / 2500 未満 = 中集中 / それ以上 = 高集中
-        if !is_valid_hhi(h) { return "invalid"; }
-        if h < 1500.0 { "低集中" }
-        else if h < 2500.0 { "中集中" }
-        else { "高集中" }
+        if !is_valid_hhi(h) {
+            return "invalid";
+        }
+        if h < 1500.0 {
+            "低集中"
+        } else if h < 2500.0 {
+            "中集中"
+        } else {
+            "高集中"
+        }
     }
     #[test]
     fn hhi_boundary_1500() {
@@ -3795,9 +3818,13 @@ mod round12_judgement_tests {
     // 既存テスト tightness_summary_three_levels と整合
     // -----------------------------------------------------------------
     fn tightness_zone(score: f64) -> &'static str {
-        if score >= 70.0 { "逼迫" }
-        else if score >= 40.0 { "やや逼迫" }
-        else { "緩和" }
+        if score >= 70.0 {
+            "逼迫"
+        } else if score >= 40.0 {
+            "やや逼迫"
+        } else {
+            "緩和"
+        }
     }
     #[test]
     fn tightness_zone_boundaries() {
@@ -3813,8 +3840,14 @@ mod round12_judgement_tests {
     // 複合スコア (平均) の不変条件: 各軸 ∈ [0,100] なら平均も ∈ [0,100]
     // -----------------------------------------------------------------
     fn composite_avg(axes: &[f64]) -> Option<f64> {
-        let valid: Vec<f64> = axes.iter().filter(|v| (0.0..=100.0).contains(*v)).copied().collect();
-        if valid.is_empty() { None } else {
+        let valid: Vec<f64> = axes
+            .iter()
+            .filter(|v| (0.0..=100.0).contains(*v))
+            .copied()
+            .collect();
+        if valid.is_empty() {
+            None
+        } else {
             Some(valid.iter().sum::<f64>() / valid.len() as f64)
         }
     }

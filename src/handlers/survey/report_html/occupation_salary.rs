@@ -24,8 +24,8 @@
 //! - `feedback_neutral_expression_for_targets.md` 「中立表現」: 評価語禁止
 //! - Hard NG 13 用語 + HW 連想語不混入
 
-use super::super::aggregator::SurveyAggregation;
 use super::super::super::helpers::{escape_html, format_number};
+use super::super::aggregator::SurveyAggregation;
 use super::helpers::{render_figure_caption, render_read_hint, render_section_howto};
 
 /// 職種推定の信頼度.
@@ -85,17 +85,55 @@ impl OccupationBucket {
 fn is_direct_keyword(s_lower: &str) -> bool {
     const DIRECT: &[&str] = &[
         // 具体職種語 (国家資格名・正式職種名)
-        "看護師", "准看護師", "介護福祉士", "ヘルパー", "保育士",
-        "理学療法士", "作業療法士", "言語聴覚士", "薬剤師", "ケアマネジャー",
-        "ケアマネージャー", "ケアマネ", "調理師", "管理栄養士", "栄養士",
-        "ドライバー", "運転手", "施工管理", "現場監督", "警備員", "清掃員",
-        "歯科衛生士", "歯科医師", "臨床検査技師", "放射線技師", "臨床工学技士",
-        "助産師", "保健師", "社会福祉士", "精神保健福祉士",
-        "プログラマ", "プログラマー", "エンジニア", "店長",
-        "施設長", "サービス提供責任者", "サービス管理責任者",
+        "看護師",
+        "准看護師",
+        "介護福祉士",
+        "ヘルパー",
+        "保育士",
+        "理学療法士",
+        "作業療法士",
+        "言語聴覚士",
+        "薬剤師",
+        "ケアマネジャー",
+        "ケアマネージャー",
+        "ケアマネ",
+        "調理師",
+        "管理栄養士",
+        "栄養士",
+        "ドライバー",
+        "運転手",
+        "施工管理",
+        "現場監督",
+        "警備員",
+        "清掃員",
+        "歯科衛生士",
+        "歯科医師",
+        "臨床検査技師",
+        "放射線技師",
+        "臨床工学技士",
+        "助産師",
+        "保健師",
+        "社会福祉士",
+        "精神保健福祉士",
+        "プログラマ",
+        "プログラマー",
+        "エンジニア",
+        "店長",
+        "施設長",
+        "サービス提供責任者",
+        "サービス管理責任者",
         // 主要広範語でも具体性高いもの
-        "看護", "准看", "介護", "保育", "リハビリ", "調理", "警備", "清掃",
-        "事務", "営業", "販売",
+        "看護",
+        "准看",
+        "介護",
+        "保育",
+        "リハビリ",
+        "調理",
+        "警備",
+        "清掃",
+        "事務",
+        "営業",
+        "販売",
     ];
     DIRECT.iter().any(|kw| s_lower.contains(&kw.to_lowercase()))
 }
@@ -103,15 +141,25 @@ fn is_direct_keyword(s_lower: &str) -> bool {
 /// キーワードが「広義語」(Reference) かどうか判定 (Direct より弱いシグナル).
 fn is_reference_keyword(s_lower: &str) -> bool {
     const REFERENCE: &[&str] = &[
-        "ケア", "メディカル", "サービス", "物流", "工場", "店舗", "フロント",
+        "ケア",
+        "メディカル",
+        "サービス",
+        "物流",
+        "工場",
+        "店舗",
+        "フロント",
     ];
-    REFERENCE.iter().any(|kw| s_lower.contains(&kw.to_lowercase()))
+    REFERENCE
+        .iter()
+        .any(|kw| s_lower.contains(&kw.to_lowercase()))
 }
 
 /// キーワードが「多義語」(LowConfidence) かどうか判定.
 fn is_ambiguous_keyword(s_lower: &str) -> bool {
     const AMBIGUOUS: &[&str] = &["アテンダー", "スタッフ", "店員"];
-    AMBIGUOUS.iter().any(|kw| s_lower.contains(&kw.to_lowercase()))
+    AMBIGUOUS
+        .iter()
+        .any(|kw| s_lower.contains(&kw.to_lowercase()))
 }
 
 /// 求人タイトル / タグ / 会社名から職種推定グループを判定する.
@@ -131,125 +179,225 @@ pub(crate) fn map_keyword_to_occupation_group(s: &str) -> Option<&'static str> {
         return None;
     }
     // 1. 看護系
-    if s.contains("看護") || s.contains("准看") || s.contains("ナース")
-        || s.contains("訪問看護") || s.contains("病棟") || s.contains("外来")
+    if s.contains("看護")
+        || s.contains("准看")
+        || s.contains("ナース")
+        || s.contains("訪問看護")
+        || s.contains("病棟")
+        || s.contains("外来")
     {
         return Some("看護系");
     }
     // 2. 介護系
     // 注: "ケア" 単独は介護系扱いだが、"ケアマネ"/"ケースワーカー" は福祉・相談支援系 (5) 優先のため除外
-    if s.contains("介護") || s.contains("介護士") || s.contains("介護職")
-        || s.contains("介護福祉士") || s.contains("ケアワーカー")
-        || s.contains("介助") || s.contains("ヘルパー")
-        || s.contains("施設介護") || s.contains("老人ホーム")
-        || s.contains("デイサービス") || s.contains("グループホーム")
-        || s.contains("特養") || s.contains("老健") || s.contains("サ高住")
-        || s.contains("有料老人") || s.contains("初任者研修")
-        || s.contains("実務者研修") || s.contains("訪問介護")
-        || (s.contains("ケア")
-            && !s.contains("ケアマネ")
-            && !s.contains("ケースワーカー"))
+    if s.contains("介護")
+        || s.contains("介護士")
+        || s.contains("介護職")
+        || s.contains("介護福祉士")
+        || s.contains("ケアワーカー")
+        || s.contains("介助")
+        || s.contains("ヘルパー")
+        || s.contains("施設介護")
+        || s.contains("老人ホーム")
+        || s.contains("デイサービス")
+        || s.contains("グループホーム")
+        || s.contains("特養")
+        || s.contains("老健")
+        || s.contains("サ高住")
+        || s.contains("有料老人")
+        || s.contains("初任者研修")
+        || s.contains("実務者研修")
+        || s.contains("訪問介護")
+        || (s.contains("ケア") && !s.contains("ケアマネ") && !s.contains("ケースワーカー"))
     {
         return Some("介護系");
     }
     // 3. リハビリ・療法士系
-    if s.contains("リハビリ") || s.contains("理学療法") || s.contains("作業療法")
-        || s.contains("言語聴覚") || s.contains("リハ職")
+    if s.contains("リハビリ")
+        || s.contains("理学療法")
+        || s.contains("作業療法")
+        || s.contains("言語聴覚")
+        || s.contains("リハ職")
         || (s.contains("pt") && !s.contains("apt") && !s.contains("opt"))
-        || s.contains("ｐｔ") || s.contains("ot") || s.contains("st")
-        || s.contains("機能訓練") || s.contains("柔道整復")
-        || s.contains("あん摩") || s.contains("鍼灸")
+        || s.contains("ｐｔ")
+        || s.contains("ot")
+        || s.contains("st")
+        || s.contains("機能訓練")
+        || s.contains("柔道整復")
+        || s.contains("あん摩")
+        || s.contains("鍼灸")
     {
         return Some("リハビリ・療法士系");
     }
     // 4. 医療技術・薬局系
     // 「メディカル」「病院」等の医療系広義語もここに分類 (Reference 信頼度)
-    if s.contains("薬剤") || s.contains("薬局") || s.contains("調剤")
-        || s.contains("歯科") || s.contains("歯科衛生士") || s.contains("歯科助手")
-        || s.contains("臨床検査") || s.contains("放射線") || s.contains("レントゲン")
-        || s.contains("検査技師") || s.contains("臨床工学")
+    if s.contains("薬剤")
+        || s.contains("薬局")
+        || s.contains("調剤")
+        || s.contains("歯科")
+        || s.contains("歯科衛生士")
+        || s.contains("歯科助手")
+        || s.contains("臨床検査")
+        || s.contains("放射線")
+        || s.contains("レントゲン")
+        || s.contains("検査技師")
+        || s.contains("臨床工学")
         || (s.contains("技師") && !s.contains("整備技師"))
-        || s.contains("メディカル") || s.contains("病院") || s.contains("クリニック")
+        || s.contains("メディカル")
+        || s.contains("病院")
+        || s.contains("クリニック")
         || s.contains("診療")
     {
         return Some("医療技術・薬局系");
     }
     // 5. 福祉・相談支援系
-    if s.contains("相談員") || s.contains("生活相談") || s.contains("支援員")
-        || s.contains("生活支援") || s.contains("就労支援")
-        || s.contains("児童指導") || s.contains("ケースワーカー")
-        || s.contains("ソーシャルワーカー") || s.contains("社会福祉士")
+    if s.contains("相談員")
+        || s.contains("生活相談")
+        || s.contains("支援員")
+        || s.contains("生活支援")
+        || s.contains("就労支援")
+        || s.contains("児童指導")
+        || s.contains("ケースワーカー")
+        || s.contains("ソーシャルワーカー")
+        || s.contains("社会福祉士")
         || s.contains("精神保健福祉")
-        || s.contains("サービス管理責任者") || s.contains("サ責")
+        || s.contains("サービス管理責任者")
+        || s.contains("サ責")
         || s.contains("サービス提供責任者")
-        || s.contains("障害者支援") || s.contains("ケアマネ")
+        || s.contains("障害者支援")
+        || s.contains("ケアマネ")
     {
         return Some("福祉・相談支援系");
     }
     // 6. 保育・教育系
-    if s.contains("保育") || s.contains("保育士") || s.contains("こども")
-        || s.contains("子ども") || s.contains("児童") || s.contains("学童")
-        || s.contains("幼稚園") || s.contains("教員") || s.contains("講師")
+    if s.contains("保育")
+        || s.contains("保育士")
+        || s.contains("こども")
+        || s.contains("子ども")
+        || s.contains("児童")
+        || s.contains("学童")
+        || s.contains("幼稚園")
+        || s.contains("教員")
+        || s.contains("講師")
         || s.contains("指導員")
     {
         return Some("保育・教育系");
     }
     // 7. 建築・土木・設備系
-    if s.contains("建築") || s.contains("建設") || s.contains("土木")
-        || s.contains("施工") || s.contains("施工管理") || s.contains("現場監督")
-        || s.contains("現場作業") || s.contains("設備") || s.contains("電気工事")
-        || s.contains("管工事") || s.contains("配管") || s.contains("内装")
-        || s.contains("外構") || s.contains("解体") || s.contains("cad")
-        || s.contains("ｃａｄ") || s.contains("測量") || s.contains("大工")
-        || s.contains("溶接") || s.contains("塗装") || s.contains("空調")
+    if s.contains("建築")
+        || s.contains("建設")
+        || s.contains("土木")
+        || s.contains("施工")
+        || s.contains("施工管理")
+        || s.contains("現場監督")
+        || s.contains("現場作業")
+        || s.contains("設備")
+        || s.contains("電気工事")
+        || s.contains("管工事")
+        || s.contains("配管")
+        || s.contains("内装")
+        || s.contains("外構")
+        || s.contains("解体")
+        || s.contains("cad")
+        || s.contains("ｃａｄ")
+        || s.contains("測量")
+        || s.contains("大工")
+        || s.contains("溶接")
+        || s.contains("塗装")
+        || s.contains("空調")
     {
         return Some("建築・土木・設備系");
     }
     // 8. 物流・配送・ドライバー系
-    if s.contains("ドライバー") || s.contains("運転手") || s.contains("運転")
-        || s.contains("配送") || s.contains("配達") || s.contains("送迎")
-        || s.contains("物流") || s.contains("倉庫") || s.contains("仕分け")
-        || s.contains("ピッキング") || s.contains("梱包")
-        || s.contains("フォークリフト") || s.contains("ルート配送")
-        || s.contains("軽貨物") || s.contains("トラック")
-        || s.contains("運搬") || s.contains("入出庫")
+    if s.contains("ドライバー")
+        || s.contains("運転手")
+        || s.contains("運転")
+        || s.contains("配送")
+        || s.contains("配達")
+        || s.contains("送迎")
+        || s.contains("物流")
+        || s.contains("倉庫")
+        || s.contains("仕分け")
+        || s.contains("ピッキング")
+        || s.contains("梱包")
+        || s.contains("フォークリフト")
+        || s.contains("ルート配送")
+        || s.contains("軽貨物")
+        || s.contains("トラック")
+        || s.contains("運搬")
+        || s.contains("入出庫")
     {
         return Some("物流・配送・ドライバー系");
     }
     // 9. 製造・軽作業系
-    if s.contains("製造") || s.contains("工場") || s.contains("軽作業")
-        || s.contains("作業員") || s.contains("組立") || s.contains("加工")
-        || s.contains("検品") || s.contains("検査") || s.contains("包装")
-        || s.contains("ライン") || s.contains("生産") || s.contains("品質管理")
-        || s.contains("機械オペレーター") || s.contains("オペレーター")
-        || s.contains("仕上げ") || s.contains("部品")
+    if s.contains("製造")
+        || s.contains("工場")
+        || s.contains("軽作業")
+        || s.contains("作業員")
+        || s.contains("組立")
+        || s.contains("加工")
+        || s.contains("検品")
+        || s.contains("検査")
+        || s.contains("包装")
+        || s.contains("ライン")
+        || s.contains("生産")
+        || s.contains("品質管理")
+        || s.contains("機械オペレーター")
+        || s.contains("オペレーター")
+        || s.contains("仕上げ")
+        || s.contains("部品")
     {
         return Some("製造・軽作業系");
     }
     // 10. 警備・清掃・施設管理系
-    if s.contains("警備") || s.contains("交通誘導") || s.contains("施設警備")
-        || s.contains("清掃") || s.contains("ビルメン") || s.contains("ベッドメイク")
-        || s.contains("設備管理") || s.contains("施設管理") || s.contains("管理人")
-        || s.contains("巡回") || s.contains("守衛")
+    if s.contains("警備")
+        || s.contains("交通誘導")
+        || s.contains("施設警備")
+        || s.contains("清掃")
+        || s.contains("ビルメン")
+        || s.contains("ベッドメイク")
+        || s.contains("設備管理")
+        || s.contains("施設管理")
+        || s.contains("管理人")
+        || s.contains("巡回")
+        || s.contains("守衛")
     {
         return Some("警備・清掃・施設管理系");
     }
     // 11. 飲食・調理系
-    if s.contains("調理") || s.contains("厨房") || s.contains("調理補助")
-        || s.contains("栄養士") || s.contains("管理栄養士") || s.contains("飲食")
-        || s.contains("レストラン") || s.contains("カフェ") || s.contains("食堂")
-        || s.contains("キッチン") || s.contains("給食") || s.contains("洗い場")
-        || s.contains("ホールスタッフ") || s.contains("料理人")
-        || s.contains("シェフ") || s.contains("クック")
+    if s.contains("調理")
+        || s.contains("厨房")
+        || s.contains("調理補助")
+        || s.contains("栄養士")
+        || s.contains("管理栄養士")
+        || s.contains("飲食")
+        || s.contains("レストラン")
+        || s.contains("カフェ")
+        || s.contains("食堂")
+        || s.contains("キッチン")
+        || s.contains("給食")
+        || s.contains("洗い場")
+        || s.contains("ホールスタッフ")
+        || s.contains("料理人")
+        || s.contains("シェフ")
+        || s.contains("クック")
     {
         return Some("飲食・調理系");
     }
     // 12. 事務・バックオフィス系
-    if s.contains("事務") || s.contains("一般事務") || s.contains("医療事務")
-        || s.contains("営業事務") || s.contains("受付") || s.contains("経理")
-        || s.contains("総務") || s.contains("人事") || s.contains("労務")
-        || s.contains("庶務") || s.contains("データ入力")
-        || s.contains("コールセンター") || s.contains("カスタマーサポート")
+    if s.contains("事務")
+        || s.contains("一般事務")
+        || s.contains("医療事務")
+        || s.contains("営業事務")
+        || s.contains("受付")
+        || s.contains("経理")
+        || s.contains("総務")
+        || s.contains("人事")
+        || s.contains("労務")
+        || s.contains("庶務")
+        || s.contains("データ入力")
+        || s.contains("コールセンター")
+        || s.contains("カスタマーサポート")
     {
         return Some("事務・バックオフィス系");
     }
@@ -257,13 +405,22 @@ pub(crate) fn map_keyword_to_occupation_group(s: &str) -> Option<&'static str> {
     // 2026-05-14: 単独「営業」「pr」は過誤判定が多い (例: 「営業時間」「営業所」
     //             「営業日」「prefecture」「product」「spring」等の部分一致)。
     //             具体的な職種語彙のみで判定する。
-    if s.contains("営業職") || s.contains("営業担当") || s.contains("営業マン")
-        || s.contains("法人営業") || s.contains("個人営業")
-        || s.contains("ルート営業") || s.contains("提案営業") || s.contains("反響営業")
-        || s.contains("ラウンダー") || s.contains("販促") || s.contains("販売促進")
-        || s.contains("インサイドセールス") || s.contains("テレアポ")
+    if s.contains("営業職")
+        || s.contains("営業担当")
+        || s.contains("営業マン")
+        || s.contains("法人営業")
+        || s.contains("個人営業")
+        || s.contains("ルート営業")
+        || s.contains("提案営業")
+        || s.contains("反響営業")
+        || s.contains("ラウンダー")
+        || s.contains("販促")
+        || s.contains("販売促進")
+        || s.contains("インサイドセールス")
+        || s.contains("テレアポ")
         || s.contains("テレマーケティング")
-        || s.contains("広報") || s.contains("マーケティング")
+        || s.contains("広報")
+        || s.contains("マーケティング")
     {
         return Some("営業・販売促進系");
     }
@@ -271,34 +428,62 @@ pub(crate) fn map_keyword_to_occupation_group(s: &str) -> Option<&'static str> {
     // 2026-05-14: 単独「販売」「ホール」「カウンター」は過誤判定が多い (例:
     //             「販売価格」「販売代理店」「コンサートホール」「ホールディングス」
     //             「カウンターパート」)。具体語のみ。
-    if s.contains("販売員") || s.contains("販売職") || s.contains("販売スタッフ")
-        || s.contains("接客") || s.contains("店舗")
-        || s.contains("売場") || s.contains("店長") || s.contains("レジ")
-        || s.contains("フロント") || s.contains("ホールスタッフ") || s.contains("ホール係")
+    if s.contains("販売員")
+        || s.contains("販売職")
+        || s.contains("販売スタッフ")
+        || s.contains("接客")
+        || s.contains("店舗")
+        || s.contains("売場")
+        || s.contains("店長")
+        || s.contains("レジ")
+        || s.contains("フロント")
+        || s.contains("ホールスタッフ")
+        || s.contains("ホール係")
         || s.contains("サービススタッフ")
-        || s.contains("アテンダー") || s.contains("案内係") || s.contains("受付案内")
-        || s.contains("カウンター業務") || s.contains("カウンタースタッフ")
+        || s.contains("アテンダー")
+        || s.contains("案内係")
+        || s.contains("受付案内")
+        || s.contains("カウンター業務")
+        || s.contains("カウンタースタッフ")
     {
         return Some("販売・接客・サービス系");
     }
     // 15. IT・技術専門職系
     // 2026-05-14: 単独「it」は to_lowercase 後に "wait" "split" 等にも部分一致してしまうため除外。
     //             「ｉｔ」(全角) は誤一致が少なく残す。
-    if s.contains("ｉｔ") || s.contains("エンジニア")
-        || s.contains("プログラマ") || s.contains("se ")
-        || s.contains("システム") || s.contains("web") || s.contains("ｗｅｂ")
-        || s.contains("アプリ") || s.contains("インフラ") || s.contains("ネットワーク")
-        || s.contains("サーバー") || s.contains("情シス") || s.contains("dx")
-        || s.contains("ヘルプデスク") || s.contains("it職") || s.contains("itエンジニア")
+    if s.contains("ｉｔ")
+        || s.contains("エンジニア")
+        || s.contains("プログラマ")
+        || s.contains("se ")
+        || s.contains("システム")
+        || s.contains("web")
+        || s.contains("ｗｅｂ")
+        || s.contains("アプリ")
+        || s.contains("インフラ")
+        || s.contains("ネットワーク")
+        || s.contains("サーバー")
+        || s.contains("情シス")
+        || s.contains("dx")
+        || s.contains("ヘルプデスク")
+        || s.contains("it職")
+        || s.contains("itエンジニア")
     {
         return Some("IT・技術専門職系");
     }
     // 16. 管理・マネジメント系
-    if s.contains("管理者") || s.contains("管理職") || s.contains("施設長")
-        || s.contains("所長") || s.contains("店長候補") || s.contains("マネージャー")
-        || s.contains("リーダー") || s.contains("主任") || s.contains("責任者")
-        || s.contains("sv") || s.contains("スーパーバイザー")
-        || s.contains("係長") || s.contains("課長")
+    if s.contains("管理者")
+        || s.contains("管理職")
+        || s.contains("施設長")
+        || s.contains("所長")
+        || s.contains("店長候補")
+        || s.contains("マネージャー")
+        || s.contains("リーダー")
+        || s.contains("主任")
+        || s.contains("責任者")
+        || s.contains("sv")
+        || s.contains("スーパーバイザー")
+        || s.contains("係長")
+        || s.contains("課長")
     {
         return Some("管理・マネジメント系");
     }
@@ -341,8 +526,7 @@ pub(super) fn aggregate_occupation_salary(agg: &SurveyAggregation) -> Vec<Occupa
         if tag.count == 0 || tag.avg_salary <= 0 {
             continue;
         }
-        let Some((group, confidence)) =
-            map_keyword_to_occupation_group_with_confidence(&tag.tag)
+        let Some((group, confidence)) = map_keyword_to_occupation_group_with_confidence(&tag.tag)
         else {
             continue;
         };
@@ -425,7 +609,11 @@ pub(super) fn aggregate_occupation_salary(agg: &SurveyAggregation) -> Vec<Occupa
         })
         .collect();
 
-    rows.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| b.weighted_avg.cmp(&a.weighted_avg)));
+    rows.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| b.weighted_avg.cmp(&a.weighted_avg))
+    });
     rows.truncate(10);
     rows
 }
@@ -582,17 +770,47 @@ mod tests {
     fn map_keyword_to_occupation_group_classifies_known_keywords() {
         assert_eq!(map_keyword_to_occupation_group("看護師"), Some("看護系"));
         assert_eq!(map_keyword_to_occupation_group("准看護師"), Some("看護系"));
-        assert_eq!(map_keyword_to_occupation_group("介護福祉士"), Some("介護系"));
+        assert_eq!(
+            map_keyword_to_occupation_group("介護福祉士"),
+            Some("介護系")
+        );
         assert_eq!(map_keyword_to_occupation_group("ヘルパー"), Some("介護系"));
-        assert_eq!(map_keyword_to_occupation_group("保育士"), Some("保育・教育系"));
-        assert_eq!(map_keyword_to_occupation_group("理学療法士"), Some("リハビリ・療法士系"));
-        assert_eq!(map_keyword_to_occupation_group("作業療法士"), Some("リハビリ・療法士系"));
-        assert_eq!(map_keyword_to_occupation_group("薬剤師"), Some("医療技術・薬局系"));
-        assert_eq!(map_keyword_to_occupation_group("ケアマネジャー"), Some("福祉・相談支援系"));
-        assert_eq!(map_keyword_to_occupation_group("調理師"), Some("飲食・調理系"));
-        assert_eq!(map_keyword_to_occupation_group("ドライバー"), Some("物流・配送・ドライバー系"));
-        assert_eq!(map_keyword_to_occupation_group("施工管理"), Some("建築・土木・設備系"));
-        assert_eq!(map_keyword_to_occupation_group("一般事務"), Some("事務・バックオフィス系"));
+        assert_eq!(
+            map_keyword_to_occupation_group("保育士"),
+            Some("保育・教育系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("理学療法士"),
+            Some("リハビリ・療法士系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("作業療法士"),
+            Some("リハビリ・療法士系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("薬剤師"),
+            Some("医療技術・薬局系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("ケアマネジャー"),
+            Some("福祉・相談支援系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("調理師"),
+            Some("飲食・調理系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("ドライバー"),
+            Some("物流・配送・ドライバー系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("施工管理"),
+            Some("建築・土木・設備系")
+        );
+        assert_eq!(
+            map_keyword_to_occupation_group("一般事務"),
+            Some("事務・バックオフィス系")
+        );
         // 未分類
         assert_eq!(map_keyword_to_occupation_group("ABC123"), None);
         assert_eq!(map_keyword_to_occupation_group(""), None);
@@ -704,10 +922,7 @@ mod tests {
     /// 推定不能 (キーワード非マッチ) なタグは除外される.
     #[test]
     fn occupation_salary_excludes_unclassifiable_tags() {
-        let agg = agg_with_tags(vec![
-            tag("ABC123", 5, 250_000),
-            tag("看護師", 3, 280_000),
-        ]);
+        let agg = agg_with_tags(vec![tag("ABC123", 5, 250_000), tag("看護師", 3, 280_000)]);
         let rows = aggregate_occupation_salary(&agg);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].occupation, "看護系");
@@ -733,8 +948,14 @@ mod tests {
         assert_eq!(rows[0].unit_label, "時給");
         let mut html = String::new();
         render_section_occupation_salary(&mut html, &agg);
-        assert!(html.contains("時給 参考平均"), "is_hourly=true で時給ラベル");
-        assert!(!html.contains("月給 参考平均"), "is_hourly=true で月給ラベル不在");
+        assert!(
+            html.contains("時給 参考平均"),
+            "is_hourly=true で時給ラベル"
+        );
+        assert!(
+            !html.contains("月給 参考平均"),
+            "is_hourly=true で月給ラベル不在"
+        );
     }
 
     /// HW 連想語を出力に含めない.
@@ -822,9 +1043,7 @@ mod tests {
             nursing.count, 10,
             "信号 A 既カバーの職種に信号 B を二重加算しないこと"
         );
-        let construction = rows
-            .iter()
-            .find(|r| r.occupation == "建築・土木・設備系");
+        let construction = rows.iter().find(|r| r.occupation == "建築・土木・設備系");
         assert!(
             construction.is_some(),
             "信号 A 未カバーの職種は信号 B で補完されること"

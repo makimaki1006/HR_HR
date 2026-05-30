@@ -131,7 +131,13 @@ pub(super) fn render_section_salary_stats(
                 "給与分布 boxplot（min / Q1 / 中央値 / Q3 / max）+ 補助 IQR シェード",
             );
             // Round 17 (2026-05-13): ECharts boxplot → SSR SVG に置換 (print emulate 対応)
-            html.push_str(&build_boxplot_svg(stats.min, q.q1, stats.median, q.q3, stats.max));
+            html.push_str(&build_boxplot_svg(
+                stats.min,
+                q.q1,
+                stats.median,
+                q.q3,
+                stats.max,
+            ));
 
             html.push_str("<div class=\"iqr-bar\" aria-label=\"四分位範囲シェード (補助)\">\n");
             html.push_str(&format!(
@@ -219,12 +225,18 @@ pub(super) fn render_section_salary_stats(
         html.push_str("<div class=\"salary-chart-block\">\n");
         html.push_str("<h3>下限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
-            html, "図 3-2",
+            html,
+            "図 3-2",
             "下限月給ヒストグラム（10,000円刻み・縦線=平均/中央値/最頻値）",
         );
         let mode_min = compute_mode(salary_min_values, 10_000);
         html.push_str(&build_histogram_svg(
-            salary_min_values, 10_000, "#42A5F5", min_median, min_mean, mode_min,
+            salary_min_values,
+            10_000,
+            "#42A5F5",
+            min_median,
+            min_mean,
+            mode_min,
         ));
         html.push_str("</div>\n");
     }
@@ -234,12 +246,18 @@ pub(super) fn render_section_salary_stats(
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>上限給与の分布（10,000円刻み・概観）</h3>\n");
         render_figure_caption(
-            html, "図 3-3",
+            html,
+            "図 3-3",
             "上限月給ヒストグラム（10,000円刻み・縦線=平均/中央値/最頻値）",
         );
         let mode_max = compute_mode(salary_max_values, 10_000);
         html.push_str(&build_histogram_svg(
-            salary_max_values, 10_000, "#66BB6A", max_median, max_mean, mode_max,
+            salary_max_values,
+            10_000,
+            "#66BB6A",
+            max_median,
+            max_mean,
+            mode_max,
         ));
         html.push_str("</div>\n");
     }
@@ -257,7 +275,8 @@ pub(super) fn render_section_salary_stats(
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         html.push_str("<h3>給与構造クラスタ分析 (下限給与 × レンジ幅)</h3>\n");
         render_figure_caption(
-            html, "表 3-A",
+            html,
+            "表 3-A",
             "給与構造クラスタ別 件数 / P25 / P50 (中央値) / P75 / P90",
         );
         html.push_str(&build_cluster_table_html(
@@ -273,7 +292,8 @@ pub(super) fn render_section_salary_stats(
         // クラスタ boxplot 並列
         html.push_str("<div class=\"salary-chart-block salary-chart-page-start\">\n");
         render_figure_caption(
-            html, "図 3-A",
+            html,
+            "図 3-A",
             "給与構造クラスタ別 ボックスプロット (各クラスタの下限給与分布)",
         );
         html.push_str(&build_cluster_boxplots_svg(&clusters));
@@ -292,9 +312,11 @@ pub(super) fn render_section_salary_stats(
     }
 
     // (3) 上限なし求人 別表 (salary_min_values 内、scatter_min_max にペアなしのもの)
-    let pair_set: std::collections::HashSet<i64> =
-        pairs.iter().map(|p| p.0).collect();
-    let unpaired_count = salary_min_values.iter().filter(|v| !pair_set.contains(v)).count();
+    let pair_set: std::collections::HashSet<i64> = pairs.iter().map(|p| p.0).collect();
+    let unpaired_count = salary_min_values
+        .iter()
+        .filter(|v| !pair_set.contains(v))
+        .count();
     if unpaired_count > 0 {
         html.push_str("<div class=\"salary-chart-block\">\n");
         html.push_str("<h3>上限なし求人 (下限のみ表記の求人)</h3>\n");

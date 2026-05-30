@@ -134,7 +134,7 @@ pub(super) fn render_range_type_box(html: &mut String, label: &str, count: usize
 
 /// section ページの header (.page-head): ph-sec / ph-title / ph-sub / ph-rule
 pub(super) fn render_page_head_navy(
-    section_code: &str,  // "00 / EXECUTIVE SUMMARY" のような表記
+    section_code: &str, // "00 / EXECUTIVE SUMMARY" のような表記
     title: &str,
     sub: &str,
 ) -> String {
@@ -163,9 +163,9 @@ pub(super) struct KpiCell<'a> {
     pub label: &'a str,
     pub value: String,
     pub unit: &'a str,
-    pub dot: &'a str,    // "pos" / "warn" / "neg" / "neu"
-    pub foot: &'a str,   // 説明テキスト
-    pub emphasis: bool,  // 上端 gold ライン
+    pub dot: &'a str,   // "pos" / "warn" / "neg" / "neu"
+    pub foot: &'a str,  // 説明テキスト
+    pub emphasis: bool, // 上端 gold ライン
 }
 
 /// KPI 行 (N 列): kpi-row-N の class が cells.len() に応じて付く (3/4/5)
@@ -199,13 +199,17 @@ pub(super) fn render_kpi_row_navy(cells: &[KpiCell]) -> String {
 
 /// findings 番号付きリスト (Key Findings 5 ポイント)
 pub(super) struct Finding<'a> {
-    pub no: &'a str,    // "01"
+    pub no: &'a str, // "01"
     pub title: &'a str,
-    pub body: &'a str,  // HTML 許容 (strong 等)
+    pub body: &'a str,    // HTML 許容 (strong 等)
     pub ref_tag: &'a str, // "§01"
 }
 
-pub(super) fn render_findings_list_navy(head_no: &str, head_title: &str, items: &[Finding]) -> String {
+pub(super) fn render_findings_list_navy(
+    head_no: &str,
+    head_title: &str,
+    items: &[Finding],
+) -> String {
     let mut s = format!(
         "<div class=\"findings\">\n\
          <div class=\"findings-head\"><div class=\"fh-no\">{}</div><div class=\"fh-title\">{}</div></div>\n\
@@ -520,12 +524,12 @@ pub(super) fn build_salary_histogram(
 #[derive(Debug, Clone)]
 pub(super) struct SalaryCluster {
     pub label: String,
-    pub lower_seg: String,  // "低下限"/"中下限"/"高下限" or "下限帯1"/"下限帯2"/... (k=4 時)
-    pub range_seg: &'static str,  // "狭レンジ" / "通常レンジ" / "広レンジ"
+    pub lower_seg: String, // "低下限"/"中下限"/"高下限" or "下限帯1"/"下限帯2"/... (k=4 時)
+    pub range_seg: &'static str, // "狭レンジ" / "通常レンジ" / "広レンジ"
     pub count: usize,
     pub p25: i64,
     pub p50: i64,
-    pub p60: i64,  // Round 22: 設計メモ §10.2 標準より少し強いライン
+    pub p60: i64, // Round 22: 設計メモ §10.2 標準より少し強いライン
     pub p75: i64,
     pub p90: i64,
     pub min: i64,
@@ -720,12 +724,20 @@ pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster
     let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
 
     // lower 側: n に応じて k を動的決定 + Jenks
-    let lower_k = if n < 50 { 3 } else if n < 150 { 3 } else { 4 };
+    let lower_k = if n < 50 {
+        3
+    } else if n < 150 {
+        3
+    } else {
+        4
+    };
     let lo_breaks: Vec<i64> = if n < 50 {
         // 件数少: 分位点フォールバック
         let mut sorted = lowers.clone();
         sorted.sort_unstable();
-        (1..lower_k).map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64)).collect()
+        (1..lower_k)
+            .map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64))
+            .collect()
     } else {
         jenks_natural_breaks(&lowers, lower_k)
     };
@@ -739,7 +751,9 @@ pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster
     } else {
         let mut sorted = lowers.clone();
         sorted.sort_unstable();
-        (1..lower_k).map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64)).collect()
+        (1..lower_k)
+            .map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64))
+            .collect()
     };
 
     let classify_lower = |v: i64, breaks: &[i64]| -> usize {
@@ -752,7 +766,15 @@ pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster
     };
     // range 分類: 0=狭、1=通常、2=広、3=異常広 (P95超)
     let classify_range = |v: i64, t1: i64, t2: i64, ext: i64| -> usize {
-        if v >= ext { 3 } else if v < t1 { 0 } else if v < t2 { 1 } else { 2 }
+        if v >= ext {
+            3
+        } else if v < t1 {
+            0
+        } else if v < t2 {
+            1
+        } else {
+            2
+        }
     };
 
     // lower_k × 4 グリッドに集計 (4 = 狭/通常/広/異常広)
@@ -820,10 +842,7 @@ pub(super) fn compute_salary_clusters(pairs: &[(i64, i64)]) -> Vec<SalaryCluster
 }
 
 /// クラスタテーブル HTML
-pub(super) fn build_cluster_table_html(
-    clusters: &[SalaryCluster],
-    headline: &str,
-) -> String {
+pub(super) fn build_cluster_table_html(clusters: &[SalaryCluster], headline: &str) -> String {
     if clusters.is_empty() {
         return format!("<p class=\"data-empty\">{}</p>\n", headline);
     }
@@ -836,15 +855,24 @@ pub(super) fn build_cluster_table_html(
     );
     let to_man = |v: i64| -> String {
         let m = v as f64 / 10_000.0;
-        if (m.fract()).abs() < 0.05 { format!("{:.0}万", m) } else { format!("{:.1}万", m) }
+        if (m.fract()).abs() < 0.05 {
+            format!("{:.0}万", m)
+        } else {
+            format!("{:.1}万", m)
+        }
     };
     for c in clusters {
         s.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td>{}</td><td><strong>{}</strong></td>\
              <td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
             escape_xml_helper(&c.label),
-            c.count, to_man(c.p25), to_man(c.p50), to_man(c.p60),
-            to_man(c.p75), to_man(c.p90), to_man(c.mean),
+            c.count,
+            to_man(c.p25),
+            to_man(c.p50),
+            to_man(c.p60),
+            to_man(c.p75),
+            to_man(c.p90),
+            to_man(c.mean),
         ));
     }
     s.push_str("</tbody></table>\n");
@@ -863,10 +891,7 @@ pub(super) fn nearest_cluster<'a>(
 }
 
 /// クラスタ分析の So-What コメントを生成
-pub(super) fn cluster_so_what_text(
-    clusters: &[SalaryCluster],
-    customer_median: i64,
-) -> String {
+pub(super) fn cluster_so_what_text(clusters: &[SalaryCluster], customer_median: i64) -> String {
     if clusters.is_empty() {
         return String::new();
     }
@@ -915,11 +940,19 @@ pub(super) fn build_cluster_histograms_svg(
     let ranges: Vec<i64> = pairs.iter().map(|p| (p.1 - p.0).max(0)).collect();
 
     // compute_salary_clusters と同じ閾値ロジックを再現
-    let lower_k = if n < 50 { 3 } else if n < 150 { 3 } else { 4 };
+    let lower_k = if n < 50 {
+        3
+    } else if n < 150 {
+        3
+    } else {
+        4
+    };
     let lo_breaks: Vec<i64> = if n < 50 {
         let mut sorted = lowers.clone();
         sorted.sort_unstable();
-        (1..lower_k).map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64)).collect()
+        (1..lower_k)
+            .map(|i| percentile(&sorted, 100.0 * i as f64 / lower_k as f64))
+            .collect()
     } else {
         jenks_natural_breaks(&lowers, lower_k)
     };
@@ -927,15 +960,22 @@ pub(super) fn build_cluster_histograms_svg(
 
     let classify_lower = |v: i64| -> usize {
         for (i, &b) in lo_breaks.iter().enumerate() {
-            if v < b { return i; }
+            if v < b {
+                return i;
+            }
         }
         lo_breaks.len()
     };
     let classify_range = |v: i64| -> usize {
-        if v >= rn_extreme { 3 }
-        else if v < rn_t1 { 0 }
-        else if v < rn_t2 { 1 }
-        else { 2 }
+        if v >= rn_extreme {
+            3
+        } else if v < rn_t1 {
+            0
+        } else if v < rn_t2 {
+            1
+        } else {
+            2
+        }
     };
 
     // 表示対象 3 クラスタ選定 (重複除く):
@@ -951,10 +991,15 @@ pub(super) fn build_cluster_histograms_svg(
             selected.push(c);
         }
     }
-    let high_label_prefix = if lower_k == 3 { "高下限" } else { "下限帯" };
-    if let Some(c) = clusters.iter().find(|c| {
-        c.lower_seg.starts_with(high_label_prefix) && c.range_seg == "広レンジ"
-    }) {
+    let high_label_prefix = if lower_k == 3 {
+        "高下限"
+    } else {
+        "下限帯"
+    };
+    if let Some(c) = clusters
+        .iter()
+        .find(|c| c.lower_seg.starts_with(high_label_prefix) && c.range_seg == "広レンジ")
+    {
         if !selected.iter().any(|s| s.label == c.label) {
             selected.push(c);
         }
@@ -972,11 +1017,21 @@ pub(super) fn build_cluster_histograms_svg(
                 let lo_idx = classify_lower(p.0);
                 let rn_idx = classify_range(rg);
                 let lo_seg = if lower_k == 3 {
-                    match lo_idx { 0 => "低下限", 1 => "中下限", _ => "高下限" }.to_string()
+                    match lo_idx {
+                        0 => "低下限",
+                        1 => "中下限",
+                        _ => "高下限",
+                    }
+                    .to_string()
                 } else {
                     format!("下限帯{}", lo_idx + 1)
                 };
-                let rn_seg = match rn_idx { 0 => "狭レンジ", 1 => "通常レンジ", 2 => "広レンジ", _ => "異常広レンジ" };
+                let rn_seg = match rn_idx {
+                    0 => "狭レンジ",
+                    1 => "通常レンジ",
+                    2 => "広レンジ",
+                    _ => "異常広レンジ",
+                };
                 lo_seg == *target_lower_seg && rn_seg == target_range_seg
             })
             .map(|p| p.0)
@@ -987,14 +1042,20 @@ pub(super) fn build_cluster_histograms_svg(
         let bin_w = freedman_diaconis_bin_width(&cluster_lowers);
         let mean = if !cluster_lowers.is_empty() {
             Some(cluster_lowers.iter().sum::<i64>() / cluster_lowers.len() as i64)
-        } else { None };
+        } else {
+            None
+        };
         let median = {
             let mut sorted = cluster_lowers.clone();
             sorted.sort_unstable();
             Some(sorted[sorted.len() / 2])
         };
         let mode = compute_mode(&cluster_lowers, bin_w);
-        let color = match rank { 0 => "#0B1E3F", 1 => "#1F6B43", _ => "#B5731C" };
+        let color = match rank {
+            0 => "#0B1E3F",
+            1 => "#1F6B43",
+            _ => "#B5731C",
+        };
         // 役割タグ
         let role = match rank {
             0 => "求人群中央値に最近接",
@@ -1004,9 +1065,19 @@ pub(super) fn build_cluster_histograms_svg(
         s.push_str(&format!(
             "<div class=\"salary-chart-block salary-chart-page-start\">\n\
              <h3>クラスタ「{}」内分布 ({} 件、{} 円刻み・{})</h3>\n",
-            escape_xml_helper(&c.label), c.count, bin_w, role,
+            escape_xml_helper(&c.label),
+            c.count,
+            bin_w,
+            role,
         ));
-        s.push_str(&build_histogram_svg(&cluster_lowers, bin_w, color, median, mean, mode));
+        s.push_str(&build_histogram_svg(
+            &cluster_lowers,
+            bin_w,
+            color,
+            median,
+            mean,
+            mode,
+        ));
         s.push_str("</div>\n");
     }
     s
@@ -1026,12 +1097,15 @@ pub(super) fn build_cluster_boxplots_svg(clusters: &[SalaryCluster]) -> String {
     let plot_y0 = 40.0_f64;
     let plot_y1 = 360.0_f64;
     let plot_h = plot_y1 - plot_y0;
-    let yen_to_y = |yen: i64| -> f64 {
-        plot_y1 - ((yen - all_min) as f64 / range_y as f64) * plot_h
-    };
+    let yen_to_y =
+        |yen: i64| -> f64 { plot_y1 - ((yen - all_min) as f64 / range_y as f64) * plot_h };
     let to_man = |v: i64| -> String {
         let m = v as f64 / 10_000.0;
-        if (m.fract()).abs() < 0.05 { format!("{:.0}万", m) } else { format!("{:.1}万", m) }
+        if (m.fract()).abs() < 0.05 {
+            format!("{:.0}万", m)
+        } else {
+            format!("{:.1}万", m)
+        }
     };
 
     let cell_w = (plot_x1 - plot_x0) / n as f64;
@@ -1131,8 +1205,16 @@ pub(super) fn split_upper_outliers(values: &[i64]) -> (Vec<i64>, Vec<i64>) {
     let q3 = percentile(&sorted, 75.0) as f64;
     let iqr = q3 - q1;
     let upper_bound = (q3 + 1.5 * iqr) as i64;
-    let body: Vec<i64> = values.iter().copied().filter(|&v| v <= upper_bound).collect();
-    let outliers: Vec<i64> = values.iter().copied().filter(|&v| v > upper_bound).collect();
+    let body: Vec<i64> = values
+        .iter()
+        .copied()
+        .filter(|&v| v <= upper_bound)
+        .collect();
+    let outliers: Vec<i64> = values
+        .iter()
+        .copied()
+        .filter(|&v| v > upper_bound)
+        .collect();
     (body, outliers)
 }
 
@@ -1203,9 +1285,8 @@ pub(super) fn build_histogram_svg(
         let frac = (yen - x_min_yen) as f64 / ((x_max_yen - x_min_yen) as f64).max(1.0);
         plot_x0 as f64 + frac * plot_w as f64
     };
-    let count_to_y = |c: usize| -> f64 {
-        plot_y1 as f64 - (c as f64 / max_count as f64) * plot_h as f64
-    };
+    let count_to_y =
+        |c: usize| -> f64 { plot_y1 as f64 - (c as f64 / max_count as f64) * plot_h as f64 };
     let yen_to_man = |yen: i64| -> String {
         let man = yen as f64 / 10_000.0;
         if (man.fract()).abs() < 0.05 {
@@ -1238,7 +1319,11 @@ pub(super) fn build_histogram_svg(
         let h = plot_y1 as f64 - y;
         s.push_str(&format!(
             "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"{c}\"/>\n",
-            x = x, y = y, w = w, h = h, c = bar_color,
+            x = x,
+            y = y,
+            w = w,
+            h = h,
+            c = bar_color,
         ));
     }
 
@@ -1281,8 +1366,8 @@ pub(super) fn build_histogram_svg(
     // markLine + 上部 label box (中央値/平均/最頻値)
     let stats = [
         (median, "中央値", "#22c55e"),
-        (mean,   "平均",   "#ef4444"),
-        (mode,   "最頻値", "#3b82f6"),
+        (mean, "平均", "#ef4444"),
+        (mode, "最頻値", "#3b82f6"),
     ];
     for (val_opt, name, color) in &stats {
         let Some(v) = val_opt else { continue };
@@ -1319,7 +1404,9 @@ pub(super) fn build_histogram_svg(
         // 中央寄せの x_start
         let plot_center = (plot_x0 + plot_x1) as f64 / 2.0;
         let mut x_cursor = plot_center - total_w / 2.0;
-        s.push_str("<g font-size=\"11\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n");
+        s.push_str(
+            "<g font-size=\"11\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n",
+        );
         for (i, (text, color)) in chips.iter().enumerate() {
             let w = widths[i];
             s.push_str(&format!(
@@ -1369,7 +1456,9 @@ pub(super) fn compute_simple_regression(points: &[(f64, f64)]) -> Option<(f64, f
 }
 
 fn escape_xml_helper(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// 横向き boxplot (5 数要約) を SSR SVG で描画。
@@ -1380,13 +1469,19 @@ pub(super) fn build_boxplot_svg(min: i64, q1: i64, median: i64, q3: i64, max: i6
     let plot_y = 90_f64;
     let box_h = 50_f64;
     let yen_to_x = |yen: i64| -> f64 {
-        if max <= min { return plot_x0; }
+        if max <= min {
+            return plot_x0;
+        }
         let frac = (yen - min) as f64 / (max - min) as f64;
         plot_x0 + frac * (plot_x1 - plot_x0)
     };
     let yen_to_man = |yen: i64| -> String {
         let man = yen as f64 / 10_000.0;
-        if (man.fract()).abs() < 0.05 { format!("{:.0}万", man) } else { format!("{:.1}万", man) }
+        if (man.fract()).abs() < 0.05 {
+            format!("{:.0}万", man)
+        } else {
+            format!("{:.1}万", man)
+        }
     };
 
     let x_min = yen_to_x(min);
@@ -1434,8 +1529,11 @@ pub(super) fn build_boxplot_svg(min: i64, q1: i64, median: i64, q3: i64, max: i6
     // 5 数要約 ラベル
     s.push_str("<g font-size=\"11\" fill=\"#0B1E3F\" text-anchor=\"middle\">\n");
     for (x, label, val) in &[
-        (x_min, "min", min), (x_q1, "Q1", q1), (x_med, "中央値", median),
-        (x_q3, "Q3", q3), (x_max, "max", max),
+        (x_min, "min", min),
+        (x_q1, "Q1", q1),
+        (x_med, "中央値", median),
+        (x_q3, "Q3", q3),
+        (x_max, "max", max),
     ] {
         s.push_str(&format!(
             "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
@@ -1472,14 +1570,28 @@ pub(super) fn build_donut_svg(items: &[(String, i64, &str)]) -> String {
     // arc paths
     let mut start_angle = -std::f64::consts::FRAC_PI_2; // 12 時方向開始
     for (_, val, color) in items.iter() {
-        if *val <= 0 { continue; }
+        if *val <= 0 {
+            continue;
+        }
         let frac = *val as f64 / total as f64;
         let end_angle = start_angle + frac * 2.0 * std::f64::consts::PI;
         let large_arc = if frac > 0.5 { 1 } else { 0 };
-        let (sx, sy) = (cx + r_outer * start_angle.cos(), cy + r_outer * start_angle.sin());
-        let (ex, ey) = (cx + r_outer * end_angle.cos(), cy + r_outer * end_angle.sin());
-        let (sx2, sy2) = (cx + r_inner * end_angle.cos(), cy + r_inner * end_angle.sin());
-        let (ex2, ey2) = (cx + r_inner * start_angle.cos(), cy + r_inner * start_angle.sin());
+        let (sx, sy) = (
+            cx + r_outer * start_angle.cos(),
+            cy + r_outer * start_angle.sin(),
+        );
+        let (ex, ey) = (
+            cx + r_outer * end_angle.cos(),
+            cy + r_outer * end_angle.sin(),
+        );
+        let (sx2, sy2) = (
+            cx + r_inner * end_angle.cos(),
+            cy + r_inner * end_angle.sin(),
+        );
+        let (ex2, ey2) = (
+            cx + r_inner * start_angle.cos(),
+            cy + r_inner * start_angle.sin(),
+        );
         s.push_str(&format!(
             "<path d=\"M {sx:.2} {sy:.2} A {r:.2} {r:.2} 0 {la} 1 {ex:.2} {ey:.2} L {sx2:.2} {sy2:.2} A {ri:.2} {ri:.2} 0 {la} 0 {ex2:.2} {ey2:.2} Z\" fill=\"{c}\"/>\n",
             sx = sx, sy = sy, r = r_outer, la = large_arc, ex = ex, ey = ey,
@@ -1492,14 +1604,21 @@ pub(super) fn build_donut_svg(items: &[(String, i64, &str)]) -> String {
     let mut legend_y = 60.0_f64;
     s.push_str("<g font-size=\"12\" fill=\"#0B1E3F\">\n");
     for (label, val, color) in items.iter() {
-        if *val <= 0 { continue; }
+        if *val <= 0 {
+            continue;
+        }
         let pct = (*val as f64 / total as f64) * 100.0;
         s.push_str(&format!(
             "<rect x=\"{lx:.2}\" y=\"{ly:.2}\" width=\"14\" height=\"14\" fill=\"{c}\"/>\
              <text x=\"{tx:.2}\" y=\"{ty:.2}\">{lbl} ({v} 件 / {p:.1}%)</text>\n",
-            lx = legend_x, ly = legend_y, c = color,
-            tx = legend_x + 22.0, ty = legend_y + 12.0,
-            lbl = escape_xml_helper(label), v = val, p = pct,
+            lx = legend_x,
+            ly = legend_y,
+            c = color,
+            tx = legend_x + 22.0,
+            ty = legend_y + 12.0,
+            lbl = escape_xml_helper(label),
+            v = val,
+            p = pct,
         ));
         legend_y += 26.0;
     }
@@ -1514,7 +1633,11 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
     if items.is_empty() {
         return String::new();
     }
-    let max_v = items.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max).max(1.0);
+    let max_v = items
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
     let plot_x0 = 80.0_f64;
     let plot_x1 = 760.0_f64;
     let plot_y0 = 40.0_f64;
@@ -1570,10 +1693,7 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
 /// points: (x, y) yen 単位の生値。
 /// regression: (slope, intercept) — y = slope * x + intercept (yen 単位)
 /// x/y 軸範囲は P2.5-P97.5 で trim してから決定 (外れ値で潰されない)。
-pub(super) fn build_scatter_svg(
-    points: &[(f64, f64)],
-    regression: Option<(f64, f64)>,
-) -> String {
+pub(super) fn build_scatter_svg(points: &[(f64, f64)], regression: Option<(f64, f64)>) -> String {
     if points.is_empty() {
         return String::new();
     }
@@ -1581,8 +1701,16 @@ pub(super) fn build_scatter_svg(
     let mut ys: Vec<f64> = points.iter().map(|p| p.1).collect();
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let p25 = |v: &[f64]| v.get((v.len() as f64 * 0.025) as usize).copied().unwrap_or(0.0);
-    let p975 = |v: &[f64]| v.get(((v.len() as f64 * 0.975) as usize).min(v.len().saturating_sub(1))).copied().unwrap_or(0.0);
+    let p25 = |v: &[f64]| {
+        v.get((v.len() as f64 * 0.025) as usize)
+            .copied()
+            .unwrap_or(0.0)
+    };
+    let p975 = |v: &[f64]| {
+        v.get(((v.len() as f64 * 0.975) as usize).min(v.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0.0)
+    };
     let x_lo = p25(&xs);
     let x_hi = p975(&xs).max(x_lo + 1.0);
     let y_lo = p25(&ys);
@@ -1619,14 +1747,20 @@ pub(super) fn build_scatter_svg(
         s.push_str(&format!(
             "<text x=\"{tx}\" y=\"{ty:.2}\" text-anchor=\"end\">{val:.0}万</text>\
              <text x=\"{xpx:.2}\" y=\"{txy}\" text-anchor=\"middle\">{xval:.0}万</text>\n",
-            tx = plot_x0 - 6.0, ty = ypx + 3.0, val = yv / 10_000.0,
-            xpx = xpx, txy = plot_y1 + 16.0, xval = xv / 10_000.0,
+            tx = plot_x0 - 6.0,
+            ty = ypx + 3.0,
+            val = yv / 10_000.0,
+            xpx = xpx,
+            txy = plot_y1 + 16.0,
+            xval = xv / 10_000.0,
         ));
     }
     s.push_str("</g>\n");
     // points
     for (px_yen, py_yen) in points {
-        if *px_yen < x_lo || *px_yen > x_hi || *py_yen < y_lo || *py_yen > y_hi { continue; }
+        if *px_yen < x_lo || *px_yen > x_hi || *py_yen < y_lo || *py_yen > y_hi {
+            continue;
+        }
         let px = x_to_px(*px_yen);
         let py = y_to_px(*py_yen);
         s.push_str(&format!(
@@ -2407,15 +2541,15 @@ mod region_tests {
     #[test]
     fn scope_label_distinguishes_levels() {
         assert!(Region::National.scope_label().contains("全国単位"));
-        assert!(Region::Prefecture("X".to_string()).scope_label().contains("都道府県単位"));
-        assert!(
-            Region::Municipality {
-                pref: "X".to_string(),
-                muni: "Y".to_string()
-            }
+        assert!(Region::Prefecture("X".to_string())
             .scope_label()
-            .contains("市区町村単位")
-        );
+            .contains("都道府県単位"));
+        assert!(Region::Municipality {
+            pref: "X".to_string(),
+            muni: "Y".to_string()
+        }
+        .scope_label()
+        .contains("市区町村単位"));
     }
 
     #[test]
@@ -2551,9 +2685,8 @@ mod ui3_helpers_tests {
     fn jenks_finds_natural_gap() {
         // 3 グループ: 20-24万 / 30-36万 / 50万 — 26-30万、36-50万 にギャップ
         let values: Vec<i64> = vec![
-            200_000, 210_000, 220_000, 220_000, 230_000, 240_000,
-            300_000, 310_000, 320_000, 330_000, 340_000, 360_000,
-            500_000, 510_000, 520_000,
+            200_000, 210_000, 220_000, 220_000, 230_000, 240_000, 300_000, 310_000, 320_000,
+            330_000, 340_000, 360_000, 500_000, 510_000, 520_000,
         ];
         let breaks = jenks_natural_breaks(&values, 3);
         assert_eq!(breaks.len(), 2, "k=3 なら境界は 2 つ");
@@ -2724,9 +2857,18 @@ mod ui3_helpers_tests {
             5_000,
         );
 
-        assert!(config.contains("\"interval\":2"), "30 label chart must thin x labels");
-        assert!(config.contains("\"right\":\"12%\""), "right grid margin prevents PDF clipping");
-        assert!(config.contains("\"hideOverlap\":true"), "ECharts overlap guard required");
+        assert!(
+            config.contains("\"interval\":2"),
+            "30 label chart must thin x labels"
+        );
+        assert!(
+            config.contains("\"right\":\"12%\""),
+            "right grid margin prevents PDF clipping"
+        );
+        assert!(
+            config.contains("\"hideOverlap\":true"),
+            "ECharts overlap guard required"
+        );
     }
 }
 
@@ -2797,23 +2939,13 @@ mod round12_aggregation_tests {
     #[test]
     fn l2_stats_close_within_bin_size_2x_true() {
         // diff = 20000, bin*2 = 20000 → 境界包含
-        assert!(stats_are_close(
-            Some(200_000),
-            Some(220_000),
-            None,
-            10_000
-        ));
+        assert!(stats_are_close(Some(200_000), Some(220_000), None, 10_000));
     }
 
     #[test]
     fn l2_stats_close_just_over_threshold_false() {
         // diff = 20001, bin*2 = 20000 → 超過
-        assert!(!stats_are_close(
-            Some(200_000),
-            Some(220_001),
-            None,
-            10_000
-        ));
+        assert!(!stats_are_close(Some(200_000), Some(220_001), None, 10_000));
     }
 
     #[test]
@@ -2933,8 +3065,7 @@ mod round12_aggregation_tests {
     #[test]
     fn l3_histogram_extreme_range() {
         // 極大値・極小値の両端を含む
-        let (_labels, counts, bounds) =
-            build_salary_histogram(&[10_000, 10_000_000], 1_000_000);
+        let (_labels, counts, bounds) = build_salary_histogram(&[10_000, 10_000_000], 1_000_000);
         let total: usize = counts.iter().sum();
         assert_eq!(total, 2);
         // 最初の bin に小、最後の bin に大が入る
@@ -3033,7 +3164,14 @@ mod round12_aggregation_tests {
         let max_v = *sorted.last().unwrap();
         for p in [0.0_f64, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0] {
             let v = percentile_sorted(&sorted, p);
-            assert!(v >= min_v && v <= max_v, "p={}: {} not in [{},{}]", p, v, min_v, max_v);
+            assert!(
+                v >= min_v && v <= max_v,
+                "p={}: {} not in [{},{}]",
+                p,
+                v,
+                min_v,
+                max_v
+            );
         }
     }
 
@@ -3129,7 +3267,10 @@ mod round12_aggregation_tests {
         let (_labels, counts, _bounds) =
             build_salary_histogram(&[100_000, 200_000, 300_000], 100_000);
         let total: usize = counts.iter().sum();
-        assert_eq!(total, 3, "helpers は raw count のみ。構成比計算は上位の責務");
+        assert_eq!(
+            total, 3,
+            "helpers は raw count のみ。構成比計算は上位の責務"
+        );
         // → K4 (76.1% 誤表示) は helpers 層に存在しない。真因は HTML レンダリング層に確定。
     }
 
