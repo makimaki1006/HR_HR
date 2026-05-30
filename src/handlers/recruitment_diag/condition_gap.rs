@@ -318,12 +318,7 @@ fn median_via_offset(
 }
 
 /// 解釈テキスト生成
-fn build_interpretation(
-    gap: &Gap,
-    median: &MedianStats,
-    job_type: &str,
-    pref: &str,
-) -> String {
+fn build_interpretation(gap: &Gap, median: &MedianStats, job_type: &str, pref: &str) -> String {
     if median.sample_size == 0 {
         return "該当条件での HW 求人データが不足しており、比較できませんでした。".to_string();
     }

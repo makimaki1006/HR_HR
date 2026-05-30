@@ -28,8 +28,8 @@
 //! - `feedback_test_data_validation.md` 「テストでデータ中身を検証する」
 //! - Hard NG 13 用語 + HW 連想語不混入 (no_forbidden_terms.rs ガード対象)
 
-use super::super::aggregator::SurveyAggregation;
 use super::super::super::helpers::{escape_html, format_number};
+use super::super::aggregator::SurveyAggregation;
 use super::helpers::{render_figure_caption, render_read_hint, render_section_howto};
 use super::industry_mismatch::map_keyword_to_major_industry;
 
@@ -91,10 +91,7 @@ fn map_keyword_extended_industry(s: &str) -> Option<&'static str> {
         return Some("製造業");
     }
     // 飲食・給食 (既存「宿泊業，飲食サービス業」未 hit を補完)
-    if s_lower.contains("フード")
-        || s_lower.contains("弁当")
-        || s_lower.contains("厨房")
-    {
+    if s_lower.contains("フード") || s_lower.contains("弁当") || s_lower.contains("厨房") {
         return Some("宿泊業，飲食サービス業");
     }
     // 教育・保育 (既存「教育，学習支援業」未 hit を補完)
@@ -231,7 +228,11 @@ pub(super) fn aggregate_industry_salary(agg: &SurveyAggregation) -> Vec<Industry
                     v[n / 2]
                 })
             };
-            let note = if b.count < 3 { "参考 (低信頼)" } else { "" };
+            let note = if b.count < 3 {
+                "参考 (低信頼)"
+            } else {
+                ""
+            };
             IndustrySalaryRow {
                 industry: industry.to_string(),
                 count: b.count,
@@ -262,20 +263,10 @@ pub(super) fn render_section_industry_salary(html: &mut String, agg: &SurveyAggr
     if rows.is_empty() {
         return;
     }
-    let unit_yen_label = if agg.is_hourly {
-        "円/時"
-    } else {
-        "円"
-    };
-    let manyen_or_yen_label = if agg.is_hourly {
-        "円/時"
-    } else {
-        "万円"
-    };
+    let unit_yen_label = if agg.is_hourly { "円/時" } else { "円" };
+    let manyen_or_yen_label = if agg.is_hourly { "円/時" } else { "万円" };
 
-    html.push_str(
-        "<div class=\"section\" data-testid=\"industry-salary-section\">\n",
-    );
+    html.push_str("<div class=\"section\" data-testid=\"industry-salary-section\">\n");
     html.push_str("<h2>業界推定グループ別 給与参考</h2>\n");
 
     render_section_howto(
@@ -304,9 +295,7 @@ pub(super) fn render_section_industry_salary(html: &mut String, agg: &SurveyAggr
         </p>\n",
     );
 
-    html.push_str(
-        "<table class=\"sortable-table zebra\" data-testid=\"industry-salary-table\">\n",
-    );
+    html.push_str("<table class=\"sortable-table zebra\" data-testid=\"industry-salary-table\">\n");
     html.push_str(&format!(
         "<thead><tr>\
         <th>#</th>\
@@ -552,16 +541,16 @@ mod tests {
         // 信号 A だけで複数業界を作る (キーワード差し分け)
         let companies = vec![
             co("メディカル A", 100, 250_000, 240_000), // 医療,福祉
-            co("○○病院", 50, 260_000, 250_000),       // 医療,福祉 (同業界)
+            co("○○病院", 50, 260_000, 250_000),        // 医療,福祉 (同業界)
             co("建設会社 X", 80, 300_000, 290_000),    // 建設業
-            co("○○商店", 70, 220_000, 215_000),       // 卸売業，小売業
-            co("○○農園", 60, 200_000, 195_000),       // 農業，林業
-            co("○○漁業", 40, 240_000, 235_000),       // 漁業
-            co("○○ホテル", 30, 230_000, 225_000),     // 宿泊業，飲食サービス業
-            co("○○運輸", 20, 280_000, 275_000),       // 運輸業，郵便業
+            co("○○商店", 70, 220_000, 215_000),        // 卸売業，小売業
+            co("○○農園", 60, 200_000, 195_000),        // 農業，林業
+            co("○○漁業", 40, 240_000, 235_000),        // 漁業
+            co("○○ホテル", 30, 230_000, 225_000),      // 宿泊業，飲食サービス業
+            co("○○運輸", 20, 280_000, 275_000),        // 運輸業，郵便業
             co("ソフトウェア株式会社", 15, 350_000, 345_000), // 情報通信業
-            co("学習塾○○", 10, 240_000, 235_000),     // 教育，学習支援業
-            co("○○銀行", 5, 320_000, 315_000),        // 金融業，保険業
+            co("学習塾○○", 10, 240_000, 235_000),      // 教育，学習支援業
+            co("○○銀行", 5, 320_000, 315_000),         // 金融業，保険業
         ];
         let agg = agg_with_companies(companies);
         let rows = aggregate_industry_salary(&agg);
@@ -697,14 +686,8 @@ mod tests {
 
     #[test]
     fn extended_industry_classifies_construction() {
-        assert_eq!(
-            map_keyword_extended_industry("○○建設"),
-            Some("建設業")
-        );
-        assert_eq!(
-            map_keyword_extended_industry("ABC工務店"),
-            Some("建設業")
-        );
+        assert_eq!(map_keyword_extended_industry("○○建設"), Some("建設業"));
+        assert_eq!(map_keyword_extended_industry("ABC工務店"), Some("建設業"));
     }
 
     #[test]

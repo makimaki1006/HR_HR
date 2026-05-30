@@ -256,7 +256,9 @@ pub(crate) fn fetch_hw_industry_counts(db: &Db, pref: &str, muni: &str) -> Vec<(
             // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
             tracing::warn!(
                 "fetch_hw_industry_counts: postings query failed (pref={}, muni={}): {}",
-                pref, muni, e
+                pref,
+                muni,
+                e
             );
             return Vec::new();
         }
@@ -340,7 +342,9 @@ pub(crate) fn fetch_hw_job_type_counts(db: &Db, pref: &str, muni: &str) -> Vec<(
             // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
             tracing::warn!(
                 "fetch_hw_job_type_counts: postings query failed (pref={}, muni={}): {}",
-                pref, muni, e
+                pref,
+                muni,
+                e
             );
             return Vec::new();
         }

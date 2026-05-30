@@ -164,12 +164,12 @@ pub const MUNI_NORMALIZATION_MAP: &[(&str, &str, &str)] = &[
     // 2026-05-23 追加 Category B: 合併消滅旧地名 → 合併先
     // (postings は旧地名のレガシーデータが残存、ext は最新自治体名のみ収録)
     // 実機 verify で「総人口 0 名」発火が確認されたため許容範囲外と判定し追加
-    ("群馬県", "多野郡吉井町", "高崎市"),       // 2009 高崎市に編入
+    ("群馬県", "多野郡吉井町", "高崎市"), // 2009 高崎市に編入
     ("長崎県", "北松浦郡小佐々町", "佐世保市"), // 2010 佐世保市に編入
-    ("長野県", "東筑摩郡明科町", "安曇野市"),  // 2005 安曇野市に合併
-    ("静岡県", "榛原郡中川根町", "川根本町"),  // 2008 川根本町に合併
-    ("香川県", "木田郡牟礼町", "高松市"),       // 2006 高松市に編入
-    ("鹿児島県", "肝属郡高山町", "肝付町"),    // 2005 肝付町に合併
+    ("長野県", "東筑摩郡明科町", "安曇野市"), // 2005 安曇野市に合併
+    ("静岡県", "榛原郡中川根町", "川根本町"), // 2008 川根本町に合併
+    ("香川県", "木田郡牟礼町", "高松市"), // 2006 高松市に編入
+    ("鹿児島県", "肝属郡高山町", "肝付町"), // 2005 肝付町に合併
 ];
 
 /// postings 側 muni を v2_external_* query 用に正規化する統合関数。
@@ -200,23 +200,44 @@ mod normalize_muni_tests {
     }
     #[test]
     fn dict_with_county_prefix() {
-        assert_eq!(normalize_muni_for_external("富山県", "中新川郡上市"), "上市町");
-        assert_eq!(normalize_muni_for_external("佐賀県", "杵島郡大町"), "大町町");
+        assert_eq!(
+            normalize_muni_for_external("富山県", "中新川郡上市"),
+            "上市町"
+        );
+        assert_eq!(
+            normalize_muni_for_external("佐賀県", "杵島郡大町"),
+            "大町町"
+        );
     }
     #[test]
     fn falls_back_to_strip_county() {
-        assert_eq!(normalize_muni_for_external("長崎県", "東彼杵郡東彼杵町"), "東彼杵町");
-        assert_eq!(normalize_muni_for_external("長崎県", "西彼杵郡時津町"), "時津町");
+        assert_eq!(
+            normalize_muni_for_external("長崎県", "東彼杵郡東彼杵町"),
+            "東彼杵町"
+        );
+        assert_eq!(
+            normalize_muni_for_external("長崎県", "西彼杵郡時津町"),
+            "時津町"
+        );
     }
     #[test]
     fn no_normalization_needed() {
         assert_eq!(normalize_muni_for_external("長崎県", "長崎市"), "長崎市");
-        assert_eq!(normalize_muni_for_external("東京都", "千代田区"), "千代田区");
+        assert_eq!(
+            normalize_muni_for_external("東京都", "千代田区"),
+            "千代田区"
+        );
     }
     #[test]
     fn island_villages() {
-        assert_eq!(normalize_muni_for_external("東京都", "三宅島三宅村"), "三宅村");
-        assert_eq!(normalize_muni_for_external("東京都", "八丈島八丈町"), "八丈町");
+        assert_eq!(
+            normalize_muni_for_external("東京都", "三宅島三宅村"),
+            "三宅村"
+        );
+        assert_eq!(
+            normalize_muni_for_external("東京都", "八丈島八丈町"),
+            "八丈町"
+        );
     }
 }
 
@@ -538,10 +559,7 @@ mod tests {
             "下限 0 にクランプ"
         );
         assert!(Percentage::new(f64::NAN).is_none(), "NaN は None");
-        assert!(
-            Percentage::new(f64::INFINITY).is_none(),
-            "INFINITY は None"
-        );
+        assert!(Percentage::new(f64::INFINITY).is_none(), "INFINITY は None");
     }
 
     #[test]

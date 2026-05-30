@@ -29,11 +29,11 @@ mod salary_summary;
 // Phase 3 Step 3: 採用マーケットインテリジェンス HTML セクション群
 pub(crate) mod industry_mismatch;
 mod industry_salary;
-mod occupation_salary;
 mod lifestyle;
 mod market_intelligence;
 mod market_tightness;
 mod notes;
+mod occupation_salary;
 mod region;
 mod regional_compare;
 mod salary_stats;
@@ -69,11 +69,11 @@ use helpers::{
 use industry_mismatch::render_section_industry_mismatch;
 use industry_mismatch::render_section_industry_mismatch_csv;
 use industry_salary::render_section_industry_salary;
-use occupation_salary::render_section_occupation_salary;
 use lifestyle::render_section_lifestyle;
 use market_tightness::render_section_market_tightness;
 use market_tightness::render_section_market_tightness_with_variant;
 use notes::render_section_notes;
+use occupation_salary::render_section_occupation_salary;
 use region::render_section_municipality_salary;
 use region::render_section_region;
 use region::render_section_region_extras;
@@ -731,8 +731,18 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         cfg.variant,
         &target_region,
     );
-    navy_report::render_navy_section_06_demographics(&mut html, cfg.agg, cfg.hw_context, &target_region);
-    navy_report::render_navy_section_07_lifestyle(&mut html, cfg.hw_context, &target_region, cfg.agg);
+    navy_report::render_navy_section_06_demographics(
+        &mut html,
+        cfg.agg,
+        cfg.hw_context,
+        &target_region,
+    );
+    navy_report::render_navy_section_07_lifestyle(
+        &mut html,
+        cfg.hw_context,
+        &target_region,
+        cfg.agg,
+    );
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
     navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now);

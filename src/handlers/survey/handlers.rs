@@ -335,7 +335,13 @@ pub async fn integrate_report(
         use super::super::insight::fetch::build_insight_context_with_wage_mode;
         use super::hw_enrichment::enrich_areas;
 
-        let ctx = build_insight_context_with_wage_mode(&db, turso.as_ref(), &pref2, &muni2, &wage_mode_for_thread);
+        let ctx = build_insight_context_with_wage_mode(
+            &db,
+            turso.as_ref(),
+            &pref2,
+            &muni2,
+            &wage_mode_for_thread,
+        );
         let insights = generate_insights(&ctx);
 
         // 地域注目企業データ取得（該当地域）
@@ -683,10 +689,11 @@ pub async fn survey_report_html(
                 let hw_db_for_zone = hw_db.clone();
                 Some(tokio::task::spawn_blocking(move || {
                     // v2_industry_mapping から SalesNow 実値リストを逆引き
-                    let sn_industries = super::super::company::fetch::fetch_sn_industries_for_hw_industry(
-                        &sn_db_for_map,
-                        &ind_owned,
-                    );
+                    let sn_industries =
+                        super::super::company::fetch::fetch_sn_industries_for_hw_industry(
+                            &sn_db_for_map,
+                            &ind_owned,
+                        );
                     if sn_industries.is_empty() {
                         // マッピングテーブルに該当なし → 旧 LIKE 経路フォールバック
                         return super::super::company::fetch::fetch_company_segments_by_region_with_industry(
@@ -697,7 +704,10 @@ pub async fn survey_report_html(
                     // 通勤圏取得 (距離ベース 30km、muni 指定時のみ)
                     let mut neighborhood: Vec<(String, String)> = if !muni_i.is_empty() {
                         let zone = super::super::analysis::fetch::fetch_commute_zone(
-                            &hw_db_for_zone, &pref_i, &muni_i, 30.0,
+                            &hw_db_for_zone,
+                            &pref_i,
+                            &muni_i,
+                            30.0,
                         );
                         zone.iter()
                             .map(|m| (m.prefecture.clone(), m.municipality.clone()))
@@ -707,7 +717,9 @@ pub async fn survey_report_html(
                     };
                     // 自市町村も明示的に含める (zone に含まれていない場合の保険)
                     if !muni_i.is_empty()
-                        && !neighborhood.iter().any(|(p, m)| p == &pref_i && m == &muni_i)
+                        && !neighborhood
+                            .iter()
+                            .any(|(p, m)| p == &pref_i && m == &muni_i)
                     {
                         neighborhood.insert(0, (pref_i.clone(), muni_i.clone()));
                     }

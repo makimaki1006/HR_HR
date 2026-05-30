@@ -637,14 +637,13 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
     // で reliability を返しているにも関わらず、ここの match は日本語キー想定
     // ("高"/"中") + escape_html(&stats.reliability) で生の英語表示 → 全件 gray +
     // 英語残。英語キーに揃えて color + 日本語 label を 1 経路で取得するよう修正。
-    let (reliability_color, reliability_label): (&str, &str) =
-        match stats.reliability.as_str() {
-            "high" => ("text-emerald-400", "高"),
-            "medium" => ("text-amber-400", "中"),
-            "low" => ("text-orange-400", "低"),
-            "very_low" => ("text-red-400", "極低"),
-            other => ("text-slate-400", other), // 想定外の値はそのまま (silent fallback で英語残検知用)
-        };
+    let (reliability_color, reliability_label): (&str, &str) = match stats.reliability.as_str() {
+        "high" => ("text-emerald-400", "高"),
+        "medium" => ("text-amber-400", "中"),
+        "low" => ("text-orange-400", "低"),
+        "very_low" => ("text-red-400", "極低"),
+        other => ("text-slate-400", other), // 想定外の値はそのまま (silent fallback で英語残検知用)
+    };
     write!(
         html,
         r#"<div class="flex items-center gap-3 mt-3 text-xs">
@@ -1534,7 +1533,9 @@ mod variant_ui_tests {
             "should explain that PDF output is unified"
         );
         assert!(
-            html.contains("旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません"),
+            html.contains(
+                "旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません"
+            ),
             "should explain why legacy variants are hidden"
         );
         assert!(

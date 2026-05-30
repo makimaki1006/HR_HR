@@ -131,8 +131,8 @@ pub(super) fn render_section_industry_mismatch_csv(
 
     // 上位 1 カテゴリ占有率 (推定信頼度判定)
     let total_csv: i64 = rows.iter().map(|r| r.csv_count).sum();
-    let top_share = rows.iter().map(|r| r.csv_count).max().unwrap_or(0) as f64
-        / total_csv.max(1) as f64;
+    let top_share =
+        rows.iter().map(|r| r.csv_count).max().unwrap_or(0) as f64 / total_csv.max(1) as f64;
     if top_share >= 0.85 {
         html.push_str(
             "<p style=\"font-size:10pt;color:#7f1d1d;background:#fef2f2;padding:8px 12px;border-left:4px solid #b91c1c;margin:8px 0;\">\

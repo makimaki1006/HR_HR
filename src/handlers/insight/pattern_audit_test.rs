@@ -1459,7 +1459,11 @@ fn swf05_info_at_1_6_excludes_f02() {
     let mut f = mock_flow();
     f.holiday_day_ratio = Some(1.6);
     let out = analyze_flow_insights(&ctx, &f);
-    let f05 = out.iter().find(|i| i.id.as_str() == "SW-F05").cloned().unwrap();
+    let f05 = out
+        .iter()
+        .find(|i| i.id.as_str() == "SW-F05")
+        .cloned()
+        .unwrap();
     assert_eq!(f05.severity, Severity::Info);
     assert!(
         !out.iter().any(|i| i.id.as_str() == "SW-F02"),
@@ -1580,8 +1584,16 @@ fn cross_hs2_triggers_ap1() {
         .salary_comp_seishain(0.70, 180_000.0, 270_000.0, 265_000.0)
         .build();
     let out = generate_insights(&ctx);
-    let hs2 = out.iter().find(|i| i.id.as_str() == "HS-2").unwrap().clone();
-    let ap1 = out.iter().find(|i| i.id.as_str() == "AP-1").unwrap().clone();
+    let hs2 = out
+        .iter()
+        .find(|i| i.id.as_str() == "HS-2")
+        .unwrap()
+        .clone();
+    let ap1 = out
+        .iter()
+        .find(|i| i.id.as_str() == "AP-1")
+        .unwrap()
+        .clone();
     assert_eq!(hs2.severity, Severity::Critical);
     assert_eq!(ap1.severity, Severity::Info);
 }
@@ -1617,8 +1629,16 @@ fn cross_cz2_warning_with_hs2() {
         .commute_zone(1, 1, 100, 80, 20)
         .build();
     let out = generate_insights(&ctx);
-    let cz2 = out.iter().find(|i| i.id.as_str() == "CZ-2").unwrap().clone();
-    let hs2 = out.iter().find(|i| i.id.as_str() == "HS-2").unwrap().clone();
+    let cz2 = out
+        .iter()
+        .find(|i| i.id.as_str() == "CZ-2")
+        .unwrap()
+        .clone();
+    let hs2 = out
+        .iter()
+        .find(|i| i.id.as_str() == "HS-2")
+        .unwrap()
+        .clone();
     assert_eq!(cz2.severity, Severity::Warning);
     assert_eq!(hs2.severity, Severity::Critical);
     assert!(cz2.body.contains("地元月給"));
@@ -1632,11 +1652,17 @@ fn cross_fc1_decline_cz3_aging_consistent() {
         .build();
     let out = generate_insights(&ctx);
     assert_eq!(
-        out.iter().find(|i| i.id.as_str() == "FC-1").unwrap().severity,
+        out.iter()
+            .find(|i| i.id.as_str() == "FC-1")
+            .unwrap()
+            .severity,
         Severity::Warning
     );
     assert_eq!(
-        out.iter().find(|i| i.id.as_str() == "CZ-3").unwrap().severity,
+        out.iter()
+            .find(|i| i.id.as_str() == "CZ-3")
+            .unwrap()
+            .severity,
         Severity::Warning
     );
 }
@@ -1651,11 +1677,17 @@ fn cross_ls1_hs1_simultaneous_mismatch() {
         .build();
     let out = generate_insights(&ctx);
     assert_eq!(
-        out.iter().find(|i| i.id.as_str() == "HS-1").unwrap().severity,
+        out.iter()
+            .find(|i| i.id.as_str() == "HS-1")
+            .unwrap()
+            .severity,
         Severity::Critical
     );
     assert_eq!(
-        out.iter().find(|i| i.id.as_str() == "LS-1").unwrap().severity,
+        out.iter()
+            .find(|i| i.id.as_str() == "LS-1")
+            .unwrap()
+            .severity,
         Severity::Critical
     );
 }
@@ -1871,8 +1903,14 @@ fn p2_swf02_swf05_mutually_exclusive_at_high_ratio() {
     let mut f_high = mock_flow();
     f_high.holiday_day_ratio = Some(1.6);
     let out_high = analyze_flow_insights(&ctx, &f_high);
-    let f02_count_high = out_high.iter().filter(|i| i.id.as_str() == "SW-F02").count();
-    let f05_count_high = out_high.iter().filter(|i| i.id.as_str() == "SW-F05").count();
+    let f02_count_high = out_high
+        .iter()
+        .filter(|i| i.id.as_str() == "SW-F02")
+        .count();
+    let f05_count_high = out_high
+        .iter()
+        .filter(|i| i.id.as_str() == "SW-F05")
+        .count();
     assert_eq!(
         f02_count_high, 0,
         "M-2: F02 must NOT fire at ratio=1.6 (F05 territory)"

@@ -184,10 +184,7 @@ fn fetch_hw_posting_count(db: &LocalDb, pref: &str, muni: &str) -> i64 {
 /// # MEMORY 遵守 (feedback_partial_commit_verify)
 /// - 元の `fetch_hw_posting_count` と返却値が等価であること
 /// - 空入力時は空 HashMap を返す (DB クエリを発火しない)
-fn fetch_hw_posting_counts_batch(
-    db: &LocalDb,
-    pairs: &[(String, String)],
-) -> HashMap<String, i64> {
+fn fetch_hw_posting_counts_batch(db: &LocalDb, pairs: &[(String, String)]) -> HashMap<String, i64> {
     let mut counts: HashMap<String, i64> = HashMap::new();
     if pairs.is_empty() {
         return counts;
@@ -293,7 +290,9 @@ fn fetch_pref_posting_changes(turso: &TursoDb, pref: &str) -> (Option<f64>, Opti
     }
     // 最新から降順に取得済。最新 = rows[0], 3ヶ月前 = rows[3], 1年前 = rows[12] 近似
     // 2026-05-17: unwrap → let-else (rows.is_empty() ガード済だが防御化)
-    let Some(first_row) = rows.first() else { return (None, None); };
+    let Some(first_row) = rows.first() else {
+        return (None, None);
+    };
     let latest = get_f64(first_row, "total");
     if latest <= 0.0 {
         return (None, None);
@@ -423,7 +422,10 @@ fn fetch_pref_posting_changes_batch(
         };
         result.insert(
             pref,
-            (sanitize_change_pct(change_3m), sanitize_change_pct(change_1y)),
+            (
+                sanitize_change_pct(change_3m),
+                sanitize_change_pct(change_1y),
+            ),
         );
     }
     result
@@ -577,8 +579,8 @@ mod tests {
     fn unique_filter_excludes_empty_strings() {
         let pairs: Vec<(String, String)> = vec![
             ("東京都".to_string(), "新宿区".to_string()),
-            ("".to_string(), "新宿区".to_string()),       // 除外
-            ("東京都".to_string(), "".to_string()),       // 除外
+            ("".to_string(), "新宿区".to_string()), // 除外
+            ("東京都".to_string(), "".to_string()), // 除外
             ("東京都".to_string(), "新宿区".to_string()), // 重複除外
             ("大阪府".to_string(), "大阪市".to_string()),
         ];

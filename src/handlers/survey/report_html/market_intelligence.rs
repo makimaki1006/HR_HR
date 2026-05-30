@@ -1224,7 +1224,12 @@ fn aggregate_occupation_segments(cells: &[OccupationCellDto]) -> Vec<OccSegmentR
 
 /// セグメント特徴から採用示唆を機械生成する。判定はすべて比率ベースで、根拠は
 /// (女性比, 若年比, 中堅比, シニア比) のみ。閾値は本実装で固定する。
-fn occupation_segment_insight(female_pct: f64, young_pct: f64, mid_pct: f64, senior_pct: f64) -> String {
+fn occupation_segment_insight(
+    female_pct: f64,
+    young_pct: f64,
+    mid_pct: f64,
+    senior_pct: f64,
+) -> String {
     let mut tags: Vec<&str> = Vec::new();
     if female_pct >= 60.0 {
         tags.push("女性中心");
@@ -1250,10 +1255,7 @@ fn occupation_segment_insight(female_pct: f64, young_pct: f64, mid_pct: f64, sen
 /// - 対象自治体のみ (cells に既に target_municipalities フィルタ済が渡される前提)
 /// - 自治体ごとに total 降順で職業 Top 5
 /// - 1〜2 ページの密度を目標にしているため Top 5 で打ち切る
-pub(crate) fn render_mi_occupation_segment_summary(
-    html: &mut String,
-    cells: &[OccupationCellDto],
-) {
+pub(crate) fn render_mi_occupation_segment_summary(html: &mut String, cells: &[OccupationCellDto]) {
     html.push_str(
         "<section class=\"mi-occupation-segment\" data-mi-section=\"occupation-segment\" \
          aria-labelledby=\"mi-occseg-heading\" style=\"margin:16px 0;\">\n",
@@ -1289,7 +1291,10 @@ pub(crate) fn render_mi_occupation_segment_summary(
 
     let mut by_muni: BTreeMap<String, Vec<OccSegmentRow>> = BTreeMap::new();
     for r in rows {
-        by_muni.entry(r.municipality_code.clone()).or_default().push(r);
+        by_muni
+            .entry(r.municipality_code.clone())
+            .or_default()
+            .push(r);
     }
 
     for (_muni_code, mut occs) in by_muni {
@@ -1565,7 +1570,10 @@ pub(crate) fn render_mi_market_quadrant(
     //    (b) municipality_code → 集約 city_code
     let mut name_to_code: BTreeMap<(String, String), String> = BTreeMap::new();
     for cm in code_master {
-        name_to_code.insert((cm.prefecture.clone(), cm.municipality_name.clone()), cm.municipality_code.clone());
+        name_to_code.insert(
+            (cm.prefecture.clone(), cm.municipality_name.clone()),
+            cm.municipality_code.clone(),
+        );
     }
 
     // 2. 集約 city_code → employees_total 合計 (Round 8 P0-2 の industry_gender_rows を sum)
@@ -1608,15 +1616,17 @@ pub(crate) fn render_mi_market_quadrant(
         }
 
         // 同じ集約 city_code に複数 CSV 自治体がマップされる場合は count を sum、median は加重平均は煩雑なので大きい方を採用
-        let entry = points_map.entry(agg_code.clone()).or_insert_with(|| QuadrantPoint {
-            display_name: display_name_by_city
-                .get(&agg_code)
-                .cloned()
-                .unwrap_or_else(|| csv.name.clone()),
-            csv_count: 0,
-            employees_total: employees,
-            median_salary: 0,
-        });
+        let entry = points_map
+            .entry(agg_code.clone())
+            .or_insert_with(|| QuadrantPoint {
+                display_name: display_name_by_city
+                    .get(&agg_code)
+                    .cloned()
+                    .unwrap_or_else(|| csv.name.clone()),
+                csv_count: 0,
+                employees_total: employees,
+                median_salary: 0,
+            });
         entry.csv_count += csv.count as i64;
         if csv.median_salary > entry.median_salary {
             entry.median_salary = csv.median_salary;
@@ -1716,7 +1726,11 @@ pub(crate) fn render_mi_market_quadrant(
 
         let max_salary = points.iter().map(|p| p.median_salary).max().unwrap_or(1);
         let to_size_px = |s: i64| -> i64 {
-            if max_salary <= 0 { 10 } else { 8 + (10 * s / max_salary).max(0).min(10) }
+            if max_salary <= 0 {
+                10
+            } else {
+                8 + (10 * s / max_salary).max(0).min(10)
+            }
         };
         let color_for = |label: &str| -> &'static str {
             match label {
@@ -1783,7 +1797,10 @@ pub(crate) fn render_mi_market_quadrant(
                          white-space:nowrap;background:rgba(255,255,255,0.7);padding:0 2px;\">\
                  {label} ({n} 件)</div>\n",
                 full = escape_html(&p.display_name),
-                x = x, y = y, sz = sz, color = color,
+                x = x,
+                y = y,
+                sz = sz,
+                color = color,
                 lbl_off = sz / 2 + 2,
                 label = escape_html(&short_label),
                 n = format_thousands(p.csv_count),
@@ -1921,7 +1938,10 @@ fn quadrant_action_text(point: &QuadrantPoint, label: &str, is_aggregated: bool)
     };
 
     if is_aggregated {
-        format!("{} ※集約地域につき個別自治体の母集団は表示値より小スケール。", base)
+        format!(
+            "{} ※集約地域につき個別自治体の母集団は表示値より小スケール。",
+            base
+        )
     } else {
         base
     }
@@ -5060,7 +5080,9 @@ mod round12_judgement_tests {
                 _ => panic!("unknown bucket"),
             }
         }
-        let samples = [-5.0, 0.0, 50.0, 99.99, 100.0, 129.0, 130.0, 159.0, 160.0, 200.0];
+        let samples = [
+            -5.0, 0.0, 50.0, 99.99, 100.0, 129.0, 130.0, 159.0, 160.0, 200.0,
+        ];
         let mut prev = 0u8;
         for s in samples {
             let r = rank(s);
