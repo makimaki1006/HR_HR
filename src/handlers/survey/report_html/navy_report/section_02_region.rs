@@ -473,7 +473,7 @@ fn build_region_so_what(
     };
 
     let geo_judge = if n_pref == 1 {
-        "<strong>単一県集中</strong>"
+        "<strong>単一県構成</strong>"
     } else if pref_top_pct >= 70.0 {
         "<strong>1 県主導 (他県補助)</strong>"
     } else if n_pref >= 5 {
@@ -484,7 +484,7 @@ fn build_region_so_what(
 
     let concentration_note = if muni_top_pct >= 50.0 {
         format!(
-            "件数最多市区町村 <strong>{}</strong> が <strong>{:.0}%</strong> を占め、エリア依存度が極めて高い構成です。",
+            "件数最多市区町村 <strong>{}</strong> が <strong>{:.0}%</strong> を占める<strong>1 自治体主導</strong>の構成です。",
             muni_top.map(|m| m.name.as_str()).unwrap_or("—"),
             muni_top_pct
         )
