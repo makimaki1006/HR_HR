@@ -387,7 +387,7 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
         let avg_density: f64 = rows.iter().map(|r| r.3).sum::<f64>() / rows.len() as f64;
         for (i, (name, emp, hw, density)) in rows.iter().enumerate() {
             let (tag, label) = if *density >= avg_density * 1.5 {
-                ("warn", "高密度 (採用ニーズ集中)")
+                ("warn", "高密度 (求人/就業者比 高)")
             } else if *density >= avg_density * 0.8 {
                 ("neu", "標準的")
             } else {
@@ -416,7 +416,7 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
     }
     s.push_str("</tbody></table>\n");
     s.push_str("<p class=\"caption\">求人/就業者 1万人比 = 媒体掲載数 × 10,000 / 就業者数。\
-                平均比 +50% で「採用ニーズ集中」、平均比 ±20% 以内で「標準」と判定。\
+                平均比 +50% で「高密度」、平均比 ±20% 以内で「標準」と判定。\
                 就業者数 (国勢調査) と媒体掲載数 (ローカル DB) を組み合わせた業界別需給代理指標。</p>\n");
     s
 }

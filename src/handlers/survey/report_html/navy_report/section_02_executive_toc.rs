@@ -414,7 +414,7 @@ fn build_findings(
 
     // 2) 主要雇用形態の偏り
     let (sev, body) = if dom_emp_pct >= 85.0 {
-        ("warn", format!("主要雇用形態が <strong>{:.0}%</strong> を占め、構成が偏っています。他雇用形態のサンプル不足が示唆されるため、訴求軸の単一化リスクを点検してください。", dom_emp_pct))
+        ("warn", format!("主要雇用形態が <strong>{:.0}%</strong> を占め、特定雇用形態への<strong>構成集約</strong>が見られます。他雇用形態の追加分析が有効です。", dom_emp_pct))
     } else if dom_emp_pct >= 70.0 {
         ("neu", format!("主要雇用形態の構成比は <strong>{:.0}%</strong>。やや偏り気味ですが、他雇用形態への展開余地もある水準です。", dom_emp_pct))
     } else {
@@ -445,7 +445,7 @@ fn build_findings(
             ),
         )
     } else if new_pct < 5 {
-        ("warn", format!("新着比率 <strong>{}%</strong> は低水準で、人材定着が進んでいる/求人活動が低調な可能性があります。", new_pct))
+        ("warn", format!("新着比率 <strong>{}%</strong> は<strong>低位水準</strong>で、人材定着または求人更新サイクル長期化の可能性があります。", new_pct))
     } else {
         (
             "neu",
