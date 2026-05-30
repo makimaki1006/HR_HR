@@ -166,27 +166,15 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
                 "warn",
                 "売り手市場 (応募集めにくい)".to_string(),
             ),
-            Some(v) if v >= 1.0 => (
-                fmt_ratio(Some(v)),
-                "neu",
-                "やや売り手寄り".to_string(),
-            ),
-            Some(v) => (
-                fmt_ratio(Some(v)),
-                "pos",
-                format!("買い手市場 ({:.2})", v),
-            ),
+            Some(v) if v >= 1.0 => (fmt_ratio(Some(v)), "neu", "やや売り手寄り".to_string()),
+            Some(v) => (fmt_ratio(Some(v)), "pos", format!("買い手市場 ({:.2})", v)),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
         push_kpi(html, "有効求人倍率", &val, "倍", dot, &foot, true);
     }
     {
         let (val, dot, foot) = match unemployment {
-            Some(v) if v >= 3.5 => (
-                format!("{:.1}", v),
-                "pos",
-                "求職プール厚い".to_string(),
-            ),
+            Some(v) if v >= 3.5 => (format!("{:.1}", v), "pos", "求職プール厚い".to_string()),
             Some(v) if v >= 2.5 => (format!("{:.1}", v), "neu", "標準的".to_string()),
             Some(v) => (format!("{:.1}", v), "warn", "求職プール薄い".to_string()),
             None => ("—".to_string(), "neu", "データなし".to_string()),
@@ -643,11 +631,7 @@ fn render_mi_9e_wage_attractiveness(
     html.push_str("<div class=\"kpi-row kpi-row-3\">\n");
     {
         let (val, unit, foot) = match salary_median {
-            Some(m) if is_hourly => (
-                format!("{}", m),
-                "円/時",
-                "求人給与 中央値".to_string(),
-            ),
+            Some(m) if is_hourly => (format!("{}", m), "円/時", "求人給与 中央値".to_string()),
             Some(m) => (
                 format!("{:.1}", (m as f64) / 10_000.0),
                 "万円",
@@ -809,9 +793,13 @@ fn compute_scenario_indices(
 ) -> (Option<f64>, Option<f64>, Option<f64>) {
     let mut total = 0.0;
     let mut n = 0.0;
-    for v in [positive_score, commute_reach_index, wage_attractiveness_index]
-        .iter()
-        .flatten()
+    for v in [
+        positive_score,
+        commute_reach_index,
+        wage_attractiveness_index,
+    ]
+    .iter()
+    .flatten()
     {
         total += v;
         n += 1.0;
