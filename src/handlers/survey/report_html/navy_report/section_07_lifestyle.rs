@@ -370,6 +370,21 @@ pub(crate) fn render_navy_section_07_lifestyle(
             for k in ["daytime_nighttime_ratio", "dn_ratio", "day_night_ratio"] {
                 let v = get_f64(r, k);
                 if v > 0.0 {
+                    // Round 1-K K-1: 単位防衛。SQL 側で `*100` 済の % 値 (0-200% 想定) を
+                    // 前提とする。SQL 改修等で 0-1 比率 (10%以下) や二重×100 (1100% 等)
+                    // が混入した場合に検知する。debug でアサート、release で warn ログ。
+                    debug_assert!(
+                        v < 500.0,
+                        "daytime_nighttime_ratio out of expected range (0-200%): {} (double-×100?)",
+                        v
+                    );
+                    if !(0.0..500.0).contains(&v) {
+                        tracing::warn!(
+                            target: "navy_report",
+                            ratio = v,
+                            "daytime_nighttime_ratio out of expected range (expected 0-200%); SQL unit change suspected"
+                        );
+                    }
                     return Some(v);
                 }
             }

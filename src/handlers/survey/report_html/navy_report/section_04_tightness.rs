@@ -609,7 +609,25 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
     }
     let unemp = d.and_then(|d| d.unemployment);
     let nat = d.and_then(|d| d.unemployment_national);
+    // Round 1-K K-1: 失業率は % 値 (0-100 想定)。SQL 改修で二重×100 (380% 等) が
+    // 混入した場合、< 2.5 判定外で「pos (求職者プールあり)」と誤判定するため、
+    // 値域外を「データ異常」として中立扱いする。
+    if let Some(u) = unemp {
+        debug_assert!(
+            u < 100.0,
+            "unemployment_rate out of expected range (0-100%): {} (double-×100?)",
+            u
+        );
+        if !(0.0..100.0).contains(&u) {
+            tracing::warn!(
+                target: "navy_report",
+                rate = u,
+                "unemployment_rate out of expected range (expected 0-100%); SQL unit change suspected"
+            );
+        }
+    }
     let (val, tag, cmt) = match unemp {
+        Some(u) if !(0.0..100.0).contains(&u) => ("—".to_string(), "neu", "データ異常"),
         Some(u) if u < 2.5 => (format!("{:.1}%", u), "warn", "低失業=採用難度 高"),
         Some(u) if u < 3.5 => (format!("{:.1}%", u), "neu", "標準的水準"),
         Some(u) => (format!("{:.1}%", u), "pos", "求職者プールあり"),

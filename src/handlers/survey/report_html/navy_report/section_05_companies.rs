@@ -821,6 +821,20 @@ fn build_navy_industry_bars(industry_sorted: &[(String, i64)], total: i64) -> St
             bw_cur.max(0.5),
             bar_color
         ));
+        // Round 1-K K-1: share は 0-1 比率前提 (SalesNow セグメント比率)。
+        // 外部 API 改修で 0-100% 値や数値型が混入した場合、表示が 100 倍ずれる。
+        debug_assert!(
+            (0.0..=1.0).contains(&share),
+            "salesnow segment share out of expected range (0-1): {} (already %?)",
+            share
+        );
+        if !(0.0..=1.0).contains(&share) {
+            tracing::warn!(
+                target: "navy_report",
+                share = share,
+                "salesnow segment share out of expected range (expected 0-1); upstream unit change suspected"
+            );
+        }
         svg.push_str(&format!(
             "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"11\" fill=\"#0B1E3F\" font-family=\"Roboto Mono, monospace\" font-weight=\"700\" text-anchor=\"end\">{:.1}%</text>\n",
             w - 6.0,
