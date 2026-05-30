@@ -197,7 +197,8 @@ fn fetch_neighbors(db: &LocalDb, dest_pref: &str, dest_muni: &str) -> Vec<Neighb
                LIMIT ?3";
     let limit_str = limit.to_string();
     // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
-    let dest_muni_normalized = crate::handlers::helpers::normalize_muni_for_external(dest_pref, dest_muni);
+    let dest_muni_normalized =
+        crate::handlers::helpers::normalize_muni_for_external(dest_pref, dest_muni);
     let params: &[&dyn rusqlite::types::ToSql] = &[
         &dest_pref,
         &dest_muni_normalized,

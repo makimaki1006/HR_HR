@@ -986,9 +986,20 @@ use crate::handlers::helpers::Percentage;
 #[test]
 fn invariant_p1_4_percentage_clamps_extreme_inputs() {
     // 380% 流出と同型: try_new は弾く、new はクランプ
-    assert!(Percentage::try_new(380.0).is_none(), "380% は try_new で None");
-    assert_eq!(Percentage::new(380.0).unwrap().value(), 100.0, "new は 100 にクランプ");
-    assert_eq!(Percentage::new(-5.0).unwrap().value(), 0.0, "負値は 0 にクランプ");
+    assert!(
+        Percentage::try_new(380.0).is_none(),
+        "380% は try_new で None"
+    );
+    assert_eq!(
+        Percentage::new(380.0).unwrap().value(),
+        100.0,
+        "new は 100 にクランプ"
+    );
+    assert_eq!(
+        Percentage::new(-5.0).unwrap().value(),
+        0.0,
+        "負値は 0 にクランプ"
+    );
 }
 
 #[test]

@@ -438,11 +438,7 @@ pub(crate) fn fetch_municipalities(
 }
 
 /// 市区町村の中心座標を取得
-pub(crate) fn get_muni_center(
-    local_db: &LocalDb,
-    pref: &str,
-    muni: &str,
-) -> Option<(f64, f64)> {
+pub(crate) fn get_muni_center(local_db: &LocalDb, pref: &str, muni: &str) -> Option<(f64, f64)> {
     let rows = local_db
         .query(
             "SELECT latitude, longitude FROM municipality_geocode \

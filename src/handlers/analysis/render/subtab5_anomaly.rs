@@ -1585,7 +1585,9 @@ pub(super) fn render_climate_section(data: &[Row], pref: &str) -> String {
 
     // 最新年度のデータ（最後の行）を使用
     // 2026-05-17: unwrap → let-else (data.is_empty() 早期 return ガード済だが防御化)
-    let Some(latest) = data.last() else { return String::new(); };
+    let Some(latest) = data.last() else {
+        return String::new();
+    };
     let fy = get_str(latest, "fiscal_year");
 
     let avg_temp = get_f64(latest, "avg_temperature");

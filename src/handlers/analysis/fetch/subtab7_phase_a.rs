@@ -3,9 +3,9 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+use super::super::super::helpers::normalize_muni_for_external;
 #[allow(unused_imports)]
 use super::super::super::helpers::table_exists;
-use super::super::super::helpers::normalize_muni_for_external;
 use super::{query_turso_or_local, EXTERNAL_CLEAN_FILTER};
 
 #[allow(dead_code)]
@@ -98,7 +98,7 @@ pub(crate) fn fetch_vital_statistics(
         // 2026-05-24 audit_B P0-2: EXTERNAL_CLEAN_FILTER 適用
         (
             format!(
-            "SELECT ?1 as prefecture, '全体' as municipality, \
+                "SELECT ?1 as prefecture, '全体' as municipality, \
              SUM(births) as births, SUM(deaths) as deaths, \
              SUM(births) - SUM(deaths) as natural_change, \
              SUM(marriages) as marriages, SUM(divorces) as divorces, \
@@ -113,7 +113,7 @@ pub(crate) fn fetch_vital_statistics(
     } else {
         (
             format!(
-            "SELECT '全国' as prefecture, '' as municipality, \
+                "SELECT '全国' as prefecture, '' as municipality, \
              SUM(births) as births, SUM(deaths) as deaths, \
              SUM(births) - SUM(deaths) as natural_change, \
              SUM(marriages) as marriages, SUM(divorces) as divorces, \

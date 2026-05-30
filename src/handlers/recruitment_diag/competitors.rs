@@ -311,11 +311,7 @@ fn build_top20_insight(rows: &[CompetitorRow], pref: &str, job_type: &str) -> St
     if rows.is_empty() {
         return format!(
             "{}の{}業界は SalesNow 登録企業が少なく、競合ランキングを生成できませんでした。",
-            if pref.is_empty() {
-                "全国"
-            } else {
-                pref
-            },
+            if pref.is_empty() { "全国" } else { pref },
             if job_type.is_empty() {
                 "該当"
             } else {
