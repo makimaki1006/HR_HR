@@ -56,12 +56,19 @@ pub(crate) fn render_navy_section_placeholders(
     now: &str,
 ) {
     let _ = (hw_context, variant, now);
-    let sections = [
-        ("SECTION 08", "注記・出典・免責", "データソース / 集計定義 / 免責事項。Phase 4 で実装予定。"),
-    ];
+    let sections = [(
+        "SECTION 08",
+        "注記・出典・免責",
+        "データソース / 集計定義 / 免責事項。Phase 4 で実装予定。",
+    )];
     for (code, title, body_text) in sections {
         html.push_str("<section class=\"page-navy\" role=\"region\">\n");
-        push_page_head(html, code, title, "Round 24 段階移行: navy_report で本実装に差し替え中");
+        push_page_head(
+            html,
+            code,
+            title,
+            "Round 24 段階移行: navy_report で本実装に差し替え中",
+        );
         html.push_str(&format!(
             "<div class=\"so-what\" style=\"margin-top:4mm;\">\
              <div class=\"sw-label\">UNDER MIGRATION</div>\
@@ -153,7 +160,12 @@ pub(crate) fn render_navy_section_05_companies(
             use super::super::super::super::helpers::{get_f64, get_str};
             ctx.ext_industry_employees
                 .iter()
-                .map(|r| (get_str(r, "industry_name"), get_f64(r, "employees_total") as i64))
+                .map(|r| {
+                    (
+                        get_str(r, "industry_name"),
+                        get_f64(r, "employees_total") as i64,
+                    )
+                })
                 .filter(|(n, c)| !n.is_empty() && *c > 0)
                 .collect()
         })
@@ -207,10 +219,32 @@ pub(crate) fn render_navy_section_05_companies(
     }
     html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
     let na = pool_size == 0;
-    let kpi_val = |n: usize| if na { "—".to_string() } else { format!("{}", n) };
+    let kpi_val = |n: usize| {
+        if na {
+            "—".to_string()
+        } else {
+            format!("{}", n)
+        }
+    };
     let kpi_unit = if na { "" } else { "社" };
-    push_kpi(html, "大手企業", &kpi_val(n_large), kpi_unit, "neu", "従業員 300+ 名級", false);
-    push_kpi(html, "中堅企業", &kpi_val(n_mid), kpi_unit, "neu", "従業員 50-299 名", false);
+    push_kpi(
+        html,
+        "大手企業",
+        &kpi_val(n_large),
+        kpi_unit,
+        "neu",
+        "従業員 300+ 名級",
+        false,
+    );
+    push_kpi(
+        html,
+        "中堅企業",
+        &kpi_val(n_mid),
+        kpi_unit,
+        "neu",
+        "従業員 50-299 名",
+        false,
+    );
     push_kpi(
         html,
         "急成長企業",
@@ -234,10 +268,18 @@ pub(crate) fn render_navy_section_05_companies(
         push_kpi(
             html,
             "母集団規模",
-            &if na { "—".to_string() } else { format_number(pool_size as i64) },
+            &if na {
+                "—".to_string()
+            } else {
+                format_number(pool_size as i64)
+            },
             kpi_unit,
             "neu",
-            if na { "地域企業データ未取得" } else { "地域企業データ取得社数" },
+            if na {
+                "地域企業データ未取得"
+            } else {
+                "地域企業データ取得社数"
+            },
             false,
         );
     }
@@ -270,7 +312,11 @@ pub(crate) fn render_navy_section_05_companies(
     let muni_str = hw_context.map(|c| c.muni.clone()).unwrap_or_default();
     // 2026-05-15: 業界指定時は通勤圏 (30km 圏) で SalesNow を取得しているため、
     //   「藤岡市」単独ではなく「藤岡市 周辺」と明示してユーザーに認識誤りを防ぐ。
-    let muni_label = if muni_str.is_empty() { String::new() } else { format!("{} 周辺 × ", escape_html(&muni_str)) };
+    let muni_label = if muni_str.is_empty() {
+        String::new()
+    } else {
+        format!("{} 周辺 × ", escape_html(&muni_str))
+    };
 
     let empty_row_html = |colspan: i64| -> String {
         format!(
@@ -283,7 +329,11 @@ pub(crate) fn render_navy_section_05_companies(
 
     if !salesnow_segments.growth.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (全業界、1Y +10%〜+300%、件数最多 8 社)</div>\n");
-        html.push_str(&build_navy_company_list(&salesnow_segments.growth, 8, show_hw));
+        html.push_str(&build_navy_company_list(
+            &salesnow_segments.growth,
+            8,
+            show_hw,
+        ));
     }
     if has_industry {
         let ind = industry_label.as_deref().unwrap_or("");
@@ -292,7 +342,11 @@ pub(crate) fn render_navy_section_05_companies(
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.growth.is_empty() {
-            html.push_str(&build_navy_company_list(&salesnow_segments_industry.growth, 8, show_hw));
+            html.push_str(&build_navy_company_list(
+                &salesnow_segments_industry.growth,
+                8,
+                show_hw,
+            ));
         } else {
             html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
         }
@@ -301,7 +355,11 @@ pub(crate) fn render_navy_section_05_companies(
     // -- 大手企業 (employee_count Top)
     if !salesnow_segments.large.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 5-C &nbsp;大手企業 (全業界、従業員 300+ 名級、件数最多 8 社)</div>\n");
-        html.push_str(&build_navy_company_list(&salesnow_segments.large, 8, show_hw));
+        html.push_str(&build_navy_company_list(
+            &salesnow_segments.large,
+            8,
+            show_hw,
+        ));
     }
     if has_industry {
         let ind = industry_label.as_deref().unwrap_or("");
@@ -310,7 +368,11 @@ pub(crate) fn render_navy_section_05_companies(
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.large.is_empty() {
-            html.push_str(&build_navy_company_list(&salesnow_segments_industry.large, 8, show_hw));
+            html.push_str(&build_navy_company_list(
+                &salesnow_segments_industry.large,
+                8,
+                show_hw,
+            ));
         } else {
             html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
         }
@@ -328,7 +390,11 @@ pub(crate) fn render_navy_section_05_companies(
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.mid.is_empty() {
-            html.push_str(&build_navy_company_list(&salesnow_segments_industry.mid, 8, show_hw));
+            html.push_str(&build_navy_company_list(
+                &salesnow_segments_industry.mid,
+                8,
+                show_hw,
+            ));
         } else {
             html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
         }
@@ -337,7 +403,11 @@ pub(crate) fn render_navy_section_05_companies(
     // -- 採用活発企業 (Full のみ、求人媒体掲載 5 件以上)
     if show_hw && !salesnow_segments.hiring.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 5-E &nbsp;採用活発企業 (全業界、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n");
-        html.push_str(&build_navy_company_list(&salesnow_segments.hiring, 8, show_hw));
+        html.push_str(&build_navy_company_list(
+            &salesnow_segments.hiring,
+            8,
+            show_hw,
+        ));
     }
     if show_hw && has_industry {
         let ind = industry_label.as_deref().unwrap_or("");
@@ -346,7 +416,11 @@ pub(crate) fn render_navy_section_05_companies(
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.hiring.is_empty() {
-            html.push_str(&build_navy_company_list(&salesnow_segments_industry.hiring, 8, show_hw));
+            html.push_str(&build_navy_company_list(
+                &salesnow_segments_industry.hiring,
+                8,
+                show_hw,
+            ));
         } else {
             html.push_str(&empty_row_html(6));
         }
@@ -379,7 +453,9 @@ pub(crate) fn render_navy_section_05_companies(
                 "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1Y 人員変動)</div>\n",
                 muni_label, escape_html(ind)
             ));
-            html.push_str(&build_navy_growth_decline_matrix(salesnow_segments_industry));
+            html.push_str(&build_navy_growth_decline_matrix(
+                salesnow_segments_industry,
+            ));
         }
     }
 
@@ -393,8 +469,14 @@ pub(crate) fn render_navy_section_05_companies(
     // ========================================================================
     if let Some(ctx) = hw_context {
         if !ctx.csv_company_ranking.is_empty() {
-            html.push_str(&build_navy_csv_company_salary_table(&ctx.csv_company_ranking, 10));
-            html.push_str(&build_navy_notable_companies_block(&ctx.csv_company_ranking, 5));
+            html.push_str(&build_navy_csv_company_salary_table(
+                &ctx.csv_company_ranking,
+                10,
+            ));
+            html.push_str(&build_navy_notable_companies_block(
+                &ctx.csv_company_ranking,
+                5,
+            ));
             html.push_str(
                 "<p class=\"caption\">出典: CSV 求人データ集計。給与は月給換算後の中央値 (万円)。\
                  注目企業 = 求人数 top 5 と 給与中央値 (上限) top 5 の和集合。\
@@ -480,7 +562,10 @@ pub(crate) fn select_notable_companies<'a>(
 }
 
 /// 表 5-G: 企業別給与ランキング (上位 limit 社、上限給与中央値 降順)
-pub(crate) fn build_navy_csv_company_salary_table(ranking: &[CsvCompanySalary], limit: usize) -> String {
+pub(crate) fn build_navy_csv_company_salary_table(
+    ranking: &[CsvCompanySalary],
+    limit: usize,
+) -> String {
     // Phase 2-A (2026-05-29): 先頭エントリの native_unit を見て表示単位を切替。
     //   ranking 全体は単一 wage_mode で fetch されるため、先頭の native_unit で全行が代表される。
     //   空 ranking / 空文字列 → "月給" を旧動作互換のデフォルトに (silent fallback ではなく明示)。
@@ -562,7 +647,10 @@ pub(crate) fn build_navy_csv_company_salary_table(ranking: &[CsvCompanySalary], 
 /// 注目企業リスト (求人数 top N ∩ 給与 top N の和集合) を 5-H として描画
 ///
 /// Phase 2-A (2026-05-29): 先頭エントリの native_unit で表示単位を切替。
-pub(crate) fn build_navy_notable_companies_block(ranking: &[CsvCompanySalary], top_n: usize) -> String {
+pub(crate) fn build_navy_notable_companies_block(
+    ranking: &[CsvCompanySalary],
+    top_n: usize,
+) -> String {
     let notable = select_notable_companies(ranking, top_n);
     if notable.is_empty() {
         return String::new();
@@ -755,9 +843,21 @@ fn build_navy_growth_decline_matrix(
     s.push_str("<th>解釈</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
     let rows = [
-        ("大企業 (300+ 名)", seg.growth_large.len(), seg.decline_large.len()),
-        ("中小企業 (50-299 名)", seg.growth_mid.len(), seg.decline_mid.len()),
-        ("零細企業 (-49 名)", seg.growth_small.len(), seg.decline_small.len()),
+        (
+            "大企業 (300+ 名)",
+            seg.growth_large.len(),
+            seg.decline_large.len(),
+        ),
+        (
+            "中小企業 (50-299 名)",
+            seg.growth_mid.len(),
+            seg.decline_mid.len(),
+        ),
+        (
+            "零細企業 (-49 名)",
+            seg.growth_small.len(),
+            seg.decline_small.len(),
+        ),
     ];
     for (label, g, d) in rows {
         let (tag, interp) = if g > d && g >= 3 {
@@ -778,10 +878,12 @@ fn build_navy_growth_decline_matrix(
         ));
     }
     s.push_str("</tbody></table>\n");
-    s.push_str("<p class=\"caption\">出典: 地域企業データ employee_delta_1y。\
+    s.push_str(
+        "<p class=\"caption\">出典: 地域企業データ employee_delta_1y。\
                 増員傾向 = +5% 超 / 減少傾向 = -5% 未満。\
                 減少傾向は離職多発だけでなく組織改編・自然減・配置転換も含むため、\
-                単純な離職率指標とは区別してください。</p>\n");
+                単純な離職率指標とは区別してください。</p>\n",
+    );
     s
 }
 
@@ -892,7 +994,10 @@ fn build_companies_so_what(
             n_growth
         )
     } else {
-        format!("急成長セグメントは <strong>{}</strong> 社で、競合の人員拡大局面は限定的です。", n_growth)
+        format!(
+            "急成長セグメントは <strong>{}</strong> 社で、競合の人員拡大局面は限定的です。",
+            n_growth
+        )
     };
 
     let hw_note = if show_hw && n_hiring >= 5 {

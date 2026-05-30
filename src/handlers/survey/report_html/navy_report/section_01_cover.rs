@@ -75,12 +75,7 @@ pub(crate) fn render_navy_cover(
     html.push_str("<div class=\"cover-stats\">\n");
     push_cover_stat(html, &hl_count, "件", "サンプル件数");
     push_cover_stat_small(html, target_region, "主要地域 (対象)");
-    push_cover_stat(
-        html,
-        &cover_hl.value_text,
-        &cover_hl.unit,
-        &cover_hl.label,
-    );
+    push_cover_stat(html, &cover_hl.value_text, &cover_hl.unit, &cover_hl.label);
     push_cover_stat_small(html, variant.display_name(), "レポート版");
     html.push_str("</div>\n");
 

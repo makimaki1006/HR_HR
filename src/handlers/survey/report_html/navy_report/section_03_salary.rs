@@ -67,7 +67,13 @@ pub(crate) fn render_navy_section_03_salary(
     //   - 月給モード時は呼出側から渡された salary_min_values / salary_max_values (月給換算済) をそのまま使用。
     //   - bin_step: 月給=10_000 (1万円刻み)、時給=50 (50円/時刻み)
     let is_hourly = agg.is_hourly;
-    let (vals_min, vals_max, bin_step, unit_label, bin_step_label): (&[i64], &[i64], i64, &str, &str) = if is_hourly {
+    let (vals_min, vals_max, bin_step, unit_label, bin_step_label): (
+        &[i64],
+        &[i64],
+        i64,
+        &str,
+        &str,
+    ) = if is_hourly {
         (
             agg.salary_min_values_native.as_slice(),
             agg.salary_max_values_native.as_slice(),
@@ -76,14 +82,24 @@ pub(crate) fn render_navy_section_03_salary(
             "50円刻み",
         )
     } else {
-        (salary_min_values, salary_max_values, 10_000, "万円", "10,000円刻み")
+        (
+            salary_min_values,
+            salary_max_values,
+            10_000,
+            "万円",
+            "10,000円刻み",
+        )
     };
 
     html.push_str("<section class=\"page-navy navy-salary\" role=\"region\">\n");
     push_page_head(
         html,
         "SECTION 03",
-        if is_hourly { "給与分布 統計 (時給モード)" } else { "給与分布 統計" },
+        if is_hourly {
+            "給与分布 統計 (時給モード)"
+        } else {
+            "給与分布 統計"
+        },
         if is_hourly {
             "CSV 抽出済み下限・上限給与 (円/時) の分布と代表値"
         } else {
@@ -139,12 +155,60 @@ pub(crate) fn render_navy_section_03_salary(
     if let Some(s) = stats_min.as_ref() {
         html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点</div>\n");
         html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
-        push_kpi(html, "P25", &fmt_val(s.p25), unit_label, "neu", "下位 25% 水準", false);
-        push_kpi(html, "中央値 P50", &fmt_val(s.median), unit_label, "neu", "サンプル中央値", true);
-        push_kpi(html, "平均", &fmt_val(s.mean), unit_label, "neu", "外れ値の影響を含む", false);
-        push_kpi(html, "最頻値", &fmt_val(s.mode_bin_yen), unit_label, "neu", mode_foot, false);
-        push_kpi(html, "P75", &fmt_val(s.p75), unit_label, "neu", "P75 ライン (P50 より上)", false);
-        push_kpi(html, "P90", &fmt_val(s.p90), unit_label, "neu", "高給与帯", false);
+        push_kpi(
+            html,
+            "P25",
+            &fmt_val(s.p25),
+            unit_label,
+            "neu",
+            "下位 25% 水準",
+            false,
+        );
+        push_kpi(
+            html,
+            "中央値 P50",
+            &fmt_val(s.median),
+            unit_label,
+            "neu",
+            "サンプル中央値",
+            true,
+        );
+        push_kpi(
+            html,
+            "平均",
+            &fmt_val(s.mean),
+            unit_label,
+            "neu",
+            "外れ値の影響を含む",
+            false,
+        );
+        push_kpi(
+            html,
+            "最頻値",
+            &fmt_val(s.mode_bin_yen),
+            unit_label,
+            "neu",
+            mode_foot,
+            false,
+        );
+        push_kpi(
+            html,
+            "P75",
+            &fmt_val(s.p75),
+            unit_label,
+            "neu",
+            "P75 ライン (P50 より上)",
+            false,
+        );
+        push_kpi(
+            html,
+            "P90",
+            &fmt_val(s.p90),
+            unit_label,
+            "neu",
+            "高給与帯",
+            false,
+        );
         html.push_str("</div>\n");
 
         // -- histogram (bin_step 刻み)
@@ -155,19 +219,69 @@ pub(crate) fn render_navy_section_03_salary(
         html.push_str(&build_navy_histogram_svg(vals_min, s, unit_label, bin_step));
         html.push_str("<p class=\"caption\">縦線: 緑=中央値 / 金=平均 / 灰=最頻 bin</p>\n");
     } else {
-        html.push_str("<p class=\"caption\">下限給与の有効値が不足しています (n=0 or 全 unparsed)。</p>\n");
+        html.push_str(
+            "<p class=\"caption\">下限給与の有効値が不足しています (n=0 or 全 unparsed)。</p>\n",
+        );
     }
 
     // -- 上限給与 (6 cell, 最頻値含む)
     if let Some(s) = stats_max.as_ref() {
         html.push_str("<div class=\"block-title block-title-spaced\">図 3-3 &nbsp;上限給与 主要分位点</div>\n");
         html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
-        push_kpi(html, "P25", &fmt_val(s.p25), unit_label, "neu", "下位 25% 水準", false);
-        push_kpi(html, "中央値 P50", &fmt_val(s.median), unit_label, "neu", "サンプル中央値", true);
-        push_kpi(html, "平均", &fmt_val(s.mean), unit_label, "neu", "外れ値の影響を含む", false);
-        push_kpi(html, "最頻値", &fmt_val(s.mode_bin_yen), unit_label, "neu", mode_foot, false);
-        push_kpi(html, "P75", &fmt_val(s.p75), unit_label, "neu", "P75 ライン (P50 より上)", false);
-        push_kpi(html, "P90", &fmt_val(s.p90), unit_label, "neu", "高給与帯", false);
+        push_kpi(
+            html,
+            "P25",
+            &fmt_val(s.p25),
+            unit_label,
+            "neu",
+            "下位 25% 水準",
+            false,
+        );
+        push_kpi(
+            html,
+            "中央値 P50",
+            &fmt_val(s.median),
+            unit_label,
+            "neu",
+            "サンプル中央値",
+            true,
+        );
+        push_kpi(
+            html,
+            "平均",
+            &fmt_val(s.mean),
+            unit_label,
+            "neu",
+            "外れ値の影響を含む",
+            false,
+        );
+        push_kpi(
+            html,
+            "最頻値",
+            &fmt_val(s.mode_bin_yen),
+            unit_label,
+            "neu",
+            mode_foot,
+            false,
+        );
+        push_kpi(
+            html,
+            "P75",
+            &fmt_val(s.p75),
+            unit_label,
+            "neu",
+            "P75 ライン (P50 より上)",
+            false,
+        );
+        push_kpi(
+            html,
+            "P90",
+            &fmt_val(s.p90),
+            unit_label,
+            "neu",
+            "高給与帯",
+            false,
+        );
         html.push_str("</div>\n");
 
         html.push_str(&format!(
@@ -181,13 +295,23 @@ pub(crate) fn render_navy_section_03_salary(
     }
 
     // -- 集計サマリ table-navy
-    html.push_str("<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ</div>\n");
-    html.push_str(&build_navy_salary_summary_table(&stats_min, &stats_max, is_hourly));
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ</div>\n",
+    );
+    html.push_str(&build_navy_salary_summary_table(
+        &stats_min, &stats_max, is_hourly,
+    ));
 
     // -- 雇用形態別給与 (旧 employment::render_section_employment 相当を navy で再構築)
     if !agg.by_emp_type_salary.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 3-B &nbsp;雇用形態別給与</div>\n");
-        html.push_str(&build_navy_emp_type_salary_table(&agg.by_emp_type_salary, agg.total_count, is_hourly));
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 3-B &nbsp;雇用形態別給与</div>\n",
+        );
+        html.push_str(&build_navy_emp_type_salary_table(
+            &agg.by_emp_type_salary,
+            agg.total_count,
+            is_hourly,
+        ));
     }
 
     // -- 表 3-C 業界×給与クロス / 表 3-D 職種×給与クロス / 表 3-F 要因分析
@@ -212,11 +336,7 @@ pub(crate) fn render_navy_section_03_salary(
     //   時給モードでは表示時に月給→時給逆換算 (/HOURLY_TO_MONTHLY_HOURS) し caption で
     //   「時給換算」と注記。クラスタ分類自体は monthly 基準のほうがレンジ分類 P33/P66 の
     //   信頼性が高い (時給のみだとパート/アルバイトに偏ってクラスタ数が減るため)。
-    let pairs: Vec<(i64, i64)> = agg
-        .scatter_min_max
-        .iter()
-        .map(|p| (p.x, p.y))
-        .collect();
+    let pairs: Vec<(i64, i64)> = agg.scatter_min_max.iter().map(|p| (p.x, p.y)).collect();
     let clusters = super::super::helpers::compute_salary_clusters(&pairs);
     if !clusters.is_empty() {
         let cluster_table_caption = if is_hourly {
@@ -428,10 +548,7 @@ pub(crate) fn render_navy_section_03_salary(
 //   - median <= 0 → "—" を明示表示。空文字を返さない。
 //   - 週時間が 0 になることはない (定数配列のため)。
 const FUYOU_WEEKLY_HOURS: [i64; 5] = [15, 20, 25, 30, 35];
-const FUYOU_THRESHOLDS_MAN: [(i64, &str); 2] = [
-    (103, "103 万円ライン"),
-    (130, "130 万円ライン"),
-];
+const FUYOU_THRESHOLDS_MAN: [(i64, &str); 2] = [(103, "103 万円ライン"), (130, "130 万円ライン")];
 
 /// 扶養範囲到達時給 (週稼働時間別) テーブルを生成。
 ///
@@ -506,10 +623,7 @@ fn build_navy_emp_type_salary_table(
 ) -> String {
     // 全体加重平均を計算 (差分タグの基準)
     let total_n_with_salary: i64 = items.iter().map(|e| e.count as i64).sum();
-    let weighted_sum: i64 = items
-        .iter()
-        .map(|e| e.avg_salary * e.count as i64)
-        .sum();
+    let weighted_sum: i64 = items.iter().map(|e| e.avg_salary * e.count as i64).sum();
     let overall_avg = if total_n_with_salary > 0 {
         weighted_sum / total_n_with_salary
     } else {
@@ -584,7 +698,11 @@ fn build_navy_emp_type_salary_table(
     } else {
         ("万円", format_mm(overall_avg))
     };
-    let unit_note = if is_hourly { "(時給)" } else { "(月給換算済み)" };
+    let unit_note = if is_hourly {
+        "(時給)"
+    } else {
+        "(月給換算済み)"
+    };
     s.push_str(&format!(
         "<p class=\"caption\">単位: {} {}。差分: 全体加重平均給与 ({}{}) との比較。+10% 以上 = 高給与, -10% 以下 = 低給与。</p>\n",
         unit_label, unit_note, fmt_overall, unit_label
@@ -698,7 +816,11 @@ fn build_navy_industry_salary_table(
     // 件数加重 全体平均
     let total_n: i64 = rows.iter().map(|r| r.count).sum();
     let weighted_sum: i64 = rows.iter().map(|r| r.weighted_avg * r.count).sum();
-    let overall_avg = if total_n > 0 { weighted_sum / total_n } else { 0 };
+    let overall_avg = if total_n > 0 {
+        weighted_sum / total_n
+    } else {
+        0
+    };
 
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
     s.push_str("<th>No.</th><th>業界 (推定)</th>");
@@ -790,30 +912,54 @@ fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> 
     // 因子 1: 雇用形態 (by_emp_type_salary)
     if !agg.by_emp_type_salary.is_empty() {
         let n_total: i64 = agg.by_emp_type_salary.iter().map(|e| e.count as i64).sum();
-        let weighted_sum: i64 = agg.by_emp_type_salary.iter().map(|e| e.avg_salary * e.count as i64).sum();
-        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
-        let between_var: f64 = agg.by_emp_type_salary.iter()
+        let weighted_sum: i64 = agg
+            .by_emp_type_salary
+            .iter()
+            .map(|e| e.avg_salary * e.count as i64)
+            .sum();
+        let overall_avg = if n_total > 0 {
+            weighted_sum / n_total
+        } else {
+            0
+        };
+        let between_var: f64 = agg
+            .by_emp_type_salary
+            .iter()
             .map(|e| {
                 let diff = (e.avg_salary - overall_avg) as f64;
                 diff * diff * e.count as f64
             })
-            .sum::<f64>() / (n_total.max(1) as f64);
+            .sum::<f64>()
+            / (n_total.max(1) as f64);
         // 全体分散の代理: σ² ≈ overall_avg の 10% を 1σ と仮定。
         // 実 records レベル分散が ない (agg は集計済み) ため、scatter_min_max から派生。
         let total_var: f64 = if !agg.salary_values.is_empty() {
-            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
-            agg.salary_values.iter()
+            let mean =
+                agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values
+                .iter()
                 .map(|&v| {
                     let d = v as f64 - mean;
                     d * d
                 })
-                .sum::<f64>() / agg.salary_values.len() as f64
+                .sum::<f64>()
+                / agg.salary_values.len() as f64
         } else {
             between_var * 2.0 // フォールバック
         };
         let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
-        let max_avg = agg.by_emp_type_salary.iter().map(|e| e.avg_salary).max().unwrap_or(0);
-        let min_avg = agg.by_emp_type_salary.iter().map(|e| e.avg_salary).min().unwrap_or(0);
+        let max_avg = agg
+            .by_emp_type_salary
+            .iter()
+            .map(|e| e.avg_salary)
+            .max()
+            .unwrap_or(0);
+        let min_avg = agg
+            .by_emp_type_salary
+            .iter()
+            .map(|e| e.avg_salary)
+            .min()
+            .unwrap_or(0);
         rows.push(NavyCorrRow {
             factor: "雇用形態".to_string(),
             n_categories: agg.by_emp_type_salary.len(),
@@ -828,16 +974,30 @@ fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> 
     if !occ_rows.is_empty() {
         let n_total: i64 = occ_rows.iter().map(|r| r.count).sum();
         let weighted_sum: i64 = occ_rows.iter().map(|r| r.weighted_avg * r.count).sum();
-        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
-        let between_var: f64 = occ_rows.iter()
+        let overall_avg = if n_total > 0 {
+            weighted_sum / n_total
+        } else {
+            0
+        };
+        let between_var: f64 = occ_rows
+            .iter()
             .map(|r| {
                 let diff = (r.weighted_avg - overall_avg) as f64;
                 diff * diff * r.count as f64
             })
-            .sum::<f64>() / (n_total.max(1) as f64);
+            .sum::<f64>()
+            / (n_total.max(1) as f64);
         let total_var: f64 = if !agg.salary_values.is_empty() {
-            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
-            agg.salary_values.iter().map(|&v| { let d = v as f64 - mean; d*d }).sum::<f64>() / agg.salary_values.len() as f64
+            let mean =
+                agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values
+                .iter()
+                .map(|&v| {
+                    let d = v as f64 - mean;
+                    d * d
+                })
+                .sum::<f64>()
+                / agg.salary_values.len() as f64
         } else {
             between_var * 2.0
         };
@@ -858,16 +1018,30 @@ fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> 
     if !ind_rows.is_empty() {
         let n_total: i64 = ind_rows.iter().map(|r| r.count).sum();
         let weighted_sum: i64 = ind_rows.iter().map(|r| r.weighted_avg * r.count).sum();
-        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
-        let between_var: f64 = ind_rows.iter()
+        let overall_avg = if n_total > 0 {
+            weighted_sum / n_total
+        } else {
+            0
+        };
+        let between_var: f64 = ind_rows
+            .iter()
             .map(|r| {
                 let diff = (r.weighted_avg - overall_avg) as f64;
                 diff * diff * r.count as f64
             })
-            .sum::<f64>() / (n_total.max(1) as f64);
+            .sum::<f64>()
+            / (n_total.max(1) as f64);
         let total_var: f64 = if !agg.salary_values.is_empty() {
-            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
-            agg.salary_values.iter().map(|&v| { let d = v as f64 - mean; d*d }).sum::<f64>() / agg.salary_values.len() as f64
+            let mean =
+                agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values
+                .iter()
+                .map(|&v| {
+                    let d = v as f64 - mean;
+                    d * d
+                })
+                .sum::<f64>()
+                / agg.salary_values.len() as f64
         } else {
             between_var * 2.0
         };
@@ -884,7 +1058,11 @@ fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> 
     }
 
     // η² 降順
-    rows.sort_by(|a, b| b.eta_sq.partial_cmp(&a.eta_sq).unwrap_or(std::cmp::Ordering::Equal));
+    rows.sort_by(|a, b| {
+        b.eta_sq
+            .partial_cmp(&a.eta_sq)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     rows
 }
 
@@ -1027,9 +1205,7 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
         h = h as i64
     );
 
-    let x_of = |v: i64| -> f64 {
-        plot_x + ((v as f64 - min_v) / span).clamp(0.0, 1.0) * plot_w
-    };
+    let x_of = |v: i64| -> f64 { plot_x + ((v as f64 - min_v) / span).clamp(0.0, 1.0) * plot_w };
 
     // x軸ラベル (4 点)
     for i in 0..=4 {
@@ -1095,7 +1271,11 @@ fn build_navy_occupation_salary_table(
 ) -> String {
     let total_n: i64 = rows.iter().map(|r| r.count).sum();
     let weighted_sum: i64 = rows.iter().map(|r| r.weighted_avg * r.count).sum();
-    let overall_avg = if total_n > 0 { weighted_sum / total_n } else { 0 };
+    let overall_avg = if total_n > 0 {
+        weighted_sum / total_n
+    } else {
+        0
+    };
 
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
     s.push_str("<th>No.</th><th>職種グループ (推定)</th>");
@@ -1189,7 +1369,8 @@ fn build_navy_salary_summary_table(
     };
     let mut s = String::new();
     s.push_str("<table class=\"table-navy\">\n");
-    s.push_str("<thead><tr>\
+    s.push_str(
+        "<thead><tr>\
                 <th>区分</th><th class=\"num\">n</th>\
                 <th class=\"num\">最小</th>\
                 <th class=\"num\">P25</th>\
@@ -1199,7 +1380,8 @@ fn build_navy_salary_summary_table(
                 <th class=\"num\">P75</th>\
                 <th class=\"num\">P90</th>\
                 <th class=\"num\">最大</th>\
-                </tr></thead>\n<tbody>\n");
+                </tr></thead>\n<tbody>\n",
+    );
     let row = |label: &str, st: &Option<DistStats>| -> String {
         match st {
             Some(s) => format!(

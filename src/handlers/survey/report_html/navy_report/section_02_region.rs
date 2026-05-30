@@ -44,12 +44,19 @@ pub(crate) fn render_navy_section_02_region(
     html: &mut String,
     agg: &SurveyAggregation,
     hw_context: Option<&InsightContext>,
-    hw_enrichment_map: &std::collections::HashMap<String, super::super::super::hw_enrichment::HwAreaEnrichment>,
+    hw_enrichment_map: &std::collections::HashMap<
+        String,
+        super::super::super::hw_enrichment::HwAreaEnrichment,
+    >,
     variant: ReportVariant,
     target_region: &str,
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
-    let title = if show_hw { "地域 × 求人媒体データ連携" } else { "地域データ補強" };
+    let title = if show_hw {
+        "地域 × 求人媒体データ連携"
+    } else {
+        "地域データ補強"
+    };
     let sub = if show_hw {
         "CSV 件数最多 市区町村に求人媒体現在件数・推移を併記"
     } else {
@@ -119,7 +126,11 @@ pub(crate) fn render_navy_section_02_region(
     push_kpi(
         html,
         "件数最多 県",
-        if pref_top.0.is_empty() { "—" } else { &pref_top.0 },
+        if pref_top.0.is_empty() {
+            "—"
+        } else {
+            &pref_top.0
+        },
         "",
         "neu",
         "CSV 件数最多 1 県",
@@ -156,9 +167,11 @@ pub(crate) fn render_navy_section_02_region(
     if let Some(c) = hw_context {
         if !c.commute_inflow_top3.is_empty() {
             html.push_str("<div class=\"block-title block-title-spaced\">表 2-C &nbsp;通勤流入元 TOP3 (隣地域→対象地域)</div>\n");
-            html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+            html.push_str(
+                "<table class=\"table-navy\">\n<thead><tr>\
                 <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流入人数</th>\
-                </tr></thead>\n<tbody>\n");
+                </tr></thead>\n<tbody>\n",
+            );
             for (i, (p, m, cnt)) in c.commute_inflow_top3.iter().take(3).enumerate() {
                 html.push_str(&format!(
                     "<tr><td class=\"num bold\">{}</td><td>{}</td><td>{}</td><td class=\"num bold\">{}</td></tr>\n",
@@ -173,15 +186,17 @@ pub(crate) fn render_navy_section_02_region(
     // -- 表 2-D 都道府県平均比較 (マクロ指標)  [旧 7.5-B 統合 2026-05-15]
     if let Some(c) = hw_context {
         let pref_avgs: Vec<(&str, Option<f64>, &str)> = vec![
-            ("県平均 失業率",    c.pref_avg_unemployment_rate, "%"),
-            ("県平均 単身世帯率", c.pref_avg_single_rate,       "%"),
+            ("県平均 失業率", c.pref_avg_unemployment_rate, "%"),
+            ("県平均 単身世帯率", c.pref_avg_single_rate, "%"),
         ];
         let with_val: Vec<_> = pref_avgs.iter().filter(|(_, v, _)| v.is_some()).collect();
         if !with_val.is_empty() {
             html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;都道府県平均比較 (マクロ指標)</div>\n");
             html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
             for (label, val, unit) in with_val {
-                let cell = val.map(|v| format!("{:.2}", v)).unwrap_or_else(|| "—".into());
+                let cell = val
+                    .map(|v| format!("{:.2}", v))
+                    .unwrap_or_else(|| "—".into());
                 html.push_str(&format!(
                     "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
                     label, cell, unit
@@ -225,10 +240,7 @@ pub(crate) fn render_navy_section_02_region(
 //     その範囲制約を caption に明示 (MEMORY: feedback_hw_data_scope.md)。
 // - 件数加重平均で算出 (件数の少ない県が同等に扱われないように)。
 // - 月給/時給の単位は is_hourly フラグで切り替える。
-fn build_navy_prefecture_salary_table(
-    agg: &SurveyAggregation,
-    is_hourly: bool,
-) -> String {
+fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) -> String {
     let total_rows: Vec<&super::super::super::aggregator::PrefectureSalaryAgg> =
         agg.by_prefecture_salary.iter().collect();
     if total_rows.is_empty() {
@@ -242,7 +254,11 @@ fn build_navy_prefecture_salary_table(
         .iter()
         .map(|p| p.avg_salary * p.count as i64)
         .sum();
-    let overall_avg: i64 = if total_n > 0 { weighted_sum / total_n } else { 0 };
+    let overall_avg: i64 = if total_n > 0 {
+        weighted_sum / total_n
+    } else {
+        0
+    };
 
     // 件数降順
     let mut sorted: Vec<&super::super::super::aggregator::PrefectureSalaryAgg> = total_rows.clone();
@@ -320,7 +336,10 @@ fn build_navy_prefecture_salary_table(
 
 fn build_navy_region_table(
     agg: &SurveyAggregation,
-    hw_enrichment_map: &std::collections::HashMap<String, super::super::super::hw_enrichment::HwAreaEnrichment>,
+    hw_enrichment_map: &std::collections::HashMap<
+        String,
+        super::super::super::hw_enrichment::HwAreaEnrichment,
+    >,
     show_hw: bool,
 ) -> String {
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");

@@ -93,8 +93,8 @@ fn compute_distribution_stats_all_zero_returns_none() {
 }
 #[test]
 fn compute_distribution_stats_single_value_returns_stats() {
-    let stats = compute_distribution_stats(&[250_000], 10_000)
-        .expect("single value should yield stats");
+    let stats =
+        compute_distribution_stats(&[250_000], 10_000).expect("single value should yield stats");
     assert_eq!(stats.n, 1);
     assert_eq!(stats.median, 250_000);
     assert_eq!(stats.min, 250_000);
@@ -109,8 +109,8 @@ fn compute_distribution_stats_multiple_values_invariants() {
     let values: Vec<i64> = vec![
         200_000, 220_000, 250_000, 280_000, 300_000, 350_000, 400_000,
     ];
-    let stats = compute_distribution_stats(&values, 10_000)
-        .expect("non-empty positive should yield stats");
+    let stats =
+        compute_distribution_stats(&values, 10_000).expect("non-empty positive should yield stats");
     assert_eq!(stats.n, values.len());
     assert!(stats.min <= stats.p25, "min <= p25");
     assert!(stats.p25 <= stats.median, "p25 <= median");
@@ -145,8 +145,7 @@ fn compute_distribution_stats_filters_negative_and_zero() {
 
 #[test]
 fn compute_distribution_stats_invariants_n1() {
-    let stats = compute_distribution_stats(&[250_000], 10_000)
-        .expect("n=1 yields stats");
+    let stats = compute_distribution_stats(&[250_000], 10_000).expect("n=1 yields stats");
     assert_eq!(stats.n, 1);
     // n=1 では全分位が唯一の値と一致 (順序不変条件は退化的に成立)
     assert!(stats.min <= stats.p25 && stats.p25 <= stats.median);
@@ -161,16 +160,40 @@ fn compute_distribution_stats_invariants_n2() {
     // n=2: pct(p) = v[round((n-1)*p)] = v[round(p)] なので
     //   p25 → v[round(0.25)]=v[0]=100k, median → v[round(0.5)]=v[1]=200k (round half-to-even),
     //   p75 → v[round(0.75)]=v[1]=200k, p90 → v[round(0.90)]=v[1]=200k
-    let stats = compute_distribution_stats(&[100_000, 200_000], 10_000)
-        .expect("n=2 yields stats");
+    let stats = compute_distribution_stats(&[100_000, 200_000], 10_000).expect("n=2 yields stats");
     assert_eq!(stats.n, 2);
     assert_eq!(stats.min, 100_000);
     assert_eq!(stats.max, 200_000);
-    assert!(stats.min <= stats.p25, "min({}) <= p25({})", stats.min, stats.p25);
-    assert!(stats.p25 <= stats.median, "p25({}) <= median({})", stats.p25, stats.median);
-    assert!(stats.median <= stats.p75, "median({}) <= p75({})", stats.median, stats.p75);
-    assert!(stats.p75 <= stats.p90, "p75({}) <= p90({})", stats.p75, stats.p90);
-    assert!(stats.p90 <= stats.max, "p90({}) <= max({})", stats.p90, stats.max);
+    assert!(
+        stats.min <= stats.p25,
+        "min({}) <= p25({})",
+        stats.min,
+        stats.p25
+    );
+    assert!(
+        stats.p25 <= stats.median,
+        "p25({}) <= median({})",
+        stats.p25,
+        stats.median
+    );
+    assert!(
+        stats.median <= stats.p75,
+        "median({}) <= p75({})",
+        stats.median,
+        stats.p75
+    );
+    assert!(
+        stats.p75 <= stats.p90,
+        "p75({}) <= p90({})",
+        stats.p75,
+        stats.p90
+    );
+    assert!(
+        stats.p90 <= stats.max,
+        "p90({}) <= max({})",
+        stats.p90,
+        stats.max
+    );
 }
 
 #[test]
@@ -179,11 +202,36 @@ fn compute_distribution_stats_invariants_n5() {
     let stats = compute_distribution_stats(&[150_000, 200_000, 250_000, 300_000, 400_000], 10_000)
         .expect("n=5 yields stats");
     assert_eq!(stats.n, 5);
-    assert!(stats.min <= stats.p25, "min({}) <= p25({})", stats.min, stats.p25);
-    assert!(stats.p25 <= stats.median, "p25({}) <= median({})", stats.p25, stats.median);
-    assert!(stats.median <= stats.p75, "median({}) <= p75({})", stats.median, stats.p75);
-    assert!(stats.p75 <= stats.p90, "p75({}) <= p90({})", stats.p75, stats.p90);
-    assert!(stats.p90 <= stats.max, "p90({}) <= max({})", stats.p90, stats.max);
+    assert!(
+        stats.min <= stats.p25,
+        "min({}) <= p25({})",
+        stats.min,
+        stats.p25
+    );
+    assert!(
+        stats.p25 <= stats.median,
+        "p25({}) <= median({})",
+        stats.p25,
+        stats.median
+    );
+    assert!(
+        stats.median <= stats.p75,
+        "median({}) <= p75({})",
+        stats.median,
+        stats.p75
+    );
+    assert!(
+        stats.p75 <= stats.p90,
+        "p75({}) <= p90({})",
+        stats.p75,
+        stats.p90
+    );
+    assert!(
+        stats.p90 <= stats.max,
+        "p90({}) <= max({})",
+        stats.p90,
+        stats.max
+    );
     // n=5 で min/max は端点
     assert_eq!(stats.min, 150_000);
     assert_eq!(stats.max, 400_000);
@@ -194,14 +242,38 @@ fn compute_distribution_stats_invariants_n100() {
     // n=100: 大規模ケース。均等分布で 100k〜1.1M。
     // 順序不変条件 + bins.len() > 1 (複数 bin 生成) を確認。
     let values: Vec<i64> = (0..100).map(|i| 100_000 + i * 10_000).collect();
-    let stats = compute_distribution_stats(&values, 10_000)
-        .expect("n=100 yields stats");
+    let stats = compute_distribution_stats(&values, 10_000).expect("n=100 yields stats");
     assert_eq!(stats.n, 100);
-    assert!(stats.min <= stats.p25, "min({}) <= p25({})", stats.min, stats.p25);
-    assert!(stats.p25 <= stats.median, "p25({}) <= median({})", stats.p25, stats.median);
-    assert!(stats.median <= stats.p75, "median({}) <= p75({})", stats.median, stats.p75);
-    assert!(stats.p75 <= stats.p90, "p75({}) <= p90({})", stats.p75, stats.p90);
-    assert!(stats.p90 <= stats.max, "p90({}) <= max({})", stats.p90, stats.max);
+    assert!(
+        stats.min <= stats.p25,
+        "min({}) <= p25({})",
+        stats.min,
+        stats.p25
+    );
+    assert!(
+        stats.p25 <= stats.median,
+        "p25({}) <= median({})",
+        stats.p25,
+        stats.median
+    );
+    assert!(
+        stats.median <= stats.p75,
+        "median({}) <= p75({})",
+        stats.median,
+        stats.p75
+    );
+    assert!(
+        stats.p75 <= stats.p90,
+        "p75({}) <= p90({})",
+        stats.p75,
+        stats.p90
+    );
+    assert!(
+        stats.p90 <= stats.max,
+        "p90({}) <= max({})",
+        stats.p90,
+        stats.max
+    );
     assert!(
         stats.bins.len() >= 2,
         "n=100 で bin が複数生成されるはず: bins.len()={}",
@@ -292,10 +364,7 @@ fn compute_skew_severity_50_pct_returns_pos_balanced() {
 #[test]
 fn compute_skew_severity_70_pct_exactly_returns_pos() {
     // 境界: SKEW_NEU_THRESHOLD_PCT (70.0%) ちょうど → POS (strict >)
-    let counts = vec![
-        ("A".to_string(), 700i64),
-        ("B".to_string(), 300i64),
-    ];
+    let counts = vec![("A".to_string(), 700i64), ("B".to_string(), 300i64)];
     let (sev, _msg) = compute_skew_severity(&counts, "職種");
     assert_eq!(
         sev, "pos",
@@ -307,26 +376,16 @@ fn compute_skew_severity_70_pct_exactly_returns_pos() {
 #[test]
 fn compute_skew_severity_above_70_pct_returns_neu() {
     // 境界: 70.01% (701/1000) → NEU
-    let counts = vec![
-        ("A".to_string(), 701i64),
-        ("B".to_string(), 299i64),
-    ];
+    let counts = vec![("A".to_string(), 701i64), ("B".to_string(), 299i64)];
     let (sev, msg) = compute_skew_severity(&counts, "職種");
-    assert_eq!(
-        sev, "neu",
-        "70.1% は NEU (> {}%)",
-        SKEW_NEU_THRESHOLD_PCT
-    );
+    assert_eq!(sev, "neu", "70.1% は NEU (> {}%)", SKEW_NEU_THRESHOLD_PCT);
     assert!(msg.contains("偏りあり"), "msg={}", msg);
 }
 
 #[test]
 fn compute_skew_severity_85_pct_exactly_returns_neu() {
     // 境界: SKEW_WARN_THRESHOLD_PCT (85.0%) ちょうど → NEU (strict >)
-    let counts = vec![
-        ("A".to_string(), 850i64),
-        ("B".to_string(), 150i64),
-    ];
+    let counts = vec![("A".to_string(), 850i64), ("B".to_string(), 150i64)];
     let (sev, _msg) = compute_skew_severity(&counts, "産業大分類");
     assert_eq!(
         sev, "neu",
@@ -338,10 +397,7 @@ fn compute_skew_severity_85_pct_exactly_returns_neu() {
 #[test]
 fn compute_skew_severity_above_85_pct_returns_warn() {
     // 境界: 85.01% (851/1000) → WARN
-    let counts = vec![
-        ("A".to_string(), 851i64),
-        ("B".to_string(), 149i64),
-    ];
+    let counts = vec![("A".to_string(), 851i64), ("B".to_string(), 149i64)];
     let (sev, msg) = compute_skew_severity(&counts, "産業大分類");
     assert_eq!(
         sev, "warn",
@@ -379,9 +435,7 @@ fn compute_skew_severity_threshold_constants_are_documented_values() {
 fn compute_skew_severity_max_share_invariant() {
     // 不変条件: max_share ∈ [0, 100]
     // 多カテゴリで top が小さい場合も合計に対する比率は正常範囲
-    let counts: Vec<(String, i64)> = (0..10)
-        .map(|i| (format!("cat{}", i), 100i64))
-        .collect();
+    let counts: Vec<(String, i64)> = (0..10).map(|i| (format!("cat{}", i), 100i64)).collect();
     let (sev, msg) = compute_skew_severity(&counts, "職種");
     // 10 カテゴリ均等 → top=100/total=1000 = 10.0% → POS
     assert_eq!(sev, "pos");
@@ -393,10 +447,7 @@ fn compute_skew_severity_negative_counts_excluded_from_total() {
     // 不変条件補足: total = sum (負値含む) なので、負値があると total が縮む。
     // 設計通り (postings fetch は cnt > 0 を保証するが、関数自体は防御的)。
     // 負値で total = 0 以下になれば NEU データなし。
-    let counts = vec![
-        ("A".to_string(), -50i64),
-        ("B".to_string(), -50i64),
-    ];
+    let counts = vec![("A".to_string(), -50i64), ("B".to_string(), -50i64)];
     let (sev, msg) = compute_skew_severity(&counts, "職種");
     assert_eq!(sev, "neu", "total <= 0 は NEU データなし");
     assert_eq!(msg, "職種データなし");
@@ -417,7 +468,11 @@ fn build_navy_salary_scatter_svg_empty_returns_empty_string() {
     // 不変条件: 空入力 → 空文字列 (silent fallback ではなく明示的に省略)
     // Phase 2-A (2026-05-29): is_hourly 引数追加。月給モード (false) で旧動作互換。
     let svg = build_navy_salary_scatter_svg(&[], false);
-    assert!(svg.is_empty(), "empty pairs → empty svg, got len={}", svg.len());
+    assert!(
+        svg.is_empty(),
+        "empty pairs → empty svg, got len={}",
+        svg.len()
+    );
 }
 
 #[test]
@@ -431,18 +486,29 @@ fn build_navy_salary_scatter_svg_single_point_contains_svg_tag() {
     let circle_count = svg.matches("<circle").count();
     assert_eq!(circle_count, 1, "expected 1 circle, got {circle_count}");
     // 対角線 (金色破線) も常に描画される
-    assert!(svg.contains("#C9A24B"), "diagonal line color (gold) missing");
+    assert!(
+        svg.contains("#C9A24B"),
+        "diagonal line color (gold) missing"
+    );
 }
 
 #[test]
 fn build_navy_salary_scatter_svg_many_points_contains_opacity_and_navy_color() {
     // 多数点: opacity 0.4 / navy 色 #1F2D4D / 全点数の circle 出力
     let pairs: Vec<(f64, f64)> = (0..50)
-        .map(|i| (180_000.0 + (i as f64) * 1000.0, 280_000.0 + (i as f64) * 2000.0))
+        .map(|i| {
+            (
+                180_000.0 + (i as f64) * 1000.0,
+                280_000.0 + (i as f64) * 2000.0,
+            )
+        })
         .collect();
     let svg = build_navy_salary_scatter_svg(&pairs, false);
     // 仕様: opacity 0.4 が散布点に含まれる
-    assert!(svg.contains("opacity=\"0.4\""), "opacity=0.4 missing for scatter points");
+    assert!(
+        svg.contains("opacity=\"0.4\""),
+        "opacity=0.4 missing for scatter points"
+    );
     // 仕様: navy ink-soft 色
     assert!(svg.contains("#1F2D4D"), "navy color (#1F2D4D) missing");
     let circle_count = svg.matches("<circle").count();
@@ -458,7 +524,10 @@ fn build_navy_salary_scatter_svg_out_of_range_values_clamped_not_panic() {
         (250_000.0, 350_000.0),     // 範囲内
     ];
     let svg = build_navy_salary_scatter_svg(&pairs, false);
-    assert!(svg.contains("<svg"), "svg should render even with out-of-range");
+    assert!(
+        svg.contains("<svg"),
+        "svg should render even with out-of-range"
+    );
     let circle_count = svg.matches("<circle").count();
     assert_eq!(circle_count, 3);
 }
@@ -509,9 +578,8 @@ fn build_salary_scatter_summary_computes_n_and_widths_correctly() {
 fn build_salary_scatter_summary_invariants_pct_in_range_0_100() {
     // 不変条件: narrow_pct + wide_pct <= 100, 各 pct ∈ [0, 100]
     // 全件 narrow (幅 1万円固定)
-    let pairs_all_narrow: Vec<(f64, f64)> = (0..10)
-        .map(|_| (200_000.0_f64, 210_000.0_f64))
-        .collect();
+    let pairs_all_narrow: Vec<(f64, f64)> =
+        (0..10).map(|_| (200_000.0_f64, 210_000.0_f64)).collect();
     let s = build_salary_scatter_summary(&pairs_all_narrow, false);
     assert!(
         s.contains("100.0% (定額求人傾向)"),
@@ -523,9 +591,7 @@ fn build_salary_scatter_summary_invariants_pct_in_range_0_100() {
     );
 
     // 全件 wide (幅 20万円固定)
-    let pairs_all_wide: Vec<(f64, f64)> = (0..10)
-        .map(|_| (200_000.0_f64, 400_000.0_f64))
-        .collect();
+    let pairs_all_wide: Vec<(f64, f64)> = (0..10).map(|_| (200_000.0_f64, 400_000.0_f64)).collect();
     let s = build_salary_scatter_summary(&pairs_all_wide, false);
     assert!(
         s.contains("100.0% (歩合・等級制傾向)"),
@@ -541,10 +607,7 @@ fn build_salary_scatter_summary_invariants_pct_in_range_0_100() {
 fn build_salary_scatter_summary_avg_width_non_negative_invariant() {
     // 不変条件: 平均レンジ幅 >= 0 (hi >= lo を SQL で保証している前提)
     // hi == lo のケース (レンジ幅 0) でも panic せず avg 0.0 を出力
-    let pairs = vec![
-        (250_000.0, 250_000.0),
-        (300_000.0, 300_000.0),
-    ];
+    let pairs = vec![(250_000.0, 250_000.0), (300_000.0, 300_000.0)];
     let s = build_salary_scatter_summary(&pairs, false);
     assert!(s.contains("n=2"));
     assert!(s.contains("0.0万円"), "expected avg width 0.0万円: {s}");
@@ -626,7 +689,11 @@ fn select_notable_companies_perfect_overlap_returns_top_n() {
         make_csv_company("C", 6, 21.0, 40.0),  // 求人 #3 / 給与 #3
     ];
     let result = select_notable_companies(&ranking, 3);
-    assert_eq!(result.len(), 3, "perfect overlap should return exactly top_n");
+    assert_eq!(
+        result.len(),
+        3,
+        "perfect overlap should return exactly top_n"
+    );
     // 出現順序: 求人 top → 給与 top (重複は除外) → 結果は [A, B, C]
     assert_eq!(result[0].facility_name, "A");
     assert_eq!(result[1].facility_name, "B");
@@ -702,14 +769,20 @@ fn build_navy_csv_company_salary_table_range_width_invariant_non_negative() {
     let ranking = vec![make_csv_company("固定給会社", 2, 25.0, 25.0)];
     let s = build_navy_csv_company_salary_table(&ranking, 10);
     assert!(s.contains("固定給会社"));
-    assert!(s.contains("0.0"), "fixed salary should render range width 0.0: {s}");
+    assert!(
+        s.contains("0.0"),
+        "fixed salary should render range width 0.0: {s}"
+    );
 }
 
 #[test]
 fn build_navy_notable_companies_block_empty_returns_empty_string() {
     // silent fallback 防御: 空 ranking → 空文字列 (Section に空 table を出さない)
     let s = build_navy_notable_companies_block(&[], 5);
-    assert!(s.is_empty(), "empty ranking should yield empty string, got: {s}");
+    assert!(
+        s.is_empty(),
+        "empty ranking should yield empty string, got: {s}"
+    );
 }
 
 #[test]
@@ -739,9 +812,9 @@ fn select_notable_companies_invariant_size_le_2_top_n() {
         .map(|i| {
             make_csv_company(
                 &format!("Company {}", i),
-                (20 - i) as i64,        // 求人数: 20, 19, ..., 1 (降順)
-                10.0 + (i as f64),      // 下限: 10, 11, ..., 29
-                40.0 - (i as f64),      // 上限: 40, 39, ..., 21 (降順)
+                (20 - i) as i64,   // 求人数: 20, 19, ..., 1 (降順)
+                10.0 + (i as f64), // 下限: 10, 11, ..., 29
+                40.0 - (i as f64), // 上限: 40, 39, ..., 21 (降順)
             )
         })
         .collect();
@@ -778,7 +851,7 @@ fn select_notable_companies_invariant_size_le_double_top_n() {
                 &format!("Co{}", i),
                 if i < 5 { (10 - i) as i64 } else { 1 }, // 求人数: 前半は降順、後半は 1 で固定
                 20.0 + (i as f64),                       // 下限
-                50.0 - (i as f64),                       // 上限 (降順 → ranking は upper_median 降順なので index と一致)
+                50.0 - (i as f64), // 上限 (降順 → ranking は upper_median 降順なので index と一致)
             )
         })
         .collect();
@@ -865,18 +938,9 @@ fn build_salary_scatter_summary_clamp_nonzero_renders_caption() {
     ];
     let s = build_salary_scatter_summary(&pairs, false);
     assert!(s.contains("n=5"), "n=5 expected: {s}");
-    assert!(
-        s.contains("2 件"),
-        "expected clamp count 2: {s}"
-    );
-    assert!(
-        s.contains("40.0%"),
-        "expected clamp pct 40.0%: {s}"
-    );
-    assert!(
-        s.contains("範囲外"),
-        "expected '範囲外' wording: {s}"
-    );
+    assert!(s.contains("2 件"), "expected clamp count 2: {s}");
+    assert!(s.contains("40.0%"), "expected clamp pct 40.0%: {s}");
+    assert!(s.contains("範囲外"), "expected '範囲外' wording: {s}");
 }
 
 #[test]
@@ -888,10 +952,7 @@ fn build_salary_scatter_summary_clamp_all_out_of_range() {
     ];
     let s = build_salary_scatter_summary(&pairs, false);
     assert!(s.contains("2 件"), "expected 2 件: {s}");
-    assert!(
-        s.contains("100.0%"),
-        "expected 100.0% clamp pct: {s}"
-    );
+    assert!(s.contains("100.0%"), "expected 100.0% clamp pct: {s}");
 }
 
 // ====================================================================
@@ -938,8 +999,16 @@ fn safe_pct_like_nan_returns_zero_but_no_upper_clamp() {
     // safe_pct_like は NaN/Inf を 0 にするが、>100 の大きな値は通す (avg などの非 % 値用)
     assert_eq!(safe_pct_like(f64::NAN), 0.0);
     assert_eq!(safe_pct_like(f64::INFINITY), 0.0);
-    assert_eq!(safe_pct_like(500.0), 500.0, "non-% values should not be upper-clamped");
-    assert_eq!(safe_pct_like(-3.0), -3.0, "negatives also pass for non-% helper");
+    assert_eq!(
+        safe_pct_like(500.0),
+        500.0,
+        "non-% values should not be upper-clamped"
+    );
+    assert_eq!(
+        safe_pct_like(-3.0),
+        -3.0,
+        "negatives also pass for non-% helper"
+    );
 }
 
 // ====================================================================

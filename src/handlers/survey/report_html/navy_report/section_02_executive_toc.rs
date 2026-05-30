@@ -45,7 +45,12 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant) {
         _ => "地域データ補強",
     };
     html.push_str("<section class=\"page-navy toc-page\" role=\"region\" aria-label=\"目次\">\n");
-    push_page_head(html, "TABLE OF CONTENTS", "目次", "本レポートは A4 縦印刷を前提に構成しています");
+    push_page_head(
+        html,
+        "TABLE OF CONTENTS",
+        "目次",
+        "本レポートは A4 縦印刷を前提に構成しています",
+    );
     html.push_str("<div class=\"toc-grid\">\n");
 
     html.push_str("<div class=\"toc-col\">\n");
@@ -117,7 +122,12 @@ pub(crate) fn render_navy_executive(
     target_region: &str,
 ) {
     html.push_str("<section class=\"page-navy navy-exec\" role=\"region\" aria-labelledby=\"navy-exec-title\">\n");
-    push_page_head(html, "SECTION 01", "Executive Summary", "3 分で読み切れる全体要旨と優先アクション");
+    push_page_head(
+        html,
+        "SECTION 01",
+        "Executive Summary",
+        "3 分で読み切れる全体要旨と優先アクション",
+    );
     html.push_str(&format!(
         "<h2 id=\"navy-exec-title\" class=\"sr-only\" style=\"position:absolute;left:-9999px;\">Executive Summary</h2>\n"
     ));
@@ -184,7 +194,10 @@ pub(crate) fn render_navy_executive(
     //   ユーザーが「これは時給対象のレポート」と即座に認識できるよう、地域名直後に
     //   付加する。月給モードは旧文言を維持。
     let region_prefix = if agg.is_hourly {
-        format!("{} の <strong>時給ベース求人</strong>", escape_html(target_region))
+        format!(
+            "{} の <strong>時給ベース求人</strong>",
+            escape_html(target_region)
+        )
     } else {
         escape_html(target_region).to_string()
     };
@@ -208,7 +221,13 @@ pub(crate) fn render_navy_executive(
 
     // -- kpi-row (5 cell)
     let k1 = format!("{}", format_number(total as i64));
-    let k1_dot = if total >= 30 { "pos" } else if total > 0 { "warn" } else { "neg" };
+    let k1_dot = if total >= 30 {
+        "pos"
+    } else if total > 0 {
+        "warn"
+    } else {
+        "neg"
+    };
     let k1_foot = if total >= 30 {
         "n>=30 で実務判断に参照可"
     } else if total > 0 {
@@ -217,11 +236,27 @@ pub(crate) fn render_navy_executive(
         "サンプルなし"
     };
 
-    let k3_name = agg.by_employment_type.first().map(|(n, _)| n.clone()).unwrap_or_default();
-    let k3_pct = agg.by_employment_type.first().map(|(_, c)| {
-        if total > 0 { *c as f64 / total as f64 * 100.0 } else { 0.0 }
-    }).unwrap_or(0.0);
-    let k3_value = if k3_name.is_empty() { "—".to_string() } else { k3_name.clone() };
+    let k3_name = agg
+        .by_employment_type
+        .first()
+        .map(|(n, _)| n.clone())
+        .unwrap_or_default();
+    let k3_pct = agg
+        .by_employment_type
+        .first()
+        .map(|(_, c)| {
+            if total > 0 {
+                *c as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+    let k3_value = if k3_name.is_empty() {
+        "—".to_string()
+    } else {
+        k3_name.clone()
+    };
     let k3_dot = if k3_pct >= 85.0 { "warn" } else { "neu" };
     let k3_foot = if k3_pct > 0.0 {
         format!("構成比 {:.0}%", k3_pct)
@@ -264,7 +299,15 @@ pub(crate) fn render_navy_executive(
     // 2026-05-14: 主要地域 = ユーザー選択地域 (handlers.rs:482 で確定済)。
     //   フッタは「件数最多」だと CSV 分布最多と混同するので「対象地域」に変更。
     //   CSV 分布最多が選択地域と異なる場合は別途 SO WHAT / 注記で扱う。
-    push_kpi(html, "主要地域", target_region, "", "neu", "対象地域", false);
+    push_kpi(
+        html,
+        "主要地域",
+        target_region,
+        "",
+        "neu",
+        "対象地域",
+        false,
+    );
     push_kpi(html, "主要雇用形態", &k3_value, "", k3_dot, &k3_foot, false);
     push_kpi(
         html,
@@ -317,7 +360,11 @@ pub(crate) fn render_navy_executive(
 
     // -- so-what
     // 2026-05-14: 給与解析率の言及を撤去。
-    let new_pct_label = if total > 0 { format!("{}%", new_pct) } else { "—".to_string() };
+    let new_pct_label = if total > 0 {
+        format!("{}%", new_pct)
+    } else {
+        "—".to_string()
+    };
     let so_what_body = format!(
         "サンプル件数 <strong>n={}</strong> / 新着比率 <strong>{}</strong> を踏まえ、\
          <strong>給与水準と訴求軸の再点検</strong> を起点に、<strong>不足セグメント (n<30) の補完取得</strong> を併走させてください。\
@@ -348,13 +395,22 @@ fn build_findings(
 
     // 1) サンプル件数の信頼区間
     let (sev, body) = if total == 0 {
-        ("neg", "サンプル 0 件のため統計値を提示できません。CSV 取得範囲の見直しが必要です。".to_string())
+        (
+            "neg",
+            "サンプル 0 件のため統計値を提示できません。CSV 取得範囲の見直しが必要です。"
+                .to_string(),
+        )
     } else if total < 30 {
         ("warn", format!("サンプル <strong>n={}</strong> は統計的信頼性が低く、外れ値の影響が大きい状態です。傾向参照に留め、母集団の追加取得を推奨します。", total))
     } else {
         ("pos", format!("サンプル <strong>n={}</strong> は実務判断に十分な水準です。後続セクションの統計値はそのまま参照できます。", total))
     };
-    v.push((sev, "サンプル件数".to_string(), body, "§2 統計信頼性".to_string()));
+    v.push((
+        sev,
+        "サンプル件数".to_string(),
+        body,
+        "§2 統計信頼性".to_string(),
+    ));
 
     // 2) 主要雇用形態の偏り
     let (sev, body) = if dom_emp_pct >= 85.0 {
@@ -362,19 +418,42 @@ fn build_findings(
     } else if dom_emp_pct >= 70.0 {
         ("neu", format!("主要雇用形態の構成比は <strong>{:.0}%</strong>。やや偏り気味ですが、他雇用形態への展開余地もある水準です。", dom_emp_pct))
     } else {
-        ("pos", format!("主要雇用形態の構成比は <strong>{:.0}%</strong> で、バランスの取れた構成です。", dom_emp_pct))
+        (
+            "pos",
+            format!(
+                "主要雇用形態の構成比は <strong>{:.0}%</strong> で、バランスの取れた構成です。",
+                dom_emp_pct
+            ),
+        )
     };
-    v.push((sev, "雇用形態構成".to_string(), body, "§3 雇用形態分析".to_string()));
+    v.push((
+        sev,
+        "雇用形態構成".to_string(),
+        body,
+        "§3 雇用形態分析".to_string(),
+    ));
 
     // 3) 新着比率
     let (sev, body) = if total == 0 {
         ("neu", "サンプルなしのため新着比率の評価不能。".to_string())
     } else if new_pct >= 15 {
-        ("pos", format!("直近 30 日の新着比率 <strong>{}%</strong> は活発な採用活動を示唆します。", new_pct))
+        (
+            "pos",
+            format!(
+                "直近 30 日の新着比率 <strong>{}%</strong> は活発な採用活動を示唆します。",
+                new_pct
+            ),
+        )
     } else if new_pct < 5 {
         ("warn", format!("新着比率 <strong>{}%</strong> は低水準で、人材定着が進んでいる/求人活動が低調な可能性があります。", new_pct))
     } else {
-        ("neu", format!("新着比率は <strong>{}%</strong>。標準的な水準です。", new_pct))
+        (
+            "neu",
+            format!(
+                "新着比率は <strong>{}%</strong>。標準的な水準です。",
+                new_pct
+            ),
+        )
     };
     v.push((sev, "新着比率".to_string(), body, "§3 求人動向".to_string()));
 
@@ -384,13 +463,21 @@ fn build_findings(
     // 5) 地域カバレッジ
     let pref_count = agg.by_prefecture.len();
     let (sev, body) = if pref_count == 0 {
-        ("neu", "地域情報の抽出ができませんでした。CSV のアクセス列を確認してください。".to_string())
+        (
+            "neu",
+            "地域情報の抽出ができませんでした。CSV のアクセス列を確認してください。".to_string(),
+        )
     } else if pref_count == 1 {
         ("neu", format!("カバー都道府県は <strong>1</strong> 都道府県。単一エリアの深掘り分析として参照可能です。"))
     } else {
         ("neu", format!("カバー都道府県は <strong>{}</strong>。複数地域比較は本レポート後半セクションで詳述します。", pref_count))
     };
-    v.push((sev, "地域カバレッジ".to_string(), body, "§5 地域分析".to_string()));
+    v.push((
+        sev,
+        "地域カバレッジ".to_string(),
+        body,
+        "§5 地域分析".to_string(),
+    ));
 
     // ============================================================
     // P1-6 (2026-05-28): 極端な分類偏り警告
@@ -410,8 +497,7 @@ fn build_findings(
     // ============================================================
     if let Some(ctx) = hw_context {
         // Finding 06: 業界 (12 大分類) の偏り
-        let (sev_ind, body_ind) =
-            compute_skew_severity(&ctx.hw_industry_counts, "産業大分類");
+        let (sev_ind, body_ind) = compute_skew_severity(&ctx.hw_industry_counts, "産業大分類");
         v.push((
             sev_ind,
             "産業構成 偏り".to_string(),
@@ -420,8 +506,7 @@ fn build_findings(
         ));
 
         // Finding 07: 職種 (job_type) の偏り
-        let (sev_job, body_job) =
-            compute_skew_severity(&ctx.hw_job_type_counts, "職種");
+        let (sev_job, body_job) = compute_skew_severity(&ctx.hw_job_type_counts, "職種");
         v.push((
             sev_job,
             "職種構成 偏り".to_string(),

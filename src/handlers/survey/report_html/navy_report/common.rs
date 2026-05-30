@@ -234,7 +234,12 @@ pub(super) fn format_mm(yen: i64) -> String {
 /// 縦線ラベル (P50/平均/最頻) は単位非依存のテキストだが、x 軸ラベルだけ unit_label に応じて切替。
 ///
 /// navy ヒストグラム SVG (固定 720×280 / 罫線 var(--rule) / バー var(--ink-soft))
-pub(super) fn build_navy_histogram_svg(_values: &[i64], s: &DistStats, unit_label: &str, _bin_step: i64) -> String {
+pub(super) fn build_navy_histogram_svg(
+    _values: &[i64],
+    s: &DistStats,
+    unit_label: &str,
+    _bin_step: i64,
+) -> String {
     let w: f64 = 720.0;
     let h: f64 = 280.0;
     let pad_l = 56.0;
@@ -600,8 +605,10 @@ pub(super) fn build_navy_salary_scatter_svg(pairs: &[(f64, f64)], is_hourly: boo
     svg.push_str(&format!(
         "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" \
          stroke=\"#C9A24B\" stroke-width=\"1.2\" stroke-dasharray=\"4,3\" opacity=\"0.7\"/>\n",
-        x_of(x_min_disp), y_of(y_min_disp),
-        x_of(x_max_disp), y_of(y_max_disp),
+        x_of(x_min_disp),
+        y_of(y_min_disp),
+        x_of(x_max_disp),
+        y_of(y_max_disp),
     ));
 
     // 散布点 (各 1 求人、半径 2.5px、navy ink-soft、opacity 0.4)
@@ -623,9 +630,12 @@ pub(super) fn build_navy_salary_scatter_svg(pairs: &[(f64, f64)], is_hourly: boo
         "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" \
          stroke=\"#C9A24B\" stroke-width=\"1.2\" stroke-dasharray=\"4,3\"/>\
          <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"9\" fill=\"#6A6E7A\">下限=上限ライン</text>\n",
-        legend_x, legend_y + 6.0,
-        legend_x + 24.0, legend_y + 6.0,
-        legend_x + 28.0, legend_y + 9.0,
+        legend_x,
+        legend_y + 6.0,
+        legend_x + 24.0,
+        legend_y + 6.0,
+        legend_x + 28.0,
+        legend_y + 9.0,
     ));
 
     svg.push_str("</svg>\n");
@@ -667,8 +677,16 @@ pub(super) fn build_salary_scatter_summary(pairs: &[(f64, f64)], is_hourly: bool
     let avg_width_yen: f64 = sum_width / n as f64;
 
     // Phase 2-A: 月給/時給 で閾値 + 軸範囲 + 単位表示を切替
-    let (narrow_threshold_yen, wide_threshold_yen, x_min_disp, x_max_disp, avg_disp_text, narrow_label, wide_label, axis_range_text):
-        (f64, f64, f64, f64, String, String, String, String) = if is_hourly {
+    let (
+        narrow_threshold_yen,
+        wide_threshold_yen,
+        x_min_disp,
+        x_max_disp,
+        avg_disp_text,
+        narrow_label,
+        wide_label,
+        axis_range_text,
+    ): (f64, f64, f64, f64, String, String, String, String) = if is_hourly {
         // 時給モード: 100 円/時 = narrow / 300 円/時 = wide
         let avg_disp = safe_pct_like(avg_width_yen); // 円のまま
         (
@@ -696,8 +714,14 @@ pub(super) fn build_salary_scatter_summary(pairs: &[(f64, f64)], is_hourly: bool
         )
     };
 
-    let narrow_count = widths_yen.iter().filter(|w| **w < narrow_threshold_yen).count();
-    let wide_count = widths_yen.iter().filter(|w| **w >= wide_threshold_yen).count();
+    let narrow_count = widths_yen
+        .iter()
+        .filter(|w| **w < narrow_threshold_yen)
+        .count();
+    let wide_count = widths_yen
+        .iter()
+        .filter(|w| **w >= wide_threshold_yen)
+        .count();
 
     let narrow_pct: f64 = safe_pct(narrow_count as f64 / n as f64 * 100.0);
     let wide_pct: f64 = safe_pct(wide_count as f64 / n as f64 * 100.0);

@@ -16,18 +16,14 @@
 //   super::super::super = survey
 //   super::super::super::super = handlers
 use super::super::super::super::helpers::escape_html;
-use super::common::push_page_head;
 use super::super::ReportVariant;
+use super::common::push_page_head;
 
 // ============================================================
 // Section 08: 注記・出典・免責 (Phase 4 navy 本実装)
 // ============================================================
 
-pub(crate) fn render_navy_section_08_notes(
-    html: &mut String,
-    variant: ReportVariant,
-    now: &str,
-) {
+pub(crate) fn render_navy_section_08_notes(html: &mut String, variant: ReportVariant, now: &str) {
     let show_hw = matches!(variant, ReportVariant::Full);
 
     html.push_str("<section class=\"page-navy navy-notes\" role=\"region\">\n");
@@ -51,40 +47,172 @@ pub(crate) fn render_navy_section_08_notes(
 
     // -- 表 8-A データソース一覧
     html.push_str("<div class=\"block-title\">表 8-A &nbsp;データソース一覧</div>\n");
-    html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+    html.push_str(
+        "<table class=\"table-navy\">\n<thead><tr>\
         <th>No.</th><th>名称</th><th>出典</th><th>用途</th><th>更新頻度</th>\
-        </tr></thead>\n<tbody>\n");
+        </tr></thead>\n<tbody>\n",
+    );
     let sources: Vec<(&str, &str, &str, &str)> = if show_hw {
         vec![
-            ("アップロード CSV",        "ユーザー提供",                 "全 Section の主集計対象",                   "都度"),
-            ("求人媒体ローカル DB",     "求人媒体 (postings テーブル)",   "Section 02 媒体掲載数 / 推移",             "日次更新"),
-            ("求人媒体時系列",          "Turso v2_ts_*",                "Section 02 3 ヶ月 / 1 年推移",              "週次"),
-            ("有効求人倍率",            "e-Stat (v2_external_job_openings_ratio)", "Section 04 採用難度",       "月次"),
-            ("労働力調査 (失業率)",      "e-Stat (v2_external_labor_force)",       "Section 04 / 06 失業率",        "月次"),
-            ("雇用動向調査 (離職率)",    "e-Stat (v2_external_turnover)",          "Section 04 離職率・入職率",     "年次"),
-            ("国勢調査 産業構造",        "e-Stat (v2_external_industry_structure)", "Section 05 産業大分類",         "5 年"),
-            ("国勢調査 人口ピラミッド",  "e-Stat (v2_external_population_pyramid)", "Section 06 人口構造",           "5 年"),
-            ("国勢調査 OD",              "e-Stat (v2_external_commute)",           "Section 07 通勤圏",             "5 年"),
-            ("学校基本調査",            "文部科学省 (v2_external_education_facilities)", "Section 06 教育施設密度",  "年次"),
-            ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
-            ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
-            ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
-            ("地域企業データ",          "地域企業データベース",                              "Section 05 法人セグメント",     "都度同期"),
+            (
+                "アップロード CSV",
+                "ユーザー提供",
+                "全 Section の主集計対象",
+                "都度",
+            ),
+            (
+                "求人媒体ローカル DB",
+                "求人媒体 (postings テーブル)",
+                "Section 02 媒体掲載数 / 推移",
+                "日次更新",
+            ),
+            (
+                "求人媒体時系列",
+                "Turso v2_ts_*",
+                "Section 02 3 ヶ月 / 1 年推移",
+                "週次",
+            ),
+            (
+                "有効求人倍率",
+                "e-Stat (v2_external_job_openings_ratio)",
+                "Section 04 採用難度",
+                "月次",
+            ),
+            (
+                "労働力調査 (失業率)",
+                "e-Stat (v2_external_labor_force)",
+                "Section 04 / 06 失業率",
+                "月次",
+            ),
+            (
+                "雇用動向調査 (離職率)",
+                "e-Stat (v2_external_turnover)",
+                "Section 04 離職率・入職率",
+                "年次",
+            ),
+            (
+                "国勢調査 産業構造",
+                "e-Stat (v2_external_industry_structure)",
+                "Section 05 産業大分類",
+                "5 年",
+            ),
+            (
+                "国勢調査 人口ピラミッド",
+                "e-Stat (v2_external_population_pyramid)",
+                "Section 06 人口構造",
+                "5 年",
+            ),
+            (
+                "国勢調査 OD",
+                "e-Stat (v2_external_commute)",
+                "Section 07 通勤圏",
+                "5 年",
+            ),
+            (
+                "学校基本調査",
+                "文部科学省 (v2_external_education_facilities)",
+                "Section 06 教育施設密度",
+                "年次",
+            ),
+            (
+                "地域別最低賃金",
+                "厚生労働省 (v2_external_minimum_wage)",
+                "Section 07 最低賃金推移",
+                "年次 (10 月)",
+            ),
+            (
+                "家計調査",
+                "総務省 (v2_external_household_spending)",
+                "Section 07 家計支出構成",
+                "月次 / 年平均",
+            ),
+            (
+                "通信利用動向調査",
+                "総務省 (v2_external_internet_usage)",
+                "Section 07 ネット利用率",
+                "年次",
+            ),
+            (
+                "地域企業データ",
+                "地域企業データベース",
+                "Section 05 法人セグメント",
+                "都度同期",
+            ),
         ]
     } else {
         vec![
-            ("アップロード CSV",        "ユーザー提供",                 "全 Section の主集計対象",                   "都度"),
-            ("有効求人倍率",            "e-Stat (v2_external_job_openings_ratio)", "Section 04 採用難度",       "月次"),
-            ("労働力調査 (失業率)",      "e-Stat (v2_external_labor_force)",       "Section 04 / 06 失業率",        "月次"),
-            ("雇用動向調査 (離職率)",    "e-Stat (v2_external_turnover)",          "Section 04 離職率・入職率",     "年次"),
-            ("国勢調査 産業構造",        "e-Stat (v2_external_industry_structure)", "Section 05 産業大分類",         "5 年"),
-            ("国勢調査 人口ピラミッド",  "e-Stat (v2_external_population_pyramid)", "Section 06 人口構造",           "5 年"),
-            ("国勢調査 OD",              "e-Stat (v2_external_commute)",           "Section 07 通勤圏",             "5 年"),
-            ("学校基本調査",            "文部科学省 (v2_external_education_facilities)", "Section 06 教育施設密度",  "年次"),
-            ("地域別最低賃金",          "厚生労働省 (v2_external_minimum_wage)",  "Section 07 最低賃金推移",       "年次 (10 月)"),
-            ("家計調査",                "総務省 (v2_external_household_spending)", "Section 07 家計支出構成",       "月次 / 年平均"),
-            ("通信利用動向調査",        "総務省 (v2_external_internet_usage)",    "Section 07 ネット利用率",       "年次"),
-            ("地域企業データ",          "地域企業データベース",                              "Section 05 法人セグメント",     "都度同期"),
+            (
+                "アップロード CSV",
+                "ユーザー提供",
+                "全 Section の主集計対象",
+                "都度",
+            ),
+            (
+                "有効求人倍率",
+                "e-Stat (v2_external_job_openings_ratio)",
+                "Section 04 採用難度",
+                "月次",
+            ),
+            (
+                "労働力調査 (失業率)",
+                "e-Stat (v2_external_labor_force)",
+                "Section 04 / 06 失業率",
+                "月次",
+            ),
+            (
+                "雇用動向調査 (離職率)",
+                "e-Stat (v2_external_turnover)",
+                "Section 04 離職率・入職率",
+                "年次",
+            ),
+            (
+                "国勢調査 産業構造",
+                "e-Stat (v2_external_industry_structure)",
+                "Section 05 産業大分類",
+                "5 年",
+            ),
+            (
+                "国勢調査 人口ピラミッド",
+                "e-Stat (v2_external_population_pyramid)",
+                "Section 06 人口構造",
+                "5 年",
+            ),
+            (
+                "国勢調査 OD",
+                "e-Stat (v2_external_commute)",
+                "Section 07 通勤圏",
+                "5 年",
+            ),
+            (
+                "学校基本調査",
+                "文部科学省 (v2_external_education_facilities)",
+                "Section 06 教育施設密度",
+                "年次",
+            ),
+            (
+                "地域別最低賃金",
+                "厚生労働省 (v2_external_minimum_wage)",
+                "Section 07 最低賃金推移",
+                "年次 (10 月)",
+            ),
+            (
+                "家計調査",
+                "総務省 (v2_external_household_spending)",
+                "Section 07 家計支出構成",
+                "月次 / 年平均",
+            ),
+            (
+                "通信利用動向調査",
+                "総務省 (v2_external_internet_usage)",
+                "Section 07 ネット利用率",
+                "年次",
+            ),
+            (
+                "地域企業データ",
+                "地域企業データベース",
+                "Section 05 法人セグメント",
+                "都度同期",
+            ),
         ]
     };
     for (i, (name, source, purpose, freq)) in sources.iter().enumerate() {
