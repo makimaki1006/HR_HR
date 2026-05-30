@@ -19,13 +19,13 @@
 //! 各 field の意味は旧 `_with_variant_v3_themed` のシグネチャと同じ。
 //! 個別の項目仕様は本ファイルの doc コメント、または `mod.rs` 内 7 段ラッパの doc を参照。
 
+use super::super::super::company::fetch::{NearbyCompany, RegionalCompanySegments};
+use super::super::super::insight::fetch::InsightContext;
 use super::super::aggregator::{CompanyAgg, EmpTypeSalary, SurveyAggregation};
 use super::super::granularity::MunicipalityDemographics;
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
 use super::super::upload::WageMode;
-use super::super::super::company::fetch::{NearbyCompany, RegionalCompanySegments};
-use super::super::super::insight::fetch::InsightContext;
 use super::{ReportTheme, ReportVariant};
 use std::collections::HashMap;
 
@@ -280,9 +280,7 @@ impl<'a> RenderConfigBuilder<'a> {
             hw_context: self.hw_context,
             salesnow_companies: self.salesnow_companies.unwrap_or(&[]),
             salesnow_segments: self.salesnow_segments.unwrap_or(empty_segments),
-            salesnow_segments_industry: self
-                .salesnow_segments_industry
-                .unwrap_or(empty_segments),
+            salesnow_segments_industry: self.salesnow_segments_industry.unwrap_or(empty_segments),
             industry_filter: self.industry_filter,
             hw_enrichment_map: self.hw_enrichment_map.unwrap_or(empty_hw),
             municipality_demographics: self.municipality_demographics.unwrap_or(&[]),
@@ -328,7 +326,10 @@ mod tests {
             cfg.salesnow_companies.is_empty(),
             "salesnow_companies default = empty"
         );
-        assert!(cfg.industry_filter.is_none(), "industry_filter default = None");
+        assert!(
+            cfg.industry_filter.is_none(),
+            "industry_filter default = None"
+        );
         assert!(
             cfg.hw_enrichment_map.is_empty(),
             "hw_enrichment_map default = empty"

@@ -18,9 +18,9 @@
 #![cfg(test)]
 #![allow(unused_imports)]
 
-use super::*;
 use super::super::aggregator::{MunicipalitySalaryAgg, SurveyAggregation};
 use super::super::job_seeker::{JobSeekerAnalysis, SalaryRangePerception};
+use super::*;
 use std::collections::HashMap;
 
 type Row = super::super::super::helpers::Row;
@@ -116,8 +116,7 @@ fn render_with(
     ctx: Option<&super::super::super::insight::fetch::InsightContext>,
     variant: ReportVariant,
 ) -> String {
-    let empty_segments =
-        super::super::super::company::fetch::RegionalCompanySegments::default();
+    let empty_segments = super::super::super::company::fetch::RegionalCompanySegments::default();
     let empty_map = HashMap::new();
     render_survey_report_page_with_variant_v3_themed(
         agg,
@@ -397,10 +396,7 @@ fn k7_pyramid_female_series_present_when_data_exists() {
         html.contains(">女性<"),
         "K7: SSR SVG 凡例に女性ラベルが必要"
     );
-    assert!(
-        html.contains("#ec4899"),
-        "K7: 女性色 (#ec4899) rect が必要"
-    );
+    assert!(html.contains("#ec4899"), "K7: 女性色 (#ec4899) rect が必要");
 }
 
 /// K8: 0-9 / 10-19 階級は age_group_sort_key で正しく扱われる。
@@ -490,8 +486,8 @@ fn k10_seeker_section_has_no_echart_bug_confirmed() {
 /// (struct フィールドが多く直接構築は brittle)。
 #[test]
 fn k11_salary_stats_iqr_is_css_div_not_boxplot_bug_confirmed() {
-    use super::salary_stats::render_section_salary_stats;
     use super::super::statistics::enhanced_salary_statistics;
+    use super::salary_stats::render_section_salary_stats;
     let mut agg = SurveyAggregation::default();
     agg.salary_values = vec![
         200_000, 220_000, 240_000, 250_000, 260_000, 280_000, 300_000, 320_000, 340_000, 360_000,
@@ -517,7 +513,10 @@ fn k12_heatmap_cell_no_min_height_bug_confirmed() {
     use super::style::render_css;
     let css = render_css();
     if let Some(start) = css.find(".heatmap-cell {") {
-        let end = css[start..].find('}').map(|e| start + e).unwrap_or(css.len());
+        let end = css[start..]
+            .find('}')
+            .map(|e| start + e)
+            .unwrap_or(css.len());
         let rule = &css[start..end];
         let has_min_height = rule.contains("min-height") || rule.contains("\n  height:");
         // Round 12 (2026-05-12) K12 修正完了: .heatmap-cell に min-height 追加
@@ -640,10 +639,7 @@ fn l5_seeker_section_omitted_when_no_data() {
 #[test]
 fn l5_pyramid_empty_age_group_filtered() {
     let mut ctx = empty_insight_ctx();
-    ctx.ext_pyramid = vec![
-        pyramid_row("", 50, 50),
-        pyramid_row("20-29", 100, 80),
-    ];
+    ctx.ext_pyramid = vec![pyramid_row("", 50, 50), pyramid_row("20-29", 100, 80)];
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_with(&agg, &seeker, Some(&ctx), ReportVariant::Full);

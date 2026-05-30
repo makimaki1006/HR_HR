@@ -23,17 +23,16 @@ pub async fn admin_users_list(
     // AUDIT E P0-1: reqwest::blocking を tokio worker thread でブロックしないよう
     // spawn_blocking で別スレッド実行 (src/handlers/CLAUDE.md §2.3 準拠)
     let audit_clone = audit.clone();
-    let accounts = match tokio::task::spawn_blocking(move || {
-        dao::list_accounts(audit_clone.turso(), 500)
-    })
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!("admin_users_list spawn_blocking join failed: {e}");
-            Vec::new()
-        }
-    };
+    let accounts =
+        match tokio::task::spawn_blocking(move || dao::list_accounts(audit_clone.turso(), 500))
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("admin_users_list spawn_blocking join failed: {e}");
+                Vec::new()
+            }
+        };
     Html(render::users_list_page(&accounts))
 }
 

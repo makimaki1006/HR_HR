@@ -846,13 +846,53 @@ mod round12_master_tests {
     #[test]
     fn r12_all_47_prefectures_have_codes() {
         let prefs = [
-            "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
-            "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
-            "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県",
-            "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県",
-            "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県",
-            "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県",
-            "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+            "北海道",
+            "青森県",
+            "岩手県",
+            "宮城県",
+            "秋田県",
+            "山形県",
+            "福島県",
+            "茨城県",
+            "栃木県",
+            "群馬県",
+            "埼玉県",
+            "千葉県",
+            "東京都",
+            "神奈川県",
+            "新潟県",
+            "富山県",
+            "石川県",
+            "福井県",
+            "山梨県",
+            "長野県",
+            "岐阜県",
+            "静岡県",
+            "愛知県",
+            "三重県",
+            "滋賀県",
+            "京都府",
+            "大阪府",
+            "兵庫県",
+            "奈良県",
+            "和歌山県",
+            "鳥取県",
+            "島根県",
+            "岡山県",
+            "広島県",
+            "山口県",
+            "徳島県",
+            "香川県",
+            "愛媛県",
+            "高知県",
+            "福岡県",
+            "佐賀県",
+            "長崎県",
+            "熊本県",
+            "大分県",
+            "宮崎県",
+            "鹿児島県",
+            "沖縄県",
         ];
         assert_eq!(prefs.len(), 47);
         for p in prefs {
@@ -1004,9 +1044,7 @@ mod round12_master_tests {
     fn r12_k2_table_header_order_municipality_then_prefecture() {
         let mut agg = SurveyAggregation::default();
         agg.by_prefecture = vec![("埼玉県".to_string(), 100)];
-        agg.by_municipality_salary = vec![
-            muni("埼玉県", "三芳町", 5, 260_000),
-        ];
+        agg.by_municipality_salary = vec![muni("埼玉県", "三芳町", 5, 260_000)];
 
         let mut html = String::new();
         render_section_municipality_salary(&mut html, &agg);
@@ -1040,10 +1078,7 @@ mod round12_master_tests {
     #[test]
     fn r12_k2_table_header_consistency_across_rows() {
         let mut agg = SurveyAggregation::default();
-        agg.by_prefecture = vec![
-            ("神奈川県".to_string(), 50),
-            ("埼玉県".to_string(), 30),
-        ]; // 単一県スコープではないので filter は素通し
+        agg.by_prefecture = vec![("神奈川県".to_string(), 50), ("埼玉県".to_string(), 30)]; // 単一県スコープではないので filter は素通し
         agg.by_municipality_salary = vec![
             muni("神奈川県", "川崎市", 30, 300_000),
             muni("神奈川県", "横浜市", 20, 310_000),
@@ -1281,10 +1316,7 @@ mod round12_master_tests {
     #[test]
     fn r12_multi_pref_scope_keeps_homonyms_with_marker() {
         let mut agg = SurveyAggregation::default();
-        agg.by_prefecture = vec![
-            ("北海道".to_string(), 10),
-            ("福島県".to_string(), 8),
-        ];
+        agg.by_prefecture = vec![("北海道".to_string(), 10), ("福島県".to_string(), 8)];
         agg.by_municipality_salary = vec![
             muni("北海道", "伊達市", 10, 250_000),
             muni("福島県", "伊達市", 8, 260_000),
@@ -1306,7 +1338,10 @@ mod round12_master_tests {
         let agg = SurveyAggregation::default();
         let mut html = String::new();
         render_section_municipality_salary(&mut html, &agg);
-        assert!(html.is_empty(), "空 by_municipality_salary では何も書かない");
+        assert!(
+            html.is_empty(),
+            "空 by_municipality_salary では何も書かない"
+        );
     }
 
     // -----------------------------------------------------------------

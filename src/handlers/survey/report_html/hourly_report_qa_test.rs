@@ -109,7 +109,10 @@ fn h1_fuyou_103man_descending_with_more_hours() {
 #[test]
 fn h1_fuyou_table_structure_has_table_navy_class_and_6_columns() {
     let html = build_navy_fuyou_table(1500);
-    assert!(html.contains("<table class=\"table-navy\">"), "table-navy class 必須");
+    assert!(
+        html.contains("<table class=\"table-navy\">"),
+        "table-navy class 必須"
+    );
     assert!(html.contains("<thead>"), "thead 必須");
     assert!(html.contains("<tbody>"), "tbody 必須");
     // 列ヘッダ: 区分 + 5 週時間 (15/20/25/30/35h)
@@ -158,9 +161,15 @@ fn h1_fuyou_negative_median_treated_as_no_data() {
     let html = build_navy_fuyou_table(-100);
     // median <= 0 → 自社中央値行は "—"
     let dash_count = html.matches("—").count();
-    assert!(dash_count >= 5, "median<=0 で 自社中央値行に 5 個の '—' 必要");
+    assert!(
+        dash_count >= 5,
+        "median<=0 で 自社中央値行に 5 個の '—' 必要"
+    );
     // 異常値 -100 が表示されてはいけない
-    assert!(!html.contains("-100 円/時"), "負の median を数値表示すべきでない");
+    assert!(
+        !html.contains("-100 円/時"),
+        "負の median を数値表示すべきでない"
+    );
 }
 
 /// H1-10 (不変条件): 全ライン値が非負整数 — 最小値 (週35h の各ライン) を検証
@@ -169,8 +178,14 @@ fn h1_fuyou_all_line_values_positive_integer() {
     let html = build_navy_fuyou_table(0);
     // 103万 (週35h) = ceil(1030000/1820) = 566 — 最小値でも > 0
     // 130万 (週35h) = ceil(1300000/1820) = 715 — 最小値でも > 0
-    assert!(html.contains("566 円/時"), "週35h 103万ライン 566 (最小値) > 0");
-    assert!(html.contains("715 円/時"), "週35h 130万ライン 715 (最小値) > 0");
+    assert!(
+        html.contains("566 円/時"),
+        "週35h 103万ライン 566 (最小値) > 0"
+    );
+    assert!(
+        html.contains("715 円/時"),
+        "週35h 130万ライン 715 (最小値) > 0"
+    );
 }
 
 // ============================================================
@@ -181,7 +196,10 @@ fn h1_fuyou_all_line_values_positive_integer() {
 #[test]
 fn h3_premium_min_wage_zero_returns_empty() {
     let svg = build_navy_minwage_premium_histogram_svg(&[1200, 1300], 0);
-    assert_eq!(svg, "", "min_wage <= 0 で空文字を返すこと (呼出側で caption 表示)");
+    assert_eq!(
+        svg, "",
+        "min_wage <= 0 で空文字を返すこと (呼出側で caption 表示)"
+    );
     let svg_neg = build_navy_minwage_premium_histogram_svg(&[1200], -50);
     assert_eq!(svg_neg, "", "min_wage 負値でも空文字");
 }
@@ -346,7 +364,11 @@ fn h4_band_boundary_1000_goes_to_1000_1100() {
     let target = dist.iter().find(|(l, _)| l == "1000-1100円");
     assert_eq!(target.unwrap().1, 1, "1000 ちょうどは 1000-1100 bucket");
     let lower = dist.iter().find(|(l, _)| l == "900-1000円");
-    assert_eq!(lower.unwrap().1, 0, "1000 は 900-1000 bucket には入らない (hi 排他)");
+    assert_eq!(
+        lower.unwrap().1,
+        0,
+        "1000 は 900-1000 bucket には入らない (hi 排他)"
+    );
 }
 
 /// H4-05: 境界値 — 899 → "<900円" bucket
@@ -389,7 +411,9 @@ fn h4_band_scale_1000_values() {
 /// H4-09 (不変条件): 各 bucket count ∈ [0, total]
 #[test]
 fn h4_band_each_count_within_total_range() {
-    let values = vec![800, 950, 1050, 1150, 1250, 1350, 1450, 1550, 1650, 1750, 1850, 1950, 2050];
+    let values = vec![
+        800, 950, 1050, 1150, 1250, 1350, 1450, 1550, 1650, 1750, 1850, 1950, 2050,
+    ];
     let dist = build_hourly_band_distribution(&values);
     let total: i64 = dist.iter().map(|(_, c)| *c).sum();
     for (label, c) in dist.iter() {

@@ -281,10 +281,7 @@ pub(crate) fn fetch_self_commute_rate(
         &params,
         "v2_external_commute_od",
     );
-    let total_outflow = out_rows
-        .first()
-        .map(|r| get_i64(r, "total"))
-        .unwrap_or(0);
+    let total_outflow = out_rows.first().map(|r| get_i64(r, "total")).unwrap_or(0);
 
     if total_outflow > 0 {
         self_count as f64 / total_outflow as f64

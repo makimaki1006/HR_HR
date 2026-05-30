@@ -701,9 +701,7 @@ fn render_demographic_kpis(html: &mut String, ctx: &InsightContext) {
     //   ※「25-44」厳密ターゲットは粒度上計算不能のため、20-49 を fallback 表示
     // - Unknown / 該当データなし: KPI 非表示
     let (target_value, target_label) = match age_bucket {
-        AgeBucketSize::FiveYear if target_age > 0 => {
-            (target_age, "25-44 歳 (採用ターゲット層)")
-        }
+        AgeBucketSize::FiveYear if target_age > 0 => (target_age, "25-44 歳 (採用ターゲット層)"),
         AgeBucketSize::TenYear if target_age_10yr > 0 => (
             target_age_10yr,
             "20-49 歳 (採用ターゲット層・10 歳階級粒度)",
