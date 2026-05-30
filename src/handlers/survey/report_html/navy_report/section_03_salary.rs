@@ -1167,7 +1167,7 @@ fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -
         ));
     }
     s.push_str("</tbody></table>\n");
-    s.push_str("<p class=\"caption\">単位: 万円 (月給換算)。\
+    s.push_str("<p class=\"caption\"><strong>出典:</strong> CSV 集計 (月給換算済み)。単位: 万円。\
                 目的別ライン: コスト抑制 P40-P50 / 見劣り回避 P50 / 競争力 P60-P75 / 高待遇訴求 P75+ (設計メモ §10.3)。</p>\n");
     s
 }
@@ -1417,9 +1417,9 @@ fn build_navy_salary_summary_table(
     s.push_str(&row("上限給与", hi));
     s.push_str("</tbody></table>\n");
     let caption = if is_hourly {
-        "<p class=\"caption\">単位: 円/時。</p>\n"
+        "<p class=\"caption\"><strong>出典:</strong> CSV 集計。単位: 円/時 (時給ネイティブ)。</p>\n"
     } else {
-        "<p class=\"caption\">単位: 万円。</p>\n"
+        "<p class=\"caption\"><strong>出典:</strong> CSV 集計。単位: 万円 (月給換算)。</p>\n"
     };
     s.push_str(caption);
     s

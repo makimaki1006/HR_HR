@@ -339,7 +339,7 @@ pub(crate) fn render_navy_section_06_demographics(
             .map(|r| get_i64(r, "natural_change"))
             .unwrap_or(0);
         let vital_insight = if latest_natural < 0 {
-            format!("最新値で <strong>自然減 {} 名</strong> (死亡 > 出生)。中長期 (5-10 年) で<strong>労働力供給の構造的縮小</strong>が見込まれ、自動化投資・省人化施策の並走を推奨。",
+            format!("最新値で <strong>自然減 {} 名</strong> (死亡 > 出生)。中長期 (5-10 年) で<strong>労働力供給の減少局面</strong>が継続する見通し、自動化投資・省人化施策の並走を推奨。",
                 format_number(latest_natural))
         } else {
             format!("自然増 +{} 名で人口再生産は継続。短期の採用環境は本指標より表 6-C (社会移動) の影響が支配的。",
