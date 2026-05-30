@@ -180,10 +180,7 @@ pub fn fetch_industry_mapping(turso: &TursoDb, sn_industry: &str) -> Vec<(String
 /// 信頼度 0.3 以上のものを採用する (低信頼度の混入を防ぎつつ網羅性を確保)。
 ///
 /// LIKE で部分一致もサポート: hw_industry="運輸業" でも "運輸業，郵便業" の行を引く。
-pub fn fetch_sn_industries_for_hw_industry(
-    turso: &TursoDb,
-    hw_industry: &str,
-) -> Vec<String> {
+pub fn fetch_sn_industries_for_hw_industry(turso: &TursoDb, hw_industry: &str) -> Vec<String> {
     if hw_industry.is_empty() {
         return vec![];
     }
@@ -254,9 +251,7 @@ pub fn build_company_context(
     // 単位 (%) で 2026-04-30 100倍ずれ / 2026-05-14 表示層 ×100 が再発した事故対策。
     // ETL バグ or 単位ずれを早期検知するため、現実値域外を警告ログに残す。
     // (現実値域: -100% 〜 +1000%。±300% 超は in_realistic_range で表示時に除外)
-    if ctx.employee_delta_1y.is_finite()
-        && !(-100.0..=1000.0).contains(&ctx.employee_delta_1y)
-    {
+    if ctx.employee_delta_1y.is_finite() && !(-100.0..=1000.0).contains(&ctx.employee_delta_1y) {
         tracing::warn!(
             corp = %ctx.corporate_number,
             value = ctx.employee_delta_1y,
@@ -655,8 +650,7 @@ pub fn fetch_companies_by_region(
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 AND address LIKE ?2 \
                    ORDER BY employee_count DESC LIMIT ?3";
-        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-            vec![&pref, &muni_pattern, &lim];
+        let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![&pref, &muni_pattern, &lim];
         sn_db.query(sql, &params).unwrap_or_default()
     } else {
         // 都道府県のみ
@@ -736,9 +730,7 @@ pub fn fetch_company_segments_by_region_with_industry(
     muni: &str,
     industry: Option<&str>,
 ) -> RegionalCompanySegments {
-    fetch_company_segments_by_region_with_industry_internal(
-        sn_db, db, pref, muni, industry, &[],
-    )
+    fetch_company_segments_by_region_with_industry_internal(sn_db, db, pref, muni, industry, &[])
 }
 
 pub fn fetch_company_segments_by_region_with_sn_industries(
@@ -749,7 +741,12 @@ pub fn fetch_company_segments_by_region_with_sn_industries(
     sn_industries: &[String],
 ) -> RegionalCompanySegments {
     fetch_company_segments_by_region_with_industry_internal(
-        sn_db, db, pref, muni, None, sn_industries,
+        sn_db,
+        db,
+        pref,
+        muni,
+        None,
+        sn_industries,
     )
 }
 
@@ -793,7 +790,10 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
         .map(|i| {
             let pref_idx = n_ind + 1 + i * 2;
             let muni_idx = pref_idx + 1;
-            format!("(prefecture = ?{} AND address LIKE ?{})", pref_idx, muni_idx)
+            format!(
+                "(prefecture = ?{} AND address LIKE ?{})",
+                pref_idx, muni_idx
+            )
         })
         .collect::<Vec<_>>()
         .join(" OR ");
@@ -882,9 +882,7 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
     let mut growth: Vec<NearbyCompany> = pool
         .iter()
         .filter(|c| {
-            c.employee_delta_1y > 10.0
-                && c.employee_delta_1y <= 300.0
-                && c.employee_count >= 10
+            c.employee_delta_1y > 10.0 && c.employee_delta_1y <= 300.0 && c.employee_count >= 10
         })
         .cloned()
         .collect();
@@ -1060,11 +1058,12 @@ fn fetch_company_segments_by_region_with_industry_internal(
             params.push(hi);
             params.push(&band_limit);
             sn_db.query(&sql, &params).unwrap_or_default()
-        } else { match (muni.is_empty(), &industry_keyword) {
-            (false, Some(kw)) => {
-                let muni_pattern = format!("%{}%", muni);
-                let ind_pattern = format!("%{}%", kw);
-                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+        } else {
+            match (muni.is_empty(), &industry_keyword) {
+                (false, Some(kw)) => {
+                    let muni_pattern = format!("%{}%", muni);
+                    let ind_pattern = format!("%{}%", kw);
+                    let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
                            employee_delta_1y, employee_delta_3m \
@@ -1072,19 +1071,13 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
                              AND employee_count >= ?4 AND employee_count <= ?5 \
                            ORDER BY employee_count DESC LIMIT ?6";
-                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> = vec![
-                    &pref,
-                    &muni_pattern,
-                    &ind_pattern,
-                    lo,
-                    hi,
-                    &band_limit,
-                ];
-                sn_db.query(sql, &params).unwrap_or_default()
-            }
-            (true, Some(kw)) => {
-                let ind_pattern = format!("%{}%", kw);
-                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                        vec![&pref, &muni_pattern, &ind_pattern, lo, hi, &band_limit];
+                    sn_db.query(sql, &params).unwrap_or_default()
+                }
+                (true, Some(kw)) => {
+                    let ind_pattern = format!("%{}%", kw);
+                    let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
                            employee_delta_1y, employee_delta_3m \
@@ -1092,13 +1085,13 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            WHERE prefecture = ?1 AND sn_industry LIKE ?2 \
                              AND employee_count >= ?3 AND employee_count <= ?4 \
                            ORDER BY employee_count DESC LIMIT ?5";
-                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&pref, &ind_pattern, lo, hi, &band_limit];
-                sn_db.query(sql, &params).unwrap_or_default()
-            }
-            (false, None) => {
-                let muni_pattern = format!("%{}%", muni);
-                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                        vec![&pref, &ind_pattern, lo, hi, &band_limit];
+                    sn_db.query(sql, &params).unwrap_or_default()
+                }
+                (false, None) => {
+                    let muni_pattern = format!("%{}%", muni);
+                    let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
                            employee_delta_1y, employee_delta_3m \
@@ -1106,12 +1099,12 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            WHERE prefecture = ?1 AND address LIKE ?2 \
                              AND employee_count >= ?3 AND employee_count <= ?4 \
                            ORDER BY employee_count DESC LIMIT ?5";
-                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&pref, &muni_pattern, lo, hi, &band_limit];
-                sn_db.query(sql, &params).unwrap_or_default()
-            }
-            (true, None) => {
-                let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
+                    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                        vec![&pref, &muni_pattern, lo, hi, &band_limit];
+                    sn_db.query(sql, &params).unwrap_or_default()
+                }
+                (true, None) => {
+                    let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
                            employee_delta_1y, employee_delta_3m \
@@ -1119,11 +1112,12 @@ fn fetch_company_segments_by_region_with_industry_internal(
                            WHERE prefecture = ?1 \
                              AND employee_count >= ?2 AND employee_count <= ?3 \
                            ORDER BY employee_count DESC LIMIT ?4";
-                let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
-                    vec![&pref, lo, hi, &band_limit];
-                sn_db.query(sql, &params).unwrap_or_default()
+                    let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
+                        vec![&pref, lo, hi, &band_limit];
+                    sn_db.query(sql, &params).unwrap_or_default()
+                }
             }
-        } };  // ← match ... else { match { ... } } の閉じ
+        }; // ← match ... else { match { ... } } の閉じ
         for r in rows {
             let cn = get_str(&r, "corporate_number");
             if seen.insert(cn) {
@@ -1180,9 +1174,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
     let mut growth: Vec<NearbyCompany> = pool
         .iter()
         .filter(|c| {
-            c.employee_delta_1y > 10.0
-                && c.employee_delta_1y <= 300.0
-                && c.employee_count >= 10
+            c.employee_delta_1y > 10.0 && c.employee_delta_1y <= 300.0 && c.employee_count >= 10
         })
         .cloned()
         .collect();

@@ -5,15 +5,15 @@
 use super::super::super::company::fetch::NearbyCompany;
 use super::super::super::helpers::{escape_html, format_number, get_f64, get_str_ref};
 use super::super::super::insight::fetch::InsightContext;
-use crate::db::local_sqlite::LocalDb;
-use crate::db::turso_http::TursoDb;
-use std::collections::HashMap;
 use super::super::aggregator::{
     CompanyAgg, EmpTypeSalary, ScatterPoint, SurveyAggregation, TagSalaryAgg,
 };
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
+use crate::db::local_sqlite::LocalDb;
+use crate::db::turso_http::TursoDb;
 use serde_json::json;
+use std::collections::HashMap;
 
 use super::helpers::*;
 
@@ -249,7 +249,8 @@ pub(super) fn render_section_min_wage(
     entries.sort_by(|a, b| a.diff_min_wage.cmp(&b.diff_min_wage)); // 差が小さい順
 
     // 全体の平均比率
-    let avg_ratio: f64 = entries.iter().map(|e| e.ratio_min_wage).sum::<f64>() / entries.len() as f64;
+    let avg_ratio: f64 =
+        entries.iter().map(|e| e.ratio_min_wage).sum::<f64>() / entries.len() as f64;
     let avg_diff_pct = (avg_ratio - 1.0) * 100.0;
 
     html.push_str("<div class=\"section\">\n");
@@ -1020,16 +1021,30 @@ mod round12_judgement_tests {
     //   let near_count  = entries.iter()
     //       .filter(|e| e.diff_min_wage >= 0 && e.diff_min_wage < 50).count();
     // -----------------------------------------------------------------
-    fn is_below(diff: i64) -> bool { diff < 0 }
-    fn is_near(diff: i64) -> bool { diff >= 0 && diff < 50 }
-    fn is_ok(diff: i64) -> bool { diff >= 50 }
+    fn is_below(diff: i64) -> bool {
+        diff < 0
+    }
+    fn is_near(diff: i64) -> bool {
+        diff >= 0 && diff < 50
+    }
+    fn is_ok(diff: i64) -> bool {
+        diff >= 50
+    }
 
     #[derive(Debug, PartialEq, Eq)]
-    enum Bucket { Below, Near, Ok }
+    enum Bucket {
+        Below,
+        Near,
+        Ok,
+    }
     fn classify(diff: i64) -> Bucket {
-        if is_below(diff) { Bucket::Below }
-        else if is_near(diff) { Bucket::Near }
-        else { Bucket::Ok }
+        if is_below(diff) {
+            Bucket::Below
+        } else if is_near(diff) {
+            Bucket::Near
+        } else {
+            Bucket::Ok
+        }
     }
 
     // -----------------------------------------------------------------
@@ -1042,8 +1057,14 @@ mod round12_judgement_tests {
         let min_wage = 1_141i64;
         let diff = hourly - min_wage;
         assert_eq!(diff, -85);
-        assert!(is_below(diff), "K3: 差 -85 は最賃割れ (below) と判定されるべき");
-        assert!(!is_near(diff), "K3: 差 -85 は『差 50 円未満 (要確認)』(near) に分類してはならない");
+        assert!(
+            is_below(diff),
+            "K3: 差 -85 は最賃割れ (below) と判定されるべき"
+        );
+        assert!(
+            !is_near(diff),
+            "K3: 差 -85 は『差 50 円未満 (要確認)』(near) に分類してはならない"
+        );
         assert_eq!(classify(diff), Bucket::Below);
     }
 
@@ -1054,7 +1075,10 @@ mod round12_judgement_tests {
         let below_count = entries.iter().filter(|d| is_below(**d)).count();
         let near_count = entries.iter().filter(|d| is_near(**d)).count();
         assert_eq!(below_count, 1, "最賃割れ件数は 1 でなければならない");
-        assert_eq!(near_count, 0, "『差 50 円未満』件数は 0 (最賃割れは含まない)");
+        assert_eq!(
+            near_count, 0,
+            "『差 50 円未満』件数は 0 (最賃割れは含まない)"
+        );
         // K3 矛盾: アラート文 "{} 県で...下回る傾向" に below_count=1 が入る必要がある
         // 0 県表示は誤り
     }
@@ -1064,7 +1088,10 @@ mod round12_judgement_tests {
         // ユーザー視点: |diff|=85 は 50 円未満ではない。文言「差が 50 円未満」だけでは
         // 「絶対値ベースの差」と誤読しうる。near_count 定義は「最賃を上回り 50 円未満」
         let diff = -85i64;
-        assert!(diff.abs() >= 50, "|−85| = 85 ≥ 50: 50 円以内に収まっていない");
+        assert!(
+            diff.abs() >= 50,
+            "|−85| = 85 ≥ 50: 50 円以内に収まっていない"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1126,7 +1153,11 @@ mod round12_judgement_tests {
         for diff in [-100i64, -1, 0, 25, 49, 50, 100, 500] {
             let flags = [is_below(diff), is_near(diff), is_ok(diff)];
             let true_count = flags.iter().filter(|b| **b).count();
-            assert_eq!(true_count, 1, "diff={} は単一バケットのみに属するべき", diff);
+            assert_eq!(
+                true_count, 1,
+                "diff={} は単一バケットのみに属するべき",
+                diff
+            );
         }
     }
 
@@ -1137,17 +1168,29 @@ mod round12_judgement_tests {
     //   else → Positive
     // -----------------------------------------------------------------
     #[derive(Debug, PartialEq, Eq)]
-    enum Sev { Critical, Warning, Positive }
+    enum Sev {
+        Critical,
+        Warning,
+        Positive,
+    }
     fn severity(below: usize, near: usize) -> Sev {
-        if below > 0 { Sev::Critical }
-        else if near > 0 { Sev::Warning }
-        else { Sev::Positive }
+        if below > 0 {
+            Sev::Critical
+        } else if near > 0 {
+            Sev::Warning
+        } else {
+            Sev::Positive
+        }
     }
 
     #[test]
     fn severity_below_takes_precedence_over_near() {
         assert_eq!(severity(1, 0), Sev::Critical);
-        assert_eq!(severity(1, 5), Sev::Critical, "below が 1 件でもあれば Critical");
+        assert_eq!(
+            severity(1, 5),
+            Sev::Critical,
+            "below が 1 件でもあれば Critical"
+        );
     }
     #[test]
     fn severity_only_near_yields_warning() {
@@ -1160,13 +1203,19 @@ mod round12_judgement_tests {
     #[test]
     fn k3_severity_must_be_critical() {
         // K3 シナリオ: 埼玉県 1 県だけ最賃割れ
-        assert_eq!(severity(1, 0), Sev::Critical, "K3: 1 県でも最賃割れがあれば Critical");
+        assert_eq!(
+            severity(1, 0),
+            Sev::Critical,
+            "K3: 1 県でも最賃割れがあれば Critical"
+        );
     }
 
     // -----------------------------------------------------------------
     // 時給換算式 (wage.rs:232 と同一: avg_min_salary / HOURLY_TO_MONTHLY_HOURS=167)
     // -----------------------------------------------------------------
-    fn hourly_equiv(monthly_min: i64) -> i64 { monthly_min / 167 }
+    fn hourly_equiv(monthly_min: i64) -> i64 {
+        monthly_min / 167
+    }
 
     #[test]
     fn hourly_equiv_basic() {
@@ -1192,11 +1241,13 @@ mod round12_judgement_tests {
         // 1,000 円台の時給値が monthly に紛れ込んだ場合は除外されるべき
         // 実関数: super::salary_summary::is_plausible_monthly_min_salary
         // ここでは閾値 50,000 を独立再現して検証
-        fn plausible(v: i64) -> bool { v >= 50_000 }
-        assert!(!plausible(1_056));   // 時給値混入
+        fn plausible(v: i64) -> bool {
+            v >= 50_000
+        }
+        assert!(!plausible(1_056)); // 時給値混入
         assert!(!plausible(49_999));
         assert!(plausible(50_000));
-        assert!(plausible(176_352));  // K3 月給
+        assert!(plausible(176_352)); // K3 月給
     }
 
     // -----------------------------------------------------------------
@@ -1206,7 +1257,9 @@ mod round12_judgement_tests {
     #[test]
     fn anti_regression_near_definition_must_exclude_negatives() {
         // 誤った定義 (バグ候補): `diff < 50` のみ
-        fn buggy_near(diff: i64) -> bool { diff < 50 }
+        fn buggy_near(diff: i64) -> bool {
+            diff < 50
+        }
         assert!(buggy_near(-85), "誤実装では K3 (-85) も near 扱いになる");
         // 正しい定義: 必ず >=0 を併用
         assert!(!is_near(-85), "正実装では K3 (-85) は near ではない");
@@ -1226,9 +1279,15 @@ mod round12_judgement_tests {
     fn scenario_47_prefectures_distribution() {
         // 想定: 5 県が最賃割れ、10 県が near、32 県が ok
         let mut diffs: Vec<i64> = Vec::new();
-        for _ in 0..5 { diffs.push(-30); }   // below
-        for _ in 0..10 { diffs.push(20); }   // near
-        for _ in 0..32 { diffs.push(100); }  // ok
+        for _ in 0..5 {
+            diffs.push(-30);
+        } // below
+        for _ in 0..10 {
+            diffs.push(20);
+        } // near
+        for _ in 0..32 {
+            diffs.push(100);
+        } // ok
         assert_eq!(diffs.len(), 47);
         let below = diffs.iter().filter(|d| is_below(**d)).count();
         let near = diffs.iter().filter(|d| is_near(**d)).count();

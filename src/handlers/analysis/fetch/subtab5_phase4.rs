@@ -35,8 +35,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::super::super::helpers::table_exists;
 use super::super::super::helpers::normalize_muni_for_external;
+use super::super::super::helpers::table_exists;
 use super::{query_3level, query_turso_or_local, EXTERNAL_CLEAN_FILTER};
 
 type Db = crate::db::local_sqlite::LocalDb;
@@ -331,7 +331,9 @@ pub(crate) fn fetch_top_muni_names(db: &Db, pref: &str, limit: usize) -> Vec<Str
             // R2-P1-7 (ultrathink Round 2, 2026-05-28): eprintln! → tracing::warn! 統一。
             tracing::warn!(
                 "fetch_top_muni_names: postings query failed (pref={}, limit={}): {}",
-                pref, limit, e
+                pref,
+                limit,
+                e
             );
             return Vec::new();
         }
@@ -912,7 +914,9 @@ pub(crate) fn fetch_csv_company_salary_ranking(
         if lo <= 0.0 || hi <= 0.0 || hi < lo {
             continue;
         }
-        let entry = grouped.entry(name).or_insert_with(|| (Vec::new(), Vec::new()));
+        let entry = grouped
+            .entry(name)
+            .or_insert_with(|| (Vec::new(), Vec::new()));
         entry.0.push(lo);
         entry.1.push(hi);
     }
@@ -1403,10 +1407,10 @@ mod posting_target_profile_tests {
             (None, None),
             (Some(0), Some(0)),
             (Some(15), Some(64)),
-            (Some(45), Some(44)),  // 矛盾
-            (Some(70), Some(29)),  // 矛盾
-            (Some(30), None),      // 片側
-            (None, Some(60)),      // 片側
+            (Some(45), Some(44)), // 矛盾
+            (Some(70), Some(29)), // 矛盾
+            (Some(30), None),     // 片側
+            (None, Some(60)),     // 片側
             (Some(99), None),
             (None, Some(0)),
         ];
@@ -1527,8 +1531,18 @@ mod posting_target_profile_tests {
     #[test]
     fn salary_bucket_total_invariant_over_synthetic_inputs() {
         let inputs: Vec<f64> = vec![
-            150_000.0, 200_000.0, 220_000.0, 250_000.0, 280_000.0, 300_000.0, 320_000.0, 350_000.0,
-            380_000.0, 400_000.0, 500_000.0, 1_000_000.0,
+            150_000.0,
+            200_000.0,
+            220_000.0,
+            250_000.0,
+            280_000.0,
+            300_000.0,
+            320_000.0,
+            350_000.0,
+            380_000.0,
+            400_000.0,
+            500_000.0,
+            1_000_000.0,
         ];
         let order: Vec<&'static str> = salary_display_order().to_vec();
         let mut counts: HashMap<&'static str, i64> = HashMap::new();

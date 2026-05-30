@@ -641,11 +641,7 @@ fn fetch_overview_stats(
 }
 
 /// 3層比較パネルのHTML生成
-fn build_comparison_section(
-    stats: &OverviewStats,
-    pref: &str,
-    location_label: &str,
-) -> String {
+fn build_comparison_section(stats: &OverviewStats, pref: &str, location_label: &str) -> String {
     if pref.is_empty() || stats.national_total == 0 {
         return String::new();
     }

@@ -241,7 +241,11 @@ pub(crate) fn build_insight_context_with_wage_mode(
     type EstBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
     type LifeBundle = (Vec<Row>, Vec<Row>, Vec<Row>);
     type PhaseABundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
-    type MeanFlowBundle = (Option<f64>, Option<f64>, Option<super::flow_context::FlowIndicators>);
+    type MeanFlowBundle = (
+        Option<f64>,
+        Option<f64>,
+        Option<super::flow_context::FlowIndicators>,
+    );
 
     let (
         ts_bundle,
@@ -306,8 +310,12 @@ pub(crate) fn build_insight_context_with_wage_mode(
                 region_benchmark: af::fetch_region_benchmark(db, pref, muni),
                 text_quality: af::fetch_text_quality(db, pref, muni),
                 // Phase 2-A (2026-05-29): wage_mode (monthly/hourly/both) を Section 03/05/06 用 fetcher に伝播
-                salary_scatter_pairs: af::fetch_salary_scatter_pairs(db, pref, muni, 1000, wage_mode),
-                csv_company_ranking: af::fetch_csv_company_salary_ranking(db, pref, muni, 30, wage_mode),
+                salary_scatter_pairs: af::fetch_salary_scatter_pairs(
+                    db, pref, muni, 1000, wage_mode,
+                ),
+                csv_company_ranking: af::fetch_csv_company_salary_ranking(
+                    db, pref, muni, 30, wage_mode,
+                ),
                 posting_target: af::fetch_posting_target_profile(db, pref, muni, wage_mode),
             }
         });
@@ -404,37 +412,61 @@ pub(crate) fn build_insight_context_with_wage_mode(
         // join all. silent fallback 監査 (MEMORY: feedback_silent_fallback_audit) に従い、
         // panic が起きたら警告ログを出してから空値を返す。
         let ts = h_ts.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G1 (ts) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G1 (ts) thread panicked, using empty defaults"
+            );
             (vec![], vec![], vec![], vec![], vec![])
         });
         let ext_ts = h_ext_ts.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G2 (ext_ts) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G2 (ext_ts) thread panicked, using empty defaults"
+            );
             (vec![], vec![], vec![], vec![])
         });
         let local = h_local.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G3 (local) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G3 (local) thread panicked, using empty defaults"
+            );
             // Ext-2 (2026-05-28): 15 要素 tuple リテラル → `LocalBundleData::default()`。
             // 新規フィールド追加時に panic fallback の更新を忘れにくくする。
             LocalBundleData::default()
         });
         let pop = h_pop.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G4 (pop) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G4 (pop) thread panicked, using empty defaults"
+            );
             (vec![], vec![], vec![], vec![], Vec::<MuniPyramid>::new())
         });
         let est = h_est.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G5 (est) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G5 (est) thread panicked, using empty defaults"
+            );
             (vec![], vec![], vec![], vec![], vec![])
         });
         let life = h_life.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G6 (life) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G6 (life) thread panicked, using empty defaults"
+            );
             (vec![], vec![], vec![])
         });
         let phase_a = h_phase_a.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G7 (phase_a) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G7 (phase_a) thread panicked, using empty defaults"
+            );
             (vec![], vec![], vec![], vec![], vec![], vec![])
         });
         let mean_flow = h_mean_flow.join().unwrap_or_else(|e| {
-            tracing::warn!(?e, "build_insight_context G8 (mean_flow) thread panicked, using empty defaults");
+            tracing::warn!(
+                ?e,
+                "build_insight_context G8 (mean_flow) thread panicked, using empty defaults"
+            );
             (None, None, None)
         });
 
@@ -465,8 +497,13 @@ pub(crate) fn build_insight_context_with_wage_mode(
         posting_target: posting_target_profile,
     } = local_bundle;
     let (ext_population, ext_pyramid, ext_migration, ext_daytime_pop, muni_pyramids) = pop_bundle;
-    let (ext_establishments, ext_business_dynamics, ext_care_demand, ext_household_spending, ext_climate) =
-        est_bundle;
+    let (
+        ext_establishments,
+        ext_business_dynamics,
+        ext_care_demand,
+        ext_household_spending,
+        ext_climate,
+    ) = est_bundle;
     let (ext_social_life, ext_internet_usage, ext_education) = life_bundle;
     let (
         ext_households,

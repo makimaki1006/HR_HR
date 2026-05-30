@@ -683,7 +683,6 @@ pub struct MunicipalityRecruitingScore {
     // DISPLAY_SPEC v1.0 §9.2 違反 (DTO の `_population` サフィックス) を解消。
     // 旧 *_population は SQL カラムが既に存在せず常に None だったため、削除しても挙動変化なし。
     // fallback (report_html/market_intelligence.rs:2691-2697 の `.or(_population)`) も併せて削除。
-
     pub source_year: Option<i64>,
 
     // -------- Worker B (Round 2) 投入版スキーマ追加フィールド --------
@@ -1310,28 +1309,70 @@ pub(crate) fn aggregate_to_industry_structure_code(code: &str) -> String {
         Err(_) => return s,
     };
     // 東京 23 区
-    if (13101..=13123).contains(&n) { return "13100".to_string(); }
+    if (13101..=13123).contains(&n) {
+        return "13100".to_string();
+    }
     // 政令市の行政区 (各政令市の本市コード)
-    if (1101..=1110).contains(&n)   { return "01100".to_string(); } // 札幌市
-    if (4101..=4105).contains(&n)   { return "04100".to_string(); } // 仙台市
-    if (11101..=11110).contains(&n) { return "11100".to_string(); } // さいたま市
-    if (12101..=12106).contains(&n) { return "12100".to_string(); } // 千葉市
-    if (14101..=14118).contains(&n) { return "14100".to_string(); } // 横浜市
-    if (14131..=14137).contains(&n) { return "14130".to_string(); } // 川崎市
-    if (14151..=14153).contains(&n) { return "14150".to_string(); } // 相模原市
-    if (15101..=15108).contains(&n) { return "15100".to_string(); } // 新潟市
-    if (22101..=22103).contains(&n) { return "22100".to_string(); } // 静岡市
-    if (22131..=22137).contains(&n) { return "22130".to_string(); } // 浜松市
-    if (23101..=23116).contains(&n) { return "23100".to_string(); } // 名古屋市
-    if (26101..=26111).contains(&n) { return "26100".to_string(); } // 京都市
-    if (27101..=27128).contains(&n) { return "27100".to_string(); } // 大阪市
-    if (27141..=27147).contains(&n) { return "27140".to_string(); } // 堺市
-    if (28101..=28110).contains(&n) { return "28100".to_string(); } // 神戸市
-    if (33101..=33106).contains(&n) { return "33100".to_string(); } // 岡山市
-    if (34101..=34108).contains(&n) { return "34100".to_string(); } // 広島市
-    if (40101..=40109).contains(&n) { return "40100".to_string(); } // 北九州市
-    if (40131..=40137).contains(&n) { return "40130".to_string(); } // 福岡市
-    if (43101..=43105).contains(&n) { return "43100".to_string(); } // 熊本市
+    if (1101..=1110).contains(&n) {
+        return "01100".to_string();
+    } // 札幌市
+    if (4101..=4105).contains(&n) {
+        return "04100".to_string();
+    } // 仙台市
+    if (11101..=11110).contains(&n) {
+        return "11100".to_string();
+    } // さいたま市
+    if (12101..=12106).contains(&n) {
+        return "12100".to_string();
+    } // 千葉市
+    if (14101..=14118).contains(&n) {
+        return "14100".to_string();
+    } // 横浜市
+    if (14131..=14137).contains(&n) {
+        return "14130".to_string();
+    } // 川崎市
+    if (14151..=14153).contains(&n) {
+        return "14150".to_string();
+    } // 相模原市
+    if (15101..=15108).contains(&n) {
+        return "15100".to_string();
+    } // 新潟市
+    if (22101..=22103).contains(&n) {
+        return "22100".to_string();
+    } // 静岡市
+    if (22131..=22137).contains(&n) {
+        return "22130".to_string();
+    } // 浜松市
+    if (23101..=23116).contains(&n) {
+        return "23100".to_string();
+    } // 名古屋市
+    if (26101..=26111).contains(&n) {
+        return "26100".to_string();
+    } // 京都市
+    if (27101..=27128).contains(&n) {
+        return "27100".to_string();
+    } // 大阪市
+    if (27141..=27147).contains(&n) {
+        return "27140".to_string();
+    } // 堺市
+    if (28101..=28110).contains(&n) {
+        return "28100".to_string();
+    } // 神戸市
+    if (33101..=33106).contains(&n) {
+        return "33100".to_string();
+    } // 岡山市
+    if (34101..=34108).contains(&n) {
+        return "34100".to_string();
+    } // 広島市
+    if (40101..=40109).contains(&n) {
+        return "40100".to_string();
+    } // 北九州市
+    if (40131..=40137).contains(&n) {
+        return "40130".to_string();
+    } // 福岡市
+    if (43101..=43105).contains(&n) {
+        return "43100".to_string();
+    } // 熊本市
     s
 }
 
