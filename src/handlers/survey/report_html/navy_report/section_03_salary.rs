@@ -1,0 +1,1244 @@
+//! Section 03 - 給与分布 統計 (Phase 2 で navy 本実装)
+//!
+//! navy_report.rs の分割 (A1 Commit 6 / β Section Team / 2026-05-30) で抽出。
+//!
+//! 元 `navy_report/mod.rs` L110-L1301 の以下を物理コピー:
+//! - `render_navy_section_03_salary`          (公開 API: pub(crate))
+//! - `build_navy_fuyou_table`                 (pub(crate) — report_html 外
+//!                                              `hourly_report_qa_test.rs` から
+//!                                              `super::navy_report::build_navy_fuyou_table`
+//!                                              で参照されているため再エクスポート必須)
+//! - `build_navy_emp_type_salary_table`       (private helper)
+//! - `build_navy_tag_premium_top10_table`     (private helper)
+//! - `build_navy_industry_salary_table`       (private helper、現状未呼出だが残置)
+//! - `compute_navy_salary_correlation`        (private helper、現状未呼出だが残置)
+//! - `build_navy_salary_correlation_table`    (private helper、現状未呼出だが残置)
+//! - `build_navy_cluster_table`               (private helper)
+//! - `build_navy_cluster_boxplots_svg`        (private helper)
+//! - `build_navy_occupation_salary_table`     (private helper、現状未呼出だが残置)
+//! - `build_navy_salary_summary_table`        (private helper)
+//! - 補助型 `NavyCorrRow` (compute_navy_salary_correlation 用、module-private)
+//! - 定数 `FUYOU_WEEKLY_HOURS` / `FUYOU_THRESHOLDS_MAN` (扶養範囲到達時給用)
+//!
+//! API 表面:
+//! - `pub(crate) fn render_navy_section_03_salary`
+//!   (Commit 2/3/4/5 パターン踏襲: `pub(super)` は階層不足で E0364 になるため `pub(crate)`)
+//! - `pub(crate) fn build_navy_fuyou_table`
+//!   (`hourly_report_qa_test.rs` が `super::navy_report::build_navy_fuyou_table`
+//!   path で参照しており、`navy_report/mod.rs` 側で `pub(super) use` 再エクスポート
+//!   できる必要があるため `pub(crate)` に昇格)
+//!
+//! 残りの helper は本ファイル内のみで使用。`navy_report` モジュール外への露出はない。
+
+#![allow(dead_code)]
+
+// パス解析 (現在位置: survey::report_html::navy_report::section_03_salary):
+//   super              = navy_report
+//   super::super       = report_html
+//   super::super::super = survey
+//   super::super::super::super = handlers
+use super::super::super::super::helpers::{escape_html, format_number};
+use super::super::super::super::insight::fetch::InsightContext;
+use super::super::super::aggregator::SurveyAggregation;
+use super::super::salary_summary;
+use super::common::{
+    build_navy_histogram_svg, build_navy_salary_scatter_svg, build_salary_scatter_summary,
+    compute_distribution_stats, format_mm, push_kpi, push_page_head, DistStats,
+};
+
+// ============================================================
+// Section 03: 給与分布 統計 (Phase 2 で navy 本実装)
+// ============================================================
+
+pub(crate) fn render_navy_section_03_salary(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    // P2-1 (2026-05-28): Section 03 図 3-6 散布図 (給与レンジ各点 1 求人) を追加するため、
+    // InsightContext.salary_scatter_pairs を参照する。Option はテスト fixture / 旧呼出から
+    // None を渡しても従来動作 (散布図のみ非表示) を維持する。
+    hw_context: Option<&InsightContext>,
+) {
+    // Phase 2-A (2026-05-29): 時給モード対応。
+    //   - is_hourly = agg.is_hourly (aggregator が WageMode から導出済)
+    //   - 時給モード時は agg.salary_min_values_native / salary_max_values_native / scatter_min_max_native を使う。
+    //     これらは Hourly レコードを 円/時 のまま (×167 換算なし) で保持。
+    //   - 月給モード時は呼出側から渡された salary_min_values / salary_max_values (月給換算済) をそのまま使用。
+    //   - bin_step: 月給=10_000 (1万円刻み)、時給=50 (50円/時刻み)
+    let is_hourly = agg.is_hourly;
+    let (vals_min, vals_max, bin_step, unit_label, bin_step_label): (&[i64], &[i64], i64, &str, &str) = if is_hourly {
+        (
+            agg.salary_min_values_native.as_slice(),
+            agg.salary_max_values_native.as_slice(),
+            50,
+            "円/時",
+            "50円刻み",
+        )
+    } else {
+        (salary_min_values, salary_max_values, 10_000, "万円", "10,000円刻み")
+    };
+
+    html.push_str("<section class=\"page-navy navy-salary\" role=\"region\">\n");
+    push_page_head(
+        html,
+        "SECTION 03",
+        if is_hourly { "給与分布 統計 (時給モード)" } else { "給与分布 統計" },
+        if is_hourly {
+            "CSV 抽出済み下限・上限給与 (円/時) の分布と代表値"
+        } else {
+            "CSV 抽出済み下限・上限給与の分布と代表値"
+        },
+    );
+
+    // 統計値計算 (下限 / 上限 それぞれ) — bin_step は is_hourly に応じて切替
+    let stats_min = compute_distribution_stats(vals_min, bin_step);
+    let stats_max = compute_distribution_stats(vals_max, bin_step);
+
+    let salary_h = salary_summary::SalaryHeadline::from_aggregation(agg);
+    let headline = salary_h.cover_highlight_text();
+    let total = agg.total_count;
+    // 2026-05-14: 給与解析率の表記は撤去。n は給与解析できた件数を直接表示する。
+    let parsed_n = (agg.total_count as f64 * agg.salary_parse_rate).round() as i64;
+
+    // -- exec-headline 風: 給与代表値を冒頭で 1 行に集約
+    let lede = format!(
+        "サンプル <strong>n={}</strong> (給与解析できた求人)。\
+         代表値: <strong>{} {}{}</strong>。本ページでは下限・上限給与それぞれの分布を確認します。",
+        format_number(parsed_n),
+        escape_html(&headline.label),
+        escape_html(&headline.value_text),
+        escape_html(&headline.unit),
+    );
+    let _ = total;
+    html.push_str(&format!(
+        "<div class=\"exec-headline\">\
+         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+         <p>{}</p>\
+         </div>\n",
+        lede
+    ));
+
+    // 月給/時給 で表示単位を切替する helper
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+
+    // -- KPI row 6 cell: P25 / 中央値 / 平均 / 最頻値 / P75 / P90 (下限給与)
+    //   2026-05-14: 最頻値 (mode) を追加。3x2 グリッド。
+    //   Phase 2-A (2026-05-29): is_hourly に応じて単位ラベルを切替。
+    let mode_foot = if is_hourly {
+        "50円/時刻みの最頻 bin"
+    } else {
+        "10,000円刻みの最頻 bin"
+    };
+    if let Some(s) = stats_min.as_ref() {
+        html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点</div>\n");
+        html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
+        push_kpi(html, "P25", &fmt_val(s.p25), unit_label, "neu", "下位 25% 水準", false);
+        push_kpi(html, "中央値 P50", &fmt_val(s.median), unit_label, "neu", "サンプル中央値", true);
+        push_kpi(html, "平均", &fmt_val(s.mean), unit_label, "neu", "外れ値の影響を含む", false);
+        push_kpi(html, "最頻値", &fmt_val(s.mode_bin_yen), unit_label, "neu", mode_foot, false);
+        push_kpi(html, "P75", &fmt_val(s.p75), unit_label, "neu", "P75 ライン (P50 より上)", false);
+        push_kpi(html, "P90", &fmt_val(s.p90), unit_label, "neu", "高給与帯", false);
+        html.push_str("</div>\n");
+
+        // -- histogram (bin_step 刻み)
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">図 3-2 &nbsp;下限給与 分布 ({})</div>\n",
+            bin_step_label
+        ));
+        html.push_str(&build_navy_histogram_svg(vals_min, s, unit_label, bin_step));
+        html.push_str("<p class=\"caption\">縦線: 緑=中央値 / 金=平均 / 灰=最頻 bin</p>\n");
+    } else {
+        html.push_str("<p class=\"caption\">下限給与の有効値が不足しています (n=0 or 全 unparsed)。</p>\n");
+    }
+
+    // -- 上限給与 (6 cell, 最頻値含む)
+    if let Some(s) = stats_max.as_ref() {
+        html.push_str("<div class=\"block-title block-title-spaced\">図 3-3 &nbsp;上限給与 主要分位点</div>\n");
+        html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
+        push_kpi(html, "P25", &fmt_val(s.p25), unit_label, "neu", "下位 25% 水準", false);
+        push_kpi(html, "中央値 P50", &fmt_val(s.median), unit_label, "neu", "サンプル中央値", true);
+        push_kpi(html, "平均", &fmt_val(s.mean), unit_label, "neu", "外れ値の影響を含む", false);
+        push_kpi(html, "最頻値", &fmt_val(s.mode_bin_yen), unit_label, "neu", mode_foot, false);
+        push_kpi(html, "P75", &fmt_val(s.p75), unit_label, "neu", "P75 ライン (P50 より上)", false);
+        push_kpi(html, "P90", &fmt_val(s.p90), unit_label, "neu", "高給与帯", false);
+        html.push_str("</div>\n");
+
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">図 3-4 &nbsp;上限給与 分布 ({})</div>\n",
+            bin_step_label
+        ));
+        html.push_str(&build_navy_histogram_svg(vals_max, s, unit_label, bin_step));
+        html.push_str("<p class=\"caption\">縦線: 緑=中央値 / 金=平均 / 灰=最頻 bin</p>\n");
+    } else {
+        html.push_str("<p class=\"caption\">上限給与の有効値が不足しています。</p>\n");
+    }
+
+    // -- 集計サマリ table-navy
+    html.push_str("<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ</div>\n");
+    html.push_str(&build_navy_salary_summary_table(&stats_min, &stats_max, is_hourly));
+
+    // -- 雇用形態別給与 (旧 employment::render_section_employment 相当を navy で再構築)
+    if !agg.by_emp_type_salary.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 3-B &nbsp;雇用形態別給与</div>\n");
+        html.push_str(&build_navy_emp_type_salary_table(&agg.by_emp_type_salary, agg.total_count, is_hourly));
+    }
+
+    // -- 表 3-C 業界×給与クロス / 表 3-D 職種×給与クロス / 表 3-F 要因分析
+    //
+    // 2026-05-14 撤去 (ユーザー判断):
+    //   業界・職種推定は keyword substring マッチングベースで分類精度が著しく低い
+    //   (例: indeed-2026-05-12.csv 物流ドライバー CSV で職種推定 n=6/265、約 2%)。
+    //   推定不可分が大半を占めるため統計指標として誤誘導になり得ると判断。
+    //   LLM ベースの分類実装まで非表示とする (#239/#240/#241 関連)。
+    //
+    //   表 3-F も推定値 (職種・業界) に η² 計算が依存するため同時撤去。
+    //
+    //   関連関数 (industry_salary::aggregate_industry_salary,
+    //   occupation_salary::aggregate_occupation_salary,
+    //   compute_navy_salary_correlation) は他箇所/テストから参照されるため
+    //   残置。Section 03 からの呼び出しのみ削除。
+
+    // -- 給与構造クラスタ分析 (旧 salary_stats の Jenks + per-cluster box) を navy で取り込み
+    //   設計メモ §7-8 (給与構造クラスタリング) + §10 (適正値 P25/P50/P60/P75/P90) 準拠
+    //
+    //   Phase 2-A (2026-05-29): クラスタ計算は **常に scatter_min_max (月給換算済)** で実施。
+    //   時給モードでは表示時に月給→時給逆換算 (/HOURLY_TO_MONTHLY_HOURS) し caption で
+    //   「時給換算」と注記。クラスタ分類自体は monthly 基準のほうがレンジ分類 P33/P66 の
+    //   信頼性が高い (時給のみだとパート/アルバイトに偏ってクラスタ数が減るため)。
+    let pairs: Vec<(i64, i64)> = agg
+        .scatter_min_max
+        .iter()
+        .map(|p| (p.x, p.y))
+        .collect();
+    let clusters = super::super::helpers::compute_salary_clusters(&pairs);
+    if !clusters.is_empty() {
+        let cluster_table_caption = if is_hourly {
+            "時給換算表示 (月給/167h)"
+        } else {
+            "月給"
+        };
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 3-E &nbsp;給与構造クラスタ (Jenks 自然分割 × レンジ分類) — {}</div>\n",
+            cluster_table_caption
+        ));
+        html.push_str(&build_navy_cluster_table(&clusters));
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">図 3-5 &nbsp;クラスタ別 ボックスプロット (下限給与) — {}</div>\n",
+            cluster_table_caption
+        ));
+        html.push_str(&build_navy_cluster_boxplots_svg(&clusters));
+        // 2026-05-14: ろうそく足 (ボックスプロット) の読み方を凡例で明示
+        html.push_str(
+            "<div class=\"caption\" style=\"display:grid;grid-template-columns:1fr 1fr;gap:4mm;\
+             background:var(--paper);border:1px solid var(--rule-soft);padding:3mm 4mm;margin:2mm 0 3mm;\">\
+             <div><strong>図の読み方 (ボックスプロット)</strong><br>\
+             <span style=\"display:inline-block;width:10px;height:10px;background:#F0E9D6;border:1px solid #C9A24B;vertical-align:middle;margin-right:4px;\"></span>箱 = <strong>P25 〜 P75</strong> (中央 50% の給与レンジ)<br>\
+             <span style=\"display:inline-block;width:2px;height:10px;background:#3CA46E;vertical-align:middle;margin-right:6px;\"></span>緑線 = <strong>P50 (中央値)</strong><br>\
+             <span style=\"display:inline-block;width:6px;height:6px;background:#C9A24B;border-radius:50%;vertical-align:middle;margin-right:4px;\"></span>金ドット = <strong>平均値</strong><br>\
+             ヒゲ (両端) = <strong>最小/最大</strong>。箱が長い = レンジが広い。\
+             </div>\
+             <div><strong>各クラスタの解釈</strong><br>\
+             ・箱が <strong>右寄り</strong> = 給与水準が高いクラスタ<br>\
+             ・箱が <strong>左寄り</strong> = 給与水準が低いクラスタ<br>\
+             ・箱が <strong>細い</strong> = 給与がそろっている (定額型)<br>\
+             ・箱が <strong>太い</strong> = 給与に差がある (歩合・等級型)<br>\
+             ・<strong>n が小さい行 (n&lt;10)</strong> は参考値として扱う\
+             </div>\
+             </div>\n",
+        );
+        html.push_str(
+            "<p class=\"caption\">出典: 設計メモ <code>salary_cluster_analysis_design.md</code> §7-8 / §10。\
+             lower_salary 軸は Jenks 自然分割 (k=3 or 4)、range 軸は P33/P66 + P95 異常広判定。\
+             各クラスタ内 P25/P50/P60/P75/P90 が顧客求人の適正値の基準。\
+             <strong>適正値は全体ではなくクラスタ内で出す</strong> (§10.1)。</p>\n",
+        );
+    }
+
+    // -- 表 3-G タグ×給与プレミアム top 10 (2026-05-23 #225 統合: market_intelligence 系の知見を navy 取り込み)
+    //   訴求タグごとに「全体平均と比べてどれだけ給与が高いか」を可視化。
+    //   求人作成時の付与タグ選択 / 自社求人と競合の差分要因分析に活用。
+    if !agg.by_tag_salary.is_empty() {
+        // 全体加重平均 (overall_mean):
+        // - 給与解析できた件数 (parsed_n) に占める各タグの avg_salary &times; count の総和を
+        //   parsed_n で割って算出。aggregator.rs の diff_from_avg と整合するため、
+        //   enhanced_stats.mean (raw 値の単純平均) ではなく加重平均で再計算する。
+        let total_weighted_n: i64 = agg.by_tag_salary.iter().map(|t| t.count as i64).sum();
+        let weighted_sum: i64 = agg
+            .by_tag_salary
+            .iter()
+            .map(|t| t.avg_salary * t.count as i64)
+            .sum();
+        let overall_mean: i64 = if total_weighted_n > 0 {
+            weighted_sum / total_weighted_n
+        } else {
+            // by_tag_salary が空でないのに total_weighted_n=0 は count=0 のみのケース。
+            // この場合は enhanced_stats.mean をフォールバックとして使う (silent fallback
+            // ではなく明示的に文脈の異なる値であることを caption に記載する経路)。
+            agg.enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0)
+        };
+        if overall_mean > 0 {
+            html.push_str("<div class=\"block-title block-title-spaced\">表 3-G &nbsp;タグ&times;給与プレミアム top 10</div>\n");
+            html.push_str(&build_navy_tag_premium_top10_table(
+                &agg.by_tag_salary,
+                overall_mean,
+                agg.is_hourly,
+            ));
+        }
+    }
+
+    // -- 図 3-6 給与レンジ 散布図 (P2-1, 2026-05-28)
+    //   各点 = 1 求人、X 軸=下限給与、Y 軸=上限給与、対角線 (下限=上限) を参考線として描画。
+    //   ctx が None or salary_scatter_pairs が空なら何も出力しない (silent fallback ではなく
+    //   明示的に省略: postings に月給フィルタ後データが無い／test fixture 経由の呼出)。
+    //
+    //   Phase 2-A (2026-05-29): 時給モード時は agg.scatter_min_max_native (Hourly 円/時)
+    //   を使う。ctx.salary_scatter_pairs は HW postings の月給データのみのため、
+    //   時給モードでは Hourly レコードの集計値 (CSV ベース) を別経路で渡す。
+    if is_hourly {
+        // 時給モード: aggregator のネイティブ散布図ペアを使う
+        if !agg.scatter_min_max_native.is_empty() {
+            // (i64, i64) → (f64, f64) 変換 (SVG 関数の互換)
+            let pairs: Vec<(f64, f64)> = agg
+                .scatter_min_max_native
+                .iter()
+                .map(|(lo, hi)| (*lo as f64, *hi as f64))
+                .collect();
+            html.push_str(
+                "<div class=\"block-title block-title-spaced\">図 3-6 &nbsp;給与レンジ 散布図 (各点=1求人、対角線=下限=上限ライン)</div>\n",
+            );
+            html.push_str(&build_navy_salary_scatter_svg(&pairs, true));
+            html.push_str(
+                "<p class=\"caption\">CSV 内の時給レコードから抽出。X軸=下限給与、Y軸=上限給与 (円/時)。\
+                 下限=上限の対角線から離れるほどレンジが広い (等級制の特徴)。</p>\n",
+            );
+            html.push_str(&build_salary_scatter_summary(&pairs, true));
+        }
+    } else if let Some(ctx) = hw_context {
+        // 月給モード: 旧動作 (HW postings 由来の月給ペア)
+        let pairs = ctx.salary_scatter_pairs.as_slice();
+        if !pairs.is_empty() {
+            html.push_str(
+                "<div class=\"block-title block-title-spaced\">図 3-6 &nbsp;給与レンジ 散布図 (各点=1求人、対角線=下限=上限ライン)</div>\n",
+            );
+            html.push_str(&build_navy_salary_scatter_svg(pairs, false));
+            html.push_str(
+                "<p class=\"caption\">対象地域から最大 1000 件抽出。X軸=下限給与、Y軸=上限給与。\
+                 下限=上限の対角線から離れるほどレンジが広い (歩合・等級制の特徴)。</p>\n",
+            );
+            html.push_str(&build_salary_scatter_summary(pairs, false));
+        }
+    }
+
+    // -- 図 3-7 扶養範囲到達ライン (Phase 2-B H1, 2026-05-29)
+    //   時給モードのみ表示。年収 = 時給 × 週稼働時間 × 52 を逆算し、
+    //   103 万円 / 130 万円 の扶養範囲ラインに到達する必要時給を週稼働時間別に提示。
+    //   silent fallback 防止: is_hourly == false の月給モードでは完全にこのブロックを省略する。
+    if is_hourly {
+        // 中央値は salary_min_values_native (時給ネイティブ円/時) から計算。
+        // 空 or 全 0 の場合は median = 0 となり build_navy_fuyou_table 側で "—" 表示。
+        let median_hourly_native: i64 = {
+            let mut v: Vec<i64> = agg
+                .salary_min_values_native
+                .iter()
+                .copied()
+                .filter(|x| *x > 0)
+                .collect();
+            if v.is_empty() {
+                0
+            } else {
+                v.sort_unstable();
+                v[v.len() / 2]
+            }
+        };
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 3-H &nbsp;扶養範囲到達時給 (週稼働時間別)</div>\n",
+        );
+        html.push_str(&build_navy_fuyou_table(median_hourly_native));
+        html.push_str(
+            "<p class=\"caption\">年収閾値&divide;(週稼働時間&times;52週)で算出。\
+             実際の課税範囲は社会保険加入条件 (週20h・月8.8万円・学生除外等) により異なるため別途確認。\
+             自社中央値の行は CSV 集計の下限給与中央値 (円/時)。</p>\n",
+        );
+    }
+
+    // -- So What
+    //   Phase 2-A (2026-05-29): is_hourly で文言を切替。
+    //   - 月給: 5 万円未満=定額求人 / 10 万円以上=歩合・等級制
+    //   - 時給: 100 円未満=定額 / 300 円以上=等級制 (歩合は時給制では一般的でないため文言から削除)
+    let so_what = match (stats_min.as_ref(), stats_max.as_ref()) {
+        (Some(lo), Some(hi)) => {
+            let spread = hi.median - lo.median;
+            if is_hourly {
+                format!(
+                    "下限給与 中央値 <strong>{}円/時</strong> / 上限給与 中央値 <strong>{}円/時</strong>、レンジ <strong>{}円/時</strong>。\
+                     給与レンジが <strong>100 円未満</strong> なら「定額」、<strong>300 円以上</strong> なら「等級制」の特徴が見えます。\
+                     競合の中央値と比較し、訴求軸を <strong>下限保証</strong> / <strong>上限到達</strong> / <strong>レンジ幅</strong> のいずれに置くか検討してください。",
+                    format_number(lo.median),
+                    format_number(hi.median),
+                    format_number(spread),
+                )
+            } else {
+                let spread_label = format!("{:.1}万円", spread as f64 / 10000.0);
+                format!(
+                    "下限給与 中央値 <strong>{}万円</strong> / 上限給与 中央値 <strong>{}万円</strong>、レンジ <strong>{}</strong>。\
+                     給与レンジが <strong>5 万円未満</strong> なら「定額求人」、<strong>10 万円以上</strong> なら「歩合・等級制」の特徴が見えます。\
+                     競合の中央値と比較し、訴求軸を <strong>下限保証</strong> / <strong>上限到達</strong> / <strong>レンジ幅</strong> のいずれに置くか検討してください。",
+                    format_mm(lo.median),
+                    format_mm(hi.median),
+                    spread_label,
+                )
+            }
+        }
+        _ => "給与統計値が不足しています。CSV の給与カラム表記揺れを点検してください。".to_string(),
+    };
+    html.push_str(&format!(
+        "<div class=\"so-what\" style=\"margin-top:6mm;\">\
+         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-body\">{}</div>\
+         </div>\n",
+        so_what
+    ));
+
+    html.push_str("</section>\n");
+}
+
+// ============================================================
+// Phase 2-B (2026-05-29): 時給モード H1 — 扶養範囲到達時給テーブル
+// ============================================================
+//
+// 仕様:
+//   - 列: 週稼働時間 (15h / 20h / 25h / 30h / 35h)
+//   - 行: 103万円ライン / 130万円ライン / 自社中央値
+//   - セル: 必要時給 (円/h)。年収閾値 ÷ (週稼働時間 × 52) で逆算。
+//
+// 不変条件 (テストで検証):
+//   - 130万円ラインの必要時給 > 103万円ラインの必要時給 (同一週時間)
+//   - 同一行内で週時間昇順 → 必要時給降順 (反転)
+//   - median_hourly_native <= 0 の場合、自社中央値は "—" 表示
+//   - 値はすべて非負整数
+//
+// silent fallback 監査:
+//   - median <= 0 → "—" を明示表示。空文字を返さない。
+//   - 週時間が 0 になることはない (定数配列のため)。
+const FUYOU_WEEKLY_HOURS: [i64; 5] = [15, 20, 25, 30, 35];
+const FUYOU_THRESHOLDS_MAN: [(i64, &str); 2] = [
+    (103, "103 万円ライン"),
+    (130, "130 万円ライン"),
+];
+
+/// 扶養範囲到達時給 (週稼働時間別) テーブルを生成。
+///
+/// # 引数
+/// - `median_hourly_native`: 自社中央値 (円/時)。0 以下なら "—" 行を出力。
+///
+/// # 戻り値
+/// HTML 表 (`<table class="table-navy">...</table>`)。
+pub(crate) fn build_navy_fuyou_table(median_hourly_native: i64) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th scope=\"col\">区分</th>");
+    for h in FUYOU_WEEKLY_HOURS.iter() {
+        s.push_str(&format!("<th scope=\"col\" class=\"num\">週 {}h</th>", h));
+    }
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 103万 / 130万 行
+    for (man, label) in FUYOU_THRESHOLDS_MAN.iter() {
+        s.push_str("<tr>");
+        s.push_str(&format!("<td><strong>{}</strong></td>", escape_html(label)));
+        let annual_yen: i64 = *man * 10_000;
+        for h in FUYOU_WEEKLY_HOURS.iter() {
+            // 必要時給 = 年収閾値 / (週時間 × 52)。1 円単位で切上 (扶養超過リスク回避)。
+            let denom = *h * 52;
+            // denom は 15*52..=35*52 で常に > 0 (定数配列)
+            let needed = (annual_yen + denom - 1) / denom;
+            s.push_str(&format!(
+                "<td class=\"num bold\">{} 円/時</td>",
+                format_number(needed)
+            ));
+        }
+        s.push_str("</tr>\n");
+    }
+
+    // 自社中央値行
+    s.push_str("<tr class=\"hl\">");
+    s.push_str("<td><strong>自社 下限給与 中央値</strong></td>");
+    if median_hourly_native > 0 {
+        // 全列に中央値を表示 (週時間によらず固定値)。
+        // 各列で「103万/130万ラインを上回るか」を視覚的に比較できるよう、同値を繰り返す。
+        for _h in FUYOU_WEEKLY_HOURS.iter() {
+            s.push_str(&format!(
+                "<td class=\"num bold\">{} 円/時</td>",
+                format_number(median_hourly_native)
+            ));
+        }
+    } else {
+        for _h in FUYOU_WEEKLY_HOURS.iter() {
+            s.push_str("<td class=\"num dim\">—</td>");
+        }
+    }
+    s.push_str("</tr>\n");
+
+    s.push_str("</tbody></table>\n");
+    s
+}
+
+/// 雇用形態別給与 table-navy (No. / 雇用形態 / n / 構成比 / 平均給与 / 中央値 / 全体差分タグ)
+///
+/// Phase 2-A (2026-05-29): `is_hourly` 引数追加。月給/時給で表示単位を切替。
+///
+/// - 月給モード: `format_mm` で万円換算、キャプション「単位: 万円 (月給換算済み)」
+/// - 時給モード: `format_number` で円のまま、キャプション「単位: 円/時 (時給換算済み)」
+///
+/// 注意: 値そのものは agg.by_emp_type_salary の avg_salary / median_salary を使う。
+/// 時給モードでは aggregator が時給値を保持 (HOURLY_TO_MONTHLY_HOURS で除算 / 一部レコードは
+/// 月給→時給換算) する想定。本関数は表示単位のみを切替える役割。
+fn build_navy_emp_type_salary_table(
+    items: &[super::super::super::aggregator::EmpTypeSalary],
+    total_count: usize,
+    is_hourly: bool,
+) -> String {
+    // 全体加重平均を計算 (差分タグの基準)
+    let total_n_with_salary: i64 = items.iter().map(|e| e.count as i64).sum();
+    let weighted_sum: i64 = items
+        .iter()
+        .map(|e| e.avg_salary * e.count as i64)
+        .sum();
+    let overall_avg = if total_n_with_salary > 0 {
+        weighted_sum / total_n_with_salary
+    } else {
+        0
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>雇用形態</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">構成比</th>");
+    s.push_str("<th class=\"num\">平均給与</th>");
+    s.push_str("<th class=\"num\">中央値</th>");
+    s.push_str("<th>全体差分</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 件数降順
+    let mut sorted: Vec<&super::super::super::aggregator::EmpTypeSalary> = items.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+
+    for (i, e) in sorted.iter().enumerate() {
+        let pct = if total_count > 0 {
+            e.count as f64 / total_count as f64 * 100.0
+        } else {
+            0.0
+        };
+        let diff_pct = if overall_avg > 0 {
+            (e.avg_salary - overall_avg) as f64 / overall_avg as f64 * 100.0
+        } else {
+            0.0
+        };
+        let (tag, tag_label) = if diff_pct >= 10.0 {
+            ("pos", "高給与")
+        } else if diff_pct <= -10.0 {
+            ("warn", "低給与")
+        } else {
+            ("neu", "中央付近")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        // Phase 2-A: is_hourly に応じて表示単位切替
+        let fmt_val = |yen: i64| -> String {
+            if is_hourly {
+                format_number(yen)
+            } else {
+                format_mm(yen)
+            }
+        };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{:.1}%</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:+.1}%</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&e.emp_type),
+            format_number(e.count as i64),
+            pct,
+            fmt_val(e.avg_salary),
+            fmt_val(e.median_salary),
+            tag,
+            tag_label,
+            diff_pct,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    let (unit_label, fmt_overall) = if is_hourly {
+        ("円/時", format_number(overall_avg))
+    } else {
+        ("万円", format_mm(overall_avg))
+    };
+    let unit_note = if is_hourly { "(時給)" } else { "(月給換算済み)" };
+    s.push_str(&format!(
+        "<p class=\"caption\">単位: {} {}。差分: 全体加重平均給与 ({}{}) との比較。+10% 以上 = 高給与, -10% 以下 = 低給与。</p>\n",
+        unit_label, unit_note, fmt_overall, unit_label
+    ));
+    s
+}
+
+// 2026-05-23 #225: タグ×給与プレミアム top 10 (Section 03 拡張)
+//
+// 設計:
+// - `by_tag_salary` は aggregator で既に `diff_from_avg` (全体平均との差, 円) /
+//   `diff_percent` (差分率, %) を計算済み (aggregator.rs L317-339)。
+// - 全体給与平均より高い (diff_from_avg > 0) タグだけを抽出し、
+//   diff_percent 降順 で上位 10 件を提示する。
+// - サンプル数 (count) の閾値は aggregator 側で既に min_sample=3 が適用済み。
+//   ここで追加で count >= 10 にする (少数サンプルの統計的揺らぎを除外、
+//   MEMORY: feedback_test_data_validation.md「データ妥当性」)。
+// - 表示単位は月給万円。is_hourly の場合は注記する。
+// - 因果ではなく相関であることを caption で明記 (MEMORY:
+//   feedback_correlation_not_causation.md)。
+fn build_navy_tag_premium_top10_table(
+    items: &[super::super::super::aggregator::TagSalaryAgg],
+    overall_mean: i64,
+    is_hourly: bool,
+) -> String {
+    // diff_from_avg > 0 かつ count >= 10 のタグ (高プレミアム & 統計的に意味ある件数)
+    let mut filtered: Vec<&super::super::super::aggregator::TagSalaryAgg> = items
+        .iter()
+        .filter(|t| t.diff_from_avg > 0 && t.count >= 10)
+        .collect();
+    // diff_percent 降順 (プレミアム率の高い順)
+    filtered.sort_by(|a, b| {
+        b.diff_percent
+            .partial_cmp(&a.diff_percent)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    filtered.truncate(10);
+
+    if filtered.is_empty() {
+        return "<p class=\"caption dim\">給与プレミアム (全体平均より高い) を持つタグが \
+                統計的に有意な件数 (n &ge; 10) で抽出できませんでした。タグ件数が少ないか、\
+                求人内のタグ付与傾向が均質である可能性があります。</p>\n"
+            .to_string();
+    }
+
+    let unit_label = if is_hourly { "円/時" } else { "万円" };
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>タグ</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str(&format!("<th class=\"num\">平均給与 ({})</th>", unit_label));
+    s.push_str(&format!("<th class=\"num\">全体差分 ({})</th>", unit_label));
+    s.push_str("<th class=\"num\">プレミアム率</th>");
+    s.push_str("<th>位置づけ</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    for (i, t) in filtered.iter().enumerate() {
+        // 位置づけタグ: +20% 以上 = 高プレミアム / +10% 以上 = 中プレミアム / それ以下 = 弱プレミアム
+        let (tag, label) = if t.diff_percent >= 20.0 {
+            ("pos", "高プレミアム")
+        } else if t.diff_percent >= 10.0 {
+            ("pos", "中プレミアム")
+        } else {
+            ("neu", "弱プレミアム")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">+{}</td>\
+             <td class=\"num bold\">+{:.1}%</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&t.tag),
+            format_number(t.count as i64),
+            fmt_val(t.avg_salary),
+            fmt_val(t.diff_from_avg),
+            t.diff_percent,
+            tag,
+            label,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">基準: 全体加重平均給与 <strong>{} {}</strong>。プレミアム率 = (タグ平均 - 全体平均) / 全体平均 &times; 100%。\
+         n &ge; 10 のタグに限定 (統計的揺らぎ抑制)。\
+         <strong>相関であって因果ではありません</strong>: タグが給与を高めるのではなく、給与が高い求人にこのタグが付与されやすい傾向を示します。</p>\n",
+        fmt_val(overall_mean),
+        unit_label
+    ));
+    s
+}
+
+// 業界×給与 table-navy (No. / 業界 / n / 平均給与 / 中央値 / 全体差分タグ / 参考)
+fn build_navy_industry_salary_table(
+    rows: &[super::super::industry_salary::IndustrySalaryRow],
+    is_hourly: bool,
+) -> String {
+    // 件数加重 全体平均
+    let total_n: i64 = rows.iter().map(|r| r.count).sum();
+    let weighted_sum: i64 = rows.iter().map(|r| r.weighted_avg * r.count).sum();
+    let overall_avg = if total_n > 0 { weighted_sum / total_n } else { 0 };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>業界 (推定)</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">平均給与</th>");
+    s.push_str("<th class=\"num\">中央値</th>");
+    s.push_str("<th>全体差分</th>");
+    s.push_str("<th>注記</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen) // 時給は円のまま
+        } else {
+            format_mm(yen) // 月給は万円換算
+        }
+    };
+
+    for (i, r) in rows.iter().enumerate() {
+        let diff_pct = if overall_avg > 0 {
+            (r.weighted_avg - overall_avg) as f64 / overall_avg as f64 * 100.0
+        } else {
+            0.0
+        };
+        let (tag, tag_label) = if diff_pct >= 10.0 {
+            ("pos", "高給与帯")
+        } else if diff_pct <= -10.0 {
+            ("warn", "低給与帯")
+        } else {
+            ("neu", "中央付近")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        let median_str = match r.median_of_company_medians {
+            Some(m) => fmt_val(m),
+            None => "—".to_string(),
+        };
+        let note_html = if r.note.is_empty() {
+            String::new()
+        } else {
+            format!("<span class=\"tag tag-neu\">{}</span>", escape_html(r.note))
+        };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:+.1}%</span></td>\
+             <td>{}</td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&r.industry),
+            format_number(r.count),
+            fmt_val(r.weighted_avg),
+            median_str,
+            tag,
+            tag_label,
+            diff_pct,
+            note_html,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">業界推定は CSV の企業名 + タグから自動分類。\
+         全体平均: {} {}。件数 &lt; 3 は「参考 (低信頼)」表示。\
+         <strong>相関 ≠ 因果</strong>: 業界別給与差分は要因分析ではなく分布差として読んでください。</p>\n",
+        if is_hourly { format_number(overall_avg) } else { format_mm(overall_avg) },
+        if is_hourly { "円/時" } else { "万円" }
+    ));
+    s
+}
+
+// 相関分析: 給与×カテゴリ要因 (雇用形態 / 職種 / 業界)
+//   各要因の説明力 = (カテゴリ平均と全体平均の差の二乗の加重平均) / (全体分散)
+//   η² (eta squared) 相当の簡易版。0-1 範囲、1 に近いほど要因で説明できる。
+struct NavyCorrRow {
+    factor: String,
+    n_categories: usize,
+    n_total: i64,
+    max_minus_min_avg: i64,
+    eta_sq: f64, // 0.0 - 1.0
+}
+
+fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> {
+    let mut rows: Vec<NavyCorrRow> = Vec::new();
+
+    // 因子 1: 雇用形態 (by_emp_type_salary)
+    if !agg.by_emp_type_salary.is_empty() {
+        let n_total: i64 = agg.by_emp_type_salary.iter().map(|e| e.count as i64).sum();
+        let weighted_sum: i64 = agg.by_emp_type_salary.iter().map(|e| e.avg_salary * e.count as i64).sum();
+        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
+        let between_var: f64 = agg.by_emp_type_salary.iter()
+            .map(|e| {
+                let diff = (e.avg_salary - overall_avg) as f64;
+                diff * diff * e.count as f64
+            })
+            .sum::<f64>() / (n_total.max(1) as f64);
+        // 全体分散の代理: σ² ≈ overall_avg の 10% を 1σ と仮定。
+        // 実 records レベル分散が ない (agg は集計済み) ため、scatter_min_max から派生。
+        let total_var: f64 = if !agg.salary_values.is_empty() {
+            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values.iter()
+                .map(|&v| {
+                    let d = v as f64 - mean;
+                    d * d
+                })
+                .sum::<f64>() / agg.salary_values.len() as f64
+        } else {
+            between_var * 2.0 // フォールバック
+        };
+        let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
+        let max_avg = agg.by_emp_type_salary.iter().map(|e| e.avg_salary).max().unwrap_or(0);
+        let min_avg = agg.by_emp_type_salary.iter().map(|e| e.avg_salary).min().unwrap_or(0);
+        rows.push(NavyCorrRow {
+            factor: "雇用形態".to_string(),
+            n_categories: agg.by_emp_type_salary.len(),
+            n_total,
+            max_minus_min_avg: max_avg - min_avg,
+            eta_sq,
+        });
+    }
+
+    // 因子 2: 職種 (occupation_salary)
+    let occ_rows = super::super::occupation_salary::aggregate_occupation_salary(agg);
+    if !occ_rows.is_empty() {
+        let n_total: i64 = occ_rows.iter().map(|r| r.count).sum();
+        let weighted_sum: i64 = occ_rows.iter().map(|r| r.weighted_avg * r.count).sum();
+        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
+        let between_var: f64 = occ_rows.iter()
+            .map(|r| {
+                let diff = (r.weighted_avg - overall_avg) as f64;
+                diff * diff * r.count as f64
+            })
+            .sum::<f64>() / (n_total.max(1) as f64);
+        let total_var: f64 = if !agg.salary_values.is_empty() {
+            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values.iter().map(|&v| { let d = v as f64 - mean; d*d }).sum::<f64>() / agg.salary_values.len() as f64
+        } else {
+            between_var * 2.0
+        };
+        let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
+        let max_avg = occ_rows.iter().map(|r| r.weighted_avg).max().unwrap_or(0);
+        let min_avg = occ_rows.iter().map(|r| r.weighted_avg).min().unwrap_or(0);
+        rows.push(NavyCorrRow {
+            factor: "職種 (推定)".to_string(),
+            n_categories: occ_rows.len(),
+            n_total,
+            max_minus_min_avg: max_avg - min_avg,
+            eta_sq,
+        });
+    }
+
+    // 因子 3: 業界 (industry_salary)
+    let ind_rows = super::super::industry_salary::aggregate_industry_salary(agg);
+    if !ind_rows.is_empty() {
+        let n_total: i64 = ind_rows.iter().map(|r| r.count).sum();
+        let weighted_sum: i64 = ind_rows.iter().map(|r| r.weighted_avg * r.count).sum();
+        let overall_avg = if n_total > 0 { weighted_sum / n_total } else { 0 };
+        let between_var: f64 = ind_rows.iter()
+            .map(|r| {
+                let diff = (r.weighted_avg - overall_avg) as f64;
+                diff * diff * r.count as f64
+            })
+            .sum::<f64>() / (n_total.max(1) as f64);
+        let total_var: f64 = if !agg.salary_values.is_empty() {
+            let mean = agg.salary_values.iter().sum::<i64>() as f64 / agg.salary_values.len() as f64;
+            agg.salary_values.iter().map(|&v| { let d = v as f64 - mean; d*d }).sum::<f64>() / agg.salary_values.len() as f64
+        } else {
+            between_var * 2.0
+        };
+        let eta_sq = (between_var / total_var.max(1.0)).min(1.0);
+        let max_avg = ind_rows.iter().map(|r| r.weighted_avg).max().unwrap_or(0);
+        let min_avg = ind_rows.iter().map(|r| r.weighted_avg).min().unwrap_or(0);
+        rows.push(NavyCorrRow {
+            factor: "業界 (推定)".to_string(),
+            n_categories: ind_rows.len(),
+            n_total,
+            max_minus_min_avg: max_avg - min_avg,
+            eta_sq,
+        });
+    }
+
+    // η² 降順
+    rows.sort_by(|a, b| b.eta_sq.partial_cmp(&a.eta_sq).unwrap_or(std::cmp::Ordering::Equal));
+    rows
+}
+
+fn build_navy_salary_correlation_table(rows: &[NavyCorrRow]) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>要因</th>");
+    s.push_str("<th class=\"num\">カテゴリ数</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">最大-最小 平均差</th>");
+    s.push_str("<th class=\"num\">η² (説明力)</th>");
+    s.push_str("<th>判定</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+    for (i, r) in rows.iter().enumerate() {
+        let (tag, label) = if r.eta_sq >= 0.10 {
+            ("pos", "強い説明力")
+        } else if r.eta_sq >= 0.05 {
+            ("neu", "中程度")
+        } else {
+            ("neu", "弱い説明力")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{:.3}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&r.factor),
+            r.n_categories,
+            format_number(r.n_total),
+            format_mm(r.max_minus_min_avg),
+            r.eta_sq,
+            tag,
+            label,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">η² は要因 (雇用形態/職種/業界) が給与差を説明する割合。\
+                0.10 以上で「強い説明力」、0.05-0.10 で「中程度」、未満で「弱い」と判定 (社会科学慣例の目安)。\
+                推定要因 (職種/業界) は CSV 自動分類のため誤差を含みます。\
+                <strong>相関 ≠ 因果</strong>: η² は分散説明であり、因果関係を証明するものではありません。</p>\n");
+    s
+}
+
+// 給与構造クラスタ table-navy (label / lower_seg / range_seg / n / P25/P50/P60/P75/P90/mean)
+fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -> String {
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>クラスタ</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">P25</th>");
+    s.push_str("<th class=\"num\">中央値 P50</th>");
+    s.push_str("<th class=\"num\">P60</th>");
+    s.push_str("<th class=\"num\">P75</th>");
+    s.push_str("<th class=\"num\">P90</th>");
+    s.push_str("<th class=\"num\">平均</th>");
+    s.push_str("<th>解釈</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    // 件数降順
+    let mut sorted: Vec<&super::super::helpers::SalaryCluster> = clusters.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+
+    for (i, c) in sorted.iter().enumerate() {
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        let (tag, interp) = match c.range_seg {
+            "異常広レンジ" => ("warn", "高レンジ訴求 / 歩合・委託の可能性"),
+            "広レンジ" => ("neu", "上限訴求が強い帯"),
+            "狭レンジ" => ("neu", "定額型求人"),
+            _ => ("neu", "通常レンジ"),
+        };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&c.label),
+            format_number(c.count as i64),
+            format_mm(c.p25),
+            format_mm(c.p50),
+            format_mm(c.p60),
+            format_mm(c.p75),
+            format_mm(c.p90),
+            format_mm(c.mean),
+            tag,
+            interp,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str("<p class=\"caption\">単位: 万円 (月給換算)。\
+                目的別ライン: コスト抑制 P40-P50 / 見劣り回避 P50 / 競争力 P60-P75 / 高待遇訴求 P75+ (設計メモ §10.3)。</p>\n");
+    s
+}
+
+// クラスタ別 並列ボックスプロット SVG (下限給与 P25-P75 box + min-max whisker + P50 中央線)
+fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryCluster]) -> String {
+    if clusters.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&super::super::helpers::SalaryCluster> = clusters.iter().collect();
+    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+    sorted.truncate(8); // 上位 8 cluster
+
+    // 2026-05-14: ユーザー指摘「図 3-5 がもう少し大きくできない、見えづらい」を反映。
+    //   row_h 38→56 / label_w 180→200 / 各 font-size ↑ で実効サイズを 1.5x 程度に拡大。
+    //   viewBox は w=720 維持 + h を 1.5x 化することで、`width=100%` 表示時に縦に伸びる。
+    let w = 720.0;
+    let row_h = 56.0;
+    let h = 36.0 + sorted.len() as f64 * row_h + 36.0;
+    let label_w = 200.0;
+    let n_w = 60.0;
+    let plot_x = label_w + n_w;
+    let plot_w = w - plot_x - 16.0;
+
+    // 全体 max/min を決定 (スケール)
+    let max_v = sorted.iter().map(|c| c.p90).max().unwrap_or(1) as f64;
+    let min_v = sorted.iter().map(|c| c.p25).min().unwrap_or(0) as f64;
+    let span = (max_v - min_v).max(1.0);
+
+    let mut svg = format!(
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" \
+         role=\"img\" aria-label=\"クラスタ別ボックスプロット\" \
+         style=\"display:block;background:var(--paper-pure);border:1px solid var(--rule-soft);\">\n",
+        w = w as i64,
+        h = h as i64
+    );
+
+    let x_of = |v: i64| -> f64 {
+        plot_x + ((v as f64 - min_v) / span).clamp(0.0, 1.0) * plot_w
+    };
+
+    // x軸ラベル (4 点)
+    for i in 0..=4 {
+        let v = (min_v + span * i as f64 / 4.0) as i64;
+        let x = plot_x + plot_w * i as f64 / 4.0;
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"24\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+            x, x, h - 20.0, x, h - 6.0, format_mm(v)
+        ));
+    }
+
+    // 各 cluster の box (font-size 拡大 + box_h 拡大)
+    let row_center_off = row_h / 2.0;
+    let box_h = 22.0; // 16.0 → 22.0 (37% UP)
+    for (i, c) in sorted.iter().enumerate() {
+        let cy = 36.0 + i as f64 * row_h;
+        let text_y = cy + row_center_off;
+        // label
+        svg.push_str(&format!(
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"13\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            text_y,
+            escape_html(&c.label)
+        ));
+        // n
+        svg.push_str(&format!(
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
+            label_w, text_y, c.count
+        ));
+        // whisker (min ~ max)
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#9CA0AB\" stroke-width=\"1.2\"/>\n",
+            x_of(c.min), text_y, x_of(c.max), text_y
+        ));
+        // box (P25 ~ P75)
+        let box_x1 = x_of(c.p25);
+        let box_x2 = x_of(c.p75);
+        let box_y = text_y - box_h / 2.0;
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"1\"/>\n",
+            box_x1, box_y, (box_x2 - box_x1).max(1.0), box_h
+        ));
+        // median (P50) 縦線
+        let med_x = x_of(c.p50);
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#1F6B43\" stroke-width=\"2.5\"/>\n",
+            med_x, box_y, med_x, box_y + box_h
+        ));
+        // mean (金色 dot)
+        svg.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"4\" fill=\"#C9A24B\" stroke=\"#0B1E3F\" stroke-width=\"0.7\"/>\n",
+            x_of(c.mean), text_y
+        ));
+    }
+    svg.push_str("</svg>\n");
+    svg
+}
+
+// 職種×給与 table-navy (industry と同型)
+fn build_navy_occupation_salary_table(
+    rows: &[super::super::occupation_salary::OccupationSalaryRow],
+    is_hourly: bool,
+) -> String {
+    let total_n: i64 = rows.iter().map(|r| r.count).sum();
+    let weighted_sum: i64 = rows.iter().map(|r| r.weighted_avg * r.count).sum();
+    let overall_avg = if total_n > 0 { weighted_sum / total_n } else { 0 };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th>No.</th><th>職種グループ (推定)</th>");
+    s.push_str("<th class=\"num\">n</th>");
+    s.push_str("<th class=\"num\">平均給与</th>");
+    s.push_str("<th class=\"num\">中央値</th>");
+    s.push_str("<th>全体差分</th>");
+    s.push_str("<th>注記</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+
+    for (i, r) in rows.iter().enumerate() {
+        let diff_pct = if overall_avg > 0 {
+            (r.weighted_avg - overall_avg) as f64 / overall_avg as f64 * 100.0
+        } else {
+            0.0
+        };
+        let (tag, tag_label) = if diff_pct >= 10.0 {
+            ("pos", "高給与帯")
+        } else if diff_pct <= -10.0 {
+            ("warn", "低給与帯")
+        } else {
+            ("neu", "中央付近")
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        let median_str = match r.median_of_company_medians {
+            Some(m) => fmt_val(m),
+            None => "—".to_string(),
+        };
+        let note_html = if r.note.is_empty() {
+            String::new()
+        } else {
+            format!("<span class=\"tag tag-neu\">{}</span>", escape_html(r.note))
+        };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>{}</strong></td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num bold\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:+.1}%</span></td>\
+             <td>{}</td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            escape_html(&r.occupation),
+            format_number(r.count),
+            fmt_val(r.weighted_avg),
+            median_str,
+            tag,
+            tag_label,
+            diff_pct,
+            note_html,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">職種推定は CSV の求人タイトル + タグから自動分類 (看護系 / 介護系 / 保育系 等)。\
+         全体平均: {} {}。件数 &lt; 3 は「参考 (低信頼)」表示。\
+         <strong>相関 ≠ 因果</strong>: 職種別給与差分は要因分析ではなく分布差として読んでください。</p>\n",
+        if is_hourly { format_number(overall_avg) } else { format_mm(overall_avg) },
+        if is_hourly { "円/時" } else { "万円" }
+    ));
+    s
+}
+
+/// navy 集計テーブル (下限 / 上限 × n/P25/P50/平均/P75/P90/min/max)
+///
+/// Phase 2-A (2026-05-29): `is_hourly` 引数追加。
+/// - `is_hourly = false` (月給モード): 全セル `format_mm()` で万円換算表示、キャプション「単位: 万円」
+/// - `is_hourly = true`  (時給モード): 全セル `format_number()` で円のまま表示、キャプション「単位: 円/時」
+fn build_navy_salary_summary_table(
+    lo: &Option<DistStats>,
+    hi: &Option<DistStats>,
+    is_hourly: bool,
+) -> String {
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+    let mut s = String::new();
+    s.push_str("<table class=\"table-navy\">\n");
+    s.push_str("<thead><tr>\
+                <th>区分</th><th class=\"num\">n</th>\
+                <th class=\"num\">最小</th>\
+                <th class=\"num\">P25</th>\
+                <th class=\"num\">中央値</th>\
+                <th class=\"num\">平均</th>\
+                <th class=\"num\">最頻値</th>\
+                <th class=\"num\">P75</th>\
+                <th class=\"num\">P90</th>\
+                <th class=\"num\">最大</th>\
+                </tr></thead>\n<tbody>\n");
+    let row = |label: &str, st: &Option<DistStats>| -> String {
+        match st {
+            Some(s) => format!(
+                "<tr><td><strong>{}</strong></td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">{}</td>\
+                 </tr>\n",
+                label,
+                format_number(s.n as i64),
+                fmt_val(s.min),
+                fmt_val(s.p25),
+                fmt_val(s.median),
+                fmt_val(s.mean),
+                fmt_val(s.mode_bin_yen),
+                fmt_val(s.p75),
+                fmt_val(s.p90),
+                fmt_val(s.max)
+            ),
+            None => format!(
+                "<tr><td><strong>{}</strong></td><td colspan=\"9\" class=\"dim\">—</td></tr>\n",
+                label
+            ),
+        }
+    };
+    s.push_str(&row("下限給与", lo));
+    s.push_str(&row("上限給与", hi));
+    s.push_str("</tbody></table>\n");
+    let caption = if is_hourly {
+        "<p class=\"caption\">単位: 円/時。</p>\n"
+    } else {
+        "<p class=\"caption\">単位: 万円。</p>\n"
+    };
+    s.push_str(caption);
+    s
+}
