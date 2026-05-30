@@ -1362,6 +1362,7 @@ fn decompress_gz_file(gz_path: &str, out_path: &str) {
 /// - `Compression::best()` × 47 ファイルが Render cold start に 5-20s を浪費していた。
 ///
 /// 将来 ServeDir 経由で `.gz` を配信する設計に戻す場合は本関数を再活用できます。
+#[allow(clippy::deprecated_semver)]
 #[deprecated(
     since = "2026-05-24",
     note = "I-P0-2: dead I/O. /api/geojson/* handler reads raw .json directly. Do not call from startup."
