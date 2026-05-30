@@ -1754,6 +1754,7 @@ mod tests {
 
     /// opt_f64 も同様に Turso 文字列・JSON Number 両対応。
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 はテスト用文字列パース値で PI とは無関係
     fn test_opt_f64_handles_turso_string_and_local_number() {
         let mut row: Row = HashMap::new();
         row.insert("turso_str".into(), Value::String("3.14".into()));
