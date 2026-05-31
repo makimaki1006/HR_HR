@@ -66,26 +66,31 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
     // Round 17 (2026-05-13): ECharts → SSR SVG。
     // データ整合性 fix (B-P1-1): 描画 (filtered_points) と回帰線で同じソース (5-200 万円フィルタ後)
     // を使うため、ローカルで再 regression を計算する。aggregator.regression は時給混入で歪んでいる。
+    //
+    // R-17 P2-4 #4 (2026-05-31): 表 5-1 と注釈テキストも local_regression_full (slope/intercept/R²)
+    // を使うよう統一。以前は agg.regression_min_max (時給混入、slope=1267 等) を表示しており、
+    // 描画 (clean) と数値 (汚染) で不整合 → PDF 視覚レビューで指摘された。
     let points_yen: Vec<(f64, f64)> = filtered_points
         .iter()
         .take(500)
         .map(|p| (p.x as f64, p.y as f64))
         .collect();
-    let local_regression = compute_simple_regression(&points_yen);
+    let local_regression_full = compute_regression_with_r2(&points_yen);
+    let local_regression = local_regression_full.map(|(s, i, _)| (s, i));
     html.push_str(&build_scatter_svg(&points_yen, local_regression));
 
-    if let Some(reg) = &agg.regression_min_max {
-        let strength = if reg.r_squared > 0.7 {
+    if let Some((slope, intercept, r_squared)) = local_regression_full {
+        let strength = if r_squared > 0.7 {
             "強い相関"
-        } else if reg.r_squared > 0.4 {
+        } else if r_squared > 0.4 {
             "中程度の相関"
         } else {
             "弱い相関"
         };
         // 強さに応じた色（緑=強、橙=中、グレー=弱）
-        let strength_color = if reg.r_squared > 0.5 {
+        let strength_color = if r_squared > 0.5 {
             "#10b981"
-        } else if reg.r_squared >= 0.3 {
+        } else if r_squared >= 0.3 {
             "#f59e0b"
         } else {
             "#94a3b8"
@@ -97,10 +102,10 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
             agg.scatter_min_max.len(),
             filtered_points.len(),
             strength_color,
-            reg.r_squared,
+            r_squared,
             strength,
-            reg.slope,
-            format_number(reg.intercept as i64),
+            slope,
+            format_number(intercept as i64),
         ));
 
         // 表 5-1: 回帰分析サマリ + R² 閾値ガイド
@@ -110,17 +115,17 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
         html.push_str(&format!(
             "<tr><td>R\u{00B2}（決定係数）</td><td class=\"num\" style=\"color:{};font-weight:700;\">{:.3}</td>\
              <td style=\"font-size:9pt;color:#666\">{} （> 0.5: 強 / 0.3-0.5: 中 / < 0.3: 弱）</td></tr>\n",
-            strength_color, reg.r_squared, strength
+            strength_color, r_squared, strength
         ));
         html.push_str(&format!(
             "<tr><td>傾き (slope)</td><td class=\"num\">{:.3}</td>\
              <td style=\"font-size:9pt;color:#666\">下限が 1 円増えると上限が {:.3} 円増える傾向</td></tr>\n",
-            reg.slope, reg.slope
+            slope, slope
         ));
         html.push_str(&format!(
             "<tr><td>切片 (intercept)</td><td class=\"num\">{}円</td>\
              <td style=\"font-size:9pt;color:#666\">下限 0 円のときの推定上限（参考値）</td></tr>\n",
-            format_number(reg.intercept as i64)
+            format_number(intercept as i64)
         ));
         html.push_str(&format!(
             "<tr><td>有効サンプル</td><td class=\"num\">{}件</td>\
@@ -136,7 +141,7 @@ pub(super) fn render_section_scatter(html: &mut String, agg: &SurveyAggregation)
                 "下限と上限の関係は <strong>{}</strong>（R\u{00B2}={:.3}）。\
                  これは「下限が高い求人は上限も高い」という<strong>相関</strong>であり、\
                  因果関係を示すものではありません。給与レンジ設計の参考傾向としてご利用ください。",
-                strength, reg.r_squared
+                strength, r_squared
             ),
         );
     }
