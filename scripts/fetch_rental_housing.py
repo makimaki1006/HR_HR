@@ -2,32 +2,33 @@
 fetch_rental_housing.py
 ========================
 
-e-Stat 住宅・土地統計調査 (政府統計コード 00200522) から
-市区町村×構造別×専有面積階級別の借家住戸数と家賃中央値を取得して
-CSV に出力するスクリプト。
+e-Stat 住宅・土地統計調査 (政府統計コード 00200522) の
+**借家 専用住宅 1m² 当たり家賃 (表 ID 0004021493)** を取得して CSV に出力するスクリプト。
 
-🟡 ファイルの配置先 (parent コピー先): scripts/fetch_rental_housing.py
-   このファイルは agent sandbox 書込制限のため src/handlers/survey/_drafts_rental_2026_05_31/ に
-   draft として配置されている。parent (ユーザー側) で scripts/ にコピーすること。
+🔴 仕様変更 (2026-05-31, PR fix/rental-data-sqm-rate):
+  当初設計 (PR #8) は「1ヶ月家賃 中央値」を取得する想定だったが、
+  e-Stat 2023 実施分の市区町村粒度表に存在するのは
+  **延べ面積 1m² 当たり家賃 (円/m²)** のみであることが判明したため、
+  **m² 単価 (円/m²) を「地域コスト指標」として活用する方針** に変更。
 
-設計方針:
-  - 案 R-A (docs/audit_2026_04_24/survey_data_activation_plan.md:831-863) 準拠
-  - Phase 3 STEP5 前提 (docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_STEP5_PREREQ_INGEST_PLAN.md:104-124)
-  - 既存パターン踏襲: fetch_industry_structure.py + fetch_estat_15_1.py の組み合わせ
-  - statsDataId 動的取得 (2 段階方式)
-    * 住宅・土地統計は表が大量に存在し、家賃・住戸数で別々の statsDataId
-    * --metadata-only で一覧取得 → ユーザーが目視で STATS_DATA_ID を確定 → 本実行
-    * 固定値ではなく 2 段階方式にする理由:
-        - e-Stat 側の表 ID は再公表時に変化する実績あり
-        - 2018 年実施分 (旧) と 2023 年実施分 (新) で表 ID が異なる
-        - 表が「住戸数のみ」「家賃のみ」「住戸×家賃合体」など複数存在し、用途で選別が必要
+  - 列名 `median_rent_jpy` は DB column 名互換のため変更しないが、
+    **実体は m² 単価 (円/m², 月額)** である。
+  - 列名 `rental_total_units` は **NULL 固定** (本表には住戸数が存在しないため)。
+  - 軸マッピング:
+      cat01 (建て方: 一戸建 / 長屋建 / 共同住宅 / その他 / 総数) → CSV `structure` 列
+      cat02 (構造  : 木造 / 非木造 / 総数)                       → CSV `area_class` 列
+                     (DB column 名互換のため列名は変えないが、実体は構造)
+      cat03 「家賃０円を含む」/「家賃０円を含まない」のうち、
+            より代表的な「家賃０円を含まない」のみ取得。
 
-データ仕様:
-  - 統計表ID群: 00200522 (政府統計コード) の中から借家×家賃の表を選択
-  - 対象: 47 都道府県 + 政令指定都市 + 人口 5 万人以上の市区町村 (約 100)
-  - セグメント:
-      * 構造: 木造 / 防火木造 / 鉄筋・鉄骨コンクリート造 / 鉄骨造
-      * 専有面積階級: 29m² 以下 / 30-49 / 50-69 / 70-99 / 100m² 以上
+データ仕様 (e-Stat 2023 実体):
+  - 政府統計コード: 00200522 (住宅・土地統計調査)
+  - statsDataId:    0004021493 (借家 専用住宅 延べ面積 1m² 当たり家賃)
+  - 軸: 建て方(5) × 構造(3) × cat03(2) × area(1283 = 全国/47県/市区町村) × time(2023)
+  - データ単位: **円/m² (1m² 当たり月家賃の平均値)**
+  - 想定値域: 100〜30,000 円/m² (地方 ~500、都心 ~10,000)
+  - 例: 東京都中央区 一戸建 木造 = 約 1,500-2,500 円/m²
+  - Overall ~ 38,490 data points
 
 CLI:
   python scripts/fetch_rental_housing.py --dry-run
@@ -77,11 +78,16 @@ ESTAT_DATA_API = f"{ESTAT_API_BASE}/getStatsData"
 # 政府統計コード: 住宅・土地統計調査
 GOV_STATS_CODE = "00200522"
 
-# 🔴 STATS_DATA_ID: 必ず --metadata-only で表一覧を取得した後に手動更新すること
-# 暫定値 (要置き換え):
-#   2018 年実施の住宅・土地統計の借家家賃に関する代表的な表 ID。
-#   2023 年実施分 (2024 公表) は --metadata-only 実行後に最新値を確定する。
-STATS_DATA_ID = "0003228366"  # 🔴 要確認: --metadata-only で最新の表 ID に置き換える
+# 🟢 STATS_DATA_ID 確定 (2026-05-31):
+#   0004021493 = 借家 専用住宅 延べ面積 1m² 当たり家賃 (建て方×構造×market_class×area×time)
+#   軸: cat01(建て方 5) × cat02(構造 3) × cat03(家賃０円含む/含まない 2) × area(1283) × time(2023)
+#   データ単位: 円/m² (月額)
+#   Overall ~ 38,490 data points
+STATS_DATA_ID = "0004021493"
+
+# cat03 軸: 「家賃０円を含む」「家賃０円を含まない」の 2 種類。
+# より代表的な「家賃０円を含まない」のみを取得する (空家・賃料無料の社宅等を除外)。
+TARGET_CAT03_KEYWORD = "家賃０円を含まない"
 
 # 出力先 (既存 fetch_industry_structure.py 等と同じ scripts/data/ に出力)
 SCRIPT_DIR = Path(__file__).parent
@@ -101,15 +107,20 @@ MAX_RETRIES = 5
 PAGE_SIZE = 100000  # e-Stat API の 1 ページ最大件数
 
 # 出力 CSV カラム
+# 🔴 列名は DB column 名互換のため変更しないが、実体が異なる:
+#   - structure (cat01): 建て方 (一戸建 / 長屋建 / 共同住宅 / その他 / 総数)
+#   - area_class (cat02): 構造 (木造 / 非木造 / 総数) ← 実体は構造、列名は互換のため変えない
+#   - rental_total_units: NULL 固定 (本表には住戸数なし)
+#   - median_rent_jpy: m² 単価 (円/m², 月額) ← 実体は m² 単価、列名は互換のため変えない
 OUTPUT_COLUMNS = [
-    "prefecture",       # 都道府県名 (例: "東京都")
-    "municipality",     # 市区町村名 (例: "新宿区"、全国/都道府県集計は空)
-    "structure",        # 構造 (例: "木造", "鉄筋コンクリート造")
-    "area_class",       # 専有面積階級 (例: "29m²以下", "30-49m²")
-    "rental_total_units",  # 借家住戸数 (該当セグメント、整数)
-    "median_rent_jpy",  # 家賃中央値 (円/月、家賃データがある場合のみ)
-    "as_of",            # データ基準年 (例: "2023")
-    "fetched_at",       # 取得日時 (ISO8601 UTC)
+    "prefecture",          # 都道府県名 (例: "東京都")
+    "municipality",        # 市区町村名 (例: "新宿区"、全国/都道府県集計は空)
+    "structure",           # 建て方 (cat01: 一戸建 / 長屋建 / 共同住宅 / その他 / 総数)
+    "area_class",          # 構造 (cat02: 木造 / 非木造 / 総数) — 列名は互換のため変えない
+    "rental_total_units",  # 🔴 NULL 固定 (本表には住戸数なし)
+    "median_rent_jpy",     # 🔴 m² 単価 (円/m², 月額) — 列名は互換のため変えない
+    "as_of",               # データ基準年 (例: "2023")
+    "fetched_at",          # 取得日時 (ISO8601 UTC)
 ]
 
 # 都道府県コード (2 桁) → 名称マッピング
@@ -128,42 +139,35 @@ PREF_2DIGIT_MAP = {
     "45": "宮崎県", "46": "鹿児島県", "47": "沖縄県",
 }
 
-# 構造名の正規化マッピング (e-Stat 表記揺れ吸収)
+# 🔴 建て方 (cat01) の正規化マッピング — 列名 `structure` に格納
+#    e-Stat 2023 表 0004021493 の cat01 軸: 一戸建 / 長屋建 / 共同住宅 / その他 / 総数
 STRUCTURE_NORMALIZE = {
-    "木造": "木造",
-    "防火木造": "防火木造",
-    "木造（防火木造を除く）": "木造",
-    "鉄筋・鉄骨コンクリート造": "鉄筋・鉄骨コンクリート造",
-    "鉄筋コンクリート造": "鉄筋・鉄骨コンクリート造",
-    "鉄骨鉄筋コンクリート造": "鉄筋・鉄骨コンクリート造",
-    "鉄骨造": "鉄骨造",
+    "一戸建": "一戸建",
+    "長屋建": "長屋建",
+    "共同住宅": "共同住宅",
     "その他": "その他",
     "総数": "総数",
+    # 表記揺れ吸収
+    "一戸建て": "一戸建",
+    "長屋建て": "長屋建",
 }
 
-# 面積階級名の正規化マッピング
+# 🔴 構造 (cat02) の正規化マッピング — 列名 `area_class` に格納 (互換のため列名は変えない)
+#    e-Stat 2023 表 0004021493 の cat02 軸: 木造 / 非木造 / 総数
 AREA_CLASS_NORMALIZE = {
-    "29㎡以下": "29m²以下",
-    "29m2以下": "29m²以下",
-    "30~49㎡": "30-49m²",
-    "30〜49㎡": "30-49m²",
-    "30~49m2": "30-49m²",
-    "30〜49m2": "30-49m²",
-    "50~69㎡": "50-69m²",
-    "50〜69㎡": "50-69m²",
-    "50~69m2": "50-69m²",
-    "50〜69m2": "50-69m²",
-    "70~99㎡": "70-99m²",
-    "70〜99㎡": "70-99m²",
-    "70~99m2": "70-99m²",
-    "70〜99m2": "70-99m²",
-    "100㎡以上": "100m²以上",
-    "100m2以上": "100m²以上",
+    "木造": "木造",
+    "非木造": "非木造",
     "総数": "総数",
+    # 表記揺れ吸収 (将来の表構造変化に対する保険)
+    "木造（防火木造を除く）": "木造",
 }
 
 # データ基準年 (2023 年実施・2024 年公表)
 AS_OF_YEAR = "2023"
+
+# m² 単価の想定値域 (円/m², 月額)。validate で範囲外を WARN。
+SQM_RATE_MIN = 100      # 地方の最安帯
+SQM_RATE_MAX = 30_000   # 東京都心の高額帯上限
 
 
 # --------------------------------------------------------------------------- #
@@ -242,8 +246,11 @@ def get_stats_data(
     start_position: int = 1,
     limit: int = PAGE_SIZE,
     cd_area: str | None = None,
+    cd_cat03: str | None = None,
 ) -> dict[str, Any]:
-    """データ取得。cd_area 指定で 1 市区町村に絞り込み可能。"""
+    """データ取得。cd_area 指定で 1 市区町村に絞り込み可能。
+    cd_cat03 指定で「家賃０円を含まない」等の cat03 軸を絞り込み (取得量削減)。
+    """
     params: dict[str, Any] = {
         "appId": app_id,
         "statsDataId": stats_data_id,
@@ -256,6 +263,8 @@ def get_stats_data(
     }
     if cd_area:
         params["cdArea"] = cd_area
+    if cd_cat03:
+        params["cdCat03"] = cd_cat03
     url = f"{ESTAT_DATA_API}?{urllib.parse.urlencode(params)}"
     return _http_get(url)
 
@@ -269,17 +278,30 @@ def ensure_dirs() -> None:
 
 
 def _normalize_structure(name: str) -> str:
-    """構造名を辞書ベースで正規化。マッピングがなければそのまま返す。"""
+    """建て方名 (cat01) を辞書ベースで正規化。マッピングがなければそのまま返す。"""
     return STRUCTURE_NORMALIZE.get(name.strip(), name.strip())
 
 
 def _normalize_area_class(name: str) -> str:
-    """面積階級名を正規化。"""
+    """構造名 (cat02) を正規化。列名は area_class だが実体は構造。"""
     return AREA_CLASS_NORMALIZE.get(name.strip(), name.strip())
 
 
 def _save_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _resolve_target_cat03_code(axis_map: dict[str, dict[str, str]]) -> str | None:
+    """cat03 軸から「家賃０円を含まない」相当の code を解決。
+    マッチしなければ None (= cat03 絞り込みなしで全件取得)。
+    """
+    cat03_axis = axis_map.get("cat03", {})
+    for code, name in cat03_axis.items():
+        # 「家賃０円を含まない」「家賃0円を含まない」「家賃０円を除く」等の表記揺れ吸収
+        normalized = name.replace("０", "0").replace("含まない", "含まない")
+        if "含まない" in normalized or "除く" in normalized:
+            return code
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -292,7 +314,8 @@ def run_dry_run(args: argparse.Namespace) -> int:
     app_id = get_app_id(args.app_id)
     print(f"[appId] {mask_app_id(app_id)} (length={len(app_id)})")
     print(f"[gov_stats_code]   {GOV_STATS_CODE}")
-    print(f"[STATS_DATA_ID]    {STATS_DATA_ID}  (定数。--metadata-only で確定)")
+    print(f"[STATS_DATA_ID]    {STATS_DATA_ID}  (確定: 借家 1m² 当たり家賃)")
+    print(f"[target cat03]     {TARGET_CAT03_KEYWORD}")
     ensure_dirs()
     print(f"[dir] DATA_DIR     = {DATA_DIR.resolve()}")
     print(f"[plan] OUTPUT_CSV  = {OUTPUT_CSV}")
@@ -343,7 +366,7 @@ def run_metadata_only(args: argparse.Namespace) -> int:
     print()
     print("=== 候補表一覧 (借家/家賃/構造/面積 を含むもの) ===")
 
-    keywords = ["借家", "家賃", "構造", "専有面積", "民営", "公営"]
+    keywords = ["借家", "家賃", "構造", "専有面積", "民営", "公営", "1m", "1㎡"]
     matched: list[tuple[str, str, str]] = []
     for t in table_infs:
         stats_data_id = t.get("@id", "")
@@ -364,11 +387,10 @@ def run_metadata_only(args: argparse.Namespace) -> int:
     print(f"[matched] {len(matched)} tables match keywords {keywords}")
     print()
     print("🔴 次のアクション:")
-    print("  1. 上記から借家×家賃×構造×面積の表を選び STATS_DATA_ID を確定")
-    print(f"  2. このスクリプト内の STATS_DATA_ID 定数 (現在: {STATS_DATA_ID}) を更新")
-    print("  3. python scripts/fetch_rental_housing.py --inspect-meta で軸構造確認")
-    print("  4. python scripts/fetch_rental_housing.py --sample-only でサンプル取得")
-    print("  5. python scripts/fetch_rental_housing.py --fetch で本実行")
+    print(f"  1. STATS_DATA_ID は確定済 ({STATS_DATA_ID} = 1m² 当たり家賃)。再選定が必要な場合のみ更新。")
+    print("  2. python scripts/fetch_rental_housing.py --inspect-meta で軸構造確認")
+    print("  3. python scripts/fetch_rental_housing.py --sample-only でサンプル取得")
+    print("  4. python scripts/fetch_rental_housing.py --fetch で本実行")
     return 0
 
 
@@ -531,10 +553,17 @@ def _save_progress(area_code: str) -> None:
 
 
 def run_fetch(args: argparse.Namespace) -> int:
-    """本実行: 1 statsDataId に対して全データを取得して CSV に出力。
+    """本実行: STATS_DATA_ID (= 1m² 当たり家賃) の全 area を取得して CSV 出力。
 
-    住宅・土地統計は表によって粒度が異なるため、ここでは axis 構造を読み取って
-    area / structure / area_class / value を抽出する汎用的な実装を取る。
+    軸マッピング:
+      cat01 (建て方)   → CSV `structure`
+      cat02 (構造)     → CSV `area_class`  (列名互換のため変えない)
+      cat03 (家賃０円) → 「含まない」のみ取得
+      area             → CSV `prefecture` / `municipality`
+
+    CSV 出力値:
+      median_rent_jpy   = m² 単価 (円/m², 月額) — 列名互換のため変えない
+      rental_total_units = NULL 固定
     """
     print("[mode] --fetch")
     app_id = get_app_id(args.app_id)
@@ -542,6 +571,7 @@ def run_fetch(args: argparse.Namespace) -> int:
     print(f"[appId] {mask_app_id(app_id)}")
     print(f"[stats_data_id] {stats_data_id}")
     print(f"[output] {OUTPUT_CSV}")
+    print(f"[note] median_rent_jpy 列の実体は m² 単価 (円/m², 月額)")
     ensure_dirs()
 
     if args.reset and OUTPUT_CSV.exists():
@@ -559,6 +589,13 @@ def run_fetch(args: argparse.Namespace) -> int:
         raise SystemExit(f"meta error: {meta_result.get('ERROR_MSG')}")
     axis_map = _build_axis_map(meta)
     print(f"[axes] {list(axis_map.keys())}")
+
+    # cat03 「家賃０円を含まない」コードを解決 (取得量半減)
+    target_cat03_code = _resolve_target_cat03_code(axis_map)
+    if target_cat03_code:
+        print(f"[cat03] target code = {target_cat03_code} ({TARGET_CAT03_KEYWORD})")
+    else:
+        print("[cat03] target code not resolved; will filter at row level (cat03 axis missing or different)")
 
     # area 軸の市区町村コード一覧を取得
     area_axis = axis_map.get("area", {})
@@ -582,19 +619,6 @@ def run_fetch(args: argparse.Namespace) -> int:
     csv_mode = "w" if is_new else "a"
     fetched_at = datetime.now(timezone.utc).isoformat()
 
-    # 軸 ID 推定 (住宅・土地統計の典型: cat01=構造, cat02=面積階級, tab=表章項目)
-    # ただし表によって異なるため、コードレベルでは axis_map をルックアップする方針
-    # 表章項目 (tab) の中から「家賃」「住戸数」を識別するため、軸名から推定
-    tab_axis = axis_map.get("tab", {})
-    rent_tab_codes: set[str] = set()
-    unit_tab_codes: set[str] = set()
-    for code, name in tab_axis.items():
-        if any(k in name for k in ["家賃", "1か月当たり家賃", "1ヵ月当たり家賃", "月額家賃"]):
-            rent_tab_codes.add(code)
-        if any(k in name for k in ["住宅数", "住戸数", "借家数", "世帯数"]):
-            unit_tab_codes.add(code)
-    print(f"[tab] rent codes={rent_tab_codes}, unit codes={unit_tab_codes}")
-
     with OUTPUT_CSV.open(csv_mode, encoding="utf-8-sig", newline="") as f_out:
         writer = csv.DictWriter(f_out, fieldnames=OUTPUT_COLUMNS)
         if is_new:
@@ -616,6 +640,7 @@ def run_fetch(args: argparse.Namespace) -> int:
                     start_position=start_position,
                     limit=PAGE_SIZE,
                     cd_area=area_code,
+                    cd_cat03=target_cat03_code,
                 )
                 result = resp.get("GET_STATS_DATA", {}).get("RESULT", {})
                 if result.get("STATUS") not in (0, "0"):
@@ -640,11 +665,18 @@ def run_fetch(args: argparse.Namespace) -> int:
                 time.sleep(REQUEST_INTERVAL_SEC)
                 continue
 
-            # area_values を (structure, area_class) でグルーピングして 1 行にまとめる
-            # (tab=住戸数 -> rental_total_units, tab=家賃 -> median_rent_jpy)
+            # area_values を (建て方=structure, 構造=area_class) でグルーピング。
+            # 本表は単一指標 (1m² 当たり家賃) なので tab 軸の判別は不要、@value をそのまま採用。
+            # cat03 を絞り込めなかった場合はここでフィルタ。
             grouped: dict[tuple[str, str], dict[str, Any]] = {}
             for v in area_values:
-                tab_code = str(v.get("@tab", ""))
+                # cat03 行レベルフィルタ (API 絞り込み失敗時の保険)
+                if target_cat03_code is None:
+                    cat03_code = str(v.get("@cat03", ""))
+                    cat03_name = axis_map.get("cat03", {}).get(cat03_code, "")
+                    if cat03_name and "含まない" not in cat03_name and "除く" not in cat03_name:
+                        continue
+
                 cat01_code = str(v.get("@cat01", ""))
                 cat02_code = str(v.get("@cat02", ""))
                 val_raw = v.get("$", "")
@@ -663,27 +695,25 @@ def run_fetch(args: argparse.Namespace) -> int:
                     val_num = None
 
                 row = grouped.setdefault(key, {
-                    "rental_total_units": None,
+                    "rental_total_units": None,  # 本表には住戸数なし、NULL 固定
                     "median_rent_jpy": None,
                 })
 
-                if tab_code in unit_tab_codes and val_num is not None:
-                    row["rental_total_units"] = int(val_num)
-                elif tab_code in rent_tab_codes and val_num is not None:
-                    row["median_rent_jpy"] = int(val_num)
+                if val_num is not None and val_num > 0:
+                    # m² 単価 (円/m², 月額) として格納 (列名は互換のため変えない)
+                    row["median_rent_jpy"] = int(round(val_num))
 
             pref, muni = _classify_area(area_code, area_name)
             for (struct, area_class), vals in grouped.items():
                 if not struct and not area_class:
                     continue  # 軸全て空はスキップ
-                # 集計軸 (総数同士の組合せ) はノイズ多いが基準値として残す
                 writer.writerow({
                     "prefecture": pref,
                     "municipality": muni,
                     "structure": struct,
                     "area_class": area_class,
-                    "rental_total_units": vals["rental_total_units"],
-                    "median_rent_jpy": vals["median_rent_jpy"],
+                    "rental_total_units": vals["rental_total_units"],  # NULL 固定
+                    "median_rent_jpy": vals["median_rent_jpy"],         # m² 単価 (円/m²)
                     "as_of": AS_OF_YEAR,
                     "fetched_at": fetched_at,
                 })
@@ -697,6 +727,7 @@ def run_fetch(args: argparse.Namespace) -> int:
         print("=" * 60)
         print(f"取得完了: processed={processed}, skipped={skipped}")
         print(f"出力先: {OUTPUT_CSV}")
+        print(f"注: median_rent_jpy 列の実体は m² 単価 (円/m², 月額)")
 
     return 0
 
@@ -706,7 +737,11 @@ def run_fetch(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------- #
 
 def run_validate(args: argparse.Namespace) -> int:
-    """出力 CSV の整合性チェック (pandas 必須)。"""
+    """出力 CSV の整合性チェック (pandas 必須)。
+
+    median_rent_jpy 列は m² 単価 (円/m², 月額) として検証する。
+    想定値域: 100〜30,000 円/m² (SQM_RATE_MIN〜SQM_RATE_MAX)。
+    """
     print("[mode] --validate")
     csv_path = OUTPUT_CSV
     if not csv_path.exists():
@@ -720,6 +755,7 @@ def run_validate(args: argparse.Namespace) -> int:
     df = pd.read_csv(csv_path, dtype={"prefecture": str, "municipality": str})
     n = len(df)
     print(f"[info] row count: {n:,}")
+    print("[note] median_rent_jpy 列は m² 単価 (円/m², 月額) として検証")
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -741,40 +777,48 @@ def run_validate(args: argparse.Namespace) -> int:
     if missing_prefs:
         warnings.append(f"missing prefectures: {sorted(missing_prefs)[:5]} (+{max(0, len(missing_prefs) - 5)} more)")
 
-    # 3. 市区町村カバレッジ (案 R-A 想定: 約 100 市区町村)
+    # 3. 市区町村カバレッジ (e-Stat 0004021493 は約 1,283 area = 全国+47県+市区町村)
     muni_count = df[df["municipality"] != ""]["municipality"].nunique()
     print(f"[info] distinct municipalities (non-empty): {muni_count}")
     if muni_count < 50:
         warnings.append(f"municipality count = {muni_count}, expected >= 50")
-    if muni_count > 1900:
-        warnings.append(f"municipality count = {muni_count}, much higher than expected (~100)")
+    if muni_count > 2000:
+        warnings.append(f"municipality count = {muni_count}, much higher than expected (~1,235)")
 
-    # 4. median_rent_jpy が 0 超か
+    # 4. median_rent_jpy (= m² 単価) が想定値域内か
     rent_non_null = df["median_rent_jpy"].dropna()
     if len(rent_non_null) == 0:
-        warnings.append("no median_rent_jpy values (rent data missing?)")
+        warnings.append("no median_rent_jpy values (rate data missing?)")
     else:
         rent_pos = (rent_non_null > 0).sum()
         rent_zero = (rent_non_null <= 0).sum()
-        print(f"[info] median_rent_jpy: positive={rent_pos:,}, non-positive={rent_zero:,}")
+        print(f"[info] median_rent_jpy (m²単価): positive={rent_pos:,}, non-positive={rent_zero:,}")
         if rent_pos == 0:
             errors.append("all median_rent_jpy <= 0")
-        # 家賃の妥当性 (10,000 - 500,000 円/月 を想定)
-        rent_low = (rent_non_null < 10000).sum()
-        rent_high = (rent_non_null > 500000).sum()
-        if rent_low > 0:
-            warnings.append(f"median_rent_jpy < 10,000: {rent_low:,} rows")
-        if rent_high > 0:
-            warnings.append(f"median_rent_jpy > 500,000: {rent_high:,} rows")
+        # m² 単価想定値域: SQM_RATE_MIN〜SQM_RATE_MAX (100〜30,000 円/m²)
+        rate_low = (rent_non_null < SQM_RATE_MIN).sum()
+        rate_high = (rent_non_null > SQM_RATE_MAX).sum()
+        if rate_low > 0:
+            warnings.append(
+                f"median_rent_jpy (m²単価) < {SQM_RATE_MIN}: {rate_low:,} rows "
+                f"(unit drift suspected; expected 円/m², 月額)"
+            )
+        if rate_high > 0:
+            warnings.append(
+                f"median_rent_jpy (m²単価) > {SQM_RATE_MAX}: {rate_high:,} rows "
+                f"(unit drift suspected; possibly 月家賃が混入?)"
+            )
+        # サンプル統計
+        print(f"[stats] m²単価 (円/m²): min={rent_non_null.min():,.0f}, "
+              f"median={rent_non_null.median():,.0f}, max={rent_non_null.max():,.0f}")
 
-    # 5. rental_total_units が 0 超か
+    # 5. rental_total_units は NULL 固定の想定
     units_non_null = df["rental_total_units"].dropna()
-    if len(units_non_null) == 0:
-        warnings.append("no rental_total_units values")
-    else:
-        units_neg = (units_non_null < 0).sum()
-        if units_neg > 0:
-            errors.append(f"negative rental_total_units: {units_neg:,}")
+    if len(units_non_null) > 0:
+        warnings.append(
+            f"rental_total_units should be NULL for this table (本表に住戸数なし) but found "
+            f"{len(units_non_null):,} non-null rows"
+        )
 
     # 6. PK 重複チェック (prefecture, municipality, structure, area_class)
     pk_cols = ["prefecture", "municipality", "structure", "area_class"]
@@ -782,11 +826,11 @@ def run_validate(args: argparse.Namespace) -> int:
     if dup > 0:
         warnings.append(f"PK duplicates ({pk_cols}): {dup:,}")
 
-    # 7. structure / area_class の distinct 数
-    print(f"[dist] structure ({df['structure'].nunique()} distinct):")
+    # 7. structure (建て方) / area_class (構造) の distinct 数
+    print(f"[dist] structure ({df['structure'].nunique()} distinct, 期待: 一戸建/長屋建/共同住宅/その他/総数):")
     for k, v in df["structure"].value_counts().head(10).items():
         print(f"  {k!r}: {v:,}")
-    print(f"[dist] area_class ({df['area_class'].nunique()} distinct):")
+    print(f"[dist] area_class ({df['area_class'].nunique()} distinct, 期待: 木造/非木造/総数):")
     for k, v in df["area_class"].value_counts().head(10).items():
         print(f"  {k!r}: {v:,}")
 
@@ -819,7 +863,8 @@ def _print_validation(errors: list[str], warnings: list[str]) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="e-Stat 住宅・土地統計調査 (statsCode=00200522) fetch script (Phase 2 案 R-A)",
+        description="e-Stat 住宅・土地統計調査 (statsCode=00200522) "
+                    "1m² 当たり家賃取得スクリプト (PR fix/rental-data-sqm-rate)",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true",
