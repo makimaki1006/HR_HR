@@ -1725,11 +1725,13 @@ pub(crate) fn render_mi_market_quadrant(
         let median_y_pct = to_y_pct(emp_median);
 
         let max_salary = points.iter().map(|p| p.median_salary).max().unwrap_or(1);
+        // R-17 P2-4 #6 (2026-05-31): 視認性ガード。最小サイズを 8 → 12 に引き上げ。
+        // 小サンプル時 (n<5) や給与中央値が低い点で 8px だと PDF で点が潰れて見える問題への対応。
         let to_size_px = |s: i64| -> i64 {
             if max_salary <= 0 {
-                10
+                14
             } else {
-                8 + (10 * s / max_salary).max(0).min(10)
+                12 + (10 * s / max_salary).max(0).min(10)
             }
         };
         let color_for = |label: &str| -> &'static str {
@@ -1767,10 +1769,20 @@ pub(crate) fn render_mi_market_quadrant(
                      transform-origin:center;font-size:9px;color:#475569;\">国勢調査 従業者 (対数) →</div>\n",
         );
         // 各点
+        // R-17 P2-4 #6 (2026-05-31): jitter (決定論的) で同位置重なりを緩和。
+        // log scale で X/Y が同値の点が重なって視認不可になる問題への対応。
+        // 再現可能性確保のため csv_count + employees_total を擬似乱数シードとして使う。
+        let jitter_pct = |seed: i64| -> f64 {
+            // seed % 7 → -1.5%〜+1.5% に正規化
+            let r = (seed.unsigned_abs() % 7) as f64; // 0..=6
+            (r - 3.0) * 0.5 // -1.5..=+1.5
+        };
         for p in &points {
             let q_label = quadrant_label(p.csv_count, p.employees_total, count_median, emp_median);
-            let x = to_x_pct(p.csv_count);
-            let y = to_y_pct(p.employees_total);
+            let jx = jitter_pct(p.csv_count.wrapping_add(p.employees_total));
+            let jy = jitter_pct(p.csv_count.wrapping_mul(31).wrapping_add(p.median_salary));
+            let x = (to_x_pct(p.csv_count) + jx).clamp(5.0, 95.0);
+            let y = (to_y_pct(p.employees_total) + jy).clamp(5.0, 95.0);
             let sz = to_size_px(p.median_salary);
             let color = color_for(q_label);
             // 短縮ラベル: 集約注釈含むなら除く、長すぎる場合は city_name のみ
