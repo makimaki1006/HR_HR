@@ -1392,6 +1392,7 @@ mod fixb_tests {
             ext_business_dynamics: vec![],
             ext_care_demand: vec![],
             ext_household_spending: vec![],
+            ext_rental_housing: vec![],
             ext_climate: vec![],
             // Impl-3: ライフスタイル特性 (P-1/P-2)
             ext_social_life: vec![],
@@ -1644,6 +1645,7 @@ mod impl1_contract_tests {
             ext_business_dynamics: vec![],
             ext_care_demand: vec![],
             ext_household_spending: vec![],
+            ext_rental_housing: vec![],
             ext_climate: vec![],
             ext_social_life: vec![],
             ext_internet_usage: vec![],

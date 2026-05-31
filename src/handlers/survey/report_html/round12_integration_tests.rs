@@ -63,6 +63,7 @@ fn empty_insight_ctx() -> super::super::super::insight::fetch::InsightContext {
         ext_business_dynamics: vec![],
         ext_care_demand: vec![],
         ext_household_spending: vec![],
+        ext_rental_housing: vec![],
         ext_climate: vec![],
         ext_households: vec![],
         ext_vital: vec![],
