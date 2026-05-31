@@ -150,6 +150,19 @@ TABLE_SCHEMAS = {
             PRIMARY KEY (prefecture)
         )
     """,
+    "v2_external_rental_housing": """
+        CREATE TABLE IF NOT EXISTS v2_external_rental_housing (
+            prefecture          TEXT NOT NULL,
+            municipality        TEXT NOT NULL DEFAULT '',
+            structure           TEXT NOT NULL,
+            area_class          TEXT NOT NULL,
+            rental_total_units  INTEGER,
+            median_rent_jpy     INTEGER,
+            as_of               TEXT,
+            fetched_at          TEXT,
+            PRIMARY KEY (prefecture, municipality, structure, area_class)
+        )
+    """,
 }
 
 # prefectureカラムを持つテーブル（インデックス作成対象）
@@ -163,6 +176,7 @@ PREFECTURE_INDEX_TABLES = {
     "v2_external_land_price",
     "v2_external_car_ownership",
     "v2_external_internet_usage",
+    "v2_external_rental_housing",
 }
 
 # テーブル名 → CSVファイル名のマッピング
@@ -177,6 +191,7 @@ TABLE_CSV_MAP = {
     "v2_external_land_price":         "land_price_by_prefecture.csv",
     "v2_external_car_ownership":      "car_ownership_by_prefecture.csv",
     "v2_external_internet_usage":     "internet_usage_by_prefecture.csv",
+    "v2_external_rental_housing":     "rental_housing_2026.csv",
 }
 
 # アップロード順序（定義された順番通り）
