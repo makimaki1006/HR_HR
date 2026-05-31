@@ -1455,6 +1455,34 @@ pub(super) fn compute_simple_regression(points: &[(f64, f64)]) -> Option<(f64, f
     }
 }
 
+/// 単回帰 + R² (決定係数) をローカル計算。
+/// R-17 P2-4 #4: scatter.rs で集計層の汚染値 (時給混入で slope=1267) を表示しないよう、
+/// 描画と同じフィルタ済み点群から (slope, intercept, r_squared) を一括取得する。
+///
+/// 戻り値: Some((slope, intercept, r_squared))。点数<6 or 分散ゼロなら None。
+pub(super) fn compute_regression_with_r2(points: &[(f64, f64)]) -> Option<(f64, f64, f64)> {
+    let (slope, intercept) = compute_simple_regression(points)?;
+    let n = points.len() as f64;
+    let mean_y: f64 = points.iter().map(|p| p.1).sum::<f64>() / n;
+    let mut ss_tot = 0.0_f64;
+    let mut ss_res = 0.0_f64;
+    for (x, y) in points {
+        let y_hat = slope * x + intercept;
+        ss_tot += (y - mean_y).powi(2);
+        ss_res += (y - y_hat).powi(2);
+    }
+    let r_squared = if ss_tot.abs() < 1e-9 {
+        0.0
+    } else {
+        (1.0 - ss_res / ss_tot).clamp(0.0, 1.0)
+    };
+    if r_squared.is_finite() {
+        Some((slope, intercept, r_squared))
+    } else {
+        None
+    }
+}
+
 fn escape_xml_helper(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
