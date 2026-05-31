@@ -920,6 +920,7 @@ mod tests {
             ext_business_dynamics: vec![],
             ext_care_demand: vec![],
             ext_household_spending: vec![],
+            ext_rental_housing: vec![],
             ext_climate: vec![],
             ext_social_life: vec![],
             ext_internet_usage: vec![],
