@@ -85,6 +85,7 @@ impl Ctx {
                 ext_business_dynamics: vec![],
                 ext_care_demand: vec![],
                 ext_household_spending: vec![],
+                ext_rental_housing: vec![],
                 ext_climate: vec![],
                 // Impl-3: ライフスタイル特性 (P-1/P-2)
                 ext_social_life: vec![],

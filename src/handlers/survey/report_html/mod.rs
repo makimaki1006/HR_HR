@@ -1171,6 +1171,7 @@ mod tests {
             ext_business_dynamics: vec![],
             ext_care_demand: vec![],
             ext_household_spending: vec![],
+            ext_rental_housing: vec![],
             ext_climate: vec![],
             // Phase A: SSDSE-A 新規6テーブル
             ext_households: vec![],
@@ -3784,6 +3785,7 @@ mod variant_indicator_tests {
             ext_business_dynamics: vec![],
             ext_care_demand: vec![],
             ext_household_spending: vec![],
+            ext_rental_housing: vec![],
             ext_climate: vec![],
             ext_households: vec![],
             ext_vital: vec![],

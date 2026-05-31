@@ -482,6 +482,21 @@ pub(crate) fn render_navy_section_07_lifestyle(
         html.push_str(&lifestyle_facilities);
     }
 
+    // -- 表 7-H 給与 vs 家賃 競争力比較 (Phase 2, 2026-05-31)
+    //   e-Stat 住宅・土地統計 借家家賃 (専有面積階級別) と求人給与中央値を比較。
+    //   家賃負担率 = 家賃中央値 / 月給中央値 * 100。
+    //   判定 (中立表現): <= 25% 低位 / 25-30% 標準 / > 30% 高負担。
+    //   silent skip: ext_rental_housing が空、または median_min_salary == 0 の場合は表示しない。
+    let rental_vs_salary = build_navy_rental_vs_salary_table(
+        &ctx.ext_rental_housing,
+        median_min_salary,
+        agg.is_hourly,
+    );
+    if !rental_vs_salary.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-H &nbsp;給与 vs 家賃 競争力比較</div>\n");
+        html.push_str(&rental_vs_salary);
+    }
+
     // -- 図 7-3 最賃プレミアム率分布 (Phase 2-B H3, 2026-05-29)
     //   時給モードのみ表示。求人時給と県最低賃金の差を premium_pct = (時給-最賃)/最賃*100 で
     //   バケット化 (5% 刻み) し、件数を縦棒で示す。
@@ -1217,6 +1232,162 @@ fn build_lifestyle_so_what(
 /// - prefecture / municipality / year / reference_date は先頭に固定
 /// - 各セル値は string/number/null をテキスト変換
 /// - rows.len() <= max_rows なら全件、超過なら先頭 max_rows 行 + 「他 N 件」表示
+
+// ============================================================
+// 2026-05-31 Phase 2: 給与 vs 家賃 競争力比較 (Section 07 表 7-H)
+// ============================================================
+//
+// 設計:
+// - e-Stat 住宅・土地統計 (v2_external_rental_housing) と求人給与中央値を比較。
+// - 家賃負担率 = 家賃中央値 (円/月) / 月給中央値 (円/月) * 100
+// - 判定 (中立表現、MEMORY: feedback_neutral_expression_for_targets):
+//     <= 25% = 低位 (給与訴求の余地あり)
+//     25-30% = 標準的水準
+//     > 30% = 高負担 (家賃補助/通勤手当の検討余地)
+// - 構造 = "総数" の行を優先採用。なければ "鉄筋・鉄骨コンクリート造" など主要構造の平均で代替。
+// - 専有面積階級 5 段階 (29m² 以下 / 30-49 / 50-69 / 70-99 / 100m² 以上) で行を出す。
+// - 単位防御 (MEMORY: feedback_unit_consistency_audit): 家賃 jpy (円/月) を 100 倍 / 0.01 倍で
+//   解釈する可能性を debug_assert で検知。0 < rent < 1_000_000 の範囲外なら warn ログ。
+//
+// silent skip 条件 (MEMORY: feedback_silent_fallback_audit):
+// - ext_rental_housing が空 → ""
+// - median_min_salary <= 0 → ""
+// - 抽出可能な (area_class, rent) ペアが 0 件 → ""
+//
+// 戻り値: HTML 文字列 (テーブル + caption)。データ不足時は空文字。
+fn build_navy_rental_vs_salary_table(
+    ext_rental_housing: &[std::collections::HashMap<String, serde_json::Value>],
+    median_min_salary: i64,
+    is_hourly: bool,
+) -> String {
+    use super::super::super::super::helpers::{get_f64, get_i64, get_str_ref};
+
+    if ext_rental_housing.is_empty() || median_min_salary <= 0 {
+        return String::new();
+    }
+
+    // 月給換算 (is_hourly の場合は x 167h)
+    let monthly_salary: i64 = if is_hourly {
+        median_min_salary * super::super::super::aggregator::HOURLY_TO_MONTHLY_HOURS
+    } else {
+        median_min_salary
+    };
+    if monthly_salary <= 0 {
+        return String::new();
+    }
+
+    // 面積階級の固定順序 (CSV 投入時の正規化キーに準拠、fetch_rental_housing.py の AREA_CLASS_NORMALIZE)
+    const AREA_ORDER: [&str; 5] = ["29m²以下", "30-49m²", "50-69m²", "70-99m²", "100m²以上"];
+
+    // 構造 = "総数" の行を優先、なければ "鉄筋・鉄骨コンクリート造" 行を fallback。
+    // 「総数」が CSV に登録されている前提だが、e-Stat 表構成によっては存在しない可能性があるため
+    // 複数構造の中央値を集約する fallback も用意 (silent fallback 防止)。
+    let priority_structures = ["総数", "鉄筋・鉄骨コンクリート造", "木造"];
+    let mut rows: Vec<(String, i64)> = Vec::new(); // (area_class, median_rent)
+    for area in AREA_ORDER.iter() {
+        let mut chosen: Option<i64> = None;
+        for prio in priority_structures.iter() {
+            if let Some(r) = ext_rental_housing.iter().find(|r| {
+                get_str_ref(r, "structure") == *prio
+                    && get_str_ref(r, "area_class") == *area
+                    && get_i64(r, "median_rent_jpy") > 0
+            }) {
+                chosen = Some(get_i64(r, "median_rent_jpy"));
+                break;
+            }
+        }
+        // fallback: 全構造の平均 (silent fallback 防止のため明示的に集約)
+        if chosen.is_none() {
+            let rents: Vec<i64> = ext_rental_housing
+                .iter()
+                .filter(|r| {
+                    get_str_ref(r, "area_class") == *area && get_i64(r, "median_rent_jpy") > 0
+                })
+                .map(|r| get_i64(r, "median_rent_jpy"))
+                .collect();
+            if !rents.is_empty() {
+                let sum: i64 = rents.iter().sum();
+                chosen = Some(sum / rents.len() as i64);
+            }
+        }
+        if let Some(rent) = chosen {
+            // 単位防御 (MEMORY: feedback_unit_consistency_audit / Round 1-K)
+            // 想定範囲: 1 万円〜 30 万円 (10_000〜300_000 円/月)。
+            // 1,000 円未満 = 100 倍ずれ (× 0.01) の疑い。1_000_000 円超 = 100 倍ずれ (× 100) の疑い。
+            debug_assert!(
+                (1_000..1_000_000).contains(&rent),
+                "median_rent_jpy out of expected range (1,000-1,000,000 JPY/month): {} for area_class={} (unit drift?)",
+                rent,
+                area
+            );
+            if !(1_000..1_000_000).contains(&rent) {
+                tracing::warn!(
+                    target: "navy_report",
+                    rent_jpy = rent,
+                    area_class = *area,
+                    "median_rent_jpy out of expected range (1,000-1,000,000); CSV unit drift suspected"
+                );
+            }
+            // 数値型として f64 取得経路 (NULL/欠損対応) でも確認。
+            // get_f64 が将来 NULL 解釈を変えた場合の二重防御。
+            let _f = ext_rental_housing
+                .iter()
+                .find(|r| get_str_ref(r, "area_class") == *area)
+                .map(|r| get_f64(r, "median_rent_jpy"))
+                .unwrap_or(0.0);
+            rows.push(((*area).to_string(), rent));
+        }
+    }
+
+    if rows.is_empty() {
+        return String::new();
+    }
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str(
+        "<th>専有面積階級</th>         <th class=\"num\">家賃中央値 (円/月)</th>         <th class=\"num\">月給中央値 (円/月)</th>         <th class=\"num\">家賃負担率</th>         <th>判定</th>",
+    );
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    for (i, (area, rent)) in rows.iter().enumerate() {
+        let burden_pct = *rent as f64 / monthly_salary as f64 * 100.0;
+        // 判定 (中立表現):
+        //   <= 25% = 低位 (給与訴求余地あり、neu タグ)
+        //   25-30% = 標準的水準 (neu)
+        //   > 30% = 高負担 (warn — 家賃補助/通勤手当の検討余地)
+        let (tag, label) = if burden_pct <= 25.0 {
+            ("pos", "低位水準")
+        } else if burden_pct <= 30.0 {
+            ("neu", "標準的水準")
+        } else {
+            ("warn", "高負担水準")
+        };
+        // 50-69m² (一般的な単身〜カップル想定) を hl 行に
+        let row_class = if area == "50-69m²" {
+            " class=\"hl\""
+        } else {
+            ""
+        };
+        s.push_str(&format!(
+            "<tr{}><td><strong>{}</strong></td>             <td class=\"num bold\">{}</td>             <td class=\"num\">{}</td>             <td class=\"num bold\">{:.1}%</td>             <td><span class=\"tag tag-{}\">{}</span></td></tr>\n",
+            row_class,
+            escape_html(area),
+            format_number(*rent),
+            format_number(monthly_salary),
+            burden_pct,
+            tag,
+            label,
+        ));
+        let _ = i;
+    }
+    s.push_str("</tbody></table>\n");
+    // SO WHAT (中立表現、データ源明示)
+    s.push_str(
+        "<p class=\"caption\">出典: 総務省 e-Stat 住宅・土地統計調査 (v2_external_rental_housing, 2023 年実施) + CSV 集計。         家賃中央値は構造「総数」優先 (なければ主要構造の平均)。月給は CSV 中央値 (時給ベースは &times; 167h で換算)。         <strong>判定基準:</strong> 家賃負担率 25% 以下を <strong>低位水準</strong>、25-30% を <strong>標準的水準</strong>、30% 超を <strong>高負担水準</strong> としています。         <strong>SO WHAT:</strong> 低位水準帯では給与の絶対水準で訴求余地があります。高負担水準帯では家賃補助・住宅手当・通勤手当等の付帯条件強化が候補となります。         住宅・土地統計は 5 年に 1 回の調査であり、最新基準年 (as_of) を caption 値で確認してください。         本表は HW 掲載求人の給与中央値と公的家賃統計の対比であり、世帯収入 / 可処分所得 / 単身者向けワンルーム賃料 等は別軸で評価が必要です。</p>\n",
+    );
+    s
+}
+
 /// 2026-05-15: 英語スネークケースの DB カラム名 → 日本語ラベル変換マップ。
 ///   Section 7.5 補助データの列ヘッダがユーザーに読めないという指摘への対応。
 ///   未登録キーは原文のままフォールバック (新規カラム追加時に気付ける)。
@@ -1432,5 +1603,150 @@ pub(crate) fn label_for_column(key: &str) -> &str {
             );
             key
         }
+    }
+}
+
+// ============================================================
+// 2026-05-31 Phase 2: 給与 vs 家賃 競争力比較 ユニットテスト
+// ============================================================
+#[cfg(test)]
+mod rental_tests {
+    use super::build_navy_rental_vs_salary_table;
+    use serde_json::{json, Value};
+    use std::collections::HashMap;
+
+    fn make_row(structure: &str, area: &str, rent: i64) -> HashMap<String, Value> {
+        let mut m = HashMap::new();
+        m.insert("prefecture".to_string(), json!("東京都"));
+        m.insert("municipality".to_string(), json!(""));
+        m.insert("structure".to_string(), json!(structure));
+        m.insert("area_class".to_string(), json!(area));
+        m.insert("rental_total_units".to_string(), json!(100000));
+        m.insert("median_rent_jpy".to_string(), json!(rent));
+        m.insert("as_of".to_string(), json!("2023"));
+        m
+    }
+
+    /// 不在データ: ext_rental_housing が空なら空文字を返す (silent skip 検証)
+    #[test]
+    fn rental_vs_salary_empty_returns_empty_string() {
+        let rows: Vec<HashMap<String, Value>> = vec![];
+        let html = build_navy_rental_vs_salary_table(&rows, 250_000, false);
+        assert!(
+            html.is_empty(),
+            "ext_rental_housing 空のとき空文字を返すべき"
+        );
+    }
+
+    /// 給与 = 0: median_min_salary <= 0 のときも空文字 (silent skip)
+    #[test]
+    fn rental_vs_salary_zero_salary_returns_empty_string() {
+        let rows = vec![make_row("総数", "50-69m²", 65_000)];
+        let html = build_navy_rental_vs_salary_table(&rows, 0, false);
+        assert!(
+            html.is_empty(),
+            "median_min_salary == 0 のとき空文字を返すべき"
+        );
+    }
+
+    /// 家賃中央値抽出: 民営総数 50-69m² が取得され、行に含まれる
+    #[test]
+    fn rental_vs_salary_extracts_median_rent_for_50_69() {
+        let rows = vec![
+            make_row("総数", "29m²以下", 50_000),
+            make_row("総数", "30-49m²", 58_000),
+            make_row("総数", "50-69m²", 68_000),
+            make_row("総数", "70-99m²", 85_000),
+            make_row("総数", "100m²以上", 120_000),
+        ];
+        let html = build_navy_rental_vs_salary_table(&rows, 250_000, false);
+        assert!(!html.is_empty(), "データありなら HTML 生成");
+        // 50-69m² の家賃中央値 68,000 円が表示されること
+        assert!(
+            html.contains("68,000"),
+            "50-69m² 行に 68,000 円が出るべき: {}",
+            html
+        );
+        // hl 行 (50-69m² 強調) であること
+        assert!(
+            html.contains("class=\"hl\""),
+            "50-69m² が hl 行で強調されるべき"
+        );
+    }
+
+    /// 負担率計算: rent 65,000 / salary 250,000 = 26.0% → "標準的水準" タグ
+    #[test]
+    fn rental_vs_salary_calculates_burden_ratio_standard() {
+        let rows = vec![make_row("総数", "50-69m²", 65_000)];
+        let html = build_navy_rental_vs_salary_table(&rows, 250_000, false);
+        // 26.0% が表示される
+        assert!(
+            html.contains("26.0%"),
+            "負担率 26.0% が表示されるべき: {}",
+            html
+        );
+        // 標準的水準 タグ (25-30% の中立判定)
+        assert!(
+            html.contains("標準的水準"),
+            "標準的水準タグが付くべき: {}",
+            html
+        );
+    }
+
+    /// 判定境界: 22% (低位水準) / 28% (標準) / 35% (高負担) で 3 種類のタグが出ること
+    #[test]
+    fn rental_vs_salary_classifies_three_burden_ranges() {
+        // 50-69m² 50,000 円 (20%) / 70-99m² 70,000 円 (28%) / 100m² 以上 90,000 円 (36%)
+        let rows = vec![
+            make_row("総数", "50-69m²", 50_000),
+            make_row("総数", "70-99m²", 70_000),
+            make_row("総数", "100m²以上", 90_000),
+        ];
+        let html = build_navy_rental_vs_salary_table(&rows, 250_000, false);
+        assert!(html.contains("低位水準"), "20% は低位水準: {}", html);
+        assert!(html.contains("標準的水準"), "28% は標準的水準: {}", html);
+        assert!(html.contains("高負担水準"), "36% は高負担水準: {}", html);
+    }
+
+    /// 時給モード: median_min_salary = 1500 円/時 → 1500 * 167 = 250,500 円/月で計算される
+    #[test]
+    fn rental_vs_salary_hourly_mode_converts_to_monthly() {
+        let rows = vec![make_row("総数", "50-69m²", 65_000)];
+        // 時給 1,500 円 × 167h = 250,500 円/月
+        let html = build_navy_rental_vs_salary_table(&rows, 1_500, true);
+        assert!(!html.is_empty(), "時給モードでも HTML 生成");
+        // 月給換算 250,500 円が表示されること
+        assert!(
+            html.contains("250,500"),
+            "時給 1,500 × 167h = 250,500 円/月 が表示されるべき: {}",
+            html
+        );
+        // 負担率 ≒ 25.9% (65000/250500*100)
+        assert!(
+            html.contains("25.9%"),
+            "負担率 25.9% が表示されるべき (65000/250500*100): {}",
+            html
+        );
+    }
+
+    /// 構造 fallback: 「総数」が無い場合、「鉄筋・鉄骨コンクリート造」が使われる
+    #[test]
+    fn rental_vs_salary_fallback_to_rc_when_no_total() {
+        let rows = vec![
+            make_row("鉄筋・鉄骨コンクリート造", "50-69m²", 75_000),
+            make_row("木造", "50-69m²", 55_000),
+        ];
+        let html = build_navy_rental_vs_salary_table(&rows, 300_000, false);
+        // 「総数」がないので priority "鉄筋・鉄骨コンクリート造" の 75,000 円が使われる
+        assert!(
+            html.contains("75,000"),
+            "鉄筋・鉄骨コンクリート造の 75,000 円が fallback で使われるべき: {}",
+            html
+        );
+        // 木造の 55,000 円は表示されない (priority で RC が勝つ)
+        assert!(
+            !html.contains("55,000"),
+            "木造 55,000 円は priority 下位なので表示されないはず"
+        );
     }
 }

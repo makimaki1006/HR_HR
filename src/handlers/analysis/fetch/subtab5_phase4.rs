@@ -586,6 +586,49 @@ pub(crate) fn fetch_household_spending(db: &Db, turso: Option<&TursoDb>, pref: &
     query_turso_or_local(turso, db, &sql, &params, "v2_external_household_spending")
 }
 
+/// 2026-05-31 Phase 2: e-Stat 住宅・土地統計 借家家賃データ取得。
+///
+/// `v2_external_rental_housing` (e-Stat 政府統計コード 00200522、2023 年実施分) から
+/// 都道府県 (および市区町村が登録されている場合) × 構造 × 専有面積階級別の
+/// 借家住戸数 / 家賃中央値を取得する。
+///
+/// # 引数
+/// - `pref` 空: 全国 (`prefecture = '全国'` のレコード) のみ
+/// - `pref` 指定: 当該都道府県 + 全国 (比較用)
+///
+/// # ヘッダー混入防衛 (MEMORY: feedback_silent_fallback_audit / 既存 v2_external_population で同様の防衛)
+/// `prefecture <> '都道府県'` を WHERE に含めて CSV 1 行目ヘッダー残骸を除外する。
+///
+/// # ソート
+/// `prefecture DESC, structure ASC, area_class ASC` で、当該県のレコードを先頭に固定し、
+/// 構造/面積帯の安定順序を確保。Section 07 表 7-H で「民営借家 50-69m²」の中央値抽出を行うため。
+pub(crate) fn fetch_rental_housing(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
+    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
+        (
+            "SELECT prefecture, municipality, structure, area_class, \
+          rental_total_units, median_rent_jpy, as_of \
+          FROM v2_external_rental_housing \
+          WHERE (prefecture = ?1 OR prefecture = '全国') \
+          AND prefecture IS NOT NULL AND prefecture <> '' AND prefecture <> '都道府県' \
+          ORDER BY prefecture DESC, structure ASC, area_class ASC"
+                .to_string(),
+            vec![pref.to_string()],
+        )
+    } else {
+        (
+            "SELECT prefecture, municipality, structure, area_class, \
+          rental_total_units, median_rent_jpy, as_of \
+          FROM v2_external_rental_housing \
+          WHERE prefecture = '全国' \
+          AND prefecture IS NOT NULL AND prefecture <> '都道府県' \
+          ORDER BY structure ASC, area_class ASC"
+                .to_string(),
+            vec![],
+        )
+    };
+    query_turso_or_local(turso, db, &sql, &params, "v2_external_rental_housing")
+}
+
 pub(crate) fn fetch_business_dynamics(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         (

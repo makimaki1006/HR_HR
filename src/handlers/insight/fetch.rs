@@ -106,6 +106,10 @@ pub struct InsightContext {
     // ext_foreign: 未実装のため省略
     pub ext_care_demand: Vec<Row>,
     pub ext_household_spending: Vec<Row>,
+    /// 2026-05-31 Phase 2: e-Stat 住宅・土地統計 借家家賃 (47 県 + 全国 × 構造 × 専有面積階級)
+    /// Section 07 表 7-H「給与 vs 家賃 競争力比較」で利用。
+    /// 空 Vec の場合は当該ブロックを表示しない (silent skip)。
+    pub ext_rental_housing: Vec<Row>,
     pub ext_climate: Vec<Row>,
     // === Impl-3 (2026-04-26): 媒体分析タブ ライフスタイル特性 ===
     // P-1: v2_external_social_life (47県 × 4カテゴリ: 趣味/スポーツ/ボランティア/学習)
@@ -238,7 +242,7 @@ pub(crate) fn build_insight_context_with_wage_mode(
     type ExtTsBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
     // PopBundle 末尾要素は P1-5 Section 06 拡張で追加した「上位 3 市区町村のピラミッド」
     type PopBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<MuniPyramid>);
-    type EstBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
+    type EstBundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
     type LifeBundle = (Vec<Row>, Vec<Row>, Vec<Row>);
     type PhaseABundle = (Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>, Vec<Row>);
     type MeanFlowBundle = (
@@ -361,6 +365,8 @@ pub(crate) fn build_insight_context_with_wage_mode(
                 af::fetch_business_dynamics(db, turso, pref),
                 af::fetch_care_demand(db, turso, pref),
                 af::fetch_household_spending(db, turso, pref),
+                // 2026-05-31 Phase 2: e-Stat 住宅・土地統計 借家家賃データ
+                af::fetch_rental_housing(db, turso, pref),
                 af::fetch_climate(db, turso, pref),
             )
         });
@@ -446,7 +452,7 @@ pub(crate) fn build_insight_context_with_wage_mode(
                 ?e,
                 "build_insight_context G5 (est) thread panicked, using empty defaults"
             );
-            (vec![], vec![], vec![], vec![], vec![])
+            (vec![], vec![], vec![], vec![], vec![], vec![])
         });
         let life = h_life.join().unwrap_or_else(|e| {
             tracing::warn!(
@@ -502,6 +508,7 @@ pub(crate) fn build_insight_context_with_wage_mode(
         ext_business_dynamics,
         ext_care_demand,
         ext_household_spending,
+        ext_rental_housing,
         ext_climate,
     ) = est_bundle;
     let (ext_social_life, ext_internet_usage, ext_education) = life_bundle;
@@ -551,6 +558,8 @@ pub(crate) fn build_insight_context_with_wage_mode(
         ext_business_dynamics,
         ext_care_demand,
         ext_household_spending,
+        // 2026-05-31 Phase 2: e-Stat 住宅・土地統計 借家家賃
+        ext_rental_housing,
         ext_climate,
         // Impl-3 (2026-04-26): ライフスタイル特性
         ext_social_life,
