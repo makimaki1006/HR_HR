@@ -112,30 +112,32 @@ pub(super) use section_03_salary::{build_navy_fuyou_table, render_navy_section_0
 // は外部 (report_html/mod.rs) から `navy_report::render_navy_section_*` の path で
 // 呼ばれているため、ここで `pub(super)` 再エクスポートして path 互換を維持する。
 //
-// `build_hourly_band_distribution` (Section 06 H4) と
 // `build_navy_minwage_premium_histogram_svg` (Section 07 H3) は report_html 配下の
 // `hourly_report_qa_test.rs` から `super::navy_report::build_*` path で参照されている
 // (時給モードフィーチャの QA テスト)。`navy_report` モジュール外への公開が必要なため、
-// 各 section ファイル内で `pub(crate)` に昇格し (`pub(super)` は階層不足で E0364 になる)、
+// section ファイル内で `pub(crate)` に昇格し (`pub(super)` は階層不足で E0364 になる)、
 // ここで `pub(super) use` で再エクスポートして従来 path を維持する。
+//
+// 2026-06-01: 図 6-3 / 表 6-G/H/I/J (HW postings 求人側集計ブロック) を削除。
+// これに伴い `render_navy_section_06_posting_target` / `build_distribution_table` /
+// `build_hourly_band_distribution` の再エクスポートを撤去。`hourly_report_qa_test.rs`
+// 側の H4 / H-INT-03 テスト (表 6-J 関連) も同時削除済み。
 //
 // `label_for_column` は `build_navy_auto_table` (mod.rs に残置) から参照されるため、
 // section_07_lifestyle.rs 内で `pub(crate)` に昇格し、ここで `pub(super) use` で
 // 再エクスポートする。`build_navy_auto_table` 側はこれまで通り unqualified で呼べる。
 //
-// 内部 helper (`render_navy_section_06_posting_target` / `build_distribution_table` /
-// `age_lo` / `age_sort_key` / `build_navy_pyramid_svg` / `build_navy_pyramid_svg_mini` /
-// `build_demographics_so_what` / `build_navy_minwage_vs_salary_table` /
-// `build_navy_household_vs_salary_table` / `build_navy_lifestyle_facilities_table` /
-// `build_navy_minwage_chart` / `build_navy_household_table` / `build_lifestyle_so_what` /
-// 定数 `HOURLY_BAND_BOUNDARIES` / `PREMIUM_BUCKETS`) は各 section_*.rs 内に
-// 閉じ込め (module-private)、外部公開はしない。API 表面は不変。
+// 内部 helper (`age_lo` / `age_sort_key` / `build_navy_pyramid_svg` /
+// `build_navy_pyramid_svg_mini` / `build_demographics_so_what` /
+// `build_navy_minwage_vs_salary_table` / `build_navy_household_vs_salary_table` /
+// `build_navy_lifestyle_facilities_table` / `build_navy_minwage_chart` /
+// `build_navy_household_table` / `build_lifestyle_so_what` /
+// 定数 `PREMIUM_BUCKETS`) は各 section_*.rs 内に閉じ込め (module-private)、
+// 外部公開はしない。API 表面は不変。
 pub(super) mod section_06_demographics;
 pub(super) mod section_07_lifestyle;
 pub(super) use section_06_demographics::{
-    build_distribution_table, build_hourly_band_distribution, build_navy_pyramid_svg,
-    build_navy_pyramid_svg_mini, render_navy_section_06_demographics,
-    render_navy_section_06_posting_target,
+    build_navy_pyramid_svg, build_navy_pyramid_svg_mini, render_navy_section_06_demographics,
 };
 pub(super) use section_07_lifestyle::{
     build_navy_minwage_premium_histogram_svg, label_for_column, render_navy_section_07_lifestyle,
