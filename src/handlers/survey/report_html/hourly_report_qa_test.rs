@@ -1,25 +1,26 @@
-//! Phase 2-B (2026-05-29): 時給モード H1/H3/H4 QA テスト
+//! Phase 2-B (2026-05-29): 時給モード H1/H3 QA テスト
 //!
 //! 対象:
 //!   - H1: 扶養範囲到達時給 (Section 03 表 3-H) → `build_navy_fuyou_table`
 //!   - H3: 最賃プレミアム率分布 (Section 07 図 7-3) → `build_navy_minwage_premium_histogram_svg`
-//!   - H4: 時給帯別 求人件数 (Section 06 表 6-J) → `build_hourly_band_distribution`
+//!
+//! 2026-06-01: H4 (時給帯別 求人件数, 表 6-J) は HW postings 求人側集計ブロック
+//! (図 6-3 + 表 6-G/H/I/J) の削除に伴い、`build_hourly_band_distribution` も
+//! 撤去。本ファイルから H4 系 10 テスト + H-INT-03 (月給モードで表 6-J 非表示)
+//! を削除。
 //!
 //! 設計方針:
 //!   - 各 H に対し、空 / 単一値 / 通常 / 境界値 / 異常値 を網羅
 //!   - 不変条件 (invariant) を assert! で検証 (`feedback_reverse_proof_tests.md`)
 //!   - silent fallback 監査: 空入力で空文字 OR 明示的「該当データなし」を確認
-//!   - 月給モード (is_hourly=false) で表 3-H / 図 7-3 / 表 6-J が出力されないことを確認
+//!   - 月給モード (is_hourly=false) で表 3-H / 図 7-3 が出力されないことを確認
 //!
 //! 既存テスト (`report_html_qa_test.rs` / `invariant_tests.rs`) との重複は避け、
 //! 本ファイルは時給特有指標に限定する。
 
 #![cfg(test)]
 
-use super::navy_report::{
-    build_hourly_band_distribution, build_navy_fuyou_table,
-    build_navy_minwage_premium_histogram_svg,
-};
+use super::navy_report::{build_navy_fuyou_table, build_navy_minwage_premium_histogram_svg};
 
 // ============================================================
 // H1: 扶養範囲到達時給 (10 ケース)
@@ -319,126 +320,17 @@ fn h3_premium_large_input_no_panic() {
     assert!(svg.contains("<svg "), "大規模入力でも SVG 描画完了");
 }
 
-// ============================================================
-// H4: 時給帯別 求人件数 (10 ケース)
-// ============================================================
-
-/// H4-01: empty values → 全 bucket 0 件 (sum == 0)
-#[test]
-fn h4_band_empty_returns_all_zero_buckets() {
-    let dist = build_hourly_band_distribution(&[]);
-    assert_eq!(dist.len(), 13, "bucket 数は 13 段固定");
-    let total: i64 = dist.iter().map(|(_, c)| *c).sum();
-    assert_eq!(total, 0, "empty → 合計 0");
-}
-
-/// H4-02 (不変条件): bucket 合計 == values の有効件数 (>0 のみ)
-#[test]
-fn h4_band_total_equals_valid_count() {
-    let values = vec![800, 1000, 1500, 2500, 0, -10]; // valid: 4 件 (0, -10 除外)
-    let dist = build_hourly_band_distribution(&values);
-    let total: i64 = dist.iter().map(|(_, c)| *c).sum();
-    assert_eq!(total, 4, "0/-10 除外で 4 件");
-}
-
-/// H4-03: 単一値 [1200, 1200, 1200] → "1200-1300円" bucket に 3 件
-#[test]
-fn h4_band_single_value_concentrated_in_correct_bucket() {
-    let dist = build_hourly_band_distribution(&[1200, 1200, 1200]);
-    let target = dist.iter().find(|(l, _)| l == "1200-1300円");
-    assert!(target.is_some(), "1200-1300円 bucket が存在");
-    assert_eq!(target.unwrap().1, 3, "1200-1300円 bucket に 3 件");
-    // 他 bucket は全 0
-    let other_total: i64 = dist
-        .iter()
-        .filter(|(l, _)| l != "1200-1300円")
-        .map(|(_, c)| *c)
-        .sum();
-    assert_eq!(other_total, 0, "他 bucket は全 0");
-}
-
-/// H4-04: 境界値 — 1000 ちょうど → "1000-1100円" bucket (lo 包含)
-#[test]
-fn h4_band_boundary_1000_goes_to_1000_1100() {
-    let dist = build_hourly_band_distribution(&[1000]);
-    let target = dist.iter().find(|(l, _)| l == "1000-1100円");
-    assert_eq!(target.unwrap().1, 1, "1000 ちょうどは 1000-1100 bucket");
-    let lower = dist.iter().find(|(l, _)| l == "900-1000円");
-    assert_eq!(
-        lower.unwrap().1,
-        0,
-        "1000 は 900-1000 bucket には入らない (hi 排他)"
-    );
-}
-
-/// H4-05: 境界値 — 899 → "<900円" bucket
-#[test]
-fn h4_band_boundary_below_900() {
-    let dist = build_hourly_band_distribution(&[899, 850, 100]);
-    let target = dist.iter().find(|(l, _)| l == "<900円");
-    assert_eq!(target.unwrap().1, 3, "899, 850, 100 は全て <900円 bucket");
-}
-
-/// H4-06: 境界値 — 2000 → "2000円+" bucket (overflow)
-#[test]
-fn h4_band_boundary_2000_goes_to_overflow() {
-    let dist = build_hourly_band_distribution(&[2000, 3000, 5000]);
-    let target = dist.iter().find(|(l, _)| l == "2000円+");
-    assert_eq!(target.unwrap().1, 3, "2000 以上は overflow bucket");
-}
-
-/// H4-07: 順序保持 — bucket は宣言順 (<900 → 2000+) で返る
-#[test]
-fn h4_band_order_preserved() {
-    let dist = build_hourly_band_distribution(&[]);
-    let labels: Vec<&str> = dist.iter().map(|(l, _)| l.as_str()).collect();
-    assert_eq!(labels[0], "<900円");
-    assert_eq!(labels[1], "900-1000円");
-    assert_eq!(labels[2], "1000-1100円");
-    assert_eq!(labels[12], "2000円+");
-    assert_eq!(dist.len(), 13, "総数 13 段");
-}
-
-/// H4-08: スケール — n=1000 でも sum 整合性 (panic なし)
-#[test]
-fn h4_band_scale_1000_values() {
-    let values: Vec<i64> = (0..1000).map(|i| 900 + (i % 1500)).collect();
-    let dist = build_hourly_band_distribution(&values);
-    let total: i64 = dist.iter().map(|(_, c)| *c).sum();
-    assert_eq!(total, 1000, "n=1000 → 合計 1000");
-}
-
-/// H4-09 (不変条件): 各 bucket count ∈ [0, total]
-#[test]
-fn h4_band_each_count_within_total_range() {
-    let values = vec![
-        800, 950, 1050, 1150, 1250, 1350, 1450, 1550, 1650, 1750, 1850, 1950, 2050,
-    ];
-    let dist = build_hourly_band_distribution(&values);
-    let total: i64 = dist.iter().map(|(_, c)| *c).sum();
-    for (label, c) in dist.iter() {
-        assert!(*c >= 0, "{} count >= 0 (negative is impossible)", label);
-        assert!(*c <= total, "{} count <= total ({} <= {})", label, c, total);
-    }
-}
-
-/// H4-10: n=1 → 該当する 1 bucket だけ count=1、他は 0
-#[test]
-fn h4_band_n1_single_bucket_only() {
-    let dist = build_hourly_band_distribution(&[1450]);
-    let non_zero: Vec<&(String, i64)> = dist.iter().filter(|(_, c)| *c > 0).collect();
-    assert_eq!(non_zero.len(), 1, "n=1 → 1 bucket のみ count > 0");
-    assert_eq!(non_zero[0].0, "1400-1500円");
-    assert_eq!(non_zero[0].1, 1);
-}
+// 2026-06-01: H4 (時給帯別 求人件数, 表 6-J) 10 ケースは
+// HW postings 求人側集計ブロック (図 6-3 + 表 6-G/H/I/J) の削除に伴い
+// `build_hourly_band_distribution` を撤去したため全削除。
 
 // ============================================================
-// 統合: Section render-level 制御 (月給モードで表 3-H / 図 7-3 / 表 6-J 非表示)
+// 統合: Section render-level 制御 (月給モードで表 3-H / 図 7-3 非表示)
 // ============================================================
 //
 // navy_report::render_navy_section_03_salary は HW context や salary_min_values 等
 // 多くの引数を要求するため、ここでは render_survey_report_page 経由で is_hourly の
-// 表示制御を検証する (build_hourly_band_distribution / build_navy_fuyou_table /
+// 表示制御を検証する (build_navy_fuyou_table /
 // build_navy_minwage_premium_histogram_svg 単体は上で完了)。
 
 use super::super::aggregator::SurveyAggregation;
@@ -469,17 +361,9 @@ fn integration_monthly_mode_no_premium_histogram_7_3() {
     );
 }
 
-/// H-INT-03: 月給モード — 表 6-J ヘッダが出ない
-#[test]
-fn integration_monthly_mode_no_hourly_band_6j() {
-    let agg = SurveyAggregation::default();
-    let seeker = JobSeekerAnalysis::default();
-    let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
-    assert!(
-        !html.contains("表 6-J"),
-        "月給モードでは表 6-J (時給帯別 求人件数) を出力すべきでない"
-    );
-}
+// H-INT-03 (月給モードで表 6-J 非表示) は 2026-06-01 削除。
+// 表 6-J 自体が section_06_demographics.rs から撤去されたため、
+// 「月給モードで出力されない」の検証対象が存在しない。
 
 /// H-INT-04: 時給モード (is_hourly=true) かつ Section 03 が描画される最小条件で
 ///           表 3-H ヘッダが出力されること
