@@ -4,26 +4,23 @@
 //!
 //! 元 `navy_report/mod.rs` L173-L1176 の以下を物理コピー:
 //! - `render_navy_section_06_demographics`        (公開 API: pub(crate))
-//! - `render_navy_section_06_posting_target`      (private helper、本ファイル内のみで使用)
-//! - `build_distribution_table`                   (private helper)
-//! - `build_hourly_band_distribution`             (pub(crate) — report_html 外
-//!                                                  `hourly_report_qa_test.rs` から
-//!                                                  `super::navy_report::build_hourly_band_distribution`
-//!                                                  で参照されているため再エクスポート必須)
 //! - `age_lo`                                     (private helper)
 //! - `age_sort_key`                               (private helper)
 //! - `build_navy_pyramid_svg`                     (private helper)
 //! - `build_navy_pyramid_svg_mini`                (private helper)
 //! - `build_demographics_so_what`                 (private helper)
-//! - 定数 `HOURLY_BAND_BOUNDARIES` (build_hourly_band_distribution 用、module-private)
+//!
+//! 2026-06-01: 図 6-3 / 表 6-G/H/I/J の HW postings 求人側集計ブロックを
+//! 削除 (HW postings が最新版でないという業務判断)。以下の旧 helper /
+//! 定数も同時削除:
+//! - `render_navy_section_06_posting_target`      (図 6-3 描画)
+//! - `build_distribution_table`                   (表 6-G/H/I/J 共通ビルダ)
+//! - `build_hourly_band_distribution`             (表 6-J: H4 時給帯 bucket)
+//! - 定数 `HOURLY_BAND_BOUNDARIES`                (表 6-J 用 13 段境界)
 //!
 //! API 表面:
 //! - `pub(crate) fn render_navy_section_06_demographics`
 //!   (Commit 2/3/4/5/6 パターン踏襲: `pub(super)` は階層不足で E0364 になるため `pub(crate)`)
-//! - `pub(crate) fn build_hourly_band_distribution`
-//!   (`hourly_report_qa_test.rs` が `super::navy_report::build_hourly_band_distribution`
-//!   path で参照しており、`navy_report/mod.rs` 側で `pub(super) use` 再エクスポート
-//!   できる必要があるため `pub(crate)` に昇格)
 //!
 //! 残りの helper は本ファイル内のみで使用。`navy_report` モジュール外への露出はない。
 //!
@@ -41,15 +38,16 @@ use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::super::insight::fetch::InsightContext;
 use super::super::super::aggregator::SurveyAggregation;
 use super::build_navy_auto_table;
-use super::common::{push_kpi, push_page_head, push_region_scope_banner, safe_pct};
+use super::common::{push_kpi, push_page_head, push_region_scope_banner};
 
 // ============================================================
 // Section 06: 人材デモグラフィック (Phase 3 navy 本実装)
 // ============================================================
 
 /// Phase 2-A (2026-05-29): `agg` 引数追加。
-///   `agg.is_hourly` を Section 06 内の `render_navy_section_06_posting_target` 呼出に
-///   伝播するためだけに使用。デモグラフィック自体には is_hourly 依存はない。
+///   `agg.is_hourly` を `build_demographics_so_what` 内の採用候補層 / 訴求軸の切替に
+///   利用する。デモグラフィック (人口ピラミッド等) 自体には is_hourly 依存はない。
+///   旧 `render_navy_section_06_posting_target` への伝播は 2026-06-01 削除済み。
 pub(crate) fn render_navy_section_06_demographics(
     html: &mut String,
     agg: &SurveyAggregation,
@@ -447,19 +445,10 @@ pub(crate) fn render_navy_section_06_demographics(
         html.push_str("<p class=\"caption\">出典: 学校基本調査 v2_external_education。表 6-A の学校数 (施設密度) に対し、本表は進学率・学歴構成を示す。高校進学率は新卒採用の母集団品質、大学進学率は U ターン採用の射程に直結。先頭 5 行表示。</p>\n");
     }
 
-    // -- 図 6-3 求人ターゲット プロファイル (求人側集計) [P2-3 (2026-05-28) 追加]
-    //
-    //   背景: hellowork.db に求職者個人テーブルが存在しないため、postings (HW 求人) 側の
-    //   募集対象条件 (年齢制限 / 給与レンジ / 経験 / 雇用形態) を集計して
-    //   「求人側から見たターゲット プロファイル」として提示する。
-    //
-    //   出典明記: 「HW 求人 (postings) の募集条件集計」
-    //   人数推定は行わず、求人件数のみを集計 (DISPLAY_SPEC v1.0 §2 / Hard NG 用語不使用)。
-    //   ctx.posting_target == None または total_postings == 0 の場合は本ブロックを skip。
-    if let Some(pt) = ctx.posting_target.as_ref().filter(|p| p.total_postings > 0) {
-        // Phase 2-B (2026-05-29): agg を追加 — H4 表 6-J で salary_min_values_native を使うため。
-        render_navy_section_06_posting_target(html, pt, is_hourly, agg);
-    }
+    // 図 6-3 (求人ターゲット プロファイル) / 表 6-G/H/I/J は 2026-06-01 削除。
+    //   理由: HW postings は最新版ではないため求人側集計の信頼性が低い、というユーザー判断。
+    //   `ctx.posting_target` field 自体は他経路 (analysis/fetch 経由) で参照されているため
+    //   InsightContext からの削除は行わず、本セクションでの利用のみ停止する。
 
     // -- so-what
     let so_what = build_demographics_so_what(
@@ -480,356 +469,12 @@ pub(crate) fn render_navy_section_06_demographics(
     html.push_str("</section>\n");
 }
 
-/// P2-3 (2026-05-28) 図 6-3: 求人ターゲット プロファイル (求人側集計) の描画。
-///
-/// 注意:
-/// - 本関数が扱うのは **求人件数** のみ。「求職者人数」「ターゲット人数」「想定人数」
-///   「推定人数」「母集団人数」等の禁止語句 (DISPLAY_SPEC v1.0 §2 / Hard NG) を使わない。
-/// - 各分布の caption に「出典: HW 求人 (postings) の募集条件集計」を明記する。
-/// - 構成比は分布内の sum を分母にして算出 (0 件分布が混在しても合計 100%)。
-///
-/// Phase 2-A (2026-05-29): `is_hourly` 引数追加。給与レンジの bucket 表記と
-/// salary_type フィルタの注記を時給/月給で切替える。
-///
-/// Phase 2-B (2026-05-29): `agg` 引数追加。表 6-J (H4: 時給帯別 求人件数) で
-/// `agg.salary_min_values_native` を 100 円刻みで集計するため使用。
-/// 時給モード (is_hourly == true) でのみ表 6-J を出力する。
-pub(crate) fn render_navy_section_06_posting_target(
-    html: &mut String,
-    pt: &super::super::super::super::analysis::fetch::PostingTargetProfile,
-    is_hourly: bool,
-    agg: &SurveyAggregation,
-) {
-    html.push_str(
-        "<div class=\"block-title block-title-spaced\">\
-         図 6-3 &nbsp;求人ターゲット プロファイル (求人側集計)\
-         </div>\n",
-    );
-    html.push_str(
-        "<p class=\"caption\">本ブロックは <strong>HW 求人 (postings) の募集条件</strong> を集計した\
-         <strong>求人件数</strong> ベースの分布です。求職者個人データではなく、\
-         募集側がどの層を想定しているかの傾向を示します。</p>\n",
-    );
-
-    // ---- KPI: 総求人件数 / 年齢制限主要層 / 給与中央レンジ / 雇用形態主流
-    //
-    // R2-P1-6 (ultrathink Round 2, 2026-05-28): `max_by_key` は同値ペアで
-    // last-wins の挙動を取る。distribution の **全カウントが 0** の場合
-    // (例: salary_type が「月給」の求人が 1 件もない地域) 、最後のラベル
-    // (例: 「〜20万」) を選んでしまい KPI に誤表示される。
-    // → max_by_key の戻り値が count == 0 の場合は「—」に明示的に置換する。
-    let take_top_or_dash = |pair_opt: Option<(String, i64)>| -> (String, i64) {
-        match pair_opt {
-            Some((l, c)) if c > 0 => (l, c),
-            _ => ("—".to_string(), 0),
-        }
-    };
-    // 主要年齢層 = age_range_distribution の最多バケット (件数降順 1 位)
-    let top_age = take_top_or_dash(
-        pt.age_range_distribution
-            .iter()
-            .max_by_key(|(_, c)| *c)
-            .map(|(l, c)| (l.clone(), *c)),
-    );
-    // 主要給与レンジ = salary_target_distribution の最多バケット
-    let top_salary = take_top_or_dash(
-        pt.salary_target_distribution
-            .iter()
-            .max_by_key(|(_, c)| *c)
-            .map(|(l, c)| (l.clone(), *c)),
-    );
-    // 主流雇用形態 = employment_type_distribution の最多バケット (既に降順 sort 済)
-    // R2-P1-6: first() でも count==0 ガードを適用 (employment_type も全 0 の可能性あり)
-    let top_emp = take_top_or_dash(
-        pt.employment_type_distribution
-            .first()
-            .map(|(l, c)| (l.clone(), *c)),
-    );
-    // 経験不問 (実質) の比率
-    let total_exp: i64 = pt
-        .experience_required_distribution
-        .iter()
-        .map(|(_, c)| *c)
-        .sum();
-    let unspec_count: i64 = pt
-        .experience_required_distribution
-        .iter()
-        .find(|(l, _)| l == "経験不問 (実質)")
-        .map(|(_, c)| *c)
-        .unwrap_or(0);
-    // R2-P1-1 (ultrathink Round 2, 2026-05-28): total_exp > 0 ガード後でも
-    // 浮動小数誤差で 100% 超えになる可能性をクランプで防御。
-    let unspec_pct = if total_exp > 0 {
-        safe_pct(unspec_count as f64 / total_exp as f64 * 100.0)
-    } else {
-        0.0
-    };
-
-    html.push_str("<div class=\"kpi-row\">\n");
-    push_kpi(
-        html,
-        "集計求人件数",
-        &format_number(pt.total_postings),
-        "件",
-        "neu",
-        "HW postings (pref/muni 一致)",
-        true,
-    );
-    push_kpi(
-        html,
-        "年齢制限 主要層",
-        &top_age.0,
-        "",
-        "neu",
-        &format!("{} 件", format_number(top_age.1)),
-        false,
-    );
-    push_kpi(
-        html,
-        "給与 主要レンジ",
-        &top_salary.0,
-        "",
-        "neu",
-        // Phase 2-A: 給与記載 (salary_type) を is_hourly で切替
-        &format!(
-            "{} 件 ({}記載のみ)",
-            format_number(top_salary.1),
-            if is_hourly { "時給" } else { "月給" }
-        ),
-        false,
-    );
-    push_kpi(
-        html,
-        "経験不問 比率",
-        &format!("{:.1}", unspec_pct),
-        "%",
-        if unspec_pct >= 70.0 {
-            "pos"
-        } else if unspec_pct >= 40.0 {
-            "neu"
-        } else {
-            "warn"
-        },
-        "experience_required 未記載求人",
-        false,
-    );
-    push_kpi(
-        html,
-        "雇用形態 主流",
-        &top_emp.0,
-        "",
-        "neu",
-        &format!("{} 件", format_number(top_emp.1)),
-        false,
-    );
-    html.push_str("</div>\n");
-
-    // ---- 表 6-G: 年齢制限 × 求人件数
-    html.push_str(
-        "<div class=\"block-title block-title-spaced\">\
-         表 6-G &nbsp;年齢制限別 求人件数 (求人側集計)\
-         </div>\n",
-    );
-    html.push_str(&build_distribution_table(
-        &pt.age_range_distribution,
-        "年齢制限ラベル",
-    ));
-    html.push_str(
-        "<p class=\"caption\">出典: HW 求人 (postings) の age_min / age_max 列を集計。\
-         「制限なし」は両方 NULL の求人。年齢制限は雇用対策法上の例外 \
-         (試用期間/技能継承/特定職種) を含む可能性があります。</p>\n",
-    );
-
-    // ---- 表 6-H: 給与レンジ × 求人件数 (Phase 2-A: is_hourly でラベル/注記切替)
-    let salary_table_title = if is_hourly {
-        "表 6-H &nbsp;給与レンジ別 求人件数 (時給記載のみ)"
-    } else {
-        "表 6-H &nbsp;給与レンジ別 求人件数 (月給記載のみ)"
-    };
-    let salary_label_header = if is_hourly {
-        "時給レンジ"
-    } else {
-        "月給レンジ"
-    };
-    let salary_caption = if is_hourly {
-        "<p class=\"caption\">出典: HW 求人 (postings) の salary_min 列を集計 (時給帯)。\
-         salary_type が「時給」かつ salary_min &gt; 0 の求人のみが母集団 \
-         (月給・年俸はここでは除外)。本表の件数合計は KPI「集計求人件数」より少なくなります。</p>\n"
-    } else {
-        "<p class=\"caption\">出典: HW 求人 (postings) の salary_min 列を月給換算なしで集計。\
-         salary_type が「月給」かつ salary_min &gt; 0 の求人のみが母集団 \
-         (時給・年俸はここでは除外)。本表の件数合計は KPI「集計求人件数」より少なくなります。</p>\n"
-    };
-    html.push_str(&format!(
-        "<div class=\"block-title block-title-spaced\">{}</div>\n",
-        salary_table_title
-    ));
-    html.push_str(&build_distribution_table(
-        &pt.salary_target_distribution,
-        salary_label_header,
-    ));
-    html.push_str(salary_caption);
-
-    // ---- 表 6-J: 時給帯別 求人件数 (Phase 2-B H4, 2026-05-29)
-    //   時給モードのみ表示。agg.salary_min_values_native を 100 円刻みで bucket 化。
-    //   表 6-H (salary_target_distribution: HW postings 月給 salary_min の bucket) との違い:
-    //     - 表 6-H は HW postings の salary_min を単一値で月給 bucket 化
-    //     - 表 6-J は CSV (媒体分析側) の時給ネイティブ値で 100 円刻みの価格弾力性を見る
-    //   silent fallback 防止: is_hourly == false の月給モードでは完全に省略。
-    if is_hourly {
-        let distribution = build_hourly_band_distribution(&agg.salary_min_values_native);
-        html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 6-J &nbsp;時給帯別 求人件数 (100円刻み)</div>\n",
-        );
-        html.push_str(&build_distribution_table(&distribution, "時給帯"));
-        html.push_str(
-            "<p class=\"caption\">出典: CSV 集計 (下限給与ネイティブ円/時)。\
-             100 円刻みの求人件数分布。\
-             <strong>表 6-H との違い:</strong> 表 6-H は salary_min 単一値の bucket、\
-             本表は時給市場の価格弾力性を見る (100円帯ごとの厚みで競合密度を把握)。</p>\n",
-        );
-    }
-
-    // ---- 表 6-I: 雇用形態 × 求人件数
-    html.push_str(
-        "<div class=\"block-title block-title-spaced\">\
-         表 6-I &nbsp;雇用形態別 求人件数\
-         </div>\n",
-    );
-    html.push_str(&build_distribution_table(
-        &pt.employment_type_distribution,
-        "雇用形態",
-    ));
-    html.push_str(
-        "<p class=\"caption\">出典: HW 求人 (postings) の employment_type 列を集計 (件数降順)。\
-         「未記載」は元データが空文字または NULL の求人。</p>\n",
-    );
-}
-
-/// 分布 `(label, count)` のリストから 3 列表 (ラベル / 件数 / 構成比 %) を生成する共通ビルダ。
-///
-/// # 引数
-/// - `distribution`: `(ラベル, 件数)` のリスト。
-///   - **順序は呼出側の責任**。本関数では並べ替えない (年齢/給与は表示順固定、雇用形態は降順、
-///     経験 2 値は固定順を維持するため)。
-///   - ラベルは生 String を受け、`escape_html` で安全化される (`<script>` 等の混入を防ぐ)。
-///   - 件数は i64。負値は理論上発生しないが、合計計算では負値も含めて算術する
-///     (異常データ検出を呼出側に委ねる設計)。
-/// - `label_header`: 1 列目の `<th scope="col">` 内容。例: "年齢制限ラベル" / "月給レンジ" / "雇用形態"。
-///
-/// # 戻り値
-/// HTML 表全体 (`<table class="table-navy">...</table>`)。
-/// 空 `distribution` または件数合計 `total == 0` のときは「該当データなし」を 1 行表示。
-///
-/// # 不変条件 (テストで検証)
-/// - 構成比合計 ≈ 100% (各行は `count / total * 100`、浮動誤差は `safe_pct` で [0, 100] にクランプ)
-/// - 各 `<th>` に `scope="col"` 付与 (a11y / Round 2 P1-4 で導入)
-/// - `<th>` / `<td>` 内のラベルは必ず `escape_html` を通す (XSS 防御)
-/// - 空入力時の "該当データなし" 行も `<tbody>` 内 (構造保証)
-///
-/// # silent fallback 監査
-/// - 件数合計 0 は明示的に `<td colspan="3">該当データなし</td>` で表示 (空文字列を返さない)
-/// - `total > 0` ガード後に除算するため zero-div 不可
-pub(crate) fn build_distribution_table(
-    distribution: &[(String, i64)],
-    label_header: &str,
-) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
-    // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
-    s.push_str(&format!(
-        "<th scope=\"col\">{}</th><th scope=\"col\" class=\"num\">求人件数</th><th scope=\"col\" class=\"num\">構成比 (%)</th>",
-        escape_html(label_header)
-    ));
-    s.push_str("</tr></thead>\n<tbody>\n");
-
-    let total: i64 = distribution.iter().map(|(_, c)| *c).sum();
-    if distribution.is_empty() || total == 0 {
-        s.push_str(
-            "<tr><td colspan=\"3\" class=\"dim\">該当データなし</td></tr>\n\
-             </tbody></table>\n",
-        );
-        return s;
-    }
-
-    for (label, count) in distribution {
-        // R2-P1-1 (ultrathink Round 2, 2026-05-28): total > 0 ガード済だが
-        // 浮動小数誤差を safe_pct で [0, 100] にクランプ。
-        let pct = safe_pct(*count as f64 / total as f64 * 100.0);
-        s.push_str(&format!(
-            "<tr><td>{}</td>\
-             <td class=\"num bold\">{}</td>\
-             <td class=\"num\">{:.1}</td></tr>\n",
-            escape_html(label),
-            format_number(*count),
-            pct
-        ));
-    }
-    s.push_str("</tbody></table>\n");
-    s
-}
-
-// ============================================================
-// Phase 2-B (2026-05-29): 時給モード H4 — 時給帯別 求人件数分布
-// ============================================================
-//
-// 仕様:
-//   - 100 円刻みで bucket 化: <900 / 900-1000 / 1000-1100 / 1100-1200 / 1200-1300 /
-//                              1300-1400 / 1400-1500 / 1500-1600 / 1600-1700 /
-//                              1700-1800 / 1800-1900 / 1900-2000 / 2000+
-//     合計 13 段
-//   - 各 bucket: (ラベル, 件数) のペアを順序保持で返す
-//
-// 不変条件 (テストで検証):
-//   - bucket 合計 == values.iter().filter(>0).count()
-//   - 単一値 [1200, 1200, 1200] → "1200-1300円" bucket に 3 件
-//   - 境界値 1000 → "1000-1100円" (lo 包含、hi 排他)
-//   - empty → 全 bucket 0 件のリスト (build_distribution_table 側で total==0 のとき「該当データなし」)
-const HOURLY_BAND_BOUNDARIES: [(i64, i64, &str); 13] = [
-    (0, 900, "<900円"),
-    (900, 1000, "900-1000円"),
-    (1000, 1100, "1000-1100円"),
-    (1100, 1200, "1100-1200円"),
-    (1200, 1300, "1200-1300円"),
-    (1300, 1400, "1300-1400円"),
-    (1400, 1500, "1400-1500円"),
-    (1500, 1600, "1500-1600円"),
-    (1600, 1700, "1600-1700円"),
-    (1700, 1800, "1700-1800円"),
-    (1800, 1900, "1800-1900円"),
-    (1900, 2000, "1900-2000円"),
-    (2000, i64::MAX, "2000円+"),
-];
-
-/// 時給値リストを 100 円刻みの bucket 分布 `(ラベル, 件数)` に変換。
-///
-/// # 引数
-/// - `values`: 時給ネイティブ値 (円/時)。<= 0 は除外。
-///
-/// # 戻り値
-/// `(ラベル, 件数)` のリスト。順序は HOURLY_BAND_BOUNDARIES の宣言順 (昇順)。
-/// 全 bucket を返す (count==0 のものも含む) → build_distribution_table 側で
-/// total==0 のときのみ「該当データなし」を表示するため、空 Vec は返さない。
-///
-/// # 不変条件
-/// - 戻り値 .len() == HOURLY_BAND_BOUNDARIES.len() (= 13)
-/// - sum(counts) == values.iter().filter(|v| **v > 0).count()
-pub(crate) fn build_hourly_band_distribution(values: &[i64]) -> Vec<(String, i64)> {
-    let mut counts: Vec<i64> = vec![0; HOURLY_BAND_BOUNDARIES.len()];
-    for v in values.iter().copied().filter(|x| *x > 0) {
-        for (i, (lo, hi, _)) in HOURLY_BAND_BOUNDARIES.iter().enumerate() {
-            // [lo, hi) 判定。最後の "2000円+" は hi = i64::MAX のため上限なし。
-            if v >= *lo && v < *hi {
-                counts[i] += 1;
-                break;
-            }
-        }
-    }
-    HOURLY_BAND_BOUNDARIES
-        .iter()
-        .zip(counts.iter())
-        .map(|((_, _, label), c)| (label.to_string(), *c))
-        .collect()
-}
+// 2026-06-01: 図 6-3 / 表 6-G/H/I/J の HW postings 求人側集計ブロック (旧
+// `render_navy_section_06_posting_target` + 関連 helper) を削除。
+// HW postings が最新版でないという業務判断によりレンダリング側から完全除去。
+// `ctx.posting_target` field は他経路 (analysis/fetch) で生存しているため残置。
+// 旧 helper `build_distribution_table` / `build_hourly_band_distribution` /
+// 定数 `HOURLY_BAND_BOUNDARIES` も本ブロック専用だったため同時削除。
 
 // 「20-24」「25-29」「85+」等のラベルから下端年齢を取得
 fn age_lo(label: &str) -> i32 {
