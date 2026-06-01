@@ -613,11 +613,14 @@ fn build_navy_minwage_vs_salary_table(
         )
     };
 
+    // 2026-06-01: 表 7-E はみ出し修正。`.num` カラムは `white-space: nowrap` で
+    // 1 行にまとまる CSS のため、「万円/月」と「円/時換算」を <br> で 2 行に分割し
+    // A4 横幅内に収める。
     let median_repr = if is_hourly {
         format!("{} 円/時", format_number(median_min_salary))
     } else {
         format!(
-            "{} 万円/月 ({} 円/時換算, &divide;167h)",
+            "{} 万円/月<br>({} 円/時換算, &divide;167h)",
             format_mm(median_min_salary),
             format_number(hourly_equiv)
         )
