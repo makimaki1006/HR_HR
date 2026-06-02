@@ -571,14 +571,10 @@ fn p3_spec_9_3_correlation_not_causation_notice() {
     );
 }
 
-#[test]
-fn p3_spec_9_3_generated_datetime_present() {
-    let html = render_full_html();
-    assert!(
-        html.contains("生成日") || html.contains("生成日時"),
-        "生成日時が表紙/末尾に必要（仕様書 7.3）"
-    );
-}
+// 2026-06-02 ユーザー要望により、レポートから「生成日時」表示を削除。
+// 仕様書 7.3 の生成日時要件は廃止。Section 08 の「{now} 時点で取得可能な最新値」
+// (データ参照時刻) は別目的のため残置。
+// 旧 test: p3_spec_9_3_generated_datetime_present
 
 // ============================================================
 // 9.4 禁止ワードチェック（仕様書 1.5 節 + 2026-04-24 追加）

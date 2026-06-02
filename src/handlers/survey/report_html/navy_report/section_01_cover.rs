@@ -34,6 +34,9 @@ pub(crate) fn render_navy_cover(
     today_short: &str,
     target_region: &str,
 ) {
+    // 作成日時 (now / today_short) は cover 表示しない方針 (2026-06-02 ユーザー要望)。
+    // 引数は呼出側 (report_html/mod.rs) との互換維持のため残置。
+    let _ = (now, today_short);
     let cover_lede = match variant {
         ReportVariant::Full => "ハローワーク掲載求人 + アップロード CSV クロス分析により、対象地域における求人市場の構造と機会を可視化します。",
         ReportVariant::MarketIntelligence => "アップロード CSV + 公開統計クロス分析により、採用市場・ターゲット分析と競合動向を立体的に把握します。",
@@ -52,11 +55,6 @@ pub(crate) fn render_navy_cover(
     html.push_str("<span class=\"brand-mark\" aria-hidden=\"true\"></span>\n");
     html.push_str("<span class=\"brand-name\">FOR A-CAREER</span>\n");
     html.push_str("</div>\n");
-    html.push_str(&format!(
-        "<div class=\"cover-meta\">{} 版 &nbsp;/&nbsp; {}</div>\n",
-        escape_html(today_short),
-        escape_html(now)
-    ));
     html.push_str("</div>\n");
 
     // body
@@ -84,7 +82,6 @@ pub(crate) fn render_navy_cover(
     // footer
     html.push_str("<div class=\"cover-footer\">\n");
     push_cover_footer(html, "発行", "株式会社 For A-career");
-    push_cover_footer(html, "生成日時", now);
     push_cover_footer(html, "対象地域", target_region);
     push_cover_footer(html, "取扱区分", "機密 / 社外秘");
     html.push_str("</div>\n");
