@@ -127,7 +127,8 @@ pub(crate) fn render_navy_section_07_lifestyle(
         })
         .filter(|(n, v)| !n.is_empty() && *v > 0)
         .collect();
-    category_breakdown.sort_by(|a, b| b.1.cmp(&a.1));
+    // Round 1-K 2026-06-03: 同金額時は category 名 asc で順序確定
+    category_breakdown.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     // -- インターネット利用率 / スマホ保有率
     let internet_rate = ctx

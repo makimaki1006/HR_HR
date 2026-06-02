@@ -758,7 +758,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             &target_region,
         );
     }
-    navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now);
+    navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now, cfg.hw_context);
     // 未使用引数の suppress (将来の MarketIntelligence 拡張で使用予定)
     let _ = (
         cfg.salesnow_companies,

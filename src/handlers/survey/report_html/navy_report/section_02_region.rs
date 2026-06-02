@@ -31,7 +31,9 @@ use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::super::insight::fetch::InsightContext;
 use super::super::super::aggregator::SurveyAggregation;
 use super::super::ReportVariant;
-use super::common::{format_mm, push_kpi, push_page_head, push_region_scope_banner};
+use super::common::{
+    format_mm, push_kpi, push_page_head, push_region_scope_banner, safe_pct, safe_pct_like,
+};
 // build_navy_auto_table は mod.rs に残置 (Section 03/05/06/07 で共有)。
 // pub(super) 化されたため `super::build_navy_auto_table` で参照可能。
 use super::build_navy_auto_table;
@@ -99,8 +101,9 @@ pub(crate) fn render_navy_section_02_region(
         .first()
         .map(|(p, c)| (p.clone(), *c))
         .unwrap_or_default();
+    // Round 1-K (2026-06-03): safe_pct ガード - 0 除算 / NaN / Inf を 0.0 に丸める
     let pref_top_pct = if n_total > 0 {
-        pref_top.1 as f64 / n_total as f64 * 100.0
+        safe_pct(pref_top.1 as f64 / n_total as f64 * 100.0)
     } else {
         0.0
     };
@@ -260,9 +263,9 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
         0
     };
 
-    // 件数降順
+    // 件数降順 (Round 1-K 2026-06-03: 同件数時は name asc で順序確定)
     let mut sorted: Vec<&super::super::super::aggregator::PrefectureSalaryAgg> = total_rows.clone();
-    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+    sorted.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
 
     let unit_label = if is_hourly { "円/時" } else { "万円" };
     let fmt_val = |yen: i64| -> String {
@@ -285,8 +288,9 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
     // 先頭 10 県表示
     for (i, p) in sorted.iter().take(10).enumerate() {
         let diff = p.avg_salary - overall_avg;
+        // Round 1-K (2026-06-03): safe_pct_like ガード - 差分 % は負数あり得るので clamp なし版
         let diff_pct = if overall_avg > 0 {
-            diff as f64 / overall_avg as f64 * 100.0
+            safe_pct_like(diff as f64 / overall_avg as f64 * 100.0)
         } else {
             0.0
         };
@@ -423,8 +427,9 @@ fn build_navy_region_table(
                 ));
             } else {
                 // MI/Public: 位置づけ (シェア + tag)
+                // Round 1-K (2026-06-03): safe_pct ガード
                 let pct = if agg.total_count > 0 {
-                    row.count as f64 / agg.total_count as f64 * 100.0
+                    safe_pct(row.count as f64 / agg.total_count as f64 * 100.0)
                 } else {
                     0.0
                 };
@@ -467,8 +472,9 @@ fn build_region_so_what(
     show_hw: bool,
 ) -> String {
     let muni_top = agg.by_municipality_salary.first();
+    // Round 1-K (2026-06-03): safe_pct ガード
     let muni_top_pct = match muni_top {
-        Some(m) if agg.total_count > 0 => m.count as f64 / agg.total_count as f64 * 100.0,
+        Some(m) if agg.total_count > 0 => safe_pct(m.count as f64 / agg.total_count as f64 * 100.0),
         _ => 0.0,
     };
 
