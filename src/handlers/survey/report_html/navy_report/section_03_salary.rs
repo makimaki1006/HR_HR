@@ -639,9 +639,13 @@ fn build_navy_emp_type_salary_table(
     s.push_str("<th>全体差分</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
-    // 件数降順
+    // 件数降順 (Round 1-K 2026-06-03: 同件数時は emp_type asc で順序確定)
     let mut sorted: Vec<&super::super::super::aggregator::EmpTypeSalary> = items.iter().collect();
-    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+    sorted.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.emp_type.cmp(&b.emp_type))
+    });
 
     for (i, e) in sorted.iter().enumerate() {
         let pct = if total_count > 0 {
@@ -733,11 +737,12 @@ fn build_navy_tag_premium_top10_table(
         .iter()
         .filter(|t| t.diff_from_avg > 0 && t.count >= 10)
         .collect();
-    // diff_percent 降順 (プレミアム率の高い順)
+    // diff_percent 降順 (プレミアム率の高い順) (Round 1-K 2026-06-03: 同率時は tag asc で順序確定)
     filtered.sort_by(|a, b| {
         b.diff_percent
             .partial_cmp(&a.diff_percent)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.tag.cmp(&b.tag))
     });
     filtered.truncate(10);
 
@@ -1057,11 +1062,12 @@ fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> 
         });
     }
 
-    // η² 降順
+    // η² 降順 (Round 1-K 2026-06-03: 同値時は factor asc で順序確定)
     rows.sort_by(|a, b| {
         b.eta_sq
             .partial_cmp(&a.eta_sq)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.factor.cmp(&b.factor))
     });
     rows
 }
@@ -1127,9 +1133,9 @@ fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -
     s.push_str("<th>解釈</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
-    // 件数降順
+    // 件数降順 (Round 1-K 2026-06-03: 同件数時は label asc で順序確定)
     let mut sorted: Vec<&super::super::helpers::SalaryCluster> = clusters.iter().collect();
-    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+    sorted.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
 
     for (i, c) in sorted.iter().enumerate() {
         let row_class = if i == 0 { " class=\"hl\"" } else { "" };
@@ -1178,7 +1184,8 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
         return String::new();
     }
     let mut sorted: Vec<&super::super::helpers::SalaryCluster> = clusters.iter().collect();
-    sorted.sort_by(|a, b| b.count.cmp(&a.count));
+    // Round 1-K 2026-06-03: 同件数時は label asc で順序確定
+    sorted.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
     sorted.truncate(8); // 上位 8 cluster
 
     // 2026-05-14: ユーザー指摘「図 3-5 がもう少し大きくできない、見えづらい」を反映。
