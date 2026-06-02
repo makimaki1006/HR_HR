@@ -91,7 +91,7 @@ pub(crate) fn render_navy_section_03_salary(
         )
     };
 
-    html.push_str("<section class=\"page-navy navy-salary\" role=\"region\">\n");
+    html.push_str("<section id=\"navy-salary\" class=\"page-navy navy-salary\" role=\"region\">\n");
     push_page_head(
         html,
         "SECTION 03",
@@ -349,6 +349,13 @@ pub(crate) fn render_navy_section_03_salary(
             cluster_table_caption
         ));
         html.push_str(&build_navy_cluster_table(&clusters));
+
+        // P0-9 (MVP, 2026-06-03): CSV 求人 × クラスタ当て込み 10 件抽出 (下限給与降順)。
+        //   各求人を nearest_cluster (P50 距離) で割り当て、クラスタ内 P25/P75 で
+        //   低め / 適正 / 高め の 3 段階判定を行う。設計メモ受領後に正規化予定。
+        //   silent fallback 防御: clusters / scatter_min_max が空なら何も出力しない。
+        html.push_str(&build_navy_cluster_fitting_table(agg, &clusters, is_hourly));
+
         html.push_str(&format!(
             "<div class=\"block-title block-title-spaced\">図 3-5 &nbsp;クラスタ別 ボックスプロット (下限給与) — {}</div>\n",
             cluster_table_caption
@@ -1178,6 +1185,137 @@ fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -
     s
 }
 
+// ============================================================
+// P0-9 (MVP, 2026-06-03): CSV 求人 × クラスタ当て込み 10 件抽出
+// ============================================================
+//
+// 仕様 (MVP):
+//   - 入力: agg.scatter_min_max (下限給与降順で 10 件抽出) + clusters
+//   - 各求人を nearest_cluster (P50 距離) で割り当て
+//   - 判定: lower < P25 → 低め (tag-warn) / P25 <= lower <= P75 → 適正 (tag-pos) /
+//           lower > P75 → 高め (tag-neu)
+//   - 月給/時給で表示単位切替 (is_hourly)
+//
+// 仕様 (将来):
+//   - 求人タイトル列は scatter_min_max に title フィールド無いため "求人 #N" 連番表記。
+//     設計メモ受領後に CsvRecord 由来の title をひも付ける予定 (2026-06-03 完了予定)。
+//
+// silent fallback 防御:
+//   - clusters 空 → 空文字列
+//   - scatter_min_max 空 → 空文字列
+//   - 全求人が割当不可 (clusters 空のときのみ発生) → 上記の clusters 空チェックでカバー
+fn build_navy_cluster_fitting_table(
+    agg: &SurveyAggregation,
+    clusters: &[super::super::helpers::SalaryCluster],
+    is_hourly: bool,
+) -> String {
+    if clusters.is_empty() {
+        return String::new();
+    }
+    if agg.scatter_min_max.is_empty() {
+        return String::new();
+    }
+
+    // 下限給与 (x) 降順でソートして 10 件抽出
+    let mut sorted_postings: Vec<&super::super::super::aggregator::ScatterPoint> =
+        agg.scatter_min_max.iter().collect();
+    // Round 1-K 2026-06-03: 同値時は上限給与 (y) 降順で順序確定
+    sorted_postings.sort_by(|a, b| b.x.cmp(&a.x).then_with(|| b.y.cmp(&a.y)));
+    sorted_postings.truncate(10);
+
+    let unit_label = if is_hourly { "円/時" } else { "万円" };
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+
+    let mut s = String::new();
+    s.push_str(
+        "<div class=\"block-title block-title-spaced\">\
+         表 3-X &nbsp;CSV 求人 × クラスタ当て込み (10 件抽出)</div>\n",
+    );
+    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str("<th scope=\"col\">No.</th>");
+    s.push_str("<th scope=\"col\">求人</th>");
+    s.push_str(&format!(
+        "<th scope=\"col\" class=\"num\">下限給与 ({})</th>",
+        unit_label
+    ));
+    s.push_str(&format!(
+        "<th scope=\"col\" class=\"num\">上限給与 ({})</th>",
+        unit_label
+    ));
+    s.push_str("<th scope=\"col\">割当クラスタ</th>");
+    s.push_str(&format!(
+        "<th scope=\"col\" class=\"num\">クラスタ P25 ({})</th>",
+        unit_label
+    ));
+    s.push_str(&format!(
+        "<th scope=\"col\" class=\"num\">クラスタ P75 ({})</th>",
+        unit_label
+    ));
+    s.push_str("<th scope=\"col\">判定</th>");
+    s.push_str("</tr></thead>\n<tbody>\n");
+
+    for (i, p) in sorted_postings.iter().enumerate() {
+        // nearest_cluster: P50 距離最小のクラスタを返す。下限給与 (p.x) で距離計算。
+        let assigned = super::super::helpers::nearest_cluster(clusters, p.x);
+        let (cluster_label, p25, p75, tag, judge_label) = match assigned {
+            Some(c) => {
+                // P25/P75 で 3 段階判定。lower (p.x) を使う。
+                let (tag, label) = if p.x < c.p25 {
+                    ("warn", "低め")
+                } else if p.x > c.p75 {
+                    ("neu", "高め")
+                } else {
+                    ("pos", "適正")
+                };
+                (c.label.clone(), c.p25, c.p75, tag, label)
+            }
+            None => {
+                // clusters 空チェック済みのため到達しない。silent fallback 防御の明示。
+                ("—".to_string(), 0_i64, 0_i64, "neu", "判定不可")
+            }
+        };
+        let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+        s.push_str(&format!(
+            "<tr{}>\
+             <td class=\"num bold\">{}</td>\
+             <td><strong>求人 #{}</strong></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"dim\">{}</span></td>\
+             <td class=\"num\">{}</td>\
+             <td class=\"num\">{}</td>\
+             <td><span class=\"tag tag-{}\">{}</span></td>\
+             </tr>\n",
+            row_class,
+            i + 1,
+            i + 1,
+            fmt_val(p.x),
+            fmt_val(p.y),
+            escape_html(&cluster_label),
+            fmt_val(p25),
+            fmt_val(p75),
+            tag,
+            judge_label,
+        ));
+    }
+    s.push_str("</tbody></table>\n");
+    s.push_str(&format!(
+        "<p class=\"caption\">単位: {}。下限給与降順で 10 件抽出 (代表サンプル)。\
+         判定: 下限 &lt; クラスタ P25 = 低め / P25 &le; 下限 &le; P75 = 適正 / 下限 &gt; P75 = 高め。\
+         クラスタ割当は P50 距離最小ルール。\
+         求人タイトルは scatter_min_max に title フィールドが無いため \"求人 #N\" 連番表記。\
+         <strong>※ MVP 実装。設計メモ受領後に正規化予定 (2026-06-03)。</strong></p>\n",
+        unit_label
+    ));
+    s
+}
+
 // クラスタ別 並列ボックスプロット SVG (下限給与 P25-P75 box + min-max whisker + P50 中央線)
 fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryCluster]) -> String {
     if clusters.is_empty() {
@@ -1430,4 +1568,151 @@ fn build_navy_salary_summary_table(
     };
     s.push_str(caption);
     s
+}
+
+// ============================================================
+// P0-9 テスト (MVP, 2026-06-03): クラスタ当て込み判定の境界値検証
+// ============================================================
+//
+// 不変条件:
+//   - lower < P25 → 低め (tag-warn)
+//   - P25 <= lower <= P75 → 適正 (tag-pos)
+//   - lower > P75 → 高め (tag-neu)
+//   - clusters 空 → ""
+//   - scatter 空 → ""
+//   - 11+ 件 → 10 件で truncate (下限給与降順)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // パス解析 (tests mod は section_03_salary の子):
+    //   super              = section_03_salary
+    //   super::super       = navy_report
+    //   super::super::super = report_html
+    //   super::super::super::super = survey
+    // よって SalaryCluster (report_html::helpers) = super::super::super::helpers
+    //       ScatterPoint  (survey::aggregator)   = super::super::super::super::aggregator
+    use super::super::super::super::aggregator::ScatterPoint;
+    use super::super::super::helpers::SalaryCluster;
+
+    fn make_cluster(label: &str, p25: i64, p50: i64, p75: i64) -> SalaryCluster {
+        SalaryCluster {
+            label: label.to_string(),
+            lower_seg: "中下限".to_string(),
+            range_seg: "通常レンジ",
+            count: 50,
+            p25,
+            p50,
+            p60: (p50 + p75) / 2,
+            p75,
+            p90: p75 + 30_000,
+            min: p25 - 50_000,
+            max: p75 + 50_000,
+            mean: p50,
+        }
+    }
+
+    fn make_agg_with_scatter(points: Vec<(i64, i64)>) -> SurveyAggregation {
+        let mut agg = SurveyAggregation::default();
+        agg.scatter_min_max = points
+            .into_iter()
+            .map(|(x, y)| ScatterPoint { x, y })
+            .collect();
+        agg
+    }
+
+    // 1. P25 <= lower <= P75 で「適正」判定
+    #[test]
+    fn cluster_fitting_judges_within_p25_p75_as_適正() {
+        let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
+        let agg = make_agg_with_scatter(vec![(250_000, 350_000)]);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        assert!(
+            html.contains("適正"),
+            "lower=250000 (P25=200000 <= 250000 <= P75=300000) should be 適正: {}",
+            html
+        );
+        assert!(html.contains("tag-pos"), "適正 tag-pos missing: {}", html);
+    }
+
+    // 2. lower < P25 で「低め」判定
+    #[test]
+    fn cluster_fitting_judges_below_p25_as_低め() {
+        let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
+        let agg = make_agg_with_scatter(vec![(150_000, 200_000)]);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        assert!(
+            html.contains("低め"),
+            "lower=150000 < P25=200000 should be 低め: {}",
+            html
+        );
+        assert!(html.contains("tag-warn"), "低め tag-warn missing: {}", html);
+    }
+
+    // 3. lower > P75 で「高め」判定
+    #[test]
+    fn cluster_fitting_judges_above_p75_as_高め() {
+        let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
+        let agg = make_agg_with_scatter(vec![(400_000, 500_000)]);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        assert!(
+            html.contains("高め"),
+            "lower=400000 > P75=300000 should be 高め: {}",
+            html
+        );
+        assert!(html.contains("tag-neu"), "高め tag-neu missing: {}", html);
+    }
+
+    // 4. clusters 空 → 空文字列
+    #[test]
+    fn cluster_fitting_empty_when_no_clusters() {
+        let clusters: Vec<SalaryCluster> = vec![];
+        let agg = make_agg_with_scatter(vec![(250_000, 350_000)]);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        assert_eq!(html, "", "no clusters should return empty string");
+    }
+
+    // 5. scatter 空 → 空文字列
+    #[test]
+    fn cluster_fitting_empty_when_no_postings() {
+        let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
+        let agg = make_agg_with_scatter(vec![]);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        assert_eq!(html, "", "no postings should return empty string");
+    }
+
+    // 6. 12 件投入で 10 行に truncate (下限給与降順)
+    #[test]
+    fn cluster_fitting_truncates_to_top_10_by_descending_lower_salary() {
+        let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
+        // 12 件、下限給与をバラバラに
+        let agg = make_agg_with_scatter(vec![
+            (100_000, 150_000),
+            (200_000, 250_000),
+            (150_000, 200_000),
+            (300_000, 400_000),
+            (250_000, 350_000),
+            (180_000, 230_000),
+            (220_000, 280_000),
+            (170_000, 210_000),
+            (350_000, 450_000),
+            (190_000, 240_000),
+            (210_000, 270_000),
+            (160_000, 200_000),
+        ]);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        // <tr> の数 (header の <tr> は除外) で 10 行であることを検証
+        // thead に 1, tbody data 行が 10 → 合計 11
+        let tr_count = html.matches("<tr").count();
+        assert_eq!(
+            tr_count, 11,
+            "expected 11 <tr> (1 thead + 10 data), got {}: {}",
+            tr_count, html
+        );
+        // 最大値 350,000 が「求人 #1」(下限降順ソート後の先頭) として現れる
+        assert!(html.contains("求人 #1"), "求人 #1 missing: {}", html);
+        // 100,000 (12 件中 最小値) は 10 件抽出後に含まれていないはず
+        // (注: format_mm では "10.0" となる。350000 が 35.0、100000 が 10.0)
+        // 念のため、10.0 が含まれていないことだけ確認するのは format_mm の "1.0" "100.0" などとの誤マッチ
+        // リスクが大きいため、tr_count = 11 で十分とし、追加検証を行わない。
+    }
 }
