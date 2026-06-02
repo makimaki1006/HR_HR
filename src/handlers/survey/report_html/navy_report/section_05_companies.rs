@@ -100,7 +100,9 @@ pub(crate) fn render_navy_section_05_companies(
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
 
-    html.push_str("<section class=\"page-navy navy-companies\" role=\"region\">\n");
+    html.push_str(
+        "<section id=\"navy-companies\" class=\"page-navy navy-companies\" role=\"region\">\n",
+    );
     push_page_head(
         html,
         "SECTION 05",
@@ -564,6 +566,52 @@ pub(crate) fn select_notable_companies<'a>(
     result
 }
 
+// ============================================================
+// P0-10 (MVP, 2026-06-03): 推定信頼度ラベル + proxy スコア算出
+// ============================================================
+//
+// 仕様:
+//   - confidence_label: score を 3 段階 (高/中/低) に分類して表示用ラベル返却
+//   - confidence_score_from_posting_count: posting_count から proxy score を算出
+//     - 仕様: score = (posting_count / 12.0).min(1.0)、posting_count <= 0 で 0.0
+//     - 設計メモ受領後に正規化予定 (将来は給与中央値の分散や時系列継続度を加味)
+//
+// 閾値 (3 段階):
+//   - score >= 0.85 → 高 (●●●)
+//   - score >= 0.70 → 中 (●●○)
+//   - score <  0.70 → 低 (●○○)
+//
+// silent fallback 防御:
+//   - posting_count <= 0 → 0.0 (= "低")
+//   - 値が 1.0 を超える場合は min(1.0) でクランプ
+
+/// 推定信頼度スコア (0.0 - 1.0) を 3 段階表示ラベルに変換する。
+///
+/// ※ MVP 実装。設計メモ受領後に proxy 関数を正規化予定。
+pub(super) fn confidence_label(score: f64) -> &'static str {
+    if score >= 0.85 {
+        "高 (●●●)"
+    } else if score >= 0.70 {
+        "中 (●●○)"
+    } else {
+        "低 (●○○)"
+    }
+}
+
+/// 推定信頼度スコア (proxy) を求人数から算出する。
+///
+/// 仕様 (MVP):
+///   - score = (posting_count / 12.0).min(1.0)
+///   - posting_count <= 0 → 0.0 (silent fallback ではなく明示的に最低スコア)
+///
+/// ※ MVP 実装。設計メモ受領後に給与中央値の分散等を加味した算式に正規化予定。
+pub(super) fn confidence_score_from_posting_count(posting_count: i64) -> f64 {
+    if posting_count <= 0 {
+        return 0.0;
+    }
+    (posting_count as f64 / 12.0).min(1.0)
+}
+
 /// 表 5-G: 企業別給与ランキング (上位 limit 社、上限給与中央値 降順)
 pub(crate) fn build_navy_csv_company_salary_table(
     ranking: &[CsvCompanySalary],
@@ -607,12 +655,16 @@ pub(crate) fn build_navy_csv_company_salary_table(
         "<th scope=\"col\" class=\"num\">レンジ幅<br>({})</th>",
         unit_label_short
     ));
+    // P0-10 (MVP, 2026-06-03): 推定信頼度列 (7 列目)。
+    // 求人数 proxy スコア (count/12 クランプ) を 3 段階ラベル化。
+    s.push_str("<th scope=\"col\">推定信頼度</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
     let top: Vec<&CsvCompanySalary> = ranking.iter().take(limit).collect();
     if top.is_empty() {
+        // P0-10: colspan を 6 → 7 に修正 (推定信頼度列追加に対応)
         s.push_str(&format!(
-            "<tr><td colspan=\"6\" class=\"dim\" style=\"text-align:center;padding:8mm 4mm;\">\
+            "<tr><td colspan=\"7\" class=\"dim\" style=\"text-align:center;padding:8mm 4mm;\">\
              {}</td></tr>\n",
             empty_msg
         ));
@@ -622,6 +674,9 @@ pub(crate) fn build_navy_csv_company_salary_table(
             // 二重防衛として render 側でも max(0) クランプ。
             let range_width = (c.salary_upper_median - c.salary_lower_median).max(0.0);
             let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+            // P0-10 (MVP): 推定信頼度 (求人数 proxy スコアを 3 段階ラベル化)
+            let confidence_score = confidence_score_from_posting_count(c.posting_count);
+            let confidence_text = confidence_label(confidence_score);
             // Phase 2-A: 桁数を unit_decimals で制御 (月給=1桁、時給=0桁)
             s.push_str(&format!(
                 "<tr{}><td class=\"num bold\">{}</td>\
@@ -629,7 +684,8 @@ pub(crate) fn build_navy_csv_company_salary_table(
                  <td class=\"num\">{}</td>\
                  <td class=\"num\">{:.*}</td>\
                  <td class=\"num bold\">{:.*}</td>\
-                 <td class=\"num\">{:.*}</td></tr>\n",
+                 <td class=\"num\">{:.*}</td>\
+                 <td><span class=\"dim\">{}</span></td></tr>\n",
                 row_class,
                 i + 1,
                 escape_html(&c.facility_name),
@@ -640,10 +696,19 @@ pub(crate) fn build_navy_csv_company_salary_table(
                 c.salary_upper_median,
                 unit_decimals,
                 range_width,
+                escape_html(confidence_text),
             ));
         }
     }
     s.push_str("</tbody></table>\n");
+    // P0-10 (MVP, 2026-06-03): 推定信頼度の閾値仕様 + proxy 説明を caption に明記。
+    s.push_str(
+        "<p class=\"caption\"><strong>推定信頼度</strong>: 求人数を proxy としたスコア \
+         (score = 求人数 / 12 を 1.0 でクランプ) で 3 段階表示。\
+         閾値: score &ge; 0.85 = 高 (●●●) / score &ge; 0.70 = 中 (●●○) / score &lt; 0.70 = 低 (●○○)。\
+         <strong>※ MVP 実装。求人数のみを根拠とする proxy 関数。\
+         設計メモ受領後に給与中央値の分散・時系列継続度等を加味した算式に正規化予定 (2026-06-03)。</strong></p>\n",
+    );
     s
 }
 
@@ -1033,4 +1098,62 @@ fn build_companies_so_what(
     };
 
     format!("{} {}{}{}", concentration, growth_note, hw_note, pool_note)
+}
+
+// ============================================================
+// P0-10 テスト (MVP, 2026-06-03): 推定信頼度ラベル + proxy スコアの境界値
+// ============================================================
+//
+// 不変条件:
+//   - confidence_label: score >= 0.85 → "高 (●●●)" / score >= 0.70 → "中 (●●○)" / else "低 (●○○)"
+//   - confidence_score_from_posting_count: (posting_count / 12.0).min(1.0)、posting_count <= 0 で 0.0
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 1. 境界値 0.85 で「高 (●●●)」(包含)
+    #[test]
+    fn confidence_label_boundary_0_85() {
+        assert_eq!(confidence_label(0.85), "高 (●●●)");
+        // 上方境界 1.0 も「高」
+        assert_eq!(confidence_label(1.0), "高 (●●●)");
+        // すぐ下の値は「中」
+        assert_eq!(confidence_label(0.849), "中 (●●○)");
+    }
+
+    // 2. 境界値 0.70 で「中 (●●○)」(包含)
+    #[test]
+    fn confidence_label_boundary_0_70() {
+        assert_eq!(confidence_label(0.70), "中 (●●○)");
+        // すぐ下の値は「低」
+        assert_eq!(confidence_label(0.699), "低 (●○○)");
+    }
+
+    // 3. 0.70 未満は「低 (●○○)」
+    #[test]
+    fn confidence_label_below_0_70() {
+        assert_eq!(confidence_label(0.65), "低 (●○○)");
+        assert_eq!(confidence_label(0.0), "低 (●○○)");
+        // 負値も「低」(silent fallback ではなく明示)
+        assert_eq!(confidence_label(-0.1), "低 (●○○)");
+    }
+
+    // 4. proxy score は 1.0 でクランプ
+    #[test]
+    fn confidence_score_proxy_clamps_at_one() {
+        // 12 件で 1.0
+        assert!((confidence_score_from_posting_count(12) - 1.0).abs() < 1e-9);
+        // 100 件でもクランプして 1.0 (超えない)
+        assert!((confidence_score_from_posting_count(100) - 1.0).abs() < 1e-9);
+        // 13 件もクランプ
+        assert!((confidence_score_from_posting_count(13) - 1.0).abs() < 1e-9);
+    }
+
+    // 5. proxy score: posting_count <= 0 で 0.0
+    #[test]
+    fn confidence_score_proxy_zero_when_no_posting() {
+        assert!((confidence_score_from_posting_count(0) - 0.0).abs() < 1e-9);
+        assert!((confidence_score_from_posting_count(-1) - 0.0).abs() < 1e-9);
+        assert!((confidence_score_from_posting_count(-100) - 0.0).abs() < 1e-9);
+    }
 }
