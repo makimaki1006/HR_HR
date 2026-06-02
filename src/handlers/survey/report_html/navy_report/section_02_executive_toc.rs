@@ -33,7 +33,7 @@ use super::super::super::aggregator::{EmpTypeSalary, SurveyAggregation};
 use super::super::super::job_seeker::JobSeekerAnalysis;
 use super::super::salary_summary;
 use super::super::ReportVariant;
-use super::common::{compute_skew_severity, push_kpi, push_page_head, severity_label};
+use super::common::{compute_skew_severity, push_kpi, push_page_head, safe_pct, severity_label};
 
 // ============================================================
 // TOC
@@ -135,8 +135,9 @@ pub(crate) fn render_navy_executive(
     // -- exec-headline (引用調 + 1 段落要旨)
     let total = agg.total_count;
     let salary_parse_pct = (agg.salary_parse_rate * 100.0).round() as i64;
+    // Round 1-K (2026-06-03): safe_pct ガード - 0 除算 / NaN / Inf を 0.0 に丸める
     let new_pct = if total > 0 {
-        (agg.new_count as f64 / total as f64 * 100.0).round() as i64
+        safe_pct(agg.new_count as f64 / total as f64 * 100.0).round() as i64
     } else {
         0
     };
@@ -144,8 +145,9 @@ pub(crate) fn render_navy_executive(
         .by_employment_type
         .first()
         .map(|(name, c)| {
+            // Round 1-K (2026-06-03): safe_pct ガード (同種パターン横展開)
             let pct = if total > 0 {
-                *c as f64 / total as f64 * 100.0
+                safe_pct(*c as f64 / total as f64 * 100.0)
             } else {
                 0.0
             };
@@ -245,8 +247,9 @@ pub(crate) fn render_navy_executive(
         .by_employment_type
         .first()
         .map(|(_, c)| {
+            // Round 1-K (2026-06-03): safe_pct ガード (同種パターン横展開)
             if total > 0 {
-                *c as f64 / total as f64 * 100.0
+                safe_pct(*c as f64 / total as f64 * 100.0)
             } else {
                 0.0
             }

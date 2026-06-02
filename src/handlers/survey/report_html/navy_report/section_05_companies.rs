@@ -171,7 +171,8 @@ pub(crate) fn render_navy_section_05_companies(
         })
         .unwrap_or_default();
     let mut industry_sorted = industry_employees.clone();
-    industry_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    // Round 1-K 2026-06-03: 同就業者数時は industry 名 asc で順序確定
+    industry_sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     let industry_total: i64 = industry_sorted.iter().map(|(_, c)| *c).sum();
 
     let hw_industry: Vec<(String, i64)> = hw_context
@@ -533,6 +534,7 @@ pub(crate) fn select_notable_companies<'a>(
 
     // 求人数 top N (降順、同値時は upper_median 降順)
     // ranking は upper_median 降順のため、元順序を壊さない indices で取得。
+    // Round 1-K 2026-06-03: 同値完全一致時は facility_name asc で順序確定 (最終 tiebreaker)
     let mut by_posting: Vec<usize> = (0..ranking.len()).collect();
     by_posting.sort_by(|&a, &b| {
         ranking[b]
@@ -544,6 +546,7 @@ pub(crate) fn select_notable_companies<'a>(
                     .partial_cmp(&ranking[a].salary_upper_median)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
+            .then_with(|| ranking[a].facility_name.cmp(&ranking[b].facility_name))
     });
     let posting_top: Vec<usize> = by_posting.into_iter().take(top_n).collect();
 
