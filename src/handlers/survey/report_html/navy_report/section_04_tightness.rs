@@ -366,8 +366,12 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
             (name.clone(), *emp, hw, density)
         })
         .collect();
-    // 求人密度降順
-    rows.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+    // 求人密度降順 (Round 1-K 2026-06-03: tiebreaker で順序確定)
+    rows.sort_by(|a, b| {
+        b.3.partial_cmp(&a.3)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
     rows.truncate(8);
 
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
