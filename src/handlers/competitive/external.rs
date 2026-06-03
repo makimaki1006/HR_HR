@@ -1198,6 +1198,7 @@ mod tests {
     // ---- row_f64 / row_i64 (3 件) ----
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 はテスト用任意値で π 近似ではない
     fn test_row_f64_handles_int_and_string() {
         let r = row_with(vec![
             ("a", json!(3.14)),
@@ -1258,6 +1259,7 @@ mod tests {
     // ---- fmt_f64 / fmt_i64 (3 件) ----
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14159 はテスト用任意値で π 近似ではない
     fn test_fmt_f64_decimals() {
         assert_eq!(fmt_f64(Some(3.14159), 2), "3.14");
         assert_eq!(fmt_f64(Some(0.0), 1), "0.0");
