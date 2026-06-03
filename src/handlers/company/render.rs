@@ -1,10 +1,28 @@
+use super::external;
 use super::fetch::CompanyContext;
 use crate::handlers::helpers::{escape_html, format_number, get_i64, get_str, truncate_str, Row};
+use crate::models::job_seeker::PREFECTURE_ORDER;
 
 use std::fmt::Write as _;
 /// 検索ページ（タブのシェル）
+///
+/// 構成:
+/// 1. 企業名検索ボックス (既存)
+/// 2. 検索結果ドロップダウン (既存)
+/// 3. 企業プロフィール表示エリア (既存、HTMX で差し替わる)
+/// 4. 外部統計ドリルダウン (2026-06-03 追加)
+///    - 都道府県 / 市区町村セレクタ + 3 パネル (産業構造 / 事業所構造 / 企業セグメント)
 pub fn render_search_page() -> String {
-    r##"<div class="space-y-6">
+    // 外部ドリルダウン用の都道府県オプション (PREFECTURE_ORDER から生成)
+    let pref_options: String = PREFECTURE_ORDER
+        .iter()
+        .map(|p| format!(r#"<option value="{p}">{p}</option>"#))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let drilldown_html = external::render_external_drilldown_skeleton(&pref_options);
+
+    format!(
+        r##"<div class="space-y-6">
     <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white">🔎 企業検索
             <span class="text-blue-400 text-base font-normal">企業データ × ハローワーク市場データ</span>
@@ -32,11 +50,13 @@ pub fn render_search_page() -> String {
         <div id="company-search-results" class="mt-2"></div>
     </div>
     <div id="company-profile-area"></div>
+    {drilldown_html}
     <div class="stat-card">
         <p class="text-slate-500 text-sm text-center py-4">企業を検索して選択すると、その企業の地域・業界の採用市場分析が表示されます。</p>
         <p class="text-slate-600 text-xs text-center">データソース: 企業属性 × ハローワーク求人 × 外部統計</p>
     </div>
-</div>"##.to_string()
+</div>"##
+    )
 }
 
 /// 検索結果ドロップダウン

@@ -1,5 +1,6 @@
 pub mod company_markers;
 pub mod correlation;
+pub mod external_panels;
 mod fetch;
 pub mod flow;
 pub mod flow_handlers;
@@ -26,6 +27,10 @@ pub use company_markers::company_markers as jobmap_company_markers;
 pub use company_markers::industry_companies as jobmap_industry_companies;
 pub use company_markers::labor_flow as jobmap_labor_flow;
 pub use correlation::jobmap_correlation;
+pub use external_panels::{
+    external_commute, external_education, external_geography, external_migration,
+    external_natural_change, external_pyramid, external_rental,
+};
 pub use handlers::{
     jobmap_choropleth, jobmap_detail, jobmap_detail_json, jobmap_markers, jobmap_municipalities,
     jobmap_seeker_detail, jobmap_seekers, jobmap_stats, tab_jobmap,

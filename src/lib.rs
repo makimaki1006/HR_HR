@@ -234,6 +234,36 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/jobmap/correlation",
             get(handlers::jobmap::jobmap_correlation),
         )
+        // ======== 2026-06-03: 外部統計ドリルダウンパネル (7 datasource MECE) ========
+        // HW 以外の外部データを地図タブ末尾の accordion で個別 lazy load
+        .route(
+            "/api/jobmap/external/geography",
+            get(handlers::jobmap::external_geography),
+        )
+        .route(
+            "/api/jobmap/external/commute",
+            get(handlers::jobmap::external_commute),
+        )
+        .route(
+            "/api/jobmap/external/rental",
+            get(handlers::jobmap::external_rental),
+        )
+        .route(
+            "/api/jobmap/external/pyramid",
+            get(handlers::jobmap::external_pyramid),
+        )
+        .route(
+            "/api/jobmap/external/education",
+            get(handlers::jobmap::external_education),
+        )
+        .route(
+            "/api/jobmap/external/natural_change",
+            get(handlers::jobmap::external_natural_change),
+        )
+        .route(
+            "/api/jobmap/external/migration",
+            get(handlers::jobmap::external_migration),
+        )
         .route(
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),
@@ -297,6 +327,23 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::company::company_profile),
         )
         .route("/api/company/bulk-csv", get(handlers::company::bulk_csv))
+        // ======== 企業検索タブ 外部統計ドリルダウン (2026-06-03) ========
+        // 各 endpoint は ?pref=...&muni=... を取り、HTML パーシャルを返す。
+        // pref 必須 / muni 任意 / DB 未接続は別 HTML で明示 (silent fallback 禁止)。
+        .route(
+            "/api/company/external/industry_structure",
+            get(handlers::company::ext_industry_structure),
+        )
+        .route(
+            "/api/company/external/establishments",
+            get(handlers::company::ext_establishments),
+        )
+        // segments: 外部企業データベース由来の 4 セグメント
+        // (URL に固有名を含めないため "segments" に簡略化)
+        .route(
+            "/api/company/external/segments",
+            get(handlers::company::ext_company_segments),
+        )
         .route(
             "/report/company/{corporate_number}",
             get(handlers::company::company_report),
@@ -339,6 +386,48 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/api/competitive/analysis/filter",
             get(handlers::competitive::comp_analysis_filtered),
+        )
+        // ======== 求人検索 外部統計ドリルダウン (10 sources MECE) ========
+        // HW以外の公的統計を都道府県粒度で個別表示。求人検索タブのアコーディオン展開用。
+        .route(
+            "/api/competitive/external/min_wage",
+            get(handlers::competitive::ext_min_wage),
+        )
+        .route(
+            "/api/competitive/external/job_ratio",
+            get(handlers::competitive::ext_job_ratio),
+        )
+        .route(
+            "/api/competitive/external/labor_force",
+            get(handlers::competitive::ext_labor_force),
+        )
+        .route(
+            "/api/competitive/external/turnover",
+            get(handlers::competitive::ext_turnover),
+        )
+        .route(
+            "/api/competitive/external/education",
+            get(handlers::competitive::ext_education),
+        )
+        .route(
+            "/api/competitive/external/industry_employees",
+            get(handlers::competitive::ext_industry_employees),
+        )
+        .route(
+            "/api/competitive/external/household_spending",
+            get(handlers::competitive::ext_household_spending),
+        )
+        .route(
+            "/api/competitive/external/daytime_population",
+            get(handlers::competitive::ext_daytime_population),
+        )
+        .route(
+            "/api/competitive/external/households",
+            get(handlers::competitive::ext_households),
+        )
+        .route(
+            "/api/competitive/external/social_life",
+            get(handlers::competitive::ext_social_life),
         )
         .route("/api/status", get(api_status))
         // Phase 3: 自己サービス画面（ログイン済なら誰でも可）
