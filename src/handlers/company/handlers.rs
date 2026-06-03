@@ -270,3 +270,134 @@ pub async fn bulk_csv(
 fn csv_esc(s: &str) -> String {
     s.replace('"', "\"\"")
 }
+
+// ============================================================
+// 外部統計ドリルダウン handlers (2026-06-03 追加)
+// ============================================================
+//
+// 設計:
+// - 各 endpoint は `?pref=...&muni=...` (任意) で region を受け取る
+// - DB 未接続 / pref 空 / 結果 0 行はそれぞれ別 HTML を返す
+//   (silent fallback 禁止)
+// - render は同モジュール `external` に集約 (handlers.rs はルーティング/IO のみ)
+
+#[derive(Deserialize)]
+pub struct ExternalDrilldownQuery {
+    #[serde(default)]
+    pub pref: String,
+    #[serde(default)]
+    pub muni: String,
+}
+
+/// 産業構造パネル (国勢調査 v2_external_industry_structure)
+pub async fn ext_industry_structure(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    let muni = params.muni.trim().to_string();
+
+    if pref.is_empty() {
+        // skeleton 側で都道府県選択を促す表示を返す
+        return Html(super::external::render_industry_structure_panel(
+            "",
+            "",
+            &[],
+        ));
+    }
+
+    let turso = match &state.turso_db {
+        Some(t) => t.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">外部統計データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+
+    let pref_clone = pref.clone();
+    let muni_clone = muni.clone();
+    let rows = tokio::task::spawn_blocking(move || {
+        super::external::fetch_industry_structure(&turso, &pref_clone, &muni_clone)
+    })
+    .await
+    .unwrap_or_default();
+
+    Html(super::external::render_industry_structure_panel(
+        &pref, &muni, &rows,
+    ))
+}
+
+/// 事業所構造パネル (経済センサス v2_external_establishments)
+pub async fn ext_establishments(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    let muni = params.muni.trim().to_string();
+
+    if pref.is_empty() {
+        return Html(super::external::render_establishments_panel("", "", &[]));
+    }
+
+    let turso = match &state.turso_db {
+        Some(t) => t.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">外部統計データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+
+    let pref_clone = pref.clone();
+    let rows = tokio::task::spawn_blocking(move || {
+        super::external::fetch_establishments(&turso, &pref_clone)
+    })
+    .await
+    .unwrap_or_default();
+
+    Html(super::external::render_establishments_panel(
+        &pref, &muni, &rows,
+    ))
+}
+
+/// 企業セグメントパネル (外部企業データベース由来)
+///
+/// 4 セグメント (大手 / 中堅 / 急成長 / 採用基盤候補) で代表企業を返す。
+/// UI 出力文字列および URL には外部データ提供元の固有名を含めない。
+pub async fn ext_company_segments(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    let muni = params.muni.trim().to_string();
+
+    if pref.is_empty() {
+        return Html(super::external::render_segments_panel("", "", &[]));
+    }
+
+    let sn_db = match &state.salesnow_db {
+        Some(t) => t.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">企業データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+
+    let pref_clone = pref.clone();
+    let muni_clone = muni.clone();
+    let rows = tokio::task::spawn_blocking(move || {
+        super::external::fetch_company_segments(&sn_db, &pref_clone, &muni_clone)
+    })
+    .await
+    .unwrap_or_default();
+
+    Html(super::external::render_segments_panel(&pref, &muni, &rows))
+}

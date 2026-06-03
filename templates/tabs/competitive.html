@@ -115,6 +115,121 @@
         </div>
     </div>
 
+    <!-- 外部統計ドリルダウン (HW 以外の公的統計、10 ソース MECE) -->
+    <!--
+      設計方針:
+      - 求人検索結果と隣接配置。HTMX で各 details を遅延ロード。
+      - 都道府県セレクタ (#comp-pref) と連動。pref 未選択時は「全国集計」を表示。
+      - DISPLAY_SPEC §2 遵守 (人数生表示は最小限、率・順位・推移を優先)。
+      - 中立表現: 「劣位/集中/縮小」評価語を禁止 (panel 側で担保)。
+    -->
+    <div class="stat-card" id="comp-external-section">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm text-slate-400">外部統計ドリルダウン
+                <span class="text-xs text-slate-500">(求人以外の公的統計、選択中の都道府県で個別表示)</span>
+            </h3>
+            <button type="button" onclick="reloadAllExternalPanels()"
+                class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition">
+                全パネル再読込
+            </button>
+        </div>
+        <p class="text-xs text-slate-500 mb-3">
+            都道府県を選択すると当該県の値、未選択時は全国集計を表示します。各パネルをクリックして展開してください。
+        </p>
+
+        <div class="space-y-2">
+            <details class="ext-panel" data-source="min_wage">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    最低賃金 (時給ベース) <span class="text-xs text-slate-400">— 厚労省 地域別最低賃金</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="job_ratio">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    有効求人倍率 (年度推移) <span class="text-xs text-slate-400">— 厚労省 一般職業紹介状況</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="labor_force">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    失業率・労働力参加率 <span class="text-xs text-slate-400">— 国勢調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="turnover">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    入職率・離職率 (業界別) <span class="text-xs text-slate-400">— 厚労省 雇用動向調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="education">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    学歴構成 (男女別) <span class="text-xs text-slate-400">— 国勢調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="industry_employees">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    産業別 就業者構成 (上位 15) <span class="text-xs text-slate-400">— 経済センサス</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="household_spending">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    家計支出 (カテゴリ別 月額) <span class="text-xs text-slate-400">— 総務省 家計調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="daytime_population">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    昼夜間人口 <span class="text-xs text-slate-400">— 国勢調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="households">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    世帯構成 <span class="text-xs text-slate-400">— 国勢調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+
+            <details class="ext-panel" data-source="social_life">
+                <summary class="cursor-pointer py-2 px-3 bg-navy-700 rounded text-sm text-white hover:bg-navy-600">
+                    社会生活 (主要カテゴリ参加率) <span class="text-xs text-slate-400">— 総務省 社会生活基本調査</span>
+                </summary>
+                <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
+                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                </div>
+            </details>
+        </div>
+    </div>
+
     <div class="grid-charts">
         <!-- 都道府県別求人数チャート -->
         <div class="stat-card">
@@ -276,7 +391,96 @@ function onCompPrefChange(pref) {
     });
     // 事業所形態・産業分類も更新（市区町村はリセット後なので空）
     updateDropdownCounts();
+    // 外部統計ドリルダウンは「読み込み済」フラグを落とし、次回開閉時に再取得させる
+    var panels = document.querySelectorAll('#comp-external-section .ext-panel');
+    for (var i = 0; i < panels.length; i++) {
+        panels[i].removeAttribute('data-loaded');
+        if (panels[i].open) {
+            // 既に展開中のものは即時再ロード
+            loadExternalPanel(panels[i]);
+        } else {
+            // 未展開のものは「読み込み中...」表記に戻す
+            var content = panels[i].querySelector('.ext-panel-content');
+            if (content) {
+                while (content.firstChild) content.removeChild(content.firstChild);
+                content.textContent = '読み込み中...';
+                content.className = 'ext-panel-content text-slate-400 text-sm';
+            }
+        }
+    }
 }
+
+// --- 外部統計パネル制御 ---
+//
+// 設計:
+// - <details> の toggle イベント (open=true) で初回ロード
+// - data-loaded 属性で多重ロード抑止
+// - 都道府県変更時は data-loaded を剥がす (onCompPrefChange 参照)
+// - silent fallback 禁止: ネットワークエラー時は明示メッセージ
+// - サーバ HTML 挿入は DOMParser + adoptNode 経由 (既存 onCompPrefChange と同方式)
+function loadExternalPanel(panelEl) {
+    if (!panelEl || panelEl.getAttribute('data-loaded') === '1') return;
+    var source = panelEl.getAttribute('data-source');
+    if (!source) return;
+    var prefSel = document.getElementById('comp-pref');
+    var pref = prefSel ? prefSel.value : '';
+    var url = '/api/competitive/external/' + source
+        + '?prefecture=' + encodeURIComponent(pref);
+    var content = panelEl.querySelector('.ext-panel-content');
+    if (content) {
+        while (content.firstChild) content.removeChild(content.firstChild);
+        content.textContent = '読み込み中...';
+        content.className = 'ext-panel-content text-slate-400 text-sm';
+    }
+    fetch(url, {credentials: 'same-origin'}).then(function(r) {
+        if (!r.ok) {
+            throw new Error('HTTP ' + r.status);
+        }
+        return r.text();
+    }).then(function(html) {
+        if (!content) return;
+        // 既存パターン (onCompPrefChange) と同様、DOMParser で解析してから adoptNode
+        // でツリーに移植。サーバ側 (external.rs) は SQL 数値・既知公的統計の文字列のみを
+        // テンプレートに埋め込んでおり、ユーザ入力は通らない (pref 名は SQL バインドで
+        // 直接 HTML に埋まらない)。
+        var parser = new DOMParser();
+        var doc = parser.parseFromString('<div>' + html + '</div>', 'text/html');
+        var newRoot = doc.querySelector('div');
+        while (content.firstChild) content.removeChild(content.firstChild);
+        content.className = 'ext-panel-content';
+        if (newRoot) {
+            while (newRoot.firstChild) content.appendChild(document.adoptNode(newRoot.firstChild));
+        }
+        panelEl.setAttribute('data-loaded', '1');
+    }).catch(function(err) {
+        if (content) {
+            while (content.firstChild) content.removeChild(content.firstChild);
+            content.className = 'ext-panel-content text-rose-400 text-sm';
+            content.textContent = '取得に失敗しました: ' + (err && err.message ? err.message : 'unknown');
+        }
+    });
+}
+
+function reloadAllExternalPanels() {
+    var panels = document.querySelectorAll('#comp-external-section .ext-panel');
+    for (var i = 0; i < panels.length; i++) {
+        panels[i].removeAttribute('data-loaded');
+        if (panels[i].open) {
+            loadExternalPanel(panels[i]);
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var panels = document.querySelectorAll('#comp-external-section .ext-panel');
+    for (var i = 0; i < panels.length; i++) {
+        (function(p) {
+            p.addEventListener('toggle', function() {
+                if (p.open) loadExternalPanel(p);
+            });
+        })(panels[i]);
+    }
+});
 
 // --- 市区町村変更時 ---
 function onCompMuniChange() {
