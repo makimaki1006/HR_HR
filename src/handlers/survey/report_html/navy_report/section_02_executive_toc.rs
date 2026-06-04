@@ -296,7 +296,9 @@ pub(crate) fn render_navy_executive(
     let k6_foot = "給与文字列から数値抽出に成功した比率";
 
     // 2026-05-14: 給与解析率 KPI 撤去。kpi-row → kpi-row-4 で 4 カードレイアウト。
-    let _ = (k6_value, k6_dot, k6_foot);
+    // k5 (新着求人比率) / k6 (給与解析率) とも 4 カード化で非表示。
+    // 2026-06-05 audit: k5_* の打ち消し漏れ (unused 警告) を修正。
+    let _ = (k5_value, k5_dot, k5_foot, k6_value, k6_dot, k6_foot);
     html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
     push_kpi(html, "サンプル件数", &k1, "件", k1_dot, k1_foot, false);
     // 2026-05-14: 主要地域 = ユーザー選択地域 (handlers.rs:482 で確定済)。

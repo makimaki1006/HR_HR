@@ -119,28 +119,56 @@
     <script src="/static/js/a11y.js" defer></script>
     <script>
     // タブ切替・フィルタ変更時のローディングフィードバック
-    document.body.addEventListener('htmx:beforeRequest', function(e) {
-        var c = document.getElementById('content');
-        if (c && e.detail.target === c) {
-            c.classList.add('loading');
-            document.getElementById('loading-overlay').classList.add('active');
+    // 2026-06-05: 同タブ再クリックや afterSwap/afterSettle 不発火・通信エラー・
+    //   タイムアウト時にオーバーレイが残留する問題に対応。
+    //   開始は beforeRequest、終了は afterSettle に加え、必ず発火する
+    //   afterRequest と error 系イベントでもフェイルセーフ解除する。
+    (function() {
+        function isContentReq(e) {
+            var c = document.getElementById('content');
+            return c && e && e.detail && e.detail.target === c;
         }
-    });
-    document.body.addEventListener('htmx:afterSettle', function(e) {
-        var c = document.getElementById('content');
-        if (c) {
+        function startLoading() {
+            var c = document.getElementById('content');
+            if (!c) return;
+            c.classList.add('loading');
+            var ov = document.getElementById('loading-overlay');
+            if (ov) ov.classList.add('active');
+        }
+        function stopLoading(retriggerAnim) {
+            var c = document.getElementById('content');
+            if (!c) return;
             c.classList.remove('loading');
             c.style.opacity = '';
-            document.getElementById('loading-overlay').classList.remove('active');
-            // コンテンツのフェードインアニメーションを再トリガー
-            var children = c.children;
-            for (var i = 0; i < children.length; i++) {
-                children[i].style.animation = 'none';
-                children[i].offsetHeight; // 強制リフロー
-                children[i].style.animation = '';
+            var ov = document.getElementById('loading-overlay');
+            if (ov) ov.classList.remove('active');
+            if (retriggerAnim) {
+                // コンテンツのフェードインアニメーションを再トリガー
+                var children = c.children;
+                for (var i = 0; i < children.length; i++) {
+                    children[i].style.animation = 'none';
+                    children[i].offsetHeight; // 強制リフロー
+                    children[i].style.animation = '';
+                }
             }
         }
-    });
+
+        document.body.addEventListener('htmx:beforeRequest', function(e) {
+            if (isContentReq(e)) startLoading();
+        });
+        document.body.addEventListener('htmx:afterSettle', function(e) {
+            var c = document.getElementById('content');
+            if (c) stopLoading(true);
+        });
+        // フェイルセーフ: afterRequest は成功・失敗いずれでも発火。
+        // エラー/タイムアウトで afterSettle が来ないケースでもオーバーレイを解除する。
+        document.body.addEventListener('htmx:afterRequest', function(e) {
+            if (isContentReq(e)) stopLoading(false);
+        });
+        document.body.addEventListener('htmx:responseError', function() { stopLoading(false); });
+        document.body.addEventListener('htmx:sendError', function() { stopLoading(false); });
+        document.body.addEventListener('htmx:timeout', function() { stopLoading(false); });
+    })();
     </script>
     <script src="/static/js/charts.js"></script>
     <script src="/static/js/export.js"></script>

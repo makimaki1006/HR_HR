@@ -248,10 +248,27 @@ pub(super) fn render_so_what_navy(body_html: &str) -> String {
     )
 }
 
+/// data-chart-config 属性値用エスケープ。
+///
+/// 属性値はシングルクォート (`'`) で囲んでいる。XSS の属性ブレイクアウトを防ぐには
+/// 囲み文字 `'` と、エンティティ注入元の `&` をエスケープすれば十分:
+///   - `&`  : 必ず最初 (後続のエンティティ二重エスケープ防止)
+///   - `'`  : 属性の囲み文字 (本体の防御線)
+///
+/// 2026-06-05 audit (逆証明で回帰検出): 旧 audit で `"`/`<`/`>` も追加エスケープ
+/// したが、value は serde_json の `to_string()` 由来で `"` を多数含む JSON 文字列。
+/// `"`→`&quot;` 化すると **属性値が valid JSON でなくなり**、radar 等の chart-config
+/// を parse/検証する既存テストが破綻した (market_tightness / regional_compare)。
+/// single-quote 囲み属性内では `"`/`<`/`>` は構文上無害であり、かつ JS 側は
+/// `getAttribute()` → `JSON.parse()` で取得するだけで innerHTML には入れないため
+/// `<` の実害もない。よって `&` と `'` のみエスケープし JSON 整合性を維持する。
+fn escape_chart_config_attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('\'', "&#x27;")
+}
+
 /// ECharts divタグを生成（data-chart-config属性付き）
 pub(super) fn render_echart_div(config_json: &str, height: u32) -> String {
-    // シングルクォートをHTMLエンティティにエスケープ
-    let escaped = config_json.replace('\'', "&#x27;");
+    let escaped = escape_chart_config_attr(config_json);
     format!(
         "<div class=\"echart\" style=\"height:{}px;width:100%;\" data-chart-config='{}'></div>\n",
         height, escaped
@@ -2771,6 +2788,100 @@ mod ui3_helpers_tests {
         assert!(!html.contains("<b>"), "ラベルのタグはエスケープされる");
         assert!(html.contains("&lt;b&gt;"), "ラベルが HTML エスケープされる");
         assert!(html.contains("x&amp;y"), "説明の & がエスケープされる");
+    }
+
+    // ---- 2026-06-05 audit: data-chart-config 属性の XSS (single-quote 属性方針) ----
+    // 方針: 属性は single quote 囲み。XSS の属性ブレイクアウトは囲み文字 `'` と
+    // エンティティ注入元 `&` のエスケープで防ぐ。`"`/`<`/`>` は single-quote 属性内では
+    // 構文上無害かつ value は JSON 文字列 (serde_json 由来で `"` 多数) のため、
+    // エスケープせず JSON 整合性を保つ (逆証明: `"`→`&quot;` 化は radar 等の
+    // chart-config parse テストを破壊する回帰となる)。
+
+    /// 防御のコア: single-quote 属性ブレイクアウト (`'`) を確実に防ぐ。
+    /// `' onmouseover='alert(1)` 注入で属性を抜けられないこと。
+    #[test]
+    fn test_chart_config_single_quote_breakout_blocked() {
+        let payload = r#"{"x":"' onmouseover='alert(1)"}"#;
+        let escaped = escape_chart_config_attr(payload);
+        assert!(
+            !escaped.contains('\''),
+            "single quote が残ってはならない (属性ブレイクアウト防止): {}",
+            escaped
+        );
+        assert!(escaped.contains("&#x27;"), "' が &#x27; にエスケープ");
+    }
+
+    /// `&` がエスケープされ、エンティティ注入・二重エスケープが起きないこと。
+    #[test]
+    fn test_chart_config_ampersand_escaped_no_double() {
+        let escaped = escape_chart_config_attr(r#"{"k":"a&amp;b & c"}"#);
+        // 生の & は全て &amp; になる
+        assert!(
+            !escaped.contains("& "),
+            "生の & が残ってはならない: {}",
+            escaped
+        );
+        assert!(escaped.contains("&amp;"), "& が &amp; にエスケープ");
+        // 既存の &amp; が &amp;amp; に二重化しないよう、& を最初に1回だけ処理する設計。
+        // (入力の "a&amp;b" は a&b ではなく文字列 "a&amp;b" として渡る前提のJSONなので
+        //  ここでは & の単純カウントで二重化していないことを確認)
+        assert!(
+            !escaped.contains("&amp;amp;amp;"),
+            "過剰な多重エスケープが起きてはならない: {}",
+            escaped
+        );
+    }
+
+    /// JSON 整合性: double quote は保持される (`&quot;` 化しない)。
+    /// これにより属性値が valid JSON のまま JS 側で JSON.parse 可能。
+    #[test]
+    fn test_chart_config_preserves_json_double_quotes() {
+        let payload = r#"{"k":"value","n":1}"#;
+        let escaped = escape_chart_config_attr(payload);
+        assert!(
+            escaped.contains('"'),
+            "JSON の double quote は保持される: {}",
+            escaped
+        );
+        assert!(
+            !escaped.contains("&quot;"),
+            "double quote は &quot; 化しない (JSON 整合性): {}",
+            escaped
+        );
+        // single quote / & を含まない素の JSON はそのまま (parse 可能)
+        assert_eq!(escaped, payload, "素の JSON は無変換で通る");
+    }
+
+    /// `<`/`>` は single-quote 属性内で構文上無害なため保持される。
+    /// JS 側は getAttribute()→JSON.parse() で取得し innerHTML には入れないため
+    /// `<script>` がそのまま属性値にあっても DOM 実行されない。
+    #[test]
+    fn test_chart_config_angle_brackets_harmless_in_single_quote_attr() {
+        let payload = r#"{"t":"<script>alert(1)</script>"}"#;
+        let escaped = escape_chart_config_attr(payload);
+        // single quote を含まないので属性ブレイクアウト不可 = 無害
+        assert!(!escaped.contains('\''), "single quote なし");
+        // <script> はそのまま (属性値内で無害、JSON 整合性維持)
+        assert!(escaped.contains("<script>"), "山括弧は保持 (属性内で無害)");
+    }
+
+    /// render_echart_div: 属性は single quote 囲みで、ブレイクアウトが防がれる。
+    #[test]
+    fn test_render_echart_div_xss_payload_neutralized() {
+        let malicious = r#"{"t":"'><img src=x onerror=alert(1)>"}"#;
+        let html = render_echart_div(malicious, 300);
+        // 属性囲み (data-chart-config=') の構造は保持
+        assert!(
+            html.contains("data-chart-config='"),
+            "属性は single quote 囲み"
+        );
+        // 防御のコア: 属性ブレイクアウト `'>` が成立しないこと (' がエスケープ済)
+        assert!(
+            !html.contains("'><img"),
+            "属性ブレイクアウト不可 (' がエスケープされる): {}",
+            html
+        );
+        assert!(html.contains("&#x27;"), "ペイロードの ' は &#x27; に無害化");
     }
 
     /// 凡例 label: severity ごとに 3 種類のテキストラベル + aria-label
