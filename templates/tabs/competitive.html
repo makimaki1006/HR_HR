@@ -95,7 +95,7 @@
     </div>
 
     <!-- 検索結果（HTMXで動的更新） -->
-    <div id="comp-results">
+    <div id="comp-results" role="region" aria-live="polite" aria-label="求人検索結果">
         <p class="text-slate-400 text-sm">都道府県を選択して検索してください</p>
     </div>
 
@@ -110,7 +110,7 @@
                 </button>
             </div>
         </div>
-        <div id="comp-analysis">
+        <div id="comp-analysis" role="region" aria-live="polite" aria-label="求人データ分析結果">
             <p class="text-slate-500 text-sm">都道府県を選択して「選択地域で分析」をクリックしてください</p>
         </div>
     </div>
@@ -143,7 +143,7 @@
                     最低賃金 (時給ベース) <span class="text-xs text-slate-400">— 厚労省 地域別最低賃金</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -152,7 +152,7 @@
                     有効求人倍率 (年度推移) <span class="text-xs text-slate-400">— 厚労省 一般職業紹介状況</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -161,7 +161,7 @@
                     失業率・労働力参加率 <span class="text-xs text-slate-400">— 国勢調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -170,7 +170,7 @@
                     入職率・離職率 (業界別) <span class="text-xs text-slate-400">— 厚労省 雇用動向調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -179,7 +179,7 @@
                     学歴構成 (男女別) <span class="text-xs text-slate-400">— 国勢調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -188,7 +188,7 @@
                     産業別 就業者構成 (上位 15) <span class="text-xs text-slate-400">— 経済センサス</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -197,7 +197,7 @@
                     家計支出 (カテゴリ別 月額) <span class="text-xs text-slate-400">— 総務省 家計調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -206,7 +206,7 @@
                     昼夜間人口 <span class="text-xs text-slate-400">— 国勢調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -215,7 +215,7 @@
                     世帯構成 <span class="text-xs text-slate-400">— 国勢調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
 
@@ -224,7 +224,7 @@
                     社会生活 (主要カテゴリ参加率) <span class="text-xs text-slate-400">— 総務省 社会生活基本調査</span>
                 </summary>
                 <div class="ext-panel-body p-3 bg-slate-900 rounded-b">
-                    <div class="ext-panel-content text-slate-400 text-sm">読み込み中...</div>
+                    <div class="ext-panel-content text-slate-400 text-sm">都道府県を選択すると表示します</div>
                 </div>
             </details>
         </div>
@@ -246,7 +246,7 @@
         <!-- テーブル -->
         <div class="stat-card">
             <h3 class="text-sm text-slate-400 mb-3">都道府県別 求人数ランキング</h3>
-            <div style="overflow-x:auto;">
+            <div class="overflow-x-auto max-w-full w-full">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -399,11 +399,11 @@ function onCompPrefChange(pref) {
             // 既に展開中のものは即時再ロード
             loadExternalPanel(panels[i]);
         } else {
-            // 未展開のものは「読み込み中...」表記に戻す
+            // 未展開のものは初期メッセージに戻す（jobmap タブと文言統一）
             var content = panels[i].querySelector('.ext-panel-content');
             if (content) {
                 while (content.firstChild) content.removeChild(content.firstChild);
-                content.textContent = '読み込み中...';
+                content.textContent = '都道府県を選択すると表示します';
                 content.className = 'ext-panel-content text-slate-400 text-sm';
             }
         }

@@ -23,6 +23,7 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
+pub(crate) mod external_extra;
 mod market_intelligence;
 mod subtab1;
 mod subtab2;

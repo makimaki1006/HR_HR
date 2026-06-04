@@ -16,6 +16,19 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
+/// 営業仮説（So What）テキストを統一スタイルで描画するローカルヘルパー。
+/// 相関≠因果ルールに従い断定を避け「傾向／可能性」表現に留める。
+fn so_what(text: &str) -> String {
+    format!(
+        r#"<div class="mt-3 px-3 py-2 rounded-md bg-blue-900/20 border-l-2 border-blue-500 text-xs text-blue-200 leading-relaxed">💡 営業仮説: {text}</div>"#
+    )
+}
+
+/// 出典キャプションを統一スタイルで描画するローカルヘルパー。
+fn source_caption(text: &str) -> String {
+    format!(r#"<div class="mt-1 text-[10px] text-slate-500">出典: {text}</div>"#)
+}
+
 pub(crate) fn render_subtab_4(db: &Db, pref: &str, muni: &str) -> String {
     let employer_strategy = fetch_employer_strategy(db, pref, muni);
     let monopsony = fetch_monopsony_data(db, pref, muni);
@@ -109,7 +122,16 @@ pub(super) fn render_employer_strategy_section(data: &[Row]) -> String {
         html.push_str("</div></div>");
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "プレミアム型（高給与×高福利）の比率が高い区分では人材獲得の条件競争が活発な傾向があり、\
+        提示条件の見直しが応募確保に効く可能性があります。コスト重視型が中心の区分では、\
+        条件の差別化余地が残っている可能性があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（給与×福利厚生の2軸分類）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -186,7 +208,16 @@ pub(super) fn render_monopsony_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "上位企業のシェアやHHIが高い区分では、少数の大口採用企業が求人の大半を占める傾向があります。\
+        こうした地域では、大口企業の採用動向が市場全体の条件相場を左右する可能性があり、\
+        提案時の競合比較対象を絞り込みやすい傾向があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（施設別求人数からHHI・上位シェア・格差指数を算出）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -256,7 +287,16 @@ pub(super) fn render_spatial_mismatch_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "孤立スコアが高い地域では近隣30km/60km圏に代替求人が少ない傾向があり、\
+        通勤可能圏まで母集団を広げた採用設計が有効な可能性があります。\
+        近隣圏との給与ギャップが大きい場合、条件の見直しが応募者確保につながる可能性があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人＋施設の緯度経度（近隣圏内の求人数・給与を距離集計）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -294,7 +334,15 @@ pub(super) fn render_competition_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</tbody></table></div></div>");
+    html.push_str("</tbody></table></div>");
+    html.push_str(&so_what(
+        "同一の給与帯×学歴セグメントに異業種が多く参入している場合、医療・介護以外の業種とも人材を取り合う傾向があります。\
+        競合業種数が多いセグメントでは、給与以外の訴求点（働き方・育成など）を打ち出すことで差別化できる可能性があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（給与帯×学歴×地域で重複する産業を集計）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -344,6 +392,15 @@ pub(super) fn render_cascade_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</tbody></table></div></div>");
+    html.push_str("</tbody></table></div>");
+    html.push_str(&so_what(
+        "欠員補充率が高い業種×雇用形態は、求人を出しても充足しきれていない可能性があり、\
+        採用支援の提案余地が大きい傾向があります。給与・年間休日が周辺業種と比べて見劣りする区分では、\
+        条件面が充足の制約になっている可能性があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（業種×雇用形態別の求人数・給与・休日・欠員補充率）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }

@@ -176,7 +176,7 @@
       <button onclick="document.getElementById('jm-labor-flow').style.display='none'" class="text-xs text-gray-400 hover:text-white" aria-label="人材フローパネルを閉じる">&#10005;</button>
     </div>
     <div id="jm-labor-flow-chart" style="height:320px;" role="img" aria-label="業種別従業員増減の横棒グラフ"></div>
-    <div id="jm-labor-flow-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="業種別人材フロー詳細"></div>
+    <div id="jm-labor-flow-table" class="mt-2 text-xs overflow-x-auto max-w-full w-full" role="region" aria-label="業種別人材フロー詳細"></div>
   </div>
 
   <!-- 流入元サンキー図（Agoop人流データ from_area 4区分） -->
@@ -232,7 +232,7 @@
       <span id="inflow-status" class="text-[10px] text-gray-500 ml-2"></span>
     </div>
     <div id="inflow-sankey-chart" style="height:360px;" role="img" aria-label="流入元サンキー図"></div>
-    <div id="inflow-summary-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="流入元サマリー"></div>
+    <div id="inflow-summary-table" class="mt-2 text-xs overflow-x-auto max-w-full w-full" role="region" aria-label="流入元サマリー"></div>
   </div>
 
   <script>
@@ -378,8 +378,8 @@
       <span class="text-sm text-gray-300 font-medium">📊 地域統計</span>
       <button onclick="document.getElementById('jm-region-stats').style.display='none'" class="text-xs text-gray-400 hover:text-white">✕</button>
     </div>
-    <div id="jm-region-stats-content" class="text-xs text-slate-400">
-      都道府県を選択すると統計が表示されます
+    <div id="jm-region-stats-content" class="text-xs text-slate-400" aria-live="polite" aria-label="地域統計">
+      都道府県を選択すると表示します
     </div>
   </div>
 
@@ -432,7 +432,7 @@
     </div>
 
     <!-- サマリーバー: 相関係数・件数・注釈 -->
-    <div id="corr-summary" class="text-[11px] text-gray-400 mb-2 flex flex-wrap gap-3 items-center">
+    <div id="corr-summary" class="text-[11px] text-gray-400 mb-2 flex flex-wrap gap-3 items-center" role="status" aria-live="polite" aria-label="相関分析サマリー">
       <span>都道府県を選択して「分析」を押してください。</span>
     </div>
 
@@ -443,14 +443,14 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
       <div>
         <div class="text-xs text-orange-400 font-medium mb-1">🔥 募集難メッシュ（求人多×人口少）</div>
-        <div id="corr-hiring-hard" class="text-[11px] text-gray-300 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-900/40">
-          <span class="text-gray-500">未分析</span>
+        <div id="corr-hiring-hard" class="text-[11px] text-gray-200 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-800" role="region" aria-live="polite" aria-label="募集難メッシュ一覧">
+          <span class="text-gray-400">未分析</span>
         </div>
       </div>
       <div>
         <div class="text-xs text-emerald-400 font-medium mb-1">🌱 未開拓メッシュ（人口多×求人少）</div>
-        <div id="corr-underserved" class="text-[11px] text-gray-300 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-900/40">
-          <span class="text-gray-500">未分析</span>
+        <div id="corr-underserved" class="text-[11px] text-gray-200 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-800" role="region" aria-live="polite" aria-label="未開拓メッシュ一覧">
+          <span class="text-gray-400">未分析</span>
         </div>
       </div>
     </div>
@@ -858,7 +858,7 @@
       var el = document.getElementById(containerId);
       if (!el) return;
       if (!items || items.length === 0) {
-        el.innerHTML = '<span class="text-gray-500">該当メッシュなし</span>';
+        el.innerHTML = '<span class="text-gray-400">該当メッシュなし</span>';
         return;
       }
       var rows = items.slice(0, 20).map(function(it){
@@ -1242,6 +1242,12 @@
       var body = details.querySelector('.jm-ext-body');
       if (!body) return;
       if (body.getAttribute('data-loaded') === 'true') return; // キャッシュ済み
+      // 都道府県未選択時は統一メッセージを表示（competitive タブと文言一致）
+      var prefVal = (document.getElementById('jm-pref') || {}).value || '';
+      if (!prefVal) {
+        body.innerHTML = '<div class="text-gray-400 text-xs">都道府県を選択すると表示します</div>';
+        return;
+      }
       var endpoint = body.getAttribute('data-endpoint');
       var label = body.getAttribute('data-label') || '';
       if (!endpoint) {
