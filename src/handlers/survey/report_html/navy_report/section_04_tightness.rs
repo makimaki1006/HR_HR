@@ -716,3 +716,220 @@ fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> St
             .to_string()
     }
 }
+
+// ============================================================
+// テスト (テスト品質強化, 2026-06-05): データ妥当性 / 境界 / 不変条件
+// 対象純粋関数: severity_label / build_tightness_so_what /
+//              build_navy_tightness_table / build_navy_tightness_gauges
+//
+// 重点: MEMORY feedback_reverse_proof_tests.md (失業率 380% 流出) の逆証明。
+//      失業率は % 値であり [0,100) 範囲外は「データ異常」として中立扱いされること。
+// ============================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_data(
+        job_ratio: Option<f64>,
+        vacancy_rate: Option<f64>,
+        unemployment: Option<f64>,
+        separation: Option<f64>,
+        entry: Option<f64>,
+    ) -> TightnessData {
+        TightnessData {
+            job_ratio,
+            vacancy_rate,
+            unemployment,
+            unemployment_national: Some(2.5),
+            separation,
+            entry,
+        }
+    }
+
+    // --- severity_label (common 再エクスポート) ---------------------------
+
+    // [不変条件] tag → ラベルの全分岐 + 未知タグの中立 fallback。
+    #[test]
+    fn severity_label_maps_all_known_tags() {
+        assert_eq!(severity_label("pos"), "POS");
+        assert_eq!(severity_label("warn"), "WARN");
+        assert_eq!(severity_label("neg"), "NEG");
+        assert_eq!(severity_label("neu"), "NEU");
+        // 未知タグは NEU に倒れる (silent fallback ではなく明示的中立)
+        assert_eq!(severity_label("unknown"), "NEU");
+        assert_eq!(severity_label(""), "NEU");
+    }
+
+    // --- build_navy_tightness_table: 失業率の値域防御 (逆証明) --------------
+
+    // [逆証明/ドメイン不変条件] 失業率の値域外 (0-100% 範囲外) は "データ異常" で中立化。
+    //   MEMORY: unemployment 380% 流出事故の再発防止。値域外を pos/warn と誤判定しない。
+    //   注: 本体に `debug_assert!(u < 100.0)` があり debug ビルド (= cargo test) では
+    //       u>=100 で panic するため、ここでは負値 (-1.0 < 100.0 で assert は通過しつつ
+    //       0.0..100.0 範囲外) を使って「データ異常」分岐を逆証明する。
+    #[test]
+    fn tightness_table_rejects_unemployment_out_of_range() {
+        let d = make_data(None, None, Some(-1.0), None, None);
+        let html = build_navy_tightness_table(Some(&d), false);
+        assert!(
+            html.contains("データ異常"),
+            "out-of-range unemployment must be flagged as データ異常: {}",
+            html
+        );
+        // 値域外を低失業 (warn) や求職者プールあり (pos) と誤判定していないこと
+        assert!(
+            !html.contains("低失業=採用難度 高"),
+            "out-of-range must NOT be classified as 低失業: {}",
+            html
+        );
+        assert!(
+            !html.contains("求職者プールあり"),
+            "out-of-range must NOT be classified as 求職者プールあり: {}",
+            html
+        );
+    }
+
+    // [境界] 失業率 0.0 ちょうどは範囲内 (下限 inclusive、< 2.5) → 低失業 warn。
+    //   範囲判定 `(0.0..100.0).contains` の下限境界が inclusive であることを確認。
+    #[test]
+    fn tightness_table_unemployment_zero_is_in_range() {
+        let d = make_data(None, None, Some(0.0), None, None);
+        let html = build_navy_tightness_table(Some(&d), false);
+        assert!(
+            !html.contains("データ異常"),
+            "unemployment=0.0 is in-range (lower inclusive), not anomaly: {}",
+            html
+        );
+        assert!(
+            html.contains("低失業=採用難度 高"),
+            "0.0% (<2.5) should be 低失業 warn: {}",
+            html
+        );
+    }
+
+    // [境界] 失業率 2.5 未満は「低失業=採用難度 高」(warn)。閾値直下/直上を検証。
+    #[test]
+    fn tightness_table_unemployment_severity_boundaries() {
+        // 2.4% (< 2.5) → 低失業 warn
+        let low = make_data(None, None, Some(2.4), None, None);
+        assert!(
+            build_navy_tightness_table(Some(&low), false).contains("低失業=採用難度 高"),
+            "2.4% should be 低失業 warn"
+        );
+        // 3.0% (2.5-3.5) → 標準的水準
+        let mid = make_data(None, None, Some(3.0), None, None);
+        assert!(
+            build_navy_tightness_table(Some(&mid), false).contains("標準的水準"),
+            "3.0% should be 標準的水準"
+        );
+        // 4.0% (>=3.5) → 求職者プールあり (pos)
+        let high = make_data(None, None, Some(4.0), None, None);
+        assert!(
+            build_navy_tightness_table(Some(&high), false).contains("求職者プールあり"),
+            "4.0% should be 求職者プールあり"
+        );
+    }
+
+    // [境界] 有効求人倍率 1.5 以上=warn / 1.0-1.5=売り手 / 1.0 未満=買い手。
+    #[test]
+    fn tightness_table_job_ratio_boundaries() {
+        let h15 =
+            build_navy_tightness_table(Some(&make_data(Some(1.5), None, None, None, None)), false);
+        assert!(
+            h15.contains("応募集めにくい"),
+            "1.5 -> 応募集めにくい: {}",
+            h15
+        );
+        let h12 =
+            build_navy_tightness_table(Some(&make_data(Some(1.2), None, None, None, None)), false);
+        assert!(h12.contains("売り手市場"), "1.2 -> 売り手市場: {}", h12);
+        let h08 =
+            build_navy_tightness_table(Some(&make_data(Some(0.8), None, None, None, None)), false);
+        assert!(h08.contains("買い手市場"), "0.8 -> 買い手市場: {}", h08);
+    }
+
+    // [境界] None データ (全指標欠損) でも panic せず、"—" 行 + table を返す。
+    #[test]
+    fn tightness_table_none_data_no_panic() {
+        let html = build_navy_tightness_table(None, false);
+        assert!(html.contains("<table"), "table should render: {}", html);
+        assert!(
+            html.contains("有効求人倍率"),
+            "label rows present: {}",
+            html
+        );
+        assert!(html.contains("—"), "missing values shown as dash: {}", html);
+    }
+
+    // --- build_tightness_so_what: 警戒指標カウントによる総合判定 ------------
+
+    // [境界] 警戒指標 2 つ以上 → 採用難度 高。
+    #[test]
+    fn so_what_two_alerts_is_high_difficulty() {
+        // job_ratio>=1.5 と 低失業<2.5 の 2 指標警戒
+        let d = make_data(Some(1.6), None, Some(2.0), None, None);
+        let html = build_tightness_so_what(Some(&d), false);
+        assert!(html.contains("採用難度 高"), "2 alerts -> 高: {}", html);
+    }
+
+    // [境界] 警戒指標 1 つ → 採用難度 中。
+    #[test]
+    fn so_what_one_alert_is_medium_difficulty() {
+        // job_ratio>=1.5 のみ警戒 (失業率 4.0 は安全圏)
+        let d = make_data(Some(1.6), None, Some(4.0), None, None);
+        let html = build_tightness_so_what(Some(&d), false);
+        assert!(html.contains("採用難度 中"), "1 alert -> 中: {}", html);
+    }
+
+    // [境界] 警戒指標 0 → 採用難度 低。
+    #[test]
+    fn so_what_zero_alerts_is_low_difficulty() {
+        // 全指標が安全圏: job_ratio 0.8, 失業率 5.0, 離職率 8.0
+        let d = make_data(Some(0.8), None, Some(5.0), Some(8.0), None);
+        let html = build_tightness_so_what(Some(&d), false);
+        assert!(html.contains("採用難度 低"), "0 alerts -> 低: {}", html);
+    }
+
+    // [境界] None データでは指標説明のみの文言を返し panic しない。
+    #[test]
+    fn so_what_none_data_returns_placeholder() {
+        let html = build_tightness_so_what(None, false);
+        assert!(
+            html.contains("外部統計データが取得できなかった"),
+            "none -> placeholder text: {}",
+            html
+        );
+    }
+
+    // --- build_navy_tightness_gauges: スコア正規化 (0-100 クランプ) ---------
+
+    // [不変条件] ゲージスコアは 0-100 に正規化され、極端な入力でも SVG が壊れない。
+    //   失業率 0% (非常に逼迫) でも有効求人倍率 10.0 (>2 で 100 clamp) でも描画される。
+    #[test]
+    fn gauges_render_with_extreme_values() {
+        let d = make_data(Some(10.0), None, Some(0.0001), Some(50.0), None);
+        let svg = build_navy_tightness_gauges(&d, false);
+        assert!(svg.contains("<svg"), "svg should render: {}", svg);
+        // marker_x 計算は score/100 なので clamp により NaN/極端座標を出さない。
+        // 座標値に "NaN" や "inf" が含まれていないこと
+        assert!(!svg.contains("NaN"), "no NaN coords: {}", svg);
+        assert!(
+            !svg.to_lowercase().contains("inf\""),
+            "no inf coords: {}",
+            svg
+        );
+    }
+
+    // [境界] 全指標 None ではゲージ用データ不足の caption を返す (silent な空 SVG ではない)。
+    #[test]
+    fn gauges_empty_data_returns_caption() {
+        let d = make_data(None, None, None, None, None);
+        let html = build_navy_tightness_gauges(&d, false);
+        assert!(
+            html.contains("データが不足"),
+            "empty gauges -> caption: {}",
+            html
+        );
+        assert!(!html.contains("<svg"), "no svg when no data: {}", html);
+    }
+}

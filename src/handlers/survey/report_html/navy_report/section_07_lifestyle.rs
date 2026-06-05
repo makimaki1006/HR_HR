@@ -1912,3 +1912,301 @@ mod rental_tests {
         );
     }
 }
+
+// ============================================================
+// Section 07 ライフスタイル系 helper のデータ妥当性テスト
+//   MEMORY: feedback_test_data_validation / feedback_unit_consistency_audit /
+//           feedback_reverse_proof_tests 準拠。
+//   検証対象: 最賃 vs 給与 / 家計 vs 給与 / 家計支出構成 / SO WHAT / 最賃推移 / label_for_column。
+//   方針: 比率の単位 (時給円・%) ・境界 (空入力・0)・ドメイン不変条件 (構成比 0-100%、
+//         単調性、比率閾値の分類) を逆証明する。
+// ============================================================
+#[cfg(test)]
+mod lifestyle_tests {
+    use super::{
+        build_lifestyle_so_what, build_navy_household_table, build_navy_household_vs_salary_table,
+        build_navy_minwage_chart, build_navy_minwage_vs_salary_table, label_for_column,
+    };
+
+    // ---- build_navy_minwage_vs_salary_table: 最賃 vs 求人給与 (時給換算) ----
+
+    #[test]
+    fn minwage_vs_salary_empty_when_no_minwage() {
+        // 境界: 最低賃金 None → 空文字 (silent skip)
+        assert!(build_navy_minwage_vs_salary_table(250_000, false, None).is_empty());
+        // 最低賃金 0 円 → 空文字
+        assert!(build_navy_minwage_vs_salary_table(250_000, false, Some((2024, 0))).is_empty());
+    }
+
+    #[test]
+    fn minwage_vs_salary_empty_when_zero_salary() {
+        // 境界: median_min_salary <= 0 → 空文字
+        assert!(build_navy_minwage_vs_salary_table(0, false, Some((2024, 1000))).is_empty());
+        assert!(build_navy_minwage_vs_salary_table(-100, false, Some((2024, 1000))).is_empty());
+    }
+
+    #[test]
+    fn minwage_vs_salary_monthly_converts_at_167h() {
+        // 単位整合 (feedback_unit_consistency_audit): 月給 250,000 / 167h = 1497 円/時、
+        //   最賃 1000 → 比率 1.50 倍 (1497/1000)。月給モードは 167h で割って時給換算される。
+        let html = build_navy_minwage_vs_salary_table(250_000, false, Some((2024, 1000)));
+        assert!(!html.is_empty());
+        // 250000 / 167 = 1497 円/時換算
+        assert!(
+            html.contains("1,497"),
+            "月給を 167h で時給換算 (250000/167=1497) すべき: {}",
+            html
+        );
+        // 比率 1.50 倍 (1497/1000) → 1.2 倍以上 = 最賃上振れ
+        assert!(html.contains("1.50 倍"), "比率 1.50 倍が出るべき: {}", html);
+        assert!(
+            html.contains("最賃上振れ"),
+            "1.2 倍以上は上振れ判定: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn minwage_vs_salary_hourly_no_conversion() {
+        // 時給モード: median はそのまま時給。1200 円/時 vs 最賃 1000 → 1.20 倍 (境界)
+        let html = build_navy_minwage_vs_salary_table(1200, true, Some((2024, 1000)));
+        assert!(
+            html.contains("1.20 倍"),
+            "時給はそのまま比率 1.20 倍: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn minwage_vs_salary_below_minwage_flags_warn() {
+        // ドメイン不変条件: 時給換算 < 最賃 → 「最賃割れ」warn。
+        //   月給 80,000 / 167 = 479 円/時 < 最賃 1000 → 比率 0.48 倍 < 1.0
+        let html = build_navy_minwage_vs_salary_table(80_000, false, Some((2024, 1000)));
+        assert!(
+            html.contains("最賃割れ"),
+            "最賃を下回ると警告すべき: {}",
+            html
+        );
+        assert!(html.contains("tag-warn"), "warn タグが付くべき");
+    }
+
+    // ---- build_navy_household_vs_salary_table: 家計支出 vs 給与 ----
+
+    #[test]
+    fn household_vs_salary_empty_on_zero_inputs() {
+        // 境界: 給与 0 / 支出 0 で空文字
+        let cat = vec![("住居".to_string(), 50_000i64)];
+        assert!(build_navy_household_vs_salary_table(0, false, 200_000, &cat).is_empty());
+        assert!(build_navy_household_vs_salary_table(250_000, false, 0, &cat).is_empty());
+    }
+
+    #[test]
+    fn household_vs_salary_coverage_pct_and_classification() {
+        // データ妥当性: 消費支出 150,000 / 月給 250,000 = 60% < 70% → 可処分余裕 (pos)。
+        let cat = vec![("食料".to_string(), 40_000i64)];
+        let html = build_navy_household_vs_salary_table(250_000, false, 150_000, &cat);
+        assert!(
+            html.contains("60.0%"),
+            "カバー率 60.0% が出るべき: {}",
+            html
+        );
+        assert!(
+            html.contains("可処分余裕"),
+            "70% 未満は可処分余裕: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn household_vs_salary_over_100pct_flags_warn() {
+        // ドメイン逆証明: 消費支出 > 月給 → 100% 超 = 支出超過水準 (warn)。
+        let cat = vec![("住居".to_string(), 30_000i64)];
+        let html = build_navy_household_vs_salary_table(150_000, false, 180_000, &cat);
+        assert!(
+            html.contains("支出超過水準"),
+            "支出>給与は超過水準: {}",
+            html
+        );
+        assert!(html.contains("tag-warn"));
+    }
+
+    #[test]
+    fn household_vs_salary_hourly_converts_to_monthly() {
+        // 単位整合: 時給 1500 * 167h = 250,500 円/月。支出 150,000 / 250,500 ≒ 59.9% → 余裕。
+        let cat = vec![("食料".to_string(), 40_000i64)];
+        let html = build_navy_household_vs_salary_table(1500, true, 150_000, &cat);
+        assert!(!html.is_empty());
+        // 月給換算 250,500 円が表示される
+        assert!(
+            html.contains("250,500"),
+            "時給 1500*167h=250500 が月給換算で出るべき: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn household_vs_salary_lists_only_heavy_categories() {
+        // データ妥当性: 重支出 (構成比 >= 10%) のみ列挙。
+        //   消費支出 200,000 のうち 住居 50,000 (25%) は重支出、交際費 5,000 (2.5%) は除外。
+        let cat = vec![
+            ("住居".to_string(), 50_000i64),
+            ("交際費".to_string(), 5_000i64),
+        ];
+        let html = build_navy_household_vs_salary_table(300_000, false, 200_000, &cat);
+        assert!(
+            html.contains("住居"),
+            "25% の住居は重支出として列挙: {}",
+            html
+        );
+        assert!(
+            !html.contains("交際費"),
+            "2.5% の交際費は重支出から除外されるべき: {}",
+            html
+        );
+    }
+
+    // ---- build_navy_household_table: 家計支出構成 ----
+
+    #[test]
+    fn household_table_pct_sum_within_bounds() {
+        // ドメイン不変条件: 各費目の構成比は 0-100% に収まる。
+        //   total=200,000、上位 3 費目の構成比合計 <= 100%。
+        let cats = vec![
+            ("住居".to_string(), 60_000i64), // 30%
+            ("食料".to_string(), 40_000i64), // 20%
+            ("交通".to_string(), 20_000i64), // 10%
+        ];
+        let html = build_navy_household_table(&cats, 200_000);
+        assert!(html.contains("30.0%"), "住居 30.0%: {}", html);
+        assert!(html.contains("20.0%"), "食料 20.0%");
+        assert!(html.contains("10.0%"), "交通 10.0%");
+        // 20%+ = 重支出、10-20% = 主要支出
+        assert!(html.contains("重支出"), "30% は重支出タグ");
+        assert!(html.contains("主要支出"), "10% は主要支出タグ");
+    }
+
+    #[test]
+    fn household_table_empty_shows_placeholder_no_panic() {
+        // 境界: 空入力 (費目なし) でも panic せずプレースホルダ行
+        let cats: Vec<(String, i64)> = vec![];
+        let html = build_navy_household_table(&cats, 0);
+        assert!(
+            html.contains("家計支出データなし"),
+            "空時はプレースホルダ: {}",
+            html
+        );
+        // total=0 でも 0 除算で NaN/inf を出さない
+        assert!(!html.contains("NaN") && !html.contains("inf"));
+    }
+
+    #[test]
+    fn household_table_zero_total_avoids_div_by_zero() {
+        // 境界: total=0 で費目あり → 構成比 0.0% (0 除算ガード)
+        let cats = vec![("住居".to_string(), 50_000i64)];
+        let html = build_navy_household_table(&cats, 0);
+        assert!(html.contains("0.0%"), "total=0 のとき構成比 0.0%: {}", html);
+        assert!(!html.contains("NaN"));
+    }
+
+    #[test]
+    fn household_table_caps_at_six_rows() {
+        // データ妥当性: 上位 6 費目までしか描画しない (件数最多 6 費目)。
+        let cats: Vec<(String, i64)> = (0..10)
+            .map(|i| (format!("費目{}", i), (100 - i * 5) as i64 * 1000))
+            .collect();
+        let html = build_navy_household_table(&cats, 1_000_000);
+        // 行番号 1〜6 は出るが 7 は出ない
+        let row_count = html.matches("<tr").count() - 1; // ヘッダ <tr> を除く
+        assert_eq!(
+            row_count, 6,
+            "上位 6 費目に制限すべき (描画行={}): {}",
+            row_count, html
+        );
+    }
+
+    // ---- build_lifestyle_so_what: ライフスタイル SO WHAT ----
+
+    #[test]
+    fn lifestyle_so_what_no_minwage_data_message() {
+        // 境界: 最賃 None → データ取得不可メッセージ (誤った数値を出さない)
+        let s = build_lifestyle_so_what(None, None, 0, None, 0, 0.0);
+        assert!(
+            s.contains("最低賃金データが取得できない"),
+            "最賃なし時の明示メッセージ: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn lifestyle_so_what_high_yoy_emphasizes_benefits() {
+        // 閾値分岐: 前年比 >= 3% → 福利厚生での差別化メッセージ
+        let s = build_lifestyle_so_what(Some((2024, 1100)), Some(4.0), 200_000, Some(90.0), 0, 0.0);
+        assert!(s.contains("上昇基調"), "yoy>=3% は上昇基調: {}", s);
+        assert!(s.contains("1,100 円/時"), "最賃額が時給で表示: {}", s);
+    }
+
+    #[test]
+    fn lifestyle_so_what_self_rate_scaled_to_percent() {
+        // 単位整合: self_rate は 0-1 比率。表示は ×100 した %。
+        //   0.75 → 75% と表示、>= 0.7 で「定住型」。
+        let s = build_lifestyle_so_what(Some((2024, 1000)), Some(2.0), 0, None, 500_000, 0.75);
+        assert!(s.contains("75%"), "自市内通勤率 0.75 → 75% 表示: {}", s);
+        assert!(s.contains("定住型"), ">=0.7 は定住型: {}", s);
+    }
+
+    #[test]
+    fn lifestyle_so_what_commute_unspecified_when_zero() {
+        // 境界: commute_pop=0 → 「市区町村未指定」の説明 (0 名と誤誘導しない)
+        let s = build_lifestyle_so_what(Some((2024, 1000)), Some(2.0), 0, None, 0, 0.0);
+        assert!(
+            s.contains("市区町村未指定"),
+            "通勤圏 0 のとき未指定の説明をすべき: {}",
+            s
+        );
+    }
+
+    // ---- build_navy_minwage_chart: 最賃推移 SVG ----
+
+    #[test]
+    fn minwage_chart_empty_when_less_than_two_points() {
+        // 境界: 1 点以下は推移を描けず空文字
+        assert!(build_navy_minwage_chart(&[]).is_empty());
+        assert!(build_navy_minwage_chart(&[(2024, 1000)]).is_empty());
+    }
+
+    #[test]
+    fn minwage_chart_renders_bar_per_year_no_nan() {
+        // データ妥当性: n 年分 → n 本のバー。同値でも span.max(1.0) で 0 除算回避。
+        let wages = vec![(2022, 1000i64), (2023, 1000i64), (2024, 1050i64)];
+        let svg = build_navy_minwage_chart(&wages);
+        assert!(svg.starts_with("<svg"));
+        let bars = svg.matches("<rect").count();
+        assert_eq!(bars, 3, "3 年分のバー: {}", svg);
+        // 全年同値でも NaN/inf を出さない
+        let flat = build_navy_minwage_chart(&[(2022, 1000), (2023, 1000)]);
+        assert!(
+            !flat.contains("NaN") && !flat.contains("inf"),
+            "同値推移で NaN: {}",
+            flat
+        );
+    }
+
+    // ---- label_for_column: snake_case → 日本語ラベル ----
+
+    #[test]
+    fn label_for_column_maps_known_keys() {
+        // データ妥当性: 既知カラムは日本語に変換される
+        assert_eq!(label_for_column("prefecture"), "都道府県");
+        assert_eq!(label_for_column("unemployment_rate"), "失業率(%)");
+        assert_eq!(label_for_column("male_count"), "男性");
+        assert_eq!(label_for_column("daytime_nighttime_ratio"), "昼夜間比(%)");
+    }
+
+    #[test]
+    fn label_for_column_unmapped_falls_back_to_key() {
+        // silent fallback 監査 (feedback_silent_fallback_audit): 未登録キーは原文返し
+        //   (英語のまま表示されるが、開発時に検出できる設計)。panic しないこと。
+        let key = "totally_unknown_column_xyz";
+        assert_eq!(label_for_column(key), key, "未登録キーは原文フォールバック");
+    }
+}

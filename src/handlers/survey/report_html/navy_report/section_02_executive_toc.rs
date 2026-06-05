@@ -522,3 +522,235 @@ fn build_findings(
 
     v
 }
+
+// ============================================================
+// Tests (Executive Summary KPI k1-k4 / Findings のデータ妥当性)
+//   MEMORY: feedback_test_data_validation / feedback_reverse_proof_tests 準拠。
+//   検証対象: build_findings の severity 分岐 / 件数動的変化 / KPI 構成比 0-100% /
+//             render_navy_executive の k1 ドット閾値・新着比率算出の境界。
+// ============================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn agg_with(total: usize, new: usize, emp: Vec<(&str, usize)>) -> SurveyAggregation {
+        let mut a = SurveyAggregation::default();
+        a.total_count = total;
+        a.new_count = new;
+        a.salary_parse_rate = 0.85;
+        a.by_employment_type = emp.into_iter().map(|(n, c)| (n.to_string(), c)).collect();
+        a
+    }
+
+    // ---- build_findings: KEY FINDINGS の severity 分岐とデータ妥当性 ----
+
+    #[test]
+    fn findings_zero_sample_marks_negative() {
+        // 境界: total=0 → サンプル件数 finding は neg。0 除算 / panic しない。
+        let agg = agg_with(0, 0, vec![]);
+        let f = build_findings(&agg, 0, 0.0, 0, 85, None);
+        assert!(!f.is_empty());
+        // 1 件目はサンプル件数、sev=neg
+        assert_eq!(f[0].0, "neg", "サンプル 0 件は neg: {:?}", f[0]);
+        assert!(f[0].2.contains("0 件"), "0 件メッセージ: {:?}", f[0]);
+    }
+
+    #[test]
+    fn findings_small_sample_warns() {
+        // 境界: 0 < total < 30 → warn (統計信頼性低)
+        let agg = agg_with(20, 3, vec![("正社員", 20)]);
+        let f = build_findings(&agg, 20, 100.0, 15, 85, None);
+        assert_eq!(f[0].0, "warn", "n=20 は warn: {:?}", f[0]);
+        assert!(f[0].2.contains("n=20"));
+    }
+
+    #[test]
+    fn findings_large_sample_positive() {
+        // n>=30 → pos (実務判断に十分)
+        let agg = agg_with(100, 12, vec![("正社員", 60)]);
+        let f = build_findings(&agg, 100, 60.0, 12, 85, None);
+        assert_eq!(f[0].0, "pos", "n=100 は pos: {:?}", f[0]);
+    }
+
+    #[test]
+    fn findings_employment_skew_severity_by_share() {
+        // データ妥当性: 雇用形態構成 finding (index 1) は dom_emp_pct で分岐。
+        //   >=85% warn / >=70% neu / それ未満 pos。
+        let agg = agg_with(100, 12, vec![("正社員", 90)]);
+        let f_warn = build_findings(&agg, 100, 90.0, 12, 85, None);
+        assert_eq!(f_warn[1].0, "warn", "90% は構成集約 warn: {:?}", f_warn[1]);
+
+        let f_neu = build_findings(&agg, 100, 75.0, 12, 85, None);
+        assert_eq!(f_neu[1].0, "neu", "75% は neu: {:?}", f_neu[1]);
+
+        let f_pos = build_findings(&agg, 100, 50.0, 12, 85, None);
+        assert_eq!(f_pos[1].0, "pos", "50% はバランス pos: {:?}", f_pos[1]);
+    }
+
+    #[test]
+    fn findings_new_ratio_branches() {
+        // 新着比率 finding (index 2): >=15 pos / <5 warn / 中間 neu。
+        let agg = agg_with(100, 20, vec![("正社員", 60)]);
+        let f_pos = build_findings(&agg, 100, 60.0, 20, 85, None);
+        assert_eq!(f_pos[2].0, "pos", "新着 20% は pos: {:?}", f_pos[2]);
+
+        let f_warn = build_findings(&agg, 100, 60.0, 2, 85, None);
+        assert_eq!(f_warn[2].0, "warn", "新着 2% は warn: {:?}", f_warn[2]);
+
+        let f_neu = build_findings(&agg, 100, 60.0, 8, 85, None);
+        assert_eq!(f_neu[2].0, "neu", "新着 8% は neu: {:?}", f_neu[2]);
+    }
+
+    #[test]
+    fn findings_count_is_4_without_hw_context() {
+        // データ妥当性: hw_context=None → finding 4 件 (サンプル/雇用形態/新着/地域カバレッジ)。
+        //   旧 #4 給与解析率は撤去済み。
+        let agg = agg_with(100, 12, vec![("正社員", 60)]);
+        let f = build_findings(&agg, 100, 60.0, 12, 85, None);
+        assert_eq!(f.len(), 4, "hw_context なしは 4 件: {:?}", f);
+    }
+
+    #[test]
+    fn findings_region_coverage_present_as_last_without_hw() {
+        // 地域カバレッジ finding が含まれること (pref_count=0 でも neu で出る)
+        let agg = agg_with(100, 12, vec![("正社員", 60)]);
+        let f = build_findings(&agg, 100, 60.0, 12, 85, None);
+        assert!(
+            f.iter().any(|(_, title, _, _)| title == "地域カバレッジ"),
+            "地域カバレッジ finding が必要: {:?}",
+            f
+        );
+    }
+
+    // ---- render_navy_executive: KPI k1 ドット閾値 + 新着比率算出 ----
+
+    fn render(agg: &SurveyAggregation, region: &str) -> String {
+        let seeker = JobSeekerAnalysis::default();
+        let mut html = String::new();
+        render_navy_executive(
+            &mut html,
+            agg,
+            &seeker,
+            &[],
+            None,
+            ReportVariant::Full,
+            region,
+        );
+        html
+    }
+
+    #[test]
+    fn executive_k1_dot_pos_when_sample_ge_30() {
+        // KPI k1 (サンプル件数) ドット: >=30 → pos フッタ文言。
+        let agg = agg_with(100, 12, vec![("正社員", 60)]);
+        let html = render(&agg, "東京都");
+        assert!(
+            html.contains("n>=30 で実務判断に参照可"),
+            "n>=30 のフッタ文言: {}",
+            html
+        );
+        // サンプル件数 100 が表示される
+        assert!(html.contains("100"), "サンプル件数表示");
+    }
+
+    #[test]
+    fn executive_k1_dot_neg_when_zero_sample_no_panic() {
+        // 境界: total=0 で panic せず「サンプルなし」フッタ。0 除算回避。
+        let agg = agg_with(0, 0, vec![]);
+        let html = render(&agg, "東京都");
+        assert!(html.contains("サンプルなし"), "0 件フッタ: {}", html);
+        assert!(!html.contains("NaN"), "0 件で NaN 混入");
+    }
+
+    #[test]
+    fn executive_new_pct_computed_within_bounds() {
+        // ドメイン不変条件: 新着比率 = new_count/total*100 は 0-100% に収まる。
+        //   new=25, total=100 → 25%。
+        let agg = agg_with(100, 25, vec![("正社員", 60)]);
+        let html = render(&agg, "東京都");
+        assert!(html.contains("25%"), "新着比率 25% 表示: {}", html);
+    }
+
+    #[test]
+    fn executive_emp_type_share_le_100() {
+        // データ妥当性: 主要雇用形態構成比は 0-100%。c=60/total=100 → 60%。
+        //   c > total のような壊れたデータでも safe_pct で破綻しない (ここは正常系)。
+        let agg = agg_with(100, 12, vec![("正社員", 60)]);
+        let html = render(&agg, "東京都");
+        assert!(html.contains("構成比 60%"), "雇用形態構成比 60%: {}", html);
+    }
+
+    #[test]
+    fn executive_region_divergence_note_when_dominant_differs() {
+        // 逆証明: target_region と CSV 最多県が異なると差異注記が出る。
+        let mut agg = agg_with(100, 12, vec![("正社員", 60)]);
+        agg.dominant_prefecture = Some("大阪府".to_string());
+        agg.by_prefecture = vec![("大阪府".to_string(), 80), ("東京都".to_string(), 20)];
+        let html = render(&agg, "東京都");
+        assert!(
+            html.contains("最も多く出現したのは"),
+            "対象地域≠CSV最多 で差異注記が出るべき: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn executive_no_divergence_note_when_region_matches() {
+        // 逆証明 (negative): target が CSV 最多を含むなら注記は出ない。
+        let mut agg = agg_with(100, 12, vec![("正社員", 60)]);
+        agg.dominant_prefecture = Some("東京都".to_string());
+        agg.by_prefecture = vec![("東京都".to_string(), 100)];
+        let html = render(&agg, "東京都");
+        assert!(
+            !html.contains("最も多く出現したのは"),
+            "地域一致時は差異注記なし: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn executive_hourly_mode_labels_jikyu_base() {
+        // データ妥当性: is_hourly=true で lede に「時給ベース求人」が明示される。
+        let mut agg = agg_with(50, 6, vec![("パート", 40)]);
+        agg.is_hourly = true;
+        let html = render(&agg, "東京都");
+        assert!(html.contains("時給ベース求人"), "時給モード明示: {}", html);
+    }
+
+    // ---- render_navy_toc / push_toc_item ----
+
+    #[test]
+    fn toc_renders_all_eight_sections() {
+        // データ妥当性: TOC は 01-08 の 8 セクションを列挙する。
+        let mut html = String::new();
+        render_navy_toc(&mut html, ReportVariant::Full);
+        for no in ["01", "02", "03", "04", "05", "06", "07", "08"] {
+            assert!(
+                html.contains(&format!(">{}</span>", no)),
+                "TOC に section {} が必要: {}",
+                no,
+                html
+            );
+        }
+    }
+
+    #[test]
+    fn toc_section_02_label_varies_by_variant() {
+        // 逆証明: variant で section 02 ラベルが切替わる。
+        let mut full = String::new();
+        render_navy_toc(&mut full, ReportVariant::Full);
+        assert!(
+            full.contains("地域 × 求人媒体データ連携"),
+            "Full ラベル: {}",
+            full
+        );
+
+        let mut pub_ = String::new();
+        render_navy_toc(&mut pub_, ReportVariant::Public);
+        assert!(pub_.contains("地域データ補強"), "Public ラベル: {}", pub_);
+        assert!(
+            !pub_.contains("地域 × 求人媒体データ連携"),
+            "Public では Full ラベルを出さない"
+        );
+    }
+}

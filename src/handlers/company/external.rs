@@ -782,4 +782,169 @@ mod tests {
         assert!(!html.contains("SalesNow"));
         assert!(!html.contains("劣位"));
     }
+
+    // ============================================================
+    // 追加テスト (silent fallback 境界 / データ妥当性 / 逆証明)
+    // ============================================================
+
+    // ---- 産業構造: ゼロ合計時の division guard (silent fallback 境界) ----
+
+    #[test]
+    fn render_industry_panel_zero_total_does_not_divide_by_zero() {
+        // employees_total が全行 0 の不正データ: パニックせず 0.0% を出す。
+        // (NaN や "inf%" を出さないこと)
+        let rows = vec![mk_row(&[
+            ("industry_name", json!("医療，福祉")),
+            ("employees_total", json!(0)),
+            ("employees_male", json!(0)),
+            ("employees_female", json!(0)),
+        ])];
+        let html = render_industry_structure_panel("北海道", "", &rows);
+        assert!(html.contains("0.0%"), "ゼロ合計でも 0.0% で安全描画");
+        assert!(!html.contains("NaN"), "NaN を表示しない");
+        assert!(!html.contains("inf"), "inf を表示しない");
+    }
+
+    // ---- 産業構造: 企業/産業名の XSS エスケープ (データ妥当性) ----
+
+    #[test]
+    fn render_industry_panel_escapes_industry_name() {
+        // 公的統計テーブルにヘッダー混入/不正値が入った場合の XSS 防御
+        let rows = vec![mk_row(&[
+            ("industry_name", json!("<script>alert(1)</script>")),
+            ("employees_total", json!(100)),
+            ("employees_male", json!(50)),
+            ("employees_female", json!(50)),
+        ])];
+        let html = render_industry_structure_panel("北海道", "", &rows);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    // ---- 産業構造: muni に XSS が来てもタイトルでエスケープ ----
+
+    #[test]
+    fn render_industry_panel_escapes_muni_in_title() {
+        let rows = vec![mk_row(&[
+            ("industry_name", json!("製造業")),
+            ("employees_total", json!(100)),
+            ("employees_male", json!(50)),
+            ("employees_female", json!(50)),
+        ])];
+        let html = render_industry_structure_panel("北海道", "<img src=x>", &rows);
+        assert!(!html.contains("<img src=x>"));
+        assert!(html.contains("&lt;img"));
+    }
+
+    // ---- 事業所: establishment_count=0 で平均が 0.0 (NaN/inf 回避) ----
+
+    #[test]
+    fn render_establishments_panel_zero_count_avoids_nan() {
+        let rows = vec![mk_row(&[
+            ("industry_name", json!("製造業")),
+            ("establishment_count", json!(0)),
+            ("employees", json!(1000)),
+            ("reference_year", json!(2021)),
+        ])];
+        let html = render_establishments_panel("北海道", "", &rows);
+        // total_est=0 → share 0.0%、est=0 → avg 0.0
+        assert!(html.contains("0.0%"));
+        assert!(!html.contains("NaN"));
+        assert!(!html.contains("inf"));
+    }
+
+    // ---- 事業所: reference_year 欠落時は「未定」(silent fallback 禁止) ----
+
+    #[test]
+    fn render_establishments_panel_missing_year_shows_placeholder() {
+        let rows = vec![mk_row(&[
+            ("industry_name", json!("製造業")),
+            ("establishment_count", json!(100)),
+            ("employees", json!(1000)),
+            // reference_year なし → get_i64 で 0 → max_year 0 → "未定"
+        ])];
+        let html = render_establishments_panel("北海道", "", &rows);
+        assert!(html.contains("未定"), "参照年欠落時は『未定』を明示");
+    }
+
+    // ---- セグメント: pref 未指定で選択促進 (逆証明: 空でなく明示メッセージ) ----
+
+    #[test]
+    fn render_segments_panel_pref_empty_returns_message() {
+        let html = render_segments_panel("", "", &[]);
+        assert!(html.contains("都道府県を選択"));
+        assert!(!html.trim().is_empty());
+        assert!(!html.contains("SalesNow"));
+    }
+
+    // ---- セグメント: employee_count<=0 / delta≈0 / credit<=0 は "-" 表示 ----
+
+    #[test]
+    fn render_segments_panel_invalid_metrics_show_dash() {
+        let rows = vec![SegmentRow {
+            segment: "大手".to_string(),
+            corporate_number: "1000000000099".to_string(),
+            company_name: "E社".to_string(),
+            sn_industry: "製造業".to_string(),
+            employee_count: 0,      // → "-"
+            employee_delta_1y: 0.0, // → "-"
+            credit_score: 0.0,      // → "-"
+            listing_category: "".to_string(),
+        }];
+        let html = render_segments_panel("北海道", "", &rows);
+        assert!(html.contains("E社"));
+        // 不正/欠損メトリクス (employee=0, delta=0, credit=0) は 0 表示ではなく
+        // セル内容 ">-<" で "-" になる (silent fallback 禁止)。
+        assert!(
+            html.contains(">-<"),
+            "欠損メトリクスは 0 ではなく - で明示する"
+        );
+        // 0 を従業員数として誤表示していないこと (E社 行に >0< の数値セルがない)
+        assert!(
+            !html.contains(">0<"),
+            "欠損値を 0 として誤表示してはならない"
+        );
+        // 該当しないセグメントは「該当企業はありません」を明示
+        assert!(html.contains("該当企業はありません"));
+    }
+
+    // ---- セグメント: company_name の XSS エスケープ + HTMX 属性検証 ----
+
+    #[test]
+    fn render_segments_panel_escapes_name_and_has_htmx() {
+        let rows = vec![SegmentRow {
+            segment: "大手".to_string(),
+            corporate_number: "1000000000001".to_string(),
+            company_name: "<b>X社</b>".to_string(),
+            sn_industry: "製造業".to_string(),
+            employee_count: 100,
+            employee_delta_1y: -5.5, // 負の推移も -5.5% で透過
+            credit_score: 60.0,
+            listing_category: "東P".to_string(),
+        }];
+        let html = render_segments_panel("北海道", "", &rows);
+        // XSS 防御
+        assert!(!html.contains("<b>X社</b>"));
+        assert!(html.contains("&lt;b&gt;X社"));
+        // HTMX 属性 (データ妥当性: ドリルダウン遷移が機能する)
+        assert!(html.contains("hx-get=\"/api/company/profile/1000000000001\""));
+        assert!(html.contains("hx-target=\"#company-profile-area\""));
+        assert!(html.contains("hx-swap=\"innerHTML\""));
+        // 負の推移が正しく符号付きで描画
+        assert!(html.contains("-5.5%"));
+    }
+
+    // ---- ドリルダウン スケルトン: HTMX 属性とフォーム field 名 (データ妥当性) ----
+
+    #[test]
+    fn render_skeleton_has_htmx_and_form_fields() {
+        let html = render_external_drilldown_skeleton("");
+        // form field 名: muni は name="muni"、pref は id 経由
+        assert!(html.contains(r#"name="muni""#));
+        assert!(html.contains(r#"id="company-ext-pref""#));
+        assert!(html.contains(r#"id="company-ext-muni""#));
+        // HTMX endpoint
+        assert!(html.contains("/api/company/external/industry_structure"));
+        assert!(html.contains("hx-trigger"));
+    }
 }
