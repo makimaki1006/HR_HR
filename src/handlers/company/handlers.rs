@@ -401,3 +401,174 @@ pub async fn ext_company_segments(
 
     Html(super::external::render_segments_panel(&pref, &muni, &rows))
 }
+
+// ============================================================
+// 地域経済・環境補足 5 テーブル handlers (2026-06-05 Wave1-D 移植)
+// ============================================================
+//
+// 設計:
+// - business_dynamics / car_ownership / land_price / climate は都道府県粒度
+//   (pref 必須・muni 無関係)。boj_tankan は全国粒度 (pref 不要)。
+// - fetch は内部で Turso 優先 → ローカル DB フォールバックのため
+//   db (hw_db) と turso (turso_db) の両方を渡す (karte.rs と同パターン)。
+// - DB 未接続 / pref 空 / データ無しはそれぞれ別 HTML を返す (silent fallback 禁止)。
+
+/// 採用市場動態パネル (開廃業率 v2_external_business_dynamics、都道府県粒度)
+pub async fn ext_business_dynamics(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    if pref.is_empty() {
+        return Html(super::external::render_business_dynamics_panel("", None));
+    }
+
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">求人データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+    let turso = state.turso_db.clone();
+
+    let pref_clone = pref.clone();
+    let d = tokio::task::spawn_blocking(move || {
+        super::external::fetch_company_business_dynamics(&db, turso.as_ref(), &pref_clone)
+    })
+    .await
+    .unwrap_or(None);
+
+    Html(super::external::render_business_dynamics_panel(
+        &pref,
+        d.as_ref(),
+    ))
+}
+
+/// 通勤圏パネル (車保有率 v2_external_car_ownership、都道府県粒度)
+pub async fn ext_car_ownership(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    if pref.is_empty() {
+        return Html(super::external::render_car_ownership_panel("", None));
+    }
+
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">求人データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+    let turso = state.turso_db.clone();
+
+    let pref_clone = pref.clone();
+    let d = tokio::task::spawn_blocking(move || {
+        super::external::fetch_company_car_ownership(&db, turso.as_ref(), &pref_clone)
+    })
+    .await
+    .unwrap_or(None);
+
+    Html(super::external::render_car_ownership_panel(
+        &pref,
+        d.as_ref(),
+    ))
+}
+
+/// 生活コストパネル (地価 v2_external_land_price、都道府県粒度)
+pub async fn ext_land_price(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    if pref.is_empty() {
+        return Html(super::external::render_land_price_panel("", &[]));
+    }
+
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">求人データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+    let turso = state.turso_db.clone();
+
+    let pref_clone = pref.clone();
+    let items = tokio::task::spawn_blocking(move || {
+        super::external::fetch_company_land_price(&db, turso.as_ref(), &pref_clone)
+    })
+    .await
+    .unwrap_or_default();
+
+    Html(super::external::render_land_price_panel(&pref, &items))
+}
+
+/// 全国景況パネル (業況DI v2_external_boj_tankan、全国粒度・pref 不要)
+pub async fn ext_boj_tankan(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(_params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">求人データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+    let turso = state.turso_db.clone();
+
+    let items = tokio::task::spawn_blocking(move || {
+        super::external::fetch_company_boj_tankan(&db, turso.as_ref())
+    })
+    .await
+    .unwrap_or_default();
+
+    Html(super::external::render_boj_tankan_panel(&items))
+}
+
+/// 環境補足パネル (気候 v2_external_climate、都道府県粒度)
+pub async fn ext_climate(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<ExternalDrilldownQuery>,
+) -> Html<String> {
+    let pref = params.pref.trim().to_string();
+    if pref.is_empty() {
+        return Html(super::external::render_climate_panel("", None));
+    }
+
+    let db = match &state.hw_db {
+        Some(db) => db.clone(),
+        None => {
+            return Html(
+                r#"<div class="stat-card"><p class="text-red-300 text-sm">求人データベース未接続</p></div>"#
+                    .to_string(),
+            );
+        }
+    };
+    let turso = state.turso_db.clone();
+
+    let pref_clone = pref.clone();
+    let d = tokio::task::spawn_blocking(move || {
+        super::external::fetch_company_climate(&db, turso.as_ref(), &pref_clone)
+    })
+    .await
+    .unwrap_or(None);
+
+    Html(super::external::render_climate_panel(&pref, d.as_ref()))
+}

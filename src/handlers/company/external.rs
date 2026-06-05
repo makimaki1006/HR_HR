@@ -508,6 +508,354 @@ pub fn render_segments_panel(pref: &str, muni: &str, rows: &[SegmentRow]) -> Str
 }
 
 // ============================================================
+// 4-8. 地域経済・環境補足 5 テーブル (Wave1-D 未活用テーブルの移植)
+// ============================================================
+//
+// 2026-06-05 追加:
+// 地域カルテ (非表示タブ) 専用だった未活用 5 テーブルを、表示中の企業検索タブへ移植する。
+// fetch + DTO 変換は既存 `analysis::fetch::external_extra` を再利用し、本ファイルでは
+// 企業検索タブ向けの fetch ラッパ + 単独パネル render (HTMX 個別ロード) を提供する。
+//
+// 5 テーブル:
+//   - business_dynamics (採用市場動態: 開廃業率)   ─ 都道府県粒度
+//   - car_ownership     (通勤圏: 車保有率)         ─ 都道府県粒度
+//   - land_price        (生活コスト: 地価)         ─ 都道府県粒度
+//   - boj_tankan        (全国景況: 業況DI ※全国値)  ─ 全国粒度 (pref 無関係)
+//   - climate           (環境補足: 降雪日数等)      ─ 都道府県粒度
+//
+// 厳守ルール:
+//   - silent fallback 禁止: pref 空 / データ無しは明示メッセージ
+//     (panel_message_pref_required / panel_message_no_data 再利用)
+//   - 中立表現 (劣位/集中/縮小を使わない)、相関≠因果 (傾向/可能性表現)、出典明記
+//   - boj_tankan = 全国値、climate = 環境補足 と粒度明記 (地域別誤認防止)
+//   - これら 5 テーブルに市区町村粒度はないため muni は無視 (タイトル表示にも使わない)
+
+use crate::db::local_sqlite::LocalDb;
+use crate::handlers::analysis::fetch as af;
+use crate::handlers::analysis::fetch::external_extra::{
+    to_boj_tankan_latest, to_business_dynamics_latest, to_car_ownership_latest, to_climate_latest,
+    to_land_price_items, BojTankanLatest, BusinessDynamicsLatest, CarOwnershipLatest,
+    ClimateLatest, LandPriceItem,
+};
+
+// ---- fetch ラッパ (analysis::fetch の既存 fetch を呼び、DTO へ変換) ----
+
+/// 採用市場動態 (開廃業率) を都道府県粒度で取得。空 pref → None。
+pub fn fetch_company_business_dynamics(
+    db: &LocalDb,
+    turso: Option<&TursoDb>,
+    pref: &str,
+) -> Option<BusinessDynamicsLatest> {
+    if pref.is_empty() {
+        return None;
+    }
+    to_business_dynamics_latest(&af::fetch_business_dynamics(db, turso, pref))
+}
+
+/// 通勤圏 (車保有率) を都道府県粒度で取得。空 pref → None。
+pub fn fetch_company_car_ownership(
+    db: &LocalDb,
+    turso: Option<&TursoDb>,
+    pref: &str,
+) -> Option<CarOwnershipLatest> {
+    if pref.is_empty() {
+        return None;
+    }
+    to_car_ownership_latest(&af::fetch_car_ownership(db, turso, pref))
+}
+
+/// 生活コスト (地価) を都道府県粒度で取得。空 pref → 空 Vec。
+pub fn fetch_company_land_price(
+    db: &LocalDb,
+    turso: Option<&TursoDb>,
+    pref: &str,
+) -> Vec<LandPriceItem> {
+    if pref.is_empty() {
+        return vec![];
+    }
+    to_land_price_items(&af::fetch_land_price(db, turso, pref))
+}
+
+/// 全国景況 (業況DI・全国値) を取得。全国粒度のため pref 無関係。
+pub fn fetch_company_boj_tankan(db: &LocalDb, turso: Option<&TursoDb>) -> Vec<BojTankanLatest> {
+    to_boj_tankan_latest(&af::fetch_boj_tankan(db, turso))
+}
+
+/// 環境補足 (気候) を都道府県粒度で取得。空 pref → None。
+pub fn fetch_company_climate(
+    db: &LocalDb,
+    turso: Option<&TursoDb>,
+    pref: &str,
+) -> Option<ClimateLatest> {
+    if pref.is_empty() {
+        return None;
+    }
+    to_climate_latest(&af::fetch_climate(db, turso, pref))
+}
+
+// ---- render パネル (HTMX 個別ロード単位) ----
+
+/// 採用市場動態パネル (開廃業率)。
+///
+/// So What: 開業率 > 廃業率なら新規事業所による採用需要が生じる「可能性」。相関≠因果。
+pub fn render_business_dynamics_panel(pref: &str, d: Option<&BusinessDynamicsLatest>) -> String {
+    if pref.is_empty() {
+        return panel_message_pref_required("採用市場動態 (開廃業)");
+    }
+    let d = match d {
+        Some(d) => d,
+        None => {
+            return panel_message_no_data(
+                "採用市場動態 (開廃業)",
+                &escape_html(pref),
+                "経済センサス (v2_external_business_dynamics)",
+            )
+        }
+    };
+    let opening = fmt_pct_opt(d.opening_rate);
+    let closure = fmt_pct_opt(d.closure_rate);
+    let so_what = match (d.opening_rate, d.closure_rate) {
+        (Some(o), Some(c)) if o > c => {
+            "開業率が廃業率を上回る傾向。新規事業所による採用需要が生じる可能性があります。"
+        }
+        (Some(o), Some(c)) if c > o => {
+            "廃業率が開業率を上回る傾向。離職者プールが形成される可能性があります。"
+        }
+        (Some(_), Some(_)) => "開業率と廃業率が拮抗する傾向です。",
+        _ => "開廃業率の一部が欠損しています。",
+    };
+    format!(
+        r##"<div class="stat-card" id="company-ext-bizdyn-card">
+  <h3 class="text-base font-semibold text-white mb-2">採用市場動態 (開廃業) <span class="text-blue-300 text-sm">({scope})</span></h3>
+  <div class="text-sm text-slate-200 space-y-1">
+    <div>開業率 <span class="text-emerald-400 font-mono">{opening}</span></div>
+    <div>廃業率 <span class="text-rose-400 font-mono">{closure}</span></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-2">{so_what}</p>
+  <p class="text-xs text-slate-500 mt-2">出典: 総務省 経済センサス (v2_external_business_dynamics、{year}年度・都道府県粒度)</p>
+</div>"##,
+        scope = escape_html(pref),
+        opening = opening,
+        closure = closure,
+        so_what = escape_html(so_what),
+        year = d.fiscal_year,
+    )
+}
+
+/// 通勤圏パネル (車保有率)。
+///
+/// So What: 車保有率が高いと車通勤前提で採用リーチ圏が広がる「可能性」。相関≠因果。
+pub fn render_car_ownership_panel(pref: &str, d: Option<&CarOwnershipLatest>) -> String {
+    if pref.is_empty() {
+        return panel_message_pref_required("通勤圏 (車保有率)");
+    }
+    let d = match d {
+        Some(d) => d,
+        None => {
+            return panel_message_no_data(
+                "通勤圏 (車保有率)",
+                &escape_html(pref),
+                "自動車検査登録情報協会 (v2_external_car_ownership)",
+            )
+        }
+    };
+    let cars = match d.cars_per_100people {
+        Some(v) if v.is_finite() => format!("{:.1} 台/100人", v),
+        _ => "—".to_string(),
+    };
+    let so_what = match d.cars_per_100people {
+        Some(v) if v >= 50.0 => {
+            "車保有率が高い傾向。車通勤を前提とすると採用リーチ圏が広がる可能性があります。"
+        }
+        Some(_) => {
+            "車保有率は中〜低水準の傾向。公共交通アクセスが採用圏に影響する可能性があります。"
+        }
+        None => "車保有率データが欠損しています。",
+    };
+    format!(
+        r##"<div class="stat-card" id="company-ext-car-card">
+  <h3 class="text-base font-semibold text-white mb-2">通勤圏 (車保有率) <span class="text-blue-300 text-sm">({scope})</span></h3>
+  <div class="text-sm text-slate-200"><span class="text-sky-400 font-mono text-lg">{cars}</span></div>
+  <p class="text-xs text-slate-400 mt-2">{so_what}</p>
+  <p class="text-xs text-slate-500 mt-2">出典: 自動車検査登録情報協会 (v2_external_car_ownership、{year}年・都道府県粒度)</p>
+</div>"##,
+        scope = escape_html(pref),
+        cars = cars,
+        so_what = escape_html(so_what),
+        year = d.year,
+    )
+}
+
+/// 生活コストパネル (地価)。
+///
+/// So What: 地価は生活コストの代理指標。給与の実質購買力評価の参考になる「可能性」。相関≠因果。
+pub fn render_land_price_panel(pref: &str, items: &[LandPriceItem]) -> String {
+    if pref.is_empty() {
+        return panel_message_pref_required("生活コスト (地価)");
+    }
+    if items.is_empty() {
+        return panel_message_no_data(
+            "生活コスト (地価)",
+            &escape_html(pref),
+            "地価公示 (v2_external_land_price)",
+        );
+    }
+    let mut rows_html = String::new();
+    for it in items.iter().take(6) {
+        let price = match it.avg_price_per_sqm {
+            Some(v) if v.is_finite() && v > 0.0 => format!("{} 円/m²", format_number(v as i64)),
+            _ => "—".to_string(),
+        };
+        let yoy = match it.yoy_change_pct {
+            Some(v) if v.is_finite() => format!("{:+.1}%", v),
+            _ => "—".to_string(),
+        };
+        let use_label = if it.land_use.is_empty() {
+            "用途不明".to_string()
+        } else {
+            escape_html(&it.land_use)
+        };
+        let _ = write!(
+            rows_html,
+            r##"<div>{use_label}: <span class="text-amber-300 font-mono">{price}</span> <span class="text-slate-500">(前年比 {yoy})</span></div>"##,
+            use_label = use_label,
+            price = price,
+            yoy = yoy,
+        );
+    }
+    let year = items.iter().map(|i| i.year).max().unwrap_or(0);
+    let so_what =
+        "地価は生活コストの代理指標です。給与水準の実質的な購買力評価の参考になる可能性があります。";
+    format!(
+        r##"<div class="stat-card" id="company-ext-land-card">
+  <h3 class="text-base font-semibold text-white mb-2">生活コスト (地価) <span class="text-blue-300 text-sm">({scope})</span></h3>
+  <div class="text-sm text-slate-200 space-y-1">{rows}</div>
+  <p class="text-xs text-slate-400 mt-2">{so_what}</p>
+  <p class="text-xs text-slate-500 mt-2">出典: 国土交通省 地価公示 (v2_external_land_price、{year}年・都道府県粒度)</p>
+</div>"##,
+        scope = escape_html(pref),
+        rows = rows_html,
+        so_what = escape_html(so_what),
+        year = year,
+    )
+}
+
+/// 全国景況パネル (業況DI・全国値)。
+///
+/// **全国粒度**。当該地域の動向と一致しないことを明記する。
+/// So What: 業況DIは採用意欲の先行指標となる「可能性」(全国値)。相関≠因果。
+pub fn render_boj_tankan_panel(items: &[BojTankanLatest]) -> String {
+    // boj_tankan は全国値のため pref 不要。データ無しは no_data メッセージ。
+    if items.is_empty() {
+        return panel_message_no_data(
+            "全国景況 (業況DI・全国値)",
+            "全国",
+            "日本銀行 短観 (v2_external_boj_tankan)",
+        );
+    }
+    let mut rows_html = String::new();
+    for it in items.iter().take(6) {
+        let di = match it.di_value {
+            Some(v) if v.is_finite() => format!("{:+.0}", v),
+            _ => "—".to_string(),
+        };
+        let label = if it.industry_j.is_empty() {
+            "業種不明".to_string()
+        } else {
+            escape_html(&it.industry_j)
+        };
+        let size = if it.enterprise_size.is_empty() {
+            String::new()
+        } else {
+            format!("（{}）", escape_html(&it.enterprise_size))
+        };
+        let _ = write!(
+            rows_html,
+            r##"<div>{label}{size}: <span class="font-mono text-indigo-300">DI {di}</span></div>"##,
+            label = label,
+            size = size,
+            di = di,
+        );
+    }
+    let survey = items
+        .first()
+        .map(|i| escape_html(&i.survey_date))
+        .unwrap_or_default();
+    let so_what =
+        "業況DIは採用意欲の先行指標となる可能性があります（全国値のため当該地域の動向とは一致しないことがあります）。";
+    format!(
+        r##"<div class="stat-card" id="company-ext-tankan-card">
+  <h3 class="text-base font-semibold text-white mb-2">全国景況 (業況DI・全国値) <span class="text-blue-300 text-sm">(全国)</span></h3>
+  <div class="text-sm text-slate-200 space-y-1">{rows}</div>
+  <p class="text-xs text-slate-400 mt-2">{so_what}</p>
+  <p class="text-xs text-slate-500 mt-2">出典: 日本銀行 短観 (v2_external_boj_tankan、{survey} 調査)。※全国値であり市区町村別ではありません。</p>
+</div>"##,
+        rows = rows_html,
+        so_what = escape_html(so_what),
+        survey = survey,
+    )
+}
+
+/// 環境補足パネル (気候)。
+///
+/// **環境補足情報**。採用条件検討の背景情報として表示する。
+/// So What: 降雪日数が多いと冬季の通勤環境が採用条件の検討要素になる「可能性」。相関≠因果。
+pub fn render_climate_panel(pref: &str, d: Option<&ClimateLatest>) -> String {
+    if pref.is_empty() {
+        return panel_message_pref_required("環境補足 (気候)");
+    }
+    let d = match d {
+        Some(d) => d,
+        None => {
+            return panel_message_no_data(
+                "環境補足 (気候)",
+                &escape_html(pref),
+                "気象庁 (v2_external_climate)",
+            )
+        }
+    };
+    let snow = match d.snow_days {
+        Some(v) if v.is_finite() => format!("{:.0} 日/年", v),
+        _ => "—".to_string(),
+    };
+    let avg_t = match d.avg_temperature {
+        Some(v) if v.is_finite() => format!("{:.1}℃", v),
+        _ => "—".to_string(),
+    };
+    let so_what = match d.snow_days {
+        Some(v) if v >= 30.0 => {
+            "降雪日数が多い傾向。冬季の通勤環境が採用条件の検討要素になる可能性があります。"
+        }
+        Some(_) => "降雪日数は少なめの傾向です。",
+        None => "降雪日数データが欠損しています。",
+    };
+    format!(
+        r##"<div class="stat-card" id="company-ext-climate-card">
+  <h3 class="text-base font-semibold text-white mb-2">環境補足 (気候) <span class="text-blue-300 text-sm">({scope})</span></h3>
+  <div class="text-sm text-slate-200 space-y-1">
+    <div>年平均気温 <span class="font-mono text-cyan-300">{avg_t}</span></div>
+    <div>降雪日数 <span class="font-mono text-blue-300">{snow}</span></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-2">{so_what}</p>
+  <p class="text-xs text-slate-500 mt-2">出典: 気象庁 (v2_external_climate、{year}年度)。※環境補足情報です。</p>
+</div>"##,
+        scope = escape_html(pref),
+        avg_t = avg_t,
+        snow = snow,
+        so_what = escape_html(so_what),
+        year = d.fiscal_year,
+    )
+}
+
+/// Option<f64> を「%」付き文字列に。None / 非有限 → "—"。
+fn fmt_pct_opt(v: Option<f64>) -> String {
+    match v {
+        Some(x) if x.is_finite() => format!("{:.2}%", x),
+        _ => "—".to_string(),
+    }
+}
+
+// ============================================================
 // 共通: パネル用メッセージ HTML
 // ============================================================
 
@@ -548,6 +896,11 @@ pub fn render_external_drilldown_skeleton(pref_options: &str) -> String {
                 onchange="
                   htmx.ajax('GET','/api/company/external/establishments?'+new URLSearchParams({{pref:this.value,muni:document.getElementById('company-ext-muni').value}}),{{target:'#company-ext-establishments',swap:'innerHTML'}});
                   htmx.ajax('GET','/api/company/external/segments?'+new URLSearchParams({{pref:this.value,muni:document.getElementById('company-ext-muni').value}}),{{target:'#company-ext-segments',swap:'innerHTML'}});
+                  htmx.ajax('GET','/api/company/external/business_dynamics?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-bizdyn',swap:'innerHTML'}});
+                  htmx.ajax('GET','/api/company/external/car_ownership?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-car',swap:'innerHTML'}});
+                  htmx.ajax('GET','/api/company/external/land_price?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-land',swap:'innerHTML'}});
+                  htmx.ajax('GET','/api/company/external/boj_tankan?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-tankan',swap:'innerHTML'}});
+                  htmx.ajax('GET','/api/company/external/climate?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-climate',swap:'innerHTML'}});
                 ">
           <option value="">-- 選択 --</option>
 {pref_options}
@@ -569,6 +922,14 @@ pub fn render_external_drilldown_skeleton(pref_options: &str) -> String {
     <div id="company-ext-industry" class="mb-3"></div>
     <div id="company-ext-establishments" class="mb-3"></div>
     <div id="company-ext-segments" class="mb-3"></div>
+    <p class="text-xs text-slate-500 mt-4 mb-2 border-t border-slate-800 pt-3">地域経済・環境補足 (都道府県粒度。採用市場・通勤圏・生活コスト・全国景況・環境の背景把握用)</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div id="company-ext-bizdyn"></div>
+      <div id="company-ext-car"></div>
+      <div id="company-ext-land"></div>
+      <div id="company-ext-tankan"></div>
+      <div id="company-ext-climate"></div>
+    </div>
   </details>
 </div>"##
     )
@@ -946,5 +1307,385 @@ mod tests {
         // HTMX endpoint
         assert!(html.contains("/api/company/external/industry_structure"));
         assert!(html.contains("hx-trigger"));
+    }
+
+    #[test]
+    fn render_skeleton_includes_external_extra_panels_and_endpoints() {
+        // Wave1-D 移植: 5 パネルの target div と onchange ajax endpoint が含まれること
+        let html = render_external_drilldown_skeleton("");
+        for id in [
+            "company-ext-bizdyn",
+            "company-ext-car",
+            "company-ext-land",
+            "company-ext-tankan",
+            "company-ext-climate",
+        ] {
+            assert!(html.contains(id), "skeleton に {id} の領域が含まれる");
+        }
+        for ep in [
+            "/api/company/external/business_dynamics",
+            "/api/company/external/car_ownership",
+            "/api/company/external/land_price",
+            "/api/company/external/boj_tankan",
+            "/api/company/external/climate",
+        ] {
+            assert!(
+                html.contains(ep),
+                "skeleton に {ep} の ajax 呼び出しが含まれる"
+            );
+        }
+        // 粒度明記 (都道府県粒度) と禁止語チェック
+        assert!(html.contains("都道府県粒度"));
+        assert!(!html.contains("SalesNow"));
+    }
+
+    // ============================================================
+    // Wave1-D 移植: 地域経済・環境補足 5 パネルのテスト
+    // ============================================================
+
+    // ---- 採用市場動態 (business_dynamics) ----
+
+    #[test]
+    fn render_bizdyn_pref_empty_returns_pref_required() {
+        let html = render_business_dynamics_panel("", None);
+        assert!(
+            html.contains("都道府県を選択"),
+            "pref 空は選択促進 (silent fallback 禁止)"
+        );
+        assert!(!html.contains("SalesNow"));
+    }
+
+    #[test]
+    fn render_bizdyn_none_returns_no_data_with_source() {
+        let html = render_business_dynamics_panel("北海道", None);
+        assert!(html.contains("該当する集計データが見つかりません"));
+        assert!(html.contains("経済センサス"), "出典明記");
+    }
+
+    #[test]
+    fn render_bizdyn_opening_gt_closure_shows_active_market_so_what() {
+        let d = BusinessDynamicsLatest {
+            prefecture: "北海道".into(),
+            fiscal_year: 2021,
+            opening_rate: Some(5.5),
+            closure_rate: Some(3.2),
+            new_establishments: Some(120),
+            closed_establishments: Some(70),
+        };
+        let html = render_business_dynamics_panel("北海道", Some(&d));
+        // データ妥当性: 開業率/廃業率が描画される
+        assert!(html.contains("5.50%") && html.contains("3.20%"));
+        assert!(html.contains("2021"), "年度が描画される");
+        // So What: 相関≠因果 (傾向/可能性表現)
+        assert!(html.contains("傾向") && html.contains("可能性"));
+        assert!(!html.contains("劣位") && !html.contains("集中") && !html.contains("縮小"));
+    }
+
+    #[test]
+    fn render_bizdyn_null_rate_shows_dash_not_zero() {
+        // NULL は "—" 表示 (0% と誤表示しない: silent fallback 禁止)
+        let d = BusinessDynamicsLatest {
+            prefecture: "沖縄県".into(),
+            fiscal_year: 2021,
+            opening_rate: None,
+            closure_rate: Some(2.0),
+            new_establishments: None,
+            closed_establishments: Some(0),
+        };
+        let html = render_business_dynamics_panel("沖縄県", Some(&d));
+        assert!(html.contains("—"), "NULL の開業率は — で明示");
+        assert!(html.contains("2.00%"));
+    }
+
+    #[test]
+    fn render_bizdyn_no_salesnow_name() {
+        let d = BusinessDynamicsLatest {
+            prefecture: "東京都".into(),
+            fiscal_year: 2021,
+            opening_rate: Some(4.0),
+            closure_rate: Some(4.0),
+            new_establishments: Some(100),
+            closed_establishments: Some(100),
+        };
+        let html = render_business_dynamics_panel("東京都", Some(&d));
+        assert!(!html.contains("SalesNow"));
+        // 拮抗ケースの So What
+        assert!(html.contains("拮抗"));
+    }
+
+    // ---- 通勤圏 (car_ownership) ----
+
+    #[test]
+    fn render_car_pref_empty_returns_pref_required() {
+        let html = render_car_ownership_panel("", None);
+        assert!(html.contains("都道府県を選択"));
+        assert!(!html.contains("SalesNow"));
+    }
+
+    #[test]
+    fn render_car_none_returns_no_data() {
+        let html = render_car_ownership_panel("富山県", None);
+        assert!(html.contains("該当する集計データが見つかりません"));
+        assert!(html.contains("自動車検査登録情報協会"), "出典明記");
+    }
+
+    #[test]
+    fn render_car_high_ownership_shows_reach_so_what_and_unit() {
+        let d = CarOwnershipLatest {
+            prefecture: "富山県".into(),
+            year: 2023,
+            cars_per_100people: Some(62.5),
+        };
+        let html = render_car_ownership_panel("富山県", Some(&d));
+        // 単位検証: 台/100人 (% ではない)
+        assert!(html.contains("62.5 台/100人"));
+        assert!(html.contains("2023"));
+        // So What: 相関≠因果
+        assert!(html.contains("可能性"));
+        assert!(!html.contains("劣位"));
+    }
+
+    #[test]
+    fn render_car_none_value_shows_dash() {
+        let d = CarOwnershipLatest {
+            prefecture: "東京都".into(),
+            year: 2023,
+            cars_per_100people: None,
+        };
+        let html = render_car_ownership_panel("東京都", Some(&d));
+        assert!(html.contains("—"), "値 None は — で明示");
+        assert!(html.contains("欠損"));
+    }
+
+    #[test]
+    fn render_car_no_salesnow_name() {
+        let d = CarOwnershipLatest {
+            prefecture: "大阪府".into(),
+            year: 2022,
+            cars_per_100people: Some(30.0),
+        };
+        let html = render_car_ownership_panel("大阪府", Some(&d));
+        assert!(!html.contains("SalesNow"));
+        // 中〜低水準ケース
+        assert!(html.contains("公共交通"));
+    }
+
+    // ---- 生活コスト (land_price) ----
+
+    #[test]
+    fn render_land_pref_empty_returns_pref_required() {
+        let html = render_land_price_panel("", &[]);
+        assert!(html.contains("都道府県を選択"));
+        assert!(!html.contains("SalesNow"));
+    }
+
+    #[test]
+    fn render_land_empty_returns_no_data() {
+        let html = render_land_price_panel("東京都", &[]);
+        assert!(html.contains("該当する集計データが見つかりません"));
+        assert!(html.contains("地価公示"), "出典明記");
+    }
+
+    #[test]
+    fn render_land_renders_items_with_yoy_percent() {
+        let items = vec![
+            LandPriceItem {
+                prefecture: "東京都".into(),
+                land_use: "商業地".into(),
+                avg_price_per_sqm: Some(5_000_000.0),
+                yoy_change_pct: Some(2.3),
+                year: 2024,
+                point_count: Some(500),
+            },
+            LandPriceItem {
+                prefecture: "東京都".into(),
+                land_use: "住宅地".into(),
+                avg_price_per_sqm: Some(600_000.0),
+                yoy_change_pct: Some(-1.1),
+                year: 2024,
+                point_count: Some(1200),
+            },
+        ];
+        let html = render_land_price_panel("東京都", &items);
+        assert!(html.contains("商業地") && html.contains("住宅地"));
+        // 単位検証: yoy は % のまま、3 桁区切り価格
+        assert!(html.contains("+2.3%") && html.contains("-1.1%"));
+        assert!(html.contains("5,000,000 円/m²"));
+        assert!(html.contains("2024"));
+        // So What: 相関≠因果
+        assert!(html.contains("可能性"));
+    }
+
+    #[test]
+    fn render_land_zero_price_shows_dash() {
+        let items = vec![LandPriceItem {
+            prefecture: "島根県".into(),
+            land_use: "工業地".into(),
+            avg_price_per_sqm: None,
+            yoy_change_pct: None,
+            year: 2024,
+            point_count: None,
+        }];
+        let html = render_land_price_panel("島根県", &items);
+        assert!(html.contains("—"), "価格/前年比 None は — で明示");
+    }
+
+    #[test]
+    fn render_land_escapes_land_use_xss() {
+        let items = vec![LandPriceItem {
+            prefecture: "東京都".into(),
+            land_use: "<script>alert(1)</script>".into(),
+            avg_price_per_sqm: Some(100.0),
+            yoy_change_pct: Some(0.0),
+            year: 2024,
+            point_count: Some(1),
+        }];
+        let html = render_land_price_panel("東京都", &items);
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("SalesNow"));
+    }
+
+    // ---- 全国景況 (boj_tankan) ----
+
+    #[test]
+    fn render_tankan_empty_returns_no_data() {
+        let html = render_boj_tankan_panel(&[]);
+        assert!(html.contains("該当する集計データが見つかりません"));
+        assert!(html.contains("日本銀行 短観"), "出典明記");
+    }
+
+    #[test]
+    fn render_tankan_marks_national_granularity() {
+        let items = vec![BojTankanLatest {
+            survey_date: "2025-03-01".into(),
+            industry_j: "製造業".into(),
+            enterprise_size: "大企業".into(),
+            di_value: Some(12.0),
+        }];
+        let html = render_boj_tankan_panel(&items);
+        // 粒度明記: 全国値 (地域別誤認防止)
+        assert!(html.contains("全国値"), "業況DIは全国値と明記");
+        assert!(html.contains("市区町村別ではありません"));
+    }
+
+    #[test]
+    fn render_tankan_renders_di_value_and_so_what() {
+        let items = vec![BojTankanLatest {
+            survey_date: "2025-03-01".into(),
+            industry_j: "非製造業".into(),
+            enterprise_size: "中小企業".into(),
+            di_value: Some(-8.0),
+        }];
+        let html = render_boj_tankan_panel(&items);
+        // データ妥当性: 負の DI も符号付きで描画
+        assert!(html.contains("DI -8"));
+        assert!(html.contains("非製造業") && html.contains("中小企業"));
+        // So What: 先行指標 (可能性表現)
+        assert!(html.contains("先行指標") && html.contains("可能性"));
+    }
+
+    #[test]
+    fn render_tankan_di_none_shows_dash() {
+        let items = vec![BojTankanLatest {
+            survey_date: "2025-03-01".into(),
+            industry_j: "製造業".into(),
+            enterprise_size: "大企業".into(),
+            di_value: None,
+        }];
+        let html = render_boj_tankan_panel(&items);
+        assert!(html.contains("DI —"), "DI None は — で明示");
+    }
+
+    #[test]
+    fn render_tankan_no_salesnow_and_no_forbidden_words() {
+        let items = vec![BojTankanLatest {
+            survey_date: "2025-03-01".into(),
+            industry_j: "製造業".into(),
+            enterprise_size: "大企業".into(),
+            di_value: Some(5.0),
+        }];
+        let html = render_boj_tankan_panel(&items);
+        assert!(!html.contains("SalesNow"));
+        assert!(!html.contains("劣位") && !html.contains("集中") && !html.contains("縮小"));
+    }
+
+    // ---- 環境補足 (climate) ----
+
+    #[test]
+    fn render_climate_pref_empty_returns_pref_required() {
+        let html = render_climate_panel("", None);
+        assert!(html.contains("都道府県を選択"));
+        assert!(!html.contains("SalesNow"));
+    }
+
+    #[test]
+    fn render_climate_none_returns_no_data() {
+        let html = render_climate_panel("新潟県", None);
+        assert!(html.contains("該当する集計データが見つかりません"));
+        assert!(html.contains("気象庁"), "出典明記");
+    }
+
+    #[test]
+    fn render_climate_marks_supplement_granularity() {
+        let d = ClimateLatest {
+            prefecture: "新潟県".into(),
+            fiscal_year: 2023,
+            avg_temperature: Some(14.0),
+            max_temperature: Some(35.0),
+            min_temperature: Some(-5.0),
+            snow_days: Some(60.0),
+            sunshine_hours: Some(1700.0),
+        };
+        let html = render_climate_panel("新潟県", Some(&d));
+        // 粒度明記: 環境補足情報
+        assert!(html.contains("環境補足"), "気候は環境補足と明記");
+        // データ妥当性: 降雪日数/平均気温が描画
+        assert!(html.contains("60 日/年") && html.contains("14.0℃"));
+        assert!(html.contains("2023"));
+        // So What: 多雪ケース (可能性表現)
+        assert!(html.contains("可能性"));
+    }
+
+    #[test]
+    fn render_climate_snow_none_shows_dash() {
+        let d = ClimateLatest {
+            prefecture: "沖縄県".into(),
+            fiscal_year: 2023,
+            avg_temperature: None,
+            max_temperature: None,
+            min_temperature: None,
+            snow_days: None,
+            sunshine_hours: None,
+        };
+        let html = render_climate_panel("沖縄県", Some(&d));
+        assert!(html.contains("—"), "None 値は — で明示");
+        assert!(html.contains("欠損"));
+    }
+
+    #[test]
+    fn render_climate_no_salesnow_name() {
+        let d = ClimateLatest {
+            prefecture: "東京都".into(),
+            fiscal_year: 2023,
+            avg_temperature: Some(16.0),
+            max_temperature: Some(38.0),
+            min_temperature: Some(2.0),
+            snow_days: Some(3.0),
+            sunshine_hours: Some(1900.0),
+        };
+        let html = render_climate_panel("東京都", Some(&d));
+        assert!(!html.contains("SalesNow"));
+        // 少雪ケース
+        assert!(html.contains("少なめ"));
+    }
+
+    // ---- fmt_pct_opt ----
+
+    #[test]
+    fn fmt_pct_opt_handles_none_and_nan() {
+        assert_eq!(fmt_pct_opt(None), "—");
+        assert_eq!(fmt_pct_opt(Some(f64::NAN)), "—");
+        assert_eq!(fmt_pct_opt(Some(5.5)), "5.50%");
     }
 }

@@ -24,6 +24,7 @@
 //! | /api/competitive/external/daytime_population| v2_external_daytime_population       | 集計 |
 //! | /api/competitive/external/households        | v2_external_households               | 構成 |
 //! | /api/competitive/external/social_life       | v2_external_social_life              | 棒   |
+//! | /api/competitive/external/market_forecast   | v2_salary_competitiveness + industry | 営業仮説 |
 
 use axum::extract::{Query, State};
 use axum::response::Html;
@@ -1151,6 +1152,283 @@ pub async fn ext_social_life(
 }
 
 // ============================================================
+// 11) 給与・市場構造の営業仮説: v2_salary_competitiveness + v2_external_industry_structure
+// ============================================================
+
+/// 営業仮説 (So What) を統一スタイルで描画する内部ヘルパー。
+///
+/// MEMORY: feedback_correlation_not_causation — 相関≠因果。断定を避け
+/// 「傾向／可能性」表現に留める。分析タブ subtab2/4 の `so_what` と同一スタイル。
+fn so_what_box(text: &str) -> String {
+    format!(
+        r#"<div class="mt-2 px-3 py-2 rounded-md bg-blue-900/20 border-l-2 border-blue-500 text-xs text-blue-200 leading-relaxed">💡 営業仮説: {text}</div>"#,
+        text = escape_html(text),
+    )
+}
+
+/// 給与競争力の営業仮説テキストを生成 (中立表現・「傾向/可能性」)。
+///
+/// `ratio` = 地域平均 / 全国平均 (%)。`None` のときは判定材料なしとして
+/// 一般的な確認観点のみ返す (silent fallback 禁止: 空文字を返さない)。
+fn salary_so_what_text(ratio: Option<f64>, percentile: Option<f64>) -> String {
+    match ratio {
+        Some(r) if r < 100.0 => {
+            let pctile_clause = match percentile {
+                Some(p) if p.is_finite() => format!(
+                    "全国パーセンタイルが相対的に低い区分 (約 {:.0} 点) から条件を見直すと、",
+                    p
+                ),
+                _ => "パーセンタイルが相対的に低い区分から条件を見直すと、".to_string(),
+            };
+            format!(
+                "地域の平均提示給与が全国平均を下回る雇用形態では、給与水準が応募数の制約要因に\
+                 なっている可能性があります。{pctile_clause}競争力改善の効果が出やすい傾向があります。"
+            )
+        }
+        Some(_) => "地域の平均提示給与は全国平均と同水準以上です。給与以外の訴求点 \
+                    (働き方・育成・福利厚生など) を併せて打ち出すことで差別化できる可能性があります。"
+            .to_string(),
+        None => "地域と全国の平均提示給与の比較材料が不足しています。雇用形態別の提示条件を\
+                 確認したうえで、応募状況とあわせて解釈してください。"
+            .to_string(),
+    }
+}
+
+/// 市場構造の営業仮説テキストを生成 (中立表現・「傾向/可能性」)。
+///
+/// `top_share` = 最上位産業が事業所数に占める割合 (%)。事業所構造の偏りを
+/// 中立的に記述する (「集中」評価語は使わず「偏りが大きい傾向」等)。
+fn market_so_what_text(top_share: Option<f64>) -> String {
+    match top_share {
+        Some(s) if s.is_finite() => format!(
+            "事業所構成で最上位産業が約 {s:.0}% を占めており、特定産業に事業所の偏りが\
+             みられる地域では、少数の大口採用企業が条件相場を左右する傾向があります。\
+             提案時の競合比較対象を絞り込みやすい可能性があります。"
+        ),
+        // None および非有限値 (NaN/Inf) は「データ不足」を明示 (silent fallback 禁止)
+        _ => "産業別の事業所構成データが不足しています。地域の主要産業と競合密度は、\
+              別途の現地情報とあわせて解釈してください。"
+            .to_string(),
+    }
+}
+
+/// 給与・市場構造の営業仮説パネル。
+///
+/// 求人検索タブ (competitive) で表示中のため、詳細分析タブ専用の So What
+/// (subtab2_salary / subtab4_market_structure / subtab6_forecast) と同等の
+/// 営業示唆をここで再構成する。
+///
+/// データ源:
+/// - 給与: `v2_salary_competitiveness` (地域平均 vs 全国平均、パーセンタイル)
+/// - 市場構造: `v2_external_industry_structure` (事業所構成の偏り)
+///
+/// いずれも prefecture 粒度。pref 未指定時は全国集計を表示。
+/// HW 掲載求人由来の値であることを脚注に明記 (MEMORY: feedback_hw_data_scope)。
+pub async fn ext_market_forecast(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ExternalPanelParams>,
+) -> Html<String> {
+    let pref = params.prefecture.unwrap_or_default();
+    let scope = scope_label(&pref);
+
+    // ---- 給与競争力 (v2_salary_competitiveness) ----
+    // prefecture 粒度 (municipality = '', industry_raw = '')。
+    // pref 未指定時は全国平均を emp_group 横断で集計。
+    let (sal_sql, sal_params): (String, Vec<String>) = if !pref.is_empty() {
+        (
+            "SELECT emp_group, \
+             AVG(local_avg_salary) as local_avg_salary, \
+             AVG(national_avg_salary) as national_avg_salary, \
+             AVG(competitiveness_index) as competitiveness_index, \
+             AVG(percentile_rank) as percentile_rank, \
+             SUM(sample_count) as sample_count \
+             FROM v2_salary_competitiveness \
+             WHERE prefecture = ?1 AND municipality = '' AND industry_raw = '' \
+             GROUP BY emp_group ORDER BY emp_group"
+                .to_string(),
+            vec![pref.clone()],
+        )
+    } else {
+        (
+            "SELECT emp_group, \
+             AVG(local_avg_salary) as local_avg_salary, \
+             AVG(national_avg_salary) as national_avg_salary, \
+             AVG(competitiveness_index) as competitiveness_index, \
+             AVG(percentile_rank) as percentile_rank, \
+             SUM(sample_count) as sample_count \
+             FROM v2_salary_competitiveness \
+             WHERE municipality = '' AND industry_raw = '' \
+             GROUP BY emp_group ORDER BY emp_group"
+                .to_string(),
+            vec![],
+        )
+    };
+    let sal_rows = query_external(&state, &sal_sql, &sal_params);
+
+    // ---- 事業所構成の偏り (v2_external_industry_structure) ----
+    let code_opt = if pref.is_empty() {
+        None
+    } else {
+        pref_name_to_code(&pref)
+    };
+    let (str_sql, str_params): (String, Vec<String>) = if let Some(code) = code_opt.as_ref() {
+        (
+            "SELECT industry_name, SUM(establishments) as establishments \
+             FROM v2_external_industry_structure \
+             WHERE prefecture_code = ?1 \
+               AND industry_code NOT IN ('AS', 'AR', 'CR') \
+             GROUP BY industry_code, industry_name \
+             ORDER BY establishments DESC"
+                .to_string(),
+            vec![code.clone()],
+        )
+    } else {
+        (
+            "SELECT industry_name, SUM(establishments) as establishments \
+             FROM v2_external_industry_structure \
+             WHERE industry_code NOT IN ('AS', 'AR', 'CR') \
+             GROUP BY industry_code, industry_name \
+             ORDER BY establishments DESC"
+                .to_string(),
+            vec![],
+        )
+    };
+    let str_rows = query_external(&state, &str_sql, &str_params);
+
+    // 両データとも取得不可なら明示メッセージ (silent fallback 禁止)
+    if sal_rows.is_empty() && str_rows.is_empty() {
+        return Html(wrap_panel(
+            "給与・市場構造の営業仮説",
+            scope,
+            "HW掲載求人 給与統計／経済センサス",
+            &no_data_html("給与・市場構造の営業仮説"),
+            "",
+        ));
+    }
+
+    let mut body = String::new();
+
+    // ===== 給与競争力 セクション =====
+    body.push_str(r#"<div class="text-sm text-white font-semibold mb-1">給与競争力（地域平均 vs 全国平均）</div>"#);
+    if sal_rows.is_empty() {
+        body.push_str(&no_data_html("給与競争力（地域平均 vs 全国平均）"));
+    } else {
+        // 全 emp_group の地域平均/全国平均を集計して比率を出す (営業仮説の判定材料)
+        let mut local_sum = 0.0;
+        let mut national_sum = 0.0;
+        let mut pct_sum = 0.0;
+        let mut pct_n = 0u32;
+        let mut table = String::new();
+        table.push_str(
+            r#"<div class="overflow-x-auto"><table class="data-table"><thead><tr>
+              <th>雇用形態</th>
+              <th class="text-right">地域平均 (円)</th>
+              <th class="text-right">全国平均 (円)</th>
+              <th class="text-right">競争力指数</th>
+              <th class="text-right">全国順位 (百分位)</th>
+            </tr></thead><tbody>"#,
+        );
+        for row in &sal_rows {
+            let local = row_f64(row, "local_avg_salary");
+            let national = row_f64(row, "national_avg_salary");
+            let idx = row_f64(row, "competitiveness_index");
+            let pct = row_f64(row, "percentile_rank");
+            if let Some(l) = local {
+                local_sum += l;
+            }
+            if let Some(n) = national {
+                national_sum += n;
+            }
+            if let Some(p) = pct {
+                if p.is_finite() {
+                    pct_sum += p;
+                    pct_n += 1;
+                }
+            }
+            write!(
+                table,
+                "<tr><td>{eg}</td><td class=\"text-right\">{l}</td>\
+                 <td class=\"text-right\">{n}</td><td class=\"text-right\">{i}</td>\
+                 <td class=\"text-right\">{p}</td></tr>",
+                eg = row_string_escaped(row, "emp_group"),
+                l = fmt_i64(local.map(|v| v as i64)),
+                n = fmt_i64(national.map(|v| v as i64)),
+                i = fmt_f64(idx, 2),
+                p = fmt_f64(pct, 1),
+            )
+            .unwrap();
+        }
+        table.push_str("</tbody></table></div>");
+        body.push_str(&table);
+
+        let ratio = if national_sum > 0.0 {
+            Some(local_sum / national_sum * 100.0)
+        } else {
+            None
+        };
+        let avg_pct = if pct_n > 0 {
+            Some(pct_sum / pct_n as f64)
+        } else {
+            None
+        };
+        body.push_str(&so_what_box(&salary_so_what_text(ratio, avg_pct)));
+    }
+
+    // ===== 市場構造 セクション =====
+    body.push_str(r#"<div class="text-sm text-white font-semibold mb-1 mt-4">市場構造（事業所構成の偏り）</div>"#);
+    if str_rows.is_empty() {
+        body.push_str(&no_data_html("市場構造（事業所構成の偏り）"));
+    } else {
+        let total_est: i64 = str_rows
+            .iter()
+            .filter_map(|r| row_i64(r, "establishments"))
+            .sum();
+        // 最上位産業の事業所シェア (偏りの中立指標)
+        let top_share = str_rows
+            .first()
+            .and_then(|r| row_i64(r, "establishments"))
+            .filter(|_| total_est > 0)
+            .map(|e| e as f64 / total_est as f64 * 100.0);
+
+        let mut table = String::new();
+        table.push_str(
+            r#"<div class="overflow-x-auto"><table class="data-table"><thead><tr>
+              <th>産業（事業所数 上位5）</th>
+              <th class="text-right">事業所数</th>
+              <th class="text-right">構成比</th>
+            </tr></thead><tbody>"#,
+        );
+        for row in str_rows.iter().take(5) {
+            let est = row_i64(row, "establishments");
+            let share = est
+                .filter(|_| total_est > 0)
+                .map(|e| e as f64 / total_est as f64 * 100.0);
+            write!(
+                table,
+                "<tr><td>{nm}</td><td class=\"text-right\">{e}</td>\
+                 <td class=\"text-right\">{s} %</td></tr>",
+                nm = row_string_escaped(row, "industry_name"),
+                e = fmt_i64(est),
+                s = fmt_f64(share, 1),
+            )
+            .unwrap();
+        }
+        table.push_str("</tbody></table></div>");
+        body.push_str(&table);
+        body.push_str(&so_what_box(&market_so_what_text(top_share)));
+    }
+
+    Html(wrap_panel(
+        "給与・市場構造の営業仮説",
+        scope,
+        "HW掲載求人 給与統計 (v2_salary_competitiveness)／経済センサス (v2_external_industry_structure)",
+        &body,
+        "給与は当該地域のハローワーク掲載求人に基づく値です (全求人市場ではありません)。\
+         構成比は表示産業の合計に対する内訳。営業仮説は相関に基づく傾向であり因果を示すものではありません。",
+    ))
+}
+
+// ============================================================
 // テスト (内部ヘルパー単体)
 // ============================================================
 
@@ -1444,5 +1722,97 @@ mod tests {
         // 逆証明: 380% (MEMORY: unemployment 380% 流出) で警告発火
         assert_eq!(warn_for(Some(380.0)), "WARN");
         assert_eq!(warn_for(Some(-1.0)), "WARN");
+    }
+
+    // ============================================================
+    // ext_market_forecast 営業仮説 ヘルパーのテスト (4 件)
+    // ============================================================
+
+    // ---- (1) So What 表現: 「傾向/可能性」を含み「すべき」断定を含まない ----
+
+    #[test]
+    fn test_salary_so_what_below_national_uses_hedged_wording() {
+        // 地域平均が全国平均を下回る (ratio < 100) ケースの営業仮説。
+        // MEMORY: feedback_correlation_not_causation — 「可能性/傾向」表現、断定回避。
+        let text = salary_so_what_text(Some(92.0), Some(30.0));
+        assert!(
+            text.contains("可能性") || text.contains("傾向"),
+            "営業仮説に hedge 表現 (可能性/傾向) が必要: {text}"
+        );
+        // 因果を断定する「すべき」「必ず」「断言」を含まない
+        for word in &["すべき", "必ず", "確実に", "断言"] {
+            assert!(
+                !text.contains(word),
+                "断定表現 '{}' は禁止 (相関≠因果): {}",
+                word,
+                text
+            );
+        }
+        // 営業示唆の核 (給与水準が制約要因の可能性) を含む
+        assert!(text.contains("給与水準") && text.contains("制約"));
+    }
+
+    // ---- (2) データ妥当性: ratio/top_share の値に応じて分岐が切り替わる ----
+
+    #[test]
+    fn test_so_what_branches_reflect_data() {
+        // ratio >= 100 (同水準以上) では「下回る」文言を出さず別示唆に切り替わる
+        let above = salary_so_what_text(Some(108.0), Some(70.0));
+        assert!(
+            above.contains("同水準以上"),
+            "全国平均以上のとき別示唆になるべき: {above}"
+        );
+        assert!(!above.contains("下回る"));
+
+        // 市場構造: top_share 値が文章に反映される (データ妥当性)
+        let m = market_so_what_text(Some(42.0));
+        assert!(
+            m.contains("42") && m.contains("%"),
+            "シェア値が反映される: {m}"
+        );
+        assert!(m.contains("傾向") || m.contains("可能性"));
+    }
+
+    // ---- (3) 空入力: データなしでも明示メッセージ (silent fallback 禁止) ----
+
+    #[test]
+    fn test_so_what_empty_input_explicit_message() {
+        // MEMORY: feedback_silent_fallback_audit — None でも空文字を返さない
+        let sal = salary_so_what_text(None, None);
+        assert!(!sal.trim().is_empty(), "比較材料なしでも空文字にしない");
+        assert!(sal.contains("不足"), "材料不足を明示: {sal}");
+
+        let mkt = market_so_what_text(None);
+        assert!(!mkt.trim().is_empty());
+        assert!(mkt.contains("不足"), "材料不足を明示: {mkt}");
+
+        // so_what_box も空 text でも装飾枠 (💡) を返し、空 HTML にしない
+        let boxed = so_what_box("");
+        assert!(boxed.contains("営業仮説"));
+        assert!(!boxed.trim().is_empty());
+    }
+
+    // ---- (4) 中立表現: 評価語 (劣位/集中/縮小 等) を含まない ----
+
+    #[test]
+    fn test_so_what_neutral_no_judgmental_words() {
+        // MEMORY: feedback_neutral_expression_for_targets — BtoB 提案先を傷つけない
+        let texts = [
+            salary_so_what_text(Some(85.0), Some(20.0)),
+            salary_so_what_text(Some(120.0), Some(80.0)),
+            salary_so_what_text(None, None),
+            market_so_what_text(Some(55.0)),
+            market_so_what_text(None),
+        ];
+        for t in &texts {
+            for word in &["劣位", "集中", "縮小", "劣る", "優秀", "貧弱", "弱い"] {
+                assert!(
+                    !t.contains(word),
+                    "中立性違反: 評価語 '{}' が含まれる: {}",
+                    word,
+                    t
+                );
+            }
+        }
     }
 }

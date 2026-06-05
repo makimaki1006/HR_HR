@@ -14,11 +14,11 @@ pub use handlers::{
     comp_report, comp_service_types, tab_competitive,
 };
 
-// 外部統計ドリルダウン (10 endpoint)
+// 外部統計ドリルダウン (10 endpoint) + 営業仮説パネル (1 endpoint)
 pub use external::{
     ext_daytime_population, ext_education, ext_household_spending, ext_households,
-    ext_industry_employees, ext_job_ratio, ext_labor_force, ext_min_wage, ext_social_life,
-    ext_turnover,
+    ext_industry_employees, ext_job_ratio, ext_labor_force, ext_market_forecast, ext_min_wage,
+    ext_social_life, ext_turnover,
 };
 
 // 他モジュールから参照されるユーティリティ
