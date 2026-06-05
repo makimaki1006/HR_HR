@@ -344,6 +344,27 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/company/external/segments",
             get(handlers::company::ext_company_segments),
         )
+        // Wave1-D 移植: 未活用5テーブルを企業検索タブのドリルダウンで表示
+        .route(
+            "/api/company/external/business_dynamics",
+            get(handlers::company::ext_business_dynamics),
+        )
+        .route(
+            "/api/company/external/car_ownership",
+            get(handlers::company::ext_car_ownership),
+        )
+        .route(
+            "/api/company/external/land_price",
+            get(handlers::company::ext_land_price),
+        )
+        .route(
+            "/api/company/external/boj_tankan",
+            get(handlers::company::ext_boj_tankan),
+        )
+        .route(
+            "/api/company/external/climate",
+            get(handlers::company::ext_climate),
+        )
         .route(
             "/report/company/{corporate_number}",
             get(handlers::company::company_report),
@@ -428,6 +449,11 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/api/competitive/external/social_life",
             get(handlers::competitive::ext_social_life),
+        )
+        // Wave1-A 移植: 給与・市場構造の営業仮説(So What)を求人検索タブで表示
+        .route(
+            "/api/competitive/external/market_forecast",
+            get(handlers::competitive::ext_market_forecast),
         )
         .route("/api/status", get(api_status))
         // Phase 3: 自己サービス画面（ログイン済なら誰でも可）
