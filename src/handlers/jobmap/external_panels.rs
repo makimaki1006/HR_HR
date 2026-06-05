@@ -568,7 +568,8 @@ pub async fn external_migration(
 // ============================================================
 
 fn format_int(n: i64) -> String {
-    let s = n.abs().to_string();
+    // unsigned_abs: i64::MIN でも overflow panic しない (abs() は debug build で panic)
+    let s = n.unsigned_abs().to_string();
     let mut buf = String::new();
     for (i, c) in s.chars().rev().enumerate() {
         if i > 0 && i % 3 == 0 {
