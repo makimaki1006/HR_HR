@@ -268,6 +268,31 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),
         )
+        // 地域×業界分析タブ (Phase1): tab + 3 endpoint + 2 カスケード endpoint
+        .route(
+            "/tab/regional_analysis",
+            get(handlers::regional_analysis::tab_regional_analysis),
+        )
+        .route(
+            "/api/regional/municipalities",
+            get(handlers::regional_analysis::regional_municipalities),
+        )
+        .route(
+            "/api/regional/job_types",
+            get(handlers::regional_analysis::regional_job_types),
+        )
+        .route(
+            "/api/regional/salary_histogram",
+            get(handlers::regional_analysis::regional_salary_histogram),
+        )
+        .route(
+            "/api/regional/muni_ranking",
+            get(handlers::regional_analysis::regional_muni_ranking),
+        )
+        .route(
+            "/api/regional/emp_salary",
+            get(handlers::regional_analysis::regional_emp_salary),
+        )
         .route("/tab/trend", get(handlers::trend::tab_trend))
         .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
         .route("/tab/insight", get(handlers::insight::tab_insight))
