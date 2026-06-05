@@ -36,6 +36,7 @@ sources:
     table: postings
     granularity: municipality
     freshness_col: null
+    source_as_of: "continuous(都度最新)"
     frequency: continuous
     manual_consts: []
     tabs: [jobmap, survey, competitive, company, navy]
@@ -99,6 +100,7 @@ sources:
     table: v2_company_geocode
     granularity: corporate
     freshness_col: null
+    source_as_of: "irregular"
     frequency: irregular
     manual_consts: []
     tabs: [jobmap]
@@ -127,6 +129,7 @@ sources:
     table: v2_external_population_pyramid
     granularity: municipality
     freshness_col: null
+    source_as_of: "R2(2020)"
     frequency: quinquennial
     manual_consts: []
     tabs: [jobmap, navy]
@@ -155,6 +158,7 @@ sources:
     table: v2_external_education
     granularity: prefecture
     freshness_col: null
+    source_as_of: "R2(2020)"
     frequency: quinquennial
     manual_consts: []
     tabs: [competitive]
@@ -169,6 +173,7 @@ sources:
     table: v2_external_household
     granularity: prefecture
     freshness_col: null
+    source_as_of: "R2(2020)"
     frequency: quinquennial
     manual_consts: []
     tabs: [competitive]
@@ -238,6 +243,7 @@ sources:
     table: v2_external_industry_structure
     granularity: municipality
     freshness_col: null
+    source_as_of: "R3(2021)"
     frequency: quinquennial
     manual_consts: []
     tabs: [competitive, company]
@@ -446,6 +452,7 @@ sources:
     table: v2_external_prefecture_stats
     granularity: prefecture
     freshness_col: null
+    source_as_of: "mixed(2022-2026)"
     frequency: yearly
     manual_consts:
       - MINIMUM_WAGE_2025

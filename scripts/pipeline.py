@@ -207,6 +207,22 @@ def cmd_runbook(sources, frequency):
     print("\n[STEP 3] 反映: 自動 (アプリが DB を都度参照)")
 
 
+def cmd_freshness(sources):
+    """各データソースの鮮度 (DBカラム or レジストリ時点) を一覧。"""
+    print(f"{'name':28} {'freq':13} {'鮮度カラム/時点':24} status")
+    print("-" * 80)
+    for s in sorted(sources, key=lambda x: (x.get("frequency", ""), x.get("name", ""))):
+        col = s.get("freshness_col")
+        asof = s.get("source_as_of")
+        if col:
+            fresh = f"col:{col}"
+        elif asof:
+            fresh = f"asof:{asof}"
+        else:
+            fresh = "[WARN] なし"
+        print(f"{s['name']:28} {s.get('frequency',''):13} {fresh:24} {s.get('status','')}")
+
+
 def cmd_validate(sources):
     """レジストリ整合性チェック。"""
     errors, warnings = [], []
@@ -248,9 +264,9 @@ def cmd_validate(sources):
             warnings.append(f"{name}: status=unused だが tabs={tabs} 指定あり")
         if st == "hidden" and visible:
             warnings.append(f"{name}: status=hidden だが表示タブを含む (status見直し?)")
-        # 鮮度カラム欠損
-        if not s.get("freshness_col"):
-            warnings.append(f"{name}: 鮮度カラムなし (created_at 等の付与推奨)")
+        # 鮮度: freshness_col(DBカラム) も source_as_of(レジストリ時点) も無い場合のみ警告
+        if not s.get("freshness_col") and not s.get("source_as_of"):
+            warnings.append(f"{name}: 鮮度情報なし (freshness_col か source_as_of を付与)")
 
     print(f"=== validate: {len(sources)} データソース ===")
     if errors:
@@ -279,6 +295,7 @@ def main():
     p.add_argument("--show", metavar="NAME", help="1件の詳細手順")
     p.add_argument("--update", metavar="NAME", help="取得→加工を実行 (投入は手動指示)")
     p.add_argument("--runbook", metavar="FREQ", help="頻度別ランブック")
+    p.add_argument("--freshness", action="store_true", help="鮮度一覧")
     p.add_argument("--validate", action="store_true", help="整合性チェック")
     p.add_argument("--frequency", metavar="FREQ", help="--list の頻度フィルタ")
     p.add_argument("--status", metavar="STATUS", help="--list の状態フィルタ")
@@ -289,6 +306,8 @@ def main():
 
     if args.validate:
         cmd_validate(sources)
+    elif args.freshness:
+        cmd_freshness(sources)
     elif args.list:
         cmd_list(sources, frequency=args.frequency, status=args.status)
     elif args.show:
