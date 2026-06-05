@@ -450,6 +450,7 @@ sources:
     transform: compute_v2_external.py
     upload: upload_to_turso.py
     table: v2_external_prefecture_stats
+    depends_on: [labor_stats, job_openings_ratio, turnover, minimum_wage_history]
     granularity: prefecture
     freshness_col: null
     source_as_of: "mixed(2022-2026)"

@@ -147,12 +147,32 @@ def _run(script_name, dry_run):
     return res.returncode == 0
 
 
-def cmd_update(sources, name, dry_run):
-    """fetch→transform を実行。upload は手動指示を表示 (DB書込禁止)。"""
+def cmd_update(sources, name, dry_run, _seen=None, _stack=None):
+    """fetch→transform を実行。upload は手動指示を表示 (DB書込禁止)。
+
+    depends_on があれば依存先を先に処理 (再帰)。循環は検出してエラー。
+    """
+    if _seen is None:
+        _seen = set()
+    if _stack is None:
+        _stack = []
     s = find(sources, name)
     if not s:
         print(f"未登録: {name}", file=sys.stderr)
         sys.exit(1)
+    # 循環検出
+    if name in _stack:
+        print(f"x 循環依存検出: {' -> '.join(_stack)} -> {name}", file=sys.stderr)
+        sys.exit(1)
+    if name in _seen:
+        return  # 既に処理済み
+    # 依存先を先に (取得→加工のみ。upload は各々の手動指示で出る)
+    deps = s.get("depends_on") or []
+    if deps:
+        print(f"  [依存] {name} は {deps} に依存 → 先に処理")
+        for dep in deps:
+            cmd_update(sources, dep, dry_run, _seen, _stack + [name])
+    _seen.add(name)
     print(f"=== update: {s['name']} ({'DRY-RUN' if dry_run else '実行'}) ===")
 
     if s.get("manual_consts"):
