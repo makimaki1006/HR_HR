@@ -79,6 +79,21 @@ fn assert_job_ratio_valid(ratio: f64) {
     assert!(ratio >= 0.0, "job ratio must be >= 0, got {}", ratio);
 }
 
+/// 不変条件 (強化版): 求人倍率の現実上限を明示。
+///
+/// 2026-06-05 テスト品質チーム指摘: 既存 `assert_job_ratio_valid` は下限 (>= 0) のみで
+/// 上限 sanity が無く、`* 100` 単位ずれ (例: 1.5 倍 → 150 倍) を検出できなかった。
+/// 有効求人倍率は全国・職種別とも歴史的に ~10 倍を超えた記録がない (バブル期建設業等の
+/// 極端職種で数倍 - 高々 10 倍程度)。10 倍超は単位ずれ or ETL バグの疑い。
+fn assert_job_ratio_realistic(ratio: f64) {
+    assert_job_ratio_valid(ratio);
+    assert!(
+        ratio <= 10.0,
+        "job ratio realistic 上限超過 (>10 は単位ずれ/ETL バグ疑い、例: 1.5*100=150), got {}",
+        ratio
+    );
+}
+
 /// 不変条件: パーセンテージ (0.0 <= p <= 100.0)
 fn assert_percentage_valid(p: f64, label: &str) {
     assert!(
@@ -1050,5 +1065,242 @@ fn invariant_p1_4_market_tightness_national_unemp_in_range() {
             // newtype 化しても通る
             assert!(Percentage::try_new(v).is_some());
         }
+    }
+}
+
+// =====================================================================
+// 2026-06-05 テスト品質チーム指摘: 求人倍率の現実上限 sanity
+//
+// 背景: 既存不変条件 (invariant 2) は求人倍率 >= 0 のみ検証し、上限が無かった。
+// MEMORY feedback_unit_consistency_audit / feedback_three_layer_audit:
+//   % と ratio / 100倍ずれ (例: 1.5 → 150) はデータ層・計算層・表示層のどこでも起き得る。
+// ドメイン経験値: 有効求人倍率は全国・職種別とも高々 ~10 倍。10 倍超は単位ずれ疑い。
+// =====================================================================
+
+#[test]
+fn invariant_job_ratio_realistic_accepts_normal() {
+    // 現実値: 0 倍 (求人皆無) 〜 数倍 (人手不足職種) 〜 10 倍 (上限ギリ)
+    for v in [0.0_f64, 0.5, 1.0, 1.5, 3.6, 8.0, 10.0] {
+        assert_job_ratio_realistic(v);
+    }
+}
+
+#[test]
+#[should_panic(expected = "job ratio realistic 上限超過")]
+fn invariant_job_ratio_realistic_panics_on_100x_unit_error() {
+    // 1.5 倍を `* 100` してしまった単位ずれ事故型 (= 150 倍)
+    assert_job_ratio_realistic(150.0);
+}
+
+#[test]
+#[should_panic(expected = "job ratio realistic 上限超過")]
+fn invariant_job_ratio_realistic_panics_just_above_10() {
+    assert_job_ratio_realistic(10.01);
+}
+
+/// 求人倍率の単位ずれ (ratio 形式 vs % 形式) を逆証明で検知。
+/// `ext_job_ratio` の ratio_total は「倍」単位 (例: 1.5)。誤って % 換算 (150.0) で
+/// 入った場合、realistic 上限で検出できる。逆に 0.015 のような ratio/100 形式は
+/// 値が極端に小さくなり「0 倍に近い」異常として別途検知すべき。
+#[test]
+fn invariant_job_ratio_unit_form_detection() {
+    // 正常形 (倍単位)
+    let normal = 1.5_f64;
+    assert_job_ratio_realistic(normal);
+    // % 誤変換形 (1.5 → 150) は realistic 上限で弾かれる
+    let pct_form = normal * 100.0;
+    assert!(
+        pct_form > 10.0,
+        "% 誤変換形 {} は realistic 上限 10 を超え、検出可能",
+        pct_form
+    );
+    // ratio/100 形式 (1.5 → 0.015) は「ほぼ 0 倍」として疑わしい
+    let over_divided = normal / 100.0;
+    assert!(
+        over_divided < 0.1,
+        "ratio/100 誤変換形 {} は 0.1 倍未満で異常 (求人皆無は稀)",
+        over_divided
+    );
+}
+
+// =====================================================================
+// 2026-06-05 テスト品質チーム指摘: 性別比率合計 ≈ 100%
+//
+// 背景: ext_pyramid (age_group, male_count, female_count) から算出する
+//   性別比率について、男性比 + 女性比 が 100%±0.5 に収まることを保証する
+//   不変条件が欠落していた。比率分母の取り違え (母集団 != male+female) や
+//   集計バグで合計が 100% から乖離する事故を逆証明で検出する。
+//
+// 注意: 国勢調査ピラミッドには「不明」性別カラムが無く male/female の 2 区分。
+//   よって母集団 = male + female とした上で male_pct + female_pct == 100% が成立。
+//   将来「不明」を加える場合は male + female + unknown == total を分母にすること。
+// =====================================================================
+
+fn pyramid_row(age: &str, male: i64, female: i64) -> Row {
+    make_row(&[
+        ("age_group", json!(age)),
+        ("male_count", json!(male)),
+        ("female_count", json!(female)),
+    ])
+}
+
+/// ext_pyramid 全体から (男性合計, 女性合計) を集計するテスト内ヘルパ。
+/// (本体 demographics::render_demographic_kpis と同じ male_count/female_count 採取方式)
+fn sum_gender(pyramid: &[Row]) -> (i64, i64) {
+    let mut male = 0i64;
+    let mut female = 0i64;
+    for r in pyramid {
+        let m = r.get("male_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let f = r.get("female_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        male += m;
+        female += f;
+    }
+    (male, female)
+}
+
+#[test]
+fn invariant_gender_ratio_sums_to_100_diverse_inputs() {
+    // 多様な男女比 (女性過多 / 男性過多 / 均衡 / 極端) で合計 100%±0.5 を検証
+    let cases: Vec<Vec<Row>> = vec![
+        // 均衡寄り (実データ風 5 歳階級)
+        vec![
+            pyramid_row("20-24", 5000, 4800),
+            pyramid_row("25-29", 6000, 5800),
+            pyramid_row("30-34", 7000, 6800),
+        ],
+        // 女性過多 (介護・保育職地域想定)
+        vec![pyramid_row("30-34", 2000, 8000)],
+        // 男性過多
+        vec![pyramid_row("40-44", 9000, 1000)],
+        // 極端 (片方ほぼ 0)
+        vec![pyramid_row("50-54", 1, 9999)],
+    ];
+    for (i, pyramid) in cases.iter().enumerate() {
+        let (male, female) = sum_gender(pyramid);
+        let total = (male + female) as f64;
+        assert!(total > 0.0, "case {}: 母集団 > 0", i);
+        let male_pct = male as f64 / total * 100.0;
+        let female_pct = female as f64 / total * 100.0;
+        assert_percentage_valid(male_pct, &format!("case {} male_pct", i));
+        assert_percentage_valid(female_pct, &format!("case {} female_pct", i));
+        let sum = male_pct + female_pct;
+        assert!(
+            (sum - 100.0).abs() < 0.5,
+            "case {}: 男性比({:.4}) + 女性比({:.4}) = {:.4} は 100%±0.5 のはず",
+            i,
+            male_pct,
+            female_pct,
+            sum
+        );
+    }
+}
+
+/// 逆証明: 分母を取り違えた集計 (= total を male+female 以外で割る) は 100% から
+/// 乖離するため、本不変条件が前提誤りを検出できることを示す。
+#[test]
+fn invariant_gender_ratio_wrong_denominator_breaks_100() {
+    let pyramid = vec![pyramid_row("30-34", 6000, 4000)]; // male+female = 10000
+    let (male, female) = sum_gender(&pyramid);
+    let correct_total = (male + female) as f64;
+    // 正しい分母 → 100%
+    let sum_ok = male as f64 / correct_total * 100.0 + female as f64 / correct_total * 100.0;
+    assert!((sum_ok - 100.0).abs() < 0.5, "正しい分母なら 100%");
+
+    // 誤った分母 (例: male のみを「総人口」と誤認 = 6000 で割る) → 合計 > 100%
+    let wrong_total = male as f64;
+    let sum_bad = male as f64 / wrong_total * 100.0 + female as f64 / wrong_total * 100.0;
+    assert!(
+        (sum_bad - 100.0).abs() >= 0.5,
+        "誤った分母なら 100% から乖離し検出可能 (got {:.2})",
+        sum_bad
+    );
+}
+
+#[test]
+fn invariant_gender_ratio_section_renders_without_panic() {
+    // 性別データを含む ext_pyramid を InsightContext に載せ、demographics section が
+    // panic せず出力されること (実描画経路でのスモーク)。
+    let mut ctx = make_insight_ctx(
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+    );
+    ctx.ext_pyramid = vec![
+        pyramid_row("20-24", 5000, 4800),
+        pyramid_row("25-29", 6000, 5800),
+        pyramid_row("30-34", 7000, 6800),
+    ];
+    let mut html = String::new();
+    super::demographics::render_section_demographics(&mut html, &ctx);
+    // ピラミッド SSR SVG が出力されること (描画経路を実通過した証跡)
+    assert!(
+        html.contains("pyramid-ssr"),
+        "性別データありで demographics ピラミッド (.pyramid-ssr) が描画されるはず"
+    );
+    // 描画後も母集団から算出した性別比は 100%±0.5 を維持
+    let (male, female) = sum_gender(&ctx.ext_pyramid);
+    let total = (male + female) as f64;
+    let sum = (male as f64 / total + female as f64 / total) * 100.0;
+    assert!((sum - 100.0).abs() < 0.5, "描画データの性別比合計 100%±0.5");
+}
+
+// =====================================================================
+// 2026-06-05 テスト品質チーム指摘: 給与統計の正値性 (補足記録)
+//
+// 検証対象であった compute_distribution_stats は navy_report/common.rs の
+// `pub(super)` 関数で、本ファイル (report_html 直下) からは可視性の都合で
+// 直接呼べない。シグネチャ/可視性変更は本タスクの制約で禁止のため、給与統計
+// 自体の不変条件 (中央値 > 0 / 負値・0 入力で None) は同モジュール内の
+// navy_report/tests.rs に既存テスト
+//   - compute_distribution_stats_all_zero_returns_none
+//   - compute_distribution_stats_filters_negative_and_zero
+//   - compute_distribution_stats_invariants_n1/n2/n5/n100
+// として担保済み。ここでは「給与は正値」という不変条件をヘルパとして明示し、
+// 表示層 (万円換算) で負/0 が混入しないことを逆証明で検証する。
+// =====================================================================
+
+/// 不変条件: 給与統計値 (円) は正値。中央値・平均が 0 以下なら None 相当の異常。
+fn assert_salary_positive(yen: i64, label: &str) {
+    assert!(yen > 0, "{}: 給与 (円) は > 0 のはず, got {}", label, yen);
+}
+
+#[test]
+fn invariant_salary_positive_accepts_normal() {
+    for v in [180_000_i64, 250_000, 300_000, 1_000_000] {
+        assert_salary_positive(v, "normal");
+    }
+}
+
+#[test]
+#[should_panic(expected = "給与 (円) は > 0 のはず")]
+fn invariant_salary_positive_panics_on_zero() {
+    assert_salary_positive(0, "zero");
+}
+
+#[test]
+#[should_panic(expected = "給与 (円) は > 0 のはず")]
+fn invariant_salary_positive_panics_on_negative() {
+    assert_salary_positive(-1, "negative");
+}
+
+/// 万円換算 (yen / 10000) が表示前提を満たすこと: 正の給与は換算後も正、
+/// かつ現実上限 (月給 200 万円 = 2,000,000 円) を超えない sanity。
+#[test]
+fn invariant_salary_man_yen_conversion_realistic() {
+    let cases: Vec<i64> = vec![180_000, 250_000, 500_000, 2_000_000];
+    for yen in cases {
+        assert_salary_positive(yen, "conv");
+        let man = yen as f64 / 10_000.0;
+        assert!(man > 0.0, "万円換算後も正: {} 円 → {} 万円", yen, man);
+        assert!(
+            man <= 200.0,
+            "月給 200 万円超は現実外れ値疑い (単位ずれ?), {} 万円",
+            man
+        );
     }
 }

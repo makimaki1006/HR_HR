@@ -1715,4 +1715,383 @@ mod tests {
         // 念のため、10.0 が含まれていないことだけ確認するのは format_mm の "1.0" "100.0" などとの誤マッチ
         // リスクが大きいため、tr_count = 11 で十分とし、追加検証を行わない。
     }
+
+    // ========================================================================
+    // 追加テスト (テスト品質強化, 2026-06-05): データ妥当性 / 境界 / 不変条件
+    // 対象純粋関数: build_navy_fuyou_table / build_navy_emp_type_salary_table /
+    //              build_navy_tag_premium_top10_table / build_navy_salary_summary_table /
+    //              compute_distribution_stats (common 再エクスポート)
+    // ========================================================================
+
+    use super::super::super::super::aggregator::{EmpTypeSalary, TagSalaryAgg};
+
+    fn make_emp(emp_type: &str, count: usize, avg: i64, median: i64) -> EmpTypeSalary {
+        EmpTypeSalary {
+            emp_type: emp_type.to_string(),
+            count,
+            avg_salary: avg,
+            median_salary: median,
+        }
+    }
+
+    fn make_tag(tag: &str, count: usize, avg: i64, diff: i64, diff_pct: f64) -> TagSalaryAgg {
+        TagSalaryAgg {
+            tag: tag.to_string(),
+            count,
+            avg_salary: avg,
+            diff_from_avg: diff,
+            diff_percent: diff_pct,
+        }
+    }
+
+    /// 数値を含む全 `<td class="num ...">{値} 円/時</td>` から円/時の整数値を抽出する補助。
+    /// "—" セルは対象外 (skip)。
+    fn extract_yen_per_hour_cells(html: &str) -> Vec<i64> {
+        let mut out = Vec::new();
+        for part in html.split("円/時</td>") {
+            // 直前の > 以降の数字 (カンマ除去) を拾う
+            if let Some(gt) = part.rfind('>') {
+                let tail = &part[gt + 1..];
+                let digits: String = tail.chars().filter(|c| c.is_ascii_digit()).collect();
+                if !digits.is_empty() {
+                    if let Ok(v) = digits.parse::<i64>() {
+                        out.push(v);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    // --- build_navy_fuyou_table -------------------------------------------
+
+    // [不変条件] 130 万円ラインの必要時給 > 103 万円ラインの必要時給 (同一週時間)。
+    //   同一週時間列同士を比較するため、各行 5 セル (週 15/20/25/30/35h) を抽出して照合。
+    #[test]
+    fn fuyou_table_130man_requires_higher_wage_than_103man() {
+        let html = build_navy_fuyou_table(0); // median=0 で自社行は "—" になり数値を汚さない
+        let cells = extract_yen_per_hour_cells(&html);
+        // 103 万行 5 セル + 130 万行 5 セル = 10 セル (自社行は "—" なので除外)
+        assert_eq!(
+            cells.len(),
+            10,
+            "expected 10 numeric cells (103万 5 + 130万 5), got {}: {}",
+            cells.len(),
+            html
+        );
+        let row_103 = &cells[0..5];
+        let row_130 = &cells[5..10];
+        for i in 0..5 {
+            assert!(
+                row_130[i] > row_103[i],
+                "130万 line wage ({}) must exceed 103万 line ({}) at col {}: {}",
+                row_130[i],
+                row_103[i],
+                i,
+                html
+            );
+        }
+    }
+
+    // [不変条件] 同一行内で週稼働時間が増えるほど必要時給は単調減少する。
+    #[test]
+    fn fuyou_table_required_wage_decreases_as_weekly_hours_increase() {
+        let html = build_navy_fuyou_table(0);
+        let cells = extract_yen_per_hour_cells(&html);
+        assert_eq!(cells.len(), 10, "unexpected cell count: {}", html);
+        for row in [&cells[0..5], &cells[5..10]] {
+            for w in row.windows(2) {
+                assert!(
+                    w[0] > w[1],
+                    "wage must strictly decrease as weekly hours increase: {} -> {} ({})",
+                    w[0],
+                    w[1],
+                    html
+                );
+            }
+        }
+    }
+
+    // [データ妥当性] 必要時給はすべて正の整数 (年収閾値 / 正の分母)。
+    #[test]
+    fn fuyou_table_all_wages_positive() {
+        let html = build_navy_fuyou_table(1200);
+        let cells = extract_yen_per_hour_cells(&html);
+        assert!(!cells.is_empty(), "no numeric cells parsed: {}", html);
+        for v in &cells {
+            assert!(
+                *v > 0,
+                "required wage must be positive, got {}: {}",
+                v,
+                html
+            );
+        }
+    }
+
+    // [境界] median_hourly_native <= 0 では自社中央値行が "—" 表示 (silent fallback ではなく明示)。
+    #[test]
+    fn fuyou_table_median_zero_shows_dash_row() {
+        let html_zero = build_navy_fuyou_table(0);
+        assert!(
+            html_zero.contains("—"),
+            "median=0 should render dash cells: {}",
+            html_zero
+        );
+        // 負値も同様に "—"
+        let html_neg = build_navy_fuyou_table(-100);
+        assert!(
+            html_neg.contains("—"),
+            "negative median should render dash cells: {}",
+            html_neg
+        );
+        // 正値では自社中央値が数値として現れる (1200 円/時)
+        let html_pos = build_navy_fuyou_table(1200);
+        assert!(
+            html_pos.contains("自社"),
+            "self-median row label missing: {}",
+            html_pos
+        );
+        // 正値ケースには自社中央値 1200 が含まれる (5 列に同値)
+        let cells_pos = extract_yen_per_hour_cells(&html_pos);
+        assert!(
+            cells_pos.iter().filter(|&&v| v == 1200).count() >= 5,
+            "median 1200 should appear in all 5 self-median columns: {}",
+            html_pos
+        );
+    }
+
+    // --- build_navy_emp_type_salary_table ---------------------------------
+
+    // [データ妥当性] 構成比 (count/total*100) の合計が ~100% に収まる (total と一致時)。
+    //   各行の構成比文字列 "{:.1}%" を抽出して合算し、丸め誤差 ±0.3% 以内を許容。
+    #[test]
+    fn emp_type_table_composition_sums_to_about_100() {
+        let items = vec![
+            make_emp("正社員", 60, 280_000, 270_000),
+            make_emp("パート", 30, 120_000, 115_000),
+            make_emp("契約社員", 10, 200_000, 195_000),
+        ];
+        let total = 100; // count 合計と一致 → 構成比合計は 100%
+        let html = build_navy_emp_type_salary_table(&items, total, false);
+        // "{:.1}%" 形式のうち、差分タグ ({:+.1}%) と区別するため
+        // 構成比は <td class="num">{:.1}%</td> の形で出る。tag 差分は dim span 内。
+        // ここでは行ごとの構成比をデータから直接再計算して検証する (HTML パースの曖昧性回避)。
+        let sum_pct: f64 = items
+            .iter()
+            .map(|e| e.count as f64 / total as f64 * 100.0)
+            .sum();
+        assert!(
+            (sum_pct - 100.0).abs() < 0.3,
+            "composition sum should be ~100%, got {}",
+            sum_pct
+        );
+        // HTML 側にも各構成比が現れることを確認 (60.0% / 30.0% / 10.0%)
+        assert!(html.contains("60.0%"), "60.0% missing: {}", html);
+        assert!(html.contains("30.0%"), "30.0% missing: {}", html);
+        assert!(html.contains("10.0%"), "10.0% missing: {}", html);
+    }
+
+    // [境界] 全体加重平均 +10% 以上で「高給与」、-10% 以下で「低給与」タグ。
+    //   2 区分: 高給与 200,000 (avg) vs 低給与 100,000。加重平均 = 150,000。
+    //   高給与は +33.3% → "高給与"、低給与は -33.3% → "低給与"。
+    #[test]
+    fn emp_type_table_diff_tag_boundary() {
+        let items = vec![
+            make_emp("正社員", 50, 200_000, 195_000),
+            make_emp("パート", 50, 100_000, 95_000),
+        ];
+        let html = build_navy_emp_type_salary_table(&items, 100, false);
+        assert!(html.contains("高給与"), "高給与 tag missing: {}", html);
+        assert!(html.contains("低給与"), "低給与 tag missing: {}", html);
+    }
+
+    // [境界/零除算防御] total_count=0 でも panic せず、構成比 0.0% を出す。
+    #[test]
+    fn emp_type_table_zero_total_no_panic() {
+        let items = vec![make_emp("正社員", 5, 250_000, 240_000)];
+        let html = build_navy_emp_type_salary_table(&items, 0, false);
+        assert!(
+            html.contains("0.0%"),
+            "zero total should yield 0.0%: {}",
+            html
+        );
+        assert!(
+            html.contains("<table"),
+            "table should still render: {}",
+            html
+        );
+    }
+
+    // [境界] 空入力でも panic せず、ヘッダのみのテーブルを返す (overall_avg=0 で 0除算なし)。
+    #[test]
+    fn emp_type_table_empty_input_no_panic() {
+        let items: Vec<EmpTypeSalary> = vec![];
+        let html = build_navy_emp_type_salary_table(&items, 0, false);
+        assert!(
+            html.contains("<table"),
+            "table header should exist: {}",
+            html
+        );
+        // データ行 (<tr> with No.) は無いので caption のみ
+        assert!(html.contains("caption"), "caption missing: {}", html);
+    }
+
+    // --- build_navy_tag_premium_top10_table -------------------------------
+
+    // [データ妥当性] n < 10 のタグは除外される (統計的揺らぎ抑制)。
+    #[test]
+    fn tag_premium_excludes_small_samples() {
+        let items = vec![
+            make_tag("夜勤あり", 5, 320_000, 70_000, 28.0), // n=5 → 除外
+            make_tag("資格手当", 20, 300_000, 50_000, 20.0), // n=20 → 採用
+        ];
+        let html = build_navy_tag_premium_top10_table(&items, 250_000, false);
+        assert!(html.contains("資格手当"), "n>=10 tag must appear: {}", html);
+        assert!(
+            !html.contains("夜勤あり"),
+            "n<10 tag must be excluded: {}",
+            html
+        );
+    }
+
+    // [データ妥当性] diff_from_avg <= 0 (プレミアム無し) のタグは除外される。
+    #[test]
+    fn tag_premium_excludes_non_positive_diff() {
+        let items = vec![
+            make_tag("低賃金タグ", 30, 200_000, -50_000, -20.0), // diff<0 → 除外
+            make_tag("高プレタグ", 30, 300_000, 50_000, 20.0),   // diff>0 → 採用
+        ];
+        let html = build_navy_tag_premium_top10_table(&items, 250_000, false);
+        assert!(
+            html.contains("高プレタグ"),
+            "positive premium missing: {}",
+            html
+        );
+        assert!(
+            !html.contains("低賃金タグ"),
+            "non-positive diff tag must be excluded: {}",
+            html
+        );
+    }
+
+    // [境界] 該当タグ 0 件 (全て除外) では fallback caption を返し、table を出さない。
+    #[test]
+    fn tag_premium_empty_after_filter_shows_fallback() {
+        let items = vec![
+            make_tag("少数タグ", 3, 320_000, 70_000, 28.0), // n<10 で除外
+        ];
+        let html = build_navy_tag_premium_top10_table(&items, 250_000, false);
+        assert!(
+            !html.contains("<table"),
+            "no table when all filtered out: {}",
+            html
+        );
+        assert!(
+            html.contains("統計的に有意な件数"),
+            "fallback caption missing: {}",
+            html
+        );
+    }
+
+    // [境界] プレミアム率 +20% 以上=高プレミアム / +10% 以上=中プレミアム の閾値。
+    #[test]
+    fn tag_premium_label_boundary() {
+        let items = vec![
+            make_tag("高", 15, 350_000, 100_000, 20.0), // >=20 → 高プレミアム
+            make_tag("中", 15, 300_000, 30_000, 12.0),  // >=10 → 中プレミアム
+        ];
+        let html = build_navy_tag_premium_top10_table(&items, 250_000, false);
+        assert!(
+            html.contains("高プレミアム"),
+            "高プレミアム missing: {}",
+            html
+        );
+        assert!(
+            html.contains("中プレミアム"),
+            "中プレミアム missing: {}",
+            html
+        );
+    }
+
+    // --- build_navy_salary_summary_table + compute_distribution_stats -----
+
+    // [不変条件] DistStats の分位点は P25 <= median <= P75 <= P90 / min <= P25 / P90 <= max。
+    #[test]
+    fn dist_stats_quantile_ordering_invariant() {
+        let vals: Vec<i64> = (1..=100).map(|i| i * 10_000).collect(); // 1万..100万
+        let s = compute_distribution_stats(&vals, 10_000).expect("stats should compute");
+        assert!(s.min <= s.p25, "min<=P25: {} {}", s.min, s.p25);
+        assert!(s.p25 <= s.median, "P25<=median: {} {}", s.p25, s.median);
+        assert!(s.median <= s.p75, "median<=P75: {} {}", s.median, s.p75);
+        assert!(s.p75 <= s.p90, "P75<=P90: {} {}", s.p75, s.p90);
+        assert!(s.p90 <= s.max, "P90<=max: {} {}", s.p90, s.max);
+        // 中央値・平均は正
+        assert!(s.median > 0, "median must be positive: {}", s.median);
+        assert!(s.mean > 0, "mean must be positive: {}", s.mean);
+        // n は正値件数と一致 (全件正)
+        assert_eq!(s.n, 100, "n should equal positive count");
+    }
+
+    // [境界] 空入力 / bin_step<=0 / 全 0 値 では None を返す (silent fallback 防止)。
+    #[test]
+    fn dist_stats_returns_none_for_invalid_input() {
+        assert!(
+            compute_distribution_stats(&[], 10_000).is_none(),
+            "empty -> None"
+        );
+        assert!(
+            compute_distribution_stats(&[100_000], 0).is_none(),
+            "bin_step=0 -> None"
+        );
+        assert!(
+            compute_distribution_stats(&[100_000], -1).is_none(),
+            "bin_step<0 -> None"
+        );
+        // 全て 0 以下 (正値フィルタ後に空) → None
+        assert!(
+            compute_distribution_stats(&[0, -5, 0], 10_000).is_none(),
+            "all non-positive -> None"
+        );
+    }
+
+    // [データ妥当性] summary table は下限/上限の両行を含み、分位点が昇順で出力される。
+    //   下限 < 上限となる入力で、両者とも有効値が出る (None フォールバックではない) ことを確認。
+    #[test]
+    fn salary_summary_table_renders_both_rows_with_valid_stats() {
+        let lo_vals: Vec<i64> = (1..=50).map(|i| i * 4_000).collect(); // 0.4万..20万
+        let hi_vals: Vec<i64> = (1..=50).map(|i| i * 6_000).collect(); // 0.6万..30万
+        let lo = compute_distribution_stats(&lo_vals, 10_000);
+        let hi = compute_distribution_stats(&hi_vals, 10_000);
+        assert!(lo.is_some() && hi.is_some(), "both stats must compute");
+        let html = build_navy_salary_summary_table(&lo, &hi, false);
+        assert!(html.contains("下限給与"), "下限給与 row missing: {}", html);
+        assert!(html.contains("上限給与"), "上限給与 row missing: {}", html);
+        // None フォールバックの "colspan" による "—" 行ではないこと
+        assert!(
+            !html.contains("colspan=\"9\""),
+            "should not render the None-fallback empty row: {}",
+            html
+        );
+    }
+
+    // [境界] 両方 None でも panic せず、両行に "—" フォールバックを出す。
+    #[test]
+    fn salary_summary_table_none_inputs_show_dash_rows() {
+        let html = build_navy_salary_summary_table(&None, &None, false);
+        assert!(
+            html.contains("下限給与"),
+            "下限給与 label missing: {}",
+            html
+        );
+        assert!(
+            html.contains("上限給与"),
+            "上限給与 label missing: {}",
+            html
+        );
+        assert!(
+            html.contains("colspan=\"9\""),
+            "dash fallback row missing: {}",
+            html
+        );
+    }
 }

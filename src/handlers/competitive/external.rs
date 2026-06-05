@@ -1349,4 +1349,100 @@ mod tests {
             }
         }
     }
+
+    // ============================================================
+    // 追加テスト (silent fallback 境界 / データ妥当性 / 逆証明)
+    // ============================================================
+
+    // ---- row_f64: 不正値・負値の取り込み ----
+
+    #[test]
+    fn test_row_f64_negative_and_invalid_string() {
+        // 不正データ: salary=-100 は「データなし(None)」ではなく Some(-100.0) として
+        // そのまま透過される (クランプは表示側責務)。逆に parse 不能文字列は None。
+        let r = row_with(vec![
+            ("salary", json!(-100)),
+            ("share_str", json!("150")), // share=150% のような不正値も数値として透過
+            ("garbage", json!("abc")),
+            ("empty", json!("")),
+        ]);
+        assert_eq!(row_f64(&r, "salary"), Some(-100.0));
+        assert_eq!(row_f64(&r, "share_str"), Some(150.0));
+        // 逆証明: 文字列が数値化できない場合は silent に 0.0 とせず None
+        assert_eq!(row_f64(&r, "garbage"), None);
+        assert_eq!(row_f64(&r, "empty"), None);
+    }
+
+    #[test]
+    fn test_row_i64_negative_string() {
+        let r = row_with(vec![("delta", json!("-42"))]);
+        assert_eq!(row_i64(&r, "delta"), Some(-42));
+    }
+
+    // ---- fmt_f64: 負値は透過 (除外ではない)、表示妥当性 ----
+
+    #[test]
+    fn test_fmt_f64_negative_passthrough() {
+        // 負値は「-」(データなし) と混同されないよう数値として整形される
+        // (-5.25 は最近接偶数丸めで "-5.2")
+        assert_eq!(fmt_f64(Some(-5.25), 1), "-5.2");
+        // 負値は有限値なので "-" (データなし記号) 単体にはならない
+        let neg = fmt_f64(Some(-3.0), 0);
+        assert_ne!(neg, "-", "負値はデータなし記号と区別される");
+        assert_eq!(neg, "-3");
+    }
+
+    // ---- no_data_html: 空入力でも明示メッセージ (逆証明) ----
+
+    #[test]
+    fn test_no_data_html_never_empty() {
+        // MEMORY: feedback_silent_fallback_audit — 空文字 label でも空 HTML を返さない
+        let html = no_data_html("");
+        assert!(!html.trim().is_empty(), "空 label でも空 HTML にしない");
+        assert!(html.contains("参照できません"));
+    }
+
+    // ---- wrap_panel: title/source/note の XSS エスケープ (データ妥当性) ----
+
+    #[test]
+    fn test_wrap_panel_escapes_title_and_source() {
+        // title / source / note は escape して埋め込む契約。body のみ raw。
+        let html = wrap_panel(
+            "<b>t</b>",
+            "<i>scope</i>",
+            "<src>",
+            "<p>RAW_BODY</p>",
+            "<note>",
+        );
+        // title/scope/source/note はエスケープ
+        assert!(!html.contains("<b>t</b>"));
+        assert!(html.contains("&lt;b&gt;t&lt;/b&gt;"));
+        assert!(html.contains("&lt;src&gt;"));
+        assert!(html.contains("&lt;note&gt;"));
+        // body は raw のまま (呼び出し側で escape 済みの契約)
+        assert!(html.contains("<p>RAW_BODY</p>"));
+    }
+
+    // ---- 失業率 警告ロジックを文字列定数で逆証明 (範囲外で警告マーカー) ----
+
+    #[test]
+    fn test_unemployment_warn_marker_only_when_out_of_range() {
+        // ext_labor_force 内の match と同じ判定ロジックを再現し、
+        // 範囲内では警告なし・範囲外でのみ警告 HTML を出すことを検証。
+        fn warn_for(urate: Option<f64>) -> &'static str {
+            match urate {
+                Some(r) if !(0.0..=100.0).contains(&r) => "WARN",
+                _ => "",
+            }
+        }
+        // 正常値: 警告なし
+        assert_eq!(warn_for(Some(3.5)), "");
+        assert_eq!(warn_for(Some(0.0)), "");
+        assert_eq!(warn_for(Some(100.0)), "");
+        // None: 警告なし (データなしは別表示「-」で処理)
+        assert_eq!(warn_for(None), "");
+        // 逆証明: 380% (MEMORY: unemployment 380% 流出) で警告発火
+        assert_eq!(warn_for(Some(380.0)), "WARN");
+        assert_eq!(warn_for(Some(-1.0)), "WARN");
+    }
 }
