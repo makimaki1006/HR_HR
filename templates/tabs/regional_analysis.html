@@ -155,13 +155,25 @@ function runRegionalAnalysis() {
         + '&municipality=' + encodeURIComponent(muni)
         + '&job_type=' + encodeURIComponent(job);
 
-    htmx.ajax('GET', '/api/regional/salary_histogram?' + qs, {target: '#ra-histogram', swap: 'innerHTML'});
-    htmx.ajax('GET', '/api/regional/muni_ranking?' + qs, {target: '#ra-muni-ranking', swap: 'innerHTML'});
-    htmx.ajax('GET', '/api/regional/emp_salary?' + qs, {target: '#ra-emp-salary', swap: 'innerHTML'});
-    // Phase2: 業界別給与 / 人口ピラミッド / 最低賃金比較 / 企業成長マトリックス
-    htmx.ajax('GET', '/api/regional/job_type_salary?' + qs, {target: '#ra-job-salary', swap: 'innerHTML'});
-    htmx.ajax('GET', '/api/regional/population_pyramid?' + qs, {target: '#ra-pyramid', swap: 'innerHTML'});
-    htmx.ajax('GET', '/api/regional/wage_comparison?' + qs, {target: '#ra-wage', swap: 'innerHTML'});
-    htmx.ajax('GET', '/api/regional/company_matrix?' + qs, {target: '#ra-company-matrix', swap: 'innerHTML'});
+    // 🔴 htmx.ajax を同期で一斉発火すると htmx が同時リクエストを取りこぼし、
+    //    7パネル中2パネルしか描画されない (本番 E2E 実測 2/7、逐次なら 7/7)。
+    //    そのため promise チェーンで1本ずつ逐次実行する。1本失敗しても次へ進む。
+    var panels = [
+        ['salary_histogram', '#ra-histogram'],
+        ['muni_ranking', '#ra-muni-ranking'],
+        ['emp_salary', '#ra-emp-salary'],
+        // Phase2: 業界別給与 / 人口ピラミッド / 最低賃金比較 / 企業成長マトリックス
+        ['job_type_salary', '#ra-job-salary'],
+        ['population_pyramid', '#ra-pyramid'],
+        ['wage_comparison', '#ra-wage'],
+        ['company_matrix', '#ra-company-matrix']
+    ];
+    (function runNext(i) {
+        if (i >= panels.length) return;
+        var ep = panels[i][0], target = panels[i][1];
+        htmx.ajax('GET', '/api/regional/' + ep + '?' + qs, {target: target, swap: 'innerHTML'})
+            .then(function() { runNext(i + 1); })
+            .catch(function() { runNext(i + 1); });
+    })(0);
 }
 </script>
