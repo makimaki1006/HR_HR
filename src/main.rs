@@ -83,10 +83,17 @@ async fn main() {
         }
     };
 
-    // Turso外部統計DB接続（AppConfig 経由 - 空文字列なら未設定扱い）
+    // 3つのTurso接続 (外部統計 / SalesNow / 監査) を tokio::join! で並列初期化する。
+    // 各接続は相互に独立しており、cold start 時に直列 await すると 3回分の
+    // network round-trip + 接続テスト (SELECT 1) が積算される。並列化により
+    // 起動時間を「3接続の合計」から「最も遅い1接続」へ短縮する見込み (効果は未計測)。
+    //
     // reqwest::blocking::Client はasyncコンテキスト内で作成するとパニックするため
-    // spawn_blocking で別スレッドで初期化する
-    let turso_db =
+    // 各接続は引き続き spawn_blocking で別スレッドで初期化する。
+    // エラーハンドリングは各接続独立を維持 (1つ失敗しても他は継続)。
+
+    // --- 外部統計DB接続 future ---
+    let turso_db_fut = async {
         if !config.turso_external_url.is_empty() && !config.turso_external_token.is_empty() {
             let url = config.turso_external_url.clone();
             let token = config.turso_external_token.clone();
@@ -110,37 +117,96 @@ async fn main() {
                 "Turso external DB not configured (TURSO_EXTERNAL_URL / TURSO_EXTERNAL_TOKEN)"
             );
             None
-        };
-
-    // SalesNow Turso DB接続（企業分析タブ用、AppConfig 経由）
-    let salesnow_db = if !config.salesnow_turso_url.is_empty()
-        && !config.salesnow_turso_token.is_empty()
-    {
-        let url = config.salesnow_turso_url.clone();
-        let token = config.salesnow_turso_token.clone();
-        let url_for_log = url.clone();
-        match tokio::task::spawn_blocking(move || {
-            rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
-        })
-        .await
-        {
-            Ok(Ok(db)) => {
-                tracing::info!("SalesNow DB connected: {}", url_for_log);
-                Some(db)
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("SalesNow DB not available: {e}");
-                None
-            }
-            Err(e) => {
-                tracing::warn!("SalesNow DB init failed: {e}");
-                None
-            }
         }
-    } else {
-        tracing::info!("SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)");
-        None
     };
+
+    // --- SalesNow Turso DB接続 future (企業分析タブ用) ---
+    let salesnow_db_fut = async {
+        if !config.salesnow_turso_url.is_empty() && !config.salesnow_turso_token.is_empty() {
+            let url = config.salesnow_turso_url.clone();
+            let token = config.salesnow_turso_token.clone();
+            let url_for_log = url.clone();
+            match tokio::task::spawn_blocking(move || {
+                rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+            })
+            .await
+            {
+                Ok(Ok(db)) => {
+                    tracing::info!("SalesNow DB connected: {}", url_for_log);
+                    Some(db)
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("SalesNow DB not available: {e}");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("SalesNow DB init failed: {e}");
+                    None
+                }
+            }
+        } else {
+            tracing::info!(
+                "SalesNow DB not configured (SALESNOW_TURSO_URL / SALESNOW_TURSO_TOKEN)"
+            );
+            None
+        }
+    };
+
+    // --- 監査DB接続 future (AUDIT_TURSO_URL 未設定なら None = 監査機能OFF) ---
+    // 接続成功 → schema init の順序依存はこの future 内部で維持される。
+    // 他2接続とは独立しているため join! で並列実行可能。
+    let audit_fut = async {
+        if !config.audit_turso_url.is_empty() && !config.audit_turso_token.is_empty() {
+            let url = config.audit_turso_url.clone();
+            let token = config.audit_turso_token.clone();
+            let salt = config.audit_ip_salt.clone();
+            match tokio::task::spawn_blocking(move || {
+                rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+            })
+            .await
+            {
+                Ok(Ok(turso)) => {
+                    let audit_db = rust_dashboard::audit::AuditDb::new(turso, salt);
+                    // テーブル初期化（冪等）
+                    let turso_clone = audit_db.turso().clone();
+                    let init_res = tokio::task::spawn_blocking(move || {
+                        rust_dashboard::audit::schema::ensure_audit_tables(&turso_clone)
+                    })
+                    .await;
+                    match init_res {
+                        Ok(Ok(())) => {
+                            tracing::info!("Audit DB ready");
+                            Some(audit_db)
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("Audit schema init failed: {e}");
+                            None
+                        }
+                        Err(e) => {
+                            tracing::warn!("Audit schema init task failed: {e}");
+                            None
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Audit DB connection failed: {e}");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("Audit DB init task failed: {e}");
+                    None
+                }
+            }
+        } else {
+            tracing::info!(
+                "Audit DB not configured (AUDIT_TURSO_URL / AUDIT_TURSO_TOKEN) - 監査機能OFF"
+            );
+            None
+        }
+    };
+
+    // 3接続を並列実行 (独立処理のみ。各 future 内のエラーハンドリングで継続性を担保)
+    let (turso_db, salesnow_db, audit) = tokio::join!(turso_db_fut, salesnow_db_fut, audit_fut);
 
     let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
     let rate_limiter = RateLimiter::new(
@@ -155,54 +221,7 @@ async fn main() {
     > = None;
     tracing::info!("企業ジオコードキャッシュ: 無効（オンデマンドクエリモード）");
 
-    // 監査DB (AUDIT_TURSO_URL 未設定なら None = 監査機能OFF)
-    let audit = if !config.audit_turso_url.is_empty() && !config.audit_turso_token.is_empty() {
-        let url = config.audit_turso_url.clone();
-        let token = config.audit_turso_token.clone();
-        let salt = config.audit_ip_salt.clone();
-        match tokio::task::spawn_blocking(move || {
-            rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
-        })
-        .await
-        {
-            Ok(Ok(turso)) => {
-                let audit_db = rust_dashboard::audit::AuditDb::new(turso, salt);
-                // テーブル初期化（冪等）
-                let turso_clone = audit_db.turso().clone();
-                let init_res = tokio::task::spawn_blocking(move || {
-                    rust_dashboard::audit::schema::ensure_audit_tables(&turso_clone)
-                })
-                .await;
-                match init_res {
-                    Ok(Ok(())) => {
-                        tracing::info!("Audit DB ready");
-                        Some(audit_db)
-                    }
-                    Ok(Err(e)) => {
-                        tracing::warn!("Audit schema init failed: {e}");
-                        None
-                    }
-                    Err(e) => {
-                        tracing::warn!("Audit schema init task failed: {e}");
-                        None
-                    }
-                }
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("Audit DB connection failed: {e}");
-                None
-            }
-            Err(e) => {
-                tracing::warn!("Audit DB init task failed: {e}");
-                None
-            }
-        }
-    } else {
-        tracing::info!(
-            "Audit DB not configured (AUDIT_TURSO_URL / AUDIT_TURSO_TOKEN) - 監査機能OFF"
-        );
-        None
-    };
+    // 監査DB (audit) は上の tokio::join! で turso_db / salesnow_db と並列に初期化済み。
 
     let state = Arc::new(AppState {
         config,
@@ -244,11 +263,23 @@ async fn main() {
     let addr = format!("0.0.0.0:{port}");
     tracing::info!("Listening on http://localhost:{port}");
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(
+    // 起動失敗時は unwrap() による panic ではなく、明確なエラーログ + process::exit(1)
+    // で終了する。Render のログで原因を即座に把握できるようにする。
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind to {addr}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
-    .unwrap();
+    {
+        tracing::error!("HTTP server terminated with error: {e}");
+        std::process::exit(1);
+    }
 }
