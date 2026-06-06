@@ -293,6 +293,23 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/regional/emp_salary",
             get(handlers::regional_analysis::regional_emp_salary),
         )
+        // Phase2: navy資産展開 (業界別給与/人口ピラミッド/最賃vs給与/企業マトリックス)
+        .route(
+            "/api/regional/job_type_salary",
+            get(handlers::regional_analysis::regional_job_type_salary),
+        )
+        .route(
+            "/api/regional/population_pyramid",
+            get(handlers::regional_analysis::regional_population_pyramid),
+        )
+        .route(
+            "/api/regional/wage_comparison",
+            get(handlers::regional_analysis::regional_wage_comparison),
+        )
+        .route(
+            "/api/regional/company_matrix",
+            get(handlers::regional_analysis::regional_company_matrix),
+        )
         .route("/tab/trend", get(handlers::trend::tab_trend))
         .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
         .route("/tab/insight", get(handlers::insight::tab_insight))

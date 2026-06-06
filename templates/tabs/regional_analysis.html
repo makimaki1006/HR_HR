@@ -66,6 +66,26 @@
             <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します</p></div>
         </div>
     </div>
+
+    <!-- パネル4: 業界別 給与中央値比較 (横棒) -->
+    <div id="ra-job-salary" role="region" aria-live="polite" aria-label="業界別給与中央値比較">
+        <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します</p></div>
+    </div>
+
+    <!-- パネル5 + 6: 人口ピラミッド / 最低賃金 vs 給与中央値 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div id="ra-pyramid" role="region" aria-live="polite" aria-label="人口ピラミッド">
+            <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (国勢調査による地域の実人口統計)</p></div>
+        </div>
+        <div id="ra-wage" role="region" aria-live="polite" aria-label="最低賃金と給与中央値の比較">
+            <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (最低賃金は都道府県値)</p></div>
+        </div>
+    </div>
+
+    <!-- パネル7: 企業成長マトリックス (外部企業データ) -->
+    <div id="ra-company-matrix" role="region" aria-live="polite" aria-label="企業成長マトリックス">
+        <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (外部企業データ)</p></div>
+    </div>
 </div>
 
 <script>
@@ -138,5 +158,10 @@ function runRegionalAnalysis() {
     htmx.ajax('GET', '/api/regional/salary_histogram?' + qs, {target: '#ra-histogram', swap: 'innerHTML'});
     htmx.ajax('GET', '/api/regional/muni_ranking?' + qs, {target: '#ra-muni-ranking', swap: 'innerHTML'});
     htmx.ajax('GET', '/api/regional/emp_salary?' + qs, {target: '#ra-emp-salary', swap: 'innerHTML'});
+    // Phase2: 業界別給与 / 人口ピラミッド / 最低賃金比較 / 企業成長マトリックス
+    htmx.ajax('GET', '/api/regional/job_type_salary?' + qs, {target: '#ra-job-salary', swap: 'innerHTML'});
+    htmx.ajax('GET', '/api/regional/population_pyramid?' + qs, {target: '#ra-pyramid', swap: 'innerHTML'});
+    htmx.ajax('GET', '/api/regional/wage_comparison?' + qs, {target: '#ra-wage', swap: 'innerHTML'});
+    htmx.ajax('GET', '/api/regional/company_matrix?' + qs, {target: '#ra-company-matrix', swap: 'innerHTML'});
 }
 </script>
