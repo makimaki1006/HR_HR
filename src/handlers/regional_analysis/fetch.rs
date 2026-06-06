@@ -10,6 +10,7 @@
 //! - DISPLAY_SPEC §2 遵守: 求人「件数」は表示。求職者「人数」推定は生成しない。
 
 use crate::handlers::competitive::escape_html;
+use crate::handlers::helpers::{normalize_muni_for_external, strip_county_prefix};
 use crate::AppState;
 
 /// 地域×業界フィルタ。
@@ -91,6 +92,65 @@ pub(crate) struct EmpSalaryRow {
     pub employment_type: String,
     pub count: i64,
     pub median_salary: Option<i64>,
+}
+
+// --- Phase2 データ型 ---
+
+/// 業界別給与比較 1 行 (postings job_type 別)。
+pub(crate) struct JobTypeSalaryRow {
+    pub job_type: String,
+    pub count: i64,
+    pub median_salary: Option<i64>,
+    /// 当該フィルタで選択中の業界か (ハイライト用)。
+    pub highlighted: bool,
+}
+
+/// 人口ピラミッド 1 階級 (5 歳階級別 男女別人口)。
+///
+/// DISPLAY_SPEC §2: これは実統計 (国勢調査) の「人口」であり表示可。
+/// 求人側の求職者人数推定ではない。
+pub(crate) struct PyramidBand {
+    pub age_group: String,
+    pub male_count: i64,
+    pub female_count: i64,
+}
+
+/// 人口ピラミッド集計結果 (粒度メタ情報付き)。
+pub(crate) struct PopulationPyramid {
+    pub bands: Vec<PyramidBand>,
+    /// 集計粒度ラベル ("市区町村" or "都道府県")。
+    pub granularity: String,
+    /// 集計対象エリア名 (escape 前)。render は scope_label を使うため未使用だが
+    /// デバッグ・将来拡張用に保持。
+    #[allow(dead_code)]
+    pub area_name: String,
+    pub has_data: bool,
+}
+
+/// 最低賃金 vs 給与中央値の比較結果 (都道府県粒度)。
+pub(crate) struct WageComparison {
+    /// 最低賃金 (時給, 円)。取得不能時 None。
+    pub hourly_min_wage: Option<f64>,
+    /// 給与中央値 (月給, 円)。算出不能時 None。
+    pub median_monthly: Option<i64>,
+    /// 月給中央値の時給換算 (円)。月 173.8h 換算 (法定労働時間ベース)。
+    pub median_hourly: Option<f64>,
+    /// 集計件数 (月給・有効レンジ)。
+    pub count: i64,
+    pub has_data: bool,
+}
+
+/// 企業成長マトリックス 1 点 (外部企業データ 1 社)。
+///
+/// UI には "SalesNow" 固有名を出さない (「外部企業データ」表記)。
+pub(crate) struct CompanyPoint {
+    pub company_name: String,
+    /// 従業員数。
+    pub employee_count: i64,
+    /// 過去1年の人員増減率 (%)。
+    pub growth_rate_1y: f64,
+    /// 業種 (外部企業データの業種区分)。
+    pub industry: String,
 }
 
 // --- カスケードフィルタ用一覧取得 ---
@@ -408,6 +468,328 @@ pub(crate) fn fetch_emp_salary_stats(
         });
     }
     out
+}
+
+// --- Phase2 集計 ---
+
+/// 4) 業界別給与比較 (postings job_type 別 中央値・件数)。
+///
+/// 都道府県 (+市区町村) 内の業界ごとに件数と給与中央値を算出。
+/// filter.job_type が非空のとき当該業界に `highlighted=true` を立てる。
+/// 件数降順、上限 `limit` 件。hw_db (postings) を集計。
+pub(crate) fn fetch_job_type_salary(
+    db: &crate::db::local_sqlite::LocalDb,
+    filter: &RegionalFilter,
+    limit: usize,
+) -> Vec<JobTypeSalaryRow> {
+    if filter.prefecture.is_empty() {
+        return Vec::new();
+    }
+
+    // 業界比較では filter.job_type は「ハイライト対象」としてのみ使い、
+    // 集計母集団からは除外しない (全業界を並べて比較するため)。
+    let mut count_sql = String::from(
+        "SELECT job_type, COUNT(*) as cnt FROM postings \
+         WHERE prefecture = ? AND job_type IS NOT NULL AND job_type != ''",
+    );
+    let mut params: Vec<String> = vec![filter.prefecture.clone()];
+    if !filter.municipality.is_empty() {
+        count_sql.push_str(" AND municipality = ?");
+        params.push(filter.municipality.clone());
+    }
+    count_sql.push_str(" GROUP BY job_type ORDER BY cnt DESC");
+    count_sql.push_str(&format!(" LIMIT {}", limit.max(1)));
+
+    let bind: Vec<&dyn rusqlite::types::ToSql> = params
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows = match db.query(&count_sql, &bind) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("regional_analysis job_type salary failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    let mut out: Vec<JobTypeSalaryRow> = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let jt = match r.get("job_type").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
+        };
+        let count = r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        // 当該業界の月給中央値
+        let jt_filter = RegionalFilter {
+            prefecture: filter.prefecture.clone(),
+            municipality: filter.municipality.clone(),
+            job_type: jt.clone(),
+        };
+        let (wc, wparams) = jt_filter.where_clause();
+        let salaries = fetch_salary_min_values(db, &wc, &wparams);
+        let median_salary = median_sorted(&salaries);
+
+        let highlighted = !filter.job_type.is_empty() && filter.job_type == jt;
+        out.push(JobTypeSalaryRow {
+            job_type: jt,
+            count,
+            median_salary,
+            highlighted,
+        });
+    }
+    out
+}
+
+/// 5) 人口ピラミッド (v2_external_population_pyramid)。
+///
+/// 市区町村指定時はその市区町村粒度、未指定時は都道府県集計。
+/// turso_db を優先し無ければローカル hw_db にフォールバック。
+/// postings (郡名込み) と外部統計 (郡名なし) の不一致は
+/// normalize_muni_for_external で吸収。
+pub(crate) fn fetch_population_pyramid(
+    state: &AppState,
+    filter: &RegionalFilter,
+) -> PopulationPyramid {
+    let empty = |granularity: &str, area: &str| PopulationPyramid {
+        bands: Vec::new(),
+        granularity: granularity.to_string(),
+        area_name: area.to_string(),
+        has_data: false,
+    };
+
+    if filter.prefecture.is_empty() {
+        return empty("都道府県", "");
+    }
+
+    // 粒度・SQL・パラメータの決定。
+    let (granularity, area_name, sql, params): (String, String, String, Vec<String>) =
+        if !filter.municipality.is_empty() {
+            let ext_muni = normalize_muni_for_external(&filter.prefecture, &filter.municipality);
+            (
+                "市区町村".to_string(),
+                format!("{} {}", filter.prefecture, filter.municipality),
+                "SELECT age_group, male_count, female_count \
+                 FROM v2_external_population_pyramid \
+                 WHERE prefecture = ? AND municipality = ?"
+                    .to_string(),
+                vec![filter.prefecture.clone(), ext_muni],
+            )
+        } else {
+            (
+                "都道府県".to_string(),
+                filter.prefecture.clone(),
+                "SELECT age_group, SUM(male_count) as male_count, \
+                 SUM(female_count) as female_count \
+                 FROM v2_external_population_pyramid \
+                 WHERE prefecture = ? GROUP BY age_group"
+                    .to_string(),
+                vec![filter.prefecture.clone()],
+            )
+        };
+
+    // Turso 優先 → ローカルフォールバック。
+    let rows = query_external(state, &sql, &params);
+
+    let bands: Vec<PyramidBand> = rows
+        .iter()
+        .filter_map(|r| {
+            let age = r.get("age_group").and_then(|v| v.as_str())?.to_string();
+            if age.is_empty() {
+                return None;
+            }
+            let male = r.get("male_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            let female = r.get("female_count").and_then(|v| v.as_i64()).unwrap_or(0);
+            Some(PyramidBand {
+                age_group: age,
+                male_count: male,
+                female_count: female,
+            })
+        })
+        .filter(|b| b.male_count > 0 || b.female_count > 0)
+        .collect();
+
+    if bands.is_empty() {
+        return empty(&granularity, &area_name);
+    }
+    PopulationPyramid {
+        bands,
+        granularity,
+        area_name,
+        has_data: true,
+    }
+}
+
+/// 月給中央値の時給換算で使う月間労働時間 (h)。
+/// 法定労働時間 40h/週 × 52週 ÷ 12月 ≒ 173.3h。丸めて 173.8 を使用。
+const MONTHLY_WORK_HOURS: f64 = 173.8;
+
+/// 6) 最低賃金 vs 給与中央値 (都道府県粒度)。
+///
+/// 最低賃金は v2_external_minimum_wage の都道府県値 (時給)。
+/// 給与中央値は postings の月給・有効レンジから算出し、時給換算も併記。
+/// 最低賃金は常に都道府県値である旨を render 側で明記する。
+pub(crate) fn fetch_wage_comparison(state: &AppState, filter: &RegionalFilter) -> WageComparison {
+    let empty = WageComparison {
+        hourly_min_wage: None,
+        median_monthly: None,
+        median_hourly: None,
+        count: 0,
+        has_data: false,
+    };
+    if filter.prefecture.is_empty() {
+        return empty;
+    }
+
+    // 最低賃金 (都道府県値, 時給) — turso_db 優先。
+    let wage_sql = "SELECT hourly_min_wage FROM v2_external_minimum_wage WHERE prefecture = ?";
+    let wage_rows = query_external(state, wage_sql, &[filter.prefecture.clone()]);
+    let hourly_min_wage = wage_rows
+        .first()
+        .and_then(|r| r.get("hourly_min_wage"))
+        .and_then(|v| v.as_f64());
+
+    // 給与中央値 (月給) — postings (hw_db) から。市区町村/業界フィルタ連動。
+    let (median_monthly, count): (Option<i64>, i64) = match &state.hw_db {
+        Some(db) => {
+            let (wc, wparams) = filter.where_clause();
+            let salaries = fetch_salary_min_values(db, &wc, &wparams);
+            (median_sorted(&salaries), salaries.len() as i64)
+        }
+        None => (None, 0),
+    };
+
+    let median_hourly = median_monthly.map(|m| m as f64 / MONTHLY_WORK_HOURS);
+
+    let has_data = hourly_min_wage.is_some() || median_monthly.is_some();
+    if !has_data {
+        return empty;
+    }
+    WageComparison {
+        hourly_min_wage,
+        median_monthly,
+        median_hourly,
+        count,
+        has_data: true,
+    }
+}
+
+/// 7) 企業成長マトリックス (外部企業データ = v2_salesnow_companies)。
+///
+/// UI には "SalesNow" 固有名を出さない (「外部企業データ」)。
+/// salesnow_db を使用。市区町村指定時は address LIKE で絞り込み。
+/// 成長率 (employee_delta_1y, %) × 従業員数 の散布図用ポイントを返す。
+pub(crate) fn fetch_company_matrix(
+    state: &AppState,
+    filter: &RegionalFilter,
+    limit: usize,
+) -> Vec<CompanyPoint> {
+    let sn_db = match state.salesnow_db.as_ref() {
+        Some(db) => db,
+        None => return Vec::new(),
+    };
+    if filter.prefecture.is_empty() {
+        return Vec::new();
+    }
+
+    let (sql, params): (String, Vec<String>) = if !filter.municipality.is_empty() {
+        // 市区町村は address LIKE で絞り込む (郡名込みでも部分一致するよう
+        // strip 後の muni 名を使用)。
+        let muni_key = strip_county_prefix(&filter.municipality);
+        let muni_pattern = format!("%{}%", muni_key);
+        (
+            format!(
+                "SELECT company_name, employee_count, employee_delta_1y, sn_industry \
+                 FROM v2_salesnow_companies \
+                 WHERE prefecture = ? AND address LIKE ? \
+                   AND employee_count > 0 AND employee_delta_1y IS NOT NULL \
+                 ORDER BY employee_count DESC LIMIT {}",
+                limit.max(1)
+            ),
+            vec![filter.prefecture.clone(), muni_pattern],
+        )
+    } else {
+        (
+            format!(
+                "SELECT company_name, employee_count, employee_delta_1y, sn_industry \
+                 FROM v2_salesnow_companies \
+                 WHERE prefecture = ? \
+                   AND employee_count > 0 AND employee_delta_1y IS NOT NULL \
+                 ORDER BY employee_count DESC LIMIT {}",
+                limit.max(1)
+            ),
+            vec![filter.prefecture.clone()],
+        )
+    };
+
+    let bind: Vec<&dyn crate::db::turso_http::ToSqlTurso> = params
+        .iter()
+        .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
+        .collect();
+    let rows = match sn_db.query(&sql, &bind) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("regional_analysis company matrix query failed: {e}");
+            return Vec::new();
+        }
+    };
+
+    rows.iter()
+        .filter_map(|r| {
+            let name = r.get("company_name").and_then(|v| v.as_str())?.to_string();
+            let emp = r
+                .get("employee_count")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            if emp <= 0 {
+                return None;
+            }
+            let growth = r.get("employee_delta_1y").and_then(|v| v.as_f64())?;
+            let industry = r
+                .get("sn_industry")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(CompanyPoint {
+                company_name: name,
+                employee_count: emp,
+                growth_rate_1y: growth,
+                industry,
+            })
+        })
+        .collect()
+}
+
+/// 外部統計クエリ (Turso 優先 → ローカル hw_db フォールバック)。
+/// competitive::external::query_external と同等の挙動。
+fn query_external(
+    state: &AppState,
+    sql: &str,
+    params: &[String],
+) -> Vec<std::collections::HashMap<String, serde_json::Value>> {
+    if let Some(tdb) = state.turso_db.as_ref() {
+        let p: Vec<&dyn crate::db::turso_http::ToSqlTurso> = params
+            .iter()
+            .map(|s| s as &dyn crate::db::turso_http::ToSqlTurso)
+            .collect();
+        match tdb.query(sql, &p) {
+            Ok(rows) if !rows.is_empty() => return rows,
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(
+                    "regional_analysis Turso external query failed, fallback local: {e}"
+                );
+            }
+        }
+    }
+    if let Some(db) = state.hw_db.as_ref() {
+        let p: Vec<&dyn rusqlite::types::ToSql> = params
+            .iter()
+            .map(|s| s as &dyn rusqlite::types::ToSql)
+            .collect();
+        return db.query(sql, &p).unwrap_or_default();
+    }
+    Vec::new()
 }
 
 #[cfg(test)]
