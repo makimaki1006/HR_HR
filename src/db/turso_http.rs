@@ -29,8 +29,10 @@ impl TursoDb {
             url.to_string()
         };
 
+        // timeout: warm-up (.github/workflows/warm-up.yml) の 60s より短く設定し、
+        // network delay 耐性を確保するため 30s → 45s に引き上げ。
         let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(45))
             .build()
             .map_err(|e| format!("HTTP client creation failed: {e}"))?;
 

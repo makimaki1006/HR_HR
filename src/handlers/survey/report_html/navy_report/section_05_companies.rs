@@ -1156,4 +1156,261 @@ mod tests {
         assert!((confidence_score_from_posting_count(-1) - 0.0).abs() < 1e-9);
         assert!((confidence_score_from_posting_count(-100) - 0.0).abs() < 1e-9);
     }
+
+    // ========================================================================
+    // 追加テスト (テスト品質強化, 2026-06-05): データ妥当性 / 境界 / 不変条件
+    // 対象純粋関数: select_notable_companies / build_navy_csv_company_salary_table /
+    //              build_navy_notable_companies_block / build_companies_so_what
+    // ========================================================================
+
+    fn make_csv_company(
+        name: &str,
+        posting_count: i64,
+        lower: f64,
+        upper: f64,
+    ) -> CsvCompanySalary {
+        CsvCompanySalary {
+            facility_name: name.to_string(),
+            posting_count,
+            salary_lower_median: lower,
+            salary_upper_median: upper,
+            native_unit: "月給".to_string(),
+        }
+    }
+
+    // --- select_notable_companies -----------------------------------------
+
+    // [境界] 空 ranking / top_n=0 では空 Vec (silent fallback ではなく明示防御)。
+    #[test]
+    fn notable_empty_for_empty_or_zero_topn() {
+        let empty: Vec<CsvCompanySalary> = vec![];
+        assert!(
+            select_notable_companies(&empty, 5).is_empty(),
+            "empty ranking -> []"
+        );
+        let one = vec![make_csv_company("A", 3, 20.0, 30.0)];
+        assert!(
+            select_notable_companies(&one, 0).is_empty(),
+            "top_n=0 -> []"
+        );
+    }
+
+    // [不変条件] 戻り値サイズ <= 2 * top_n、かつ重複なし (和集合)。
+    #[test]
+    fn notable_size_within_bound_and_unique() {
+        // ranking は upper_median 降順前提。求人数は別順。
+        let ranking = vec![
+            make_csv_company("A", 1, 50.0, 60.0),
+            make_csv_company("B", 9, 45.0, 55.0),
+            make_csv_company("C", 2, 40.0, 50.0),
+            make_csv_company("D", 8, 35.0, 45.0),
+            make_csv_company("E", 3, 30.0, 40.0),
+            make_csv_company("F", 7, 25.0, 35.0),
+        ];
+        let top_n = 2;
+        let result = select_notable_companies(&ranking, top_n);
+        assert!(
+            result.len() <= 2 * top_n,
+            "result size {} must be <= 2*top_n ({})",
+            result.len(),
+            2 * top_n
+        );
+        // 重複なし: facility_name で一意性を確認
+        let mut names: Vec<&str> = result.iter().map(|c| c.facility_name.as_str()).collect();
+        let before = names.len();
+        names.sort();
+        names.dedup();
+        assert_eq!(
+            before,
+            names.len(),
+            "result must contain no duplicate companies"
+        );
+    }
+
+    // [データ妥当性] 求人数 top と 給与 top が重複する場合、和集合で 1 件にまとまる
+    //   (size < 2*top_n)。同一企業が両軸 top のケース。
+    #[test]
+    fn notable_union_dedups_overlap() {
+        // 求人数最多 (=10) と 給与最高 (upper=60, ranking 先頭) が同一企業 A。
+        let ranking = vec![
+            make_csv_company("A", 10, 50.0, 60.0), // 給与 top1 かつ 求人数 top1
+            make_csv_company("B", 2, 45.0, 55.0),
+            make_csv_company("C", 1, 40.0, 50.0),
+        ];
+        let result = select_notable_companies(&ranking, 1);
+        // posting_top={A}, salary_top={A} → 和集合 = {A} のみ
+        assert_eq!(
+            result.len(),
+            1,
+            "overlap should dedup to 1: {:?}",
+            result.iter().map(|c| &c.facility_name).collect::<Vec<_>>()
+        );
+        assert_eq!(result[0].facility_name, "A");
+    }
+
+    // --- build_navy_csv_company_salary_table ------------------------------
+
+    // [不変条件] レンジ幅 = upper - lower は非負 (upper < lower の異常データでも 0 にクランプ)。
+    //   設計上 fetch SQL で upper>=lower 保証だが、二重防衛の max(0) を逆証明する。
+    #[test]
+    fn csv_salary_table_range_width_never_negative() {
+        // 異常データ: upper < lower
+        let ranking = vec![make_csv_company("異常社", 5, 40.0, 20.0)];
+        let html = build_navy_csv_company_salary_table(&ranking, 10);
+        // レンジ幅セルは "0.0" にクランプされ、負のレンジ幅 "-20.0" は出ない。
+        // (注: HTML 全体には "block-title" 等のハイフンがあるため、負値リテラルで検証する)
+        assert!(
+            !html.contains("-20.0"),
+            "range width must be clamped to >=0, no -20.0: {}",
+            html
+        );
+        assert!(
+            html.contains("0.0"),
+            "clamped range width 0.0 expected: {}",
+            html
+        );
+    }
+
+    // [データ妥当性] 正常データではレンジ幅 = upper - lower が正しく出力される。
+    #[test]
+    fn csv_salary_table_range_width_correct() {
+        let ranking = vec![make_csv_company("正常社", 6, 25.0, 35.0)];
+        let html = build_navy_csv_company_salary_table(&ranking, 10);
+        // 下限 25.0 / 上限 35.0 / レンジ 10.0 が出る
+        assert!(html.contains("25.0"), "lower 25.0 missing: {}", html);
+        assert!(html.contains("35.0"), "upper 35.0 missing: {}", html);
+        assert!(html.contains("10.0"), "range width 10.0 missing: {}", html);
+        assert!(html.contains("正常社"), "facility name missing: {}", html);
+    }
+
+    // [境界] 空 ranking では「該当企業なし」fallback 行 (colspan=7) を出す。
+    #[test]
+    fn csv_salary_table_empty_shows_fallback() {
+        let ranking: Vec<CsvCompanySalary> = vec![];
+        let html = build_navy_csv_company_salary_table(&ranking, 10);
+        assert!(
+            html.contains("該当企業なし"),
+            "empty fallback missing: {}",
+            html
+        );
+        assert!(
+            html.contains("colspan=\"7\""),
+            "colspan 7 fallback row missing: {}",
+            html
+        );
+    }
+
+    // [境界] limit による truncate: 3 件 + limit=2 で 2 行のみ (header 含め <tr> 3 個)。
+    #[test]
+    fn csv_salary_table_respects_limit() {
+        let ranking = vec![
+            make_csv_company("A", 5, 50.0, 60.0),
+            make_csv_company("B", 4, 40.0, 50.0),
+            make_csv_company("C", 3, 30.0, 40.0),
+        ];
+        let html = build_navy_csv_company_salary_table(&ranking, 2);
+        let tr_count = html.matches("<tr").count();
+        assert_eq!(
+            tr_count, 3,
+            "expected 3 <tr> (1 head + 2 data), got {}: {}",
+            tr_count, html
+        );
+        assert!(html.contains("A") && html.contains("B"), "top 2 present");
+        assert!(!html.contains(">C<"), "C should be truncated: {}", html);
+    }
+
+    // --- build_navy_notable_companies_block -------------------------------
+
+    // [境界] 空 ranking では空文字列 (block を出さない)。
+    #[test]
+    fn notable_block_empty_for_empty_ranking() {
+        let ranking: Vec<CsvCompanySalary> = vec![];
+        let html = build_navy_notable_companies_block(&ranking, 5);
+        assert_eq!(html, "", "empty ranking -> empty block");
+    }
+
+    // [データ妥当性] 非空 ranking では table が出力され、給与レンジ (lower〜upper) が含まれる。
+    #[test]
+    fn notable_block_renders_salary_range() {
+        let ranking = vec![make_csv_company("注目社", 7, 28.0, 38.0)];
+        let html = build_navy_notable_companies_block(&ranking, 5);
+        assert!(html.contains("<table"), "table should render: {}", html);
+        assert!(html.contains("注目社"), "company name missing: {}", html);
+        assert!(
+            html.contains("28.0") && html.contains("38.0"),
+            "range missing: {}",
+            html
+        );
+    }
+
+    // --- build_companies_so_what ------------------------------------------
+
+    // [境界] トップ産業シェア >=25% → 主産業依存型。
+    #[test]
+    fn companies_so_what_concentration_high() {
+        let industries = vec![
+            ("製造業".to_string(), 50_i64),
+            ("卸売業".to_string(), 30),
+            ("サービス業".to_string(), 20),
+        ];
+        let total = 100;
+        let html = build_companies_so_what(&industries, total, 10, 0, 0, false);
+        assert!(
+            html.contains("主産業依存型"),
+            "50% top share -> 主産業依存型: {}",
+            html
+        );
+    }
+
+    // [境界] トップ産業シェア 15-25% → 複合型。
+    #[test]
+    fn companies_so_what_concentration_mixed() {
+        let industries = vec![
+            ("製造業".to_string(), 20_i64),
+            ("卸売業".to_string(), 18),
+            ("小売業".to_string(), 17),
+            ("その他".to_string(), 45),
+        ];
+        let total = 100;
+        let html = build_companies_so_what(&industries, total, 10, 0, 0, false);
+        assert!(html.contains("複合型"), "20% top share -> 複合型: {}", html);
+    }
+
+    // [境界] トップ産業シェア <15% → 分散型。
+    #[test]
+    fn companies_so_what_concentration_dispersed() {
+        let industries = vec![
+            ("A".to_string(), 10_i64),
+            ("B".to_string(), 10),
+            ("C".to_string(), 10),
+            ("rest".to_string(), 70),
+        ];
+        let total = 100;
+        let html = build_companies_so_what(&industries, total, 10, 0, 0, false);
+        assert!(html.contains("分散型"), "10% top share -> 分散型: {}", html);
+    }
+
+    // [境界/零除算防御] industry_total=0 でも panic せず、産業構成データなしの文言を返す。
+    #[test]
+    fn companies_so_what_zero_total_no_panic() {
+        let industries: Vec<(String, i64)> = vec![];
+        let html = build_companies_so_what(&industries, 0, 0, 0, 0, false);
+        assert!(
+            html.contains("業種傾向は判定困難") || html.contains("取得できなかった"),
+            "zero total -> data-absent text: {}",
+            html
+        );
+    }
+
+    // [境界] pool_size=0 では競合分析が限定的である旨の注記が付く。
+    #[test]
+    fn companies_so_what_zero_pool_adds_note() {
+        let industries = vec![("製造業".to_string(), 60_i64), ("その他".to_string(), 40)];
+        let html = build_companies_so_what(&industries, 100, 0, 0, 0, false);
+        assert!(
+            html.contains("競合分析は限定的"),
+            "pool_size=0 -> limited note: {}",
+            html
+        );
+    }
 }

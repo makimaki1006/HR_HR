@@ -1,0 +1,480 @@
+# =============================================================================
+# data_sources.yaml — データソース・レジストリ (機械可読カタログ)
+# =============================================================================
+# docs/DATA_CATALOG.md の §1 を機械可読化したもの。
+# pipeline.py がこれを読み、「○○のデータ更新」を共通フローで回す。
+#
+# 🔴 CLAUDE.md: Claude による DB 書き込み禁止。
+#   upload(投入) フェーズは pipeline.py が "手動実行コマンド" を表示するのみ。
+#   実際の Turso 投入はユーザーが手動で行う。
+#
+# 各エントリのフィールド:
+#   name         : 一意キー (pipeline.py --update <name> で指定)
+#   source       : 取得元系統 (hw / hw_timeseries / salesnow / e-stat / manual / other-api)
+#   stats_data_id: e-Stat statsDataId (該当する場合)
+#   fetch        : 取得スクリプト (scripts/ 配下、省略可)
+#   transform    : 加工スクリプト (scripts/ 配下、省略可)
+#   upload       : 投入スクリプト (手動実行対象、省略可)
+#   table        : 投入先テーブル名
+#   granularity  : prefecture / municipality / national / facility / corporate / od
+#   freshness_col: 鮮度カラム (null = 鮮度メタなし。要改善)
+#   frequency    : monthly / quarterly / yearly / quinquennial(5年) / irregular / continuous
+#   manual_consts: 年度更新時に手で直す定数 (compute_v2_external.py 等。空配列=なし)
+#   tabs         : 活用先タブ (jobmap/survey/competitive/company=表示4タブ,
+#                  navy=採用診断レポート, analysis/karte/trend 等=非表示タブ)
+#   status       : visible(表示4タブ) / report(navyのみ) / hidden(非表示タブのみ) / unused
+#   notes        : 補足
+# =============================================================================
+
+sources:
+  # ---- HW 本体 ----
+  - name: hw_postings
+    source: hw
+    fetch: null            # 別パイプライン (スクレイピング→分類→SQLite)
+    transform: null
+    upload: null
+    table: postings
+    granularity: municipality
+    freshness_col: null
+    source_as_of: "continuous(都度最新)"
+    frequency: continuous
+    manual_consts: []
+    tabs: [jobmap, survey, competitive, company, navy]
+    status: visible
+    notes: 郡名込み市区町村。外部統計との JOIN は strip_county_prefix 必須
+
+  # ---- HW 時系列 ----
+  - name: hw_ts_counts
+    source: hw_timeseries
+    fetch: null
+    transform: null
+    upload: upload_to_turso.py
+    table: ts_turso_counts
+    granularity: prefecture
+    freshness_col: snapshot_id
+    frequency: monthly
+    manual_consts: []
+    tabs: [trend, navy]
+    status: report
+    notes: snapshot_id フォーマット未統一(YYYYMM推奨)。muni粒度なし
+  - name: hw_ts_salary
+    source: hw_timeseries
+    upload: upload_to_turso.py
+    table: ts_turso_salary
+    granularity: prefecture
+    freshness_col: snapshot_id
+    frequency: monthly
+    manual_consts: []
+    tabs: [trend]
+    status: hidden
+  - name: hw_ts_vacancy
+    source: hw_timeseries
+    upload: upload_to_turso.py
+    table: ts_turso_vacancy
+    granularity: prefecture
+    freshness_col: snapshot_id
+    frequency: monthly
+    manual_consts: []
+    tabs: [trend]
+    status: hidden
+
+  # ---- SalesNow ----
+  - name: salesnow_companies
+    source: salesnow
+    fetch: fetch_salesnow_companies.py
+    transform: null
+    upload: upload_salesnow_to_turso.py
+    table: v2_salesnow_companies
+    granularity: corporate
+    freshness_col: collated_at
+    frequency: irregular
+    manual_consts: []
+    tabs: [company, jobmap]
+    status: visible
+    notes: HubSpot API 44フィールド。UIで"SalesNow"固有名は出さない(外部企業データベース表記)
+  - name: company_geocode
+    source: salesnow
+    fetch: build_company_geocode.py
+    transform: null
+    upload: upload_company_geocode_to_turso.py
+    table: v2_company_geocode
+    granularity: corporate
+    freshness_col: null
+    source_as_of: "irregular"
+    frequency: irregular
+    manual_consts: []
+    tabs: [jobmap]
+    status: visible
+
+  # ---- e-Stat 人口・国勢調査 ----
+  - name: population
+    source: e-stat
+    stats_data_id: "0003445236"
+    fetch: fetch_estat_resident_population.py
+    transform: ingest_resident_to_external_population.py
+    upload: upload_to_turso.py
+    table: v2_external_population
+    granularity: municipality
+    freshness_col: reference_date
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [jobmap, company, navy]
+    status: visible
+  - name: population_pyramid
+    source: e-stat
+    stats_data_id: "0003445236"
+    fetch: fetch_estat_resident_population.py
+    transform: ingest_resident_to_external_population.py
+    upload: upload_to_turso.py
+    table: v2_external_population_pyramid
+    granularity: municipality
+    freshness_col: null
+    source_as_of: "R2(2020)"
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [jobmap, navy]
+    status: visible
+    notes: 鮮度カラムなし(要改善)
+  - name: occupation_population
+    source: e-stat
+    stats_data_id: "0003454508"
+    fetch: fetch_estat_15_1.py
+    transform: ingest_estat_15_1_to_local.py
+    upload: null
+    table: municipality_occupation_population
+    granularity: municipality
+    freshness_col: survey_year
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [analysis]
+    status: hidden
+    notes: 729,949行。詳細分析(MI)のみ=非表示。表示タブ移植候補
+  - name: education
+    source: e-stat
+    stats_data_id: "0003450543"
+    fetch: fetch_census_demographics.py
+    transform: import_external_csv.py
+    upload: upload_new_external_to_turso.py
+    table: v2_external_education
+    granularity: prefecture
+    freshness_col: null
+    source_as_of: "R2(2020)"
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [competitive]
+    status: visible
+    notes: 鮮度カラムなし(要改善)
+  - name: household
+    source: e-stat
+    stats_data_id: "0003445080"
+    fetch: fetch_census_demographics.py
+    transform: import_external_csv.py
+    upload: upload_new_external_to_turso.py
+    table: v2_external_household
+    granularity: prefecture
+    freshness_col: null
+    source_as_of: "R2(2020)"
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [competitive]
+    status: visible
+
+  # ---- e-Stat 労働 ----
+  - name: labor_stats
+    source: e-stat
+    stats_data_id: "0000010206"
+    fetch: import_estat_labor_stats.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_labor_stats
+    granularity: prefecture
+    freshness_col: fiscal_year
+    frequency: yearly
+    manual_consts: []
+    tabs: [competitive, navy]
+    status: visible
+  - name: job_openings_ratio
+    source: e-stat
+    stats_data_id: "0000010206"
+    fetch: import_estat_timeseries.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_job_openings_ratio
+    granularity: prefecture
+    freshness_col: fiscal_year
+    frequency: yearly
+    manual_consts: []
+    tabs: [competitive]
+    status: visible
+  - name: turnover
+    source: e-stat
+    stats_data_id: "0003376330"
+    fetch: fetch_turnover_data.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_turnover
+    granularity: prefecture
+    freshness_col: fiscal_year
+    frequency: yearly
+    manual_consts: []
+    tabs: [competitive]
+    status: visible
+
+  # ---- e-Stat 産業・事業所 ----
+  - name: establishments
+    source: e-stat
+    stats_data_id: "0004005687"
+    fetch: fetch_establishments.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_establishments
+    granularity: prefecture
+    freshness_col: reference_year
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [company]
+    status: visible
+  - name: industry_structure
+    source: e-stat
+    stats_data_id: "0003449718"
+    fetch: fetch_industry_structure.py
+    transform: ingest_industry_structure_to_local.py
+    upload: upload_new_external_to_turso.py
+    table: v2_external_industry_structure
+    granularity: municipality
+    freshness_col: null
+    source_as_of: "R3(2021)"
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [competitive, company]
+    status: visible
+    notes: 鮮度カラムなし(要改善)
+
+  # ---- e-Stat 家計・生活 ----
+  - name: household_spending
+    source: e-stat
+    stats_data_id: "0002070003"
+    fetch: fetch_household_spending.py
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_household_spending
+    granularity: prefecture
+    freshness_col: year
+    frequency: yearly
+    manual_consts: [TIME_CODE, REFERENCE_YEAR]
+    tabs: [competitive]
+    status: visible
+    notes: fetch_household_spending.py の TIME_CODE/REFERENCE_YEAR を毎年更新
+  - name: social_life
+    source: e-stat
+    fetch: null
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_social_life
+    granularity: prefecture
+    freshness_col: survey_year
+    frequency: irregular
+    manual_consts: []
+    tabs: [competitive]
+    status: visible
+
+  # ---- e-Stat 地理・移動 ----
+  - name: foreign_residents
+    source: e-stat
+    stats_data_id: "0003147704"
+    fetch: fetch_foreign_residents.py
+    transform: import_external_csv.py
+    upload: upload_new_external_to_turso.py
+    table: v2_external_foreign_residents
+    granularity: municipality
+    freshness_col: survey_period
+    frequency: irregular
+    manual_consts: []
+    tabs: [analysis]
+    status: hidden
+    notes: 詳細分析のみ=非表示
+  - name: commute_od
+    source: e-stat
+    stats_data_id: "0003454527"
+    fetch: fetch_commute_od.py
+    transform: build_commute_flow_summary.py
+    upload: upload_to_turso.py
+    table: v2_external_commute_od
+    granularity: od
+    freshness_col: reference_year
+    frequency: irregular
+    manual_consts: []
+    tabs: [jobmap, analysis]
+    status: visible
+  - name: rental_housing
+    source: e-stat
+    stats_data_id: "0004021493"
+    fetch: fetch_rental_housing.py
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_rental_housing
+    granularity: municipality
+    freshness_col: as_of
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [jobmap]
+    status: visible
+    notes: m²単価を地域コスト指標として活用
+
+  # ---- e-Stat 年次経済指標 (Wave1-D 移植で企業検索表示済) ----
+  - name: business_dynamics
+    source: e-stat
+    fetch: fetch_business_dynamics.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_business_dynamics
+    granularity: prefecture
+    freshness_col: fiscal_year
+    frequency: yearly
+    manual_consts: []
+    tabs: [company]
+    status: visible
+    notes: Wave1-D で企業検索タブに移植済
+  - name: climate
+    source: e-stat
+    stats_data_id: "0000010102"
+    fetch: fetch_climate_data.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_climate
+    granularity: prefecture
+    freshness_col: fiscal_year
+    frequency: yearly
+    manual_consts: []
+    tabs: [company]
+    status: visible
+    notes: Wave1-D で企業検索タブに移植済(環境補足)
+  - name: care_demand
+    source: e-stat
+    stats_data_id: "0000010110"
+    fetch: fetch_care_demand.py
+    transform: null
+    upload: upload_to_turso.py
+    table: v2_external_care_demand
+    granularity: prefecture
+    freshness_col: fiscal_year
+    frequency: yearly
+    manual_consts: []
+    tabs: []
+    status: unused
+    notes: 介護特化不要のため活用対象外(ユーザー判断 2026-06-05)
+
+  # ---- 手動DL / 他API ----
+  - name: migration
+    source: manual
+    fetch: null
+    transform: import_external_csv.py
+    upload: upload_to_turso.py
+    table: v2_external_migration
+    granularity: municipality
+    freshness_col: reference_year
+    frequency: irregular
+    manual_consts: []
+    tabs: [jobmap]
+    status: visible
+    notes: 政府統計ポータルから手動DL
+  - name: daytime_population
+    source: manual
+    fetch: null
+    transform: import_external_csv.py
+    upload: upload_to_turso.py
+    table: v2_external_daytime_population
+    granularity: municipality
+    freshness_col: reference_year
+    frequency: quinquennial
+    manual_consts: []
+    tabs: [competitive, company]
+    status: visible
+  - name: boj_tankan
+    source: other-api
+    fetch: fetch_boj_tankan.py
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_boj_tankan
+    granularity: national
+    freshness_col: survey_date
+    frequency: quarterly
+    manual_consts: []
+    tabs: [company]
+    status: visible
+    notes: 日銀STAT-SEARCH。全国値(地域別でない)。Wave1-D で企業検索に移植済
+  - name: land_price
+    source: other-api
+    fetch: fetch_geo_supplement.py
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_land_price
+    granularity: prefecture
+    freshness_col: year
+    frequency: irregular
+    manual_consts: []
+    tabs: [company]
+    status: visible
+    notes: 国土数値情報ZIP。fetch_geo_supplement.py --land。Wave1-D移植済
+  - name: car_ownership
+    source: other-api
+    fetch: fetch_geo_supplement.py
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_car_ownership
+    granularity: prefecture
+    freshness_col: year
+    frequency: irregular
+    manual_consts: []
+    tabs: [company]
+    status: visible
+    notes: fetch_geo_supplement.py --car。Wave1-D移植済
+  - name: internet_usage
+    source: other-api
+    fetch: fetch_geo_supplement.py
+    transform: null
+    upload: upload_new_external_to_turso.py
+    table: v2_external_internet_usage
+    granularity: prefecture
+    freshness_col: year
+    frequency: irregular
+    manual_consts: []
+    tabs: []
+    status: unused
+    notes: fetch_geo_supplement.py --net。投入済だが handler 参照ゼロ=未活用。活用or見送り判断要
+
+  # ---- 政策ハードコード (毎年度 手動更新) ----
+  - name: prefecture_policy_consts
+    source: e-stat
+    fetch: null
+    transform: compute_v2_external.py
+    upload: upload_to_turso.py
+    table: v2_external_prefecture_stats
+    depends_on: [labor_stats, job_openings_ratio, turnover, minimum_wage_history]
+    granularity: prefecture
+    freshness_col: null
+    source_as_of: "mixed(2022-2026)"
+    frequency: yearly
+    manual_consts:
+      - MINIMUM_WAGE_2025
+      - JOB_OPENING_RATIO_202601
+      - UNEMPLOYMENT_RATE_2024
+      - JOB_CHANGE_DESIRE_RATE_2022
+      - NON_REGULAR_RATE_2022
+      - AVG_MONTHLY_WAGE_2024
+    tabs: [competitive, navy]
+    status: report
+    notes: compute_v2_external.py 内 dict を年度更新。最賃は10月施行後。鮮度カラムなし(要改善)
+  - name: minimum_wage_history
+    source: e-stat
+    fetch: null
+    transform: null
+    upload: upload_minimum_wage_history.py
+    table: v2_external_minimum_wage_history
+    granularity: prefecture
+    freshness_col: effective_date
+    frequency: yearly
+    manual_consts: [PREF_2023, PREF_2024, PREF_2025]
+    tabs: [competitive]
+    status: visible
+    notes: upload_minimum_wage_history.py の年度別dict更新

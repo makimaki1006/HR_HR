@@ -226,6 +226,9 @@ struct KarteBundle {
     hw_avg_salary_min: f64,
     hw_fulltime_count: i64,
     hw_parttime_count: i64,
+
+    // --- 地域経済・環境補足（未活用外部統計5テーブル活用） ---
+    external_extra: af::external_extra::ExternalExtraBundle,
 }
 
 fn fetch_karte_bundle(
@@ -330,6 +333,11 @@ fn fetch_karte_bundle(
             b.hw_parttime_count = get_i64(r, "pt");
         }
     }
+
+    // 地域経済・環境補足（都道府県粒度の未活用外部統計5テーブル）
+    // business_dynamics / car_ownership / land_price / climate は pref 完全一致。
+    // boj_tankan は全国粒度（最新調査回）。
+    b.external_extra = af::external_extra::fetch_external_extra(db, turso, pref);
 
     b
 }
@@ -489,6 +497,12 @@ fn render_karte(pref: &str, muni: &str, b: &KarteBundle, insights: &[Insight]) -
 
     // ========== S4: 医療・教育・福祉 ==========
     html.push_str(&render_section_welfare(b));
+
+    // ========== S4.5: 地域経済・環境補足（未活用外部統計5テーブル） ==========
+    html.push_str(&af::external_extra::render_external_extra_section(
+        &b.external_extra,
+        pref,
+    ));
 
     // ========== S5: 人流パターン（Agoop） ==========
     html.push_str(&render_section_flow(b));

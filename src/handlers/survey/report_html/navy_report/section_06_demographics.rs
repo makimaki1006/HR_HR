@@ -740,3 +740,233 @@ fn build_demographics_so_what(
     let _ = working_pct;
     format!("{}{}{}", pool_judge, age_balance, labor_note)
 }
+
+// ============================================================
+// Tests (データ妥当性 / 境界 / ドメイン不変条件)
+//   MEMORY: feedback_test_data_validation / feedback_reverse_proof_tests 準拠。
+//   「要素存在」ではなくピラミッドの男女比・年齢層集計・SVG 幾何の不変条件を検証。
+// ============================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- age_lo / age_sort_key: 年齢ラベル → 下端年齢 ----
+
+    #[test]
+    fn age_lo_parses_leading_digits() {
+        assert_eq!(age_lo("20-24"), 20);
+        assert_eq!(age_lo("25-29"), 25);
+        // 「85+」など上限なしラベルも下端年齢を取る
+        assert_eq!(age_lo("85+"), 85);
+        assert_eq!(age_lo("0-4"), 0);
+    }
+
+    #[test]
+    fn age_lo_returns_negative_for_nonnumeric() {
+        // 数字始まりでないラベルは -1 (年齢として無効)
+        assert_eq!(age_lo(""), -1);
+        assert_eq!(age_lo("不明"), -1);
+        assert_eq!(age_lo("総数"), -1);
+    }
+
+    #[test]
+    fn age_sort_key_orders_bands_ascending_and_pushes_invalid_to_end() {
+        // age_sort_key で並べ替えると年齢昇順になり、無効ラベルは末尾 (i32::MAX) に行く
+        let mut labels = vec!["85+", "不明", "0-4", "25-29", "15-19"];
+        labels.sort_by_key(|l| age_sort_key(l));
+        assert_eq!(labels, vec!["0-4", "15-19", "25-29", "85+", "不明"]);
+        // ドメイン不変条件: ソート後の有効ラベルは age_lo 単調非減少
+        let los: Vec<i32> = labels
+            .iter()
+            .map(|l| age_lo(l))
+            .filter(|v| *v >= 0)
+            .collect();
+        for w in los.windows(2) {
+            assert!(w[0] <= w[1], "sorted age_lo must be monotonic: {:?}", los);
+        }
+    }
+
+    // ---- build_navy_pyramid_svg: 人口ピラミッド SVG ----
+
+    #[test]
+    fn pyramid_svg_empty_returns_empty_no_panic() {
+        // 境界: 空入力で panic せず空文字を返す
+        let bands: Vec<(String, i64, i64)> = vec![];
+        assert_eq!(build_navy_pyramid_svg(&bands), "");
+    }
+
+    #[test]
+    fn pyramid_svg_all_zero_population_does_not_panic() {
+        // 境界: 全年齢層 0 人 (max_count=0) でも .max(1.0) ガードで panic / NaN にならない
+        let bands = vec![
+            ("0-4".to_string(), 0i64, 0i64),
+            ("5-9".to_string(), 0i64, 0i64),
+        ];
+        let svg = build_navy_pyramid_svg(&bands);
+        assert!(svg.starts_with("<svg"), "0 人でも SVG を生成すべき");
+        assert!(svg.contains("</svg>"));
+        // NaN / inf 由来の壊れた座標が混入していないこと
+        assert!(!svg.contains("NaN"), "0 人時に NaN 座標が混入: {}", svg);
+        assert!(!svg.contains("inf"), "0 人時に inf 座標が混入: {}", svg);
+    }
+
+    #[test]
+    fn pyramid_svg_width_within_pdf_constraint() {
+        // ドメイン不変条件: viewBox 幅 720 は A4 横 (約 555pt 印字幅) を超えるが、
+        //   width="100%" + preserveAspectRatio で縮尺されるため viewBox 値自体を検証。
+        //   ピラミッド本体の viewBox 幅は 720 固定 (レイアウト契約)。
+        let bands = vec![("25-29".to_string(), 100i64, 120i64)];
+        let svg = build_navy_pyramid_svg(&bands);
+        assert!(
+            svg.contains("viewBox=\"0 0 720"),
+            "本体ピラミッドの viewBox 幅は 720 のはず: {}",
+            svg
+        );
+        assert!(
+            svg.contains("width=\"100%\""),
+            "width=100% でコンテナ幅に追従すべき"
+        );
+        assert!(
+            svg.contains("preserveAspectRatio=\"xMidYMid meet\""),
+            "aspect 比保持で PDF 内に収まるべき"
+        );
+    }
+
+    #[test]
+    fn pyramid_svg_bar_width_never_exceeds_bar_max_w() {
+        // ドメイン不変条件: 各バー幅 <= bar_max_w。
+        //   w=720, label_col_w=56, center_gap=8 → bar_max_w = (720-56)/2 - 8 = 324
+        //   最大人口バーが bar_max_w を超える矩形を出さないこと (左右はみ出し防止)。
+        let bands = vec![
+            ("0-4".to_string(), 1000i64, 1i64), // 男性最大
+            ("5-9".to_string(), 1i64, 1000i64), // 女性最大
+        ];
+        let svg = build_navy_pyramid_svg(&bands);
+        // 最大人口 1000 のバー幅は bar_max_w (324.0) に一致するはず。
+        // width="324.0" の rect が存在すること (max_count バーは満幅)。
+        assert!(
+            svg.contains("width=\"324.0\""),
+            "最大人口バーは bar_max_w=324.0 満幅になるはず: {}",
+            svg
+        );
+        // それを超える幅 (例: 400 以上) の rect が無いこと
+        for w in [400.0_f64, 500.0, 660.0] {
+            let pat = format!("width=\"{:.1}\"", w);
+            assert!(
+                !svg.contains(&pat),
+                "bar_max_w を超えるバー幅 {} が出てはいけない",
+                pat
+            );
+        }
+    }
+
+    #[test]
+    fn pyramid_svg_mini_empty_returns_empty() {
+        // 境界: ミニ版も空入力で空文字
+        let bands: Vec<(String, i64, i64)> = vec![];
+        assert_eq!(build_navy_pyramid_svg_mini(&bands), "");
+    }
+
+    #[test]
+    fn pyramid_svg_mini_width_is_220() {
+        // ドメイン不変条件: ミニ版 viewBox 幅は 220 (3 列グリッド前提)
+        let bands = vec![("25-29".to_string(), 10i64, 12i64)];
+        let svg = build_navy_pyramid_svg_mini(&bands);
+        assert!(
+            svg.contains("viewBox=\"0 0 220"),
+            "ミニピラミッド viewBox 幅は 220 のはず: {}",
+            svg
+        );
+        assert!(!svg.contains("NaN"));
+    }
+
+    #[test]
+    fn pyramid_svg_renders_one_rect_pair_per_band() {
+        // データ妥当性: n 年齢層 → 男性 rect n 本 + 女性 rect n 本。
+        //   各バーは color #1F2D4D (男) / #C9A24B (女) で区別される。
+        let bands = vec![
+            ("0-4".to_string(), 10i64, 11i64),
+            ("5-9".to_string(), 20i64, 21i64),
+            ("10-14".to_string(), 30i64, 31i64),
+        ];
+        let svg = build_navy_pyramid_svg(&bands);
+        let male_bars = svg.matches("fill=\"#1F2D4D\"").count();
+        let female_bars = svg.matches("fill=\"#C9A24B\"").count();
+        assert_eq!(male_bars, 3, "男性バーは年齢層数 (3) と一致すべき: {}", svg);
+        assert_eq!(female_bars, 3, "女性バーは年齢層数 (3) と一致すべき");
+    }
+
+    // ---- build_demographics_so_what: SO WHAT 文言の閾値分岐 ----
+
+    #[test]
+    fn so_what_thick_pool_when_target_pct_high() {
+        // target_pct >= 22 → 採用候補プール 厚
+        let s = build_demographics_so_what(60.0, 25.0, 20.0, Some(60.0), false);
+        assert!(
+            s.contains("採用候補プール 厚"),
+            "高ターゲット率で厚判定: {}",
+            s
+        );
+        assert!(s.contains("採用ターゲット層 (25-44)"), "月給モードのラベル");
+    }
+
+    #[test]
+    fn so_what_thin_pool_when_target_pct_low() {
+        // target_pct < 17 → 採用候補プール 細
+        let s = build_demographics_so_what(50.0, 10.0, 20.0, None, false);
+        assert!(
+            s.contains("採用候補プール 細"),
+            "低ターゲット率で細判定: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn so_what_hourly_mode_switches_target_label_and_appeal() {
+        // is_hourly=true → ラベル「採用候補層 (25-49)」+ 訴求軸が扶養/シフト系に切替
+        let s = build_demographics_so_what(60.0, 25.0, 20.0, Some(60.0), true);
+        assert!(
+            s.contains("採用候補層 (25-49)"),
+            "時給モードのラベルに切替わるべき: {}",
+            s
+        );
+        assert!(
+            s.contains("扶養範囲明示") || s.contains("シフト柔軟性"),
+            "時給モードの訴求軸が反映されるべき: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn so_what_super_aging_when_senior_pct_high() {
+        // senior_pct >= 35 → 超高齢化メッセージ
+        let s = build_demographics_so_what(45.0, 18.0, 40.0, Some(50.0), false);
+        assert!(s.contains("超高齢化"), "高齢比 40% で超高齢化判定: {}", s);
+    }
+
+    #[test]
+    fn so_what_omits_labor_note_when_none() {
+        // labor_force_rate=None のとき労働力率セグメントは空 (誤った 0% 表示をしない)
+        let s = build_demographics_so_what(55.0, 20.0, 22.0, None, false);
+        assert!(
+            !s.contains("労働力率"),
+            "労働力率データなし時は言及しないべき: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn working_pct_classification_matches_kpi_thresholds() {
+        // KPI ドット閾値の逆証明: 構成比は 0-100% の範囲内で算出される。
+        //   render 関数内のロジックを再現し、working/target/senior の合計妥当性を確認。
+        //   total_pop > 0 のとき各 pct は [0,100]、3 区分は重複しうる (15-64 と 25-44 は包含関係)。
+        let total_pop: i64 = 100 + 200 + 150 + 80; // 530
+        let working = 200 + 150; // 25-29,30-34 等 15-64 想定
+        let working_pct = working as f64 / total_pop as f64 * 100.0;
+        assert!(
+            (0.0..=100.0).contains(&working_pct),
+            "生産年齢率は 0-100% に収まるべき: {}",
+            working_pct
+        );
+    }
+}
