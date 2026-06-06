@@ -13,6 +13,19 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
+/// 営業仮説（So What）テキストを統一スタイルで描画するローカルヘルパー。
+/// 相関≠因果ルールに従い断定を避け「傾向／可能性」表現に留める。
+fn so_what(text: &str) -> String {
+    format!(
+        r#"<div class="mt-3 px-3 py-2 rounded-md bg-blue-900/20 border-l-2 border-blue-500 text-xs text-blue-200 leading-relaxed">💡 営業仮説: {text}</div>"#
+    )
+}
+
+/// 出典キャプションを統一スタイルで描画するローカルヘルパー。
+fn source_caption(text: &str) -> String {
+    format!(r#"<div class="mt-1 text-[10px] text-slate-500">出典: {text}</div>"#)
+}
+
 pub(crate) fn render_subtab_2(db: &Db, pref: &str, muni: &str) -> String {
     let salary_structure = fetch_salary_structure(db, pref, muni);
     let salary_comp = fetch_salary_competitiveness(db, pref, muni);
@@ -134,7 +147,15 @@ pub(super) fn render_salary_structure_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</tbody></table></div></div>");
+    html.push_str("</tbody></table></div>");
+    html.push_str(&so_what(
+        "給与スプレッド（P25-P75）が広い雇用形態ほど、提示条件次第で採用が進む余地が大きい傾向があります。\
+        賞与込みの推定年収を併記すると、月給だけでは見えにくい総報酬の競争力を訴求できる可能性があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（雇用形態別給与分布。HW掲載求人に基づく集計値）",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -227,7 +248,15 @@ pub(super) fn render_salary_competitiveness_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "全国平均を下回る雇用形態では、給与水準が応募数の制約要因になっている可能性があります。\
+        パーセンタイルが低い区分から条件を見直すと、競争力改善の効果が出やすい傾向があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（地域平均）／全国集計値との比較。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -300,6 +329,14 @@ pub(super) fn render_compensation_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "給与・休日・賞与のいずれかでパーセンタイルが低い軸は、報酬パッケージ全体の評価を押し下げている可能性があります。\
+        スコアの低い軸を補強することで、総合ランクの底上げにつながる傾向があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（給与・年間休日・賞与の全国パーセンタイル評価）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }

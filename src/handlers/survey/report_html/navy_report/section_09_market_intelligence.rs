@@ -890,6 +890,166 @@ mod tests {
         assert!(a.is_none());
     }
 
+    // ---- compute_positive_score: 重み付き合成スコア (0-100) ----
+
+    #[test]
+    fn compute_positive_score_none_when_all_inputs_missing() {
+        // 境界: 全入力なし (inflow=0 含む) → None (weights<=0)
+        assert!(compute_positive_score(None, None, None, 0).is_none());
+    }
+
+    #[test]
+    fn compute_positive_score_within_bounds() {
+        // ドメイン不変条件: 出力は常に 0-100 にクランプされる。
+        //   極端値 (求人倍率 10, 失業率 50, 自給率 5.0, 流入 10^9) を入れても範囲超過しない。
+        let s = compute_positive_score(Some(10.0), Some(50.0), Some(5.0), 1_000_000_000)
+            .expect("inputs present");
+        assert!(
+            (0.0..=100.0).contains(&s),
+            "positive_score は 0-100 に収まるべき: {}",
+            s
+        );
+        // 逆方向: 最低値入力でも 0 未満にならない
+        let lo =
+            compute_positive_score(Some(0.0), Some(0.0), Some(0.0), 1).expect("inputs present");
+        assert!((0.0..=100.0).contains(&lo), "下限側も 0-100: {}", lo);
+    }
+
+    #[test]
+    fn compute_positive_score_only_partial_inputs() {
+        // データ妥当性: 一部入力のみ (求人倍率だけ) でも weights>0 なら Some。
+        //   job_ratio=1.0 は (1.0-0.5)/1.5*100 ≒ 33.3 にマップされる。
+        let s = compute_positive_score(Some(1.0), None, None, 0).expect("job_ratio present");
+        assert!((0.0..=100.0).contains(&s));
+        assert!(
+            (s - 33.3).abs() < 1.0,
+            "job_ratio=1.0 単独は約 33.3 になるはず: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn compute_positive_score_higher_unemployment_raises_score() {
+        // ドメイン仮定の逆証明: 失業率が高いほど求職プール厚 = スコア上昇方向。
+        //   他条件固定で失業率のみ 1% → 5% に上げるとスコアは下がらない。
+        let low = compute_positive_score(Some(1.0), Some(1.0), Some(0.5), 1000).unwrap();
+        let high = compute_positive_score(Some(1.0), Some(5.0), Some(0.5), 1000).unwrap();
+        assert!(
+            high >= low,
+            "失業率上昇でスコアは下がらないはず (low={}, high={})",
+            low,
+            high
+        );
+    }
+
+    // ---- compute_inflow_intensity_index: 流入規模ログ指数 ----
+
+    #[test]
+    fn compute_inflow_intensity_index_monotonic_nondecreasing() {
+        // ドメイン不変条件: 流入が多いほど指数は非減少 (ログスケール単調性)。
+        let samples = [1i64, 10, 100, 1_000, 10_000, 100_000, 1_000_000];
+        let vals: Vec<f64> = samples
+            .iter()
+            .map(|n| compute_inflow_intensity_index(*n))
+            .collect();
+        for w in vals.windows(2) {
+            assert!(w[0] <= w[1], "ログ指数は単調非減少: {:?}", vals);
+        }
+        // 全て 0-100 範囲内
+        for v in &vals {
+            assert!((0.0..=100.0).contains(v), "指数は 0-100: {}", v);
+        }
+    }
+
+    #[test]
+    fn compute_inflow_intensity_index_clamps_above_max() {
+        // 境界: 100,000 超 (例: 10^7) でも 100 でクランプされ範囲超過しない
+        let v = compute_inflow_intensity_index(10_000_000);
+        assert!((0.0..=100.0).contains(&v), "上限クランプ: {}", v);
+    }
+
+    // ---- render_intensity_bar: 12 段濃淡バー ----
+
+    #[test]
+    fn render_intensity_bar_none_returns_dash() {
+        // 境界: None → "—" (絶対値も空でもない明示プレースホルダ)
+        assert_eq!(render_intensity_bar(None), "—");
+    }
+
+    #[test]
+    fn render_intensity_bar_always_12_cells() {
+        // ドメイン不変条件: filled + empty = 常に 12 セル。0/50/100/範囲外 で検証。
+        for idx in [0.0, 25.0, 50.0, 100.0, 150.0] {
+            let bar = render_intensity_bar(Some(idx));
+            let cells = bar.chars().count();
+            assert_eq!(
+                cells, 12,
+                "バーは常に 12 セルであるべき (idx={}, bar={}, cells={})",
+                idx, bar, cells
+            );
+        }
+    }
+
+    #[test]
+    fn render_intensity_bar_fill_proportional_to_index() {
+        // データ妥当性: 0 は全空 (▁×12)、100 は全充填 (▆×12)。
+        let empty = render_intensity_bar(Some(0.0));
+        assert_eq!(empty.matches('▆').count(), 0, "0 は充填 0 セル: {}", empty);
+        assert_eq!(empty.matches('▁').count(), 12, "0 は空 12 セル");
+        let full = render_intensity_bar(Some(100.0));
+        assert_eq!(
+            full.matches('▆').count(),
+            12,
+            "100 は充填 12 セル: {}",
+            full
+        );
+        // 中間 50 は約半分 (round(50/100*12)=6)
+        let mid = render_intensity_bar(Some(50.0));
+        assert_eq!(mid.matches('▆').count(), 6, "50 は充填 6 セル: {}", mid);
+    }
+
+    #[test]
+    fn compute_scenario_indices_conservative_half_of_standard() {
+        // データ妥当性: 保守 = 標準 × 0.5 の関係 (METRICS §2.1)。
+        //   competition=None で penalty=0、base=80 → standard=80, conservative=40。
+        let (c, s, _a) = compute_scenario_indices(Some(80.0), None, Some(80.0), Some(80.0));
+        let c = c.unwrap();
+        let s = s.unwrap();
+        assert!(
+            (s - 80.0).abs() < 0.01,
+            "penalty 0 で standard=base=80: {}",
+            s
+        );
+        assert!(
+            (c - s * 0.5).abs() < 0.01,
+            "保守は標準の半分: c={}, s={}",
+            c,
+            s
+        );
+    }
+
+    #[test]
+    fn compute_scenario_indices_competition_lowers_standard() {
+        // ドメイン逆証明: competition_index (競合密度) が高いほど penalty 増 → 標準は下がる。
+        let (_c0, s0, _a0) =
+            compute_scenario_indices(Some(80.0), Some(0.0), Some(80.0), Some(80.0));
+        let (_c1, s1, _a1) =
+            compute_scenario_indices(Some(80.0), Some(100.0), Some(80.0), Some(80.0));
+        let s0 = s0.unwrap();
+        let s1 = s1.unwrap();
+        assert!(
+            s1 < s0,
+            "競合密度上昇で標準シナリオ指数は下がるべき (s0={}, s1={})",
+            s0,
+            s1
+        );
+        // 単調性不変条件は競合最大でも維持
+        let (c1, s1c, a1) =
+            compute_scenario_indices(Some(80.0), Some(100.0), Some(80.0), Some(80.0));
+        let (c1, s1c, a1) = (c1.unwrap(), s1c.unwrap(), a1.unwrap());
+        assert!(c1 <= s1c && s1c <= a1, "競合最大でも 保守<=標準<=強気");
+    }
+
     #[test]
     fn section_09_full_variant_outputs_nothing() {
         // Full variant では関数単体で呼ばれても、内部防御ガードで何も出力しない

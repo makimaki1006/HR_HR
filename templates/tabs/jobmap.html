@@ -176,7 +176,7 @@
       <button onclick="document.getElementById('jm-labor-flow').style.display='none'" class="text-xs text-gray-400 hover:text-white" aria-label="人材フローパネルを閉じる">&#10005;</button>
     </div>
     <div id="jm-labor-flow-chart" style="height:320px;" role="img" aria-label="業種別従業員増減の横棒グラフ"></div>
-    <div id="jm-labor-flow-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="業種別人材フロー詳細"></div>
+    <div id="jm-labor-flow-table" class="mt-2 text-xs overflow-x-auto max-w-full w-full" role="region" aria-label="業種別人材フロー詳細"></div>
   </div>
 
   <!-- 流入元サンキー図（Agoop人流データ from_area 4区分） -->
@@ -232,7 +232,7 @@
       <span id="inflow-status" class="text-[10px] text-gray-500 ml-2"></span>
     </div>
     <div id="inflow-sankey-chart" style="height:360px;" role="img" aria-label="流入元サンキー図"></div>
-    <div id="inflow-summary-table" class="mt-2 text-xs overflow-x-auto" role="table" aria-label="流入元サマリー"></div>
+    <div id="inflow-summary-table" class="mt-2 text-xs overflow-x-auto max-w-full w-full" role="region" aria-label="流入元サマリー"></div>
   </div>
 
   <script>
@@ -378,8 +378,8 @@
       <span class="text-sm text-gray-300 font-medium">📊 地域統計</span>
       <button onclick="document.getElementById('jm-region-stats').style.display='none'" class="text-xs text-gray-400 hover:text-white">✕</button>
     </div>
-    <div id="jm-region-stats-content" class="text-xs text-slate-400">
-      都道府県を選択すると統計が表示されます
+    <div id="jm-region-stats-content" class="text-xs text-slate-400" aria-live="polite" aria-label="地域統計">
+      都道府県を選択すると表示します
     </div>
   </div>
 
@@ -432,7 +432,7 @@
     </div>
 
     <!-- サマリーバー: 相関係数・件数・注釈 -->
-    <div id="corr-summary" class="text-[11px] text-gray-400 mb-2 flex flex-wrap gap-3 items-center">
+    <div id="corr-summary" class="text-[11px] text-gray-400 mb-2 flex flex-wrap gap-3 items-center" role="status" aria-live="polite" aria-label="相関分析サマリー">
       <span>都道府県を選択して「分析」を押してください。</span>
     </div>
 
@@ -443,14 +443,14 @@
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
       <div>
         <div class="text-xs text-orange-400 font-medium mb-1">🔥 募集難メッシュ（求人多×人口少）</div>
-        <div id="corr-hiring-hard" class="text-[11px] text-gray-300 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-900/40">
-          <span class="text-gray-500">未分析</span>
+        <div id="corr-hiring-hard" class="text-[11px] text-gray-200 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-800" role="region" aria-live="polite" aria-label="募集難メッシュ一覧">
+          <span class="text-gray-400">未分析</span>
         </div>
       </div>
       <div>
         <div class="text-xs text-emerald-400 font-medium mb-1">🌱 未開拓メッシュ（人口多×求人少）</div>
-        <div id="corr-underserved" class="text-[11px] text-gray-300 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-900/40">
-          <span class="text-gray-500">未分析</span>
+        <div id="corr-underserved" class="text-[11px] text-gray-200 max-h-40 overflow-y-auto border border-gray-700 rounded p-2 bg-gray-800" role="region" aria-live="polite" aria-label="未開拓メッシュ一覧">
+          <span class="text-gray-400">未分析</span>
         </div>
       </div>
     </div>
@@ -858,7 +858,7 @@
       var el = document.getElementById(containerId);
       if (!el) return;
       if (!items || items.length === 0) {
-        el.innerHTML = '<span class="text-gray-500">該当メッシュなし</span>';
+        el.innerHTML = '<span class="text-gray-400">該当メッシュなし</span>';
         return;
       }
       var rows = items.slice(0, 20).map(function(it){
@@ -1114,5 +1114,182 @@
         });
     };
     window.addEventListener('resize', function(){ if (hmChart) hmChart.resize(); });
+  })();
+</script>
+
+<!-- ============================================================ -->
+<!-- 外部統計ドリルダウンパネル (2026-06-03)                     -->
+<!-- HW 以外の外部データを accordion で個別 lazy load             -->
+<!-- 都道府県/市区町村は jm-pref / jm-muni と連動                 -->
+<!-- ============================================================ -->
+<div id="jobmap-external-panels" class="stat-card mt-4">
+  <h3 class="text-lg font-bold text-white mb-2">外部統計ドリルダウン</h3>
+  <p class="text-xs text-gray-400 mb-3">HW 以外の公的統計を、上部で選択した都道府県・市区町村について個別に確認できます。各パネルを開くとデータを取得します。</p>
+
+  <div class="space-y-2" id="jm-ext-accordion">
+
+    <!-- 1. 地理 -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'geography')">
+        🗾 地理 (可住地面積 / 人口密度)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/geography"
+           data-label="地理">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。</div>
+      </div>
+    </details>
+
+    <!-- 2. 通勤 OD -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'commute')">
+        🚆 通勤 OD (流入元 / 流出先 TOP3)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/commute"
+           data-label="通勤 OD">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。市区町村粒度のみ提供。</div>
+      </div>
+    </details>
+
+    <!-- 3. 家賃 -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'rental')">
+        🏠 家賃 m² 単価 (構造 × 面積帯)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/rental"
+           data-label="家賃">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。都道府県粒度。</div>
+      </div>
+    </details>
+
+    <!-- 4. 人口ピラミッド -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'pyramid')">
+        👥 人口ピラミッド (年齢階級 × 男女)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/pyramid"
+           data-label="人口ピラミッド">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。</div>
+      </div>
+    </details>
+
+    <!-- 5. 教育施設密度 -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'education')">
+        🏫 教育施設密度 (幼 / 小 / 中 / 高)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/education"
+           data-label="教育施設">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。</div>
+      </div>
+    </details>
+
+    <!-- 6. 自然増減 -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'natural_change')">
+        📉 自然増減 (出生 - 死亡)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/natural_change"
+           data-label="自然増減">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。</div>
+      </div>
+    </details>
+
+    <!-- 7. 社会移動 -->
+    <details class="bg-gray-800/50 rounded border border-gray-700">
+      <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-300 hover:bg-gray-700/50"
+               onclick="jmExtLoad(this, 'migration')">
+        ↔️ 社会移動 (転入 - 転出)
+      </summary>
+      <div class="px-3 py-2 jm-ext-body" data-loaded="false"
+           data-endpoint="/api/jobmap/external/migration"
+           data-label="社会移動">
+        <div class="text-gray-500 text-xs">パネルを開くとデータを読み込みます。</div>
+      </div>
+    </details>
+
+  </div>
+</div>
+
+<script>
+  // 外部統計ドリルダウンパネル: lazy load + filter 連動
+  // - 初回 open でデータ取得
+  // - jm-pref / jm-muni 変更時は data-loaded=false にして再取得を促す
+  (function() {
+    function getCurrentParams() {
+      var pref = (document.getElementById('jm-pref') || {}).value || '';
+      var muni = (document.getElementById('jm-muni') || {}).value || '';
+      var q = [];
+      if (pref) q.push('prefecture=' + encodeURIComponent(pref));
+      if (muni) q.push('municipality=' + encodeURIComponent(muni));
+      return q.length ? ('?' + q.join('&')) : '';
+    }
+
+    window.jmExtLoad = function(summaryEl, key) {
+      var details = summaryEl.parentElement;
+      if (!details.open) return; // 閉じる動作の場合は何もしない (details の toggle 前なので注意)
+      var body = details.querySelector('.jm-ext-body');
+      if (!body) return;
+      if (body.getAttribute('data-loaded') === 'true') return; // キャッシュ済み
+      // 都道府県未選択時は統一メッセージを表示（competitive タブと文言一致）
+      var prefVal = (document.getElementById('jm-pref') || {}).value || '';
+      if (!prefVal) {
+        body.innerHTML = '<div class="text-gray-400 text-xs">都道府県を選択すると表示します</div>';
+        return;
+      }
+      var endpoint = body.getAttribute('data-endpoint');
+      var label = body.getAttribute('data-label') || '';
+      if (!endpoint) {
+        body.innerHTML = '<div class="text-rose-300 text-xs">設定エラー: endpoint 未指定</div>';
+        return;
+      }
+      body.innerHTML = '<div class="text-gray-400 text-xs">読み込み中...</div>';
+      fetch(endpoint + getCurrentParams(), { headers: { 'Accept': 'text/html' } })
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function(html) {
+          body.innerHTML = html;
+          body.setAttribute('data-loaded', 'true');
+        })
+        .catch(function(err) {
+          body.innerHTML = '<div class="text-rose-300 text-xs">' + (label ? (label + ' ') : '') +
+                           'データ取得失敗: ' + (err && err.message ? err.message : err) + '</div>';
+        });
+    };
+
+    // フィルタ変更で全パネルキャッシュ無効化
+    function invalidateAll() {
+      document.querySelectorAll('#jm-ext-accordion .jm-ext-body').forEach(function(el) {
+        el.setAttribute('data-loaded', 'false');
+        // 既に開いているパネルは即座に再読み込み
+        var details = el.closest('details');
+        if (details && details.open) {
+          var summary = details.querySelector('summary');
+          var keyMatch = summary && summary.getAttribute('onclick');
+          if (keyMatch) {
+            window.jmExtLoad(summary, '');
+          }
+        }
+      });
+    }
+
+    document.addEventListener('change', function(ev) {
+      if (ev.target && (ev.target.id === 'jm-pref' || ev.target.id === 'jm-muni')) {
+        invalidateAll();
+      }
+    });
   })();
 </script>

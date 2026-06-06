@@ -234,9 +234,81 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/jobmap/correlation",
             get(handlers::jobmap::jobmap_correlation),
         )
+        // ======== 2026-06-03: 外部統計ドリルダウンパネル (7 datasource MECE) ========
+        // HW 以外の外部データを地図タブ末尾の accordion で個別 lazy load
+        .route(
+            "/api/jobmap/external/geography",
+            get(handlers::jobmap::external_geography),
+        )
+        .route(
+            "/api/jobmap/external/commute",
+            get(handlers::jobmap::external_commute),
+        )
+        .route(
+            "/api/jobmap/external/rental",
+            get(handlers::jobmap::external_rental),
+        )
+        .route(
+            "/api/jobmap/external/pyramid",
+            get(handlers::jobmap::external_pyramid),
+        )
+        .route(
+            "/api/jobmap/external/education",
+            get(handlers::jobmap::external_education),
+        )
+        .route(
+            "/api/jobmap/external/natural_change",
+            get(handlers::jobmap::external_natural_change),
+        )
+        .route(
+            "/api/jobmap/external/migration",
+            get(handlers::jobmap::external_migration),
+        )
         .route(
             "/tab/competitive",
             get(handlers::competitive::tab_competitive),
+        )
+        // 地域×業界分析タブ (Phase1): tab + 3 endpoint + 2 カスケード endpoint
+        .route(
+            "/tab/regional_analysis",
+            get(handlers::regional_analysis::tab_regional_analysis),
+        )
+        .route(
+            "/api/regional/municipalities",
+            get(handlers::regional_analysis::regional_municipalities),
+        )
+        .route(
+            "/api/regional/job_types",
+            get(handlers::regional_analysis::regional_job_types),
+        )
+        .route(
+            "/api/regional/salary_histogram",
+            get(handlers::regional_analysis::regional_salary_histogram),
+        )
+        .route(
+            "/api/regional/muni_ranking",
+            get(handlers::regional_analysis::regional_muni_ranking),
+        )
+        .route(
+            "/api/regional/emp_salary",
+            get(handlers::regional_analysis::regional_emp_salary),
+        )
+        // Phase2: navy資産展開 (業界別給与/人口ピラミッド/最賃vs給与/企業マトリックス)
+        .route(
+            "/api/regional/job_type_salary",
+            get(handlers::regional_analysis::regional_job_type_salary),
+        )
+        .route(
+            "/api/regional/population_pyramid",
+            get(handlers::regional_analysis::regional_population_pyramid),
+        )
+        .route(
+            "/api/regional/wage_comparison",
+            get(handlers::regional_analysis::regional_wage_comparison),
+        )
+        .route(
+            "/api/regional/company_matrix",
+            get(handlers::regional_analysis::regional_company_matrix),
         )
         .route("/tab/trend", get(handlers::trend::tab_trend))
         .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
@@ -297,6 +369,44 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::company::company_profile),
         )
         .route("/api/company/bulk-csv", get(handlers::company::bulk_csv))
+        // ======== 企業検索タブ 外部統計ドリルダウン (2026-06-03) ========
+        // 各 endpoint は ?pref=...&muni=... を取り、HTML パーシャルを返す。
+        // pref 必須 / muni 任意 / DB 未接続は別 HTML で明示 (silent fallback 禁止)。
+        .route(
+            "/api/company/external/industry_structure",
+            get(handlers::company::ext_industry_structure),
+        )
+        .route(
+            "/api/company/external/establishments",
+            get(handlers::company::ext_establishments),
+        )
+        // segments: 外部企業データベース由来の 4 セグメント
+        // (URL に固有名を含めないため "segments" に簡略化)
+        .route(
+            "/api/company/external/segments",
+            get(handlers::company::ext_company_segments),
+        )
+        // Wave1-D 移植: 未活用5テーブルを企業検索タブのドリルダウンで表示
+        .route(
+            "/api/company/external/business_dynamics",
+            get(handlers::company::ext_business_dynamics),
+        )
+        .route(
+            "/api/company/external/car_ownership",
+            get(handlers::company::ext_car_ownership),
+        )
+        .route(
+            "/api/company/external/land_price",
+            get(handlers::company::ext_land_price),
+        )
+        .route(
+            "/api/company/external/boj_tankan",
+            get(handlers::company::ext_boj_tankan),
+        )
+        .route(
+            "/api/company/external/climate",
+            get(handlers::company::ext_climate),
+        )
         .route(
             "/report/company/{corporate_number}",
             get(handlers::company::company_report),
@@ -339,6 +449,53 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/api/competitive/analysis/filter",
             get(handlers::competitive::comp_analysis_filtered),
+        )
+        // ======== 求人検索 外部統計ドリルダウン (10 sources MECE) ========
+        // HW以外の公的統計を都道府県粒度で個別表示。求人検索タブのアコーディオン展開用。
+        .route(
+            "/api/competitive/external/min_wage",
+            get(handlers::competitive::ext_min_wage),
+        )
+        .route(
+            "/api/competitive/external/job_ratio",
+            get(handlers::competitive::ext_job_ratio),
+        )
+        .route(
+            "/api/competitive/external/labor_force",
+            get(handlers::competitive::ext_labor_force),
+        )
+        .route(
+            "/api/competitive/external/turnover",
+            get(handlers::competitive::ext_turnover),
+        )
+        .route(
+            "/api/competitive/external/education",
+            get(handlers::competitive::ext_education),
+        )
+        .route(
+            "/api/competitive/external/industry_employees",
+            get(handlers::competitive::ext_industry_employees),
+        )
+        .route(
+            "/api/competitive/external/household_spending",
+            get(handlers::competitive::ext_household_spending),
+        )
+        .route(
+            "/api/competitive/external/daytime_population",
+            get(handlers::competitive::ext_daytime_population),
+        )
+        .route(
+            "/api/competitive/external/households",
+            get(handlers::competitive::ext_households),
+        )
+        .route(
+            "/api/competitive/external/social_life",
+            get(handlers::competitive::ext_social_life),
+        )
+        // Wave1-A 移植: 給与・市場構造の営業仮説(So What)を求人検索タブで表示
+        .route(
+            "/api/competitive/external/market_forecast",
+            get(handlers::competitive::ext_market_forecast),
         )
         .route("/api/status", get(api_status))
         // Phase 3: 自己サービス画面（ログイン済なら誰でも可）

@@ -26,16 +26,26 @@ pub fn get_str_html(row: &Row, key: &str) -> String {
 
 /// HashMap からi64値を取得（f64/文字列からの自動変換対応）
 ///
-/// 注意 (2026-05-24 audit_B P1-3): NULL → 0 の silent fallback。
-/// 「データなし」と「データ=0」を区別する必要がある場合は `get_i64_opt` を使用。
+/// # 🔴 silent fallback 注意 (2026-05-24 audit_B P1-3 / 2026-06-05 audit 再確認)
+/// **NULL / missing key / 型変換不能 はすべて `0` に変換される (silent fallback)。**
+/// このため「データが存在しない」と「データ値が 0」を呼び出し側で区別できない。
+/// 失業率・人数・件数などで「0」と「未集計」が意味的に異なる指標を扱う場合は、
+/// 本関数ではなく [`get_i64_opt`] を使い、`None` を「データなし」として明示処理すること。
+///
+/// 本関数の挙動 (NULL→0) は後方互換のため維持する。新規コードでは `_opt` 版を推奨。
 pub fn get_i64(row: &Row, key: &str) -> i64 {
     get_i64_opt(row, key).unwrap_or(0)
 }
 
 /// HashMap からf64値を取得（i64/文字列からの自動変換対応）
 ///
-/// 注意 (2026-05-24 audit_B P1-3): NULL → 0.0 の silent fallback。
-/// 「データなし」と「データ=0.0」を区別する必要がある場合は `get_f64_opt` を使用。
+/// # 🔴 silent fallback 注意 (2026-05-24 audit_B P1-3 / 2026-06-05 audit 再確認)
+/// **NULL / missing key / 型変換不能 はすべて `0.0` に変換される (silent fallback)。**
+/// 「データが存在しない」と「データ値が 0.0」を呼び出し側で区別できない。
+/// 比率・率・金額など「0.0」と「未集計」が意味的に異なる指標を扱う場合は、
+/// 本関数ではなく [`get_f64_opt`] を使い、`None` を「データなし」として明示処理すること。
+///
+/// 本関数の挙動 (NULL→0.0) は後方互換のため維持する。新規コードでは `_opt` 版を推奨。
 pub fn get_f64(row: &Row, key: &str) -> f64 {
     get_f64_opt(row, key).unwrap_or(0.0)
 }
@@ -541,6 +551,126 @@ mod tests {
         let mut row = Row::new();
         row.insert("k".to_string(), Value::from(0.0_f64));
         assert_eq!(get_f64_opt(&row, "k"), Some(0.0));
+    }
+
+    // ---- 2026-06-05 audit: get_i64/get_f64 の silent fallback 境界 ----
+
+    #[test]
+    fn get_i64_normal_and_string_and_invalid() {
+        let mut row = Row::new();
+        row.insert("num".to_string(), Value::from(42_i64));
+        row.insert("str_num".to_string(), Value::from("123"));
+        row.insert("bad".to_string(), Value::from("not_a_number"));
+        row.insert("obj".to_string(), serde_json::json!({"nested": 1}));
+        // 正常値
+        assert_eq!(get_i64(&row, "num"), 42);
+        assert_eq!(get_i64_opt(&row, "num"), Some(42));
+        // 文字列からの数値変換
+        assert_eq!(get_i64(&row, "str_num"), 123);
+        assert_eq!(get_i64_opt(&row, "str_num"), Some(123));
+        // 不正型 (パース不能文字列) → silent 0 / opt は None
+        assert_eq!(get_i64(&row, "bad"), 0, "パース不能は silent 0");
+        assert_eq!(
+            get_i64_opt(&row, "bad"),
+            None,
+            "パース不能は None で識別可能"
+        );
+        // オブジェクト型 → silent 0 / opt は None
+        assert_eq!(get_i64(&row, "obj"), 0);
+        assert_eq!(get_i64_opt(&row, "obj"), None);
+    }
+
+    #[test]
+    fn get_f64_normal_and_string_and_invalid() {
+        let mut row = Row::new();
+        row.insert("num".to_string(), Value::from(3.5_f64));
+        row.insert("int".to_string(), Value::from(7_i64));
+        row.insert("str_num".to_string(), Value::from("2.25"));
+        row.insert("bad".to_string(), Value::from("xyz"));
+        // 正常値
+        assert_eq!(get_f64(&row, "num"), 3.5);
+        assert_eq!(get_f64_opt(&row, "num"), Some(3.5));
+        // i64 → f64 変換
+        assert_eq!(get_f64(&row, "int"), 7.0);
+        // 文字列からの変換
+        assert_eq!(get_f64(&row, "str_num"), 2.25);
+        // 不正型 → silent 0.0 / opt は None
+        assert_eq!(get_f64(&row, "bad"), 0.0, "パース不能は silent 0.0");
+        assert_eq!(
+            get_f64_opt(&row, "bad"),
+            None,
+            "パース不能は None で識別可能"
+        );
+    }
+
+    // ---- 2026-06-05 audit: escape_html の XSS 網羅テスト ----
+
+    #[test]
+    fn escape_html_all_special_chars() {
+        // 5 特殊文字すべてが個別にエスケープされる
+        assert_eq!(escape_html("&"), "&amp;");
+        assert_eq!(escape_html("<"), "&lt;");
+        assert_eq!(escape_html(">"), "&gt;");
+        assert_eq!(escape_html("\""), "&quot;");
+        assert_eq!(escape_html("'"), "&#x27;");
+    }
+
+    #[test]
+    fn escape_html_neutralizes_script_payload() {
+        let payload = "<script>alert('XSS')</script>";
+        let escaped = escape_html(payload);
+        assert!(
+            !escaped.contains("<script>"),
+            "<script> 素通り不可: {}",
+            escaped
+        );
+        assert!(!escaped.contains("</script>"), "</script> 素通り不可");
+        assert_eq!(
+            escaped,
+            "&lt;script&gt;alert(&#x27;XSS&#x27;)&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn escape_html_neutralizes_img_onerror() {
+        let payload = "<img src=x onerror=alert(1)>";
+        let escaped = escape_html(payload);
+        assert!(
+            !escaped.contains("<img"),
+            "<img タグ素通り不可: {}",
+            escaped
+        );
+        assert_eq!(escaped, "&lt;img src=x onerror=alert(1)&gt;");
+    }
+
+    #[test]
+    fn escape_html_neutralizes_attribute_breakout() {
+        // 属性値内に埋め込まれた時のブレイクアウト試行
+        let payload = "\"><script>alert(1)</script>";
+        let escaped = escape_html(payload);
+        assert!(!escaped.contains('"'), "double quote 残存不可");
+        assert!(!escaped.contains('<'), "山括弧残存不可");
+        assert!(!escaped.contains('>'), "山括弧残存不可");
+        assert_eq!(escaped, "&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
+
+    #[test]
+    fn escape_html_ampersand_first_no_double_escape() {
+        // & を最初に置換するため二重エスケープが起きない
+        let escaped = escape_html("a & b < c");
+        assert!(escaped.contains("a &amp; b"), "& が &amp;");
+        assert!(escaped.contains("&lt; c"), "< が &lt;");
+        assert!(
+            !escaped.contains("&amp;lt;"),
+            "二重エスケープ不可: {}",
+            escaped
+        );
+    }
+
+    #[test]
+    fn escape_html_preserves_plain_text() {
+        assert_eq!(escape_html("週休2日 残業少なめ"), "週休2日 残業少なめ");
+        assert_eq!(escape_html(""), "");
     }
 
     // ---- 2026-05-24 audit_B P1-4: Percentage newtype ----

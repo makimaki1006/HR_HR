@@ -13,6 +13,19 @@ type Db = crate::db::local_sqlite::LocalDb;
 type TursoDb = crate::db::turso_http::TursoDb;
 type Row = HashMap<String, Value>;
 
+/// 営業仮説（So What）テキストを統一スタイルで描画するローカルヘルパー。
+/// 相関≠因果ルールに従い断定を避け「傾向／可能性」表現に留める。
+fn so_what(text: &str) -> String {
+    format!(
+        r#"<div class="mt-3 px-3 py-2 rounded-md bg-blue-900/20 border-l-2 border-blue-500 text-xs text-blue-200 leading-relaxed">💡 営業仮説: {text}</div>"#
+    )
+}
+
+/// 出典キャプションを統一スタイルで描画するローカルヘルパー。
+fn source_caption(text: &str) -> String {
+    format!(r#"<div class="mt-1 text-[10px] text-slate-500">出典: {text}</div>"#)
+}
+
 pub(crate) fn render_subtab_6(db: &Db, pref: &str, muni: &str) -> String {
     let fulfillment = fetch_fulfillment_summary(db, pref, muni);
     let mobility = fetch_mobility_estimate(db, pref, muni);
@@ -107,7 +120,16 @@ pub(super) fn render_fulfillment_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "充足困難度スコアが高い雇用形態は、求人を出しても人材確保に時間を要する傾向があり、\
+        早期の採用着手や条件設計の見直しが有効な可能性があります。\
+        本スコアは求人条件と地域特性からの推定値であり、実際の応募・採用実績とは異なる場合があります。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人の条件・地域特性からの推定スコア（求職者人数の推計ではありません）。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -178,7 +200,16 @@ pub(super) fn render_mobility_section(data: &[Row]) -> String {
         html.push_str("</div>");
     }
 
-    html.push_str("</div></div>");
+    html.push_str("</div>");
+    html.push_str(&so_what(
+        "ネット重力が負の地域では、給与・求人数の相対的な低さから人材が他地域へ流れやすい傾向があります。\
+        主要流出先の条件を参考に提示水準を調整することで、流出抑制につながる可能性があります。\
+        本指標は重力モデルによる推定値で、実際の人材移動の実測ではありません。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（地域別求人数・給与）に重力モデルを適用した推定値。HW掲載求人に基づく",
+    ));
+    html.push_str("</div>");
     html
 }
 
@@ -247,6 +278,14 @@ pub(super) fn render_shadow_wage_section(data: &[Row]) -> String {
     }
 
     html.push_str("</tbody></table></div>");
+    html.push_str(&so_what(
+        "P25-P75の幅が広い雇用形態は給与の個別差が大きい傾向があり、提示レンジの設計に交渉余地がある可能性があります。\
+        中央値（P50）と平均の乖離が大きい場合、一部の高額求人が平均を押し上げている可能性があるため、\
+        中央値を基準に水準感を確認することをおすすめします。",
+    ));
+    html.push_str(&source_caption(
+        "ハローワーク掲載求人（雇用形態別の給与パーセンタイル分布）。HW掲載求人に基づく",
+    ));
     html.push_str("</div>");
     html
 }
