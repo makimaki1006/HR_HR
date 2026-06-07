@@ -21,7 +21,8 @@ mod render;
 
 // lib.rs から handlers::regional_analysis::* として参照
 pub use handlers::{
-    regional_company_matrix, regional_emp_salary, regional_job_type_salary, regional_job_types,
-    regional_muni_ranking, regional_municipalities, regional_population_pyramid,
+    regional_company_matrix, regional_emp_salary, regional_foreign_residents,
+    regional_internet_usage, regional_job_type_salary, regional_job_types, regional_muni_ranking,
+    regional_municipalities, regional_occupation, regional_population_pyramid,
     regional_salary_histogram, regional_wage_comparison, tab_regional_analysis,
 };

@@ -86,6 +86,21 @@
     <div id="ra-company-matrix" role="region" aria-live="polite" aria-label="企業成長マトリックス">
         <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (外部企業データ)</p></div>
     </div>
+
+    <!-- パネル8 + 9: 在留外国人 / インターネット利用 (都道府県粒度の外部統計) -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div id="ra-foreign" role="region" aria-live="polite" aria-label="在留外国人">
+            <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (住民基本台帳・在留資格別)</p></div>
+        </div>
+        <div id="ra-internet" role="region" aria-live="polite" aria-label="インターネット利用">
+            <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (通信利用動向・都道府県値)</p></div>
+        </div>
+    </div>
+
+    <!-- パネル10: 職業別就業者 (国勢調査・従業地ベース) -->
+    <div id="ra-occupation" role="region" aria-live="polite" aria-label="職業別就業者">
+        <div class="stat-card"><p class="text-slate-400 text-sm">「分析」で表示します (国勢調査・市区町村選択で当該地域の職業構成)</p></div>
+    </div>
 </div>
 
 <script>
@@ -166,7 +181,11 @@ function runRegionalAnalysis() {
         ['job_type_salary', '#ra-job-salary'],
         ['population_pyramid', '#ra-pyramid'],
         ['wage_comparison', '#ra-wage'],
-        ['company_matrix', '#ra-company-matrix']
+        ['company_matrix', '#ra-company-matrix'],
+        // Phase3: 在留外国人 / インターネット利用 / 職業別就業者 (未活用テーブル活用)
+        ['foreign_residents', '#ra-foreign'],
+        ['internet_usage', '#ra-internet'],
+        ['occupation', '#ra-occupation']
     ];
     (function runNext(i) {
         if (i >= panels.length) return;

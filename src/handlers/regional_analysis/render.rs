@@ -12,7 +12,8 @@
 use std::fmt::Write as _;
 
 use super::fetch::{
-    CompanyPoint, EmpSalaryRow, JobTypeSalaryRow, MuniRankRow, PopulationPyramid, PyramidBand,
+    CompanyPoint, EmpSalaryRow, ForeignResidentRow, ForeignResidents, InternetUsage,
+    JobTypeSalaryRow, MuniRankRow, OccupationDist, OccupationRow, PopulationPyramid, PyramidBand,
     RegionalFilter, SalaryHistogram, WageComparison,
 };
 use crate::handlers::competitive::escape_html;
@@ -594,6 +595,181 @@ pub(crate) fn render_company_matrix(filter: &RegionalFilter, points: &[CompanyPo
     wrap_panel_with_note("企業成長マトリックス (外部企業データ)", &scope, &body, note)
 }
 
+/// 8) 在留外国人 (在留資格別 横棒 + 表)。
+pub(crate) fn render_foreign_residents(filter: &RegionalFilter, fr: &ForeignResidents) -> String {
+    let scope = filter.scope_label();
+    let note = "出典: 住民基本台帳 (SSDSE-A、都道府県値)。在留資格別の外国人数。外国人材の採用可能性・多文化対応ニーズの把握用であり、求人・求職の人数ではありません。";
+    if !fr.has_data || fr.rows.is_empty() {
+        return wrap_panel_with_note(
+            "在留外国人 (在留資格別)",
+            &scope,
+            &no_data_external("在留外国人"),
+            note,
+        );
+    }
+    // 上位 12 を横棒グラフ化 (count DESC で来るので昇順に並べ替え)。
+    let mut asc: Vec<&ForeignResidentRow> = fr.rows.iter().take(12).collect();
+    asc.reverse();
+    let labels: Vec<serde_json::Value> = asc
+        .iter()
+        .map(|r| serde_json::Value::String(escape_html(&r.visa_status)))
+        .collect();
+    let data: Vec<serde_json::Value> =
+        asc.iter().map(|r| serde_json::Value::from(r.count)).collect();
+    let labels_json = serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string());
+    let data_json = serde_json::to_string(&data).unwrap_or_else(|_| "[]".to_string());
+    let chart_h = (asc.len() as i64 * 28 + 80).clamp(180, 460);
+    let config = format!(
+        r##"{{
+  "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
+  "grid": {{"left": "2%", "right": "10%", "bottom": "4%", "top": "4%", "containLabel": true}},
+  "xAxis": {{"type": "value", "name": "人数"}},
+  "yAxis": {{"type": "category", "data": {labels}, "axisLabel": {{"fontSize": 11}}}},
+  "series": [{{"type": "bar", "data": {data}, "barWidth": "60%", "itemStyle": {{"color": "#009E73", "borderRadius": [0, 4, 4, 0]}}, "label": {{"show": true, "position": "right", "fontSize": 10, "color": "#cbd5e1"}}}}]
+}}"##,
+        labels = labels_json,
+        data = data_json,
+    );
+    let chart = format!(
+        r#"<div class="echart" style="height:{h}px;" data-chart-config='{config}'></div>"#,
+        h = chart_h,
+        config = config,
+    );
+    let mut table = String::from(
+        r#"<div class="overflow-x-auto mt-2"><table class="data-table"><thead><tr>
+          <th>在留資格</th><th class="text-right">人数</th><th class="text-right">構成比</th>
+        </tr></thead><tbody>"#,
+    );
+    for r in &fr.rows {
+        let pct = if fr.total > 0 {
+            r.count as f64 / fr.total as f64 * 100.0
+        } else {
+            0.0
+        };
+        write!(
+            table,
+            r#"<tr><td>{vs}</td><td class="text-right">{cnt}</td><td class="text-right">{pct:.1}%</td></tr>"#,
+            vs = escape_html(&r.visa_status),
+            cnt = format_number(r.count),
+            pct = pct,
+        )
+        .unwrap();
+    }
+    write!(
+        table,
+        r#"<tr class="font-semibold"><td>合計</td><td class="text-right">{}</td><td class="text-right">100.0%</td></tr>"#,
+        format_number(fr.total)
+    )
+    .unwrap();
+    table.push_str("</tbody></table></div>");
+    let body = format!("{}{}", chart, table);
+    wrap_panel_with_note("在留外国人 (在留資格別)", &scope, &body, note)
+}
+
+/// 9) インターネット利用 (利用率・スマホ保有率 スタットカード)。
+pub(crate) fn render_internet_usage(filter: &RegionalFilter, iu: &InternetUsage) -> String {
+    let scope = filter.scope_label();
+    let note = "出典: 通信利用動向 (都道府県値)。採用チャネル (SNS / WEB 求人) の有効性を判断する参考指標です。";
+    if !iu.has_data {
+        return wrap_panel_with_note(
+            "インターネット利用",
+            &scope,
+            &no_data_external("インターネット利用"),
+            note,
+        );
+    }
+    let fmt = |v: Option<f64>| match v {
+        Some(x) => format!("{:.1}%", x),
+        None => "-".to_string(),
+    };
+    let year = iu.year.map(|y| format!("{y}年")).unwrap_or_default();
+    let body = format!(
+        r#"<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  <div class="stat-card"><div class="text-xs text-slate-400">インターネット利用率 {year}</div><div class="text-2xl text-white font-bold">{usage}</div></div>
+  <div class="stat-card"><div class="text-xs text-slate-400">スマートフォン保有率 {year}</div><div class="text-2xl text-white font-bold">{sp}</div></div>
+</div>"#,
+        year = escape_html(&year),
+        usage = fmt(iu.usage_rate),
+        sp = fmt(iu.smartphone_rate),
+    );
+    wrap_panel_with_note("インターネット利用", &scope, &body, note)
+}
+
+/// 10) 職業別就業者 (従業地ベース実測、横棒 + 表)。
+pub(crate) fn render_occupation(filter: &RegionalFilter, occ: &OccupationDist) -> String {
+    let scope = filter.scope_label();
+    let note = format!(
+        "出典: 国勢調査 (従業地ベース・男女計)。集計粒度: {}。当該地域で働く人の職業構成 (就業者数) であり、求人・求職の人数ではありません。",
+        occ.granularity
+    );
+    if !occ.has_data || occ.rows.is_empty() {
+        return wrap_panel_with_note(
+            "職業別就業者",
+            &scope,
+            &no_data_external("職業別就業者"),
+            &note,
+        );
+    }
+    let mut asc: Vec<&OccupationRow> = occ.rows.iter().collect();
+    asc.reverse(); // pop DESC で来るので昇順に
+    let labels: Vec<serde_json::Value> = asc
+        .iter()
+        .map(|r| serde_json::Value::String(escape_html(&r.occupation)))
+        .collect();
+    let data: Vec<serde_json::Value> = asc
+        .iter()
+        .map(|r| serde_json::Value::from(r.population))
+        .collect();
+    let labels_json = serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string());
+    let data_json = serde_json::to_string(&data).unwrap_or_else(|_| "[]".to_string());
+    let chart_h = (asc.len() as i64 * 28 + 80).clamp(180, 520);
+    let config = format!(
+        r##"{{
+  "tooltip": {{"trigger": "axis", "axisPointer": {{"type": "shadow"}}}},
+  "grid": {{"left": "2%", "right": "12%", "bottom": "4%", "top": "4%", "containLabel": true}},
+  "xAxis": {{"type": "value", "name": "就業者数(人)"}},
+  "yAxis": {{"type": "category", "data": {labels}, "axisLabel": {{"fontSize": 11}}}},
+  "series": [{{"type": "bar", "data": {data}, "barWidth": "60%", "itemStyle": {{"color": "#0072B2", "borderRadius": [0, 4, 4, 0]}}, "label": {{"show": true, "position": "right", "fontSize": 10, "color": "#cbd5e1"}}}}]
+}}"##,
+        labels = labels_json,
+        data = data_json,
+    );
+    let chart = format!(
+        r#"<div class="echart" style="height:{h}px;" data-chart-config='{config}'></div>"#,
+        h = chart_h,
+        config = config,
+    );
+    let mut table = String::from(
+        r#"<div class="overflow-x-auto mt-2"><table class="data-table"><thead><tr>
+          <th>職業</th><th class="text-right">就業者数</th><th class="text-right">構成比</th>
+        </tr></thead><tbody>"#,
+    );
+    for r in &occ.rows {
+        let pct = if occ.total > 0 {
+            r.population as f64 / occ.total as f64 * 100.0
+        } else {
+            0.0
+        };
+        write!(
+            table,
+            r#"<tr><td>{occ}</td><td class="text-right">{pop}</td><td class="text-right">{pct:.1}%</td></tr>"#,
+            occ = escape_html(&r.occupation),
+            pop = format_number(r.population),
+            pct = pct,
+        )
+        .unwrap();
+    }
+    write!(
+        table,
+        r#"<tr class="font-semibold"><td>合計</td><td class="text-right">{}</td><td class="text-right">100.0%</td></tr>"#,
+        format_number(occ.total)
+    )
+    .unwrap();
+    table.push_str("</tbody></table></div>");
+    let body = format!("{}{}", chart, table);
+    wrap_panel_with_note("職業別就業者", &scope, &body, &note)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,6 +780,114 @@ mod tests {
             municipality: "".into(),
             job_type: "".into(),
         }
+    }
+
+    // ---- Phase3: 在留外国人 / インターネット利用 / 職業別就業者 ----
+
+    #[test]
+    fn foreign_residents_empty_shows_no_data_and_source() {
+        let html = render_foreign_residents(&pref_filter(), &ForeignResidents::default());
+        assert!(html.contains("住民基本台帳"));
+        assert!(html.contains("該当するデータがありません"));
+        assert!(!html.contains("SalesNow"));
+    }
+
+    #[test]
+    fn foreign_residents_with_data_renders_chart_table_total() {
+        let fr = ForeignResidents {
+            rows: vec![
+                ForeignResidentRow {
+                    visa_status: "永住者".into(),
+                    count: 1000,
+                },
+                ForeignResidentRow {
+                    visa_status: "技能実習".into(),
+                    count: 500,
+                },
+            ],
+            total: 1500,
+            survey_period: "2023".into(),
+            has_data: true,
+        };
+        let html = render_foreign_residents(&pref_filter(), &fr);
+        assert!(html.contains("data-chart-config"));
+        assert!(html.contains("永住者"));
+        assert!(html.contains("1,500"));
+        assert!(html.contains("求人・求職の人数ではありません"));
+    }
+
+    #[test]
+    fn foreign_residents_escapes_visa_status_xss() {
+        let fr = ForeignResidents {
+            rows: vec![ForeignResidentRow {
+                visa_status: "<img src=x onerror=alert(1)>".into(),
+                count: 10,
+            }],
+            total: 10,
+            survey_period: String::new(),
+            has_data: true,
+        };
+        let html = render_foreign_residents(&pref_filter(), &fr);
+        assert!(!html.contains("<img src=x"));
+    }
+
+    #[test]
+    fn internet_usage_empty_and_with_data() {
+        let empty = render_internet_usage(&pref_filter(), &InternetUsage::default());
+        assert!(empty.contains("該当するデータがありません"));
+        let iu = InternetUsage {
+            usage_rate: Some(85.5),
+            smartphone_rate: Some(70.2),
+            year: Some(2023),
+            has_data: true,
+        };
+        let html = render_internet_usage(&pref_filter(), &iu);
+        assert!(html.contains("85.5%"));
+        assert!(html.contains("70.2%"));
+        assert!(html.contains("通信利用動向"));
+    }
+
+    #[test]
+    fn occupation_empty_and_with_data() {
+        let empty = render_occupation(&pref_filter(), &OccupationDist::default());
+        assert!(empty.contains("該当するデータがありません"));
+        let occ = OccupationDist {
+            rows: vec![
+                OccupationRow {
+                    occupation: "事務従事者".into(),
+                    population: 100_000,
+                },
+                OccupationRow {
+                    occupation: "販売従事者".into(),
+                    population: 50_000,
+                },
+            ],
+            total: 150_000,
+            granularity: "都道府県".into(),
+            area_name: "東京都".into(),
+            has_data: true,
+        };
+        let html = render_occupation(&pref_filter(), &occ);
+        assert!(html.contains("data-chart-config"));
+        assert!(html.contains("事務従事者"));
+        assert!(html.contains("国勢調査"));
+        assert!(html.contains("求人・求職の人数ではありません"));
+    }
+
+    #[test]
+    fn occupation_escapes_xss() {
+        let occ = OccupationDist {
+            rows: vec![OccupationRow {
+                occupation: "<script>x</script>".into(),
+                population: 10,
+            }],
+            total: 10,
+            granularity: "市区町村".into(),
+            area_name: "x".into(),
+            has_data: true,
+        };
+        let html = render_occupation(&pref_filter(), &occ);
+        assert!(!html.contains("<script>x"));
     }
 
     #[test]
