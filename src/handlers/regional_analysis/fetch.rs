@@ -792,6 +792,199 @@ fn query_external(
     Vec::new()
 }
 
+// ============================================================
+// Phase 3: 外部統計 3 パネル (在留外国人 / インターネット利用 / 職業別就業者)
+// ============================================================
+
+/// 在留外国人 1 行 (在留資格 × 人数)。
+#[derive(Clone, Debug)]
+pub(crate) struct ForeignResidentRow {
+    pub visa_status: String,
+    pub count: i64,
+}
+
+/// 在留外国人 (都道府県粒度、在留資格別)。
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ForeignResidents {
+    pub rows: Vec<ForeignResidentRow>,
+    pub total: i64,
+    pub survey_period: String,
+    pub has_data: bool,
+}
+
+/// 8) 在留外国人を取得 (都道府県値・在留資格別降順)。総数行は除外。
+///
+/// 出典: SSDSE-A (住民基本台帳)。外国人材の雇用可能性・多文化対応ニーズの把握用。
+pub(crate) fn fetch_foreign_residents(
+    state: &AppState,
+    filter: &RegionalFilter,
+) -> ForeignResidents {
+    if filter.prefecture.is_empty() {
+        return ForeignResidents::default();
+    }
+    // prefecture 完全一致でヘッダ混入行は除外される。総数系ラベルは LIKE で除外。
+    let sql = "SELECT visa_status, count, survey_period \
+               FROM v2_external_foreign_residents \
+               WHERE prefecture = ? AND count > 0 \
+                 AND visa_status IS NOT NULL AND visa_status <> '' \
+                 AND visa_status NOT LIKE '%総数%' AND visa_status NOT LIKE '%総計%' \
+                 AND visa_status NOT LIKE '%合計%' \
+               ORDER BY count DESC";
+    let rows = query_external(state, sql, &[filter.prefecture.clone()]);
+    let mut out = Vec::new();
+    let mut period = String::new();
+    for r in &rows {
+        let vs = r
+            .get("visa_status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let cnt = r.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        if vs.is_empty() || cnt <= 0 {
+            continue;
+        }
+        if period.is_empty() {
+            if let Some(p) = r.get("survey_period").and_then(|v| v.as_str()) {
+                period = p.to_string();
+            }
+        }
+        out.push(ForeignResidentRow {
+            visa_status: vs,
+            count: cnt,
+        });
+    }
+    let total: i64 = out.iter().map(|r| r.count).sum();
+    let has_data = !out.is_empty();
+    ForeignResidents {
+        rows: out,
+        total,
+        survey_period: period,
+        has_data,
+    }
+}
+
+/// インターネット利用 (都道府県粒度)。
+#[derive(Clone, Debug, Default)]
+pub(crate) struct InternetUsage {
+    pub usage_rate: Option<f64>,
+    pub smartphone_rate: Option<f64>,
+    pub year: Option<i64>,
+    pub has_data: bool,
+}
+
+/// 9) インターネット利用率・スマートフォン保有率を取得 (都道府県値)。
+///
+/// 出典: 通信利用動向。採用チャネル (SNS/WEB) の有効性を判断する参考指標。
+pub(crate) fn fetch_internet_usage(state: &AppState, filter: &RegionalFilter) -> InternetUsage {
+    if filter.prefecture.is_empty() {
+        return InternetUsage::default();
+    }
+    let sql = "SELECT internet_usage_rate, smartphone_ownership_rate, year \
+               FROM v2_external_internet_usage WHERE prefecture = ?";
+    let rows = query_external(state, sql, &[filter.prefecture.clone()]);
+    match rows.first() {
+        Some(r) => {
+            let usage_rate = r.get("internet_usage_rate").and_then(|v| v.as_f64());
+            let smartphone_rate = r.get("smartphone_ownership_rate").and_then(|v| v.as_f64());
+            let year = r.get("year").and_then(|v| v.as_i64());
+            let has_data = usage_rate.is_some() || smartphone_rate.is_some();
+            InternetUsage {
+                usage_rate,
+                smartphone_rate,
+                year,
+                has_data,
+            }
+        }
+        None => InternetUsage::default(),
+    }
+}
+
+/// 職業別就業者 1 行 (職業 × 就業者数)。
+#[derive(Clone, Debug)]
+pub(crate) struct OccupationRow {
+    pub occupation: String,
+    pub population: i64,
+}
+
+/// 職業別就業者 (市区町村 or 都道府県粒度、従業地ベース実測)。
+#[derive(Clone, Debug, Default)]
+pub(crate) struct OccupationDist {
+    pub rows: Vec<OccupationRow>,
+    pub total: i64,
+    pub granularity: String,
+    pub area_name: String,
+    pub has_data: bool,
+}
+
+/// 10) 職業別就業者を取得。
+///
+/// `data_label='measured' AND basis='workplace'` (国勢調査・従業地ベース実測) のみ集計。
+/// 男女合算 (gender 値を SUM)。市区町村未選択時は都道府県集計。
+/// estimated_beta (population NULL の推定行) は `population IS NOT NULL` で除外。
+pub(crate) fn fetch_occupation_distribution(
+    state: &AppState,
+    filter: &RegionalFilter,
+) -> OccupationDist {
+    if filter.prefecture.is_empty() {
+        return OccupationDist::default();
+    }
+    let (granularity, area_name, sql, params): (String, String, String, Vec<String>) =
+        if !filter.municipality.is_empty() {
+            let ext_muni = normalize_muni_for_external(&filter.prefecture, &filter.municipality);
+            (
+                "市区町村".to_string(),
+                format!("{} {}", filter.prefecture, filter.municipality),
+                "SELECT occupation_name, SUM(population) AS pop \
+                 FROM municipality_occupation_population \
+                 WHERE prefecture = ? AND municipality_name = ? \
+                   AND data_label = 'measured' AND basis = 'workplace' \
+                   AND population IS NOT NULL \
+                 GROUP BY occupation_name ORDER BY pop DESC"
+                    .to_string(),
+                vec![filter.prefecture.clone(), ext_muni],
+            )
+        } else {
+            (
+                "都道府県".to_string(),
+                filter.prefecture.clone(),
+                "SELECT occupation_name, SUM(population) AS pop \
+                 FROM municipality_occupation_population \
+                 WHERE prefecture = ? \
+                   AND data_label = 'measured' AND basis = 'workplace' \
+                   AND population IS NOT NULL \
+                 GROUP BY occupation_name ORDER BY pop DESC"
+                    .to_string(),
+                vec![filter.prefecture.clone()],
+            )
+        };
+    let rows = query_external(state, &sql, &params);
+    let mut out = Vec::new();
+    for r in &rows {
+        let occ = r
+            .get("occupation_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let pop = r.get("pop").and_then(|v| v.as_i64()).unwrap_or(0);
+        if occ.is_empty() || pop <= 0 {
+            continue;
+        }
+        out.push(OccupationRow {
+            occupation: occ,
+            population: pop,
+        });
+    }
+    let total: i64 = out.iter().map(|r| r.population).sum();
+    let has_data = !out.is_empty();
+    OccupationDist {
+        rows: out,
+        total,
+        granularity,
+        area_name,
+        has_data,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

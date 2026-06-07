@@ -25,13 +25,15 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use super::fetch::{
-    fetch_company_matrix, fetch_emp_salary_stats, fetch_job_type_salary, fetch_job_types,
-    fetch_muni_ranking, fetch_municipalities, fetch_population_pyramid, fetch_prefectures,
+    fetch_company_matrix, fetch_emp_salary_stats, fetch_foreign_residents, fetch_internet_usage,
+    fetch_job_type_salary, fetch_job_types, fetch_muni_ranking, fetch_municipalities,
+    fetch_occupation_distribution, fetch_population_pyramid, fetch_prefectures,
     fetch_salary_histogram, fetch_wage_comparison, RegionalFilter,
 };
 use super::render::{
-    render_company_matrix, render_emp_salary, render_job_type_salary, render_muni_ranking,
-    render_population_pyramid, render_salary_histogram, render_wage_comparison,
+    render_company_matrix, render_emp_salary, render_foreign_residents, render_internet_usage,
+    render_job_type_salary, render_muni_ranking, render_occupation, render_population_pyramid,
+    render_salary_histogram, render_wage_comparison,
 };
 use crate::handlers::competitive::escape_html;
 use crate::handlers::overview::format_number;
@@ -338,6 +340,78 @@ pub async fn regional_company_matrix(
             .ok();
     match pts {
         Some(p) => Html(render_company_matrix(&filter, &p)),
+        None => aggregation_failed(),
+    }
+}
+
+/// 8) 在留外国人 (外部統計: 住民基本台帳、都道府県粒度)。
+pub async fn regional_foreign_residents(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<RegionalParams>,
+) -> Html<String> {
+    let filter = params.to_filter();
+    if filter.prefecture.is_empty() {
+        return pref_required();
+    }
+    if state.turso_db.is_none() && state.hw_db.is_none() {
+        return db_unavailable();
+    }
+    let st = state.clone();
+    let f = filter.clone();
+    let fr = tokio::task::spawn_blocking(move || fetch_foreign_residents(&st, &f))
+        .await
+        .ok();
+    match fr {
+        Some(d) => Html(render_foreign_residents(&filter, &d)),
+        None => aggregation_failed(),
+    }
+}
+
+/// 9) インターネット利用 (外部統計: 通信利用動向、都道府県粒度)。
+pub async fn regional_internet_usage(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<RegionalParams>,
+) -> Html<String> {
+    let filter = params.to_filter();
+    if filter.prefecture.is_empty() {
+        return pref_required();
+    }
+    if state.turso_db.is_none() && state.hw_db.is_none() {
+        return db_unavailable();
+    }
+    let st = state.clone();
+    let f = filter.clone();
+    let iu = tokio::task::spawn_blocking(move || fetch_internet_usage(&st, &f))
+        .await
+        .ok();
+    match iu {
+        Some(d) => Html(render_internet_usage(&filter, &d)),
+        None => aggregation_failed(),
+    }
+}
+
+/// 10) 職業別就業者 (外部統計: 国勢調査・従業地ベース、市区町村/都道府県粒度)。
+pub async fn regional_occupation(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    Query(params): Query<RegionalParams>,
+) -> Html<String> {
+    let filter = params.to_filter();
+    if filter.prefecture.is_empty() {
+        return pref_required();
+    }
+    if state.turso_db.is_none() && state.hw_db.is_none() {
+        return db_unavailable();
+    }
+    let st = state.clone();
+    let f = filter.clone();
+    let occ = tokio::task::spawn_blocking(move || fetch_occupation_distribution(&st, &f))
+        .await
+        .ok();
+    match occ {
+        Some(d) => Html(render_occupation(&filter, &d)),
         None => aggregation_failed(),
     }
 }

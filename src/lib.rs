@@ -310,6 +310,18 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/regional/company_matrix",
             get(handlers::regional_analysis::regional_company_matrix),
         )
+        .route(
+            "/api/regional/foreign_residents",
+            get(handlers::regional_analysis::regional_foreign_residents),
+        )
+        .route(
+            "/api/regional/internet_usage",
+            get(handlers::regional_analysis::regional_internet_usage),
+        )
+        .route(
+            "/api/regional/occupation",
+            get(handlers::regional_analysis::regional_occupation),
+        )
         .route("/tab/trend", get(handlers::trend::tab_trend))
         .route("/api/trend/subtab/{id}", get(handlers::trend::trend_subtab))
         .route("/tab/insight", get(handlers::insight::tab_insight))
