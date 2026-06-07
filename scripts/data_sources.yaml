@@ -67,6 +67,7 @@ sources:
     manual_consts: []
     tabs: [trend]
     status: hidden
+    notes: HW時系列。可視タブへの昇格は不採用で確定(ユーザー方針 2026-06-07、HWは抑えめ)。trend タブは非表示のまま
   - name: hw_ts_vacancy
     source: hw_timeseries
     upload: upload_to_turso.py
@@ -77,6 +78,7 @@ sources:
     manual_consts: []
     tabs: [trend]
     status: hidden
+    notes: HW時系列。可視タブへの昇格は不採用で確定(ユーザー方針 2026-06-07、HWは抑えめ)。trend タブは非表示のまま
 
   # ---- SalesNow ----
   - name: salesnow_companies
@@ -146,9 +148,9 @@ sources:
     freshness_col: survey_year
     frequency: quinquennial
     manual_consts: []
-    tabs: [analysis]
-    status: hidden
-    notes: 729,949行。詳細分析(MI)のみ=非表示。表示タブ移植候補
+    tabs: [analysis, regional]
+    status: visible
+    notes: 729,949行(Turso投入済、コード旧注記「未投入」は誤り)。regional パネル10(職業別就業者)で本番描画確認済(2026-06-07)。data_label='measured' AND basis='workplace' の実census のみ集計(estimated_beta は population NULL で除外)
   - name: education
     source: e-stat
     stats_data_id: "0003450543"
@@ -286,13 +288,13 @@ sources:
     transform: import_external_csv.py
     upload: upload_new_external_to_turso.py
     table: v2_external_foreign_residents
-    granularity: municipality
+    granularity: prefecture
     freshness_col: survey_period
     frequency: irregular
     manual_consts: []
-    tabs: [analysis]
-    status: hidden
-    notes: 詳細分析のみ=非表示
+    tabs: [analysis, regional]
+    status: visible
+    notes: 282行/47都道府県。regional パネル8(在留外国人・在留資格別)で本番描画確認済(2026-06-07)。granularity は prefecture(municipality 列なし)
   - name: commute_od
     source: e-stat
     stats_data_id: "0003454527"
@@ -362,7 +364,7 @@ sources:
     manual_consts: []
     tabs: []
     status: unused
-    notes: 介護特化不要のため活用対象外(ユーザー判断 2026-06-05)
+    notes: 介護特化不要のため不採用で確定(ユーザー方針 2026-06-05/06-07)。アプリ・レポートとも非活用。監査で未活用バグと誤検出しないこと
 
   # ---- 手動DL / 他API ----
   - name: migration
@@ -439,9 +441,9 @@ sources:
     freshness_col: year
     frequency: irregular
     manual_consts: []
-    tabs: []
-    status: unused
-    notes: fetch_geo_supplement.py --net。投入済だが handler 参照ゼロ=未活用。活用or見送り判断要
+    tabs: [regional]
+    status: visible
+    notes: 47行/47都道府県。regional パネル9(インターネット利用率/スマホ保有率)で本番描画確認済(2026-06-07)
 
   # ---- 政策ハードコード (毎年度 手動更新) ----
   - name: prefecture_policy_consts

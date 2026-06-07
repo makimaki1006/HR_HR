@@ -42,8 +42,9 @@ except ImportError:
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REGISTRY_PATH = SCRIPTS_DIR / "data_sources.yaml"
 
-# 表示中の4タブ (これ以外=非表示タブ。新規データは必ず表示4タブに接続すべき)
-VISIBLE_TABS = {"jobmap", "survey", "competitive", "company"}
+# 表示中の5タブ (これ以外=非表示タブ。新規データは必ず表示タブに接続すべき)
+# regional = 地域×業界分析タブ (2026-06-07 追加。在留外国人/インターネット利用/職業別就業者ほか)
+VISIBLE_TABS = {"jobmap", "survey", "competitive", "company", "regional"}
 KNOWN_FREQUENCIES = {
     "monthly", "quarterly", "yearly", "quinquennial",
     "irregular", "continuous",
