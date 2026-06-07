@@ -892,16 +892,7 @@ pub fn render_external_drilldown_skeleton(pref_options: &str) -> String {
       <div>
         <label class="block text-xs text-slate-400 mb-1">都道府県</label>
         <select id="company-ext-pref" class="w-full bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600 focus:border-blue-500 focus:outline-none"
-                hx-get="/api/company/external/industry_structure" hx-include="#company-ext-pref,#company-ext-muni" hx-trigger="change" hx-target="#company-ext-industry" hx-swap="innerHTML"
-                onchange="
-                  htmx.ajax('GET','/api/company/external/establishments?'+new URLSearchParams({{pref:this.value,muni:document.getElementById('company-ext-muni').value}}),{{target:'#company-ext-establishments',swap:'innerHTML'}});
-                  htmx.ajax('GET','/api/company/external/segments?'+new URLSearchParams({{pref:this.value,muni:document.getElementById('company-ext-muni').value}}),{{target:'#company-ext-segments',swap:'innerHTML'}});
-                  htmx.ajax('GET','/api/company/external/business_dynamics?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-bizdyn',swap:'innerHTML'}});
-                  htmx.ajax('GET','/api/company/external/car_ownership?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-car',swap:'innerHTML'}});
-                  htmx.ajax('GET','/api/company/external/land_price?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-land',swap:'innerHTML'}});
-                  htmx.ajax('GET','/api/company/external/boj_tankan?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-tankan',swap:'innerHTML'}});
-                  htmx.ajax('GET','/api/company/external/climate?'+new URLSearchParams({{pref:this.value}}),{{target:'#company-ext-climate',swap:'innerHTML'}});
-                ">
+                onchange="companyExtRunPref()">
           <option value="">-- 選択 --</option>
 {pref_options}
         </select>
@@ -910,13 +901,7 @@ pub fn render_external_drilldown_skeleton(pref_options: &str) -> String {
         <label class="block text-xs text-slate-400 mb-1">市区町村 (任意)</label>
         <input type="text" id="company-ext-muni" name="muni" placeholder="例: 札幌市中央区"
                class="w-full bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600 focus:border-blue-500 focus:outline-none"
-               hx-get="/api/company/external/industry_structure" hx-include="#company-ext-pref,#company-ext-muni" hx-trigger="keyup changed delay:500ms" hx-target="#company-ext-industry" hx-swap="innerHTML"
-               onkeyup="
-                 if(event.key==='Enter') {{
-                   htmx.ajax('GET','/api/company/external/establishments?'+new URLSearchParams({{pref:document.getElementById('company-ext-pref').value,muni:this.value}}),{{target:'#company-ext-establishments',swap:'innerHTML'}});
-                   htmx.ajax('GET','/api/company/external/segments?'+new URLSearchParams({{pref:document.getElementById('company-ext-pref').value,muni:this.value}}),{{target:'#company-ext-segments',swap:'innerHTML'}});
-                 }}
-               " />
+               onkeyup="if(event.key==='Enter') companyExtRunMuni();" />
       </div>
     </div>
     <div id="company-ext-industry" class="mb-3"></div>
@@ -930,6 +915,45 @@ pub fn render_external_drilldown_skeleton(pref_options: &str) -> String {
       <div id="company-ext-tankan"></div>
       <div id="company-ext-climate"></div>
     </div>
+    <script>
+    (function(){{
+      // 🔴 htmx.ajax を一斉発火すると htmx が同時リクエストを取りこぼし一部パネルしか
+      //    描画されない (本番実測 8本中2本)。promise チェーンで1本ずつ逐次実行する。
+      function seq(items){{
+        (function next(i){{
+          if(i>=items.length) return;
+          htmx.ajax('GET',items[i][0],{{target:items[i][1],swap:'innerHTML'}})
+            .then(function(){{next(i+1);}}).catch(function(){{next(i+1);}});
+        }})(0);
+      }}
+      function q(o){{ return new URLSearchParams(o).toString(); }}
+      window.companyExtRunPref=function(){{
+        var pref=document.getElementById('company-ext-pref').value;
+        var muni=document.getElementById('company-ext-muni').value;
+        if(!pref) return;
+        seq([
+          ['/api/company/external/industry_structure?'+q({{pref:pref,muni:muni}}),'#company-ext-industry'],
+          ['/api/company/external/establishments?'+q({{pref:pref,muni:muni}}),'#company-ext-establishments'],
+          ['/api/company/external/segments?'+q({{pref:pref,muni:muni}}),'#company-ext-segments'],
+          ['/api/company/external/business_dynamics?'+q({{pref:pref}}),'#company-ext-bizdyn'],
+          ['/api/company/external/car_ownership?'+q({{pref:pref}}),'#company-ext-car'],
+          ['/api/company/external/land_price?'+q({{pref:pref}}),'#company-ext-land'],
+          ['/api/company/external/boj_tankan?'+q({{pref:pref}}),'#company-ext-tankan'],
+          ['/api/company/external/climate?'+q({{pref:pref}}),'#company-ext-climate']
+        ]);
+      }};
+      window.companyExtRunMuni=function(){{
+        var pref=document.getElementById('company-ext-pref').value;
+        var muni=document.getElementById('company-ext-muni').value;
+        if(!pref) return;
+        seq([
+          ['/api/company/external/industry_structure?'+q({{pref:pref,muni:muni}}),'#company-ext-industry'],
+          ['/api/company/external/establishments?'+q({{pref:pref,muni:muni}}),'#company-ext-establishments'],
+          ['/api/company/external/segments?'+q({{pref:pref,muni:muni}}),'#company-ext-segments']
+        ]);
+      }};
+    }})();
+    </script>
   </details>
 </div>"##
     )
