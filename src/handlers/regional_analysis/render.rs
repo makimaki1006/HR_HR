@@ -614,8 +614,10 @@ pub(crate) fn render_foreign_residents(filter: &RegionalFilter, fr: &ForeignResi
         .iter()
         .map(|r| serde_json::Value::String(escape_html(&r.visa_status)))
         .collect();
-    let data: Vec<serde_json::Value> =
-        asc.iter().map(|r| serde_json::Value::from(r.count)).collect();
+    let data: Vec<serde_json::Value> = asc
+        .iter()
+        .map(|r| serde_json::Value::from(r.count))
+        .collect();
     let labels_json = serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string());
     let data_json = serde_json::to_string(&data).unwrap_or_else(|_| "[]".to_string());
     let chart_h = (asc.len() as i64 * 28 + 80).clamp(180, 460);
