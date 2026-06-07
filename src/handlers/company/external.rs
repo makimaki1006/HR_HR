@@ -1330,7 +1330,11 @@ mod tests {
         assert!(html.contains(r#"id="company-ext-muni""#));
         // HTMX endpoint
         assert!(html.contains("/api/company/external/industry_structure"));
-        assert!(html.contains("hx-trigger"));
+        // pref 変更で逐次ローダ (companyExtRunPref) を起動する
+        // (旧: hx-trigger 宣言。htmx.ajax 一斉発火は同時リクエスト取りこぼしのため
+        //  逐次 promise チェーンに変更済み)
+        assert!(html.contains("companyExtRunPref"));
+        assert!(html.contains("htmx.ajax"));
     }
 
     #[test]
