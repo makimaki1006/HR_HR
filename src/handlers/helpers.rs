@@ -251,6 +251,35 @@ mod normalize_muni_tests {
     }
 }
 
+/// 「郡」を地名の一部として含む 6市町ホワイトリスト。
+///
+/// 2026-06-08 Team B 検証で発見: 旧 `strip_county_prefix` は `muni.find('郡')` で
+/// 最初の「郡」を見つけ後ろを返していたが、以下 6市町は「郡」が地名の一部
+/// (郡名でない) ため誤変換されていた:
+///
+/// | 入力 | 旧誤変換 | 期待 |
+/// |---|---|---|
+/// | 郡山市 | 山市 | 郡山市 |
+/// | 郡上市 | 上市 | 郡上市 |
+/// | 蒲郡市 | 市 | 蒲郡市 |
+/// | 上郡町 | 町 | 上郡町 |
+/// | 大和郡山市 | 山市 | 大和郡山市 |
+/// | 小郡市 | 市 | 小郡市 |
+///
+/// Turso `municipality_occupation_population` でこれら 6市町は **正規名で
+/// データ保有** が確認済み (福島県郡山市/岐阜県郡上市/愛知県蒲郡市/
+/// 兵庫県上郡町/奈良県大和郡山市/福岡県小郡市)。
+///
+/// このリストに含まれる地名は strip 対象から除外する。
+pub const COUNTY_PREFIX_KEEP: &[&str] = &[
+    "郡山市",
+    "郡上市",
+    "蒲郡市",
+    "上郡町",
+    "大和郡山市",
+    "小郡市",
+];
+
 /// 市区町村名から郡名プレフィックスを除去する。
 ///
 /// 2026-05-22 ユーザー指摘で判明した深刻な不一致対応:
@@ -265,12 +294,17 @@ mod normalize_muni_tests {
 /// 「アプリ → 外部統計」方向で郡名を除去するのが正解。
 /// (DB 側変更は ETL 大規模再実行で範囲広すぎ、アプリ側 normalize で吸収)
 ///
-/// 注意: 「上郡町」(兵庫県赤穂郡上郡町、`上郡` + `町` ではなく municipality 名
-/// そのものに「郡」が含まれる) のような例外は、入力が `赤穂郡上郡町` (郡名込み)
-/// の時は `上郡町` を返し、入力が `上郡町` 単独 (郡なし、`上`+`郡`+`町` で
-/// 末尾が「郡町」ではない) の時はそのまま `上郡町` を返す。判定ルールは
-/// 「最初の `郡` 文字より後ろが空でない場合のみ strip」。
+/// 2026-06-08 修正 (Team F): 「郡」を地名の一部として含む 6市町
+/// (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は [`COUNTY_PREFIX_KEEP`]
+/// ホワイトリストで保護し、誤って「山市」「上市」「市」「町」に変換されることを
+/// 防ぐ。これら 6市町は Turso external テーブルに正規名で登録されているため、
+/// strip すると regional_analysis の external 集計
+/// (occupation/pyramid/wage/foreign_residents) で空表示になっていた。
 pub fn strip_county_prefix(muni: &str) -> String {
+    // 「郡」を地名の一部として含む 6市町はそのまま返す
+    if COUNTY_PREFIX_KEEP.contains(&muni) {
+        return muni.to_string();
+    }
     if let Some(idx) = muni.find('郡') {
         let after_gun = &muni[idx + '郡'.len_utf8()..];
         // 郡の後ろが空 = municipality 名末尾が「郡」だけ (極小例外) → そのまま
@@ -303,14 +337,52 @@ mod strip_county_tests {
     }
     #[test]
     fn handles_kamigori_edge_case() {
-        // 「上郡町」(郡名でなく地名) はそのまま (郡の後ろが「町」だが、入力時点で
-        // 既に郡名なし municipality として扱われている)
-        assert_eq!(strip_county_prefix("上郡町"), "町");
-        // 注: この実装では「上郡町」は「町」に変換されてしまうが、アプリの
-        // プルダウンから渡される値は常に「赤穂郡上郡町」(郡名込み) なので、
-        // strip 後は「上郡町」になる。「上郡町」単独で来ることは postings 側
-        // が郡名込み運用のため発生しない (== 実害なし)。
+        // 2026-06-08 修正: 「上郡町」(兵庫県赤穂郡上郡町) はホワイトリスト保護
+        // により誤変換されない。アプリのプルダウンから「赤穂郡上郡町」(郡名込み)
+        // が来た時は strip で「上郡町」になり、その後ホワイトリスト一致でそのまま。
+        assert_eq!(strip_county_prefix("上郡町"), "上郡町");
         assert_eq!(strip_county_prefix("赤穂郡上郡町"), "上郡町");
+    }
+
+    // 2026-06-08 Team F: 「郡」を地名の一部として含む 6市町の identity テスト
+    // (Turso `municipality_occupation_population` でこれら 6市町は正規名で
+    // データ保有を確認済み。誤変換すると external 集計が空表示になる)
+
+    #[test]
+    fn strip_county_prefix_keeps_kohriyama_city() {
+        // 福島県郡山市 (誤変換: "山市")
+        assert_eq!(strip_county_prefix("郡山市"), "郡山市");
+    }
+
+    #[test]
+    fn strip_county_prefix_keeps_gujo_city() {
+        // 岐阜県郡上市 (誤変換: "上市")
+        assert_eq!(strip_county_prefix("郡上市"), "郡上市");
+    }
+
+    #[test]
+    fn strip_county_prefix_keeps_gamagori_city() {
+        // 愛知県蒲郡市 (誤変換: "市")
+        assert_eq!(strip_county_prefix("蒲郡市"), "蒲郡市");
+    }
+
+    #[test]
+    fn strip_county_prefix_keeps_kamigori_town() {
+        // 兵庫県上郡町 (誤変換: "町")
+        // handles_kamigori_edge_case と重複するが識別性のため独立テスト
+        assert_eq!(strip_county_prefix("上郡町"), "上郡町");
+    }
+
+    #[test]
+    fn strip_county_prefix_keeps_yamatokoriyama_city() {
+        // 奈良県大和郡山市 (誤変換: "山市")
+        assert_eq!(strip_county_prefix("大和郡山市"), "大和郡山市");
+    }
+
+    #[test]
+    fn strip_county_prefix_keeps_ogori_city() {
+        // 福岡県小郡市 (誤変換: "市")
+        assert_eq!(strip_county_prefix("小郡市"), "小郡市");
     }
 }
 
