@@ -117,10 +117,16 @@ pub struct CompanyContext {
 
 /// Turso: 企業名で検索（タイプアヘッド）
 pub fn search_companies(turso: &TursoDb, query: &str) -> Vec<Row> {
-    if query.trim().is_empty() {
+    let trimmed = query.trim();
+    // Team H-Fix-2 (2026-06-08): 1 文字 query ("株" / "会" 等) は LIKE で 198K 社の
+    // 大半にマッチして Turso reads を浪費し、しかも低シグナルな結果しか返さない。
+    // helpers.rs / fetch.rs 内 facility_name 系経路 (fetch_hw_postings_for_company:609 等)
+    // と同じ早期 return ガードを揃える。chars().count() で multibyte (kanji) も
+    // 1 文字として扱う (".len() < 2" は 3-byte kanji を通してしまう)。
+    if trimmed.chars().count() < 2 {
         return vec![];
     }
-    let like_pattern = format!("%{}%", query.trim());
+    let like_pattern = format!("%{}%", trimmed);
     let sql = r#"
         SELECT corporate_number, company_name, prefecture, sn_industry, sn_industry2,
                employee_count, employee_range, sales_range, credit_score,
@@ -1924,5 +1930,42 @@ mod team_h_fix2_tests {
         // 「郡山市」は COUNTY_PREFIX_KEEP で保持される 6 市町の 1 つ。
         // 通勤圏に「郡山市」が入っても strip されない。
         assert_eq!(neighborhood_like_pattern("郡山市"), "%郡山市%");
+    }
+}
+
+// ============================================================
+// Tests: Team H-Fix-2 / Commit C (2026-06-08)
+// search_companies の 1 文字 query ガードを検証する。
+// search_companies は TursoDb への HTTP query を伴うため直接テスト不可。
+// 代わりにガードの判定述語 (trim + chars().count() < 2) を同形ヘルパーで再現し、
+// 仕様 (1 char → early return / 2+ char → 続行) を固定する。
+// ============================================================
+#[cfg(test)]
+mod team_h_fix2_commit_c_tests {
+    /// `search_companies` の早期 return 述語と同形のヘルパー。
+    /// true = 早期 return (vec![] を返す)、false = LIKE を構築して続行。
+    fn should_short_circuit(query: &str) -> bool {
+        query.trim().chars().count() < 2
+    }
+
+    #[test]
+    fn single_char_query_returns_empty_short_circuit() {
+        // 単一 kanji ("株") は 198K 社の大半にマッチするため早期 return。
+        assert!(should_short_circuit("株"));
+        // 単一 ASCII char も同様。
+        assert!(should_short_circuit("a"));
+        // 空白のみも早期 return (trim 後 0 文字)。
+        assert!(should_short_circuit("  "));
+        // 空文字列も同様。
+        assert!(should_short_circuit(""));
+    }
+
+    #[test]
+    fn two_or_more_char_query_proceeds() {
+        // 2 文字以上は LIKE 構築に進む。
+        assert!(!should_short_circuit("トヨタ"));
+        assert!(!should_short_circuit("AB"));
+        // 前後空白があっても trim 後 2 文字以上であれば続行。
+        assert!(!should_short_circuit("  日産  "));
     }
 }
