@@ -17,7 +17,9 @@
 //! - DISPLAY_SPEC v1.0 §2: 求職者「人数」推定を生成しない。本ファイルは事業所側集計のみ。
 
 use crate::db::turso_http::{ToSqlTurso, TursoDb};
-use crate::handlers::helpers::{escape_html, format_number, get_f64, get_i64, get_str, Row};
+use crate::handlers::helpers::{
+    escape_html, format_number, get_f64, get_i64, get_str, strip_county_prefix, Row,
+};
 use std::fmt::Write as _;
 
 // ============================================================
@@ -292,7 +294,10 @@ pub fn fetch_company_segments(turso: &TursoDb, pref: &str, muni: &str) -> Vec<Se
     if pref.is_empty() {
         return Vec::new();
     }
-    let muni_pattern = format!("%{}%", muni);
+    // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip。6市町
+    // (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は COUNTY_PREFIX_KEEP で identity 保持。
+    let muni_key = strip_county_prefix(muni);
+    let muni_pattern = format!("%{}%", muni_key);
 
     let mut segments: Vec<SegmentRow> = Vec::new();
 
@@ -1715,5 +1720,28 @@ mod tests {
         assert_eq!(fmt_pct_opt(None), "—");
         assert_eq!(fmt_pct_opt(Some(f64::NAN)), "—");
         assert_eq!(fmt_pct_opt(Some(5.5)), "5.50%");
+    }
+
+    // ============================================================
+    // Team H-Fix (2026-06-08):
+    // fetch_company_segments の LIKE pattern が
+    // strip_county_prefix 経由で生成されることを確認。
+    // 6市町 (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は identity preserved。
+    // ============================================================
+
+    fn segments_like_pattern(muni: &str) -> String {
+        format!("%{}%", strip_county_prefix(muni))
+    }
+
+    #[test]
+    fn segments_strip_gun_prefix_for_minamimatsuura() {
+        // 南松浦郡新上五島町 → 新上五島町
+        assert_eq!(segments_like_pattern("南松浦郡新上五島町"), "%新上五島町%");
+    }
+
+    #[test]
+    fn segments_identity_for_yamatokoriyama_city() {
+        // 大和郡山市 は地名の一部に「郡」を含むが市名そのもの → strip しない
+        assert_eq!(segments_like_pattern("大和郡山市"), "%大和郡山市%");
     }
 }

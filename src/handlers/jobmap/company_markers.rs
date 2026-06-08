@@ -56,11 +56,16 @@ pub async fn labor_flow(
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        use crate::handlers::helpers::{get_f64, get_i64, get_str};
+        use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix};
 
         // 市区町村が指定されている場合、address LIKE で絞り込む
+        // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip し、6市町
+        // (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は COUNTY_PREFIX_KEEP で保護。
+        // 旧実装は `%東彼杵郡東彼杵町%` で SalesNow `address` (郡名なし) に対して
+        // 0件マッチしていた。
         let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) = if !muni.is_empty() {
-            let muni_pattern = format!("%{}%", muni);
+            let muni_key = strip_county_prefix(&muni);
+            let muni_pattern = format!("%{}%", muni_key);
             (r#"
                 SELECT sn_industry,
                        COUNT(*) as companies,
@@ -190,11 +195,14 @@ pub async fn industry_companies(
 
     let result =
         tokio::task::spawn_blocking(move || {
-            use crate::handlers::helpers::{get_f64, get_i64, get_str};
+            use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix};
 
+            // 2026-06-08 Team H-Fix: 6市町 identity preserved via COUNTY_PREFIX_KEEP。
+            // 「郡」プレフィックスを strip して SalesNow `address` (郡名なし) と LIKE 一致させる。
             let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) =
                 if !muni.is_empty() {
-                    let muni_pattern = format!("%{}%", muni);
+                    let muni_key = strip_county_prefix(&muni);
+                    let muni_pattern = format!("%{}%", muni_key);
                     ("SELECT corporate_number, company_name, employee_count, employee_delta_1m, \
                     employee_delta_3m, employee_delta_1y, credit_score, address \
              FROM v2_salesnow_companies \
@@ -402,4 +410,54 @@ pub fn load_company_geo_cache(sn_db: &crate::db::turso_http::TursoDb) -> Vec<Com
 
     tracing::info!("企業ジオコードキャッシュ: {}件ロード完了", entries.len());
     entries
+}
+
+// ============================================================
+// Tests: Team H-Fix (2026-06-08)
+// 6 SalesNow `address LIKE` query sites silently produced 0 matches for
+// HW postings whose municipality came with a 郡 prefix
+// (e.g., 東彼杵郡東彼杵町). These tests pin the strip_county_prefix-based
+// LIKE pattern construction used in labor_flow / industry_companies.
+// 6市町 (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は
+// COUNTY_PREFIX_KEEP で identity 保持される。
+// ============================================================
+#[cfg(test)]
+mod team_h_fix_tests {
+    use crate::handlers::helpers::strip_county_prefix;
+
+    /// labor_flow / industry_companies で構築される LIKE pattern を再現するヘルパー。
+    fn like_pattern(muni: &str) -> String {
+        let muni_key = strip_county_prefix(muni);
+        format!("%{}%", muni_key)
+    }
+
+    #[test]
+    fn labor_flow_strips_gun_prefix_for_higashisonogi() {
+        // 東彼杵郡東彼杵町 (HW 表記) → 東彼杵町 (SalesNow address)
+        assert_eq!(like_pattern("東彼杵郡東彼杵町"), "%東彼杵町%");
+    }
+
+    #[test]
+    fn labor_flow_identity_for_koriyama_city() {
+        // 郡山市 は地名の一部に「郡」を含むが市名そのもの → strip しない
+        assert_eq!(like_pattern("郡山市"), "%郡山市%");
+    }
+
+    #[test]
+    fn industry_companies_identity_for_kamigori_town() {
+        // 上郡町 は地名の一部に「郡」を含むが町名そのもの → strip しない
+        assert_eq!(like_pattern("上郡町"), "%上郡町%");
+    }
+
+    #[test]
+    fn industry_companies_strips_gun_prefix_for_nishisonogi() {
+        // 西彼杵郡時津町 → 時津町
+        assert_eq!(like_pattern("西彼杵郡時津町"), "%時津町%");
+    }
+
+    #[test]
+    fn labor_flow_identity_for_plain_city() {
+        // 「郡」を含まない通常の市名はそのまま
+        assert_eq!(like_pattern("長崎市"), "%長崎市%");
+    }
 }
