@@ -54,9 +54,9 @@ sources:
     freshness_col: snapshot_id
     frequency: monthly
     manual_consts: []
-    tabs: [trend, navy]
+    tabs: [trend, navy, survey]
     status: report
-    notes: snapshot_id フォーマット未統一(YYYYMM推奨)。muni粒度なし
+    notes: snapshot_id フォーマット未統一(YYYYMM推奨)。muni粒度なし。survey/hw_enrichment.rs でも参照(3ヶ月/1年前比の posting 変化率算出)。Team E 監査 2026-06-08 で survey を追加
   - name: hw_ts_salary
     source: hw_timeseries
     upload: upload_to_turso.py
@@ -65,9 +65,9 @@ sources:
     freshness_col: snapshot_id
     frequency: monthly
     manual_consts: []
-    tabs: [trend]
-    status: hidden
-    notes: HW時系列。可視タブへの昇格は不採用で確定(ユーザー方針 2026-06-07、HWは抑えめ)。trend タブは非表示のまま
+    tabs: [trend, navy]
+    status: report
+    notes: HW時系列。可視タブへの昇格は不採用で確定(ユーザー方針 2026-06-07、HWは抑えめ)。trend タブは非表示のまま。navy(採用診断レポート) の recruitment_diag/market_trend.rs でも参照(業界サンプル件数)。Team E 監査 2026-06-08 で navy を追加
   - name: hw_ts_vacancy
     source: hw_timeseries
     upload: upload_to_turso.py
@@ -178,8 +178,9 @@ sources:
     source_as_of: "R2(2020)"
     frequency: quinquennial
     manual_consts: []
-    tabs: [competitive]
-    status: visible
+    tabs: [analysis]
+    status: hidden
+    notes: 実参照は analysis/fetch/subtab5_phase4_7.rs のみ (competitive は別テーブル使用)。Team E 監査 2026-06-08 で訂正
 
   # ---- e-Stat 労働 ----
   - name: labor_stats
@@ -441,9 +442,9 @@ sources:
     freshness_col: year
     frequency: irregular
     manual_consts: []
-    tabs: [regional]
+    tabs: [regional, survey, navy, analysis]
     status: visible
-    notes: 47行/47都道府県。regional パネル9(インターネット利用率/スマホ保有率)で本番描画確認済(2026-06-07)
+    notes: 47行/47都道府県。regional パネル9(インターネット利用率/スマホ保有率)で本番描画確認済(2026-06-07)。Team E 監査 2026-06-08 で survey/navy/analysis を追加 (survey/report_html/lifestyle.rs、navy_report/section_07_lifestyle.rs+section_08_notes.rs、analysis/fetch/subtab5_phase4_7.rs で参照)
 
   # ---- 政策ハードコード (毎年度 手動更新) ----
   - name: prefecture_policy_consts
@@ -477,6 +478,6 @@ sources:
     freshness_col: effective_date
     frequency: yearly
     manual_consts: [PREF_2023, PREF_2024, PREF_2025]
-    tabs: [competitive]
-    status: visible
-    notes: upload_minimum_wage_history.py の年度別dict更新
+    tabs: [trend]
+    status: hidden
+    notes: upload_minimum_wage_history.py の年度別dict更新。実参照は trend/fetch.rs のみ (competitive は別テーブル v2_external_minimum_wage を使用)。Team E 監査 2026-06-08 で訂正
