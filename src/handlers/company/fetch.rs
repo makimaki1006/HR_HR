@@ -1,6 +1,6 @@
 use crate::db::turso_http::TursoDb;
 use crate::handlers::analysis::fetch::EXTERNAL_CLEAN_FILTER;
-use crate::handlers::helpers::{get_f64, get_i64, get_str, Row};
+use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix, Row};
 
 /// 近隣企業データ（郵便番号上3桁マッチ）
 ///
@@ -642,7 +642,10 @@ pub fn fetch_companies_by_region(
         //   employee_delta_3m が含まれておらず、survey report の
         //   「地域注目企業」セクションで売上・人員推移が 0 / "" になっていた。
         //   都道府県のみ版 (下ブランチ) と同じ 11 列構成に揃える。
-        let muni_pattern = format!("%{}%", muni);
+        // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip し SalesNow address と
+        // マッチさせる (6市町 identity preserved via COUNTY_PREFIX_KEEP)。
+        let muni_key = strip_county_prefix(muni);
+        let muni_pattern = format!("%{}%", muni_key);
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                    employee_count, credit_score, postal_code, \
                    sales_amount, sales_range, \
@@ -1033,7 +1036,8 @@ fn fetch_company_segments_by_region_with_industry_internal(
                 lo_idx = muni_idx + 1;
                 hi_idx = lo_idx + 1;
                 limit_idx = hi_idx + 1;
-                muni_pat = format!("%{}%", muni);
+                // 2026-06-08 Team H-Fix: strip 「郡」プレフィックス (6市町 identity preserved)。
+                muni_pat = format!("%{}%", strip_county_prefix(muni));
                 sql = format!(
                     "SELECT corporate_number, company_name, prefecture, sn_industry, \
                      employee_count, credit_score, postal_code, \
@@ -1061,7 +1065,8 @@ fn fetch_company_segments_by_region_with_industry_internal(
         } else {
             match (muni.is_empty(), &industry_keyword) {
                 (false, Some(kw)) => {
-                    let muni_pattern = format!("%{}%", muni);
+                    // 2026-06-08 Team H-Fix: strip 「郡」プレフィックス (6市町 identity preserved)。
+                    let muni_pattern = format!("%{}%", strip_county_prefix(muni));
                     let ind_pattern = format!("%{}%", kw);
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
@@ -1090,7 +1095,8 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     sn_db.query(sql, &params).unwrap_or_default()
                 }
                 (false, None) => {
-                    let muni_pattern = format!("%{}%", muni);
+                    // 2026-06-08 Team H-Fix: strip 「郡」プレフィックス (6市町 identity preserved)。
+                    let muni_pattern = format!("%{}%", strip_county_prefix(muni));
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
@@ -1833,4 +1839,54 @@ pub fn count_hw_postings(
         }
     }
     0
+}
+
+// ============================================================
+// Tests: Team H-Fix (2026-06-08)
+// fetch_companies_by_region / fetch_company_segments_by_region_with_industry
+// の override 3 paths (1036/1064/1093 相当) で構築される LIKE pattern が、
+// 「郡」プレフィックス strip 済みで生成されることを検証する。
+// 6市町 (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は
+// COUNTY_PREFIX_KEEP で identity preserved。
+// ============================================================
+#[cfg(test)]
+mod team_h_fix_tests {
+    use crate::handlers::helpers::strip_county_prefix;
+
+    /// fetch.rs の各 LIKE 構築サイトと同形の pattern を再現するヘルパー。
+    fn like_pattern(muni: &str) -> String {
+        format!("%{}%", strip_county_prefix(muni))
+    }
+
+    #[test]
+    fn companies_by_region_strips_gun_for_higashisonogi() {
+        // line 651 相当: fetch_companies_by_region 市区町村フィルタあり経路
+        assert_eq!(like_pattern("東彼杵郡東彼杵町"), "%東彼杵町%");
+    }
+
+    #[test]
+    fn segments_override_identity_for_koriyama_city() {
+        // line 1036 相当: sn_industries_override + muni 経路
+        // 郡山市 は地名の一部に「郡」を含むが市名そのもの → strip しない
+        assert_eq!(like_pattern("郡山市"), "%郡山市%");
+    }
+
+    #[test]
+    fn segments_industry_keyword_strips_gun_for_nishisonogi() {
+        // line 1064 相当: (false, Some(kw)) 経路
+        assert_eq!(like_pattern("西彼杵郡時津町"), "%時津町%");
+    }
+
+    #[test]
+    fn segments_muni_only_identity_for_gamagori_city() {
+        // line 1093 相当: (false, None) 経路
+        // 蒲郡市 は地名の一部に「郡」を含むが市名そのもの → strip しない
+        assert_eq!(like_pattern("蒲郡市"), "%蒲郡市%");
+    }
+
+    #[test]
+    fn companies_by_region_identity_for_plain_city() {
+        // 「郡」を含まない通常の市名はそのまま
+        assert_eq!(like_pattern("札幌市"), "%札幌市%");
+    }
 }
