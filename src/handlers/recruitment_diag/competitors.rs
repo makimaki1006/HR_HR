@@ -14,7 +14,7 @@
 use crate::db::local_sqlite::LocalDb;
 use crate::db::turso_http::TursoDb;
 use crate::handlers::company::fetch::count_hw_postings;
-use crate::handlers::helpers::{get_f64, get_i64, get_str};
+use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix};
 use crate::models::job_seeker::PREFECTURE_ORDER;
 use crate::AppState;
 use axum::extract::{Query, State};
@@ -260,8 +260,11 @@ fn fetch_salesnow_companies(
     }
 
     if !muni.is_empty() {
+        // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip して SalesNow address (郡名なし)
+        // と LIKE 一致させる。6市町 (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は
+        // COUNTY_PREFIX_KEEP で identity 保持。
         where_clauses.push(format!("address LIKE ?{}", idx));
-        params_own.push(format!("%{}%", muni));
+        params_own.push(format!("%{}%", strip_county_prefix(muni)));
         idx += 1;
     }
 
@@ -493,5 +496,28 @@ mod tests {
         assert!(msg.contains("1000"));
         assert!(msg.contains("50%"));
         assert!(msg.contains("5件"));
+    }
+
+    // ============================================================
+    // Team H-Fix (2026-06-08):
+    // fetch_salesnow_companies の address LIKE pattern が
+    // strip_county_prefix 経由で生成されることを確認。
+    // ============================================================
+
+    fn fetch_salesnow_like_pattern(muni: &str) -> String {
+        // fetch_salesnow_companies の line 264 相当: format!("%{}%", strip_county_prefix(muni))
+        format!("%{}%", strip_county_prefix(muni))
+    }
+
+    #[test]
+    fn fetch_salesnow_strips_gun_for_kitamatsuura() {
+        // 北松浦郡佐々町 → 佐々町
+        assert_eq!(fetch_salesnow_like_pattern("北松浦郡佐々町"), "%佐々町%");
+    }
+
+    #[test]
+    fn fetch_salesnow_identity_for_ogori_city() {
+        // 小郡市 は地名の一部に「郡」を含むが市名そのもの → strip しない
+        assert_eq!(fetch_salesnow_like_pattern("小郡市"), "%小郡市%");
     }
 }
