@@ -819,9 +819,12 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // muni を LIKE 用に %X% で wrap した文字列を保持
+    // Team H-Fix-2 (2026-06-08): 通勤圏 (commute_od) から来る近隣市町村は
+    // 「東彼杵郡東彼杵町」のように郡名プレフィックスが付いた形で渡される可能性があり、
+    // strip しないまま LIKE すると silent 0-match になる (aae8776 で修正した 6 サイトと同根)。
     let muni_patterns: Vec<String> = neighborhood
         .iter()
-        .map(|(_, m)| format!("%{}%", m))
+        .map(|(_, m)| format!("%{}%", strip_county_prefix(m)))
         .collect();
 
     for (lo, hi, _band) in band_ranges.iter() {
@@ -1888,5 +1891,38 @@ mod team_h_fix_tests {
     fn companies_by_region_identity_for_plain_city() {
         // 「郡」を含まない通常の市名はそのまま
         assert_eq!(like_pattern("札幌市"), "%札幌市%");
+    }
+}
+
+// ============================================================
+// Tests: Team H-Fix-2 (2026-06-08)
+// fetch_company_segments_by_neighborhood_sn_industries の
+// muni_patterns 構築サイトで strip_county_prefix が適用されることを検証する。
+// 通勤圏 (commute_od) は「東彼杵郡東彼杵町」のような郡プレフィックス付き
+// 市町村名を返すことがあり、strip しないと address LIKE が silent 0-match になる。
+// ============================================================
+#[cfg(test)]
+mod team_h_fix2_tests {
+    use crate::handlers::helpers::strip_county_prefix;
+
+    /// fetch_company_segments_by_neighborhood_sn_industries の
+    /// `muni_patterns` 構築 (`format!("%{}%", strip_county_prefix(m))`) と同形のヘルパー。
+    fn neighborhood_like_pattern(muni: &str) -> String {
+        format!("%{}%", strip_county_prefix(muni))
+    }
+
+    #[test]
+    fn neighborhood_strips_gun_for_higashisonogi_town() {
+        // 通勤圏に郡名込み「東彼杵郡東彼杵町」が入った場合の検証。
+        // strip 適用前 → "%東彼杵郡東彼杵町%" (address LIKE 0-match)
+        // strip 適用後 → "%東彼杵町%"        (正しくヒット)
+        assert_eq!(neighborhood_like_pattern("東彼杵郡東彼杵町"), "%東彼杵町%");
+    }
+
+    #[test]
+    fn neighborhood_identity_for_koriyama_city() {
+        // 「郡山市」は COUNTY_PREFIX_KEEP で保持される 6 市町の 1 つ。
+        // 通勤圏に「郡山市」が入っても strip されない。
+        assert_eq!(neighborhood_like_pattern("郡山市"), "%郡山市%");
     }
 }
