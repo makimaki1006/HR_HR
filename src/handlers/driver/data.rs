@@ -13,6 +13,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 use crate::db::turso_http::TursoDb;
 
@@ -424,6 +425,99 @@ pub fn fetch_wage_age_exp(turso: &TursoDb, wage_code: &str) -> Result<Vec<WageAg
             annual_salary_man_yen: f(r, "annual_salary_man_yen"),
         })
         .collect())
+}
+
+// ───────────────────────── 都道府県別年齢分布（国勢調査 R2） ─────────────────────────
+
+/// 国勢調査 R2 職業中分類 × 都道府県 の年齢階級別人口（1行）。
+#[derive(Serialize, Clone)]
+pub struct AgeDistributionRow {
+    pub age_class: String,
+    pub population: i64,
+}
+
+static OCC_MAP: OnceLock<HashMap<String, String>> = OnceLock::new();
+
+fn get_occupation_middle_map() -> &'static HashMap<String, String> {
+    OCC_MAP.get_or_init(|| {
+        let raw = include_str!("../../../data/wage_census_to_occupation_middle_map.json");
+        let v: serde_json::Value = serde_json::from_str(raw).unwrap_or(serde_json::json!({}));
+        v.as_object()
+            .map(|o| {
+                o.iter()
+                    .filter_map(|(k, val)| {
+                        // "_comment", "_source", "_note" キーは除外
+                        if k.starts_with('_') {
+                            return None;
+                        }
+                        val.as_str().map(|s| (k.clone(), s.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// 都道府県 × wage_census_code で国勢調査 R2 の年齢分布を取得する。
+/// wage_census_code がマッピングになければ空 Vec を返す（テーブル未投入時も同様）。
+pub fn fetch_age_distribution_by_pref(
+    turso: &TursoDb,
+    wage_census_code: &str,
+    prefecture: &str,
+) -> Result<Vec<AgeDistributionRow>, String> {
+    if wage_census_code.is_empty() || prefecture.is_empty() {
+        return Ok(Vec::new());
+    }
+    let map = get_occupation_middle_map();
+    let occ_code = match map.get(wage_census_code) {
+        Some(c) => c.clone(),
+        None => return Ok(Vec::new()), // 未マッピング
+    };
+
+    let rows = turso.query(
+        "SELECT age_class, COALESCE(population, 0) AS population \
+         FROM v2_external_occupation_middle_pref \
+         WHERE prefecture = ?1 AND occupation_code = ?2 AND gender = 'total' \
+         ORDER BY age_class",
+        &[
+            &prefecture.to_string() as &dyn crate::db::turso_http::ToSqlTurso,
+            &occ_code as &dyn crate::db::turso_http::ToSqlTurso,
+        ],
+    )?;
+
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 年齢階級を辞書順ではなく年齢順で並べ替える
+    let age_order = [
+        "15～19歳", "20～24歳", "25～29歳", "30～34歳",
+        "35～39歳", "40～44歳", "45～49歳", "50～54歳",
+        "55～59歳", "60～64歳", "65～69歳", "70～74歳",
+        "75～79歳", "80～84歳", "85歳以上",
+    ];
+    let order_map: HashMap<&str, usize> = age_order
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| (s, i))
+        .collect();
+
+    let mut out: Vec<AgeDistributionRow> = rows
+        .iter()
+        .map(|r| AgeDistributionRow {
+            age_class: s(r, "age_class"),
+            population: i(r, "population"),
+        })
+        .collect();
+
+    out.sort_by_key(|r| {
+        order_map
+            .get(r.age_class.as_str())
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
+
+    Ok(out)
 }
 
 // ───────────────────────── カテゴリ統計（KPIベンチマーク） ─────────────────────────
