@@ -120,3 +120,16 @@ _tmp_*.py
 
 # 2026-05-17: 過去 audit セッションの成果物 (`fac_2026` 等の sensitive 文言含む)
 audit_results/
+
+# 2026-06-11: 職種カルテ(driver) 重量データと生成 SQL
+# JILPT 原本CSV/XLSXはサイズ大、ユーザーが正規DL経路で取得する想定
+# Turso 投入用 SQL はローカル生成物（scripts/import_jobtag_occupations.pyで再生成可）
+data/jobtag_raw/jobtag_desc.csv
+data/jobtag_raw/jobtag_numeric.csv
+data/jobtag_raw/table5_age.xlsx
+data/jobtag_raw/wage_census_codes_partial.json
+data/jobtag_*_turso_import.sql
+data/jobtag_driver_test.sql
+data/jobtag_turso_import.sql
+cargo_run.log
+cargo_run.log.err
