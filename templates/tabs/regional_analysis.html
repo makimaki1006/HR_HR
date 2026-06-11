@@ -10,8 +10,13 @@
     <div>
         <h2 class="text-xl font-bold text-white">地域分析</h2>
         <p class="text-xs text-slate-500 mt-1">
-            公的統計 (e-Stat・国勢調査・外部企業データ) を都道府県・市区町村で絞り込み表示します。
-            ハローワーク掲載求人は使用していません。
+            公的統計 (e-Stat・国勢調査・外部企業データ) を都道府県・市区町村で絞り込み表示します。ハローワーク掲載求人は使用していません。
+        </p>
+        <p class="text-xs text-slate-400 mt-2 leading-relaxed">
+            <strong class="text-slate-200">都道府県</strong>を選ぶと、下記 <strong class="text-blue-300">9 パネル</strong>が選択地域の値に切り替わります:
+            ① 有効求人倍率の推移 ② 労働統計 19 指標 ③ 産業構造 (事業所/従業者数 上位 20) ④ 人口ピラミッド ⑤ 最低賃金
+            ⑥ 企業成長マトリックス (外部企業データ) ⑦ 在留外国人 ⑧ インターネット利用 ⑨ 職業別就業者。
+            <span class="text-slate-500">市区町村は任意。選んだ場合は ③⑥⑨ のうち市粒度を持つ指標で絞り込みます。</span>
         </p>
     </div>
 
@@ -91,25 +96,29 @@
 </div>
 
 <script>
-// --- 都道府県変更時のカスケード ---
+// --- 都道府県変更時のカスケード: 市区町村セレクトを更新 → 自動で 9 パネル再取得 ---
 function onRaPrefChange(pref) {
+    if (!pref) return;
     var muniUrl = '/api/regional/municipalities?prefecture=' + encodeURIComponent(pref);
     fetch(muniUrl, {credentials: 'same-origin'})
         .then(function(r) { return r.text(); })
         .then(function(html) {
             var sel = document.getElementById('ra-muni');
-            if (!sel) return;
-            var parser = new DOMParser();
-            var doc = parser.parseFromString('<select>' + html + '</select>', 'text/html');
-            var newSel = doc.querySelector('select');
-            while (sel.options.length > 0) sel.remove(0);
-            while (newSel.firstChild) sel.appendChild(document.adoptNode(newSel.firstChild));
-            sel.selectedIndex = 0;
-        });
+            if (sel) {
+                var parser = new DOMParser();
+                var doc = parser.parseFromString('<select>' + html + '</select>', 'text/html');
+                var newSel = doc.querySelector('select');
+                while (sel.options.length > 0) sel.remove(0);
+                while (newSel.firstChild) sel.appendChild(document.adoptNode(newSel.firstChild));
+                sel.selectedIndex = 0;
+            }
+        })
+        .finally(function() { runRegionalAnalysis(); });  // 県変更 = 即座にパネル再取得
 }
 
 function onRaMuniChange() {
-    // 市区町村変更時の追加処理 (現在は分析ボタン押下で発火)
+    // 市区町村変更でも 9 パネル再取得 (市粒度のあるパネルだけ実質変わる)
+    runRegionalAnalysis();
 }
 
 // --- 分析実行: パネルを hx-get で逐次取得 (ECharts は afterSettle で自動初期化) ---
