@@ -4,6 +4,7 @@
   - jobtag_desc.csv              JILPT 解説系 ver.7.01
   - jobtag_numeric.csv           JILPT 数値系 ver.7.00
   - table5_age.xlsx              賃金構造基本統計調査 令和7年 表5（職種小分類×年齢階級別）
+  - table10_age_exp.xlsx         賃金構造基本統計調査 令和7年 表10（職種小分類×年齢階級×経験年数階級別）
   - candidate_occupations.json   対象職業リスト（IDリスト + category + mhlw_code）
   - wage_census_codes.json       賃金センサスコード対応表（Playwrightで生成）
     形式: {
@@ -103,6 +104,19 @@ DESC_TEXT_COLS = {
 }
 DESC_ALIAS_RANGE = (17, 41)          # 別名1-25
 DESC_QUALIFICATION_RANGE = (66, 100)  # 関連資格1-35
+
+# 解説系CSV: 関連団体ペア（col 46-65 まで最大10件）
+# col 46/47 = 団体1名/URL, col 48/49 = 団体2名/URL, ...
+DESC_RELATED_ORGS_START = 46          # 関連団体1名 (0-indexed)
+DESC_RELATED_ORGS_MAX = 10            # 最大10件
+
+# 表10: 経験年数階級ラベル（「計」を含む6ブロック）
+# 実際の列構造: col B=職種名, col D～=3列×6ブロック(計/0年/1-4年/5-9年/10-14年/15年以上)
+EXP_RANGE_LABELS = ["計", "0年", "1〜4年", "5〜9年", "10〜14年", "15年以上"]
+# 表10データ開始列 (1-indexed, B=2が職種名, D=4がデータ先頭)
+TABLE10_DATA_COL_START = 4
+# 各経験年数階級のデータ列数（所定内給与, 年間賞与, 労働者数）
+TABLE10_COLS_PER_EXP = 3
 
 # サポートするカテゴリ一覧（CLI --category オプション値）
 SUPPORTED_CATEGORIES = ["driver", "logistics", "manufacturing", "construction", "cleaning", "labor", "all"]
@@ -291,6 +305,87 @@ def load_wage_age(
     return result
 
 
+def _detect_table10_exp_ranges(ws: Any) -> tuple[list[str], int, int]:
+    """表10のヘッダ行を走査して経験年数階級ラベルと列範囲を動的に検出する。
+
+    表10の構造:
+      行7: B列=職種ラベル, D列以降に経験年数ラベル（3列おきに配置）
+      行8: 各階級の指標名（所定内給与/年間賞与/労働者数）
+      行9: 単位行
+      行10以降: データ行（B列=職種名, D列以降=数値）
+
+    Returns:
+        exp_labels: 経験年数ラベルリスト（「計」含む）
+        data_col_start: データ開始列（1-indexed）
+        exp_count: 経験年数階級数
+    """
+    # 行7（0-indexed で index=6）のB列以降を検索してラベルを収集
+    header_row = list(ws.iter_rows(min_row=7, max_row=7, values_only=True))[0]
+    exp_labels: list[str] = []
+    data_col_start = TABLE10_DATA_COL_START  # デフォルト: D列=4
+    for col_idx, val in enumerate(header_row, start=1):
+        if col_idx < 3:  # A・B列はスキップ
+            continue
+        if isinstance(val, str) and val.strip():
+            stripped = val.strip()
+            # 経験年数ラベルとして妥当な値のみ収集（「計」「X年」「X〜Y年」パターン）
+            if stripped in ("計",) or "年" in stripped:
+                if not exp_labels:
+                    data_col_start = col_idx
+                exp_labels.append(stripped)
+    # フォールバック: 検出失敗時はデフォルト値
+    if not exp_labels:
+        exp_labels = EXP_RANGE_LABELS
+    return exp_labels, data_col_start, len(exp_labels)
+
+
+def load_wage_age_exp(
+    xlsx_path: Path,
+    wage_census_name_by_code: dict[str, str],
+) -> dict[str, list[dict[str, Any]]]:
+    """表10（職種小分類×年齢階級×経験年数階級別）を読み込む。
+
+    各 wage_census_code → [{age_range_order, age_range, exp_range_order, exp_range,
+                             monthly_scheduled_thousand_yen, annual_bonus_thousand_yen,
+                             workers_count_tenfold}]
+    の13行（総計+12年齢階級）×経験年数階級数 のリストを返す。
+    """
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    ws = wb.active
+
+    # 経験年数ラベルを動的検出
+    exp_labels, data_col_start, exp_count = _detect_table10_exp_ranges(ws)
+
+    target_names = set(wage_census_name_by_code.values()) - {""}
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    for row_idx in range(1, ws.max_row + 1):
+        v = ws.cell(row_idx, 2).value
+        if not isinstance(v, str) or v.strip() not in target_names:
+            continue
+        occupation_name = v.strip()
+        rows: list[dict[str, Any]] = []
+        for age_i in range(13):
+            r = row_idx + age_i
+            for exp_j, exp_label in enumerate(exp_labels):
+                # 各経験年数ブロックの列オフセット（3列=所定内給与, 年間賞与, 労働者数）
+                base_col = data_col_start + exp_j * TABLE10_COLS_PER_EXP
+                monthly_scheduled = ws.cell(r, base_col).value
+                annual_bonus = ws.cell(r, base_col + 1).value
+                workers_count = ws.cell(r, base_col + 2).value
+                rows.append({
+                    "age_range_order": age_i,
+                    "age_range": AGE_RANGE_LABELS[age_i],
+                    "exp_range_order": exp_j,
+                    "exp_range": exp_label,
+                    "monthly_scheduled_thousand_yen": monthly_scheduled,
+                    "annual_bonus_thousand_yen": annual_bonus,
+                    "workers_count_tenfold": workers_count,
+                })
+        result[occupation_name] = rows
+    return result
+
+
 def _annual_salary_man_yen(monthly: Any, bonus: Any) -> float | None:
     try:
         m = float(monthly)
@@ -334,11 +429,21 @@ def load_descriptions(csv_path: Path, target_ids: set[int]) -> dict[int, dict[st
             for label, col in DESC_TEXT_COLS.items()
             if col < len(r)
         }
+        # 関連団体抽出: col 46/47, 48/49, ... の名前+URLペア（最大10件）
+        related_orgs: list[dict[str, str]] = []
+        for i in range(DESC_RELATED_ORGS_MAX):
+            name_col = DESC_RELATED_ORGS_START + i * 2
+            url_col = name_col + 1
+            org_name = (r[name_col] or "").strip() if name_col < len(r) else ""
+            org_url = (r[url_col] or "").strip() if url_col < len(r) else ""
+            if org_name:
+                related_orgs.append({"name": org_name, "url": org_url or None})
         out[jid] = {
             "mhlw_classification": (r[4] or "").strip() if len(r) > 4 else "",
             "aliases": aliases,
             "qualifications": qualifications,
             "description": description,
+            "related_orgs": related_orgs,
         }
     return out
 
@@ -449,6 +554,28 @@ CREATE TABLE IF NOT EXISTS v2_external_jobtag_wage_age (
     PRIMARY KEY (wage_census_code, age_range_order)
 );
 CREATE INDEX IF NOT EXISTS idx_jobtag_wage_age_code ON v2_external_jobtag_wage_age(wage_census_code);
+
+CREATE TABLE IF NOT EXISTS v2_external_jobtag_related_orgs (
+    jobtag_id INTEGER NOT NULL,
+    item_order INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    url TEXT,
+    PRIMARY KEY (jobtag_id, item_order)
+);
+
+CREATE TABLE IF NOT EXISTS v2_external_jobtag_wage_age_exp (
+    wage_census_code TEXT NOT NULL,
+    age_range_order INTEGER NOT NULL,
+    age_range TEXT NOT NULL,
+    exp_range_order INTEGER NOT NULL,
+    exp_range TEXT NOT NULL,
+    monthly_scheduled_thousand_yen REAL,
+    annual_bonus_thousand_yen REAL,
+    workers_count_tenfold REAL,
+    annual_salary_man_yen REAL,
+    PRIMARY KEY (wage_census_code, age_range_order, exp_range_order)
+);
+CREATE INDEX IF NOT EXISTS idx_jobtag_wage_age_exp_code ON v2_external_jobtag_wage_age_exp(wage_census_code);
 """
 
 
@@ -462,6 +589,7 @@ def build_sql(
     target_codes = {o["wage_census_code"] for o in occupations if o.get("wage_census_code")}
 
     wage_by_name = load_wage_age(data_dir / "table5_age.xlsx", wage_census_name_by_code)
+    wage_by_name_exp = load_wage_age_exp(data_dir / "table10_age_exp.xlsx", wage_census_name_by_code)
     descs = load_descriptions(data_dir / "jobtag_desc.csv", target_ids)
     scores = load_numeric(data_dir / "jobtag_numeric.csv", target_ids)
 
@@ -475,6 +603,8 @@ def build_sql(
     out.append(f"DELETE FROM v2_external_jobtag_scores WHERE jobtag_id IN ({ids_csv});")
     out.append(f"DELETE FROM v2_external_jobtag_qualifications WHERE jobtag_id IN ({ids_csv});")
     out.append(f"DELETE FROM v2_external_jobtag_wage_age WHERE wage_census_code IN ({codes_csv});")
+    out.append(f"DELETE FROM v2_external_jobtag_related_orgs WHERE jobtag_id IN ({ids_csv});")
+    out.append(f"DELETE FROM v2_external_jobtag_wage_age_exp WHERE wage_census_code IN ({codes_csv});")
     out.append("")
 
     # トランザクション
@@ -556,6 +686,45 @@ def build_sql(
             )
         inserted_codes.add(code)
 
+    # 6. related_orgs (jobtag_id 単位でユニーク)
+    for o in occupations:
+        jid = o["jobtag_id"]
+        orgs = descs.get(jid, {}).get("related_orgs", [])
+        for i, org in enumerate(orgs, start=1):
+            out.append(
+                "INSERT INTO v2_external_jobtag_related_orgs "
+                "(jobtag_id, item_order, name, url) "
+                f"VALUES ({jid}, {i}, {_q(org['name'])}, {_q(org['url']) if org['url'] else 'NULL'});"
+            )
+
+    # 7. wage_age_exp (wage_census_code 単位でユニーク、重複職業はスキップ)
+    inserted_exp_codes: set[str] = set()
+    for o in occupations:
+        code = o.get("wage_census_code") or ""
+        if not code or code in inserted_exp_codes:
+            continue
+        wage_name = wage_census_name_by_code.get(code, "")
+        if not wage_name:
+            inserted_exp_codes.add(code)
+            continue
+        exp_rows = wage_by_name_exp.get(wage_name, [])
+        for w in exp_rows:
+            annual = _annual_salary_man_yen(
+                w["monthly_scheduled_thousand_yen"], w["annual_bonus_thousand_yen"]
+            )
+            out.append(
+                "INSERT INTO v2_external_jobtag_wage_age_exp "
+                "(wage_census_code, age_range_order, age_range, exp_range_order, exp_range, "
+                "monthly_scheduled_thousand_yen, annual_bonus_thousand_yen, "
+                "workers_count_tenfold, annual_salary_man_yen) "
+                f"VALUES ({_q(code)}, {w['age_range_order']}, {_q(w['age_range'])}, "
+                f"{w['exp_range_order']}, {_q(w['exp_range'])}, "
+                f"{_n(w['monthly_scheduled_thousand_yen'])}, {_n(w['annual_bonus_thousand_yen'])}, "
+                f"{_n(w['workers_count_tenfold'])}, "
+                f"{annual if annual is not None else 'NULL'});"
+            )
+        inserted_exp_codes.add(code)
+
     out.append("COMMIT;")
     out.append("")
     return "\n".join(out)
@@ -583,6 +752,7 @@ def main() -> int:
   data/jobtag_raw/jobtag_desc.csv             （必須）
   data/jobtag_raw/jobtag_numeric.csv          （必須）
   data/jobtag_raw/table5_age.xlsx             （必須）
+  data/jobtag_raw/table10_age_exp.xlsx        （必須: EX-A4 経験年数別給与）
 
 注意:
   wage_census_codes.json が未生成の場合、category=driver のみ賃金データが付与されます。

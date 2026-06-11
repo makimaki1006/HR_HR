@@ -80,6 +80,19 @@
                 {% when None %}{% endmatch %}
             </div>
         </div>
+        {# 時給目安（EX-A3）: 所定内月給(千円) × 1000 ÷ 所定内労働時間(時間/月) #}
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div class="bg-gray-900 border border-amber-700/40 rounded p-3 md:col-span-2">
+                <div class="text-xs text-gray-400 mb-1">時給目安（所定内）</div>
+                <div class="text-2xl font-bold text-amber-300" id="hourly-wage-{{ occupation.jobtag_id }}">—</div>
+                <div class="text-[10px] text-gray-500 mt-1">所定内月給 ÷ 所定内労働時間（賃金構造基本統計調査 令和7年）</div>
+            </div>
+            <div class="bg-gray-900 border border-amber-700/40 rounded p-3 md:col-span-2">
+                <div class="text-xs text-gray-400 mb-1">時給目安（残業込み）</div>
+                <div class="text-2xl font-bold text-amber-300" id="hourly-wage-with-ot-{{ occupation.jobtag_id }}">—</div>
+                <div class="text-[10px] text-gray-500 mt-1">きまって支給する給与 ÷ 総労働時間</div>
+            </div>
+        </div>
         <div class="mt-3 text-[11px] text-gray-400" id="kpi-benchmark-badges-{{ occupation.jobtag_id }}"></div>
     </section>
 
@@ -126,6 +139,15 @@
         <div id="age-profile-summary-{{ occupation.jobtag_id }}" class="mt-3 text-xs text-gray-300"></div>
     </section>
 
+    {# 経験年数別給与（EX-A4） — wage_age_exp_json が空でない場合のみ表示 #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5" id="wage-age-exp-section-{{ occupation.jobtag_id }}" style="display: none;">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">経験年数別 年収</h2>
+        <p class="text-xs text-gray-400 mb-3">
+            経験年数階級別の年収カーブ（賃金構造基本統計調査 令和7年 表10）。同じ職種でも勤続経験で給与水準が大きく変わります。
+        </p>
+        <div id="chart-wage-exp-{{ occupation.jobtag_id }}" style="width: 100%; height: 400px;"></div>
+    </section>
+
     {# しごと能力プロフィール #}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">しごと能力プロフィール</h2>
@@ -165,6 +187,28 @@
     </section>
     {% endif %}
 
+    {# 関連団体（EX-D） #}
+    {% if !occupation.related_orgs.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">関連団体・参考リンク</h2>
+        <p class="text-xs text-gray-400 mb-3">業界団体・職業情報・労働災害防止組織等。外部サイトに遷移します。</p>
+        <ul class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+            {% for org in occupation.related_orgs %}
+            <li class="bg-gray-900 border border-gray-700 rounded p-2 hover:border-blue-500 transition">
+                {% if !org.url.is_empty() %}
+                <a href="{{ org.url }}" target="_blank" rel="noopener noreferrer" class="text-blue-300 hover:text-blue-200 break-all">
+                    {{ org.name }}
+                    <span class="text-[10px] text-gray-500 ml-1">↗</span>
+                </a>
+                {% else %}
+                <span class="text-gray-200">{{ org.name }}</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
     {# 出典フッター #}
     <footer class="text-xs text-gray-500 border-t border-gray-700 pt-4">
         <p class="font-semibold text-gray-400 mb-1">データ出典</p>
@@ -182,9 +226,31 @@
 (function() {
     var jobId = {{ occupation.jobtag_id }};
     var wageRows = {{ wage_rows_json|safe }};
+    var wageAgeExpRows = {{ wage_age_exp_json|safe }};
     var interest = {{ interest_json|safe }};
     var values = {{ values_json|safe }};
     var skills = {{ skills_json|safe }};
+
+    // 時給目安（EX-A3）: 総計行から計算して KPI に反映
+    (function renderHourlyWage() {
+        var totalRow = (wageRows || []).find(function(r) { return r.age_range_order === 0; });
+        var hwEl = document.getElementById('hourly-wage-' + jobId);
+        var hwOtEl = document.getElementById('hourly-wage-with-ot-' + jobId);
+        if (!totalRow) return;
+        // 時給(所定内): 所定内月給(千円) × 1000 / 所定内労働時間(時間/月)
+        if (hwEl && totalRow.scheduled_hours && totalRow.monthly_scheduled_thousand_yen) {
+            var hw = Math.round(totalRow.monthly_scheduled_thousand_yen * 1000 / totalRow.scheduled_hours);
+            hwEl.innerHTML = hw.toLocaleString() + '<span class="text-xs text-gray-300 ml-1">円/時</span>';
+        }
+        // 時給(残業込): 月給合計(千円) × 1000 / 総労働時間
+        if (hwOtEl && totalRow.monthly_total_thousand_yen && totalRow.scheduled_hours) {
+            var totalHours = totalRow.scheduled_hours + (totalRow.overtime_hours || 0);
+            if (totalHours > 0) {
+                var hwOt = Math.round(totalRow.monthly_total_thousand_yen * 1000 / totalHours);
+                hwOtEl.innerHTML = hwOt.toLocaleString() + '<span class="text-xs text-gray-300 ml-1">円/時</span>';
+            }
+        }
+    })();
 
     if (window.echarts) {
         initCharts();
@@ -280,6 +346,62 @@
             ]
         };
     }, wageRows);
+
+    // 経験年数別 年収カーブ（EX-A4）
+    (function renderWageExp() {
+        if (!wageAgeExpRows || wageAgeExpRows.length === 0) return;
+        var section = document.getElementById('wage-age-exp-section-' + jobId);
+        if (section) section.style.display = '';
+        var el = document.getElementById('chart-wage-exp-' + jobId);
+        if (!el || !window.echarts) return;
+
+        // 年齢階級と経験年数階級を一意化（order でソート）
+        var ageMap = {}, expMap = {};
+        wageAgeExpRows.forEach(function(r) {
+            if (r.age_range_order !== 0) ageMap[r.age_range_order] = r.age_range;
+            if (r.exp_range_order !== 0) expMap[r.exp_range_order] = r.exp_range;
+        });
+        var ageOrders = Object.keys(ageMap).map(Number).sort(function(a,b){return a-b;});
+        var expOrders = Object.keys(expMap).map(Number).sort(function(a,b){return a-b;});
+        var cats = ageOrders.map(function(o){ return ageMap[o]; });
+
+        // 経験年数階級ごとに line series 生成
+        var colors = ['#94a3b8', '#60a5fa', '#34d399', '#fbbf24', '#f472b6'];
+        var series = expOrders.map(function(expOrd, idx) {
+            var data = ageOrders.map(function(ageOrd) {
+                var row = wageAgeExpRows.find(function(r){
+                    return r.age_range_order === ageOrd && r.exp_range_order === expOrd;
+                });
+                return row && row.annual_salary_man_yen != null ? row.annual_salary_man_yen : null;
+            });
+            return {
+                name: expMap[expOrd],
+                type: 'line',
+                smooth: true,
+                connectNulls: true,
+                symbol: 'circle',
+                symbolSize: 6,
+                lineStyle: { width: 2, color: colors[idx % colors.length] },
+                itemStyle: { color: colors[idx % colors.length] },
+                data: data
+            };
+        });
+
+        try {
+            var chart = echarts.init(el);
+            chart.setOption({
+                tooltip: { trigger: 'axis', valueFormatter: function(v) { return v == null ? '—' : v + ' 万円'; } },
+                legend: { data: expOrders.map(function(o){return expMap[o];}), bottom: 0, textStyle: { color: '#aaa' } },
+                grid: { left: 70, right: 30, top: 30, bottom: 50 },
+                xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
+                yAxis: { type: 'value', name: '年収（万円）', axisLabel: { color: '#aaa' } },
+                series: series
+            });
+            window.addEventListener('resize', function() { chart.resize(); });
+        } catch (e) {
+            console.error('ECharts wage-exp init failed', e);
+        }
+    })();
 
     // 興味 レーダー
     safeInit('chart-interest-' + jobId, function(rows) {

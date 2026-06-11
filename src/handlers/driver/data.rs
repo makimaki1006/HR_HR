@@ -1,11 +1,13 @@
 //! 職種カルテ用 Turso データ取得。
 //!
-//! 5 テーブル:
-//!   v2_external_jobtag_occupation       職業マスタ
-//!   v2_external_jobtag_description      解説 4 種
-//!   v2_external_jobtag_scores           スコア（興味/価値観/スキル）
-//!   v2_external_jobtag_qualifications   関連資格
-//!   v2_external_jobtag_wage_age         賃金センサス年齢別
+//! 7 テーブル:
+//!   v2_external_jobtag_occupation         職業マスタ
+//!   v2_external_jobtag_description        解説 4 種
+//!   v2_external_jobtag_scores             スコア（興味/価値観/スキル）
+//!   v2_external_jobtag_qualifications     関連資格
+//!   v2_external_jobtag_wage_age           賃金センサス年齢別
+//!   v2_external_jobtag_related_orgs       関連団体 (EX-D)
+//!   v2_external_jobtag_wage_age_exp       経験年数別給与 (EX-A4)
 
 use serde::Serialize;
 use serde_json::Value;
@@ -80,6 +82,26 @@ pub struct ScoreItem {
     pub score: f64,
 }
 
+/// 関連団体（EX-D）1行。
+#[derive(Serialize, Clone, Default)]
+pub struct RelatedOrgRow {
+    pub name: String,
+    pub url: String,
+}
+
+/// 経験年数別給与（EX-A4）1行。
+#[derive(Serialize, Clone)]
+pub struct WageAgeExpRow {
+    pub age_range_order: i64,
+    pub age_range: String,
+    pub exp_range_order: i64,
+    pub exp_range: String,
+    pub monthly_scheduled_thousand_yen: Option<f64>,
+    pub annual_bonus_thousand_yen: Option<f64>,
+    pub workers_count_tenfold: Option<f64>,
+    pub annual_salary_man_yen: Option<f64>,
+}
+
 #[derive(Serialize)]
 pub struct OccupationDetail {
     pub occupation: OccupationRow,
@@ -89,6 +111,10 @@ pub struct OccupationDetail {
     pub values_scores: Vec<ScoreItem>,
     pub skills_scores: Vec<ScoreItem>,
     pub qualifications: Vec<String>,
+    /// 関連団体（EX-D）。未投入時は空 Vec。
+    pub related_orgs: Vec<RelatedOrgRow>,
+    /// 経験年数別給与（EX-A4）。未投入時は空 Vec。
+    pub wage_age_exp_rows: Vec<WageAgeExpRow>,
 }
 
 // ───────────────────────── ヘルパ ─────────────────────────
@@ -290,6 +316,19 @@ pub fn fetch_occupation_detail(
     )?;
     let qualifications: Vec<String> = qual_rows.iter().map(|r| s(r, "name")).collect();
 
+    let related_orgs = fetch_related_orgs(turso, occupation.jobtag_id)
+        .unwrap_or_else(|e| {
+            // テーブル未投入時はエラーを無視して空配列を返す
+            tracing::warn!("fetch_related_orgs({jobtag_id}) failed (treated as empty): {e}");
+            Vec::new()
+        });
+
+    let wage_age_exp_rows = fetch_wage_age_exp(turso, &occupation.wage_census_code)
+        .unwrap_or_else(|e| {
+            tracing::warn!("fetch_wage_age_exp({}) failed (treated as empty): {e}", occupation.wage_census_code);
+            Vec::new()
+        });
+
     Ok(OccupationDetail {
         occupation,
         description,
@@ -298,6 +337,8 @@ pub fn fetch_occupation_detail(
         values_scores,
         skills_scores,
         qualifications,
+        related_orgs,
+        wage_age_exp_rows,
     })
 }
 
@@ -331,6 +372,52 @@ pub fn fetch_wage_age(turso: &TursoDb, wage_code: &str) -> Result<Vec<WageAgeRow
             scheduled_hours: f(r, "scheduled_hours"),
             overtime_hours: f(r, "overtime_hours"),
             monthly_total_thousand_yen: f(r, "monthly_total_thousand_yen"),
+            monthly_scheduled_thousand_yen: f(r, "monthly_scheduled_thousand_yen"),
+            annual_bonus_thousand_yen: f(r, "annual_bonus_thousand_yen"),
+            workers_count_tenfold: f(r, "workers_count_tenfold"),
+            annual_salary_man_yen: f(r, "annual_salary_man_yen"),
+        })
+        .collect())
+}
+
+/// 関連団体（EX-D）を取得する。テーブル未投入時は Turso が Err を返すため呼び元で処理すること。
+pub fn fetch_related_orgs(turso: &TursoDb, jobtag_id: i64) -> Result<Vec<RelatedOrgRow>, String> {
+    let rows = turso.query(
+        "SELECT name, COALESCE(url,'') AS url \
+         FROM v2_external_jobtag_related_orgs \
+         WHERE jobtag_id = ? ORDER BY item_order",
+        &[&jobtag_id as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    Ok(rows
+        .iter()
+        .map(|r| RelatedOrgRow {
+            name: s(r, "name"),
+            url: s(r, "url"),
+        })
+        .collect())
+}
+
+/// 経験年数別給与（EX-A4）を取得する。wage_census_code が空なら空 Vec を返す。
+pub fn fetch_wage_age_exp(turso: &TursoDb, wage_code: &str) -> Result<Vec<WageAgeExpRow>, String> {
+    if wage_code.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = turso.query(
+        "SELECT age_range_order, age_range, exp_range_order, exp_range, \
+                monthly_scheduled_thousand_yen, annual_bonus_thousand_yen, \
+                workers_count_tenfold, annual_salary_man_yen \
+         FROM v2_external_jobtag_wage_age_exp \
+         WHERE wage_census_code = ? \
+         ORDER BY age_range_order, exp_range_order",
+        &[&wage_code.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    Ok(rows
+        .iter()
+        .map(|r| WageAgeExpRow {
+            age_range_order: i(r, "age_range_order"),
+            age_range: s(r, "age_range"),
+            exp_range_order: i(r, "exp_range_order"),
+            exp_range: s(r, "exp_range"),
             monthly_scheduled_thousand_yen: f(r, "monthly_scheduled_thousand_yen"),
             annual_bonus_thousand_yen: f(r, "annual_bonus_thousand_yen"),
             workers_count_tenfold: f(r, "workers_count_tenfold"),
