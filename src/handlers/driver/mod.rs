@@ -31,7 +31,7 @@ pub mod data;
 use data::{
     fetch_category_counts, fetch_category_stats, fetch_multiple_occupations,
     fetch_occupation_detail, fetch_occupation_list, fetch_wage_age,
-    CategoryInfo, CategoryStats, DriverDataError, OccupationDetail,
+    CategoryInfo, CategoryStats, DriverDataError, OccupationDetail, RelatedOrgRow,
 };
 
 /// driver タブのルーターを公開する。
@@ -136,6 +136,8 @@ struct DriverDetailPage {
     interest_json: String,
     values_json: String,
     skills_json: String,
+    /// ECharts 経験年数別給与用 JSON（テンプレに直接渡す）
+    wage_age_exp_json: String,
 }
 
 #[derive(Serialize)]
@@ -158,6 +160,8 @@ pub struct OccupationDetailView {
     pub total_workers_count: Option<f64>,
     /// 同カテゴリ内ベンチマーク（中央値ベース）
     pub category_stats: CategoryStats,
+    /// 関連団体一覧（EX-D）
+    pub related_orgs: Vec<RelatedOrgRow>,
 }
 
 async fn tab_driver_detail(
@@ -202,6 +206,7 @@ async fn tab_driver_detail(
     let interest_json = serde_json::to_string(&detail.interest_scores).unwrap_or_else(|_| "[]".into());
     let values_json = serde_json::to_string(&detail.values_scores).unwrap_or_else(|_| "[]".into());
     let skills_json = serde_json::to_string(&detail.skills_scores).unwrap_or_else(|_| "[]".into());
+    let wage_age_exp_json = serde_json::to_string(&detail.wage_age_exp_rows).unwrap_or_else(|_| "[]".into());
 
     let total = detail.wage_rows.iter().find(|w| w.age_range_order == 0);
 
@@ -223,6 +228,7 @@ async fn tab_driver_detail(
         total_annual_salary_man_yen: total.and_then(|t| t.annual_salary_man_yen),
         total_workers_count: total.and_then(|t| t.workers_count_tenfold),
         category_stats,
+        related_orgs: detail.related_orgs.clone(),
     };
 
     let page = DriverDetailPage {
@@ -231,6 +237,7 @@ async fn tab_driver_detail(
         interest_json,
         values_json,
         skills_json,
+        wage_age_exp_json,
     };
     match page.render() {
         Ok(body) => Html(body).into_response(),
@@ -399,6 +406,8 @@ fn detail_to_compare_entry(detail: OccupationDetail) -> CompareEntry {
         total_workers_count: total.and_then(|t| t.workers_count_tenfold),
         // 比較ビューではカテゴリベンチマーク不要のためデフォルト値を使用
         category_stats: CategoryStats::default(),
+        // 比較ビューでは関連団体は表示しないため空 Vec
+        related_orgs: Vec::new(),
     };
     let wage_rows_json =
         serde_json::to_string(&detail.wage_rows).unwrap_or_else(|_| "[]".into());
