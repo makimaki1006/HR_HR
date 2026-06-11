@@ -65,7 +65,7 @@
                 <div class="bg-gray-900 border border-gray-700 rounded p-2">
                     <div class="text-xs text-gray-400 mb-0.5">労働者数</div>
                     <div class="text-xl font-bold text-blue-300">
-                        {% match e.view.total_workers_count %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">十人</span>{% when None %}—{% endmatch %}
+                        {% match e.view.total_workers_count %}{% when Some with (v) %}<span data-tenfold-to-persons="{{ v }}">—</span><span class="text-xs text-gray-300 ml-0.5">人</span>{% when None %}—{% endmatch %}
                     </div>
                 </div>
             </div>
@@ -103,6 +103,12 @@
 {# ECharts 年齢別年収オーバーレイ #}
 <script>
 (function() {
+    // workers_count_tenfold (十人単位) を × 10 して実人数で描画
+    document.querySelectorAll('[data-tenfold-to-persons]').forEach(function(el) {
+        var raw = parseFloat(el.getAttribute('data-tenfold-to-persons'));
+        if (!isNaN(raw)) el.textContent = Math.round(raw * 10).toLocaleString();
+    });
+
     var allWage = {{ all_wage_json|safe }};
     var names   = {{ names_json|safe }};
     var colors  = ['#60a5fa', '#fbbf24', '#34d399'];

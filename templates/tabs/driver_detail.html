@@ -73,10 +73,10 @@
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">労働者数（推定）</div>
                 <div class="text-2xl font-bold text-blue-300">
-                    {% match occupation.total_workers_count %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">十人</span>{% when None %}—{% endmatch %}
+                    {% match occupation.total_workers_count %}{% when Some with (v) %}<span data-tenfold-to-persons="{{ v }}">—</span><span class="text-xs text-gray-300 ml-1">人</span>{% when None %}—{% endmatch %}
                 </div>
                 {% match occupation.category_stats.median_workers_count_tenfold %}{% when Some with (m) %}
-                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 十人</div>
+                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 <span data-tenfold-to-persons="{{ m }}">—</span> 人</div>
                 {% when None %}{% endmatch %}
             </div>
         </div>
@@ -202,6 +202,12 @@
     var wageRows = {{ wage_rows_json|safe }};
     var wageAgeExpRows = {{ wage_age_exp_json|safe }};
 
+    // workers_count_tenfold (十人単位) の表示を 「× 10 = 実人数」に変換して描画
+    document.querySelectorAll('[data-tenfold-to-persons]').forEach(function(el) {
+        var raw = parseFloat(el.getAttribute('data-tenfold-to-persons'));
+        if (!isNaN(raw)) el.textContent = Math.round(raw * 10).toLocaleString();
+    });
+
     // 解説テキストを 改行2回 = 段落区切りで <p> に分割（whitespace-pre-wrap よりブロック感が出る）
     (function paragraphizeDescriptions() {
         var nodes = document.querySelectorAll('.description-prose');
@@ -270,7 +276,8 @@
     safeInit('chart-pyramid-' + jobId, function(rows) {
         var ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
         var cats = ageRows.map(function(r) { return r.age_range; });
-        var workers = ageRows.map(function(r) { return (r.workers_count_tenfold || 0); });
+        // DB の workers_count_tenfold は「十人」単位の生値なので × 10 で実人数に変換
+        var workers = ageRows.map(function(r) { return (r.workers_count_tenfold || 0) * 10; });
         // 構成プロファイル文を生成
         var total = workers.reduce(function(a,b){ return a+b; }, 0);
         var summary = document.getElementById('age-profile-summary-' + jobId);
@@ -278,7 +285,7 @@
             // 35歳未満 / 35-54 / 55+ の構成比
             var young = 0, mid = 0, senior = 0;
             ageRows.forEach(function(r) {
-                var w = r.workers_count_tenfold || 0;
+                var w = (r.workers_count_tenfold || 0) * 10;
                 if (r.age_range_order <= 3) young += w;
                 else if (r.age_range_order <= 8) mid += w;
                 else senior += w;
@@ -301,12 +308,12 @@
                 formatter: function(params) {
                     var p = params[0];
                     var pctV = total > 0 ? (p.value / total * 100).toFixed(1) : '0.0';
-                    return p.name + '<br>' + (p.value * 10).toLocaleString() + ' 人（' + pctV + '%）';
+                    return p.name + '<br>' + p.value.toLocaleString() + ' 人（' + pctV + '%）';
                 }
             },
-            grid: { left: 60, right: 40, top: 20, bottom: 60 },
+            grid: { left: 80, right: 40, top: 20, bottom: 60 },
             xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
-            yAxis: { type: 'value', name: '労働者数（十人）', axisLabel: { color: '#aaa' } },
+            yAxis: { type: 'value', name: '労働者数（人）', axisLabel: { color: '#aaa', formatter: function(v){return v.toLocaleString();} } },
             series: [{ type: 'bar', data: data, barWidth: '60%' }]
         };
     }, wageRows);
@@ -316,28 +323,29 @@
         var ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
         var cats = ageRows.map(function(r) { return r.age_range; });
         var salary = ageRows.map(function(r) { return r.annual_salary_man_yen; });
-        var workers = ageRows.map(function(r) { return r.workers_count_tenfold; });
+        // workers_count_tenfold は「十人」単位の生値なので × 10 で「人」に変換
+        var workers = ageRows.map(function(r) { return r.workers_count_tenfold != null ? r.workers_count_tenfold * 10 : null; });
         var maxSalary = Math.max.apply(null, salary.filter(function(v){return v != null;}));
         return {
             tooltip: { trigger: 'axis',
                 formatter: function(params) {
                     var lines = [params[0].name];
                     params.forEach(function(p) {
-                        var v = p.value == null ? '—' : (p.seriesName.indexOf('年収') >= 0 ? p.value + ' 万円' : (p.value * 10).toLocaleString() + ' 人');
+                        var v = p.value == null ? '—' : (p.seriesName.indexOf('年収') >= 0 ? p.value + ' 万円' : p.value.toLocaleString() + ' 人');
                         lines.push(p.marker + ' ' + p.seriesName + ': <strong>' + v + '</strong>');
                     });
                     return lines.join('<br>');
                 }
             },
-            legend: { data: ['年収（万円）', '労働者数（十人）'], bottom: 0, textStyle: { color: '#cbd5e1' } },
-            grid: { left: 70, right: 70, top: 40, bottom: 60 },
+            legend: { data: ['年収（万円）', '労働者数（人）'], bottom: 0, textStyle: { color: '#cbd5e1' } },
+            grid: { left: 70, right: 80, top: 40, bottom: 60 },
             xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#cbd5e1' } },
             yAxis: [
                 { type: 'value', name: '年収（万円）', position: 'left', axisLabel: { color: '#cbd5e1' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } } },
-                { type: 'value', name: '労働者数（十人）', position: 'right', axisLabel: { color: '#cbd5e1' }, splitLine: { show: false } }
+                { type: 'value', name: '労働者数(人)', position: 'right', axisLabel: { color: '#cbd5e1', formatter: function(v){return v.toLocaleString();} }, splitLine: { show: false } }
             ],
             series: [
-                { name: '労働者数（十人）', type: 'bar', yAxisIndex: 1, data: workers, itemStyle: { color: 'rgba(96, 165, 250, 0.22)' }, barWidth: '55%' },
+                { name: '労働者数（人）', type: 'bar', yAxisIndex: 1, data: workers, itemStyle: { color: 'rgba(96, 165, 250, 0.22)' }, barWidth: '55%' },
                 { name: '年収（万円）', type: 'line', data: salary, smooth: true, symbol: 'circle', symbolSize: 9,
                   lineStyle: { width: 3.5, color: '#fbbf24' },
                   itemStyle: { color: '#fbbf24', borderColor: '#1f2937', borderWidth: 2 },
