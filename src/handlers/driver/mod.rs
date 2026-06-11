@@ -29,8 +29,9 @@ use crate::AppState;
 pub mod data;
 
 use data::{
-    fetch_category_counts, fetch_occupation_detail, fetch_occupation_list, fetch_wage_age,
-    CategoryInfo, DriverDataError,
+    fetch_category_counts, fetch_category_stats, fetch_multiple_occupations,
+    fetch_occupation_detail, fetch_occupation_list, fetch_wage_age,
+    CategoryInfo, CategoryStats, DriverDataError, OccupationDetail,
 };
 
 /// driver タブのルーターを公開する。
@@ -44,6 +45,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/driver/list", get(api_driver_list))
         .route("/api/driver/{jobtag_id}", get(api_driver_detail))
         .route("/api/driver/wage/{wage_code}", get(api_driver_wage))
+        .route("/tab/driver/compare", get(tab_driver_compare))
 }
 
 // =========================================================================
@@ -154,6 +156,8 @@ pub struct OccupationDetailView {
     pub total_scheduled_hours: Option<f64>,
     pub total_annual_salary_man_yen: Option<f64>,
     pub total_workers_count: Option<f64>,
+    /// 同カテゴリ内ベンチマーク（中央値ベース）
+    pub category_stats: CategoryStats,
 }
 
 async fn tab_driver_detail(
@@ -168,10 +172,18 @@ async fn tab_driver_detail(
         }
     };
 
-    let detail = match tokio::task::spawn_blocking(move || fetch_occupation_detail(&turso, jobtag_id))
-        .await
+    let (detail, category_stats) = match tokio::task::spawn_blocking(move || -> Result<_, DriverDataError> {
+        let d = fetch_occupation_detail(&turso, jobtag_id)?;
+        let stats = fetch_category_stats(&turso, &d.occupation.category)
+            .unwrap_or_else(|e| {
+                warn!("fetch_category_stats failed (treated as empty): {e}");
+                CategoryStats::default()
+            });
+        Ok((d, stats))
+    })
+    .await
     {
-        Ok(Ok(d)) => d,
+        Ok(Ok(pair)) => pair,
         Ok(Err(DriverDataError::NotFound)) => {
             return (StatusCode::NOT_FOUND, format!("jobtag_id={jobtag_id} は未投入")).into_response();
         }
@@ -210,6 +222,7 @@ async fn tab_driver_detail(
         total_scheduled_hours: total.and_then(|t| t.scheduled_hours),
         total_annual_salary_man_yen: total.and_then(|t| t.annual_salary_man_yen),
         total_workers_count: total.and_then(|t| t.workers_count_tenfold),
+        category_stats,
     };
 
     let page = DriverDetailPage {
@@ -306,6 +319,177 @@ async fn api_driver_wage(
         Err(e) => {
             error!("api_driver_wage spawn_blocking: {e}");
             Json(json!({"error": "internal", "rows": []})).into_response()
+        }
+    }
+}
+
+// =========================================================================
+// 比較ビュー HTML
+// =========================================================================
+
+#[derive(Deserialize, Default)]
+pub struct CompareQuery {
+    /// カンマ区切りの jobtag_id（2〜3個）
+    pub ids: String,
+}
+
+/// 比較ビュー用の1職業エントリ（テンプレートに渡す）
+#[derive(Serialize)]
+pub struct CompareEntry {
+    pub view: OccupationDetailView,
+    pub wage_rows_json: String,
+    pub interest_json: String,
+    pub values_json: String,
+}
+
+#[derive(Template)]
+#[template(path = "tabs/driver_compare.html")]
+struct DriverComparePage {
+    entries: Vec<CompareEntry>,
+    /// 全職業の年齢別年収をオーバーレイ表示用に直列化した JSON（Vec<Vec<WageAgeRow>>）
+    all_wage_json: String,
+    /// 各職業名の JSON 配列
+    names_json: String,
+}
+
+fn parse_compare_ids(ids_str: &str) -> Result<Vec<i64>, (StatusCode, String)> {
+    if ids_str.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "比較には2〜3職業を選んでください".into()));
+    }
+    let raw: Vec<&str> = ids_str.split(',').map(|s| s.trim()).collect();
+    // 重複除去（順序維持）
+    let mut seen = std::collections::HashSet::new();
+    let mut unique: Vec<i64> = Vec::new();
+    for token in raw {
+        let id = token
+            .parse::<i64>()
+            .map_err(|_| (StatusCode::BAD_REQUEST, "IDのパースに失敗しました（整数のみ受け付けます）".to_string()))?;
+        if seen.insert(id) {
+            unique.push(id);
+        }
+    }
+    if unique.len() < 2 {
+        return Err((StatusCode::BAD_REQUEST, "比較には2〜3職業を選んでください".into()));
+    }
+    if unique.len() > 3 {
+        return Err((StatusCode::BAD_REQUEST, "最大3職業まで比較できます".into()));
+    }
+    Ok(unique)
+}
+
+/// detail → CompareEntry に変換する（heavy clone を避けるため消費する）
+fn detail_to_compare_entry(detail: OccupationDetail) -> CompareEntry {
+    let total = detail.wage_rows.iter().find(|w| w.age_range_order == 0);
+    let view = OccupationDetailView {
+        jobtag_id: detail.occupation.jobtag_id,
+        name: detail.occupation.name.clone(),
+        category: detail.occupation.category.clone(),
+        aliases: detail.occupation.aliases.clone(),
+        mhlw_classification: detail.occupation.mhlw_classification.clone(),
+        wage_census_code: detail.occupation.wage_census_code.clone(),
+        wage_census_name: detail.occupation.wage_census_name.clone(),
+        summary: detail.description.summary.clone(),
+        what_is_the_job: detail.description.what_is_the_job.clone(),
+        how_to_become: detail.description.how_to_become.clone(),
+        working_conditions: detail.description.working_conditions.clone(),
+        qualifications: detail.qualifications.clone(),
+        total_avg_age: total.and_then(|t| t.avg_age),
+        total_scheduled_hours: total.and_then(|t| t.scheduled_hours),
+        total_annual_salary_man_yen: total.and_then(|t| t.annual_salary_man_yen),
+        total_workers_count: total.and_then(|t| t.workers_count_tenfold),
+        // 比較ビューではカテゴリベンチマーク不要のためデフォルト値を使用
+        category_stats: CategoryStats::default(),
+    };
+    let wage_rows_json =
+        serde_json::to_string(&detail.wage_rows).unwrap_or_else(|_| "[]".into());
+    let interest_json =
+        serde_json::to_string(&detail.interest_scores).unwrap_or_else(|_| "[]".into());
+    let values_json =
+        serde_json::to_string(&detail.values_scores).unwrap_or_else(|_| "[]".into());
+    CompareEntry { view, wage_rows_json, interest_json, values_json }
+}
+
+async fn tab_driver_compare(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<CompareQuery>,
+) -> impl IntoResponse {
+    // ids パース・バリデーション
+    let ids = match parse_compare_ids(&q.ids) {
+        Ok(v) => v,
+        Err((code, msg)) => {
+            let safe = msg.replace('<', "&lt;").replace('>', "&gt;");
+            return (
+                code,
+                Html(format!(
+                    r##"<div class="p-6 bg-red-900/30 border border-red-600 rounded text-red-200">
+                        <h2 class="text-lg font-bold mb-2">入力エラー</h2>
+                        <p>{safe}</p>
+                        <a href="/tab/driver"
+                           hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML"
+                           class="inline-block mt-3 text-blue-300 underline">← 一覧に戻る</a>
+                    </div>"##
+                )),
+            )
+                .into_response();
+        }
+    };
+
+    let turso = match state.turso_db.clone() {
+        Some(db) => db,
+        None => {
+            return render_degraded(
+                "Turso country-statistics 未接続のため職種カルテを表示できません",
+            )
+            .into_response();
+        }
+    };
+
+    let ids_clone = ids.clone();
+    let details = match tokio::task::spawn_blocking(move || {
+        fetch_multiple_occupations(&turso, &ids_clone)
+    })
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            error!("spawn_blocking failed (compare): {e}");
+            return render_degraded("内部エラー").into_response();
+        }
+    };
+
+    // None（取得失敗）をフィルタ；全件失敗なら degraded
+    let valid_details: Vec<OccupationDetail> =
+        details.into_iter().flatten().collect();
+    if valid_details.is_empty() {
+        return render_degraded("指定された職業が見つかりませんでした").into_response();
+    }
+
+    // 全職業の年齢別年収データをオーバーレイ用に収集（総計行除外）
+    let all_wage: Vec<serde_json::Value> = valid_details
+        .iter()
+        .map(|d| {
+            let rows: Vec<_> = d
+                .wage_rows
+                .iter()
+                .filter(|r| r.age_range_order != 0)
+                .collect();
+            serde_json::to_value(&rows).unwrap_or(serde_json::Value::Array(vec![]))
+        })
+        .collect();
+    let all_wage_json = serde_json::to_string(&all_wage).unwrap_or_else(|_| "[]".into());
+
+    let names: Vec<&str> = valid_details.iter().map(|d| d.occupation.name.as_str()).collect();
+    let names_json = serde_json::to_string(&names).unwrap_or_else(|_| "[]".into());
+
+    let entries: Vec<CompareEntry> =
+        valid_details.into_iter().map(detail_to_compare_entry).collect();
+
+    let page = DriverComparePage { entries, all_wage_json, names_json };
+    match page.render() {
+        Ok(body) => Html(body).into_response(),
+        Err(e) => {
+            error!("Askama render failed (compare): {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "render failed").into_response()
         }
     }
 }

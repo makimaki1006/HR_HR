@@ -301,6 +301,13 @@ pub fn fetch_occupation_detail(
     })
 }
 
+/// 複数職業のディテールをまとめて取得（compare用）。失敗IDはNoneでスキップ。
+pub fn fetch_multiple_occupations(turso: &TursoDb, ids: &[i64]) -> Vec<Option<OccupationDetail>> {
+    ids.iter()
+        .map(|id| fetch_occupation_detail(turso, *id).ok())
+        .collect()
+}
+
 /// 賃金センサスの年齢階級別データを取得する（総計含む13行）。
 pub fn fetch_wage_age(turso: &TursoDb, wage_code: &str) -> Result<Vec<WageAgeRow>, String> {
     if wage_code.is_empty() {
@@ -330,4 +337,55 @@ pub fn fetch_wage_age(turso: &TursoDb, wage_code: &str) -> Result<Vec<WageAgeRow
             annual_salary_man_yen: f(r, "annual_salary_man_yen"),
         })
         .collect())
+}
+
+// ───────────────────────── カテゴリ統計（KPIベンチマーク） ─────────────────────────
+
+/// 同カテゴリ内の中央値統計。個別カルテで KPI ベンチマーク表示に使う。
+#[derive(Serialize, Clone, Default)]
+pub struct CategoryStats {
+    pub category: String,
+    pub median_annual_salary_man_yen: Option<f64>,
+    pub median_avg_age: Option<f64>,
+    pub median_workers_count_tenfold: Option<f64>,
+    pub sample_size: i64,
+}
+
+/// 同カテゴリの「総計」行から median を計算する。
+/// 賃金センサス対象外職業（wage_census_code 空）は除外される。
+pub fn fetch_category_stats(turso: &TursoDb, category: &str) -> Result<CategoryStats, String> {
+    if category.is_empty() {
+        return Ok(CategoryStats::default());
+    }
+    let rows = turso.query(
+        "SELECT w.annual_salary_man_yen, w.avg_age, w.workers_count_tenfold \
+         FROM v2_external_jobtag_occupation o \
+         JOIN v2_external_jobtag_wage_age w \
+           ON w.wage_census_code = o.wage_census_code AND w.age_range_order = 0 \
+         WHERE o.category = ? AND o.wage_census_code <> ''",
+        &[&category.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+
+    fn median(mut values: Vec<f64>) -> Option<f64> {
+        if values.is_empty() { return None; }
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = values.len() / 2;
+        Some(if values.len() % 2 == 0 {
+            (values[mid - 1] + values[mid]) / 2.0
+        } else {
+            values[mid]
+        })
+    }
+
+    let salaries: Vec<f64> = rows.iter().filter_map(|r| f(r, "annual_salary_man_yen")).collect();
+    let ages: Vec<f64> = rows.iter().filter_map(|r| f(r, "avg_age")).collect();
+    let workers: Vec<f64> = rows.iter().filter_map(|r| f(r, "workers_count_tenfold")).collect();
+
+    Ok(CategoryStats {
+        category: category.to_string(),
+        median_annual_salary_man_yen: median(salaries),
+        median_avg_age: median(ages),
+        median_workers_count_tenfold: median(workers),
+        sample_size: rows.len() as i64,
+    })
 }

@@ -38,26 +38,37 @@
                 <div class="text-2xl font-bold text-blue-300">
                     {% match occupation.total_avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
                 </div>
+                {% match occupation.category_stats.median_avg_age %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 歳</div>
+                {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">所定内労働時間</div>
                 <div class="text-2xl font-bold text-blue-300">
                     {% match occupation.total_scheduled_hours %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">h/月</span>{% when None %}—{% endmatch %}
                 </div>
+                <div class="text-[10px] text-gray-500 mt-1">{% if occupation.category_stats.sample_size > 0 %}カテゴリ n={{ occupation.category_stats.sample_size }}{% endif %}</div>
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">年収（全国平均）</div>
                 <div class="text-2xl font-bold text-blue-300">
                     {% match occupation.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
                 </div>
+                {% match occupation.category_stats.median_annual_salary_man_yen %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 万円</div>
+                {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">労働者数（推定）</div>
                 <div class="text-2xl font-bold text-blue-300">
                     {% match occupation.total_workers_count %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">十人</span>{% when None %}—{% endmatch %}
                 </div>
+                {% match occupation.category_stats.median_workers_count_tenfold %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 十人</div>
+                {% when None %}{% endmatch %}
             </div>
         </div>
+        <div class="mt-3 text-[11px] text-gray-400" id="kpi-benchmark-badges-{{ occupation.jobtag_id }}"></div>
     </section>
 
     {# どんな仕事？ #}
@@ -91,6 +102,16 @@
             年収 = 「きまって支給する現金給与額 × 12 + 年間賞与その他特別給与額」（賃金構造基本統計調査 令和7年）
         </p>
         <div id="chart-wage-{{ occupation.jobtag_id }}" style="width: 100%; height: 360px;"></div>
+    </section>
+
+    {# 年齢構成プロファイル（L2-2） #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">年齢構成プロファイル</h2>
+        <p class="text-xs text-gray-400 mb-3">
+            年齢階級別の労働者数構成（賃金構造基本統計調査 令和7年）。労働者数のボリュームから「若手中心 / 中堅厚 / シニア寄り」を読み取れます。
+        </p>
+        <div id="chart-pyramid-{{ occupation.jobtag_id }}" style="width: 100%; height: 360px;"></div>
+        <div id="age-profile-summary-{{ occupation.jobtag_id }}" class="mt-3 text-xs text-gray-300"></div>
     </section>
 
     {# しごと能力プロフィール #}
@@ -180,6 +201,51 @@
             console.error('ECharts init failed for ' + elemId, e);
         }
     }
+
+    // 年齢構成プロファイル（L2-2）: workers_count_tenfold を縦棒で
+    safeInit('chart-pyramid-' + jobId, function(rows) {
+        var ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
+        var cats = ageRows.map(function(r) { return r.age_range; });
+        var workers = ageRows.map(function(r) { return (r.workers_count_tenfold || 0); });
+        // 構成プロファイル文を生成
+        var total = workers.reduce(function(a,b){ return a+b; }, 0);
+        var summary = document.getElementById('age-profile-summary-' + jobId);
+        if (summary && total > 0) {
+            // 35歳未満 / 35-54 / 55+ の構成比
+            var young = 0, mid = 0, senior = 0;
+            ageRows.forEach(function(r) {
+                var w = r.workers_count_tenfold || 0;
+                if (r.age_range_order <= 3) young += w;
+                else if (r.age_range_order <= 8) mid += w;
+                else senior += w;
+            });
+            var pct = function(v) { return total > 0 ? (v / total * 100).toFixed(1) : '0.0'; };
+            var label;
+            if (parseFloat(pct(senior)) > 35) label = 'シニア比率高';
+            else if (parseFloat(pct(young)) > 30) label = '若手厚め';
+            else if (parseFloat(pct(mid)) > 50) label = '中堅厚め';
+            else label = '年齢分布バランス型';
+            summary.innerHTML = '<strong>' + label + '</strong>　〜34歳: ' + pct(young) + '% ／ 35–54歳: ' + pct(mid) + '% ／ 55歳以上: ' + pct(senior) + '%';
+        }
+        // ピーク階級
+        var peakIdx = workers.indexOf(Math.max.apply(null, workers));
+        var data = workers.map(function(v, i) {
+            return { value: v, itemStyle: { color: i === peakIdx ? '#fbbf24' : '#60a5fa' } };
+        });
+        return {
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+                formatter: function(params) {
+                    var p = params[0];
+                    var pctV = total > 0 ? (p.value / total * 100).toFixed(1) : '0.0';
+                    return p.name + '<br>' + (p.value * 10).toLocaleString() + ' 人（' + pctV + '%）';
+                }
+            },
+            grid: { left: 60, right: 40, top: 20, bottom: 60 },
+            xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
+            yAxis: { type: 'value', name: '労働者数（十人）', axisLabel: { color: '#aaa' } },
+            series: [{ type: 'bar', data: data, barWidth: '60%' }]
+        };
+    }, wageRows);
 
     // 年齢別 賃金（総計を除く12行）
     safeInit('chart-wage-' + jobId, function(rows) {
