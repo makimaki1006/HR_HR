@@ -516,6 +516,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::my::my_profile_get).post(handlers::my::my_profile_post),
         )
         .route("/my/activity", get(handlers::my::my_activity))
+        // ======== 職種カルテタブ (driver / 職業情報) ========
+        // 出典: 賃金構造基本統計調査 令和7年 + JILPT 職業情報データベース
+        .merge(handlers::driver::router())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
