@@ -1,0 +1,2960 @@
+[
+  {
+    "jobtag_id": 218,
+    "name": "厩舎スタッフ",
+    "mhlw_code": "11_064-04",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 220,
+    "name": "動物園飼育員",
+    "mhlw_code": "11_064-04",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 222,
+    "name": "造園工",
+    "mhlw_code": "11_064-05",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 224,
+    "name": "水族館飼育員",
+    "mhlw_code": "11_066-04",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 230,
+    "name": "林業作業",
+    "mhlw_code": "11_065-01",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 249,
+    "name": "植物工場の栽培管理",
+    "mhlw_code": "11_064-02",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 500,
+    "name": "ブリーダー",
+    "mhlw_code": "11_064-04",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 502,
+    "name": "酪農従事者",
+    "mhlw_code": "11_064-03",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 503,
+    "name": "水産養殖従事者",
+    "mhlw_code": "11_066-04",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 504,
+    "name": "稲作農業者",
+    "mhlw_code": "11_064-01",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 505,
+    "name": "ハウス野菜栽培者",
+    "mhlw_code": "11_064-02",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 506,
+    "name": "果樹栽培者",
+    "mhlw_code": "11_064-02",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 507,
+    "name": "花き栽培者",
+    "mhlw_code": "11_064-02",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 509,
+    "name": "沿岸漁業従事者",
+    "mhlw_code": "11_066-01",
+    "category": "agriculture"
+  },
+  {
+    "jobtag_id": 97,
+    "name": "ビル清掃",
+    "mhlw_code": "15_096-01",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 98,
+    "name": "鉄道車両清掃",
+    "mhlw_code": "15_096-07",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 415,
+    "name": "客室清掃・整備担当（ホテル・旅館）",
+    "mhlw_code": "15_096-03",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 487,
+    "name": "ハウスクリーニング",
+    "mhlw_code": "15_096-02",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 488,
+    "name": "ペストコントロール従事者（害虫等防除・駆除従事者）",
+    "mhlw_code": "15_096-99",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 494,
+    "name": "ごみ収集作業員",
+    "mhlw_code": "15_096-05",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 496,
+    "name": "産業廃棄物収集運搬作業員",
+    "mhlw_code": "15_096-06",
+    "category": "cleaning"
+  },
+  {
+    "jobtag_id": 26,
+    "name": "大工",
+    "mhlw_code": "14_091-01",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 27,
+    "name": "型枠大工",
+    "mhlw_code": "14_090-01",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 28,
+    "name": "鉄筋工",
+    "mhlw_code": "14_090-04",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 30,
+    "name": "とび",
+    "mhlw_code": "14_090-02",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 32,
+    "name": "建設・土木作業員",
+    "mhlw_code": "14_092-01",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 33,
+    "name": "潜水士",
+    "mhlw_code": "14_091-99",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 36,
+    "name": "舗装工",
+    "mhlw_code": "14_092-02",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 37,
+    "name": "ブロック積み",
+    "mhlw_code": "14_091-02",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 38,
+    "name": "タイル工",
+    "mhlw_code": "14_091-02",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 39,
+    "name": "左官",
+    "mhlw_code": "14_091-04",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 41,
+    "name": "サッシ取付",
+    "mhlw_code": "14_091-07",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 42,
+    "name": "内装工",
+    "mhlw_code": "14_091-07",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 44,
+    "name": "防水工",
+    "mhlw_code": "14_091-08",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 45,
+    "name": "保温工事",
+    "mhlw_code": "14_091-99",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 46,
+    "name": "電気工事士",
+    "mhlw_code": "14_094-05",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 47,
+    "name": "配管工",
+    "mhlw_code": "14_091-06",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 49,
+    "name": "鉄道線路管理",
+    "mhlw_code": "14_092-03",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 50,
+    "name": "送電線工事",
+    "mhlw_code": "14_094-01",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 51,
+    "name": "解体工",
+    "mhlw_code": "14_090-03",
+    "category": "construction"
+  },
+  {
+    "jobtag_id": 120,
+    "name": "スポーツインストラクター",
+    "mhlw_code": "05_032-02",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 121,
+    "name": "自動車教習指導員",
+    "mhlw_code": "05_031-99",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 122,
+    "name": "音楽教室講師",
+    "mhlw_code": "05_032-03",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 131,
+    "name": "保育士",
+    "mhlw_code": "05_029-01",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 147,
+    "name": "法務教官",
+    "mhlw_code": "05_031-99",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 178,
+    "name": "幼稚園教員",
+    "mhlw_code": "05_029-02",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 179,
+    "name": "小学校教員",
+    "mhlw_code": "05_031-01",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 180,
+    "name": "中学校教員",
+    "mhlw_code": "05_031-02",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 181,
+    "name": "専門学校教員",
+    "mhlw_code": "05_031-99",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 183,
+    "name": "高等学校教員",
+    "mhlw_code": "05_031-04",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 184,
+    "name": "大学・短期大学教員",
+    "mhlw_code": "05_031-07",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 219,
+    "name": "アウトドアインストラクター",
+    "mhlw_code": "05_032-02",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 242,
+    "name": "学童保育指導員",
+    "mhlw_code": "05_030-01",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 395,
+    "name": "特別支援学校教員、特別支援学級教員",
+    "mhlw_code": "05_031-06",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 396,
+    "name": "学習塾教師",
+    "mhlw_code": "05_032-01",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 397,
+    "name": "日本語教師",
+    "mhlw_code": "05_031-99",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 398,
+    "name": "英会話教師",
+    "mhlw_code": "05_032-01",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 399,
+    "name": "職業訓練指導員",
+    "mhlw_code": "05_031-99",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 546,
+    "name": "保育補助者",
+    "mhlw_code": "05_030-03",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 565,
+    "name": "養護教諭",
+    "mhlw_code": "05_031-01",
+    "category": "education_childcare"
+  },
+  {
+    "jobtag_id": 201,
+    "name": "引越作業員",
+    "mhlw_code": "15_095-02",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 485,
+    "name": "倉庫作業員",
+    "mhlw_code": "15_095-03",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 486,
+    "name": "ピッキング作業員",
+    "mhlw_code": "15_098-02",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 489,
+    "name": "製品包装作業員",
+    "mhlw_code": "15_097-01",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 490,
+    "name": "工場労務作業員",
+    "mhlw_code": "15_099-01",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 491,
+    "name": "バックヤード作業員（スーパー食品部門）",
+    "mhlw_code": "15_099-02",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 497,
+    "name": "積卸作業員",
+    "mhlw_code": "15_095-02",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 498,
+    "name": "こん包作業員",
+    "mhlw_code": "15_095-04",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 499,
+    "name": "港湾荷役作業員",
+    "mhlw_code": "15_095-01",
+    "category": "labor"
+  },
+  {
+    "jobtag_id": 20,
+    "name": "建築設計技術者",
+    "mhlw_code": "02_008-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 21,
+    "name": "建築施工管理技術者",
+    "mhlw_code": "02_008-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 22,
+    "name": "土木設計技術者",
+    "mhlw_code": "02_008-04",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 23,
+    "name": "土木施工管理技術者",
+    "mhlw_code": "02_008-05",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 24,
+    "name": "測量士",
+    "mhlw_code": "02_008-07",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 203,
+    "name": "航空管制官",
+    "mhlw_code": "02_011-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 212,
+    "name": "テレビ・ラジオ放送技術者",
+    "mhlw_code": "02_011-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 221,
+    "name": "農業技術者",
+    "mhlw_code": "02_005-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 228,
+    "name": "水産技術者",
+    "mhlw_code": "02_005-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 229,
+    "name": "林業技術者",
+    "mhlw_code": "02_005-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 231,
+    "name": "産業用ロボット開発技術者",
+    "mhlw_code": "02_006-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 235,
+    "name": "太陽光発電の設計・施工",
+    "mhlw_code": "02_008-04",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 247,
+    "name": "植物工場の研究開発",
+    "mhlw_code": "02_005-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 248,
+    "name": "植物工場の設計、施工",
+    "mhlw_code": "02_008-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 258,
+    "name": "非鉄金属製錬技術者",
+    "mhlw_code": "02_007-07",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 262,
+    "name": "機械設計技術者",
+    "mhlw_code": "02_006-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 267,
+    "name": "半導体技術者",
+    "mhlw_code": "02_007-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 270,
+    "name": "自動車技術者",
+    "mhlw_code": "02_006-04",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 271,
+    "name": "精密機器技術者",
+    "mhlw_code": "02_006-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 272,
+    "name": "電気技術者",
+    "mhlw_code": "02_006-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 273,
+    "name": "電子機器技術者",
+    "mhlw_code": "02_006-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 274,
+    "name": "電気通信技術者",
+    "mhlw_code": "02_010-06",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 276,
+    "name": "プラント設計技術者",
+    "mhlw_code": "02_006-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 288,
+    "name": "食品技術者",
+    "mhlw_code": "02_006-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 296,
+    "name": "生産・品質管理技術者",
+    "mhlw_code": "02_007-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 301,
+    "name": "原子力技術者",
+    "mhlw_code": "02_007-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 303,
+    "name": "分析化学技術者",
+    "mhlw_code": "02_007-08",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 304,
+    "name": "陶磁器技術者",
+    "mhlw_code": "02_007-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 305,
+    "name": "ファインセラミックス製造技術者",
+    "mhlw_code": "02_007-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 308,
+    "name": "高分子化学技術者",
+    "mhlw_code": "02_006-07",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 309,
+    "name": "バイオテクノロジー技術者",
+    "mhlw_code": "02_006-07",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 310,
+    "name": "宇宙開発技術者",
+    "mhlw_code": "02_011-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 311,
+    "name": "航空機開発エンジニア（ジェットエンジン）",
+    "mhlw_code": "02_006-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 312,
+    "name": "システムエンジニア（受託開発）",
+    "mhlw_code": "02_009-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 313,
+    "name": "プログラマー",
+    "mhlw_code": "02_009-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 314,
+    "name": "システムエンジニア（Webサービス開発）",
+    "mhlw_code": "02_009-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 315,
+    "name": "システムエンジニア（組込み、IoT）",
+    "mhlw_code": "02_009-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 316,
+    "name": "ソフトウェア開発（パッケージソフト）",
+    "mhlw_code": "02_009-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 317,
+    "name": "ソフトウェア開発（スマホアプリ）",
+    "mhlw_code": "02_009-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 318,
+    "name": "システムエンジニア（基盤システム）",
+    "mhlw_code": "02_010-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 319,
+    "name": "運用・管理（IT）",
+    "mhlw_code": "02_010-04",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 320,
+    "name": "ヘルプデスク（IT）",
+    "mhlw_code": "02_010-05",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 321,
+    "name": "セキュリティエキスパート（オペレーション）",
+    "mhlw_code": "02_010-04",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 322,
+    "name": "プロジェクトマネージャ（IT）",
+    "mhlw_code": "02_010-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 323,
+    "name": "データサイエンティスト",
+    "mhlw_code": "02_011-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 324,
+    "name": "DXプロデューサー",
+    "mhlw_code": "02_010-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 325,
+    "name": "AIエンジニア",
+    "mhlw_code": "02_010-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 362,
+    "name": "ITコンサルタント",
+    "mhlw_code": "02_010-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 388,
+    "name": "土木・建築工学研究者",
+    "mhlw_code": "02_004-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 389,
+    "name": "情報工学研究者",
+    "mhlw_code": "02_004-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 390,
+    "name": "医学研究者",
+    "mhlw_code": "02_004-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 391,
+    "name": "科学捜査研究所鑑定技術職員",
+    "mhlw_code": "02_004-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 392,
+    "name": "薬学研究者",
+    "mhlw_code": "02_004-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 393,
+    "name": "バイオテクノロジー研究者",
+    "mhlw_code": "02_004-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 394,
+    "name": "エコノミスト",
+    "mhlw_code": "02_004-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 495,
+    "name": "産業廃棄物処理技術者",
+    "mhlw_code": "02_011-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 508,
+    "name": "畜産技術者",
+    "mhlw_code": "02_005-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 520,
+    "name": "セキュリティエキスパート（脆弱性診断）",
+    "mhlw_code": "02_010-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 523,
+    "name": "データエンジニア",
+    "mhlw_code": "02_010-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 528,
+    "name": "自動運転開発エンジニア（自動車）",
+    "mhlw_code": "02_006-04",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 529,
+    "name": "医療機器開発技術者",
+    "mhlw_code": "02_006-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 533,
+    "name": "セキュリティエキスパート（デジタルフォレンジック）",
+    "mhlw_code": "02_010-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 540,
+    "name": "デバッグ作業",
+    "mhlw_code": "02_009-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 550,
+    "name": "造船技術者（船舶の開発・設計）",
+    "mhlw_code": "02_006-05",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 551,
+    "name": "バイオマス発電プラントの設計",
+    "mhlw_code": "02_008-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 552,
+    "name": "UX/UIデザイナー",
+    "mhlw_code": "02_009-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 560,
+    "name": "社会学研究者",
+    "mhlw_code": "02_004-02",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 561,
+    "name": "鉄道車両の設計・開発",
+    "mhlw_code": "02_006-05",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 570,
+    "name": "耐震診断",
+    "mhlw_code": "02_008-03",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 571,
+    "name": "作業環境測定士",
+    "mhlw_code": "02_011-99",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 572,
+    "name": "下水道管路施設の点検・調査",
+    "mhlw_code": "02_008-06",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 581,
+    "name": "ブロックチェーン・エンジニア",
+    "mhlw_code": "02_009-01",
+    "category": "legal_culture"
+  },
+  {
+    "jobtag_id": 31,
+    "name": "建設機械オペレーター",
+    "mhlw_code": "13_089-05",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 35,
+    "name": "さく井工/ボーリング工",
+    "mhlw_code": "13_089-05",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 95,
+    "name": "ビル施設管理",
+    "mhlw_code": "13_089-01",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 111,
+    "name": "観光バスガイド",
+    "mhlw_code": "13_088-01",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 189,
+    "name": "パイロット",
+    "mhlw_code": "13_087-04",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 190,
+    "name": "航海士",
+    "mhlw_code": "13_087-02",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 191,
+    "name": "船舶機関士",
+    "mhlw_code": "13_087-03",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 193,
+    "name": "鉄道車掌",
+    "mhlw_code": "13_088-01",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 207,
+    "name": "船員",
+    "mhlw_code": "13_088-03",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 237,
+    "name": "フォークリフト運転作業員",
+    "mhlw_code": "13_088-04",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 302,
+    "name": "発電所運転管理",
+    "mhlw_code": "13_089-02",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 466,
+    "name": "清涼飲料ルートセールス",
+    "mhlw_code": "13_082-02",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 476,
+    "name": "ボイラーオペレーター",
+    "mhlw_code": "13_089-03",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 484,
+    "name": "新聞配達員",
+    "mhlw_code": "13_082-04",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 511,
+    "name": "ドローンパイロット",
+    "mhlw_code": "13_088-99",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 525,
+    "name": "タンクローリー乗務員",
+    "mhlw_code": "13_083-99",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 549,
+    "name": "クレーン運転士",
+    "mhlw_code": "13_089-04",
+    "category": "logistics"
+  },
+  {
+    "jobtag_id": 53,
+    "name": "銀行支店長",
+    "mhlw_code": "01_002-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 250,
+    "name": "起業、創業",
+    "mhlw_code": "01_001-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 512,
+    "name": "国会議員",
+    "mhlw_code": "01_003-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 514,
+    "name": "会社経営者",
+    "mhlw_code": "01_001-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 536,
+    "name": "総務課長",
+    "mhlw_code": "01_002-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 537,
+    "name": "人事課長",
+    "mhlw_code": "01_002-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 538,
+    "name": "経理課長",
+    "mhlw_code": "01_002-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 539,
+    "name": "営業課長",
+    "mhlw_code": "01_002-01",
+    "category": "management"
+  },
+  {
+    "jobtag_id": 1,
+    "name": "豆腐製造、豆腐職人",
+    "mhlw_code": "12_072-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 2,
+    "name": "パン製造、パン職人",
+    "mhlw_code": "12_072-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 3,
+    "name": "洋菓子製造、パティシエ",
+    "mhlw_code": "12_072-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 4,
+    "name": "和菓子製造、和菓子職人",
+    "mhlw_code": "12_072-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 5,
+    "name": "乳製品製造",
+    "mhlw_code": "12_072-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 6,
+    "name": "水産ねり製品製造",
+    "mhlw_code": "12_072-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 7,
+    "name": "冷凍加工食品製造",
+    "mhlw_code": "12_072-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 8,
+    "name": "惣菜製造",
+    "mhlw_code": "12_072-05",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 9,
+    "name": "清酒製造",
+    "mhlw_code": "12_072-07",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 10,
+    "name": "みそ製造",
+    "mhlw_code": "12_072-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 11,
+    "name": "しょうゆ製造",
+    "mhlw_code": "12_072-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 12,
+    "name": "ハム・ソーセージ・ベーコン製造",
+    "mhlw_code": "12_072-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 13,
+    "name": "ワイン製造",
+    "mhlw_code": "12_072-07",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 14,
+    "name": "ビール製造",
+    "mhlw_code": "12_072-07",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 15,
+    "name": "かん詰・びん詰・レトルト食品製造",
+    "mhlw_code": "12_072-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 16,
+    "name": "野菜つけ物製造",
+    "mhlw_code": "12_072-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 17,
+    "name": "陶磁器製造",
+    "mhlw_code": "12_073-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 18,
+    "name": "ガラス食器製造",
+    "mhlw_code": "12_073-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 19,
+    "name": "プラスチック成形",
+    "mhlw_code": "12_073-08",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 25,
+    "name": "CADオペレーター",
+    "mhlw_code": "12_080-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 29,
+    "name": "鉄骨工",
+    "mhlw_code": "12_071-08",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 40,
+    "name": "建築板金",
+    "mhlw_code": "12_071-10",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 43,
+    "name": "建築塗装工",
+    "mhlw_code": "12_080-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 48,
+    "name": "エレベーター据付",
+    "mhlw_code": "12_074-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 197,
+    "name": "自動車整備士",
+    "mhlw_code": "12_075-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 206,
+    "name": "航空整備士",
+    "mhlw_code": "12_075-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 213,
+    "name": "録音エンジニア",
+    "mhlw_code": "12_081-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 232,
+    "name": "産業用ロボットの設置・設定",
+    "mhlw_code": "12_074-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 233,
+    "name": "産業用ロボットの保守・メンテナンス",
+    "mhlw_code": "12_075-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 236,
+    "name": "太陽光発電のメンテナンス",
+    "mhlw_code": "12_075-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 251,
+    "name": "鋳造工/鋳造設備オペレーター",
+    "mhlw_code": "12_071-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 252,
+    "name": "鍛造工/鍛造設備オペレーター",
+    "mhlw_code": "12_071-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 253,
+    "name": "金型工",
+    "mhlw_code": "12_071-12",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 254,
+    "name": "金属プレス工",
+    "mhlw_code": "12_071-07",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 255,
+    "name": "溶接工",
+    "mhlw_code": "12_071-13",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 256,
+    "name": "NC工作機械オペレーター",
+    "mhlw_code": "12_071-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 257,
+    "name": "めっき工",
+    "mhlw_code": "12_067-07",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 259,
+    "name": "鉄鋼製造オペレーター",
+    "mhlw_code": "12_067-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 260,
+    "name": "非破壊検査技術者",
+    "mhlw_code": "12_076-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 261,
+    "name": "電子機器組立",
+    "mhlw_code": "12_070-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 263,
+    "name": "光学機器組立",
+    "mhlw_code": "12_074-13",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 264,
+    "name": "自動車組立",
+    "mhlw_code": "12_074-11",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 265,
+    "name": "生産用機械組立",
+    "mhlw_code": "12_074-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 266,
+    "name": "計器組立",
+    "mhlw_code": "12_074-13",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 268,
+    "name": "半導体製造",
+    "mhlw_code": "12_074-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 269,
+    "name": "物流設備管理・保全",
+    "mhlw_code": "12_075-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 275,
+    "name": "家電修理",
+    "mhlw_code": "12_075-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 277,
+    "name": "医療用画像機器組立",
+    "mhlw_code": "12_074-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 278,
+    "name": "織布工/織機オペレーター",
+    "mhlw_code": "12_069-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 279,
+    "name": "染色工/染色設備オペレーター",
+    "mhlw_code": "12_069-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 280,
+    "name": "ミシン縫製",
+    "mhlw_code": "12_073-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 281,
+    "name": "木材製造",
+    "mhlw_code": "12_073-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 282,
+    "name": "合板製造",
+    "mhlw_code": "12_073-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 283,
+    "name": "家具製造",
+    "mhlw_code": "12_073-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 284,
+    "name": "紡織設備管理・保全",
+    "mhlw_code": "12_075-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 285,
+    "name": "紙器製造",
+    "mhlw_code": "12_073-05",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 286,
+    "name": "紡績機械オペレーター",
+    "mhlw_code": "12_073-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 287,
+    "name": "建具製造",
+    "mhlw_code": "12_073-04",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 289,
+    "name": "靴製造",
+    "mhlw_code": "12_073-99",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 290,
+    "name": "かばん・袋物製造",
+    "mhlw_code": "12_073-99",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 291,
+    "name": "漆器製造",
+    "mhlw_code": "12_073-99",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 292,
+    "name": "貴金属装身具製作",
+    "mhlw_code": "12_073-99",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 295,
+    "name": "医薬品製造",
+    "mhlw_code": "12_069-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 297,
+    "name": "タイヤ製造",
+    "mhlw_code": "12_069-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 298,
+    "name": "化粧品製造",
+    "mhlw_code": "12_073-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 299,
+    "name": "石油精製オペレーター",
+    "mhlw_code": "12_069-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 300,
+    "name": "化学製品製造オペレーター",
+    "mhlw_code": "12_069-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 306,
+    "name": "石工",
+    "mhlw_code": "12_073-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 307,
+    "name": "花火師",
+    "mhlw_code": "12_073-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 341,
+    "name": "パタンナー",
+    "mhlw_code": "12_080-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 343,
+    "name": "アニメーター",
+    "mhlw_code": "12_080-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 344,
+    "name": "看板制作",
+    "mhlw_code": "12_080-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 359,
+    "name": "製版オペレーター、DTPオペレーター",
+    "mhlw_code": "12_073-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 360,
+    "name": "印刷オペレーター",
+    "mhlw_code": "12_069-05",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 361,
+    "name": "製本オペレーター",
+    "mhlw_code": "12_073-06",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 515,
+    "name": "玩具（おもちゃ）製作",
+    "mhlw_code": "12_069-99",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 526,
+    "name": "検査工（工業製品）",
+    "mhlw_code": "12_076-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 535,
+    "name": "風力発電のメンテナンス",
+    "mhlw_code": "12_075-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 547,
+    "name": "造船技能者（造船工、船舶艤装工等）",
+    "mhlw_code": "12_071-08",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 548,
+    "name": "検査工（食料品等）",
+    "mhlw_code": "12_077-01",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 557,
+    "name": "汎用金属工作機械工（旋盤工、ボール盤工等）",
+    "mhlw_code": "12_071-05",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 558,
+    "name": "自動車板金塗装",
+    "mhlw_code": "12_071-09",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 559,
+    "name": "配電盤・制御盤等組立",
+    "mhlw_code": "12_074-02",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 579,
+    "name": "自動車検査員",
+    "mhlw_code": "12_079-03",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 584,
+    "name": "3Dプリンター技術者",
+    "mhlw_code": "12_080-05",
+    "category": "manufacturing"
+  },
+  {
+    "jobtag_id": 64,
+    "name": "コールセンターオペレーター",
+    "mhlw_code": "06_036-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 74,
+    "name": "検針員",
+    "mhlw_code": "06_041-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 75,
+    "name": "フランチャイズチェーン・スーパーバイザー",
+    "mhlw_code": "06_040-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 109,
+    "name": "旅行会社カウンター係",
+    "mhlw_code": "06_040-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 138,
+    "name": "国家公務員（行政事務）",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 139,
+    "name": "地方公務員（行政事務）",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 149,
+    "name": "税務事務官",
+    "mhlw_code": "06_038-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 150,
+    "name": "外務公務員（外交官）",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 151,
+    "name": "国際公務員",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 174,
+    "name": "診療情報管理士",
+    "mhlw_code": "06_037-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 194,
+    "name": "空港グランドスタッフ",
+    "mhlw_code": "06_042-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 195,
+    "name": "駅務員",
+    "mhlw_code": "06_042-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 196,
+    "name": "鉄道運転計画・運行管理",
+    "mhlw_code": "06_042-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 200,
+    "name": "タクシー配車オペレーター",
+    "mhlw_code": "06_042-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 204,
+    "name": "ディスパッチャー（航空機運航管理者）",
+    "mhlw_code": "06_042-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 234,
+    "name": "太陽光発電の企画・調査",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 238,
+    "name": "ネット通販の企画開発",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 239,
+    "name": "ネット通販の運営",
+    "mhlw_code": "06_036-04",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 240,
+    "name": "Webマーケティング（ネット広告・販売促進）",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 425,
+    "name": "パラリーガル（弁護士補助職）",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 426,
+    "name": "秘書",
+    "mhlw_code": "06_034-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 427,
+    "name": "受付事務",
+    "mhlw_code": "06_034-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 428,
+    "name": "一般事務",
+    "mhlw_code": "06_034-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 429,
+    "name": "データ入力",
+    "mhlw_code": "06_043-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 430,
+    "name": "経理事務",
+    "mhlw_code": "06_038-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 431,
+    "name": "営業事務",
+    "mhlw_code": "06_040-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 432,
+    "name": "人事事務",
+    "mhlw_code": "06_033-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 433,
+    "name": "総務事務",
+    "mhlw_code": "06_033-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 434,
+    "name": "企画・調査担当",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 435,
+    "name": "調剤薬局事務",
+    "mhlw_code": "06_037-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 436,
+    "name": "介護事務",
+    "mhlw_code": "06_037-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 437,
+    "name": "生産・工程管理事務",
+    "mhlw_code": "06_039-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 438,
+    "name": "銀行等窓口事務",
+    "mhlw_code": "06_038-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 439,
+    "name": "貿易事務",
+    "mhlw_code": "06_040-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 440,
+    "name": "損害保険事務",
+    "mhlw_code": "06_040-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 441,
+    "name": "通信販売受付事務",
+    "mhlw_code": "06_036-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 442,
+    "name": "学校事務",
+    "mhlw_code": "06_035-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 443,
+    "name": "医療事務",
+    "mhlw_code": "06_037-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 444,
+    "name": "広報・PR担当",
+    "mhlw_code": "06_033-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 445,
+    "name": "IR広報担当",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 446,
+    "name": "企業法務担当",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 447,
+    "name": "コンプライアンス推進担当",
+    "mhlw_code": "06_035-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 456,
+    "name": "マーケティング・リサーチャー",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 461,
+    "name": "商品企画開発（チェーンストア）",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 469,
+    "name": "内部監査人",
+    "mhlw_code": "06_033-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 474,
+    "name": "マンション管理フロント",
+    "mhlw_code": "06_035-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 517,
+    "name": "入国審査官",
+    "mhlw_code": "06_035-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 522,
+    "name": "NPO法人職員（企画・運営）",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 530,
+    "name": "臨床開発モニター",
+    "mhlw_code": "06_037-01",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 531,
+    "name": "キッティング作業員（PCセットアップ作業員）",
+    "mhlw_code": "06_043-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 542,
+    "name": "出荷・受荷事務",
+    "mhlw_code": "06_039-02",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 543,
+    "name": "郵便局郵便窓口業務",
+    "mhlw_code": "06_042-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 553,
+    "name": "アニメ制作進行管理",
+    "mhlw_code": "06_035-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 554,
+    "name": "プロスポーツ運営団体職員（企画・運営）",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 566,
+    "name": "イベントの企画・運営",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 567,
+    "name": "学校事務（私立大学）",
+    "mhlw_code": "06_035-99",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 577,
+    "name": "風力発電の企画・調査",
+    "mhlw_code": "06_033-03",
+    "category": "office"
+  },
+  {
+    "jobtag_id": 80,
+    "name": "中小企業診断士",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 81,
+    "name": "経営コンサルタント",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 82,
+    "name": "ファイナンシャル・プランナー",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 83,
+    "name": "社会保険労務士",
+    "mhlw_code": "03_013-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 84,
+    "name": "司法書士",
+    "mhlw_code": "03_012-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 85,
+    "name": "行政書士",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 86,
+    "name": "土地家屋調査士",
+    "mhlw_code": "03_012-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 87,
+    "name": "翻訳者",
+    "mhlw_code": "03_015-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 88,
+    "name": "通訳者",
+    "mhlw_code": "03_020-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 89,
+    "name": "弁護士",
+    "mhlw_code": "03_012-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 90,
+    "name": "公認会計士",
+    "mhlw_code": "03_013-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 91,
+    "name": "弁理士",
+    "mhlw_code": "03_012-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 92,
+    "name": "税理士",
+    "mhlw_code": "03_013-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 93,
+    "name": "不動産鑑定士",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 94,
+    "name": "気象予報士",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 127,
+    "name": "ピアノ調律師",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 135,
+    "name": "手話通訳者",
+    "mhlw_code": "03_020-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 136,
+    "name": "キャリアカウンセラー/キャリアコンサルタント",
+    "mhlw_code": "03_019-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 144,
+    "name": "裁判官",
+    "mhlw_code": "03_012-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 145,
+    "name": "検察官",
+    "mhlw_code": "03_012-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 146,
+    "name": "家庭裁判所調査官",
+    "mhlw_code": "03_012-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 182,
+    "name": "図書館司書",
+    "mhlw_code": "03_019-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 185,
+    "name": "学芸員",
+    "mhlw_code": "03_019-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 202,
+    "name": "通関士",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 208,
+    "name": "新聞記者",
+    "mhlw_code": "03_015-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 209,
+    "name": "雑誌記者",
+    "mhlw_code": "03_015-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 210,
+    "name": "図書編集者",
+    "mhlw_code": "03_015-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 211,
+    "name": "雑誌編集者",
+    "mhlw_code": "03_015-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 214,
+    "name": "映像編集者",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 215,
+    "name": "放送記者",
+    "mhlw_code": "03_015-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 216,
+    "name": "アナウンサー",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 217,
+    "name": "放送ディレクター",
+    "mhlw_code": "03_018-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 225,
+    "name": "調教師",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 226,
+    "name": "犬訓練士",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 326,
+    "name": "Webデザイナー（Web制作会社）",
+    "mhlw_code": "03_017-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 327,
+    "name": "Webディレクター（Web制作会社）",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 328,
+    "name": "動画制作",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 329,
+    "name": "CG制作",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 330,
+    "name": "ゲームクリエーター",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 331,
+    "name": "アートディレクター",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 332,
+    "name": "広告デザイナー",
+    "mhlw_code": "03_017-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 333,
+    "name": "広告ディレクター",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 334,
+    "name": "グラフィックデザイナー",
+    "mhlw_code": "03_017-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 335,
+    "name": "コピーライター",
+    "mhlw_code": "03_015-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 336,
+    "name": "ディスプレイデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 337,
+    "name": "インテリアデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 338,
+    "name": "インテリアコーディネーター",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 339,
+    "name": "カラーコーディネーター",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 340,
+    "name": "ファッションデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 342,
+    "name": "イラストレーター",
+    "mhlw_code": "03_016-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 345,
+    "name": "テクニカルイラストレーター",
+    "mhlw_code": "03_016-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 346,
+    "name": "スタイリスト",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 347,
+    "name": "ブックデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 348,
+    "name": "テキスタイルデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 349,
+    "name": "フラワーデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 350,
+    "name": "ジュエリーデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 351,
+    "name": "フードコーディネーター",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 352,
+    "name": "舞台美術スタッフ",
+    "mhlw_code": "03_018-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 353,
+    "name": "舞台照明スタッフ",
+    "mhlw_code": "03_018-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 354,
+    "name": "インダストリアルデザイナー",
+    "mhlw_code": "03_017-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 355,
+    "name": "商業カメラマン",
+    "mhlw_code": "03_016-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 356,
+    "name": "テレビカメラマン",
+    "mhlw_code": "03_016-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 357,
+    "name": "報道カメラマン",
+    "mhlw_code": "03_016-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 358,
+    "name": "テクニカルライター",
+    "mhlw_code": "03_015-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 363,
+    "name": "広報コンサルタント",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 364,
+    "name": "人事コンサルタント",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 365,
+    "name": "知的財産コーディネーター",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 366,
+    "name": "知的財産サーチャー",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 400,
+    "name": "社会教育主事",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 412,
+    "name": "スクールカウンセラー",
+    "mhlw_code": "03_019-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 419,
+    "name": "調香師",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 424,
+    "name": "速記者、音声反訳者",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 457,
+    "name": "証券アナリスト",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 468,
+    "name": "アクチュアリー",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 470,
+    "name": "ファンドマネージャー",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 471,
+    "name": "M&Aマネージャー、M&Aコンサルタント/M&Aアドバイザー",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 513,
+    "name": "国際協力専門家",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 516,
+    "name": "法務技官（心理）（矯正心理専門職）",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 518,
+    "name": "検察事務官",
+    "mhlw_code": "03_012-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 519,
+    "name": "労働基準監督官",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 521,
+    "name": "特許審査官",
+    "mhlw_code": "03_012-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 524,
+    "name": "独立系ファイナンシャル・アドバイザー（IFA）",
+    "mhlw_code": "03_013-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 534,
+    "name": "セキュリティエキスパート（情報セキュリティ監査）",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 541,
+    "name": "ナレーター",
+    "mhlw_code": "03_018-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 562,
+    "name": "探偵",
+    "mhlw_code": "03_020-99",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 573,
+    "name": "オーケストラ奏者（団員）",
+    "mhlw_code": "03_018-01",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 574,
+    "name": "ハローワーク職員",
+    "mhlw_code": "03_019-03",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 582,
+    "name": "声優",
+    "mhlw_code": "03_018-02",
+    "category": "professional"
+  },
+  {
+    "jobtag_id": 54,
+    "name": "デパート店員",
+    "mhlw_code": "07_045-02",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 55,
+    "name": "スーパー店長",
+    "mhlw_code": "07_044-01",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 56,
+    "name": "スーパーレジ係",
+    "mhlw_code": "07_045-01",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 57,
+    "name": "スーパー店員",
+    "mhlw_code": "07_045-05",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 58,
+    "name": "商社営業",
+    "mhlw_code": "07_048-99",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 59,
+    "name": "住宅・不動産営業",
+    "mhlw_code": "07_048-08",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 60,
+    "name": "自動車営業",
+    "mhlw_code": "07_048-05",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 61,
+    "name": "広告営業",
+    "mhlw_code": "07_048-09",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 62,
+    "name": "印刷営業",
+    "mhlw_code": "07_048-11",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 63,
+    "name": "医薬情報担当者（MR）",
+    "mhlw_code": "07_048-03",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 65,
+    "name": "せり人",
+    "mhlw_code": "07_047-99",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 66,
+    "name": "フラワーショップ店員",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 67,
+    "name": "電器店店員",
+    "mhlw_code": "07_045-10",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 68,
+    "name": "書店員",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 69,
+    "name": "メガネ販売",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 70,
+    "name": "スポーツ用品販売",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 71,
+    "name": "ホームセンター店員",
+    "mhlw_code": "07_045-04",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 72,
+    "name": "ペットショップ店員",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 73,
+    "name": "衣料品販売",
+    "mhlw_code": "07_045-07",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 76,
+    "name": "シューフィッター",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 77,
+    "name": "駅構内売店店員",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 78,
+    "name": "コンビニエンスストア店員",
+    "mhlw_code": "07_045-03",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 79,
+    "name": "ベーカリーショップ店員",
+    "mhlw_code": "07_045-06",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 105,
+    "name": "カフェ店員",
+    "mhlw_code": "07_045-06",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 198,
+    "name": "ガソリンスタンド・スタッフ",
+    "mhlw_code": "07_045-13",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 448,
+    "name": "医薬品販売/登録販売者",
+    "mhlw_code": "07_045-08",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 449,
+    "name": "リサイクルショップ店員",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 450,
+    "name": "携帯電話販売",
+    "mhlw_code": "07_045-11",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 451,
+    "name": "CDショップ店員",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 452,
+    "name": "コンサルティング営業（IT）",
+    "mhlw_code": "07_048-06",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 453,
+    "name": "保険営業（生命保険、損害保険）",
+    "mhlw_code": "07_048-07",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 454,
+    "name": "銀行・信用金庫渉外担当",
+    "mhlw_code": "07_048-07",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 455,
+    "name": "ディーラー",
+    "mhlw_code": "07_047-99",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 462,
+    "name": "OA機器営業",
+    "mhlw_code": "07_048-04",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 463,
+    "name": "証券外務員",
+    "mhlw_code": "07_047-99",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 464,
+    "name": "化粧品販売/美容部員",
+    "mhlw_code": "07_045-09",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 465,
+    "name": "化粧品訪問販売",
+    "mhlw_code": "07_045-16",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 467,
+    "name": "自転車販売",
+    "mhlw_code": "07_045-14",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 472,
+    "name": "代理店営業（保険会社）",
+    "mhlw_code": "07_048-07",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 527,
+    "name": "食品営業（食品メーカー）",
+    "mhlw_code": "07_048-01",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 544,
+    "name": "マーチャンダイザー、バイヤー",
+    "mhlw_code": "07_046-01",
+    "category": "sales"
+  },
+  {
+    "jobtag_id": 140,
+    "name": "警察官（都道府県警察）",
+    "mhlw_code": "10_061-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 141,
+    "name": "海上保安官",
+    "mhlw_code": "10_061-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 142,
+    "name": "麻薬取締官",
+    "mhlw_code": "10_061-99",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 143,
+    "name": "入国警備官",
+    "mhlw_code": "10_063-99",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 148,
+    "name": "刑務官",
+    "mhlw_code": "10_062-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 152,
+    "name": "陸上自衛官",
+    "mhlw_code": "10_060-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 153,
+    "name": "海上自衛官",
+    "mhlw_code": "10_060-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 154,
+    "name": "航空自衛官",
+    "mhlw_code": "10_060-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 155,
+    "name": "消防官",
+    "mhlw_code": "10_062-02",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 199,
+    "name": "道路パトロール隊員",
+    "mhlw_code": "10_063-99",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 241,
+    "name": "施設警備員",
+    "mhlw_code": "10_059-01",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 401,
+    "name": "救急救命士",
+    "mhlw_code": "10_062-02",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 475,
+    "name": "雑踏・交通誘導警備員",
+    "mhlw_code": "10_059-02",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 501,
+    "name": "自然保護官（レンジャー）",
+    "mhlw_code": "10_063-99",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 578,
+    "name": "税関職員",
+    "mhlw_code": "10_063-99",
+    "category": "security"
+  },
+  {
+    "jobtag_id": 52,
+    "name": "ホテル・旅館支配人",
+    "mhlw_code": "09_056-02",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 96,
+    "name": "駐車場管理",
+    "mhlw_code": "09_057-04",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 99,
+    "name": "西洋料理調理人（コック）",
+    "mhlw_code": "09_055-02",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 100,
+    "name": "日本料理調理人（板前）",
+    "mhlw_code": "09_055-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 101,
+    "name": "すし職人",
+    "mhlw_code": "09_055-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 102,
+    "name": "そば・うどん調理人",
+    "mhlw_code": "09_055-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 103,
+    "name": "中華料理調理人",
+    "mhlw_code": "09_055-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 104,
+    "name": "ハンバーガーショップ店長",
+    "mhlw_code": "09_056-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 106,
+    "name": "ソムリエ",
+    "mhlw_code": "09_056-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 107,
+    "name": "バーテンダー",
+    "mhlw_code": "09_055-09",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 108,
+    "name": "ラーメン調理人",
+    "mhlw_code": "09_055-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 110,
+    "name": "ツアーコンダクター",
+    "mhlw_code": "09_058-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 112,
+    "name": "遊園地スタッフ",
+    "mhlw_code": "09_056-08",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 113,
+    "name": "キャディ",
+    "mhlw_code": "09_056-08",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 114,
+    "name": "通訳ガイド",
+    "mhlw_code": "09_058-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 115,
+    "name": "理容師",
+    "mhlw_code": "09_053-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 116,
+    "name": "美容師",
+    "mhlw_code": "09_053-02",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 117,
+    "name": "エステティシャン",
+    "mhlw_code": "09_053-04",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 118,
+    "name": "メイクアップアーティスト",
+    "mhlw_code": "09_053-02",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 119,
+    "name": "クリーニング師",
+    "mhlw_code": "09_054-02",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 123,
+    "name": "ビデオレンタル店店員",
+    "mhlw_code": "09_058-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 124,
+    "name": "レンタカー店舗スタッフ",
+    "mhlw_code": "09_058-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 125,
+    "name": "ブライダルコーディネーター",
+    "mhlw_code": "09_058-08",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 126,
+    "name": "家政婦（夫）",
+    "mhlw_code": "09_052-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 128,
+    "name": "ネイリスト",
+    "mhlw_code": "09_053-05",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 205,
+    "name": "客室乗務員",
+    "mhlw_code": "09_056-06",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 227,
+    "name": "トリマー",
+    "mhlw_code": "09_058-07",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 413,
+    "name": "ベビーシッター",
+    "mhlw_code": "09_052-99",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 414,
+    "name": "フロント（ホテル・旅館）",
+    "mhlw_code": "09_056-04",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 416,
+    "name": "接客担当（ホテル・旅館）",
+    "mhlw_code": "09_056-05",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 417,
+    "name": "ホールスタッフ（レストラン）",
+    "mhlw_code": "09_056-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 418,
+    "name": "飲食チェーン店店員",
+    "mhlw_code": "09_056-03",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 420,
+    "name": "アロマセラピスト",
+    "mhlw_code": "09_058-99",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 421,
+    "name": "リフレクソロジスト",
+    "mhlw_code": "09_058-99",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 422,
+    "name": "葬祭ディレクター",
+    "mhlw_code": "09_058-06",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 423,
+    "name": "きもの着付指導員",
+    "mhlw_code": "09_053-99",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 473,
+    "name": "マンション管理員",
+    "mhlw_code": "09_057-01",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 492,
+    "name": "調理補助",
+    "mhlw_code": "09_055-08",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 493,
+    "name": "給食調理員",
+    "mhlw_code": "09_055-06",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 556,
+    "name": "障害者グループホーム世話人",
+    "mhlw_code": "09_058-99",
+    "category": "service"
+  },
+  {
+    "jobtag_id": 569,
+    "name": "納棺師",
+    "mhlw_code": "09_058-06",
+    "category": "service"
+  }
+]

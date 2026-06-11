@@ -1,0 +1,161 @@
+{# 職種カルテ 比較ビュー #}
+<div class="space-y-6" id="driver-compare-root">
+    {# パンくず #}
+    <div class="text-xs text-gray-400">
+        <a href="/tab/driver" hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="hover:text-blue-300">← 職種カルテ 一覧</a>
+    </div>
+
+    {# ヘッダー #}
+    <header class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h1 class="text-2xl font-bold text-gray-100">職種カルテ — 比較（{{ entries.len() }} 職業）</h1>
+        <p class="text-xs text-gray-400 mt-1">各職業の主要指標を並べて比較できます。</p>
+    </header>
+
+    {# 横並びカード #}
+    <div class="grid gap-4
+        {% if entries.len() == 2 %}grid-cols-1 md:grid-cols-2{% else %}grid-cols-1 md:grid-cols-3{% endif %}">
+        {% for e in entries %}
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
+            {# 職業名 + jobtag_id + カテゴリピル #}
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ e.view.category }}</span>
+                    <span class="text-xs text-gray-500 font-mono">id={{ e.view.jobtag_id }}</span>
+                </div>
+                <h2 class="text-lg font-bold text-gray-100">
+                    <a href="/tab/driver/{{ e.view.jobtag_id }}"
+                       hx-get="/tab/driver/{{ e.view.jobtag_id }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+                       class="hover:text-blue-300">{{ e.view.name }}</a>
+                </h2>
+            </div>
+
+            {# KPI 4個 #}
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-gray-900 border border-gray-700 rounded p-2">
+                    <div class="text-xs text-gray-400 mb-0.5">平均年齢</div>
+                    <div class="text-xl font-bold text-blue-300">
+                        {% match e.view.total_avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">歳</span>{% when None %}—{% endmatch %}
+                    </div>
+                </div>
+                <div class="bg-gray-900 border border-gray-700 rounded p-2">
+                    <div class="text-xs text-gray-400 mb-0.5">所定内時間</div>
+                    <div class="text-xl font-bold text-blue-300">
+                        {% match e.view.total_scheduled_hours %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">h</span>{% when None %}—{% endmatch %}
+                    </div>
+                </div>
+                <div class="bg-gray-900 border border-gray-700 rounded p-2">
+                    <div class="text-xs text-gray-400 mb-0.5">年収（平均）</div>
+                    <div class="text-xl font-bold text-blue-300">
+                        {% match e.view.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">万円</span>{% when None %}—{% endmatch %}
+                    </div>
+                </div>
+                <div class="bg-gray-900 border border-gray-700 rounded p-2">
+                    <div class="text-xs text-gray-400 mb-0.5">労働者数</div>
+                    <div class="text-xl font-bold text-blue-300">
+                        {% match e.view.total_workers_count %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">十人</span>{% when None %}—{% endmatch %}
+                    </div>
+                </div>
+            </div>
+
+            {# 簡易解説（max 6em） #}
+            {% if !e.view.summary.is_empty() %}
+            <div class="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap overflow-hidden"
+                 style="max-height: 6em; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;">{{ e.view.summary }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    {# 年齢別年収オーバーレイ #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">年齢別年収オーバーレイ</h2>
+        <p class="text-xs text-gray-400 mb-3">
+            年収 = きまって支給する現金給与額 × 12 + 年間賞与その他特別給与額（賃金構造基本統計調査 令和7年）
+        </p>
+        <div id="chart-compare-wage" style="width: 100%; height: 380px;"></div>
+    </section>
+
+    {# 出典フッター #}
+    <footer class="text-xs text-gray-500 border-t border-gray-700 pt-4">
+        <p class="font-semibold text-gray-400 mb-1">データ出典</p>
+        <ul class="list-disc pl-5 space-y-0.5">
+            <li>賃金構造基本統計調査 令和7年 一般労働者 職種 表5（厚生労働省、e-Stat 政府統計コード 00450091）</li>
+            <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 解説系ダウンロードデータ ver.7.01」</li>
+            <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 簡易版数値系ダウンロードデータ ver.7.00」</li>
+        </ul>
+        <p class="mt-2">本ページは社内クローズ環境での職業情報参照を目的として、上記出典の二次利用条件に従って表示しています。</p>
+    </footer>
+</div>
+
+{# ECharts 年齢別年収オーバーレイ #}
+<script>
+(function() {
+    var allWage = {{ all_wage_json|safe }};
+    var names   = {{ names_json|safe }};
+    var colors  = ['#60a5fa', '#fbbf24', '#34d399'];
+
+    if (window.echarts) {
+        initCompareChart();
+    } else {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
+        s.onload = initCompareChart;
+        s.onerror = function() { console.error('ECharts CDN load failed (compare)'); };
+        document.head.appendChild(s);
+    }
+
+    function initCompareChart() {
+        var el = document.getElementById('chart-compare-wage');
+        if (!el || !window.echarts) return;
+
+        // 年齢軸は最初の職業から取る（全職業共通と仮定）
+        var cats = (allWage[0] || []).map(function(r) { return r.age_range; });
+        if (cats.length === 0) {
+            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-16">データなし</div>';
+            return;
+        }
+
+        var series = names.map(function(name, idx) {
+            var rows = allWage[idx] || [];
+            return {
+                name: name,
+                type: 'line',
+                smooth: true,
+                symbol: 'circle',
+                symbolSize: 7,
+                lineStyle: { width: 3, color: colors[idx] },
+                itemStyle: { color: colors[idx] },
+                data: rows.map(function(r) { return r.annual_salary_man_yen; })
+            };
+        });
+
+        try {
+            var chart = echarts.init(el);
+            chart.setOption({
+                tooltip: { trigger: 'axis' },
+                legend: {
+                    data: names,
+                    bottom: 0,
+                    textStyle: { color: '#aaa' }
+                },
+                grid: { left: 70, right: 20, top: 30, bottom: 60 },
+                xAxis: {
+                    type: 'category',
+                    data: cats,
+                    axisLabel: { rotate: 35, color: '#aaa' }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '年収（万円）',
+                    axisLabel: { color: '#aaa' }
+                },
+                series: series
+            });
+            window.addEventListener('resize', function() { chart.resize(); });
+        } catch (e) {
+            console.error('ECharts compare chart init failed', e);
+        }
+    }
+})();
+</script>
