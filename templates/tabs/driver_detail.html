@@ -96,27 +96,28 @@
         <div class="mt-3 text-[11px] text-gray-400" id="kpi-benchmark-badges-{{ occupation.jobtag_id }}"></div>
     </section>
 
+    {# 解説テキスト 3 欄: 読みやすさのため max-w-prose + 段落分割（改行2回で <p>） #}
     {# どんな仕事？ #}
     {% if !occupation.what_is_the_job.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">どんな仕事？</h2>
-        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ occupation.what_is_the_job }}</p>
+        <div class="description-prose text-[15px] text-gray-100 leading-8 max-w-prose space-y-3" data-text="{{ occupation.what_is_the_job }}"></div>
     </section>
     {% endif %}
 
     {# 就業するには？ #}
     {% if !occupation.how_to_become.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">就業するには？</h2>
-        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ occupation.how_to_become }}</p>
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-green-500 pl-3">就業するには？</h2>
+        <div class="description-prose text-[15px] text-gray-100 leading-8 max-w-prose space-y-3" data-text="{{ occupation.how_to_become }}"></div>
     </section>
     {% endif %}
 
     {# 労働条件の特徴 #}
     {% if !occupation.working_conditions.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">労働条件の特徴</h2>
-        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ occupation.working_conditions }}</p>
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-amber-500 pl-3">労働条件の特徴</h2>
+        <div class="description-prose text-[15px] text-gray-100 leading-8 max-w-prose space-y-3" data-text="{{ occupation.working_conditions }}"></div>
     </section>
     {% endif %}
 
@@ -146,33 +147,6 @@
             経験年数階級別の年収カーブ（賃金構造基本統計調査 令和7年 表10）。同じ職種でも勤続経験で給与水準が大きく変わります。
         </p>
         <div id="chart-wage-exp-{{ occupation.jobtag_id }}" style="width: 100%; height: 400px;"></div>
-    </section>
-
-    {# しごと能力プロフィール #}
-    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">しごと能力プロフィール</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-                <h3 class="text-sm text-gray-300 mb-2">興味</h3>
-                <div id="chart-interest-{{ occupation.jobtag_id }}" style="width: 100%; height: 320px;"></div>
-            </div>
-            <div>
-                <h3 class="text-sm text-gray-300 mb-2">仕事価値観</h3>
-                <div id="chart-values-{{ occupation.jobtag_id }}" style="width: 100%; height: 320px;"></div>
-            </div>
-        </div>
-        <div class="mt-4">
-            <div class="flex items-center justify-between mb-2">
-                <h3 class="text-sm text-gray-300">スキル</h3>
-                <div class="inline-flex rounded-md overflow-hidden border border-gray-700 text-xs">
-                    <button type="button" data-skills-mode="top15" data-target="{{ occupation.jobtag_id }}"
-                            class="skills-mode-btn px-3 py-1 bg-blue-600 text-white">上位15</button>
-                    <button type="button" data-skills-mode="all" data-target="{{ occupation.jobtag_id }}"
-                            class="skills-mode-btn px-3 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700">全項目</button>
-                </div>
-            </div>
-            <div id="chart-skills-{{ occupation.jobtag_id }}" style="width: 100%; height: 480px;"></div>
-        </div>
     </section>
 
     {# 関連資格 #}
@@ -227,9 +201,21 @@
     var jobId = {{ occupation.jobtag_id }};
     var wageRows = {{ wage_rows_json|safe }};
     var wageAgeExpRows = {{ wage_age_exp_json|safe }};
-    var interest = {{ interest_json|safe }};
-    var values = {{ values_json|safe }};
-    var skills = {{ skills_json|safe }};
+
+    // 解説テキストを 改行2回 = 段落区切りで <p> に分割（whitespace-pre-wrap よりブロック感が出る）
+    (function paragraphizeDescriptions() {
+        var nodes = document.querySelectorAll('.description-prose');
+        nodes.forEach(function(node) {
+            var raw = node.getAttribute('data-text') || '';
+            if (!raw) return;
+            // \r\n → \n、連続改行で段落分割、単一改行は <br>
+            var paragraphs = raw.replace(/\r\n/g, '\n').split(/\n{2,}/).map(function(p) { return p.trim(); }).filter(Boolean);
+            node.innerHTML = paragraphs.map(function(p) {
+                var html = p.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+                return '<p>' + html + '</p>';
+            }).join('');
+        });
+    })();
 
     // 時給目安（EX-A3）: 総計行から計算して KPI に反映
     (function renderHourlyWage() {
@@ -325,37 +311,53 @@
         };
     }, wageRows);
 
-    // 年齢別 賃金（総計を除く12行）
+    // 年齢別 賃金（総計を除く12行）— line に data label、bar は薄め
     safeInit('chart-wage-' + jobId, function(rows) {
         var ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
         var cats = ageRows.map(function(r) { return r.age_range; });
         var salary = ageRows.map(function(r) { return r.annual_salary_man_yen; });
         var workers = ageRows.map(function(r) { return r.workers_count_tenfold; });
+        var maxSalary = Math.max.apply(null, salary.filter(function(v){return v != null;}));
         return {
-            tooltip: { trigger: 'axis' },
-            legend: { data: ['年収（万円）', '労働者数（十人）'], bottom: 0, textStyle: { color: '#aaa' } },
-            grid: { left: 60, right: 60, top: 30, bottom: 60 },
-            xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
+            tooltip: { trigger: 'axis',
+                formatter: function(params) {
+                    var lines = [params[0].name];
+                    params.forEach(function(p) {
+                        var v = p.value == null ? '—' : (p.seriesName.indexOf('年収') >= 0 ? p.value + ' 万円' : (p.value * 10).toLocaleString() + ' 人');
+                        lines.push(p.marker + ' ' + p.seriesName + ': <strong>' + v + '</strong>');
+                    });
+                    return lines.join('<br>');
+                }
+            },
+            legend: { data: ['年収（万円）', '労働者数（十人）'], bottom: 0, textStyle: { color: '#cbd5e1' } },
+            grid: { left: 70, right: 70, top: 40, bottom: 60 },
+            xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#cbd5e1' } },
             yAxis: [
-                { type: 'value', name: '年収（万円）', position: 'left', axisLabel: { color: '#aaa' } },
-                { type: 'value', name: '労働者数（十人）', position: 'right', axisLabel: { color: '#aaa' } }
+                { type: 'value', name: '年収（万円）', position: 'left', axisLabel: { color: '#cbd5e1' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } } },
+                { type: 'value', name: '労働者数（十人）', position: 'right', axisLabel: { color: '#cbd5e1' }, splitLine: { show: false } }
             ],
             series: [
-                { name: '年収（万円）', type: 'line', data: salary, smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 3, color: '#60a5fa' }, itemStyle: { color: '#60a5fa' } },
-                { name: '労働者数（十人）', type: 'bar', yAxisIndex: 1, data: workers, itemStyle: { color: 'rgba(96, 165, 250, 0.35)' } }
+                { name: '労働者数（十人）', type: 'bar', yAxisIndex: 1, data: workers, itemStyle: { color: 'rgba(96, 165, 250, 0.22)' }, barWidth: '55%' },
+                { name: '年収（万円）', type: 'line', data: salary, smooth: true, symbol: 'circle', symbolSize: 9,
+                  lineStyle: { width: 3.5, color: '#fbbf24' },
+                  itemStyle: { color: '#fbbf24', borderColor: '#1f2937', borderWidth: 2 },
+                  label: { show: true, position: 'top', color: '#fde68a', fontSize: 11, fontWeight: 'bold',
+                           formatter: function(p) { return p.value == null ? '' : p.value; } },
+                  z: 10
+                }
             ]
         };
     }, wageRows);
 
-    // 経験年数別 年収カーブ（EX-A4）
-    (function renderWageExp() {
+    // 経験年数別 年収 ヒートマップ（EX-A4）— x=年齢 / y=経験年数 / セル色=年収、セル内に値表示
+    (function renderWageExpHeatmap() {
         if (!wageAgeExpRows || wageAgeExpRows.length === 0) return;
         var section = document.getElementById('wage-age-exp-section-' + jobId);
         if (section) section.style.display = '';
         var el = document.getElementById('chart-wage-exp-' + jobId);
         if (!el || !window.echarts) return;
 
-        // 年齢階級と経験年数階級を一意化（order でソート）
+        // 年齢階級と経験年数階級を一意化（"計"は除外、年齢/経験ともに）
         var ageMap = {}, expMap = {};
         wageAgeExpRows.forEach(function(r) {
             if (r.age_range_order !== 0) ageMap[r.age_range_order] = r.age_range;
@@ -363,117 +365,58 @@
         });
         var ageOrders = Object.keys(ageMap).map(Number).sort(function(a,b){return a-b;});
         var expOrders = Object.keys(expMap).map(Number).sort(function(a,b){return a-b;});
-        var cats = ageOrders.map(function(o){ return ageMap[o]; });
+        var xCats = ageOrders.map(function(o){ return ageMap[o]; });
+        var yCats = expOrders.map(function(o){ return expMap[o]; });
 
-        // 経験年数階級ごとに line series 生成
-        var colors = ['#94a3b8', '#60a5fa', '#34d399', '#fbbf24', '#f472b6'];
-        var series = expOrders.map(function(expOrd, idx) {
-            var data = ageOrders.map(function(ageOrd) {
+        // heatmap data: [xIdx, yIdx, value]
+        var data = [];
+        var validValues = [];
+        ageOrders.forEach(function(ageOrd, xi) {
+            expOrders.forEach(function(expOrd, yi) {
                 var row = wageAgeExpRows.find(function(r){
                     return r.age_range_order === ageOrd && r.exp_range_order === expOrd;
                 });
-                return row && row.annual_salary_man_yen != null ? row.annual_salary_man_yen : null;
+                var v = row && row.annual_salary_man_yen != null ? row.annual_salary_man_yen : null;
+                data.push([xi, yi, v]);
+                if (v != null) validValues.push(v);
             });
-            return {
-                name: expMap[expOrd],
-                type: 'line',
-                smooth: true,
-                connectNulls: true,
-                symbol: 'circle',
-                symbolSize: 6,
-                lineStyle: { width: 2, color: colors[idx % colors.length] },
-                itemStyle: { color: colors[idx % colors.length] },
-                data: data
-            };
         });
+        if (validValues.length === 0) return;
+        var vmin = Math.min.apply(null, validValues);
+        var vmax = Math.max.apply(null, validValues);
 
         try {
             var chart = echarts.init(el);
             chart.setOption({
-                tooltip: { trigger: 'axis', valueFormatter: function(v) { return v == null ? '—' : v + ' 万円'; } },
-                legend: { data: expOrders.map(function(o){return expMap[o];}), bottom: 0, textStyle: { color: '#aaa' } },
-                grid: { left: 70, right: 30, top: 30, bottom: 50 },
-                xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
-                yAxis: { type: 'value', name: '年収（万円）', axisLabel: { color: '#aaa' } },
-                series: series
+                tooltip: {
+                    formatter: function(p) {
+                        var ageLabel = xCats[p.value[0]], expLabel = yCats[p.value[1]];
+                        return '<strong>' + ageLabel + ' × 経験 ' + expLabel + '</strong><br>年収: ' + (p.value[2] == null ? '—' : p.value[2] + ' 万円');
+                    }
+                },
+                grid: { left: 90, right: 30, top: 20, bottom: 70 },
+                xAxis: { type: 'category', data: xCats, splitArea: { show: true }, axisLabel: { rotate: 35, color: '#cbd5e1' } },
+                yAxis: { type: 'category', data: yCats, splitArea: { show: true }, axisLabel: { color: '#cbd5e1' }, name: '経験年数', nameTextStyle: { color: '#94a3b8' } },
+                visualMap: {
+                    min: vmin, max: vmax, calculable: true, orient: 'horizontal', left: 'center', bottom: 5,
+                    inRange: { color: ['#1e3a8a', '#3b82f6', '#60a5fa', '#fbbf24', '#f97316'] },
+                    textStyle: { color: '#cbd5e1' }, text: ['高 (万円)', '低']
+                },
+                series: [{
+                    type: 'heatmap', data: data,
+                    label: {
+                        show: true,
+                        formatter: function(p) { return p.value[2] == null ? '' : p.value[2]; },
+                        color: '#0f172a', fontSize: 11, fontWeight: 'bold'
+                    },
+                    emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 1.5 } }
+                }]
             });
             window.addEventListener('resize', function() { chart.resize(); });
         } catch (e) {
-            console.error('ECharts wage-exp init failed', e);
+            console.error('ECharts heatmap init failed', e);
         }
     })();
-
-    // 興味 レーダー
-    safeInit('chart-interest-' + jobId, function(rows) {
-        var indicators = rows.map(function(r) { return { name: r.item, max: 5 }; });
-        var data = rows.map(function(r) { return r.score; });
-        return {
-            tooltip: {},
-            radar: { indicator: indicators, radius: '65%', axisName: { color: '#aaa' } },
-            series: [{ type: 'radar', data: [{ value: data, name: '興味', areaStyle: { opacity: 0.35, color: '#60a5fa' }, lineStyle: { color: '#60a5fa' } }] }]
-        };
-    }, interest);
-
-    // 仕事価値観 バー（縦並び、全項目）
-    safeInit('chart-values-' + jobId, function(rows) {
-        var sorted = rows.slice().sort(function(a, b) { return b.score - a.score; });
-        var names = sorted.map(function(r) { return r.item; });
-        var data = sorted.map(function(r) { return r.score; });
-        return {
-            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            grid: { left: 130, right: 30, top: 10, bottom: 20 },
-            xAxis: { type: 'value', max: 5, axisLabel: { color: '#aaa' } },
-            yAxis: { type: 'category', data: names.slice().reverse(), axisLabel: { width: 110, overflow: 'truncate', color: '#aaa' } },
-            series: [{ type: 'bar', data: data.slice().reverse(), itemStyle: { color: '#60a5fa' } }]
-        };
-    }, values);
-
-    // スキル バー（モード切替: top15 / all）
-    var skillsMode = 'top15';
-    var skillsChart = null;
-    function buildSkillsOption(rows, mode) {
-        var picked = rows.slice().sort(function(a, b) { return b.score - a.score; });
-        if (mode === 'top15') picked = picked.slice(0, 15);
-        var names = picked.map(function(r) { return r.item; });
-        var data = picked.map(function(r) { return r.score; });
-        var leftPx = mode === 'all' ? 200 : 180;
-        return {
-            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            grid: { left: leftPx, right: 40, top: 10, bottom: 30 },
-            xAxis: { type: 'value', max: 5, axisLabel: { color: '#aaa' } },
-            yAxis: { type: 'category', data: names.slice().reverse(), axisLabel: { width: leftPx - 20, overflow: 'truncate', color: '#aaa' } },
-            series: [{ type: 'bar', data: data.slice().reverse(), itemStyle: { color: '#60a5fa' } }]
-        };
-    }
-    function renderSkills() {
-        var el = document.getElementById('chart-skills-' + jobId);
-        if (!el || !window.echarts) return;
-        if (!skills || skills.length === 0) {
-            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-12">データなし</div>';
-            return;
-        }
-        var newHeight = (skillsMode === 'all') ? Math.max(480, skills.length * 24 + 60) : 480;
-        el.style.height = newHeight + 'px';
-        if (skillsChart) skillsChart.dispose();
-        skillsChart = echarts.init(el);
-        skillsChart.setOption(buildSkillsOption(skills, skillsMode));
-        window.addEventListener('resize', function() { if (skillsChart) skillsChart.resize(); });
-    }
-    renderSkills();
-
-    // モードボタンの動作
-    document.querySelectorAll('.skills-mode-btn[data-target="' + jobId + '"]').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            skillsMode = btn.getAttribute('data-skills-mode');
-            document.querySelectorAll('.skills-mode-btn[data-target="' + jobId + '"]').forEach(function(b) {
-                var active = (b === btn);
-                b.className = 'skills-mode-btn px-3 py-1 ' + (active
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700');
-            });
-            renderSkills();
-        });
-    });
     }  // end of initCharts
 })();
 </script>
