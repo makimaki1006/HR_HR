@@ -1,0 +1,279 @@
+{# 職種カルテ 個別ページ #}
+<div class="space-y-6" id="driver-detail-root" data-jobtag-id="{{ occupation.jobtag_id }}">
+    {# パンくず #}
+    <div class="text-xs text-gray-400">
+        <a href="/tab/driver" hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="hover:text-blue-300">← 職種カルテ 一覧</a>
+    </div>
+
+    {# ヘッダー #}
+    <header class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <div class="flex items-start justify-between">
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ occupation.category }}</span>
+                    <span class="text-xs text-gray-500 font-mono">jobtag_id={{ occupation.jobtag_id }}</span>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-100">{{ occupation.name }}</h1>
+                {% if !occupation.aliases.is_empty() %}
+                <p class="text-xs text-gray-400 mt-1">別名: {{ occupation.aliases }}</p>
+                {% endif %}
+            </div>
+        </div>
+        <dl class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-2 text-xs mt-4">
+            <div><dt class="text-gray-500">厚労省編職業分類</dt><dd class="text-gray-200">{{ occupation.mhlw_classification }}</dd></div>
+            <div><dt class="text-gray-500">賃金センサス職種</dt><dd class="text-gray-200">{% if occupation.wage_census_name.is_empty() %}—（賃金構造基本統計調査の対象外職種）{% else %}{{ occupation.wage_census_name }}{% if !occupation.wage_census_code.is_empty() %}（コード {{ occupation.wage_census_code }}）{% endif %}{% endif %}</dd></div>
+        </dl>
+    </header>
+
+    {# 概要 + KPI #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">概要</h2>
+        {% if !occupation.summary.is_empty() %}
+        <p class="text-sm text-gray-200 leading-relaxed mb-4">{{ occupation.summary }}</p>
+        {% endif %}
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">平均年齢</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match occupation.total_avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
+                </div>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">所定内労働時間</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match occupation.total_scheduled_hours %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">h/月</span>{% when None %}—{% endmatch %}
+                </div>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">年収（全国平均）</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match occupation.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
+                </div>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">労働者数（推定）</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match occupation.total_workers_count %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">十人</span>{% when None %}—{% endmatch %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {# どんな仕事？ #}
+    {% if !occupation.what_is_the_job.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">どんな仕事？</h2>
+        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ occupation.what_is_the_job }}</p>
+    </section>
+    {% endif %}
+
+    {# 就業するには？ #}
+    {% if !occupation.how_to_become.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">就業するには？</h2>
+        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ occupation.how_to_become }}</p>
+    </section>
+    {% endif %}
+
+    {# 労働条件の特徴 #}
+    {% if !occupation.working_conditions.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">労働条件の特徴</h2>
+        <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{{ occupation.working_conditions }}</p>
+    </section>
+    {% endif %}
+
+    {# 賃金センサス チャート #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">賃金センサス 年齢別</h2>
+        <p class="text-xs text-gray-400 mb-3">
+            年収 = 「きまって支給する現金給与額 × 12 + 年間賞与その他特別給与額」（賃金構造基本統計調査 令和7年）
+        </p>
+        <div id="chart-wage-{{ occupation.jobtag_id }}" style="width: 100%; height: 360px;"></div>
+    </section>
+
+    {# しごと能力プロフィール #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">しごと能力プロフィール</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <h3 class="text-sm text-gray-300 mb-2">興味</h3>
+                <div id="chart-interest-{{ occupation.jobtag_id }}" style="width: 100%; height: 320px;"></div>
+            </div>
+            <div>
+                <h3 class="text-sm text-gray-300 mb-2">仕事価値観</h3>
+                <div id="chart-values-{{ occupation.jobtag_id }}" style="width: 100%; height: 320px;"></div>
+            </div>
+        </div>
+        <div class="mt-4">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm text-gray-300">スキル</h3>
+                <div class="inline-flex rounded-md overflow-hidden border border-gray-700 text-xs">
+                    <button type="button" data-skills-mode="top15" data-target="{{ occupation.jobtag_id }}"
+                            class="skills-mode-btn px-3 py-1 bg-blue-600 text-white">上位15</button>
+                    <button type="button" data-skills-mode="all" data-target="{{ occupation.jobtag_id }}"
+                            class="skills-mode-btn px-3 py-1 bg-gray-800 text-gray-300 hover:bg-gray-700">全項目</button>
+                </div>
+            </div>
+            <div id="chart-skills-{{ occupation.jobtag_id }}" style="width: 100%; height: 480px;"></div>
+        </div>
+    </section>
+
+    {# 関連資格 #}
+    {% if !occupation.qualifications.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">関連する免許・資格</h2>
+        <div class="flex flex-wrap gap-2">
+            {% for q in occupation.qualifications %}
+            <span class="px-3 py-1 bg-blue-900/30 text-blue-300 text-xs rounded-full">{{ q }}</span>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {# 出典フッター #}
+    <footer class="text-xs text-gray-500 border-t border-gray-700 pt-4">
+        <p class="font-semibold text-gray-400 mb-1">データ出典</p>
+        <ul class="list-disc pl-5 space-y-0.5">
+            <li>賃金構造基本統計調査 令和7年 一般労働者 職種 表5（厚生労働省、e-Stat 政府統計コード 00450091）</li>
+            <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 解説系ダウンロードデータ ver.7.01」</li>
+            <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 簡易版数値系ダウンロードデータ ver.7.00」</li>
+        </ul>
+        <p class="mt-2">本ページは社内クローズ環境での職業情報参照を目的として、上記出典の二次利用条件に従って表示しています。</p>
+    </footer>
+</div>
+
+{# ECharts 初期化（HTMX swap も URL 直接アクセスも両対応：未ロードなら CDN を自前で取り込む） #}
+<script>
+(function() {
+    var jobId = {{ occupation.jobtag_id }};
+    var wageRows = {{ wage_rows_json|safe }};
+    var interest = {{ interest_json|safe }};
+    var values = {{ values_json|safe }};
+    var skills = {{ skills_json|safe }};
+
+    if (window.echarts) {
+        initCharts();
+    } else {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
+        s.onload = initCharts;
+        s.onerror = function() { console.error('ECharts CDN load failed for /tab/driver/' + jobId); };
+        document.head.appendChild(s);
+    }
+
+    function initCharts() {
+
+    function safeInit(elemId, optionFn, data) {
+        var el = document.getElementById(elemId);
+        if (!el || !window.echarts) return;
+        if (!data || (Array.isArray(data) && data.length === 0)) {
+            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-12">データなし</div>';
+            return;
+        }
+        try {
+            var chart = echarts.init(el);
+            chart.setOption(optionFn(data));
+            window.addEventListener('resize', function() { chart.resize(); });
+        } catch (e) {
+            console.error('ECharts init failed for ' + elemId, e);
+        }
+    }
+
+    // 年齢別 賃金（総計を除く12行）
+    safeInit('chart-wage-' + jobId, function(rows) {
+        var ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
+        var cats = ageRows.map(function(r) { return r.age_range; });
+        var salary = ageRows.map(function(r) { return r.annual_salary_man_yen; });
+        var workers = ageRows.map(function(r) { return r.workers_count_tenfold; });
+        return {
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['年収（万円）', '労働者数（十人）'], bottom: 0, textStyle: { color: '#aaa' } },
+            grid: { left: 60, right: 60, top: 30, bottom: 60 },
+            xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
+            yAxis: [
+                { type: 'value', name: '年収（万円）', position: 'left', axisLabel: { color: '#aaa' } },
+                { type: 'value', name: '労働者数（十人）', position: 'right', axisLabel: { color: '#aaa' } }
+            ],
+            series: [
+                { name: '年収（万円）', type: 'line', data: salary, smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 3, color: '#60a5fa' }, itemStyle: { color: '#60a5fa' } },
+                { name: '労働者数（十人）', type: 'bar', yAxisIndex: 1, data: workers, itemStyle: { color: 'rgba(96, 165, 250, 0.35)' } }
+            ]
+        };
+    }, wageRows);
+
+    // 興味 レーダー
+    safeInit('chart-interest-' + jobId, function(rows) {
+        var indicators = rows.map(function(r) { return { name: r.item, max: 5 }; });
+        var data = rows.map(function(r) { return r.score; });
+        return {
+            tooltip: {},
+            radar: { indicator: indicators, radius: '65%', axisName: { color: '#aaa' } },
+            series: [{ type: 'radar', data: [{ value: data, name: '興味', areaStyle: { opacity: 0.35, color: '#60a5fa' }, lineStyle: { color: '#60a5fa' } }] }]
+        };
+    }, interest);
+
+    // 仕事価値観 バー（縦並び、全項目）
+    safeInit('chart-values-' + jobId, function(rows) {
+        var sorted = rows.slice().sort(function(a, b) { return b.score - a.score; });
+        var names = sorted.map(function(r) { return r.item; });
+        var data = sorted.map(function(r) { return r.score; });
+        return {
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: 130, right: 30, top: 10, bottom: 20 },
+            xAxis: { type: 'value', max: 5, axisLabel: { color: '#aaa' } },
+            yAxis: { type: 'category', data: names.slice().reverse(), axisLabel: { width: 110, overflow: 'truncate', color: '#aaa' } },
+            series: [{ type: 'bar', data: data.slice().reverse(), itemStyle: { color: '#60a5fa' } }]
+        };
+    }, values);
+
+    // スキル バー（モード切替: top15 / all）
+    var skillsMode = 'top15';
+    var skillsChart = null;
+    function buildSkillsOption(rows, mode) {
+        var picked = rows.slice().sort(function(a, b) { return b.score - a.score; });
+        if (mode === 'top15') picked = picked.slice(0, 15);
+        var names = picked.map(function(r) { return r.item; });
+        var data = picked.map(function(r) { return r.score; });
+        var leftPx = mode === 'all' ? 200 : 180;
+        return {
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: leftPx, right: 40, top: 10, bottom: 30 },
+            xAxis: { type: 'value', max: 5, axisLabel: { color: '#aaa' } },
+            yAxis: { type: 'category', data: names.slice().reverse(), axisLabel: { width: leftPx - 20, overflow: 'truncate', color: '#aaa' } },
+            series: [{ type: 'bar', data: data.slice().reverse(), itemStyle: { color: '#60a5fa' } }]
+        };
+    }
+    function renderSkills() {
+        var el = document.getElementById('chart-skills-' + jobId);
+        if (!el || !window.echarts) return;
+        if (!skills || skills.length === 0) {
+            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-12">データなし</div>';
+            return;
+        }
+        var newHeight = (skillsMode === 'all') ? Math.max(480, skills.length * 24 + 60) : 480;
+        el.style.height = newHeight + 'px';
+        if (skillsChart) skillsChart.dispose();
+        skillsChart = echarts.init(el);
+        skillsChart.setOption(buildSkillsOption(skills, skillsMode));
+        window.addEventListener('resize', function() { if (skillsChart) skillsChart.resize(); });
+    }
+    renderSkills();
+
+    // モードボタンの動作
+    document.querySelectorAll('.skills-mode-btn[data-target="' + jobId + '"]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            skillsMode = btn.getAttribute('data-skills-mode');
+            document.querySelectorAll('.skills-mode-btn[data-target="' + jobId + '"]').forEach(function(b) {
+                var active = (b === btn);
+                b.className = 'skills-mode-btn px-3 py-1 ' + (active
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-300 hover:bg-gray-700');
+            });
+            renderSkills();
+        });
+    });
+    }  // end of initCharts
+})();
+</script>
