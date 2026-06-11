@@ -1,4 +1,16 @@
 {# 職種カルテ 比較ビュー #}
+{# 直接アクセス時(base layout経由なし)の Tailwind/CSS 自動補完 #}
+<script>
+(function(){
+  if (!document.querySelector('link[href*="tailwind-precompiled"]')) {
+    ['/static/css/tailwind-precompiled.css','/static/css/dashboard.css'].forEach(function(h){
+      var l=document.createElement('link');l.rel='stylesheet';l.href=h;document.head.appendChild(l);
+    });
+    document.documentElement.classList.add('bg-navy-900');
+    document.body && document.body.classList.add('bg-navy-900','text-gray-100');
+  }
+})();
+</script>
 <div class="space-y-6" id="driver-compare-root">
     {# パンくず #}
     <div class="text-xs text-gray-400">
