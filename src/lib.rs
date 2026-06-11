@@ -277,26 +277,18 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/regional/municipalities",
             get(handlers::regional_analysis::regional_municipalities),
         )
+        // 外部統計 3 系 (e-Stat)
         .route(
-            "/api/regional/job_types",
-            get(handlers::regional_analysis::regional_job_types),
+            "/api/regional/job_openings_ratio",
+            get(handlers::regional_analysis::regional_job_openings_ratio),
         )
         .route(
-            "/api/regional/salary_histogram",
-            get(handlers::regional_analysis::regional_salary_histogram),
+            "/api/regional/labor_stats",
+            get(handlers::regional_analysis::regional_labor_stats),
         )
         .route(
-            "/api/regional/muni_ranking",
-            get(handlers::regional_analysis::regional_muni_ranking),
-        )
-        .route(
-            "/api/regional/emp_salary",
-            get(handlers::regional_analysis::regional_emp_salary),
-        )
-        // Phase2: navy資産展開 (業界別給与/人口ピラミッド/最賃vs給与/企業マトリックス)
-        .route(
-            "/api/regional/job_type_salary",
-            get(handlers::regional_analysis::regional_job_type_salary),
+            "/api/regional/industry_structure",
+            get(handlers::regional_analysis::regional_industry_structure),
         )
         .route(
             "/api/regional/population_pyramid",
