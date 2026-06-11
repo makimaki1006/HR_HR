@@ -21,6 +21,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, warn};
 
@@ -29,8 +30,8 @@ use crate::AppState;
 pub mod data;
 
 use data::{
-    fetch_category_counts, fetch_category_stats, fetch_multiple_occupations,
-    fetch_occupation_detail, fetch_occupation_list, fetch_wage_age,
+    fetch_age_distribution_by_pref, fetch_category_counts, fetch_category_stats,
+    fetch_multiple_occupations, fetch_occupation_detail, fetch_occupation_list, fetch_wage_age,
     CategoryInfo, CategoryStats, DriverDataError, OccupationDetail, RelatedOrgRow,
 };
 
@@ -45,6 +46,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/driver/list", get(api_driver_list))
         .route("/api/driver/{jobtag_id}", get(api_driver_detail))
         .route("/api/driver/wage/{wage_code}", get(api_driver_wage))
+        .route("/api/driver/{jobtag_id}/age_distribution", get(api_age_distribution))
         .route("/tab/driver/compare", get(tab_driver_compare))
 }
 
@@ -325,6 +327,80 @@ async fn api_driver_wage(
         }
         Err(e) => {
             error!("api_driver_wage spawn_blocking: {e}");
+            Json(json!({"error": "internal", "rows": []})).into_response()
+        }
+    }
+}
+
+/// GET /api/driver/{jobtag_id}/age_distribution?prefecture={prefecture}
+///
+/// 国勢調査 R2 職業中分類の都道府県別年齢分布を返す。
+/// wage_census_code がマッピングにない職業は空配列を返す（エラーではない）。
+async fn api_age_distribution(
+    State(state): State<Arc<AppState>>,
+    Path(jobtag_id): Path<i64>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let pref: String = params.get("prefecture").cloned().unwrap_or_default();
+    if pref.is_empty() {
+        return Json(json!({"error": "prefecture is required", "rows": []})).into_response();
+    }
+    // 都道府県名は最大10文字の日本語のみ許可（簡易バリデーション）
+    if pref.chars().count() > 10 {
+        return Json(json!({"error": "invalid prefecture", "rows": []})).into_response();
+    }
+
+    let turso = match state.turso_db.clone() {
+        Some(db) => db,
+        None => return Json(json!({"error": "turso not connected", "rows": []})).into_response(),
+    };
+
+    // jobtag_id から wage_census_code を取得
+    let wage_code = match tokio::task::spawn_blocking({
+        let turso2 = turso.clone();
+        move || -> Result<String, String> {
+            let rows = turso2.query(
+                "SELECT COALESCE(wage_census_code,'') AS wage_census_code \
+                 FROM v2_external_jobtag_occupation WHERE jobtag_id = ?",
+                &[&jobtag_id as &dyn crate::db::turso_http::ToSqlTurso],
+            )?;
+            Ok(rows
+                .into_iter()
+                .next()
+                .map(|r| {
+                    r.get("wage_census_code")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .unwrap_or_default())
+        }
+    })
+    .await
+    {
+        Ok(Ok(code)) => code,
+        Ok(Err(e)) => {
+            error!("api_age_distribution: wage_code lookup failed: {e}");
+            return Json(json!({"error": "internal", "rows": []})).into_response();
+        }
+        Err(e) => {
+            error!("api_age_distribution spawn_blocking: {e}");
+            return Json(json!({"error": "internal", "rows": []})).into_response();
+        }
+    };
+
+    match tokio::task::spawn_blocking(move || {
+        fetch_age_distribution_by_pref(&turso, &wage_code, &pref)
+    })
+    .await
+    {
+        Ok(Ok(rows)) => Json(json!(rows)).into_response(),
+        Ok(Err(e)) => {
+            error!("api_age_distribution: fetch failed: {e}");
+            Json(json!({"error": "internal", "rows": []})).into_response()
+        }
+        Err(e) => {
+            error!("api_age_distribution spawn_blocking: {e}");
             Json(json!({"error": "internal", "rows": []})).into_response()
         }
     }
