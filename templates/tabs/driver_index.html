@@ -1,0 +1,284 @@
+{# 職種カルテ 一覧 #}
+<div class="space-y-6">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-gray-100">職種カルテ — 一覧</h2>
+        <div class="text-xs text-gray-400 text-right">
+            出典: 賃金構造基本統計調査 令和7年（厚労省、e-Stat 政府統計コード 00450091）<br>
+            職業情報データベース 解説系 ver.7.01 / 簡易版数値系 ver.7.00（JILPT）
+        </div>
+    </div>
+
+    {% if !categories.is_empty() %}
+    <div class="flex flex-wrap gap-2 mb-3">
+        <a href="/tab/driver"
+           hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium transition
+               {% if selected_category.is_empty() %}bg-blue-600 text-white{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">
+            すべて
+        </a>
+        {% for c in categories %}
+        <a href="/tab/driver?category={{ c.key }}"
+           hx-get="/tab/driver?category={{ c.key }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium transition
+               {% if selected_category == c.key %}bg-blue-600 text-white{% else %}bg-gray-800 text-gray-300 hover:bg-gray-700{% endif %}">
+            {{ c.label }}<span class="text-xs opacity-70">({{ c.count }})</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# 検索 + ソート ツールバー #}
+    {% if !occupations.is_empty() %}
+    <div class="flex flex-wrap gap-3 items-center bg-gray-800 border border-gray-700 rounded-lg p-3 mb-3">
+        <div class="flex-1 min-w-[200px]">
+            <input id="driver-search" type="search" placeholder="🔍 職業名・別名・賃金センサス職種で絞り込み..."
+                   class="w-full px-3 py-1.5 bg-gray-900 border border-gray-700 rounded text-sm text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none">
+        </div>
+        <div class="flex items-center gap-2">
+            <label class="text-xs text-gray-400" for="driver-sort">並び順</label>
+            <select id="driver-sort" class="px-2 py-1.5 bg-gray-900 border border-gray-700 rounded text-sm text-gray-100 focus:border-blue-500 focus:outline-none">
+                <option value="default">カテゴリ順（既定）</option>
+                <option value="salary-desc">年収 高い順</option>
+                <option value="salary-asc">年収 低い順</option>
+                <option value="age-asc">平均年齢 若い順</option>
+                <option value="age-desc">平均年齢 高い順</option>
+                <option value="workers-desc">労働者数 多い順</option>
+                <option value="name-asc">職業名 50音順</option>
+            </select>
+        </div>
+        <div id="driver-count-badge" class="text-xs text-gray-400 ml-auto"></div>
+    </div>
+    {% endif %}
+
+    {% if selected_category.is_empty() %}
+    <p class="text-sm text-gray-300">表示中: 全カテゴリ（{{ occupations.len() }} 件）</p>
+    {% else %}
+    <p class="text-sm text-gray-300">表示中: カテゴリ「{{ selected_category }}」（{{ occupations.len() }} 件）</p>
+    {% endif %}
+
+    {% if occupations.is_empty() %}
+    <div class="p-6 bg-yellow-900/30 border border-yellow-600 rounded text-yellow-200">
+        <p>表示可能な職業データがありません。Turso country-statistics に <code>v2_external_jobtag_*</code> が未投入の可能性があります。</p>
+        <p class="mt-2 text-xs">投入手順: <code>python scripts/import_jobtag_occupations.py --category all --output data/jobtag_occupations_turso_import.sql</code><br>
+            → <code>python scripts/upload_jobtag_driver_to_turso.py --sql data/jobtag_occupations_turso_import.sql --apply</code></p>
+    </div>
+    {% else %}
+    <div id="driver-card-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for o in occupations %}
+        <a href="/tab/driver/{{ o.jobtag_id }}"
+           hx-get="/tab/driver/{{ o.jobtag_id }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="driver-card block p-4 bg-gray-800 border border-gray-700 rounded-lg hover:border-blue-500 transition relative"
+           data-name="{{ o.name }}"
+           data-aliases="{{ o.aliases }}"
+           data-wage-census="{{ o.wage_census_name }}"
+           data-category="{{ o.category }}"
+           data-salary="{% match o.annual_salary_man_yen %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}"
+           data-age="{% match o.avg_age %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}"
+           data-workers="{% match o.workers_count %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}">
+            {# 比較チェックボックス（右上固定） #}
+            <input type="checkbox"
+                   class="driver-compare-check absolute top-3 right-3 w-4 h-4 accent-blue-500 cursor-pointer z-10"
+                   data-jobtag-id="{{ o.jobtag_id }}"
+                   title="比較に追加"
+                   onclick="event.stopPropagation(); event.preventDefault(); driverCompareToggle(this);">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ o.category }}</span>
+                <span class="text-xs text-gray-500 pr-6">jobtag_id={{ o.jobtag_id }}</span>
+            </div>
+            <h3 class="text-base font-bold text-gray-100 mb-1">{{ o.name }}</h3>
+            <div class="text-xs text-gray-400 mb-3">
+                {% if o.wage_census_name.is_empty() %}<span class="text-yellow-500/70">⚠ 賃金センサス対象外</span>{% else %}{{ o.wage_census_name }}{% endif %}
+            </div>
+
+            <dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                <dt class="text-gray-400">年収（平均）</dt>
+                <dd class="text-blue-300 font-semibold">
+                    {% match o.annual_salary_man_yen %}{% when Some with (v) %}{{ v }} 万円{% when None %}—{% endmatch %}
+                </dd>
+                <dt class="text-gray-400">平均年齢</dt>
+                <dd class="text-gray-200">
+                    {% match o.avg_age %}{% when Some with (v) %}{{ v }} 歳{% when None %}—{% endmatch %}
+                </dd>
+                <dt class="text-gray-400">労働者数</dt>
+                <dd class="text-gray-200">
+                    {% match o.workers_count %}{% when Some with (v) %}{{ v }} 人{% when None %}—{% endmatch %}
+                </dd>
+            </dl>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# フローティング 比較ボタン #}
+    <div id="driver-compare-fab"
+         class="hidden fixed bottom-6 right-6 z-50">
+        <button onclick="driverCompareNavigate()"
+                class="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-full shadow-lg transition">
+            <span id="driver-compare-fab-label">比較を見る (0)</span>
+        </button>
+    </div>
+
+    {# 検索＋ソート 動作スクリプト #}
+    <script>
+    (function() {
+        var grid = document.getElementById('driver-card-grid');
+        var search = document.getElementById('driver-search');
+        var sortSel = document.getElementById('driver-sort');
+        var badge = document.getElementById('driver-count-badge');
+        if (!grid || !search || !sortSel) return;
+        var cards = Array.from(grid.querySelectorAll('.driver-card'));
+        var totalCount = cards.length;
+
+        function applyFilter() {
+            var q = (search.value || '').trim().toLowerCase();
+            var visible = 0;
+            cards.forEach(function(c) {
+                if (!q) { c.style.display = ''; visible++; return; }
+                var hay = (
+                    (c.getAttribute('data-name') || '') + '\\t' +
+                    (c.getAttribute('data-aliases') || '') + '\\t' +
+                    (c.getAttribute('data-wage-census') || '')
+                ).toLowerCase();
+                var shown = hay.indexOf(q) >= 0;
+                c.style.display = shown ? '' : 'none';
+                if (shown) visible++;
+            });
+            if (badge) {
+                badge.textContent = q
+                    ? '絞り込み結果: ' + visible + ' / ' + totalCount + ' 件'
+                    : '';
+            }
+        }
+
+        function applySort() {
+            var mode = sortSel.value;
+            if (mode === 'default') { /* DOM 並び維持 */
+                cards.forEach(function(c, i) { c.style.order = ''; });
+                return;
+            }
+            var sorted = cards.slice();
+            sorted.sort(function(a, b) {
+                function num(c, key) {
+                    var v = parseFloat(c.getAttribute('data-' + key));
+                    return isNaN(v) ? -Infinity : v;
+                }
+                switch (mode) {
+                    case 'salary-desc': return num(b,'salary') - num(a,'salary');
+                    case 'salary-asc':  return num(a,'salary') - num(b,'salary');
+                    case 'age-asc':     return num(a,'age') - num(b,'age');
+                    case 'age-desc':    return num(b,'age') - num(a,'age');
+                    case 'workers-desc':return num(b,'workers') - num(a,'workers');
+                    case 'name-asc':    return (a.getAttribute('data-name')||'').localeCompare(b.getAttribute('data-name')||'','ja');
+                    default: return 0;
+                }
+            });
+            sorted.forEach(function(c, i) { c.style.order = i; });
+        }
+
+        var t;
+        search.addEventListener('input', function() {
+            clearTimeout(t); t = setTimeout(applyFilter, 80);
+        });
+        sortSel.addEventListener('change', applySort);
+        // grid を flex 化（order が効くように）
+        grid.classList.remove('grid', 'grid-cols-1', 'md:grid-cols-2', 'lg:grid-cols-3');
+        grid.classList.add('flex', 'flex-wrap');
+        cards.forEach(function(c) {
+            c.classList.add('w-full', 'md:w-[calc(50%-0.5rem)]', 'lg:w-[calc(33.333%-0.667rem)]');
+        });
+        grid.style.gap = '1rem';
+    })();
+    </script>
+
+    {# 比較機能スクリプト（localStorage で選択状態を保持） #}
+    <script>
+    (function() {
+        var STORAGE_KEY = 'driver-compare-ids';
+        var MAX_SELECT = 3;
+
+        function getSelected() {
+            try {
+                var v = localStorage.getItem(STORAGE_KEY);
+                return v ? JSON.parse(v) : [];
+            } catch (e) { return []; }
+        }
+
+        function setSelected(arr) {
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+        }
+
+        function updateFab() {
+            var sel = getSelected();
+            var fab = document.getElementById('driver-compare-fab');
+            var label = document.getElementById('driver-compare-fab-label');
+            if (!fab) return;
+            if (sel.length >= 2) {
+                fab.classList.remove('hidden');
+                if (label) label.textContent = '比較を見る (' + sel.length + ')';
+            } else {
+                fab.classList.add('hidden');
+            }
+        }
+
+        function syncCheckboxes() {
+            var sel = getSelected();
+            document.querySelectorAll('.driver-compare-check').forEach(function(cb) {
+                var id = cb.getAttribute('data-jobtag-id');
+                cb.checked = sel.indexOf(id) >= 0;
+                var card = cb.closest('.driver-card');
+                if (card) {
+                    if (cb.checked) {
+                        card.classList.add('ring-2', 'ring-blue-500');
+                    } else {
+                        card.classList.remove('ring-2', 'ring-blue-500');
+                    }
+                }
+            });
+            updateFab();
+        }
+
+        // グローバル関数として公開（onclick から呼ぶ）
+        window.driverCompareToggle = function(cb) {
+            var id = cb.getAttribute('data-jobtag-id');
+            if (!id) return;
+            var sel = getSelected();
+            var idx = sel.indexOf(id);
+            if (idx >= 0) {
+                sel.splice(idx, 1);
+            } else {
+                if (sel.length >= MAX_SELECT) {
+                    alert('最大 ' + MAX_SELECT + ' 職業まで選択できます。先に選択を解除してください。');
+                    cb.checked = false;
+                    return;
+                }
+                sel.push(id);
+            }
+            setSelected(sel);
+            syncCheckboxes();
+        };
+
+        window.driverCompareNavigate = function() {
+            var sel = getSelected();
+            if (sel.length < 2) return;
+            var url = '/tab/driver/compare?ids=' + sel.join(',');
+            // htmx でコンテンツエリアを差し替えつつ URL も更新
+            var contentEl = document.getElementById('content');
+            if (contentEl && window.htmx) {
+                htmx.ajax('GET', url, { target: '#content', swap: 'innerHTML', pushUrl: true });
+            } else {
+                window.location.href = url;
+            }
+        };
+
+        // HTMX swap 後も含めて初期化（DOMContentLoaded と htmx:afterSwap の両方に対応）
+        syncCheckboxes();
+        document.addEventListener('htmx:afterSwap', function() { syncCheckboxes(); });
+    })();
+    </script>
+
+    <div class="mt-8 pt-4 border-t border-gray-700 text-xs text-gray-500">
+        <p><strong>データの注意</strong>:
+        賃金センサスの数値は厚労省編職業分類とは別の「職種コード」単位の集計です（複数の職業が同じ職種コードを共有することがあります）。
+        JILPT の解説・スコアは職業ごとに収録されています。</p>
+    </div>
+</div>
