@@ -18,6 +18,64 @@
            class="hover:text-blue-300">← 職種カルテ 一覧</a>
     </div>
 
+    {# 都道府県セレクト（年齢分布切り替え用） #}
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-3 flex flex-wrap items-center gap-3">
+        <label class="text-xs text-gray-400" for="age-dist-pref-{{ occupation.jobtag_id }}">年齢分布の地域:</label>
+        <select id="age-dist-pref-{{ occupation.jobtag_id }}"
+                class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+                onchange="reloadAgeDistribution({{ occupation.jobtag_id }}, this.value)">
+            <option value="">全国 (賃金構造基本統計調査)</option>
+            <option value="北海道">北海道</option>
+            <option value="青森県">青森県</option>
+            <option value="岩手県">岩手県</option>
+            <option value="宮城県">宮城県</option>
+            <option value="秋田県">秋田県</option>
+            <option value="山形県">山形県</option>
+            <option value="福島県">福島県</option>
+            <option value="茨城県">茨城県</option>
+            <option value="栃木県">栃木県</option>
+            <option value="群馬県">群馬県</option>
+            <option value="埼玉県">埼玉県</option>
+            <option value="千葉県">千葉県</option>
+            <option value="東京都">東京都</option>
+            <option value="神奈川県">神奈川県</option>
+            <option value="新潟県">新潟県</option>
+            <option value="富山県">富山県</option>
+            <option value="石川県">石川県</option>
+            <option value="福井県">福井県</option>
+            <option value="山梨県">山梨県</option>
+            <option value="長野県">長野県</option>
+            <option value="岐阜県">岐阜県</option>
+            <option value="静岡県">静岡県</option>
+            <option value="愛知県">愛知県</option>
+            <option value="三重県">三重県</option>
+            <option value="滋賀県">滋賀県</option>
+            <option value="京都府">京都府</option>
+            <option value="大阪府">大阪府</option>
+            <option value="兵庫県">兵庫県</option>
+            <option value="奈良県">奈良県</option>
+            <option value="和歌山県">和歌山県</option>
+            <option value="鳥取県">鳥取県</option>
+            <option value="島根県">島根県</option>
+            <option value="岡山県">岡山県</option>
+            <option value="広島県">広島県</option>
+            <option value="山口県">山口県</option>
+            <option value="徳島県">徳島県</option>
+            <option value="香川県">香川県</option>
+            <option value="愛媛県">愛媛県</option>
+            <option value="高知県">高知県</option>
+            <option value="福岡県">福岡県</option>
+            <option value="佐賀県">佐賀県</option>
+            <option value="長崎県">長崎県</option>
+            <option value="熊本県">熊本県</option>
+            <option value="大分県">大分県</option>
+            <option value="宮崎県">宮崎県</option>
+            <option value="鹿児島県">鹿児島県</option>
+            <option value="沖縄県">沖縄県</option>
+        </select>
+        <span class="text-[10px] text-gray-500" id="age-dist-source-{{ occupation.jobtag_id }}">出典: 賃金構造基本統計調査 表5 (全国)</span>
+    </div>
+
     {# ヘッダー #}
     <header class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <div class="flex items-start justify-between">
@@ -190,6 +248,7 @@
             <li>賃金構造基本統計調査 令和7年 一般労働者 職種 表5（厚生労働省、e-Stat 政府統計コード 00450091）</li>
             <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 解説系ダウンロードデータ ver.7.01」</li>
             <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 簡易版数値系ダウンロードデータ ver.7.00」</li>
+            <li id="age-dist-census-footnote-{{ occupation.jobtag_id }}" style="display:none;">国勢調査 令和2年 統計表 0003464372 職業（中分類）× 年齢（5歳階級） 都道府県別（e-Stat、従業地ベース）</li>
         </ul>
         <p class="mt-2">本ページは社内クローズ環境での職業情報参照を目的として、上記出典の二次利用条件に従って表示しています。</p>
     </footer>
@@ -272,23 +331,59 @@
         }
     }
 
-    // 年齢構成プロファイル（L2-2）: workers_count_tenfold を縦棒で
-    safeInit('chart-pyramid-' + jobId, function(rows) {
-        var ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
-        var cats = ageRows.map(function(r) { return r.age_range; });
-        // DB の workers_count_tenfold は「十人」単位の生値なので × 10 で実人数に変換
-        var workers = ageRows.map(function(r) { return (r.workers_count_tenfold || 0) * 10; });
-        // 構成プロファイル文を生成
+    // 年齢構成プロファイル（L2-2）: renderPyramidWithRows として抽出（県別切り替えと共用）
+    window.renderPyramidWithRows = function(jid, rows, sourceLabel) {
+        var el = document.getElementById('chart-pyramid-' + jid);
+        var srcEl = document.getElementById('age-dist-source-' + jid);
+        var footnoteEl = document.getElementById('age-dist-census-footnote-' + jid);
+        if (!el || !window.echarts) return;
+        if (!rows || rows.length === 0) {
+            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-12">データなし</div>';
+            return;
+        }
+        // 既存インスタンスを破棄してから再 init
+        var existing = echarts.getInstanceByDom(el);
+        if (existing) { existing.dispose(); }
+
+        // workers_count_tenfold を持つ賃金センサス形式か、population を持つ国勢調査形式かを判別
+        var isCensus = rows.length > 0 && rows[0].age_class !== undefined;
+        var ageRows, cats, workers, unitLabel;
+        if (isCensus) {
+            // 国勢調査: { age_class, population }
+            ageRows = rows;
+            cats = ageRows.map(function(r) { return r.age_class; });
+            workers = ageRows.map(function(r) { return r.population || 0; });
+            unitLabel = '従業者数（人、国勢調査 R2）';
+        } else {
+            // 賃金センサス: { age_range_order, age_range, workers_count_tenfold, ... }
+            ageRows = rows.filter(function(r) { return r.age_range_order !== 0; });
+            cats = ageRows.map(function(r) { return r.age_range; });
+            workers = ageRows.map(function(r) { return (r.workers_count_tenfold || 0) * 10; });
+            unitLabel = '労働者数（人）';
+        }
+
+        // 出典表示更新
+        if (srcEl && sourceLabel) { srcEl.textContent = '出典: ' + sourceLabel; }
+        // 国勢調査フッター注記の表示制御
+        if (footnoteEl) { footnoteEl.style.display = isCensus ? '' : 'none'; }
+
         var total = workers.reduce(function(a,b){ return a+b; }, 0);
-        var summary = document.getElementById('age-profile-summary-' + jobId);
+        // 構成プロファイル文を生成
+        var summary = document.getElementById('age-profile-summary-' + jid);
         if (summary && total > 0) {
-            // 35歳未満 / 35-54 / 55+ の構成比
             var young = 0, mid = 0, senior = 0;
-            ageRows.forEach(function(r) {
-                var w = (r.workers_count_tenfold || 0) * 10;
-                if (r.age_range_order <= 3) young += w;
-                else if (r.age_range_order <= 8) mid += w;
-                else senior += w;
+            workers.forEach(function(w, idx) {
+                if (!isCensus) {
+                    var ord = ageRows[idx].age_range_order;
+                    if (ord <= 3) young += w;
+                    else if (ord <= 8) mid += w;
+                    else senior += w;
+                } else {
+                    // 国勢調査: 15-34歳(最初4階級)/35-54歳(次4階級)/55歳以上(残り)
+                    if (idx < 4) young += w;
+                    else if (idx < 8) mid += w;
+                    else senior += w;
+                }
             });
             var pct = function(v) { return total > 0 ? (v / total * 100).toFixed(1) : '0.0'; };
             var label;
@@ -298,25 +393,60 @@
             else label = '年齢分布バランス型';
             summary.innerHTML = '<strong>' + label + '</strong>　〜34歳: ' + pct(young) + '% ／ 35–54歳: ' + pct(mid) + '% ／ 55歳以上: ' + pct(senior) + '%';
         }
-        // ピーク階級
         var peakIdx = workers.indexOf(Math.max.apply(null, workers));
-        var data = workers.map(function(v, i) {
+        var barData = workers.map(function(v, i) {
             return { value: v, itemStyle: { color: i === peakIdx ? '#fbbf24' : '#60a5fa' } };
         });
-        return {
+        var finalTotal = total;
+        var chart = echarts.init(el);
+        chart.setOption({
             tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
                 formatter: function(params) {
                     var p = params[0];
-                    var pctV = total > 0 ? (p.value / total * 100).toFixed(1) : '0.0';
+                    var pctV = finalTotal > 0 ? (p.value / finalTotal * 100).toFixed(1) : '0.0';
                     return p.name + '<br>' + p.value.toLocaleString() + ' 人（' + pctV + '%）';
                 }
             },
             grid: { left: 80, right: 40, top: 20, bottom: 60 },
             xAxis: { type: 'category', data: cats, axisLabel: { rotate: 35, color: '#aaa' } },
-            yAxis: { type: 'value', name: '労働者数（人）', axisLabel: { color: '#aaa', formatter: function(v){return v.toLocaleString();} } },
-            series: [{ type: 'bar', data: data, barWidth: '60%' }]
-        };
-    }, wageRows);
+            yAxis: { type: 'value', name: unitLabel, axisLabel: { color: '#aaa', formatter: function(v){return v.toLocaleString();} } },
+            series: [{ type: 'bar', data: barData, barWidth: '60%' }]
+        });
+        window.addEventListener('resize', function() { chart.resize(); });
+    };
+
+    // 初期描画（全国・賃金センサス）
+    renderPyramidWithRows(jobId, wageRows, '賃金構造基本統計調査 表5 (全国)');
+
+    // 都道府県切り替えハンドラ（グローバル公開）
+    window.reloadAgeDistribution = function(jid, pref) {
+        var el = document.getElementById('chart-pyramid-' + jid);
+        var srcEl = document.getElementById('age-dist-source-' + jid);
+        if (!pref) {
+            // 全国に戻す
+            renderPyramidWithRows(jid, wageRows, '賃金構造基本統計調査 表5 (全国)');
+            return;
+        }
+        var url = '/api/driver/' + jid + '/age_distribution?prefecture=' + encodeURIComponent(pref);
+        fetch(url, { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                // エラーオブジェクト or 空配列の場合はデータなし表示
+                var rows = Array.isArray(data) ? data : [];
+                if (rows.length === 0) {
+                    if (el) el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-12">この職業の ' + pref + ' 年齢分布データはありません（国勢調査 R2 職業中分類に未マッピング、またはデータ未投入）</div>';
+                    if (srcEl) srcEl.textContent = '対応データなし (' + pref + ')';
+                    var fnEl = document.getElementById('age-dist-census-footnote-' + jid);
+                    if (fnEl) fnEl.style.display = 'none';
+                    return;
+                }
+                renderPyramidWithRows(jid, rows, '国勢調査 令和2年 職業中分類 (' + pref + ', 従業地ベース)');
+            })
+            .catch(function(e) {
+                console.error('age_distribution fetch error', e);
+                if (srcEl) srcEl.textContent = '取得エラー';
+            });
+    };
 
     // 年齢別 賃金（総計を除く12行）— line に data label、bar は薄め
     safeInit('chart-wage-' + jobId, function(rows) {

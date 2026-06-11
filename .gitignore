@@ -133,3 +133,4 @@ data/jobtag_driver_test.sql
 data/jobtag_turso_import.sql
 cargo_run.log
 cargo_run.log.err
+data/occupation_middle_pref_turso_import.sql
