@@ -67,7 +67,7 @@
         {% for o in occupations %}
         <a href="/tab/driver/{{ o.jobtag_id }}"
            hx-get="/tab/driver/{{ o.jobtag_id }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
-           class="driver-card block p-4 bg-gray-800 border border-gray-700 rounded-lg hover:border-blue-500 transition"
+           class="driver-card block p-4 bg-gray-800 border border-gray-700 rounded-lg hover:border-blue-500 transition relative"
            data-name="{{ o.name }}"
            data-aliases="{{ o.aliases }}"
            data-wage-census="{{ o.wage_census_name }}"
@@ -75,9 +75,15 @@
            data-salary="{% match o.annual_salary_man_yen %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}"
            data-age="{% match o.avg_age %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}"
            data-workers="{% match o.workers_count %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}">
+            {# 比較チェックボックス（右上固定） #}
+            <input type="checkbox"
+                   class="driver-compare-check absolute top-3 right-3 w-4 h-4 accent-blue-500 cursor-pointer z-10"
+                   data-jobtag-id="{{ o.jobtag_id }}"
+                   title="比較に追加"
+                   onclick="event.stopPropagation(); event.preventDefault(); driverCompareToggle(this);">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ o.category }}</span>
-                <span class="text-xs text-gray-500">jobtag_id={{ o.jobtag_id }}</span>
+                <span class="text-xs text-gray-500 pr-6">jobtag_id={{ o.jobtag_id }}</span>
             </div>
             <h3 class="text-base font-bold text-gray-100 mb-1">{{ o.name }}</h3>
             <div class="text-xs text-gray-400 mb-3">
@@ -102,6 +108,15 @@
         {% endfor %}
     </div>
     {% endif %}
+
+    {# フローティング 比較ボタン #}
+    <div id="driver-compare-fab"
+         class="hidden fixed bottom-6 right-6 z-50">
+        <button onclick="driverCompareNavigate()"
+                class="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-full shadow-lg transition">
+            <span id="driver-compare-fab-label">比較を見る (0)</span>
+        </button>
+    </div>
 
     {# 検索＋ソート 動作スクリプト #}
     <script>
@@ -172,6 +187,92 @@
             c.classList.add('w-full', 'md:w-[calc(50%-0.5rem)]', 'lg:w-[calc(33.333%-0.667rem)]');
         });
         grid.style.gap = '1rem';
+    })();
+    </script>
+
+    {# 比較機能スクリプト（localStorage で選択状態を保持） #}
+    <script>
+    (function() {
+        var STORAGE_KEY = 'driver-compare-ids';
+        var MAX_SELECT = 3;
+
+        function getSelected() {
+            try {
+                var v = localStorage.getItem(STORAGE_KEY);
+                return v ? JSON.parse(v) : [];
+            } catch (e) { return []; }
+        }
+
+        function setSelected(arr) {
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch (e) {}
+        }
+
+        function updateFab() {
+            var sel = getSelected();
+            var fab = document.getElementById('driver-compare-fab');
+            var label = document.getElementById('driver-compare-fab-label');
+            if (!fab) return;
+            if (sel.length >= 2) {
+                fab.classList.remove('hidden');
+                if (label) label.textContent = '比較を見る (' + sel.length + ')';
+            } else {
+                fab.classList.add('hidden');
+            }
+        }
+
+        function syncCheckboxes() {
+            var sel = getSelected();
+            document.querySelectorAll('.driver-compare-check').forEach(function(cb) {
+                var id = cb.getAttribute('data-jobtag-id');
+                cb.checked = sel.indexOf(id) >= 0;
+                var card = cb.closest('.driver-card');
+                if (card) {
+                    if (cb.checked) {
+                        card.classList.add('ring-2', 'ring-blue-500');
+                    } else {
+                        card.classList.remove('ring-2', 'ring-blue-500');
+                    }
+                }
+            });
+            updateFab();
+        }
+
+        // グローバル関数として公開（onclick から呼ぶ）
+        window.driverCompareToggle = function(cb) {
+            var id = cb.getAttribute('data-jobtag-id');
+            if (!id) return;
+            var sel = getSelected();
+            var idx = sel.indexOf(id);
+            if (idx >= 0) {
+                sel.splice(idx, 1);
+            } else {
+                if (sel.length >= MAX_SELECT) {
+                    alert('最大 ' + MAX_SELECT + ' 職業まで選択できます。先に選択を解除してください。');
+                    cb.checked = false;
+                    return;
+                }
+                sel.push(id);
+            }
+            setSelected(sel);
+            syncCheckboxes();
+        };
+
+        window.driverCompareNavigate = function() {
+            var sel = getSelected();
+            if (sel.length < 2) return;
+            var url = '/tab/driver/compare?ids=' + sel.join(',');
+            // htmx でコンテンツエリアを差し替えつつ URL も更新
+            var contentEl = document.getElementById('content');
+            if (contentEl && window.htmx) {
+                htmx.ajax('GET', url, { target: '#content', swap: 'innerHTML', pushUrl: true });
+            } else {
+                window.location.href = url;
+            }
+        };
+
+        // HTMX swap 後も含めて初期化（DOMContentLoaded と htmx:afterSwap の両方に対応）
+        syncCheckboxes();
+        document.addEventListener('htmx:afterSwap', function() { syncCheckboxes(); });
     })();
     </script>
 
