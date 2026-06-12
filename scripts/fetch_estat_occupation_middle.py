@@ -114,6 +114,9 @@ def write_csv(rows: list[dict], codes: dict) -> int:
             occ_name = codes["cat03"].get(cat03, "")
             occ_parent = codes["cat03__parent"].get(cat03, "")
             age_name = codes["cat02"].get(cat02, "")
+            # 「（再掲）」「総数」「不詳」はCSV生成時点でスキップ
+            if "（再掲）" in age_name or age_name in ("総数", "不詳"):
+                continue
             gender = gender_map.get(cat01, cat01)
             raw_val = v.get("$", "")
             # 「-」「***」「X」等は欠損
