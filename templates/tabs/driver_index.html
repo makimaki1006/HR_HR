@@ -87,9 +87,10 @@
            data-salary="{% match o.annual_salary_man_yen %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}"
            data-age="{% match o.avg_age %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}"
            data-workers="{% match o.workers_count %}{% when Some with (v) %}{{ v }}{% when None %}-1{% endmatch %}">
-            {# 比較チェックボックス（右上固定） #}
+            {# 比較チェックボックス（右上固定、Tailwind precompiled が top-3/right-3 を含まないため inline style） #}
             <input type="checkbox"
-                   class="driver-compare-check absolute top-3 right-3 w-4 h-4 accent-blue-500 cursor-pointer z-10"
+                   class="driver-compare-check absolute w-4 h-4 accent-blue-500 cursor-pointer z-10"
+                   style="top: 0.5rem; right: 0.5rem;"
                    data-jobtag-id="{{ o.jobtag_id }}"
                    title="比較に追加"
                    onclick="event.stopPropagation(); event.preventDefault(); driverCompareToggle(this);">
