@@ -522,6 +522,67 @@ pub fn fetch_age_distribution_by_pref(
 
 // ───────────────────────── カテゴリ統計（KPIベンチマーク） ─────────────────────────
 
+/// 全職種（505 職業）の中央値統計。起動時に 1 回だけ計算してキャッシュする。
+#[derive(Serialize, Clone, Default)]
+pub struct OverallStats {
+    pub sample_size: i64,
+    pub median_avg_age: Option<f64>,
+    pub median_annual_salary_man_yen: Option<f64>,
+    pub median_workers_count_tenfold: Option<f64>,
+    pub median_scheduled_hours: Option<f64>,
+}
+
+static OVERALL_CACHE: OnceLock<OverallStats> = OnceLock::new();
+
+/// 全職種の総計行から各指標の中央値を計算する。
+/// wage_census_code が空の職業（賃金センサス対象外）は除外される。
+fn fetch_overall_stats(turso: &TursoDb) -> Result<OverallStats, String> {
+    let rows = turso.query(
+        "SELECT w.annual_salary_man_yen, w.avg_age, w.workers_count_tenfold, w.scheduled_hours \
+         FROM v2_external_jobtag_occupation o \
+         JOIN v2_external_jobtag_wage_age w \
+           ON w.wage_census_code = o.wage_census_code AND w.age_range_order = 0 \
+         WHERE o.wage_census_code <> ''",
+        &[],
+    )?;
+
+    fn median(mut values: Vec<f64>) -> Option<f64> {
+        if values.is_empty() {
+            return None;
+        }
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = values.len() / 2;
+        Some(if values.len() % 2 == 0 {
+            (values[mid - 1] + values[mid]) / 2.0
+        } else {
+            values[mid]
+        })
+    }
+
+    let salaries: Vec<f64> = rows.iter().filter_map(|r| f(r, "annual_salary_man_yen")).collect();
+    let ages: Vec<f64> = rows.iter().filter_map(|r| f(r, "avg_age")).collect();
+    let workers: Vec<f64> = rows.iter().filter_map(|r| f(r, "workers_count_tenfold")).collect();
+    let hours: Vec<f64> = rows.iter().filter_map(|r| f(r, "scheduled_hours")).collect();
+
+    Ok(OverallStats {
+        sample_size: rows.len() as i64,
+        median_avg_age: median(ages),
+        median_annual_salary_man_yen: median(salaries),
+        median_workers_count_tenfold: median(workers),
+        median_scheduled_hours: median(hours),
+    })
+}
+
+/// 全職種中央値を取得する。初回呼び出し時のみ DB から計算し、以降はキャッシュを返す。
+pub fn get_overall_stats(turso: &TursoDb) -> &'static OverallStats {
+    OVERALL_CACHE.get_or_init(|| {
+        fetch_overall_stats(turso).unwrap_or_else(|e| {
+            tracing::warn!("fetch_overall_stats failed (using default): {e}");
+            OverallStats::default()
+        })
+    })
+}
+
 /// 同カテゴリ内の中央値統計。個別カルテで KPI ベンチマーク表示に使う。
 #[derive(Serialize, Clone, Default)]
 pub struct CategoryStats {
