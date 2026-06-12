@@ -111,6 +111,9 @@
                 {% match occupation.category_stats.median_avg_age %}{% when Some with (m) %}
                 <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 歳</div>
                 {% when None %}{% endmatch %}
+                {% match occupation.overall_stats.median_avg_age %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500">全職種中央値 {{ m }} 歳</div>
+                {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">所定内労働時間</div>
@@ -118,6 +121,9 @@
                     {% match occupation.total_scheduled_hours %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">h/月</span>{% when None %}—{% endmatch %}
                 </div>
                 <div class="text-[10px] text-gray-500 mt-1">{% if occupation.category_stats.sample_size > 0 %}カテゴリ n={{ occupation.category_stats.sample_size }}{% endif %}</div>
+                {% match occupation.overall_stats.median_scheduled_hours %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500">全職種中央値 {{ m }} h/月</div>
+                {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">年収（全国平均）</div>
@@ -127,6 +133,9 @@
                 {% match occupation.category_stats.median_annual_salary_man_yen %}{% when Some with (m) %}
                 <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 万円</div>
                 {% when None %}{% endmatch %}
+                {% match occupation.overall_stats.median_annual_salary_man_yen %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500">全職種中央値 {{ m }} 万円</div>
+                {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">労働者数（推定）</div>
@@ -135,6 +144,9 @@
                 </div>
                 {% match occupation.category_stats.median_workers_count_tenfold %}{% when Some with (m) %}
                 <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 <span data-tenfold-to-persons="{{ m }}">—</span> 人</div>
+                {% when None %}{% endmatch %}
+                {% match occupation.overall_stats.median_workers_count_tenfold %}{% when Some with (m) %}
+                <div class="text-[10px] text-gray-500">全職種中央値 <span data-tenfold-to-persons="{{ m }}">—</span> 人</div>
                 {% when None %}{% endmatch %}
             </div>
         </div>
@@ -154,30 +166,29 @@
         <div class="mt-3 text-[11px] text-gray-400" id="kpi-benchmark-badges-{{ occupation.jobtag_id }}"></div>
     </section>
 
-    {# 解説テキスト 3 欄: 読みやすさのため max-w-prose + 段落分割（改行2回で <p>） #}
-    {# どんな仕事？ #}
-    {% if !occupation.what_is_the_job.is_empty() %}
-    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">どんな仕事？</h2>
-        <div class="description-prose text-[15px] text-gray-100 leading-8 max-w-prose space-y-3" data-text="{{ occupation.what_is_the_job }}"></div>
-    </section>
-    {% endif %}
+    {# 解説テキスト 3 欄: 大画面では 3 列横並び (横幅活用)、モバイル/タブレットは縦積み #}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {% if !occupation.what_is_the_job.is_empty() %}
+        <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+            <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">どんな仕事？</h2>
+            <div class="description-prose text-[14px] text-gray-100 leading-7 space-y-3" data-text="{{ occupation.what_is_the_job }}"></div>
+        </section>
+        {% endif %}
 
-    {# 就業するには？ #}
-    {% if !occupation.how_to_become.is_empty() %}
-    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-green-500 pl-3">就業するには？</h2>
-        <div class="description-prose text-[15px] text-gray-100 leading-8 max-w-prose space-y-3" data-text="{{ occupation.how_to_become }}"></div>
-    </section>
-    {% endif %}
+        {% if !occupation.how_to_become.is_empty() %}
+        <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+            <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-green-500 pl-3">就業するには？</h2>
+            <div class="description-prose text-[14px] text-gray-100 leading-7 space-y-3" data-text="{{ occupation.how_to_become }}"></div>
+        </section>
+        {% endif %}
 
-    {# 労働条件の特徴 #}
-    {% if !occupation.working_conditions.is_empty() %}
-    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-amber-500 pl-3">労働条件の特徴</h2>
-        <div class="description-prose text-[15px] text-gray-100 leading-8 max-w-prose space-y-3" data-text="{{ occupation.working_conditions }}"></div>
-    </section>
-    {% endif %}
+        {% if !occupation.working_conditions.is_empty() %}
+        <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+            <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-amber-500 pl-3">労働条件の特徴</h2>
+            <div class="description-prose text-[14px] text-gray-100 leading-7 space-y-3" data-text="{{ occupation.working_conditions }}"></div>
+        </section>
+        {% endif %}
+    </div>
 
     {# 賃金センサス チャート #}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
