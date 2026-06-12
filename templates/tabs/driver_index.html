@@ -92,7 +92,8 @@
                    class="driver-compare-check absolute w-4 h-4 accent-blue-500 cursor-pointer z-10"
                    style="top: 0.5rem; right: 0.5rem;"
                    data-jobtag-id="{{ o.jobtag_id }}"
-                   title="比較に追加"
+                   title="比較リストに追加 (最大 3 件、右下のボタンで比較画面に遷移)"
+                   aria-label="{{ o.name }} を比較リストに追加"
                    onclick="event.stopPropagation(); event.preventDefault(); driverCompareToggle(this);">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ o.category }}</span>
@@ -224,12 +225,27 @@
             var sel = getSelected();
             var fab = document.getElementById('driver-compare-fab');
             var label = document.getElementById('driver-compare-fab-label');
+            var btn = fab ? fab.querySelector('button') : null;
             if (!fab) return;
-            if (sel.length >= 2) {
-                fab.classList.remove('hidden');
-                if (label) label.textContent = '比較を見る (' + sel.length + ')';
-            } else {
+            // P0-1: 1 個目から FAB を表示し、「2 個必要」を案内 (旧仕様は 1 個目で発火せず混乱の原因)
+            if (sel.length === 0) {
                 fab.classList.add('hidden');
+            } else if (sel.length === 1) {
+                fab.classList.remove('hidden');
+                if (label) label.textContent = 'あと 1 件選んで比較 (1/' + MAX_SELECT + ')';
+                if (btn) {
+                    btn.disabled = true;
+                    btn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                    btn.classList.add('bg-slate-600', 'cursor-not-allowed', 'opacity-70');
+                }
+            } else {
+                fab.classList.remove('hidden');
+                if (label) label.textContent = '比較を見る (' + sel.length + '/' + MAX_SELECT + ')';
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    btn.classList.remove('bg-slate-600', 'cursor-not-allowed', 'opacity-70');
+                }
             }
         }
 

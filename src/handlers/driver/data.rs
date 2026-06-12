@@ -478,6 +478,9 @@ pub fn fetch_age_distribution_by_pref(
         "SELECT age_class, COALESCE(population, 0) AS population \
          FROM v2_external_occupation_middle_pref \
          WHERE prefecture = ?1 AND occupation_code = ?2 AND gender = 'total' \
+           AND age_class NOT LIKE '（再掲）%' \
+           AND age_class <> '総数' \
+           AND age_class <> '不詳' \
          ORDER BY age_class",
         &[
             &prefecture.to_string() as &dyn crate::db::turso_http::ToSqlTurso,

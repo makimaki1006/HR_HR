@@ -951,17 +951,21 @@ mod tests {
             fiscal_year: 2022,
             unemployment_rate: Some(2.5),
             separation_rate: Some(15.0),
-            monthly_salary_male: Some(350_000.0),
-            monthly_salary_female: Some(250_000.0),
+            // 実DBは「千円」単位 (390.0 → 39.0万円、303.2 → 30.3万円)
+            monthly_salary_male: Some(390.0),
+            monthly_salary_female: Some(303.2),
             working_hours_male: Some(165.0),
             working_hours_female: Some(145.0),
-            part_time_wage_male: Some(1200.0),
-            part_time_wage_female: Some(1050.0),
+            // パート時給は「円」単位 (2084.0 → 2,084円/時)
+            part_time_wage_male: Some(2084.0),
+            part_time_wage_female: Some(1856.0),
         };
         let html = render_labor_stats(&pref_filter(), Some(&row));
         assert!(html.contains("2022年度"));
         assert!(html.contains("2.50%"));
-        assert!(html.contains("350,000円"));
+        assert!(html.contains("39.0万円"));
+        assert!(html.contains("30.3万円"));
+        assert!(html.contains("2,084円/時"));
         assert!(html.contains("e-Stat"));
     }
 
