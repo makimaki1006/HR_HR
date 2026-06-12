@@ -136,9 +136,17 @@ pub(crate) fn render_labor_stats(
             None => "-".to_string(),
         }
     };
-    let fmt_opt_salary = |v: Option<f64>| -> String {
+    // 月収は v2_external_labor_stats では「千円」単位で格納されている (例: 390.0 → 39.0万円)
+    let fmt_monthly_salary = |v: Option<f64>| -> String {
         match v {
-            Some(x) => format!("{}円", format_number(x.round() as i64)),
+            Some(x) => format!("{:.1}万円", x / 10.0),
+            None => "-".to_string(),
+        }
+    };
+    // パート時給は「円」単位で格納されている (例: 2084.0 → 2,084円/時)
+    let fmt_hourly_wage = |v: Option<f64>| -> String {
+        match v {
+            Some(x) => format!("{}円/時", format_number(x.round() as i64)),
             None => "-".to_string(),
         }
     };
@@ -158,12 +166,12 @@ pub(crate) fn render_labor_stats(
         fy = row.fiscal_year,
         unemp = fmt_opt_f64(row.unemployment_rate, "%"),
         sep = fmt_opt_f64(row.separation_rate, "%"),
-        sal_m = fmt_opt_salary(row.monthly_salary_male),
-        sal_f = fmt_opt_salary(row.monthly_salary_female),
+        sal_m = fmt_monthly_salary(row.monthly_salary_male),
+        sal_f = fmt_monthly_salary(row.monthly_salary_female),
         wh_m = fmt_opt_f64(row.working_hours_male, "h"),
         wh_f = fmt_opt_f64(row.working_hours_female, "h"),
-        pt_m = fmt_opt_salary(row.part_time_wage_male),
-        pt_f = fmt_opt_salary(row.part_time_wage_female),
+        pt_m = fmt_hourly_wage(row.part_time_wage_male),
+        pt_f = fmt_hourly_wage(row.part_time_wage_female),
     );
     wrap_panel_with_note("労働統計指標", &scope, &body, note)
 }
