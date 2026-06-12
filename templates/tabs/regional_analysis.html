@@ -122,7 +122,10 @@ function onRaMuniChange() {
 }
 
 // --- 分析実行: パネルを hx-get で逐次取得 (ECharts は afterSettle で自動初期化) ---
-// 🔴 htmx.ajax を同時発火すると一部パネルが取りこぼされるため promise チェーンで逐次実行。
+// 🔴 htmx.ajax を同時発火すると一部パネルが取りこぼされる + 並列 swap で出力が累積する
+//    → busy フラグで同時実行を禁止 + 各 target を毎回 innerHTML='' で初期化
+var raAnalysisBusy = false;
+var raAnalysisPending = false;
 function runRegionalAnalysis() {
     var pref = document.getElementById('ra-pref').value;
     var muni = document.getElementById('ra-muni').value;
@@ -140,6 +143,10 @@ function runRegionalAnalysis() {
         return;
     }
 
+    // 既に走行中なら「次の予約」だけして抜ける (二重発火で panel が累積するのを防ぐ)
+    if (raAnalysisBusy) { raAnalysisPending = true; return; }
+    raAnalysisBusy = true;
+
     var qs = 'prefecture=' + encodeURIComponent(pref)
         + '&municipality=' + encodeURIComponent(muni);
 
@@ -154,8 +161,19 @@ function runRegionalAnalysis() {
         ['internet_usage',     '#ra-internet'],
         ['occupation',         '#ra-occupation']
     ];
+    // 開始前に全 target を空にして「前回内容の累積」を物理的に消す
+    panels.forEach(function(p) {
+        var t = document.querySelector(p[1]);
+        if (t) t.innerHTML = '<div class="stat-card"><p class="text-slate-400 text-xs">読み込み中...</p></div>';
+    });
+
+    function finish() {
+        raAnalysisBusy = false;
+        if (raAnalysisPending) { raAnalysisPending = false; runRegionalAnalysis(); }
+    }
+
     (function runNext(i) {
-        if (i >= panels.length) return;
+        if (i >= panels.length) { finish(); return; }
         var ep = panels[i][0], target = panels[i][1];
         htmx.ajax('GET', '/api/regional/' + ep + '?' + qs, {target: target, swap: 'innerHTML'})
             .then(function() { runNext(i + 1); })
