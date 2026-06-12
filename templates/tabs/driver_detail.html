@@ -18,7 +18,19 @@
            class="hover:text-blue-300">← 職種カルテ 一覧</a>
     </div>
 
-    {# 都道府県セレクト（年齢分布切り替え用） #}
+    {# 対象外職業のアラート（賃金センサス対象外＝KPI/賃金/経験年数別/時給/県別年齢分布 全て表示不可） #}
+    {% if occupation.wage_census_code.is_empty() %}
+    <div class="bg-yellow-900/30 border border-yellow-700/60 rounded-lg p-4 text-sm text-yellow-200">
+        <div class="font-bold mb-1">⚠ この職業は賃金構造基本統計調査（賃金センサス）の対象外です</div>
+        <div class="text-xs text-yellow-100/80 leading-relaxed">
+            年収・平均年齢・労働者数・時給目安・経験年数別年収・年齢構成プロファイルなど、数値データを伴うセクションは表示されません。
+            JILPT 職業情報データベース由来の<strong class="text-yellow-100">解説テキスト</strong>・<strong class="text-yellow-100">関連資格</strong>・<strong class="text-yellow-100">関連団体</strong>のみ表示します。
+        </div>
+    </div>
+    {% endif %}
+
+    {# 都道府県セレクト（年齢分布切り替え用、賃金センサス対象職種のみ） #}
+    {% if !occupation.wage_census_code.is_empty() %}
     <div class="bg-gray-800 border border-gray-700 rounded-lg p-3 flex flex-wrap items-center gap-3">
         <label class="text-xs text-gray-400" for="age-dist-pref-{{ occupation.jobtag_id }}">年齢分布の地域:</label>
         <select id="age-dist-pref-{{ occupation.jobtag_id }}"
@@ -75,6 +87,7 @@
         </select>
         <span class="text-[10px] text-gray-500" id="age-dist-source-{{ occupation.jobtag_id }}">出典: 賃金構造基本統計調査 表5 (全国)</span>
     </div>
+    {% endif %}
 
     {# ヘッダー #}
     <header class="bg-gray-800 border border-gray-700 rounded-lg p-5">
@@ -102,6 +115,8 @@
         {% if !occupation.summary.is_empty() %}
         <p class="text-sm text-gray-200 leading-relaxed mb-4">{{ occupation.summary }}</p>
         {% endif %}
+        {# KPI + 時給目安は賃金センサス対象職種のみ。対象外は alert で代替 #}
+        {% if !occupation.wage_census_code.is_empty() %}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">平均年齢</div>
@@ -164,6 +179,7 @@
             </div>
         </div>
         <div class="mt-3 text-[11px] text-gray-400" id="kpi-benchmark-badges-{{ occupation.jobtag_id }}"></div>
+        {% endif %}
     </section>
 
     {# 解説テキスト 3 欄: 大画面では 3 列横並び (横幅活用)、モバイル/タブレットは縦積み #}
@@ -190,7 +206,8 @@
         {% endif %}
     </div>
 
-    {# 賃金センサス チャート #}
+    {# 賃金センサス チャート（対象職種のみ） #}
+    {% if !occupation.wage_census_code.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">賃金センサス 年齢別</h2>
         <p class="text-xs text-gray-400 mb-3">
@@ -199,10 +216,10 @@
         <div id="chart-wage-{{ occupation.jobtag_id }}" style="width: 100%; height: 360px;"></div>
     </section>
 
-    {# 年齢構成プロファイル（L2-2） #}
+    {# 年齢構成プロファイル（L2-2、対象職種のみ。県別切替で国勢調査データに切替可） #}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">年齢構成プロファイル</h2>
-        <p class="text-xs text-gray-400 mb-3">
+        <p class="text-xs text-gray-400 mb-3" id="age-profile-intro-{{ occupation.jobtag_id }}">
             年齢階級別の労働者数構成（賃金構造基本統計調査 令和7年）。労働者数のボリュームから「若手中心 / 中堅厚 / シニア寄り」を読み取れます。
         </p>
         <div id="chart-pyramid-{{ occupation.jobtag_id }}" style="width: 100%; height: 360px;"></div>
@@ -217,6 +234,7 @@
         </p>
         <div id="chart-wage-exp-{{ occupation.jobtag_id }}" style="width: 100%; height: 400px;"></div>
     </section>
+    {% endif %}
 
     {# 関連資格 #}
     {% if !occupation.qualifications.is_empty() %}
@@ -377,6 +395,13 @@
         if (srcEl && sourceLabel) { srcEl.textContent = '出典: ' + sourceLabel; }
         // 国勢調査フッター注記の表示制御
         if (footnoteEl) { footnoteEl.style.display = isCensus ? '' : 'none'; }
+        // セクション冒頭の説明文も切替（P1-2: 県別なのに「賃金構造基本統計調査」のままだった矛盾を解消）
+        var introEl = document.getElementById('age-profile-intro-' + jid);
+        if (introEl) {
+            introEl.textContent = isCensus
+                ? '年齢階級別の従業者数構成（国勢調査 R2 職業中分類、従業地ベース）。賃金センサスの「労働者」とは集計母集団が異なる近似値です。'
+                : '年齢階級別の労働者数構成（賃金構造基本統計調査 令和7年）。労働者数のボリュームから「若手中心 / 中堅厚 / シニア寄り」を読み取れます。';
+        }
 
         var total = workers.reduce(function(a,b){ return a+b; }, 0);
         // 構成プロファイル文を生成
@@ -385,8 +410,10 @@
             var young = 0, mid = 0, senior = 0;
             workers.forEach(function(w, idx) {
                 if (!isCensus) {
+                    // 賃金センサス: 〜19/20-24/25-29/30-34 を「若手 (〜34歳)」に統一
+                    // (旧 ord<=3 は〜29歳で summary ラベル「〜34歳」と矛盾していた)
                     var ord = ageRows[idx].age_range_order;
-                    if (ord <= 3) young += w;
+                    if (ord <= 4) young += w;
                     else if (ord <= 8) mid += w;
                     else senior += w;
                 } else {
@@ -520,6 +547,7 @@
         // heatmap data: [xIdx, yIdx, value]
         var data = [];
         var validValues = [];
+        // 一旦 [x,y,v] のみ収集、vmin/vmax 確定後に label color を再計算で埋め込む
         ageOrders.forEach(function(ageOrd, xi) {
             expOrders.forEach(function(expOrd, yi) {
                 var row = wageAgeExpRows.find(function(r){
@@ -533,6 +561,13 @@
         if (validValues.length === 0) return;
         var vmin = Math.min.apply(null, validValues);
         var vmax = Math.max.apply(null, validValues);
+        // P2-3: 低値セル (visualMap 暗色側) はラベルが背景と同化するので value 依存で白文字に
+        var mid = (vmin + vmax) / 2;
+        data = data.map(function(d) {
+            var v = d[2];
+            if (v == null) return { value: d };
+            return { value: d, label: { color: v < mid ? '#ffffff' : '#0f172a' } };
+        });
 
         try {
             var chart = echarts.init(el);

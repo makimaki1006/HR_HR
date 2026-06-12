@@ -127,10 +127,12 @@
         var el = document.getElementById('chart-compare-wage');
         if (!el || !window.echarts) return;
 
-        // 年齢軸は最初の職業から取る（全職業共通と仮定）
-        var cats = (allWage[0] || []).map(function(r) { return r.age_range; });
+        // P2-2: 先頭が wage_census 対象外で空配列だと全チャート死ぬ問題回避
+        // 最初に非空の wage rows から年齢軸を取得 (全職業共通の年齢階級を仮定)
+        var firstNonEmpty = allWage.find(function(rows) { return rows && rows.length > 0; });
+        var cats = firstNonEmpty ? firstNonEmpty.map(function(r) { return r.age_range; }) : [];
         if (cats.length === 0) {
-            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-16">データなし</div>';
+            el.innerHTML = '<div class="text-xs text-gray-500 text-center pt-16">選択した職業はいずれも賃金センサス対象外のため、年収カーブを描画できません</div>';
             return;
         }
 
