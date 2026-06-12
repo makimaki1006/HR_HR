@@ -32,7 +32,8 @@ pub mod data;
 use data::{
     fetch_age_distribution_by_pref, fetch_category_counts, fetch_category_stats,
     fetch_multiple_occupations, fetch_occupation_detail, fetch_occupation_list, fetch_wage_age,
-    CategoryInfo, CategoryStats, DriverDataError, OccupationDetail, RelatedOrgRow,
+    get_overall_stats, CategoryInfo, CategoryStats, DriverDataError, OccupationDetail,
+    OverallStats, RelatedOrgRow,
 };
 
 /// driver タブのルーターを公開する。
@@ -162,6 +163,8 @@ pub struct OccupationDetailView {
     pub total_workers_count: Option<f64>,
     /// 同カテゴリ内ベンチマーク（中央値ベース）
     pub category_stats: CategoryStats,
+    /// 全職種ベンチマーク（中央値ベース、起動時キャッシュ）
+    pub overall_stats: OverallStats,
     /// 関連団体一覧（EX-D）
     pub related_orgs: Vec<RelatedOrgRow>,
 }
@@ -178,18 +181,19 @@ async fn tab_driver_detail(
         }
     };
 
-    let (detail, category_stats) = match tokio::task::spawn_blocking(move || -> Result<_, DriverDataError> {
+    let (detail, category_stats, overall_stats) = match tokio::task::spawn_blocking(move || -> Result<_, DriverDataError> {
         let d = fetch_occupation_detail(&turso, jobtag_id)?;
         let stats = fetch_category_stats(&turso, &d.occupation.category)
             .unwrap_or_else(|e| {
                 warn!("fetch_category_stats failed (treated as empty): {e}");
                 CategoryStats::default()
             });
-        Ok((d, stats))
+        let overall = get_overall_stats(&turso).clone();
+        Ok((d, stats, overall))
     })
     .await
     {
-        Ok(Ok(pair)) => pair,
+        Ok(Ok(triple)) => triple,
         Ok(Err(DriverDataError::NotFound)) => {
             return (StatusCode::NOT_FOUND, format!("jobtag_id={jobtag_id} は未投入")).into_response();
         }
@@ -230,6 +234,7 @@ async fn tab_driver_detail(
         total_annual_salary_man_yen: total.and_then(|t| t.annual_salary_man_yen),
         total_workers_count: total.and_then(|t| t.workers_count_tenfold),
         category_stats,
+        overall_stats,
         related_orgs: detail.related_orgs.clone(),
     };
 
@@ -482,6 +487,8 @@ fn detail_to_compare_entry(detail: OccupationDetail) -> CompareEntry {
         total_workers_count: total.and_then(|t| t.workers_count_tenfold),
         // 比較ビューではカテゴリベンチマーク不要のためデフォルト値を使用
         category_stats: CategoryStats::default(),
+        // 比較ビューでは全職種中央値不要のためデフォルト値を使用
+        overall_stats: OverallStats::default(),
         // 比較ビューでは関連団体は表示しないため空 Vec
         related_orgs: Vec::new(),
     };
