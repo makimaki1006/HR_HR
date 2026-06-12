@@ -942,3 +942,13 @@ img, video { max-width: 100%; height: auto; }
 .divide-gray-700 > :not([hidden]) ~ :not([hidden]) {
   border-color: #374151;
 }
+
+/* JIT 抽出から漏れていた position 距離指定 (2026-06-12 追加)
+   driver_index 比較チェックボックス / FAB、jobmap 凡例 等で利用 */
+.top-3 { top: 0.75rem; }
+.right-3 { right: 0.75rem; }
+.right-4 { right: 1rem; }
+.right-6 { right: 1.5rem; }
+.bottom-4 { bottom: 1rem; }
+.bottom-6 { bottom: 1.5rem; }
+
