@@ -14,6 +14,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY templates/ templates/
+# include_str! で driver/data.rs が wage_census → 国勢調査中分類のマッピングを参照
+COPY data/wage_census_to_occupation_middle_map.json data/wage_census_to_occupation_middle_map.json
 RUN cargo build --release
 
 # ===== ランタイムステージ =====
