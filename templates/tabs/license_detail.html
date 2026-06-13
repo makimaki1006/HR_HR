@@ -59,6 +59,51 @@
         </div>
     </section>
 
+    {# 資格詳細解説（Phase B2 で追加: brush-up.jp + Wikipedia） #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-amber-500 pl-3">資格の詳細解説</h2>
+
+        {% if !detail.brushup_sections.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-amber-300">出典: BrushUP学び (brush-up.jp)</h3>
+                <a href="{{ detail.brushup_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.brushup_name }} の元ページを開く ↗</a>
+            </div>
+            <div class="space-y-3">
+                {% for sec in detail.brushup_sections %}
+                <details class="bg-gray-900 border border-gray-700 rounded p-3" {% if loop.index <= 2 %}open{% endif %}>
+                    <summary class="text-sm font-bold text-gray-200 cursor-pointer">{{ sec.h2 }}</summary>
+                    <div class="mt-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ sec.body }}</div>
+                </details>
+                {% endfor %}
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ 上記本文は brush-up.jp の解説ページから引用。詳細・最新情報は元ページをご確認ください。</p>
+        </div>
+        {% endif %}
+
+        {% match detail.wikipedia %}{% when Some with (wiki) %}
+        <div class="mb-2">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-blue-300">出典: Wikipedia 日本語版</h3>
+                <a href="{{ wiki.url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ wiki.title }} の記事を開く ↗</a>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ wiki.extract }}</div>
+            <p class="text-[10px] text-gray-500 mt-2">※ Wikipedia 記事冒頭の抜粋。ライセンス: <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja" target="_blank" rel="noopener noreferrer" class="text-blue-300 hover:text-blue-200">CC BY-SA 4.0</a>。</p>
+        </div>
+        {% when None %}{% endmatch %}
+
+        {% if detail.brushup_sections.is_empty() %}{% match detail.wikipedia %}{% when None %}
+        <div class="bg-gray-900 border border-gray-700 rounded p-4 text-sm text-gray-400">
+            <strong class="text-yellow-300">情報未収集</strong>:
+            現時点でこの資格について Web 上から取得できた解説情報はありません。
+            ジョブタグ・brush-up.jp・Wikipedia 日本語版の 3 ソースを確認しましたが、ヒットしませんでした。
+            後日、追加のソース (sikaku7.com / shikakude.com 等) を導入予定です。
+        </div>
+        {% when Some with (_) %}{% endmatch %}{% endif %}
+    </section>
+
     {# カテゴリ分布 #}
     {% if !detail.category_distribution.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
