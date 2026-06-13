@@ -511,6 +511,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ======== 職種カルテタブ (driver / 職業情報) ========
         // 出典: 賃金構造基本統計調査 令和7年 + JILPT 職業情報データベース
         .merge(handlers::driver::router())
+        // ======== 資格カルテタブ (license / 免許・資格情報) ========
+        // 出典: JILPT 職業情報データベース 資格情報 ver.7.01
+        .merge(handlers::license::router())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

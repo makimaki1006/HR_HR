@@ -1,0 +1,95 @@
+{# 資格カルテ 一覧 #}
+{# 直接アクセス時(base layout経由なし)の Tailwind/CSS 自動補完 #}
+<script>
+(function(){
+  if (!document.querySelector('link[href*="tailwind-precompiled"]')) {
+    ['/static/css/tailwind-precompiled.css','/static/css/dashboard.css'].forEach(function(h){
+      var l=document.createElement('link');l.rel='stylesheet';l.href=h;document.head.appendChild(l);
+    });
+    document.documentElement.classList.add('bg-navy-900');
+    document.body && document.body.classList.add('bg-navy-900','text-gray-100');
+  }
+})();
+</script>
+<div class="space-y-4" id="license-index-root">
+
+    <header class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+        <h1 class="text-xl font-bold text-gray-100">資格カルテ 一覧</h1>
+        <p class="text-xs text-gray-400 mt-1">
+            JILPT 職業情報データベース由来の関連免許・資格を、その資格を必要とする職業群と一緒に閲覧できます。
+            各カードをクリックすると、関連職業一覧 / 集計 KPI / カテゴリ分布 / 共起資格を確認できます。
+        </p>
+        <p class="text-[11px] text-gray-500 mt-1">
+            計 <strong class="text-blue-300">{{ summaries.len() }}</strong> 種類の資格を 50 音順で表示しています。
+        </p>
+    </header>
+
+    {# 検索バー #}
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-3">
+        <input type="text" id="license-search"
+               placeholder="🔍 資格名で絞り込み（例: 看護師、宅地建物、危険物）"
+               class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white">
+    </div>
+
+    {% if summaries.is_empty() %}
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 text-center text-gray-400">
+        資格データが取得できませんでした。Turso 接続をご確認ください。
+    </div>
+    {% else %}
+    <div id="license-card-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        {% for s in summaries %}
+        <a href="/tab/license/{{ s.name }}"
+           hx-get="/tab/license/{{ s.name }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="license-card block p-3 bg-gray-800 border border-gray-700 rounded-lg hover:border-blue-500 transition"
+           data-name="{{ s.name }}">
+            <h3 class="text-sm font-bold text-gray-100 mb-2 leading-tight line-clamp-2" title="{{ s.name }}">{{ s.name }}</h3>
+            <dl class="text-[11px] space-y-0.5">
+                <div class="flex items-center justify-between">
+                    <dt class="text-gray-400">関連職業</dt>
+                    <dd class="text-blue-300 font-semibold">{{ s.occupation_count }} 職業</dd>
+                </div>
+                <div class="flex items-center justify-between">
+                    <dt class="text-gray-400">年収平均</dt>
+                    <dd class="text-gray-200">
+                        {% match s.avg_salary_man_yen %}{% when Some with (v) %}{{ v }} 万円{% when None %}—{% endmatch %}
+                    </dd>
+                </div>
+                <div class="text-[10px] text-gray-500 mt-1">
+                    {% if s.wage_target_n > 0 %}賃金センサス対象 n={{ s.wage_target_n }}{% else %}対象外{% endif %}
+                </div>
+            </dl>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# 出典フッター #}
+    <footer class="text-xs text-gray-500 border-t border-gray-700 pt-4">
+        <p class="font-semibold text-gray-400 mb-1">データ出典</p>
+        <ul class="list-disc pl-5 space-y-0.5">
+            <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 解説系ダウンロードデータ ver.7.01」</li>
+            <li>賃金構造基本統計調査 令和7年 一般労働者 職種 表5（厚生労働省、e-Stat 政府統計コード 00450091）</li>
+        </ul>
+        <p class="mt-2">本ページは社内クローズ環境での職業情報参照を目的として、上記出典の二次利用条件に従って表示しています。</p>
+    </footer>
+</div>
+
+<script>
+(function() {
+    var grid = document.getElementById('license-card-grid');
+    var search = document.getElementById('license-search');
+    if (!grid || !search) return;
+    var cards = Array.from(grid.querySelectorAll('.license-card'));
+    var t;
+    search.addEventListener('input', function() {
+        clearTimeout(t);
+        t = setTimeout(function() {
+            var q = (search.value || '').trim().toLowerCase();
+            cards.forEach(function(c) {
+                var n = (c.getAttribute('data-name') || '').toLowerCase();
+                c.style.display = (q === '' || n.indexOf(q) >= 0) ? '' : 'none';
+            });
+        }, 80);
+    });
+})();
+</script>
