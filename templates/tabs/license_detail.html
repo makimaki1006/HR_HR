@@ -1,0 +1,167 @@
+{# 資格カルテ 個別ページ #}
+{# 直接アクセス時(base layout経由なし)の Tailwind/CSS 自動補完 #}
+<script>
+(function(){
+  if (!document.querySelector('link[href*="tailwind-precompiled"]')) {
+    ['/static/css/tailwind-precompiled.css','/static/css/dashboard.css'].forEach(function(h){
+      var l=document.createElement('link');l.rel='stylesheet';l.href=h;document.head.appendChild(l);
+    });
+    document.documentElement.classList.add('bg-navy-900');
+    document.body && document.body.classList.add('bg-navy-900','text-gray-100');
+  }
+})();
+</script>
+<div class="space-y-6" id="license-detail-root">
+
+    {# パンくず #}
+    <div class="text-xs text-gray-400">
+        <a href="/tab/license" hx-get="/tab/license" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+           class="hover:text-blue-300">← 資格カルテ 一覧</a>
+    </div>
+
+    {# ヘッダー #}
+    <header class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <div class="text-xs text-gray-500 mb-1">資格・免許</div>
+        <h1 class="text-2xl font-bold text-gray-100">{{ detail.name }}</h1>
+        <p class="text-xs text-gray-400 mt-1">JILPT 職業情報データベースの解説系データに登録されている資格・免許です。</p>
+    </header>
+
+    {# 概要 KPI #}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">概要</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">関連職業数</div>
+                <div class="text-2xl font-bold text-blue-300">{{ detail.stats.occupation_count }}<span class="text-xs text-gray-300 ml-1">職業</span></div>
+                <div class="text-[10px] text-gray-500 mt-1">この資格が必要な JILPT 登録職業</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">年収中央値</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match detail.stats.median_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
+                </div>
+                <div class="text-[10px] text-gray-500 mt-1">{% if detail.stats.wage_target_n > 0 %}賃金センサス対象 n={{ detail.stats.wage_target_n }}{% else %}対象外{% endif %}</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">平均年齢</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match detail.stats.avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
+                </div>
+                <div class="text-[10px] text-gray-500 mt-1">関連職業の平均</div>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <div class="text-xs text-gray-400 mb-1">労働者数 合計</div>
+                <div class="text-2xl font-bold text-blue-300">
+                    {% match detail.stats.total_workers_count_tenfold %}{% when Some with (v) %}<span data-tenfold-to-persons="{{ v }}">—</span><span class="text-xs text-gray-300 ml-1">人</span>{% when None %}—{% endmatch %}
+                </div>
+                <div class="text-[10px] text-gray-500 mt-1">関連職業の合算 (賃金センサス対象)</div>
+            </div>
+        </div>
+    </section>
+
+    {# カテゴリ分布 #}
+    {% if !detail.category_distribution.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-green-500 pl-3">どの業界グループで使われるか</h2>
+        <p class="text-xs text-gray-400 mb-3">関連職業が属するカテゴリ (15 区分) の分布。</p>
+        <div id="chart-license-category" style="width: 100%; height: 280px;"></div>
+    </section>
+    {% endif %}
+
+    {# 関連職業一覧 #}
+    {% if !detail.occupations.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">関連職業 ({{ detail.occupations.len() }} 件)</h2>
+        <p class="text-xs text-gray-400 mb-3">この資格を必要とする職業の一覧。各カードから職種カルテに移動できます。</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {% for o in detail.occupations %}
+            <a href="/tab/driver/{{ o.jobtag_id }}"
+               hx-get="/tab/driver/{{ o.jobtag_id }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+               class="block p-3 bg-gray-900 border border-gray-700 rounded hover:border-blue-500 transition">
+                <div class="text-[10px] text-blue-300 mb-1">{{ o.category }}</div>
+                <div class="text-sm font-bold text-gray-100 leading-tight mb-2 line-clamp-2" title="{{ o.name }}">{{ o.name }}</div>
+                <div class="text-[10px] text-gray-400">
+                    {% match o.annual_salary_man_yen %}{% when Some with (v) %}年収 {{ v }} 万円{% when None %}<span class="text-yellow-500/70">⚠ 賃金データなし</span>{% endmatch %}
+                </div>
+                <div class="text-[10px] text-gray-500">
+                    {% match o.avg_age %}{% when Some with (v) %}平均 {{ v }} 歳{% when None %}—{% endmatch %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {# 共起資格 #}
+    {% if !detail.co_occurring_licenses.is_empty() %}
+    <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
+        <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-amber-500 pl-3">この資格と一緒に必要とされる資格 (TOP 10)</h2>
+        <p class="text-xs text-gray-400 mb-3">同じ職業で必要とされている他の資格。セットで取得すると就ける職業の幅が広がります。</p>
+        <div class="flex flex-wrap gap-2">
+            {% for co in detail.co_occurring_licenses %}
+            <a href="/tab/license/{{ co.0 }}"
+               hx-get="/tab/license/{{ co.0 }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+               class="inline-flex items-center gap-2 px-3 py-1 bg-blue-900/30 hover:bg-blue-900/60 text-blue-200 text-xs rounded-full transition">
+                <span>{{ co.0 }}</span>
+                <span class="text-[10px] text-blue-300/80">共起 {{ co.1 }} 職業</span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {# 出典フッター #}
+    <footer class="text-xs text-gray-500 border-t border-gray-700 pt-4">
+        <p class="font-semibold text-gray-400 mb-1">データ出典</p>
+        <ul class="list-disc pl-5 space-y-0.5">
+            <li>独立行政法人 労働政策研究・研修機構（JILPT）「職業情報データベース 解説系ダウンロードデータ ver.7.01」</li>
+            <li>賃金構造基本統計調査 令和7年 一般労働者 職種 表5（厚生労働省、e-Stat 政府統計コード 00450091）</li>
+        </ul>
+        <p class="mt-2">本ページは社内クローズ環境での職業情報参照を目的として、上記出典の二次利用条件に従って表示しています。</p>
+    </footer>
+</div>
+
+<script>
+(function() {
+    // workers_count_tenfold を ×10 して「人」表示
+    document.querySelectorAll('[data-tenfold-to-persons]').forEach(function(el) {
+        var raw = parseFloat(el.getAttribute('data-tenfold-to-persons'));
+        if (!isNaN(raw)) el.textContent = Math.round(raw * 10).toLocaleString();
+    });
+
+    var categoryDist = {{ category_dist_json|safe }};
+    if (!Array.isArray(categoryDist) || categoryDist.length === 0) return;
+
+    function initChart() {
+        var el = document.getElementById('chart-license-category');
+        if (!el || !window.echarts) return;
+        var sorted = categoryDist.slice().sort(function(a, b) { return a[1] - b[1]; });
+        var names = sorted.map(function(r) { return r[0]; });
+        var data = sorted.map(function(r) { return r[1]; });
+        try {
+            var chart = echarts.init(el);
+            chart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: 140, right: 30, top: 10, bottom: 25 },
+                xAxis: { type: 'value', name: '職業数', axisLabel: { color: '#cbd5e1' } },
+                yAxis: { type: 'category', data: names, axisLabel: { color: '#cbd5e1', width: 130, overflow: 'truncate' } },
+                series: [{
+                    type: 'bar',
+                    data: data,
+                    itemStyle: { color: '#34d399' },
+                    label: { show: true, position: 'right', color: '#a7f3d0', fontSize: 11 }
+                }]
+            });
+            window.addEventListener('resize', function() { chart.resize(); });
+        } catch (e) { console.error('license category chart error', e); }
+    }
+
+    if (window.echarts) { initChart(); }
+    else {
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js';
+        s.onload = initChart;
+        document.head.appendChild(s);
+    }
+})();
+</script>

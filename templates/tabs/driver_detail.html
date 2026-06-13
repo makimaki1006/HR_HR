@@ -240,9 +240,13 @@
     {% if !occupation.qualifications.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">関連する免許・資格</h2>
+        <p class="text-xs text-gray-400 mb-3">資格をクリックすると、その資格を必要とする他の職業や関連指標を確認できます (資格カルテ)。</p>
         <div class="flex flex-wrap gap-2">
             {% for q in occupation.qualifications %}
-            <span class="px-3 py-1 bg-blue-900/30 text-blue-300 text-xs rounded-full">{{ q }}</span>
+            <a href="/tab/license/{{ q }}"
+               hx-get="/tab/license/{{ q }}" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
+               class="px-3 py-1 bg-blue-900/30 hover:bg-blue-900/60 text-blue-300 text-xs rounded-full transition cursor-pointer"
+               title="資格カルテ: {{ q }}">{{ q }}</a>
             {% endfor %}
         </div>
     </section>
