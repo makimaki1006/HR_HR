@@ -65,6 +65,21 @@ pub struct LicenseStats {
     pub total_workers_count_tenfold: Option<f64>,
 }
 
+/// brush-up.jp スクレイピング由来の本文セクション 1 行。
+#[derive(Serialize, Clone, Default)]
+pub struct BrushupSection {
+    pub h2: String,
+    pub body: String,
+}
+
+/// Wikipedia 抜粋 (記事冒頭、CC BY-SA 4.0)。
+#[derive(Serialize, Clone, Default)]
+pub struct WikipediaExtract {
+    pub title: String,
+    pub url: String,
+    pub extract: String,
+}
+
 /// 詳細ページ用まとめ。
 #[derive(Serialize)]
 pub struct LicenseDetail {
@@ -73,6 +88,11 @@ pub struct LicenseDetail {
     pub category_distribution: Vec<(String, i64)>,
     pub co_occurring_licenses: Vec<(String, i64)>,
     pub stats: LicenseStats,
+    // 外部情報源 (Phase B2 で追加、未取得は空 Vec / None)
+    pub brushup_url: String,
+    pub brushup_name: String,
+    pub brushup_sections: Vec<BrushupSection>,
+    pub wikipedia: Option<WikipediaExtract>,
 }
 
 // ───────────────────────── 一覧取得 ─────────────────────────
@@ -203,12 +223,69 @@ pub fn fetch_license_detail(
     // 4. 統計（Rust 側で計算）
     let stats = compute_stats(&occupations);
 
+    // 5. brush-up.jp セクション (テーブル未投入 / 未マッピングでも壊れないよう Result を許容)
+    let (brushup_url, brushup_name, brushup_sections) =
+        fetch_brushup(turso, name).unwrap_or_default();
+
+    // 6. Wikipedia 抜粋
+    let wikipedia = fetch_wikipedia(turso, name).unwrap_or(None);
+
     Ok(Some(LicenseDetail {
         name: name.to_string(),
         occupations,
         category_distribution,
         co_occurring_licenses,
         stats,
+        brushup_url,
+        brushup_name,
+        brushup_sections,
+        wikipedia,
+    }))
+}
+
+/// brush-up.jp 由来の本文セクション一覧 + URL を取得。テーブル無し時は (空, 空, 空 Vec)。
+fn fetch_brushup(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<BrushupSection>), String> {
+    let rows = turso.query(
+        "SELECT brushup_url, brushup_name, section_h2, section_body \
+         FROM v2_external_license_brushup \
+         WHERE jilpt_name = ? \
+         ORDER BY section_order",
+        &[&name.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    if rows.is_empty() {
+        return Ok((String::new(), String::new(), Vec::new()));
+    }
+    let brushup_url = s(&rows[0], "brushup_url");
+    let brushup_name = s(&rows[0], "brushup_name");
+    let sections: Vec<BrushupSection> = rows
+        .iter()
+        .map(|r| BrushupSection {
+            h2: s(r, "section_h2"),
+            body: s(r, "section_body"),
+        })
+        .collect();
+    Ok((brushup_url, brushup_name, sections))
+}
+
+/// Wikipedia 抜粋 1 件取得。テーブル無し / ヒット無しは None。
+fn fetch_wikipedia(turso: &TursoDb, name: &str) -> Result<Option<WikipediaExtract>, String> {
+    let rows = turso.query(
+        "SELECT wikipedia_title, wikipedia_url, extract \
+         FROM v2_external_license_wikipedia \
+         WHERE jilpt_name = ? LIMIT 1",
+        &[&name.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let r = &rows[0];
+    Ok(Some(WikipediaExtract {
+        title: s(r, "wikipedia_title"),
+        url: s(r, "wikipedia_url"),
+        extract: s(r, "extract"),
     }))
 }
 
