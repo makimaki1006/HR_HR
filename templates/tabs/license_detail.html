@@ -144,6 +144,66 @@
         </div>
         {% endif %}
 
+        {# jpsk.jp: H2 セクション (Phase B4) #}
+        {% if !detail.jpsk_sections.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-sky-300">出典: 日本の資格・検定 (jpsk.jp)</h3>
+                <a href="{{ detail.jpsk_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.jpsk_title }} の元ページを開く ↗</a>
+            </div>
+            <div class="space-y-3">
+                {% for sec in detail.jpsk_sections %}
+                <details class="bg-gray-900 border border-gray-700 rounded p-3" {% if loop.index <= 1 %}open{% endif %}>
+                    <summary class="text-sm font-bold text-gray-200 cursor-pointer">{{ sec.h2 }}</summary>
+                    <div class="mt-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ sec.body }}</div>
+                </details>
+                {% endfor %}
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ 横断資格ポータル jpsk.jp の解説ページから引用。</p>
+        </div>
+        {% endif %}
+
+        {# exam.or.jp: 安全衛生技術試験協会 (免許試験) (Phase B4) #}
+        {% if !detail.exam_or_jp_sections.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-orange-300">出典: 公益財団法人 安全衛生技術試験協会 (exam.or.jp)</h3>
+                <a href="{{ detail.exam_or_jp_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.exam_or_jp_title }} の元ページを開く ↗</a>
+            </div>
+            <div class="space-y-3">
+                {% for sec in detail.exam_or_jp_sections %}
+                <details class="bg-gray-900 border border-gray-700 rounded p-3" {% if loop.index <= 1 %}open{% endif %}>
+                    <summary class="text-sm font-bold text-gray-200 cursor-pointer">{{ sec.h2 }}</summary>
+                    <div class="mt-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ sec.body }}</div>
+                </details>
+                {% endfor %}
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ 公的試験団体の公式情報 (受験資格・試験科目・合格基準等)。</p>
+        </div>
+        {% endif %}
+
+        {# anzeninfo.mhlw.go.jp: 厚労省 技能講習 (Phase B4) #}
+        {% if !detail.anzeninfo_sections.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-teal-300">出典: 厚生労働省 安全衛生情報センター (anzeninfo.mhlw.go.jp)</h3>
+                <a href="{{ detail.anzeninfo_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.anzeninfo_title }} の元ページを開く ↗</a>
+            </div>
+            <div class="space-y-3">
+                {% for sec in detail.anzeninfo_sections %}
+                <details class="bg-gray-900 border border-gray-700 rounded p-3" {% if loop.index <= 1 %}open{% endif %}>
+                    <summary class="text-sm font-bold text-gray-200 cursor-pointer">{{ sec.h2 }}</summary>
+                    <div class="mt-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ sec.body }}</div>
+                </details>
+                {% endfor %}
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ 厚労省登録の技能講習 (フォークリフト・玉掛・ガス溶接 等) の公式定義。</p>
+        </div>
+        {% endif %}
+
         {% match detail.wikipedia %}{% when Some with (wiki) %}
         <div class="mb-2">
             <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -156,12 +216,12 @@
         </div>
         {% when None %}{% endmatch %}
 
-        {# 全 5 ソース未ヒットの時のみ「情報未収集」表示 #}
-        {% if detail.brushup_sections.is_empty() && detail.sikaku7_fields.is_empty() && detail.shikakude_sections.is_empty() && detail.ucan_sections.is_empty() %}{% match detail.wikipedia %}{% when None %}
+        {# 全 8 ソース未ヒットの時のみ「情報未収集」表示 #}
+        {% if detail.brushup_sections.is_empty() && detail.sikaku7_fields.is_empty() && detail.shikakude_sections.is_empty() && detail.ucan_sections.is_empty() && detail.jpsk_sections.is_empty() && detail.exam_or_jp_sections.is_empty() && detail.anzeninfo_sections.is_empty() %}{% match detail.wikipedia %}{% when None %}
         <div class="bg-gray-900 border border-gray-700 rounded p-4 text-sm text-gray-400">
             <strong class="text-yellow-300">情報未収集</strong>:
             現時点でこの資格について Web 上から取得できた解説情報はありません。
-            <span class="text-xs text-gray-500 block mt-1">確認したソース: brush-up.jp / sikaku7.com / shikakude.com / u-can.co.jp / Wikipedia 日本語版</span>
+            <span class="text-xs text-gray-500 block mt-1">確認したソース: brush-up.jp / sikaku7.com / shikakude.com / u-can.co.jp / jpsk.jp / exam.or.jp / anzeninfo.mhlw.go.jp / Wikipedia 日本語版 (計 8 ソース)</span>
         </div>
         {% when Some with (_) %}{% endmatch %}{% endif %}
     </section>
