@@ -80,6 +80,20 @@ pub struct WikipediaExtract {
     pub extract: String,
 }
 
+/// sikaku7.com 由来の構造化フィールド (key: value 形式)。
+#[derive(Serialize, Clone, Default)]
+pub struct Sikaku7Field {
+    pub key: String,
+    pub value: String,
+}
+
+/// shikakude / ucan で共有する H2 セクション (brushup と同形式)。
+#[derive(Serialize, Clone, Default)]
+pub struct ExternalSection {
+    pub h2: String,
+    pub body: String,
+}
+
 /// 詳細ページ用まとめ。
 #[derive(Serialize)]
 pub struct LicenseDetail {
@@ -93,6 +107,18 @@ pub struct LicenseDetail {
     pub brushup_name: String,
     pub brushup_sections: Vec<BrushupSection>,
     pub wikipedia: Option<WikipediaExtract>,
+    // sikaku7.com
+    pub sikaku7_url: String,
+    pub sikaku7_title: String,
+    pub sikaku7_fields: Vec<Sikaku7Field>,
+    // shikakude.com
+    pub shikakude_url: String,
+    pub shikakude_title: String,
+    pub shikakude_sections: Vec<ExternalSection>,
+    // u-can.co.jp
+    pub ucan_url: String,
+    pub ucan_title: String,
+    pub ucan_sections: Vec<ExternalSection>,
 }
 
 // ───────────────────────── 一覧取得 ─────────────────────────
@@ -230,6 +256,14 @@ pub fn fetch_license_detail(
     // 6. Wikipedia 抜粋
     let wikipedia = fetch_wikipedia(turso, name).unwrap_or(None);
 
+    // 7. sikaku7 / shikakude / ucan (テーブル未投入時は空 Vec でフォールバック)
+    let (sikaku7_url, sikaku7_title, sikaku7_fields) =
+        fetch_sikaku7(turso, name).unwrap_or_default();
+    let (shikakude_url, shikakude_title, shikakude_sections) =
+        fetch_shikakude(turso, name).unwrap_or_default();
+    let (ucan_url, ucan_title, ucan_sections) =
+        fetch_ucan(turso, name).unwrap_or_default();
+
     Ok(Some(LicenseDetail {
         name: name.to_string(),
         occupations,
@@ -240,6 +274,15 @@ pub fn fetch_license_detail(
         brushup_name,
         brushup_sections,
         wikipedia,
+        sikaku7_url,
+        sikaku7_title,
+        sikaku7_fields,
+        shikakude_url,
+        shikakude_title,
+        shikakude_sections,
+        ucan_url,
+        ucan_title,
+        ucan_sections,
     }))
 }
 
@@ -287,6 +330,87 @@ fn fetch_wikipedia(turso: &TursoDb, name: &str) -> Result<Option<WikipediaExtrac
         url: s(r, "wikipedia_url"),
         extract: s(r, "extract"),
     }))
+}
+
+/// sikaku7.com 由来の構造化フィールド一覧 + URL を取得。テーブル無し時は (空, 空, 空 Vec)。
+fn fetch_sikaku7(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<Sikaku7Field>), String> {
+    let rows = turso.query(
+        "SELECT sikaku7_url, sikaku7_title, field_key, field_value \
+         FROM v2_external_license_sikaku7 \
+         WHERE jilpt_name = ? \
+         ORDER BY field_order",
+        &[&name.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    if rows.is_empty() {
+        return Ok((String::new(), String::new(), Vec::new()));
+    }
+    let url = s(&rows[0], "sikaku7_url");
+    let title = s(&rows[0], "sikaku7_title");
+    let fields = rows
+        .iter()
+        .map(|r| Sikaku7Field {
+            key: s(r, "field_key"),
+            value: s(r, "field_value"),
+        })
+        .collect();
+    Ok((url, title, fields))
+}
+
+/// shikakude.com 由来の H2 セクション一覧 + URL を取得。テーブル無し時は (空, 空, 空 Vec)。
+fn fetch_shikakude(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<ExternalSection>), String> {
+    let rows = turso.query(
+        "SELECT shikakude_url, shikakude_title, section_h2, section_body \
+         FROM v2_external_license_shikakude \
+         WHERE jilpt_name = ? \
+         ORDER BY section_order",
+        &[&name.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    if rows.is_empty() {
+        return Ok((String::new(), String::new(), Vec::new()));
+    }
+    let url = s(&rows[0], "shikakude_url");
+    let title = s(&rows[0], "shikakude_title");
+    let sections = rows
+        .iter()
+        .map(|r| ExternalSection {
+            h2: s(r, "section_h2"),
+            body: s(r, "section_body"),
+        })
+        .collect();
+    Ok((url, title, sections))
+}
+
+/// u-can.co.jp 由来の H2 セクション一覧 + URL を取得。テーブル無し時は (空, 空, 空 Vec)。
+fn fetch_ucan(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<ExternalSection>), String> {
+    let rows = turso.query(
+        "SELECT ucan_url, ucan_title, section_h2, section_body \
+         FROM v2_external_license_ucan \
+         WHERE jilpt_name = ? \
+         ORDER BY section_order",
+        &[&name.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+    )?;
+    if rows.is_empty() {
+        return Ok((String::new(), String::new(), Vec::new()));
+    }
+    let url = s(&rows[0], "ucan_url");
+    let title = s(&rows[0], "ucan_title");
+    let sections = rows
+        .iter()
+        .map(|r| ExternalSection {
+            h2: s(r, "section_h2"),
+            body: s(r, "section_body"),
+        })
+        .collect();
+    Ok((url, title, sections))
 }
 
 /// 関連職業リストから統計を計算する（中央値は Rust 側で算出）。
