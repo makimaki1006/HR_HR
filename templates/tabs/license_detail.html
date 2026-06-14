@@ -82,6 +82,68 @@
         </div>
         {% endif %}
 
+        {# sikaku7.com: 構造化フィールド (key: value 形式) #}
+        {% if !detail.sikaku7_fields.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-emerald-300">出典: 資格図鑑 (sikaku7.com)</h3>
+                <a href="{{ detail.sikaku7_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.sikaku7_title }} の元ページを開く ↗</a>
+            </div>
+            <div class="bg-gray-900 border border-gray-700 rounded p-3">
+                <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+                    {% for fld in detail.sikaku7_fields %}
+                    <div class="flex gap-3">
+                        <dt class="text-emerald-300/80 font-medium min-w-[7em]">{{ fld.key }}</dt>
+                        <dd class="text-gray-300 whitespace-pre-wrap break-words flex-1">{{ fld.value }}</dd>
+                    </div>
+                    {% endfor %}
+                </dl>
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ sikaku7.com の構造化情報からの引用。詳細は元ページをご確認ください。</p>
+        </div>
+        {% endif %}
+
+        {# shikakude.com: H2 セクション (折りたたみ式) #}
+        {% if !detail.shikakude_sections.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-purple-300">出典: 資格の取り方 (shikakude.com)</h3>
+                <a href="{{ detail.shikakude_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.shikakude_title }} の元ページを開く ↗</a>
+            </div>
+            <div class="space-y-3">
+                {% for sec in detail.shikakude_sections %}
+                <details class="bg-gray-900 border border-gray-700 rounded p-3" {% if loop.index <= 1 %}open{% endif %}>
+                    <summary class="text-sm font-bold text-gray-200 cursor-pointer">{{ sec.h2 }}</summary>
+                    <div class="mt-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ sec.body }}</div>
+                </details>
+                {% endfor %}
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ shikakude.com の解説ページから引用。</p>
+        </div>
+        {% endif %}
+
+        {# u-can.co.jp: 講座サイト側の試験概要 #}
+        {% if !detail.ucan_sections.is_empty() %}
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-semibold text-rose-300">出典: ユーキャン (u-can.co.jp)</h3>
+                <a href="{{ detail.ucan_url }}" target="_blank" rel="noopener noreferrer"
+                   class="text-xs text-blue-300 hover:text-blue-200">{{ detail.ucan_title }} の元ページを開く ↗</a>
+            </div>
+            <div class="space-y-3">
+                {% for sec in detail.ucan_sections %}
+                <details class="bg-gray-900 border border-gray-700 rounded p-3" {% if loop.index <= 1 %}open{% endif %}>
+                    <summary class="text-sm font-bold text-gray-200 cursor-pointer">{{ sec.h2 }}</summary>
+                    <div class="mt-3 text-[13px] text-gray-300 leading-7 whitespace-pre-wrap">{{ sec.body }}</div>
+                </details>
+                {% endfor %}
+            </div>
+            <p class="text-[10px] text-gray-500 mt-2">※ ユーキャン (講座サイト) の試験概要ページから引用。</p>
+        </div>
+        {% endif %}
+
         {% match detail.wikipedia %}{% when Some with (wiki) %}
         <div class="mb-2">
             <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -94,12 +156,12 @@
         </div>
         {% when None %}{% endmatch %}
 
-        {% if detail.brushup_sections.is_empty() %}{% match detail.wikipedia %}{% when None %}
+        {# 全 5 ソース未ヒットの時のみ「情報未収集」表示 #}
+        {% if detail.brushup_sections.is_empty() && detail.sikaku7_fields.is_empty() && detail.shikakude_sections.is_empty() && detail.ucan_sections.is_empty() %}{% match detail.wikipedia %}{% when None %}
         <div class="bg-gray-900 border border-gray-700 rounded p-4 text-sm text-gray-400">
             <strong class="text-yellow-300">情報未収集</strong>:
             現時点でこの資格について Web 上から取得できた解説情報はありません。
-            ジョブタグ・brush-up.jp・Wikipedia 日本語版の 3 ソースを確認しましたが、ヒットしませんでした。
-            後日、追加のソース (sikaku7.com / shikakude.com 等) を導入予定です。
+            <span class="text-xs text-gray-500 block mt-1">確認したソース: brush-up.jp / sikaku7.com / shikakude.com / u-can.co.jp / Wikipedia 日本語版</span>
         </div>
         {% when Some with (_) %}{% endmatch %}{% endif %}
     </section>

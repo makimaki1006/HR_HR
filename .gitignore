@@ -134,3 +134,4 @@ data/jobtag_turso_import.sql
 cargo_run.log
 cargo_run.log.err
 data/occupation_middle_pref_turso_import.sql
+data/license_*_turso_import.sql
