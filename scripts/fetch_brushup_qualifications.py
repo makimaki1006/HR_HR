@@ -163,6 +163,54 @@ def fetch_page_sections(url: str) -> list[dict]:
         return _parse_sections_regex(html)
 
 
+def _table_to_text(table_tag) -> str:
+    """<table> を「項目: 値」形式のテキストに変換する。"""
+    lines: list[str] = []
+    for tr in table_tag.find_all('tr'):
+        cells = tr.find_all(['th', 'td'])
+        if not cells:
+            continue
+        if len(cells) == 1:
+            t = cells[0].get_text(separator=' ', strip=True)
+            if t:
+                lines.append(t)
+        elif len(cells) >= 2:
+            key = cells[0].get_text(separator=' ', strip=True)
+            val = ' '.join(c.get_text(separator=' ', strip=True) for c in cells[1:])
+            if key or val:
+                lines.append(f'{key}: {val}')
+    return '\n'.join(lines)
+
+
+def _dl_to_text(dl_tag) -> str:
+    """<dl> を「項目: 値」形式のテキストに変換する。"""
+    lines: list[str] = []
+    current_dt: str = ''
+    for child in dl_tag.children:
+        if not hasattr(child, 'name'):
+            continue
+        if child.name == 'dt':
+            current_dt = child.get_text(separator=' ', strip=True)
+        elif child.name == 'dd':
+            val = child.get_text(separator=' ', strip=True)
+            if current_dt:
+                lines.append(f'{current_dt}: {val}')
+                current_dt = ''
+            elif val:
+                lines.append(val)
+    return '\n'.join(lines)
+
+
+def _li_list_to_text(list_tag) -> str:
+    """<ul>/<ol> を「- 項目」形式のテキストに変換する。"""
+    lines: list[str] = []
+    for li in list_tag.find_all('li', recursive=False):
+        t = li.get_text(separator=' ', strip=True)
+        if t:
+            lines.append(f'- {t}')
+    return '\n'.join(lines)
+
+
 def _parse_sections_bs4(html: str) -> list[dict]:
     soup = BeautifulSoup(html, 'html.parser')
     # 主コンテンツを探す (article, main, #contents 等)
@@ -179,28 +227,80 @@ def _parse_sections_bs4(html: str) -> list[dict]:
     current_h2: str | None = None
     body_parts: list[str] = []
 
-    for tag in main.find_all(['h2', 'h3', 'p', 'li', 'ul', 'ol', 'table']):
+    # table/dl/ul/ol は子要素の重複処理を避けるため先にマーク
+    consumed: set = set()
+
+    def flush_section() -> None:
+        nonlocal current_h2, body_parts
+        if current_h2 is not None:
+            text = '\n'.join(body_parts).strip()
+            if text:
+                sections.append({'h2': current_h2, 'body': text})
+
+    for tag in main.find_all(
+        ['h2', 'h3', 'h4', 'p', 'br', 'li', 'ul', 'ol', 'table', 'dl', 'div'],
+        recursive=True,
+    ):
+        tid = id(tag)
+        if tid in consumed:
+            continue
+
         if tag.name == 'h2':
-            if current_h2 is not None:
-                text = '\n'.join(body_parts).strip()
-                if text:
-                    sections.append({'h2': current_h2, 'body': text})
+            flush_section()
             current_h2 = tag.get_text(separator=' ', strip=True)
             body_parts = []
+
         elif tag.name == 'h3':
             t = tag.get_text(separator=' ', strip=True)
             if t:
                 body_parts.append(f'### {t}')
-        else:
+
+        elif tag.name == 'h4':
             t = tag.get_text(separator=' ', strip=True)
+            if t:
+                body_parts.append(f'#### {t}')
+
+        elif tag.name == 'table':
+            # table 配下の全子孫タグを消費済みにする
+            for desc in tag.find_all(True):
+                consumed.add(id(desc))
+            t = _table_to_text(tag)
+            if t:
+                body_parts.append(t)
+
+        elif tag.name == 'dl':
+            for desc in tag.find_all(True):
+                consumed.add(id(desc))
+            t = _dl_to_text(tag)
+            if t:
+                body_parts.append(t)
+
+        elif tag.name in ('ul', 'ol'):
+            # ネストしたリストは親 ul/ol で処理済み
+            for desc in tag.find_all(True):
+                consumed.add(id(desc))
+            t = _li_list_to_text(tag)
+            if t:
+                body_parts.append(t)
+
+        elif tag.name == 'p':
+            t = tag.get_text(separator='\n', strip=True)
             if t and len(t) > 1:
                 body_parts.append(t)
 
-    if current_h2 is not None:
-        text = '\n'.join(body_parts).strip()
-        if text:
-            sections.append({'h2': current_h2, 'body': text})
+        elif tag.name == 'br':
+            # br タグはそれ自体は空行として処理しない (p/div で改行済み)
+            pass
 
+        elif tag.name == 'div':
+            # div は直接テキストノードのみ取得 (子要素はそれぞれ個別処理)
+            direct_text = ''.join(
+                str(c) for c in tag.children if not hasattr(c, 'name')
+            ).strip()
+            if direct_text and len(direct_text) > 1:
+                body_parts.append(direct_text)
+
+    flush_section()
     return sections
 
 
@@ -244,6 +344,12 @@ def _parse_sections_regex(html: str) -> list[dict]:
 # メイン処理
 # ---------------------------------------------------------------------------
 async def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--force-refresh', action='store_true',
+                        help='キャッシュを無視して全件再取得する')
+    args = parser.parse_args()
+
     base_dir = Path(__file__).resolve().parent.parent
     out_path = base_dir / 'data' / 'generated' / 'brushup_qualifications.json'
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -257,13 +363,15 @@ async def main() -> None:
     # 3. マッチング
     pairs = build_matched_pairs(brush_qual, jilpt)
 
-    # 4. 既存 JSON があれば読み込み (再実行時のスキップ用)
+    # 4. 既存 JSON があれば読み込み (再実行時のスキップ用、--force-refresh 時は無視)
     existing: dict[str, dict] = {}
-    if out_path.exists():
+    if not args.force_refresh and out_path.exists():
         with open(out_path, encoding='utf-8') as f:
             existing_list = json.load(f)
         existing = {item['brushup_url']: item for item in existing_list}
         print(f'[cache] 既存 {len(existing)} 件ロード済み')
+    elif args.force_refresh:
+        print('[cache] --force-refresh: キャッシュを無視して全件再取得します')
 
     # 5. 個別ページ取得 (1秒インターバル)
     results: list[dict] = []
