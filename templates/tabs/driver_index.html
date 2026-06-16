@@ -1,13 +1,14 @@
 {# 職種カルテ 一覧 #}
-{# 直接アクセス時(base layout経由なし)の Tailwind/CSS 自動補完 #}
+{# 直接アクセス時(base layout経由なし)の対応:
+   nav バーが存在しなければトップに ?tab= 付きでリダイレクトしてフルレイアウトで復元する。
+   nav が存在する場合(=HTMX swap)は何もしない。 #}
 <script>
 (function(){
-  if (!document.querySelector('link[href*="tailwind-precompiled"]')) {
-    ['/static/css/tailwind-precompiled.css','/static/css/dashboard.css'].forEach(function(h){
-      var l=document.createElement('link');l.rel='stylesheet';l.href=h;document.head.appendChild(l);
-    });
-    document.documentElement.classList.add('bg-navy-900');
-    document.body && document.body.classList.add('bg-navy-900','text-gray-100');
+  // nav 検出: HTMX swap なら nav が存在する。なければパーシャル直接アクセス → top にリダイレクト
+  if (!document.querySelector('nav')) {
+    var target = location.pathname + location.search;
+    location.replace('/?tab=' + encodeURIComponent(target));
+    return;
   }
 })();
 </script>
