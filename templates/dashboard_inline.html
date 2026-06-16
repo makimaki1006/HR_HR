@@ -184,8 +184,30 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // 2026-05-15: デフォルトタブを 市場概況 → 地図 に変更 (市場概況タブを UI 非表示化したため)
-            htmx.ajax('GET', '/tab/jobmap', {target: '#content', swap: 'innerHTML'});
+            // パーシャル直接アクセス対応 (?tab= で復元):
+            // /tab/driver 等を直接開くとパーシャル HTML だけが返って nav が消えるため、
+            // パーシャル側がトップに ?tab=/tab/driver でリダイレクトしてくる。それを受けて
+            // 対応するタブを active 化 + HTMX swap で復元する。
+            var params = new URLSearchParams(location.search);
+            var requestedTab = params.get('tab');
+            var DEFAULT_TAB = '/tab/jobmap';
+            var targetUrl = DEFAULT_TAB;
+            if (requestedTab && requestedTab.startsWith('/tab/')) {
+                targetUrl = requestedTab;
+                // 該当タブボタンを active 化 (基底パスでマッチ)
+                var basePath = '/' + requestedTab.split('/').slice(1, 3).join('/');
+                document.querySelectorAll('.tab-btn').forEach(function(b) {
+                    var hxGet = b.getAttribute('hx-get') || '';
+                    var isMatch = hxGet === basePath || requestedTab.startsWith(hxGet + '/');
+                    b.classList.toggle('active', isMatch);
+                    if (isMatch) b.setAttribute('aria-selected', 'true');
+                    else b.setAttribute('aria-selected', 'false');
+                });
+                // ?tab= を URL から消す (履歴を汚さない、push でなく replace)
+                var cleanUrl = location.pathname + location.hash;
+                history.replaceState(null, '', cleanUrl);
+            }
+            htmx.ajax('GET', targetUrl, {target: '#content', swap: 'innerHTML'});
 
             // ブレッドクラム更新
             window.updateBreadcrumb = function() {
