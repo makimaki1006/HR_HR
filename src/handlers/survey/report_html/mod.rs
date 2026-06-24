@@ -728,6 +728,11 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     navy_report::render_navy_section_07_lifestyle(&mut html, cfg.hw_context, &target_region, cfg.agg);
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
+    // 2026-06-24: 新 Section 07.5「求人ボックス 年間休日 × 給与 詳細」を再導入。
+    //   求人ボックス CSV の description から年間休日を抽出した個別求人一覧 +
+    //   カテゴリ分布 + 給与帯別 平均年間休日 を表示する。
+    //   Indeed CSV や年間休日抽出ゼロの場合は自動スキップ (HTML 出力なし)。
+    navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
     navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now);
     // 未使用引数の suppress (将来の MarketIntelligence 拡張で使用予定)
     let _ = (
