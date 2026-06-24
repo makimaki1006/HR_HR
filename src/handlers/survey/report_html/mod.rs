@@ -745,6 +745,11 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     );
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
+    // 2026-06-24: 新 Section 07.5「求人ボックス 年間休日 × 給与 詳細」を再導入。
+    //   求人ボックス CSV の description から年間休日を抽出した個別求人一覧 +
+    //   カテゴリ分布 + 給与帯別 平均年間休日 を表示する。
+    //   Indeed CSV や年間休日抽出ゼロの場合は自動スキップ (HTML 出力なし)。
+    navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
     // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を Section 08 直前に挿入。
     //   MI variant のときだけ 6 サブセクション (9-A〜9-F) を追加表示する。
     //   Full / Public variant では関数呼出自体をスキップ → HTML に section タグも出ない。
