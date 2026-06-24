@@ -900,52 +900,139 @@ fn score_job_title(val: &str) -> i32 {
     score
 }
 
-/// descriptionテキストから年間休日数を抽出
-/// パターン: 「年間休日120日」「年間120日」「休日120日」
-/// 80-200の範囲なら有効値として返す
-fn extract_annual_holidays(text: &str) -> Option<i64> {
-    if text.is_empty() {
-        return None;
-    }
+/// 年間休日として妥当な値か (GAS Constants.js:extractAnnualHolidays と統一)
+fn is_valid_annual_holidays(v: i64) -> bool {
+    (70..=99).contains(&v) || (100..=180).contains(&v)
+}
 
-    // パターン1: 「年間休日120日」
-    if let Some(pos) = text.find("年間休日") {
-        let after = &text[pos + "年間休日".len()..];
-        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(v) = num_str.parse::<i64>() {
-            if (80..=200).contains(&v) {
-                return Some(v);
-            }
+/// `text` 中の `keyword` 出現位置直後にある2-3桁数字を抽出する。
+fn try_extract_after(text: &str, keyword: &str) -> Option<i64> {
+    let mut search_from = 0;
+    while let Some(rel_pos) = text[search_from..].find(keyword) {
+        let abs_after = search_from + rel_pos + keyword.len();
+        if abs_after >= text.len() {
+            return None;
         }
-    }
-
-    // パターン2: 「年間120日」（「年間休日」でないケース）
-    if let Some(pos) = text.find("年間") {
-        let after = &text[pos + "年間".len()..];
-        // 「休日」を挟む場合はパターン1で処理済みなのでスキップ
-        if !after.starts_with("休日") {
-            let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let after = &text[abs_after..];
+        let after = after.trim_start_matches(|c: char| {
+            matches!(
+                c,
+                ':' | '：'
+                    | ' '
+                    | '\u{3000}'
+                    | '・'
+                    | '>'
+                    | ']'
+                    | '['
+                    | '<'
+                    | '\t'
+                    | '\n'
+                    | '\r'
+                    | '('
+                    | '（'
+                    | 'は'
+                    | 'が'
+                    | '/'
+                    | '／'
+            )
+        });
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !num_str.is_empty() && num_str.len() <= 3 {
             if let Ok(v) = num_str.parse::<i64>() {
-                if (80..=200).contains(&v) {
+                if is_valid_annual_holidays(v) {
                     return Some(v);
                 }
             }
         }
+        search_from = abs_after;
     }
-
-    // パターン3: 「休日120日」（「年間」なし）
-    if let Some(pos) = text.find("休日") {
-        let after = &text[pos + "休日".len()..];
-        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(v) = num_str.parse::<i64>() {
-            if (80..=200).contains(&v) {
-                return Some(v);
-            }
-        }
-    }
-
     None
 }
+
+/// `text` 中の `keyword` 出現位置直前にある「XX日」を抽出する。
+fn try_extract_before(text: &str, keyword: &str) -> Option<i64> {
+    let key_pos = text.find(keyword)?;
+    let before = &text[..key_pos];
+    let mut day_search_end = before.len();
+    while day_search_end > 0 {
+        let segment = &before[..day_search_end];
+        let day_byte_pos = segment.rfind('日')?;
+        let pre_day = &segment[..day_byte_pos];
+        let tail: String = pre_day
+            .chars()
+            .rev()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if !tail.is_empty() && tail.len() <= 3 {
+            let num_str: String = tail.chars().rev().collect();
+            if let Ok(v) = num_str.parse::<i64>() {
+                if is_valid_annual_holidays(v) {
+                    return Some(v);
+                }
+            }
+        }
+        day_search_end = day_byte_pos;
+    }
+    None
+}
+
+/// description テキストから年間休日数を抽出する。
+///
+/// GAS `Constants.js` の `ANNUAL_HOLIDAYS_PATTERNS` (18 パターン) を網羅 + V2 拡張。
+/// 優先度順に試行し、最初の妥当値 (70-99 or 100-180) を返す。
+fn extract_annual_holidays(text: &str) -> Option<i64> {
+    if text.is_empty() {
+        return None;
+    }
+    const PREFIX_KEYWORDS: &[&str] = &[
+        "年間休日数",
+        "年間休日",
+        "年間休暇",
+        "休日数",
+        "年休",
+        "年間休",
+        "年間",
+    ];
+    for kw in PREFIX_KEYWORDS {
+        if let Some(v) = try_extract_after(text, kw) {
+            return Some(v);
+        }
+    }
+    if text.contains("休日") {
+        let stripped = text.replace("年間休日", "");
+        if let Some(v) = try_extract_after(&stripped, "休日") {
+            return Some(v);
+        }
+    }
+    for kw in &["年間休日", "年間", "年休", "年"] {
+        if let Some(v) = try_extract_before(text, kw) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+/// 年間休日のカテゴリ分類 (GAS `Constants.js:ANNUAL_HOLIDAYS_RANGES` 移植)
+pub fn annual_holidays_category(days: i64) -> &'static str {
+    match days {
+        i64::MIN..=89 => "～89日",
+        90..=104 => "90～104日",
+        105..=119 => "105～119日",
+        120..=124 => "120～124日",
+        125..=129 => "125～129日",
+        _ => "130日～",
+    }
+}
+
+/// 年間休日カテゴリの並び順 (UI 表示用、固定 6 要素)
+pub const ANNUAL_HOLIDAYS_CATEGORIES: [&str; 6] = [
+    "～89日",
+    "90～104日",
+    "105～119日",
+    "120～124日",
+    "125～129日",
+    "130日～",
+];
 
 // =============================================================================
 // 2026-04-26 Fix-A 逆証明テスト (Shift-JIS / UTF-8 BOM / 行レベル重複)
