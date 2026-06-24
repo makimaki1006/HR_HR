@@ -143,6 +143,12 @@ pub(super) use section_07_lifestyle::{
     build_navy_minwage_premium_histogram_svg, label_for_column, render_navy_section_07_lifestyle,
 };
 
+// 2026-06-24: Section 07.5 (求人ボックス 年間休日 × 給与 詳細) を独立モジュールとして追加。
+// 求人ボックス CSV の description から年間休日を抽出した個別求人一覧 +
+// カテゴリ分布 + 給与帯別 平均年間休日 を表示する。Indeed CSV では自動スキップ。
+pub(super) mod section_07_5_jobbox_detail;
+pub(super) use section_07_5_jobbox_detail::render_navy_section_jobbox_detail;
+
 // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を独立モジュールに追加。
 // MarketIntelligence variant のときだけ 6 サブセクションを追加表示する。
 // 旧 `market_intelligence.rs` (handlers/survey/report_html/) は媒体分析タブ画面表示

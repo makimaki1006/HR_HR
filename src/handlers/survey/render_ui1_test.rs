@@ -92,6 +92,11 @@ fn sample_aggregation() -> SurveyAggregation {
         salary_min_values_native: Vec::new(),
         salary_max_values_native: Vec::new(),
         scatter_min_max_native: Vec::new(),
+        // 2026-06-24: Section 07.5 用フィールド (本テストでは空でも UI 描画には影響しない)
+        annual_holidays_values: Vec::new(),
+        annual_holidays_category_distribution: Vec::new(),
+        salary_vs_holidays_scatter: Vec::new(),
+        jobbox_records: Vec::new(),
     }
 }
 
