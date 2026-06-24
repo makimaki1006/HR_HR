@@ -130,6 +130,54 @@ pub struct SurveyAggregation {
     /// IQR 除外前の raw 件数
     #[serde(default)]
     pub salary_values_raw_count: usize,
+
+    // ========================================================================
+    // 2026-06-24 求人ボックス年間休日分析機能 (GAS Aggregator.js 移植 + 拡張)
+    // ========================================================================
+    /// 抽出に成功した年間休日値の生データ (求人ボックスCSV のみ)
+    /// `upload::extract_annual_holidays` の戻り値 (Some) を全部集めたもの。
+    /// 70-180 の妥当範囲のみが格納されている。
+    #[serde(default)]
+    pub annual_holidays_values: Vec<i64>,
+    /// 年間休日カテゴリ分布 (`upload::ANNUAL_HOLIDAYS_CATEGORIES` 順)
+    /// 例: `[("～89日", 12), ("90～104日", 30), ("105～119日", 80), ("120～124日", 50), ...]`
+    #[serde(default)]
+    pub annual_holidays_category_distribution: Vec<(String, usize)>,
+    /// 給与×年間休日 散布図データ
+    /// x = 月給換算 (円)、y = 年間休日 (日)。月給/年俸換算のみ (時給は除外)。
+    #[serde(default)]
+    pub salary_vs_holidays_scatter: Vec<ScatterPoint>,
+    /// 個別求人レコード一覧 (求人ボックスCSV のみ、年間休日抽出成功分)
+    /// 「企業名×年間休日×給与×URL」テーブル用。
+    #[serde(default)]
+    pub jobbox_records: Vec<JobBoxRecord>,
+}
+
+/// 求人ボックス個別求人レコード (年間休日抽出成功分のみ)
+///
+/// GAS には存在しない V2 独自拡張。媒体分析タブで「企業名×年間休日×給与」を
+/// 個別求人粒度で確認したいというユーザー要望 (2026-06-24) に応える。
+///
+/// # 表示順
+/// `annual_holidays` 降順 → `company_name` 昇順 でソート想定 (UI 側でソート可能)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JobBoxRecord {
+    pub company_name: String,
+    pub job_title: String,
+    pub location: String,
+    /// 雇用形態 (例: "正社員" / "パート")
+    pub employment_type: String,
+    /// 年間休日数 (70-180)
+    pub annual_holidays: i64,
+    /// 給与下限 (円、ネイティブ単位)
+    pub salary_min: Option<i64>,
+    /// 給与上限 (円、ネイティブ単位)
+    pub salary_max: Option<i64>,
+    /// 給与単位ラベル ("月給" / "時給" / "年俸" / "日給" / "週給")
+    pub salary_unit: String,
+    /// 給与の原文 (パース失敗時のフォールバック表示用)
+    pub salary_raw: String,
+    pub url: Option<String>,
 }
 
 /// 雇用形態グループ別 ネイティブ単位集計
@@ -566,6 +614,79 @@ fn aggregate_records_core(
     by_municipality_salary.sort_by(|a, b| b.count.cmp(&a.count));
     by_municipality_salary.truncate(15);
 
+    // ============================================================
+    // 2026-06-24 年間休日 / 求人ボックス個別求人 集計
+    // GAS Aggregator.js:createAnnualHolidaysAggregation 移植 + V2 拡張
+    // ============================================================
+    use super::salary_parser::SalaryType as ST;
+    use super::upload::{annual_holidays_category, CsvSource, ANNUAL_HOLIDAYS_CATEGORIES};
+
+    // 1. 年間休日値の集合 (妥当値のみ。70-180 範囲は extract 側で保証済み)
+    let annual_holidays_values: Vec<i64> = records.iter().filter_map(|r| r.annual_holidays).collect();
+
+    // 2. カテゴリ分布 (UI 表示順を保証するため Vec で固定順)
+    let annual_holidays_category_distribution: Vec<(String, usize)> = {
+        let mut counts: std::collections::HashMap<&'static str, usize> =
+            ANNUAL_HOLIDAYS_CATEGORIES.iter().map(|&c| (c, 0)).collect();
+        for &v in &annual_holidays_values {
+            *counts.entry(annual_holidays_category(v)).or_insert(0) += 1;
+        }
+        ANNUAL_HOLIDAYS_CATEGORIES
+            .iter()
+            .map(|&cat| (cat.to_string(), counts.get(cat).copied().unwrap_or(0)))
+            .collect()
+    };
+
+    // 3. 給与×年間休日 散布図: 月給/年俸のみ (時給/日給/週給は単位差で除外)
+    //    x = 月給換算 (年俸は ÷12)、y = 年間休日
+    let salary_vs_holidays_scatter: Vec<ScatterPoint> = records
+        .iter()
+        .filter_map(|r| {
+            let holidays = r.annual_holidays?;
+            let min_val = r.salary_parsed.min_value?;
+            let monthly = match r.salary_parsed.salary_type {
+                ST::Monthly => min_val,
+                ST::Annual => min_val / 12,
+                _ => return None,
+            };
+            Some(ScatterPoint { x: monthly, y: holidays })
+        })
+        .collect();
+
+    // 4. 個別求人レコード (求人ボックスのみ、年間休日抽出成功分)
+    //    年間休日降順、同値時は企業名昇順でソート (UI 側で再ソート可能)
+    let mut jobbox_records: Vec<JobBoxRecord> = records
+        .iter()
+        .filter(|r| matches!(r.source, CsvSource::JobBox))
+        .filter_map(|r| {
+            let holidays = r.annual_holidays?;
+            let unit = match r.salary_parsed.salary_type {
+                ST::Hourly => "時給",
+                ST::Daily => "日給",
+                ST::Weekly => "週給",
+                ST::Monthly => "月給",
+                ST::Annual => "年俸",
+            };
+            Some(JobBoxRecord {
+                company_name: r.company_name.clone(),
+                job_title: r.job_title.clone(),
+                location: r.location_raw.clone(),
+                employment_type: r.employment_type.clone(),
+                annual_holidays: holidays,
+                salary_min: r.salary_parsed.min_value,
+                salary_max: r.salary_parsed.max_value,
+                salary_unit: unit.to_string(),
+                salary_raw: r.salary_raw.clone(),
+                url: r.url.clone(),
+            })
+        })
+        .collect();
+    jobbox_records.sort_by(|a, b| {
+        b.annual_holidays
+            .cmp(&a.annual_holidays)
+            .then_with(|| a.company_name.cmp(&b.company_name))
+    });
+
     SurveyAggregation {
         total_count: total,
         new_count,
@@ -592,6 +713,10 @@ fn aggregate_records_core(
         by_emp_group_native: aggregate_by_emp_group_native(records),
         outliers_removed_total,
         salary_values_raw_count: salary_values_raw.len(),
+        annual_holidays_values,
+        annual_holidays_category_distribution,
+        salary_vs_holidays_scatter,
+        jobbox_records,
     }
 }
 
