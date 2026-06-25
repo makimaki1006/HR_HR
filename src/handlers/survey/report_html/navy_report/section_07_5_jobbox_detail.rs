@@ -138,19 +138,18 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
              (年間休日降順)</div>\n",
         );
         // 各列の幅を固定して縦長を抑制 (table-layout: fixed)
+        // 2026-06-25 企業名列を撤去 (元データ約25%空欄で信頼性低)
         html.push_str(
             "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
              <colgroup>\
+             <col style=\"width:42%;\">\
              <col style=\"width:20%;\">\
-             <col style=\"width:28%;\">\
-             <col style=\"width:18%;\">\
              <col style=\"width:8%;\">\
              <col style=\"width:8%;\">\
-             <col style=\"width:9%;\">\
-             <col style=\"width:9%;\">\
+             <col style=\"width:11%;\">\
+             <col style=\"width:11%;\">\
              </colgroup>\n\
              <thead><tr>\
-             <th>企業名</th>\
              <th>求人タイトル</th>\
              <th>勤務地</th>\
              <th>雇用</th>\
@@ -168,11 +167,8 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                 .salary_max
                 .map(|v| format!("{} 円", format_number(v)))
                 .unwrap_or_else(|| "-".to_string());
-            // word-break: keep-all で英数字は途中改行しない (URL 除去済みなので主に日本語)
-            // overflow-wrap: anywhere で長すぎる文字列は折り返す
             html.push_str(&format!(
                 "<tr>\
-                 <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
                  <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{title}</td>\
                  <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{loc}</td>\
                  <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{emp}</td>\
@@ -180,7 +176,6 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                  <td style=\"text-align:right;\">{smin}</td>\
                  <td style=\"text-align:right;\">{smax}</td>\
                  </tr>\n",
-                company = escape_html(&rec.company_name),
                 title = escape_html(&rec.job_title),
                 loc = escape_html(&rec.location),
                 emp = escape_html(&rec.employment_type),
@@ -192,7 +187,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         html.push_str("</tbody></table>\n");
         if total_jobbox > limit {
             html.push_str(&format!(
-                "<p class=\"note\">全 {} 件のうち上位 {} 件を表示中 (年間休日降順 → 企業名昇順)。</p>\n",
+                "<p class=\"note\">全 {} 件のうち上位 {} 件を表示中 (年間休日降順)。</p>\n",
                 format_number(total_jobbox as i64),
                 format_number(limit as i64),
             ));
@@ -387,7 +382,12 @@ mod tests {
             html.contains("年間休日 × 給与 詳細"),
             "title without jobbox keyword"
         );
-        assert!(html.contains("テスト株式会社"), "company name rendered");
+        // 2026-06-25 企業名列撤去 (元データ約25%空欄で信頼性低)
+        assert!(!html.contains("<th>企業名</th>"), "company column removed");
+        assert!(
+            html.contains("ドライバー"),
+            "job_title rendered (個別求人テーブル)"
+        );
         assert!(html.contains("120 日"), "annual holidays value rendered");
         assert!(html.contains("250,000 円"), "salary_min rendered");
         // URL 列削除済み - href 含まない
