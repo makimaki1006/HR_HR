@@ -14,7 +14,19 @@ use super::common::push_page_head;
 ///
 /// `agg.jobbox_records` と `agg.annual_holidays_values` の両方が空ならスキップ。
 pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyAggregation) {
+    // 2026-06-26 診断コメント (本番で Section 07.5 が表示されない問題の原因特定用)
+    html.push_str(&format!(
+        "<!-- SEC075 DIAG v2: total_count={}, ahv.len={}, jbr.len={}, scatter.len={}, cat.len={}, by_company={} -->\n",
+        agg.total_count,
+        agg.annual_holidays_values.len(),
+        agg.jobbox_records.len(),
+        agg.salary_vs_holidays_scatter.len(),
+        agg.annual_holidays_category_distribution.len(),
+        agg.by_company.len(),
+    ));
+
     if agg.annual_holidays_values.is_empty() && agg.jobbox_records.is_empty() {
+        html.push_str("<!-- SEC075 SKIPPED: both ahv and jbr empty -->\n");
         return;
     }
 
