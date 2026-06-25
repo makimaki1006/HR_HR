@@ -234,10 +234,12 @@ fn render_scatter_svg(html: &mut String, points: &[(i64, i64)]) {
     let x_to_px = |x: i64| -> i64 { margin_l + ((x - x_min).max(0) * plot_w) / x_range };
     let y_to_px = |y: i64| -> i64 { margin_t + plot_h - ((y - y_min).max(0) * plot_h) / y_range };
 
+    // 2026-06-25 配色変更: 暗い navy 背景 → 白系背景 (印刷物・本文との調和)
+    //   背景: #ffffff、グリッド: #e5e7eb、軸: #475569、ラベル: #334155、プロット: navy #1e3a8a
     html.push_str(&format!(
         "<svg viewBox=\"0 0 {w} {h}\" preserveAspectRatio=\"xMidYMid meet\" \
-         style=\"width:100%;max-width:720px;height:auto;background:#0a1430;\
-         border:1px solid #1e3a8a;border-radius:4px;display:block;margin:8px 0;\" \
+         style=\"width:100%;max-width:720px;height:auto;background:#ffffff;\
+         border:1px solid #cbd5e1;border-radius:4px;display:block;margin:8px 0;\" \
          role=\"img\" aria-label=\"月給×年間休日 散布図\">\n"
     ));
 
@@ -246,12 +248,12 @@ fn render_scatter_svg(html: &mut String, points: &[(i64, i64)]) {
         let py = y_to_px(y_val);
         html.push_str(&format!(
             "<line x1=\"{}\" y1=\"{py}\" x2=\"{}\" y2=\"{py}\" \
-             stroke=\"#374151\" stroke-dasharray=\"2,3\"/>\n",
+             stroke=\"#e5e7eb\" stroke-dasharray=\"2,3\"/>\n",
             margin_l,
             margin_l + plot_w,
         ));
         html.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#d1d5db\" text-anchor=\"end\">{y_val}日</text>\n",
+            "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#334155\" text-anchor=\"end\">{y_val}日</text>\n",
             margin_l - 6,
             py + 4,
         ));
@@ -271,41 +273,41 @@ fn render_scatter_svg(html: &mut String, points: &[(i64, i64)]) {
         let px = x_to_px(*x_val);
         html.push_str(&format!(
             "<line x1=\"{px}\" y1=\"{}\" x2=\"{px}\" y2=\"{}\" \
-             stroke=\"#374151\" stroke-dasharray=\"2,3\"/>\n",
+             stroke=\"#e5e7eb\" stroke-dasharray=\"2,3\"/>\n",
             margin_t,
             margin_t + plot_h,
         ));
         html.push_str(&format!(
-            "<text x=\"{px}\" y=\"{}\" font-size=\"10\" fill=\"#d1d5db\" text-anchor=\"middle\">{}万</text>\n",
+            "<text x=\"{px}\" y=\"{}\" font-size=\"10\" fill=\"#334155\" text-anchor=\"middle\">{}万</text>\n",
             margin_t + plot_h + 14,
             x_val / 10_000,
         ));
     }
     // 軸線
     html.push_str(&format!(
-        "<line x1=\"{margin_l}\" y1=\"{margin_t}\" x2=\"{margin_l}\" y2=\"{}\" stroke=\"#6b7280\" stroke-width=\"1\"/>\n",
+        "<line x1=\"{margin_l}\" y1=\"{margin_t}\" x2=\"{margin_l}\" y2=\"{}\" stroke=\"#475569\" stroke-width=\"1\"/>\n",
         margin_t + plot_h,
     ));
     html.push_str(&format!(
-        "<line x1=\"{margin_l}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#6b7280\" stroke-width=\"1\"/>\n",
+        "<line x1=\"{margin_l}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#475569\" stroke-width=\"1\"/>\n",
         margin_t + plot_h,
         margin_l + plot_w,
         margin_t + plot_h,
     ));
     // 軸ラベル
     html.push_str(&format!(
-        "<text x=\"{}\" y=\"{}\" font-size=\"11\" fill=\"#9ca3af\" text-anchor=\"middle\">月給</text>\n",
+        "<text x=\"{}\" y=\"{}\" font-size=\"11\" fill=\"#475569\" text-anchor=\"middle\">月給</text>\n",
         margin_l + plot_w / 2,
         h - 8,
     ));
     let y_label_x = 15;
     let y_label_y = margin_t + plot_h / 2;
     html.push_str(&format!(
-        "<text x=\"{y_label_x}\" y=\"{y_label_y}\" font-size=\"11\" fill=\"#9ca3af\" \
+        "<text x=\"{y_label_x}\" y=\"{y_label_y}\" font-size=\"11\" fill=\"#475569\" \
          text-anchor=\"middle\" transform=\"rotate(-90 {y_label_x} {y_label_y})\">年間休日 (日)</text>\n",
     ));
 
-    // データプロット (半透明青)
+    // データプロット (navy 色、白背景上で視認性良好)
     for (x, y) in points {
         if *x < x_min || *x > x_max || *y < y_min || *y > y_max {
             continue;
@@ -313,13 +315,13 @@ fn render_scatter_svg(html: &mut String, points: &[(i64, i64)]) {
         let px = x_to_px(*x);
         let py = y_to_px(*y);
         html.push_str(&format!(
-            "<circle cx=\"{px}\" cy=\"{py}\" r=\"3\" fill=\"#3b82f6\" opacity=\"0.6\"/>\n"
+            "<circle cx=\"{px}\" cy=\"{py}\" r=\"3.5\" fill=\"#1e3a8a\" opacity=\"0.65\"/>\n"
         ));
     }
 
     // 件数表示 (右上)
     html.push_str(&format!(
-        "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#9ca3af\" text-anchor=\"end\">n = {}</text>\n",
+        "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#64748b\" text-anchor=\"end\">n = {}</text>\n",
         margin_l + plot_w - 4,
         margin_t + 12,
         points.len(),
