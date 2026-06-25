@@ -100,12 +100,14 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
             .unwrap_or(1)
             .max(1);
         html.push_str("<div class=\"block-title\">表 7.5-A &nbsp;年間休日カテゴリ分布</div>\n");
-        html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+        html.push_str(
+            "<table class=\"table-navy\">\n<thead><tr>\
                        <th>カテゴリ</th>\
                        <th style=\"text-align:right;\">件数</th>\
                        <th style=\"text-align:right;\">構成比</th>\
                        <th style=\"width:40%;\">分布バー (最大値比)</th>\
-                       </tr></thead>\n<tbody>\n");
+                       </tr></thead>\n<tbody>\n",
+        );
         for (label, count) in &agg.annual_holidays_category_distribution {
             let pct_max = (*count as f64 / max_count as f64) * 100.0;
             let pct_total = (*count as f64 / extracted as f64) * 100.0;
@@ -141,12 +143,14 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                 "<div class=\"block-title\">表 7.5-B &nbsp;給与帯別 平均年間休日 \
                  (月給/年俸のみ、5万円刻み)</div>\n",
             );
-            html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+            html.push_str(
+                "<table class=\"table-navy\">\n<thead><tr>\
                            <th>月給帯</th>\
                            <th style=\"text-align:right;\">件数</th>\
                            <th style=\"text-align:right;\">平均年間休日</th>\
                            <th style=\"text-align:right;\">中央値</th>\
-                           </tr></thead>\n<tbody>\n");
+                           </tr></thead>\n<tbody>\n",
+            );
             for (bin, holidays) in &bins {
                 let avg = (holidays.iter().sum::<i64>() as f64) / (holidays.len() as f64);
                 let med = compute_median_i64(holidays);
@@ -183,7 +187,8 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
             "<p class=\"so-what\">企業名・求人タイトル・勤務地・雇用形態・年間休日・\
              給与下限/上限・URL を並列表示。GAS には無い V2 独自機能。</p>\n",
         );
-        html.push_str("<table class=\"table-navy\">\n<thead><tr>\
+        html.push_str(
+            "<table class=\"table-navy\">\n<thead><tr>\
                        <th>企業名</th>\
                        <th>求人タイトル</th>\
                        <th>勤務地</th>\
@@ -193,7 +198,8 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                        <th style=\"text-align:right;\">給与上限</th>\
                        <th>単位</th>\
                        <th>URL</th>\
-                       </tr></thead>\n<tbody>\n");
+                       </tr></thead>\n<tbody>\n",
+        );
         for rec in &agg.jobbox_records[..limit] {
             let url_cell = match rec.url.as_deref() {
                 Some(u) if u.starts_with("http://") || u.starts_with("https://") => format!(
@@ -264,8 +270,8 @@ fn compute_median_i64(values: &[i64]) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::super::super::aggregator::JobBoxRecord;
+    use super::*;
 
     fn agg_with_jobbox() -> SurveyAggregation {
         SurveyAggregation {
