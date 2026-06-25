@@ -732,11 +732,34 @@ fn aggregate_records_core(
         })
         .collect();
 
+    // 2026-06-25 重複排除: company + title + location を空白・句読点除去して正規化したキーで一意化
+    //   実 CSV (求人ボックス) で同一求人が複数ページ収集されて重複していたため。
+    //   upload.rs 側の Fix-A dedupe は raw 文字列 hash なので、句読点差異
+    //   (例: "／月収30万円以上も可「ルート配送」" vs " 月収30万円以上も可! ルート配送")
+    //   を吸収できない。Section 07.5 用に追加 dedupe を入れる。
+    fn normalize_for_dedup(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect()
+    }
+    let mut seen_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut jobbox_records: Vec<JobBoxRecord> = records
         .iter()
         .filter(|r| matches!(r.source, CsvSource::JobBox))
         .filter_map(|r| {
             let holidays = r.annual_holidays?;
+            // 重複排除キー: 正規化 (company + title + location) + 年間休日
+            let dedup_key = format!(
+                "{}|{}|{}|{}",
+                normalize_for_dedup(&r.company_name),
+                normalize_for_dedup(&r.job_title),
+                normalize_for_dedup(&r.location_raw),
+                holidays,
+            );
+            if !seen_keys.insert(dedup_key) {
+                return None;
+            }
             let unit = match r.salary_parsed.salary_type {
                 ST::Hourly => "時給",
                 ST::Daily => "日給",
@@ -744,8 +767,14 @@ fn aggregate_records_core(
                 ST::Monthly => "月給",
                 ST::Annual => "年俸",
             };
+            // 会社名が空の場合 (CSV パース失敗 or 元データ欠落) は明示表示
+            let company_display = if r.company_name.trim().is_empty() {
+                "(企業名不明)".to_string()
+            } else {
+                r.company_name.clone()
+            };
             Some(JobBoxRecord {
-                company_name: r.company_name.clone(),
+                company_name: company_display,
                 job_title: r.job_title.clone(),
                 location: r.location_raw.clone(),
                 employment_type: r.employment_type.clone(),
