@@ -502,6 +502,7 @@ fn build_column_map(
                 }
             }
             CsvSource::JobBox => {
+                // 日本語ベース判定 (Excel エクスポート / 手作業整形 CSV 用)
                 if h.contains("職種") || h.contains("求人名") {
                     map.insert("job_title", i);
                 }
@@ -528,6 +529,45 @@ fn build_column_map(
                 }
                 if h.contains("詳細") || h.contains("仕事内容") || h.contains("休日") {
                     map.insert("description", i);
+                }
+
+                // CSS クラス名ベース判定 (求人ボックスのスクレイピングツール出力)
+                // ヘッダ例: p-result_title_link href, p-result_name, p-result_company,
+                //           c-icon, c-icon (2), p-result_lines,
+                //           p-result_tag_feature--ver2, p-result_new, p-em_kwd, ...
+                // 2026-06-25 追加: テストCSV (xn--pckua2a7gp15o89zb-*.csv) で description が
+                //   取れず Section 07.5 の年間休日抽出が全件失敗していたため、CSS クラス名対応を追加。
+                //   既存日本語判定は維持 (既に map に入っていれば上書きしない)。
+                if h == "p-result_title_link href" && !map.contains_key("url") {
+                    map.insert("url", i);
+                }
+                if h == "p-result_name" && !map.contains_key("job_title") {
+                    map.insert("job_title", i);
+                }
+                if h == "p-result_company" && !map.contains_key("company_name") {
+                    map.insert("company_name", i);
+                }
+                if h == "c-icon" && !map.contains_key("location") {
+                    map.insert("location", i);
+                }
+                if h == "c-icon (2)" && !map.contains_key("salary") {
+                    map.insert("salary", i);
+                }
+                if h == "c-icon (3)" && !map.contains_key("employment_type") {
+                    map.insert("employment_type", i);
+                }
+                if h == "p-result_lines" && !map.contains_key("description") {
+                    map.insert("description", i);
+                }
+                if h == "p-result_new" && !map.contains_key("is_new") {
+                    map.insert("is_new", i);
+                }
+                // 特徴タグ (複数列) / 検索キーワードハイライト の最初の列だけ採用
+                if h.starts_with("p-result_tag_feature") && !map.contains_key("tags") {
+                    map.insert("tags", i);
+                }
+                if h.starts_with("p-em_kwd") && !map.contains_key("tags") {
+                    map.insert("tags", i);
                 }
             }
             CsvSource::Unknown => {
