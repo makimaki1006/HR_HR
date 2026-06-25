@@ -700,7 +700,8 @@ fn aggregate_records_core(
     use super::salary_parser::SalaryType as ST;
     use super::upload::{annual_holidays_category, CsvSource, ANNUAL_HOLIDAYS_CATEGORIES};
 
-    let annual_holidays_values: Vec<i64> = records.iter().filter_map(|r| r.annual_holidays).collect();
+    let annual_holidays_values: Vec<i64> =
+        records.iter().filter_map(|r| r.annual_holidays).collect();
 
     let annual_holidays_category_distribution: Vec<(String, usize)> = {
         let mut counts: std::collections::HashMap<&'static str, usize> =
@@ -724,7 +725,10 @@ fn aggregate_records_core(
                 ST::Annual => min_val / 12,
                 _ => return None,
             };
-            Some(ScatterPoint { x: monthly, y: holidays })
+            Some(ScatterPoint {
+                x: monthly,
+                y: holidays,
+            })
         })
         .collect();
 
