@@ -1,57 +1,20 @@
-//! Section 07.5 - 求人ボックス 年間休日 × 給与 詳細 (2026-06-24 追加)
+//! Section 07.5 - 年間休日 × 給与 詳細 (2026-06-24 追加、2026-06-25 UI 改善)
 //!
 //! 求人ボックス CSV の `p-result_lines` (description) から年間休日を抽出し、
-//! ① カテゴリ分布 ② 給与帯別 平均年間休日 ③ 企業名×年間休日×給与 個別求人一覧
+//! ① カテゴリ分布 ② 給与×年間休日 散布図 ③ 企業名×年間休日×給与 個別求人一覧
 //! の 3 ブロックを Section 07 (Lifestyle) と Section 08 (Notes) の間に挿入する。
-//!
-//! 移植元: Google Apps Script `Aggregator.js:createAnnualHolidaysAggregation` +
-//!         `ApiHandler.js:annualHolidaysData` セクション。
-//! GAS には無い「個別求人一覧」(表 7.5-C) は V2 独自拡張 (ユーザー要望 2026-06-24)。
-//!
-//! 適用条件:
-//!   - Indeed CSV (年間休日カラムなし) では `agg.annual_holidays_values` が空 → 自動スキップ
-//!   - 求人ボックス CSV で 1 件でも年間休日が抽出されていれば表示
 
 #![allow(dead_code)]
 
-// パス解析 (現在位置: survey::report_html::navy_report::section_07_5_jobbox_detail):
-//   super              = navy_report
-//   super::super       = report_html
-//   super::super::super = survey
-//   super::super::super::super = handlers
 use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::aggregator::SurveyAggregation;
 use super::common::push_page_head;
 
-/// 求人ボックス 年間休日 × 給与 詳細セクションを描画。
+/// 年間休日 × 給与 詳細セクションを描画。
 ///
 /// `agg.jobbox_records` と `agg.annual_holidays_values` の両方が空ならスキップ。
 pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyAggregation) {
-    // 診断用 HTML コメント: 関数呼出の確証 + 早期 return 判定の可視化
-    // (本番で Section 07.5 が表示されない原因切り分け用、2026-06-25)
-    html.push_str(&format!(
-        "<!-- Section 07.5 DIAG: total_count={}, annual_holidays_values.len={}, jobbox_records.len={}, salary_vs_holidays_scatter.len={}, category_distribution.len={} -->\n",
-        agg.total_count,
-        agg.annual_holidays_values.len(),
-        agg.jobbox_records.len(),
-        agg.salary_vs_holidays_scatter.len(),
-        agg.annual_holidays_category_distribution.len(),
-    ));
-    // 診断 2: SurveyAggregation の他フィールド (集計の代理指標)
-    //   by_company が 0 = source 判定や CSV 解釈が失敗、salary_min_values が 0 = 給与パース失敗、等を切り分け
-    html.push_str(&format!(
-        "<!-- Section 07.5 DIAG-2: by_company.len={}, by_emp_type_salary.len={}, salary_min_values.len={}, by_prefecture.len={}, salary_values.len={}, dominant_pref={:?}, dominant_muni={:?} -->\n",
-        agg.by_company.len(),
-        agg.by_emp_type_salary.len(),
-        agg.salary_min_values.len(),
-        agg.by_prefecture.len(),
-        agg.salary_values.len(),
-        agg.dominant_prefecture,
-        agg.dominant_municipality,
-    ));
-
     if agg.annual_holidays_values.is_empty() && agg.jobbox_records.is_empty() {
-        html.push_str("<!-- Section 07.5 SKIPPED: both annual_holidays_values and jobbox_records are empty -->\n");
         return;
     }
 
@@ -59,8 +22,8 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     push_page_head(
         html,
         "SECTION 07.5",
-        "求人ボックス 年間休日 × 給与 詳細",
-        "求人ボックスCSV の description テキストから年間休日数を抽出し、企業別 / 給与帯別に分析",
+        "年間休日 × 給与 詳細",
+        "テキストから年間休日数を抽出し、給与・企業別に集計 (求人ボックスCSV 対応)",
     );
 
     let total_records = agg.total_count;
@@ -149,53 +112,20 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
             ));
         }
         html.push_str("</tbody></table>\n");
-        html.push_str(
-            "<p class=\"so-what\">120 日以上 (週休2日+祝日相当) の比率が高いほど、\
-             公休面で魅力的な求人が多い市場と言えます。</p>\n",
-        );
     }
 
-    // -- 表 7.5-B 給与帯別 平均年間休日 (月給/年俸 のみ、5万円刻みビン)
+    // -- 図 7.5-B 月給 × 年間休日 散布図 (SVG)
     if !agg.salary_vs_holidays_scatter.is_empty() {
-        let mut bins: std::collections::BTreeMap<i64, Vec<i64>> = std::collections::BTreeMap::new();
-        for p in &agg.salary_vs_holidays_scatter {
-            let bin = (p.x / 50_000) * 50_000;
-            bins.entry(bin).or_default().push(p.y);
-        }
-        if !bins.is_empty() {
-            html.push_str(
-                "<div class=\"block-title\">表 7.5-B &nbsp;給与帯別 平均年間休日 \
-                 (月給/年俸のみ、5万円刻み)</div>\n",
-            );
-            html.push_str(
-                "<table class=\"table-navy\">\n<thead><tr>\
-                           <th>月給帯</th>\
-                           <th style=\"text-align:right;\">件数</th>\
-                           <th style=\"text-align:right;\">平均年間休日</th>\
-                           <th style=\"text-align:right;\">中央値</th>\
-                           </tr></thead>\n<tbody>\n",
-            );
-            for (bin, holidays) in &bins {
-                let avg = (holidays.iter().sum::<i64>() as f64) / (holidays.len() as f64);
-                let med = compute_median_i64(holidays);
-                html.push_str(&format!(
-                    "<tr><td>月給 {} 万〜</td>\
-                     <td style=\"text-align:right;\">{}</td>\
-                     <td style=\"text-align:right;\">{:.1} 日</td>\
-                     <td style=\"text-align:right;\">{} 日</td></tr>\n",
-                    bin / 10_000,
-                    holidays.len(),
-                    avg,
-                    med,
-                ));
-            }
-            html.push_str("</tbody></table>\n");
-            html.push_str(
-                "<p class=\"so-what\">給与水準と年間休日の関係を確認できます。\
-                 一般に給与帯が上がるほど年間休日も増える傾向がありますが、\
-                 業種・職種により例外があります (相関 ≠ 因果)。</p>\n",
-            );
-        }
+        html.push_str(
+            "<div class=\"block-title\">図 7.5-B &nbsp;月給 × 年間休日 散布図 \
+             (月給/年俸のみ)</div>\n",
+        );
+        let points: Vec<(i64, i64)> = agg
+            .salary_vs_holidays_scatter
+            .iter()
+            .map(|p| (p.x, p.y))
+            .collect();
+        render_scatter_svg(html, &points);
     }
 
     // -- 表 7.5-C 個別求人一覧 (年間休日抽出成功分)
@@ -205,33 +135,31 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         let limit = total_jobbox.min(TABLE_LIMIT);
         html.push_str(
             "<div class=\"block-title\">表 7.5-C &nbsp;個別求人一覧 \
-             (年間休日抽出成功分、年間休日降順)</div>\n",
+             (年間休日降順)</div>\n",
         );
+        // 各列の幅を固定して縦長を抑制 (table-layout: fixed)
         html.push_str(
-            "<p class=\"so-what\">企業名・求人タイトル・勤務地・雇用形態・年間休日・\
-             給与下限/上限・URL を並列表示。GAS には無い V2 独自機能。</p>\n",
-        );
-        html.push_str(
-            "<table class=\"table-navy\">\n<thead><tr>\
-                       <th>企業名</th>\
-                       <th>求人タイトル</th>\
-                       <th>勤務地</th>\
-                       <th>雇用</th>\
-                       <th style=\"text-align:right;\">年間休日</th>\
-                       <th style=\"text-align:right;\">給与下限</th>\
-                       <th style=\"text-align:right;\">給与上限</th>\
-                       <th>単位</th>\
-                       <th>URL</th>\
-                       </tr></thead>\n<tbody>\n",
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+             <colgroup>\
+             <col style=\"width:20%;\">\
+             <col style=\"width:28%;\">\
+             <col style=\"width:18%;\">\
+             <col style=\"width:8%;\">\
+             <col style=\"width:8%;\">\
+             <col style=\"width:9%;\">\
+             <col style=\"width:9%;\">\
+             </colgroup>\n\
+             <thead><tr>\
+             <th>企業名</th>\
+             <th>求人タイトル</th>\
+             <th>勤務地</th>\
+             <th>雇用</th>\
+             <th style=\"text-align:right;\">年間休日</th>\
+             <th style=\"text-align:right;\">給与下限</th>\
+             <th style=\"text-align:right;\">給与上限</th>\
+             </tr></thead>\n<tbody>\n",
         );
         for rec in &agg.jobbox_records[..limit] {
-            let url_cell = match rec.url.as_deref() {
-                Some(u) if u.starts_with("http://") || u.starts_with("https://") => format!(
-                    "<a href=\"{}\" target=\"_blank\" rel=\"noopener\">開く &#x2197;</a>",
-                    escape_html(u)
-                ),
-                _ => "-".to_string(),
-            };
             let s_min = rec
                 .salary_min
                 .map(|v| format!("{} 円", format_number(v)))
@@ -240,17 +168,17 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                 .salary_max
                 .map(|v| format!("{} 円", format_number(v)))
                 .unwrap_or_else(|| "-".to_string());
+            // word-break: keep-all で英数字は途中改行しない (URL 除去済みなので主に日本語)
+            // overflow-wrap: anywhere で長すぎる文字列は折り返す
             html.push_str(&format!(
                 "<tr>\
-                 <td>{company}</td>\
-                 <td>{title}</td>\
-                 <td>{loc}</td>\
-                 <td>{emp}</td>\
+                 <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
+                 <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{title}</td>\
+                 <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{loc}</td>\
+                 <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{emp}</td>\
                  <td style=\"text-align:right;\">{hol} 日</td>\
                  <td style=\"text-align:right;\">{smin}</td>\
                  <td style=\"text-align:right;\">{smax}</td>\
-                 <td>{unit}</td>\
-                 <td>{url}</td>\
                  </tr>\n",
                 company = escape_html(&rec.company_name),
                 title = escape_html(&rec.job_title),
@@ -259,15 +187,12 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                 hol = rec.annual_holidays,
                 smin = s_min,
                 smax = s_max,
-                unit = escape_html(&rec.salary_unit),
-                url = url_cell,
             ));
         }
         html.push_str("</tbody></table>\n");
         if total_jobbox > limit {
             html.push_str(&format!(
-                "<p class=\"note\">全 {} 件のうち上位 {} 件を表示中 (年間休日降順 → 企業名昇順)。\
-                 印刷物のサイズ制約のため上限あり。</p>\n",
+                "<p class=\"note\">全 {} 件のうち上位 {} 件を表示中 (年間休日降順 → 企業名昇順)。</p>\n",
                 format_number(total_jobbox as i64),
                 format_number(limit as i64),
             ));
@@ -275,6 +200,132 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     }
 
     html.push_str("</section>\n");
+}
+
+/// 給与×年間休日 散布図を SVG で描画する。
+///
+/// 入力: `points` は (月給円換算, 年間休日日数) のペア。
+/// 横軸: 月給 (万円表示)、縦軸: 年間休日 (日)。
+/// 縦長になりすぎない 640×320 のビューポートで描画 (max-width で印刷時もはみ出さない)。
+fn render_scatter_svg(html: &mut String, points: &[(i64, i64)]) {
+    if points.is_empty() {
+        return;
+    }
+
+    let w: i64 = 640;
+    let h: i64 = 320;
+    let margin_l: i64 = 50;
+    let margin_r: i64 = 20;
+    let margin_t: i64 = 20;
+    let margin_b: i64 = 50;
+    let plot_w = w - margin_l - margin_r;
+    let plot_h = h - margin_t - margin_b;
+
+    // 軸範囲: X 軸は 15 万円〜データ最大、Y 軸は固定 70-180 日 (妥当範囲)
+    let x_min: i64 = 150_000;
+    let data_x_max = points.iter().map(|p| p.0).max().unwrap_or(500_000);
+    let x_max: i64 = data_x_max.max(500_000);
+    let y_min: i64 = 70;
+    let y_max: i64 = 180;
+
+    let x_range = (x_max - x_min).max(1);
+    let y_range = (y_max - y_min).max(1);
+
+    let x_to_px = |x: i64| -> i64 { margin_l + ((x - x_min).max(0) * plot_w) / x_range };
+    let y_to_px = |y: i64| -> i64 { margin_t + plot_h - ((y - y_min).max(0) * plot_h) / y_range };
+
+    html.push_str(&format!(
+        "<svg viewBox=\"0 0 {w} {h}\" preserveAspectRatio=\"xMidYMid meet\" \
+         style=\"width:100%;max-width:720px;height:auto;background:#0a1430;\
+         border:1px solid #1e3a8a;border-radius:4px;display:block;margin:8px 0;\" \
+         role=\"img\" aria-label=\"月給×年間休日 散布図\">\n"
+    ));
+
+    // Y 軸グリッド + ラベル (80, 100, 120, 140, 160)
+    for y_val in [80i64, 100, 120, 140, 160] {
+        let py = y_to_px(y_val);
+        html.push_str(&format!(
+            "<line x1=\"{}\" y1=\"{py}\" x2=\"{}\" y2=\"{py}\" \
+             stroke=\"#374151\" stroke-dasharray=\"2,3\"/>\n",
+            margin_l,
+            margin_l + plot_w,
+        ));
+        html.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#d1d5db\" text-anchor=\"end\">{y_val}日</text>\n",
+            margin_l - 6,
+            py + 4,
+        ));
+    }
+    // X 軸グリッド + ラベル (動的に 5 段階)
+    let x_ticks: Vec<i64> = {
+        let step = ((x_max - x_min) / 5).max(50_000);
+        let mut v = Vec::new();
+        let mut t = x_min;
+        while t <= x_max {
+            v.push(t);
+            t += step;
+        }
+        v
+    };
+    for x_val in &x_ticks {
+        let px = x_to_px(*x_val);
+        html.push_str(&format!(
+            "<line x1=\"{px}\" y1=\"{}\" x2=\"{px}\" y2=\"{}\" \
+             stroke=\"#374151\" stroke-dasharray=\"2,3\"/>\n",
+            margin_t,
+            margin_t + plot_h,
+        ));
+        html.push_str(&format!(
+            "<text x=\"{px}\" y=\"{}\" font-size=\"10\" fill=\"#d1d5db\" text-anchor=\"middle\">{}万</text>\n",
+            margin_t + plot_h + 14,
+            x_val / 10_000,
+        ));
+    }
+    // 軸線
+    html.push_str(&format!(
+        "<line x1=\"{margin_l}\" y1=\"{margin_t}\" x2=\"{margin_l}\" y2=\"{}\" stroke=\"#6b7280\" stroke-width=\"1\"/>\n",
+        margin_t + plot_h,
+    ));
+    html.push_str(&format!(
+        "<line x1=\"{margin_l}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#6b7280\" stroke-width=\"1\"/>\n",
+        margin_t + plot_h,
+        margin_l + plot_w,
+        margin_t + plot_h,
+    ));
+    // 軸ラベル
+    html.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"11\" fill=\"#9ca3af\" text-anchor=\"middle\">月給</text>\n",
+        margin_l + plot_w / 2,
+        h - 8,
+    ));
+    let y_label_x = 15;
+    let y_label_y = margin_t + plot_h / 2;
+    html.push_str(&format!(
+        "<text x=\"{y_label_x}\" y=\"{y_label_y}\" font-size=\"11\" fill=\"#9ca3af\" \
+         text-anchor=\"middle\" transform=\"rotate(-90 {y_label_x} {y_label_y})\">年間休日 (日)</text>\n",
+    ));
+
+    // データプロット (半透明青)
+    for (x, y) in points {
+        if *x < x_min || *x > x_max || *y < y_min || *y > y_max {
+            continue;
+        }
+        let px = x_to_px(*x);
+        let py = y_to_px(*y);
+        html.push_str(&format!(
+            "<circle cx=\"{px}\" cy=\"{py}\" r=\"3\" fill=\"#3b82f6\" opacity=\"0.6\"/>\n"
+        ));
+    }
+
+    // 件数表示 (右上)
+    html.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#9ca3af\" text-anchor=\"end\">n = {}</text>\n",
+        margin_l + plot_w - 4,
+        margin_t + 12,
+        points.len(),
+    ));
+
+    html.push_str("</svg>\n");
 }
 
 /// i64 配列の中央値を計算 (Section 07.5 用 helper)
@@ -330,11 +381,21 @@ mod tests {
         let mut html = String::new();
         render_navy_section_jobbox_detail(&mut html, &agg_with_jobbox());
         assert!(html.contains("SECTION 07.5"), "section header required");
+        assert!(
+            html.contains("年間休日 × 給与 詳細"),
+            "title without jobbox keyword"
+        );
         assert!(html.contains("テスト株式会社"), "company name rendered");
         assert!(html.contains("120 日"), "annual holidays value rendered");
         assert!(html.contains("250,000 円"), "salary_min rendered");
-        assert!(html.contains("https://example.com/job/1"), "url rendered");
-        assert!(html.contains("分布バー"), "category distribution rendered");
+        // URL 列削除済み - href 含まない
+        assert!(!html.contains("https://example.com/job/1"), "url removed");
+        assert!(!html.contains("V2 独自機能"), "so-what removed (表 7.5-C)");
+        assert!(
+            !html.contains("週休2日+祝日相当"),
+            "so-what removed (表 7.5-A)"
+        );
+        assert!(!html.contains("相関 ≠ 因果"), "so-what removed (表 7.5-B)");
     }
 
     #[test]
@@ -342,6 +403,22 @@ mod tests {
         let mut html = String::new();
         render_navy_section_jobbox_detail(&mut html, &SurveyAggregation::default());
         assert!(html.is_empty(), "empty agg → section not rendered");
+    }
+
+    #[test]
+    fn scatter_svg_renders_with_points() {
+        let mut html = String::new();
+        render_scatter_svg(&mut html, &[(250_000, 120), (300_000, 125), (200_000, 110)]);
+        assert!(html.contains("<svg"));
+        assert!(html.contains("<circle"));
+        assert!(html.contains("n = 3"));
+    }
+
+    #[test]
+    fn scatter_svg_empty_renders_nothing() {
+        let mut html = String::new();
+        render_scatter_svg(&mut html, &[]);
+        assert!(html.is_empty());
     }
 
     #[test]
