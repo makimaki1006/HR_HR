@@ -128,28 +128,41 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         render_scatter_svg(html, &points);
     }
 
-    // -- 表 7.5-C 個別求人一覧 (年間休日抽出成功分)
+    // -- 表 7.5-C 個別求人 具体例 (企業名記載分のみ抜粋、年間休日降順)
+    // 集計 (annual_holidays_values / category_distribution / scatter) は会社名空も含めた全件で算出。
+    // 一覧表は「企業名記載のある具体例」として表示し、「全件ではない」ことを明示。
     if !agg.jobbox_records.is_empty() {
-        let total_jobbox = agg.jobbox_records.len();
+        let listed = agg.jobbox_records.len();
         const TABLE_LIMIT: usize = 300;
-        let limit = total_jobbox.min(TABLE_LIMIT);
+        let limit = listed.min(TABLE_LIMIT);
         html.push_str(
-            "<div class=\"block-title\">表 7.5-C &nbsp;個別求人一覧 \
+            "<div class=\"block-title\">表 7.5-C &nbsp;個別求人 具体例 \
              (年間休日降順)</div>\n",
         );
+        // extracted (集計対象) と listed (具体例) の差から「一部抜粋」であることを明示
+        if extracted > listed {
+            html.push_str(&format!(
+                "<p class=\"note\">※ 集計対象 全 {} 件のうち、企業名が記録された {} 件を具体例として抜粋表示。\
+                 KPI／カテゴリ分布／散布図は全 {} 件で算出。</p>\n",
+                format_number(extracted as i64),
+                format_number(listed as i64),
+                format_number(extracted as i64),
+            ));
+        }
         // 各列の幅を固定して縦長を抑制 (table-layout: fixed)
-        // 2026-06-25 企業名列を撤去 (元データ約25%空欄で信頼性低)
         html.push_str(
             "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
              <colgroup>\
-             <col style=\"width:42%;\">\
              <col style=\"width:20%;\">\
-             <col style=\"width:8%;\">\
-             <col style=\"width:8%;\">\
-             <col style=\"width:11%;\">\
-             <col style=\"width:11%;\">\
+             <col style=\"width:30%;\">\
+             <col style=\"width:14%;\">\
+             <col style=\"width:7%;\">\
+             <col style=\"width:9%;\">\
+             <col style=\"width:10%;\">\
+             <col style=\"width:10%;\">\
              </colgroup>\n\
              <thead><tr>\
+             <th>企業名</th>\
              <th>求人タイトル</th>\
              <th>勤務地</th>\
              <th>雇用</th>\
@@ -169,6 +182,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                 .unwrap_or_else(|| "-".to_string());
             html.push_str(&format!(
                 "<tr>\
+                 <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
                  <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{title}</td>\
                  <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{loc}</td>\
                  <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{emp}</td>\
@@ -176,6 +190,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
                  <td style=\"text-align:right;\">{smin}</td>\
                  <td style=\"text-align:right;\">{smax}</td>\
                  </tr>\n",
+                company = escape_html(&rec.company_name),
                 title = escape_html(&rec.job_title),
                 loc = escape_html(&rec.location),
                 emp = escape_html(&rec.employment_type),
@@ -185,10 +200,10 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
             ));
         }
         html.push_str("</tbody></table>\n");
-        if total_jobbox > limit {
+        if listed > limit {
             html.push_str(&format!(
-                "<p class=\"note\">全 {} 件のうち上位 {} 件を表示中 (年間休日降順)。</p>\n",
-                format_number(total_jobbox as i64),
+                "<p class=\"note\">具体例 {} 件のうち上位 {} 件を表示中 (年間休日降順 → 企業名昇順)。</p>\n",
+                format_number(listed as i64),
                 format_number(limit as i64),
             ));
         }
@@ -382,12 +397,14 @@ mod tests {
             html.contains("年間休日 × 給与 詳細"),
             "title without jobbox keyword"
         );
-        // 2026-06-25 企業名列撤去 (元データ約25%空欄で信頼性低)
-        assert!(!html.contains("<th>企業名</th>"), "company column removed");
+        // 2026-06-25 (Round 2): 企業名列復活 + 「具体例」表現
+        assert!(html.contains("<th>企業名</th>"), "company column restored");
         assert!(
-            html.contains("ドライバー"),
-            "job_title rendered (個別求人テーブル)"
+            html.contains("具体例"),
+            "「具体例」表現で全件ではないことを明示"
         );
+        assert!(html.contains("テスト株式会社"), "company name rendered");
+        assert!(html.contains("ドライバー"), "job_title rendered");
         assert!(html.contains("120 日"), "annual holidays value rendered");
         assert!(html.contains("250,000 円"), "salary_min rendered");
         // URL 列削除済み - href 含まない
