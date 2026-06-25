@@ -37,6 +37,18 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         agg.salary_vs_holidays_scatter.len(),
         agg.annual_holidays_category_distribution.len(),
     ));
+    // 診断 2: SurveyAggregation の他フィールド (集計の代理指標)
+    //   by_company が 0 = source 判定や CSV 解釈が失敗、salary_min_values が 0 = 給与パース失敗、等を切り分け
+    html.push_str(&format!(
+        "<!-- Section 07.5 DIAG-2: by_company.len={}, by_emp_type_salary.len={}, salary_min_values.len={}, by_prefecture.len={}, salary_values.len={}, dominant_pref={:?}, dominant_muni={:?} -->\n",
+        agg.by_company.len(),
+        agg.by_emp_type_salary.len(),
+        agg.salary_min_values.len(),
+        agg.by_prefecture.len(),
+        agg.salary_values.len(),
+        agg.dominant_prefecture,
+        agg.dominant_municipality,
+    ));
 
     if agg.annual_holidays_values.is_empty() && agg.jobbox_records.is_empty() {
         html.push_str("<!-- Section 07.5 SKIPPED: both annual_holidays_values and jobbox_records are empty -->\n");
