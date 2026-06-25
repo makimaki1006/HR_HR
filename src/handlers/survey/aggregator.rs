@@ -732,11 +732,9 @@ fn aggregate_records_core(
         })
         .collect();
 
-    // 2026-06-25 重複排除: company + title + location を空白・句読点除去して正規化したキーで一意化
+    // 2026-06-25 重複排除: title + location + 年間休日 + 給与レンジ を空白・句読点除去して正規化
     //   実 CSV (求人ボックス) で同一求人が複数ページ収集されて重複していたため。
-    //   upload.rs 側の Fix-A dedupe は raw 文字列 hash なので、句読点差異
-    //   (例: "／月収30万円以上も可「ルート配送」" vs " 月収30万円以上も可! ルート配送")
-    //   を吸収できない。Section 07.5 用に追加 dedupe を入れる。
+    //   会社名は元データで約25%が空欄なので dedup key から除外。
     fn normalize_for_dedup(s: &str) -> String {
         s.chars()
             .filter(|c| c.is_alphanumeric())
@@ -749,13 +747,15 @@ fn aggregate_records_core(
         .filter(|r| matches!(r.source, CsvSource::JobBox))
         .filter_map(|r| {
             let holidays = r.annual_holidays?;
-            // 重複排除キー: 正規化 (company + title + location) + 年間休日
+            // 重複排除キー: 正規化 (title + location) + 年間休日 + 給与レンジ
+            //   会社名は元データに空欄が多いため key から除外
             let dedup_key = format!(
-                "{}|{}|{}|{}",
-                normalize_for_dedup(&r.company_name),
+                "{}|{}|{}|{:?}|{:?}",
                 normalize_for_dedup(&r.job_title),
                 normalize_for_dedup(&r.location_raw),
                 holidays,
+                r.salary_parsed.min_value,
+                r.salary_parsed.max_value,
             );
             if !seen_keys.insert(dedup_key) {
                 return None;
@@ -767,14 +767,10 @@ fn aggregate_records_core(
                 ST::Monthly => "月給",
                 ST::Annual => "年俸",
             };
-            // 会社名が空の場合 (CSV パース失敗 or 元データ欠落) は明示表示
-            let company_display = if r.company_name.trim().is_empty() {
-                "(企業名不明)".to_string()
-            } else {
-                r.company_name.clone()
-            };
             Some(JobBoxRecord {
-                company_name: company_display,
+                // 2026-06-25 会社名カラム廃止 (元データ約25%空欄、信頼性低)
+                //   構造体フィールドは互換性維持のため残すが空文字を入れる
+                company_name: String::new(),
                 job_title: r.job_title.clone(),
                 location: r.location_raw.clone(),
                 employment_type: r.employment_type.clone(),
@@ -790,7 +786,7 @@ fn aggregate_records_core(
     jobbox_records.sort_by(|a, b| {
         b.annual_holidays
             .cmp(&a.annual_holidays)
-            .then_with(|| a.company_name.cmp(&b.company_name))
+            .then_with(|| a.job_title.cmp(&b.job_title))
     });
 
     SurveyAggregation {
