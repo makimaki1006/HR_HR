@@ -180,6 +180,9 @@ pub struct SurveyAggregation {
     /// 個別求人レコード一覧 (求人ボックスCSV のみ、年間休日抽出成功分)
     #[serde(default)]
     pub jobbox_records: Vec<JobBoxRecord>,
+    /// 2026-06-26 診断: 先頭3レコードのデバッグ表現 (Section 07.5 不表示問題の切り分け用)
+    #[serde(default)]
+    pub diag_first_records: Vec<String>,
 }
 
 /// 求人ボックス個別求人レコード (2026-06-24 追加、Section 07.5 用)
@@ -825,6 +828,38 @@ fn aggregate_records_core(
         annual_holidays_category_distribution,
         salary_vs_holidays_scatter,
         jobbox_records,
+        // 2026-06-26 診断: 先頭3レコードの実状態を文字列化
+        diag_first_records: records
+            .iter()
+            .take(3)
+            .map(|r| {
+                let src = match r.source {
+                    CsvSource::Indeed => "Indeed",
+                    CsvSource::JobBox => "JobBox",
+                    CsvSource::Unknown => "Unknown",
+                };
+                let desc_preview: String = r.description.chars().take(40).collect();
+                let desc_preview_sanitized = desc_preview
+                    .replace('\n', " ")
+                    .replace('\r', "")
+                    .replace("--", "_ _")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;");
+                let company_sanitized = r
+                    .company_name
+                    .replace("--", "_ _")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;");
+                format!(
+                    "src={}, ah={:?}, descLen={}, desc='{}', company='{}'",
+                    src,
+                    r.annual_holidays,
+                    r.description.chars().count(),
+                    desc_preview_sanitized,
+                    company_sanitized,
+                )
+            })
+            .collect(),
     }
 }
 
