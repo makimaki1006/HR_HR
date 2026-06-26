@@ -24,6 +24,10 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         agg.annual_holidays_category_distribution.len(),
         agg.by_company.len(),
     ));
+    // 2026-06-26 診断 v3: 先頭3レコードの実状態 (source/annual_holidays/description)
+    for (idx, line) in agg.diag_first_records.iter().enumerate() {
+        html.push_str(&format!("<!-- SEC075 DIAG v3 rec[{}]: {} -->\n", idx, line));
+    }
 
     if agg.annual_holidays_values.is_empty() && agg.jobbox_records.is_empty() {
         html.push_str("<!-- SEC075 SKIPPED: both ahv and jbr empty -->\n");
