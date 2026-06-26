@@ -97,6 +97,14 @@ fn sample_aggregation() -> SurveyAggregation {
         annual_holidays_category_distribution: Vec::new(),
         salary_vs_holidays_scatter: Vec::new(),
         jobbox_records: Vec::new(),
+        // 2026-06-26 Section 07.5 UI/UX 改善 用フィールド (テストでは空/0でも OK)
+        holiday_pct_ge_120: 0.0,
+        holiday_pct_ge_125: 0.0,
+        holiday_stddev: 0.0,
+        holiday_q3: 0,
+        salary_vs_holidays_scatter_emp: Vec::new(),
+        salary_holidays_correlation: None,
+        salary_holidays_regression: None,
     }
 }
 
