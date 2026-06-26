@@ -457,14 +457,6 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
         format_number(extracted as i64),
     ));
 
-    // 給与 mini bar 用の最大値 (月給制なので変換不要)
-    let salary_max_in_data = agg
-        .jobbox_records
-        .iter()
-        .filter_map(|r| r.salary_max.or(r.salary_min))
-        .max()
-        .unwrap_or(500_000);
-
     html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
@@ -490,8 +482,15 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
         let emp_badge = render_emp_badge(&rec.employment_type);
         // 年間休日色分け
         let (hol_bg, hol_fg) = holiday_color(rec.annual_holidays);
-        // 月給制のみなので salary_min/max は素のまま使える
-        let salary_bar = render_salary_bar(rec.salary_min, rec.salary_max, salary_max_in_data);
+        // 月給レンジ (テキストのみ、mini bar 廃止 2026-06-26)
+        let salary_text = match (rec.salary_min, rec.salary_max) {
+            (Some(lo), Some(hi)) if hi > lo => {
+                format!("{} 〜 {} 円", format_number(lo), format_number(hi))
+            }
+            (Some(lo), _) => format!("{} 円 〜", format_number(lo)),
+            (None, Some(hi)) => format!("〜 {} 円", format_number(hi)),
+            _ => "—".to_string(),
+        };
         html.push_str(&format!(
             "<tr>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
@@ -502,7 +501,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
              <span style=\"display:inline-block;padding:2px 8px;border-radius:10px;\
              background:{hol_bg};color:{hol_fg};font-weight:600;white-space:nowrap;\">{hol} 日</span>\
              </td>\
-             <td>{bar}</td>\
+             <td style=\"white-space:nowrap;\">{salary}</td>\
              </tr>\n",
             company = escape_html(&rec.company_name),
             title = escape_html(&rec.job_title),
@@ -511,7 +510,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
             hol_bg = hol_bg,
             hol_fg = hol_fg,
             hol = rec.annual_holidays,
-            bar = salary_bar,
+            salary = salary_text,
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -561,35 +560,6 @@ fn holiday_color(days: i64) -> (&'static str, &'static str) {
 }
 
 /// 給与レンジを mini bar (SVG) で描画
-fn render_salary_bar(s_min: Option<i64>, s_max: Option<i64>, scale_max: i64) -> String {
-    match (s_min, s_max) {
-        (Some(lo), Some(hi)) if hi > lo => {
-            let lo_pct = (lo as f64 / scale_max as f64 * 100.0).clamp(0.0, 100.0);
-            let hi_pct = (hi as f64 / scale_max as f64 * 100.0).clamp(0.0, 100.0);
-            let w_pct = (hi_pct - lo_pct).max(1.0);
-            format!(
-                "<div style=\"position:relative;background:#f1f5f9;height:14px;border-radius:7px;overflow:hidden;\">\
-                 <div style=\"position:absolute;left:{lo_pct:.1}%;width:{w_pct:.1}%;height:100%;background:#1e3a8a;\"></div>\
-                 </div>\
-                 <div style=\"font-size:9pt;color:#475569;margin-top:2px;\">{} 〜 {} 円</div>",
-                format_number(lo),
-                format_number(hi),
-            )
-        }
-        (Some(lo), None) => {
-            let lo_pct = (lo as f64 / scale_max as f64 * 100.0).clamp(0.0, 100.0);
-            format!(
-                "<div style=\"position:relative;background:#f1f5f9;height:14px;border-radius:7px;overflow:hidden;\">\
-                 <div style=\"position:absolute;left:0;width:{lo_pct:.1}%;height:100%;background:#1e3a8a;\"></div>\
-                 </div>\
-                 <div style=\"font-size:9pt;color:#475569;margin-top:2px;\">{} 円 〜</div>",
-                format_number(lo),
-            )
-        }
-        _ => "<span style=\"color:#94a3b8;\">—</span>".to_string(),
-    }
-}
-
 /// i64 配列の中央値
 fn compute_median_i64(values: &[i64]) -> i64 {
     if values.is_empty() {
@@ -689,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_examples_with_badges_and_minibar() {
+    fn renders_examples_with_badges_and_text_salary() {
         let mut html = String::new();
         render_examples_block(&mut html, &agg_with_jobbox());
         assert!(html.contains("§07.5-4"));
@@ -698,10 +668,12 @@ mod tests {
             html.contains("border-radius:10px"),
             "badge style (employment type or holiday color)"
         );
+        // 2026-06-26 mini bar 廃止 → 給与はテキスト表示
         assert!(
-            html.contains("background:#1e3a8a"),
-            "salary mini bar (navy)"
+            html.contains("250,000 〜 350,000 円"),
+            "salary range as plain text"
         );
+        assert!(!html.contains("salary mini bar"), "mini bar removed");
     }
 
     #[test]
