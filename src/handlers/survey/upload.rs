@@ -379,6 +379,21 @@ pub fn parse_csv_bytes_with_hints(
         let location_parsed = parse_location(&location_raw, context_pref);
         let annual_holidays = extract_annual_holidays(&description);
 
+        // 2026-06-26 求人ボックス CSV で雇用形態列 (c-icon (3) 相当) が無い場合のフォールバック:
+        //   給与単位から推定 (月給/年俸 → 正社員、時給 → パート・アルバイト)。
+        //   求人ボックスの典型的な雇用形態と給与単位の対応関係に基づく。
+        //   Daily/Weekly は推定対象外 (実データ希少のため)、空文字列のまま「不明」となる。
+        let employment_type =
+            if matches!(source, CsvSource::JobBox) && employment_type.trim().is_empty() {
+                match salary_parsed.salary_type {
+                    SalaryType::Monthly | SalaryType::Annual => "正社員".to_string(),
+                    SalaryType::Hourly => "パート・アルバイト".to_string(),
+                    _ => employment_type,
+                }
+            } else {
+                employment_type
+            };
+
         // 2026-04-26 Fix-A: 行レベル重複検出
         // employment_type を key に含めることで「正社員/パート」が別レコード扱いになる
         // (V2 ルール: 同一施設の正社員/パートは別求人。MEMORY: feedback_dedup_rules)
