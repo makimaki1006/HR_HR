@@ -180,6 +180,34 @@ pub struct SurveyAggregation {
     /// 個別求人レコード一覧 (求人ボックスCSV のみ、年間休日抽出成功分)
     #[serde(default)]
     pub jobbox_records: Vec<JobBoxRecord>,
+
+    // ========================================================================
+    // 2026-06-26 UI/UX 改善: KPI 拡張 + 散布図相関分析 + 雇用形態別散布
+    // ========================================================================
+    /// 年間休日 120日以上比率 (週休2日+祝日達成率、0.0-1.0)
+    #[serde(default)]
+    pub holiday_pct_ge_120: f64,
+    /// 年間休日 125日以上比率 (完全週休2日+α達成率、0.0-1.0)
+    #[serde(default)]
+    pub holiday_pct_ge_125: f64,
+    /// 年間休日の標準偏差
+    #[serde(default)]
+    pub holiday_stddev: f64,
+    /// 年間休日の第3四分位 (Q3)
+    #[serde(default)]
+    pub holiday_q3: i64,
+    /// 給与×年間休日 散布図データ (雇用形態付き) - 色分け用
+    /// (x=月給換算円、y=年間休日日、emp_type="正社員"|"パート・アルバイト"|"その他")
+    #[serde(default)]
+    pub salary_vs_holidays_scatter_emp: Vec<(i64, i64, String)>,
+    /// 給与×年間休日 相関係数 (Pearson r、-1.0〜1.0)
+    /// None = 算出不可 (データ点数 < 3)
+    #[serde(default)]
+    pub salary_holidays_correlation: Option<f64>,
+    /// 給与×年間休日 線形回帰 (slope, intercept)
+    /// 月給(円)を入力とする回帰式: holidays = slope * salary + intercept
+    #[serde(default)]
+    pub salary_holidays_regression: Option<(f64, f64)>,
 }
 
 /// 求人ボックス個別求人レコード (2026-06-24 追加、Section 07.5 用)
@@ -790,6 +818,95 @@ fn aggregate_records_core(
             .then_with(|| a.company_name.cmp(&b.company_name))
     });
 
+    // ============================================================
+    // 2026-06-26 Section 07.5 UI/UX 改善 用追加集計
+    // ============================================================
+    let n_ah = annual_holidays_values.len();
+    let (holiday_pct_ge_120, holiday_pct_ge_125, holiday_stddev, holiday_q3) = if n_ah > 0 {
+        let mut sorted = annual_holidays_values.clone();
+        sorted.sort_unstable();
+        let count_120 = sorted.iter().filter(|&&v| v >= 120).count() as f64;
+        let count_125 = sorted.iter().filter(|&&v| v >= 125).count() as f64;
+        let pct_120 = count_120 / n_ah as f64;
+        let pct_125 = count_125 / n_ah as f64;
+        let mean = sorted.iter().sum::<i64>() as f64 / n_ah as f64;
+        let variance = sorted
+            .iter()
+            .map(|&v| (v as f64 - mean).powi(2))
+            .sum::<f64>()
+            / n_ah as f64;
+        let stddev = variance.sqrt();
+        let q3_idx = (n_ah * 3 / 4).min(n_ah - 1);
+        let q3 = sorted[q3_idx];
+        (pct_120, pct_125, stddev, q3)
+    } else {
+        (0.0, 0.0, 0.0, 0)
+    };
+
+    // 雇用形態付き散布図データ
+    let salary_vs_holidays_scatter_emp: Vec<(i64, i64, String)> = records
+        .iter()
+        .filter_map(|r| {
+            let holidays = r.annual_holidays?;
+            let min_val = r.salary_parsed.min_value?;
+            let monthly = match r.salary_parsed.salary_type {
+                ST::Monthly => min_val,
+                ST::Annual => min_val / 12,
+                _ => return None,
+            };
+            let emp_label = if r.employment_type.contains("正社員")
+                || r.employment_type.contains("正職員")
+                || r.employment_type.contains("契約")
+            {
+                "正社員".to_string()
+            } else if r.employment_type.contains("パート")
+                || r.employment_type.contains("アルバイト")
+                || r.employment_type.contains("バイト")
+            {
+                "パート・アルバイト".to_string()
+            } else {
+                "その他".to_string()
+            };
+            Some((monthly, holidays, emp_label))
+        })
+        .collect();
+
+    // 給与×年間休日 相関係数 (Pearson r) と線形回帰 (最小二乗法)
+    let (salary_holidays_correlation, salary_holidays_regression) =
+        if salary_vs_holidays_scatter.len() >= 3 {
+            let n = salary_vs_holidays_scatter.len() as f64;
+            let xs: Vec<f64> = salary_vs_holidays_scatter
+                .iter()
+                .map(|p| p.x as f64)
+                .collect();
+            let ys: Vec<f64> = salary_vs_holidays_scatter
+                .iter()
+                .map(|p| p.y as f64)
+                .collect();
+            let mean_x = xs.iter().sum::<f64>() / n;
+            let mean_y = ys.iter().sum::<f64>() / n;
+            let var_x = xs.iter().map(|x| (x - mean_x).powi(2)).sum::<f64>();
+            let var_y = ys.iter().map(|y| (y - mean_y).powi(2)).sum::<f64>();
+            let cov = xs
+                .iter()
+                .zip(ys.iter())
+                .map(|(x, y)| (x - mean_x) * (y - mean_y))
+                .sum::<f64>();
+            let denom = (var_x * var_y).sqrt();
+            let r = if denom > 0.0 { Some(cov / denom) } else { None };
+            // 線形回帰: slope = cov / var_x, intercept = mean_y - slope * mean_x
+            let reg = if var_x > 0.0 {
+                let slope = cov / var_x;
+                let intercept = mean_y - slope * mean_x;
+                Some((slope, intercept))
+            } else {
+                None
+            };
+            (r, reg)
+        } else {
+            (None, None)
+        };
+
     SurveyAggregation {
         total_count: total,
         new_count,
@@ -825,6 +942,14 @@ fn aggregate_records_core(
         annual_holidays_category_distribution,
         salary_vs_holidays_scatter,
         jobbox_records,
+        // 2026-06-26: Section 07.5 UI/UX 改善 用
+        holiday_pct_ge_120,
+        holiday_pct_ge_125,
+        holiday_stddev,
+        holiday_q3,
+        salary_vs_holidays_scatter_emp,
+        salary_holidays_correlation,
+        salary_holidays_regression,
     }
 }
 
