@@ -775,9 +775,17 @@ fn aggregate_records_core(
         .filter_map(|r| {
             let holidays = r.annual_holidays?;
             // 2026-06-25 個別求人「具体例」テーブルには企業名ありのレコードのみ採用。
-            //   集計 (annual_holidays_values / category_distribution / scatter) は
-            //   会社名空も含めた全件で行い、一覧表だけ「企業名記載分の具体例」として表示する方針。
             if r.company_name.trim().is_empty() {
+                return None;
+            }
+            // 2026-06-26 表示対象を「月給制 + 給与記載あり」のみに限定
+            //   理由: 年俸を月給換算 (÷12) すると大企業の数値が他の月給と並んで違和感、
+            //         mini bar スケールも歪む。給与未記載 (両 None) も表に意味がない。
+            //   集計 (annual_holidays_values / category_distribution / scatter) は影響なし。
+            if !matches!(r.salary_parsed.salary_type, ST::Monthly) {
+                return None;
+            }
+            if r.salary_parsed.min_value.is_none() && r.salary_parsed.max_value.is_none() {
                 return None;
             }
             // 重複排除キー: 正規化 (company + title + location) + 年間休日
@@ -791,13 +799,6 @@ fn aggregate_records_core(
             if !seen_keys.insert(dedup_key) {
                 return None;
             }
-            let unit = match r.salary_parsed.salary_type {
-                ST::Hourly => "時給",
-                ST::Daily => "日給",
-                ST::Weekly => "週給",
-                ST::Monthly => "月給",
-                ST::Annual => "年俸",
-            };
             Some(JobBoxRecord {
                 company_name: r.company_name.clone(),
                 job_title: r.job_title.clone(),
@@ -806,7 +807,7 @@ fn aggregate_records_core(
                 annual_holidays: holidays,
                 salary_min: r.salary_parsed.min_value,
                 salary_max: r.salary_parsed.max_value,
-                salary_unit: unit.to_string(),
+                salary_unit: "月給".to_string(),
                 salary_raw: r.salary_raw.clone(),
                 url: r.url.clone(),
             })
