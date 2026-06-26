@@ -449,41 +449,19 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     html.push_str(
         "<div class=\"block-title\">§07.5-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
     );
-    if extracted > listed {
-        html.push_str(&format!(
-            "<p class=\"note\">※ 集計対象 全 {} 件のうち、企業名記載のある {} 件を具体例として抜粋。\
-             KPI／分布／散布図は全 {} 件で算出。</p>\n",
-            format_number(extracted as i64),
-            format_number(listed as i64),
-            format_number(extracted as i64),
-        ));
-    }
-    html.push_str(
-        "<p class=\"note\">※ 給与レンジは全件を <strong>月給換算</strong> で表示 \
-         (年俸は ÷12、時給は ×167h、日給は ×21日、週給は ×4.33週)。\
-         元単位が月給でない場合は値の横に <span style=\"color:#64748b;\">(年俸換算)</span> \
-         のような注記を付記。</p>\n",
-    );
+    // 注記を 1 行に統合 (2 連続注記の冗長さを解消、2026-06-26)
+    html.push_str(&format!(
+        "<p class=\"note\">※ 表示対象: 月給制で給与記載のある企業名記載分のみ ({} 件)。\
+         年俸制／時給制／給与未記載／企業名空欄は除外 (KPI／分布／散布図には含まれる、集計対象 全 {} 件)。</p>\n",
+        format_number(listed as i64),
+        format_number(extracted as i64),
+    ));
 
-    // 月給換算ヘルパー
-    fn to_monthly(v: i64, unit: &str) -> i64 {
-        match unit {
-            "年俸" => v / 12,
-            "時給" => v * 167,
-            "日給" => v * 21,
-            "週給" => v * 433 / 100, // 4.33 × 100 で整数演算
-            _ => v,                  // 月給そのまま
-        }
-    }
-
-    // 給与 mini bar 用の最大値 (月給換算後の上限給与、円)
+    // 給与 mini bar 用の最大値 (月給制なので変換不要)
     let salary_max_in_data = agg
         .jobbox_records
         .iter()
-        .filter_map(|r| {
-            let v = r.salary_max.or(r.salary_min)?;
-            Some(to_monthly(v, &r.salary_unit))
-        })
+        .filter_map(|r| r.salary_max.or(r.salary_min))
         .max()
         .unwrap_or(500_000);
 
@@ -503,7 +481,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
          <th>勤務地</th>\
          <th>雇用</th>\
          <th style=\"text-align:right;\">年間休日</th>\
-         <th>給与レンジ (月給換算)</th>\
+         <th>月給レンジ</th>\
          </tr></thead>\n<tbody>\n",
     );
 
@@ -512,19 +490,8 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
         let emp_badge = render_emp_badge(&rec.employment_type);
         // 年間休日色分け
         let (hol_bg, hol_fg) = holiday_color(rec.annual_holidays);
-        // 月給換算
-        let s_min_m = rec.salary_min.map(|v| to_monthly(v, &rec.salary_unit));
-        let s_max_m = rec.salary_max.map(|v| to_monthly(v, &rec.salary_unit));
-        // 元単位注記 (月給以外のみ表示)
-        let unit_note = if rec.salary_unit != "月給" && !rec.salary_unit.is_empty() {
-            format!(
-                " <span style=\"font-size:9pt;color:#64748b;\">({}換算)</span>",
-                escape_html(&rec.salary_unit)
-            )
-        } else {
-            String::new()
-        };
-        let salary_bar = render_salary_bar(s_min_m, s_max_m, salary_max_in_data);
+        // 月給制のみなので salary_min/max は素のまま使える
+        let salary_bar = render_salary_bar(rec.salary_min, rec.salary_max, salary_max_in_data);
         html.push_str(&format!(
             "<tr>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
@@ -535,7 +502,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
              <span style=\"display:inline-block;padding:2px 8px;border-radius:10px;\
              background:{hol_bg};color:{hol_fg};font-weight:600;white-space:nowrap;\">{hol} 日</span>\
              </td>\
-             <td>{bar}{note}</td>\
+             <td>{bar}</td>\
              </tr>\n",
             company = escape_html(&rec.company_name),
             title = escape_html(&rec.job_title),
@@ -545,7 +512,6 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
             hol_fg = hol_fg,
             hol = rec.annual_holidays,
             bar = salary_bar,
-            note = unit_note,
         ));
     }
     html.push_str("</tbody></table>\n");
