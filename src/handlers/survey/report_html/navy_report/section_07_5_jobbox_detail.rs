@@ -41,7 +41,6 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
 // §07.5-1 サマリー: 概況 KPI 6 枚
 // ============================================================================
 fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
-    let total_records = agg.total_count;
     let extracted = agg.annual_holidays_values.len();
     if extracted == 0 {
         return;
@@ -61,24 +60,10 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         .max()
         .copied()
         .unwrap_or(0);
-    let extract_rate = if total_records > 0 {
-        extracted as f64 / total_records as f64 * 100.0
-    } else {
-        0.0
-    };
 
     html.push_str("<div class=\"block-title\">§07.5-1 &nbsp;サマリー</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
-    push_kpi_card(
-        html,
-        "抽出件数",
-        &format!("{} 件", format_number(extracted as i64)),
-        &format!(
-            "全 {} 件中 ({:.1}%)",
-            format_number(total_records as i64),
-            extract_rate
-        ),
-    );
+    // 2026-06-26 「抽出件数 N件 全 M件中 (X%)」KPI は削除 (信頼性低下の印象を回避)
     push_kpi_card(
         html,
         "平均年間休日",
@@ -204,12 +189,11 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
             bar_w,
             row_h - 8,
         ));
-        // 件数 + 構成比 (右)
+        // 構成比のみ (件数は信頼性懸念のため非表示、2026-06-26)
         html.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"12\" fill=\"#334155\" text-anchor=\"end\">{} 件 ({:.1}%)</text>\n",
+            "<text x=\"{}\" y=\"{}\" font-size=\"12\" font-weight=\"600\" fill=\"#334155\" text-anchor=\"end\">{:.1}%</text>\n",
             svg_w - 6,
             y + row_h / 2 + 4,
-            format_number(*count as i64),
             pct,
         ));
     }
@@ -474,24 +458,44 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
             format_number(extracted as i64),
         ));
     }
+    html.push_str(
+        "<p class=\"note\">※ 給与レンジは全件を <strong>月給換算</strong> で表示 \
+         (年俸は ÷12、時給は ×167h、日給は ×21日、週給は ×4.33週)。\
+         元単位が月給でない場合は値の横に <span style=\"color:#64748b;\">(年俸換算)</span> \
+         のような注記を付記。</p>\n",
+    );
 
-    // 給与 mini bar 用の最大値 (上限給与の最大、円)
+    // 月給換算ヘルパー
+    fn to_monthly(v: i64, unit: &str) -> i64 {
+        match unit {
+            "年俸" => v / 12,
+            "時給" => v * 167,
+            "日給" => v * 21,
+            "週給" => v * 433 / 100, // 4.33 × 100 で整数演算
+            _ => v,                  // 月給そのまま
+        }
+    }
+
+    // 給与 mini bar 用の最大値 (月給換算後の上限給与、円)
     let salary_max_in_data = agg
         .jobbox_records
         .iter()
-        .filter_map(|r| r.salary_max.or(r.salary_min))
+        .filter_map(|r| {
+            let v = r.salary_max.or(r.salary_min)?;
+            Some(to_monthly(v, &r.salary_unit))
+        })
         .max()
         .unwrap_or(500_000);
 
     html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
-         <col style=\"width:18%;\">\
-         <col style=\"width:24%;\">\
-         <col style=\"width:13%;\">\
-         <col style=\"width:11%;\">\
-         <col style=\"width:9%;\">\
+         <col style=\"width:17%;\">\
          <col style=\"width:25%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:8%;\">\
+         <col style=\"width:8%;\">\
+         <col style=\"width:29%;\">\
          </colgroup>\n\
          <thead><tr>\
          <th>企業名</th>\
@@ -499,7 +503,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
          <th>勤務地</th>\
          <th>雇用</th>\
          <th style=\"text-align:right;\">年間休日</th>\
-         <th>給与レンジ</th>\
+         <th>給与レンジ (月給換算)</th>\
          </tr></thead>\n<tbody>\n",
     );
 
@@ -508,19 +512,30 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
         let emp_badge = render_emp_badge(&rec.employment_type);
         // 年間休日色分け
         let (hol_bg, hol_fg) = holiday_color(rec.annual_holidays);
-        // 給与 mini bar (下限〜上限)
-        let salary_bar = render_salary_bar(rec.salary_min, rec.salary_max, salary_max_in_data);
+        // 月給換算
+        let s_min_m = rec.salary_min.map(|v| to_monthly(v, &rec.salary_unit));
+        let s_max_m = rec.salary_max.map(|v| to_monthly(v, &rec.salary_unit));
+        // 元単位注記 (月給以外のみ表示)
+        let unit_note = if rec.salary_unit != "月給" && !rec.salary_unit.is_empty() {
+            format!(
+                " <span style=\"font-size:9pt;color:#64748b;\">({}換算)</span>",
+                escape_html(&rec.salary_unit)
+            )
+        } else {
+            String::new()
+        };
+        let salary_bar = render_salary_bar(s_min_m, s_max_m, salary_max_in_data);
         html.push_str(&format!(
             "<tr>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{title}</td>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{loc}</td>\
-             <td>{emp}</td>\
-             <td style=\"text-align:right;\">\
+             <td style=\"white-space:nowrap;\">{emp}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">\
              <span style=\"display:inline-block;padding:2px 8px;border-radius:10px;\
-             background:{hol_bg};color:{hol_fg};font-weight:600;\">{hol} 日</span>\
+             background:{hol_bg};color:{hol_fg};font-weight:600;white-space:nowrap;\">{hol} 日</span>\
              </td>\
-             <td>{bar}</td>\
+             <td>{bar}{note}</td>\
              </tr>\n",
             company = escape_html(&rec.company_name),
             title = escape_html(&rec.job_title),
@@ -530,6 +545,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
             hol_fg = hol_fg,
             hol = rec.annual_holidays,
             bar = salary_bar,
+            note = unit_note,
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -561,7 +577,7 @@ fn render_emp_badge(emp: &str) -> String {
     };
     format!(
         "<span style=\"display:inline-block;padding:2px 8px;border-radius:10px;\
-         background:{bg};color:{fg};font-size:10pt;\">{}</span>",
+         background:{bg};color:{fg};font-size:10pt;white-space:nowrap;\">{}</span>",
         escape_html(emp)
     )
 }
