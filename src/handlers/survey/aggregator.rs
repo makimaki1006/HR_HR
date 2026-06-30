@@ -306,7 +306,9 @@ pub struct EmpGroupNativeAgg {
 /// - 奇数件: 中央要素
 /// - 偶数件: 中央2要素の平均（整数割り算）
 /// `enhanced_salary_statistics` の定義と整合。
-fn median_of(values: &[i64]) -> i64 {
+///
+/// 2026-06-30 Finding #18: section_07_5_jobbox_detail.rs の重複実装統合のため pub に昇格。
+pub fn median_of(values: &[i64]) -> i64 {
     if values.is_empty() {
         return 0;
     }
@@ -384,7 +386,8 @@ fn aggregate_records_core(
         .count();
 
     // 都道府県別
-    let mut pref_map: HashMap<String, usize> = HashMap::new();
+    // Finding #17 (2026-06-30): 都道府県数 ≤ 47 + 「不明」を見越して 50 予約
+    let mut pref_map: HashMap<String, usize> = HashMap::with_capacity(50);
     for r in records {
         if let Some(pref) = &r.location_parsed.prefecture {
             *pref_map.entry(pref.clone()).or_default() += 1;
@@ -396,7 +399,8 @@ fn aggregate_records_core(
     let dominant_prefecture = by_prefecture.first().map(|(p, _)| p.clone());
 
     // 市区町村別（最多を特定）
-    let mut muni_map: HashMap<String, usize> = HashMap::new();
+    // Finding #17 (2026-06-30): 平均 5 件/市区町村 を想定し records/5 を初期容量に
+    let mut muni_map: HashMap<String, usize> = HashMap::with_capacity(records.len() / 5 + 1);
     for r in records {
         if let Some(muni) = &r.location_parsed.municipality {
             *muni_map.entry(muni.clone()).or_default() += 1;
@@ -405,7 +409,8 @@ fn aggregate_records_core(
     let dominant_municipality = muni_map.into_iter().max_by_key(|(_, c)| *c).map(|(m, _)| m);
 
     // 給与レンジ別
-    let mut salary_range_map: HashMap<String, usize> = HashMap::new();
+    // Finding #17 (2026-06-30): range_category は 10 種程度想定
+    let mut salary_range_map: HashMap<String, usize> = HashMap::with_capacity(10);
     for r in records {
         if let Some(cat) = &r.salary_parsed.range_category {
             *salary_range_map.entry(cat.clone()).or_default() += 1;
@@ -415,7 +420,8 @@ fn aggregate_records_core(
     by_salary_range.sort_by(|a, b| a.0.cmp(&b.0));
 
     // 雇用形態別
-    let mut emp_map: HashMap<String, usize> = HashMap::new();
+    // Finding #17 (2026-06-30): 雇用形態は 10 種程度想定 (正社員/正職員/契約/派遣/パート/アルバイト/業務委託 等)
+    let mut emp_map: HashMap<String, usize> = HashMap::with_capacity(10);
     for r in records {
         let emp = if r.employment_type.is_empty() {
             "不明".to_string()
@@ -429,7 +435,8 @@ fn aggregate_records_core(
 
     // タグ別（カンマ/スペース区切りで分解、危険URLプレフィックスをサニタイズ）
     use super::super::helpers::sanitize_tag_text;
-    let mut tag_map: HashMap<String, usize> = HashMap::new();
+    // Finding #17 (2026-06-30): タグは 1 レコード平均 3 種程度を想定
+    let mut tag_map: HashMap<String, usize> = HashMap::with_capacity(records.len() / 3 + 1);
     for r in records {
         if !r.tags_raw.is_empty() {
             for tag in r.tags_raw.split([',', '、', '/', '\t']) {
@@ -570,7 +577,8 @@ fn aggregate_records_core(
     // count/avg/median の意味論一致のため、給与情報（unified_monthly > 0）があるレコードのみ集計。
     // これにより count == 集計対象件数 となり、avg/median の計算母集団と一致する。
     // 表示上は「給与情報のある求人数」として扱う。
-    let mut company_map: HashMap<String, Vec<i64>> = HashMap::new();
+    // Finding #17 (2026-06-30): 平均 2 件/企業 を想定し records/2 を初期容量に
+    let mut company_map: HashMap<String, Vec<i64>> = HashMap::with_capacity(records.len() / 2 + 1);
     for r in records {
         if !r.company_name.is_empty() {
             if let Some(sal) = r.salary_parsed.unified_monthly {
@@ -804,7 +812,15 @@ fn aggregate_records_core(
             .collect()
     };
 
-    let salary_vs_holidays_scatter: Vec<ScatterPoint> = records
+    // Finding #15 (2026-06-30): scatter / scatter_emp / Pearson の 4 pass を 1 pass に統合。
+    //   1. records を 1 回だけ走査し (x, y, emp_label) を salary_vs_holidays_scatter_emp に集約
+    //   2. salary_vs_holidays_scatter は emp 版から (x,y) 抜き出しで派生 (アロケート 1 回)
+    //   3. Pearson と回帰はアキュムレータ (sum_x/sum_y/sum_xx/sum_yy/sum_xy) で計算し、
+    //      中間 Vec<f64>×2 を廃止
+    //
+    // 雇用形態 3 値分類は `classify_employment_for_scatter` に一元化 (狭→広判定)。
+    // section_07_5_jobbox_detail.rs の `render_emp_badge` は表示用 5+ 種なので別関数のまま。
+    let salary_vs_holidays_scatter_emp: Vec<(i64, i64, String)> = records
         .iter()
         .filter_map(|r| {
             let holidays = r.annual_holidays?;
@@ -814,11 +830,13 @@ fn aggregate_records_core(
                 ST::Annual => min_val / 12,
                 _ => return None,
             };
-            Some(ScatterPoint {
-                x: monthly,
-                y: holidays,
-            })
+            let emp_label = classify_employment_for_scatter(&r.employment_type).to_string();
+            Some((monthly, holidays, emp_label))
         })
+        .collect();
+    let salary_vs_holidays_scatter: Vec<ScatterPoint> = salary_vs_holidays_scatter_emp
+        .iter()
+        .map(|(x, y, _)| ScatterPoint { x: *x, y: *y })
         .collect();
 
     // 2026-06-25 重複排除: company + title + location + 年間休日 を空白・句読点除去して正規化
@@ -914,49 +932,33 @@ fn aggregate_records_core(
         (0.0, 0.0, 0.0, 0)
     };
 
-    // 雇用形態付き散布図データ
-    // 2026-06-30 Finding #13: 雇用形態 3 値分類は `classify_employment_for_scatter` に一元化。
-    //   判定順は狭→広 (正職員 → 正社員 → 契約 → 派遣 → パート/アルバイト)。
-    //   section_07_5_jobbox_detail.rs の `render_emp_badge` は表示用 5+ 種なので別関数のまま (粒度差は意図的)。
-    let salary_vs_holidays_scatter_emp: Vec<(i64, i64, String)> = records
-        .iter()
-        .filter_map(|r| {
-            let holidays = r.annual_holidays?;
-            let min_val = r.salary_parsed.min_value?;
-            let monthly = match r.salary_parsed.salary_type {
-                ST::Monthly => min_val,
-                ST::Annual => min_val / 12,
-                _ => return None,
-            };
-            let emp_label = classify_employment_for_scatter(&r.employment_type).to_string();
-            Some((monthly, holidays, emp_label))
-        })
-        .collect();
-
     // 給与×年間休日 相関係数 (Pearson r) と線形回帰 (最小二乗法)
-    let (salary_holidays_correlation, salary_holidays_regression) =
-        if salary_vs_holidays_scatter.len() >= 3 {
-            let n = salary_vs_holidays_scatter.len() as f64;
-            let xs: Vec<f64> = salary_vs_holidays_scatter
-                .iter()
-                .map(|p| p.x as f64)
-                .collect();
-            let ys: Vec<f64> = salary_vs_holidays_scatter
-                .iter()
-                .map(|p| p.y as f64)
-                .collect();
-            let mean_x = xs.iter().sum::<f64>() / n;
-            let mean_y = ys.iter().sum::<f64>() / n;
-            let var_x = xs.iter().map(|x| (x - mean_x).powi(2)).sum::<f64>();
-            let var_y = ys.iter().map(|y| (y - mean_y).powi(2)).sum::<f64>();
-            let cov = xs
-                .iter()
-                .zip(ys.iter())
-                .map(|(x, y)| (x - mean_x) * (y - mean_y))
-                .sum::<f64>();
+    // Finding #15 (2026-06-30): アキュムレータベースで 1 pass 計算。中間 Vec<f64>×2 廃止。
+    //   数学的恒等式:
+    //     var_x = sum (x - mean_x)^2 = sum_xx - n*mean_x^2 = sum_xx - sum_x * mean_x
+    //     cov   = sum (x - mean_x)(y - mean_y) = sum_xy - sum_x * mean_y
+    //   旧 powi(2) 集計と数値的に同等 (誤差は f64 丸めの範囲)。
+    let (salary_holidays_correlation, salary_holidays_regression) = {
+        let mut n: f64 = 0.0;
+        let (mut sx, mut sy, mut sxx, mut syy, mut sxy) = (0.0_f64, 0.0, 0.0, 0.0, 0.0);
+        for (x, y, _) in &salary_vs_holidays_scatter_emp {
+            let xf = *x as f64;
+            let yf = *y as f64;
+            n += 1.0;
+            sx += xf;
+            sy += yf;
+            sxx += xf * xf;
+            syy += yf * yf;
+            sxy += xf * yf;
+        }
+        if n >= 3.0 {
+            let mean_x = sx / n;
+            let mean_y = sy / n;
+            let var_x = sxx - sx * mean_x;
+            let var_y = syy - sy * mean_y;
+            let cov = sxy - sx * mean_y;
             let denom = (var_x * var_y).sqrt();
             let r = if denom > 0.0 { Some(cov / denom) } else { None };
-            // 線形回帰: slope = cov / var_x, intercept = mean_y - slope * mean_x
             let reg = if var_x > 0.0 {
                 let slope = cov / var_x;
                 let intercept = mean_y - slope * mean_x;
@@ -967,7 +969,8 @@ fn aggregate_records_core(
             (r, reg)
         } else {
             (None, None)
-        };
+        }
+    };
 
     SurveyAggregation {
         total_count: total,
