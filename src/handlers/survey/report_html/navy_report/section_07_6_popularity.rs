@@ -63,11 +63,15 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         &format!("{} 件", format_number(pop.super_popular_count as i64)),
         "Indeed (SP) 「超人気」付与",
     );
+    // 2026-07-01 Finding #2: 分母を IndeedSp 由来件数に明示。
     push_kpi_card(
         html,
         "人気タグ比率",
         &format!("{:.1}%", pop.popular_ratio * 100.0),
-        "全求人に占める (人気+超人気)",
+        &format!(
+            "Indeed (SP) {} 件中 (人気+超人気)",
+            format_number(pop.indeed_sp_total as i64)
+        ),
     );
 
     // 月給差 (人気あり - なし) を補助 KPI として表示
@@ -204,6 +208,7 @@ mod tests {
                 super_popular_count: 2,
                 none_count: 14,
                 popular_ratio: 6.0 / 20.0,
+                indeed_sp_total: 20,
                 popular_salary_median: Some(280_000),
                 non_popular_salary_median: Some(260_000),
                 popular_holidays_median: Some(120),
@@ -270,6 +275,7 @@ mod tests {
                 super_popular_count: 0,
                 none_count: 3,
                 popular_ratio: 0.4,
+                indeed_sp_total: 5,
                 popular_salary_median: Some(250_000),
                 non_popular_salary_median: Some(240_000),
                 popular_holidays_median: None,
@@ -297,6 +303,7 @@ mod tests {
                 super_popular_count: 0,
                 none_count: 4,
                 popular_ratio: 0.2,
+                indeed_sp_total: 5,
                 popular_salary_median: Some(200_000),
                 non_popular_salary_median: Some(260_000),
                 popular_holidays_median: None,
