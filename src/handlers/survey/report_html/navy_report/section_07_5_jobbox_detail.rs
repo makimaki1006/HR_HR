@@ -17,9 +17,9 @@ use super::common::push_page_head;
 
 /// 年間休日 × 給与 詳細セクションを描画。
 ///
-/// `agg.jobbox_records` と `agg.annual_holidays_values` の両方が空ならスキップ。
+/// `agg.jobbox.jobbox_records` と `agg.jobbox.annual_holidays_values` の両方が空ならスキップ。
 pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyAggregation) {
-    if agg.annual_holidays_values.is_empty() && agg.jobbox_records.is_empty() {
+    if agg.jobbox.annual_holidays_values.is_empty() && agg.jobbox.jobbox_records.is_empty() {
         return;
     }
 
@@ -43,20 +43,22 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
 // §07.5-1 サマリー: 概況 KPI 6 枚
 // ============================================================================
 fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
-    let extracted = agg.annual_holidays_values.len();
+    let extracted = agg.jobbox.annual_holidays_values.len();
     if extracted == 0 {
         return;
     }
-    let sum: i64 = agg.annual_holidays_values.iter().sum();
+    let sum: i64 = agg.jobbox.annual_holidays_values.iter().sum();
     let mean = sum as f64 / extracted as f64;
-    let median = compute_median_i64(&agg.annual_holidays_values);
+    let median = compute_median_i64(&agg.jobbox.annual_holidays_values);
     let min_v = agg
+        .jobbox
         .annual_holidays_values
         .iter()
         .min()
         .copied()
         .unwrap_or(0);
     let max_v = agg
+        .jobbox
         .annual_holidays_values
         .iter()
         .max()
@@ -75,25 +77,25 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     push_kpi_card(
         html,
         "第3四分位 (Q3)",
-        &format!("{} 日", agg.holiday_q3),
+        &format!("{} 日", agg.jobbox.holiday_q3),
         "上位 25% はこれ以上",
     );
     push_kpi_card(
         html,
         "標準偏差",
-        &format!("{:.1} 日", agg.holiday_stddev),
+        &format!("{:.1} 日", agg.jobbox.holiday_stddev),
         "ばらつきの大きさ",
     );
     push_kpi_card(
         html,
         "120日以上比率",
-        &format!("{:.0}%", agg.holiday_pct_ge_120 * 100.0),
+        &format!("{:.0}%", agg.jobbox.holiday_pct_ge_120 * 100.0),
         "週休2日+祝日 達成率",
     );
     push_kpi_card(
         html,
         "125日以上比率",
-        &format!("{:.0}%", agg.holiday_pct_ge_125 * 100.0),
+        &format!("{:.0}%", agg.jobbox.holiday_pct_ge_125 * 100.0),
         "完全週休2日+α 達成率",
     );
     html.push_str("</div>\n");
@@ -116,10 +118,10 @@ fn push_kpi_card(html: &mut String, label: &str, value: &str, foot: &str) {
 // §07.5-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG)
 // ============================================================================
 fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
-    if agg.annual_holidays_category_distribution.is_empty() {
+    if agg.jobbox.annual_holidays_category_distribution.is_empty() {
         return;
     }
-    let extracted = agg.annual_holidays_values.len();
+    let extracted = agg.jobbox.annual_holidays_values.len();
     if extracted == 0 {
         return;
     }
@@ -139,6 +141,7 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
     .collect();
 
     let max_count = agg
+        .jobbox
         .annual_holidays_category_distribution
         .iter()
         .map(|(_, c)| *c)
@@ -149,7 +152,7 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
     // SVG 横棒グラフ
     let row_h: i64 = 32;
     let row_gap: i64 = 8;
-    let rows = agg.annual_holidays_category_distribution.len() as i64;
+    let rows = agg.jobbox.annual_holidays_category_distribution.len() as i64;
     let svg_h = rows * (row_h + row_gap) + 20;
     let svg_w: i64 = 720;
     let label_w: i64 = 200;
@@ -161,7 +164,12 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
          border:1px solid #cbd5e1;border-radius:4px;display:block;margin:8px 0;padding:6px;\" \
          role=\"img\" aria-label=\"年間休日カテゴリ分布\">\n"
     ));
-    for (i, (label, count)) in agg.annual_holidays_category_distribution.iter().enumerate() {
+    for (i, (label, count)) in agg
+        .jobbox
+        .annual_holidays_category_distribution
+        .iter()
+        .enumerate()
+    {
         let y = (i as i64) * (row_h + row_gap) + row_gap;
         let bar_w = (*count as i64).max(0) * bar_max_w / max_count as i64;
         let pct = if extracted > 0 {
@@ -206,7 +214,7 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
 // §07.5-3 相関: 給与×年間休日 散布図 (雇用形態色分け + 相関係数 r + 回帰直線)
 // ============================================================================
 fn render_correlation_block(html: &mut String, agg: &SurveyAggregation) {
-    if agg.salary_vs_holidays_scatter.is_empty() {
+    if agg.jobbox.salary_vs_holidays_scatter.is_empty() {
         return;
     }
     html.push_str(
@@ -214,7 +222,7 @@ fn render_correlation_block(html: &mut String, agg: &SurveyAggregation) {
     );
 
     // 相関係数の表示
-    if let Some(r) = agg.salary_holidays_correlation {
+    if let Some(r) = agg.jobbox.salary_holidays_correlation {
         let strength = describe_correlation(r);
         html.push_str(&format!(
             "<p class=\"so-what\">相関係数 r = <strong>{:.3}</strong> ({})</p>\n",
@@ -224,8 +232,8 @@ fn render_correlation_block(html: &mut String, agg: &SurveyAggregation) {
 
     render_scatter_svg_emp(
         html,
-        &agg.salary_vs_holidays_scatter_emp,
-        agg.salary_holidays_regression,
+        &agg.jobbox.salary_vs_holidays_scatter_emp,
+        agg.jobbox.salary_holidays_regression,
     );
 }
 
@@ -423,13 +431,13 @@ fn render_scatter_svg_emp(
 // §07.5-4 具体例: 個別求人テーブル
 // ============================================================================
 fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
-    if agg.jobbox_records.is_empty() {
+    if agg.jobbox.jobbox_records.is_empty() {
         return;
     }
-    let listed = agg.jobbox_records.len();
+    let listed = agg.jobbox.jobbox_records.len();
     const TABLE_LIMIT: usize = 100;
     let limit = listed.min(TABLE_LIMIT);
-    let extracted = agg.annual_holidays_values.len();
+    let extracted = agg.jobbox.annual_holidays_values.len();
 
     html.push_str(
         "<div class=\"block-title\">§07.5-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
@@ -462,7 +470,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
          </tr></thead>\n<tbody>\n",
     );
 
-    for rec in &agg.jobbox_records[..limit] {
+    for rec in &agg.jobbox.jobbox_records[..limit] {
         // 雇用形態バッジ
         let emp_badge = render_emp_badge(&rec.employment_type);
         // 年間休日色分け
@@ -562,46 +570,48 @@ fn compute_median_i64(values: &[i64]) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::super::aggregator::JobBoxRecord;
+    use super::super::super::super::aggregator::{JobBoxRecord, JobboxAnalysis};
     use super::*;
 
     fn agg_with_jobbox() -> SurveyAggregation {
         SurveyAggregation {
             total_count: 5,
-            annual_holidays_values: vec![100, 110, 120, 125, 130],
-            annual_holidays_category_distribution: vec![
-                ("～89日".to_string(), 0),
-                ("90～104日".to_string(), 1),
-                ("105～119日".to_string(), 1),
-                ("120～124日".to_string(), 1),
-                ("125～129日".to_string(), 1),
-                ("130日～".to_string(), 1),
-            ],
-            holiday_pct_ge_120: 0.6,
-            holiday_pct_ge_125: 0.4,
-            holiday_stddev: 11.4,
-            holiday_q3: 125,
-            salary_vs_holidays_scatter: vec![
-                super::super::super::super::aggregator::ScatterPoint { x: 250_000, y: 120 },
-                super::super::super::super::aggregator::ScatterPoint { x: 300_000, y: 125 },
-                super::super::super::super::aggregator::ScatterPoint { x: 200_000, y: 110 },
-            ],
-            salary_vs_holidays_scatter_emp: vec![
-                (250_000, 120, "正社員".to_string()),
-                (300_000, 125, "正社員".to_string()),
-                (200_000, 110, "パート・アルバイト".to_string()),
-            ],
-            salary_holidays_correlation: Some(0.45),
-            salary_holidays_regression: Some((0.0001, 100.0)),
-            jobbox_records: vec![JobBoxRecord {
-                company_name: "テスト株式会社".to_string(),
-                job_title: "ドライバー".to_string(),
-                location: "群馬県 高崎市".to_string(),
-                employment_type: "正社員".to_string(),
-                annual_holidays: 120,
-                salary_min: Some(250_000),
-                salary_max: Some(350_000),
-            }],
+            jobbox: JobboxAnalysis {
+                annual_holidays_values: vec![100, 110, 120, 125, 130],
+                annual_holidays_category_distribution: vec![
+                    ("～89日".to_string(), 0),
+                    ("90～104日".to_string(), 1),
+                    ("105～119日".to_string(), 1),
+                    ("120～124日".to_string(), 1),
+                    ("125～129日".to_string(), 1),
+                    ("130日～".to_string(), 1),
+                ],
+                holiday_pct_ge_120: 0.6,
+                holiday_pct_ge_125: 0.4,
+                holiday_stddev: 11.4,
+                holiday_q3: 125,
+                salary_vs_holidays_scatter: vec![
+                    super::super::super::super::aggregator::ScatterPoint { x: 250_000, y: 120 },
+                    super::super::super::super::aggregator::ScatterPoint { x: 300_000, y: 125 },
+                    super::super::super::super::aggregator::ScatterPoint { x: 200_000, y: 110 },
+                ],
+                salary_vs_holidays_scatter_emp: vec![
+                    (250_000, 120, "正社員".to_string()),
+                    (300_000, 125, "正社員".to_string()),
+                    (200_000, 110, "パート・アルバイト".to_string()),
+                ],
+                salary_holidays_correlation: Some(0.45),
+                salary_holidays_regression: Some((0.0001, 100.0)),
+                jobbox_records: vec![JobBoxRecord {
+                    company_name: "テスト株式会社".to_string(),
+                    job_title: "ドライバー".to_string(),
+                    location: "群馬県 高崎市".to_string(),
+                    employment_type: "正社員".to_string(),
+                    annual_holidays: 120,
+                    salary_min: Some(250_000),
+                    salary_max: Some(350_000),
+                }],
+            },
             ..Default::default()
         }
     }
