@@ -149,6 +149,12 @@ pub(super) use section_07_lifestyle::{
 pub(super) mod section_07_5_jobbox_detail;
 pub(super) use section_07_5_jobbox_detail::render_navy_section_jobbox_detail;
 
+// 2026-06-30: Section 07.6 (人気度シグナル) を独立モジュールとして追加。
+// Indeed (SP) CSV の `css-u74ql7` 列から抽出した「人気」「超人気」タグの
+// 集計を表示。人気タグが 1 件もなければ (Indeed SP 以外) セクションごとスキップ。
+pub(super) mod section_07_6_popularity;
+pub(super) use section_07_6_popularity::render_navy_section_popularity;
+
 // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を独立モジュールに追加。
 // MarketIntelligence variant のときだけ 6 サブセクションを追加表示する。
 // 旧 `market_intelligence.rs` (handlers/survey/report_html/) は媒体分析タブ画面表示

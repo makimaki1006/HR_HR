@@ -750,6 +750,11 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   カテゴリ分布 + 給与帯別 平均年間休日 を表示する。
     //   Indeed CSV や年間休日抽出ゼロの場合は自動スキップ (HTML 出力なし)。
     navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
+    // 2026-06-30: 新 Section 07.6「人気度シグナル」を Indeed (SP) 用に追加。
+    //   Indeed (SP) CSV の `css-u74ql7` 列から抽出した「人気」「超人気」タグの
+    //   件数 / 比率 / 月給・年間休日 中央値比較を表示。
+    //   人気タグが 1 件もなければ (Indeed SP 以外のソース) 自動スキップ (HTML 出力なし)。
+    navy_report::render_navy_section_popularity(&mut html, cfg.agg);
     // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を Section 08 直前に挿入。
     //   MI variant のときだけ 6 サブセクション (9-A〜9-F) を追加表示する。
     //   Full / Public variant では関数呼出自体をスキップ → HTML に section タグも出ない。
