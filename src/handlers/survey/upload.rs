@@ -249,6 +249,15 @@ pub fn parse_csv_bytes_with_hints(
         }
     }
 
+    // Finding #12 (2026-07-01): jobsearch-JobCard-tag 列インデックスをヘッダー解析時に
+    // 1 度計算してキャッシュ。行ループ内での毎回 contains() 探索を排除。
+    let jobcard_tag_indices: Vec<usize> = headers
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| h.contains("jobsearch-JobCard-tag"))
+        .map(|(i, _)| i)
+        .collect();
+
     let mut records = Vec::new();
     let mut skipped_metadata = 0_usize;
     let mut skipped_incomplete = 0_usize;
@@ -359,18 +368,16 @@ pub fn parse_csv_bytes_with_hints(
         let employment_type = normalize_employment_type(&employment_type);
         let mut tags_raw = get("tags");
         // IndeedのCSVはタグが複数カラムに分散: jobsearch-JobCard-tag, (2), (3)...
-        // col_mapのtags以降の連続タグカラムを結合
-        for ci in 4..12 {
+        // col_mapのtags以降の連続タグカラムを結合。
+        // Finding #12: インデックスはヘッダー解析時にキャッシュ済み (jobcard_tag_indices)。
+        for &ci in &jobcard_tag_indices {
             if ci < row.len() {
                 let val = row.get(ci).unwrap_or("").trim();
                 if !val.is_empty() && !tags_raw.contains(val) && val.len() < 30 {
-                    // ヘッダーがjobsearch-JobCard-tagの場合のみ
-                    if ci < headers.len() && headers[ci].contains("jobsearch-JobCard-tag") {
-                        if !tags_raw.is_empty() {
-                            tags_raw.push(',');
-                        }
-                        tags_raw.push_str(val);
+                    if !tags_raw.is_empty() {
+                        tags_raw.push(',');
                     }
+                    tags_raw.push_str(val);
                 }
             }
         }
