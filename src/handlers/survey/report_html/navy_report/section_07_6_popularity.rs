@@ -75,34 +75,48 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     );
 
     // 月給差 (人気あり - なし) を補助 KPI として表示
-    let salary_diff_text = match (pop.popular_salary_median, pop.non_popular_salary_median) {
-        (Some(p), Some(n)) => {
-            let diff = p - n;
-            let sign = if diff >= 0 { "+" } else { "" };
-            format!("{}{} 円", sign, format_number(diff))
+    // Finding #5 (2026-07-01): 両群 n >= 5 を満たさない場合は "— (n不足)" に
+    const N_MIN: usize = 5;
+    let salary_diff_text = if pop.popular_n_salary >= N_MIN && pop.non_popular_n_salary >= N_MIN {
+        match (pop.popular_salary_median, pop.non_popular_salary_median) {
+            (Some(p), Some(n)) => {
+                let diff = p - n;
+                let sign = if diff >= 0 { "+" } else { "" };
+                format!("{}{} 円", sign, format_number(diff))
+            }
+            _ => "—".to_string(),
         }
-        _ => "—".to_string(),
+    } else {
+        "— (n不足)".to_string()
     };
-    push_kpi_card(
-        html,
-        "月給中央値差",
-        &salary_diff_text,
-        "人気タグ あり − なし (Monthly のみ)",
+    let salary_diff_foot = format!(
+        "人気タグ あり − なし (Monthly のみ) / 人気 n={} / なし n={}",
+        pop.popular_n_salary, pop.non_popular_n_salary
     );
+    push_kpi_card(html, "月給中央値差", &salary_diff_text, &salary_diff_foot);
 
-    let holiday_diff_text = match (pop.popular_holidays_median, pop.non_popular_holidays_median) {
-        (Some(p), Some(n)) => {
-            let diff = p - n;
-            let sign = if diff >= 0 { "+" } else { "" };
-            format!("{}{} 日", sign, diff)
-        }
-        _ => "—".to_string(),
-    };
+    let holiday_diff_text =
+        if pop.popular_n_holidays >= N_MIN && pop.non_popular_n_holidays >= N_MIN {
+            match (pop.popular_holidays_median, pop.non_popular_holidays_median) {
+                (Some(p), Some(n)) => {
+                    let diff = p - n;
+                    let sign = if diff >= 0 { "+" } else { "" };
+                    format!("{}{} 日", sign, diff)
+                }
+                _ => "—".to_string(),
+            }
+        } else {
+            "— (n不足)".to_string()
+        };
+    let holiday_diff_foot = format!(
+        "人気タグ あり − なし / 人気 n={} / なし n={}",
+        pop.popular_n_holidays, pop.non_popular_n_holidays
+    );
     push_kpi_card(
         html,
         "年間休日中央値差",
         &holiday_diff_text,
-        "人気タグ あり − なし",
+        &holiday_diff_foot,
     );
 
     html.push_str("</div>\n");
@@ -134,9 +148,11 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
         return;
     }
 
+    // Finding #5 (2026-07-01): n < 5 の場合は値非表示 (n 数は列ヘッダに併記)
+    const N_MIN_TABLE: usize = 5;
     html.push_str("<div class=\"block-title\">§07.6-2 &nbsp;月給・年間休日 比較 (中央値)</div>\n");
 
-    html.push_str(
+    html.push_str(&format!(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
          <col style=\"width:30%;\">\
@@ -145,31 +161,51 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
          </colgroup>\n\
          <thead><tr>\
          <th>指標</th>\
-         <th style=\"text-align:right;\">人気タグ あり</th>\
-         <th style=\"text-align:right;\">人気タグ なし</th>\
+         <th style=\"text-align:right;\">人気タグ あり (n={})</th>\
+         <th style=\"text-align:right;\">人気タグ なし (n={})</th>\
          </tr></thead>\n<tbody>\n",
-    );
+        pop.popular_n_salary.max(pop.popular_n_holidays),
+        pop.non_popular_n_salary.max(pop.non_popular_n_holidays),
+    ));
 
     if has_salary {
+        let pop_val = if pop.popular_n_salary >= N_MIN_TABLE {
+            format_salary_yen(pop.popular_salary_median)
+        } else {
+            format!("— (n={})", pop.popular_n_salary)
+        };
+        let non_val = if pop.non_popular_n_salary >= N_MIN_TABLE {
+            format_salary_yen(pop.non_popular_salary_median)
+        } else {
+            format!("— (n={})", pop.non_popular_n_salary)
+        };
         html.push_str(&format!(
             "<tr>\
              <td>月給 中央値 (Monthly のみ)</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
              </tr>\n",
-            format_salary_yen(pop.popular_salary_median),
-            format_salary_yen(pop.non_popular_salary_median),
+            pop_val, non_val,
         ));
     }
     if has_holidays {
+        let pop_val = if pop.popular_n_holidays >= N_MIN_TABLE {
+            format_days(pop.popular_holidays_median)
+        } else {
+            format!("— (n={})", pop.popular_n_holidays)
+        };
+        let non_val = if pop.non_popular_n_holidays >= N_MIN_TABLE {
+            format_days(pop.non_popular_holidays_median)
+        } else {
+            format!("— (n={})", pop.non_popular_n_holidays)
+        };
         html.push_str(&format!(
             "<tr>\
              <td>年間休日 中央値 (日)</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
              </tr>\n",
-            format_days(pop.popular_holidays_median),
-            format_days(pop.non_popular_holidays_median),
+            pop_val, non_val,
         ));
     }
     html.push_str("</tbody></table>\n");
@@ -213,6 +249,11 @@ mod tests {
                 non_popular_salary_median: Some(260_000),
                 popular_holidays_median: Some(120),
                 non_popular_holidays_median: Some(110),
+                // Finding #5 (2026-07-01): n >= 5 で正常表示されることを検証
+                popular_n_salary: 6,
+                non_popular_n_salary: 14,
+                popular_n_holidays: 6,
+                non_popular_n_holidays: 14,
             },
             ..Default::default()
         }
@@ -280,6 +321,11 @@ mod tests {
                 non_popular_salary_median: Some(240_000),
                 popular_holidays_median: None,
                 non_popular_holidays_median: None,
+                // Finding #5: n >= 5 で月給表示が出ることを検証
+                popular_n_salary: 5,
+                non_popular_n_salary: 8,
+                popular_n_holidays: 0,
+                non_popular_n_holidays: 0,
             },
             ..Default::default()
         };
@@ -308,11 +354,54 @@ mod tests {
                 non_popular_salary_median: Some(260_000),
                 popular_holidays_median: None,
                 non_popular_holidays_median: None,
+                // Finding #5: n >= 5 で月給差が表示されることを検証
+                popular_n_salary: 5,
+                non_popular_n_salary: 10,
+                popular_n_holidays: 0,
+                non_popular_n_holidays: 0,
             },
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
         // 200,000 - 260,000 = -60,000 → "-60,000 円" (sign は format_number 内で付く)
         assert!(html.contains("-60,000 円"), "negative diff displayed");
+    }
+
+    #[test]
+    fn shows_insufficient_n_when_n_below_threshold() {
+        // Finding #5: 両群 n < 5 の場合は "— (n不足)" を表示する
+        let mut html = String::new();
+        let agg = SurveyAggregation {
+            total_count: 5,
+            popularity: PopularityAnalysis {
+                popular_count: 1,
+                super_popular_count: 0,
+                none_count: 4,
+                popular_ratio: 0.2,
+                indeed_sp_total: 5,
+                popular_salary_median: Some(200_000),
+                non_popular_salary_median: Some(260_000),
+                popular_holidays_median: Some(115),
+                non_popular_holidays_median: Some(108),
+                popular_n_salary: 3,       // < 5
+                non_popular_n_salary: 4,   // < 5
+                popular_n_holidays: 2,     // < 5
+                non_popular_n_holidays: 3, // < 5
+            },
+            ..Default::default()
+        };
+        render_navy_section_popularity(&mut html, &agg);
+        // KPI で n不足表示
+        assert!(html.contains("n不足"), "n < 5 → insufficient-n indicator");
+        // 差分 KPI に実値が出ない
+        assert!(
+            !html.contains("-60,000 円"),
+            "no diff value when n insufficient"
+        );
+        // 比較表にも n 表示 (n=3 or n=4)
+        assert!(
+            html.contains("n=3") || html.contains("n=2"),
+            "table shows n"
+        );
     }
 }
