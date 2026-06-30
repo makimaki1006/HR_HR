@@ -11,7 +11,7 @@
 
 use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::aggregator::{
-    SurveyAggregation, SCATTER_X_MIN, SCATTER_Y_MAX, SCATTER_Y_MIN,
+    median_of, SurveyAggregation, SCATTER_X_MIN, SCATTER_Y_MAX, SCATTER_Y_MIN,
 };
 use super::common::push_page_head;
 
@@ -49,7 +49,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     }
     let sum: i64 = agg.jobbox.annual_holidays_values.iter().sum();
     let mean = sum as f64 / extracted as f64;
-    let median = compute_median_i64(&agg.jobbox.annual_holidays_values);
+    let median = median_of(&agg.jobbox.annual_holidays_values);
     let min_v = agg
         .jobbox
         .annual_holidays_values
@@ -553,20 +553,10 @@ fn holiday_color(days: i64) -> (&'static str, &'static str) {
     }
 }
 
-/// i64 配列の中央値
-fn compute_median_i64(values: &[i64]) -> i64 {
-    if values.is_empty() {
-        return 0;
-    }
-    let mut sorted: Vec<i64> = values.to_vec();
-    sorted.sort_unstable();
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
-        (sorted[mid - 1] + sorted[mid]) / 2
-    } else {
-        sorted[mid]
-    }
-}
+// Finding #18 (2026-06-30): `compute_median_i64` を削除し、
+// `super::super::super::aggregator::median_of` に統合 (上で use 済み)。
+// 動作仕様は完全互換 (空→0、奇数→中央、偶数→中央2要素平均の整数割り算)。
+// 旧実装は sort_unstable、新実装は sort。値は同一だが順序のみの差は無関係。
 
 #[cfg(test)]
 mod tests {
@@ -695,8 +685,9 @@ mod tests {
 
     #[test]
     fn median_helper_basic() {
-        assert_eq!(compute_median_i64(&[1, 2, 3, 4, 5]), 3);
-        assert_eq!(compute_median_i64(&[1, 2, 3, 4]), 2);
-        assert_eq!(compute_median_i64(&[]), 0);
+        // Finding #18 (2026-06-30): aggregator::median_of に統合済み
+        assert_eq!(median_of(&[1, 2, 3, 4, 5]), 3);
+        assert_eq!(median_of(&[1, 2, 3, 4]), 2);
+        assert_eq!(median_of(&[]), 0);
     }
 }
