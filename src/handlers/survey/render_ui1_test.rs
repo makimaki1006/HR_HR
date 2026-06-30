@@ -92,19 +92,8 @@ fn sample_aggregation() -> SurveyAggregation {
         salary_min_values_native: Vec::new(),
         salary_max_values_native: Vec::new(),
         scatter_min_max_native: Vec::new(),
-        // 2026-06-24: Section 07.5 用フィールド (本テストでは空でも UI 描画には影響しない)
-        annual_holidays_values: Vec::new(),
-        annual_holidays_category_distribution: Vec::new(),
-        salary_vs_holidays_scatter: Vec::new(),
-        jobbox_records: Vec::new(),
-        // 2026-06-26 Section 07.5 UI/UX 改善 用フィールド (テストでは空/0でも OK)
-        holiday_pct_ge_120: 0.0,
-        holiday_pct_ge_125: 0.0,
-        holiday_stddev: 0.0,
-        holiday_q3: 0,
-        salary_vs_holidays_scatter_emp: Vec::new(),
-        salary_holidays_correlation: None,
-        salary_holidays_regression: None,
+        // 2026-06-30 Finding #12: Section 07.5 関連 11 フィールドを JobboxAnalysis に集約
+        jobbox: Default::default(),
     }
 }
 

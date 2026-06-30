@@ -175,7 +175,20 @@ pub struct SurveyAggregation {
 
     // ========================================================================
     // 2026-06-24 求人ボックス年間休日分析機能 (GAS Aggregator.js 移植 + 拡張)
+    // 2026-06-30 Finding #12: Section 07.5 関連 11 フィールドを JobboxAnalysis に集約
     // ========================================================================
+    /// Section 07.5 (求人ボックス年間休日分析) 関連集計の集約サブ構造体
+    #[serde(default)]
+    pub jobbox: JobboxAnalysis,
+}
+
+/// Section 07.5 用集計の集約サブ構造体 (2026-06-30 Finding #12)
+///
+/// 旧 `SurveyAggregation` 直下の 11 フィールドをここに集約。
+/// `#[serde(default)]` 付きで `SurveyAggregation::jobbox` に保持されるため、
+/// 旧 JSON (フィールド未存在) でも default で復元可能。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct JobboxAnalysis {
     /// 抽出に成功した年間休日値の生データ (全 source 対象、70-180 範囲内の抽出値のみ)
     #[serde(default)]
     pub annual_holidays_values: Vec<i64>,
@@ -188,10 +201,6 @@ pub struct SurveyAggregation {
     /// 個別求人レコード一覧 (求人ボックスCSV のみ、年間休日抽出成功分)
     #[serde(default)]
     pub jobbox_records: Vec<JobBoxRecord>,
-
-    // ========================================================================
-    // 2026-06-26 UI/UX 改善: KPI 拡張 + 散布図相関分析 + 雇用形態別散布
-    // ========================================================================
     /// 年間休日 120日以上比率 (週休2日+祝日達成率、0.0-1.0)
     #[serde(default)]
     pub holiday_pct_ge_120: f64,
@@ -216,6 +225,33 @@ pub struct SurveyAggregation {
     /// 月給(円)を入力とする回帰式: holidays = slope * salary + intercept
     #[serde(default)]
     pub salary_holidays_regression: Option<(f64, f64)>,
+}
+
+/// 散布図用 雇用形態 3 値分類 (2026-06-30 Finding #13)
+///
+/// `salary_vs_holidays_scatter_emp` の色分け用ラベルを生成する。
+/// 戻り値は固定 3 種: `"正社員"` / `"パート・アルバイト"` / `"その他"`。
+///
+/// 判定順は狭→広 (正職員 → 正社員 → 契約 → 派遣 → パート/アルバイト)。
+/// 契約社員/派遣はシンプル優先で "その他" にマッピング。
+///
+/// **注意**: section_07_5_jobbox_detail.rs の `render_emp_badge` は表示用に 5+ 種の
+/// カラーリングを行うため、本関数とは粒度が異なる別関数のまま (粒度差は意図的)。
+pub fn classify_employment_for_scatter(et: &str) -> &'static str {
+    if et.contains("正職員") {
+        "正社員"
+    } else if et.contains("正社員") {
+        "正社員"
+    } else if et.contains("契約") {
+        "その他"
+    } else if et.contains("派遣") {
+        "その他"
+    } else if et.contains("パート") || et.contains("アルバイト") || et.contains("バイト")
+    {
+        "パート・アルバイト"
+    } else {
+        "その他"
+    }
 }
 
 /// 求人ボックス個別求人レコード (2026-06-24 追加、Section 07.5 用)
@@ -879,6 +915,9 @@ fn aggregate_records_core(
     };
 
     // 雇用形態付き散布図データ
+    // 2026-06-30 Finding #13: 雇用形態 3 値分類は `classify_employment_for_scatter` に一元化。
+    //   判定順は狭→広 (正職員 → 正社員 → 契約 → 派遣 → パート/アルバイト)。
+    //   section_07_5_jobbox_detail.rs の `render_emp_badge` は表示用 5+ 種なので別関数のまま (粒度差は意図的)。
     let salary_vs_holidays_scatter_emp: Vec<(i64, i64, String)> = records
         .iter()
         .filter_map(|r| {
@@ -889,25 +928,7 @@ fn aggregate_records_core(
                 ST::Annual => min_val / 12,
                 _ => return None,
             };
-            // 2026-06-30 Finding #2 修正: 「契約」を「正社員」に含めない方針。
-            //   判定順は狭→広 (正職員 → 正社員 → 契約 → 派遣 → パート/アルバイト)。
-            //   section_07_5_jobbox_detail.rs 側の散布図色分けは 3 色 (正社員/パート・アルバイト/その他) の
-            //   想定のため、契約社員/派遣はシンプル優先で "その他" にマッピング (将来 4 色目を追加する余地は残す)。
-            let et = r.employment_type.as_str();
-            let emp_label = if et.contains("正職員") {
-                "正社員".to_string()
-            } else if et.contains("正社員") {
-                "正社員".to_string()
-            } else if et.contains("契約") {
-                "その他".to_string()
-            } else if et.contains("派遣") {
-                "その他".to_string()
-            } else if et.contains("パート") || et.contains("アルバイト") || et.contains("バイト")
-            {
-                "パート・アルバイト".to_string()
-            } else {
-                "その他".to_string()
-            };
+            let emp_label = classify_employment_for_scatter(&r.employment_type).to_string();
             Some((monthly, holidays, emp_label))
         })
         .collect();
@@ -979,18 +1000,20 @@ fn aggregate_records_core(
         salary_max_values_native,
         scatter_min_max_native,
         // 2026-06-24: Section 07.5 用 (年間休日 / 求人ボックス個別求人)
-        annual_holidays_values,
-        annual_holidays_category_distribution,
-        salary_vs_holidays_scatter,
-        jobbox_records,
-        // 2026-06-26: Section 07.5 UI/UX 改善 用
-        holiday_pct_ge_120,
-        holiday_pct_ge_125,
-        holiday_stddev,
-        holiday_q3,
-        salary_vs_holidays_scatter_emp,
-        salary_holidays_correlation,
-        salary_holidays_regression,
+        // 2026-06-30 Finding #12: JobboxAnalysis sub-struct に集約
+        jobbox: JobboxAnalysis {
+            annual_holidays_values,
+            annual_holidays_category_distribution,
+            salary_vs_holidays_scatter,
+            jobbox_records,
+            holiday_pct_ge_120,
+            holiday_pct_ge_125,
+            holiday_stddev,
+            holiday_q3,
+            salary_vs_holidays_scatter_emp,
+            salary_holidays_correlation,
+            salary_holidays_regression,
+        },
     }
 }
 

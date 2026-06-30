@@ -381,18 +381,14 @@ pub fn parse_csv_bytes_with_hints(
 
         // 2026-06-26 求人ボックス CSV で雇用形態列 (c-icon (3) 相当) が無い場合のフォールバック:
         //   給与単位から推定 (月給/年俸 → 正社員、時給 → パート・アルバイト)。
-        //   求人ボックスの典型的な雇用形態と給与単位の対応関係に基づく。
-        //   Daily/Weekly は推定対象外 (実データ希少のため)、空文字列のまま「不明」となる。
-        let employment_type =
-            if matches!(source, CsvSource::JobBox) && employment_type.trim().is_empty() {
-                match salary_parsed.salary_type {
-                    SalaryType::Monthly | SalaryType::Annual => "正社員".to_string(),
-                    SalaryType::Hourly => "パート・アルバイト".to_string(),
-                    _ => employment_type,
-                }
-            } else {
-                employment_type
-            };
+        //   2026-06-30 Finding #10: ロジックを `infer_employment_type_for_jobbox` に抽出。
+        let employment_type = if matches!(source, CsvSource::JobBox)
+            && employment_type.trim().is_empty()
+        {
+            infer_employment_type_for_jobbox(&salary_parsed.salary_type).unwrap_or(employment_type)
+        } else {
+            employment_type
+        };
 
         // 2026-04-26 Fix-A: 行レベル重複検出
         // employment_type を key に含めることで「正社員/パート」が別レコード扱いになる
@@ -1089,6 +1085,21 @@ pub const ANNUAL_HOLIDAYS_CATEGORIES: [&str; 6] = [
     "125～129日",
     "130日～",
 ];
+
+/// 求人ボックス CSV で雇用形態列が空の場合に、給与単位から雇用形態を推定する
+/// (2026-06-30 Finding #10: `parse_csv_bytes_with_hints` から抽出)
+///
+/// 求人ボックスの典型的な雇用形態と給与単位の対応関係に基づく推定:
+/// - `Monthly` / `Annual` → `Some("正社員")`
+/// - `Hourly`             → `Some("パート・アルバイト")`
+/// - `Daily` / `Weekly`   → `None` (実データ希少のため推定対象外、空文字列のまま「不明」)
+pub fn infer_employment_type_for_jobbox(salary_type: &SalaryType) -> Option<String> {
+    match salary_type {
+        SalaryType::Monthly | SalaryType::Annual => Some("正社員".to_string()),
+        SalaryType::Hourly => Some("パート・アルバイト".to_string()),
+        _ => None,
+    }
+}
 
 // =============================================================================
 // 2026-04-26 Fix-A 逆証明テスト (Shift-JIS / UTF-8 BOM / 行レベル重複)
