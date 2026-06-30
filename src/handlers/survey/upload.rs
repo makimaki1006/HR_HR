@@ -415,9 +415,21 @@ pub fn parse_csv_bytes_with_hints(
         // 2026-06-26 求人ボックス CSV で雇用形態列 (c-icon (3) 相当) が無い場合のフォールバック:
         //   給与単位から推定 (月給/年俸 → 正社員、時給 → パート・アルバイト)。
         //   2026-06-30 Finding #10: ロジックを `infer_employment_type_for_jobbox` に抽出。
-        //   2026-06-30: Indeed (SP) も同じフォールバックを適用 (employment_type は通常 col 0 で
-        //   取れるが、稀に空欄ケースがあるため念のため)。
-        let employment_type = if matches!(source, CsvSource::JobBox | CsvSource::IndeedSp)
+        //   2026-07-01 Finding #4 修正: IndeedSp は css-1hwmqh1 で雇用形態を取得できる前提のため、
+        //   空欄時に Monthly → 正社員 のフォールバックをかけると契約・派遣・嘱託も一律「正社員」
+        //   化されてしまう。IndeedSp は空欄のまま (集計時に「不明」扱い) とし、JobBox のみ
+        //   フォールバック適用。空欄発生時は CSS クラス変更可能性を tracing::warn で 1 回通知。
+        if matches!(source, CsvSource::IndeedSp) && employment_type.trim().is_empty() {
+            // 毎レコードでは log 量過多になるため、CSV 1 本につき 1 回だけ通知。
+            use std::sync::Once;
+            static WARN_ONCE: Once = Once::new();
+            WARN_ONCE.call_once(|| {
+                tracing::warn!(
+                    "Indeed (SP) record has empty employment_type (css-1hwmqh1 may have changed)"
+                );
+            });
+        }
+        let employment_type = if matches!(source, CsvSource::JobBox)
             && employment_type.trim().is_empty()
         {
             infer_employment_type_for_jobbox(&salary_parsed.salary_type).unwrap_or(employment_type)

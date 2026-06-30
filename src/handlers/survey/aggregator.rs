@@ -209,8 +209,13 @@ pub struct PopularityAnalysis {
     pub super_popular_count: usize,
     /// タグなし件数
     pub none_count: usize,
-    /// 全体に占める人気タグ比率 (popular + super_popular) / total
+    /// IndeedSp 件数に占める人気タグ比率 (popular + super_popular) / indeed_sp_total
+    /// 2026-07-01 Finding #2 修正: 分母を IndeedSp 由来件数に限定 (旧: 全 source total)
     pub popular_ratio: f64,
+    /// 集計母集団: Indeed (SP) 由来レコード数 (popular_ratio 等の分母)
+    /// 2026-07-01 Finding #2 で追加。serde default=0 で旧 JSON 互換。
+    #[serde(default)]
+    pub indeed_sp_total: usize,
     /// 人気タグ付き求人の月給中央値 (円、Monthly のみ)
     pub popular_salary_median: Option<i64>,
     /// 人気タグなし求人の月給中央値 (円、Monthly のみ)
@@ -1013,26 +1018,47 @@ fn aggregate_records_core(
 
     // ============================================================
     // 2026-06-30 Section 07.6 集計: Indeed (SP) 「人気」「超人気」タグ
+    // 2026-07-01 Finding #1-#3 修正: 集計母集団を IndeedSp 限定に。
+    //   - 全 source 走査だと Indeed (PC)/求人ボックスの「人気の検索ワード」等の
+    //     セル値に "人気" 部分文字列が含まれ誤発火していた。
+    //   - 部分文字列マッチ (contains) → split(',') + 厳密一致に変更。
+    //     "超人気" が "人気" を部分文字列として含むことによる二重カウントも防止。
+    //   - popular_ratio の分母も IndeedSp 由来件数のみに限定。全 source 合算では
+    //     IndeedSp 件数が機械的に薄まり営業資料として誤誘導 (Simpson's paradox)。
+    //   - non_popular 母集団も同じく IndeedSp 限定。Indeed (PC)/求人ボックスは
+    //     定義上 100% non_popular のため、混入させると「人気タグなし側」の中央値が
+    //     他媒体の特性で大きく歪む。
     // ============================================================
     // 判定順:
-    //   1. tags_raw に "超人気" が含まれる → super_popular
-    //   2. 上記以外で "人気" が含まれる   → popular
-    //   3. いずれも含まない                → none
+    //   1. tags_raw を ',' で split し各トークンを trim
+    //   2. "超人気" と厳密一致するトークンがあれば super_popular
+    //   3. 上記以外で "人気" と厳密一致するトークンがあれば popular
+    //   4. いずれもなければ none
     // popular_salary_median / non_popular_salary_median: Monthly のみ採用
     //   (時給/年俸/日給を混ぜると単位が混在し中央値が無意味になるため)
     let popularity = {
         let mut popular_count = 0usize;
         let mut super_popular_count = 0usize;
         let mut none_count = 0usize;
+        let mut indeed_sp_total = 0usize;
         let mut popular_salaries: Vec<i64> = Vec::new();
         let mut non_popular_salaries: Vec<i64> = Vec::new();
         let mut popular_holidays: Vec<i64> = Vec::new();
         let mut non_popular_holidays: Vec<i64> = Vec::new();
 
         for r in records {
-            let is_super = r.tags_raw.contains("超人気");
-            let is_popular = !is_super && r.tags_raw.contains("人気");
+            // Finding #1/#3: Indeed (SP) 由来レコードのみを集計対象にする。
+            if !matches!(r.source, CsvSource::IndeedSp) {
+                continue;
+            }
+            indeed_sp_total += 1;
+
+            // Finding #1: split + 厳密一致 (部分文字列マッチを廃止)。
+            let tokens: Vec<&str> = r.tags_raw.split(',').map(|s| s.trim()).collect();
+            let is_super = tokens.iter().any(|t| *t == "超人気");
+            let is_popular = tokens.iter().any(|t| *t == "人気");
             let has_popular_signal = is_super || is_popular;
+            // 判定順: 超人気 → 人気 (1 record は超人気 or 人気 のいずれか 1 つだけ計上)
             if is_super {
                 super_popular_count += 1;
             } else if is_popular {
@@ -1064,8 +1090,9 @@ fn aggregate_records_core(
             }
         }
 
-        let popular_ratio = if total > 0 {
-            (popular_count + super_popular_count) as f64 / total as f64
+        // Finding #2: 分母を IndeedSp 由来件数に限定 (全 source 合算で薄めない)。
+        let popular_ratio = if indeed_sp_total > 0 {
+            (popular_count + super_popular_count) as f64 / indeed_sp_total as f64
         } else {
             0.0
         };
@@ -1082,6 +1109,7 @@ fn aggregate_records_core(
             super_popular_count,
             none_count,
             popular_ratio,
+            indeed_sp_total,
             popular_salary_median: median_opt(&popular_salaries),
             non_popular_salary_median: median_opt(&non_popular_salaries),
             popular_holidays_median: median_opt(&popular_holidays),
