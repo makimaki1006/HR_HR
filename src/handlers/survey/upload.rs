@@ -11,6 +11,8 @@ use super::salary_parser::{parse_salary, ParsedSalary, SalaryType};
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum CsvSource {
     Indeed,
+    /// 2026-06-30 追加: Indeed スマホ版スクレイピング (年間休日 + 人気タグ取得可)
+    IndeedSp,
     JobBox,
     Unknown,
 }
@@ -41,6 +43,15 @@ pub struct SurveyRecord {
 /// ヘッダーからCSVソースを自動判定
 pub fn detect_csv_source(headers: &[String]) -> CsvSource {
     let header_str = headers.join(",").to_lowercase();
+    // 2026-06-30 追加: Indeed (SP) スマホ版を最優先で判定
+    // 固有 CSS クラス: css-u74ql7 (人気/超人気タグ列) は Indeed SP のみが出力。
+    // フォールバック: css-bxyec3 (求人タイトル) + css-1vlebyu (description) の組み合わせも SP 固有。
+    // 注意: 既存 Indeed (PC) は jcs-jobtitle / css-19eicqx 等の別 CSS クラスを使うため衝突しない。
+    if header_str.contains("css-u74ql7")
+        || (header_str.contains("css-bxyec3") && header_str.contains("css-1vlebyu"))
+    {
+        return CsvSource::IndeedSp;
+    }
     // 求人ボックス: CSSクラス名ベースのヘッダー検出（GASのp-result_name, p-result_company, c-icon相当）
     if header_str.contains("p-result") || header_str.contains("c-icon") {
         return CsvSource::JobBox;
@@ -100,6 +111,8 @@ impl WageMode {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UserSourceHint {
     Indeed,
+    /// 2026-06-30 追加: Indeed スマホ版 (年間休日 / 人気タグ取得可)
+    IndeedSp,
     JobBox,
     Other,
     Auto,
@@ -109,6 +122,7 @@ impl UserSourceHint {
     pub fn from_str(s: &str) -> Self {
         match s {
             "indeed" => Self::Indeed,
+            "indeed_sp" => Self::IndeedSp,
             "jobbox" => Self::JobBox,
             "other" => Self::Other,
             _ => Self::Auto,
@@ -203,6 +217,7 @@ pub fn parse_csv_bytes_with_hints(
     // ユーザー明示指定があれば優先、それ以外は自動判定
     let source = match source_hint {
         UserSourceHint::Indeed => CsvSource::Indeed,
+        UserSourceHint::IndeedSp => CsvSource::IndeedSp,
         UserSourceHint::JobBox => CsvSource::JobBox,
         UserSourceHint::Other => CsvSource::Unknown,
         UserSourceHint::Auto => detect_csv_source(&headers),
@@ -382,7 +397,9 @@ pub fn parse_csv_bytes_with_hints(
         // 2026-06-26 求人ボックス CSV で雇用形態列 (c-icon (3) 相当) が無い場合のフォールバック:
         //   給与単位から推定 (月給/年俸 → 正社員、時給 → パート・アルバイト)。
         //   2026-06-30 Finding #10: ロジックを `infer_employment_type_for_jobbox` に抽出。
-        let employment_type = if matches!(source, CsvSource::JobBox)
+        //   2026-06-30: Indeed (SP) も同じフォールバックを適用 (employment_type は通常 col 0 で
+        //   取れるが、稀に空欄ケースがあるため念のため)。
+        let employment_type = if matches!(source, CsvSource::JobBox | CsvSource::IndeedSp)
             && employment_type.trim().is_empty()
         {
             infer_employment_type_for_jobbox(&salary_parsed.salary_type).unwrap_or(employment_type)
@@ -510,6 +527,87 @@ fn build_column_map(
                 }
                 if h.starts_with("jobsearch-JobCard-tag") && !map.contains_key("tags") {
                     map.insert("tags", i);
+                }
+            }
+            CsvSource::IndeedSp => {
+                // 2026-06-30 Indeed (SP) スマホ版スクレイピング用 CSS クラス名マッピング。
+                // CSV ヘッダ例 (29 列): css-1hwmqh1, css-bxyec3 href, css-bxyec3, css-lx9x6g,
+                //   css-14qk2ra, css-18rxko3, css-18rxko3 (2), css-ge6x3l src,
+                //   jobsearch-JobCard-tag, (2)〜(11), css-1c8ncmc, css-o67di7,
+                //   css-1vlebyu, css-1vlebyu (2)〜(6), css-1hwmqh1 (2), css-u74ql7
+                //
+                // 日本語ヘッダーフォールバック (汎用 / SP 出力でも一部混ざる可能性)
+                if h.contains("求人名")
+                    || h.contains("職種名")
+                    || h.contains("タイトル")
+                    || h == "title"
+                {
+                    map.insert("job_title", i);
+                }
+                if h.contains("会社名") || h.contains("企業") || h == "company" {
+                    map.insert("company_name", i);
+                }
+                if h.contains("勤務地") || h.contains("所在地") || h == "location" {
+                    map.insert("location", i);
+                }
+                if h.contains("給与") || h.contains("年収") || h.contains("月給") || h == "salary"
+                {
+                    map.insert("salary", i);
+                }
+                if h.contains("雇用") || h.contains("形態") || h == "type" {
+                    map.insert("employment_type", i);
+                }
+                if h.contains("タグ") || h.contains("特徴") || h == "tags" {
+                    map.insert("tags", i);
+                }
+                if h.contains("URL") || h.contains("url") || h.contains("リンク") {
+                    map.insert("url", i);
+                }
+                if h.contains("新着") || h.contains("NEW") {
+                    map.insert("is_new", i);
+                }
+                if h.contains("詳細") || h.contains("仕事内容") || h.contains("description") {
+                    map.insert("description", i);
+                }
+
+                // Indeed (SP) 固有 CSS クラス判定 (既存 map にあれば上書きしない)
+                if h == "css-bxyec3 href" && !map.contains_key("url") {
+                    map.insert("url", i);
+                }
+                if h == "css-bxyec3" && !map.contains_key("job_title") {
+                    map.insert("job_title", i);
+                }
+                if h == "css-14qk2ra" && !map.contains_key("company_name") {
+                    map.insert("company_name", i);
+                }
+                if h == "css-18rxko3" && !map.contains_key("location") {
+                    map.insert("location", i);
+                }
+                if h == "css-18rxko3 (2)" && !map.contains_key("salary") {
+                    map.insert("salary", i);
+                }
+                // 雇用形態は col 0 (css-1hwmqh1) が主、col 26 (css-1hwmqh1 (2)) が副。
+                // 副があれば優先しない (主を採用)。
+                if h == "css-1hwmqh1" && !map.contains_key("employment_type") {
+                    map.insert("employment_type", i);
+                }
+                // description: 本文 (年間休日含む)
+                if h == "css-1vlebyu" && !map.contains_key("description") {
+                    map.insert("description", i);
+                }
+                // 人気/超人気タグ (Indeed SP 固有シグナル) を tags に紐付け。
+                // 既存 tags キー (jobsearch-JobCard-tag) があれば触らず、無ければ採用。
+                if h == "css-u74ql7" && !map.contains_key("tags") {
+                    map.insert("tags", i);
+                }
+                // 特徴タグ (jobsearch-JobCard-tag, (2)〜(11)) は最初の列だけ tags に採用。
+                // 既存ループ (line 348-361) で複数列を連結する仕組みあり。
+                if h.starts_with("jobsearch-JobCard-tag") && !map.contains_key("tags") {
+                    map.insert("tags", i);
+                }
+                // 掲載日 (css-o67di7) は「30+日前」等の文字列。新着判定の弱いシグナルとして扱う。
+                if h == "css-o67di7" && !map.contains_key("is_new") {
+                    map.insert("is_new", i);
                 }
             }
             CsvSource::JobBox => {
@@ -1319,5 +1417,139 @@ mod annual_holidays_extraction_tests {
             None,
             "Weekly → None (推定対象外)"
         );
+    }
+}
+
+// =============================================================================
+// 2026-06-30 Indeed (SP) スマホ版スクレイピング検出テスト
+// =============================================================================
+
+#[cfg(test)]
+mod indeed_sp_detection_tests {
+    use super::*;
+
+    /// indeed-2026-06-30 (5).csv 相当の 29 列ヘッダー (css-u74ql7 含む)
+    /// → CsvSource::IndeedSp が返ること
+    #[test]
+    fn detect_indeed_sp_via_unique_css_u74ql7() {
+        let headers: Vec<String> = vec![
+            "css-1hwmqh1",
+            "css-bxyec3 href",
+            "css-bxyec3",
+            "css-lx9x6g",
+            "css-14qk2ra",
+            "css-18rxko3",
+            "css-18rxko3 (2)",
+            "css-ge6x3l src",
+            "jobsearch-JobCard-tag",
+            "jobsearch-JobCard-tag (2)",
+            "jobsearch-JobCard-tag (3)",
+            "jobsearch-JobCard-tag (4)",
+            "jobsearch-JobCard-tag (5)",
+            "jobsearch-JobCard-tag (6)",
+            "jobsearch-JobCard-tag (7)",
+            "jobsearch-JobCard-tag (8)",
+            "jobsearch-JobCard-tag (9)",
+            "jobsearch-JobCard-tag (10)",
+            "jobsearch-JobCard-tag (11)",
+            "css-1c8ncmc",
+            "css-o67di7",
+            "css-1vlebyu",
+            "css-1vlebyu (2)",
+            "css-1vlebyu (3)",
+            "css-1vlebyu (4)",
+            "css-1vlebyu (5)",
+            "css-1hwmqh1 (2)",
+            "css-u74ql7",
+            "css-1vlebyu (6)",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            detect_csv_source(&headers),
+            CsvSource::IndeedSp,
+            "css-u74ql7 を含む Indeed SP ヘッダーは IndeedSp と判定されるべき"
+        );
+    }
+
+    /// css-u74ql7 が無くても css-bxyec3 + css-1vlebyu の組み合わせなら SP 判定
+    #[test]
+    fn detect_indeed_sp_via_bxyec3_and_1vlebyu_combo() {
+        let headers: Vec<String> = vec!["css-bxyec3", "css-1vlebyu"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(detect_csv_source(&headers), CsvSource::IndeedSp);
+    }
+
+    /// 既存 Indeed (PC) ヘッダー (jcs-JobTitle) は IndeedSp ではなく Indeed と判定 (回帰防止)
+    #[test]
+    fn indeed_pc_still_detected_as_indeed_not_sp() {
+        let headers: Vec<String> = vec!["jcs-JobTitle href", "jcs-JobTitle", "css-19eicqx"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            detect_csv_source(&headers),
+            CsvSource::Indeed,
+            "Indeed PC ヘッダーは IndeedSp 判定にすり抜けないこと"
+        );
+    }
+
+    /// 求人ボックスは引き続き JobBox と判定 (回帰防止)
+    #[test]
+    fn jobbox_still_detected_as_jobbox() {
+        let headers: Vec<String> = vec!["p-result_title_link href", "p-result_name", "c-icon"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        assert_eq!(detect_csv_source(&headers), CsvSource::JobBox);
+    }
+
+    /// UserSourceHint::from_str("indeed_sp") → IndeedSp にマッピング
+    #[test]
+    fn user_source_hint_from_str_maps_indeed_sp() {
+        assert_eq!(
+            UserSourceHint::from_str("indeed_sp"),
+            UserSourceHint::IndeedSp
+        );
+        assert_eq!(UserSourceHint::from_str("indeed"), UserSourceHint::Indeed);
+        assert_eq!(UserSourceHint::from_str("jobbox"), UserSourceHint::JobBox);
+        assert_eq!(UserSourceHint::from_str("other"), UserSourceHint::Other);
+        assert_eq!(UserSourceHint::from_str(""), UserSourceHint::Auto);
+    }
+
+    /// build_column_map (IndeedSp) で description が css-1vlebyu に紐付き、
+    /// tags が css-u74ql7 (人気タグ) または jobsearch-JobCard-tag のいずれかに紐付くこと
+    #[test]
+    fn build_column_map_indeed_sp_maps_critical_columns() {
+        let headers: Vec<String> = vec![
+            "css-1hwmqh1",           // 0 employment_type
+            "css-bxyec3 href",       // 1 url
+            "css-bxyec3",            // 2 job_title
+            "css-lx9x6g",            // 3
+            "css-14qk2ra",           // 4 company_name
+            "css-18rxko3",           // 5 location
+            "css-18rxko3 (2)",       // 6 salary
+            "css-ge6x3l src",        // 7
+            "jobsearch-JobCard-tag", // 8 tags (最初に来るのでこちらが採用)
+            "css-1vlebyu",           // 9 ... 待って position が違う
+            "css-u74ql7",            // 10 人気タグ
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let map = build_column_map(&headers, &CsvSource::IndeedSp);
+        assert_eq!(map.get("employment_type"), Some(&0));
+        assert_eq!(map.get("url"), Some(&1));
+        assert_eq!(map.get("job_title"), Some(&2));
+        assert_eq!(map.get("company_name"), Some(&4));
+        assert_eq!(map.get("location"), Some(&5));
+        assert_eq!(map.get("salary"), Some(&6));
+        // tags: jobsearch-JobCard-tag (col 8) が先に出現するためそちらが採用される
+        assert_eq!(map.get("tags"), Some(&8));
+        // description: css-1vlebyu (col 9)
+        assert_eq!(map.get("description"), Some(&9));
     }
 }

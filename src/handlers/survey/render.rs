@@ -84,7 +84,7 @@ pub(crate) fn render_upload_form() -> String {
                     <label class="block text-xs text-slate-400 mb-2">ソース媒体 <span class="text-red-400" aria-label="必須">*</span>
                         <span class="text-[10px] text-slate-500 ml-2">列名マッピングの精度向上のため明示指定してください</span>
                     </label>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                         <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="indeed">
                             <input type="radio" name="source_type" value="indeed" class="mt-1" checked aria-describedby="src-indeed-desc">
                             <div>
@@ -93,6 +93,16 @@ pub(crate) fn render_upload_form() -> String {
                                     Indeed
                                 </div>
                                 <div id="src-indeed-desc" class="text-[10px] text-slate-400 mt-0.5">広域求人サイト・列名は英字混在</div>
+                            </div>
+                        </label>
+                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="indeed_sp">
+                            <input type="radio" name="source_type" value="indeed_sp" class="mt-1" aria-describedby="src-indeed-sp-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-full bg-cyan-500" aria-hidden="true"></span>
+                                    Indeed (SP)
+                                </div>
+                                <div id="src-indeed-sp-desc" class="text-[10px] text-slate-400 mt-0.5">Indeed スマホ版スクレイピング (年間休日 + 人気タグ取得可)</div>
                             </div>
                         </label>
                         <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="jobbox">
