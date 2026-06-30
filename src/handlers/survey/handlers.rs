@@ -86,7 +86,10 @@ pub async fn upload_csv(
                 } else if field_name == "source_type" {
                     if let Ok(s) = field.text().await {
                         let t = s.trim().to_lowercase();
-                        if matches!(t.as_str(), "indeed" | "jobbox" | "other" | "auto") {
+                        if matches!(
+                            t.as_str(),
+                            "indeed" | "indeed_sp" | "jobbox" | "other" | "auto"
+                        ) {
                             source_type = t;
                         }
                     }

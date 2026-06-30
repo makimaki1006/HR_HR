@@ -94,6 +94,8 @@ fn sample_aggregation() -> SurveyAggregation {
         scatter_min_max_native: Vec::new(),
         // 2026-06-30 Finding #12: Section 07.5 関連 11 フィールドを JobboxAnalysis に集約
         jobbox: Default::default(),
+        // 2026-06-30 Section 07.6: Indeed (SP) 人気/超人気 タグ集計
+        popularity: Default::default(),
     }
 }
 
@@ -160,8 +162,8 @@ fn ui1_upload_form_source_type_visualized_as_3_radio_cards() {
         html.contains(r#"role="radiogroup""#),
         "アクセシビリティ用 role=radiogroup が必要"
     );
-    // 3 つのソース媒体カードが data-source 属性で識別可能
-    for src in &["indeed", "jobbox", "other"] {
+    // 4 つのソース媒体カードが data-source 属性で識別可能 (indeed / indeed_sp / jobbox / other)
+    for src in &["indeed", "indeed_sp", "jobbox", "other"] {
         let pattern = format!(r#"data-source="{}""#, src);
         assert!(
             html.contains(&pattern),
@@ -172,9 +174,10 @@ fn ui1_upload_form_source_type_visualized_as_3_radio_cards() {
     // 各カードに色マーカーが存在（カラー識別）
     assert!(
         html.contains("bg-blue-500")
+            && html.contains("bg-cyan-500")
             && html.contains("bg-emerald-500")
             && html.contains("bg-amber-500"),
-        "ソース媒体ごとに異なる色マーカーが必要"
+        "ソース媒体ごとに異なる色マーカーが必要 (blue/cyan/emerald/amber)"
     );
 }
 

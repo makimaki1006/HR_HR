@@ -180,6 +180,45 @@ pub struct SurveyAggregation {
     /// Section 07.5 (求人ボックス年間休日分析) 関連集計の集約サブ構造体
     #[serde(default)]
     pub jobbox: JobboxAnalysis,
+
+    // ========================================================================
+    // 2026-06-30 Section 07.6: Indeed (SP) 人気/超人気 タグ集計
+    // ========================================================================
+    /// Section 07.6 (Indeed SP の人気度シグナル) 集計サブ構造体
+    #[serde(default)]
+    pub popularity: PopularityAnalysis,
+}
+
+/// Section 07.6 用集計の集約サブ構造体 (Indeed SP のみ取得可能)
+///
+/// Indeed (SP) スマートフォン版 CSV の `css-u74ql7` 列に格納される
+/// 「人気」「超人気」タグを集計する。Indeed (SP) 以外のソースでは
+/// 全件 `none_count` となり、`popular_count + super_popular_count == 0`
+/// の場合は描画側で section ごとスキップする想定。
+///
+/// 中央値計算対象:
+/// - `popular_salary_median` / `non_popular_salary_median`: Monthly 給与のみ
+///   (時給/年俸/日給を混ぜると単位が混在するため除外)
+/// - `popular_holidays_median` / `non_popular_holidays_median`:
+///   `annual_holidays.is_some()` のレコードのみ
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct PopularityAnalysis {
+    /// 人気タグ付き件数
+    pub popular_count: usize,
+    /// 超人気タグ付き件数
+    pub super_popular_count: usize,
+    /// タグなし件数
+    pub none_count: usize,
+    /// 全体に占める人気タグ比率 (popular + super_popular) / total
+    pub popular_ratio: f64,
+    /// 人気タグ付き求人の月給中央値 (円、Monthly のみ)
+    pub popular_salary_median: Option<i64>,
+    /// 人気タグなし求人の月給中央値 (円、Monthly のみ)
+    pub non_popular_salary_median: Option<i64>,
+    /// 人気タグ付き求人の年間休日中央値 (日)
+    pub popular_holidays_median: Option<i64>,
+    /// 人気タグなし求人の年間休日中央値 (日)
+    pub non_popular_holidays_median: Option<i64>,
 }
 
 /// Section 07.5 用集計の集約サブ構造体 (2026-06-30 Finding #12)
@@ -972,6 +1011,84 @@ fn aggregate_records_core(
         }
     };
 
+    // ============================================================
+    // 2026-06-30 Section 07.6 集計: Indeed (SP) 「人気」「超人気」タグ
+    // ============================================================
+    // 判定順:
+    //   1. tags_raw に "超人気" が含まれる → super_popular
+    //   2. 上記以外で "人気" が含まれる   → popular
+    //   3. いずれも含まない                → none
+    // popular_salary_median / non_popular_salary_median: Monthly のみ採用
+    //   (時給/年俸/日給を混ぜると単位が混在し中央値が無意味になるため)
+    let popularity = {
+        let mut popular_count = 0usize;
+        let mut super_popular_count = 0usize;
+        let mut none_count = 0usize;
+        let mut popular_salaries: Vec<i64> = Vec::new();
+        let mut non_popular_salaries: Vec<i64> = Vec::new();
+        let mut popular_holidays: Vec<i64> = Vec::new();
+        let mut non_popular_holidays: Vec<i64> = Vec::new();
+
+        for r in records {
+            let is_super = r.tags_raw.contains("超人気");
+            let is_popular = !is_super && r.tags_raw.contains("人気");
+            let has_popular_signal = is_super || is_popular;
+            if is_super {
+                super_popular_count += 1;
+            } else if is_popular {
+                popular_count += 1;
+            } else {
+                none_count += 1;
+            }
+
+            // 月給 (Monthly のみ) 中央値の母集団
+            if matches!(r.salary_parsed.salary_type, SalaryType::Monthly) {
+                if let Some(v) = r.salary_parsed.min_value {
+                    if v >= 50_000 {
+                        if has_popular_signal {
+                            popular_salaries.push(v);
+                        } else {
+                            non_popular_salaries.push(v);
+                        }
+                    }
+                }
+            }
+
+            // 年間休日 中央値の母集団
+            if let Some(h) = r.annual_holidays {
+                if has_popular_signal {
+                    popular_holidays.push(h);
+                } else {
+                    non_popular_holidays.push(h);
+                }
+            }
+        }
+
+        let popular_ratio = if total > 0 {
+            (popular_count + super_popular_count) as f64 / total as f64
+        } else {
+            0.0
+        };
+        let median_opt = |v: &[i64]| -> Option<i64> {
+            if v.is_empty() {
+                None
+            } else {
+                Some(median_of(v))
+            }
+        };
+
+        PopularityAnalysis {
+            popular_count,
+            super_popular_count,
+            none_count,
+            popular_ratio,
+            popular_salary_median: median_opt(&popular_salaries),
+            non_popular_salary_median: median_opt(&non_popular_salaries),
+            popular_holidays_median: median_opt(&popular_holidays),
+            non_popular_holidays_median: median_opt(&non_popular_holidays),
+        }
+    };
+
     SurveyAggregation {
         total_count: total,
         new_count,
@@ -1017,6 +1134,8 @@ fn aggregate_records_core(
             salary_holidays_correlation,
             salary_holidays_regression,
         },
+        // 2026-06-30 Section 07.6: Indeed (SP) 人気度シグナル
+        popularity,
     }
 }
 
