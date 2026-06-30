@@ -956,8 +956,9 @@ fn score_job_title(val: &str) -> i32 {
 }
 
 /// 年間休日として妥当な値か (GAS Constants.js:extractAnnualHolidays と統一)
+/// 70-180 日を妥当範囲とする (最低 70 日: 週休 1 日換算、上限 180 日: 完全週休 3 日超)
 fn is_valid_annual_holidays(v: i64) -> bool {
-    (70..=99).contains(&v) || (100..=180).contains(&v)
+    (70..=180).contains(&v)
 }
 
 /// `text` 中の `keyword` 出現位置直後にある2-3桁数字を抽出する。
