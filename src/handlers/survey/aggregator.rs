@@ -278,6 +278,25 @@ fn median_of(values: &[i64]) -> i64 {
     }
 }
 
+/// R-7 method (Excel/numpy 既定) によるパーセンタイル算出 — 線形補間
+/// 2026-06-30 Finding #11 修正用。`sorted` は昇順ソート済みであること。
+/// 小サンプル (n < 20) では呼び出し側で nearest-rank を継続使用する想定。
+fn percentile_r7(sorted: &[i64], p: f64) -> i64 {
+    if sorted.is_empty() {
+        return 0;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+    let h = p * (sorted.len() - 1) as f64;
+    let lo = h.floor() as usize;
+    let hi = h.ceil() as usize;
+    let frac = h - lo as f64;
+    let lo_v = sorted[lo] as f64;
+    let hi_v = sorted[hi] as f64;
+    (lo_v + (hi_v - lo_v) * frac).round() as i64
+}
+
 /// パース済みレコードを集計
 /// 後方互換: 自動判定モードで集計
 pub fn aggregate_records(records: &[SurveyRecord]) -> SurveyAggregation {
@@ -788,13 +807,18 @@ fn aggregate_records_core(
             if r.salary_parsed.min_value.is_none() && r.salary_parsed.max_value.is_none() {
                 return None;
             }
-            // 重複排除キー: 正規化 (company + title + location) + 年間休日
+            // 重複排除キー: 正規化 (company + title + location) + 年間休日 + 給与文字列 + 雇用形態
+            // 2026-06-30 V2 dedup ルール準拠 (CLAUDE.md): 同一施設の経験別/雇用形態別求人は別レコード。
+            //   salary_raw を含めることで「月給25-30万 vs 月給30-40万」のような経験別求人を別レコードとして残す。
+            //   employment_type を含めることで正社員/パートを別レコードとして残す。
             let dedup_key = format!(
-                "{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}",
                 normalize_for_dedup(&r.company_name),
                 normalize_for_dedup(&r.job_title),
                 normalize_for_dedup(&r.location_raw),
                 holidays,
+                normalize_for_dedup(&r.salary_raw),
+                normalize_for_dedup(&r.employment_type),
             );
             if !seen_keys.insert(dedup_key) {
                 return None;
@@ -837,8 +861,15 @@ fn aggregate_records_core(
             .sum::<f64>()
             / n_ah as f64;
         let stddev = variance.sqrt();
-        let q3_idx = (n_ah * 3 / 4).min(n_ah - 1);
-        let q3 = sorted[q3_idx];
+        // 2026-06-30 Q3 算出を nearest-rank / R-7 hybrid に変更。
+        //   n >= 20: R-7 (線形補間) で安定推定
+        //   n < 20 : nearest-rank (小サンプルでは補間の意味が薄い)
+        let q3 = if n_ah >= 20 {
+            percentile_r7(&sorted, 0.75)
+        } else {
+            let q3_idx = (n_ah * 3 / 4).min(n_ah - 1);
+            sorted[q3_idx]
+        };
         (pct_120, pct_125, stddev, q3)
     } else {
         (0.0, 0.0, 0.0, 0)
@@ -855,14 +886,20 @@ fn aggregate_records_core(
                 ST::Annual => min_val / 12,
                 _ => return None,
             };
-            let emp_label = if r.employment_type.contains("正社員")
-                || r.employment_type.contains("正職員")
-                || r.employment_type.contains("契約")
-            {
+            // 2026-06-30 Finding #2 修正: 「契約」を「正社員」に含めない方針。
+            //   判定順は狭→広 (正職員 → 正社員 → 契約 → 派遣 → パート/アルバイト)。
+            //   section_07_5_jobbox_detail.rs 側の散布図色分けは 3 色 (正社員/パート・アルバイト/その他) の
+            //   想定のため、契約社員/派遣はシンプル優先で "その他" にマッピング (将来 4 色目を追加する余地は残す)。
+            let et = r.employment_type.as_str();
+            let emp_label = if et.contains("正職員") {
                 "正社員".to_string()
-            } else if r.employment_type.contains("パート")
-                || r.employment_type.contains("アルバイト")
-                || r.employment_type.contains("バイト")
+            } else if et.contains("正社員") {
+                "正社員".to_string()
+            } else if et.contains("契約") {
+                "その他".to_string()
+            } else if et.contains("派遣") {
+                "その他".to_string()
+            } else if et.contains("パート") || et.contains("アルバイト") || et.contains("バイト")
             {
                 "パート・アルバイト".to_string()
             } else {

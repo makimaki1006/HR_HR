@@ -26,7 +26,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         html,
         "SECTION 07.5",
         "年間休日 × 給与 詳細",
-        "テキストから年間休日数を抽出し、給与・企業別に集計 (求人ボックスCSV 対応)",
+        "テキストから年間休日数を抽出し、給与・企業別に集計",
     );
 
     render_summary_kpi(html, agg);
@@ -227,39 +227,22 @@ fn render_correlation_block(html: &mut String, agg: &SurveyAggregation) {
     );
 }
 
-fn describe_correlation(r: f64) -> &'static str {
+fn describe_correlation(r: f64) -> String {
     let abs = r.abs();
+    if abs < 0.2 {
+        return "ほぼ無相関".to_string();
+    }
     let direction = if r > 0.0 { "正" } else { "負" };
-    let level = if abs < 0.1 {
-        "ほぼ無相関"
-    } else if abs < 0.3 {
+    let level = if abs < 0.4 {
         "弱い"
-    } else if abs < 0.5 {
-        "やや弱い"
-    } else if abs < 0.7 {
+    } else if abs < 0.6 {
         "中程度の"
-    } else if abs < 0.9 {
+    } else if abs < 0.8 {
         "強い"
     } else {
         "非常に強い"
     };
-    if abs < 0.1 {
-        return "ほぼ無相関";
-    }
-    // 簡易固定文字列を返す。実際は format! で組み立てたいが &'static str 制約のため
-    match (direction, level) {
-        ("正", "弱い") => "弱い正相関",
-        ("正", "やや弱い") => "やや弱い正相関",
-        ("正", "中程度の") => "中程度の正相関",
-        ("正", "強い") => "強い正相関",
-        ("正", "非常に強い") => "非常に強い正相関",
-        ("負", "弱い") => "弱い負相関",
-        ("負", "やや弱い") => "やや弱い負相関",
-        ("負", "中程度の") => "中程度の負相関",
-        ("負", "強い") => "強い負相関",
-        ("負", "非常に強い") => "非常に強い負相関",
-        _ => "—",
-    }
+    format!("{}{}相関", level, direction)
 }
 
 /// 雇用形態色分け + 回帰直線付き散布図 SVG
@@ -484,6 +467,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
         let (hol_bg, hol_fg) = holiday_color(rec.annual_holidays);
         // 月給レンジ (テキストのみ、mini bar 廃止 2026-06-26)
         let salary_text = match (rec.salary_min, rec.salary_max) {
+            (Some(lo), Some(hi)) if hi == lo => format!("{} 円", format_number(lo)),
             (Some(lo), Some(hi)) if hi > lo => {
                 format!("{} 〜 {} 円", format_number(lo), format_number(hi))
             }
