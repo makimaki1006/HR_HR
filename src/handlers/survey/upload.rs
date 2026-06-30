@@ -374,6 +374,24 @@ pub fn parse_csv_bytes_with_hints(
                 }
             }
         }
+        // 2026-06-30 Indeed (SP) 専用: css-u74ql7 列 (人気/超人気タグ) を tags_raw に明示 append。
+        //   build_column_map で tags に css-u74ql7 を入れても、jobsearch-JobCard-tag が
+        //   先に確定するため紐付かない。Section 07.6 (popularity) 集計が
+        //   tags_raw に「人気」「超人気」が含まれることを前提とするので、
+        //   ここで headers から css-u74ql7 列を直接 lookup して結合する。
+        if matches!(source, CsvSource::IndeedSp) {
+            if let Some(popular_idx) = headers.iter().position(|h| h == "css-u74ql7") {
+                if popular_idx < row.len() {
+                    let v = row.get(popular_idx).unwrap_or("").trim();
+                    if !v.is_empty() && !tags_raw.contains(v) {
+                        if !tags_raw.is_empty() {
+                            tags_raw.push(',');
+                        }
+                        tags_raw.push_str(v);
+                    }
+                }
+            }
+        }
         let url = {
             let u = get("url");
             if u.is_empty() {
