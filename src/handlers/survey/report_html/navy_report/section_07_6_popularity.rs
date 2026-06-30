@@ -17,7 +17,7 @@
 
 use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::aggregator::SurveyAggregation;
-use super::common::push_page_head;
+use super::common::{push_kpi_card_simple, push_page_head};
 
 /// 人気度シグナル セクションを描画。
 ///
@@ -40,6 +40,16 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
     render_summary_kpi(html, agg);
     render_comparison_block(html, agg);
 
+    // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-popularity スコープで改ページ制御
+    html.push_str(
+        "<style>\
+         @media print {\
+           .navy-popularity .kpi-row,\
+           .navy-popularity table { break-inside: avoid; page-break-inside: avoid; }\
+         }\
+         </style>\n",
+    );
+
     html.push_str("</section>\n");
 }
 
@@ -51,20 +61,20 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     html.push_str("<div class=\"block-title\">§07.6-1 &nbsp;サマリー</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
 
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "人気タグ件数",
         &format!("{} 件", format_number(pop.popular_count as i64)),
         "Indeed (SP) 「人気」付与",
     );
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "超人気タグ件数",
         &format!("{} 件", format_number(pop.super_popular_count as i64)),
         "Indeed (SP) 「超人気」付与",
     );
     // 2026-07-01 Finding #2: 分母を IndeedSp 由来件数に明示。
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "人気タグ比率",
         &format!("{:.1}%", pop.popular_ratio * 100.0),
@@ -77,12 +87,14 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     // 月給差 (人気あり - なし) を補助 KPI として表示
     // Finding #5 (2026-07-01): 両群 n >= 5 を満たさない場合は "— (n不足)" に
     const N_MIN: usize = 5;
+    // Finding #8 (2026-07-01): 月給差を万円表示に変更 (6-7 桁オーバーフロー解消)。
     let salary_diff_text = if pop.popular_n_salary >= N_MIN && pop.non_popular_n_salary >= N_MIN {
         match (pop.popular_salary_median, pop.non_popular_salary_median) {
             (Some(p), Some(n)) => {
                 let diff = p - n;
+                let diff_man = diff as f64 / 10_000.0;
                 let sign = if diff >= 0 { "+" } else { "" };
-                format!("{}{} 円", sign, format_number(diff))
+                format!("{}{:.1} 万円", sign, diff_man)
             }
             _ => "—".to_string(),
         }
@@ -93,7 +105,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         "人気タグ あり − なし (Monthly のみ) / 人気 n={} / なし n={}",
         pop.popular_n_salary, pop.non_popular_n_salary
     );
-    push_kpi_card(html, "月給中央値差", &salary_diff_text, &salary_diff_foot);
+    push_kpi_card_simple(html, "月給中央値差", &salary_diff_text, &salary_diff_foot);
 
     let holiday_diff_text =
         if pop.popular_n_holidays >= N_MIN && pop.non_popular_n_holidays >= N_MIN {
@@ -112,7 +124,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         "人気タグ あり − なし / 人気 n={} / なし n={}",
         pop.popular_n_holidays, pop.non_popular_n_holidays
     );
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "年間休日中央値差",
         &holiday_diff_text,
@@ -120,19 +132,6 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     );
 
     html.push_str("</div>\n");
-}
-
-fn push_kpi_card(html: &mut String, label: &str, value: &str, foot: &str) {
-    html.push_str(&format!(
-        "<div class=\"kpi-card\">\
-         <div class=\"kpi-label\">{}</div>\
-         <div class=\"kpi-value\">{}</div>\
-         <div class=\"kpi-foot\">{}</div>\
-         </div>\n",
-        escape_html(label),
-        escape_html(value),
-        escape_html(foot),
-    ));
 }
 
 // ============================================================================
@@ -217,9 +216,10 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
     );
 }
 
+// Finding #8 (2026-07-01): 月給中央値を万円表示に変更 (§07.6-2 比較表も統一)。
 fn format_salary_yen(v: Option<i64>) -> String {
     match v {
-        Some(x) => format!("{} 円", format_number(x)),
+        Some(x) => format!("{:.1} 万円", x as f64 / 10_000.0),
         None => "—".to_string(),
     }
 }
@@ -270,13 +270,13 @@ mod tests {
         assert!(html.contains("超人気タグ件数"));
         // 30% (6/20) を含む
         assert!(html.contains("30.0%"), "popular_ratio formatted");
-        // 月給差 +20,000 円
-        assert!(html.contains("+20,000 円"), "salary diff");
-        // 年間休日差 +10 日
+        // Finding #8: 月給差は万円表示 (+2.0 万円)
+        assert!(html.contains("+2.0 万円"), "salary diff in manyen");
+        // 年間休日差 +10 日 (日は変更なし)
         assert!(html.contains("+10 日"), "holidays diff");
-        // 比較表
-        assert!(html.contains("280,000 円"));
-        assert!(html.contains("260,000 円"));
+        // Finding #8: 比較表も万円表示
+        assert!(html.contains("28.0 万円"));
+        assert!(html.contains("26.0 万円"));
         assert!(html.contains("120 日"));
         assert!(html.contains("110 日"));
     }
@@ -331,7 +331,8 @@ mod tests {
         };
         render_navy_section_popularity(&mut html, &agg);
         assert!(html.contains("SECTION 07.6"));
-        assert!(html.contains("250,000 円"));
+        // Finding #8: 月給は万円表示
+        assert!(html.contains("25.0 万円"), "250,000 → 25.0 万円");
         // holidays 行は出ない (両方 None)
         assert!(
             !html.contains("年間休日 中央値"),
@@ -363,8 +364,11 @@ mod tests {
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
-        // 200,000 - 260,000 = -60,000 → "-60,000 円" (sign は format_number 内で付く)
-        assert!(html.contains("-60,000 円"), "negative diff displayed");
+        // Finding #8: 200,000 - 260,000 = -60,000 → "-6.0 万円" (万円表示)
+        assert!(
+            html.contains("-6.0 万円"),
+            "negative diff displayed in manyen"
+        );
     }
 
     #[test]
@@ -395,7 +399,7 @@ mod tests {
         assert!(html.contains("n不足"), "n < 5 → insufficient-n indicator");
         // 差分 KPI に実値が出ない
         assert!(
-            !html.contains("-60,000 円"),
+            !html.contains("-6.0 万円"),
             "no diff value when n insufficient"
         );
         // 比較表にも n 表示 (n=3 or n=4)

@@ -13,7 +13,7 @@ use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::aggregator::{
     median_of, SurveyAggregation, SCATTER_X_MIN, SCATTER_Y_MAX, SCATTER_Y_MIN,
 };
-use super::common::push_page_head;
+use super::common::{push_kpi_card_simple, push_page_head};
 
 /// 年間休日 × 給与 詳細セクションを描画。
 ///
@@ -35,6 +35,16 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     render_distribution_block(html, agg);
     render_correlation_block(html, agg);
     render_examples_block(html, agg);
+
+    // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-jobbox-detail スコープで改ページ制御
+    html.push_str(
+        "<style>\
+         @media print {\
+           .navy-jobbox-detail .kpi-row,\
+           .navy-jobbox-detail table { break-inside: avoid; page-break-inside: avoid; }\
+         }\
+         </style>\n",
+    );
 
     html.push_str("</section>\n");
 }
@@ -68,50 +78,37 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     html.push_str("<div class=\"block-title\">§07.5-1 &nbsp;サマリー</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
     // 2026-06-26 「抽出件数 N件 全 M件中 (X%)」KPI は削除 (信頼性低下の印象を回避)
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "平均年間休日",
         &format!("{:.0} 日", mean),
         &format!("中央値 {} 日 / 範囲 {} - {} 日", median, min_v, max_v),
     );
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "第3四分位 (Q3)",
         &format!("{} 日", agg.jobbox.holiday_q3),
         "上位 25% はこれ以上",
     );
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "標準偏差",
         &format!("{:.1} 日", agg.jobbox.holiday_stddev),
         "ばらつきの大きさ",
     );
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "120日以上比率",
         &format!("{:.0}%", agg.jobbox.holiday_pct_ge_120 * 100.0),
         "週休2日+祝日 達成率",
     );
-    push_kpi_card(
+    push_kpi_card_simple(
         html,
         "125日以上比率",
         &format!("{:.0}%", agg.jobbox.holiday_pct_ge_125 * 100.0),
         "完全週休2日+α 達成率",
     );
     html.push_str("</div>\n");
-}
-
-fn push_kpi_card(html: &mut String, label: &str, value: &str, foot: &str) {
-    html.push_str(&format!(
-        "<div class=\"kpi-card\">\
-         <div class=\"kpi-label\">{}</div>\
-         <div class=\"kpi-value\">{}</div>\
-         <div class=\"kpi-foot\">{}</div>\
-         </div>\n",
-        escape_html(label),
-        escape_html(value),
-        escape_html(foot),
-    ));
 }
 
 // ============================================================================

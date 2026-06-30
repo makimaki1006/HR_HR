@@ -441,6 +441,26 @@ pub(super) fn push_region_scope_banner(html: &mut String, target_region: &str) {
     ));
 }
 
+/// Finding #7 (2026-07-01): section_07_5 / section_07_6 のローカル `push_kpi_card` を統一。
+///
+/// 旧: 各 section に `push_kpi_card` がローカル定義、出力クラスが `.kpi-card` (旧グローバル)。
+/// 新: `common::push_kpi_card_simple` を呼び出し、クラスを `.kpi` に統一して
+///   navy theme (Roboto Mono 22pt 等) が適用される構造を維持する。
+///
+/// 内部構造: `.kpi > .kpi-label / .kpi-value / .kpi-foot`
+pub(super) fn push_kpi_card_simple(html: &mut String, label: &str, value: &str, foot: &str) {
+    html.push_str(&format!(
+        "<div class=\"kpi\">\
+         <div class=\"kpi-label\">{}</div>\
+         <div class=\"kpi-value\">{}</div>\
+         <div class=\"kpi-foot\">{}</div>\
+         </div>\n",
+        escape_html(label),
+        escape_html(value),
+        escape_html(foot),
+    ));
+}
+
 pub(super) fn push_kpi(
     html: &mut String,
     label: &str,
