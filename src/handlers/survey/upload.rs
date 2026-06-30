@@ -1059,7 +1059,7 @@ fn extract_annual_holidays(text: &str) -> Option<i64> {
             return Some(v);
         }
     }
-    for kw in &["年間休日", "年間", "年休", "年"] {
+    for kw in &["年間休日", "年間", "年休"] {
         if let Some(v) = try_extract_before(text, kw) {
             return Some(v);
         }
