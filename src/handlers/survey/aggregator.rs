@@ -224,6 +224,19 @@ pub struct PopularityAnalysis {
     pub popular_holidays_median: Option<i64>,
     /// 人気タグなし求人の年間休日中央値 (日)
     pub non_popular_holidays_median: Option<i64>,
+    /// 月給中央値算出に使用したサンプル数 (人気タグあり、Monthly のみ)
+    /// Finding #5 (2026-07-01): n < 5 の場合は表示側で "— (n不足)" に差し替える
+    #[serde(default)]
+    pub popular_n_salary: usize,
+    /// 月給中央値算出に使用したサンプル数 (人気タグなし、Monthly のみ)
+    #[serde(default)]
+    pub non_popular_n_salary: usize,
+    /// 年間休日中央値算出に使用したサンプル数 (人気タグあり)
+    #[serde(default)]
+    pub popular_n_holidays: usize,
+    /// 年間休日中央値算出に使用したサンプル数 (人気タグなし)
+    #[serde(default)]
+    pub non_popular_n_holidays: usize,
 }
 
 /// Section 07.5 用集計の集約サブ構造体 (2026-06-30 Finding #12)
@@ -1096,6 +1109,11 @@ fn aggregate_records_core(
         } else {
             0.0
         };
+        // Finding #5 (2026-07-01): サンプル数を記録し、表示側で n < 5 を "— (n不足)" にする。
+        let popular_n_salary = popular_salaries.len();
+        let non_popular_n_salary = non_popular_salaries.len();
+        let popular_n_holidays = popular_holidays.len();
+        let non_popular_n_holidays = non_popular_holidays.len();
         let median_opt = |v: &[i64]| -> Option<i64> {
             if v.is_empty() {
                 None
@@ -1114,6 +1132,10 @@ fn aggregate_records_core(
             non_popular_salary_median: median_opt(&non_popular_salaries),
             popular_holidays_median: median_opt(&popular_holidays),
             non_popular_holidays_median: median_opt(&non_popular_holidays),
+            popular_n_salary,
+            non_popular_n_salary,
+            popular_n_holidays,
+            non_popular_n_holidays,
         }
     };
 

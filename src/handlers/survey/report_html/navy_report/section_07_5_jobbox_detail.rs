@@ -222,18 +222,40 @@ fn render_correlation_block(html: &mut String, agg: &SurveyAggregation) {
     );
 
     // 相関係数の表示
+    // Finding #6 (2026-07-01): n に応じて表示を変える
+    //   n < 10:  "相関係数 r = X.XXX (n=N, n 不足のため傾向判定なし)"
+    //   10 ≤ n < 30: "相関係数 r = X.XXX (弱い正相関、参考値 n=N)"
+    //   n ≥ 30:  "相関係数 r = X.XXX (弱い正相関)"
+    let scatter_n = agg.jobbox.salary_vs_holidays_scatter_emp.len();
     if let Some(r) = agg.jobbox.salary_holidays_correlation {
-        let strength = describe_correlation(r);
-        html.push_str(&format!(
-            "<p class=\"so-what\">相関係数 r = <strong>{:.3}</strong> ({})</p>\n",
-            r, strength
-        ));
+        let corr_text = if scatter_n < 10 {
+            format!(
+                "相関係数 r = <strong>{:.3}</strong> (n={}, n 不足のため傾向判定なし)",
+                r, scatter_n
+            )
+        } else if scatter_n < 30 {
+            let strength = describe_correlation(r);
+            format!(
+                "相関係数 r = <strong>{:.3}</strong> ({}, 参考値 n={})",
+                r, strength, scatter_n
+            )
+        } else {
+            let strength = describe_correlation(r);
+            format!("相関係数 r = <strong>{:.3}</strong> ({})", r, strength)
+        };
+        html.push_str(&format!("<p class=\"so-what\">{corr_text}</p>\n"));
     }
 
+    // Finding #6: 回帰直線は n < 10 では非描画
+    let regression_for_plot = if scatter_n < 10 {
+        None
+    } else {
+        agg.jobbox.salary_holidays_regression
+    };
     render_scatter_svg_emp(
         html,
         &agg.jobbox.salary_vs_holidays_scatter_emp,
-        agg.jobbox.salary_holidays_regression,
+        regression_for_plot,
     );
 }
 
@@ -634,10 +656,82 @@ mod tests {
         assert!(html.contains("§07.5-3"));
         assert!(html.contains("r ="), "correlation coefficient label");
         assert!(html.contains("0.450"), "r value formatted");
-        assert!(html.contains("正相関"), "correlation description");
+        // Finding #6 (2026-07-01): scatter_emp が 3 件 (n < 10) のため傾向判定なし表示
+        assert!(
+            html.contains("n 不足のため傾向判定なし"),
+            "n < 10: no correlation description"
+        );
         // 雇用形態凡例
         assert!(html.contains("正社員"));
         assert!(html.contains("パート・アルバイト"));
+    }
+
+    #[test]
+    fn renders_correlation_with_sufficient_n() {
+        // n >= 30 では describe_correlation が表示される
+        let emp_points: Vec<(i64, i64, String)> = (0..30)
+            .map(|i| (200_000 + i * 5_000, 110 + i % 20, "正社員".to_string()))
+            .collect();
+        let scatter_points: Vec<super::super::super::super::aggregator::ScatterPoint> = emp_points
+            .iter()
+            .map(|(x, y, _)| super::super::super::super::aggregator::ScatterPoint { x: *x, y: *y })
+            .collect();
+        let agg = SurveyAggregation {
+            total_count: 30,
+            jobbox: super::super::super::super::aggregator::JobboxAnalysis {
+                annual_holidays_values: (0..30).map(|i| 110 + i % 20).collect(),
+                salary_vs_holidays_scatter: scatter_points,
+                salary_vs_holidays_scatter_emp: emp_points,
+                salary_holidays_correlation: Some(0.45),
+                salary_holidays_regression: Some((0.0001, 100.0)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut html = String::new();
+        render_correlation_block(&mut html, &agg);
+        assert!(
+            html.contains("正相関"),
+            "n >= 30: correlation description shown"
+        );
+        assert!(
+            !html.contains("n 不足"),
+            "n >= 30: no insufficient-n message"
+        );
+    }
+
+    #[test]
+    fn renders_correlation_reference_n_range() {
+        // 10 <= n < 30 では "(参考値 n=N)" が表示される
+        let emp_points: Vec<(i64, i64, String)> = (0..15)
+            .map(|i| (200_000 + i * 5_000, 110 + i % 10, "正社員".to_string()))
+            .collect();
+        let scatter_points: Vec<super::super::super::super::aggregator::ScatterPoint> = emp_points
+            .iter()
+            .map(|(x, y, _)| super::super::super::super::aggregator::ScatterPoint { x: *x, y: *y })
+            .collect();
+        let agg = SurveyAggregation {
+            total_count: 15,
+            jobbox: super::super::super::super::aggregator::JobboxAnalysis {
+                annual_holidays_values: (0..15).map(|i| 110 + i % 10).collect(),
+                salary_vs_holidays_scatter: scatter_points,
+                salary_vs_holidays_scatter_emp: emp_points,
+                salary_holidays_correlation: Some(0.35),
+                salary_holidays_regression: Some((0.00005, 108.0)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut html = String::new();
+        render_correlation_block(&mut html, &agg);
+        assert!(
+            html.contains("参考値 n=15"),
+            "10<=n<30: reference annotation"
+        );
+        assert!(
+            html.contains("正相関"),
+            "10<=n<30: correlation description shown"
+        );
     }
 
     #[test]
