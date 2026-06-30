@@ -36,6 +36,14 @@ pub const WEEKLY_TO_MONTHLY_DEN: i64 = 100;
 /// 週所定労働時間 (時間) — 週給→時給で使用
 pub const WEEKLY_HOURS: i64 = 40;
 
+// ======== 給与×年間休日 散布図 軸定数 (Finding #14, 2026-06-30) ========
+/// 給与×年間休日 散布図 X 軸 (月給円) 最小値
+pub const SCATTER_X_MIN: i64 = 150_000;
+/// 給与×年間休日 散布図 Y 軸 (年間休日) 最小値
+pub const SCATTER_Y_MIN: i64 = 70;
+/// 給与×年間休日 散布図 Y 軸 (年間休日) 最大値
+pub const SCATTER_Y_MAX: i64 = 180;
+
 /// 企業別集計
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompanyAgg {
@@ -168,7 +176,7 @@ pub struct SurveyAggregation {
     // ========================================================================
     // 2026-06-24 求人ボックス年間休日分析機能 (GAS Aggregator.js 移植 + 拡張)
     // ========================================================================
-    /// 抽出に成功した年間休日値の生データ (求人ボックスCSV のみ、70-180 範囲)
+    /// 抽出に成功した年間休日値の生データ (全 source 対象、70-180 範囲内の抽出値のみ)
     #[serde(default)]
     pub annual_holidays_values: Vec<i64>,
     /// 年間休日カテゴリ分布 (`upload::ANNUAL_HOLIDAYS_CATEGORIES` 順)
@@ -213,7 +221,8 @@ pub struct SurveyAggregation {
 /// 求人ボックス個別求人レコード (2026-06-24 追加、Section 07.5 用)
 ///
 /// 年間休日抽出成功 + 求人ボックスソースのレコードのみを保持する。
-/// 「企業名×年間休日×給与×URL」テーブル用。
+/// 「企業名×年間休日×給与」テーブル用。
+/// salary_unit は月給固定のため除外。salary_raw / url は描画未参照のため除外。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct JobBoxRecord {
     pub company_name: String,
@@ -223,9 +232,6 @@ pub struct JobBoxRecord {
     pub annual_holidays: i64,
     pub salary_min: Option<i64>,
     pub salary_max: Option<i64>,
-    pub salary_unit: String,
-    pub salary_raw: String,
-    pub url: Option<String>,
 }
 
 /// 雇用形態グループ別 ネイティブ単位集計
@@ -831,9 +837,6 @@ fn aggregate_records_core(
                 annual_holidays: holidays,
                 salary_min: r.salary_parsed.min_value,
                 salary_max: r.salary_parsed.max_value,
-                salary_unit: "月給".to_string(),
-                salary_raw: r.salary_raw.clone(),
-                url: r.url.clone(),
             })
         })
         .collect();

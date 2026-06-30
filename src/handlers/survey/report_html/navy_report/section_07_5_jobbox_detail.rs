@@ -10,7 +10,9 @@
 #![allow(dead_code)]
 
 use super::super::super::super::helpers::{escape_html, format_number};
-use super::super::super::aggregator::SurveyAggregation;
+use super::super::super::aggregator::{
+    SurveyAggregation, SCATTER_X_MIN, SCATTER_Y_MAX, SCATTER_Y_MIN,
+};
 use super::common::push_page_head;
 
 /// 年間休日 × 給与 詳細セクションを描画。
@@ -263,11 +265,11 @@ fn render_scatter_svg_emp(
     let plot_w = w - margin_l - margin_r;
     let plot_h = h - margin_t - margin_b;
 
-    let x_min: i64 = 150_000;
+    let x_min: i64 = SCATTER_X_MIN;
     let data_x_max = points.iter().map(|p| p.0).max().unwrap_or(500_000);
     let x_max: i64 = data_x_max.max(500_000);
-    let y_min: i64 = 70;
-    let y_max: i64 = 180;
+    let y_min: i64 = SCATTER_Y_MIN;
+    let y_max: i64 = SCATTER_Y_MAX;
     let x_range = (x_max - x_min).max(1);
     let y_range = (y_max - y_min).max(1);
 
@@ -543,7 +545,6 @@ fn holiday_color(days: i64) -> (&'static str, &'static str) {
     }
 }
 
-/// 給与レンジを mini bar (SVG) で描画
 /// i64 配列の中央値
 fn compute_median_i64(values: &[i64]) -> i64 {
     if values.is_empty() {
@@ -600,9 +601,6 @@ mod tests {
                 annual_holidays: 120,
                 salary_min: Some(250_000),
                 salary_max: Some(350_000),
-                salary_unit: "月給".to_string(),
-                salary_raw: "月給25万円〜35万円".to_string(),
-                url: Some("https://example.com/job/1".to_string()),
             }],
             ..Default::default()
         }
