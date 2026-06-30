@@ -39,6 +39,10 @@ pub const WEEKLY_HOURS: i64 = 40;
 // ======== 給与×年間休日 散布図 軸定数 (Finding #14, 2026-06-30) ========
 /// 給与×年間休日 散布図 X 軸 (月給円) 最小値
 pub const SCATTER_X_MIN: i64 = 150_000;
+
+// ======== 給与フィルタ閾値定数 (Finding #12, 2026-07-01) ========
+/// 月給フィルタ下限: 5 万円未満は異常値 / 誤抽出として除外
+pub const MIN_MONTHLY_SALARY: i64 = 50_000;
 /// 給与×年間休日 散布図 Y 軸 (年間休日) 最小値
 pub const SCATTER_Y_MIN: i64 = 70;
 /// 給与×年間休日 散布図 Y 軸 (年間休日) 最大値
@@ -295,9 +299,7 @@ pub struct JobboxAnalysis {
 /// **注意**: section_07_5_jobbox_detail.rs の `render_emp_badge` は表示用に 5+ 種の
 /// カラーリングを行うため、本関数とは粒度が異なる別関数のまま (粒度差は意図的)。
 pub fn classify_employment_for_scatter(et: &str) -> &'static str {
-    if et.contains("正職員") {
-        "正社員"
-    } else if et.contains("正社員") {
+    if et.contains("正職員") || et.contains("正社員") {
         "正社員"
     } else if et.contains("契約") {
         "その他"
@@ -577,7 +579,7 @@ fn aggregate_records_core(
                 _ => None, // Unknown / その他も除外 (設計メモ §5 準拠)
             }
         })
-        .filter(|&v| v >= 50_000) // 5万円未満は異常値として除外
+        .filter(|&v| v >= MIN_MONTHLY_SALARY) // 5万円未満は異常値として除外
         .collect();
     let salary_max_values: Vec<i64> = records
         .iter()
@@ -591,7 +593,7 @@ fn aggregate_records_core(
                 _ => None,
             }
         })
-        .filter(|&v| v >= 50_000)
+        .filter(|&v| v >= MIN_MONTHLY_SALARY)
         .collect();
 
     // Phase 2-A (2026-05-29): ネイティブ単位 (時給=円/時、月給=円/月) の下限/上限給与
@@ -603,7 +605,7 @@ fn aggregate_records_core(
     //
     // フィルタ閾値:
     //   - Hourly: 100 円/時 以上 (深夜の最低賃金 800円台より低い値は誤抽出疑い)
-    //   - Monthly: 50_000 円/月 以上 (既存 salary_min_values と同じ)
+    //   - Monthly: MIN_MONTHLY_SALARY 円/月 以上 (既存 salary_min_values と同じ)
     //
     // is_hourly モード時の散布図軸範囲 (800-2500 円/時) との整合性を確保するため、
     // Hourly 値は filter 後にそのまま push (×167 換算しない)。
@@ -613,7 +615,7 @@ fn aggregate_records_core(
             let v = r.salary_parsed.min_value?;
             match r.salary_parsed.salary_type {
                 SalaryType::Hourly if v >= 100 => Some(v),
-                SalaryType::Monthly if v >= 50_000 => Some(v),
+                SalaryType::Monthly if v >= MIN_MONTHLY_SALARY => Some(v),
                 _ => None, // Daily / Weekly / Annual / Unknown は Phase 2-A 対象外
             }
         })
@@ -624,7 +626,7 @@ fn aggregate_records_core(
             let v = r.salary_parsed.max_value?;
             match r.salary_parsed.salary_type {
                 SalaryType::Hourly if v >= 100 => Some(v),
-                SalaryType::Monthly if v >= 50_000 => Some(v),
+                SalaryType::Monthly if v >= MIN_MONTHLY_SALARY => Some(v),
                 _ => None,
             }
         })
@@ -801,7 +803,7 @@ fn aggregate_records_core(
             let raw_max = r.salary_parsed.max_value?;
             let (min, max) = match r.salary_parsed.salary_type {
                 SalaryType::Hourly if raw_min >= 100 => (raw_min, raw_max),
-                SalaryType::Monthly if raw_min >= 50_000 => (raw_min, raw_max),
+                SalaryType::Monthly if raw_min >= MIN_MONTHLY_SALARY => (raw_min, raw_max),
                 _ => return None, // Daily / Weekly / Annual / Unknown は Phase 2-A 対象外
             };
             if min > 0 && max > 0 && max >= min {
@@ -1083,7 +1085,7 @@ fn aggregate_records_core(
             // 月給 (Monthly のみ) 中央値の母集団
             if matches!(r.salary_parsed.salary_type, SalaryType::Monthly) {
                 if let Some(v) = r.salary_parsed.min_value {
-                    if v >= 50_000 {
+                    if v >= MIN_MONTHLY_SALARY {
                         if has_popular_signal {
                             popular_salaries.push(v);
                         } else {
