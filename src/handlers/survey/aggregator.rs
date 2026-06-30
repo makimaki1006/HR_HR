@@ -2307,4 +2307,218 @@ mod tests {
             "給与情報なし (両 None) → jobbox_records に含まれない"
         );
     }
+
+    // =========================================================================
+    // Finding #10: popularity 集計ユニットテスト (Commit 1-3 回帰防止)
+    // =========================================================================
+
+    /// IndeedSp レコードを組み立てるヘルパー
+    fn mk_indeed_sp_record(
+        tags: &str,
+        salary_type: SalaryType,
+        salary_min: Option<i64>,
+        holidays: Option<i64>,
+        emp_type: &str,
+    ) -> SurveyRecord {
+        let mut sal = empty_salary();
+        sal.salary_type = salary_type.clone();
+        sal.min_value = salary_min;
+        sal.max_value = salary_min;
+        sal.unified_monthly = if matches!(salary_type, SalaryType::Monthly) {
+            salary_min
+        } else {
+            None
+        };
+        let loc = empty_location();
+        SurveyRecord {
+            row_index: 0,
+            source: CsvSource::IndeedSp,
+            job_title: "テスト求人".to_string(),
+            company_name: "テスト株式会社".to_string(),
+            location_raw: "東京都千代田区".to_string(),
+            salary_raw: String::new(),
+            employment_type: emp_type.to_string(),
+            tags_raw: tags.to_string(),
+            url: None,
+            is_new: false,
+            description: String::new(),
+            salary_parsed: sal,
+            location_parsed: loc,
+            annual_holidays: holidays,
+        }
+    }
+
+    /// 「超人気」優先: 同一レコードに「人気」「超人気」両方含む →
+    /// super_popular にのみカウント、popular にはカウントしない (Commit 1 #1 検証)
+    #[test]
+    fn popularity_counts_super_popular_priority() {
+        let r = mk_indeed_sp_record(
+            "人気,超人気",
+            SalaryType::Monthly,
+            Some(250_000),
+            None,
+            "正社員",
+        );
+        let agg = aggregate_records(&[r]);
+        let pop = &agg.popularity;
+        assert_eq!(pop.super_popular_count, 1, "超人気 1 件");
+        assert_eq!(pop.popular_count, 0, "超人気優先により popular_count=0");
+        assert_eq!(pop.none_count, 0, "none_count=0");
+    }
+
+    /// Monthly のみ集計対象: SalaryType::Hourly / Annual は popular_salary_median から除外
+    #[test]
+    fn popularity_salary_median_monthly_only() {
+        let monthly =
+            mk_indeed_sp_record("人気", SalaryType::Monthly, Some(300_000), None, "正社員");
+        let hourly = mk_indeed_sp_record("人気", SalaryType::Hourly, Some(1500), None, "正社員");
+        let annual =
+            mk_indeed_sp_record("人気", SalaryType::Annual, Some(5_000_000), None, "正社員");
+        let agg = aggregate_records(&[monthly, hourly, annual]);
+        let pop = &agg.popularity;
+        // popular_count は 3 (IndeedSp 3 件すべてに「人気」タグ)
+        assert_eq!(pop.popular_count, 3, "全 3 件が popular_count に計上");
+        // popular_salary_median は Monthly 1 件のみ → 300_000
+        assert_eq!(
+            pop.popular_salary_median,
+            Some(300_000),
+            "Monthly 1 件のみ中央値算出 → 300_000"
+        );
+        // popular_n_salary は 1 (Monthly のみ)
+        assert_eq!(pop.popular_n_salary, 1, "n_salary=1 (Monthly のみ)");
+    }
+
+    /// annual_holidays=None のレコードは popular_holidays_median から除外される
+    #[test]
+    fn popularity_holidays_median_excludes_no_data() {
+        let with_holidays = mk_indeed_sp_record(
+            "人気",
+            SalaryType::Monthly,
+            Some(250_000),
+            Some(120),
+            "正社員",
+        );
+        let no_holidays =
+            mk_indeed_sp_record("人気", SalaryType::Monthly, Some(250_000), None, "正社員");
+        let agg = aggregate_records(&[with_holidays, no_holidays]);
+        let pop = &agg.popularity;
+        assert_eq!(
+            pop.popular_n_holidays, 1,
+            "holidays=None のレコードは除外され n=1"
+        );
+        assert_eq!(
+            pop.popular_holidays_median,
+            Some(120),
+            "holidays 1 件 → 中央値 120"
+        );
+    }
+
+    /// Commit 1 #1/#3 検証: JobBox/Indeed (PC) で tags_raw="人気" を含むレコード投入 →
+    /// popular_count=0 (IndeedSp 以外は除外)
+    #[test]
+    fn popularity_only_counts_indeedsp_records() {
+        let mut r_jobbox =
+            mk_indeed_sp_record("人気", SalaryType::Monthly, Some(250_000), None, "正社員");
+        r_jobbox.source = CsvSource::JobBox;
+        let mut r_indeed_pc =
+            mk_indeed_sp_record("人気", SalaryType::Monthly, Some(250_000), None, "正社員");
+        r_indeed_pc.source = CsvSource::Indeed;
+        let agg = aggregate_records(&[r_jobbox, r_indeed_pc]);
+        let pop = &agg.popularity;
+        assert_eq!(
+            pop.popular_count, 0,
+            "IndeedSp 以外は popularity 集計から除外"
+        );
+        assert_eq!(pop.super_popular_count, 0);
+        assert_eq!(pop.indeed_sp_total, 0, "IndeedSp ソース 0 件");
+    }
+
+    /// Commit 1 #2 検証: popular_ratio の分母は IndeedSp 件数のみ (他ソース 95 件で薄まらない)
+    /// IndeedSp 5 件 (人気1+超人気1+none3) + JobBox 95 件 → popular_ratio = 2/5 = 0.4
+    #[test]
+    fn popularity_ratio_denominator_is_indeedsp_count() {
+        let mut records: Vec<SurveyRecord> = Vec::new();
+        // IndeedSp 5 件
+        records.push(mk_indeed_sp_record(
+            "人気",
+            SalaryType::Monthly,
+            None,
+            None,
+            "正社員",
+        ));
+        records.push(mk_indeed_sp_record(
+            "超人気",
+            SalaryType::Monthly,
+            None,
+            None,
+            "正社員",
+        ));
+        for i in 0..3 {
+            let mut r = mk_indeed_sp_record("", SalaryType::Monthly, None, None, "正社員");
+            // company_name を変えて dedup を回避
+            r.company_name = format!("テスト株式会社_{}", i);
+            records.push(r);
+        }
+        // JobBox 95 件 (tags_raw="人気" を含んでも除外されるべき)
+        for i in 0..95 {
+            let mut r =
+                mk_indeed_sp_record("人気", SalaryType::Monthly, Some(250_000), None, "正社員");
+            r.source = CsvSource::JobBox;
+            r.company_name = format!("JB株式会社_{}", i);
+            records.push(r);
+        }
+        let agg = aggregate_records(&records);
+        let pop = &agg.popularity;
+        assert_eq!(pop.indeed_sp_total, 5, "IndeedSp は 5 件");
+        assert_eq!(pop.popular_count, 1, "人気 1 件");
+        assert_eq!(pop.super_popular_count, 1, "超人気 1 件");
+        let expected = 2.0 / 5.0;
+        assert!(
+            (pop.popular_ratio - expected).abs() < 1e-9,
+            "popular_ratio = 2/5 = 0.4 (JobBox 95 件で薄まらない): got {}",
+            pop.popular_ratio
+        );
+    }
+
+    /// Commit 2 検証: popular_n_salary=2 (< 5) のとき popular_n_salary が正しく記録される
+    /// (表示層での "— (n不足)" は section_07_6_popularity.rs が担当するが、
+    ///  aggregator が正しい n 値を出力していることをここで検証)
+    #[test]
+    fn popularity_n_thresholds_recorded_correctly() {
+        // popular: Monthly 2 件 → popular_n_salary=2
+        // non-popular: Monthly 4 件 → non_popular_n_salary=4
+        let mut records: Vec<SurveyRecord> = Vec::new();
+        for i in 0..2 {
+            let mut r = mk_indeed_sp_record(
+                "人気",
+                SalaryType::Monthly,
+                Some(250_000 + i * 1000),
+                None,
+                "正社員",
+            );
+            r.company_name = format!("人気社_{}", i);
+            records.push(r);
+        }
+        for i in 0..4 {
+            let mut r = mk_indeed_sp_record(
+                "",
+                SalaryType::Monthly,
+                Some(230_000 + i * 1000),
+                None,
+                "正社員",
+            );
+            r.company_name = format!("none社_{}", i);
+            records.push(r);
+        }
+        let agg = aggregate_records(&records);
+        let pop = &agg.popularity;
+        assert_eq!(
+            pop.popular_n_salary, 2,
+            "popular Monthly 2 件 → popular_n_salary=2"
+        );
+        assert_eq!(
+            pop.non_popular_n_salary, 4,
+            "non-popular Monthly 4 件 → non_popular_n_salary=4"
+        );
+    }
 }
