@@ -1886,4 +1886,254 @@ mod tests {
             .unwrap();
         assert_eq!(other.native_unit, "月給", "タイは月給選択");
     }
+
+    // =========================================================================
+    // Finding #19: Pearson 相関係数の既知点列テスト (aggregate_records_core 経由)
+    // =========================================================================
+
+    /// SurveyRecord を JobBox ソースで組み立てるヘルパー
+    /// annual_holidays, salary_min, salary_type を個別指定する
+    fn mk_jobbox_record(
+        company: &str,
+        salary_min: i64,
+        salary_type: SalaryType,
+        holidays: i64,
+    ) -> SurveyRecord {
+        use super::super::upload::CsvSource;
+        let mut sal = empty_salary();
+        sal.salary_type = salary_type.clone();
+        sal.min_value = Some(salary_min);
+        sal.max_value = Some(salary_min);
+        sal.unified_monthly = if matches!(salary_type, SalaryType::Monthly) {
+            Some(salary_min)
+        } else {
+            None
+        };
+        let loc = empty_location();
+        SurveyRecord {
+            row_index: 0,
+            source: CsvSource::JobBox,
+            job_title: "テスト求人".to_string(),
+            company_name: company.to_string(),
+            location_raw: "東京都千代田区".to_string(),
+            salary_raw: format!("月給{}円", salary_min),
+            employment_type: "正社員".to_string(),
+            tags_raw: String::new(),
+            url: None,
+            is_new: false,
+            description: String::new(),
+            salary_parsed: sal,
+            location_parsed: loc,
+            annual_holidays: Some(holidays),
+        }
+    }
+
+    #[test]
+    fn pearson_perfect_positive() {
+        // 既知点列 [(100, 80), (150, 90), (200, 100), (250, 110), (300, 120)]
+        // 月給(万円→円): x = salary_min, y = annual_holidays
+        // 完全正相関 r = 1.0
+        let records: Vec<SurveyRecord> = [
+            (100_000, 80),
+            (150_000, 90),
+            (200_000, 100),
+            (250_000, 110),
+            (300_000, 120),
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, &(sal, hol))| {
+            let mut r = mk_jobbox_record(&format!("社{}", i), sal, SalaryType::Monthly, hol);
+            // dedup を回避するため company_name を変える (mk_jobbox_record 内で company 引数を使用)
+            r
+        })
+        .collect();
+        let agg = aggregate_records(&records);
+        let r = agg
+            .jobbox
+            .salary_holidays_correlation
+            .expect("5 点以上なので Some を返すべき");
+        assert!((r - 1.0).abs() < 0.001, "完全正相関のはず: r = {:.6}", r);
+    }
+
+    #[test]
+    fn pearson_perfect_negative() {
+        // 既知点列 [(100, 120), (200, 110), (300, 100)] → 完全負相関 r = -1.0
+        let records: Vec<SurveyRecord> = [(100_000, 120), (200_000, 110), (300_000, 100)]
+            .iter()
+            .enumerate()
+            .map(|(i, &(sal, hol))| {
+                mk_jobbox_record(&format!("社{}", i), sal, SalaryType::Monthly, hol)
+            })
+            .collect();
+        let agg = aggregate_records(&records);
+        let r = agg
+            .jobbox
+            .salary_holidays_correlation
+            .expect("3 点以上なので Some");
+        assert!((r + 1.0).abs() < 0.001, "完全負相関のはず: r = {:.6}", r);
+    }
+
+    #[test]
+    fn pearson_too_few_points() {
+        // 2 点以下 → None (n < 3)
+        let records: Vec<SurveyRecord> = [(200_000, 120), (300_000, 125)]
+            .iter()
+            .enumerate()
+            .map(|(i, &(sal, hol))| {
+                mk_jobbox_record(&format!("社{}", i), sal, SalaryType::Monthly, hol)
+            })
+            .collect();
+        let agg = aggregate_records(&records);
+        assert!(
+            agg.jobbox.salary_holidays_correlation.is_none(),
+            "2 点のみ → None を返すべき"
+        );
+    }
+
+    #[test]
+    fn pearson_zero_variance_x() {
+        // 全 x が同値 (var_x = 0) → None
+        let records: Vec<SurveyRecord> = [(300_000, 110), (300_000, 120), (300_000, 130)]
+            .iter()
+            .enumerate()
+            .map(|(i, &(sal, hol))| {
+                mk_jobbox_record(&format!("社{}", i + 10), sal, SalaryType::Monthly, hol)
+            })
+            .collect();
+        let agg = aggregate_records(&records);
+        // var_x = 0 なので denom = 0 → correlation = None
+        assert!(
+            agg.jobbox.salary_holidays_correlation.is_none(),
+            "x の分散がゼロ → None"
+        );
+    }
+
+    // =========================================================================
+    // Finding #21: jobbox_records dedup / 会社名空除外 / 月給制限定 / 給与空除外
+    // =========================================================================
+
+    /// jobbox_records テスト用ヘルパー
+    fn mk_record_for_jobbox(
+        company: &str,
+        title: &str,
+        location: &str,
+        salary_type: SalaryType,
+        salary_min: Option<i64>,
+        salary_max: Option<i64>,
+        holidays: Option<i64>,
+        salary_raw: &str,
+        emp_type: &str,
+    ) -> SurveyRecord {
+        use super::super::upload::CsvSource;
+        let mut sal = empty_salary();
+        sal.salary_type = salary_type;
+        sal.min_value = salary_min;
+        sal.max_value = salary_max;
+        sal.unified_monthly = salary_min;
+        let loc = empty_location();
+        SurveyRecord {
+            row_index: 0,
+            source: CsvSource::JobBox,
+            job_title: title.to_string(),
+            company_name: company.to_string(),
+            location_raw: location.to_string(),
+            salary_raw: salary_raw.to_string(),
+            employment_type: emp_type.to_string(),
+            tags_raw: String::new(),
+            url: None,
+            is_new: false,
+            description: String::new(),
+            salary_parsed: sal,
+            location_parsed: loc,
+            annual_holidays: holidays,
+        }
+    }
+
+    #[test]
+    fn jobbox_records_dedup_removes_duplicate() {
+        // 同 company + title + location + holidays + salary_raw + emp の 2 件 → 1 件に dedup
+        let r1 = mk_record_for_jobbox(
+            "テスト株式会社",
+            "ドライバー",
+            "東京都新宿区",
+            SalaryType::Monthly,
+            Some(250_000),
+            Some(300_000),
+            Some(120),
+            "月給25万〜30万円",
+            "正社員",
+        );
+        let r2 = r1.clone();
+        let records = vec![r1, r2];
+        let agg = aggregate_records(&records);
+        assert_eq!(
+            agg.jobbox.jobbox_records.len(),
+            1,
+            "完全一致の 2 件 → dedup で 1 件になるべき"
+        );
+    }
+
+    #[test]
+    fn jobbox_records_excludes_empty_company() {
+        // company_name が空 → jobbox_records に含まれない (Commit 1 の修正検証)
+        let r = mk_record_for_jobbox(
+            "",
+            "営業スタッフ",
+            "大阪府大阪市",
+            SalaryType::Monthly,
+            Some(250_000),
+            Some(300_000),
+            Some(120),
+            "月給25万〜30万円",
+            "正社員",
+        );
+        let agg = aggregate_records(&[r]);
+        assert!(
+            agg.jobbox.jobbox_records.is_empty(),
+            "会社名が空 → jobbox_records に含まれない"
+        );
+    }
+
+    #[test]
+    fn jobbox_records_excludes_non_monthly() {
+        // salary_type = Hourly → jobbox_records に含まれない (月給制のみ対象)
+        let r = mk_record_for_jobbox(
+            "テスト株式会社",
+            "パートスタッフ",
+            "愛知県名古屋市",
+            SalaryType::Hourly,
+            Some(1200),
+            Some(1500),
+            Some(120),
+            "時給1200〜1500円",
+            "パート・アルバイト",
+        );
+        let agg = aggregate_records(&[r]);
+        assert!(
+            agg.jobbox.jobbox_records.is_empty(),
+            "Hourly → jobbox_records に含まれない (月給制限定)"
+        );
+    }
+
+    #[test]
+    fn jobbox_records_excludes_no_salary() {
+        // salary_min=None && salary_max=None → 含まれない
+        let r = mk_record_for_jobbox(
+            "テスト株式会社",
+            "一般事務",
+            "福岡県福岡市",
+            SalaryType::Monthly,
+            None,
+            None,
+            Some(120),
+            "",
+            "正社員",
+        );
+        let agg = aggregate_records(&[r]);
+        assert!(
+            agg.jobbox.jobbox_records.is_empty(),
+            "給与情報なし (両 None) → jobbox_records に含まれない"
+        );
+    }
 }

@@ -1205,3 +1205,119 @@ mod fixa_upload_tests {
         assert_eq!(records.len(), 2, "勤務地違い → 別レコード");
     }
 }
+
+// =============================================================================
+// Finding #20: extract_annual_holidays 境界テスト + infer_employment_type テスト
+// =============================================================================
+
+#[cfg(test)]
+mod annual_holidays_extraction_tests {
+    use super::*;
+
+    // ---- extract_annual_holidays 境界テスト ----
+
+    #[test]
+    fn boundary_69_invalid() {
+        // 69 日 → None (下限 70 の -1)
+        assert_eq!(
+            extract_annual_holidays("年間休日69日"),
+            None,
+            "69日は下限70未満 → None"
+        );
+    }
+
+    #[test]
+    fn boundary_70_valid() {
+        // 70 日 → Some(70) (下限ぴったり)
+        assert_eq!(
+            extract_annual_holidays("年間休日70日"),
+            Some(70),
+            "70日は下限ちょうど → Some(70)"
+        );
+    }
+
+    #[test]
+    fn boundary_180_valid() {
+        // 180 日 → Some(180) (上限ぴったり)
+        assert_eq!(
+            extract_annual_holidays("年間休日180日"),
+            Some(180),
+            "180日は上限ちょうど → Some(180)"
+        );
+    }
+
+    #[test]
+    fn boundary_181_invalid() {
+        // 181 日 → None (上限 180 の +1)
+        assert_eq!(
+            extract_annual_holidays("年間休日181日"),
+            None,
+            "181日は上限超過 → None"
+        );
+    }
+
+    #[test]
+    fn empty_text() {
+        // 空文字列 → None
+        assert_eq!(extract_annual_holidays(""), None, "空文字列 → None");
+    }
+
+    #[test]
+    fn year_word_alone_not_matched() {
+        // 「年100日キャンペーン」→ None (Commit 1 で「年」単独キーワードを削除した検証)
+        // PREFIX_KEYWORDS に「年」は含まれない。「年間」「年休」「年間休日」等のみ対象。
+        // 「年100日キャンペーン」にはこれらが含まれないので None を返すべき。
+        assert_eq!(
+            extract_annual_holidays("年100日キャンペーン"),
+            None,
+            "「年」単独は対象外 → None"
+        );
+    }
+
+    // ---- infer_employment_type_for_jobbox テスト (Commit 3 で抽出した関数) ----
+
+    #[test]
+    fn infer_emp_monthly_returns_seishain() {
+        assert_eq!(
+            infer_employment_type_for_jobbox(&SalaryType::Monthly),
+            Some("正社員".to_string()),
+            "Monthly → 正社員"
+        );
+    }
+
+    #[test]
+    fn infer_emp_annual_returns_seishain() {
+        assert_eq!(
+            infer_employment_type_for_jobbox(&SalaryType::Annual),
+            Some("正社員".to_string()),
+            "Annual → 正社員"
+        );
+    }
+
+    #[test]
+    fn infer_emp_hourly_returns_part_time() {
+        assert_eq!(
+            infer_employment_type_for_jobbox(&SalaryType::Hourly),
+            Some("パート・アルバイト".to_string()),
+            "Hourly → パート・アルバイト"
+        );
+    }
+
+    #[test]
+    fn infer_emp_daily_returns_none() {
+        assert_eq!(
+            infer_employment_type_for_jobbox(&SalaryType::Daily),
+            None,
+            "Daily → None (推定対象外)"
+        );
+    }
+
+    #[test]
+    fn infer_emp_weekly_returns_none() {
+        assert_eq!(
+            infer_employment_type_for_jobbox(&SalaryType::Weekly),
+            None,
+            "Weekly → None (推定対象外)"
+        );
+    }
+}

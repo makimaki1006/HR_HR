@@ -690,4 +690,97 @@ mod tests {
         assert_eq!(median_of(&[1, 2, 3, 4]), 2);
         assert_eq!(median_of(&[]), 0);
     }
+
+    // =========================================================================
+    // Finding #22: salary_text 全分岐 + 空データ非対称セクション描画
+    // =========================================================================
+
+    /// salary_text 生成ロジックのテストヘルパー
+    /// render_examples_block 内の match 式と同一ロジックを再現
+    fn salary_text(min: Option<i64>, max: Option<i64>) -> String {
+        use super::super::super::super::super::helpers::format_number;
+        match (min, max) {
+            (Some(lo), Some(hi)) if hi == lo => format!("{} 円", format_number(lo)),
+            (Some(lo), Some(hi)) if hi > lo => {
+                format!("{} 〜 {} 円", format_number(lo), format_number(hi))
+            }
+            (Some(lo), _) => format!("{} 円 〜", format_number(lo)),
+            (None, Some(hi)) => format!("〜 {} 円", format_number(hi)),
+            _ => "—".to_string(),
+        }
+    }
+
+    #[test]
+    fn salary_text_min_eq_max() {
+        // salary_min=Some(250000) salary_max=Some(250000) → "250,000 円" (Commit 1 の修正検証)
+        assert_eq!(
+            salary_text(Some(250_000), Some(250_000)),
+            "250,000 円",
+            "min == max → 単一額表示 (〜 なし)"
+        );
+    }
+
+    #[test]
+    fn salary_text_min_only_shows_open() {
+        // salary_min=Some(250000), salary_max=None → "250,000 円 〜"
+        assert_eq!(
+            salary_text(Some(250_000), None),
+            "250,000 円 〜",
+            "下限のみ → オープンレンジ表示"
+        );
+    }
+
+    #[test]
+    fn salary_text_max_only() {
+        // salary_min=None, salary_max=Some(300000) → "〜 300,000 円"
+        assert_eq!(
+            salary_text(None, Some(300_000)),
+            "〜 300,000 円",
+            "上限のみ → 上限のみ表示"
+        );
+    }
+
+    #[test]
+    fn salary_text_both_none() {
+        // 両方 None → "—"
+        assert_eq!(salary_text(None, None), "—", "両 None → ダッシュ");
+    }
+
+    #[test]
+    fn renders_when_only_holidays_present() {
+        // annual_holidays_values が 5 件 / jobbox_records 空 → セクション描画される
+        // (個別求人テーブルは省略されるが KPI / 分布は描画される)
+        let agg = SurveyAggregation {
+            jobbox: JobboxAnalysis {
+                annual_holidays_values: vec![100, 110, 120, 125, 130],
+                annual_holidays_category_distribution: vec![
+                    ("90～104日".to_string(), 1),
+                    ("105～119日".to_string(), 1),
+                    ("120～124日".to_string(), 1),
+                    ("125～129日".to_string(), 1),
+                    ("130日～".to_string(), 1),
+                ],
+                holiday_pct_ge_120: 0.6,
+                holiday_pct_ge_125: 0.4,
+                holiday_stddev: 11.4,
+                holiday_q3: 125,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut html = String::new();
+        render_navy_section_jobbox_detail(&mut html, &agg);
+        // セクション全体が描画される
+        assert!(
+            html.contains("SECTION 07.5"),
+            "annual_holidays のみでもセクション描画される"
+        );
+        // KPI サマリーが描画される
+        assert!(html.contains("§07.5-1"), "KPI サマリーが描画される");
+        // 個別求人テーブルは描画されない (jobbox_records が空)
+        assert!(
+            !html.contains("§07.5-4"),
+            "jobbox_records 空 → 具体例テーブルは非表示"
+        );
+    }
 }
