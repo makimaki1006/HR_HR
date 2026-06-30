@@ -1589,4 +1589,72 @@ mod indeed_sp_detection_tests {
         // description: css-1vlebyu (col 9)
         assert_eq!(map.get("description"), Some(&9));
     }
+
+    // =========================================================================
+    // Finding #11: parse_csv_bytes_with_hints による IndeedSp 統合テスト
+    //              (Commit 1 #4 / Commit 3 回帰防止)
+    // =========================================================================
+
+    /// css-u74ql7 列の値が tags_raw に重複なく append される (Commit 3 検証)
+    /// ミニ CSV (IndeedSp 形式、2 行) を parse_csv_bytes_with_hints に渡し、
+    /// tags_raw に "超人気" が含まれることを確認する。
+    #[test]
+    fn indeed_sp_popular_tag_appended_to_tags_raw() {
+        // IndeedSp 最小ヘッダー: employment_type, url, job_title, company_name, location, salary,
+        //   jobsearch-JobCard-tag (既存タグ列), description, css-u74ql7 (人気タグ列)
+        let csv = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),jobsearch-JobCard-tag,css-1vlebyu,css-u74ql7\n\
+                   正社員,https://example.com/1,看護師,A病院,東京都千代田区,月給30万円〜35万円,週休2日,年間休日120日,超人気\n";
+        let records = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::IndeedSp)
+            .expect("IndeedSp CSV parse");
+        assert_eq!(records.len(), 1, "1 件パースされる");
+        assert_eq!(records[0].source, CsvSource::IndeedSp, "source=IndeedSp");
+        assert!(
+            records[0].tags_raw.contains("超人気"),
+            "css-u74ql7 列の '超人気' が tags_raw に含まれる: got '{}'",
+            records[0].tags_raw
+        );
+    }
+
+    /// Commit 1 #4 検証: IndeedSp で employment_type 空欄レコード →
+    /// employment_type は空のまま (Monthly → 正社員 フォールバックが発動しない)
+    ///
+    /// 注意: isMetadataRow は first_col が空のとき行をスキップする。
+    /// IndeedSp の実 CSV では css-1hwmqh1 (雇用形態) が col[0] だが、
+    /// テスト用に job_title(css-bxyec3) を先頭に置き、雇用形態列は末尾に配置する。
+    #[test]
+    fn indeed_sp_no_employment_type_fallback() {
+        // job_title を col[0] に置いてメタデータ除外を回避し、
+        // employment_type 列 (css-1hwmqh1) を空欄にする
+        let csv = "css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu,css-u74ql7,css-1hwmqh1\n\
+                   介護職,B施設,大阪府大阪市,月給25万円,年間休日125日,人気,\n";
+        let records = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::IndeedSp)
+            .expect("IndeedSp CSV parse");
+        assert_eq!(records.len(), 1, "1 件パースされる");
+        assert_eq!(records[0].source, CsvSource::IndeedSp);
+        // IndeedSp は雇用形態空欄でもフォールバックを掛けないため空のまま
+        assert!(
+            records[0].employment_type.is_empty(),
+            "IndeedSp: employment_type は空のまま (フォールバックなし): got '{}'",
+            records[0].employment_type
+        );
+    }
+
+    /// JobBox の Monthly レコードで employment_type 空欄 → "正社員" にフォールバック
+    /// (JobBox の挙動は不変であることを保証 — Commit 1 #4 で IndeedSp 分岐を追加したが
+    ///  JobBox の既存ロジックに回帰がないことを確認)
+    #[test]
+    fn jobbox_employment_type_fallback_still_works() {
+        // 求人ボックス形式 (日本語ヘッダー) で雇用形態列を空にする
+        let csv = "企業名,給与,雇用形態,勤務地,求人名\n\
+                   テスト株式会社,月給25万円〜30万円,,東京都新宿区,一般事務\n";
+        let records = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::JobBox)
+            .expect("JobBox CSV parse");
+        assert_eq!(records.len(), 1, "1 件パースされる");
+        assert_eq!(records[0].source, CsvSource::JobBox);
+        // JobBox: Monthly 空欄 → infer_employment_type_for_jobbox → "正社員"
+        assert_eq!(
+            records[0].employment_type, "正社員",
+            "JobBox Monthly + 雇用形態空欄 → '正社員' フォールバック"
+        );
+    }
 }
