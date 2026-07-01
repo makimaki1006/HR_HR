@@ -241,6 +241,18 @@ pub struct PopularityAnalysis {
     /// 年間休日中央値算出に使用したサンプル数 (人気タグなし)
     #[serde(default)]
     pub non_popular_n_holidays: usize,
+    /// 人気タグ付き求人 (IndeedSp、Monthly のみ) の給与下限・上限統計
+    /// 2026-07-01 追加。
+    #[serde(default)]
+    pub popular_salary_stats: SalaryStats,
+    /// 超人気タグ付き求人 (IndeedSp、Monthly のみ) の給与下限・上限統計
+    /// 2026-07-01 追加。
+    #[serde(default)]
+    pub super_popular_salary_stats: SalaryStats,
+    /// 人気タグなし求人 (IndeedSp、Monthly のみ) の給与下限・上限統計
+    /// 2026-07-01 追加。
+    #[serde(default)]
+    pub non_popular_salary_stats: SalaryStats,
 }
 
 /// Section 07.5 用集計の集約サブ構造体 (2026-06-30 Finding #12)
@@ -286,6 +298,14 @@ pub struct JobboxAnalysis {
     /// 月給(円)を入力とする回帰式: holidays = slope * salary + intercept
     #[serde(default)]
     pub salary_holidays_regression: Option<(f64, f64)>,
+    /// 年間休日カテゴリ別 給与統計 (Monthly のみ、求人ボックスのみ)
+    ///
+    /// カテゴリ順は `upload::ANNUAL_HOLIDAYS_CATEGORIES` に一致 (固定 6 要素)。
+    /// 各カテゴリの Monthly 求人の (salary_min, salary_max) を集計。
+    /// カテゴリに該当するレコードがない場合は `SalaryStats::default()` (n=0)。
+    /// 2026-07-01 追加。
+    #[serde(default)]
+    pub salary_stats_by_holiday_category: Vec<(String, SalaryStats)>,
 }
 
 /// 散布図用 雇用形態 3 値分類 (2026-06-30 Finding #13)
@@ -398,6 +418,105 @@ fn percentile_r7(sorted: &[i64], p: f64) -> i64 {
     let lo_v = sorted[lo] as f64;
     let hi_v = sorted[hi] as f64;
     (lo_v + (hi_v - lo_v) * frac).round() as i64
+}
+
+// ============================================================
+// 2026-07-01 SalaryStats: 給与下限/上限の平均・中央値・最頻値統計
+// Section 07.5-2 (年間休日カテゴリ別) と Section 07.6 (人気タグ別) で
+// 共通利用するため独立関数として提供する。
+// ============================================================
+
+/// 給与下限・上限の統計値 (平均/中央値/最頻値)
+///
+/// 単位: 円 (Monthly のみを想定、呼び出し側でフィルタする)。
+/// - `min_*` は給与下限、`max_*` は給与上限の統計。
+/// - `*_mode` は 5 万円刻みビン (val / 50_000 * 50_000) の最頻値。
+///   複数タイなら小さい方 (ビン下端の小さい方) を返す。
+/// - サンプル 0 件のとき全フィールド `None`、`n = 0`。
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SalaryStats {
+    /// サンプル数 (下限・上限のいずれか Some のペア数)
+    pub n: usize,
+    /// 給与下限 平均 (整数丸め)
+    pub min_mean: Option<i64>,
+    /// 給与下限 中央値
+    pub min_median: Option<i64>,
+    /// 給与下限 最頻値 (5 万円刻みビン)
+    pub min_mode: Option<i64>,
+    /// 給与上限 平均 (整数丸め)
+    pub max_mean: Option<i64>,
+    /// 給与上限 中央値
+    pub max_median: Option<i64>,
+    /// 給与上限 最頻値 (5 万円刻みビン)
+    pub max_mode: Option<i64>,
+}
+
+/// 給与下限・上限の (Option<i64>, Option<i64>) ペア列から `SalaryStats` を計算する
+///
+/// - `salaries`: `(salary_min, salary_max)` のペア列
+/// - `n`: 下限・上限のいずれか `Some` のペア数
+/// - 平均/中央値/最頻値はそれぞれ `Some` の値のみを集計 (下限と上限は独立)
+/// - 最頻値は 5 万円刻みビン (`val / 50_000 * 50_000`) の最頻ビン下端。
+///   複数タイなら小さい方 (小さいビン下端) を返す。
+///
+/// **注意**: 呼び出し側で Monthly のみを渡すこと (Hourly/Annual を混ぜると単位混在)。
+pub fn compute_salary_stats(salaries: &[(Option<i64>, Option<i64>)]) -> SalaryStats {
+    // n: 下限・上限どちらかが Some のペア数
+    let n = salaries
+        .iter()
+        .filter(|(mn, mx)| mn.is_some() || mx.is_some())
+        .count();
+    if n == 0 {
+        return SalaryStats::default();
+    }
+
+    let mins: Vec<i64> = salaries.iter().filter_map(|(mn, _)| *mn).collect();
+    let maxs: Vec<i64> = salaries.iter().filter_map(|(_, mx)| *mx).collect();
+
+    fn mean_opt(v: &[i64]) -> Option<i64> {
+        if v.is_empty() {
+            None
+        } else {
+            let sum: i128 = v.iter().map(|&x| x as i128).sum();
+            Some((sum / v.len() as i128) as i64)
+        }
+    }
+    fn median_opt(v: &[i64]) -> Option<i64> {
+        if v.is_empty() {
+            None
+        } else {
+            Some(median_of(v))
+        }
+    }
+    /// 5 万円刻みビン (`val / 50_000 * 50_000`) の最頻値。
+    /// タイなら小さい方 (ビン下端の小さい方) を返す。
+    fn mode_bin_50k(v: &[i64]) -> Option<i64> {
+        if v.is_empty() {
+            return None;
+        }
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for &x in v {
+            let bin = (x / 50_000) * 50_000;
+            *counts.entry(bin).or_insert(0) += 1;
+        }
+        // 最大 count を取得 → その中で最小 bin を返す
+        let max_count = counts.values().copied().max().unwrap_or(0);
+        counts
+            .into_iter()
+            .filter(|&(_, c)| c == max_count)
+            .map(|(b, _)| b)
+            .min()
+    }
+
+    SalaryStats {
+        n,
+        min_mean: mean_opt(&mins),
+        min_median: median_opt(&mins),
+        min_mode: mode_bin_50k(&mins),
+        max_mean: mean_opt(&maxs),
+        max_median: median_opt(&maxs),
+        max_mode: mode_bin_50k(&maxs),
+    }
 }
 
 /// パース済みレコードを集計
@@ -960,6 +1079,34 @@ fn aggregate_records_core(
     });
 
     // ============================================================
+    // 2026-07-01 年間休日カテゴリ別 給与統計 (Section 07.5-2)
+    // 求人ボックス Monthly のみを対象に、年間休日カテゴリごとに
+    // 給与下限・上限の平均/中央値/最頻値を計算する。
+    // 集計対象は jobbox_records と同じ dedup 済みレコード。
+    // ============================================================
+    let salary_stats_by_holiday_category: Vec<(String, SalaryStats)> = {
+        let mut buckets: std::collections::HashMap<&'static str, Vec<(Option<i64>, Option<i64>)>> =
+            ANNUAL_HOLIDAYS_CATEGORIES
+                .iter()
+                .map(|&c| (c, Vec::new()))
+                .collect();
+        for r in &jobbox_records {
+            let cat = annual_holidays_category(r.annual_holidays);
+            buckets
+                .entry(cat)
+                .or_default()
+                .push((r.salary_min, r.salary_max));
+        }
+        ANNUAL_HOLIDAYS_CATEGORIES
+            .iter()
+            .map(|&cat| {
+                let pairs = buckets.remove(cat).unwrap_or_default();
+                (cat.to_string(), compute_salary_stats(&pairs))
+            })
+            .collect()
+    };
+
+    // ============================================================
     // 2026-06-26 Section 07.5 UI/UX 改善 用追加集計
     // ============================================================
     let n_ah = annual_holidays_values.len();
@@ -1060,6 +1207,10 @@ fn aggregate_records_core(
         let mut non_popular_salaries: Vec<i64> = Vec::new();
         let mut popular_holidays: Vec<i64> = Vec::new();
         let mut non_popular_holidays: Vec<i64> = Vec::new();
+        // 2026-07-01: 下限/上限ペア (SalaryStats 用) — Monthly かつ MIN_MONTHLY_SALARY 以上のみ
+        let mut popular_salary_pairs: Vec<(Option<i64>, Option<i64>)> = Vec::new();
+        let mut super_popular_salary_pairs: Vec<(Option<i64>, Option<i64>)> = Vec::new();
+        let mut non_popular_salary_pairs: Vec<(Option<i64>, Option<i64>)> = Vec::new();
 
         for r in records {
             // Finding #1/#3: Indeed (SP) 由来レコードのみを集計対象にする。
@@ -1091,6 +1242,26 @@ fn aggregate_records_core(
                         } else {
                             non_popular_salaries.push(v);
                         }
+                    }
+                }
+
+                // 2026-07-01 下限/上限ペア (SalaryStats 用)
+                // 下限が Some のとき MIN_MONTHLY_SALARY 未満なら異常値としてペアごと除外。
+                // 下限が None でも上限が Some ならペアを採用 (上限のみ統計に寄与)。
+                let min_ok = match r.salary_parsed.min_value {
+                    Some(v) => v >= MIN_MONTHLY_SALARY,
+                    None => true,
+                };
+                if min_ok
+                    && (r.salary_parsed.min_value.is_some() || r.salary_parsed.max_value.is_some())
+                {
+                    let pair = (r.salary_parsed.min_value, r.salary_parsed.max_value);
+                    if is_super {
+                        super_popular_salary_pairs.push(pair);
+                    } else if is_popular {
+                        popular_salary_pairs.push(pair);
+                    } else {
+                        non_popular_salary_pairs.push(pair);
                     }
                 }
             }
@@ -1138,6 +1309,10 @@ fn aggregate_records_core(
             non_popular_n_salary,
             popular_n_holidays,
             non_popular_n_holidays,
+            // 2026-07-01 給与下限/上限の平均/中央値/最頻値 (Monthly のみ)
+            popular_salary_stats: compute_salary_stats(&popular_salary_pairs),
+            super_popular_salary_stats: compute_salary_stats(&super_popular_salary_pairs),
+            non_popular_salary_stats: compute_salary_stats(&non_popular_salary_pairs),
         }
     };
 
@@ -1185,6 +1360,8 @@ fn aggregate_records_core(
             salary_vs_holidays_scatter_emp,
             salary_holidays_correlation,
             salary_holidays_regression,
+            // 2026-07-01 年間休日カテゴリ別 給与統計 (Section 07.5-2)
+            salary_stats_by_holiday_category,
         },
         // 2026-06-30 Section 07.6: Indeed (SP) 人気度シグナル
         popularity,
@@ -2519,6 +2696,115 @@ mod tests {
         assert_eq!(
             pop.non_popular_n_salary, 4,
             "non-popular Monthly 4 件 → non_popular_n_salary=4"
+        );
+    }
+
+    // ============================================================
+    // 2026-07-01 SalaryStats (compute_salary_stats) 単体テスト
+    // ============================================================
+
+    /// 給与下限 3 件 → 中央値が中央要素を返す
+    #[test]
+    fn salary_stats_min_median_matches() {
+        let pairs = [
+            (Some(200_000), Some(300_000)),
+            (Some(250_000), Some(350_000)),
+            (Some(300_000), Some(400_000)),
+        ];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(stats.n, 3);
+        assert_eq!(
+            stats.min_median,
+            Some(250_000),
+            "min 3 件 [200k, 250k, 300k] の中央値 = 250k"
+        );
+    }
+
+    /// 給与上限の平均は算術平均 (整数丸め)
+    #[test]
+    fn salary_stats_max_mean() {
+        let pairs = [
+            (Some(200_000), Some(300_000)),
+            (Some(250_000), Some(350_000)),
+            (Some(300_000), Some(400_000)),
+        ];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(
+            stats.max_mean,
+            Some(350_000),
+            "max 3 件 [300k, 350k, 400k] の平均 = 350k"
+        );
+    }
+
+    /// 5 万円刻みビン最頻値: 200-249 ビンが 2 件、250-299 ビンが 1 件 → 最頻ビン = 200k
+    #[test]
+    fn salary_stats_mode_50k_bins() {
+        // 上限は同じダミー値 (上限側の最頻値は本テストの主眼ではないが Some で埋める)
+        let pairs = [
+            (Some(200_000), Some(300_000)),
+            (Some(210_000), Some(300_000)),
+            (Some(250_000), Some(300_000)),
+        ];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(
+            stats.min_mode,
+            Some(200_000),
+            "200k と 210k は同じ 200k ビン → 最頻値 = 200k"
+        );
+    }
+
+    /// 空入力: 全 None、n=0
+    #[test]
+    fn salary_stats_empty_returns_none() {
+        let pairs: [(Option<i64>, Option<i64>); 0] = [];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(stats.n, 0);
+        assert_eq!(stats.min_mean, None);
+        assert_eq!(stats.min_median, None);
+        assert_eq!(stats.min_mode, None);
+        assert_eq!(stats.max_mean, None);
+        assert_eq!(stats.max_median, None);
+        assert_eq!(stats.max_mode, None);
+    }
+
+    /// (None, None) のみのペアは n にカウントされない
+    #[test]
+    fn salary_stats_all_none_pairs_yields_zero_n() {
+        let pairs = [(None, None), (None, None)];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(stats.n, 0, "下限・上限どちらも None のペアは n=0");
+        assert_eq!(stats.min_mean, None);
+        assert_eq!(stats.max_mean, None);
+    }
+
+    /// 下限のみ / 上限のみ の片側ペアも n にカウントされる
+    #[test]
+    fn salary_stats_partial_pairs_count_in_n() {
+        let pairs = [
+            (Some(200_000), None), // 下限のみ
+            (None, Some(400_000)), // 上限のみ
+            (Some(250_000), Some(350_000)),
+        ];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(stats.n, 3, "3 ペアとも n にカウント");
+        // 下限は 2 件 [200k, 250k] → 中央値 = (200+250)/2 = 225k (median_of 偶数件は整数割り算)
+        assert_eq!(stats.min_median, Some(225_000));
+        // 上限は 2 件 [400k, 350k] → 中央値 = 375k
+        assert_eq!(stats.max_median, Some(375_000));
+    }
+
+    /// 最頻値タイの場合、小さい方のビンを返す
+    #[test]
+    fn salary_stats_mode_ties_return_smaller_bin() {
+        let pairs = [
+            (Some(200_000), None),
+            (Some(300_000), None), // 200k ビン 1 件、300k ビン 1 件 → タイ
+        ];
+        let stats = compute_salary_stats(&pairs);
+        assert_eq!(
+            stats.min_mode,
+            Some(200_000),
+            "タイなら小さい方のビン (200k) を返す"
         );
     }
 }

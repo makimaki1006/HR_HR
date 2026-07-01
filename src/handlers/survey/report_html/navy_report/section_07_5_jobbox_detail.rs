@@ -1,11 +1,12 @@
 //! Section 07.5 - 年間休日 × 給与 詳細
 //!
-//! ## 構成 (2026-06-26 UI/UX 改善版)
+//! ## 構成 (2026-07-01 セグメント別給与拡張版)
 //!
 //! - §07.5-1 サマリー: 概況 KPI 5 枚 (抽出件数/平均/中央値/Q3/120日以上比率)
-//! - §07.5-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG)
+//! - §07.5-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG + 給与中央値テーブル)
 //! - §07.5-3 相関: 給与×年間休日 散布図 (雇用形態色分け + 相関係数 r + 回帰直線)
 //! - §07.5-4 具体例: 個別求人テーブル (年間休日色分けバッジ + 給与 mini bar、最大 100 件)
+//! - §07.5-5 セグメント別給与統計: 年間休日カテゴリ別 下限/上限の 平均/中央値/最頻値
 
 // 一部 helper 関数は test 用、または将来拡張のために定義済み (使用されていないものは dead_code)
 #![allow(dead_code)]
@@ -36,6 +37,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     render_distribution_block(html, agg);
     render_correlation_block(html, agg);
     render_examples_block(html, agg);
+    render_segment_salary_block(html, agg);
 
     // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-jobbox-detail スコープで改ページ制御
     html.push_str(
@@ -206,6 +208,63 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
         ));
     }
     html.push_str("</svg>\n");
+
+    // 2026-07-01: SVG 分布の下に、カテゴリ別 月給下限/上限 中央値テーブルを追加。
+    // ユーザー要件: 「年間休日のセグメントごとの給与」を分布表の隣にも見せる。
+    // データは jobbox_records から集計 (月給制のみ)。件数 0 のカテゴリは "—" 表示。
+    render_distribution_salary_median_table(html, agg);
+}
+
+/// §07.5-2 分布 SVG の下に配置される「カテゴリ別 月給下限/上限 中央値」表。
+/// 表 7.5-A への給与列追加要件 (2026-07-01) に対応。
+fn render_distribution_salary_median_table(html: &mut String, agg: &SurveyAggregation) {
+    let stats = compute_salary_stats_by_holiday_category(agg);
+    // 全カテゴリで n=0 なら描画しない (分布表そのものだけを見せる)
+    if stats.iter().all(|s| s.n == 0) {
+        return;
+    }
+    html.push_str(
+        "<p class=\"note\" style=\"margin-top:4px;\">※ 下表は月給制求人のみを対象に、\
+         各カテゴリの下限・上限給与の中央値を集計 (万円表示)。</p>\n",
+    );
+    html.push_str(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:34%;\">\
+         <col style=\"width:14%;\">\
+         <col style=\"width:26%;\">\
+         <col style=\"width:26%;\">\
+         </colgroup>\n\
+         <thead><tr>\
+         <th>カテゴリ</th>\
+         <th style=\"text-align:right;\">件数</th>\
+         <th style=\"text-align:right;\">月給下限 中央値</th>\
+         <th style=\"text-align:right;\">月給上限 中央値</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+    for s in &stats {
+        let (min_med, max_med) = if s.n == 0 {
+            ("—".to_string(), "—".to_string())
+        } else {
+            (
+                format!("{:.1} 万円", s.min_median as f64 / 10_000.0),
+                format!("{:.1} 万円", s.max_median as f64 / 10_000.0),
+            )
+        };
+        html.push_str(&format!(
+            "<tr>\
+             <td>{cat}</td>\
+             <td style=\"text-align:right;\">{n}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{min_med}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{max_med}</td>\
+             </tr>\n",
+            cat = escape_html(&s.category),
+            n = s.n,
+            min_med = min_med,
+            max_med = max_med,
+        ));
+    }
+    html.push_str("</tbody></table>\n");
 }
 
 // ============================================================================
@@ -537,6 +596,227 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     }
 }
 
+// ============================================================================
+// §07.5-5 セグメント別 給与統計 (年間休日カテゴリ別 下限/上限 平均/中央値/最頻値)
+// 2026-07-01 追加。
+// - データソース: agg.jobbox.jobbox_records (月給制のみ)
+// - 単位: 万円表示
+// - n=0 のカテゴリは "—" で表示 (テーブル自体は残す)
+// - 全カテゴリで n=0 の場合はセクションごとスキップ
+// - 最頻値: 5 万円ビン (bin 開始値を "XX.X 万円" として表示)
+// ============================================================================
+fn render_segment_salary_block(html: &mut String, agg: &SurveyAggregation) {
+    let stats = compute_salary_stats_by_holiday_category(agg);
+    if stats.iter().all(|s| s.n == 0) {
+        return;
+    }
+    html.push_str(
+        "<div class=\"block-title\">§07.5-5 &nbsp;セグメント別 給与統計 (年間休日カテゴリ別)</div>\n",
+    );
+    html.push_str(
+        "<p class=\"note\">※ 月給制求人のみを対象に、年間休日カテゴリ別で\
+         下限・上限給与の平均/中央値/最頻値を算出。最頻値は 5 万円刻みビンの開始値。単位: 万円。</p>\n",
+    );
+    html.push_str(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:20%;\">\
+         <col style=\"width:8%;\">\
+         <col style=\"width:12%;\">\
+         <col style=\"width:12%;\">\
+         <col style=\"width:12%;\">\
+         <col style=\"width:12%;\">\
+         <col style=\"width:12%;\">\
+         <col style=\"width:12%;\">\
+         </colgroup>\n\
+         <thead><tr>\
+         <th rowspan=\"2\">カテゴリ</th>\
+         <th rowspan=\"2\" style=\"text-align:right;\">n</th>\
+         <th colspan=\"3\" style=\"text-align:center;\">月給下限</th>\
+         <th colspan=\"3\" style=\"text-align:center;\">月給上限</th>\
+         </tr><tr>\
+         <th style=\"text-align:right;\">平均</th>\
+         <th style=\"text-align:right;\">中央値</th>\
+         <th style=\"text-align:right;\">最頻値</th>\
+         <th style=\"text-align:right;\">平均</th>\
+         <th style=\"text-align:right;\">中央値</th>\
+         <th style=\"text-align:right;\">最頻値</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+    for s in &stats {
+        let cells = if s.n == 0 {
+            [
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+            ]
+        } else {
+            [
+                format!("{:.1}", s.min_mean as f64 / 10_000.0),
+                format!("{:.1}", s.min_median as f64 / 10_000.0),
+                format!("{:.1}", s.min_mode as f64 / 10_000.0),
+                format!("{:.1}", s.max_mean as f64 / 10_000.0),
+                format!("{:.1}", s.max_median as f64 / 10_000.0),
+                format!("{:.1}", s.max_mode as f64 / 10_000.0),
+            ]
+        };
+        html.push_str(&format!(
+            "<tr>\
+             <td>{cat}</td>\
+             <td style=\"text-align:right;\">{n}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{c0}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{c1}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{c2}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{c3}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{c4}</td>\
+             <td style=\"text-align:right;white-space:nowrap;\">{c5}</td>\
+             </tr>\n",
+            cat = escape_html(&s.category),
+            n = s.n,
+            c0 = cells[0],
+            c1 = cells[1],
+            c2 = cells[2],
+            c3 = cells[3],
+            c4 = cells[4],
+            c5 = cells[5],
+        ));
+    }
+    html.push_str("</tbody></table>\n");
+}
+
+/// カテゴリ別 給与統計 1 行分。
+///
+/// - `min_*` は月給下限給与、`max_*` は月給上限給与の統計 (単位: 円)
+/// - `min_mode` / `max_mode` は 5 万円ビンの開始値 (例: 25 万〜30 万 → 250000)
+/// - `n == 0` のカテゴリは全統計値が 0 のまま
+struct HolidayCategorySalaryRow {
+    category: String,
+    n: usize,
+    min_mean: i64,
+    min_median: i64,
+    min_mode: i64,
+    max_mean: i64,
+    max_median: i64,
+    max_mode: i64,
+}
+
+/// jobbox_records から年間休日カテゴリ別の給与統計を算出。
+///
+/// ANNUAL_HOLIDAYS_CATEGORIES の 6 カテゴリ順に必ず 6 行返す (n=0 も含む)。
+/// upload.rs の `annual_holidays_category` と一致するカテゴリ分類を再現する。
+fn compute_salary_stats_by_holiday_category(
+    agg: &SurveyAggregation,
+) -> Vec<HolidayCategorySalaryRow> {
+    // upload.rs::ANNUAL_HOLIDAYS_CATEGORIES と同順を維持
+    const CATEGORIES: [&str; 6] = [
+        "～89日",
+        "90～104日",
+        "105～119日",
+        "120～124日",
+        "125～129日",
+        "130日～",
+    ];
+    let mut buckets: std::collections::HashMap<&'static str, (Vec<i64>, Vec<i64>)> = CATEGORIES
+        .iter()
+        .map(|&c| (c, (Vec::new(), Vec::new())))
+        .collect();
+    for rec in &agg.jobbox.jobbox_records {
+        let cat = category_for_holidays(rec.annual_holidays);
+        let entry = buckets.get_mut(cat).expect("cat は CATEGORIES のいずれか");
+        if let Some(v) = rec.salary_min {
+            if v > 0 {
+                entry.0.push(v);
+            }
+        }
+        if let Some(v) = rec.salary_max {
+            if v > 0 {
+                entry.1.push(v);
+            }
+        }
+    }
+    CATEGORIES
+        .iter()
+        .map(|&cat| {
+            let (mins, maxs) = buckets.remove(cat).unwrap_or_default();
+            // 行の n は「下限 or 上限のどちらかが有効な件数」ではなく、
+            // 「下限が有効な件数」を採用 (jobbox_records は最低 min or max 片方あり)。
+            // 実運用上 min はほぼ全件で存在するため乖離は微小。
+            let n = mins.len().max(maxs.len());
+            HolidayCategorySalaryRow {
+                category: cat.to_string(),
+                n,
+                min_mean: mean_of_i64(&mins),
+                min_median: median_i64(&mins),
+                min_mode: mode_5man_bin(&mins),
+                max_mean: mean_of_i64(&maxs),
+                max_median: median_i64(&maxs),
+                max_mode: mode_5man_bin(&maxs),
+            }
+        })
+        .collect()
+}
+
+/// 年間休日 → カテゴリラベル (upload.rs::annual_holidays_category と同定義)
+fn category_for_holidays(days: i64) -> &'static str {
+    match days {
+        i64::MIN..=89 => "～89日",
+        90..=104 => "90～104日",
+        105..=119 => "105～119日",
+        120..=124 => "120～124日",
+        125..=129 => "125～129日",
+        _ => "130日～",
+    }
+}
+
+fn mean_of_i64(values: &[i64]) -> i64 {
+    if values.is_empty() {
+        return 0;
+    }
+    let sum: i64 = values.iter().sum();
+    sum / values.len() as i64
+}
+
+fn median_i64(values: &[i64]) -> i64 {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort();
+    let n = sorted.len();
+    if n.is_multiple_of(2) {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+    } else {
+        sorted[n / 2]
+    }
+}
+
+/// 5 万円ビンでの最頻値 (ビン開始値、円単位で返す)。
+///
+/// 例: 250,000〜299,999 円 → 250,000 として計上。最頻ビン開始値を返す。
+/// 空配列は 0。
+fn mode_5man_bin(values: &[i64]) -> i64 {
+    if values.is_empty() {
+        return 0;
+    }
+    const BIN: i64 = 50_000;
+    let mut counts: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
+    for &v in values {
+        let bin_start = (v / BIN) * BIN;
+        *counts.entry(bin_start).or_insert(0) += 1;
+    }
+    // 最多カウントのビン (同数タイは値の小さい方を採用 = 保守的)
+    let max_count = counts.values().max().copied().unwrap_or(0);
+    counts
+        .into_iter()
+        .filter(|(_, c)| *c == max_count)
+        .map(|(bin, _)| bin)
+        .min()
+        .unwrap_or(0)
+}
+
 /// 雇用形態を色分けバッジ HTML に
 fn render_emp_badge(emp: &str) -> String {
     if emp.is_empty() {
@@ -621,6 +901,8 @@ mod tests {
                     salary_min: Some(250_000),
                     salary_max: Some(350_000),
                 }],
+                // 2026-07-01 追加フィールドは default で埋める (テストヘルパー簡略化のため)
+                ..Default::default()
             },
             ..Default::default()
         }
@@ -759,6 +1041,106 @@ mod tests {
         assert!(html.contains("§07.5-2"));
         assert!(html.contains("§07.5-3"));
         assert!(html.contains("§07.5-4"));
+        // 2026-07-01: §07.5-5 セグメント別給与統計セクション
+        // agg_with_jobbox() には jobbox_records が 1 件あるので描画される
+        assert!(html.contains("§07.5-5"));
+    }
+
+    // =========================================================================
+    // 2026-07-01 新規: §07.5-2 給与中央値テーブル + §07.5-5 セグメント別給与
+    // =========================================================================
+
+    /// jobbox_records に月給データがあるとき、
+    /// §07.5-2 分布 SVG の下に「月給下限/上限 中央値」テーブルが描画される。
+    #[test]
+    fn renders_salary_column_in_distribution_table() {
+        let mut html = String::new();
+        render_distribution_block(&mut html, &agg_with_jobbox());
+        // 分布 SVG は当然出る
+        assert!(html.contains("<svg"), "距離分布 SVG が存在する");
+        // 追加された中央値テーブル (見出しセル)
+        assert!(
+            html.contains("月給下限 中央値"),
+            "月給下限 中央値 列が存在する"
+        );
+        assert!(
+            html.contains("月給上限 中央値"),
+            "月給上限 中央値 列が存在する"
+        );
+        // agg_with_jobbox の 1 件は 120 日 / 25万〜35万 → 120～124日 行に "25.0 万円" が入る
+        assert!(
+            html.contains("25.0 万円"),
+            "下限中央値 25.0 万円 が表示される"
+        );
+        assert!(
+            html.contains("35.0 万円"),
+            "上限中央値 35.0 万円 が表示される"
+        );
+        // 件数 0 のカテゴリ (～89日) は — で表示
+        assert!(html.contains("—"), "件数 0 のカテゴリは — 表示");
+    }
+
+    /// §07.5-5 セグメント別給与統計セクションが描画される。
+    /// agg_with_jobbox の jobbox_records に 1 件 (120 日, 25 万-35 万) あるので表示。
+    #[test]
+    fn renders_segment_salary_section() {
+        let mut html = String::new();
+        render_segment_salary_block(&mut html, &agg_with_jobbox());
+        assert!(html.contains("§07.5-5"), "セグメント別給与セクション見出し");
+        assert!(
+            html.contains("セグメント別 給与統計"),
+            "セクションタイトル本体"
+        );
+        // 6 カテゴリ全て行として存在
+        assert!(html.contains("～89日"));
+        assert!(html.contains("90～104日"));
+        assert!(html.contains("105～119日"));
+        assert!(html.contains("120～124日"));
+        assert!(html.contains("125～129日"));
+        assert!(html.contains("130日～"));
+        // 単位ヘッダ
+        assert!(html.contains("月給下限"));
+        assert!(html.contains("月給上限"));
+        // 25 万 (250,000 円) = 25.0 が下限に、35.0 が上限に表示
+        assert!(html.contains("25.0"), "下限 25.0 万円");
+        assert!(html.contains("35.0"), "上限 35.0 万円");
+    }
+
+    /// jobbox_records が空 (全カテゴリで n=0) の場合、§07.5-5 は描画しない。
+    #[test]
+    fn skips_segment_salary_when_all_zero() {
+        let agg = SurveyAggregation {
+            jobbox: JobboxAnalysis {
+                // 年間休日抽出は存在するが、jobbox_records (月給付き求人) はゼロ
+                annual_holidays_values: vec![100, 110, 120],
+                annual_holidays_category_distribution: vec![
+                    ("90～104日".to_string(), 1),
+                    ("105～119日".to_string(), 1),
+                    ("120～124日".to_string(), 1),
+                ],
+                jobbox_records: Vec::new(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut html = String::new();
+        render_segment_salary_block(&mut html, &agg);
+        assert!(
+            html.is_empty(),
+            "jobbox_records 空 → §07.5-5 は描画されない"
+        );
+    }
+
+    /// mode_5man_bin: 5 万円ビン最頻値の基本動作。
+    #[test]
+    fn mode_5man_bin_basic() {
+        // 250_000, 260_000 (両方 [250k,300k) ビン), 320_000 ([300k,350k) ビン)
+        // → 最頻ビンは 250_000
+        assert_eq!(mode_5man_bin(&[250_000, 260_000, 320_000]), 250_000);
+        // タイは値の小さいビンを採用 (保守的)
+        assert_eq!(mode_5man_bin(&[250_000, 320_000]), 250_000);
+        // 空
+        assert_eq!(mode_5man_bin(&[]), 0);
     }
 
     #[test]

@@ -422,21 +422,10 @@ pub fn parse_csv_bytes_with_hints(
         // 2026-06-26 求人ボックス CSV で雇用形態列 (c-icon (3) 相当) が無い場合のフォールバック:
         //   給与単位から推定 (月給/年俸 → 正社員、時給 → パート・アルバイト)。
         //   2026-06-30 Finding #10: ロジックを `infer_employment_type_for_jobbox` に抽出。
-        //   2026-07-01 Finding #4 修正: IndeedSp は css-1hwmqh1 で雇用形態を取得できる前提のため、
-        //   空欄時に Monthly → 正社員 のフォールバックをかけると契約・派遣・嘱託も一律「正社員」
-        //   化されてしまう。IndeedSp は空欄のまま (集計時に「不明」扱い) とし、JobBox のみ
-        //   フォールバック適用。空欄発生時は CSS クラス変更可能性を tracing::warn で 1 回通知。
-        if matches!(source, CsvSource::IndeedSp) && employment_type.trim().is_empty() {
-            // 毎レコードでは log 量過多になるため、CSV 1 本につき 1 回だけ通知。
-            use std::sync::Once;
-            static WARN_ONCE: Once = Once::new();
-            WARN_ONCE.call_once(|| {
-                tracing::warn!(
-                    "Indeed (SP) record has empty employment_type (css-1hwmqh1 may have changed)"
-                );
-            });
-        }
-        let employment_type = if matches!(source, CsvSource::JobBox)
+        //   2026-07-01 ユーザー方針転換で復活: IndeedSp CSV の css-1hwmqh1 列消失に対応。
+        //   契約社員も正社員雇用の最初6ヶ月であるケースが多いため、月給→正社員 / 時給→パート・アルバイト
+        //   の粗い区分で十分 (Commit 1 で IndeedSp 除外したが再導入)。
+        let employment_type = if matches!(source, CsvSource::JobBox | CsvSource::IndeedSp)
             && employment_type.trim().is_empty()
         {
             infer_employment_type_for_jobbox(&salary_parsed.salary_type).unwrap_or(employment_type)
@@ -1617,12 +1606,10 @@ mod indeed_sp_detection_tests {
 
     /// Commit 1 #4 検証: IndeedSp で employment_type 空欄レコード →
     /// employment_type は空のまま (Monthly → 正社員 フォールバックが発動しない)
-    ///
-    /// 注意: isMetadataRow は first_col が空のとき行をスキップする。
-    /// IndeedSp の実 CSV では css-1hwmqh1 (雇用形態) が col[0] だが、
-    /// テスト用に job_title(css-bxyec3) を先頭に置き、雇用形態列は末尾に配置する。
+    /// 2026-07-01 ユーザー方針転換: IndeedSp の月給レコードで employment_type 空欄 → "正社員" にフォールバック
+    /// (css-1hwmqh1 列消失に対応。契約社員も月給なら正社員扱いで十分という方針)
     #[test]
-    fn indeed_sp_no_employment_type_fallback() {
+    fn indeed_sp_monthly_employment_falls_back_to_seishin() {
         // job_title を col[0] に置いてメタデータ除外を回避し、
         // employment_type 列 (css-1hwmqh1) を空欄にする
         let csv = "css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu,css-u74ql7,css-1hwmqh1\n\
@@ -1631,10 +1618,28 @@ mod indeed_sp_detection_tests {
             .expect("IndeedSp CSV parse");
         assert_eq!(records.len(), 1, "1 件パースされる");
         assert_eq!(records[0].source, CsvSource::IndeedSp);
-        // IndeedSp は雇用形態空欄でもフォールバックを掛けないため空のまま
-        assert!(
-            records[0].employment_type.is_empty(),
-            "IndeedSp: employment_type は空のまま (フォールバックなし): got '{}'",
+        // 2026-07-01 復活: IndeedSp も月給空欄 → "正社員" にフォールバック
+        assert_eq!(
+            records[0].employment_type, "正社員",
+            "IndeedSp: Monthly + 雇用形態空欄 → '正社員' フォールバック: got '{}'",
+            records[0].employment_type
+        );
+    }
+
+    /// 2026-07-01 IndeedSp の時給レコードで employment_type 空欄 → "パート・アルバイト" にフォールバック
+    #[test]
+    fn indeed_sp_hourly_employment_falls_back_to_part() {
+        // 時給形式の給与 + 雇用形態列空欄
+        let csv = "css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu,css-u74ql7,css-1hwmqh1\n\
+                   介護補助,C施設,東京都新宿区,時給1200円,年間休日110日,,\n";
+        let records = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::IndeedSp)
+            .expect("IndeedSp CSV parse");
+        assert_eq!(records.len(), 1, "1 件パースされる");
+        assert_eq!(records[0].source, CsvSource::IndeedSp);
+        // 時給 + 空欄 → "パート・アルバイト"
+        assert_eq!(
+            records[0].employment_type, "パート・アルバイト",
+            "IndeedSp: Hourly + 雇用形態空欄 → 'パート・アルバイト' フォールバック: got '{}'",
             records[0].employment_type
         );
     }
