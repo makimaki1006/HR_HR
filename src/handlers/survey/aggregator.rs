@@ -1028,7 +1028,10 @@ fn aggregate_records_core(
     let mut seen_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut jobbox_records: Vec<JobBoxRecord> = records
         .iter()
-        .filter(|r| matches!(r.source, CsvSource::JobBox))
+        // 2026-07-01 IndeedSp も対象に追加 (§07.5-4 具体例 / §07.5-5 セグメント別 給与統計 に反映)。
+        //   Indeed (PC) は description が短くて年間休日抽出できないので対象外のまま。
+        //   求人ボックス + IndeedSp は description に「年間休日◯◯日」の記載が期待できる。
+        .filter(|r| matches!(r.source, CsvSource::JobBox | CsvSource::IndeedSp))
         .filter_map(|r| {
             let holidays = r.annual_holidays?;
             // 2026-06-25 個別求人「具体例」テーブルには企業名ありのレコードのみ採用。
