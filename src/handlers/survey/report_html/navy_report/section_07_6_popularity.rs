@@ -17,7 +17,7 @@
 #![allow(dead_code)]
 
 use super::super::super::super::helpers::{escape_html, format_number};
-use super::super::super::aggregator::SurveyAggregation;
+use super::super::super::aggregator::{SalaryStats, SurveyAggregation};
 use super::common::{push_kpi_card_simple, push_page_head};
 
 /// 人気度シグナル セクションを描画。
@@ -40,6 +40,7 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
 
     render_summary_kpi(html, agg);
     render_comparison_block(html, agg);
+    render_salary_stats_block(html, agg);
 
     // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-popularity スコープで改ページ制御
     html.push_str(
@@ -217,6 +218,106 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
     );
 }
 
+// ============================================================================
+// §07.6-3 人気タグ別 給与統計 (月給下限・上限 の 平均/中央値/最頻値)
+// ============================================================================
+
+/// §07.6-3 を描画。3 グループ全て n=0 なら全体スキップ。
+fn render_salary_stats_block(html: &mut String, agg: &SurveyAggregation) {
+    let pop = &agg.popularity;
+    let sp = &pop.super_popular_salary_stats;
+    let pp = &pop.popular_salary_stats;
+    let np = &pop.non_popular_salary_stats;
+
+    // 3 グループ全て n=0 なら スキップ
+    if sp.n == 0 && pp.n == 0 && np.n == 0 {
+        return;
+    }
+
+    html.push_str(
+        "<div class=\"block-title\">\
+         §07.6-3 &nbsp;人気タグ別 給与統計 (月給下限・上限 の 平均/中央値/最頻値)\
+         </div>\n",
+    );
+
+    html.push_str(
+        "<table class=\"table-navy\" \
+         style=\"table-layout:fixed;width:100%;font-size:0.82em;\">\n\
+         <colgroup>\
+         <col style=\"width:15%;\">\
+         <col style=\"width:6%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:14%;\">\
+         </colgroup>\n\
+         <thead><tr>\
+         <th rowspan=\"2\">グループ</th>\
+         <th rowspan=\"2\" style=\"text-align:right;\">n</th>\
+         <th colspan=\"3\" style=\"text-align:center;\">下限 (月給)</th>\
+         <th colspan=\"3\" style=\"text-align:center;\">上限 (月給)</th>\
+         </tr>\
+         <tr>\
+         <th style=\"text-align:right;\">平均</th>\
+         <th style=\"text-align:right;\">中央値</th>\
+         <th style=\"text-align:right;\">最頻値</th>\
+         <th style=\"text-align:right;\">平均</th>\
+         <th style=\"text-align:right;\">中央値</th>\
+         <th style=\"text-align:right;\">最頻値</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+
+    // グループ行ラベル
+    let groups: &[(&str, &SalaryStats)] = &[("超人気", sp), ("人気", pp), ("タグなし", np)];
+    for (label, stats) in groups {
+        if stats.n == 0 {
+            html.push_str(&format!(
+                "<tr style=\"color:#9ca3af;\">\
+                 <td>{}</td>\
+                 <td style=\"text-align:right;\">0</td>\
+                 <td colspan=\"6\" style=\"text-align:center;\">— (n=0)</td>\
+                 </tr>\n",
+                escape_html(label),
+            ));
+        } else {
+            let fmt = |v: Option<i64>| -> String {
+                match v {
+                    Some(x) => format!("{:.1} 万円", x as f64 / 10_000.0),
+                    None => "—".to_string(),
+                }
+            };
+            html.push_str(&format!(
+                "<tr>\
+                 <td>{}</td>\
+                 <td style=\"text-align:right;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 </tr>\n",
+                escape_html(label),
+                format_number(stats.n as i64),
+                fmt(stats.min_mean),
+                fmt(stats.min_median),
+                fmt(stats.min_mode),
+                fmt(stats.max_mean),
+                fmt(stats.max_median),
+                fmt(stats.max_mode),
+            ));
+        }
+    }
+    html.push_str("</tbody></table>\n");
+    html.push_str(
+        "<p class=\"note\">※ 月給 Monthly 給与のみ対象。\
+         下限・上限は求人掲載の給与範囲を示します (同一求人でも下限のみ掲載の場合あり)。\
+         最頻値は 5 万円刻みビン集計。</p>\n",
+    );
+}
+
 // Finding #8 (2026-07-01): 月給中央値を万円表示に変更 (§07.6-2 比較表も統一)。
 fn format_salary_yen(v: Option<i64>) -> String {
     match v {
@@ -255,6 +356,7 @@ mod tests {
                 non_popular_n_salary: 14,
                 popular_n_holidays: 6,
                 non_popular_n_holidays: 14,
+                ..Default::default()
             },
             ..Default::default()
         }
@@ -327,6 +429,7 @@ mod tests {
                 non_popular_n_salary: 8,
                 popular_n_holidays: 0,
                 non_popular_n_holidays: 0,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -361,6 +464,7 @@ mod tests {
                 non_popular_n_salary: 10,
                 popular_n_holidays: 0,
                 non_popular_n_holidays: 0,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -392,6 +496,7 @@ mod tests {
                 non_popular_n_salary: 4,   // < 5
                 popular_n_holidays: 2,     // < 5
                 non_popular_n_holidays: 3, // < 5
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -407,6 +512,119 @@ mod tests {
         assert!(
             html.contains("n=3") || html.contains("n=2"),
             "table shows n"
+        );
+    }
+
+    // =========================================================================
+    // §07.6-3 テスト
+    // =========================================================================
+
+    /// 3 グループとも n >= 1 → §07.6-3 が描画される
+    #[test]
+    fn renders_popularity_salary_stats_section() {
+        use super::super::super::super::aggregator::SalaryStats;
+        let mut html = String::new();
+        let agg = SurveyAggregation {
+            total_count: 30,
+            popularity: PopularityAnalysis {
+                popular_count: 4,
+                super_popular_count: 2,
+                none_count: 24,
+                popular_ratio: 6.0 / 30.0,
+                indeed_sp_total: 30,
+                popular_salary_median: Some(280_000),
+                non_popular_salary_median: Some(260_000),
+                popular_holidays_median: None,
+                non_popular_holidays_median: None,
+                popular_n_salary: 4,
+                non_popular_n_salary: 24,
+                popular_n_holidays: 0,
+                non_popular_n_holidays: 0,
+                super_popular_salary_stats: SalaryStats {
+                    n: 2,
+                    min_mean: Some(270_000),
+                    min_median: Some(270_000),
+                    min_mode: Some(250_000),
+                    max_mean: Some(350_000),
+                    max_median: Some(350_000),
+                    max_mode: Some(350_000),
+                },
+                popular_salary_stats: SalaryStats {
+                    n: 4,
+                    min_mean: Some(280_000),
+                    min_median: Some(280_000),
+                    min_mode: Some(250_000),
+                    max_mean: Some(360_000),
+                    max_median: Some(360_000),
+                    max_mode: Some(350_000),
+                },
+                non_popular_salary_stats: SalaryStats {
+                    n: 24,
+                    min_mean: Some(255_000),
+                    min_median: Some(260_000),
+                    min_mode: Some(250_000),
+                    max_mean: Some(320_000),
+                    max_median: Some(320_000),
+                    max_mode: Some(300_000),
+                },
+            },
+            ..Default::default()
+        };
+        render_navy_section_popularity(&mut html, &agg);
+        // §07.6-3 見出しが存在する
+        assert!(html.contains("§07.6-3"), "section 07.6-3 heading present");
+        assert!(
+            html.contains("人気タグ別 給与統計"),
+            "section title present"
+        );
+        // 超人気グループの行が出る
+        assert!(html.contains("超人気"), "super_popular group row");
+        // 人気グループの行が出る
+        assert!(html.contains(">人気<"), "popular group row");
+        // タグなしグループの行が出る
+        assert!(html.contains("タグなし"), "non_popular group row");
+        // 万円表示
+        assert!(html.contains("万円"), "manyen unit present");
+        // 27.0 万円 (super_popular min_mean=270_000)
+        assert!(
+            html.contains("27.0 万円"),
+            "super_popular min_mean formatted"
+        );
+        // 35.0 万円 (super_popular max_mean=350_000)
+        assert!(
+            html.contains("35.0 万円"),
+            "super_popular max_mean formatted"
+        );
+    }
+
+    /// 3 グループとも n=0 → §07.6-3 全体スキップ
+    #[test]
+    fn skips_popularity_salary_stats_when_all_zero() {
+        use super::super::super::super::aggregator::SalaryStats;
+        let mut html = String::new();
+        let agg = SurveyAggregation {
+            total_count: 10,
+            popularity: PopularityAnalysis {
+                popular_count: 3,
+                super_popular_count: 2,
+                none_count: 5,
+                popular_ratio: 0.5,
+                indeed_sp_total: 10,
+                // salary_stats は全て n=0 (月給データなし)
+                super_popular_salary_stats: SalaryStats::default(),
+                popular_salary_stats: SalaryStats::default(),
+                non_popular_salary_stats: SalaryStats::default(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        render_navy_section_popularity(&mut html, &agg);
+        // §07.6 全体は描画される (popular_count > 0)
+        assert!(html.contains("SECTION 07.6"), "section renders");
+        // §07.6-3 はスキップされる
+        assert!(
+            !html.contains("§07.6-3"),
+            "salary stats section skipped when all n=0"
         );
     }
 }
