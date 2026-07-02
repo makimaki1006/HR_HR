@@ -5,8 +5,8 @@
 //! - 都道府県/市区町村フィルタは `municipality_code_master` を使用。
 //! - 外部統計 (e-Stat / 国勢調査 / 公的統計) を Turso 優先で取得。
 
-use crate::handlers::helpers::{normalize_muni_for_external, strip_county_prefix};
 use crate::handlers::competitive::escape_html;
+use crate::handlers::helpers::{normalize_muni_for_external, strip_county_prefix};
 use crate::AppState;
 
 /// 地域フィルタ。

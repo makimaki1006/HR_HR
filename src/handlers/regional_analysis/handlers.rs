@@ -22,15 +22,15 @@ use std::sync::Arc;
 use tower_sessions::Session;
 
 use super::fetch::{
-    fetch_company_matrix, fetch_foreign_residents, fetch_industry_structure,
-    fetch_internet_usage, fetch_job_openings_ratio, fetch_labor_stats,
-    fetch_municipalities, fetch_occupation_distribution, fetch_population_pyramid,
-    fetch_prefectures, fetch_wage_comparison, RegionalFilter,
+    fetch_company_matrix, fetch_foreign_residents, fetch_industry_structure, fetch_internet_usage,
+    fetch_job_openings_ratio, fetch_labor_stats, fetch_municipalities,
+    fetch_occupation_distribution, fetch_population_pyramid, fetch_prefectures,
+    fetch_wage_comparison, RegionalFilter,
 };
 use super::render::{
     render_company_matrix, render_foreign_residents, render_industry_structure,
-    render_internet_usage, render_job_openings_ratio, render_labor_stats,
-    render_occupation, render_population_pyramid, render_wage_comparison,
+    render_internet_usage, render_job_openings_ratio, render_labor_stats, render_occupation,
+    render_population_pyramid, render_wage_comparison,
 };
 use crate::handlers::competitive::escape_html;
 use crate::AppState;

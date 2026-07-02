@@ -112,10 +112,7 @@ pub(crate) fn render_job_openings_ratio(
 /// 労働統計指標カード行 (最新年度 1 行)。
 ///
 /// 出典: e-Stat 社会人口統計体系 / 労働政策研究・研修機構。
-pub(crate) fn render_labor_stats(
-    filter: &RegionalFilter,
-    row: Option<&LaborStatsRow>,
-) -> String {
+pub(crate) fn render_labor_stats(filter: &RegionalFilter, row: Option<&LaborStatsRow>) -> String {
     let scope = filter.scope_label();
     let note = "出典: e-Stat 社会人口統計体系 (v2_external_labor_stats)。労働政策研究・研修機構。最新年度の値を表示。";
     let row = match row {
@@ -189,12 +186,7 @@ pub(crate) fn render_industry_structure(
         data.granularity
     );
     if !data.has_data || data.rows.is_empty() {
-        return wrap_panel_with_note(
-            "産業構造",
-            &scope,
-            &no_data_external("産業構造"),
-            &note,
-        );
+        return wrap_panel_with_note("産業構造", &scope, &no_data_external("産業構造"), &note);
     }
 
     // 横棒グラフ: 従業者数の多い順 (昇順表示で視認性向上)。
@@ -928,8 +920,14 @@ mod tests {
         use super::super::fetch::{JobOpeningsRatioData, JobOpeningsRatioPoint};
         let data = JobOpeningsRatioData {
             points: vec![
-                JobOpeningsRatioPoint { year: 2020, ratio: 1.05 },
-                JobOpeningsRatioPoint { year: 2021, ratio: 1.12 },
+                JobOpeningsRatioPoint {
+                    year: 2020,
+                    ratio: 1.05,
+                },
+                JobOpeningsRatioPoint {
+                    year: 2021,
+                    ratio: 1.12,
+                },
             ],
             has_data: true,
         };

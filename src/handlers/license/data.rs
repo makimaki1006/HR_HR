@@ -192,10 +192,7 @@ pub fn fetch_license_summaries(turso: &TursoDb) -> Result<Vec<LicenseSummary>, S
 // ───────────────────────── 詳細取得 ─────────────────────────
 
 /// 指定資格名の詳細データを取得する。name が存在しない場合は None。
-pub fn fetch_license_detail(
-    turso: &TursoDb,
-    name: &str,
-) -> Result<Option<LicenseDetail>, String> {
+pub fn fetch_license_detail(turso: &TursoDb, name: &str) -> Result<Option<LicenseDetail>, String> {
     // 1. 関連職業（賃金センサス総計行 LEFT JOIN）
     let occ_rows = turso.query(
         "SELECT o.jobtag_id, o.name, COALESCE(o.category,'') AS category, \
@@ -273,12 +270,10 @@ pub fn fetch_license_detail(
         fetch_sikaku7(turso, name).unwrap_or_default();
     let (shikakude_url, shikakude_title, shikakude_sections) =
         fetch_shikakude(turso, name).unwrap_or_default();
-    let (ucan_url, ucan_title, ucan_sections) =
-        fetch_ucan(turso, name).unwrap_or_default();
+    let (ucan_url, ucan_title, ucan_sections) = fetch_ucan(turso, name).unwrap_or_default();
 
     // 8. jpsk / exam.or.jp / anzeninfo (Phase B4、テーブル未投入時は空 Vec フォールバック)
-    let (jpsk_url, jpsk_title, jpsk_sections) =
-        fetch_jpsk(turso, name).unwrap_or_default();
+    let (jpsk_url, jpsk_title, jpsk_sections) = fetch_jpsk(turso, name).unwrap_or_default();
     let (exam_or_jp_url, exam_or_jp_title, exam_or_jp_sections) =
         fetch_exam_or_jp(turso, name).unwrap_or_default();
     let (anzeninfo_url, anzeninfo_title, anzeninfo_sections) =
@@ -316,7 +311,10 @@ pub fn fetch_license_detail(
 }
 
 /// jpsk.jp (日本の資格・検定) 由来のセクション一覧。
-fn fetch_jpsk(turso: &TursoDb, name: &str) -> Result<(String, String, Vec<ExternalSection>), String> {
+fn fetch_jpsk(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<ExternalSection>), String> {
     let rows = turso.query(
         "SELECT jpsk_url, jpsk_title, section_h2, section_body \
          FROM v2_external_license_jpsk WHERE jilpt_name = ? ORDER BY section_order",
@@ -327,15 +325,21 @@ fn fetch_jpsk(turso: &TursoDb, name: &str) -> Result<(String, String, Vec<Extern
     }
     let url = s(&rows[0], "jpsk_url");
     let title = s(&rows[0], "jpsk_title");
-    let sections = rows.iter().map(|r| ExternalSection {
-        h2: s(r, "section_h2"),
-        body: s(r, "section_body"),
-    }).collect();
+    let sections = rows
+        .iter()
+        .map(|r| ExternalSection {
+            h2: s(r, "section_h2"),
+            body: s(r, "section_body"),
+        })
+        .collect();
     Ok((url, title, sections))
 }
 
 /// exam.or.jp (安全衛生技術試験協会) 由来のセクション一覧。
-fn fetch_exam_or_jp(turso: &TursoDb, name: &str) -> Result<(String, String, Vec<ExternalSection>), String> {
+fn fetch_exam_or_jp(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<ExternalSection>), String> {
     let rows = turso.query(
         "SELECT exam_url, exam_title, section_h2, section_body \
          FROM v2_external_license_exam_or_jp WHERE jilpt_name = ? ORDER BY section_order",
@@ -346,15 +350,21 @@ fn fetch_exam_or_jp(turso: &TursoDb, name: &str) -> Result<(String, String, Vec<
     }
     let url = s(&rows[0], "exam_url");
     let title = s(&rows[0], "exam_title");
-    let sections = rows.iter().map(|r| ExternalSection {
-        h2: s(r, "section_h2"),
-        body: s(r, "section_body"),
-    }).collect();
+    let sections = rows
+        .iter()
+        .map(|r| ExternalSection {
+            h2: s(r, "section_h2"),
+            body: s(r, "section_body"),
+        })
+        .collect();
     Ok((url, title, sections))
 }
 
 /// anzeninfo.mhlw.go.jp (厚労省 技能講習) 由来のセクション一覧。
-fn fetch_anzeninfo(turso: &TursoDb, name: &str) -> Result<(String, String, Vec<ExternalSection>), String> {
+fn fetch_anzeninfo(
+    turso: &TursoDb,
+    name: &str,
+) -> Result<(String, String, Vec<ExternalSection>), String> {
     let rows = turso.query(
         "SELECT anzeninfo_url, anzeninfo_title, section_h2, section_body \
          FROM v2_external_license_anzeninfo WHERE jilpt_name = ? ORDER BY section_order",
@@ -365,10 +375,13 @@ fn fetch_anzeninfo(turso: &TursoDb, name: &str) -> Result<(String, String, Vec<E
     }
     let url = s(&rows[0], "anzeninfo_url");
     let title = s(&rows[0], "anzeninfo_title");
-    let sections = rows.iter().map(|r| ExternalSection {
-        h2: s(r, "section_h2"),
-        body: s(r, "section_body"),
-    }).collect();
+    let sections = rows
+        .iter()
+        .map(|r| ExternalSection {
+            h2: s(r, "section_h2"),
+            body: s(r, "section_body"),
+        })
+        .collect();
     Ok((url, title, sections))
 }
 
