@@ -612,12 +612,12 @@ fn render_mi_9e_wage_attractiveness(
     let min_wage = ctx
         .ext_min_wage
         .last()
-        .map(|r| get_f64(r, "min_wage_hourly"))
+        .map(|r| get_f64(r, "hourly_min_wage"))
         .filter(|v| *v > 0.0);
     let household_spending = ctx
         .ext_household_spending
         .last()
-        .map(|r| get_f64(r, "monthly_spending"))
+        .map(|r| get_f64(r, "monthly_amount"))
         .filter(|v| *v > 0.0);
 
     // agg から月給中央値 / 時給中央値を取得 (silent fallback 防御: median が 0 / 欠損は None)

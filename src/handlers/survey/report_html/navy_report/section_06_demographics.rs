@@ -300,7 +300,8 @@ pub(crate) fn render_navy_section_06_demographics(
     if !ctx.ext_population.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-B &nbsp;人口統計詳細 (総人口・男女別 年次推移)</div>\n");
         html.push_str(&build_navy_auto_table(&ctx.ext_population, 5));
-        html.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_population。ピラミッドの 5 歳階級集計に対し、本表は総人口・男女別の年次推移を示す。先頭 5 行表示。</p>\n");
+        html.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_population。ピラミッドの 5 歳階級集計に対し、本表は総人口・男女別の年次推移を示す。先頭 5 行表示。\
+             ※ 図 6-1 の高齢化率は別テーブル v2_external_population_pyramid (5 歳階級・市区町村粒度) を基に算出しており、本表と基準年および集計粒度が異なるため数値が一致しない場合があります。</p>\n");
     }
 
     // -- 表 6-C 人口移動 (ext_migration) ⭐ 採用流入/定着指標  [旧 7.5-E 統合 2026-05-15]
