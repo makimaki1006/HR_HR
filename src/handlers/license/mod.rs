@@ -56,19 +56,18 @@ pub struct LicenseDetailPage {
 // 一覧タブ HTML
 // =========================================================================
 
-pub async fn tab_license_index(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+pub async fn tab_license_index(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let turso = match state.turso_db.clone() {
         Some(db) => db,
         None => {
-            return render_degraded("Turso country-statistics 未接続のため資格カルテを表示できません")
-                .into_response();
+            return render_degraded(
+                "Turso country-statistics 未接続のため資格カルテを表示できません",
+            )
+            .into_response();
         }
     };
 
-    let summaries = match tokio::task::spawn_blocking(move || fetch_license_summaries(&turso))
-        .await
+    let summaries = match tokio::task::spawn_blocking(move || fetch_license_summaries(&turso)).await
     {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
@@ -107,8 +106,10 @@ pub async fn tab_license_detail(
     let turso = match state.turso_db.clone() {
         Some(db) => db,
         None => {
-            return render_degraded("Turso country-statistics 未接続のため資格カルテを表示できません")
-                .into_response();
+            return render_degraded(
+                "Turso country-statistics 未接続のため資格カルテを表示できません",
+            )
+            .into_response();
         }
     };
 
@@ -143,8 +144,8 @@ pub async fn tab_license_detail(
     };
 
     // ECharts 用カテゴリ分布 JSON
-    let category_dist_json = serde_json::to_string(&detail.category_distribution)
-        .unwrap_or_else(|_| "[]".into());
+    let category_dist_json =
+        serde_json::to_string(&detail.category_distribution).unwrap_or_else(|_| "[]".into());
 
     let page = LicenseDetailPage {
         detail,

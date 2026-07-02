@@ -47,7 +47,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/driver/list", get(api_driver_list))
         .route("/api/driver/{jobtag_id}", get(api_driver_detail))
         .route("/api/driver/wage/{wage_code}", get(api_driver_wage))
-        .route("/api/driver/{jobtag_id}/age_distribution", get(api_age_distribution))
+        .route(
+            "/api/driver/{jobtag_id}/age_distribution",
+            get(api_age_distribution),
+        )
         .route("/tab/driver/compare", get(tab_driver_compare))
 }
 
@@ -89,8 +92,10 @@ async fn tab_driver_index(
     let turso = match state.turso_db.clone() {
         Some(db) => db,
         None => {
-            return render_degraded("Turso country-statistics 未接続のため職種カルテを表示できません")
-                .into_response();
+            return render_degraded(
+                "Turso country-statistics 未接続のため職種カルテを表示できません",
+            )
+            .into_response();
         }
     };
 
@@ -176,43 +181,51 @@ async fn tab_driver_detail(
     let turso = match state.turso_db.clone() {
         Some(db) => db,
         None => {
-            return render_degraded("Turso country-statistics 未接続のため職種カルテを表示できません")
-                .into_response();
+            return render_degraded(
+                "Turso country-statistics 未接続のため職種カルテを表示できません",
+            )
+            .into_response();
         }
     };
 
-    let (detail, category_stats, overall_stats) = match tokio::task::spawn_blocking(move || -> Result<_, DriverDataError> {
-        let d = fetch_occupation_detail(&turso, jobtag_id)?;
-        let stats = fetch_category_stats(&turso, &d.occupation.category)
-            .unwrap_or_else(|e| {
+    let (detail, category_stats, overall_stats) =
+        match tokio::task::spawn_blocking(move || -> Result<_, DriverDataError> {
+            let d = fetch_occupation_detail(&turso, jobtag_id)?;
+            let stats = fetch_category_stats(&turso, &d.occupation.category).unwrap_or_else(|e| {
                 warn!("fetch_category_stats failed (treated as empty): {e}");
                 CategoryStats::default()
             });
-        let overall = get_overall_stats(&turso).clone();
-        Ok((d, stats, overall))
-    })
-    .await
-    {
-        Ok(Ok(triple)) => triple,
-        Ok(Err(DriverDataError::NotFound)) => {
-            return (StatusCode::NOT_FOUND, format!("jobtag_id={jobtag_id} は未投入")).into_response();
-        }
-        Ok(Err(e)) => {
-            error!("fetch_occupation_detail failed: {e}");
-            return render_degraded("職業詳細の取得に失敗しました").into_response();
-        }
-        Err(e) => {
-            error!("spawn_blocking failed: {e}");
-            return render_degraded("内部エラー").into_response();
-        }
-    };
+            let overall = get_overall_stats(&turso).clone();
+            Ok((d, stats, overall))
+        })
+        .await
+        {
+            Ok(Ok(triple)) => triple,
+            Ok(Err(DriverDataError::NotFound)) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    format!("jobtag_id={jobtag_id} は未投入"),
+                )
+                    .into_response();
+            }
+            Ok(Err(e)) => {
+                error!("fetch_occupation_detail failed: {e}");
+                return render_degraded("職業詳細の取得に失敗しました").into_response();
+            }
+            Err(e) => {
+                error!("spawn_blocking failed: {e}");
+                return render_degraded("内部エラー").into_response();
+            }
+        };
 
     // ECharts 用 JSON を事前直列化
     let wage_rows_json = serde_json::to_string(&detail.wage_rows).unwrap_or_else(|_| "[]".into());
-    let interest_json = serde_json::to_string(&detail.interest_scores).unwrap_or_else(|_| "[]".into());
+    let interest_json =
+        serde_json::to_string(&detail.interest_scores).unwrap_or_else(|_| "[]".into());
     let values_json = serde_json::to_string(&detail.values_scores).unwrap_or_else(|_| "[]".into());
     let skills_json = serde_json::to_string(&detail.skills_scores).unwrap_or_else(|_| "[]".into());
-    let wage_age_exp_json = serde_json::to_string(&detail.wage_age_exp_rows).unwrap_or_else(|_| "[]".into());
+    let wage_age_exp_json =
+        serde_json::to_string(&detail.wage_age_exp_rows).unwrap_or_else(|_| "[]".into());
 
     let total = detail.wage_rows.iter().find(|w| w.age_range_order == 0);
 
@@ -267,11 +280,14 @@ async fn api_driver_list(
         Some(db) => db,
         None => {
             warn!("api_driver_list: turso_db None");
-            return Json(json!({"error": "turso not connected", "occupations": []})).into_response();
+            return Json(json!({"error": "turso not connected", "occupations": []}))
+                .into_response();
         }
     };
     let category = q.category.clone();
-    match tokio::task::spawn_blocking(move || fetch_occupation_list(&turso, category.as_deref())).await {
+    match tokio::task::spawn_blocking(move || fetch_occupation_list(&turso, category.as_deref()))
+        .await
+    {
         Ok(Ok(list)) => Json(json!({"occupations": list})).into_response(),
         Ok(Err(e)) => {
             error!("api_driver_list: {e}");
@@ -295,10 +311,11 @@ async fn api_driver_detail(
     };
     match tokio::task::spawn_blocking(move || fetch_occupation_detail(&turso, jobtag_id)).await {
         Ok(Ok(d)) => Json(serde_json::to_value(d).unwrap_or(Value::Null)).into_response(),
-        Ok(Err(DriverDataError::NotFound)) => {
-            (StatusCode::NOT_FOUND, Json(json!({"error": "not found", "jobtag_id": jobtag_id})))
-                .into_response()
-        }
+        Ok(Err(DriverDataError::NotFound)) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "not found", "jobtag_id": jobtag_id})),
+        )
+            .into_response(),
         Ok(Err(e)) => {
             error!("api_driver_detail: {e}");
             // 内部エラー詳細は外部レスポンスに露出させない
@@ -442,22 +459,31 @@ struct DriverComparePage {
 
 fn parse_compare_ids(ids_str: &str) -> Result<Vec<i64>, (StatusCode, String)> {
     if ids_str.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "比較には2〜3職業を選んでください".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "比較には2〜3職業を選んでください".into(),
+        ));
     }
     let raw: Vec<&str> = ids_str.split(',').map(|s| s.trim()).collect();
     // 重複除去（順序維持）
     let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<i64> = Vec::new();
     for token in raw {
-        let id = token
-            .parse::<i64>()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "IDのパースに失敗しました（整数のみ受け付けます）".to_string()))?;
+        let id = token.parse::<i64>().map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "IDのパースに失敗しました（整数のみ受け付けます）".to_string(),
+            )
+        })?;
         if seen.insert(id) {
             unique.push(id);
         }
     }
     if unique.len() < 2 {
-        return Err((StatusCode::BAD_REQUEST, "比較には2〜3職業を選んでください".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "比較には2〜3職業を選んでください".into(),
+        ));
     }
     if unique.len() > 3 {
         return Err((StatusCode::BAD_REQUEST, "最大3職業まで比較できます".into()));
@@ -492,13 +518,16 @@ fn detail_to_compare_entry(detail: OccupationDetail) -> CompareEntry {
         // 比較ビューでは関連団体は表示しないため空 Vec
         related_orgs: Vec::new(),
     };
-    let wage_rows_json =
-        serde_json::to_string(&detail.wage_rows).unwrap_or_else(|_| "[]".into());
+    let wage_rows_json = serde_json::to_string(&detail.wage_rows).unwrap_or_else(|_| "[]".into());
     let interest_json =
         serde_json::to_string(&detail.interest_scores).unwrap_or_else(|_| "[]".into());
-    let values_json =
-        serde_json::to_string(&detail.values_scores).unwrap_or_else(|_| "[]".into());
-    CompareEntry { view, wage_rows_json, interest_json, values_json }
+    let values_json = serde_json::to_string(&detail.values_scores).unwrap_or_else(|_| "[]".into());
+    CompareEntry {
+        view,
+        wage_rows_json,
+        interest_json,
+        values_json,
+    }
 }
 
 async fn tab_driver_compare(
@@ -537,21 +566,19 @@ async fn tab_driver_compare(
     };
 
     let ids_clone = ids.clone();
-    let details = match tokio::task::spawn_blocking(move || {
-        fetch_multiple_occupations(&turso, &ids_clone)
-    })
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            error!("spawn_blocking failed (compare): {e}");
-            return render_degraded("内部エラー").into_response();
-        }
-    };
+    let details =
+        match tokio::task::spawn_blocking(move || fetch_multiple_occupations(&turso, &ids_clone))
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                error!("spawn_blocking failed (compare): {e}");
+                return render_degraded("内部エラー").into_response();
+            }
+        };
 
     // None（取得失敗）をフィルタ；全件失敗なら degraded
-    let valid_details: Vec<OccupationDetail> =
-        details.into_iter().flatten().collect();
+    let valid_details: Vec<OccupationDetail> = details.into_iter().flatten().collect();
     if valid_details.is_empty() {
         return render_degraded("指定された職業が見つかりませんでした").into_response();
     }
@@ -570,13 +597,22 @@ async fn tab_driver_compare(
         .collect();
     let all_wage_json = serde_json::to_string(&all_wage).unwrap_or_else(|_| "[]".into());
 
-    let names: Vec<&str> = valid_details.iter().map(|d| d.occupation.name.as_str()).collect();
+    let names: Vec<&str> = valid_details
+        .iter()
+        .map(|d| d.occupation.name.as_str())
+        .collect();
     let names_json = serde_json::to_string(&names).unwrap_or_else(|_| "[]".into());
 
-    let entries: Vec<CompareEntry> =
-        valid_details.into_iter().map(detail_to_compare_entry).collect();
+    let entries: Vec<CompareEntry> = valid_details
+        .into_iter()
+        .map(detail_to_compare_entry)
+        .collect();
 
-    let page = DriverComparePage { entries, all_wage_json, names_json };
+    let page = DriverComparePage {
+        entries,
+        all_wage_json,
+        names_json,
+    };
     match page.render() {
         Ok(body) => Html(body).into_response(),
         Err(e) => {
