@@ -15,7 +15,7 @@
 //   super::super       = report_html
 //   super::super::super = survey
 //   super::super::super::super = handlers
-use super::super::super::super::helpers::{escape_html, get_str_ref};
+use super::super::super::super::helpers::{escape_html, get_i64_opt, get_str_ref};
 use super::super::super::super::insight::fetch::InsightContext;
 use super::super::ReportVariant;
 use super::common::push_page_head;
@@ -278,13 +278,22 @@ pub(crate) fn render_navy_section_08_notes(
 
 /// Round 1-K (2026-06-03): 鮮度サマリ。
 ///
-/// 設計:
-/// - InsightContext の ext_* 系 row から `as_of` または `reference_year` を取得
-///   (どちらも文字列または整数で格納されている前提)。silent fallback 防止のため
-///   両 key を MECE に明示参照する (key 不在は無視)。
-/// - 取得できた最大値を「データ as_of サマリ」として表示。
-/// - now と as_of の差分日数を概算し、>= 90 日経過なら警告 caption を表示。
-/// - snapshot_id (= 最新 as_of) を notes 末尾に表示。
+/// 設計 (2026-07-03 修正):
+/// - InsightContext の ext_* 系 row から基準年 (INTEGER) を取得し最大値を集約。
+/// - 実カラムは各テーブルで異なる (grep 確認):
+///     * `fiscal_year`     … v2_external_job_openings_ratio / labor_stats(賃金構造) /
+///                            minimum_wage_history / turnover (trend/fetch.rs:227-306)
+///     * `reference_year`  … v2_external_household_spending (subtab5_phase4.rs:567)
+///     * `year`            … v2_external_internet_usage (subtab5_phase4_7.rs:186)
+///     * `survey_year`     … 一部ライフ系 (MECE 予備)
+///   旧実装は `as_of` (全テーブルに不在) と `reference_year` を **文字列限定の
+///   `get_str_ref`** で読んでいたため、INTEGER 年値を拾えず常に空欄 (as_of=— /
+///   データ ID=—) になっていた。§07 と同様に `get_i64_opt` で数値対応させる。
+/// - 年値をまたぐ日付文字列カラム (`as_of` / `reference_date`) は現行 9 候補には
+///   存在しないが、将来追加に備え先頭 4 桁を年として MECE に併読する。
+/// - 集約できた最大年を「最新 as_of」欄に表示 (例: 2024)。
+/// - now の年と最大年の差が >= 1 年なら警告 caption を表示。
+/// - データ ID (= 最新基準年) を notes 末尾に表示。
 fn push_freshness_summary(html: &mut String, hw_context: Option<&InsightContext>, now: &str) {
     // hw_context が None の場合: ext_* は取得されておらず鮮度評価不能。silent skip ではなく
     // 「鮮度情報なし」と明示。
@@ -299,7 +308,7 @@ fn push_freshness_summary(html: &mut String, hw_context: Option<&InsightContext>
         }
     };
 
-    // 主要 ext_* テーブルから as_of (文字列) / reference_year (整数年) を最大値で集約。
+    // 主要 ext_* テーブルから基準年 (INTEGER) を最大値で集約。
     // 順序: 月次系 → 年次系 → 5 年系 (新しい順)。
     let candidates: [&[super::super::super::super::helpers::Row]; 9] = [
         &ctx.ext_job_ratio,
@@ -312,69 +321,79 @@ fn push_freshness_summary(html: &mut String, hw_context: Option<&InsightContext>
         &ctx.ext_education,
         &ctx.ext_pyramid,
     ];
-    let mut max_as_of: Option<String> = None;
+    // 数値年カラム (テーブルごとに列名が異なるため MECE に全キー探索)。
+    const YEAR_KEYS: [&str; 4] = ["fiscal_year", "reference_year", "year", "survey_year"];
+    // 将来的な日付文字列カラム (現行 9 候補には不在だが先頭 4 桁を年として併読)。
+    const DATE_KEYS: [&str; 2] = ["as_of", "reference_date"];
+
+    let mut max_year: Option<i64> = None;
+    let mut consider = |y: i64| {
+        // 妥当な西暦のみ採用 (ヘッダー残骸や 0 を弾く)。
+        if (1900..=2100).contains(&y) {
+            max_year = Some(match max_year {
+                Some(cur) if cur >= y => cur,
+                _ => y,
+            });
+        }
+    };
     for rows in candidates.iter() {
         for r in rows.iter() {
-            // as_of (文字列) と reference_year (i64/文字列) を両方確認 (MECE)
-            let s1 = get_str_ref(r, "as_of");
-            let s2 = get_str_ref(r, "reference_year");
-            for cand in [s1, s2].iter().filter(|s| !s.is_empty()) {
-                let owned = cand.to_string();
-                match max_as_of {
-                    Some(ref cur) if cur.as_str() >= owned.as_str() => {}
-                    _ => max_as_of = Some(owned),
+            for key in YEAR_KEYS.iter() {
+                if let Some(y) = get_i64_opt(r, key) {
+                    consider(y);
+                }
+            }
+            for key in DATE_KEYS.iter() {
+                let s = get_str_ref(r, key);
+                if let Some(y) = s.get(..4).and_then(|p| p.parse::<i64>().ok()) {
+                    consider(y);
                 }
             }
         }
     }
 
-    // 鮮度の経過日数を概算 (年単位の場合は年初 1/1 と仮定)。
-    // now は "YYYY-MM-DD HH:MM:SS" 形式想定。先頭 4 文字で年を取り、as_of の先頭 4 文字との差で
-    // 日数換算 (年差 * 365)。年単位データの場合のフォールバック。
-    let now_year: i32 = now.get(..4).and_then(|s| s.parse().ok()).unwrap_or(0);
-    let warn_caption: Option<String> = max_as_of.as_ref().and_then(|s| {
-        let as_of_year: i32 = s.get(..4).and_then(|y| y.parse().ok()).unwrap_or(0);
-        if now_year == 0 || as_of_year == 0 {
+    // now は "YYYY-MM-DD HH:MM:SS" 形式想定。先頭 4 文字で年を取得。
+    let now_year: i64 = now.get(..4).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let warn_caption: Option<String> = max_year.and_then(|as_of_year| {
+        if now_year == 0 {
             return None;
         }
         let year_diff = now_year - as_of_year;
-        // 年差 >= 1 (おおよそ 365 日以上経過) なら警告。指示書「90 日」基準は月次/日次データには
-        // 厳しすぎるため、最大 as_of に対しては「経過年数」で表現する。
+        // 年差 >= 1 なら警告。月次/日次データには「90 日」基準は厳しすぎるため、
+        // 最大基準年に対しては「経過年数」で表現する。
         if year_diff >= 1 {
             Some(format!(
-                "データが {} 年以上経過しています (最新 as_of: {})。最新値の上書きを検討してください。",
-                year_diff,
-                escape_html(s)
+                "最新の基準年が {} 年で、現時点から {} 年以上経過しています。最新値の上書きを検討してください。",
+                as_of_year, year_diff
             ))
         } else {
             None
         }
     });
 
-    // (1) 個別 as_of サマリ
+    // (1) 最新基準年サマリ
     html.push_str(
         "<div class=\"block-title block-title-spaced\">データ鮮度 &nbsp;最新 as_of サマリ</div>\n",
     );
-    let as_of_disp = max_as_of
-        .as_deref()
-        .map(escape_html)
-        .map(std::borrow::Cow::Owned)
-        .unwrap_or(std::borrow::Cow::Borrowed("—"));
+    let as_of_disp: std::borrow::Cow<'static, str> = match max_year {
+        Some(y) => std::borrow::Cow::Owned(format!("{} 年", y)),
+        None => std::borrow::Cow::Borrowed("—"),
+    };
     html.push_str(&format!(
-        "<p class=\"caption\">本レポートで参照した外部統計のうち、最新 as_of は \
-         <strong>{}</strong> です (e-Stat / 国勢調査 / 各統計の reference_year 集約)。</p>\n",
+        "<p class=\"caption\">本レポートで参照した外部統計のうち、最新の基準年は \
+         <strong>{}</strong> です (e-Stat / 国勢調査 / 各統計の fiscal_year・reference_year・year 集約)。</p>\n",
         as_of_disp
     ));
 
-    // (2) 90 日 / 1 年 経過警告
+    // (2) 経過年数 警告
     if let Some(w) = warn_caption {
         html.push_str(&format!(
             "<p class=\"caption warn\"><strong>注意:</strong> {}</p>\n",
-            w
+            escape_html(&w)
         ));
     }
 
-    // (3) snapshot_id 表示
+    // (3) データ ID (= 最新基準年) 表示
     html.push_str(&format!(
         "<p class=\"caption dim\">データ ID: {}</p>\n",
         as_of_disp

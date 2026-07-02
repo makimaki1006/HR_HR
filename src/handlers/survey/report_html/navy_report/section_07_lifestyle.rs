@@ -83,7 +83,18 @@ pub(crate) fn render_navy_section_07_lifestyle(
         .ext_min_wage
         .iter()
         .filter_map(|r| {
-            let year = get_i64(r, "year") as i32;
+            // 2026-07-03 修正: 実カラムは `fiscal_year` (trend/fetch.rs:250 の
+            //   `SELECT fiscal_year, hourly_min_wage FROM v2_external_minimum_wage_history`)。
+            //   従来キー "year" は常に 0 を返し「(0 年)」表示 (表7-E ヘッダ / 図7-2 x軸) の
+            //   原因になっていた。互換のため fiscal_year 優先・year フォールバック (数値不変)。
+            let year = {
+                let fy = get_i64(r, "fiscal_year");
+                if fy > 0 {
+                    fy
+                } else {
+                    get_i64(r, "year")
+                }
+            } as i32;
             for k in ["hourly_wage", "hourly_min_wage", "min_wage", "amount"] {
                 let v = get_f64(r, k);
                 if v > 0.0 {
@@ -260,13 +271,21 @@ pub(crate) fn render_navy_section_07_lifestyle(
         "最新 vs 前年",
         false,
     );
+    // 2026-07-03 修正: 家計調査が未取得 (total_consumption == 0) の場合に
+    //   「0 円」を KPI 表示していた。lede (consumption_seg) / 表 7-A / 表 7-F は
+    //   すべて `> 0` ガード済のため、KPI も同様に未取得時は「—」表示に統一する。
+    let (consumption_val, consumption_unit, consumption_foot) = if total_consumption > 0 {
+        (format_number(total_consumption), "円", "世帯あたり月平均")
+    } else {
+        ("—".to_string(), "", "家計調査データ未取得")
+    };
     push_kpi(
         html,
         "月間消費支出",
-        &format_number(total_consumption),
-        "円",
+        &consumption_val,
+        consumption_unit,
         "neu",
-        "世帯あたり月平均",
+        consumption_foot,
         false,
     );
     let int_val = internet_rate
