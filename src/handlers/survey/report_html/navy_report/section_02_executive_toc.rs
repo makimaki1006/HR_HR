@@ -203,15 +203,16 @@ pub(crate) fn render_navy_executive(
     } else {
         escape_html(target_region).to_string()
     };
+    // Rank 20 (2026-06-29): 導入文が下段 KPI (件数/雇用形態/新着比率) と同一数値を
+    //   先出しで二重表示していたため、導入文からは数値を除去し「何を分析するか」の
+    //   一文に整理。具体値は KPI カードと Findings で提示する。
+    let _ = &dominant_emp; // 数値二重表示回避のため headline では非表示
     let headline_body = format!(
-        "本レポートは <strong>{}</strong> を対象に、サンプル <strong>{} 件</strong> を分析した結果です。\
-         主要雇用形態は <strong>{}</strong>、新着比率 <strong>{}%</strong>。{}\
-         本ページでは <strong>KPI</strong> と <strong>Findings</strong> を提示し、末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
-        region_prefix,
-        format_number(total as i64),
-        escape_html(&dominant_emp),
-        new_pct,
-        region_divergence_note,
+        "本レポートは <strong>{}</strong> を対象に、求人媒体データから\
+         雇用形態構成・給与水準・新着動向・地域カバレッジを整理します。{}\
+         本ページでは <strong>KPI</strong> と <strong>Findings</strong> で全体像を示し、\
+         末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
+        region_prefix, region_divergence_note,
     );
     html.push_str(&format!(
         "<div class=\"exec-headline\">\
@@ -418,15 +419,16 @@ fn build_findings(
     ));
 
     // 2) 主要雇用形態の偏り
+    // Rank 4 (2026-06-29): 評価語 (構成集約/バランス) を事実+程度の中立表現に置換。
     let (sev, body) = if dom_emp_pct >= 85.0 {
-        ("warn", format!("主要雇用形態が <strong>{:.0}%</strong> を占め、特定雇用形態への<strong>構成集約</strong>が見られます。他雇用形態の追加分析が有効です。", dom_emp_pct))
+        ("warn", format!("主要雇用形態が <strong>{:.0}%</strong> を占め、特定の雇用形態に比率が偏っています。他雇用形態の追加分析が有効です。", dom_emp_pct))
     } else if dom_emp_pct >= 70.0 {
-        ("neu", format!("主要雇用形態の構成比は <strong>{:.0}%</strong>。やや偏り気味ですが、他雇用形態への展開余地もある水準です。", dom_emp_pct))
+        ("neu", format!("主要雇用形態の構成比は <strong>{:.0}%</strong>。やや偏り気味で、他雇用形態への展開余地もある水準です。", dom_emp_pct))
     } else {
         (
             "pos",
             format!(
-                "主要雇用形態の構成比は <strong>{:.0}%</strong> で、バランスの取れた構成です。",
+                "主要雇用形態の構成比は <strong>{:.0}%</strong> で、複数の雇用形態に分散した構成です。",
                 dom_emp_pct
             ),
         )
@@ -441,21 +443,23 @@ fn build_findings(
     // 3) 新着比率
     let (sev, body) = if total == 0 {
         ("neu", "サンプルなしのため新着比率の評価不能。".to_string())
+    // Rank 4 (2026-06-29): 「活発な採用活動を示唆」等の因果的な過剰解釈を避け、
+    //   新着比率の高低は求人の更新・追加頻度という事実+程度の記述に留める。
     } else if new_pct >= 15 {
         (
             "pos",
             format!(
-                "直近 30 日の新着比率 <strong>{}%</strong> は活発な採用活動を示唆します。",
+                "直近 30 日の新着比率 <strong>{}%</strong> は高めの水準で、求人の更新・追加が相対的に多いことを示します。",
                 new_pct
             ),
         )
     } else if new_pct < 5 {
-        ("warn", format!("新着比率 <strong>{}%</strong> は<strong>低位水準</strong>で、人材定着または求人更新サイクル長期化の可能性があります。", new_pct))
+        ("warn", format!("新着比率 <strong>{}%</strong> は低めの水準で、求人の更新・追加が相対的に少ない状態です。", new_pct))
     } else {
         (
             "neu",
             format!(
-                "新着比率は <strong>{}%</strong>。標準的な水準です。",
+                "新着比率は <strong>{}%</strong> で、全国並みの水準です。",
                 new_pct
             ),
         )

@@ -80,9 +80,11 @@ pub(crate) fn render_navy_section_09_market_intelligence(
     push_region_scope_banner(html, target_region);
 
     // 集計範囲 / 表示単位の注記 (DISPLAY_SPEC §4.2 コンパクト注記)
+    // 免責はここ 1 文に統合 (各サブセクション SO WHAT 末尾での重複記載を廃止)。
     html.push_str(
         "<p class=\"caption dim\" style=\"margin-bottom:4mm;\">\
-         本セクションは配信判断のための相対指標です。絶対的な就業者規模を表示しません。\
+         本セクションは配信判断のための相対指標 (推定・参考値) です。\
+         絶対的な就業者規模・応募見込数は表示せず、契約条件全体 (家賃補助・通勤手当等) も反映しません。\
          数値はすべて 0-100 / 0-200 の指数または比率です。\
          </p>\n",
     );
@@ -230,8 +232,9 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
         "<div class=\"so-what\" style=\"margin-top:4mm;\">\
          <div class=\"sw-label\">配信判断</div>\
          <div class=\"sw-body\">\
-         配信優先度 (推定): <strong>{}</strong> (positive_score = {})。\
-         <br>SO WHAT: 配信優先度ラベルに従い「重点配信」「拡張候補」地域から媒体投下を開始する。\
+         配信優先度 (参考スコア): <strong>{}</strong> (positive_score = {})。\
+         <br>スコアの構成指標: 有効求人倍率 (重み 30%)・失業率 (20%)・通勤自給率 (25%)・流入規模指数 (25%) を 0-100 に正規化して加重平均した参考値です。\
+         <br>SO WHAT: 参考スコアの相対順位を目安に「重点配信」「拡張候補」帯の地域から媒体投下を検討する。\
          </div></div>\n",
         escape_html(label),
         match positive_score {
@@ -317,8 +320,8 @@ fn compute_inflow_intensity_index(inflow_total: i64) -> f64 {
 fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>) {
     use super::super::super::super::helpers::{get_f64, get_str_ref};
 
-    html.push_str("<div class=\"block-title\">図 9-B 採用ターゲット厚み (相対指数)</div>\n");
-    html.push_str("<p class=\"caption\">産業大分類の構成比を全国平均と比較した相対指数 (100 = 全国平均、200 が上限)。絶対値の表示は行いません。</p>\n");
+    html.push_str("<div class=\"block-title\">図 9-B 採用ターゲット構成比の相対指数</div>\n");
+    html.push_str("<p class=\"caption\">産業大分類の構成比を全国基準と比較した相対指数 (100 = 基準並み、200 が上限)。全国構成比が取得できない場合は均等基準 (産業数 N の 1/N) を用いた参考比較であり、実際の全国構成比ではありません。絶対値の表示は行いません。</p>\n");
 
     let ctx = match ctx {
         Some(c) => c,
@@ -350,7 +353,7 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
     }
 
     html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
-    html.push_str("<thead><tr><th>産業大分類</th><th>地域構成比</th><th>全国構成比 (推定)</th><th>厚み指数</th><th>判定</th></tr></thead>\n<tbody>\n");
+    html.push_str("<thead><tr><th>産業大分類</th><th>地域構成比</th><th>全国基準構成比</th><th>相対指数</th><th>参考</th></tr></thead>\n<tbody>\n");
 
     let mut shown = 0;
     for (name, count) in ctx.hw_industry_counts.iter().take(8) {
@@ -368,11 +371,11 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
             0.0
         };
         let (badge, dot_class) = if thickness >= 120.0 {
-            ("厚い (推定)", "pos")
+            ("基準比 やや高め (参考)", "pos")
         } else if thickness >= 80.0 {
-            ("平均 (推定)", "neu")
+            ("基準並み (参考)", "neu")
         } else {
-            ("薄い (推定)", "warn")
+            ("基準比 やや低め (参考)", "warn")
         };
         html.push_str(&format!(
             "<tr><td>{}</td><td>{:.1}%</td><td>{:.1}%</td><td><strong>{:.0}</strong></td>\
@@ -395,8 +398,7 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
         "<div class=\"so-what\" style=\"margin-top:3mm;\">\
          <div class=\"sw-label\">SO WHAT</div>\
          <div class=\"sw-body\">\
-         厚み指数 120+ の産業を主訴求軸とし、80- の産業は別チャネル (リファラル / SNS 等) を検討する。\
-         指数は (推定) です。絶対的な就業者規模を保証しません。\
+         相対指数 120+ の産業帯を主訴求軸の候補とし、80 未満の産業帯は別チャネル (リファラル / SNS 等) を検討する。\
          </div></div>\n",
     );
 }
@@ -687,7 +689,6 @@ fn render_mi_9e_wage_attractiveness(
          <div class=\"sw-label\">SO WHAT</div>\
          <div class=\"sw-body\">\
          給与プレミアム指数が 110 未満の場合は家賃補助・通勤手当・賞与等の付帯条件を訴求に追加する。\
-         本指標は (参考) 値であり、契約条件全体を反映しません。\
          </div></div>\n",
     );
 
@@ -772,7 +773,6 @@ fn render_mi_9f_scenario_intensity(
          <div class=\"sw-label\">SO WHAT</div>\
          <div class=\"sw-body\">\
          配信予算を保守/標準/強気の 3 段階で分散し、強気シナリオは外縁部・近接職種向けにテスト投下する。\
-         本濃淡は (推定) であり、応募見込数を保証するものではありません。\
          </div></div>\n",
     );
 }

@@ -587,8 +587,9 @@ th {
   padding: 5px 8px;
   text-align: left;
   border-bottom: 2px solid #90caf9;
-  position: sticky;
-  top: 0;
+  /* position:sticky は全テーブルに適用するとデータ行を隠す事故を起こすため除去。
+     長い一覧テーブルで sticky が必要な場合は専用クラス(.table-scrollable th 等)で限定スコープ化すること。
+     印刷時は @media print 内で position:static を明示。 */
 }
 td {
   padding: 4px 8px;
@@ -750,6 +751,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   }
 
   .sortable-table th::after { display: none; }
+  /* rank12 修正: 印刷時は sticky を無効化。スクロール不在の A4 印刷で
+     th が data 行を覆い隠すのを防ぐ。 */
+  th { position: static !important; top: auto !important; }
   table { border-collapse: collapse; }
   thead { display: table-header-group; } /* 次ページに header 再表示 */
   tfoot { display: table-footer-group; }
@@ -2547,6 +2551,8 @@ body.theme-navy .table-navy th {
   padding: 6px 8px 6px 0; border-bottom: 1.5px solid var(--ink);
   /* 長い列名は折り返す (英語残対策と併せ可読性確保) */
   word-break: break-word; overflow-wrap: break-word;
+  /* rank12 修正: グローバル th の sticky が残骸として継承されるのを防ぐ明示リセット */
+  position: static;
 }
 body.theme-navy .table-navy td {
   padding: 5px 8px 5px 0; border-bottom: 1px solid var(--rule-soft);

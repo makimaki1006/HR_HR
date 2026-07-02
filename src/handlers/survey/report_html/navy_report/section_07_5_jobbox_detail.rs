@@ -187,7 +187,15 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
         .enumerate()
     {
         let y = (i as i64) * (row_h + row_gap) + row_gap;
-        let bar_w = (*count as i64).max(0) * bar_max_w / max_count as i64;
+        // rank 11 (2026-07-03): 最小棒幅 4px クランプ。count=0 の行は 0 のまま (不可視)。
+        // rx = min(3, width/2) でピル変形防止。
+        let bar_w_raw = (*count as i64).max(0) * bar_max_w / max_count as i64;
+        let bar_w = if *count > 0 {
+            bar_w_raw.max(4)
+        } else {
+            bar_w_raw
+        };
+        let rx = if bar_w > 0 { 3_i64.min(bar_w / 2) } else { 0 };
         let pct = if extracted > 0 {
             *count as f64 / extracted as f64 * 100.0
         } else {
@@ -202,18 +210,20 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
         ));
         if !sub.is_empty() {
             html.push_str(&format!(
-                "<text x=\"4\" y=\"{}\" font-size=\"9\" fill=\"#64748b\">{}</text>\n",
+                "<text x=\"4\" y=\"{}\" font-size=\"12\" fill=\"#64748b\">{}</text>\n",
                 y + row_h / 2 + 12,
                 escape_html(sub),
             ));
         }
         // バー (中央)
         html.push_str(&format!(
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#1e3a8a\" rx=\"3\" ry=\"3\"/>\n",
+            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#1e3a8a\" rx=\"{}\" ry=\"{}\"/>\n",
             label_w,
             y + 4,
             bar_w,
             row_h - 8,
+            rx,
+            rx,
         ));
         // 構成比のみ (件数は信頼性懸念のため非表示、2026-06-26)
         html.push_str(&format!(
@@ -269,7 +279,7 @@ fn render_distribution_salary_median_table(html: &mut String, agg: &SurveyAggreg
         };
         html.push_str(&format!(
             "<tr>\
-             <td>{cat}</td>\
+             <td style=\"word-break:keep-all;\">{cat}</td>\
              <td style=\"text-align:right;\">{n}</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{min_med}</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{max_med}</td>\
@@ -428,7 +438,7 @@ fn render_scatter_svg_emp(
             margin_l + plot_w,
         ));
         html.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"10\" fill=\"#334155\" text-anchor=\"end\">{y_val}日</text>\n",
+            "<text x=\"{}\" y=\"{}\" font-size=\"12\" fill=\"#334155\" text-anchor=\"end\">{y_val}日</text>\n",
             margin_l - 6,
             py + 4,
         ));
@@ -445,7 +455,7 @@ fn render_scatter_svg_emp(
             margin_t + plot_h,
         ));
         html.push_str(&format!(
-            "<text x=\"{px}\" y=\"{}\" font-size=\"10\" fill=\"#334155\" text-anchor=\"middle\">{}万</text>\n",
+            "<text x=\"{px}\" y=\"{}\" font-size=\"12\" fill=\"#334155\" text-anchor=\"middle\">{}万</text>\n",
             margin_t + plot_h + 14,
             t / 10_000,
         ));
@@ -534,7 +544,6 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     const DEFAULT_SHOWN: usize = 20;
     let limit = listed.min(TABLE_LIMIT); // 描画対象総数 (最大 100 件)
     let shown = limit.min(DEFAULT_SHOWN); // デフォルト表示行数 (最大 20 件)
-    let extracted = agg.jobbox.annual_holidays_values.len();
 
     html.push_str(
         "<div class=\"block-title\">§07.5-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
@@ -542,13 +551,11 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     // rank 5-1 (2026-07-02): デフォルトは上位 20 件のみ描画。21 件目以降は <details> に折り畳み。
     //   PDF ではテーブル 100 行が §07.5 全体を ~8000px に肥大化させページ数が増大するため、
     //   <details> (closed) にすることで画面では展開可・PDF では省略される。
-    // 注記を 1 行に統合 (2 連続注記の冗長さを解消、2026-06-26)
+    // rank 21 (2026-07-03): 除外条件注釈を短縮。
     html.push_str(&format!(
-        "<p class=\"note\">※ 表示対象: 月給制で給与記載のある企業名記載分のみ (全 {} 件中 上位 {} 件)。\
-         年俸制／時給制／給与未記載／企業名空欄は除外 (KPI／分布／散布図には含まれる、集計対象 全 {} 件)。</p>\n",
-        format_number(listed as i64),
+        "<p class=\"note\">※ 月給制・給与記載・企業名あり ({} 件 / 全 {} 件)。</p>\n",
         format_number(shown as i64),
-        format_number(extracted as i64),
+        format_number(listed as i64),
     ));
 
     // メインテーブル: 上位 shown 件
@@ -707,7 +714,7 @@ fn render_segment_salary_block(html: &mut String, agg: &SurveyAggregation) {
         };
         html.push_str(&format!(
             "<tr>\
-             <td>{cat}</td>\
+             <td style=\"word-break:keep-all;\">{cat}</td>\
              <td style=\"text-align:right;\">{n}</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{c0}</td>\
              <td style=\"text-align:right;white-space:nowrap;\">{c1}</td>\
