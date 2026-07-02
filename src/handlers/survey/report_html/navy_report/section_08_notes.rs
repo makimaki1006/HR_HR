@@ -61,7 +61,7 @@ pub(crate) fn render_navy_section_08_notes(
     let sources: Vec<(&str, &str, &str, &str)> = if show_hw {
         vec![
             (
-                "アップロード CSV",
+                "アップロード CSV(媒体掲載求人)",
                 "ユーザー提供",
                 "全 Section の主集計対象",
                 "都度",
@@ -148,7 +148,7 @@ pub(crate) fn render_navy_section_08_notes(
     } else {
         vec![
             (
-                "アップロード CSV",
+                "アップロード CSV(媒体掲載求人)",
                 "ユーザー提供",
                 "全 Section の主集計対象",
                 "都度",
@@ -257,7 +257,9 @@ pub(crate) fn render_navy_section_08_notes(
          <strong>2. 数値の鮮度。</strong> 公開統計の更新サイクル (5 年 / 年次 / 月次) を考慮し、\
          直近の事象とのタイムラグを認識してください。最低賃金は毎年 10 月発効、国勢調査は 5 年に一度。<br>\
          <strong>3. 取扱区分。</strong> 本資料は <strong>機密 / 社外秘</strong> として扱い、\
-         外部への持ち出しは社内規定に従ってください。\
+         外部への持ち出しは社内規定に従ってください。<br>\
+         <strong>4. データ範囲。</strong> 主集計はアップロードされた <strong>媒体掲載求人のみ</strong> を\
+         対象とし、全求人市場を代表するものではありません。\
          </div></div>\n",
     );
 
