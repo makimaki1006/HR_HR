@@ -185,13 +185,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
         let (val, dot, foot) = match (unemp, nat) {
             (Some(u), Some(n)) => {
                 let diff = u - n;
-                let dot = if u < 2.5 {
-                    "warn"
-                } else if u < 3.5 {
-                    "neu"
-                } else {
-                    "pos"
-                };
+                let dot = if u < 2.5 { "warn" } else { "neu" };
                 let foot = format!("全国平均 {:.1}% / 差 {:+.1}pt", n, diff);
                 (format!("{:.1}", u), dot, foot)
             }
@@ -204,8 +198,8 @@ pub(crate) fn render_navy_section_04_market_tightness(
         let (val, dot, foot) = match d.and_then(|d| d.separation) {
             Some(v) if v >= 15.0 => (
                 format!("{:.1}", v),
-                "warn",
-                "15% 超は離職多発エリア / 業界".to_string(),
+                "neu",
+                "15% 超はやや高め (県 / 業界単位の値で対象地域固有ではない)".to_string(),
             ),
             Some(v) if v >= 10.0 => (
                 format!("{:.1}", v),
@@ -276,9 +270,8 @@ pub(crate) fn render_navy_section_04_market_tightness(
             html.push_str(&build_navy_auto_table(&ctx.ext_establishments, 8));
             html.push_str(
                 "<p class=\"caption\">\
-                 事業所数は同地域で求職者が選択しうる勤務先候補数、\
-                 従業者数は雇用市場全体の規模を示します。\
-                 自社採用ポジションがこの母集団のどの位置に置かれるかを把握する基礎指標です。\
+                 出典: 公的統計 (e-Stat) 事業所データ。\
+                 集計単位: 対象地域・全産業の事業所数および従業者数。\
                  </p>\n",
             );
         }
@@ -287,7 +280,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
         if !ctx.ext_business_dynamics.is_empty() {
             html.push_str(
                 "<div class=\"block-title block-title-spaced\">\
-                 表 4-D &nbsp;開廃業動態 (市場成長性)\
+                 表 4-D &nbsp;開廃業動態 (開業率・廃業率)\
                  </div>\n",
             );
             html.push_str(&build_navy_auto_table(&ctx.ext_business_dynamics, 6));
@@ -299,21 +292,16 @@ pub(crate) fn render_navy_section_04_market_tightness(
                 .unwrap_or((f64::NAN, f64::NAN));
             let comment = if open.is_finite() && close.is_finite() {
                 let net = open - close;
-                let phase = if net >= 1.0 {
-                    "成長期 (事業所の新陳代謝が活発、採用競合が増加する局面)"
-                } else if net >= -1.0 {
-                    "成熟期 (事業所数は均衡、既存企業間で人材獲得が中心)"
-                } else {
-                    "再編期 (事業所数が緩やかに減少、地域人材流動に留意)"
-                };
                 format!(
                     "開業率 <strong>{:.1}%</strong> / 廃業率 <strong>{:.1}%</strong> \
-                     (純成長 {:+.1}pt)。全国参考値 (開業 5.0% / 廃業 4.0%) との対比で\
-                     対象地域は <strong>{}</strong> に位置すると読み取れます。",
-                    open, close, net, phase
+                     (差 {:+.1}pt)。全国参考値は開業 5.0% / 廃業 4.0%。\
+                     いずれも単年の値であり、市場フェーズ (成長・成熟・再編) の判定には\
+                     複数年の推移確認が必要なため、本表では単年からの局面判定は行いません。\
+                     基準年次は表本体の年次列を参照してください。",
+                    open, close, net
                 )
             } else {
-                "開業率・廃業率のいずれかが取得できないため、市場フェーズ判定は割愛します。"
+                "開業率・廃業率のいずれかが取得できないため、市場動態のコメントは割愛します。"
                     .to_string()
             };
             html.push_str(&format!("<p class=\"caption\">{}</p>\n", comment));
@@ -614,7 +602,7 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
     let unemp = d.and_then(|d| d.unemployment);
     let nat = d.and_then(|d| d.unemployment_national);
     // Round 1-K K-1: 失業率は % 値 (0-100 想定)。SQL 改修で二重×100 (380% 等) が
-    // 混入した場合、< 2.5 判定外で「pos (求職者プールあり)」と誤判定するため、
+    // 混入した場合、< 2.5 判定外で「求職者は相対的に多い」等と誤判定するため、
     // 値域外を「データ異常」として中立扱いする。
     if let Some(u) = unemp {
         debug_assert!(
@@ -634,7 +622,11 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
         Some(u) if !(0.0..100.0).contains(&u) => ("—".to_string(), "neu", "データ異常"),
         Some(u) if u < 2.5 => (format!("{:.1}%", u), "warn", "低失業=採用難度 高"),
         Some(u) if u < 3.5 => (format!("{:.1}%", u), "neu", "標準的水準"),
-        Some(u) => (format!("{:.1}%", u), "pos", "求職者プールあり"),
+        Some(u) => (
+            format!("{:.1}%", u),
+            "neu",
+            "全国並み〜やや高め (求職者は相対的に多い)",
+        ),
         None => ("—".to_string(), "neu", "—"),
     };
     let nat_str = nat
@@ -642,7 +634,7 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
         .unwrap_or_else(|| "—".to_string());
     s.push_str(&row("失業率", val, &nat_str, tag, cmt));
     let (val, tag, cmt) = match d.and_then(|d| d.separation) {
-        Some(v) if v >= 15.0 => (format!("{:.1}%", v), "warn", "離職多発"),
+        Some(v) if v >= 15.0 => (format!("{:.1}%", v), "neu", "やや高め (県/業界単位)"),
         Some(v) if v >= 10.0 => (format!("{:.1}%", v), "neu", "標準水準"),
         Some(v) => (format!("{:.1}%", v), "pos", "定着率 高"),
         None => ("—".to_string(), "neu", "—"),
@@ -650,7 +642,7 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
     s.push_str(&row("離職率", val, "全国 14.6%", tag, cmt));
     if let Some(d) = d {
         let (val, tag, cmt) = match d.entry {
-            Some(v) if v >= 16.0 => (format!("{:.1}", v), "neu", "入職活発 (転職市場活況)"),
+            Some(v) if v >= 16.0 => (format!("{:.1}", v), "neu", "全国比で高い (要確認水準)"),
             Some(v) if v >= 10.0 => (format!("{:.1}", v), "neu", "標準水準"),
             Some(v) => (format!("{:.1}", v), "neu", "入職停滞"),
             None => ("—".to_string(), "neu", "—"),
@@ -701,7 +693,7 @@ fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> St
         format!(
             "<strong>採用難度 高</strong>。{} の 2 指標以上で警戒水準。\
              <strong>給与・福利厚生による差別化</strong> と <strong>応募経路の多元化</strong> を併走させてください。\
-             特に離職多発エリアの場合は <strong>定着率向上施策</strong> を組み合わせる必要があります。",
+             離職率が高めの場合は (県/業界単位の値である点に留意しつつ) <strong>定着率向上施策</strong> の併走も検討余地があります。",
             alerts.join(" / ")
         )
     } else if alerts.len() == 1 {
@@ -776,15 +768,15 @@ mod tests {
             "out-of-range unemployment must be flagged as データ異常: {}",
             html
         );
-        // 値域外を低失業 (warn) や求職者プールあり (pos) と誤判定していないこと
+        // 値域外を低失業 (warn) や高失業側 (neu) と誤判定していないこと
         assert!(
             !html.contains("低失業=採用難度 高"),
             "out-of-range must NOT be classified as 低失業: {}",
             html
         );
         assert!(
-            !html.contains("求職者プールあり"),
-            "out-of-range must NOT be classified as 求職者プールあり: {}",
+            !html.contains("求職者は相対的に多い"),
+            "out-of-range must NOT be classified as 全国並み〜やや高め: {}",
             html
         );
     }
@@ -822,11 +814,11 @@ mod tests {
             build_navy_tightness_table(Some(&mid), false).contains("標準的水準"),
             "3.0% should be 標準的水準"
         );
-        // 4.0% (>=3.5) → 求職者プールあり (pos)
+        // 4.0% (>=3.5) → 全国並み〜やや高め (neu、強み断定はしない)
         let high = make_data(None, None, Some(4.0), None, None);
         assert!(
-            build_navy_tightness_table(Some(&high), false).contains("求職者プールあり"),
-            "4.0% should be 求職者プールあり"
+            build_navy_tightness_table(Some(&high), false).contains("求職者は相対的に多い"),
+            "4.0% should be 全国並み〜やや高め"
         );
     }
 

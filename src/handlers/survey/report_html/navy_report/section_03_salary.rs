@@ -381,10 +381,10 @@ pub(crate) fn render_navy_section_03_salary(
              </div>\n",
         );
         html.push_str(
-            "<p class=\"caption\">出典: 設計メモ <code>salary_cluster_analysis_design.md</code> §7-8 / §10。\
+            "<p class=\"caption\">出典: CSV 集計。\
              lower_salary 軸は Jenks 自然分割 (k=3 or 4)、range 軸は P33/P66 + P95 異常広判定。\
              各クラスタ内 P25/P50/P60/P75/P90 が顧客求人の適正値の基準。\
-             <strong>適正値は全体ではなくクラスタ内で出す</strong> (§10.1)。</p>\n",
+             <strong>適正値は全体ではなくクラスタ内で算出</strong>。</p>\n",
         );
     }
 
@@ -1128,7 +1128,24 @@ fn build_navy_salary_correlation_table(rows: &[NavyCorrRow]) -> String {
 
 // 給与構造クラスタ table-navy (label / lower_seg / range_seg / n / P25/P50/P60/P75/P90/mean)
 fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // rank 26: 第1列 (クラスタ名) が幅指定なしで 3 行折返しになる問題を回避するため
+    //   colgroup で列幅を明示 (クラスタ列 22% + No. 6% + 各分位点 8% + 解釈 16%)。
+    let mut s = String::from(
+        "<table class=\"table-navy\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"/>\
+         <col style=\"width:22%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:8%\"/>\
+         <col style=\"width:16%\"/>\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>クラスタ</th>");
     s.push_str("<th class=\"num\">n</th>");
     s.push_str("<th class=\"num\">P25</th>");
@@ -1180,8 +1197,9 @@ fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -
         ));
     }
     s.push_str("</tbody></table>\n");
-    s.push_str("<p class=\"caption\"><strong>出典:</strong> CSV 集計 (月給換算済み)。単位: 万円。\
-                目的別ライン: コスト抑制 P40-P50 / 見劣り回避 P50 / 競争力 P60-P75 / 高待遇訴求 P75+ (設計メモ §10.3)。</p>\n");
+    s.push_str(
+        "<p class=\"caption\"><strong>出典:</strong> CSV 集計 (月給換算済み)。単位: 万円。</p>\n",
+    );
     s
 }
 
@@ -1235,7 +1253,7 @@ fn build_navy_cluster_fitting_table(
     let mut s = String::new();
     s.push_str(
         "<div class=\"block-title block-title-spaced\">\
-         表 3-X &nbsp;CSV 求人 × クラスタ当て込み (10 件抽出)</div>\n",
+         表 3-F &nbsp;CSV 求人 × クラスタ当て込み (10 件抽出)</div>\n",
     );
     s.push_str("<table class=\"table-navy\">\n<thead><tr>");
     s.push_str("<th scope=\"col\">No.</th>");
@@ -1309,8 +1327,8 @@ fn build_navy_cluster_fitting_table(
         "<p class=\"caption\">単位: {}。下限給与降順で 10 件抽出 (代表サンプル)。\
          判定: 下限 &lt; クラスタ P25 = 低め / P25 &le; 下限 &le; P75 = 適正 / 下限 &gt; P75 = 高め。\
          クラスタ割当は P50 距離最小ルール。\
-         求人タイトルは scatter_min_max に title フィールドが無いため \"求人 #N\" 連番表記。\
-         <strong>※ MVP 実装。設計メモ受領後に正規化予定 (2026-06-03)。</strong></p>\n",
+         求人タイトルは元データに含まれないため \"求人 #N\" 連番表記。\
+         <strong>※ 推定値。参考値として扱ってください。</strong></p>\n",
         unit_label
     ));
     s
@@ -1327,13 +1345,16 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
     sorted.truncate(8); // 上位 8 cluster
 
     // 2026-05-14: ユーザー指摘「図 3-5 がもう少し大きくできない、見えづらい」を反映。
-    //   row_h 38→56 / label_w 180→200 / 各 font-size ↑ で実効サイズを 1.5x 程度に拡大。
-    //   viewBox は w=720 維持 + h を 1.5x 化することで、`width=100%` 表示時に縦に伸びる。
+    //   row_h 38→56 / 各 font-size ↑ で実効サイズを拡大。
+    //   viewBox は w=720 維持 + h を拡大することで、`width=100%` 表示時に縦に伸びる。
+    // rank 11 (2026-06): viewBox w=720 は width=100% 表示時に約 0.48x へ縮小され、
+    //   font-size 13 → 実寸 6.2px でクラスタ名が読めない指摘を反映。font-size を実寸 12px
+    //   以上 (viewBox 26) に拡大。ラベルが長くなるため label_w 200→300 / n_w 60→70 に拡張。
     let w = 720.0;
     let row_h = 56.0;
     let h = 36.0 + sorted.len() as f64 * row_h + 36.0;
-    let label_w = 200.0;
-    let n_w = 60.0;
+    let label_w = 300.0;
+    let n_w = 70.0;
     let plot_x = label_w + n_w;
     let plot_w = w - plot_x - 16.0;
 
@@ -1358,7 +1379,7 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
         let x = plot_x + plot_w * i as f64 / 4.0;
         svg.push_str(&format!(
             "<line x1=\"{:.1}\" y1=\"24\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
-             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"26\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
             x, x, h - 20.0, x, h - 6.0, format_mm(v)
         ));
     }
@@ -1371,13 +1392,13 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
         let text_y = cy + row_center_off;
         // label
         svg.push_str(&format!(
-            "<text x=\"4\" y=\"{:.1}\" font-size=\"13\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"26\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
             text_y,
             escape_html(&c.label)
         ));
         // n
         svg.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"12\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"22\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
             label_w, text_y, c.count
         ));
         // whisker (min ~ max)

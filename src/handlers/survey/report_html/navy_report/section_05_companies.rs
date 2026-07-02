@@ -680,7 +680,7 @@ pub(crate) fn build_navy_csv_company_salary_table(
             // Phase 2-A: 桁数を unit_decimals で制御 (月給=1桁、時給=0桁)
             s.push_str(&format!(
                 "<tr{}><td class=\"num bold\">{}</td>\
-                 <td><strong>{}</strong></td>\
+                 <td style=\"word-break:keep-all;overflow-wrap:anywhere;\"><strong>{}</strong></td>\
                  <td class=\"num\">{}</td>\
                  <td class=\"num\">{:.*}</td>\
                  <td class=\"num bold\">{:.*}</td>\
@@ -748,7 +748,7 @@ pub(crate) fn build_navy_notable_companies_block(
     for (i, c) in notable.iter().enumerate() {
         s.push_str(&format!(
             "<tr><td class=\"num bold\">{}</td>\
-             <td><strong>{}</strong></td>\
+             <td style=\"word-break:keep-all;overflow-wrap:anywhere;\"><strong>{}</strong></td>\
              <td class=\"num\">{}</td>\
              <td class=\"num\">{:.*}〜{:.*}</td></tr>\n",
             i + 1,
@@ -1006,7 +1006,9 @@ fn build_navy_company_list(
                 "neu"
             };
             s.push_str(&format!(
-                "<tr><td class=\"num bold\">{}</td><td><strong>{}</strong></td><td><span class=\"dim\">{}</span></td>\
+                "<tr><td class=\"num bold\">{}</td>\
+                 <td style=\"word-break:keep-all;overflow-wrap:anywhere;\"><strong>{}</strong></td>\
+                 <td><span class=\"dim\">{}</span></td>\
                  <td class=\"num bold\">{}</td>\
                  <td class=\"num\"><span class=\"tag tag-{}\">{:+.1}%</span></td>",
                 i + 1,
@@ -1051,16 +1053,16 @@ fn build_companies_so_what(
 
     let concentration = if top_share >= 25.0 {
         format!(
-            "<strong>{}</strong> が <strong>{:.0}%</strong> を占める <strong>主産業依存型</strong> です。",
+            "<strong>{}</strong> が就業者全体の <strong>{:.0}%</strong> を占めており、最多産業の比率が高い構成です。",
             top_name, top_share
         )
     } else if top_share >= 15.0 {
         format!(
-            "<strong>{}</strong> 中心 (<strong>{:.0}%</strong>) ながら複数産業が並走する <strong>複合型</strong> 構造です。",
+            "<strong>{}</strong> が <strong>{:.0}%</strong> で最多となっており、複数の産業が並走する構成です。",
             top_name, top_share
         )
     } else if top_share > 0.0 {
-        "産業が <strong>分散型</strong> に広がり、特定業界依存が低い構造です。".to_string()
+        "産業が広く分散しており、特定業界への就業者比率は相対的に低い構成です。".to_string()
     } else {
         "産業構成データが取得できなかったため、業種傾向は判定困難です。".to_string()
     };
@@ -1072,19 +1074,16 @@ fn build_companies_so_what(
         )
     } else if n_growth >= 3 {
         format!(
-            "急成長企業 <strong>{}</strong> 社が確認でき、新規参入 / 採用強化中の競合として注視が必要です。",
+            "急成長企業 <strong>{}</strong> 社が確認されており、新規参入または採用強化中の法人が存在します。",
             n_growth
         )
     } else {
-        format!(
-            "急成長セグメントは <strong>{}</strong> 社で、競合の人員拡大局面は限定的です。",
-            n_growth
-        )
+        format!("急成長企業は <strong>{}</strong> 社です。", n_growth)
     };
 
     let hw_note = if show_hw && n_hiring >= 5 {
         format!(
-            " 媒体上で <strong>採用活発企業 {}</strong> 社が確認でき、競合との掲載重複度は高めです。応募導線・募集要項の差別化が必要です。",
+            " 媒体上で <strong>採用活発企業 {}</strong> 社が確認されています。",
             n_hiring
         )
     } else {
@@ -1345,7 +1344,7 @@ mod tests {
 
     // --- build_companies_so_what ------------------------------------------
 
-    // [境界] トップ産業シェア >=25% → 主産業依存型。
+    // [境界] トップ産業シェア >=25% → 最多産業の比率が高い構成。
     #[test]
     fn companies_so_what_concentration_high() {
         let industries = vec![
@@ -1356,13 +1355,13 @@ mod tests {
         let total = 100;
         let html = build_companies_so_what(&industries, total, 10, 0, 0, false);
         assert!(
-            html.contains("主産業依存型"),
-            "50% top share -> 主産業依存型: {}",
+            html.contains("最多産業の比率が高い"),
+            "50% top share -> 最多産業の比率が高い: {}",
             html
         );
     }
 
-    // [境界] トップ産業シェア 15-25% → 複合型。
+    // [境界] トップ産業シェア 15-25% → 複数の産業が並走する構成。
     #[test]
     fn companies_so_what_concentration_mixed() {
         let industries = vec![
@@ -1373,10 +1372,14 @@ mod tests {
         ];
         let total = 100;
         let html = build_companies_so_what(&industries, total, 10, 0, 0, false);
-        assert!(html.contains("複合型"), "20% top share -> 複合型: {}", html);
+        assert!(
+            html.contains("複数の産業が並走する"),
+            "20% top share -> 複数の産業が並走する: {}",
+            html
+        );
     }
 
-    // [境界] トップ産業シェア <15% → 分散型。
+    // [境界] トップ産業シェア <15% → 広く分散。
     #[test]
     fn companies_so_what_concentration_dispersed() {
         let industries = vec![
@@ -1387,7 +1390,11 @@ mod tests {
         ];
         let total = 100;
         let html = build_companies_so_what(&industries, total, 10, 0, 0, false);
-        assert!(html.contains("分散型"), "10% top share -> 分散型: {}", html);
+        assert!(
+            html.contains("広く分散"),
+            "10% top share -> 広く分散: {}",
+            html
+        );
     }
 
     // [境界/零除算防御] industry_total=0 でも panic せず、産業構成データなしの文言を返す。
