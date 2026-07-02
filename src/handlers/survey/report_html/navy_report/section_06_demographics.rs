@@ -317,7 +317,7 @@ pub(crate) fn render_navy_section_06_demographics(
             format!("最新値で <strong>転入超過 +{} 名</strong>。社外からの流入が継続しており、<strong>採用候補プール 拡大局面</strong>。広域採用・移住セット訴求 (住宅手当 / 引越補助) との相性 良。",
                 format_number(latest_net))
         } else if latest_net < 0 {
-            format!("最新値で <strong>転出超過 {} 名</strong>。人口流出が継続しており、<strong>採用難 + 離職リスクの両面</strong>に注意。定着策 (キャリアパス明示 / 地元志向人材の囲い込み) を優先推奨。",
+            format!("最新値で <strong>転出超過 {} 名</strong>。転入と転出はほぼ均衡した水準で、社会移動による母集団拡大は限定的。<strong>定着策</strong> (キャリアパス明示 / 地元志向人材の囲い込み) を軸に据える選択肢が有効。",
                 format_number(latest_net))
         } else {
             "転入・転出が均衡。人材の純流入による母集団拡大は期待しにくく、<strong>定着重視</strong>の採用方針が有効。".to_string()
@@ -338,7 +338,7 @@ pub(crate) fn render_navy_section_06_demographics(
             .map(|r| get_i64(r, "natural_change"))
             .unwrap_or(0);
         let vital_insight = if latest_natural < 0 {
-            format!("最新値で <strong>自然減 {} 名</strong> (死亡 > 出生)。中長期 (5-10 年) で<strong>労働力供給の減少局面</strong>が継続する見通し、自動化投資・省人化施策の並走を推奨。",
+            format!("最新値で <strong>自然減 {} 名</strong> (死亡 > 出生)。直近は<strong>自然減の局面</strong>にあり、労働力供給面では自動化投資・省人化施策を並走の選択肢として検討する余地がある。",
                 format_number(latest_natural))
         } else {
             format!("自然増 +{} 名で人口再生産は継続。短期の採用環境は本指標より表 6-C (社会移動) の影響が支配的。",
@@ -596,10 +596,14 @@ pub(crate) fn build_navy_pyramid_svg_mini(bands: &[(String, i64, i64)]) -> Strin
         return String::new();
     }
     let n = bands.len();
-    let row_h: f64 = 14.0;
-    let h: f64 = 30.0 + n as f64 * row_h + 18.0;
+    // 2026-07-03: 図 6-2b の SVG 文字が実寸で極小 (年齢ラベル約 7px・人口注記約 6px) で
+    //   判読困難だった問題を解消。viewBox 幅 220 は 3 列グリッド契約のため据え置き、
+    //   font-size 属性値を引き上げて実寸 12px 以上を狙う。文字が潰れないよう行高・ラベル列幅・
+    //   バー高さ・最小バー幅も併せて調整 (数値・集計ロジックは不変)。
+    let row_h: f64 = 20.0;
+    let h: f64 = 30.0 + n as f64 * row_h + 20.0;
     let w: f64 = 220.0;
-    let label_col_w: f64 = 32.0;
+    let label_col_w: f64 = 46.0;
     let center_gap: f64 = 4.0;
     let bar_max_w: f64 = (w - label_col_w) / 2.0 - center_gap;
     let center: f64 = label_col_w + bar_max_w + center_gap;
@@ -621,9 +625,9 @@ pub(crate) fn build_navy_pyramid_svg_mini(bands: &[(String, i64, i64)]) -> Strin
     // R2-P1-3 (ultrathink Round 2, 2026-05-28): a11y のため SVG 直後に <title> を挿入。
     // タイトル行 (男性 / 女性)
     svg.push_str(&format!(
-        "<text x=\"{:.1}\" y=\"14\" font-size=\"7\" fill=\"#6A6E7A\" font-weight=\"700\">年齢</text>\
-         <text x=\"{:.1}\" y=\"14\" font-size=\"8\" fill=\"#0B1E3F\" font-weight=\"700\" text-anchor=\"end\">男</text>\
-         <text x=\"{:.1}\" y=\"14\" font-size=\"8\" fill=\"#0B1E3F\" font-weight=\"700\">女</text>\n",
+        "<text x=\"{:.1}\" y=\"16\" font-size=\"15\" fill=\"#6A6E7A\" font-weight=\"700\">年齢</text>\
+         <text x=\"{:.1}\" y=\"16\" font-size=\"15\" fill=\"#0B1E3F\" font-weight=\"700\" text-anchor=\"end\">男</text>\
+         <text x=\"{:.1}\" y=\"16\" font-size=\"15\" fill=\"#0B1E3F\" font-weight=\"700\">女</text>\n",
         2.0, center - 4.0, center + 4.0
     ));
     // 中央軸
@@ -638,35 +642,35 @@ pub(crate) fn build_navy_pyramid_svg_mini(bands: &[(String, i64, i64)]) -> Strin
         let fw = (*female as f64 / max_count) * bar_max_w;
         // 男性 (左)
         svg.push_str(&format!(
-            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"10\" fill=\"#1F2D4D\"/>\n",
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"14\" fill=\"#1F2D4D\"/>\n",
             center - mw,
             cy,
-            mw.max(0.5)
+            mw.max(1.5)
         ));
         // 女性 (右)
         svg.push_str(&format!(
-            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"10\" fill=\"#C9A24B\"/>\n",
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"14\" fill=\"#C9A24B\"/>\n",
             center,
             cy,
-            fw.max(0.5)
+            fw.max(1.5)
         ));
         // 年齢ラベル
         svg.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"7\" fill=\"#0B1E3F\" font-weight=\"600\" text-anchor=\"start\">{}</text>\n",
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"14\" fill=\"#0B1E3F\" font-weight=\"600\" text-anchor=\"start\">{}</text>\n",
             2.0,
-            cy + 8.0,
+            cy + 11.0,
             escape_html(label)
         ));
     }
 
     // 軸スケール (最大値)
     svg.push_str(&format!(
-        "<text x=\"2\" y=\"{:.1}\" font-size=\"6\" fill=\"#6A6E7A\">{} 名</text>\
-         <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"6\" fill=\"#6A6E7A\" text-anchor=\"end\">{} 名</text>\n",
-        h - 4.0,
+        "<text x=\"2\" y=\"{:.1}\" font-size=\"13\" fill=\"#6A6E7A\">{} 名</text>\
+         <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#6A6E7A\" text-anchor=\"end\">{} 名</text>\n",
+        h - 5.0,
         format_number(max_count as i64),
         w - 2.0,
-        h - 4.0,
+        h - 5.0,
         format_number(max_count as i64)
     ));
     svg.push_str("</svg>\n");
