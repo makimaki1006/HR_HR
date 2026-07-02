@@ -13,7 +13,7 @@
 
 use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::aggregator::{
-    median_of, SurveyAggregation, SCATTER_X_MIN, SCATTER_Y_MAX, SCATTER_Y_MIN,
+    median_of, JobBoxRecord, SurveyAggregation, SCATTER_X_MIN, SCATTER_Y_MAX, SCATTER_Y_MIN,
 };
 use super::common::{push_kpi_card_simple, push_page_head};
 
@@ -33,6 +33,20 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
         "テキストから年間休日数を抽出し、給与・企業別に集計",
     );
 
+    // rank 6 (2026-07-02): 媒体データ範囲の注記。
+    // 本セクションは媒体掲載求人の自由記述から抽出したデータであり、
+    // 全求人市場や公的統計を代表しない。母数 M は媒体アップロード総件数 (total_count)、
+    // 抽出 N は年間休日の記載を抽出できた求人数 (annual_holidays_values.len())。
+    let extracted_n = agg.jobbox.annual_holidays_values.len();
+    let uploaded_m = agg.total_count;
+    html.push_str(&format!(
+        "<p class=\"note\">※ 本セクションは求人説明文 (自由記述) から抽出した\
+         <strong>媒体掲載求人のデータ</strong>であり、公的統計ではありません。\
+         年間休日の記載がある求人のみを対象としています (抽出 {} / 全 {} 件)。</p>\n",
+        format_number(extracted_n as i64),
+        format_number(uploaded_m as i64),
+    ));
+
     render_summary_kpi(html, agg);
     render_distribution_block(html, agg);
     render_correlation_block(html, agg);
@@ -40,11 +54,13 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     render_segment_salary_block(html, agg);
 
     // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-jobbox-detail スコープで改ページ制御
+    // rank 5-2 (2026-07-02): table を break-inside:avoid から除外。
+    //   §07.5-4 の個別求人テーブルは A4 に収まらず、avoid 指定だと PDF 下端でクリップされる。
+    //   テーブルの改ページ + ヘッダ再表示は既存グローバル設定に委ね、ここでは .kpi-row のみ制御。
     html.push_str(
         "<style>\
          @media print {\
-           .navy-jobbox-detail .kpi-row,\
-           .navy-jobbox-detail table { break-inside: avoid; page-break-inside: avoid; }\
+           .navy-jobbox-detail .kpi-row { break-inside: avoid; page-break-inside: avoid; }\
          }\
          </style>\n",
     );
@@ -515,20 +531,53 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     }
     let listed = agg.jobbox.jobbox_records.len();
     const TABLE_LIMIT: usize = 100;
-    let limit = listed.min(TABLE_LIMIT);
+    const DEFAULT_SHOWN: usize = 20;
+    let limit = listed.min(TABLE_LIMIT); // 描画対象総数 (最大 100 件)
+    let shown = limit.min(DEFAULT_SHOWN); // デフォルト表示行数 (最大 20 件)
     let extracted = agg.jobbox.annual_holidays_values.len();
 
     html.push_str(
         "<div class=\"block-title\">§07.5-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
     );
+    // rank 5-1 (2026-07-02): デフォルトは上位 20 件のみ描画。21 件目以降は <details> に折り畳み。
+    //   PDF ではテーブル 100 行が §07.5 全体を ~8000px に肥大化させページ数が増大するため、
+    //   <details> (closed) にすることで画面では展開可・PDF では省略される。
     // 注記を 1 行に統合 (2 連続注記の冗長さを解消、2026-06-26)
     html.push_str(&format!(
-        "<p class=\"note\">※ 表示対象: 月給制で給与記載のある企業名記載分のみ ({} 件)。\
+        "<p class=\"note\">※ 表示対象: 月給制で給与記載のある企業名記載分のみ (全 {} 件中 上位 {} 件)。\
          年俸制／時給制／給与未記載／企業名空欄は除外 (KPI／分布／散布図には含まれる、集計対象 全 {} 件)。</p>\n",
         format_number(listed as i64),
+        format_number(shown as i64),
         format_number(extracted as i64),
     ));
 
+    // メインテーブル: 上位 shown 件
+    push_examples_table(html, &agg.jobbox.jobbox_records[..shown]);
+
+    // 残り (shown..limit) は <details> (closed) に折り畳み。画面では展開可、PDF では非表示。
+    if limit > shown {
+        html.push_str(&format!(
+            "<details style=\"margin-top:8px;\">\
+             <summary style=\"cursor:pointer;font-weight:600;color:#1e3a8a;padding:4px 0;\">\
+             残り {} 件を表示 (画面のみ / PDF では省略)</summary>\n",
+            format_number((limit - shown) as i64),
+        ));
+        push_examples_table(html, &agg.jobbox.jobbox_records[shown..limit]);
+        html.push_str("</details>\n");
+    }
+
+    if listed > limit {
+        html.push_str(&format!(
+            "<p class=\"note\">具体例 {} 件のうち上位 {} 件を対象に表示 (年間休日降順 → 企業名昇順)。</p>\n",
+            format_number(listed as i64),
+            format_number(limit as i64),
+        ));
+    }
+}
+
+/// §07.5-4 個別求人テーブル (thead + 指定レコードの tbody) を描画。
+/// メイン表示 (上位 20 件) と <details> 内 (残り) の両方で共用する (rank 5-1, 2026-07-02)。
+fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
     html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
@@ -549,7 +598,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
          </tr></thead>\n<tbody>\n",
     );
 
-    for rec in &agg.jobbox.jobbox_records[..limit] {
+    for rec in records {
         // 雇用形態バッジ
         let emp_badge = render_emp_badge(&rec.employment_type);
         // 年間休日色分け
@@ -587,13 +636,6 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
         ));
     }
     html.push_str("</tbody></table>\n");
-    if listed > limit {
-        html.push_str(&format!(
-            "<p class=\"note\">具体例 {} 件のうち上位 {} 件を表示中 (年間休日降順 → 企業名昇順)。</p>\n",
-            format_number(listed as i64),
-            format_number(limit as i64),
-        ));
-    }
 }
 
 // ============================================================================
