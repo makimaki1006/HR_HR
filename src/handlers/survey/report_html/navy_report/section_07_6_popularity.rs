@@ -35,7 +35,7 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
         html,
         "SECTION 07.6",
         "人気度シグナル",
-        "Indeed (SP) の「人気」「超人気」タグ集計 — 表示優先度の参考指標",
+        "Indeed (SP) の「人気」「超人気」タグ集計 — 付与基準は非公開の参考指標",
     );
 
     render_summary_kpi(html, agg);
@@ -43,11 +43,11 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
     render_salary_stats_block(html, agg);
 
     // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-popularity スコープで改ページ制御
+    // rank5 fix: table セレクタを除去し .kpi-row のみ残す (table は別ページ跨ぎを許容)
     html.push_str(
         "<style>\
          @media print {\
-           .navy-popularity .kpi-row,\
-           .navy-popularity table { break-inside: avoid; page-break-inside: avoid; }\
+           .navy-popularity .kpi-row { break-inside: avoid; page-break-inside: avoid; }\
          }\
          </style>\n",
     );
@@ -134,6 +134,12 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     );
 
     html.push_str("</div>\n");
+    // rank8: 超人気逆転の注記 + 効果約束の緩和
+    html.push_str(
+        "<p class=\"note\">※ 超人気タグは n が小さい場合が多く、\
+         下限中央値がタグなしを下回ることがあります。\
+         月給差・休日差は相関の参考値であり、因果関係および一貫した正の関係を示すものではありません。</p>\n",
+    );
 }
 
 // ============================================================================
@@ -153,7 +159,8 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
     const N_MIN_TABLE: usize = 5;
     html.push_str("<div class=\"block-title\">§07.6-2 &nbsp;月給・年間休日 比較 (中央値)</div>\n");
 
-    html.push_str(&format!(
+    // rank29: ヘッダの単一 n を廃止。各指標行に実 n を個別に併記する。
+    html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
          <col style=\"width:30%;\">\
@@ -162,21 +169,28 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
          </colgroup>\n\
          <thead><tr>\
          <th>指標</th>\
-         <th style=\"text-align:right;\">人気タグ あり (n={})</th>\
-         <th style=\"text-align:right;\">人気タグ なし (n={})</th>\
+         <th style=\"text-align:right;\">人気タグ あり</th>\
+         <th style=\"text-align:right;\">人気タグ なし</th>\
          </tr></thead>\n<tbody>\n",
-        pop.popular_n_salary.max(pop.popular_n_holidays),
-        pop.non_popular_n_salary.max(pop.non_popular_n_holidays),
-    ));
+    );
 
     if has_salary {
+        // rank29: 各行に対応する実 n を併記する
         let pop_val = if pop.popular_n_salary >= N_MIN_TABLE {
-            format_salary_yen(pop.popular_salary_median)
+            format!(
+                "{} (n={})",
+                format_salary_yen(pop.popular_salary_median),
+                pop.popular_n_salary
+            )
         } else {
             format!("— (n={})", pop.popular_n_salary)
         };
         let non_val = if pop.non_popular_n_salary >= N_MIN_TABLE {
-            format_salary_yen(pop.non_popular_salary_median)
+            format!(
+                "{} (n={})",
+                format_salary_yen(pop.non_popular_salary_median),
+                pop.non_popular_n_salary
+            )
         } else {
             format!("— (n={})", pop.non_popular_n_salary)
         };
@@ -190,13 +204,22 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
         ));
     }
     if has_holidays {
+        // rank29: 年間休日行にも対応する実 n を併記する
         let pop_val = if pop.popular_n_holidays >= N_MIN_TABLE {
-            format_days(pop.popular_holidays_median)
+            format!(
+                "{} (n={})",
+                format_days(pop.popular_holidays_median),
+                pop.popular_n_holidays
+            )
         } else {
             format!("— (n={})", pop.popular_n_holidays)
         };
         let non_val = if pop.non_popular_n_holidays >= N_MIN_TABLE {
-            format_days(pop.non_popular_holidays_median)
+            format!(
+                "{} (n={})",
+                format_days(pop.non_popular_holidays_median),
+                pop.non_popular_n_holidays
+            )
         } else {
             format!("— (n={})", pop.non_popular_n_holidays)
         };
@@ -211,10 +234,11 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
     }
     html.push_str("</tbody></table>\n");
 
-    // so-what は相関≠因果リスク回避のため最小限
+    // so-what は相関≠因果リスク回避のため最小限 / rank8: 表記を断定から中立化
     html.push_str(
-        "<p class=\"note\">※ 「人気」「超人気」は Indeed 内部の表示優先度シグナル。\
-         給与・休日との差分は相関の参考値であり、因果関係は示しません。</p>\n",
+        "<p class=\"note\">※ 「人気」「超人気」は Indeed が付与するラベル(付与基準は非公開)。\
+         給与・休日との差分は相関の参考値であり、因果関係は示しません。\
+         超人気タグ(n が小さい)は下限中央値がタグなしより低い場合があります。</p>\n",
     );
 }
 
