@@ -34,6 +34,12 @@ pub(crate) fn render_upload_form() -> String {
                 <div class="text-xs text-slate-500 text-right">
                     <div>対応形式: 主要求人媒体 CSV</div>
                     <div>文字コード: UTF-8（CSV/TXT）</div>
+                    <button type="button" id="btn-open-report-guide"
+                        class="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded shadow transition-colors"
+                        aria-label="レポートの見方を開く">
+                        <span aria-hidden="true">📖</span>
+                        <span>レポートの見方</span>
+                    </button>
                 </div>
             </div>
         </header>
@@ -235,6 +241,159 @@ pub(crate) fn render_upload_form() -> String {
         </section>
 
         <div id="survey-result"></div>
+
+        <!-- ==================================================================
+             レポートの見方 モーダル (2026-07-02 追加)
+             ==================================================================
+             - トリガー: 右上「📖 レポートの見方」ボタン (btn-open-report-guide)
+             - 内容: a. 各 Section の目的 / b. 統計用語 / d. 活用例 (営業・採用)
+             - Esc / 背景クリック / × で閉じる。role=dialog + focus trap 相当のシンプル実装。
+        -->
+        <div id="report-guide-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+             role="dialog" aria-modal="true" aria-labelledby="report-guide-title">
+            <div id="report-guide-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+            <div class="relative bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+                <div class="flex items-start justify-between p-5 border-b border-slate-700">
+                    <div>
+                        <h2 id="report-guide-title" class="text-lg font-bold text-white flex items-center gap-2">
+                            <span aria-hidden="true">📖</span> レポートの見方 (使い方ガイド)
+                        </h2>
+                        <p class="text-[11px] text-slate-400 mt-1">各セクションの目的、統計用語、営業/採用での活用例。折りたたみを開いて閲覧してください。</p>
+                    </div>
+                    <button type="button" id="btn-close-report-guide"
+                        class="text-slate-400 hover:text-white text-2xl leading-none px-2"
+                        aria-label="ガイドを閉じる">×</button>
+                </div>
+
+                <div class="overflow-y-auto p-5 space-y-4 text-slate-200 text-sm">
+
+                    <!-- ==== a. 各 Section の目的 ==== -->
+                    <details class="bg-slate-800/40 rounded p-3 border border-slate-700" open>
+                        <summary class="cursor-pointer font-semibold text-white select-none">
+                            <span class="inline-block w-5 text-blue-400">A</span>各セクションの目的・ストーリー
+                        </summary>
+                        <div class="mt-3 space-y-3 pl-6">
+
+                            <div>
+                                <div class="font-semibold text-cyan-300">Section 07.5 — 年間休日 × 給与 詳細</div>
+                                <p class="text-slate-300 text-[13px] mt-1">求人ボックス / Indeed (SP) の求人説明文から「年間休日◯◯日」を自動抽出し、給与とのクロスを可視化します。「休みが多い企業は本当に給与が低いのか」「120日以上休みで◯◯万円台の求人はどの層か」といった疑問に答えるセクションです。</p>
+                                <ul class="mt-2 text-[12px] text-slate-400 space-y-1">
+                                    <li>• <b class="text-slate-200">§07.5-1 サマリー</b>: 平均年間休日 / Q3 / 標準偏差 / 120・125 日以上比率</li>
+                                    <li>• <b class="text-slate-200">§07.5-2 分布</b>: 年間休日カテゴリ (〜89 / 90-104 / 105-119 / 120-124 / 125-129 / 130+) 別の構成比 + 給与中央値</li>
+                                    <li>• <b class="text-slate-200">§07.5-3 散布図</b>: 給与×年間休日、雇用形態色分け、Pearson r + 回帰直線</li>
+                                    <li>• <b class="text-slate-200">§07.5-4 個別求人</b>: 月給制+給与記載+会社名記載の求人リスト (最大100件、年間休日降順)</li>
+                                    <li>• <b class="text-slate-200">§07.5-5 セグメント別 給与</b>: 6 カテゴリ × 月給下限/上限 × 平均・中央値・最頻値</li>
+                                </ul>
+                            </div>
+
+                            <div>
+                                <div class="font-semibold text-amber-300">Section 07.6 — 人気度シグナル</div>
+                                <p class="text-slate-300 text-[13px] mt-1">Indeed (SP) 固有の「人気」「超人気」タグを集計。Indeed 内部の表示優先度スコアが給与・年間休日とどう相関するかを可視化します。「人気タグ付きの求人は本当に条件が良いのか」を検証するセクションです。</p>
+                                <ul class="mt-2 text-[12px] text-slate-400 space-y-1">
+                                    <li>• <b class="text-slate-200">§07.6-1 サマリー</b>: 人気/超人気件数、比率、月給差 (万円)、年間休日差</li>
+                                    <li>• <b class="text-slate-200">§07.6-2 中央値比較</b>: 人気タグあり vs なしの月給・年間休日中央値</li>
+                                    <li>• <b class="text-slate-200">§07.6-3 タグ別 給与統計</b>: 超人気/人気/なし × 月給下限/上限 × 平均・中央値・最頻値</li>
+                                </ul>
+                            </div>
+
+                            <div class="text-[11px] text-slate-500 border-t border-slate-700 pt-2 mt-2">
+                                ※ 他のセクション (Section 01-07, 08, 09) は HW データ・外部統計との統合分析。上記 07.5/07.6 は媒体 CSV 独自の追加セクションです。
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ==== b. 統計用語ガイド ==== -->
+                    <details class="bg-slate-800/40 rounded p-3 border border-slate-700">
+                        <summary class="cursor-pointer font-semibold text-white select-none">
+                            <span class="inline-block w-5 text-emerald-400">B</span>統計用語ガイド (中央値・Q3・r・最頻値・n閾値)
+                        </summary>
+                        <div class="mt-3 pl-6 space-y-3 text-[13px]">
+                            <div>
+                                <b class="text-white">平均 vs 中央値</b>
+                                <p class="text-slate-300 mt-1">平均は外れ値の影響を受けます (1件の高額求人で全体が引き上げ)。<b class="text-emerald-300">中央値</b>は全データを並べた真ん中の値なので、実態に近い水準を示します。両者の乖離が大きい場合は分布の歪みを疑ってください。</p>
+                            </div>
+                            <div>
+                                <b class="text-white">Q3 (第3四分位)</b>
+                                <p class="text-slate-300 mt-1">全データを昇順に並べたとき上位 25% の境界値。「Q3 以上 = 上位 1/4」の意味。§07.5-1 の「Q3=125 日」なら「上位 25% の企業は年間休日 125 日以上」。n ≥ 20 で R-7 線形補間、n &lt; 20 は最近接。</p>
+                            </div>
+                            <div>
+                                <b class="text-white">Pearson 相関係数 r</b>
+                                <p class="text-slate-300 mt-1">-1 〜 +1 の範囲。0 に近いほど無相関、±1 に近いほど強い線形関係。目安: |r|&lt;0.2 = ほぼ無相関 / 0.4 = 弱い / 0.6 = 中程度 / 0.8 = 強い。<b class="text-yellow-300">相関 ≠ 因果</b>: 給与と年間休日に相関があっても、片方が原因とは限りません (第三変数の可能性)。</p>
+                                <p class="text-slate-400 text-[11px] mt-1">本レポートでは n &lt; 10 は「傾向判定なし」、10 ≤ n &lt; 30 は「参考値」注記付き、n ≥ 30 でのみ確定表示します。</p>
+                            </div>
+                            <div>
+                                <b class="text-white">最頻値 (5 万円ビン)</b>
+                                <p class="text-slate-300 mt-1">給与は連続値なので、そのままでは最頻値が出にくい。5 万円刻みでビン化し「20〜24 万」「25〜29 万」…と集計、最も件数の多いビン開始値を最頻値としています。「20.0 万円」= 20 〜 25 万円のビン。同数の場合は最小ビン。</p>
+                            </div>
+                            <div>
+                                <b class="text-white">n閾値 (両群 n ≥ 5)</b>
+                                <p class="text-slate-300 mt-1">中央値比較 (§07.6-1 の月給差など) は両群の n が 5 未満だと外れ値 1 件で結果が乱高下します。両群 n ≥ 5 を満たさない場合は「— (n不足)」と表示され、KPI foot に実 n が併記されます。</p>
+                            </div>
+                            <div>
+                                <b class="text-white">重複排除 (dedup) のキー</b>
+                                <p class="text-slate-300 mt-1">同一施設の別求人 (経験別 / 雇用形態別 / 給与レンジ別) は別レコードとして残します。dedup キー: <code class="text-[11px] bg-slate-900 px-1 rounded">会社名 + タイトル + 勤務地 + 年間休日 + 給与文字列 + 雇用形態</code>。同時掲載の完全重複のみ除外。</p>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- ==== d. 活用例 (営業・採用) ==== -->
+                    <details class="bg-slate-800/40 rounded p-3 border border-slate-700">
+                        <summary class="cursor-pointer font-semibold text-white select-none">
+                            <span class="inline-block w-5 text-fuchsia-400">C</span>数値の読み替え / 活用例
+                        </summary>
+                        <div class="mt-3 pl-6 space-y-4 text-[13px]">
+
+                            <div>
+                                <div class="text-fuchsia-300 font-semibold">💼 営業提案での活用</div>
+                                <ul class="mt-2 space-y-2 text-slate-300 pl-4 list-disc">
+                                    <li>
+                                        <b class="text-white">競合水準の提示</b>：
+                                        「貴社の年間休日 X 日は §07.5-5 の 105-119 日カテゴリで下限中央値 Y 万円が標準。上限中央値 Z 万円まで引き上げると 120-124 日カテゴリと張り合えます」
+                                    </li>
+                                    <li>
+                                        <b class="text-white">人気タグ差分の根拠</b>：
+                                        「§07.6-3 の超人気タグ求人は中央値で月給 +A 万円、休日 +B 日。この差分に達すると Indeed 上位露出の可能性が上がります」
+                                    </li>
+                                    <li>
+                                        <b class="text-white">上限中央値の引用</b>：
+                                        「求人票の月給上限は §07.5-1 のこの地域の中央値 X 万円が心理的ライン。上限を X + 5 万円に設定すると閲覧率が上がる可能性」(あくまで媒体データからの示唆で、実際の閲覧率は保証されません)
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div>
+                                <div class="text-fuchsia-300 font-semibold">🧑‍💼 採用実務での活用</div>
+                                <ul class="mt-2 space-y-2 text-slate-300 pl-4 list-disc">
+                                    <li>
+                                        <b class="text-white">候補者面談の材料</b>：
+                                        「同エリア/同職種の年間休日中央値は §07.5-1 で N 日。当社の X 日は上位 A% (§07.5-2 分布より) に位置します」
+                                    </li>
+                                    <li>
+                                        <b class="text-white">競合オファーの妥当性判定</b>：
+                                        「候補者が『他社で月給 Y 万提示』と言った際、§07.5-5 で該当カテゴリ (年間休日+雇用形態) の上限中央値と比較して現実的な水準か判定」
+                                    </li>
+                                    <li>
+                                        <b class="text-white">求人票改善の優先度</b>：
+                                        「§07.5-4 個別求人の上位企業と自社を比較し、給与/休日/勤務地のどこに差があるか特定 → 差別化訴求」
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div class="text-[11px] text-slate-500 border-t border-slate-700 pt-3 mt-2">
+                                <b class="text-slate-400">⚠️ 注意</b>: 数値は媒体スクレイピング時点の状態です。求人ボックス / Indeed (SP) 掲載求人のみが集計対象で、全求人市場を代表しません。相関の話をする際は必ず「本媒体データでは」と限定してください。
+                            </div>
+                        </div>
+                    </details>
+
+                </div>
+
+                <div class="p-4 border-t border-slate-700 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Esc キー / 背景クリックでも閉じられます</span>
+                    <button type="button" data-close-guide
+                        class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs">閉じる</button>
+                </div>
+            </div>
+        </div>
     </div>
     <script>
     // ラジオカード選択時のハイライト（source/wage 共通）
@@ -292,6 +451,32 @@ pub(crate) fn render_upload_form() -> String {
                 status.className = 'mt-3 text-sm text-red-400';
             });
     }
+
+    // ==== レポートの見方 モーダル 開閉 (2026-07-02) ====
+    (function() {
+        var modal = document.getElementById('report-guide-modal');
+        var btnOpen = document.getElementById('btn-open-report-guide');
+        var btnClose = document.getElementById('btn-close-report-guide');
+        var backdrop = document.getElementById('report-guide-backdrop');
+        if (!modal || !btnOpen) return;
+        function open() {
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+        function close() {
+            modal.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+        btnOpen.addEventListener('click', open);
+        if (btnClose) btnClose.addEventListener('click', close);
+        if (backdrop) backdrop.addEventListener('click', close);
+        document.querySelectorAll('[data-close-guide]').forEach(function(b) {
+            b.addEventListener('click', close);
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+        });
+    })();
     </script>"##.to_string()
 }
 
