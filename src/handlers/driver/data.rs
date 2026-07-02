@@ -161,21 +161,21 @@ pub fn fetch_category_counts(turso: &TursoDb) -> Result<Vec<CategoryInfo>, Strin
 
     // key → 日本語ラベルの固定マップ
     let label_map: HashMap<&str, &str> = [
-        ("driver",              "ドライバー"),
-        ("logistics",           "物流・運輸"),
-        ("manufacturing",       "製造・加工"),
-        ("construction",        "建築・土木"),
-        ("cleaning",            "清掃・廃棄物"),
-        ("labor",               "倉庫・作業員"),
-        ("office",              "事務"),
-        ("sales",               "販売・営業"),
-        ("service",             "サービス"),
-        ("professional",        "専門・技術"),
-        ("legal_culture",       "法務・文化芸術"),
+        ("driver", "ドライバー"),
+        ("logistics", "物流・運輸"),
+        ("manufacturing", "製造・加工"),
+        ("construction", "建築・土木"),
+        ("cleaning", "清掃・廃棄物"),
+        ("labor", "倉庫・作業員"),
+        ("office", "事務"),
+        ("sales", "販売・営業"),
+        ("service", "サービス"),
+        ("professional", "専門・技術"),
+        ("legal_culture", "法務・文化芸術"),
         ("education_childcare", "保育・教育"),
-        ("security",            "警備・保安"),
-        ("agriculture",         "農林漁業"),
-        ("management",          "管理職"),
+        ("security", "警備・保安"),
+        ("agriculture", "農林漁業"),
+        ("management", "管理職"),
     ]
     .into_iter()
     .collect();
@@ -221,7 +221,10 @@ pub fn fetch_occupation_list(
     sql.push_str(" ORDER BY o.category, o.name");
 
     let rows = if let Some(c) = category {
-        turso.query(&sql, &[&c.to_string() as &dyn crate::db::turso_http::ToSqlTurso])?
+        turso.query(
+            &sql,
+            &[&c.to_string() as &dyn crate::db::turso_http::ToSqlTurso],
+        )?
     } else {
         turso.query(&sql, &[])?
     };
@@ -256,7 +259,10 @@ pub fn fetch_occupation_detail(
          FROM v2_external_jobtag_occupation WHERE jobtag_id = ?",
         &[&jobtag_id as &dyn crate::db::turso_http::ToSqlTurso],
     )?;
-    let occ_row = occ_rows.into_iter().next().ok_or(DriverDataError::NotFound)?;
+    let occ_row = occ_rows
+        .into_iter()
+        .next()
+        .ok_or(DriverDataError::NotFound)?;
     let occupation = OccupationRow {
         jobtag_id: i(&occ_row, "jobtag_id"),
         name: s(&occ_row, "name"),
@@ -317,16 +323,18 @@ pub fn fetch_occupation_detail(
     )?;
     let qualifications: Vec<String> = qual_rows.iter().map(|r| s(r, "name")).collect();
 
-    let related_orgs = fetch_related_orgs(turso, occupation.jobtag_id)
-        .unwrap_or_else(|e| {
-            // テーブル未投入時はエラーを無視して空配列を返す
-            tracing::warn!("fetch_related_orgs({jobtag_id}) failed (treated as empty): {e}");
-            Vec::new()
-        });
+    let related_orgs = fetch_related_orgs(turso, occupation.jobtag_id).unwrap_or_else(|e| {
+        // テーブル未投入時はエラーを無視して空配列を返す
+        tracing::warn!("fetch_related_orgs({jobtag_id}) failed (treated as empty): {e}");
+        Vec::new()
+    });
 
-    let wage_age_exp_rows = fetch_wage_age_exp(turso, &occupation.wage_census_code)
-        .unwrap_or_else(|e| {
-            tracing::warn!("fetch_wage_age_exp({}) failed (treated as empty): {e}", occupation.wage_census_code);
+    let wage_age_exp_rows =
+        fetch_wage_age_exp(turso, &occupation.wage_census_code).unwrap_or_else(|e| {
+            tracing::warn!(
+                "fetch_wage_age_exp({}) failed (treated as empty): {e}",
+                occupation.wage_census_code
+            );
             Vec::new()
         });
 
@@ -494,16 +502,24 @@ pub fn fetch_age_distribution_by_pref(
 
     // 年齢階級を辞書順ではなく年齢順で並べ替える
     let age_order = [
-        "15～19歳", "20～24歳", "25～29歳", "30～34歳",
-        "35～39歳", "40～44歳", "45～49歳", "50～54歳",
-        "55～59歳", "60～64歳", "65～69歳", "70～74歳",
-        "75～79歳", "80～84歳", "85歳以上",
+        "15～19歳",
+        "20～24歳",
+        "25～29歳",
+        "30～34歳",
+        "35～39歳",
+        "40～44歳",
+        "45～49歳",
+        "50～54歳",
+        "55～59歳",
+        "60～64歳",
+        "65～69歳",
+        "70～74歳",
+        "75～79歳",
+        "80～84歳",
+        "85歳以上",
     ];
-    let order_map: HashMap<&str, usize> = age_order
-        .iter()
-        .enumerate()
-        .map(|(i, &s)| (s, i))
-        .collect();
+    let order_map: HashMap<&str, usize> =
+        age_order.iter().enumerate().map(|(i, &s)| (s, i)).collect();
 
     let mut out: Vec<AgeDistributionRow> = rows
         .iter()
@@ -562,10 +578,19 @@ fn fetch_overall_stats(turso: &TursoDb) -> Result<OverallStats, String> {
         })
     }
 
-    let salaries: Vec<f64> = rows.iter().filter_map(|r| f(r, "annual_salary_man_yen")).collect();
+    let salaries: Vec<f64> = rows
+        .iter()
+        .filter_map(|r| f(r, "annual_salary_man_yen"))
+        .collect();
     let ages: Vec<f64> = rows.iter().filter_map(|r| f(r, "avg_age")).collect();
-    let workers: Vec<f64> = rows.iter().filter_map(|r| f(r, "workers_count_tenfold")).collect();
-    let hours: Vec<f64> = rows.iter().filter_map(|r| f(r, "scheduled_hours")).collect();
+    let workers: Vec<f64> = rows
+        .iter()
+        .filter_map(|r| f(r, "workers_count_tenfold"))
+        .collect();
+    let hours: Vec<f64> = rows
+        .iter()
+        .filter_map(|r| f(r, "scheduled_hours"))
+        .collect();
 
     Ok(OverallStats {
         sample_size: rows.len() as i64,
@@ -612,7 +637,9 @@ pub fn fetch_category_stats(turso: &TursoDb, category: &str) -> Result<CategoryS
     )?;
 
     fn median(mut values: Vec<f64>) -> Option<f64> {
-        if values.is_empty() { return None; }
+        if values.is_empty() {
+            return None;
+        }
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let mid = values.len() / 2;
         Some(if values.len() % 2 == 0 {
@@ -622,9 +649,15 @@ pub fn fetch_category_stats(turso: &TursoDb, category: &str) -> Result<CategoryS
         })
     }
 
-    let salaries: Vec<f64> = rows.iter().filter_map(|r| f(r, "annual_salary_man_yen")).collect();
+    let salaries: Vec<f64> = rows
+        .iter()
+        .filter_map(|r| f(r, "annual_salary_man_yen"))
+        .collect();
     let ages: Vec<f64> = rows.iter().filter_map(|r| f(r, "avg_age")).collect();
-    let workers: Vec<f64> = rows.iter().filter_map(|r| f(r, "workers_count_tenfold")).collect();
+    let workers: Vec<f64> = rows
+        .iter()
+        .filter_map(|r| f(r, "workers_count_tenfold"))
+        .collect();
 
     Ok(CategoryStats {
         category: category.to_string(),
