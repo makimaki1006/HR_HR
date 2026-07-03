@@ -268,8 +268,8 @@ fn render_salary_stats_block(html: &mut String, agg: &SurveyAggregation) {
         "<table class=\"table-navy\" \
          style=\"table-layout:fixed;width:100%;font-size:0.82em;\">\n\
          <colgroup>\
-         <col style=\"width:15%;\">\
-         <col style=\"width:6%;\">\
+         <col style=\"width:13%;\">\
+         <col style=\"width:8%;\">\
          <col style=\"width:13%;\">\
          <col style=\"width:13%;\">\
          <col style=\"width:13%;\">\

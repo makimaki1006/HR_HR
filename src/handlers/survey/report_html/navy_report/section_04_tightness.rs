@@ -367,12 +367,34 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
     });
     rows.truncate(8);
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-03 狭幅 (~620-700px) 崩れ対策:
+    //   table-layout:fixed + 6 等分 (col 無し) + .num/.tag の white-space:nowrap の
+    //   組合せで、狭幅時に nowrap ヘッダ (求人/就業者 1万人比) が隣セルへ重なり、
+    //   nowrap バッジが右枠を貫通していた (実ブラウザ ~700px で発見)。
+    //   対策: (1) colgroup で実コンテンツ最小幅から逆算した % 幅を明示
+    //         (2) 長い num ヘッダはインラインで white-space:normal を上書きし折返し許容
+    //         (3) 採用ニーズ密度 → 密度判定 に短縮 (意味は表下注記に一元化済)
+    let mut s = String::from("<table class=\"table-navy\">\n");
+    // 幅設計 (合計 100%): No.7 / 産業27 / 就業者15 / 掲載14 / 1万人比17 / 判定20
+    //   @620px: No.43 産業167 就業93 掲載87 比率105 判定124(px)。
+    //   就業者数は最大 8 桁 "12,345,678"(mono~70px)+padding が 93px に収まる。
+    //   判定バッジ "高密度"(3字~44px) は 124px を貫通しない。
+    s.push_str(
+        "<colgroup>\
+         <col style=\"width:7%\">\
+         <col style=\"width:27%\">\
+         <col style=\"width:15%\">\
+         <col style=\"width:14%\">\
+         <col style=\"width:17%\">\
+         <col style=\"width:20%\">\
+         </colgroup>\n",
+    );
+    s.push_str("<thead><tr>");
     s.push_str("<th>No.</th><th>産業大分類</th>");
-    s.push_str("<th class=\"num\">就業者数</th>");
-    s.push_str("<th class=\"num\">媒体掲載数</th>");
-    s.push_str("<th class=\"num\">求人/就業者 1万人比</th>");
-    s.push_str("<th>採用ニーズ密度</th>");
+    s.push_str("<th class=\"num\" style=\"white-space:normal\">就業者数</th>");
+    s.push_str("<th class=\"num\" style=\"white-space:normal\">媒体掲載数</th>");
+    s.push_str("<th class=\"num\" style=\"white-space:normal\">求人/就業者 1万人比</th>");
+    s.push_str("<th>密度判定</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
     if rows.is_empty() {
@@ -383,8 +405,10 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
         // density の全産業平均 (上位 8 内)
         let avg_density: f64 = rows.iter().map(|r| r.3).sum::<f64>() / rows.len() as f64;
         for (i, (name, emp, hw, density)) in rows.iter().enumerate() {
+            // バッジは判定ラベルのみ (「高密度」等)。意味説明 (求人/就業者比 高) は
+            // 表下注記に一元化し、狭幅で右枠を貫通しない最小語に抑える。
             let (tag, label) = if *density >= avg_density * 1.5 {
-                ("warn", "高密度 (求人/就業者比 高)")
+                ("warn", "高密度")
             } else if *density >= avg_density * 0.8 {
                 ("neu", "標準的")
             } else {
@@ -398,7 +422,7 @@ fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
                  <td class=\"num\">{}</td>\
                  <td class=\"num bold\">{}</td>\
                  <td class=\"num bold\">{:.2}</td>\
-                 <td><span class=\"tag tag-{}\">{}</span></td>\
+                 <td><span class=\"tag tag-{}\" style=\"max-width:100%;white-space:normal;overflow-wrap:anywhere;\">{}</span></td>\
                  </tr>\n",
                 row_class,
                 i + 1,
@@ -564,8 +588,19 @@ fn build_navy_tightness_gauges(d: &TightnessData, show_vacancy: bool) -> String 
 }
 
 fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> String {
+    // 2026-07-03 狭幅崩れ対策 (4-B と同方針): colgroup で幅を明示。
+    //   参考値 (.num) は "標準 15-25%" 等の空白含み文字列を nowrap 保持するため
+    //   17% 幅を確保し、解釈列 (折返し許容) に最大幅を割り当てる。
+    //   @620px: 指標136 対象81 参考105 難度81 解釈217(px)。
     let mut s = String::from(
         "<table class=\"table-navy\">\n\
+         <colgroup>\
+         <col style=\"width:22%\">\
+         <col style=\"width:13%\">\
+         <col style=\"width:17%\">\
+         <col style=\"width:13%\">\
+         <col style=\"width:35%\">\
+         </colgroup>\n\
          <thead><tr>\
          <th>指標</th><th class=\"num\">対象地域</th><th class=\"num\">参考値</th>\
          <th>採用難度</th><th>解釈</th>\
