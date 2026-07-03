@@ -321,7 +321,9 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
     use super::super::super::super::helpers::{get_f64, get_str_ref};
 
     html.push_str("<div class=\"block-title\">図 9-B 採用ターゲット構成比の相対指数</div>\n");
-    html.push_str("<p class=\"caption\">産業大分類の構成比を全国基準と比較した相対指数 (100 = 基準並み、200 が上限)。全国構成比が取得できない場合は均等基準 (産業数 N の 1/N) を用いた参考比較であり、実際の全国構成比ではありません。絶対値の表示は行いません。</p>\n");
+    // 2026-07-03 WF4後追い: 基準の実体は fetch_industry_structure (WHERE prefecture_code=?1) の
+    //   県全体集計。「全国基準」表記は粒度誤り (§04 全国平均→県平均 と同類) のため是正。
+    html.push_str("<p class=\"caption\">産業大分類の構成比を県全体の産業構成比を基準に比較した相対指数 (100 = 基準並み、200 が上限)。基準構成比が取得できない場合は均等基準 (産業数 N の 1/N) を用いた参考比較であり、実際の構成比ではありません。絶対値の表示は行いません。</p>\n");
 
     let ctx = match ctx {
         Some(c) => c,
@@ -339,8 +341,8 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
         return;
     }
 
-    // 上位 8 産業について「構成比 ÷ 全国平均構成比 × 100」を厚み指数とみなす。
-    // 全国平均は ext_industry_employees から導出 (なければ均等分布 1/N で代用)。
+    // 上位 8 産業について「構成比 ÷ 県全体構成比 × 100」を相対指数とみなす。
+    // 基準は ext_industry_employees (fetch_industry_structure、県全体集計) から導出 (なければ均等分布 1/N で代用)。
     let mut national_total: i64 = 0;
     let mut national_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in &ctx.ext_industry_employees {
@@ -356,7 +358,7 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
     }
 
     html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
-    html.push_str("<thead><tr><th>産業大分類</th><th>地域構成比</th><th>全国基準構成比</th><th>相対指数</th><th>参考</th></tr></thead>\n<tbody>\n");
+    html.push_str("<thead><tr><th>産業大分類</th><th>地域構成比</th><th>県全体構成比</th><th>相対指数</th><th>参考</th></tr></thead>\n<tbody>\n");
 
     let mut shown = 0;
     for (name, count) in ctx.hw_industry_counts.iter().take(8) {
@@ -365,7 +367,7 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
             let n = national_map.get(name).copied().unwrap_or(0);
             (n as f64) / (national_total as f64) * 100.0
         } else {
-            // 全国データなし: 上位 8 産業 1/8 を均等分布として代用
+            // 基準データなし: 上位 8 産業 1/8 を均等分布として代用
             100.0 / 8.0
         };
         let thickness = if national_share > 0.0 {
