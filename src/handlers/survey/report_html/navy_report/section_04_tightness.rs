@@ -49,7 +49,7 @@ struct TightnessData {
     job_ratio: Option<f64>,             // 有効求人倍率
     vacancy_rate: Option<f64>,          // HW 欠員補充率 (0-1)
     unemployment: Option<f64>,          // 失業率 (%)
-    unemployment_national: Option<f64>, // 全国平均失業率 (%)
+    unemployment_national: Option<f64>, // 県平均失業率 (%) — 実体は fetch_prefecture_mean (WHERE prefecture=?) 由来。名称は歴史的経緯
     separation: Option<f64>,            // 離職率 (%)
     entry: Option<f64>,                 // 入職率 (%)
 }
@@ -186,10 +186,10 @@ pub(crate) fn render_navy_section_04_market_tightness(
             (Some(u), Some(n)) => {
                 let diff = u - n;
                 let dot = if u < 2.5 { "warn" } else { "neu" };
-                let foot = format!("全国平均 {:.1}% / 差 {:+.1}pt", n, diff);
+                let foot = format!("県平均 {:.1}% / 差 {:+.1}pt", n, diff);
                 (format!("{:.1}", u), dot, foot)
             }
-            (Some(u), None) => (format!("{:.1}", u), "neu", "全国平均データなし".to_string()),
+            (Some(u), None) => (format!("{:.1}", u), "neu", "県平均データなし".to_string()),
             _ => ("—".to_string(), "neu", "データなし".to_string()),
         };
         push_kpi(html, "失業率", &val, "%", dot, &foot, false);
@@ -630,7 +630,7 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
         None => ("—".to_string(), "neu", "—"),
     };
     let nat_str = nat
-        .map(|n| format!("全国 {:.1}%", n))
+        .map(|n| format!("県平均 {:.1}%", n))
         .unwrap_or_else(|| "—".to_string());
     s.push_str(&row("失業率", val, &nat_str, tag, cmt));
     let (val, tag, cmt) = match d.and_then(|d| d.separation) {

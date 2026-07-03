@@ -1347,14 +1347,15 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
     // 2026-05-14: ユーザー指摘「図 3-5 がもう少し大きくできない、見えづらい」を反映。
     //   row_h 38→56 / 各 font-size ↑ で実効サイズを拡大。
     //   viewBox は w=720 維持 + h を拡大することで、`width=100%` 表示時に縦に伸びる。
-    // rank 11 (2026-06): viewBox w=720 は width=100% 表示時に約 0.48x へ縮小され、
-    //   font-size 13 → 実寸 6.2px でクラスタ名が読めない指摘を反映。font-size を実寸 12px
-    //   以上 (viewBox 26) に拡大。ラベルが長くなるため label_w 200→300 / n_w 60→70 に拡張。
+    // rank 7 (2026-07): WF3 の font26/22 は実測 scale≈1.0 (フル幅描画) で実寸 26/22px と
+    //   本文の 1.8-3.2 倍に過大。クラスタ名 15・軸目盛 14・n ラベル 13 に引き下げ。
+    //   label_w 300→240 / n_w 70→60 に戻して視覚バランスを調整。
+    //   (viewBox w=720, width=100%, scale≈0.96-1.02 で各 font-size がそのまま実寸になる)
     let w = 720.0;
     let row_h = 56.0;
     let h = 36.0 + sorted.len() as f64 * row_h + 36.0;
-    let label_w = 300.0;
-    let n_w = 70.0;
+    let label_w = 240.0;
+    let n_w = 60.0;
     let plot_x = label_w + n_w;
     let plot_w = w - plot_x - 16.0;
 
@@ -1379,7 +1380,7 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
         let x = plot_x + plot_w * i as f64 / 4.0;
         svg.push_str(&format!(
             "<line x1=\"{:.1}\" y1=\"24\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
-             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"26\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"14\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
             x, x, h - 20.0, x, h - 6.0, format_mm(v)
         ));
     }
@@ -1392,13 +1393,13 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
         let text_y = cy + row_center_off;
         // label
         svg.push_str(&format!(
-            "<text x=\"4\" y=\"{:.1}\" font-size=\"26\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"15\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
             text_y,
             escape_html(&c.label)
         ));
         // n
         svg.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"22\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
+            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
             label_w, text_y, c.count
         ));
         // whisker (min ~ max)
