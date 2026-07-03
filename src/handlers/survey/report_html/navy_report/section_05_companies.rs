@@ -1069,7 +1069,7 @@ fn build_companies_so_what(
 
     let growth_note = if n_growth >= 10 {
         format!(
-            "急成長企業 <strong>{}</strong> 社が地域に存在し、人材移動が活発な可能性があります。",
+            "急成長企業 <strong>{}</strong> 社が地域内に確認されており、採用強化中の法人が多数存在する状態です。",
             n_growth
         )
     } else if n_growth >= 3 {
