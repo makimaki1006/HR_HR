@@ -278,12 +278,71 @@ pub(crate) fn fetch_education_facilities(
     query_turso_or_local(turso, db, &sql, &params, "v2_external_education_facilities")
 }
 
+/// v2_external_geography 単位バグ是正 (2026-07-03)
+///
+/// Turso DB 診断 (SELECT のみ、1,741 行、重複ゼロ) で以下を確認:
+/// - `total_area_km2` / `habitable_area_km2` の実態は **ヘクタール** (km² の 100 倍)。
+///   例: 大分市 total_area_km2=50,239 (実際 502.39km²) / habitable_area_km2=24,587 (実際 ≈245.9km²)。
+///   横浜市 43,801→437.7km² / 浜松市 155,811→1,558km² / 別海町 131,717→1,317km² で全行一律 100 倍を確認。
+/// - `population_density_per_km2` / `habitable_density_per_km2` の実態は **人/ha** (人/km² の 1/100)。
+///   例: 大分市 density=9.467 (実際 ≈947 人/km²)。
+/// - `habitable_ratio` は無次元比率のため影響なし。
+///
+/// DB 側は書き換えず、取得点 (fetch_geography) で一括換算する:
+/// 面積 ÷100 (ha→km²)、密度 ×100 (人/ha→人/km²)。
+/// 消費者側 (insight GE-1 / jobmap external_panels / region karte /
+/// survey integration・region・regional_compare / navy §02 表2-B) の閾値は
+/// すべて真値スケール (人/km²) で定義済みのため、本換算のみで整合する。
+fn convert_geography_units_ha_to_km2(rows: &mut [Row]) {
+    /// ha が km² 列に格納されている面積カラム (÷100 で km² に是正)
+    const AREA_HA_COLS: [&str; 2] = ["total_area_km2", "habitable_area_km2"];
+    /// 人/ha が 人/km² 列に格納されている密度カラム (×100 で 人/km² に是正)
+    const DENSITY_PER_HA_COLS: [&str; 2] =
+        ["population_density_per_km2", "habitable_density_per_km2"];
+
+    // Turso HTTP は数値を文字列で返す場合があるため helpers::get_f64_opt と同じ解釈で読む
+    fn to_f64(v: &Value) -> Option<f64> {
+        if v.is_null() {
+            return None;
+        }
+        v.as_f64()
+            .or_else(|| v.as_i64().map(|i| i as f64))
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    }
+    // 浮動小数ノイズ抑制 (9.467×100 = 946.7000...01 → 946.7)
+    fn round6(v: f64) -> f64 {
+        (v * 1e6).round() / 1e6
+    }
+
+    for row in rows.iter_mut() {
+        for col in AREA_HA_COLS {
+            if let Some(v) = row.get(col).and_then(to_f64) {
+                if let Some(n) = serde_json::Number::from_f64(round6(v / 100.0)) {
+                    row.insert(col.to_string(), Value::Number(n));
+                }
+            }
+        }
+        for col in DENSITY_PER_HA_COLS {
+            if let Some(v) = row.get(col).and_then(to_f64) {
+                if let Some(n) = serde_json::Number::from_f64(round6(v * 100.0)) {
+                    row.insert(col.to_string(), Value::Number(n));
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn fetch_geography(
     db: &Db,
     turso: Option<&TursoDb>,
     pref: &str,
     muni: &str,
 ) -> Vec<Row> {
+    // 県/全国パスの SUM(): 現状 DB は 1 市 1 行 (PRIMARY KEY(prefecture, municipality)) だが、
+    // 将来 reference_year 違いの多年スナップショットが混入した場合に面積が膨張しないよう
+    // 最新年のみを対象とする防御ガードを入れる (2026-07-03)。
+    const LATEST_YEAR_GUARD: &str =
+        "reference_year = (SELECT MAX(reference_year) FROM v2_external_geography)";
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         (
             "SELECT prefecture, municipality, total_area_km2, habitable_area_km2, \
@@ -295,28 +354,124 @@ pub(crate) fn fetch_geography(
         )
     } else if !pref.is_empty() {
         (
-            "SELECT ?1 as prefecture, '全体' as municipality, \
-             SUM(total_area_km2) as total_area_km2, \
-             SUM(habitable_area_km2) as habitable_area_km2, \
-             NULL as population_density_per_km2, \
-             NULL as habitable_density_per_km2, \
-             MAX(reference_year) as reference_year \
-             FROM v2_external_geography WHERE prefecture = ?1"
-                .to_string(),
+            format!(
+                "SELECT ?1 as prefecture, '全体' as municipality, \
+                 SUM(total_area_km2) as total_area_km2, \
+                 SUM(habitable_area_km2) as habitable_area_km2, \
+                 NULL as population_density_per_km2, \
+                 NULL as habitable_density_per_km2, \
+                 MAX(reference_year) as reference_year \
+                 FROM v2_external_geography WHERE prefecture = ?1 AND {LATEST_YEAR_GUARD}"
+            ),
             vec![pref.to_string()],
         )
     } else {
         (
-            "SELECT '全国' as prefecture, '' as municipality, \
-             SUM(total_area_km2) as total_area_km2, \
-             SUM(habitable_area_km2) as habitable_area_km2, \
-             NULL as population_density_per_km2, \
-             NULL as habitable_density_per_km2, \
-             MAX(reference_year) as reference_year \
-             FROM v2_external_geography"
-                .to_string(),
+            format!(
+                "SELECT '全国' as prefecture, '' as municipality, \
+                 SUM(total_area_km2) as total_area_km2, \
+                 SUM(habitable_area_km2) as habitable_area_km2, \
+                 NULL as population_density_per_km2, \
+                 NULL as habitable_density_per_km2, \
+                 MAX(reference_year) as reference_year \
+                 FROM v2_external_geography WHERE {LATEST_YEAR_GUARD}"
+            ),
             vec![],
         )
     };
-    query_turso_or_local(turso, db, &sql, &params, "v2_external_geography")
+    let mut rows = query_turso_or_local(turso, db, &sql, &params, "v2_external_geography");
+    // 単位バグ是正: ha 系実態 → km² 系へ一括換算 (詳細は convert_geography_units_ha_to_km2 の doc comment)
+    convert_geography_units_ha_to_km2(&mut rows);
+    rows
+}
+
+#[cfg(test)]
+mod geography_unit_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn f(row: &Row, key: &str) -> f64 {
+        crate::handlers::helpers::get_f64(row, key)
+    }
+
+    /// 大分市の実 DB 値 (ha 系混入: 50,239 / 24,587 / 9.467) が
+    /// 実際の値 (502.39km² / 245.87km² / 946.7 人/km²) に換算されることを固定する。
+    #[test]
+    fn test_geography_unit_conversion_oita_case() {
+        let mut row: Row = HashMap::new();
+        row.insert("prefecture".into(), json!("大分県"));
+        row.insert("municipality".into(), json!("大分市"));
+        row.insert("total_area_km2".into(), json!(50_239.0));
+        row.insert("habitable_area_km2".into(), json!(24_587.0));
+        row.insert("population_density_per_km2".into(), json!(9.467));
+        row.insert("habitable_density_per_km2".into(), json!(19.343));
+        row.insert("reference_year".into(), json!("2021"));
+        let mut rows = vec![row];
+
+        convert_geography_units_ha_to_km2(&mut rows);
+
+        let r = &rows[0];
+        assert!(
+            (f(r, "total_area_km2") - 502.39).abs() < 1e-6,
+            "total_area_km2: 50,239ha → 502.39km² (実際: {})",
+            f(r, "total_area_km2")
+        );
+        assert!(
+            (f(r, "habitable_area_km2") - 245.87).abs() < 1e-6,
+            "habitable_area_km2: 24,587ha → 245.87km² (実際: {})",
+            f(r, "habitable_area_km2")
+        );
+        assert!(
+            (f(r, "population_density_per_km2") - 946.7).abs() < 1e-6,
+            "population_density: 9.467 人/ha → 946.7 人/km² (実際: {})",
+            f(r, "population_density_per_km2")
+        );
+        assert!(
+            (f(r, "habitable_density_per_km2") - 1_934.3).abs() < 1e-6,
+            "habitable_density: 19.343 人/ha → 1,934.3 人/km² (実際: {})",
+            f(r, "habitable_density_per_km2")
+        );
+        // 非対象カラムは無変更
+        assert_eq!(
+            r.get("reference_year").and_then(|v| v.as_str()),
+            Some("2021")
+        );
+    }
+
+    /// 県/全国 SUM パスの NULL 密度は NULL のまま素通しされる (0 等に化けない)。
+    #[test]
+    fn test_geography_unit_conversion_null_density_passthrough() {
+        let mut row: Row = HashMap::new();
+        row.insert("prefecture".into(), json!("大分県"));
+        row.insert("municipality".into(), json!("全体"));
+        row.insert("total_area_km2".into(), json!(634_071.0));
+        row.insert("habitable_area_km2".into(), json!(180_000.0));
+        row.insert("population_density_per_km2".into(), Value::Null);
+        row.insert("habitable_density_per_km2".into(), Value::Null);
+        let mut rows = vec![row];
+
+        convert_geography_units_ha_to_km2(&mut rows);
+
+        let r = &rows[0];
+        assert!((f(r, "total_area_km2") - 6_340.71).abs() < 1e-6);
+        assert!((f(r, "habitable_area_km2") - 1_800.0).abs() < 1e-6);
+        assert!(r["population_density_per_km2"].is_null());
+        assert!(r["habitable_density_per_km2"].is_null());
+    }
+
+    /// Turso HTTP が数値を文字列で返すケースも換算対象 (helpers::get_f64_opt と同じ解釈)。
+    #[test]
+    fn test_geography_unit_conversion_string_numbers() {
+        let mut row: Row = HashMap::new();
+        row.insert("total_area_km2".into(), json!("43801"));
+        row.insert("population_density_per_km2".into(), json!("86.1"));
+        let mut rows = vec![row];
+
+        convert_geography_units_ha_to_km2(&mut rows);
+
+        let r = &rows[0];
+        // 横浜市: 43,801ha → 438.01km²
+        assert!((f(r, "total_area_km2") - 438.01).abs() < 1e-6);
+        assert!((f(r, "population_density_per_km2") - 8_610.0).abs() < 1e-6);
+    }
 }

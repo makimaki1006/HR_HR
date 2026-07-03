@@ -51,6 +51,12 @@ use super::super::ReportVariant;
 use super::common::{fmt_ratio, push_kpi, push_page_head, push_region_scope_banner};
 
 // ============================================================
+// 換算係数 (wage.rs と統一: 167h/月 = 厚労省「就業条件総合調査 2024」基準)
+// wage.rs 側の定義と必ず同一値に保つこと。
+// ============================================================
+const HOURS_PER_MONTH: f64 = 167.0;
+
+// ============================================================
 // Section 09: 採用マーケットインテリジェンス (P0-8)
 // ============================================================
 
@@ -668,7 +674,7 @@ fn render_mi_9e_wage_attractiveness(
                 let hourly = if is_hourly {
                     m as f64
                 } else {
-                    (m as f64) / 160.0
+                    (m as f64) / HOURS_PER_MONTH
                 };
                 let premium = (hourly / mw * 100.0).clamp(0.0, 200.0);
                 let (d, f) = if premium >= 130.0 {
@@ -709,7 +715,7 @@ fn render_mi_9e_wage_attractiveness(
             let hourly = if is_hourly {
                 m as f64
             } else {
-                (m as f64) / 160.0
+                (m as f64) / HOURS_PER_MONTH
             };
             let premium = (hourly / mw * 100.0).clamp(0.0, 200.0);
             // 80 (= 最賃以下) を 0、100 (等価) を 25、160 以上を 100。

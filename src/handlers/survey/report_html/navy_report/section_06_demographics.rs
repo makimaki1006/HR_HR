@@ -737,7 +737,7 @@ fn build_demographics_so_what(
     } else if senior_pct >= 25.0 {
         " 高齢層 25%+ で全国平均並み。生産年齢層の絶対数を維持する施策 (定着 / 中途採用) を継続的に。"
     } else {
-        " 高齢層比率が低く、生産年齢層が厚い <strong>採用に有利な構造</strong> です。"
+        " 高齢層比率が低く、生産年齢層の構成比が高い状態です。"
     };
 
     let labor_note = match labor_force_rate {
