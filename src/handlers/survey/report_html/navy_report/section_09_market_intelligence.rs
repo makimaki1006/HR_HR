@@ -345,7 +345,10 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
     let mut national_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in &ctx.ext_industry_employees {
         let name = get_str_ref(r, "industry_name").to_string();
-        let v = get_f64(r, "employees") as i64;
+        // 実 SQL (subtab5_phase4_7.rs fetch_industry_structure) のエイリアスは
+        // `SUM(employees_total) as employees_total`。旧キー "employees" は常に 0 になり
+        // 均等基準 (1/N) フォールバックへ落ちるバグだった (2026-07 修正)。
+        let v = get_f64(r, "employees_total") as i64;
         if v > 0 && !name.is_empty() {
             national_total += v;
             *national_map.entry(name).or_insert(0) += v;
@@ -428,7 +431,8 @@ fn render_mi_9c_competition_density(
     let mut national_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for r in &ctx.ext_industry_employees {
         let name = get_str_ref(r, "industry_name").to_string();
-        let v = get_f64(r, "employees");
+        // 実 SQL エイリアスは employees_total (9-B と同修正、旧キー "employees" は常時 0)
+        let v = get_f64(r, "employees_total");
         if v > 0.0 && !name.is_empty() {
             *national_map.entry(name).or_insert(0.0) += v;
         }
@@ -598,7 +602,7 @@ fn render_mi_9e_wage_attractiveness(
     ctx: Option<&InsightContext>,
     agg: &SurveyAggregation,
 ) -> Option<f64> {
-    use super::super::super::super::helpers::get_f64;
+    use super::super::super::super::helpers::{get_f64, get_str_ref};
 
     html.push_str("<div class=\"block-title\">図 9-E 生活コスト補正後給与魅力度</div>\n");
     html.push_str("<p class=\"caption\">求人給与中央値を最低賃金 / 家計支出と比較した相対魅力度 (参考指標)。生活コスト補正は概算であり、契約条件 (家賃補助 / 通勤手当) を含みません。</p>\n");
@@ -616,9 +620,14 @@ fn render_mi_9e_wage_attractiveness(
         .last()
         .map(|r| get_f64(r, "hourly_min_wage"))
         .filter(|v| *v > 0.0);
+    // 家計支出は親カテゴリ「消費支出」の行を明示的に取得する (§07 / wage.rs と同パターン)。
+    // fetch_household_spending (subtab5_phase4.rs) は ORDER BY monthly_amount DESC のため
+    // .last() は最小サブカテゴリ (被服等) を拾ってしまうバグだった (2026-07 修正)。
+    // 「消費支出」行が無ければ None (サブカテゴリの勝手な合算はしない)。
     let household_spending = ctx
         .ext_household_spending
-        .last()
+        .iter()
+        .find(|r| get_str_ref(r, "category") == "消費支出")
         .map(|r| get_f64(r, "monthly_amount"))
         .filter(|v| *v > 0.0);
 

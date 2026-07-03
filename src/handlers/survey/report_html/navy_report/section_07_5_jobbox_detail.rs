@@ -57,10 +57,15 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     // rank 5-2 (2026-07-02): table を break-inside:avoid から除外。
     //   §07.5-4 の個別求人テーブルは A4 に収まらず、avoid 指定だと PDF 下端でクリップされる。
     //   テーブルの改ページ + ヘッダ再表示は既存グローバル設定に委ね、ここでは .kpi-row のみ制御。
+    // rank 6 (2026-07-03): 残件 <details.jobbox-rest> の PDF 強制展開を打ち消す。
+    //   グローバル style.rs:698 の `@media print { details { display:block !important; } }`
+    //   より高い詳細度 (`.navy-jobbox-detail details.jobbox-rest` = 0,2,2 vs `details` = 0,0,1) で
+    //   display:none を !important 指定。詳細度が勝つため PDF では残件が非表示になる。
     html.push_str(
         "<style>\
          @media print {\
            .navy-jobbox-detail .kpi-row { break-inside: avoid; page-break-inside: avoid; }\
+           .navy-jobbox-detail details.jobbox-rest { display: none !important; }\
          }\
          </style>\n",
     );
@@ -550,7 +555,14 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     );
     // rank 5-1 (2026-07-02): デフォルトは上位 20 件のみ描画。21 件目以降は <details> に折り畳み。
     //   PDF ではテーブル 100 行が §07.5 全体を ~8000px に肥大化させページ数が増大するため、
-    //   <details> (closed) にすることで画面では展開可・PDF では省略される。
+    //   残件は画面のみ展開可・PDF では非表示にしたい。
+    // rank 6 (2026-07-03): グローバル style.rs の
+    //   `@media print { details { display:block !important; } }` (style.rs:698) により、
+    //   単なる <details closed> は PDF で強制展開されてしまう (旧コメント「PDF では省略」は誤り)。
+    //   そこで残件 <details> に class="jobbox-rest" を付与し、セクション末尾の注入 <style> で
+    //   `.navy-jobbox-detail details.jobbox-rest { display:none !important; }` と
+    //   グローバル (`details` 単独 = 詳細度 0,0,1) より高い詳細度 (0,2,2) で上書きして
+    //   PDF では実際に非表示にする。これで summary の「PDF では省略」表記が実挙動と一致する。
     // rank 21 (2026-07-03): 除外条件注釈を短縮。
     html.push_str(&format!(
         "<p class=\"note\">※ 月給制・給与記載・企業名あり ({} 件 / 全 {} 件)。</p>\n",
@@ -561,10 +573,11 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     // メインテーブル: 上位 shown 件
     push_examples_table(html, &agg.jobbox.jobbox_records[..shown]);
 
-    // 残り (shown..limit) は <details> (closed) に折り畳み。画面では展開可、PDF では非表示。
+    // 残り (shown..limit) は <details class="jobbox-rest"> (closed) に折り畳み。
+    // 画面では展開可、PDF では末尾の注入 <style> で display:none 上書きにより非表示 (rank 6, 2026-07-03)。
     if limit > shown {
         html.push_str(&format!(
-            "<details style=\"margin-top:8px;\">\
+            "<details class=\"jobbox-rest\" style=\"margin-top:8px;\">\
              <summary style=\"cursor:pointer;font-weight:600;color:#1e3a8a;padding:4px 0;\">\
              残り {} 件を表示 (画面のみ / PDF では省略)</summary>\n",
             format_number((limit - shown) as i64),
@@ -1190,6 +1203,51 @@ mod tests {
         assert_eq!(mode_5man_bin(&[250_000, 320_000]), 250_000);
         // 空
         assert_eq!(mode_5man_bin(&[]), 0);
+    }
+
+    /// rank 6 (2026-07-03): 21 件以上のとき残件 <details> に class="jobbox-rest" が付与され、
+    /// 末尾注入 <style> にグローバルより高詳細度の display:none 上書きが出力される。
+    /// これで style.rs:698 の `details{display:block!important}` を打ち消し PDF 非表示を実現。
+    #[test]
+    fn rest_details_has_class_and_print_override() {
+        let records: Vec<JobBoxRecord> = (0..25)
+            .map(|i| JobBoxRecord {
+                company_name: format!("会社{i}"),
+                job_title: "職".to_string(),
+                location: "群馬県".to_string(),
+                employment_type: "正社員".to_string(),
+                annual_holidays: 120,
+                salary_min: Some(250_000),
+                salary_max: Some(350_000),
+            })
+            .collect();
+        let agg = SurveyAggregation {
+            total_count: 25,
+            jobbox: JobboxAnalysis {
+                annual_holidays_values: vec![120; 25],
+                jobbox_records: records,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        // §07.5-4: 残件 details に専用クラス
+        let mut ex = String::new();
+        render_examples_block(&mut ex, &agg);
+        assert!(
+            ex.contains("<details class=\"jobbox-rest\""),
+            "残件 details に jobbox-rest クラスが付与される"
+        );
+        assert!(
+            ex.contains("PDF では省略"),
+            "summary ラベルは PDF 省略を明示"
+        );
+        // セクション末尾の注入 <style> に高詳細度の display:none 上書き
+        let mut full = String::new();
+        render_navy_section_jobbox_detail(&mut full, &agg);
+        assert!(
+            full.contains(".navy-jobbox-detail details.jobbox-rest { display: none !important; }"),
+            "PDF で残件を非表示にする上書きCSSが注入される"
+        );
     }
 
     #[test]
