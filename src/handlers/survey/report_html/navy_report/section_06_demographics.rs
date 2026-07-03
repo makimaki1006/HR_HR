@@ -313,14 +313,25 @@ pub(crate) fn render_navy_section_06_demographics(
             .first()
             .map(|r| get_i64(r, "net_migration"))
             .unwrap_or(0);
-        let migration_insight = if latest_net > 0 {
-            format!("最新値で <strong>転入超過 +{} 名</strong>。社外からの流入が継続しており、<strong>採用候補プール 拡大局面</strong>。広域採用・移住セット訴求 (住宅手当 / 引越補助) との相性 良。",
-                format_number(latest_net))
-        } else if latest_net < 0 {
-            format!("最新値で <strong>転出超過 {} 名</strong>。転入と転出はほぼ均衡した水準で、社会移動による母集団拡大は限定的。<strong>定着策</strong> (キャリアパス明示 / 地元志向人材の囲い込み) を軸に据える選択肢が有効。",
+        // 均衡判定閾値: 純移動 |net| が総人口の 0.1% 未満なら「ほぼ均衡」とみなす。
+        //   根拠: 人口移動報告の社会増減率 (‰) で ±1‰=0.1% 前後は年次のノイズ水準であり、
+        //   これ未満を有意な転入/転出超過と断じるのは過大解釈になるため。
+        //   総人口が取得できない (pyramid 空) 場合は絶対値 500 名を代替閾値とする。
+        //   ※ latest は単年値のため、時系列断定 (「継続」「拡大が続く」) は用いず単年の事実に留める。
+        let balance_threshold: i64 = if total_pop > 0 {
+            ((total_pop as f64) * 0.001).round().max(1.0) as i64
+        } else {
+            500
+        };
+        let migration_insight = if latest_net.abs() < balance_threshold {
+            format!("最新値で <strong>転入・転出はほぼ均衡</strong> (純移動 {} 名規模)。単年の社会移動による母集団の純増減は限定的で、<strong>定着策</strong> (キャリアパス明示 / 地元志向人材の囲い込み) を軸に据える選択肢が有効。",
+                format_number(latest_net.abs()))
+        } else if latest_net > 0 {
+            format!("最新値で <strong>転入超過 +{} 名</strong>。当該年は転入が転出を上回る水準で、<strong>採用候補プール 拡大局面</strong>。広域採用・移住セット訴求 (住宅手当 / 引越補助) との相性 良。",
                 format_number(latest_net))
         } else {
-            "転入・転出が均衡。人材の純流入による母集団拡大は期待しにくく、<strong>定着重視</strong>の採用方針が有効。".to_string()
+            format!("最新値で <strong>転出超過 {} 名 (社会減)</strong>。当該年は転出が転入を上回る水準で、地域内の社会移動では母集団拡大を見込みにくい。<strong>定着策</strong> (キャリアパス明示 / 地元志向人材の囲い込み) や近隣広域への採用範囲拡大を軸に据える選択肢が有効。",
+                format_number(latest_net.abs()))
         };
         html.push_str(&format!(
             "<p class=\"caption\">出典: 住民基本台帳 人口移動報告 v2_external_migration。先頭 5 行表示。<br/><strong>示唆:</strong> {}</p>\n",
@@ -387,9 +398,9 @@ pub(crate) fn render_navy_section_06_demographics(
 
     // -- 表 6-E 労働力統計 詳細 (ext_labor_stats)  KPI 労働力率の明細  [旧 7.5-C 統合 2026-05-15]
     if !ctx.ext_labor_stats.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 6-E &nbsp;労働力統計 詳細 (就業者・産業構成)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 6-E &nbsp;労働統計 詳細 (賃金・離職率)</div>\n");
         html.push_str(&build_navy_auto_table(&ctx.ext_labor_stats, 5));
-        html.push_str("<p class=\"caption\">出典: e-Stat 社会人口統計体系 v2_external_labor_stats。図 6-1 KPI「労働力率」の内訳として、男女別就業者・第1-3 次産業就業者の構成比を示す。先頭 5 行表示。</p>\n");
+        html.push_str("<p class=\"caption\">出典: e-Stat 社会人口統計体系 v2_external_labor_stats。年度別の月給 (男女別)・パート時給 (男女別)・離職率 (%) を示す。先頭 5 行表示。<br/>※ 本表の「離職率 (%)」は労働統計 (v2_external_labor_stats) 由来で、§04 の離職率 (雇用動向調査ベース) とは出典・定義・粒度が異なるため、数値が一致しない場合があります。</p>\n");
     }
 
     // -- 表 6-F 学歴構成 (ext_education) [P1-5 (2026-05-25): 手書き化 + 構成比列追加]
