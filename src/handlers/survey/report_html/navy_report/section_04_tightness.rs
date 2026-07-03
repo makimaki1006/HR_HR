@@ -186,7 +186,12 @@ pub(crate) fn render_navy_section_04_market_tightness(
             (Some(u), Some(n)) => {
                 let diff = u - n;
                 let dot = if u < 2.5 { "warn" } else { "neu" };
-                let foot = format!("県平均 {:.1}% / 差 {:+.1}pt", n, diff);
+                // |差| < 0.05pt は対象=県単位のため同値になる。無意味な「差 -0.0pt」を非表示
+                let foot = if diff.abs() < 0.05 {
+                    format!("県平均 {:.1}% (対象=県のため同値)", n)
+                } else {
+                    format!("県平均 {:.1}% / 差 {:+.1}pt", n, diff)
+                };
                 (format!("{:.1}", u), dot, foot)
             }
             (Some(u), None) => (format!("{:.1}", u), "neu", "県平均データなし".to_string()),

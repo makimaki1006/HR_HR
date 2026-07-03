@@ -351,7 +351,7 @@ fn compute_skew_severity_50_pct_returns_pos_balanced() {
     ];
     let (sev, msg) = compute_skew_severity(&counts, "職種");
     assert_eq!(sev, "pos", "50% は POS (<= 70%)");
-    assert!(msg.contains("バランス 良好"), "msg={}", msg);
+    assert!(msg.contains("偏りは限定的"), "msg={}", msg);
     assert!(msg.contains("50.0%"), "msg={}", msg);
 }
 

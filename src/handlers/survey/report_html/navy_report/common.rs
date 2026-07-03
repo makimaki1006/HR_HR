@@ -105,7 +105,7 @@ pub(super) fn compute_skew_severity(
         (
             "pos",
             format!(
-                "{}バランス 良好 (上位「{}」{:.1}%)",
+                "{}上位カテゴリへの偏りは限定的 (最大構成「{}」{:.1}%)",
                 label, top_label, max_share
             ),
         )
