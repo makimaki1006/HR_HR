@@ -598,22 +598,32 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
 /// §07.5-4 個別求人テーブル (thead + 指定レコードの tbody) を描画。
 /// メイン表示 (上位 20 件) と <details> 内 (残り) の両方で共用する (rank 5-1, 2026-07-02)。
 fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
+    // rank 22 (2026-07-03): 狭幅 (~620px) 表示崩れ修正。
+    //   旧 colgroup は 雇用 8% / 年間休日 8% で、620px 時に col≈50px。
+    //   そこに nowrap の「正社員」バッジ (font 10pt→約56px) や「136 日」バッジ、
+    //   ヘッダ「年間休日」(4字≈47px) が収まらず、隣の月給列へ食い込み・折返し崩れが発生した。
+    //   col を実コンテンツ最小幅から逆算し 雇用11% / 年間休日13% に拡大、
+    //   バッジは font-size 11px + padding 圧縮、月給 td は nowrap を撤去 (下記ループ)。
+    //   算定 (table 実幅 620px, td/th 右 padding 8px → 使用可能幅 = col幅 - 8):
+    //     雇用    11% = 68px → 内側60px ≧ 正社員バッジ(11px×3字+padding12 ≈45px)
+    //     年間休日13% = 81px → 内側73px ≧ ヘッダ「年間休日」(11.3px×4≈47px) / 「136 日」バッジ≈44px
+    //     月給    26% =161px → 折返し許容、各数値は nowrap span で数字内改行を防止
     html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
-         <col style=\"width:17%;\">\
-         <col style=\"width:25%;\">\
+         <col style=\"width:16%;\">\
+         <col style=\"width:22%;\">\
+         <col style=\"width:12%;\">\
+         <col style=\"width:11%;\">\
          <col style=\"width:13%;\">\
-         <col style=\"width:8%;\">\
-         <col style=\"width:8%;\">\
-         <col style=\"width:29%;\">\
+         <col style=\"width:26%;\">\
          </colgroup>\n\
          <thead><tr>\
          <th>企業名</th>\
          <th>求人タイトル</th>\
          <th>勤務地</th>\
-         <th>雇用</th>\
-         <th style=\"text-align:right;\">年間休日</th>\
+         <th style=\"text-align:center;\">雇用</th>\
+         <th style=\"text-align:right;white-space:nowrap;\">年間休日</th>\
          <th>月給レンジ</th>\
          </tr></thead>\n<tbody>\n",
     );
@@ -624,13 +634,24 @@ fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
         // 年間休日色分け
         let (hol_bg, hol_fg) = holiday_color(rec.annual_holidays);
         // 月給レンジ (テキストのみ、mini bar 廃止 2026-06-26)
+        // rank 22 (2026-07-03): td の white-space:nowrap を撤去し「〜」前後で折返し可能に。
+        //   各金額は nowrap span で囲み、数字の途中 (例 192,950) では折れないよう保護する。
+        //   これで狭幅でも「192,950」+「202,190 円」の 2 行折返しに収まり、隣接列への貫通を防ぐ。
         let salary_text = match (rec.salary_min, rec.salary_max) {
-            (Some(lo), Some(hi)) if hi == lo => format!("{} 円", format_number(lo)),
-            (Some(lo), Some(hi)) if hi > lo => {
-                format!("{} 〜 {} 円", format_number(lo), format_number(hi))
+            (Some(lo), Some(hi)) if hi == lo => {
+                format!("<span style=\"white-space:nowrap;\">{} 円</span>", format_number(lo))
             }
-            (Some(lo), _) => format!("{} 円 〜", format_number(lo)),
-            (None, Some(hi)) => format!("〜 {} 円", format_number(hi)),
+            (Some(lo), Some(hi)) if hi > lo => format!(
+                "<span style=\"white-space:nowrap;\">{}</span> 〜 <span style=\"white-space:nowrap;\">{} 円</span>",
+                format_number(lo),
+                format_number(hi)
+            ),
+            (Some(lo), _) => {
+                format!("<span style=\"white-space:nowrap;\">{} 円 〜</span>", format_number(lo))
+            }
+            (None, Some(hi)) => {
+                format!("〜 <span style=\"white-space:nowrap;\">{} 円</span>", format_number(hi))
+            }
             _ => "—".to_string(),
         };
         html.push_str(&format!(
@@ -638,12 +659,13 @@ fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{company}</td>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{title}</td>\
              <td style=\"overflow-wrap:anywhere;word-break:keep-all;\">{loc}</td>\
-             <td style=\"white-space:nowrap;\">{emp}</td>\
-             <td style=\"text-align:right;white-space:nowrap;\">\
-             <span style=\"display:inline-block;padding:2px 8px;border-radius:10px;\
-             background:{hol_bg};color:{hol_fg};font-weight:600;white-space:nowrap;\">{hol} 日</span>\
+             <td style=\"text-align:center;\">{emp}</td>\
+             <td style=\"text-align:right;\">\
+             <span style=\"display:inline-block;max-width:100%;padding:2px 6px;border-radius:10px;\
+             background:{hol_bg};color:{hol_fg};font-weight:600;font-size:11px;white-space:nowrap;\
+             overflow:hidden;text-overflow:ellipsis;\">{hol} 日</span>\
              </td>\
-             <td style=\"white-space:nowrap;\">{salary}</td>\
+             <td style=\"line-height:1.5;\">{salary}</td>\
              </tr>\n",
             company = escape_html(&rec.company_name),
             title = escape_html(&rec.job_title),
@@ -896,9 +918,13 @@ fn render_emp_badge(emp: &str) -> String {
     } else {
         ("#f1f5f9", "#475569")
     };
+    // rank 22 (2026-07-03): 狭幅で 雇用 col (11%≈68px) にバッジを収めるため
+    //   font-size 10pt→11px、padding 2px 8px→2px 6px に圧縮。
+    //   max-width:100% + overflow:hidden で万一長い雇用形態名でもセルを貫通しない。
     format!(
-        "<span style=\"display:inline-block;padding:2px 8px;border-radius:10px;\
-         background:{bg};color:{fg};font-size:10pt;white-space:nowrap;\">{}</span>",
+        "<span style=\"display:inline-block;max-width:100%;padding:2px 6px;border-radius:10px;\
+         background:{bg};color:{fg};font-size:11px;white-space:nowrap;\
+         overflow:hidden;text-overflow:ellipsis;vertical-align:middle;\">{}</span>",
         escape_html(emp)
     )
 }
@@ -1087,9 +1113,14 @@ mod tests {
             "badge style (employment type or holiday color)"
         );
         // 2026-06-26 mini bar 廃止 → 給与はテキスト表示
+        // rank 22 (2026-07-03): 狭幅折返し対策で各金額を nowrap span で囲むよう変更。
+        //   数値の途中では折れず、「〜」の前後でのみ折返し可能。
         assert!(
-            html.contains("250,000 〜 350,000 円"),
-            "salary range as plain text"
+            html.contains(
+                "<span style=\"white-space:nowrap;\">250,000</span> 〜 \
+             <span style=\"white-space:nowrap;\">350,000 円</span>"
+            ),
+            "salary range with per-amount nowrap spans (breakable only at 〜)"
         );
         assert!(!html.contains("salary mini bar"), "mini bar removed");
     }
