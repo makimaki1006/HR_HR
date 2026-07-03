@@ -1503,7 +1503,7 @@ fn build_navy_rental_vs_salary_table(
         .map(|v| format!("{} 円/m²", format_number(v)))
         .unwrap_or_else(|| "取得不可".to_string());
     s.push_str(&format!(
-        "<p class=\"caption\">出典: 総務省 e-Stat 住宅・土地統計調査 0004021493 (借家 専用住宅 延べ面積 1m² 当たり家賃、2023 年実施)         + CSV 給与集計。<strong>m² 単価</strong> は cat03 「家賃０円を含まない」の月額単価 (円/m²)。         <strong>全国平均</strong> = {national_avg}。月給は CSV 中央値 (時給ベースは &times; 167h で換算)。         <strong>想定 50m² 月家賃</strong> = m² 単価 &times; 50 (1LDK 相当の概算、実物件家賃は別途確認が必要)。         <strong>判定基準 (全国平均比):</strong> 70% 以下を <strong>家賃低水準</strong>、70-130% を <strong>全国標準水準</strong>、130% 超を <strong>家賃高水準</strong> としています。         <strong>SO WHAT:</strong> 家賃低水準帯では給与の絶対水準で訴求余地があります。家賃高水準帯では家賃補助・住宅手当・通勤手当等の付帯条件強化が候補となります。         住宅・土地統計は 5 年に 1 回の調査であり、最新基準年は as_of=2023 です。本表は HW 掲載求人の給与中央値と公的 m² 単価指標の対比であり、         実物件家賃 / 世帯収入 / 可処分所得 等は別軸で評価が必要です。m² 単価は土地価格と連動する地域コスト指標として活用してください。</p>\n",
+        "<p class=\"caption\">出典: 総務省 e-Stat 住宅・土地統計調査 0004021493 (借家 専用住宅 延べ面積 1m² 当たり家賃、2023 年実施)         + CSV 給与集計。<strong>m² 単価</strong> は 「家賃0円を含まない」区分の月額単価 (円/m²)。         <strong>全国平均</strong> = {national_avg}。月給は CSV 中央値 (時給ベースは &times; 167h で換算)。         <strong>想定 50m² 月家賃</strong> = m² 単価 &times; 50 (1LDK 相当の概算、実物件家賃は別途確認が必要)。         <strong>判定基準 (全国平均比):</strong> 70% 以下を <strong>家賃低水準</strong>、70-130% を <strong>全国標準水準</strong>、130% 超を <strong>家賃高水準</strong> としています。         <strong>SO WHAT:</strong> 家賃低水準帯では給与の絶対水準で訴求余地があります。家賃高水準帯では家賃補助・住宅手当・通勤手当等の付帯条件強化が候補となります。         住宅・土地統計は 5 年に 1 回の調査であり、最新基準年は as_of=2023 です。本表は掲載求人 (アップロード CSV) の給与中央値と公的 m² 単価指標の対比であり、         実物件家賃 / 世帯収入 / 可処分所得 等は別軸で評価が必要です。m² 単価は土地価格と連動する地域コスト指標として活用してください。</p>\n",
         national_avg = national_avg_str,
     ));
     s
