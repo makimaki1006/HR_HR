@@ -198,6 +198,17 @@ pub(super) fn build_navy_auto_table(
         "subcategory",
         "name",
         "label",
+        // 地理指標: 表 2-B (section_02_region) で habitable_area_km2 が確実に
+        // 表示されるよう優先度を付与。HashMap の反復順は非決定的なため、
+        // priority=99 のまま放置すると truncate(6) で切り落とされる恐れがある。
+        // これら 3 列は v2_external_geography 専用であり、他の ext_* テーブルには
+        // 存在しないため、他セクションの auto_table 出力には影響しない。
+        // (2026-07-03 修正: 表 2-B ラベルと表示列の不一致を解消)
+        "habitable_area_km2",         // 可住地面積 → 表 2-B タイトルに明記
+        "population_density_per_km2", // 人口密度   → 表 2-B タイトルに明記
+        "total_area_km2",             // 総面積     → 市の規模感の基礎情報として優先
+                                      // habitable_density_per_km2 (可住地密度) は上記 2 列からの
+                                      // 派生値のため priority=99 のまま → 7 列目で truncate(6) 落ち
     ];
     keys.sort_by_key(|k| priority.iter().position(|p| *p == k.as_str()).unwrap_or(99));
     // 2026-05-15: A4 横幅に収まるよう 8 → 6 カラムに縮小 (ユーザー指摘:表示はみ出し)
