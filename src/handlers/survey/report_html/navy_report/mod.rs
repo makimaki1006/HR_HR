@@ -175,6 +175,15 @@ use super::ReportVariant;
 // A1 Commit 4 (2026-05-29): section_02_region.rs / section_04_tightness.rs
 // から `super::build_navy_auto_table` で参照されるため pub(super) に昇格。
 // mod.rs 内 (Section 03/05/06/07) からは従来どおり unqualified で呼び出せる。
+/// 年を表すカラムか (桁区切りフォーマットの除外用)。
+/// 2026-07-07 VRT baseline 目視レビューで「2,023」表示を検出した恒久対策。
+fn is_year_column(k: &str) -> bool {
+    matches!(
+        k,
+        "fiscal_year" | "reference_year" | "year" | "survey_year" | "as_of_year"
+    ) || k.ends_with("_year")
+}
+
 pub(super) fn build_navy_auto_table(
     rows: &[super::super::super::helpers::Row],
     max_rows: usize,
@@ -246,13 +255,25 @@ pub(super) fn build_navy_auto_table(
                         escape_html(&str_val)
                     }
                 }
-                Some(jv) if jv.is_i64() || jv.is_u64() => format_number(get_i64(r, k)),
+                // 2026-07-07 VRT baseline 目視レビューで検出: 年カラム (fiscal_year 等) が
+                //   format_number で「2,023」と桁区切りされていた。年は桁区切りしない。
+                Some(jv) if jv.is_i64() || jv.is_u64() => {
+                    if is_year_column(k) {
+                        get_i64(r, k).to_string()
+                    } else {
+                        format_number(get_i64(r, k))
+                    }
+                }
                 Some(jv) if jv.is_f64() => {
                     let f = get_f64(r, k);
                     if f.is_nan() || !f.is_finite() {
                         "—".to_string()
                     } else if f.fract().abs() < 1e-9 {
-                        format_number(f as i64)
+                        if is_year_column(k) {
+                            (f as i64).to_string()
+                        } else {
+                            format_number(f as i64)
+                        }
                     } else {
                         format!("{:.2}", f)
                     }

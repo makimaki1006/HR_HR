@@ -1666,6 +1666,9 @@ pub(crate) fn label_for_column(key: &str) -> &str {
         "ratio_total" => "有効求人倍率",
         "ratio_excl_part" => "有効求人倍率(パート除く)",
         "hourly_min_wage" => "最低賃金(時給円)",
+        // 2026-07-07 VRT baseline レビューで生カラム名露出を検出 (silent fallback `_ => key` の実例)
+        "exit_rate" => "廃業率(%)",
+        "daytime_ratio" => "昼夜間人口比率(%)",
         // IT / その他
         "internet_usage_rate" => "ネット利用率(%)",
         "smartphone_ownership_rate" => "スマホ所有率(%)",
