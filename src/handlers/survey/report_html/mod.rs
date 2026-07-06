@@ -627,10 +627,84 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
 ///     .build();
 /// let html = render_survey_report_page_with_config(&cfg);
 /// ```
+/// レポート内の生成日時 (§08「YYYY年MM月DD日 HH:MM 時点」/ 表紙の年月) を算出する。
+///
+/// # VRT 決定化フック (2026-07)
+///
+/// 環境変数 `REPORT_FIXED_TIMESTAMP` (書式 `"YYYY-MM-DD HH:MM"`) が設定されていれば、
+/// その値を固定生成時刻として使用する。VRT (visual regression) 用 fixture を
+/// バイト単位で再現可能にするための唯一のフック。
+///
+/// **本番挙動は不変**: 環境変数が未設定 / 解析失敗の場合は従来通り `chrono::Local::now()`。
+///
+/// # サンセット基準
+///
+/// このフックは VRT fixture 生成 (`gen_vrt_fixtures` bin) 専用。8 週間 (2026-09 目安) で
+/// VRT による回帰検出実績がゼロなら、フックごと縮小 (削除) を検討する。
+///
+/// 戻り値: `(full, short)` = (`"YYYY年MM月DD日 HH:MM"`, `"YYYY年MM月"`)
+fn report_generation_timestamps() -> (String, String) {
+    if let Ok(fixed) = std::env::var("REPORT_FIXED_TIMESTAMP") {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(fixed.trim(), "%Y-%m-%d %H:%M") {
+            return (
+                dt.format("%Y年%m月%d日 %H:%M").to_string(),
+                dt.format("%Y年%m月").to_string(),
+            );
+        }
+    }
+    let l = chrono::Local::now();
+    (
+        l.format("%Y年%m月%d日 %H:%M").to_string(),
+        l.format("%Y年%m月").to_string(),
+    )
+}
+
+/// VRT fixture 生成専用の公開エントリ (2026-07 追加)。
+///
+/// # 目的
+///
+/// `gen_vrt_fixtures` bin から、DB / サーバ / ネットワークなしで決定論的な
+/// レポート HTML を得るためだけに存在する薄いラッパ。本番 handler は使用しない。
+///
+/// # 設計判断
+///
+/// - `render_survey_report_page_with_config` / `RenderConfig` は `pub(crate)` のまま維持し、
+///   本関数のシグネチャには **すべて `pub` 型のみ**を露出する
+///   (`MunicipalityDemographics` 等の `pub(crate)` 型を public interface に漏らさない)。
+/// - `municipality_demographics` / `salesnow_segments` / `hw_enrichment_map` は
+///   builder のデフォルト (空) を使う。全セクション描画には agg + hw_context で十分。
+///
+/// # サンセット基準
+///
+/// VRT 専用。8 週間で回帰検出実績ゼロなら本関数と bin ごと縮小を検討する。
+#[allow(clippy::too_many_arguments)]
+pub fn render_survey_report_page_for_vrt(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    variant: ReportVariant,
+) -> String {
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .variant(variant)
+        .build();
+    render_survey_report_page_with_config(&cfg)
+}
+
 pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> String {
-    let now = chrono::Local::now()
-        .format("%Y年%m月%d日 %H:%M")
-        .to_string();
+    // 2026-07 VRT 決定化フック: 生成日時 (§08 等) を固定できるようにする。
+    // 本番挙動は不変 (環境変数未設定時は従来通り Local::now())。
+    let (now, today_short) = report_generation_timestamps();
     let mut html = String::with_capacity(64_000);
 
     // --- DOCTYPE + HEAD ---
@@ -672,7 +746,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     // L639 の render_navy_section_06_demographics で参照不可だった)。
     let target_region = compose_target_region(cfg.agg, cfg.selected_pref, cfg.selected_muni);
     {
-        let today_short = chrono::Local::now().format("%Y年%m月").to_string();
+        // today_short は関数冒頭で REPORT_FIXED_TIMESTAMP フック経由で算出済み (VRT 決定化)。
         // 2026-05-14: ユーザー選択地域があれば優先、未指定なら CSV dominant (従来動作)。
         //   CSV 内最多と選択地域が異なる場合 (例: 群馬県選択 → CSV 最多は埼玉県) の
         //   情報は SO WHAT / 流入流出注記で別途扱う。
