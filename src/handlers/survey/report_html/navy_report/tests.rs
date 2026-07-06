@@ -1249,7 +1249,7 @@ fn auto_table_two_runs_produce_identical_html() {
             Value::String("千代田区".to_string()),
         );
         m.insert("alpha_metric".to_string(), Value::from(42_i64));
-        m.insert("beta_metric".to_string(), Value::from(3.14_f64));
+        m.insert("beta_metric".to_string(), Value::from(3.25_f64) /* 3.14 は clippy::approx_constant (PI 誤認, deny) に抵触するため回避 */);
         m.insert("zeta_col".to_string(), Value::from(99_i64));
         m.insert(
             "gamma_col".to_string(),
