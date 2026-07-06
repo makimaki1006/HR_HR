@@ -56,10 +56,12 @@ struct TightnessData {
 
 fn extract_tightness(ctx: &InsightContext) -> TightnessData {
     use super::super::super::super::helpers::{get_f64, get_str_ref};
+    // 列名 SSoT: render 側キーと SQL エイリアスの不一致 (silent 0) を db_columns で防止。
+    use super::super::db_columns::{ENTRY_RATE, RATIO_TOTAL, SEPARATION_RATE, UNEMPLOYMENT_RATE};
     let job_ratio = ctx
         .ext_job_ratio
         .last()
-        .map(|r| get_f64(r, "ratio_total"))
+        .map(|r| get_f64(r, RATIO_TOTAL))
         .filter(|v| *v > 0.0);
     let vacancy_rate = ctx
         .vacancy
@@ -70,12 +72,12 @@ fn extract_tightness(ctx: &InsightContext) -> TightnessData {
     let unemployment = ctx
         .ext_labor_force
         .first()
-        .map(|r| get_f64(r, "unemployment_rate"))
+        .map(|r| get_f64(r, UNEMPLOYMENT_RATE))
         .filter(|v| *v > 0.0);
     let (separation, entry) = ctx
         .ext_turnover
         .last()
-        .map(|r| (get_f64(r, "separation_rate"), get_f64(r, "entry_rate")))
+        .map(|r| (get_f64(r, SEPARATION_RATE), get_f64(r, ENTRY_RATE)))
         .map(|(s, e)| (Some(s).filter(|v| *v > 0.0), Some(e).filter(|v| *v > 0.0)))
         .unwrap_or((None, None));
     TightnessData {
@@ -329,13 +331,14 @@ pub(crate) fn render_navy_section_04_market_tightness(
 // 産業別 採用ニーズ密度: 国勢調査就業者数 + 求人媒体掲載数 → 求人/就業者 比率
 fn build_navy_industry_tightness_table(ctx: &InsightContext) -> String {
     use super::super::super::super::helpers::{get_f64, get_str};
+    use super::super::db_columns::{EMPLOYEES_TOTAL, INDUSTRY_NAME};
     let industry_emp: Vec<(String, i64)> = ctx
         .ext_industry_employees
         .iter()
         .map(|r| {
             (
-                get_str(r, "industry_name"),
-                get_f64(r, "employees_total") as i64,
+                get_str(r, INDUSTRY_NAME),
+                get_f64(r, EMPLOYEES_TOTAL) as i64,
             )
         })
         .filter(|(n, c)| !n.is_empty() && *c > 0)

@@ -144,6 +144,7 @@ pub(crate) fn render_navy_section_09_market_intelligence(
 /// 戻り値: positive_score (0-100) — 9-F の合成入力に使用。データなしは None。
 fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>) -> Option<f64> {
     use super::super::super::super::helpers::get_f64;
+    use super::super::db_columns::{RATIO_TOTAL, UNEMPLOYMENT_RATE};
 
     html.push_str("<div class=\"block-title\">図 9-A 配信優先度サマリー</div>\n");
     html.push_str(
@@ -153,13 +154,13 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
     let job_ratio = ctx.and_then(|c| {
         c.ext_job_ratio
             .last()
-            .map(|r| get_f64(r, "ratio_total"))
+            .map(|r| get_f64(r, RATIO_TOTAL))
             .filter(|v| *v > 0.0)
     });
     let unemployment = ctx.and_then(|c| {
         c.ext_labor_force
             .first()
-            .map(|r| get_f64(r, "unemployment_rate"))
+            .map(|r| get_f64(r, UNEMPLOYMENT_RATE))
             .filter(|v| *v > 0.0)
     });
     let self_rate = ctx.map(|c| c.commute_self_rate);
@@ -325,6 +326,7 @@ fn compute_inflow_intensity_index(inflow_total: i64) -> f64 {
 
 fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>) {
     use super::super::super::super::helpers::{get_f64, get_str_ref};
+    use super::super::db_columns::{EMPLOYEES_TOTAL, INDUSTRY_NAME};
 
     html.push_str("<div class=\"block-title\">図 9-B 採用ターゲット構成比の相対指数</div>\n");
     // 2026-07-03 WF4後追い: 基準の実体は fetch_industry_structure (WHERE prefecture_code=?1) の
@@ -352,11 +354,12 @@ fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>)
     let mut national_total: i64 = 0;
     let mut national_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for r in &ctx.ext_industry_employees {
-        let name = get_str_ref(r, "industry_name").to_string();
+        let name = get_str_ref(r, INDUSTRY_NAME).to_string();
         // 実 SQL (subtab5_phase4_7.rs fetch_industry_structure) のエイリアスは
         // `SUM(employees_total) as employees_total`。旧キー "employees" は常に 0 になり
         // 均等基準 (1/N) フォールバックへ落ちるバグだった (2026-07 修正)。
-        let v = get_f64(r, "employees_total") as i64;
+        // db_columns::EMPLOYEES_TOTAL の列コントラクトテストが SQL 側との一致を保証。
+        let v = get_f64(r, EMPLOYEES_TOTAL) as i64;
         if v > 0 && !name.is_empty() {
             national_total += v;
             *national_map.entry(name).or_insert(0) += v;
@@ -424,6 +427,7 @@ fn render_mi_9c_competition_density(
     ctx: Option<&InsightContext>,
 ) -> Option<f64> {
     use super::super::super::super::helpers::{get_f64, get_str_ref};
+    use super::super::db_columns::{EMPLOYEES_TOTAL, INDUSTRY_NAME};
 
     html.push_str("<div class=\"block-title\">図 9-C 競合求人密度 (クロス分析)</div>\n");
     html.push_str("<p class=\"caption\">産業別 HW 求人件数 ÷ 産業就業者規模で算出した相対密度比。値が高い産業は競合配信が激しいことを示唆します (実測ベース)。</p>\n");
@@ -438,9 +442,9 @@ fn render_mi_9c_competition_density(
 
     let mut national_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for r in &ctx.ext_industry_employees {
-        let name = get_str_ref(r, "industry_name").to_string();
+        let name = get_str_ref(r, INDUSTRY_NAME).to_string();
         // 実 SQL エイリアスは employees_total (9-B と同修正、旧キー "employees" は常時 0)
-        let v = get_f64(r, "employees_total");
+        let v = get_f64(r, EMPLOYEES_TOTAL);
         if v > 0.0 && !name.is_empty() {
             *national_map.entry(name).or_insert(0.0) += v;
         }
@@ -611,6 +615,7 @@ fn render_mi_9e_wage_attractiveness(
     agg: &SurveyAggregation,
 ) -> Option<f64> {
     use super::super::super::super::helpers::{get_f64, get_str_ref};
+    use super::super::db_columns::{CATEGORY, HOURLY_MIN_WAGE, MONTHLY_AMOUNT};
 
     html.push_str("<div class=\"block-title\">図 9-E 生活コスト補正後給与魅力度</div>\n");
     html.push_str("<p class=\"caption\">求人給与中央値を最低賃金 / 家計支出と比較した相対魅力度 (参考指標)。生活コスト補正は概算であり、契約条件 (家賃補助 / 通勤手当) を含みません。</p>\n");
@@ -626,7 +631,7 @@ fn render_mi_9e_wage_attractiveness(
     let min_wage = ctx
         .ext_min_wage
         .last()
-        .map(|r| get_f64(r, "hourly_min_wage"))
+        .map(|r| get_f64(r, HOURLY_MIN_WAGE))
         .filter(|v| *v > 0.0);
     // 家計支出は親カテゴリ「消費支出」の行を明示的に取得する (§07 / wage.rs と同パターン)。
     // fetch_household_spending (subtab5_phase4.rs) は ORDER BY monthly_amount DESC のため
@@ -635,8 +640,8 @@ fn render_mi_9e_wage_attractiveness(
     let household_spending = ctx
         .ext_household_spending
         .iter()
-        .find(|r| get_str_ref(r, "category") == "消費支出")
-        .map(|r| get_f64(r, "monthly_amount"))
+        .find(|r| get_str_ref(r, CATEGORY) == "消費支出")
+        .map(|r| get_f64(r, MONTHLY_AMOUNT))
         .filter(|v| *v > 0.0);
 
     // agg から月給中央値 / 時給中央値を取得 (silent fallback 防御: median が 0 / 欠損は None)

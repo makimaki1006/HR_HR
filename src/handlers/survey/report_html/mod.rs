@@ -16,6 +16,10 @@ use super::hw_enrichment::HwAreaEnrichment;
 use super::job_seeker::JobSeekerAnalysis;
 
 // ======== サブモジュール宣言 (大規模ファイル分割: C-2) ========
+// 外部統計 (ext_*) 列名の SSoT + 列コントラクトテスト。
+// navy_report の各 section が get_f64/get_i64 で読むキーと SQL の SELECT
+// エイリアスの不一致 (silent 0 事故) を構造的に防ぐ。
+pub(crate) mod db_columns;
 mod demographics;
 mod employment;
 mod executive_summary;
