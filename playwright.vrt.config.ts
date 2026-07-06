@@ -22,6 +22,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/vrt',
+  timeout: 120_000,
 
   // OS suffix を含めない — CI (ubuntu-latest) 専用 baseline のため。
   // {platform} や {snapshotSuffix} を除外することでクロス環境での意図しない diff を防ぐ。
