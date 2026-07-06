@@ -38,9 +38,12 @@ export default defineConfig({
     ['html', { open: 'never', outputFolder: 'vrt-report' }],
   ],
 
-  timeout: 60_000,
-
   expect: {
+    // mobile-375 のフルページは数万 px 高になり、既定 5s では安定化キャプチャが
+    // 完了しない (CI 実測 2026-07-07)。assertion polling の上限を 60s に拡大。
+    // ※ ここは expect ブロック内でないと toHaveScreenshot に効かない
+    //   (トップレベル timeout はテスト全体の制限で assertion polling には無関係)。
+    timeout: 60_000,
     toHaveScreenshot: {
       // 1% 以内のピクセル差は許容 (アンチエイリアス等の微細差を吸収)
       maxDiffPixelRatio: 0.01,
