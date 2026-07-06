@@ -38,7 +38,7 @@ const FIXTURE_URL = `file:///${FIXTURE_PATH.replace(/\\/g, '/')}`;
  * 該当要素が存在しない場合は空マッチとなり no-op。
  */
 function getMask(page: import('@playwright/test').Page) {
-  return [page.locator('[data-vrt-mask]')];
+  return [page.locator('[data-vrt-mask]'), page.locator('.theme-toggle') /* fixed UI: スクショ写り込みノイズ (2026-07-07) */];
 }
 
 // ---------------------------------------------------------------------------
