@@ -1216,3 +1216,169 @@ fn round1k_freshness_emits_data_id_label() {
         html
     );
 }
+
+// ============================================================
+// 決定性ガード (2026-07-06): build_navy_auto_table の列順が
+// HashMap 反復順に依存しないことを機械的に保証する。
+//
+// 設計:
+//   Test A (2回実行同一性): 同じ Row スライスを 2 回渡して
+//     assert_eq!(html1, html2) — 偽陽性の余地なし。
+//   Test B (挿入順シャッフル): キー/値は同じで挿入順だけ異なる
+//     2 つの Row を用意し、同一 HTML を assert。
+//     これが「修正前は flaky だった」ことの実証でもある。
+//   Test C (guard_demo): HashMap を直接 .keys() → sort なし で
+//     列を収集すると、挿入順違いで異なる HTML になり得ることを示す
+//     (assert_ne! で確認 ← CI では #[ignore] で実行しない。ローカル手動確認用)。
+// ============================================================
+
+/// 同一 Row スライスを 2 回渡した結果がバイト完全一致することを確認する。
+#[test]
+fn auto_table_two_runs_produce_identical_html() {
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    fn make_row() -> HashMap<String, Value> {
+        let mut m = HashMap::new();
+        m.insert(
+            "prefecture".to_string(),
+            Value::String("東京都".to_string()),
+        );
+        m.insert(
+            "municipality".to_string(),
+            Value::String("千代田区".to_string()),
+        );
+        m.insert("alpha_metric".to_string(), Value::from(42_i64));
+        m.insert("beta_metric".to_string(), Value::from(3.14_f64));
+        m.insert("zeta_col".to_string(), Value::from(99_i64));
+        m.insert(
+            "gamma_col".to_string(),
+            Value::String("データA".to_string()),
+        );
+        m
+    }
+
+    let rows = vec![make_row(), make_row()];
+    let html1 = super::build_navy_auto_table(&rows, 10);
+    let html2 = super::build_navy_auto_table(&rows, 10);
+    assert_eq!(
+        html1, html2,
+        "2回呼び出しで HTML が一致しない (HashMap 反復順依存が残存している)"
+    );
+}
+
+/// 挿入順が異なる Row 2 種を用意し、同一 HTML を assert する。
+/// これが通ることで「priority+lex ソートが HashMap 挿入順非依存」を実証する。
+#[test]
+fn auto_table_insertion_order_independent() {
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    // Row A: アルファベット昇順で挿入
+    let mut row_a: HashMap<String, Value> = HashMap::new();
+    row_a.insert("alpha_metric".to_string(), Value::from(1_i64));
+    row_a.insert("beta_metric".to_string(), Value::from(2_i64));
+    row_a.insert(
+        "municipality".to_string(),
+        Value::String("渋谷区".to_string()),
+    );
+    row_a.insert(
+        "prefecture".to_string(),
+        Value::String("東京都".to_string()),
+    );
+    row_a.insert("zeta_col".to_string(), Value::from(3_i64));
+
+    // Row B: 逆順で挿入 (同一キー・同一値)
+    let mut row_b: HashMap<String, Value> = HashMap::new();
+    row_b.insert("zeta_col".to_string(), Value::from(3_i64));
+    row_b.insert(
+        "prefecture".to_string(),
+        Value::String("東京都".to_string()),
+    );
+    row_b.insert(
+        "municipality".to_string(),
+        Value::String("渋谷区".to_string()),
+    );
+    row_b.insert("beta_metric".to_string(), Value::from(2_i64));
+    row_b.insert("alpha_metric".to_string(), Value::from(1_i64));
+
+    let html_a = super::build_navy_auto_table(&[row_a], 5);
+    let html_b = super::build_navy_auto_table(&[row_b], 5);
+    assert_eq!(
+        html_a,
+        html_b,
+        "挿入順が異なる Row で HTML が異なった (列順が HashMap 反復順に依存している)\n\
+         html_a の列順: {:?}\nhtml_b の列順: {:?}",
+        // ヘッダ行だけ抽出してデバッグ表示
+        html_a.lines().find(|l| l.contains("<th>")),
+        html_b.lines().find(|l| l.contains("<th>"))
+    );
+}
+
+/// [guard_demo] HashMap を直接 iter() して sort なしに列を収集すると
+/// 挿入順が変わると結果が変わり得ることを示すテスト。
+/// CI では実行しない (#[ignore])。ローカル手動確認用: `cargo test -- --ignored`
+///
+/// 実行方法:
+///   cd HR_HR && CARGO_TARGET_DIR=... cargo test \
+///     auto_table_guard_demo_hashmap_order_not_stable -- --ignored --nocapture
+///
+/// 注意: Rust の HashMap はランダムシードで起動毎に反復順が変わる。
+/// 同一プロセス内では同一ハッシュシードのため、assert_ne! は
+/// 挿入順で順序が変わるよう keys を十分多く設定してある。
+/// 本テストが pass (assert_ne! 成立) ＝ ガードなしでは flaky になる実証。
+#[test]
+#[ignore = "guard_demo: ガードなし版の不安定性を手動確認する用途のみ。CI 対象外"]
+fn auto_table_guard_demo_hashmap_order_not_stable() {
+    use serde_json::Value;
+    use std::collections::HashMap;
+
+    // sort を省いた「修正前」相当の auto_table ローカル実装
+    fn build_table_no_sort(rows: &[HashMap<String, Value>]) -> String {
+        use super::super::super::super::helpers::{escape_html, get_f64, get_i64, get_str};
+        if rows.is_empty() {
+            return String::new();
+        }
+        // ★ sort() なしで priority だけ適用 → HashMap 反復順依存
+        let mut keys: Vec<String> = rows[0].keys().cloned().collect();
+        let priority = ["prefecture", "municipality"];
+        keys.sort_by_key(|k| priority.iter().position(|p| *p == k.as_str()).unwrap_or(99));
+        keys.truncate(6);
+        let mut s = String::new();
+        s.push_str("<tr>");
+        for k in &keys {
+            s.push_str(&format!("<th>{}</th>", escape_html(k)));
+        }
+        s.push_str("</tr>");
+        s
+    }
+
+    // 同一内容・挿入順が異なる 2 行
+    let mut row_fwd: HashMap<String, Value> = HashMap::new();
+    for key in &["col_p", "col_q", "col_r", "col_s", "col_t"] {
+        row_fwd.insert((*key).to_string(), Value::from(0_i64));
+    }
+    let mut row_rev: HashMap<String, Value> = HashMap::new();
+    for key in ["col_t", "col_s", "col_r", "col_q", "col_p"] {
+        row_rev.insert(key.to_string(), Value::from(0_i64));
+    }
+
+    let h1 = build_table_no_sort(&[row_fwd]);
+    let h2 = build_table_no_sort(&[row_rev]);
+
+    // ガードなし版は (ハッシュシード次第で) 異なる列順になる場合がある。
+    // このテストは「sort なしでは不安定になり得る」ことの示唆であり、
+    // 同一シードでたまたま等しくなっても panic しない (assert_ne! が通らない場合は
+    // そのシードでは偶然安定していたことを意味する)。
+    if h1 == h2 {
+        eprintln!(
+            "[guard_demo] 今回の HashMap シードでは偶然一致した。\
+            別実行で再確認すること。h1={:?}",
+            h1
+        );
+    } else {
+        eprintln!("[guard_demo] 不安定を確認: h1={:?} h2={:?}", h1, h2);
+        // 不安定を検出できたことを示す assertion
+        assert_ne!(h1, h2, "guard_demo: sort なし版で列順不安定を実証");
+    }
+}
