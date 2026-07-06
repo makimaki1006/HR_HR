@@ -1,0 +1,128 @@
+# =============================================================================
+# VRT (Visual Regression Testing) CI workflow
+#
+# 【概要】
+#   Rust バイナリ (gen_vrt_fixtures) で決定論的 HTML を生成し、
+#   Playwright でスクリーンショット比較を行う。
+#   DB・サーバ・ネットワーク不要。合成データのみ使用。
+#
+# 【初回 baseline 生成手順 (bootstrap)】
+#   baseline スナップショットが存在しない初回は比較ステップが失敗する。
+#   以下の手順で bootstrap すること:
+#     1. GitHub UI から Actions > VRT > Run workflow を開く
+#     2. "update_baselines" チェックボックスを true にして実行
+#     3. 完了後、Artifacts の "vrt-baselines" をダウンロード
+#     4. tests/vrt/__screenshots__/ に展開してコミット & プッシュ
+#     5. 以降は push のたびに自動比較が走る
+#
+# 【サンセット基準】
+#   8週間 diff 検出実績ゼロ、または赤化を3回連続で無検討 accept した
+#   場合は本ワークフローの運用を見直す (縮小・廃止を検討)。
+# =============================================================================
+
+name: VRT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/handlers/survey/report_html/**'
+      - 'src/bin/gen_vrt_fixtures.rs'
+      - 'tests/vrt/**'
+      - 'playwright.vrt.config.ts'
+      - 'vrt/**'
+  workflow_dispatch:
+    inputs:
+      update_baselines:
+        description: 'baseline スナップショットを更新して Artifact にアップロードする'
+        type: boolean
+        default: false
+
+jobs:
+  vrt:
+    name: Visual Regression Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. ソースチェックアウト
+      # ------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Rust ツールチェーン (stable)
+      # ------------------------------------------------------------------
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # ------------------------------------------------------------------
+      # 3. Rust ビルドキャッシュ
+      # ------------------------------------------------------------------
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # ------------------------------------------------------------------
+      # 4. VRT fixture HTML 生成
+      #    REPORT_FIXED_TIMESTAMP で時刻を固定し決定論的出力を保証する。
+      #    実企業名・実スクレイピングデータは gen_vrt_fixtures 内で
+      #    合成データのみ使用すること (公開リポのため)。
+      # ------------------------------------------------------------------
+      - name: Generate VRT fixtures (deterministic HTML)
+        env:
+          REPORT_FIXED_TIMESTAMP: '2026-01-01 00:00'
+        run: cargo run --bin gen_vrt_fixtures
+
+      # ------------------------------------------------------------------
+      # 5. Node.js セットアップ & npm 依存インストール
+      # ------------------------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # ------------------------------------------------------------------
+      # 6. Playwright / Chromium インストール
+      # ------------------------------------------------------------------
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # ------------------------------------------------------------------
+      # 7a. スクリーンショット比較 (通常モード)
+      # ------------------------------------------------------------------
+      - name: Run VRT (compare)
+        if: ${{ inputs.update_baselines != 'true' }}
+        run: npx playwright test -c playwright.vrt.config.ts
+
+      # ------------------------------------------------------------------
+      # 7b. スクリーンショット更新モード (update_baselines == true)
+      # ------------------------------------------------------------------
+      - name: Run VRT (update baselines)
+        if: ${{ inputs.update_baselines == 'true' }}
+        run: npx playwright test -c playwright.vrt.config.ts --update-snapshots
+
+      # ------------------------------------------------------------------
+      # 8. update モード時: 新 baseline を Artifact にアップロード
+      #    開発者がダウンロードして tests/vrt/__screenshots__/ にコミット
+      # ------------------------------------------------------------------
+      - name: Upload updated baselines
+        if: ${{ inputs.update_baselines == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-baselines
+          path: tests/vrt/__screenshots__/
+
+      # ------------------------------------------------------------------
+      # 9. 比較失敗時: diff/actual 画像を Artifact に保存 (14日保持)
+      # ------------------------------------------------------------------
+      - name: Upload VRT diff on failure
+        if: failure() && inputs.update_baselines != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vrt-diff-${{ github.run_id }}
+          path: test-results/
+          retention-days: 14

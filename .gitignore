@@ -135,3 +135,7 @@ cargo_run.log
 cargo_run.log.err
 data/occupation_middle_pref_turso_import.sql
 data/license_*_turso_import.sql
+
+# VRT: 生成物 (gen_vrt_fixtures が決定論的に再生成。CI でも毎回生成)
+vrt/fixtures/
+test-results/
