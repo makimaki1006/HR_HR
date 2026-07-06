@@ -110,7 +110,7 @@ jobs:
       #    開発者がダウンロードして tests/vrt/__screenshots__/ にコミット
       # ------------------------------------------------------------------
       - name: Upload updated baselines
-        if: ${{ inputs.update_baselines }}
+        if: ${{ always() && inputs.update_baselines }}
         uses: actions/upload-artifact@v4
         with:
           name: vrt-baselines
