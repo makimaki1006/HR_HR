@@ -44,6 +44,9 @@ STATUS.md
 
 # E2E test artifacts (auto-generated screenshots)
 *.png
+# VRT baseline は例外 (CI 生成・目視レビュー済みを追跡する)
+!tests/vrt/__screenshots__/
+!tests/vrt/__screenshots__/**/*.png
 chart_verify*.png
 check_*.png
 d??_*.png
