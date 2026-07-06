@@ -185,6 +185,11 @@ pub(super) fn build_navy_auto_table(
     }
     // 列の優先順位: 識別子系を先頭、数値系を後ろ
     let mut keys: Vec<String> = rows[0].keys().cloned().collect();
+    // 決定性保証 (2026-07-06): HashMap の反復順は非決定的。
+    // sort_by_key は安定ソートなので、先に keys.sort() で辞書順に揃えると
+    // 同一 priority 値どうしの相対順序も固定される。
+    // 結果: どの実行順でも同じ HTML 列順が出力される。
+    keys.sort();
     let priority = [
         "year",
         "fiscal_year",

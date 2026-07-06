@@ -77,6 +77,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     };
 
     use super::super::super::super::helpers::{get_f64, get_i64, get_str_ref};
+    use super::super::db_columns::{CATEGORY, FISCAL_YEAR, HOURLY_MIN_WAGE, MONTHLY_AMOUNT};
 
     // -- 最低賃金: ext_min_wage 時系列。複数キー候補から取得 (Row 型は HashMap)
     let mut wages: Vec<(i32, i64)> = ctx
@@ -87,15 +88,16 @@ pub(crate) fn render_navy_section_07_lifestyle(
             //   `SELECT fiscal_year, hourly_min_wage FROM v2_external_minimum_wage_history`)。
             //   従来キー "year" は常に 0 を返し「(0 年)」表示 (表7-E ヘッダ / 図7-2 x軸) の
             //   原因になっていた。互換のため fiscal_year 優先・year フォールバック (数値不変)。
+            //   FISCAL_YEAR / HOURLY_MIN_WAGE は db_columns の列コントラクトテストで SQL と一致保証。
             let year = {
-                let fy = get_i64(r, "fiscal_year");
+                let fy = get_i64(r, FISCAL_YEAR);
                 if fy > 0 {
                     fy
                 } else {
                     get_i64(r, "year")
                 }
             } as i32;
-            for k in ["hourly_wage", "hourly_min_wage", "min_wage", "amount"] {
+            for k in ["hourly_wage", HOURLY_MIN_WAGE, "min_wage", "amount"] {
                 let v = get_f64(r, k);
                 if v > 0.0 {
                     return Some((year, v as i64));
@@ -123,17 +125,17 @@ pub(crate) fn render_navy_section_07_lifestyle(
     let total_consumption: i64 = ctx
         .ext_household_spending
         .iter()
-        .find(|r| get_str_ref(r, "category") == "消費支出")
-        .map(|r| get_f64(r, "monthly_amount") as i64)
+        .find(|r| get_str_ref(r, CATEGORY) == "消費支出")
+        .map(|r| get_f64(r, MONTHLY_AMOUNT) as i64)
         .unwrap_or(0);
     let mut category_breakdown: Vec<(String, i64)> = ctx
         .ext_household_spending
         .iter()
-        .filter(|r| get_str_ref(r, "category") != "消費支出")
+        .filter(|r| get_str_ref(r, CATEGORY) != "消費支出")
         .map(|r| {
             (
-                get_str_ref(r, "category").to_string(),
-                get_f64(r, "monthly_amount") as i64,
+                get_str_ref(r, CATEGORY).to_string(),
+                get_f64(r, MONTHLY_AMOUNT) as i64,
             )
         })
         .filter(|(n, v)| !n.is_empty() && *v > 0)

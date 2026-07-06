@@ -582,7 +582,10 @@ td {
   border-bottom: 1px solid #eee;
 }
 tr:nth-child(even) td { background: #fafafa; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* SSoT-num-1: 桁揃え (tabular-nums) + 旧字体排除 (lining-nums)。
+ * lining-nums により数字の descender (6,8,9 の下ひげ) が消え、列の縦位置が揃う。
+ * 単位100倍バグの目視検知率も向上する。 */
+td.num { text-align: right; font-variant-numeric: tabular-nums lining-nums; }
 
 /* ソート可能テーブル */
 .sortable-table th { cursor: pointer; user-select: none; position: relative; padding-right: 18px; }
@@ -647,7 +650,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .hw-enrichment-table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 8px 0; }
 .hw-enrichment-table th { background: var(--c-primary); color: #fff; padding: 6px 8px; text-align: left; font-weight: 700; border-bottom: 0; }
 .hw-enrichment-table td { padding: 5px 8px; border-bottom: 1px solid var(--c-border); }
-.hw-enrichment-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* SSoT-num-2: hw-enrichment-table 数値セル桁揃え */
+.hw-enrichment-table td.num { text-align: right; font-variant-numeric: tabular-nums lining-nums; }
 .hw-enrichment-table .trend-up { color: #059669; font-weight: 700; }
 .hw-enrichment-table .trend-down { color: #dc2626; font-weight: 700; }
 .hw-enrichment-table .trend-flat { color: var(--c-text-muted); }
@@ -1068,7 +1072,8 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
 }
 .dumbbell-row .db-dot.dot-ft { background: var(--c-primary); }
 .dumbbell-row .db-dot.dot-pt { background: var(--c-warning); }
-.dumbbell-row .db-diff { text-align: right; font-variant-numeric: tabular-nums; font-size: 9pt; color: var(--c-text-muted); }
+/* SSoT-num-3: dumbbell diff 数値桁揃え */
+.dumbbell-row .db-diff { text-align: right; font-variant-numeric: tabular-nums lining-nums; font-size: 9pt; color: var(--c-text-muted); }
 
 /* 簡易ヒートマップ（都道府県別 件数） */
 .heatmap-grid {
@@ -1709,7 +1714,8 @@ h2 .chapter-num {
 .dv2-cover-meta {
   font-size: 10pt;
   color: var(--dv2-text-muted);
-  font-variant-numeric: tabular-nums;
+  /* SSoT-num-4 */
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .dv2-cover-main {
   display: flex;
@@ -1775,7 +1781,8 @@ h2 .chapter-num {
   font-weight: 700;
   color: var(--dv2-accent);
   line-height: 1.2;
-  font-variant-numeric: tabular-nums;
+  /* SSoT-num-5 */
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .dv2-cover-hl-unit {
   font-size: 10pt;
@@ -1807,7 +1814,8 @@ h2 .chapter-num {
   margin-right: 12px;
   vertical-align: middle;
   letter-spacing: 0;
-  font-variant-numeric: tabular-nums;
+  /* SSoT-num-6: section badge number */
+  font-variant-numeric: tabular-nums lining-nums;
   box-shadow: var(--dv2-shadow-sm);
 }
 .dv2-section-heading {
@@ -1867,7 +1875,8 @@ h2 .chapter-num {
   font-weight: 700;
   color: var(--dv2-navy);
   line-height: 1.1;
-  font-variant-numeric: tabular-nums;
+  /* SSoT-num-7: KPI card value */
+  font-variant-numeric: tabular-nums lining-nums;
   letter-spacing: -0.01em;
 }
 .dv2-kpi-card.dv2-kpi-large .dv2-kpi-card-value {
@@ -1933,7 +1942,8 @@ h2 .chapter-num {
 .dv2-progress-label {
   font-size: var(--dv2-fs-caption);
   color: var(--dv2-text-muted);
-  font-variant-numeric: tabular-nums;
+  /* SSoT-num-8 */
+  font-variant-numeric: tabular-nums lining-nums;
   white-space: nowrap;
   min-width: 40px;
   text-align: right;
@@ -1958,7 +1968,8 @@ h2 .chapter-num {
   align-items: center;
   gap: 2px;
   font-size: var(--dv2-fs-caption);
-  font-variant-numeric: tabular-nums;
+  /* SSoT-num-9 */
+  font-variant-numeric: tabular-nums lining-nums;
   font-weight: 600;
 }
 .dv2-trend-up { color: var(--dv2-good); }
@@ -2144,9 +2155,13 @@ body.theme-navy, html.theme-navy {
   color: var(--ink);
   background: var(--paper);
 }
+/* SSoT-num-10: navy theme 全数値表示 — tabular-nums lining-nums 統一
+ * tabular-nums: 全数字を等幅にし列の縦桁が揃う。
+ * lining-nums: 旧字体 (オールドスタイル数字) の descender を除去し、
+ *              ベースライン上に整列。100倍ずれを目視で検知しやすくなる。 */
 body.theme-navy .num, body.theme-navy .ts-num, body.theme-navy .kpi-value,
 body.theme-navy .cs-num, body.theme-navy .boxplot text, body.theme-navy .chart text {
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 body.theme-navy .page-navy {
@@ -2409,9 +2424,12 @@ body.theme-navy .table-navy td {
   word-break: break-word; overflow-wrap: break-word;
 }
 body.theme-navy .table-navy tr:last-child td { border-bottom: 1px solid var(--rule); }
+/* SSoT-num-11: .table-navy の数値セル (メインターゲット)。
+ * Roboto Mono は等幅フォントなので tabular-nums は本来冗長だが、
+ * フォールバック (Meiryo 等) のために明示する。lining-nums で descender 排除。 */
 body.theme-navy .table-navy .num {
   font-family: "Roboto Mono", monospace; text-align: right;
-  font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap;
+  font-variant-numeric: tabular-nums lining-nums; color: var(--ink); white-space: nowrap;
 }
 body.theme-navy .table-navy th.num { text-align: right; }
 body.theme-navy .table-navy .bold { font-weight: 700; color: var(--ink-deep); }

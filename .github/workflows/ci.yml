@@ -7,6 +7,25 @@ on:
     branches: [main]
 
 jobs:
+  # -----------------------------------------------------------------------
+  # Statistical-expression lint
+  # Checks src/handlers/survey/report_html/**/*.rs for forbidden patterns:
+  #   - causal / effect-promise language
+  #   - hyperbolic words (劇的, 完璧)
+  #   - absolute guarantees (必ず+outcome)
+  #   - assertive labels (離職多発 without disclaimer, 流出継続)
+  # Runs in parallel with rust-test (no dependency).
+  # -----------------------------------------------------------------------
+  lint-statistical-claims:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Statistical claims lint
+        run: python scripts/lint_statistical_claims.py
+
   rust-test:
     runs-on: ubuntu-latest
     steps:
@@ -36,7 +55,7 @@ jobs:
   # Slack 通知: CI 失敗時のみ送信（Secrets.SLACK_WEBHOOK_URL が未設定なら実行時にskip）
   notify:
     runs-on: ubuntu-latest
-    needs: [rust-test]
+    needs: [rust-test, lint-statistical-claims]
     if: failure()
     steps:
       - name: Slack notification on failure
