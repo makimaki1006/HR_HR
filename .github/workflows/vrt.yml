@@ -95,14 +95,14 @@ jobs:
       # 7a. スクリーンショット比較 (通常モード)
       # ------------------------------------------------------------------
       - name: Run VRT (compare)
-        if: ${{ inputs.update_baselines != 'true' }}
+        if: ${{ !inputs.update_baselines }}
         run: npx playwright test -c playwright.vrt.config.ts
 
       # ------------------------------------------------------------------
       # 7b. スクリーンショット更新モード (update_baselines == true)
       # ------------------------------------------------------------------
       - name: Run VRT (update baselines)
-        if: ${{ inputs.update_baselines == 'true' }}
+        if: ${{ inputs.update_baselines }}
         run: npx playwright test -c playwright.vrt.config.ts --update-snapshots
 
       # ------------------------------------------------------------------
@@ -110,7 +110,7 @@ jobs:
       #    開発者がダウンロードして tests/vrt/__screenshots__/ にコミット
       # ------------------------------------------------------------------
       - name: Upload updated baselines
-        if: ${{ inputs.update_baselines == 'true' }}
+        if: ${{ inputs.update_baselines }}
         uses: actions/upload-artifact@v4
         with:
           name: vrt-baselines
@@ -120,7 +120,7 @@ jobs:
       # 9. 比較失敗時: diff/actual 画像を Artifact に保存 (14日保持)
       # ------------------------------------------------------------------
       - name: Upload VRT diff on failure
-        if: failure() && inputs.update_baselines != 'true'
+        if: failure() && !inputs.update_baselines
         uses: actions/upload-artifact@v4
         with:
           name: vrt-diff-${{ github.run_id }}
