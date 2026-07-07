@@ -306,6 +306,15 @@ pub struct JobboxAnalysis {
     /// 2026-07-01 追加。
     #[serde(default)]
     pub salary_stats_by_holiday_category: Vec<(String, SalaryStats)>,
+    /// 機能 C (2026-07-07): 年間休日を Gemini AI フォールバックで抽出できた件数。
+    ///
+    /// regex (`extract_annual_holidays`) で拾えず、AI 抽出 (70-180 で再検証済) に
+    /// 成功したレコード数。集計自体 (`annual_holidays_values` 等) には regex 分と合算されるが、
+    /// この件数だけは注記の透明性のために別途保持する。
+    /// aggregator は常に 0 で構築し、AI 抽出を行う handlers.rs が集計後に上書きする。
+    /// `#[serde(default)]` により旧 JSON / AI 非経路では 0 (= §07.5 注記は従来文言)。
+    #[serde(default)]
+    pub ai_extracted_count: usize,
 }
 
 /// 散布図用 雇用形態 3 値分類 (2026-06-30 Finding #13)
@@ -1365,6 +1374,8 @@ fn aggregate_records_core(
             salary_holidays_regression,
             // 2026-07-01 年間休日カテゴリ別 給与統計 (Section 07.5-2)
             salary_stats_by_holiday_category,
+            // 機能 C (2026-07-07): AI 抽出件数は集計時は 0。handlers.rs が集計後に上書きする。
+            ai_extracted_count: 0,
         },
         // 2026-06-30 Section 07.6: Indeed (SP) 人気度シグナル
         popularity,

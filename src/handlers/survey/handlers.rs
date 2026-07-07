@@ -146,7 +146,7 @@ pub async fn upload_csv(
     .await;
     let _ = parse_csv_bytes; // silence unused-import (kept for backward API compat)
 
-    let records = match result {
+    let mut records = match result {
         Ok(Ok(records)) => records,
         Ok(Err(e)) => {
             return Html(format!(
@@ -162,8 +162,58 @@ pub async fn upload_csv(
         }
     };
 
+    // ===== Gemini AI フォールバック (graceful degradation) =====
+    // GEMINI_API_KEY 未設定なら from_env() が None → 以下は丸ごとスキップ (= 従来動作)。
+    // API エラー/タイムアウト/枠切れも generate_json が None を返すため、常に従来結果に落ちる。
+    let gemini = crate::gemini::GeminiClient::from_env();
+    // 機能 E: AI が列推定を補助した列数 (画面サマリー用、レポートには出さない)
+    let mut ai_colmap_cols: usize = 0;
+    // 機能 C: AI が年間休日を抽出できた件数 (集計後に agg へ伝播)
+    let mut ai_holiday_count: usize = 0;
+    if let Some(client) = gemini.as_ref() {
+        // --- 機能 E: 列マッピングの AI 推定 (パース結果が貧弱な場合の最後の砦) ---
+        if super::upload::is_parse_poor(&records) {
+            if let Some((headers, samples)) = super::upload::extract_header_and_samples(&data, 2) {
+                let schema = super::upload::build_colmap_schema();
+                let (sys, usr) = super::upload::build_colmap_prompt(&headers, &samples);
+                if let Some(resp) = client.generate_json(&sys, &usr, schema).await {
+                    let overrides = super::upload::parse_colmap_from_ai(&resp, headers.len());
+                    if !overrides.is_empty() {
+                        // 推定結果で col_map を補完して再パース (CPU 処理なので spawn_blocking)
+                        let data_c = data.clone();
+                        let ctx = context_pref.map(|s| s.to_string());
+                        let ov = overrides.clone();
+                        let reparsed = tokio::task::spawn_blocking(move || {
+                            super::upload::parse_csv_bytes_with_col_overrides(
+                                &data_c,
+                                ctx.as_deref(),
+                                source_hint,
+                                &ov,
+                            )
+                        })
+                        .await;
+                        if let Ok(Ok(new_records)) = reparsed {
+                            ai_colmap_cols = overrides.len();
+                            tracing::info!(
+                                "Gemini: AI column mapping supplemented {} columns, re-parsed {} records",
+                                ai_colmap_cols,
+                                new_records.len()
+                            );
+                            records = new_records;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 機能 C: 年間休日の AI 抽出フォールバック (regex 失敗レコード) ---
+        ai_holiday_count = run_holiday_ai_extraction(client, &mut records).await;
+    }
+
     // 集計 + 求職者分析
-    let agg = aggregate_records_with_mode(&records, wage_mode_enum);
+    let mut agg = aggregate_records_with_mode(&records, wage_mode_enum);
+    // 機能 C: AI 抽出件数を集計結果へ伝播 (§07.5 注記で「うち AI 補助 K 件」に使用)
+    agg.jobbox.ai_extracted_count = ai_holiday_count;
     let _ = aggregate_records; // silence unused-import (backward API compat)
     let seeker = analyze_job_seeker(&records);
 
@@ -201,7 +251,65 @@ pub async fn upload_csv(
         agg.dominant_prefecture
     );
 
-    Html(render_analysis_result(&agg, &seeker, &session_id))
+    // 機能 E/C: AI 補助が発動した場合のみ、画面サマリーに 1 行追加 (レポートには出さない)。
+    //   graceful degradation のため、AI 未発動時 (ai_colmap_cols=0 && ai_holiday_count=0) は
+    //   従来と完全に同一の HTML を返す。
+    let mut body = render_analysis_result(&agg, &seeker, &session_id);
+    if ai_colmap_cols > 0 || ai_holiday_count > 0 {
+        let mut notes = String::new();
+        if ai_colmap_cols > 0 {
+            notes.push_str(&format!(
+                r#"<p class="text-sky-300 text-xs">AI が列推定を補助しました ({} 列)</p>"#,
+                ai_colmap_cols
+            ));
+        }
+        if ai_holiday_count > 0 {
+            notes.push_str(&format!(
+                r#"<p class="text-sky-300 text-xs">AI が年間休日を補助抽出しました ({} 件)</p>"#,
+                ai_holiday_count
+            ));
+        }
+        body.push_str(&format!(r#"<div class="stat-card">{}</div>"#, notes));
+    }
+    Html(body)
+}
+
+/// 機能 C: 年間休日を Gemini AI で抽出する (regex で拾えなかったレコードのバッチ処理)。
+///
+/// - 対象: `annual_holidays` が `None` かつ description 30 文字以上 (500 文字トリム)。
+/// - **20 件/1 コール**、1 アップロードあたり**最大 10 コール (=200 件)**。超過分は regex のみ。
+/// - LLM の返す値は `parse_holiday_response` (70-180 検証) を通してから反映。
+/// - 呼び出しが 1 つでも失敗 (None) したら、そのバッチは黙ってスキップ (graceful degradation)。
+///
+/// 戻り値: 実際に AI 抽出値を反映できたレコード件数。
+async fn run_holiday_ai_extraction(
+    client: &crate::gemini::GeminiClient,
+    records: &mut Vec<super::upload::SurveyRecord>,
+) -> usize {
+    let targets = super::upload::collect_holiday_targets(records);
+    if targets.is_empty() {
+        return 0;
+    }
+    let mut applied = 0usize;
+    for (call_idx, chunk) in targets.chunks(20).enumerate() {
+        if call_idx >= 10 {
+            // 上限ガード: 200 件を超える分は regex のみ (コスト暴走防止)
+            tracing::info!(
+                "Gemini: holiday AI extraction hit 10-call cap, remaining rely on regex"
+            );
+            break;
+        }
+        let schema = super::upload::build_holiday_schema();
+        let (sys, usr) = super::upload::build_holiday_prompt(chunk);
+        if let Some(resp) = client.generate_json(&sys, &usr, schema).await {
+            let results = super::upload::parse_holiday_response(&resp);
+            applied += super::upload::apply_holiday_results(records, &results);
+        }
+    }
+    if applied > 0 {
+        tracing::info!("Gemini: holiday AI extraction filled {} records", applied);
+    }
+    applied
 }
 
 #[derive(Deserialize)]

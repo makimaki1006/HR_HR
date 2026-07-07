@@ -2,6 +2,7 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod gemini;
 pub mod geo;
 pub mod handlers;
 pub mod models;
