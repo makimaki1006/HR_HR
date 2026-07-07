@@ -39,12 +39,21 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     // 抽出 N は年間休日の記載を抽出できた求人数 (annual_holidays_values.len())。
     let extracted_n = agg.jobbox.annual_holidays_values.len();
     let uploaded_m = agg.total_count;
+    // 機能 C (2026-07-07): AI 補助抽出件数 K。K>0 のときだけ「うち AI 補助 K 件」を併記する。
+    //   K=0 (AI 非経路 / キー未設定 / VRT fixture) では従来文言のまま → baseline 不変。
+    let ai_k = agg.jobbox.ai_extracted_count;
+    let ai_note = if ai_k > 0 {
+        format!("、うち AI 補助 {} 件", format_number(ai_k as i64))
+    } else {
+        String::new()
+    };
     html.push_str(&format!(
         "<p class=\"note\">※ 本セクションは求人説明文 (自由記述) から抽出した\
          <strong>媒体掲載求人のデータ</strong>であり、公的統計ではありません。\
-         年間休日の記載がある求人のみを対象としています (抽出 {} / 全 {} 件)。</p>\n",
+         年間休日の記載がある求人のみを対象としています (抽出 {} / 全 {} 件{})。</p>\n",
         format_number(extracted_n as i64),
         format_number(uploaded_m as i64),
+        ai_note,
     ));
 
     render_summary_kpi(html, agg);
@@ -1286,6 +1295,37 @@ mod tests {
         let mut html = String::new();
         render_navy_section_jobbox_detail(&mut html, &SurveyAggregation::default());
         assert!(html.is_empty());
+    }
+
+    /// 機能 C (2026-07-07): ai_extracted_count=0 (AI 非経路 / VRT fixture) の注記は
+    /// 従来文言「(抽出 N / 全 M 件)」のまま。「AI 補助」の文字列は一切出ない。
+    #[test]
+    fn note_without_ai_uses_legacy_wording() {
+        let agg = agg_with_jobbox(); // ai_extracted_count は Default で 0
+        assert_eq!(agg.jobbox.ai_extracted_count, 0);
+        let mut html = String::new();
+        render_navy_section_jobbox_detail(&mut html, &agg);
+        assert!(
+            html.contains("(抽出 5 / 全 5 件)"),
+            "K=0 は従来文言のまま: got fragment missing"
+        );
+        assert!(
+            !html.contains("AI 補助"),
+            "K=0 のとき 'AI 補助' 併記は出ない"
+        );
+    }
+
+    /// 機能 C: ai_extracted_count>0 のとき、注記に「うち AI 補助 K 件」が併記される。
+    #[test]
+    fn note_with_ai_appends_ai_count() {
+        let mut agg = agg_with_jobbox();
+        agg.jobbox.ai_extracted_count = 3;
+        let mut html = String::new();
+        render_navy_section_jobbox_detail(&mut html, &agg);
+        assert!(
+            html.contains("(抽出 5 / 全 5 件、うち AI 補助 3 件)"),
+            "K>0 は AI 補助件数を併記する"
+        );
     }
 
     #[test]

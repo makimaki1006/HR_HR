@@ -195,6 +195,31 @@ pub fn parse_csv_bytes_with_hints(
     context_pref: Option<&str>,
     source_hint: UserSourceHint,
 ) -> Result<Vec<SurveyRecord>, String> {
+    parse_csv_bytes_inner(data, context_pref, source_hint, None)
+}
+
+/// Gemini AI 列推定の補完付きバージョン (機能 E フォールバックの再パース用)。
+///
+/// `col_overrides` は role キー (job_title/company_name/... / build_column_map と同じ静的キー)
+/// → 列インデックスのマップ。ヘッダーマッチ + データ動的検出の**後**に上書き適用される
+/// (= AI 推定は「最後の砦」)。キー未設定 (`col_overrides` 空) なら
+/// [`parse_csv_bytes_with_hints`] と完全に同一の挙動になる。
+pub fn parse_csv_bytes_with_col_overrides(
+    data: &[u8],
+    context_pref: Option<&str>,
+    source_hint: UserSourceHint,
+    col_overrides: &std::collections::HashMap<&'static str, usize>,
+) -> Result<Vec<SurveyRecord>, String> {
+    parse_csv_bytes_inner(data, context_pref, source_hint, Some(col_overrides))
+}
+
+/// 実体。`col_overrides` が `Some` のとき、通常の列検出後に AI 推定結果で col_map を補完する。
+fn parse_csv_bytes_inner(
+    data: &[u8],
+    context_pref: Option<&str>,
+    source_hint: UserSourceHint,
+    col_overrides: Option<&std::collections::HashMap<&'static str, usize>>,
+) -> Result<Vec<SurveyRecord>, String> {
     // 2026-04-26 Fix-A: BOM 検出 + Shift-JIS フォールバックで多エンコーディング対応
     let (decoded, encoding_name) = decode_csv_bytes(data);
     if encoding_name != "UTF-8" {
@@ -246,6 +271,16 @@ pub fn parse_csv_bytes_with_hints(
             for (key, idx) in detected {
                 col_map.insert(key, idx);
             }
+        }
+    }
+
+    // 機能 E (2026-07-07): Gemini AI 列推定の補完 (graceful degradation の最後の砦)。
+    // ヘッダーマッチ + データ動的検出でも主要列が埋まらなかった場合にのみ、
+    // 呼び出し側 (handlers.rs) が AI 推定結果を col_overrides として渡す。
+    // col_overrides=None (キー未設定/従来経路) のときは何もしないため挙動不変。
+    if let Some(ov) = col_overrides {
+        for (&key, &idx) in ov.iter() {
+            col_map.insert(key, idx);
         }
     }
 
@@ -1226,6 +1261,249 @@ pub fn infer_employment_type_for_jobbox(salary_type: &SalaryType) -> Option<Stri
 }
 
 // =============================================================================
+// Gemini AI フォールバック補助関数 (機能 E: 列マッピング / 機能 C: 年間休日抽出)
+//
+// いずれも **純関数** (ネットワーク非依存)。実際の API 呼び出しは handlers.rs が
+// GeminiClient 経由で行い、graceful degradation (キー未設定/失敗 → None → 従来動作) を担う。
+// ここではプロンプト構築・JSON schema・レスポンスパース・適用ロジックのみを提供し、
+// CI (キー無し) でユニットテスト可能にする。
+// =============================================================================
+
+/// 機能 E: パース結果が「貧弱」か判定する。
+///
+/// salary / company / title の **いずれか 1 つでも全レコードで空** なら true。
+/// この場合、通常の列検出 (ヘッダー + 動的検出) が主要列を取りこぼしていると見なし、
+/// AI 列推定フォールバックの発動条件とする。空レコード集合は false (エラー経路で処理済)。
+pub fn is_parse_poor(records: &[SurveyRecord]) -> bool {
+    if records.is_empty() {
+        return false;
+    }
+    let all_salary_empty = records.iter().all(|r| r.salary_raw.trim().is_empty());
+    let all_company_empty = records.iter().all(|r| r.company_name.trim().is_empty());
+    let all_title_empty = records.iter().all(|r| r.job_title.trim().is_empty());
+    all_salary_empty || all_company_empty || all_title_empty
+}
+
+/// 機能 E: CSV バイト列からヘッダ行と先頭 `n_rows` データ行を抽出する (プロンプト素材)。
+///
+/// [`decode_csv_bytes`] でエンコーディング正規化してから読む。ヘッダ空なら `None`。
+pub fn extract_header_and_samples(
+    data: &[u8],
+    n_rows: usize,
+) -> Option<(Vec<String>, Vec<Vec<String>>)> {
+    let (decoded, _) = decode_csv_bytes(data);
+    let mut rdr = csv::ReaderBuilder::new()
+        .flexible(true)
+        .has_headers(true)
+        .from_reader(&decoded[..]);
+    let headers: Vec<String> = rdr.headers().ok()?.iter().map(|s| s.to_string()).collect();
+    if headers.is_empty() {
+        return None;
+    }
+    let mut samples = Vec::new();
+    for rec in rdr.records().take(n_rows).flatten() {
+        samples.push(rec.iter().map(|s| s.to_string()).collect());
+    }
+    Some((headers, samples))
+}
+
+/// 機能 E: 列マッピング推定の JSON schema。
+/// `{ mappings: [{ column_index: int, role: enum }] }`
+pub fn build_colmap_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "mappings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "column_index": { "type": "integer" },
+                        "role": {
+                            "type": "string",
+                            "enum": [
+                                "title", "company", "location", "salary",
+                                "employment_type", "description", "tags", "url", "ignore"
+                            ]
+                        }
+                    },
+                    "required": ["column_index", "role"]
+                }
+            }
+        },
+        "required": ["mappings"]
+    })
+}
+
+/// 機能 E: 列マッピング推定の (system, user) プロンプトを構築する。
+///
+/// 認証情報・接続情報は一切含めない。列値は 80 文字で切り詰める。
+pub fn build_colmap_prompt(headers: &[String], samples: &[Vec<String>]) -> (String, String) {
+    let system = "あなたは求人 CSV の列構造を判定するアシスタントです。\
+        各列を title/company/location/salary/employment_type/description/tags/url/ignore の\
+        いずれかの役割に分類してください。該当する役割が無い列は ignore にしてください。\
+        出力は指定された JSON schema に厳密に従い、余計な説明を加えないでください。"
+        .to_string();
+    let mut user = String::from(
+        "以下の求人 CSV のヘッダと先頭データ行から、各列 (0 始まり index) の役割を推定してください。\n\nヘッダ:\n",
+    );
+    for (i, h) in headers.iter().enumerate() {
+        user.push_str(&format!("[{}] {}\n", i, h));
+    }
+    for (ri, row) in samples.iter().enumerate() {
+        user.push_str(&format!("\nデータ行{}:\n", ri + 1));
+        for (i, v) in row.iter().enumerate() {
+            let trimmed: String = if v.chars().count() > 80 {
+                v.chars().take(80).collect()
+            } else {
+                v.clone()
+            };
+            user.push_str(&format!("[{}] {}\n", i, trimmed));
+        }
+    }
+    (system, user)
+}
+
+/// AI role 文字列を build_column_map と同じ静的 col_map キーに変換する。
+/// `ignore` や未知の role は `None` (= 補完対象外)。
+pub fn ai_role_to_colmap_key(role: &str) -> Option<&'static str> {
+    match role {
+        "title" => Some("job_title"),
+        "company" => Some("company_name"),
+        "location" => Some("location"),
+        "salary" => Some("salary"),
+        "employment_type" => Some("employment_type"),
+        "description" => Some("description"),
+        "tags" => Some("tags"),
+        "url" => Some("url"),
+        _ => None,
+    }
+}
+
+/// 機能 E: Gemini レスポンス JSON から col_map 補完マップを構築する。
+///
+/// - `column_index` が `num_columns` 以上 → 無視 (範囲外を信じない)
+/// - 未知 role / `ignore` → 無視
+/// - 同一 role が複数 → 最初の 1 件を採用 (決定的)
+pub fn parse_colmap_from_ai(
+    value: &serde_json::Value,
+    num_columns: usize,
+) -> std::collections::HashMap<&'static str, usize> {
+    let mut map = std::collections::HashMap::new();
+    if let Some(arr) = value.get("mappings").and_then(|v| v.as_array()) {
+        for m in arr {
+            let idx = m.get("column_index").and_then(|v| v.as_u64());
+            let role = m.get("role").and_then(|v| v.as_str());
+            if let (Some(idx), Some(role)) = (idx, role) {
+                let idx = idx as usize;
+                if idx >= num_columns {
+                    continue;
+                }
+                if let Some(key) = ai_role_to_colmap_key(role) {
+                    map.entry(key).or_insert(idx);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// 機能 C: 年間休日 AI 抽出の対象レコードを収集する。
+///
+/// 条件: `annual_holidays` が `None` かつ description が 30 文字以上。
+/// description は 500 文字上限でトリムする。戻り値は `(レコード index, トリム済 description)`。
+pub fn collect_holiday_targets(records: &[SurveyRecord]) -> Vec<(usize, String)> {
+    records
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.annual_holidays.is_none() && r.description.chars().count() >= 30)
+        .map(|(i, r)| {
+            let desc: String = r.description.chars().take(500).collect();
+            (i, desc)
+        })
+        .collect()
+}
+
+/// 機能 C: 年間休日抽出の JSON schema。
+/// `{ results: [{ index: int, annual_holidays: int|null }] }`
+pub fn build_holiday_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": { "type": "integer" },
+                        "annual_holidays": { "type": "integer", "nullable": true }
+                    },
+                    "required": ["index", "annual_holidays"]
+                }
+            }
+        },
+        "required": ["results"]
+    })
+}
+
+/// 機能 C: 年間休日抽出の (system, user) プロンプトを構築する。
+///
+/// プロンプトで厳格化: 明記された年間休日日数のみ。月間休日・有給・週休からの推測は null。
+/// `batch` は `(レコード index, トリム済 description)` の並び。index はそのまま echo させる。
+pub fn build_holiday_prompt(batch: &[(usize, String)]) -> (String, String) {
+    let system = "あなたは求人票から年間休日数のみを厳密に抽出するアシスタントです。\
+        『年間休日』として明記された日数のみを返してください。\
+        月間休日・有給休暇・週休の記載からの推測は禁止で、その場合は必ず null を返してください。\
+        有効な値は 70 から 180 の整数のみです。範囲外・不明・推測が必要な場合は null にしてください。\
+        与えられた index はそのまま echo し、出力は JSON schema に厳密に従ってください。"
+        .to_string();
+    let mut user =
+        String::from("以下の各求人 (index と説明文) について、年間休日数を抽出してください。\n");
+    for (idx, desc) in batch {
+        user.push_str(&format!("\nindex={}\n説明: {}\n", idx, desc));
+    }
+    (system, user)
+}
+
+/// 機能 C: Gemini レスポンス JSON から `(index, annual_holidays)` を抽出する。
+///
+/// **LLM の返す値を無検証で信じない**: [`is_valid_annual_holidays`] (70-180) を
+/// 満たす整数のみを返す。null や範囲外は捨てる。
+pub fn parse_holiday_response(value: &serde_json::Value) -> Vec<(usize, i64)> {
+    let mut out = Vec::new();
+    if let Some(arr) = value.get("results").and_then(|v| v.as_array()) {
+        for item in arr {
+            let idx = item.get("index").and_then(|v| v.as_u64());
+            let days = item.get("annual_holidays").and_then(|v| v.as_i64());
+            if let (Some(idx), Some(days)) = (idx, days) {
+                if is_valid_annual_holidays(days) {
+                    out.push((idx as usize, days));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 機能 C: 検証済み `(index, days)` をレコードに反映し、適用件数を返す。
+///
+/// 既に `annual_holidays` が埋まっているレコード (regex 抽出成功分) は上書きしない。
+/// index が範囲外・値が無効なものは適用しない (二重防御)。
+pub fn apply_holiday_results(records: &mut [SurveyRecord], results: &[(usize, i64)]) -> usize {
+    let mut applied = 0usize;
+    for &(idx, days) in results {
+        if idx < records.len()
+            && records[idx].annual_holidays.is_none()
+            && is_valid_annual_holidays(days)
+        {
+            records[idx].annual_holidays = Some(days);
+            applied += 1;
+        }
+    }
+    applied
+}
+
+// =============================================================================
 // 2026-04-26 Fix-A 逆証明テスト (Shift-JIS / UTF-8 BOM / 行レベル重複)
 // =============================================================================
 
@@ -1661,5 +1939,229 @@ mod indeed_sp_detection_tests {
             records[0].employment_type, "正社員",
             "JobBox Monthly + 雇用形態空欄 → '正社員' フォールバック"
         );
+    }
+}
+
+// =============================================================================
+// 機能 E / C: Gemini AI フォールバック補助関数のユニットテスト (ネットワーク非依存)
+// =============================================================================
+
+#[cfg(test)]
+mod gemini_fallback_tests {
+    use super::*;
+    use serde_json::json;
+
+    // ---- 機能 E: is_parse_poor ----
+
+    fn dummy_record(title: &str, company: &str, salary: &str) -> SurveyRecord {
+        SurveyRecord {
+            row_index: 0,
+            source: CsvSource::Unknown,
+            job_title: title.to_string(),
+            company_name: company.to_string(),
+            location_raw: String::new(),
+            salary_raw: salary.to_string(),
+            employment_type: String::new(),
+            tags_raw: String::new(),
+            url: None,
+            is_new: false,
+            description: String::new(),
+            salary_parsed: parse_salary(salary, SalaryType::Monthly),
+            location_parsed: parse_location("", None),
+            annual_holidays: None,
+        }
+    }
+
+    #[test]
+    fn is_parse_poor_true_when_salary_all_empty() {
+        let recs = vec![
+            dummy_record("看護師", "A病院", ""),
+            dummy_record("介護職", "B施設", ""),
+        ];
+        assert!(is_parse_poor(&recs), "salary が全行空 → 貧弱");
+    }
+
+    #[test]
+    fn is_parse_poor_false_when_all_columns_present() {
+        let recs = vec![
+            dummy_record("看護師", "A病院", "月給30万円"),
+            dummy_record("介護職", "B施設", "月給25万円"),
+        ];
+        assert!(!is_parse_poor(&recs), "全列が埋まっていれば非貧弱");
+    }
+
+    #[test]
+    fn is_parse_poor_false_when_empty() {
+        assert!(!is_parse_poor(&[]), "空集合はエラー経路 → 貧弱扱いしない");
+    }
+
+    // ---- 機能 E: ai_role_to_colmap_key / parse_colmap_from_ai ----
+
+    #[test]
+    fn ai_role_maps_expected_keys() {
+        assert_eq!(ai_role_to_colmap_key("title"), Some("job_title"));
+        assert_eq!(ai_role_to_colmap_key("company"), Some("company_name"));
+        assert_eq!(ai_role_to_colmap_key("salary"), Some("salary"));
+        assert_eq!(ai_role_to_colmap_key("ignore"), None);
+        assert_eq!(ai_role_to_colmap_key("unknown_role"), None);
+    }
+
+    #[test]
+    fn parse_colmap_from_ai_builds_map_and_filters() {
+        // モック Gemini レスポンス JSON
+        let resp = json!({
+            "mappings": [
+                { "column_index": 0, "role": "company" },
+                { "column_index": 1, "role": "title" },
+                { "column_index": 2, "role": "salary" },
+                { "column_index": 3, "role": "ignore" },      // ignore は除外
+                { "column_index": 99, "role": "location" },   // 範囲外は除外
+            ]
+        });
+        let map = parse_colmap_from_ai(&resp, 4);
+        assert_eq!(map.get("company_name"), Some(&0));
+        assert_eq!(map.get("job_title"), Some(&1));
+        assert_eq!(map.get("salary"), Some(&2));
+        assert!(!map.contains_key("location"), "範囲外 index は補完しない");
+        assert_eq!(map.len(), 3, "ignore + 範囲外を除いた 3 件");
+    }
+
+    #[test]
+    fn parse_colmap_from_ai_empty_on_garbage() {
+        // mappings 欠落 → 空マップ (呼び出し側は再パースをスキップ = 従来動作)
+        assert!(parse_colmap_from_ai(&json!({"foo": 1}), 5).is_empty());
+    }
+
+    // ---- 機能 E: col_overrides による再パース ----
+
+    #[test]
+    fn col_overrides_supplements_columns_on_reparse() {
+        // ヘッダーが CSS クラス名等で通常検出できない CSV を想定。
+        // AI 推定 (col 0=company, 1=title, 2=salary, 3=location) を override として渡すと
+        // 各列が正しく紐付いて 1 レコードが得られる。
+        let csv = "x0,x1,x2,x3\n\
+                   株式会社テスト,看護師,月給30万円,東京都新宿区\n";
+        // override なしでは salary/location が取れない可能性を確認 (最低限、override で確実に取れる)
+        let mut ov: std::collections::HashMap<&'static str, usize> =
+            std::collections::HashMap::new();
+        ov.insert("company_name", 0);
+        ov.insert("job_title", 1);
+        ov.insert("salary", 2);
+        ov.insert("location", 3);
+        let records =
+            parse_csv_bytes_with_col_overrides(csv.as_bytes(), None, UserSourceHint::Other, &ov)
+                .expect("override parse");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].company_name, "株式会社テスト");
+        assert_eq!(records[0].job_title, "看護師");
+        assert_eq!(records[0].salary_raw, "月給30万円");
+    }
+
+    #[test]
+    fn empty_overrides_matches_legacy_output() {
+        // override が空なら parse_csv_bytes_with_hints と完全一致 (フォールバック証明)
+        let csv = "企業名,給与,雇用形態,勤務地,求人名\n\
+                   株式会社A,月給25万円,正社員,東京都新宿区,事務\n";
+        let legacy = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::JobBox)
+            .expect("legacy");
+        let empty_ov: std::collections::HashMap<&'static str, usize> =
+            std::collections::HashMap::new();
+        let overridden = parse_csv_bytes_with_col_overrides(
+            csv.as_bytes(),
+            None,
+            UserSourceHint::JobBox,
+            &empty_ov,
+        )
+        .expect("empty override");
+        assert_eq!(legacy.len(), overridden.len());
+        assert_eq!(legacy[0].company_name, overridden[0].company_name);
+        assert_eq!(legacy[0].salary_raw, overridden[0].salary_raw);
+        assert_eq!(legacy[0].employment_type, overridden[0].employment_type);
+    }
+
+    // ---- 機能 C: collect_holiday_targets ----
+
+    #[test]
+    fn collect_holiday_targets_filters_and_trims() {
+        let long_desc: String = "年".repeat(600); // 600 文字 (>= 30, かつ >500 でトリム対象)
+        let mut r_target = dummy_record("t", "c", "月給20万円");
+        r_target.description = long_desc;
+        r_target.annual_holidays = None;
+
+        // description 短すぎ (< 30) → 対象外
+        let mut r_short = dummy_record("t", "c", "月給20万円");
+        r_short.description = "短い説明".to_string();
+
+        // 既に annual_holidays あり → 対象外
+        let mut r_filled = dummy_record("t", "c", "月給20万円");
+        r_filled.description = "年".repeat(50);
+        r_filled.annual_holidays = Some(120);
+
+        let recs = vec![r_target, r_short, r_filled];
+        let targets = collect_holiday_targets(&recs);
+        assert_eq!(targets.len(), 1, "対象は 1 件のみ (index 0)");
+        assert_eq!(targets[0].0, 0, "レコード index が保持される");
+        assert_eq!(
+            targets[0].1.chars().count(),
+            500,
+            "description は 500 文字にトリムされる"
+        );
+    }
+
+    // ---- 機能 C: parse_holiday_response (70-180 検証) ----
+
+    #[test]
+    fn parse_holiday_response_validates_range_and_null() {
+        let resp = json!({
+            "results": [
+                { "index": 0, "annual_holidays": 120 },   // 有効
+                { "index": 1, "annual_holidays": 69 },    // 範囲外 (下限-1)
+                { "index": 2, "annual_holidays": 181 },   // 範囲外 (上限+1)
+                { "index": 3, "annual_holidays": null },  // null → 除外
+                { "index": 4, "annual_holidays": 70 },    // 有効 (下限)
+                { "index": 5, "annual_holidays": 180 },   // 有効 (上限)
+            ]
+        });
+        let parsed = parse_holiday_response(&resp);
+        assert_eq!(
+            parsed,
+            vec![(0, 120), (4, 70), (5, 180)],
+            "70-180 の整数のみ通過、null/範囲外は除外"
+        );
+    }
+
+    #[test]
+    fn parse_holiday_response_empty_on_garbage() {
+        assert!(parse_holiday_response(&json!({"x": 1})).is_empty());
+    }
+
+    // ---- 機能 C: apply_holiday_results ----
+
+    #[test]
+    fn apply_holiday_results_fills_only_none_and_counts() {
+        let mut recs = vec![
+            dummy_record("a", "c", "月給20万円"), // index 0: None → 埋まる
+            {
+                let mut r = dummy_record("b", "c", "月給20万円");
+                r.annual_holidays = Some(100); // index 1: 既存 → 上書きしない
+                r
+            },
+        ];
+        // index 2 は範囲外 (records.len()=2) → 無視
+        let results = vec![(0, 125), (1, 130), (2, 120)];
+        let applied = apply_holiday_results(&mut recs, &results);
+        assert_eq!(applied, 1, "実際に反映されたのは index 0 の 1 件のみ");
+        assert_eq!(recs[0].annual_holidays, Some(125));
+        assert_eq!(recs[1].annual_holidays, Some(100), "既存値は上書きされない");
+    }
+
+    // ---- schema 形状 (最低限の健全性) ----
+
+    #[test]
+    fn schemas_have_expected_top_level_keys() {
+        let colmap = build_colmap_schema();
+        assert!(colmap["properties"]["mappings"].is_object());
+        let holiday = build_holiday_schema();
+        assert!(holiday["properties"]["results"].is_object());
     }
 }
