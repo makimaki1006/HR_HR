@@ -168,8 +168,8 @@ pub async fn upload_csv(
     let gemini = crate::gemini::GeminiClient::from_env();
     // 機能 E: AI が列推定を補助した列数 (画面サマリー用、レポートには出さない)
     let mut ai_colmap_cols: usize = 0;
-    // 機能 C: AI が年間休日を抽出できた件数 (集計後に agg へ伝播)
-    let mut ai_holiday_count: usize = 0;
+    // 機能 C 拡張: 複数属性 AI 抽出の収穫量 (集計後に agg.jobbox.ai_extracted_count へ伝播)
+    let mut ai_extraction_yield = super::upload::ExtractionYield::default();
     if let Some(client) = gemini.as_ref() {
         // --- 機能 E: 列マッピングの AI 推定 (パース結果が貧弱な場合の最後の砦) ---
         if super::upload::is_parse_poor(&records) {
@@ -206,14 +206,15 @@ pub async fn upload_csv(
             }
         }
 
-        // --- 機能 C: 年間休日の AI 抽出フォールバック (regex 失敗レコード) ---
-        ai_holiday_count = run_holiday_ai_extraction(client, &mut records).await;
+        // --- 機能 C 拡張: 複数属性 AI 抽出 (全行対象, 上限 15 コール = 300 件) ---
+        ai_extraction_yield = run_holiday_ai_extraction(client, &mut records).await;
     }
 
     // 集計 + 求職者分析
     let mut agg = aggregate_records_with_mode(&records, wage_mode_enum);
-    // 機能 C: AI 抽出件数を集計結果へ伝播 (§07.5 注記で「うち AI 補助 K 件」に使用)
-    agg.jobbox.ai_extracted_count = ai_holiday_count;
+    // 機能 C: 年間休日の AI 抽出件数を集計結果へ伝播 (§07.5 注記「うち AI 補助 K 件」用)
+    // §07.5 注記は年間休日分のみを表示するため annual_holidays のみを渡す。
+    agg.jobbox.ai_extracted_count = ai_extraction_yield.annual_holidays;
     let _ = aggregate_records; // silence unused-import (backward API compat)
     let seeker = analyze_job_seeker(&records);
 
@@ -252,10 +253,17 @@ pub async fn upload_csv(
     );
 
     // 機能 E/C: AI 補助が発動した場合のみ、画面サマリーに 1 行追加 (レポートには出さない)。
-    //   graceful degradation のため、AI 未発動時 (ai_colmap_cols=0 && ai_holiday_count=0) は
+    //   graceful degradation のため、AI 未発動時 (ai_colmap_cols=0 かつ全 yield=0) は
     //   従来と完全に同一の HTML を返す。
     let mut body = render_analysis_result(&agg, &seeker, &session_id);
-    if ai_colmap_cols > 0 || ai_holiday_count > 0 {
+    let y = ai_extraction_yield;
+    let extraction_any = y.annual_holidays
+        + y.monthly_holidays
+        + y.bonus
+        + y.paid_leave
+        + y.weekly_type
+        + y.overtime;
+    if ai_colmap_cols > 0 || extraction_any > 0 {
         let mut notes = String::new();
         if ai_colmap_cols > 0 {
             notes.push_str(&format!(
@@ -263,10 +271,13 @@ pub async fn upload_csv(
                 ai_colmap_cols
             ));
         }
-        if ai_holiday_count > 0 {
+        if extraction_any > 0 {
+            // §07.5 注記の ai_extracted_count は年間休日分のみ (agg 伝播済)。
+            // このプレビュー行は画面専用で全属性を一覧表示する。
             notes.push_str(&format!(
-                r#"<p class="text-sky-300 text-xs">AI が年間休日を補助抽出しました ({} 件)</p>"#,
-                ai_holiday_count
+                r#"<p class="text-sky-300 text-xs">AI 整形プレビュー: 年間休日 +{} / 月間休日 {}件 / 賞与 {}件 / 有給率 {}件 / 週休形態 {}件 / 残業 {}件</p>"#,
+                y.annual_holidays, y.monthly_holidays, y.bonus,
+                y.paid_leave, y.weekly_type, y.overtime
             ));
         }
         body.push_str(&format!(r#"<div class="stat-card">{}</div>"#, notes));
@@ -274,42 +285,62 @@ pub async fn upload_csv(
     Html(body)
 }
 
-/// 機能 C: 年間休日を Gemini AI で抽出する (regex で拾えなかったレコードのバッチ処理)。
+/// 機能 C 拡張 (2026-07-07): 複数属性を Gemini AI で抽出する (全レコードバッチ処理)。
 ///
-/// - 対象: `annual_holidays` が `None` かつ description 30 文字以上 (500 文字トリム)。
-/// - **20 件/1 コール**、1 アップロードあたり**最大 10 コール (=200 件)**。超過分は regex のみ。
-/// - LLM の返す値は `parse_holiday_response` (70-180 検証) を通してから反映。
+/// - 対象: description が 30 文字以上の **全行** (`collect_extraction_targets` を使用。
+///   年間休日 None 限定の旧フローから発展させ、月間休日/賞与/有給率/週休形態/残業も同時抽出)。
+/// - **20 件/1 コール**、1 アップロードあたり**最大 15 コール (=300 件)**。超過分は regex のみ。
+/// - LLM の返す値は `parse_extraction_response` (属性別レンジ検証) を通してから反映。
 /// - 呼び出しが 1 つでも失敗 (None) したら、そのバッチは黙ってスキップ (graceful degradation)。
+/// - GEMINI_API_KEY 未設定時は呼び出し元 (handlers.rs) の `if let Some(client)` ガードで
+///   この関数自体が呼ばれないため、キー未設定パスは常に従来動作を維持する。
 ///
-/// 戻り値: 実際に AI 抽出値を反映できたレコード件数。
+/// 戻り値: [`ExtractionYield`] (属性別の実反映件数)。
 async fn run_holiday_ai_extraction(
     client: &crate::gemini::GeminiClient,
     records: &mut Vec<super::upload::SurveyRecord>,
-) -> usize {
-    let targets = super::upload::collect_holiday_targets(records);
+) -> super::upload::ExtractionYield {
+    let targets = super::upload::collect_extraction_targets(records);
     if targets.is_empty() {
-        return 0;
+        return super::upload::ExtractionYield::default();
     }
-    let mut applied = 0usize;
+    let mut total = super::upload::ExtractionYield::default();
     for (call_idx, chunk) in targets.chunks(20).enumerate() {
-        if call_idx >= 10 {
-            // 上限ガード: 200 件を超える分は regex のみ (コスト暴走防止)
+        if call_idx >= 15 {
+            // 上限ガード: 300 件を超える分は regex のみ (コスト暴走防止)
             tracing::info!(
-                "Gemini: holiday AI extraction hit 10-call cap, remaining rely on regex"
+                "Gemini: multi-attr extraction hit 15-call cap, {} targets remain, relying on regex",
+                targets.len().saturating_sub(call_idx * 20)
             );
             break;
         }
-        let schema = super::upload::build_holiday_schema();
-        let (sys, usr) = super::upload::build_holiday_prompt(chunk);
+        let schema = super::upload::build_extraction_schema();
+        let (sys, usr) = super::upload::build_extraction_prompt(chunk);
         if let Some(resp) = client.generate_json(&sys, &usr, schema).await {
-            let results = super::upload::parse_holiday_response(&resp);
-            applied += super::upload::apply_holiday_results(records, &results);
+            let results = super::upload::parse_extraction_response(&resp);
+            let y = super::upload::apply_extraction_results(records, &results);
+            total.annual_holidays += y.annual_holidays;
+            total.monthly_holidays += y.monthly_holidays;
+            total.bonus += y.bonus;
+            total.paid_leave += y.paid_leave;
+            total.weekly_type += y.weekly_type;
+            total.overtime += y.overtime;
         }
     }
-    if applied > 0 {
-        tracing::info!("Gemini: holiday AI extraction filled {} records", applied);
+    let sum = total.annual_holidays
+        + total.monthly_holidays
+        + total.bonus
+        + total.paid_leave
+        + total.weekly_type
+        + total.overtime;
+    if sum > 0 {
+        tracing::info!(
+            "Gemini: multi-attr extraction filled annual={} monthly={} bonus={} paid={} weekly={} overtime={}",
+            total.annual_holidays, total.monthly_holidays, total.bonus,
+            total.paid_leave, total.weekly_type, total.overtime
+        );
     }
-    applied
+    total
 }
 
 #[derive(Deserialize)]

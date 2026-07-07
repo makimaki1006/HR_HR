@@ -89,6 +89,13 @@ fn rec_with_salary_and_pref(
         salary_parsed: sal,
         location_parsed: loc,
         annual_holidays: None,
+        ai_monthly_holidays_min: None,
+        ai_monthly_holidays_max: None,
+        ai_bonus: None,
+        ai_bonus_times_per_year: None,
+        ai_paid_leave_rate: None,
+        ai_weekly_holiday_type: None,
+        ai_overtime_hours_monthly: None,
     }
 }
 
