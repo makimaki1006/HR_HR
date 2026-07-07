@@ -36,6 +36,19 @@ pub struct SurveyRecord {
     pub salary_parsed: ParsedSalary,
     pub location_parsed: ParsedLocation,
     pub annual_holidays: Option<i64>,
+    // ---- 複数属性 AI 抽出結果 (機能 C 拡張, 2026-07-07) ----
+    // すべて Option (未抽出=None が既定)。ai_ プレフィックスで「LLM 抽出由来」を
+    // 型名レベルで明示し、規則ベース抽出 (annual_holidays 等) と混ぜない。
+    // サーバ側レンジ検証 (parse_extraction_response / apply_extraction_results) を
+    // 通過した値のみが格納される。
+    pub ai_monthly_holidays_min: Option<i64>,
+    pub ai_monthly_holidays_max: Option<i64>,
+    pub ai_bonus: Option<bool>,
+    pub ai_bonus_times_per_year: Option<i64>,
+    pub ai_paid_leave_rate: Option<i64>,
+    /// 週休形態。enum 値のみ: "完全週休2日"/"週休2日"/"シフト制"/"その他"。
+    pub ai_weekly_holiday_type: Option<String>,
+    pub ai_overtime_hours_monthly: Option<i64>,
 }
 
 // ======== CSVヘッダー検出 ========
@@ -501,6 +514,15 @@ fn parse_csv_bytes_inner(
             salary_parsed,
             location_parsed,
             annual_holidays,
+            // 複数属性 AI 抽出はアップロード後に handlers.rs 経由で補完 (graceful degradation)。
+            // ここでは常に None で初期化 (キー未設定/失敗時はこのまま = 従来動作)。
+            ai_monthly_holidays_min: None,
+            ai_monthly_holidays_max: None,
+            ai_bonus: None,
+            ai_bonus_times_per_year: None,
+            ai_paid_leave_rate: None,
+            ai_weekly_holiday_type: None,
+            ai_overtime_hours_monthly: None,
         });
     }
 
@@ -1504,6 +1526,320 @@ pub fn apply_holiday_results(records: &mut [SurveyRecord], results: &[(usize, i6
 }
 
 // =============================================================================
+// 機能 C 拡張 (2026-07-07): 複数属性 AI 抽出のコア
+//
+// build_holiday_schema/prompt を **複数属性版に発展** させたもの。年間休日に加え
+// 月間休日レンジ / 賞与 / 有給取得率 / 週休形態 / 残業時間を 1 回の LLM 呼び出しで抽出する。
+// 既存の年間休日フロー (collect_holiday_targets / build_holiday_schema / ...) は温存し、
+// schema を広げる方向で拡張 (回帰防止)。
+//
+// **graceful degradation**: すべて純関数。実 API 呼び出し・キー管理は handlers.rs 側。
+// **サーバ側レンジ検証**: LLM 返値は parse_extraction_response のレンジ検証を通過した
+// ものだけ採用する (月間休日 1-31 かつ min<=max / 有給 0-100 / 賞与回数 1-4 /
+// 残業 0-200 / 週休形態は enum 一致のみ / 年間休日 70-180)。
+// =============================================================================
+
+/// 週休形態の許容 enum 値。プロンプトで LLM に指示する候補と一致させる。
+pub const WEEKLY_HOLIDAY_TYPES: [&str; 4] = ["完全週休2日", "週休2日", "シフト制", "その他"];
+
+/// 週休形態が許容 enum 値のいずれかか判定する。
+pub fn is_valid_weekly_holiday_type(s: &str) -> bool {
+    WEEKLY_HOLIDAY_TYPES.contains(&s)
+}
+
+/// 1 レコード分の検証済み AI 抽出属性。
+///
+/// 各フィールドは [`parse_extraction_response`] のレンジ検証を通過した値のみ `Some`。
+/// 検証に落ちた属性は `None` (= その属性だけ不採用。他属性は独立に採用しうる)。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExtractedAttributes {
+    pub index: usize,
+    pub annual_holidays: Option<i64>,
+    pub monthly_holidays_min: Option<i64>,
+    pub monthly_holidays_max: Option<i64>,
+    pub bonus: Option<bool>,
+    pub bonus_times_per_year: Option<i64>,
+    pub paid_leave_rate: Option<i64>,
+    pub weekly_holiday_type: Option<String>,
+    pub overtime_hours_monthly: Option<i64>,
+}
+
+/// 属性別の適用件数 (収穫量)。[`apply_extraction_results`] の戻り値。
+///
+/// 「実際にレコードへ新規反映された」件数のみを数える (既存値の上書きはカウントしない)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExtractionYield {
+    pub annual_holidays: usize,
+    pub monthly_holidays: usize,
+    pub bonus: usize,
+    pub paid_leave: usize,
+    pub weekly_type: usize,
+    pub overtime: usize,
+}
+
+/// 複数属性 AI 抽出の対象レコードを収集する。
+///
+/// [`collect_holiday_targets`] との違い: **年間休日 None 限定を撤廃**し、
+/// description が 30 文字以上の **全行** を対象にする。年間休日が regex で既に取れている
+/// 行でも、他の 6 属性 (月間休日 / 賞与 / 有給 / 週休 / 残業) の抽出対象になりうるため。
+/// description は 500 文字上限でトリム。戻り値は `(レコード index, トリム済 description)`。
+pub fn collect_extraction_targets(records: &[SurveyRecord]) -> Vec<(usize, String)> {
+    records
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.description.chars().count() >= 30)
+        .map(|(i, r)| {
+            let desc: String = r.description.chars().take(500).collect();
+            (i, desc)
+        })
+        .collect()
+}
+
+/// 複数属性抽出の JSON schema。annual_holidays + 7 属性、すべて nullable。
+///
+/// [`build_holiday_schema`] を発展させたもの。required は index のみ
+/// (属性は「明記されたもののみ」で null になりうるため必須にしない)。
+pub fn build_extraction_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": { "type": "integer" },
+                        "annual_holidays": { "type": "integer", "nullable": true },
+                        "monthly_holidays_min": { "type": "integer", "nullable": true },
+                        "monthly_holidays_max": { "type": "integer", "nullable": true },
+                        "bonus": { "type": "boolean", "nullable": true },
+                        "bonus_times_per_year": { "type": "integer", "nullable": true },
+                        "paid_leave_rate": { "type": "integer", "nullable": true },
+                        "weekly_holiday_type": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": ["完全週休2日", "週休2日", "シフト制", "その他"]
+                        },
+                        "overtime_hours_monthly": { "type": "integer", "nullable": true }
+                    },
+                    "required": ["index"]
+                }
+            }
+        },
+        "required": ["results"]
+    })
+}
+
+/// 複数属性抽出の (system, user) プロンプトを構築する。
+///
+/// 「明記されたもののみ、推測は null」の規律を **全属性** に適用する。
+/// - 月間休日: 「月8〜10日休み」→ min=8, max=10 / 単一値 (「月8日」) なら min=max=8。
+/// - 賞与: 「賞与あり」「年2回」等の明記のみ true。記載なし → null。
+/// - 週休形態: 完全週休2日 / 週休2日 / シフト制 / その他 のいずれか。判断不能は null。
+/// `batch` は `(レコード index, トリム済 description)`。index はそのまま echo させる。
+pub fn build_extraction_prompt(batch: &[(usize, String)]) -> (String, String) {
+    let system = "あなたは求人票から労働条件を厳密に抽出するアシスタントです。\
+        各求人について、以下の属性を **本文に明記されているものだけ** 抽出してください。\
+        推測・補完・常識による穴埋めは一切禁止で、明記が無い属性は必ず null にしてください。\n\
+        - annual_holidays: 『年間休日』として明記された日数 (70〜180 の整数)。それ以外は null。\n\
+        - monthly_holidays_min / monthly_holidays_max: 月間の休日日数 (各 1〜31)。\
+        『月8〜10日休み』なら min=8, max=10。『月8日休み』のような単一値なら min=max=8。\n\
+        - bonus: 賞与の有無 (『賞与あり』『年2回』等の明記があれば true、『賞与なし』なら false、\
+        記載が無ければ null)。\n\
+        - bonus_times_per_year: 年間の賞与支給回数 (1〜4)。明記が無ければ null。\n\
+        - paid_leave_rate: 有給休暇取得率 (0〜100 のパーセント整数)。明記が無ければ null。\n\
+        - weekly_holiday_type: 週休形態。『完全週休2日』『週休2日』『シフト制』『その他』の\
+        いずれか 1 つ。判断できなければ null。\n\
+        - overtime_hours_monthly: 月あたりの残業時間 (時間, 0 以上)。明記が無ければ null。\n\
+        与えられた index はそのまま echo し、出力は指定された JSON schema に厳密に従い、\
+        余計な説明を加えないでください。"
+        .to_string();
+    let mut user =
+        String::from("以下の各求人 (index と説明文) について、労働条件属性を抽出してください。\n");
+    for (idx, desc) in batch {
+        user.push_str(&format!("\nindex={}\n説明: {}\n", idx, desc));
+    }
+    (system, user)
+}
+
+/// Gemini レスポンス JSON から検証済み [`ExtractedAttributes`] のベクタを構築する。
+///
+/// **LLM の返す値を無検証で信じない**。属性ごとに独立してレンジ検証し、
+/// 落ちた属性のみ捨てる (他属性は残す):
+/// - annual_holidays: 70-180 ([`is_valid_annual_holidays`])
+/// - monthly_holidays: 各 1-31。両方あり かつ min>max なら **両方棄却**。
+///   片方のみ有効なら min=max として採用 (「単一値」扱い)。
+/// - bonus: bool そのまま。bonus_times_per_year: 1-4。
+/// - paid_leave_rate: 0-100。overtime_hours_monthly: 0-200。
+/// - weekly_holiday_type: enum 一致 ([`is_valid_weekly_holiday_type`]) のみ。
+///
+/// `index` を持たない要素はスキップ。全属性 None の要素も index 保持のため保持する
+/// (apply 側で no-op になるだけ)。
+pub fn parse_extraction_response(value: &serde_json::Value) -> Vec<ExtractedAttributes> {
+    let mut out = Vec::new();
+    let arr = match value.get("results").and_then(|v| v.as_array()) {
+        Some(a) => a,
+        None => return out,
+    };
+    for item in arr {
+        let idx = match item.get("index").and_then(|v| v.as_u64()) {
+            Some(i) => i as usize,
+            None => continue,
+        };
+        let mut attr = ExtractedAttributes {
+            index: idx,
+            ..Default::default()
+        };
+
+        // 年間休日 (70-180)
+        if let Some(v) = item.get("annual_holidays").and_then(|v| v.as_i64()) {
+            if is_valid_annual_holidays(v) {
+                attr.annual_holidays = Some(v);
+            }
+        }
+
+        // 月間休日 (各 1-31, min<=max)。範囲外は個別に捨て、min>max なら両方棄却。
+        let raw_min = item
+            .get("monthly_holidays_min")
+            .and_then(|v| v.as_i64())
+            .filter(|v| (1..=31).contains(v));
+        let raw_max = item
+            .get("monthly_holidays_max")
+            .and_then(|v| v.as_i64())
+            .filter(|v| (1..=31).contains(v));
+        match (raw_min, raw_max) {
+            (Some(lo), Some(hi)) if lo <= hi => {
+                attr.monthly_holidays_min = Some(lo);
+                attr.monthly_holidays_max = Some(hi);
+            }
+            (Some(_), Some(_)) => { /* min>max → 両方棄却 */ }
+            // 片方のみ有効 → 単一値 (min=max) として採用
+            (Some(lo), None) => {
+                attr.monthly_holidays_min = Some(lo);
+                attr.monthly_holidays_max = Some(lo);
+            }
+            (None, Some(hi)) => {
+                attr.monthly_holidays_min = Some(hi);
+                attr.monthly_holidays_max = Some(hi);
+            }
+            (None, None) => {}
+        }
+
+        // 賞与 (bool)
+        if let Some(b) = item.get("bonus").and_then(|v| v.as_bool()) {
+            attr.bonus = Some(b);
+        }
+        // 賞与回数 (1-4)
+        if let Some(v) = item.get("bonus_times_per_year").and_then(|v| v.as_i64()) {
+            if (1..=4).contains(&v) {
+                attr.bonus_times_per_year = Some(v);
+            }
+        }
+        // 有給取得率 (0-100)
+        if let Some(v) = item.get("paid_leave_rate").and_then(|v| v.as_i64()) {
+            if (0..=100).contains(&v) {
+                attr.paid_leave_rate = Some(v);
+            }
+        }
+        // 週休形態 (enum 一致のみ)
+        if let Some(s) = item.get("weekly_holiday_type").and_then(|v| v.as_str()) {
+            if is_valid_weekly_holiday_type(s) {
+                attr.weekly_holiday_type = Some(s.to_string());
+            }
+        }
+        // 残業時間 (0-200)
+        if let Some(v) = item.get("overtime_hours_monthly").and_then(|v| v.as_i64()) {
+            if (0..=200).contains(&v) {
+                attr.overtime_hours_monthly = Some(v);
+            }
+        }
+
+        out.push(attr);
+    }
+    out
+}
+
+/// 検証済み [`ExtractedAttributes`] をレコードへ反映し、属性別の [`ExtractionYield`] を返す。
+///
+/// 規律:
+/// - annual_holidays: **regex 抽出を優先**。既に埋まっているレコード (regex 成功分) は
+///   上書きしない (既存 [`apply_holiday_results`] と同じ規律)。
+/// - ai_* 属性: 既に埋まっている (二重適用等) 場合は上書きしない。
+/// - index が範囲外の要素は無視。各属性はレンジを **二重防御** で再検証する。
+pub fn apply_extraction_results(
+    records: &mut [SurveyRecord],
+    results: &[ExtractedAttributes],
+) -> ExtractionYield {
+    let mut y = ExtractionYield::default();
+    for attr in results {
+        let idx = attr.index;
+        if idx >= records.len() {
+            continue;
+        }
+        let rec = &mut records[idx];
+
+        // 年間休日: regex 優先 (None のときのみ)、70-180 再検証
+        if let Some(days) = attr.annual_holidays {
+            if rec.annual_holidays.is_none() && is_valid_annual_holidays(days) {
+                rec.annual_holidays = Some(days);
+                y.annual_holidays += 1;
+            }
+        }
+
+        // 月間休日: min/max とも有効・min<=max のときのみ
+        if let (Some(lo), Some(hi)) = (attr.monthly_holidays_min, attr.monthly_holidays_max) {
+            if rec.ai_monthly_holidays_min.is_none()
+                && (1..=31).contains(&lo)
+                && (1..=31).contains(&hi)
+                && lo <= hi
+            {
+                rec.ai_monthly_holidays_min = Some(lo);
+                rec.ai_monthly_holidays_max = Some(hi);
+                y.monthly_holidays += 1;
+            }
+        }
+
+        // 賞与: 有無を採用。回数 (1-4) は有無と同時にのみ格納。
+        if let Some(b) = attr.bonus {
+            if rec.ai_bonus.is_none() {
+                rec.ai_bonus = Some(b);
+                if let Some(t) = attr.bonus_times_per_year {
+                    if (1..=4).contains(&t) {
+                        rec.ai_bonus_times_per_year = Some(t);
+                    }
+                }
+                y.bonus += 1;
+            }
+        }
+
+        // 有給取得率 (0-100)
+        if let Some(v) = attr.paid_leave_rate {
+            if rec.ai_paid_leave_rate.is_none() && (0..=100).contains(&v) {
+                rec.ai_paid_leave_rate = Some(v);
+                y.paid_leave += 1;
+            }
+        }
+
+        // 週休形態 (enum 一致)
+        if let Some(ref s) = attr.weekly_holiday_type {
+            if rec.ai_weekly_holiday_type.is_none() && is_valid_weekly_holiday_type(s) {
+                rec.ai_weekly_holiday_type = Some(s.clone());
+                y.weekly_type += 1;
+            }
+        }
+
+        // 残業時間 (0-200)
+        if let Some(v) = attr.overtime_hours_monthly {
+            if rec.ai_overtime_hours_monthly.is_none() && (0..=200).contains(&v) {
+                rec.ai_overtime_hours_monthly = Some(v);
+                y.overtime += 1;
+            }
+        }
+    }
+    y
+}
+
+// =============================================================================
 // 2026-04-26 Fix-A 逆証明テスト (Shift-JIS / UTF-8 BOM / 行レベル重複)
 // =============================================================================
 
@@ -1969,6 +2305,13 @@ mod gemini_fallback_tests {
             salary_parsed: parse_salary(salary, SalaryType::Monthly),
             location_parsed: parse_location("", None),
             annual_holidays: None,
+            ai_monthly_holidays_min: None,
+            ai_monthly_holidays_max: None,
+            ai_bonus: None,
+            ai_bonus_times_per_year: None,
+            ai_paid_leave_rate: None,
+            ai_weekly_holiday_type: None,
+            ai_overtime_hours_monthly: None,
         }
     }
 
@@ -2163,5 +2506,251 @@ mod gemini_fallback_tests {
         assert!(colmap["properties"]["mappings"].is_object());
         let holiday = build_holiday_schema();
         assert!(holiday["properties"]["results"].is_object());
+    }
+
+    // =========================================================================
+    // 機能 C 拡張 (2026-07-07): 複数属性 AI 抽出のテスト (+9 件)
+    // =========================================================================
+
+    // ---- collect_extraction_targets: 年間休日 Some の行も対象に含む ----
+
+    #[test]
+    fn collect_extraction_targets_includes_rows_with_annual_holidays() {
+        // collect_holiday_targets は annual_holidays None 限定だが、
+        // collect_extraction_targets は description>=30 の全行を対象にする。
+        let mut r_filled = dummy_record("t", "c", "月給20万円");
+        r_filled.description = "年".repeat(50); // >=30
+        r_filled.annual_holidays = Some(120); // regex 済でも対象
+
+        let mut r_short = dummy_record("t", "c", "月給20万円");
+        r_short.description = "短い".to_string(); // <30 → 対象外
+
+        let long_desc: String = "休".repeat(600);
+        let mut r_long = dummy_record("t", "c", "月給20万円");
+        r_long.description = long_desc;
+
+        let recs = vec![r_filled, r_short, r_long];
+        let targets = collect_extraction_targets(&recs);
+        assert_eq!(
+            targets.len(),
+            2,
+            "index 0 (regex済) と index 2 が対象、1 は短すぎ除外"
+        );
+        assert_eq!(targets[0].0, 0, "regex 済の行も index 0 として含まれる");
+        assert_eq!(targets[1].0, 2);
+        assert_eq!(targets[1].1.chars().count(), 500, "500 文字トリム");
+    }
+
+    // ---- parse_extraction_response: 全属性の正常パース ----
+
+    #[test]
+    fn parse_extraction_response_parses_all_attributes() {
+        let resp = json!({
+            "results": [{
+                "index": 0,
+                "annual_holidays": 120,
+                "monthly_holidays_min": 8,
+                "monthly_holidays_max": 10,
+                "bonus": true,
+                "bonus_times_per_year": 2,
+                "paid_leave_rate": 70,
+                "weekly_holiday_type": "完全週休2日",
+                "overtime_hours_monthly": 15
+            }]
+        });
+        let parsed = parse_extraction_response(&resp);
+        assert_eq!(parsed.len(), 1);
+        let a = &parsed[0];
+        assert_eq!(a.index, 0);
+        assert_eq!(a.annual_holidays, Some(120));
+        assert_eq!(a.monthly_holidays_min, Some(8));
+        assert_eq!(a.monthly_holidays_max, Some(10));
+        assert_eq!(a.bonus, Some(true));
+        assert_eq!(a.bonus_times_per_year, Some(2));
+        assert_eq!(a.paid_leave_rate, Some(70));
+        assert_eq!(a.weekly_holiday_type.as_deref(), Some("完全週休2日"));
+        assert_eq!(a.overtime_hours_monthly, Some(15));
+    }
+
+    #[test]
+    fn parse_extraction_response_monthly_single_value_sets_min_eq_max() {
+        // 単一値 (min のみ) → min=max として採用
+        let resp = json!({
+            "results": [{ "index": 3, "monthly_holidays_min": 9 }]
+        });
+        let parsed = parse_extraction_response(&resp);
+        assert_eq!(parsed[0].monthly_holidays_min, Some(9));
+        assert_eq!(parsed[0].monthly_holidays_max, Some(9), "単一値 → min=max");
+    }
+
+    // ---- guard: レンジ外は棄却 ----
+
+    #[test]
+    fn parse_extraction_response_rejects_paid_leave_over_100() {
+        // 有給 150% → 棄却 (他の有効属性は残す)
+        let resp = json!({
+            "results": [{ "index": 0, "paid_leave_rate": 150, "bonus": false }]
+        });
+        let parsed = parse_extraction_response(&resp);
+        assert_eq!(parsed[0].paid_leave_rate, None, "有給150%は棄却");
+        assert_eq!(
+            parsed[0].bonus,
+            Some(false),
+            "同レコードの他属性は独立に採用"
+        );
+    }
+
+    #[test]
+    fn parse_extraction_response_rejects_monthly_over_31() {
+        // 月間休日 40 日 → 各値が 1-31 外なので棄却
+        let resp = json!({
+            "results": [{ "index": 0, "monthly_holidays_min": 40, "monthly_holidays_max": 40 }]
+        });
+        let parsed = parse_extraction_response(&resp);
+        assert_eq!(parsed[0].monthly_holidays_min, None, "40日は範囲外で棄却");
+        assert_eq!(parsed[0].monthly_holidays_max, None);
+    }
+
+    #[test]
+    fn parse_extraction_response_rejects_min_greater_than_max() {
+        // min>max (両方 1-31 内でも順序不正) → 両方棄却
+        let resp = json!({
+            "results": [{ "index": 0, "monthly_holidays_min": 12, "monthly_holidays_max": 8 }]
+        });
+        let parsed = parse_extraction_response(&resp);
+        assert_eq!(parsed[0].monthly_holidays_min, None, "min>max は両方棄却");
+        assert_eq!(parsed[0].monthly_holidays_max, None);
+    }
+
+    #[test]
+    fn parse_extraction_response_rejects_invalid_weekly_type_and_bonus_times() {
+        // 週休形態 enum 外 / 賞与回数 5 (>4) → いずれも棄却
+        let resp = json!({
+            "results": [{
+                "index": 0,
+                "weekly_holiday_type": "隔週休",
+                "bonus_times_per_year": 5
+            }]
+        });
+        let parsed = parse_extraction_response(&resp);
+        assert_eq!(parsed[0].weekly_holiday_type, None, "enum 外は棄却");
+        assert_eq!(
+            parsed[0].bonus_times_per_year, None,
+            "賞与回数5は範囲外で棄却"
+        );
+    }
+
+    /// guard_demo: レンジ外 (有給150% / 月間休日40日 / min>max) を含むモックが全て棄却される
+    #[test]
+    fn parse_extraction_response_guard_demo_all_out_of_range_rejected() {
+        let resp = json!({
+            "results": [
+                { "index": 0, "paid_leave_rate": 150 },                                  // 有給 150%
+                { "index": 1, "monthly_holidays_min": 40, "monthly_holidays_max": 40 },  // 月間 40 日
+                { "index": 2, "monthly_holidays_min": 20, "monthly_holidays_max": 5 },   // min>max
+                { "index": 3, "annual_holidays": 300 },                                  // 年間 300 日
+                { "index": 4, "overtime_hours_monthly": 999 },                           // 残業 999h
+                { "index": 5, "bonus_times_per_year": 0 },                               // 賞与回数 0
+                { "index": 6, "weekly_holiday_type": "月休" }                            // enum 外
+            ]
+        });
+        let parsed = parse_extraction_response(&resp);
+        // 各要素は index 保持で残るが、全属性が None (= 何も採用されない) であること
+        for a in &parsed {
+            assert_eq!(a.annual_holidays, None);
+            assert_eq!(a.monthly_holidays_min, None);
+            assert_eq!(a.monthly_holidays_max, None);
+            assert_eq!(a.bonus_times_per_year, None);
+            assert_eq!(a.paid_leave_rate, None);
+            assert_eq!(a.weekly_holiday_type, None);
+            assert_eq!(a.overtime_hours_monthly, None);
+        }
+        // apply しても 1 件も反映されないこと
+        let mut recs = vec![
+            dummy_record("a", "c", "月給20万円"),
+            dummy_record("b", "c", "月給20万円"),
+            dummy_record("d", "c", "月給20万円"),
+            dummy_record("e", "c", "月給20万円"),
+            dummy_record("f", "c", "月給20万円"),
+            dummy_record("g", "c", "月給20万円"),
+            dummy_record("h", "c", "月給20万円"),
+        ];
+        let y = apply_extraction_results(&mut recs, &parsed);
+        assert_eq!(
+            y,
+            ExtractionYield::default(),
+            "レンジ外は 1 件も反映されない"
+        );
+    }
+
+    // ---- apply_extraction_results: regex 優先 + 収穫量カウント ----
+
+    #[test]
+    fn apply_extraction_results_respects_regex_priority_and_counts_yield() {
+        let mut recs = vec![
+            dummy_record("a", "c", "月給20万円"), // index 0: annual None → 埋まる
+            {
+                let mut r = dummy_record("b", "c", "月給20万円");
+                r.annual_holidays = Some(105); // index 1: regex 済 → 上書きしない
+                r
+            },
+        ];
+        let results = vec![
+            ExtractedAttributes {
+                index: 0,
+                annual_holidays: Some(120),
+                monthly_holidays_min: Some(8),
+                monthly_holidays_max: Some(10),
+                bonus: Some(true),
+                bonus_times_per_year: Some(2),
+                paid_leave_rate: Some(65),
+                weekly_holiday_type: Some("完全週休2日".to_string()),
+                overtime_hours_monthly: Some(20),
+            },
+            ExtractedAttributes {
+                index: 1,
+                annual_holidays: Some(130), // regex 優先で無視される
+                ..Default::default()
+            },
+        ];
+        let y = apply_extraction_results(&mut recs, &results);
+        // annual: index 0 のみ反映 (index 1 は regex 済で上書きされない)
+        assert_eq!(recs[0].annual_holidays, Some(120));
+        assert_eq!(recs[1].annual_holidays, Some(105), "regex 値を上書きしない");
+        assert_eq!(y.annual_holidays, 1, "annual 反映は index 0 の 1 件のみ");
+        // 他属性 (index 0)
+        assert_eq!(recs[0].ai_monthly_holidays_min, Some(8));
+        assert_eq!(recs[0].ai_monthly_holidays_max, Some(10));
+        assert_eq!(recs[0].ai_bonus, Some(true));
+        assert_eq!(recs[0].ai_bonus_times_per_year, Some(2));
+        assert_eq!(recs[0].ai_paid_leave_rate, Some(65));
+        assert_eq!(
+            recs[0].ai_weekly_holiday_type.as_deref(),
+            Some("完全週休2日")
+        );
+        assert_eq!(recs[0].ai_overtime_hours_monthly, Some(20));
+        assert_eq!(y.monthly_holidays, 1);
+        assert_eq!(y.bonus, 1);
+        assert_eq!(y.paid_leave, 1);
+        assert_eq!(y.weekly_type, 1);
+        assert_eq!(y.overtime, 1);
+    }
+
+    #[test]
+    fn extraction_schema_has_all_attribute_keys() {
+        let s = build_extraction_schema();
+        let props = &s["properties"]["results"]["items"]["properties"];
+        for k in [
+            "annual_holidays",
+            "monthly_holidays_min",
+            "monthly_holidays_max",
+            "bonus",
+            "bonus_times_per_year",
+            "paid_leave_rate",
+            "weekly_holiday_type",
+            "overtime_hours_monthly",
+        ] {
+            assert!(props.get(k).is_some(), "schema に {} が含まれる", k);
+        }
     }
 }
