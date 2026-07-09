@@ -127,6 +127,15 @@ pub struct InsightContext {
     // v2_external_education (47県 × education_level: 中卒/高卒/短大高専/大卒/大学院)
     // 国勢調査 2020 / 25 歳以上人口の最終学歴別構成
     pub ext_education: Vec<Row>,
+    // === 詳細版 (Extended / Section 10) 専用 cross_* テーブル (2026-07-09) ===
+    // 介護・HW を一切含まない公的統計 × 今回の求人データのクロス集計。
+    // データ未投入時は空 Vec (Section 10 で graceful skip)。列名は db_columns.rs の const 準拠。
+    //   図1 働き手の将来マップ (国の将来人口推計):
+    pub cross_future_workforce: Vec<Row>,
+    //   図2 給与の相場比較 (毎月勤労統計 / 最低賃金):
+    pub cross_wage_public: Vec<Row>,
+    //   図3/図4 転職を考えている人 / 採用ネック診断 (就業構造基本調査 / 有効求人倍率):
+    pub cross_switcher_supply: Vec<Row>,
     // === CR-9 (2026-04-27): 産業ミスマッチ警戒 section で利用 ===
     // 国勢調査 v2_external_industry_structure (集計コード AS/AR/CR 除外済み、都道府県粒度)
     // 列: industry_code, industry_name, employees_total ほか
@@ -522,6 +531,20 @@ pub(crate) fn build_insight_context_with_wage_mode(
     ) = phase_a_bundle;
     let (pref_avg_unemployment_rate, pref_avg_single_rate, flow) = mean_flow_bundle;
 
+    // 詳細版 (Extended / Section 10) 専用 cross_* テーブル (2026-07-09)。
+    // 介護・HW を含まない公的統計 × 今回の求人データのクロス集計。小さな 3 クエリのため
+    // 直列取得 (未投入時は各テーブルが不在 → query_turso が空 Vec を返し graceful skip)。
+    let (cross_future_workforce, cross_wage_public, cross_switcher_supply) =
+        if let Some(tdb) = turso {
+            (
+                tf::fetch_cross_future_workforce(tdb, pref),
+                tf::fetch_cross_wage_public(tdb, pref),
+                tf::fetch_cross_switcher_supply(tdb, pref),
+            )
+        } else {
+            (vec![], vec![], vec![])
+        };
+
     let mut ctx = InsightContext {
         // ローカルSQLite（analysis/fetch.rsの関数を再利用）
         vacancy,
@@ -573,6 +596,10 @@ pub(crate) fn build_insight_context_with_wage_mode(
         ext_geography,
         // Impl-2 (2026-04-26): 学歴分布 (subtab5_phase4_7::fetch_education を再利用)
         ext_education,
+        // 詳細版 (Extended / Section 10) 専用 cross_* テーブル (2026-07-09)
+        cross_future_workforce,
+        cross_wage_public,
+        cross_switcher_supply,
         // CR-9 (2026-04-27 / 2026-04-28 修正): 産業ミスマッチ警戒
         // 注: integrate エンドポイントが本コンテキストを使用するため、
         //     /report/survey 専用の遅いフェッチをここに含めると integrate がタイムアウトする。

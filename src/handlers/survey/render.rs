@@ -720,25 +720,38 @@ fn render_action_bar(session_id: &str) -> String {
                 <div class="text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
                     <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                     PDFレポート出力
-                    <span class="text-[10px] font-normal text-emerald-300">採用コンサル版に統一</span>
+                    <span class="text-[10px] font-normal text-emerald-300">2種類から選択</span>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <!-- Legacy full/public variants remain URL-compatible only; the tab UI exposes one report. -->
+                    <!-- 標準レポート: market_intelligence — 従来の動線・URL 不変 -->
                     <a href="/report/survey?session_id={sid}&variant=market_intelligence" target="_blank" rel="noopener"
                        onclick="return openVariantReport(event, '{sid}', 'market_intelligence')"
                        data-variant="market_intelligence"
                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-purple-400"
-                       aria-label="採用コンサルレポートPDFを新しいタブで開く（採用マーケットインテリジェンス版）"
-                       title="採用コンサルレポート: 採用マーケットインテリジェンス（職業×地域 / 常住地ベース vs 従業地ベース / 検証済み推定 β）を含む拡張版。コンサル提案・配信地域選定向け。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
+                       aria-label="標準レポートPDFを新しいタブで開く"
+                       title="標準レポート: いつもの構成（採用マーケットインテリジェンス版）。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
+                        <span class="text-base" aria-hidden="true">📄</span>
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>標準レポートを作成</span>
+                            <span class="text-[10px] opacity-80 font-normal">いつもの構成</span>
+                        </span>
+                    </a>
+                    <!-- 詳細レポート: extended — 働き手の将来・給与相場・転職動向を追加 (Section 10) -->
+                    <a href="/report/survey?session_id={sid}&variant=extended" target="_blank" rel="noopener"
+                       onclick="return openVariantReport(event, '{sid}', 'extended')"
+                       data-variant="extended"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                       aria-label="詳細レポートPDFを新しいタブで開く（データ拡大版）"
+                       title="詳細レポート: 働き手の将来・給与相場・転職動向の分析を追加した版。公的統計×今回の求人データのクロス集計（国の将来人口推計等）を含む。データ未投入時は該当セクションをスキップします。">
                         <span class="text-base" aria-hidden="true">📊</span>
                         <span class="flex flex-col items-start leading-tight">
-                            <span>採用コンサルレポート PDF</span>
-                            <span class="text-[10px] opacity-80 font-normal">マーケットインテリジェンス / コンサル提案向け</span>
+                            <span>詳細レポートを作成 (データ拡大版)</span>
+                            <span class="text-[10px] opacity-80 font-normal">働き手の将来・給与相場・転職動向の分析を追加した版</span>
                         </span>
                     </a>
                 </div>
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                    通常のPDF出力は<strong class="text-slate-200">採用コンサルレポート</strong>に統一しました。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
+                    PDF出力は<strong class="text-slate-200">2種類</strong>から選択できます。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
                 </p>
                 <!-- 2026-05-19: openVariantReport は templates/dashboard_inline.html へ移動。
                      HTMX で動的挿入された <script> は eval されないため、ここで定義すると
@@ -1682,17 +1695,30 @@ fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &st
 mod variant_ui_tests {
     use super::*;
 
+    /// 標準レポート (market_intelligence) と詳細レポート (extended) の 2 ボタンが露出することを確認。
+    /// full / public はタブ UI に表示しない (URL 互換のみ維持)。
     #[test]
-    fn action_bar_exposes_single_market_intelligence_report_button() {
+    fn action_bar_exposes_both_report_buttons() {
         let html = render_action_bar("test_session_123");
+        // 標準ボタン
         assert!(
-            html.contains("採用コンサルレポート PDF"),
-            "action bar should contain the unified consulting report button"
+            html.contains("標準レポートを作成"),
+            "action bar should contain the standard report button"
         );
         assert!(
             html.contains("variant=market_intelligence"),
-            "action bar should link to the market_intelligence report"
+            "action bar should link to the market_intelligence report (URL unchanged)"
         );
+        // 詳細ボタン
+        assert!(
+            html.contains("詳細レポートを作成 (データ拡大版)"),
+            "action bar should contain the extended report button"
+        );
+        assert!(
+            html.contains("variant=extended"),
+            "action bar should link to the extended report"
+        );
+        // full / public は非表示
         assert!(
             !html.contains("variant=full") && !html.contains("variant=public"),
             "full/public report variants must not be exposed in the tab UI"
@@ -1700,32 +1726,41 @@ mod variant_ui_tests {
     }
 
     #[test]
-    fn action_bar_unified_report_has_accessible_label() {
+    fn action_bar_standard_report_has_accessible_label() {
         let html = render_action_bar("test_session_456");
         assert!(
-            html.contains("採用コンサルレポートPDFを新しいタブで開く"),
-            "unified report button should have aria-label"
+            html.contains("標準レポートPDFを新しいタブで開く"),
+            "standard report button should have aria-label"
+        );
+    }
+
+    #[test]
+    fn action_bar_extended_report_has_accessible_label() {
+        let html = render_action_bar("test_session_789");
+        assert!(
+            html.contains("詳細レポートPDFを新しいタブで開く（データ拡大版）"),
+            "extended report button should have aria-label"
         );
     }
 
     #[test]
     fn action_bar_variant_buttons_have_min_height_for_mobile() {
-        // スマホでもタップしやすいサイズ (min-height:44px)
+        // スマホでもタップしやすいサイズ (min-height:44px) — 2 ボタン分
         let html = render_action_bar("sid");
         let count = html.matches("min-h-[44px]").count();
         assert!(
-            count >= 1,
-            "unified report button should have min-h-[44px] for mobile tappability (found {})",
+            count >= 2,
+            "both report buttons should have min-h-[44px] for mobile tappability (found {})",
             count
         );
     }
 
     #[test]
-    fn action_bar_explains_report_unification() {
+    fn action_bar_explains_two_report_types() {
         let html = render_action_bar("sid");
         assert!(
-            html.contains("採用コンサルレポート</strong>に統一"),
-            "should explain that PDF output is unified"
+            html.contains("2種類"),
+            "should explain that two PDF variants are available"
         );
         assert!(
             html.contains(
@@ -1736,6 +1771,15 @@ mod variant_ui_tests {
         assert!(
             html.contains("都道府県/市区町村/業種が PDF に自動適用"),
             "should keep filter propagation guidance"
+        );
+    }
+
+    #[test]
+    fn action_bar_extended_button_describes_content() {
+        let html = render_action_bar("sid");
+        assert!(
+            html.contains("働き手の将来・給与相場・転職動向の分析を追加した版"),
+            "extended button sub-label should describe what is added"
         );
     }
 }

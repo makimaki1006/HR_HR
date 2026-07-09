@@ -71,8 +71,10 @@ pub(crate) fn render_navy_section_09_market_intelligence(
     variant: ReportVariant,
     target_region: &str,
 ) {
-    // 防御的ガード: 呼出側でも matches! しているが、関数単体で呼ばれた場合に備える。
-    if !matches!(variant, ReportVariant::MarketIntelligence) {
+    // 防御的ガード: 呼出側でも判定しているが、関数単体で呼ばれた場合に備える。
+    // 2026-07-09: Extended (詳細版) も MI と同じ Section 09 を表示するため、
+    // `show_market_intelligence_sections()` (MI | Extended) で判定する。
+    if !variant.show_market_intelligence_sections() {
         return;
     }
 
