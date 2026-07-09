@@ -33,6 +33,10 @@ type Row = super::super::super::helpers::Row;
 /// テストごとに必要な ext_* フィールドだけ後から書き換える。
 fn empty_insight_ctx() -> super::super::super::insight::fetch::InsightContext {
     super::super::super::insight::fetch::InsightContext {
+        // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+        cross_future_workforce: vec![],
+        cross_wage_public: vec![],
+        cross_switcher_supply: vec![],
         vacancy: vec![],
         resilience: vec![],
         transparency: vec![],

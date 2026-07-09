@@ -164,6 +164,13 @@ pub(super) use section_07_6_popularity::render_navy_section_popularity;
 pub(super) mod section_09_market_intelligence;
 pub(super) use section_09_market_intelligence::render_navy_section_09_market_intelligence;
 
+// 2026-07-09: Section 10 (詳細版 / Extended variant 専用 追加 4 図) を独立モジュールとして追加。
+//   働き手の将来マップ / 給与の相場比較 / 転職を考えている人 / 採用の何がネックか の 4 図を、
+//   公的統計 × 今回の求人データのクロス集計 (cross_* テーブル) のみで構成する。
+//   介護・HW は一切使わない。データ未投入時は graceful skip。設計元: scratchpad/viz_mock v3/v4。
+pub(super) mod section_10_extended;
+pub(super) use section_10_extended::render_navy_section_10_extended;
+
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;

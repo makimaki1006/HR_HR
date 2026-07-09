@@ -1362,6 +1362,10 @@ mod fixb_tests {
         // ここでは Default が使えるかを確認しつつ、ベースラインで構築する。
         // 実 fixture は survey/report_html_qa_test.rs の mock_empty_insight_ctx を参照。
         InsightContext {
+            // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+            cross_future_workforce: vec![],
+            cross_wage_public: vec![],
+            cross_switcher_supply: vec![],
             vacancy: vec![],
             resilience: vec![],
             transparency: vec![],
@@ -1615,6 +1619,10 @@ mod impl1_contract_tests {
     fn empty_ctx_for_impl1() -> InsightContext {
         // empty_ctx() を fixb_tests から流用したいが private のため再構築
         InsightContext {
+            // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+            cross_future_workforce: vec![],
+            cross_wage_public: vec![],
+            cross_switcher_supply: vec![],
             vacancy: vec![],
             resilience: vec![],
             transparency: vec![],

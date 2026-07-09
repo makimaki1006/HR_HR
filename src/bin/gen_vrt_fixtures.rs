@@ -578,6 +578,102 @@ fn build_ctx() -> InsightContext {
     c.commute_outflow_total = 31_000;
     c.commute_self_rate = 0.72;
 
+    // Section 10 (詳細版): cross_future_workforce (図1 働き手の将来マップ)
+    // 列名は db_columns.rs の const と一致。介護・HW は含まない (国の将来人口推計 由来)。
+    c.cross_future_workforce = vec![
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("muni_code", vs("10202")),
+            ("municipality", vs("高崎市")),
+            ("working_age_2020", vi(230_000)),
+            ("working_age_ratio_2020", vf(59.5)),
+            ("working_age_decline_2040", vf(-18.2)),
+        ]),
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("muni_code", vs("10201")),
+            ("municipality", vs("前橋市")),
+            ("working_age_2020", vi(200_000)),
+            ("working_age_ratio_2020", vf(58.0)),
+            ("working_age_decline_2040", vf(-22.5)),
+        ]),
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("muni_code", vs("10205")),
+            ("municipality", vs("太田市")),
+            ("working_age_2020", vi(140_000)),
+            ("working_age_ratio_2020", vf(61.2)),
+            ("working_age_decline_2040", vf(-15.8)),
+        ]),
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("muni_code", vs("10204")),
+            ("municipality", vs("伊勢崎市")),
+            ("working_age_2020", vi(125_000)),
+            ("working_age_ratio_2020", vf(60.1)),
+            ("working_age_decline_2040", vf(-19.4)),
+        ]),
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("muni_code", vs("10203")),
+            ("municipality", vs("桐生市")),
+            ("working_age_2020", vi(60_000)),
+            ("working_age_ratio_2020", vf(54.3)),
+            ("working_age_decline_2040", vf(-33.6)),
+        ]),
+    ];
+
+    // Section 10 (詳細版): cross_wage_public (図2 給与の相場比較)
+    //   scheduled_earnings=所定内給与 / minwage_fulltime_monthly=最低賃金×160時間 (10月改定の階段)
+    c.cross_wage_public = (1..=12)
+        .map(|mo: i64| {
+            let scheduled = 248_000 + (mo - 1) * 700; // 248,000 → 255,700 へ漸増
+            let hourly = if mo >= 10 { 1_050 } else { 985 };
+            row(&[
+                ("prefecture", vs("群馬県")),
+                ("year_month", vs(&format!("2025-{:02}", mo))),
+                ("scheduled_earnings", vi(scheduled)),
+                ("minwage_fulltime_monthly", vi(hourly * 160)),
+                ("hourly_min_wage", vi(hourly)),
+            ])
+        })
+        .collect();
+
+    // Section 10 (詳細版): cross_switcher_supply (図3 転職を考えている人 / 図4 採用ネック診断)
+    //   region_code "00000"=全国 / "10000"=群馬県 / "10202"=高崎市
+    c.cross_switcher_supply = vec![
+        row(&[
+            ("prefecture", vs("全国")),
+            ("region_code", vs("00000")),
+            ("municipality", vs("全国")),
+            ("job_change_desire_rate", vf(8.5)),
+            ("side_job_holders", vi(3_000_000)),
+            ("additional_job_seekers", vi(4_200_000)),
+            ("job_change_seekers", vi(6_800_000)),
+            ("job_openings_ratio", vf(1.30)),
+        ]),
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("region_code", vs("10000")),
+            ("municipality", vs("群馬県")),
+            ("job_change_desire_rate", vf(7.8)),
+            ("side_job_holders", vi(42_000)),
+            ("additional_job_seekers", vi(55_000)),
+            ("job_change_seekers", vi(88_000)),
+            ("job_openings_ratio", vf(1.42)),
+        ]),
+        row(&[
+            ("prefecture", vs("群馬県")),
+            ("region_code", vs("10202")),
+            ("municipality", vs("高崎市")),
+            ("job_change_desire_rate", vf(7.9)),
+            ("side_job_holders", vi(9_500)),
+            ("additional_job_seekers", vi(12_000)),
+            ("job_change_seekers", vi(24_000)),
+            ("job_openings_ratio", vf(1.40)),
+        ]),
+    ];
+
     c
 }
 
@@ -633,6 +729,20 @@ fn main() {
         ReportVariant::Public,
     );
     write_fixture(&out_dir, "report_basic.html", &html_basic);
+
+    // 3) Extended variant: MarketIntelligence の全セクション + Section 10 (追加 4 図)
+    //    report_mi.html は Extended とは別 variant のため sha は不変 (標準版不変の証明)。
+    let html_extended = render_survey_report_page_for_vrt(
+        &agg_full,
+        &seeker,
+        &agg_full.by_company,
+        &agg_full.by_emp_type_salary,
+        &agg_full.salary_min_values,
+        &agg_full.salary_max_values,
+        Some(&ctx),
+        ReportVariant::Extended,
+    );
+    write_fixture(&out_dir, "report_extended.html", &html_extended);
 
     println!("VRT fixture 生成完了");
 }

@@ -122,6 +122,17 @@ pub enum ReportVariant {
     ///
     /// 詳細: `docs/SURVEY_MARKET_INTELLIGENCE_PHASE0_2_PREP.md` §5 Step 4
     MarketIntelligence,
+    /// 詳細版 (2026-07-09 追加)
+    ///
+    /// `MarketIntelligence` の全セクションをそのまま出力しつつ、末尾に
+    /// 「働き手の将来マップ / 給与の相場比較 / 転職を考えている人 / 採用の何がネックか」
+    /// の 4 図 (Section 10) を追加する拡張版。介護・ハローワークデータは一切使わず、
+    /// 公的統計 (国の将来人口推計・毎月勤労統計・最低賃金・就業構造基本調査・有効求人倍率)
+    /// と今回の求人データのクロス集計 (cross_* テーブル) のみで構成する。
+    ///
+    /// 既存 variant (Full / Public / MarketIntelligence) の出力は 1 バイトも変えない
+    /// (本 variant は完全に新規追加であり、既存分岐は不変)。
+    Extended,
 }
 
 impl ReportVariant {
@@ -132,6 +143,7 @@ impl ReportVariant {
         match s {
             Some("public") => Self::Public,
             Some("market_intelligence") => Self::MarketIntelligence,
+            Some("extended") => Self::Extended,
             _ => Self::Full,
         }
     }
@@ -142,6 +154,7 @@ impl ReportVariant {
             Self::Full => "full",
             Self::Public => "public",
             Self::MarketIntelligence => "market_intelligence",
+            Self::Extended => "extended",
         }
     }
 
@@ -151,6 +164,7 @@ impl ReportVariant {
             Self::Full => "HW併載版",
             Self::Public => "公開データ中心版",
             Self::MarketIntelligence => "採用マーケットインテリジェンス版",
+            Self::Extended => "詳細版",
         }
     }
 
@@ -174,7 +188,15 @@ impl ReportVariant {
     /// Step 4 ではこのフックメソッドを定義するのみで、HTML 側の参照はまだしない。
     /// Step 3 でこのメソッドを `if variant.show_market_intelligence_sections() { ... }` で参照する。
     pub fn show_market_intelligence_sections(self) -> bool {
-        matches!(self, Self::MarketIntelligence)
+        matches!(self, Self::MarketIntelligence | Self::Extended)
+    }
+
+    /// 詳細版 (Extended) 専用の追加 4 図 (Section 10) を表示するか。
+    ///
+    /// 2026-07-09 追加。`Extended` のときだけ true。既存 variant の挙動は不変。
+    /// 呼出側 (mod.rs) はこのフックで Section 10 の描画を判断する。
+    pub fn show_extended_sections(self) -> bool {
+        matches!(self, Self::Extended)
     }
 
     /// アイコン (絵文字)
@@ -183,6 +205,7 @@ impl ReportVariant {
             Self::Full => "\u{1F3E2}",               // 🏢
             Self::Public => "\u{1F30D}",             // 🌍
             Self::MarketIntelligence => "\u{1F4CA}", // 📊
+            Self::Extended => "\u{1F4C8}",           // 📈
         }
     }
 
@@ -195,6 +218,8 @@ impl ReportVariant {
             Self::Full => Self::Public,
             Self::Public => Self::Full,
             Self::MarketIntelligence => Self::Full,
+            // 詳細版の反対導線は採用マーケットインテリジェンス版 (追加 4 図なしの基底)。
+            Self::Extended => Self::MarketIntelligence,
         }
     }
 
@@ -205,6 +230,9 @@ impl ReportVariant {
             Self::Public => "e-Stat等の公開データを主軸とした版（対外提案向け）",
             Self::MarketIntelligence => {
                 "採用ターゲット分析を含む拡張版（媒体分析・配信地域提案向け）"
+            }
+            Self::Extended => {
+                "採用マーケットインテリジェンス版に、働き手の将来・給与相場・転職意向・採用ネック診断の4図を加えた詳細版"
             }
         }
     }
@@ -837,8 +865,23 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   MI variant のときだけ 6 サブセクション (9-A〜9-F) を追加表示する。
     //   Full / Public variant では関数呼出自体をスキップ → HTML に section タグも出ない。
     //   設計詳細: docs/NAVY_SECTION_09_DESIGN.md
-    if matches!(cfg.variant, ReportVariant::MarketIntelligence) {
+    //   2026-07-09: Extended (詳細版) も MI と同じ Section 09 を表示するため、
+    //   gate を `show_market_intelligence_sections()` (MI | Extended で true) に変更。
+    //   Full / Public では従来どおり false のため出力は 1 バイトも変わらない。
+    if cfg.variant.show_market_intelligence_sections() {
         navy_report::render_navy_section_09_market_intelligence(
+            &mut html,
+            cfg.hw_context,
+            cfg.agg,
+            cfg.variant,
+            &target_region,
+        );
+    }
+    // 2026-07-09: Section 10 (詳細版 追加 4 図) は Extended variant のときだけ Section 09 の後ろに配置。
+    //   介護・HW を一切使わず、公的統計 × 今回の求人データ (cross_* テーブル) のみで構成する。
+    //   cross_* が未投入 (空) の場合は関数内で graceful skip し、HTML には何も出さない。
+    if cfg.variant.show_extended_sections() {
+        navy_report::render_navy_section_10_extended(
             &mut html,
             cfg.hw_context,
             cfg.agg,
@@ -1229,6 +1272,10 @@ mod tests {
     fn mock_empty_insight_ctx() -> super::super::super::insight::fetch::InsightContext {
         use super::super::super::insight::fetch::InsightContext;
         InsightContext {
+            // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+            cross_future_workforce: vec![],
+            cross_wage_public: vec![],
+            cross_switcher_supply: vec![],
             vacancy: vec![],
             resilience: vec![],
             transparency: vec![],
@@ -3843,6 +3890,10 @@ mod variant_indicator_tests {
         rows: Vec<super::super::super::helpers::Row>,
     ) -> super::super::super::insight::fetch::InsightContext {
         super::super::super::insight::fetch::InsightContext {
+            // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+            cross_future_workforce: vec![],
+            cross_wage_public: vec![],
+            cross_switcher_supply: vec![],
             vacancy: vec![],
             resilience: vec![],
             transparency: vec![],

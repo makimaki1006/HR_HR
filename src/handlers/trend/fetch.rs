@@ -311,3 +311,59 @@ pub(crate) fn fetch_ext_turnover_with_industry(
         }
     }
 }
+
+// ============================================================
+// 詳細版 (Extended / Section 10) 専用 cross_* クロス集計テーブル (2026-07-09)
+//
+// いずれも「介護・ハローワークデータを一切含まない」公的統計 × 今回の求人データの
+// クロス集計を Turso に事前投入しておき、レポート側は読むだけ。データ未投入 (テーブル
+// 不在 / 0 行) の場合は query_turso が空 Vec を返し、Section 10 側で graceful skip する。
+//
+// 列名は report_html/db_columns.rs の const と一致させること (両側 SSoT)。
+// db_columns.rs のコントラクトテストが本ファイルの SELECT 句に各 const 文字列が
+// 実在するかを include_str! で検証する。
+// ============================================================
+
+/// 図1「働き手の将来マップ」用: 対象都道府県の全市区町村について、働き手 (15〜64歳) の
+/// 2020年人口・割合・2020→2040年増減率を取得 (国の将来人口推計)。
+pub(crate) fn fetch_cross_future_workforce(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    if pref.is_empty() {
+        return vec![];
+    }
+    let sql = "SELECT prefecture, muni_code, municipality, \
+               working_age_2020, working_age_ratio_2020, working_age_decline_2040 \
+               FROM cross_future_workforce \
+               WHERE prefecture = ?1 \
+               ORDER BY working_age_decline_2040";
+    query_turso(turso, sql, &[pref.to_string()])
+}
+
+/// 図2「給与の相場比較」用: 対象都道府県の月次 (2025年 1〜12月) について、県の平均給与
+/// (所定内給与) と最低賃金×月160時間 (固定) を取得 (毎月勤労統計 地方調査 / 最低賃金)。
+pub(crate) fn fetch_cross_wage_public(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    if pref.is_empty() {
+        return vec![];
+    }
+    let sql = "SELECT prefecture, year_month, scheduled_earnings, \
+               minwage_fulltime_monthly, hourly_min_wage \
+               FROM cross_wage_public \
+               WHERE prefecture = ?1 \
+               ORDER BY year_month";
+    query_turso(turso, sql, &[pref.to_string()])
+}
+
+/// 図3「転職を考えている人」/ 図4「採用ネック診断」用: 対象都道府県 (県・市区町村) と
+/// 全国について、転職希望率・副業者数・追加就業希望者数・転職希望者数・有効求人倍率を
+/// 取得 (就業構造基本調査 / 一般職業紹介状況)。全国行 (prefecture='全国') は比較基準。
+pub(crate) fn fetch_cross_switcher_supply(turso: &TursoDb, pref: &str) -> Vec<Row> {
+    if pref.is_empty() {
+        return vec![];
+    }
+    let sql = "SELECT prefecture, region_code, municipality, \
+               job_change_desire_rate, side_job_holders, additional_job_seekers, \
+               job_change_seekers, job_openings_ratio \
+               FROM cross_switcher_supply \
+               WHERE prefecture = ?1 OR prefecture = '全国' \
+               ORDER BY region_code";
+    query_turso(turso, sql, &[pref.to_string()])
+}

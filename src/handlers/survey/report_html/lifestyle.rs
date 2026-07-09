@@ -605,6 +605,10 @@ mod tests {
 
     fn empty_ctx_with<F: FnOnce(&mut InsightContext)>(modifier: F) -> InsightContext {
         let mut ctx = InsightContext {
+            // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+            cross_future_workforce: vec![],
+            cross_wage_public: vec![],
+            cross_switcher_supply: vec![],
             vacancy: vec![],
             resilience: vec![],
             transparency: vec![],
