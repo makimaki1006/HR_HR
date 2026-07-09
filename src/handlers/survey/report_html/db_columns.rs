@@ -130,27 +130,31 @@ pub(crate) const POPULATION_DENSITY_PER_KM2: &str = "population_density_per_km2"
 // cross_future_workforce (図1 働き手の将来マップ):
 //   trend/fetch.rs::fetch_cross_future_workforce
 //   SELECT prefecture, muni_code, municipality,
-//          working_age_2020, working_age_ratio_2020, working_age_decline_2040
-//   FROM cross_future_workforce WHERE prefecture = ?1
+//          wa_2020, working_age_ratio_2020, wa_decline_rate
+//   FROM cross_future_workforce WHERE prefecture = ?1 ORDER BY wa_decline_rate
 //   出典: 国の将来人口推計 (国立社会保障・人口問題研究所)。
+//   ※ 列名は upload_cross_tables.py の DDL と 1 文字一致 (wa_2020 / wa_decline_rate)。
+//     旧 const 値 (working_age_2020 / working_age_decline_2040) は Turso に存在せず
+//     §10 が丸ごと silent skip する事故の原因だった (2026-07-09 修正)。
 // ------------------------------------------------------------
 
-/// 市区町村名。
+/// 市区町村名 (cross_future_workforce)。
 pub(crate) const MUNICIPALITY: &str = "municipality";
 /// 市区町村コード。
 pub(crate) const MUNI_CODE: &str = "muni_code";
-/// 働き手 (15〜64歳) 人口 (2020年、人)。点の大きさに使用。
-pub(crate) const WORKING_AGE_2020: &str = "working_age_2020";
-/// 人口に占める働き手の割合 (2020年、%)。散布図 Y 軸。
+/// 働き手 (15〜64歳) 人口 (2020年、人)。点の大きさに使用。DDL: `wa_2020`。
+pub(crate) const WA_2020: &str = "wa_2020";
+/// 人口に占める働き手の割合 (2020年、%)。散布図 Y 軸。DDL: `working_age_ratio_2020`。
 pub(crate) const WORKING_AGE_RATIO_2020: &str = "working_age_ratio_2020";
 /// 働き手の 2020年→2040年 増減率 (%、負値=減少)。散布図 X 軸 / 減少ランキング。
-pub(crate) const WORKING_AGE_DECLINE_2040: &str = "working_age_decline_2040";
+/// DDL: `wa_decline_rate` (CSV 実データは -6.56 等の負値=減少率)。
+pub(crate) const WA_DECLINE_RATE: &str = "wa_decline_rate";
 
 // ------------------------------------------------------------
 // cross_wage_public (図2 給与の相場比較):
 //   trend/fetch.rs::fetch_cross_wage_public
 //   SELECT prefecture, year_month, scheduled_earnings,
-//          minwage_fulltime_monthly, hourly_min_wage
+//          min_wage_monthly_160h, min_wage_hourly
 //   FROM cross_wage_public WHERE prefecture = ?1 ORDER BY year_month
 //   出典: 毎月勤労統計 地方調査 (所定内給与) / 最低賃金 × 月160時間 (固定)。
 // ------------------------------------------------------------
@@ -159,21 +163,31 @@ pub(crate) const WORKING_AGE_DECLINE_2040: &str = "working_age_decline_2040";
 pub(crate) const YEAR_MONTH: &str = "year_month";
 /// 県の平均給与 (所定内給与、円)。折れ線 線1。
 pub(crate) const SCHEDULED_EARNINGS: &str = "scheduled_earnings";
-/// 最低賃金で月160時間働いた場合の月額 (円)。折れ線 線2 (階段状)。
-pub(crate) const MINWAGE_FULLTIME_MONTHLY: &str = "minwage_fulltime_monthly";
+/// 最低賃金で月160時間働いた場合の月額 (円)。折れ線 線2 (階段状)。DDL: `min_wage_monthly_160h`。
+pub(crate) const MIN_WAGE_MONTHLY_160H: &str = "min_wage_monthly_160h";
+/// 最低賃金 (時給・円、cross_wage_public 版)。DDL: `min_wage_hourly`。
+/// 注意: 外部統計 v2_external_minimum_wage_history 側の [`HOURLY_MIN_WAGE`] (`hourly_min_wage`)
+/// とは **別テーブル・別列名**。両者を混同しない。
+pub(crate) const MIN_WAGE_HOURLY: &str = "min_wage_hourly";
 
 // ------------------------------------------------------------
 // cross_switcher_supply (図3 転職を考えている人 / 図4 採用ネック診断):
 //   trend/fetch.rs::fetch_cross_switcher_supply
-//   SELECT prefecture, region_code, municipality,
+//   SELECT region_code, region_name,
 //          job_change_desire_rate, side_job_holders, additional_job_seekers,
-//          job_change_seekers, job_openings_ratio
-//   FROM cross_switcher_supply WHERE prefecture IN (?1, '全国') ORDER BY region_code
+//          job_change_seekers, pref_job_openings_ratio
+//   FROM cross_switcher_supply
+//   WHERE region_code = '00000' OR substr(region_code,1,2) = (対象県コードの先頭2桁)
 //   出典: 就業構造基本調査 / 一般職業紹介状況 有効求人倍率。
+//   ※ このテーブルには prefecture / municipality 列は存在しない。地域は region_code
+//     ("00000"=全国 / "44000"=県 / "44201"=市区町村) と region_name (全国/大分県/大分市)。
 // ------------------------------------------------------------
 
 /// 地域コード ("00000"=全国 / "44000"=県 / "44201"=市区町村)。
 pub(crate) const REGION_CODE: &str = "region_code";
+/// 地域名 (全国 / 大分県 / 大分市 …)。DDL: `region_name` (旧コードが誤って読んでいた
+/// `municipality` 列はこのテーブルには存在しない)。
+pub(crate) const REGION_NAME: &str = "region_name";
 /// 転職を考えている割合 (%)。
 pub(crate) const JOB_CHANGE_DESIRE_RATE: &str = "job_change_desire_rate";
 /// 副業をしている人の数 (人)。
@@ -182,8 +196,8 @@ pub(crate) const SIDE_JOB_HOLDERS: &str = "side_job_holders";
 pub(crate) const ADDITIONAL_JOB_SEEKERS: &str = "additional_job_seekers";
 /// 転職を考えている人の数 (転職希望者、人)。
 pub(crate) const JOB_CHANGE_SEEKERS: &str = "job_change_seekers";
-/// 有効求人倍率 (倍、参考値)。
-pub(crate) const JOB_OPENINGS_RATIO: &str = "job_openings_ratio";
+/// 有効求人倍率 (倍、参考値)。DDL: `pref_job_openings_ratio`。
+pub(crate) const PREF_JOB_OPENINGS_RATIO: &str = "pref_job_openings_ratio";
 
 // ============================================================
 // コントラクトテスト
@@ -306,94 +320,69 @@ mod contract_tests {
     }
 
     // ---- 詳細版 (Section 10) cross_* テーブル (2026-07-09) ----
-    // fetch 側 SQL も本 const を参照する両側 SSoT のため、trend/fetch.rs の
-    // SELECT 句に各 const が実在することを検証する。
+    // 二重の突合で silent 0 / silent skip を根絶する:
+    //   (A) fetch 側 SQL の SELECT 句に各 const が実在する (Rust↔Rust)。
+    //   (B) Turso 投入スクリプト upload_cross_tables.py の DDL に各 const 値が
+    //       実在する (Rust↔Python の言語またぎ)。
+    // 今回の事故 (2026-07-09) は (A) は満たすが (B) を満たさない自己整合的な誤名
+    //   (working_age_2020 等: fetch SQL と const は一致するが Turso には無い列)
+    // ですり抜けた。(B) を追加してこの穴を塞ぐ。
     const TREND_FETCH_SRC_CROSS: &str = include_str!("../../trend/fetch.rs");
+
+    // Turso 投入スクリプトの DDL (CREATE TABLE 文) をコンパイル時に取り込む。
+    // パスは本ファイル (src/handlers/survey/report_html/db_columns.rs) から
+    // リポジトリルート直下の scripts/ まで 4 階層上がる。
+    const UPLOAD_CROSS_TABLES_PY: &str = include_str!("../../../../scripts/upload_cross_tables.py");
+
+    /// `col` が Turso 投入 DDL (upload_cross_tables.py) に列定義として実在することを保証する。
+    /// DDL は `col_name TYPE` 形式なので「col の直後に半角スペース」を必須にして、
+    /// 別列名の部分文字列 (例: wa_2020 ⊂ ... ) への誤マッチを避ける。
+    fn assert_in_ddl(col: &str) {
+        let needle = format!("{} ", col);
+        assert!(
+            UPLOAD_CROSS_TABLES_PY.contains(&needle),
+            "列コントラクト違反 (言語またぎ): 列名 SSoT の `{col}` が \
+             scripts/upload_cross_tables.py の DDL に存在しません。\n\
+             Turso に実在しない列名を SELECT すると、クエリが失敗し §10 (詳細版4図) が \
+             丸ごと silent skip します (2026-07-09 事故)。\n\
+             upload_cross_tables.py の CREATE TABLE 文と本 const の双方を確認してください。"
+        );
+    }
+
+    /// (A) fetch SQL の SELECT 句と (B) Turso DDL の両方に col が実在することを一括検証。
+    fn assert_cross_col(label: &str, col: &str) {
+        assert_selected(TREND_FETCH_SRC_CROSS, label, col);
+        assert_in_ddl(col);
+    }
 
     #[test]
     fn contract_cross_future_workforce() {
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_future_workforce)",
-            MUNICIPALITY,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_future_workforce)",
-            MUNI_CODE,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_future_workforce)",
-            WORKING_AGE_2020,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_future_workforce)",
-            WORKING_AGE_RATIO_2020,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_future_workforce)",
-            WORKING_AGE_DECLINE_2040,
-        );
+        let label = "trend/fetch.rs (cross_future_workforce)";
+        assert_cross_col(label, MUNICIPALITY);
+        assert_cross_col(label, MUNI_CODE);
+        assert_cross_col(label, WA_2020);
+        assert_cross_col(label, WORKING_AGE_RATIO_2020);
+        assert_cross_col(label, WA_DECLINE_RATE);
     }
 
     #[test]
     fn contract_cross_wage_public() {
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_wage_public)",
-            YEAR_MONTH,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_wage_public)",
-            SCHEDULED_EARNINGS,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_wage_public)",
-            MINWAGE_FULLTIME_MONTHLY,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_wage_public)",
-            HOURLY_MIN_WAGE,
-        );
+        let label = "trend/fetch.rs (cross_wage_public)";
+        assert_cross_col(label, YEAR_MONTH);
+        assert_cross_col(label, SCHEDULED_EARNINGS);
+        assert_cross_col(label, MIN_WAGE_MONTHLY_160H);
+        assert_cross_col(label, MIN_WAGE_HOURLY);
     }
 
     #[test]
     fn contract_cross_switcher_supply() {
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_switcher_supply)",
-            REGION_CODE,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_switcher_supply)",
-            JOB_CHANGE_DESIRE_RATE,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_switcher_supply)",
-            SIDE_JOB_HOLDERS,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_switcher_supply)",
-            ADDITIONAL_JOB_SEEKERS,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_switcher_supply)",
-            JOB_CHANGE_SEEKERS,
-        );
-        assert_selected(
-            TREND_FETCH_SRC_CROSS,
-            "trend/fetch.rs (cross_switcher_supply)",
-            JOB_OPENINGS_RATIO,
-        );
+        let label = "trend/fetch.rs (cross_switcher_supply)";
+        assert_cross_col(label, REGION_CODE);
+        assert_cross_col(label, REGION_NAME);
+        assert_cross_col(label, JOB_CHANGE_DESIRE_RATE);
+        assert_cross_col(label, SIDE_JOB_HOLDERS);
+        assert_cross_col(label, ADDITIONAL_JOB_SEEKERS);
+        assert_cross_col(label, JOB_CHANGE_SEEKERS);
+        assert_cross_col(label, PREF_JOB_OPENINGS_RATIO);
     }
 }
