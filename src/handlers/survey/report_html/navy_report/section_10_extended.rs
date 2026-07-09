@@ -66,8 +66,9 @@ struct WageRow {
 
 struct SwitcherRow {
     region_code: String,
-    municipality: String,
-    prefecture: String,
+    /// 地域名 (全国 / 大分県 / 大分市 …)。cross_switcher_supply には prefecture /
+    /// municipality 列が無く、地域は region_code + region_name で表す。
+    region_name: String,
     desire_rate: f64,
     side_job: i64,
     additional: i64,
@@ -147,9 +148,9 @@ fn parse_workforce(ctx: &InsightContext) -> Vec<WorkforceRow> {
             }
             Some(WorkforceRow {
                 muni,
-                wa2020: get_i64(r, cols::WORKING_AGE_2020),
+                wa2020: get_i64(r, cols::WA_2020),
                 wa_ratio_2020: get_f64(r, cols::WORKING_AGE_RATIO_2020),
-                wa_decline_2040: get_f64(r, cols::WORKING_AGE_DECLINE_2040),
+                wa_decline_2040: get_f64(r, cols::WA_DECLINE_RATE),
             })
         })
         .collect()
@@ -423,7 +424,7 @@ fn parse_wage(ctx: &InsightContext) -> Vec<WageRow> {
             Some(WageRow {
                 month,
                 scheduled: get_i64(r, cols::SCHEDULED_EARNINGS),
-                minwage_ft: get_i64(r, cols::MINWAGE_FULLTIME_MONTHLY),
+                minwage_ft: get_i64(r, cols::MIN_WAGE_MONTHLY_160H),
             })
         })
         .collect()
@@ -648,19 +649,18 @@ fn parse_switchers(ctx: &InsightContext) -> Vec<SwitcherRow> {
         .iter()
         .map(|r| SwitcherRow {
             region_code: get_str_ref(r, cols::REGION_CODE).to_string(),
-            municipality: get_str_ref(r, cols::MUNICIPALITY).to_string(),
-            prefecture: get_str_ref(r, "prefecture").to_string(),
+            region_name: get_str_ref(r, cols::REGION_NAME).to_string(),
             desire_rate: get_f64(r, cols::JOB_CHANGE_DESIRE_RATE),
             side_job: get_i64(r, cols::SIDE_JOB_HOLDERS),
             additional: get_i64(r, cols::ADDITIONAL_JOB_SEEKERS),
             switchers: get_i64(r, cols::JOB_CHANGE_SEEKERS),
-            ratio: get_f64(r, cols::JOB_OPENINGS_RATIO),
+            ratio: get_f64(r, cols::PREF_JOB_OPENINGS_RATIO),
         })
         .collect()
 }
 
 fn is_national(r: &SwitcherRow) -> bool {
-    r.prefecture == "全国" || r.region_code == "00000"
+    r.region_name == "全国" || r.region_code == "00000"
 }
 fn is_prefecture_level(r: &SwitcherRow) -> bool {
     !is_national(r) && r.region_code.ends_with("000")
@@ -754,7 +754,7 @@ fn render_fig4_diagnosis(
     // 対象市区町村行 (municipality 一致優先、なければ県レベル行)
     let muni_row = rows
         .iter()
-        .find(|r| !is_national(r) && r.municipality == muni_name && !r.municipality.is_empty())
+        .find(|r| !is_national(r) && r.region_name == muni_name && !r.region_name.is_empty())
         .or_else(|| {
             rows.iter()
                 .find(|r| !is_national(r) && !is_prefecture_level(r))
@@ -1011,25 +1011,25 @@ mod tests {
                 ("prefecture", Value::from("大分県")),
                 ("muni_code", Value::from("44201")),
                 ("municipality", Value::from("大分市")),
-                ("working_age_2020", Value::from(280_000)),
+                ("wa_2020", Value::from(280_000)),
                 ("working_age_ratio_2020", Value::from(58.5)),
-                ("working_age_decline_2040", Value::from(-15.2)),
+                ("wa_decline_rate", Value::from(-15.2)),
             ]),
             row(&[
                 ("prefecture", Value::from("大分県")),
                 ("muni_code", Value::from("44205")),
                 ("municipality", Value::from("佐伯市")),
-                ("working_age_2020", Value::from(35_000)),
+                ("wa_2020", Value::from(35_000)),
                 ("working_age_ratio_2020", Value::from(50.1)),
-                ("working_age_decline_2040", Value::from(-42.0)),
+                ("wa_decline_rate", Value::from(-42.0)),
             ]),
             row(&[
                 ("prefecture", Value::from("大分県")),
                 ("muni_code", Value::from("44204")),
                 ("municipality", Value::from("津久見市")),
-                ("working_age_2020", Value::from(9_000)),
+                ("wa_2020", Value::from(9_000)),
                 ("working_age_ratio_2020", Value::from(47.8)),
-                ("working_age_decline_2040", Value::from(-48.5)),
+                ("wa_decline_rate", Value::from(-48.5)),
             ]),
         ];
         c.cross_wage_public = (1..=12)
@@ -1039,41 +1039,38 @@ mod tests {
                     ("prefecture", Value::from("大分県")),
                     ("year_month", Value::from(format!("2025-{:02}", mo))),
                     ("scheduled_earnings", Value::from(240_000 + (mo - 1) * 500)),
-                    ("minwage_fulltime_monthly", Value::from(hourly * 160)),
-                    ("hourly_min_wage", Value::from(hourly)),
+                    ("min_wage_monthly_160h", Value::from(hourly * 160)),
+                    ("min_wage_hourly", Value::from(hourly)),
                 ])
             })
             .collect();
         c.cross_switcher_supply = vec![
             row(&[
-                ("prefecture", Value::from("全国")),
                 ("region_code", Value::from("00000")),
-                ("municipality", Value::from("全国")),
+                ("region_name", Value::from("全国")),
                 ("job_change_desire_rate", Value::from(8.5)),
                 ("side_job_holders", Value::from(3_000_000)),
                 ("additional_job_seekers", Value::from(4_200_000)),
                 ("job_change_seekers", Value::from(6_800_000)),
-                ("job_openings_ratio", Value::from(1.30)),
+                ("pref_job_openings_ratio", Value::from(1.30)),
             ]),
             row(&[
-                ("prefecture", Value::from("大分県")),
                 ("region_code", Value::from("44000")),
-                ("municipality", Value::from("大分県")),
+                ("region_name", Value::from("大分県")),
                 ("job_change_desire_rate", Value::from(7.8)),
                 ("side_job_holders", Value::from(30_000)),
                 ("additional_job_seekers", Value::from(40_000)),
                 ("job_change_seekers", Value::from(60_000)),
-                ("job_openings_ratio", Value::from(1.55)),
+                ("pref_job_openings_ratio", Value::from(1.55)),
             ]),
             row(&[
-                ("prefecture", Value::from("大分県")),
                 ("region_code", Value::from("44201")),
-                ("municipality", Value::from("大分市")),
+                ("region_name", Value::from("大分市")),
                 ("job_change_desire_rate", Value::from(7.9)),
                 ("side_job_holders", Value::from(12_000)),
                 ("additional_job_seekers", Value::from(16_000)),
                 ("job_change_seekers", Value::from(24_000)),
-                ("job_openings_ratio", Value::from(1.50)),
+                ("pref_job_openings_ratio", Value::from(1.50)),
             ]),
         ];
         c
