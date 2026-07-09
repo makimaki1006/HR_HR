@@ -78,7 +78,9 @@ pub(super) fn render_section_market_tightness_with_variant(
     match variant {
         // Phase 3 Step 4: MarketIntelligence は Full と同じ既存セクションを呼ぶ
         // (Step 3 で MarketIntelligence 専用セクション追加時に分岐を変える)
-        super::ReportVariant::Full | super::ReportVariant::MarketIntelligence => {
+        super::ReportVariant::Full
+        | super::ReportVariant::MarketIntelligence
+        | super::ReportVariant::Extended => {
             render_section_market_tightness_inner(html, ctx, variant)
         }
         super::ReportVariant::Public => render_section_market_tightness_public(html, ctx),
@@ -722,9 +724,9 @@ impl AxisName {
 fn job_ratio_label_for_variant(variant: super::ReportVariant) -> &'static str {
     match variant {
         super::ReportVariant::Full => "有効求人倍率",
-        super::ReportVariant::MarketIntelligence | super::ReportVariant::Public => {
-            "公的雇用需給指標"
-        }
+        super::ReportVariant::MarketIntelligence
+        | super::ReportVariant::Public
+        | super::ReportVariant::Extended => "公的雇用需給指標",
     }
 }
 
@@ -2055,6 +2057,10 @@ mod tests {
         pref_avg_unemp: Option<f64>,
     ) -> InsightContext {
         InsightContext {
+            // 詳細版 (Section 10) cross_* テーブル (2026-07-09): テスト fixture は空 Vec。
+            cross_future_workforce: vec![],
+            cross_wage_public: vec![],
+            cross_switcher_supply: vec![],
             vacancy,
             resilience: vec![],
             transparency: vec![],

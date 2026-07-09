@@ -345,10 +345,14 @@ fn ui1_analysis_action_bar_primary_hw_integrate_emphasized() {
         html.contains("shadow-lg") || html.contains("shadow-blue"),
         "プライマリボタンに shadow 必要"
     );
-    // PDF 導線は採用コンサルレポートに一本化
+    // PDF 導線: 標準レポート (market_intelligence) と詳細レポート (extended) の 2 ボタン
     assert!(
-        html.contains("採用コンサルレポート PDF"),
-        "採用コンサルレポート PDF ボタン必須"
+        html.contains("標準レポートを作成"),
+        "標準レポートを作成 ボタン必須 (variant=market_intelligence)"
+    );
+    assert!(
+        html.contains("詳細レポートを作成 (データ拡大版)"),
+        "詳細レポートを作成 ボタン必須 (variant=extended)"
     );
     assert!(
         !html.contains("HW併載版 PDF"),

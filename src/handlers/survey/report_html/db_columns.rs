@@ -121,6 +121,71 @@ pub(crate) const HABITABLE_AREA_KM2: &str = "habitable_area_km2";
 pub(crate) const POPULATION_DENSITY_PER_KM2: &str = "population_density_per_km2";
 
 // ============================================================
+// 詳細版 (Extended / Section 10) 専用クロス集計テーブル (2026-07-09)
+//   すべて trend/fetch.rs::fetch_cross_* が生成 (fetch 側 SQL も本 const を参照する両側 SSoT)。
+//   介護・ハローワークデータは一切含まない。公的統計 × 今回の求人データのみ。
+// ============================================================
+
+// ------------------------------------------------------------
+// cross_future_workforce (図1 働き手の将来マップ):
+//   trend/fetch.rs::fetch_cross_future_workforce
+//   SELECT prefecture, muni_code, municipality,
+//          working_age_2020, working_age_ratio_2020, working_age_decline_2040
+//   FROM cross_future_workforce WHERE prefecture = ?1
+//   出典: 国の将来人口推計 (国立社会保障・人口問題研究所)。
+// ------------------------------------------------------------
+
+/// 市区町村名。
+pub(crate) const MUNICIPALITY: &str = "municipality";
+/// 市区町村コード。
+pub(crate) const MUNI_CODE: &str = "muni_code";
+/// 働き手 (15〜64歳) 人口 (2020年、人)。点の大きさに使用。
+pub(crate) const WORKING_AGE_2020: &str = "working_age_2020";
+/// 人口に占める働き手の割合 (2020年、%)。散布図 Y 軸。
+pub(crate) const WORKING_AGE_RATIO_2020: &str = "working_age_ratio_2020";
+/// 働き手の 2020年→2040年 増減率 (%、負値=減少)。散布図 X 軸 / 減少ランキング。
+pub(crate) const WORKING_AGE_DECLINE_2040: &str = "working_age_decline_2040";
+
+// ------------------------------------------------------------
+// cross_wage_public (図2 給与の相場比較):
+//   trend/fetch.rs::fetch_cross_wage_public
+//   SELECT prefecture, year_month, scheduled_earnings,
+//          minwage_fulltime_monthly, hourly_min_wage
+//   FROM cross_wage_public WHERE prefecture = ?1 ORDER BY year_month
+//   出典: 毎月勤労統計 地方調査 (所定内給与) / 最低賃金 × 月160時間 (固定)。
+// ------------------------------------------------------------
+
+/// 対象年月 ("2025-01" 形式)。折れ線 X 軸。
+pub(crate) const YEAR_MONTH: &str = "year_month";
+/// 県の平均給与 (所定内給与、円)。折れ線 線1。
+pub(crate) const SCHEDULED_EARNINGS: &str = "scheduled_earnings";
+/// 最低賃金で月160時間働いた場合の月額 (円)。折れ線 線2 (階段状)。
+pub(crate) const MINWAGE_FULLTIME_MONTHLY: &str = "minwage_fulltime_monthly";
+
+// ------------------------------------------------------------
+// cross_switcher_supply (図3 転職を考えている人 / 図4 採用ネック診断):
+//   trend/fetch.rs::fetch_cross_switcher_supply
+//   SELECT prefecture, region_code, municipality,
+//          job_change_desire_rate, side_job_holders, additional_job_seekers,
+//          job_change_seekers, job_openings_ratio
+//   FROM cross_switcher_supply WHERE prefecture IN (?1, '全国') ORDER BY region_code
+//   出典: 就業構造基本調査 / 一般職業紹介状況 有効求人倍率。
+// ------------------------------------------------------------
+
+/// 地域コード ("00000"=全国 / "44000"=県 / "44201"=市区町村)。
+pub(crate) const REGION_CODE: &str = "region_code";
+/// 転職を考えている割合 (%)。
+pub(crate) const JOB_CHANGE_DESIRE_RATE: &str = "job_change_desire_rate";
+/// 副業をしている人の数 (人)。
+pub(crate) const SIDE_JOB_HOLDERS: &str = "side_job_holders";
+/// もっと働きたいと答えた人の数 (追加就業希望者、人)。
+pub(crate) const ADDITIONAL_JOB_SEEKERS: &str = "additional_job_seekers";
+/// 転職を考えている人の数 (転職希望者、人)。
+pub(crate) const JOB_CHANGE_SEEKERS: &str = "job_change_seekers";
+/// 有効求人倍率 (倍、参考値)。
+pub(crate) const JOB_OPENINGS_RATIO: &str = "job_openings_ratio";
+
+// ============================================================
 // コントラクトテスト
 // ============================================================
 #[cfg(test)]
@@ -238,5 +303,97 @@ mod contract_tests {
             POPULATION_DENSITY_PER_KM2,
         );
         assert_selected(LABOR_GEO_SRC, "subtab7_phase_a.rs", REFERENCE_YEAR);
+    }
+
+    // ---- 詳細版 (Section 10) cross_* テーブル (2026-07-09) ----
+    // fetch 側 SQL も本 const を参照する両側 SSoT のため、trend/fetch.rs の
+    // SELECT 句に各 const が実在することを検証する。
+    const TREND_FETCH_SRC_CROSS: &str = include_str!("../../trend/fetch.rs");
+
+    #[test]
+    fn contract_cross_future_workforce() {
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_future_workforce)",
+            MUNICIPALITY,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_future_workforce)",
+            MUNI_CODE,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_future_workforce)",
+            WORKING_AGE_2020,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_future_workforce)",
+            WORKING_AGE_RATIO_2020,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_future_workforce)",
+            WORKING_AGE_DECLINE_2040,
+        );
+    }
+
+    #[test]
+    fn contract_cross_wage_public() {
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_wage_public)",
+            YEAR_MONTH,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_wage_public)",
+            SCHEDULED_EARNINGS,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_wage_public)",
+            MINWAGE_FULLTIME_MONTHLY,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_wage_public)",
+            HOURLY_MIN_WAGE,
+        );
+    }
+
+    #[test]
+    fn contract_cross_switcher_supply() {
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_switcher_supply)",
+            REGION_CODE,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_switcher_supply)",
+            JOB_CHANGE_DESIRE_RATE,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_switcher_supply)",
+            SIDE_JOB_HOLDERS,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_switcher_supply)",
+            ADDITIONAL_JOB_SEEKERS,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_switcher_supply)",
+            JOB_CHANGE_SEEKERS,
+        );
+        assert_selected(
+            TREND_FETCH_SRC_CROSS,
+            "trend/fetch.rs (cross_switcher_supply)",
+            JOB_OPENINGS_RATIO,
+        );
     }
 }
