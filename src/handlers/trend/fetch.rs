@@ -330,11 +330,13 @@ pub(crate) fn fetch_cross_future_workforce(turso: &TursoDb, pref: &str) -> Vec<R
     if pref.is_empty() {
         return vec![];
     }
+    // 列名は cross_future_workforce の DDL (upload_cross_tables.py) と 1 文字一致:
+    //   wa_2020 (働き手2020人口) / working_age_ratio_2020 (割合) / wa_decline_rate (増減率,負値=減少)
     let sql = "SELECT prefecture, muni_code, municipality, \
-               working_age_2020, working_age_ratio_2020, working_age_decline_2040 \
+               wa_2020, working_age_ratio_2020, wa_decline_rate \
                FROM cross_future_workforce \
                WHERE prefecture = ?1 \
-               ORDER BY working_age_decline_2040";
+               ORDER BY wa_decline_rate";
     query_turso(turso, sql, &[pref.to_string()])
 }
 
@@ -344,26 +346,37 @@ pub(crate) fn fetch_cross_wage_public(turso: &TursoDb, pref: &str) -> Vec<Row> {
     if pref.is_empty() {
         return vec![];
     }
+    // 列名は cross_wage_public の DDL と 1 文字一致:
+    //   scheduled_earnings (所定内給与) / min_wage_monthly_160h (最低賃金×160h) / min_wage_hourly (時給)
     let sql = "SELECT prefecture, year_month, scheduled_earnings, \
-               minwage_fulltime_monthly, hourly_min_wage \
+               min_wage_monthly_160h, min_wage_hourly \
                FROM cross_wage_public \
                WHERE prefecture = ?1 \
                ORDER BY year_month";
     query_turso(turso, sql, &[pref.to_string()])
 }
 
-/// 図3「転職を考えている人」/ 図4「採用ネック診断」用: 対象都道府県 (県・市区町村) と
+/// 図3「転職を考えている人」/ 図4「採用ネック診断」用: 対象都道府県 (県・その市区町村) と
 /// 全国について、転職希望率・副業者数・追加就業希望者数・転職希望者数・有効求人倍率を
-/// 取得 (就業構造基本調査 / 一般職業紹介状況)。全国行 (prefecture='全国') は比較基準。
+/// 取得 (就業構造基本調査 / 一般職業紹介状況)。全国行 (region_code='00000') は比較基準。
+///
+/// このテーブルには prefecture / municipality 列が無い。地域は region_code
+/// ("00000"=全国 / "44000"=県 / "44201"=市区町村) と region_name のみ。
+/// 対象県の市区町村行も含めるため、pref (県名) に対応する region_code の先頭2桁を
+/// サブクエリで引き、同じ先頭2桁 (= 同一都道府県) の全行 + 全国行を取得する。
+/// 列名は cross_switcher_supply の DDL と 1 文字一致 (pref_job_openings_ratio 等)。
 pub(crate) fn fetch_cross_switcher_supply(turso: &TursoDb, pref: &str) -> Vec<Row> {
     if pref.is_empty() {
         return vec![];
     }
-    let sql = "SELECT prefecture, region_code, municipality, \
+    let sql = "SELECT region_code, region_name, \
                job_change_desire_rate, side_job_holders, additional_job_seekers, \
-               job_change_seekers, job_openings_ratio \
+               job_change_seekers, pref_job_openings_ratio \
                FROM cross_switcher_supply \
-               WHERE prefecture = ?1 OR prefecture = '全国' \
+               WHERE region_code = '00000' \
+               OR substr(region_code, 1, 2) = ( \
+                   SELECT substr(region_code, 1, 2) FROM cross_switcher_supply \
+                   WHERE region_name = ?1 LIMIT 1) \
                ORDER BY region_code";
     query_turso(turso, sql, &[pref.to_string()])
 }
