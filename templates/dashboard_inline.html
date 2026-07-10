@@ -369,6 +369,62 @@
                 });
             };
 
+            // 2026-07-10: コンサル準備パネル (社内用)。render.rs の
+            //   render_consult_prep_panel から呼ばれる。HTMX 挿入 <script> は
+            //   eval されないため、openVariantReport と同じく本ファイルで window 登録する。
+            function _consultQueryString(sid) {
+                var q = '?session_id=' + encodeURIComponent(sid);
+                var pairs = [
+                    ['consult-salary-min', 'target_salary_min'],
+                    ['consult-salary-max', 'target_salary_max'],
+                    ['consult-hiring-count', 'hiring_count'],
+                    ['consult-deadline', 'deadline'],
+                    ['consult-note', 'note']
+                ];
+                pairs.forEach(function(p) {
+                    var el = document.getElementById(p[0]);
+                    var v = el && el.value ? el.value.trim() : '';
+                    if (v) q += '&' + p[1] + '=' + encodeURIComponent(v);
+                });
+                return q;
+            }
+            window.buildConsultBrief = function(sid) {
+                try {
+                    window.open('/consult/brief' + _consultQueryString(sid), '_blank', 'noopener');
+                    return false;
+                } catch (e) {
+                    console.error('buildConsultBrief failed', e);
+                    return true;
+                }
+            };
+            window.downloadConsultEvidencePack = function(sid) {
+                try {
+                    fetch('/consult/evidence_pack.json' + _consultQueryString(sid))
+                        .then(function(r) {
+                            if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                            return r.json();
+                        })
+                        .then(function(data) {
+                            var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                            var blobUrl = URL.createObjectURL(blob);
+                            var a = document.createElement('a');
+                            a.href = blobUrl;
+                            a.download = 'evidence_pack_' + new Date().toISOString().slice(0, 10) + '.json';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(blobUrl);
+                        })
+                        .catch(function(e) {
+                            alert('証拠データJSONのダウンロードに失敗しました: ' + e.message);
+                        });
+                    return false;
+                } catch (e) {
+                    console.error('downloadConsultEvidencePack failed', e);
+                    return true;
+                }
+            };
+
             // 2026-05-19 同種バグ対応 (Round 2): HTMX 動的挿入される handler 内の
             //   <script> で定義されていた function 7 件を初期 page load 側に移動。
             //   eval 不発の同種バグを一括解消。MECE 監査 (agent 検出 8 件中
