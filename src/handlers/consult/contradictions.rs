@@ -156,6 +156,99 @@ pub fn detect_contradictions(signals: &[Signal]) -> Vec<Contradiction> {
         });
     }
 
+    // C: 転出超過 (S-16) × 求人倍率高 or 需給締まる (S-10 / S-20)
+    if fired(signals, "S-16") && (fired(signals, "S-10") || fired(signals, "S-20")) {
+        out.push(Contradiction {
+            contradiction_id: next_id(),
+            title: "人材が流出する一方で需要は強い (構造的な採用難)".to_string(),
+            evidence_ids: evidence_of(signals, &["S-16", "S-10", "S-20"]),
+            interpretations: vec![
+                "地元供給が細るなか需要が強く、通勤圏拡大や条件面の底上げが必要な可能性"
+                    .to_string(),
+                "転出層 (若年・現役) をつなぎ止められていない構造の可能性".to_string(),
+            ],
+            questions: vec![
+                "応募者の居住地は地元と周辺のどちらが多いですか".to_string(),
+                "通勤手当・転居支援などの条件は用意できますか".to_string(),
+            ],
+            confidence: Confidence::Medium,
+        });
+    }
+
+    // C: 昼間人口流出型 (S-17) × 通勤流入多 or 配信要確認 (S-12 / S-28)
+    if fired(signals, "S-17") && (fired(signals, "S-12") || fired(signals, "S-28")) {
+        out.push(Contradiction {
+            contradiction_id: next_id(),
+            title: "昼間に人が動く地域で、配信圏の設計余地がある".to_string(),
+            evidence_ids: evidence_of(signals, &["S-17", "S-12", "S-28"]),
+            interpretations: vec![
+                "居住者は昼間に流出し、逆に周辺から通勤流入もある。配信圏を通勤実態に合わせる余地の可能性".to_string(),
+                "勤務地表記が通勤のしやすさを伝えられていない可能性".to_string(),
+            ],
+            questions: vec![
+                "求人の配信対象地域はどの範囲に設定していますか (要確認)".to_string(),
+                "最寄り駅・通勤手段は求人にどう記載していますか".to_string(),
+            ],
+            confidence: Confidence::Low,
+        });
+    }
+
+    // C: 廃業超過 (S-18) × 求人多・集中 (S-15) → 需要の質を確認
+    if fired(signals, "S-18") && fired(signals, "S-15") {
+        out.push(Contradiction {
+            contradiction_id: next_id(),
+            title: "廃業が進む地域で特定企業に募集が集中している".to_string(),
+            evidence_ids: evidence_of(signals, &["S-18", "S-15"]),
+            interpretations: vec![
+                "縮小局面で一部の企業が採用を伸ばし、人材の採り合いが偏っている可能性".to_string(),
+                "廃業に伴う離職者の再就職が発生している可能性".to_string(),
+            ],
+            questions: vec![
+                "競合として意識している企業はどこですか".to_string(),
+                "応募者の前職の業種・退職理由に傾向はありますか".to_string(),
+            ],
+            confidence: Confidence::Low,
+        });
+    }
+
+    // C: 年間休日訴求薄い (S-24) × 給与が低め相場 (S-05) → 休日で差別化余地
+    if fired(signals, "S-24") && fired(signals, "S-05") {
+        out.push(Contradiction {
+            contradiction_id: next_id(),
+            title: "給与も休日訴求も横並びの市場 (差別化の空白)".to_string(),
+            evidence_ids: evidence_of(signals, &["S-24", "S-05"]),
+            interpretations: vec![
+                "給与が低め相場で、かつ休日条件も求人上で示されておらず、条件比較の判断材料が乏しい市場の可能性".to_string(),
+                "自社が休日・働き方を明示できれば相対的な差をつくれる可能性".to_string(),
+            ],
+            questions: vec![
+                "年間休日・休日の取りやすさは求人にどう記載していますか".to_string(),
+                "給与以外で自信のある条件は何ですか".to_string(),
+            ],
+            confidence: Confidence::Medium,
+        });
+    }
+
+    // C: 家賃負担が重い (S-22) × 提示給与が下位 (S-02) → 生活コストと給与の乖離
+    if fired(signals, "S-22") && fired(signals, "S-02") {
+        out.push(Contradiction {
+            contradiction_id: next_id(),
+            title: "生活コストに対して提示給与が見劣りする".to_string(),
+            evidence_ids: evidence_of(signals, &["S-22", "S-02"]),
+            interpretations: vec![
+                "家賃等の生活コストに対して提示給与が下位圏にあり、転居を伴う採用が難しい可能性"
+                    .to_string(),
+                "近隣居住者・持ち家層など、住居費の影響が小さい層への訴求が論点の可能性"
+                    .to_string(),
+            ],
+            questions: vec![
+                "採用対象は転居前提ですか、近隣からの通勤前提ですか".to_string(),
+                "住宅手当・寮などの支援はありますか".to_string(),
+            ],
+            confidence: Confidence::Medium,
+        });
+    }
+
     out.truncate(config::CONTRADICTION_MAX);
     out
 }

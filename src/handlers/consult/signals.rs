@@ -80,6 +80,22 @@ pub fn evaluate_signals(input: &ConsultInput, store: &mut EvidenceStore) -> Vec<
         s13_new_posting_ratio_high(input, store),
         s14_sample_insufficient(input, store),
         s15_posting_concentration(input, store),
+        // ---- 拡充シグナル (2026-07-10) ----
+        s16_net_migration_outflow(input, store),
+        s17_daytime_outflow(input, store),
+        s18_closure_over_opening(input, store),
+        s19_opening_active(input, store),
+        s20_unemployment_tight(input, store),
+        s21_unemployment_slack(input, store),
+        s22_rent_burden(input, store),
+        s23_natural_decline(input, store),
+        s24_holiday_mention_thin(input, store),
+        s25_holiday_level_low(input, store),
+        s26_tag_variety_thin(input, store),
+        s27_popular_badge_concentration(input, store),
+        s28_commute_delivery_check(input, store),
+        s29_growing_companies(input, store),
+        s30_nonregular_share_high(input, store),
     ]
 }
 
@@ -705,6 +721,585 @@ fn s15_posting_concentration(input: &ConsultInput, store: &mut EvidenceStore) ->
     }
 }
 
+/// S-16 転出超過: 純移動率が閾値以下 (負値=転出超過)
+fn s16_net_migration_outflow(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-16";
+    const NAME: &str = "転入より転出が多い (転出超過)";
+    match input.net_migration_rate {
+        Some(rate) => {
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "純移動率",
+                &format!("{:+.1}", rate),
+                "‰",
+                "住民基本台帳人口移動報告",
+                granularity::MUNICIPALITY,
+                None,
+                None,
+                "純移動率=(転入-転出)/人口。負値=転出超過",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: rate <= config::NET_MIGRATION_OUTFLOW_THRESHOLD_PERMILLE,
+                evidence_ids: vec![eid],
+                interpretation: "地域全体で転出が転入を上回っており、若年・現役層の流出が母集団形成の逆風になっている可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "移動は全年齢の合計であり、対象職種の労働層とは動きが異なる可能性".to_string(),
+                    "大学進学・施設移転等の一時要因で単年の移動が振れている可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(
+            ID,
+            NAME,
+            "人口移動データが不足しています (市区町村が特定できない場合を含む)",
+        ),
+    }
+}
+
+/// S-17 昼間人口流出型: 昼夜間人口比率 < 閾値
+fn s17_daytime_outflow(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-17";
+    const NAME: &str = "昼間人口が流出する地域 (ベッドタウン型)";
+    match input.daytime_ratio {
+        Some(ratio) => {
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "昼夜間人口比率",
+                &format!("{:.1}", ratio),
+                "%",
+                "国勢調査 従業地・通学地集計",
+                granularity::MUNICIPALITY,
+                None,
+                None,
+                "100未満=昼間に人口が周辺へ流出 (通勤・通学)",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: ratio < config::DAYTIME_RATIO_OUTFLOW_THRESHOLD,
+                evidence_ids: vec![eid],
+                interpretation: "昼間に働き手が周辺地域へ流出する居住地型の地域で、居住者を勤務地近くで採る前提が崩れやすく、通勤・勤務地条件の訴求が効きやすい可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "昼夜間比率は全産業の通勤であり、対象職種の勤務地選好とは異なる可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(ID, NAME, "昼夜間人口比率データが不足しています"),
+    }
+}
+
+/// S-18 廃業率が開業率を上回る
+fn s18_closure_over_opening(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-18";
+    const NAME: &str = "廃業率が開業率を上回る地域";
+    match (input.business_opening_rate, input.business_closure_rate) {
+        (Some(open), Some(close)) => {
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "開業率 / 廃業率",
+                &format!("{:.1} / {:.1}", open, close),
+                "%",
+                "経済センサス 開廃業",
+                granularity::PREFECTURE,
+                None,
+                None,
+                "事業所ベースの開業率・廃業率",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: close - open > config::CLOSURE_OVER_OPENING_MARGIN_PCT,
+                evidence_ids: vec![eid],
+                interpretation: "事業所の廃業が開業を上回っており、雇用の受け皿が縮小方向にある可能性があります。廃業に伴う人材の再就職ニーズが顕在化している可能性もあります。".to_string(),
+                alternative_explanations: vec![
+                    "開廃業率は全産業ベースで、対象職種の業種動向とは異なる可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        _ => Signal::not_evaluable(ID, NAME, "開廃業データが不足しています"),
+    }
+}
+
+/// S-19 開業が活発
+fn s19_opening_active(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-19";
+    const NAME: &str = "開業が活発な地域";
+    match input.business_opening_rate {
+        Some(open) => {
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "開業率",
+                &format!("{:.1}", open),
+                "%",
+                "経済センサス 開廃業",
+                granularity::PREFECTURE,
+                None,
+                None,
+                "事業所ベースの開業率",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: open >= config::OPENING_RATE_ACTIVE_THRESHOLD,
+                evidence_ids: vec![eid],
+                interpretation: "新規事業所の立ち上げが活発で、人材の採り合いが起きやすい環境の可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "開業率は全産業ベースで、対象職種の採用競合とは異なる可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(ID, NAME, "開業率データが不足しています"),
+    }
+}
+
+fn unemployment_signal(
+    input: &ConsultInput,
+    store: &mut EvidenceStore,
+    id: &str,
+    name: &str,
+    tight: bool,
+) -> Signal {
+    match (
+        input.unemployment_rate_pref,
+        input.unemployment_rate_national,
+    ) {
+        (Some(pref), Some(nat)) if nat > 0.0 => {
+            let ratio = pref / nat;
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "失業率 (県/全国)",
+                &format!("{:.1} / {:.1}", pref, nat),
+                "%",
+                "国勢調査 労働力状態",
+                granularity::PREFECTURE,
+                None,
+                None,
+                "全産業計の失業率。対象職種の需給とは差がある可能性",
+            );
+            let fired = if tight {
+                ratio < config::UNEMPLOYMENT_TIGHT_RATIO
+            } else {
+                ratio > config::UNEMPLOYMENT_SLACK_RATIO
+            };
+            Signal {
+                id: id.to_string(),
+                name: name.to_string(),
+                fired,
+                evidence_ids: vec![eid],
+                interpretation: if tight {
+                    "失業率が全国比で低く、働き手に余裕が少ない労働需給の締まった地域の可能性があります。".to_string()
+                } else {
+                    "失業率が全国比でやや高く、求職側に余裕がある可能性があります。露出と条件を整えれば母集団を作りやすい可能性があります。".to_string()
+                },
+                alternative_explanations: vec![
+                    "失業率は全産業計であり、対象職種の需給とは異なる可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        _ => Signal::not_evaluable(id, name, "失業率データ (県/全国) が不足しています"),
+    }
+}
+
+/// S-20 失業率が全国比で低い (需給が締まっている)
+fn s20_unemployment_tight(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    unemployment_signal(
+        input,
+        store,
+        "S-20",
+        "失業率が全国比で低い (需給が締まる)",
+        true,
+    )
+}
+
+/// S-21 失業率が全国比で高い (余剰寄り)
+fn s21_unemployment_slack(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    unemployment_signal(
+        input,
+        store,
+        "S-21",
+        "失業率が全国比で高い (余剰寄り)",
+        false,
+    )
+}
+
+/// S-22 家賃負担が給与に対して重い
+fn s22_rent_burden(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-22";
+    const NAME: &str = "家賃負担が提示給与帯に対して重い";
+    if input.is_hourly {
+        return Signal::not_evaluable(
+            ID,
+            NAME,
+            "時給中心のCSVのため月額給与ベースの家賃負担は算出しません",
+        );
+    }
+    match (input.median_rent, input.salary_median) {
+        (Some(rent), Some(salary)) if salary > 0 => {
+            let ratio = rent as f64 / salary as f64;
+            let eid = store.add(
+                EvidenceKind::Aggregated,
+                "代表家賃 / 市場給与中央値",
+                &format!("{} / {}", rent, salary),
+                "円/月",
+                "住宅・土地統計 / 今回の求人CSV集計",
+                granularity::PREFECTURE,
+                Some(input.salary_n),
+                Some(input.as_of.clone()),
+                "家賃は民営借家の代表値。給与は市場中央値 (自社給与ではない)",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: ratio >= config::RENT_BURDEN_RATIO_THRESHOLD,
+                evidence_ids: vec![eid],
+                interpretation: "代表家賃が市場給与帯に対して重く、遠方からの転居を伴う採用のハードルが高い可能性があります。近隣居住者・通勤圏の訴求が論点になる可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "家賃は県代表値で、勤務地周辺の実勢とは差がある可能性".to_string(),
+                    "持ち家率が高い地域では家賃負担の影響が小さい可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        _ => Signal::not_evaluable(ID, NAME, "家賃または市場給与データが不足しています"),
+    }
+}
+
+/// S-23 自然減 (出生 < 死亡)
+fn s23_natural_decline(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-23";
+    const NAME: &str = "人口が自然減の地域";
+    match input.natural_change {
+        Some(change) => {
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "自然増減 (出生-死亡)",
+                &format!("{:+}", change),
+                "人",
+                "人口動態統計",
+                granularity::MUNICIPALITY,
+                None,
+                None,
+                "負値=死亡が出生を上回る自然減",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: change < 0,
+                evidence_ids: vec![eid],
+                interpretation: "出生より死亡が多い自然減の地域で、地元の若年供給が細っていく構造的な背景がある可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "自然減は全年齢の動態であり、転入で補われている可能性 (S-16と併読)".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(ID, NAME, "人口動態データが不足しています"),
+    }
+}
+
+/// S-24 年間休日の記載/訴求が薄い (§5.0: 記載検出。欠落は否定情報ではない)
+fn s24_holiday_mention_thin(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-24";
+    const NAME: &str = "年間休日の記載・訴求が薄い";
+    match input.holiday_mention_ratio() {
+        Some(ratio) => {
+            let eid = store.add(
+                EvidenceKind::Aggregated,
+                "年間休日を記載/抽出できた求人比率",
+                &format!("{:.0}", ratio * 100.0),
+                "%",
+                "今回の求人CSV集計",
+                granularity::CSV,
+                Some(input.total_postings),
+                Some(input.as_of.clone()),
+                "記載/抽出できた比率。記載がない=休日がない ではない (§5.0)",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: ratio < config::HOLIDAY_MENTION_THIN_RATIO,
+                evidence_ids: vec![eid],
+                interpretation: "求人上で年間休日を明示している求人が少なく、休日を条件比較の判断材料にできていない市場の可能性があります。休日条件の明示が差別化になり得ます。".to_string(),
+                alternative_explanations: vec![
+                    "求人カード/抜粋に休日が載らないだけで、求人票本体には記載がある可能性 (§5.0)".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(ID, NAME, "今回CSVに求人が含まれていません"),
+    }
+}
+
+/// S-25 年間休日120日以上の求人が少ない
+fn s25_holiday_level_low(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-25";
+    const NAME: &str = "年間休日120日以上の求人が少ない";
+    match input.holiday_pct_ge_120 {
+        Some(ratio) if input.annual_holidays_n > 0 => {
+            let eid = store.add(
+                EvidenceKind::Aggregated,
+                "年間休日120日以上の求人比率",
+                &format!("{:.0}", ratio * 100.0),
+                "%",
+                "今回の求人CSV集計",
+                granularity::CSV,
+                Some(input.annual_holidays_n),
+                Some(input.as_of.clone()),
+                "年間休日を記載/抽出できた求人が母数",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: ratio < config::HOLIDAY_GE120_LOW_RATIO,
+                evidence_ids: vec![eid],
+                interpretation: "年間休日120日以上を掲げる求人が少ない市場で、休日日数が求職者の比較軸として弱い可能性があります。自社が休日面で上回れば訴求余地がある可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "記載/抽出できた求人のみを母数とするため、実勢とはずれる可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        _ => Signal::not_evaluable(ID, NAME, "年間休日データが不足しています"),
+    }
+}
+
+/// S-26 訴求タグの種類が少ない
+fn s26_tag_variety_thin(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-26";
+    const NAME: &str = "求人カードの訴求タグの種類が少ない";
+    if input.total_postings == 0 {
+        return Signal::not_evaluable(ID, NAME, "今回CSVに求人が含まれていません");
+    }
+    let top = input
+        .top_tags
+        .iter()
+        .take(5)
+        .map(|(t, n)| format!("{}({})", t, n))
+        .collect::<Vec<_>>()
+        .join("、");
+    let eid = store.add(
+        EvidenceKind::Aggregated,
+        "観測できた求人カードタグの種類数",
+        &format!("{}", input.distinct_tag_count),
+        "種類",
+        "今回の求人CSV集計",
+        granularity::CSV,
+        Some(input.total_postings),
+        Some(input.as_of.clone()),
+        &if top.is_empty() {
+            "求人カード上に表示されたタグのみ (福利厚生の全体ではない §5.0)".to_string()
+        } else {
+            format!("上位タグ: {} / 求人カード表示分のみ (§5.0)", top)
+        },
+    );
+    Signal {
+        id: ID.to_string(),
+        name: NAME.to_string(),
+        fired: input.distinct_tag_count < config::TAG_VARIETY_THIN_THRESHOLD,
+        evidence_ids: vec![eid],
+        interpretation: "求人カード上で観測できる訴求タグの種類が少なく、条件面の見せ方が横並びになりやすい市場の可能性があります。タグの付け方で差をつける余地がある可能性があります。".to_string(),
+        alternative_explanations: vec![
+            "タグは媒体がカード上に表示した一部で、実際の条件はより多い可能性 (§5.0)".to_string(),
+        ],
+        data_note: String::new(),
+    }
+}
+
+/// S-27 人気バッジ求人の集中
+fn s27_popular_badge_concentration(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-27";
+    const NAME: &str = "人気表示のある求人の比率が高い";
+    match input.popular_ratio {
+        Some(ratio) => {
+            let eid = store.add(
+                EvidenceKind::Aggregated,
+                "人気/超人気バッジのある求人比率",
+                &format!("{:.0}", ratio * 100.0),
+                "%",
+                "今回の求人CSV集計",
+                granularity::CSV,
+                Some(input.total_postings),
+                Some(input.as_of.clone()),
+                &format!(
+                    "うち超人気バッジ {}件。媒体のバッジ表示に基づく",
+                    input.super_popular_count
+                ),
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: ratio >= config::POPULAR_BADGE_HIGH_RATIO,
+                evidence_ids: vec![eid],
+                interpretation: "人気表示のある求人が多く、応募が一部の目立つ求人に集まりやすい市場の可能性があります。露出とカード上の見え方が応募獲得を左右しやすい可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "バッジ付与ルールは媒体側の基準で、実際の応募数とは一致しない可能性".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(ID, NAME, "人気バッジデータが不足しています"),
+    }
+}
+
+/// S-28 通勤流入上位を配信圏に含むか要確認 (§10.1 配信地域の論点。要確認形式)
+fn s28_commute_delivery_check(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-28";
+    const NAME: &str = "通勤流入上位地域を配信圏に含むか要確認";
+    if input.commute_inflow_top3.is_empty() {
+        return Signal::not_evaluable(ID, NAME, "通勤流入元の内訳データが不足しています");
+    }
+    let top3_text = input
+        .commute_inflow_top3
+        .iter()
+        .map(|(p, m, n)| format!("{}{} {}人", p, m, n))
+        .collect::<Vec<_>>()
+        .join("、");
+    let eid = store.add(
+        EvidenceKind::Observed,
+        "通勤流入元 上位3市区町村",
+        &top3_text,
+        "",
+        "国勢調査 通勤・通学OD",
+        granularity::MUNICIPALITY,
+        None,
+        None,
+        "これらの市区町村を求人の配信対象に含めているかは面談で要確認",
+    );
+    Signal {
+        id: ID.to_string(),
+        name: NAME.to_string(),
+        // 「発火=論点として提示」。上位流入元があれば必ず配信圏の確認論点として立てる
+        fired: true,
+        evidence_ids: vec![eid],
+        interpretation: "通勤で流入する働き手の多い市区町村があり、これらを求人の配信対象に含められているかで母集団の広さが変わる可能性があります (配信設定は要確認)。".to_string(),
+        alternative_explanations: vec![
+            "流入は全職種の通勤であり、対象職種の通勤実態とは異なる可能性".to_string(),
+        ],
+        data_note: String::new(),
+    }
+}
+
+/// S-29 成長企業の存在 (企業データベースで名寄せできた企業のみ)
+fn s29_growing_companies(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-29";
+    const NAME: &str = "人員を増やしながら募集する企業の存在";
+    let matched: Vec<&super::input::CompanyObservation> = input
+        .companies
+        .iter()
+        .filter(|c| c.employee_delta_1y.is_some())
+        .collect();
+    if matched.is_empty() {
+        return Signal::not_evaluable(
+            ID,
+            NAME,
+            "企業データベースと名寄せできた掲載企業がないため判定できません",
+        );
+    }
+    let hits: Vec<&&super::input::CompanyObservation> = matched
+        .iter()
+        .filter(|c| {
+            c.employee_delta_1y.unwrap_or(0.0) >= config::EMPLOYEE_GROWTH_THRESHOLD_PCT
+                && c.posting_count >= config::CONTINUED_POSTING_MIN_COUNT
+        })
+        .collect();
+    let mut evidence_ids = Vec::new();
+    for c in &hits {
+        let eid = store.add(
+            EvidenceKind::Observed,
+            &format!("{} の1年人員増減率と掲載件数", c.name),
+            &format!(
+                "{:+.1}% / {}件",
+                c.employee_delta_1y.unwrap_or(0.0),
+                c.posting_count
+            ),
+            "",
+            "企業データベース + 今回の求人CSV集計",
+            granularity::COMPANY,
+            None,
+            Some(input.as_of.clone()),
+            "人員推移は企業データベースの参照時点に依存する参考値",
+        );
+        evidence_ids.push(eid);
+    }
+    if evidence_ids.is_empty() {
+        let eid = store.add(
+            EvidenceKind::Aggregated,
+            "名寄せできた掲載企業数",
+            &format!("{}", matched.len()),
+            "社",
+            "企業データベース + 今回の求人CSV集計",
+            granularity::COMPANY,
+            Some(matched.len()),
+            Some(input.as_of.clone()),
+            "",
+        );
+        evidence_ids.push(eid);
+    }
+    Signal {
+        id: ID.to_string(),
+        name: NAME.to_string(),
+        fired: !hits.is_empty(),
+        evidence_ids,
+        interpretation: "人員を増やしながら募集を続ける拡大採用型の企業があり、地域の人材を積極的に採る競合として比較対象になっている可能性があります。".to_string(),
+        alternative_explanations: vec![
+            "人員増は合併・拠点統合等の組織要因の可能性 (M&A等)".to_string(),
+            "人員推移データの参照時点と現在で状況が変わっている可能性".to_string(),
+        ],
+        data_note: String::new(),
+    }
+}
+
+/// S-30 非正規求人の比率が高い
+fn s30_nonregular_share_high(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
+    const ID: &str = "S-30";
+    const NAME: &str = "正社員以外 (パート等) の求人比率が高い";
+    match input.nonregular_share() {
+        Some(share) => {
+            let dist = input
+                .employment_type_dist
+                .iter()
+                .take(4)
+                .map(|(t, n)| format!("{}({})", t, n))
+                .collect::<Vec<_>>()
+                .join("、");
+            let eid = store.add(
+                EvidenceKind::Aggregated,
+                "正社員/正職員以外の求人比率",
+                &format!("{:.0}", share * 100.0),
+                "%",
+                "今回の求人CSV集計",
+                granularity::CSV,
+                Some(input.total_postings),
+                Some(input.as_of.clone()),
+                &format!("雇用形態内訳: {} / 雇用形態列のあるCSVのみ (§5.0)", dist),
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: share >= config::NONREGULAR_SHARE_HIGH_RATIO,
+                evidence_ids: vec![eid],
+                interpretation: "市場の求人は正社員以外 (パート・契約等) の比率が高く、正社員採用であれば雇用の安定を訴求できる可能性があります。逆に正社員採用の競合は限られる可能性があります。".to_string(),
+                alternative_explanations: vec![
+                    "雇用形態の表記ゆれや、一方のCSVにのみ雇用形態列がある点に留意 (§5.0)".to_string(),
+                ],
+                data_note: String::new(),
+            }
+        }
+        None => Signal::not_evaluable(
+            ID,
+            NAME,
+            "雇用形態の内訳データが不足しています (雇用形態列のないCSVを含む)",
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -940,6 +1535,121 @@ mod tests {
     }
 
     #[test]
+    fn s16_net_migration_outflow_fires_and_reports_missing() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.net_migration_rate = Some(-4.0);
+        assert!(s16_net_migration_outflow(&input, &mut store).fired);
+        input.net_migration_rate = Some(1.0);
+        assert!(!s16_net_migration_outflow(&input, &mut store).fired);
+        input.net_migration_rate = None;
+        let s = s16_net_migration_outflow(&input, &mut store);
+        assert!(!s.fired && !s.data_note.is_empty());
+    }
+
+    #[test]
+    fn s18_s19_business_dynamics() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.business_opening_rate = Some(3.0);
+        input.business_closure_rate = Some(5.0);
+        assert!(s18_closure_over_opening(&input, &mut store).fired);
+        assert!(!s19_opening_active(&input, &mut store).fired);
+        input.business_opening_rate = Some(6.0);
+        input.business_closure_rate = Some(4.0);
+        assert!(!s18_closure_over_opening(&input, &mut store).fired);
+        assert!(s19_opening_active(&input, &mut store).fired);
+    }
+
+    #[test]
+    fn s20_s21_unemployment_ratio() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.unemployment_rate_pref = Some(2.0);
+        input.unemployment_rate_national = Some(2.8);
+        assert!(s20_unemployment_tight(&input, &mut store).fired);
+        assert!(!s21_unemployment_slack(&input, &mut store).fired);
+        input.unemployment_rate_pref = Some(3.5);
+        assert!(!s20_unemployment_tight(&input, &mut store).fired);
+        assert!(s21_unemployment_slack(&input, &mut store).fired);
+    }
+
+    #[test]
+    fn s22_rent_burden_and_hourly_skip() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.median_rent = Some(80_000);
+        input.salary_median = Some(250_000);
+        assert!(s22_rent_burden(&input, &mut store).fired); // 0.32 >= 0.30
+        input.median_rent = Some(60_000);
+        assert!(!s22_rent_burden(&input, &mut store).fired); // 0.24
+        input.is_hourly = true;
+        let s = s22_rent_burden(&input, &mut store);
+        assert!(!s.fired && !s.data_note.is_empty());
+    }
+
+    #[test]
+    fn s24_holiday_mention_thin_test() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.total_postings = 100;
+        input.annual_holidays_n = 30; // 30% < 50%
+        assert!(s24_holiday_mention_thin(&input, &mut store).fired);
+        input.annual_holidays_n = 80;
+        assert!(!s24_holiday_mention_thin(&input, &mut store).fired);
+    }
+
+    #[test]
+    fn s26_tag_variety_thin_test() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.distinct_tag_count = 3;
+        assert!(s26_tag_variety_thin(&input, &mut store).fired);
+        input.distinct_tag_count = 12;
+        assert!(!s26_tag_variety_thin(&input, &mut store).fired);
+    }
+
+    #[test]
+    fn s28_commute_delivery_always_fires_when_data_present() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        let s = s28_commute_delivery_check(&input, &mut store);
+        assert!(!s.fired && !s.data_note.is_empty(), "内訳なしなら判定不能");
+        input.commute_inflow_top3 = vec![("群馬県".to_string(), "前橋市".to_string(), 5000)];
+        let s = s28_commute_delivery_check(&input, &mut store);
+        assert!(s.fired, "流入内訳があれば要確認論点として発火");
+        assert!(s.interpretation.contains("要確認"));
+    }
+
+    #[test]
+    fn s29_growing_companies_test() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.companies = vec![CompanyObservation {
+            name: "成長社".to_string(),
+            posting_count: 4,
+            employee_count: Some(500),
+            employee_delta_1y: Some(8.0),
+        }];
+        assert!(s29_growing_companies(&input, &mut store).fired);
+        input.companies[0].employee_delta_1y = Some(1.0);
+        assert!(!s29_growing_companies(&input, &mut store).fired);
+    }
+
+    #[test]
+    fn s30_nonregular_share() {
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.employment_type_dist = vec![("パート".to_string(), 60), ("正社員".to_string(), 40)];
+        assert!(s30_nonregular_share_high(&input, &mut store).fired);
+        input.employment_type_dist = vec![("正社員".to_string(), 80), ("パート".to_string(), 20)];
+        assert!(!s30_nonregular_share_high(&input, &mut store).fired);
+        input.employment_type_dist = vec![];
+        let s = s30_nonregular_share_high(&input, &mut store);
+        assert!(!s.fired && !s.data_note.is_empty());
+    }
+
+    #[test]
     fn all_signals_have_unique_ids_and_valid_evidence_refs() {
         let mut input = base_input();
         input.posting_age_30plus_ratio = Some(0.5);
@@ -953,8 +1663,8 @@ mod tests {
         let mut store = EvidenceStore::new();
         let signals = evaluate_signals(&input, &mut store);
         assert!(
-            signals.len() >= 10 && signals.len() <= 15,
-            "シグナルは10〜15個 (実際: {})",
+            signals.len() >= 28 && signals.len() <= 32,
+            "シグナルは拡充後28〜32個 (実際: {})",
             signals.len()
         );
         let mut ids: Vec<&str> = signals.iter().map(|s| s.id.as_str()).collect();
