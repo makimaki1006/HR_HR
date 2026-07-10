@@ -38,6 +38,7 @@ pub mod contradictions;
 pub mod evidence;
 pub mod evidence_pack;
 pub mod handlers;
+pub mod hearing;
 pub mod hypotheses;
 pub mod input;
 pub mod questions;
@@ -49,4 +50,7 @@ mod golden_test;
 #[cfg(test)]
 mod hw_audit_test;
 
-pub use handlers::{consult_brief, consult_evidence_pack_json};
+pub use handlers::{
+    consult_brief, consult_evidence_pack_json, consult_hearing_form, consult_hearing_save,
+    consult_hearing_sheet,
+};
