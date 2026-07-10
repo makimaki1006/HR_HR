@@ -2259,9 +2259,13 @@ body.theme-navy .cs-num {
   line-height: 1; color: var(--ink); letter-spacing: -0.02em;
 }
 body.theme-navy .cs-unit { font-family: "Noto Sans JP", sans-serif; font-size: 11pt;
-  font-weight: 500; margin-left: 4px; color: var(--ink-muted); letter-spacing: 0; }
+  font-weight: 500; margin-left: 4px; color: var(--ink-muted); letter-spacing: 0;
+  white-space: nowrap; /* 「万円」等の単位が「万/円」で折り返されるのを防ぐ */ }
 body.theme-navy .cs-label { font-size: 9pt; color: var(--ink-muted); margin-top: 4px; letter-spacing: 0.02em; }
 body.theme-navy .cover-footer {
+  /* ベース .cover-footer の position:absolute; left:0; right:0 を解除。
+   * 絶対配置のままだとページ余白を無視して全幅に広がり、本文と左端が揃わない。 */
+  position: static;
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 8mm;
   padding-top: 6mm; border-top: 1px solid var(--rule);
 }
