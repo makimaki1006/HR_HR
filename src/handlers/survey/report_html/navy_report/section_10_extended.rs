@@ -190,16 +190,22 @@ fn render_fig1_workforce_map(html: &mut String, ctx: &InsightContext, pref_name:
     ));
     let med_y = round2(median_f64(munis.iter().map(|m| m.wa_ratio_2020).collect()));
 
+    // 減少率が厳しい順 (最も負 = 1) のランク付け。
+    // 散布図の丸の番号・下部ランキング・対応表で番号が一致するよう共通の並び順を使う。
+    let order = decline_rank_order(&munis);
+    let mut ranks = vec![0usize; munis.len()];
+    for (pos, &idx) in order.iter().enumerate() {
+        ranks[idx] = pos + 1;
+    }
+
     // 散布図 SVG ---------------------------------------------------------
-    let scatter = build_scatter_svg(&munis, med_x, med_y);
-    // 減少率ランキング 上位8 (最も大きく減る = 最小値) ------------------
-    let mut sorted: Vec<&WorkforceRow> = munis.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.wa_decline_2040
-            .partial_cmp(&b.wa_decline_2040)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let top8: Vec<&WorkforceRow> = sorted.into_iter().take(8).collect();
+    let scatter = build_scatter_svg(&munis, &ranks, med_x, med_y);
+    // 減少率ランキング 上位8 (最も大きく減る = 最小値、番号 1〜8) --------
+    let top8: Vec<(usize, &WorkforceRow)> = order
+        .iter()
+        .take(8)
+        .map(|&i| (ranks[i], &munis[i]))
+        .collect();
     let bars = build_decline_bars_svg(&top8);
 
     html.push_str("<div style=\"display:flex;gap:8mm;flex-wrap:wrap;align-items:flex-start;\">\n");
@@ -219,6 +225,8 @@ fn render_fig1_workforce_map(html: &mut String, ctx: &InsightContext, pref_name:
          減少率が大きい市町村ほど、将来の応募候補者が急速に減っていく（純粋な人口の見通し）。</div>\n</div>\n",
     );
     html.push_str("</div>\n");
+    // 図中の番号 → 市町村名 対応表 (全市町村)。散布図の丸に振った番号と 1 対 1 対応。
+    html.push_str(&build_muni_index_table(&munis, &order));
     html.push_str(&format!(
         "<div class=\"caption dim\" style=\"margin-top:2mm;border-top:1px dashed #e2e8f0;padding-top:2mm;\">\
          出典：国の将来人口推計（国立社会保障・人口問題研究所）。{pref} {n} 市町村を全数プロット。\
@@ -229,7 +237,7 @@ fn render_fig1_workforce_map(html: &mut String, ctx: &InsightContext, pref_name:
     html.push_str("</div>\n");
 }
 
-fn build_scatter_svg(munis: &[WorkforceRow], med_x: f64, med_y: f64) -> String {
+fn build_scatter_svg(munis: &[WorkforceRow], ranks: &[usize], med_x: f64, med_y: f64) -> String {
     // 動的軸レンジ (データ min/max にパディング)。degenerate 時は mock 既定へ。
     let (mut xmin, mut xmax) = min_max(munis.iter().map(|m| m.wa_decline_2040));
     let (mut ymin, mut ymax) = min_max(munis.iter().map(|m| m.wa_ratio_2020));
@@ -336,16 +344,36 @@ fn build_scatter_svg(munis: &[WorkforceRow], med_x: f64, med_y: f64) -> String {
         "<text x=\"{x}\" y=\"{y:.1}\" font-size=\"8.5\" fill=\"{GOLD}\">県内の真ん中 働き手の割合 {v}%</text>",
         x = ml as i64 + 3, y = qy - 4.0, GOLD = GOLD, v = med_y,
     ));
-    // 点
+    // 点 (先に全ての丸を描く。番号は後段でまとめて上に重ねる)
     for m in munis {
         let x = sx(m.wa_decline_2040);
         let y = sy(m.wa_ratio_2020);
         let r = rad(m.wa2020);
         let c = zone_color(m);
+        // <title> は画面表示時のブラウザ標準ツールチップ (印刷には影響しない)。
         s.push_str(&format!(
-            "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"{r:.1}\" fill=\"{c}\" fill-opacity=\"0.55\" stroke=\"{c}\" stroke-width=\"1\"/>",
+            "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"{r:.1}\" fill=\"{c}\" fill-opacity=\"0.55\" stroke=\"{c}\" stroke-width=\"1\"><title>{title}</title></circle>",
             x = x, y = y, r = r, c = c,
+            title = escape_html(&format!("{} ({:+.1}%)", m.muni, m.wa_decline_2040)),
         ));
+    }
+    // 丸の番号 (減少率が厳しい順。丸が大きければ中心に白字、小さければ右上に紺字で外置き)。
+    for (i, m) in munis.iter().enumerate() {
+        let x = sx(m.wa_decline_2040);
+        let y = sy(m.wa_ratio_2020);
+        let r = rad(m.wa2020);
+        let num = ranks[i];
+        if r >= 9.0 {
+            s.push_str(&format!(
+                "<text x=\"{x:.1}\" y=\"{y:.1}\" font-size=\"7\" font-weight=\"bold\" fill=\"#fff\" text-anchor=\"middle\">{num}</text>",
+                x = x, y = y + 2.5, num = num,
+            ));
+        } else {
+            s.push_str(&format!(
+                "<text x=\"{x:.1}\" y=\"{y:.1}\" font-size=\"7\" font-weight=\"bold\" fill=\"{NAVY}\" text-anchor=\"start\">{num}</text>",
+                x = x + r + 0.8, y = y - r * 0.4, NAVY = NAVY, num = num,
+            ));
+        }
     }
     // 軸ラベル
     s.push_str(&format!(
@@ -360,13 +388,13 @@ fn build_scatter_svg(munis: &[WorkforceRow], med_x: f64, med_y: f64) -> String {
     s
 }
 
-fn build_decline_bars_svg(top8: &[&WorkforceRow]) -> String {
+fn build_decline_bars_svg(top8: &[(usize, &WorkforceRow)]) -> String {
     let bw = 390.0f64;
     let rowh = 40.0f64;
     let bh = 44.0 + top8.len() as f64 * rowh;
     let dmax = top8
         .iter()
-        .map(|m| m.wa_decline_2040.abs())
+        .map(|(_, m)| m.wa_decline_2040.abs())
         .fold(0.0f64, f64::max)
         .max(1e-6);
     let barx0 = 96.0f64;
@@ -382,13 +410,15 @@ fn build_decline_bars_svg(top8: &[&WorkforceRow]) -> String {
         "<text x=\"12\" y=\"20\" font-size=\"11\" font-weight=\"bold\" fill=\"{NAVY}\">2040年までに働き手が大きく減る市町村（上位8）</text>",
         NAVY = NAVY,
     ));
-    for (i, m) in top8.iter().enumerate() {
+    for (i, (num, m)) in top8.iter().enumerate() {
         let y = 42.0 + i as f64 * rowh;
         let val = m.wa_decline_2040.abs();
         let bwid = val / dmax * barmax;
+        // 番号は散布図の丸・対応表と一致 (減少率が厳しい順)。
         s.push_str(&format!(
-            "<text x=\"12\" y=\"{y:.1}\" font-size=\"10.5\" fill=\"#0f172a\" font-weight=\"bold\">{muni}</text>",
+            "<text x=\"12\" y=\"{y:.1}\" font-size=\"10.5\" fill=\"#0f172a\" font-weight=\"bold\">{num}. {muni}</text>",
             y = y + 15.0,
+            num = num,
             muni = escape_html(&m.muni),
         ));
         s.push_str(&format!(
@@ -405,6 +435,46 @@ fn build_decline_bars_svg(top8: &[&WorkforceRow]) -> String {
         ));
     }
     s.push_str("</svg>");
+    s
+}
+
+/// 減少率が厳しい順 (最も負 = 先頭) に並べた元インデックスの並び。
+/// 散布図の丸・下部ランキング・対応表の番号はすべてこの並びで一致させる。
+fn decline_rank_order(munis: &[WorkforceRow]) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..munis.len()).collect();
+    order.sort_by(|&a, &b| {
+        munis[a]
+            .wa_decline_2040
+            .partial_cmp(&munis[b].wa_decline_2040)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    order
+}
+
+/// 図中の番号 → 市町村名 対応表 (全市町村)。
+/// 印刷/PDF でも読めるよう静的な列数固定グリッド。市町村数が多く (北海道 179 等) ても
+/// 折り返して 1 ページに収まる密度 (4 列・8pt)。各項目「番号 市町村名 増減率」。
+fn build_muni_index_table(munis: &[WorkforceRow], order: &[usize]) -> String {
+    let mut s = String::new();
+    s.push_str(&format!(
+        "<div style=\"margin-top:3mm;\">\
+         <div style=\"font-size:9pt;font-weight:bold;color:{NAVY};margin-bottom:1.5mm;\">図中の番号と市町村名</div>\
+         <div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:0 10px;font-size:8pt;line-height:1.5;color:#334155;\">",
+        NAVY = NAVY,
+    ));
+    for (pos, &idx) in order.iter().enumerate() {
+        let m = &munis[idx];
+        s.push_str(&format!(
+            "<div style=\"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">\
+             <b style=\"color:{NAVY}\">{num}</b> {muni} <span style=\"color:{MUTED}\">{v:.1}%</span></div>",
+            NAVY = NAVY,
+            MUTED = MUTED,
+            num = pos + 1,
+            muni = escape_html(&m.muni),
+            v = m.wa_decline_2040,
+        ));
+    }
+    s.push_str("</div></div>\n");
     s
 }
 
@@ -1256,6 +1326,102 @@ mod tests {
             let s = nice_step(r);
             assert!(s > 0.0 && s.is_finite(), "range={} step={}", r, s);
         }
+    }
+
+    /// 合成 WorkforceRow ヘルパ (対応表・番号の多市町村レイアウト検証用)。
+    fn wf_row(muni: &str, workers: i64, ratio: f64, decline: f64) -> WorkforceRow {
+        WorkforceRow {
+            muni: muni.to_string(),
+            wa2020: workers,
+            wa_ratio_2020: ratio,
+            wa_decline_2040: decline,
+        }
+    }
+
+    #[test]
+    fn decline_rank_order_is_most_negative_first() {
+        // 減少率が厳しい (最も負) 順。full_ctx: 津久見市 -48.5 < 佐伯市 -42.0 < 大分市 -15.2。
+        let ctx = full_ctx();
+        let munis = parse_workforce(&ctx);
+        let order = decline_rank_order(&munis);
+        assert_eq!(munis[order[0]].muni, "津久見市", "1 番は最も減る市");
+        assert_eq!(munis[order[1]].muni, "佐伯市");
+        assert_eq!(munis[order[2]].muni, "大分市");
+    }
+
+    #[test]
+    fn ranking_bars_and_index_table_share_same_numbering() {
+        // 散布図/ランキング/対応表の番号が同順であること (ランキング上位と対応表先頭が一致)。
+        let ctx = full_ctx();
+        let munis = parse_workforce(&ctx);
+        let order = decline_rank_order(&munis);
+        let mut ranks = vec![0usize; munis.len()];
+        for (pos, &idx) in order.iter().enumerate() {
+            ranks[idx] = pos + 1;
+        }
+        // ランキング (上位8) の 1 番目テキスト
+        let top8: Vec<(usize, &WorkforceRow)> = order
+            .iter()
+            .take(8)
+            .map(|&i| (ranks[i], &munis[i]))
+            .collect();
+        let bars = build_decline_bars_svg(&top8);
+        assert!(bars.contains("1. 津久見市"), "ランキング 1 番 = 津久見市");
+        assert!(bars.contains("2. 佐伯市"), "ランキング 2 番 = 佐伯市");
+        // 対応表の 1 番も同じ市
+        let table = build_muni_index_table(&munis, &order);
+        assert!(
+            table.contains(">1</b> 津久見市"),
+            "対応表 1 番 = 津久見市 (ランキングと同順)"
+        );
+    }
+
+    #[test]
+    fn index_table_lists_all_municipalities() {
+        // 対応表に全市町村が出ること (多数でも列固定グリッドで全件)。
+        let munis: Vec<WorkforceRow> = (0..60)
+            .map(|i| wf_row(&format!("市{:02}", i), 10_000 + i * 100, 55.0, -(i as f64)))
+            .collect();
+        let order = decline_rank_order(&munis);
+        let table = build_muni_index_table(&munis, &order);
+        // 各行は白スペース nowrap の div。件数 = 市町村数。
+        assert_eq!(
+            table.matches("white-space:nowrap").count(),
+            60,
+            "対応表は全 60 市町村を列挙"
+        );
+        assert!(table.contains("図中の番号と市町村名"), "対応表見出し");
+        // 最も減る (-59) が 1 番、最も減らない (0) が 60 番。
+        assert!(table.contains(">1</b> 市59"));
+        assert!(table.contains(">60</b> 市00"));
+    }
+
+    #[test]
+    fn scatter_svg_has_title_per_circle_and_number_per_circle() {
+        // <title> が circle 数と一致 (画面ツールチップ)、番号も circle 数分ある。
+        let munis: Vec<WorkforceRow> = vec![
+            wf_row("大きい市", 300_000, 58.0, -12.0),
+            wf_row("小さい村", 3_000, 48.0, -55.0),
+            wf_row("中くらい町", 40_000, 52.0, -30.0),
+        ];
+        let order = decline_rank_order(&munis);
+        let mut ranks = vec![0usize; munis.len()];
+        for (pos, &idx) in order.iter().enumerate() {
+            ranks[idx] = pos + 1;
+        }
+        let svg = build_scatter_svg(&munis, &ranks, -30.0, 52.0);
+        assert_eq!(
+            svg.matches("<circle").count(),
+            munis.len(),
+            "circle 数 = 市町村数"
+        );
+        assert_eq!(
+            svg.matches("<title>").count(),
+            munis.len(),
+            "<title> 数 = circle 数"
+        );
+        // ツールチップ本文に市町村名と増減率
+        assert!(svg.contains("小さい村 (-55.0%)"));
     }
 
     #[test]
