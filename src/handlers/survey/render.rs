@@ -896,6 +896,16 @@ fn render_consult_prep_panel(session_id: &str) -> String {
                         title="面談で確認した採用状況を入力・保存します (社内用)">
                     <span class="text-base" aria-hidden="true">✍</span> ヒアリング入力
                 </a>
+                <a href="/consult/hypothesis_review?session_id={sid}" target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        title="面談前に整理した仮説を、ヒアリング回答をもとに支持・否定・保留へ更新します (社内用)">
+                    <span class="text-base" aria-hidden="true">🔎</span> 仮説の確認・更新
+                </a>
+                <a href="/consult/action_memo?session_id={sid}" target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        title="お打ち合わせ内容と市場データにもとづく整理として、優先施策とKPIをまとめたメモを開きます (顧客共有可)">
+                    <span class="text-base" aria-hidden="true">📝</span> アクションメモ
+                </a>
             </div>
         </section>"##,
         sid = session_id
