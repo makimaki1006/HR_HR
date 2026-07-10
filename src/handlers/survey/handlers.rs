@@ -305,15 +305,16 @@ async fn run_holiday_ai_extraction(
         return super::upload::ExtractionYield::default();
     }
     let mut total = super::upload::ExtractionYield::default();
-    // 2026-07-11: 無料枠 15 リクエスト/分の制限内に収めるため 40 件/回 × 最大 8 回に変更。
-    //   従来 (20 件 × 15 回) だと 225 件 CSV で 12 回消費し、直後の商談準備レポート
-    //   (最大 2 回) と合わせて分あたり上限に接触して 429 が発生した。
-    //   40 件 × 8 回 = 320 件までカバーし、商談準備レポート分の余裕を残す。
+    // 2026-07-11: API 予算の主用途は商談準備レポートの解説生成 (ユーザー方針)。
+    //   CSV 整形の AI 補助は「regex の取りこぼし補完」に限定し、40 件/回 × 最大 2 回
+    //   (80 件分) に縮小する。残りは regex のみで処理。
+    //   これにより 1 操作あたりの消費は CSV 2 + レポート 2 + リトライ余地で、
+    //   無料枠 15 リクエスト/分に対して常に余裕を持つ。
     for (call_idx, chunk) in targets.chunks(40).enumerate() {
-        if call_idx >= 8 {
-            // 上限ガード: 320 件を超える分は regex のみ (コスト暴走・レート制限防止)
+        if call_idx >= 2 {
+            // 上限ガード: 80 件を超える分は regex のみ (レポート解説用の API 予算を優先)
             tracing::info!(
-                "Gemini: multi-attr extraction hit 8-call cap, {} targets remain, relying on regex",
+                "Gemini: multi-attr extraction hit 2-call cap, {} targets remain, relying on regex",
                 targets.len().saturating_sub(call_idx * 40)
             );
             break;
