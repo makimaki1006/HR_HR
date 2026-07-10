@@ -239,6 +239,10 @@ pub(crate) fn build_insight_context_with_wage_mode(
     muni: &str,
     wage_mode: &str,
 ) -> InsightContext {
+    // 2026-07-10: 所要時間計測。Render(US) → Turso(日本) の RTT が支配的なため、
+    //   遅延回帰を検知できるよう build 全体の経過時間を info ログに残す。
+    let build_start = std::time::Instant::now();
+
     // === 並列フェッチ (8 グループ) ===
     // 各 thread は db (LocalDb) / turso (TursoDb) を `&` borrow で共有 (Arc 内部のため安全)。
     // 戻り値型を tuple で明示しないと型推論が複雑になるので、グループ毎に明示する。
@@ -532,18 +536,43 @@ pub(crate) fn build_insight_context_with_wage_mode(
     let (pref_avg_unemployment_rate, pref_avg_single_rate, flow) = mean_flow_bundle;
 
     // 詳細版 (Extended / Section 10) 専用 cross_* テーブル (2026-07-09)。
-    // 介護・HW を含まない公的統計 × 今回の求人データのクロス集計。小さな 3 クエリのため
-    // 直列取得 (未投入時は各テーブルが不在 → query_turso が空 Vec を返し graceful skip)。
-    let (cross_future_workforce, cross_wage_public, cross_switcher_supply) =
-        if let Some(tdb) = turso {
-            (
-                tf::fetch_cross_future_workforce(tdb, pref),
-                tf::fetch_cross_wage_public(tdb, pref),
-                tf::fetch_cross_switcher_supply(tdb, pref),
-            )
-        } else {
-            (vec![], vec![], vec![])
-        };
+    // 介護・HW を含まない公的統計 × 今回の求人データのクロス集計。
+    // 2026-07-10: 3 クエリは互いに独立した Turso 往復のため std::thread::scope で並列化する
+    //   (未投入時は各テーブルが不在 → query_turso が空 Vec を返し graceful skip)。
+    //   結果は同じ変数へ代入するだけなので出力は不変。
+    let (cross_future_workforce, cross_wage_public, cross_switcher_supply) = if let Some(tdb) =
+        turso
+    {
+        std::thread::scope(|s| {
+            let h_wf = s.spawn(|| tf::fetch_cross_future_workforce(tdb, pref));
+            let h_wage = s.spawn(|| tf::fetch_cross_wage_public(tdb, pref));
+            let h_switcher = s.spawn(|| tf::fetch_cross_switcher_supply(tdb, pref));
+            let wf = h_wf.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context cross_future thread panicked, using empty defaults"
+                );
+                vec![]
+            });
+            let wage = h_wage.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context cross_wage thread panicked, using empty defaults"
+                );
+                vec![]
+            });
+            let switcher = h_switcher.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context cross_switcher thread panicked, using empty defaults"
+                );
+                vec![]
+            });
+            (wf, wage, switcher)
+        })
+    } else {
+        (vec![], vec![], vec![])
+    };
 
     let mut ctx = InsightContext {
         // ローカルSQLite（analysis/fetch.rsの関数を再利用）
@@ -645,9 +674,61 @@ pub(crate) fn build_insight_context_with_wage_mode(
         muni: muni.to_string(),
     };
 
-    // 通勤圏データ計算（市区町村選択時のみ）
+    // 通勤圏 + 通勤フロー（市区町村選択時のみ）
+    // 2026-07-10: 従来は「通勤圏 (zone→pyramid)」と「通勤フロー (inflow/outflow/self_rate)」を
+    //   直列取得していた。zone→pyramid のみ依存関係があるので同一スレッドで直列取得し、
+    //   inflow / outflow / self_rate はそれぞれ独立した Turso 往復のため std::thread::scope で
+    //   並列化する。結果は既存フィールドへそのまま代入するため出力は不変。
+    // 2026-05-14: Turso fallback 対応で turso 引数を伝搬。v2_external_commute_od が
+    //   ローカル DB に投入されていなくても Turso 側にあれば取得できる。
     if !muni.is_empty() {
-        let zone = af::fetch_commute_zone(db, pref, muni, 30.0);
+        let (zone, zone_pyramid, inflow, outflow, self_rate) = std::thread::scope(|s| {
+            // zone と zone_pyramid は依存関係があるため 1 スレッド内で直列取得
+            let h_zone = s.spawn(|| {
+                let zone = af::fetch_commute_zone(db, pref, muni, 30.0);
+                let zone_pyramid = if zone.is_empty() {
+                    Vec::new()
+                } else {
+                    af::fetch_commute_zone_pyramid(db, turso, &zone)
+                };
+                (zone, zone_pyramid)
+            });
+            let h_inflow = s.spawn(|| af::fetch_commute_inflow(db, turso, pref, muni));
+            let h_outflow = s.spawn(|| af::fetch_commute_outflow(db, turso, pref, muni));
+            let h_self = s.spawn(|| af::fetch_self_commute_rate(db, turso, pref, muni));
+
+            let (zone, zone_pyramid) = h_zone.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context commute zone thread panicked, using empty defaults"
+                );
+                (Vec::new(), Vec::new())
+            });
+            let inflow = h_inflow.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context commute inflow thread panicked, using empty defaults"
+                );
+                Vec::new()
+            });
+            let outflow = h_outflow.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context commute outflow thread panicked, using empty defaults"
+                );
+                Vec::new()
+            });
+            let self_rate = h_self.join().unwrap_or_else(|e| {
+                tracing::warn!(
+                    ?e,
+                    "build_insight_context self commute rate thread panicked, using 0.0"
+                );
+                0.0
+            });
+            (zone, zone_pyramid, inflow, outflow, self_rate)
+        });
+
+        // 通勤圏データ計算
         if !zone.is_empty() {
             let mut pref_set = std::collections::HashSet::new();
             for m in &zone {
@@ -656,8 +737,7 @@ pub(crate) fn build_insight_context_with_wage_mode(
             ctx.commute_zone_count = zone.len();
             ctx.commute_zone_pref_count = pref_set.len();
 
-            let pyramid = af::fetch_commute_zone_pyramid(db, turso, &zone);
-            for row in &pyramid {
+            for row in &zone_pyramid {
                 let male = super::super::helpers::get_i64(row, "male_count");
                 let female = super::super::helpers::get_i64(row, "female_count");
                 let total = male + female;
@@ -677,13 +757,8 @@ pub(crate) fn build_insight_context_with_wage_mode(
                 }
             }
         }
-    }
 
-    // 通勤フロー（実データ）
-    // 2026-05-14: Turso fallback 対応で turso 引数を伝搬。v2_external_commute_od が
-    //   ローカル DB に投入されていなくても Turso 側にあれば取得できる。
-    if !muni.is_empty() {
-        let inflow = af::fetch_commute_inflow(db, turso, pref, muni);
+        // 通勤フロー（実データ）
         ctx.commute_inflow_total = inflow.iter().map(|f| f.total_commuters).sum();
         ctx.commute_inflow_top3 = inflow
             .iter()
@@ -696,11 +771,154 @@ pub(crate) fn build_insight_context_with_wage_mode(
                 )
             })
             .collect();
-
-        let outflow = af::fetch_commute_outflow(db, turso, pref, muni);
         ctx.commute_outflow_total = outflow.iter().map(|f| f.total_commuters).sum();
-        ctx.commute_self_rate = af::fetch_self_commute_rate(db, turso, pref, muni);
+        ctx.commute_self_rate = self_rate;
     }
 
+    tracing::info!(
+        elapsed_ms = build_start.elapsed().as_millis() as u64,
+        pref = %pref,
+        muni = %muni,
+        wage_mode = %wage_mode,
+        "build_insight_context completed"
+    );
+
     ctx
+}
+
+/// 2026-07-10: 並列化 (直列 → thread::scope) の実測用 #[ignore] テスト。
+/// 実 Turso への読み取りのみ。CI では無視される (実行には環境変数 + `--ignored` が必要)。
+///
+///   TURSO_EXTERNAL_URL=... TURSO_EXTERNAL_TOKEN=... \
+///     cargo test --lib measure_turso_parallelism -- --ignored --nocapture
+#[cfg(test)]
+mod perf_measure {
+    use crate::handlers::analysis::fetch as af;
+    use crate::handlers::trend::fetch as tf;
+    type Db = crate::db::local_sqlite::LocalDb;
+    type TursoDb = crate::db::turso_http::TursoDb;
+
+    fn median(mut v: Vec<u128>) -> u128 {
+        v.sort_unstable();
+        v[v.len() / 2]
+    }
+
+    #[test]
+    #[ignore]
+    fn measure_turso_parallelism() {
+        let url = std::env::var("TURSO_EXTERNAL_URL").expect("TURSO_EXTERNAL_URL 未設定");
+        let token = std::env::var("TURSO_EXTERNAL_TOKEN").expect("TURSO_EXTERNAL_TOKEN 未設定");
+        let turso = TursoDb::new(&url, &token).expect("Turso 接続失敗");
+
+        // 空ローカル DB (postings 等は存在しないため local fetch は空 Vec を返す)。
+        let tmp = std::env::temp_dir().join(format!("hrhr_measure_{}.db", std::process::id()));
+        std::fs::File::create(&tmp).unwrap();
+        let db = Db::new(tmp.to_str().unwrap()).expect("空ローカル DB 生成失敗");
+
+        let pref = "東京都";
+        let muni = "千代田区";
+        let t = &turso;
+
+        // --- (A) 純 Turso 12 fetch: 直列 vs 本番グルーピング(3群, 各群内は直列) ---
+        let serial_a = || {
+            let s = std::time::Instant::now();
+            let _ = tf::fetch_ts_counts(t, pref);
+            let _ = tf::fetch_ts_vacancy(t, pref);
+            let _ = tf::fetch_ts_salary(t, pref);
+            let _ = tf::fetch_ts_fulfillment(t, pref);
+            let _ = tf::fetch_ts_tracking(t, pref);
+            let _ = tf::fetch_ext_job_openings_ratio(t, pref);
+            let _ = tf::fetch_ext_labor_stats(t, pref);
+            let _ = tf::fetch_ext_minimum_wage_history(t, pref);
+            let _ = tf::fetch_ext_turnover(t, pref);
+            let _ = tf::fetch_cross_future_workforce(t, pref);
+            let _ = tf::fetch_cross_wage_public(t, pref);
+            let _ = tf::fetch_cross_switcher_supply(t, pref);
+            s.elapsed().as_millis()
+        };
+        let parallel_a = || {
+            let s = std::time::Instant::now();
+            std::thread::scope(|sc| {
+                sc.spawn(|| {
+                    let _ = tf::fetch_ts_counts(t, pref);
+                    let _ = tf::fetch_ts_vacancy(t, pref);
+                    let _ = tf::fetch_ts_salary(t, pref);
+                    let _ = tf::fetch_ts_fulfillment(t, pref);
+                    let _ = tf::fetch_ts_tracking(t, pref);
+                });
+                sc.spawn(|| {
+                    let _ = tf::fetch_ext_job_openings_ratio(t, pref);
+                    let _ = tf::fetch_ext_labor_stats(t, pref);
+                    let _ = tf::fetch_ext_minimum_wage_history(t, pref);
+                    let _ = tf::fetch_ext_turnover(t, pref);
+                });
+                sc.spawn(|| {
+                    let _ = tf::fetch_cross_future_workforce(t, pref);
+                    let _ = tf::fetch_cross_wage_public(t, pref);
+                    let _ = tf::fetch_cross_switcher_supply(t, pref);
+                });
+            });
+            s.elapsed().as_millis()
+        };
+
+        // --- (B) 末尾テール (cross 3 + commute 3): 直列 vs 並列 (本 PR の変更点) ---
+        let serial_b = || {
+            let s = std::time::Instant::now();
+            let _ = tf::fetch_cross_future_workforce(t, pref);
+            let _ = tf::fetch_cross_wage_public(t, pref);
+            let _ = tf::fetch_cross_switcher_supply(t, pref);
+            let _ = af::fetch_commute_inflow(&db, Some(t), pref, muni);
+            let _ = af::fetch_commute_outflow(&db, Some(t), pref, muni);
+            let _ = af::fetch_self_commute_rate(&db, Some(t), pref, muni);
+            s.elapsed().as_millis()
+        };
+        let parallel_b = || {
+            let s = std::time::Instant::now();
+            std::thread::scope(|sc| {
+                sc.spawn(|| {
+                    let _ = tf::fetch_cross_future_workforce(t, pref);
+                });
+                sc.spawn(|| {
+                    let _ = tf::fetch_cross_wage_public(t, pref);
+                });
+                sc.spawn(|| {
+                    let _ = tf::fetch_cross_switcher_supply(t, pref);
+                });
+                sc.spawn(|| {
+                    let _ = af::fetch_commute_inflow(&db, Some(t), pref, muni);
+                });
+                sc.spawn(|| {
+                    let _ = af::fetch_commute_outflow(&db, Some(t), pref, muni);
+                });
+                sc.spawn(|| {
+                    let _ = af::fetch_self_commute_rate(&db, Some(t), pref, muni);
+                });
+            });
+            s.elapsed().as_millis()
+        };
+
+        // --- (C) 実 build_insight_context (全群 + テール並列化済み) end-to-end ---
+        let full = || {
+            let s = std::time::Instant::now();
+            let _ = super::build_insight_context(&db, Some(t), pref, muni);
+            s.elapsed().as_millis()
+        };
+
+        // warm-up (接続確立 / DNS)
+        let _ = serial_a();
+
+        let reps = 3;
+        let sa = median((0..reps).map(|_| serial_a()).collect());
+        let pa = median((0..reps).map(|_| parallel_a()).collect());
+        let sb = median((0..reps).map(|_| serial_b()).collect());
+        let pb = median((0..reps).map(|_| parallel_b()).collect());
+        let fu = median((0..reps).map(|_| full()).collect());
+
+        eprintln!("==== Turso 並列化 実測 (median of {reps}) ====");
+        eprintln!("(A) 純Turso 12 fetch  : 直列 {sa} ms → 3群並列 {pa} ms");
+        eprintln!("(B) テール cross+commute(6) : 直列 {sb} ms → 並列 {pb} ms");
+        eprintln!("(C) build_insight_context full (並列版): {fu} ms");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
