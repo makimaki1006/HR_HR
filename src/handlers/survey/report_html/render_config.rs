@@ -26,7 +26,7 @@ use super::super::granularity::MunicipalityDemographics;
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
 use super::super::upload::WageMode;
-use super::{ReportTheme, ReportVariant};
+use super::{ReportTheme, ReportVariant, SectionSet};
 use std::collections::HashMap;
 
 /// 求人市場 総合診断レポート HTML 描画パラメータ。
@@ -105,6 +105,12 @@ pub(crate) struct RenderConfig<'a> {
     /// 将来の Section 拡張 (Phase 2-B 以降の時給特有指標 H1/H3/H4) で参照する。
     /// silent fallback 禁止 (Option ではなく enum 必須)。デフォルトは `WageMode::Auto`。
     pub wage_mode: WageMode,
+    /// 出力セクション選択集合 (2026-07-10 追加)。
+    ///
+    /// 未設定時は `SectionSet::from_variant(variant)` (= sections 未指定・従来経路) を
+    /// デフォルトとするため、既存 caller の出力は byte 不変。
+    /// `?sections=...` 指定時のみ handler が明示集合を構築して渡す。
+    pub section_set: SectionSet,
 }
 
 impl<'a> RenderConfig<'a> {
@@ -141,6 +147,8 @@ pub(crate) struct RenderConfigBuilder<'a> {
     selected_muni: Option<&'a str>,
     /// Phase 2-A (2026-05-29): wage_mode (None → Auto デフォルト)
     wage_mode: Option<WageMode>,
+    /// 2026-07-10: 出力セクション選択集合 (None → variant 準拠 = 従来経路)
+    section_set: Option<SectionSet>,
 }
 
 impl<'a> RenderConfigBuilder<'a> {
@@ -245,6 +253,13 @@ impl<'a> RenderConfigBuilder<'a> {
         self
     }
 
+    /// 2026-07-10: 出力セクション選択集合 setter。
+    /// 未設定時は build() が `SectionSet::from_variant(variant)` (従来経路) を使う。
+    pub fn section_set(mut self, v: SectionSet) -> Self {
+        self.section_set = Some(v);
+        self
+    }
+
     /// `RenderConfig<'a>` を構築する。
     ///
     /// # Panics
@@ -270,6 +285,13 @@ impl<'a> RenderConfigBuilder<'a> {
         let empty_hw = EMPTY_HW_ENRICHMENT.get_or_init(HashMap::new);
         let empty_segments = EMPTY_SEGMENTS.get_or_init(RegionalCompanySegments::default);
 
+        // variant を先に解決 (section_set のデフォルト構築で参照するため)。
+        let variant = self.variant.unwrap_or(ReportVariant::Full);
+        // section_set 未設定時は variant 準拠 (従来経路、出力 byte 不変)。
+        let section_set = self
+            .section_set
+            .unwrap_or_else(|| SectionSet::from_variant(variant));
+
         RenderConfig {
             agg,
             seeker,
@@ -284,7 +306,7 @@ impl<'a> RenderConfigBuilder<'a> {
             industry_filter: self.industry_filter,
             hw_enrichment_map: self.hw_enrichment_map.unwrap_or(empty_hw),
             municipality_demographics: self.municipality_demographics.unwrap_or(&[]),
-            variant: self.variant.unwrap_or(ReportVariant::Full),
+            variant,
             theme: self.theme.unwrap_or(ReportTheme::Default),
             db: self.db,
             turso: self.turso,
@@ -293,6 +315,8 @@ impl<'a> RenderConfigBuilder<'a> {
             // Phase 2-A (2026-05-29): wage_mode デフォルトは Auto
             // (silent fallback ではなく明示的に Auto enum 値で表現)
             wage_mode: self.wage_mode.unwrap_or(WageMode::Auto),
+            // 2026-07-10: section_set デフォルトは variant 準拠 (上で解決済)
+            section_set,
         }
     }
 }

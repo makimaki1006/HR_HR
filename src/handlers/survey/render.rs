@@ -757,6 +757,50 @@ fn render_action_bar(session_id: &str) -> String {
                      HTMX で動的挿入された <script> は eval されないため、ここで定義すると
                      onclick 実行時に ReferenceError → static href (pref/muni 無し) に
                      フォールバック navigate されていた。 -->
+                <!-- 2026-07-10: セクション選択パネル (折りたたみ)。
+                     チェックした内容だけを詳細版レポートに載せる。applySectionPreset /
+                     buildSectionsReport は openVariantReport と同じく templates/dashboard_inline.html
+                     に window 登録済み (HTMX 挿入 <script> は eval されないため)。 -->
+                <details class="mt-3 rounded border border-slate-700 bg-slate-900/40" id="section-pick-panel">
+                    <summary class="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                        <span aria-hidden="true">📋</span> 出力する内容を選んでレポートを作成
+                        <span class="text-[10px] font-normal text-slate-400">（必要なページだけ選べます）</span>
+                    </summary>
+                    <div class="px-3 pb-3 pt-1">
+                        <div class="flex flex-wrap gap-1.5 mb-2" role="group" aria-label="よく使う組み合わせ">
+                            <button type="button" onclick="applySectionPreset('standard')"
+                                    class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                                    title="よく使う標準的なページ一式を選びます">標準セット</button>
+                            <button type="button" onclick="applySectionPreset('full')"
+                                    class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                                    title="すべてのページを選びます">詳細セット</button>
+                            <button type="button" onclick="applySectionPreset('minimal')"
+                                    class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                                    title="表紙・要約・出典だけの最小構成にします">最小 (要約のみ)</button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5" role="group" aria-label="出力するページ">
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="02" checked> 地域の基礎データ</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="03" checked> 給与の分布</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="04" checked> 採用市場の需給</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="05" checked> 地域の企業構造</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="06" checked> 働き手の年齢・人口構成</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="07" checked> 最低賃金・暮らしのデータ</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="075" checked> 年間休日×給与の詳細</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="076" checked> 人気求人の傾向 <span class="text-[10px] text-slate-500">(Indeed SPのみ)</span></label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="09" checked> 採用マーケット分析</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="10" checked> 採用環境の詳細分析 <span class="text-[10px] text-slate-500">(働き手の将来・給与相場・転職動向)</span></label>
+                        </div>
+                        <div class="mt-3">
+                            <button type="button" onclick="return buildSectionsReport(event, '{sid}')"
+                                    class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                                    aria-label="選んだ内容でレポートを新しいタブで開く"
+                                    title="チェックした内容だけを詳細版レポートに載せて新しいタブで開きます">
+                                <span class="text-base" aria-hidden="true">🧾</span> 選んだ内容でレポートを作成
+                            </button>
+                        </div>
+                        <p class="text-[11px] text-slate-400 mt-2">表紙・要約・出典は常に含まれます。</p>
+                    </div>
+                </details>
             </div>
             <!-- セカンダリ動線: ボタングループ化（HTMLダウンロード + 別CSV） -->
             <div class="flex flex-wrap gap-2" role="group" aria-label="その他の出力">
@@ -1780,6 +1824,67 @@ mod variant_ui_tests {
         assert!(
             html.contains("働き手の将来・給与相場・転職動向の分析を追加した版"),
             "extended button sub-label should describe what is added"
+        );
+    }
+
+    // ---- セクション選択パネル (2026-07-10) ----
+
+    #[test]
+    fn action_bar_section_picker_has_10_checkboxes() {
+        // 選択可能な 10 セクション分のチェックボックス (class=section-pick) が出る。
+        let html = render_action_bar("sid");
+        let count = html.matches("class=\"section-pick").count();
+        assert_eq!(
+            count, 10,
+            "section picker should expose exactly 10 checkboxes (found {})",
+            count
+        );
+        // 各コードの value が存在する
+        for code in ["02", "03", "04", "05", "06", "07", "075", "076", "09", "10"] {
+            assert!(
+                html.contains(&format!("value=\"{}\"", code)),
+                "checkbox for section {} missing",
+                code
+            );
+        }
+    }
+
+    #[test]
+    fn action_bar_section_picker_has_three_shortcuts() {
+        // 標準セット / 詳細セット / 最小 の 3 ショートカット。
+        let html = render_action_bar("sid");
+        assert!(html.contains("標準セット"), "standard preset missing");
+        assert!(html.contains("詳細セット"), "full preset missing");
+        assert!(html.contains("最小 (要約のみ)"), "minimal preset missing");
+        assert!(
+            html.contains("applySectionPreset('standard')")
+                && html.contains("applySectionPreset('full')")
+                && html.contains("applySectionPreset('minimal')"),
+            "preset buttons should call applySectionPreset"
+        );
+    }
+
+    #[test]
+    fn action_bar_section_picker_build_button_calls_js() {
+        // 「選んだ内容でレポートを作成」ボタンは buildSectionsReport(event, sid) を呼ぶ。
+        let html = render_action_bar("sid_xyz");
+        assert!(
+            html.contains("選んだ内容でレポートを作成"),
+            "build button label missing"
+        );
+        assert!(
+            html.contains("buildSectionsReport(event, 'sid_xyz')"),
+            "build button should call buildSectionsReport with session id"
+        );
+        // 常時含まれる注記
+        assert!(
+            html.contains("表紙・要約・出典は常に含まれます"),
+            "always-included note missing"
+        );
+        // パネル見出し
+        assert!(
+            html.contains("出力する内容を選んでレポートを作成"),
+            "collapsible panel heading missing"
         );
     }
 }
