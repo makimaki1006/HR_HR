@@ -30,6 +30,7 @@
 //! - LLM は文章化のみ。数値計算・集計・閾値判定はコード側で確定 (§18)
 //! - DB読み取りのみ (書き込みなし)
 
+pub mod action_memo;
 pub mod ai;
 pub mod axes;
 pub mod brief_html;
@@ -40,6 +41,7 @@ pub mod evidence_pack;
 pub mod handlers;
 pub mod hearing;
 pub mod hypotheses;
+pub mod hypothesis_review;
 pub mod input;
 pub mod questions;
 pub mod signals;
@@ -51,6 +53,7 @@ mod golden_test;
 mod hw_audit_test;
 
 pub use handlers::{
-    consult_brief, consult_evidence_pack_json, consult_hearing_form, consult_hearing_save,
-    consult_hearing_sheet,
+    consult_action_memo, consult_brief, consult_evidence_pack_json, consult_hearing_form,
+    consult_hearing_save, consult_hearing_sheet, consult_hypothesis_review_form,
+    consult_hypothesis_review_save,
 };

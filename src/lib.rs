@@ -381,6 +381,16 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(handlers::consult::consult_hearing_form)
                 .post(handlers::consult::consult_hearing_save),
         )
+        // フェーズD (2026-07-11): ヒアリング後の仮説更新 + 個社別アクションメモ
+        .route(
+            "/consult/hypothesis_review",
+            get(handlers::consult::consult_hypothesis_review_form)
+                .post(handlers::consult::consult_hypothesis_review_save),
+        )
+        .route(
+            "/consult/action_memo",
+            get(handlers::consult::consult_action_memo),
+        )
         .route("/tab/company", get(handlers::company::tab_company))
         .route(
             "/api/company/search",
