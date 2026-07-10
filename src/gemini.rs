@@ -109,32 +109,53 @@ impl GeminiClient {
                 }
             };
 
-            let resp = match client.post(&url).json(&body).send() {
-                Ok(r) => r,
-                Err(e) => {
-                    // e には URL(=キー) が含まれ得るため、キーを除いた種別のみログ出力。
+            // 429 (レート制限、無料枠は 15 リクエスト/分) は 1 分でリセットされるため、
+            // Retry-After (無ければ 30 秒、上限 45 秒) 待って 1 回だけ再試行する。
+            // それ以外の失敗は従来どおり即 None (呼び出し側が graceful skip)。
+            for attempt in 0..2 {
+                let resp = match client.post(&url).json(&body).send() {
+                    Ok(r) => r,
+                    Err(e) => {
+                        // e には URL(=キー) が含まれ得るため、キーを除いた種別のみログ出力。
+                        tracing::warn!(
+                            "Gemini: request failed (timeout={}, connect={})",
+                            e.is_timeout(),
+                            e.is_connect()
+                        );
+                        return None;
+                    }
+                };
+
+                let status = resp.status();
+                if status.as_u16() == 429 && attempt == 0 {
+                    let wait_secs = resp
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(30)
+                        .min(45);
                     tracing::warn!(
-                        "Gemini: request failed (timeout={}, connect={})",
-                        e.is_timeout(),
-                        e.is_connect()
+                        "Gemini: rate limited (429), retrying once after {}s",
+                        wait_secs
                     );
+                    std::thread::sleep(Duration::from_secs(wait_secs));
+                    continue;
+                }
+                if !status.is_success() {
+                    tracing::warn!("Gemini: non-success status {}", status.as_u16());
                     return None;
                 }
-            };
 
-            let status = resp.status();
-            if !status.is_success() {
-                tracing::warn!("Gemini: non-success status {}", status.as_u16());
-                return None;
+                return match resp.text() {
+                    Ok(t) => Some(t),
+                    Err(_) => {
+                        tracing::warn!("Gemini: failed to read response body");
+                        None
+                    }
+                };
             }
-
-            match resp.text() {
-                Ok(t) => Some(t),
-                Err(_) => {
-                    tracing::warn!("Gemini: failed to read response body");
-                    None
-                }
-            }
+            None
         })
         .await;
 
