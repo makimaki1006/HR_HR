@@ -175,15 +175,62 @@ async fn build_consult_input(
     }
 
     let fetched = tokio::task::spawn_blocking(move || {
+        use crate::handlers::analysis::fetch as af;
         use crate::handlers::trend::fetch as tf;
         let mut out = FetchedStats {
             companies: companies_for_thread,
             ..Default::default()
         };
 
-        if let Some(t) = turso.as_ref() {
+        // --- 公的統計 + 通勤OD の並列フェッチ ---
+        // 2026-07-10: 従来は wage → switcher → future_workforce → commute を直列取得していた。
+        //   互いに独立した Turso 往復のため std::thread::scope で並列化する。
+        //   パース(集計)と data_sources の push は取得後に従来と同じ順序で直列実行し、
+        //   出力の並び順を変えない。
+        let (wage_rows, switcher_rows, wf_rows, inflow, outflow) = std::thread::scope(|s| {
+            let h_wage = s.spawn(|| {
+                turso
+                    .as_ref()
+                    .map(|t| tf::fetch_cross_wage_public(t, &pref2))
+                    .unwrap_or_default()
+            });
+            let h_switcher = s.spawn(|| {
+                turso
+                    .as_ref()
+                    .map(|t| tf::fetch_cross_switcher_supply(t, &pref2))
+                    .unwrap_or_default()
+            });
+            let h_wf = s.spawn(|| {
+                if muni2.is_empty() {
+                    Vec::new()
+                } else {
+                    turso
+                        .as_ref()
+                        .map(|t| tf::fetch_cross_future_workforce(t, &pref2))
+                        .unwrap_or_default()
+                }
+            });
+            let h_commute = s.spawn(|| {
+                if muni2.is_empty() {
+                    (Vec::new(), Vec::new())
+                } else if let Some(db) = hw_db.as_ref() {
+                    (
+                        af::fetch_commute_inflow(db, turso.as_ref(), &pref2, &muni2),
+                        af::fetch_commute_outflow(db, turso.as_ref(), &pref2, &muni2),
+                    )
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            });
+            let wage = h_wage.join().unwrap_or_default();
+            let switcher = h_switcher.join().unwrap_or_default();
+            let wf = h_wf.join().unwrap_or_default();
+            let (inflow, outflow) = h_commute.join().unwrap_or_default();
+            (wage, switcher, wf, inflow, outflow)
+        });
+
+        if turso.is_some() {
             // 県の所定内給与・最低賃金 (毎月勤労統計 地方調査 / 地域別最低賃金)
-            let wage_rows = tf::fetch_cross_wage_public(t, &pref2);
             if let Some(latest) = wage_rows.last() {
                 out.scheduled_earnings_latest = get_f64_opt(latest, "scheduled_earnings");
                 out.min_wage_hourly = get_f64_opt(latest, "min_wage_hourly");
@@ -193,7 +240,6 @@ async fn build_consult_input(
             }
 
             // 転職希望率・有効求人倍率 (就業構造基本調査 / 一般職業紹介状況)
-            let switcher_rows = tf::fetch_cross_switcher_supply(t, &pref2);
             for row in &switcher_rows {
                 let code = get_str(row, "region_code");
                 let name = get_str(row, "region_name");
@@ -212,7 +258,6 @@ async fn build_consult_input(
 
             // 働き手の将来増減率 (将来人口推計、市区町村粒度)
             if !muni2.is_empty() {
-                let wf_rows = tf::fetch_cross_future_workforce(t, &pref2);
                 if let Some(row) = wf_rows.iter().find(|r| get_str(r, "municipality") == muni2) {
                     out.wa_decline_rate_muni = get_f64_opt(row, "wa_decline_rate");
                     out.sources
@@ -222,58 +267,72 @@ async fn build_consult_input(
         }
 
         // 通勤OD (国勢調査。市区町村が特定できた場合のみ)
-        if let Some(db) = hw_db.as_ref() {
-            if !muni2.is_empty() {
-                use crate::handlers::analysis::fetch as af;
-                let inflow = af::fetch_commute_inflow(db, turso.as_ref(), &pref2, &muni2);
-                let outflow = af::fetch_commute_outflow(db, turso.as_ref(), &pref2, &muni2);
-                if !inflow.is_empty() || !outflow.is_empty() {
-                    out.commute_inflow_total = Some(inflow.iter().map(|f| f.total_commuters).sum());
-                    out.commute_outflow_total =
-                        Some(outflow.iter().map(|f| f.total_commuters).sum());
-                    out.commute_inflow_top3 = inflow
-                        .iter()
-                        .take(3)
-                        .map(|f| {
-                            (
-                                f.partner_pref.clone(),
-                                f.partner_muni.clone(),
-                                f.total_commuters,
-                            )
-                        })
-                        .collect();
-                    out.sources.push("国勢調査 通勤・通学OD".to_string());
-                }
-            }
+        if !muni2.is_empty() && (!inflow.is_empty() || !outflow.is_empty()) {
+            out.commute_inflow_total = Some(inflow.iter().map(|f| f.total_commuters).sum());
+            out.commute_outflow_total = Some(outflow.iter().map(|f| f.total_commuters).sum());
+            out.commute_inflow_top3 = inflow
+                .iter()
+                .take(3)
+                .map(|f| {
+                    (
+                        f.partner_pref.clone(),
+                        f.partner_muni.clone(),
+                        f.total_commuters,
+                    )
+                })
+                .collect();
+            out.sources.push("国勢調査 通勤・通学OD".to_string());
         }
 
-        // 企業データベース名寄せ (掲載上位企業のみ、読み取り専用)
+        // 企業データベース名寄せ (掲載上位企業、各社独立に読み取り専用で並列化)
+        // 2026-07-10: 従来は 5 社を直列で search+detail していた。各社は独立した企業DB往復のため
+        //   std::thread::scope で並列化する。掲載順 (into_iter → join 順) を維持し、
+        //   any_matched / sources push も従来と同一結果になる。
         if let Some(sn) = salesnow.as_ref() {
             use crate::handlers::company::fetch::{fetch_company_detail, search_companies};
-            let mut any_matched = false;
-            for c in out.companies.iter_mut() {
-                let normalized_target = normalize_company_name(&c.name);
-                if normalized_target.chars().count() < 2 {
-                    continue;
-                }
-                let candidates = search_companies(sn, &normalized_target);
-                let matched = candidates
-                    .iter()
-                    .find(|row| {
-                        normalize_company_name(&get_str(row, "company_name")) == normalized_target
+            let companies = std::mem::take(&mut out.companies);
+            let results: Vec<(CompanyObservation, bool)> = std::thread::scope(|s| {
+                // NOTE: handles の collect は必須。全社を spawn してから join しないと
+                //   lazy iterator が spawn→join を 1 社ずつ交互に行い直列化してしまう。
+                #[allow(clippy::needless_collect)]
+                let handles: Vec<_> = companies
+                    .into_iter()
+                    .map(|mut c| {
+                        s.spawn(move || {
+                            let normalized_target = normalize_company_name(&c.name);
+                            if normalized_target.chars().count() < 2 {
+                                return (c, false);
+                            }
+                            let candidates = search_companies(sn, &normalized_target);
+                            let matched = candidates
+                                .iter()
+                                .find(|row| {
+                                    normalize_company_name(&get_str(row, "company_name"))
+                                        == normalized_target
+                                })
+                                .map(|row| get_str(row, "corporate_number"))
+                                .filter(|cn| !cn.is_empty());
+                            let mut matched_any = false;
+                            if let Some(corporate_number) = matched {
+                                if let Some(detail) = fetch_company_detail(sn, &corporate_number) {
+                                    c.employee_count = get_f64_opt(&detail, "employee_count")
+                                        .map(|v| v as i64)
+                                        .filter(|v| *v > 0);
+                                    c.employee_delta_1y = get_f64_opt(&detail, "employee_delta_1y");
+                                    matched_any = true;
+                                }
+                            }
+                            (c, matched_any)
+                        })
                     })
-                    .map(|row| get_str(row, "corporate_number"))
-                    .filter(|cn| !cn.is_empty());
-                if let Some(corporate_number) = matched {
-                    if let Some(detail) = fetch_company_detail(sn, &corporate_number) {
-                        c.employee_count = get_f64_opt(&detail, "employee_count")
-                            .map(|v| v as i64)
-                            .filter(|v| *v > 0);
-                        c.employee_delta_1y = get_f64_opt(&detail, "employee_delta_1y");
-                        any_matched = true;
-                    }
-                }
-            }
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().expect("consult company match thread panicked"))
+                    .collect()
+            });
+            let any_matched = results.iter().any(|(_, m)| *m);
+            out.companies = results.into_iter().map(|(c, _)| c).collect();
             if any_matched {
                 out.sources.push("企業データベース".to_string());
             }
