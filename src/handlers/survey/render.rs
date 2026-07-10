@@ -886,6 +886,16 @@ fn render_consult_prep_panel(session_id: &str) -> String {
                         title="商談準備レポートの根拠データ (証拠・シグナル・仮説) をJSON形式でダウンロードします">
                     <span class="text-base" aria-hidden="true">🗂</span> 証拠データJSON
                 </button>
+                <a href="/consult/hearing_sheet?session_id={sid}" target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        title="面談で確認する項目を並べた社内用のヒアリングシート (印刷用) を新しいタブで開きます">
+                    <span class="text-base" aria-hidden="true">🖨</span> ヒアリングシート (印刷用)
+                </a>
+                <a href="/consult/hearing?session_id={sid}" target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        title="面談で確認した採用状況を入力・保存します (社内用)">
+                    <span class="text-base" aria-hidden="true">✍</span> ヒアリング入力
+                </a>
             </div>
         </section>"##,
         sid = session_id
