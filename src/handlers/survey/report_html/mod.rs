@@ -238,6 +238,92 @@ impl ReportVariant {
     }
 }
 
+/// レポートに出力するセクションの選択集合 (2026-07-10 追加)。
+///
+/// # 背景
+/// 従来レポートは `variant` (標準版 / 詳細版) の 2 択で全セクションを一括出力していた。
+/// ユーザー要望「機能一覧から出力する内容を選びたい」に対応し、URL クエリ
+/// `?sections=02,03,09` の形式で表示セクションを個別選択できるようにする。
+///
+/// # 互換要件 (最重要)
+/// `sections` パラメータが **未指定 (None)** の場合は、従来どおり `variant` 準拠で
+/// 全セクションを出力する。この経路の出力は 1 バイトも変わらないこと。
+///
+/// # コード体系
+/// 任意選択できるのは以下の 10 コード (掲載順):
+/// `"02","03","04","05","06","07","075","076","09","10"`。
+/// 表紙 / 目次 / 01 (Executive Summary) / 08 (注記・出典) は常時表示 (選択不可)。
+/// 不明なコードは無視する。空文字列は None (未指定) 扱い。
+#[derive(Debug, Clone)]
+pub struct SectionSet {
+    /// `None` → variant 準拠 (従来経路、byte 不変)。
+    /// `Some(set)` → 明示選択されたコード集合 (空集合 = 最小構成: 表紙+要約+注記のみ)。
+    explicit: Option<std::collections::BTreeSet<String>>,
+    /// フォールバック時の variant (explicit=None のとき 09/10 の gate に使用)。
+    variant: ReportVariant,
+}
+
+impl SectionSet {
+    /// 任意選択できるセクションコード一覧 (掲載順)。
+    /// UI のチェックボックス生成・TOC 掲載順の SSoT。
+    pub const OPTIONAL_CODES: &'static [&'static str] =
+        &["02", "03", "04", "05", "06", "07", "075", "076", "09", "10"];
+
+    /// クエリ文字列と variant から SectionSet を構築。
+    ///
+    /// - `sections=None` または空文字列 → variant 準拠 (従来経路、出力不変)。
+    /// - `sections=Some("02,03")` → 指定コードのみ。不明コードは無視。
+    /// - `sections=Some("none")` 等 (有効コードを 1 つも含まない非空文字列) →
+    ///   空集合 (最小構成: 表紙+要約+注記のみ)。UI の「最小」ショートカット用。
+    pub fn from_query(sections: Option<&str>, variant: ReportVariant) -> Self {
+        let explicit = match sections {
+            Some(s) if !s.trim().is_empty() => {
+                let set: std::collections::BTreeSet<String> = s
+                    .split(',')
+                    .map(|c| c.trim())
+                    .filter(|c| Self::OPTIONAL_CODES.contains(c))
+                    .map(|c| c.to_string())
+                    .collect();
+                Some(set)
+            }
+            _ => None,
+        };
+        Self { explicit, variant }
+    }
+
+    /// variant 準拠 (sections 未指定) の SectionSet を返す。
+    ///
+    /// 既存経路 (VRT fixture / 各ラッパ) が呼ぶ。`shows` は variant gate に従うため
+    /// 出力は従来どおり (byte 不変)。
+    pub fn from_variant(variant: ReportVariant) -> Self {
+        Self {
+            explicit: None,
+            variant,
+        }
+    }
+
+    /// 明示選択されているか (= sections パラメータ指定あり)。
+    pub fn is_explicit(&self) -> bool {
+        self.explicit.is_some()
+    }
+
+    /// 指定コードのセクションを表示するか。
+    ///
+    /// `explicit=None` (従来経路) では 02-07/075/076 は常時 true (各 render が
+    /// データ無し時に self-skip)、09/10 は variant gate。
+    /// `explicit=Some(set)` では set に含まれるコードのみ true (09/10 は variant 無関係)。
+    pub fn shows(&self, code: &str) -> bool {
+        match &self.explicit {
+            Some(set) => set.contains(code),
+            None => match code {
+                "09" => self.variant.show_market_intelligence_sections(),
+                "10" => self.variant.show_extended_sections(),
+                _ => true,
+            },
+        }
+    }
+}
+
 /// テーマ別 CSS を生成 (Round 24 Push 2: navy 一本化)
 ///
 /// 旧 v8/v7a テーマは Round 24 で廃止。常に default CSS + navy CSS を出力。
@@ -601,6 +687,10 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
     selected_pref: &str,
     selected_muni: &str,
 ) -> String {
+    // 2026-07-10: 本ラッパは section_set を受け取らない (byte 不変・従来経路)。
+    //   builder のデフォルトで `SectionSet::from_variant(variant)` が入る。
+    //   `?sections=...` を反映したい handler は builder を直接使い `.section_set(..)` を渡す
+    //   (survey_report_html_with_sections 参照)。
     let cfg = RenderConfig::builder()
         .agg(agg)
         .seeker(seeker)
@@ -621,6 +711,59 @@ pub(crate) fn render_survey_report_page_with_variant_v3_themed(
         .turso(turso)
         .selected_pref(selected_pref)
         .selected_muni(selected_muni)
+        .build();
+    render_survey_report_page_with_config(&cfg)
+}
+
+/// 2026-07-10: セクション選択対応版 (`?sections=...` を反映する handler 用)。
+///
+/// `render_survey_report_page_with_variant_v3_themed` と同一だが、末尾に
+/// `section_set: SectionSet` を追加で受け取り builder に渡す。既存ラッパは
+/// 引数を増やさず (12+ の既存テスト caller に影響しない) 残置し、本関数を新設する。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_survey_report_page_with_sections(
+    agg: &SurveyAggregation,
+    seeker: &JobSeekerAnalysis,
+    by_company: &[CompanyAgg],
+    by_emp_type_salary: &[EmpTypeSalary],
+    salary_min_values: &[i64],
+    salary_max_values: &[i64],
+    hw_context: Option<&InsightContext>,
+    salesnow_companies: &[NearbyCompany],
+    salesnow_segments: &super::super::company::fetch::RegionalCompanySegments,
+    salesnow_segments_industry: &super::super::company::fetch::RegionalCompanySegments,
+    industry_filter: Option<&str>,
+    hw_enrichment_map: &std::collections::HashMap<String, HwAreaEnrichment>,
+    municipality_demographics: &[super::granularity::MunicipalityDemographics],
+    variant: ReportVariant,
+    theme: ReportTheme,
+    db: Option<&crate::db::local_sqlite::LocalDb>,
+    turso: Option<&crate::db::turso_http::TursoDb>,
+    selected_pref: &str,
+    selected_muni: &str,
+    section_set: SectionSet,
+) -> String {
+    let cfg = RenderConfig::builder()
+        .agg(agg)
+        .seeker(seeker)
+        .by_company(by_company)
+        .by_emp_type_salary(by_emp_type_salary)
+        .salary_min_values(salary_min_values)
+        .salary_max_values(salary_max_values)
+        .hw_context(hw_context)
+        .salesnow_companies(salesnow_companies)
+        .salesnow_segments(salesnow_segments)
+        .salesnow_segments_industry(salesnow_segments_industry)
+        .industry_filter(industry_filter)
+        .hw_enrichment_map(hw_enrichment_map)
+        .municipality_demographics(municipality_demographics)
+        .variant(variant)
+        .theme(theme)
+        .db(db)
+        .turso(turso)
+        .selected_pref(selected_pref)
+        .selected_muni(selected_muni)
+        .section_set(section_set)
         .build();
     render_survey_report_page_with_config(&cfg)
 }
@@ -788,7 +931,8 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             &today_short,
             &target_region,
         );
-        navy_report::render_navy_toc(&mut html, cfg.variant);
+        // 2026-07-10: 目次は SectionSet 連動。sections 未指定時は variant 準拠 (出力不変)。
+        navy_report::render_navy_toc(&mut html, cfg.variant, &cfg.section_set);
         navy_report::render_navy_executive(
             &mut html,
             cfg.agg,
@@ -804,63 +948,82 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     // を要求する場合は別 commit で更新する。
     // Round 24 Push 3 Phase 2 (2026-05-13): Section 03 (給与統計) は navy 本実装。
     // Section 02 / 04-08 は placeholder のまま、Phase 3-4 で順次差し替え。
-    navy_report::render_navy_section_02_region(
-        &mut html,
-        cfg.agg,
-        cfg.hw_context,
-        cfg.hw_enrichment_map,
-        cfg.variant,
-        &target_region,
-    );
-    navy_report::render_navy_section_03_salary(
-        &mut html,
-        cfg.agg,
-        cfg.salary_min_values,
-        cfg.salary_max_values,
-        // P2-1 (2026-05-28): 給与レンジ 散布図 (図 3-6) で
-        // ctx.salary_scatter_pairs を参照するため hw_context を渡す。
-        cfg.hw_context,
-    );
-    navy_report::render_navy_section_04_market_tightness(
-        &mut html,
-        cfg.hw_context,
-        cfg.variant,
-        &target_region,
-    );
-    navy_report::render_navy_section_05_companies(
-        &mut html,
-        cfg.hw_context,
-        cfg.by_company,
-        cfg.salesnow_segments,
-        cfg.salesnow_segments_industry,
-        cfg.industry_filter,
-        cfg.variant,
-        &target_region,
-    );
-    navy_report::render_navy_section_06_demographics(
-        &mut html,
-        cfg.agg,
-        cfg.hw_context,
-        &target_region,
-    );
-    navy_report::render_navy_section_07_lifestyle(
-        &mut html,
-        cfg.hw_context,
-        &target_region,
-        cfg.agg,
-    );
+    // 2026-07-10: 各セクションは SectionSet で gate。sections 未指定 (from_variant)
+    //   では shows("02".."07"/"075"/"076") は常に true のため、従来の無条件呼出と
+    //   完全に等価 (出力 byte 不変)。sections 指定時は該当コードのみ描画する。
+    if cfg.section_set.shows("02") {
+        navy_report::render_navy_section_02_region(
+            &mut html,
+            cfg.agg,
+            cfg.hw_context,
+            cfg.hw_enrichment_map,
+            cfg.variant,
+            &target_region,
+        );
+    }
+    if cfg.section_set.shows("03") {
+        navy_report::render_navy_section_03_salary(
+            &mut html,
+            cfg.agg,
+            cfg.salary_min_values,
+            cfg.salary_max_values,
+            // P2-1 (2026-05-28): 給与レンジ 散布図 (図 3-6) で
+            // ctx.salary_scatter_pairs を参照するため hw_context を渡す。
+            cfg.hw_context,
+        );
+    }
+    if cfg.section_set.shows("04") {
+        navy_report::render_navy_section_04_market_tightness(
+            &mut html,
+            cfg.hw_context,
+            cfg.variant,
+            &target_region,
+        );
+    }
+    if cfg.section_set.shows("05") {
+        navy_report::render_navy_section_05_companies(
+            &mut html,
+            cfg.hw_context,
+            cfg.by_company,
+            cfg.salesnow_segments,
+            cfg.salesnow_segments_industry,
+            cfg.industry_filter,
+            cfg.variant,
+            &target_region,
+        );
+    }
+    if cfg.section_set.shows("06") {
+        navy_report::render_navy_section_06_demographics(
+            &mut html,
+            cfg.agg,
+            cfg.hw_context,
+            &target_region,
+        );
+    }
+    if cfg.section_set.shows("07") {
+        navy_report::render_navy_section_07_lifestyle(
+            &mut html,
+            cfg.hw_context,
+            &target_region,
+            cfg.agg,
+        );
+    }
     // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
     //   Section 02/04/06/07 に統合。
     // 2026-06-24: 新 Section 07.5「求人ボックス 年間休日 × 給与 詳細」を再導入。
     //   求人ボックス CSV の description から年間休日を抽出した個別求人一覧 +
     //   カテゴリ分布 + 給与帯別 平均年間休日 を表示する。
     //   Indeed CSV や年間休日抽出ゼロの場合は自動スキップ (HTML 出力なし)。
-    navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
+    if cfg.section_set.shows("075") {
+        navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
+    }
     // 2026-06-30: 新 Section 07.6「人気度シグナル」を Indeed (SP) 用に追加。
     //   Indeed (SP) CSV の `css-u74ql7` 列から抽出した「人気」「超人気」タグの
     //   件数 / 比率 / 月給・年間休日 中央値比較を表示。
     //   人気タグが 1 件もなければ (Indeed SP 以外のソース) 自動スキップ (HTML 出力なし)。
-    navy_report::render_navy_section_popularity(&mut html, cfg.agg);
+    if cfg.section_set.shows("076") {
+        navy_report::render_navy_section_popularity(&mut html, cfg.agg);
+    }
     // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を Section 08 直前に挿入。
     //   MI variant のときだけ 6 サブセクション (9-A〜9-F) を追加表示する。
     //   Full / Public variant では関数呼出自体をスキップ → HTML に section タグも出ない。
@@ -868,7 +1031,10 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   2026-07-09: Extended (詳細版) も MI と同じ Section 09 を表示するため、
     //   gate を `show_market_intelligence_sections()` (MI | Extended で true) に変更。
     //   Full / Public では従来どおり false のため出力は 1 バイトも変わらない。
-    if cfg.variant.show_market_intelligence_sections() {
+    //   2026-07-10: gate を SectionSet.shows("09") に変更。sections 未指定時は
+    //   variant.show_market_intelligence_sections() と等価 (from_variant 経由) のため
+    //   Full/Public での出力は不変。sections 指定時は variant 無関係に 09 を出せる。
+    if cfg.section_set.shows("09") {
         navy_report::render_navy_section_09_market_intelligence(
             &mut html,
             cfg.hw_context,
@@ -880,7 +1046,8 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     // 2026-07-09: Section 10 (詳細版 追加 4 図) は Extended variant のときだけ Section 09 の後ろに配置。
     //   介護・HW を一切使わず、公的統計 × 今回の求人データ (cross_* テーブル) のみで構成する。
     //   cross_* が未投入 (空) の場合は関数内で graceful skip し、HTML には何も出さない。
-    if cfg.variant.show_extended_sections() {
+    //   2026-07-10: gate を SectionSet.shows("10") に変更 (09 と同様に variant 準拠を維持)。
+    if cfg.section_set.shows("10") {
         navy_report::render_navy_section_10_extended(
             &mut html,
             cfg.hw_context,
@@ -909,6 +1076,141 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
 
     html.push_str("</body>\n</html>");
     html
+}
+
+#[cfg(test)]
+mod section_set_tests {
+    use super::*;
+
+    // ---- SectionSet::from_query ----
+
+    #[test]
+    fn none_query_follows_variant_defaults() {
+        // sections=None → variant 準拠。02-07/075/076 常時 true、09/10 は variant gate。
+        let ss_full = SectionSet::from_query(None, ReportVariant::Full);
+        assert!(!ss_full.is_explicit(), "None は explicit ではない");
+        for c in ["02", "03", "04", "05", "06", "07", "075", "076"] {
+            assert!(ss_full.shows(c), "Full/None は {} を出す", c);
+        }
+        // Full: 09/10 なし
+        assert!(!ss_full.shows("09"), "Full は 09 を出さない");
+        assert!(!ss_full.shows("10"), "Full は 10 を出さない");
+
+        // MarketIntelligence: 09 あり / 10 なし
+        let ss_mi = SectionSet::from_query(None, ReportVariant::MarketIntelligence);
+        assert!(ss_mi.shows("09"), "MI/None は 09 を出す");
+        assert!(!ss_mi.shows("10"), "MI/None は 10 を出さない");
+
+        // Extended: 09 + 10 あり
+        let ss_ext = SectionSet::from_query(None, ReportVariant::Extended);
+        assert!(
+            ss_ext.shows("09") && ss_ext.shows("10"),
+            "Extended/None は 09+10"
+        );
+    }
+
+    #[test]
+    fn empty_string_is_treated_as_none() {
+        // 空文字列 / 空白のみ → None 扱い (variant 準拠)。
+        for s in ["", "   "] {
+            let ss = SectionSet::from_query(Some(s), ReportVariant::Extended);
+            assert!(!ss.is_explicit(), "空文字列 {:?} は None 扱い", s);
+            // variant=Extended 準拠なので 10 も出る
+            assert!(ss.shows("10"), "空文字列は variant 準拠 (Extended→10)");
+        }
+    }
+
+    #[test]
+    fn explicit_codes_show_only_selected() {
+        // 指定コードのみ true。他は false (variant 無関係)。
+        let ss = SectionSet::from_query(Some("02,03"), ReportVariant::Extended);
+        assert!(ss.is_explicit());
+        assert!(ss.shows("02") && ss.shows("03"));
+        for c in ["04", "05", "06", "07", "075", "076", "09", "10"] {
+            assert!(!ss.shows(c), "非選択 {} は false", c);
+        }
+    }
+
+    #[test]
+    fn unknown_codes_ignored_but_still_explicit() {
+        // 不明コードは無視。有効コードがあれば explicit のまま。
+        let ss = SectionSet::from_query(Some("02, 99, xx, 076"), ReportVariant::Full);
+        assert!(ss.is_explicit());
+        assert!(ss.shows("02") && ss.shows("076"));
+        assert!(!ss.shows("99") && !ss.shows("xx"));
+        assert!(!ss.shows("03"));
+    }
+
+    #[test]
+    fn all_unknown_codes_yield_minimal_set() {
+        // 有効コードを含まない非空文字列 → explicit 空集合 (最小構成)。
+        let ss = SectionSet::from_query(Some("none"), ReportVariant::Extended);
+        assert!(ss.is_explicit(), "非空文字列は explicit");
+        for c in SectionSet::OPTIONAL_CODES {
+            assert!(!ss.shows(c), "最小構成では {} は出さない", c);
+        }
+    }
+
+    #[test]
+    fn explicit_09_10_ignore_variant_gate() {
+        // 明示指定なら variant=Public でも 09/10 を出せる。
+        let ss = SectionSet::from_query(Some("09,10"), ReportVariant::Public);
+        assert!(ss.shows("09") && ss.shows("10"));
+        assert!(!ss.shows("02"));
+    }
+
+    // ---- レンダリング gate ----
+
+    #[test]
+    fn render_gate_sections_02_only() {
+        // sections=02 のみ → §02 見出しは出る、§03/§09 は出ない。01/08 は常時。
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let ss = SectionSet::from_query(Some("02"), ReportVariant::MarketIntelligence);
+        let cfg = RenderConfig::builder()
+            .agg(&agg)
+            .seeker(&seeker)
+            .variant(ReportVariant::MarketIntelligence)
+            .section_set(ss)
+            .build();
+        let html = render_survey_report_page_with_config(&cfg);
+        // 常時セクション
+        assert!(html.contains("SECTION 01"), "01 Executive は常時表示");
+        assert!(html.contains("SECTION 08"), "08 注記は常時表示");
+        // 選択セクション
+        assert!(html.contains("SECTION 02"), "02 は選択済で出る");
+        // 非選択セクション
+        assert!(!html.contains("SECTION 03"), "03 は非選択で出ない");
+        assert!(!html.contains("SECTION 04"), "04 は非選択で出ない");
+        // 09 は MI variant でも非選択なら出ない
+        assert!(
+            !html.contains("SECTION 09"),
+            "09 は非選択で出ない (変種 MI でも)"
+        );
+    }
+
+    #[test]
+    fn render_gate_explicit_selection_restricts_standard_sections() {
+        // sections=03 明示 → §03 は出る、§02 は出ない (明示集合が variant より優先)。
+        //   (09/10 は空 ctx で self-skip するため render レベルで検証不能。
+        //    「明示指定が variant 無関係に 09/10 を出せる」ことは SectionSet 単体テストで担保。)
+        let agg = SurveyAggregation::default();
+        let seeker = JobSeekerAnalysis::default();
+        let ss = SectionSet::from_query(Some("03"), ReportVariant::Public);
+        let cfg = RenderConfig::builder()
+            .agg(&agg)
+            .seeker(&seeker)
+            .variant(ReportVariant::Public)
+            .section_set(ss)
+            .build();
+        let html = render_survey_report_page_with_config(&cfg);
+        assert!(html.contains("SECTION 03"), "03 は選択済で出る");
+        assert!(!html.contains("SECTION 02"), "02 は非選択で出ない");
+        assert!(
+            html.contains("SECTION 01") && html.contains("SECTION 08"),
+            "01/08 常時"
+        );
+    }
 }
 
 #[cfg(test)]

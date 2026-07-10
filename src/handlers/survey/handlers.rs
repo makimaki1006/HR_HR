@@ -373,6 +373,11 @@ pub struct IntegrateQuery {
     /// 未指定時は agg.is_hourly に応じて Section 03/05/06 でモード判定 (自動)。
     /// 明示時はその値で SQL fetcher と Section 描画を制御する。
     pub wage_mode: Option<String>,
+    /// 2026-07-10: 出力セクション選択 (?sections=02,03,09 の形式)。
+    /// - 未指定 / 空文字列: 従来どおり variant 準拠で全セクション出力 (出力不変)。
+    /// - 指定時: カンマ区切りコードのセクションのみ出力 (表紙/目次/01/08 は常時)。
+    ///   有効コード: 02,03,04,05,06,07,075,076,09,10。不明コードは無視。
+    pub sections: Option<String>,
 }
 
 /// 統合レポート生成
@@ -941,7 +946,10 @@ pub async fn survey_report_html(
     let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
     // 2026-05-01: theme 切替 (?theme=v8|v7a|default)
     let theme = super::report_html::ReportTheme::from_query(query.theme.as_deref());
-    let html = super::report_html::render_survey_report_page_with_variant_v3_themed(
+    // 2026-07-10: セクション選択 (?sections=02,03,09)。未指定なら variant 準拠 (出力不変)。
+    let section_set =
+        super::report_html::SectionSet::from_query(query.sections.as_deref(), variant);
+    let html = super::report_html::render_survey_report_page_with_sections(
         &agg,
         &seeker,
         &by_company,
@@ -967,6 +975,8 @@ pub async fn survey_report_html(
         //   未選択 (空文字列) の場合のみ CSV 内 dominant にフォールバック。
         &pref,
         &muni,
+        // 2026-07-10: セクション選択集合 (?sections=... 未指定なら variant 準拠)。
+        section_set,
     );
 
     Html(html)

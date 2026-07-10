@@ -321,6 +321,54 @@
                 }
             };
 
+            // 2026-07-10: セクション選択レポート (媒体分析タブ「出力する内容を選んで…」パネル)。
+            //   openVariantReport と同根本 (HTMX 挿入 <script> は eval されない) のため
+            //   本ファイルで window に登録する。チェックした .section-pick の value を
+            //   カンマ連結して ?sections=... を組み立て、variant=extended 固定で開く。
+            //   1 つも選ばれていない場合は 'none' を送り、サーバ側で最小構成 (表紙+要約+出典)
+            //   として解釈させる (空文字列は「未指定=従来の全セクション」になるため使わない)。
+            window.buildSectionsReport = function(ev, sid) {
+                try {
+                    if (ev) ev.preventDefault();
+                    var pref = (document.getElementById('pref-select') || {}).value || '';
+                    var muni = (document.getElementById('muni-select') || {}).value || '';
+                    var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
+                        ? window._selectedIndustryRaws : [];
+                    var jobTypes = (typeof window._selectedJobTypes !== 'undefined' && Array.isArray(window._selectedJobTypes))
+                        ? window._selectedJobTypes : [];
+                    var industry = industries.length > 0
+                        ? industries[0]
+                        : (jobTypes.length > 0 ? jobTypes[0] : '');
+                    var codes = [];
+                    document.querySelectorAll('.section-pick:checked').forEach(function(b) {
+                        if (b.value) codes.push(b.value);
+                    });
+                    var sections = codes.length > 0 ? codes.join(',') : 'none';
+                    var url = '/report/survey?session_id=' + encodeURIComponent(sid)
+                        + '&variant=extended'
+                        + '&sections=' + encodeURIComponent(sections);
+                    if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
+                    if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
+                    if (industry) url += '&industry=' + encodeURIComponent(industry);
+                    window.open(url, '_blank', 'noopener');
+                    return false;
+                } catch (e) {
+                    console.error('buildSectionsReport failed', e);
+                    return true;
+                }
+            };
+
+            // 2026-07-10: セクション選択のショートカット (チェック状態を一括設定)。
+            //   'standard' = 02-07 + 075 + 076 + 09 / 'full' = 全部 / 'minimal' = 全解除。
+            window.applySectionPreset = function(preset) {
+                var standard = ['02', '03', '04', '05', '06', '07', '075', '076', '09'];
+                var full = ['02', '03', '04', '05', '06', '07', '075', '076', '09', '10'];
+                var set = preset === 'full' ? full : (preset === 'standard' ? standard : []);
+                document.querySelectorAll('.section-pick').forEach(function(b) {
+                    b.checked = set.indexOf(b.value) !== -1;
+                });
+            };
+
             // 2026-05-19 同種バグ対応 (Round 2): HTMX 動的挿入される handler 内の
             //   <script> で定義されていた function 7 件を初期 page load 側に移動。
             //   eval 不発の同種バグを一括解消。MECE 監査 (agent 検出 8 件中

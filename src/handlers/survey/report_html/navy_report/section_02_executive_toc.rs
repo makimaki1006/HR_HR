@@ -32,14 +32,14 @@ use super::super::super::super::insight::fetch::InsightContext;
 use super::super::super::aggregator::{EmpTypeSalary, SurveyAggregation};
 use super::super::super::job_seeker::JobSeekerAnalysis;
 use super::super::salary_summary;
-use super::super::ReportVariant;
+use super::super::{ReportVariant, SectionSet};
 use super::common::{compute_skew_severity, push_kpi, push_page_head, safe_pct, severity_label};
 
 // ============================================================
 // TOC
 // ============================================================
 
-pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant) {
+pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant, sections: &SectionSet) {
     let section_02 = match variant {
         ReportVariant::Full => "地域 × 求人媒体データ連携",
         _ => "地域データ補強",
@@ -55,19 +55,33 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant) {
 
     // 番号はセクション見出しの SECTION 番号と一致させ、並びは実際の掲載順
     // (…07 → 09 → 10 → 08 注記が最終ページ) に合わせる。
-    let mut items: Vec<(&str, &str)> = vec![
-        ("01", "Executive Summary"),
-        ("02", section_02),
-        ("03", "給与分布 統計"),
-        ("04", "採用市場 逼迫度"),
-        ("05", "地域企業構造"),
-        ("06", "人材デモグラフィック"),
-        ("07", "最低賃金・ライフスタイル"),
-    ];
-    if variant.show_market_intelligence_sections() {
+    // 2026-07-10: SectionSet 連動。sections 未指定 (from_variant) では shows("02".."07")
+    //   が常に true・09/10 が variant gate のため、従来の掲載内容と完全に等価 (byte 不変)。
+    //   07.5/07.6 は従来どおり目次に載せない (本文のみ)。
+    // 01 (Executive Summary) と 08 (注記・出典) は常時掲載 (選択不可)。
+    let mut items: Vec<(&str, &str)> = vec![("01", "Executive Summary")];
+    if sections.shows("02") {
+        items.push(("02", section_02));
+    }
+    if sections.shows("03") {
+        items.push(("03", "給与分布 統計"));
+    }
+    if sections.shows("04") {
+        items.push(("04", "採用市場 逼迫度"));
+    }
+    if sections.shows("05") {
+        items.push(("05", "地域企業構造"));
+    }
+    if sections.shows("06") {
+        items.push(("06", "人材デモグラフィック"));
+    }
+    if sections.shows("07") {
+        items.push(("07", "最低賃金・ライフスタイル"));
+    }
+    if sections.shows("09") {
         items.push(("09", "採用マーケットインテリジェンス"));
     }
-    if variant.show_extended_sections() {
+    if sections.shows("10") {
         items.push(("10", "採用環境の詳細分析"));
     }
     items.push(("08", "注記・出典・免責"));
@@ -731,9 +745,13 @@ mod tests {
 
     #[test]
     fn toc_renders_all_eight_sections() {
-        // データ妥当性: TOC は 01-08 の 8 セクションを列挙する。
+        // データ妥当性: TOC は 01-08 の 8 セクションを列挙する (variant 準拠経路)。
         let mut html = String::new();
-        render_navy_toc(&mut html, ReportVariant::Full);
+        render_navy_toc(
+            &mut html,
+            ReportVariant::Full,
+            &SectionSet::from_variant(ReportVariant::Full),
+        );
         for no in ["01", "02", "03", "04", "05", "06", "07", "08"] {
             assert!(
                 html.contains(&format!(">{}</span>", no)),
@@ -748,7 +766,11 @@ mod tests {
     fn toc_section_02_label_varies_by_variant() {
         // 逆証明: variant で section 02 ラベルが切替わる。
         let mut full = String::new();
-        render_navy_toc(&mut full, ReportVariant::Full);
+        render_navy_toc(
+            &mut full,
+            ReportVariant::Full,
+            &SectionSet::from_variant(ReportVariant::Full),
+        );
         assert!(
             full.contains("地域 × 求人媒体データ連携"),
             "Full ラベル: {}",
@@ -756,11 +778,74 @@ mod tests {
         );
 
         let mut pub_ = String::new();
-        render_navy_toc(&mut pub_, ReportVariant::Public);
+        render_navy_toc(
+            &mut pub_,
+            ReportVariant::Public,
+            &SectionSet::from_variant(ReportVariant::Public),
+        );
         assert!(pub_.contains("地域データ補強"), "Public ラベル: {}", pub_);
         assert!(
             !pub_.contains("地域 × 求人媒体データ連携"),
             "Public では Full ラベルを出さない"
         );
+    }
+
+    // ---- SectionSet 連動 目次 (2026-07-10) ----
+
+    #[test]
+    fn toc_explicit_sections_only_lists_selected() {
+        // sections=02,03 のみ選択 → 目次は 01/02/03/08 のみ。04-07/09/10 は載らない。
+        let mut html = String::new();
+        let sset = SectionSet::from_query(Some("02,03"), ReportVariant::Extended);
+        render_navy_toc(&mut html, ReportVariant::Extended, &sset);
+        // 常時掲載
+        for no in ["01", "02", "03", "08"] {
+            assert!(
+                html.contains(&format!(">{}</span>", no)),
+                "TOC に {} が必要: {}",
+                no,
+                html
+            );
+        }
+        // 非選択セクションは載らない
+        for no in ["04", "05", "06", "07", "09", "10"] {
+            assert!(
+                !html.contains(&format!(">{}</span>", no)),
+                "TOC に非選択 {} が出てはいけない: {}",
+                no,
+                html
+            );
+        }
+    }
+
+    #[test]
+    fn toc_explicit_can_include_09_10_regardless_of_variant() {
+        // sections=09,10 は variant=Public でも目次に載せられる (SectionSet 明示指定)。
+        let mut html = String::new();
+        let sset = SectionSet::from_query(Some("09,10"), ReportVariant::Public);
+        render_navy_toc(&mut html, ReportVariant::Public, &sset);
+        assert!(html.contains(">09</span>"), "09 掲載: {}", html);
+        assert!(html.contains(">10</span>"), "10 掲載: {}", html);
+        // 01/08 は常時、02 は非選択なので出ない
+        assert!(html.contains(">01</span>") && html.contains(">08</span>"));
+        assert!(!html.contains(">02</span>"), "02 は非選択: {}", html);
+    }
+
+    #[test]
+    fn toc_minimal_lists_only_cover_summary_notes() {
+        // 最小 (要約のみ): 有効コードを含まない非空 → 目次は 01/08 のみ。
+        let mut html = String::new();
+        let sset = SectionSet::from_query(Some("none"), ReportVariant::Extended);
+        render_navy_toc(&mut html, ReportVariant::Extended, &sset);
+        assert!(html.contains(">01</span>"), "01 常時: {}", html);
+        assert!(html.contains(">08</span>"), "08 常時: {}", html);
+        for no in ["02", "03", "04", "05", "06", "07", "09", "10"] {
+            assert!(
+                !html.contains(&format!(">{}</span>", no)),
+                "最小構成に {} が出てはいけない: {}",
+                no,
+                html
+            );
+        }
     }
 }
