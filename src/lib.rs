@@ -364,7 +364,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/survey/download",
             get(handlers::survey::survey_report_download),
         )
-        // ======== コンサル支援 (採用仮説ブリーフ、社内用) 2026-07-10 ========
+        // ======== コンサル支援 (商談準備レポート、社内用) 2026-07-10 ========
         // protected_routes 内のため auth_middleware の保護下に置かれる
         .route("/consult/brief", get(handlers::consult::consult_brief))
         .route(

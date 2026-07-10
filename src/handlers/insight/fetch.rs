@@ -540,39 +540,38 @@ pub(crate) fn build_insight_context_with_wage_mode(
     // 2026-07-10: 3 クエリは互いに独立した Turso 往復のため std::thread::scope で並列化する
     //   (未投入時は各テーブルが不在 → query_turso が空 Vec を返し graceful skip)。
     //   結果は同じ変数へ代入するだけなので出力は不変。
-    let (cross_future_workforce, cross_wage_public, cross_switcher_supply) = if let Some(tdb) =
-        turso
-    {
-        std::thread::scope(|s| {
-            let h_wf = s.spawn(|| tf::fetch_cross_future_workforce(tdb, pref));
-            let h_wage = s.spawn(|| tf::fetch_cross_wage_public(tdb, pref));
-            let h_switcher = s.spawn(|| tf::fetch_cross_switcher_supply(tdb, pref));
-            let wf = h_wf.join().unwrap_or_else(|e| {
-                tracing::warn!(
-                    ?e,
-                    "build_insight_context cross_future thread panicked, using empty defaults"
-                );
-                vec![]
-            });
-            let wage = h_wage.join().unwrap_or_else(|e| {
-                tracing::warn!(
-                    ?e,
-                    "build_insight_context cross_wage thread panicked, using empty defaults"
-                );
-                vec![]
-            });
-            let switcher = h_switcher.join().unwrap_or_else(|e| {
-                tracing::warn!(
+    let (cross_future_workforce, cross_wage_public, cross_switcher_supply) =
+        if let Some(tdb) = turso {
+            std::thread::scope(|s| {
+                let h_wf = s.spawn(|| tf::fetch_cross_future_workforce(tdb, pref));
+                let h_wage = s.spawn(|| tf::fetch_cross_wage_public(tdb, pref));
+                let h_switcher = s.spawn(|| tf::fetch_cross_switcher_supply(tdb, pref));
+                let wf = h_wf.join().unwrap_or_else(|e| {
+                    tracing::warn!(
+                        ?e,
+                        "build_insight_context cross_future thread panicked, using empty defaults"
+                    );
+                    vec![]
+                });
+                let wage = h_wage.join().unwrap_or_else(|e| {
+                    tracing::warn!(
+                        ?e,
+                        "build_insight_context cross_wage thread panicked, using empty defaults"
+                    );
+                    vec![]
+                });
+                let switcher = h_switcher.join().unwrap_or_else(|e| {
+                    tracing::warn!(
                     ?e,
                     "build_insight_context cross_switcher thread panicked, using empty defaults"
                 );
-                vec![]
-            });
-            (wf, wage, switcher)
-        })
-    } else {
-        (vec![], vec![], vec![])
-    };
+                    vec![]
+                });
+                (wf, wage, switcher)
+            })
+        } else {
+            (vec![], vec![], vec![])
+        };
 
     let mut ctx = InsightContext {
         // ローカルSQLite（analysis/fetch.rsの関数を再利用）

@@ -370,6 +370,100 @@ pub fn build_hypotheses(
         });
     }
 
+    // ---- 拡充経路 (2026-07-10): 新シグナルから追加の仮説を生成 ----
+
+    // 市場構造: 人口の構造的な細り (転出超過・自然減・廃業超過のいずれか)
+    if fired(signals, "S-16") || fired(signals, "S-23") || fired(signals, "S-18") {
+        drafts.push(HypothesisDraft {
+            category: HypothesisCategory::MarketStructure,
+            statement: "地域の人口・事業所が構造的に細っており、地元だけを母集団にした採用は中長期で難しくなっていく可能性がある".to_string(),
+            supporting: evidence_of(signals, &["S-16", "S-23", "S-18", "S-07"]),
+            counter: evidence_of(signals, &["S-09", "S-12", "S-19", "S-21"]),
+            missing: vec![
+                "採用対象の想定居住範囲".to_string(),
+                "過去数年の応募元地域の変化".to_string(),
+            ],
+            priority: if fired(signals, "S-16") && fired(signals, "S-10") {
+                Priority::High
+            } else {
+                Priority::Medium
+            },
+        });
+    }
+
+    // 集客・媒体: 昼間流出型/通勤流入 → 配信圏の設計
+    if fired(signals, "S-17") || fired(signals, "S-28") {
+        drafts.push(HypothesisDraft {
+            category: HypothesisCategory::Sourcing,
+            statement: "人の動き (昼間流出・通勤流入) に対して求人の配信圏や勤務地の見せ方が合っておらず、通える人材に届いていない可能性がある".to_string(),
+            supporting: evidence_of(signals, &["S-17", "S-28", "S-12"]),
+            counter: vec![],
+            missing: vec![
+                "求人の配信対象地域の設定".to_string(),
+                "応募者の居住地の内訳".to_string(),
+                "最寄り駅・通勤手段の記載有無".to_string(),
+            ],
+            priority: Priority::Medium,
+        });
+    }
+
+    // 採用条件: 生活コスト (家賃) に対する給与
+    if fired(signals, "S-22") {
+        drafts.push(HypothesisDraft {
+            category: HypothesisCategory::Conditions,
+            statement: "地域の家賃等の生活コストに対して市場給与帯が重く、転居を伴う採用や遠方からの応募が集まりにくい可能性がある".to_string(),
+            supporting: evidence_of(signals, &["S-22", "S-02"]),
+            counter: evidence_of(signals, &["S-03"]),
+            missing: vec![
+                "採用対象が転居前提か通勤前提か".to_string(),
+                "住宅手当・寮などの支援の有無".to_string(),
+            ],
+            priority: Priority::Medium,
+        });
+    }
+
+    // 求人訴求: 休日・タグの見せ方が弱い
+    if fired(signals, "S-24") || fired(signals, "S-25") || fired(signals, "S-26") {
+        drafts.push(HypothesisDraft {
+            category: HypothesisCategory::Appeal,
+            statement: "求人カード上で観測できる条件の見せ方 (年間休日の明示・訴求タグの厚み) が横並びで、条件比較の土俵で埋もれている可能性がある".to_string(),
+            supporting: evidence_of(signals, &["S-24", "S-25", "S-26"]),
+            counter: vec![],
+            missing: vec![
+                "求人原稿に記載している条件の一覧".to_string(),
+                "年間休日・休日の取りやすさの実態".to_string(),
+            ],
+            priority: Priority::Medium,
+        });
+    }
+
+    // 市場構造: 拡大採用型の競合が地域人材を吸収
+    if fired(signals, "S-29") {
+        drafts.push(HypothesisDraft {
+            category: HypothesisCategory::MarketStructure,
+            statement: "人員を増やしながら募集を続ける拡大採用型の企業があり、地域の応募母集団を積極的に吸収している可能性がある".to_string(),
+            supporting: evidence_of(signals, &["S-29"]),
+            counter: vec![],
+            missing: vec!["当該企業と自社の条件・訴求の差".to_string()],
+            priority: Priority::Low,
+        });
+    }
+
+    // 採用条件: 非正規比率が高い市場での正社員採用
+    if fired(signals, "S-30") {
+        drafts.push(HypothesisDraft {
+            category: HypothesisCategory::Conditions,
+            statement: "市場は正社員以外の求人比率が高く、正社員採用であれば雇用の安定を差別化材料にできる可能性がある (逆に非正規採用では競合が多い可能性)".to_string(),
+            supporting: evidence_of(signals, &["S-30"]),
+            counter: vec![],
+            missing: vec![
+                "今回の募集の雇用形態".to_string(),
+                "正社員登用・キャリアパスの整備状況".to_string(),
+            ],
+            priority: Priority::Low,
+        });
+    }
+
     // draft → Hypothesis (信頼度は機械判定)
     let mut hypotheses: Vec<Hypothesis> = drafts
         .into_iter()

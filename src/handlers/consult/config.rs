@@ -77,11 +77,62 @@ pub const CONFIDENCE_MEDIUM_MIN_SOURCES: usize = 2;
 /// 仮説TOP選定数
 pub const HYPOTHESIS_TOP_N: usize = 5;
 
-/// 矛盾の最大表示数 (§12.3)
-pub const CONTRADICTION_MAX: usize = 5;
+/// 矛盾の最大表示数 (2026-07-10 強化で 5→10。市場側データの組み合わせを増やしたため)
+pub const CONTRADICTION_MAX: usize = 10;
 
 /// 企業名寄せの対象とする上位企業数 (掲載件数順)
 pub const COMPANY_MATCH_TOP_N: usize = 5;
+
+// =============================================================================
+// 拡充シグナル (2026-07-10 商談準備レポート強化) の閾値
+// いずれも公的統計 (v2_external_*) または媒体CSV集計・企業データベース由来のみを入力とする。
+// HW求人・時系列テーブルは一切参照しない。
+// =============================================================================
+
+/// 転出超過シグナル: 純移動率 (‰) がこの値以下で「転出超過」と判定 (負値=転出超過)
+pub const NET_MIGRATION_OUTFLOW_THRESHOLD_PERMILLE: f64 = -2.0;
+
+/// 昼間人口流出型シグナル: 昼夜間人口比率 (%) がこの値未満で「昼間流出型」と判定
+pub const DAYTIME_RATIO_OUTFLOW_THRESHOLD: f64 = 97.0;
+
+/// 開廃業シグナル: 廃業率が開業率をこの差 (ポイント) 以上上回ると「廃業超過」と判定
+pub const CLOSURE_OVER_OPENING_MARGIN_PCT: f64 = 0.0;
+
+/// 開業活発シグナル: 開業率 (%) がこの値以上で「開業が活発」と判定
+pub const OPENING_RATE_ACTIVE_THRESHOLD: f64 = 5.0;
+
+/// 失業率シグナル: 県失業率が全国比この倍率未満で「労働需給が締まっている」と判定
+pub const UNEMPLOYMENT_TIGHT_RATIO: f64 = 0.9;
+
+/// 失業率シグナル: 県失業率が全国比この倍率超で「余剰寄り」と判定
+pub const UNEMPLOYMENT_SLACK_RATIO: f64 = 1.1;
+
+/// 家賃負担シグナル: 代表家賃 / 給与中央値 がこの比率以上で「家賃負担が重い」と判定
+pub const RENT_BURDEN_RATIO_THRESHOLD: f64 = 0.30;
+
+/// 年間休日記載シグナル: 年間休日を記載/抽出できた求人比率がこの値未満で「記載が薄い」
+pub const HOLIDAY_MENTION_THIN_RATIO: f64 = 0.5;
+
+/// 年間休日水準シグナル: 年間休日120日以上の求人比率がこの値未満で「休日面で見劣り」
+pub const HOLIDAY_GE120_LOW_RATIO: f64 = 0.3;
+
+/// 訴求タグ多様性シグナル: 観測できた求人カードタグの種類数がこの値未満で「訴求が薄い」
+pub const TAG_VARIETY_THIN_THRESHOLD: usize = 6;
+
+/// 人気バッジ集中シグナル: 人気表示のある求人比率がこの値以上で発火
+pub const POPULAR_BADGE_HIGH_RATIO: f64 = 0.25;
+
+/// 掲載地域集中シグナル: 最多市区町村の掲載シェアがこの値以上で発火
+pub const MUNI_CONCENTRATION_THRESHOLD: f64 = 0.5;
+
+/// 成長企業シグナル: この人員増減率(%)以上を「増加企業」とみなす
+pub const EMPLOYEE_GROWTH_THRESHOLD_PCT: f64 = 3.0;
+
+/// 非正規比率シグナル: 正社員/正職員以外の求人比率がこの値以上で発火
+pub const NONREGULAR_SHARE_HIGH_RATIO: f64 = 0.5;
+
+/// 矛盾検出で追加根拠として最低限必要な発火シグナル数 (退行防止用の定数)
+pub const CONTRADICTION_MIN_SIGNALS: usize = 1;
 
 #[cfg(test)]
 mod tests {

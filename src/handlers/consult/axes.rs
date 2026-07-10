@@ -123,10 +123,46 @@ fn judge_demand(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJudgment
                 )
             }
         }
-        None => (
-            AxisLevel::Unknown,
-            "有効求人倍率データが取得できなかったため、需要水準は判定材料不足です。".to_string(),
-        ),
+        None => {
+            // 拡充 (2026-07-10): 有効求人倍率がないときは開廃業で需要方向を補完する
+            match (input.business_opening_rate, input.business_closure_rate) {
+                (Some(open), Some(close)) => {
+                    let eid = store.add(
+                        EvidenceKind::Observed,
+                        "開業率 / 廃業率 (需要の代替)",
+                        &format!("{:.1} / {:.1}", open, close),
+                        "%",
+                        "経済センサス 開廃業",
+                        granularity::PREFECTURE,
+                        None,
+                        None,
+                        "有効求人倍率が取得できないため事業所の開廃業で代替",
+                    );
+                    evidence_ids.push(eid);
+                    if open >= config::OPENING_RATE_ACTIVE_THRESHOLD && open > close {
+                        (
+                            AxisLevel::Medium,
+                            format!("有効求人倍率は未取得のため代替判定: 開業率{:.1}%が廃業率{:.1}%を上回り、雇用の受け皿は拡大方向の可能性があります。", open, close),
+                        )
+                    } else if close > open {
+                        (
+                            AxisLevel::Low,
+                            format!("有効求人倍率は未取得のため代替判定: 廃業率{:.1}%が開業率{:.1}%を上回り、雇用の受け皿は縮小方向の可能性があります。", close, open),
+                        )
+                    } else {
+                        (
+                            AxisLevel::Medium,
+                            "有効求人倍率は未取得のため代替判定: 開廃業は拮抗しており需要は中程度の可能性があります。".to_string(),
+                        )
+                    }
+                }
+                _ => (
+                    AxisLevel::Unknown,
+                    "有効求人倍率データが取得できなかったため、需要水準は判定材料不足です。"
+                        .to_string(),
+                ),
+            }
+        }
     };
     AxisJudgment {
         axis: "demand".to_string(),
@@ -197,6 +233,57 @@ fn judge_supply(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJudgment
                 fragments.push("転職希望層が全国比で厚め".to_string());
             } else {
                 fragments.push("転職希望層は全国並み".to_string());
+            }
+        }
+    }
+
+    // 拡充 (2026-07-10): 人口移動・失業率・自然増減を供給軸の補強材料にする
+    if let Some(rate) = input.net_migration_rate {
+        let eid = store.add(
+            EvidenceKind::Observed,
+            "純移動率",
+            &format!("{:+.1}", rate),
+            "‰",
+            "住民基本台帳人口移動報告",
+            granularity::MUNICIPALITY,
+            None,
+            None,
+            "負値=転出超過",
+        );
+        evidence_ids.push(eid);
+        if rate <= config::NET_MIGRATION_OUTFLOW_THRESHOLD_PERMILLE {
+            minus_points += 1;
+            fragments.push(format!("人口は転出超過 ({:+.1}‰)", rate));
+        } else if rate > 0.0 {
+            plus_points += 1;
+            fragments.push(format!("人口は転入超過 ({:+.1}‰)", rate));
+        }
+    }
+
+    if let (Some(pref_u), Some(nat_u)) = (
+        input.unemployment_rate_pref,
+        input.unemployment_rate_national,
+    ) {
+        if nat_u > 0.0 {
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "失業率 (県/全国)",
+                &format!("{:.1} / {:.1}", pref_u, nat_u),
+                "%",
+                "国勢調査 労働力状態",
+                granularity::PREFECTURE,
+                None,
+                None,
+                "全産業計。低い=需給が締まる=供給に余裕が少ない",
+            );
+            evidence_ids.push(eid);
+            let ratio = pref_u / nat_u;
+            if ratio < config::UNEMPLOYMENT_TIGHT_RATIO {
+                minus_points += 1;
+                fragments.push("失業率は全国比で低く需給が締まり気味".to_string());
+            } else if ratio > config::UNEMPLOYMENT_SLACK_RATIO {
+                plus_points += 1;
+                fragments.push("失業率は全国比でやや高く求職側に余裕".to_string());
             }
         }
     }
