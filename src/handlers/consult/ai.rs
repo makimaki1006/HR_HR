@@ -219,6 +219,14 @@ pub async fn generate_ai_composite(
     let raw_items = generate_composite_items(client, &pack_json).await;
     let items = validate_items(&raw_items, analysis);
 
+    // 失敗診断用: 「API が返さなかった」のか「検証で破棄された」のかをログで区別できるようにする
+    tracing::info!(
+        summary_ok = one_line_summary.is_some(),
+        generated = raw_items.len(),
+        validated = items.len(),
+        "consult AI composite finished"
+    );
+
     AiComposite {
         one_line_summary,
         items,
