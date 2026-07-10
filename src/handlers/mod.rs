@@ -6,6 +6,7 @@ pub mod balance;
 pub mod company;
 pub mod comparison;
 pub mod competitive;
+pub mod consult;
 pub mod demographics;
 pub mod diagnostic;
 pub mod driver;

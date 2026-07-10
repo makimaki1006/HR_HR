@@ -499,6 +499,10 @@ pub(crate) fn render_analysis_result(
 
     // 2. アクションボタン（TL;DR直下に配置 - すぐに次ステップへ進めるように）
     html.push_str(&render_action_bar(session_id));
+
+    // 2b. コンサル準備パネル（社内用、2026-07-10 フェーズB）
+    html.push_str(&render_consult_prep_panel(session_id));
+
     html.push_str(r#"<div id="survey-integration-result"></div>"#);
 
     // 3. 給与サマリカード（主要KPI）
@@ -823,6 +827,67 @@ fn render_action_bar(session_id: &str) -> String {
         </section>
         <!-- 2026-05-19: downloadReportHtml は templates/dashboard_inline.html へ移動。
              HTMX 動的挿入の <script> は eval されない (openVariantReport と同根本原因)。 -->"##,
+        sid = session_id
+    )
+}
+
+// =============================================================================
+// セクション: コンサル準備パネル (社内用、2026-07-10 フェーズB)
+// =============================================================================
+
+/// 採用仮説ブリーフ (社内用) の生成パネル。
+/// buildConsultBrief / downloadConsultEvidencePack は templates/dashboard_inline.html に
+/// window 登録済み (HTMX 動的挿入の <script> は eval されないため、openVariantReport と同方式)。
+fn render_consult_prep_panel(session_id: &str) -> String {
+    format!(
+        r##"<section class="stat-card" id="consult-prep-panel" data-session-id="{sid}">
+            <h3 class="text-sm font-semibold text-slate-200 mb-1 border-l-4 border-rose-500 pl-2 flex items-center gap-2">
+                <span aria-hidden="true">🔒</span> コンサル準備 (社内用)
+                <span class="text-[10px] font-normal px-1.5 py-0.5 rounded bg-rose-900/60 text-rose-300 border border-rose-700">顧客配布不可</span>
+            </h3>
+            <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
+                面談前の仮説整理用ブリーフを生成します。市場データから仮説・矛盾・質問を整理した<strong class="text-slate-300">社内専用</strong>の資料です。任意入力があると仮説の精度が上がります。
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div>
+                    <label for="consult-hiring-count" class="block text-[11px] text-slate-400 mb-1">採用予定人数 (任意)</label>
+                    <input type="number" id="consult-hiring-count" min="1" placeholder="例: 3"
+                           class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500">
+                </div>
+                <div>
+                    <label for="consult-deadline" class="block text-[11px] text-slate-400 mb-1">採用期限 (任意)</label>
+                    <input type="text" id="consult-deadline" placeholder="例: 2026年9月末"
+                           class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500">
+                </div>
+                <div>
+                    <label class="block text-[11px] text-slate-400 mb-1">自社の給与条件 (任意、円)</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="consult-salary-min" min="0" placeholder="下限 例: 250000"
+                               class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500" aria-label="自社給与の下限">
+                        <span class="text-slate-500 text-xs">〜</span>
+                        <input type="number" id="consult-salary-max" min="0" placeholder="上限 例: 300000"
+                               class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500" aria-label="自社給与の上限">
+                    </div>
+                </div>
+                <div>
+                    <label for="consult-note" class="block text-[11px] text-slate-400 mb-1">メモ (任意)</label>
+                    <input type="text" id="consult-note" placeholder="例: 夜勤なし希望・車通勤可"
+                           class="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-sm text-white placeholder-slate-500">
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2" role="group" aria-label="コンサル準備の出力">
+                <button type="button" onclick="return buildConsultBrief('{sid}')"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-rose-400"
+                        title="仮説・矛盾・面談質問を整理した社内用ブリーフ (2〜4ページ) を新しいタブで開きます">
+                    <span class="text-base" aria-hidden="true">📝</span> 仮説ブリーフを作成
+                </button>
+                <button type="button" onclick="return downloadConsultEvidencePack('{sid}')"
+                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        title="ブリーフの根拠データ (証拠・シグナル・仮説) をJSON形式でダウンロードします">
+                    <span class="text-base" aria-hidden="true">🗂</span> 証拠データJSON
+                </button>
+            </div>
+        </section>"##,
         sid = session_id
     )
 }

@@ -335,6 +335,15 @@ fn render_css_for_theme(_theme: ReportTheme) -> String {
     css
 }
 
+/// コンサル支援 (採用仮説ブリーフ) 用: navy スタイル一式を外部モジュールへ提供する。
+///
+/// 2026-07-10 フェーズA+B: `handlers::consult::brief_html` が既存レポートと同じ
+/// 見た目 (page-navy / table-navy / @page 等) を再利用するための唯一の公開点。
+/// 既存レポートの出力には一切影響しない (呼び出し追加のみ)。
+pub(crate) fn navy_css_bundle() -> String {
+    render_css_for_theme(ReportTheme::Default)
+}
+
 /// レポートデザインテーマ (Round 24 Push 2: navy 一本化)
 ///
 /// Round 24 で旧 v8 (WorkingPaper) / v7a (Editorial) を廃止。現状は Default のみ。
