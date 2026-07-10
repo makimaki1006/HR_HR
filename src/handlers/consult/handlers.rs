@@ -799,6 +799,237 @@ pub async fn consult_hearing_save(
     .into_response()
 }
 
+// =============================================================================
+// フェーズD (2026-07-11): ヒアリング後の仮説更新 + 個社別アクションメモ
+// =============================================================================
+//
+// - GET  /consult/hypothesis_review?session_id=... → 仮説更新画面 (支持/否定/保留 + 自動提案)
+// - POST /consult/hypothesis_review?session_id=...  → 更新を追記保存 → 保存済み表示
+// - GET  /consult/action_memo?session_id=...        → 個社別アクションメモ (顧客共有可)
+//
+// 保存先はローカル SQLite の consult_hypothesis_reviews のみ (追記オンリー)。
+// 仮説一覧は面談前分析 (build_analysis) を再生成して得る (§24-1 決定的)。
+
+/// GET /consult/hypothesis_review — 仮説更新画面 (最新レビューをプリフィル)
+pub async fn consult_hypothesis_review_form(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<ConsultQuery>,
+) -> Html<String> {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return error_html("セッションIDが必要です。CSVをアップロードしてください。"),
+    };
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "view_consult_hypothesis_review",
+        "consult",
+        &session_id,
+        "",
+    )
+    .await;
+
+    let analysis = match build_analysis(&state, &session_id, &query).await {
+        Ok(a) => a,
+        Err(msg) => return error_html(&msg),
+    };
+    let region = region_from_cache(&state, &session_id);
+
+    // 最新ヒアリング回答 (自動提案の材料) と、既存の仮説更新
+    let (_answers, has_hearing, current, history) =
+        load_review_state(&state, &session_id, &analysis);
+
+    Html(super::hypothesis_review::hypothesis_review_html(
+        &session_id,
+        &region,
+        &analysis,
+        &current,
+        has_hearing,
+        false,
+        None,
+        &history,
+    ))
+}
+
+/// POST /consult/hypothesis_review — 更新を追記保存し、保存済み画面を返す
+pub async fn consult_hypothesis_review_save(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<ConsultQuery>,
+    Form(form): Form<BTreeMap<String, String>>,
+) -> axum::response::Response {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => {
+            return error_html("セッションIDが必要です。CSVをアップロードしてください。")
+                .into_response()
+        }
+    };
+    let Some(db) = state.hw_db.clone() else {
+        return error_html("更新を保存できませんでした（ローカルデータベースに接続できません）。")
+            .into_response();
+    };
+
+    let analysis = match build_analysis(&state, &session_id, &query).await {
+        Ok(a) => a,
+        Err(msg) => return error_html(&msg).into_response(),
+    };
+
+    // 自動提案の材料としての最新ヒアリング回答
+    let answers = latest_hearing_answers(&state, &session_id);
+    let reviews = super::hypothesis_review::reviews_from_form(&analysis, &answers, &form);
+    let reviews_json = serde_json::to_string(&reviews).unwrap_or_else(|_| "[]".to_string());
+    let created_at = chrono::Local::now().to_rfc3339();
+
+    let sid = session_id.clone();
+    let saved = tokio::task::spawn_blocking(move || {
+        super::hypothesis_review::insert_reviews(&db, &sid, &reviews_json, &created_at)
+    })
+    .await;
+    let saved_revision = match saved {
+        Ok(Ok(rev)) => Some(rev),
+        _ => None,
+    };
+
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "save_consult_hypothesis_review",
+        "consult",
+        &session_id,
+        &saved_revision.map(|r| r.to_string()).unwrap_or_default(),
+    )
+    .await;
+
+    if saved_revision.is_none() {
+        return error_html("更新の保存に失敗しました。時間をおいて再度お試しください。")
+            .into_response();
+    }
+
+    let region = region_from_cache(&state, &session_id);
+    let (_answers, has_hearing, current, history) =
+        load_review_state(&state, &session_id, &analysis);
+
+    Html(super::hypothesis_review::hypothesis_review_html(
+        &session_id,
+        &region,
+        &analysis,
+        &current,
+        has_hearing,
+        true,
+        saved_revision,
+        &history,
+    ))
+    .into_response()
+}
+
+/// GET /consult/action_memo — 個社別アクションメモ (顧客共有可。§14)
+pub async fn consult_action_memo(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<ConsultQuery>,
+) -> Html<String> {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return error_html("セッションIDが必要です。CSVをアップロードしてください。"),
+    };
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "generate_consult_action_memo",
+        "consult",
+        &session_id,
+        "",
+    )
+    .await;
+
+    let region = region_from_cache(&state, &session_id);
+
+    // §14.1 作成条件: 最新ヒアリング回答が無ければ案内を返す
+    let answers = latest_hearing_answers(&state, &session_id);
+    if answers.is_empty() {
+        return Html(super::action_memo::action_memo_needs_hearing_html(
+            &region,
+            &session_id,
+        ));
+    }
+
+    let analysis = match build_analysis(&state, &session_id, &query).await {
+        Ok(a) => a,
+        Err(msg) => return error_html(&msg),
+    };
+
+    // 仮説更新 (無ければ自動提案を初期値に)
+    let reviews = latest_reviews_or_auto(&state, &session_id, &analysis, &answers);
+
+    let as_of = chrono::Local::now().format("%Y-%m-%d").to_string();
+    Html(super::action_memo::action_memo_html(
+        &analysis, &answers, &reviews, &region, &as_of,
+    ))
+}
+
+/// 最新ヒアリング回答マップを取得 (無ければ空)。
+fn latest_hearing_answers(
+    state: &Arc<AppState>,
+    session_id: &str,
+) -> BTreeMap<String, super::hearing::AnswerValue> {
+    match state.hw_db.as_ref() {
+        Some(db) => super::hearing::latest_result(db, session_id)
+            .map(|s| super::hearing::answers_from_json(&s.answers_json))
+            .unwrap_or_default(),
+        None => BTreeMap::new(),
+    }
+}
+
+/// 最新の仮説更新を取得。無ければ自動提案を初期値にする。
+fn latest_reviews_or_auto(
+    state: &Arc<AppState>,
+    session_id: &str,
+    analysis: &ConsultAnalysis,
+    answers: &BTreeMap<String, super::hearing::AnswerValue>,
+) -> Vec<super::hypothesis_review::HypothesisReview> {
+    match state.hw_db.as_ref() {
+        Some(db) => match super::hypothesis_review::latest_reviews(db, session_id) {
+            Some(stored) => super::hypothesis_review::reviews_from_json(&stored.reviews_json),
+            None => super::hypothesis_review::auto_suggest_all(analysis, answers),
+        },
+        None => super::hypothesis_review::auto_suggest_all(analysis, answers),
+    }
+}
+
+/// 仮説更新画面の状態 (回答・ヒアリング有無・現在のレビュー・履歴) をまとめて取得。
+fn load_review_state(
+    state: &Arc<AppState>,
+    session_id: &str,
+    analysis: &ConsultAnalysis,
+) -> (
+    BTreeMap<String, super::hearing::AnswerValue>,
+    bool,
+    Vec<super::hypothesis_review::HypothesisReview>,
+    Vec<(i64, String)>,
+) {
+    let answers = latest_hearing_answers(state, session_id);
+    let has_hearing = !answers.is_empty();
+    let (current, history) = match state.hw_db.as_ref() {
+        Some(db) => {
+            let current = match super::hypothesis_review::latest_reviews(db, session_id) {
+                Some(stored) => super::hypothesis_review::reviews_from_json(&stored.reviews_json),
+                None => super::hypothesis_review::auto_suggest_all(analysis, &answers),
+            };
+            (
+                current,
+                super::hypothesis_review::revision_history(db, session_id),
+            )
+        }
+        None => (
+            super::hypothesis_review::auto_suggest_all(analysis, &answers),
+            Vec::new(),
+        ),
+    };
+    (answers, has_hearing, current, history)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
