@@ -53,27 +53,33 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant) {
     );
     html.push_str("<div class=\"toc-grid\">\n");
 
-    html.push_str("<div class=\"toc-col\">\n");
-    for (no, name) in [
+    // 番号はセクション見出しの SECTION 番号と一致させ、並びは実際の掲載順
+    // (…07 → 09 → 10 → 08 注記が最終ページ) に合わせる。
+    let mut items: Vec<(&str, &str)> = vec![
         ("01", "Executive Summary"),
         ("02", section_02),
         ("03", "給与分布 統計"),
         ("04", "採用市場 逼迫度"),
-    ] {
-        push_toc_item(html, no, name);
-    }
-    html.push_str("</div>\n");
-
-    html.push_str("<div class=\"toc-col\">\n");
-    for (no, name) in [
         ("05", "地域企業構造"),
         ("06", "人材デモグラフィック"),
         ("07", "最低賃金・ライフスタイル"),
-        ("08", "注記・出典・免責"),
-    ] {
-        push_toc_item(html, no, name);
+    ];
+    if variant.show_market_intelligence_sections() {
+        items.push(("09", "採用マーケットインテリジェンス"));
     }
-    html.push_str("</div>\n");
+    if variant.show_extended_sections() {
+        items.push(("10", "採用環境の詳細分析"));
+    }
+    items.push(("08", "注記・出典・免責"));
+
+    let split = items.len().div_ceil(2);
+    for col in [&items[..split], &items[split..]] {
+        html.push_str("<div class=\"toc-col\">\n");
+        for (no, name) in col {
+            push_toc_item(html, no, name);
+        }
+        html.push_str("</div>\n");
+    }
 
     html.push_str("</div>\n"); // /toc-grid
 
