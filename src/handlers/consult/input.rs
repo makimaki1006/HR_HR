@@ -108,6 +108,44 @@ pub struct ConsultInput {
     /// 流入元上位3 (都道府県, 市区町村, 人数)
     pub commute_inflow_top3: Vec<(String, String, i64)>,
 
+    // ---- 公的統計 (拡充 2026-07-10) ----
+    /// 純移動率 (‰。住民基本台帳人口移動報告。負値=転出超過)
+    pub net_migration_rate: Option<f64>,
+    /// 昼夜間人口比率 (%。国勢調査。100未満=昼間人口が流出)
+    pub daytime_ratio: Option<f64>,
+    /// 開業率 (%。経済センサス 開廃業)
+    pub business_opening_rate: Option<f64>,
+    /// 廃業率 (%。経済センサス 開廃業)
+    pub business_closure_rate: Option<f64>,
+    /// 県の失業率 (%。国勢調査 労働力状態)
+    pub unemployment_rate_pref: Option<f64>,
+    /// 全国の失業率 (%)
+    pub unemployment_rate_national: Option<f64>,
+    /// 自然増減 (人。人口動態統計 出生-死亡。負値=自然減)
+    pub natural_change: Option<i64>,
+    /// 代表家賃 (円/月。住宅・土地統計 民営借家の中央値)
+    pub median_rent: Option<i64>,
+
+    // ---- 今回CSV (拡充: 求人カード観測。§5.2 A) ----
+    /// 観測できた求人カードタグの種類数 (§5.0: 福利厚生の完全一覧ではない)
+    pub distinct_tag_count: usize,
+    /// 掲載件数上位のタグ (タグ名, 件数)
+    pub top_tags: Vec<(String, usize)>,
+    /// 人気/超人気バッジのある求人比率 (0.0-1.0)。取得できない場合 None
+    pub popular_ratio: Option<f64>,
+    /// 超人気バッジ件数
+    pub super_popular_count: usize,
+    /// 年間休日の中央値 (日。記載/AI抽出できた求人のみ。§5.0: 欠落は否定情報でない)
+    pub annual_holidays_median: Option<i64>,
+    /// 年間休日を記載/抽出できた求人数
+    pub annual_holidays_n: usize,
+    /// 年間休日120日以上の求人比率 (0.0-1.0)
+    pub holiday_pct_ge_120: Option<f64>,
+    /// 雇用形態分布 (雇用形態, 件数)。取得できたCSVのみ (§5.0: 一方のCSVにしかない)
+    pub employment_type_dist: Vec<(String, usize)>,
+    /// 掲載件数上位の市区町村 (市区町村名, 件数)
+    pub muni_dist_top: Vec<(String, usize)>,
+
     // ---- 顧客任意入力 ----
     pub client: ClientInput,
 }
@@ -121,6 +159,55 @@ impl ConsultInput {
         }
         let below = self.salary_values.iter().filter(|&&v| v <= value).count();
         Some(below as f64 / self.salary_values.len() as f64 * 100.0)
+    }
+
+    /// 新着求人比率 (0.0-1.0)。総件数0なら None。
+    pub fn new_ratio(&self) -> Option<f64> {
+        if self.total_postings == 0 {
+            None
+        } else {
+            Some(self.new_count as f64 / self.total_postings as f64)
+        }
+    }
+
+    /// 年間休日を記載/抽出できた求人の比率 (0.0-1.0)。総件数0なら None。
+    /// §5.0: これは「記載を確認できた」比率であり、記載がない=休日がないではない。
+    pub fn holiday_mention_ratio(&self) -> Option<f64> {
+        if self.total_postings == 0 {
+            None
+        } else {
+            Some(self.annual_holidays_n as f64 / self.total_postings as f64)
+        }
+    }
+
+    /// 正社員/正職員以外 (パート・アルバイト・契約等) の求人比率 (0.0-1.0)。
+    /// 雇用形態分布が空なら None。
+    pub fn nonregular_share(&self) -> Option<f64> {
+        if self.employment_type_dist.is_empty() {
+            return None;
+        }
+        let total: usize = self.employment_type_dist.iter().map(|(_, n)| *n).sum();
+        if total == 0 {
+            return None;
+        }
+        let regular: usize = self
+            .employment_type_dist
+            .iter()
+            .filter(|(t, _)| t.contains("正社員") || t.contains("正職員"))
+            .map(|(_, n)| *n)
+            .sum();
+        Some((total - regular) as f64 / total as f64)
+    }
+
+    /// 最多掲載市区町村のシェア (0.0-1.0)。分布が空/総件数0なら None。
+    pub fn top_muni_share(&self) -> Option<(String, f64)> {
+        if self.total_postings == 0 {
+            return None;
+        }
+        self.muni_dist_top
+            .iter()
+            .max_by_key(|(_, n)| *n)
+            .map(|(name, n)| (name.clone(), *n as f64 / self.total_postings as f64))
     }
 
     /// 対象地域の表示名

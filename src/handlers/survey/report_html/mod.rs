@@ -335,7 +335,7 @@ fn render_css_for_theme(_theme: ReportTheme) -> String {
     css
 }
 
-/// コンサル支援 (採用仮説ブリーフ) 用: navy スタイル一式を外部モジュールへ提供する。
+/// コンサル支援 (商談準備レポート) 用: navy スタイル一式を外部モジュールへ提供する。
 ///
 /// 2026-07-10 フェーズA+B: `handlers::consult::brief_html` が既存レポートと同じ
 /// 見た目 (page-navy / table-navy / @page 等) を再利用するための唯一の公開点。

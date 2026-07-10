@@ -55,8 +55,8 @@ fn assert_invariants(analysis: &super::evidence_pack::ConsultAnalysis) {
 
     // TOP5上限
     assert!(analysis.top_hypotheses.len() <= 5);
-    // 矛盾は最大5件
-    assert!(analysis.contradictions.len() <= 5);
+    // 矛盾は config の上限以内 (2026-07-10 強化で最大10)
+    assert!(analysis.contradictions.len() <= super::config::CONTRADICTION_MAX);
 }
 
 /// ケース1: 給与劣位・市場逼迫

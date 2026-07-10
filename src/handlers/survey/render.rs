@@ -835,7 +835,7 @@ fn render_action_bar(session_id: &str) -> String {
 // セクション: コンサル準備パネル (社内用、2026-07-10 フェーズB)
 // =============================================================================
 
-/// 採用仮説ブリーフ (社内用) の生成パネル。
+/// 商談準備レポート (社内用) の生成パネル。
 /// buildConsultBrief / downloadConsultEvidencePack は templates/dashboard_inline.html に
 /// window 登録済み (HTMX 動的挿入の <script> は eval されないため、openVariantReport と同方式)。
 fn render_consult_prep_panel(session_id: &str) -> String {
@@ -846,7 +846,7 @@ fn render_consult_prep_panel(session_id: &str) -> String {
                 <span class="text-[10px] font-normal px-1.5 py-0.5 rounded bg-rose-900/60 text-rose-300 border border-rose-700">顧客配布不可</span>
             </h3>
             <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                面談前の仮説整理用ブリーフを生成します。市場データから仮説・矛盾・質問を整理した<strong class="text-slate-300">社内専用</strong>の資料です。任意入力があると仮説の精度が上がります。
+                面談前の仮説整理用の商談準備レポートを生成します。市場データから仮説・矛盾・質問を整理した<strong class="text-slate-300">社内専用</strong>の資料です。任意入力があると仮説の精度が上がります。
             </p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
                 <div>
@@ -878,12 +878,12 @@ fn render_consult_prep_panel(session_id: &str) -> String {
             <div class="flex flex-wrap gap-2" role="group" aria-label="コンサル準備の出力">
                 <button type="button" onclick="return buildConsultBrief('{sid}')"
                         class="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-rose-400"
-                        title="仮説・矛盾・面談質問を整理した社内用ブリーフ (2〜4ページ) を新しいタブで開きます">
-                    <span class="text-base" aria-hidden="true">📝</span> 仮説ブリーフを作成
+                        title="仮説・矛盾・面談質問・複合考察を整理した社内用の商談準備レポート (最大8ページ) を新しいタブで開きます">
+                    <span class="text-base" aria-hidden="true">📝</span> 商談準備レポートを作成
                 </button>
                 <button type="button" onclick="return downloadConsultEvidencePack('{sid}')"
                         class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        title="ブリーフの根拠データ (証拠・シグナル・仮説) をJSON形式でダウンロードします">
+                        title="商談準備レポートの根拠データ (証拠・シグナル・仮説) をJSON形式でダウンロードします">
                     <span class="text-base" aria-hidden="true">🗂</span> 証拠データJSON
                 </button>
             </div>

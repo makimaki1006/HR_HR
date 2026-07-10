@@ -1,14 +1,14 @@
-//! コンサル支援 (採用仮説ブリーフ) HTTP ハンドラー
+//! コンサル支援 (商談準備レポート) HTTP ハンドラー (内部ルートは /consult/brief のまま)
 //!
-//! - GET /consult/brief?session_id=...            → ブリーフHTML (社内用)
+//! - GET /consult/brief?session_id=...            → 商談準備レポートHTML (社内用)
 //! - GET /consult/evidence_pack.json?session_id=... → §15.2 形式 JSON
 //!
 //! どちらも既存 survey セッション (アップロード済CSVの集計キャッシュ) を入力とし、
 //! 公的統計 (Turso) と企業データベースを読み取り専用で参照する。
 //! DB書き込みは一切行わない。
 //!
-//! V2ルール: 介護データ・HW系テーブル (postings / hw_* / ts_turso_*) は入力に使わない。
-//! 使用テーブルは公的統計 cross_* / 国勢調査OD / 企業データベースのみ。
+//! V2ルール: 介護データ・HW求人 (求人スクレイピング・時系列) は入力に使わない。
+//! 使用テーブルは公的統計 (cross_* / v2_external_* / 国勢調査OD) と企業データベースのみ。
 
 use axum::extract::{Query, State};
 use axum::response::Html;
@@ -127,6 +127,38 @@ async fn build_consult_input(
         None
     };
 
+    // 2-b) 媒体CSV観測の拡充フィールド (SurveyAggregation。§5.0 に沿い「観測できた記載」として扱う)
+    let distinct_tag_count = agg.by_tags.len();
+    let top_tags: Vec<(String, usize)> = agg.by_tags.iter().take(8).cloned().collect();
+    let popular_ratio = if agg.popularity.indeed_sp_total > 0 {
+        Some(agg.popularity.popular_ratio)
+    } else {
+        None
+    };
+    let super_popular_count = agg.popularity.super_popular_count;
+    let (annual_holidays_median, annual_holidays_n) = {
+        let mut hv = agg.jobbox.annual_holidays_values.clone();
+        let n = hv.len();
+        if n == 0 {
+            (None, 0)
+        } else {
+            hv.sort();
+            (Some(hv[n / 2]), n)
+        }
+    };
+    let holiday_pct_ge_120 = if annual_holidays_n > 0 {
+        Some(agg.jobbox.holiday_pct_ge_120)
+    } else {
+        None
+    };
+    let employment_type_dist: Vec<(String, usize)> = agg.by_employment_type.clone();
+    let muni_dist_top: Vec<(String, usize)> = agg
+        .by_municipality_salary
+        .iter()
+        .take(8)
+        .map(|m| (m.name.clone(), m.count))
+        .collect();
+
     let client = ClientInput {
         target_salary_min: parse_i64_opt(&query.target_salary_min),
         target_salary_max: parse_i64_opt(&query.target_salary_max),
@@ -172,6 +204,15 @@ async fn build_consult_input(
         commute_inflow_top3: Vec<(String, String, i64)>,
         companies: Vec<CompanyObservation>,
         sources: Vec<String>,
+        // 拡充 (2026-07-10): 公的統計 (v2_external_*。介護・HW は一切含まない)
+        net_migration_rate: Option<f64>,
+        daytime_ratio: Option<f64>,
+        business_opening_rate: Option<f64>,
+        business_closure_rate: Option<f64>,
+        unemployment_rate_pref: Option<f64>,
+        unemployment_rate_national: Option<f64>,
+        natural_change: Option<i64>,
+        median_rent: Option<i64>,
     }
 
     let fetched = tokio::task::spawn_blocking(move || {
@@ -187,12 +228,40 @@ async fn build_consult_input(
         //   互いに独立した Turso 往復のため std::thread::scope で並列化する。
         //   パース(集計)と data_sources の push は取得後に従来と同じ順序で直列実行し、
         //   出力の並び順を変えない。
-        let (wage_rows, switcher_rows, wf_rows, inflow, outflow) = std::thread::scope(|s| {
+        type Ext2Bundle = (
+            Vec<crate::handlers::helpers::Row>,
+            Vec<crate::handlers::helpers::Row>,
+            Vec<crate::handlers::helpers::Row>,
+            Vec<crate::handlers::helpers::Row>,
+            Vec<crate::handlers::helpers::Row>,
+            Vec<crate::handlers::helpers::Row>,
+            Vec<crate::handlers::helpers::Row>,
+        );
+        let (wage_rows, switcher_rows, wf_rows, inflow, outflow, ext2) = std::thread::scope(|s| {
             let h_wage = s.spawn(|| {
                 turso
                     .as_ref()
                     .map(|t| tf::fetch_cross_wage_public(t, &pref2))
                     .unwrap_or_default()
+            });
+            // 拡充 (2026-07-10): 公的統計 (人口移動・昼夜間人口・開廃業・失業率・人口動態・家賃)。
+            //   すべて v2_external_* (国勢調査・経済センサス・住宅土地統計・人口動態統計等) で、
+            //   公的統計のみ。介護需要やHW求人データは一切含まない。
+            let h_ext2 = s.spawn(|| -> Ext2Bundle {
+                if let Some(db) = hw_db.as_ref() {
+                    let t = turso.as_ref();
+                    (
+                        af::fetch_migration_data(db, t, &pref2, &muni2),
+                        af::fetch_daytime_population(db, t, &pref2, &muni2),
+                        af::fetch_business_dynamics(db, t, &pref2),
+                        af::fetch_labor_force(db, t, &pref2, ""),
+                        af::fetch_labor_force(db, t, "", ""),
+                        af::fetch_vital_statistics(db, t, &pref2, &muni2),
+                        af::fetch_rental_housing(db, t, &pref2),
+                    )
+                } else {
+                    Ext2Bundle::default()
+                }
             });
             let h_switcher = s.spawn(|| {
                 turso
@@ -226,7 +295,8 @@ async fn build_consult_input(
             let switcher = h_switcher.join().unwrap_or_default();
             let wf = h_wf.join().unwrap_or_default();
             let (inflow, outflow) = h_commute.join().unwrap_or_default();
-            (wage, switcher, wf, inflow, outflow)
+            let ext2 = h_ext2.join().unwrap_or_default();
+            (wage, switcher, wf, inflow, outflow, ext2)
         });
 
         if turso.is_some() {
@@ -263,6 +333,59 @@ async fn build_consult_input(
                     out.sources
                         .push("国立社会保障・人口問題研究所 将来人口推計".to_string());
                 }
+            }
+        }
+
+        // 拡充公的統計のパース (v2_external_*。turso-or-local。空なら None のまま)
+        {
+            let (migration, daytime, biz, lf_pref, lf_nat, vital, rental) = &ext2;
+
+            if let Some(row) = migration.first() {
+                out.net_migration_rate = get_f64_opt(row, "net_migration_rate");
+                if out.net_migration_rate.is_some() {
+                    out.sources.push("住民基本台帳人口移動報告".to_string());
+                }
+            }
+            if let Some(row) = daytime.first() {
+                out.daytime_ratio = get_f64_opt(row, "day_night_ratio");
+                if out.daytime_ratio.is_some() {
+                    out.sources.push("国勢調査 従業地・通学地集計".to_string());
+                }
+            }
+            // 開廃業は最新年度 (fiscal_year 昇順のため last)
+            if let Some(row) = biz.last() {
+                out.business_opening_rate = get_f64_opt(row, "opening_rate");
+                out.business_closure_rate = get_f64_opt(row, "closure_rate");
+                if out.business_opening_rate.is_some() || out.business_closure_rate.is_some() {
+                    out.sources.push("経済センサス 開廃業".to_string());
+                }
+            }
+            if let Some(row) = lf_pref.first() {
+                out.unemployment_rate_pref = get_f64_opt(row, "unemployment_rate");
+            }
+            if let Some(row) = lf_nat.first() {
+                out.unemployment_rate_national = get_f64_opt(row, "unemployment_rate");
+            }
+            if out.unemployment_rate_pref.is_some() || out.unemployment_rate_national.is_some() {
+                out.sources.push("国勢調査 労働力状態".to_string());
+            }
+            if let Some(row) = vital.first() {
+                out.natural_change = get_f64_opt(row, "natural_change").map(|v| v as i64);
+                if out.natural_change.is_some() {
+                    out.sources.push("人口動態統計".to_string());
+                }
+            }
+            // 代表家賃: 当該県 (全国行を除く) の家賃中央値の平均 (>0 のみ)
+            let rents: Vec<f64> = rental
+                .iter()
+                .filter(|r| get_str(r, "prefecture") != "全国")
+                .filter_map(|r| get_f64_opt(r, "median_rent_jpy"))
+                .filter(|v| *v > 0.0)
+                .collect();
+            if !rents.is_empty() {
+                let avg = rents.iter().sum::<f64>() / rents.len() as f64;
+                out.median_rent = Some(avg.round() as i64);
+                out.sources.push("住宅・土地統計".to_string());
             }
         }
 
@@ -377,6 +500,25 @@ async fn build_consult_input(
         commute_inflow_total: fetched.commute_inflow_total,
         commute_outflow_total: fetched.commute_outflow_total,
         commute_inflow_top3: fetched.commute_inflow_top3,
+        // 拡充公的統計
+        net_migration_rate: fetched.net_migration_rate,
+        daytime_ratio: fetched.daytime_ratio,
+        business_opening_rate: fetched.business_opening_rate,
+        business_closure_rate: fetched.business_closure_rate,
+        unemployment_rate_pref: fetched.unemployment_rate_pref,
+        unemployment_rate_national: fetched.unemployment_rate_national,
+        natural_change: fetched.natural_change,
+        median_rent: fetched.median_rent,
+        // 拡充媒体CSV観測
+        distinct_tag_count,
+        top_tags,
+        popular_ratio,
+        super_popular_count,
+        annual_holidays_median,
+        annual_holidays_n,
+        holiday_pct_ge_120,
+        employment_type_dist,
+        muni_dist_top,
         client,
     })
 }
@@ -397,7 +539,7 @@ fn error_html(msg: &str) -> Html<String> {
     ))
 }
 
-/// GET /consult/brief — 採用仮説ブリーフHTML (社内用)
+/// GET /consult/brief — 商談準備レポートHTML (社内用。内部ルートは /consult/brief のまま)
 pub async fn consult_brief(
     State(state): State<Arc<AppState>>,
     session: Session,
@@ -421,7 +563,17 @@ pub async fn consult_brief(
     .await;
 
     match build_analysis(&state, &session_id, &query).await {
-        Ok(analysis) => Html(super::brief_html::render_consult_brief_html(&analysis)),
+        Ok(analysis) => {
+            // AI文章化 (Gemini)。キー未設定・失敗・全破棄は空 AiComposite で graceful degradation。
+            // 入力は evidence_pack JSON のみ (原データへは渡さない §15.2)。呼び出しは最大2回。
+            let ai = match crate::gemini::GeminiClient::from_env() {
+                Some(client) => super::ai::generate_ai_composite(&client, &analysis).await,
+                None => super::ai::AiComposite::default(),
+            };
+            Html(super::brief_html::render_consult_brief_html_with_ai(
+                &analysis, &ai,
+            ))
+        }
         Err(msg) => error_html(&msg),
     }
 }

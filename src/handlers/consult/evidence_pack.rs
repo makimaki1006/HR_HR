@@ -252,6 +252,33 @@ pub(crate) mod tests {
                 ("群馬県".to_string(), "藤岡市".to_string(), 4_100),
                 ("埼玉県".to_string(), "本庄市".to_string(), 2_900),
             ],
+            // 拡充データ (公的統計)
+            net_migration_rate: Some(-3.2),
+            daytime_ratio: Some(94.5),
+            business_opening_rate: Some(4.2),
+            business_closure_rate: Some(5.6),
+            unemployment_rate_pref: Some(2.1),
+            unemployment_rate_national: Some(2.8),
+            natural_change: Some(-1_800),
+            median_rent: Some(78_000),
+            // 拡充データ (媒体CSV観測)
+            distinct_tag_count: 4,
+            top_tags: vec![
+                ("交通費支給".to_string(), 90),
+                ("賞与あり".to_string(), 60),
+                ("週休二日".to_string(), 40),
+            ],
+            popular_ratio: Some(0.31),
+            super_popular_count: 6,
+            annual_holidays_median: Some(110),
+            annual_holidays_n: 42,
+            holiday_pct_ge_120: Some(0.18),
+            employment_type_dist: vec![
+                ("パート・アルバイト".to_string(), 100),
+                ("正社員".to_string(), 60),
+                ("契約社員".to_string(), 20),
+            ],
+            muni_dist_top: vec![("高崎市".to_string(), 110), ("前橋市".to_string(), 40)],
             client: ClientInput {
                 target_salary_min: Some(300_000),
                 target_salary_max: Some(320_000),
