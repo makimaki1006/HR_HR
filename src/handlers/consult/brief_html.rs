@@ -470,7 +470,11 @@ fn render_page4_contradictions(html: &mut String, analysis: &ConsultAnalysis) {
         );
     } else {
         html.push_str("<div class=\"consult-2col\">\n");
-        for c in analysis.contradictions.iter().take(CONTRADICTION_DISPLAY_MAX) {
+        for c in analysis
+            .contradictions
+            .iter()
+            .take(CONTRADICTION_DISPLAY_MAX)
+        {
             html.push_str("<div class=\"consult-q-block\">\n");
             html.push_str(&format!(
                 "<div class=\"block-title\">{} {}<span style=\"float:right;font-size:8.5pt;font-weight:400\">確からしさ: {}</span></div>\n",

@@ -604,9 +604,199 @@ pub async fn consult_evidence_pack_json(
     .await;
 
     match build_analysis(&state, &session_id, &query).await {
-        Ok(analysis) => axum::response::Json(to_evidence_pack_json(&analysis)),
+        Ok(analysis) => {
+            let mut pack = to_evidence_pack_json(&analysis);
+            // フェーズC: 保存済みヒアリング最新回答を hearing キーとして含める (§13 → フェーズD入力)。
+            // 回答が無ければ省略する。ローカル SQLite からの読み取りのみ。
+            if let Some(db) = state.hw_db.as_ref() {
+                if let Some(hearing) = super::hearing::hearing_json_for_pack(db, &session_id) {
+                    if let Some(obj) = pack.as_object_mut() {
+                        obj.insert("hearing".to_string(), hearing);
+                    }
+                }
+            }
+            axum::response::Json(pack)
+        }
         Err(msg) => axum::response::Json(serde_json::json!({ "error": msg })),
     }
+}
+
+// =============================================================================
+// フェーズC: ヒアリングシート (印刷用) + Web 入力フォーム + 回答保存
+// =============================================================================
+//
+// - GET  /consult/hearing_sheet?session_id=... → 印刷用ヒアリングシート HTML
+// - GET  /consult/hearing?session_id=...       → 入力フォーム (最新回答をプリフィル)
+// - POST /consult/hearing?session_id=...        → 回答を追記保存 → 保存済み表示
+//
+// 保存先はローカル SQLite (hellowork.db) の consult_hearing_results テーブルのみ。
+// Turso には一切書き込まない。追記オンリー (UPDATE しない)。最新 revision が現在値。
+
+use axum::response::{IntoResponse, Redirect};
+use axum::Form;
+use std::collections::BTreeMap;
+
+/// セッションキャッシュから対象地域文字列 (「県 市」) を組み立てる。無ければ空。
+fn region_from_cache(state: &Arc<AppState>, session_id: &str) -> String {
+    let pref = state
+        .cache
+        .get(&format!("survey_pref_{}", session_id))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let muni = state
+        .cache
+        .get(&format!("survey_muni_{}", session_id))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+    match (pref.is_empty(), muni.is_empty()) {
+        (true, _) => String::new(),
+        (false, true) => pref,
+        (false, false) => format!("{pref} {muni}"),
+    }
+}
+
+/// GET /consult/hearing_sheet — 印刷用ヒアリングシート (社内用)
+pub async fn consult_hearing_sheet(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<ConsultQuery>,
+) -> Html<String> {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return error_html("セッションIDが必要です。CSVをアップロードしてください。"),
+    };
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "generate_consult_hearing_sheet",
+        "consult",
+        &session_id,
+        "",
+    )
+    .await;
+
+    let region = region_from_cache(&state, &session_id);
+    let as_of = chrono::Local::now().format("%Y-%m-%d").to_string();
+    Html(super::hearing::hearing_sheet_html(&region, &as_of))
+}
+
+/// GET /consult/hearing — 入力フォーム (最新回答をプリフィル)
+pub async fn consult_hearing_form(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<ConsultQuery>,
+) -> Html<String> {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return error_html("セッションIDが必要です。CSVをアップロードしてください。"),
+    };
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "view_consult_hearing_form",
+        "consult",
+        &session_id,
+        "",
+    )
+    .await;
+
+    let region = region_from_cache(&state, &session_id);
+    let (answers, history) = match state.hw_db.as_ref() {
+        Some(db) => {
+            let answers = super::hearing::latest_result(db, &session_id)
+                .map(|s| super::hearing::answers_from_json(&s.answers_json))
+                .unwrap_or_default();
+            (answers, super::hearing::revision_history(db, &session_id))
+        }
+        None => (BTreeMap::new(), Vec::new()),
+    };
+
+    Html(super::hearing::hearing_form_html(
+        &session_id,
+        &region,
+        &answers,
+        false,
+        None,
+        &history,
+    ))
+}
+
+/// POST /consult/hearing — 回答を追記保存し、保存済みフォームを返す
+pub async fn consult_hearing_save(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<ConsultQuery>,
+    Form(form): Form<BTreeMap<String, String>>,
+) -> axum::response::Response {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => {
+            return error_html("セッションIDが必要です。CSVをアップロードしてください。")
+                .into_response()
+        }
+    };
+
+    let Some(db) = state.hw_db.clone() else {
+        return error_html("回答を保存できませんでした（ローカルデータベースに接続できません）。")
+            .into_response();
+    };
+
+    let answers = super::hearing::answers_from_form(&form);
+    // 全項目が空なら保存せずフォームへ戻す (空 revision を作らない)
+    if answers.is_empty() {
+        return Redirect::to(&format!("/consult/hearing?session_id={session_id}")).into_response();
+    }
+    let answers_json = serde_json::to_string(&answers).unwrap_or_else(|_| "{}".to_string());
+    let created_at = chrono::Local::now().to_rfc3339();
+
+    // ブロッキング SQLite 書き込みは spawn_blocking で
+    let sid = session_id.clone();
+    let saved = tokio::task::spawn_blocking(move || {
+        super::hearing::insert_result(&db, &sid, &answers_json, &created_at)
+    })
+    .await;
+
+    let saved_revision = match saved {
+        Ok(Ok(rev)) => Some(rev),
+        _ => None,
+    };
+
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "save_consult_hearing",
+        "consult",
+        &session_id,
+        &saved_revision.map(|r| r.to_string()).unwrap_or_default(),
+    )
+    .await;
+
+    if saved_revision.is_none() {
+        return error_html("回答の保存に失敗しました。時間をおいて再度お試しください。")
+            .into_response();
+    }
+
+    // 保存後: 最新回答をプリフィルして返す
+    let region = region_from_cache(&state, &session_id);
+    let (answers, history) = match state.hw_db.as_ref() {
+        Some(db) => {
+            let answers = super::hearing::latest_result(db, &session_id)
+                .map(|s| super::hearing::answers_from_json(&s.answers_json))
+                .unwrap_or_default();
+            (answers, super::hearing::revision_history(db, &session_id))
+        }
+        None => (BTreeMap::new(), Vec::new()),
+    };
+
+    Html(super::hearing::hearing_form_html(
+        &session_id,
+        &region,
+        &answers,
+        true,
+        saved_revision,
+        &history,
+    ))
+    .into_response()
 }
 
 #[cfg(test)]

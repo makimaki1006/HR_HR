@@ -371,6 +371,16 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/consult/evidence_pack.json",
             get(handlers::consult::consult_evidence_pack_json),
         )
+        // フェーズC (2026-07-11): ヒアリングシート (印刷用) + Web 入力フォーム + 回答保存
+        .route(
+            "/consult/hearing_sheet",
+            get(handlers::consult::consult_hearing_sheet),
+        )
+        .route(
+            "/consult/hearing",
+            get(handlers::consult::consult_hearing_form)
+                .post(handlers::consult::consult_hearing_save),
+        )
         .route("/tab/company", get(handlers::company::tab_company))
         .route(
             "/api/company/search",
