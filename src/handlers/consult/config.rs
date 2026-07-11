@@ -95,11 +95,17 @@ pub const NET_MIGRATION_OUTFLOW_THRESHOLD_PERMILLE: f64 = -2.0;
 /// 昼間人口流出型シグナル: 昼夜間人口比率 (%) がこの値未満で「昼間流出型」と判定
 pub const DAYTIME_RATIO_OUTFLOW_THRESHOLD: f64 = 97.0;
 
-/// 開廃業シグナル: 廃業率が開業率をこの差 (ポイント) 以上上回ると「廃業超過」と判定
+/// 開廃業シグナル: 廃業率が開業率をこの差 (ポイント) 以上上回ると「廃業超過」と判定。
+/// 開業率・廃業率とも「年換算値」で比較する (元値は経済センサス調査間の累計のため)。
 pub const CLOSURE_OVER_OPENING_MARGIN_PCT: f64 = 0.0;
 
-/// 開業活発シグナル: 開業率 (%) がこの値以上で「開業が活発」と判定
-pub const OPENING_RATE_ACTIVE_THRESHOLD: f64 = 5.0;
+/// 開業活発シグナル: 開業率 (%) がこの値以上で「開業が活発」と判定。
+///
+/// 🔴 元データ (経済センサス 開廃業) の opening_rate は「調査間の累計」であり年率ではない
+/// (例: 大分県 2021年度行=29.79% は 2016→2021 の約5年累計)。本閾値は **年換算後** の
+/// 開業率 (累計 ÷ 調査間年数) に対して適用する。年換算 約6% では発火させない水準に設定する
+/// (2016→2021 の 29.79% は年換算 約5.96% → 発火しない)。
+pub const OPENING_RATE_ACTIVE_THRESHOLD: f64 = 6.5;
 
 /// 失業率シグナル: 県失業率が全国比この倍率未満で「労働需給が締まっている」と判定
 pub const UNEMPLOYMENT_TIGHT_RATIO: f64 = 0.9;
@@ -107,8 +113,15 @@ pub const UNEMPLOYMENT_TIGHT_RATIO: f64 = 0.9;
 /// 失業率シグナル: 県失業率が全国比この倍率超で「余剰寄り」と判定
 pub const UNEMPLOYMENT_SLACK_RATIO: f64 = 1.1;
 
-/// 家賃負担シグナル: 代表家賃 / 給与中央値 がこの比率以上で「家賃負担が重い」と判定
+/// 家賃負担シグナル (廃止): median_rent_jpy の実体は「1畳あたり家賃 (円)」であり月額家賃
+/// ではないため、家賃×給与の月額バランス判定は成立しない (勝手な畳数仮定で月額を捏造しない)。
+/// 本定数は退行防止のため残すが、S-22 の月額バランス判定では使用しない (判定材料不足に降格)。
 pub const RENT_BURDEN_RATIO_THRESHOLD: f64 = 0.30;
+
+/// 開廃業の年換算に用いる調査間隔のデフォルト年数。fiscal_year の前行との差が取れない
+/// (=単年しか無い) 場合の保守的なフォールバック。経済センサスは概ね数年間隔のため、
+/// 年換算できないときはシグナルを発火させない方針 (このデフォルトは表示補助用)。
+pub const BUSINESS_DYNAMICS_DEFAULT_INTERVAL_YEARS: f64 = 5.0;
 
 /// 年間休日記載シグナル: 年間休日を記載/抽出できた求人比率がこの値未満で「記載が薄い」
 pub const HOLIDAY_MENTION_THIN_RATIO: f64 = 0.5;
@@ -164,5 +177,26 @@ mod tests {
         assert!(COMPETITION_POSTINGS_MEDIUM < COMPETITION_POSTINGS_HIGH);
         assert!(CONFIDENCE_MEDIUM_MIN_SOURCES < CONFIDENCE_HIGH_MIN_SOURCES);
         assert!(HYPOTHESIS_TOP_N >= 1 && CONTRADICTION_MAX >= 1);
+    }
+
+    #[test]
+    // P0-1: 開業率の年換算閾値は「大分県2021 累計29.79% → 年換算(÷5)≈5.96%」で
+    // 発火しない水準であること (閾値は年率基準)。実データ由来の退行防止。
+    #[allow(clippy::assertions_on_constants)]
+    fn opening_rate_threshold_is_annual_basis() {
+        let cumulative_2021 = 29.79_f64;
+        let interval_years = 5.0_f64; // 2016 → 2021
+        let annualized = cumulative_2021 / interval_years;
+        assert!(
+            annualized < OPENING_RATE_ACTIVE_THRESHOLD,
+            "年換算 {:.2}% は閾値 {:.1}% 未満で開業活発シグナルは発火しない",
+            annualized,
+            OPENING_RATE_ACTIVE_THRESHOLD
+        );
+        // 元の累計値 (誤って年率扱いした場合) では逆に閾値を超えてしまうことを明示
+        assert!(
+            cumulative_2021 > OPENING_RATE_ACTIVE_THRESHOLD,
+            "累計値をそのまま使うと誤発火する (年換算が必須である証跡)"
+        );
     }
 }

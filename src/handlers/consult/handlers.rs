@@ -209,10 +209,14 @@ async fn build_consult_input(
         daytime_ratio: Option<f64>,
         business_opening_rate: Option<f64>,
         business_closure_rate: Option<f64>,
+        // P0-1: 開廃業率の調査間隔 (最新年度 - 前年度)。年換算に使う。
+        business_dynamics_interval_years: Option<f64>,
         unemployment_rate_pref: Option<f64>,
         unemployment_rate_national: Option<f64>,
         natural_change: Option<i64>,
-        median_rent: Option<i64>,
+        // P0-2: 1畳あたり家賃 (総数/総数 の median_rent_jpy)。月額家賃ではない。
+        rent_per_tatami: Option<i64>,
+        rent_per_tatami_national: Option<i64>,
     }
 
     let fetched = tokio::task::spawn_blocking(move || {
@@ -352,10 +356,25 @@ async fn build_consult_input(
                     out.sources.push("国勢調査 従業地・通学地集計".to_string());
                 }
             }
-            // 開廃業は最新年度 (fiscal_year 昇順のため last)
+            // 開廃業は最新年度 (fiscal_year 昇順のため last)。
+            // 🔴 P0-1: opening_rate/closure_rate は経済センサス調査間の累計。年換算のため
+            //   「最新年度 - その1つ前の年度」を調査間隔として算出する (前年度行が無ければ None)。
             if let Some(row) = biz.last() {
                 out.business_opening_rate = get_f64_opt(row, "opening_rate");
                 out.business_closure_rate = get_f64_opt(row, "closure_rate");
+                // fiscal_year は文字列 ("2021" 等) のことがあるため get_str → parse で堅牢に読む
+                let year_of = |r: &crate::handlers::helpers::Row| -> Option<f64> {
+                    let s = get_str(r, "fiscal_year");
+                    s.trim().parse::<f64>().ok()
+                };
+                if let (Some(latest_y), Some(prev_row)) = (year_of(row), biz.iter().rev().nth(1)) {
+                    if let Some(prev_y) = year_of(prev_row) {
+                        let interval = latest_y - prev_y;
+                        if interval > 0.0 {
+                            out.business_dynamics_interval_years = Some(interval);
+                        }
+                    }
+                }
                 if out.business_opening_rate.is_some() || out.business_closure_rate.is_some() {
                     out.sources.push("経済センサス 開廃業".to_string());
                 }
@@ -375,16 +394,26 @@ async fn build_consult_input(
                     out.sources.push("人口動態統計".to_string());
                 }
             }
-            // 代表家賃: 当該県 (全国行を除く) の家賃中央値の平均 (>0 のみ)
-            let rents: Vec<f64> = rental
-                .iter()
-                .filter(|r| get_str(r, "prefecture") != "全国")
-                .filter_map(|r| get_f64_opt(r, "median_rent_jpy"))
-                .filter(|v| *v > 0.0)
-                .collect();
-            if !rents.is_empty() {
-                let avg = rents.iter().sum::<f64>() / rents.len() as f64;
-                out.median_rent = Some(avg.round() as i64);
+            // 1畳あたり家賃: 🔴 P0-2 median_rent_jpy の実体は「1畳あたり家賃」であり月額ではない。
+            //   従来は全構造・全市区町村 (197行) を平均していたため意味のない値 (721円) になっていた。
+            //   代表値は「県全体 (municipality 空) の 総数/総数」1行の median_rent_jpy を使う。
+            //   同様に全国 (prefecture=全国) の 総数/総数 を相対位置の基準として取得する。
+            let pick_total = |target_pref: &str| -> Option<i64> {
+                rental
+                    .iter()
+                    .find(|r| {
+                        get_str(r, "prefecture") == target_pref
+                            && get_str(r, "municipality").trim().is_empty()
+                            && get_str(r, "structure") == "総数"
+                            && get_str(r, "area_class") == "総数"
+                    })
+                    .and_then(|r| get_f64_opt(r, "median_rent_jpy"))
+                    .filter(|v| *v > 0.0)
+                    .map(|v| v.round() as i64)
+            };
+            out.rent_per_tatami = pick_total(&pref2);
+            out.rent_per_tatami_national = pick_total("全国");
+            if out.rent_per_tatami.is_some() || out.rent_per_tatami_national.is_some() {
                 out.sources.push("住宅・土地統計".to_string());
             }
         }
@@ -505,10 +534,12 @@ async fn build_consult_input(
         daytime_ratio: fetched.daytime_ratio,
         business_opening_rate: fetched.business_opening_rate,
         business_closure_rate: fetched.business_closure_rate,
+        business_dynamics_interval_years: fetched.business_dynamics_interval_years,
         unemployment_rate_pref: fetched.unemployment_rate_pref,
         unemployment_rate_national: fetched.unemployment_rate_national,
         natural_change: fetched.natural_change,
-        median_rent: fetched.median_rent,
+        rent_per_tatami: fetched.rent_per_tatami,
+        rent_per_tatami_national: fetched.rent_per_tatami_national,
         // 拡充媒体CSV観測
         distinct_tag_count,
         top_tags,

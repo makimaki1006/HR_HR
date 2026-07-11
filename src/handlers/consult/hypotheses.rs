@@ -91,6 +91,31 @@ impl HypothesisCategory {
     }
 }
 
+/// 信頼度判定の内訳 (§11.3 の判定根拠を証拠JSONに残す)。
+/// 「なぜ 高/中/低 になったか」を再現できるよう、判定に使った要素を保持する。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfidenceBreakdown {
+    /// 独立した出典の数 (source_name の異なり数。名寄せ済み証拠を数える)
+    pub independent_sources: usize,
+    /// 対象求人に近い粒度 (今回CSV/市区町村/企業) のみで構成されているか
+    pub granularity_match: bool,
+    /// 反証 (counter evidence) の件数
+    pub counter_count: usize,
+    /// サンプルが充足しているか (S-14 非発火)
+    pub sample_sufficient: bool,
+}
+
+impl Default for ConfidenceBreakdown {
+    fn default() -> Self {
+        ConfidenceBreakdown {
+            independent_sources: 0,
+            granularity_match: false,
+            counter_count: 0,
+            sample_sufficient: true,
+        }
+    }
+}
+
 /// 仮説オブジェクト (§11.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hypothesis {
@@ -104,6 +129,8 @@ pub struct Hypothesis {
     /// 面談で確認すべき不足情報
     pub missing_information: Vec<String>,
     pub confidence: Confidence,
+    /// 信頼度判定の内訳 (§11.3。判定の透明性のため証拠JSONに残す)
+    pub confidence_breakdown: ConfidenceBreakdown,
     pub priority: Priority,
     /// 面談前は常に unverified (フェーズCで支持/否定/保留に更新)
     pub status: String,
@@ -112,14 +139,26 @@ pub struct Hypothesis {
 /// 信頼度の機械判定 (§11.3)
 ///
 /// - High: 独立した出典が3つ以上同方向 + 粒度が対象と一致 + 反証なし + サンプル充足
-/// - Medium: 独立した出典が2つ以上 (一部粒度差・欠損・反証は許容)
-/// - Low: 上記未満 (単一データ・代理指標中心・サンプル不足)
+/// - Medium: 独立した出典が2つ以上 (一部粒度差・欠損・反証は許容)、
+///   または単一出典でも「対象に近い粒度 (今回CSV/市区町村/企業) + サンプル充足 + 反証なし」
+///   の観測 (§11.3 の趣旨: 対象求人に直接根ざした観測は中程度の厚みとみなす)
+/// - Low: 上記未満 (単一の県/全国粒度データ・代理指標中心・サンプル不足)
 pub fn judge_confidence(
     store: &EvidenceStore,
     supporting_ids: &[String],
     counter_ids: &[String],
     sample_sufficient: bool,
 ) -> Confidence {
+    judge_confidence_with_breakdown(store, supporting_ids, counter_ids, sample_sufficient).0
+}
+
+/// 信頼度を判定し、判定内訳もあわせて返す (§11.3。証拠JSONに内訳を残すため)。
+pub fn judge_confidence_with_breakdown(
+    store: &EvidenceStore,
+    supporting_ids: &[String],
+    counter_ids: &[String],
+    sample_sufficient: bool,
+) -> (Confidence, ConfidenceBreakdown) {
     let supporting: Vec<_> = supporting_ids
         .iter()
         .filter_map(|id| store.get(id))
@@ -138,7 +177,14 @@ pub fn judge_confidence(
             )
         });
 
-    if independent_sources >= config::CONFIDENCE_HIGH_MIN_SOURCES
+    let breakdown = ConfidenceBreakdown {
+        independent_sources,
+        granularity_match,
+        counter_count: counter_ids.len(),
+        sample_sufficient,
+    };
+
+    let confidence = if independent_sources >= config::CONFIDENCE_HIGH_MIN_SOURCES
         && counter_ids.is_empty()
         && granularity_match
         && sample_sufficient
@@ -146,9 +192,20 @@ pub fn judge_confidence(
         Confidence::High
     } else if independent_sources >= config::CONFIDENCE_MEDIUM_MIN_SOURCES {
         Confidence::Medium
+    } else if independent_sources >= 1
+        && granularity_match
+        && sample_sufficient
+        && counter_ids.is_empty()
+    {
+        // §11.3 調整 (2026-07-11): 現状ほぼ全て「低」で識別力がないため、
+        // 対象求人に直接根ざした観測 (今回CSV/市区町村/企業粒度) がサンプル充足・反証なしで
+        // 揃っている単一出典ケースは「中」に引き上げる。県/全国粒度の単一データは「低」のまま。
+        Confidence::Medium
     } else {
         Confidence::Low
-    }
+    };
+
+    (confidence, breakdown)
 }
 
 fn signal<'a>(signals: &'a [Signal], id: &str) -> Option<&'a Signal> {
@@ -180,6 +237,95 @@ struct HypothesisDraft {
     counter: Vec<String>,
     missing: Vec<String>,
     priority: Priority,
+}
+
+/// 2つの根拠集合の Jaccard 類似度 (|∩| / |∪|)。両方空なら 0。
+fn jaccard(a: &[String], b: &[String]) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let inter = a.iter().filter(|x| b.contains(x)).count();
+    let union = a.len() + b.len() - inter;
+    if union == 0 {
+        0.0
+    } else {
+        inter as f64 / union as f64
+    }
+}
+
+/// 重なり係数 (overlap coefficient) = |∩| / min(|a|,|b|)。両方空なら 0。
+/// 一方の根拠集合が他方にほぼ含まれる (包含) ケースを捉える。
+/// 例: 「配信地域が狭い」(根拠1件) が「配信圏が合っていない」(根拠2件) に含まれる → 1.0。
+fn overlap_coefficient(a: &[String], b: &[String]) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let inter = a.iter().filter(|x| b.contains(x)).count();
+    let min_len = a.len().min(b.len());
+    if min_len == 0 {
+        0.0
+    } else {
+        inter as f64 / min_len as f64
+    }
+}
+
+/// 同一カテゴリで根拠集合が大きく重なる仮説をマージする (P1-4)。
+///
+/// 実例: 「配信地域が狭い」と「人の動きに配信圏が合っていない」は通勤OD同根拠で並ぶため、
+/// TOP5 が同種の仮説で埋まってしまう。閾値以上に根拠が重なる同カテゴリ draft を1つに統合し、
+/// TOP5 の枠を多様なカテゴリに使えるようにする。
+///
+/// マージ規則:
+/// - 同一カテゴリかつ根拠 Jaccard >= 閾値 のペアを統合
+/// - 優先度は高い方を採用
+/// - 根拠 (supporting/counter)・不足情報は重複排除して和集合
+/// - statement は先発 (入力順で先) を残し、後発の要点を「(関連: …)」として補足
+fn merge_overlapping_drafts(drafts: Vec<HypothesisDraft>) -> Vec<HypothesisDraft> {
+    /// 統合とみなす根拠の重なり閾値。
+    /// Jaccard (集合全体の一致) か overlap 係数 (包含) のいずれかがこの値以上なら統合する。
+    /// overlap も見ることで「小さい根拠集合が大きい方に含まれる」ケース (配信地域が狭い ⊂
+    /// 配信圏が合っていない) も統合できる。
+    const MERGE_THRESHOLD: f64 = 0.6;
+
+    let mut merged: Vec<HypothesisDraft> = Vec::new();
+    for d in drafts {
+        // 既存の同カテゴリ・高重複 draft を探す (Jaccard か overlap のどちらかが閾値以上)
+        let target = merged.iter_mut().find(|m| {
+            m.category == d.category
+                && (jaccard(&m.supporting, &d.supporting) >= MERGE_THRESHOLD
+                    || overlap_coefficient(&m.supporting, &d.supporting) >= MERGE_THRESHOLD)
+        });
+        match target {
+            Some(m) => {
+                // 優先度は高い方
+                if d.priority > m.priority {
+                    m.priority = d.priority;
+                }
+                // 根拠・反証・不足情報を和集合 (重複排除)
+                for id in d.supporting {
+                    if !m.supporting.contains(&id) {
+                        m.supporting.push(id);
+                    }
+                }
+                for id in d.counter {
+                    if !m.counter.contains(&id) {
+                        m.counter.push(id);
+                    }
+                }
+                for info in d.missing {
+                    if !m.missing.contains(&info) {
+                        m.missing.push(info);
+                    }
+                }
+                // statement は先発を残し、後発の観点を補足 (可能性表現は維持される)
+                if !m.statement.contains(&d.statement) {
+                    m.statement = format!("{}（関連する観点: {}）", m.statement, d.statement);
+                }
+            }
+            None => merged.push(d),
+        }
+    }
+    merged
 }
 
 /// 市場側シグナルから仮説を生成し、confidence×priority 順で全件返す。
@@ -407,11 +553,11 @@ pub fn build_hypotheses(
         });
     }
 
-    // 採用条件: 生活コスト (家賃) に対する給与
+    // 採用条件: 居住コスト (1畳あたり家賃の全国比) が相対的に高い
     if fired(signals, "S-22") {
         drafts.push(HypothesisDraft {
             category: HypothesisCategory::Conditions,
-            statement: "地域の家賃等の生活コストに対して市場給与帯が重く、転居を伴う採用や遠方からの応募が集まりにくい可能性がある".to_string(),
+            statement: "地域の居住コスト (1畳あたり家賃) が全国比で相対的に高く、転居を伴う採用や遠方からの応募が集まりにくい可能性がある".to_string(),
             supporting: evidence_of(signals, &["S-22", "S-02"]),
             counter: evidence_of(signals, &["S-03"]),
             missing: vec![
@@ -464,12 +610,21 @@ pub fn build_hypotheses(
         });
     }
 
-    // draft → Hypothesis (信頼度は機械判定)
+    // 仮説の重複統合 (§12.3 / P1-4): 同一カテゴリで根拠集合が大きく重なる draft はマージし、
+    // TOP5 の枠を多様なカテゴリに使えるようにする。
+    let drafts = merge_overlapping_drafts(drafts);
+
+    // draft → Hypothesis (信頼度は機械判定。内訳も保持)
     let mut hypotheses: Vec<Hypothesis> = drafts
         .into_iter()
         .enumerate()
         .map(|(i, d)| {
-            let confidence = judge_confidence(store, &d.supporting, &d.counter, sample_sufficient);
+            let (confidence, breakdown) = judge_confidence_with_breakdown(
+                store,
+                &d.supporting,
+                &d.counter,
+                sample_sufficient,
+            );
             Hypothesis {
                 hypothesis_id: format!("H-{:03}", i + 1),
                 category: d.category,
@@ -478,6 +633,7 @@ pub fn build_hypotheses(
                 counter_evidence_ids: d.counter,
                 missing_information: d.missing,
                 confidence,
+                confidence_breakdown: breakdown,
                 priority: d.priority,
                 status: "unverified".to_string(),
             }
@@ -505,14 +661,16 @@ mod tests {
     use crate::handlers::consult::evidence::EvidenceKind;
 
     fn store_with(entries: &[(&str, &str, &str)]) -> (EvidenceStore, Vec<String>) {
-        // entries: (metric, source, granularity)
+        // entries: (metric, source, granularity)。
+        // 各エントリを別証拠として扱いたいテスト用に、値を index で一意化して
+        // 名寄せ (dedup) で潰れないようにする (同一指標の dedup 挙動は evidence.rs 側でテスト済み)。
         let mut store = EvidenceStore::new();
         let mut ids = Vec::new();
-        for (metric, source, gran) in entries {
+        for (i, (metric, source, gran)) in entries.iter().enumerate() {
             ids.push(store.add(
                 EvidenceKind::Aggregated,
                 metric,
-                "1",
+                &format!("{}", i + 1),
                 "",
                 source,
                 gran,
@@ -564,15 +722,40 @@ mod tests {
     }
 
     #[test]
-    fn confidence_low_on_single_source() {
+    fn confidence_low_on_single_pref_source() {
+        // 単一の県粒度データは「低」のまま (対象求人から遠い粒度)
         let (store, ids) = store_with(&[("m1", "出典A", granularity::PREFECTURE)]);
         assert_eq!(judge_confidence(&store, &ids, &[], true), Confidence::Low);
-        // 同一出典が複数あっても独立根拠は1つ
+        // サンプル不足なら CSV 粒度単一でも「低」
+        let (store2, ids2) = store_with(&[("m1", "出典A", granularity::CSV)]);
+        assert_eq!(
+            judge_confidence(&store2, &ids2, &[], false),
+            Confidence::Low
+        );
+    }
+
+    #[test]
+    fn confidence_medium_on_single_target_proximate_observation() {
+        // §11.3 調整 (2026-07-11): 対象求人に近い粒度 (今回CSV) の単一観測が
+        // サンプル充足・反証なしなら「中」。識別力を出すための引き上げ。
+        let (store, ids) = store_with(&[
+            ("m1", "出典A", granularity::CSV),
+            ("m2", "出典A", granularity::CSV), // 同一出典 → 独立根拠は1つだが粒度は近い
+        ]);
+        assert_eq!(
+            judge_confidence(&store, &ids, &[], true),
+            Confidence::Medium
+        );
+        // 反証があれば「低」に戻る
         let (store2, ids2) = store_with(&[
             ("m1", "出典A", granularity::CSV),
-            ("m2", "出典A", granularity::CSV),
+            ("c", "出典B", granularity::CSV),
         ]);
-        assert_eq!(judge_confidence(&store2, &ids2, &[], true), Confidence::Low);
+        let counter = vec![ids2[1].clone()];
+        assert_eq!(
+            judge_confidence(&store2, &ids2[..1], &counter, true),
+            Confidence::Low
+        );
     }
 
     #[test]
@@ -618,16 +801,23 @@ mod tests {
 
     #[test]
     fn all_statements_use_possibility_wording() {
-        // 全生成経路を発火させ、全 statement が可能性表現であることを確認
-        let (store, ids) = store_with(&[("m", "出典A", granularity::CSV)]);
-        let eid = ids[0].as_str();
-        let all_fired: Vec<Signal> = [
+        // 全生成経路を発火させ、全 statement が可能性表現であることを確認。
+        // 各シグナルに固有の根拠を割り当てる (実際の運用ではシグナルごとに証拠が異なるため、
+        // P1-4 の統合で同カテゴリが過剰に潰れないことも同時に確認する)。
+        let sig_ids = [
             "S-01", "S-02", "S-03", "S-04", "S-05", "S-06", "S-07", "S-08", "S-09", "S-10", "S-11",
             "S-12", "S-13", "S-15",
-        ]
-        .iter()
-        .map(|id| make_signal(id, true, &[eid]))
-        .collect();
+        ];
+        let entries: Vec<(&str, &str, &str)> = sig_ids
+            .iter()
+            .map(|_| ("m", "出典A", granularity::CSV))
+            .collect();
+        let (store, ids) = store_with(&entries);
+        let all_fired: Vec<Signal> = sig_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| make_signal(id, true, &[ids[i].as_str()]))
+            .collect();
         let input = ConsultInput {
             client: crate::handlers::consult::input::ClientInput {
                 hiring_count: Some(3),
@@ -675,5 +865,75 @@ mod tests {
         for w in top.windows(2) {
             assert!(w[0].priority >= w[1].priority);
         }
+    }
+
+    #[test]
+    fn jaccard_basic() {
+        let a = vec!["E-1".to_string(), "E-2".to_string(), "E-3".to_string()];
+        let b = vec!["E-1".to_string(), "E-2".to_string(), "E-3".to_string()];
+        assert!((jaccard(&a, &b) - 1.0).abs() < 1e-9);
+        let c = vec!["E-1".to_string(), "E-2".to_string()];
+        // ∩=2, ∪=3 → 0.666...
+        assert!((jaccard(&a, &c) - 2.0 / 3.0).abs() < 1e-9);
+        assert_eq!(jaccard(&a, &[]), 0.0);
+    }
+
+    #[test]
+    fn overlapping_sourcing_hypotheses_are_merged() {
+        // P1-4 実例: 「配信地域が狭い」(S-12) と「人の動きに配信圏が合っていない」(S-17/S-28)
+        // は通勤OD同根拠で並ぶため、同カテゴリ (Sourcing) で根拠が大きく重なる → 1つに統合される。
+        let (store, ids) = store_with(&[
+            (
+                "通勤流入",
+                "国勢調査 通勤・通学OD",
+                granularity::MUNICIPALITY,
+            ),
+            (
+                "昼夜間人口比率",
+                "国勢調査 従業地・通学地集計",
+                granularity::MUNICIPALITY,
+            ),
+        ]);
+        // S-12 と S-17/S-28 が同じ通勤OD根拠 (ids[0]) を共有する状況を作る
+        let signals = vec![
+            make_signal("S-12", true, &[ids[0].as_str()]),
+            make_signal("S-17", true, &[ids[0].as_str(), ids[1].as_str()]),
+            make_signal("S-28", true, &[ids[0].as_str()]),
+        ];
+        let input = ConsultInput::default();
+        let hyps = build_hypotheses(&input, &signals, &store);
+        // Sourcing カテゴリの仮説が2つ以上並ばず、統合されて1つになる
+        let sourcing_count = hyps
+            .iter()
+            .filter(|h| h.category == HypothesisCategory::Sourcing)
+            .count();
+        assert_eq!(
+            sourcing_count, 1,
+            "根拠が重なる同カテゴリ仮説は統合される (実際: {})",
+            sourcing_count
+        );
+    }
+
+    #[test]
+    fn confidence_breakdown_is_recorded() {
+        // P1-5: 信頼度判定の内訳が仮説に残る
+        let (store, ids) = store_with(&[
+            ("m1", "出典A", granularity::CSV),
+            ("m2", "出典B", granularity::MUNICIPALITY),
+        ]);
+        let signals = vec![
+            make_signal("S-07", true, &[ids[0].as_str()]),
+            make_signal("S-08", true, &[ids[1].as_str()]),
+        ];
+        let input = ConsultInput::default();
+        let hyps = build_hypotheses(&input, &signals, &store);
+        let h = hyps
+            .iter()
+            .find(|h| h.category == HypothesisCategory::MarketStructure)
+            .expect("市場構造の仮説");
+        assert_eq!(h.confidence_breakdown.independent_sources, 2);
+        assert!(h.confidence_breakdown.granularity_match);
+        assert_eq!(h.confidence_breakdown.counter_count, 0);
+        assert_eq!(h.confidence, Confidence::Medium);
     }
 }

@@ -75,7 +75,13 @@ impl EvidenceStore {
         Self::default()
     }
 
-    /// 証拠を登録し、発行したIDを返す
+    /// 証拠を登録し、発行したIDを返す。
+    ///
+    /// §11.3 の「独立根拠数」判定が重複でかさ増しされないよう、同一指標
+    /// (metric_name + granularity + value_text + unit + source_name) が既に
+    /// 登録されている場合は **既存IDを再利用** する (名寄せ / dedup)。
+    /// note・sample_n・as_of は表示補助情報のため dedup キーに含めない
+    /// (同一指標なら最初に登録した note を維持する)。
     #[allow(clippy::too_many_arguments)]
     pub fn add(
         &mut self,
@@ -89,6 +95,16 @@ impl EvidenceStore {
         as_of: Option<String>,
         note: &str,
     ) -> String {
+        // 名寄せ: 同一指標が既にあれば既存IDを返す (重複登録しない)
+        if let Some(existing) = self.items.iter().find(|e| {
+            e.metric_name == metric_name
+                && e.granularity == granularity
+                && e.value_text == value_text
+                && e.unit == unit
+                && e.source_name == source_name
+        }) {
+            return existing.id.clone();
+        }
         let id = format!("E-{:03}", self.items.len() + 1);
         self.items.push(Evidence {
             id: id.clone(),
@@ -172,5 +188,90 @@ mod tests {
     fn serde_kind_is_uppercase() {
         let v = serde_json::to_string(&EvidenceKind::Aggregated).unwrap();
         assert_eq!(v, "\"AGGREGATED\"");
+    }
+
+    #[test]
+    fn identical_metric_is_deduped_to_single_id() {
+        // 実例: 有効求人倍率 1.35倍 が複数箇所から登録されても1つのIDにまとまる
+        let mut store = EvidenceStore::new();
+        let id1 = store.add(
+            EvidenceKind::Observed,
+            "有効求人倍率",
+            "1.35",
+            "倍",
+            "一般職業紹介状況",
+            granularity::PREFECTURE,
+            None,
+            None,
+            "初回登録",
+        );
+        let id2 = store.add(
+            EvidenceKind::Observed,
+            "有効求人倍率",
+            "1.35",
+            "倍",
+            "一般職業紹介状況",
+            granularity::PREFECTURE,
+            None,
+            None,
+            "別ロジックからの再登録",
+        );
+        let id3 = store.add(
+            EvidenceKind::Observed,
+            "有効求人倍率",
+            "1.35",
+            "倍",
+            "一般職業紹介状況",
+            granularity::PREFECTURE,
+            None,
+            None,
+            "さらに別ロジック",
+        );
+        assert_eq!(id1, id2, "同一指標は名寄せされ同じID");
+        assert_eq!(id1, id3);
+        assert_eq!(store.len(), 1, "重複登録されず1件のみ");
+    }
+
+    #[test]
+    fn different_value_or_source_is_not_deduped() {
+        let mut store = EvidenceStore::new();
+        let id1 = store.add(
+            EvidenceKind::Observed,
+            "有効求人倍率",
+            "1.35",
+            "倍",
+            "一般職業紹介状況",
+            granularity::PREFECTURE,
+            None,
+            None,
+            "",
+        );
+        // 値が違う → 別ID
+        let id2 = store.add(
+            EvidenceKind::Observed,
+            "有効求人倍率",
+            "1.50",
+            "倍",
+            "一般職業紹介状況",
+            granularity::PREFECTURE,
+            None,
+            None,
+            "",
+        );
+        // 出典が違う → 別ID
+        let id3 = store.add(
+            EvidenceKind::Observed,
+            "有効求人倍率",
+            "1.35",
+            "倍",
+            "別の出典",
+            granularity::PREFECTURE,
+            None,
+            None,
+            "",
+        );
+        assert_ne!(id1, id2);
+        assert_ne!(id1, id3);
+        assert_eq!(store.len(), 3);
     }
 }
