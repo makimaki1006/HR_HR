@@ -133,6 +133,20 @@ pub enum ReportVariant {
     /// 既存 variant (Full / Public / MarketIntelligence) の出力は 1 バイトも変えない
     /// (本 variant は完全に新規追加であり、既存分岐は不変)。
     Extended,
+    /// SP版 (仮) (2026-07-11 追加、試作)
+    ///
+    /// `Extended` (詳細版) の全セクションをそのまま出力しつつ、レビューで挙がった
+    /// 改善を **SP のみ** に適用した全部入りの試作版:
+    /// - 持ち歩ける経営サマリー1ページ (結論の1文 3〜5箇条 + まず取り組む3つ)
+    /// - 各セクション冒頭の「このページの結論」バンド
+    /// - §09/§10 の So What を集約した優先アクション表 (すぐ効く/仕込みが要る 2 分類)
+    /// - 主要な WARN/NEGATIVE 所見への「このままの場合に想定されること」1 行
+    /// - 給与分布 (§03) の 25/50/75 パーセンタイル四分位表示
+    ///
+    /// 既存 variant (Full / Public / MarketIntelligence / Extended) の出力は
+    /// 1 バイトも変えない (SP 専用ブロックは `variant == Sp` のときだけ描画する)。
+    /// 名称は暫定であり「SP版 (仮)」と表記する (正式名にしない)。
+    Sp,
 }
 
 impl ReportVariant {
@@ -144,6 +158,7 @@ impl ReportVariant {
             Some("public") => Self::Public,
             Some("market_intelligence") => Self::MarketIntelligence,
             Some("extended") => Self::Extended,
+            Some("sp") => Self::Sp,
             _ => Self::Full,
         }
     }
@@ -155,6 +170,7 @@ impl ReportVariant {
             Self::Public => "public",
             Self::MarketIntelligence => "market_intelligence",
             Self::Extended => "extended",
+            Self::Sp => "sp",
         }
     }
 
@@ -165,6 +181,7 @@ impl ReportVariant {
             Self::Public => "公開データ中心版",
             Self::MarketIntelligence => "採用マーケットインテリジェンス版",
             Self::Extended => "詳細版",
+            Self::Sp => "SP版 (仮)",
         }
     }
 
@@ -183,12 +200,21 @@ impl ReportVariant {
         matches!(self, Self::Full)
     }
 
+    /// SP版 (仮) 専用ブロック (経営サマリー1ページ / 結論バンド / 優先アクション表 /
+    /// 給与四分位) を表示するか。`Sp` のときだけ true。
+    ///
+    /// 2026-07-11 追加。既存 variant の出力は 1 バイトも変わらない
+    /// (SP 専用ブロックはこのフックが true のときだけ描画する)。
+    pub fn show_sp_sections(self) -> bool {
+        matches!(self, Self::Sp)
+    }
+
     /// 採用マーケットインテリジェンスセクション (Phase 3 Step 3 で追加予定) を表示するか。
     ///
     /// Step 4 ではこのフックメソッドを定義するのみで、HTML 側の参照はまだしない。
     /// Step 3 でこのメソッドを `if variant.show_market_intelligence_sections() { ... }` で参照する。
     pub fn show_market_intelligence_sections(self) -> bool {
-        matches!(self, Self::MarketIntelligence | Self::Extended)
+        matches!(self, Self::MarketIntelligence | Self::Extended | Self::Sp)
     }
 
     /// 詳細版 (Extended) 専用の追加 4 図 (Section 10) を表示するか。
@@ -196,7 +222,7 @@ impl ReportVariant {
     /// 2026-07-09 追加。`Extended` のときだけ true。既存 variant の挙動は不変。
     /// 呼出側 (mod.rs) はこのフックで Section 10 の描画を判断する。
     pub fn show_extended_sections(self) -> bool {
-        matches!(self, Self::Extended)
+        matches!(self, Self::Extended | Self::Sp)
     }
 
     /// アイコン (絵文字)
@@ -206,6 +232,7 @@ impl ReportVariant {
             Self::Public => "\u{1F30D}",             // 🌍
             Self::MarketIntelligence => "\u{1F4CA}", // 📊
             Self::Extended => "\u{1F4C8}",           // 📈
+            Self::Sp => "\u{1F9EA}",                 // 🧪 (試作)
         }
     }
 
@@ -220,6 +247,8 @@ impl ReportVariant {
             Self::MarketIntelligence => Self::Full,
             // 詳細版の反対導線は採用マーケットインテリジェンス版 (追加 4 図なしの基底)。
             Self::Extended => Self::MarketIntelligence,
+            // SP版 (仮) の反対導線は詳細版 (SP 専用ブロックを外した基底)。
+            Self::Sp => Self::Extended,
         }
     }
 
@@ -233,6 +262,9 @@ impl ReportVariant {
             }
             Self::Extended => {
                 "採用マーケットインテリジェンス版に、働き手の将来・給与相場・転職意向・採用ネック診断の4図を加えた詳細版"
+            }
+            Self::Sp => {
+                "詳細版に、持ち歩ける経営サマリー1ページ・各ページの結論バンド・優先アクション表・給与四分位を加えた試作版 (仮)"
             }
         }
     }
@@ -896,6 +928,11 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     html.push_str("<title>求人市場 総合診断レポート</title>\n");
     html.push_str("<style>\n");
     html.push_str(&render_css_for_theme(cfg.theme));
+    // 2026-07-11: SP版 (仮) 専用 CSS は SP variant のときだけ追記する。
+    //   既存 variant の <style> 内容 (= render_css_for_theme の出力) は 1 バイトも変わらない。
+    if cfg.variant.show_sp_sections() {
+        html.push_str(&style::render_sp_css());
+    }
     html.push_str("</style>\n");
     // ECharts CDN
     html.push_str(
@@ -951,6 +988,16 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             cfg.variant,
             &target_region,
         );
+        // 2026-07-11: SP版 (仮) 専用「持ち歩ける経営サマリー1ページ」を表紙・目次・
+        //   Executive Summary の直後に配置。SP 以外の variant では呼ばれないため出力は不変。
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_exec_onepager(
+                &mut html,
+                cfg.agg,
+                cfg.hw_context,
+                &target_region,
+            );
+        }
     }
     // Round 24 Push 3: 旧 cover / executive_summary 呼び出しは下記コメントブロック内で
     // 削除。テストが旧マーカー (dv2-cover / dv2-section-badge / exec-kpi-grid-v2 等)
@@ -961,6 +1008,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   では shows("02".."07"/"075"/"076") は常に true のため、従来の無条件呼出と
     //   完全に等価 (出力 byte 不変)。sections 指定時は該当コードのみ描画する。
     if cfg.section_set.shows("02") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "02", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_02_region(
             &mut html,
             cfg.agg,
@@ -971,6 +1021,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         );
     }
     if cfg.section_set.shows("03") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "03", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_03_salary(
             &mut html,
             cfg.agg,
@@ -980,8 +1033,15 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             // ctx.salary_scatter_pairs を参照するため hw_context を渡す。
             cfg.hw_context,
         );
+        // 2026-07-11: SP版 (仮) 専用 給与四分位 (25/50/75 パーセンタイル) を §03 直後に追加。
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_salary_quartiles(&mut html, cfg.agg);
+        }
     }
     if cfg.section_set.shows("04") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "04", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_04_market_tightness(
             &mut html,
             cfg.hw_context,
@@ -990,6 +1050,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         );
     }
     if cfg.section_set.shows("05") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "05", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_05_companies(
             &mut html,
             cfg.hw_context,
@@ -1002,6 +1065,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         );
     }
     if cfg.section_set.shows("06") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "06", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_06_demographics(
             &mut html,
             cfg.agg,
@@ -1010,6 +1076,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
         );
     }
     if cfg.section_set.shows("07") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "07", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_07_lifestyle(
             &mut html,
             cfg.hw_context,
@@ -1044,6 +1113,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   variant.show_market_intelligence_sections() と等価 (from_variant 経由) のため
     //   Full/Public での出力は不変。sections 指定時は variant 無関係に 09 を出せる。
     if cfg.section_set.shows("09") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "09", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_09_market_intelligence(
             &mut html,
             cfg.hw_context,
@@ -1057,6 +1129,9 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   cross_* が未投入 (空) の場合は関数内で graceful skip し、HTML には何も出さない。
     //   2026-07-10: gate を SectionSet.shows("10") に変更 (09 と同様に variant 準拠を維持)。
     if cfg.section_set.shows("10") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "10", cfg.agg, cfg.hw_context);
+        }
         navy_report::render_navy_section_10_extended(
             &mut html,
             cfg.hw_context,
@@ -1064,6 +1139,11 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             cfg.variant,
             &target_region,
         );
+    }
+    // 2026-07-11: SP版 (仮) 専用「優先アクション表」を §08 注記の直前 (終盤) に配置。
+    //   §09/§10 の So What を集約した実行表。SP 以外の variant では呼ばれない。
+    if cfg.variant.show_sp_sections() {
+        navy_report::render_sp_priority_actions(&mut html, cfg.agg, cfg.hw_context);
     }
     navy_report::render_navy_section_08_notes(&mut html, cfg.variant, &now, cfg.hw_context);
     // 未使用引数の suppress (将来の MarketIntelligence 拡張で使用予定)
@@ -3380,6 +3460,124 @@ mod variant_indicator_tests {
         assert!(ReportVariant::MarketIntelligence.show_market_intelligence_sections());
         assert!(!ReportVariant::Full.show_market_intelligence_sections());
         assert!(!ReportVariant::Public.show_market_intelligence_sections());
+    }
+
+    // ============================================================
+    // SP版 (仮) variant (2026-07-11 追加)
+    // ============================================================
+
+    /// `?variant=sp` が `Sp` に解決され、他の既存値の解釈が不変であること。
+    #[test]
+    fn variant_query_sp_resolves() {
+        assert_eq!(ReportVariant::from_query(Some("sp")), ReportVariant::Sp);
+        // 既存挙動は不変
+        assert_eq!(
+            ReportVariant::from_query(Some("extended")),
+            ReportVariant::Extended
+        );
+        assert_eq!(ReportVariant::from_query(Some("full")), ReportVariant::Full);
+        assert_eq!(ReportVariant::from_query(None), ReportVariant::Full);
+        // 大文字・別綴りは Full フォールバック (既存仕様)
+        assert_eq!(ReportVariant::from_query(Some("SP")), ReportVariant::Full);
+    }
+
+    /// SP版 (仮) の表示名・クエリ文字列。
+    #[test]
+    fn variant_sp_display_name_and_query() {
+        assert_eq!(ReportVariant::Sp.display_name(), "SP版 (仮)");
+        assert_eq!(ReportVariant::Sp.as_query(), "sp");
+        // 往復: as_query → from_query
+        assert_eq!(
+            ReportVariant::from_query(Some(ReportVariant::Sp.as_query())),
+            ReportVariant::Sp
+        );
+    }
+
+    /// SP は SP 専用ブロック + §09 + §10 を出す。既存 variant は SP フックが false。
+    #[test]
+    fn variant_sp_section_flags() {
+        assert!(ReportVariant::Sp.show_sp_sections());
+        assert!(ReportVariant::Sp.show_market_intelligence_sections());
+        assert!(ReportVariant::Sp.show_extended_sections());
+        // 既存 variant は SP フック false (SP 専用ブロックが混入しない保証)
+        for v in [
+            ReportVariant::Full,
+            ReportVariant::Public,
+            ReportVariant::MarketIntelligence,
+            ReportVariant::Extended,
+        ] {
+            assert!(
+                !v.show_sp_sections(),
+                "{:?} に SP フックが立ってはいけない",
+                v
+            );
+        }
+    }
+
+    /// SP の反対導線は Extended (SP 専用ブロックを外した基底)。既存 alternative は不変。
+    #[test]
+    fn variant_sp_alternative_returns_extended() {
+        assert_eq!(ReportVariant::Sp.alternative(), ReportVariant::Extended);
+        // 既存挙動維持
+        assert_eq!(ReportVariant::Full.alternative(), ReportVariant::Public);
+        assert_eq!(
+            ReportVariant::Extended.alternative(),
+            ReportVariant::MarketIntelligence
+        );
+    }
+
+    /// SP variant では経営サマリー1ページ・結論バンド・優先アクション表・給与四分位が出力され、
+    /// Extended variant には一切出ないこと (SP isolation の逆証明)。
+    #[test]
+    fn sp_only_blocks_present_in_sp_absent_in_extended() {
+        use crate::handlers::survey::aggregator::SurveyAggregation;
+        use crate::handlers::survey::job_seeker::JobSeekerAnalysis;
+
+        let mut agg = SurveyAggregation::default();
+        agg.total_count = 100;
+        agg.new_count = 12;
+        agg.by_prefecture = vec![("群馬県".to_string(), 80), ("埼玉県".to_string(), 20)];
+        agg.by_employment_type = vec![("正社員".to_string(), 70), ("契約社員".to_string(), 30)];
+        agg.salary_values = vec![
+            200_000, 240_000, 260_000, 280_000, 300_000, 320_000, 350_000,
+        ];
+        let seeker = JobSeekerAnalysis::default();
+
+        let sp = render_survey_report_page_for_vrt(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            ReportVariant::Sp,
+        );
+        let ext = render_survey_report_page_for_vrt(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &[],
+            &[],
+            None,
+            ReportVariant::Extended,
+        );
+
+        for marker in [
+            "経営サマリー (仮)",
+            "このページの結論",
+            "優先アクション表 (仮)",
+            "表 3-SP",
+            "sp-conclusion-band",
+        ] {
+            assert!(sp.contains(marker), "SP に {} が必要", marker);
+            assert!(
+                !ext.contains(marker),
+                "Extended に {} が混入してはいけない",
+                marker
+            );
+        }
     }
 
     /// `MarketIntelligence.alternative()` は `Full` (一般版に戻る)。

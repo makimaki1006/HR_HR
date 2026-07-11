@@ -753,6 +753,19 @@ fn render_action_bar(session_id: &str) -> String {
                             <span class="text-[10px] opacity-80 font-normal">働き手の将来・給与相場・転職動向の分析を追加した版</span>
                         </span>
                     </a>
+                    <!-- SP版 (仮): sp — 詳細版 + 経営サマリー1ページ/結論バンド/優先アクション表/給与四分位 (試作) -->
+                    <a href="/report/survey?session_id={sid}&variant=sp" target="_blank" rel="noopener"
+                       onclick="return openVariantReport(event, '{sid}', 'sp')"
+                       data-variant="sp"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-400"
+                       aria-label="SPレポート (仮) PDFを新しいタブで開く（試作）"
+                       title="SPレポート (仮): 詳細版に「持ち歩ける経営サマリー1ページ」「各ページの結論バンド」「優先アクション表」「給与の四分位」を加えた試作版です。レビュー改善を全部入れした試験的なレポートで、内容・体裁は今後変わる可能性があります。">
+                        <span class="text-base" aria-hidden="true">🧪</span>
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>SPレポートを作成 (仮)</span>
+                            <span class="text-[10px] opacity-80 font-normal">レビュー改善を全部入れした試作版</span>
+                        </span>
+                    </a>
                 </div>
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
                     PDF出力は<strong class="text-slate-200">2種類</strong>から選択できます。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>

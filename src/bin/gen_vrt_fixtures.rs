@@ -741,5 +741,20 @@ fn main() {
     );
     write_fixture(&out_dir, "report_extended.html", &html_extended);
 
+    // 4) SP版 (仮) variant: Extended の全セクション + SP 専用ブロック
+    //    (経営サマリー1ページ / 各ページ結論バンド / 給与四分位 / 優先アクション表)。
+    //    既存 3 fixture (basic/mi/extended) の sha は不変 (SP は別 variant のため)。
+    let html_sp = render_survey_report_page_for_vrt(
+        &agg_full,
+        &seeker,
+        &agg_full.by_company,
+        &agg_full.by_emp_type_salary,
+        &agg_full.salary_min_values,
+        &agg_full.salary_max_values,
+        Some(&ctx),
+        ReportVariant::Sp,
+    );
+    write_fixture(&out_dir, "report_sp.html", &html_sp);
+
     println!("VRT fixture 生成完了");
 }
