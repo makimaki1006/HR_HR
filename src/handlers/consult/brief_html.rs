@@ -135,8 +135,40 @@ body.theme-navy .consult-evidence-table td {
   padding: 1px 6px 1px 0;
   font-size: 7pt;
   line-height: 1.5;
+  /* P1-8: 通勤流入元上位のような長文セルが折り返さず重なるのを防ぐ */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 body.theme-navy .table-navy td, body.theme-navy .table-navy th { vertical-align: top; }
+/* 全テーブルの値・指標セルも長文で重ならないよう折り返す (P1-8) */
+body.theme-navy .table-navy td { overflow-wrap: anywhere; }
+/* 面談の掴み (差別化の核) カード */
+body.theme-navy .consult-grip-item {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  border: 1px solid var(--rule, #D8D2C4);
+  border-left: 4px solid #A8331F;
+  padding: 3mm 4mm;
+  margin-bottom: 3.5mm;
+  background: #FBF6F4;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+body.theme-navy .consult-grip-item .grip-head {
+  font-weight: 700; font-size: 11pt; color: #A8331F; margin-bottom: 1.5mm;
+}
+body.theme-navy .consult-grip-item .grip-no {
+  display: inline-block; min-width: 6mm; height: 6mm; line-height: 6mm; text-align: center;
+  background: #A8331F; color: #fff; border-radius: 50%; font-size: 8.5pt; margin-right: 6px;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+body.theme-navy .consult-grip-item .grip-talk {
+  font-size: 9.5pt; line-height: 1.75; margin: 1mm 0; color: #1F2D4D;
+}
+body.theme-navy .consult-grip-item .grip-followup {
+  font-size: 8.5pt; line-height: 1.6; color: #1F6B43; margin: 1.5mm 0 0.5mm;
+}
 "#
 }
 
@@ -216,16 +248,48 @@ fn evidence_chips(evidence: &[Evidence], ids: &[String]) -> String {
     parts.join("<br>")
 }
 
-/// 市場の一文要約 (§12.3-1) をテンプレで4軸から合成 (AI要約がないときのフォールバック)
-fn template_one_line_summary(analysis: &ConsultAnalysis) -> String {
+/// 4軸の水準を並べた要約 (機械判定の骨子)。
+fn axes_summary_line(analysis: &ConsultAnalysis) -> String {
     let a = &analysis.axes;
     format!(
-        "需要は「{}」、人材供給は「{}」、同職種の競争は「{}」、自社の給与面の位置づけは「{}」と観測される市場です (いずれも面談前の市場側データに基づく暫定判定)。",
+        "需要は「{}」、人材供給は「{}」、同職種の競争は「{}」、自社の給与面の位置づけは「{}」と観測される市場です",
         a.demand.level.label_ja(),
         a.supply.level.label_ja(),
         a.competition.level.label_ja(),
         a.offer_competitiveness.level.label_ja()
     )
+}
+
+/// 最重要シグナル1件の要点文 (発火シグナルのうち掴みに使う優先度で先頭)。
+/// P1-8: AI要約が無いときのフォールバックを「4軸の羅列」で終わらせず、最重要シグナルを1つ含める。
+fn top_signal_highlight(analysis: &ConsultAnalysis) -> Option<String> {
+    // 掴みと同じ優先順で最初に発火しているものを1つ拾う (決定的)。
+    const PRIORITY_ORDER: [&str; 8] = [
+        "S-06", "S-07", "S-10", "S-12", "S-16", "S-02", "S-30", "S-01",
+    ];
+    for id in PRIORITY_ORDER {
+        if let Some(s) = analysis
+            .signals
+            .iter()
+            .find(|s| s.id == id && s.fired && !s.interpretation.is_empty())
+        {
+            return Some(s.interpretation.clone());
+        }
+    }
+    None
+}
+
+/// 市場の一文要約 (§12.3-1) をテンプレで合成 (AI要約がないときのフォールバック)。
+/// 4軸の羅列だけで終わらせず、最重要シグナルの要点を1つ添える (P1-8)。
+fn template_one_line_summary(analysis: &ConsultAnalysis) -> String {
+    let axes = axes_summary_line(analysis);
+    match top_signal_highlight(analysis) {
+        Some(highlight) => format!(
+            "{}。とくに、{}（いずれも面談前の市場側データに基づく暫定判定）。",
+            axes, highlight
+        ),
+        None => format!("{}（面談前の市場側データに基づく暫定判定）。", axes),
+    }
 }
 
 /// 商談準備レポートHTML本体 (AI文章化なし版のショートカット。テスト・後方互換用)
@@ -246,25 +310,45 @@ pub fn render_consult_brief_html_with_ai(analysis: &ConsultAnalysis, ai: &AiComp
     html.push_str(consult_css());
     html.push_str("</style>\n</head>\n<body class=\"theme-navy\">\n");
 
+    // ページ番号は動的採番 (省略されるページがあってもラベルが連番になるよう counter を回す)。
+    let mut page = 0usize;
+    let mut sec = || {
+        page += 1;
+        format!("商談準備レポート / {:02}", page)
+    };
+
     // summary-first: 1ページ目だけで要点 (要約 + 4軸) が分かる構成
-    render_page1_summary(&mut html, analysis, ai);
-    render_page2_ai_composite(&mut html, analysis, ai);
-    render_page3_hypotheses(&mut html, analysis);
-    render_page4_contradictions(&mut html, analysis);
-    render_page5_evidence(&mut html, analysis);
-    render_page6_questions_missing(&mut html, analysis);
+    render_page1_summary(&mut html, analysis, ai, &sec());
+    // 面談の掴み (差別化の核): 意外な事実 TOP3。発火シグナルが乏しく空なら省略。
+    let grip_items = super::grip::select_grip_items(analysis);
+    if !grip_items.is_empty() {
+        render_page_grip(&mut html, &grip_items, &sec());
+    }
+    // 複合考察 (AI下書き): AIが空なら白紙ページを丸ごと出さず、後段の証拠一覧脚注に圧縮 (P1-8)。
+    if !ai.items.is_empty() {
+        render_page2_ai_composite(&mut html, analysis, ai, &sec());
+    }
+    render_page3_hypotheses(&mut html, analysis, &sec());
+    render_page4_contradictions(&mut html, analysis, &sec());
+    render_page5_evidence(&mut html, analysis, &sec(), ai);
+    render_page6_questions_missing(&mut html, analysis, &sec());
 
     html.push_str("</body>\n</html>\n");
     html
 }
 
 /// ページ1: 市場環境の要約 (§12.3-1) + 4軸判定 (summary-first)
-fn render_page1_summary(html: &mut String, analysis: &ConsultAnalysis, ai: &AiComposite) {
+fn render_page1_summary(
+    html: &mut String,
+    analysis: &ConsultAnalysis,
+    ai: &AiComposite,
+    sec: &str,
+) {
     let meta = &analysis.report_meta;
     html.push_str("<div class=\"page-navy\">\n");
     html.push_str(internal_band());
     html.push_str(&page_head(
-        "商談準備レポート / 01",
+        sec,
         "市場環境の要約",
         "面談前に確認できた市場側データの整理（顧客固有の課題判定は含みません）",
     ));
@@ -362,57 +446,97 @@ fn render_page1_summary(html: &mut String, analysis: &ConsultAnalysis, ai: &AiCo
     html.push_str("</div>\n");
 }
 
-/// ページ2: 複合考察 (AI下書き) — 複数シグナル・矛盾をつないだ考察
-fn render_page2_ai_composite(html: &mut String, _analysis: &ConsultAnalysis, ai: &AiComposite) {
+/// ページ: 面談の掴み (この市場の意外な事実 TOP3) — 差別化の核 (P1-6)
+fn render_page_grip(html: &mut String, items: &[super::grip::GripItem], sec: &str) {
     html.push_str("<div class=\"page-navy\">\n");
     html.push_str(internal_band());
     html.push_str(&page_head(
-        "商談準備レポート / 02",
+        sec,
+        "面談の掴み（この市場の意外な事実）",
+        "顧客の想定を裏切る可能性が高い市場側の事実。面談の冒頭で共有する素材",
+    ));
+    html.push_str("<p class=\"consult-note\">以下は市場側データから拾った「顧客が意外に思う可能性が高い事実」です。断定ではなく、面談の入り口として共有し、続く質問で顧客の実態を引き出してください。各項目の根拠は証拠一覧に対応します。</p>\n");
+    for (i, it) in items.iter().enumerate() {
+        html.push_str("<div class=\"consult-grip-item\">\n");
+        html.push_str(&format!(
+            "<div class=\"grip-head\"><span class=\"grip-no\">{}</span>{}</div>\n",
+            i + 1,
+            escape_html(&it.headline)
+        ));
+        html.push_str(&format!(
+            "<div class=\"grip-talk\">{}</div>\n",
+            escape_html(&it.talk_line)
+        ));
+        html.push_str(&format!(
+            "<div class=\"grip-followup\"><strong>この後につなげる質問:</strong> {}</div>\n",
+            escape_html(&it.follow_up_question)
+        ));
+        html.push_str(&format!(
+            "<div class=\"ai-meta\">根拠: {}</div>\n",
+            it.evidence_ids
+                .iter()
+                .map(|s| escape_html(s))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        html.push_str("</div>\n");
+    }
+    html.push_str("</div>\n");
+}
+
+/// ページ: 複合考察 (AI下書き) — 複数シグナル・矛盾をつないだ考察。
+/// 呼び出しは ai.items が非空のときのみ (P1-8: 空なら白紙ページを出さない)。
+fn render_page2_ai_composite(
+    html: &mut String,
+    _analysis: &ConsultAnalysis,
+    ai: &AiComposite,
+    sec: &str,
+) {
+    html.push_str("<div class=\"page-navy\">\n");
+    html.push_str(internal_band());
+    html.push_str(&page_head(
+        sec,
         "複合考察（AI下書き）",
         "複数の市場データを結びつけた考察の下書き。面談での検証を前提とする素材",
     ));
 
-    if ai.items.is_empty() {
-        html.push_str("<p class=\"consult-note\">AI考察は生成できませんでした（ルールベース分析は本レポートの各ページのとおりです）。</p>\n");
-    } else {
-        html.push_str("<p class=\"consult-note\">以下は市場データ（証拠一覧）だけを入力に、複数の観測を結びつけて言語化した下書きです。各項目の根拠IDは証拠一覧（05）で確認できます。断定ではなく、面談で検証する仮説の素材として扱ってください。</p>\n");
-        for item in &ai.items {
-            html.push_str("<div class=\"consult-ai-item\">\n");
+    html.push_str("<p class=\"consult-note\">以下は市場データ（証拠一覧）だけを入力に、複数の観測を結びつけて言語化した下書きです。各項目の根拠IDは証拠一覧で確認できます。断定ではなく、面談で検証する仮説の素材として扱ってください。</p>\n");
+    for item in &ai.items {
+        html.push_str("<div class=\"consult-ai-item\">\n");
+        html.push_str(&format!(
+            "<div class=\"ai-title\">{}</div>\n",
+            escape_html(&item.title)
+        ));
+        html.push_str(&format!(
+            "<div class=\"ai-body\">{}</div>\n",
+            escape_html(&item.body)
+        ));
+        if !item.caveat.trim().is_empty() {
             html.push_str(&format!(
-                "<div class=\"ai-title\">{}</div>\n",
-                escape_html(&item.title)
+                "<div class=\"ai-meta\">留意点・不足情報: {}</div>\n",
+                escape_html(&item.caveat)
             ));
-            html.push_str(&format!(
-                "<div class=\"ai-body\">{}</div>\n",
-                escape_html(&item.body)
-            ));
-            if !item.caveat.trim().is_empty() {
-                html.push_str(&format!(
-                    "<div class=\"ai-meta\">留意点・不足情報: {}</div>\n",
-                    escape_html(&item.caveat)
-                ));
-            }
-            html.push_str(&format!(
-                "<div class=\"ai-meta\">根拠: {}</div>\n",
-                item.evidence_ids
-                    .iter()
-                    .map(|s| escape_html(s))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-            html.push_str("</div>\n");
         }
+        html.push_str(&format!(
+            "<div class=\"ai-meta\">根拠: {}</div>\n",
+            item.evidence_ids
+                .iter()
+                .map(|s| escape_html(s))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        html.push_str("</div>\n");
     }
     html.push_str("<p class=\"consult-note\">文章の生成は確定済みの構造化データ（証拠一覧）のみを入力とし、原データには直接アクセスしていません。数値計算・判定はすべてルールベースで確定しています。</p>\n");
     html.push_str("</div>\n");
 }
 
 /// ページ3: 優先仮説TOP5 (§12.3-2)
-fn render_page3_hypotheses(html: &mut String, analysis: &ConsultAnalysis) {
+fn render_page3_hypotheses(html: &mut String, analysis: &ConsultAnalysis, sec: &str) {
     html.push_str("<div class=\"page-navy\">\n");
     html.push_str(internal_band());
     html.push_str(&page_head(
-        "商談準備レポート / 03",
+        sec,
         "優先仮説 TOP5",
         "検証優先度と根拠の厚さで並べた採用課題の仮説（面談で検証する）",
     ));
@@ -435,15 +559,24 @@ fn render_page3_hypotheses(html: &mut String, analysis: &ConsultAnalysis) {
                     escape_html(&h.missing_information.join("、"))
                 )
             };
+            let bd = &h.confidence_breakdown;
+            let confidence_cell = format!(
+                "{}<br><span style=\"font-size:6.5pt;color:#6A6E7A\">出典{}件 / 粒度{} / 反証{}件{}</span>",
+                h.confidence.label_ja(),
+                bd.independent_sources,
+                if bd.granularity_match { "一致" } else { "差あり" },
+                bd.counter_count,
+                if bd.sample_sufficient { "" } else { " / 標本少" },
+            );
             html.push_str(&format!(
-                "<tr><td class=\"num\">{}</td><td style=\"font-size:8.5pt\">{}</td><td style=\"font-size:9pt\">{}<br><span style=\"font-size:7.5pt;color:#6A6E7A\">検証優先度: {}</span></td><td style=\"font-size:7.5pt\">{}</td><td style=\"font-size:7.5pt\">{}</td><td>{}</td></tr>\n",
+                "<tr><td class=\"num\">{}</td><td style=\"font-size:8.5pt\">{}</td><td style=\"font-size:9pt\">{}<br><span style=\"font-size:7.5pt;color:#6A6E7A\">検証優先度: {}</span></td><td style=\"font-size:7.5pt\">{}</td><td style=\"font-size:7.5pt\">{}</td><td style=\"font-size:8pt\">{}</td></tr>\n",
                 i + 1,
                 escape_html(h.category.label_ja()),
                 escape_html(&h.statement),
                 h.priority.label_ja(),
                 evidence_chips(&analysis.evidence, &h.supporting_evidence_ids),
                 counter,
-                h.confidence.label_ja(),
+                confidence_cell,
             ));
         }
         html.push_str("</tbody></table>\n");
@@ -453,11 +586,11 @@ fn render_page3_hypotheses(html: &mut String, analysis: &ConsultAnalysis) {
 }
 
 /// ページ4: 注目すべき矛盾 (§12.3-3)
-fn render_page4_contradictions(html: &mut String, analysis: &ConsultAnalysis) {
+fn render_page4_contradictions(html: &mut String, analysis: &ConsultAnalysis, sec: &str) {
     html.push_str("<div class=\"page-navy\">\n");
     html.push_str(internal_band());
     html.push_str(&page_head(
-        "商談準備レポート / 04",
+        sec,
         "注目すべき矛盾",
         "市場データ内の「違和感」の抽出。結論の断定ではなく面談の論点として使う",
     ));
@@ -515,19 +648,29 @@ fn render_page4_contradictions(html: &mut String, analysis: &ConsultAnalysis) {
 }
 
 /// ページ5: 証拠一覧（拡充分を含む全証拠）(§12.3-5 / §15.2)
-fn render_page5_evidence(html: &mut String, analysis: &ConsultAnalysis) {
+fn render_page5_evidence(
+    html: &mut String,
+    analysis: &ConsultAnalysis,
+    sec: &str,
+    ai: &AiComposite,
+) {
     html.push_str("<div class=\"page-navy\">\n");
     html.push_str(internal_band());
     html.push_str(&page_head(
-        "商談準備レポート / 05",
+        sec,
         "証拠一覧",
         "本レポートの判定・仮説・AI考察が参照する全データ。原データへのリネージ",
     ));
+    // P1-8: AI考察が生成できなかったときは白紙ページを丸ごと出さず、ここで1行に圧縮して注記する。
+    if ai.items.is_empty() {
+        html.push_str("<p class=\"consult-note\">※ AIによる複合考察は今回は生成されませんでした（ルールベースの分析結果は本レポートの各ページのとおりです）。</p>\n");
+    }
     html.push_str(&format!(
         "<p class=\"consult-note\">全 {} 件。区分は 観測値 / 集計値 / 代理指標 / 仮説 の別。粒度（全国・都道府県・市区町村・今回CSV・企業）と出典を各行に明示しています。</p>\n",
         analysis.evidence.len()
     ));
-    html.push_str("<table class=\"table-navy consult-evidence-table\"><thead><tr><th style=\"width:11mm\">ID</th><th style=\"width:12mm\">区分</th><th>指標</th><th style=\"width:24mm\">値</th><th style=\"width:44mm\">出典 / 粒度</th></tr></thead><tbody>\n");
+    // table-layout:fixed で列幅を厳守し、長文値は列内で折り返す (P1-8: 値セルの文字重なり防止)
+    html.push_str("<table class=\"table-navy consult-evidence-table\" style=\"table-layout:fixed;width:100%\"><thead><tr><th style=\"width:11mm\">ID</th><th style=\"width:12mm\">区分</th><th>指標</th><th style=\"width:30mm\">値</th><th style=\"width:44mm\">出典 / 粒度</th></tr></thead><tbody>\n");
     for e in &analysis.evidence {
         let value = if e.unit.is_empty() {
             e.value_text.clone()
@@ -538,12 +681,23 @@ fn render_page5_evidence(html: &mut String, analysis: &ConsultAnalysis) {
             .sample_n
             .map(|n| format!(" (n={})", n))
             .unwrap_or_default();
+        // 長文値 (通勤流入元上位の市町村列挙など) は num の右寄せ・nowrap を使わず、
+        // 左寄せで折り返す。短い数値はこれまで通り num セルで右寄せ表示する。
+        let is_long_text = value.chars().count() > 12 || value.contains('、');
+        let value_cell = if is_long_text {
+            format!(
+                "<td style=\"white-space:normal;text-align:left\">{}</td>",
+                escape_html(&value)
+            )
+        } else {
+            format!("<td class=\"num\">{}</td>", escape_html(&value))
+        };
         html.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td class=\"num\">{}</td><td>{} / {}{}</td></tr>\n",
+            "<tr><td>{}</td><td>{}</td><td>{}</td>{}<td>{} / {}{}</td></tr>\n",
             escape_html(&e.id),
             e.kind.label_ja(),
             escape_html(&e.metric_name),
-            escape_html(&value),
+            value_cell,
             escape_html(&e.source_name),
             escape_html(&e.granularity),
             escape_html(&n),
@@ -554,11 +708,11 @@ fn render_page5_evidence(html: &mut String, analysis: &ConsultAnalysis) {
 }
 
 /// ページ6: 不足情報 (§12.3-4) + 面談質問 (§12.3-5) + 必須ヒアリング項目 (§13.1)
-fn render_page6_questions_missing(html: &mut String, analysis: &ConsultAnalysis) {
+fn render_page6_questions_missing(html: &mut String, analysis: &ConsultAnalysis, sec: &str) {
     html.push_str("<div class=\"page-navy\">\n");
     html.push_str(internal_band());
     html.push_str(&page_head(
-        "商談準備レポート / 06",
+        sec,
         "不足情報・面談質問・ヒアリング項目",
         "公開データでは埋まらない情報を面談で確認する。回答で仮説を更新する",
     ));
@@ -677,12 +831,12 @@ mod tests {
 
     #[test]
     fn every_page_has_internal_band() {
+        // rich (grip あり・AIなし) は 6 ページ: 要約 / 掴み / 仮説 / 矛盾 / 証拠 / 質問
         let html = render_consult_brief_html(&rich_analysis());
         let page_count = html.matches("class=\"page-navy\"").count();
         let band_count = html.matches("consult-internal-band").count();
-        assert_eq!(page_count, 6, "商談準備レポートは6ページ構成 (最大8以内)");
+        assert_eq!(page_count, 6, "掴みページを含み6ページ (AIなし・最大8以内)");
         assert!(page_count <= 8, "ページ数は8以内");
-        // CSS定義の1回分を除いた出現数がページ数と一致
         assert!(
             band_count >= page_count,
             "全ページに社内用帯がある (band={}, page={})",
@@ -690,6 +844,41 @@ mod tests {
             page_count
         );
         assert!(html.contains("社内用 &#8212; 顧客配布不可"));
+        // ページ番号が連番であること (省略ページがあっても採番が飛ばない)
+        assert!(html.contains("商談準備レポート / 01"));
+        assert!(html.contains("商談準備レポート / 06"));
+        assert!(!html.contains("商談準備レポート / 07"));
+    }
+
+    #[test]
+    fn grip_section_present_for_rich_and_absent_ai_page_when_empty() {
+        // P1-6: 掴みセクションが出る。P1-8: AIが空なら白紙AIページを出さず1行注記に圧縮。
+        let html = render_consult_brief_html(&rich_analysis());
+        assert!(
+            html.contains("面談の掴み（この市場の意外な事実）"),
+            "掴みセクションがある"
+        );
+        assert!(
+            html.contains("この後につなげる質問"),
+            "掴みに追撃質問がある"
+        );
+        // AIが空なので複合考察ページは出ない
+        assert!(
+            !html.contains("複合考察（AI下書き）"),
+            "空AIの複合考察ページは出さない"
+        );
+        // 証拠一覧に1行の注記が圧縮表示される
+        assert!(html.contains("AIによる複合考察は今回は生成されませんでした"));
+    }
+
+    #[test]
+    fn sparse_report_omits_grip_and_ai_pages() {
+        // シグナル非発火なら掴みもAIも出ない (白紙ページを作らない)
+        let html = render_consult_brief_html(&sparse_analysis());
+        assert!(!html.contains("面談の掴み（この市場の意外な事実）"));
+        assert!(!html.contains("複合考察（AI下書き）"));
+        // それでもレポートは成立し判定材料不足が出る
+        assert!(html.contains("判定材料不足"));
     }
 
     #[test]
@@ -710,9 +899,10 @@ mod tests {
         assert!(html.contains("AI要約"));
         assert!(html.contains("供給の細りと需要の強さ"));
 
-        // 空のときはフォールバック行
+        // 空のときは複合考察ページを出さず、証拠一覧の1行注記に圧縮する (P1-8)
         let html2 = render_consult_brief_html_with_ai(&analysis, &AiComposite::default());
-        assert!(html2.contains("AI考察は生成できませんでした"));
+        assert!(!html2.contains("複合考察（AI下書き）"));
+        assert!(html2.contains("AIによる複合考察は今回は生成されませんでした"));
     }
 
     #[test]
@@ -741,7 +931,8 @@ mod tests {
         let html = render_consult_brief_html(&rich_analysis());
         for needle in [
             "市場環境の要約",
-            "複合考察（AI下書き）",
+            // AIなし版のため複合考察ページは出ないが、掴みセクションは出る (P1-6)
+            "面談の掴み（この市場の意外な事実）",
             "優先仮説 TOP5",
             "注目すべき矛盾",
             "証拠一覧",

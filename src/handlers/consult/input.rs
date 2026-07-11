@@ -113,18 +113,29 @@ pub struct ConsultInput {
     pub net_migration_rate: Option<f64>,
     /// 昼夜間人口比率 (%。国勢調査。100未満=昼間人口が流出)
     pub daytime_ratio: Option<f64>,
-    /// 開業率 (%。経済センサス 開廃業)
+    /// 開業率 (%。経済センサス 開廃業)。
+    /// 🔴 これは「経済センサス調査間の累計」であり年率ではない (例: 2021年度行=29.79% は
+    /// 2016→2021 の約5年累計)。年率で解釈・判定する場合は `business_dynamics_interval_years`
+    /// で割って年換算する (`annualized_opening_rate()`)。
     pub business_opening_rate: Option<f64>,
-    /// 廃業率 (%。経済センサス 開廃業)
+    /// 廃業率 (%。経済センサス 開廃業)。開業率と同じく調査間の累計。
     pub business_closure_rate: Option<f64>,
+    /// 開廃業率の調査間隔 (年)。当該県の開廃業時系列で「最新年度 - その1つ前の年度」から算出。
+    /// 前年度行が取れない (単年しかない) 場合は None = 年換算不能 → 年率判定は行わない。
+    pub business_dynamics_interval_years: Option<f64>,
     /// 県の失業率 (%。国勢調査 労働力状態)
     pub unemployment_rate_pref: Option<f64>,
     /// 全国の失業率 (%)
     pub unemployment_rate_national: Option<f64>,
     /// 自然増減 (人。人口動態統計 出生-死亡。負値=自然減)
     pub natural_change: Option<i64>,
-    /// 代表家賃 (円/月。住宅・土地統計 民営借家の中央値)
-    pub median_rent: Option<i64>,
+    /// 1畳あたり家賃 (円。住宅・土地統計 「総数/総数」の median_rent_jpy)。
+    /// 🔴 これは月額家賃ではなく「1畳あたり」の家賃 (例: 東京都 総数=2,274円・大分県=917円)。
+    /// 月額家賃としての比較・シグナルには使わない (勝手な畳数仮定で月額を捏造しない)。
+    /// 県間の相対位置 (全国中央値比) の用途に限る。
+    pub rent_per_tatami: Option<i64>,
+    /// 全国の1畳あたり家賃 (円。相対位置の基準)。取得できない場合 None。
+    pub rent_per_tatami_national: Option<i64>,
 
     // ---- 今回CSV (拡充: 求人カード観測。§5.2 A) ----
     /// 観測できた求人カードタグの種類数 (§5.0: 福利厚生の完全一覧ではない)
@@ -210,6 +221,38 @@ impl ConsultInput {
             .map(|(name, n)| (name.clone(), *n as f64 / self.total_postings as f64))
     }
 
+    /// 年換算した開業率 (%)。累計値を調査間年数で割る。
+    /// 調査間隔が取れない (None) か 0 以下なら年換算不能として None を返す。
+    pub fn annualized_opening_rate(&self) -> Option<f64> {
+        match (
+            self.business_opening_rate,
+            self.business_dynamics_interval_years,
+        ) {
+            (Some(cum), Some(years)) if years > 0.0 => Some(cum / years),
+            _ => None,
+        }
+    }
+
+    /// 年換算した廃業率 (%)。開業率と同じく累計を調査間年数で割る。
+    pub fn annualized_closure_rate(&self) -> Option<f64> {
+        match (
+            self.business_closure_rate,
+            self.business_dynamics_interval_years,
+        ) {
+            (Some(cum), Some(years)) if years > 0.0 => Some(cum / years),
+            _ => None,
+        }
+    }
+
+    /// 1畳あたり家賃の全国中央値に対する相対比 (県 / 全国)。
+    /// どちらか欠損、または全国が 0 以下なら None。月額換算は行わない。
+    pub fn rent_relative_to_national(&self) -> Option<f64> {
+        match (self.rent_per_tatami, self.rent_per_tatami_national) {
+            (Some(pref), Some(nat)) if nat > 0 => Some(pref as f64 / nat as f64),
+            _ => None,
+        }
+    }
+
     /// 対象地域の表示名
     pub fn region_label(&self) -> String {
         if self.muni.is_empty() {
@@ -254,5 +297,40 @@ mod tests {
         assert_eq!(input.region_label(), "群馬県 高崎市");
         input.muni.clear();
         assert_eq!(input.region_label(), "群馬県");
+    }
+
+    #[test]
+    fn annualized_opening_rate_divides_cumulative_by_interval() {
+        // 大分県2021: 累計29.79% / 5年 ≈ 5.96%
+        let input = ConsultInput {
+            business_opening_rate: Some(29.79),
+            business_dynamics_interval_years: Some(5.0),
+            ..Default::default()
+        };
+        let ann = input.annualized_opening_rate().unwrap();
+        assert!((ann - 5.958).abs() < 0.01, "年換算値: {}", ann);
+        // 調査間隔が無ければ年換算不能
+        let no_interval = ConsultInput {
+            business_opening_rate: Some(29.79),
+            ..Default::default()
+        };
+        assert_eq!(no_interval.annualized_opening_rate(), None);
+    }
+
+    #[test]
+    fn rent_relative_needs_both_pref_and_national() {
+        let input = ConsultInput {
+            rent_per_tatami: Some(917),
+            rent_per_tatami_national: Some(1200),
+            ..Default::default()
+        };
+        let r = input.rent_relative_to_national().unwrap();
+        assert!((r - 0.764).abs() < 0.01, "相対比: {}", r);
+        // 全国基準が無ければ None (月額換算はしない)
+        let only_pref = ConsultInput {
+            rent_per_tatami: Some(917),
+            ..Default::default()
+        };
+        assert_eq!(only_pref.rent_relative_to_national(), None);
     }
 }

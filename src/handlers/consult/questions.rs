@@ -166,7 +166,7 @@ pub fn generate_questions(top_hypotheses: &[Hypothesis]) -> Vec<Question> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handlers::consult::hypotheses::{Confidence, Priority};
+    use crate::handlers::consult::hypotheses::{Confidence, ConfidenceBreakdown, Priority};
 
     fn hyp(id: &str, category: HypothesisCategory) -> Hypothesis {
         Hypothesis {
@@ -177,6 +177,7 @@ mod tests {
             counter_evidence_ids: vec![],
             missing_information: vec![],
             confidence: Confidence::Medium,
+            confidence_breakdown: ConfidenceBreakdown::default(),
             priority: Priority::High,
             status: "unverified".to_string(),
         }

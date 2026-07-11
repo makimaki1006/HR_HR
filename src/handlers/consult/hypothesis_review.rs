@@ -581,7 +581,7 @@ mod tests {
     use super::*;
     use crate::handlers::consult::evidence_pack::analyze;
     use crate::handlers::consult::evidence_pack::tests::rich_input;
-    use crate::handlers::consult::hypotheses::{Confidence, Priority};
+    use crate::handlers::consult::hypotheses::{Confidence, ConfidenceBreakdown, Priority};
 
     fn temp_db() -> (tempfile::NamedTempFile, LocalDb) {
         let tmp = tempfile::NamedTempFile::new().unwrap();
@@ -619,6 +619,7 @@ mod tests {
             counter_evidence_ids: vec![],
             missing_information: vec![],
             confidence: Confidence::Medium,
+            confidence_breakdown: ConfidenceBreakdown::default(),
             priority: Priority::High,
             status: "unverified".to_string(),
         }

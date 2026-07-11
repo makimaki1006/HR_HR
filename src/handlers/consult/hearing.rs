@@ -166,6 +166,40 @@ pub const HEARING_ITEMS: [HearingItem; 15] = [
     },
 ];
 
+/// 「商談を前に進める欄」(P1-7)。15の必須ヒアリング項目とは別枠で、
+/// 商談を次の段階へ進めるための4項目を扱う。保存キーは b01_budget 等。
+/// これらは採用の実務状況ではなく「意思決定・予算・次アクション」を確認するためのもの。
+pub const BUSINESS_ITEMS: [HearingItem; 4] = [
+    HearingItem {
+        key: "b01_budget",
+        label: "採用にかけられる予算感",
+        kind: AnswerKind::Text,
+        hint: "例: 1名あたり◯万円 / 媒体費 月◯万円 / 未定",
+        options: &[],
+    },
+    HearingItem {
+        key: "b02_decision_maker",
+        label: "意思決定に関わる人",
+        kind: AnswerKind::Text,
+        hint: "決裁者・関与者 (役職・人数)",
+        options: &[],
+    },
+    HearingItem {
+        key: "b03_timing",
+        label: "検討時期",
+        kind: AnswerKind::Single,
+        hint: "導入・発注を検討するタイミング",
+        options: &["すぐに", "1〜3か月以内", "半年以内", "未定"],
+    },
+    HearingItem {
+        key: "b04_next_action",
+        label: "次回アクション (日時・内容)",
+        kind: AnswerKind::Text,
+        hint: "例: 2026年7月20日 提案書提出 / 次回打合せ日時",
+        options: &[],
+    },
+];
+
 /// §13.3 動的質問。トリガー項目の回答値に応じて表示する追質問。
 pub struct DynamicQuestion {
     /// トリガーとなる項目キー (HEARING_ITEMS の key)
@@ -283,6 +317,9 @@ pub fn answers_from_form(form: &BTreeMap<String, String>) -> BTreeMap<String, An
         }
     };
     for item in HEARING_ITEMS.iter() {
+        collect(item.key);
+    }
+    for item in BUSINESS_ITEMS.iter() {
         collect(item.key);
     }
     for dq in DYNAMIC_QUESTIONS.iter() {
@@ -431,15 +468,19 @@ pub fn hearing_json_for_pack(db: &LocalDb, session_id: &str) -> Option<Value> {
         if let Some(it) = HEARING_ITEMS.iter().find(|i| i.key == key) {
             return it.label.to_string();
         }
+        if let Some(it) = BUSINESS_ITEMS.iter().find(|i| i.key == key) {
+            return it.label.to_string();
+        }
         if let Some(dq) = DYNAMIC_QUESTIONS.iter().find(|d| d.key == key) {
             return dq.label.to_string();
         }
         key.to_string()
     };
-    // HEARING_ITEMS の順、続いて DYNAMIC_QUESTIONS の順で出力 (決定的)
+    // HEARING_ITEMS → BUSINESS_ITEMS → DYNAMIC_QUESTIONS の順で出力 (決定的)
     let ordered_keys: Vec<&str> = HEARING_ITEMS
         .iter()
         .map(|i| i.key)
+        .chain(BUSINESS_ITEMS.iter().map(|i| i.key))
         .chain(DYNAMIC_QUESTIONS.iter().map(|d| d.key))
         .collect();
     for key in ordered_keys {
@@ -529,6 +570,13 @@ body.theme-navy .hs-branch {
   margin: 1mm 0 0 4mm; font-size: 8.5pt; color: #1F2D4D;
 }
 body.theme-navy .hs-branch .hs-branch-q { margin-bottom: 0.5mm; }
+/* 商談を前に進める欄 (P1-7) */
+body.theme-navy .hs-business-head {
+  margin-top: 6mm; font-weight: 700; font-size: 12pt; color: #A8331F;
+  border-bottom: 1.5px solid #A8331F; padding-bottom: 1mm;
+}
+body.theme-navy .hs-business-note { font-size: 8.5pt; color: #6A6E7A; margin: 1mm 0 2mm; }
+body.theme-navy .hs-item.hs-business { border-left-color: #A8331F; }
 "#
 }
 
@@ -658,6 +706,40 @@ pub fn hearing_sheet_html(region: &str, as_of: &str) -> String {
         html.push_str("</div>\n");
     }
 
+    // 商談を前に進める欄 (P1-7)。15項目とは別枠で見出しをつけて配置する。
+    html.push_str(
+        r#"<div class="hs-business-head">商談を前に進める欄（4項目）</div>
+<p class="hs-business-note">採用の実務状況とは別に、商談を次に進めるための確認事項です。</p>"#,
+    );
+    for (i, item) in BUSINESS_ITEMS.iter().enumerate() {
+        html.push_str("<div class=\"hs-item hs-business\">\n");
+        html.push_str(&format!(
+            "<div><span class=\"hs-no\">B{:02}</span><span class=\"hs-label\">{}</span><span class=\"hs-kind\">{}</span>",
+            i + 1,
+            escape_html(item.label),
+            kind_label(item.kind)
+        ));
+        if !item.hint.is_empty() {
+            html.push_str(&format!(
+                "<span class=\"hs-hint\">{}</span>",
+                escape_html(item.hint)
+            ));
+        }
+        html.push_str("</div>\n");
+        if let AnswerKind::Single = item.kind {
+            html.push_str("<div class=\"hs-options\">");
+            for opt in item.options {
+                html.push_str(&format!(
+                    "<span class=\"hs-opt\"><span class=\"hs-box\"></span>{}</span>",
+                    escape_html(opt)
+                ));
+            }
+            html.push_str("</div>\n");
+        }
+        html.push_str("<div class=\"hs-fill\" contenteditable=\"true\"></div>\n");
+        html.push_str("</div>\n");
+    }
+
     html.push_str("</div>\n</body>\n</html>\n");
     html
 }
@@ -724,6 +806,19 @@ pub fn hearing_form_html(
         render_dynamic_block(&mut html, item, answers);
     }
 
+    // 商談を前に進める欄 (P1-7)。15項目とは別枠。
+    html.push_str(
+        "<h2 class=\"biz-head\">商談を前に進める欄</h2>\n<p class=\"biz-note\">採用の実務状況とは別に、商談を次に進めるための確認事項です。</p>\n",
+    );
+    for (i, item) in BUSINESS_ITEMS.iter().enumerate() {
+        let cur = answers.get(item.key);
+        html.push_str(&render_form_item_labeled(
+            &format!("B{:02}", i + 1),
+            item,
+            cur,
+        ));
+    }
+
     html.push_str(
         r#"<div class="actions"><button type="submit">保存する</button></div>
 </form>
@@ -749,15 +844,25 @@ pub fn hearing_form_html(
     html
 }
 
-/// 1 項目の入力欄 (本体 + 不明/データなしトグル)。
+/// 1 項目の入力欄 (本体 + 不明/データなしトグル)。番号は 2 桁ゼロ埋め。
 fn render_form_item(no: usize, item: &HearingItem, cur: Option<&AnswerValue>) -> String {
+    render_form_item_labeled(&format!("{no:02}"), item, cur)
+}
+
+/// 番号ラベル (「01」「B01」等) を指定して入力欄を描画する。
+fn render_form_item_labeled(
+    no_label: &str,
+    item: &HearingItem,
+    cur: Option<&AnswerValue>,
+) -> String {
     let val = cur.map(|a| a.value.as_str()).unwrap_or("");
     let unknown = cur.map(|a| a.unknown).unwrap_or(false);
     let no_data = cur.map(|a| a.no_data).unwrap_or(false);
     let key = item.key;
     let mut s = String::new();
     s.push_str(&format!(
-        "<fieldset class=\"item\"><legend><span class=\"no\">{no:02}</span> {label} <span class=\"kind\">{kind}</span></legend>\n",
+        "<fieldset class=\"item\"><legend><span class=\"no\">{no}</span> {label} <span class=\"kind\">{kind}</span></legend>\n",
+        no = escape_html(no_label),
         label = escape_html(item.label),
         kind = kind_label(item.kind)
     ));
@@ -930,6 +1035,8 @@ button { background: #B91C1C; color: #fff; border: none; padding: 12px 28px; bor
 button:hover { background: #DC2626; }
 .history ul { list-style: none; padding: 0; font-size: 12px; color: #94A3B8; }
 .history li { padding: 4px 0; border-bottom: 1px solid #1E293B; }
+.biz-head { color: #FCA5A5; border-bottom: 1px solid #7F1D1D; padding-bottom: 4px; }
+.biz-note { font-size: 12px; color: #94A3B8; margin: 4px 0 8px; }
 "#
 }
 
@@ -1105,17 +1212,26 @@ mod tests {
                 item.label
             );
         }
-        // 「不明」「データなし」の区別トグルが各項目にある
+        // 「不明」「データなし」の区別トグルが各項目にある (15 + 商談4 + 動的質問)
         assert_eq!(
             html.matches("__unknown\" value=\"1\"").count(),
-            HEARING_ITEMS.len() + DYNAMIC_QUESTIONS.len(),
-            "不明トグルが全項目 + 動的質問にある"
+            HEARING_ITEMS.len() + BUSINESS_ITEMS.len() + DYNAMIC_QUESTIONS.len(),
+            "不明トグルが全項目 + 商談欄 + 動的質問にある"
         );
         assert_eq!(
             html.matches("__nodata\" value=\"1\"").count(),
-            HEARING_ITEMS.len() + DYNAMIC_QUESTIONS.len(),
-            "データなしトグルが全項目 + 動的質問にある"
+            HEARING_ITEMS.len() + BUSINESS_ITEMS.len() + DYNAMIC_QUESTIONS.len(),
+            "データなしトグルが全項目 + 商談欄 + 動的質問にある"
         );
+        // 商談を前に進める欄の4項目 (P1-7)
+        for item in BUSINESS_ITEMS.iter() {
+            assert!(
+                html.contains(item.label),
+                "商談欄 {} がフォームにない",
+                item.label
+            );
+        }
+        assert!(html.contains("商談を前に進める欄"));
         // 社内用帯 + 顧客配布不可
         assert!(html.contains("社内用"));
         assert!(html.contains("顧客配布不可"));
@@ -1219,12 +1335,54 @@ mod tests {
         let mut keys: Vec<&str> = HEARING_ITEMS
             .iter()
             .map(|i| i.key)
+            .chain(BUSINESS_ITEMS.iter().map(|i| i.key))
             .chain(DYNAMIC_QUESTIONS.iter().map(|d| d.key))
             .collect();
         let n = keys.len();
         keys.sort_unstable();
         keys.dedup();
-        assert_eq!(keys.len(), n, "項目/動的質問のキーが重複している");
+        assert_eq!(keys.len(), n, "項目/商談欄/動的質問のキーが重複している");
+    }
+
+    #[test]
+    fn business_items_persist_and_appear_in_sheet() {
+        // P1-7: 商談欄 (b01_budget 等) が保存キーとして保持される
+        let form = form_kv(&[
+            ("b01_budget", "1名30万円"),
+            ("b03_timing", "1〜3か月以内"),
+            ("b04_next_action", "7月20日 提案"),
+        ]);
+        let answers = answers_from_form(&form);
+        assert_eq!(answers.get("b01_budget").unwrap().value, "1名30万円");
+        assert_eq!(answers.get("b03_timing").unwrap().value, "1〜3か月以内");
+        // 印刷シートにも商談欄が出る
+        let sheet = hearing_sheet_html("群馬県", "2026-07-11");
+        assert!(sheet.contains("商談を前に進める欄"));
+        for item in BUSINESS_ITEMS.iter() {
+            assert!(sheet.contains(item.label), "シートに {} がない", item.label);
+        }
+    }
+
+    /// 視覚確認用フィクスチャ出力 (P1-7 の商談欄を含むヒアリングシート/フォーム)。
+    /// CONSULT_HEARING_FIXTURE_OUT にディレクトリを指定して実行すると HTML を書き出す。
+    #[test]
+    fn write_hearing_fixture_when_env_set() {
+        let Ok(dir) = std::env::var("CONSULT_HEARING_FIXTURE_OUT") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("hearing_sheet_v3.html"),
+            hearing_sheet_html("群馬県 高崎市", "2026-07-11"),
+        )
+        .unwrap();
+        let answers = BTreeMap::new();
+        std::fs::write(
+            dir.join("hearing_form_v3.html"),
+            hearing_form_html("SID1", "群馬県 高崎市", &answers, false, None, &[]),
+        )
+        .unwrap();
     }
 
     #[test]
