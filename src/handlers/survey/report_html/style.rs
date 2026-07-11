@@ -2497,3 +2497,69 @@ body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
 }
 "#.to_string()
 }
+
+/// SP版 (仮) 専用スタイル (2026-07-11 追加、試作)。
+///
+/// # 重要 (byte 不変要件)
+/// 本 CSS は `variant == Sp` のときだけ `<style>` に追記される。既存 variant
+/// (Full / Public / MarketIntelligence / Extended) の出力には 1 バイトも含まれない
+/// (`render_navy_css` に混ぜると全 variant の出力が変わってしまうため分離した)。
+///
+/// 経営サマリー1ページ / 結論バンド / 給与四分位 / 優先アクション表 のレイアウトのみ定義。
+/// 既存クラス (`.tag-*`, `.table-navy`, `.page-navy` 等) はそのまま再利用する。
+pub(super) fn render_sp_css() -> String {
+    r#"
+/* ============================================================
+   SP版 (仮) 専用スタイル (2026-07-11 追加、試作) — SP variant のみ出力
+   ============================================================ */
+
+/* (a) 経営サマリー 結論のまとめ (箇条書き) */
+body.theme-navy .sp-conclusion-list { list-style: none; padding: 0; margin: 3mm 0 0; }
+body.theme-navy .sp-conclusion-list li {
+  border-left: 3px solid var(--rule); padding: 3mm 0 3mm 5mm; margin-bottom: 3mm;
+}
+body.theme-navy .sp-c-head { display: flex; align-items: center; gap: 8px; margin-bottom: 1.5mm; }
+body.theme-navy .sp-c-ref {
+  font-family: "Roboto Mono", monospace; font-size: 8.5pt;
+  color: var(--ink-muted); letter-spacing: 0.06em;
+}
+body.theme-navy .sp-c-sentence { margin: 0; font-size: 10.5pt; line-height: 1.7; color: var(--ink); }
+body.theme-navy .sp-c-outlook { margin: 1.5mm 0 0; font-size: 9pt; line-height: 1.6; color: var(--ink-soft); }
+body.theme-navy .sp-c-outlook-label { font-weight: 700; color: var(--warn); margin-right: 4px; }
+
+/* まず取り組む3つ */
+body.theme-navy .sp-first-three {
+  margin: 3mm 0 0; padding-left: 6mm; font-size: 10.5pt; line-height: 1.8; color: var(--ink);
+}
+body.theme-navy .sp-first-three li { margin-bottom: 1.5mm; }
+
+/* (b) 各セクション冒頭「このページの結論」バンド */
+body.theme-navy .sp-conclusion-band {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  background: var(--accent-soft); border-left: 4px solid var(--accent);
+  padding: 3mm 4mm; margin: 0 0 4mm; border-radius: 2px;
+}
+body.theme-navy .sp-band-label {
+  font-family: "Noto Sans JP", sans-serif; font-weight: 700; font-size: 8.5pt;
+  letter-spacing: 0.06em; color: var(--ink-deep);
+}
+body.theme-navy .sp-band-text { font-size: 10pt; line-height: 1.6; color: var(--ink); flex: 1 1 60%; min-width: 0; }
+body.theme-navy .sp-band-outlook {
+  flex: 1 1 100%; font-size: 8.5pt; line-height: 1.5; color: var(--ink-soft); margin-top: 1mm;
+}
+
+/* (c) 優先アクション表 の記入欄 */
+body.theme-navy .sp-action-table td[contenteditable="true"] {
+  min-width: 18mm; background: rgba(31,45,77,0.03);
+}
+
+@media print {
+  body.theme-navy .sp-conclusion-band,
+  body.theme-navy .sp-conclusion-list li { break-inside: avoid; }
+  body.theme-navy .sp-conclusion-band {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+}
+"#
+    .to_string()
+}

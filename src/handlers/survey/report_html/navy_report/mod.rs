@@ -171,6 +171,15 @@ pub(super) use section_09_market_intelligence::render_navy_section_09_market_int
 pub(super) mod section_10_extended;
 pub(super) use section_10_extended::render_navy_section_10_extended;
 
+// 2026-07-11: SP版 (仮) 専用ブロック (経営サマリー1ページ / 結論バンド / 給与四分位 /
+//   優先アクション表) を独立モジュールとして追加。`variant == Sp` のときだけ呼ばれる。
+//   既存 variant (Full / Public / MarketIntelligence / Extended) の出力には影響しない。
+pub(super) mod sp_report;
+pub(super) use sp_report::{
+    render_sp_conclusion_band, render_sp_exec_onepager, render_sp_priority_actions,
+    render_sp_salary_quartiles,
+};
+
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;

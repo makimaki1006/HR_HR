@@ -80,9 +80,8 @@ pub(super) fn render_section_market_tightness_with_variant(
         // (Step 3 で MarketIntelligence 専用セクション追加時に分岐を変える)
         super::ReportVariant::Full
         | super::ReportVariant::MarketIntelligence
-        | super::ReportVariant::Extended => {
-            render_section_market_tightness_inner(html, ctx, variant)
-        }
+        | super::ReportVariant::Extended
+        | super::ReportVariant::Sp => render_section_market_tightness_inner(html, ctx, variant),
         super::ReportVariant::Public => render_section_market_tightness_public(html, ctx),
     }
 }
@@ -726,7 +725,8 @@ fn job_ratio_label_for_variant(variant: super::ReportVariant) -> &'static str {
         super::ReportVariant::Full => "有効求人倍率",
         super::ReportVariant::MarketIntelligence
         | super::ReportVariant::Public
-        | super::ReportVariant::Extended => "公的雇用需給指標",
+        | super::ReportVariant::Extended
+        | super::ReportVariant::Sp => "公的雇用需給指標",
     }
 }
 
