@@ -124,30 +124,43 @@ fn judge_demand(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJudgment
             }
         }
         None => {
-            // 拡充 (2026-07-10): 有効求人倍率がないときは開廃業で需要方向を補完する
-            match (input.business_opening_rate, input.business_closure_rate) {
-                (Some(open), Some(close)) => {
+            // 拡充 (2026-07-10): 有効求人倍率がないときは開廃業で需要方向を補完する。
+            // 🔴 P0-1: opening_rate/closure_rate は経済センサス調査間の累計。判定は年換算値で行う。
+            match (
+                input.business_opening_rate,
+                input.business_closure_rate,
+                input.annualized_opening_rate(),
+                input.annualized_closure_rate(),
+            ) {
+                (Some(open), Some(close), Some(open_a), Some(close_a)) => {
+                    let years_note = match input.business_dynamics_interval_years {
+                        Some(y) => format!("調査間隔 約{:.0}年の累計", y),
+                        None => "調査間隔 不明".to_string(),
+                    };
                     let eid = store.add(
                         EvidenceKind::Observed,
-                        "開業率 / 廃業率 (需要の代替)",
+                        "開業率 / 廃業率 (経済センサス調査間 累計・需要の代替)",
                         &format!("{:.1} / {:.1}", open, close),
                         "%",
                         "経済センサス 開廃業",
                         granularity::PREFECTURE,
                         None,
                         None,
-                        "有効求人倍率が取得できないため事業所の開廃業で代替",
+                        &format!(
+                            "有効求人倍率が取得できないため開廃業で代替。{}。判定は年換算値",
+                            years_note
+                        ),
                     );
                     evidence_ids.push(eid);
-                    if open >= config::OPENING_RATE_ACTIVE_THRESHOLD && open > close {
+                    if open_a >= config::OPENING_RATE_ACTIVE_THRESHOLD && open_a > close_a {
                         (
                             AxisLevel::Medium,
-                            format!("有効求人倍率は未取得のため代替判定: 開業率{:.1}%が廃業率{:.1}%を上回り、雇用の受け皿は拡大方向の可能性があります。", open, close),
+                            format!("有効求人倍率は未取得のため代替判定: 年換算の開業率(約{:.1}%)が廃業率(約{:.1}%)を上回り、雇用の受け皿は拡大方向の可能性があります。", open_a, close_a),
                         )
-                    } else if close > open {
+                    } else if close_a > open_a {
                         (
                             AxisLevel::Low,
-                            format!("有効求人倍率は未取得のため代替判定: 廃業率{:.1}%が開業率{:.1}%を上回り、雇用の受け皿は縮小方向の可能性があります。", close, open),
+                            format!("有効求人倍率は未取得のため代替判定: 年換算の廃業率(約{:.1}%)が開業率(約{:.1}%)を上回り、雇用の受け皿は縮小方向の可能性があります。", close_a, open_a),
                         )
                     } else {
                         (
@@ -330,7 +343,8 @@ fn judge_competition(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJud
     let mut evidence_ids = Vec::new();
     let eid = store.add(
         EvidenceKind::Aggregated,
-        "同地域・同条件の求人件数 (今回CSV)",
+        // P1-8: 職種を特定していないため「同条件」は矛盾。今回データ内の件数として表現する
+        "今回のデータ内の求人件数 (今回CSV)",
         &format!("{}", input.total_postings),
         "件",
         "今回の求人CSV集計",
@@ -362,7 +376,7 @@ fn judge_competition(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJud
         (
             AxisLevel::High,
             format!(
-                "同条件の求人が{}件・{}社と多く、求職者から比較されやすい環境の可能性があります。",
+                "今回のデータ内の求人が{}件・{}社と多く、求職者から比較されやすい環境の可能性があります。",
                 input.total_postings, input.company_count
             ),
         )
@@ -370,7 +384,7 @@ fn judge_competition(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJud
         (
             AxisLevel::Medium,
             format!(
-                "同条件の求人は{}件・{}社で、競争は中程度と考えられます。",
+                "今回のデータ内の求人は{}件・{}社で、競争は中程度と考えられます。",
                 input.total_postings, input.company_count
             ),
         )
@@ -378,7 +392,7 @@ fn judge_competition(input: &ConsultInput, store: &mut EvidenceStore) -> AxisJud
         (
             AxisLevel::Low,
             format!(
-                "同条件の求人は{}件・{}社と比較的少なめです (今回CSVの範囲内)。",
+                "今回のデータ内の求人は{}件・{}社と比較的少なめです (今回CSVの範囲内)。",
                 input.total_postings, input.company_count
             ),
         )

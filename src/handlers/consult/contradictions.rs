@@ -229,14 +229,14 @@ pub fn detect_contradictions(signals: &[Signal]) -> Vec<Contradiction> {
         });
     }
 
-    // C: 家賃負担が重い (S-22) × 提示給与が下位 (S-02) → 生活コストと給与の乖離
+    // C: 居住コストが全国比で高い (S-22) × 提示給与が下位 (S-02) → 相対的な負担感
     if fired(signals, "S-22") && fired(signals, "S-02") {
         out.push(Contradiction {
             contradiction_id: next_id(),
-            title: "生活コストに対して提示給与が見劣りする".to_string(),
+            title: "居住コストが相対的に高いのに提示給与は下位圏".to_string(),
             evidence_ids: evidence_of(signals, &["S-22", "S-02"]),
             interpretations: vec![
-                "家賃等の生活コストに対して提示給与が下位圏にあり、転居を伴う採用が難しい可能性"
+                "居住コスト (家賃) が全国比で高めなのに提示給与が下位圏にあり、転居を伴う採用が難しい可能性"
                     .to_string(),
                 "近隣居住者・持ち家層など、住居費の影響が小さい層への訴求が論点の可能性"
                     .to_string(),

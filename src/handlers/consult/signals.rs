@@ -792,66 +792,110 @@ fn s17_daytime_outflow(input: &ConsultInput, store: &mut EvidenceStore) -> Signa
     }
 }
 
-/// S-18 廃業率が開業率を上回る
+/// S-18 廃業率が開業率を上回る。
+/// 🔴 元値は経済センサス調査間の累計。証拠には累計値 (調査間隔つき) を明示し、
+///    判定は年換算値どうしの比較で行う (調査間隔が取れなければ判定不能)。
 fn s18_closure_over_opening(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
     const ID: &str = "S-18";
     const NAME: &str = "廃業率が開業率を上回る地域";
     match (input.business_opening_rate, input.business_closure_rate) {
         (Some(open), Some(close)) => {
+            let years_note = match input.business_dynamics_interval_years {
+                Some(y) => format!("経済センサス調査間 累計 (調査間隔 約{:.0}年)", y),
+                None => "経済センサス調査間 累計 (調査間隔 不明)".to_string(),
+            };
             let eid = store.add(
                 EvidenceKind::Observed,
-                "開業率 / 廃業率",
+                "開業率 / 廃業率 (経済センサス調査間 累計)",
                 &format!("{:.1} / {:.1}", open, close),
                 "%",
                 "経済センサス 開廃業",
                 granularity::PREFECTURE,
                 None,
                 None,
-                "事業所ベースの開業率・廃業率",
+                &format!("事業所ベース。{}。年率比較には年換算が必要", years_note),
             );
-            Signal {
-                id: ID.to_string(),
-                name: NAME.to_string(),
-                fired: close - open > config::CLOSURE_OVER_OPENING_MARGIN_PCT,
-                evidence_ids: vec![eid],
-                interpretation: "事業所の廃業が開業を上回っており、雇用の受け皿が縮小方向にある可能性があります。廃業に伴う人材の再就職ニーズが顕在化している可能性もあります。".to_string(),
-                alternative_explanations: vec![
-                    "開廃業率は全産業ベースで、対象職種の業種動向とは異なる可能性".to_string(),
-                ],
-                data_note: String::new(),
+            match (
+                input.annualized_opening_rate(),
+                input.annualized_closure_rate(),
+            ) {
+                (Some(open_a), Some(close_a)) => Signal {
+                    id: ID.to_string(),
+                    name: NAME.to_string(),
+                    fired: close_a - open_a > config::CLOSURE_OVER_OPENING_MARGIN_PCT,
+                    evidence_ids: vec![eid],
+                    interpretation: format!(
+                        "年換算の廃業率 (約{:.1}%) が開業率 (約{:.1}%) を上回っており、事業所の受け皿が縮小方向にある可能性があります。廃業に伴う人材の再就職ニーズが顕在化している可能性もあります。",
+                        close_a, open_a
+                    ),
+                    alternative_explanations: vec![
+                        "開廃業率は全産業ベースで、対象職種の業種動向とは異なる可能性".to_string(),
+                        "調査間隔での累計を年換算した参考値であり、単年の増減とは異なる可能性".to_string(),
+                    ],
+                    data_note: String::new(),
+                },
+                _ => Signal {
+                    id: ID.to_string(),
+                    name: NAME.to_string(),
+                    fired: false,
+                    evidence_ids: vec![eid],
+                    interpretation: String::new(),
+                    alternative_explanations: vec![],
+                    data_note: "開廃業率の調査間隔が特定できず、年換算での比較ができないため判定できません".to_string(),
+                },
             }
         }
         _ => Signal::not_evaluable(ID, NAME, "開廃業データが不足しています"),
     }
 }
 
-/// S-19 開業が活発
+/// S-19 開業が活発。
+/// 🔴 判定は年換算した開業率 (累計 ÷ 調査間年数) に対して閾値を適用する。
 fn s19_opening_active(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
     const ID: &str = "S-19";
     const NAME: &str = "開業が活発な地域";
     match input.business_opening_rate {
         Some(open) => {
+            let years_note = match input.business_dynamics_interval_years {
+                Some(y) => format!("経済センサス調査間 累計 (調査間隔 約{:.0}年)", y),
+                None => "経済センサス調査間 累計 (調査間隔 不明)".to_string(),
+            };
             let eid = store.add(
                 EvidenceKind::Observed,
-                "開業率",
+                "開業率 (経済センサス調査間 累計)",
                 &format!("{:.1}", open),
                 "%",
                 "経済センサス 開廃業",
                 granularity::PREFECTURE,
                 None,
                 None,
-                "事業所ベースの開業率",
+                &format!("事業所ベース。{}。判定は年換算値で行う", years_note),
             );
-            Signal {
-                id: ID.to_string(),
-                name: NAME.to_string(),
-                fired: open >= config::OPENING_RATE_ACTIVE_THRESHOLD,
-                evidence_ids: vec![eid],
-                interpretation: "新規事業所の立ち上げが活発で、人材の採り合いが起きやすい環境の可能性があります。".to_string(),
-                alternative_explanations: vec![
-                    "開業率は全産業ベースで、対象職種の採用競合とは異なる可能性".to_string(),
-                ],
-                data_note: String::new(),
+            match input.annualized_opening_rate() {
+                Some(open_a) => Signal {
+                    id: ID.to_string(),
+                    name: NAME.to_string(),
+                    fired: open_a >= config::OPENING_RATE_ACTIVE_THRESHOLD,
+                    evidence_ids: vec![eid],
+                    interpretation: format!(
+                        "年換算の開業率が約{:.1}%と高めで、新規事業所の立ち上げが活発なため人材の採り合いが起きやすい環境の可能性があります。",
+                        open_a
+                    ),
+                    alternative_explanations: vec![
+                        "開業率は全産業ベースで、対象職種の採用競合とは異なる可能性".to_string(),
+                        "調査間隔での累計を年換算した参考値である点に留意".to_string(),
+                    ],
+                    data_note: String::new(),
+                },
+                None => Signal {
+                    id: ID.to_string(),
+                    name: NAME.to_string(),
+                    fired: false,
+                    evidence_ids: vec![eid],
+                    interpretation: String::new(),
+                    alternative_explanations: vec![],
+                    data_note: "開業率の調査間隔が特定できず年換算できないため判定できません".to_string(),
+                },
             }
         }
         None => Signal::not_evaluable(ID, NAME, "開業率データが不足しています"),
@@ -929,37 +973,33 @@ fn s21_unemployment_slack(input: &ConsultInput, store: &mut EvidenceStore) -> Si
     )
 }
 
-/// S-22 家賃負担が給与に対して重い
+/// S-22 1畳あたり家賃が全国比で高い (居住コストの相対位置)。
+/// 🔴 P0-2: median_rent_jpy の実体は「1畳あたり家賃」であり月額家賃ではない。
+///    月額家賃としての給与バランス判定は廃止し (勝手な畳数仮定で月額を捏造しない)、
+///    全国中央値に対する相対位置のみを扱う。全国基準が取れなければ判定材料不足に降格する。
 fn s22_rent_burden(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
     const ID: &str = "S-22";
-    const NAME: &str = "家賃負担が提示給与帯に対して重い";
-    if input.is_hourly {
-        return Signal::not_evaluable(
-            ID,
-            NAME,
-            "時給中心のCSVのため月額給与ベースの家賃負担は算出しません",
-        );
-    }
-    match (input.median_rent, input.salary_median) {
-        (Some(rent), Some(salary)) if salary > 0 => {
-            let ratio = rent as f64 / salary as f64;
+    const NAME: &str = "1畳あたり家賃が全国比で高い (居住コスト)";
+    match (input.rent_per_tatami, input.rent_relative_to_national()) {
+        (Some(rent), Some(ratio)) => {
             let eid = store.add(
-                EvidenceKind::Aggregated,
-                "代表家賃 / 市場給与中央値",
-                &format!("{} / {}", rent, salary),
-                "円/月",
-                "住宅・土地統計 / 今回の求人CSV集計",
+                EvidenceKind::Observed,
+                "1畳あたり家賃 (全国中央値比)",
+                &format!("{}円 (全国比 {:.2}倍)", rent, ratio),
+                "",
+                "住宅・土地統計",
                 granularity::PREFECTURE,
-                Some(input.salary_n),
+                None,
                 Some(input.as_of.clone()),
-                "家賃は民営借家の代表値。給与は市場中央値 (自社給与ではない)",
+                "1畳あたり家賃 (総数)。月額家賃ではない。全国中央値との相対位置として扱う",
             );
+            // 全国比 1.1倍超を「相対的に高い」とみなす (居住コストの論点提示)
             Signal {
                 id: ID.to_string(),
                 name: NAME.to_string(),
-                fired: ratio >= config::RENT_BURDEN_RATIO_THRESHOLD,
+                fired: ratio > 1.1,
                 evidence_ids: vec![eid],
-                interpretation: "代表家賃が市場給与帯に対して重く、遠方からの転居を伴う採用のハードルが高い可能性があります。近隣居住者・通勤圏の訴求が論点になる可能性があります。".to_string(),
+                interpretation: "居住コスト (1畳あたり家賃) が全国と比べて相対的に高く、遠方からの転居を伴う採用ではハードルになり得る可能性があります (面談で採用対象が転居前提か通勤前提かを確認)。".to_string(),
                 alternative_explanations: vec![
                     "家賃は県代表値で、勤務地周辺の実勢とは差がある可能性".to_string(),
                     "持ち家率が高い地域では家賃負担の影響が小さい可能性".to_string(),
@@ -967,7 +1007,31 @@ fn s22_rent_burden(input: &ConsultInput, store: &mut EvidenceStore) -> Signal {
                 data_note: String::new(),
             }
         }
-        _ => Signal::not_evaluable(ID, NAME, "家賃または市場給与データが不足しています"),
+        (Some(rent), None) => {
+            // 全国基準が無いときは相対位置を判定できない。値だけは証拠化 (月額換算はしない)。
+            let eid = store.add(
+                EvidenceKind::Observed,
+                "1畳あたり家賃",
+                &format!("{}", rent),
+                "円",
+                "住宅・土地統計",
+                granularity::PREFECTURE,
+                None,
+                Some(input.as_of.clone()),
+                "1畳あたり家賃 (総数)。月額家賃ではない。全国中央値が取得できず相対位置は判定不能",
+            );
+            Signal {
+                id: ID.to_string(),
+                name: NAME.to_string(),
+                fired: false,
+                evidence_ids: vec![eid],
+                interpretation: String::new(),
+                alternative_explanations: vec![],
+                data_note: "全国中央値が取得できず、家賃の相対位置を判定できません (材料不足)"
+                    .to_string(),
+            }
+        }
+        _ => Signal::not_evaluable(ID, NAME, "家賃データが不足しています"),
     }
 }
 
@@ -1548,17 +1612,45 @@ mod tests {
     }
 
     #[test]
-    fn s18_s19_business_dynamics() {
+    fn s18_s19_business_dynamics_use_annualized_values() {
         let mut input = base_input();
         let mut store = EvidenceStore::new();
-        input.business_opening_rate = Some(3.0);
-        input.business_closure_rate = Some(5.0);
+        // 調査間隔 5年。累計 開15%/廃25% → 年換算 開3%/廃5% → 廃業超過発火・開業活発は非発火
+        input.business_dynamics_interval_years = Some(5.0);
+        input.business_opening_rate = Some(15.0);
+        input.business_closure_rate = Some(25.0);
         assert!(s18_closure_over_opening(&input, &mut store).fired);
         assert!(!s19_opening_active(&input, &mut store).fired);
-        input.business_opening_rate = Some(6.0);
-        input.business_closure_rate = Some(4.0);
+        // 累計 開35%/廃20% → 年換算 開7%/廃4% → 廃業超過は非発火・開業活発は発火 (7% >= 6.5%)
+        input.business_opening_rate = Some(35.0);
+        input.business_closure_rate = Some(20.0);
         assert!(!s18_closure_over_opening(&input, &mut store).fired);
         assert!(s19_opening_active(&input, &mut store).fired);
+    }
+
+    #[test]
+    fn s19_does_not_fire_on_cumulative_when_annualized_below_threshold() {
+        // P0-1 実データ退行防止: 大分県2021 累計29.79% / 5年 ≈ 5.96% → 発火しない
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.business_dynamics_interval_years = Some(5.0);
+        input.business_opening_rate = Some(29.79);
+        let s = s19_opening_active(&input, &mut store);
+        assert!(!s.fired, "年換算 約6% では開業活発シグナルは発火しない");
+    }
+
+    #[test]
+    fn s18_s19_not_evaluable_without_interval() {
+        // 調査間隔が取れないときは年換算できず判定不能 (発火せず data_note を出す)
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.business_dynamics_interval_years = None;
+        input.business_opening_rate = Some(29.79);
+        input.business_closure_rate = Some(29.58);
+        let s19 = s19_opening_active(&input, &mut store);
+        assert!(!s19.fired && !s19.data_note.is_empty());
+        let s18 = s18_closure_over_opening(&input, &mut store);
+        assert!(!s18.fired && !s18.data_note.is_empty());
     }
 
     #[test]
@@ -1575,17 +1667,37 @@ mod tests {
     }
 
     #[test]
-    fn s22_rent_burden_and_hourly_skip() {
+    fn s22_rent_uses_relative_position_not_monthly_balance() {
+        // P0-2: 1畳あたり家賃の全国比のみで判定。月額家賃バランスは廃止。
         let mut input = base_input();
         let mut store = EvidenceStore::new();
-        input.median_rent = Some(80_000);
-        input.salary_median = Some(250_000);
-        assert!(s22_rent_burden(&input, &mut store).fired); // 0.32 >= 0.30
-        input.median_rent = Some(60_000);
-        assert!(!s22_rent_burden(&input, &mut store).fired); // 0.24
-        input.is_hourly = true;
+        input.rent_per_tatami = Some(2274); // 東京都相当
+        input.rent_per_tatami_national = Some(1200);
+        // 2274/1200 ≈ 1.9倍 > 1.1 → 相対的に高いで発火
+        let s = s22_rent_burden(&input, &mut store);
+        assert!(s.fired);
+        // 証拠は円単位の相対位置であり「円/月」を出さない (月額捏造しない)
+        let ev = s
+            .evidence_ids
+            .first()
+            .and_then(|id| store.items().iter().find(|e| &e.id == id).cloned());
+        assert!(ev.is_some());
+        assert_ne!(ev.unwrap().unit, "円/月");
+    }
+
+    #[test]
+    fn s22_not_evaluable_without_national_baseline() {
+        // 全国基準が無ければ相対位置を判定できない → 発火せず data_note (月額換算はしない)
+        let mut input = base_input();
+        let mut store = EvidenceStore::new();
+        input.rent_per_tatami = Some(917); // 大分県相当
+        input.rent_per_tatami_national = None;
         let s = s22_rent_burden(&input, &mut store);
         assert!(!s.fired && !s.data_note.is_empty());
+        // 大分917が全国比0.76なら発火しない (相対的に低い)
+        input.rent_per_tatami_national = Some(1200);
+        let s2 = s22_rent_burden(&input, &mut store);
+        assert!(!s2.fired, "全国比0.76倍は高くないので発火しない");
     }
 
     #[test]

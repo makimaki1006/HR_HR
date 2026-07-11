@@ -255,12 +255,16 @@ pub(crate) mod tests {
             // 拡充データ (公的統計)
             net_migration_rate: Some(-3.2),
             daytime_ratio: Some(94.5),
-            business_opening_rate: Some(4.2),
-            business_closure_rate: Some(5.6),
+            // 経済センサス調査間 累計 (調査間隔5年)。年換算 開4.2/廃5.6 → 廃業超過が発火
+            business_opening_rate: Some(21.0),
+            business_closure_rate: Some(28.0),
+            business_dynamics_interval_years: Some(5.0),
             unemployment_rate_pref: Some(2.1),
             unemployment_rate_national: Some(2.8),
             natural_change: Some(-1_800),
-            median_rent: Some(78_000),
+            // 1畳あたり家賃 (総数)。県2200円 / 全国1200円 ≈ 1.83倍 → 相対的に高いで発火
+            rent_per_tatami: Some(2_200),
+            rent_per_tatami_national: Some(1_200),
             // 拡充データ (媒体CSV観測)
             distinct_tag_count: 4,
             top_tags: vec![
