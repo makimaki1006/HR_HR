@@ -349,7 +349,15 @@ pub(crate) fn render_navy_executive(
     // -- findings (KEY FINDINGS, 最大 7 件)
     // P1-6 (2026-05-28): hw_context 経由で業界/職種偏り Finding 2 件を追加可能。
     // hw_context=None (CSV 単体モード等) の場合は従来通り 4 件のみ。
-    let findings = build_findings(agg, total, k3_pct, new_pct, salary_parse_pct, hw_context);
+    let findings = build_findings(
+        agg,
+        total,
+        k3_pct,
+        new_pct,
+        salary_parse_pct,
+        hw_context,
+        variant,
+    );
     // P1-6: hw_context 有無で件数 4 / 6 と動的に変わるため、固定文言ではなく実数を表示。
     // ※既存 findings は (1)サンプル件数 (2)雇用形態 (3)新着比率 (5)地域カバレッジ の 4 件
     //   (旧 #4 給与解析率は 2026-05-14 撤去済み)。
@@ -416,6 +424,7 @@ fn build_findings(
     new_pct: i64,
     salary_parse_pct: i64,
     hw_context: Option<&InsightContext>,
+    variant: ReportVariant,
 ) -> Vec<(&'static str, String, String, String)> {
     let mut v: Vec<(&'static str, String, String, String)> = Vec::new();
 
@@ -515,6 +524,13 @@ fn build_findings(
     // データ代表性 (本レポート全体の解釈) に影響する。CSV 単体モードや
     // HW context が無い場合は Finding 06/07 をスキップ (Finding 数は <=5)。
     //
+    // 2026-07-13 HW リーク撤去: hw_industry_counts / hw_job_type_counts は
+    //   FROM postings 由来 (HW データ) のため、顧客向け variant (MarketIntelligence /
+    //   Extended / Sp) では出さない。Full (HW 併載版) のみに限定する。番兵テスト
+    //   (invariant_tests.rs invariant 11) が top カテゴリ番兵の非漏洩を保証する。
+    //   Finding をスキップしても、描画ループ側は enumerate() で連番を振り直すため
+    //   Finding 番号の欠番は生じない (並びは自動的に詰まる)。
+    //
     // 閾値 (compute_skew_severity 参照):
     //   - max_share > 85% → WARN (顕著)
     //   - max_share > 70% → NEU  (偏りあり、要注意)
@@ -524,24 +540,26 @@ fn build_findings(
     // 用語ガード (DISPLAY_SPEC v1.0 §2): 「件数」「占有率」のみ使用。
     // 「人数」「target_count」「推定母集団」等は禁止。
     // ============================================================
-    if let Some(ctx) = hw_context {
-        // Finding 06: 業界 (12 大分類) の偏り
-        let (sev_ind, body_ind) = compute_skew_severity(&ctx.hw_industry_counts, "産業大分類");
-        v.push((
-            sev_ind,
-            "産業構成 偏り".to_string(),
-            escape_html(&body_ind),
-            "§5 産業構成".to_string(),
-        ));
+    if matches!(variant, ReportVariant::Full) {
+        if let Some(ctx) = hw_context {
+            // Finding 06: 業界 (12 大分類) の偏り
+            let (sev_ind, body_ind) = compute_skew_severity(&ctx.hw_industry_counts, "産業大分類");
+            v.push((
+                sev_ind,
+                "産業構成 偏り".to_string(),
+                escape_html(&body_ind),
+                "§5 産業構成".to_string(),
+            ));
 
-        // Finding 07: 職種 (job_type) の偏り
-        let (sev_job, body_job) = compute_skew_severity(&ctx.hw_job_type_counts, "職種");
-        v.push((
-            sev_job,
-            "職種構成 偏り".to_string(),
-            escape_html(&body_job),
-            "§4 採用市場".to_string(),
-        ));
+            // Finding 07: 職種 (job_type) の偏り
+            let (sev_job, body_job) = compute_skew_severity(&ctx.hw_job_type_counts, "職種");
+            v.push((
+                sev_job,
+                "職種構成 偏り".to_string(),
+                escape_html(&body_job),
+                "§4 採用市場".to_string(),
+            ));
+        }
     }
 
     v
@@ -572,7 +590,7 @@ mod tests {
     fn findings_zero_sample_marks_negative() {
         // 境界: total=0 → サンプル件数 finding は neg。0 除算 / panic しない。
         let agg = agg_with(0, 0, vec![]);
-        let f = build_findings(&agg, 0, 0.0, 0, 85, None);
+        let f = build_findings(&agg, 0, 0.0, 0, 85, None, ReportVariant::Full);
         assert!(!f.is_empty());
         // 1 件目はサンプル件数、sev=neg
         assert_eq!(f[0].0, "neg", "サンプル 0 件は neg: {:?}", f[0]);
@@ -583,7 +601,7 @@ mod tests {
     fn findings_small_sample_warns() {
         // 境界: 0 < total < 30 → warn (統計信頼性低)
         let agg = agg_with(20, 3, vec![("正社員", 20)]);
-        let f = build_findings(&agg, 20, 100.0, 15, 85, None);
+        let f = build_findings(&agg, 20, 100.0, 15, 85, None, ReportVariant::Full);
         assert_eq!(f[0].0, "warn", "n=20 は warn: {:?}", f[0]);
         assert!(f[0].2.contains("n=20"));
     }
@@ -592,7 +610,7 @@ mod tests {
     fn findings_large_sample_positive() {
         // n>=30 → pos (実務判断に十分)
         let agg = agg_with(100, 12, vec![("正社員", 60)]);
-        let f = build_findings(&agg, 100, 60.0, 12, 85, None);
+        let f = build_findings(&agg, 100, 60.0, 12, 85, None, ReportVariant::Full);
         assert_eq!(f[0].0, "pos", "n=100 は pos: {:?}", f[0]);
     }
 
@@ -601,13 +619,13 @@ mod tests {
         // データ妥当性: 雇用形態構成 finding (index 1) は dom_emp_pct で分岐。
         //   >=85% warn / >=70% neu / それ未満 pos。
         let agg = agg_with(100, 12, vec![("正社員", 90)]);
-        let f_warn = build_findings(&agg, 100, 90.0, 12, 85, None);
+        let f_warn = build_findings(&agg, 100, 90.0, 12, 85, None, ReportVariant::Full);
         assert_eq!(f_warn[1].0, "warn", "90% は構成集約 warn: {:?}", f_warn[1]);
 
-        let f_neu = build_findings(&agg, 100, 75.0, 12, 85, None);
+        let f_neu = build_findings(&agg, 100, 75.0, 12, 85, None, ReportVariant::Full);
         assert_eq!(f_neu[1].0, "neu", "75% は neu: {:?}", f_neu[1]);
 
-        let f_pos = build_findings(&agg, 100, 50.0, 12, 85, None);
+        let f_pos = build_findings(&agg, 100, 50.0, 12, 85, None, ReportVariant::Full);
         assert_eq!(f_pos[1].0, "pos", "50% はバランス pos: {:?}", f_pos[1]);
     }
 
@@ -615,13 +633,13 @@ mod tests {
     fn findings_new_ratio_branches() {
         // 新着比率 finding (index 2): >=15 pos / <5 warn / 中間 neu。
         let agg = agg_with(100, 20, vec![("正社員", 60)]);
-        let f_pos = build_findings(&agg, 100, 60.0, 20, 85, None);
+        let f_pos = build_findings(&agg, 100, 60.0, 20, 85, None, ReportVariant::Full);
         assert_eq!(f_pos[2].0, "pos", "新着 20% は pos: {:?}", f_pos[2]);
 
-        let f_warn = build_findings(&agg, 100, 60.0, 2, 85, None);
+        let f_warn = build_findings(&agg, 100, 60.0, 2, 85, None, ReportVariant::Full);
         assert_eq!(f_warn[2].0, "warn", "新着 2% は warn: {:?}", f_warn[2]);
 
-        let f_neu = build_findings(&agg, 100, 60.0, 8, 85, None);
+        let f_neu = build_findings(&agg, 100, 60.0, 8, 85, None, ReportVariant::Full);
         assert_eq!(f_neu[2].0, "neu", "新着 8% は neu: {:?}", f_neu[2]);
     }
 
@@ -630,7 +648,7 @@ mod tests {
         // データ妥当性: hw_context=None → finding 4 件 (サンプル/雇用形態/新着/地域カバレッジ)。
         //   旧 #4 給与解析率は撤去済み。
         let agg = agg_with(100, 12, vec![("正社員", 60)]);
-        let f = build_findings(&agg, 100, 60.0, 12, 85, None);
+        let f = build_findings(&agg, 100, 60.0, 12, 85, None, ReportVariant::Full);
         assert_eq!(f.len(), 4, "hw_context なしは 4 件: {:?}", f);
     }
 
@@ -638,7 +656,7 @@ mod tests {
     fn findings_region_coverage_present_as_last_without_hw() {
         // 地域カバレッジ finding が含まれること (pref_count=0 でも neu で出る)
         let agg = agg_with(100, 12, vec![("正社員", 60)]);
-        let f = build_findings(&agg, 100, 60.0, 12, 85, None);
+        let f = build_findings(&agg, 100, 60.0, 12, 85, None, ReportVariant::Full);
         assert!(
             f.iter().any(|(_, title, _, _)| title == "地域カバレッジ"),
             "地域カバレッジ finding が必要: {:?}",
