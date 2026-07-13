@@ -463,28 +463,35 @@ pub(crate) fn render_navy_section_05_companies(
     }
 
     // ========================================================================
-    // P2-2 (2026-05-28): CSV 企業別給与ランキング (表 5-G) + 注目企業リスト (表 5-H)
+    // P2-2 (2026-05-28): 企業別給与ランキング (表 5-G) + 注目企業リスト (表 5-H)
     //
     // データ: ctx.csv_company_ranking (postings facility_name 別 給与中央値 上位 30 社)
-    // 出典: CSV 求人データ集計 (SalesNow 由来の地域企業データとは別)
-    // 表示条件: ctx.csv_company_ranking が空 (or hw_context が None) なら表示しない
+    // 出典: ハローワーク掲載求人の集計 (自前 HW DB 由来。SalesNow の地域企業データとは別)
+    // 2026-07-13 HW リーク撤去 + 出典訂正:
+    //   - postings 由来 (HW データ) のため、顧客向け variant (MarketIntelligence /
+    //     Extended / Sp) には出さず、Full (HW 併載版) 限定にする (show_hw ガード)。
+    //   - 旧キャプションの「出典: CSV 求人データ集計」は誤記 (実体は自前 HW DB)。
+    //     「ハローワーク掲載求人の集計」に訂正 (Full で出る分も正しい出典表記に)。
+    // 表示条件: Full かつ ctx.csv_company_ranking が空でない場合のみ。
     // 配置: 既存 SO WHAT の直前
     // ========================================================================
-    if let Some(ctx) = hw_context {
-        if !ctx.csv_company_ranking.is_empty() {
-            html.push_str(&build_navy_csv_company_salary_table(
-                &ctx.csv_company_ranking,
-                10,
-            ));
-            html.push_str(&build_navy_notable_companies_block(
-                &ctx.csv_company_ranking,
-                5,
-            ));
-            html.push_str(
-                "<p class=\"caption\">出典: CSV 求人データ集計。給与は月給換算後の中央値 (万円)。\
-                 注目企業 = 求人数 top 5 と 給与中央値 (上限) top 5 の和集合。\
-                 求人数 2 件未満の施設は代表性確保のため除外。</p>\n",
-            );
+    if show_hw {
+        if let Some(ctx) = hw_context {
+            if !ctx.csv_company_ranking.is_empty() {
+                html.push_str(&build_navy_csv_company_salary_table(
+                    &ctx.csv_company_ranking,
+                    10,
+                ));
+                html.push_str(&build_navy_notable_companies_block(
+                    &ctx.csv_company_ranking,
+                    5,
+                ));
+                html.push_str(
+                    "<p class=\"caption\">出典: ハローワーク掲載求人の集計。給与は月給換算後の中央値 (万円)。\
+                     注目企業 = 求人数 top 5 と 給与中央値 (上限) top 5 の和集合。\
+                     求人数 2 件未満の施設は代表性確保のため除外。</p>\n",
+                );
+            }
         }
     }
 
@@ -635,7 +642,7 @@ pub(crate) fn build_navy_csv_company_salary_table(
 
     let mut s = String::from(
         "<div class=\"block-title block-title-spaced\">\
-         表 5-G &nbsp;企業別給与ランキング (CSV 求人 集計、上限給与中央値 上位 ",
+         表 5-G &nbsp;企業別給与ランキング (ハローワーク掲載求人 集計、上限給与中央値 上位 ",
     );
     s.push_str(&format!("{}", limit));
     s.push_str(" 社、求人数 2 件以上)</div>\n");
