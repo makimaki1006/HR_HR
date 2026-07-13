@@ -766,7 +766,25 @@ fn render_action_bar(session_id: &str) -> String {
                             <span class="text-[10px] opacity-80 font-normal">レビュー改善を全部入れした試作版</span>
                         </span>
                     </a>
+                    <!-- Ver10: ver10 — 現場レビュー反映版 (冒頭まとめを簡単に / 難しい言葉を減らす / 一部の図表を省く) -->
+                    <a href="/report/survey?session_id={sid}&variant=ver10" target="_blank" rel="noopener"
+                       onclick="return openVer10Report(event, '{sid}')"
+                       data-variant="ver10"
+                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-700 hover:bg-sky-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-sky-400"
+                       aria-label="Ver10 レポートPDFを新しいタブで開く"
+                       title="Ver10: 現場の声を反映した読みやすい版。冒頭のまとめを超簡単にして難しい言葉を減らし、雇用形態構成・採用市場の需給ページ・一部の図表を省いています。">
+                        <span class="text-base" aria-hidden="true">📘</span>
+                        <span class="flex flex-col items-start leading-tight">
+                            <span>Ver10 レポートを作成</span>
+                            <span class="text-[10px] opacity-80 font-normal">現場の声を反映した読みやすい版</span>
+                        </span>
+                    </a>
                 </div>
+                <!-- Ver10 の表2-E (都道府県別の給与比較) を含めるかのチェックボックス。既定オン。 -->
+                <label class="inline-flex items-center gap-2 mt-2 text-[12px] text-slate-300" title="Ver10 レポートに、都道府県別の給与比較の表 (表2-E) を含めるかどうかを選べます。">
+                    <input type="checkbox" id="ver10-table2e" checked class="align-middle">
+                    <span>都道府県別の給与比較の表を含める (表2-E)</span>
+                </label>
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
                     PDF出力は<strong class="text-slate-200">2種類</strong>から選択できます。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
                 </p>

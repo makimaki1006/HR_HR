@@ -147,6 +147,21 @@ pub enum ReportVariant {
     /// 1 バイトも変えない (SP 専用ブロックは `variant == Sp` のときだけ描画する)。
     /// 名称は暫定であり「SP版 (仮)」と表記する (正式名にしない)。
     Sp,
+    /// Ver10 (2026-07-13 追加、現場コンサルレビュー反映版)
+    ///
+    /// `Sp` (詳細版 + SP 改善全部入り) をベースに、現場コンサルのレビューを
+    /// 逐条反映した差分を **Ver10 のみ** に適用した版:
+    /// - 冒頭のまとめを「超簡単・解説なし」に簡素化 (結論の1文リスト + まず取り組む3つ)
+    /// - 難しい統計略称 (n= / IQR / CV / P25/P50/P75 の裸使用) を平易表現に一掃
+    /// - 雇用形態構成 (§01 KPI/Finding) を削除 (正社員限定運用のため無意味)
+    /// - §02 冒頭の説明ブロックと表2-A を削除、表2-E は table2e パラメータで表示制御
+    /// - §03 表3-A から四分位を別表に分離 / 表3-E を主要列に絞る / 図3-6 を削除
+    ///   (図3-5 は残し、見やすさを改善)
+    /// - §04 (採用市場 逼迫度) はセクションごと非表示 (現場いわく「ハロワ調べは逆効果」)
+    ///
+    /// 既存 variant (Full / Public / MarketIntelligence / Extended / Sp) の出力は
+    /// 1 バイトも変えない (Ver10 専用の分岐・置換層は `variant == Ver10` のときだけ働く)。
+    Ver10,
 }
 
 impl ReportVariant {
@@ -159,6 +174,7 @@ impl ReportVariant {
             Some("market_intelligence") => Self::MarketIntelligence,
             Some("extended") => Self::Extended,
             Some("sp") => Self::Sp,
+            Some("ver10") => Self::Ver10,
             _ => Self::Full,
         }
     }
@@ -171,6 +187,7 @@ impl ReportVariant {
             Self::MarketIntelligence => "market_intelligence",
             Self::Extended => "extended",
             Self::Sp => "sp",
+            Self::Ver10 => "ver10",
         }
     }
 
@@ -182,6 +199,7 @@ impl ReportVariant {
             Self::MarketIntelligence => "採用マーケットインテリジェンス版",
             Self::Extended => "詳細版",
             Self::Sp => "SP版 (仮)",
+            Self::Ver10 => "Ver10",
         }
     }
 
@@ -206,7 +224,18 @@ impl ReportVariant {
     /// 2026-07-11 追加。既存 variant の出力は 1 バイトも変わらない
     /// (SP 専用ブロックはこのフックが true のときだけ描画する)。
     pub fn show_sp_sections(self) -> bool {
-        matches!(self, Self::Sp)
+        // Ver10 は Sp をベースにするため、SP 専用ブロック (経営サマリー1ページ /
+        // 結論バンド / 優先アクション表 / 給与四分位) を同じく描画する。
+        matches!(self, Self::Sp | Self::Ver10)
+    }
+
+    /// Ver10 (現場コンサルレビュー反映版) かどうか。
+    ///
+    /// 2026-07-13 追加。Ver10 のみに適用する差分 (雇用形態構成削除 / 表2-A 削除 /
+    /// 図3-6 削除 / §04 非表示 / 簡素サマリー / 用語一掃) のゲートに使う。
+    /// 既存 variant の挙動は不変 (このフックが true になるのは Ver10 のときだけ)。
+    pub fn is_ver10(self) -> bool {
+        matches!(self, Self::Ver10)
     }
 
     /// 採用マーケットインテリジェンスセクション (Phase 3 Step 3 で追加予定) を表示するか。
@@ -214,7 +243,10 @@ impl ReportVariant {
     /// Step 4 ではこのフックメソッドを定義するのみで、HTML 側の参照はまだしない。
     /// Step 3 でこのメソッドを `if variant.show_market_intelligence_sections() { ... }` で参照する。
     pub fn show_market_intelligence_sections(self) -> bool {
-        matches!(self, Self::MarketIntelligence | Self::Extended | Self::Sp)
+        matches!(
+            self,
+            Self::MarketIntelligence | Self::Extended | Self::Sp | Self::Ver10
+        )
     }
 
     /// 詳細版 (Extended) 専用の追加 4 図 (Section 10) を表示するか。
@@ -222,7 +254,7 @@ impl ReportVariant {
     /// 2026-07-09 追加。`Extended` のときだけ true。既存 variant の挙動は不変。
     /// 呼出側 (mod.rs) はこのフックで Section 10 の描画を判断する。
     pub fn show_extended_sections(self) -> bool {
-        matches!(self, Self::Extended | Self::Sp)
+        matches!(self, Self::Extended | Self::Sp | Self::Ver10)
     }
 
     /// アイコン (絵文字)
@@ -233,6 +265,7 @@ impl ReportVariant {
             Self::MarketIntelligence => "\u{1F4CA}", // 📊
             Self::Extended => "\u{1F4C8}",           // 📈
             Self::Sp => "\u{1F9EA}",                 // 🧪 (試作)
+            Self::Ver10 => "\u{1F4D8}",              // 📘 (現場レビュー反映版)
         }
     }
 
@@ -249,6 +282,8 @@ impl ReportVariant {
             Self::Extended => Self::MarketIntelligence,
             // SP版 (仮) の反対導線は詳細版 (SP 専用ブロックを外した基底)。
             Self::Sp => Self::Extended,
+            // Ver10 の反対導線は SP版 (仮) (Ver10 の削除・簡素化を戻した基底)。
+            Self::Ver10 => Self::Sp,
         }
     }
 
@@ -265,6 +300,9 @@ impl ReportVariant {
             }
             Self::Sp => {
                 "詳細版に、持ち歩ける経営サマリー1ページ・各ページの結論バンド・優先アクション表・給与四分位を加えた試作版 (仮)"
+            }
+            Self::Ver10 => {
+                "現場の声を反映し、冒頭のまとめを超簡単にして難しい言葉を減らし、雇用形態の内訳・採用市場の需給ページ・一部の図表を省いた読みやすい版"
             }
         }
     }
@@ -348,6 +386,9 @@ impl SectionSet {
         match &self.explicit {
             Some(set) => set.contains(code),
             None => match code {
+                // Ver10 は §04 (採用市場 逼迫度) をセクションごと非表示にする
+                // (現場レビュー: 有効求人倍率等の公式統計であっても逆効果)。目次も連動する。
+                "04" => !self.variant.is_ver10(),
                 "09" => self.variant.show_market_intelligence_sections(),
                 "10" => self.variant.show_extended_sections(),
                 _ => true,
@@ -783,6 +824,8 @@ pub(crate) fn render_survey_report_page_with_sections(
     selected_pref: &str,
     selected_muni: &str,
     section_set: SectionSet,
+    // 2026-07-13: Ver10 の表2-E 表示フラグ (?table2e=0/1)。Ver10 以外では無視される。
+    table2e: bool,
 ) -> String {
     let cfg = RenderConfig::builder()
         .agg(agg)
@@ -805,6 +848,7 @@ pub(crate) fn render_survey_report_page_with_sections(
         .selected_pref(selected_pref)
         .selected_muni(selected_muni)
         .section_set(section_set)
+        .table2e(table2e)
         .build();
     render_survey_report_page_with_config(&cfg)
 }
@@ -996,6 +1040,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
                 cfg.agg,
                 cfg.hw_context,
                 &target_region,
+                cfg.variant.is_ver10(),
             );
         }
     }
@@ -1018,6 +1063,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             cfg.hw_enrichment_map,
             cfg.variant,
             &target_region,
+            cfg.table2e,
         );
     }
     if cfg.section_set.shows("03") {
@@ -1032,6 +1078,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             // P2-1 (2026-05-28): 給与レンジ 散布図 (図 3-6) で
             // ctx.salary_scatter_pairs を参照するため hw_context を渡す。
             cfg.hw_context,
+            cfg.variant,
         );
         // 2026-07-11: SP版 (仮) 専用 給与四分位 (25/50/75 パーセンタイル) を §03 直後に追加。
         if cfg.variant.show_sp_sections() {
@@ -1164,7 +1211,69 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     html.push_str(&render_scripts());
 
     html.push_str("</body>\n</html>");
+
+    // 2026-07-13: Ver10 のみ、難しい統計略称 (n= / IQR / CV / 裸の P25/P50/P75 等) を
+    //   平易表現に一掃する置換層を最後に通す。Ver10 以外では呼ばれないため、既存 variant の
+    //   出力は 1 バイトも変わらない。既存セクションの文言は変えず、Ver10 の完成 HTML に対して
+    //   のみ後処理で置換する (task: 「Ver10 専用の置換層」)。
+    if cfg.variant.is_ver10() {
+        html = ver10_plain_language(&html);
+    }
     html
+}
+
+/// Ver10 専用: 完成 HTML 内の統計略称を平易表現に置換する (2026-07-13 追加)。
+///
+/// # 目的
+/// 現場レビュー「難しい用語の一掃」に対応。統計に不慣れな読み手でも理解できるよう、
+/// `n=◯◯` → `有効データ◯◯件`、`P25` → `下位25%の値` 等に置き換える。
+///
+/// # 適用範囲
+/// **Ver10 の最終 HTML のみ**。既存 variant (Full/Public/MI/Extended/Sp) では呼ばれない。
+/// 各セクションの元コードの文言は一切変更しない (byte 不変) ため、この後処理で吸収する。
+///
+/// # 実装上の注意
+/// - 置換は「長い綴り → 短い綴り」の順で行う (例: `P25` を先に処理してから裸の `P` は触らない)。
+/// - CSS class 名 (`sp-c-ref` 等) や属性値には統計略称を含めない設計のため、可視テキストの
+///   語 (`n=`, `P25`) を対象にしても HTML 構造を壊さない。`n=` は数値が続く文脈のみ想定。
+fn ver10_plain_language(html: &str) -> String {
+    let mut s = html.to_string();
+    // パーセンタイル: ラベル括弧つき (SP 四分位表の行ラベル) を先に処理し、
+    // 続いて裸の Pxx を平易語に置換する。
+    let replacements: &[(&str, &str)] = &[
+        // 四分位範囲 (IQR) 系
+        ("四分位範囲 (IQR)", "下位25%〜上位25%の幅"),
+        ("(四分位範囲)", "(下位25%〜上位25%の幅)"),
+        ("IQR", "下位25%〜上位25%の幅"),
+        // 変動係数 (CV)
+        ("変動係数 (CV)", "ばらつきの大きさ"),
+        ("CV", "ばらつきの大きさ"),
+        // SP 四分位表の行ラベル (括弧つき表現)
+        ("P25 (下位25%)", "下位25%の値"),
+        ("P50 (中央値)", "中央値 (ちょうど真ん中)"),
+        ("P75 (上位25%)", "上位25%の値"),
+        // パーセンタイル語 + 裸の Pxx
+        ("パーセンタイル", "パーセント点"),
+        ("P90", "上位10%の値"),
+        ("P75", "上位25%の値"),
+        ("P60", "上位40%の値"),
+        ("P50", "中央値"),
+        ("P25", "下位25%の値"),
+        // サンプルサイズ略称 n= → 平易表現。全角/半角どちらの = も想定。
+        ("n=", "有効データ "),
+        ("n＝", "有効データ "),
+        ("n &lt; 30", "有効データが30件未満"),
+        ("n &lt;30", "有効データが30件未満"),
+        ("n&lt;30", "有効データが30件未満"),
+        ("n&lt;10", "有効データが10件未満"),
+        ("n&gt;=30", "有効データが30件以上"),
+        ("n が少なく", "有効データが少なく"),
+        ("n に占める", "全体に占める"),
+    ];
+    for (from, to) in replacements {
+        s = s.replace(from, to);
+    }
+    s
 }
 
 #[cfg(test)]
@@ -3578,6 +3687,234 @@ mod variant_indicator_tests {
                 marker
             );
         }
+    }
+
+    // =====================================================================
+    // Ver10 (2026-07-13): 現場コンサルレビュー反映版の逆証明テスト群。
+    //   variant 解析 / 簡素サマリー / 削除対象の逆証明 / table2e / 用語一掃。
+    // =====================================================================
+
+    /// Ver10 テスト用の共通 agg (雇用形態・給与・地域を持つ)。
+    #[cfg(test)]
+    fn ver10_test_agg() -> crate::handlers::survey::aggregator::SurveyAggregation {
+        use crate::handlers::survey::aggregator::{ScatterPoint, SurveyAggregation};
+        let mut agg = SurveyAggregation::default();
+        agg.total_count = 250;
+        agg.new_count = 60;
+        agg.salary_parse_rate = 0.86;
+        agg.by_prefecture = vec![("群馬県".to_string(), 130), ("埼玉県".to_string(), 45)];
+        agg.by_employment_type = vec![("正社員".to_string(), 175), ("契約社員".to_string(), 75)];
+        agg.by_prefecture_salary = vec![
+            crate::handlers::survey::aggregator::PrefectureSalaryAgg {
+                name: "群馬県".to_string(),
+                count: 130,
+                avg_salary: 280_000,
+                avg_min_salary: 250_000,
+            },
+            crate::handlers::survey::aggregator::PrefectureSalaryAgg {
+                name: "埼玉県".to_string(),
+                count: 45,
+                avg_salary: 300_000,
+                avg_min_salary: 270_000,
+            },
+        ];
+        agg.salary_values = vec![
+            200_000, 240_000, 260_000, 280_000, 300_000, 320_000, 350_000,
+        ];
+        agg.salary_min_values = vec![
+            200_000, 220_000, 240_000, 250_000, 260_000, 280_000, 300_000,
+        ];
+        agg.salary_max_values = vec![
+            260_000, 290_000, 310_000, 330_000, 350_000, 370_000, 400_000,
+        ];
+        // クラスタリング (図3-5 ボックスプロット) が成立するよう十分な散布点を与える。
+        agg.scatter_min_max = (0..40)
+            .map(|i| {
+                let x = 180_000 + (i % 10) * 15_000;
+                ScatterPoint {
+                    x,
+                    y: x + 60_000 + (i % 5) * 8_000,
+                }
+            })
+            .collect();
+        agg
+    }
+
+    #[cfg(test)]
+    fn render_ver10(table2e: bool) -> String {
+        use crate::handlers::survey::job_seeker::JobSeekerAnalysis;
+        let agg = ver10_test_agg();
+        let seeker = JobSeekerAnalysis::default();
+        let cfg = RenderConfig::builder()
+            .agg(&agg)
+            .seeker(&seeker)
+            .by_company(&agg.by_company)
+            .by_emp_type_salary(&agg.by_emp_type_salary)
+            .salary_min_values(&agg.salary_min_values)
+            .salary_max_values(&agg.salary_max_values)
+            .variant(ReportVariant::Ver10)
+            .table2e(table2e)
+            .build();
+        render_survey_report_page_with_config(&cfg)
+    }
+
+    #[cfg(test)]
+    fn render_variant_full_report(v: ReportVariant) -> String {
+        use crate::handlers::survey::job_seeker::JobSeekerAnalysis;
+        let agg = ver10_test_agg();
+        let seeker = JobSeekerAnalysis::default();
+        render_survey_report_page_for_vrt(
+            &agg,
+            &seeker,
+            &[],
+            &[],
+            &agg.salary_min_values,
+            &agg.salary_max_values,
+            None,
+            v,
+        )
+    }
+
+    /// [視覚確認用・CI 対象外] 図3-5・表2-E を含む Ver10 HTML を project root に出力する。
+    /// `cargo test ver10_dump_rich_html -- --ignored` で実行。VRT fixture とは別 (sha 非追跡)。
+    #[test]
+    #[ignore = "視覚確認用: 図3-5/表2-E を含む Ver10 HTML をファイル出力する手動ツール"]
+    fn ver10_dump_rich_html() {
+        std::env::set_var("REPORT_FIXED_TIMESTAMP", "2026-01-15 09:00");
+        let on = render_ver10(true);
+        let off = render_ver10(false);
+        std::fs::write("ver10_rich_table2e_on.html", on).unwrap();
+        std::fs::write("ver10_rich_table2e_off.html", off).unwrap();
+    }
+
+    /// variant 解析: "ver10" が Ver10 に解決され、display_name / as_query が対応すること。
+    #[test]
+    fn ver10_variant_parses_and_names() {
+        assert_eq!(
+            ReportVariant::from_query(Some("ver10")),
+            ReportVariant::Ver10
+        );
+        assert_eq!(ReportVariant::Ver10.as_query(), "ver10");
+        assert_eq!(ReportVariant::Ver10.display_name(), "Ver10");
+        // 往復
+        assert_eq!(
+            ReportVariant::from_query(Some(ReportVariant::Ver10.as_query())),
+            ReportVariant::Ver10
+        );
+        // 既存値は不変
+        assert_eq!(ReportVariant::from_query(Some("sp")), ReportVariant::Sp);
+        assert_eq!(ReportVariant::from_query(None), ReportVariant::Full);
+        // Ver10 は SP ベース: SP 専用ブロック / MI / Extended フックが立つ
+        assert!(ReportVariant::Ver10.show_sp_sections());
+        assert!(ReportVariant::Ver10.show_market_intelligence_sections());
+        assert!(ReportVariant::Ver10.show_extended_sections());
+        assert!(ReportVariant::Ver10.is_ver10());
+        // 既存 variant は is_ver10 が false (Ver10 差分が混入しない保証)
+        for v in [
+            ReportVariant::Full,
+            ReportVariant::Public,
+            ReportVariant::MarketIntelligence,
+            ReportVariant::Extended,
+            ReportVariant::Sp,
+        ] {
+            assert!(!v.is_ver10(), "{:?} は is_ver10 false のはず", v);
+        }
+    }
+
+    /// Ver10 のみに簡素サマリー (要点まとめ) が出て、SP ベースの経営サマリーの前置き注釈が消えること。
+    #[test]
+    fn ver10_simple_summary_only_in_ver10() {
+        let ver10 = render_ver10(true);
+        // Ver10 は簡素タイトル「要点まとめ」を持つ
+        assert!(ver10.contains("要点まとめ"), "Ver10 に要点まとめ: 不在");
+        // まとめの中身 (結論のまとめ / まず取り組む3つ) は残る
+        assert!(ver10.contains("結論のまとめ"), "Ver10 に結論のまとめ");
+        assert!(ver10.contains("まず取り組む3つ"), "Ver10 にまず取り組む3つ");
+        // 前置きの説明文 (「この1ページだけ持ち歩けば」) は削られる
+        assert!(
+            !ver10.contains("この1ページだけ持ち歩けば要点が伝わる構成です"),
+            "Ver10 は前置き説明文を削る"
+        );
+        // SP には従来の「経営サマリー (仮)」が出る (Ver10 の簡素タイトルは出ない)
+        let sp = render_variant_full_report(ReportVariant::Sp);
+        assert!(sp.contains("経営サマリー (仮)"), "SP に経営サマリー (仮)");
+        assert!(!sp.contains("要点まとめ"), "SP に Ver10 用語は出ない");
+    }
+
+    /// 削除対象 (雇用形態構成 / 表2-A / 図3-6 / §04) が Ver10 に出ず、SP には出る逆証明。
+    #[test]
+    fn ver10_deletions_reverse_proof() {
+        let ver10 = render_ver10(true);
+        let sp = render_variant_full_report(ReportVariant::Sp);
+
+        // (1) 雇用形態構成: KPI「主要雇用形態」と Finding「雇用形態構成」が Ver10 に不在
+        assert!(
+            !ver10.contains("主要雇用形態"),
+            "Ver10 に主要雇用形態 KPI が残存"
+        );
+        assert!(
+            !ver10.contains("雇用形態構成"),
+            "Ver10 に雇用形態構成 Finding が残存"
+        );
+        assert!(
+            sp.contains("主要雇用形態"),
+            "SP には主要雇用形態 KPI がある"
+        );
+
+        // (2) 表2-A: 「表 2-A」見出しが Ver10 に不在、SP には存在
+        assert!(!ver10.contains("表 2-A"), "Ver10 に表 2-A が残存");
+        assert!(sp.contains("表 2-A"), "SP には表 2-A がある");
+
+        // (3) 図3-6: Ver10 に「図 3-6」不在 (§03 散布図)。SP は hw_context 無しでは図3-6 が
+        //     出ない場合があるため、ここでは Ver10 側の非存在のみを確定検証する。
+        assert!(!ver10.contains("図 3-6"), "Ver10 に図 3-6 が残存");
+        // 図3-5 は Ver10 でも残る (見やすさ改善対象)
+        assert!(ver10.contains("図 3-5"), "Ver10 に図 3-5 (改善版) は残る");
+
+        // (4) §04 (採用市場 逼迫度): セクションごと Ver10 に不在、SP には存在
+        assert!(
+            !ver10.contains("採用市場 逼迫度"),
+            "Ver10 に §04 (採用市場 逼迫度) が残存"
+        );
+        assert!(sp.contains("採用市場 逼迫度"), "SP には §04 がある");
+        // 目次連動: Ver10 の目次にも §04 が載らない
+        assert!(
+            !ver10.contains("<span class=\"t-name\">採用市場 逼迫度</span>"),
+            "Ver10 の目次に §04 が残存 (目次連動していない)"
+        );
+    }
+
+    /// table2e パラメータの on/off で表2-E の表示が切り替わること (Ver10)。
+    #[test]
+    fn ver10_table2e_toggles_table_2e() {
+        let on = render_ver10(true);
+        let off = render_ver10(false);
+        assert!(on.contains("表 2-E"), "table2e=true で表2-E 表示");
+        assert!(!off.contains("表 2-E"), "table2e=false で表2-E 非表示");
+    }
+
+    /// 用語一掃: Ver10 の HTML に統計略称 (n= / IQR / 裸の P25/P50/P75) が現れないこと。
+    #[test]
+    fn ver10_plain_language_removes_jargon() {
+        let ver10 = render_ver10(true);
+        for jargon in ["n=", "IQR", "P25", "P50", "P75", "P90", "P60"] {
+            assert!(
+                !ver10.contains(jargon),
+                "Ver10 の HTML に統計略称「{}」が残存している",
+                jargon
+            );
+        }
+        // 平易表現に置換されていることの正の確認
+        assert!(
+            ver10.contains("有効データ") || ver10.contains("下位25%の値"),
+            "Ver10 に平易表現 (有効データ / 下位25%の値) が現れるはず"
+        );
+        // 既存 variant (SP) の文言は変えない: SP には n= 等が従来どおり残る
+        let sp = render_variant_full_report(ReportVariant::Sp);
+        assert!(
+            sp.contains("n="),
+            "SP の文言は変えない (n= が従来どおり残る)"
+        );
     }
 
     /// `MarketIntelligence.alternative()` は `Full` (一般版に戻る)。

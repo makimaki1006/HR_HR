@@ -81,7 +81,8 @@ pub(super) fn render_section_market_tightness_with_variant(
         super::ReportVariant::Full
         | super::ReportVariant::MarketIntelligence
         | super::ReportVariant::Extended
-        | super::ReportVariant::Sp => render_section_market_tightness_inner(html, ctx, variant),
+        | super::ReportVariant::Sp
+        | super::ReportVariant::Ver10 => render_section_market_tightness_inner(html, ctx, variant),
         super::ReportVariant::Public => render_section_market_tightness_public(html, ctx),
     }
 }
@@ -726,7 +727,8 @@ fn job_ratio_label_for_variant(variant: super::ReportVariant) -> &'static str {
         super::ReportVariant::MarketIntelligence
         | super::ReportVariant::Public
         | super::ReportVariant::Extended
-        | super::ReportVariant::Sp => "公的雇用需給指標",
+        | super::ReportVariant::Sp
+        | super::ReportVariant::Ver10 => "公的雇用需給指標",
     }
 }
 

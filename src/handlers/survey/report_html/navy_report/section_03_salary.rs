@@ -59,7 +59,11 @@ pub(crate) fn render_navy_section_03_salary(
     // InsightContext.salary_scatter_pairs を参照する。Option はテスト fixture / 旧呼出から
     // None を渡しても従来動作 (散布図のみ非表示) を維持する。
     hw_context: Option<&InsightContext>,
+    // 2026-07-13: Ver10 専用の差分 (表3-A から四分位を別表に分離 / 表3-E を主要列に絞る /
+    //   図3-6 を削除) を適用するための variant。Ver10 以外は従来どおり (byte 不変)。
+    variant: super::super::ReportVariant,
 ) {
+    let is_ver10 = variant.is_ver10();
     // Phase 2-A (2026-05-29): 時給モード対応。
     //   - is_hourly = agg.is_hourly (aggregator が WageMode から導出済)
     //   - 時給モード時は agg.salary_min_values_native / salary_max_values_native / scatter_min_max_native を使う。
@@ -295,12 +299,23 @@ pub(crate) fn render_navy_section_03_salary(
     }
 
     // -- 集計サマリ table-navy
+    // 2026-07-13: Ver10 は表3-A から四分位 (下位25%/上位25%/上位10%) を分離し、
+    //   表3-A は「最小/中央値/平均/最頻値/最大」の基本統計だけに絞る。
+    //   四分位は直後に別表 (表 3-A2) として、平易な言葉のラベルで出す。
     html.push_str(
         "<div class=\"block-title block-title-spaced\">表 3-A &nbsp;給与分布 集計サマリ</div>\n",
     );
     html.push_str(&build_navy_salary_summary_table(
-        &stats_min, &stats_max, is_hourly,
+        &stats_min, &stats_max, is_hourly, is_ver10,
     ));
+    if is_ver10 {
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 3-A2 &nbsp;給与の四分位 (どのあたりに多いか)</div>\n",
+        );
+        html.push_str(&build_ver10_quartile_split_table(
+            &stats_min, &stats_max, is_hourly,
+        ));
+    }
 
     // -- 雇用形態別給与 (旧 employment::render_section_employment 相当を navy で再構築)
     if !agg.by_emp_type_salary.is_empty() {
@@ -348,19 +363,21 @@ pub(crate) fn render_navy_section_03_salary(
             "<div class=\"block-title block-title-spaced\">表 3-E &nbsp;給与構造クラスタ (Jenks 自然分割 × レンジ分類) — {}</div>\n",
             cluster_table_caption
         ));
-        html.push_str(&build_navy_cluster_table(&clusters));
+        html.push_str(&build_navy_cluster_table(&clusters, is_ver10));
 
         // P0-9 (MVP, 2026-06-03): CSV 求人 × クラスタ当て込み 10 件抽出 (下限給与降順)。
         //   各求人を nearest_cluster (P50 距離) で割り当て、クラスタ内 P25/P75 で
         //   低め / 適正 / 高め の 3 段階判定を行う。設計メモ受領後に正規化予定。
         //   silent fallback 防御: clusters / scatter_min_max が空なら何も出力しない。
-        html.push_str(&build_navy_cluster_fitting_table(agg, &clusters, is_hourly));
+        html.push_str(&build_navy_cluster_fitting_table(
+            agg, &clusters, is_hourly, is_ver10,
+        ));
 
         html.push_str(&format!(
             "<div class=\"block-title block-title-spaced\">図 3-5 &nbsp;クラスタ別 ボックスプロット (下限給与) — {}</div>\n",
             cluster_table_caption
         ));
-        html.push_str(&build_navy_cluster_boxplots_svg(&clusters));
+        html.push_str(&build_navy_cluster_boxplots_svg(&clusters, is_ver10));
         // 2026-05-14: ろうそく足 (ボックスプロット) の読み方を凡例で明示
         html.push_str(
             "<div class=\"caption\" style=\"display:grid;grid-template-columns:1fr 1fr;gap:4mm;\
@@ -428,7 +445,11 @@ pub(crate) fn render_navy_section_03_salary(
     //   Phase 2-A (2026-05-29): 時給モード時は agg.scatter_min_max_native (Hourly 円/時)
     //   を使う。ctx.salary_scatter_pairs は HW postings の月給データのみのため、
     //   時給モードでは Hourly レコードの集計値 (CSV ベース) を別経路で渡す。
-    if is_hourly {
+    //
+    //   2026-07-13: Ver10 は図3-6 (給与レンジ 散布図) を削除する (現場レビュー)。
+    if is_ver10 {
+        // 図3-6 は Ver10 では出さない (何もしない)。
+    } else if is_hourly {
         // 時給モード: aggregator のネイティブ散布図ペアを使う
         if !agg.scatter_min_max_native.is_empty() {
             // (i64, i64) → (f64, f64) 変換 (SVG 関数の互換)
@@ -1127,34 +1148,64 @@ fn build_navy_salary_correlation_table(rows: &[NavyCorrRow]) -> String {
 }
 
 // 給与構造クラスタ table-navy (label / lower_seg / range_seg / n / P25/P50/P60/P75/P90/mean)
-fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -> String {
-    // rank 26: 第1列 (クラスタ名) が幅指定なしで 3 行折返しになる問題を回避するため
-    //   colgroup で列幅を明示 (クラスタ列 22% + No. 6% + 各分位点 8% + 解釈 16%)。
-    let mut s = String::from(
-        "<table class=\"table-navy\">\n\
-         <colgroup>\
-         <col style=\"width:6%\"/>\
-         <col style=\"width:22%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:8%\"/>\
-         <col style=\"width:16%\"/>\
-         </colgroup>\n\
-         <thead><tr>",
-    );
-    s.push_str("<th>No.</th><th>クラスタ</th>");
-    s.push_str("<th class=\"num\">n</th>");
-    s.push_str("<th class=\"num\">P25</th>");
-    s.push_str("<th class=\"num\">中央値 P50</th>");
-    s.push_str("<th class=\"num\">P60</th>");
-    s.push_str("<th class=\"num\">P75</th>");
-    s.push_str("<th class=\"num\">P90</th>");
-    s.push_str("<th class=\"num\">平均</th>");
-    s.push_str("<th>解釈</th>");
+//
+// 2026-07-13: Ver10 は主要列 (No./クラスタ/件数/中央値/平均/解釈) だけに絞る (compact=true)。
+//   四分位 (P25/P60/P75/P90) の細かい列を落として、読み手が把握しやすい構成にする。
+fn build_navy_cluster_table(
+    clusters: &[super::super::helpers::SalaryCluster],
+    compact: bool,
+) -> String {
+    let mut s = if compact {
+        // Ver10: 6 列 (No. / クラスタ / 件数 / 中央値 / 平均 / 解釈)
+        String::from(
+            "<table class=\"table-navy\">\n\
+             <colgroup>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:30%\"/>\
+             <col style=\"width:12%\"/>\
+             <col style=\"width:14%\"/>\
+             <col style=\"width:14%\"/>\
+             <col style=\"width:22%\"/>\
+             </colgroup>\n\
+             <thead><tr>",
+        )
+    } else {
+        // rank 26: 第1列 (クラスタ名) が幅指定なしで 3 行折返しになる問題を回避するため
+        //   colgroup で列幅を明示 (クラスタ列 22% + No. 6% + 各分位点 8% + 解釈 16%)。
+        String::from(
+            "<table class=\"table-navy\">\n\
+             <colgroup>\
+             <col style=\"width:6%\"/>\
+             <col style=\"width:22%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:8%\"/>\
+             <col style=\"width:16%\"/>\
+             </colgroup>\n\
+             <thead><tr>",
+        )
+    };
+    if compact {
+        s.push_str("<th>No.</th><th>クラスタ</th>");
+        s.push_str("<th class=\"num\">件数</th>");
+        s.push_str("<th class=\"num\">中央値</th>");
+        s.push_str("<th class=\"num\">平均</th>");
+        s.push_str("<th>解釈</th>");
+    } else {
+        s.push_str("<th>No.</th><th>クラスタ</th>");
+        s.push_str("<th class=\"num\">n</th>");
+        s.push_str("<th class=\"num\">P25</th>");
+        s.push_str("<th class=\"num\">中央値 P50</th>");
+        s.push_str("<th class=\"num\">P60</th>");
+        s.push_str("<th class=\"num\">P75</th>");
+        s.push_str("<th class=\"num\">P90</th>");
+        s.push_str("<th class=\"num\">平均</th>");
+        s.push_str("<th>解釈</th>");
+    }
     s.push_str("</tr></thead>\n<tbody>\n");
 
     // 件数降順 (Round 1-K 2026-06-03: 同件数時は label asc で順序確定)
@@ -1169,32 +1220,53 @@ fn build_navy_cluster_table(clusters: &[super::super::helpers::SalaryCluster]) -
             "狭レンジ" => ("neu", "定額型求人"),
             _ => ("neu", "通常レンジ"),
         };
-        s.push_str(&format!(
-            "<tr{}>\
-             <td class=\"num bold\">{}</td>\
-             <td><strong>{}</strong></td>\
-             <td class=\"num bold\">{}</td>\
-             <td class=\"num\">{}</td>\
-             <td class=\"num bold\">{}</td>\
-             <td class=\"num\">{}</td>\
-             <td class=\"num\">{}</td>\
-             <td class=\"num\">{}</td>\
-             <td class=\"num\">{}</td>\
-             <td><span class=\"tag tag-{}\">{}</span></td>\
-             </tr>\n",
-            row_class,
-            i + 1,
-            escape_html(&c.label),
-            format_number(c.count as i64),
-            format_mm(c.p25),
-            format_mm(c.p50),
-            format_mm(c.p60),
-            format_mm(c.p75),
-            format_mm(c.p90),
-            format_mm(c.mean),
-            tag,
-            interp,
-        ));
+        if compact {
+            s.push_str(&format!(
+                "<tr{}>\
+                 <td class=\"num bold\">{}</td>\
+                 <td><strong>{}</strong></td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td><span class=\"tag tag-{}\">{}</span></td>\
+                 </tr>\n",
+                row_class,
+                i + 1,
+                escape_html(&c.label),
+                format_number(c.count as i64),
+                format_mm(c.p50),
+                format_mm(c.mean),
+                tag,
+                interp,
+            ));
+        } else {
+            s.push_str(&format!(
+                "<tr{}>\
+                 <td class=\"num bold\">{}</td>\
+                 <td><strong>{}</strong></td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td><span class=\"tag tag-{}\">{}</span></td>\
+                 </tr>\n",
+                row_class,
+                i + 1,
+                escape_html(&c.label),
+                format_number(c.count as i64),
+                format_mm(c.p25),
+                format_mm(c.p50),
+                format_mm(c.p60),
+                format_mm(c.p75),
+                format_mm(c.p90),
+                format_mm(c.mean),
+                tag,
+                interp,
+            ));
+        }
     }
     s.push_str("</tbody></table>\n");
     s.push_str(
@@ -1226,6 +1298,9 @@ fn build_navy_cluster_fitting_table(
     agg: &SurveyAggregation,
     clusters: &[super::super::helpers::SalaryCluster],
     is_hourly: bool,
+    // 2026-07-13: Ver10 は「クラスタ P25/P75」列見出しを短い平易表現に置換して、
+    //   用語一掃の置換 (P25→下位25%の値) による見出し折返し・重なりを防ぐ。
+    ver10: bool,
 ) -> String {
     if clusters.is_empty() {
         return String::new();
@@ -1267,13 +1342,19 @@ fn build_navy_cluster_fitting_table(
         unit_label
     ));
     s.push_str("<th scope=\"col\">割当クラスタ</th>");
+    // Ver10: 「クラスタ P25/P75」→「クラスタ下限/クラスタ上限」に短縮 (置換膨張回避)。
+    let (col_lo_label, col_hi_label) = if ver10 {
+        ("クラスタ下限", "クラスタ上限")
+    } else {
+        ("クラスタ P25", "クラスタ P75")
+    };
     s.push_str(&format!(
-        "<th scope=\"col\" class=\"num\">クラスタ P25 ({})</th>",
-        unit_label
+        "<th scope=\"col\" class=\"num\">{} ({})</th>",
+        col_lo_label, unit_label
     ));
     s.push_str(&format!(
-        "<th scope=\"col\" class=\"num\">クラスタ P75 ({})</th>",
-        unit_label
+        "<th scope=\"col\" class=\"num\">{} ({})</th>",
+        col_hi_label, unit_label
     ));
     s.push_str("<th scope=\"col\">判定</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
@@ -1335,7 +1416,14 @@ fn build_navy_cluster_fitting_table(
 }
 
 // クラスタ別 並列ボックスプロット SVG (下限給与 P25-P75 box + min-max whisker + P50 中央線)
-fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryCluster]) -> String {
+//
+// 2026-07-13: Ver10 は「見やすさ改善」対応 (ver10=true)。ラベル列を広げて重なりを防ぎ、
+//   行間・フォントを一段大きくし、件数ラベルを「◯件」の平易表現にする。凡例は SVG 内に
+//   右上へ配置してグラフ単体でも読めるようにする。既存 variant は従来描画のまま (ver10=false)。
+fn build_navy_cluster_boxplots_svg(
+    clusters: &[super::super::helpers::SalaryCluster],
+    ver10: bool,
+) -> String {
     if clusters.is_empty() {
         return String::new();
     }
@@ -1351,11 +1439,15 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
     //   本文の 1.8-3.2 倍に過大。クラスタ名 15・軸目盛 14・n ラベル 13 に引き下げ。
     //   label_w 300→240 / n_w 70→60 に戻して視覚バランスを調整。
     //   (viewBox w=720, width=100%, scale≈0.96-1.02 で各 font-size がそのまま実寸になる)
+    //
+    // Ver10 (2026-07-13): ラベル重なり回避のため label_w/n_w を拡張し、上部に凡例帯を足す。
     let w = 720.0;
-    let row_h = 56.0;
-    let h = 36.0 + sorted.len() as f64 * row_h + 36.0;
-    let label_w = 240.0;
-    let n_w = 60.0;
+    let row_h = if ver10 { 62.0 } else { 56.0 };
+    // Ver10 は上部に凡例帯 (28px) を確保するため top offset を拡大。
+    let top = if ver10 { 64.0 } else { 36.0 };
+    let h = top + sorted.len() as f64 * row_h + 36.0;
+    let label_w = if ver10 { 270.0 } else { 240.0 };
+    let n_w = if ver10 { 92.0 } else { 60.0 };
     let plot_x = label_w + n_w;
     let plot_w = w - plot_x - 16.0;
 
@@ -1374,34 +1466,68 @@ fn build_navy_cluster_boxplots_svg(clusters: &[super::super::helpers::SalaryClus
 
     let x_of = |v: i64| -> f64 { plot_x + ((v as f64 - min_v) / span).clamp(0.0, 1.0) * plot_w };
 
+    // Ver10 のみ: グラフ右上に凡例帯を描画 (箱 / 中央線 / 平均) してグラフ単体で読めるようにする。
+    if ver10 {
+        let ly = 20.0;
+        // 箱 (中央50%)
+        svg.push_str(&format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"18\" height=\"12\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"1\"/>\n\
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#3A3E48\">箱=中央50%</text>\n",
+            8.0, ly, 30.0, ly + 10.0
+        ));
+        // 中央線
+        svg.push_str(&format!(
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#1F6B43\" stroke-width=\"2.5\"/>\n\
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#3A3E48\">縦線=中央値</text>\n",
+            172.0, ly, 172.0, ly + 12.0, 182.0, ly + 10.0
+        ));
+        // 平均
+        svg.push_str(&format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"4\" fill=\"#C9A24B\" stroke=\"#0B1E3F\" stroke-width=\"0.7\"/>\n\
+             <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#3A3E48\">丸=平均</text>\n",
+            326.0, ly + 6.0, 336.0, ly + 10.0
+        ));
+    }
+
     // x軸ラベル (4 点)
     for i in 0..=4 {
         let v = (min_v + span * i as f64 / 4.0) as i64;
         let x = plot_x + plot_w * i as f64 / 4.0;
+        // 軸目盛の上端は Ver10 では凡例帯の下 (top-12) に合わせる。
+        let tick_top = if ver10 { top - 12.0 } else { 24.0 };
         svg.push_str(&format!(
-            "<line x1=\"{:.1}\" y1=\"24\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
+            "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\n\
              <text x=\"{:.1}\" y=\"{:.1}\" font-size=\"14\" fill=\"#6A6E7A\" text-anchor=\"middle\">{}</text>\n",
-            x, x, h - 20.0, x, h - 6.0, format_mm(v)
+            x, tick_top, x, h - 20.0, x, h - 6.0, format_mm(v)
         ));
     }
 
     // 各 cluster の box (font-size 拡大 + box_h 拡大)
     let row_center_off = row_h / 2.0;
-    let box_h = 22.0; // 16.0 → 22.0 (37% UP)
+    let box_h = if ver10 { 24.0 } else { 22.0 };
+    let label_font = if ver10 { 16 } else { 15 };
     for (i, c) in sorted.iter().enumerate() {
-        let cy = 36.0 + i as f64 * row_h;
+        let cy = top + i as f64 * row_h;
         let text_y = cy + row_center_off;
         // label
         svg.push_str(&format!(
-            "<text x=\"4\" y=\"{:.1}\" font-size=\"15\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
+            "<text x=\"4\" y=\"{:.1}\" font-size=\"{}\" fill=\"#0B1E3F\" font-weight=\"600\">{}</text>\n",
             text_y,
+            label_font,
             escape_html(&c.label)
         ));
-        // n
-        svg.push_str(&format!(
-            "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
-            label_w, text_y, c.count
-        ));
+        // n (件数)。Ver10 は「◯件」の平易表現 + フォントを一段大きく。
+        if ver10 {
+            svg.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"14\" fill=\"#3A3E48\">{}件</text>\n",
+                label_w, text_y, c.count
+            ));
+        } else {
+            svg.push_str(&format!(
+                "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"13\" fill=\"#6A6E7A\" font-family=\"Roboto Mono, monospace\">n={}</text>\n",
+                label_w, text_y, c.count
+            ));
+        }
         // whisker (min ~ max)
         svg.push_str(&format!(
             "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"#9CA0AB\" stroke-width=\"1.2\"/>\n",
@@ -1526,6 +1652,9 @@ fn build_navy_salary_summary_table(
     lo: &Option<DistStats>,
     hi: &Option<DistStats>,
     is_hourly: bool,
+    // 2026-07-13: Ver10 は四分位列 (P25/P75/P90) をこの表から外し、別表 (表3-A2) に分離する。
+    //   true のとき「区分/件数/最小/中央値/平均/最頻値/最大」の 7 列に絞る。
+    drop_quartiles: bool,
 ) -> String {
     let fmt_val = |yen: i64| -> String {
         if is_hourly {
@@ -1536,21 +1665,52 @@ fn build_navy_salary_summary_table(
     };
     let mut s = String::new();
     s.push_str("<table class=\"table-navy\">\n");
-    s.push_str(
-        "<thead><tr>\
-                <th>区分</th><th class=\"num\">n</th>\
-                <th class=\"num\">最小</th>\
-                <th class=\"num\">P25</th>\
-                <th class=\"num\">中央値</th>\
-                <th class=\"num\">平均</th>\
-                <th class=\"num\">最頻値</th>\
-                <th class=\"num\">P75</th>\
-                <th class=\"num\">P90</th>\
-                <th class=\"num\">最大</th>\
-                </tr></thead>\n<tbody>\n",
-    );
+    if drop_quartiles {
+        // Ver10: 四分位を外した基本統計のみ。「n」も平易語「件数」に。
+        s.push_str(
+            "<thead><tr>\
+                    <th>区分</th><th class=\"num\">件数</th>\
+                    <th class=\"num\">最小</th>\
+                    <th class=\"num\">中央値</th>\
+                    <th class=\"num\">平均</th>\
+                    <th class=\"num\">最も多い金額帯</th>\
+                    <th class=\"num\">最大</th>\
+                    </tr></thead>\n<tbody>\n",
+        );
+    } else {
+        s.push_str(
+            "<thead><tr>\
+                    <th>区分</th><th class=\"num\">n</th>\
+                    <th class=\"num\">最小</th>\
+                    <th class=\"num\">P25</th>\
+                    <th class=\"num\">中央値</th>\
+                    <th class=\"num\">平均</th>\
+                    <th class=\"num\">最頻値</th>\
+                    <th class=\"num\">P75</th>\
+                    <th class=\"num\">P90</th>\
+                    <th class=\"num\">最大</th>\
+                    </tr></thead>\n<tbody>\n",
+        );
+    }
     let row = |label: &str, st: &Option<DistStats>| -> String {
         match st {
+            Some(s) if drop_quartiles => format!(
+                "<tr><td><strong>{}</strong></td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">{}</td>\
+                 </tr>\n",
+                label,
+                format_number(s.n as i64),
+                fmt_val(s.min),
+                fmt_val(s.median),
+                fmt_val(s.mean),
+                fmt_val(s.mode_bin_yen),
+                fmt_val(s.max)
+            ),
             Some(s) => format!(
                 "<tr><td><strong>{}</strong></td>\
                  <td class=\"num\">{}</td>\
@@ -1574,10 +1734,13 @@ fn build_navy_salary_summary_table(
                 fmt_val(s.p90),
                 fmt_val(s.max)
             ),
-            None => format!(
-                "<tr><td><strong>{}</strong></td><td colspan=\"9\" class=\"dim\">—</td></tr>\n",
-                label
-            ),
+            None => {
+                let cols = if drop_quartiles { 6 } else { 9 };
+                format!(
+                    "<tr><td><strong>{}</strong></td><td colspan=\"{}\" class=\"dim\">—</td></tr>\n",
+                    label, cols
+                )
+            }
         }
     };
     s.push_str(&row("下限給与", lo));
@@ -1589,6 +1752,66 @@ fn build_navy_salary_summary_table(
         "<p class=\"caption\"><strong>出典:</strong> CSV 集計。単位: 万円 (月給換算)。</p>\n"
     };
     s.push_str(caption);
+    s
+}
+
+/// Ver10 専用: 表3-A から分離した四分位表 (表3-A2)。
+///
+/// 下位25%の値 / 中央値 / 上位25%の値 / 上位10%の値 を、平易な言葉のラベルで示す。
+/// 統計略称 (P25 等) は使わない (Ver10 の用語一掃方針)。下限給与・上限給与の 2 系列。
+fn build_ver10_quartile_split_table(
+    lo: &Option<DistStats>,
+    hi: &Option<DistStats>,
+    is_hourly: bool,
+) -> String {
+    let fmt_val = |yen: i64| -> String {
+        if is_hourly {
+            format_number(yen)
+        } else {
+            format_mm(yen)
+        }
+    };
+    let mut s = String::new();
+    s.push_str("<table class=\"table-navy\">\n");
+    s.push_str(
+        "<thead><tr>\
+                <th>区分</th>\
+                <th class=\"num\">下位25%の値</th>\
+                <th class=\"num\">中央値</th>\
+                <th class=\"num\">上位25%の値</th>\
+                <th class=\"num\">上位10%の値</th>\
+                </tr></thead>\n<tbody>\n",
+    );
+    let row = |label: &str, st: &Option<DistStats>| -> String {
+        match st {
+            Some(v) => format!(
+                "<tr><td><strong>{}</strong></td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 </tr>\n",
+                label,
+                fmt_val(v.p25),
+                fmt_val(v.median),
+                fmt_val(v.p75),
+                fmt_val(v.p90),
+            ),
+            None => format!(
+                "<tr><td><strong>{}</strong></td><td colspan=\"4\" class=\"dim\">—</td></tr>\n",
+                label
+            ),
+        }
+    };
+    s.push_str(&row("下限給与", lo));
+    s.push_str(&row("上限給与", hi));
+    s.push_str("</tbody></table>\n");
+    let unit = if is_hourly { "円/時" } else { "万円" };
+    s.push_str(&format!(
+        "<p class=\"caption\">単位: {}。「下位25%の値」を下回る求人が全体の約4分の1、\
+         「上位25%の値」を上回る求人が全体の約4分の1です。真ん中の水準が中央値です。</p>\n",
+        unit
+    ));
     s
 }
 
@@ -1647,7 +1870,7 @@ mod tests {
     fn cluster_fitting_judges_within_p25_p75_as_適正() {
         let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
         let agg = make_agg_with_scatter(vec![(250_000, 350_000)]);
-        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false, false);
         assert!(
             html.contains("適正"),
             "lower=250000 (P25=200000 <= 250000 <= P75=300000) should be 適正: {}",
@@ -1661,7 +1884,7 @@ mod tests {
     fn cluster_fitting_judges_below_p25_as_低め() {
         let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
         let agg = make_agg_with_scatter(vec![(150_000, 200_000)]);
-        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false, false);
         assert!(
             html.contains("低め"),
             "lower=150000 < P25=200000 should be 低め: {}",
@@ -1675,7 +1898,7 @@ mod tests {
     fn cluster_fitting_judges_above_p75_as_高め() {
         let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
         let agg = make_agg_with_scatter(vec![(400_000, 500_000)]);
-        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false, false);
         assert!(
             html.contains("高め"),
             "lower=400000 > P75=300000 should be 高め: {}",
@@ -1689,7 +1912,7 @@ mod tests {
     fn cluster_fitting_empty_when_no_clusters() {
         let clusters: Vec<SalaryCluster> = vec![];
         let agg = make_agg_with_scatter(vec![(250_000, 350_000)]);
-        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false, false);
         assert_eq!(html, "", "no clusters should return empty string");
     }
 
@@ -1698,7 +1921,7 @@ mod tests {
     fn cluster_fitting_empty_when_no_postings() {
         let clusters = vec![make_cluster("中央帯", 200_000, 250_000, 300_000)];
         let agg = make_agg_with_scatter(vec![]);
-        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false, false);
         assert_eq!(html, "", "no postings should return empty string");
     }
 
@@ -1721,7 +1944,7 @@ mod tests {
             (210_000, 270_000),
             (160_000, 200_000),
         ]);
-        let html = build_navy_cluster_fitting_table(&agg, &clusters, false);
+        let html = build_navy_cluster_fitting_table(&agg, &clusters, false, false);
         // <tr> の数 (header の <tr> は除外) で 10 行であることを検証
         // thead に 1, tbody data 行が 10 → 合計 11
         let tr_count = html.matches("<tr").count();
@@ -2085,7 +2308,7 @@ mod tests {
         let lo = compute_distribution_stats(&lo_vals, 10_000);
         let hi = compute_distribution_stats(&hi_vals, 10_000);
         assert!(lo.is_some() && hi.is_some(), "both stats must compute");
-        let html = build_navy_salary_summary_table(&lo, &hi, false);
+        let html = build_navy_salary_summary_table(&lo, &hi, false, false);
         assert!(html.contains("下限給与"), "下限給与 row missing: {}", html);
         assert!(html.contains("上限給与"), "上限給与 row missing: {}", html);
         // None フォールバックの "colspan" による "—" 行ではないこと
@@ -2099,7 +2322,7 @@ mod tests {
     // [境界] 両方 None でも panic せず、両行に "—" フォールバックを出す。
     #[test]
     fn salary_summary_table_none_inputs_show_dash_rows() {
-        let html = build_navy_salary_summary_table(&None, &None, false);
+        let html = build_navy_salary_summary_table(&None, &None, false, false);
         assert!(
             html.contains("下限給与"),
             "下限給与 label missing: {}",

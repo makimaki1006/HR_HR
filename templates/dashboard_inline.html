@@ -321,6 +321,37 @@
                 }
             };
 
+            // 2026-07-13: Ver10 レポート専用。openVariantReport と同じ pref/muni/industry を
+            //   組み立てつつ、チェックボックス #ver10-table2e の状態を &table2e=0/1 で付与する。
+            //   HTMX 挿入 <script> は eval されないため、本ファイルで window に登録する。
+            window.openVer10Report = function(ev, sid) {
+                try {
+                    if (ev) ev.preventDefault();
+                    var pref = (document.getElementById('pref-select') || {}).value || '';
+                    var muni = (document.getElementById('muni-select') || {}).value || '';
+                    var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
+                        ? window._selectedIndustryRaws : [];
+                    var jobTypes = (typeof window._selectedJobTypes !== 'undefined' && Array.isArray(window._selectedJobTypes))
+                        ? window._selectedJobTypes : [];
+                    var industry = industries.length > 0
+                        ? industries[0]
+                        : (jobTypes.length > 0 ? jobTypes[0] : '');
+                    var cb = document.getElementById('ver10-table2e');
+                    var table2e = (cb && cb.checked === false) ? '0' : '1';
+                    var url = '/report/survey?session_id=' + encodeURIComponent(sid)
+                        + '&variant=ver10'
+                        + '&table2e=' + table2e;
+                    if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
+                    if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
+                    if (industry) url += '&industry=' + encodeURIComponent(industry);
+                    window.open(url, '_blank', 'noopener');
+                    return false;
+                } catch (e) {
+                    console.error('openVer10Report failed', e);
+                    return true;
+                }
+            };
+
             // 2026-07-10: セクション選択レポート (媒体分析タブ「出力する内容を選んで…」パネル)。
             //   openVariantReport と同根本 (HTMX 挿入 <script> は eval されない) のため
             //   本ファイルで window に登録する。チェックした .section-pick の value を

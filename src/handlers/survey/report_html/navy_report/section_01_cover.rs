@@ -42,6 +42,8 @@ pub(crate) fn render_navy_cover(
         // 2026-07-09: Extended (詳細版) は MI と同じリード文を用いる (追加 4 図は Section 10 で明示)。
         // 2026-07-11: SP版 (仮) も同じリード文 (Extended 全部入りベースのため)。
         ReportVariant::MarketIntelligence | ReportVariant::Extended | ReportVariant::Sp => "アップロード CSV + 公開統計クロス分析により、採用市場・ターゲット分析と競合動向を立体的に把握します。",
+        // 2026-07-13: Ver10 は平易なリード文 (現場レビュー反映版)。
+        ReportVariant::Ver10 => "アップロードした求人データと公開統計をもとに、要点をわかりやすくまとめました。まず最初のページの要点まとめをご覧ください。",
         ReportVariant::Public => "アップロード CSV + 公開統計クロス分析により、対象地域の構造的特徴を把握します。",
     };
 

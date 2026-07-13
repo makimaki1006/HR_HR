@@ -344,24 +344,35 @@ pub(crate) fn render_sp_exec_onepager(
     agg: &SurveyAggregation,
     ctx: Option<&InsightContext>,
     target_region: &str,
+    // 2026-07-13: Ver10 は経営サマリーを「超簡単・解説なし」に簡素化する。
+    //   結論の1文リスト + まず取り組む3つ + 出典注記1行だけにし、前置き文・注釈文を削る。
+    ver10: bool,
 ) {
     let conclusions = build_conclusions(agg, ctx);
 
+    // Ver10 はタイトルも平易にする。
+    let (deck, sub) = if ver10 {
+        ("要点まとめ", "まず読むのはこの1ページだけで大丈夫です")
+    } else {
+        (
+            "経営サマリー (仮)",
+            "この1ページだけ持ち歩けば要点が伝わる構成です",
+        )
+    };
     html.push_str(
         "<section class=\"page-navy sp-onepager\" role=\"region\" aria-label=\"経営サマリー\">\n",
     );
-    push_page_head(
-        html,
-        "SP SUMMARY",
-        "経営サマリー (仮)",
-        "この1ページだけ持ち歩けば要点が伝わる構成です",
-    );
+    let eyebrow = if ver10 { "SUMMARY" } else { "SP SUMMARY" };
+    push_page_head(html, eyebrow, deck, sub);
 
-    html.push_str(&format!(
-        "<p class=\"caption\">対象地域: <strong>{}</strong> — 以下は本レポートの結論を短い文にまとめたものです。\
-         各行の右側の番号は詳しく載せているページです。</p>\n",
-        escape_html(target_region)
-    ));
+    // Ver10 は前置きの説明文を削る (超簡単・解説なし)。
+    if !ver10 {
+        html.push_str(&format!(
+            "<p class=\"caption\">対象地域: <strong>{}</strong> — 以下は本レポートの結論を短い文にまとめたものです。\
+             各行の右側の番号は詳しく載せているページです。</p>\n",
+            escape_html(target_region)
+        ));
+    }
 
     // -- 結論の1文 (箇条書き)
     html.push_str("<div class=\"block-title block-title-spaced\">結論のまとめ</div>\n");
@@ -856,7 +867,7 @@ mod tests {
         );
 
         let mut html = String::new();
-        render_sp_exec_onepager(&mut html, &agg, None, "群馬県 高崎市");
+        render_sp_exec_onepager(&mut html, &agg, None, "群馬県 高崎市", false);
         assert!(
             html.contains("経営サマリー (仮)"),
             "サマリータイトル: {}",
@@ -886,7 +897,7 @@ mod tests {
             ..Default::default()
         };
         let mut html = String::new();
-        render_sp_exec_onepager(&mut html, &agg, None, "全国");
+        render_sp_exec_onepager(&mut html, &agg, None, "全国", false);
         assert!(html.contains("経営サマリー (仮)"));
         assert!(!html.contains("NaN"), "0 件で NaN 混入なし");
     }
