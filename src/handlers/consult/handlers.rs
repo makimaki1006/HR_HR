@@ -596,7 +596,8 @@ pub async fn consult_brief(
     match build_analysis(&state, &session_id, &query).await {
         Ok(analysis) => {
             // AI文章化 (Gemini)。キー未設定・失敗・全破棄は空 AiComposite で graceful degradation。
-            // 入力は evidence_pack JSON のみ (原データへは渡さない §15.2)。呼び出しは最大2回。
+            // 入力は evidence_pack JSON のみ (原データへは渡さない §15.2)。呼び出しは最大2回
+            // (要約1+考察1)。反証チェックは非LLMの逆証明の道具箱 (refute_toolbox) で行う。
             let ai = match crate::gemini::GeminiClient::from_env() {
                 Some(client) => super::ai::generate_ai_composite(&client, &analysis).await,
                 None => super::ai::AiComposite::default(),
@@ -637,6 +638,21 @@ pub async fn consult_evidence_pack_json(
     match build_analysis(&state, &session_id, &query).await {
         Ok(analysis) => {
             let mut pack = to_evidence_pack_json(&analysis);
+            // AI複合考察 (道具箱の反証裁定済み) も evidence_pack.json に含める。
+            // キー未設定・失敗・全破棄は空になり、その場合 ai_composite キーは省略する。
+            // 入力は evidence_pack JSON のみ (原データへは渡さない §15.2)。呼び出しは最大2回。
+            let ai = match crate::gemini::GeminiClient::from_env() {
+                Some(client) => super::ai::generate_ai_composite(&client, &analysis).await,
+                None => super::ai::AiComposite::default(),
+            };
+            if !ai.items.is_empty() {
+                if let Some(obj) = pack.as_object_mut() {
+                    obj.insert(
+                        "ai_composite".to_string(),
+                        serde_json::json!({ "items": ai.items }),
+                    );
+                }
+            }
             // フェーズC: 保存済みヒアリング最新回答を hearing キーとして含める (§13 → フェーズD入力)。
             // 回答が無ければ省略する。ローカル SQLite からの読み取りのみ。
             if let Some(db) = state.hw_db.as_ref() {
