@@ -28,6 +28,7 @@
 #![cfg(test)]
 #![allow(clippy::too_many_arguments)]
 
+use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::company::fetch::{
     NearbyCompany, RegionalCompanySegments, StructuralSummary,
 };
@@ -1323,20 +1324,19 @@ fn invariant_salary_man_yen_conversion_realistic() {
 // assert する。9-B/9-C 経路が復活すれば hw_industry_counts の番兵が HTML に出て
 // テストが落ちる。Full variant には出てよい (HW 表示が許可された唯一の版)。
 //
-// ## 番兵設計上の注意
-// hw_industry_counts / hw_job_type_counts の番兵は **最上位 (top) にしない**。
-// §01 Executive Summary の Finding06/07 (compute_skew_severity) は「最も件数の
-// 多いカテゴリ名」のみを全 variant で出力する仕様のため、番兵を top にすると
-// 9-B/9-C とは無関係にその 1 件だけが常時出てしまう。本テストは 9-B/9-C 経路
-// (上位 8 件を列挙) の漏洩検出が目的なので、番兵を非 top に置き Finding06/07 の
-// 正規動作と切り分ける。
+// ## 番兵設計 (2026-07-13 拡張)
+// hw_industry_counts / hw_job_type_counts の番兵は **最上位 (top) に置く**。
+// 旧設計 (非 top) は §01 Finding06/07 (compute_skew_severity) が top カテゴリ名を
+// 全 variant で出力していたための切り分けだったが、2026-07-13 の HW リーク一括撤去で
+// Finding06/07 自体を Full 限定化したため、top 番兵でも顧客向け variant には
+// 一切出ないことが保証できるようになった (むしろ top に置くことで Finding 経路の
+// 回帰も同時に検出できる)。
 //
-// ## 既知の別経路リーク (本テスト対象外・要ユーザー判断)
-// csv_company_ranking (postings facility_name 由来) は §05 表 5-G/5-H が variant
-// ガードなしで全 variant に描画するため、顧客向け版にも漏れている。これは 9-B/9-C
-// とは別セクションの別ルール違反であり、本タスク (9-B/9-C 撤去) のスコープ外。
-// 監査前提 (「csv_company_ranking は Full 限定」) と実装が食い違うため、修正は
-// ユーザー承認後に別対応とする。本テストでは csv 番兵を assert しない。
+// ## csv_company_ranking 番兵 (2026-07-13 拡張)
+// csv_company_ranking (postings facility_name 由来 = HW データ) は §05 表 5-G/5-H が
+// variant ガードなしで全 variant に描画していたリークを 2026-07-13 に Full 限定化。
+// 施設名番兵 (SENTINEL_CSV_COMPANY) が顧客向け variant に出ないことを assert し、
+// Full では表 5-G 経由で出ることの逆証明も行う。
 
 /// HW 由来フィールドに番兵を注入した完全な InsightContext を構築。
 ///
@@ -1374,23 +1374,36 @@ fn build_hw_sentinel_ctx() -> InsightContext {
     ctx.ext_job_ratio = vec![make_row(&[("ratio_total", json!(1.42))])];
     ctx.ext_labor_force = vec![make_row(&[("unemployment_rate", json!(2.4))])];
 
-    // HW 由来 番兵 (非 top、正規の top カテゴリを別途置く):
+    // HW 由来 番兵 (2026-07-13: top 位置に配置。Finding06/07 の Full 限定化により
+    // 顧客向け variant では top でも出ないことを保証できる):
     ctx.hw_industry_counts = vec![
-        ("運輸業,郵便業".to_string(), 999_999),
-        (SENTINEL_HW_INDUSTRY.to_string(), 1),
+        (SENTINEL_HW_INDUSTRY.to_string(), 999_999),
+        ("運輸業,郵便業".to_string(), 48_000),
     ];
     ctx.hw_job_type_counts = vec![
-        ("ドライバー".to_string(), 999_999),
-        (SENTINEL_HW_JOBTYPE.to_string(), 1),
+        (SENTINEL_HW_JOBTYPE.to_string(), 999_999),
+        ("ドライバー".to_string(), 1_000),
     ];
     // salary_scatter_pairs: 他の数値と衝突しない特徴的ペア (§03 図 3-6、Full 限定)。
     ctx.salary_scatter_pairs = vec![(SENTINEL_SCATTER_X, SENTINEL_SCATTER_Y)];
+
+    // csv_company_ranking (postings facility_name 由来 = HW データ)。
+    // §05 表 5-G/5-H は 2026-07-13 に Full 限定化。顧客向け variant で施設名番兵が
+    // 漏れないことを保証する。posting_count は 2 件以上 (fetch 側の代表性フィルタ相当)。
+    ctx.csv_company_ranking = vec![CsvCompanySalary {
+        facility_name: SENTINEL_CSV_COMPANY.to_string(),
+        posting_count: 5,
+        salary_lower_median: 22.0,
+        salary_upper_median: 30.0,
+        native_unit: "月給".to_string(),
+    }];
 
     ctx
 }
 
 const SENTINEL_HW_INDUSTRY: &str = "HW監査番兵産業ZZQ";
 const SENTINEL_HW_JOBTYPE: &str = "HW監査番兵職種ZZQ";
+const SENTINEL_CSV_COMPANY: &str = "HW監査番兵企業ZZQ";
 const SENTINEL_SCATTER_X: f64 = 123_457.0;
 const SENTINEL_SCATTER_Y: f64 = 234_561.0;
 
@@ -1425,16 +1438,28 @@ fn render_full_report(variant: super::ReportVariant, ctx: &InsightContext) -> St
 fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
     use super::ReportVariant;
 
-    // §09 図 9-B/9-C 撤去後に、hw_industry_counts / hw_job_type_counts /
-    // salary_scatter_pairs の番兵が顧客向け 3 variant に一切現れないことを恒久保証。
+    // §09 図 9-B/9-C 撤去 + 2026-07-13 HW リーク一括撤去 (§05 表 5-G/5-H /
+    // §04 表 4-B / §01 Finding06/07) 後に、hw_industry_counts / hw_job_type_counts /
+    // csv_company_ranking / salary_scatter_pairs の番兵が顧客向け variant に
+    // 一切現れないことを恒久保証。番兵は top 位置 (Finding 経路の回帰も検出)。
+    //
+    // Public も対象に含める (2026-07-13): show_hw_sections() = Full のみ true が
+    // 設計 SSoT であり、Public (対外提案向け) も HW 非表示 variant。従来は Public に
+    // 表 4-B / Finding06/07 が漏れていた (旧 report_basic fixture で実確認) ため、
+    // 本テストで Public も恒久ガードする。
     let ctx = build_hw_sentinel_ctx();
-    let sentinels_str = [SENTINEL_HW_INDUSTRY, SENTINEL_HW_JOBTYPE];
+    let sentinels_str = [
+        SENTINEL_HW_INDUSTRY,
+        SENTINEL_HW_JOBTYPE,
+        SENTINEL_CSV_COMPANY,
+    ];
     let sentinels_num = [
         format!("{}", SENTINEL_SCATTER_X as i64),
         format!("{}", SENTINEL_SCATTER_Y as i64),
     ];
 
     for variant in [
+        ReportVariant::Public,
         ReportVariant::MarketIntelligence,
         ReportVariant::Extended,
         ReportVariant::Sp,
@@ -1444,7 +1469,8 @@ fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
             assert!(
                 !html.contains(s),
                 "HW 由来番兵 '{}' が顧客向け variant {:?} の HTML に漏洩している \
-                 (§09 図 9-B/9-C 撤去ルール違反の再発)",
+                 (§09 図 9-B/9-C / §05 表 5-G/5-H / §04 表 4-B / §01 Finding06/07 の \
+                 Full 限定ルール違反の再発)",
                 s,
                 variant
             );
@@ -1461,23 +1487,39 @@ fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
 }
 
 #[test]
-fn invariant11_hw_industry_sentinel_visible_in_full_variant() {
+fn invariant11_hw_sentinels_visible_in_full_variant() {
     use super::ReportVariant;
 
-    // 逆証明: Full variant (HW 表示が許可された唯一の版) では、9-B/9-C 以外の
-    // 経路 (§04 表 4-B の媒体掲載数など) を通じて hw_industry_counts が使われ得る。
-    // ここでは番兵注入 ctx で Full をレンダリングし、テスト機構自体が「番兵を
-    // 検出できる形で HTML に埋め込める」ことを確認する (番兵設計の健全性検証)。
+    // 逆証明 (2026-07-13 拡張): Full variant (HW 表示が許可された唯一の版) では、
+    // Full 限定化した各経路を通じて番兵が実際に HTML へ出ることを確認する。
+    // これにより「番兵が顧客向け variant に出ない」のが検出機構の不備 (そもそも
+    // どの variant でも出ない) ではなく、variant ガードの効果であることを証明する。
     //
-    // 注: Full の 9-B/9-C 相当は削除済みだが、§04 表 4-B は hw_industry_counts の
-    // 「件数」を数値で出す。番兵の "件数=1" が §04 に出るため、名前番兵ではなく
-    // job_type 番兵を top に置いて Finding07 経由での可視性を確認する。
-    let mut ctx = build_hw_sentinel_ctx();
-    // Finding07 は top カテゴリ名を全 variant で出す。番兵を top にして Full で可視化。
-    ctx.hw_job_type_counts = vec![(SENTINEL_HW_JOBTYPE.to_string(), 999_999)];
+    // 経路の対応:
+    //   - SENTINEL_HW_INDUSTRY (top) → §01 Finding06 産業構成 偏り (compute_skew_severity)
+    //   - SENTINEL_HW_JOBTYPE  (top) → §01 Finding07 職種構成 偏り (同上)
+    //   - SENTINEL_CSV_COMPANY       → §05 表 5-G 企業別給与ランキング / 表 5-H 注目企業
+    let ctx = build_hw_sentinel_ctx();
     let html = render_full_report(ReportVariant::Full, &ctx);
     assert!(
+        html.contains(SENTINEL_HW_INDUSTRY),
+        "逆証明: Full では top 産業番兵が Finding06 経由で HTML に出るはず"
+    );
+    assert!(
         html.contains(SENTINEL_HW_JOBTYPE),
-        "番兵検出機構の健全性: Full では top 職種番兵が Finding07 経由で HTML に出るはず"
+        "逆証明: Full では top 職種番兵が Finding07 経由で HTML に出るはず"
+    );
+    assert!(
+        html.contains(SENTINEL_CSV_COMPANY),
+        "逆証明: Full では CSV 企業番兵が §05 表 5-G/5-H 経由で HTML に出るはず"
+    );
+    // 出典表記の訂正 (2026-07-13): 「CSV 求人データ集計」誤記が Full でも出ないこと。
+    assert!(
+        !html.contains("出典: CSV 求人データ集計"),
+        "表 5-G/5-H の出典は「ハローワーク掲載求人の集計」に訂正済みのはず"
+    );
+    assert!(
+        html.contains("出典: ハローワーク掲載求人の集計"),
+        "Full の表 5-G/5-H キャプションに訂正後の出典表記が出るはず"
     );
 }
