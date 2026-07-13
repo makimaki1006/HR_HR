@@ -20,6 +20,7 @@
 //!   → 質問生成 (questions.rs, 目的+分岐)
 //!   → evidence_pack.json (evidence_pack.rs, §15.2形式)
 //!   → AI文章化 (ai.rs, Gemini。一文要約 + 複合考察。検証つき graceful degradation)
+//!   → 反証チェック (refute_toolbox.rs, 非LLM: 標本数/粒度/反対方向の観測/逆の因果)
 //!   → 商談準備レポートHTML (brief_html.rs, 社内用 最大8ページ)
 //! ```
 //!
@@ -45,6 +46,7 @@ pub mod hypotheses;
 pub mod hypothesis_review;
 pub mod input;
 pub mod questions;
+pub mod refute_toolbox;
 pub mod signals;
 
 #[cfg(test)]

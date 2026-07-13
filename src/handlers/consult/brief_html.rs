@@ -85,6 +85,30 @@ body.theme-navy .consult-ai-badge {
   display: inline-block; font-size: 7.5pt; font-weight: 700; color: #1F2D4D;
   border: 1px solid #1F2D4D; border-radius: 3px; padding: 0 4px; margin-left: 6px;
 }
+/* 反証あり考察の注意ラベル */
+body.theme-navy .consult-ai-refute-flag {
+  display: inline-block; font-size: 7.5pt; font-weight: 700; color: #A8331F;
+  border: 1px solid #A8331F; border-radius: 3px; padding: 0 5px; margin-left: 8px;
+  background: #FBEAE6;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+/* 逆の見方 / 別の見方 ブロック (考察カード内で視覚的に区別) */
+body.theme-navy .consult-ai-counter {
+  margin: 1.5mm 0 0.5mm; padding: 1.5mm 2.5mm;
+  border-left: 3px solid #6A6E7A; background: #F3F3EF;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+body.theme-navy .consult-ai-counter.refuted {
+  border-left-color: #A8331F; background: #FBF3F1;
+}
+body.theme-navy .consult-ai-counter .counter-label {
+  font-size: 8pt; font-weight: 700; color: #6A6E7A; margin-bottom: 0.5mm;
+}
+body.theme-navy .consult-ai-counter.refuted .counter-label { color: #A8331F; }
+body.theme-navy .consult-ai-counter .counter-body {
+  font-size: 8.5pt; line-height: 1.6; color: #1F2D4D;
+}
+body.theme-navy .consult-ai-noreview { font-style: italic; color: #6A6E7A; }
 /* 矛盾・質問ブロックの2カラム配置 (縦方向の圧縮) */
 body.theme-navy .consult-2col {
   display: grid;
@@ -501,12 +525,22 @@ fn render_page2_ai_composite(
     ));
 
     html.push_str("<p class=\"consult-note\">以下は市場データ（証拠一覧）だけを入力に、複数の観測を結びつけて言語化した下書きです。各項目の根拠IDは証拠一覧で確認できます。断定ではなく、面談で検証する仮説の素材として扱ってください。</p>\n");
+    html.push_str("<p class=\"consult-note\">各考察には機械チェック（標本数・データ粒度・反対方向の観測・逆の因果）による検証注記が付きます（自動チェックは参考であり、最終判断は面談で）。</p>\n");
     for item in &ai.items {
         html.push_str("<div class=\"consult-ai-item\">\n");
-        html.push_str(&format!(
-            "<div class=\"ai-title\">{}</div>\n",
-            escape_html(&item.title)
-        ));
+        // 機械チェック (T1 標本数 / T2 粒度) で指摘があった考察には注意ラベルを付ける。
+        if item.refuted {
+            html.push_str("<div class=\"ai-title\">");
+            html.push_str(&escape_html(&item.title));
+            html.push_str(
+                "<span class=\"consult-ai-refute-flag\">⚠ 確認が必要 — 面談で検証</span></div>\n",
+            );
+        } else {
+            html.push_str(&format!(
+                "<div class=\"ai-title\">{}</div>\n",
+                escape_html(&item.title)
+            ));
+        }
         html.push_str(&format!(
             "<div class=\"ai-body\">{}</div>\n",
             escape_html(&item.body)
@@ -516,6 +550,38 @@ fn render_page2_ai_composite(
                 "<div class=\"ai-meta\">留意点・不足情報: {}</div>\n",
                 escape_html(&item.caveat)
             ));
+        }
+        // 機械チェックの裁定結果を「確認が必要な点 / 別の見方」ブロックとして併記する
+        // (可能性表現のまま。考察は破棄しない)。
+        if !item.reviewed {
+            // 通常は起きない (道具箱は決定的) が、旧データ等で裁定が無い場合の防御表示。
+            html.push_str(
+                "<div class=\"ai-meta consult-ai-noreview\">（反証チェック未実施）</div>\n",
+            );
+        } else if item.refuted {
+            // T1/T2 の指摘あり: 指摘文 + 逆・別の解釈を強調ブロックで併記。
+            html.push_str("<div class=\"consult-ai-counter refuted\">\n");
+            if let Some(reason) = &item.refute_reason {
+                html.push_str(&format!(
+                    "<div class=\"counter-label\">確認が必要な点:</div><div class=\"counter-body\">{}</div>\n",
+                    escape_html(reason)
+                ));
+            }
+            if let Some(alt) = &item.alt_interpretation {
+                html.push_str(&format!(
+                    "<div class=\"counter-body\">別の見方: {}</div>\n",
+                    escape_html(alt)
+                ));
+            }
+            html.push_str("</div>\n");
+        } else if let Some(alt) = &item.alt_interpretation {
+            // T1/T2 の指摘なし: T3/T4 の逆・別の解釈を「別の見方」として控えめに併記。
+            html.push_str("<div class=\"consult-ai-counter\">\n");
+            html.push_str(&format!(
+                "<div class=\"counter-label\">別の見方:</div><div class=\"counter-body\">{}</div>\n",
+                escape_html(alt)
+            ));
+            html.push_str("</div>\n");
         }
         html.push_str(&format!(
             "<div class=\"ai-meta\">根拠: {}</div>\n",
@@ -892,6 +958,7 @@ mod tests {
                 body: "複数の指標が同じ方向を示している可能性があります".to_string(),
                 evidence_ids: vec![real_id],
                 caveat: "応募者の居住地が不明".to_string(),
+                ..Default::default()
             }],
         };
         let html = render_consult_brief_html_with_ai(&analysis, &ai);
@@ -997,26 +1064,84 @@ mod tests {
             render_consult_brief_html(&sparse_analysis()),
         )
         .unwrap();
-        // AI複合考察つきの合成バリアント (Gemini を呼ばず、検証済み想定のダミー項目で描画)
-        let ids: Vec<String> = rich.evidence.iter().take(3).map(|e| e.id.clone()).collect();
+        // AI複合考察つきの合成バリアント。生成 (Gemini) 部分だけダミー項目で代替し、
+        // 反証チェックは実際の逆証明の道具箱 (apply_toolbox) を実行して描画する。
+        // 3状態 (確認が必要 / 別の見方のみ / 注記なし) が揃うよう根拠とタグを選ぶ。
+        use crate::handlers::consult::evidence::granularity;
+        use crate::handlers::consult::refute_toolbox::apply_toolbox;
+        let pick = |gran: &str, n: usize| -> Vec<String> {
+            rich.evidence
+                .iter()
+                .filter(|e| e.granularity == gran)
+                .take(n)
+                .map(|e| e.id.clone())
+                .collect()
+        };
+        let company_ids = pick(granularity::COMPANY, 2);
+        let muni_ids = pick(granularity::MUNICIPALITY, 1);
+        // 注記なし状態用: 逆因果辞書の対象シグナルが参照しない市区町村粒度の証拠を選ぶ
+        let dict_signals = ["S-01", "S-06", "S-07", "S-12", "S-29"];
+        let clean_ids: Vec<String> = rich
+            .evidence
+            .iter()
+            .filter(|e| e.granularity == granularity::MUNICIPALITY)
+            .filter(|e| {
+                !rich.signals.iter().any(|s| {
+                    s.fired
+                        && dict_signals.contains(&s.id.as_str())
+                        && s.evidence_ids.contains(&e.id)
+                })
+            })
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+        let raw_items = vec![
+            super::super::ai::AiItem {
+                title: "人員減少と募集継続が並行している可能性".to_string(),
+                body: "人員を減らしながら募集を続ける企業が見られ、欠員補充型の採用がこの市場で発生している可能性があります。".to_string(),
+                evidence_ids: company_ids,
+                caveat: "人員推移は企業データベースの参照時点に依存する参考値です。".to_string(),
+                claim_axis: "competition".to_string(),
+                claim_direction: "problem".to_string(),
+                ..Default::default()
+            },
+            super::super::ai::AiItem {
+                title: "通勤圏の広がりを母集団形成に活かせる可能性".to_string(),
+                body: "周辺地域からの働き手の流入が見られ、配信地域を通勤圏まで広げる余地がある可能性があります。".to_string(),
+                evidence_ids: muni_ids,
+                caveat: "応募者の実際の居住地は不明のため面談で確認が必要です。".to_string(),
+                claim_axis: "supply".to_string(),
+                claim_direction: "opportunity".to_string(),
+                ..Default::default()
+            },
+            super::super::ai::AiItem {
+                title: "地域の人口動態を条件設計の前提に置く".to_string(),
+                body: "地域の人口動態は採用計画の背景情報として押さえておく論点の可能性があります。".to_string(),
+                evidence_ids: clean_ids,
+                caveat: "対象職種の労働層と全体人口の動きは異なる場合があります。".to_string(),
+                claim_axis: "other".to_string(),
+                claim_direction: "neutral".to_string(),
+                ..Default::default()
+            },
+        ];
+        let (items, refuted_count, reviewed_count) = apply_toolbox(raw_items, &rich);
+        // フィクスチャに3状態が揃っていることを保証する (スクリーンショット検証の前提)
+        assert_eq!(reviewed_count, 3);
+        assert_eq!(refuted_count, 1, "状態1: T1 標本数チェックで「確認が必要」");
+        assert!(items[0].refuted && items[0].refute_reason.is_some());
+        assert!(
+            !items[1].refuted && items[1].alt_interpretation.is_some(),
+            "状態2: T3/T4 の「別の見方」のみ"
+        );
+        assert!(
+            !items[2].refuted && items[2].alt_interpretation.is_none(),
+            "状態3: 注記なし"
+        );
         let ai = AiComposite {
             one_line_summary: Some(
                 "需要は強い一方で人材供給が細っており、通勤圏の広さと条件の見せ方が論点になり得る市場の可能性があります。".to_string(),
             ),
-            items: vec![
-                super::super::ai::AiItem {
-                    title: "供給の細りと需要の強さが重なっている可能性".to_string(),
-                    body: "働き手人口の減少・転出超過と、有効求人倍率の高さが同時に見られ、地元だけを母集団にすると母数が不足する可能性があります。".to_string(),
-                    evidence_ids: ids.clone(),
-                    caveat: "応募者の実際の居住地は不明のため面談で確認が必要です。".to_string(),
-                },
-                super::super::ai::AiItem {
-                    title: "条件の見せ方で差をつけられる余地がある可能性".to_string(),
-                    body: "年間休日の記載や訴求タグの種類が少なく、条件比較の土俵で横並びになりやすい可能性があります。".to_string(),
-                    evidence_ids: ids.iter().take(2).cloned().collect(),
-                    caveat: "求人原稿の実際の記載内容は未確認です。".to_string(),
-                },
-            ],
+            items,
         };
         std::fs::write(
             dir.join("consult_brief_ai.html"),

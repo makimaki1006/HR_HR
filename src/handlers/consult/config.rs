@@ -162,6 +162,61 @@ pub const ACTION_MEMO_MIN_ACTIONS: usize = 3;
 /// ファネル自動判定: 「初回連絡までの時間」が2日以降のとき応募後対応を支持方向にする条件値
 pub const FIRST_CONTACT_SLOW_VALUE: &str = "2日以降";
 
+// =============================================================================
+// 逆証明の道具箱 (refute_toolbox.rs) の閾値とシグナルメタデータ
+// AI複合考察に対する決定的な機械チェック (LLMは使わない)。
+// =============================================================================
+
+/// T1 標本数チェック: 引用根拠のうち企業単位の観測がこの社数未満なら
+/// 「少数例からの一般化の可能性」を指摘する (0社は対象外 = 企業観測を引用していない)
+pub const TOOLBOX_COMPANY_MIN_OBSERVATIONS: usize = 3;
+
+/// T1 標本数チェック: 引用根拠のうち今回CSV集計の標本数 (sample_n) が
+/// この件数未満なら「少数例からの一般化の可能性」を指摘する (MIN_SAMPLE_POSTINGS と同水準)
+pub const TOOLBOX_CSV_SAMPLE_MIN: usize = 30;
+
+/// T3 反対方向シグナル検索: 併記する反対方向シグナルの最大数 (カードの肥大化防止)
+pub const TOOLBOX_OPPOSITE_SIGNAL_MAX: usize = 2;
+
+/// S-01〜S-30 の主張軸 (axis) と方向 (direction) メタデータ。
+/// 逆証明の道具箱 T3 (反対方向シグナル検索) が「claim と同軸・逆方向の発火シグナル」を
+/// 探すために使う。値は refute_toolbox.rs の ClaimAxis / ClaimDirection にパースされる。
+///
+/// - axis: demand(需要) / supply(供給) / competition(競争) / offer(自社条件) / other
+/// - direction: problem(採用への逆風) / opportunity(好機・活用余地) / neutral(中立・論点提示)
+pub const SIGNAL_META: [(&str, &str, &str); 30] = [
+    ("S-01", "demand", "problem"), // 長期掲載比率高 (充足に時間がかかる市場)
+    ("S-02", "offer", "problem"),  // 提示給与が市場下位25%
+    ("S-03", "offer", "opportunity"), // 提示給与が市場上位25%
+    ("S-04", "offer", "opportunity"), // 最低賃金近接 (上乗せで優位を作れる)
+    ("S-05", "competition", "neutral"), // 市場給与が県平均未満 (比較軸が給与以外に移る)
+    ("S-06", "competition", "problem"), // 従業員減×募集継続 (欠員補充型採用の市場)
+    ("S-07", "supply", "problem"), // 働き手人口の減少見込み
+    ("S-08", "supply", "problem"), // 転職希望層が薄い
+    ("S-09", "supply", "opportunity"), // 転職希望層が厚い
+    ("S-10", "demand", "problem"), // 有効求人倍率が高い
+    ("S-11", "demand", "opportunity"), // 有効求人倍率が低い
+    ("S-12", "supply", "opportunity"), // 通勤流入が多い
+    ("S-13", "competition", "problem"), // 新着比率高 (市場の動きが速い)
+    ("S-14", "other", "neutral"),  // サンプル不足 (データ品質)
+    ("S-15", "competition", "neutral"), // 特定企業への求人集中
+    ("S-16", "supply", "problem"), // 転出超過
+    ("S-17", "supply", "neutral"), // 昼間人口流出型 (論点は両方向)
+    ("S-18", "demand", "neutral"), // 廃業超過 (受け皿縮小と人材放出の両面)
+    ("S-19", "competition", "problem"), // 開業活発 (採り合い)
+    ("S-20", "supply", "problem"), // 失業率低 (需給が締まる)
+    ("S-21", "supply", "opportunity"), // 失業率高 (余剰寄り)
+    ("S-22", "supply", "problem"), // 家賃が全国比で高い (転居ハードル)
+    ("S-23", "supply", "problem"), // 自然減
+    ("S-24", "offer", "opportunity"), // 休日記載が薄い (明示が差別化になる)
+    ("S-25", "offer", "opportunity"), // 休日120日以上が少ない (上回れば訴求余地)
+    ("S-26", "offer", "opportunity"), // タグ種類が少ない (見せ方で差をつけられる)
+    ("S-27", "competition", "problem"), // 人気バッジ集中 (露出勝負)
+    ("S-28", "supply", "neutral"), // 通勤流入配信の要確認 (論点提示)
+    ("S-29", "competition", "problem"), // 拡大採用企業の存在 (採り合い競合)
+    ("S-30", "competition", "opportunity"), // 非正規比率高 (正社員採用なら競合が限られる)
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

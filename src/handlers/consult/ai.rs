@@ -13,11 +13,21 @@
 //! - 根拠IDが空の項目 → 破棄 (§19.1「仮説に根拠IDが存在するか」)
 //! - §19.2 の禁止表現・サービス名を含む → 破棄
 //!
+//! ## 反証ステージ (逆証明の道具箱)
+//! validate_items を通過した考察に対し、LLM ではなく決定的な機械チェック
+//! (`refute_toolbox.rs`) をかける。標本数 (T1)・データ粒度 (T2)・反対方向の観測 (T3)・
+//! 逆の因果 (T4) の4つの道具で各考察を点検し、結果はコードが裁定して考察カードに併記する
+//! (考察は破棄しない)。都度 LLM に逆証明をさせるのではなく、逆証明の道具をコードとして
+//! 持ち、コードが実行する方式 (決定的・単体テスト可能・追加のAPIコストなし)。
+//! 生成コールには考察の主張軸 (claim_axis) と方向 (claim_direction) のタグ付けを課し、
+//! T3 (反対方向シグナル検索) の入力にする。
+//!
 //! ## graceful degradation
 //! GEMINI_API_KEY 未設定・API失敗・全項目破棄のいずれでもパニックせず、
 //! 空の `AiComposite` を返す。呼び出し側 (brief_html) はセクションを省略し1行の注記を出す。
+//! 道具箱チェックは決定的で、考察が生成された場合は常に実施される (reviewed=true)。
 //!
-//! ブリーフ生成1回あたり Gemini 呼び出しは最大2回 (要約1 + 複合考察1)。
+//! ブリーフ生成1回あたり Gemini 呼び出しは最大2回 (要約1 + 複合考察1)。反証は非LLM。
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,6 +36,10 @@ use super::evidence_pack::{to_evidence_pack_json, ConsultAnalysis};
 use crate::gemini::GeminiClient;
 
 /// 複合考察の1項目 (§18.3: 根拠ID保持・可能性口調)
+///
+/// 反証ステージ由来のフィールド (`refuted` / `refute_reason` / `alt_interpretation` /
+/// `reviewed`) は生成コールの JSON には含まれず、逆証明の道具箱 (refute_toolbox.rs) が
+/// 裁定時に埋める。デシリアライズ時は既定値になるよう `#[serde(default)]`。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AiItem {
     pub title: String,
@@ -33,6 +47,26 @@ pub struct AiItem {
     pub evidence_ids: Vec<String>,
     /// 不足データ・留意点 (§18.3-5)
     pub caveat: String,
+    /// 主張が主に関わる軸 (demand/supply/competition/offer/other)。生成コールでタグ付け。
+    /// 不正値は道具箱側で other として扱う (silent fallback ではなく明示の縮退)。
+    #[serde(default)]
+    pub claim_axis: String,
+    /// 主張の方向 (problem/opportunity/neutral)。生成コールでタグ付け。
+    #[serde(default)]
+    pub claim_direction: String,
+    /// 道具箱チェック (T1 標本数 / T2 粒度) で「確認が必要」と判定されたか (裁定後に確定)。
+    #[serde(default)]
+    pub refuted: bool,
+    /// 確認が必要な点 (T1/T2 の指摘文。refuted=true のときのみ Some)。
+    #[serde(default)]
+    pub refute_reason: Option<String>,
+    /// 逆・別の解釈 (T3 反対方向の観測 / T4 逆因果辞書。無ければ None)。
+    #[serde(default)]
+    pub alt_interpretation: Option<String>,
+    /// この項目に対し道具箱の裁定が実施できたか。
+    /// 道具箱は決定的なため通常は常に true。false は「(反証チェック未実施)」注記。
+    #[serde(default)]
+    pub reviewed: bool,
 }
 
 /// AI 文章化の結果一式
@@ -88,7 +122,8 @@ fn evidence_pack_input(analysis: &ConsultAnalysis) -> String {
     serde_json::to_string(&pack).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// 複合考察のレスポンススキーマ (構造化出力)
+/// 複合考察のレスポンススキーマ (構造化出力)。
+/// claim_axis / claim_direction は逆証明の道具箱 (T3 反対方向シグナル検索) の入力に使う。
 fn composite_schema() -> Value {
     json!({
         "type": "object",
@@ -104,9 +139,17 @@ fn composite_schema() -> Value {
                             "type": "array",
                             "items": { "type": "string" }
                         },
-                        "caveat": { "type": "string" }
+                        "caveat": { "type": "string" },
+                        "claim_axis": {
+                            "type": "string",
+                            "enum": ["demand", "supply", "competition", "offer", "other"]
+                        },
+                        "claim_direction": {
+                            "type": "string",
+                            "enum": ["problem", "opportunity", "neutral"]
+                        }
                     },
-                    "required": ["title", "body", "evidence_ids", "caveat"]
+                    "required": ["title", "body", "evidence_ids", "caveat", "claim_axis", "claim_direction"]
                 }
             }
         },
@@ -184,17 +227,27 @@ async fn generate_summary(client: &GeminiClient, pack_json: &str) -> Option<Stri
     Some(summary)
 }
 
-/// 複合考察項目の生成 (2回目の呼び出し)。返り値は検証前の生項目。
-async fn generate_composite_items(client: &GeminiClient, pack_json: &str) -> Vec<AiItem> {
-    let user = format!(
+/// 複合考察生成の user プロンプトを構築する (テスト可能な純関数)。
+/// claim_axis / claim_direction のタグ付け指示は道具箱 T3 (反対方向シグナル検索) の入力になる。
+fn composite_user_prompt(pack_json: &str) -> String {
+    format!(
         "次の evidence_pack を読み、複数のシグナル (signals) や矛盾 (contradictions) を\
          つなげて解釈した『複合考察』を3〜5項目作成してください。\
          単独の指標の言い換えではなく、複数の根拠を結びつけた気づきにしてください。\
          各項目は body を2〜3文にし、根拠にした evidence の id を evidence_ids に列挙し、\
          不足している情報や留意点を caveat に書いてください。\
+         各項目には、主張が主に関わる軸を claim_axis \
+         (demand=需要, supply=供給, competition=競争, offer=自社条件, other=その他) で、\
+         主張の向きを claim_direction (problem=採用への逆風, opportunity=好機・活用余地, \
+         neutral=中立) で必ずタグ付けしてください。\
          すべて可能性の表現にし、断定しないでください。\n\n{}",
         pack_json
-    );
+    )
+}
+
+/// 複合考察項目の生成 (2回目の呼び出し)。返り値は検証前の生項目。
+async fn generate_composite_items(client: &GeminiClient, pack_json: &str) -> Vec<AiItem> {
+    let user = composite_user_prompt(pack_json);
     let Some(resp) = client
         .generate_json(SYSTEM_CONSTRAINTS, &user, composite_schema())
         .await
@@ -204,9 +257,11 @@ async fn generate_composite_items(client: &GeminiClient, pack_json: &str) -> Vec
     parse_items(&resp)
 }
 
-/// ブリーフ1回あたり最大2回の Gemini 呼び出しで AI 文章化を行う。
+/// ブリーフ1回あたり最大2回の Gemini 呼び出しで AI 文章化を行う (要約1 + 複合考察1)。
+/// 生成後の考察には逆証明の道具箱 (非LLM・決定的) による反証チェックをかける。
 ///
 /// 失敗・未設定・全破棄はすべて空 (または一部) の `AiComposite` として返り、パニックしない。
+/// 道具箱チェックは考察を破棄せず、「確認が必要な点」「別の見方」として併記される。
 pub async fn generate_ai_composite(
     client: &GeminiClient,
     analysis: &ConsultAnalysis,
@@ -217,13 +272,19 @@ pub async fn generate_ai_composite(
     let one_line_summary = generate_summary(client, &pack_json).await;
     // 2回目: 複合考察 → サーバ側検証
     let raw_items = generate_composite_items(client, &pack_json).await;
-    let items = validate_items(&raw_items, analysis);
+    let validated = validate_items(&raw_items, analysis);
+
+    // 反証ステージ: 逆証明の道具箱 (非LLM)。T1 標本数 / T2 粒度 / T3 反対方向 / T4 逆因果。
+    let (items, refuted_count, reviewed_count) =
+        super::refute_toolbox::apply_toolbox(validated, analysis);
 
     // 失敗診断用: 「API が返さなかった」のか「検証で破棄された」のかをログで区別できるようにする
     tracing::info!(
         summary_ok = one_line_summary.is_some(),
         generated = raw_items.len(),
         validated = items.len(),
+        reviewed_count,
+        refuted_count,
         "consult AI composite finished"
     );
 
@@ -264,12 +325,14 @@ mod tests {
                 body: "根拠がそろっている可能性があります".to_string(),
                 evidence_ids: vec![real_id.clone()],
                 caveat: "要確認".to_string(),
+                ..Default::default()
             },
             AiItem {
                 title: "架空ID混入".to_string(),
                 body: "考察の可能性があります".to_string(),
                 evidence_ids: vec![real_id, "E-999".to_string()],
                 caveat: "".to_string(),
+                ..Default::default()
             },
         ];
         let out = validate_items(&items, &a);
@@ -287,18 +350,21 @@ mod tests {
                 body: "可能性があります".to_string(),
                 evidence_ids: vec![],
                 caveat: "".to_string(),
+                ..Default::default()
             },
             AiItem {
                 title: "禁止表現".to_string(),
                 body: "この施策で必ず採用できる".to_string(),
                 evidence_ids: vec![real_id.clone()],
                 caveat: "".to_string(),
+                ..Default::default()
             },
             AiItem {
                 title: "サービス名混入".to_string(),
                 body: "SalesNow によると".to_string(),
                 evidence_ids: vec![real_id],
                 caveat: "".to_string(),
+                ..Default::default()
             },
         ];
         let out = validate_items(&items, &a);
@@ -307,9 +373,11 @@ mod tests {
 
     #[test]
     fn parse_items_from_gemini_shape() {
+        // claim_axis / claim_direction を含む生成コールの JSON 形状
         let v = json!({
             "items": [
-                { "title": "t1", "body": "b1", "evidence_ids": ["E-001"], "caveat": "c1" },
+                { "title": "t1", "body": "b1", "evidence_ids": ["E-001"], "caveat": "c1",
+                  "claim_axis": "supply", "claim_direction": "problem" },
                 { "title": "t2", "body": "b2", "evidence_ids": [], "caveat": "" }
             ]
         });
@@ -317,12 +385,35 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "t1");
         assert_eq!(items[0].evidence_ids, vec!["E-001"]);
+        assert_eq!(items[0].claim_axis, "supply");
+        assert_eq!(items[0].claim_direction, "problem");
+        // タグ欠落 (旧形状) でもデフォルト空文字でパースできる
+        assert_eq!(items[1].claim_axis, "");
     }
 
     #[test]
     fn schemas_are_objects_with_required() {
-        assert_eq!(composite_schema()["type"], json!("object"));
-        assert!(composite_schema()["properties"]["items"].is_object());
+        let cs = composite_schema();
+        assert_eq!(cs["type"], json!("object"));
+        assert!(cs["properties"]["items"].is_object());
+        // 道具箱 T3 の入力になる claim タグは必須 + enum 制約つき
+        let item_schema = &cs["properties"]["items"]["items"];
+        assert!(item_schema["properties"]["claim_axis"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("supply")));
+        assert!(item_schema["properties"]["claim_direction"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("problem")));
+        let required: Vec<&str> = item_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(required.contains(&"claim_axis"));
+        assert!(required.contains(&"claim_direction"));
         assert_eq!(
             summary_schema()["properties"]["summary"]["type"],
             json!("string")
@@ -335,8 +426,61 @@ mod tests {
         assert!(c.is_empty());
     }
 
+    #[test]
+    fn generation_prompt_mentions_claim_tagging() {
+        // 生成プロンプトのタグ付け指示が退行しないこと (T3 の入力が絶たれると道具箱が弱る)
+        let prompt = composite_user_prompt("{}");
+        assert!(
+            prompt.contains("claim_axis") && prompt.contains("demand=需要"),
+            "生成プロンプトに claim_axis のタグ付け指示がある"
+        );
+        assert!(
+            prompt.contains("claim_direction") && prompt.contains("problem=採用への逆風"),
+            "生成プロンプトに claim_direction のタグ付け指示がある"
+        );
+        assert!(
+            prompt.ends_with("{}"),
+            "evidence_pack JSON が末尾に埋め込まれる"
+        );
+    }
+
+    #[test]
+    fn ai_item_serializes_refute_fields() {
+        // AiItem シリアライズ: 反証フィールド + claim タグが JSON に出る (evidence_pack.json 用)
+        let item = AiItem {
+            title: "t".to_string(),
+            body: "b".to_string(),
+            evidence_ids: vec!["E-001".to_string()],
+            caveat: "c".to_string(),
+            claim_axis: "supply".to_string(),
+            claim_direction: "problem".to_string(),
+            refuted: true,
+            refute_reason: Some("理由".to_string()),
+            alt_interpretation: Some("別の見方".to_string()),
+            reviewed: true,
+        };
+        let v = serde_json::to_value(&item).unwrap();
+        assert_eq!(v["refuted"], json!(true));
+        assert_eq!(v["refute_reason"], json!("理由"));
+        assert_eq!(v["alt_interpretation"], json!("別の見方"));
+        assert_eq!(v["reviewed"], json!(true));
+        assert_eq!(v["claim_axis"], json!("supply"));
+        assert_eq!(v["claim_direction"], json!("problem"));
+        // 生成コール JSON (反証フィールドなし) からデシリアライズしても既定値で通る
+        let gen = json!({
+            "title": "g", "body": "gb", "evidence_ids": ["E-002"], "caveat": "",
+            "claim_axis": "demand", "claim_direction": "neutral"
+        });
+        let parsed: AiItem = serde_json::from_value(gen).unwrap();
+        assert!(!parsed.refuted);
+        assert!(!parsed.reviewed);
+        assert!(parsed.refute_reason.is_none());
+        assert_eq!(parsed.claim_axis, "demand");
+    }
+
     /// 実 Gemini 呼び出しテスト (§検証): GEMINI_API_KEY があれば1回だけ実呼び出し。
     /// なければスキップ。キーは env から読む (ハードコードしない)。
+    /// 生成→道具箱反証→裁定の通しを検証する (道具箱は非LLMなので追加コールなし)。
     #[tokio::test]
     #[ignore = "requires GEMINI_API_KEY; run explicitly"]
     async fn live_gemini_composite_schema_conformance() {
@@ -348,6 +492,7 @@ mod tests {
         let composite = generate_ai_composite(&client, &a).await;
         // 実呼び出し結果はネットワーク状況に依存するためパニックしないことを確認し、
         // 返ってきた項目はすべて検証済み (実在 evidence_id・禁止表現なし) であること。
+        let mut refuted = 0;
         for item in &composite.items {
             for id in &item.evidence_ids {
                 assert!(
@@ -357,11 +502,25 @@ mod tests {
                 );
             }
             assert!(!contains_forbidden(&item.body));
+            // 道具箱裁定の後条件: 考察が返った場合は必ず reviewed=true (決定的チェック)。
+            assert!(item.reviewed, "道具箱チェックは常に実施される");
+            // refuted=true は refute_reason=Some を含意する。
+            if item.refuted {
+                assert!(item.refute_reason.is_some());
+                refuted += 1;
+            }
+            if let Some(r) = &item.refute_reason {
+                assert!(!contains_forbidden(r));
+            }
+            if let Some(alt) = &item.alt_interpretation {
+                assert!(!contains_forbidden(alt));
+            }
         }
         eprintln!(
-            "live gemini: summary={:?}, items={}",
+            "live gemini: summary={:?}, items={}, refuted={}",
             composite.one_line_summary.is_some(),
-            composite.items.len()
+            composite.items.len(),
+            refuted
         );
     }
 }
