@@ -756,5 +756,20 @@ fn main() {
     );
     write_fixture(&out_dir, "report_sp.html", &html_sp);
 
+    // 5) Ver10 variant: SP版 (仮) をベースに現場レビュー反映差分を適用した版。
+    //    雇用形態構成/表2-A/図3-6 削除・§04 非表示・簡素サマリー・用語一掃を含む。
+    //    既存 4 fixture (basic/mi/extended/sp) の sha は不変 (Ver10 は別 variant)。
+    let html_ver10 = render_survey_report_page_for_vrt(
+        &agg_full,
+        &seeker,
+        &agg_full.by_company,
+        &agg_full.by_emp_type_salary,
+        &agg_full.salary_min_values,
+        &agg_full.salary_max_values,
+        Some(&ctx),
+        ReportVariant::Ver10,
+    );
+    write_fixture(&out_dir, "report_ver10.html", &html_ver10);
+
     println!("VRT fixture 生成完了");
 }

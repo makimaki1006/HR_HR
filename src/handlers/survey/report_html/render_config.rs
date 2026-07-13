@@ -111,6 +111,12 @@ pub(crate) struct RenderConfig<'a> {
     /// デフォルトとするため、既存 caller の出力は byte 不変。
     /// `?sections=...` 指定時のみ handler が明示集合を構築して渡す。
     pub section_set: SectionSet,
+    /// Ver10 専用: §02 の表2-E (都道府県別給与 — 地域比較) を表示するか (2026-07-13 追加)。
+    ///
+    /// URL パラメータ `?table2e=0/1` で制御 (既定 true)。Ver10 以外の variant では
+    /// 参照されない (§02 は Ver10 のときだけこのフラグを見る) ため、既存 variant の
+    /// 出力は byte 不変。デフォルト true = 表示 (チェックボックス既定オン)。
+    pub table2e: bool,
 }
 
 impl<'a> RenderConfig<'a> {
@@ -149,6 +155,8 @@ pub(crate) struct RenderConfigBuilder<'a> {
     wage_mode: Option<WageMode>,
     /// 2026-07-10: 出力セクション選択集合 (None → variant 準拠 = 従来経路)
     section_set: Option<SectionSet>,
+    /// 2026-07-13: Ver10 の表2-E 表示フラグ (None → true = 表示)
+    table2e: Option<bool>,
 }
 
 impl<'a> RenderConfigBuilder<'a> {
@@ -260,6 +268,12 @@ impl<'a> RenderConfigBuilder<'a> {
         self
     }
 
+    /// 2026-07-13: Ver10 の表2-E 表示フラグ setter (未設定時は true = 表示)。
+    pub fn table2e(mut self, v: bool) -> Self {
+        self.table2e = Some(v);
+        self
+    }
+
     /// `RenderConfig<'a>` を構築する。
     ///
     /// # Panics
@@ -317,6 +331,8 @@ impl<'a> RenderConfigBuilder<'a> {
             wage_mode: self.wage_mode.unwrap_or(WageMode::Auto),
             // 2026-07-10: section_set デフォルトは variant 準拠 (上で解決済)
             section_set,
+            // 2026-07-13: table2e デフォルトは true (表2-E 表示 = チェックボックス既定オン)
+            table2e: self.table2e.unwrap_or(true),
         }
     }
 }

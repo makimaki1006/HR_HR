@@ -227,12 +227,18 @@ pub(crate) fn render_navy_executive(
     //   先出しで二重表示していたため、導入文からは数値を除去し「何を分析するか」の
     //   一文に整理。具体値は KPI カードと Findings で提示する。
     let _ = &dominant_emp; // 数値二重表示回避のため headline では非表示
+                           // 2026-07-13: Ver10 は雇用形態構成を削除するため、導入文からも「雇用形態構成」を外す。
+    let analysis_topics = if variant.is_ver10() {
+        "給与水準・新着動向・地域カバレッジ"
+    } else {
+        "雇用形態構成・給与水準・新着動向・地域カバレッジ"
+    };
     let headline_body = format!(
         "本レポートは <strong>{}</strong> を対象に、求人媒体データから\
-         雇用形態構成・給与水準・新着動向・地域カバレッジを整理します。{}\
+         {}を整理します。{}\
          本ページでは <strong>KPI</strong> と <strong>Findings</strong> で全体像を示し、\
          末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
-        region_prefix, region_divergence_note,
+        region_prefix, analysis_topics, region_divergence_note,
     );
     html.push_str(&format!(
         "<div class=\"exec-headline\">\
@@ -320,7 +326,15 @@ pub(crate) fn render_navy_executive(
     // k5 (新着求人比率) / k6 (給与解析率) とも 4 カード化で非表示。
     // 2026-06-05 audit: k5_* の打ち消し漏れ (unused 警告) を修正。
     let _ = (k5_value, k5_dot, k5_foot, k6_value, k6_dot, k6_foot);
-    html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
+    // 2026-07-13: Ver10 は雇用形態構成 (主要雇用形態 KPI) を削除する
+    //   (正社員限定スクレイピング運用のため構成比が常に単一雇用形態に偏り無意味)。
+    //   Ver10 のみ 3 カード (サンプル件数 / 主要地域 / 代表給与値)、それ以外は従来の 4 カード。
+    let is_ver10 = variant.is_ver10();
+    if is_ver10 {
+        html.push_str("<div class=\"kpi-row kpi-row-3\">\n");
+    } else {
+        html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
+    }
     push_kpi(html, "サンプル件数", &k1, "件", k1_dot, k1_foot, false);
     // 2026-05-14: 主要地域 = ユーザー選択地域 (handlers.rs:482 で確定済)。
     //   フッタは「件数最多」だと CSV 分布最多と混同するので「対象地域」に変更。
@@ -334,7 +348,9 @@ pub(crate) fn render_navy_executive(
         "対象地域",
         false,
     );
-    push_kpi(html, "主要雇用形態", &k3_value, "", k3_dot, &k3_foot, false);
+    if !is_ver10 {
+        push_kpi(html, "主要雇用形態", &k3_value, "", k3_dot, &k3_foot, false);
+    }
     push_kpi(
         html,
         cover_hl.label.as_str(),
@@ -449,25 +465,29 @@ fn build_findings(
 
     // 2) 主要雇用形態の偏り
     // Rank 4 (2026-06-29): 評価語 (構成集約/バランス) を事実+程度の中立表現に置換。
-    let (sev, body) = if dom_emp_pct >= 85.0 {
-        ("warn", format!("主要雇用形態が <strong>{:.0}%</strong> を占め、特定の雇用形態に比率が偏っています。他雇用形態の追加分析が有効です。", dom_emp_pct))
-    } else if dom_emp_pct >= 70.0 {
-        ("neu", format!("主要雇用形態の構成比は <strong>{:.0}%</strong>。やや偏り気味で、他雇用形態への展開余地もある水準です。", dom_emp_pct))
-    } else {
-        (
-            "pos",
-            format!(
-                "主要雇用形態の構成比は <strong>{:.0}%</strong> で、複数の雇用形態に分散した構成です。",
-                dom_emp_pct
-            ),
-        )
-    };
-    v.push((
-        sev,
-        "雇用形態構成".to_string(),
-        body,
-        "§3 雇用形態分析".to_string(),
-    ));
+    // 2026-07-13: Ver10 は雇用形態構成を削除する (正社員限定運用のため無意味)。
+    //   Ver10 のみこの Finding を追加しない (それ以外の variant は従来どおり)。
+    if !variant.is_ver10() {
+        let (sev, body) = if dom_emp_pct >= 85.0 {
+            ("warn", format!("主要雇用形態が <strong>{:.0}%</strong> を占め、特定の雇用形態に比率が偏っています。他雇用形態の追加分析が有効です。", dom_emp_pct))
+        } else if dom_emp_pct >= 70.0 {
+            ("neu", format!("主要雇用形態の構成比は <strong>{:.0}%</strong>。やや偏り気味で、他雇用形態への展開余地もある水準です。", dom_emp_pct))
+        } else {
+            (
+                "pos",
+                format!(
+                    "主要雇用形態の構成比は <strong>{:.0}%</strong> で、複数の雇用形態に分散した構成です。",
+                    dom_emp_pct
+                ),
+            )
+        };
+        v.push((
+            sev,
+            "雇用形態構成".to_string(),
+            body,
+            "§3 雇用形態分析".to_string(),
+        ));
+    }
 
     // 3) 新着比率
     let (sev, body) = if total == 0 {

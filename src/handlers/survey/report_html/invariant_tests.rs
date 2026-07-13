@@ -1463,6 +1463,8 @@ fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
         ReportVariant::MarketIntelligence,
         ReportVariant::Extended,
         ReportVariant::Sp,
+        // 2026-07-13: Ver10 も顧客向け版のため HW 由来番兵の非漏洩を恒久ガードする。
+        ReportVariant::Ver10,
     ] {
         let html = render_full_report(variant, &ctx);
         for s in sentinels_str {
