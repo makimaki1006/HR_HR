@@ -6,6 +6,7 @@ pub mod gemini;
 pub mod geo;
 pub mod handlers;
 pub mod models;
+pub mod scout;
 pub mod text_util;
 
 use axum::{
@@ -46,6 +47,8 @@ pub struct AppState {
     pub hw_db: Option<db::local_sqlite::LocalDb>,
     pub turso_db: Option<db::turso_http::TursoDb>,
     pub salesnow_db: Option<db::turso_http::TursoDb>,
+    /// Scout(スカウト自動化) 専用 Turso DB。HR_HR 本体のDBとは別物。
+    pub scout_db: Option<db::turso_http::TursoDb>,
     pub cache: AppCache,
     pub rate_limiter: auth::session::RateLimiter,
     /// SalesNow企業の座標キャッシュ（起動時にTursoからロード）
@@ -614,6 +617,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(api_v1)
         .merge(protected_routes)
         .merge(admin_routes)
+        // Scout 中央バックエンド(/scout/*)。独自トークン認証のため HR_HR の require_auth 配下ではない。
+        .merge(scout::router())
         .with_state(state)
         .merge(static_router)
         .layer(SetResponseHeaderLayer::if_not_present(
@@ -726,7 +731,13 @@ async fn auth_middleware(
     next: middleware::Next,
 ) -> axum::response::Response {
     let path = request.uri().path().to_string();
-    if path == "/login" || path == "/logout" || path == "/health" || path.starts_with("/static") {
+    // /scout/* は独自トークン認証(cookie/CSRF非依存)のため HR_HR 認証・CSRFを素通りさせる。
+    if path == "/login"
+        || path == "/logout"
+        || path == "/health"
+        || path.starts_with("/static")
+        || path.starts_with("/scout")
+    {
         return next.run(request).await;
     }
 
