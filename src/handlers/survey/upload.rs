@@ -692,6 +692,14 @@ fn build_column_map(
                 if h == "css-o67di7" && !map.contains_key("is_new") {
                     map.insert("is_new", i);
                 }
+                // 新着バッジ (css-1hq3y4h) は Indeed (SP) スマホ版 UI で「新着」ラベルを
+                // 直接示すセル。掲載日 (css-o67di7) の弱いシグナルより強いため、既存の
+                // is_new マップがあっても上書きする (css-o67di7 は col 順で先に処理される
+                // ため、ここで上書きしないと新着バッジが無視され新着比率が常に 0% になる)。
+                // 実 CSV (indeed-2026-07-01) で 225 件中 44 件が「新着」→ 約 20%。
+                if h == "css-1hq3y4h" {
+                    map.insert("is_new", i);
+                }
             }
             CsvSource::JobBox => {
                 // 日本語ベース判定 (Excel エクスポート / 手作業整形 CSV 用)
@@ -1846,6 +1854,67 @@ pub fn apply_extraction_results(
 #[cfg(test)]
 mod fixa_upload_tests {
     use super::*;
+
+    // =====================================================================
+    // 2026-07-13: Indeed (SP) 新着バッジ (css-1hq3y4h) 解析バグの回帰テスト。
+    //   バグ: 新着バッジ列 css-1hq3y4h が is_new にマップされず、掲載日列 css-o67di7
+    //   (「30+日前」等、"新着" を含まない) が is_new を占有していたため新着比率が常に 0%。
+    //   修正後: css-1hq3y4h を is_new にマップ (css-o67di7 より優先) し、実 CSV 相当
+    //   (5 件中 1 件が「新着」= 20%) で新着が正しく検出される。
+    // =====================================================================
+    #[test]
+    fn indeed_sp_new_badge_column_is_parsed_into_is_new() {
+        // ヘッダ (実 CSV indeed-2026-07-01 のサブセット、順序も実物準拠):
+        //   css-bxyec3 href / css-bxyec3(職種) / css-14qk2ra(会社) / css-18rxko3(勤務地) /
+        //   css-18rxko3 (2)(給与) / css-o67di7(掲載日: 新着を含まない弱シグナル、先に処理される) /
+        //   css-1hq3y4h(新着バッジ) / css-1vlebyu(本文)
+        let header = "css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-o67di7,css-1hq3y4h,css-1vlebyu";
+        // 5 行中 1 行だけ新着バッジ列に「新着」→ 20%。他 4 行は空 (掲載日は全行「30+日前」)。
+        let mut csv = String::from(header);
+        csv.push('\n');
+        // row 1: 新着
+        csv.push_str("https://example.com/1,ドライバー職,サンプル運輸,群馬県高崎市,月給25万円,30+日前,新着,本文1\n");
+        // row 2-5: 新着なし
+        csv.push_str(
+            "https://example.com/2,介護スタッフ,架空介護,群馬県前橋市,月給24万円,30+日前,,本文2\n",
+        );
+        csv.push_str(
+            "https://example.com/3,調理補助,テスト給食,群馬県太田市,月給22万円,30+日前,,本文3\n",
+        );
+        csv.push_str(
+            "https://example.com/4,警備員,モデル警備,群馬県伊勢崎市,月給23万円,30+日前,,本文4\n",
+        );
+        csv.push_str(
+            "https://example.com/5,清掃員,ダミー清掃,群馬県桐生市,月給21万円,30+日前,,本文5\n",
+        );
+
+        // ソース判定: css-bxyec3 + css-1vlebyu を含むため IndeedSp と判定される。
+        let headers: Vec<String> = header.split(',').map(|s| s.to_string()).collect();
+        assert_eq!(
+            detect_csv_source(&headers),
+            CsvSource::IndeedSp,
+            "ヘッダが IndeedSp と判定されるべき"
+        );
+
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(
+            records.len(),
+            5,
+            "5 件パースされるべき: {:?}",
+            records.len()
+        );
+        let new_count = records.iter().filter(|r| r.is_new).count();
+        let new_pct = new_count as f64 / records.len() as f64 * 100.0;
+        assert_eq!(
+            new_count, 1,
+            "新着バッジ列から 1 件だけ is_new=true になるべき (掲載日列の 30+日前 は新着扱いしない)"
+        );
+        assert!(
+            (new_pct - 20.0).abs() < 0.01,
+            "新着比率が 20% 前後になるべき (実測 {:.1}%)",
+            new_pct
+        );
+    }
 
     #[test]
     fn fixa_decode_utf8_bom_strips_bom() {

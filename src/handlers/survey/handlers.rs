@@ -383,6 +383,11 @@ pub struct IntegrateQuery {
     /// - 指定時: カンマ区切りコードのセクションのみ出力 (表紙/目次/01/08 は常時)。
     ///   有効コード: 02,03,04,05,06,07,075,076,09,10。不明コードは無視。
     pub sections: Option<String>,
+    /// 2026-07-13: Ver10 専用。表2-E (都道府県別給与 — 地域比較) を表示するか (?table2e=0/1)。
+    /// - 未指定 / "1" / それ以外: 表示 (既定オン)。
+    /// - "0": 非表示。
+    /// Ver10 以外の variant では無視される。
+    pub table2e: Option<String>,
 }
 
 /// 統合レポート生成
@@ -954,6 +959,8 @@ pub async fn survey_report_html(
     // 2026-07-10: セクション選択 (?sections=02,03,09)。未指定なら variant 準拠 (出力不変)。
     let section_set =
         super::report_html::SectionSet::from_query(query.sections.as_deref(), variant);
+    // 2026-07-13: Ver10 の表2-E 表示フラグ。?table2e=0 のときだけ非表示、それ以外は表示 (既定オン)。
+    let table2e = query.table2e.as_deref() != Some("0");
     let html = super::report_html::render_survey_report_page_with_sections(
         &agg,
         &seeker,
@@ -982,6 +989,8 @@ pub async fn survey_report_html(
         &muni,
         // 2026-07-10: セクション選択集合 (?sections=... 未指定なら variant 準拠)。
         section_set,
+        // 2026-07-13: Ver10 の表2-E 表示フラグ (?table2e=0/1、既定オン)。
+        table2e,
     );
 
     Html(html)

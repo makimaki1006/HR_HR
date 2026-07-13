@@ -52,8 +52,12 @@ pub(crate) fn render_navy_section_02_region(
     >,
     variant: ReportVariant,
     target_region: &str,
+    // 2026-07-13: Ver10 専用。表2-E (都道府県別給与 — 地域比較) を表示するか。
+    //   Ver10 以外の variant では参照されない (従来どおり常に表示)。
+    table2e: bool,
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
+    let is_ver10 = variant.is_ver10();
     let title = if show_hw {
         "地域 × 求人媒体データ連携"
     } else {
@@ -74,25 +78,29 @@ pub(crate) fn render_navy_section_02_region(
     let n_muni = agg.by_municipality_salary.len();
 
     // -- exec-headline
-    let lede = format!(
-        "対象 <strong>{}</strong> 都道府県 / <strong>{}</strong> 市区町村、サンプル <strong>n={}</strong>。\
-         本ページでは件数最多 <strong>10</strong> 市区町村を抜粋し、{}を一覧化します。",
-        n_pref,
-        n_muni,
-        format_number(n_total as i64),
-        if show_hw {
-            "CSV 集計値と求人媒体現在件数 (掲載求人ベース)"
-        } else {
-            "CSV 集計値と公開統計の地域指標"
-        }
-    );
-    html.push_str(&format!(
-        "<div class=\"exec-headline\">\
-         <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
-         <p>{}</p>\
-         </div>\n",
-        lede
-    ));
+    // 2026-07-13: Ver10 は冒頭の説明ブロック (exec-headline) を削除する
+    //   (現場レビュー: 前置きの説明文は読み飛ばされるため、表だけ見せる)。
+    if !is_ver10 {
+        let lede = format!(
+            "対象 <strong>{}</strong> 都道府県 / <strong>{}</strong> 市区町村、サンプル <strong>n={}</strong>。\
+             本ページでは件数最多 <strong>10</strong> 市区町村を抜粋し、{}を一覧化します。",
+            n_pref,
+            n_muni,
+            format_number(n_total as i64),
+            if show_hw {
+                "CSV 集計値と求人媒体現在件数 (掲載求人ベース)"
+            } else {
+                "CSV 集計値と公開統計の地域指標"
+            }
+        );
+        html.push_str(&format!(
+            "<div class=\"exec-headline\">\
+             <div class=\"eh-quote\" aria-hidden=\"true\">&ldquo;</div>\
+             <p>{}</p>\
+             </div>\n",
+            lede
+        ));
+    }
 
     // -- 都道府県カバレッジ KPI
     html.push_str("<div class=\"block-title\">図 2-1 &nbsp;都道府県カバレッジ サマリ</div>\n");
@@ -160,11 +168,14 @@ pub(crate) fn render_navy_section_02_region(
     }
 
     // -- table-navy: 件数最多 10 市区町村
-    html.push_str(&format!(
-        "<div class=\"block-title block-title-spaced\">表 2-A &nbsp;件数最多 10 市区町村 &mdash; CSV 集計 + {}</div>\n",
-        if show_hw { "求人媒体補強" } else { "外部統計" }
-    ));
-    html.push_str(&build_navy_region_table(agg, hw_enrichment_map, show_hw));
+    // 2026-07-13: Ver10 は表2-A を削除する (現場レビュー)。
+    if !is_ver10 {
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 2-A &nbsp;件数最多 10 市区町村 &mdash; CSV 集計 + {}</div>\n",
+            if show_hw { "求人媒体補強" } else { "外部統計" }
+        ));
+        html.push_str(&build_navy_region_table(agg, hw_enrichment_map, show_hw));
+    }
 
     // -- 表 2-C 通勤流入元 TOP3 (採用範囲拡張の指針)  [旧 7.5-A 統合 2026-05-15]
     if let Some(c) = hw_context {
@@ -214,7 +225,10 @@ pub(crate) fn render_navy_section_02_region(
     //   件数最多 10 県の平均給与と CSV 内全体加重平均との差分を可視化。
     //   既存の「件数最多 10 市区町村」と階層を変えた粒度 (県単位) で
     //   給与水準のリージョン格差を補強する。
-    if !agg.by_prefecture_salary.is_empty() {
+    // 2026-07-13: Ver10 は表2-E を URL パラメータ table2e で表示制御する
+    //   (既定オン)。Ver10 以外の variant では table2e=true 相当で常に表示 (byte 不変)。
+    let show_table_2e = !is_ver10 || table2e;
+    if show_table_2e && !agg.by_prefecture_salary.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 2-E &nbsp;都道府県別給与 &mdash; 地域比較</div>\n");
         html.push_str(&build_navy_prefecture_salary_table(agg, agg.is_hourly));
     }
