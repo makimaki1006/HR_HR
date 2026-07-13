@@ -51,6 +51,10 @@ pub struct AppConfig {
     pub salesnow_turso_url: String,
     /// SalesNow Turso DB 認証トークン
     pub salesnow_turso_token: String,
+    /// Scout(スカウト自動化) 用 Turso DB URL (空なら scout 機能OFF)
+    pub scout_turso_url: String,
+    /// Scout 用 Turso DB 認証トークン
+    pub scout_turso_token: String,
 }
 
 /// AUDIT_IP_SALT のデフォルト値（本番未設定時に warn 警告を出す対象）
@@ -126,6 +130,8 @@ impl AppConfig {
             turso_external_token: env::var("TURSO_EXTERNAL_TOKEN").unwrap_or_default(),
             salesnow_turso_url: env::var("SALESNOW_TURSO_URL").unwrap_or_default(),
             salesnow_turso_token: env::var("SALESNOW_TURSO_TOKEN").unwrap_or_default(),
+            scout_turso_url: env::var("SCOUT_TURSO_URL").unwrap_or_default(),
+            scout_turso_token: env::var("SCOUT_TURSO_TOKEN").unwrap_or_default(),
         };
 
         // 起動時セキュリティ警告: AUDIT_IP_SALT がデフォルト値のまま本番運用されると
