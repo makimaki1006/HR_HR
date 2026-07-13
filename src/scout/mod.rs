@@ -28,6 +28,7 @@ use crate::AppState;
 
 const SESSION_TTL_DAYS: i64 = 7;
 const CONFIG_KEY: &str = "__config__";
+const STATE_KEY: &str = "__state__";
 
 /// 新規 workspace の既定 config（空キャンペーン＋既定設定）。ローカルアプリが即使える状態にする。
 const DEFAULT_CONFIG_JSON: &str = r#"{
@@ -47,6 +48,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/scout/api/auth/me", get(me))
         .route("/scout/api/auth/logout", post(logout))
         .route("/scout/api/config", get(get_config).post(save_config))
+        .route("/scout/api/state", get(get_state).post(save_state))
         .route("/scout/api/admin/provision", post(provision))
 }
 
@@ -282,6 +284,61 @@ async fn save_config(
         let u = require_user(&dbh, &token)?;
         let key = CONFIG_KEY.to_string();
         let p: [&dyn ToSqlTurso; 3] = [&u.workspace_id, &key, &cfg_str];
+        dbh.execute(
+            "INSERT OR REPLACE INTO kv_settings(workspace_id,key,value) VALUES(?,?,?)",
+            &p,
+        )
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        Ok(json!({ "ok": true }))
+    })
+    .await
+}
+
+async fn get_state(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult {
+    let token = token_from(&headers);
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let u = require_user(&dbh, &token)?;
+        let key = STATE_KEY.to_string();
+        let p: [&dyn ToSqlTurso; 2] = [&u.workspace_id, &key];
+        let rows = dbh
+            .query("SELECT value FROM kv_settings WHERE workspace_id=? AND key=?", &p)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let st: Value = match rows.first().map(|r| get_str(r, "value")) {
+            Some(s) if !s.is_empty() => {
+                serde_json::from_str(&s).unwrap_or(json!({"campaigns": {}, "sessions": []}))
+            }
+            _ => json!({"campaigns": {}, "sessions": []}),
+        };
+        Ok(json!({ "state": st }))
+    })
+    .await
+}
+
+async fn save_state(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let st_str = match body.get("state") {
+        Some(s) => match serde_json::to_string(s) {
+            Ok(v) => v,
+            Err(_) => return Err((StatusCode::BAD_REQUEST, Json(json!({"error":"state が不正です"})))),
+        },
+        None => return Err((StatusCode::BAD_REQUEST, Json(json!({"error":"state が必要です"})))),
+    };
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let u = require_user(&dbh, &token)?;
+        let key = STATE_KEY.to_string();
+        let p: [&dyn ToSqlTurso; 3] = [&u.workspace_id, &key, &st_str];
         dbh.execute(
             "INSERT OR REPLACE INTO kv_settings(workspace_id,key,value) VALUES(?,?,?)",
             &p,
