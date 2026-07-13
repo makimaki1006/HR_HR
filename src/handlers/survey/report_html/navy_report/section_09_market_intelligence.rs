@@ -6,14 +6,17 @@
 //! - `docs/SURVEY_MARKET_INTELLIGENCE_PHASE3_DISPLAY_SPEC.md` v1.0 (人数表示禁止 §2)
 //! - `docs/NAVY_SECTION_09_DESIGN.md` (本 commit の設計メモ)
 //!
-//! ## サブセクション一覧 (6 件 ≥ 要件 5 件以上)
+//! ## サブセクション一覧 (4 件 ≥ 要件)
+//!
+//! 2026-07-13 HW由来図表 撤去: 旧 9-B (採用ターゲット厚み) / 旧 9-C (競合求人密度) は
+//! `hw_industry_counts` (postings 由来) を使っており、顧客向け variant
+//! (MarketIntelligence / Extended / Sp) での HW 自前DB 由来データ表示禁止ルールに違反していた
+//! ため削除。残る図を連番に振り直した (旧 D/E/F → 新 B/C/D)。
 //!
 //! - 9-A 配信優先度サマリーカード (KPI 4 + 配信判断ラベル + SO WHAT)
-//! - 9-B 採用ターゲット厚み (相対指数、ext_industry_employees + hw_industry_counts)
-//! - 9-C 競合求人密度 (HW 求人件数 / 産業従業者規模、比率のみ)
-//! - 9-D 通勤到達性 (commute_inflow_top3 + commute_self_rate)
-//! - 9-E 生活コスト補正後給与魅力度 (agg median + ext_min_wage + 家計支出)
-//! - 9-F 配信シナリオ濃淡バー (保守/標準/強気、9-A〜9-E の合成)
+//! - 9-B 通勤到達性 (commute_inflow_top3 + commute_self_rate)  [旧 9-D]
+//! - 9-C 生活コスト補正後給与魅力度 (agg median + ext_min_wage + 家計支出)  [旧 9-E]
+//! - 9-D 配信シナリオ濃淡バー (保守/標準/強気、9-A〜9-C の合成)  [旧 9-F]
 //!
 //! ## 設計方針 (NAVY_SECTION_09_DESIGN.md §0)
 //!
@@ -83,7 +86,7 @@ pub(crate) fn render_navy_section_09_market_intelligence(
         html,
         "SECTION 09",
         "採用マーケットインテリジェンス",
-        "配信優先度 / ターゲット厚み / 競合密度 / 通勤到達性 / 給与魅力度 / シナリオ濃淡",
+        "配信優先度 / 通勤到達性 / 給与魅力度 / シナリオ濃淡",
     );
     push_region_scope_banner(html, target_region);
 
@@ -114,23 +117,23 @@ pub(crate) fn render_navy_section_09_market_intelligence(
     // 9-A 配信優先度サマリーカード (第 1 階層: 最優先)
     let positive_score = render_mi_9a_priority_summary(html, ctx);
 
-    // 9-B 採用ターゲット厚み (第 2 階層)
-    render_mi_9b_thickness_index(html, ctx);
+    // 2026-07-13: 旧 9-B (採用ターゲット厚み) / 旧 9-C (競合求人密度) は
+    //   hw_industry_counts (postings 由来) を使用しており、顧客向け variant での
+    //   HW 自前DB 由来データ表示禁止ルール違反のため削除。競合密度 penalty 入力は
+    //   None (削除により算出不能) として扱う。
 
-    // 9-C 競合求人密度 (第 3 階層)
-    let competition_index = render_mi_9c_competition_density(html, ctx);
+    // 9-B 通勤到達性 (第 2 階層)  [旧 9-D]
+    let commute_reach_index = render_mi_9b_commute_reach(html, ctx);
 
-    // 9-D 通勤到達性 (第 4 階層)
-    let commute_reach_index = render_mi_9d_commute_reach(html, ctx);
+    // 9-C 生活コスト補正後給与魅力度 (第 3 階層)  [旧 9-E]
+    let wage_attractiveness_index = render_mi_9c_wage_attractiveness(html, ctx, agg);
 
-    // 9-E 生活コスト補正後給与魅力度 (第 4 階層)
-    let wage_attractiveness_index = render_mi_9e_wage_attractiveness(html, ctx, agg);
-
-    // 9-F 配信シナリオ濃淡バー (第 5 階層: 合成)
-    render_mi_9f_scenario_intensity(
+    // 9-D 配信シナリオ濃淡バー (第 4 階層: 合成)  [旧 9-F]
+    // competition_index は HW 由来の旧 9-C 削除により None (penalty 0 扱い)。
+    render_mi_9d_scenario_intensity(
         html,
         positive_score,
-        competition_index,
+        None,
         commute_reach_index,
         wage_attractiveness_index,
         ctx,
@@ -143,7 +146,7 @@ pub(crate) fn render_navy_section_09_market_intelligence(
 // 9-A 配信優先度サマリーカード
 // ============================================================
 
-/// 戻り値: positive_score (0-100) — 9-F の合成入力に使用。データなしは None。
+/// 戻り値: positive_score (0-100) — 9-D の合成入力に使用。データなしは None。
 fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>) -> Option<f64> {
     use super::super::super::super::helpers::get_f64;
     use super::super::db_columns::{RATIO_TOTAL, UNEMPLOYMENT_RATE};
@@ -323,204 +326,12 @@ fn compute_inflow_intensity_index(inflow_total: i64) -> f64 {
 }
 
 // ============================================================
-// 9-B 採用ターゲット厚み (相対指数)
+// 9-B 通勤到達性  [旧 9-D]
 // ============================================================
 
-fn render_mi_9b_thickness_index(html: &mut String, ctx: Option<&InsightContext>) {
-    use super::super::super::super::helpers::{get_f64, get_str_ref};
-    use super::super::db_columns::{EMPLOYEES_TOTAL, INDUSTRY_NAME};
-
-    html.push_str("<div class=\"block-title\">図 9-B 採用ターゲット構成比の相対指数</div>\n");
-    // 2026-07-03 WF4後追い: 基準の実体は fetch_industry_structure (WHERE prefecture_code=?1) の
-    //   県全体集計。「全国基準」表記は粒度誤り (§04 全国平均→県平均 と同類) のため是正。
-    html.push_str("<p class=\"caption\">産業大分類の構成比を県全体の産業構成比を基準に比較した相対指数 (100 = 基準並み、200 が上限)。基準構成比が取得できない場合は均等基準 (産業数 N の 1/N) を用いた参考比較であり、実際の構成比ではありません。絶対値の表示は行いません。</p>\n");
-
-    let ctx = match ctx {
-        Some(c) => c,
-        None => {
-            html.push_str("<p class=\"caption dim\">取得値なし</p>\n");
-            return;
-        }
-    };
-
-    // hw_industry_counts (求人産業構成) と ext_industry_employees (経済センサス) を統合。
-    // 比較対象は HW 求人産業構成の上位カテゴリ。
-    let total_hw: i64 = ctx.hw_industry_counts.iter().map(|(_, n)| *n).sum();
-    if total_hw <= 0 || ctx.hw_industry_counts.is_empty() {
-        html.push_str("<p class=\"caption dim\">産業構成データなし</p>\n");
-        return;
-    }
-
-    // 上位 8 産業について「構成比 ÷ 県全体構成比 × 100」を相対指数とみなす。
-    // 基準は ext_industry_employees (fetch_industry_structure、県全体集計) から導出 (なければ均等分布 1/N で代用)。
-    let mut national_total: i64 = 0;
-    let mut national_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-    for r in &ctx.ext_industry_employees {
-        let name = get_str_ref(r, INDUSTRY_NAME).to_string();
-        // 実 SQL (subtab5_phase4_7.rs fetch_industry_structure) のエイリアスは
-        // `SUM(employees_total) as employees_total`。旧キー "employees" は常に 0 になり
-        // 均等基準 (1/N) フォールバックへ落ちるバグだった (2026-07 修正)。
-        // db_columns::EMPLOYEES_TOTAL の列コントラクトテストが SQL 側との一致を保証。
-        let v = get_f64(r, EMPLOYEES_TOTAL) as i64;
-        if v > 0 && !name.is_empty() {
-            national_total += v;
-            *national_map.entry(name).or_insert(0) += v;
-        }
-    }
-
-    html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
-    html.push_str("<thead><tr><th>産業大分類</th><th>地域構成比</th><th>県全体構成比</th><th>相対指数</th><th>参考</th></tr></thead>\n<tbody>\n");
-
-    let mut shown = 0;
-    for (name, count) in ctx.hw_industry_counts.iter().take(8) {
-        let local_share = (*count as f64) / (total_hw as f64) * 100.0;
-        let national_share = if national_total > 0 {
-            let n = national_map.get(name).copied().unwrap_or(0);
-            (n as f64) / (national_total as f64) * 100.0
-        } else {
-            // 基準データなし: 上位 8 産業 1/8 を均等分布として代用
-            100.0 / 8.0
-        };
-        let thickness = if national_share > 0.0 {
-            (local_share / national_share * 100.0).clamp(0.0, 200.0)
-        } else {
-            0.0
-        };
-        let (badge, dot_class) = if thickness >= 120.0 {
-            ("基準比 やや高め (参考)", "pos")
-        } else if thickness >= 80.0 {
-            ("基準並み (参考)", "neu")
-        } else {
-            ("基準比 やや低め (参考)", "warn")
-        };
-        html.push_str(&format!(
-            "<tr><td>{}</td><td>{:.1}%</td><td>{:.1}%</td><td><strong>{:.0}</strong></td>\
-             <td><span class=\"dot {}\"></span>{}</td></tr>\n",
-            escape_html(name),
-            local_share,
-            national_share,
-            thickness,
-            dot_class,
-            badge
-        ));
-        shown += 1;
-    }
-    if shown == 0 {
-        html.push_str("<tr><td colspan=\"5\" class=\"dim\">該当データなし</td></tr>\n");
-    }
-    html.push_str("</tbody></table>\n");
-
-    html.push_str(
-        "<div class=\"so-what\" style=\"margin-top:3mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
-         <div class=\"sw-body\">\
-         相対指数 120+ の産業帯を主訴求軸の候補とし、80 未満の産業帯は別チャネル (リファラル / SNS 等) を検討する。\
-         </div></div>\n",
-    );
-}
-
-// ============================================================
-// 9-C 競合求人密度 (クロス分析)
-// ============================================================
-
-/// 戻り値: 競合密度から導出した penalty 用指数 (0-100、高いほど競合が激しい)。
-fn render_mi_9c_competition_density(
-    html: &mut String,
-    ctx: Option<&InsightContext>,
-) -> Option<f64> {
-    use super::super::super::super::helpers::{get_f64, get_str_ref};
-    use super::super::db_columns::{EMPLOYEES_TOTAL, INDUSTRY_NAME};
-
-    html.push_str("<div class=\"block-title\">図 9-C 競合求人密度 (クロス分析)</div>\n");
-    html.push_str("<p class=\"caption\">産業別 HW 求人件数 ÷ 産業就業者規模で算出した相対密度比。値が高い産業は競合配信が激しいことを示唆します (実測ベース)。</p>\n");
-
-    let ctx = match ctx {
-        Some(c) => c,
-        None => {
-            html.push_str("<p class=\"caption dim\">取得値なし</p>\n");
-            return None;
-        }
-    };
-
-    let mut national_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-    for r in &ctx.ext_industry_employees {
-        let name = get_str_ref(r, INDUSTRY_NAME).to_string();
-        // 実 SQL エイリアスは employees_total (9-B と同修正、旧キー "employees" は常時 0)
-        let v = get_f64(r, EMPLOYEES_TOTAL);
-        if v > 0.0 && !name.is_empty() {
-            *national_map.entry(name).or_insert(0.0) += v;
-        }
-    }
-
-    if national_map.is_empty() || ctx.hw_industry_counts.is_empty() {
-        html.push_str("<p class=\"caption dim\">外部統計または HW 産業構成が未取得</p>\n");
-        return None;
-    }
-
-    html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
-    html.push_str("<thead><tr><th>産業大分類</th><th>HW 求人 構成比</th><th>就業者規模 構成比</th><th>密度比 (求人÷就業者)</th><th>判定</th></tr></thead>\n<tbody>\n");
-
-    let total_hw: i64 = ctx.hw_industry_counts.iter().map(|(_, n)| *n).sum();
-    let total_emp: f64 = national_map.values().sum();
-    let mut sum_ratio = 0.0;
-    let mut count = 0;
-
-    for (name, hw_count) in ctx.hw_industry_counts.iter().take(8) {
-        let emp = national_map.get(name).copied().unwrap_or(0.0);
-        if emp <= 0.0 || total_hw <= 0 || total_emp <= 0.0 {
-            continue;
-        }
-        let hw_share = (*hw_count as f64) / (total_hw as f64) * 100.0;
-        let emp_share = emp / total_emp * 100.0;
-        let density_ratio = hw_share / emp_share;
-        let (badge, dot_class) = if density_ratio >= 1.5 {
-            ("競合 激しい", "warn")
-        } else if density_ratio >= 0.8 {
-            ("競合 標準", "neu")
-        } else {
-            ("競合 薄い", "pos")
-        };
-        html.push_str(&format!(
-            "<tr><td>{}</td><td>{:.1}%</td><td>{:.1}%</td><td><strong>{:.2}</strong></td>\
-             <td><span class=\"dot {}\"></span>{}</td></tr>\n",
-            escape_html(name),
-            hw_share,
-            emp_share,
-            density_ratio,
-            dot_class,
-            badge
-        ));
-        sum_ratio += density_ratio;
-        count += 1;
-    }
-    if count == 0 {
-        html.push_str("<tr><td colspan=\"5\" class=\"dim\">該当データなし</td></tr>\n");
-    }
-    html.push_str("</tbody></table>\n");
-
-    html.push_str(
-        "<div class=\"so-what\" style=\"margin-top:3mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
-         <div class=\"sw-body\">\
-         密度比の低い産業帯 (1.0 未満) は配信単価を抑制でき、密度比 1.5+ の産業帯では訴求差別化 (給与・働き方・福利厚生) に投資配分する。\
-         </div></div>\n",
-    );
-
-    if count > 0 {
-        let avg = sum_ratio / (count as f64);
-        Some((avg * 50.0).clamp(0.0, 100.0))
-    } else {
-        None
-    }
-}
-
-// ============================================================
-// 9-D 通勤到達性
-// ============================================================
-
-/// 戻り値: 通勤到達性指数 (0-100、9-F の合成入力)。
-fn render_mi_9d_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -> Option<f64> {
-    html.push_str("<div class=\"block-title\">図 9-D 通勤到達性</div>\n");
+/// 戻り値: 通勤到達性指数 (0-100、9-D の合成入力)。
+fn render_mi_9b_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -> Option<f64> {
+    html.push_str("<div class=\"block-title\">図 9-B 通勤到達性</div>\n");
     html.push_str("<p class=\"caption\">通勤流入元 TOP3 と通勤自給率を統合した通勤圏到達性指数。流入元は補助配信地域の候補です。</p>\n");
 
     let ctx = match ctx {
@@ -607,11 +418,11 @@ fn render_mi_9d_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -
 }
 
 // ============================================================
-// 9-E 生活コスト補正後給与魅力度
+// 9-C 生活コスト補正後給与魅力度  [旧 9-E]
 // ============================================================
 
-/// 戻り値: 給与魅力度指数 (0-100、9-F の合成入力)。
-fn render_mi_9e_wage_attractiveness(
+/// 戻り値: 給与魅力度指数 (0-100、9-D の合成入力)。
+fn render_mi_9c_wage_attractiveness(
     html: &mut String,
     ctx: Option<&InsightContext>,
     agg: &SurveyAggregation,
@@ -619,7 +430,7 @@ fn render_mi_9e_wage_attractiveness(
     use super::super::super::super::helpers::{get_f64, get_str_ref};
     use super::super::db_columns::{CATEGORY, HOURLY_MIN_WAGE, MONTHLY_AMOUNT};
 
-    html.push_str("<div class=\"block-title\">図 9-E 生活コスト補正後給与魅力度</div>\n");
+    html.push_str("<div class=\"block-title\">図 9-C 生活コスト補正後給与魅力度</div>\n");
     html.push_str("<p class=\"caption\">求人給与中央値を最低賃金 / 家計支出と比較した相対魅力度 (参考指標)。生活コスト補正は概算であり、契約条件 (家賃補助 / 通勤手当) を含みません。</p>\n");
 
     let ctx = match ctx {
@@ -733,10 +544,10 @@ fn render_mi_9e_wage_attractiveness(
 }
 
 // ============================================================
-// 9-F 配信シナリオ濃淡バー
+// 9-D 配信シナリオ濃淡バー  [旧 9-F]
 // ============================================================
 
-fn render_mi_9f_scenario_intensity(
+fn render_mi_9d_scenario_intensity(
     html: &mut String,
     positive_score: Option<f64>,
     competition_index: Option<f64>,
@@ -747,7 +558,7 @@ fn render_mi_9f_scenario_intensity(
     let _ = ctx; // 将来 Turso v2_municipality_target_thickness 接続時に使用
 
     html.push_str(
-        "<div class=\"block-title\">図 9-F 配信シナリオ濃淡 (保守 / 標準 / 強気)</div>\n",
+        "<div class=\"block-title\">図 9-D 配信シナリオ濃淡 (保守 / 標準 / 強気)</div>\n",
     );
     html.push_str("<p class=\"caption\">配信予算配分の意思決定材料となる 3 段階濃淡。数値は指数 (0-100) です。応募見込数の換算は行いません。</p>\n");
 
@@ -801,7 +612,7 @@ fn render_mi_9f_scenario_intensity(
     );
 }
 
-/// 9-A〜9-E の入力から (保守, 標準, 強気) 3 指数を導出 (0-100)。
+/// 9-A / 9-B / 9-C の入力から (保守, 標準, 強気) 3 指数を導出 (0-100)。
 ///
 /// METRICS.md §2.1 に準拠した近似:
 /// - 標準 = base × (1 - penalty/100), penalty = competition_index を 0-30 に scale
@@ -809,6 +620,10 @@ fn render_mi_9f_scenario_intensity(
 /// - 強気 = min(標準 × 1.6, 100)
 ///
 /// base = positive_score, commute_reach_index, wage_attractiveness_index の単純平均 (None 除外)
+///
+/// 2026-07-13: competition_index は旧 9-C (競合求人密度、HW由来) 削除後は常に None が
+/// 渡される (penalty=0)。ヘルパー自体は penalty 計算の汎用性・既存単体テストを保つため
+/// 引数として残置している。
 fn compute_scenario_indices(
     positive_score: Option<f64>,
     competition_index: Option<f64>,
