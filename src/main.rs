@@ -152,6 +152,36 @@ async fn main() {
         }
     };
 
+    // --- Scout Turso DB接続 future (スカウト自動化・中央バックエンド用) ---
+    let scout_db_fut = async {
+        if !config.scout_turso_url.is_empty() && !config.scout_turso_token.is_empty() {
+            let url = config.scout_turso_url.clone();
+            let token = config.scout_turso_token.clone();
+            let url_for_log = url.clone();
+            match tokio::task::spawn_blocking(move || {
+                rust_dashboard::db::turso_http::TursoDb::new(&url, &token)
+            })
+            .await
+            {
+                Ok(Ok(db)) => {
+                    tracing::info!("Scout DB connected: {}", url_for_log);
+                    Some(db)
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("Scout DB not available: {e}");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("Scout DB init failed: {e}");
+                    None
+                }
+            }
+        } else {
+            tracing::info!("Scout DB not configured (SCOUT_TURSO_URL / SCOUT_TURSO_TOKEN)");
+            None
+        }
+    };
+
     // --- 監査DB接続 future (AUDIT_TURSO_URL 未設定なら None = 監査機能OFF) ---
     // 接続成功 → schema init の順序依存はこの future 内部で維持される。
     // 他2接続とは独立しているため join! で並列実行可能。
@@ -206,7 +236,8 @@ async fn main() {
     };
 
     // 3接続を並列実行 (独立処理のみ。各 future 内のエラーハンドリングで継続性を担保)
-    let (turso_db, salesnow_db, audit) = tokio::join!(turso_db_fut, salesnow_db_fut, audit_fut);
+    let (turso_db, salesnow_db, scout_db, audit) =
+        tokio::join!(turso_db_fut, salesnow_db_fut, scout_db_fut, audit_fut);
 
     let cache = AppCache::new(config.cache_ttl_secs, config.cache_max_entries);
     let rate_limiter = RateLimiter::new(
@@ -228,6 +259,7 @@ async fn main() {
         hw_db,
         turso_db,
         salesnow_db,
+        scout_db,
         cache,
         rate_limiter,
         company_geo_cache,
