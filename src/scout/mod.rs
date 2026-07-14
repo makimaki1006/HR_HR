@@ -57,6 +57,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/scout/api/admin/killswitch", post(admin_killswitch))
         .route("/scout/api/admin/disable", post(admin_disable))
         .route("/scout/api/admin/provision", post(provision))
+        .route("/scout/api/admin/users", get(admin_list_users).post(admin_create_user))
+        .route("/scout/api/admin/reset-password", post(admin_reset_password))
 }
 
 // ===== 型・共通ヘルパー =====
@@ -121,6 +123,7 @@ struct SessionUser {
     email: String,
     name: String,
     workspace_id: String,
+    role: String,
 }
 
 /// トークンからログイン中ユーザーを解決（期限切れは None）。※同期。呼び出しは spawn_blocking 内で。
@@ -128,11 +131,16 @@ fn current_user(db: &TursoDb, token: &str) -> Option<SessionUser> {
     if token.is_empty() {
         return None;
     }
+    // role 列を後付けする（一度だけ ALTER）。JOIN で u.role を引く前に必須。
+    ensure_user_role_column(db);
     let t = token.to_string();
     let params: [&dyn ToSqlTurso; 1] = [&t];
+    // role はユーザーの最新値を users から解決（session 発行後の role 変更も即反映）。
     let rows = db
         .query(
-            "SELECT user_id,email,name,workspace_id,expires_at FROM auth_sessions WHERE token=?",
+            "SELECT s.user_id,s.email,s.name,s.workspace_id,s.expires_at,\
+             COALESCE(u.role,'member') AS role \
+             FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token=?",
             &params,
         )
         .ok()?;
@@ -145,7 +153,17 @@ fn current_user(db: &TursoDb, token: &str) -> Option<SessionUser> {
         email: get_str(r, "email"),
         name: get_str(r, "name"),
         workspace_id: get_str(r, "workspace_id"),
+        role: get_str(r, "role"),
     })
+}
+
+/// master ロールを要求（ユーザー管理API用）。member/未ログインは 403/401。
+fn require_master(db: &TursoDb, token: &str) -> Result<SessionUser, CoreErr> {
+    let u = require_user(db, token)?;
+    if u.role != "master" {
+        return Err(cerr(StatusCode::FORBIDDEN, "管理者(master)権限が必要です"));
+    }
+    Ok(u)
 }
 
 fn require_user(db: &TursoDb, token: &str) -> Result<SessionUser, CoreErr> {
@@ -160,6 +178,15 @@ fn ensure_user_disabled_column(db: &TursoDb) {
     ENSURED.get_or_init(|| {
         // 既に列が存在すると Turso はエラーを返すが、それは正常系として無視する。
         let _ = db.execute("ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0", &[]);
+    });
+}
+
+/// users テーブルへ `role` 列を後付けする(master/member の権限分離用)。プロセス生存中に一度だけ。
+/// 既定は 'member'。既存ユーザーは全員 member 扱いになる(master は明示昇格が必要)。※同期。
+fn ensure_user_role_column(db: &TursoDb) {
+    static ENSURED: OnceLock<()> = OnceLock::new();
+    ENSURED.get_or_init(|| {
+        let _ = db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'", &[]);
     });
 }
 
@@ -205,11 +232,16 @@ fn login_core(db: &TursoDb, email: String, password: String) -> Result<Value, Co
     if email.is_empty() || password.is_empty() {
         return Err(cerr(StatusCode::BAD_REQUEST, "メールとパスワードが必要です"));
     }
-    // 解約遮断用の disabled 列を用意(一度だけ ALTER)。SELECT disabled 前に必須。
+    // 解約遮断用の disabled 列・権限用の role 列を用意(一度だけ ALTER)。SELECT 前に必須。
     ensure_user_disabled_column(db);
+    ensure_user_role_column(db);
     let params: [&dyn ToSqlTurso; 1] = [&email];
     let rows = db
-        .query("SELECT id,email,password_hash,name,disabled FROM users WHERE email=?", &params)
+        .query(
+            "SELECT id,email,password_hash,name,disabled,COALESCE(role,'member') AS role \
+             FROM users WHERE email=?",
+            &params,
+        )
         .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
     let row = rows
         .first()
@@ -225,6 +257,7 @@ fn login_core(db: &TursoDb, email: String, password: String) -> Result<Value, Co
     }
     let user_id = get_str(row, "id");
     let name = get_str(row, "name");
+    let role = get_str(row, "role");
 
     let p2: [&dyn ToSqlTurso; 1] = [&user_id];
     let wrows = db
@@ -248,7 +281,7 @@ fn login_core(db: &TursoDb, email: String, password: String) -> Result<Value, Co
     Ok(json!({
         "ok": true,
         "token": token,
-        "user": {"email": email, "name": name, "workspace_id": workspace_id},
+        "user": {"email": email, "name": name, "workspace_id": workspace_id, "role": role},
     }))
 }
 
@@ -261,7 +294,7 @@ async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult
     run(move || {
         let u = require_user(&dbh, &token)?;
         Ok(json!({
-            "user": {"user_id": u.user_id, "email": u.email, "name": u.name, "workspace_id": u.workspace_id}
+            "user": {"user_id": u.user_id, "email": u.email, "name": u.name, "workspace_id": u.workspace_id, "role": u.role}
         }))
     })
     .await
@@ -575,11 +608,16 @@ async fn provision(
     let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let name_in = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let name = if name_in.is_empty() { company.clone() } else { name_in };
+    // role は master/member のみ許可。既定は member(招待された実務者)。master 昇格は明示指定。
+    let role = match body.get("role").and_then(|v| v.as_str()).unwrap_or("member").trim() {
+        "master" => "master".to_string(),
+        _ => "member".to_string(),
+    };
     let dbh = match take_db(&state) {
         Ok(d) => d,
         Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
     };
-    run(move || provision_core(&dbh, company, email, password, name)).await
+    run(move || provision_core(&dbh, company, email, password, name, role)).await
 }
 
 fn provision_core(
@@ -588,6 +626,7 @@ fn provision_core(
     email: String,
     password: String,
     name: String,
+    role: String,
 ) -> Result<Value, CoreErr> {
     if company.is_empty() || email.is_empty() || password.len() < 8 {
         return Err(cerr(
@@ -595,6 +634,7 @@ fn provision_core(
             "company・email・8文字以上のpassword が必要です",
         ));
     }
+    ensure_user_role_column(db);
     let pe: [&dyn ToSqlTurso; 1] = [&email];
     let exists = db
         .query("SELECT 1 AS x FROM users WHERE email=?", &pe)
@@ -615,9 +655,9 @@ fn provision_core(
         &pw,
     )
     .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
-    let pu: [&dyn ToSqlTurso; 5] = [&user_id, &email, &hash, &name, &now];
+    let pu: [&dyn ToSqlTurso; 6] = [&user_id, &email, &hash, &name, &now, &role];
     db.execute(
-        "INSERT INTO users(id,email,password_hash,name,created_at) VALUES(?,?,?,?,?)",
+        "INSERT INTO users(id,email,password_hash,name,created_at,role) VALUES(?,?,?,?,?,?)",
         &pu,
     )
     .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
@@ -634,5 +674,114 @@ fn provision_core(
         "company": company,
         "email": email,
         "workspace_id": ws_id,
+        "role": role,
     }))
+}
+
+// ==== master 用ユーザー管理API（認証は master のログインセッション。SCOUT_ADMIN_TOKEN 不要） ====
+// 末端顧客の EXE には管理トークンを一切入れない設計。master がUIからログインして操作する。
+
+/// master 用: 全ユーザー一覧（会社=workspace名, role, 無効状態）。
+async fn admin_list_users(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult {
+    let token = token_from(&headers);
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        require_master(&dbh, &token)?;
+        ensure_user_disabled_column(&dbh);
+        ensure_user_role_column(&dbh);
+        let rows = dbh
+            .query(
+                "SELECT u.id,u.email,u.name,COALESCE(u.role,'member') AS role,\
+                 COALESCE(u.disabled,0) AS disabled,u.created_at,\
+                 (SELECT w.name FROM workspaces w WHERE w.owner_user_id=u.id LIMIT 1) AS company \
+                 FROM users u ORDER BY u.created_at",
+                &[],
+            )
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let users: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "id": get_str(r, "id"),
+                    "email": get_str(r, "email"),
+                    "name": get_str(r, "name"),
+                    "role": get_str(r, "role"),
+                    "company": get_str(r, "company"),
+                    "disabled": r.get("disabled").and_then(|v| v.as_i64()).unwrap_or(0) != 0,
+                    "created_at": get_str(r, "created_at"),
+                })
+            })
+            .collect();
+        Ok(json!({ "ok": true, "users": users }))
+    })
+    .await
+}
+
+/// master 用: ユーザー作成（provision と同じ効果。認証は master セッション）。
+async fn admin_create_user(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let company = body.get("company").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let email = body.get("email").and_then(|v| v.as_str()).unwrap_or("").trim().to_lowercase();
+    let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let name_in = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let name = if name_in.is_empty() { company.clone() } else { name_in };
+    let role = match body.get("role").and_then(|v| v.as_str()).unwrap_or("member").trim() {
+        "master" => "master".to_string(),
+        _ => "member".to_string(),
+    };
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        require_master(&dbh, &token)?;
+        provision_core(&dbh, company, email, password, name, role)
+    })
+    .await
+}
+
+/// master 用: 任意ユーザーのパスワード再設定。該当ユーザーの全セッションを失効（再ログイン強制）。
+async fn admin_reset_password(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let email = body.get("email").and_then(|v| v.as_str()).unwrap_or("").trim().to_lowercase();
+    let new_password = body.get("new_password").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        require_master(&dbh, &token)?;
+        if email.is_empty() || new_password.len() < 8 {
+            return Err(cerr(StatusCode::BAD_REQUEST, "email・8文字以上の new_password が必要です"));
+        }
+        let pe: [&dyn ToSqlTurso; 1] = [&email];
+        let urows = dbh
+            .query("SELECT id FROM users WHERE email=?", &pe)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let urow = urows
+            .first()
+            .ok_or_else(|| cerr(StatusCode::NOT_FOUND, "該当ユーザーがいません"))?;
+        let uid = get_str(urow, "id");
+        let hash = bcrypt::hash(&new_password, bcrypt::DEFAULT_COST)
+            .map_err(|_| cerr(StatusCode::INTERNAL_SERVER_ERROR, "ハッシュ生成失敗"))?;
+        let pu: [&dyn ToSqlTurso; 2] = [&hash, &email];
+        dbh.execute("UPDATE users SET password_hash=? WHERE email=?", &pu)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        // 新パスワードで再ログインを強制（旧セッションを無効化）。
+        let ps: [&dyn ToSqlTurso; 1] = [&uid];
+        let _ = dbh.execute("DELETE FROM auth_sessions WHERE user_id=?", &ps);
+        Ok(json!({ "ok": true, "email": email }))
+    })
+    .await
 }
