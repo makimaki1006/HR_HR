@@ -570,9 +570,25 @@ pub fn build_hypotheses(
 
     // 求人訴求: 休日・タグの見せ方が弱い
     if fired(signals, "S-24") || fired(signals, "S-25") || fired(signals, "S-26") {
+        // 実際に発火した次元だけを述べる (未発火の主張を断定しない。
+        //  例: S-26 未発火なら「タグが横並び/少ない」とは書かない)。
+        let mut dims: Vec<&str> = Vec::new();
+        if fired(signals, "S-24") {
+            dims.push("年間休日の記載・訴求が薄い");
+        }
+        if fired(signals, "S-25") {
+            dims.push("年間休日120日以上の求人が少ない");
+        }
+        if fired(signals, "S-26") {
+            dims.push("訴求タグの種類が少ない");
+        }
+        let statement = format!(
+            "求人カード上で観測できる条件のうち {} 点があり、条件比較の土俵で見せ方に余地がある可能性がある",
+            dims.join("・")
+        );
         drafts.push(HypothesisDraft {
             category: HypothesisCategory::Appeal,
-            statement: "求人カード上で観測できる条件の見せ方 (年間休日の明示・訴求タグの厚み) が横並びで、条件比較の土俵で埋もれている可能性がある".to_string(),
+            statement,
             supporting: evidence_of(signals, &["S-24", "S-25", "S-26"]),
             counter: vec![],
             missing: vec![
