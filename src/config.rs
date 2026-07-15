@@ -1,5 +1,8 @@
 use std::env;
 
+/// Base64-encoded 32-byte AES-256 key used only by Scout credential APIs.
+pub const SCOUT_CREDENTIALS_KEY_ENV: &str = "SCOUT_CREDENTIALS_KEY";
+
 /// 外部パスワード（有効期限付き）
 #[derive(Debug, Clone)]
 pub struct ExternalPassword {
