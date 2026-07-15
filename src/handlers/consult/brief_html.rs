@@ -85,6 +85,30 @@ body.theme-navy .consult-ai-badge {
   display: inline-block; font-size: 7.5pt; font-weight: 700; color: #1F2D4D;
   border: 1px solid #1F2D4D; border-radius: 3px; padding: 0 4px; margin-left: 6px;
 }
+/* リード仮説 (この1行だけ持ち帰る) — 主役の入り口を目立たせる */
+body.theme-navy .consult-lead {
+  font-size: 11pt; font-weight: 700; line-height: 1.75; color: #1F2D4D;
+  border: 1.5px solid #1F2D4D; border-left: 5px solid #1F2D4D;
+  background: #EEF1F7; padding: 3mm 4mm; margin: 1mm 0 2mm;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+/* 単品参照層: コンパクトな表 (観測→だから) を全件表示 */
+body.theme-navy .consult-single-table { width: 100%; border-collapse: collapse; margin: 1mm 0 3mm; }
+body.theme-navy .consult-single-table th,
+body.theme-navy .consult-single-table td {
+  border: 1px solid var(--rule, #D8D2C4); padding: 1.2mm 2mm; font-size: 8pt;
+  line-height: 1.45; vertical-align: top; text-align: left;
+}
+body.theme-navy .consult-single-table th { background: #F0EFEA; font-weight: 700; }
+body.theme-navy .consult-single-table .st-theme { white-space: nowrap; color: #1F2D4D; font-weight: 700; width: 18mm; }
+body.theme-navy .consult-single-table .st-id { white-space: nowrap; color: #6A6E7A; width: 14mm; font-size: 7.5pt; }
+body.theme-navy .consult-single-table .st-obs { width: 44%; }
+body.theme-navy .consult-single-table .st-sowhat { color: #1F2D4D; }
+/* 除外 (今回使わなかったデータと理由) — 小さく */
+body.theme-navy .consult-excluded {
+  font-size: 7.5pt; color: #6A6E7A; line-height: 1.5; margin: 1mm 0 2mm;
+  border-top: 1px dashed var(--rule, #D8D2C4); padding-top: 1.5mm;
+}
 /* 反証あり考察の注意ラベル */
 body.theme-navy .consult-ai-refute-flag {
   display: inline-block; font-size: 7.5pt; font-weight: 700; color: #A8331F;
@@ -348,8 +372,8 @@ pub fn render_consult_brief_html_with_ai(analysis: &ConsultAnalysis, ai: &AiComp
     if !grip_items.is_empty() {
         render_page_grip(&mut html, &grip_items, &sec());
     }
-    // 複合考察 (AI下書き): AIが空なら白紙ページを丸ごと出さず、後段の証拠一覧脚注に圧縮 (P1-8)。
-    if !ai.items.is_empty() {
+    // 複合考察 (AI下書き) + 単品参照層: AIが空なら白紙ページを丸ごと出さず、後段の証拠一覧脚注に圧縮 (P1-8)。
+    if !ai.items.is_empty() || !ai.single_insights.is_empty() {
         render_page2_ai_composite(&mut html, analysis, ai, &sec());
     }
     render_page3_hypotheses(&mut html, analysis, &sec());
@@ -433,6 +457,18 @@ fn render_page1_summary(
                 escape_html(&template_one_line_summary(analysis))
             ));
         }
+    }
+
+    // リード仮説 (この1行だけ持ち帰る) — 主役の入り口。AIが返したときのみ。
+    if let Some(lead) = &ai.lead_hypothesis {
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">リード仮説（この1行だけ持ち帰る）</div>\n",
+        );
+        html.push_str(&format!(
+            "<div class=\"consult-lead\">{}<span class=\"consult-ai-badge\">AI下書き</span></div>\n",
+            escape_html(lead)
+        ));
+        html.push_str("<p class=\"consult-note\">この仮説を軸に、続く複合考察（主役）と単品の観測（参照層）を読んでください。断定ではなく面談で検証する前提です。</p>\n");
     }
 
     // 4軸判定 (§8.2: 総合点なし)
@@ -520,12 +556,16 @@ fn render_page2_ai_composite(
     html.push_str(internal_band());
     html.push_str(&page_head(
         sec,
-        "複合考察（AI下書き）",
-        "複数の市場データを結びつけた考察の下書き。面談での検証を前提とする素材",
+        "複合考察（AI下書き）と単品の観測",
+        "上段=複数データを織った考察（主役）、下段=観測ひとつずつの意味（参照層・全件）",
     ));
 
-    html.push_str("<p class=\"consult-note\">以下は市場データ（証拠一覧）だけを入力に、複数の観測を結びつけて言語化した下書きです。各項目の根拠IDは証拠一覧で確認できます。断定ではなく、面談で検証する仮説の素材として扱ってください。</p>\n");
-    html.push_str("<p class=\"consult-note\">各考察には機械チェック（標本数・データ粒度・反対方向の観測・逆の因果）による検証注記が付きます（自動チェックは参考であり、最終判断は面談で）。</p>\n");
+    // ---- 主役: 複合考察 ----
+    if !ai.items.is_empty() {
+        html.push_str("<div class=\"block-title\">複合考察（主役）</div>\n");
+        html.push_str("<p class=\"consult-note\">以下は市場データ（証拠一覧）だけを入力に、複数の観測を結びつけて言語化した下書きです。各項目の根拠IDは証拠一覧で確認できます。断定ではなく、面談で検証する仮説の素材として扱ってください。</p>\n");
+        html.push_str("<p class=\"consult-note\">各考察には機械チェック（標本数・データ粒度・反対方向の観測・逆の因果）による検証注記が付きます（自動チェックは参考であり、最終判断は面談で）。</p>\n");
+    }
     for item in &ai.items {
         html.push_str("<div class=\"consult-ai-item\">\n");
         // 機械チェック (T1 標本数 / T2 粒度) で指摘があった考察には注意ラベルを付ける。
@@ -593,6 +633,47 @@ fn render_page2_ai_composite(
         ));
         html.push_str("</div>\n");
     }
+
+    // ---- 参照層: 単品の観測 (全件をコンパクトな表で) ----
+    if !ai.single_insights.is_empty() {
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">単品の観測（参照層・全件）</div>\n",
+        );
+        html.push_str("<p class=\"consult-note\">観測ひとつずつに「だからどういう意味か」を添えた一覧です。顧客の「これはどういう意味?」に即答するために全件を載せています。詳しい数値・出典は証拠一覧に対応します。</p>\n");
+        html.push_str("<table class=\"consult-single-table\"><thead><tr>");
+        html.push_str("<th class=\"st-theme\">テーマ</th><th class=\"st-obs\">観測</th><th class=\"st-sowhat\">だから（意味）</th><th class=\"st-id\">根拠ID</th>");
+        html.push_str("</tr></thead><tbody>\n");
+        for s in &ai.single_insights {
+            html.push_str(&format!(
+                "<tr><td class=\"st-theme\">{}</td><td class=\"st-obs\">{}</td><td class=\"st-sowhat\">{}</td><td class=\"st-id\">{}</td></tr>\n",
+                escape_html(if s.theme.is_empty() { "—" } else { &s.theme }),
+                escape_html(&s.observation),
+                escape_html(&s.so_what),
+                escape_html(&s.evidence_id),
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+    }
+
+    // ---- 除外 (今回使わなかったデータと理由) — 小さく ----
+    if !ai.excluded.is_empty() {
+        html.push_str("<div class=\"consult-excluded\">\n");
+        html.push_str("<strong>今回の考察で使わなかったデータと理由:</strong> ");
+        let parts: Vec<String> = ai
+            .excluded
+            .iter()
+            .map(|x| {
+                format!(
+                    "{}（{}）",
+                    escape_html(&x.evidence_id),
+                    escape_html(&x.reason)
+                )
+            })
+            .collect();
+        html.push_str(&parts.join(" / "));
+        html.push_str("\n</div>\n");
+    }
+
     html.push_str("<p class=\"consult-note\">文章の生成は確定済みの構造化データ（証拠一覧）のみを入力とし、原データには直接アクセスしていません。数値計算・判定はすべてルールベースで確定しています。</p>\n");
     html.push_str("</div>\n");
 }
@@ -960,6 +1041,7 @@ mod tests {
                 caveat: "応募者の居住地が不明".to_string(),
                 ..Default::default()
             }],
+            ..Default::default()
         };
         let html = render_consult_brief_html_with_ai(&analysis, &ai);
         assert!(html.contains("複合考察（AI下書き）"));
@@ -970,6 +1052,70 @@ mod tests {
         let html2 = render_consult_brief_html_with_ai(&analysis, &AiComposite::default());
         assert!(!html2.contains("複合考察（AI下書き）"));
         assert!(html2.contains("AIによる複合考察は今回は生成されませんでした"));
+    }
+
+    #[test]
+    #[ignore] // 目視確認用: 2層フルの HTML を scratchpad に出力する
+    fn dump_two_layer_html_for_visual() {
+        use super::super::ai::{ExcludedItem, SingleInsight};
+        use super::super::theme::{classify, coverage_plan};
+        let analysis = rich_analysis();
+        let plan = coverage_plan(&analysis);
+        let singles: Vec<SingleInsight> = plan
+            .must_single
+            .iter()
+            .filter_map(|id| analysis.evidence.iter().find(|e| &e.id == id))
+            .map(|e| SingleInsight {
+                evidence_id: e.id.clone(),
+                observation: format!("{} = {}", e.metric_name, e.value_text),
+                so_what: format!(
+                    "だから、{}の観点で読む余地がある可能性があります。",
+                    e.metric_name
+                ),
+                theme: classify(e).label_ja().to_string(),
+            })
+            .collect();
+        let ids: Vec<String> = analysis.evidence.iter().map(|e| e.id.clone()).collect();
+        let mk = |t: &str, b: &str, ev: &[usize]| super::super::ai::AiItem {
+            title: t.to_string(),
+            body: b.to_string(),
+            evidence_ids: ev.iter().filter_map(|i| ids.get(*i).cloned()).collect(),
+            caveat: "面談で確認".to_string(),
+            ..Default::default()
+        };
+        let ai = AiComposite {
+            one_line_summary: Some("市場側データの暫定的な要約の可能性があります".to_string()),
+            lead_hypothesis: Some(
+                "給与は市場上位の可能性。だから\"給与を上げる\"は打ち手にしにくく、休日等の他条件は未確認。"
+                    .to_string(),
+            ),
+            single_insights: singles,
+            items: vec![
+                mk("複合1: 地元は細るが通勤で人は入る可能性", "供給と到達を結ぶと母集団は広域に取れる可能性があります。", &[0, 1, 2, 3]),
+                mk("複合2: 給与では勝てているが休日は未確認の可能性", "自社給与と条件を結ぶと勝ち方が定まる可能性があります。", &[4, 5, 6, 7]),
+                mk("複合3: 市場は厳しすぎない可能性", "需要と競争を結ぶと運用差が結果差になる可能性があります。", &[8, 9, 10, 11]),
+                mk("複合4: 顕在層以外に広げる余地の可能性", "供給と地域経済を結ぶと狙う層を広げられる可能性があります。", &[12, 13, 14, 15]),
+            ],
+            excluded: plan
+                .allow_excluded
+                .iter()
+                .map(|id| ExcludedItem {
+                    evidence_id: id.clone(),
+                    reason: "個社または弱信号のため主役にしない".to_string(),
+                })
+                .collect(),
+        };
+        let html = render_consult_brief_html_with_ai(&analysis, &ai);
+        let out = r"C:\Users\fuji1\AppData\Local\Temp\claude\C--Users-fuji1-OneDrive-Python--------job-medley-project\4dd6b933-db83-4383-a9ce-6a4675e01b59\scratchpad\consult_v4_render.html";
+        std::fs::write(out, &html).unwrap();
+        println!(
+            "単品{}件 複合{}本 除外{}件 → {}",
+            ai.single_insights.len(),
+            ai.items.len(),
+            ai.excluded.len(),
+            out
+        );
+        assert!(html.contains("リード仮説"));
     }
 
     #[test]
@@ -1137,11 +1283,28 @@ mod tests {
             !items[2].refuted && items[2].alt_interpretation.is_none(),
             "状態3: 注記なし"
         );
+        // 単品参照層の合成 (MUST evidence を全件・観測→だから)。網羅を担保する backfill も通す。
+        let mut singles: Vec<super::super::ai::SingleInsight> = Vec::new();
+        super::super::ai::backfill_singles(&mut singles, &items, &rich);
+        let excluded = vec![super::super::ai::ExcludedItem {
+            evidence_id: rich
+                .evidence
+                .iter()
+                .find(|e| e.theme == "個社")
+                .map(|e| e.id.clone())
+                .unwrap_or_else(|| "E-001".to_string()),
+            reason: "個社（特定企業）の観測のため呼び水にとどめる".to_string(),
+        }];
         let ai = AiComposite {
             one_line_summary: Some(
                 "需要は強い一方で人材供給が細っており、通勤圏の広さと条件の見せ方が論点になり得る市場の可能性があります。".to_string(),
             ),
+            lead_hypothesis: Some(
+                "給与では市場で勝てている可能性があります（確認済は給与のみ、休日など他条件は未確認）。だとすれば論点は条件ではなく到達・見せ方にある可能性があります。".to_string(),
+            ),
+            single_insights: singles,
             items,
+            excluded,
         };
         std::fs::write(
             dir.join("consult_brief_ai.html"),

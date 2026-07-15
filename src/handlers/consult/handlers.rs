@@ -559,8 +559,19 @@ async fn build_analysis(
     session_id: &str,
     query: &ConsultQuery,
 ) -> Result<ConsultAnalysis, String> {
+    let (analysis, _client) = build_analysis_with_client(state, session_id, query).await?;
+    Ok(analysis)
+}
+
+/// 分析結果に加えて顧客入力 (提示給与など) も返す。精度ガードの動的生成に使う。
+async fn build_analysis_with_client(
+    state: &Arc<AppState>,
+    session_id: &str,
+    query: &ConsultQuery,
+) -> Result<(ConsultAnalysis, ClientInput), String> {
     let input = build_consult_input(state, session_id, query).await?;
-    Ok(analyze(&input))
+    let client = input.client.clone();
+    Ok((analyze(&input), client))
 }
 
 fn error_html(msg: &str) -> Html<String> {
@@ -593,13 +604,17 @@ pub async fn consult_brief(
     )
     .await;
 
-    match build_analysis(&state, &session_id, &query).await {
-        Ok(analysis) => {
+    match build_analysis_with_client(&state, &session_id, &query).await {
+        Ok((analysis, client_input)) => {
             // AI文章化 (Gemini)。キー未設定・失敗・全破棄は空 AiComposite で graceful degradation。
             // 入力は evidence_pack JSON のみ (原データへは渡さない §15.2)。呼び出しは最大2回
-            // (要約1+考察1)。反証チェックは非LLMの逆証明の道具箱 (refute_toolbox) で行う。
+            // (要約1+2層生成1)。反証チェックは非LLMの逆証明の道具箱 (refute_toolbox) で行う。
+            // client_input (提示給与) は精度ガードの動的生成にのみ使う (プロンプトのガード文)。
             let ai = match crate::gemini::GeminiClient::from_env() {
-                Some(client) => super::ai::generate_ai_composite(&client, &analysis).await,
+                Some(client) => {
+                    super::ai::generate_ai_composite_with_client(&client, &analysis, &client_input)
+                        .await
+                }
                 None => super::ai::AiComposite::default(),
             };
             Html(super::brief_html::render_consult_brief_html_with_ai(
@@ -635,21 +650,29 @@ pub async fn consult_evidence_pack_json(
     )
     .await;
 
-    match build_analysis(&state, &session_id, &query).await {
-        Ok(analysis) => {
+    match build_analysis_with_client(&state, &session_id, &query).await {
+        Ok((analysis, client_input)) => {
             let mut pack = to_evidence_pack_json(&analysis);
             // AI複合考察 (道具箱の反証裁定済み) も evidence_pack.json に含める。
             // キー未設定・失敗・全破棄は空になり、その場合 ai_composite キーは省略する。
             // 入力は evidence_pack JSON のみ (原データへは渡さない §15.2)。呼び出しは最大2回。
             let ai = match crate::gemini::GeminiClient::from_env() {
-                Some(client) => super::ai::generate_ai_composite(&client, &analysis).await,
+                Some(client) => {
+                    super::ai::generate_ai_composite_with_client(&client, &analysis, &client_input)
+                        .await
+                }
                 None => super::ai::AiComposite::default(),
             };
-            if !ai.items.is_empty() {
+            if !ai.is_empty() {
                 if let Some(obj) = pack.as_object_mut() {
                     obj.insert(
                         "ai_composite".to_string(),
-                        serde_json::json!({ "items": ai.items }),
+                        serde_json::json!({
+                            "lead_hypothesis": ai.lead_hypothesis,
+                            "single_item_insights": ai.single_insights,
+                            "items": ai.items,
+                            "excluded": ai.excluded,
+                        }),
                     );
                 }
             }
