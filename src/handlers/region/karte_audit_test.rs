@@ -126,12 +126,15 @@ fn test_app_state(hw_db: LocalDb) -> Arc<AppState> {
         turso_external_token: String::new(),
         salesnow_turso_url: String::new(),
         salesnow_turso_token: String::new(),
+        scout_turso_url: String::new(),
+        scout_turso_token: String::new(),
     };
     Arc::new(AppState {
         config: cfg,
         hw_db: Some(hw_db),
         turso_db: None,
         salesnow_db: None,
+        scout_db: None,
         cache: AppCache::new(60, 10),
         rate_limiter: RateLimiter::new(5, 60),
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
@@ -274,12 +277,15 @@ async fn api_region_karte_handles_missing_db() {
         turso_external_token: String::new(),
         salesnow_turso_url: String::new(),
         salesnow_turso_token: String::new(),
+        scout_turso_url: String::new(),
+        scout_turso_token: String::new(),
     };
     let state = Arc::new(AppState {
         config: cfg,
         hw_db: None,
         turso_db: None,
         salesnow_db: None,
+        scout_db: None,
         cache: AppCache::new(60, 10),
         rate_limiter: RateLimiter::new(5, 60),
         company_geo_cache: None::<Vec<CompanyGeoEntry>>,
