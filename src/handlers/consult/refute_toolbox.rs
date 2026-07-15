@@ -294,6 +294,7 @@ mod tests {
             sample_n,
             as_of: None,
             note: String::new(),
+            theme: String::new(),
         }
     }
 

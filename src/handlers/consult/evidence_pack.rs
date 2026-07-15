@@ -67,6 +67,11 @@ pub fn analyze(input: &ConsultInput) -> ConsultAnalysis {
     let top = top_hypotheses(&hypotheses);
     let questions = generate_questions(&top);
 
+    // 全証拠が確定した後、現象テーマを決定的に付与する (mint 箇所のエンジン側処理)。
+    // evidence ID は動的採番のため、テーマは metric_name / granularity から classify する。
+    let mut evidence = store.items().to_vec();
+    super::theme::assign_themes(&mut evidence);
+
     let mut client_summary = Vec::new();
     if let (Some(min), Some(max)) = (
         input.client.target_salary_min,
@@ -102,7 +107,7 @@ pub fn analyze(input: &ConsultInput) -> ConsultAnalysis {
 
     ConsultAnalysis {
         report_meta,
-        evidence: store.items().to_vec(),
+        evidence,
         axes,
         signals,
         contradictions,
