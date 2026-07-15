@@ -31,6 +31,10 @@ use crate::AppState;
 const SESSION_TTL_DAYS: i64 = 7;
 const CONFIG_KEY: &str = "__config__";
 const STATE_KEY: &str = "__state__";
+const CONFIG_PATCH_SQL: &str =
+    "INSERT INTO kv_settings(workspace_id,key,value) VALUES(?,?,?) \
+     ON CONFLICT(workspace_id,key) DO UPDATE SET \
+     value=json_patch(COALESCE(kv_settings.value,'{}'), ?)";
 
 /// 新規 workspace の既定 config（空キャンペーン＋既定設定）。ローカルアプリが即使える状態にする。
 const DEFAULT_CONFIG_JSON: &str = r#"{
@@ -49,7 +53,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/scout/api/auth/login", post(login))
         .route("/scout/api/auth/me", get(me))
         .route("/scout/api/auth/logout", post(logout))
-        .route("/scout/api/config", get(get_config).post(save_config))
+        .route(
+            "/scout/api/config",
+            get(get_config).post(save_config).patch(patch_config),
+        )
         .route("/scout/api/state", get(get_state).post(save_state))
         .route("/scout/api/sent", post(sent))
         .route("/scout/api/has-sent", get(has_sent))
@@ -365,6 +372,72 @@ async fn save_config(
         )
         .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
         Ok(json!({ "ok": true }))
+    })
+    .await
+}
+
+fn config_with_sections(sections: &Value) -> Result<Value, CoreErr> {
+    let updates = sections
+        .as_object()
+        .ok_or_else(|| cerr(StatusCode::BAD_REQUEST, "sections はobjectが必要です"))?;
+    let mut config: Value = serde_json::from_str(DEFAULT_CONFIG_JSON)
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("既定config不正: {e}")))?;
+    let target = config
+        .as_object_mut()
+        .ok_or_else(|| cerr(StatusCode::INTERNAL_SERVER_ERROR, "既定configがobjectではありません"))?;
+    for (key, value) in updates {
+        target.insert(key.clone(), value.clone());
+    }
+    Ok(config)
+}
+
+/// config の指定された最上位セクションだけを原子的に更新する。
+/// キャンペーン設定の保存が prompt_templates / resend_templates を消す競合を防ぐ。
+async fn patch_config(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let token = token_from(&headers);
+    let sections = match body.get("sections") {
+        Some(value) if value.is_object() => value.clone(),
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":"sections はobjectが必要です"})),
+            ))
+        }
+    };
+    let patch_str = serde_json::to_string(&sections)
+        .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error":"sections が不正です"}))))?;
+    let initial_str = serde_json::to_string(
+        &config_with_sections(&sections).map_err(|(code, message)| {
+            (code, Json(json!({"error": message})))
+        })?,
+    )
+    .map_err(|_| (StatusCode::BAD_REQUEST, Json(json!({"error":"sections が不正です"}))))?;
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let u = require_user(&dbh, &token)?;
+        let key = CONFIG_KEY.to_string();
+        let p: [&dyn ToSqlTurso; 4] = [&u.workspace_id, &key, &initial_str, &patch_str];
+        dbh.execute(CONFIG_PATCH_SQL, &p)
+        .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+        let q: [&dyn ToSqlTurso; 2] = [&u.workspace_id, &key];
+        let rows = dbh
+            .query("SELECT value FROM kv_settings WHERE workspace_id=? AND key=?", &q)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let value = rows
+            .first()
+            .map(|row| get_str(row, "value"))
+            .ok_or_else(|| cerr(StatusCode::INTERNAL_SERVER_ERROR, "更新後configがありません"))?;
+        let config = serde_json::from_str::<Value>(&value)
+            .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("更新後config不正: {e}")))?;
+        Ok(json!({ "ok": true, "config": config }))
     })
     .await
 }
@@ -784,4 +857,93 @@ async fn admin_reset_password(
         Ok(json!({ "ok": true, "email": email }))
     })
     .await
+}
+
+#[cfg(test)]
+mod config_patch_tests {
+    use super::CONFIG_PATCH_SQL;
+    use rusqlite::{params, Connection};
+    use serde_json::{json, Value};
+
+    #[test]
+    fn section_patch_preserves_prompt_when_campaigns_are_saved() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute(
+            "CREATE TABLE kv_settings(\
+             workspace_id TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,\
+             PRIMARY KEY(workspace_id,key))",
+            [],
+        )
+        .unwrap();
+
+        let current = json!({
+            "campaigns": [{"name": "old"}],
+            "prompt_templates": [{"id": "p1", "platform": "openwork", "text": "saved prompt"}],
+            "resend_templates": [{"id": "r1", "body": "saved resend"}]
+        })
+        .to_string();
+        db.execute(
+            "INSERT INTO kv_settings(workspace_id,key,value) VALUES(?,?,?)",
+            params!["ws1", "__config__", current],
+        )
+        .unwrap();
+
+        let campaign_patch = json!({"campaigns": [{"name": "campaign_1"}]}).to_string();
+        db.execute(
+            CONFIG_PATCH_SQL,
+            params!["ws1", "__config__", "{}", campaign_patch],
+        )
+        .unwrap();
+
+        let stored: String = db
+            .query_row(
+                "SELECT value FROM kv_settings WHERE workspace_id=? AND key=?",
+                params!["ws1", "__config__"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let config: Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(config["campaigns"][0]["name"], "campaign_1");
+        assert_eq!(config["prompt_templates"][0]["text"], "saved prompt");
+        assert_eq!(config["resend_templates"][0]["body"], "saved resend");
+    }
+
+    #[test]
+    fn section_patch_preserves_campaigns_when_prompt_is_saved() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute(
+            "CREATE TABLE kv_settings(\
+             workspace_id TEXT NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,\
+             PRIMARY KEY(workspace_id,key))",
+            [],
+        )
+        .unwrap();
+        let current = json!({"campaigns": [{"name": "campaign_1"}]}).to_string();
+        db.execute(
+            "INSERT INTO kv_settings(workspace_id,key,value) VALUES(?,?,?)",
+            params!["ws1", "__config__", current],
+        )
+        .unwrap();
+
+        let prompt_patch = json!({
+            "prompt_templates": [{"id": "p1", "platform": "openwork", "text": "saved prompt"}]
+        })
+        .to_string();
+        db.execute(
+            CONFIG_PATCH_SQL,
+            params!["ws1", "__config__", "{}", prompt_patch],
+        )
+        .unwrap();
+
+        let stored: String = db
+            .query_row(
+                "SELECT value FROM kv_settings WHERE workspace_id=? AND key=?",
+                params!["ws1", "__config__"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let config: Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(config["campaigns"][0]["name"], "campaign_1");
+        assert_eq!(config["prompt_templates"][0]["text"], "saved prompt");
+    }
 }
