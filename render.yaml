@@ -30,3 +30,6 @@ services:
         sync: false
       - key: SCOUT_ADMIN_TOKEN
         sync: false
+      # Base64-encoded 32-byte AES-256 key for workspace-scoped Scout credentials.
+      - key: SCOUT_CREDENTIALS_KEY
+        generateValue: true
