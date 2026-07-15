@@ -62,6 +62,12 @@ pub struct Evidence {
     pub as_of: Option<String>,
     /// 推定条件・欠損・制約の注記
     pub note: String,
+    /// 現象テーマ (需要/供給/競争/自社給与/到達・通勤/条件・休日/地域経済/個社)。
+    /// mint 時点では空。エンジン (evidence_pack::analyze) が全証拠に決定的に付与する
+    /// (`theme::assign_themes`)。AI の網羅強制・複合考察のテーマ横断判定の入力になる。
+    /// dedup キーには含めない (テーマは分類結果であり指標の同一性には関与しない)。
+    #[serde(default)]
+    pub theme: String,
 }
 
 /// 証拠ストア: ID発行と参照整合の一元管理
@@ -117,6 +123,8 @@ impl EvidenceStore {
             sample_n,
             as_of,
             note: note.to_string(),
+            // テーマは mint 後にエンジンが一括付与する (theme::assign_themes)。
+            theme: String::new(),
         });
         id
     }

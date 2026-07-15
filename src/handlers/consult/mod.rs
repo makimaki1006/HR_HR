@@ -48,6 +48,7 @@ pub mod input;
 pub mod questions;
 pub mod refute_toolbox;
 pub mod signals;
+pub mod theme;
 
 #[cfg(test)]
 mod golden_test;
