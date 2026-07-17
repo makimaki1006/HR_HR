@@ -187,6 +187,12 @@ pub(super) mod guide;
 // handlers.rs まで届くよう pub(crate) で再公開 (report_html/mod.rs が更に re-export する)。
 pub(crate) use guide::render_survey_guide_page;
 
+// 2026-07-17: 解説資料 AI パイプライン (flash-lite 作成→逆証明レビュー→修正)。
+//   数値はコード確定 (guide_ai::build_fact_inventory)、解釈文のみ LLM。
+//   失敗時は guide.rs の決定的テンプレへフォールバックする。
+pub(super) mod guide_ai;
+pub(crate) use guide_ai::render_survey_guide_page_ai;
+
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;

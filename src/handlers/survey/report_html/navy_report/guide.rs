@@ -553,7 +553,7 @@ fn push_section_faq(html: &mut String, agg: &SurveyAggregation) {
 // CSS (self-contained、印刷対応)
 // ============================================================
 
-const GUIDE_CSS: &str = r#"<style>
+pub(super) const GUIDE_CSS: &str = r#"<style>
   :root { --ink:#1e2a4a; --muted:#5a6478; --rule:#d8dce6; --accent:#8a6d3b; --tint:#f7f5f0; }
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif; color:var(--ink); line-height:1.85; background:#fff; }
