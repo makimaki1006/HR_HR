@@ -3674,7 +3674,7 @@ mod variant_indicator_tests {
         );
 
         for marker in [
-            "経営サマリー (仮)",
+            "経営サマリー",
             "このページの結論",
             "優先アクション表 (仮)",
             "表 3-SP",
@@ -3835,9 +3835,9 @@ mod variant_indicator_tests {
             !ver10.contains("この1ページだけ持ち歩けば要点が伝わる構成です"),
             "Ver10 は前置き説明文を削る"
         );
-        // SP には従来の「経営サマリー (仮)」が出る (Ver10 の簡素タイトルは出ない)
+        // SP には従来の「経営サマリー」が出る (Ver10 の簡素タイトルは出ない)
         let sp = render_variant_full_report(ReportVariant::Sp);
-        assert!(sp.contains("経営サマリー (仮)"), "SP に経営サマリー (仮)");
+        assert!(sp.contains("経営サマリー"), "SP に経営サマリー");
         assert!(!sp.contains("要点まとめ"), "SP に Ver10 用語は出ない");
     }
 
