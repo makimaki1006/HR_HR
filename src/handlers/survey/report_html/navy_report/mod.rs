@@ -180,6 +180,13 @@ pub(super) use sp_report::{
     render_sp_salary_quartiles,
 };
 
+// 2026-07-17: 解説資料 (Reader's Guide、?variant=guide)。レポート本体と同じ集計から
+//   顧客向けの読み解きガイドを決定的に生成する。既存 variant の出力には影響しない
+//   (handlers.rs が variant=guide のときだけ本モジュールを呼ぶ)。
+pub(super) mod guide;
+// handlers.rs まで届くよう pub(crate) で再公開 (report_html/mod.rs が更に re-export する)。
+pub(crate) use guide::render_survey_guide_page;
+
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};
 use super::super::super::insight::fetch::InsightContext;
