@@ -265,14 +265,21 @@ pub(super) fn build_fact_inventory(
                 .map(|(_, m, cnt)| format!("{} {}人", m, format_number(*cnt)))
                 .collect::<Vec<_>>()
                 .join("・");
+            // 大小関係 (方向) はコードで確定して明記する (LLM の方向読み違え防止)
+            let direction = if c.commute_outflow_total > c.commute_inflow_total {
+                "流出が流入を上回る、働き手が市外へ出ていく構造"
+            } else {
+                "流入が流出を上回る、働き手が市外から入ってくる構造"
+            };
             push(
                 "F-COM",
                 "通勤",
                 format!(
-                    "市外へ通勤する人 {} 人 / 市外から来る人 {} 人 / 市内で完結する通勤 {:.1}% (国勢調査 OD)。周辺からの流入元の上位は {}。",
+                    "市外へ通勤する人 {} 人 / 市外から来る人 {} 人 / 市内で完結する通勤 {:.1}% (国勢調査 OD)。{}。周辺からの流入元の上位は {}。",
                     format_number(c.commute_outflow_total),
                     format_number(c.commute_inflow_total),
                     c.commute_self_rate * 100.0,
+                    direction,
                     if top.is_empty() { "不明".to_string() } else { top },
                 ),
             );
@@ -368,11 +375,15 @@ struct ReviewFinding {
 const GUIDE_SYSTEM: &str = "\
 あなたは採用市場レポートの解説資料を書く執筆者です。読み手はレポートを受け取る企業の担当者です。以下を厳守してください。\n\
 1. 事実インベントリ (facts) に書かれた数値・事実以外を一切書かない。新しい数値を計算しない (割り算・掛け算・差の計算も禁止。facts に書いてある数値だけを使う)。\n\
-2. 各事実の dakara は「その数字が読み手の求人にとって何を意味するか」の着地文。数字の言い換えではなく、判断や次の行動につながる含意を書く。\n\
-3. すべて可能性表現 (「〜の可能性があります」「〜とみられます」)。断定・因果の断定 (「〜だから応募が増える」等) は禁止。\n\
-4. composites は複数テーマの facts を編んだ考察を2〜4本。単一テーマの言い換えは不可。fact_ids には実在する id のみを列挙する。\n\
-5. 誇張しない。禁止語: 必ず・確実に・完璧・絶対・劇的・問題ない。\n\
-6. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
+2. 各事実の dakara は「その数字が読み手の求人にとって何を意味するか」の着地文。数字の言い換えではなく、読み手が明日やることが変わる含意を書く。\n\
+   - 悪い例 (空虚。禁止): 「〜を検討する余地があるかもしれません」「〜を注視する必要があります」「〜を把握することが重要です」\n\
+   - 良い例の型: 「(観測の核心。市場の過半と同じ/上回る/下回る等の位置づけ)ため、(具体的な打ち手の方向)が検討候補になります」\n\
+   - 良い例 (数値は伏せ字。実際は facts の数値を使う): 「下限給与は市場の中央値と同水準のため、下限額で見劣りしているわけではない可能性があります。差が出ているのは上限側なので、昇給後の到達額を給与欄の上限として見せることが検討候補になります」\n\
+3. 数字の大小関係を正しく読む。例えば流出が流入を上回るなら「働き手が市外へ出ていく構造」であり、その逆ではない。方向を取り違えない。\n\
+4. すべて可能性表現 (「〜の可能性があります」「〜とみられます」)。断定・因果の断定 (「〜だから応募が増える」等) は禁止。\n\
+5. composites は複数テーマの facts を編んだ考察を2〜4本。単一テーマの言い換えや「関連性がある可能性があります」のような中身のない文は不可。2つの数字を重ねたときに初めて言えることを書く。\n\
+6. 誇張しない。禁止語: 必ず・確実に・完璧・絶対・劇的・問題ない。\n\
+7. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
 出力は日本語。";
 
 const REVIEW_SYSTEM: &str = "\
@@ -380,8 +391,10 @@ const REVIEW_SYSTEM: &str = "\
 1. 数値の出所: draft 中の数値が facts に存在するか。facts に無い数値・計算された数値は即指摘。\n\
 2. 因果の断定: 相関しか示せないデータで因果を断定していないか。\n\
 3. 分母と粒度: 比率・統計の分母や粒度 (県単位・記載ありのみ等) を無視した言い回しがないか。\n\
-4. 反対解釈: 同じ数字から逆の解釈が成り立つのに一方だけを書いていないか。\n\
-5. 誇張・断定表現。\n\
+4. 大小関係の方向: 数字の大小 (流出と流入、比率の過半かどうか等) から言える方向を取り違えていないか。例えば流出が流入を上回るのに「流入がある」側の解釈だけを書くのは方向の誤り。\n\
+5. 反対解釈: 同じ数字から逆の解釈が成り立つのに一方だけを書いていないか。\n\
+6. 着地の空虚さ: dakara や so_what が「検討する余地がある」「注視する必要がある」「把握することが重要」のような、読み手の行動が何も変わらない文になっていないか。空虚な着地は必ず指摘し、その数字の位置づけ (過半と同じ/上回る/下回る) から言える具体的な打ち手の方向を修正案として書く。\n\
+7. 誇張・断定表現。\n\
 問題が一つも無ければ verdict を pass、あれば needs_fix とし、findings に場所 (fact_id やタイトル)・問題・修正案を書く。指摘は厳しく、見逃しなく。出力は日本語。";
 
 fn draft_schema() -> Value {
@@ -474,6 +487,17 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         }
         ts.len()
     };
+    /// 空虚な着地の定型句 (読み手の行動が変わらない文)。致命扱いはしないが
+    /// 指摘として修正コールを強制起動する (2026-07-17 run1/run2 実測で 4 箇所検出)。
+    const VAGUE_PHRASES: [&str; 6] = [
+        "検討する余地",
+        "注視する必要",
+        "把握することが重要",
+        "把握し",
+        "意識することが重要",
+        "工夫が必要かもしれません",
+    ];
+
     fn text_issues(label: &str, text: &str, allowed: &HashSet<String>) -> Vec<String> {
         let mut out = Vec::new();
         if contains_forbidden(text) {
@@ -484,6 +508,12 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         }
         if !numbers_ok(text, allowed) {
             out.push(format!("{}: 事実インベントリに無い数値を含む", label));
+        }
+        if VAGUE_PHRASES.iter().any(|p| text.contains(p)) {
+            out.push(format!(
+                "{}: 空虚な着地 (「検討する余地」等)。数字の位置づけから言える具体的な打ち手の方向に書き直す",
+                label
+            ));
         }
         out
     }
@@ -924,6 +954,44 @@ mod tests {
         let v = guard_violations(&draft, &facts);
         assert!(v.iter().any(|s| s.contains("実在しない fact_id")));
         assert!(v.iter().any(|s| s.contains("カバレッジ")));
+    }
+
+    #[test]
+    fn guard_detects_vague_landing() {
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let draft = GuideDraft {
+            lead: String::new(),
+            per_fact: facts
+                .iter()
+                .map(|f| PerFact {
+                    fact_id: f.id.clone(),
+                    dakara: "自社の立ち位置を把握し、調整を検討する余地があるかもしれません。".to_string(),
+                })
+                .collect(),
+            composites: vec![],
+            next_steps: vec![],
+        };
+        let v = guard_violations(&draft, &facts);
+        assert!(
+            v.iter().any(|s| s.contains("空虚な着地")),
+            "空虚語が検出されるはず: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn commute_fact_states_direction() {
+        let mut ctx = InsightContext::default();
+        ctx.commute_inflow_total = 19_545;
+        ctx.commute_outflow_total = 36_956;
+        ctx.commute_self_rate = 0.315;
+        let (facts, _) = build_fact_inventory(&rich_agg(), Some(&ctx), None);
+        let com = facts.iter().find(|f| f.id == "F-COM").unwrap();
+        assert!(
+            com.statement.contains("市外へ出ていく構造"),
+            "流出超過の方向がコードで明記されるはず: {}",
+            com.statement
+        );
     }
 
     #[test]
