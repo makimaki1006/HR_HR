@@ -1407,6 +1407,14 @@ const SENTINEL_CSV_COMPANY: &str = "HW監査番兵企業ZZQ";
 const SENTINEL_SCATTER_X: f64 = 123_457.0;
 const SENTINEL_SCATTER_Y: f64 = 234_561.0;
 
+/// §03 図 3-6 (給与レンジ 散布図) の HW 経路固有キャプション断片。
+///
+/// 散布点は SVG 座標に変換され、サマリは n と平均幅しか出さないため、
+/// SENTINEL_SCATTER_X/Y の生値は HTML に現れない (数値番兵は検出能力ゼロ)。
+/// このキャプションは HW postings 由来の月給散布図経路でのみ出力されるため、
+/// 顧客向け variant への HW リーク検出/逆証明の実効的な指標として使う。
+const SCATTER_HW_CAPTION: &str = "対象地域から最大 1000 件抽出";
+
 /// 顧客向け 3 variant (MI / Extended / Sp) の完全レポートをレンダリングするヘルパー。
 fn render_full_report(variant: super::ReportVariant, ctx: &InsightContext) -> String {
     use super::super::aggregator::{CompanyAgg, EmpTypeSalary};
@@ -1453,10 +1461,6 @@ fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
         SENTINEL_HW_JOBTYPE,
         SENTINEL_CSV_COMPANY,
     ];
-    let sentinels_num = [
-        format!("{}", SENTINEL_SCATTER_X as i64),
-        format!("{}", SENTINEL_SCATTER_Y as i64),
-    ];
 
     for variant in [
         ReportVariant::Public,
@@ -1477,14 +1481,17 @@ fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
                 variant
             );
         }
-        for s in &sentinels_num {
-            assert!(
-                !html.contains(s.as_str()),
-                "HW 由来 給与散布図 番兵 '{}' が顧客向け variant {:?} の HTML に漏洩している",
-                s,
-                variant
-            );
-        }
+        // §03 図 3-6 の HW 経路キャプション不在チェック (2026-07-17)。
+        // 散布点は SVG 座標に変換され生値が HTML に出ないため、旧 SENTINEL_SCATTER_X/Y
+        // の数値文字列チェックは形骸化していた (顧客向けに図が出ても素通り)。HW
+        // postings 由来の月給散布図経路でのみ出るこのキャプションで実効的にガードする。
+        assert!(
+            !html.contains(SCATTER_HW_CAPTION),
+            "HW 由来 給与散布図 (図 3-6) が顧客向け variant {:?} の HTML に漏洩している \
+             (キャプション '{}' が出現。show_hw_sections() = Full 限定ルール違反の再発)",
+            variant,
+            SCATTER_HW_CAPTION
+        );
     }
 }
 
@@ -1501,6 +1508,7 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
     //   - SENTINEL_HW_INDUSTRY (top) → §01 Finding06 産業構成 偏り (compute_skew_severity)
     //   - SENTINEL_HW_JOBTYPE  (top) → §01 Finding07 職種構成 偏り (同上)
     //   - SENTINEL_CSV_COMPANY       → §05 表 5-G 企業別給与ランキング / 表 5-H 注目企業
+    //   - SCATTER_HW_CAPTION         → §03 図 3-6 給与レンジ 散布図 (HW postings 月給ペア)
     let ctx = build_hw_sentinel_ctx();
     let html = render_full_report(ReportVariant::Full, &ctx);
     assert!(
@@ -1514,6 +1522,14 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
     assert!(
         html.contains(SENTINEL_CSV_COMPANY),
         "逆証明: Full では CSV 企業番兵が §05 表 5-G/5-H 経由で HTML に出るはず"
+    );
+    // 2026-07-17: 図 3-6 の HW キャプションが Full では出ること。これにより
+    // 「顧客向けに出ない」= variant ガードの効果であって検出機構の不備 (どの
+    // variant でも図が出ない) ではないことを保証する (番兵の形骸化防止)。
+    assert!(
+        html.contains(SCATTER_HW_CAPTION),
+        "逆証明: Full では図 3-6 (HW 月給散布図) のキャプション '{}' が HTML に出るはず",
+        SCATTER_HW_CAPTION
     );
     // 出典表記の訂正 (2026-07-13): 「CSV 求人データ集計」誤記が Full でも出ないこと。
     assert!(
