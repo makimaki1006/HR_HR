@@ -830,13 +830,23 @@ pub fn parse_location(text: &str, context_pref: Option<&str>) -> ParsedLocation 
         return r;
     }
 
-    // 5. 政令指定都市マッチ
+    // 5. 政令指定都市マッチ (正式名称のみ)
     if let Some(r) = try_designated_city(text, prefecture.as_deref()) {
         return r;
     }
 
     // 6. 市区町村パターンマッチ
     if let Some(r) = try_municipality_pattern(text, prefecture.as_deref()) {
+        return r;
+    }
+
+    // 6.5. 政令指定都市 略称マッチ (「大阪」→大阪市 等)
+    // 2026-07-17: 従来は市区町村パターンより先に略称マッチが走り、
+    //   「大阪府 富田林市」の「大阪」が大阪市に化けていた (表2-A で
+    //   大阪府内の非政令市が全て大阪市 417 件に集約される実害を確認)。
+    //   京都府宇治市→京都市 / 熊本県玉名市→熊本市 も同型。略称は
+    //   「明示的な市区町村名が取れなかった場合の最後の推定」に格下げする。
+    if let Some(r) = try_designated_city_alias(text, prefecture.as_deref()) {
         return r;
     }
 
@@ -1067,6 +1077,19 @@ fn try_designated_city(text: &str, pref: Option<&str>) -> Option<ParsedLocation>
 
     for city in &designated_cities {
         if text.contains(city) {
+            // 2026-07-17: 左に文字が付くと別の市になる混同ペアを除外。
+            //   「東大阪市」は部分文字列として「大阪市」を含み、「北広島市」は
+            //   「広島市」を含むため、単独出現が無い場合はマッチさせない。
+            let confusable = match *city {
+                "大阪市" => Some("東大阪市"),
+                "広島市" => Some("北広島市"),
+                _ => None,
+            };
+            if let Some(longer) = confusable {
+                if text.matches(city).count() <= text.matches(longer).count() {
+                    continue;
+                }
+            }
             let city_pref = designated_city_pref(city)?;
             return Some(ParsedLocation {
                 original_text: text.to_string(),
@@ -1080,6 +1103,15 @@ fn try_designated_city(text: &str, pref: Option<&str>) -> Option<ParsedLocation>
         }
     }
 
+    None
+}
+
+/// 政令指定都市 略称マッチ (「大阪」→大阪市 等)。
+///
+/// 2026-07-17: try_designated_city から分離。parse_location で市区町村パターン
+/// マッチの後に呼ばれる (明示的な市区町村名が最優先)。都道府県名の一部としての
+/// 出現 (「大阪府」の「大阪」等) は都市略称として扱わない。
+fn try_designated_city_alias(text: &str, pref: Option<&str>) -> Option<ParsedLocation> {
     // 略称マッチ（テキスト中に都市略称が含まれるか直接チェック）
     let city_aliases = [
         ("名古屋", "名古屋市"),
@@ -1107,6 +1139,17 @@ fn try_designated_city(text: &str, pref: Option<&str>) -> Option<ParsedLocation>
         // 東京都の部分文字列「京都」を京都市と誤認しないためのガード
         // （"東京都"に"京都"が含まれる。同様に"東京都北区"等も要除外）
         if *alias == "京都" && text.contains("東京") {
+            continue;
+        }
+        // 2026-07-17: 都道府県名の一部としての出現は都市略称として扱わない。
+        //   「大阪府」単体のテキストで municipality=大阪市 と推定してしまうと
+        //   都道府県のみ (step 7) の正しい分類を奪う。全出現が直後に
+        //   府/県 を伴うなら略称マッチをスキップする。
+        let only_pref_mention = text.match_indices(alias).all(|(pos, m)| {
+            let after = &text[pos + m.len()..];
+            after.starts_with('府') || after.starts_with('県')
+        });
+        if only_pref_mention {
             continue;
         }
         if let Some(city_pref) = designated_city_pref(city) {
@@ -1309,5 +1352,62 @@ mod tests {
         let r = parse_location("群馬県吾妻郡草津町", Some("群馬県"));
         assert_eq!(r.prefecture.as_deref(), Some("群馬県"));
         assert!(r.municipality.is_some());
+    }
+
+    // ============================================================
+    // 2026-07-17: 政令市略称の誤マッチ回帰テスト
+    //   「大阪府 富田林市」の「大阪」が大阪市に化け、表2-A で大阪府内の
+    //   非政令市が全て大阪市に集約されていた実バグの再発防止。
+    // ============================================================
+
+    #[test]
+    fn regression_pref_alias_does_not_hijack_municipality() {
+        // 実データ形式 (富田林CSV 勤務地列): スペース区切り
+        let r = parse_location("大阪府 富田林市 向陽台", None);
+        assert_eq!(r.prefecture.as_deref(), Some("大阪府"));
+        assert_eq!(r.municipality.as_deref(), Some("富田林市"));
+
+        let r = parse_location("京都府宇治市", None);
+        assert_eq!(r.municipality.as_deref(), Some("宇治市"));
+
+        let r = parse_location("熊本県玉名市", None);
+        assert_eq!(r.municipality.as_deref(), Some("玉名市"));
+    }
+
+    #[test]
+    fn regression_confusable_designated_city_substrings() {
+        // 「東大阪市」は部分文字列として「大阪市」を含むが別の市
+        let r = parse_location("大阪府東大阪市", None);
+        assert_eq!(r.municipality.as_deref(), Some("東大阪市"));
+
+        // 「北広島市」(北海道) は「広島市」を含むが別の市
+        let r = parse_location("北海道北広島市", None);
+        assert_eq!(r.municipality.as_deref(), Some("北広島市"));
+
+        // 「大阪狭山市」も大阪市ではない
+        let r = parse_location("大阪府大阪狭山市", None);
+        assert_eq!(r.municipality.as_deref(), Some("大阪狭山市"));
+    }
+
+    #[test]
+    fn regression_alias_still_works_when_standalone() {
+        // 略称単独 (市区町村名なし) は従来どおり政令市に推定される
+        let r = parse_location("大阪の倉庫", None);
+        assert_eq!(r.municipality.as_deref(), Some("大阪市"));
+
+        // 都道府県名のみのテキストは municipality を推定しない
+        let r = parse_location("大阪府", None);
+        assert_eq!(r.prefecture.as_deref(), Some("大阪府"));
+        assert_eq!(r.municipality, None);
+    }
+
+    #[test]
+    fn regression_designated_city_fullname_still_matches() {
+        // 正式名称は従来どおり最優先でマッチする
+        let r = parse_location("大阪府大阪市北区梅田", None);
+        assert_eq!(r.municipality.as_deref(), Some("大阪市"));
+
+        let r = parse_location("大阪府 堺市 中区", None);
+        assert_eq!(r.municipality.as_deref(), Some("堺市"));
     }
 }
