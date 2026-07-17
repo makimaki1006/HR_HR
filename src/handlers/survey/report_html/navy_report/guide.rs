@@ -249,14 +249,13 @@ fn push_block_salary(html: &mut String, agg: &SurveyAggregation) {
     let (Some(lo), Some(hi)) = (lo, hi) else {
         return;
     };
-    // 幅あり比率: scatter_min_max の (下限 < 上限) の割合
-    let range_info = if !agg.scatter_min_max.is_empty() {
-        let with_range = agg
-            .scatter_min_max
-            .iter()
-            .filter(|p| p.y > p.x)
-            .count();
-        Some(with_range as f64 / agg.scatter_min_max.len() as f64 * 100.0)
+    // 幅あり比率: 分子 = scatter_min_max の (下限 < 上限)、分母 = 下限給与が取れた求人数。
+    // 2026-07-17 逆証明で修正: scatter_min_max は上下限が両方ある求人しか含まないため、
+    // これを分母にすると常に 100% 近くなる (富田林データで実害確認、実際は 77%)。
+    let range_info = if !agg.salary_min_values.is_empty() {
+        let with_range = agg.scatter_min_max.iter().filter(|p| p.y > p.x).count();
+        let pct = with_range as f64 / agg.salary_min_values.len() as f64 * 100.0;
+        Some(pct.min(100.0))
     } else {
         None
     };
@@ -268,7 +267,10 @@ fn push_block_salary(html: &mut String, agg: &SurveyAggregation) {
         man_yen(hi)
     ));
     if let Some(r) = range_info {
-        html.push_str(&format!("給与欄に幅 (下限〜上限) を示す求人はおよそ {:.0}%。", r));
+        html.push_str(&format!(
+            "給与欄に幅 (下限〜上限) を示す求人はおよそ {:.0}% (下限給与が取れた求人比)。",
+            r
+        ));
     }
     html.push_str("</p>\n");
 
@@ -384,12 +386,28 @@ fn push_block_popularity(html: &mut String, agg: &SurveyAggregation) {
     ));
     if let (Some(pm), Some(nm)) = (p.popular_salary_median, p.non_popular_salary_median) {
         if p.popular_n_salary >= 5 && p.non_popular_n_salary >= 5 {
+            // 2026-07-17 逆証明で分岐追加: 差が僅少 (1万円未満) のとき
+            // 「物差しに使える」と書くと空回りする。差の有無で文言を切り替える。
+            let landing = if (pm - nm).abs() < 10_000 {
+                format!(
+                    "人気表示の有無で月給中央値に明確な差は見られません ({} vs {})。この市場では\
+                     人気が給与以外の要素 (仕事内容の伝え方・写真・条件の見せ方など) で決まっている\
+                     可能性があり、給与を上げる前に見せ方を検証する余地があるとみられます。",
+                    man_yen(pm),
+                    man_yen(nm),
+                )
+            } else {
+                format!(
+                    "人気表示つき求人の月給中央値は {}、なしは {}。人気表示は応募・閲覧の実績を\
+                     反映するとみられ、選ばれているカードの給与・条件の水準を測る物差しとして\
+                     使えます (人気表示の基準は媒体側の非公開ロジックです)。",
+                    man_yen(pm),
+                    man_yen(nm),
+                )
+            };
             html.push_str(&format!(
-                "<div class=\"dakara\">→ <strong>だから:</strong> 人気表示つき求人の月給中央値は {}、\
-                 なしは {}。人気表示は応募・閲覧の実績を反映するとみられ、選ばれているカードの\
-                 給与・条件の水準を測る物差しとして使えます (人気表示の基準は媒体側の非公開ロジックです)。</div>\n",
-                man_yen(pm),
-                man_yen(nm),
+                "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
+                landing
             ));
         }
     }

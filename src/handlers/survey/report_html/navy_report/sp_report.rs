@@ -201,8 +201,10 @@ fn conclusion_new_ratio(agg: &SurveyAggregation) -> Conclusion {
             topic: ConclusionTopic::NewRatio,
             sev: "pos",
             section: "03",
+            // 2026-07-17: 「直近30日」は実際の新着判定 (媒体の新着表示、概ね掲載後
+            //   数日〜1週間) と一致しない誇張ラベルだったため撤去 (バックログ対応)。
             sentence: format!(
-                "直近30日の新着比率は {}% と高めで、求人の更新・追加が相対的に活発とみられます。",
+                "掲載から間もない求人の割合は {}% と高めで、求人の更新・追加が相対的に活発とみられます。",
                 new_pct
             ),
             outlook: None,
@@ -301,8 +303,9 @@ fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
             topic: ConclusionTopic::Switcher,
             sev: "pos",
             section: "10",
+            // 2026-07-17: 出典は県単位の統計のため「対象地域で」→「県単位の参考値で」に訂正。
             sentence: format!(
-                "転職を考えている人は対象地域で概ね {:.1}% とみられ、潜在的な採用対象は一定数存在する可能性があります。",
+                "転職を考えている人は県単位の参考値で概ね {:.1}% とみられ、潜在的な採用対象は一定数存在する可能性があります。",
                 r
             ),
             outlook: None,
