@@ -468,19 +468,25 @@ pub(crate) fn render_navy_section_03_salary(
             );
             html.push_str(&build_salary_scatter_summary(&pairs, true));
         }
-    } else if let Some(ctx) = hw_context {
-        // 月給モード: 旧動作 (HW postings 由来の月給ペア)
-        let pairs = ctx.salary_scatter_pairs.as_slice();
-        if !pairs.is_empty() {
-            html.push_str(
-                "<div class=\"block-title block-title-spaced\">図 3-6 &nbsp;給与レンジ 散布図 (各点=1求人、対角線=下限=上限ライン)</div>\n",
-            );
-            html.push_str(&build_navy_salary_scatter_svg(pairs, false));
-            html.push_str(
-                "<p class=\"caption\">対象地域から最大 1000 件抽出。X軸=下限給与、Y軸=上限給与。\
-                 下限=上限の対角線から離れるほどレンジが広い (歩合・等級制の特徴)。</p>\n",
-            );
-            html.push_str(&build_salary_scatter_summary(pairs, false));
+    } else if variant.show_hw_sections() {
+        // 月給モード: HW postings 由来の月給ペア。散布点の SVG 座標変換で生値が
+        // HTML に現れないため番兵テストが素通りし、顧客向け variant への HW リーク
+        // (このブロックのデータ源 = 自前 HW postings DB) が invariant11 で検出でき
+        // ていなかった。2026-07-17: show_hw_sections() = Full のみ true でゲートし、
+        // 月給モードの HW 散布図を Full 限定化する。
+        if let Some(ctx) = hw_context {
+            let pairs = ctx.salary_scatter_pairs.as_slice();
+            if !pairs.is_empty() {
+                html.push_str(
+                    "<div class=\"block-title block-title-spaced\">図 3-6 &nbsp;給与レンジ 散布図 (各点=1求人、対角線=下限=上限ライン)</div>\n",
+                );
+                html.push_str(&build_navy_salary_scatter_svg(pairs, false));
+                html.push_str(
+                    "<p class=\"caption\">対象地域から最大 1000 件抽出。X軸=下限給与、Y軸=上限給与。\
+                     下限=上限の対角線から離れるほどレンジが広い (歩合・等級制の特徴)。</p>\n",
+                );
+                html.push_str(&build_salary_scatter_summary(pairs, false));
+            }
         }
     }
 
