@@ -47,12 +47,13 @@ use super::common::{
 /// - `section`: 対応セクション番号 (例: "03")。
 /// - `sentence`: トピック名でなく判定を含む完全な文 (可能性表現)。
 /// - `outlook`: WARN/NEG のみ設定される「このままの場合に想定されること」1 行 (可能性表現)。
-struct Conclusion {
+// 2026-07-17: guide.rs (解説資料) が結論一覧を流用するため pub(super) 化。
+pub(super) struct Conclusion {
     topic: ConclusionTopic,
     sev: &'static str,
     section: &'static str,
-    sentence: String,
-    outlook: Option<String>,
+    pub(super) sentence: String,
+    pub(super) outlook: Option<String>,
 }
 
 /// 結論の主題 (アクション集約時の弁別に使用)。
@@ -320,7 +321,10 @@ fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
 ///
 /// 3〜5 箇条に収まるよう、サンプル → 給与 → 新着 → 逼迫度 → 転職意向 の順で
 /// 判定を含む完全な文を並べる。
-fn build_conclusions(agg: &SurveyAggregation, ctx: Option<&InsightContext>) -> Vec<Conclusion> {
+pub(super) fn build_conclusions(
+    agg: &SurveyAggregation,
+    ctx: Option<&InsightContext>,
+) -> Vec<Conclusion> {
     vec![
         conclusion_sample(agg),
         conclusion_salary(agg),

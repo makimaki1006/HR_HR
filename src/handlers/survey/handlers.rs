@@ -378,6 +378,9 @@ pub struct IntegrateQuery {
     /// 未指定時は agg.is_hourly に応じて Section 03/05/06 でモード判定 (自動)。
     /// 明示時はその値で SQL fetcher と Section 描画を制御する。
     pub wage_mode: Option<String>,
+    /// 2026-07-17: 解説資料 (?variant=guide) の「貴社の現在地」用の企業名。
+    /// CSV 内の企業名と部分一致で照合する。未指定なら §1 を描画しない。
+    pub company: Option<String>,
     /// 2026-07-10: 出力セクション選択 (?sections=02,03,09 の形式)。
     /// - 未指定 / 空文字列: 従来どおり variant 準拠で全セクション出力 (出力不変)。
     /// - 指定時: カンマ区切りコードのセクションのみ出力 (表紙/目次/01/08 は常時)。
@@ -784,6 +787,19 @@ pub async fn survey_report_html(
     } else {
         None
     };
+
+    // 2026-07-17: 解説資料 (?variant=guide)。レポート本体でなく顧客向けの
+    //   読み解きガイドを返す。集計 + 公的統計のみ使用のため SalesNow 取得前に
+    //   早期 return する (以降のフェッチは不要)。
+    if query.variant.as_deref() == Some("guide") {
+        return Html(super::report_html::render_survey_guide_page(
+            &agg,
+            hw_ctx.as_ref(),
+            &pref,
+            &muni,
+            query.company.as_deref(),
+        ));
+    }
 
     // F-2: SalesNow 企業データ取得（同じ地域の注目企業）
     // 印刷レポートにも SalesNow 企業トップリストを掲載する

@@ -321,6 +321,29 @@
                 }
             };
 
+            // 2026-07-17: 解説資料 (?variant=guide)。openVariantReport と同じ pref/muni を
+            //   組み立てつつ、企業名 (任意) を prompt で受けて &company= を付与する。
+            //   空 / キャンセルなら company なし (「貴社の現在地」セクションは出ない)。
+            window.openGuideReport = function(ev, sid) {
+                try {
+                    if (ev) ev.preventDefault();
+                    var pref = (document.getElementById('pref-select') || {}).value || '';
+                    var muni = (document.getElementById('muni-select') || {}).value || '';
+                    var company = window.prompt(
+                        '解説資料に「貴社の現在地」を載せる場合は企業名を入力してください\n(空欄のままOKを押すと市場解説のみの資料になります)', '');
+                    if (company === null) company = '';
+                    var url = '/report/survey?session_id=' + encodeURIComponent(sid) + '&variant=guide';
+                    if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
+                    if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
+                    if (company.trim()) url += '&company=' + encodeURIComponent(company.trim());
+                    window.open(url, '_blank', 'noopener');
+                    return false;
+                } catch (e) {
+                    console.error('openGuideReport failed', e);
+                    return true;
+                }
+            };
+
             // 2026-07-13: Ver10 レポート専用。openVariantReport と同じ pref/muni/industry を
             //   組み立てつつ、チェックボックス #ver10-table2e の状態を &table2e=0/1 で付与する。
             //   HTMX 挿入 <script> は eval されないため、本ファイルで window に登録する。
