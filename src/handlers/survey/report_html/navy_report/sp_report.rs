@@ -354,8 +354,9 @@ pub(crate) fn render_sp_exec_onepager(
     let (deck, sub) = if ver10 {
         ("要点まとめ", "まず読むのはこの1ページだけで大丈夫です")
     } else {
+        // 2026-07-17: 「(仮)」表記を除去 (顧客向け納品で試作表記は不適切)。
         (
-            "経営サマリー (仮)",
+            "経営サマリー",
             "この1ページだけ持ち歩けば要点が伝わる構成です",
         )
     };
@@ -868,9 +869,10 @@ mod tests {
 
         let mut html = String::new();
         render_sp_exec_onepager(&mut html, &agg, None, "群馬県 高崎市", false);
+        assert!(html.contains("経営サマリー"), "サマリータイトル: {}", html);
         assert!(
-            html.contains("経営サマリー (仮)"),
-            "サマリータイトル: {}",
+            !html.contains("経営サマリー (仮)"),
+            "「(仮)」表記は除去済みのはず (2026-07-17): {}",
             html
         );
         assert!(html.contains("結論のまとめ"), "結論見出し: {}", html);
@@ -898,7 +900,7 @@ mod tests {
         };
         let mut html = String::new();
         render_sp_exec_onepager(&mut html, &agg, None, "全国", false);
-        assert!(html.contains("経営サマリー (仮)"));
+        assert!(html.contains("経営サマリー"));
         assert!(!html.contains("NaN"), "0 件で NaN 混入なし");
     }
 
