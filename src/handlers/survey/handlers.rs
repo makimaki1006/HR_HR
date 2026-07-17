@@ -381,6 +381,10 @@ pub struct IntegrateQuery {
     /// 2026-07-17: 解説資料 (?variant=guide) の「貴社の現在地」用の企業名。
     /// CSV 内の企業名と部分一致で照合する。未指定なら §1 を描画しない。
     pub company: Option<String>,
+    /// 2026-07-17: 解説資料の生成モード。既定 = AI パイプライン (flash-lite
+    /// 作成→逆証明レビュー→修正、失敗時は決定的テンプレへ自動フォールバック)。
+    /// `ai=off` で決定的テンプレを強制 (API 枠温存・比較検証用)。
+    pub ai: Option<String>,
     /// 2026-07-10: 出力セクション選択 (?sections=02,03,09 の形式)。
     /// - 未指定 / 空文字列: 従来どおり variant 準拠で全セクション出力 (出力不変)。
     /// - 指定時: カンマ区切りコードのセクションのみ出力 (表紙/目次/01/08 は常時)。
@@ -791,7 +795,23 @@ pub async fn survey_report_html(
     // 2026-07-17: 解説資料 (?variant=guide)。レポート本体でなく顧客向けの
     //   読み解きガイドを返す。集計 + 公的統計のみ使用のため SalesNow 取得前に
     //   早期 return する (以降のフェッチは不要)。
+    //   既定は AI パイプライン (flash-lite 作成→逆証明レビュー→修正、最大4コール)。
+    //   API キー未設定・失敗・ガード全滅時と ?ai=off 指定時は決定的テンプレ。
     if query.variant.as_deref() == Some("guide") {
+        if query.ai.as_deref() != Some("off") {
+            if let Some(html) = super::report_html::render_survey_guide_page_ai(
+                &agg,
+                hw_ctx.as_ref(),
+                &pref,
+                &muni,
+                query.company.as_deref(),
+            )
+            .await
+            {
+                return Html(html);
+            }
+            tracing::warn!("guide AI 生成に失敗または未設定。決定的テンプレへフォールバック");
+        }
         return Html(super::report_html::render_survey_guide_page(
             &agg,
             hw_ctx.as_ref(),
