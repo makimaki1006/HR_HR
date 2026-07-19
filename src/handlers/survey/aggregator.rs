@@ -48,6 +48,62 @@ pub const SCATTER_Y_MIN: i64 = 70;
 /// 給与×年間休日 散布図 Y 軸 (年間休日) 最大値
 pub const SCATTER_Y_MAX: i64 = 180;
 
+/// カード単位の観測 (解説資料 Phase 2a、2026-07-20)
+///
+/// 解説資料 (?variant=guide&company=) が依頼企業の求人カードそのものを
+/// 市場分布に重ねるための最小フィールド。全レコード分を保持する
+/// (1,000 件規模 × 小フィールドでキャッシュ JSON 負荷は軽微)。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CardBrief {
+    pub company: String,
+    /// 求人タイトル (先頭 60 文字)
+    pub title: String,
+    /// 月給レコードか (時給・日給等は false)
+    pub is_monthly: bool,
+    /// 給与欄の下限 (パース生値、円)
+    pub salary_min: Option<i64>,
+    /// 給与欄の上限 (パース生値、円)。None または min と同値なら「単一値表示」
+    pub salary_max: Option<i64>,
+    /// 年間休日 (説明文からの規則ベース抽出)
+    pub annual_holidays: Option<i64>,
+    /// 新着表示の有無
+    pub is_new: bool,
+    /// 説明文中の給与記載 (「月収35万円」等の万円値)。給与欄との乖離検出用
+    pub desc_salary_man: Option<i64>,
+}
+
+/// 説明文から「月収◯万」「月給◯万」の万円値を抽出する (最大値)。
+///
+/// 給与欄が単一値なのに説明文に高い到達額が書かれているケース
+/// (訴求文と給与欄の乖離) を検出するための規則ベース抽出。
+/// 対象は 10〜99 万のみ (誤抽出防止: 1桁は「3万円分の手当」等と混同しやすい)。
+pub fn extract_desc_salary_man(description: &str) -> Option<i64> {
+    let text = description;
+    let mut best: Option<i64> = None;
+    for key in ["月収", "月給"] {
+        let mut start = 0;
+        while let Some(pos) = text[start..].find(key) {
+            let abs = start + pos + key.len();
+            // キー直後の数字列 (最大3桁) を読む (ASCII 数字のみなのでバイト境界は安全)
+            let digits: String = text[abs..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .take(3)
+                .collect();
+            let after = &text[abs + digits.len()..];
+            if !digits.is_empty() && after.starts_with('万') {
+                if let Ok(v) = digits.parse::<i64>() {
+                    if (10..=99).contains(&v) && best.map_or(true, |b| v > b) {
+                        best = Some(v);
+                    }
+                }
+            }
+            start = abs;
+        }
+    }
+    best
+}
+
 /// 企業別集計
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompanyAgg {
@@ -191,6 +247,11 @@ pub struct SurveyAggregation {
     /// Section 07.6 (Indeed SP の人気度シグナル) 集計サブ構造体
     #[serde(default)]
     pub popularity: PopularityAnalysis,
+
+    /// 2026-07-20 Phase 2a: カード単位の観測 (解説資料の依頼企業カード解析用)。
+    /// serde default で旧キャッシュ JSON と後方互換 (欠損時は空 Vec)。
+    #[serde(default)]
+    pub card_briefs: Vec<CardBrief>,
 }
 
 /// Section 07.6 用集計の集約サブ構造体 (Indeed SP のみ取得可能)
@@ -1328,6 +1389,22 @@ fn aggregate_records_core(
         }
     };
 
+    // Phase 2a (2026-07-20): カード単位の観測。企業名があるレコードのみ保持。
+    let card_briefs: Vec<CardBrief> = records
+        .iter()
+        .filter(|r| !r.company_name.trim().is_empty())
+        .map(|r| CardBrief {
+            company: r.company_name.clone(),
+            title: r.job_title.chars().take(60).collect(),
+            is_monthly: r.salary_parsed.salary_type == SalaryType::Monthly,
+            salary_min: r.salary_parsed.min_value,
+            salary_max: r.salary_parsed.max_value,
+            annual_holidays: r.annual_holidays,
+            is_new: r.is_new,
+            desc_salary_man: extract_desc_salary_man(&r.description),
+        })
+        .collect();
+
     SurveyAggregation {
         total_count: total,
         new_count,
@@ -1379,6 +1456,8 @@ fn aggregate_records_core(
         },
         // 2026-06-30 Section 07.6: Indeed (SP) 人気度シグナル
         popularity,
+        // 2026-07-20 Phase 2a: カード単位の観測
+        card_briefs,
     }
 }
 
@@ -1581,6 +1660,27 @@ fn linear_regression_points(points: &[ScatterPoint]) -> Option<RegressionResult>
         intercept,
         r_squared,
     })
+}
+
+#[cfg(test)]
+mod desc_salary_tests {
+    use super::extract_desc_salary_man;
+
+    #[test]
+    fn extracts_monthly_salary_mentions_from_description() {
+        // 実データ形式 (カンメタ訴求文): 「それでも月収35万円以上も可能」
+        assert_eq!(
+            extract_desc_salary_man("✅年間休日125日以上・それでも月収35万円以上も可能"),
+            Some(35)
+        );
+        assert_eq!(extract_desc_salary_man("月給25万円〜"), Some(25));
+        // 複数記載は最大値
+        assert_eq!(extract_desc_salary_man("月収28万、繁忙期は月収40万も"), Some(40));
+        // 対象外: キーなし / 1桁 (手当等との混同防止) / 数字なし
+        assert_eq!(extract_desc_salary_man("賞与3万円支給"), None);
+        assert_eq!(extract_desc_salary_man("月収8万円のパート"), None);
+        assert_eq!(extract_desc_salary_man("特になし"), None);
+    }
 }
 
 #[cfg(test)]
