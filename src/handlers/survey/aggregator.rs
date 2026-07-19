@@ -1401,7 +1401,9 @@ fn aggregate_records_core(
             salary_max: r.salary_parsed.max_value,
             annual_holidays: r.annual_holidays,
             is_new: r.is_new,
-            desc_salary_man: extract_desc_salary_man(&r.description),
+            // 説明文 + 訴求スニペット (css-lx9x6g) の両方から抽出。
+            // スニペット側に「月収35万円以上も可能」等の到達額訴求が入ることが多い。
+            desc_salary_man: extract_desc_salary_man(&format!("{} {}", r.snippet, r.description)),
         })
         .collect();
 
@@ -1753,6 +1755,7 @@ mod tests {
             url: None,
             is_new: false,
             description: String::new(),
+            snippet: String::new(),
             salary_parsed: sal,
             location_parsed: loc,
             annual_holidays: None,
@@ -2391,6 +2394,7 @@ mod tests {
             url: None,
             is_new: false,
             description: String::new(),
+            snippet: String::new(),
             salary_parsed: sal,
             location_parsed: loc,
             annual_holidays: Some(holidays),
@@ -2520,6 +2524,7 @@ mod tests {
             url: None,
             is_new: false,
             description: String::new(),
+            snippet: String::new(),
             salary_parsed: sal,
             location_parsed: loc,
             annual_holidays: holidays,
@@ -2654,6 +2659,7 @@ mod tests {
             url: None,
             is_new: false,
             description: String::new(),
+            snippet: String::new(),
             salary_parsed: sal,
             location_parsed: loc,
             annual_holidays: holidays,

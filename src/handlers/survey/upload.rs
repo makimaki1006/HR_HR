@@ -32,6 +32,11 @@ pub struct SurveyRecord {
     pub url: Option<String>,
     pub is_new: bool,
     pub description: String,
+    /// タイトル下の訴求スニペット (Indeed SP: css-lx9x6g 列)。
+    /// 説明文とは別列で「月収35万円以上も可能」等の訴求が入る。
+    /// カード解析 (CardBrief.desc_salary_man) にのみ使用し、年間休日抽出には使わない
+    /// (既存 §07.5 の数値を変えないため)。2026-07-20 Phase 2a。
+    pub snippet: String,
     // パース結果
     pub salary_parsed: ParsedSalary,
     pub location_parsed: ParsedLocation,
@@ -461,6 +466,7 @@ fn parse_csv_bytes_inner(
         };
 
         let description = get("description");
+        let snippet = get("snippet");
 
         // パース
         let salary_parsed = parse_salary(&salary_raw, SalaryType::Monthly);
@@ -511,6 +517,7 @@ fn parse_csv_bytes_inner(
             url,
             is_new,
             description,
+            snippet,
             salary_parsed,
             location_parsed,
             annual_holidays,
@@ -677,6 +684,11 @@ fn build_column_map(
                 // description: 本文 (年間休日含む)
                 if h == "css-1vlebyu" && !map.contains_key("description") {
                     map.insert("description", i);
+                }
+                // タイトル下の訴求スニペット (「月収35万円以上も可能」等)。
+                // 2026-07-20 Phase 2a: カード解析の説明文給与抽出に使う。
+                if h == "css-lx9x6g" && !map.contains_key("snippet") {
+                    map.insert("snippet", i);
                 }
                 // 人気/超人気タグ (Indeed SP 固有シグナル) を tags に紐付け。
                 // 既存 tags キー (jobsearch-JobCard-tag) があれば触らず、無ければ採用。
@@ -2371,6 +2383,7 @@ mod gemini_fallback_tests {
             url: None,
             is_new: false,
             description: String::new(),
+            snippet: String::new(),
             salary_parsed: parse_salary(salary, SalaryType::Monthly),
             location_parsed: parse_location("", None),
             annual_holidays: None,
