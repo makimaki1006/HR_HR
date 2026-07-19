@@ -338,6 +338,8 @@ fn build_agg(include_jobbox: bool) -> SurveyAggregation {
         } else {
             PopularityAnalysis::default()
         },
+        // 2026-07-20 Phase 2a: VRT fixture ではカード観測は不要 (解説資料は VRT 対象外)
+        card_briefs: vec![],
     }
 }
 
