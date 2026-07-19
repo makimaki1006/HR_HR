@@ -55,6 +55,13 @@ pub fn parse_salary(text: &str, default_type: SalaryType) -> ParsedSalary {
     let normalized = normalize_text(text);
     let salary_type = detect_salary_type(&normalized, &default_type);
     let (min_val, max_val, has_range) = extract_salary_values(&normalized);
+    // 2026-07-20: 入力バリデーション — 下限 > 上限は反転レンジ (「35万〜25万」等の
+    // 表記ゆれ・抽出順の揺れ) とみなし swap する。下流の不変条件 (散布図・レンジ幅
+    // 計算・図3-6 SQL の hi >= lo 前提) を parser 段で保証する (既知バックログ対応)。
+    let (min_val, max_val) = match (min_val, max_val) {
+        (Some(a), Some(b)) if a > b => (Some(b), Some(a)),
+        other => other,
+    };
     let (unified_monthly, unified_annual) = calculate_unified(min_val, max_val, &salary_type);
     let range_category = unified_monthly.map(get_salary_range_category);
     let confidence = calculate_confidence(&normalized, min_val, &salary_type);
@@ -574,6 +581,15 @@ mod tests {
         assert_eq!(r.min_value, Some(250_000));
         assert_eq!(r.max_value, Some(300_000));
         assert_eq!(r.unified_monthly, Some(275_000)); // (25+30)/2
+    }
+
+    #[test]
+    fn test_inverted_range_is_swapped() {
+        // 2026-07-20: 下限>上限の反転レンジは swap して不変条件 (min<=max) を保証
+        let r = parse_salary("月給35万円～25万円", SalaryType::Monthly);
+        assert_eq!(r.min_value, Some(250_000));
+        assert_eq!(r.max_value, Some(350_000));
+        assert_eq!(r.unified_monthly, Some(300_000)); // 中間値も正順で計算
     }
 
     #[test]
