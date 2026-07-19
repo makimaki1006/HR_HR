@@ -96,6 +96,7 @@ fn sample_aggregation() -> SurveyAggregation {
         jobbox: Default::default(),
         // 2026-06-30 Section 07.6: Indeed (SP) 人気/超人気 タグ集計
         popularity: Default::default(),
+        card_briefs: vec![],
     }
 }
 

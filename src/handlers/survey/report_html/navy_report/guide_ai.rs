@@ -32,7 +32,7 @@ use super::super::super::super::consult::ai::contains_forbidden;
 use super::super::super::super::consult::theme::has_overclaim;
 use super::super::super::super::helpers::{escape_html, format_number, get_f64};
 use super::super::super::super::insight::fetch::InsightContext;
-use super::super::super::aggregator::SurveyAggregation;
+use super::super::super::aggregator::{CardBrief, SurveyAggregation};
 use crate::gemini::GeminiClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -326,9 +326,92 @@ pub(super) fn build_fact_inventory(
             s.push_str(&format!(" 分布の下位からおよそ {:.0}% の位置。", p));
         }
         push("F-CO", "依頼企業", s);
+
+        // Phase 2a (2026-07-20): カード単位の観測。依頼企業の求人カードそのものを
+        // 市場分布に重ねる (給与欄の形式 / 説明文との乖離 / 休日記載の市場内位置)。
+        // 数値・判定はすべてコードで確定し、LLM には解釈だけを書かせる。
+        let name = pos.name.as_str();
+        let cards: Vec<&CardBrief> = agg
+            .card_briefs
+            .iter()
+            .filter(|cb| cb.company.contains(name) || name.contains(cb.company.as_str()))
+            .take(2)
+            .collect();
+        for (i, cb) in cards.iter().enumerate() {
+            if let Some(s) = build_card_statement(cb, agg) {
+                push(&format!("F-CO-CARD{}", i + 1), "貴社求人カード", s);
+            }
+        }
     }
 
     (facts, position)
+}
+
+/// カード 1 枚の観測文を組み立てる (Phase 2a)。
+///
+/// 判定 (単一値か幅か / 説明文給与との乖離 / 休日の市場内帯) はすべてここで確定し、
+/// LLM には解釈のみを書かせる。観測できる要素が一つもなければ None。
+fn build_card_statement(cb: &CardBrief, agg: &SurveyAggregation) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+
+    // 給与欄の形式
+    if cb.is_monthly {
+        match (cb.salary_min, cb.salary_max) {
+            (Some(lo), Some(hi)) if hi > lo => {
+                parts.push(format!("給与欄は {}〜{} の幅表示", man_yen(lo), man_yen(hi)));
+            }
+            (Some(lo), _) => {
+                parts.push(format!("給与欄は単一値 {} (幅の表示なし)", man_yen(lo)));
+            }
+            _ => {}
+        }
+    }
+
+    // 説明文中の給与記載と給与欄の乖離。給与欄の最大値 (上限、無ければ下限) を
+    // 上回るときだけ「反映されていない」と言う (同額なら乖離ではない)。
+    if let Some(d) = cb.desc_salary_man {
+        let field_best = cb.salary_max.into_iter().chain(cb.salary_min).max();
+        if field_best.map_or(false, |h| d * 10_000 > h) {
+            parts.push(format!(
+                "説明文中には月収{}万円の記載があるが、給与欄の上限には反映されていない",
+                d
+            ));
+        }
+    }
+
+    // 年間休日の記載と市場内の帯
+    if let Some(h) = cb.annual_holidays {
+        let mut s = format!("年間休日の記載 {} 日", h);
+        if agg.jobbox.annual_holidays_values.len() >= 20 {
+            if h >= 125 {
+                s.push_str(&format!(
+                    " (市場で125日以上を明示する求人は {:.0}% — この上位帯に入る)",
+                    agg.jobbox.holiday_pct_ge_125 * 100.0
+                ));
+            } else if h >= 120 {
+                s.push_str(&format!(
+                    " (市場の120日以上 {:.0}% と同じ帯)",
+                    agg.jobbox.holiday_pct_ge_120 * 100.0
+                ));
+            }
+        }
+        parts.push(s);
+    }
+
+    // 新着表示
+    if !cb.is_new {
+        parts.push("新着表示はない (掲載から時間が経過している可能性)".to_string());
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+    let title = if cb.title.is_empty() {
+        "タイトル不明".to_string()
+    } else {
+        cb.title.clone()
+    };
+    Some(format!("カード「{}」: {}。", title, parts.join("。")))
 }
 
 // ============================================================
@@ -954,6 +1037,56 @@ mod tests {
         let v = guard_violations(&draft, &facts);
         assert!(v.iter().any(|s| s.contains("実在しない fact_id")));
         assert!(v.iter().any(|s| s.contains("カバレッジ")));
+    }
+
+    #[test]
+    fn card_facts_detect_single_value_desc_gap_and_holiday_band() {
+        // Phase 2a: 給与欄単一値 + 説明文35万 + 休日126日 (上位帯) + 非新着 のカード
+        let mut agg = rich_agg();
+        agg.card_briefs.push(CardBrief {
+            company: "テスト工業株式会社".to_string(),
+            title: "設備の金属コーティング技術者".to_string(),
+            is_monthly: true,
+            salary_min: Some(250_000),
+            salary_max: Some(250_000),
+            annual_holidays: Some(126),
+            is_new: false,
+            desc_salary_man: Some(35),
+        });
+        let (facts, _) = build_fact_inventory(&agg, None, Some("テスト工業"));
+        let card = facts
+            .iter()
+            .find(|f| f.id == "F-CO-CARD1")
+            .expect("カード事実が生成されるはず");
+        assert!(card.statement.contains("単一値"), "{}", card.statement);
+        assert!(card.statement.contains("月収35万円"), "{}", card.statement);
+        assert!(card.statement.contains("125日以上"), "{}", card.statement);
+        assert!(card.statement.contains("新着表示はない"), "{}", card.statement);
+        // 数値出所ガードの許可集合に説明文給与が入る
+        assert!(card.numbers.contains(&"35".to_string()));
+    }
+
+    #[test]
+    fn card_desc_salary_equal_to_field_is_not_a_gap() {
+        // 説明文の 25万 = 給与欄 25万 → 「反映されていない」とは言わない
+        let mut agg = rich_agg();
+        agg.card_briefs.push(CardBrief {
+            company: "テスト工業株式会社".to_string(),
+            title: "t".to_string(),
+            is_monthly: true,
+            salary_min: Some(250_000),
+            salary_max: None,
+            annual_holidays: None,
+            is_new: true,
+            desc_salary_man: Some(25),
+        });
+        let (facts, _) = build_fact_inventory(&agg, None, Some("テスト工業"));
+        let card = facts.iter().find(|f| f.id == "F-CO-CARD1").unwrap();
+        assert!(
+            !card.statement.contains("反映されていない"),
+            "同額は乖離ではない: {}",
+            card.statement
+        );
     }
 
     #[test]
