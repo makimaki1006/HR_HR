@@ -86,6 +86,7 @@ fn rec_with_salary_and_pref(
         url: None,
         is_new: false,
         description: String::new(),
+        snippet: String::new(),
         salary_parsed: sal,
         location_parsed: loc,
         annual_holidays: None,
