@@ -88,11 +88,25 @@ pub(crate) fn render_upload_form() -> String {
                 <!-- ソース媒体: ラジオカード形式で視覚化 -->
                 <div class="mb-4" id="source-type-cards" role="radiogroup" aria-label="ソース媒体">
                     <label class="block text-xs text-slate-400 mb-2">ソース媒体 <span class="text-red-400" aria-label="必須">*</span>
-                        <span class="text-[10px] text-slate-500 ml-2">列名マッピングの精度向上のため明示指定してください</span>
+                        <span class="text-[10px] text-slate-500 ml-2">通常は「自動判定」のまま。判定を誤る場合のみ明示指定してください</span>
                     </label>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                        <!-- 2026-07-20: 既定を自動判定に変更。従来は Indeed (PC) が既定で、
+                             Indeed SP の CSV をそのまま上げると年間休日 (§07.5)・人気タグ
+                             (§07.6) が丸ごと抜け落ちる事故が実際に起きた (富田林レポートで実証)。
+                             サーバ側 detect_csv_source は SP 固有 CSS クラスを最優先判定する。 -->
+                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="auto">
+                            <input type="radio" name="source_type" value="auto" class="mt-1" checked aria-describedby="src-auto-desc">
+                            <div>
+                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                                    <span class="inline-block w-3 h-3 rounded-full bg-violet-500" aria-hidden="true"></span>
+                                    自動判定 (推奨)
+                                </div>
+                                <div id="src-auto-desc" class="text-[10px] text-slate-400 mt-0.5">列名から媒体を自動で見分けます</div>
+                            </div>
+                        </label>
                         <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="indeed">
-                            <input type="radio" name="source_type" value="indeed" class="mt-1" checked aria-describedby="src-indeed-desc">
+                            <input type="radio" name="source_type" value="indeed" class="mt-1" aria-describedby="src-indeed-desc">
                             <div>
                                 <div class="text-sm font-bold text-white flex items-center gap-1.5">
                                     <span class="inline-block w-3 h-3 rounded-full bg-blue-500" aria-hidden="true"></span>
