@@ -327,7 +327,19 @@ fn push_block_holidays(html: &mut String, agg: &SurveyAggregation) {
     html.push_str(&format!("<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n", landing));
 
     if let Some(r) = jb.salary_holidays_correlation {
-        if r.abs() < 0.3 {
+        // 2026-07-21: 符号で3分岐 (逆相関市場では休日訴求のトレードオフを明示する)。
+        if r <= -0.3 {
+            html.push_str(&format!(
+                "<p class=\"note\">※ この市場では休日が多い求人ほど給与が低い傾向 (逆相関 r={:.2}) が\
+                 見られます。休日を前面に出す場合、給与面の見せ方とのバランスに注意が必要です。</p>\n",
+                r
+            ));
+        } else if r >= 0.3 {
+            html.push_str(&format!(
+                "<p class=\"note\">※ この市場では休日が多い求人ほど給与も高い傾向 (r={:.2}) が見られます。</p>\n",
+                r
+            ));
+        } else {
             html.push_str(&format!(
                 "<p class=\"note\">※ 休日と給与の相関はほぼありません (r={:.2})。\
                  「休日が多い求人は給与が低い」という関係はこの市場では確認できず、\
