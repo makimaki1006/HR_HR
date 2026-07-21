@@ -75,6 +75,20 @@ fn man_yen(v: i64) -> String {
     format!("{:.1}万円", v as f64 / 10_000.0)
 }
 
+/// 同順位を按分したパーセンタイル (ミッドランク方式)。
+///
+/// 2026-07-22 再監査対応: 従来の「target 以下の割合」方式は、同値が大量に集中する
+/// 給与分布 (25.0万円へのタイ等) で「中央値と同額なのに下位から60%」という
+/// 矛盾した見え方を生んだ。同順位帯の中央に位置づける。
+fn midrank_pct(values: &[i64], target: i64) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let below = values.iter().filter(|v| **v < target).count() as f64;
+    let eq = values.iter().filter(|v| **v == target).count() as f64;
+    Some((below + eq / 2.0) / values.len() as f64 * 100.0)
+}
+
 /// 数値トークン正規化: カンマ除去・末尾の小数点除去。
 fn norm_num(s: &str) -> String {
     s.replace(',', "").trim_end_matches('.').to_string()
@@ -120,7 +134,12 @@ fn has_kanji_numeral_quantity(text: &str) -> bool {
     const KD: [char; 13] = [
         '〇', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千',
     ];
-    const UNITS: [char; 8] = ['万', '円', '日', '人', '件', '%', '割', '倍'];
+    // 2026-07-22 再監査 [HIGH] 対応: 単位を2群に分ける。
+    // - 金額・比率単位 (万/千/円/割/倍/%) は漢数字1文字でも数量表記
+    //   (「五万円」「八割」「三倍」が run>=2 条件で素通りしていた)
+    // - 日/人/件 は「一人ひとり」「一件ずつ」等の慣用があるため2文字以上のみ
+    const STRICT_UNITS: [char; 6] = ['万', '円', '割', '倍', '%', '千'];
+    const LOOSE_UNITS: [char; 3] = ['日', '人', '件'];
     let chars: Vec<char> = text.chars().collect();
     let mut run = 0usize;
     for c in &chars {
@@ -129,7 +148,10 @@ fn has_kanji_numeral_quantity(text: &str) -> bool {
         } else if c.is_whitespace() {
             // 「百三十 日」のように空白を挟む表記も検出するため run を維持
         } else {
-            if run >= 2 && UNITS.contains(c) {
+            if run >= 1 && STRICT_UNITS.contains(c) {
+                return true;
+            }
+            if run >= 2 && LOOSE_UNITS.contains(c) {
                 return true;
             }
             run = 0;
@@ -150,7 +172,7 @@ fn extract_unit_numbers(text: &str) -> Vec<String> {
         if c.is_ascii_digit() || *c == '.' || *c == ',' {
             cur.push(*c);
         } else {
-            if !cur.is_empty() && matches!(c, '万' | '千' | '割' | '倍' | '%') {
+            if !cur.is_empty() && matches!(c, '万' | '千' | '割' | '倍' | '%' | '円') {
                 // 「◯時」「◯分」等は対象外。数量単位が直後のときのみ照合対象。
                 let _ = i;
                 out.push(norm_num(&cur));
@@ -207,6 +229,7 @@ pub(super) fn build_fact_inventory(
             .collect::<Vec<_>>()
             .join("・");
         // 2026-07-21 監査対応: 検索地そのものの件数を明示 (市場の実体が広域である事実)。
+        // 2026-07-22 再監査対応: 検索地単体の件数に加え給与中央値も併記 (二段構え)。
         let locale_note = search_muni
             .and_then(|m| {
                 agg.by_municipality_salary
@@ -214,9 +237,12 @@ pub(super) fn build_fact_inventory(
                     .find(|x| x.name == m)
                     .map(|x| {
                         format!(
-                            "うち勤務地が検索地の{}なのは {} 件で、市場の実体は周辺市を含む広域 (求人サイトが通勤圏の求人を併せて表示するため)。",
+                            "うち勤務地が検索地の{}なのは {} 件 (この{}件だけの給与中央値は {}) で、市場の実体は周辺市を含む広域。以降の市場全体の数値は広域ベースであり、{}単独の実勢ではない点に注意。",
                             m,
-                            format_number(x.count as i64)
+                            format_number(x.count as i64),
+                            format_number(x.count as i64),
+                            man_yen(x.median_salary),
+                            m,
                         )
                     })
             })
@@ -252,8 +278,9 @@ pub(super) fn build_fact_inventory(
             "F-SAL",
             "給与",
             format!(
-                "下限給与の中央値 {} / 上限給与の中央値 {} (それぞれ別々に集計した中央値で、その差は {:.0}万円。個々の求人の給与幅そのものではない)。下限給与を確認できた求人のうち、上限も併記して幅を示すものはおよそ {:.0}%。",
+                "下限給与の中央値 {} (n={}) / 上限給与の中央値 {} (それぞれ別々に集計した中央値で、その差は {:.0}万円。個々の求人の給与幅そのものではない)。下限給与を確認できた求人のうち、上限も併記して幅を示すものはおよそ {:.0}%。",
                 man_yen(lo),
+                format_number(agg.salary_min_values.len() as i64),
                 man_yen(hi),
                 spread_man,
                 range_pct,
@@ -321,7 +348,7 @@ pub(super) fn build_fact_inventory(
             "F-TAG",
             "訴求",
             format!(
-                "給与が市場平均より高い側に分布するタグ: {}。相関であり因果ではない。件数が数十件未満のタグは偶然変動の幅が大きい参考値。タグの採用は募集する雇用形態・職種の文脈に合う場合に限る (例: アルバイト向けの語彙を正社員募集に使わない)。",
+                "給与が市場平均より高い側に分布するタグ: {} (比較は平均ベース。他セクションの中央値とは基準が異なる)。相関であり因果ではなく、応募への効果を示すデータは無い。市場全体の傾向の説明であり、依頼企業の職種・雇用形態に合わないタグをそのまま流用しない (例: アルバイト向けの語彙を正社員募集に使わない)。",
                 list
             ),
         );
@@ -349,25 +376,10 @@ pub(super) fn build_fact_inventory(
         push("F-POP", "人気表示", s);
     }
 
-    // F-DEM: 需給 (県・産業計)
+    // F-DEM (有効求人倍率) は 2026-07-22 再監査で削除。
+    // 顧客レビュー「使えないと自認する数値を載せる意味がない」+ 論理監査「だからが本文と
+    // 無関係に破綻」— 県・全産業計の値は職種の実勢と乖離し、この資料の提案に接続しない。
     if let Some(c) = ctx {
-        let ratio = c
-            .ext_job_ratio
-            .last()
-            .map(|r| get_f64(r, "ratio_total"))
-            .filter(|v| v.is_finite() && *v > 0.0);
-        if let Some(r) = ratio {
-            // 2026-07-21 監査対応: 免責が直後の提案で空文化しないよう、用途制限を事実文に含める。
-            push(
-                "F-DEM",
-                "需給",
-                format!(
-                    "直近の有効求人倍率は {:.2} 倍。ただし県単位・全産業計の参考値で、人手不足が続く職種では実勢がこれより厳しい可能性が高い。市場の背景情報であり、個別の差別化戦略の根拠には使えない。",
-                    r
-                ),
-            );
-        }
-
         // F-COM: 通勤構造
         if c.commute_inflow_total > 0 || c.commute_outflow_total > 0 {
             let top = c
@@ -395,7 +407,7 @@ pub(super) fn build_fact_inventory(
                 "F-COM",
                 "通勤",
                 format!(
-                    "市外へ通勤する人 {} 人 / 市外から来る人 {} 人 / 市内で完結する通勤 {:.1}% (国勢調査 OD。全住民の通勤であり特定職種の求職者の動きそのものではない)。{}。周辺からの流入元の上位は {}。{}",
+                    "市外へ通勤する人 {} 人 / 市外から来る人 {} 人 / 通勤者に占める市内完結の割合 {:.1}% (国勢調査 OD。全住民・全産業の通勤であり特定職種の求職者の動きそのものではない)。{}。周辺からの流入元の上位は {}。{}",
                     format_number(c.commute_outflow_total),
                     format_number(c.commute_inflow_total),
                     c.commute_self_rate * 100.0,
@@ -415,16 +427,9 @@ pub(super) fn build_fact_inventory(
             .filter(|co| co.name.contains(name.trim()) || name.trim().contains(co.name.as_str()))
             .max_by_key(|co| co.count)?;
         let market_median = median_of(&agg.salary_values);
-        let pct = if agg.salary_values.is_empty() {
-            None
-        } else {
-            let below = agg
-                .salary_values
-                .iter()
-                .filter(|v| **v <= hit.median_salary)
-                .count();
-            Some(below as f64 / agg.salary_values.len() as f64 * 100.0)
-        };
+        // 同順位按分 (ミッドランク)。タイ集中時に「中央値と同額なのに下位60%」と
+        // ならないようにする (2026-07-22 再監査対応)。
+        let pct = midrank_pct(&agg.salary_values, hit.median_salary);
         Some(CompanyPosition {
             name: hit.name.clone(),
             count: hit.count,
@@ -449,24 +454,41 @@ pub(super) fn build_fact_inventory(
         // - 主比較: 下限どうし (単一値カードに公平)
         // - 補足: 中間値どうし (単一値表記は低めに出る旨を明記)
         // - 説明文に上限記載がある場合: それを反映した仮の中間値での位置も併記
-        let salary_label = if pos.count == 1 {
-            "提示給与"
-        } else {
-            "提示給与の中央値"
+        // 2026-07-22 再監査対応: 結論先出し。「で、うちは高いの安いの?」に最初の1文で
+        // 答え、内訳 (下限比較・中間値比較の注意) は補足に回す。位置はすべて同順位按分。
+        let own_min = cards.iter().find_map(|cb| cb.salary_min.filter(|_| cb.is_monthly));
+        let market_lo_median = median_of(&agg.salary_min_values);
+        // 説明文の上限記載を反映した仮の中間値 (単一値カードのみ意味を持つ)
+        let hypo: Option<(i64, i64)> = match (own_min, pos.market_median, cards.first()) {
+            (Some(own_lo), Some(m), Some(card)) => {
+                let is_single = card.salary_max.map_or(true, |h| h <= own_lo);
+                match (is_single, card.desc_salary_man) {
+                    (true, Some(d)) => Some(((own_lo + d * 10_000) / 2, m)),
+                    _ => None,
+                }
+            }
+            _ => None,
         };
+
         let mut s = format!(
             "依頼企業「{}」の求人 {} 件が収集データ内にある。",
             pos.name, pos.count,
         );
-        let own_min = cards.iter().find_map(|cb| cb.salary_min.filter(|_| cb.is_monthly));
-        let market_lo_median = median_of(&agg.salary_min_values);
+        // 結論の1文 (仮の中間値が市場中央値以上のときは「表記の課題」と言い切れる)
+        if let Some((hypo_mid, m)) = hypo {
+            if hypo_mid >= m {
+                let d = cards.first().and_then(|c| c.desc_salary_man).unwrap_or(0);
+                s.push_str(&format!(
+                    " 結論: 課題は金額ではなく給与欄の表記の可能性が高い。説明文にある月収{}万円を給与欄の上限として反映すると中間値 {} となり、市場の中間値の中央値 {} を{}。",
+                    d,
+                    man_yen(hypo_mid),
+                    man_yen(m),
+                    if hypo_mid > m { "上回る" } else { "同水準になる" },
+                ));
+            }
+        }
+        // 補足1: 下限どうしの比較 (単一値カードに公平な物差し)
         if let (Some(own_lo), Some(mlo)) = (own_min, market_lo_median) {
-            let lp = if agg.salary_min_values.is_empty() {
-                None
-            } else {
-                let below = agg.salary_min_values.iter().filter(|v| **v <= own_lo).count();
-                Some(below as f64 / agg.salary_min_values.len() as f64 * 100.0)
-            };
             let rel = if own_lo > mlo {
                 "上回る"
             } else if own_lo == mlo {
@@ -475,47 +497,27 @@ pub(super) fn build_fact_inventory(
                 "下回る"
             };
             s.push_str(&format!(
-                " 給与欄の下限 {} は市場の下限中央値 {} と比べて{}",
+                " 補足: 給与欄の下限 {} は市場の下限中央値 {} と{}",
                 man_yen(own_lo),
                 man_yen(mlo),
                 rel,
             ));
-            if let Some(p) = lp {
-                s.push_str(&format!(" (下限どうしの比較で下位から約 {:.0}%)", p));
+            if let Some(p) = midrank_pct(&agg.salary_min_values, own_lo) {
+                s.push_str(&format!(
+                    " (同順位を按分した位置で下位から約 {:.0}%、n={})",
+                    p,
+                    format_number(agg.salary_min_values.len() as i64)
+                ));
             }
             s.push_str("。");
         }
+        // 補足2: 中間値比較は単一値表記だと低めに出る旨
         if let (Some(m), Some(p)) = (pos.market_median, pos.percentile_from_below) {
             s.push_str(&format!(
-                " {} {} を下限と上限の中間値どうしで比較すると下位から約 {:.0}% (市場の中間値中央値 {}) だが、幅を書かない単一値表記の求人は中間値=下限になるため、この比較では実態より低めに表示される点に注意。",
-                salary_label,
-                man_yen(pos.own_median),
+                " 下限と上限の中間値どうしの比較では下位から約 {:.0}% (市場の中間値の中央値 {}) だが、幅を書かない単一値表記の求人は中間値=下限になるため、実態より低めに見える。",
                 p,
                 man_yen(m),
             ));
-        }
-        // 説明文の上限記載を反映した仮の中間値での位置 (単一値カードのみ意味を持つ)
-        if let (Some(own_lo), Some(m)) = (own_min, pos.market_median) {
-            if let Some(card) = cards.first() {
-                let is_single = card.salary_max.map_or(true, |h| h <= own_lo);
-                if let (true, Some(d)) = (is_single, card.desc_salary_man) {
-                    let hypo_mid = (own_lo + d * 10_000) / 2;
-                    let rel = if hypo_mid > m {
-                        "上回る"
-                    } else if hypo_mid == m {
-                        "同水準になる"
-                    } else {
-                        "下回る"
-                    };
-                    s.push_str(&format!(
-                        " 説明文の月収{}万円を給与欄の上限として反映した場合の中間値 {} は、市場の中間値中央値 {} を{}。",
-                        d,
-                        man_yen(hypo_mid),
-                        man_yen(m),
-                        rel,
-                    ));
-                }
-            }
         }
         push("F-CO", "依頼企業", s);
 
@@ -652,11 +654,13 @@ const GUIDE_SYSTEM: &str = "\
    - 悪い例 (空虚。禁止): 「〜を検討する余地があるかもしれません」「〜を注視する必要があります」「〜を把握することが重要です」\n\
    - 良い例の型: 「(観測の核心。市場の過半と同じ/上回る/下回る等の位置づけ)ため、(具体的な打ち手の方向)が検討候補になります」\n\
 4. 数字の大小関係と、facts に書かれた「読み方」の向きを正しく使う。方向を取り違えない。\n\
-5. すべて可能性表現・提案形 (「〜の可能性があります」「〜が検討候補になります」)。断定・因果の断定 (「〜だから応募が増える」等)・命令形や「〜する。」で終わる指示文は禁止。提案には現実的な留意点 (例: 給与欄の上限を上げれば期待値調整が必要になる) を可能な範囲で添える。\n\
-6. composites と next_steps は per_fact の言い換え・繰り返しを禁止。composites は複数テーマの facts を重ねたときに初めて言えることだけを2〜4本。next_steps は具体的な作業として書き、既出の文の要約にしない。\n\
-7. facts が「〜の根拠には使えない」「〜に限る」と用途を限定している数値は、その限定に従う。\n\
-8. 誇張しない。禁止語: 必ず・確実・完璧・絶対・劇的・問題ない・強力。\n\
-9. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
+5. lead を含む全文で可能性表現・提案形 (「〜の可能性があります」「〜が検討候補になります」)。断定・因果の断定・命令形や「〜する。」「〜が求められます。」で終わる指示文は禁止。提案には現実的な留意点 (例: 給与欄の上限を上げれば面談時の期待値調整が必要) を可能な範囲で添える。\n\
+6. composites と next_steps は per_fact の言い換え・繰り返しを禁止。composites は複数テーマの facts の数値を実際に引用し、重ねたときに初めて言えることだけを2〜4本。next_steps は読み手が求人票・配信設定で今日直せる操作に限定し (3〜4項目)、分析表の作成など読み手への宿題は出さない。提案は next_steps のみに書き、composites や dakara で同じ提案を繰り返さない。\n\
+7. facts が「〜の根拠には使えない」「〜に限る」「〜しない」と用途を限定している数値・観測は、その限定に従う。特に F-TAG は市場の傾向説明に留め、依頼企業のカード (職種・雇用形態) に明らかに適合する場合以外、提案に使わない。\n\
+8. 依頼企業の給与の位置づけは F-CO の結論に全セクションで従う。別の場所で矛盾する前提 (「給与が低いので補う」等) を書かない。\n\
+9. 応募数・応募意欲への言及は禁止 (応募データは資料に存在しない)。\n\
+10. 誇張しない。禁止語: 必ず・確実・完璧・絶対・劇的・問題ない・強力。\n\
+11. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
 出力は日本語。";
 
 const REVIEW_SYSTEM: &str = "\
@@ -670,6 +674,7 @@ const REVIEW_SYSTEM: &str = "\
 7. 誇張・断定表現・命令形終止。\n\
 8. 提案の文脈適合: 募集する雇用形態・職種に合わない提案 (例: アルバイト向け語彙のタグを正社員技術職に推奨)、facts が用途を限定した数値の流用、per_fact と composites と next_steps の内容の重複・水増し。\n\
 9. 提案の副作用の欠落: 打ち手に現実的なリスク (例: 給与欄の上限表示を上げると面談時の期待値調整が必要) があるのに触れていない場合は指摘する。\n\
+10. 結論の一貫性: 依頼企業の給与の位置づけ (F-CO の結論) と矛盾する前提が他セクションに無いか。dakara がその fact の観測から論理的に導けない話 (観測していない応募数・効果への飛躍、無関係な提案の接続) になっていないか。\n\
 問題が一つも無ければ verdict を pass、あれば needs_fix とし、findings に場所 (fact_id やタイトル)・問題・修正案を書く。指摘は厳しく、見逃しなく。出力は日本語。";
 
 fn draft_schema() -> Value {
@@ -809,6 +814,15 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         {
             out.push(format!("{}: 禁止表現を含む (断定副詞)", label));
         }
+        // 2026-07-22 再監査対応: 応募数への言及は資料内に応募データが存在しないため
+        // すべて根拠なき因果 (「タグ付与で応募数が増加」等の実出力を検出した対策)。
+        const UNFOUNDED_OUTCOMES: [&str; 4] = ["応募が増", "応募数が増", "応募増加", "応募意欲"];
+        if UNFOUNDED_OUTCOMES.iter().any(|p| text.contains(p)) {
+            out.push(format!(
+                "{}: 禁止表現を含む (応募数・応募意欲への言及。応募データは資料に存在しない)",
+                label
+            ));
+        }
         if has_overclaim(text) {
             out.push(format!("{}: 言い過ぎ表現 (希少・皆無等の断定) を含む", label));
         }
@@ -859,6 +873,31 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         }
         let ref_ids: Vec<&str> = c.fact_ids.iter().map(|s| s.as_str()).collect();
         let scoped = allowed_of(&ref_ids);
+        // 2026-07-22 再監査対応: 列挙した観測のうち2つ以上から実際に数値を引用することを要求。
+        // (a) fact_ids の全列挙で許可集合だけ最大化する抜け道 (MED) と、
+        // (b) 「〜を考慮した条件設定を行う」のような数字のない言い換え水増しの両方を検出する。
+        {
+            let combined = format!("{} {}", c.thesis, c.so_what);
+            let used_plain = extract_numbers(&combined);
+            let used_unit = extract_unit_numbers(&combined);
+            let facts_with_number_used = c
+                .fact_ids
+                .iter()
+                .filter(|id| {
+                    facts.iter().find(|f| f.id == **id).map_or(false, |f| {
+                        f.numbers
+                            .iter()
+                            .any(|n| used_plain.contains(n) || used_unit.contains(n))
+                    })
+                })
+                .count();
+            if facts_with_number_used < 2 {
+                v.push(format!(
+                    "composite「{}」: 列挙した観測のうち数値を引用しているのが2件未満 (見出しの言い換えでなく、複数の数字を重ねて初めて言えることを書く)",
+                    c.title
+                ));
+            }
+        }
         v.extend(text_issues(
             &format!("composite「{}」thesis:", c.title),
             &c.thesis,
@@ -1280,6 +1319,84 @@ mod tests {
         assert!(!numbers_ok("120日以上は 12% にとどまります", &allowed));
         // 1桁の序数は許可
         assert!(numbers_ok("次の3つが優先です", &allowed));
+    }
+
+    #[test]
+    fn kanji_single_digit_quantities_are_blocked() {
+        // 2026-07-22 再監査 [HIGH]: 単漢字+金額/比率単位のすり抜け回帰テスト
+        let allowed: HashSet<String> = ["25.0", "25"].iter().map(|s| s.to_string()).collect();
+        assert!(!numbers_ok("上限は五万円まで可能です", &allowed));
+        assert!(!numbers_ok("求職者の八割が対象です", &allowed));
+        assert!(!numbers_ok("応募が三倍になる可能性", &allowed));
+        assert!(!numbers_ok("月給十万円からのスタート", &allowed));
+        // 慣用表現 (単漢字+日/人/件) は従来どおり許容
+        assert!(numbers_ok("一人ひとりに合わせた対応", &allowed));
+        assert!(numbers_ok("一件ずつ確認します", &allowed));
+    }
+
+    #[test]
+    fn unfounded_application_outcome_is_flagged() {
+        // 2026-07-22 再監査: 応募数への言及 (資料に応募データが無い) は禁止表現扱い
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
+        let draft = GuideDraft {
+            lead: String::new(),
+            per_fact: facts
+                .iter()
+                .map(|f| PerFact {
+                    fact_id: f.id.clone(),
+                    dakara: "タグの付与により応募数が増加する可能性があります。".to_string(),
+                })
+                .collect(),
+            composites: vec![],
+            next_steps: vec![],
+        };
+        let v = guard_violations(&draft, &facts);
+        assert!(
+            v.iter().any(|s| s.contains("応募数・応募意欲への言及")),
+            "応募数への飛躍が検出されるはず: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn composite_must_cite_numbers_from_two_facts() {
+        // 2026-07-22 再監査: 数値を引用しない複合 (見出しの言い換え) を検出
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
+        let draft = GuideDraft {
+            lead: String::new(),
+            per_fact: facts
+                .iter()
+                .map(|f| PerFact {
+                    fact_id: f.id.clone(),
+                    dakara: "判断材料になる可能性があります。".to_string(),
+                })
+                .collect(),
+            composites: vec![GuideComposite {
+                title: "条件設定の最適化".to_string(),
+                thesis: "市場の給与中央値および休日水準を考慮した条件設定の余地があります。".to_string(),
+                fact_ids: vec!["F-SAL".to_string(), "F-HOL".to_string()],
+                so_what: "条件の見せ方の見直しが検討候補になります。".to_string(),
+            }],
+            next_steps: vec![],
+        };
+        let v = guard_violations(&draft, &facts);
+        assert!(
+            v.iter().any(|s| s.contains("数値を引用しているのが2件未満")),
+            "数値なし複合が検出されるはず: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn midrank_pct_handles_ties() {
+        // 中央値と同額のタイ集中で「下位60%」と出ない (同順位按分)
+        let vals: Vec<i64> = vec![200, 250, 250, 250, 250, 250, 300, 350, 400, 450];
+        let p = midrank_pct(&vals, 250).unwrap();
+        assert!(
+            (p - 35.0).abs() < 1.0,
+            "below=1, eq=5 → (1+2.5)/10 = 35%: {}",
+            p
+        );
     }
 
     #[test]
