@@ -1344,7 +1344,7 @@ mod tests {
                 .iter()
                 .map(|f| PerFact {
                     fact_id: f.id.clone(),
-                    dakara: "タグの付与により応募数が増加する可能性があります。".to_string(),
+                    dakara: "タグを付けると応募数が増えるかもしれません。".to_string(),
                 })
                 .collect(),
             composites: vec![],
