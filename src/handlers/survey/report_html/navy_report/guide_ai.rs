@@ -80,8 +80,23 @@ fn norm_num(s: &str) -> String {
     s.replace(',', "").trim_end_matches('.').to_string()
 }
 
-/// text 内の数値トークンを抽出する (整数・小数・カンマ区切り)。
+/// 全角数字・全角記号を半角へ正規化する (ガード監査 HIGH-1 対応)。
+/// 全角数字は extract_numbers で「数字でない文字」扱いになり検証を素通りしていた。
+fn normalize_digits(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '０'..='９' => char::from_u32('0' as u32 + (c as u32 - '０' as u32)).unwrap_or(c),
+            '，' => ',',
+            '．' => '.',
+            '％' => '%',
+            _ => c,
+        })
+        .collect()
+}
+
+/// text 内の数値トークンを抽出する (整数・小数・カンマ区切り)。全角は正規化してから走査。
 fn extract_numbers(text: &str) -> Vec<String> {
+    let text = normalize_digits(text);
     let mut out = Vec::new();
     let mut cur = String::new();
     for c in text.chars() {
@@ -98,16 +113,74 @@ fn extract_numbers(text: &str) -> Vec<String> {
     out.into_iter().filter(|t| !t.is_empty()).collect()
 }
 
+/// 漢数字による数値表記 (2文字以上 + 数量単位) の検出 (ガード監査 HIGH-1 対応)。
+/// 「百三十日」「三十五万円」等はトークン化されず検証を素通りしていた。
+/// 1文字 (「一人ひとり」「一部」等の慣用) は誤検出を避けるため対象外 (1桁許可と整合)。
+fn has_kanji_numeral_quantity(text: &str) -> bool {
+    const KD: [char; 13] = [
+        '〇', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千',
+    ];
+    const UNITS: [char; 8] = ['万', '円', '日', '人', '件', '%', '割', '倍'];
+    let chars: Vec<char> = text.chars().collect();
+    let mut run = 0usize;
+    for c in &chars {
+        if KD.contains(c) {
+            run += 1;
+        } else if c.is_whitespace() {
+            // 「百三十 日」のように空白を挟む表記も検出するため run を維持
+        } else {
+            if run >= 2 && UNITS.contains(c) {
+                return true;
+            }
+            run = 0;
+        }
+    }
+    false
+}
+
+/// 数量単位 (万/千/割/倍/%) が直後に続く数値トークンを抽出する。
+/// ガード監査 HIGH-2/HIGH-3 対応: 「3万5千」の桁分解や「8割」「3倍」は
+/// 1桁トークンとして無条件許可されていた。単位付きは桁数によらず出所照合する。
+fn extract_unit_numbers(text: &str) -> Vec<String> {
+    let text = normalize_digits(text);
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for (i, c) in chars.iter().enumerate() {
+        if c.is_ascii_digit() || *c == '.' || *c == ',' {
+            cur.push(*c);
+        } else {
+            if !cur.is_empty() && matches!(c, '万' | '千' | '割' | '倍' | '%') {
+                // 「◯時」「◯分」等は対象外。数量単位が直後のときのみ照合対象。
+                let _ = i;
+                out.push(norm_num(&cur));
+            }
+            cur.clear();
+        }
+    }
+    out.into_iter().filter(|t| !t.is_empty()).collect()
+}
+
 /// 事実インベントリを構築する。数値はすべて agg / ctx 由来 (LLM には計算させない)。
 /// 各 statement は「観測」のみで「だから」を含まない (それが LLM の仕事)。
 pub(super) fn build_fact_inventory(
     agg: &SurveyAggregation,
     ctx: Option<&InsightContext>,
+    // 2026-07-21 監査対応: 検索地 (muni) を受け取り、市場の実体が広域である事実を明示する
+    search_muni: Option<&str>,
     company: Option<&str>,
 ) -> (Vec<GuideFact>, Option<CompanyPosition>) {
     let mut facts: Vec<GuideFact> = Vec::new();
     let mut push = |id: &str, theme: &str, statement: String| {
         let mut numbers = extract_numbers(&statement);
+        // 「22.0万円」を LLM が「22万円」と自然に言い換えたときに落とさないよう、
+        // 末尾 .0 を除いた形も許可集合に加える (ガード監査の補足指摘対応)。
+        let plain: Vec<String> = numbers
+            .iter()
+            .filter(|t| t.ends_with(".0"))
+            .map(|t| t.trim_end_matches(".0").to_string())
+            .collect();
+        numbers.extend(plain);
         numbers.sort();
         numbers.dedup();
         facts.push(GuideFact {
@@ -133,14 +206,31 @@ pub(super) fn build_fact_inventory(
             .map(|(n, c)| format!("{} {}件", n, c))
             .collect::<Vec<_>>()
             .join("・");
+        // 2026-07-21 監査対応: 検索地そのものの件数を明示 (市場の実体が広域である事実)。
+        let locale_note = search_muni
+            .and_then(|m| {
+                agg.by_municipality_salary
+                    .iter()
+                    .find(|x| x.name == m)
+                    .map(|x| {
+                        format!(
+                            "うち勤務地が検索地の{}なのは {} 件で、市場の実体は周辺市を含む広域 (求人サイトが通勤圏の求人を併せて表示するため)。",
+                            m,
+                            format_number(x.count as i64)
+                        )
+                    })
+            })
+            .unwrap_or_else(|| "検索地の市内に限らず通勤圏に広がる。".to_string());
         push(
             "F-SIZE",
             "市場規模",
             format!(
-                "重複整理後の求人は {} 件。掲載から間もない求人の割合 (目安) は {:.0}%。勤務地の上位は {}。検索地の市内に限らず通勤圏に広がる。",
+                "重複整理後の求人は {} 件。掲載から間もない求人の割合 (目安) は {:.0}% (裏返すと約{:.0}%は掲載から時間が経った求人で、これが市場の常態)。勤務地の上位は {}。{}",
                 format_number(agg.total_count as i64),
                 new_pct,
+                100.0 - new_pct,
                 if top3.is_empty() { "不明".to_string() } else { top3 },
+                locale_note,
             ),
         );
     }
@@ -156,11 +246,13 @@ pub(super) fn build_fact_inventory(
         } else {
             0.0
         };
+        // 2026-07-21 監査対応: 「開き」は別々に集計した中央値の差であり個々の求人の幅では
+        // ない点を明記。79% の分母表現も一義に。
         push(
             "F-SAL",
             "給与",
             format!(
-                "下限給与の中央値 {} / 上限給与の中央値 {} (開き {:.0}万円)。給与欄に幅 (下限〜上限) を示す求人はおよそ {:.0}% (下限給与が取れた求人比)。",
+                "下限給与の中央値 {} / 上限給与の中央値 {} (それぞれ別々に集計した中央値で、その差は {:.0}万円。個々の求人の給与幅そのものではない)。下限給与を確認できた求人のうち、上限も併記して幅を示すものはおよそ {:.0}%。",
                 man_yen(lo),
                 man_yen(hi),
                 spread_man,
@@ -179,14 +271,18 @@ pub(super) fn build_fact_inventory(
         let corr = jb
             .salary_holidays_correlation
             .map(|r| {
+                // 「独立」は言い過ぎ (線形相関が無いだけで非線形・交絡は否定できない) — 監査指摘。
                 let reading = if r <= -0.3 {
                     "休日が多い求人ほど給与が低い傾向 (逆相関) がある。休日訴求は給与面の印象とトレードオフになる可能性に注意"
                 } else if r >= 0.3 {
                     "休日が多い求人ほど給与も高い傾向 (正の相関) がある"
                 } else {
-                    "ほぼ無相関で、休日と給与は独立。休日を打ち出しても給与が低い印象と結びつく市場ではない"
+                    "線形の関連は見られない (独立の証明ではない)。少なくとも「休日が多い求人は給与が低い」という単純な関係はこのデータでは確認できない"
                 };
-                format!(" 休日と給与の相関係数は r={:.2}。{}。", r, reading)
+                format!(
+                    " 休日と給与の相関係数は r={:.2} (休日記載のある求人のみの集計)。{}。",
+                    r, reading
+                )
             })
             .unwrap_or_default();
         push(
@@ -224,7 +320,10 @@ pub(super) fn build_fact_inventory(
         push(
             "F-TAG",
             "訴求",
-            format!("給与が市場平均より高い側に分布するタグ: {}。相関であり因果ではない。", list),
+            format!(
+                "給与が市場平均より高い側に分布するタグ: {}。相関であり因果ではない。件数が数十件未満のタグは偶然変動の幅が大きい参考値。タグの採用は募集する雇用形態・職種の文脈に合う場合に限る (例: アルバイト向けの語彙を正社員募集に使わない)。",
+                list
+            ),
         );
     }
 
@@ -258,11 +357,12 @@ pub(super) fn build_fact_inventory(
             .map(|r| get_f64(r, "ratio_total"))
             .filter(|v| v.is_finite() && *v > 0.0);
         if let Some(r) = ratio {
+            // 2026-07-21 監査対応: 免責が直後の提案で空文化しないよう、用途制限を事実文に含める。
             push(
                 "F-DEM",
                 "需給",
                 format!(
-                    "直近の有効求人倍率は {:.2} 倍。県単位・産業計の参考値であり、対象職種の実勢とは差がある可能性がある。",
+                    "直近の有効求人倍率は {:.2} 倍。ただし県単位・全産業計の参考値で、人手不足が続く職種では実勢がこれより厳しい可能性が高い。市場の背景情報であり、個別の差別化戦略の根拠には使えない。",
                     r
                 ),
             );
@@ -283,16 +383,25 @@ pub(super) fn build_fact_inventory(
             } else {
                 "流入が流出を上回る、働き手が市外から入ってくる構造"
             };
+            // 2026-07-21 監査対応: 含意の読み方までコードで確定 (流出型なのに「流入者を
+            // 取り込め」と逆向きの戦略を書いた実出力への対策)。流入元自治体が同時に
+            // 求人の競合地でもある点も明記する。
+            let strategic_note = if c.commute_outflow_total > c.commute_inflow_total {
+                "自然な読み方: 市外へ通っている地元居住者に「地元で同水準の条件で働ける (通勤時間の短縮)」を訴求する流れ。流入元上位の自治体は配信対象の候補だが、同時に求人が集まる競合地でもある点に注意。"
+            } else {
+                "自然な読み方: 市外から通ってくる働き手が既に多いため、周辺自治体への露出拡大が母集団確保につながりやすい。"
+            };
             push(
                 "F-COM",
                 "通勤",
                 format!(
-                    "市外へ通勤する人 {} 人 / 市外から来る人 {} 人 / 市内で完結する通勤 {:.1}% (国勢調査 OD)。{}。周辺からの流入元の上位は {}。",
+                    "市外へ通勤する人 {} 人 / 市外から来る人 {} 人 / 市内で完結する通勤 {:.1}% (国勢調査 OD。全住民の通勤であり特定職種の求職者の動きそのものではない)。{}。周辺からの流入元の上位は {}。{}",
                     format_number(c.commute_outflow_total),
                     format_number(c.commute_inflow_total),
                     c.commute_self_rate * 100.0,
                     direction,
                     if top.is_empty() { "不明".to_string() } else { top },
+                    strategic_note,
                 ),
             );
         }
@@ -325,23 +434,7 @@ pub(super) fn build_fact_inventory(
         })
     });
     if let Some(pos) = &position {
-        let mut s = format!(
-            "依頼企業「{}」の求人 {} 件が収集データ内にある。提示給与の中央値 {} (下限と上限の中間値ベース)。",
-            pos.name,
-            pos.count,
-            man_yen(pos.own_median),
-        );
-        if let Some(m) = pos.market_median {
-            s.push_str(&format!(" 市場全体の中央値は {}。", man_yen(m)));
-        }
-        if let Some(p) = pos.percentile_from_below {
-            s.push_str(&format!(" 分布の下位からおよそ {:.0}% の位置。", p));
-        }
-        push("F-CO", "依頼企業", s);
-
-        // Phase 2a (2026-07-20): カード単位の観測。依頼企業の求人カードそのものを
-        // 市場分布に重ねる (給与欄の形式 / 説明文との乖離 / 休日記載の市場内位置)。
-        // 数値・判定はすべてコードで確定し、LLM には解釈だけを書かせる。
+        // カードは F-CO の物差し補正にも使うため先に取得。
         let name = pos.name.as_str();
         let cards: Vec<&CardBrief> = agg
             .card_briefs
@@ -349,6 +442,85 @@ pub(super) fn build_fact_inventory(
             .filter(|cb| cb.company.contains(name) || name.contains(cb.company.as_str()))
             .take(2)
             .collect();
+
+        // 2026-07-21 監査対応 (最重要): 物差しを揃えた多面比較。
+        // 旧実装は「貴社=単一値 (実質下限) vs 市場=中間値」の比較だけを見せ、
+        // 実際は市場中央並みの給与を「下位22%」と誤導していた。
+        // - 主比較: 下限どうし (単一値カードに公平)
+        // - 補足: 中間値どうし (単一値表記は低めに出る旨を明記)
+        // - 説明文に上限記載がある場合: それを反映した仮の中間値での位置も併記
+        let salary_label = if pos.count == 1 {
+            "提示給与"
+        } else {
+            "提示給与の中央値"
+        };
+        let mut s = format!(
+            "依頼企業「{}」の求人 {} 件が収集データ内にある。",
+            pos.name, pos.count,
+        );
+        let own_min = cards.iter().find_map(|cb| cb.salary_min.filter(|_| cb.is_monthly));
+        let market_lo_median = median_of(&agg.salary_min_values);
+        if let (Some(own_lo), Some(mlo)) = (own_min, market_lo_median) {
+            let lp = if agg.salary_min_values.is_empty() {
+                None
+            } else {
+                let below = agg.salary_min_values.iter().filter(|v| **v <= own_lo).count();
+                Some(below as f64 / agg.salary_min_values.len() as f64 * 100.0)
+            };
+            let rel = if own_lo > mlo {
+                "上回る"
+            } else if own_lo == mlo {
+                "同額"
+            } else {
+                "下回る"
+            };
+            s.push_str(&format!(
+                " 給与欄の下限 {} は市場の下限中央値 {} と比べて{}",
+                man_yen(own_lo),
+                man_yen(mlo),
+                rel,
+            ));
+            if let Some(p) = lp {
+                s.push_str(&format!(" (下限どうしの比較で下位から約 {:.0}%)", p));
+            }
+            s.push_str("。");
+        }
+        if let (Some(m), Some(p)) = (pos.market_median, pos.percentile_from_below) {
+            s.push_str(&format!(
+                " {} {} を下限と上限の中間値どうしで比較すると下位から約 {:.0}% (市場の中間値中央値 {}) だが、幅を書かない単一値表記の求人は中間値=下限になるため、この比較では実態より低めに表示される点に注意。",
+                salary_label,
+                man_yen(pos.own_median),
+                p,
+                man_yen(m),
+            ));
+        }
+        // 説明文の上限記載を反映した仮の中間値での位置 (単一値カードのみ意味を持つ)
+        if let (Some(own_lo), Some(m)) = (own_min, pos.market_median) {
+            if let Some(card) = cards.first() {
+                let is_single = card.salary_max.map_or(true, |h| h <= own_lo);
+                if let (true, Some(d)) = (is_single, card.desc_salary_man) {
+                    let hypo_mid = (own_lo + d * 10_000) / 2;
+                    let rel = if hypo_mid > m {
+                        "上回る"
+                    } else if hypo_mid == m {
+                        "同水準になる"
+                    } else {
+                        "下回る"
+                    };
+                    s.push_str(&format!(
+                        " 説明文の月収{}万円を給与欄の上限として反映した場合の中間値 {} は、市場の中間値中央値 {} を{}。",
+                        d,
+                        man_yen(hypo_mid),
+                        man_yen(m),
+                        rel,
+                    ));
+                }
+            }
+        }
+        push("F-CO", "依頼企業", s);
+
+        // Phase 2a (2026-07-20): カード単位の観測。依頼企業の求人カードそのものを
+        // 市場分布に重ねる (給与欄の形式 / 説明文との乖離 / 休日記載の市場内位置)。
         for (i, cb) in cards.iter().enumerate() {
             if let Some(s) = build_card_statement(cb, agg) {
                 push(&format!("F-CO-CARD{}", i + 1), "貴社求人カード", s);
@@ -410,9 +582,14 @@ fn build_card_statement(cb: &CardBrief, agg: &SurveyAggregation) -> Option<Strin
         parts.push(s);
     }
 
-    // 新着表示
-    if !cb.is_new {
-        parts.push("新着表示はない (掲載から時間が経過している可能性)".to_string());
+    // 新着表示。2026-07-21 監査対応: 市場の約8割は新着でないのが常態のため、
+    // 単体でネガティブ扱いしない (市場文脈を併記)。
+    if !cb.is_new && agg.total_count > 0 {
+        let new_pct = agg.new_count as f64 / agg.total_count as f64 * 100.0;
+        parts.push(format!(
+            "新着表示はない (市場でも新着表示は約{:.0}%のみで、これ自体は珍しくない)",
+            new_pct
+        ));
     }
 
     if parts.is_empty() {
@@ -470,15 +647,16 @@ struct ReviewFinding {
 const GUIDE_SYSTEM: &str = "\
 あなたは採用市場レポートの解説資料を書く執筆者です。読み手はレポートを受け取る企業の担当者です。以下を厳守してください。\n\
 1. 事実インベントリ (facts) に書かれた数値・事実以外を一切書かない。新しい数値を計算しない (割り算・掛け算・差の計算も禁止。facts に書いてある数値だけを使う)。\n\
-2. 各事実の dakara は「その数字が読み手の求人にとって何を意味するか」の着地文。数字の言い換えではなく、読み手が明日やることが変わる含意を書く。\n\
+2. 数値は半角の算用数字のみで書く。漢数字 (三十五万)・全角数字 (３５)・桁分解 (3万5千) は禁止。「◯割」「◯倍」のような facts に無い割合・倍率を作らない。\n\
+3. 各事実の dakara は「その数字が読み手の求人にとって何を意味するか」の着地文。数字の言い換えではなく、読み手が明日やることが変わる含意を書く。\n\
    - 悪い例 (空虚。禁止): 「〜を検討する余地があるかもしれません」「〜を注視する必要があります」「〜を把握することが重要です」\n\
    - 良い例の型: 「(観測の核心。市場の過半と同じ/上回る/下回る等の位置づけ)ため、(具体的な打ち手の方向)が検討候補になります」\n\
-   - 良い例 (数値は伏せ字。実際は facts の数値を使う): 「下限給与は市場の中央値と同水準のため、下限額で見劣りしているわけではない可能性があります。差が出ているのは上限側なので、昇給後の到達額を給与欄の上限として見せることが検討候補になります」\n\
-3. 数字の大小関係を正しく読む。例えば流出が流入を上回るなら「働き手が市外へ出ていく構造」であり、その逆ではない。方向を取り違えない。\n\
-4. すべて可能性表現 (「〜の可能性があります」「〜とみられます」)。断定・因果の断定 (「〜だから応募が増える」等) は禁止。\n\
-5. composites は複数テーマの facts を編んだ考察を2〜4本。単一テーマの言い換えや「関連性がある可能性があります」のような中身のない文は不可。2つの数字を重ねたときに初めて言えることを書く。\n\
-6. 誇張しない。禁止語: 必ず・確実に・完璧・絶対・劇的・問題ない。\n\
-7. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
+4. 数字の大小関係と、facts に書かれた「読み方」の向きを正しく使う。方向を取り違えない。\n\
+5. すべて可能性表現・提案形 (「〜の可能性があります」「〜が検討候補になります」)。断定・因果の断定 (「〜だから応募が増える」等)・命令形や「〜する。」で終わる指示文は禁止。提案には現実的な留意点 (例: 給与欄の上限を上げれば期待値調整が必要になる) を可能な範囲で添える。\n\
+6. composites と next_steps は per_fact の言い換え・繰り返しを禁止。composites は複数テーマの facts を重ねたときに初めて言えることだけを2〜4本。next_steps は具体的な作業として書き、既出の文の要約にしない。\n\
+7. facts が「〜の根拠には使えない」「〜に限る」と用途を限定している数値は、その限定に従う。\n\
+8. 誇張しない。禁止語: 必ず・確実・完璧・絶対・劇的・問題ない・強力。\n\
+9. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
 出力は日本語。";
 
 const REVIEW_SYSTEM: &str = "\
@@ -489,7 +667,9 @@ const REVIEW_SYSTEM: &str = "\
 4. 大小関係の方向: 数字の大小 (流出と流入、比率の過半かどうか等) から言える方向を取り違えていないか。例えば流出が流入を上回るのに「流入がある」側の解釈だけを書くのは方向の誤り。\n\
 5. 反対解釈: 同じ数字から逆の解釈が成り立つのに一方だけを書いていないか。\n\
 6. 着地の空虚さ: dakara や so_what が「検討する余地がある」「注視する必要がある」「把握することが重要」のような、読み手の行動が何も変わらない文になっていないか。空虚な着地は必ず指摘し、その数字の位置づけ (過半と同じ/上回る/下回る) から言える具体的な打ち手の方向を修正案として書く。\n\
-7. 誇張・断定表現。\n\
+7. 誇張・断定表現・命令形終止。\n\
+8. 提案の文脈適合: 募集する雇用形態・職種に合わない提案 (例: アルバイト向け語彙のタグを正社員技術職に推奨)、facts が用途を限定した数値の流用、per_fact と composites と next_steps の内容の重複・水増し。\n\
+9. 提案の副作用の欠落: 打ち手に現実的なリスク (例: 給与欄の上限表示を上げると面談時の期待値調整が必要) があるのに触れていない場合は指摘する。\n\
 問題が一つも無ければ verdict を pass、あれば needs_fix とし、findings に場所 (fact_id やタイトル)・問題・修正案を書く。指摘は厳しく、見逃しなく。出力は日本語。";
 
 fn draft_schema() -> Value {
@@ -562,16 +742,36 @@ fn parse_draft(v: &Value) -> Option<GuideDraft> {
 // ============================================================
 
 /// 文中の数値トークンが許可集合に含まれるか。
-/// 1桁の数値 (「3つ」等の序数) は許可。2桁以上は facts 由来でなければ不合格。
+/// - 2桁以上は facts 由来でなければ不合格
+/// - 1桁は序数 (「3つ」) を許容するため原則許可。ただし数量単位 (万/千/割/倍/%) が
+///   直後に続く場合は桁数によらず照合する (「8割」「3万5千」型の捏造対策、監査 HIGH-2/3)
+/// - 漢数字2文字以上+数量単位は表記自体を不合格 (「三十五万円」型のすり抜け対策、監査 HIGH-1)
 pub(super) fn numbers_ok(text: &str, allowed: &HashSet<String>) -> bool {
-    extract_numbers(text)
+    if has_kanji_numeral_quantity(text) {
+        return false;
+    }
+    let plain_ok = extract_numbers(text)
         .iter()
-        .all(|t| t.chars().filter(|c| c.is_ascii_digit()).count() <= 1 || allowed.contains(t))
+        .all(|t| t.chars().filter(|c| c.is_ascii_digit()).count() <= 1 || allowed.contains(t));
+    let unit_ok = extract_unit_numbers(text).iter().all(|t| allowed.contains(t));
+    plain_ok && unit_ok
 }
 
 /// ガード検査結果 (機械検査の指摘リスト。修正コールへのフィードバックにも使う)。
+///
+/// 数値の許可集合は監査 MED-4 (fact 跨ぎの数値ロンダリング) 対応でスコープする:
+/// - per_fact の dakara → その fact の数値のみ
+/// - composite → 参照 fact_ids の数値の和集合
+/// - lead / next_steps → 全 facts の和集合 (全体要約のため)
 pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<String> {
     let allowed: HashSet<String> = facts.iter().flat_map(|f| f.numbers.iter().cloned()).collect();
+    let allowed_of = |ids: &[&str]| -> HashSet<String> {
+        facts
+            .iter()
+            .filter(|f| ids.contains(&f.id.as_str()))
+            .flat_map(|f| f.numbers.iter().cloned())
+            .collect()
+    };
     let fact_ids: HashSet<&str> = facts.iter().map(|f| f.id.as_str()).collect();
     let themes_of = |ids: &[String]| -> usize {
         let mut ts: HashSet<&str> = HashSet::new();
@@ -598,11 +798,25 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         if contains_forbidden(text) {
             out.push(format!("{}: 禁止表現を含む", label));
         }
+        // 2026-07-21 監査 MED-5: 単独の断定副詞も禁止表現扱い (「必ず母集団が増えます」等の
+        // 言い換え回避対策)。「必ずしも〜ない」はヘッジ表現なので除外する。
+        const ASSERTIVE_WORDS: [&str; 3] = ["絶対", "完璧", "劇的"];
+        if ASSERTIVE_WORDS.iter().any(|p| text.contains(p))
+            || text
+                .match_indices("必ず")
+                .any(|(pos, m)| !text[pos + m.len()..].starts_with("しも"))
+            || text.contains("確実")
+        {
+            out.push(format!("{}: 禁止表現を含む (断定副詞)", label));
+        }
         if has_overclaim(text) {
             out.push(format!("{}: 言い過ぎ表現 (希少・皆無等の断定) を含む", label));
         }
         if !numbers_ok(text, allowed) {
-            out.push(format!("{}: 事実インベントリに無い数値を含む", label));
+            out.push(format!(
+                "{}: 事実インベントリに無い数値を含む (漢数字・全角数字・桁分解表記も不可。半角算用数字で facts の値のみ使用)",
+                label
+            ));
         }
         if VAGUE_PHRASES.iter().any(|p| text.contains(p)) {
             out.push(format!(
@@ -611,7 +825,6 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
             ));
         }
         // 2026-07-21: 誇張形容 (実出力で「強力な訴求ポイントです」を検出した対策)。
-        // 断定形容はデータで裏付けられないため、可能性表現+中立形容に書き直させる。
         const OVERSTATEMENTS: [&str; 4] = ["強力な", "圧倒的", "最強", "抜群"];
         if OVERSTATEMENTS.iter().any(|p| text.contains(p)) {
             out.push(format!(
@@ -623,17 +836,17 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
     }
 
     let mut v: Vec<String> = Vec::new();
-    v.extend(text_issues("lead", &draft.lead, &allowed));
+    v.extend(text_issues("lead:", &draft.lead, &allowed));
     for pf in &draft.per_fact {
         if !fact_ids.contains(pf.fact_id.as_str()) {
             v.push(format!("per_fact {}: 実在しない fact_id", pf.fact_id));
             continue;
         }
-        // 数値ガードは全 facts の数値を許可 (statement 引用を許容)
+        // MED-4: 許可集合は当該 fact の数値に限定 (fact 跨ぎの数値流用を遮断)
         v.extend(text_issues(
-            &format!("per_fact {}", pf.fact_id),
+            &format!("per_fact {}:", pf.fact_id),
             &pf.dakara,
-            &allowed,
+            &allowed_of(&[pf.fact_id.as_str()]),
         ));
     }
     for c in &draft.composites {
@@ -644,19 +857,21 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         if themes_of(&c.fact_ids) < 2 {
             v.push(format!("composite「{}」: 2テーマ未満 (複合になっていない)", c.title));
         }
+        let ref_ids: Vec<&str> = c.fact_ids.iter().map(|s| s.as_str()).collect();
+        let scoped = allowed_of(&ref_ids);
         v.extend(text_issues(
-            &format!("composite「{}」thesis", c.title),
+            &format!("composite「{}」thesis:", c.title),
             &c.thesis,
-            &allowed,
+            &scoped,
         ));
         v.extend(text_issues(
-            &format!("composite「{}」so_what", c.title),
+            &format!("composite「{}」so_what:", c.title),
             &c.so_what,
-            &allowed,
+            &scoped,
         ));
     }
     for (i, s) in draft.next_steps.iter().enumerate() {
-        v.extend(text_issues(&format!("next_step {}", i + 1), s, &allowed));
+        v.extend(text_issues(&format!("next_step {}:", i + 1), s, &allowed));
     }
     // カバレッジ: 全 facts に per_fact の着地があること
     for f in facts {
@@ -707,71 +922,105 @@ pub(super) async fn generate_guide_ai(
     let resp = client.generate_json(GUIDE_SYSTEM, &user1, draft_schema()).await?;
     let mut draft = parse_draft(&resp)?;
 
-    // ② レビュー (逆証明)
-    let user2 = format!(
-        "facts:\n{}\n\ndraft:\n{}",
-        facts_str,
+    // draft の JSON 表現 (レビュー・修正コールの入力用)
+    let draft_json = |d: &GuideDraft| -> String {
         serde_json::to_string(&json!({
-            "lead": draft.lead,
-            "per_fact": draft.per_fact.iter().map(|p| json!({"fact_id": p.fact_id, "dakara": p.dakara})).collect::<Vec<_>>(),
-            "composites": draft.composites.iter().map(|c| json!({"title": c.title, "thesis": c.thesis, "fact_ids": c.fact_ids, "so_what": c.so_what})).collect::<Vec<_>>(),
-            "next_steps": draft.next_steps,
+            "lead": d.lead,
+            "per_fact": d.per_fact.iter().map(|p| json!({"fact_id": p.fact_id, "dakara": p.dakara})).collect::<Vec<_>>(),
+            "composites": d.composites.iter().map(|c| json!({"title": c.title, "thesis": c.thesis, "fact_ids": c.fact_ids, "so_what": c.so_what})).collect::<Vec<_>>(),
+            "next_steps": d.next_steps,
         }))
         .unwrap_or_default()
-    );
+    };
+
+    // ② レビュー (逆証明)。監査 MED-7 対応:
+    // - レビューコール失敗は「意味検証 (因果・分母・反対解釈) 未実施」を意味するため、
+    //   pass 扱いにせず None (決定的テンプレへフォールバック) とする。
+    // - verdict=needs_fix なのに findings が空の場合は合成指摘で修正を起動する。
+    let run_review = |user: String| async move {
+        client
+            .generate_json(REVIEW_SYSTEM, &user, review_schema())
+            .await
+            .and_then(|v| serde_json::from_value::<ReviewResult>(v).ok())
+    };
+    let review_findings_of = |r: &ReviewResult| -> Vec<String> {
+        let mut fs: Vec<String> = r
+            .findings
+            .iter()
+            .map(|f| format!("[{}] {} → 修正案: {}", f.location, f.problem, f.fix))
+            .collect();
+        if fs.is_empty() && r.verdict == "needs_fix" {
+            fs.push(
+                "[全体] レビュアーが問題ありと判定 (詳細なし)。因果断定・分母・反対解釈の観点で全体を点検して書き直す"
+                    .to_string(),
+            );
+        }
+        fs
+    };
+
     calls += 1;
-    let review: ReviewResult = client
-        .generate_json(REVIEW_SYSTEM, &user2, review_schema())
-        .await
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
+    let review1 = run_review(format!("facts:\n{}\n\ndraft:\n{}", facts_str, draft_json(&draft))).await?;
+    let mut total_findings = 0usize;
+    let mut findings = review_findings_of(&review1);
+    findings.extend(guard_violations(&draft, facts));
+    total_findings += findings.len();
 
-    // Rust ガードの機械指摘も合流
-    let mut all_findings: Vec<String> = review
-        .findings
-        .iter()
-        .map(|f| format!("[{}] {} → 修正案: {}", f.location, f.problem, f.fix))
-        .collect();
-    all_findings.extend(guard_violations(&draft, facts));
-
-    // ③ 修正 (指摘があるときだけ)
-    if !all_findings.is_empty() {
-        let user3 = format!(
+    // ③ 修正 → ④ 再レビュー → ⑤ 再修正 (指摘が続く限り、上限5コール)。
+    // 監査 MED-7: 修正後の出力が未レビューのまま出荷される穴を塞ぐ。
+    for round in 0..2 {
+        if findings.is_empty() {
+            break;
+        }
+        let user_fix = format!(
             "対象地域: {}\nfacts:\n{}\n\n前回の起草に対して以下の指摘があった。全て反映して書き直してください。\
              指摘のない箇所は維持してよい。\n指摘:\n- {}\n\n前回の起草:\n{}",
             region,
             facts_str,
-            all_findings.join("\n- "),
-            serde_json::to_string(&json!({
-                "lead": draft.lead,
-                "per_fact": draft.per_fact.iter().map(|p| json!({"fact_id": p.fact_id, "dakara": p.dakara})).collect::<Vec<_>>(),
-                "composites": draft.composites.iter().map(|c| json!({"title": c.title, "thesis": c.thesis, "fact_ids": c.fact_ids, "so_what": c.so_what})).collect::<Vec<_>>(),
-                "next_steps": draft.next_steps,
-            }))
-            .unwrap_or_default()
+            findings.join("\n- "),
+            draft_json(&draft)
         );
         calls += 1;
-        if let Some(resp3) = client.generate_json(GUIDE_SYSTEM, &user3, draft_schema()).await {
-            if let Some(d3) = parse_draft(&resp3) {
-                draft = d3;
+        if let Some(resp) = client.generate_json(GUIDE_SYSTEM, &user_fix, draft_schema()).await {
+            if let Some(d) = parse_draft(&resp) {
+                draft = d;
             }
+        }
+        if round == 0 {
+            // 修正後にもう一度だけ意味レビューをかける (計4コール目)。
+            calls += 1;
+            let review2 =
+                run_review(format!("facts:\n{}\n\ndraft:\n{}", facts_str, draft_json(&draft)))
+                    .await?;
+            findings = review_findings_of(&review2);
+            findings.extend(guard_violations(&draft, facts));
+            total_findings += findings.len();
+        } else {
+            findings.clear();
         }
     }
 
-    // 最終ガード (機械検査)。カバレッジ欠けは該当 fact を素通しせず「観測のみ表示」に
-    // なるだけなので致命ではない — 致命 (禁止語・数値捏造・偽 fact_id) が残っていたら
-    // 項目単位で落とし、全滅なら None。
+    // 最終ガード (機械検査)。監査 MED-6/MED-8 対応:
+    // - 致命 = 禁止表現 / 出所不明の数値 / 実在しない fact_id / 言い過ぎ / 誇張形容。
+    //   修正2回を経ても残ったこれらは項目単位で落とす (顧客向け文書に残す実害の方が大きい)。
+    // - ラベルはコロンまで含めた前方一致で判定 (F-CO と F-CO-CARD1 の prefix 衝突による
+    //   巻き添えドロップを防ぐ)。
     let violations = guard_violations(&draft, facts);
-    let fatal = |label_prefix: &str| {
+    let fatal = |label_with_colon: &str| {
         violations.iter().any(|v| {
-            v.starts_with(label_prefix)
-                && (v.contains("禁止表現") || v.contains("無い数値") || v.contains("実在しない"))
+            v.starts_with(label_with_colon)
+                && (v.contains("禁止表現")
+                    || v.contains("無い数値")
+                    || v.contains("実在しない")
+                    || v.contains("言い過ぎ")
+                    || v.contains("誇張形容"))
         })
     };
-    if fatal("lead") {
+    if fatal("lead:") {
         draft.lead = String::new();
     }
-    draft.per_fact.retain(|pf| !fatal(&format!("per_fact {}", pf.fact_id)));
+    draft
+        .per_fact
+        .retain(|pf| !fatal(&format!("per_fact {}:", pf.fact_id)));
     draft
         .composites
         .retain(|c| !fatal(&format!("composite「{}」", c.title)));
@@ -779,7 +1028,7 @@ pub(super) async fn generate_guide_ai(
         .next_steps
         .iter()
         .enumerate()
-        .filter(|(i, _)| !fatal(&format!("next_step {}", i + 1)))
+        .filter(|(i, _)| !fatal(&format!("next_step {}:", i + 1)))
         .map(|(_, s)| s.clone())
         .collect();
     draft.next_steps = steps;
@@ -791,7 +1040,7 @@ pub(super) async fn generate_guide_ai(
 
     tracing::info!(
         calls,
-        review_findings = all_findings.len(),
+        total_findings,
         per_fact = draft.per_fact.len(),
         composites = draft.composites.len(),
         remaining_violations = violations.len(),
@@ -800,7 +1049,7 @@ pub(super) async fn generate_guide_ai(
 
     Some(GuideAiOutcome {
         draft,
-        review_findings: all_findings.len(),
+        review_findings: total_findings,
         calls_used: calls,
     })
 }
@@ -832,7 +1081,7 @@ pub(super) fn render_guide_ai_html(
          <div class=\"eyebrow\">READER'S GUIDE</div>\
          <h1>求人市場 総合診断レポート 解説資料</h1>\
          <div class=\"lede\">対象: 求人市場 総合診断レポート【{}】。数値はすべてレポート本体と同じ\
-         集計から確定させ、解釈文は AI の起草を逆証明レビューと機械検証にかけたものです。\
+         集計から算出しています。解釈の文章は、数値の出所確認を含む複数段階の検証を経て掲載しています。\
          記載はデータから言える範囲の傾向・可能性であり、断定ではありません。</div></header>\n",
         escape_html(region)
     ));
@@ -931,9 +1180,9 @@ pub(super) fn render_guide_ai_html(
     html.push_str(
         "<footer class=\"doc\">出典: 今回アップロードされた求人検索データ (重複整理後) / \
          国勢調査 (通勤 OD 含む) / e-Stat 各種統計 (詳細はレポート本体の「注記・出典・免責」)。<br>\
-         本資料の数値はレポート本体と同じ集計から生成し、解釈文は AI の起草に逆証明レビューと\
-         機械検証 (数値出所・禁止表現・過剰主張) を適用しています。応募数・採用可否を保証する\
-         ものではありません。</footer>\n",
+         本資料の数値はレポート本体と同じ集計から生成しています。解釈の文章は、数値の出所確認・\
+         表現の点検を含む複数段階の検証を経ています。応募数・採用可否を保証するものでは\
+         ありません。</footer>\n",
     );
     html.push_str("</div>\n</body>\n</html>\n");
     html
@@ -954,7 +1203,7 @@ pub(crate) async fn render_survey_guide_page_ai(
     company: Option<&str>,
 ) -> Option<String> {
     let client = GeminiClient::from_env()?;
-    let (facts, position) = build_fact_inventory(agg, ctx, company);
+    let (facts, position) = build_fact_inventory(agg, ctx, Some(muni).filter(|m| !m.is_empty()), company);
     let region = if muni.is_empty() {
         pref.to_string()
     } else {
@@ -1008,7 +1257,7 @@ mod tests {
 
     #[test]
     fn fact_inventory_builds_expected_ids() {
-        let (facts, pos) = build_fact_inventory(&rich_agg(), None, Some("テスト工業"));
+        let (facts, pos) = build_fact_inventory(&rich_agg(), None, None, Some("テスト工業"));
         let ids: Vec<&str> = facts.iter().map(|f| f.id.as_str()).collect();
         assert!(ids.contains(&"F-SIZE"));
         assert!(ids.contains(&"F-SAL"));
@@ -1023,7 +1272,7 @@ mod tests {
 
     #[test]
     fn fact_numbers_are_extracted_for_provenance() {
-        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let size = facts.iter().find(|f| f.id == "F-SIZE").unwrap();
         assert!(size.numbers.contains(&"600".to_string()), "{:?}", size.numbers);
         let hol = facts.iter().find(|f| f.id == "F-HOL").unwrap();
@@ -1044,8 +1293,60 @@ mod tests {
     }
 
     #[test]
+    fn numbers_guard_blocks_fullwidth_kanji_and_unit_decomposition() {
+        // ガード監査 HIGH-1/2/3 の回帰テスト
+        let allowed: HashSet<String> = ["25.0", "25", "21"].iter().map(|s| s.to_string()).collect();
+        // 全角数字の捏造は不合格 (正規化後に照合される)
+        assert!(!numbers_ok("上限給与は ４０万円 に達する可能性があります", &allowed));
+        // 漢数字2文字以上+数量単位は表記自体を不合格
+        assert!(!numbers_ok("年間休日は 百三十 日以上が主流です", &allowed));
+        assert!(!numbers_ok("三十五万円 まで可能です", &allowed));
+        // 桁分解 (数字+万/千) は単位付き照合で不合格
+        assert!(!numbers_ok("月給 3万5千円 も可能です", &allowed));
+        // 1桁+割/倍の割合捏造は不合格
+        assert!(!numbers_ok("求職者の 8割 が対象です", &allowed));
+        assert!(!numbers_ok("応募が 3倍 になる可能性があります", &allowed));
+        // 正当な表現は通る: 許可済み数値+単位 / 序数 / 「一人ひとり」(漢数字1文字)
+        assert!(numbers_ok("市場の 21% が新着で、25万円 が下限です", &allowed));
+        assert!(numbers_ok("次の3つが優先です。一人ひとりに合わせます", &allowed));
+        // 「25.0万円」→「25万円」の言い換えは fact 側の .0 なし変種で許可される
+        assert!(numbers_ok("下限は 25万円 です", &allowed));
+    }
+
+    #[test]
+    fn numbers_guard_scopes_per_fact_allowed_set() {
+        // ガード監査 MED-4: 別 fact の数値 (休日53%) を給与の話に流用したら検出
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
+        let draft = GuideDraft {
+            lead: String::new(),
+            per_fact: vec![PerFact {
+                fact_id: "F-SAL".to_string(),
+                // 53 は F-HOL 由来で F-SAL の numbers には無い
+                dakara: "給与は市場平均を 53% 上回る可能性があります。".to_string(),
+            }],
+            composites: vec![],
+            next_steps: vec![],
+        };
+        let v = guard_violations(&draft, &facts);
+        assert!(
+            v.iter().any(|s| s.starts_with("per_fact F-SAL:") && s.contains("無い数値")),
+            "fact 跨ぎの数値流用が検出されるはず: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn fatal_label_no_prefix_collision() {
+        // ガード監査 MED-8: F-CO-CARD1 の違反ラベルが F-CO を巻き添えにしない
+        // (ラベルはコロン込み前方一致で判定される)
+        let label_co = "per_fact F-CO:";
+        let violation_card = "per_fact F-CO-CARD1: 事実インベントリに無い数値を含む";
+        assert!(!violation_card.starts_with(label_co));
+    }
+
+    #[test]
     fn guard_detects_fake_fact_id_and_missing_coverage() {
-        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let draft = GuideDraft {
             lead: "全体として市場は動いているとみられます。".to_string(),
             per_fact: vec![PerFact {
@@ -1074,7 +1375,7 @@ mod tests {
             is_new: false,
             desc_salary_man: Some(35),
         });
-        let (facts, _) = build_fact_inventory(&agg, None, Some("テスト工業"));
+        let (facts, _) = build_fact_inventory(&agg, None, None, Some("テスト工業"));
         let card = facts
             .iter()
             .find(|f| f.id == "F-CO-CARD1")
@@ -1101,7 +1402,7 @@ mod tests {
             is_new: true,
             desc_salary_man: Some(25),
         });
-        let (facts, _) = build_fact_inventory(&agg, None, Some("テスト工業"));
+        let (facts, _) = build_fact_inventory(&agg, None, None, Some("テスト工業"));
         let card = facts.iter().find(|f| f.id == "F-CO-CARD1").unwrap();
         assert!(
             !card.statement.contains("反映されていない"),
@@ -1115,7 +1416,7 @@ mod tests {
         // 逆相関市場 (r=-0.5): 事実文にトレードオフ注意が入る
         let mut agg = rich_agg();
         agg.jobbox.salary_holidays_correlation = Some(-0.5);
-        let (facts, _) = build_fact_inventory(&agg, None, None);
+        let (facts, _) = build_fact_inventory(&agg, None, None, None);
         let hol = facts.iter().find(|f| f.id == "F-HOL").unwrap();
         assert!(hol.statement.contains("逆相関"), "{}", hol.statement);
         assert!(hol.statement.contains("トレードオフ"), "{}", hol.statement);
@@ -1123,7 +1424,7 @@ mod tests {
         // 無相関市場 (r=0.08): 独立の明記
         let mut agg2 = rich_agg();
         agg2.jobbox.salary_holidays_correlation = Some(0.08);
-        let (facts2, _) = build_fact_inventory(&agg2, None, None);
+        let (facts2, _) = build_fact_inventory(&agg2, None, None, None);
         let hol2 = facts2.iter().find(|f| f.id == "F-HOL").unwrap();
         assert!(hol2.statement.contains("独立"), "{}", hol2.statement);
         assert!(!hol2.statement.contains("逆相関"), "{}", hol2.statement);
@@ -1132,7 +1433,7 @@ mod tests {
     #[test]
     fn guard_detects_overstatement() {
         // 実出力で検出した「強力な訴求ポイントです」型の誇張形容
-        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let draft = GuideDraft {
             lead: "貴社の休日は強力な訴求ポイントです。".to_string(),
             per_fact: facts
@@ -1155,7 +1456,7 @@ mod tests {
 
     #[test]
     fn guard_detects_vague_landing() {
-        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let draft = GuideDraft {
             lead: String::new(),
             per_fact: facts
@@ -1182,7 +1483,7 @@ mod tests {
         ctx.commute_inflow_total = 19_545;
         ctx.commute_outflow_total = 36_956;
         ctx.commute_self_rate = 0.315;
-        let (facts, _) = build_fact_inventory(&rich_agg(), Some(&ctx), None);
+        let (facts, _) = build_fact_inventory(&rich_agg(), Some(&ctx), None, None);
         let com = facts.iter().find(|f| f.id == "F-COM").unwrap();
         assert!(
             com.statement.contains("市外へ出ていく構造"),
@@ -1193,7 +1494,7 @@ mod tests {
 
     #[test]
     fn guard_detects_single_theme_composite_and_forbidden() {
-        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let draft = GuideDraft {
             lead: String::new(),
             per_fact: facts
