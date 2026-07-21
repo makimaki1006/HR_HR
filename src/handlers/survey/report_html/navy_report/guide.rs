@@ -113,7 +113,8 @@ pub(crate) fn render_survey_guide_page(
     push_block_holidays(&mut html, agg);
     push_block_tags(&mut html, agg);
     push_block_popularity(&mut html, agg);
-    push_block_tightness(&mut html, ctx);
+    // 需給 (有効求人倍率) ブロックは 2026-07-22 再監査で撤去。県・全産業計の値は
+    // 職種の実勢と乖離し、提案に接続しない (AI 版 F-DEM 削除と整合)。
     push_block_commute(&mut html, ctx);
 
     // §3 次の一手 (結論エンジン流用)
@@ -583,6 +584,7 @@ pub(super) const GUIDE_CSS: &str = r#"<style>
   th { background:var(--tint); text-align:left; padding:7px 9px; border-bottom:1.5px solid var(--ink); font-size:12px; }
   td { padding:7px 9px; border-bottom:1px solid var(--rule); vertical-align:top; }
   .dakara { background:#eef1f7; border-left:4px solid var(--ink); padding:8px 14px; margin:8px 0 16px; font-size:13px; }
+  .keybox { background:var(--tint); border-left:5px solid var(--accent); padding:12px 16px; margin:12px 0; font-size:13px; }
   .note { color:var(--muted); font-size:11.5px; }
   footer.doc { border-top:1px solid var(--rule); margin-top:34px; padding-top:12px; color:var(--muted); font-size:11px; }
   @media print { .page { padding:10mm 12mm; max-width:none; } h2,h3 { break-after:avoid; } table, .dakara { break-inside:avoid; } }
@@ -715,12 +717,13 @@ mod tests {
     }
 
     #[test]
-    fn guide_tightness_has_granularity_note() {
+    fn guide_tightness_block_removed() {
+        // 2026-07-22 再監査: 有効求人倍率ブロックは撤去済み (提案に接続しない参考値のため)
         let html = render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
-        assert!(html.contains("1.21"), "求人倍率の値が出る");
+        // §2 の需給ブロック見出しが出ないこと (§3 まとめの結論エンジン文は対象外)
         assert!(
-            html.contains("県・産業計の参考値"),
-            "公的統計の粒度注記が必須"
+            !html.contains("需給 — 市場の混み具合"),
+            "需給ブロックは出ないはず"
         );
     }
 
