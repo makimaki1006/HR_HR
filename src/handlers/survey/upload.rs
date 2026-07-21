@@ -1160,6 +1160,15 @@ fn is_valid_annual_holidays(v: i64) -> bool {
 
 /// `text` 中の `keyword` 出現位置直後にある2-3桁数字を抽出する。
 fn try_extract_after(text: &str, keyword: &str) -> Option<i64> {
+    try_extract_after_opts(text, keyword, false)
+}
+
+/// `require_day_suffix=true` は数字の直後に「日」を要求する。
+///
+/// 2026-07-21 数値監査対応: 「年間」「年休」等の曖昧キーワードでは
+/// 「残業は年間120時間」「年間105万円」の 120/105 を年間休日として
+/// 誤抽出していた (§07.5 の抽出件数を約2割水増しし、120日以上比率を歪める)。
+fn try_extract_after_opts(text: &str, keyword: &str, require_day_suffix: bool) -> Option<i64> {
     let mut search_from = 0;
     while let Some(rel_pos) = text[search_from..].find(keyword) {
         let abs_after = search_from + rel_pos + keyword.len();
@@ -1191,9 +1200,16 @@ fn try_extract_after(text: &str, keyword: &str) -> Option<i64> {
         });
         let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !num_str.is_empty() && num_str.len() <= 3 {
-            if let Ok(v) = num_str.parse::<i64>() {
-                if is_valid_annual_holidays(v) {
-                    return Some(v);
+            let day_ok = if require_day_suffix {
+                after[num_str.len()..].starts_with('日')
+            } else {
+                true
+            };
+            if day_ok {
+                if let Ok(v) = num_str.parse::<i64>() {
+                    if is_valid_annual_holidays(v) {
+                        return Some(v);
+                    }
                 }
             }
         }
@@ -1237,23 +1253,27 @@ fn extract_annual_holidays(text: &str) -> Option<i64> {
     if text.is_empty() {
         return None;
     }
-    const PREFIX_KEYWORDS: &[&str] = &[
-        "年間休日数",
-        "年間休日",
-        "年間休暇",
-        "休日数",
-        "年休",
-        "年間休",
-        "年間",
+    // (キーワード, 数字の直後に「日」を要求するか)。
+    // 2026-07-21 数値監査対応: 「年間」「年休」「休日数」「年間休」は休日以外の数量
+    // (残業時間・金額等) にも続くため「日」サフィックスを必須にする。
+    // 「年間休日」系の明示キーワードは従来どおり (再現率維持)。
+    const PREFIX_KEYWORDS: &[(&str, bool)] = &[
+        ("年間休日数", false),
+        ("年間休日", false),
+        ("年間休暇", false),
+        ("休日数", true),
+        ("年休", true),
+        ("年間休", true),
+        ("年間", true),
     ];
-    for kw in PREFIX_KEYWORDS {
-        if let Some(v) = try_extract_after(text, kw) {
+    for (kw, need_day) in PREFIX_KEYWORDS {
+        if let Some(v) = try_extract_after_opts(text, kw, *need_day) {
             return Some(v);
         }
     }
     if text.contains("休日") {
         let stripped = text.replace("年間休日", "");
-        if let Some(v) = try_extract_after(&stripped, "休日") {
+        if let Some(v) = try_extract_after_opts(&stripped, "休日", true) {
             return Some(v);
         }
     }
@@ -2079,6 +2099,29 @@ mod annual_holidays_extraction_tests {
     fn empty_text() {
         // 空文字列 → None
         assert_eq!(extract_annual_holidays(""), None, "空文字列 → None");
+    }
+
+    // ---- 2026-07-21 数値監査対応: 曖昧キーワードの「日」サフィックス必須化 ----
+
+    #[test]
+    fn ambiguous_keywords_require_day_suffix() {
+        // 「年間120時間」の残業表記を年間休日と誤抽出していた回帰テスト
+        assert_eq!(
+            extract_annual_holidays("残業は年間120時間程度です"),
+            None,
+            "年間+時間は休日ではない"
+        );
+        assert_eq!(
+            extract_annual_holidays("年間105万円の手当があります"),
+            None,
+            "年間+金額は休日ではない"
+        );
+        // 曖昧キーワードでも「日」が続けば従来どおり抽出する
+        assert_eq!(extract_annual_holidays("年間120日休み"), Some(120));
+        assert_eq!(extract_annual_holidays("年休105日"), Some(105));
+        assert_eq!(extract_annual_holidays("休日数110日"), Some(110));
+        // 明示キーワードは従来どおり
+        assert_eq!(extract_annual_holidays("年間休日120日以上"), Some(120));
     }
 
     #[test]

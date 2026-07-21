@@ -699,21 +699,6 @@ fn aggregate_records_core(
     by_tags.sort_by(|a, b| b.1.cmp(&a.1));
     by_tags.truncate(30); // 上位30タグ
 
-    // タグ別給与集計（サニタイズ済みタグで集計）
-    let mut tag_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
-    for r in records {
-        if let Some(sal) = r.salary_parsed.unified_monthly {
-            if sal > 0 && !r.tags_raw.is_empty() {
-                for tag in r.tags_raw.split([',', '、', '/', '\t']) {
-                    let sanitized = sanitize_tag_text(tag);
-                    if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
-                        tag_salary_map.entry(sanitized).or_default().push(sal);
-                    }
-                }
-            }
-        }
-    }
-
     // 給与統計
     // 2026-04-24: IQR 法 (Q±1.5IQR) で外れ値除外後に統計計算
     let salary_values_raw: Vec<i64> = records
@@ -723,6 +708,37 @@ fn aggregate_records_core(
     let (salary_values, outliers_removed_total) =
         super::statistics::filter_outliers_iqr(&salary_values_raw, 1.5);
     let enhanced_stats = enhanced_salary_statistics(&salary_values);
+    // タグ集計用の外れ値判定域。filtered は「IQR 域内の raw 値すべて」なので、
+    // [min, max] 域内判定は IQR 域内判定と同値になる。
+    let tag_salary_bounds: Option<(i64, i64)> = match (
+        salary_values.iter().min().copied(),
+        salary_values.iter().max().copied(),
+    ) {
+        (Some(lo), Some(hi)) => Some((lo, hi)),
+        _ => None,
+    };
+
+    // タグ別給与集計（サニタイズ済みタグで集計）
+    //
+    // 2026-07-21 数値監査対応: タグ別平均は外れ値未除去、比較対象の市場平均は
+    // IQR 除去後という母集団の不一致があり、高額外れ値がタグ平均だけを持ち上げて
+    // 「市場平均比 +28%」等の方向誤りを生んでいた (実データで有資格者歓迎タグが
+    // +28% と表示されたが、同一母集団で再計算すると -6%)。市場平均と同じ
+    // IQR 域内の値のみをタグ集計に使い、比較の母集団を揃える。
+    let mut tag_salary_map: HashMap<String, Vec<i64>> = HashMap::new();
+    for r in records {
+        if let Some(sal) = r.salary_parsed.unified_monthly {
+            let in_bounds = tag_salary_bounds.map_or(false, |(lo, hi)| sal >= lo && sal <= hi);
+            if sal > 0 && in_bounds && !r.tags_raw.is_empty() {
+                for tag in r.tags_raw.split([',', '、', '/', '\t']) {
+                    let sanitized = sanitize_tag_text(tag);
+                    if !sanitized.is_empty() && sanitized.chars().count() <= 20 {
+                        tag_salary_map.entry(sanitized).or_default().push(sal);
+                    }
+                }
+            }
+        }
+    }
 
     // タグ別給与差分の計算
     let overall_mean = enhanced_stats.as_ref().map(|s| s.mean).unwrap_or(0);
@@ -1767,6 +1783,58 @@ mod tests {
             ai_weekly_holiday_type: None,
             ai_overtime_hours_monthly: None,
         }
+    }
+
+    // ======== 2026-07-21 数値監査対応: タグ集計の母集団統一 ========
+
+    #[test]
+    fn tag_salary_excludes_outliers_like_market_mean() {
+        // 市場: 25万が20件 + 外れ値500万が1件 (IQR除去対象)。
+        // タグ「資格」は 25万×3件 + 外れ値500万×1件に付与。
+        // 旧実装: タグ平均=(25万×3+500万)/4≈143.7万 vs 市場平均(除去後)=25万 → +475% と誤表示。
+        // 新実装: タグ集計も IQR 域内のみ → タグ平均=25万、diff≈0%。
+        let mut records: Vec<SurveyRecord> = (0..20)
+            .map(|i| {
+                let tag = if i < 3 { "資格" } else { "" };
+                // IQR>0 になるよう給与に分散を持たせる (全同値だと IQR=0 で除外自体が
+                // スキップされる仕様のため、テストの前提が壊れる)
+                let sal = 240_000 + (i as i64) * 1_000;
+                mock_record(
+                    "会社A",
+                    Some("大阪府"),
+                    Some("富田林市"),
+                    Some(sal),
+                    Some(sal),
+                    None,
+                    SalaryType::Monthly,
+                    "正社員",
+                    tag,
+                )
+            })
+            .collect();
+        records.push(mock_record(
+            "会社B",
+            Some("大阪府"),
+            Some("富田林市"),
+            Some(5_000_000),
+            Some(5_000_000),
+            None,
+            SalaryType::Monthly,
+            "正社員",
+            "資格",
+        ));
+        let agg = aggregate_records(&records);
+        let t = agg
+            .by_tag_salary
+            .iter()
+            .find(|t| t.tag == "資格")
+            .expect("タグ集計があるはず");
+        assert_eq!(t.count, 3, "外れ値レコードはタグ集計から除外される");
+        assert!(
+            t.diff_percent.abs() < 5.0,
+            "市場平均と同水準のはず (旧実装では数百%に化けた): {}%",
+            t.diff_percent
+        );
     }
 
     // ======== A. 線形回帰テスト ========
