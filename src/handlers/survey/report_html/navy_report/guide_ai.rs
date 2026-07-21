@@ -1093,26 +1093,16 @@ pub(super) fn render_guide_ai_html(
         ));
     }
 
-    // §1 貴社の現在地 (表はコード確定値)
-    if let Some(pos) = position {
+    // §1 貴社の現在地
+    //
+    // 2026-07-21 監査対応: 旧実装は中間値ベースの「下位◯%」だけを表にしており、
+    // F-CO 事実文で直した物差し補正 (下限どうしの比較 / 単一値表記の注意 / 仮の中間値)
+    // が画面に出ていなかった。観測は F-CO 事実文 (コード確定の完全版) をそのまま表示する。
+    if position.is_some() {
         html.push_str("<h2>貴社の現在地</h2>\n");
-        html.push_str("<table><tr><th>観測 (収集データ内の貴社求人)</th><th>市場との重ね合わせ</th></tr>\n");
-        html.push_str(&format!(
-            "<tr><td>掲載 {} 件 (企業名: {})</td><td>同じ検索画面で比較される求人の中での掲載数です</td></tr>\n",
-            pos.count,
-            escape_html(&pos.name),
-        ));
-        if pos.own_median > 0 {
-            html.push_str(&format!(
-                "<tr><td>提示給与の中央値 {}</td><td>市場の中央値は {}{}</td></tr>\n",
-                man_yen(pos.own_median),
-                pos.market_median.map(man_yen).unwrap_or_else(|| "—".to_string()),
-                pos.percentile_from_below
-                    .map(|p| format!("。分布の下位からおよそ {:.0}% の位置 (下限と上限の中間値ベースの参考値)", p))
-                    .unwrap_or_default(),
-            ));
+        if let Some(fco) = facts.iter().find(|f| f.id == "F-CO") {
+            html.push_str(&format!("<p>{}</p>\n", escape_html(&fco.statement)));
         }
-        html.push_str("</table>\n");
         if let Some(pf) = d.per_fact.iter().find(|pf| pf.fact_id == "F-CO") {
             html.push_str(&format!(
                 "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
