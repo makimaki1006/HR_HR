@@ -173,9 +173,21 @@ pub(super) fn build_fact_inventory(
     let jb = &agg.jobbox;
     if jb.annual_holidays_values.len() >= 20 {
         let med = median_of(&jb.annual_holidays_values).unwrap_or(0);
+        // 2026-07-21: 相関の解釈 (符号含む) はコードで確定して渡す。値+条件付きヒント
+        // だけだと、逆相関市場 (r<=-0.3: 休日が多いほど給与が低い、いわゆる補償賃金の
+        // 通説型) で LLM が「独立」と書いてしまう余地があった (方向読み違えの通勤問題と同型)。
         let corr = jb
             .salary_holidays_correlation
-            .map(|r| format!(" 休日と給与の相関係数は r={:.2} (ほぼ無相関なら休日と給与は独立)。", r))
+            .map(|r| {
+                let reading = if r <= -0.3 {
+                    "休日が多い求人ほど給与が低い傾向 (逆相関) がある。休日訴求は給与面の印象とトレードオフになる可能性に注意"
+                } else if r >= 0.3 {
+                    "休日が多い求人ほど給与も高い傾向 (正の相関) がある"
+                } else {
+                    "ほぼ無相関で、休日と給与は独立。休日を打ち出しても給与が低い印象と結びつく市場ではない"
+                };
+                format!(" 休日と給与の相関係数は r={:.2}。{}。", r, reading)
+            })
             .unwrap_or_default();
         push(
             "F-HOL",
@@ -595,6 +607,15 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         if VAGUE_PHRASES.iter().any(|p| text.contains(p)) {
             out.push(format!(
                 "{}: 空虚な着地 (「検討する余地」等)。数字の位置づけから言える具体的な打ち手の方向に書き直す",
+                label
+            ));
+        }
+        // 2026-07-21: 誇張形容 (実出力で「強力な訴求ポイントです」を検出した対策)。
+        // 断定形容はデータで裏付けられないため、可能性表現+中立形容に書き直させる。
+        const OVERSTATEMENTS: [&str; 4] = ["強力な", "圧倒的", "最強", "抜群"];
+        if OVERSTATEMENTS.iter().any(|p| text.contains(p)) {
+            out.push(format!(
+                "{}: 誇張形容 (「強力な」等)。中立的な形容と可能性表現に書き直す",
                 label
             ));
         }
@@ -1086,6 +1107,49 @@ mod tests {
             !card.statement.contains("反映されていない"),
             "同額は乖離ではない: {}",
             card.statement
+        );
+    }
+
+    #[test]
+    fn holiday_correlation_sign_is_code_determined() {
+        // 逆相関市場 (r=-0.5): 事実文にトレードオフ注意が入る
+        let mut agg = rich_agg();
+        agg.jobbox.salary_holidays_correlation = Some(-0.5);
+        let (facts, _) = build_fact_inventory(&agg, None, None);
+        let hol = facts.iter().find(|f| f.id == "F-HOL").unwrap();
+        assert!(hol.statement.contains("逆相関"), "{}", hol.statement);
+        assert!(hol.statement.contains("トレードオフ"), "{}", hol.statement);
+
+        // 無相関市場 (r=0.08): 独立の明記
+        let mut agg2 = rich_agg();
+        agg2.jobbox.salary_holidays_correlation = Some(0.08);
+        let (facts2, _) = build_fact_inventory(&agg2, None, None);
+        let hol2 = facts2.iter().find(|f| f.id == "F-HOL").unwrap();
+        assert!(hol2.statement.contains("独立"), "{}", hol2.statement);
+        assert!(!hol2.statement.contains("逆相関"), "{}", hol2.statement);
+    }
+
+    #[test]
+    fn guard_detects_overstatement() {
+        // 実出力で検出した「強力な訴求ポイントです」型の誇張形容
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None);
+        let draft = GuideDraft {
+            lead: "貴社の休日は強力な訴求ポイントです。".to_string(),
+            per_fact: facts
+                .iter()
+                .map(|f| PerFact {
+                    fact_id: f.id.clone(),
+                    dakara: "判断材料になる可能性があります。".to_string(),
+                })
+                .collect(),
+            composites: vec![],
+            next_steps: vec![],
+        };
+        let v = guard_violations(&draft, &facts);
+        assert!(
+            v.iter().any(|s| s.contains("誇張形容")),
+            "誇張形容が検出されるはず: {:?}",
+            v
         );
     }
 
