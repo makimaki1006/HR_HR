@@ -112,7 +112,7 @@ fn render_comparison_html(
         html,
         r#"<div>
             <h2 class="text-xl font-bold text-white">47都道府県 横断比較</h2>
-            <p class="text-xs text-slate-500 mt-1">産業: <span class="text-blue-400">{ind}</span> ／ ハローワーク掲載求人データのみ。民間求人サイト (Indeed等) は含まれません。</p>
+            <p class="text-xs text-slate-500 mt-1">産業: <span class="text-blue-400">{ind}</span> ／ 公的機関の掲載求人データのみ。民間求人サイト (Indeed等) は含まれません。</p>
         </div>"#,
         ind = escape_html(industry_label)
     )
@@ -297,7 +297,7 @@ fn render_comparison_html(
     // === HW 限定性 + 因果非主張の注記 ===
     html.push_str(
         r#"<div class="text-[10px] text-slate-500 border-t border-slate-800 pt-2">
-            出典: ハローワーク求人データ（hellowork.db）。<br>
+            出典: 公的求人データベース。<br>
             ※ 集計は単純な統計値であり、傾向を示すに留まります（因果関係を主張するものではありません）。<br>
             ※ HW 掲載求人のみを対象としており、Indeed・マイナビ等の民間サイト掲載求人は含まれません。
         </div>"#,

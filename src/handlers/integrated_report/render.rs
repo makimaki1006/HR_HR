@@ -331,7 +331,7 @@ fn render_integrated_html(
         html.push_str(r#"<div class="cover-logo">F-A-C 株式会社</div>"#);
     }
     // 表紙のスコープ注記（D-2 監査 Q4.4 対応 / feedback_hw_data_scope.md 準拠）
-    //   - 「ハローワーク掲載求人」を太字で明記
+    //   - 「公的機関の掲載求人」を太字で明記
     //   - 民間求人サイトを含まない旨を明示（Indeed・求人ボックス等）
     //   - データ取得日 / 対象期間 / フィルタ条件を表示（部分閲覧者対策）
     //   - 因果関係を主張しない旨を明記（feedback_correlation_not_causation.md 準拠）
@@ -353,7 +353,7 @@ fn render_integrated_html(
 <div class="cover-sub" style="font-size:13px;color:#666">作成日: {today}</div>
 <div class="cover-scope" style="margin-top:24px;font-size:12px;color:#1a1a2e;border:2px solid #c0392b;background:#fff5f5;padding:14px 20px;border-radius:6px;line-height:1.8;max-width:80%;text-align:left;">
     <div style="font-weight:700;color:#c0392b;font-size:13px;margin-bottom:6px;">⚠ データスコープ（必読）</div>
-    本レポートは <strong>ハローワーク（HW）に掲載された求人</strong>のみを対象としています。<br>
+    本レポートは <strong>公的求人データベースに掲載された求人</strong>のみを対象としています。<br>
     <strong>民間求人サイト（Indeed・求人ボックス・マイナビ・リクナビ等）は含まれません。</strong><br>
     したがって全求人市場の代表ではなく、HW 掲載求人を通じた採用活動に限定された分析です。
 </div>
@@ -649,13 +649,13 @@ fn render_integrated_html(
     html.push_str(
         r#"<h2>データソース</h2>
         <ul class="findings-list">
-            <li>ハローワーク求人データ（hellowork.db）— 求人件数・給与・雇用形態</li>
+            <li>公的求人データベース— 求人件数・給与・雇用形態</li>
             <li>e-Stat / SSDSE-A — 人口・労働力・高齢化率・教育/医療施設</li>
             <li>Agoop 人流データ — 昼夜人口比率・流入流出</li>
         </ul>
         <h2>データスコープ</h2>
         <p class="narrative">
-            本レポートに記載される求人指標は、ハローワークに掲載された求人のみを対象としています。
+            本レポートに記載される求人指標は、公的求人データベースに掲載された求人のみを対象としています。
             民間求人サイト（Indeed、マイナビ、リクナビ等）に掲載される求人は含まれません。
             したがって、地域全体の採用市場全容ではなく、HW 掲載求人を通じた採用活動に限定された分析結果です。
         </p>
@@ -683,11 +683,11 @@ fn render_integrated_html(
 /// 各章ヘッダー直下に挿入する「HW 限定スコープ」バナー
 /// （feedback_hw_data_scope.md 準拠 / D-2 監査 Q4.4 対応）
 ///
-/// PDF を章単位で抜粋共有された場合でも、ハローワーク掲載求人のみが対象である
+/// PDF を章単位で抜粋共有された場合でも、公的機関の掲載求人のみが対象である
 /// ことを必ず読者に提示するため、各章で繰り返し明示する。
 fn render_chapter_scope_banner() -> String {
     r#"<div class="chapter-scope-banner" style="margin:6px 0 14px;padding:6px 12px;font-size:10px;color:#6b3a0a;background:#fffaf0;border-left:3px solid #c0392b;border-radius:3px;line-height:1.6;">
-        ⚠ <strong>HW 限定スコープ</strong>: 本章の数値はハローワーク掲載求人のみを対象とした参考値です。民間求人サイトは含まれません。集計値は傾向を示すものであり、因果関係を主張するものではありません。
+        ⚠ <strong>HW 限定スコープ</strong>: 本章の数値は公的機関の掲載求人のみを対象とした参考値です。民間求人サイトは含まれません。集計値は傾向を示すものであり、因果関係を主張するものではありません。
     </div>"#.to_string()
 }
 

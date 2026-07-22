@@ -533,10 +533,10 @@ fn p3_spec_9_2_page_counter_exists() {
 #[test]
 fn p3_spec_9_3_hw_scope_notice_two_places() {
     let html = render_full_html();
-    // 「ハローワーク掲載求人のみ」または「ハローワーク掲載求人」などキーワード
-    // Executive Summary 直下と末尾注記の 2 箇所以上
-    let pat = "ハローワーク";
-    let count = html.matches(pat).count();
+    // HW スコープ注記のキーワード (2026-07-22 文言置換後: 「公的機関の掲載求人」/「公的求人データ」)。
+    // Executive Summary 直下と末尾注記の 2 箇所以上。
+    let count =
+        html.matches("公的機関の掲載求人").count() + html.matches("公的求人データ").count();
     assert!(
         count >= 2,
         "HW スコープ注意書きが 2 箇所以上必要（現在 {} 箇所）（MEMORY feedback_hw_data_scope）",

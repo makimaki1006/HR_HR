@@ -436,29 +436,41 @@ pub(crate) fn render_upload_form() -> String {
         if (files.length > 0) submitSurveyCSV(files[0]);
     }
     // 2026-07-22: アップロードのジョブ化。ファイル送信後すぐ job_id を受け取り、
-    // 結果パネル内に段階進捗 (CSV解析→AI補完→集計) を表示、完成した分析結果を差し込む。
+    // ドロップゾーンそのものを読み込み表示に切り替える (段階: CSV解析→AI補完→集計)。
+    // 完成した分析結果は下部パネルに差し込み、ドロップゾーンは元に戻す。
     function submitSurveyCSV(file) {
         if (!file) return;
         var status = document.getElementById('upload-status');
         var target = document.getElementById('survey-result');
+        var dz = document.getElementById('drop-zone');
+        if (dz && !window._dzOriginal) window._dzOriginal = dz.innerHTML;
         status.innerHTML = '<div class="text-sm text-blue-400">アップロード中: ' + file.name + '...</div>';
         var t0 = Date.now();
+        // ドロップゾーンの位置 (=ユーザーが見ている場所) に大きく進捗を表示する
         function showProgress(stage) {
             var s = Math.floor((Date.now() - t0) / 1000);
-            target.innerHTML =
-                '<div class="stat-card"><div class="flex items-center gap-3">' +
-                '<div style="width:22px;height:22px;border:3px solid #334155;border-top-color:#38bdf8;border-radius:50%;animation:spin 1s linear infinite"></div>' +
-                '<div><p class="text-sm text-sky-300 font-bold">' + stage + '</p>' +
-                '<p class="text-xs text-slate-400">経過 ' + Math.floor(s / 60) + '分' + (s % 60) + '秒</p></div>' +
-                '</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
+            var box =
+                '<div style="width:48px;height:48px;border:5px solid #334155;border-top-color:#38bdf8;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px"></div>' +
+                '<div class="text-slate-100 text-lg font-bold mb-1">' + stage + '</div>' +
+                '<div class="text-slate-400 text-sm">経過 ' + Math.floor(s / 60) + '分' + (s % 60) + '秒 — 完了すると下に分析結果が表示されます</div>' +
+                '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+            if (dz) { dz.innerHTML = box; } else { target.innerHTML = '<div class="stat-card">' + box + '</div>'; }
+        }
+        function restoreDropzone() {
+            if (dz && window._dzOriginal) dz.innerHTML = window._dzOriginal;
         }
         function showError(msg) {
-            target.innerHTML = '<div class="stat-card"><p class="text-red-400 text-sm">' + msg + '</p></div>';
+            if (dz) {
+                dz.innerHTML = '<div class="text-red-400 text-base font-bold mb-2">' + msg + '</div>' +
+                    '<div class="text-slate-400 text-sm">数秒後に元の画面に戻ります。もう一度お試しください。</div>';
+                setTimeout(restoreDropzone, 4000);
+            } else {
+                target.innerHTML = '<div class="stat-card"><p class="text-red-400 text-sm">' + msg + '</p></div>';
+            }
             status.textContent = 'エラー';
             status.className = 'mt-3 text-sm text-red-400';
         }
         showProgress('アップロード中');
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         var fd = new FormData();
         fd.append('csv_file', file);
         // ユーザー明示指定を同送信（自動判定より優先）
@@ -484,6 +496,7 @@ pub(crate) fn render_upload_form() -> String {
                                 fetch('/report/survey/job/result/' + j.job_id)
                                     .then(function(r) { return r.text(); })
                                     .then(function(serverHtml) {
+                                        restoreDropzone();
                                         target.innerHTML = serverHtml;
                                         if (typeof htmx !== 'undefined') htmx.process(target);
                                         setTimeout(function() {

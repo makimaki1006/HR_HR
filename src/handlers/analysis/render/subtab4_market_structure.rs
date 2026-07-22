@@ -129,7 +129,7 @@ pub(super) fn render_employer_strategy_section(data: &[Row]) -> String {
         条件の差別化余地が残っている可能性があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（給与×福利厚生の2軸分類）。HW掲載求人に基づく",
+        "公的機関の掲載求人（給与×福利厚生の2軸分類）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -215,7 +215,7 @@ pub(super) fn render_monopsony_section(data: &[Row]) -> String {
         提案時の競合比較対象を絞り込みやすい傾向があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（施設別求人数からHHI・上位シェア・格差指数を算出）。HW掲載求人に基づく",
+        "公的機関の掲載求人（施設別求人数からHHI・上位シェア・格差指数を算出）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -294,7 +294,7 @@ pub(super) fn render_spatial_mismatch_section(data: &[Row]) -> String {
         近隣圏との給与ギャップが大きい場合、条件の見直しが応募者確保につながる可能性があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人＋施設の緯度経度（近隣圏内の求人数・給与を距離集計）。HW掲載求人に基づく",
+        "公的機関の掲載求人＋施設の緯度経度（近隣圏内の求人数・給与を距離集計）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -340,7 +340,7 @@ pub(super) fn render_competition_section(data: &[Row]) -> String {
         競合業種数が多いセグメントでは、給与以外の訴求点（働き方・育成など）を打ち出すことで差別化できる可能性があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（給与帯×学歴×地域で重複する産業を集計）。HW掲載求人に基づく",
+        "公的機関の掲載求人（給与帯×学歴×地域で重複する産業を集計）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -399,7 +399,7 @@ pub(super) fn render_cascade_section(data: &[Row]) -> String {
         条件面が充足の制約になっている可能性があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（業種×雇用形態別の求人数・給与・休日・欠員補充率）。HW掲載求人に基づく",
+        "公的機関の掲載求人（業種×雇用形態別の求人数・給与・休日・欠員補充率）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html

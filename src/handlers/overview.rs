@@ -350,7 +350,7 @@ pub async fn tab_overview(State(state): State<Arc<AppState>>, session: Session) 
     }
 
     // 出典情報
-    html.push_str(r#"<div class="text-[10px] text-slate-600 mt-4 border-t border-slate-800 pt-2">出典: ハローワーク掲載求人データ / 外部統計: e-Stat API / SSDSE-A（総務省統計局）</div>"#);
+    html.push_str(r#"<div class="text-[10px] text-slate-600 mt-4 border-t border-slate-800 pt-2">出典: 公的機関の掲載求人データ / 外部統計: e-Stat API / SSDSE-A（総務省統計局）</div>"#);
 
     // 関連示唆ウィジェット（遅延ロード）
     html.push_str(r#"<div hx-get="/api/insight/widget/overview" hx-trigger="load" hx-swap="innerHTML"></div>"#);
@@ -864,9 +864,9 @@ fn render_overview(
         r##"<div class="space-y-6">
     <h2 class="text-xl font-bold text-white">📊 地域概況 <span class="text-blue-400 text-base font-normal">{industry_label} / {location_label}</span></h2>
     <div class="p-3 bg-amber-900/20 border-l-4 border-amber-500 rounded text-xs text-amber-200 leading-relaxed">
-        ⚠️ 本ダッシュボードは <span class="font-semibold">ハローワーク掲載求人のみ</span> が対象です。民間求人サイト（Indeed・求人ボックス・自社サイト等）の求人は含まれません。
+        ⚠️ 本ダッシュボードは <span class="font-semibold">公的機関の掲載求人のみ</span> が対象です。民間求人サイト（Indeed・求人ボックス・自社サイト等）の求人は含まれません。
     </div>
-    <p class="text-xs text-slate-500 mb-2">ハローワーク求人データベースから地域・産業別の採用市場動向を分析するダッシュボードです。フィルタで地域・産業を絞り込み、各タブで詳細を確認できます。</p>
+    <p class="text-xs text-slate-500 mb-2">公的求人データベースから地域・産業別の採用市場動向を分析するダッシュボードです。フィルタで地域・産業を絞り込み、各タブで詳細を確認できます。</p>
 
     {comparison_section}
 

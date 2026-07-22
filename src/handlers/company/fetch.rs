@@ -1817,7 +1817,7 @@ fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
                 ctx.primary_hw_job_type, ctx.market_posting_count
             ),
             format!(
-                "{}の{}業界には{}事業所から求人が出ています。ハローワークへの求人掲載で、新たな求職者層にリーチできます。",
+                "{}の{}業界には{}事業所から求人が出ています。公的求人媒体への掲載で、新たな求職者層にリーチできます。",
                 ctx.prefecture, ctx.primary_hw_job_type, ctx.market_facility_count
             ),
         ));

@@ -98,7 +98,7 @@ fn render_insight_list(title: &str, description: &str, insights: &[&Insight]) ->
             html.push_str(&render_insight_card(insight));
         }
         // HWデータソース注記
-        html.push_str(r#"<div class="text-[10px] text-slate-600 mt-3">※ HW（ハローワーク）掲載求人に基づく分析です。IT・通信等のHW掲載が少ない産業は参考値としてご利用ください。</div>"#);
+        html.push_str(r#"<div class="text-[10px] text-slate-600 mt-3">※ 公的求人データに基づく分析です。IT・通信等のHW掲載が少ない産業は参考値としてご利用ください。</div>"#);
     }
 
     html.push_str("</div>");
@@ -339,7 +339,7 @@ body.theme-dark h1, body.theme-dark h2, body.theme-dark .section-title { color: 
   size: A4 landscape;
   margin: 12mm 10mm 18mm 10mm;
   @bottom-right { content: "Page " counter(page); font-size: 8px; color: #999; }
-  @bottom-left { content: "F-A-C株式会社 | ハローワーク求人データ分析レポート"; font-size: 8px; color: #999; }
+  @bottom-left { content: "F-A-C株式会社 | 公的求人データデータ分析レポート"; font-size: 8px; color: #999; }
 }
 .cover-page {
   min-height: 180mm;
@@ -486,7 +486,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     // ===== 表紙ページ =====
     write!(html,
         r#"<section class="cover-page" role="region" aria-labelledby="cover-title-id">
-<div class="cover-title" id="cover-title-id">ハローワーク求人市場 総合診断レポート</div>
+<div class="cover-title" id="cover-title-id">求人市場 総合診断レポート</div>
 <div class="cover-sub">{location} &nbsp;|&nbsp; {today}</div>
 <div class="cover-grade" style="border-color:{gcolor};color:{gcolor}">採用困難度: {gletter} {glabel}</div>
 <div class="cover-confidential">この資料は機密情報です。外部への持ち出しは社内規定に従ってください。</div>
@@ -1072,7 +1072,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     html.push_str("<section class=\"report-page\">");
     html.push_str(r#"<div class="notes">
         <strong>データソースと注意事項</strong><br>
-        ・ハローワーク掲載求人に基づく分析です。IT・通信等のHW掲載が少ない産業は参考値としてご利用ください。<br>
+        ・公的機関の掲載求人に基づく分析です。IT・通信等のHW掲載が少ない産業は参考値としてご利用ください。<br>
         ・通勤フローは2020年国勢調査データに基づきます。<br>
         ・充足グレードはMLモデルによる推計値です。
     </div>"#);
@@ -1083,7 +1083,7 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
     write!(
         html,
         r#"<div class="screen-footer no-print">
-<span>F-A-C株式会社 | ハローワーク求人データ分析レポート</span>
+<span>F-A-C株式会社 | 公的求人データデータ分析レポート</span>
 <span>生成日時: {today}</span>
 </div>
 "#,

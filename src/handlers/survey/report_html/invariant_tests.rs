@@ -1534,10 +1534,10 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
     // 出典表記の訂正 (2026-07-13): 「CSV 求人データ集計」誤記が Full でも出ないこと。
     assert!(
         !html.contains("出典: CSV 求人データ集計"),
-        "表 5-G/5-H の出典は「ハローワーク掲載求人の集計」に訂正済みのはず"
+        "表 5-G/5-H の出典は「公的機関の掲載求人の集計」に訂正済みのはず"
     );
     assert!(
-        html.contains("出典: ハローワーク掲載求人の集計"),
+        html.contains("出典: 公的機関の掲載求人の集計"),
         "Full の表 5-G/5-H キャプションに訂正後の出典表記が出るはず"
     );
 }
