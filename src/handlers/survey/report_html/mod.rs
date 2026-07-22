@@ -29,7 +29,7 @@ mod labels;
 mod navy_report;
 // 2026-07-17: 解説資料 (?variant=guide) を handlers.rs から呼ぶための再公開。
 pub(crate) use navy_report::render_survey_guide_page;
-pub(crate) use navy_report::render_survey_guide_page_ai;
+pub(crate) use navy_report::{render_guide_progress_shell, render_survey_guide_page_ai};
 mod region_filter;
 mod render_config;
 mod salary_summary;

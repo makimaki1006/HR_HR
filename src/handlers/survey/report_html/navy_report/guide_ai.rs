@@ -937,12 +937,30 @@ pub(super) struct GuideAiOutcome {
     pub calls_used: usize,
 }
 
-/// flash-lite 作成→レビュー→修正のパイプライン。最大4コール。
+/// 進捗レポータ (2026-07-22)。ジョブ実行中のステージをUIに外部化するためのコールバック。
+/// レート制限で待機が入る場合もここ経由でユーザーに見せる (体感ラグ対策)。
+pub(crate) type ProgressFn<'a> = &'a (dyn Fn(&str) + Send + Sync);
+
+/// レート枠の待機見込みがあれば進捗に表示してからステージ名を報告する。
+async fn report_stage(progress: ProgressFn<'_>, stage: &str) {
+    let wait = crate::gemini::rate_wait_estimate_secs().await;
+    if wait > 0 {
+        progress(&format!(
+            "{} — 混雑のため約{}秒の順番待ちがあります",
+            stage, wait
+        ));
+    } else {
+        progress(stage);
+    }
+}
+
+/// flash-lite 作成→レビュー→修正のパイプライン。最大5コール。
 /// 最終ガード不合格・API失敗は None (呼び出し側で決定的テンプレへフォールバック)。
 pub(super) async fn generate_guide_ai(
     client: &GeminiClient,
     facts: &[GuideFact],
     region: &str,
+    progress: ProgressFn<'_>,
 ) -> Option<GuideAiOutcome> {
     if facts.is_empty() {
         return None;
@@ -960,6 +978,7 @@ pub(super) async fn generate_guide_ai(
         region, facts_str
     );
     calls += 1;
+    report_stage(progress, "解釈文を起草中 (AI 1/5)").await;
     let resp = client.generate_json(GUIDE_SYSTEM, &user1, draft_schema()).await?;
     let mut draft = parse_draft(&resp)?;
 
@@ -1000,6 +1019,7 @@ pub(super) async fn generate_guide_ai(
     };
 
     calls += 1;
+    report_stage(progress, "逆証明レビュー中 (AI 2/5)").await;
     let review1 = run_review(format!("facts:\n{}\n\ndraft:\n{}", facts_str, draft_json(&draft))).await?;
     let mut total_findings = 0usize;
     let mut findings = review_findings_of(&review1);
@@ -1021,6 +1041,15 @@ pub(super) async fn generate_guide_ai(
             draft_json(&draft)
         );
         calls += 1;
+        report_stage(
+            progress,
+            if round == 0 {
+                "指摘を反映して修正中 (AI 3/5)"
+            } else {
+                "最終修正中 (AI 5/5)"
+            },
+        )
+        .await;
         if let Some(resp) = client.generate_json(GUIDE_SYSTEM, &user_fix, draft_schema()).await {
             if let Some(d) = parse_draft(&resp) {
                 draft = d;
@@ -1029,6 +1058,7 @@ pub(super) async fn generate_guide_ai(
         if round == 0 {
             // 修正後にもう一度だけ意味レビューをかける (計4コール目)。
             calls += 1;
+            report_stage(progress, "修正後の再レビュー中 (AI 4/5)").await;
             let review2 =
                 run_review(format!("facts:\n{}\n\ndraft:\n{}", facts_str, draft_json(&draft)))
                     .await?;
@@ -1232,21 +1262,88 @@ pub(crate) async fn render_survey_guide_page_ai(
     pref: &str,
     muni: &str,
     company: Option<&str>,
+    progress: ProgressFn<'_>,
 ) -> Option<String> {
     let client = GeminiClient::from_env()?;
+    progress("市場データから事実を整理中");
     let (facts, position) = build_fact_inventory(agg, ctx, Some(muni).filter(|m| !m.is_empty()), company);
     let region = if muni.is_empty() {
         pref.to_string()
     } else {
         format!("{} {}", pref, muni)
     };
-    let outcome = generate_guide_ai(&client, &facts, &region).await?;
+    let outcome = generate_guide_ai(&client, &facts, &region, progress).await?;
+    progress("最終検証と組版中");
     Some(render_guide_ai_html(
         &facts,
         position.as_ref(),
         &outcome,
         &region,
     ))
+}
+
+/// 進捗表示シェルページ (2026-07-22)。
+///
+/// `?variant=guide` はこのページを即時返し、ページ内 JS が
+/// `/api/survey/guide/start` で生成ジョブを起動 → `/api/survey/guide/status/{id}` を
+/// ポーリングしてステージを表示 → 完成後 `/report/survey/guide/result/{id}` へ遷移する。
+/// レート制限による待機中も「順番待ち」の進捗が見えるため、体感ラグを吸収する。
+pub(crate) fn render_guide_progress_shell() -> String {
+    let mut html = String::with_capacity(8 * 1024);
+    html.push_str("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n");
+    html.push_str("<title>解説資料を生成中…</title>\n");
+    html.push_str(super::guide::GUIDE_CSS);
+    html.push_str(
+        "<style>\n\
+         .center { max-width:560px; margin:18vh auto 0; text-align:center; }\n\
+         .spinner { width:44px; height:44px; border:4px solid #d8dce6; border-top-color:#1e2a4a; \
+                    border-radius:50%; margin:0 auto 20px; animation:spin 1s linear infinite; }\n\
+         @keyframes spin { to { transform:rotate(360deg); } }\n\
+         .stage { font-size:15px; font-weight:700; color:#1e2a4a; min-height:1.6em; }\n\
+         .elapsed { font-size:12px; color:#5a6478; margin-top:8px; }\n\
+         .hint { font-size:11.5px; color:#5a6478; margin-top:18px; line-height:1.8; }\n\
+         </style>\n</head>\n<body>\n<div class=\"center\">\n\
+         <div class=\"spinner\" aria-hidden=\"true\"></div>\n\
+         <div class=\"stage\" id=\"stage\">生成を開始しています…</div>\n\
+         <div class=\"elapsed\" id=\"elapsed\"></div>\n\
+         <div class=\"hint\">解釈文の起草と検証 (最大5段階のAI処理) を行っています。<br>\
+         混雑時は順番待ちが入るため、数分かかる場合があります。このページは自動で切り替わります。</div>\n\
+         </div>\n<script>\n\
+         (function(){\n\
+           var t0 = Date.now();\n\
+           setInterval(function(){\n\
+             var s = Math.floor((Date.now()-t0)/1000);\n\
+             document.getElementById('elapsed').textContent = '経過 ' + Math.floor(s/60) + '分' + (s%60) + '秒';\n\
+           }, 1000);\n\
+           fetch('/api/survey/guide/start' + window.location.search)\n\
+             .then(function(r){ return r.json(); })\n\
+             .then(function(j){\n\
+               if (!j.job_id) { fail('開始に失敗しました'); return; }\n\
+               poll(j.job_id);\n\
+             })\n\
+             .catch(function(){ fail('開始に失敗しました'); });\n\
+           function poll(id){\n\
+             var timer = setInterval(function(){\n\
+               fetch('/api/survey/guide/status/' + id)\n\
+                 .then(function(r){ return r.json(); })\n\
+                 .then(function(st){\n\
+                   if (st.message) document.getElementById('stage').textContent = st.message;\n\
+                   if (st.state === 'done') { clearInterval(timer); window.location.replace('/report/survey/guide/result/' + id); }\n\
+                   if (st.state === 'failed') { clearInterval(timer); fail(st.message || '生成に失敗しました'); }\n\
+                 })\n\
+                 .catch(function(){});\n\
+             }, 2000);\n\
+           }\n\
+           function fail(msg){\n\
+             document.getElementById('stage').textContent = msg + ' — テンプレート版に切り替えます';\n\
+             var q = window.location.search;\n\
+             q += (q ? '&' : '?') + 'ai=off';\n\
+             setTimeout(function(){ window.location.replace('/report/survey' + q); }, 1500);\n\
+           }\n\
+         })();\n\
+         </script>\n</body>\n</html>\n",
+    );
+    html
 }
 
 // ============================================================
