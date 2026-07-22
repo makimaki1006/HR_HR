@@ -32,5 +32,5 @@ mod render_ui1_test;
 pub use handlers::{
     analyze_survey, integrate_report, report_json, survey_guide_result, survey_guide_start,
     survey_guide_status, survey_report_download, survey_report_html, survey_report_start,
-    tab_survey, upload_csv,
+    tab_survey, upload_csv, upload_csv_start,
 };

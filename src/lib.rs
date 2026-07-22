@@ -356,6 +356,13 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 // Render無料プランのタイムアウト(502)より前にアプリ層で明示拒否する。
                 .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
         )
+        // 2026-07-22: アップロードのジョブ化版 (即時 job_id 返却 + 段階進捗)。
+        // 同期版と同じボディ上限を適用する。
+        .route(
+            "/api/survey/upload/start",
+            post(handlers::survey::upload_csv_start)
+                .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT_BYTES)),
+        )
         .route("/api/survey/analyze", get(handlers::survey::analyze_survey))
         .route(
             "/api/survey/integrate",
