@@ -435,10 +435,30 @@ pub(crate) fn render_upload_form() -> String {
         var files = e.dataTransfer.files;
         if (files.length > 0) submitSurveyCSV(files[0]);
     }
+    // 2026-07-22: アップロードのジョブ化。ファイル送信後すぐ job_id を受け取り、
+    // 結果パネル内に段階進捗 (CSV解析→AI補完→集計) を表示、完成した分析結果を差し込む。
     function submitSurveyCSV(file) {
         if (!file) return;
         var status = document.getElementById('upload-status');
+        var target = document.getElementById('survey-result');
         status.innerHTML = '<div class="text-sm text-blue-400">アップロード中: ' + file.name + '...</div>';
+        var t0 = Date.now();
+        function showProgress(stage) {
+            var s = Math.floor((Date.now() - t0) / 1000);
+            target.innerHTML =
+                '<div class="stat-card"><div class="flex items-center gap-3">' +
+                '<div style="width:22px;height:22px;border:3px solid #334155;border-top-color:#38bdf8;border-radius:50%;animation:spin 1s linear infinite"></div>' +
+                '<div><p class="text-sm text-sky-300 font-bold">' + stage + '</p>' +
+                '<p class="text-xs text-slate-400">経過 ' + Math.floor(s / 60) + '分' + (s % 60) + '秒</p></div>' +
+                '</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>';
+        }
+        function showError(msg) {
+            target.innerHTML = '<div class="stat-card"><p class="text-red-400 text-sm">' + msg + '</p></div>';
+            status.textContent = 'エラー';
+            status.className = 'mt-3 text-sm text-red-400';
+        }
+        showProgress('アップロード中');
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         var fd = new FormData();
         fd.append('csv_file', file);
         // ユーザー明示指定を同送信（自動判定より優先）
@@ -446,23 +466,44 @@ pub(crate) fn render_upload_form() -> String {
         var wage = document.querySelector('input[name="wage_mode"]:checked');
         if (src) fd.append('source_type', src.value);
         if (wage) fd.append('wage_mode', wage.value);
-        fetch('/api/survey/upload', { method: 'POST', body: fd })
-            .then(function(r) { return r.text(); })
-            .then(function(serverHtml) {
-                var target = document.getElementById('survey-result');
-                target.innerHTML = serverHtml;
-                if (typeof htmx !== 'undefined') htmx.process(target);
-                setTimeout(function() {
-                    if (typeof window.initECharts === 'function') window.initECharts(target);
-                }, 50);
-                status.textContent = '完了';
-                status.className = 'mt-3 text-sm text-emerald-400';
-                // 結果エリアまでスクロール
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        fetch('/api/survey/upload/start', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                if (!j.job_id) { showError(j.error || 'アップロードに失敗しました'); return; }
+                status.textContent = '処理中…';
+                status.className = 'mt-3 text-sm text-blue-400';
+                var timer = setInterval(function() {
+                    fetch('/api/survey/job/status/' + j.job_id)
+                        .then(function(r) { return r.json(); })
+                        .then(function(st) {
+                            if (st.state === 'running' || st.state === 'queued') {
+                                showProgress(st.message || '処理中');
+                            }
+                            if (st.state === 'done') {
+                                clearInterval(timer);
+                                fetch('/report/survey/job/result/' + j.job_id)
+                                    .then(function(r) { return r.text(); })
+                                    .then(function(serverHtml) {
+                                        target.innerHTML = serverHtml;
+                                        if (typeof htmx !== 'undefined') htmx.process(target);
+                                        setTimeout(function() {
+                                            if (typeof window.initECharts === 'function') window.initECharts(target);
+                                        }, 50);
+                                        status.textContent = '完了';
+                                        status.className = 'mt-3 text-sm text-emerald-400';
+                                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    });
+                            }
+                            if (st.state === 'failed') {
+                                clearInterval(timer);
+                                showError(st.message || '処理に失敗しました');
+                            }
+                        })
+                        .catch(function() {});
+                }, 1500);
             })
             .catch(function(e) {
-                status.textContent = 'アップロードエラーが発生しました';
-                status.className = 'mt-3 text-sm text-red-400';
+                showError('アップロードエラーが発生しました');
             });
     }
 

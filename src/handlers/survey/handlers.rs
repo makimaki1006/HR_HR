@@ -41,26 +41,16 @@ fn body_size_error_html() -> String {
     )
 }
 
-/// CSVアップロード（multipart/form-data）
-pub async fn upload_csv(
-    State(state): State<Arc<AppState>>,
-    session: Session,
-    mut multipart: axum_extra::extract::Multipart,
-) -> Html<String> {
-    // 監査: CSV アップロード (バイト数は後で判明するので最初に記録)
-    crate::audit::record_event(
-        &state.audit,
-        &session,
-        "upload_survey_csv",
-        "upload",
-        "start",
-        "",
-    )
-    .await;
-    // ファイルデータ読み取り + ユーザー明示指定
+/// multipart からアップロード内容を読み取る共通ヘルパー (2026-07-22 ジョブ化で分離)。
+///
+/// 戻り値 Err は (フェーズ名, 生メッセージ)。呼び出し側がフォーマットする
+/// (同期版は HTML、ジョブ開始版は JSON)。
+async fn read_upload_multipart(
+    multipart: &mut axum_extra::extract::Multipart,
+) -> Result<(Vec<u8>, String, String, String), (&'static str, String)> {
     let mut csv_data: Option<Vec<u8>> = None;
     let mut filename = String::from("unknown.csv");
-    let mut source_type = String::from("auto"); // "indeed" | "jobbox" | "other" | "auto"
+    let mut source_type = String::from("auto"); // "indeed" | "indeed_sp" | "jobbox" | "other" | "auto"
     let mut wage_mode = String::from("auto"); // "monthly" | "hourly" | "auto"
 
     loop {
@@ -71,17 +61,7 @@ pub async fn upload_csv(
                     filename = field.file_name().unwrap_or("upload.csv").to_string();
                     match field.bytes().await {
                         Ok(bytes) => csv_data = Some(bytes.to_vec()),
-                        Err(e) => {
-                            let msg = e.to_string();
-                            if is_body_size_error(&msg) {
-                                tracing::warn!("Upload rejected (size exceeded): {}", msg);
-                                return Html(body_size_error_html());
-                            }
-                            return Html(format!(
-                                r#"<div class="stat-card"><p class="text-red-400 text-sm">ファイル読み取りエラー: {}</p></div>"#,
-                                super::super::helpers::escape_html(&msg)
-                            ));
-                        }
+                        Err(e) => return Err(("ファイル読み取りエラー", e.to_string())),
                     }
                 } else if field_name == "source_type" {
                     if let Ok(s) = field.text().await {
@@ -103,43 +83,90 @@ pub async fn upload_csv(
                 }
             }
             Ok(None) => break,
-            Err(e) => {
-                // next_field() が body size 超過で失敗するケース
-                let msg = e.to_string();
-                if is_body_size_error(&msg) {
-                    tracing::warn!("Upload rejected (size exceeded at next_field): {}", msg);
-                    return Html(body_size_error_html());
-                }
-                return Html(format!(
-                    r#"<div class="stat-card"><p class="text-red-400 text-sm">アップロード解析エラー: {}</p></div>"#,
-                    super::super::helpers::escape_html(&msg)
-                ));
-            }
+            Err(e) => return Err(("アップロード解析エラー", e.to_string())),
         }
     }
 
-    let data = match csv_data {
-        Some(d) if !d.is_empty() => d,
-        _ => {
-            return Html(r#"<div class="stat-card"><p class="text-red-400 text-sm">CSVファイルが選択されていません</p></div>"#.to_string());
-        }
-    };
+    match csv_data {
+        Some(d) if !d.is_empty() => Ok((d, filename, source_type, wage_mode)),
+        _ => Err(("CSVファイルが選択されていません", String::new())),
+    }
+}
+
+/// CSVアップロード（multipart/form-data、同期版 — 自動化スクリプト互換用）
+pub async fn upload_csv(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    mut multipart: axum_extra::extract::Multipart,
+) -> Html<String> {
+    // 監査: CSV アップロード (バイト数は後で判明するので最初に記録)
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "upload_survey_csv",
+        "upload",
+        "start",
+        "",
+    )
+    .await;
+    let (data, filename, source_type, wage_mode) =
+        match read_upload_multipart(&mut multipart).await {
+            Ok(v) => v,
+            Err((phase, msg)) => {
+                if is_body_size_error(&msg) {
+                    tracing::warn!("Upload rejected (size exceeded): {}", msg);
+                    return Html(body_size_error_html());
+                }
+                return Html(format!(
+                    r#"<div class="stat-card"><p class="text-red-400 text-sm">{}: {}</p></div>"#,
+                    phase,
+                    super::super::helpers::escape_html(&msg)
+                ));
+            }
+        };
 
     // コンテキスト都道府県（セッションから取得）
     let filters = get_session_filters(&session).await;
     let context_pref = if filters.prefecture.is_empty() {
         None
     } else {
-        Some(filters.prefecture.as_str())
+        Some(filters.prefecture.clone())
     };
 
+    let noop = |_: &str| {};
+    process_survey_csv_inner(
+        state,
+        data,
+        filename,
+        source_type,
+        wage_mode,
+        context_pref,
+        &noop,
+    )
+    .await
+}
+
+/// CSV 処理本体 (パース → AI 補助 → 集計 → キャッシュ保存 → 結果パネル HTML)。
+///
+/// 2026-07-22: アップロードのジョブ化のため同期ハンドラから分離。
+/// Session 非依存 (監査・フィルタ取得は呼び出し側の責務)。progress で段階を外部化する。
+async fn process_survey_csv_inner(
+    state: Arc<AppState>,
+    data: Vec<u8>,
+    filename: String,
+    source_type: String,
+    wage_mode: String,
+    context_pref: Option<String>,
+    progress: &(dyn Fn(&str) + Send + Sync),
+) -> Html<String> {
     // ユーザー明示指定
     let source_hint = UserSourceHint::from_str(&source_type);
     let wage_mode_enum = WageMode::from_str(&wage_mode);
 
     // CSVパース（CPU重い処理をspawn_blocking）
+    progress("CSVを解析中");
     let data_clone = data.clone();
-    let ctx_pref = context_pref.map(|s| s.to_string());
+    let ctx_pref = context_pref.clone();
     let result = tokio::task::spawn_blocking(move || {
         parse_csv_bytes_with_hints(&data_clone, ctx_pref.as_deref(), source_hint)
     })
@@ -173,6 +200,7 @@ pub async fn upload_csv(
     if let Some(client) = gemini.as_ref() {
         // --- 機能 E: 列マッピングの AI 推定 (パース結果が貧弱な場合の最後の砦) ---
         if super::upload::is_parse_poor(&records) {
+            progress("列構成をAIで推定中");
             if let Some((headers, samples)) = super::upload::extract_header_and_samples(&data, 2) {
                 let schema = super::upload::build_colmap_schema();
                 let (sys, usr) = super::upload::build_colmap_prompt(&headers, &samples);
@@ -181,7 +209,7 @@ pub async fn upload_csv(
                     if !overrides.is_empty() {
                         // 推定結果で col_map を補完して再パース (CPU 処理なので spawn_blocking)
                         let data_c = data.clone();
-                        let ctx = context_pref.map(|s| s.to_string());
+                        let ctx = context_pref.clone();
                         let ov = overrides.clone();
                         let reparsed = tokio::task::spawn_blocking(move || {
                             super::upload::parse_csv_bytes_with_col_overrides(
@@ -207,10 +235,12 @@ pub async fn upload_csv(
         }
 
         // --- 機能 C 拡張: 複数属性 AI 抽出 (全行対象, 上限 15 コール = 300 件) ---
+        progress("AI補完で休日・賞与などを抽出中");
         ai_extraction_yield = run_holiday_ai_extraction(client, &mut records).await;
     }
 
     // 集計 + 求職者分析
+    progress("集計中");
     let mut agg = aggregate_records_with_mode(&records, wage_mode_enum);
     // 機能 C: 年間休日の AI 抽出件数を集計結果へ伝播 (§07.5 注記「うち AI 補助 K 件」用)
     // §07.5 注記は年間休日分のみを表示するため annual_holidays のみを渡す。
@@ -1329,6 +1359,83 @@ pub async fn survey_report_start(
             set_guide_status(&st, &jid, "running", msg);
         };
         let html = build_survey_report_inner(state_bg.clone(), query, &progress).await;
+        state_bg
+            .cache
+            .set(guide_job_html_key(&job_id_bg), serde_json::json!(html.0));
+        set_guide_status(&state_bg, &job_id_bg, "done", "完成しました");
+    });
+
+    Json(serde_json::json!({ "job_id": job_id }))
+}
+
+/// CSVアップロードのジョブ化版 (2026-07-22)。
+///
+/// ファイル受領後すぐ job_id を返し、パース → AI 補助 → 集計は
+/// バックグラウンドで進める。フロントは結果パネル内に段階進捗を表示し、
+/// 完成した分析結果フラグメントを /report/survey/job/result/{id} から取得して差し込む。
+pub async fn upload_csv_start(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    mut multipart: axum_extra::extract::Multipart,
+) -> axum::response::Json<serde_json::Value> {
+    use axum::response::Json;
+
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "upload_survey_csv",
+        "upload",
+        "start",
+        "",
+    )
+    .await;
+
+    let (data, filename, source_type, wage_mode) =
+        match read_upload_multipart(&mut multipart).await {
+            Ok(v) => v,
+            Err((phase, msg)) => {
+                let text = if is_body_size_error(&msg) {
+                    format!(
+                        "アップロード可能なファイルサイズ({}MB)を超えています",
+                        crate::UPLOAD_BODY_LIMIT_BYTES / (1024 * 1024)
+                    )
+                } else if msg.is_empty() {
+                    phase.to_string()
+                } else {
+                    format!("{}: {}", phase, msg)
+                };
+                return Json(serde_json::json!({ "error": text }));
+            }
+        };
+
+    let filters = get_session_filters(&session).await;
+    let context_pref = if filters.prefecture.is_empty() {
+        None
+    } else {
+        Some(filters.prefecture.clone())
+    };
+
+    let job_id = format!("u_{}", uuid::Uuid::new_v4());
+    set_guide_status(&state, &job_id, "queued", "処理を準備中");
+
+    let state_bg = state.clone();
+    let job_id_bg = job_id.clone();
+    tokio::spawn(async move {
+        let st = state_bg.clone();
+        let jid = job_id_bg.clone();
+        let progress = move |msg: &str| {
+            set_guide_status(&st, &jid, "running", msg);
+        };
+        let html = process_survey_csv_inner(
+            state_bg.clone(),
+            data,
+            filename,
+            source_type,
+            wage_mode,
+            context_pref,
+            &progress,
+        )
+        .await;
         state_bg
             .cache
             .set(guide_job_html_key(&job_id_bg), serde_json::json!(html.0));
