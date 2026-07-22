@@ -25,7 +25,7 @@ pub fn render_search_page() -> String {
         r##"<div class="space-y-6">
     <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white">🔎 企業検索
-            <span class="text-blue-400 text-base font-normal">企業データ × ハローワーク市場データ</span>
+            <span class="text-blue-400 text-base font-normal">企業データ × 求人市場データ</span>
         </h2>
         <div class="flex gap-2">
             <button class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1 rounded transition-colors" onclick="window.print()">🖨 印刷</button>
@@ -53,7 +53,7 @@ pub fn render_search_page() -> String {
     {drilldown_html}
     <div class="stat-card">
         <p class="text-slate-500 text-sm text-center py-4">企業を検索して選択すると、その企業の地域・業界の採用市場分析が表示されます。</p>
-        <p class="text-slate-600 text-xs text-center">データソース: 企業属性 × ハローワーク求人 × 外部統計</p>
+        <p class="text-slate-600 text-xs text-center">データソース: 企業属性 × 公的求人データ × 外部統計</p>
     </div>
 </div>"##
     )
@@ -1110,10 +1110,10 @@ fn render_salary_gap_table(html: &mut String, ctx: &CompanyContext) {
 }
 
 fn render_hw_postings(html: &mut String, ctx: &CompanyContext) {
-    html.push_str(r##"<div class="stat-card mt-4 border-l-4 border-rose-500"><h4 class="text-sm text-slate-400 mb-3">📋 この企業のハローワーク求人</h4>"##);
+    html.push_str(r##"<div class="stat-card mt-4 border-l-4 border-rose-500"><h4 class="text-sm text-slate-400 mb-3">📋 この企業の掲載求人（公的求人データ）</h4>"##);
 
     if ctx.hw_matched_postings.is_empty() {
-        html.push_str(r##"<p class="text-slate-500 text-sm text-center py-4">ハローワークに求人掲載なし</p></div>"##);
+        html.push_str(r##"<p class="text-slate-500 text-sm text-center py-4">公的求人データに掲載なし</p></div>"##);
         return;
     }
 
@@ -1366,10 +1366,10 @@ pub fn render_company_report(ctx: &CompanyContext) -> String {
         <h1 class="text-lg font-bold">企業分析レポート</h1>
         <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm">🖨 印刷 / PDF保存</button>
     </div>
-    <div class="text-xs text-slate-500 mb-4">生成日: <script>document.write(new Date().toLocaleDateString('ja-JP'))</script> | データソース: 企業属性 + ハローワーク求人 + 外部統計</div>
+    <div class="text-xs text-slate-500 mb-4">生成日: <script>document.write(new Date().toLocaleDateString('ja-JP'))</script> | データソース: 企業属性 + 公的求人データ + 外部統計</div>
     {body}
     <div class="text-xs text-slate-600 mt-8 text-center">
-        ※ ハローワーク掲載求人のみが対象です。民間求人サイト（Indeed等）の求人は含まれません。
+        ※ 公的機関の掲載求人のみが対象です。民間求人サイト（Indeed等）の求人は含まれません。
     </div>
 </div>
 <script src="/static/js/charts.js"></script>

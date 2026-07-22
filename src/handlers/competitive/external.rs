@@ -1423,7 +1423,7 @@ pub async fn ext_market_forecast(
         scope,
         "HW掲載求人 給与統計 (v2_salary_competitiveness)／経済センサス (v2_external_industry_structure)",
         &body,
-        "給与は当該地域のハローワーク掲載求人に基づく値です (全求人市場ではありません)。\
+        "給与は当該地域の公的機関の掲載求人に基づく値です (全求人市場ではありません)。\
          構成比は表示産業の合計に対する内訳。営業仮説は相関に基づく傾向であり因果を示すものではありません。",
     ))
 }

@@ -166,7 +166,7 @@ async fn integrated_report_mentions_hw_scope_and_no_causation() {
     let html = integrated_report(State(state), session, Query(q)).await.0;
 
     // HW 限定性
-    assert!(html.contains("ハローワーク"), "must mention ハローワーク");
+    assert!(html.contains("公的求人データ"), "must mention 公的求人データ (旧: ハローワーク)");
     assert!(
         html.contains("民間"),
         "must mention 民間 to clarify exclusion"
@@ -355,8 +355,8 @@ async fn fixb_cover_has_explicit_hw_only_scope_warning() {
 
     // 表紙にハローワーク限定スコープが明記されている
     assert!(
-        cover_section.contains("ハローワーク"),
-        "表紙に「ハローワーク」が明記されているべき (D-2 Q4.4)"
+        cover_section.contains("公的求人データベース"),
+        "表紙に「公的求人データベース」のスコープが明記されているべき (D-2 Q4.4)"
     );
     // 民間求人サイトの除外を明記
     assert!(

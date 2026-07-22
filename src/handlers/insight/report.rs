@@ -52,7 +52,7 @@ pub fn build_report_json(insights: &[Insight], pref: &str, muni: &str) -> Value 
     ];
 
     json!({
-        "title": "ハローワーク求人市場 総合診断レポート",
+        "title": "求人市場 総合診断レポート",
         "subtitle": format!("{} | {}", location, chrono::Local::now().format("%Y年%m月")),
         "location": location,
         "generated_at": chrono::Local::now().to_rfc3339(),

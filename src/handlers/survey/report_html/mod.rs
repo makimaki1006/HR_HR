@@ -295,7 +295,7 @@ impl ReportVariant {
     /// 想定読者・コンテキスト説明
     pub fn description(self) -> &'static str {
         match self {
-            Self::Full => "ハローワーク掲載求人と統合分析を含む完全版（社内分析向け）",
+            Self::Full => "公的機関の掲載求人と統合分析を含む完全版（社内分析向け）",
             Self::Public => "e-Stat等の公開データを主軸とした版（対外提案向け）",
             Self::MarketIntelligence => {
                 "採用ターゲット分析を含む拡張版（媒体分析・配信地域提案向け）"
@@ -4426,7 +4426,7 @@ mod variant_indicator_tests {
     fn hw_forbidden_terms_for_mi() -> &'static [&'static str] {
         &[
             // 表紙サブタイトル (Round 1-L #1)
-            "ハローワーク掲載求人 + アップロード CSV クロス分析",
+            "公的機関の掲載求人 + アップロード CSV クロス分析",
             // Section H 見出し (Round 1-L #3)
             "地域 × HW データ連携",
             // Section 4 KPI (Round 1-L #4)
@@ -4519,12 +4519,12 @@ mod variant_indicator_tests {
     /// Full variant の HTML 出力には HW 用語が含まれる (HW 併載維持の逆証明)。
     ///
     /// hw_context が None の minimal render でも、cover subtitle は variant 連動で
-    /// 「ハローワーク掲載求人 + アップロード CSV クロス分析」になる。
+    /// 「公的機関の掲載求人 + アップロード CSV クロス分析」になる。
     #[test]
     fn full_variant_html_output_contains_hw_subtitle() {
         let html = render_for_variant_r2_1(ReportVariant::Full);
         assert!(
-            html.contains("ハローワーク掲載求人 + アップロード CSV クロス分析"),
+            html.contains("公的機関の掲載求人 + アップロード CSV クロス分析"),
             "Full variant の cover subtitle に HW 文言が出ること (HW 併載維持の逆証明)"
         );
     }
@@ -4550,9 +4550,9 @@ mod variant_indicator_tests {
         let html_public = render_for_variant_r2_1(ReportVariant::Public);
 
         // Full のみ HW 文言を含む
-        assert!(html_full.contains("ハローワーク掲載求人"));
-        assert!(!html_mi.contains("ハローワーク掲載求人"));
-        assert!(!html_public.contains("ハローワーク掲載求人"));
+        assert!(html_full.contains("公的機関の掲載求人"));
+        assert!(!html_mi.contains("公的機関の掲載求人"));
+        assert!(!html_public.contains("公的機関の掲載求人"));
     }
 
     // ========================================================================
@@ -4640,7 +4640,7 @@ mod variant_indicator_tests {
             "HW 求人継続率",
             // 第 12B 章 セグメントラベル
             "求人積極期 (HW",
-            "ハローワークで 5 件以上",
+            "公的求人データで 5 件以上",
         ]
     }
 

@@ -874,7 +874,7 @@ fn render_karte_insight_card(insight: &Insight) -> String {
 fn render_section_footer(_pref: &str, _muni: &str) -> String {
     r##"<section class="karte-section karte-footer" aria-label="出典・注意事項">
     <div class="text-[10px] text-slate-600 border-t border-slate-800 pt-3">
-        <div>出典: ハローワーク掲載求人データ / e-Stat API / SSDSE-A（総務省統計局） / Agoop 国土数値情報</div>
+        <div>出典: 公的機関の掲載求人データ / e-Stat API / SSDSE-A（総務省統計局） / Agoop 国土数値情報</div>
         <div class="mt-1">※ HW掲載求人は全求人市場の一部を構成します。IT・通信等HW掲載が少ない産業は参考値。</div>
         <div class="mt-1">※ 事業所データは都道府県粒度、人流データは2021年基準、その他は出典記載年。</div>
     </div>

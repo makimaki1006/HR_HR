@@ -596,7 +596,7 @@ pub(super) fn render_section_company_segments(
         ),
         (
             "🎯 求人積極期 (HW 5 件以上)",
-            "ハローワークで 5 件以上の求人を継続している 10 社",
+            "公的求人データで 5 件以上の求人を継続している 10 社",
             "公開情報上、HW で複数件の求人を出している地域企業群。地域の採用動向の参考指標。",
             &segments.hiring,
             "regional-segment-hiring",

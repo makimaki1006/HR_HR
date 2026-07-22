@@ -212,7 +212,7 @@ async fn tab_comparison_returns_47_table_rows() {
 
     // HW 限定性の注記
     assert!(
-        s.contains("ハローワーク") && s.contains("民間"),
+        s.contains("公的機関の掲載求人") && s.contains("民間"),
         "must mention HW scope and exclude民間"
     );
     // 因果非主張の注記

@@ -87,7 +87,7 @@ pub async fn tab_analysis(State(state): State<Arc<AppState>>, session: Session) 
     html.push_str(
         r##"<div class="mt-6 p-3 bg-slate-900/40 border-l-4 border-amber-500 rounded text-[11px] text-slate-400 leading-relaxed">
             <p class="font-semibold text-amber-400 mb-1">⚠️ 本分析の前提</p>
-            <p>本分析は <span class="text-slate-300">ハローワーク掲載求人</span> ベースです。民間求人サイト（Indeed等）は含まれません。</p>
+            <p>本分析は <span class="text-slate-300">公的機関の掲載求人</span> ベースです。民間求人サイト（Indeed等）は含まれません。</p>
             <p>また、相関関係と因果関係は別物のため、本ダッシュボードでは「傾向」「可能性」表現に留めています。</p>
         </div>"##,
     );

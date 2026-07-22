@@ -415,7 +415,7 @@ pub(super) fn render_wage_compliance_section(data: &[Row]) -> String {
         ));
     }
 
-    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 厚生労働省「地域別最低賃金」+ ハローワーク求人データ</p>"#);
+    html.push_str(r#"<p class="text-xs text-slate-600 mt-3 italic">出典: 厚生労働省「地域別最低賃金」+ 公的求人データデータ</p>"#);
     html.push_str("</div></div>");
     html
 }

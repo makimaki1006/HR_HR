@@ -104,7 +104,7 @@ fn build_xlsx(
     let sheet1 = workbook.add_worksheet();
     sheet1.set_name("サマリー").map_err(|e| e.to_string())?;
     sheet1
-        .write_string_with_format(0, 0, "ハローワーク求人市場 総合診断レポート", &title_fmt)
+        .write_string_with_format(0, 0, "求人市場 総合診断レポート", &title_fmt)
         .ok();
     sheet1
         .write_string_with_format(

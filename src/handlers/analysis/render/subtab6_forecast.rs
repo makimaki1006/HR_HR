@@ -127,7 +127,7 @@ pub(super) fn render_fulfillment_section(data: &[Row]) -> String {
         本スコアは求人条件と地域特性からの推定値であり、実際の応募・採用実績とは異なる場合があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人の条件・地域特性からの推定スコア（求職者人数の推計ではありません）。HW掲載求人に基づく",
+        "公的機関の掲載求人の条件・地域特性からの推定スコア（求職者人数の推計ではありません）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -207,7 +207,7 @@ pub(super) fn render_mobility_section(data: &[Row]) -> String {
         本指標は重力モデルによる推定値で、実際の人材移動の実測ではありません。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（地域別求人数・給与）に重力モデルを適用した推定値。HW掲載求人に基づく",
+        "公的機関の掲載求人（地域別求人数・給与）に重力モデルを適用した推定値。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -284,7 +284,7 @@ pub(super) fn render_shadow_wage_section(data: &[Row]) -> String {
         中央値を基準に水準感を確認することをおすすめします。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（雇用形態別の給与パーセンタイル分布）。HW掲載求人に基づく",
+        "公的機関の掲載求人（雇用形態別の給与パーセンタイル分布）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html

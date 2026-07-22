@@ -62,7 +62,7 @@ pub use talent_pool_expansion::api_talent_pool_expansion;
 /// 採用診断 API 全体で返す HW データ範囲に関する標準注意書き。
 /// （`feedback_hw_data_scope.md` 遵守）
 pub(crate) const HW_SCOPE_NOTE: &str =
-    "本分析は HW（ハローワーク）掲載求人のみを対象とする。HW非掲載の求人・民間媒体を含まないため、\
+    "本分析は公的求人データ (HW) の掲載求人のみを対象とする。HW 非掲載の求人・民間媒体を含まないため、\
      全求人市場の実態を示すものではない。";
 
 /// 示唆の因果関係に関する標準注意書き。
