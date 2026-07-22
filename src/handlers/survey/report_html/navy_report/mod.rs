@@ -191,7 +191,9 @@ pub(crate) use guide::render_survey_guide_page;
 //   数値はコード確定 (guide_ai::build_fact_inventory)、解釈文のみ LLM。
 //   失敗時は guide.rs の決定的テンプレへフォールバックする。
 pub(super) mod guide_ai;
-pub(crate) use guide_ai::{render_guide_progress_shell, render_survey_guide_page_ai};
+pub(crate) use guide_ai::{
+    render_guide_progress_shell, render_report_progress_shell, render_survey_guide_page_ai,
+};
 
 use super::super::super::analysis::fetch::CsvCompanySalary;
 use super::super::super::helpers::{escape_html, format_number};

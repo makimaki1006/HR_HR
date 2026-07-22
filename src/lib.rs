@@ -380,6 +380,19 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/survey/guide/result/{job_id}",
             get(handlers::survey::survey_guide_result),
         )
+        // 2026-07-22: レポート本体もジョブ化 (中立の status/result エンドポイントを共用)
+        .route(
+            "/api/survey/report/start",
+            get(handlers::survey::survey_report_start),
+        )
+        .route(
+            "/api/survey/job/status/{job_id}",
+            get(handlers::survey::survey_guide_status),
+        )
+        .route(
+            "/report/survey/job/result/{job_id}",
+            get(handlers::survey::survey_guide_result),
+        )
         // ======== コンサル支援 (商談準備レポート、社内用) 2026-07-10 ========
         // protected_routes 内のため auth_middleware の保護下に置かれる
         .route("/consult/brief", get(handlers::consult::consult_brief))
