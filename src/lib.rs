@@ -367,6 +367,19 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/survey/download",
             get(handlers::survey::survey_report_download),
         )
+        // 2026-07-22: 解説資料 AI 版のジョブ化 (レート制限待機を進捗表示で吸収)
+        .route(
+            "/api/survey/guide/start",
+            get(handlers::survey::survey_guide_start),
+        )
+        .route(
+            "/api/survey/guide/status/{job_id}",
+            get(handlers::survey::survey_guide_status),
+        )
+        .route(
+            "/report/survey/guide/result/{job_id}",
+            get(handlers::survey::survey_guide_result),
+        )
         // ======== コンサル支援 (商談準備レポート、社内用) 2026-07-10 ========
         // protected_routes 内のため auth_middleware の保護下に置かれる
         .route("/consult/brief", get(handlers::consult::consult_brief))

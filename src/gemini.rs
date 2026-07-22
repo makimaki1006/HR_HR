@@ -37,7 +37,10 @@
 //!   呼び出し側の責務だが、本モジュールもキー等を prompt に混ぜない。
 
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::collections::VecDeque;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex as AsyncMutex;
 
 /// デフォルトのモデル ID (エイリアス)。
 ///
@@ -47,6 +50,86 @@ pub const DEFAULT_MODEL: &str = "gemini-flash-lite-latest";
 
 /// リクエストタイムアウト。LLM をクリティカルパスに置かないため短めに固定。
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+
+// ============================================================
+// グローバルレートリミッタ (2026-07-22)
+// ============================================================
+//
+// 無料枠の 15 リクエスト/分に対し、安全マージンを取って 12/分 に制限する。
+// 複数ユーザーが同時に生成しても、超過しそうな呼び出しは自動で待機する
+// (ユーザー方針: 1日500の枠は当面問題ないため、分間だけを出力側の待機で吸収)。
+// プロセス全体で共有 (解説資料・商談準備・CSV抽出のすべての呼び出しが対象)。
+
+/// 分間の許容リクエスト数 (無料枠 15 に対する安全マージン)。
+pub const RATE_LIMIT_PER_MIN: usize = 12;
+
+static RATE_WINDOW: OnceLock<AsyncMutex<VecDeque<Instant>>> = OnceLock::new();
+
+/// スライディングウィンドウの純粋関数部 (テスト用に分離)。
+///
+/// - 60 秒より古い記録を捨てる
+/// - 枠が空いていれば now を記録して None (即時実行可)
+/// - 埋まっていれば「最古の記録が 60 秒経過するまでの残り時間」を返す
+fn window_wait(window: &mut VecDeque<Instant>, now: Instant, limit: usize) -> Option<Duration> {
+    while let Some(front) = window.front() {
+        if now.duration_since(*front) >= Duration::from_secs(60) {
+            window.pop_front();
+        } else {
+            break;
+        }
+    }
+    if window.len() < limit {
+        window.push_back(now);
+        None
+    } else {
+        let oldest = *window.front().expect("len>=limit>0 なので front は必ずある");
+        Some(
+            Duration::from_secs(60)
+                .saturating_sub(now.duration_since(oldest))
+                .saturating_add(Duration::from_millis(100)),
+        )
+    }
+}
+
+/// レート枠を取得する (埋まっていれば空くまで待機)。
+async fn acquire_rate_slot() {
+    let win = RATE_WINDOW.get_or_init(|| AsyncMutex::new(VecDeque::new()));
+    loop {
+        let wait = {
+            let mut w = win.lock().await;
+            window_wait(&mut w, Instant::now(), RATE_LIMIT_PER_MIN)
+        };
+        match wait {
+            None => return,
+            Some(d) => {
+                tracing::info!("Gemini: 分間レート枠が埋まっているため {:.0} 秒待機", d.as_secs_f64());
+                tokio::time::sleep(d).await;
+            }
+        }
+    }
+}
+
+/// 現在の待機見込み秒数 (進捗表示用、消費はしない)。0 = 即時実行可。
+pub async fn rate_wait_estimate_secs() -> u64 {
+    let win = RATE_WINDOW.get_or_init(|| AsyncMutex::new(VecDeque::new()));
+    let w = win.lock().await;
+    let now = Instant::now();
+    let active = w
+        .iter()
+        .filter(|t| now.duration_since(**t) < Duration::from_secs(60))
+        .count();
+    if active < RATE_LIMIT_PER_MIN {
+        0
+    } else {
+        w.front()
+            .map(|oldest| {
+                Duration::from_secs(60)
+                    .saturating_sub(now.duration_since(*oldest))
+                    .as_secs()
+            })
+            .unwrap_or(0)
+    }
+}
 
 /// Gemini API クライアント (構造化 JSON 出力専用)。
 ///
@@ -88,6 +171,8 @@ impl GeminiClient {
     /// reqwest は blocking 版のみ有効なため、async ランタイムをブロックしないよう
     /// `spawn_blocking` 内でクライアント生成〜送信を行う (main.rs の既存方針に準拠)。
     pub async fn generate_json(&self, system: &str, user: &str, schema: Value) -> Option<Value> {
+        // 2026-07-22: 分間レート制限 (プロセス全体で共有)。枠が埋まっていれば待機する。
+        acquire_rate_slot().await;
         let body = build_request_body(system, user, schema);
         // URL には API キーを載せる。クロージャ内ローカルに閉じ込め、ログには出さない。
         let url = format!(
@@ -229,6 +314,24 @@ pub(crate) fn parse_response(raw: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rate_window_allows_under_limit_and_waits_over_limit() {
+        // 純粋関数部のテスト (実スリープなし)
+        let mut w: VecDeque<Instant> = VecDeque::new();
+        let t0 = Instant::now();
+        // limit=3: 3回までは即時 (None)
+        assert!(window_wait(&mut w, t0, 3).is_none());
+        assert!(window_wait(&mut w, t0, 3).is_none());
+        assert!(window_wait(&mut w, t0, 3).is_none());
+        // 4回目は待機時間が返る (最古+60秒まで)
+        let wait = window_wait(&mut w, t0 + Duration::from_secs(1), 3);
+        let d = wait.expect("枠超過は Some(待機時間)");
+        assert!(d >= Duration::from_secs(58) && d <= Duration::from_secs(60));
+        // 61秒後: 古い記録が全て掃除され、再び即時
+        let mut w2 = w.clone();
+        assert!(window_wait(&mut w2, t0 + Duration::from_secs(61), 3).is_none());
+    }
 
     #[test]
     fn resolve_model_defaults_when_absent_or_blank() {

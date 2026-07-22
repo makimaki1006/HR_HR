@@ -30,6 +30,6 @@ mod report_html_qa_test;
 mod render_ui1_test;
 
 pub use handlers::{
-    analyze_survey, integrate_report, report_json, survey_report_download, survey_report_html,
-    tab_survey, upload_csv,
+    analyze_survey, integrate_report, report_json, survey_guide_result, survey_guide_start,
+    survey_guide_status, survey_report_download, survey_report_html, tab_survey, upload_csv,
 };

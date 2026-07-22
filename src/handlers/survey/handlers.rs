@@ -660,6 +660,14 @@ pub async fn survey_report_html(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
+    // 2026-07-22: 解説資料のAI版はジョブ化 (レート制限の待機を進捗表示で吸収)。
+    //   進捗シェルを即時返し、ページ内 JS が /api/survey/guide/start → status ポーリング
+    //   → /report/survey/guide/result/{id} へ遷移する。ai=off (テンプレ版) は従来どおり
+    //   同期生成 (後段の分岐)。
+    if query.variant.as_deref() == Some("guide") && query.ai.as_deref() != Some("off") {
+        return Html(super::report_html::render_guide_progress_shell());
+    }
+
     // 企業別・雇用形態別の集計はレコードキャッシュから再計算が必要だが、
     // 現時点ではaggの既存フィールドのみで生成（企業別集計はレコード不要の仮実装）
     let by_company = agg.by_company.clone();
@@ -792,26 +800,9 @@ pub async fn survey_report_html(
         None
     };
 
-    // 2026-07-17: 解説資料 (?variant=guide)。レポート本体でなく顧客向けの
-    //   読み解きガイドを返す。集計 + 公的統計のみ使用のため SalesNow 取得前に
-    //   早期 return する (以降のフェッチは不要)。
-    //   既定は AI パイプライン (flash-lite 作成→逆証明レビュー→修正、最大4コール)。
-    //   API キー未設定・失敗・ガード全滅時と ?ai=off 指定時は決定的テンプレ。
+    // 2026-07-17: 解説資料のテンプレ版 (?variant=guide&ai=off)。
+    //   AI 版は上流でジョブ化済み (進捗シェル)。ここに来るのは ai=off のみ。
     if query.variant.as_deref() == Some("guide") {
-        if query.ai.as_deref() != Some("off") {
-            if let Some(html) = super::report_html::render_survey_guide_page_ai(
-                &agg,
-                hw_ctx.as_ref(),
-                &pref,
-                &muni,
-                query.company.as_deref(),
-            )
-            .await
-            {
-                return Html(html);
-            }
-            tracing::warn!("guide AI 生成に失敗または未設定。決定的テンプレへフォールバック");
-        }
         return Html(super::report_html::render_survey_guide_page(
             &agg,
             hw_ctx.as_ref(),
@@ -1068,4 +1059,190 @@ pub async fn survey_report_download(
         html_body,
     )
         .into_response()
+}
+
+// ============================================================
+// 解説資料 AI 版のジョブ化 (2026-07-22)
+// ============================================================
+//
+// レート制限 (Gemini 無料枠 15req/分、リミッタは 12/分) による待機を
+// 進捗表示で吸収するため、AI 版解説資料は非同期ジョブとして生成する。
+// フロー: /report/survey?variant=guide → 進捗シェル (即時)
+//   → JS が GET /api/survey/guide/start?{同じクエリ} → {job_id}
+//   → GET /api/survey/guide/status/{job_id} を 2 秒間隔でポーリング
+//   → state=done で /report/survey/guide/result/{job_id} へ遷移
+// 状態と成果物はメモリキャッシュ (TTL 付き) に保持する。
+
+fn guide_job_status_key(id: &str) -> String {
+    format!("guide_job_{}", id)
+}
+fn guide_job_html_key(id: &str) -> String {
+    format!("guide_html_{}", id)
+}
+
+fn set_guide_status(state: &AppState, id: &str, job_state: &str, message: &str) {
+    state.cache.set(
+        guide_job_status_key(id),
+        serde_json::json!({ "state": job_state, "message": message }),
+    );
+}
+
+/// 解説資料 AI 生成ジョブの開始。job_id を即時返し、生成はバックグラウンドで進む。
+pub async fn survey_guide_start(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<IntegrateQuery>,
+) -> axum::response::Json<serde_json::Value> {
+    use axum::response::Json;
+
+    let Some(session_id) = query.session_id.clone().filter(|s| !s.is_empty()) else {
+        return Json(serde_json::json!({ "error": "session_id が必要です" }));
+    };
+    let Some(agg_val) = state.cache.get(&format!("survey_agg_{}", session_id)) else {
+        return Json(serde_json::json!({ "error": "分析データが期限切れです。CSVを再アップロードしてください" }));
+    };
+    let agg: super::aggregator::SurveyAggregation = match serde_json::from_value(agg_val) {
+        Ok(a) => a,
+        Err(_) => {
+            return Json(serde_json::json!({ "error": "分析データの読み込みに失敗しました" }));
+        }
+    };
+
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "generate_survey_guide",
+        "report",
+        &session_id,
+        "",
+    )
+    .await;
+
+    // pref/muni 解決 (survey_report_html と同じ優先順位: クエリ > セッションキャッシュ)
+    let pref = query
+        .pref
+        .clone()
+        .filter(|s| !s.is_empty() && s != "全国")
+        .unwrap_or_else(|| {
+            state
+                .cache
+                .get(&format!("survey_pref_{}", session_id))
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_default()
+        });
+    let muni = query
+        .muni
+        .clone()
+        .filter(|s| !s.is_empty() && s != "すべて")
+        .unwrap_or_else(|| {
+            state
+                .cache
+                .get(&format!("survey_muni_{}", session_id))
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_default()
+        });
+    let company = query.company.clone().filter(|s| !s.trim().is_empty());
+
+    let job_id = format!("g_{}", uuid::Uuid::new_v4());
+    set_guide_status(&state, &job_id, "queued", "生成を準備中");
+
+    let state_bg = state.clone();
+    let job_id_bg = job_id.clone();
+    tokio::spawn(async move {
+        // 進捗レポータ: ステージをキャッシュへ外部化 (シェルがポーリング表示)
+        let st = state_bg.clone();
+        let jid = job_id_bg.clone();
+        let progress = move |msg: &str| {
+            set_guide_status(&st, &jid, "running", msg);
+        };
+        progress("地域データを取得中");
+
+        // 公的統計コンテキスト (解説資料が使うのは通勤 OD 等の最小セット)
+        let hw_ctx = if !pref.is_empty() {
+            if let Some(db) = state_bg.hw_db.clone() {
+                let turso = state_bg.turso_db.clone();
+                let pref2 = pref.clone();
+                let muni2 = muni.clone();
+                let wage_mode = if agg.is_hourly { "hourly" } else { "monthly" }.to_string();
+                tokio::task::spawn_blocking(move || {
+                    super::super::insight::fetch::build_insight_context_with_wage_mode(
+                        &db,
+                        turso.as_ref(),
+                        &pref2,
+                        &muni2,
+                        &wage_mode,
+                    )
+                })
+                .await
+                .ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let html = match super::report_html::render_survey_guide_page_ai(
+            &agg,
+            hw_ctx.as_ref(),
+            &pref,
+            &muni,
+            company.as_deref(),
+            &progress,
+        )
+        .await
+        {
+            Some(h) => h,
+            None => {
+                // AI 不可 (キー未設定・混雑・検証全滅) はテンプレ版に自動フォールバック
+                tracing::warn!("guide AI ジョブ失敗。テンプレ版へフォールバック (job={})", job_id_bg);
+                set_guide_status(&state_bg, &job_id_bg, "running", "テンプレート版で組版中");
+                super::report_html::render_survey_guide_page(
+                    &agg,
+                    hw_ctx.as_ref(),
+                    &pref,
+                    &muni,
+                    company.as_deref(),
+                )
+            }
+        };
+        state_bg
+            .cache
+            .set(guide_job_html_key(&job_id_bg), serde_json::json!(html));
+        set_guide_status(&state_bg, &job_id_bg, "done", "完成しました");
+    });
+
+    Json(serde_json::json!({ "job_id": job_id }))
+}
+
+/// 解説資料ジョブの進捗取得 (シェルページがポーリング)。
+pub async fn survey_guide_status(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    axum::extract::Path(job_id): axum::extract::Path<String>,
+) -> axum::response::Json<serde_json::Value> {
+    use axum::response::Json;
+    match state.cache.get(&guide_job_status_key(&job_id)) {
+        Some(v) => Json(v),
+        None => Json(serde_json::json!({ "state": "failed", "message": "ジョブが見つからないか期限切れです" })),
+    }
+}
+
+/// 解説資料ジョブの成果物 (完成 HTML)。
+pub async fn survey_guide_result(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    axum::extract::Path(job_id): axum::extract::Path<String>,
+) -> Html<String> {
+    match state
+        .cache
+        .get(&guide_job_html_key(&job_id))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+    {
+        Some(html) => Html(html),
+        None => Html(
+            "<html><body><p>解説資料が見つからないか期限切れです。もう一度生成してください。</p></body></html>"
+                .to_string(),
+        ),
+    }
 }
