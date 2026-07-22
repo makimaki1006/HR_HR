@@ -556,7 +556,7 @@ fn render_data_sources_collapsible(html: &mut String) {
         ),
         (
             "HW 欠員補充率",
-            "ハローワーク掲載求人 (自社集計、e-Stat 由来ではない)",
+            "公的機関の掲載求人 (自社集計、e-Stat 由来ではない)",
             "(欠員補充求人数 / 全求人数) × 100",
             "市区町村",
             "随時",
@@ -1280,7 +1280,7 @@ fn render_individual_kpis(html: &mut String, m: &TightnessMetrics) {
             label,
         );
         html.push_str(&render_data_source_note(
-            "ハローワーク掲載求人 (自社集計)",
+            "公的機関の掲載求人 (自社集計)",
             "(欠員補充求人数 / 全求人数) × 100",
             "市区町村",
         ));
@@ -2320,7 +2320,7 @@ mod tests {
             "有効求人倍率は職業安定業務統計が出典"
         );
         assert!(
-            html.contains("ハローワーク掲載求人"),
+            html.contains("公的機関の掲載求人"),
             "欠員補充率は HW 掲載求人 (自社集計) が出典"
         );
         assert!(html.contains("労働力調査"), "失業率は労働力調査が出典");
@@ -3071,7 +3071,7 @@ mod tests {
     /// Public variant: HW 欠員補充率の KPI カードが出ないこと (逆証明)
     ///
     /// vacancy データを与えても、HW 欠員補充率 KPI ラベル / カード data-source
-    /// (「ハローワーク掲載求人 (自社集計)」) が出力に含まれないことを確認。
+    /// (「公的機関の掲載求人 (自社集計)」) が出力に含まれないことを確認。
     #[test]
     fn public_variant_excludes_hw_vacancy_kpi_card() {
         let ctx = build_test_ctx(
@@ -3096,7 +3096,7 @@ mod tests {
         );
         // HW 由来データソース注記文言も出ない
         assert!(
-            !html.contains("ハローワーク掲載求人 (自社集計)"),
+            !html.contains("公的機関の掲載求人 (自社集計)"),
             "Public variant では HW 出典注記が出力されない"
         );
         // 他の 3 軸は表示される

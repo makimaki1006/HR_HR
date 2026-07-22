@@ -38,7 +38,7 @@ pub(crate) fn render_navy_cover(
     // 引数は呼出側 (report_html/mod.rs) との互換維持のため残置。
     let _ = (now, today_short);
     let cover_lede = match variant {
-        ReportVariant::Full => "ハローワーク掲載求人 + アップロード CSV クロス分析により、対象地域における求人市場の構造と機会を可視化します。",
+        ReportVariant::Full => "公的機関の掲載求人 + アップロード CSV クロス分析により、対象地域における求人市場の構造と機会を可視化します。",
         // 2026-07-09: Extended (詳細版) は MI と同じリード文を用いる (追加 4 図は Section 10 で明示)。
         // 2026-07-11: SP版 (仮) も同じリード文 (Extended 全部入りベースのため)。
         ReportVariant::MarketIntelligence | ReportVariant::Extended | ReportVariant::Sp => "アップロード CSV + 公開統計クロス分析により、採用市場・ターゲット分析と競合動向を立体的に把握します。",

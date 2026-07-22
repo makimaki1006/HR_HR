@@ -17,7 +17,7 @@ pub fn build_guide_html() -> String {
   <!-- タイトル -->
   <div class="stat-card">
     <h2 class="text-xl font-bold text-white mb-2">📖 取扱説明書</h2>
-    <p class="text-slate-400 text-sm">ハローワーク求人分析ダッシュボード（最終更新: 2026年3月24日）</p>
+    <p class="text-slate-400 text-sm">求人分析ダッシュボード（最終更新: 2026年3月24日）</p>
     <p class="text-amber-400 text-xs mt-1">⚠️ このダッシュボードはHW掲載求人のみが対象です。民間サイト（Indeed等）の求人は含まれません。</p>
   </div>
 
@@ -554,7 +554,7 @@ fn build_section_faq() -> String {
             </tr>
           </thead>
           <tbody class="text-slate-400">
-            <tr class="border-b border-slate-800"><td class="py-2 px-3 text-white">HW</td><td class="py-2 px-3">ハローワーク（公共職業安定所）</td></tr>
+            <tr class="border-b border-slate-800"><td class="py-2 px-3 text-white">HW</td><td class="py-2 px-3">公的求人データ（公共職業紹介由来）</td></tr>
             <tr class="border-b border-slate-800"><td class="py-2 px-3 text-white">有効求人</td><td class="py-2 px-3">掲載中で有効期限内の求人</td></tr>
             <tr class="border-b border-slate-800"><td class="py-2 px-3 text-white">欠員補充</td><td class="py-2 px-3">退職者の後任として募集する求人</td></tr>
             <tr class="border-b border-slate-800"><td class="py-2 px-3 text-white">増員</td><td class="py-2 px-3">事業拡大のために新たに募集する求人</td></tr>

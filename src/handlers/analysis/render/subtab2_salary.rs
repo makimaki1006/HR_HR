@@ -153,7 +153,7 @@ pub(super) fn render_salary_structure_section(data: &[Row]) -> String {
         賞与込みの推定年収を併記すると、月給だけでは見えにくい総報酬の競争力を訴求できる可能性があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（雇用形態別給与分布。HW掲載求人に基づく集計値）",
+        "公的機関の掲載求人（雇用形態別給与分布。HW掲載求人に基づく集計値）",
     ));
     html.push_str("</div>");
     html
@@ -254,7 +254,7 @@ pub(super) fn render_salary_competitiveness_section(data: &[Row]) -> String {
         パーセンタイルが低い区分から条件を見直すと、競争力改善の効果が出やすい傾向があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（地域平均）／全国集計値との比較。HW掲載求人に基づく",
+        "公的機関の掲載求人（地域平均）／全国集計値との比較。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html
@@ -335,7 +335,7 @@ pub(super) fn render_compensation_section(data: &[Row]) -> String {
         スコアの低い軸を補強することで、総合ランクの底上げにつながる傾向があります。",
     ));
     html.push_str(&source_caption(
-        "ハローワーク掲載求人（給与・年間休日・賞与の全国パーセンタイル評価）。HW掲載求人に基づく",
+        "公的機関の掲載求人（給与・年間休日・賞与の全国パーセンタイル評価）。HW掲載求人に基づく",
     ));
     html.push_str("</div>");
     html

@@ -154,7 +154,7 @@ pub(crate) fn render_integration_with_ext(
 /// HW求人データセクション
 fn render_hw_section(ctx: &InsightContext) -> String {
     let mut html = String::with_capacity(2_000);
-    html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">ハローワーク求人市場</h4>"#);
+    html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">求人市場データ</h4>"#);
 
     if ctx.vacancy.is_empty() && ctx.cascade.is_empty() {
         html.push_str(r#"<p class="text-slate-500 text-xs">この地域のHWデータはありません</p>"#);
@@ -668,7 +668,7 @@ fn render_hw_area_enrichment_section(
         r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
         ※ HW現在掲載件数は市区町村粒度の値ですが、3ヶ月／1年の求人件数推移と欠員率は HW 時系列 DB / 外部統計の都道府県粒度のため、市区町村別の差分は反映していません。
         市区町村行に都道府県値をコピー表示すると粒度の誤誘導となるため、推移は上部の都道府県別カードに分離しています。
-        本セクションはハローワーク掲載求人のみを対象としており、全求人市場の動向ではありません。
+        本セクションは公的機関の掲載求人のみを対象としており、全求人市場の動向ではありません。
         集計値は傾向の観測であり、因果関係を主張するものではありません。
     </div>"#,
     );
@@ -1114,7 +1114,7 @@ fn render_municipality_heatmap_section(top: &[(String, String, usize)]) -> Strin
     );
     html.push_str(
         r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
-        件数は CSV 内の出現回数（ハローワーク全体ではありません）。重複削除後の値で、件数=求人広告本数の概算値です。
+        件数は CSV 内の出現回数（公的求人データ全体ではありません）。重複削除後の値で、件数=求人広告本数の概算値です。
     </div>"#,
     );
     html.push_str("</section>");
@@ -1545,9 +1545,9 @@ mod fixb_tests {
         let html = render_hw_area_enrichment_section(&enrichments, &ctx);
 
         assert!(
-            html.contains("ハローワーク掲載求人のみ")
+            html.contains("公的機関の掲載求人のみ")
                 || html.contains("HW 掲載求人のみ")
-                || html.contains("ハローワーク掲載"),
+                || html.contains("公的機関の掲載求人") || html.contains("公的求人データ"),
             "HW 限定スコープの注記が必須 (feedback_hw_data_scope.md)"
         );
         assert!(

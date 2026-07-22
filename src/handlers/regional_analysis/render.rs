@@ -832,7 +832,7 @@ mod tests {
         assert!(html.contains("1,113円/時"));
         assert!(html.contains("厚生労働省"));
         // HW 由来の「給与中央値」は出ない
-        assert!(!html.contains("ハローワーク掲載求人"));
+        assert!(!html.contains("公的機関の掲載求人"));
     }
 
     #[test]

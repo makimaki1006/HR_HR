@@ -116,13 +116,13 @@ pub(super) fn render_section_hw_enrichment(
          </div>\
          <div class=\"report-venn-circle report-venn-hw\">\
            <span class=\"report-venn-label\">HW</span>\
-           <span class=\"report-venn-count\">ハローワーク掲載</span>\
+           <span class=\"report-venn-count\">公的求人データ掲載</span>\
            <span style=\"font-size:8.5pt;\">公的職業紹介</span>\
          </div>\
          </div>\n",
     );
     html.push_str(&render_reading_callout(
-        "CSV と HW は元々スコープが異なります（媒体掲載範囲 vs ハローワーク掲載求人）。\
+        "CSV と HW は元々スコープが異なります（媒体掲載範囲 vs 公的機関の掲載求人）。\
          同一案件が両方に掲載される「重複領域」も存在しますが、本レポートでは件数の多少のみを参考値として比較しています。",
     ));
     // 2026-04-24: build_hw_enrichment_sowhat は ts_turso_counts の初期ノイズで
@@ -193,7 +193,7 @@ pub(super) fn render_section_hw_enrichment(
     html.push_str(
         "<p class=\"print-note\">\
          ※ 表示は「CSV 件数（アップロード行数）」と「HW 現在件数（HW postings の市区町村実件数）」の 2 軸。\
-         CSV 件数は対象媒体の掲載範囲に依存し、HW 件数はハローワーク側の掲載求人のみ。\
+         CSV 件数は対象媒体の掲載範囲に依存し、HW 件数は公的求人データ側の掲載求人のみ。\
          単純比較ではなく、どのエリアに媒体側の露出が集中しているかの参考値として参照してください。</p>\n",
     );
     html.push_str("</section>\n");
@@ -310,7 +310,7 @@ pub(super) fn render_section_hw_comparison(
     html.push_str("<h2>HW市場比較</h2>\n");
     html.push_str(
         "<p class=\"guide\" style=\"font-size:9pt;color:#555;margin:0 0 8px;\">\
-        <strong>【読み方ガイド】</strong>CSV（媒体データ）とハローワーク全体データを\
+        <strong>【読み方ガイド】</strong>CSV（媒体データ）と公的求人データ全体を\
         <strong>雇用形態ごと</strong>に並列比較。媒体に出現する雇用形態を動的に検出し、\
         対応するHWデータと同条件で比較します。\
     </p>\n",
@@ -580,7 +580,7 @@ pub(super) fn render_section_hw_comparison(
 
     html.push_str("</div>\n"); // comparison-grid
     html.push_str("<div class=\"note\" style=\"font-size:9pt;color:#555;margin-top:8px;\">\
-        ※HW側データは「ハローワーク掲載求人のみ」が対象であり、全求人市場を反映するものではありません。\
+        ※HW側データは「公的機関の掲載求人のみ」が対象であり、全求人市場を反映するものではありません。\
         媒体（CSV）との差異は、掲載媒体の選定バイアスによる可能性があります。\
     </div>\n");
     html.push_str("</div>\n");

@@ -458,7 +458,7 @@ pub async fn evaluate_diagnostic(
             <h4 class="text-sm text-slate-400 mb-2">データソースと注意事項</h4>
             <ul class="text-xs text-slate-500 space-y-1 list-disc list-inside">"#,
         );
-        html.push_str(r#"<li>ハローワーク掲載求人ベースの分析です</li>"#);
+        html.push_str(r#"<li>公的機関の掲載求人ベースの分析です</li>"#);
         if is_low_hw {
             html.push_str(r#"<li class="text-amber-400">選択された産業はHW掲載が少なく、実際の市場とは乖離がある可能性があります</li>"#);
         }
