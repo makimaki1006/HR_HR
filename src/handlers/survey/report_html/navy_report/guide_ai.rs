@@ -1289,9 +1289,31 @@ pub(crate) async fn render_survey_guide_page_ai(
 /// ポーリングしてステージを表示 → 完成後 `/report/survey/guide/result/{id}` へ遷移する。
 /// レート制限による待機中も「順番待ち」の進捗が見えるため、体感ラグを吸収する。
 pub(crate) fn render_guide_progress_shell() -> String {
+    render_job_progress_shell(
+        "解説資料を生成中…",
+        "解釈文の起草と検証 (最大5段階のAI処理) を行っています。<br>\
+         混雑時は順番待ちが入るため、数分かかる場合があります。このページは自動で切り替わります。",
+        "/api/survey/guide/start",
+    )
+}
+
+/// レポート本体用の進捗シェル (2026-07-22)。ジョブ開始エンドポイントだけが異なる。
+pub(crate) fn render_report_progress_shell() -> String {
+    render_job_progress_shell(
+        "レポートを生成中…",
+        "公的統計・地域企業データの取得と組版を行っています。<br>\
+         通常は数十秒で完成します。このページは自動で切り替わります。",
+        "/api/survey/report/start",
+    )
+}
+
+/// ジョブ+進捗シェルの共通実装。
+/// start_path に location.search をそのまま付けてジョブを起動し、
+/// /api/survey/job/status/{id} をポーリング、done で /report/survey/job/result/{id} へ遷移。
+fn render_job_progress_shell(title: &str, hint_html: &str, start_path: &str) -> String {
     let mut html = String::with_capacity(8 * 1024);
     html.push_str("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n");
-    html.push_str("<title>解説資料を生成中…</title>\n");
+    html.push_str(&format!("<title>{}</title>\n", escape_html(title)));
     html.push_str(super::guide::GUIDE_CSS);
     html.push_str(
         "<style>\n\
@@ -1305,44 +1327,46 @@ pub(crate) fn render_guide_progress_shell() -> String {
          </style>\n</head>\n<body>\n<div class=\"center\">\n\
          <div class=\"spinner\" aria-hidden=\"true\"></div>\n\
          <div class=\"stage\" id=\"stage\">生成を開始しています…</div>\n\
-         <div class=\"elapsed\" id=\"elapsed\"></div>\n\
-         <div class=\"hint\">解釈文の起草と検証 (最大5段階のAI処理) を行っています。<br>\
-         混雑時は順番待ちが入るため、数分かかる場合があります。このページは自動で切り替わります。</div>\n\
-         </div>\n<script>\n\
-         (function(){\n\
+         <div class=\"elapsed\" id=\"elapsed\"></div>\n",
+    );
+    html.push_str(&format!("<div class=\"hint\">{}</div>\n", hint_html));
+    html.push_str(&format!(
+        "</div>\n<script>\n\
+         (function(){{\n\
            var t0 = Date.now();\n\
-           setInterval(function(){\n\
+           setInterval(function(){{\n\
              var s = Math.floor((Date.now()-t0)/1000);\n\
              document.getElementById('elapsed').textContent = '経過 ' + Math.floor(s/60) + '分' + (s%60) + '秒';\n\
-           }, 1000);\n\
-           fetch('/api/survey/guide/start' + window.location.search)\n\
-             .then(function(r){ return r.json(); })\n\
-             .then(function(j){\n\
-               if (!j.job_id) { fail('開始に失敗しました'); return; }\n\
+           }}, 1000);\n\
+           fetch('{start}' + window.location.search)\n\
+             .then(function(r){{ return r.json(); }})\n\
+             .then(function(j){{\n\
+               if (!j.job_id) {{ fail('開始に失敗しました'); return; }}\n\
                poll(j.job_id);\n\
-             })\n\
-             .catch(function(){ fail('開始に失敗しました'); });\n\
-           function poll(id){\n\
-             var timer = setInterval(function(){\n\
-               fetch('/api/survey/guide/status/' + id)\n\
-                 .then(function(r){ return r.json(); })\n\
-                 .then(function(st){\n\
+             }})\n\
+             .catch(function(){{ fail('開始に失敗しました'); }});\n\
+           function poll(id){{\n\
+             var timer = setInterval(function(){{\n\
+               fetch('/api/survey/job/status/' + id)\n\
+                 .then(function(r){{ return r.json(); }})\n\
+                 .then(function(st){{\n\
                    if (st.message) document.getElementById('stage').textContent = st.message;\n\
-                   if (st.state === 'done') { clearInterval(timer); window.location.replace('/report/survey/guide/result/' + id); }\n\
-                   if (st.state === 'failed') { clearInterval(timer); fail(st.message || '生成に失敗しました'); }\n\
-                 })\n\
-                 .catch(function(){});\n\
-             }, 2000);\n\
-           }\n\
-           function fail(msg){\n\
-             document.getElementById('stage').textContent = msg + ' — テンプレート版に切り替えます';\n\
+                   if (st.state === 'done') {{ clearInterval(timer); window.location.replace('/report/survey/job/result/' + id); }}\n\
+                   if (st.state === 'failed') {{ clearInterval(timer); fail(st.message || '生成に失敗しました'); }}\n\
+                 }})\n\
+                 .catch(function(){{}});\n\
+             }}, 2000);\n\
+           }}\n\
+           function fail(msg){{\n\
+             document.getElementById('stage').textContent = msg + ' — 同期表示に切り替えます';\n\
              var q = window.location.search;\n\
-             q += (q ? '&' : '?') + 'ai=off';\n\
-             setTimeout(function(){ window.location.replace('/report/survey' + q); }, 1500);\n\
-           }\n\
-         })();\n\
+             q += (q ? '&' : '?') + 'ai=off&sync=1';\n\
+             setTimeout(function(){{ window.location.replace('/report/survey' + q); }}, 1500);\n\
+           }}\n\
+         }})();\n\
          </script>\n</body>\n</html>\n",
-    );
+        start = start_path,
+    ));
     html
 }
 
