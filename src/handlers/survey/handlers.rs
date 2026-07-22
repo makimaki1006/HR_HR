@@ -385,6 +385,9 @@ pub struct IntegrateQuery {
     /// 作成→逆証明レビュー→修正、失敗時は決定的テンプレへ自動フォールバック)。
     /// `ai=off` で決定的テンプレを強制 (API 枠温存・比較検証用)。
     pub ai: Option<String>,
+    /// 2026-07-22: レポート生成の同期モード。`sync=1` で従来の同期生成
+    /// (ダウンロード・自動化スクリプト用)。未指定はジョブ化 (進捗シェル)。
+    pub sync: Option<String>,
     /// 2026-07-10: 出力セクション選択 (?sections=02,03,09 の形式)。
     /// - 未指定 / 空文字列: 従来どおり variant 準拠で全セクション出力 (出力不変)。
     /// - 指定時: カンマ区切りコードのセクションのみ出力 (表紙/目次/01/08 は常時)。
@@ -626,7 +629,11 @@ pub async fn report_json(
     axum::response::Json(serde_json::json!({"status": "upload_csv_first"}))
 }
 
-/// 媒体分析PDF/印刷用HTMLレポート
+/// 媒体分析PDF/印刷用HTMLレポート (エントリ)。
+///
+/// 2026-07-22: 既定はジョブ化 (即時に進捗シェルを返し、重い取得〜組版は
+/// バックグラウンドで進めてステージを表示する)。`&sync=1` は従来の同期生成
+/// (ダウンロード・自動化スクリプト用のエスケープハッチ)。
 pub async fn survey_report_html(
     State(state): State<Arc<AppState>>,
     session: Session,
@@ -648,6 +655,36 @@ pub async fn survey_report_html(
     )
     .await;
 
+    // 解説資料の AI 版は専用ジョブ (レート制限の待機込みで進捗表示)
+    if query.variant.as_deref() == Some("guide") && query.ai.as_deref() != Some("off") {
+        return Html(super::report_html::render_guide_progress_shell());
+    }
+
+    // 同期経路 (&sync=1): ダウンロード・自動化用
+    if query.sync.as_deref() == Some("1") {
+        let noop = |_: &str| {};
+        return build_survey_report_inner(state, query, &noop).await;
+    }
+
+    // 既定: ジョブ化 (レポート用進捗シェル)
+    Html(super::report_html::render_report_progress_shell())
+}
+
+/// レポート本体の生成 (進捗レポータ付き)。
+///
+/// ジョブ (`survey_report_start`) と同期経路 (`&sync=1` / ダウンロード) の両方から
+/// 呼ばれる。Session には依存しない (監査は呼び出し側の責務)。
+async fn build_survey_report_inner(
+    state: Arc<AppState>,
+    query: IntegrateQuery,
+    progress: &(dyn Fn(&str) + Send + Sync),
+) -> Html<String> {
+    let session_id = match &query.session_id {
+        Some(id) if !id.is_empty() => id.clone(),
+        _ => return Html("<html><body><p>セッションIDが必要です。CSVをアップロードしてください。</p></body></html>".to_string()),
+    };
+
+    progress("集計データを読込中");
     // キャッシュから集計データを復元
     let agg_cached = state.cache.get(&format!("survey_agg_{}", session_id));
     let seeker_cached = state.cache.get(&format!("survey_seeker_{}", session_id));
@@ -659,14 +696,6 @@ pub async fn survey_report_html(
     let seeker: super::job_seeker::JobSeekerAnalysis = seeker_cached
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
-
-    // 2026-07-22: 解説資料のAI版はジョブ化 (レート制限の待機を進捗表示で吸収)。
-    //   進捗シェルを即時返し、ページ内 JS が /api/survey/guide/start → status ポーリング
-    //   → /report/survey/guide/result/{id} へ遷移する。ai=off (テンプレ版) は従来どおり
-    //   同期生成 (後段の分岐)。
-    if query.variant.as_deref() == Some("guide") && query.ai.as_deref() != Some("off") {
-        return Html(super::report_html::render_guide_progress_shell());
-    }
 
     // 企業別・雇用形態別の集計はレコードキャッシュから再計算が必要だが、
     // 現時点ではaggの既存フィールドのみで生成（企業別集計はレコード不要の仮実装）
@@ -701,6 +730,7 @@ pub async fn survey_report_html(
                 .unwrap_or_default()
         });
 
+    progress("公的統計・地域データを取得中");
     let hw_ctx = if !pref.is_empty() {
         if let Some(db) = state.hw_db.clone() {
             let turso = state.turso_db.clone();
@@ -814,6 +844,7 @@ pub async fn survey_report_html(
 
     // F-2: SalesNow 企業データ取得（同じ地域の注目企業）
     // 印刷レポートにも SalesNow 企業トップリストを掲載する
+    progress("地域企業データを取得中");
     let salesnow_companies = if !pref.is_empty() {
         if let (Some(sn_db), Some(hw_db)) = (state.salesnow_db.clone(), state.hw_db.clone()) {
             let pref2 = pref.clone();
@@ -988,6 +1019,7 @@ pub async fn survey_report_html(
         super::report_html::SectionSet::from_query(query.sections.as_deref(), variant);
     // 2026-07-13: Ver10 の表2-E 表示フラグ。?table2e=0 のときだけ非表示、それ以外は表示 (既定オン)。
     let table2e = query.table2e.as_deref() != Some("0");
+    progress("レポートを組版中");
     let html = super::report_html::render_survey_report_page_with_sections(
         &agg,
         &seeker,
@@ -1039,8 +1071,14 @@ pub async fn survey_report_download(
     use axum::http::{header, StatusCode};
     use axum::response::IntoResponse;
 
-    // 内部で survey_report_html と同じロジックを再利用するため、先に HTML を生成
-    let html_resp = survey_report_html(State(state), session, Query(query)).await;
+    // 2026-07-22: ジョブ化後もダウンロードは同期でフル HTML を得る必要があるため、
+    // シェルを返す survey_report_html ではなく内部生成関数を直接呼ぶ。
+    if let Some(sid) = query.session_id.clone().filter(|s| !s.is_empty()) {
+        crate::audit::record_event(&state.audit, &session, "generate_survey_report", "report", &sid, "")
+            .await;
+    }
+    let noop = |_: &str| {};
+    let html_resp = build_survey_report_inner(state, query, &noop).await;
     let html_body = html_resp.0;
 
     // ダウンロードファイル名: 日付付きで上書き衝突を避ける
@@ -1245,4 +1283,57 @@ pub async fn survey_guide_result(
                 .to_string(),
         ),
     }
+}
+
+/// レポート本体の生成ジョブ開始 (2026-07-22)。
+///
+/// 解説資料と同じジョブ+進捗シェル方式。重い取得 (公的統計・企業データ) の
+/// 待ち時間をステージ表示で見える化する。
+pub async fn survey_report_start(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<IntegrateQuery>,
+) -> axum::response::Json<serde_json::Value> {
+    use axum::response::Json;
+
+    let Some(session_id) = query.session_id.clone().filter(|s| !s.is_empty()) else {
+        return Json(serde_json::json!({ "error": "session_id が必要です" }));
+    };
+    if state
+        .cache
+        .get(&format!("survey_agg_{}", session_id))
+        .is_none()
+    {
+        return Json(serde_json::json!({ "error": "分析データが期限切れです。CSVを再アップロードしてください" }));
+    }
+
+    crate::audit::record_event(
+        &state.audit,
+        &session,
+        "generate_survey_report",
+        "report",
+        &session_id,
+        "",
+    )
+    .await;
+
+    let job_id = format!("r_{}", uuid::Uuid::new_v4());
+    set_guide_status(&state, &job_id, "queued", "生成を準備中");
+
+    let state_bg = state.clone();
+    let job_id_bg = job_id.clone();
+    tokio::spawn(async move {
+        let st = state_bg.clone();
+        let jid = job_id_bg.clone();
+        let progress = move |msg: &str| {
+            set_guide_status(&st, &jid, "running", msg);
+        };
+        let html = build_survey_report_inner(state_bg.clone(), query, &progress).await;
+        state_bg
+            .cache
+            .set(guide_job_html_key(&job_id_bg), serde_json::json!(html.0));
+        set_guide_status(&state_bg, &job_id_bg, "done", "完成しました");
+    });
+
+    Json(serde_json::json!({ "job_id": job_id }))
 }
