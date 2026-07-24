@@ -16,6 +16,8 @@ COPY src/ src/
 COPY templates/ templates/
 # include_str! で driver/data.rs が wage_census → 国勢調査中分類のマッピングを参照
 COPY data/wage_census_to_occupation_middle_map.json data/wage_census_to_occupation_middle_map.json
+# include_str! で media_engine/handlers.rs がキーワード需要ビューアの UI を埋め込む
+COPY static/keywords.html static/keywords.html
 RUN cargo build --release
 
 # ===== ランタイムステージ =====
@@ -42,6 +44,9 @@ COPY static/guide/ static/guide/
 
 # 圧縮データ（起動時に自動解凍）
 COPY data/geojson_gz/ data/geojson_gz/
+
+# キーワード需要ビューア: /api/regions が実行時に読む市区町村重心CSV
+COPY data/media_engine/ data/media_engine/
 
 # DB: GitHub Releaseからダウンロード（Git LFS不要）
 # DB_VERSION を変更するとDockerキャッシュが無効化され、最新DBがダウンロードされる
