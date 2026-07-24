@@ -211,8 +211,11 @@ pub async fn jobgen_images(Json(body): Json<Value>) -> Json<Value> {
 ///
 /// 2026-07-24 追加 (ユーザー要望: 画像生成の文言をプロンプトライクに)。全ペルソナ分を
 /// 1コールでまとめて変換するため、1求人あたりの Gemini 消費は +1 回。
+/// 2026-07-25 強化: personas も受け取り訴求の核をペインに接地。全要素固定の指示書構造。
+/// temperature は 0.4 (指示遵守を優先。演出の発散は工程⑤側で済んでいる)。
 pub async fn jobgen_image_prompts(Json(body): Json<Value>) -> Json<Value> {
     let directions = body.get("directions").cloned().unwrap_or(Value::Null);
+    let personas = body.get("personas").cloned().unwrap_or(Value::Null);
     if directions
         .get("directions")
         .and_then(Value::as_array)
@@ -222,9 +225,9 @@ pub async fn jobgen_image_prompts(Json(body): Json<Value>) -> Json<Value> {
     {
         return Json(json!({"status":"error","message":"directions(工程⑤の出力)が必要です"}));
     }
-    let prompt = strategy::build_image_prompts_prompt(&directions);
+    let prompt = strategy::build_image_prompts_prompt(&directions, &personas);
     let schema = strategy::image_prompts_schema();
-    match jobgen_llm(&prompt, &schema, 0.6).await {
+    match jobgen_llm(&prompt, &schema, 0.4).await {
         Ok(v) => Json(json!({"status":"ok","prompts": v.get("prompts").cloned().unwrap_or(Value::Null)})),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }

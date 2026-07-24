@@ -125,6 +125,7 @@
   .pbox{font-size:12.5px;line-height:1.7;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;white-space:pre-wrap;user-select:all}
   .pbox.pneg{opacity:.85}
   .pmeta{font-size:12px;margin-top:6px;color:var(--ink-2)}
+  .pappeal{font-size:12.5px;font-weight:700;background:var(--surface);border-left:3px solid var(--accent-ink);border-radius:0 8px 8px 0;padding:8px 12px;margin-bottom:6px}
   .copybtn{flex:none;font-size:11.5px;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
   .copybtn:hover{border-color:var(--accent-ink)}
   .copybtn:disabled{opacity:.7;cursor:default}
@@ -454,7 +455,7 @@ async function runImages(){
   // ⑤b: 生成AIへ丸投げできる日本語プロンプトに変換（全ペルソナ一括で+1コール）
   if(S.images.length){
     try{
-      const p=await postJSON("/api/jobgen/image_prompts",{directions:{directions:S.images}});
+      const p=await postJSON("/api/jobgen/image_prompts",{directions:{directions:S.images},personas:S.personas});
       S.imagePrompts=p.prompts||[];
     }catch(e){
       S.imagePrompts=[];
@@ -601,8 +602,10 @@ function renderImages(){
     const p=pmap[label];
     let promptBlk="";
     if(p){
+      const appeal=p.appeal_core?`<div class="pappeal">🎯 この画像の狙い: ${esc(p.appeal_core)}</div>`:"";
       promptBlk=`
       <div class="pwrap">
+        ${appeal}
         <div class="phead">🎨 画像生成AI用プロンプト（そのまま貼り付け可・撮影指示書兼用）
           <button class="copybtn" onclick="copyText(this)" data-copy="${escAttr(p.prompt||"")}">プロンプトをコピー</button>
         </div>
