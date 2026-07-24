@@ -71,6 +71,12 @@ uuid = { version = "1", features = ["v4"] }
 urlencoding = "2"
 sha2 = "0.10"
 
+# キーワード需要ビューア (media_engine、2026-07-24 統合)
+# preserve_order は付けない: cache_key はキー昇順ソート後に挿入するため
+# BTreeMap 既定でも Python 版と同一キーになる。全域の JSON 順序変更を避ける。
+anyhow = "1"
+unicode-normalization = "0.1"
+
 [dev-dependencies]
 tempfile = "3"
 http-body-util = "0.1"

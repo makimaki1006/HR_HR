@@ -1,0 +1,769 @@
+<!doctype html><html lang="ja"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>キーワード需要ビューア</title>
+<style>
+  :root{
+    --bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#7e8aa0;--line:#e0e5ee;--line-2:#cfd6e2;
+    --accent:#3d5afe;--accent-ink:#2a3eb1;--accent-bg:#eaeeff;
+    --hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;
+    --peak:#3d5afe;--spark:#8a97b8;--track:#e6eaf2;--s1:#2f57e0;--s2:#0f9488;--s3:#c2610a;--s4:#8a94a8;
+    --shadow:0 1px 2px rgba(20,30,50,.05),0 8px 24px rgba(20,30,50,.07);
+  }
+  @media(prefers-color-scheme:dark){:root{
+    --bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#e8edf5;--ink-2:#adb8c8;--ink-3:#7a8698;--line:#252f3f;--line-2:#33404f;
+    --accent:#7c8cff;--accent-ink:#aab4ff;--accent-bg:#1a2138;
+    --hi:#f0776a;--mid:#e6b35c;--lo:#5ed6a0;
+    --peak:#7c8cff;--spark:#5b6885;--track:#222c3b;--s1:#7c8cff;--s2:#4fcabb;--s3:#e6a35c;--s4:#98a3b8;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.4);
+  }}
+  :root[data-theme="light"]{--bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#7e8aa0;--line:#e0e5ee;--line-2:#cfd6e2;--accent:#3d5afe;--accent-ink:#2a3eb1;--accent-bg:#eaeeff;--hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;--peak:#3d5afe;--spark:#8a97b8;--track:#e6eaf2;--s1:#2f57e0;--s2:#0f9488;--s3:#c2610a;--s4:#8a94a8;}
+  :root[data-theme="dark"]{--bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#e8edf5;--ink-2:#adb8c8;--ink-3:#7a8698;--line:#252f3f;--line-2:#33404f;--accent:#7c8cff;--accent-ink:#aab4ff;--accent-bg:#1a2138;--hi:#f0776a;--mid:#e6b35c;--lo:#5ed6a0;--peak:#7c8cff;--spark:#5b6885;--track:#222c3b;--s1:#7c8cff;--s2:#4fcabb;--s3:#e6a35c;--s4:#98a3b8;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 18px 64px}
+  header .eyebrow{font-size:12px;letter-spacing:.08em;color:var(--ink-3);font-weight:700;text-transform:uppercase}
+  h1{font-size:clamp(21px,3vw,27px);margin:.25em 0 .1em;letter-spacing:-.01em}
+  .sub{color:var(--ink-2);font-size:14px;margin:0 0 20px;max-width:70ch}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px}
+  .form-grid{display:grid;grid-template-columns:1fr 200px;gap:14px}
+  @media(max-width:640px){.form-grid{grid-template-columns:1fr}}
+  label{display:block;font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:5px;letter-spacing:.02em}
+  textarea,input[type=text],input[type=number]{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:9px 11px;resize:vertical}
+  textarea{min-height:92px}
+  textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+  .hint{font-size:11.5px;color:var(--ink-3);margin-top:5px}
+  .side{display:flex;flex-direction:column;gap:12px}
+  .btn{margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:9px;padding:11px 16px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;transition:filter .15s}
+  .btn:hover{filter:brightness(1.07)} .btn:disabled{opacity:.55;cursor:default}
+  .note{font-size:11.5px;color:var(--ink-3);margin-top:12px}
+  #status{margin:18px 0;font-size:14px}
+  .err{background:color-mix(in srgb,var(--hi) 10%,transparent);border:1px solid color-mix(in srgb,var(--hi) 35%,transparent);color:var(--hi);border-radius:10px;padding:11px 14px}
+  .loading{color:var(--ink-3)}
+  section.res{margin-top:22px}
+  h2{font-size:16px;margin:26px 0 10px;display:flex;align-items:center;gap:8px}
+  h2 .tag{font-size:11px;font-weight:700;color:var(--accent-ink);background:var(--accent-bg);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);padding:1px 8px;border-radius:6px}
+  .summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:6px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:var(--shadow);min-width:130px}
+  .stat .k{font-size:11.5px;color:var(--ink-3);font-weight:600}
+  .stat .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+  .stat .v small{font-size:12px;font-weight:600;color:var(--ink-3)}
+  .season-read{margin:4px 0 12px;font-size:14px;background:var(--accent-bg);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);border-radius:10px;padding:11px 15px}
+  .season-read b{color:var(--accent-ink)}
+  .heatwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  table.heat{border-collapse:collapse;font-size:12px;width:100%;min-width:620px}
+  table.heat th{padding:7px 4px;font-size:11px;color:var(--ink-3);font-weight:700;text-align:center;background:var(--surface-2);font-variant-numeric:tabular-nums}
+  table.heat th.hkw{text-align:left;padding-left:14px;min-width:150px}
+  table.heat th.onmo{color:var(--accent-ink);background:var(--accent-bg)}
+  td.hkw{padding:5px 10px 5px 14px;white-space:nowrap;border-bottom:1px solid var(--line)}
+  td.hkw .hn{font-weight:600;font-size:12.5px}
+  td.hkw .hv{color:var(--ink-3);font-size:11px;margin-left:8px;font-variant-numeric:tabular-nums}
+  td.hc{padding:4px 6px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums;border:2px solid var(--surface);border-bottom-color:var(--line);min-width:50px;white-space:nowrap}
+  td.hc.empty{color:var(--ink-3);text-align:center}
+  td.hc.pk{outline:2px solid var(--peak);outline-offset:-3px;border-radius:3px;font-weight:800}
+  .cal-note{font-size:12.5px;color:var(--ink-2);padding:11px 14px;background:var(--surface-2);border-top:1px solid var(--line);border-radius:0 0 13px 13px}
+  .cal-note b{color:var(--ink)}
+  .charts{display:grid;grid-template-columns:repeat(auto-fill,minmax(480px,1fr));gap:16px}
+  @media(max-width:900px){.charts{grid-template-columns:1fr}}
+  .chartcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px 10px}
+  .cc-head{margin-bottom:6px}
+  .cc-name{display:block;font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cc-meta{display:block;font-size:11.5px;color:var(--ink-3);margin-top:1px}
+  svg.lc{width:100%;height:auto;display:block}
+  .cbase{stroke:var(--line-2);stroke-width:1}
+  .cgrid{stroke:var(--line);stroke-width:1}
+  .cpeakline{stroke:var(--line-2);stroke-width:1;stroke-dasharray:3 3}
+  .cx{font-size:10.5px;fill:var(--ink-3)}
+  .cy{font-size:10px;fill:var(--ink-3)}
+  .legend2{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 2px;font-size:11.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .lg{display:inline-flex;align-items:center;gap:5px}
+  .chartbox{position:relative}
+  rect.hit{cursor:crosshair}
+  .cguide{stroke:var(--accent);stroke-width:1;opacity:.45}
+  .tt{position:fixed;z-index:50;display:none;background:var(--surface);border:1px solid var(--line-2);
+      border-radius:10px;box-shadow:0 6px 24px rgba(20,30,50,.18);padding:9px 11px;font-size:12.5px;
+      color:var(--ink);pointer-events:none;min-width:180px}
+  .tt-h{font-weight:800;margin-bottom:5px;display:flex;align-items:baseline;gap:7px}
+  .tt-kw{font-weight:500;font-size:11px;color:var(--ink-3);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tt table{border-collapse:collapse;width:100%;min-width:0}
+  .tt td{padding:2px 0;border:none;font-size:12.5px;white-space:nowrap}
+  .tt .tt-v{text-align:right;font-variant-numeric:tabular-nums;padding-left:12px;font-weight:700}
+  .tt .tt-r{text-align:right;padding-left:10px;font-variant-numeric:tabular-nums}
+  .tt-c{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:baseline}
+  .tt-base{font-size:10.5px;color:var(--ink-3);font-weight:700}
+  .tt-d{font-size:11.5px;font-weight:700}
+  .tt-d.up{color:var(--lo)} .tt-d.down{color:var(--hi)} .tt-d.flat{color:var(--ink-3)}
+  .tt-f{margin-top:6px;padding-top:5px;border-top:1px solid var(--line);font-size:10.5px;color:var(--ink-3)}
+  .fc-panel{margin-top:18px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .fc-sum{padding:13px 16px;cursor:pointer;font-weight:700;font-size:14px;list-style:none;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;user-select:none}
+  .fc-sum::-webkit-details-marker{display:none}
+  .fc-sum::before{content:"▾";color:var(--ink-3);font-size:11px;transition:transform .15s}
+  .fc-panel:not([open]) .fc-sum::before{transform:rotate(-90deg)}
+  .fc-sum:hover{color:var(--accent-ink)}
+  .fc-body{padding:0 16px 16px;border-top:1px solid var(--line)}
+  .fc-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:14px 0 4px}
+  .fc-form label{font-size:11.5px}
+  .fc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px}
+  .fc-card{background:var(--surface-2);border:1px solid var(--line);border-radius:11px;padding:11px 13px}
+  .fc-card .k{font-size:11px;color:var(--ink-3);font-weight:600}
+  .fc-card .v{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+  .fc-card .v small{font-size:11.5px;font-weight:600;color:var(--ink-3);margin-left:2px}
+  .fc-card.main{background:var(--accent-bg);border-color:color-mix(in srgb,var(--accent) 28%,transparent)}
+  .fc-card.main .v{color:var(--accent-ink)}
+  .fc-card.weak{opacity:.72}
+  .fc-note{font-size:11.5px;color:var(--ink-3);margin-top:11px}
+  .fc-cond{font-size:12px;color:var(--ink-2);margin-top:12px;padding:9px 12px;background:var(--surface-2);border-radius:9px;border:1px solid var(--line)}
+  .sp-warn{color:var(--mid);font-weight:700}
+  .rg-list{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+  .rg-row{display:grid;grid-template-columns:minmax(90px,150px) 1fr 68px 54px;gap:10px;align-items:center;font-size:12.5px}
+  .rg-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rg-base{font-size:10px;font-weight:700;color:var(--accent-ink);background:var(--accent-bg);border-radius:4px;padding:1px 5px;margin-left:5px}
+  .rg-bar{background:var(--track);border-radius:5px;height:16px;overflow:hidden}
+  .rg-fill{display:block;height:100%;background:color-mix(in srgb,var(--accent) 55%,transparent);border-radius:5px}
+  .rg-fill.me{background:var(--accent)}
+  .rg-v{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  .rg-d{text-align:right;font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .cl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:14px}
+  .cl-card{background:var(--surface-2);border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+  .cl-h{font-weight:700;font-size:12.5px;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .cl-c{font-weight:500;font-size:11px;color:var(--ink-3);margin-left:4px}
+  .cl-k{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:2px 0;color:var(--ink-2)}
+  .cl-v{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11px}
+  .rel-wrap{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}
+  .rel-chip{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12px;background:var(--surface-2);
+    border:1px solid var(--line-2);color:var(--ink);border-radius:20px;padding:5px 11px;cursor:pointer}
+  .rel-chip:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .rel-chip span{color:var(--accent);font-weight:800}
+  .rel-chip:disabled{opacity:.6;cursor:default;border-color:var(--lo)}
+  .rel-chip:disabled span{color:var(--lo)}
+  ul.rq{margin:4px 0 0;padding-left:20px;font-size:12.5px;color:var(--ink-2)}
+  ul.rq li{margin:2px 0}
+  .flt-wrap{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+  .flt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .flt-n{font-size:12px;font-weight:700;color:var(--ink-2);min-width:76px}
+  .flt-o{font-size:11.5px;background:var(--surface-2);border:1px solid var(--line-2);color:var(--ink-2);border-radius:6px;padding:2px 8px}
+  .ai-box{background:var(--accent-bg);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:12px;padding:12px 15px;margin-top:4px}
+  .ai-h{font-weight:700;font-size:13px;margin:8px 0 4px}
+  .ai-p{font-size:13px;line-height:1.7;margin:4px 0;color:var(--ink)}
+  .ai-ul{margin:4px 0;padding-left:20px;font-size:12.5px;color:var(--ink-2)}
+  .ai-ul li{margin:2px 0}
+  .ai-ref{margin-top:9px;padding-top:8px;border-top:1px solid color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px;color:var(--ink-3);display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+  .ai-r{background:var(--surface);border:1px solid var(--line-2);border-radius:5px;padding:1px 7px;color:var(--ink-2)}
+  .qa-list{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+  .qa{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+  .qa-q{font-weight:700;font-size:12.5px;margin-bottom:3px}
+  .qa-a{font-size:12.5px;line-height:1.6;color:var(--ink-2)}
+  .qa-a.qa-none{color:var(--ink-3);font-style:italic}
+  .qa-s{margin-top:4px;font-size:10.5px;color:var(--ink-3)}
+  .cc-empty{padding:26px;text-align:center;color:var(--ink-3);font-size:12px}
+  .chart-note{font-size:12px;color:var(--ink-2);margin-top:10px}
+  .btn2{background:var(--surface-2);color:var(--accent-ink);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:9px;padding:10px 14px;font:inherit;font-weight:700;font-size:13px;cursor:pointer}
+  .btn2:hover{background:var(--accent-bg)} .btn2:disabled{opacity:.55;cursor:default}
+  #suggest{margin-top:14px}
+  .sg-head{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .sg-det{border:0}
+  .sg-sum{font-size:13px;font-weight:700;margin-bottom:6px;cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;user-select:none}
+  .sg-sum::-webkit-details-marker{display:none}
+  .sg-sum::before{content:"▾";display:inline-block;color:var(--ink-3);font-size:11px;transition:transform .15s;flex:0 0 auto}
+  .sg-det:not([open]) .sg-sum::before{transform:rotate(-90deg)}
+  .sg-sum:hover{color:var(--accent-ink)}
+  .sg-sum:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+  .sg-note{font-size:11px;color:var(--ink-3);font-weight:400}
+  .sg-list{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .sg-row{display:grid;grid-template-columns:32px 1fr auto auto auto;gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  .sg-row:last-child{border-bottom:none}
+  .sg-add{width:26px;height:26px;border-radius:7px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:800;cursor:pointer;font-size:14px;line-height:1;padding:0}
+  .sg-add:disabled{background:var(--lo);border-color:var(--lo);cursor:default}
+  .sg-kw{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sg-vol{font-variant-numeric:tabular-nums;color:var(--ink-2);min-width:58px;text-align:right}
+  .sg-cpc{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:11.5px;min-width:118px;text-align:right;white-space:nowrap}
+  .sg-empty{padding:14px;color:var(--ink-3);font-size:13px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  @media(max-width:640px){.sg-cpc{display:none}}
+  select{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:9px 11px}
+  .ckline{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer}
+  .ckline input{width:auto}
+  .tags{display:flex;gap:4px;flex-wrap:wrap}
+  .ctag{font-size:10.5px;padding:1px 6px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line-2);color:var(--ink-3);white-space:nowrap}
+  .ctag.brand{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 40%,transparent);background:color-mix(in srgb,var(--mid) 10%,transparent);font-weight:700}
+  .yoy{font-size:11px;font-weight:700;padding:1px 7px;border-radius:5px;white-space:nowrap}
+  .yoy.up{color:var(--lo);background:color-mix(in srgb,var(--lo) 12%,transparent);border:1px solid color-mix(in srgb,var(--lo) 35%,transparent)}
+  .yoy.down{color:var(--hi);background:color-mix(in srgb,var(--hi) 12%,transparent);border:1px solid color-mix(in srgb,var(--hi) 35%,transparent)}
+  .yoy.flat{color:var(--ink-3);border:1px solid var(--line-2)}
+  .rp{font-size:11px;color:var(--ink-2);margin-top:2px}
+  .rp b{color:var(--accent-ink)}
+  .tblwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:760px}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-3);font-weight:700;background:var(--surface-2)}
+  tr:last-child td{border-bottom:none}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .kwname{font-weight:600}
+  .comp{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;border:1px solid}
+  .comp.HIGH{color:var(--hi);border-color:color-mix(in srgb,var(--hi) 40%,transparent);background:color-mix(in srgb,var(--hi) 10%,transparent)}
+  .comp.MEDIUM{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 40%,transparent);background:color-mix(in srgb,var(--mid) 10%,transparent)}
+  .comp.LOW{color:var(--lo);border-color:color-mix(in srgb,var(--lo) 40%,transparent);background:color-mix(in srgb,var(--lo) 10%,transparent)}
+  .comp.NA{color:var(--ink-3);border-color:var(--line-2)}
+  .peakm{font-weight:700;color:var(--accent-ink)}
+  .trend{font-size:11px;color:var(--ink-3)}
+  .excl{margin-top:10px;font-size:12.5px;color:var(--ink-3)}
+  .excl b{color:var(--ink-2)}
+  .foot{margin-top:26px;font-size:11.5px;color:var(--ink-3)}
+  .spark{display:block}
+  button.theme{position:fixed;top:14px;right:14px;background:var(--surface);border:1px solid var(--line-2);color:var(--ink-2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer}
+</style>
+</head><body>
+<button class="theme" id="themeBtn" title="テーマ切替">◐</button>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">求人媒体選定エンジン · Layer A</div>
+    <h1>キーワード需要ビューア</h1>
+    <p class="sub">キーワードを入れると、Google Ads の実データで <b>月間検索量・12ヶ月推移・季節性（仕込み月）・広告競合度・クリック単価・年間ローテ・需要集中度</b> を返します。検索広告は打たず、無料の需要データのみ（SerpApi不使用）。</p>
+  </header>
+
+  <div class="panel">
+    <form id="form" class="form-grid">
+      <div>
+        <label for="kw">キーワード（改行またはカンマ区切り・複数可）</label>
+        <textarea id="kw" placeholder="例:&#10;ドライバー 求人&#10;ドライバー 正社員&#10;ドライバー 派遣&#10;大型 ドライバー 求人&#10;タクシー 求人"></textarea>
+        <div class="hint">職種を雇用形態・意向・セグメントで割ると（正社員／パート／派遣／転職／未経験／大型…）、季節がズレて「年間ローテ」が見えることがあります（職種による）。</div>
+      </div>
+      <div class="side">
+        <div>
+          <label for="region">地域（任意）</label>
+          <input type="text" id="region" placeholder="例: 東京都 / 高崎市">
+          <div class="hint">母数は地域、季節性/ローテは全国基準が読みやすい</div>
+        </div>
+        <div>
+          <label for="months">分析期間</label>
+          <select id="months">
+            <option value="12">直近12ヶ月（1年）</option>
+            <option value="24">過去24ヶ月（2年）</option>
+            <option value="36" selected>過去36ヶ月（3年）</option>
+            <option value="48">過去48ヶ月（4年）</option>
+          </select>
+          <div class="hint">複数年にすると、同じ月を年で比較でき、毎年繰り返す季節性が見えます</div>
+        </div>
+        <div>
+          <label for="noise">ノイズ閾値（平均検索数）</label>
+          <input type="number" id="noise" value="50" min="0" step="10">
+        </div>
+        <div>
+          <label class="ckline"><input type="checkbox" id="exbrand"> 媒体名（指名検索）を候補から除く</label>
+        </div>
+        <button type="submit" class="btn" id="go">需要を分析</button>
+        <button type="button" class="btn2" id="suggestBtn">関連キーワードを探す</button>
+      </div>
+    </form>
+    <div class="note">※ 平均検索数が閾値未満のキーワードは「丸めノイズ」として除外表示。単発スパイクは断定しません。「関連キーワードを探す」＝入力語からGoogle Adsが検索量順に関連語を提案（＋で入力欄に追加）。</div>
+  </div>
+
+  <div id="suggest" hidden></div>
+  <div id="status"></div>
+
+  <details class="fc-panel" id="rgPanel">
+    <summary class="fc-sum">地域ごとの検索需要<span class="sg-note">基準地の周辺で、どの市区町村にどれだけ需要があるか（Google Ads・無料）</span></summary>
+    <div class="fc-body">
+      <div class="fc-form">
+        <div><label for="rgBase">基準地</label><input type="text" id="rgBase" placeholder="例: 高崎市 / 新宿区"></div>
+        <div><label for="rgRadius">半径（km）</label><input type="number" id="rgRadius" value="30" min="1" step="5"></div>
+        <div><label for="rgMax">最大地域数</label><input type="number" id="rgMax" value="12" min="2" step="1"></div>
+        <div style="align-self:end"><button type="button" class="btn" id="rgGo" style="margin:0;width:100%">地域別に見る</button></div>
+      </div>
+      <div id="rgResult"></div>
+    </div>
+  </details>
+
+  <details class="fc-panel" id="clPanel">
+    <summary class="fc-sum">キーワードを軸で分類<span class="sg-note">入力中のキーワードを職種・雇用形態・条件などに仕分け（Gemini・無料）</span></summary>
+    <div class="fc-body">
+      <div style="margin-top:12px"><button type="button" class="btn" id="clGo" style="margin:0">分類する</button>
+        <span class="sg-note" style="margin-left:10px">分類のみ（優劣や推奨は出しません）</span></div>
+      <div id="clResult"></div>
+    </div>
+  </details>
+
+  <details class="fc-panel" id="spPanel">
+    <summary class="fc-sum">その検索で上位に出ている媒体<span class="sg-note sp-warn">SerpApi・有料：1回押すごとに1クエリ消費</span></summary>
+    <div class="fc-body">
+      <div class="fc-form">
+        <div style="grid-column:1/-1"><label for="spKw">SERPを引くキーワード（1本だけ）</label><input type="text" id="spKw" placeholder="例: ドライバー 求人"></div>
+        <div><label for="spRegion">地域（任意）</label><input type="text" id="spRegion" placeholder="例: 東京都"></div>
+        <div><label for="spDevice">端末</label>
+          <select id="spDevice">
+            <option value="mobile" selected>スマホ（求職者の主戦場）</option>
+            <option value="desktop">PC</option>
+          </select>
+        </div>
+        <div style="align-self:end"><label class="ckline"><input type="checkbox" id="spAnswers"> AI概要の本文も取る（+1クエリ）</label></div>
+        <div style="align-self:end"><button type="button" class="btn2" id="spGo" style="margin:0;width:100%">調べる</button></div>
+      </div>
+      <div class="note">1クエリで取れるもの：媒体順位・掲載件数・広告枠・Googleしごと検索・関連ワード・絞り込み軸・<b>よくある質問（質問文）</b>。<b>AI概要の本文だけ</b>はGoogleが別エンドポイントに分けているため+1クエリかかります（一度取れば同じキーワードは次回から消費ゼロ）。<br><b>スマホとPCは検索結果が異なる</b>ため別々のデータです（同じキーワードでも端末を変えると新たに1クエリ消費します）。</div>
+      <div id="spResult"></div>
+    </div>
+  </details>
+
+  <details class="fc-panel" id="fcPanel">
+    <summary class="fc-sum">出稿したらどれくらいか（Google広告の予測）<span class="sg-note">入力中のキーワードで、クリック数・費用の見積を出します</span></summary>
+    <div class="fc-body">
+      <div class="fc-form">
+        <div><label for="fcCpc">上限クリック単価（円）</label><input type="number" id="fcCpc" value="300" min="1" step="10"></div>
+        <div><label for="fcBudget">1日の予算（円）</label><input type="number" id="fcBudget" value="5000" min="100" step="500"></div>
+        <div><label for="fcMatch">マッチタイプ</label>
+          <select id="fcMatch"><option value="PHRASE">フレーズ一致</option><option value="EXACT">完全一致</option><option value="BROAD">部分一致</option></select></div>
+        <div><label for="fcStart">開始日</label><input type="text" id="fcStart" placeholder="2026-08-01"></div>
+        <div><label for="fcEnd">終了日</label><input type="text" id="fcEnd" placeholder="2026-08-31"></div>
+        <div style="align-self:end"><button type="button" class="btn" id="fcGo" style="margin:0;width:100%">見積を出す</button></div>
+      </div>
+      <div id="fcResult"></div>
+    </div>
+  </details>
+  <section class="res" id="res" hidden></section>
+
+  <p class="foot">データ源：Google Ads Keyword Planning（generateKeywordHistoricalMetrics・無料）。単価は上位掲載入札の下限〜上限（円）。job_media_engine_rs / GET /api/keywords。</p>
+</div>
+
+<script>
+const MONTHS=["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+const $=s=>document.querySelector(s);
+// theme toggle
+const root=document.documentElement;
+$("#themeBtn").onclick=()=>{const cur=root.getAttribute("data-theme")|| (matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light");root.setAttribute("data-theme",cur==="dark"?"light":"dark");};
+
+function fmt(n){return n==null?"—":Number(n).toLocaleString("ja-JP");}
+function yen(n){return n==null?"—":"¥"+Math.round(n).toLocaleString("ja-JP");}
+// 行内(そのKW)の相対値 t(0..1)を離散5段階の濃淡へ。段差を明確にし、濃セルは白字。
+function heatBucket(t){
+  const stops=[6,22,42,64,86];
+  const i=t<=0?0:(t>=1?4:Math.min(4,Math.floor(t*5)));
+  return {bg:`color-mix(in srgb,var(--accent) ${stops[i]}%,var(--surface))`, fg:i>=3?"#fff":"var(--ink)"};
+}
+function monthLabel(ym){if(!ym)return"—";const m=String(ym).split("-")[1];return m?parseInt(m,10)+"月":ym;}
+
+// 縦に大きい折れ線グラフ(スモールマルチプル用)。0起点・各点ホバー値・ピーク明示・月軸フル。
+// 年ごとに色分けして重ねる折れ線(横軸=1〜12月、1本の線=1年)。同じ月を年で比較できる。
+// 最新年ほど太い実線、古い年ほど細い破線＝色＋線種の二重符号化(色だけに頼らない)。
+const SERIES=[
+  {c:"var(--s1)",d:"",    w:2.8},
+  {c:"var(--s2)",d:"",    w:2.0},
+  {c:"var(--s3)",d:"6 3", w:1.8},
+  {c:"var(--s4)",d:"2 3", w:1.6}
+];
+function niceTicks(max){
+  if(max<=0)return[0];
+  const pow=Math.pow(10,Math.floor(Math.log10(max)));
+  const r=max/pow;
+  const step=(r<=2?0.5:(r<=5?1:2))*pow;
+  const out=[];
+  for(let v=0;v<=max*1.0001;v+=step)out.push(Math.round(v));
+  return out;
+}
+// ホバー用: 描画したチャートの実データを保持(index参照)
+let CHART_DATA=[];
+const CHART_GEO={w:560,h:300,padL:54,padR:14,padT:14,padB:46};
+function lineChart(m12,peakYm,kwName){
+  if(!m12||!m12.length)return "<div class='cc-empty'>月次データなし</div>";
+  const byYear={};
+  m12.forEach(x=>{const p=String(x.month).split("-");if(p.length<2)return;
+    const y=parseInt(p[0],10),m=parseInt(p[1],10);
+    if(!byYear[y])byYear[y]={};byYear[y][m]=x.search_volume||0;});
+  const years=Object.keys(byYear).map(Number).sort((a,b)=>b-a).slice(0,4);
+  const max=Math.max(...m12.map(x=>x.search_volume||0),1);
+  const w=560,h=300,padL=54,padR=14,padT=14,padB=46;
+  const ih=h-padT-padB,step=(w-padL-padR)/11;
+  const X=m=>padL+(m-1)*step,Y=v=>padT+ih-(v/max)*ih;
+  const peakM=peakYm?parseInt(String(peakYm).split("-")[1],10):null;
+  let grid="";
+  niceTicks(max).forEach(t=>{const y=Y(t);
+    grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${(w-padR).toFixed(1)}" y2="${y.toFixed(1)}" class="cgrid"/>`
+        +`<text x="${(padL-8).toFixed(1)}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="cy">${fmt(t)}</text>`;});
+  let xl="";
+  for(let m=1;m<=12;m++)xl+=`<text x="${X(m).toFixed(1)}" y="${(h-24).toFixed(1)}" text-anchor="middle" class="cx">${m}</text>`;
+  xl+=`<text x="${(w-padR).toFixed(1)}" y="${(h-8).toFixed(1)}" text-anchor="end" class="cx">月</text>`;
+  const peakBand=peakM?`<line x1="${X(peakM).toFixed(1)}" y1="${padT}" x2="${X(peakM).toFixed(1)}" y2="${(padT+ih).toFixed(1)}" class="cpeakline"/>`:"";
+  let paths="",dots="";
+  years.slice().reverse().forEach(yr=>{
+    const idx=years.indexOf(yr),st=SERIES[Math.min(idx,SERIES.length-1)];
+    let d="",first=true;
+    for(let m=1;m<=12;m++){const v=byYear[yr][m];if(v==null)continue;
+      const x=X(m),y=Y(v);
+      d+=(first?"M":"L")+x.toFixed(1)+" "+y.toFixed(1)+" ";first=false;
+      dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${idx===0?3.6:2.6}" fill="${st.c}"/>`;}
+    if(d)paths+=`<path d="${d}" fill="none" stroke="${st.c}" stroke-width="${st.w}" stroke-dasharray="${st.d}" stroke-linejoin="round"/>`;});
+  // 月ごとの当たり判定＋ホバー時の縦ガイド
+  let hits="",guide=`<line class="cguide" x1="0" y1="${padT}" x2="0" y2="${(padT+ih).toFixed(1)}" style="display:none"/>`;
+  for(let m=1;m<=12;m++){const cx=X(m);
+    hits+=`<rect class="hit" data-m="${m}" x="${(cx-step/2).toFixed(1)}" y="${padT}" width="${step.toFixed(1)}" height="${ih.toFixed(1)}" fill="transparent"/>`;}
+  const base=`<line x1="${padL}" y1="${(padT+ih).toFixed(1)}" x2="${(w-padR).toFixed(1)}" y2="${(padT+ih).toFixed(1)}" class="cbase"/>`;
+  const legend=years.map((yr,i)=>{const st=SERIES[Math.min(i,SERIES.length-1)];
+    return `<span class="lg"><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="${st.c}" stroke-width="${st.w}" stroke-dasharray="${st.d}"/></svg>${yr}年</span>`;}).join("");
+  const idx=CHART_DATA.length;
+  CHART_DATA.push({keyword:kwName||"",years:years,byYear:byYear,
+    colors:years.map((_,i)=>SERIES[Math.min(i,SERIES.length-1)].c)});
+  return `<div class="chartbox" data-idx="${idx}"><svg viewBox="0 0 ${w} ${h}" class="lc" role="img" aria-label="月別検索数の推移(年別)">${grid}${peakBand}${base}${guide}${paths}${dots}${xl}${hits}</svg></div><div class="legend2">${legend}</div>`;
+}
+
+// ── ホバーのツールチップ(その月の実数＋表示中の全年の比較) ─────────────
+function ttEl(){
+  let t=document.getElementById("chartTip");
+  if(!t){t=document.createElement("div");t.id="chartTip";t.className="tt";document.body.appendChild(t);}
+  return t;
+}
+function showTip(box,m,ev){
+  const d=CHART_DATA[+box.getAttribute("data-idx")];if(!d)return;
+  const cur=d.years[0];
+  const curV=(d.byYear[cur]||{})[m];
+  let rows="";
+  d.years.forEach((yr,i)=>{
+    const v=(d.byYear[yr]||{})[m];
+    let cmp="—";
+    if(yr===cur)cmp=`<span class="tt-base">今年</span>`;
+    else if(v!=null&&curV!=null&&v>0){const r=(curV-v)/v*100;const s=r>=0?"+":"";
+      cmp=`<span class="tt-d ${r>=1?"up":(r<=-1?"down":"flat")}">${s}${(Math.round(r*10)/10).toFixed(1)}%</span>`;}
+    rows+=`<tr><td><i class="tt-c" style="background:${d.colors[i]}"></i>${yr}年</td>`
+        +`<td class="tt-v">${v==null?"—":fmt(v)}</td><td class="tt-r">${cmp}</td></tr>`;});
+  const t=ttEl();
+  t.innerHTML=`<div class="tt-h">${m}月 <span class="tt-kw">${esc(d.keyword)}</span></div><table>${rows}</table>`
+             +`<div class="tt-f">％＝今年が各年に対して何％違うか</div>`;
+  t.style.display="block";
+  const pad=14,vw=window.innerWidth,vh=window.innerHeight;
+  const r=t.getBoundingClientRect();
+  let x=ev.clientX+pad,y=ev.clientY+pad;
+  if(x+r.width>vw-8)x=ev.clientX-r.width-pad;
+  if(y+r.height>vh-8)y=Math.max(8,ev.clientY-r.height-pad);
+  t.style.left=x+"px";t.style.top=y+"px";
+}
+function hideTip(){const t=document.getElementById("chartTip");if(t)t.style.display="none";}
+document.addEventListener("mousemove",ev=>{
+  const hit=ev.target.closest?ev.target.closest("rect.hit"):null;
+  if(!hit){if(!(ev.target.closest&&ev.target.closest(".chartbox")))hideTip();return;}
+  const box=hit.closest(".chartbox");if(!box)return;
+  const m=+hit.getAttribute("data-m");
+  // 縦ガイドを当該月へ
+  const svg=box.querySelector("svg.lc"),g=box.querySelector("line.cguide");
+  if(g){const step=(CHART_GEO.w-CHART_GEO.padL-CHART_GEO.padR)/11;const cx=CHART_GEO.padL+(m-1)*step;
+    g.setAttribute("x1",cx.toFixed(1));g.setAttribute("x2",cx.toFixed(1));g.style.display="";}
+  showTip(box,m,ev);
+});
+document.addEventListener("mouseleave",hideTip,true);
+document.addEventListener("scroll",hideTip,true);
+
+function sparkline(m12,peakYm){
+  if(!m12||!m12.length)return"";
+  const vals=m12.map(x=>x.search_volume||0);
+  const max=Math.max(...vals,1),min=Math.min(...vals);
+  const w=120,h=30,pad=3;
+  const step=(w-pad*2)/(m12.length-1||1);
+  const y=v=>h-pad-((v-min)/((max-min)||1))*(h-pad*2);
+  let d="",px=null,py=null;
+  m12.forEach((x,i)=>{const cx=pad+i*step,cy=y(x.search_volume||0);d+=(i?"L":"M")+cx.toFixed(1)+" "+cy.toFixed(1)+" ";
+    if(x.month===peakYm){px=cx;py=cy;}});
+  let dot=px!=null?`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="2.8" fill="var(--peak)"/>`:"";
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="12ヶ月推移"><path d="${d}" fill="none" stroke="var(--spark)" stroke-width="1.5"/>${dot}</svg>`;
+}
+
+function render(d){
+  const res=$("#res");res.hidden=false;res.innerHTML="";
+  const kws=d.keywords||[];
+  const c=d.concentration||{};
+  // summary
+  const regionTxt=d.region?d.region.name:"全国";
+  let html=`<div class="summary">
+    <div class="stat"><div class="k">対象キーワード</div><div class="v">${kws.length}<small> 語</small></div></div>
+    <div class="stat"><div class="k">需要集中度 HHI</div><div class="v">${c.hhi!=null?c.hhi.toFixed(2):"—"}</div></div>
+    <div class="stat"><div class="k">実効キーワード数</div><div class="v">${c.effective_keywords!=null?c.effective_keywords.toFixed(1):"—"}<small> 語相当</small></div></div>
+    <div class="stat"><div class="k">地域</div><div class="v" style="font-size:16px">${regionTxt}</div></div>
+  </div>`;
+
+  // 月別の検索数の推移(グラフのみ。断言・推奨はツールに載せない=対面で営業が判断)。
+  html+=`<h2>月別の検索数の推移 <span class="tag">キーワード別グラフ</span></h2>`;
+  html+=`<div class="charts">`;
+  CHART_DATA=[];
+  // 分類(/api/cluster)で検索数を再表示するため、実測値を控えておく(LLMには書かせない)
+  window.__lastVolumes={};kws.forEach(k=>{if(k.avg_monthly!=null)window.__lastVolumes[k.keyword]=k.avg_monthly;});
+  kws.forEach(k=>{
+    const s=k.seasonality||{};
+    const mvals=(k.monthly_12m||[]).map(x=>x.search_volume||0);const mmax=mvals.length?Math.max(...mvals):null;
+    // 複数年で繰り返すピーク月(事実のみ)。年計ベースの前年比は誤解を生むため出さない
+    // (年の比較はグラフのホバーで同月どうしを見る)。
+    let rp="";
+    const rps=(k.recurring_peaks||[]).filter(r=>r.years_hit>=2);
+    if(rps.length)rp=`<div class="rp">毎年高い月: ${rps.map(r=>`<b>${r.month}月</b>(${r.years_hit}/${r.total_years}年)`).join("・")}</div>`;
+    html+=`<div class="chartcard"><div class="cc-head"><span class="cc-name" title="${k.keyword}">${k.keyword}</span><span class="cc-meta">平均 ${fmt(k.avg_monthly)}・最大 ${fmt(mmax)}・ピーク ${monthLabel(s.peak_month)}・${s.trend||"—"}</span>${rp}</div>${lineChart(k.monthly_12m,s.peak_month,k.keyword)}</div>`;});
+  html+=`</div><div class="chart-note">横軸＝1〜12月、<b>線1本＝1年</b>（色と線種で年を区別。最新年ほど太い実線）。同じ月を年で比べられます。縦軸0起点。点にカーソルを合わせると「◯年◯月: 実数」が出ます。破線の縦線＝直近期間のピーク月。</div>`;
+
+  // per-keyword table
+  html+=`<h2>キーワード別サマリ</h2><div class="tblwrap"><table><thead><tr>
+    <th>キーワード</th><th class="num">平均月間検索</th><th>ピーク / 仕込み月</th><th>トレンド</th><th>広告競合</th><th class="num">クリック単価目安</th>
+  </tr></thead><tbody>`;
+  kws.forEach(k=>{const s=k.seasonality||{};
+    const comp=(k.competition||"NA").toUpperCase();const compCls=["HIGH","MEDIUM","LOW"].includes(comp)?comp:"NA";
+    const compLabel=comp==="NA"?"—":comp+(k.competition_index!=null?` ${k.competition_index}`:"");
+    html+=`<tr>
+      <td class="kwname">${k.keyword}</td>
+      <td class="num">${fmt(k.avg_monthly)}</td>
+      <td><span class="peakm">${monthLabel(s.peak_month)}</span> <span class="trend">/ 仕込 ${monthLabel(s["仕込み月"])}</span></td>
+      <td class="trend">${s.trend||"—"}</td>
+      <td><span class="comp ${compCls}">${compLabel}</span></td>
+      <td class="num">${yen(k.bid_low_yen)}–${yen(k.bid_high_yen)}</td>
+    </tr>`;});
+  html+=`</tbody></table></div>`;
+
+  // excluded
+  const ex=d.excluded_keywords||[];
+  if(ex.length)html+=`<div class="excl"><b>除外（ノイズ・平均&lt;閾値）:</b> ${ex.map(e=>typeof e==="string"?e:(e.keyword||JSON.stringify(e))).join(" / ")}</div>`;
+
+  res.innerHTML=html;
+}
+
+let analyzed=false; // 一度でも分析したか(期間変更で自動再分析するかの判断に使う)
+async function analyze(opts){
+  const silent=opts&&opts.silent;
+  const raw=$("#kw").value.trim();
+  const st=$("#status");
+  if(!raw){if(!silent)st.innerHTML=`<div class="err">キーワードを入力してください。</div>`;return;}
+  const kw=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).join(",");
+  const region=$("#region").value.trim();
+  const noise=$("#noise").value||"50";
+  const months=$("#months")?$("#months").value:"12";
+  const p=new URLSearchParams({kw,noise_floor:noise,months});
+  if(region)p.set("region",region);
+  $("#go").disabled=true;$("#months").disabled=true;
+  st.innerHTML=`<div class="loading">Google Ads に問い合わせ中…（${months}ヶ月）</div>`;
+  try{
+    const r=await fetch("/api/keywords?"+p.toString());
+    const d=await r.json();
+    if(d.status==="missing_credentials"){st.innerHTML=`<div class="err">Google Ads の資格情報が未設定です（${(d.missing||[]).join(", ")}）。</div>`;return;}
+    if(d.status!=="ok"){st.innerHTML=`<div class="err">エラー: ${d.message||d.status||"不明"}</div>`;return;}
+    st.innerHTML="";render(d);analyzed=true;
+  }catch(err){st.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{$("#go").disabled=false;$("#months").disabled=false;}
+}
+
+$("#form").addEventListener("submit",e=>{e.preventDefault();analyze();});
+// 分析期間を変えたら、すでに分析済みならその場で引き直す(ボタンを押し直さなくてよい)
+$("#months").addEventListener("change",()=>{if(analyzed)analyze({silent:true});});
+
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");}
+function addKeyword(kw){const ta=$("#kw");const cur=ta.value.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);if(!cur.includes(kw)){cur.push(kw);ta.value=cur.join("\n");}}
+function renderSuggest(d){
+  const box=$("#suggest");box.hidden=false;
+  const s=d.suggestions||[];
+  if(!s.length){box.innerHTML=`<div class="sg-empty">関連キーワードが見つかりませんでした。</div>`;return;}
+  const exN=d.brand_excluded_count;
+  const exTxt=(d.exclude_brand&&exN)?`／媒体名の指名検索 ${exN}件を除外`:"";
+  let h=`<details class="sg-det" open><summary class="sg-sum">関連キーワード候補（検索量順・上位${s.length}件）<span class="sg-note">＋で上の入力欄に追加 → 需要を分析${exTxt}</span></summary><div class="sg-list">`;
+  s.forEach(k=>{const comp=(k.competition||"NA").toUpperCase();const cc=["HIGH","MEDIUM","LOW"].includes(comp)?comp:"NA";
+    const tags=(k.concepts||[]).filter(c=>c&&c.name).slice(0,3)
+      .map(c=>`<span class="ctag${k.is_brand&&/ブランド|brand/i.test(c.group||"")&&!/ノンブランド|non-?brand/i.test(c.group||"")?" brand":""}">${esc(c.name)}</span>`).join("");
+    h+=`<div class="sg-row"><button class="sg-add" data-kw="${esc(k.keyword)}" title="入力欄に追加">＋</button><span class="sg-kw" title="${esc(k.keyword)}">${esc(k.keyword)}${k.is_brand?' <span class="ctag brand">媒体名</span>':""}</span><span class="tags">${tags}</span><span class="sg-vol">${fmt(k.avg_monthly)}</span><span class="comp ${cc}">${comp==="NA"?"—":comp}</span><span class="sg-cpc">${yen(k.bid_low_yen)}–${yen(k.bid_high_yen)}</span></div>`;});
+  h+=`</div></details>`;box.innerHTML=h;
+  box.querySelectorAll(".sg-add").forEach(b=>b.onclick=()=>{addKeyword(b.getAttribute("data-kw"));b.disabled=true;b.textContent="✓";});
+}
+// ── 地域別の検索需要(Google Ads・無料) ────────────────────────────────
+$("#rgGo").addEventListener("click",async()=>{
+  const raw=$("#kw").value.trim(),base=$("#rgBase").value.trim(),box=$("#rgResult");
+  if(!raw){box.innerHTML=`<div class="err">上のキーワード欄に対象キーワードを入れてください。</div>`;return;}
+  if(!base){box.innerHTML=`<div class="err">基準地を入れてください。</div>`;return;}
+  const kw=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).join(",");
+  const p=new URLSearchParams({kw,base,radius_km:$("#rgRadius").value||"30",max_areas:$("#rgMax").value||"12"});
+  const b=$("#rgGo"),t=b.textContent;b.disabled=true;b.textContent="取得中…";
+  box.innerHTML=`<div class="loading" style="margin-top:12px">Google Ads に問い合わせ中…（地域ごとに取得するため時間がかかります）</div>`;
+  try{
+    const r=await fetch("/api/regions?"+p.toString());const d=await r.json();
+    if(d.status!=="ok"){box.innerHTML=`<div class="err">${esc(d.message||d.status)}</div>`;return;}
+    const dm=d.demand||{};const ranked=(dm.ranked||[]).filter(a=>a.resolved);
+    if(!ranked.length){box.innerHTML=`<div class="fc-note">解決できた地域がありませんでした。</div>`;return;}
+    const mx=Math.max(...ranked.map(a=>a.total_volume||0),1);
+    let h=`<div class="rg-list">`;
+    ranked.forEach(a=>{const w=Math.round((a.total_volume||0)/mx*100);
+      h+=`<div class="rg-row"><span class="rg-n">${esc(a.name)}${a.is_base?'<span class="rg-base">基準</span>':""}</span>`
+       +`<span class="rg-bar"><span class="rg-fill${a.is_base?" me":""}" style="width:${w}%"></span></span>`
+       +`<span class="rg-v">${fmt(a.total_volume)}</span>`
+       +`<span class="rg-d">${a.distance_km!=null?(Math.round(a.distance_km*10)/10)+"km":""}</span></div>`;});
+    h+=`</div><div class="fc-note">対象キーワード合計の月間検索数（Google Ads実測）。${dm.dropped_count?`半径内で上限を超えた${dm.dropped_count}地域は未取得: ${esc((dm.dropped_names||[]).slice(0,8).join("、"))}`:""}</div>`;
+    box.innerHTML=h;
+  }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{b.disabled=false;b.textContent=t;}
+});
+
+// ── キーワードの軸分類(Gemini・無料、分類のみ) ────────────────────────
+$("#clGo").addEventListener("click",async()=>{
+  const raw=$("#kw").value.trim(),box=$("#clResult");
+  if(!raw){box.innerHTML=`<div class="err">上のキーワード欄に対象キーワードを入れてください。</div>`;return;}
+  const list=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+  const p=new URLSearchParams({kw:list.join(",")});
+  if(window.__lastVolumes){const v=list.filter(k=>window.__lastVolumes[k]!=null).map(k=>`${k}:${window.__lastVolumes[k]}`).join(",");if(v)p.set("vol",v);}
+  const b=$("#clGo"),t=b.textContent;b.disabled=true;b.textContent="分類中…";
+  box.innerHTML=`<div class="loading" style="margin-top:12px">分類中…</div>`;
+  try{
+    const r=await fetch("/api/cluster?"+p.toString());const d=await r.json();
+    if(d.status!=="ok"){box.innerHTML=`<div class="err">${esc(d.message||d.status)}</div>`;return;}
+    let h=`<div class="cl-grid">`;
+    (d.categories||[]).forEach(c=>{
+      h+=`<div class="cl-card"><div class="cl-h">${esc(c.name)} <span class="cl-c">${c.count}語${c.total_volume?`・計${fmt(c.total_volume)}`:""}</span></div>`;
+      h+=(c.keywords||[]).map(k=>`<div class="cl-k">${esc(k.keyword)}<span class="cl-v">${k.avg_monthly!=null?fmt(k.avg_monthly):""}</span></div>`).join("");
+      h+=`</div>`;});
+    h+=`</div><div class="fc-note">分類のみ（${esc(d.model||"")}）。${d.hallucinated_count?`元データに無い語 ${d.hallucinated_count}件は破棄。`:""}${d.unassigned_count?`未分類 ${d.unassigned_count}件は「その他」に集約。`:""}検索数はGoogle Adsの実測値をそのまま表示しています。</div>`;
+    box.innerHTML=h;
+  }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{b.disabled=false;b.textContent=t;}
+});
+
+// ── 媒体順位(SerpApi・1クエリ消費) ────────────────────────────────────
+$("#spGo").addEventListener("click",async()=>{
+  const kw=$("#spKw").value.trim()||($("#kw").value.trim().split(/[\n,]+/)[0]||"").trim();
+  const box=$("#spResult");
+  if(!kw){box.innerHTML=`<div class="err">SERPを引くキーワードを1本入れてください。</div>`;return;}
+  const wantAns=$("#spAnswers")&&$("#spAnswers").checked;
+  const est=wantAns?"2クエリ（SERP＋AI概要）":"1クエリ";
+  if(!confirm(`SerpApi を消費します（${est}）。\n\nキーワード: ${kw}\n\nよろしいですか？`))return;
+  const p=new URLSearchParams({kw});const rg=$("#spRegion").value.trim();if(rg)p.set("region",rg);
+  if(wantAns)p.set("with_answers","true");
+  const dev=$("#spDevice")?$("#spDevice").value:"mobile";p.set("device",dev);
+  const b=$("#spGo"),t=b.textContent;b.disabled=true;b.textContent="取得中…";
+  box.innerHTML=`<div class="loading" style="margin-top:12px">SerpApi に問い合わせ中…</div>`;
+  try{
+    const r=await fetch("/api/serp?"+p.toString());const d=await r.json();
+    if(d.status!=="ok"){box.innerHTML=`<div class="err">${esc(d.message||d.status)}</div>`;return;}
+    let h=`<div class="fc-cond">「${esc(d.used_keyword)}」／<b>${d.device==="mobile"?"スマホ":(d.device==="tablet"?"タブレット":"PC")}</b>${d.location?`／${esc(d.location)}`:"／全国"}`
+      +(d.total_results!=null?`　検索結果 約${fmt(d.total_results)}件`:"")
+      +(d.quota?`　<b>残枠 ${d.quota.remaining}/${d.quota.cap}</b>（今回消費 ${d.quota.spent_this_call!=null?d.quota.spent_this_call:"?"}）`:"")+`</div>`;
+    if(d.location_note)h+=`<div class="fc-note" style="color:var(--mid)">⚠ ${esc(d.location_note)}</div>`;
+    // ① 自然検索の媒体順位（見出し・説明文・掲載件数つき）
+    h+=`<div class="sg-head" style="margin-top:14px">自然検索で上位の媒体</div>`;
+    h+=`<div class="tblwrap"><table><thead><tr><th class="num">順位</th><th>媒体</th><th class="num">掲載件数</th><th>ページの見出し・説明（媒体が書いている内容）</th></tr></thead><tbody>`;
+    (d.results||[]).forEach(m=>{h+=`<tr><td class="num">${m.rank}</td><td class="kwname" style="white-space:nowrap">${esc(m.media_name)}`
+      +(m.specialized?`<br><span class="ctag brand">${esc(m.job_scope||"特化")}特化</span>`:"")
+      +(m.known?"":`<br><span class="ctag">未登録</span>`)
+      +`<br><span class="trend">${esc(m.domain)}</span></td>`
+      +`<td class="num">${m.listing_count!=null?`<b>${fmt(m.listing_count)}</b><br><span class="trend" style="font-weight:400">件</span>`:'<span class="trend">—</span>'}</td>`
+      +`<td><div style="font-size:12.5px;font-weight:600">${esc(m.title||"")}</div>`
+      +`<div class="trend" style="white-space:normal;line-height:1.5">${esc(m.snippet||"")}</div></td></tr>`;});
+    const dd=d.deduped||[];
+    h+=`</tbody></table><div class="fc-note">`
+      +`Googleが返した自然検索 ${d.organic_total!=null?d.organic_total:"?"}件 → <b>媒体${(d.results||[]).length}件</b>を表示。`
+      +(dd.length?`同じ媒体が複数順位に出た分は最上位のみ残しました（畳んだ枠: ${dd.map(x=>`${x.rank}位 ${esc(x.media_name)}`).join("、")}）。そのため順位番号が飛びます。`:"")
+      +`<br>掲載件数＝各媒体が説明文に書いている「◯◯件」を抜き出したもの（媒体の自己申告・全て同じ地域条件とは限らない）。空欄＝説明文に件数記載なし。</div></div>`;
+    // ①' 絞り込み軸（この検索でGoogleが用意している切り口）
+    if((d.filters||[]).length){
+      h+=`<div class="sg-head" style="margin-top:14px">この検索の絞り込み軸<span class="sg-note">Googleがこの職種で用意している切り口</span></div><div class="flt-wrap">`;
+      d.filters.forEach(f=>{h+=`<div class="flt"><span class="flt-n">${esc(f.name)}</span>`
+        +(f.options||[]).map(o=>`<span class="flt-o">${esc(o)}</span>`).join("")+`</div>`;});
+      h+=`</div>`;
+    }
+    // ② 広告枠
+    if((d.ads||[]).length){
+      h+=`<div class="sg-head" style="margin-top:16px">広告枠に出ていた媒体<span class="sg-note">同じ1クエリに同梱・追加消費なし</span></div><div class="tblwrap"><table><tbody>`;
+      d.ads.forEach(a=>{h+=`<tr><td class="num">${a.block_position==="bottom"?"下部":"上部"} ${a.rank}</td><td class="kwname">${esc(a.media_name)}</td><td class="trend" style="white-space:normal">${esc(a.title||"")}</td></tr>`;});
+      h+=`</tbody></table></div>`;
+    }else{h+=`<div class="fc-note">この検索では広告枠は出ていませんでした（広告は常に出るとは限りません）。</div>`;}
+    // ③ Googleしごと検索枠（応募導線）
+    const jb=d.jobs;
+    if(jb&&((jb.jobs||[]).length||jb.count_text)){
+      h+=`<div class="sg-head" style="margin-top:16px">Googleしごと検索の枠<span class="sg-note">${esc(jb.count_text||"")}</span></div><div class="tblwrap"><table><thead><tr><th>求人</th><th>会社</th><th>勤務地</th><th>条件</th><th>応募先</th></tr></thead><tbody>`;
+      (jb.jobs||[]).forEach(j=>{
+        const ex=j.extensions||{};
+        const exs=[ex.schedule_type,ex.salary,ex.posted_at,ex.work_from_home?"在宅":null].filter(Boolean).join("・");
+        h+=`<tr><td style="font-size:12.5px">${esc(j.title||"")}</td><td class="trend">${esc(j.company||"")}</td><td class="trend">${esc(j.location||"")}</td><td class="trend" style="white-space:normal">${esc(exs)}</td><td class="trend" style="white-space:normal">${esc((j.apply_options||[]).join("、"))}</td></tr>`;});
+      h+=`</tbody></table><div class="fc-note">検索結果ページに載っていた求人カード${(jb.jobs||[]).length}件をそのまま表示（こちらでは絞っていません）。${jb.count_text?`Google表記では「${esc(jb.count_text)}」で、残りを見るには別クエリ（Googleしごと検索エンジン）が必要です。`:""}</div></div>`;
+    }
+    // ④ 関連検索（次に調べるキーワードの種）→ ＋で入力欄へ
+    if((d.related_searches||[]).length){
+      h+=`<div class="sg-head" style="margin-top:16px">この検索の関連ワード<span class="sg-note">＋で上のキーワード欄に追加できます</span></div><div class="rel-wrap">`;
+      d.related_searches.forEach(q=>{h+=`<button type="button" class="rel-chip" data-kw="${esc(q)}">${esc(q)}<span>＋</span></button>`;});
+      h+=`</div>`;
+    }
+    // ⑤ AI概要（本文＋引用元）。answers取得時のみ本文が入る
+    const ai=d.ai_overview;
+    if(ai&&(ai.blocks||[]).length){
+      h+=`<div class="sg-head" style="margin-top:16px">GoogleのAI概要<span class="sg-note">この検索に対してGoogleが生成した要約</span></div><div class="ai-box">`;
+      ai.blocks.forEach(b=>{
+        if(b.type==="heading")h+=`<div class="ai-h">${esc(b.text||"")}</div>`;
+        else if((b.items||[]).length)h+=`<ul class="ai-ul">`+b.items.map(i=>`<li>${esc(i)}</li>`).join("")+`</ul>`;
+        else if(b.text)h+=`<p class="ai-p">${esc(b.text)}</p>`;});
+      if((ai.references||[]).length){
+        h+=`<div class="ai-ref">引用元: `+ai.references.slice(0,10).map(r=>`<span class="ai-r" title="${esc(r.link||"")}">${esc(r.title||r.source||"")}</span>`).join("")+`</div>`;}
+      h+=`</div>`;
+    }else if(d.has_ai_overview){
+      h+=`<div class="fc-note">この検索にはAI概要があります（本文を見るには「AI概要の本文も取る」にチェックして再実行）。</div>`;
+    }
+    // ⑥ よくある質問（質問文のみ＝消費ゼロで取れる分。答えは仕様上噛み合わないため出さない）
+    if((d.related_questions||[]).length){
+      h+=`<div class="sg-head" style="margin-top:16px">よくある質問（検索者の関心）</div><ul class="rq">`;
+      d.related_questions.forEach(q=>{h+=`<li>${esc(q)}</li>`;});
+      h+=`</ul>`;
+    }
+    box.innerHTML=h;
+    box.querySelectorAll(".rel-chip").forEach(b=>b.onclick=()=>{addKeyword(b.getAttribute("data-kw"));b.disabled=true;b.querySelector("span").textContent="✓";});
+  }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{b.disabled=false;b.textContent=t;}
+});
+
+// ── 出稿予測(Google広告フォーキャスト) ────────────────────────────────
+// 予測は未来日が必須。既定は「翌月1日〜翌月末」を入れておく(ブラウザの日付を使用)。
+(function initForecastDates(){
+  const p=n=>String(n).padStart(2,"0");
+  const now=new Date();
+  const s=new Date(now.getFullYear(),now.getMonth()+1,1);
+  const e=new Date(now.getFullYear(),now.getMonth()+2,0);
+  const f=d=>`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  const si=document.getElementById("fcStart"),ei=document.getElementById("fcEnd");
+  if(si&&!si.value)si.value=f(s);
+  if(ei&&!ei.value)ei.value=f(e);
+})();
+function renderForecast(d){
+  const f=d.forecast||{},inp=d.input||{};
+  const days=(()=>{const s=Date.parse(inp.start),e=Date.parse(inp.end);
+    return (isNaN(s)||isNaN(e))?null:Math.round((e-s)/86400000)+1;})();
+  const per=(v)=>days?Math.round(v/days*10)/10:null;
+  let h=`<div class="fc-cards">`;
+  h+=`<div class="fc-card main"><div class="k">クリック数</div><div class="v">${fmt(Math.round(f.clicks))}<small>回</small></div></div>`;
+  h+=`<div class="fc-card main"><div class="k">費用</div><div class="v">${yen(f.cost_yen)}</div></div>`;
+  h+=`<div class="fc-card"><div class="k">表示回数</div><div class="v">${fmt(Math.round(f.impressions))}</div></div>`;
+  h+=`<div class="fc-card"><div class="k">CTR</div><div class="v">${f.ctr!=null?(Math.round(f.ctr*1000)/10)+"%":"—"}</div></div>`;
+  h+=`<div class="fc-card"><div class="k">平均クリック単価</div><div class="v">${yen(f.average_cpc_yen)}</div></div>`;
+  if(f.conversions!=null)h+=`<div class="fc-card weak"><div class="k">応募等CV（推定）</div><div class="v">${Math.round(f.conversions*10)/10}<small>件</small></div></div>`;
+  if(f.average_cpa_yen!=null)h+=`<div class="fc-card weak"><div class="k">CV単価（推定）</div><div class="v">${yen(f.average_cpa_yen)}</div></div>`;
+  h+=`</div>`;
+  const kwn=(d.keywords||[]).length;
+  h+=`<div class="fc-cond">条件: ${esc((d.keywords||[]).join(" / "))}（${kwn}語・${inp.match_type||"PHRASE"}）／上限CPC ${yen(inp.max_cpc_yen)}／1日予算 ${yen(inp.daily_budget_yen)}／${inp.start}〜${inp.end}${days?`（${days}日間）`:""}${d.region?`／${d.region.name}`:"／全国"}`
+    +(days?`<br>1日あたり: クリック ${per(f.clicks)}回・費用 ${yen(f.cost_yen/days)}`:"")+`</div>`;
+  h+=`<div class="fc-note">Google広告の予測値。実際の結果は入札競争・広告文・LPで変動します。${f.conversions!=null?"CV/CV単価はGoogle側の一般推定で、クリック・費用より信頼度が低い（採用の応募数ではない）。":""}</div>`;
+  $("#fcResult").innerHTML=h;
+}
+$("#fcGo").addEventListener("click",async()=>{
+  const raw=$("#kw").value.trim();const box=$("#fcResult");
+  if(!raw){box.innerHTML=`<div class="err">上のキーワード欄に対象キーワードを入れてください。</div>`;return;}
+  const kw=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).join(",");
+  const p=new URLSearchParams({kw,max_cpc:$("#fcCpc").value||"300",daily_budget:$("#fcBudget").value||"5000",match_type:$("#fcMatch").value});
+  const region=$("#region").value.trim();if(region)p.set("region",region);
+  const s=$("#fcStart").value.trim(),e=$("#fcEnd").value.trim();
+  if(s)p.set("start",s);if(e)p.set("end",e);
+  const b=$("#fcGo");const t=b.textContent;b.disabled=true;b.textContent="計算中…";
+  box.innerHTML=`<div class="loading" style="margin-top:12px">Google広告に問い合わせ中…</div>`;
+  try{
+    const r=await fetch("/api/forecast?"+p.toString());const d=await r.json();
+    if(d.status==="missing_credentials"){box.innerHTML=`<div class="err">Google Ads の資格情報が未設定です。</div>`;return;}
+    if(d.status!=="ok"){box.innerHTML=`<div class="err">エラー: ${esc(d.message||d.status||"不明")}</div>`;return;}
+    renderForecast(d);
+  }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{b.disabled=false;b.textContent=t;}
+});
+
+$("#suggestBtn").addEventListener("click",async()=>{
+  const raw=$("#kw").value.trim();const st=$("#status");
+  if(!raw){st.innerHTML=`<div class="err">まず種となるキーワードを入力してください。</div>`;return;}
+  const seed=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean).join(",");
+  const region=$("#region").value.trim();
+  const p=new URLSearchParams({seed,limit:"30"});if(region)p.set("region",region);
+  if($("#exbrand")&&$("#exbrand").checked)p.set("exclude_brand","true");
+  const b=$("#suggestBtn");const t=b.textContent;b.disabled=true;b.textContent="検索中…";$("#suggest").hidden=true;
+  try{
+    const r=await fetch("/api/suggest?"+p.toString());const d=await r.json();
+    if(d.status==="missing_credentials"){st.innerHTML=`<div class="err">Google Ads の資格情報が未設定です。</div>`;return;}
+    if(d.status!=="ok"){st.innerHTML=`<div class="err">エラー: ${d.message||d.status||"不明"}</div>`;return;}
+    st.innerHTML="";renderSuggest(d);
+  }catch(err){st.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{b.disabled=false;b.textContent=t;}
+});
+</script>
+</body></html>
