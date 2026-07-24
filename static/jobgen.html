@@ -120,6 +120,14 @@
   .dircard{background:var(--surface-2);border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-bottom:10px}
   .dircard .dl{font-weight:800;font-size:13px;color:var(--accent-ink);margin-bottom:5px}
   .dircard .dt{font-size:12.5px;color:var(--ink-2);white-space:pre-wrap}
+  .pwrap{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+  .phead{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:800;margin:8px 0 4px}
+  .pbox{font-size:12.5px;line-height:1.7;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;white-space:pre-wrap;user-select:all}
+  .pbox.pneg{opacity:.85}
+  .pmeta{font-size:12px;margin-top:6px;color:var(--ink-2)}
+  .copybtn{flex:none;font-size:11.5px;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+  .copybtn:hover{border-color:var(--accent-ink)}
+  .copybtn:disabled{opacity:.7;cursor:default}
   /* スマホ原稿プレビュー */
   .mobwrap{display:flex;flex-wrap:wrap;gap:16px}
   .mobcol{flex:0 0 auto}
@@ -251,6 +259,7 @@ const S={
   personas:[],
   copies:[],   // [{label, copies:[], ng_violations:[], review_required, error}]
   images:[],   // directions
+  imagePrompts:[], // ⑤b: [{persona_label, prompt, negative_prompt, aspect_ratio}]
   mobile:[],   // [{label, lines:[], ng_violations:[], review_required, error}]
   hrhacker:null,
   ab:null,
@@ -263,7 +272,7 @@ const STEPS=[
   {key:"analyze", num:"②", name:"市場分析",        gate:"—"},
   {key:"personas",num:"③", name:"ペルソナ設計",    gate:"—"},
   {key:"copy",    num:"④", name:"キャッチコピー",  gate:"NGワード"},
-  {key:"images",  num:"⑤", name:"画像ディレクション",gate:"—"},
+  {key:"images",  num:"⑤", name:"画像案・生成プロンプト",gate:"—"},
   {key:"mobile",  num:"⑥", name:"スマホ原稿",      gate:"文字数・NGワード"},
   {key:"hrhacker",num:"⑦", name:"84列原稿＋数値照合",gate:"数値照合・文字数・NGワード"},
   {key:"ab",      num:"⑧", name:"A/Bテスト助言",   gate:"—"}
@@ -390,7 +399,7 @@ function pickJob(i){
   renderSteps();
 }
 function resetResults(){
-  S.facts=null;S.factsText="";S.category="";S.analysis=null;S.personas=[];S.copies=[];S.images=[];S.mobile=[];S.hrhacker=null;S.ab=null;
+  S.facts=null;S.factsText="";S.category="";S.analysis=null;S.personas=[];S.copies=[];S.images=[];S.imagePrompts=[];S.mobile=[];S.hrhacker=null;S.ab=null;
   STEPS.forEach(s=>S.status[s.key]="wait");
   STEPS.forEach(s=>{const el=$("#res-"+s.key);if(el){el.hidden=true;el.innerHTML="";}});
 }
@@ -440,7 +449,20 @@ async function runImages(){
   if(!S.personas.length)throw new Error("前工程（③ペルソナ設計）が未実行です。");
   const d=await postJSON("/api/jobgen/images",{personas:S.personas});
   S.images=d.directions||[];
-  renderImages();return "done";
+  S.imagePrompts=[];
+  renderImages(); // まずディレクションを出す（プロンプト化の待ち時間中も見られるように）
+  // ⑤b: 生成AIへ丸投げできる日本語プロンプトに変換（全ペルソナ一括で+1コール）
+  if(S.images.length){
+    try{
+      const p=await postJSON("/api/jobgen/image_prompts",{directions:{directions:S.images}});
+      S.imagePrompts=p.prompts||[];
+    }catch(e){
+      S.imagePrompts=[];
+      S.imagePromptsError=e.message;
+    }
+    renderImages();
+  }
+  return "done";
 }
 async function runMobile(){
   if(!S.personas.length)throw new Error("前工程（③ペルソナ設計）が未実行です。");
@@ -572,8 +594,41 @@ function renderCopy(){
 }
 function renderImages(){
   const el=$("#res-images");el.hidden=false;
-  const cards=S.images.map(d=>`<div class="dircard"><div class="dl">${esc(d.persona_label||"")}</div><div class="dt">${esc(d.direction||"")}</div></div>`).join("");
-  el.innerHTML=sectionHead("⑤","画像ディレクション","")+(cards||"<div class='note'>ディレクションがありません。</div>");
+  // ⑤b のプロンプトを persona_label で引けるようにしておく
+  const pmap={};(S.imagePrompts||[]).forEach(p=>{pmap[p.persona_label||""]=p;});
+  const cards=S.images.map(d=>{
+    const label=d.persona_label||"";
+    const p=pmap[label];
+    let promptBlk="";
+    if(p){
+      promptBlk=`
+      <div class="pwrap">
+        <div class="phead">🎨 画像生成AI用プロンプト（そのまま貼り付け可・撮影指示書兼用）
+          <button class="copybtn" onclick="copyText(this)" data-copy="${escAttr(p.prompt||"")}">プロンプトをコピー</button>
+        </div>
+        <div class="pbox">${esc(p.prompt||"")}</div>
+        <div class="phead">🚫 ネガティブプロンプト（避けたい要素）
+          <button class="copybtn" onclick="copyText(this)" data-copy="${escAttr(p.negative_prompt||"")}">コピー</button>
+        </div>
+        <div class="pbox pneg">${esc(p.negative_prompt||"")}</div>
+        <div class="pmeta">推奨アスペクト比: <b>${esc(p.aspect_ratio||"")}</b></div>
+      </div>`;
+    }else if(S.imagePrompts.length===0&&S.imagePromptsError){
+      promptBlk=`<div class="err">プロンプト化に失敗: ${esc(S.imagePromptsError)}（工程⑤を再実行すると再試行します）</div>`;
+    }else if(S.imagePrompts.length===0){
+      promptBlk=`<div class="note">生成AI用プロンプトへ変換中…</div>`;
+    }
+    return `<div class="dircard"><div class="dl">${esc(label)}</div><div class="dt">${esc(d.direction||"")}</div>${promptBlk}</div>`;
+  }).join("");
+  el.innerHTML=sectionHead("⑤","画像案・生成プロンプト","")+(cards||"<div class='note'>ディレクションがありません。</div>");
+}
+function escAttr(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function copyText(btn){
+  const t=btn.getAttribute("data-copy")||"";
+  navigator.clipboard.writeText(t).then(()=>{
+    const orig=btn.textContent;btn.textContent="✓ コピーしました";btn.disabled=true;
+    setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},1500);
+  }).catch(()=>{alert("コピーに失敗しました。テキストを選択して手動でコピーしてください。");});
 }
 function renderMobile(){
   const el=$("#res-mobile");el.hidden=false;
