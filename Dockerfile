@@ -18,6 +18,9 @@ COPY templates/ templates/
 COPY data/wage_census_to_occupation_middle_map.json data/wage_census_to_occupation_middle_map.json
 # include_str! で media_engine/handlers.rs がキーワード需要ビューアの UI を埋め込む
 COPY static/keywords.html static/keywords.html
+# include_str! で job_gen が求人票生成 UI と知識データ (NGワード/職種知識) を埋め込む
+COPY static/jobgen.html static/jobgen.html
+COPY assets/ assets/
 RUN cargo build --release
 
 # ===== ランタイムステージ =====
