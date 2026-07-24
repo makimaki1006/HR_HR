@@ -92,7 +92,8 @@ fn window_wait(window: &mut VecDeque<Instant>, now: Instant, limit: usize) -> Op
 }
 
 /// レート枠を取得する (埋まっていれば空くまで待機)。
-async fn acquire_rate_slot() {
+/// media_engine (キーワード需要ビューア) の Gemini 呼び出しも同じ予算を共有するため pub(crate)。
+pub(crate) async fn acquire_rate_slot() {
     let win = RATE_WINDOW.get_or_init(|| AsyncMutex::new(VecDeque::new()));
     loop {
         let wait = {

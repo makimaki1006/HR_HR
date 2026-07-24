@@ -5,6 +5,7 @@ pub mod db;
 pub mod gemini;
 pub mod geo;
 pub mod handlers;
+pub mod media_engine;
 pub mod models;
 pub mod scout;
 pub mod text_util;
@@ -400,6 +401,23 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/survey/job/result/{job_id}",
             get(handlers::survey::survey_guide_result),
         )
+        // ======== キーワード需要ビューア (検索エンジン部) 2026-07-24 ========
+        // job_media_engine_rs からの移植。protected_routes 内 = 要ログイン。
+        // Google Ads 資格情報未設定の環境では各 API が missing_credentials を返し、
+        // ナビのリンク自体も出さない (handlers::media_engine_enabled)。
+        .route("/keywords-ui", get(media_engine::handlers::ui_keywords))
+        .route(
+            "/api/keywords",
+            get(media_engine::handlers::keywords_endpoint),
+        )
+        .route("/api/suggest", get(media_engine::handlers::suggest_endpoint))
+        .route("/api/regions", get(media_engine::handlers::regions_endpoint))
+        .route(
+            "/api/forecast",
+            get(media_engine::handlers::forecast_endpoint),
+        )
+        .route("/api/serp", get(media_engine::handlers::serp_endpoint))
+        .route("/api/cluster", get(media_engine::handlers::cluster_endpoint))
         // ======== コンサル支援 (商談準備レポート、社内用) 2026-07-10 ========
         // protected_routes 内のため auth_middleware の保護下に置かれる
         .route("/consult/brief", get(handlers::consult::consult_brief))
@@ -1184,6 +1202,13 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // 2026-05-22 セキュリティ修正 (Agent A3 M2): user_email を escape_html 通過。
     // session 由来だが email validation が緩い経路で stored XSS のリスク。
     let user_email_safe = crate::handlers::helpers::escape_html(&user_email);
+    // キーワード需要ビューア (2026-07-24): Google Ads 資格情報がある環境でのみ
+    // リンクを出す (未設定環境ではタブごと非表示 = フラグ分離)。別画面のため新タブで開く。
+    let keywords_tab = if media_engine::handlers::media_engine_enabled() {
+        r#"<a href="/keywords-ui" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="キーワード需要ビューア（新しいタブで開く）">キーワード需要 ↗</a>"#
+    } else {
+        ""
+    };
     let html = include_str!("../templates/dashboard_inline.html")
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
@@ -1193,7 +1218,8 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
             &selected_industry_raws_json,
         )
         .replace("{{USER_EMAIL}}", &user_email_safe)
-        .replace("{{TURSO_WARNING}}", &db_warning);
+        .replace("{{TURSO_WARNING}}", &db_warning)
+        .replace("{{KEYWORDS_TAB}}", keywords_tab);
 
     Html(html)
 }
