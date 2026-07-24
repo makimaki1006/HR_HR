@@ -5,6 +5,7 @@ pub mod db;
 pub mod gemini;
 pub mod geo;
 pub mod handlers;
+pub mod job_gen;
 pub mod media_engine;
 pub mod models;
 pub mod scout;
@@ -621,6 +622,45 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             auth_middleware,
         ));
 
+    // ======== 求人票生成パイプライン (jobgen) 2026-07-24 ========
+    // job_media_engine_rs からの移植。認証は二段 (jobgen_auth_middleware):
+    // API_AUTH_TOKEN 一致 → 通す (掲載点検スクリプト等) / それ以外 → セッション認証。
+    // ユーザー決定 2026-07-24: 生成系もトークン併用。パスは点検スクリプト・UI が依存
+    // するため変更しない (引き継ぎ資料 §2)。
+    let jobgen_routes = Router::new()
+        .route("/jobgen", get(job_gen::handlers::ui_jobgen))
+        .route(
+            "/api/jobgen/normalize",
+            post(job_gen::handlers::jobgen_normalize),
+        )
+        .route(
+            "/api/jobgen/extract",
+            post(job_gen::handlers::jobgen_extract),
+        )
+        .route(
+            "/api/jobgen/analyze",
+            post(job_gen::handlers::jobgen_analyze),
+        )
+        .route(
+            "/api/jobgen/personas",
+            post(job_gen::handlers::jobgen_personas),
+        )
+        .route("/api/jobgen/copy", post(job_gen::handlers::jobgen_copy))
+        .route("/api/jobgen/images", post(job_gen::handlers::jobgen_images))
+        .route("/api/jobgen/mobile", post(job_gen::handlers::jobgen_mobile))
+        .route(
+            "/api/jobgen/hrhacker",
+            post(job_gen::handlers::jobgen_hrhacker),
+        )
+        .route("/api/jobgen/ab", post(job_gen::handlers::jobgen_ab))
+        .route(
+            "/api/jobgen/ng_check",
+            post(job_gen::handlers::jobgen_ng_check),
+        )
+        .route_layer(middleware::from_fn(
+            job_gen::handlers::jobgen_auth_middleware,
+        ));
+
     // 静的ファイル配信
     let static_router = Router::new()
         .nest_service("/static", ServeDir::new("static").precompressed_gzip())
@@ -668,6 +708,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .merge(api_v1)
         .merge(protected_routes)
         .merge(admin_routes)
+        .merge(jobgen_routes)
         // Scout 中央バックエンド(/scout/*)。独自トークン認証のため HR_HR の require_auth 配下ではない。
         .merge(scout::router())
         .with_state(state)
@@ -722,7 +763,7 @@ const ALLOWED_ORIGINS: &[&str] = &[
 ];
 
 /// CSRF保護: POSTリクエストに対してOrigin/Refererヘッダーを検証
-fn check_csrf(request: &axum::extract::Request) -> Result<(), &'static str> {
+pub(crate) fn check_csrf(request: &axum::extract::Request) -> Result<(), &'static str> {
     // GET/HEAD/OPTIONSは安全メソッドなのでスキップ
     let method = request.method();
     if method == axum::http::Method::GET
@@ -1209,6 +1250,12 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     } else {
         ""
     };
+    // 求人票生成 (2026-07-24): Gemini キーがある環境でのみリンクを出す。別画面のため新タブ。
+    let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
+        r#"<a href="/jobgen" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="求人票生成（新しいタブで開く）">求人票生成 ↗</a>"#
+    } else {
+        ""
+    };
     let html = include_str!("../templates/dashboard_inline.html")
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
@@ -1219,7 +1266,8 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
         )
         .replace("{{USER_EMAIL}}", &user_email_safe)
         .replace("{{TURSO_WARNING}}", &db_warning)
-        .replace("{{KEYWORDS_TAB}}", keywords_tab);
+        .replace("{{KEYWORDS_TAB}}", keywords_tab)
+        .replace("{{JOBGEN_TAB}}", jobgen_tab);
 
     Html(html)
 }

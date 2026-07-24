@@ -1,0 +1,272 @@
+{
+ "format": "ng_word_rules_v1",
+ "source": "Google Sheets「求人系」NGワード",
+ "spreadsheet_id": "1QvvZOGmVXrcKgoXQdTbOm1xUx4SIErHTwLcJ_v_7BnU",
+ "legal_warning": "禁止表現を使用した求人を掲載すると、6カ月以下の懲役または30万以下の罰金刑が科せられます。（性別・年齢・出身/居住地・心身差別が該当）\n※固有名詞は権利の問題が発生します。",
+ "rule_count": 50,
+ "group_count": 24,
+ "groups": [
+  {
+   "reason": "性別差別表現",
+   "major": "女性",
+   "minors": [
+    "歓迎",
+    "応募可能",
+    "代表",
+    "限定",
+    "にピッタリ"
+   ],
+   "notes": [
+    "～らしい、～ならではという表現もNG"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "性別差別表現",
+   "major": "男性",
+   "minors": [
+    "歓迎",
+    "応募可能",
+    "代表",
+    "限定",
+    "にピッタリ"
+   ],
+   "notes": [
+    "～らしい、～ならではという表現もNG"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "性別差別表現",
+   "major": "主婦・ママ",
+   "minors": [
+    "歓迎",
+    "応募可能",
+    "にピッタリ"
+   ],
+   "notes": [
+    "主婦（夫）/主婦・主夫/ママ・パパ　という男性表記も入れる",
+    "～らしい、～ならではという表現もNG"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "性別差別表現",
+   "major": "特定の職種名",
+   "minors": [],
+   "notes": [
+    "看護婦・カメラマン・家政婦・営業マン・ウエイターなど"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "年齢差別",
+   "major": "シニア",
+   "minors": [
+    "歓迎",
+    "応募可能",
+    "限定",
+    "にピッタリ"
+   ],
+   "notes": [
+    "～活躍中　はOK"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "年齢差別",
+   "major": "若手",
+   "minors": [
+    "歓迎",
+    "応募可能",
+    "限定",
+    "にピッタリ"
+   ],
+   "notes": [
+    "～活躍中　はOK"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "年齢差別",
+   "major": "〇歳・代",
+   "minors": [
+    "歓迎",
+    "応募可能",
+    "以下",
+    "以上",
+    "まで",
+    "未満",
+    "～〇歳まで"
+   ],
+   "notes": [
+    "～活躍中　はOK",
+    "規定の説明であれば問題なし。\nしかし、オンリー記述だと引っ掛かる可能性あり\n例）65歳以下の方（定年65歳のため）→OK\n　　66歳以上→NG",
+    "までは付けず、◯歳〜◯歳や◯代〜◯代表記にする\n※「〇歳～〇歳までの幅広い患者様が～」だとしても誤解判定される可能性あり"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "出身・居住地制限",
+   "major": "地元で活躍したい方",
+   "minors": [],
+   "notes": [
+    "ご近所の方歓迎もNG"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "出身・居住地制限",
+   "major": "近隣or〇〇市にお住まいの方",
+   "minors": [],
+   "notes": [
+    "求職者に対する表現はNG（例：渋谷に住んでいる方必見・歓迎！など）"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "出身・居住地制限",
+   "major": "国籍",
+   "minors": [],
+   "notes": [
+    "日本人の方、外国籍の方歓迎（国籍には触れないが一番）"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "出身・居住地制限",
+   "major": "車通勤・自転車通勤",
+   "minors": [
+    "できる方"
+   ],
+   "notes": [],
+   "standalone": false
+  },
+  {
+   "reason": "心身差別",
+   "major": "体力",
+   "minors": [
+    "のある・がある"
+   ],
+   "notes": [
+    "歓迎要件：体力のある方など、運動神経に自信があるもNG"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "心身差別",
+   "major": "優しい・元気・明るい・素直・まじめ",
+   "minors": [],
+   "notes": [
+    "求職者の性格を限定することはできない（ただしスタッフを説明する際に使用するのはOK）"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "心身差別",
+   "major": "五感\n視覚・聴覚・味覚・触覚・嗅覚・傾聴",
+   "minors": [],
+   "notes": [
+    "全ての人が五感を持っているわけではないため。（色弱とか日本では男性の約5％20人に1人）、女性の約0.2％500人に1人に該当する）"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "心身差別",
+   "major": "手先が器用",
+   "minors": [],
+   "notes": [
+    "細かい作業が得意もNG"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "心身差別",
+   "major": "体が丈夫",
+   "minors": [],
+   "notes": [
+    "持病がない方や体調管理ができる方も該当"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "心身差別",
+   "major": "清潔感",
+   "minors": [
+    "のある方・がある方"
+   ],
+   "notes": [
+    "求職者の容姿に関わるため。"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "その他",
+   "major": "子供",
+   "minors": [],
+   "notes": [
+    "子ども"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "その他",
+   "major": "障害",
+   "minors": [],
+   "notes": [
+    "障がい（施設名に害が入っている場合はそのままでOK）"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "その他",
+   "major": "環境依存文字",
+   "minors": [],
+   "notes": [
+    "濵→濱・﨑→崎"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "その他",
+   "major": "入社祝い金/入社定着金/入職祝い金",
+   "minors": [],
+   "notes": [
+    "DE以外のアカウントにはNG！\n厚労省の決まりで、直雇用のアカウント以外は使用禁止とありあます。"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "固有名詞",
+   "major": "SNS",
+   "minors": [
+    "Instagram",
+    "YOUTUBE",
+    "LINE",
+    "Facebook"
+   ],
+   "notes": [
+    "SNS～に言い換えましょう。"
+   ],
+   "standalone": false
+  },
+  {
+   "reason": "固有名詞",
+   "major": "ディズニー",
+   "minors": [],
+   "notes": [
+    "・ディズニーの画像（社員旅行など）\n・ディズニーキャラのぬいぐるみ・描かれた服、文房具etc.\n・ディズニーに行った写真（写りこみに注意！）\n・ディズニーキャラのコスプレ\n・夢の国、ディ●ニーなどの伏せ語\n全部アウト！！※粗めのぼかしをかければ大丈夫"
+   ],
+   "standalone": true
+  },
+  {
+   "reason": "固有名詞",
+   "major": "建物・施設名",
+   "minors": [],
+   "notes": [
+    "・宮下パーク\n・東京タワー\n・サンマルク\n・ららぽーと\n・イオン\nなどランドマークもNG"
+   ],
+   "standalone": true
+  }
+ ]
+}
