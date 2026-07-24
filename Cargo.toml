@@ -17,8 +17,11 @@ askama = "0.12"
 askama_axum = "0.4"
 
 # Serialization
+# preserve_order は jobgen 84列レスポンスの列順維持に必須 (2026-07-24 求人票生成統合)。
+# HRHACKER_COLUMNS 順で Map に挿入 → そのまま UI の CSV 列順になる。
+# 全域の JSON キー順が「辞書順→挿入順」に変わるため、統合時に全テストで回帰確認済み。
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -72,10 +75,18 @@ urlencoding = "2"
 sha2 = "0.10"
 
 # キーワード需要ビューア (media_engine、2026-07-24 統合)
-# preserve_order は付けない: cache_key はキー昇順ソート後に挿入するため
-# BTreeMap 既定でも Python 版と同一キーになる。全域の JSON 順序変更を避ける。
+# 注: media_engine の cache_key はキー昇順ソート後に挿入するため、preserve_order の
+# 有無に関わらず Python 版とキー互換 (昇順挿入 = 挿入順維持でも昇順)。
 anyhow = "1"
 unicode-normalization = "0.1"
+
+# 求人票生成 (job_gen、2026-07-24 統合)
+calamine = "0.26"
+pdf-extract = { version = "0.7", optional = true }
+
+[features]
+default = ["pdf"]
+pdf = ["dep:pdf-extract"]
 
 [dev-dependencies]
 tempfile = "3"
