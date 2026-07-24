@@ -351,15 +351,36 @@ pub fn images_schema() -> Value {
 /// 工程⑤b: ディレクション文を画像生成AIへ丸投げできる日本語プロンプトに変換する(純粋)。
 ///
 /// `directions` は工程⑤の出力 (`{"directions":[...]}` 形、または配列そのもの)。
+/// `personas` は工程③の出力 (任意。渡すと訴求の核をペルソナの不満・ペインに接地させる)。
 /// 全ペルソナ分を1コールでまとめて変換する (ユーザー決定 2026-07-24: 2段階化+1コール、
 /// 日本語プロンプトのみ、ネガティブ/構図・カメラ/アスペクト比/撮影指示書兼用を含める)。
-pub fn build_image_prompts_prompt(directions: &Value) -> String {
+///
+/// 2026-07-25 強化 (ユーザー要望「ハルシネーションの猶予を与えずがっちり固める」):
+/// 出力プロンプトをラベル付きセクション構造で固定し、人数・服装・表情・視線・配置まで
+/// 数値と具体語で確定させる。曖昧語を禁止し、禁止事項を本文にも埋め込む
+/// (ネガティブプロンプト欄を持たない生成AIでも抑制が効くように)。
+pub fn build_image_prompts_prompt(directions: &Value, personas: &Value) -> String {
     let list = directions
         .get("directions")
         .and_then(Value::as_array)
         .or_else(|| directions.as_array())
         .cloned()
         .unwrap_or_default();
+
+    // persona_label → ペルソナ本文の対応 (訴求の核をペインに接地させる材料)。
+    let persona_list = personas
+        .get("personas")
+        .and_then(Value::as_array)
+        .or_else(|| personas.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let persona_text_of = |label: &str| -> String {
+        persona_list
+            .iter()
+            .find(|p| str_field(p, "label") == label)
+            .map(persona_to_text)
+            .unwrap_or_default()
+    };
 
     let directions_text = if list.is_empty() {
         "(ディレクションが提供されていません)".to_string()
@@ -373,7 +394,13 @@ pub fn build_image_prompts_prompt(directions: &Value) -> String {
                 } else {
                     format!("## {label}")
                 };
-                format!("{head}\n{}", str_field(d, "direction"))
+                let ptext = persona_text_of(&label);
+                let persona_block = if ptext.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n### このペルソナの人物像(訴求の根拠)\n{ptext}")
+                };
+                format!("{head}\n### ディレクション\n{}{persona_block}", str_field(d, "direction"))
             })
             .collect::<Vec<_>>()
             .join("\n\n")
@@ -382,22 +409,41 @@ pub fn build_image_prompts_prompt(directions: &Value) -> String {
     format!(
         "あなたは画像生成AIのプロンプトエンジニア兼フォトディレクターです。\
 以下の画像ディレクション(求人のアイキャッチ写真の演出案)を、画像生成AIにそのまま貼り付ければ\
-完成品が得られる日本語プロンプトに変換してください。\n\
+**1回で意図どおりの完成品が得られる**日本語プロンプトに変換してください。\n\
+\n\
+# 最重要原則: 解釈の余地を残さない\n\
+画像生成AIは、指定されていない要素を勝手に補って破綻する(人物が増える、余計な文字が入る、\
+場面がずれる)。だから**画面に写る全要素をあなたが決め切り、プロンプトで固定する**こと。\n\
+- 曖昧語の禁止: 「適度に」「自然な感じ」「いい雰囲気」「〜など」は使わない。すべて具体語・数値で書く。\n\
+- 人数の固定: 「画面内の人物は合計N名のみ。これ以外の人物は写さない」と必ず明記する。\n\
+- 未指定要素を作らない: 背景に何が写るか・写らないかまで書く。\n\
 \n\
 # タスク\n\
 各ディレクションに1つずつ、prompts 配列の要素を出力する。persona_label は元のラベルをそのまま入れる。\n\
 \n\
+## appeal_core(訴求の核)の要件\n\
+- この画像がペルソナに一瞬で感じさせるべきことを1〜2文で言語化する\
+(例: 「ここなら夕方に帰れる、が画面から伝わる」)。ペルソナの不満・ペインの裏返しであること。\n\
+- prompt 本文の全要素は、この訴求の核を伝えるために選ぶ。核に寄与しない要素は入れない。\n\
+\n\
 ## prompt(本文)の要件\n\
-- 日本語で書く。画像生成AIへの指示文として完結させる(前置き・解説は書かない)。\n\
-- 被写体(人数・年齢層・服装・表情・視線)、場所・背景、小道具まで具体的に指定する。\n\
-- 構図・カメラも指定する: アングル、被写体との距離(寄り/引き)、レンズ感(広角/標準/望遠)、\
-ライティング(自然光/窓際/夕方 等)、被写界深度(背景ボケの有無)。\n\
-- 実際の写真撮影の指示書としてもそのまま使える具体性で書く(カメラマンに渡して撮れるレベル)。\n\
-- 写実的な写真として指定する(イラスト・CG調にしない)。\n\
+- 日本語。画像生成AIへの指示文として完結させる(前置き・解説は書かない)。\n\
+- 次のラベル付きセクション構造で書く(撮影指示書としてそのまま使える形):\n\
+  【被写体】人数(合計N名のみ)・年齢層・性別・体格や髪型・服装(色と種類まで)・表情(口角、目の開き)・\
+視線の先・姿勢と手の位置・動作\n\
+  【場面・背景】場所・時間帯・季節・天候・背景に写るもの(位置関係まで)・背景に写さないもの\n\
+  【小道具】何が・どこに・どんな状態で写るか(不要なら「小道具なし」と書く)\n\
+  【構図・カメラ】主被写体の画面内位置(例: 右1/3)・フレーミング(バストアップ/膝上/全身)・\
+カメラ高さ(目線/腰)・アングル・レンズ焦点距離相当・絞り相当(背景ボケの程度)\n\
+  【光・色調】光源の種類と方向・時間帯の光の質・全体の色調(例: 暖色寄り)・コントラストの強さ\n\
+  【スタイル】写実的な実写写真であること・解像度感・加工やフィルタをかけないこと\n\
+  【禁止事項】この画に入れてはいけない要素の列挙(余計な人物、文字・ロゴ・看板、CG/イラスト調、\
+作り笑顔の集合写真、ディレクションの意図に反する要素)。ネガティブ欄を持たないAIでも効くよう本文に含める。\n\
+- すべてのセクションを埋める。省略しない。\n\
 \n\
 ## negative_prompt の要件\n\
-- 避けたい要素を列挙する(例: 作り笑顔の集合写真、フリー素材感、歪んだ手指、不自然な文字、\
-過度な加工感)。ディレクションの意図に反する要素も足す。\n\
+- 【禁止事項】と同内容+画像生成の定番不良(歪んだ手指、崩れた顔、不自然な文字、過度な加工感、\
+フリー素材感)をカンマ区切りで列挙する(ネガティブ欄対応AI用)。\n\
 \n\
 ## aspect_ratio の要件\n\
 - 求人媒体の掲載枠を想定した推奨比率を1つ選び、用途を添える(例: \"16:9(求人メイン写真)\"、\
@@ -408,8 +454,9 @@ pub fn build_image_prompts_prompt(directions: &Value) -> String {
 \n\
 # 制約\n\
 - 元のディレクションの意図(誰に刺さる画か)を保つこと。勝手に別の場面へ変えない。\n\
+- ペルソナの人物像が提供されている場合、被写体・場面の決定はその不満・ペインの裏返しに接地させる。\n\
 - 実在の企業名・人名・ロゴ・商標は書かない。\n\
-- 出力は指定 JSON スキーマ(prompts 配列、各要素 persona_label/prompt/negative_prompt/aspect_ratio)に厳密に従う。\n"
+- 出力は指定 JSON スキーマ(prompts 配列、各要素 persona_label/appeal_core/prompt/negative_prompt/aspect_ratio)に厳密に従う。\n"
     )
 }
 
@@ -424,11 +471,12 @@ pub fn image_prompts_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "persona_label": {"type": "string"},
+                        "appeal_core": {"type": "string"},
                         "prompt": {"type": "string"},
                         "negative_prompt": {"type": "string"},
                         "aspect_ratio": {"type": "string"},
                     },
-                    "required": ["persona_label", "prompt", "negative_prompt", "aspect_ratio"]
+                    "required": ["persona_label", "appeal_core", "prompt", "negative_prompt", "aspect_ratio"]
                 }
             }
         },
@@ -661,29 +709,40 @@ mod tests {
             {"persona_label": "子育て中の元介護士", "direction": "夕方の送迎車の前で、利用者と笑い合う30代女性スタッフを斜めから"},
             {"persona_label": "ベテラン転職者", "direction": "記録業務をタブレットで済ませる場面"},
         ]});
-        let p = build_image_prompts_prompt(&wrapped);
+        let personas = json!({"personas": [sample_persona()]});
+        let p = build_image_prompts_prompt(&wrapped, &personas);
         // 元ディレクションとラベルが埋まっている。
         assert!(p.contains("子育て中の元介護士"), "{p}");
         assert!(p.contains("ベテラン転職者"), "{p}");
         assert!(p.contains("夕方の送迎車の前で"), "{p}");
+        // ラベル一致したペルソナの人物像 (訴求の根拠) が注入される。
+        assert!(p.contains("訴求の根拠"), "{p}");
+        assert!(p.contains("保育園のお迎えに間に合わない"), "{p}");
         // ユーザー指定の4要素 (ネガティブ/構図・カメラ/アスペクト比/撮影指示書兼用) の指示。
         assert!(p.contains("negative_prompt"), "{p}");
-        assert!(p.contains("ライティング"), "{p}");
         assert!(p.contains("aspect_ratio"), "{p}");
-        assert!(p.contains("撮影の指示書"), "{p}");
+        assert!(p.contains("撮影指示書"), "{p}");
+        // 2026-07-25 強化: 固定化の核となる指示群。
+        assert!(p.contains("解釈の余地を残さない"), "{p}");
+        assert!(p.contains("曖昧語の禁止"), "{p}");
+        assert!(p.contains("合計N名のみ"), "{p}");
+        assert!(p.contains("【被写体】"), "{p}");
+        assert!(p.contains("【禁止事項】"), "{p}");
+        assert!(p.contains("appeal_core"), "{p}");
+        assert!(p.contains("レンズ焦点距離"), "{p}");
         // 日本語プロンプト指定・意図保持・商標禁止。
-        assert!(p.contains("日本語で書く"), "{p}");
+        assert!(p.contains("日本語"), "{p}");
         assert!(p.contains("意図"), "{p}");
         assert!(p.contains("商標"), "{p}");
 
-        // 配列そのものを渡しても壊れない。
+        // 配列そのもの+ペルソナなしでも壊れない。
         let bare = json!([{"persona_label": "A", "direction": "屋外で"}]);
-        let p2 = build_image_prompts_prompt(&bare);
+        let p2 = build_image_prompts_prompt(&bare, &Value::Null);
         assert!(p2.contains("屋外で"), "{p2}");
 
         // 空でも壊れない。
         let empty = json!({"directions": []});
-        let p3 = build_image_prompts_prompt(&empty);
+        let p3 = build_image_prompts_prompt(&empty, &Value::Null);
         assert!(p3.contains("ディレクションが提供されていません"), "{p3}");
     }
 
@@ -697,7 +756,7 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
-        for k in ["persona_label", "prompt", "negative_prompt", "aspect_ratio"] {
+        for k in ["persona_label", "appeal_core", "prompt", "negative_prompt", "aspect_ratio"] {
             assert!(req.contains(&k), "required に {k} が無い: {req:?}");
         }
     }
