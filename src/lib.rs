@@ -402,6 +402,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/survey/job/result/{job_id}",
             get(handlers::survey::survey_guide_result),
         )
+            // 採用提案パッケージの試作モック (2026-07-25)。静的HTML・API消費ゼロ。
+        // 既存3機能 (レポート/キーワード需要/求人票生成) を統合した場合の完成イメージ。
+        .route("/proposal-mock", get(ui_proposal_mock))
         // ======== キーワード需要ビューア (検索エンジン部) 2026-07-24 ========
         // job_media_engine_rs からの移植。protected_routes 内 = 要ログイン。
         // Google Ads 資格情報未設定の環境では各 API が missing_credentials を返し、
@@ -753,6 +756,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 .layer(session_layer)
                 .layer(CompressionLayer::new()),
         )
+}
+
+/// 採用提案パッケージの試作モック (2026-07-25)。
+/// 既存3機能を統合した場合の完成イメージを示す静的ページ。全数値ダミー・API消費ゼロ。
+async fn ui_proposal_mock() -> Html<&'static str> {
+    Html(include_str!("../static/proposal_mock.html"))
 }
 
 // --- ミドルウェア ---
