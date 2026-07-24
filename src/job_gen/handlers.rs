@@ -206,6 +206,30 @@ pub async fn jobgen_images(Json(body): Json<Value>) -> Json<Value> {
     }
 }
 
+/// `POST /api/jobgen/image_prompts` — 工程⑤b: ディレクション文を画像生成AI用の
+/// 日本語プロンプト (丸投げ可能な完成文+ネガティブ+アスペクト比) に変換。
+///
+/// 2026-07-24 追加 (ユーザー要望: 画像生成の文言をプロンプトライクに)。全ペルソナ分を
+/// 1コールでまとめて変換するため、1求人あたりの Gemini 消費は +1 回。
+pub async fn jobgen_image_prompts(Json(body): Json<Value>) -> Json<Value> {
+    let directions = body.get("directions").cloned().unwrap_or(Value::Null);
+    if directions
+        .get("directions")
+        .and_then(Value::as_array)
+        .or_else(|| directions.as_array())
+        .map(|a| a.is_empty())
+        .unwrap_or(true)
+    {
+        return Json(json!({"status":"error","message":"directions(工程⑤の出力)が必要です"}));
+    }
+    let prompt = strategy::build_image_prompts_prompt(&directions);
+    let schema = strategy::image_prompts_schema();
+    match jobgen_llm(&prompt, &schema, 0.6).await {
+        Ok(v) => Json(json!({"status":"ok","prompts": v.get("prompts").cloned().unwrap_or(Value::Null)})),
+        Err(e) => Json(json!({"status":"error","message": e.to_string()})),
+    }
+}
+
 /// `POST /api/jobgen/mobile` — 工程⑥: スマホ原稿 (1ペルソナ分)+NGワード検証。
 pub async fn jobgen_mobile(Json(body): Json<Value>) -> Json<Value> {
     let persona = body.get("persona").cloned().unwrap_or(Value::Null);
