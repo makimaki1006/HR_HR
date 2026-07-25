@@ -74,8 +74,8 @@
   <p class="sub">既存の3機能 — 媒体分析レポート・キーワード需要・求人票生成 — を1つの流れにつないだ場合の完成イメージです。求人を1件入れると「現状診断 → 検索需要 → 原稿・画像 → 出稿先 → 提案書」まで一気通貫で出ます。</p>
 </header>
 
-<div class="mockbar">⚠ これは試作モックです。表示されている数値・文章はすべてダミーで、APIは一切呼んでいません。
-<small>実装時は、相場=媒体分析レポートの集計値 / 検索量=キーワード需要ビューア（Google広告データ） / 原稿・画像=求人票生成パイプライン の実データがそのまま入ります。集計方法・項目名は本番実装と同一です。</small></div>
+<div class="mockbar">⚠ これは試作モックです。STEP2（競合の言葉分析）だけは<b>実データ・実ロジックの実行結果</b>、他のステップの数値はダミーです。
+<small>STEP2 は Indeed CSV（ドライバー系 196件、2026-07-25 実行）に本番のパーサー・集計・NGルール・分類ガードをそのまま適用した実測値です。他ステップも実装時は同様に、相場=媒体分析レポートの集計値 / 検索量=キーワード需要ビューア / 原稿・画像=求人票生成パイプライン の実データが入ります。</small></div>
 
 <div class="flow">
   <span class="f">① 現状診断</span><span class="a">→</span>
@@ -91,10 +91,10 @@
   <h2><span class="stepno">1</span>現状診断 <span class="src">求人票生成の事実抽出 × 媒体分析レポートの相場</span></h2>
   <p class="lead">題材（ダミー）: <b>2トン配送ドライバー / ○○市 / 正社員</b>。原文から検証済み事実を抽出し、同地域・同職種の掲載求人の分布と突き合わせます。</p>
   <div class="tblwrap"><table>
-    <tr><th>項目（fact）</th><th>この求人</th><th>市場（媒体掲載求人 214件の分布）</th><th>ポジション</th></tr>
+    <tr><th>項目（fact）</th><th>この求人</th><th>市場（媒体掲載求人 196件の分布）</th><th>ポジション</th></tr>
     <tr><td>給与 (salary)</td><td>月給 265,000〜310,000円</td><td class="num">中央値 272,000円 / 四分位 252,000〜295,000円</td><td><span class="pos-mid">中位</span>（下限は中央値付近）</td></tr>
     <tr><td>休日 (holidays)</td><td>年間休日 118日・日曜固定</td><td class="num">中央値 105日</td><td><span class="pos-hi">上位25%</span> ← 強み</td></tr>
-    <tr><td>勤務時間 (working_hours)</td><td>7:00〜16:00・残業月10h以内</td><td>「残業時間の明記あり」は 214件中 61件</td><td><span class="pos-hi">明記は少数派</span> ← 強み</td></tr>
+    <tr><td>勤務時間 (working_hours)</td><td>7:00〜16:00・残業月10h以内</td><td>残業時間の具体値明記は 196件中 4件（STEP2実測）</td><td><span class="pos-hi">明記はごく少数</span> ← 強み</td></tr>
     <tr><td>手当 (allowances)</td><td>無事故手当・家族手当</td><td>無事故手当の記載 47件</td><td>中位</td></tr>
     <tr><td>資格 (required_qualifications)</td><td>準中型免許（AT限定不可）</td><td>同条件が多数</td><td>—</td></tr>
   </table></div>
@@ -103,35 +103,54 @@
 
 <!-- ═══════════ STEP 2 ═══════════ -->
 <section class="panel">
-  <h2><span class="stepno">2</span>競合の言葉分析 <span class="src">媒体CSVのキャッチコピー・タグ（アップロード済みデータの再利用）</span></h2>
-  <p class="lead">同じCSVにある競合214件のタイトル・訴求文・タグを言語データとして分析。「みんなが使っている言葉」を避け、「誰も言っていない強み」を取りにいきます。</p>
+  <h2><span class="stepno">2</span>競合の言葉分析 <span class="src">実測: Indeed CSV 196件 × 本番ロジック（2026-07-25 実行）</span></h2>
+  <p class="lead">このステップの数値は、実際のドライバー系CSV 196件に本番のパーサー・集計・NGルール・分類ガードを適用した<b>実行結果そのまま</b>です。「みんなが使っている言葉」を避け、「誰も言っていない強み」を取りにいきます。</p>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="cl">📊 訴求軸の分布（訴求文196件を分類。分類漏れ 0件・捏造 0件）</div>
+    <div class="tblwrap"><table>
+      <tr><td style="width:11em">給与・手当</td><td><div style="background:var(--accent);height:14px;border-radius:4px;width:33.2%"></div></td><td class="num">65件 (33.2%)</td></tr>
+      <tr><td>休日・休暇</td><td><div style="background:var(--accent);height:14px;border-radius:4px;width:16.3%"></div></td><td class="num">32件 (16.3%)</td></tr>
+      <tr><td>仕事内容</td><td><div style="background:var(--accent);height:14px;border-radius:4px;width:12.2%"></div></td><td class="num">24件 (12.2%)</td></tr>
+      <tr><td>勤務時間・残業の少なさ</td><td><div style="background:var(--accent);height:14px;border-radius:4px;width:11.2%"></div></td><td class="num">22件 (11.2%)</td></tr>
+      <tr><td>安定性・企業規模</td><td><div style="background:var(--accent);height:14px;border-radius:4px;width:9.2%"></div></td><td class="num">18件 (9.2%)</td></tr>
+      <tr><td>福利厚生</td><td><div style="background:var(--accent);height:14px;border-radius:4px;width:7.1%"></div></td><td class="num">14件 (7.1%)</td></tr>
+      <tr><td>職場の雰囲気・人間関係</td><td><div style="background:color-mix(in srgb,var(--accent) 45%,transparent);height:14px;border-radius:4px;width:3.6%"></div></td><td class="num">7件 (3.6%)</td></tr>
+      <tr><td>教育・資格支援</td><td><div style="background:color-mix(in srgb,var(--accent) 45%,transparent);height:14px;border-radius:4px;width:3.6%"></div></td><td class="num">7件 (3.6%)</td></tr>
+      <tr><td>その他</td><td><div style="background:color-mix(in srgb,var(--accent) 45%,transparent);height:14px;border-radius:4px;width:3.6%"></div></td><td class="num">7件 (3.6%)</td></tr>
+    </table></div>
+    <div class="kn" style="margin-top:6px">💡 この市場は<b>給与訴求が3社に1社</b>。一方「教育・資格支援」「人間関係」の訴求はごく少数 → 該当する強みがあれば差別化余地。</div>
+  </div>
+
   <div class="cols2">
     <div class="card">
-      <div class="cl">🔁 同質化ゾーン（頻出語 — 使っても埋もれる）</div>
+      <div class="cl">🔁 同質化ゾーン（頻出 — 使っても埋もれる）</div>
       <div class="tblwrap"><table>
-        <tr><th>訴求語</th><th class="num">出現</th><th>判断</th></tr>
-        <tr><td>「アットホームな職場」</td><td class="num">74件 (35%)</td><td>不使用</td></tr>
-        <tr><td>「未経験歓迎」</td><td class="num">129件 (60%)</td><td>タグのみ</td></tr>
-        <tr><td>「月収35万円以上可」</td><td class="num">58件 (27%)</td><td>不使用（上振れ表記は信頼を下げる）</td></tr>
+        <tr><th>語・タグ</th><th class="num">出現</th></tr>
+        <tr><td>タグ「交通費支給」</td><td class="num">101件 (52%)</td></tr>
+        <tr><td>タグ「学歴不問」</td><td class="num">81件 (41%)</td></tr>
+        <tr><td>タグ「車通勤OK」</td><td class="num">71件 (36%)</td></tr>
+        <tr><td>本文「未経験歓迎/OK」</td><td class="num">47件 (24%)</td></tr>
+        <tr><td>本文「土日祝休み」</td><td class="num">16件 (8%)</td></tr>
       </table></div>
     </div>
     <div class="card">
-      <div class="cl">🎯 空白地帯（誰も言っていない — ここで差別化）</div>
+      <div class="cl">🎯 空白地帯（ほぼ誰も明記していない）</div>
       <div class="tblwrap"><table>
         <tr><th>訴求</th><th class="num">明記している競合</th><th>この求人</th></tr>
-        <tr><td>残業時間の具体値</td><td class="num">61件 (29%)</td><td><span class="badge b-ok">月10h以内と明記可</span></td></tr>
-        <tr><td>帰宅時刻の目安</td><td class="num">9件 (4%)</td><td><span class="badge b-ok">16:00帰庫と明記可</span></td></tr>
-        <tr><td>直行直帰・日帰り保証</td><td class="num">17件 (8%)</td><td><span class="badge b-ok">地場のみと明記可</span></td></tr>
+        <tr><td>残業時間の具体値</td><td class="num">4件 (2.0%)</td><td><span class="badge b-ok">月10h以内と明記可</span></td></tr>
+        <tr><td>帰宅・帰庫時刻の目安</td><td class="num">4件 (2.0%)</td><td><span class="badge b-ok">16:00帰庫と明記可</span></td></tr>
+        <tr><td>直行直帰・日帰り</td><td class="num">7件 (3.6%)</td><td><span class="badge b-ok">地場のみと明記可</span></td></tr>
       </table></div>
     </div>
   </div>
   <div class="kpis">
-    <div class="kpi"><div class="kl">タグと給与の関係（tags_raw × 給与中央値）</div>
-      <div class="kn">「無事故手当」タグあり求人の月給中央値は 281,000円、なしは 268,000円（同一四分位範囲内で比較）。<b>傾向であり因果ではありません</b>が、タグ付与の検討材料になります。</div></div>
-    <div class="kpi"><div class="kl">市場のNG表現流通率（ng_check を競合コピーに適用）</div>
-      <div class="kn">競合214件中 <b>23件</b> に年齢・性別系のNG表現（「35歳以下」等）を検出。法令に沿った原稿自体が信頼の差別化になる、という提案材料に使えます。</div></div>
+    <div class="kpi"><div class="kl">タグと給与の関係（IQR母集団統一・監査済みロジック）</div>
+      <div class="kn">全体平均 363,843円 に対し「即日勤務OK」タグあり 19件は +27.7%、「シフト自由」10件は +35.6%。<b>傾向であり因果ではなく、件数の少ないタグは参考値</b>ですが、タグ付与の検討材料になります。</div></div>
+    <div class="kpi"><div class="kl">市場のNG表現流通率（掲載点検と同じ50ルールで検査）</div>
+      <div class="kn">196件中 <b>31件 (15.8%)</b> でNG表現を検出。内訳: 年齢差別 13件・性別差別表現 5件・心身差別 4件など。<b>法令に沿った原稿自体が信頼の差別化になる</b>、という提案材料に使えます。</div></div>
   </div>
-  <p class="lead" style="margin-top:8px">⚠ 競合コピーは分析にのみ使用し、生成原稿への転載・模倣はしません（求人票生成側の制約に「頻出語リストの回避」を渡す形）。</p>
+  <p class="lead" style="margin-top:8px">⚠ 競合コピーは分析にのみ使用し、生成原稿への転載・模倣はしません（求人票生成側の制約に「頻出語リストの回避」を渡す形）。分類は「与えた訴求文を与えたカテゴリへ振り分けるだけ」をLLMに行わせ、捏造・漏れは照合コードでカウントしています（今回 0件・0件）。</p>
 </section>
 
 <!-- ═══════════ STEP 3 ═══════════ -->
@@ -215,8 +234,8 @@
   <div class="summary">
     <b>結論: 給与ではなく「毎日帰れる」で戦い、2月中にIndeed＋ドラEVERへ出稿する。</b>
     <ol>
-      <li><b>訴求の軸</b> — 年間休日118日は同地域の掲載求人の上位25%。残業月10h以内の明記は214件中61件と少数派。ここを最前面に。</li>
-      <li><b>使う言葉</b> — 「地場」「日帰り」「残業なし」は検索されているのに競合度が低い。タイトル・見出しに使用。逆に「アットホーム」等の頻出語（競合の35%が使用）は避けて埋没を防ぐ。</li>
+      <li><b>訴求の軸</b> — 年間休日118日は同地域の掲載求人の上位25%。残業時間の具体値を明記している競合は196件中4件（実測2.0%）しかない。ここを最前面に。</li>
+      <li><b>使う言葉</b> — 「地場」「日帰り」「残業なし」は検索されているのに競合度が低い。タイトル・見出しに使用。逆に市場の33%が使う給与訴求と、過半数が付ける定番タグ（交通費支給52%等）だけでは埋没する。</li>
       <li><b>出稿時期</b> — 検索量は3〜4月がピーク。準備期間を見て2月中の掲載開始。</li>
       <li><b>出稿先</b> — Indeed（露出1位）＋ドラEVER（特化・競合少）。原稿は生成済み84列CSVを使用。</li>
       <li><b>効果測定</b> — 表示回数→応募率の順に確認し、A/B助言（工程⑧）の手順で1変数ずつ改善。</li>
