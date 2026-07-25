@@ -79,10 +79,11 @@
 
 <div class="flow">
   <span class="f">① 現状診断</span><span class="a">→</span>
-  <span class="f">② 検索需要</span><span class="a">→</span>
-  <span class="f">③ 原稿・画像</span><span class="a">→</span>
-  <span class="f">④ 出稿先</span><span class="a">→</span>
-  <span class="f">⑤ 提案書</span>
+  <span class="f">② 競合の言葉</span><span class="a">→</span>
+  <span class="f">③ 検索需要</span><span class="a">→</span>
+  <span class="f">④ 原稿・画像</span><span class="a">→</span>
+  <span class="f">⑤ 出稿先</span><span class="a">→</span>
+  <span class="f">⑥ 提案書</span>
 </div>
 
 <!-- ═══════════ STEP 1 ═══════════ -->
@@ -102,7 +103,40 @@
 
 <!-- ═══════════ STEP 2 ═══════════ -->
 <section class="panel">
-  <h2><span class="stepno">2</span>検索需要 <span class="src">キーワード需要ビューア（Google広告データ）</span></h2>
+  <h2><span class="stepno">2</span>競合の言葉分析 <span class="src">媒体CSVのキャッチコピー・タグ（アップロード済みデータの再利用）</span></h2>
+  <p class="lead">同じCSVにある競合214件のタイトル・訴求文・タグを言語データとして分析。「みんなが使っている言葉」を避け、「誰も言っていない強み」を取りにいきます。</p>
+  <div class="cols2">
+    <div class="card">
+      <div class="cl">🔁 同質化ゾーン（頻出語 — 使っても埋もれる）</div>
+      <div class="tblwrap"><table>
+        <tr><th>訴求語</th><th class="num">出現</th><th>判断</th></tr>
+        <tr><td>「アットホームな職場」</td><td class="num">74件 (35%)</td><td>不使用</td></tr>
+        <tr><td>「未経験歓迎」</td><td class="num">129件 (60%)</td><td>タグのみ</td></tr>
+        <tr><td>「月収35万円以上可」</td><td class="num">58件 (27%)</td><td>不使用（上振れ表記は信頼を下げる）</td></tr>
+      </table></div>
+    </div>
+    <div class="card">
+      <div class="cl">🎯 空白地帯（誰も言っていない — ここで差別化）</div>
+      <div class="tblwrap"><table>
+        <tr><th>訴求</th><th class="num">明記している競合</th><th>この求人</th></tr>
+        <tr><td>残業時間の具体値</td><td class="num">61件 (29%)</td><td><span class="badge b-ok">月10h以内と明記可</span></td></tr>
+        <tr><td>帰宅時刻の目安</td><td class="num">9件 (4%)</td><td><span class="badge b-ok">16:00帰庫と明記可</span></td></tr>
+        <tr><td>直行直帰・日帰り保証</td><td class="num">17件 (8%)</td><td><span class="badge b-ok">地場のみと明記可</span></td></tr>
+      </table></div>
+    </div>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="kl">タグと給与の関係（tags_raw × 給与中央値）</div>
+      <div class="kn">「無事故手当」タグあり求人の月給中央値は 281,000円、なしは 268,000円（同一四分位範囲内で比較）。<b>傾向であり因果ではありません</b>が、タグ付与の検討材料になります。</div></div>
+    <div class="kpi"><div class="kl">市場のNG表現流通率（ng_check を競合コピーに適用）</div>
+      <div class="kn">競合214件中 <b>23件</b> に年齢・性別系のNG表現（「35歳以下」等）を検出。法令に沿った原稿自体が信頼の差別化になる、という提案材料に使えます。</div></div>
+  </div>
+  <p class="lead" style="margin-top:8px">⚠ 競合コピーは分析にのみ使用し、生成原稿への転載・模倣はしません（求人票生成側の制約に「頻出語リストの回避」を渡す形）。</p>
+</section>
+
+<!-- ═══════════ STEP 3 ═══════════ -->
+<section class="panel">
+  <h2><span class="stepno">3</span>検索需要 <span class="src">キーワード需要ビューア（Google広告データ）</span></h2>
   <p class="lead">求職者が実際に検索している言葉と量。原稿のタイトル・本文にはこの言葉を使います。</p>
   <div class="tblwrap"><table>
     <tr><th>キーワード</th><th class="num">月間検索量 (avg_monthly)</th><th>競合度</th><th class="num">クリック単価目安</th><th>採用判断</th></tr>
@@ -127,10 +161,10 @@
   </div>
 </section>
 
-<!-- ═══════════ STEP 3 ═══════════ -->
+<!-- ═══════════ STEP 4 ═══════════ -->
 <section class="panel">
-  <h2><span class="stepno">3</span>原稿・画像 <span class="src">求人票生成パイプライン（検証ゲート済み）</span></h2>
-  <p class="lead">STEP1の強み（休日・残業）× STEP2の検索語で生成。数値は原文照合、表現はNGワード50ルールを通過したものだけが載ります。</p>
+  <h2><span class="stepno">4</span>原稿・画像 <span class="src">求人票生成パイプライン（検証ゲート済み）</span></h2>
+  <p class="lead">STEP1の強み（休日・残業）× STEP2の空白地帯 × STEP3の検索語で生成。数値は原文照合、表現はNGワード50ルール+頻出語回避リストを通過したものだけが載ります。</p>
   <div class="cols2">
     <div class="card">
       <div class="cl">ペルソナ: 長距離から地場に戻りたい40代 <span class="badge b-ok">NGワード通過</span></div>
@@ -161,9 +195,9 @@
   <p class="lead" style="margin-top:12px">📄 HRハッカー84列原稿（正典列順CSV）もこの流れで同時生成 → <span class="badge b-rv">レビュー要 2項目</span>（数値照合で根拠不足の項目は空欄+人間確認に回っています）</p>
 </section>
 
-<!-- ═══════════ STEP 4 ═══════════ -->
+<!-- ═══════════ STEP 5 ═══════════ -->
 <section class="panel">
-  <h2><span class="stepno">4</span>出稿先の推奨 <span class="src">検索結果の実測（SerpApi・1クエリ）</span></h2>
+  <h2><span class="stepno">5</span>出稿先の推奨 <span class="src">検索結果の実測（SerpApi・1クエリ）</span></h2>
   <p class="lead">「ドライバー 求人 ○○市」の実際の検索結果で、どの媒体が露出しているかの実測です。</p>
   <div class="tblwrap"><table>
     <tr><th class="num">順位</th><th>媒体</th><th>種別</th><th class="num">掲載件数表示</th><th>推奨</th></tr>
@@ -175,14 +209,14 @@
   <p class="lead" style="margin-top:10px">検索結果には求人特化のAI概要が表示されており、構造化データ（給与・勤務地の明記）が拾われやすい状態でした。84列原稿の条件明記はここでも効きます。</p>
 </section>
 
-<!-- ═══════════ STEP 5 ═══════════ -->
+<!-- ═══════════ STEP 6 ═══════════ -->
 <section class="panel">
-  <h2><span class="stepno">5</span>提案書サマリー（1枚もの）</h2>
+  <h2><span class="stepno">6</span>提案書サマリー（1枚もの）</h2>
   <div class="summary">
     <b>結論: 給与ではなく「毎日帰れる」で戦い、2月中にIndeed＋ドラEVERへ出稿する。</b>
     <ol>
       <li><b>訴求の軸</b> — 年間休日118日は同地域の掲載求人の上位25%。残業月10h以内の明記は214件中61件と少数派。ここを最前面に。</li>
-      <li><b>使う言葉</b> — 「地場」「日帰り」「残業なし」は検索されているのに競合度が低い。タイトル・見出しに使用。</li>
+      <li><b>使う言葉</b> — 「地場」「日帰り」「残業なし」は検索されているのに競合度が低い。タイトル・見出しに使用。逆に「アットホーム」等の頻出語（競合の35%が使用）は避けて埋没を防ぐ。</li>
       <li><b>出稿時期</b> — 検索量は3〜4月がピーク。準備期間を見て2月中の掲載開始。</li>
       <li><b>出稿先</b> — Indeed（露出1位）＋ドラEVER（特化・競合少）。原稿は生成済み84列CSVを使用。</li>
       <li><b>効果測定</b> — 表示回数→応募率の順に確認し、A/B助言（工程⑧）の手順で1変数ずつ改善。</li>
