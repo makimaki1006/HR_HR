@@ -478,6 +478,13 @@ pub(crate) fn render_navy_section_05_companies(
             ));
             html.push_str(&build_navy_growth_decline_matrix(salesnow_segments_industry));
         }
+    } else {
+        // 2026-07-27: 業種未選択時は第2部 (業種別の直接競合分析) を省略し、その旨を注記する。
+        //   未選択クッションで「このまま作成する」を選んだ場合にここへ来る。
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\" style=\"border-bottom:2px solid var(--ink);\">第2部 &nbsp;業種別の企業分析</div>\n\
+             <p class=\"caption\">業種が選択されていないため、業種別の企業分析は省略しました。画面上部で業種を選択すると表示されます。</p>\n",
+        );
     }
 
     // ========================================================================

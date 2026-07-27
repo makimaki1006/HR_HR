@@ -1688,3 +1688,20 @@ fn invariant_table_2a_share_label_and_base_badge() {
     assert!(html.contains("掲載シェア大"), "60% 行は掲載シェア大");
     assert!(html.contains("★基準地域"), "選択市区町村に基準地域バッジ");
 }
+
+// =====================================================================
+// 2026-07-27: 業種未選択時、§05 第2部が省略され注記が出る (確認クッションで
+//   proceed した場合の挙動)。render_full_report は industry_filter 未指定 (=None)。
+// =====================================================================
+
+#[test]
+fn invariant_section05_part2_note_when_no_industry() {
+    use super::ReportVariant;
+    let ctx = build_hw_sentinel_ctx();
+    // industry_filter=None のため第2部 (業種別) は描画されず、省略注記が出る。
+    let html = render_full_report(ReportVariant::Full, &ctx);
+    assert!(
+        html.contains("業種が選択されていないため、業種別の企業分析は省略しました"),
+        "業種未選択時、§05 に第2部省略の注記が出るはず"
+    );
+}
