@@ -30,7 +30,7 @@
 //   super::super::super::super = handlers
 use super::super::super::super::consult::ai::contains_forbidden;
 use super::super::super::super::consult::theme::has_overclaim;
-use super::super::super::super::helpers::{escape_html, format_number, get_f64};
+use super::super::super::super::helpers::{escape_html, format_number};
 use super::super::super::super::insight::fetch::InsightContext;
 use super::super::super::aggregator::{CardBrief, SurveyAggregation};
 use crate::gemini::GeminiClient;
@@ -328,55 +328,10 @@ pub(super) fn build_fact_inventory(
         );
     }
 
-    // F-TAG: 訴求タグ
-    let mut tags: Vec<_> = agg
-        .by_tag_salary
-        .iter()
-        .filter(|t| t.count >= 10 && t.diff_percent > 0.0)
-        .collect();
-    tags.sort_by(|a, b| {
-        b.diff_percent
-            .partial_cmp(&a.diff_percent)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    if !tags.is_empty() {
-        let list = tags
-            .iter()
-            .take(3)
-            .map(|t| format!("「{}」({}件、市場平均比 +{:.0}%)", t.tag, t.count, t.diff_percent))
-            .collect::<Vec<_>>()
-            .join("・");
-        push(
-            "F-TAG",
-            "訴求",
-            format!(
-                "給与が市場平均より高い側に分布するタグ: {} (比較は平均ベース。他セクションの中央値とは基準が異なる)。相関であり因果ではなく、応募への効果を示すデータは無い。市場全体の傾向の説明であり、依頼企業の職種・雇用形態に合わないタグをそのまま流用しない (例: アルバイト向けの語彙を正社員募集に使わない)。",
-                list
-            ),
-        );
-    }
-
-    // F-POP: 人気表示
-    let p = &agg.popularity;
-    if p.indeed_sp_total > 0 && (p.popular_count + p.super_popular_count) > 0 {
-        let mut s = format!(
-            "媒体の表示で「人気」「超人気」が付いた求人は {} 件 (対象 {} 件中 {:.0}%)。",
-            format_number((p.popular_count + p.super_popular_count) as i64),
-            format_number(p.indeed_sp_total as i64),
-            p.popular_ratio * 100.0,
-        );
-        if let (Some(pm), Some(nm)) = (p.popular_salary_median, p.non_popular_salary_median) {
-            if p.popular_n_salary >= 5 && p.non_popular_n_salary >= 5 {
-                s.push_str(&format!(
-                    " 人気表示つきの月給中央値 {} / なし {}。",
-                    man_yen(pm),
-                    man_yen(nm)
-                ));
-            }
-        }
-        s.push_str(" 人気表示の基準は媒体側の非公開ロジック。");
-        push("F-POP", "人気表示", s);
-    }
+    // F-TAG (タグ別給与) / F-POP (人気表示) は 2026-07-27 顧客提示レビューで解説資料から
+    // 削除。タグ別給与は職種・雇用形態・経験要件の交絡を受け依頼企業への直接根拠にならず、
+    // 人気表示は媒体側の非公開ロジックで依頼企業の打ち手を変えないため。いずれも本体
+    // レポート側には残す (ここは解説資料の事実インベントリのみを絞る)。
 
     // F-DEM (有効求人倍率) は 2026-07-22 再監査で削除。
     // 顧客レビュー「使えないと自認する数値を載せる意味がない」+ 論理監査「だからが本文と
@@ -476,16 +431,17 @@ pub(super) fn build_fact_inventory(
             "依頼企業「{}」の求人 {} 件が収集データ内にある。",
             pos.name, pos.count,
         );
-        // 結論の1文 (仮の中間値が市場中央値以上のときは「表記の課題」と言い切れる)
+        // 結論の1文。2026-07-27 顧客提示レビュー対応: 「35万円を上限へ反映」と先に断定せず、
+        // まず到達条件の確認を促す条件先出しの型にする (保証可能な上限なら反映を検討)。
         if let Some((hypo_mid, m)) = hypo {
             if hypo_mid >= m {
                 let d = cards.first().and_then(|c| c.desc_salary_man).unwrap_or(0);
                 s.push_str(&format!(
-                    " 結論: 課題は金額ではなく給与欄の表記の可能性が高い。説明文にある月収{}万円を給与欄の上限として反映すると中間値 {} となり、市場の中間値の中央値 {} を{}。",
+                    " 論点: 金額そのものより給与欄の表記が課題の可能性がある。まず説明文にある月収{}万円がどの条件で到達可能か (基本給か手当込みか、対象者・保証の有無) を確認し、保証可能な上限であれば給与欄の上限として反映を検討できる。反映した場合の仮の中間値は {} で、市場の中間値の中央値 {} を{}水準。",
                     d,
                     man_yen(hypo_mid),
                     man_yen(m),
-                    if hypo_mid > m { "上回る" } else { "同水準になる" },
+                    if hypo_mid > m { "上回る" } else { "同" },
                 ));
             }
         }
@@ -612,26 +568,25 @@ fn build_card_statement(cb: &CardBrief, agg: &SurveyAggregation) -> Option<Strin
 // ============================================================
 
 /// 作成・修正コールの出力。
+///
+/// 2026-07-27 顧客提示レビュー対応で 5 章構成へ再編:
+/// - lead → 冒頭要約
+/// - per_fact → 各事実の「読み取れること／確認事項／仮説」(第3行。打ち手の指示にしない)
+/// - confirmations → §3 コンサルタントが確認すること (先に確認すべき問い)
+/// - candidates → §4 提示内容の候補 (求人票へ載せる候補)
+/// 旧 composites (複合考察の独立章) は重複の温床のため廃止し、各章に統合した。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(super) struct GuideDraft {
     pub lead: String,
     pub per_fact: Vec<PerFact>,
-    pub composites: Vec<GuideComposite>,
-    pub next_steps: Vec<String>,
+    pub confirmations: Vec<String>,
+    pub candidates: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(super) struct PerFact {
     pub fact_id: String,
     pub dakara: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub(super) struct GuideComposite {
-    pub title: String,
-    pub thesis: String,
-    pub fact_ids: Vec<String>,
-    pub so_what: String,
 }
 
 /// レビューコールの出力。
@@ -649,20 +604,21 @@ struct ReviewFinding {
 }
 
 const GUIDE_SYSTEM: &str = "\
-あなたは採用市場レポートの解説資料を書く執筆者です。読み手はレポートを受け取る企業の担当者です。以下を厳守してください。\n\
+あなたは採用市場レポートの解説資料を書く執筆者です。読み手はレポートを受け取る企業の担当者です。資料は「1.前提 → 2.今回確認できた3点 (給与・年間休日・勤務地/通勤) → 3.コンサルタントが確認すること → 4.提示内容の候補 → 5.本体レポート参照」の構成で読まれます。以下を厳守してください。\n\
 1. 事実インベントリ (facts) に書かれた数値・事実以外を一切書かない。新しい数値を計算しない (割り算・掛け算・差の計算も禁止。facts に書いてある数値だけを使う)。\n\
 2. 数値は半角の算用数字のみで書く。漢数字 (三十五万)・全角数字 (３５)・桁分解 (3万5千) は禁止。「◯割」「◯倍」のような facts に無い割合・倍率を作らない。\n\
-3. 各事実の dakara は「その数字が読み手の求人にとって何を意味するか」の着地文。数字の言い換えではなく、読み手が明日やることが変わる含意を書く。\n\
+3. 各事実の dakara は、その事実から言える「読み取れること」「確認事項」「仮説」のいずれか一文。数字の言い換えは避け、読み手がその数字をどう捉えればよいかを書く。打ち手・提案の指示文にはしない (提案は §4、確認すべき問いは §3 に書く)。\n\
    - 悪い例 (空虚。禁止): 「〜を検討する余地があるかもしれません」「〜を注視する必要があります」「〜を把握することが重要です」\n\
-   - 良い例の型: 「(観測の核心。市場の過半と同じ/上回る/下回る等の位置づけ)ため、(具体的な打ち手の方向)が検討候補になります」\n\
+   - 良い例の型: 「市場の下限中央値と同水準であり、給与欄だけでは差がつきにくい位置とみられます」「全住民・全産業の統計のため、実際の応募者が通勤を重視するかは確認が必要です」\n\
 4. 数字の大小関係と、facts に書かれた「読み方」の向きを正しく使う。方向を取り違えない。\n\
-5. lead を含む全文で可能性表現・提案形 (「〜の可能性があります」「〜が検討候補になります」)。断定・因果の断定・命令形や「〜する。」「〜が求められます。」で終わる指示文は禁止。提案には現実的な留意点 (例: 給与欄の上限を上げれば面談時の期待値調整が必要) を可能な範囲で添える。\n\
-6. composites と next_steps は per_fact の言い換え・繰り返しを禁止。composites は複数テーマの facts の数値を実際に引用し、重ねたときに初めて言えることだけを2〜4本。next_steps は読み手が求人票・配信設定で今日直せる操作に限定し (3〜4項目)、分析表の作成など読み手への宿題は出さない。提案は next_steps のみに書き、composites や dakara で同じ提案を繰り返さない。\n\
-7. facts が「〜の根拠には使えない」「〜に限る」「〜しない」と用途を限定している数値・観測は、その限定に従う。特に F-TAG は市場の傾向説明に留め、依頼企業のカード (職種・雇用形態) に明らかに適合する場合以外、提案に使わない。\n\
-8. 依頼企業の給与の位置づけは F-CO の結論に全セクションで従う。別の場所で矛盾する前提 (「給与が低いので補う」等) を書かない。\n\
-9. 応募数・応募意欲への言及は禁止 (応募データは資料に存在しない)。\n\
-10. 誇張しない。禁止語: 必ず・確実・完璧・絶対・劇的・問題ない・強力。\n\
-11. 平易な言葉で書く。専門用語・略語・社内用語は使わない。\n\
+5. lead を含む全文で可能性表現 (「〜とみられます」「〜の可能性があります」)。断定・因果の断定・命令形や「〜する。」「〜が求められます。」で終わる指示文は禁止。相関しか無いものを「独立した」「無関係」と言い切らない (「明確な線形関係は確認できませんでした」の型)。給与の上限反映など条件が要る提案は、先に確認事項 (どの条件で到達可能か) を置き、断定的に「反映する」と書かない。\n\
+6. 重複を避ける。各数値・各示唆は原則1回だけ述べ、他の箇所では参照に留める。同じ数字 (例: 特定の月給額・休日日数) や同じ提案を複数の章・複数の項目で繰り返さない。dakara・confirmations・candidates が互いの言い換えにならないようにする。\n\
+7. confirmations (§3) は、提案の前にコンサルタントが依頼企業へ確認すべき問いを3項目まで (例: 説明文の月収額がどの条件で保証されるか)。candidates (§4) は、確認が取れた場合に求人票へ提示する候補を3項目まで (求人票・配信設定で操作できる範囲に限る。分析表の作成など読み手への宿題は出さない)。両者を混同・重複させない。\n\
+8. facts が「〜の根拠には使えない」「〜に限る」「〜しない」と用途を限定している数値・観測は、その限定に従う。\n\
+9. 依頼企業の給与の位置づけは F-CO の論点 (表記の課題か否か) に全体で従う。別の場所で矛盾する前提 (「給与が低いので補う」等) を書かない。\n\
+10. 応募数・応募意欲への言及は禁止 (応募データは資料に存在しない)。\n\
+11. 誇張しない。禁止語: 必ず・確実・完璧・絶対・劇的・問題ない・強力。\n\
+12. 平易な言葉で書く。専門用語・略語・社内用語は使わない。評価語 (劣位・優位など) は使わず中立に書く。\n\
 出力は日本語。";
 
 const REVIEW_SYSTEM: &str = "\
@@ -672,12 +628,13 @@ const REVIEW_SYSTEM: &str = "\
 3. 分母と粒度: 比率・統計の分母や粒度 (県単位・記載ありのみ等) を無視した言い回しがないか。\n\
 4. 大小関係の方向: 数字の大小 (流出と流入、比率の過半かどうか等) から言える方向を取り違えていないか。例えば流出が流入を上回るのに「流入がある」側の解釈だけを書くのは方向の誤り。\n\
 5. 反対解釈: 同じ数字から逆の解釈が成り立つのに一方だけを書いていないか。\n\
-6. 着地の空虚さ: dakara や so_what が「検討する余地がある」「注視する必要がある」「把握することが重要」のような、読み手の行動が何も変わらない文になっていないか。空虚な着地は必ず指摘し、その数字の位置づけ (過半と同じ/上回る/下回る) から言える具体的な打ち手の方向を修正案として書く。\n\
-7. 誇張・断定表現・命令形終止。\n\
-8. 提案の文脈適合: 募集する雇用形態・職種に合わない提案 (例: アルバイト向け語彙のタグを正社員技術職に推奨)、facts が用途を限定した数値の流用、per_fact と composites と next_steps の内容の重複・水増し。\n\
-9. 提案の副作用の欠落: 打ち手に現実的なリスク (例: 給与欄の上限表示を上げると面談時の期待値調整が必要) があるのに触れていない場合は指摘する。\n\
-10. 結論の一貫性: 依頼企業の給与の位置づけ (F-CO の結論) と矛盾する前提が他セクションに無いか。dakara がその fact の観測から論理的に導けない話 (観測していない応募数・効果への飛躍、無関係な提案の接続) になっていないか。\n\
-問題が一つも無ければ verdict を pass、あれば needs_fix とし、findings に場所 (fact_id やタイトル)・問題・修正案を書く。指摘は厳しく、見逃しなく。出力は日本語。";
+6. 断定表現: 相関しか無いものを「独立した訴求軸」「無関係」「関係がない」と言い切っていないか。相関係数から因果や独立を結論していないか。あれば「明確な線形関係は確認できませんでした」型への修正案を書く。\n\
+7. 条件を飛ばした推奨: 給与の上限反映など、到達条件の確認が要る提案を、条件を確認せず断定的に「反映する／上げる」と勧めていないか。あれば「まず条件を確認し、保証可能なら反映を検討」型への修正案を書く。\n\
+8. 着地の空虚さ: dakara が「検討する余地がある」「注視する必要がある」「把握することが重要」のような、何も言っていない文になっていないか。空虚なら、その数字の位置づけ (過半と同じ/上回る/下回る) から言える読み取り・確認事項を修正案として書く。\n\
+9. 誇張・命令形終止・評価語 (劣位/優位等)。\n\
+10. 重複: 同じ数値・同じ示唆が per_fact・confirmations・candidates や複数章で繰り返されていないか。confirmations (確認すべき問い) と candidates (提示候補) が混同・重複していないか。\n\
+11. 結論の一貫性: 依頼企業の給与の位置づけ (F-CO の論点) と矛盾する前提が他にないか。dakara がその fact の観測から論理的に導けない話 (観測していない応募数・効果への飛躍) になっていないか。\n\
+問題が一つも無ければ verdict を pass、あれば needs_fix とし、findings に場所 (fact_id や confirmations/candidates)・問題・修正案を書く。指摘は厳しく、見逃しなく。出力は日本語。";
 
 fn draft_schema() -> Value {
     json!({
@@ -695,22 +652,10 @@ fn draft_schema() -> Value {
                     "required": ["fact_id", "dakara"]
                 }
             },
-            "composites": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "title": { "type": "string" },
-                        "thesis": { "type": "string" },
-                        "fact_ids": { "type": "array", "items": { "type": "string" } },
-                        "so_what": { "type": "string" }
-                    },
-                    "required": ["title", "thesis", "fact_ids", "so_what"]
-                }
-            },
-            "next_steps": { "type": "array", "items": { "type": "string" } }
+            "confirmations": { "type": "array", "items": { "type": "string" } },
+            "candidates": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["lead", "per_fact", "composites", "next_steps"]
+        "required": ["lead", "per_fact", "confirmations", "candidates"]
     })
 }
 
@@ -768,8 +713,7 @@ pub(super) fn numbers_ok(text: &str, allowed: &HashSet<String>) -> bool {
 ///
 /// 数値の許可集合は監査 MED-4 (fact 跨ぎの数値ロンダリング) 対応でスコープする:
 /// - per_fact の dakara → その fact の数値のみ
-/// - composite → 参照 fact_ids の数値の和集合
-/// - lead / next_steps → 全 facts の和集合 (全体要約のため)
+/// - lead / confirmations / candidates → 全 facts の和集合 (全体に跨る文のため)
 pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<String> {
     let allowed: HashSet<String> = facts.iter().flat_map(|f| f.numbers.iter().cloned()).collect();
     let allowed_of = |ids: &[&str]| -> HashSet<String> {
@@ -780,15 +724,6 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
             .collect()
     };
     let fact_ids: HashSet<&str> = facts.iter().map(|f| f.id.as_str()).collect();
-    let themes_of = |ids: &[String]| -> usize {
-        let mut ts: HashSet<&str> = HashSet::new();
-        for id in ids {
-            if let Some(f) = facts.iter().find(|f| f.id == *id) {
-                ts.insert(f.theme.as_str());
-            }
-        }
-        ts.len()
-    };
     /// 空虚な着地の定型句 (読み手の行動が変わらない文)。致命扱いはしないが
     /// 指摘として修正コールを強制起動する (2026-07-17 run1/run2 実測で 4 箇所検出)。
     const VAGUE_PHRASES: [&str; 6] = [
@@ -848,6 +783,41 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
                 label
             ));
         }
+        // 2026-07-27 顧客提示レビュー対応: 相関・関係の言い切り (断定表現)。
+        // 「独立した訴求軸」「無関係」「関係がない」等は、線形相関が無いだけで
+        // 非線形・交絡を否定できないのに独立/無関係を断定するもの。
+        // 「明確な線形関係は確認できませんでした」型へ書き直させる (fatal 扱い)。
+        const ASSERTION_PHRASES: [&str; 6] = [
+            "独立した訴求",
+            "独立の訴求",
+            "無関係",
+            "関係がない",
+            "関係がありません",
+            "関係はありません",
+        ];
+        if ASSERTION_PHRASES.iter().any(|p| text.contains(p)) {
+            out.push(format!(
+                "{}: 断定表現 (相関・独立・無関係の言い切り)。「明確な線形関係は確認できませんでした」型の中立表現に書き直す",
+                label
+            ));
+        }
+        // 評価語 (中立表現を求めるルール)。BtoB レポートで劣位/優位等は使わない。
+        const EVALUATIVE_WORDS: [&str; 2] = ["劣位", "優位"];
+        if EVALUATIVE_WORDS.iter().any(|p| text.contains(p)) {
+            out.push(format!(
+                "{}: 評価語 (劣位・優位等) を含む。規模帯・水準の差は中立に記述する",
+                label
+            ));
+        }
+        // 2026-07-27 顧客提示レビュー [高] 対応: 到達条件の確認を飛ばした反映の推奨。
+        // 「月収◯万円を給与欄の上限へ反映する」型を、条件確認 (確認/保証) を伴わずに
+        // 勧めていれば指摘 (非致命。修正コールで条件先出しの型へ直させる)。
+        if text.contains("上限") && text.contains("反映") && !text.contains("確認") && !text.contains("保証") {
+            out.push(format!(
+                "{}: 到達条件の確認を飛ばした反映の推奨。まず月収額がどの条件で到達可能かを確認し、保証可能なら反映を検討する型に書き直す",
+                label
+            ));
+        }
         out
     }
 
@@ -865,54 +835,25 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
             &allowed_of(&[pf.fact_id.as_str()]),
         ));
     }
-    for c in &draft.composites {
-        if c.fact_ids.is_empty() || c.fact_ids.iter().any(|id| !fact_ids.contains(id.as_str())) {
-            v.push(format!("composite「{}」: fact_ids が空か実在しない id を含む", c.title));
-            continue;
-        }
-        if themes_of(&c.fact_ids) < 2 {
-            v.push(format!("composite「{}」: 2テーマ未満 (複合になっていない)", c.title));
-        }
-        let ref_ids: Vec<&str> = c.fact_ids.iter().map(|s| s.as_str()).collect();
-        let scoped = allowed_of(&ref_ids);
-        // 2026-07-22 再監査対応: 列挙した観測のうち2つ以上から実際に数値を引用することを要求。
-        // (a) fact_ids の全列挙で許可集合だけ最大化する抜け道 (MED) と、
-        // (b) 「〜を考慮した条件設定を行う」のような数字のない言い換え水増しの両方を検出する。
-        {
-            let combined = format!("{} {}", c.thesis, c.so_what);
-            let used_plain = extract_numbers(&combined);
-            let used_unit = extract_unit_numbers(&combined);
-            let facts_with_number_used = c
-                .fact_ids
-                .iter()
-                .filter(|id| {
-                    facts.iter().find(|f| f.id == **id).map_or(false, |f| {
-                        f.numbers
-                            .iter()
-                            .any(|n| used_plain.contains(n) || used_unit.contains(n))
-                    })
-                })
-                .count();
-            if facts_with_number_used < 2 {
-                v.push(format!(
-                    "composite「{}」: 列挙した観測のうち数値を引用しているのが2件未満 (見出しの言い換えでなく、複数の数字を重ねて初めて言えることを書く)",
-                    c.title
-                ));
-            }
-        }
-        v.extend(text_issues(
-            &format!("composite「{}」thesis:", c.title),
-            &c.thesis,
-            &scoped,
-        ));
-        v.extend(text_issues(
-            &format!("composite「{}」so_what:", c.title),
-            &c.so_what,
-            &scoped,
+    // §3 コンサルタントが確認すること / §4 提示内容の候補。
+    // どちらも全 facts の数値のみ許可 (章に跨る要約文)。3項目上限を機械検査する。
+    for (i, s) in draft.confirmations.iter().enumerate() {
+        v.extend(text_issues(&format!("confirmation {}:", i + 1), s, &allowed));
+    }
+    if draft.confirmations.len() > 3 {
+        v.push(format!(
+            "confirmations: {} 項目 (§3 コンサルタントが確認することは3項目まで。重複を統合する)",
+            draft.confirmations.len()
         ));
     }
-    for (i, s) in draft.next_steps.iter().enumerate() {
-        v.extend(text_issues(&format!("next_step {}:", i + 1), s, &allowed));
+    for (i, s) in draft.candidates.iter().enumerate() {
+        v.extend(text_issues(&format!("candidate {}:", i + 1), s, &allowed));
+    }
+    if draft.candidates.len() > 3 {
+        v.push(format!(
+            "candidates: {} 項目 (§4 提示内容の候補は3項目まで。重複を統合する)",
+            draft.candidates.len()
+        ));
     }
     // カバレッジ: 全 facts に per_fact の着地があること
     for f in facts {
@@ -971,10 +912,11 @@ pub(super) async fn generate_guide_ai(
     // ① 作成
     let user1 = format!(
         "対象地域: {}\n以下の事実インベントリだけを使い、解説資料の本文を起草してください。\n\
-         - lead: 資料全体の要約 (2〜3文)\n\
-         - per_fact: 全ての fact について dakara (着地文) を書く\n\
-         - composites: 複数テーマを編んだ考察 2〜4本\n\
-         - next_steps: 読み手が次にやるべきこと 3〜4項目 (優先順)\n{}",
+         - lead: 資料全体の冒頭要約 (3〜4文)。まず貴社の際立つ特徴、次に主要な論点 (給与表記等)、最後に優先的に確認すべきことの順で。\n\
+         - per_fact: 全ての fact について dakara (読み取れること／確認事項／仮説のいずれか一文。打ち手の指示にしない)\n\
+         - confirmations: §3 コンサルタントが提案の前に依頼企業へ確認すべき問い 3項目まで\n\
+         - candidates: §4 確認が取れた場合に求人票へ提示する内容の候補 3項目まで\n\
+         同じ数値・同じ示唆を複数の項目で繰り返さないこと。{}",
         region, facts_str
     );
     calls += 1;
@@ -987,8 +929,8 @@ pub(super) async fn generate_guide_ai(
         serde_json::to_string(&json!({
             "lead": d.lead,
             "per_fact": d.per_fact.iter().map(|p| json!({"fact_id": p.fact_id, "dakara": p.dakara})).collect::<Vec<_>>(),
-            "composites": d.composites.iter().map(|c| json!({"title": c.title, "thesis": c.thesis, "fact_ids": c.fact_ids, "so_what": c.so_what})).collect::<Vec<_>>(),
-            "next_steps": d.next_steps,
+            "confirmations": d.confirmations,
+            "candidates": d.candidates,
         }))
         .unwrap_or_default()
     };
@@ -1070,11 +1012,12 @@ pub(super) async fn generate_guide_ai(
         }
     }
 
-    // 最終ガード (機械検査)。監査 MED-6/MED-8 対応:
-    // - 致命 = 禁止表現 / 出所不明の数値 / 実在しない fact_id / 言い過ぎ / 誇張形容。
-    //   修正2回を経ても残ったこれらは項目単位で落とす (顧客向け文書に残す実害の方が大きい)。
+    // 最終ガード (機械検査)。監査 MED-6/MED-8 + 2026-07-27 レビュー対応:
+    // - 致命 = 禁止表現 / 出所不明の数値 / 実在しない fact_id / 言い過ぎ / 誇張形容 /
+    //   断定表現 (相関の言い切り) / 評価語。修正2回を経ても残ったこれらは項目単位で落とす
+    //   (顧客向け文書に残す実害の方が大きい)。
     // - ラベルはコロンまで含めた前方一致で判定 (F-CO と F-CO-CARD1 の prefix 衝突による
-    //   巻き添えドロップを防ぐ)。
+    //   巻き添えドロップを防ぐ)。confirmation/candidate はインデックス付きラベルで判定。
     let violations = guard_violations(&draft, facts);
     let fatal = |label_with_colon: &str| {
         violations.iter().any(|v| {
@@ -1083,7 +1026,9 @@ pub(super) async fn generate_guide_ai(
                     || v.contains("無い数値")
                     || v.contains("実在しない")
                     || v.contains("言い過ぎ")
-                    || v.contains("誇張形容"))
+                    || v.contains("誇張形容")
+                    || v.contains("断定表現")
+                    || v.contains("評価語"))
         })
     };
     if fatal("lead:") {
@@ -1092,20 +1037,26 @@ pub(super) async fn generate_guide_ai(
     draft
         .per_fact
         .retain(|pf| !fatal(&format!("per_fact {}:", pf.fact_id)));
-    draft
-        .composites
-        .retain(|c| !fatal(&format!("composite「{}」", c.title)));
-    let steps: Vec<String> = draft
-        .next_steps
+    let confirmations: Vec<String> = draft
+        .confirmations
         .iter()
         .enumerate()
-        .filter(|(i, _)| !fatal(&format!("next_step {}:", i + 1)))
+        .filter(|(i, _)| !fatal(&format!("confirmation {}:", i + 1)))
         .map(|(_, s)| s.clone())
         .collect();
-    draft.next_steps = steps;
+    draft.confirmations = confirmations;
+    let candidates: Vec<String> = draft
+        .candidates
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !fatal(&format!("candidate {}:", i + 1)))
+        .map(|(_, s)| s.clone())
+        .collect();
+    draft.candidates = candidates;
 
-    if draft.per_fact.is_empty() && draft.composites.is_empty() {
-        tracing::warn!(?violations, "guide AI: 最終ガードで全滅。決定的テンプレへフォールバック");
+    // per_fact が全滅したら本文の核 (§2 の 3 点) が失われるためフォールバック。
+    if draft.per_fact.is_empty() {
+        tracing::warn!(?violations, "guide AI: 最終ガードで per_fact 全滅。決定的テンプレへフォールバック");
         return None;
     }
 
@@ -1113,7 +1064,8 @@ pub(super) async fn generate_guide_ai(
         calls,
         total_findings,
         per_fact = draft.per_fact.len(),
-        composites = draft.composites.len(),
+        confirmations = draft.confirmations.len(),
+        candidates = draft.candidates.len(),
         remaining_violations = violations.len(),
         "guide AI pipeline finished"
     );
@@ -1129,14 +1081,33 @@ pub(super) async fn generate_guide_ai(
 // レンダリング (AI 版解説資料)
 // ============================================================
 
-/// AI パイプラインの結果を解説資料 HTML にする。
-/// 観測 (statement) はコード確定値、だから/複合/次の一手は AI 起草+検証済み。
+/// 事実ブロック (観測文 + 読み取り/確認の第3行) を 1 件描画する。
+/// 該当 fact が無ければ何もしない。
+fn push_fact_block(html: &mut String, facts: &[GuideFact], d: &GuideDraft, id: &str) {
+    let Some(f) = facts.iter().find(|f| f.id == id) else {
+        return;
+    };
+    html.push_str(&format!("<p>{}</p>\n", escape_html(&f.statement)));
+    if let Some(pf) = d.per_fact.iter().find(|pf| pf.fact_id == id) {
+        html.push_str(&format!(
+            "<div class=\"dakara\">→ <strong>読み取り／確認:</strong> {}</div>\n",
+            escape_html(&pf.dakara)
+        ));
+    }
+}
+
+/// AI パイプラインの結果を解説資料 HTML にする (2026-07-27 顧客提示レビューで 5 章構成へ再編)。
+/// 観測 (statement) はコード確定値、読み取り/確認・確認事項・提示候補は AI 起草+検証済み。
+///
+/// 構成: 冒頭要約 → §1 前提 → §2 今回確認できた3点 (給与・年間休日・勤務地/通勤) →
+///       §3 コンサルタントが確認すること → §4 提示内容の候補 → §5 本体レポート参照。
 pub(super) fn render_guide_ai_html(
     facts: &[GuideFact],
     position: Option<&CompanyPosition>,
     outcome: &GuideAiOutcome,
     region: &str,
 ) -> String {
+    let _ = position; // 現在地は §2 給与の観測 (F-CO / F-CO-CARD) に統合済み
     let d = &outcome.draft;
     let mut html = String::with_capacity(32 * 1024);
     html.push_str("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n");
@@ -1157,85 +1128,88 @@ pub(super) fn render_guide_ai_html(
         escape_html(region)
     ));
 
+    // 冒頭要約 (lead)
     if !d.lead.is_empty() {
-        html.push_str(&format!(
-            "<div class=\"keybox\">{}</div>\n",
-            escape_html(&d.lead)
-        ));
+        html.push_str(&format!("<div class=\"keybox\">{}</div>\n", escape_html(&d.lead)));
     }
 
-    // §1 貴社の現在地
-    //
-    // 2026-07-21 監査対応: 旧実装は中間値ベースの「下位◯%」だけを表にしており、
-    // F-CO 事実文で直した物差し補正 (下限どうしの比較 / 単一値表記の注意 / 仮の中間値)
-    // が画面に出ていなかった。観測は F-CO 事実文 (コード確定の完全版) をそのまま表示する。
-    if position.is_some() {
-        html.push_str("<h2>貴社の現在地</h2>\n");
-        if let Some(fco) = facts.iter().find(|f| f.id == "F-CO") {
-            html.push_str(&format!("<p>{}</p>\n", escape_html(&fco.statement)));
-        }
-        if let Some(pf) = d.per_fact.iter().find(|pf| pf.fact_id == "F-CO") {
-            html.push_str(&format!(
-                "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
-                escape_html(&pf.dakara)
-            ));
-        }
-    }
+    // §1 この資料の前提 (対象・件数・広域である旨)。業種/媒体/取得日は集計に含まれない
+    // ため、捏造せずアップロード CSV に基づく旨を正確に記す (2026-07-27 レビュー GO条件5)。
+    html.push_str("<h2>1. この資料の前提</h2>\n");
+    html.push_str("<table>\n");
+    html.push_str(&format!(
+        "<tr><th>対象地域</th><td>{} (検索条件に含まれる周辺市を含む広域)</td></tr>\n",
+        escape_html(region)
+    ));
+    html.push_str(
+        "<tr><th>対象業種・掲載媒体・取得日</th>\
+         <td>本資料はアップロードされた求人検索データ (重複整理後) に基づきます。\
+         業種・掲載媒体・取得日は元データの検索条件に準じます。</td></tr>\n",
+    );
+    html.push_str("</table>\n");
+    push_fact_block(&mut html, facts, d, "F-SIZE");
+    html.push_str(
+        "<p class=\"note\">※ 市場全体の数値は周辺市を含む広域ベースで、対象地域単独の実勢ではない\
+         点にご注意ください。市場データだけで採用結果を断定することはできません。</p>\n",
+    );
 
-    // §2 市場の実像 (観測=コード確定、だから=AI検証済み)
-    html.push_str("<h2>市場の実像 — レポートの数字から言えること</h2>\n");
+    // §2 今回確認できた3点 (給与 / 年間休日 / 勤務地・通勤)。
+    // 各点は「事実 (観測文) → 比較 (観測文に内包) → 読み取り／確認 (AI)」の構造。
+    html.push_str("<h2>2. 今回確認できた3点</h2>\n");
+
+    // 点1: 給与 (依頼企業の給与欄表記 + 個別カード + 市場給与)
+    html.push_str("<h3>給与</h3>\n");
+    push_fact_block(&mut html, facts, d, "F-CO");
     for f in facts {
-        if f.id == "F-CO" {
-            continue; // §1 で表示済み
-        }
-        html.push_str(&format!("<h3>{}</h3>\n", escape_html(&f.theme)));
-        html.push_str(&format!("<p>{}</p>\n", escape_html(&f.statement)));
-        if let Some(pf) = d.per_fact.iter().find(|pf| pf.fact_id == f.id) {
-            html.push_str(&format!(
-                "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
-                escape_html(&pf.dakara)
-            ));
+        if f.id.starts_with("F-CO-CARD") {
+            push_fact_block(&mut html, facts, d, &f.id);
         }
     }
+    push_fact_block(&mut html, facts, d, "F-SAL");
 
-    // §3 複合考察 (AI 起草・レビュー済み)
-    if !d.composites.is_empty() {
-        html.push_str("<h2>複合考察 — 数字を重ねると見えること</h2>\n");
-        for c in &d.composites {
-            html.push_str(&format!("<h3>{}</h3>\n", escape_html(&c.title)));
-            html.push_str(&format!("<p>{}</p>\n", escape_html(&c.thesis)));
-            html.push_str(&format!(
-                "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
-                escape_html(&c.so_what)
-            ));
-            let refs = c
-                .fact_ids
-                .iter()
-                .filter_map(|id| facts.iter().find(|f| f.id == *id))
-                .map(|f| f.theme.clone())
-                .collect::<Vec<_>>()
-                .join("×");
-            if !refs.is_empty() {
-                html.push_str(&format!(
-                    "<p class=\"note\">根拠: {} の観測の組み合わせ</p>\n",
-                    escape_html(&refs)
-                ));
-            }
-        }
+    // 点2: 年間休日
+    html.push_str("<h3>年間休日</h3>\n");
+    push_fact_block(&mut html, facts, d, "F-HOL");
+
+    // 点3: 勤務地・通勤 (通勤 OD が取れたときのみ)
+    if facts.iter().any(|f| f.id == "F-COM") {
+        html.push_str("<h3>勤務地・通勤</h3>\n");
+        push_fact_block(&mut html, facts, d, "F-COM");
     }
 
-    // §4 次の一手
-    if !d.next_steps.is_empty() {
-        html.push_str("<h2>次の一手 (優先順)</h2>\n<ol>\n");
-        for s in &d.next_steps {
+    // §3 コンサルタントが確認すること
+    if !d.confirmations.is_empty() {
+        html.push_str("<h2>3. コンサルタントが確認すること</h2>\n<ol>\n");
+        for s in &d.confirmations {
+            html.push_str(&format!("<li>{}</li>\n", escape_html(s)));
+        }
+        html.push_str("</ol>\n");
+    }
+
+    // §4 提示内容の候補
+    if !d.candidates.is_empty() {
+        html.push_str("<h2>4. 提示内容の候補</h2>\n<ol>\n");
+        for s in &d.candidates {
             html.push_str(&format!("<li>{}</li>\n", escape_html(s)));
         }
         html.push_str("</ol>\n");
     }
     html.push_str(
-        "<p class=\"note\">いずれも応募数・採用を保証するものではなく、市場データから見た\
-         判断材料の提示です。仕事内容固有の条件は市場データでは測れないため、応募実績と\
-         面談で検証する領域です。</p>\n",
+        "<p class=\"note\">上記は確認が取れた場合の提示候補であり、応募数・採用を保証するもの\
+         ではありません。仕事内容固有の条件は市場データでは測れないため、応募実績と面談で検証\
+         する領域です。</p>\n",
+    );
+
+    // §5 本体レポート参照
+    html.push_str("<h2>5. 本体レポート参照</h2>\n");
+    html.push_str(
+        "<p>各数値の分布・内訳は本体レポートの該当セクションでご確認ください。</p>\n\
+         <ul>\n\
+         <li>給与分布 (下限・上限・中間値)</li>\n\
+         <li>年間休日の分布</li>\n\
+         <li>通勤 OD (流入・流出の内訳)</li>\n\
+         <li>データ品質・除外条件 (集計対象と除外レコード)</li>\n\
+         </ul>\n",
     );
 
     html.push_str(
@@ -1414,9 +1388,11 @@ mod tests {
         assert!(ids.contains(&"F-SIZE"));
         assert!(ids.contains(&"F-SAL"));
         assert!(ids.contains(&"F-HOL"));
-        assert!(ids.contains(&"F-TAG"));
         assert!(ids.contains(&"F-CO"));
         assert!(pos.is_some());
+        // 2026-07-27 顧客提示レビュー: タグ別給与・人気表示は解説資料から削除
+        assert!(!ids.contains(&"F-TAG"));
+        assert!(!ids.contains(&"F-POP"));
         // ctx なし → 需給/通勤の facts は無い (嘘をつかない)
         assert!(!ids.contains(&"F-DEM"));
         assert!(!ids.contains(&"F-COM"));
@@ -1470,8 +1446,8 @@ mod tests {
                     dakara: "タグを付けると応募数が増えるかもしれません。".to_string(),
                 })
                 .collect(),
-            composites: vec![],
-            next_steps: vec![],
+            confirmations: vec![],
+            candidates: vec![],
         };
         let v = guard_violations(&draft, &facts);
         assert!(
@@ -1482,8 +1458,8 @@ mod tests {
     }
 
     #[test]
-    fn composite_must_cite_numbers_from_two_facts() {
-        // 2026-07-22 再監査: 数値を引用しない複合 (見出しの言い換え) を検出
+    fn assertion_and_evaluative_words_are_flagged() {
+        // 2026-07-27 顧客提示レビュー: 相関の言い切り (独立/無関係) と評価語 (劣位/優位) を検出
         let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let draft = GuideDraft {
             lead: String::new(),
@@ -1494,20 +1470,41 @@ mod tests {
                     dakara: "判断材料になる可能性があります。".to_string(),
                 })
                 .collect(),
-            composites: vec![GuideComposite {
-                title: "条件設定の最適化".to_string(),
-                thesis: "市場の給与中央値および休日水準を考慮した条件設定の余地があります。".to_string(),
-                fact_ids: vec!["F-SAL".to_string(), "F-HOL".to_string()],
-                so_what: "条件の見せ方の見直しが検討候補になります。".to_string(),
-            }],
-            next_steps: vec![],
+            confirmations: vec!["休日は給与と無関係な訴求軸として使えます。".to_string()],
+            candidates: vec!["競合より劣位の条件を補う候補です。".to_string()],
         };
         let v = guard_violations(&draft, &facts);
         assert!(
-            v.iter().any(|s| s.contains("数値を引用しているのが2件未満")),
-            "数値なし複合が検出されるはず: {:?}",
+            v.iter().any(|s| s.starts_with("confirmation 1:") && s.contains("断定表現")),
+            "「無関係」の断定が検出されるはず: {:?}",
             v
         );
+        assert!(
+            v.iter().any(|s| s.starts_with("candidate 1:") && s.contains("評価語")),
+            "評価語「劣位」が検出されるはず: {:?}",
+            v
+        );
+    }
+
+    #[test]
+    fn confirmations_and_candidates_over_three_flagged() {
+        // §3/§4 は各3項目まで (重複抑制)
+        let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
+        let draft = GuideDraft {
+            lead: String::new(),
+            per_fact: facts
+                .iter()
+                .map(|f| PerFact {
+                    fact_id: f.id.clone(),
+                    dakara: "市場の中心帯と同水準とみられます。".to_string(),
+                })
+                .collect(),
+            confirmations: (0..4).map(|i| format!("確認事項{}。", i)).collect(),
+            candidates: (0..4).map(|i| format!("提示候補{}。", i)).collect(),
+        };
+        let v = guard_violations(&draft, &facts);
+        assert!(v.iter().any(|s| s.starts_with("confirmations:") && s.contains("3項目まで")));
+        assert!(v.iter().any(|s| s.starts_with("candidates:") && s.contains("3項目まで")));
     }
 
     #[test]
@@ -1554,8 +1551,8 @@ mod tests {
                 // 53 は F-HOL 由来で F-SAL の numbers には無い
                 dakara: "給与は市場平均を 53% 上回る可能性があります。".to_string(),
             }],
-            composites: vec![],
-            next_steps: vec![],
+            confirmations: vec![],
+            candidates: vec![],
         };
         let v = guard_violations(&draft, &facts);
         assert!(
@@ -1583,8 +1580,8 @@ mod tests {
                 fact_id: "F-XXX".to_string(),
                 dakara: "何かが言える可能性があります。".to_string(),
             }],
-            composites: vec![],
-            next_steps: vec![],
+            confirmations: vec![],
+            candidates: vec![],
         };
         let v = guard_violations(&draft, &facts);
         assert!(v.iter().any(|s| s.contains("実在しない fact_id")));
@@ -1673,8 +1670,8 @@ mod tests {
                     dakara: "判断材料になる可能性があります。".to_string(),
                 })
                 .collect(),
-            composites: vec![],
-            next_steps: vec![],
+            confirmations: vec![],
+            candidates: vec![],
         };
         let v = guard_violations(&draft, &facts);
         assert!(
@@ -1696,8 +1693,8 @@ mod tests {
                     dakara: "自社の立ち位置を把握し、調整を検討する余地があるかもしれません。".to_string(),
                 })
                 .collect(),
-            composites: vec![],
-            next_steps: vec![],
+            confirmations: vec![],
+            candidates: vec![],
         };
         let v = guard_violations(&draft, &facts);
         assert!(
@@ -1723,7 +1720,8 @@ mod tests {
     }
 
     #[test]
-    fn guard_detects_single_theme_composite_and_forbidden() {
+    fn guard_detects_forbidden_in_confirmations_and_candidates() {
+        // §3/§4 の断定副詞・禁止語も検出される (旧 composite テストの後継)
         let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let draft = GuideDraft {
             lead: String::new(),
@@ -1731,27 +1729,22 @@ mod tests {
                 .iter()
                 .map(|f| PerFact {
                     fact_id: f.id.clone(),
-                    dakara: "判断材料になる可能性があります。".to_string(),
+                    dakara: "市場の中心帯と同水準とみられます。".to_string(),
                 })
                 .collect(),
-            composites: vec![
-                GuideComposite {
-                    title: "単一テーマの言い換え".to_string(),
-                    thesis: "給与の話だけ。".to_string(),
-                    fact_ids: vec!["F-SAL".to_string()],
-                    so_what: "上限を見せる余地があります。".to_string(),
-                },
-                GuideComposite {
-                    title: "禁止語入り".to_string(),
-                    thesis: "こうすれば必ず採用できると考えられます。".to_string(),
-                    fact_ids: vec!["F-SAL".to_string(), "F-HOL".to_string()],
-                    so_what: "確実に成果が出ます。".to_string(),
-                },
-            ],
-            next_steps: vec![],
+            confirmations: vec!["こうすれば必ず採用できるか確認します。".to_string()],
+            candidates: vec!["確実に成果が出る条件を提示します。".to_string()],
         };
         let v = guard_violations(&draft, &facts);
-        assert!(v.iter().any(|s| s.contains("2テーマ未満")));
-        assert!(v.iter().any(|s| s.contains("禁止表現")));
+        assert!(
+            v.iter().any(|s| s.starts_with("confirmation 1:") && s.contains("禁止表現")),
+            "confirmations の禁止語が検出されるはず: {:?}",
+            v
+        );
+        assert!(
+            v.iter().any(|s| s.starts_with("candidate 1:") && s.contains("禁止表現")),
+            "candidates の禁止語が検出されるはず: {:?}",
+            v
+        );
     }
 }

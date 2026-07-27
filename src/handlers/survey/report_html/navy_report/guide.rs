@@ -4,11 +4,16 @@
 //! (`SurveyAggregation`) + 公的統計 (`InsightContext`) から決定的に生成する。
 //! 富田林商談 (2026-07) で手作業生成した解説資料 v4 の構成を標準化したもの。
 //!
-//! # 構成
-//! - §1 貴社の現在地 (`?company=社名` 指定時のみ): CSV 内の該当企業求人を市場分布に重ねる
-//! - §2 市場の実像: 各観測数字 → 「だから」 (データがある項目のみ描画、silent fallback しない)
-//! - §3 次の一手: sp_report の結論エンジン (`build_conclusions`) を流用
-//! - §4 よくある質問
+//! # 構成 (2026-07-27 顧客提示レビューで 5 章構成へ再編)
+//! - 冒頭要約
+//! - §1 この資料の前提: 対象・件数・広域である旨 (業種/媒体/取得日は集計に無いため CSV 準拠と明記)
+//! - §2 今回確認できた3点: 給与 (貴社+市場) / 年間休日 / 勤務地・通勤。各点「事実→比較→確認/読み取り」
+//! - §3 コンサルタントが確認すること: 提案の前に依頼企業へ確認すべき問い
+//! - §4 提示内容の候補: 確認が取れた場合に求人票へ提示する候補
+//! - §5 本体レポート参照
+//!
+//! タグ別給与・人気表示・よくある質問・次の一手 (結論エンジン) は解説資料から撤去
+//! (本体レポート側には残す)。断定表現は「明確な線形関係は確認できませんでした」型へ統一。
 //!
 //! # 文言規律 (sp_report と同一)
 //! 断定禁止・可能性表現で統一 (「〜可能性があります」「〜とみられます」)。
@@ -30,7 +35,6 @@
 use super::super::super::super::helpers::{escape_html, format_number, get_f64};
 use super::super::super::super::insight::fetch::InsightContext;
 use super::super::super::aggregator::SurveyAggregation;
-use super::sp_report::build_conclusions;
 
 // ============================================================
 // 小さな数値ヘルパー (このファイル内のみ)
@@ -101,27 +105,50 @@ pub(crate) fn render_survey_guide_page(
         escape_html(&region)
     ));
 
-    // §1 貴社の現在地 (company 指定時のみ)
+    // 冒頭要約
+    push_lead_summary(&mut html, agg, ctx);
+
+    // §1 この資料の前提 (対象・件数・広域である旨)。業種/媒体/取得日は集計に含まれない
+    // ため、捏造せずアップロード CSV 準拠と明記する (2026-07-27 レビュー GO条件5)。
+    html.push_str("<h2>1. この資料の前提</h2>\n");
+    html.push_str("<table>\n");
+    html.push_str(&format!(
+        "<tr><th>対象地域</th><td>{} (検索条件に含まれる周辺市を含む広域)</td></tr>\n",
+        escape_html(&region)
+    ));
+    html.push_str(
+        "<tr><th>対象業種・掲載媒体・取得日</th>\
+         <td>本資料はアップロードされた求人検索データ (重複整理後) に基づきます。\
+         業種・掲載媒体・取得日は元データの検索条件に準じます。</td></tr>\n",
+    );
+    html.push_str("</table>\n");
+    push_block_market_size(&mut html, agg);
+    html.push_str(
+        "<p class=\"note\">※ 市場全体の数値は周辺市を含む広域ベースで、対象地域単独の実勢では\
+         ない点にご注意ください。年間休日などの集計は求人票に記載があった分だけで、記載がない\
+         ことは「条件がない」ことを意味しません。市場データだけで採用結果を断定することはできません。</p>\n",
+    );
+
+    // §2 今回確認できた3点 (給与 / 年間休日 / 勤務地・通勤)
+    html.push_str("<h2>2. 今回確認できた3点</h2>\n");
+    // 点1: 給与 (貴社の現在地 [company 指定時] + 市場給与)
     if let Some(name) = company.filter(|s| !s.trim().is_empty()) {
         push_section_position(&mut html, agg, name.trim());
     }
-
-    // §2 市場の実像
-    html.push_str("<h2>市場の実像 — レポートの数字から言えること</h2>\n");
-    push_block_market_size(&mut html, agg);
     push_block_salary(&mut html, agg);
+    // 点2: 年間休日
     push_block_holidays(&mut html, agg);
-    push_block_tags(&mut html, agg);
-    push_block_popularity(&mut html, agg);
-    // 需給 (有効求人倍率) ブロックは 2026-07-22 再監査で撤去。県・全産業計の値は
-    // 職種の実勢と乖離し、提案に接続しない (AI 版 F-DEM 削除と整合)。
+    // 点3: 勤務地・通勤
     push_block_commute(&mut html, ctx);
 
-    // §3 次の一手 (結論エンジン流用)
-    push_section_next_steps(&mut html, agg, ctx);
+    // §3 コンサルタントが確認すること
+    push_section_confirmations(&mut html, agg, ctx);
 
-    // §4 よくある質問
-    push_section_faq(&mut html, agg);
+    // §4 提示内容の候補
+    push_section_candidates(&mut html, agg, ctx);
+
+    // §5 本体レポート参照
+    push_section_report_refs(&mut html);
 
     // フッター
     html.push_str(
@@ -139,7 +166,7 @@ pub(crate) fn render_survey_guide_page(
 // ============================================================
 
 fn push_section_position(html: &mut String, agg: &SurveyAggregation, company: &str) {
-    html.push_str("<h2>貴社の現在地</h2>\n");
+    html.push_str("<h3>給与 — 貴社の現在地</h3>\n");
 
     // 部分一致 (双方向) で企業を検索。複数ヒット時は掲載件数最多を採用。
     let hit = agg
@@ -342,90 +369,22 @@ fn push_block_holidays(html: &mut String, agg: &SurveyAggregation) {
                 r
             ));
         } else {
+            // 2026-07-27 顧客提示レビュー: 相関が弱いことを「無関係」「独立」と言い切らない。
+            // 線形相関が無いだけで非線形・交絡は否定できないため、確認できた範囲に留める。
             html.push_str(&format!(
-                "<p class=\"note\">※ 休日と給与の相関はほぼありません (r={:.2})。\
-                 「休日が多い求人は給与が低い」という関係はこの市場では確認できず、\
-                 休日と給与の同時訴求はデータ上矛盾しません。</p>\n",
+                "<p class=\"note\">※ 休日と給与の明確な線形関係は確認できませんでした (r={:.2})。\
+                 少なくとも「休日が多い求人は給与が低い」という単純な関係はこのデータでは見られず、\
+                 休日は給与とは別の観点の訴求材料として検討できます。</p>\n",
                 r
             ));
         }
     }
 }
 
-fn push_block_tags(html: &mut String, agg: &SurveyAggregation) {
-    // 件数 10 件以上・プラス側のタグ上位 3 件
-    let mut tags: Vec<_> = agg
-        .by_tag_salary
-        .iter()
-        .filter(|t| t.count >= 10 && t.diff_percent > 0.0)
-        .collect();
-    tags.sort_by(|a, b| b.diff_percent.partial_cmp(&a.diff_percent).unwrap_or(std::cmp::Ordering::Equal));
-    if tags.is_empty() {
-        return;
-    }
-    let list = tags
-        .iter()
-        .take(3)
-        .map(|t| {
-            format!(
-                "「{}」({} 件、市場平均比 +{:.0}%)",
-                escape_html(&t.tag),
-                format_number(t.count as i64),
-                t.diff_percent
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("、");
-
-    html.push_str("<h3>訴求ワード — 何を書いた求人が高給与側にいるか</h3>\n");
-    html.push_str(&format!("<p>給与が市場平均より高い側に分布するタグ: {}。</p>\n", list));
-    html.push_str(
-        "<div class=\"dakara\">→ <strong>だから:</strong> これらの語を掲げる求人ほど高給与側に\
-         分布しています (相関であり、書けば給与が上がるという因果ではありません)。給与とセットで\
-         「何ができるようになるか」を語るのが、この市場の高給与側の書き方の傾向とみられます。</div>\n",
-    );
-}
-
-fn push_block_popularity(html: &mut String, agg: &SurveyAggregation) {
-    let p = &agg.popularity;
-    if p.indeed_sp_total == 0 || (p.popular_count + p.super_popular_count) == 0 {
-        return;
-    }
-    html.push_str("<h3>人気表示 — 選ばれているカードの傾向</h3>\n");
-    html.push_str(&format!(
-        "<p>Indeed (SP) の表示で「人気」「超人気」が付いた求人は {} 件 (対象 {} 件中 {:.0}%)。</p>\n",
-        format_number((p.popular_count + p.super_popular_count) as i64),
-        format_number(p.indeed_sp_total as i64),
-        p.popular_ratio * 100.0,
-    ));
-    if let (Some(pm), Some(nm)) = (p.popular_salary_median, p.non_popular_salary_median) {
-        if p.popular_n_salary >= 5 && p.non_popular_n_salary >= 5 {
-            // 2026-07-17 逆証明で分岐追加: 差が僅少 (1万円未満) のとき
-            // 「物差しに使える」と書くと空回りする。差の有無で文言を切り替える。
-            let landing = if (pm - nm).abs() < 10_000 {
-                format!(
-                    "人気表示の有無で月給中央値に明確な差は見られません ({} vs {})。この市場では\
-                     人気が給与以外の要素 (仕事内容の伝え方・写真・条件の見せ方など) で決まっている\
-                     可能性があり、給与を上げる前に見せ方を検証する余地があるとみられます。",
-                    man_yen(pm),
-                    man_yen(nm),
-                )
-            } else {
-                format!(
-                    "人気表示つき求人の月給中央値は {}、なしは {}。人気表示は応募・閲覧の実績を\
-                     反映するとみられ、選ばれているカードの給与・条件の水準を測る物差しとして\
-                     使えます (人気表示の基準は媒体側の非公開ロジックです)。",
-                    man_yen(pm),
-                    man_yen(nm),
-                )
-            };
-            html.push_str(&format!(
-                "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
-                landing
-            ));
-        }
-    }
-}
+// push_block_tags (タグ別給与) / push_block_popularity (人気表示) は 2026-07-27 顧客提示
+// レビューで解説資料から撤去。タグ別給与は職種・雇用形態・経験要件の交絡を受け依頼企業への
+// 直接根拠にならず、人気表示は媒体側の非公開ロジックで打ち手を変えないため。いずれも本体
+// レポート側には残す。
 
 fn push_block_tightness(html: &mut String, ctx: Option<&InsightContext>) {
     let Some(c) = ctx else { return };
@@ -495,72 +454,112 @@ fn push_block_commute(html: &mut String, ctx: Option<&InsightContext>) {
 // §3 次の一手 (sp_report の結論エンジンを流用)
 // ============================================================
 
-fn push_section_next_steps(html: &mut String, agg: &SurveyAggregation, ctx: Option<&InsightContext>) {
-    let conclusions = build_conclusions(agg, ctx);
-    if conclusions.is_empty() {
-        return;
-    }
-    html.push_str("<h2>まとめ — このレポートから導ける判断材料</h2>\n<ol>\n");
-    for c in &conclusions {
-        html.push_str(&format!("<li>{}", c.sentence));
-        if let Some(o) = &c.outlook {
-            html.push_str(&format!("<br><span class=\"note\">{}</span>", o));
-        }
-        html.push_str("</li>\n");
-    }
-    html.push_str("</ol>\n");
+// ============================================================
+// 冒頭要約 / §3 確認事項 / §4 提示候補 / §5 参照 (2026-07-27 顧客提示レビュー再編)
+// ============================================================
+
+/// 冒頭要約 (keybox)。資料の読み方を示す短い1段落。数値は断定せず記述に留める。
+fn push_lead_summary(html: &mut String, agg: &SurveyAggregation, ctx: Option<&InsightContext>) {
+    let _ = (agg, ctx); // 決定版の要約は資料構成の説明に限定し、断定を避ける
     html.push_str(
-        "<p class=\"note\">いずれも応募数・採用を保証するものではなく、市場データから見た\
-         判断材料の提示です。仕事内容固有の条件 (出張の有無・試用期間の設計等) は市場データでは\
-         測れないため、応募実績と面談で検証する領域です。</p>\n",
+        "<div class=\"keybox\">本資料は、今回のレポートから確認できた「給与」「年間休日」\
+         「勤務地・通勤」の3点を、それぞれ事実・市場との比較・確認事項の順に整理したものです。\
+         記載はデータから言える範囲の傾向・可能性であり、各数値の詳細な分布は本体レポートを\
+         ご参照ください。</div>\n",
     );
 }
 
-// ============================================================
-// §4 よくある質問
-// ============================================================
-
-fn push_section_faq(html: &mut String, agg: &SurveyAggregation) {
-    // 勤務地最多の市区町村 (説明用)
-    let top_muni = agg
-        .by_municipality_salary
-        .iter()
-        .max_by_key(|m| m.count)
-        .map(|m| (m.name.clone(), m.count));
-
-    html.push_str("<h2>よくある質問</h2>\n<table>\n<tr><th>質問</th><th>回答</th></tr>\n");
-    let mut q1 = format!(
-        "いいえ。検索地で表示される市場全体 (周辺市を含む) の件数です。求人サイトは検索地の\
-         周辺求人もあわせて表示するため、「検索地で仕事を探す人に見えている市場」を写しています。"
-    );
-    if let Some((name, cnt)) = top_muni {
-        q1.push_str(&format!(
-            " 今回の勤務地の最多は {} ({} 件) でした。",
-            escape_html(&name),
-            format_number(cnt as i64)
-        ));
+/// §3 コンサルタントが確認すること。提案の前に依頼企業へ確認すべき問いを、
+/// データがある論点についてのみ列挙する (最大3項目)。
+fn push_section_confirmations(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    ctx: Option<&InsightContext>,
+) {
+    let mut items: Vec<String> = Vec::new();
+    // 給与: 上限側に幅があるとき、月収額の到達条件を先に確認する (断定的な反映提案はしない)。
+    let lo = median_of(&agg.salary_min_values);
+    let hi = median_of(&agg.salary_max_values);
+    if let (Some(lo), Some(hi)) = (lo, hi) {
+        if (hi - lo) as f64 / 10_000.0 >= 3.0 {
+            items.push(
+                "説明文や訴求文にある月収額が、どの条件で到達可能か (基本給か手当込みか、対象者・\
+                 保証の有無) を確認してください。保証可能な上限であれば、給与欄への反映を検討できます。"
+                    .to_string(),
+            );
+        }
     }
-    html.push_str(&format!(
-        "<tr><td>「{} 件」は検索地の市内だけの求人数?</td><td>{}</td></tr>\n",
-        format_number(agg.total_count as i64),
-        q1
-    ));
+    // 休日
+    if agg.jobbox.annual_holidays_values.len() >= 20 {
+        items.push(
+            "年間休日を求人の目立つ位置に、具体的な日数で掲載できるかを確認してください。".to_string(),
+        );
+    }
+    // 通勤
+    if let Some(c) = ctx {
+        if c.commute_inflow_total > 0 || c.commute_outflow_total > 0 {
+            items.push(
+                "実際の応募者が通勤時間の短さを重視しているかを、応募実績で確認してください。"
+                    .to_string(),
+            );
+        }
+    }
+    if items.is_empty() {
+        return;
+    }
+    html.push_str("<h2>3. コンサルタントが確認すること</h2>\n<ol>\n");
+    for it in items.iter().take(3) {
+        html.push_str(&format!("<li>{}</li>\n", it));
+    }
+    html.push_str("</ol>\n");
+}
+
+/// §4 提示内容の候補。確認が取れた場合に求人票へ提示する候補を、
+/// データがある論点についてのみ列挙する (最大3項目)。
+fn push_section_candidates(
+    html: &mut String,
+    agg: &SurveyAggregation,
+    ctx: Option<&InsightContext>,
+) {
+    let mut items: Vec<&str> = Vec::new();
+    if median_of(&agg.salary_min_values).is_some() {
+        items.push("給与幅または月収例の正確な記載 (単一値表記の場合は上限・条件を併記)");
+    }
+    if agg.jobbox.annual_holidays_values.len() >= 20 {
+        items.push("年間休日の具体的な日数");
+    }
+    if let Some(c) = ctx {
+        if c.commute_inflow_total > 0 || c.commute_outflow_total > 0 {
+            items.push("勤務地・通勤負担に関する訴求");
+        }
+    }
+    if items.is_empty() {
+        return;
+    }
+    html.push_str("<h2>4. 提示内容の候補</h2>\n<ol>\n");
+    for it in items.iter().take(3) {
+        html.push_str(&format!("<li>{}</li>\n", it));
+    }
+    html.push_str("</ol>\n");
     html.push_str(
-        "<tr><td>中央値と平均値はどちらを見ればよい?</td>\
-         <td>まず中央値をおすすめします。平均値は一部の高額求人に引っ張られて高く出ることが\
-         あります。両者が大きく離れている場合は分布に偏りがあるサインです。</td></tr>\n",
+        "<p class=\"note\">上記は確認が取れた場合の提示候補であり、応募数・採用を保証するもの\
+         ではありません。仕事内容固有の条件は市場データでは測れないため、応募実績と面談で検証\
+         する領域です。</p>\n",
     );
+}
+
+/// §5 本体レポート参照。詳細な分布・内訳の誘導先を示す。
+fn push_section_report_refs(html: &mut String) {
+    html.push_str("<h2>5. 本体レポート参照</h2>\n");
     html.push_str(
-        "<tr><td>年間休日などの集計はすべての求人が対象?</td>\
-         <td>いいえ、求人票に記載があった分だけの集計です。記載がないことは\
-         「条件がない」ことを意味しません。</td></tr>\n",
+        "<p>各数値の分布・内訳は本体レポートの該当セクションでご確認ください。</p>\n\
+         <ul>\n\
+         <li>給与分布 (下限・上限・中間値)</li>\n\
+         <li>年間休日の分布</li>\n\
+         <li>通勤 OD (流入・流出の内訳)</li>\n\
+         <li>データ品質・除外条件 (集計対象と除外レコード)</li>\n\
+         </ul>\n",
     );
-    html.push_str(
-        "<tr><td>求人倍率などの公的統計はこの職種の値?</td>\
-         <td>県単位・産業計の参考値です。対象職種の実勢とは差がある可能性があるため、\
-         「市場の背景」としてお読みください。</td></tr>\n",
-    );
-    html.push_str("</table>\n");
 }
 
 // ============================================================
@@ -663,8 +662,9 @@ mod tests {
     #[test]
     fn guide_without_company_has_no_position_section() {
         let html = render_survey_guide_page(&rich_agg(), None, "大阪府", "富田林市", None);
-        assert!(!html.contains("貴社の現在地"), "company 未指定で §1 が出ている");
-        assert!(html.contains("市場の実像"), "§2 は常に出る");
+        assert!(!html.contains("貴社の現在地"), "company 未指定で貴社ブロックが出ている");
+        assert!(html.contains("今回確認できた3点"), "§2 は常に出る");
+        assert!(html.contains("この資料の前提"), "§1 前提は常に出る");
     }
 
     #[test]
@@ -733,6 +733,43 @@ mod tests {
         let html = render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
         assert!(html.contains("市外へ出ていく構造"));
         assert!(html.contains("河内長野市"));
+    }
+
+    #[test]
+    fn guide_tags_and_popularity_removed() {
+        // 2026-07-27 顧客提示レビュー: タグ別給与・人気表示は解説資料から撤去
+        let html =
+            render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
+        assert!(!html.contains("訴求ワード"), "タグ別給与ブロックは出ないはず");
+        assert!(!html.contains("人気表示"), "人気表示ブロックは出ないはず");
+    }
+
+    #[test]
+    fn guide_holiday_correlation_no_assertion() {
+        // 弱相関を「無関係」「独立」と言い切らず、線形関係の確認できなさに留める
+        let html = render_survey_guide_page(&rich_agg(), None, "大阪府", "富田林市", None);
+        assert!(html.contains("明確な線形関係は確認できませんでした"));
+        assert!(!html.contains("無関係"));
+    }
+
+    #[test]
+    fn guide_has_five_chapter_structure() {
+        let html = render_survey_guide_page(
+            &rich_agg(),
+            Some(&rich_ctx()),
+            "大阪府",
+            "富田林市",
+            Some("テスト工業"),
+        );
+        for h in [
+            "1. この資料の前提",
+            "2. 今回確認できた3点",
+            "3. コンサルタントが確認すること",
+            "4. 提示内容の候補",
+            "5. 本体レポート参照",
+        ] {
+            assert!(html.contains(h), "章 '{}' が無い", h);
+        }
     }
 
     #[test]
