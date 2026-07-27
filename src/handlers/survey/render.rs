@@ -853,7 +853,7 @@ fn render_action_bar(session_id: &str) -> String {
                        data-variant="guide"
                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-700 hover:bg-amber-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-amber-400"
                        aria-label="解説資料を新しいタブで開く"
-                       title="解説資料: レポートに添える読み解きガイド。市場の数字から言えることを「観測→だから」の形で整理します。企業名を入力すると、その企業の求人を市場分布に重ねた「貴社の現在地」も載ります。">
+                       title="解説資料: レポートに添える読み解きガイド。給与・年間休日・勤務地の3つの論点について「確認できた事実 → 比較 → 確認していただきたいこと」の順で整理します。">
                         <span class="text-base" aria-hidden="true">📖</span>
                         <span class="flex flex-col items-start leading-tight">
                             <span>解説資料を作成</span>
