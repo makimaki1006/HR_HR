@@ -362,7 +362,13 @@ fn render_mi_9b_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -
     // 流入元 TOP3 テーブル (構成比のみ。絶対値は出さない)
     let total = ctx.commute_inflow_total;
     if !ctx.commute_inflow_top3.is_empty() && total > 0 {
-        html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
+        html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;table-layout:fixed;width:100%;\">\n");
+        html.push_str(
+            "<colgroup>\
+             <col style=\"width:8%\"><col style=\"width:24%\">\
+             <col style=\"width:38%\"><col style=\"width:30%\">\
+             </colgroup>\n",
+        );
         html.push_str("<thead><tr><th>順位</th><th>都道府県</th><th>市区町村</th><th>流入構成比</th></tr></thead>\n<tbody>\n");
         for (i, (pref, muni, n)) in ctx.commute_inflow_top3.iter().enumerate() {
             let share = (*n as f64) / (total as f64) * 100.0;
@@ -598,7 +604,13 @@ fn render_mi_9d_scenario_intensity(
         wage_attractiveness_index,
     );
 
-    html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
+    html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;table-layout:fixed;width:100%;\">\n");
+    html.push_str(
+        "<colgroup>\
+         <col style=\"width:10%\"><col style=\"width:20%\">\
+         <col style=\"width:10%\"><col style=\"width:60%\">\
+         </colgroup>\n",
+    );
     html.push_str("<thead><tr><th>シナリオ</th><th>強弱 (推定)</th><th>指数</th><th>想定する進め方</th></tr></thead>\n<tbody>\n");
     for (name, idx, decision) in &[
         ("保守", cons, "既存経験者・近接地域を中心に、低リスクで掲載する前提。"),
