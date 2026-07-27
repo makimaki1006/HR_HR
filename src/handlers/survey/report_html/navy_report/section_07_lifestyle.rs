@@ -237,7 +237,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     ));
 
     // -- KPI row 5 cell
-    html.push_str("<div class=\"block-title\">図 7-1 &nbsp;生活コスト・通勤圏 主要 KPI</div>\n");
+    html.push_str("<div class=\"block-title\">図 7-1 &nbsp;生活コスト・通勤圏 主要指標</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
     let wage_val = latest_wage
         .map(|(_, w)| format!("{}", format_number(w)))
@@ -519,6 +519,12 @@ pub(crate) fn render_navy_section_07_lifestyle(
     if !rental_vs_salary.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 7-H &nbsp;家賃 m² 単価 (地域コスト指標)</div>\n");
         html.push_str(&rental_vs_salary);
+        // 2026-07-27 item32: 対象市区町村の家賃行が無く県集計にフォールバックした場合は明記。
+        if rental_is_pref_fallback(&ctx.muni, &ctx.ext_rental_housing) {
+            html.push_str(
+                "<p class=\"caption\">※ 対象市区町村単位の家賃データが無いため、都道府県集計値を表示しています。</p>\n",
+            );
+        }
     }
 
     // -- 図 7-3 最賃プレミアム率分布 (Phase 2-B H3, 2026-05-29)
@@ -546,11 +552,37 @@ pub(crate) fn render_navy_section_07_lifestyle(
             html.push_str(&format!(
                 "<p class=\"caption\">出典: CSV 集計 (時給 下限ネイティブ) + 厚労省地域別最低賃金 ({} 円/時)。\
                  プレミアム率 = (求人時給 - 最低賃金) / 最低賃金 × 100。\
-                 <strong>SO WHAT:</strong> プレミアム 10% 未満が多数なら最賃ライン求人が主流、\
+                 <strong>取るべき方針:</strong> プレミアム 10% 未満が多数なら最賃ライン求人が主流、\
                  25% 超の高プレミアム帯に偏れば等級・専門職求人の比重が高い兆候。</p>\n",
                 format_number(mw_yen)
             ));
         }
+    }
+
+    // -- 表 7-I 生活シミュレーション (単身/家族) (2026-07-27)
+    //   設計書 life_affordability_design.md の A案 (§07末尾統合) に基づく。
+    //   新規 DB 取得は行わず、表7-H で既に取得済みの ctx.ext_rental_housing と
+    //   median_min_salary (表7-E/F/H と同一値) のみを組み合わせて算出する。
+    let life_simulation =
+        build_navy_life_simulation_table(&ctx.ext_rental_housing, median_min_salary, agg.is_hourly);
+    if !life_simulation.is_empty() {
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 7-I &nbsp;生活シミュレーション (単身/家族)</div>\n",
+        );
+        html.push_str(&life_simulation);
+    }
+
+    // -- 表 7-J 世代適合の目安 (2026-07-27)
+    //   人口ピラミッド (ctx.ext_pyramid) から 0-14 歳人口比率のみ新規集計し、
+    //   単身世帯率 (表7-D)・保育所密度 (表7-G)・ネット利用率 (図7-1) は既存値を再利用する。
+    //   断定表現は使わず「確認できた事実/考えられること/まだ分からないこと/
+    //   コンサルタント確認事項」の4段階で提示する (MEMORY: feedback_neutral_expression_for_targets)。
+    let generation_fit = build_navy_generation_fit_block(ctx);
+    if !generation_fit.is_empty() {
+        html.push_str(
+            "<div class=\"block-title block-title-spaced\">表 7-J &nbsp;世代適合の目安</div>\n",
+        );
+        html.push_str(&generation_fit);
     }
 
     // -- so-what
@@ -564,13 +596,331 @@ pub(crate) fn render_navy_section_07_lifestyle(
     );
     html.push_str(&format!(
         "<div class=\"so-what\" style=\"margin-top:6mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what
     ));
 
     html.push_str("</section>\n");
+}
+
+// ============================================================
+// 2026-07-27: 表 7-I 生活シミュレーション (単身/家族) + 表 7-J 世代適合の目安
+//
+// 設計書 (life_affordability_design.md, A案: §07末尾への統合ブロック) に基づく実装。
+// 新規 DB 取得は行わず、既存 ctx フィールド (表7-D/7-G/7-H で既に取得済みの
+// ext_rental_housing / ext_households / ext_medical_welfare / ext_pyramid) と
+// 求人給与中央値 (median_min_salary、表7-E/F/H と同一値) のみを組み合わせて算出する。
+//
+// 手取り概算係数 (0.78 単身 / 0.80 家族) はいずれも簡易固定係数であり、
+// 実際の控除額 (社会保険料・所得税・住民税) は扶養人数・保険料率等により異なる
+// (キャプションで必須明記、断定しない)。
+// 想定居住面積 (単身 25m² / 家族 70m²) も同様に仮の目安値。
+//
+// 間取り (1R/1K 等) の実データは v2_external_rental_housing に存在しない
+// (設計書1章で確認済み: 当初は専有面積階級を想定していたが実データに無く
+//  2026-05-31 に m² 単価方式へ仕様変更した経緯がある、表7-H と同根の制約)。
+// 代わりに structure="共同住宅" を単身向け、structure="一戸建" を家族向けの
+// **代理指標** として採用する (断定せずキャプションで明記)。
+//
+// silent skip 方針 (MEMORY: feedback_silent_fallback_audit):
+// - median_min_salary <= 0 → 表7-I/7-J とも完全省略 (給与データが無ければ計算不能)
+// - ext_rental_housing が空、または該当 structure 行が見つからない →
+//   表7-I の家賃・残額セルのみ「取得不可」表示に留め、給与・手取り行は表示を継続する
+//   (家賃データ欠損で表全体を破綻させない)
+// ============================================================
+
+const NET_INCOME_RATIO_SINGLE: f64 = 0.78;
+const NET_INCOME_RATIO_FAMILY: f64 = 0.80;
+const ASSUMED_AREA_SINGLE_SQM: i64 = 25;
+const ASSUMED_AREA_FAMILY_SQM: i64 = 70;
+
+/// 対象地域 (全国レコード以外) から `structure` に一致する m² 単価を取得。
+/// 優先順: 対象地域×該当structure×area_class="総数" → 対象地域×該当structure(任意area_class)
+///        → 全国平均×該当structure。いずれも無ければ None。
+fn find_rental_rate_for_structure(
+    ext_rental_housing: &[std::collections::HashMap<String, serde_json::Value>],
+    structure_label: &str,
+) -> Option<i64> {
+    use super::super::super::super::helpers::{get_i64, get_str_ref};
+
+    let is_national = |r: &&std::collections::HashMap<String, serde_json::Value>| {
+        get_str_ref(r, "prefecture") == "全国" && get_str_ref(r, "municipality").is_empty()
+    };
+
+    if let Some(r) = ext_rental_housing.iter().find(|r| {
+        !is_national(r)
+            && get_str_ref(r, "structure") == structure_label
+            && get_str_ref(r, "area_class") == "総数"
+            && get_i64(r, "median_rent_jpy") > 0
+    }) {
+        return Some(get_i64(r, "median_rent_jpy"));
+    }
+    if let Some(r) = ext_rental_housing.iter().find(|r| {
+        !is_national(r)
+            && get_str_ref(r, "structure") == structure_label
+            && get_i64(r, "median_rent_jpy") > 0
+    }) {
+        return Some(get_i64(r, "median_rent_jpy"));
+    }
+    ext_rental_housing
+        .iter()
+        .find(|r| {
+            is_national(r)
+                && get_str_ref(r, "structure") == structure_label
+                && get_i64(r, "median_rent_jpy") > 0
+        })
+        .map(|r| get_i64(r, "median_rent_jpy"))
+}
+
+/// 表 7-I: 生活シミュレーション (単身/家族)。
+/// median_min_salary <= 0 なら空文字 (silent skip)。
+/// 家賃データが無い場合はその行の家賃・残額セルのみ「取得不可」表示に留める。
+fn build_navy_life_simulation_table(
+    ext_rental_housing: &[std::collections::HashMap<String, serde_json::Value>],
+    median_min_salary: i64,
+    is_hourly: bool,
+) -> String {
+    if median_min_salary <= 0 {
+        return String::new();
+    }
+    let monthly_salary: i64 = if is_hourly {
+        median_min_salary * super::super::super::aggregator::HOURLY_TO_MONTHLY_HOURS
+    } else {
+        median_min_salary
+    };
+    if monthly_salary <= 0 {
+        return String::new();
+    }
+
+    let single_rate = find_rental_rate_for_structure(ext_rental_housing, "共同住宅");
+    let family_rate = find_rental_rate_for_structure(ext_rental_housing, "一戸建");
+
+    let take_home_single = (monthly_salary as f64 * NET_INCOME_RATIO_SINGLE).round() as i64;
+    let take_home_family = (monthly_salary as f64 * NET_INCOME_RATIO_FAMILY).round() as i64;
+
+    let render_row = |label: &str,
+                       take_home: i64,
+                       rate: Option<i64>,
+                       area: i64,
+                       proxy_note: &str|
+     -> String {
+        match rate {
+            Some(r) if r > 0 => {
+                let rent = r * area;
+                let remainder = take_home - rent;
+                format!(
+                    "<tr><td><strong>{}</strong></td>\
+                     <td class=\"num bold\">{}</td>\
+                     <td class=\"num\">{}</td>\
+                     <td class=\"num\">{} <span class=\"dim\">({}円/m²&times;{}m²)</span></td>\
+                     <td class=\"num bold\">{}</td>\
+                     <td><span class=\"dim\">{}</span></td></tr>\n",
+                    label,
+                    format_number(monthly_salary),
+                    format_number(take_home),
+                    format_number(rent),
+                    format_number(r),
+                    area,
+                    format_number(remainder),
+                    proxy_note,
+                )
+            }
+            _ => format!(
+                "<tr><td><strong>{}</strong></td>\
+                 <td class=\"num bold\">{}</td>\
+                 <td class=\"num\">{}</td>\
+                 <td class=\"num dim\">取得不可</td>\
+                 <td class=\"num dim\">&mdash;</td>\
+                 <td><span class=\"dim\">{}</span></td></tr>\n",
+                label,
+                format_number(monthly_salary),
+                format_number(take_home),
+                proxy_note,
+            ),
+        }
+    };
+
+    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str(
+        "<th>パターン</th><th class=\"num\">求人給与 (月換算)</th>\
+         <th class=\"num\">手取り概算</th><th class=\"num\">家賃目安</th>\
+         <th class=\"num\">家賃差引後の残額</th><th>代理指標</th>",
+    );
+    s.push_str("</tr></thead>\n<tbody>\n");
+    s.push_str(&render_row(
+        "単身",
+        take_home_single,
+        single_rate,
+        ASSUMED_AREA_SINGLE_SQM,
+        "共同住宅 (1R/1K相当の代理指標)",
+    ));
+    s.push_str(&render_row(
+        "家族 (子育て世帯)",
+        take_home_family,
+        family_rate,
+        ASSUMED_AREA_FAMILY_SQM,
+        "一戸建 (2-3LDK相当の代理指標)",
+    ));
+    s.push_str("</tbody></table>\n");
+
+    s.push_str(&format!(
+        "<p class=\"caption\">出典: CSV 給与集計 (月給中央値、時給ベースは &times; 167h で換算) + \
+         総務省 e-Stat 住宅・土地統計調査 (v2_external_rental_housing、m² 単価)。\
+         <strong>手取り概算</strong> は額面 &times; {:.0}%(単身) / {:.0}%(家族) の簡易固定係数であり、\
+         実際の控除額 (社会保険料・所得税・住民税) は扶養人数や保険料率により異なります。\
+         正確な額面は給与明細でご確認ください。\
+         <strong>家賃目安</strong> は間取り別データが存在しないため、\
+         共同住宅 (単身向け) &times;{}m²(1R/1K相当) / 一戸建 (家族向け) &times;{}m²(2-3LDK相当) の\
+         想定面積による概算であり、実物件家賃とは異なります。\
+         家賃データが取得できない場合は「取得不可」と表示し、その行の残額計算は行いません。\
+         本表は家賃を差し引いた後の概算であり、食費・光熱費等の生活費は含まないため、\
+         可処分所得全体を示すものではありません (詳細は表7-A/7-Fの家計支出をご参照ください)。</p>\n",
+        NET_INCOME_RATIO_SINGLE * 100.0,
+        NET_INCOME_RATIO_FAMILY * 100.0,
+        ASSUMED_AREA_SINGLE_SQM,
+        ASSUMED_AREA_FAMILY_SQM,
+    ));
+    s
+}
+
+/// 表 7-J: 世代適合の目安。
+///
+/// 4段階表現 (断定禁止、MEMORY: feedback_neutral_expression_for_targets 準拠):
+/// 確認できた事実 → この情報から考えられること → まだ分からないこと →
+/// コンサルタント確認事項、の順で1セットとして必ず提示する。
+///
+/// 使用データ (すべて既存 ctx から取得済み、新規 DB 取得は 0-14 歳人口比率の
+/// 集計のみ。ctx.ext_pyramid 自体は表6-2 で既に取得済みのデータを再利用):
+/// - 単身世帯率 (表7-D と同一ソース: ctx.ext_households)
+/// - ネット利用率 (図7-1 と同一ソース: ctx.ext_internet_usage)
+/// - 0-14歳人口比率 (ctx.ext_pyramid の新規集計、age_group_lower_bound で判定)
+/// - 保育所密度 (表7-G と同一ソース: ctx.ext_medical_welfare)
+///
+/// すべてのデータが欠損している場合は空文字を返す (silent skip)。
+fn build_navy_generation_fit_block(ctx: &InsightContext) -> String {
+    use super::super::super::super::helpers::{age_group_lower_bound, get_f64, get_i64, get_str_ref};
+
+    // -- 0-14 歳人口比率 (新規集計。ctx.ext_pyramid の再利用、新規 DB 取得なし)
+    let bands: Vec<(i32, i64, i64)> = ctx
+        .ext_pyramid
+        .iter()
+        .map(|r| {
+            (
+                age_group_lower_bound(get_str_ref(r, "age_group")),
+                get_i64(r, "male_count"),
+                get_i64(r, "female_count"),
+            )
+        })
+        .collect();
+    let total_pop: i64 = bands.iter().map(|(_, m, f)| m + f).sum();
+    let young_pop: i64 = bands
+        .iter()
+        .filter(|(lo, _, _)| *lo >= 0 && *lo < 15)
+        .map(|(_, m, f)| m + f)
+        .sum();
+    let young_pct: Option<f64> = if total_pop > 0 {
+        Some(young_pop as f64 / total_pop as f64 * 100.0)
+    } else {
+        None
+    };
+
+    // -- 単身世帯率 (表7-D と同一ソース)
+    let single_rate = ctx
+        .ext_households
+        .first()
+        .map(|r| get_f64(r, "single_rate"))
+        .filter(|v| *v > 0.0);
+    let pref_avg_single = ctx.pref_avg_single_rate;
+
+    // -- ネット利用率 (図7-1 と同一ソース)
+    let internet_rate = ctx
+        .ext_internet_usage
+        .first()
+        .map(|r| get_f64(r, "internet_usage_rate"))
+        .filter(|v| *v > 0.0);
+
+    // -- 保育所密度 (表7-G と同一ソース)
+    let daycare_per_1k = ctx
+        .ext_medical_welfare
+        .first()
+        .map(|r| get_f64(r, "daycare_per_1k_children_0_14"))
+        .filter(|v| *v > 0.0);
+    let pref_avg_daycare = ctx.pref_avg_daycare_per_1k_children;
+
+    // すべて欠損なら silent skip (MEMORY: feedback_silent_fallback_audit)
+    if single_rate.is_none()
+        && internet_rate.is_none()
+        && young_pct.is_none()
+        && daycare_per_1k.is_none()
+    {
+        return String::new();
+    }
+
+    let mut s = String::new();
+
+    // -- カード1: 単身世代
+    let mut body1 = String::new();
+    body1.push_str("<strong>確認できた事実:</strong> ");
+    match (single_rate, pref_avg_single) {
+        (Some(sr), Some(p)) => {
+            body1.push_str(&format!("単身世帯率 {:.1}%(県平均 {:.1}%)。", sr, p))
+        }
+        (Some(sr), None) => body1.push_str(&format!("単身世帯率 {:.1}%。", sr)),
+        (None, _) => body1.push_str("単身世帯率データは未取得。"),
+    }
+    match internet_rate {
+        Some(r) => body1.push_str(&format!(" ネット利用率 {:.1}%。", r)),
+        None => body1.push_str(" ネット利用率データは未取得。"),
+    }
+    body1.push_str(
+        "<br><strong>この情報から考えられること:</strong> \
+         単身世帯率やネット利用率が県平均を上回る場合、単身の若年層への訴求 \
+         (オンライン媒体経由の応募等) が比較的届きやすい地域である可能性があります。\
+         <br><strong>まだ分からないこと:</strong> \
+         実際の年代構成・通勤時間・余暇環境等、本データに含まれない要因が \
+         採用のしやすさに影響します。\
+         <br><strong>コンサルタント確認事項:</strong> \
+         表7-B(通勤圏サマリ)・図7-1(ネット利用率)と併せて確認し、\
+         訴求文言への反映は個別に判断してください。",
+    );
+    s.push_str("<div class=\"so-what\" style=\"margin-top:4mm;\">\n");
+    s.push_str("<div class=\"sw-label\">世代適合の目安 (単身層)</div>\n");
+    s.push_str(&format!("<div class=\"sw-body\">{}</div>\n", body1));
+    s.push_str("</div>\n");
+
+    // -- カード2: 子育て世帯
+    let mut body2 = String::new();
+    body2.push_str("<strong>確認できた事実:</strong> ");
+    match young_pct {
+        Some(y) => body2.push_str(&format!("0-14歳人口比率 {:.1}%。", y)),
+        None => body2.push_str("0-14歳人口比率データは未取得。"),
+    }
+    match (daycare_per_1k, pref_avg_daycare) {
+        (Some(d), Some(p)) => body2.push_str(&format!(
+            " 保育所密度 {:.1} 施設/千人(0-14歳)(県平均 {:.1})。",
+            d, p
+        )),
+        (Some(d), None) => body2.push_str(&format!(" 保育所密度 {:.1} 施設/千人(0-14歳)。", d)),
+        (None, _) => body2.push_str(" 保育所密度データは未取得。"),
+    }
+    body2.push_str(
+        "<br><strong>この情報から考えられること:</strong> \
+         0-14歳人口比率や保育所密度が県平均を上回る場合、子育てインフラの厚みが \
+         子育て世帯への訴求材料になる可能性があります。\
+         <br><strong>まだ分からないこと:</strong> \
+         保育所の空き状況・入所しやすさ・待機児童数等は本データに含まれません \
+         (施設数のみに基づく指標です)。\
+         <br><strong>コンサルタント確認事項:</strong> \
+         実際の入所可否・自治体の最新の子育て支援情報は別途確認が必要です。",
+    );
+    s.push_str("<div class=\"so-what\" style=\"margin-top:3mm;\">\n");
+    s.push_str("<div class=\"sw-label\">世代適合の目安 (子育て世帯)</div>\n");
+    s.push_str(&format!("<div class=\"sw-body\">{}</div>\n", body2));
+    s.push_str("</div>\n");
+
+    s
 }
 
 // 2026-05-23 #227: 最低賃金 vs 求人給与 比較 (Section 07 拡張)
@@ -1296,6 +1646,22 @@ fn build_lifestyle_so_what(
 // - 抽出可能な (建て方, 構造, m²単価) 行が 0 件 → ""
 //
 // 戻り値: HTML 文字列 (テーブル + caption)。データ不足時は空文字。
+/// 表 7-H の家賃データが市区町村フォールバック (= 県集計) かを判定する。
+///
+/// 2026-07-27 item32: `fetch_rental_housing` は muni 指定時、当該市区町村行が無ければ
+/// 県集計行 (municipality 空) + 全国行だけを返す。muni を指定したのに市区町村行が
+/// 1 つも無い (= 全行の municipality が空) 場合に true を返し、呼出側で「県集計値」注記を出す。
+fn rental_is_pref_fallback(
+    target_muni: &str,
+    rows: &[std::collections::HashMap<String, serde_json::Value>],
+) -> bool {
+    use super::super::super::super::helpers::get_str_ref;
+    !target_muni.trim().is_empty()
+        && !rows
+            .iter()
+            .any(|r| !get_str_ref(r, "municipality").trim().is_empty())
+}
+
 fn build_navy_rental_vs_salary_table(
     ext_rental_housing: &[std::collections::HashMap<String, serde_json::Value>],
     median_min_salary: i64,
@@ -1437,9 +1803,21 @@ fn build_navy_rental_vs_salary_table(
     // 想定 50m² (1LDK 相当) の月家賃換算定数
     const ASSUMED_AREA_SQM: i64 = 50;
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-27 item28: 7 列が幅を超えヘッダ文字が表タイトルと重なる問題への対策。
+    //   table-layout:fixed + colgroup + font-size 圧縮で各列幅を明示し折返しを収める。
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;font-size:9pt;\">\n\
+         <colgroup>\
+         <col style=\"width:12%\"><col style=\"width:10%\"><col style=\"width:15%\">\
+         <col style=\"width:13%\"><col style=\"width:18%\"><col style=\"width:15%\">\
+         <col style=\"width:17%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str(
-        "<th>建て方</th>         <th>構造</th>         <th class=\"num\">m² 単価 (円/m²)</th>         <th class=\"num\">全国平均比</th>         <th class=\"num\">想定 50m² 月家賃 (円)</th>         <th class=\"num\">月給カバー率</th>         <th>判定</th>",
+        "<th>建て方</th><th>構造</th><th class=\"num\">m² 単価 (円/m²)</th>\
+         <th class=\"num\">全国平均比</th><th class=\"num\">想定 50m² 月家賃 (円)</th>\
+         <th class=\"num\">月給カバー率</th><th>判定</th>",
     );
     s.push_str("</tr></thead>\n<tbody>\n");
 
@@ -1744,9 +2122,45 @@ pub(crate) fn label_for_column(key: &str) -> &str {
 //
 #[cfg(test)]
 mod rental_tests {
-    use super::build_navy_rental_vs_salary_table;
+    use super::{build_navy_rental_vs_salary_table, rental_is_pref_fallback};
     use serde_json::{json, Value};
     use std::collections::HashMap;
+
+    // 2026-07-27 item32: 市区町村の家賃行がある場合はフォールバック注記を出さない。
+    #[test]
+    fn pref_fallback_false_when_muni_rows_present() {
+        // make_row は municipality="新宿区" (非空) を持つ = 市区町村行あり。
+        let rows = vec![make_row("総数", "総数", 3000)];
+        assert!(
+            !rental_is_pref_fallback("新宿区", &rows),
+            "市区町村行があればフォールバックではない"
+        );
+    }
+
+    // 市区町村を指定したのに市区町村行が無い (全行 municipality 空) → 県集計フォールバック。
+    #[test]
+    fn pref_fallback_true_when_only_pref_and_national_rows() {
+        // 県集計行 (municipality="") + 全国行 (municipality="") のみ。
+        let mut pref_agg = make_row("総数", "総数", 2500);
+        pref_agg.insert("municipality".to_string(), json!(""));
+        let rows = vec![pref_agg, make_national_row("総数", "総数", 2600)];
+        assert!(
+            rental_is_pref_fallback("新宿区", &rows),
+            "市区町村行が無ければ県集計フォールバックと判定"
+        );
+    }
+
+    // muni 未指定 (target_muni 空) の場合はフォールバック注記を出さない。
+    #[test]
+    fn pref_fallback_false_when_no_target_muni() {
+        let mut pref_agg = make_row("総数", "総数", 2500);
+        pref_agg.insert("municipality".to_string(), json!(""));
+        let rows = vec![pref_agg];
+        assert!(
+            !rental_is_pref_fallback("", &rows),
+            "muni 未指定なら注記は出さない"
+        );
+    }
 
     /// 対象地域 (東京都新宿区) の m² 単価レコードを生成。
     /// structure = 建て方 (一戸建/共同住宅/総数 等)
@@ -2232,5 +2646,232 @@ mod lifestyle_tests {
         //   (英語のまま表示されるが、開発時に検出できる設計)。panic しないこと。
         let key = "totally_unknown_column_xyz";
         assert_eq!(label_for_column(key), key, "未登録キーは原文フォールバック");
+    }
+}
+
+// ============================================================
+// 2026-07-27: 表 7-I 生活シミュレーション + 表 7-J 世代適合の目安 ユニットテスト
+//   (life_affordability_design.md A案 実装)
+//   検証対象: 積算式の検算 (給与→手取り→残額)、家賃データ欠損時の非破綻、
+//            0-14 歳人口比率の新規集計、silent skip 境界。
+// ============================================================
+#[cfg(test)]
+mod life_simulation_tests {
+    use super::{
+        build_navy_generation_fit_block, build_navy_life_simulation_table,
+        find_rental_rate_for_structure, NET_INCOME_RATIO_FAMILY, NET_INCOME_RATIO_SINGLE,
+    };
+    use super::super::super::super::super::insight::fetch::InsightContext;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn make_rental_row(
+        prefecture: &str,
+        municipality: &str,
+        structure: &str,
+        area_class: &str,
+        rate: i64,
+    ) -> HashMap<String, serde_json::Value> {
+        let mut m = HashMap::new();
+        m.insert("prefecture".to_string(), json!(prefecture));
+        m.insert("municipality".to_string(), json!(municipality));
+        m.insert("structure".to_string(), json!(structure));
+        m.insert("area_class".to_string(), json!(area_class));
+        m.insert("median_rent_jpy".to_string(), json!(rate));
+        m.insert("as_of".to_string(), json!("2023"));
+        m
+    }
+
+    // ---- 積算式の検算 (給与 → 手取り → 家賃 → 残額) ----
+
+    #[test]
+    fn life_simulation_calculates_take_home_and_remainder_correctly() {
+        // 月給 300,000円、共同住宅 2,000円/m²、一戸建 1,500円/m² のケースで
+        // 各ステップの数値を手計算し、一致することを検算する。
+        let rows = vec![
+            make_rental_row("東京都", "新宿区", "共同住宅", "総数", 2_000),
+            make_rental_row("東京都", "新宿区", "一戸建", "総数", 1_500),
+        ];
+        let html = build_navy_life_simulation_table(&rows, 300_000, false);
+        assert!(!html.is_empty(), "データありなら HTML 生成されるべき");
+
+        // 単身: 手取り = 300,000 × 0.78 = 234,000
+        let expected_take_home_single = (300_000_f64 * NET_INCOME_RATIO_SINGLE).round() as i64;
+        assert_eq!(expected_take_home_single, 234_000);
+        assert!(
+            html.contains("234,000"),
+            "単身の手取り概算 234,000 円が表示されるべき: {}",
+            html
+        );
+        // 単身: 家賃 = 2,000円/m² × 25m² = 50,000円 → 残額 = 234,000 - 50,000 = 184,000
+        assert!(
+            html.contains("50,000"),
+            "単身の家賃目安 50,000 円 (2,000×25) が表示されるべき: {}",
+            html
+        );
+        assert!(
+            html.contains("184,000"),
+            "単身の残額 184,000 円 (234,000-50,000) が表示されるべき: {}",
+            html
+        );
+
+        // 家族: 手取り = 300,000 × 0.80 = 240,000
+        let expected_take_home_family = (300_000_f64 * NET_INCOME_RATIO_FAMILY).round() as i64;
+        assert_eq!(expected_take_home_family, 240_000);
+        assert!(
+            html.contains("240,000"),
+            "家族の手取り概算 240,000 円が表示されるべき: {}",
+            html
+        );
+        // 家族: 家賃 = 1,500円/m² × 70m² = 105,000円 → 残額 = 240,000 - 105,000 = 135,000
+        assert!(
+            html.contains("105,000"),
+            "家族の家賃目安 105,000 円 (1,500×70) が表示されるべき: {}",
+            html
+        );
+        assert!(
+            html.contains("135,000"),
+            "家族の残額 135,000 円 (240,000-105,000) が表示されるべき: {}",
+            html
+        );
+    }
+
+    #[test]
+    fn life_simulation_hourly_mode_converts_to_monthly_before_calculating() {
+        // 時給 1,800円 → 月給換算 1,800×167h = 300,600円 を基準に手取り・残額が計算される
+        let rows = vec![make_rental_row("東京都", "新宿区", "共同住宅", "総数", 2_000)];
+        let html = build_navy_life_simulation_table(&rows, 1_800, true);
+        assert!(!html.is_empty());
+        // 月給換算値がそのまま「求人給与 (月換算)」列に出る
+        assert!(
+            html.contains("300,600"),
+            "時給1,800×167h=300,600円の月換算が表示されるべき: {}",
+            html
+        );
+    }
+
+    // ---- 家賃データ欠損時に破綻しない (silent skip / 部分省略) ----
+
+    #[test]
+    fn life_simulation_missing_rental_data_shows_unavailable_not_broken() {
+        // ext_rental_housing が完全に空でも panic せず、給与・手取りは表示し、
+        // 家賃・残額のみ「取得不可」に留める (表全体を破綻させない)。
+        let rows: Vec<HashMap<String, serde_json::Value>> = vec![];
+        let html = build_navy_life_simulation_table(&rows, 300_000, false);
+        assert!(!html.is_empty(), "家賃データが無くても給与行は表示されるべき");
+        assert!(
+            html.contains("取得不可"),
+            "家賃データ欠損時は「取得不可」と明示すべき: {}",
+            html
+        );
+        // 負の残額や不正な数値文字列を出していないこと (破綻防止の逆証明)
+        assert!(!html.contains("NaN"), "NaN を出してはならない: {}", html);
+        assert!(!html.contains("panic"), "panic 文字列を出力してはならない");
+    }
+
+    #[test]
+    fn life_simulation_zero_salary_returns_empty_string() {
+        // 境界: median_min_salary <= 0 は計算不能のため完全 silent skip
+        let rows = vec![make_rental_row("東京都", "新宿区", "共同住宅", "総数", 2_000)];
+        assert!(build_navy_life_simulation_table(&rows, 0, false).is_empty());
+        assert!(build_navy_life_simulation_table(&rows, -500, false).is_empty());
+    }
+
+    // ---- find_rental_rate_for_structure: 優先順位 (対象地域 → 全国フォールバック) ----
+
+    #[test]
+    fn find_rental_rate_prefers_target_region_over_national() {
+        let rows = vec![
+            make_rental_row("全国", "", "共同住宅", "総数", 1_000),
+            make_rental_row("東京都", "新宿区", "共同住宅", "総数", 3_000),
+        ];
+        assert_eq!(
+            find_rental_rate_for_structure(&rows, "共同住宅"),
+            Some(3_000),
+            "対象地域の値を優先すべき"
+        );
+    }
+
+    #[test]
+    fn find_rental_rate_falls_back_to_national_when_target_missing() {
+        let rows = vec![make_rental_row("全国", "", "共同住宅", "総数", 1_000)];
+        assert_eq!(
+            find_rental_rate_for_structure(&rows, "共同住宅"),
+            Some(1_000),
+            "対象地域データが無ければ全国平均にフォールバックすべき"
+        );
+    }
+
+    #[test]
+    fn find_rental_rate_returns_none_when_structure_not_found() {
+        let rows = vec![make_rental_row("東京都", "新宿区", "一戸建", "総数", 1_500)];
+        assert_eq!(
+            find_rental_rate_for_structure(&rows, "共同住宅"),
+            None,
+            "該当 structure が無ければ None"
+        );
+    }
+
+    // ---- build_navy_generation_fit_block: 4段階表現 + 0-14歳人口比率の新規集計 ----
+
+    fn make_pyramid_row(age_group: &str, male: i64, female: i64) -> HashMap<String, serde_json::Value> {
+        let mut m = HashMap::new();
+        m.insert("age_group".to_string(), json!(age_group));
+        m.insert("male_count".to_string(), json!(male));
+        m.insert("female_count".to_string(), json!(female));
+        m
+    }
+
+    #[test]
+    fn generation_fit_computes_young_population_ratio_from_pyramid() {
+        // 0-14 歳 (0-4/5-9/10-14) = 100+100+100 = 300
+        // 15歳以上 (15-19/20-24/65+) = 200+300+200 = 700
+        // 総人口 = 300+700 = 1,000 → 0-14歳比率 = 300/1,000 = 30.0%
+        let ctx = InsightContext {
+            ext_pyramid: vec![
+                make_pyramid_row("0-4", 50, 50),
+                make_pyramid_row("5-9", 50, 50),
+                make_pyramid_row("10-14", 50, 50),
+                make_pyramid_row("15-19", 100, 100),
+                make_pyramid_row("20-24", 150, 150),
+                make_pyramid_row("65+", 100, 100),
+            ],
+            ..Default::default()
+        };
+        let html = build_navy_generation_fit_block(&ctx);
+        assert!(!html.is_empty(), "ピラミッドデータがあれば HTML 生成されるべき");
+        assert!(
+            html.contains("30.0%"),
+            "0-14歳人口比率 30.0% (300/1000) が表示されるべき: {}",
+            html
+        );
+        // 4段階表現がすべて含まれること (断定語禁止の逆証明)
+        assert!(html.contains("確認できた事実"));
+        assert!(html.contains("この情報から考えられること"));
+        assert!(html.contains("まだ分からないこと"));
+        assert!(html.contains("コンサルタント確認事項"));
+    }
+
+    #[test]
+    fn generation_fit_no_assertive_language() {
+        // 断定語 ("に向いています" 「最適です」等) を使っていないことの逆証明
+        let ctx = InsightContext {
+            ext_pyramid: vec![make_pyramid_row("0-4", 100, 100)],
+            ..Default::default()
+        };
+        let html = build_navy_generation_fit_block(&ctx);
+        assert!(!html.contains("向いています"));
+        assert!(!html.contains("最適です"));
+        assert!(!html.contains("おすすめです"));
+    }
+
+    #[test]
+    fn generation_fit_all_missing_returns_empty_silent_skip() {
+        // すべてのデータソースが空の場合は silent skip (空文字)
+        let ctx = InsightContext::default();
+        assert!(
+            build_navy_generation_fit_block(&ctx).is_empty(),
+            "全データ欠損時は空文字を返すべき"
+        );
     }
 }
