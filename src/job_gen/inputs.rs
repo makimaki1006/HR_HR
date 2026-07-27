@@ -10,6 +10,9 @@
 //!   ユニットテスト可能にする。ライブ HTTP(URL 取得)だけが async。
 
 use crate::job_gen::inputs::calamine_shim::Data;
+// 媒体(Indeed/求人ボックス等)CSVは機械名ヘッダ(css-*)やタグ列が先行するため、
+// 汎用パーサでは求人名・本文が壊れる。媒体形式の判定と解釈は本番の媒体分析パーサに委譲する。
+use crate::handlers::survey::upload as survey_upload;
 use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -103,12 +106,22 @@ pub async fn normalize(
             let t = text.ok_or_else(|| anyhow!("csv: text(CSV本文)が必要です"))?;
             ensure_text_size(&t, "CSV")?;
             let rows = parse_csv(&t)?;
+            // 媒体(Indeed等)形式は専用パーサに委譲。汎用パーサだと機械名ヘッダ(css-*)や
+            // タグ列を求人名・本文に取り込むため、ヘッダで判別して経路を分ける。
+            if rows.first().map(|h| is_media_csv(h)).unwrap_or(false) {
+                return media_bytes_to_jobs(t.as_bytes());
+            }
             Ok(rows_to_jobs(rows))
         }
         InputKind::Excel => {
             let b64 = data_base64.ok_or_else(|| anyhow!("excel: data_base64 が必要です"))?;
             let bytes = decode_b64(&b64)?;
             let rows = parse_xlsx(&bytes)?;
+            // Excel も CSV と同じ判定に揃える。媒体形式なら CSV に直して同じ専用パーサへ通す。
+            if rows.first().map(|h| is_media_csv(h)).unwrap_or(false) {
+                let csv_bytes = rows_to_csv_bytes(&rows)?;
+                return media_bytes_to_jobs(&csv_bytes);
+            }
             Ok(rows_to_jobs(rows))
         }
         InputKind::Pdf => {
@@ -588,6 +601,80 @@ fn rows_to_jobs(rows: Vec<Vec<String>>) -> Vec<NormalizedJob> {
     jobs
 }
 
+// ─────────────────── 媒体(Indeed/求人ボックス等)CSV の委譲 ───────────────────
+
+/// ヘッダが媒体(Indeed/求人ボックス等)形式かを判定する。
+///
+/// 汎用CSV(`CsvSource::Unknown`)は従来の [`rows_to_jobs`] に流し、それ以外は
+/// 本番の媒体分析パーサに委譲する。判定ロジックは媒体分析タブと同一にするため、
+/// 独自実装せず [`survey_upload::detect_csv_source`] をそのまま使う。
+fn is_media_csv(header: &[String]) -> bool {
+    !matches!(
+        survey_upload::detect_csv_source(header),
+        survey_upload::CsvSource::Unknown
+    )
+}
+
+/// 媒体CSVのバイト列を専用パーサ([`survey_upload::parse_csv_bytes`])で解釈し、
+/// 各 `SurveyRecord` を求人原文([`NormalizedJob`])に整形する。
+///
+/// エンコーディング検出・列マッピング・雇用形態正規化・行重複排除は専用パーサ側で
+/// 済むため、ここでは組み立てのみ行う。`context_pref` は求人票生成では文脈都道府県を
+/// 持たないため `None`(勤務地の県補完は不要)。
+fn media_bytes_to_jobs(csv_bytes: &[u8]) -> Result<Vec<NormalizedJob>> {
+    let records = survey_upload::parse_csv_bytes(csv_bytes, None)
+        .map_err(|e| anyhow!("媒体CSVの解析に失敗しました: {e}"))?;
+    Ok(records.iter().map(survey_record_to_job).collect())
+}
+
+/// `SurveyRecord` 1件を求人原文に整形する。
+///
+/// - `title_hint`: 求人名(空なら会社名)。機械名ヘッダやタグは使わない。
+/// - `source_text`: 実データのある項目だけを「ラベル: 値」で連ねる。列名(css-*)・URL・
+///   空欄は含めない(後段の事実抽出はこの原文しか見ないため、ノイズを持ち込まない)。
+fn survey_record_to_job(rec: &survey_upload::SurveyRecord) -> NormalizedJob {
+    let title_src = if rec.job_title.trim().is_empty() {
+        rec.company_name.trim()
+    } else {
+        rec.job_title.trim()
+    };
+    let title_hint = truncate_chars(title_src, HINT_MAX_CHARS);
+
+    // 求人票として自然な順(職種→会社→勤務地→給与→雇用形態→仕事内容→訴求)。
+    let fields: [(&str, &str); 7] = [
+        ("職種", rec.job_title.trim()),
+        ("会社名", rec.company_name.trim()),
+        ("勤務地", rec.location_raw.trim()),
+        ("給与", rec.salary_raw.trim()),
+        ("雇用形態", rec.employment_type.trim()),
+        ("仕事内容", rec.description.trim()),
+        ("訴求ポイント", rec.snippet.trim()),
+    ];
+    let source_text = fields
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(label, v)| format!("{label}: {v}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    NormalizedJob {
+        title_hint,
+        source_text,
+    }
+}
+
+/// 行列を CSV バイト列へ直す(Excel を媒体パーサへ委譲する際の橋渡し)。
+/// クォート処理は `csv` クレートに任せ、媒体パーサへ渡す入力を汎用CSVと同形にする。
+fn rows_to_csv_bytes(rows: &[Vec<String>]) -> Result<Vec<u8>> {
+    let mut wtr = csv::WriterBuilder::new().from_writer(Vec::new());
+    for row in rows {
+        wtr.write_record(row)
+            .map_err(|e| anyhow!("Excel を CSV に変換できませんでした: {e}"))?;
+    }
+    wtr.into_inner()
+        .map_err(|e| anyhow!("Excel を CSV に変換できませんでした: {e}"))
+}
+
 /// 「職種」「案件名」等それらしいヘッダ列の位置を返す。
 fn find_title_col(header: &[String]) -> Option<usize> {
     const JP_KEYS: [&str; 6] = ["職種", "案件名", "求人名", "募集職種", "タイトル", "職種名"];
@@ -705,6 +792,46 @@ mod tests {
         assert!(jobs[0].source_text.contains("職種: 介護スタッフ"));
         assert!(jobs[0].source_text.contains("給与: 25万円"));
         assert!(jobs[0].source_text.contains("勤務地: 東京"));
+    }
+
+    #[test]
+    fn csv_indeed_sp形式は媒体パーサに委譲されタグでなく求人名になる() {
+        // Indeed SP スクレイピングCSVの最小再現: 機械名ヘッダ(css-*)+タグ列が先行し、
+        // 求人名(css-bxyec3)は3列目。汎用パーサだと先頭値やタグを求人名に拾うが、
+        // 媒体パーサ委譲で求人名を正しく取り、本文に css-* が混入しないことを検証する。
+        let header = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-lx9x6g,css-14qk2ra,\
+            css-18rxko3,css-18rxko3 (2),jobsearch-JobCard-tag,css-1vlebyu,css-u74ql7";
+        let row1 = "正社員,https://jp.indeed.com/rc/1,介護スタッフ,月収35万円以上も可能,\
+            株式会社ケア,東京都新宿区,月給25万円,交通費支給,訪問介護のお仕事です,人気";
+        let row2 = "正社員,https://jp.indeed.com/rc/2,看護師,賞与年2回,\
+            株式会社ヘルス,大阪府大阪市,月給30万円,夜勤あり,病棟での看護業務,超人気";
+        let csv = format!("{header}\n{row1}\n{row2}\n");
+
+        let rows = parse_csv(&csv).unwrap();
+        assert!(is_media_csv(&rows[0]), "Indeed SP と判定される");
+
+        let jobs = media_bytes_to_jobs(csv.as_bytes()).unwrap();
+        assert_eq!(jobs.len(), 2, "データ2行が2求人になる");
+
+        // 求人名はタグ(交通費支給)でも機械名でもなく css-bxyec3 の値。
+        assert_eq!(jobs[0].title_hint, "介護スタッフ");
+        assert_ne!(jobs[0].title_hint, "交通費支給");
+        assert_eq!(jobs[1].title_hint, "看護師");
+
+        // 原文に機械名ヘッダ・URL断片が入らない。
+        assert!(!jobs[0].source_text.contains("css-"), "css-* が混入しない: {:?}", jobs[0].source_text);
+        assert!(!jobs[0].source_text.contains("http"), "URL断片が混入しない: {:?}", jobs[0].source_text);
+        // ラベル付きで主要項目が入る。
+        assert!(jobs[0].source_text.contains("職種: 介護スタッフ"));
+        assert!(jobs[0].source_text.contains("会社名: 株式会社ケア"));
+        assert!(jobs[0].source_text.contains("給与: 月給25万円"));
+    }
+
+    #[test]
+    fn csv_汎用形式は従来の行パーサを使う() {
+        // css-* もソース固有ヘッダも無い汎用CSVは Unknown 判定で従来経路のまま。
+        let header = vec!["col1".to_string(), "col2".to_string()];
+        assert!(!is_media_csv(&header));
     }
 
     #[test]
