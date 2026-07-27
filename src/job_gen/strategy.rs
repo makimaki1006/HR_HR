@@ -39,6 +39,33 @@ fn constraints_block() -> String {
     )
 }
 
+/// 原文抜粋の上限文字数(知識シート上限と同じ流儀。プロンプト肥大を防ぐ)。
+pub const SOURCE_EXCERPT_LIMIT_CHARS: usize = 4000;
+
+/// 原文制約の引き継ぎブロックを組み立てる(コピー/画像/A/B助言の各 `build_*` に差し込む)。
+///
+/// 生成物が原文の禁止事項(例: ネイル禁止)や服装・勤務条件に反したり、原文に無い
+/// 勤務形態(短時間勤務可能など)を示唆したりするのを防ぐため、原文抜粋+制約文を注入する。
+/// `source_text` が空なら空文字を返す(注入しない)。抜粋は先頭 [`SOURCE_EXCERPT_LIMIT_CHARS`] 字。
+fn source_constraint_block(source_text: &str) -> String {
+    let trimmed = source_text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let excerpt: String = trimmed.chars().take(SOURCE_EXCERPT_LIMIT_CHARS).collect();
+    format!(
+        "# 求人原文(この求人の元情報。ここに書かれた制約を必ず守る)\n\
+{excerpt}\n\
+\n\
+# 原文制約(厳守)\n\
+- 原文に記載の禁止事項・服装/身だしなみ規定・勤務条件に反する内容を書かない\
+(例: 原文が「ネイル禁止」なら画像・コピーでネイルを描写・言及しない)。\n\
+- 原文にない勤務形態(短時間勤務可能・特定の時間帯だけ勤務可能 等)を示唆しない。\n\
+- 原文の勤務時間・シフトの意味を変えて解釈しない(割増時給の時間帯を勤務可能時間と誤読しない)。\n\
+\n"
+    )
+}
+
 /// JSON オブジェクトから文字列フィールドを安全に取り出す(欠落・非文字列→空文字)。
 fn str_field(v: &Value, key: &str) -> String {
     v.get(key)
@@ -217,7 +244,9 @@ pub fn personas_schema() -> Value {
 /// 工程④: 1ペルソナ向けキャッチコピー3案のプロンプト(純粋)。
 ///
 /// `persona` は工程③の1要素、`analysis` は工程②の出力。スタイルは [`COPY_STYLES`] 固定。
-pub fn build_copy_prompt(persona: &Value, analysis: &Value) -> String {
+/// `source_text` は求人原文(空文字可)。原文の禁止事項・勤務条件に反するコピーを防ぐため
+/// [`source_constraint_block`] を注入する。
+pub fn build_copy_prompt(persona: &Value, analysis: &Value, source_text: &str) -> String {
     let styles = COPY_STYLES
         .iter()
         .map(|s| format!("- {s}"))
@@ -239,12 +268,14 @@ pub fn build_copy_prompt(persona: &Value, analysis: &Value) -> String {
 # 求人分析(工程②の結果)\n\
 {analysis_text}\n\
 \n\
+{source_block}\
 {constraints}\
 - style はちょうど上記3種を1案ずつ使う(重複・欠落なし)。\n\
 - このペルソナ以外にも当てはまる汎用コピーは作らない。\n\
 - 出力は指定 JSON スキーマ(copies 配列、各要素 style/text)に厳密に従う。\n",
         persona_text = persona_to_text(persona),
         analysis_text = analysis_to_text(analysis),
+        source_block = source_constraint_block(source_text),
         constraints = constraints_block(),
     )
 }
@@ -277,7 +308,9 @@ pub fn copy_schema() -> Value {
 /// 工程⑤: 全ペルソナ分のアイキャッチ画像ディレクションのプロンプト(純粋)。
 ///
 /// `personas` は工程③の出力 JSON(`{"personas":[...]}` 形、または配列そのもの)。
-pub fn build_images_prompt(personas: &Value) -> String {
+/// `source_text` は求人原文(空文字可)。原文の身だしなみ規定・勤務条件に反する画像案
+/// (例: ネイル禁止の求人に「上品なネイル」)を防ぐため [`source_constraint_block`] を注入する。
+pub fn build_images_prompt(personas: &Value, source_text: &str) -> String {
     // {"personas":[...]} でも [...] でも受けられるようにする。
     let list = personas
         .get("personas")
@@ -317,8 +350,10 @@ pub fn build_images_prompt(personas: &Value) -> String {
 # ペルソナ一覧\n\
 {personas_text}\n\
 \n\
+{source_block}\
 {constraints}\
 - 出力は指定 JSON スキーマ(directions 配列、各要素 persona_label/direction)に厳密に従う。\n",
+        source_block = source_constraint_block(source_text),
         constraints = constraints_block(),
     )
 }
@@ -359,7 +394,7 @@ pub fn images_schema() -> Value {
 /// 出力プロンプトをラベル付きセクション構造で固定し、人数・服装・表情・視線・配置まで
 /// 数値と具体語で確定させる。曖昧語を禁止し、禁止事項を本文にも埋め込む
 /// (ネガティブプロンプト欄を持たない生成AIでも抑制が効くように)。
-pub fn build_image_prompts_prompt(directions: &Value, personas: &Value) -> String {
+pub fn build_image_prompts_prompt(directions: &Value, personas: &Value, source_text: &str) -> String {
     let list = directions
         .get("directions")
         .and_then(Value::as_array)
@@ -452,11 +487,13 @@ pub fn build_image_prompts_prompt(directions: &Value, personas: &Value) -> Strin
 # 画像ディレクション一覧\n\
 {directions_text}\n\
 \n\
+{source_block}\
 # 制約\n\
 - 元のディレクションの意図(誰に刺さる画か)を保つこと。勝手に別の場面へ変えない。\n\
 - ペルソナの人物像が提供されている場合、被写体・場面の決定はその不満・ペインの裏返しに接地させる。\n\
 - 実在の企業名・人名・ロゴ・商標は書かない。\n\
-- 出力は指定 JSON スキーマ(prompts 配列、各要素 persona_label/appeal_core/prompt/negative_prompt/aspect_ratio)に厳密に従う。\n"
+- 出力は指定 JSON スキーマ(prompts 配列、各要素 persona_label/appeal_core/prompt/negative_prompt/aspect_ratio)に厳密に従う。\n",
+        source_block = source_constraint_block(source_text),
     )
 }
 
@@ -546,7 +583,9 @@ pub fn mobile_schema() -> Value {
 /// 工程⑧: A/Bテスト実行への実務アドバイスのプロンプト(純粋)。
 ///
 /// `strategy_summary` はここまでの戦略成果物の要約(空文字可)。
-pub fn build_ab_prompt(strategy_summary: &str) -> String {
+/// `source_text` は求人原文(空文字可)。前工程でNG判定された表現や原文にない条件を
+/// A/B助言側で再使用しないよう [`source_constraint_block`] を注入する。
+pub fn build_ab_prompt(strategy_summary: &str, source_text: &str) -> String {
     let summary_block = if strategy_summary.trim().is_empty() {
         "(戦略要約は提供されていません。一般的な求人広告の検証手順として答えてください)".to_string()
     } else {
@@ -566,9 +605,11 @@ CTR(クリック率)・CVR(応募転換率)・CPA(応募単価)の追い方を�
 # 対象の戦略要約\n\
 {summary_block}\n\
 \n\
+{source_block}\
 {constraints}\
 - 抽象論(「PDCAを回す」等)で終わらせず、この求人で実行できる粒度にする。\n\
 - 出力は指定 JSON スキーマ(steps 配列、各要素 metric/action)に厳密に従う。\n",
+        source_block = source_constraint_block(source_text),
         constraints = constraints_block(),
     )
 }
@@ -668,7 +709,7 @@ mod tests {
 
     #[test]
     fn copy_prompt_has_three_styles_and_persona() {
-        let p = build_copy_prompt(&sample_persona(), &sample_analysis());
+        let p = build_copy_prompt(&sample_persona(), &sample_analysis(), "");
         assert_common_constraints(&p);
         // 3スタイル全てが列挙されている。
         for s in COPY_STYLES {
@@ -682,9 +723,21 @@ mod tests {
     }
 
     #[test]
+    fn copy_prompt_injects_source_constraints() {
+        // 原文を渡すと制約ブロックと原文抜粋が入る。
+        let p = build_copy_prompt(&sample_persona(), &sample_analysis(), "勤務中のネイル禁止。実働7.5時間。");
+        assert!(p.contains("原文制約(厳守)"), "{p}");
+        assert!(p.contains("勤務中のネイル禁止"), "{p}");
+        assert!(p.contains("勤務形態"), "{p}");
+        // 原文なしなら注入しない。
+        let p0 = build_copy_prompt(&sample_persona(), &sample_analysis(), "");
+        assert!(!p0.contains("原文制約(厳守)"), "{p0}");
+    }
+
+    #[test]
     fn images_prompt_accepts_wrapped_and_bare_personas() {
         let wrapped = json!({"personas": [sample_persona(), {"label": "ベテラン転職者"}]});
-        let p = build_images_prompt(&wrapped);
+        let p = build_images_prompt(&wrapped, "");
         assert_common_constraints(&p);
         assert!(p.contains("子育て中の元介護士"), "{p}");
         assert!(p.contains("ベテラン転職者"), "{p}");
@@ -694,13 +747,21 @@ mod tests {
 
         // 配列そのものを渡しても壊れない。
         let bare = json!([sample_persona()]);
-        let p2 = build_images_prompt(&bare);
+        let p2 = build_images_prompt(&bare, "");
         assert!(p2.contains("子育て中の元介護士"), "{p2}");
 
         // 空でも壊れない。
         let empty = json!({"personas": []});
-        let p3 = build_images_prompt(&empty);
+        let p3 = build_images_prompt(&empty, "");
         assert!(p3.contains("ペルソナが提供されていません"), "{p3}");
+    }
+
+    #[test]
+    fn images_prompt_injects_source_constraints() {
+        // 原文の身だしなみ規定が制約として入る(ネイル禁止 → 画像に描かせない)。
+        let p = build_images_prompt(&json!({"personas": [sample_persona()]}), "勤務中のネイル・アクセサリーは禁止");
+        assert!(p.contains("原文制約(厳守)"), "{p}");
+        assert!(p.contains("ネイル"), "{p}");
     }
 
     #[test]
@@ -710,7 +771,7 @@ mod tests {
             {"persona_label": "ベテラン転職者", "direction": "記録業務をタブレットで済ませる場面"},
         ]});
         let personas = json!({"personas": [sample_persona()]});
-        let p = build_image_prompts_prompt(&wrapped, &personas);
+        let p = build_image_prompts_prompt(&wrapped, &personas, "");
         // 元ディレクションとラベルが埋まっている。
         assert!(p.contains("子育て中の元介護士"), "{p}");
         assert!(p.contains("ベテラン転職者"), "{p}");
@@ -737,13 +798,18 @@ mod tests {
 
         // 配列そのもの+ペルソナなしでも壊れない。
         let bare = json!([{"persona_label": "A", "direction": "屋外で"}]);
-        let p2 = build_image_prompts_prompt(&bare, &Value::Null);
+        let p2 = build_image_prompts_prompt(&bare, &Value::Null, "");
         assert!(p2.contains("屋外で"), "{p2}");
 
         // 空でも壊れない。
         let empty = json!({"directions": []});
-        let p3 = build_image_prompts_prompt(&empty, &Value::Null);
+        let p3 = build_image_prompts_prompt(&empty, &Value::Null, "");
         assert!(p3.contains("ディレクションが提供されていません"), "{p3}");
+
+        // 原文を渡すと制約ブロックが入る。
+        let p4 = build_image_prompts_prompt(&wrapped, &personas, "勤務中のネイル禁止");
+        assert!(p4.contains("原文制約(厳守)"), "{p4}");
+        assert!(p4.contains("勤務中のネイル禁止"), "{p4}");
     }
 
     #[test]
@@ -784,7 +850,7 @@ mod tests {
 
     #[test]
     fn ab_prompt_has_metrics_and_summary() {
-        let p = build_ab_prompt("介護求人。子育て層に時間の自由で訴求。");
+        let p = build_ab_prompt("介護求人。子育て層に時間の自由で訴求。", "");
         assert_common_constraints(&p);
         assert!(p.contains("CTR"));
         assert!(p.contains("CVR"));
@@ -794,9 +860,16 @@ mod tests {
 
     #[test]
     fn ab_prompt_survives_empty_summary() {
-        let p = build_ab_prompt("");
+        let p = build_ab_prompt("", "");
         assert_common_constraints(&p);
         assert!(p.contains("戦略要約は提供されていません"), "{p}");
+    }
+
+    #[test]
+    fn ab_prompt_injects_source_constraints() {
+        let p = build_ab_prompt("子育て層に訴求", "勤務中のネイル禁止。実働7.5時間。");
+        assert!(p.contains("原文制約(厳守)"), "{p}");
+        assert!(p.contains("実働7.5時間"), "{p}");
     }
 
     #[test]

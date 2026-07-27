@@ -27,6 +27,9 @@ pub async fn ui_jobgen() -> axum::response::Html<&'static str> {
 /// 埋め込みNGワードルール (コンパイル時同梱。正本= Sheets「求人系」NGワードタブ)。
 const EMBEDDED_NG_WORDS_JSON: &str = include_str!("../../assets/ng_words.json");
 
+/// 埋め込み表現レビュー辞書 (警告レベル。法令NGとは別系統。severity=warning)。
+const EMBEDDED_EXPRESSION_RULES_JSON: &str = include_str!("../../assets/expression_review_rules.json");
+
 /// NGワードルールを読み込む。
 ///
 /// env `KNOWLEDGE_DIR` (ng_words.json を含む階層) があればファイル、なければ埋め込み。
@@ -40,6 +43,67 @@ fn load_ng_rules() -> anyhow::Result<ng_words::NgRules> {
         }
     }
     ng_words::NgRules::load_from_str(EMBEDDED_NG_WORDS_JSON)
+}
+
+/// 表現レビュー辞書 (警告レベル) を読み込む。
+///
+/// env `KNOWLEDGE_DIR` に expression_review_rules.json があればファイル、無ければ埋め込みへ
+/// フォールバックする (新アセットなので KNOWLEDGE_DIR に無い運用があり得るため、
+/// load_ng_rules と違いファイル欠落でも埋め込みで動かす)。
+fn load_expression_rules() -> anyhow::Result<ng_words::NgRules> {
+    if let Ok(dir) = std::env::var("KNOWLEDGE_DIR") {
+        if !dir.trim().is_empty() {
+            let path = std::path::PathBuf::from(dir).join("expression_review_rules.json");
+            if path.exists() {
+                let text = std::fs::read_to_string(&path)?;
+                return ng_words::NgRules::load_from_str(&text);
+            }
+        }
+    }
+    ng_words::NgRules::load_from_str(EMBEDDED_EXPRESSION_RULES_JSON)
+}
+
+/// 数値照合ゲート: `source_text` に照らして生成テキスト群の「原文にない数値」を集約する。
+///
+/// 戻り値 `(number_violations, number_check, review)`:
+/// - `source_text` 空 → `([], "skipped(source_text未提供)", false)` (照合しない)
+/// - それ以外 → 違反テキストを `{"text":..., "numbers":[...]}` で列挙、`number_check="checked"`
+fn number_gate(source_text: &str, texts: &[String]) -> (Vec<Value>, String, bool) {
+    if source_text.trim().is_empty() {
+        return (Vec::new(), "skipped(source_text未提供)".to_string(), false);
+    }
+    let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let viols = crate::job_gen::validate::collect_number_violations(source_text, &refs);
+    let out: Vec<Value> = viols
+        .into_iter()
+        .map(|(text, numbers)| json!({"text": text, "numbers": numbers}))
+        .collect();
+    let review = !out.is_empty();
+    (out, "checked".to_string(), review)
+}
+
+/// 表現ゲート: 生成テキスト群に法令NG(ng_violations)と表現レビュー辞書(expression_warnings)を
+/// 別リストで適用する。戻り値 `(ng_violations, expression_warnings, review)`。
+/// 法令NGと警告は別フィールドに分けるが、どちらか非空なら review を立てる。
+fn ng_and_expression_gate(texts: &[String]) -> (Vec<Value>, Vec<Value>, bool) {
+    let mut ng_out: Vec<Value> = Vec::new();
+    let mut ex_out: Vec<Value> = Vec::new();
+    if let Ok(ng) = load_ng_rules() {
+        for t in texts {
+            for v in ng.detect(t) {
+                ng_out.push(serde_json::to_value(&v).unwrap_or(Value::Null));
+            }
+        }
+    }
+    if let Ok(ex) = load_expression_rules() {
+        for t in texts {
+            for v in ex.detect(t) {
+                ex_out.push(serde_json::to_value(&v).unwrap_or(Value::Null));
+            }
+        }
+    }
+    let review = !ng_out.is_empty() || !ex_out.is_empty();
+    (ng_out, ex_out, review)
 }
 
 fn body_str(body: &Value, key: &str) -> String {
@@ -183,25 +247,58 @@ pub async fn jobgen_personas(Json(body): Json<Value>) -> Json<Value> {
     }
 }
 
-/// `POST /api/jobgen/copy` — 工程④: キャッチコピー (1ペルソナ分)+NGワード検証。
+/// `POST /api/jobgen/copy` — 工程④: キャッチコピー (1ペルソナ分)。
+///
+/// 検証: 法令NG(ng_violations) + 表現レビュー(expression_warnings) + 数値照合(number_violations)。
+/// `source_text` (任意) を渡すと数値照合が有効化され、プロンプトにも原文制約が注入される。
 pub async fn jobgen_copy(Json(body): Json<Value>) -> Json<Value> {
     let persona = body.get("persona").cloned().unwrap_or(Value::Null);
     let analysis = body.get("analysis").cloned().unwrap_or(Value::Null);
-    let prompt = strategy::build_copy_prompt(&persona, &analysis);
+    let source = body_str(&body, "source_text");
+    let prompt = strategy::build_copy_prompt(&persona, &analysis, &source);
     let schema = strategy::copy_schema();
     match jobgen_llm(&prompt, &schema, 0.9).await {
-        Ok(v) => Json(apply_ng_gate(v, "copies", "text")),
+        Ok(v) => {
+            let copies = v.get("copies").cloned().unwrap_or(Value::Null);
+            let texts = strings_at(&copies, "text");
+            let (ng, expr, r1) = ng_and_expression_gate(&texts);
+            let (num, num_check, r2) = number_gate(&source, &texts);
+            Json(json!({
+                "status": "ok",
+                "copies": copies,
+                "ng_violations": ng,
+                "expression_warnings": expr,
+                "number_violations": num,
+                "number_check": num_check,
+                "review_required": r1 || r2,
+            }))
+        }
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
 }
 
 /// `POST /api/jobgen/images` — 工程⑤: 画像ディレクション。
+///
+/// `source_text` (任意) を渡すと direction 文へ数値照合が有効化され、プロンプトにも
+/// 原文制約 (身だしなみ規定・勤務条件) が注入される。
 pub async fn jobgen_images(Json(body): Json<Value>) -> Json<Value> {
     let personas = body.get("personas").cloned().unwrap_or(Value::Null);
-    let prompt = strategy::build_images_prompt(&personas);
+    let source = body_str(&body, "source_text");
+    let prompt = strategy::build_images_prompt(&personas, &source);
     let schema = strategy::images_schema();
     match jobgen_llm(&prompt, &schema, 0.7).await {
-        Ok(v) => Json(json!({"status":"ok","directions": v.get("directions").cloned().unwrap_or(Value::Null)})),
+        Ok(v) => {
+            let directions = v.get("directions").cloned().unwrap_or(Value::Null);
+            let texts = strings_at(&directions, "direction");
+            let (num, num_check, review) = number_gate(&source, &texts);
+            Json(json!({
+                "status": "ok",
+                "directions": directions,
+                "number_violations": num,
+                "number_check": num_check,
+                "review_required": review,
+            }))
+        }
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
 }
@@ -225,18 +322,34 @@ pub async fn jobgen_image_prompts(Json(body): Json<Value>) -> Json<Value> {
     {
         return Json(json!({"status":"error","message":"directions(工程⑤の出力)が必要です"}));
     }
-    let prompt = strategy::build_image_prompts_prompt(&directions, &personas);
+    let source = body_str(&body, "source_text");
+    let prompt = strategy::build_image_prompts_prompt(&directions, &personas, &source);
     let schema = strategy::image_prompts_schema();
     match jobgen_llm(&prompt, &schema, 0.4).await {
-        Ok(v) => Json(json!({"status":"ok","prompts": v.get("prompts").cloned().unwrap_or(Value::Null)})),
+        Ok(v) => {
+            let prompts = v.get("prompts").cloned().unwrap_or(Value::Null);
+            let texts = strings_at(&prompts, "prompt");
+            let (num, num_check, review) = number_gate(&source, &texts);
+            Json(json!({
+                "status": "ok",
+                "prompts": prompts,
+                "number_violations": num,
+                "number_check": num_check,
+                "review_required": review,
+            }))
+        }
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
 }
 
-/// `POST /api/jobgen/mobile` — 工程⑥: スマホ原稿 (1ペルソナ分)+NGワード検証。
+/// `POST /api/jobgen/mobile` — 工程⑥: スマホ原稿 (1ペルソナ分)。
+///
+/// 検証: 法令NG(ng_violations) + 表現レビュー(expression_warnings) + 数値照合(number_violations)。
+/// `source_text` (任意) を渡すと結合本文へ数値照合が有効化される (facts_text とは別枠)。
 pub async fn jobgen_mobile(Json(body): Json<Value>) -> Json<Value> {
     let persona = body.get("persona").cloned().unwrap_or(Value::Null);
     let facts_text = body_str(&body, "facts_text");
+    let source = body_str(&body, "source_text");
     let prompt = strategy::build_mobile_prompt(&persona, &facts_text);
     let schema = strategy::mobile_schema();
     match jobgen_llm(&prompt, &schema, 0.8).await {
@@ -247,12 +360,18 @@ pub async fn jobgen_mobile(Json(body): Json<Value>) -> Json<Value> {
                 .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
                 .unwrap_or_default();
             let joined = lines.join("\n");
-            let violations = match load_ng_rules() {
-                Ok(ng) => ng.detect(&joined),
-                Err(_) => Vec::new(),
-            };
-            let review = !violations.is_empty();
-            Json(json!({"status":"ok","lines": lines, "ng_violations": violations, "review_required": review}))
+            let texts = vec![joined];
+            let (ng, expr, r1) = ng_and_expression_gate(&texts);
+            let (num, num_check, r2) = number_gate(&source, &texts);
+            Json(json!({
+                "status": "ok",
+                "lines": lines,
+                "ng_violations": ng,
+                "expression_warnings": expr,
+                "number_violations": num,
+                "number_check": num_check,
+                "review_required": r1 || r2,
+            }))
         }
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
@@ -329,6 +448,9 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
         .values()
         .flat_map(|g| g.issues.iter().cloned())
         .collect();
+    // 転記充足率と未割当ヒント (レビュー指摘[B5]: 生成列の検証と転記の充足を分けて示す)。
+    let fill_stats = hrhacker::fill_stats(&row);
+    let unassigned_hints = hrhacker::detect_unassigned_hints(&source, &row);
     Json(json!({
         "status":"ok",
         "attempts": attempts,
@@ -336,16 +458,49 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
         "generated_fields": generated,
         "review_required_fields": review,
         "unsupported_numbers": unsupported,
+        "fill_stats": fill_stats,
+        "unassigned_hints": unassigned_hints,
     }))
 }
 
 /// `POST /api/jobgen/ab` — 工程⑧: A/Bテスト助言。
+///
+/// 検証: 法令NG(ng_violations) + 表現レビュー(expression_warnings) + 数値照合(number_violations)。
+/// レビュー指摘: 工程⑧が前工程でNG判定された語(例「主婦」)を再使用しないよう、ここにも
+/// NGゲートを掛ける。`source_text` (任意) を渡すと数値照合と原文制約が有効化される。
 pub async fn jobgen_ab(Json(body): Json<Value>) -> Json<Value> {
     let summary = body_str(&body, "summary");
-    let prompt = strategy::build_ab_prompt(&summary);
+    let source = body_str(&body, "source_text");
+    let prompt = strategy::build_ab_prompt(&summary, &source);
     let schema = strategy::ab_schema();
     match jobgen_llm(&prompt, &schema, 0.4).await {
-        Ok(v) => Json(json!({"status":"ok","steps": v.get("steps").cloned().unwrap_or(Value::Null)})),
+        Ok(v) => {
+            let steps = v.get("steps").cloned().unwrap_or(Value::Null);
+            // metric と action を結合した文を検証対象にする。
+            let texts: Vec<String> = steps
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|s| {
+                            let m = s.get("metric").and_then(Value::as_str).unwrap_or("");
+                            let ac = s.get("action").and_then(Value::as_str).unwrap_or("");
+                            format!("{m} {ac}")
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (ng, expr, r1) = ng_and_expression_gate(&texts);
+            let (num, num_check, r2) = number_gate(&source, &texts);
+            Json(json!({
+                "status": "ok",
+                "steps": steps,
+                "ng_violations": ng,
+                "expression_warnings": expr,
+                "number_violations": num,
+                "number_check": num_check,
+                "review_required": r1 || r2,
+            }))
+        }
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
 }
@@ -387,19 +542,14 @@ pub async fn jobgen_ng_check(Json(body): Json<Value>) -> Json<Value> {
     Json(json!({"status":"ok","checked": checked, "flagged": results.len(), "results": results}))
 }
 
-/// LLM応答の配列 (items_key) の各要素 text_key に NGワード検証をかけ、結果を付与する。
-fn apply_ng_gate(v: Value, items_key: &str, text_key: &str) -> Value {
-    let items = v.get(items_key).cloned().unwrap_or(Value::Null);
-    let mut all_violations: Vec<Value> = Vec::new();
-    if let (Ok(ng), Some(arr)) = (load_ng_rules(), items.as_array()) {
-        for item in arr {
-            if let Some(text) = item.get(text_key).and_then(Value::as_str) {
-                for viol in ng.detect(text) {
-                    all_violations.push(serde_json::to_value(&viol).unwrap_or(Value::Null));
-                }
-            }
-        }
-    }
-    let review = !all_violations.is_empty();
-    json!({"status":"ok", items_key: items, "ng_violations": all_violations, "review_required": review})
+/// JSON 配列 (オブジェクト要素) の各要素から `key` の文字列値を集める。
+/// `arr` が配列でない、または要素に `key` が無ければその要素は飛ばす。
+fn strings_at(arr: &Value, key: &str) -> Vec<String> {
+    arr.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|item| item.get(key).and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
