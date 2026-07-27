@@ -365,7 +365,14 @@ pub(crate) fn fetch_postings(
             }
         }
     }
-    sql.push_str(" ORDER BY salary_min DESC");
+    // 並び順と表示値の整合: 時給求人は取得層(normalize_hourly_salary)で ÷160 して真の時給に
+    // 正規化されるため、SQL の ORDER BY も同じ規則を CASE でミラーする(SQLはRust関数を呼べない)。
+    // これをしないと「5,500/時」の行が「300,000」の行より上に来る並び/表示の不整合が起きる。
+    // LIKE '%時給%' は normalize_hourly_salary の salary_type.contains("時給") に対応。
+    sql.push_str(
+        " ORDER BY (CASE WHEN salary_type LIKE '%時給%' AND salary_min >= 50000 \
+         THEN salary_min / 160.0 ELSE salary_min END) DESC",
+    );
 
     // LIMIT/OFFSETによるSQLレベルのページネーション
     if let (Some(p), Some(ps)) = (page, page_size) {
@@ -872,7 +879,14 @@ pub(crate) fn fetch_nearby_postings(
             }
         }
     }
-    sql.push_str(" ORDER BY salary_min DESC");
+    // 並び順と表示値の整合: 時給求人は取得層(normalize_hourly_salary)で ÷160 して真の時給に
+    // 正規化されるため、SQL の ORDER BY も同じ規則を CASE でミラーする(SQLはRust関数を呼べない)。
+    // これをしないと「5,500/時」の行が「300,000」の行より上に来る並び/表示の不整合が起きる。
+    // LIKE '%時給%' は normalize_hourly_salary の salary_type.contains("時給") に対応。
+    sql.push_str(
+        " ORDER BY (CASE WHEN salary_type LIKE '%時給%' AND salary_min >= 50000 \
+         THEN salary_min / 160.0 ELSE salary_min END) DESC",
+    );
 
     let params: Vec<&dyn rusqlite::types::ToSql> = param_values
         .iter()
@@ -920,10 +934,40 @@ pub(crate) fn get_geocode(
     Some((lat, lng))
 }
 
+/// 給与の時給正規化（取得層の一点正規化。PostingRow に入る値はこの関数を通す）。
+///
+/// HW の postings テーブルは、時給求人(salary_type に「時給」を含む)でも salary_min/salary_max を
+/// ×160 の「月給換算値」で格納している。2026-07-27 に本番同一の hellowork.db を読み取りSQLで実測:
+/// salary_type='時給' の 178,489 件中 178,456 件(99.98%)が月給規模(>=50,000)、÷160 で 178,375 件
+/// (99.95%)が時給 800〜10,000 円の妥当域に収まる。実レコードで 880,000=5,500×160 も確認済み。
+/// よって時給求人かつ月給規模(>=50,000)の値は 160(月160時間=週40h×4週)で割って真の時給へ戻す。
+/// 生の時給値(<50,000。実測で 27 件 + 中間帯 6 件 = 33 件、0.02%)はそのまま返して壊さない。
+///
+/// この正規化は取得層の1箇所(row_to_posting)で行い、以降のソート表示・dedup・統計は
+/// すべて正規化後の値を使う。SQL 側の ORDER BY だけは行取得前に走るため、同じ ÷160 を
+/// CASE 式でミラーして並び順と表示値の整合を保つ(fetch_postings / nearby の ORDER BY 参照)。
+pub(crate) fn normalize_hourly_salary(salary_type: &str, value: i64) -> i64 {
+    if salary_type.contains("時給") && value >= 50000 {
+        ((value as f64) / 160.0).round() as i64
+    } else {
+        value
+    }
+}
+
 fn row_to_posting(
     r: &std::collections::HashMap<String, Value>,
     distance: Option<f64>,
 ) -> PostingRow {
+    // 給与は取得層で一点正規化する（normalize_hourly_salary のdocコメント参照）。
+    let salary_type = r
+        .get("salary_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let salary_min =
+        normalize_hourly_salary(&salary_type, r.get("salary_min").map(value_to_i64).unwrap_or(0));
+    let salary_max =
+        normalize_hourly_salary(&salary_type, r.get("salary_max").map(value_to_i64).unwrap_or(0));
     PostingRow {
         facility_name: r
             .get("facility_name")
@@ -950,13 +994,9 @@ fn row_to_posting(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        salary_type: r
-            .get("salary_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        salary_min: r.get("salary_min").map(value_to_i64).unwrap_or(0),
-        salary_max: r.get("salary_max").map(value_to_i64).unwrap_or(0),
+        salary_type,
+        salary_min,
+        salary_max,
         requirements: r
             .get("requirements")
             .and_then(|v| v.as_str())
@@ -1029,5 +1069,45 @@ fn row_to_posting(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+    }
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    // 純粋関数 normalize_hourly_salary の単体テストは tests.rs(テスト43-46)にある。
+    // ここでは private な row_to_posting を経由したマッピング正規化を検証する。
+    use super::row_to_posting;
+    use serde_json::{json, Value};
+    use std::collections::HashMap;
+
+    /// DB行(HashMap)を組み立てるヘルパ。row_to_posting は欠落キーを空/0で扱うため
+    /// 給与関連の3キーだけ与えれば正規化の検証には十分。
+    fn row(salary_type: &str, salary_min: i64, salary_max: i64) -> HashMap<String, Value> {
+        let mut m = HashMap::new();
+        m.insert("salary_type".to_string(), json!(salary_type));
+        m.insert("salary_min".to_string(), json!(salary_min));
+        m.insert("salary_max".to_string(), json!(salary_max));
+        m
+    }
+
+    // マッピング経由: row_to_posting が構築時に給与を正規化することを検証。
+    // これにより「取得層を通れば必ず正しい値になる」ことを担保する。
+    #[test]
+    fn test_row_to_posting_normalizes_salary() {
+        // 時給の月給換算値(880,000=5,500×160 / 1,408,000=8,800×160)→ 真の時給に戻る
+        let p = row_to_posting(&row("時給", 880_000, 1_408_000), None);
+        assert_eq!(p.salary_type, "時給");
+        assert_eq!(p.salary_min, 5_500);
+        assert_eq!(p.salary_max, 8_800);
+
+        // 月給レコードはそのまま
+        let m = row_to_posting(&row("月給", 250_000, 320_000), None);
+        assert_eq!(m.salary_min, 250_000);
+        assert_eq!(m.salary_max, 320_000);
+
+        // 生の時給値(<50,000)は非変換で保持
+        let h = row_to_posting(&row("時給", 1_200, 1_500), None);
+        assert_eq!(h.salary_min, 1_200);
+        assert_eq!(h.salary_max, 1_500);
     }
 }
