@@ -362,7 +362,9 @@ pub(crate) fn render_navy_section_07_lifestyle(
             "<div class=\"block-title block-title-spaced\">表 7-B &nbsp;通勤圏 サマリ</div>\n",
         );
         html.push_str(&format!(
-            "<table class=\"table-navy\">\n<thead><tr>\
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+             <colgroup><col style=\"width:20%\"><col style=\"width:15%\"><col style=\"width:65%\"></colgroup>\n\
+             <thead><tr>\
              <th>指標</th><th class=\"num\">値</th><th>解釈</th>\
              </tr></thead>\n<tbody>\n\
              <tr><td><strong>通勤圏 自治体数</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">距離ベース通勤圏に含まれる自治体</span></td></tr>\n\
@@ -742,7 +744,14 @@ fn build_navy_life_simulation_table(
         }
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:14%\"><col style=\"width:16%\"><col style=\"width:14%\">\
+         <col style=\"width:18%\"><col style=\"width:16%\"><col style=\"width:22%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str(
         "<th>パターン</th><th class=\"num\">求人給与 (月換算)</th>\
          <th class=\"num\">手取り概算</th><th class=\"num\">家賃目安</th>\
@@ -998,7 +1007,11 @@ fn build_navy_minwage_vs_salary_table(
         )
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup><col style=\"width:22%\"><col style=\"width:16%\"><col style=\"width:62%\"></colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>指標</th><th class=\"num\">値</th><th>備考</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
     s.push_str(&format!(
@@ -1069,7 +1082,11 @@ fn build_navy_household_vs_salary_table(
         ("warn", "支出超過水準")
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup><col style=\"width:22%\"><col style=\"width:16%\"><col style=\"width:62%\"></colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>指標</th><th class=\"num\">月額 (円)</th><th>備考</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
     s.push_str(&format!(
@@ -1305,7 +1322,14 @@ fn build_navy_lifestyle_facilities_table(ctx: &InsightContext) -> String {
         return String::new();
     }
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:14%\"><col style=\"width:20%\">\
+         <col style=\"width:36%\"><col style=\"width:30%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>区分</th><th class=\"num\">施設・人員数</th><th class=\"num\">県平均比較</th><th>備考</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
@@ -1485,7 +1509,14 @@ fn build_navy_minwage_chart(wages: &[(i32, i64)]) -> String {
 }
 
 fn build_navy_household_table(categories: &[(String, i64)], total: i64) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:30%\">\
+         <col style=\"width:20%\"><col style=\"width:14%\"><col style=\"width:30%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>費目</th>");
     s.push_str("<th class=\"num\">月額 (円)</th>");
     s.push_str("<th class=\"num\">構成比</th>");

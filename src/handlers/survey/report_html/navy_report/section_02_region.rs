@@ -209,8 +209,15 @@ pub(crate) fn render_navy_section_02_region(
                 "<div class=\"block-title block-title-spaced\">表 2-C &nbsp;通勤流入元 TOP3 (周辺地域 → {})</div>\n",
                 center
             ));
+            // 2026-07-28: No./流入人数の数値列に幅を取られ市区町村名が圧縮される問題対策。
+            //   colgroup で列幅を明示 (順位 8% + 都道府県 20% + 市区町村 42% + 流入人数 30%)。
             html.push_str(
-                "<table class=\"table-navy\">\n<thead><tr>\
+                "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+                <colgroup>\
+                <col style=\"width:8%\"><col style=\"width:20%\">\
+                <col style=\"width:42%\"><col style=\"width:30%\">\
+                </colgroup>\n\
+                <thead><tr>\
                 <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流入人数</th>\
                 </tr></thead>\n<tbody>\n",
             );
@@ -240,8 +247,13 @@ pub(crate) fn render_navy_section_02_region(
     };
     if !region_2d_stats.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;地域比較 &mdash; 指定市区町村 + 近隣 (失業率・単身世帯率)</div>\n");
+        // 2026-07-28: 市区町村名(★基準地域バッジ含む)が圧縮されないよう colgroup で明示。
         html.push_str(
-            "<table class=\"table-navy\">\n<thead><tr>\
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+             <colgroup>\
+             <col style=\"width:50%\"><col style=\"width:25%\"><col style=\"width:25%\">\
+             </colgroup>\n\
+             <thead><tr>\
              <th>市区町村</th><th class=\"num\">失業率 (%)</th><th class=\"num\">単身世帯率 (%)</th>\
              </tr></thead>\n<tbody>\n",
         );
@@ -279,7 +291,8 @@ pub(crate) fn render_navy_section_02_region(
     } else if pref_avg_unemp.is_some() || pref_avg_single.is_some() {
         // フォールバック: 従来の都道府県平均表 (非 SP 経路 / muni 未指定時)。
         html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;都道府県平均比較 (マクロ指標)</div>\n");
-        html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
+        // 2026-07-28: 3 列の均等割りを避け、指標ラベルに幅を配分。
+        html.push_str("<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n<colgroup><col style=\"width:55%\"><col style=\"width:25%\"><col style=\"width:20%\"></colgroup>\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
         for (label, val) in [
             ("県平均 失業率", pref_avg_unemp),
             ("県平均 単身世帯率", pref_avg_single),
@@ -365,7 +378,16 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
         }
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-28: No./n 等の数値列が均等割りで広く取られ「都道府県」「位置づけ」が
+    //   圧縮される問題対策。colgroup で列幅を明示。
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:12%\"><col style=\"width:8%\">\
+         <col style=\"width:16%\"><col style=\"width:16%\"><col style=\"width:10%\">\
+         <col style=\"width:32%\">\
+         </colgroup>\n<thead><tr>",
+    );
     s.push_str("<th>No.</th><th>都道府県</th>");
     s.push_str("<th class=\"num\">n</th>");
     s.push_str(&format!("<th class=\"num\">平均給与 ({})</th>", unit_label));
@@ -442,7 +464,24 @@ fn build_navy_region_table(
 ) -> String {
     use super::super::super::aggregator::MunicipalitySalaryAgg;
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-28: 列数が show_hw で 8/6 と変わるため、colgroup も分岐して用意する。
+    //   No./市区町村名が均等割りで圧縮されないよう明示的に幅配分。
+    let colgroup = if show_hw {
+        "<colgroup>\
+         <col style=\"width:5%\"><col style=\"width:9%\"><col style=\"width:14%\">\
+         <col style=\"width:9%\"><col style=\"width:9%\"><col style=\"width:9%\">\
+         <col style=\"width:22%\"><col style=\"width:23%\">\
+         </colgroup>\n"
+    } else {
+        "<colgroup>\
+         <col style=\"width:5%\"><col style=\"width:12%\"><col style=\"width:18%\">\
+         <col style=\"width:10%\"><col style=\"width:11%\"><col style=\"width:44%\">\
+         </colgroup>\n"
+    };
+    let mut s = format!(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n{}<thead><tr>",
+        colgroup
+    );
     s.push_str("<th>No.</th><th>都道府県</th><th>市区町村</th>");
     s.push_str("<th class=\"num\">CSV 件数</th>");
     s.push_str("<th class=\"num\">中央値 (万円)</th>");

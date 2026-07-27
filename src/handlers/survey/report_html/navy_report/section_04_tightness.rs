@@ -269,7 +269,9 @@ pub(crate) fn render_navy_section_04_market_tightness(
                     _ => "",
                 };
                 html.push_str(&format!(
-                    "<table class=\"table-navy\"><tbody>\
+                    "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+                     <colgroup><col style=\"width:100%\"></colgroup>\n\
+                     <tbody>\
                      <tr><td class=\"dim\" style=\"text-align:center;padding:8mm 4mm;\">\
                      産業別 採用ニーズ密度は <strong>{}</strong> が取得できなかったため算出されません。\
                      表 4-A の指標サマリ + 表 4-C/D で代替評価してください。\

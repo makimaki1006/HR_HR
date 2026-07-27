@@ -672,7 +672,15 @@ pub(crate) fn build_navy_csv_company_salary_table(
     s.push_str(&format!("{}", limit));
     s.push_str(" 社、求人数 2 件以上)</div>\n");
     // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
-    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-28: 列幅を colgroup で明示。順位列を最小に、法人名に多く配分。
+    s.push_str(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:30%\"><col style=\"width:10%\">\
+         <col style=\"width:12%\"><col style=\"width:12%\"><col style=\"width:12%\">\
+         <col style=\"width:18%\">\
+         </colgroup>\n<thead><tr>",
+    );
     s.push_str("<th scope=\"col\">順位</th><th scope=\"col\">法人名</th>");
     s.push_str("<th scope=\"col\" class=\"num\">求人数</th>");
     s.push_str(&format!(
@@ -768,7 +776,14 @@ pub(crate) fn build_navy_notable_companies_block(
          表 5-H &nbsp;注目企業リスト (求人数上位 ∩ 給与上位、和集合)</div>\n",
     );
     // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
-    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-28: 列幅を colgroup で明示。No. 列を最小に、法人名に多く配分。
+    s.push_str(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:8%\"><col style=\"width:50%\">\
+         <col style=\"width:17%\"><col style=\"width:25%\">\
+         </colgroup>\n<thead><tr>",
+    );
     s.push_str("<th scope=\"col\">No.</th><th scope=\"col\">法人名</th>");
     s.push_str("<th scope=\"col\" class=\"num\">求人数</th>");
     s.push_str(&format!(
@@ -830,7 +845,28 @@ fn build_navy_industry_table(
         .map(|t| t.trim())
         .filter(|t| !t.is_empty());
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-28: 列幅を colgroup で明示。No. 列を最小に、産業大分類名に多く配分。
+    //   show_hw の有無で列数 (4 or 7) が変わるため colgroup も分岐させる。
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n",
+    );
+    if show_hw {
+        s.push_str(
+            "<colgroup>\
+             <col style=\"width:5%\"><col style=\"width:24%\"><col style=\"width:13%\">\
+             <col style=\"width:9%\"><col style=\"width:13%\"><col style=\"width:9%\">\
+             <col style=\"width:27%\">\
+             </colgroup>\n",
+        );
+    } else {
+        s.push_str(
+            "<colgroup>\
+             <col style=\"width:6%\"><col style=\"width:42%\"><col style=\"width:26%\">\
+             <col style=\"width:26%\">\
+             </colgroup>\n",
+        );
+    }
+    s.push_str("<thead><tr>");
     s.push_str("<th>No.</th><th>産業大分類</th>");
     s.push_str("<th class=\"num\">就業者数</th>");
     s.push_str("<th class=\"num\">シェア</th>");
@@ -998,7 +1034,17 @@ fn build_navy_industry_bars(industry_sorted: &[(String, i64)], total: i64) -> St
 fn build_navy_growth_decline_matrix(
     seg: &super::super::super::super::company::fetch::RegionalCompanySegments,
 ) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-28: 列幅を colgroup で明示。規模帯・解釈列に多めに配分。
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n",
+    );
+    s.push_str(
+        "<colgroup>\
+         <col style=\"width:30%\"><col style=\"width:20%\">\
+         <col style=\"width:20%\"><col style=\"width:30%\">\
+         </colgroup>\n",
+    );
+    s.push_str("<thead><tr>");
     s.push_str("<th>規模帯</th>");
     s.push_str("<th class=\"num\">増員傾向 (+5%超)</th>");
     s.push_str("<th class=\"num\">減少傾向 (-5%未満)</th>");
