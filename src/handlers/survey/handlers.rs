@@ -975,11 +975,12 @@ async fn build_survey_report_inner(
     if query.variant.as_deref() != Some("guide") {
         let proceed = query.proceed_unselected.as_deref() == Some("1");
         // 明示選択された muni がアップロード CSV に含まれるか (自動採用時は判定不要 → true 扱い)。
-        let muni_in_csv = explicit_muni.as_deref().map_or(true, |em| {
-            agg.by_municipality_salary
-                .iter()
-                .any(|m| m.prefecture == pref && m.name == em && m.count > 0)
-        });
+        // 2026-07-28: 在否は truncate 済み by_municipality_salary (上位15件) ではなく、
+        //   truncate 前の全在否を保持する municipality_presence 集合で判定する。
+        //   16 位以下の市区町村を明示選択した際の誤ブロックを防ぐ。
+        let muni_in_csv = explicit_muni
+            .as_deref()
+            .map_or(true, |em| agg.has_municipality(&pref, em));
         match evaluate_selection_gate(
             explicit_pref.as_deref(),
             explicit_muni.as_deref(),
@@ -1849,6 +1850,65 @@ mod selection_gate_tests {
             false,
         );
         assert_eq!(out2, GateOutcome::ZeroCount);
+    }
+
+    // (f) 16位以下相当 (municipality_presence にはあるが by_municipality_salary の
+    //     上位15件には無い) 市区町村を明示選択してもブロックされない。
+    //     = truncate 非依存の在否判定になっていることの逆証明。
+    #[test]
+    fn gate_uses_presence_not_truncated_salary_list() {
+        use super::super::aggregator::{MunicipalitySalaryAgg, SurveyAggregation};
+
+        // by_municipality_salary は上位15件で truncate される想定。選択 muni は含めない。
+        let by_muni: Vec<MunicipalitySalaryAgg> = (0..15)
+            .map(|i| MunicipalitySalaryAgg {
+                name: format!("上位{:02}区", i),
+                prefecture: "東京都".to_string(),
+                count: 100 - i,
+                avg_salary: 250_000,
+                median_salary: 250_000,
+            })
+            .collect();
+
+        // presence 集合には truncate 前の全在否が入る (上位15 + 16位以下相当)。
+        let mut presence: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        for m in &by_muni {
+            presence.insert((m.prefecture.clone(), m.name.clone()));
+        }
+        presence.insert(("東京都".to_string(), "16位相当区".to_string()));
+
+        let agg = SurveyAggregation {
+            by_municipality_salary: by_muni,
+            municipality_presence: presence,
+            ..Default::default()
+        };
+
+        // 在否判定は truncate の影響を受けず true (誤ブロックしない)。
+        assert!(agg.has_municipality("東京都", "16位相当区"));
+        let out = evaluate_selection_gate(
+            Some("東京都"),
+            Some("16位相当区"),
+            Some("医療,福祉"),
+            false,
+            agg.has_municipality("東京都", "16位相当区"),
+        );
+        assert_eq!(out, GateOutcome::Generate);
+
+        // 本当に CSV に無い muni はブロック (0件ハードブロックは維持)。
+        assert!(!agg.has_municipality("東京都", "架空市"));
+        let out2 = evaluate_selection_gate(
+            Some("東京都"),
+            Some("架空市"),
+            Some("医療,福祉"),
+            false,
+            agg.has_municipality("東京都", "架空市"),
+        );
+        assert_eq!(out2, GateOutcome::ZeroCount);
+
+        // 同名市区町村の安全確認: 都道府県が違えば在否は別判定。
+        // (16位相当区 は東京都のみ在否あり。広島県では false → 誤って通さない)
+        assert!(!agg.has_municipality("広島県", "16位相当区"));
     }
 
     // 自動採用 (muni 未明示) は muni_in_csv 判定に関わらず 0件ブロックしない。

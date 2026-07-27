@@ -340,6 +340,8 @@ fn build_agg(include_jobbox: bool) -> SurveyAggregation {
         },
         // 2026-07-20 Phase 2a: VRT fixture ではカード観測は不要 (解説資料は VRT 対象外)
         card_briefs: vec![],
+        // 2026-07-28: 市区町村在否集合。VRT fixture では 0件ゲート判定を通らないため空。
+        municipality_presence: std::collections::HashSet::new(),
     }
 }
 
