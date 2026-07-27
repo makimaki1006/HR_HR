@@ -21,7 +21,7 @@
 
 use super::super::super::company::fetch::{NearbyCompany, RegionalCompanySegments};
 use super::super::super::insight::fetch::InsightContext;
-use super::super::aggregator::{CompanyAgg, EmpTypeSalary, SurveyAggregation};
+use super::super::aggregator::{CompanyAgg, EmpTypeSalary, RegionMuniStat, SurveyAggregation};
 use super::super::granularity::MunicipalityDemographics;
 use super::super::hw_enrichment::HwAreaEnrichment;
 use super::super::job_seeker::JobSeekerAnalysis;
@@ -117,6 +117,11 @@ pub(crate) struct RenderConfig<'a> {
     /// 参照されない (§02 は Ver10 のときだけこのフラグを見る) ため、既存 variant の
     /// 出力は byte 不変。デフォルト true = 表示 (チェックボックス既定オン)。
     pub table2e: bool,
+    /// 2026-07-27: §02 表 2-D「市区町村比較」用の市区町村統計 (基準 + 同一県内近隣)。
+    ///
+    /// 空 slice なら §02 は従来の「都道府県平均」表にフォールバックする (既存 caller /
+    /// テストは未指定 = `&[]` のため出力不変)。SP 本編 handler のみ実データを渡す。
+    pub region_2d_stats: &'a [RegionMuniStat],
 }
 
 impl<'a> RenderConfig<'a> {
@@ -157,6 +162,8 @@ pub(crate) struct RenderConfigBuilder<'a> {
     section_set: Option<SectionSet>,
     /// 2026-07-13: Ver10 の表2-E 表示フラグ (None → true = 表示)
     table2e: Option<bool>,
+    /// 2026-07-27: §02 表 2-D 市区町村統計 (None → &[] = 従来の県平均表)
+    region_2d_stats: Option<&'a [RegionMuniStat]>,
 }
 
 impl<'a> RenderConfigBuilder<'a> {
@@ -274,6 +281,12 @@ impl<'a> RenderConfigBuilder<'a> {
         self
     }
 
+    /// 2026-07-27: §02 表 2-D 市区町村統計 setter (未設定時は &[] = 従来の県平均表)。
+    pub fn region_2d_stats(mut self, v: &'a [RegionMuniStat]) -> Self {
+        self.region_2d_stats = Some(v);
+        self
+    }
+
     /// `RenderConfig<'a>` を構築する。
     ///
     /// # Panics
@@ -333,6 +346,8 @@ impl<'a> RenderConfigBuilder<'a> {
             section_set,
             // 2026-07-13: table2e デフォルトは true (表2-E 表示 = チェックボックス既定オン)
             table2e: self.table2e.unwrap_or(true),
+            // 2026-07-27: region_2d_stats デフォルトは空 (§02 は従来の県平均表)
+            region_2d_stats: self.region_2d_stats.unwrap_or(&[]),
         }
     }
 }

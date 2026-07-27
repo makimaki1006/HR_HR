@@ -142,6 +142,24 @@ pub struct PrefectureSalaryAgg {
     pub avg_min_salary: i64, // 下限給与の平均
 }
 
+/// 市区町村単位の公的統計 (表 2-D 市区町村化用, 2026-07-27)。
+///
+/// 「都道府県平均比較」を「指定市区町村 + 同一県内近隣」比較へ切り替えるための
+/// 行データ。値は SSDSE-A (v2_external_labor_force / v2_external_households) を
+/// `fetch_municipality_mean` で市区町村粒度に SUM したもの。データ欠損時は None。
+/// `is_base = true` はアプリで選択した基準市区町村を示す。
+#[derive(Debug, Clone, Default)]
+pub struct RegionMuniStat {
+    pub prefecture: String,
+    pub municipality: String,
+    /// アプリで選択した基準市区町村なら true。
+    pub is_base: bool,
+    /// 失業率 (%)。0-100 域外 / 欠損は None。
+    pub unemployment_rate: Option<f64>,
+    /// 単身世帯率 (%)。0-100 域外 / 欠損は None。
+    pub single_rate: Option<f64>,
+}
+
 /// 散布図データ点
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScatterPoint {
