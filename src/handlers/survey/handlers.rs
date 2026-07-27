@@ -11,6 +11,7 @@ use super::aggregator::{aggregate_records, aggregate_records_with_mode};
 use super::job_seeker::analyze_job_seeker;
 use super::render::{render_analysis_result, render_upload_form};
 use super::upload::{parse_csv_bytes, parse_csv_bytes_with_hints, UserSourceHint, WageMode};
+use crate::auth::SESSION_INDUSTRY_RAWS_KEY;
 use crate::AppState;
 
 /// 媒体分析タブ（初期表示: アップロードフォーム）
@@ -667,12 +668,15 @@ pub async fn report_json(
 pub async fn survey_report_html(
     State(state): State<Arc<AppState>>,
     session: Session,
-    Query(query): Query<IntegrateQuery>,
+    Query(mut query): Query<IntegrateQuery>,
 ) -> Html<String> {
     let session_id = match &query.session_id {
         Some(id) if !id.is_empty() => id.clone(),
         _ => return Html("<html><body><p>セッションIDが必要です。CSVをアップロードしてください。</p></body></html>".to_string()),
     };
+
+    // 2026-07-27: 業界がクエリに乗らない経路のため、tower-session の産業フィルタで補完。
+    fallback_industry_from_session(&session, &mut query).await;
 
     // 監査: 媒体分析レポート生成
     crate::audit::record_event(
@@ -698,6 +702,104 @@ pub async fn survey_report_html(
 
     // 既定: ジョブ化 (レポート用進捗シェル)
     Html(super::report_html::render_report_progress_shell())
+}
+
+/// ダッシュボードの産業フィルタ (set_industry_filter で tower-session に保存) を
+/// レポート生成クエリのフォールバックとして解決する (2026-07-27)。
+///
+/// URL クエリに `&industry=` が乗らない経路 (ダウンロード `/report/survey/download`、
+/// 業界未指定で叩かれた start 等) のために、クエリが空なら
+/// `SESSION_INDUSTRY_RAWS_KEY` (JSON 配列) の先頭要素を採用する。
+/// クエリに値がある場合は上書きしない (クエリ優先)。
+async fn fallback_industry_from_session(session: &Session, query: &mut IntegrateQuery) {
+    let already = query
+        .industry
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if already {
+        return;
+    }
+    let json: String = session
+        .get::<String>(SESSION_INDUSTRY_RAWS_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "[]".to_string());
+    if let Ok(list) = serde_json::from_str::<Vec<String>>(&json) {
+        if let Some(first) = list.into_iter().find(|s| !s.trim().is_empty()) {
+            query.industry = Some(first);
+        }
+    }
+}
+
+/// SP 本編レポート生成の選択必須ガード (2026-07-27)。
+///
+/// 都道府県・市区町村・業界のいずれかが未選択、または選択市区町村が
+/// アップロード CSV に 1 件も含まれない場合、生成せず案内 HTML を `Some` で返す。
+/// 生成続行可能なら `None`。
+///
+/// 市区町村の在否判定は `by_municipality_salary` (給与を確認できた求人ベース) の
+/// (都道府県, 市区町村) 一致で行う。レポートの地域系表もこの集計を土台にするため、
+/// ここに現れない市区町村はレポートを組めない。
+/// guide (解説資料) 経路は呼び出し側で除外する。
+fn report_selection_gate(
+    agg: &super::aggregator::SurveyAggregation,
+    pref: &str,
+    muni: &str,
+    industry: Option<&str>,
+) -> Option<String> {
+    let industry_ok = industry.map(|s| !s.trim().is_empty()).unwrap_or(false);
+    let mut missing: Vec<&str> = Vec::new();
+    if pref.trim().is_empty() {
+        missing.push("都道府県");
+    }
+    if muni.trim().is_empty() {
+        missing.push("市区町村");
+    }
+    if !industry_ok {
+        missing.push("業界");
+    }
+    if !missing.is_empty() {
+        let list = missing.join("・");
+        return Some(gate_error_page(&format!(
+            "レポート作成には、画面上部で 都道府県・市区町村・業界 の選択が必要です。<br>\
+             未選択の項目: <strong>{}</strong><br>選択してから再度お試しください。",
+            list
+        )));
+    }
+    // 選択市区町村がアップロード CSV に含まれるか (給与確認済み求人ベース)。
+    let muni_in_csv = agg
+        .by_municipality_salary
+        .iter()
+        .any(|m| m.prefecture == pref && m.name == muni && m.count > 0);
+    if !muni_in_csv {
+        let p = crate::handlers::helpers::escape_html(pref);
+        let m = crate::handlers::helpers::escape_html(muni);
+        return Some(gate_error_page(&format!(
+            "選択した市区町村（{}{}）の求人がアップロードされたCSVに含まれていません。<br>\
+             CSVの内容と選択地域を確認してから再度お試しください。",
+            p, m
+        )));
+    }
+    None
+}
+
+/// 選択必須ガードの案内ページ (ライト/ダーク両対応の最小 HTML)。
+fn gate_error_page(message_html: &str) -> String {
+    format!(
+        "<!DOCTYPE html><html lang=\"ja\"><head><meta charset=\"utf-8\">\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+         <title>レポートを作成できません</title></head>\
+         <body style=\"font-family:system-ui,'Segoe UI','Hiragino Kaku Gothic ProN',sans-serif;\
+         background:#f1f5f9;color:#1e293b;margin:0;padding:0;\">\
+         <div style=\"max-width:640px;margin:12vh auto;padding:32px;background:#ffffff;\
+         border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.08);\">\
+         <h1 style=\"font-size:18px;margin:0 0 16px;color:#0f172a;\">レポートを作成できませんでした</h1>\
+         <p style=\"font-size:15px;line-height:1.9;margin:0;color:#334155;\">{}</p>\
+         </div></body></html>",
+        message_html
+    )
 }
 
 /// レポート本体の生成 (進捗レポータ付き)。
@@ -759,6 +861,19 @@ async fn build_survey_report_inner(
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
                 .unwrap_or_default()
         });
+
+    // 2026-07-27: SP 本編レポートの選択必須ガード。
+    //   都道府県・市区町村・業界のいずれか未選択、または選択市区町村が
+    //   アップロード CSV に含まれない場合は生成を中止して案内を返す。
+    //   guide (解説資料) は必須化の対象外。integrate_report は別ハンドラのため元々対象外。
+    //   ここで弾くことで、後続の重い hw_ctx 構築を無効リクエストで走らせない。
+    if query.variant.as_deref() != Some("guide") {
+        if let Some(err_html) =
+            report_selection_gate(&agg, &pref, &muni, query.industry.as_deref())
+        {
+            return Html(err_html);
+        }
+    }
 
     progress("公的統計・地域データを取得中");
     let hw_ctx = if !pref.is_empty() {
@@ -1039,6 +1154,68 @@ async fn build_survey_report_inner(
         Vec::new()
     };
 
+    // 2026-07-27 (表2-D 市区町村化): 基準 (選択muni) + 同一県内 CSV件数上位 近隣最大10 の
+    //   失業率・単身世帯率を市区町村粒度で取得し、県平均と併記する。
+    //   muni 未選択 / HW DB 無しの場合は空 (§02 は従来の県平均表にフォールバック)。
+    //   選択必須ガードにより SP 本編では muni は常に指定されるが、防御的に分岐を残す。
+    let region_2d_stats: Vec<super::aggregator::RegionMuniStat> = if !muni.is_empty() {
+        if let Some(hw_db) = state.hw_db.clone() {
+            let turso = state.turso_db.clone();
+            // 基準を先頭、続いて同一県内の他市区町村を CSV 件数降順で最大 10 件。
+            let mut muni_list: Vec<(String, bool)> = vec![(muni.clone(), true)];
+            for m in agg.by_municipality_salary.iter() {
+                if muni_list.len() >= 11 {
+                    break;
+                }
+                if m.prefecture == pref && m.name != muni && !m.name.is_empty() {
+                    muni_list.push((m.name.clone(), false));
+                }
+            }
+            let pref_c = pref.clone();
+            tokio::task::spawn_blocking(move || {
+                use super::super::analysis::fetch::fetch_municipality_mean;
+                // 0-100% 域外は None (逆証明ガード: 失業率・単身世帯率は率のため 0-100 域)。
+                let sane = |v: Option<f64>| v.filter(|x| *x >= 0.0 && *x <= 100.0);
+                muni_list
+                    .into_iter()
+                    .map(|(mn, is_base)| {
+                        let unemployment_rate = sane(fetch_municipality_mean(
+                            &hw_db,
+                            turso.as_ref(),
+                            &pref_c,
+                            &mn,
+                            "SUM(unemployed)",
+                            "SUM(employed) + SUM(unemployed)",
+                            "v2_external_labor_force",
+                        ));
+                        let single_rate = sane(fetch_municipality_mean(
+                            &hw_db,
+                            turso.as_ref(),
+                            &pref_c,
+                            &mn,
+                            "SUM(single_households)",
+                            "SUM(total_households)",
+                            "v2_external_households",
+                        ));
+                        super::aggregator::RegionMuniStat {
+                            prefecture: pref_c.clone(),
+                            municipality: mn,
+                            is_base,
+                            unemployment_rate,
+                            single_rate,
+                        }
+                    })
+                    .collect()
+            })
+            .await
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let _ = (&pref, &muni);
     // 2026-04-29: variant 切替 (?variant=full|public)
     let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
@@ -1080,6 +1257,8 @@ async fn build_survey_report_inner(
         section_set,
         // 2026-07-13: Ver10 の表2-E 表示フラグ (?table2e=0/1、既定オン)。
         table2e,
+        // 2026-07-27: 表 2-D 市区町村化用の市区町村統計 (基準 + 同一県内近隣)。
+        &region_2d_stats,
     );
 
     Html(html)
@@ -1096,7 +1275,7 @@ async fn build_survey_report_inner(
 pub async fn survey_report_download(
     State(state): State<Arc<AppState>>,
     session: Session,
-    Query(query): Query<IntegrateQuery>,
+    Query(mut query): Query<IntegrateQuery>,
 ) -> axum::response::Response {
     use axum::http::{header, StatusCode};
     use axum::response::IntoResponse;
@@ -1107,6 +1286,8 @@ pub async fn survey_report_download(
         crate::audit::record_event(&state.audit, &session, "generate_survey_report", "report", &sid, "")
             .await;
     }
+    // 2026-07-27: ダウンロード URL は業界を乗せないため、tower-session の産業フィルタで補完。
+    fallback_industry_from_session(&session, &mut query).await;
     let noop = |_: &str| {};
     let html_resp = build_survey_report_inner(state, query, &noop).await;
     let html_body = html_resp.0;
@@ -1322,13 +1503,17 @@ pub async fn survey_guide_result(
 pub async fn survey_report_start(
     State(state): State<Arc<AppState>>,
     session: Session,
-    Query(query): Query<IntegrateQuery>,
+    Query(mut query): Query<IntegrateQuery>,
 ) -> axum::response::Json<serde_json::Value> {
     use axum::response::Json;
 
     let Some(session_id) = query.session_id.clone().filter(|s| !s.is_empty()) else {
         return Json(serde_json::json!({ "error": "session_id が必要です" }));
     };
+
+    // 2026-07-27: 業界がクエリに乗らない経路のため、spawn 前に tower-session の産業フィルタで補完。
+    //   (spawn 内には session を move できないため、ここで解決してから query を渡す。)
+    fallback_industry_from_session(&session, &mut query).await;
     if state
         .cache
         .get(&format!("survey_agg_{}", session_id))

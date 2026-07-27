@@ -55,9 +55,22 @@ pub(crate) fn render_navy_section_02_region(
     // 2026-07-13: Ver10 専用。表2-E (都道府県別給与 — 地域比較) を表示するか。
     //   Ver10 以外の variant では参照されない (従来どおり常に表示)。
     table2e: bool,
+    // 2026-07-27: 表 2-D 市区町村化用。基準 (選択muni) + 同一県内近隣の市区町村統計。
+    //   空なら従来の「都道府県平均」表にフォールバック。
+    region_2d_stats: &[super::super::super::aggregator::RegionMuniStat],
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
     let is_ver10 = variant.is_ver10();
+
+    // 2026-07-27: 基準地域 (アプリで選択した市区町村)。target_region は
+    //   compose_target_region がアプリ選択を最優先で組んだ文字列
+    //   ("東京都 千代田区" / "東京都" / "全国")。市区町村まで含む場合のみ Some。
+    //   都道府県名・市区町村名に空白は含まれないため split_once(' ') で安全に分解できる。
+    //   表 2-A の ★基準地域 バッジ / 表 2-C の中心名指し / 表 2-D の基準行に使う。
+    let base_muni: Option<(&str, &str)> = target_region
+        .split_once(' ')
+        .filter(|(p, m)| !p.is_empty() && !m.is_empty() && *p != "全国");
+
     let title = if show_hw {
         "地域 × 求人媒体データ連携"
     } else {
@@ -174,13 +187,28 @@ pub(crate) fn render_navy_section_02_region(
             "<div class=\"block-title block-title-spaced\">表 2-A &nbsp;件数最多 10 市区町村 &mdash; CSV 集計 + {}</div>\n",
             if show_hw { "求人媒体補強" } else { "外部統計" }
         ));
-        html.push_str(&build_navy_region_table(agg, hw_enrichment_map, show_hw));
+        html.push_str(&build_navy_region_table(
+            agg,
+            hw_enrichment_map,
+            show_hw,
+            base_muni,
+        ));
     }
 
     // -- 表 2-C 通勤流入元 TOP3 (採用範囲拡張の指針)  [旧 7.5-A 統合 2026-05-15]
     if let Some(c) = hw_context {
         if !c.commute_inflow_top3.is_empty() {
-            html.push_str("<div class=\"block-title block-title-spaced\">表 2-C &nbsp;通勤流入元 TOP3 (隣地域→対象地域)</div>\n");
+            // 2026-07-27: 「対象地域」だと何を中心とした流入か分からないため、
+            //   アプリ選択の市区町村を中心 (流入先) として名指しする。
+            //   OD 集計自体は元々アプリ選択 pref/muni を dest として走っている
+            //   (build_insight_context に選択 pref/muni が渡るため)。
+            let center = base_muni
+                .map(|(p, m)| format!("{}{}", escape_html(p), escape_html(m)))
+                .unwrap_or_else(|| "対象地域".to_string());
+            html.push_str(&format!(
+                "<div class=\"block-title block-title-spaced\">表 2-C &nbsp;通勤流入元 TOP3 (周辺地域 → {})</div>\n",
+                center
+            ));
             html.push_str(
                 "<table class=\"table-navy\">\n<thead><tr>\
                 <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流入人数</th>\
@@ -193,32 +221,79 @@ pub(crate) fn render_navy_section_02_region(
                 ));
             }
             html.push_str("</tbody></table>\n");
-            html.push_str("<p class=\"caption\">出典: 国勢調査 通勤 OD。対象地域以外 (隣接市町村 / 隣接都道府県含む) からの通勤者流入元 上位 3 自治体。採用範囲拡張・近隣自治体への媒体出稿の指針。</p>\n");
+            html.push_str(&format!(
+                "<p class=\"caption\">出典: 国勢調査 通勤 OD。<strong>{}</strong> への他市区町村・他都道府県からの通勤者の多い 3 自治体 (流入先はアプリで選択した市区町村)。採用範囲拡張・近隣自治体への媒体出稿の指針。</p>\n",
+                center
+            ));
         }
     }
 
-    // -- 表 2-D 都道府県平均比較 (マクロ指標)  [旧 7.5-B 統合 2026-05-15]
-    if let Some(c) = hw_context {
-        let pref_avgs: Vec<(&str, Option<f64>, &str)> = vec![
-            ("県平均 失業率", c.pref_avg_unemployment_rate, "%"),
-            ("県平均 単身世帯率", c.pref_avg_single_rate, "%"),
-        ];
-        let with_val: Vec<_> = pref_avgs.iter().filter(|(_, v, _)| v.is_some()).collect();
-        if !with_val.is_empty() {
-            html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;都道府県平均比較 (マクロ指標)</div>\n");
-            html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
-            for (label, val, unit) in with_val {
-                let cell = val
-                    .map(|v| format!("{:.2}", v))
-                    .unwrap_or_else(|| "—".into());
-                html.push_str(&format!(
-                    "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">{}</span></td></tr>\n",
-                    label, cell, unit
-                ));
-            }
-            html.push_str("</tbody></table>\n");
-            html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計 (SUM 方式: 市町村集計を県全体で再集計)。対象地域固有の値ではなく県全体の平均値。Section 04 の失業率と併せて読む。</p>\n");
+    // -- 表 2-D 地域比較 (マクロ指標)
+    //   2026-07-27: 「都道府県平均のみ」から「指定市区町村 + 同一県内近隣 + 県平均(参考)」に
+    //   変更。元データ (v2_external_labor_force / v2_external_households) は市区町村粒度のため、
+    //   顧客が自地域の立ち回りを判断できるよう市区町村単位で比較する。
+    //   region_2d_stats が空 (非 SP 経路 / データ未取得) の場合は従来の県平均表にフォールバック。
+    let pref_avg_unemp = hw_context.and_then(|c| c.pref_avg_unemployment_rate);
+    let pref_avg_single = hw_context.and_then(|c| c.pref_avg_single_rate);
+    let fmt_rate = |v: Option<f64>| -> String {
+        v.map(|x| format!("{:.2}", x)).unwrap_or_else(|| "—".into())
+    };
+    if !region_2d_stats.is_empty() {
+        html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;地域比較 &mdash; 指定市区町村 + 近隣 (失業率・単身世帯率)</div>\n");
+        html.push_str(
+            "<table class=\"table-navy\">\n<thead><tr>\
+             <th>市区町村</th><th class=\"num\">失業率 (%)</th><th class=\"num\">単身世帯率 (%)</th>\
+             </tr></thead>\n<tbody>\n",
+        );
+        // 基準地域を先頭、続いて近隣 (呼出側で CSV 件数降順に整列済み)。
+        let mut ordered: Vec<&super::super::super::aggregator::RegionMuniStat> =
+            region_2d_stats.iter().collect();
+        ordered.sort_by_key(|r| !r.is_base); // is_base=true を前に
+        for r in ordered {
+            let badge = if r.is_base {
+                " <span style=\"display:inline-block;padding:1px 6px;border-radius:4px;\
+                 background:#1d4ed8;color:#fff;font-size:.72em;font-weight:700;\">★基準地域</span>"
+            } else {
+                ""
+            };
+            let row_class = if r.is_base { " class=\"hl\"" } else { "" };
+            html.push_str(&format!(
+                "<tr{}><td>{}{}</td><td class=\"num bold\">{}</td><td class=\"num\">{}</td></tr>\n",
+                row_class,
+                escape_html(&r.municipality),
+                badge,
+                fmt_rate(r.unemployment_rate),
+                fmt_rate(r.single_rate),
+            ));
         }
+        // 県平均 (参考) 行。
+        if pref_avg_unemp.is_some() || pref_avg_single.is_some() {
+            html.push_str(&format!(
+                "<tr><td><span class=\"dim\">県平均 (参考)</span></td><td class=\"num\">{}</td><td class=\"num\">{}</td></tr>\n",
+                fmt_rate(pref_avg_unemp),
+                fmt_rate(pref_avg_single),
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str("<p class=\"caption\">出典: SSDSE-A 市区町村集計 (失業率 = 失業者 / 労働力、単身世帯率 = 単身世帯 / 総世帯)。<strong>★基準地域</strong>: アプリで選択した市区町村。近隣は同一都道府県内で CSV 件数の多い市区町村 (最大 10)。<strong>県平均 (参考)</strong> は県全体の SUM 方式集計。Section 04 の失業率と併せて読む。「—」はデータ欠損。</p>\n");
+    } else if pref_avg_unemp.is_some() || pref_avg_single.is_some() {
+        // フォールバック: 従来の都道府県平均表 (非 SP 経路 / muni 未指定時)。
+        html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;都道府県平均比較 (マクロ指標)</div>\n");
+        html.push_str("<table class=\"table-navy\">\n<thead><tr><th>指標</th><th class=\"num\">値</th><th>単位</th></tr></thead>\n<tbody>\n");
+        for (label, val) in [
+            ("県平均 失業率", pref_avg_unemp),
+            ("県平均 単身世帯率", pref_avg_single),
+        ] {
+            if val.is_none() {
+                continue;
+            }
+            html.push_str(&format!(
+                "<tr><td><strong>{}</strong></td><td class=\"num bold\">{}</td><td><span class=\"dim\">%</span></td></tr>\n",
+                label, fmt_rate(val)
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計 (SUM 方式: 市町村集計を県全体で再集計)。対象地域固有の値ではなく県全体の平均値。Section 04 の失業率と併せて読む。</p>\n");
     }
 
     // -- 表 2-E 都道府県別給与 + 地域比較 (2026-05-23 #226 統合)
@@ -234,10 +309,10 @@ pub(crate) fn render_navy_section_02_region(
     }
 
     // -- so-what
-    let so_what = build_region_so_what(agg, pref_top_pct, n_pref, hw_context, show_hw);
+    let so_what = build_region_so_what(agg, pref_top_pct, n_pref, hw_context, show_hw, base_muni);
     html.push_str(&format!(
         "<div class=\"so-what\" style=\"margin-top:6mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what
@@ -352,6 +427,10 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
     s
 }
 
+// 2026-07-27: 「中核エリア」→「掲載シェア大/中/小」に呼称変更 (何のシェアかを一読で
+//   分かるように)。加えて `base_muni` (アプリで選択した基準市区町村) の行に ★基準地域
+//   バッジを付け、上位 10 に無い場合は行を追加してでも表示する。
+//   これにより「CSV 件数最多 (=表の並び)」と「アプリ選択の基準地域」を視覚的に分離する。
 fn build_navy_region_table(
     agg: &SurveyAggregation,
     hw_enrichment_map: &std::collections::HashMap<
@@ -359,7 +438,10 @@ fn build_navy_region_table(
         super::super::super::hw_enrichment::HwAreaEnrichment,
     >,
     show_hw: bool,
+    base_muni: Option<(&str, &str)>,
 ) -> String {
+    use super::super::super::aggregator::MunicipalitySalaryAgg;
+
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
     s.push_str("<th>No.</th><th>都道府県</th><th>市区町村</th>");
     s.push_str("<th class=\"num\">CSV 件数</th>");
@@ -369,113 +451,137 @@ fn build_navy_region_table(
         s.push_str("<th>3 ヶ月推移</th>");
         s.push_str("<th>1 年推移</th>");
     } else {
-        s.push_str("<th>位置づけ</th>");
+        s.push_str("<th>掲載シェア</th>");
     }
     s.push_str("</tr></thead>\n<tbody>\n");
 
+    // 1 行レンダリング (top10 行と、追加した基準地域行で共用)。
+    let render_row = |s: &mut String, row: &MunicipalitySalaryAgg, rank: &str, hl: bool| {
+        let key = format!("{}:{}", row.prefecture, row.name);
+        let enrich = hw_enrichment_map.get(&key);
+        let med_man = format!("{:.1}", row.median_salary as f64 / 10000.0);
+        let is_base =
+            base_muni.map_or(false, |(bp, bm)| row.prefecture == bp && row.name == bm);
+        let row_class = if hl { " class=\"hl\"" } else { "" };
+        let badge = if is_base {
+            " <span style=\"display:inline-block;padding:1px 6px;border-radius:4px;\
+             background:#1d4ed8;color:#fff;font-size:.72em;font-weight:700;\">★基準地域</span>"
+        } else {
+            ""
+        };
+        s.push_str(&format!(
+            "<tr{}><td class=\"num bold\">{}</td><td>{}</td><td>{}{}</td>\
+             <td class=\"num bold\">{}</td><td class=\"num\">{}</td>",
+            row_class,
+            rank,
+            escape_html(&row.prefecture),
+            escape_html(&row.name),
+            badge,
+            format_number(row.count as i64),
+            med_man
+        ));
+        if show_hw {
+            let posting = enrich
+                .map(|e| format_number(e.hw_posting_count))
+                .unwrap_or_else(|| "—".into());
+            let trend_3m = enrich
+                .map(|e| {
+                    let label = e.change_label_3m();
+                    let tag = match label {
+                        "大きく増加" | "緩やかに増加" => "pos",
+                        "横ばい" => "neu",
+                        _ => "warn",
+                    };
+                    format!(
+                        "<span class=\"tag tag-{}\">{}{}</span>",
+                        tag,
+                        label,
+                        e.posting_change_3m_pct
+                            .map(|v| format!(" ({:+.1}%)", v))
+                            .unwrap_or_default()
+                    )
+                })
+                .unwrap_or_else(|| "<span class=\"dim\">—</span>".into());
+            let trend_1y = enrich
+                .map(|e| {
+                    let label = e.change_label_1y();
+                    let tag = match label {
+                        "大きく増加" | "緩やかに増加" => "pos",
+                        "横ばい" => "neu",
+                        _ => "warn",
+                    };
+                    format!(
+                        "<span class=\"tag tag-{}\">{}{}</span>",
+                        tag,
+                        label,
+                        e.posting_change_1y_pct
+                            .map(|v| format!(" ({:+.1}%)", v))
+                            .unwrap_or_default()
+                    )
+                })
+                .unwrap_or_else(|| "<span class=\"dim\">—</span>".into());
+            s.push_str(&format!(
+                "<td class=\"num\">{}</td><td>{}</td><td>{}</td>",
+                posting, trend_3m, trend_1y
+            ));
+        } else {
+            // MI/Public: 掲載シェア (CSV 件数シェア + tag)
+            // Round 1-K (2026-06-03): safe_pct ガード
+            let pct = if agg.total_count > 0 {
+                safe_pct(row.count as f64 / agg.total_count as f64 * 100.0)
+            } else {
+                0.0
+            };
+            let (tag, label) = if pct >= 30.0 {
+                ("pos", "掲載シェア大")
+            } else if pct >= 10.0 {
+                ("neu", "掲載シェア中")
+            } else {
+                ("neu", "掲載シェア小")
+            };
+            s.push_str(&format!(
+                "<td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:.1}%</span></td>",
+                tag, label, pct
+            ));
+        }
+        s.push_str("</tr>\n");
+    };
+
     // 件数最多 10 市区町村 (CSV 件数降順)
-    let top10: Vec<&super::super::super::aggregator::MunicipalitySalaryAgg> =
+    let top10: Vec<&MunicipalitySalaryAgg> =
         agg.by_municipality_salary.iter().take(10).collect();
 
     if top10.is_empty() {
-        s.push_str("<tr><td colspan=\"6\" class=\"dim\">CSV から市区町村集計データを抽出できませんでした。</td></tr>\n");
+        let cols = if show_hw { 8 } else { 6 };
+        s.push_str(&format!(
+            "<tr><td colspan=\"{}\" class=\"dim\">CSV から市区町村集計データを抽出できませんでした。</td></tr>\n",
+            cols
+        ));
     } else {
         for (i, row) in top10.iter().enumerate() {
-            let key = format!("{}:{}", row.prefecture, row.name);
-            let enrich = hw_enrichment_map.get(&key);
-            let med_man = format!("{:.1}", row.median_salary as f64 / 10000.0);
-            let row_class = if i == 0 { " class=\"hl\"" } else { "" };
-            s.push_str(&format!(
-                "<tr{}><td class=\"num bold\">{}</td><td>{}</td><td>{}</td>\
-                 <td class=\"num bold\">{}</td><td class=\"num\">{}</td>",
-                row_class,
-                i + 1,
-                escape_html(&row.prefecture),
-                escape_html(&row.name),
-                format_number(row.count as i64),
-                med_man
-            ));
-            if show_hw {
-                let posting = enrich
-                    .map(|e| format_number(e.hw_posting_count))
-                    .unwrap_or_else(|| "—".into());
-                let trend_3m = enrich
-                    .map(|e| {
-                        let label = e.change_label_3m();
-                        let tag = match label {
-                            "大きく増加" | "緩やかに増加" => "pos",
-                            "横ばい" => "neu",
-                            _ => "warn",
-                        };
-                        format!(
-                            "<span class=\"tag tag-{}\">{}{}</span>",
-                            tag,
-                            label,
-                            e.posting_change_3m_pct
-                                .map(|v| format!(" ({:+.1}%)", v))
-                                .unwrap_or_default()
-                        )
-                    })
-                    .unwrap_or_else(|| "<span class=\"dim\">—</span>".into());
-                let trend_1y = enrich
-                    .map(|e| {
-                        let label = e.change_label_1y();
-                        let tag = match label {
-                            "大きく増加" | "緩やかに増加" => "pos",
-                            "横ばい" => "neu",
-                            _ => "warn",
-                        };
-                        format!(
-                            "<span class=\"tag tag-{}\">{}{}</span>",
-                            tag,
-                            label,
-                            e.posting_change_1y_pct
-                                .map(|v| format!(" ({:+.1}%)", v))
-                                .unwrap_or_default()
-                        )
-                    })
-                    .unwrap_or_else(|| "<span class=\"dim\">—</span>".into());
-                s.push_str(&format!(
-                    "<td class=\"num\">{}</td><td>{}</td><td>{}</td>",
-                    posting, trend_3m, trend_1y
-                ));
-            } else {
-                // MI/Public: 位置づけ (シェア + tag)
-                // Round 1-K (2026-06-03): safe_pct ガード
-                let pct = if agg.total_count > 0 {
-                    safe_pct(row.count as f64 / agg.total_count as f64 * 100.0)
-                } else {
-                    0.0
-                };
-                let tag = if pct >= 30.0 {
-                    "pos"
-                } else if pct >= 10.0 {
-                    "neu"
-                } else {
-                    "neu"
-                };
-                let label = if pct >= 30.0 {
-                    "中核エリア"
-                } else if pct >= 10.0 {
-                    "主要エリア"
-                } else {
-                    "周辺エリア"
-                };
-                s.push_str(&format!(
-                    "<td><span class=\"tag tag-{}\">{}</span> &nbsp;<span class=\"dim\">{:.1}%</span></td>",
-                    tag, label, pct
-                ));
+            render_row(&mut s, *row, &format!("{}", i + 1), i == 0);
+        }
+        // 基準地域 (アプリ選択の市区町村) が上位 10 に無い場合は行を追加して必ず表示。
+        if let Some((bp, bm)) = base_muni {
+            let in_top10 = top10.iter().any(|r| r.prefecture == bp && r.name == bm);
+            if !in_top10 {
+                if let Some(base_row) = agg
+                    .by_municipality_salary
+                    .iter()
+                    .find(|r| r.prefecture == bp && r.name == bm)
+                {
+                    render_row(&mut s, base_row, "—", false);
+                }
             }
-            s.push_str("</tr>\n");
         }
     }
     s.push_str("</tbody></table>\n");
     if show_hw {
         // 2026-07-22 数値監査対応: この内訳は給与を確認できた求人ベース (総件数とは分母が異なる)
-        s.push_str("<p class=\"caption\">CSV 件数: アップロード CSV の (都道府県, 市区町村) 別件数 (給与を確認できた求人ベースのため、表紙の総件数とは分母が異なる)。中央値: 月給換算済み。媒体掲載数: 求人媒体ローカル DB の現在掲載求人数。推移: 3 ヶ月前比 / 1 年前比 (Turso 時系列)。</p>\n");
+        s.push_str("<p class=\"caption\">CSV 件数: アップロード CSV の (都道府県, 市区町村) 別件数 (給与を確認できた求人ベースのため、表紙の総件数とは分母が異なる)。中央値: 月給換算済み。媒体掲載数: 求人媒体ローカル DB の現在掲載求人数。推移: 3 ヶ月前比 / 1 年前比 (Turso 時系列)。<strong>★基準地域</strong>: アプリで選択した市区町村。</p>\n");
     } else {
         // 2026-07-22 数値監査対応: この内訳は給与を確認できた求人ベース (総件数とは分母が異なる)
-        s.push_str("<p class=\"caption\">CSV 件数: アップロード CSV の (都道府県, 市区町村) 別件数 (給与を確認できた求人ベースのため、表紙の総件数とは分母が異なる)。中央値: 月給換算済み。位置づけ: n に占める割合に基づき中核 (30%+) / 主要 (10-30%) / 周辺 (-10%) に分類。</p>\n");
+        s.push_str("<p class=\"caption\">CSV 件数: アップロード CSV の (都道府県, 市区町村) 別件数 (給与を確認できた求人ベースのため、表紙の総件数とは分母が異なる)。中央値: 月給換算済み。<strong>掲載シェア</strong>: アップロード CSV 件数に占める割合 (30%以上=大 / 10-30%=中 / 10%未満=小)。<strong>★基準地域</strong>: アプリで選択した市区町村。</p>\n");
     }
     s
 }
@@ -486,12 +592,34 @@ fn build_region_so_what(
     n_pref: usize,
     hw_context: Option<&InsightContext>,
     show_hw: bool,
+    // 2026-07-27: 基準地域 (アプリで選択した市区町村)。CSV最多基準ではなく基準地域基準で
+    //   方針文を組むために使う。
+    base_muni: Option<(&str, &str)>,
 ) -> String {
     let muni_top = agg.by_municipality_salary.first();
     // Round 1-K (2026-06-03): safe_pct ガード
     let muni_top_pct = match muni_top {
         Some(m) if agg.total_count > 0 => safe_pct(m.count as f64 / agg.total_count as f64 * 100.0),
         _ => 0.0,
+    };
+
+    // 2026-07-27: 基準地域 (アプリ選択 muni) の掲載シェアと、CSV 最多との一致判定。
+    let base_stat: Option<(&str, f64)> = base_muni.and_then(|(bp, bm)| {
+        agg.by_municipality_salary
+            .iter()
+            .find(|m| m.prefecture == bp && m.name == bm)
+            .map(|m| {
+                let pct = if agg.total_count > 0 {
+                    safe_pct(m.count as f64 / agg.total_count as f64 * 100.0)
+                } else {
+                    0.0
+                };
+                (m.name.as_str(), pct)
+            })
+    });
+    let base_is_top = match (base_muni, muni_top) {
+        (Some((bp, bm)), Some(top)) => top.prefecture == bp && top.name == bm,
+        _ => false,
     };
 
     let geo_judge = if n_pref == 1 {
@@ -504,20 +632,47 @@ fn build_region_so_what(
         "<strong>複数県均衡</strong>"
     };
 
-    let concentration_note = if muni_top_pct >= 50.0 {
+    // 2026-07-27: 「件数最多市区町村」基準ではなく、基準地域 (アプリ選択 muni) 基準で方針を組む。
+    //   基準地域があればその掲載シェアで判断し、無ければ従来どおり CSV 最多市区町村で記述する。
+    let concentration_note = if let Some((base_name, base_pct)) = base_stat {
+        let top_hint = if base_is_top {
+            String::new()
+        } else {
+            format!(
+                " (アップロードデータ内の掲載シェア最多は <strong>{}</strong>)",
+                muni_top.map(|m| m.name.as_str()).unwrap_or("—")
+            )
+        };
+        if base_pct >= 50.0 {
+            format!(
+                "基準地域 <strong>{}</strong> がアップロードデータの <strong>{:.0}%</strong> を占める<strong>1 自治体集中</strong>です{}。",
+                base_name, base_pct, top_hint
+            )
+        } else if base_pct >= 25.0 {
+            format!(
+                "基準地域 <strong>{}</strong> がアップロードデータの <strong>{:.0}%</strong> を占めます。掲載シェアの大きいエリアでの面取り戦略が有効です{}。",
+                base_name, base_pct, top_hint
+            )
+        } else {
+            format!(
+                "基準地域 <strong>{}</strong> の掲載シェアは <strong>{:.0}%</strong> で、データは複数エリアに分散しています。地域別の訴求軸調整が必要です{}。",
+                base_name, base_pct, top_hint
+            )
+        }
+    } else if muni_top_pct >= 50.0 {
         format!(
-            "件数最多市区町村 <strong>{}</strong> が <strong>{:.0}%</strong> を占める<strong>1 自治体主導</strong>の構成です。",
+            "掲載シェア最多市区町村 <strong>{}</strong> が <strong>{:.0}%</strong> を占める<strong>1 自治体集中</strong>の構成です。",
             muni_top.map(|m| m.name.as_str()).unwrap_or("—"),
             muni_top_pct
         )
     } else if muni_top_pct >= 25.0 {
         format!(
-            "件数最多市区町村 <strong>{}</strong> が <strong>{:.0}%</strong> を占めます。中核エリア + 主要エリアでの面取り戦略が有効です。",
+            "掲載シェア最多市区町村 <strong>{}</strong> が <strong>{:.0}%</strong> を占めます。掲載シェアの大きいエリアでの面取り戦略が有効です。",
             muni_top.map(|m| m.name.as_str()).unwrap_or("—"),
             muni_top_pct
         )
     } else {
-        "件数は複数エリアに分散しており、地域別の訴求軸調整が必要です。".to_string()
+        "掲載件数は複数エリアに分散しており、地域別の訴求軸調整が必要です。".to_string()
     };
 
     let hw_note = if show_hw && hw_context.is_some() {

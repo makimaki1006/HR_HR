@@ -312,3 +312,41 @@ pub(crate) fn fetch_prefecture_mean(
         }
     })
 }
+
+/// 市区町村単位の比率 (fetch_prefecture_mean の市区町村版, 2026-07-27)。
+///
+/// `fetch_prefecture_mean` の SQL に `AND municipality = ?2` を加え、当該市区町村の
+/// 行のみを SUM する。表 2-D「都道府県平均比較」を「指定市区町村 + 近隣」比較に
+/// 切り替えるために使う。muni 正規化は `normalize_muni_for_external` 経由
+/// (postings は郡名込み / v2_external_* は郡名なし の不一致を吸収)。
+///
+/// v2_external_labor_force / v2_external_households は (prefecture, municipality) 粒度
+/// (competitive/external.rs:450 / recruitment_diag/talent_pool_expansion.rs:7 参照)。
+/// NaN / Inf は None。呼び出し側で 0-100% 域の妥当性ガードを併用する想定。
+pub(crate) fn fetch_municipality_mean(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+    numerator_sum_sql: &str,
+    denominator_sum_sql: &str,
+    table: &str,
+) -> Option<f64> {
+    if muni.is_empty() {
+        return None;
+    }
+    let sql = format!(
+        "SELECT CAST({numerator_sum_sql} AS REAL) / NULLIF({denominator_sum_sql}, 0) * 100 as rate \
+         FROM {table} WHERE prefecture = ?1 AND municipality = ?2"
+    );
+    let params = vec![pref.to_string(), normalize_muni_for_external(pref, muni)];
+    let rows = query_turso_or_local(turso, db, &sql, &params, table);
+    rows.first().and_then(|r| {
+        let v = get_f64(r, "rate");
+        if v.is_nan() || v.is_infinite() {
+            None
+        } else {
+            Some(v)
+        }
+    })
+}

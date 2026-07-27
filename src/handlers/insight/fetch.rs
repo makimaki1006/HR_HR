@@ -348,11 +348,19 @@ pub(crate) fn build_insight_context_with_wage_mode(
 
             // P1-5: 対象都道府県内で postings 件数上位 3 muni のピラミッド取得
             // pref が空のときは silent fallback を避けるため明示的に空 Vec を返す。
+            // 2026-07-27: 基準地域 (アプリで選択した muni) を必ず 1 枚目に含める。
+            //   残りは postings 件数上位で補完 (合計 3 枠)。従来は件数上位のみで、
+            //   顧客の選択地域が上位 3 に入らないと自地域のピラミッドが出ない問題があった。
             let muni_pyramids: Vec<MuniPyramid> = if pref.is_empty() {
                 Vec::new()
             } else {
-                let top_munis = af::fetch_top_muni_names(db, pref, 3);
-                top_munis
+                let mut names = af::fetch_top_muni_names(db, pref, 3);
+                if !muni.is_empty() {
+                    names.retain(|m| m != muni);
+                    names.insert(0, muni.to_string());
+                    names.truncate(3);
+                }
+                names
                     .into_iter()
                     .filter_map(|m| {
                         let bands = af::fetch_population_pyramid(db, turso, pref, &m);
@@ -379,7 +387,8 @@ pub(crate) fn build_insight_context_with_wage_mode(
                 af::fetch_care_demand(db, turso, pref),
                 af::fetch_household_spending(db, turso, pref),
                 // 2026-05-31 Phase 2: e-Stat 住宅・土地統計 借家家賃データ
-                af::fetch_rental_housing(db, turso, pref),
+                // 2026-07-27 item32: muni を渡し当該市区町村の家賃を優先取得 (無ければ県集計)。
+                af::fetch_rental_housing(db, turso, pref, muni),
                 af::fetch_climate(db, turso, pref),
             )
         });
