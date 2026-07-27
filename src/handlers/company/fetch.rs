@@ -778,7 +778,8 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
     if neighborhood.is_empty() || sn_industries.is_empty() {
         return RegionalCompanySegments::default();
     }
-    let band_limit: i64 = 30;
+    // 2026-07-27 item29: 通勤圏×業界の企業 pool も 30→50 に引き上げ。
+    let band_limit: i64 = 50;
     let band_ranges: [(i64, i64, &str); 3] = [
         (300, 9_999_999, "large"),
         (50, 299, "mid"),
@@ -948,6 +949,9 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
 
     RegionalCompanySegments {
         pool_size: pool.len(),
+        // 2026-07-27 item29b: 通勤圏×業界 経路は多市町村+業界の複合条件のため総数は
+        //   算出せず 0 (未取得)。第1部リードは all-industry 経路の値を使うため影響なし。
+        region_total_count: 0,
         large,
         mid,
         growth,
@@ -973,11 +977,41 @@ fn fetch_company_segments_by_region_with_industry_internal(
         return RegionalCompanySegments::default();
     }
 
+    // 2026-07-27 item29b: 対象地域の該当企業の総数 (規模帯・業界で絞らない実数)。
+    //   リード文の「該当企業 全 M 社」を示すため、pool 抽出とは別に COUNT で取得する。
+    let region_total_count: usize = {
+        let muni_pat = if muni.is_empty() {
+            String::new()
+        } else {
+            format!("%{}%", strip_county_prefix(muni))
+        };
+        let (count_sql, count_params): (&str, Vec<&dyn crate::db::turso_http::ToSqlTurso>) =
+            if muni.is_empty() {
+                (
+                    "SELECT COUNT(*) as cnt FROM v2_salesnow_companies WHERE prefecture = ?1",
+                    vec![&pref],
+                )
+            } else {
+                (
+                    "SELECT COUNT(*) as cnt FROM v2_salesnow_companies \
+                     WHERE prefecture = ?1 AND address LIKE ?2",
+                    vec![&pref, &muni_pat],
+                )
+            };
+        sn_db
+            .query(count_sql, &count_params)
+            .unwrap_or_default()
+            .first()
+            .map(|r| get_i64(r, "cnt").max(0) as usize)
+            .unwrap_or(0)
+    };
+
     // 2026-04-30 修正: 単一の `ORDER BY employee_count DESC LIMIT 100` だと
     // 小規模企業 (<50 名) がほぼ pool に含まれず、構造サマリの「小規模」帯が
-    // 常に過少になる問題があった。3 つの規模帯から **個別に上位 30 社ずつ** 取得して
-    // 多様な pool (最大 90 社) を構築する。
-    let band_limit: i64 = 30;
+    // 常に過少になる問題があった。3 つの規模帯から **個別に上位 N 社ずつ** 取得して
+    // 多様な pool を構築する。
+    // 2026-07-27 item29: 企業個社データを厚くするため 30→50 に引き上げ (最大 150 社)。
+    let band_limit: i64 = 50;
     let industry_keyword = industry.filter(|s| !s.is_empty()).map(|s| {
         let head: String = s.chars().take_while(|c| *c != ',' && *c != '，').collect();
         if head.is_empty() {
@@ -1258,6 +1292,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
 
     RegionalCompanySegments {
         pool_size: pool.len(),
+        region_total_count,
         large,
         mid,
         growth,
@@ -1279,6 +1314,11 @@ fn fetch_company_segments_by_region_with_industry_internal(
 pub struct RegionalCompanySegments {
     /// 取得した母集団のサイズ (デバッグ・注記用)
     pub pool_size: usize,
+    /// 2026-07-27 item29b: 対象地域の該当企業の総数 (規模帯・業界で絞らない実数)。
+    /// pool_size は規模帯別に上位 N 社ずつ抽出した分析対象数で総数ではないため、
+    /// リード文で「抽出 N 社 (該当企業 全 M 社)」の M を示すために別途保持する。
+    /// 0 は未取得 (COUNT クエリ失敗 or neighborhood 経路)。
+    pub region_total_count: usize,
     /// 大手 (employee_count Top)
     pub large: Vec<NearbyCompany>,
     /// 中堅 (50-300 名)

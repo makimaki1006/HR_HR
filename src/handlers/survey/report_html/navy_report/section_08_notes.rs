@@ -53,8 +53,14 @@ pub(crate) fn render_navy_section_08_notes(
 
     // -- 表 8-A データソース一覧
     html.push_str("<div class=\"block-title\">表 8-A &nbsp;データソース一覧</div>\n");
+    // 2026-07-27 item27: No. 列を最小化し、名称/出典/用途など本文列を広く見せる。
     html.push_str(
-        "<table class=\"table-navy\">\n<thead><tr>\
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+        <colgroup>\
+        <col style=\"width:5%\"><col style=\"width:28%\"><col style=\"width:22%\">\
+        <col style=\"width:28%\"><col style=\"width:17%\">\
+        </colgroup>\n\
+        <thead><tr>\
         <th>No.</th><th>名称</th><th>出典</th><th>用途</th><th>更新頻度</th>\
         </tr></thead>\n<tbody>\n",
     );
@@ -406,7 +412,7 @@ pub(crate) fn render_navy_section_08_notes(
     html.push_str("<div class=\"block-title block-title-spaced\">免責 &nbsp;解釈上の前提</div>\n");
     html.push_str(
         "<div class=\"so-what\" style=\"margin-top:4mm;\">\
-         <div class=\"sw-label\">DISCLAIMER</div>\
+         <div class=\"sw-label\">免責事項</div>\
          <div class=\"sw-body\">\
          <strong>1. 相関 ≠ 因果。</strong> 本レポートが示す指標間の関係は <strong>相関</strong> であり、\
          因果関係を証明するものではありません。施策実施判断は現場文脈と合わせて行ってください。<br>\

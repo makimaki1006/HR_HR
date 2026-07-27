@@ -112,12 +112,12 @@ pub(super) fn compute_skew_severity(
     }
 }
 
-/// severity tag → 表示用 3 文字英略語ラベル
+/// severity tag → 表示用の日本語バッジラベル
 ///
-/// 2026-05-21 docstring 追加: 本関数は他の i18n / label 関数と異なり、出力自体が
-/// **意図的に英語短縮形** ("POS"/"WARN"/"NEG"/"NEU") である (採用コンサル
-/// レポートのバッジ表示で短く統一するため、navy_report.rs 全体の意匠決定)。
-/// `_ => "NEU"` は silent fallback ではなく明示的な「中立」マッピング。
+/// 2026-07-27 顧客可視の英略語 ("POS"/"WARN"/"NEG"/"NEU") を平易な日本語へ変更。
+/// 内部の tag 文字列 ("pos"/"warn"/"neg") と CSS クラス (`.tag-pos` 等) は不変で、
+/// 表示テキストのみ日本語化する。`_ => "中立"` は silent fallback ではなく明示的な
+/// 「中立」マッピング。
 ///
 /// 新規 severity 種別 (例: "critical") を追加する場合は以下も同時に確認:
 /// - `build_business_findings` / `build_geo_findings` 等の sev tag 生成側
@@ -125,10 +125,10 @@ pub(super) fn compute_skew_severity(
 /// 上記を更新せず本 match だけ広げると silent fallback と同じパターンに陥る。
 pub(super) fn severity_label(tag: &str) -> &'static str {
     match tag {
-        "pos" => "POS",
-        "warn" => "WARN",
-        "neg" => "NEG",
-        _ => "NEU",
+        "pos" => "強み",
+        "warn" => "注意",
+        "neg" => "課題",
+        _ => "中立",
     }
 }
 
@@ -347,16 +347,33 @@ pub(super) fn build_navy_histogram_svg(
         (x_of(s.mean), "#C9A24B", "平均"),
         (x_of(s.mode_bin_yen), "#9CA0AB", "最頻"),
     ];
-    // 2026-05-18: ラベル y を index で stagger (近接時の重なりで「どれか見えない」を解消)
-    //   idx 0 (P50): y = 8   (一番上)
-    //   idx 1 (平均): y = 20  (中)
-    //   idx 2 (最頻): y = 32  (下、線の真上に最も近い)
-    for (idx, (x, color, lbl)) in lines.iter().enumerate() {
+    // 2026-07-27 item10: ラベルの縦位置は x 座標の近接で分岐する。
+    //   従来は index で常に stagger していたため、3 本が離れていても平均/最頻ラベルが
+    //   不必要に下段へ浮いていた。近接 (横方向にラベルが重なりうる) マーカーだけを
+    //   1 段ずつ下げ、離れているものは上段 (現状どおり) に揃える。値が同一/近接なら
+    //   縦積みで併記され重ならない。
+    //   label_threshold: この px 以内は centered ラベルが横方向に重なりうる幅。
+    let label_threshold = 30.0;
+    let row_h = 12.0;
+    let base_y = 8.0;
+    // 各マーカーに行 (row) を貪欲割当。同一行に threshold 以内の既存マーカーがあれば
+    // 次の行へ下げる。離れていれば row 0 (上段) のまま。
+    let mut placed: Vec<(f64, usize)> = Vec::new();
+    for (x, color, lbl) in lines.iter() {
+        // 縦線は近接に関わらず常に描画する。
         svg.push_str(&format!(
             "<line x1=\"{:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" stroke=\"{}\" stroke-width=\"1.5\" stroke-dasharray=\"3 2\"/>\n",
             x, pad_t, x, pad_t + inner_h, color
         ));
-        let label_y = 8.0 + (idx as f64) * 12.0;
+        let mut row = 0usize;
+        while placed
+            .iter()
+            .any(|(px, pr)| *pr == row && (px - x).abs() < label_threshold)
+        {
+            row += 1;
+        }
+        placed.push((*x, row));
+        let label_y = base_y + row as f64 * row_h;
         svg.push_str(&format!(
             "<text x=\"{:.1}\" y=\"{:.1}\" font-size=\"10\" fill=\"{}\" text-anchor=\"middle\" font-weight=\"700\">{}</text>\n",
             x, label_y, color, lbl

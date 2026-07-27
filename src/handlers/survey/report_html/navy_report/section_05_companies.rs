@@ -71,7 +71,7 @@ pub(crate) fn render_navy_section_placeholders(
         );
         html.push_str(&format!(
             "<div class=\"so-what\" style=\"margin-top:4mm;\">\
-             <div class=\"sw-label\">UNDER MIGRATION</div>\
+             <div class=\"sw-label\">移行中</div>\
              <div class=\"sw-body\">{}<br>本セクションは新デザイン (見本 Recruitment_Market_Report.html) に\
              基づき再構築中です。次のコミット群で navy 構造の本実装に置き換わります。</div>\
              </div>\n",
@@ -183,17 +183,33 @@ pub(crate) fn render_navy_section_05_companies(
     let hw_total: i64 = hw_industry.iter().map(|(_, c)| *c).sum();
 
     let pool_size = salesnow_segments.pool_size;
+    let region_total = salesnow_segments.region_total_count;
     let n_large = salesnow_segments.large.len();
     let n_mid = salesnow_segments.mid.len();
     let n_growth = salesnow_segments.growth.len();
     let n_hiring = salesnow_segments.hiring.len();
     let n_companies_csv = by_company.len();
 
+    // 2026-07-27 item29/29b: pool_size は規模帯別 (大/中/小) に上位 50 社ずつ抽出した
+    //   分析対象の社数。region_total_count は対象地域の該当企業の総数 (COUNT 実数)。
+    //   総数が取得できた場合は「抽出 N 社 (該当企業 全 M 社)」で母数を明示する。
+    let company_phrase = if region_total > pool_size {
+        format!(
+            "分析対象として抽出した地域企業 <strong>{}</strong> 社 (対象地域の該当企業 全 <strong>{}</strong> 社)",
+            format_number(pool_size as i64),
+            format_number(region_total as i64),
+        )
+    } else {
+        format!(
+            "分析対象として抽出した地域企業 <strong>{}</strong> 社",
+            format_number(pool_size as i64),
+        )
+    };
     let lede = format!(
         "対象地域の企業構造を把握します。国勢調査 産業大分類 <strong>{}</strong> 区分 / \
-         地域企業データ <strong>{}</strong> 社{}。CSV 上にユニーク企業 <strong>{}</strong> 社が確認できます。",
+         {}{}。CSV 上にユニーク企業 <strong>{}</strong> 社が確認できます。",
         industry_sorted.len(),
-        format_number(pool_size as i64),
+        company_phrase,
         if show_hw && hw_total > 0 {
             format!(" / 求人媒体 産業大分類 {} 件", format_number(hw_total))
         } else {
@@ -209,14 +225,25 @@ pub(crate) fn render_navy_section_05_companies(
         lede
     ));
 
+    // 2026-07-27 item33: §05 を 2 部構成に。第1部 = 地域全体 (全業種)。
+    //   未経験採用では他業種の在職者も採用ターゲットになるため、まず地域全体の
+    //   企業・雇用環境を示す。第2部 (選択業界に絞った企業) は業界指定時に後段で描画。
+    html.push_str(
+        "<div class=\"block-title block-title-spaced\" style=\"border-bottom:2px solid var(--ink);\">第1部 &nbsp;地域全体の企業構造 (全業種)</div>\n",
+    );
+    html.push_str(
+        "<p class=\"caption\">未経験採用では他業種で働いている人も採用ターゲットになり得るため、\
+         まず地域全体の企業・雇用環境を示します。特定業界に絞った直接競合の姿は第2部で扱います。</p>\n",
+    );
+
     html.push_str("<div class=\"block-title\">図 5-1 &nbsp;法人セグメント (規模 × 動向)</div>\n");
     // pool_size = 0 のときは地域企業データ未取得を明示し、誤解 (0社=企業が無い) を防ぐ
     if pool_size == 0 {
         html.push_str(
             "<div class=\"so-what\" style=\"margin-top:0; margin-bottom:6mm; background: var(--rule-soft); color: var(--ink-soft);\">\
-             <div class=\"sw-label\">DATA</div>\
+             <div class=\"sw-label\">データ</div>\
              <div class=\"sw-body\">地域企業データ (外部企業データベース) を取得できませんでした。\
-             以下の法人セグメント KPI は<strong>表示対象データなし</strong>のため、企業活動の評価には用いないでください。</div>\
+             以下の法人セグメント指標は<strong>表示対象データなし</strong>のため、企業活動の評価には用いないでください。</div>\
              </div>\n",
         );
     }
@@ -254,7 +281,7 @@ pub(crate) fn render_navy_section_05_companies(
         &kpi_val(n_growth),
         kpi_unit,
         if n_growth > 0 { "pos" } else { "neu" },
-        "1Y 人員増加率 +10% 超",
+        "1年 人員増加率 +10% 超",
         true,
     );
     if show_hw {
@@ -295,13 +322,17 @@ pub(crate) fn render_navy_section_05_companies(
         &hw_industry,
         hw_total,
         show_hw,
+        // 2026-07-27 item31: 顧客の産業 (業界フィルタ) を必ず行に含めて ★ 表示する。
+        industry_filter,
     ));
-
-    if !industry_sorted.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">図 5-2 &nbsp;産業大分類シェア (国勢調査)</div>\n");
-        html.push_str(&build_navy_industry_bars(&industry_sorted, industry_total));
-        html.push_str("<p class=\"caption\">出典: 国勢調査 v2_external_industry_structure (都道府県粒度)。集計コード AS/AR/CR 除外。</p>\n");
+    if industry_filter.map(|s| !s.trim().is_empty()).unwrap_or(false) {
+        html.push_str("<p class=\"caption\">★ = 対象(顧客)の産業。件数最多 8 産業に入らない場合も参考として併記します(産業名が国勢調査の大分類と対応づけできた場合)。</p>\n");
     }
+
+    // 2026-07-27 item30: 図 5-2 (産業大分類シェア バー) は表 5-A と同じ産業大分類の
+    //   シェアを重複表示していたため統合 (削除)。就業者数・シェア・媒体シェアは表 5-A に
+    //   集約済み。バー描画関数 build_navy_industry_bars は将来の再利用余地のため残置
+    //   (#![allow(dead_code)])。
 
     // 2026-05-14: 業界フィルタが指定されている時、同業界版を併記する。
     //   各表 (5-B〜5-F) を 全業界 → 同業界 の順に描画。
@@ -330,29 +361,14 @@ pub(crate) fn render_navy_section_05_companies(
         )
     };
 
+    // ===== 第1部: 地域全体 (全業界) の個社・規模帯テーブル (5-B〜5-F) =====
     if !salesnow_segments.growth.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (全業界、1Y +10%〜+300%、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (全業界、1年 +10%〜+300%、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(
             &salesnow_segments.growth,
             8,
             show_hw,
         ));
-    }
-    if has_industry {
-        let ind = industry_label.as_deref().unwrap_or("");
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-B′ &nbsp;急成長企業 ({}{}、1Y +10%〜+300%、件数最多 8 社)</div>\n",
-            muni_label, escape_html(ind)
-        ));
-        if !salesnow_segments_industry.growth.is_empty() {
-            html.push_str(&build_navy_company_list(
-                &salesnow_segments_industry.growth,
-                8,
-                show_hw,
-            ));
-        } else {
-            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
-        }
     }
 
     // -- 大手企業 (employee_count Top)
@@ -364,43 +380,11 @@ pub(crate) fn render_navy_section_05_companies(
             show_hw,
         ));
     }
-    if has_industry {
-        let ind = industry_label.as_deref().unwrap_or("");
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-C′ &nbsp;大手企業 ({}{}、従業員 300+ 名級、件数最多 8 社)</div>\n",
-            muni_label, escape_html(ind)
-        ));
-        if !salesnow_segments_industry.large.is_empty() {
-            html.push_str(&build_navy_company_list(
-                &salesnow_segments_industry.large,
-                8,
-                show_hw,
-            ));
-        } else {
-            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
-        }
-    }
 
     // -- 中堅企業 (50-300 名)
     if !salesnow_segments.mid.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 5-D &nbsp;中堅企業 (全業界、従業員 50-299 名、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.mid, 8, show_hw));
-    }
-    if has_industry {
-        let ind = industry_label.as_deref().unwrap_or("");
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-D′ &nbsp;中堅企業 ({}{}、従業員 50-299 名、件数最多 8 社)</div>\n",
-            muni_label, escape_html(ind)
-        ));
-        if !salesnow_segments_industry.mid.is_empty() {
-            html.push_str(&build_navy_company_list(
-                &salesnow_segments_industry.mid,
-                8,
-                show_hw,
-            ));
-        } else {
-            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
-        }
     }
 
     // -- 採用活発企業 (Full のみ、求人媒体掲載 5 件以上)
@@ -412,22 +396,6 @@ pub(crate) fn render_navy_section_05_companies(
             show_hw,
         ));
     }
-    if show_hw && has_industry {
-        let ind = industry_label.as_deref().unwrap_or("");
-        html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-E′ &nbsp;採用活発企業 ({}{}、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n",
-            muni_label, escape_html(ind)
-        ));
-        if !salesnow_segments_industry.hiring.is_empty() {
-            html.push_str(&build_navy_company_list(
-                &salesnow_segments_industry.hiring,
-                8,
-                show_hw,
-            ));
-        } else {
-            html.push_str(&empty_row_html(6));
-        }
-    }
 
     // -- 規模 × 動向 6 マトリクス: 増員傾向 (large/mid/small) + 減少傾向 (large/mid/small)
     let g_large = salesnow_segments.growth_large.len();
@@ -437,28 +405,78 @@ pub(crate) fn render_navy_section_05_companies(
     let d_mid = salesnow_segments.decline_mid.len();
     let d_small = salesnow_segments.decline_small.len();
     if g_large + g_mid + g_small + d_large + d_mid + d_small > 0 {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-F &nbsp;規模 × 動向 6 マトリクス (全業界、1Y 人員変動)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 5-F &nbsp;規模 × 動向 6 マトリクス (全業界、1年 人員変動)</div>\n");
         html.push_str(&build_navy_growth_decline_matrix(salesnow_segments));
     }
+
+    // ===== 第2部: 選択業界に絞った企業 (直接競合の把握) =====
+    // 2026-07-27 item33: 業界指定時のみ描画。全業界版 (第1部) の各表に対応する
+    //   同業界版 (5-B′〜5-F′) をまとめて第2部として提示する。
     if has_industry {
         let ind = industry_label.as_deref().unwrap_or("");
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\" style=\"border-bottom:2px solid var(--ink);\">第2部 &nbsp;「{}」に絞った場合の企業 (直接競合)</div>\n",
+            escape_html(ind)
+        ));
+        html.push_str(&format!(
+            "<p class=\"caption\">同業種の企業に絞った姿です。{}での直接競合となる採用主体の顔ぶれ・規模・人員動向を示します。第1部(地域全体)と読み比べてください。</p>\n",
+            if muni_label.is_empty() { "対象地域".to_string() } else { muni_label.trim_end_matches("× ").trim().to_string() }
+        ));
+        // 表 5-B′ 急成長
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-B′ &nbsp;急成長企業 ({}{}、1年 +10%〜+300%、件数最多 8 社)</div>\n",
+            muni_label, escape_html(ind)
+        ));
+        if !salesnow_segments_industry.growth.is_empty() {
+            html.push_str(&build_navy_company_list(&salesnow_segments_industry.growth, 8, show_hw));
+        } else {
+            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
+        }
+        // 表 5-C′ 大手
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-C′ &nbsp;大手企業 ({}{}、従業員 300+ 名級、件数最多 8 社)</div>\n",
+            muni_label, escape_html(ind)
+        ));
+        if !salesnow_segments_industry.large.is_empty() {
+            html.push_str(&build_navy_company_list(&salesnow_segments_industry.large, 8, show_hw));
+        } else {
+            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
+        }
+        // 表 5-D′ 中堅
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 5-D′ &nbsp;中堅企業 ({}{}、従業員 50-299 名、件数最多 8 社)</div>\n",
+            muni_label, escape_html(ind)
+        ));
+        if !salesnow_segments_industry.mid.is_empty() {
+            html.push_str(&build_navy_company_list(&salesnow_segments_industry.mid, 8, show_hw));
+        } else {
+            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
+        }
+        // 表 5-E′ 採用活発 (Full のみ)
+        if show_hw {
+            html.push_str(&format!(
+                "<div class=\"block-title block-title-spaced\">表 5-E′ &nbsp;採用活発企業 ({}{}、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n",
+                muni_label, escape_html(ind)
+            ));
+            if !salesnow_segments_industry.hiring.is_empty() {
+                html.push_str(&build_navy_company_list(&salesnow_segments_industry.hiring, 8, show_hw));
+            } else {
+                html.push_str(&empty_row_html(6));
+            }
+        }
+        // 表 5-F′ 規模 × 動向 (データ 0 件時は skip)
         let ig_l = salesnow_segments_industry.growth_large.len();
         let ig_m = salesnow_segments_industry.growth_mid.len();
         let ig_s = salesnow_segments_industry.growth_small.len();
         let id_l = salesnow_segments_industry.decline_large.len();
         let id_m = salesnow_segments_industry.decline_mid.len();
         let id_s = salesnow_segments_industry.decline_small.len();
-        // 2026-05-22 ユーザー指摘: データ 0 件時に「表 5-F′ ... 該当企業なし」だけが
-        // 残るレイアウトを廃止。データ 0 件なら section 全体を skip して情報密度向上。
-        // (旧コード: タイトル + empty_row_html を常に出力していた)
         if ig_l + ig_m + ig_s + id_l + id_m + id_s > 0 {
             html.push_str(&format!(
-                "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1Y 人員変動)</div>\n",
+                "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1年 人員変動)</div>\n",
                 muni_label, escape_html(ind)
             ));
-            html.push_str(&build_navy_growth_decline_matrix(
-                salesnow_segments_industry,
-            ));
+            html.push_str(&build_navy_growth_decline_matrix(salesnow_segments_industry));
         }
     }
 
@@ -505,7 +523,7 @@ pub(crate) fn render_navy_section_05_companies(
     );
     html.push_str(&format!(
         "<div class=\"so-what\" style=\"margin-top:6mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what
@@ -771,15 +789,39 @@ pub(crate) fn build_navy_notable_companies_block(
     s
 }
 
+/// 2 つの産業名がおおむね一致するか (顧客産業の照合用)。
+/// 国勢調査大分類と業界フィルタで区切り文字・空白の表記ゆれがあるため正規化して照合する。
+/// 一致しない場合は false (捏造せず、追加もしない)。
+fn industry_name_matches(target: &str, name: &str) -> bool {
+    let norm = |x: &str| x.replace(['，', ',', '、', ' ', '　', '・'], "");
+    let tn = norm(target);
+    let nn = norm(name);
+    if tn.is_empty() || nn.is_empty() {
+        return false;
+    }
+    if tn.contains(&nn) || nn.contains(&tn) {
+        return true;
+    }
+    // 先頭 2 文字の一致 (例: 「医療，福祉」↔「医療」)。
+    let head = |x: &str| x.chars().take(2).collect::<String>();
+    head(&tn) == head(&nn) && head(&tn).chars().count() == 2
+}
+
 fn build_navy_industry_table(
     industry_sorted: &[(String, i64)],
     industry_total: i64,
     hw_industry: &[(String, i64)],
     hw_total: i64,
     show_hw: bool,
+    // 2026-07-27 item31: 顧客の産業 (業界フィルタ)。上位 8 に無くても必ず行に含めて ★ 表示。
+    target_industry: Option<&str>,
 ) -> String {
     let hw_map: std::collections::HashMap<&str, i64> =
         hw_industry.iter().map(|(n, c)| (n.as_str(), *c)).collect();
+
+    let target = target_industry
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty());
 
     let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
     s.push_str("<th>No.</th><th>産業大分類</th>");
@@ -792,28 +834,51 @@ fn build_navy_industry_table(
     }
     s.push_str("</tr></thead>\n<tbody>\n");
 
-    let top8: Vec<&(String, i64)> = industry_sorted.iter().take(8).collect();
-    if top8.is_empty() {
+    // 表示行 = 上位 8 (それぞれ元順位)。顧客産業が上位 8 外なら末尾に追加する。
+    let mut display: Vec<(usize, &String, i64, bool)> = industry_sorted
+        .iter()
+        .enumerate()
+        .take(8)
+        .map(|(i, (n, e))| (i + 1, n, *e, target.map(|t| industry_name_matches(t, n)).unwrap_or(false)))
+        .collect();
+    let mut client_included = display.iter().any(|(_, _, _, c)| *c);
+    if let Some(t) = target {
+        if !client_included {
+            if let Some((i, (n, e))) = industry_sorted
+                .iter()
+                .enumerate()
+                .skip(8)
+                .find(|(_, (n, _))| industry_name_matches(t, n))
+            {
+                display.push((i + 1, n, *e, true));
+                client_included = true;
+            }
+        }
+    }
+
+    if display.is_empty() {
         let cols = if show_hw { 7 } else { 4 };
         s.push_str(&format!(
             "<tr><td colspan=\"{}\" class=\"dim\">国勢調査産業構造データを取得できませんでした。</td></tr>\n",
             cols
         ));
     } else {
-        for (i, (name, employees)) in top8.iter().enumerate() {
+        for &(rank, name, employees, is_client) in display.iter() {
             let share_pct = if industry_total > 0 {
-                *employees as f64 / industry_total as f64 * 100.0
+                employees as f64 / industry_total as f64 * 100.0
             } else {
                 0.0
             };
-            let row_class = if i == 0 { " class=\"hl\"" } else { "" };
+            let row_class = if rank == 1 || is_client { " class=\"hl\"" } else { "" };
+            let marker = if is_client { "★ " } else { "" };
             s.push_str(&format!(
-                "<tr{}><td class=\"num bold\">{}</td><td><strong>{}</strong></td>\
+                "<tr{}><td class=\"num bold\">{}</td><td><strong>{}{}</strong></td>\
                  <td class=\"num bold\">{}</td><td class=\"num\">{:.1}%</td>",
                 row_class,
-                i + 1,
+                rank,
+                marker,
                 escape_html(name),
-                format_number(*employees),
+                format_number(employees),
                 share_pct
             ));
             if show_hw {
@@ -921,7 +986,8 @@ fn build_navy_industry_bars(industry_sorted: &[(String, i64)], total: i64) -> St
     svg
 }
 
-// 規模 × 動向 6 マトリクス: 大企業 / 中小 / 零細 × 増員 / 減少
+// 規模 × 動向 6 マトリクス: 大企業 / 中小 / 小規模 × 増員 / 減少
+// 2026-07-27 item6: 「零細」は評価的に響くため中立的な「小規模 (〜49 名)」に統一。
 fn build_navy_growth_decline_matrix(
     seg: &super::super::super::super::company::fetch::RegionalCompanySegments,
 ) -> String {
@@ -943,7 +1009,7 @@ fn build_navy_growth_decline_matrix(
             seg.decline_mid.len(),
         ),
         (
-            "零細企業 (-49 名)",
+            "小規模 (〜49 名)",
             seg.growth_small.len(),
             seg.decline_small.len(),
         ),
@@ -968,7 +1034,7 @@ fn build_navy_growth_decline_matrix(
     }
     s.push_str("</tbody></table>\n");
     s.push_str(
-        "<p class=\"caption\">出典: 地域企業データ employee_delta_1y。\
+        "<p class=\"caption\">出典: 地域企業データ (1 年人員増減率)。\
                 増員傾向 = +5% 超 / 減少傾向 = -5% 未満。\
                 減少傾向は離職多発だけでなく組織改編・自然減・配置転換も含むため、\
                 単純な離職率指標とは区別してください。</p>\n",
@@ -981,10 +1047,31 @@ fn build_navy_company_list(
     take: usize,
     show_hw: bool,
 ) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    // 2026-07-27 item6: 列幅を colgroup で明示。No. 列を最小に、産業/従業員数/増減列を
+    //   圧縮し、企業名が省略されずに表示されることを最優先にする。table-layout:fixed で
+    //   colgroup 幅を効かせ、企業名セルは折返し許容 (word-break) で全文表示する。
+    let mut s = String::from("<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n");
+    if show_hw {
+        s.push_str(
+            "<colgroup>\
+             <col style=\"width:5%\"><col style=\"width:30%\"><col style=\"width:17%\">\
+             <col style=\"width:12%\"><col style=\"width:12%\"><col style=\"width:12%\">\
+             <col style=\"width:12%\">\
+             </colgroup>\n",
+        );
+    } else {
+        s.push_str(
+            "<colgroup>\
+             <col style=\"width:6%\"><col style=\"width:34%\"><col style=\"width:20%\">\
+             <col style=\"width:13%\"><col style=\"width:13.5%\"><col style=\"width:13.5%\">\
+             </colgroup>\n",
+        );
+    }
+    s.push_str("<thead><tr>");
     s.push_str("<th>No.</th><th>企業名</th><th>産業</th>");
     s.push_str("<th class=\"num\">従業員数</th>");
-    s.push_str("<th class=\"num\">1Y 増減</th>");
+    s.push_str("<th class=\"num\">1年 増減</th>");
+    s.push_str("<th class=\"num\">3ヶ月 増減</th>");
     if show_hw {
         s.push_str("<th class=\"num\">媒体掲載数</th>");
     }
@@ -992,7 +1079,7 @@ fn build_navy_company_list(
 
     let top: Vec<_> = companies.iter().take(take).collect();
     if top.is_empty() {
-        let cols = if show_hw { 6 } else { 5 };
+        let cols = if show_hw { 7 } else { 6 };
         s.push_str(&format!(
             "<tr><td colspan=\"{}\" class=\"dim\">該当企業データなし。</td></tr>\n",
             cols
@@ -1004,10 +1091,20 @@ fn build_navy_company_list(
             // 誤表示されていた (feedback_unit_consistency_audit / 表 5-B 信頼性
             // 指摘 2026-05-14 の真因)。フィルタ側 (fetch.rs <=300.0) は % 前提で
             // 正しく動作していたが、表示層だけが旧 ratio 前提のままだった。
+            // employee_delta_1y / employee_delta_3m はいずれも DB に % 単位で格納
+            //   (5.0 = +5%)。同一列由来のため単位は一致 (feedback_unit_consistency_audit)。
             let delta = c.employee_delta_1y;
             let delta_tag = if delta >= 5.0 {
                 "pos"
             } else if delta <= -5.0 {
+                "warn"
+            } else {
+                "neu"
+            };
+            let delta_3m = c.employee_delta_3m;
+            let delta_3m_tag = if delta_3m >= 5.0 {
+                "pos"
+            } else if delta_3m <= -5.0 {
                 "warn"
             } else {
                 "neu"
@@ -1017,13 +1114,16 @@ fn build_navy_company_list(
                  <td style=\"word-break:keep-all;overflow-wrap:anywhere;\"><strong>{}</strong></td>\
                  <td><span class=\"dim\">{}</span></td>\
                  <td class=\"num bold\">{}</td>\
+                 <td class=\"num\"><span class=\"tag tag-{}\">{:+.1}%</span></td>\
                  <td class=\"num\"><span class=\"tag tag-{}\">{:+.1}%</span></td>",
                 i + 1,
                 escape_html(&c.company_name),
                 escape_html(&c.sn_industry),
                 format_number(c.employee_count),
                 delta_tag,
-                delta
+                delta,
+                delta_3m_tag,
+                delta_3m
             ));
             if show_hw {
                 s.push_str(&format!(
@@ -1039,7 +1139,8 @@ fn build_navy_company_list(
         }
     }
     s.push_str("</tbody></table>\n");
-    s.push_str("<p class=\"caption\">地域企業データ より、1 年人員増加率 +10% 超を「急成長」と定義。</p>\n");
+    s.push_str("<p class=\"caption\">地域企業データ より、1 年人員増加率 +10% 超を「急成長」と定義。\
+                増減列は人員の増減率 (%)。1年 = 直近 1 年、3ヶ月 = 直近 3 ヶ月の増減率です。</p>\n");
     s
 }
 

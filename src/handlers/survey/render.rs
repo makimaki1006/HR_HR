@@ -821,7 +821,7 @@ fn render_action_bar(session_id: &str) -> String {
                             <span class="text-[10px] opacity-80 font-normal">働き手の将来・給与相場・転職動向の分析を追加した版</span>
                         </span>
                     </a>
-                    <!-- SP版 (仮): sp — 詳細版 + 経営サマリー1ページ/結論バンド/優先アクション表/給与四分位 (試作) -->
+                    <!-- 本編: sp — 詳細版 + 経営サマリー1ページ/結論バンド/優先アクション表/給与四分位 -->
                     <a href="/report/survey?session_id={sid}&variant=sp" target="_blank" rel="noopener"
                        onclick="return openVariantReport(event, '{sid}', 'sp')"
                        data-variant="sp"

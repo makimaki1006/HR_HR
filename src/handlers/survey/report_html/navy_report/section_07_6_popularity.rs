@@ -35,7 +35,7 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
         html,
         "SECTION 07.6",
         "人気度シグナル",
-        "Indeed (SP) の「人気」「超人気」タグ集計 — 付与基準は非公開の参考指標",
+        "「人気」「超人気」ラベルの集計 — 付与基準は非公開の参考指標",
     );
 
     render_summary_kpi(html, agg);
@@ -67,13 +67,13 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         html,
         "人気タグ件数",
         &format!("{} 件", format_number(pop.popular_count as i64)),
-        "Indeed (SP) 「人気」付与",
+        "「人気」ラベル付与",
     );
     push_kpi_card_simple(
         html,
         "超人気タグ件数",
         &format!("{} 件", format_number(pop.super_popular_count as i64)),
-        "Indeed (SP) 「超人気」付与",
+        "「超人気」ラベル付与",
     );
     // 2026-07-01 Finding #2: 分母を IndeedSp 由来件数に明示。
     push_kpi_card_simple(
@@ -81,7 +81,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         "人気タグ比率",
         &format!("{:.1}%", pop.popular_ratio * 100.0),
         &format!(
-            "Indeed (SP) {} 件中 (人気+超人気)",
+            "対象求人 {} 件中 (人気+超人気)",
             format_number(pop.indeed_sp_total as i64)
         ),
     );
@@ -109,36 +109,22 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     );
     push_kpi_card_simple(html, "月給中央値差", &salary_diff_text, &salary_diff_foot);
 
-    let holiday_diff_text =
-        if pop.popular_n_holidays >= N_MIN && pop.non_popular_n_holidays >= N_MIN {
-            match (pop.popular_holidays_median, pop.non_popular_holidays_median) {
-                (Some(p), Some(n)) => {
-                    let diff = p - n;
-                    let sign = if diff >= 0 { "+" } else { "" };
-                    format!("{}{} 日", sign, diff)
-                }
-                _ => "—".to_string(),
-            }
-        } else {
-            "— (n不足)".to_string()
-        };
-    let holiday_diff_foot = format!(
-        "人気タグ あり − なし / 人気 n={} / なし n={}",
-        pop.popular_n_holidays, pop.non_popular_n_holidays
-    );
-    push_kpi_card_simple(
-        html,
-        "年間休日中央値差",
-        &holiday_diff_text,
-        &holiday_diff_foot,
-    );
+    // 2026-07-27 item14: 年間休日は人気タグとの 3 区分 (超人気/人気/タグなし) 別集計が
+    //   集計層に無く、人気との紐づけが読み取れない 2 区分比較は誤解を生むため §07.6 から
+    //   外した (給与は §07.6-3 で 3 区分別に提示)。年間休日の KPI カード / 比較行は非表示。
 
     html.push_str("</div>\n");
     // rank8: 超人気逆転の注記 + 効果約束の緩和
     html.push_str(
         "<p class=\"note\">※ 超人気タグは n が小さい場合が多く、\
          下限中央値がタグなしを下回ることがあります。\
-         月給差・休日差は相関の参考値であり、因果関係および一貫した正の関係を示すものではありません。</p>\n",
+         月給差は相関の参考値であり、因果関係および一貫した正の関係を示すものではありません。</p>\n",
+    );
+    // 2026-07-27 item13: 人気・超人気の付与要因は給料・年間休日に限らない旨を明記。
+    html.push_str(
+        "<p class=\"note\">※ 「人気」「超人気」の付与には、給料や年間休日以外にも\
+         多くの要因(掲載内容・応募状況・閲覧動向など)が関わります。\
+         給与差だけで人気の理由を説明できるものではありません。</p>\n",
     );
 }
 
@@ -148,16 +134,15 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
 fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
     let pop = &agg.popularity;
     // 比較可能な指標が 1 つもなければスキップ
+    // 2026-07-27 item14: 年間休日比較は人気タグとの紐づけが読めないため §07.6 から除外。
     let has_salary = pop.popular_salary_median.is_some() || pop.non_popular_salary_median.is_some();
-    let has_holidays =
-        pop.popular_holidays_median.is_some() || pop.non_popular_holidays_median.is_some();
-    if !has_salary && !has_holidays {
+    if !has_salary {
         return;
     }
 
     // Finding #5 (2026-07-01): n < 5 の場合は値非表示 (n 数は列ヘッダに併記)
     const N_MIN_TABLE: usize = 5;
-    html.push_str("<div class=\"block-title\">§07.6-2 &nbsp;月給・年間休日 比較 (中央値)</div>\n");
+    html.push_str("<div class=\"block-title\">§07.6-2 &nbsp;月給 比較 (中央値)</div>\n");
 
     // rank29: ヘッダの単一 n を廃止。各指標行に実 n を個別に併記する。
     html.push_str(
@@ -203,41 +188,14 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
             pop_val, non_val,
         ));
     }
-    if has_holidays {
-        // rank29: 年間休日行にも対応する実 n を併記する
-        let pop_val = if pop.popular_n_holidays >= N_MIN_TABLE {
-            format!(
-                "{} (n={})",
-                format_days(pop.popular_holidays_median),
-                pop.popular_n_holidays
-            )
-        } else {
-            format!("— (n={})", pop.popular_n_holidays)
-        };
-        let non_val = if pop.non_popular_n_holidays >= N_MIN_TABLE {
-            format!(
-                "{} (n={})",
-                format_days(pop.non_popular_holidays_median),
-                pop.non_popular_n_holidays
-            )
-        } else {
-            format!("— (n={})", pop.non_popular_n_holidays)
-        };
-        html.push_str(&format!(
-            "<tr>\
-             <td>年間休日 中央値 (日)</td>\
-             <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
-             <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
-             </tr>\n",
-            pop_val, non_val,
-        ));
-    }
+    // 2026-07-27 item14: 年間休日行は §07.6 から除外 (人気タグとの 3 区分別集計が無く
+    //   2 区分比較では人気との紐づけが読めないため)。
     html.push_str("</tbody></table>\n");
 
     // so-what は相関≠因果リスク回避のため最小限 / rank8: 表記を断定から中立化
     html.push_str(
-        "<p class=\"note\">※ 「人気」「超人気」は Indeed が付与するラベル(付与基準は非公開)。\
-         給与・休日との差分は相関の参考値であり、因果関係は示しません。\
+        "<p class=\"note\">※ 「人気」「超人気」は求人掲載に付与されるラベル(付与基準は非公開)。\
+         給与との差分は相関の参考値であり、因果関係は示しません。\
          超人気タグ(n が小さい)は下限中央値がタグなしより低い場合があります。</p>\n",
     );
 }
@@ -399,13 +357,14 @@ mod tests {
         assert!(html.contains("30.0%"), "popular_ratio formatted");
         // Finding #8: 月給差は万円表示 (+2.0 万円)
         assert!(html.contains("+2.0 万円"), "salary diff in manyen");
-        // 年間休日差 +10 日 (日は変更なし)
-        assert!(html.contains("+10 日"), "holidays diff");
+        // 2026-07-27 item14: 年間休日の KPI/比較行は §07.6 から除外したため表示されない。
+        assert!(!html.contains("年間休日中央値差"), "年間休日 KPI は非表示");
+        assert!(!html.contains("年間休日 中央値"), "年間休日 比較行は非表示");
+        assert!(!html.contains("120 日"), "年間休日値は非表示");
+        assert!(!html.contains("110 日"), "年間休日値は非表示");
         // Finding #8: 比較表も万円表示
         assert!(html.contains("28.0 万円"));
         assert!(html.contains("26.0 万円"));
-        assert!(html.contains("120 日"));
-        assert!(html.contains("110 日"));
     }
 
     #[test]

@@ -389,6 +389,7 @@ fn invariant3_six_matrix_sum_lte_pool() {
     ];
     let segments = RegionalCompanySegments {
         pool_size: companies.len(),
+        region_total_count: 0, // 2026-07-27 item29b: フィールド追加に伴う機械的更新
         large: vec![],
         mid: vec![],
         growth: vec![],
@@ -434,6 +435,7 @@ fn invariant3_six_matrix_cells_disjoint() {
     ];
     let segments = RegionalCompanySegments {
         pool_size: companies.len(),
+        region_total_count: 0, // 2026-07-27 item29b: フィールド追加に伴う機械的更新
         large: vec![],
         mid: vec![],
         growth: vec![],
@@ -1540,4 +1542,149 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
         html.contains("出典: 公的機関の掲載求人の集計"),
         "Full の表 5-G/5-H キャプションに訂正後の出典表記が出るはず"
     );
+}
+
+// =====================================================================
+// 2026-07-27: 表 2-D 市区町村化 (指定市区町村 + 近隣 + 県平均参考) の逆証明
+//
+// 背景: 「都道府県平均のみ」から市区町村比較へ変更。失業率・単身世帯率は率のため
+//   0-100% 域に収まるべき (2026-04-27 unemployment 380% 流出型の再発防止)。
+// =====================================================================
+
+#[test]
+fn invariant_table_2d_municipality_comparison_renders_base_and_reference() {
+    use super::super::aggregator::{MunicipalitySalaryAgg, RegionMuniStat};
+    use super::ReportVariant;
+    use std::collections::HashMap;
+
+    let agg = SurveyAggregation {
+        total_count: 100,
+        by_municipality_salary: vec![
+            MunicipalitySalaryAgg {
+                name: "千代田区".into(),
+                prefecture: "東京都".into(),
+                count: 60,
+                avg_salary: 300_000,
+                median_salary: 300_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "中央区".into(),
+                prefecture: "東京都".into(),
+                count: 40,
+                avg_salary: 280_000,
+                median_salary: 280_000,
+            },
+        ],
+        ..Default::default()
+    };
+    let ctx = InsightContext {
+        pref_avg_unemployment_rate: Some(2.5),
+        pref_avg_single_rate: Some(40.0),
+        ..Default::default()
+    };
+    let stats = vec![
+        RegionMuniStat {
+            prefecture: "東京都".into(),
+            municipality: "千代田区".into(),
+            is_base: true,
+            unemployment_rate: Some(3.6),
+            single_rate: Some(55.0),
+        },
+        RegionMuniStat {
+            prefecture: "東京都".into(),
+            municipality: "中央区".into(),
+            is_base: false,
+            unemployment_rate: Some(4.0),
+            single_rate: Some(60.0),
+        },
+    ];
+    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> = HashMap::new();
+    let mut html = String::new();
+    super::navy_report::render_navy_section_02_region(
+        &mut html,
+        &agg,
+        Some(&ctx),
+        &enrich,
+        ReportVariant::Public,
+        "東京都 千代田区",
+        true,
+        &stats,
+    );
+
+    assert!(html.contains("表 2-D"), "表 2-D が描画される");
+    assert!(html.contains("★基準地域"), "基準地域バッジが付く");
+    assert!(html.contains("千代田区"), "基準市区町村名が出る");
+    assert!(html.contains("中央区"), "近隣市区町村名が出る");
+    assert!(html.contains("県平均 (参考)"), "県平均参考行が出る");
+    // 逆証明: 描画した率は 0-100% 域 (単位ずれ 380% 型の流出防止)。
+    for r in &stats {
+        for v in [r.unemployment_rate, r.single_rate].into_iter().flatten() {
+            assert!((0.0..=100.0).contains(&v), "率は 0-100% 域: {}", v);
+        }
+    }
+}
+
+#[test]
+fn invariant_table_2d_sane_rate_guard_rejects_out_of_range() {
+    // handler の sane ガードと同じ判定: 失業率・単身世帯率は率なので 0-100% 域外は None。
+    let sane = |v: Option<f64>| v.filter(|x| (0.0..=100.0).contains(x));
+    assert_eq!(sane(Some(3.6)), Some(3.6), "現実値は保持");
+    assert_eq!(sane(Some(100.0)), Some(100.0), "上限 100% は保持");
+    assert_eq!(sane(Some(0.0)), Some(0.0), "下限 0% は保持");
+    assert_eq!(sane(Some(380.0)), None, "380% (2026-04-27 流出型) は棄却");
+    assert_eq!(sane(Some(-5.0)), None, "負値は棄却");
+    assert_eq!(sane(None), None, "欠損は None のまま");
+}
+
+// =====================================================================
+// 2026-07-27: 表 2-A 掲載シェア呼称 + ★基準地域バッジの逆証明
+// =====================================================================
+
+#[test]
+fn invariant_table_2a_share_label_and_base_badge() {
+    use super::super::aggregator::MunicipalitySalaryAgg;
+    use super::ReportVariant;
+    use std::collections::HashMap;
+
+    let agg = SurveyAggregation {
+        total_count: 100,
+        by_municipality_salary: vec![
+            MunicipalitySalaryAgg {
+                name: "千代田区".into(),
+                prefecture: "東京都".into(),
+                count: 60,
+                avg_salary: 300_000,
+                median_salary: 300_000,
+            },
+            MunicipalitySalaryAgg {
+                name: "中央区".into(),
+                prefecture: "東京都".into(),
+                count: 40,
+                avg_salary: 280_000,
+                median_salary: 280_000,
+            },
+        ],
+        ..Default::default()
+    };
+    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> = HashMap::new();
+    let mut html = String::new();
+    // Public variant (show_hw=false) で「掲載シェア」列が出る。
+    super::navy_report::render_navy_section_02_region(
+        &mut html,
+        &agg,
+        None,
+        &enrich,
+        ReportVariant::Public,
+        "東京都 千代田区",
+        true,
+        &[],
+    );
+
+    // 旧「中核エリア」表現は廃止され、掲載シェア呼称に置換されている。
+    assert!(
+        !html.contains("中核エリア"),
+        "旧「中核エリア」表現は残っていないはず"
+    );
+    assert!(html.contains("掲載シェア大"), "60% 行は掲載シェア大");
+    assert!(html.contains("★基準地域"), "選択市区町村に基準地域バッジ");
 }

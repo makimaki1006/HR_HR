@@ -161,20 +161,20 @@ pub(crate) fn render_navy_section_03_salary(
         html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
         push_kpi(
             html,
-            "P25",
+            "安い方1/4 (P25)",
             &fmt_val(s.p25),
             unit_label,
             "neu",
-            "下位 25% 水準",
+            "安い方から4分の1の水準",
             false,
         );
         push_kpi(
             html,
-            "中央値 P50",
+            "中央値 (P50)",
             &fmt_val(s.median),
             unit_label,
             "neu",
-            "サンプル中央値",
+            "ちょうど真ん中の水準",
             true,
         );
         push_kpi(
@@ -197,20 +197,20 @@ pub(crate) fn render_navy_section_03_salary(
         );
         push_kpi(
             html,
-            "P75",
+            "高い方1/4 (P75)",
             &fmt_val(s.p75),
             unit_label,
             "neu",
-            "P75 ライン (P50 より上)",
+            "高い方から4分の1の境目",
             false,
         );
         push_kpi(
             html,
-            "P90",
+            "高い方から1割 (P90)",
             &fmt_val(s.p90),
             unit_label,
             "neu",
-            "高給与帯",
+            "高い方から1割の水準",
             false,
         );
         html.push_str("</div>\n");
@@ -234,20 +234,20 @@ pub(crate) fn render_navy_section_03_salary(
         html.push_str("<div class=\"kpi-row kpi-row-6\">\n");
         push_kpi(
             html,
-            "P25",
+            "安い方1/4 (P25)",
             &fmt_val(s.p25),
             unit_label,
             "neu",
-            "下位 25% 水準",
+            "安い方から4分の1の水準",
             false,
         );
         push_kpi(
             html,
-            "中央値 P50",
+            "中央値 (P50)",
             &fmt_val(s.median),
             unit_label,
             "neu",
-            "サンプル中央値",
+            "ちょうど真ん中の水準",
             true,
         );
         push_kpi(
@@ -270,20 +270,20 @@ pub(crate) fn render_navy_section_03_salary(
         );
         push_kpi(
             html,
-            "P75",
+            "高い方1/4 (P75)",
             &fmt_val(s.p75),
             unit_label,
             "neu",
-            "P75 ライン (P50 より上)",
+            "高い方から4分の1の境目",
             false,
         );
         push_kpi(
             html,
-            "P90",
+            "高い方から1割 (P90)",
             &fmt_val(s.p90),
             unit_label,
             "neu",
-            "高給与帯",
+            "高い方から1割の水準",
             false,
         );
         html.push_str("</div>\n");
@@ -382,9 +382,10 @@ pub(crate) fn render_navy_section_03_salary(
         html.push_str(
             "<div class=\"caption\" style=\"display:grid;grid-template-columns:1fr 1fr;gap:4mm;\
              background:var(--paper);border:1px solid var(--rule-soft);padding:3mm 4mm;margin:2mm 0 3mm;\">\
-             <div><strong>図の読み方 (ボックスプロット)</strong><br>\
-             <span style=\"display:inline-block;width:10px;height:10px;background:#F0E9D6;border:1px solid #C9A24B;vertical-align:middle;margin-right:4px;\"></span>箱 = <strong>P25 〜 P75</strong> (中央 50% の給与レンジ)<br>\
-             <span style=\"display:inline-block;width:2px;height:10px;background:#3CA46E;vertical-align:middle;margin-right:6px;\"></span>緑線 = <strong>P50 (中央値)</strong><br>\
+             <div><strong>図の読み方 (箱ひげ図)</strong><br>\
+             この図は給与のばらつきを箱とヒゲで表したものです。<br>\
+             <span style=\"display:inline-block;width:10px;height:10px;background:#F0E9D6;border:1px solid #C9A24B;vertical-align:middle;margin-right:4px;\"></span>箱 = <strong>安い方から1/4〜高い方から1/4</strong> (P25〜P75、真ん中50%の給与帯)<br>\
+             <span style=\"display:inline-block;width:2px;height:10px;background:#3CA46E;vertical-align:middle;margin-right:6px;\"></span>緑線 = <strong>中央値</strong> (P50、ちょうど真ん中)<br>\
              <span style=\"display:inline-block;width:6px;height:6px;background:#C9A24B;border-radius:50%;vertical-align:middle;margin-right:4px;\"></span>金ドット = <strong>平均値</strong><br>\
              ヒゲ (両端) = <strong>最小/最大</strong>。箱が長い = レンジが広い。\
              </div>\
@@ -400,7 +401,7 @@ pub(crate) fn render_navy_section_03_salary(
         html.push_str(
             "<p class=\"caption\">出典: CSV 集計。\
              lower_salary 軸は Jenks 自然分割 (k=3 or 4)、range 軸は P33/P66 + P95 異常広判定。\
-             各クラスタ内 P25/P50/P60/P75/P90 が顧客求人の適正値の基準。\
+             各クラスタ内の分位点 (P25/P50/P60/P75/P90。安い方から1/4・中央値・高い方から1/4 等) が顧客求人の適正値の基準。\
              <strong>適正値は全体ではなくクラスタ内で算出</strong>。</p>\n",
         );
     }
@@ -554,7 +555,7 @@ pub(crate) fn render_navy_section_03_salary(
     };
     html.push_str(&format!(
         "<div class=\"so-what\" style=\"margin-top:6mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what
@@ -1278,6 +1279,18 @@ fn build_navy_cluster_table(
     s.push_str(
         "<p class=\"caption\"><strong>出典:</strong> CSV 集計 (月給換算済み)。単位: 万円。</p>\n",
     );
+    // 2026-07-27 item9: 「解釈」列の分類語 (定額型 / 広いレンジ 等) の定義を注記。
+    //   実装 (compute_salary_clusters / classify_range_breaks) に基づく。レンジ =
+    //   1 求人の上限給与 − 下限給与。閾値はデータ分布から動的に決まる (下位約1/3=P33、
+    //   上位約1/3=P66、上位5%=P95 相当) ため、固定額ではなく分布内の位置で分類する。
+    s.push_str(
+        "<p class=\"caption\"><strong>クラスタ分類の定義:</strong> \
+         レンジ = 1 求人の上限給与 − 下限給与。差の分布内での位置で 4 区分します。\
+         <strong>定額型 (狭いレンジ)</strong> = 上限と下限の差が小さい (分布の下位約 1/3)。ほぼ固定給。\
+         <strong>通常レンジ</strong> = 差が中位 (約 1/3〜2/3)。\
+         <strong>広いレンジ</strong> = 差が大きい (約 2/3〜、差が特に大きい 5% は除く)。上限 (昇給・等級) の訴求が強い帯。\
+         <strong>異常広レンジ</strong> = 差が極端に大きい (差の大きさが全体の 5% に入る水準)。歩合・委託などレンジが特に広い可能性。</p>\n",
+    );
     s
 }
 
@@ -1763,7 +1776,7 @@ fn build_navy_salary_summary_table(
 
 /// Ver10 専用: 表3-A から分離した四分位表 (表3-A2)。
 ///
-/// 下位25%の値 / 中央値 / 上位25%の値 / 上位10%の値 を、平易な言葉のラベルで示す。
+/// 下位25%の値 / 中央値 / 高い方から数えて25%の位置の値 / 高い方から数えて10%の位置の値 を、平易な言葉のラベルで示す。
 /// 統計略称 (P25 等) は使わない (Ver10 の用語一掃方針)。下限給与・上限給与の 2 系列。
 fn build_ver10_quartile_split_table(
     lo: &Option<DistStats>,
@@ -1784,8 +1797,8 @@ fn build_ver10_quartile_split_table(
                 <th>区分</th>\
                 <th class=\"num\">下位25%の値</th>\
                 <th class=\"num\">中央値</th>\
-                <th class=\"num\">上位25%の値</th>\
-                <th class=\"num\">上位10%の値</th>\
+                <th class=\"num\">高い方から数えて25%の位置の値</th>\
+                <th class=\"num\">高い方から数えて10%の位置の値</th>\
                 </tr></thead>\n<tbody>\n",
     );
     let row = |label: &str, st: &Option<DistStats>| -> String {
@@ -1815,7 +1828,7 @@ fn build_ver10_quartile_split_table(
     let unit = if is_hourly { "円/時" } else { "万円" };
     s.push_str(&format!(
         "<p class=\"caption\">単位: {}。「下位25%の値」を下回る求人が全体の約4分の1、\
-         「上位25%の値」を上回る求人が全体の約4分の1です。真ん中の水準が中央値です。</p>\n",
+         「高い方から数えて25%の位置の値」を上回る求人が全体の約4分の1です。真ん中の水準が中央値です。</p>\n",
         unit
     ));
     s

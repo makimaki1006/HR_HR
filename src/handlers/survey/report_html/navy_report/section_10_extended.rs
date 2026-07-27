@@ -119,7 +119,7 @@ pub(crate) fn render_navy_section_10_extended(
     );
     html.push_str(
         "<p class=\"caption dim\" style=\"margin-bottom:4mm;\">\
-         全数値は公的統計（毎月勤労統計・就業構造基本調査・人口推計・最低賃金・有効求人倍率）\
+         全数値は公的統計（毎月勤労統計・就業構造基本調査・人口推計・最低賃金）\
          および今回の求人データから算出。推計値は「国の将来人口推計」と明記します。\
          数値の傾向として読んでください（因果関係ではありません）。\
          </p>\n",
@@ -208,8 +208,9 @@ fn render_fig1_workforce_map(html: &mut String, ctx: &InsightContext, pref_name:
         .collect();
     let bars = build_decline_bars_svg(&top8);
 
-    html.push_str("<div style=\"display:flex;gap:8mm;flex-wrap:wrap;align-items:flex-start;\">\n");
-    html.push_str(&format!("<div>{}\n", scatter));
+    // 2026-07-27 item22/23: バブルマップを全幅で大きく表示し、その下に省スペース化した
+    //   減少率ランキングを全幅で配置する (横並びで狭かったレイアウトを縦積みに変更)。
+    html.push_str(&format!("<div style=\"width:100%;\">{}\n", scatter));
     html.push_str(&format!(
         "<div class=\"caption dim\" style=\"margin-top:2mm;\">点の大きさ＝働き手の人数（2020年）／\
          <span style=\"display:inline-block;width:9px;height:9px;border-radius:50%;background:{RED};margin:0 2px 0 6px;vertical-align:middle\"></span><b>特に厳しい（減りが速く、今すでに少ない）</b>\
@@ -218,13 +219,12 @@ fn render_fig1_workforce_map(html: &mut String, ctx: &InsightContext, pref_name:
          <span style=\"display:inline-block;width:9px;height:9px;border-radius:50%;background:{GREEN};margin:0 2px 0 6px;vertical-align:middle\"></span>比較的ゆとりがある</div>\n</div>\n",
         RED = RED, AMBER = AMBER, NAVY2 = NAVY2, GREEN = GREEN,
     ));
-    html.push_str(&format!("<div style=\"flex:1;min-width:300px\">{}\n", bars));
+    html.push_str(&format!("<div style=\"width:100%;margin-top:4mm;\">{}\n", bars));
     html.push_str(
         "<div class=\"caption dim\" style=\"margin-top:2mm;\">働き手（15〜64歳）の \
          <b>2020年→2040年 増減率</b>（国の将来人口推計）。<br>\
          減少率が大きい市町村ほど、将来の応募候補者が急速に減っていく（純粋な人口の見通し）。</div>\n</div>\n",
     );
-    html.push_str("</div>\n");
     // 図中の番号 → 市町村名 対応表 (全市町村)。散布図の丸に振った番号と 1 対 1 対応。
     html.push_str(&build_muni_index_table(&munis, &order));
     html.push_str(&format!(
@@ -256,7 +256,8 @@ fn build_scatter_svg(munis: &[WorkforceRow], ranks: &[usize], med_x: f64, med_y:
     ymin -= ypad;
     ymax += ypad;
 
-    let (w, h) = (470.0f64, 330.0f64);
+    // 2026-07-27 item22: バブルマップを横幅いっぱいに大きく表示するため viewBox 幅を拡大。
+    let (w, h) = (720.0f64, 360.0f64);
     let (ml, mr, mt, mb) = (52.0f64, 18.0f64, 20.0f64, 44.0f64);
     let iw = w - ml - mr;
     let ih = h - mt - mb;
@@ -286,8 +287,8 @@ fn build_scatter_svg(munis: &[WorkforceRow], ranks: &[usize], med_x: f64, med_y:
 
     let mut s = String::new();
     s.push_str(&format!(
-        "<svg width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" role=\"img\" \
-         style=\"display:block;background:#fff;border:1px solid #e2e8f0;\">",
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" \
+         style=\"display:block;width:100%;max-width:100%;height:auto;background:#fff;border:1px solid #e2e8f0;\">",
         w = w as i64,
         h = h as i64,
     ));
@@ -389,9 +390,10 @@ fn build_scatter_svg(munis: &[WorkforceRow], ranks: &[usize], med_x: f64, med_y:
 }
 
 fn build_decline_bars_svg(top8: &[(usize, &WorkforceRow)]) -> String {
-    let bw = 390.0f64;
-    let rowh = 40.0f64;
-    let bh = 44.0 + top8.len() as f64 * rowh;
+    // 2026-07-27 item23: 行高を詰めて省スペース化 (40→30)、幅は viewBox で横伸ばし。
+    let bw = 560.0f64;
+    let rowh = 30.0f64;
+    let bh = 40.0 + top8.len() as f64 * rowh;
     let dmax = top8
         .iter()
         .map(|(_, m)| m.wa_decline_2040.abs())
@@ -401,17 +403,17 @@ fn build_decline_bars_svg(top8: &[(usize, &WorkforceRow)]) -> String {
     let barmax = bw - barx0 - 64.0;
     let mut s = String::new();
     s.push_str(&format!(
-        "<svg width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" role=\"img\" \
-         style=\"display:block;background:#fff;\">",
+        "<svg viewBox=\"0 0 {w} {h}\" width=\"100%\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" \
+         style=\"display:block;width:100%;max-width:100%;height:auto;background:#fff;\">",
         w = bw as i64,
         h = bh as i64,
     ));
     s.push_str(&format!(
-        "<text x=\"12\" y=\"20\" font-size=\"11\" font-weight=\"bold\" fill=\"{NAVY}\">2040年までに働き手が大きく減る市町村（上位8）</text>",
+        "<text x=\"12\" y=\"18\" font-size=\"11\" font-weight=\"bold\" fill=\"{NAVY}\">2040年までに働き手が大きく減る市町村（減少率の大きい8市町村）</text>",
         NAVY = NAVY,
     ));
     for (i, (num, m)) in top8.iter().enumerate() {
-        let y = 42.0 + i as f64 * rowh;
+        let y = 36.0 + i as f64 * rowh;
         let val = m.wa_decline_2040.abs();
         let bwid = val / dmax * barmax;
         // 番号は散布図の丸・対応表と一致 (減少率が厳しい順)。
@@ -777,24 +779,18 @@ fn render_fig3_switchers(html: &mut String, ctx: &InsightContext, pref_name: &st
          <div class=\"caption dim\">副業をしている人の数です。<br>他に、もっと働きたいと答えた人が <b>{add}人</b>います（就業構造基本調査）。</div></div>\n",
         NAVY = NAVY, MUTED = MUTED, v = format_number(pr.side_job), add = format_number(pr.additional),
     ));
-    // KPI 3 (参考)
-    html.push_str(&format!(
-        "<div style=\"flex:1;min-width:180px;background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid {SLATE};border-radius:6px;padding:12px 14px\">\
-         <div style=\"font-size:11px;color:{MUTED};margin-bottom:4px\">仕事の数と探す人のバランス（有効求人倍率）</div>\
-         <div style=\"font-size:26px;font-weight:bold;color:{NAVY}\">{v:.2}<span style=\"font-size:13px;font-weight:normal;color:{MUTED}\"> 倍</span></div>\
-         <div class=\"caption dim\">全国 {nat}。<br>1.0より大きい = 仕事の数の方が多い（人手不足寄り）／参考値。</div></div>\n",
-        SLATE = SLATE, NAVY = NAVY, MUTED = MUTED, v = pr.ratio,
-        nat = nat_ratio.map(|x| format!("{:.2} 倍", x)).unwrap_or_else(|| "—".to_string()),
-    ));
+    // 2026-07-27 item24: 有効求人倍率 (全職種) の KPI はこの文脈 (転職意向) では職種の
+    //   根拠が無く顧客を楽観させるため削除 (注記ではなく削除)。KPI 1/2 のみ残す。
+    let _ = nat_ratio;
     html.push_str("</div>\n");
     html.push_str(
         "<div style=\"background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;font-size:10pt;color:#92400e;margin-top:3mm;\">\
          転職を考えている割合や副業・追加就業希望は就業構造基本調査から算出（ある時点のストック）。\
-         有効求人倍率は公式統計で、労働需給の目安として<b>参考</b>掲載。数値の傾向として読んでください（因果関係ではありません）。</div>\n",
+         数値の傾向として読んでください（因果関係ではありません）。</div>\n",
     );
     html.push_str(
         "<div class=\"caption dim\" style=\"margin-top:2mm;border-top:1px dashed #e2e8f0;padding-top:2mm;\">\
-         出典：総務省 就業構造基本調査／厚労省 一般職業紹介状況 有効求人倍率。</div>\n",
+         出典：総務省 就業構造基本調査。</div>\n",
     );
     html.push_str("</div>\n");
 }
@@ -878,6 +874,7 @@ fn render_fig4_diagnosis(
             ),
             2,
             &note,
+            "候補になりうる人が多いほど高い",
         );
     }
     // 行2: 給与の水準
@@ -893,6 +890,7 @@ fn render_fig4_diagnosis(
             ),
             2,
             "今回の求人の真ん中の給与は県の平均をやや下回る（2025年12月実績との比較）",
+            "提示給与が相場より高いほど高い",
         ),
         _ => push_diag_row(
             &mut body,
@@ -900,6 +898,7 @@ fn render_fig4_diagnosis(
             "—",
             0,
             "今回の求人データの提示額（月給）が算出できないため比較できません",
+            "提示給与が相場より高いほど高い",
         ),
     }
     // 行3: 駅の人通りの変化 (station_ridership_muni は将来投入 → 当面「—」)
@@ -909,6 +908,7 @@ fn render_fig4_diagnosis(
         "—",
         0,
         "駅別乗降客数データは未投入（今後追加予定）",
+        "駅の人通りが増えるほど高い",
     );
     // 行4: 2040年の働き手の見通し
     match wa_decline {
@@ -918,6 +918,7 @@ fn render_fig4_diagnosis(
             &format!("{:+.1}%（国の将来人口推計）", d),
             3,
             "純粋な人口の見通し（応募候補者の将来的な増減の目安）",
+            "働き手の減少が小さいほど高い",
         ),
         None => push_diag_row(
             &mut body,
@@ -925,13 +926,14 @@ fn render_fig4_diagnosis(
             "—",
             0,
             "対象市区町村の将来人口推計データは未投入",
+            "働き手の減少が小さいほど高い",
         ),
     }
 
     body.push_str("</table>\n");
     html.push_str(&body);
     html.push_str(
-        "<div class=\"caption dim\" style=\"margin-top:2mm;\">●が多いほど心配が少ない（3段階・相対比較）</div>\n",
+        "<div class=\"caption dim\" style=\"margin-top:2mm;\">評価は 10 点満点(相対比較)。数字が大きいほど採用にプラスの方向です。各行の「見方」に指標ごとの向きを記載しています。</div>\n",
     );
     html.push_str(
         "<div class=\"caption dim\" style=\"margin-top:2mm;border-top:1px dashed #e2e8f0;padding-top:2mm;\">\
@@ -940,28 +942,41 @@ fn render_fig4_diagnosis(
     html.push_str("</div>\n");
 }
 
-fn push_diag_row(body: &mut String, label: &str, value: &str, dots_n: i64, note: &str) {
+/// 診断表の 1 行。
+///
+/// 2026-07-27 item25: 評価を 3 段階ドット (●●●) から 10 点満点の数字に変更し、
+/// 評価列を狭めて説明側 (コメント) を広く見せる。各行に「見方」(数字が大きいほど◯◯) を付す。
+/// 既存の評価値 (`dots_n` 0-3) はデータ駆動の閾値ではなく相対的な固定評価のため、
+/// 新たなスコア式は導入せず 0-3 → 0-10 の線形変換で表示のみ 10 点満点化する
+/// (捏造防止: `score_10 = round(dots_n / 3 × 10)`、dots_n=0 は「—」)。
+fn push_diag_row(body: &mut String, label: &str, value: &str, dots_n: i64, note: &str, dir: &str) {
     body.push_str(&format!(
         "<tr>\
-         <td style=\"font-weight:bold;color:{NAVY};padding:7px 8px;border-bottom:1px solid #e2e8f0;width:200px\">{label}</td>\
+         <td style=\"font-weight:bold;color:{NAVY};padding:7px 8px;border-bottom:1px solid #e2e8f0;width:170px\">{label}</td>\
          <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;font-variant-numeric:tabular-nums\">{value}</td>\
-         <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;text-align:center;white-space:nowrap\">{dots}</td>\
-         <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;color:{MUTED};font-size:10pt\">{note}</td></tr>\n",
+         <td style=\"padding:7px 6px;border-bottom:1px solid #e2e8f0;text-align:center;white-space:nowrap;width:52px\">{score}</td>\
+         <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;color:{MUTED};font-size:10pt\">{note}<br><span style=\"color:#94a3b8;font-size:9pt\">見方: {dir}</span></td></tr>\n",
         NAVY = NAVY, MUTED = MUTED,
         label = escape_html(label),
         value = escape_html(value),
-        dots = dots(dots_n),
+        score = score_badge(dots_n),
         note = escape_html(note),
+        dir = escape_html(dir),
     ));
 }
 
-fn dots(n: i64) -> String {
-    (0..3)
-        .map(|i| {
-            let color = if i < n { NAVY } else { "#cbd5e1" };
-            format!("<span style=\"color:{};font-size:15px\">●</span>", color)
-        })
-        .collect()
+/// 相対評価 (0-3) を 10 点満点の数字バッジに変換して表示する。0 は「—」(データなし)。
+fn score_badge(dots_n: i64) -> String {
+    if dots_n <= 0 {
+        return "<span style=\"color:#cbd5e1\">—</span>".to_string();
+    }
+    let score10 = ((dots_n as f64 / 3.0) * 10.0).round() as i64;
+    format!(
+        "<span style=\"font-weight:bold;color:{NAVY};font-size:14px\">{s}</span>\
+         <span style=\"color:#94a3b8;font-size:9pt\">/10</span>",
+        NAVY = NAVY,
+        s = score10
+    )
 }
 
 // ============================================================
@@ -1225,7 +1240,7 @@ mod tests {
             "図1 タイトル"
         );
         assert!(html.contains("大分県 の市町村マップ"), "図1 対象県フィルタ");
-        assert!(html.contains("2040年までに働き手が大きく減る市町村（上位8）"));
+        assert!(html.contains("2040年までに働き手が大きく減る市町村（減少率の大きい8市町村）"));
         assert!(html.contains("国の将来人口推計"), "出典明示");
         // 図2
         assert!(html.contains("求人の給与は、地域の相場と比べてどうか（2025年）"));
@@ -1237,7 +1252,8 @@ mod tests {
         assert!(html.contains("― 2025年 ―"), "図2 X 軸下 年表記");
         // 図3
         assert!(html.contains("転職を考えている人は、どれくらいいるか（大分県）"));
-        assert!(html.contains("有効求人倍率"));
+        // 2026-07-27 item24: 転職意向の文脈から有効求人倍率 (全職種) を削除した。
+        assert!(!html.contains("有効求人倍率"), "§10 から有効求人倍率は削除済み");
         // 図4
         assert!(html.contains("採用の何がネックか — 大分市 の診断"));
         assert!(html.contains("駅の人通りの変化"), "図4 駅の人通り行");
@@ -1313,11 +1329,15 @@ mod tests {
         assert_eq!(media_median_yen(&a), None);
     }
 
+    // 2026-07-27 item25: 3 段階ドット → 10 点満点数字バッジに変更。
     #[test]
-    fn dots_renders_three_symbols_with_fill() {
-        let d = dots(2);
-        assert_eq!(d.matches('●').count(), 3, "常に 3 個の ● を出す");
-        assert_eq!(d.matches(NAVY).count(), 2, "n 個が navy 塗り");
+    fn score_badge_maps_0_3_to_0_10() {
+        // dots_n=0 はデータなし「—」
+        assert!(score_badge(0).contains('—'), "0 は — 表示");
+        // dots_n=2 → round(2/3*10)=7、dots_n=3 → 10
+        assert!(score_badge(2).contains('7'), "2 → 7/10: {}", score_badge(2));
+        assert!(score_badge(3).contains("10"), "3 → 10/10: {}", score_badge(3));
+        assert!(score_badge(2).contains("/10"), "10 点満点表記");
     }
 
     #[test]
