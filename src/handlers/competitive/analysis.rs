@@ -104,6 +104,9 @@ pub(crate) fn fetch_analysis_filtered(
     }
 
     // クエリ2: 月給レンジ分布
+    // bdf6f2b(salary_type mixing bug)の修正漏れ: 名目は「月給」レンジ分布だが
+    // salary_type フィルタが無く、時給/日給/年俸レコードが salary_min>=50000 の範囲に
+    // 入ると月給分布に混入していた。既存の足切り(>=50000)は維持しつつ月給のみに限定する。
     if let Ok(rows) = db.query(
         &format!(
             "SELECT \
@@ -115,7 +118,7 @@ pub(crate) fn fetch_analysis_filtered(
                 SUM(CASE WHEN salary_min >= 350000 AND salary_min < 400000  THEN 1 ELSE 0 END) as r6, \
                 SUM(CASE WHEN salary_min >= 400000 AND salary_min < 500000  THEN 1 ELSE 0 END) as r7, \
                 SUM(CASE WHEN salary_min >= 500000 AND salary_min < 1000000 THEN 1 ELSE 0 END) as r8 \
-             FROM postings {}",
+             FROM postings {} AND salary_type = '月給'",
             where_clause
         ),
         &params,
@@ -167,9 +170,11 @@ pub(crate) fn fetch_analysis_filtered(
     }
 
     // クエリ5: 月給統計（median計算に全件取得が必要）
+    // bdf6f2b(salary_type mixing bug)の修正漏れ: median/avg も名目は月給だが
+    // salary_type フィルタが無く、時給/日給/年俸が混入していた。足切り(>=50000)は維持し月給のみに限定。
     if let Ok(rows) = db.query(
         &format!(
-            "SELECT salary_min FROM postings {} AND salary_min >= 50000 ORDER BY salary_min",
+            "SELECT salary_min FROM postings {} AND salary_type = '月給' AND salary_min >= 50000 ORDER BY salary_min",
             where_clause
         ),
         &params,
@@ -205,14 +210,17 @@ pub(crate) fn calc_salary_stats(postings: &[PostingRow]) -> SalaryStats {
         };
     }
 
+    // bdf6f2b(salary_type mixing bug)の修正漏れ: median/avg/mode は月給前提の統計だが
+    // salary_type フィルタが無く、時給/日給/年俸レコード(salary_min>=50000 に該当するもの)が
+    // 混入していた。SQL 側クエリ2/5 と基準を揃え、既存足切り(>=50000)は維持しつつ月給のみに限定する。
     let min_vals: Vec<i64> = postings
         .iter()
-        .filter(|p| p.salary_min >= 50000)
+        .filter(|p| p.salary_type == "月給" && p.salary_min >= 50000)
         .map(|p| p.salary_min)
         .collect();
     let max_vals: Vec<i64> = postings
         .iter()
-        .filter(|p| p.salary_max >= 50000)
+        .filter(|p| p.salary_type == "月給" && p.salary_max >= 50000)
         .map(|p| p.salary_max)
         .collect();
 

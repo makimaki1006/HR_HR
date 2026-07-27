@@ -1,5 +1,5 @@
 use super::analysis::calc_salary_stats;
-use super::fetch::PostingRow;
+use super::fetch::{normalize_hourly_salary, PostingRow};
 use super::utils::{escape_html, haversine, truncate_str, value_to_i64};
 use crate::handlers::overview::format_number;
 use serde_json::Value;
@@ -370,4 +370,35 @@ fn test_salary_mode_rounding_255000() {
         "255000は1万円単位丸めで260,000になるべき: got {}",
         stats.salary_min_mode
     );
+}
+
+// テスト43: 時給正規化 — DB上×160月給換算値を真の時給に戻す
+#[test]
+fn test_normalize_hourly_monthly_scale_converted() {
+    // 880,000(=5,500×160) の月給換算値 → 5,500 円/時
+    assert_eq!(normalize_hourly_salary("時給", 880_000), 5_500);
+    assert_eq!(normalize_hourly_salary("時給", 704_000), 4_400);
+    assert_eq!(normalize_hourly_salary("時給", 1_408_000), 8_800);
+}
+
+// テスト44: 生の時給値(<50,000)は非変換で保持
+#[test]
+fn test_normalize_hourly_raw_value_preserved() {
+    assert_eq!(normalize_hourly_salary("時給", 1_200), 1_200);
+    assert_eq!(normalize_hourly_salary("時給", 49_999), 49_999);
+}
+
+// テスト45: 月給レコードは salary_type が違うので非変換
+#[test]
+fn test_normalize_hourly_monthly_type_untouched() {
+    assert_eq!(normalize_hourly_salary("月給", 500_000), 500_000);
+    assert_eq!(normalize_hourly_salary("日給", 12_000), 12_000);
+    assert_eq!(normalize_hourly_salary("年俸", 6_000_000), 6_000_000);
+}
+
+// テスト46: 境界値 50,000(=時給312.5→四捨五入313)は変換対象
+#[test]
+fn test_normalize_hourly_boundary_50000() {
+    // 50,000 は変換対象(>=50,000)。50,000/160 = 312.5 → 四捨五入で 313(round half away)。
+    assert_eq!(normalize_hourly_salary("時給", 50_000), 313);
 }
