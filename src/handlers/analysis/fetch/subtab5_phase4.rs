@@ -602,31 +602,113 @@ pub(crate) fn fetch_household_spending(db: &Db, turso: Option<&TursoDb>, pref: &
 /// # ソート
 /// `prefecture DESC, structure ASC, area_class ASC` で、当該県のレコードを先頭に固定し、
 /// 構造/面積帯の安定順序を確保。Section 07 表 7-H で「民営借家 50-69m²」の中央値抽出を行うため。
-pub(crate) fn fetch_rental_housing(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
-    let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
-        (
-            "SELECT prefecture, municipality, structure, area_class, \
-          rental_total_units, median_rent_jpy, as_of \
-          FROM v2_external_rental_housing \
-          WHERE (prefecture = ?1 OR prefecture = '全国') \
-          AND prefecture IS NOT NULL AND prefecture <> '' AND prefecture <> '都道府県' \
-          ORDER BY prefecture DESC, structure ASC, area_class ASC"
-                .to_string(),
-            vec![pref.to_string()],
-        )
-    } else {
-        (
-            "SELECT prefecture, municipality, structure, area_class, \
-          rental_total_units, median_rent_jpy, as_of \
-          FROM v2_external_rental_housing \
-          WHERE prefecture = '全国' \
-          AND prefecture IS NOT NULL AND prefecture <> '都道府県' \
-          ORDER BY structure ASC, area_class ASC"
-                .to_string(),
-            vec![],
-        )
-    };
-    query_turso_or_local(turso, db, &sql, &params, "v2_external_rental_housing")
+// 2026-07-27 item32 (バグ修正): 表 7-H (家賃 m² 単価) 用の絞り込み SQL 群。
+// 従来 `fetch_rental_housing` は `WHERE (prefecture=? OR '全国')` のみで市区町村を
+// 絞っておらず、県集計行 + 県内全市区町村行が混在したプールから中央値を抽出していた
+// (対象市区町村ではない家賃を表示しうる)。muni 指定時は当該市区町村行を優先し、
+// 無ければ県集計行にフォールバックする。SQL は単体テストできるよう関数に分離。
+
+/// 市区町村指定時に当該市区町村の借家家賃行のみを取得する SQL (?1=pref, ?2=正規化 muni)。
+fn rental_housing_muni_sql() -> &'static str {
+    "SELECT prefecture, municipality, structure, area_class, \
+     rental_total_units, median_rent_jpy, as_of \
+     FROM v2_external_rental_housing \
+     WHERE prefecture = ?1 AND municipality = ?2 \
+     AND prefecture IS NOT NULL AND prefecture <> '' AND prefecture <> '都道府県' \
+     ORDER BY structure ASC, area_class ASC"
+}
+
+/// 全国行 (比較用) のみを取得する SQL (パラメータなし)。
+fn rental_housing_national_sql() -> &'static str {
+    "SELECT prefecture, municipality, structure, area_class, \
+     rental_total_units, median_rent_jpy, as_of \
+     FROM v2_external_rental_housing \
+     WHERE prefecture = '全国' \
+     AND prefecture IS NOT NULL AND prefecture <> '都道府県' \
+     ORDER BY structure ASC, area_class ASC"
+}
+
+/// muni 行が無いときの県集計フォールバック + 全国比較 (?1=pref)。
+/// municipality が空 (= 県集計) の行 + 全国行のみを返し、県内他市区町村行の混入を避ける。
+fn rental_housing_pref_fallback_sql() -> &'static str {
+    "SELECT prefecture, municipality, structure, area_class, \
+     rental_total_units, median_rent_jpy, as_of \
+     FROM v2_external_rental_housing \
+     WHERE ((prefecture = ?1 AND (municipality = '' OR municipality IS NULL)) OR prefecture = '全国') \
+     AND prefecture IS NOT NULL AND prefecture <> '' AND prefecture <> '都道府県' \
+     ORDER BY prefecture DESC, structure ASC, area_class ASC"
+}
+
+/// muni 未指定の従来経路 (consult / jobmap 用、behavior 不変) の SQL (?1=pref)。
+fn rental_housing_legacy_pref_sql() -> &'static str {
+    "SELECT prefecture, municipality, structure, area_class, \
+     rental_total_units, median_rent_jpy, as_of \
+     FROM v2_external_rental_housing \
+     WHERE (prefecture = ?1 OR prefecture = '全国') \
+     AND prefecture IS NOT NULL AND prefecture <> '' AND prefecture <> '都道府県' \
+     ORDER BY prefecture DESC, structure ASC, area_class ASC"
+}
+
+/// 2026-05-31 Phase 2: e-Stat 住宅・土地統計 借家家賃データ取得。
+///
+/// 2026-07-27 item32: `muni` を追加。市区町村を指定した場合は当該市区町村の行を優先し、
+/// 該当行が無ければ県集計行 (municipality 空) + 全国比較にフォールバックする。
+/// `muni` 空の場合は従来経路 (pref + 全国) を維持する (consult / jobmap の呼出は不変)。
+pub(crate) fn fetch_rental_housing(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<Row> {
+    if pref.is_empty() {
+        // 全国のみ (従来と同一)
+        return query_turso_or_local(
+            turso,
+            db,
+            rental_housing_national_sql(),
+            &Vec::<String>::new(),
+            "v2_external_rental_housing",
+        );
+    }
+    let muni_norm = normalize_muni_for_external(pref, muni);
+    if !muni_norm.is_empty() {
+        // (a) 当該市区町村の行を優先取得。
+        let muni_rows = query_turso_or_local(
+            turso,
+            db,
+            rental_housing_muni_sql(),
+            &vec![pref.to_string(), muni_norm.clone()],
+            "v2_external_rental_housing",
+        );
+        if !muni_rows.is_empty() {
+            // muni 行 + 全国比較行。
+            let mut out = muni_rows;
+            out.extend(query_turso_or_local(
+                turso,
+                db,
+                rental_housing_national_sql(),
+                &Vec::<String>::new(),
+                "v2_external_rental_housing",
+            ));
+            return out;
+        }
+        // (b) muni 行なし → 県集計 (municipality 空) + 全国。市区町村行の混入を避ける。
+        return query_turso_or_local(
+            turso,
+            db,
+            rental_housing_pref_fallback_sql(),
+            &vec![pref.to_string()],
+            "v2_external_rental_housing",
+        );
+    }
+    // muni 未指定 (consult / jobmap): 従来経路を維持。
+    query_turso_or_local(
+        turso,
+        db,
+        rental_housing_legacy_pref_sql(),
+        &vec![pref.to_string()],
+        "v2_external_rental_housing",
+    )
 }
 
 pub(crate) fn fetch_business_dynamics(db: &Db, turso: Option<&TursoDb>, pref: &str) -> Vec<Row> {
@@ -996,6 +1078,57 @@ pub(crate) fn fetch_csv_company_salary_ranking(
     });
     result.truncate(limit as usize);
     result
+}
+
+#[cfg(test)]
+mod rental_housing_sql_tests {
+    use super::*;
+
+    // 2026-07-27 item32: 表 7-H 家賃データの市区町村絞り込みバグ修正の SQL 形状検証。
+    //   (DB を伴う取得の統合テストは fixture が無く単体化できないため、絞り込み意図を
+    //    SQL 文字列で逆証明する。)
+
+    // muni 指定時の SQL は municipality を必ず絞る (混在プール抽出バグの再発防止)。
+    #[test]
+    fn muni_sql_filters_by_municipality() {
+        let sql = rental_housing_muni_sql();
+        assert!(
+            sql.contains("municipality = ?2"),
+            "muni 指定時は municipality を ?2 で絞ること: {}",
+            sql
+        );
+        assert!(sql.contains("prefecture = ?1"), "pref も ?1 で絞ること: {}", sql);
+    }
+
+    // muni 行が無い場合のフォールバックは県集計 (municipality 空) + 全国に限定し、
+    // 県内他市区町村行を混入させない。
+    #[test]
+    fn pref_fallback_sql_restricts_to_pref_aggregate_and_national() {
+        let sql = rental_housing_pref_fallback_sql();
+        assert!(
+            sql.contains("municipality = '' OR municipality IS NULL"),
+            "フォールバックは県集計 (municipality 空) に限定すること: {}",
+            sql
+        );
+        assert!(sql.contains("prefecture = '全国'"), "全国比較行を含むこと: {}", sql);
+    }
+
+    // 従来経路 (muni 未指定) は pref + 全国 のプールを維持する (consult / jobmap 用)。
+    #[test]
+    fn legacy_pref_sql_keeps_pref_or_national_pool() {
+        let sql = rental_housing_legacy_pref_sql();
+        assert!(
+            sql.contains("prefecture = ?1 OR prefecture = '全国'"),
+            "従来経路は pref+全国 プール: {}",
+            sql
+        );
+        // 従来経路は municipality を絞らない (自前で選ぶ呼出側のため)。
+        assert!(
+            !sql.contains("municipality ="),
+            "従来経路は municipality を絞らないこと: {}",
+            sql
+        );
+    }
 }
 
 #[cfg(test)]

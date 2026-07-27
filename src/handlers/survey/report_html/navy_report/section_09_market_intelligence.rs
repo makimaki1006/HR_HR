@@ -86,7 +86,7 @@ pub(crate) fn render_navy_section_09_market_intelligence(
         html,
         "SECTION 09",
         "採用マーケットインテリジェンス",
-        "配信優先度 / 通勤到達性 / 給与魅力度 / シナリオ濃淡",
+        "配信優先度 / 通勤到達性 / 給与魅力度 / 掲載強弱シナリオ",
     );
     push_region_scope_banner(html, target_region);
 
@@ -174,14 +174,24 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
     // 4 KPI タイル
     html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
     {
+        // 2026-07-27 item4/恒久ルール: 有効求人倍率は全職種の参考値。採用しやすさの結論語
+        //   (売り手/買い手/応募集めにくい) を避け、全国平均 (約 1.2 倍) との高低の中立表現にする。
         let (val, dot, foot) = match job_ratio {
             Some(v) if v >= 1.5 => (
                 fmt_ratio(Some(v)),
-                "warn",
-                "売り手市場 (応募集めにくい)".to_string(),
+                "neu",
+                "全国平均 (約 1.2 倍) を上回る".to_string(),
             ),
-            Some(v) if v >= 1.0 => (fmt_ratio(Some(v)), "neu", "やや売り手寄り".to_string()),
-            Some(v) => (fmt_ratio(Some(v)), "pos", format!("買い手市場 ({:.2})", v)),
+            Some(v) if v >= 1.0 => (
+                fmt_ratio(Some(v)),
+                "neu",
+                "全国平均 (約 1.2 倍) と同程度".to_string(),
+            ),
+            Some(v) => (
+                fmt_ratio(Some(v)),
+                "neu",
+                "全国平均 (約 1.2 倍) を下回る".to_string(),
+            ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
         push_kpi(html, "有効求人倍率", &val, "倍", dot, &foot, true);
@@ -214,17 +224,19 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
             ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
-        push_kpi(html, "通勤自給率", &val, "%", dot, &foot, false);
+        // 2026-07-27 item16: 「通勤自給率」を平易表現「地元就業率」に統一 (render.rs と同表現)。
+        push_kpi(html, "地元就業率", &val, "%", dot, &foot, false);
     }
     {
         // 流入規模指数 (0-100、人数表示は行わない: DISPLAY_SPEC §2.1 ハード NG 回避)
+        // 2026-07-27 item17: 「補助配信候補」等の媒体配信ジャルゴンを採用文脈の平易語に。
         let inflow_idx = compute_inflow_intensity_index(inflow_total);
         let (dot, foot) = if inflow_idx >= 70.0 {
-            ("pos", "外部流入 厚い (補助配信候補多い)".to_string())
+            ("pos", "周辺からの通勤流入 多い".to_string())
         } else if inflow_idx >= 40.0 {
-            ("neu", "外部流入 中程度".to_string())
+            ("neu", "周辺からの通勤流入 中程度".to_string())
         } else if inflow_idx > 0.0 {
-            ("warn", "外部流入 薄い".to_string())
+            ("warn", "周辺からの通勤流入 少ない".to_string())
         } else {
             ("neu", "データなし".to_string())
         };
@@ -233,9 +245,14 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
         } else {
             "—".to_string()
         };
-        push_kpi(html, "流入規模指数", &val, "", dot, &foot, false);
+        push_kpi(html, "周辺からの通勤流入", &val, "", dot, &foot, false);
     }
     html.push_str("</div>\n");
+    // 2026-07-27 item16/17: 9-A 指標の 1 行定義。
+    html.push_str(
+        "<p class=\"caption\">地元就業率 = その地域で働く人のうち、その地域に住んでいる人の割合 (高いほど地元の人材で充足)。\
+         周辺からの通勤流入 = 他の市区町村からこの地域へ通勤してくる人の多さを 0〜100 で指数化 (人数は非表示)。高いほど周辺地域も採用対象にしやすい。</p>\n",
+    );
 
     // 配信優先度ラベル (DISPLAY_SPEC §3.2)
     let positive_score = compute_positive_score(job_ratio, unemployment, self_rate, inflow_total);
@@ -245,8 +262,8 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
          <div class=\"sw-label\">配信判断</div>\
          <div class=\"sw-body\">\
          配信優先度 (参考スコア): <strong>{}</strong> (positive_score = {})。\
-         <br>スコアの構成指標: 有効求人倍率 (重み 30%)・失業率 (20%)・通勤自給率 (25%)・流入規模指数 (25%) を 0-100 に正規化して加重平均した参考値です。\
-         <br>SO WHAT: 参考スコアの相対順位を目安に「重点配信」「拡張候補」帯の地域から媒体投下を検討する。\
+         <br>スコアの構成指標: 有効求人倍率 (重み 30%・全職種の参考値で対象職種の需給ではありません)・失業率 (20%)・地元就業率 (25%)・周辺からの通勤流入 (25%) を 0-100 に正規化して加重平均した参考値です。\
+         <br>取るべき方針: 参考スコアの相対順位を目安に、掲載を厚くする「重点」「拡張候補」帯の地域から検討する。\
          </div></div>\n",
         escape_html(label),
         match positive_score {
@@ -332,7 +349,7 @@ fn compute_inflow_intensity_index(inflow_total: i64) -> f64 {
 /// 戻り値: 通勤到達性指数 (0-100、9-D の合成入力)。
 fn render_mi_9b_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -> Option<f64> {
     html.push_str("<div class=\"block-title\">図 9-B 通勤到達性</div>\n");
-    html.push_str("<p class=\"caption\">通勤流入元 TOP3 と通勤自給率を統合した通勤圏到達性指数。流入元は補助配信地域の候補です。</p>\n");
+    html.push_str("<p class=\"caption\">通勤流入元 TOP3 と地元就業率を統合した通勤圏到達性指数。流入元は採用対象に含めやすい周辺地域の候補です。</p>\n");
 
     let ctx = match ctx {
         Some(c) => c,
@@ -377,9 +394,10 @@ fn render_mi_9b_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -
     };
 
     html.push_str("<div class=\"kpi-row kpi-row-3\" style=\"margin-top:3mm;\">\n");
+    // 2026-07-27 item16/17/18: 指標名の平易統一 + 「100」の意味を明示。
     push_kpi(
         html,
-        "通勤自給指数",
+        "地元就業指数",
         &format!("{:.0}", self_idx),
         "",
         "neu",
@@ -388,27 +406,30 @@ fn render_mi_9b_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -
     );
     push_kpi(
         html,
-        "流入規模指数",
+        "周辺からの通勤流入",
         &format!("{:.0}", inflow_idx),
         "",
         "neu",
-        "0-100 / 高いほど補助配信候補多い",
+        "0-100 / 高いほど周辺地域も採用対象にしやすい",
         false,
     );
     push_kpi(
         html,
         "通勤圏カバレッジ",
         &format!("{:.0}", zone_idx),
-        "",
+        "(0-100)",
         "neu",
-        &format!("通勤圏 {} 市区町村", ctx.commute_zone_count),
+        &format!(
+            "通勤圏の市区町村数を指数化 (20 市区町村以上で 100)。実数 {} 市区町村",
+            ctx.commute_zone_count
+        ),
         false,
     );
     html.push_str("</div>\n");
 
     html.push_str(
         "<div class=\"so-what\" style=\"margin-top:3mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">\
          流入元 TOP3 を補助配信地域として追加投下する。通勤自給指数が低い場合は外縁部訴求 (車通勤可・住宅補助) を強化する。\
          </div></div>\n",
@@ -486,7 +507,8 @@ fn render_mi_9c_wage_attractiveness(
         push_kpi(html, "最低賃金", &val, "円", "neu", &foot, false);
     }
     {
-        // 給与プレミアム指数: 求人時給 / 最低賃金 を 100 が等価とした指数
+        // 2026-07-27 item19: 「給与プレミアム指数」を平易名「最低賃金比の給与水準」に。
+        //   値 = 求人給与(時給換算) ÷ 最低賃金 × 100 (100=最低賃金と同額、130=1.3倍)。
         let (val, foot, dot) = match (salary_median, min_wage) {
             (Some(m), Some(mw)) => {
                 let hourly = if is_hourly {
@@ -496,19 +518,23 @@ fn render_mi_9c_wage_attractiveness(
                 };
                 let premium = (hourly / mw * 100.0).clamp(0.0, 200.0);
                 let (d, f) = if premium >= 130.0 {
-                    ("pos", "最賃比 +30% 以上 (高プレミアム)")
+                    ("pos", "最低賃金の1.3倍以上")
                 } else if premium >= 110.0 {
-                    ("neu", "最賃比 +10-30% (標準帯)")
+                    ("neu", "最低賃金の1.1〜1.3倍")
                 } else {
-                    ("warn", "最賃比 +10% 未満 (薄い)")
+                    ("warn", "最低賃金の1.1倍未満")
                 };
                 (format!("{:.0}", premium), f.to_string(), d)
             }
             _ => ("—".to_string(), "データなし".to_string(), "neu"),
         };
-        push_kpi(html, "給与プレミアム指数", &val, "", dot, &foot, false);
+        push_kpi(html, "最低賃金比の給与水準", &val, "", dot, &foot, false);
     }
     html.push_str("</div>\n");
+    // 2026-07-27 item19: 指標の 1 行定義。
+    html.push_str(
+        "<p class=\"caption\">最低賃金比の給与水準 = 求人給与(時給換算)が最低賃金の何%かを示す値です。100 = 最低賃金と同額、130 = 最低賃金の1.3倍。</p>\n",
+    );
 
     // 家計支出比較 (参考表示、絶対値は万円単位の構成比的に出す)
     if let Some(spending) = household_spending {
@@ -521,9 +547,9 @@ fn render_mi_9c_wage_attractiveness(
 
     html.push_str(
         "<div class=\"so-what\" style=\"margin-top:3mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">\
-         給与プレミアム指数が 110 未満の場合は家賃補助・通勤手当・賞与等の付帯条件を訴求に追加する。\
+         最低賃金比の給与水準が 110 未満の場合は家賃補助・通勤手当・賞与等の付帯条件を訴求に追加する。\
          </div></div>\n",
     );
 
@@ -557,10 +583,13 @@ fn render_mi_9d_scenario_intensity(
 ) {
     let _ = ctx; // 将来 Turso v2_municipality_target_thickness 接続時に使用
 
+    // 2026-07-27 item20: 「配信」は媒体配信を指すがレポート内で完結しないため、
+    //   求人掲載の強弱という実態に合う表現へ。item21: 3 シナリオの前提を 1 行で明示。
     html.push_str(
-        "<div class=\"block-title\">図 9-D 配信シナリオ濃淡 (保守 / 標準 / 強気)</div>\n",
+        "<div class=\"block-title\">図 9-D 求人掲載の強弱シナリオ (保守 / 標準 / 強気)</div>\n",
     );
-    html.push_str("<p class=\"caption\">配信予算配分の意思決定材料となる 3 段階濃淡。数値は指数 (0-100) です。応募見込数の換算は行いません。</p>\n");
+    html.push_str("<p class=\"caption\">求人掲載をどの程度厚くするかの目安を 3 段階で示します。数値は指数 (0-100) で、応募見込数の換算は行いません。\
+         <br>保守 = 最も控えめな見積 (標準の約半分)、標準 = 基準となる見積、強気 = 最も積極的な見積 (標準の約1.6倍)。数値が大きいほど積極的に掲載を広げる目安です。</p>\n");
 
     let (cons, std_idx, agg_idx) = compute_scenario_indices(
         positive_score,
@@ -570,14 +599,14 @@ fn render_mi_9d_scenario_intensity(
     );
 
     html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;\">\n");
-    html.push_str("<thead><tr><th>シナリオ</th><th>濃淡 (推定)</th><th>指数</th><th>意思決定</th></tr></thead>\n<tbody>\n");
+    html.push_str("<thead><tr><th>シナリオ</th><th>強弱 (推定)</th><th>指数</th><th>想定する進め方</th></tr></thead>\n<tbody>\n");
     for (name, idx, decision) in &[
-        ("保守", cons, "既存経験者・近接地域中心。低リスク投下。"),
-        ("標準", std_idx, "通勤圏 + 近接職種を含む標準見積。"),
+        ("保守", cons, "既存経験者・近接地域を中心に、低リスクで掲載する前提。"),
+        ("標準", std_idx, "通勤圏 + 近接職種まで含めた標準的な掲載の前提。"),
         (
             "強気",
             agg_idx,
-            "未経験歓迎・外縁部配信を広げたテスト投下。",
+            "未経験歓迎・外縁部まで掲載を広げて試す前提。",
         ),
     ] {
         let bar = render_intensity_bar(*idx);
@@ -605,9 +634,9 @@ fn render_mi_9d_scenario_intensity(
 
     html.push_str(
         "<div class=\"so-what\" style=\"margin-top:3mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">\
-         配信予算を保守/標準/強気の 3 段階で分散し、強気シナリオは外縁部・近接職種向けにテスト投下する。\
+         求人掲載の強弱を保守/標準/強気の 3 段階で分散し、強気シナリオは外縁部・近接職種向けに試す。\
          </div></div>\n",
     );
 }

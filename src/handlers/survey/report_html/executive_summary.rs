@@ -39,8 +39,10 @@ pub(super) fn render_section_executive_summary(
     // Round 24 Push 2: render_dv2_section_badge が navy .page-head を兼ねるよう改修
     // 済みのため、独立の page-head 追加は不要。テスト互換用の dv2-section-* class
     // と navy ph-* class が同時に出力される。
-    render_dv2_section_badge(html, "01", "Executive Summary");
-    html.push_str("<h2 id=\"exec-sum-title\" class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">Executive Summary</h2>\n");
+    // 2026-07-27: 顧客可視の英語見出し「Executive Summary」を日本語化。
+    //   onepager (経営サマリー) との名称重複を避けて「全体サマリーと主要指標」にする。
+    render_dv2_section_badge(html, "01", "全体サマリーと主要指標");
+    html.push_str("<h2 id=\"exec-sum-title\" class=\"sr-only\" style=\"position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;\">全体サマリーと主要指標</h2>\n");
     html.push_str(&format!(
         "<p class=\"section-header-meta\">対象: {} / 3分間で読み切れる全体要旨</p>\n",
         escape_html(&compose_target_region(agg, selected_pref, selected_muni))
@@ -67,7 +69,7 @@ pub(super) fn render_section_executive_summary(
     html.push_str("<div style=\"font-weight:700;margin-bottom:4px;color:#1e40af;\">\u{1F4D6} このレポートの読み進め方（合計 約 3〜4 分）</div>\n");
     html.push_str("<ol style=\"margin:4px 0 0 0;padding-left:1.4em;\">\n");
     html.push_str(
-        "<li><strong>本セクション（Executive Summary）で全体像を把握</strong>（約 30 秒）</li>\n",
+        "<li><strong>本セクション（全体サマリーと主要指標）で全体像を把握</strong>（約 30 秒）</li>\n",
     );
     html.push_str(
         "<li><strong>給与統計セクション</strong>で賃金水準・分布・外れ値を確認（約 1 分）</li>\n",
@@ -309,7 +311,9 @@ pub(super) fn render_section_executive_summary(
         "主要地域",
         &k2_value,
         "",
-        "件数最多の都道府県/市区町村",
+        // 2026-07-27: k2_value は compose_target_region でアプリ選択を最優先するため、
+        //   「件数最多」ではなく「基準地域 (アプリ選択)」と表現を整合させる。
+        "アプリで選択した基準地域 (未選択時は件数最多)",
         "",
         "",
     );
@@ -470,7 +474,7 @@ pub(super) fn render_section_executive_summary(
     // 上記アクションの方向性 (CSV 全件分析 / 公開統計クロス) を集約。
     html.push_str(
         "<div class=\"so-what\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">\
          本ページの優先アクションは <strong>即対応 → 1 週間 → 後回し可</strong> の順で検討する。\
          サンプル件数 (n) と給与解析率は <strong>本レポートの信頼区間</strong> に直結するため、\

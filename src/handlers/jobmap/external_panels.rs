@@ -239,7 +239,8 @@ pub async fn external_rental(
         Some(db) => db,
         None => return Html(render_no_data("家賃 m² 単価")),
     };
-    let rows = af::fetch_rental_housing(hw_db, state.turso_db.as_ref(), &p.prefecture);
+    // 2026-07-27 item32: 県レベルパネルのため muni="" で従来経路を維持。
+    let rows = af::fetch_rental_housing(hw_db, state.turso_db.as_ref(), &p.prefecture, "");
     if rows.is_empty() {
         return Html(render_no_data("家賃 m² 単価"));
     }

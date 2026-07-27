@@ -187,7 +187,7 @@ pub(crate) fn render_navy_section_06_demographics(
         "pos"
     };
 
-    html.push_str("<div class=\"block-title\">図 6-1 &nbsp;人口構造 主要 KPI</div>\n");
+    html.push_str("<div class=\"block-title\">図 6-1 &nbsp;人口構造 主要指標</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
     push_kpi(
         html,
@@ -365,7 +365,9 @@ pub(crate) fn render_navy_section_06_demographics(
     if school_count > 0 {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-A &nbsp;教育施設 (小・中・高 合計)</div>\n");
         html.push_str(&format!(
-            "<table class=\"table-navy\">\n<thead><tr>\
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+             <colgroup><col style=\"width:22%\"><col style=\"width:16%\"><col style=\"width:62%\"></colgroup>\n\
+             <thead><tr>\
              <th>区分</th><th class=\"num\">学校数</th><th>備考</th>\
              </tr></thead>\n<tbody>\n"
         ));
@@ -417,9 +419,11 @@ pub(crate) fn render_navy_section_06_demographics(
             .map(|r| get_i64(r, "total_count"))
             .sum();
 
-        html.push_str("<table class=\"table-navy\">\n");
+        html.push_str("<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n");
         html.push_str(
-            "<thead><tr>\
+            "<colgroup><col style=\"width:28%\"><col style=\"width:18%\"><col style=\"width:18%\">\
+             <col style=\"width:16%\"><col style=\"width:20%\"></colgroup>\n\
+             <thead><tr>\
              <th>学歴レベル</th>\
              <th class=\"num\">男性人数</th>\
              <th class=\"num\">女性人数</th>\
@@ -472,7 +476,7 @@ pub(crate) fn render_navy_section_06_demographics(
     );
     html.push_str(&format!(
         "<div class=\"so-what\" style=\"margin-top:6mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what
