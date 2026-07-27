@@ -75,7 +75,7 @@ pub(crate) use subtab5_phase4_7::fetch_hw_job_type_counts;
 pub(crate) use subtab6::{fetch_fulfillment_summary, fetch_mobility_estimate, fetch_shadow_wage};
 pub(crate) use subtab7_other::{
     fetch_commute_inflow, fetch_commute_outflow, fetch_commute_zone, fetch_commute_zone_pyramid,
-    fetch_prefecture_mean, fetch_self_commute_rate, CommuteFlow,
+    fetch_municipality_mean, fetch_prefecture_mean, fetch_self_commute_rate, CommuteFlow,
 };
 pub(crate) use subtab7_phase_a::{
     fetch_education_facilities, fetch_geography, fetch_households, fetch_labor_force,
