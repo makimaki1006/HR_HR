@@ -593,7 +593,14 @@ const FUYOU_THRESHOLDS_MAN: [(i64, &str); 2] = [(103, "103 万円ライン"), (1
 /// # 戻り値
 /// HTML 表 (`<table class="table-navy">...</table>`)。
 pub(crate) fn build_navy_fuyou_table(median_hourly_native: i64) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:25%\"><col style=\"width:15%\"><col style=\"width:15%\">\
+         <col style=\"width:15%\"><col style=\"width:15%\"><col style=\"width:15%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th scope=\"col\">区分</th>");
     for h in FUYOU_WEEKLY_HOURS.iter() {
         s.push_str(&format!("<th scope=\"col\" class=\"num\">週 {}h</th>", h));
@@ -665,7 +672,15 @@ fn build_navy_emp_type_salary_table(
         0
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:20%\"><col style=\"width:8%\">\
+         <col style=\"width:9%\"><col style=\"width:13%\"><col style=\"width:13%\">\
+         <col style=\"width:31%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>雇用形態</th>");
     s.push_str("<th class=\"num\">n</th>");
     s.push_str("<th class=\"num\">構成比</th>");
@@ -797,7 +812,15 @@ fn build_navy_tag_premium_top10_table(
         }
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:22%\"><col style=\"width:8%\">\
+         <col style=\"width:14%\"><col style=\"width:14%\"><col style=\"width:12%\">\
+         <col style=\"width:24%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>タグ</th>");
     s.push_str("<th class=\"num\">n</th>");
     s.push_str(&format!("<th class=\"num\">平均給与 ({})</th>", unit_label));
@@ -862,7 +885,15 @@ fn build_navy_industry_salary_table(
         0
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:20%\"><col style=\"width:8%\">\
+         <col style=\"width:13%\"><col style=\"width:13%\"><col style=\"width:22%\">\
+         <col style=\"width:18%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>業界 (推定)</th>");
     s.push_str("<th class=\"num\">n</th>");
     s.push_str("<th class=\"num\">平均給与</th>");
@@ -1108,7 +1139,15 @@ fn compute_navy_salary_correlation(agg: &SurveyAggregation) -> Vec<NavyCorrRow> 
 }
 
 fn build_navy_salary_correlation_table(rows: &[NavyCorrRow]) -> String {
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:20%\"><col style=\"width:12%\">\
+         <col style=\"width:10%\"><col style=\"width:16%\"><col style=\"width:14%\">\
+         <col style=\"width:22%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>要因</th>");
     s.push_str("<th class=\"num\">カテゴリ数</th>");
     s.push_str("<th class=\"num\">n</th>");
@@ -1349,7 +1388,15 @@ fn build_navy_cluster_fitting_table(
         "<div class=\"block-title block-title-spaced\">\
          表 3-F &nbsp;CSV 求人 × クラスタ当て込み (10 件抽出)</div>\n",
     );
-    s.push_str("<table class=\"table-navy\">\n<thead><tr>");
+    s.push_str(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:5%\"><col style=\"width:10%\"><col style=\"width:12%\">\
+         <col style=\"width:12%\"><col style=\"width:22%\"><col style=\"width:12%\">\
+         <col style=\"width:12%\"><col style=\"width:15%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th scope=\"col\">No.</th>");
     s.push_str("<th scope=\"col\">求人</th>");
     s.push_str(&format!(
@@ -1589,7 +1636,15 @@ fn build_navy_occupation_salary_table(
         0
     };
 
-    let mut s = String::from("<table class=\"table-navy\">\n<thead><tr>");
+    let mut s = String::from(
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:6%\"><col style=\"width:20%\"><col style=\"width:8%\">\
+         <col style=\"width:13%\"><col style=\"width:13%\"><col style=\"width:22%\">\
+         <col style=\"width:18%\">\
+         </colgroup>\n\
+         <thead><tr>",
+    );
     s.push_str("<th>No.</th><th>職種グループ (推定)</th>");
     s.push_str("<th class=\"num\">n</th>");
     s.push_str("<th class=\"num\">平均給与</th>");
@@ -1683,11 +1738,16 @@ fn build_navy_salary_summary_table(
         }
     };
     let mut s = String::new();
-    s.push_str("<table class=\"table-navy\">\n");
     if drop_quartiles {
         // Ver10: 四分位を外した基本統計のみ。「n」も平易語「件数」に。
         s.push_str(
-            "<thead><tr>\
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+             <colgroup>\
+             <col style=\"width:18%\"><col style=\"width:10%\"><col style=\"width:12%\">\
+             <col style=\"width:14%\"><col style=\"width:12%\"><col style=\"width:20%\">\
+             <col style=\"width:14%\">\
+             </colgroup>\n\
+             <thead><tr>\
                     <th>区分</th><th class=\"num\">件数</th>\
                     <th class=\"num\">最小</th>\
                     <th class=\"num\">中央値</th>\
@@ -1698,7 +1758,14 @@ fn build_navy_salary_summary_table(
         );
     } else {
         s.push_str(
-            "<thead><tr>\
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+             <colgroup>\
+             <col style=\"width:16%\"><col style=\"width:8%\"><col style=\"width:9%\">\
+             <col style=\"width:9%\"><col style=\"width:11%\"><col style=\"width:9%\">\
+             <col style=\"width:13%\"><col style=\"width:8%\"><col style=\"width:8%\">\
+             <col style=\"width:9%\">\
+             </colgroup>\n\
+             <thead><tr>\
                     <th>区分</th><th class=\"num\">n</th>\
                     <th class=\"num\">最小</th>\
                     <th class=\"num\">P25</th>\
@@ -1791,9 +1858,13 @@ fn build_ver10_quartile_split_table(
         }
     };
     let mut s = String::new();
-    s.push_str("<table class=\"table-navy\">\n");
     s.push_str(
-        "<thead><tr>\
+        "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+         <colgroup>\
+         <col style=\"width:14%\"><col style=\"width:18%\"><col style=\"width:14%\">\
+         <col style=\"width:32%\"><col style=\"width:22%\">\
+         </colgroup>\n\
+         <thead><tr>\
                 <th>区分</th>\
                 <th class=\"num\">下位25%の値</th>\
                 <th class=\"num\">中央値</th>\

@@ -110,8 +110,10 @@ fn h1_fuyou_103man_descending_with_more_hours() {
 #[test]
 fn h1_fuyou_table_structure_has_table_navy_class_and_6_columns() {
     let html = build_navy_fuyou_table(1500);
+    // 2026-07-28: colgroup 追加で table タグに style 属性が付いたため、
+    // 閉じ > までの完全一致ではなく class 属性の存在で判定する。
     assert!(
-        html.contains("<table class=\"table-navy\">"),
+        html.contains("<table class=\"table-navy\""),
         "table-navy class 必須"
     );
     assert!(html.contains("<thead>"), "thead 必須");

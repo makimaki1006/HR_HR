@@ -826,11 +826,11 @@ fn render_action_bar(session_id: &str) -> String {
                        onclick="return openVariantReport(event, '{sid}', 'sp')"
                        data-variant="sp"
                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-400"
-                       aria-label="SPレポート (仮) PDFを新しいタブで開く（試作）"
-                       title="SPレポート (仮): 詳細版に「持ち歩ける経営サマリー1ページ」「各ページの結論バンド」「優先アクション表」「給与の四分位」を加えた試作版です。レビュー改善を全部入れした試験的なレポートで、内容・体裁は今後変わる可能性があります。">
+                       aria-label="本編レポートを新しいタブで開く"
+                       title="本編レポート: 詳細版に「持ち歩ける経営サマリー1ページ」「各ページの結論バンド」「優先アクション表」「給与の四分位」を加えた標準のレポートです。">
                         <span class="text-base" aria-hidden="true">🧪</span>
                         <span class="flex flex-col items-start leading-tight">
-                            <span>SPレポートを作成 (仮)</span>
+                            <span>本編レポートを作成</span>
                             <span class="text-[10px] opacity-80 font-normal">レビュー改善を全部入れした試作版</span>
                         </span>
                     </a>
