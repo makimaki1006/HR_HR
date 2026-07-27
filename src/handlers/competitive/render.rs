@@ -236,6 +236,8 @@ pub(crate) fn render_posting_table(
         } else {
             ""
         };
+        // salary_min/max は取得層(fetch::row_to_posting)で時給の月給換算を正規化済み。
+        // ここでは正規化済みの真値をそのまま表示し、時給求人には /時 ラベルを付けるだけ。
         let sal_min = if p.salary_min > 0 {
             format!("{}{}", format_number(p.salary_min), sal_unit)
         } else {
@@ -396,6 +398,7 @@ pub(crate) fn render_report_html(
             escape_html(&p.municipality)
         );
         let sal_type = escape_html(&p.salary_type);
+        // salary_min/max は取得層(fetch::row_to_posting)で時給の月給換算を正規化済みの真値。
         let sal_min = if p.salary_min > 0 {
             format_number(p.salary_min)
         } else {
