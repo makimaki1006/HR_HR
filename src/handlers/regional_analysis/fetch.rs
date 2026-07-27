@@ -233,6 +233,17 @@ pub(crate) fn query_external(
     Vec::new()
 }
 
+/// JSON セル値を i64 として取得する。
+///
+/// Turso 上のカラムが INTEGER 型なら `serde_json::Value::Number` として返るが、
+/// `v2_external_job_openings_ratio.fiscal_year` / `v2_external_labor_stats.fiscal_year`
+/// は TEXT 型で定義されているため `Value::String("2024")` として返ってくる。
+/// `.as_i64()` は String に対して常に `None` を返すため、文字列からのパースも試みる。
+fn value_as_i64(v: &serde_json::Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+}
+
 // --- 既存維持: 人口ピラミッド (国勢調査) ---
 
 /// 人口ピラミッド (v2_external_population_pyramid)。
@@ -591,7 +602,7 @@ pub(crate) fn fetch_job_openings_ratio(
     let points: Vec<JobOpeningsRatioPoint> = rows
         .iter()
         .filter_map(|r| {
-            let year = r.get("fiscal_year").and_then(|v| v.as_i64())?;
+            let year = r.get("fiscal_year").and_then(value_as_i64)?;
             let ratio = r.get("ratio_total").and_then(|v| v.as_f64())?;
             Some(JobOpeningsRatioPoint { year, ratio })
         })
@@ -620,7 +631,7 @@ pub(crate) fn fetch_labor_stats(
     let rows = query_external(state, sql, &[filter.prefecture.clone()]);
     rows.first().map(|r| {
         let gf64 = |key: &str| r.get(key).and_then(|v| v.as_f64());
-        let gi64 = |key: &str| r.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+        let gi64 = |key: &str| r.get(key).and_then(value_as_i64).unwrap_or(0);
         LaborStatsRow {
             fiscal_year: gi64("fiscal_year"),
             unemployment_rate: gf64("unemployment_rate"),
