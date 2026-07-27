@@ -270,6 +270,34 @@ pub struct SurveyAggregation {
     /// serde default で旧キャッシュ JSON と後方互換 (欠損時は空 Vec)。
     #[serde(default)]
     pub card_briefs: Vec<CardBrief>,
+
+    /// 2026-07-28: アップロード CSV に1件以上出現する全 (都道府県, 市区町村) の集合。
+    ///
+    /// `by_municipality_salary` は上位15件で truncate されるため、SP レポートの
+    /// 0件ハードブロック判定 (`evaluate_selection_gate`) に使うと 16 位以下の
+    /// 市区町村を明示選択した際に誤ブロックされる。この集合は truncate 前の
+    /// 全在否を保持し、給与の有無に関わらず location_parsed ベースで判定する。
+    /// 同名市区町村 (伊達市: 北海道/福島県、府中市: 東京都/広島県) は
+    /// (都道府県, 市区町村) ペアで区別するため、都道府県違いを取り違えない。
+    ///
+    /// serde default (空集合) で旧キャッシュ JSON と後方互換。旧 JSON 復元時は
+    /// 空集合となり `has_municipality` が常に false を返すが、その挙動は
+    /// 「明示選択 muni は CSV に無い扱い」となり従来 (truncate 済みリスト参照) と
+    /// 同等以上に保守的なため安全。次回集計時に正しい集合が入る。
+    #[serde(default)]
+    pub municipality_presence: std::collections::HashSet<(String, String)>,
+}
+
+impl SurveyAggregation {
+    /// 明示選択された (都道府県, 市区町村) がアップロード CSV に1件以上存在するか。
+    ///
+    /// `by_municipality_salary` は上位15件で truncate されるため 0件ゲート判定には
+    /// 使えない。truncate の影響を受けない `municipality_presence` 集合で在否を判定する。
+    /// 同名市区町村 (伊達市: 北海道/福島県 等) は (都道府県, 市区町村) ペアで区別する。
+    pub fn has_municipality(&self, prefecture: &str, municipality: &str) -> bool {
+        self.municipality_presence
+            .contains(&(prefecture.to_string(), municipality.to_string()))
+    }
 }
 
 /// Section 07.6 用集計の集約サブ構造体 (Indeed SP のみ取得可能)
@@ -1037,6 +1065,24 @@ fn aggregate_records_core(
         })
         .collect();
 
+    // 市区町村在否集合 (2026-07-28)
+    // by_municipality_salary は下段で上位15件に truncate されるため、0件ゲート判定
+    // (handlers.rs::evaluate_selection_gate) には使えない。CSV に1件以上出現する
+    // 全 (都道府県, 市区町村) を給与の有無に関わらず location_parsed から収集する。
+    // 誤ブロック防止のため、給与未パースの市区町村も在否ありとして残す。
+    let mut municipality_presence: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    for r in records {
+        if let (Some(pref), Some(muni)) = (
+            &r.location_parsed.prefecture,
+            &r.location_parsed.municipality,
+        ) {
+            if !pref.is_empty() && !muni.is_empty() {
+                municipality_presence.insert((pref.clone(), muni.clone()));
+            }
+        }
+    }
+
     // 市区町村別給与集計
     let mut muni_salary_map: HashMap<(String, String), Vec<i64>> = HashMap::new();
     for r in records {
@@ -1494,6 +1540,8 @@ fn aggregate_records_core(
         popularity,
         // 2026-07-20 Phase 2a: カード単位の観測
         card_briefs,
+        // 2026-07-28: 市区町村在否集合 (0件ゲートの truncate 非依存判定用)
+        municipality_presence,
     }
 }
 
