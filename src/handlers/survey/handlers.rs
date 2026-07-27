@@ -12,6 +12,7 @@ use super::job_seeker::analyze_job_seeker;
 use super::render::{render_analysis_result, render_upload_form};
 use super::upload::{parse_csv_bytes, parse_csv_bytes_with_hints, UserSourceHint, WageMode};
 use crate::auth::SESSION_INDUSTRY_RAWS_KEY;
+use crate::handlers::helpers::escape_html;
 use crate::AppState;
 
 /// 媒体分析タブ（初期表示: アップロードフォーム）
@@ -379,7 +380,7 @@ async fn run_holiday_ai_extraction(
     total
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct IntegrateQuery {
     pub session_id: Option<String>,
     /// レポートバリアント切替 (2026-04-29 追加)
@@ -429,6 +430,9 @@ pub struct IntegrateQuery {
     /// - "0": 非表示。
     /// Ver10 以外の variant では無視される。
     pub table2e: Option<String>,
+    /// 2026-07-27: 未選択クッションを通過して生成を続行するフラグ (?proceed_unselected=1)。
+    /// 確認ページの [このまま作成する] から付与される。地域/業種が未選択でも生成する。
+    pub proceed_unselected: Option<String>,
 }
 
 /// 統合レポート生成
@@ -733,73 +737,178 @@ async fn fallback_industry_from_session(session: &Session, query: &mut Integrate
     }
 }
 
-/// SP 本編レポート生成の選択必須ガード (2026-07-27)。
-///
-/// 都道府県・市区町村・業界のいずれかが未選択、または選択市区町村が
-/// アップロード CSV に 1 件も含まれない場合、生成せず案内 HTML を `Some` で返す。
-/// 生成続行可能なら `None`。
-///
-/// 市区町村の在否判定は `by_municipality_salary` (給与を確認できた求人ベース) の
-/// (都道府県, 市区町村) 一致で行う。レポートの地域系表もこの集計を土台にするため、
-/// ここに現れない市区町村はレポートを組めない。
-/// guide (解説資料) 経路は呼び出し側で除外する。
-fn report_selection_gate(
-    agg: &super::aggregator::SurveyAggregation,
-    pref: &str,
-    muni: &str,
-    industry: Option<&str>,
-) -> Option<String> {
-    let industry_ok = industry.map(|s| !s.trim().is_empty()).unwrap_or(false);
-    let mut missing: Vec<&str> = Vec::new();
-    if pref.trim().is_empty() {
-        missing.push("都道府県");
-    }
-    if muni.trim().is_empty() {
-        missing.push("市区町村");
-    }
-    if !industry_ok {
-        missing.push("業界");
-    }
-    if !missing.is_empty() {
-        let list = missing.join("・");
-        return Some(gate_error_page(&format!(
-            "レポート作成には、画面上部で 都道府県・市区町村・業界 の選択が必要です。<br>\
-             未選択の項目: <strong>{}</strong><br>選択してから再度お試しください。",
-            list
-        )));
-    }
-    // 選択市区町村がアップロード CSV に含まれるか (給与確認済み求人ベース)。
-    let muni_in_csv = agg
-        .by_municipality_salary
-        .iter()
-        .any(|m| m.prefecture == pref && m.name == muni && m.count > 0);
-    if !muni_in_csv {
-        let p = crate::handlers::helpers::escape_html(pref);
-        let m = crate::handlers::helpers::escape_html(muni);
-        return Some(gate_error_page(&format!(
-            "選択した市区町村（{}{}）の求人がアップロードされたCSVに含まれていません。<br>\
-             CSVの内容と選択地域を確認してから再度お試しください。",
-            p, m
-        )));
-    }
-    None
+/// 選択クッションの判定結果 (2026-07-27)。
+#[derive(Debug, PartialEq, Eq)]
+enum GateOutcome {
+    /// 生成を続行する。
+    Generate,
+    /// 未選択のため確認ページを出す。フラグは「何が明示選択済みか」。
+    Confirm {
+        region_explicit: bool,
+        industry_explicit: bool,
+    },
+    /// 明示選択された市区町村が CSV に無く、生成不可 (ハードブロック)。
+    ZeroCount,
 }
 
-/// 選択必須ガードの案内ページ (ライト/ダーク両対応の最小 HTML)。
-fn gate_error_page(message_html: &str) -> String {
+/// SP 本編レポート生成の選択ゲート判定 (純粋関数, テスト対象)。
+///
+/// - `explicit_pref` / `explicit_muni`: ユーザーが明示選択した (query 由来の) 値。
+///   CSV dominant 自動採用は含めない (呼び出し側で分離済み)。
+/// - `industry`: フォールバック解決後の業種 (query → tower-session)。
+/// - `proceed`: `proceed_unselected=1` が付いているか。
+/// - `muni_in_csv`: 明示選択 muni がアップロード CSV にあるか (自動採用時は true 扱い)。
+///
+/// 判定順: (1) 明示選択 muni が CSV に無ければ ZeroCount (確認で通せない)。
+///   (2) proceed なら Generate。(3) 地域(都道府県+市区町村)か業種が未選択なら Confirm。
+///   (4) それ以外は Generate。
+fn evaluate_selection_gate(
+    explicit_pref: Option<&str>,
+    explicit_muni: Option<&str>,
+    industry: Option<&str>,
+    proceed: bool,
+    muni_in_csv: bool,
+) -> GateOutcome {
+    let nonempty = |o: Option<&str>| o.map(|s| !s.trim().is_empty()).unwrap_or(false);
+
+    // (1) 0件ハードブロック: 明示選択された muni が CSV に無い場合のみ。
+    if nonempty(explicit_muni) && !muni_in_csv {
+        return GateOutcome::ZeroCount;
+    }
+    // (2) 明示的に続行が指示されていれば生成。
+    if proceed {
+        return GateOutcome::Generate;
+    }
+    // (3) 地域 (都道府県 + 市区町村) と業種の明示選択状況で確認要否を決める。
+    let region_explicit = nonempty(explicit_pref) && nonempty(explicit_muni);
+    let industry_explicit = nonempty(industry);
+    if !region_explicit || !industry_explicit {
+        return GateOutcome::Confirm {
+            region_explicit,
+            industry_explicit,
+        };
+    }
+    GateOutcome::Generate
+}
+
+/// 案内ページの共通レイアウト (ライト背景の最小 HTML)。本文 HTML を差し込む。
+fn gate_error_page(title: &str, body_html: &str) -> String {
     format!(
         "<!DOCTYPE html><html lang=\"ja\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-         <title>レポートを作成できません</title></head>\
+         <title>{}</title></head>\
          <body style=\"font-family:system-ui,'Segoe UI','Hiragino Kaku Gothic ProN',sans-serif;\
          background:#f1f5f9;color:#1e293b;margin:0;padding:0;\">\
-         <div style=\"max-width:640px;margin:12vh auto;padding:32px;background:#ffffff;\
+         <div style=\"max-width:640px;margin:10vh auto;padding:32px;background:#ffffff;\
          border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.08);\">\
-         <h1 style=\"font-size:18px;margin:0 0 16px;color:#0f172a;\">レポートを作成できませんでした</h1>\
-         <p style=\"font-size:15px;line-height:1.9;margin:0;color:#334155;\">{}</p>\
+         {}\
          </div></body></html>",
-        message_html
+        escape_html(title),
+        body_html
     )
+}
+
+/// 0件ハードブロックの案内ページ (2026-07-27)。
+///
+/// 明示選択された市区町村がアップロード CSV に 1 件も無い場合に返す。
+/// 確認クッションでは通せない (存在しないデータでレポートは組めないため)。
+fn gate_zero_count_page(pref: &str, muni: &str) -> String {
+    let p = escape_html(pref);
+    let m = escape_html(muni);
+    gate_error_page(
+        "レポートを作成できません",
+        &format!(
+            "<h1 style=\"font-size:18px;margin:0 0 16px;color:#0f172a;\">レポートを作成できませんでした</h1>\
+             <p style=\"font-size:15px;line-height:1.9;margin:0;color:#334155;\">\
+             選択した市区町村（{}{}）の求人がアップロードされたCSVに含まれていません。<br>\
+             CSVの内容と選択地域を確認してから再度お試しください。</p>",
+            p, m
+        ),
+    )
+}
+
+/// 未選択クッションの確認ページ (2026-07-27)。
+///
+/// 地域 (都道府県+市区町村) または業種が明示選択されていない場合に、生成前に
+/// 「この内容で作成しますか?」と確認する。不足している項目のみ表示する。
+/// [このまま作成する] は同じ生成 URL に `proceed_unselected=1` を付けたリンク。
+/// [選び直す] はタブを閉じてダッシュボードで選び直す案内。
+fn build_unselected_confirmation_page(
+    q: &IntegrateQuery,
+    resolved_pref: &str,
+    resolved_muni: &str,
+    region_explicit: bool,
+    industry_explicit: bool,
+) -> String {
+    let proceed_url = build_proceed_url(q);
+    let region_display = if resolved_pref.is_empty() {
+        "全国".to_string()
+    } else if resolved_muni.is_empty() {
+        escape_html(resolved_pref)
+    } else {
+        format!(
+            "{} {}",
+            escape_html(resolved_pref),
+            escape_html(resolved_muni)
+        )
+    };
+
+    let mut items = String::new();
+    if !region_explicit {
+        items.push_str(&format!(
+            "<li style=\"margin-bottom:10px;\">地域: アップロードCSVの主要地域（<strong>{}</strong>）を使用します</li>",
+            region_display
+        ));
+    }
+    if !industry_explicit {
+        items.push_str(
+            "<li style=\"margin-bottom:10px;\">業種: 未選択のため、業種別の分析（§05 第2部）は省略されます</li>",
+        );
+    }
+
+    let body = format!(
+        "<h1 style=\"font-size:18px;margin:0 0 12px;color:#0f172a;\">地域・業種が選択されていません。この内容で作成しますか?</h1>\
+         <ul style=\"font-size:14.5px;line-height:1.8;color:#334155;padding-left:1.2em;margin:0 0 24px;\">{}</ul>\
+         <div style=\"display:flex;gap:12px;flex-wrap:wrap;\">\
+         <a href=\"{}\" style=\"display:inline-block;padding:10px 20px;background:#1d4ed8;color:#fff;\
+         text-decoration:none;border-radius:8px;font-size:14px;font-weight:700;\">このまま作成する</a>\
+         <a href=\"#\" onclick=\"window.close();return false;\" style=\"display:inline-block;padding:10px 20px;\
+         background:#e2e8f0;color:#1e293b;text-decoration:none;border-radius:8px;font-size:14px;font-weight:700;\">選び直す</a>\
+         </div>\
+         <p style=\"font-size:12.5px;line-height:1.8;color:#64748b;margin:18px 0 0;\">\
+         「選び直す」を押したら、元の画面上部で 都道府県・市区町村・業種 を選択できます。</p>",
+        items,
+        escape_html(&proceed_url),
+    );
+    gate_error_page("作成内容の確認", &body)
+}
+
+/// 現在の生成クエリを再構築し、`proceed_unselected=1` を付けた `/report/survey` URL を作る。
+///
+/// ジョブ版の結果は `/report/survey/job/result/{id}` で表示されるため、確認ページの
+/// リンクは元クエリを保持できない。そこでサーバ側で全パラメータを復元する。
+fn build_proceed_url(q: &IntegrateQuery) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (k, v) in [
+        ("session_id", q.session_id.as_deref()),
+        ("variant", q.variant.as_deref()),
+        ("industry", q.industry.as_deref()),
+        ("pref", q.pref.as_deref()),
+        ("muni", q.muni.as_deref()),
+        ("theme", q.theme.as_deref()),
+        ("wage_mode", q.wage_mode.as_deref()),
+        ("company", q.company.as_deref()),
+        ("sections", q.sections.as_deref()),
+        ("table2e", q.table2e.as_deref()),
+    ] {
+        if let Some(val) = v {
+            if !val.is_empty() {
+                parts.push(format!("{}={}", k, urlencoding::encode(val)));
+            }
+        }
+    }
+    parts.push("proceed_unselected=1".to_string());
+    format!("/report/survey?{}", parts.join("&"))
 }
 
 /// レポート本体の生成 (進捗レポータ付き)。
@@ -839,39 +948,66 @@ async fn build_survey_report_inner(
     // HWデータ＋外部統計を取得（オプション。失敗・未接続時もレポート生成は継続）
     // 2026-04-29: グローバルフィルタからの URL クエリ (?pref=&muni=) を優先採用。
     //   未指定時のみキャッシュの dominant_prefecture/municipality にフォールバック。
-    let pref = query
-        .pref
-        .clone()
-        .filter(|s| !s.is_empty() && s != "全国")
-        .unwrap_or_else(|| {
-            state
-                .cache
-                .get(&format!("survey_pref_{}", session_id))
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                .unwrap_or_default()
-        });
-    let muni = query
-        .muni
-        .clone()
-        .filter(|s| !s.is_empty() && s != "すべて")
-        .unwrap_or_else(|| {
-            state
-                .cache
-                .get(&format!("survey_muni_{}", session_id))
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
-                .unwrap_or_default()
-        });
+    // 2026-07-27: 「明示選択」(query 由来 = ユーザーがダッシュボードで選んだ) と
+    //   「自動採用」(cache 由来 = CSV dominant) を区別するため explicit_* を分離する。
+    //   ダッシュボードは選択時のみ &pref=/&muni= を URL に付与する (dashboard_inline.html)
+    //   ため、query.pref/muni の有無がそのまま「明示選択の有無」になる。
+    //   survey_pref_/survey_muni_ キャッシュは upload_csv が dominant を書いた自動値。
+    let explicit_pref = query.pref.clone().filter(|s| !s.is_empty() && s != "全国");
+    let explicit_muni = query.muni.clone().filter(|s| !s.is_empty() && s != "すべて");
+    let pref = explicit_pref.clone().unwrap_or_else(|| {
+        state
+            .cache
+            .get(&format!("survey_pref_{}", session_id))
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    });
+    let muni = explicit_muni.clone().unwrap_or_else(|| {
+        state
+            .cache
+            .get(&format!("survey_muni_{}", session_id))
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_default()
+    });
 
-    // 2026-07-27: SP 本編レポートの選択必須ガード。
-    //   都道府県・市区町村・業界のいずれか未選択、または選択市区町村が
-    //   アップロード CSV に含まれない場合は生成を中止して案内を返す。
-    //   guide (解説資料) は必須化の対象外。integrate_report は別ハンドラのため元々対象外。
-    //   ここで弾くことで、後続の重い hw_ctx 構築を無効リクエストで走らせない。
+    // 2026-07-27: SP 本編レポートの選択クッション + 0件ハードブロック。
+    //   guide (解説資料) は対象外。integrate_report は別ハンドラで元々対象外。
     if query.variant.as_deref() != Some("guide") {
-        if let Some(err_html) =
-            report_selection_gate(&agg, &pref, &muni, query.industry.as_deref())
-        {
-            return Html(err_html);
+        let proceed = query.proceed_unselected.as_deref() == Some("1");
+        // 明示選択された muni がアップロード CSV に含まれるか (自動採用時は判定不要 → true 扱い)。
+        let muni_in_csv = explicit_muni.as_deref().map_or(true, |em| {
+            agg.by_municipality_salary
+                .iter()
+                .any(|m| m.prefecture == pref && m.name == em && m.count > 0)
+        });
+        match evaluate_selection_gate(
+            explicit_pref.as_deref(),
+            explicit_muni.as_deref(),
+            query.industry.as_deref(),
+            proceed,
+            muni_in_csv,
+        ) {
+            GateOutcome::ZeroCount => {
+                // 0件は確認で通せないハードブロック (明示選択 muni がCSVに無い)。
+                return Html(gate_zero_count_page(
+                    &pref,
+                    explicit_muni.as_deref().unwrap_or(muni.as_str()),
+                ));
+            }
+            GateOutcome::Confirm {
+                region_explicit,
+                industry_explicit,
+            } => {
+                // 未選択クッション: 生成せず確認ページを返す (proceed_unselected=1 で通過)。
+                return Html(build_unselected_confirmation_page(
+                    &query,
+                    &pref,
+                    &muni,
+                    region_explicit,
+                    industry_explicit,
+                ));
+            }
+            GateOutcome::Generate => {}
         }
     }
 
@@ -1628,4 +1764,150 @@ pub async fn upload_csv_start(
     });
 
     Json(serde_json::json!({ "job_id": job_id }))
+}
+
+// ============================================================
+// 2026-07-27: 選択クッションの判定・確認ページ 逆証明テスト
+// ============================================================
+#[cfg(test)]
+mod selection_gate_tests {
+    use super::*;
+
+    // (d) 明示選択済み (地域+業種) → 確認なしで生成。
+    #[test]
+    fn gate_all_explicit_generates() {
+        let out = evaluate_selection_gate(
+            Some("東京都"),
+            Some("千代田区"),
+            Some("医療,福祉"),
+            false,
+            true,
+        );
+        assert_eq!(out, GateOutcome::Generate);
+    }
+
+    // (a) 未選択 → 確認ページ (Confirm)。地域も業種も未選択。
+    #[test]
+    fn gate_nothing_selected_confirms() {
+        let out = evaluate_selection_gate(None, None, None, false, true);
+        assert_eq!(
+            out,
+            GateOutcome::Confirm {
+                region_explicit: false,
+                industry_explicit: false,
+            }
+        );
+    }
+
+    // (a') 地域だけ・業種だけ欠けても Confirm。区別フラグが立つ。
+    #[test]
+    fn gate_partial_selection_confirms_with_flags() {
+        // 地域は明示 (pref+muni) だが業種未選択
+        let out = evaluate_selection_gate(Some("東京都"), Some("千代田区"), None, false, true);
+        assert_eq!(
+            out,
+            GateOutcome::Confirm {
+                region_explicit: true,
+                industry_explicit: false,
+            }
+        );
+        // 業種は明示だが muni 未選択 (地域=自動採用)
+        let out2 = evaluate_selection_gate(Some("東京都"), None, Some("医療,福祉"), false, true);
+        assert_eq!(
+            out2,
+            GateOutcome::Confirm {
+                region_explicit: false,
+                industry_explicit: true,
+            }
+        );
+    }
+
+    // (b) proceed_unselected=1 → 未選択でも生成。
+    #[test]
+    fn gate_proceed_generates_even_if_unselected() {
+        let out = evaluate_selection_gate(None, None, None, true, true);
+        assert_eq!(out, GateOutcome::Generate);
+    }
+
+    // (e) 明示選択 muni が CSV に無い → ハードブロック。proceed でも通せない。
+    #[test]
+    fn gate_zero_count_hard_blocks_even_with_proceed() {
+        let out = evaluate_selection_gate(
+            Some("東京都"),
+            Some("架空市"),
+            Some("医療,福祉"),
+            false,
+            false,
+        );
+        assert_eq!(out, GateOutcome::ZeroCount);
+        // proceed=true でも 0件はブロック優先
+        let out2 = evaluate_selection_gate(
+            Some("東京都"),
+            Some("架空市"),
+            Some("医療,福祉"),
+            true,
+            false,
+        );
+        assert_eq!(out2, GateOutcome::ZeroCount);
+    }
+
+    // 自動採用 (muni 未明示) は muni_in_csv 判定に関わらず 0件ブロックしない。
+    #[test]
+    fn gate_auto_region_never_zero_count() {
+        let out = evaluate_selection_gate(None, None, Some("医療,福祉"), false, false);
+        // muni 未明示なので ZeroCount にはならず、地域未選択で Confirm。
+        assert_eq!(
+            out,
+            GateOutcome::Confirm {
+                region_explicit: false,
+                industry_explicit: true,
+            }
+        );
+    }
+
+    // proceed URL は全パラメータを保持し proceed_unselected=1 を付ける。
+    #[test]
+    fn proceed_url_preserves_params() {
+        let q = IntegrateQuery {
+            session_id: Some("s_abc".into()),
+            variant: Some("public".into()),
+            industry: Some("医療,福祉".into()),
+            pref: Some("東京都".into()),
+            muni: Some("千代田区".into()),
+            ..Default::default()
+        };
+        let url = build_proceed_url(&q);
+        assert!(url.starts_with("/report/survey?"), "生成 URL 起点");
+        assert!(url.contains("session_id=s_abc"), "session_id 保持");
+        assert!(url.contains("variant=public"), "variant 保持");
+        assert!(url.contains("proceed_unselected=1"), "proceed フラグ付与");
+        // 日本語はパーセントエンコードされる (生の日本語は含まない)
+        assert!(!url.contains("東京都"), "pref は encode 済み");
+        assert!(url.contains("pref=%E6%9D%B1%E4%BA%AC%E9%83%BD"), "pref encode 値");
+    }
+
+    // 確認ページは不足項目のみ表示し、proceed リンクを含む。
+    #[test]
+    fn confirmation_page_shows_only_missing_and_proceed_link() {
+        let q = IntegrateQuery {
+            session_id: Some("s_1".into()),
+            variant: Some("public".into()),
+            ..Default::default()
+        };
+        // 地域=自動採用 (未明示), 業種=未選択
+        let html = build_unselected_confirmation_page(&q, "神奈川県", "川崎市", false, false);
+        assert!(html.contains("この内容で作成しますか"), "確認見出し");
+        assert!(html.contains("神奈川県 川崎市"), "自動採用地域を表示");
+        assert!(html.contains("業種別の分析"), "業種省略の注記");
+        assert!(html.contains("proceed_unselected=1"), "このまま作成するリンク");
+        assert!(html.contains("選び直す"), "選び直すボタン");
+
+        // 地域は明示済み → 地域行は出さず、業種行のみ。
+        let html2 = build_unselected_confirmation_page(&q, "東京都", "千代田区", true, false);
+        assert!(
+            !html2.contains("主要地域"),
+            "地域明示時は地域の注記を出さない"
+        );
+        assert!(html2.contains("業種別の分析"), "業種未選択の注記は出す");
+    }
 }
