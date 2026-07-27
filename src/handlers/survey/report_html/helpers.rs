@@ -241,7 +241,7 @@ pub(super) fn render_findings_list_navy(
 pub(super) fn render_so_what_navy(body_html: &str) -> String {
     format!(
         "<div class=\"so-what\">\n\
-         <div class=\"sw-label\">SO WHAT</div>\n\
+         <div class=\"sw-label\">取るべき方針</div>\n\
          <div class=\"sw-body\">{}</div>\n\
          </div>\n",
         body_html,

@@ -1,6 +1,6 @@
-//! SP版 (仮) 専用ブロック (2026-07-11 追加、試作)
+//! 本編 (内部 enum 名 Sp) 専用ブロック (2026-07-11 追加。旧称「SP版 (仮)」)
 //!
-//! レビューで挙がった改善を「SP版 (仮)」variant のみに全部入れした試作モジュール。
+//! レビューで挙がった改善を「本編」variant のみに全部入れしたモジュール。
 //! 既存 variant (Full / Public / MarketIntelligence / Extended) の出力には一切
 //! 影響しない (呼出側 mod.rs が `variant == Sp` のときだけ本モジュールの関数を呼ぶ)。
 //!
@@ -243,36 +243,35 @@ fn conclusion_tightness(ctx: Option<&InsightContext>) -> Conclusion {
         .and_then(|c| c.ext_job_ratio.last())
         .map(|r| get_f64(r, "ratio_total"))
         .filter(|v| v.is_finite() && *v > 0.0);
+    // 2026-07-27 item4: 有効求人倍率は全職種の参考値。採用しやすさの結論語を避け、
+    //   全国平均 (約 1.2 倍) との高低の中立表現に統一する (sev は neu 固定)。
     match ratio {
         Some(r) if r >= 1.5 => Conclusion {
             topic: ConclusionTopic::Tightness,
-            sev: "warn",
+            sev: "neu",
             section: "04",
             sentence: format!(
-                "直近の有効求人倍率は {:.2} 倍と高く、採用の競争は激しめとみられます。",
+                "直近の有効求人倍率 (全職種の参考値) は {:.2} 倍で、全国平均 (約 1.2 倍) を上回る水準です。",
                 r
             ),
-            outlook: Some(
-                "このまま需給が逼迫したままだと、条件を据え置いた求人は埋まりにくくなる可能性があります。"
-                    .to_string(),
-            ),
+            outlook: None,
         },
         Some(r) if r >= 1.0 => Conclusion {
             topic: ConclusionTopic::Tightness,
             sev: "neu",
             section: "04",
             sentence: format!(
-                "直近の有効求人倍率は {:.2} 倍で、採用側と求職側がおおむね拮抗しているとみられます。",
+                "直近の有効求人倍率 (全職種の参考値) は {:.2} 倍で、全国平均 (約 1.2 倍) と同程度の水準です。",
                 r
             ),
             outlook: None,
         },
         Some(r) => Conclusion {
             topic: ConclusionTopic::Tightness,
-            sev: "pos",
+            sev: "neu",
             section: "04",
             sentence: format!(
-                "直近の有効求人倍率は {:.2} 倍と落ち着いており、採用は比較的進めやすいとみられます。",
+                "直近の有効求人倍率 (全職種の参考値) は {:.2} 倍で、全国平均 (約 1.2 倍) を下回る水準です。",
                 r
             ),
             outlook: None,
@@ -322,8 +321,13 @@ fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
 
 /// 経営サマリー / 各所で共有する結論一覧 (掲載順)。
 ///
-/// 3〜5 箇条に収まるよう、サンプル → 給与 → 新着 → 逼迫度 → 転職意向 の順で
+/// 3〜5 箇条に収まるよう、サンプル → 給与 → 新着 → 転職意向 の順で
 /// 判定を含む完全な文を並べる。
+///
+/// 2026-07-27: 経営サマリーからは有効求人倍率 (全職種値) 由来の結論
+/// (`conclusion_tightness`) を除外する。全職種の有効求人倍率を対象職種の採用しやすさの
+/// 結論に接続しない恒久ルール (§04 は参考値として別途扱う)。`conclusion_tightness`
+/// 自体は §04 の結論バンドで引き続き利用する。
 pub(super) fn build_conclusions(
     agg: &SurveyAggregation,
     ctx: Option<&InsightContext>,
@@ -332,7 +336,6 @@ pub(super) fn build_conclusions(
         conclusion_sample(agg),
         conclusion_salary(agg),
         conclusion_new_ratio(agg),
-        conclusion_tightness(ctx),
         conclusion_switcher(ctx),
     ]
 }
@@ -370,7 +373,9 @@ pub(crate) fn render_sp_exec_onepager(
     html.push_str(
         "<section class=\"page-navy sp-onepager\" role=\"region\" aria-label=\"経営サマリー\">\n",
     );
-    let eyebrow = if ver10 { "SUMMARY" } else { "SP SUMMARY" };
+    // 2026-07-27: 顧客可視の内部名「SP」を除去。masthead (SECTION 0X 等) と同じ
+    //   英語 kicker 様式に統一する (ver10 も非 ver10 も "SUMMARY")。
+    let eyebrow = "SUMMARY";
     push_page_head(html, eyebrow, deck, sub);
 
     // Ver10 は前置きの説明文を削る (超簡単・解説なし)。
@@ -573,19 +578,29 @@ pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregat
         }
     };
 
+    // 2026-07-27 item7: 従来はこの表を page-navy カード外に直接出力していたため、
+    //   他セクションの表 (max-width:182mm / padding:14mm) より広く描画されページ幅を
+    //   はみ出していた。他の表とサイズ感を揃えるため page-navy セクションで包む。
+    html.push_str("<section class=\"page-navy sp-quartile-page\" role=\"region\" aria-label=\"代表給与の四分位\">\n");
     html.push_str("<div class=\"block-title block-title-spaced\">表 3-SP &nbsp;代表給与の四分位 (25/50/75 パーセンタイル)</div>\n");
     html.push_str(&format!(
-        "<p class=\"caption\">代表給与 n={} の分布を四分位で示します。P25 は下位 4 分の 1、P50 は中央値、\
-         P75 は上位 4 分の 1 の境目です。</p>\n",
+        "<p class=\"caption\">代表給与 n={} の分布を四分位で示します。P25 は安い方から 4 分の 1、P50 は中央値、\
+         P75 は高い方から 4 分の 1 の境目です。</p>\n",
         format_number(s.n as i64)
     ));
-    html.push_str("<table class=\"table-navy sp-quartile-table\">\n<thead><tr>");
+    // 列幅を明示 (区分/給与を圧縮、読み方に最大幅)。他表と同じ .table-navy を使う。
+    html.push_str("<table class=\"table-navy sp-quartile-table\">\n");
+    html.push_str(
+        "<colgroup><col style=\"width:26%\"><col style=\"width:20%\"><col style=\"width:54%\"></colgroup>\n",
+    );
+    html.push_str("<thead><tr>");
     html.push_str("<th>区分</th><th class=\"num\">給与</th><th>読み方</th>");
     html.push_str("</tr></thead>\n<tbody>\n");
+    // 2026-07-27 item8: 統計記号を平易表現 + 括弧内に記号を併記。
     let rows: [(&str, i64, &str); 3] = [
-        ("P25 (下位25%)", s.p25, "この額を下回る求人が全体の約4分の1"),
-        ("P50 (中央値)", s.median, "ちょうど真ん中の水準"),
-        ("P75 (上位25%)", s.p75, "この額を上回る求人が全体の約4分の1"),
+        ("安い方から1/4 (P25)", s.p25, "この額を下回る求人が全体の約4分の1"),
+        ("中央値 (P50)", s.median, "ちょうど真ん中の水準"),
+        ("高い方から1/4 (P75)", s.p75, "この額を上回る求人が全体の約4分の1"),
     ];
     for (i, (label, yen, note)) in rows.iter().enumerate() {
         let hl = if i == 1 { " class=\"hl\"" } else { "" };
@@ -602,10 +617,12 @@ pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregat
     // 四分位範囲 (IQR) の一言。
     let iqr = s.p75 - s.p25;
     html.push_str(&format!(
-        "<p class=\"caption\">P25〜P75 の幅 (四分位範囲) は {} {} です。幅が広いほど求人ごとの条件差が大きい傾向があります。</p>\n",
+        "<p class=\"caption\">安い方から1/4 (P25)〜高い方から1/4 (P75) の幅は {} {} です。\
+         幅が広いほど求人ごとの条件差が大きい傾向があります。</p>\n",
         disp(iqr),
         unit
     ));
+    html.push_str("</section>\n");
 }
 
 // ============================================================
@@ -614,7 +631,7 @@ pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregat
 
 /// 優先アクション表 1 行分。
 struct SpAction {
-    /// インパクト×手間の平易表現: "すぐ効く" or "仕込みが要る"。
+    /// インパクト×手間の平易表現: "すぐできる" or "時間がかかる"。
     kind: &'static str,
     action: String,
     /// 根拠となるセクション番号 (例: "03")。
@@ -639,37 +656,37 @@ pub(crate) fn render_sp_priority_actions(
     for c in &conclusions {
         match c.topic {
             ConclusionTopic::Salary if c.sev == "warn" => actions.push(SpAction {
-                kind: "すぐ効く",
+                kind: "すぐできる",
                 action: "給与レンジの提示幅を見直し、求職者が自分の水準を判断しやすい表記にする"
                     .to_string(),
                 section: "03",
             }),
             ConclusionTopic::Salary if c.sev == "pos" => actions.push(SpAction {
-                kind: "すぐ効く",
+                kind: "すぐできる",
                 action: "まとまった給与水準を強みとして、求人票の見出しで明確に打ち出す"
                     .to_string(),
                 section: "03",
             }),
             ConclusionTopic::NewRatio if c.sev == "warn" => actions.push(SpAction {
-                kind: "すぐ効く",
+                kind: "すぐできる",
                 action: "掲載の更新頻度を上げ、新着として表示される機会を増やす".to_string(),
                 section: "03",
             }),
             ConclusionTopic::Tightness if c.sev == "warn" => actions.push(SpAction {
-                kind: "仕込みが要る",
+                kind: "時間がかかる",
                 action: "競合より条件が見劣りしないか、給与・休日・待遇の訴求点を点検する"
                     .to_string(),
                 section: "04",
             }),
             ConclusionTopic::Switcher => actions.push(SpAction {
-                kind: "仕込みが要る",
+                kind: "時間がかかる",
                 action: "転職を考えている層に届くよう、媒体・配信地域の優先順位を検討する"
                     .to_string(),
                 section: "10",
             }),
             ConclusionTopic::Sample if c.sev == "warn" || c.sev == "neg" => {
                 actions.push(SpAction {
-                    kind: "すぐ効く",
+                    kind: "すぐできる",
                     action: "サンプルの取得範囲を広げ、判断に足る件数を確保する".to_string(),
                     section: "01",
                 })
@@ -681,17 +698,17 @@ pub(crate) fn render_sp_priority_actions(
     // 常設の底上げアクション (重複しない範囲で補う。最低 3 行を確保)。
     for (kind, action, section) in [
         (
-            "すぐ効く",
+            "すぐできる",
             "反応が弱い求人から順に、写真と仕事内容の説明を1箇所ずつ改善する",
             "05",
         ),
         (
-            "仕込みが要る",
+            "時間がかかる",
             "手薄な年齢層に向けた訴求 (働き方・研修など) を1つ用意する",
             "06",
         ),
         (
-            "すぐ効く",
+            "すぐできる",
             "掲載の更新頻度を上げ、新着として表示される機会を増やす",
             "03",
         ),
@@ -711,26 +728,29 @@ pub(crate) fn render_sp_priority_actions(
     html.push_str(
         "<section class=\"page-navy sp-actions\" role=\"region\" aria-label=\"優先アクション\">\n",
     );
+    // 2026-07-27 item26: レポートには埋まらない「担当/期限/確認する指標」列を廃止し、
+    //   「効き方」→「所要時間」に改名 (着手の所要時間という事実ベースの表現)。
+    //   空いた幅で「やること」「根拠」を広く見せる。
     push_page_head(
         html,
-        "SP ACTIONS",
-        "優先アクション表 (仮)",
-        "何から手をつけるか。効き方と手間で分けています",
+        "ACTIONS",
+        "優先アクション表",
+        "何から手をつけるか。着手までの所要時間で分けています",
     );
     html.push_str(
-        "<p class=\"caption\">「すぐ効く」は今日から着手でき効果が出やすいもの、\
-         「仕込みが要る」は準備に時間はかかるが効きが大きいものです。\
-         担当・期限・確認する指標の欄は、この画面上で直接入力・編集できます。</p>\n",
+        "<p class=\"caption\">「すぐできる」は今日から着手できるもの、\
+         「時間がかかる」は準備に時間を要するものです (着手の所要時間の目安であり、効果を保証するものではありません)。</p>\n",
     );
 
-    html.push_str("<table class=\"table-navy sp-action-table\">\n<thead><tr>");
+    html.push_str("<table class=\"table-navy sp-action-table\" style=\"table-layout:fixed;width:100%;\">\n");
     html.push_str(
-        "<th>効き方</th><th>やること</th><th>根拠</th>\
-         <th>担当</th><th>期限</th><th>確認する指標</th>",
+        "<colgroup><col style=\"width:18%\"><col style=\"width:64%\"><col style=\"width:18%\"></colgroup>\n",
     );
+    html.push_str("<thead><tr>");
+    html.push_str("<th>所要時間</th><th>やること</th><th>根拠</th>");
     html.push_str("</tr></thead>\n<tbody>\n");
     for a in &actions {
-        let kind_tag = if a.kind == "すぐ効く" {
+        let kind_tag = if a.kind == "すぐできる" {
             "pos"
         } else {
             "warn"
@@ -740,9 +760,6 @@ pub(crate) fn render_sp_priority_actions(
              <td><span class=\"tag tag-{kind_tag}\">{kind}</span></td>\
              <td>{action}</td>\
              <td class=\"dim\">§{section}</td>\
-             <td contenteditable=\"true\" aria-label=\"担当を入力\">&nbsp;</td>\
-             <td contenteditable=\"true\" aria-label=\"期限を入力\">&nbsp;</td>\
-             <td contenteditable=\"true\" aria-label=\"確認する指標を入力\">&nbsp;</td>\
              </tr>\n",
             kind_tag = kind_tag,
             kind = escape_html(a.kind),
@@ -800,9 +817,12 @@ mod tests {
         let mut html = String::new();
         render_sp_salary_quartiles(&mut html, &agg);
         assert!(html.contains("表 3-SP"), "四分位表タイトル: {}", html);
-        assert!(html.contains("P25 (下位25%)"), "P25 行: {}", html);
-        assert!(html.contains("P50 (中央値)"), "P50 行: {}", html);
-        assert!(html.contains("P75 (上位25%)"), "P75 行: {}", html);
+        // item8 2026-07-27: 平易表現 + 括弧内に記号併記。
+        assert!(html.contains("安い方から1/4 (P25)"), "P25 行: {}", html);
+        assert!(html.contains("中央値 (P50)"), "P50 行: {}", html);
+        assert!(html.contains("高い方から1/4 (P75)"), "P75 行: {}", html);
+        // item7: page-navy カードで包み他表とサイズ感を揃える。
+        assert!(html.contains("class=\"page-navy sp-quartile-page\""), "page-navy ラッパ: {}", html);
     }
 
     #[test]
@@ -911,10 +931,10 @@ mod tests {
         assert!(!html.contains("NaN"), "0 件で NaN 混入なし");
     }
 
-    // ---- (c) 優先アクション表: contenteditable 記入欄 + 効き方 2 分類 ----
+    // ---- (c) 優先アクション表: 所要時間 2 分類 (2026-07-27 item26 で列整理) ----
 
     #[test]
-    fn priority_actions_has_editable_fields_and_two_kinds() {
+    fn priority_actions_has_two_kinds_and_no_editable_fields() {
         let agg = agg_with_salary(vec![
             150_000, 160_000, 170_000, 300_000, 500_000,
             700_000, // 広いレンジ → warn 誘発
@@ -922,20 +942,22 @@ mod tests {
         let mut html = String::new();
         render_sp_priority_actions(&mut html, &agg, None);
         assert!(
-            html.contains("優先アクション表 (仮)"),
+            html.contains("優先アクション表"),
             "アクション表タイトル: {}",
             html
         );
-        assert!(html.contains("すぐ効く"), "すぐ効く分類: {}", html);
-        assert!(html.contains("仕込みが要る"), "仕込みが要る分類: {}", html);
-        // 担当/期限/確認指標の記入欄 (contenteditable) が存在する
+        // item26: 所要時間ベースの 2 分類。
+        assert!(html.contains("すぐできる"), "すぐできる分類: {}", html);
+        assert!(html.contains("時間がかかる"), "時間がかかる分類: {}", html);
+        assert!(html.contains("所要時間"), "所要時間 列見出し: {}", html);
+        // item26: 担当/期限/確認する指標の記入欄は廃止した。
         assert!(
-            html.contains("contenteditable=\"true\""),
-            "記入欄 (contenteditable): {}",
+            !html.contains("contenteditable"),
+            "記入欄は廃止済み: {}",
             html
         );
-        assert!(html.contains("担当を入力"), "担当欄: {}", html);
-        assert!(html.contains("期限を入力"), "期限欄: {}", html);
-        assert!(html.contains("確認する指標を入力"), "確認指標欄: {}", html);
+        assert!(!html.contains("担当を入力"), "担当欄は廃止済み");
+        assert!(!html.contains("期限を入力"), "期限欄は廃止済み");
+        assert!(!html.contains("確認する指標を入力"), "確認指標欄は廃止済み");
     }
 }

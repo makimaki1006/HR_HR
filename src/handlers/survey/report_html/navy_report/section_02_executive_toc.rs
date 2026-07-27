@@ -59,7 +59,7 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant, section
     //   が常に true・09/10 が variant gate のため、従来の掲載内容と完全に等価 (byte 不変)。
     //   07.5/07.6 は従来どおり目次に載せない (本文のみ)。
     // 01 (Executive Summary) と 08 (注記・出典) は常時掲載 (選択不可)。
-    let mut items: Vec<(&str, &str)> = vec![("01", "Executive Summary")];
+    let mut items: Vec<(&str, &str)> = vec![("01", "全体サマリーと主要指標")];
     if sections.shows("02") {
         items.push(("02", section_02));
     }
@@ -142,14 +142,17 @@ pub(crate) fn render_navy_executive(
     target_region: &str,
 ) {
     html.push_str("<section class=\"page-navy navy-exec\" role=\"region\" aria-labelledby=\"navy-exec-title\">\n");
+    // 2026-07-27: 顧客可視の英語見出し「Executive Summary」を日本語化。
+    //   持ち歩き1ページの onepager が「経営サマリー」の名称で既に認知されているため、
+    //   §01 見出しは名称重複を避けて「全体サマリーと主要指標」にする。
     push_page_head(
         html,
         "SECTION 01",
-        "Executive Summary",
+        "全体サマリーと主要指標",
         "3 分で読み切れる全体要旨と優先アクション",
     );
     html.push_str(&format!(
-        "<h2 id=\"navy-exec-title\" class=\"sr-only\" style=\"position:absolute;left:-9999px;\">Executive Summary</h2>\n"
+        "<h2 id=\"navy-exec-title\" class=\"sr-only\" style=\"position:absolute;left:-9999px;\">全体サマリーと主要指標</h2>\n"
     ));
 
     // -- exec-headline (引用調 + 1 段落要旨)
@@ -236,8 +239,8 @@ pub(crate) fn render_navy_executive(
     let headline_body = format!(
         "本レポートは <strong>{}</strong> を対象に、求人媒体データから\
          {}を整理します。{}\
-         本ページでは <strong>KPI</strong> と <strong>Findings</strong> で全体像を示し、\
-         末尾の <strong>SO WHAT</strong> で取るべき方針を集約します。",
+         本ページでは <strong>主要指標</strong> と <strong>分かったこと</strong> で全体像を示し、\
+         末尾の <strong>取るべき方針</strong> で方針を集約します。",
         region_prefix, analysis_topics, region_divergence_note,
     );
     html.push_str(&format!(
@@ -424,7 +427,7 @@ pub(crate) fn render_navy_executive(
     );
     html.push_str(&format!(
         "<div class=\"so-what\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what_body

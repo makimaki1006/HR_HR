@@ -14,22 +14,22 @@ use super::*;
 // ---- severity_label: 全 case 網羅 (silent fallback 検証) ----
 #[test]
 fn severity_label_pos_returns_pos() {
-    assert_eq!(severity_label("pos"), "POS");
+    assert_eq!(severity_label("pos"), "強み");
 }
 #[test]
 fn severity_label_warn_returns_warn() {
-    assert_eq!(severity_label("warn"), "WARN");
+    assert_eq!(severity_label("warn"), "注意");
 }
 #[test]
 fn severity_label_neg_returns_neg() {
-    assert_eq!(severity_label("neg"), "NEG");
+    assert_eq!(severity_label("neg"), "課題");
 }
 #[test]
 fn severity_label_unknown_returns_neu_default() {
-    // silent fallback: 未知 tag は NEU。`_` arm 仕様確認
-    assert_eq!(severity_label(""), "NEU");
-    assert_eq!(severity_label("info"), "NEU");
-    assert_eq!(severity_label("critical"), "NEU");
+    // silent fallback: 未知 tag は「中立」。`_` arm 仕様確認
+    assert_eq!(severity_label(""), "中立");
+    assert_eq!(severity_label("info"), "中立");
+    assert_eq!(severity_label("critical"), "中立");
 }
 
 // ---- format_mm: 万円換算境界値 ----

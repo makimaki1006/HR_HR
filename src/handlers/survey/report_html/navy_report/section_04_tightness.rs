@@ -140,21 +140,24 @@ pub(crate) fn render_navy_section_04_market_tightness(
         html.push_str("<div class=\"kpi-row kpi-row-3\">\n");
     }
     {
+        // 2026-07-27 item4: 有効求人倍率は全職種の参考値。対象職種の需給や採用しやすさの
+        //   結論には接続せず、全国平均 (約 1.2 倍) との高低の言及までに表現を抑える。
+        //   dot は中立 (neu) 固定 (色で採用しやすさの良否を示唆しない)。
         let (val, dot, foot) = match d.and_then(|d| d.job_ratio) {
             Some(v) if v >= 1.5 => (
                 fmt_ratio(Some(v)),
-                "warn",
-                "1.5 以上は採用難度 高 (応募集めにくい)".to_string(),
+                "neu",
+                "全国平均 (約 1.2 倍) を上回る水準".to_string(),
             ),
             Some(v) if v >= 1.0 => (
                 fmt_ratio(Some(v)),
                 "neu",
-                "1.0 以上は売り手市場".to_string(),
+                "全国平均 (約 1.2 倍) と同程度の水準".to_string(),
             ),
             Some(v) => (
                 fmt_ratio(Some(v)),
-                "pos",
-                format!("1.0 未満 ({:.2}) は買い手市場", v),
+                "neu",
+                "全国平均 (約 1.2 倍) を下回る水準".to_string(),
             ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
@@ -223,6 +226,11 @@ pub(crate) fn render_navy_section_04_market_tightness(
         push_kpi(html, "離職率", &val, "%", dot, &foot, false);
     }
     html.push_str("</div>\n");
+    // 2026-07-27 item4: 有効求人倍率は全職種・全国の公的統計であることを明示。
+    html.push_str(
+        "<p class=\"caption\">※ 有効求人倍率は全職種の参考値であり、対象職種の需給を表すものではありません。\
+         全国平均 (約 1.2 倍) との高低の目安としてご覧ください。</p>\n",
+    );
 
     // -- gauge SVG (4 軸正規化、横バー)
     if let Some(d) = data.as_ref() {
@@ -283,6 +291,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
                 "<p class=\"caption\">\
                  出典: 公的統計 (e-Stat) 事業所データ。\
                  集計単位: 対象地域・全産業の事業所数および従業者数。\
+                 年次は参考 (取得可能な最新の公的統計) です。統計の更新周期により最新年ではない場合があり、直近時点の値ではありません。\
                  </p>\n",
             );
         }
@@ -308,7 +317,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
                      (差 {:+.1}pt)。全国参考値は開業 5.0% / 廃業 4.0%。\
                      いずれも単年の値であり、市場フェーズ (成長・成熟・再編) の判定には\
                      複数年の推移確認が必要なため、本表では単年からの局面判定は行いません。\
-                     基準年次は表本体の年次列を参照してください。",
+                     表本体の年次は参考 (取得可能な最新の公的統計) であり、統計の更新周期により最新年ではない場合があります。",
                     open, close, net
                 )
             } else {
@@ -323,7 +332,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
     let so_what = build_tightness_so_what(d, show_vacancy);
     html.push_str(&format!(
         "<div class=\"so-what\" style=\"margin-top:6mm;\">\
-         <div class=\"sw-label\">SO WHAT</div>\
+         <div class=\"sw-label\">取るべき方針</div>\
          <div class=\"sw-body\">{}</div>\
          </div>\n",
         so_what
@@ -630,10 +639,12 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
     };
     let d = d;
     // job_ratio
+    // 2026-07-27 item4: 有効求人倍率は全職種の参考値。採用しやすさの結論語 (売り手/買い手/
+    //   応募集めにくい) を避け、全国平均 (1.20) との高低の言及に抑える。tag は中立固定。
     let (val, tag, cmt) = match d.and_then(|d| d.job_ratio) {
-        Some(v) if v >= 1.5 => (format!("{:.2}", v), "warn", "応募集めにくい (1.5+)"),
-        Some(v) if v >= 1.0 => (format!("{:.2}", v), "neu", "売り手市場 (1.0-1.5)"),
-        Some(v) => (format!("{:.2}", v), "pos", "買い手市場 (-1.0)"),
+        Some(v) if v >= 1.5 => (format!("{:.2}", v), "neu", "全国平均を上回る"),
+        Some(v) if v >= 1.0 => (format!("{:.2}", v), "neu", "全国平均と同程度"),
+        Some(v) => (format!("{:.2}", v), "neu", "全国平均を下回る"),
         None => ("—".to_string(), "neu", "—"),
     };
     s.push_str(&row("有効求人倍率", val, "全国 1.20", tag, cmt));
@@ -715,11 +726,8 @@ fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> St
         }
     };
     let mut alerts: Vec<&str> = Vec::new();
-    if let Some(r) = d.job_ratio {
-        if r >= 1.5 {
-            alerts.push("有効求人倍率");
-        }
-    }
+    // 2026-07-27 item4: 有効求人倍率 (全職種の参考値) は採用難度の総合判定 (=採用しやすさの
+    //   結論) の driver から除外する。全国平均との高低は表 4-A / 図 4-1 の参考値として別途提示。
     if let Some(u) = d.unemployment {
         if u < 2.5 {
             alerts.push("低失業率");
@@ -790,13 +798,13 @@ mod tests {
     // [不変条件] tag → ラベルの全分岐 + 未知タグの中立 fallback。
     #[test]
     fn severity_label_maps_all_known_tags() {
-        assert_eq!(severity_label("pos"), "POS");
-        assert_eq!(severity_label("warn"), "WARN");
-        assert_eq!(severity_label("neg"), "NEG");
-        assert_eq!(severity_label("neu"), "NEU");
-        // 未知タグは NEU に倒れる (silent fallback ではなく明示的中立)
-        assert_eq!(severity_label("unknown"), "NEU");
-        assert_eq!(severity_label(""), "NEU");
+        assert_eq!(severity_label("pos"), "強み");
+        assert_eq!(severity_label("warn"), "注意");
+        assert_eq!(severity_label("neg"), "課題");
+        assert_eq!(severity_label("neu"), "中立");
+        // 未知タグは「中立」に倒れる (silent fallback ではなく明示的中立)
+        assert_eq!(severity_label("unknown"), "中立");
+        assert_eq!(severity_label(""), "中立");
     }
 
     // --- build_navy_tightness_table: 失業率の値域防御 (逆証明) --------------
@@ -869,22 +877,29 @@ mod tests {
         );
     }
 
-    // [境界] 有効求人倍率 1.5 以上=warn / 1.0-1.5=売り手 / 1.0 未満=買い手。
+    // [境界] 有効求人倍率は全職種参考値。全国平均 (1.20) との高低の中立表現に抑える
+    //   (item4 2026-07-27: 採用しやすさの結論語 売り手/買い手/応募集めにくい を排除)。
     #[test]
     fn tightness_table_job_ratio_boundaries() {
         let h15 =
             build_navy_tightness_table(Some(&make_data(Some(1.5), None, None, None, None)), false);
         assert!(
-            h15.contains("応募集めにくい"),
-            "1.5 -> 応募集めにくい: {}",
+            h15.contains("全国平均を上回る"),
+            "1.5 -> 全国平均を上回る: {}",
+            h15
+        );
+        // 採用しやすさの結論語が混入していないこと (逆証明)
+        assert!(
+            !h15.contains("応募集めにくい") && !h15.contains("売り手") && !h15.contains("買い手"),
+            "採用しやすさの結論語が残存: {}",
             h15
         );
         let h12 =
             build_navy_tightness_table(Some(&make_data(Some(1.2), None, None, None, None)), false);
-        assert!(h12.contains("売り手市場"), "1.2 -> 売り手市場: {}", h12);
+        assert!(h12.contains("全国平均と同程度"), "1.2 -> 全国平均と同程度: {}", h12);
         let h08 =
             build_navy_tightness_table(Some(&make_data(Some(0.8), None, None, None, None)), false);
-        assert!(h08.contains("買い手市場"), "0.8 -> 買い手市場: {}", h08);
+        assert!(h08.contains("全国平均を下回る"), "0.8 -> 全国平均を下回る: {}", h08);
     }
 
     // [境界] None データ (全指標欠損) でも panic せず、"—" 行 + table を返す。
@@ -903,10 +918,12 @@ mod tests {
     // --- build_tightness_so_what: 警戒指標カウントによる総合判定 ------------
 
     // [境界] 警戒指標 2 つ以上 → 採用難度 高。
+    //   2026-07-27 item4: 有効求人倍率は alert driver から除外したため、低失業 + 離職率の
+    //   2 指標で警戒水準を作る。
     #[test]
     fn so_what_two_alerts_is_high_difficulty() {
-        // job_ratio>=1.5 と 低失業<2.5 の 2 指標警戒
-        let d = make_data(Some(1.6), None, Some(2.0), None, None);
+        // 低失業<2.5 と 離職率>=15.0 の 2 指標警戒 (job_ratio は判定に影響しない)
+        let d = make_data(Some(1.6), None, Some(2.0), Some(16.0), None);
         let html = build_tightness_so_what(Some(&d), false);
         assert!(html.contains("採用難度 高"), "2 alerts -> 高: {}", html);
     }
@@ -914,10 +931,23 @@ mod tests {
     // [境界] 警戒指標 1 つ → 採用難度 中。
     #[test]
     fn so_what_one_alert_is_medium_difficulty() {
-        // job_ratio>=1.5 のみ警戒 (失業率 4.0 は安全圏)
-        let d = make_data(Some(1.6), None, Some(4.0), None, None);
+        // 低失業<2.5 のみ警戒 (離職率 8.0 は安全圏、job_ratio は判定に影響しない)
+        let d = make_data(Some(1.6), None, Some(2.0), Some(8.0), None);
         let html = build_tightness_so_what(Some(&d), false);
         assert!(html.contains("採用難度 中"), "1 alert -> 中: {}", html);
+    }
+
+    // [逆証明] item4: 有効求人倍率が高くても (全職種参考値) alert driver にならない。
+    #[test]
+    fn so_what_high_job_ratio_alone_is_low_difficulty() {
+        // job_ratio 2.0 (高) だが 失業率/離職率は安全圏 → 警戒 0 → 採用難度 低
+        let d = make_data(Some(2.0), None, Some(5.0), Some(8.0), None);
+        let html = build_tightness_so_what(Some(&d), false);
+        assert!(
+            html.contains("採用難度 低"),
+            "有効求人倍率単独では警戒にしない: {}",
+            html
+        );
     }
 
     // [境界] 警戒指標 0 → 採用難度 低。

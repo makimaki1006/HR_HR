@@ -275,7 +275,7 @@ pub(super) fn render_section_company_segments_with_industry(
 /// ユーザー指摘:
 /// > 増員出来ている、離職が多い、それぞれで大企業と中小企業と零細企業のセグメントがあると良い
 ///
-/// 規模帯 (大企業 300+ / 中小企業 50-299 / 零細企業 <50) × 動向 (増員 / 減少) の
+/// 規模帯 (大企業 300+ / 中小企業 50-299 / 小規模企業 <50) × 動向 (増員 / 減少) の
 /// 6 マトリクスで地域企業の動きを多面的に提示。
 ///
 /// 表現は中立化:
@@ -298,7 +298,7 @@ fn render_size_x_trend_matrix(
     html.push_str("<h3 style=\"font-size:13pt;margin:18px 0 6px;color:#0f172a;display:flex;align-items:center;gap:8px;\"><span style=\"display:inline-block;width:5px;height:18px;background:linear-gradient(180deg, #10b981 0%, #dc2626 100%);border-radius:2px;\"></span>表 5-0b 規模 × 人員推移 6 マトリクス <span style=\"font-size:9.5pt;font-weight:400;color:#64748b;\">(各セル上位 5 社)</span></h3>\n");
     html.push_str(
         "<p style=\"font-size:9.5pt;color:#475569;margin:0 0 10px;line-height:1.6;\">\
-         \u{203B} 規模帯 (大企業 / 中小企業 / 零細企業) と 1 年人員推移 (+5% 超 / -5% 未満) の組み合わせで\
+         \u{203B} 規模帯 (大企業 / 中小企業 / 小規模企業) と 1 年人員推移 (+5% 超 / -5% 未満) の組み合わせで\
          該当企業を抽出。「人員減少傾向」は離職だけでなく組織改編・自然減・配置転換等も含む観測です。\
          </p>\n",
     );
@@ -320,7 +320,7 @@ fn render_size_x_trend_matrix(
             "matrix-growth-mid",
         ),
         (
-            "📈 零細企業 × 人員増加",
+            "📈 小規模企業 × 人員増加",
             "<50 名 / 1y +5% 超",
             &segments.growth_small,
             "matrix-growth-small",
@@ -338,7 +338,7 @@ fn render_size_x_trend_matrix(
             "matrix-decline-mid",
         ),
         (
-            "📉 零細企業 × 人員減少",
+            "📉 小規模企業 × 人員減少",
             "<50 名 / 1y -5% 未満",
             &segments.decline_small,
             "matrix-decline-small",

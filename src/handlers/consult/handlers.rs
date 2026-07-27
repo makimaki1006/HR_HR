@@ -261,7 +261,9 @@ async fn build_consult_input(
                         af::fetch_labor_force(db, t, &pref2, ""),
                         af::fetch_labor_force(db, t, "", ""),
                         af::fetch_vital_statistics(db, t, &pref2, &muni2),
-                        af::fetch_rental_housing(db, t, &pref2),
+                        // 2026-07-27 item32: consult は県集計 (municipality 空) の総数行を
+                        //   自前で選ぶため muni="" で従来経路 (pref+全国プール) を維持する。
+                        af::fetch_rental_housing(db, t, &pref2, ""),
                     )
                 } else {
                     Ext2Bundle::default()

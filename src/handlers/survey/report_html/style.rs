@@ -2499,7 +2499,7 @@ body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
 "#.to_string()
 }
 
-/// SP版 (仮) 専用スタイル (2026-07-11 追加、試作)。
+/// 本編 (内部 enum 名 Sp) 専用スタイル (2026-07-11 追加。旧称「SP版 (仮)」)。
 ///
 /// # 重要 (byte 不変要件)
 /// 本 CSS は `variant == Sp` のときだけ `<style>` に追記される。既存 variant
@@ -2511,7 +2511,7 @@ body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
 pub(super) fn render_sp_css() -> String {
     r#"
 /* ============================================================
-   SP版 (仮) 専用スタイル (2026-07-11 追加、試作) — SP variant のみ出力
+   本編 (内部 enum 名 Sp) 専用スタイル (2026-07-11 追加) — Sp variant のみ出力
    ============================================================ */
 
 /* (a) 経営サマリー 結論のまとめ (箇条書き) */

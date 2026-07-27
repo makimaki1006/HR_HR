@@ -11,7 +11,7 @@ use super::super::helpers::{escape_html, format_number};
 use super::super::insight::fetch::InsightContext;
 #[cfg(test)]
 use super::aggregator::ScatterPoint;
-use super::aggregator::{CompanyAgg, EmpTypeSalary, SurveyAggregation};
+use super::aggregator::{CompanyAgg, EmpTypeSalary, RegionMuniStat, SurveyAggregation};
 use super::hw_enrichment::HwAreaEnrichment;
 use super::job_seeker::JobSeekerAnalysis;
 
@@ -138,10 +138,10 @@ pub enum ReportVariant {
     /// 既存 variant (Full / Public / MarketIntelligence) の出力は 1 バイトも変えない
     /// (本 variant は完全に新規追加であり、既存分岐は不変)。
     Extended,
-    /// SP版 (仮) (2026-07-11 追加、試作)
+    /// 本編 (2026-07-11 追加。旧称「SP版 (仮)」から 2026-07-27 に本編へ改称)
     ///
     /// `Extended` (詳細版) の全セクションをそのまま出力しつつ、レビューで挙がった
-    /// 改善を **SP のみ** に適用した全部入りの試作版:
+    /// 改善を **この variant のみ** に適用した全部入りの版:
     /// - 持ち歩ける経営サマリー1ページ (結論の1文 3〜5箇条 + まず取り組む3つ)
     /// - 各セクション冒頭の「このページの結論」バンド
     /// - §09/§10 の So What を集約した優先アクション表 (すぐ効く/仕込みが要る 2 分類)
@@ -150,7 +150,7 @@ pub enum ReportVariant {
     ///
     /// 既存 variant (Full / Public / MarketIntelligence / Extended) の出力は
     /// 1 バイトも変えない (SP 専用ブロックは `variant == Sp` のときだけ描画する)。
-    /// 名称は暫定であり「SP版 (仮)」と表記する (正式名にしない)。
+    /// 顧客に見える表示名は「本編」(旧称「SP版 (仮)」)。内部 enum 名は Sp のまま。
     Sp,
     /// Ver10 (2026-07-13 追加、現場コンサルレビュー反映版)
     ///
@@ -203,7 +203,7 @@ impl ReportVariant {
             Self::Public => "公開データ中心版",
             Self::MarketIntelligence => "採用マーケットインテリジェンス版",
             Self::Extended => "詳細版",
-            Self::Sp => "SP版 (仮)",
+            Self::Sp => "本編",
             Self::Ver10 => "Ver10",
         }
     }
@@ -269,7 +269,7 @@ impl ReportVariant {
             Self::Public => "\u{1F30D}",             // 🌍
             Self::MarketIntelligence => "\u{1F4CA}", // 📊
             Self::Extended => "\u{1F4C8}",           // 📈
-            Self::Sp => "\u{1F9EA}",                 // 🧪 (試作)
+            Self::Sp => "\u{1F4C4}",                 // 📄 (本編)
             Self::Ver10 => "\u{1F4D8}",              // 📘 (現場レビュー反映版)
         }
     }
@@ -304,7 +304,7 @@ impl ReportVariant {
                 "採用マーケットインテリジェンス版に、働き手の将来・給与相場・転職意向・採用ネック診断の4図を加えた詳細版"
             }
             Self::Sp => {
-                "詳細版に、持ち歩ける経営サマリー1ページ・各ページの結論バンド・優先アクション表・給与四分位を加えた試作版 (仮)"
+                "詳細版に、持ち歩ける経営サマリー1ページ・各ページの結論バンド・優先アクション表・給与四分位を加えた本編"
             }
             Self::Ver10 => {
                 "現場の声を反映し、冒頭のまとめを超簡単にして難しい言葉を減らし、雇用形態の内訳・採用市場の需給ページ・一部の図表を省いた読みやすい版"
@@ -831,6 +831,8 @@ pub(crate) fn render_survey_report_page_with_sections(
     section_set: SectionSet,
     // 2026-07-13: Ver10 の表2-E 表示フラグ (?table2e=0/1)。Ver10 以外では無視される。
     table2e: bool,
+    // 2026-07-27: §02 表 2-D 市区町村統計 (基準 + 同一県内近隣)。空なら県平均表にフォールバック。
+    region_2d_stats: &[RegionMuniStat],
 ) -> String {
     let cfg = RenderConfig::builder()
         .agg(agg)
@@ -854,6 +856,7 @@ pub(crate) fn render_survey_report_page_with_sections(
         .selected_muni(selected_muni)
         .section_set(section_set)
         .table2e(table2e)
+        .region_2d_stats(region_2d_stats)
         .build();
     render_survey_report_page_with_config(&cfg)
 }
@@ -1069,6 +1072,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             cfg.variant,
             &target_region,
             cfg.table2e,
+            cfg.region_2d_stats,
         );
     }
     if cfg.section_set.shows("03") {
@@ -1253,14 +1257,21 @@ fn ver10_plain_language(html: &str) -> String {
         // 変動係数 (CV)
         ("変動係数 (CV)", "ばらつきの大きさ"),
         ("CV", "ばらつきの大きさ"),
-        // SP 四分位表の行ラベル (括弧つき表現)
+        // 給与分位点の平易ラベル (2026-07-27 item8 で導入した括弧つき表現)。
+        // Ver10 では記号併記を外し、統一した平易語に寄せる。裸の Pxx より前に処理する。
+        ("安い方から1/4 (P25)", "下位25%の値"),
+        ("高い方から1/4 (P75)", "高い方から数えて25%の位置の値"),
+        ("安い方1/4 (P25)", "下位25%の値"),
+        ("高い方1/4 (P75)", "高い方から数えて25%の位置の値"),
+        ("高い方から1割 (P90)", "高い方から数えて10%の位置の値"),
+        ("中央値 (P50)", "中央値 (ちょうど真ん中)"),
+        // 旧ラベル (後方互換: 他 variant 由来の文言が残っていても吸収)
         ("P25 (下位25%)", "下位25%の値"),
-        ("P50 (中央値)", "中央値 (ちょうど真ん中)"),
-        ("P75 (上位25%)", "上位25%の値"),
+        ("P75 (上位25%)", "高い方から数えて25%の位置の値"),
         // パーセンタイル語 + 裸の Pxx
         ("パーセンタイル", "パーセント点"),
-        ("P90", "上位10%の値"),
-        ("P75", "上位25%の値"),
+        ("P90", "高い方から数えて10%の位置の値"),
+        ("P75", "高い方から数えて25%の位置の値"),
         ("P60", "上位40%の値"),
         ("P50", "中央値"),
         ("P25", "下位25%の値"),
@@ -3595,10 +3606,10 @@ mod variant_indicator_tests {
         assert_eq!(ReportVariant::from_query(Some("SP")), ReportVariant::Full);
     }
 
-    /// SP版 (仮) の表示名・クエリ文字列。
+    /// 本編 (旧称 SP版 (仮)) の表示名・クエリ文字列。
     #[test]
     fn variant_sp_display_name_and_query() {
-        assert_eq!(ReportVariant::Sp.display_name(), "SP版 (仮)");
+        assert_eq!(ReportVariant::Sp.display_name(), "本編");
         assert_eq!(ReportVariant::Sp.as_query(), "sp");
         // 往復: as_query → from_query
         assert_eq!(
@@ -3681,7 +3692,7 @@ mod variant_indicator_tests {
         for marker in [
             "経営サマリー",
             "このページの結論",
-            "優先アクション表 (仮)",
+            "優先アクション表",
             "表 3-SP",
             "sp-conclusion-band",
         ] {
