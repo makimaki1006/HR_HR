@@ -233,7 +233,7 @@ pub(super) fn render_section_salary_stats(
         html.push_str(&build_histogram_svg(
             salary_min_values,
             10_000,
-            "#42A5F5",
+            "#1565C0",
             min_median,
             min_mean,
             mode_min,
@@ -254,7 +254,7 @@ pub(super) fn render_section_salary_stats(
         html.push_str(&build_histogram_svg(
             salary_max_values,
             10_000,
-            "#66BB6A",
+            "#2E7D32",
             max_median,
             max_mean,
             mode_max,

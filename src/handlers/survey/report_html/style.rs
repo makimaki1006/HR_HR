@@ -1009,8 +1009,8 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
 /* IQR シェード補助バー（給与統計セクションで使用） */
 .iqr-bar {
   position: relative;
-  height: 18px;
-  background: linear-gradient(90deg, #fee2e2 0%, #fef3c7 50%, #dcfce7 100%);
+  height: 24px;
+  background: linear-gradient(90deg, #fecaca 0%, #fde68a 50%, #bbf7d0 100%);
   border-radius: 9px;
   margin: 6px 0;
   overflow: hidden;
@@ -1018,21 +1018,21 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
 .iqr-bar .iqr-shade {
   position: absolute;
   top: 0; bottom: 0;
-  background: rgba(59,130,246,0.30);
-  border-left: 2px solid var(--c-primary);
-  border-right: 2px solid var(--c-primary);
+  background: rgba(37,99,235,0.38);
+  border-left: 3px solid var(--c-primary);
+  border-right: 3px solid var(--c-primary);
 }
 .iqr-bar .iqr-median {
   position: absolute;
-  top: 0; bottom: 0; width: 2px;
-  background: #16a34a;
+  top: 0; bottom: 0; width: 3px;
+  background: #15803d;
 }
 .iqr-bar-legend {
-  font-size: 8.5pt;
-  color: var(--c-text-muted);
+  font-size: 10pt;
+  color: var(--c-text);
   display: flex;
   justify-content: space-between;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 /* Dumbbell chart（雇用形態別 同一地域 給与比較） */
@@ -1046,34 +1046,35 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
   grid-template-columns: 88px 1fr 70px;
   gap: 8px;
   align-items: center;
-  padding: 4px 6px;
+  padding: 5px 6px;
   border-bottom: 1px dashed var(--c-border);
-  font-size: 9.5pt;
+  font-size: 10.5pt;
 }
 .dumbbell-row:last-child { border-bottom: 0; }
 .dumbbell-row .db-label { font-weight: 600; color: var(--c-text); }
 .dumbbell-row .db-track {
   position: relative;
-  height: 14px;
-  background: #f1f5f9;
-  border-radius: 7px;
+  height: 18px;
+  background: #eef2f7;
+  border-radius: 9px;
 }
 .dumbbell-row .db-line {
   position: absolute;
-  top: 6px; height: 2px;
-  background: var(--c-primary-light);
+  top: 8px; height: 3px;
+  background: var(--c-primary);
+  opacity: 0.55;
 }
 .dumbbell-row .db-dot {
   position: absolute;
-  top: 1px;
-  width: 12px; height: 12px;
+  top: 2px;
+  width: 14px; height: 14px;
   border-radius: 50%;
   border: 2px solid #fff;
 }
 .dumbbell-row .db-dot.dot-ft { background: var(--c-primary); }
 .dumbbell-row .db-dot.dot-pt { background: var(--c-warning); }
 /* SSoT-num-3: dumbbell diff 数値桁揃え */
-.dumbbell-row .db-diff { text-align: right; font-variant-numeric: tabular-nums lining-nums; font-size: 9pt; color: var(--c-text-muted); }
+.dumbbell-row .db-diff { text-align: right; font-variant-numeric: tabular-nums lining-nums; font-size: 10pt; color: var(--c-text); }
 
 /* 簡易ヒートマップ（都道府県別 件数） */
 .heatmap-grid {
@@ -1117,8 +1118,8 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
 /* 最低賃金差分バー */
 .minwage-diff-bar {
   position: relative;
-  height: 8px;
-  background: #e2e8f0;
+  height: 13px;
+  background: #dfe5ec;
   border-radius: 4px;
   overflow: hidden;
 }
@@ -1129,8 +1130,8 @@ body.theme-dark .zebra tbody tr:nth-child(even) td { background: #1d2440; }
 .minwage-diff-bar .mwd-fill.below { background: var(--c-danger); }
 .minwage-diff-bar .mwd-fill.near { background: var(--c-warning); }
 .minwage-diff-bar .mwd-baseline {
-  position: absolute; top: -2px; bottom: -2px; width: 1px;
-  background: var(--c-text-muted);
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--c-text);
 }
 
 /* セクションのつなぎ（次セクションへの橋渡し） */
