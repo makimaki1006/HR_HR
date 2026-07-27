@@ -72,6 +72,46 @@
   .st.done{color:var(--lo);border-color:color-mix(in srgb,var(--lo) 40%,transparent);background:color-mix(in srgb,var(--lo) 10%,transparent)}
   .st.fail{color:var(--hi);border-color:color-mix(in srgb,var(--hi) 40%,transparent);background:color-mix(in srgb,var(--hi) 10%,transparent)}
   .st.review{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 40%,transparent);background:color-mix(in srgb,var(--mid) 10%,transparent)}
+  .st.confirmed{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-bg)}
+  /* 状態の凡例 */
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:2px 0 4px;font-size:11px;color:var(--ink-2)}
+  .legend .lg{display:inline-flex;align-items:center;gap:5px}
+  .legend .dot{width:9px;height:9px;border-radius:50%;border:1px solid}
+  .legend .dot.done{background:color-mix(in srgb,var(--lo) 20%,transparent);border-color:var(--lo)}
+  .legend .dot.plain{background:var(--surface-2);border-color:var(--line-2)}
+  .legend .dot.review{background:color-mix(in srgb,var(--mid) 20%,transparent);border-color:var(--mid)}
+  .legend .dot.confirmed{background:var(--accent-bg);border-color:var(--accent)}
+  /* 工程結果セクションの「コンサル確認済み」チェック */
+  .confirmbox{display:flex;align-items:center;gap:8px;margin-top:14px;padding:10px 13px;border:1px dashed color-mix(in srgb,var(--accent) 32%,transparent);border-radius:9px;background:var(--surface-2);font-size:12.5px;font-weight:700;color:var(--ink-2);cursor:pointer}
+  .confirmbox input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0}
+  .confirmbox.on{border-style:solid;color:var(--accent-ink);background:var(--accent-bg)}
+  /* 職種確認ゲート */
+  .jobconfirm{display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding:11px 13px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:10px;background:var(--accent-bg);font-size:12.5px;color:var(--ink-2);cursor:pointer}
+  .jobconfirm input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin:2px 0 0}
+  .jobconfirm b{color:var(--accent-ink)}
+  .jobconfirm.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 16%,transparent)}
+  /* 仮説の注記・バッジ */
+  .hypo-note{font-size:12.5px;color:var(--mid);background:color-mix(in srgb,var(--mid) 9%,transparent);border:1px solid color-mix(in srgb,var(--mid) 32%,transparent);border-radius:9px;padding:9px 12px;margin-bottom:12px}
+  .pbadge{display:inline-block;font-size:10px;font-weight:800;color:var(--mid);background:color-mix(in srgb,var(--mid) 14%,transparent);border:1px solid color-mix(in srgb,var(--mid) 38%,transparent);border-radius:5px;padding:1px 6px;margin-left:7px;vertical-align:middle}
+  .knowledge-warn{font-size:12.5px;color:var(--mid);background:color-mix(in srgb,var(--mid) 9%,transparent);border:1px solid color-mix(in srgb,var(--mid) 32%,transparent);border-radius:9px;padding:9px 12px;margin-bottom:12px}
+  /* 原文にない数値の警告（赤系） */
+  .numviol{font-size:12.5px;color:var(--hi);background:color-mix(in srgb,var(--hi) 8%,transparent);border:1px solid color-mix(in srgb,var(--hi) 34%,transparent);border-radius:9px;padding:9px 12px;margin:8px 0}
+  .numviol b{font-weight:800}
+  .numviol .nvhint{font-size:11.5px;color:var(--ink-2);font-weight:400;margin:3px 0 2px}
+  .numviol ul{margin:4px 0 0;padding-left:18px}
+  /* 表現レビュー（法令NGとは別・琥珀系） */
+  .exprwarn{font-size:12.5px;color:var(--mid);background:color-mix(in srgb,var(--mid) 8%,transparent);border:1px solid color-mix(in srgb,var(--mid) 34%,transparent);border-radius:9px;padding:9px 12px;margin:8px 0}
+  .exprwarn b{font-weight:800}
+  .exprwarn .ewhint{font-size:11.5px;color:var(--ink-2);font-weight:400;margin:3px 0 2px}
+  .exprwarn ul{margin:4px 0 0;padding-left:18px}
+  /* 数値照合が未実施だった場合の注記 */
+  .ncnote{font-size:11px;color:var(--ink-3);margin:6px 0;font-style:italic}
+  /* ⑦転記充足サマリ */
+  .fillstat{font-size:12.5px;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:9px 12px;margin:2px 0 10px}
+  .fillstat b{color:var(--accent-ink)}
+  /* ⑦未転記の可能性ヒント */
+  .unassigned{margin:2px 0 12px}
+  .unassigned .uhhead{font-size:12.5px;font-weight:700;color:var(--mid);margin-bottom:6px}
   /* 結果セクション */
   section.res{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px;margin-top:16px}
   section.res[hidden]{display:none}
@@ -171,6 +211,12 @@
     <div class="eyebrow">求人媒体選定エンジン · 生成パイプライン</div>
     <h1>求人票生成パイプライン</h1>
     <p class="sub">顧客の求人原文（自由テキスト／URL／CSV／Excel／PDF／HTML）から、工程①〜⑧を順に走らせて<b>戦略提案</b>と<b>HRハッカー84列原稿</b>を生成します。各工程はコードによる検証ゲート（引用照合・数値照合・NGワード・文字数）を通し、通らない項目は空欄＋人間レビュー行きにします。工程を分割しているので、失敗した工程だけ再実行できます。</p>
+    <div class="legend" id="legend">
+      <span class="lg"><span class="dot done"></span>生成完了・自動検証済み</span>
+      <span class="lg"><span class="dot plain"></span>生成完了（自動検証なし）</span>
+      <span class="lg"><span class="dot review"></span>警告あり（要確認）</span>
+      <span class="lg"><span class="dot confirmed"></span>コンサル確認済み</span>
+    </div>
   </header>
 
   <!-- 入力パネル -->
@@ -264,7 +310,9 @@ const S={
   mobile:[],   // [{label, lines:[], ng_violations:[], review_required, error}]
   hrhacker:null,
   ab:null,
-  status:{}    // key -> 'wait'|'run'|'done'|'fail'|'review'
+  status:{},   // key -> 'wait'|'run'|'done'|'fail'|'review'
+  confirmed:{},// key -> true: コンサルが目視確認済み（ページ内stateのみ・永続化なし）
+  jobTitleConfirmed:false // 職種名で市場分析してよいとコンサルが確認したか（一括実行ゲート）
 };
 
 // 工程定義（設計正本 §3 の①〜⑧の日本語名）
@@ -281,22 +329,40 @@ const STEPS=[
 STEPS.forEach(s=>S.status[s.key]="wait");
 
 const ST_LABEL={wait:"待機",run:"実行中",done:"完了",fail:"失敗",review:"レビュー要"};
+// 検証ゲートの有無で「完了」の意味を分ける。gate==="—" はコード検証ゲートを持たない工程(②③⑤⑧)。
+const GATED=k=>{const s=STEPS.find(x=>x.key===k);return !!s&&s.gate!=="—";};
+// 工程ピルの表示ラベル/クラス。コンサル確認済みが最優先で「品質確認済み」を示す。
+function stView(key){
+  const st=S.status[key];
+  if(S.confirmed[key]&&(st==="done"||st==="review"))return {cls:"confirmed",label:"コンサル確認済み"};
+  if(st==="done")return {cls:"done",label:GATED(key)?"生成完了・自動検証済み":"生成完了（自動検証なし）"};
+  if(st==="review")return {cls:"review",label:"警告あり（要確認）"};
+  return {cls:st,label:ST_LABEL[st]};
+}
+// コンサル確認トグル（工程結果セクションのチェックボックスから呼ぶ）
+function toggleConfirm(key,checked){S.confirmed[key]=!!checked;renderSteps();const el=$("#res-"+key);if(el){const lb=el.querySelector(".confirmbox");if(lb)lb.classList.toggle("on",!!checked);}}
+// 各工程結果セクション末尾に付ける「コンサル確認済みにする」チェック
+function confirmBox(key){
+  const on=!!S.confirmed[key];
+  return `<label class="confirmbox${on?" on":""}"><input type="checkbox" ${on?"checked":""} onchange="toggleConfirm('${key}',this.checked)">この工程の生成物を目視で確認しました（コンサル確認済みにする）</label>`;
+}
 let running=false;      // 実行中フラグ（多重実行防止）
 let curStep=null;       // 実行中の工程キー（ハイライト用）
 
 function renderSteps(){
   const ready=!!S.sourceText;
   $("#steps").innerHTML=STEPS.map(s=>{
-    const st=S.status[s.key];
+    const v=stView(s.key);
     return `<div class="step${curStep===s.key?" cur":""}">
       <div class="num">${s.num}</div>
       <div class="sinfo"><div class="sname">${s.name}</div><div class="sgate">検証: ${s.gate}</div></div>
-      <span class="st ${st}">${ST_LABEL[st]}</span>
+      <span class="st ${v.cls}">${v.label}</span>
       <button class="btn2 btn-sm" data-rerun="${s.key}" ${(!ready||running)?"disabled":""}>再実行</button>
     </div>`;
   }).join("");
   $("#steps").querySelectorAll("[data-rerun]").forEach(b=>b.onclick=()=>runOne(b.getAttribute("data-rerun")));
-  $("#runAllBtn").disabled=!ready||running;
+  // 一括実行は「求人取り込み済み」かつ「職種名の確認済み」で解禁。単工程の再実行は従来どおり可。
+  $("#runAllBtn").disabled=!ready||running||!S.jobTitleConfirmed;
   $("#personaCount").disabled=running;
 }
 function setStatus(key,st){S.status[key]=st;renderSteps();}
@@ -387,27 +453,60 @@ function renderJobList(){
 function pickJob(i){
   const j=S.jobs[i];if(!j)return;
   S.titleHint=j.title_hint||"";S.sourceText=j.source_text||"";
-  // 取り込み直しに伴い下流の結果を破棄
+  // 取り込み直しに伴い下流の結果を破棄（職種確認ゲートもリセット）
   resetResults();
   $("#pickedInfo").innerHTML=`<div class="picked">取り込み済み: <b>${esc(S.titleHint||"（先頭行を職種名候補にしています）")}</b>（原文 ${S.sourceText.length.toLocaleString("ja-JP")}字）</div>`
     +`<div class="in-block" style="margin-top:12px">
       <label for="jobTitle">職種名（②市場分析で使用）</label>
       <input type="text" id="jobTitle" placeholder="例: 介護職 / 保育士 / 営業">
       <div class="hint">職種名で該当職種の知識を引きます（例: 介護職、保育士、営業）。正しい職種名に直すと分析の質が上がります。</div>
-    </div>`;
+    </div>`
+    +`<label class="jobconfirm" id="jobConfirm"><input type="checkbox" id="jobConfirmChk"><span>この職種名で<b>市場分析（工程②）</b>を行います。職種名が正しいことを確認しました。<br>（確認するまで<b>一括実行</b>は押せません。工程を1つずつ実行する場合は不要です。）</span></label>`;
   $("#jobTitle").value=S.titleHint||"";
-  $("#ctlHint").textContent="「一括実行」で工程①〜⑧を順に走らせます。各工程は個別に再実行できます。";
+  // 職種名を編集したら確認をやり直させる（誤った職種名のまま一括実行するのを防ぐ）
+  $("#jobTitle").oninput=()=>{
+    if(S.jobTitleConfirmed){S.jobTitleConfirmed=false;const c=$("#jobConfirmChk");if(c)c.checked=false;$("#jobConfirm").classList.remove("on");renderSteps();}
+  };
+  $("#jobConfirmChk").onchange=e=>{S.jobTitleConfirmed=!!e.target.checked;$("#jobConfirm").classList.toggle("on",!!e.target.checked);renderSteps();};
+  $("#ctlHint").textContent="職種名を確認すると「一括実行」で工程①〜⑧を順に走らせます。各工程は個別に再実行できます。";
   renderSteps();
 }
 function resetResults(){
-  S.facts=null;S.factsText="";S.category="";S.analysis=null;S.personas=[];S.copies=[];S.images=[];S.imagePrompts=[];S.mobile=[];S.hrhacker=null;S.ab=null;
-  STEPS.forEach(s=>S.status[s.key]="wait");
+  S.facts=null;S.factsText="";S.category="";S.analysis=null;S.personas=[];S.copies=[];S.images=[];S.imagePrompts=[];S.imagesNv=[];S.imagesNumberCheck="";S.mobile=[];S.hrhacker=null;S.ab=null;
+  STEPS.forEach(s=>{S.status[s.key]="wait";S.confirmed[s.key]=false;});
+  S.jobTitleConfirmed=false;
   STEPS.forEach(s=>{const el=$("#res-"+s.key);if(el){el.hidden=true;el.innerHTML="";}});
 }
 
 // ── 検証ゲート表示ヘルパ ──────────────────────────────────────
 function gateBadge(label,cls,detail){return `<span class="gate ${cls}">${esc(label)}${detail?"："+esc(detail):""}</span>`;}
 function sectionHead(num,name,gatesHtml){return `<h2>${num} ${esc(name)}</h2><div class="gates">${gatesHtml||""}</div>`;}
+// 法令NGワード違反ブロック（④⑥⑧共通）。{reason,major,minor,matched} 形式。
+function ngViolationsHtml(ng){
+  if(!ng||!ng.length)return "";
+  return `<div class="ngbadge"><b>⚠ 法令NGワード違反 ${ng.length}件</b><ul>`
+    +ng.map(v=>`<li>${esc(v.matched||"")}${(v.major||v.minor)?`（${esc(v.major||"")}${v.minor?"×"+esc(v.minor):""}）`:""}: ${esc(v.reason||"")}</li>`).join("")+`</ul></div>`;
+}
+// 原文にない数値の警告ブロック（④⑤⑥⑧共通）。[{text, numbers:[]}] 形式。
+function numberViolationsHtml(nv){
+  if(!nv||!nv.length)return "";
+  const items=nv.map(v=>{
+    const nums=(v.numbers||[]).map(esc).join(" / ");
+    return `<li>${esc(v.text||"")}${nums?`　→ 数値: <b>${nums}</b>`:""}</li>`;
+  }).join("");
+  return `<div class="numviol"><b>⚠ 原文にない数値 ${nv.length}件</b><div class="nvhint">原文で確認できない数値が使われています。事実か確認し、根拠がなければ修正してください。</div><ul>${items}</ul></div>`;
+}
+// 表現レビュー（法令違反ではないが顧客提示前に見直し推奨）。ng_violations と同形式（+severity）。
+function exprWarningsHtml(ew){
+  if(!ew||!ew.length)return "";
+  const items=ew.map(v=>`<li>${esc(v.matched||"")}${(v.major||v.minor)?`（${esc(v.major||"")}${v.minor?"×"+esc(v.minor):""}）`:""}${v.severity?` [${esc(v.severity)}]`:""}: ${esc(v.reason||"")}</li>`).join("");
+  return `<div class="exprwarn"><b>△ 表現レビュー（警告）${ew.length}件</b><div class="ewhint">法令違反ではありませんが、顧客に提示する前に見直しをおすすめします。</div><ul>${items}</ul></div>`;
+}
+// 数値照合が未実施だった場合の注記（通常は source_text 送信で出ない）。
+function numberCheckNote(nc){
+  if(!nc||nc==="checked")return "";
+  return `<div class="ncnote">数値照合: 未実施（原文未提供）</div>`;
+}
 
 // ── 各工程の実行 ──────────────────────────────────────────────
 async function runExtract(){
@@ -436,52 +535,56 @@ async function runPersonas(){
 }
 async function runCopy(){
   if(!S.personas.length)throw new Error("前工程（③ペルソナ設計）が未実行です。");
-  const settled=await Promise.allSettled(S.personas.map(p=>postJSON("/api/jobgen/copy",{persona:p,analysis:S.analysis})));
+  const settled=await Promise.allSettled(S.personas.map(p=>postJSON("/api/jobgen/copy",{persona:p,analysis:S.analysis,source_text:S.sourceText})));
   S.copies=settled.map((r,i)=>{
     const label=S.personas[i].label||("ペルソナ"+(i+1));
-    if(r.status==="fulfilled")return {label,copies:r.value.copies||[],ng_violations:r.value.ng_violations||[],review_required:!!r.value.review_required};
-    return {label,copies:[],ng_violations:[],review_required:false,error:r.reason.message};
+    if(r.status==="fulfilled")return {label,copies:r.value.copies||[],ng_violations:r.value.ng_violations||[],expression_warnings:r.value.expression_warnings||[],number_violations:r.value.number_violations||[],number_check:r.value.number_check||"",review_required:!!r.value.review_required};
+    return {label,copies:[],ng_violations:[],expression_warnings:[],number_violations:[],number_check:"",review_required:false,error:r.reason.message};
   });
   renderCopy();
   if(S.copies.some(c=>c.error))throw new Error("一部ペルソナのコピー生成に失敗: "+S.copies.filter(c=>c.error).map(c=>c.label).join("、"));
-  return S.copies.some(c=>c.review_required||c.ng_violations.length)?"review":"done";
+  return S.copies.some(c=>c.review_required||c.ng_violations.length||c.expression_warnings.length||c.number_violations.length)?"review":"done";
 }
 async function runImages(){
   if(!S.personas.length)throw new Error("前工程（③ペルソナ設計）が未実行です。");
-  const d=await postJSON("/api/jobgen/images",{personas:S.personas});
+  const d=await postJSON("/api/jobgen/images",{personas:S.personas,source_text:S.sourceText});
   S.images=d.directions||[];
+  S.imagesNv=(d.number_violations||[]).slice();   // 原文にない数値（images + image_prompts を統合）
+  S.imagesNumberCheck=d.number_check||"";
   S.imagePrompts=[];
   renderImages(); // まずディレクションを出す（プロンプト化の待ち時間中も見られるように）
   // ⑤b: 生成AIへ丸投げできる日本語プロンプトに変換（全ペルソナ一括で+1コール）
   if(S.images.length){
     try{
-      const p=await postJSON("/api/jobgen/image_prompts",{directions:{directions:S.images},personas:S.personas});
+      const p=await postJSON("/api/jobgen/image_prompts",{directions:{directions:S.images},personas:S.personas,source_text:S.sourceText});
       S.imagePrompts=p.prompts||[];
+      if(p.number_violations&&p.number_violations.length)S.imagesNv=S.imagesNv.concat(p.number_violations);
+      if(p.number_check)S.imagesNumberCheck=p.number_check;
     }catch(e){
       S.imagePrompts=[];
       S.imagePromptsError=e.message;
     }
     renderImages();
   }
-  return "done";
+  return (S.imagesNv&&S.imagesNv.length)?"review":"done";
 }
 async function runMobile(){
   if(!S.personas.length)throw new Error("前工程（③ペルソナ設計）が未実行です。");
-  const settled=await Promise.allSettled(S.personas.map(p=>postJSON("/api/jobgen/mobile",{persona:p,facts_text:S.factsText})));
+  const settled=await Promise.allSettled(S.personas.map(p=>postJSON("/api/jobgen/mobile",{persona:p,facts_text:S.factsText,source_text:S.sourceText})));
   S.mobile=settled.map((r,i)=>{
     const label=S.personas[i].label||("ペルソナ"+(i+1));
-    if(r.status==="fulfilled")return {label,lines:r.value.lines||[],ng_violations:r.value.ng_violations||[],review_required:!!r.value.review_required};
-    return {label,lines:[],ng_violations:[],review_required:false,error:r.reason.message};
+    if(r.status==="fulfilled")return {label,lines:r.value.lines||[],ng_violations:r.value.ng_violations||[],expression_warnings:r.value.expression_warnings||[],number_violations:r.value.number_violations||[],number_check:r.value.number_check||"",review_required:!!r.value.review_required};
+    return {label,lines:[],ng_violations:[],expression_warnings:[],number_violations:[],number_check:"",review_required:false,error:r.reason.message};
   });
   renderMobile();
   if(S.mobile.some(m=>m.error))throw new Error("一部ペルソナのスマホ原稿生成に失敗: "+S.mobile.filter(m=>m.error).map(m=>m.label).join("、"));
-  return S.mobile.some(m=>m.review_required||m.ng_violations.length)?"review":"done";
+  return S.mobile.some(m=>m.review_required||m.ng_violations.length||m.expression_warnings.length||m.number_violations.length)?"review":"done";
 }
 async function runHrhacker(){
   if(!S.facts)throw new Error("前工程（①事実抽出）が未実行です。");
   const hint=S.analysis?[].concat(S.analysis.surface_strengths||[],S.analysis.hidden_strengths||[]).join("、"):"";
   const d=await postJSON("/api/jobgen/hrhacker",{source_text:S.sourceText,facts:S.facts,strategy_hint:hint});
-  S.hrhacker={row:d.row||{},generated_fields:d.generated_fields||{},review_required_fields:d.review_required_fields||[],unsupported_numbers:d.unsupported_numbers||[]};
+  S.hrhacker={row:d.row||{},generated_fields:d.generated_fields||{},review_required_fields:d.review_required_fields||[],unsupported_numbers:d.unsupported_numbers||[],fill_stats:d.fill_stats||null,unassigned_hints:d.unassigned_hints||[]};
   renderHrhacker();
   const h=S.hrhacker;
   return (h.review_required_fields.length||h.unsupported_numbers.length||Object.values(h.generated_fields).some(g=>g.status==="review_required"))?"review":"done";
@@ -496,16 +599,17 @@ async function runAb(){
   }
   if(S.personas.length)parts.push("ペルソナ: "+S.personas.map(p=>p.label).join("、"));
   const summary=parts.join("\n")||(S.sourceText.slice(0,400));
-  const d=await postJSON("/api/jobgen/ab",{summary});
-  S.ab={steps:d.steps||[]};
-  renderAb();return "done";
+  const d=await postJSON("/api/jobgen/ab",{summary,source_text:S.sourceText});
+  S.ab={steps:d.steps||[],ng_violations:d.ng_violations||[],expression_warnings:d.expression_warnings||[],number_violations:d.number_violations||[],number_check:d.number_check||""};
+  renderAb();
+  return (S.ab.ng_violations.length||S.ab.expression_warnings.length||S.ab.number_violations.length)?"review":"done";
 }
 const RUNNERS={extract:runExtract,analyze:runAnalyze,personas:runPersonas,copy:runCopy,images:runImages,mobile:runMobile,hrhacker:runHrhacker,ab:runAb};
 
 // ── 単工程 実行 ───────────────────────────────────────────────
 async function runOne(key){
   if(running)return;
-  running=true;curStep=key;setStatus(key,"run");
+  running=true;curStep=key;S.confirmed[key]=false;setStatus(key,"run");
   $("#status").innerHTML=`<div class="loading">${STEPS.find(s=>s.key===key).num} ${STEPS.find(s=>s.key===key).name} を実行中…</div>`;
   try{
     const st=await RUNNERS[key]();
@@ -522,7 +626,7 @@ $("#runAllBtn").onclick=async()=>{
   if(running||!S.sourceText)return;
   running=true;
   for(const s of STEPS){
-    curStep=s.key;setStatus(s.key,"run");
+    curStep=s.key;S.confirmed[s.key]=false;setStatus(s.key,"run");
     $("#status").innerHTML=`<div class="loading">${s.num} ${s.name} を実行中…</div>`;
     try{
       const st=await RUNNERS[s.key]();
@@ -556,42 +660,49 @@ function renderExtract(){
   }).join("");
   el.innerHTML=sectionHead("①","事実抽出",gates)
     +`<div class="tblwrap"><table><thead><tr><th>項目</th><th>値</th><th>原文の引用（一字一句照合）</th><th>状態</th></tr></thead><tbody>${rows||`<tr><td colspan="4">抽出項目がありません。</td></tr>`}</tbody></table></div>`
-    +`<div class="note">引用が原文に文字列一致しない項目は自動リジェクト（赤）→空欄＋レビュー。原文に無い項目は欠落（グレー）。</div>`;
+    +`<div class="note">引用が原文に文字列一致しない項目は自動リジェクト（赤）→空欄＋レビュー。原文に無い項目は欠落（グレー）。</div>`
+    +confirmBox("extract");
 }
 function renderAnalyze(){
   const el=$("#res-analyze");el.hidden=false;
   const a=S.analysis||{};
   const col=(title,arr)=>`<div class="col-card"><h3>${title}</h3><ul>${(arr||[]).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>—</li>"}</ul></div>`;
   const gates=gateBadge("職種知識注入",S.knowledgeUsed?"ok":"warn",S.category?`${S.category}${S.knowledgeUsed?"の知識を使用":"（該当知識なし・汎用）"}`:"—");
+  // 職種知識が見つからないと「その他」の汎用知識で分析される。職種名の見直しを促す。
+  const warn=S.knowledgeUsed?"":`<div class="knowledge-warn">⚠ この職種の専門知識が見つからなかったため、汎用的な内容で分析しています。職種名を「カフェスタッフ」のような一般的な呼び方に直し、上の職種名欄を修正して<b>工程②だけ再実行</b>すると精度が上がります。</div>`;
   el.innerHTML=sectionHead("②","市場分析",gates)
-    +`<div class="cols3">${col("表面の強み",a.surface_strengths)}${col("裏の強み",a.hidden_strengths)}${col("ボトルネック",a.bottlenecks)}</div>`;
+    +warn
+    +`<div class="cols3">${col("表面の強み",a.surface_strengths)}${col("裏の強み",a.hidden_strengths)}${col("ボトルネック",a.bottlenecks)}</div>`
+    +confirmBox("analyze");
 }
 function renderPersonas(){
   const el=$("#res-personas");el.hidden=false;
   const cards=S.personas.map((p,i)=>`<div class="pcard">
-    <div class="plabel">${esc(p.label||("ペルソナ"+(i+1)))}</div>
+    <div class="plabel">${esc(p.label||("ペルソナ"+(i+1)))}<span class="pbadge">仮説</span></div>
     <div class="pprofile">${esc(p.profile||"")}</div>
     <div class="pfield"><span class="pk">現職の不満</span>${esc(p.dissatisfaction||"—")}</div>
     <div class="pfield"><span class="pk">生活環境</span>${esc(p.environment||"—")}</div>
     <div class="pfield"><span class="pk">痛み</span>${esc(p.pain||"—")}</div>
   </div>`).join("");
-  el.innerHTML=sectionHead("③","ペルソナ設計","")+`<div class="pgrid">${cards||"<div class='note'>ペルソナがありません。</div>"}</div>`;
+  const note=`<div class="hypo-note">以下は生成した<b>仮説ペルソナ</b>です。年齢・家族構成・生活環境などは求人原文から確認された事実ではなく、狙う応募者像を想定して作った仮説です。実在人物の情報として扱わないでください。</div>`;
+  el.innerHTML=sectionHead("③","ペルソナ設計","")+note+`<div class="pgrid">${cards||"<div class='note'>ペルソナがありません。</div>"}</div>`
+    +confirmBox("personas");
 }
 function renderCopy(){
   const el=$("#res-copy");el.hidden=false;
   const totalNg=S.copies.reduce((n,c)=>n+c.ng_violations.length,0);
-  const gates=gateBadge("NGワード",totalNg?"bad":"ok",totalNg?`違反 ${totalNg}件`:"通過");
+  const totalNv=S.copies.reduce((n,c)=>n+(c.number_violations?c.number_violations.length:0),0);
+  const totalEw=S.copies.reduce((n,c)=>n+(c.expression_warnings?c.expression_warnings.length:0),0);
+  const gates=gateBadge("法令NGワード",totalNg?"bad":"ok",totalNg?`違反 ${totalNg}件`:"通過")
+    +gateBadge("数値照合",totalNv?"bad":"ok",totalNv?`原文にない数値 ${totalNv}件`:"通過")
+    +(totalEw?gateBadge("表現レビュー","warn",`要確認 ${totalEw}件`):"");
   const blocks=S.copies.map(c=>{
     if(c.error)return `<div class="copyblk"><div class="cplabel">${esc(c.label)}</div><div class="err">${esc(c.error)}</div></div>`;
     const chips=c.copies.map(cp=>`<div class="chip"><span class="cstyle">${esc(cp.style||"")}</span>${esc(cp.text||"")}</div>`).join("");
-    let ng="";
-    if(c.ng_violations.length){
-      ng=`<div class="ngbadge"><b>⚠ NGワード違反 ${c.ng_violations.length}件</b><ul>`
-        +c.ng_violations.map(v=>`<li>${esc(v.matched||"")}（${esc(v.major||"")}${v.minor?"×"+esc(v.minor):""}）: ${esc(v.reason||"")}</li>`).join("")+`</ul></div>`;
-    }
-    return `<div class="copyblk"><div class="cplabel">${esc(c.label)}${c.review_required?' <span class="gstat review">レビュー要</span>':""}</div>${chips}${ng}</div>`;
+    const warn=(c.review_required||(c.number_violations&&c.number_violations.length)||(c.expression_warnings&&c.expression_warnings.length));
+    return `<div class="copyblk"><div class="cplabel">${esc(c.label)}${warn?' <span class="gstat review">要確認</span>':""}</div>${chips}${ngViolationsHtml(c.ng_violations)}${numberViolationsHtml(c.number_violations)}${exprWarningsHtml(c.expression_warnings)}${numberCheckNote(c.number_check)}</div>`;
   }).join("");
-  el.innerHTML=sectionHead("④","キャッチコピー",gates)+blocks;
+  el.innerHTML=sectionHead("④","キャッチコピー",gates)+blocks+confirmBox("copy");
 }
 function renderImages(){
   const el=$("#res-images");el.hidden=false;
@@ -623,7 +734,13 @@ function renderImages(){
     }
     return `<div class="dircard"><div class="dl">${esc(label)}</div><div class="dt">${esc(d.direction||"")}</div>${promptBlk}</div>`;
   }).join("");
-  el.innerHTML=sectionHead("⑤","画像案・生成プロンプト","")+(cards||"<div class='note'>ディレクションがありません。</div>");
+  const nvCount=(S.imagesNv||[]).length;
+  const gates=nvCount?gateBadge("数値照合","bad",`原文にない数値 ${nvCount}件`):"";
+  el.innerHTML=sectionHead("⑤","画像案・生成プロンプト",gates)
+    +numberViolationsHtml(S.imagesNv)
+    +numberCheckNote(S.imagesNumberCheck)
+    +(cards||"<div class='note'>ディレクションがありません。</div>")
+    +confirmBox("images");
 }
 function escAttr(s){return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function copyText(btn){
@@ -636,14 +753,21 @@ function copyText(btn){
 function renderMobile(){
   const el=$("#res-mobile");el.hidden=false;
   const totalNg=S.mobile.reduce((n,m)=>n+m.ng_violations.length,0);
-  const gates=gateBadge("文字数・NGワード",totalNg?"bad":"ok",totalNg?`違反 ${totalNg}件`:"通過");
+  const totalNv=S.mobile.reduce((n,m)=>n+(m.number_violations?m.number_violations.length:0),0);
+  const totalEw=S.mobile.reduce((n,m)=>n+(m.expression_warnings?m.expression_warnings.length:0),0);
+  const gates=gateBadge("文字数・法令NGワード",totalNg?"bad":"ok",totalNg?`違反 ${totalNg}件`:"通過")
+    +gateBadge("数値照合",totalNv?"bad":"ok",totalNv?`原文にない数値 ${totalNv}件`:"通過")
+    +(totalEw?gateBadge("表現レビュー","warn",`要確認 ${totalEw}件`):"");
   const cols=S.mobile.map(m=>{
     if(m.error)return `<div class="mobcol"><div class="moblabel">${esc(m.label)}</div><div class="err">${esc(m.error)}</div></div>`;
     const body=m.lines.map(l=>l===""?`<div class="ml-empty"></div>`:`<div class="ml-line">${esc(l)}</div>`).join("");
-    let ng=m.ng_violations.length?`<div class="ngbadge" style="width:375px;max-width:100%"><b>⚠ NG ${m.ng_violations.length}件</b><ul>`+m.ng_violations.map(v=>`<li>${esc(v.matched||"")}: ${esc(v.reason||"")}</li>`).join("")+`</ul></div>`:"";
-    return `<div class="mobcol"><div class="moblabel">${esc(m.label)}${m.review_required?' <span class="gstat review">レビュー要</span>':""}</div><div class="phone">${body||"<div class='note'>原稿なし</div>"}</div><div class="phone-cap">スマホ幅 375px プレビュー</div>${ng}</div>`;
+    let ng=m.ng_violations.length?`<div class="ngbadge" style="width:375px;max-width:100%"><b>⚠ 法令NG ${m.ng_violations.length}件</b><ul>`+m.ng_violations.map(v=>`<li>${esc(v.matched||"")}: ${esc(v.reason||"")}</li>`).join("")+`</ul></div>`:"";
+    const nv=(m.number_violations&&m.number_violations.length)?`<div style="width:375px;max-width:100%">${numberViolationsHtml(m.number_violations)}</div>`:"";
+    const ew=(m.expression_warnings&&m.expression_warnings.length)?`<div style="width:375px;max-width:100%">${exprWarningsHtml(m.expression_warnings)}</div>`:"";
+    const warn=(m.review_required||(m.number_violations&&m.number_violations.length)||(m.expression_warnings&&m.expression_warnings.length));
+    return `<div class="mobcol"><div class="moblabel">${esc(m.label)}${warn?' <span class="gstat review">要確認</span>':""}</div><div class="phone">${body||"<div class='note'>原稿なし</div>"}</div><div class="phone-cap">スマホ幅 375px プレビュー</div>${ng}${nv}${ew}${numberCheckNote(m.number_check)}</div>`;
   }).join("");
-  el.innerHTML=sectionHead("⑥","スマホ原稿",gates)+`<div class="mobwrap">${cols}</div>`;
+  el.innerHTML=sectionHead("⑥","スマホ原稿",gates)+`<div class="mobwrap">${cols}</div>`+confirmBox("mobile");
 }
 function renderHrhacker(){
   const el=$("#res-hrhacker");el.hidden=false;
@@ -663,6 +787,15 @@ function renderHrhacker(){
       <div class="gval${g.value?"":" empty"}">${g.value?esc(g.value):"（空欄・レビュー行き）"}</div>${issues}</div>`;
   }).join("");
   const badnums=h.unsupported_numbers.length?`<div class="badnums"><b>原文に無い数値（リジェクト）:</b> ${h.unsupported_numbers.map(esc).join(" / ")}</div>`:"";
+  // 転記充足サマリ
+  const fs=h.fill_stats;
+  const fillHtml=fs?`<div class="fillstat">転記充足: <b>${esc(fs.filled)}/${esc(fs.total)}</b> 列（原文に対応する列 <b>${esc(fs.fact_mapped_filled)}/${esc(fs.fact_mapped_total)}</b>）</div>`:"";
+  // 原文に記載があるのに未転記の可能性がある列
+  const uh=h.unassigned_hints||[];
+  const uhHtml=uh.length?`<div class="unassigned"><div class="uhhead">📋 原文に記載があるのに未転記の可能性がある項目（${uh.length}件）</div>`
+    +`<div class="tblwrap"><table><thead><tr><th>列名（候補）</th><th>原文の該当箇所</th></tr></thead><tbody>`
+    +uh.map(u=>`<tr><td class="colcell">${esc(u.column||"")}</td><td class="fquote">${esc(u.evidence||"")}</td></tr>`).join("")
+    +`</tbody></table></div></div>`:"";
   // 84列 確認テーブル（不変転記・スロット・生成）
   const genKeys=new Set(Object.keys(gf).map(k=>gf[k].column||k));
   const trs=cols.map(c=>{
@@ -670,11 +803,14 @@ function renderHrhacker(){
     return `<tr class="${isGen?"row-gen":""}"><td class="colcell">${esc(c)}</td><td><div class="valwrap">${esc(row[c])}</div></td><td class="colcell">${isGen?"生成（検証済）":"不変転記／スロット"}</td></tr>`;
   }).join("");
   el.innerHTML=sectionHead("⑦","84列原稿＋数値照合",gates)
+    +fillHtml
     +badnums
+    +uhHtml
     +`<h3 style="font-size:13px;margin:6px 0 8px">生成5列（数値照合＋文字数＋NGワード）</h3><div class="genwrap">${genCards||"<div class='note'>生成列なし</div>"}</div>`
     +`<div class="csvbar"><button class="btn" id="csvBtn">84列CSVをダウンロード</button><span class="hint">UTF-8 BOM付き・ヘッダ1行＋データ1行。検証を通らなかった生成列は空欄です。</span></div>`
     +`<h3 style="font-size:13px;margin:6px 0 8px">84列 確認テーブル（${cols.length}列）</h3>`
-    +`<div class="tblwrap"><table><thead><tr><th>列名</th><th>値</th><th>区分</th></tr></thead><tbody>${trs}</tbody></table></div>`;
+    +`<div class="tblwrap"><table><thead><tr><th>列名</th><th>値</th><th>区分</th></tr></thead><tbody>${trs}</tbody></table></div>`
+    +confirmBox("hrhacker");
   $("#csvBtn").onclick=()=>downloadCsv(row);
 }
 function downloadCsv(row){
@@ -688,8 +824,14 @@ function downloadCsv(row){
 }
 function renderAb(){
   const el=$("#res-ab");el.hidden=false;
+  const ng=S.ab.ng_violations||[],nv=S.ab.number_violations||[],ew=S.ab.expression_warnings||[];
+  const gates=gateBadge("法令NGワード",ng.length?"bad":"ok",ng.length?`違反 ${ng.length}件`:"通過")
+    +gateBadge("数値照合",nv.length?"bad":"ok",nv.length?`原文にない数値 ${nv.length}件`:"通過")
+    +(ew.length?gateBadge("表現レビュー","warn",`要確認 ${ew.length}件`):"");
   const rows=(S.ab.steps||[]).map(s=>`<div class="abrow"><div class="abm">${esc(s.metric||"")}</div><div>${esc(s.action||"")}</div></div>`).join("");
-  el.innerHTML=sectionHead("⑧","A/Bテスト助言","")+(rows||"<div class='note'>助言がありません。</div>");
+  el.innerHTML=sectionHead("⑧","A/Bテスト助言",gates)
+    +ngViolationsHtml(ng)+numberViolationsHtml(nv)+exprWarningsHtml(ew)+numberCheckNote(S.ab.number_check)
+    +(rows||"<div class='note'>助言がありません。</div>")+confirmBox("ab");
 }
 
 renderSteps();

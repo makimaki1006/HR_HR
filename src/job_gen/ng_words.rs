@@ -68,6 +68,17 @@ pub struct NgViolation {
     pub minor: String,
     /// 元テキストで実際に該当した部分文字列(例:「女性歓迎」「35歳以下」)。
     pub matched: String,
+    /// 深刻度。法令NG=`"legal"`(既定)、表現レビュー辞書=`"warning"`。
+    /// 呼び出し側が法令違反と警告レベルの表現を区別するためのラベル
+    /// (ルールJSONの `severity` を引き継ぐ。未指定は `"legal"`)。
+    #[serde(default = "default_severity")]
+    pub severity: String,
+}
+
+/// `severity` 未指定ルールの既定値。既存の法令NGルール(ng_words.json)は
+/// `severity` を持たないため、従来どおり法令NG扱いにする。
+fn default_severity() -> String {
+    "legal".to_string()
 }
 
 /// ロード済みのNGワードルール集合。内部表現は正規化済みパターンを保持する。
@@ -86,6 +97,8 @@ struct Group {
     standalone: bool,
     /// (minor 原文, その代替語展開パターン群)。報告時は原文を使う。
     minors: Vec<(String, Vec<Vec<char>>)>,
+    /// 深刻度ラベル("legal" / "warning")。検出時に [`NgViolation::severity`] へ引き継ぐ。
+    severity: String,
 }
 
 /// major 末尾から minor を探索する最大文字距離(後方12文字以内)。
@@ -106,6 +119,9 @@ struct RawGroup {
     minors: Vec<String>,
     #[serde(default)]
     standalone: bool,
+    /// 深刻度。未指定は法令NG("legal")。表現レビュー辞書は "warning" を明示する。
+    #[serde(default = "default_severity")]
+    severity: String,
 }
 
 impl NgRules {
@@ -128,6 +144,7 @@ impl NgRules {
                         (m, pats)
                     })
                     .collect(),
+                severity: g.severity,
             })
             .collect();
         Ok(NgRules { groups })
@@ -154,6 +171,7 @@ impl NgRules {
                                 major: g.major_raw.clone(),
                                 minor: String::new(),
                                 matched,
+                                severity: g.severity.clone(),
                             },
                         );
                         continue;
@@ -170,6 +188,7 @@ impl NgRules {
                                     major: g.major_raw.clone(),
                                     minor: raw_minor.clone(),
                                     matched,
+                                    severity: g.severity.clone(),
                                 },
                             );
                         }
@@ -463,6 +482,58 @@ mod tests {
         let v = rules().detect("女性歓迎。女性歓迎。");
         let count = v.iter().filter(|x| x.matched == "女性歓迎").count();
         assert_eq!(count, 1, "重複排除されるべき: {v:?}");
+    }
+
+    /// 表現レビュー辞書(警告レベル)。法令NGとは別アセット。
+    const EXPR_JSON: &str = include_str!("../../assets/expression_review_rules.json");
+
+    fn expr_rules() -> NgRules {
+        NgRules::load_from_str(EXPR_JSON).expect("expression_review_rules.json をロードできること")
+    }
+
+    #[test]
+    fn 表現辞書が19グループでパースできる() {
+        // 申し送り#1: 拡張フィールド(severity/notes/missed_phrase_coverage等)を持つ
+        // 表現辞書を実際に load_from_str に通せることの回帰テスト。
+        let r = expr_rules();
+        assert_eq!(r.groups.len(), 19, "グループ数");
+    }
+
+    #[test]
+    fn 表現辞書_レビュー見逃し5表現のうち4件以上を検出する() {
+        // JOBGEN_PRODUCT_REVIEW.md「中程度の指摘」で未検出だった5表現。
+        let r = expr_rules();
+        let phrases = [
+            "ネイルを外せ",
+            "本業への影響もゼロ",
+            "京急線沿線の学生に最適",
+            "トイレ掃除で時給を稼ぐのはもう古い",
+            "清掃業務なし",
+        ];
+        let hits = phrases.iter().filter(|p| !r.detect(p).is_empty()).count();
+        assert!(hits >= 4, "5表現のうち4件以上を検出すべき: 実際 {hits}/5");
+    }
+
+    #[test]
+    fn 表現辞書の違反はseverity_warning() {
+        let v = expr_rules().detect("本業への影響もゼロ");
+        assert!(!v.is_empty(), "検出されるべき: {v:?}");
+        assert!(v.iter().all(|x| x.severity == "warning"), "warning のはず: {v:?}");
+    }
+
+    #[test]
+    fn 法令ngは既定でseverity_legal() {
+        // severity 未指定の ng_words.json は従来どおり法令NG("legal")扱い。
+        let v = rules().detect("女性歓迎です");
+        assert!(!v.is_empty(), "{v:?}");
+        assert!(v.iter().all(|x| x.severity == "legal"), "legal のはず: {v:?}");
+    }
+
+    #[test]
+    fn 表現辞書は法令ng語を含まない_主婦() {
+        // 「主婦」は法令NG側の責務。表現辞書では拾わない(リストを分ける設計)。
+        let v = expr_rules().detect("主婦歓迎の職場");
+        assert!(v.is_empty(), "表現辞書は主婦を拾わない: {v:?}");
     }
 
     #[test]

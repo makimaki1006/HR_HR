@@ -390,6 +390,135 @@ pub fn assemble_row(
     row
 }
 
+/// 84列の転記充足率。移植元 レビュー指摘[B5]「生成列の検証結果と転記充足率を分ける」。
+///
+/// - `filled`/`total`: 84列のうち非空の列数(運用列=ID・応募動線・公開制御は元々空)。
+/// - `fact_mapped_*`: パイプラインが事実・生成から値を割り当てる列([`fact_mapped_columns`])
+///   に限った充足率。「原文から必要項目を取得できたか」の実質指標。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FillStats {
+    /// 非空の列数(84列中)。
+    pub filled: usize,
+    /// 総列数(常に84)。
+    pub total: usize,
+    /// fact_mapped 列のうち非空の数。
+    pub fact_mapped_filled: usize,
+    /// fact_mapped 列の総数。
+    pub fact_mapped_total: usize,
+}
+
+/// パイプラインが事実・生成から値を割り当てる列(生成5列+不変4列+スロット4列)。
+///
+/// 運用列(ID・画像・応募動線・公開制御など)は含めない。これらは原文とは無関係に
+/// 別工程で埋める列なので、転記充足率の分母から外す。
+pub fn fact_mapped_columns() -> Vec<&'static str> {
+    let mut cols: Vec<&'static str> = Vec::new();
+    for s in GENERATION_FIELD_SPECS.iter() {
+        cols.push(s.column);
+    }
+    for (c, _) in IMMUTABLE_TRANSCRIPTION {
+        cols.push(c);
+    }
+    for slot in SLOT_ASSIGNMENTS_V1.iter() {
+        cols.push(slot.title_column);
+        cols.push(slot.content_column);
+    }
+    cols
+}
+
+/// 84列の行から転記充足率を集計する(純粋)。
+pub fn fill_stats(row: &BTreeMap<String, String>) -> FillStats {
+    let filled = HRHACKER_COLUMNS
+        .iter()
+        .filter(|c| row.get(**c).map(|v| !v.trim().is_empty()).unwrap_or(false))
+        .count();
+    let fm = fact_mapped_columns();
+    let fact_mapped_filled = fm
+        .iter()
+        .filter(|c| row.get(**c).map(|v| !v.trim().is_empty()).unwrap_or(false))
+        .count();
+    FillStats {
+        filled,
+        total: HRHACKER_COLUMNS.len(),
+        fact_mapped_filled,
+        fact_mapped_total: fm.len(),
+    }
+}
+
+/// 原文にキーワードがあるのに対応列が空の候補。移植元 レビュー指摘[B5]「未割当候補の表示」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UnassignedHint {
+    /// 対応する84列の列名(実名)。
+    pub column: String,
+    /// 原文の該当断片(30字以内)。
+    pub evidence: String,
+}
+
+/// 未割当ヒントのキーワード→列名対応(軽量な部分一致検出)。
+/// 列名は [`HRHACKER_COLUMNS`] の実名に一致させること。
+const HINT_KEYWORDS: [(&str, &str); 6] = [
+    ("駅", "最寄り駅"),
+    ("研修", "試用・研修の有無"),
+    ("試用", "試用・研修の有無"),
+    ("受動喫煙", "受動喫煙対策"),
+    ("禁煙", "受動喫煙対策"),
+    ("基本給", "基本給与 最小"),
+];
+
+/// 原文にキーワードが存在するのに対応列が空の候補を軽量検出する(純粋)。
+///
+/// 同一列に複数キーワードが該当する場合は先に一致したものだけを1件返す(列単位で重複排除)。
+/// 検証はせずあくまで「原文にありそうなのに空」の指摘に留める(人間レビュー用)。
+pub fn detect_unassigned_hints(
+    source_text: &str,
+    row: &BTreeMap<String, String>,
+) -> Vec<UnassignedHint> {
+    let chars: Vec<char> = source_text.chars().collect();
+    let mut out: Vec<UnassignedHint> = Vec::new();
+    let mut seen_columns: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    for (keyword, column) in HINT_KEYWORDS {
+        if seen_columns.contains(column) {
+            continue;
+        }
+        // 対応列が既に埋まっているなら指摘不要。
+        let filled = row.get(column).map(|v| !v.trim().is_empty()).unwrap_or(false);
+        if filled {
+            continue;
+        }
+        if let Some(idx) = find_char_index(&chars, keyword) {
+            let evidence = snippet_around(&chars, idx, 30);
+            out.push(UnassignedHint {
+                column: column.to_string(),
+                evidence,
+            });
+            seen_columns.insert(column);
+        }
+    }
+    out
+}
+
+/// `chars` 中で `needle` が最初に現れる文字インデックスを返す(部分一致)。
+fn find_char_index(chars: &[char], needle: &str) -> Option<usize> {
+    let pat: Vec<char> = needle.chars().collect();
+    if pat.is_empty() || pat.len() > chars.len() {
+        return None;
+    }
+    for start in 0..=(chars.len() - pat.len()) {
+        if chars[start..start + pat.len()] == pat[..] {
+            return Some(start);
+        }
+    }
+    None
+}
+
+/// `idx` を含む前後の文脈を最大 `max` 文字で切り出す(30字以内の evidence 用)。
+fn snippet_around(chars: &[char], idx: usize, max: usize) -> String {
+    let start = idx.saturating_sub(8);
+    let end = (start + max).min(chars.len());
+    chars[start..end].iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,5 +730,91 @@ mod tests {
         let required = schema["required"].as_array().unwrap();
         assert_eq!(required.len(), 5);
         assert!(schema["properties"]["job_title"].is_object());
+    }
+
+    #[test]
+    fn fact_mapped列は13列で全て84列に実在する() {
+        let fm = fact_mapped_columns();
+        assert_eq!(fm.len(), 13, "生成5+不変4+スロット4 = 13列");
+        let cols: std::collections::HashSet<_> = HRHACKER_COLUMNS.iter().copied().collect();
+        for c in &fm {
+            assert!(cols.contains(c), "{c} が84列に無い");
+        }
+    }
+
+    #[test]
+    fn fill_stats_は非空列と_fact_mapped充足を数える() {
+        let mut facts = ExtractedFacts::new();
+        facts.insert("employment_type".into(), verified("正社員"));
+        facts.insert("working_hours".into(), verified("8:30〜17:30"));
+        facts.insert("holidays".into(), verified("週休二日制"));
+        // 生成列: 案件名のみ verified。
+        let mut generated = BTreeMap::new();
+        generated.insert(
+            "job_title".into(),
+            GeneratedField {
+                column: "案件名".into(),
+                value: "カフェスタッフ募集".into(),
+                status: "generated_verified".into(),
+                issues: vec![],
+            },
+        );
+        let row = assemble_row(&facts, &generated);
+        let stats = fill_stats(&row);
+        assert_eq!(stats.total, 84);
+        assert_eq!(stats.fact_mapped_total, 13);
+        // 埋まった fact_mapped 列: 雇用形態/勤務時間 + 自由項目1(タイトル+内容:休日) + 案件名 = 5。
+        assert_eq!(stats.fact_mapped_filled, 5, "row={row:?}");
+        // filled(84列全体)も同じ5列のみ非空。
+        assert_eq!(stats.filled, 5);
+    }
+
+    #[test]
+    fn unassigned_hints_は原文にあり列が空の項目を拾う() {
+        // 原文に駅・研修・受動喫煙・基本給があるが、行はすべて空(assemble しない)。
+        let row: BTreeMap<String, String> = HRHACKER_COLUMNS
+            .iter()
+            .map(|c| (c.to_string(), String::new()))
+            .collect();
+        let source =
+            "羽田空港第1ターミナル駅から徒歩3分。研修あり。屋内禁煙。基本給は時給1,450円から。";
+        let hints = detect_unassigned_hints(source, &row);
+        let cols: Vec<&str> = hints.iter().map(|h| h.column.as_str()).collect();
+        assert!(cols.contains(&"最寄り駅"), "{hints:?}");
+        assert!(cols.contains(&"試用・研修の有無"), "{hints:?}");
+        assert!(cols.contains(&"受動喫煙対策"), "{hints:?}");
+        assert!(cols.contains(&"基本給与 最小"), "{hints:?}");
+        // 各 evidence は30字以内。
+        for h in &hints {
+            assert!(h.evidence.chars().count() <= 30, "evidence超過: {h:?}");
+        }
+    }
+
+    #[test]
+    fn unassigned_hints_は同一列を重複させない() {
+        // 「研修」と「試用」は同じ列 → 1件のみ。
+        let row: BTreeMap<String, String> = HRHACKER_COLUMNS
+            .iter()
+            .map(|c| (c.to_string(), String::new()))
+            .collect();
+        let source = "試用期間3ヶ月あり、研修も充実。";
+        let hints = detect_unassigned_hints(source, &row);
+        let count = hints.iter().filter(|h| h.column == "試用・研修の有無").count();
+        assert_eq!(count, 1, "同一列は1件: {hints:?}");
+    }
+
+    #[test]
+    fn unassigned_hints_は列が埋まっていれば指摘しない() {
+        let mut row: BTreeMap<String, String> = HRHACKER_COLUMNS
+            .iter()
+            .map(|c| (c.to_string(), String::new()))
+            .collect();
+        row.insert("最寄り駅".into(), "羽田空港第1ターミナル駅".into());
+        let source = "羽田空港第1ターミナル駅から徒歩3分。";
+        let hints = detect_unassigned_hints(source, &row);
+        assert!(
+            !hints.iter().any(|h| h.column == "最寄り駅"),
+            "埋まっている列は指摘しない: {hints:?}"
+        );
     }
 }
