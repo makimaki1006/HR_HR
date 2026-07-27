@@ -93,7 +93,6 @@
             <div>
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ occupation.category }}</span>
-                    <span class="text-xs text-gray-500 font-mono">jobtag_id={{ occupation.jobtag_id }}</span>
                 </div>
                 <h1 class="text-2xl font-bold text-gray-100">{{ occupation.name }}</h1>
                 {% if !occupation.aliases.is_empty() %}
@@ -119,35 +118,35 @@
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">平均年齢</div>
                 <div class="text-2xl font-bold text-blue-300">
-                    {% match occupation.total_avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
+                    {% match occupation.total_avg_age %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
                 </div>
                 {% match occupation.category_stats.median_avg_age %}{% when Some with (m) %}
-                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 歳</div>
+                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m|fmt("{:.1}") }} 歳</div>
                 {% when None %}{% endmatch %}
                 {% match occupation.overall_stats.median_avg_age %}{% when Some with (m) %}
-                <div class="text-[10px] text-gray-500">全職種中央値 {{ m }} 歳</div>
+                <div class="text-[10px] text-gray-500">全職種中央値 {{ m|fmt("{:.1}") }} 歳</div>
                 {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">所定内労働時間</div>
                 <div class="text-2xl font-bold text-blue-300">
-                    {% match occupation.total_scheduled_hours %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">h/月</span>{% when None %}—{% endmatch %}
+                    {% match occupation.total_scheduled_hours %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-1">h/月</span>{% when None %}—{% endmatch %}
                 </div>
                 <div class="text-[10px] text-gray-500 mt-1">{% if occupation.category_stats.sample_size > 0 %}カテゴリ n={{ occupation.category_stats.sample_size }}{% endif %}</div>
                 {% match occupation.overall_stats.median_scheduled_hours %}{% when Some with (m) %}
-                <div class="text-[10px] text-gray-500">全職種中央値 {{ m }} h/月</div>
+                <div class="text-[10px] text-gray-500">全職種中央値 {{ m|fmt("{:.1}") }} h/月</div>
                 {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">年収（全国平均）</div>
                 <div class="text-2xl font-bold text-blue-300">
-                    {% match occupation.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
+                    {% match occupation.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
                 </div>
                 {% match occupation.category_stats.median_annual_salary_man_yen %}{% when Some with (m) %}
-                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m }} 万円</div>
+                <div class="text-[10px] text-gray-500 mt-1">同カテゴリ中央値 {{ m|fmt("{:.1}") }} 万円</div>
                 {% when None %}{% endmatch %}
                 {% match occupation.overall_stats.median_annual_salary_man_yen %}{% when Some with (m) %}
-                <div class="text-[10px] text-gray-500">全職種中央値 {{ m }} 万円</div>
+                <div class="text-[10px] text-gray-500">全職種中央値 {{ m|fmt("{:.1}") }} 万円</div>
                 {% when None %}{% endmatch %}
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">

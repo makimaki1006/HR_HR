@@ -49,7 +49,7 @@
                 <div class="flex items-center justify-between">
                     <dt class="text-gray-400">年収平均</dt>
                     <dd class="text-gray-200">
-                        {% match s.avg_salary_man_yen %}{% when Some with (v) %}{{ v }} 万円{% when None %}—{% endmatch %}
+                        {% match s.avg_salary_man_yen %}{% when Some with (v) %}{{ v|fmt("{:.1}") }} 万円{% when None %}—{% endmatch %}
                     </dd>
                 </div>
                 <div class="text-[10px] text-gray-500 mt-1">
