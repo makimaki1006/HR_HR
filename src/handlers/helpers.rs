@@ -506,6 +506,26 @@ pub fn table_exists(db: &crate::db::local_sqlite::LocalDb, name: &str) -> bool {
         > 0
 }
 
+/// 人口ピラミッド等の年齢階級ラベル (例: "20-24", "85+") から下端年齢を取得する。
+///
+/// 2026-07-27 追加: `v2_external_population_pyramid` の `age_group` は
+/// `section_06_demographics.rs` の module-private `age_lo` と同じ形式だが、
+/// 他モジュール (Section 07 の生活シミュレーションブロック等) からも年齢帯の
+/// 再集計 (例: 0-14 歳人口比率) に使うため、共通ヘルパーとして公開する。
+///
+/// 数字で始まらないラベル ("総数" / "不明" 等) は `-1` を返す (年齢として無効)。
+pub fn age_group_lower_bound(label: &str) -> i32 {
+    let mut s = String::new();
+    for c in label.chars() {
+        if c.is_ascii_digit() {
+            s.push(c);
+        } else {
+            break;
+        }
+    }
+    s.parse::<i32>().unwrap_or(-1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -787,5 +807,21 @@ mod tests {
     fn percentage_display_format() {
         let p = Percentage::new(2.567).unwrap();
         assert_eq!(format!("{}", p), "2.6%");
+    }
+
+    // ---- 2026-07-27: age_group_lower_bound (Section 07 生活シミュレーション用) ----
+
+    #[test]
+    fn age_group_lower_bound_parses_leading_digits() {
+        assert_eq!(age_group_lower_bound("0-4"), 0);
+        assert_eq!(age_group_lower_bound("20-24"), 20);
+        assert_eq!(age_group_lower_bound("85+"), 85, "上限なしラベルも下端年齢を取る");
+    }
+
+    #[test]
+    fn age_group_lower_bound_returns_negative_for_nonnumeric() {
+        assert_eq!(age_group_lower_bound(""), -1);
+        assert_eq!(age_group_lower_bound("不明"), -1);
+        assert_eq!(age_group_lower_bound("総数"), -1);
     }
 }
