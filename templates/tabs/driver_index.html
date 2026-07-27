@@ -98,7 +98,6 @@
                    onclick="event.stopPropagation(); event.preventDefault(); driverCompareToggle(this);">
             <div class="flex items-center justify-between mb-2">
                 <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ o.category }}</span>
-                <span class="text-xs text-gray-500 pr-6">jobtag_id={{ o.jobtag_id }}</span>
             </div>
             <h3 class="text-sm font-bold text-gray-100 mb-1 leading-tight pr-6">{{ o.name }}</h3>
             <div class="text-[11px] text-gray-400 mb-2 leading-tight">
@@ -108,15 +107,15 @@
             <dl class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 <dt class="text-gray-400">年収（平均）</dt>
                 <dd class="text-blue-300 font-semibold">
-                    {% match o.annual_salary_man_yen %}{% when Some with (v) %}{{ v }} 万円{% when None %}—{% endmatch %}
+                    {% match o.annual_salary_man_yen %}{% when Some with (v) %}{{ v|fmt("{:.1}") }} 万円{% when None %}—{% endmatch %}
                 </dd>
                 <dt class="text-gray-400">平均年齢</dt>
                 <dd class="text-gray-200">
-                    {% match o.avg_age %}{% when Some with (v) %}{{ v }} 歳{% when None %}—{% endmatch %}
+                    {% match o.avg_age %}{% when Some with (v) %}{{ v|fmt("{:.1}") }} 歳{% when None %}—{% endmatch %}
                 </dd>
                 <dt class="text-gray-400">労働者数</dt>
                 <dd class="text-gray-200">
-                    {% match o.workers_count %}{% when Some with (v) %}{{ v }} 人{% when None %}—{% endmatch %}
+                    {% match o.workers_count %}{% when Some with (v) %}{{ v|fmt("{:.0}") }} 人{% when None %}—{% endmatch %}
                 </dd>
             </dl>
         </a>

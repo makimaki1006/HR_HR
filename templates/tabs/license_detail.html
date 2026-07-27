@@ -36,14 +36,14 @@
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">年収中央値</div>
                 <div class="text-2xl font-bold text-blue-300">
-                    {% match detail.stats.median_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
+                    {% match detail.stats.median_salary_man_yen %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-1">万円</span>{% when None %}—{% endmatch %}
                 </div>
                 <div class="text-[10px] text-gray-500 mt-1">{% if detail.stats.wage_target_n > 0 %}賃金センサス対象 n={{ detail.stats.wage_target_n }}{% else %}対象外{% endif %}</div>
             </div>
             <div class="bg-gray-900 border border-gray-700 rounded p-3">
                 <div class="text-xs text-gray-400 mb-1">平均年齢</div>
                 <div class="text-2xl font-bold text-blue-300">
-                    {% match detail.stats.avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
+                    {% match detail.stats.avg_age %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-1">歳</span>{% when None %}—{% endmatch %}
                 </div>
                 <div class="text-[10px] text-gray-500 mt-1">関連職業の平均</div>
             </div>
@@ -246,10 +246,10 @@
                 <div class="text-[10px] text-blue-300 mb-1">{{ o.category }}</div>
                 <div class="text-sm font-bold text-gray-100 leading-tight mb-2 line-clamp-2" title="{{ o.name }}">{{ o.name }}</div>
                 <div class="text-[10px] text-gray-400">
-                    {% match o.annual_salary_man_yen %}{% when Some with (v) %}年収 {{ v }} 万円{% when None %}<span class="text-yellow-500/70">⚠ 賃金データなし</span>{% endmatch %}
+                    {% match o.annual_salary_man_yen %}{% when Some with (v) %}年収 {{ v|fmt("{:.1}") }} 万円{% when None %}<span class="text-yellow-500/70">⚠ 賃金データなし</span>{% endmatch %}
                 </div>
                 <div class="text-[10px] text-gray-500">
-                    {% match o.avg_age %}{% when Some with (v) %}平均 {{ v }} 歳{% when None %}—{% endmatch %}
+                    {% match o.avg_age %}{% when Some with (v) %}平均 {{ v|fmt("{:.1}") }} 歳{% when None %}—{% endmatch %}
                 </div>
             </a>
             {% endfor %}
