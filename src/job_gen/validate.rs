@@ -175,6 +175,23 @@ pub fn find_unsupported_numbers(source_text: &str, generated_text: &str) -> Vec<
     out
 }
 
+/// 複数の生成テキストを原文と数値照合し、違反のあったテキストだけを
+/// `(生成テキスト, 原文にない数値の一覧)` で返す(純粋)。
+///
+/// コピー・スマホ原稿・画像案・A/B助言など「配列で返る生成物」の各要素に
+/// [`find_unsupported_numbers`] を適用するハンドラ層のためのまとめ関数。
+/// 原文にない数値が1つも無いテキストは結果に含めない。
+pub fn collect_number_violations(source_text: &str, texts: &[&str]) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for t in texts {
+        let unsupported = find_unsupported_numbers(source_text, t);
+        if !unsupported.is_empty() {
+            out.push((t.to_string(), unsupported));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,5 +272,38 @@ mod tests {
         let source = "介護のお仕事です";
         let gen = "未経験歓迎、アットホームな職場です";
         assert!(find_unsupported_numbers(source, gen).is_empty());
+    }
+
+    #[test]
+    fn 実働7時間半を朝の2時間と誤読すると検知する() {
+        // レビュー実障害の再現: 原文は実働7.5時間しか書いていないのに、
+        // コピー/スマホ原稿が「朝の2時間だけ働ける」と誤解釈した。
+        // 「2」も「2時間」も原文に無いため、段①・段②の双方で検知される。
+        let source = "05:50〜14:20 / 11:50〜20:20 実働時間7.5時間。5:50〜8:00は早朝割増時給の時間帯";
+        let gen = "空港の早朝2時間で時給1,450円、朝の2時間を副収入に";
+        let un = find_unsupported_numbers(source, gen);
+        assert!(un.contains(&"2時間".to_string()), "2時間 が検知されるべき: {un:?}");
+        // 7.5時間 は原文にあるので誤検知しない。
+        assert!(!un.contains(&"7.5時間".to_string()), "7.5時間は原文にある: {un:?}");
+    }
+
+    #[test]
+    fn collect_number_violations_は違反テキストのみ返す() {
+        let source = "実働時間7.5時間。時給1,450円";
+        let texts = [
+            "時給1,450円で働けます",   // 原文どおり → 合格
+            "朝の2時間だけ働ける",     // 2時間は原文に無い → 違反
+        ];
+        let v = collect_number_violations(source, &texts);
+        assert_eq!(v.len(), 1, "違反は1件のはず: {v:?}");
+        assert_eq!(v[0].0, "朝の2時間だけ働ける");
+        assert!(v[0].1.contains(&"2時間".to_string()), "{:?}", v[0].1);
+    }
+
+    #[test]
+    fn collect_number_violations_全合格なら空() {
+        let source = "月給250,000円 年間休日120日";
+        let texts = ["月給250,000円", "年間休日120日でしっかり休める"];
+        assert!(collect_number_violations(source, &texts).is_empty());
     }
 }
