@@ -1136,17 +1136,22 @@ pub(super) fn build_cluster_boxplots_svg(clusters: &[SalaryCluster]) -> String {
          style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
     );
     // Y axis (left)
-    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">\n");
+    s.push_str("<g font-size=\"12\" fill=\"#3A3F4A\" text-anchor=\"end\">\n");
     for k in 0..=4 {
         let v = all_min + range_y * k / 4;
         let y = yen_to_y(v);
         s.push_str(&format!(
-            "<line x1=\"{x0:.1}\" y1=\"{y:.2}\" x2=\"{x1:.1}\" y2=\"{y:.2}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x0:.1}\" y1=\"{y:.2}\" x2=\"{x1:.1}\" y2=\"{y:.2}\" stroke=\"#DED7C5\" stroke-width=\"0.75\"/>\
              <text x=\"{tx:.1}\" y=\"{ty:.2}\">{lbl}</text>\n",
-            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 3.0, lbl = to_man(v),
+            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 4.0, lbl = to_man(v),
         ));
     }
     s.push_str("</g>\n");
+    // Y 軸タイトル (下限給与・万円)
+    s.push_str(&format!(
+        "<text x=\"{tx:.1}\" y=\"{ty:.1}\" font-size=\"11\" fill=\"#3A3F4A\" text-anchor=\"middle\" transform=\"rotate(-90 {tx:.1} {ty:.1})\">下限給与（万円）</text>\n",
+        tx = plot_x0 - 42.0, ty = (plot_y0 + plot_y1) / 2.0,
+    ));
 
     // Each cluster boxplot
     for (i, c) in clusters.iter().enumerate() {
@@ -1159,24 +1164,26 @@ pub(super) fn build_cluster_boxplots_svg(clusters: &[SalaryCluster]) -> String {
         let y_max = yen_to_y(c.max);
         // whisker
         s.push_str(&format!(
-            "<line x1=\"{cx:.2}\" y1=\"{ymin:.2}\" x2=\"{cx:.2}\" y2=\"{ymax:.2}\" stroke=\"#0B1E3F\" stroke-width=\"1\"/>\n",
+            "<line x1=\"{cx:.2}\" y1=\"{ymin:.2}\" x2=\"{cx:.2}\" y2=\"{ymax:.2}\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
             cx = cx, ymin = y_min, ymax = y_max,
         ));
         // box
         s.push_str(&format!(
-            "<rect x=\"{bx:.2}\" y=\"{y75:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
+            "<rect x=\"{bx:.2}\" y=\"{y75:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#F6E3A8\" stroke=\"#0B1E3F\" stroke-width=\"1.5\"/>\n",
             bx = bx, y75 = y_p75, w = box_w, h = (y_p25 - y_p75).abs().max(2.0),
         ));
         // median line
         s.push_str(&format!(
-            "<line x1=\"{bx:.2}\" y1=\"{y50:.2}\" x2=\"{x2:.2}\" y2=\"{y50:.2}\" stroke=\"#0B1E3F\" stroke-width=\"2.5\"/>\n",
+            "<line x1=\"{bx:.2}\" y1=\"{y50:.2}\" x2=\"{x2:.2}\" y2=\"{y50:.2}\" stroke=\"#0B1E3F\" stroke-width=\"3\"/>\n",
             bx = bx, x2 = bx + box_w, y50 = y_p50,
         ));
-        // label below
+        // label below (2 行に分割し隣接クラスタとの横重なりを回避)
         s.push_str(&format!(
-            "<text x=\"{cx:.2}\" y=\"{ty:.2}\" font-size=\"9\" fill=\"#0B1E3F\" text-anchor=\"middle\">{lbl}</text>\
-             <text x=\"{cx:.2}\" y=\"{ty2:.2}\" font-size=\"9\" fill=\"#6A6E7A\" text-anchor=\"middle\">n={n}</text>\n",
-            cx = cx, ty = plot_y1 + 16.0, ty2 = plot_y1 + 30.0, lbl = escape_xml_helper(&c.label), n = c.count,
+            "<text x=\"{cx:.2}\" y=\"{ty:.2}\" font-size=\"11\" font-weight=\"bold\" fill=\"#0B1E3F\" text-anchor=\"middle\">{seg1}</text>\
+             <text x=\"{cx:.2}\" y=\"{ty2:.2}\" font-size=\"11\" fill=\"#0B1E3F\" text-anchor=\"middle\">{seg2}</text>\
+             <text x=\"{cx:.2}\" y=\"{ty3:.2}\" font-size=\"11\" fill=\"#3A3F4A\" text-anchor=\"middle\">n={n}</text>\n",
+            cx = cx, ty = plot_y1 + 16.0, ty2 = plot_y1 + 30.0, ty3 = plot_y1 + 44.0,
+            seg1 = escape_xml_helper(&c.lower_seg), seg2 = escape_xml_helper(c.range_seg), n = c.count,
         ));
     }
     s.push_str("</svg>\n</div>\n");
@@ -1335,7 +1342,7 @@ pub(super) fn build_histogram_svg(
         let y = count_to_y(cnt);
         let h = plot_y1 as f64 - y;
         s.push_str(&format!(
-            "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"{c}\"/>\n",
+            "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"{c}\" stroke=\"#0B1E3F\" stroke-width=\"0.4\" stroke-opacity=\"0.45\"/>\n",
             x = x,
             y = y,
             w = w,
@@ -1346,39 +1353,49 @@ pub(super) fn build_histogram_svg(
 
     // Y axis (left): 0 と最大件数の中間 4 ticks
     s.push_str(&format!(
-        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#D8D2C4\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\n",
         x = plot_x0, y0 = plot_y0, y1 = plot_y1,
     ));
     let y_ticks = 4;
-    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">\n");
+    s.push_str("<g font-size=\"12\" fill=\"#3A3F4A\" text-anchor=\"end\">\n");
     for k in 0..=y_ticks {
         let cnt_val = (max_count * k) / y_ticks;
         let y = count_to_y(cnt_val);
         s.push_str(&format!(
-            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#DED7C5\" stroke-width=\"0.75\"/>\
              <text x=\"{tx}\" y=\"{ty:.2}\">{c}</text>\n",
-            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6, ty = y + 3.0, c = cnt_val,
+            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6, ty = y + 4.0, c = format_number(cnt_val as i64),
         ));
     }
     s.push_str("</g>\n");
+    // Y 軸タイトル (件数)
+    s.push_str(&format!(
+        "<text x=\"{tx}\" y=\"{ty}\" font-size=\"11\" fill=\"#3A3F4A\" text-anchor=\"middle\" transform=\"rotate(-90 {tx} {ty})\">件数</text>\n",
+        tx = plot_x0 - 40, ty = (plot_y0 + plot_y1) / 2,
+    ));
 
     // X axis (bottom): bin 数に応じて tick 数を 6-10 に
     let target_ticks = if bin_count <= 12 { bin_count } else { 8 };
     s.push_str(&format!(
-        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\n",
         x0 = plot_x0, x1 = plot_x1, y = plot_y1,
     ));
-    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"middle\">\n");
+    s.push_str("<g font-size=\"12\" fill=\"#3A3F4A\" text-anchor=\"middle\">\n");
     for k in 0..=target_ticks {
         let yen = x_min_yen + ((x_max_yen - x_min_yen) * k as i64) / (target_ticks.max(1) as i64);
         let x = yen_to_x(yen);
         s.push_str(&format!(
-            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\
              <text x=\"{x:.2}\" y=\"{ty}\">{lbl}</text>\n",
-            x = x, y0 = plot_y1, y1 = plot_y1 + 5, ty = plot_y1 + 18, lbl = yen_to_man(yen),
+            x = x, y0 = plot_y1, y1 = plot_y1 + 6, ty = plot_y1 + 20, lbl = yen_to_man(yen),
         ));
     }
     s.push_str("</g>\n");
+    // X 軸タイトル (月給・万円)
+    s.push_str(&format!(
+        "<text x=\"{tx}\" y=\"{ty}\" font-size=\"11\" fill=\"#3A3F4A\" text-anchor=\"middle\">月給（万円）</text>\n",
+        tx = (plot_x0 + plot_x1) / 2, ty = plot_y1 + 40,
+    ));
 
     // markLine + 上部 label box (中央値/平均/最頻値)
     let stats = [
@@ -1393,7 +1410,7 @@ pub(super) fn build_histogram_svg(
         }
         let x = yen_to_x(*v);
         s.push_str(&format!(
-            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"{c}\" stroke-width=\"2\" stroke-dasharray=\"4 3\"/>\n",
+            "<line x1=\"{x:.2}\" y1=\"{y0}\" x2=\"{x:.2}\" y2=\"{y1}\" stroke=\"{c}\" stroke-width=\"2.5\" stroke-dasharray=\"5 3\"/>\n",
             x = x, y0 = plot_y0 - 5, y1 = plot_y1, c = color,
         ));
     }
@@ -1415,14 +1432,14 @@ pub(super) fn build_histogram_svg(
         // 各 chip の幅を文字数から推定
         let widths: Vec<f64> = chips
             .iter()
-            .map(|(t, _)| t.chars().count() as f64 * 11.0 + 16.0)
+            .map(|(t, _)| t.chars().count() as f64 * 12.0 + 18.0)
             .collect();
         let total_w: f64 = widths.iter().sum::<f64>() + chip_gap * (n as f64 - 1.0);
         // 中央寄せの x_start
         let plot_center = (plot_x0 + plot_x1) as f64 / 2.0;
         let mut x_cursor = plot_center - total_w / 2.0;
         s.push_str(
-            "<g font-size=\"11\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n",
+            "<g font-size=\"13\" font-weight=\"bold\" fill=\"#ffffff\" text-anchor=\"middle\">\n",
         );
         for (i, (text, color)) in chips.iter().enumerate() {
             let w = widths[i];
@@ -1557,22 +1574,22 @@ pub(super) fn build_boxplot_svg(min: i64, q1: i64, median: i64, q3: i64, max: i6
     }
     // box (Q1 .. Q3)
     s.push_str(&format!(
-        "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#FAF1D9\" stroke=\"#0B1E3F\" stroke-width=\"2\"/>\n",
+        "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#F6E3A8\" stroke=\"#0B1E3F\" stroke-width=\"2\"/>\n",
         x = x_q1, y = plot_y, w = (x_q3 - x_q1).max(2.0), h = box_h,
     ));
     // median line
     s.push_str(&format!(
-        "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#0B1E3F\" stroke-width=\"3\"/>\n",
+        "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#0B1E3F\" stroke-width=\"3.5\"/>\n",
         x = x_med, y0 = plot_y, y1 = plot_y + box_h,
     ));
 
     // axis line (bottom)
     s.push_str(&format!(
-        "<line x1=\"{x0:.2}\" y1=\"{y}\" x2=\"{x1:.2}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x0:.2}\" y1=\"{y}\" x2=\"{x1:.2}\" y2=\"{y}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\n",
         x0 = plot_x0, x1 = plot_x1, y = plot_y + box_h + 20.0,
     ));
     // 5 数要約 ラベル
-    s.push_str("<g font-size=\"11\" fill=\"#0B1E3F\" text-anchor=\"middle\">\n");
+    s.push_str("<g font-size=\"13\" fill=\"#0B1E3F\" text-anchor=\"middle\">\n");
     for (x, label, val) in &[
         (x_min, "min", min),
         (x_q1, "Q1", q1),
@@ -1581,11 +1598,11 @@ pub(super) fn build_boxplot_svg(min: i64, q1: i64, median: i64, q3: i64, max: i6
         (x_max, "max", max),
     ] {
         s.push_str(&format!(
-            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x:.2}\" y1=\"{y0:.2}\" x2=\"{x:.2}\" y2=\"{y1:.2}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\
              <text x=\"{x:.2}\" y=\"{ty:.2}\" font-weight=\"bold\">{lbl}</text>\
-             <text x=\"{x:.2}\" y=\"{ty2:.2}\" fill=\"#6A6E7A\">{v}</text>\n",
+             <text x=\"{x:.2}\" y=\"{ty2:.2}\" fill=\"#3A3F4A\">{v}</text>\n",
             x = x, y0 = plot_y + box_h, y1 = plot_y + box_h + 20.0,
-            ty = plot_y + box_h + 36.0, ty2 = plot_y + box_h + 52.0,
+            ty = plot_y + box_h + 36.0, ty2 = plot_y + box_h + 53.0,
             lbl = label, v = yen_to_man(*val),
         ));
     }
@@ -1699,20 +1716,20 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
          style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
     );
     // Y axis grid + label
-    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\" text-anchor=\"end\">\n");
+    s.push_str("<g font-size=\"12\" fill=\"#3A3F4A\" text-anchor=\"end\">\n");
     for k in 0..=4 {
         let v = (max_v * k as f64) / 4.0;
         let y = plot_y1 - (v / max_v) * plot_h;
         s.push_str(&format!(
-            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#ECE7DA\" stroke-width=\"0.5\"/>\
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#DED7C5\" stroke-width=\"0.75\"/>\
              <text x=\"{tx}\" y=\"{ty:.2}\">{val:.1}{u}</text>\n",
-            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 3.0, val = v, u = y_unit,
+            x0 = plot_x0, x1 = plot_x1, y = y, tx = plot_x0 - 6.0, ty = y + 4.0, val = v, u = y_unit,
         ));
     }
     s.push_str("</g>\n");
     // X axis
     s.push_str(&format!(
-        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\n",
         x0 = plot_x0, x1 = plot_x1, y = plot_y1,
     ));
     // Bars
@@ -1722,9 +1739,9 @@ pub(super) fn build_vbar_svg(items: &[(String, f64)], bar_color: &str, y_unit: &
         let bh = (val / max_v) * plot_h;
         let by = plot_y1 - bh;
         s.push_str(&format!(
-            "<rect x=\"{bx:.2}\" y=\"{by:.2}\" width=\"{bw:.2}\" height=\"{bh:.2}\" fill=\"{c}\"/>\
-             <text x=\"{tx:.2}\" y=\"{ty:.2}\" font-size=\"11\" fill=\"#0B1E3F\" text-anchor=\"middle\" font-weight=\"bold\">{v:.1}{u}</text>\
-             <text x=\"{tx:.2}\" y=\"{lty:.2}\" font-size=\"11\" fill=\"#6A6E7A\" text-anchor=\"middle\">{lbl}</text>\n",
+            "<rect x=\"{bx:.2}\" y=\"{by:.2}\" width=\"{bw:.2}\" height=\"{bh:.2}\" fill=\"{c}\" stroke=\"#0B1E3F\" stroke-width=\"0.5\" stroke-opacity=\"0.4\"/>\
+             <text x=\"{tx:.2}\" y=\"{ty:.2}\" font-size=\"13\" fill=\"#0B1E3F\" text-anchor=\"middle\" font-weight=\"bold\">{v:.1}{u}</text>\
+             <text x=\"{tx:.2}\" y=\"{lty:.2}\" font-size=\"12\" fill=\"#3A3F4A\" text-anchor=\"middle\">{lbl}</text>\n",
             bx = bx, by = by, bw = bar_w, bh = bh, c = bar_color,
             tx = cx, ty = by - 6.0, v = val, u = y_unit,
             lty = plot_y1 + 18.0, lbl = escape_xml_helper(label),
@@ -1776,14 +1793,23 @@ pub(super) fn build_scatter_svg(points: &[(f64, f64)], regression: Option<(f64, 
          xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" \
          style=\"width:100%;height:auto;display:block;font-family:sans-serif;\">\n",
     );
+    // 水平グリッド線 (4 tick 位置に薄く引き、値を読み取りやすく)
+    for k in 0..=4 {
+        let yv = y_lo + (y_hi - y_lo) * k as f64 / 4.0;
+        let ypx = y_to_px(yv);
+        s.push_str(&format!(
+            "<line x1=\"{x0}\" y1=\"{y:.2}\" x2=\"{x1}\" y2=\"{y:.2}\" stroke=\"#E5E7EB\" stroke-width=\"0.75\"/>\n",
+            x0 = plot_x0, x1 = plot_x1, y = ypx,
+        ));
+    }
     // axes
     s.push_str(&format!(
-        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\
-         <line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#9CA0AB\" stroke-width=\"0.5\"/>\n",
+        "<line x1=\"{x}\" y1=\"{y0}\" x2=\"{x}\" y2=\"{y1}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\
+         <line x1=\"{x0}\" y1=\"{y}\" x2=\"{x1}\" y2=\"{y}\" stroke=\"#8A8E99\" stroke-width=\"1\"/>\n",
         x = plot_x0, x0 = plot_x0, y = plot_y1, x1 = plot_x1, y0 = plot_y0, y1 = plot_y1,
     ));
     // y/x ticks (4 each)
-    s.push_str("<g font-size=\"10\" fill=\"#6A6E7A\">\n");
+    s.push_str("<g font-size=\"12\" fill=\"#3A3F4A\">\n");
     for k in 0..=4 {
         let yv = y_lo + (y_hi - y_lo) * k as f64 / 4.0;
         let xv = x_lo + (x_hi - x_lo) * k as f64 / 4.0;
@@ -1793,14 +1819,21 @@ pub(super) fn build_scatter_svg(points: &[(f64, f64)], regression: Option<(f64, 
             "<text x=\"{tx}\" y=\"{ty:.2}\" text-anchor=\"end\">{val:.0}万</text>\
              <text x=\"{xpx:.2}\" y=\"{txy}\" text-anchor=\"middle\">{xval:.0}万</text>\n",
             tx = plot_x0 - 6.0,
-            ty = ypx + 3.0,
+            ty = ypx + 4.0,
             val = yv / 10_000.0,
             xpx = xpx,
-            txy = plot_y1 + 16.0,
+            txy = plot_y1 + 18.0,
             xval = xv / 10_000.0,
         ));
     }
     s.push_str("</g>\n");
+    // 軸タイトル
+    s.push_str(&format!(
+        "<text x=\"{xtx:.2}\" y=\"{xty:.2}\" font-size=\"11\" fill=\"#3A3F4A\" text-anchor=\"middle\">下限給与（万円）</text>\
+         <text x=\"{ytx:.2}\" y=\"{yty:.2}\" font-size=\"11\" fill=\"#3A3F4A\" text-anchor=\"middle\" transform=\"rotate(-90 {ytx:.2} {yty:.2})\">上限給与（万円）</text>\n",
+        xtx = (plot_x0 + plot_x1) / 2.0, xty = plot_y1 + 34.0,
+        ytx = plot_x0 - 48.0, yty = (plot_y0 + plot_y1) / 2.0,
+    ));
     // points
     for (px_yen, py_yen) in points {
         if *px_yen < x_lo || *px_yen > x_hi || *py_yen < y_lo || *py_yen > y_hi {
@@ -1809,7 +1842,7 @@ pub(super) fn build_scatter_svg(points: &[(f64, f64)], regression: Option<(f64, 
         let px = x_to_px(*px_yen);
         let py = y_to_px(*py_yen);
         s.push_str(&format!(
-            "<circle cx=\"{px:.2}\" cy=\"{py:.2}\" r=\"3\" fill=\"#3b82f6\" fill-opacity=\"0.55\"/>\n",
+            "<circle cx=\"{px:.2}\" cy=\"{py:.2}\" r=\"3.2\" fill=\"#2563EB\" fill-opacity=\"0.62\" stroke=\"#1E3A8A\" stroke-width=\"0.4\" stroke-opacity=\"0.5\"/>\n",
             px = px, py = py,
         ));
     }
@@ -1823,7 +1856,7 @@ pub(super) fn build_scatter_svg(points: &[(f64, f64)], regression: Option<(f64, 
             let x2px = x_to_px(x_hi);
             let y2px = y_to_px(y_at_hi.clamp(y_lo, y_hi));
             s.push_str(&format!(
-                "<line x1=\"{x1:.2}\" y1=\"{y1:.2}\" x2=\"{x2:.2}\" y2=\"{y2:.2}\" stroke=\"#ef4444\" stroke-width=\"2\" stroke-dasharray=\"6 3\"/>\n",
+                "<line x1=\"{x1:.2}\" y1=\"{y1:.2}\" x2=\"{x2:.2}\" y2=\"{y2:.2}\" stroke=\"#DC2626\" stroke-width=\"2.5\" stroke-dasharray=\"7 3\"/>\n",
                 x1 = x1px, y1 = y1px, x2 = x2px, y2 = y2px,
             ));
         }
