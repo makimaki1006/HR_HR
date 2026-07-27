@@ -27,11 +27,10 @@
         {% if entries.len() == 2 %}grid-cols-1 md:grid-cols-2{% else %}grid-cols-1 md:grid-cols-3{% endif %}">
         {% for e in entries %}
         <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
-            {# 職業名 + jobtag_id + カテゴリピル #}
+            {# 職業名 + カテゴリピル #}
             <div>
                 <div class="flex items-center gap-2 mb-1">
                     <span class="text-xs px-2 py-0.5 bg-blue-900/40 text-blue-300 rounded">{{ e.view.category }}</span>
-                    <span class="text-xs text-gray-500 font-mono">id={{ e.view.jobtag_id }}</span>
                 </div>
                 <h2 class="text-lg font-bold text-gray-100">
                     <a href="/tab/driver/{{ e.view.jobtag_id }}"
@@ -45,19 +44,19 @@
                 <div class="bg-gray-900 border border-gray-700 rounded p-2">
                     <div class="text-xs text-gray-400 mb-0.5">平均年齢</div>
                     <div class="text-xl font-bold text-blue-300">
-                        {% match e.view.total_avg_age %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">歳</span>{% when None %}—{% endmatch %}
+                        {% match e.view.total_avg_age %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-0.5">歳</span>{% when None %}—{% endmatch %}
                     </div>
                 </div>
                 <div class="bg-gray-900 border border-gray-700 rounded p-2">
                     <div class="text-xs text-gray-400 mb-0.5">所定内時間</div>
                     <div class="text-xl font-bold text-blue-300">
-                        {% match e.view.total_scheduled_hours %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">h</span>{% when None %}—{% endmatch %}
+                        {% match e.view.total_scheduled_hours %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-0.5">h</span>{% when None %}—{% endmatch %}
                     </div>
                 </div>
                 <div class="bg-gray-900 border border-gray-700 rounded p-2">
                     <div class="text-xs text-gray-400 mb-0.5">年収（平均）</div>
                     <div class="text-xl font-bold text-blue-300">
-                        {% match e.view.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v }}<span class="text-xs text-gray-300 ml-0.5">万円</span>{% when None %}—{% endmatch %}
+                        {% match e.view.total_annual_salary_man_yen %}{% when Some with (v) %}{{ v|fmt("{:.1}") }}<span class="text-xs text-gray-300 ml-0.5">万円</span>{% when None %}—{% endmatch %}
                     </div>
                 </div>
                 <div class="bg-gray-900 border border-gray-700 rounded p-2">
