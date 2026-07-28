@@ -1,4 +1,4 @@
-{# 職種カルテ 比較ビュー #}
+{# 職種辞典 比較ビュー #}
 {# 直接アクセス時(base layout経由なし): nav が無ければ ?tab= 付きで top にリダイレクト #}
 <script>
 (function(){
@@ -13,12 +13,12 @@
     {# パンくず #}
     <div class="text-xs text-gray-400">
         <a href="/tab/driver" hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
-           class="hover:text-blue-300">← 職種カルテ 一覧</a>
+           class="hover:text-blue-300">← 職種辞典 一覧</a>
     </div>
 
     {# ヘッダー #}
     <header class="bg-gray-800 border border-gray-700 rounded-lg p-5">
-        <h1 class="text-2xl font-bold text-gray-100">職種カルテ — 比較（{{ entries.len() }} 職業）</h1>
+        <h1 class="text-2xl font-bold text-gray-100">職種辞典 — 比較（{{ entries.len() }} 職業）</h1>
         <p class="text-xs text-gray-400 mt-1">各職業の主要指標を並べて比較できます。</p>
     </header>
 
