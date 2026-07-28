@@ -84,7 +84,7 @@ pub(crate) fn render_navy_section_09_market_intelligence(
     html.push_str("<section class=\"page-navy navy-mi\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 09",
+        "SECTION 10",
         "採用マーケットインテリジェンス",
         "配信優先度 / 通勤到達性 / 給与魅力度 / 掲載強弱シナリオ",
     );
@@ -151,7 +151,7 @@ fn render_mi_9a_priority_summary(html: &mut String, ctx: Option<&InsightContext>
     use super::super::super::super::helpers::get_f64;
     use super::super::db_columns::{RATIO_TOTAL, UNEMPLOYMENT_RATE};
 
-    html.push_str("<div class=\"block-title\">図 9-A 配信優先度サマリー</div>\n");
+    html.push_str("<div class=\"block-title\">図 10-A 配信優先度サマリー</div>\n");
     html.push_str(
         "<p class=\"caption\">求人倍率・失業率・通勤自給率・流入規模指数を統合し、配信判断のための定性ラベルを提示します。</p>\n",
     );
@@ -348,7 +348,7 @@ fn compute_inflow_intensity_index(inflow_total: i64) -> f64 {
 
 /// 戻り値: 通勤到達性指数 (0-100、9-D の合成入力)。
 fn render_mi_9b_commute_reach(html: &mut String, ctx: Option<&InsightContext>) -> Option<f64> {
-    html.push_str("<div class=\"block-title\">図 9-B 通勤到達性</div>\n");
+    html.push_str("<div class=\"block-title\">図 10-B 通勤到達性</div>\n");
     html.push_str("<p class=\"caption\">通勤流入元 TOP3 と地元就業率を統合した通勤圏到達性指数。流入元は採用対象に含めやすい周辺地域の候補です。</p>\n");
 
     let ctx = match ctx {
@@ -457,7 +457,7 @@ fn render_mi_9c_wage_attractiveness(
     use super::super::super::super::helpers::{get_f64, get_str_ref};
     use super::super::db_columns::{CATEGORY, HOURLY_MIN_WAGE, MONTHLY_AMOUNT};
 
-    html.push_str("<div class=\"block-title\">図 9-C 生活コスト補正後給与魅力度</div>\n");
+    html.push_str("<div class=\"block-title\">図 10-C 生活コスト補正後給与魅力度</div>\n");
     html.push_str("<p class=\"caption\">求人給与中央値を最低賃金 / 家計支出と比較した相対魅力度 (参考指標)。生活コスト補正は概算であり、契約条件 (家賃補助 / 通勤手当) を含みません。</p>\n");
 
     let ctx = match ctx {
@@ -592,7 +592,7 @@ fn render_mi_9d_scenario_intensity(
     // 2026-07-27 item20: 「配信」は媒体配信を指すがレポート内で完結しないため、
     //   求人掲載の強弱という実態に合う表現へ。item21: 3 シナリオの前提を 1 行で明示。
     html.push_str(
-        "<div class=\"block-title\">図 9-D 求人掲載の強弱シナリオ (保守 / 標準 / 強気)</div>\n",
+        "<div class=\"block-title\">図 10-D 求人掲載の強弱シナリオ (保守 / 標準 / 強気)</div>\n",
     );
     html.push_str("<p class=\"caption\">求人掲載をどの程度厚くするかの目安を 3 段階で示します。数値は指数 (0-100) で、応募見込数の換算は行いません。\
          <br>保守 = 最も控えめな見積 (標準の約半分)、標準 = 基準となる見積、強気 = 最も積極的な見積 (標準の約1.6倍)。数値が大きいほど積極的に掲載を広げる目安です。</p>\n");
@@ -976,7 +976,7 @@ mod tests {
             "東京都 港区",
         );
         assert!(html.contains("navy-mi"), "navy-mi クラスが出力されていない");
-        assert!(html.contains("SECTION 09"), "SECTION 09 ラベル欠落");
+        assert!(html.contains("SECTION 10"), "SECTION 10 ラベル欠落");
         assert!(
             html.contains("採用マーケットインテリジェンス"),
             "セクションタイトル欠落"

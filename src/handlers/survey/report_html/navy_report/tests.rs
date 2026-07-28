@@ -616,8 +616,8 @@ fn build_salary_scatter_summary_avg_width_non_negative_invariant() {
 }
 
 // ====================================================================
-// P2-2 (2026-05-28): CSV 企業別給与ランキング (表 5-G) +
-//                    注目企業リスト (表 5-H、求人数 top ∩ 給与 top の和集合)
+// P2-2 (2026-05-28): CSV 企業別給与ランキング (表 7-G) +
+//                    注目企業リスト (表 7-H、求人数 top ∩ 給与 top の和集合)
 //
 //   - select_notable_companies: 空 / 単一 / 5社 / 上位重複 / 和集合サイズ
 //   - build_navy_csv_company_salary_table: 空 / 1社 / SO WHAT 直前挿入位置
@@ -738,7 +738,7 @@ fn select_notable_companies_top_n_larger_than_ranking_returns_all() {
 fn build_navy_csv_company_salary_table_empty_renders_fallback_message() {
     // 空 ranking → 「該当企業なし」明示メッセージ (silent fallback 防御)
     let s = build_navy_csv_company_salary_table(&[], 10);
-    assert!(s.contains("表 5-G"));
+    assert!(s.contains("表 7-G"));
     assert!(
         s.contains("該当企業なし"),
         "empty ranking should render explicit fallback: {s}"
@@ -750,7 +750,7 @@ fn build_navy_csv_company_salary_table_single_company_renders_columns() {
     let ranking = vec![make_csv_company("テスト病院", 3, 22.5, 35.7)];
     let s = build_navy_csv_company_salary_table(&ranking, 10);
     // タイトル + 列ヘッダ + データ行
-    assert!(s.contains("表 5-G"));
+    assert!(s.contains("表 7-G"));
     assert!(s.contains("法人名"));
     assert!(s.contains("下限給与中央値"));
     assert!(s.contains("上限給与中央値"));
@@ -792,7 +792,7 @@ fn build_navy_notable_companies_block_renders_table_header_and_rows() {
         make_csv_company("B", 8, 23.0, 45.0),
     ];
     let s = build_navy_notable_companies_block(&ranking, 5);
-    assert!(s.contains("表 5-H"));
+    assert!(s.contains("表 7-H"));
     assert!(s.contains("注目企業"));
     assert!(s.contains("給与レンジ"));
     assert!(s.contains("A"));
