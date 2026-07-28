@@ -1,4 +1,4 @@
-//! 資格カルテタブ Axum handler
+//! 資格辞書タブ Axum handler
 //!
 //! ルート:
 //!   GET /tab/license              : 資格一覧（五十音順、検索可能）
@@ -61,7 +61,7 @@ pub async fn tab_license_index(State(state): State<Arc<AppState>>) -> impl IntoR
         Some(db) => db,
         None => {
             return render_degraded(
-                "Turso country-statistics 未接続のため資格カルテを表示できません",
+                "Turso country-statistics 未接続のため資格辞書を表示できません",
             )
             .into_response();
         }
@@ -107,7 +107,7 @@ pub async fn tab_license_detail(
         Some(db) => db,
         None => {
             return render_degraded(
-                "Turso country-statistics 未接続のため資格カルテを表示できません",
+                "Turso country-statistics 未接続のため資格辞書を表示できません",
             )
             .into_response();
         }
@@ -124,7 +124,7 @@ pub async fn tab_license_detail(
             let escaped = html_escape(&name);
             let body = format!(
                 "<div class=\"p-6 bg-yellow-900/30 border border-yellow-600 rounded text-yellow-200\">\
-                    <h2 class=\"text-lg font-bold mb-2\">資格カルテ</h2>\
+                    <h2 class=\"text-lg font-bold mb-2\">資格辞書</h2>\
                     <p>「{escaped}」は未登録です。</p>\
                     <a href=\"/tab/license\" \
                        hx-get=\"/tab/license\" hx-target=\"#content\" hx-swap=\"innerHTML\" \
@@ -168,7 +168,7 @@ fn render_degraded(msg: &str) -> Html<String> {
     let safe = html_escape(msg);
     Html(format!(
         r#"<div class="p-6 bg-yellow-900/30 border border-yellow-600 rounded text-yellow-200">
-            <h2 class="text-lg font-bold mb-2">資格カルテ — 表示できません</h2>
+            <h2 class="text-lg font-bold mb-2">資格辞書 — 表示できません</h2>
             <p>{safe}</p>
         </div>"#
     ))

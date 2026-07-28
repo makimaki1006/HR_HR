@@ -24,6 +24,9 @@ pub struct NearbyCompany {
     pub sales_range: String,
     pub employee_delta_1y: f64,
     pub employee_delta_3m: f64,
+    /// 2026-07-28 item5: 資本金レンジ (帯表示)。v2_salesnow_companies.capital_stock_range。
+    ///   §05 企業リスト表の「資本金」列に使用。空値は表示側で "—"。
+    pub capital_stock_range: String,
 }
 
 /// 企業プロフィール + 市場コンテキストの統合データ
@@ -655,7 +658,7 @@ pub fn fetch_companies_by_region(
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                    employee_count, credit_score, postal_code, \
                    sales_amount, sales_range, \
-                   employee_delta_1y, employee_delta_3m \
+                   employee_delta_1y, employee_delta_3m, capital_stock_range \
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 AND address LIKE ?2 \
                    ORDER BY employee_count DESC LIMIT ?3";
@@ -666,7 +669,7 @@ pub fn fetch_companies_by_region(
         let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                    employee_count, credit_score, postal_code, \
                    sales_amount, sales_range, \
-                   employee_delta_1y, employee_delta_3m \
+                   employee_delta_1y, employee_delta_3m, capital_stock_range \
                    FROM v2_salesnow_companies \
                    WHERE prefecture = ?1 \
                    ORDER BY employee_count DESC LIMIT ?2";
@@ -690,6 +693,7 @@ pub fn fetch_companies_by_region(
             sales_range: get_str(r, "sales_range"),
             employee_delta_1y: get_f64(r, "employee_delta_1y"),
             employee_delta_3m: get_f64(r, "employee_delta_3m"),
+            capital_stock_range: get_str(r, "capital_stock_range"),
         })
         .collect();
 
@@ -814,7 +818,7 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
         "SELECT corporate_number, company_name, prefecture, sn_industry, \
          employee_count, credit_score, postal_code, \
          sales_amount, sales_range, \
-         employee_delta_1y, employee_delta_3m \
+         employee_delta_1y, employee_delta_3m, capital_stock_range \
          FROM v2_salesnow_companies \
          WHERE sn_industry IN ({}) AND ({}) \
            AND employee_count >= ?{} AND employee_count <= ?{} \
@@ -872,6 +876,7 @@ pub fn fetch_company_segments_by_neighborhood_sn_industries(
             sales_range: get_str(r, "sales_range"),
             employee_delta_1y: get_f64(r, "employee_delta_1y"),
             employee_delta_3m: get_f64(r, "employee_delta_3m"),
+            capital_stock_range: get_str(r, "capital_stock_range"),
         })
         .collect();
 
@@ -1066,7 +1071,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     "SELECT corporate_number, company_name, prefecture, sn_industry, \
                      employee_count, credit_score, postal_code, \
                      sales_amount, sales_range, \
-                     employee_delta_1y, employee_delta_3m \
+                     employee_delta_1y, employee_delta_3m, capital_stock_range \
                      FROM v2_salesnow_companies \
                      WHERE prefecture = ?1 AND sn_industry IN ({}) \
                        AND employee_count >= ?{} AND employee_count <= ?{} \
@@ -1085,7 +1090,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     "SELECT corporate_number, company_name, prefecture, sn_industry, \
                      employee_count, credit_score, postal_code, \
                      sales_amount, sales_range, \
-                     employee_delta_1y, employee_delta_3m \
+                     employee_delta_1y, employee_delta_3m, capital_stock_range \
                      FROM v2_salesnow_companies \
                      WHERE prefecture = ?1 AND sn_industry IN ({}){} \
                        AND employee_count >= ?{} AND employee_count <= ?{} \
@@ -1114,7 +1119,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
-                           employee_delta_1y, employee_delta_3m \
+                           employee_delta_1y, employee_delta_3m, capital_stock_range \
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 AND address LIKE ?2 AND sn_industry LIKE ?3 \
                              AND employee_count >= ?4 AND employee_count <= ?5 \
@@ -1128,7 +1133,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
-                           employee_delta_1y, employee_delta_3m \
+                           employee_delta_1y, employee_delta_3m, capital_stock_range \
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 AND sn_industry LIKE ?2 \
                              AND employee_count >= ?3 AND employee_count <= ?4 \
@@ -1143,7 +1148,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
-                           employee_delta_1y, employee_delta_3m \
+                           employee_delta_1y, employee_delta_3m, capital_stock_range \
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 AND address LIKE ?2 \
                              AND employee_count >= ?3 AND employee_count <= ?4 \
@@ -1156,7 +1161,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
                     let sql = "SELECT corporate_number, company_name, prefecture, sn_industry, \
                            employee_count, credit_score, postal_code, \
                            sales_amount, sales_range, \
-                           employee_delta_1y, employee_delta_3m \
+                           employee_delta_1y, employee_delta_3m, capital_stock_range \
                            FROM v2_salesnow_companies \
                            WHERE prefecture = ?1 \
                              AND employee_count >= ?2 AND employee_count <= ?3 \
@@ -1191,6 +1196,7 @@ fn fetch_company_segments_by_region_with_industry_internal(
             sales_range: get_str(r, "sales_range"),
             employee_delta_1y: get_f64(r, "employee_delta_1y"),
             employee_delta_3m: get_f64(r, "employee_delta_3m"),
+            capital_stock_range: get_str(r, "capital_stock_range"),
         })
         .collect();
 
@@ -1574,7 +1580,7 @@ pub fn fetch_nearby_companies(
         SELECT corporate_number, company_name, prefecture, sn_industry,
                employee_count, credit_score, postal_code,
                sales_amount, sales_range,
-               employee_delta_1y, employee_delta_3m
+               employee_delta_1y, employee_delta_3m, capital_stock_range
         FROM v2_salesnow_companies
         WHERE postal_code LIKE ?1 AND corporate_number != ?2
         ORDER BY employee_count DESC
@@ -1599,6 +1605,7 @@ pub fn fetch_nearby_companies(
             sales_range: get_str(r, "sales_range"),
             employee_delta_1y: get_f64(r, "employee_delta_1y"),
             employee_delta_3m: get_f64(r, "employee_delta_3m"),
+            capital_stock_range: get_str(r, "capital_stock_range"),
         })
         .collect();
 

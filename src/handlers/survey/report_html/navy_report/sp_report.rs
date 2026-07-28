@@ -584,8 +584,8 @@ pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregat
     html.push_str("<section class=\"page-navy sp-quartile-page\" role=\"region\" aria-label=\"代表給与の四分位\">\n");
     html.push_str("<div class=\"block-title block-title-spaced\">表 3-SP &nbsp;代表給与の四分位 (25/50/75 パーセンタイル)</div>\n");
     html.push_str(&format!(
-        "<p class=\"caption\">代表給与 n={} の分布を四分位で示します。P25 は安い方から 4 分の 1、P50 は中央値、\
-         P75 は高い方から 4 分の 1 の境目です。</p>\n",
+        "<p class=\"caption\">代表給与 n={} の分布を四分位で示します。求人を安い順に並べたとき、\
+         P25 は下から1/4、P50 はちょうど真ん中、P75 は下から3/4 (高い方から1/4) の位置にあたる金額です。</p>\n",
         format_number(s.n as i64)
     ));
     // 列幅を明示 (区分/給与を圧縮、読み方に最大幅)。他表と同じ .table-navy を使う。

@@ -828,13 +828,6 @@ fn render_fig4_diagnosis(
         .or_else(|| rows.iter().find(|r| is_prefecture_level(r)));
     let nat_row = rows.iter().find(|r| is_national(r));
 
-    if muni_row.is_none() && wf.is_empty() && wage.is_empty() {
-        html.push_str(
-            "<p class=\"caption dim\">診断に必要なデータが未投入のため、この表は表示できません。</p>\n</div>\n",
-        );
-        return;
-    }
-
     // 給与相場比
     let s1 = wage.last().map(|x| x.scheduled).unwrap_or(0);
     let media_vs_actual = match media_median {
@@ -847,40 +840,43 @@ fn render_fig4_diagnosis(
         .find(|m| m.muni == muni_name)
         .map(|m| m.wa_decline_2040);
 
-    let mut body = String::new();
-    body.push_str(&format!(
-        "<table style=\"width:100%;border-collapse:collapse;font-size:11pt\">\
-         <tr style=\"border-bottom:2px solid {NAVY}\">\
-         <td style=\"color:{MUTED};font-size:10pt;padding:6px 8px\">診断の切り口</td>\
-         <td style=\"color:{MUTED};font-size:10pt;padding:6px 8px\">実際の数値</td>\
-         <td style=\"color:{MUTED};font-size:10pt;text-align:center;padding:6px 8px\">評価</td>\
-         <td style=\"color:{MUTED};font-size:10pt;padding:6px 8px\">コメント（中立記述）</td></tr>\n",
-        NAVY = NAVY, MUTED = MUTED,
-    ));
+    // 2026-07-28 item11: 値が未投入 (データなし) の行は顧客に「未投入 / 今後追加予定」を
+    //   見せないため描画しない。各行はデータが揃った時のみ data_rows に積む。
+    let mut data_rows = String::new();
+    let mut row_count = 0usize;
 
     // 行1: 応募候補になりうる人の数
+    // 2026-07-28 item12: この人数は「全職種・全業界」の転職意向を母数とする参考値で、
+    //   対象職種の応募候補数ではない。職種文脈で 10 段階スコア (旧 7/10) を付けると、
+    //   不人気職種でも高評価に見えてしまい誤誘導になる。よってスコアは付けず「参考値」と
+    //   明示する。全職種の有効求人倍率を採用しやすさスコアに使わない恒久ルール (item24) と
+    //   同じ考え方であり、他の全体母数系指標を追加する際も同基準で扱うこと。
     if let Some(r) = muni_row {
         let note = match nat_row {
-            Some(n) => format!("全国平均（{:.1}%）とほぼ同水準", n.desire_rate),
-            None => "全国比較データは未投入".to_string(),
+            Some(n) => format!(
+                "全職種・全業界の参考値です（対象職種の応募候補数ではありません）。転職を考えている割合は全国平均 {:.1}% と近い水準です。",
+                n.desire_rate
+            ),
+            None => "全職種・全業界の参考値です（対象職種の応募候補数ではありません）。".to_string(),
         };
         push_diag_row(
-            &mut body,
+            &mut data_rows,
             "応募候補になりうる人の数",
             &format!(
                 "{}人（転職を考えている割合 {:.1}%）",
                 format_number(r.switchers),
                 r.desire_rate
             ),
-            2,
+            REFERENCE_SCORE,
             &note,
-            "候補になりうる人が多いほど高い",
+            "",
         );
+        row_count += 1;
     }
-    // 行2: 給与の水準
-    match (media_vs_actual, media_median) {
-        (Some(p), Some(m)) => push_diag_row(
-            &mut body,
+    // 行2: 給与の水準 (相場比が算出できる時のみ)
+    if let (Some(p), Some(m)) = (media_vs_actual, media_median) {
+        push_diag_row(
+            &mut data_rows,
             "給与の水準（相場との比較）",
             &format!(
                 "{:.1}%（今回の提示額 {}円／県の平均 {}円）",
@@ -891,56 +887,58 @@ fn render_fig4_diagnosis(
             2,
             "今回の求人の真ん中の給与は県の平均をやや下回る（2025年12月実績との比較）",
             "提示給与が相場より高いほど高い",
-        ),
-        _ => push_diag_row(
-            &mut body,
-            "給与の水準（相場との比較）",
-            "—",
-            0,
-            "今回の求人データの提示額（月給）が算出できないため比較できません",
-            "提示給与が相場より高いほど高い",
-        ),
+        );
+        row_count += 1;
     }
-    // 行3: 駅の人通りの変化 (station_ridership_muni は将来投入 → 当面「—」)
-    push_diag_row(
-        &mut body,
-        "駅の人通りの変化",
-        "—",
-        0,
-        "駅別乗降客数データは未投入（今後追加予定）",
-        "駅の人通りが増えるほど高い",
-    );
-    // 行4: 2040年の働き手の見通し
-    match wa_decline {
-        Some(d) => push_diag_row(
-            &mut body,
+    // 行3 (旧「駅の人通りの変化」) は駅別乗降客数データが未投入のため描画しない (item11)。
+    //   投入後にデータありの行として復活させる。
+    // 行4: 2040年の働き手の見通し (将来推計が取れる時のみ)
+    if let Some(d) = wa_decline {
+        push_diag_row(
+            &mut data_rows,
             "2040年の働き手の見通し",
             &format!("{:+.1}%（国の将来人口推計）", d),
             3,
             "純粋な人口の見通し（応募候補者の将来的な増減の目安）",
             "働き手の減少が小さいほど高い",
-        ),
-        None => push_diag_row(
-            &mut body,
-            "2040年の働き手の見通し",
-            "—",
-            0,
-            "対象市区町村の将来人口推計データは未投入",
-            "働き手の減少が小さいほど高い",
-        ),
+        );
+        row_count += 1;
     }
 
+    // 表示できる行が 1 つも無ければ表を出さない (未投入表記を見せない)。
+    if row_count == 0 {
+        html.push_str(
+            "<p class=\"caption dim\">診断に使えるデータがまだ揃っていないため、この表は表示できません。</p>\n</div>\n",
+        );
+        return;
+    }
+
+    let mut body = String::new();
+    body.push_str(&format!(
+        "<table style=\"width:100%;border-collapse:collapse;font-size:11pt\">\
+         <tr style=\"border-bottom:2px solid {NAVY}\">\
+         <td style=\"color:{MUTED};font-size:10pt;padding:6px 8px\">診断の切り口</td>\
+         <td style=\"color:{MUTED};font-size:10pt;padding:6px 8px\">実際の数値</td>\
+         <td style=\"color:{MUTED};font-size:10pt;text-align:center;padding:6px 8px\">評価</td>\
+         <td style=\"color:{MUTED};font-size:10pt;padding:6px 8px\">コメント（中立記述）</td></tr>\n",
+        NAVY = NAVY, MUTED = MUTED,
+    ));
+    body.push_str(&data_rows);
     body.push_str("</table>\n");
     html.push_str(&body);
     html.push_str(
-        "<div class=\"caption dim\" style=\"margin-top:2mm;\">評価は 10 点満点(相対比較)。数字が大きいほど採用にプラスの方向です。各行の「見方」に指標ごとの向きを記載しています。</div>\n",
+        "<div class=\"caption dim\" style=\"margin-top:2mm;\">評価は 10 点満点(相対比較)。数字が大きいほど採用にプラスの方向です。全体母数の参考指標にはスコアを付けず「参考値」と表示しています。</div>\n",
     );
     html.push_str(
         "<div class=\"caption dim\" style=\"margin-top:2mm;border-top:1px dashed #e2e8f0;padding-top:2mm;\">\
-         出典：就業構造基本調査・毎月勤労統計・今回の求人データ（正社員・月給）・駅別乗降客数（将来投入）・国の将来人口推計。</div>\n",
+         出典：就業構造基本調査・毎月勤労統計・今回の求人データ（正社員・月給）・国の将来人口推計。</div>\n",
     );
     html.push_str("</div>\n");
 }
+
+/// 2026-07-28 item12: 全体母数の参考値 (対象職種のスコアではない) 行に渡す評価値。
+///   スコアバッジを付けず「参考値」と表示する。
+const REFERENCE_SCORE: i64 = -1;
 
 /// 診断表の 1 行。
 ///
@@ -950,23 +948,36 @@ fn render_fig4_diagnosis(
 /// 新たなスコア式は導入せず 0-3 → 0-10 の線形変換で表示のみ 10 点満点化する
 /// (捏造防止: `score_10 = round(dots_n / 3 × 10)`、dots_n=0 は「—」)。
 fn push_diag_row(body: &mut String, label: &str, value: &str, dots_n: i64, note: &str, dir: &str) {
+    // dir (見方) が空文字なら「見方:」行を出さない (参考値行など、向きの評価を付さない行向け)。
+    let dir_html = if dir.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<br><span style=\"color:#94a3b8;font-size:9pt\">見方: {}</span>",
+            escape_html(dir)
+        )
+    };
     body.push_str(&format!(
         "<tr>\
          <td style=\"font-weight:bold;color:{NAVY};padding:7px 8px;border-bottom:1px solid #e2e8f0;width:170px\">{label}</td>\
          <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;font-variant-numeric:tabular-nums\">{value}</td>\
          <td style=\"padding:7px 6px;border-bottom:1px solid #e2e8f0;text-align:center;white-space:nowrap;width:52px\">{score}</td>\
-         <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;color:{MUTED};font-size:10pt\">{note}<br><span style=\"color:#94a3b8;font-size:9pt\">見方: {dir}</span></td></tr>\n",
+         <td style=\"padding:7px 8px;border-bottom:1px solid #e2e8f0;color:{MUTED};font-size:10pt\">{note}{dir_html}</td></tr>\n",
         NAVY = NAVY, MUTED = MUTED,
         label = escape_html(label),
         value = escape_html(value),
         score = score_badge(dots_n),
         note = escape_html(note),
-        dir = escape_html(dir),
+        dir_html = dir_html,
     ));
 }
 
 /// 相対評価 (0-3) を 10 点満点の数字バッジに変換して表示する。0 は「—」(データなし)。
+/// REFERENCE_SCORE (-1) は「参考値」表示 (全体母数の参考指標でスコアを付けない)。
 fn score_badge(dots_n: i64) -> String {
+    if dots_n == REFERENCE_SCORE {
+        return "<span style=\"color:#64748b;font-weight:bold;font-size:10pt\">参考値</span>".to_string();
+    }
     if dots_n <= 0 {
         return "<span style=\"color:#cbd5e1\">—</span>".to_string();
     }
@@ -1256,14 +1267,23 @@ mod tests {
         assert!(!html.contains("有効求人倍率"), "§10 から有効求人倍率は削除済み");
         // 図4
         assert!(html.contains("採用の何がネックか — 大分市 の診断"));
-        assert!(html.contains("駅の人通りの変化"), "図4 駅の人通り行");
+        // 2026-07-28 item11: 駅別乗降客数は未投入のため、駅の人通り行は出さない。
+        assert!(!html.contains("駅の人通りの変化"), "図4 駅の人通り行は未投入なので非表示");
+        assert!(!html.contains("今後追加予定"), "「今後追加予定」を顧客に見せない");
+        // 2026-07-28 item12: 応募候補は全職種の参考値。スコアではなく「参考値」表示。
+        assert!(html.contains("参考値"), "応募候補行は参考値表示");
+        assert!(
+            html.contains("全職種・全業界の参考値です"),
+            "全体母数の参考値である旨の注記"
+        );
         // 因果注記
         assert!(html.contains("因果関係ではありません"));
     }
 
     #[test]
-    fn figure4_station_row_shows_dash_when_no_station_data() {
-        // station_ridership_muni は将来投入。当面「駅の人通り」行はデータ無ければ「—」。
+    fn figure4_station_row_is_hidden_when_no_station_data() {
+        // 2026-07-28 item11: station_ridership_muni は将来投入。データが無い間は
+        //   「駅の人通り」行そのものを出さない (未投入表記を顧客に見せない)。
         let mut html = String::new();
         let ctx = full_ctx();
         let agg = agg_with_median(250_000);
@@ -1274,7 +1294,8 @@ mod tests {
             ReportVariant::Extended,
             "大分県 大分市",
         );
-        assert!(html.contains("駅別乗降客数データは未投入"));
+        assert!(!html.contains("駅別乗降客数データは未投入"), "未投入行は非表示: {}", html);
+        assert!(!html.contains("駅の人通りの変化"), "駅の人通り行は非表示: {}", html);
     }
 
     #[test]
