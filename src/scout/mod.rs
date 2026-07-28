@@ -76,6 +76,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/scout/api/state", get(get_state).post(save_state))
         .route("/scout/api/sent", post(sent))
         .route("/scout/api/has-sent", get(has_sent))
+        .route("/scout/api/stats", get(stats))
         .route("/scout/api/killswitch", get(killswitch))
         .route("/scout/api/admin/killswitch", post(admin_killswitch))
         .route("/scout/api/admin/disable", post(admin_disable))
@@ -1056,6 +1057,77 @@ async fn has_sent(
             )
             .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
         Ok(json!({ "sent": !rows.is_empty() }))
+    })
+    .await
+}
+
+/// 送信実績の集計。呼び出し元ユーザーの workspace に絞って send_history を集計する。
+/// 全ユーザー・全端末の実送信が中央 send_history に集まるため、これが workspace 全体の
+/// 送付数の正本になる(端末ローカルの CSV/jsonl は1台分のデバッグ用)。要トークン。
+/// 返却: total(総送付数)/ by_platform(媒体別)/ by_campaign(キャンペーン別・id)/
+///       by_day(日別・YYYY-MM-DD)/ recent(直近50件)。キャンペーン名の解決は呼び出し側で config を使う。
+async fn stats(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult {
+    let token = token_from(&headers);
+    let dbh = match take_db(&state) {
+        Ok(d) => d,
+        Err((c, m)) => return Err((c, Json(json!({ "error": m })))),
+    };
+    run(move || {
+        let u = require_user(&dbh, &token)?;
+        let ws: [&dyn ToSqlTurso; 1] = [&u.workspace_id];
+        let q = |sql: &str| {
+            dbh.query(sql, &ws)
+                .map_err(|e| cerr(StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))
+        };
+        // 総送付数
+        let total = q("SELECT COUNT(*) AS cnt FROM send_history WHERE workspace_id=?")?
+            .first()
+            .and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+            .unwrap_or(0);
+        // 媒体別
+        let by_platform: Vec<Value> = q(
+            "SELECT platform, COUNT(*) AS cnt FROM send_history WHERE workspace_id=? \
+             GROUP BY platform ORDER BY cnt DESC",
+        )?
+        .iter()
+        .map(|r| json!({ "platform": get_str(r, "platform"), "cnt": r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0) }))
+        .collect();
+        // キャンペーン別(id。名前は呼び出し側で config から解決)
+        let by_campaign: Vec<Value> = q(
+            "SELECT campaign_id, COUNT(*) AS cnt FROM send_history WHERE workspace_id=? \
+             GROUP BY campaign_id ORDER BY cnt DESC",
+        )?
+        .iter()
+        .map(|r| json!({ "campaign_id": get_str(r, "campaign_id"), "cnt": r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0) }))
+        .collect();
+        // 日別(sent_at の先頭10文字= YYYY-MM-DD)
+        let by_day: Vec<Value> = q(
+            "SELECT substr(sent_at,1,10) AS day, COUNT(*) AS cnt FROM send_history WHERE workspace_id=? \
+             GROUP BY day ORDER BY day",
+        )?
+        .iter()
+        .map(|r| json!({ "day": get_str(r, "day"), "cnt": r.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0) }))
+        .collect();
+        // 直近送信(50件)
+        let recent: Vec<Value> = q(
+            "SELECT campaign_id, candidate_web_id, platform, sent_at FROM send_history WHERE workspace_id=? \
+             ORDER BY sent_at DESC LIMIT 50",
+        )?
+        .iter()
+        .map(|r| json!({
+            "campaign_id": get_str(r, "campaign_id"),
+            "candidate_web_id": get_str(r, "candidate_web_id"),
+            "platform": get_str(r, "platform"),
+            "sent_at": get_str(r, "sent_at"),
+        }))
+        .collect();
+        Ok(json!({
+            "total": total,
+            "by_platform": by_platform,
+            "by_campaign": by_campaign,
+            "by_day": by_day,
+            "recent": recent,
+        }))
     })
     .await
 }
