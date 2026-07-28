@@ -35,7 +35,7 @@ pub(crate) fn render_navy_section_08_notes(
     html.push_str("<section class=\"page-navy navy-notes\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 08",
+        "SECTION 12",
         "注記・出典・免責",
         "データソース / 集計定義 / 免責事項",
     );
@@ -51,8 +51,8 @@ pub(crate) fn render_navy_section_08_notes(
         escape_html(now)
     ));
 
-    // -- 表 8-A データソース一覧
-    html.push_str("<div class=\"block-title\">表 8-A &nbsp;データソース一覧</div>\n");
+    // -- 表 12-A データソース一覧
+    html.push_str("<div class=\"block-title\">表 12-A &nbsp;データソース一覧</div>\n");
     // 2026-07-27 item27: No. 列を最小化し、名称/出典/用途など本文列を広く見せる。
     html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
@@ -87,13 +87,13 @@ pub(crate) fn render_navy_section_08_notes(
             (
                 "年間休日 (求人説明文抽出)",
                 "アップロード CSV (自由記述解析)",
-                "Section 07.5 年間休日 × 給与",
+                "Section 04 年間休日 × 給与",
                 "都度",
             ),
             (
                 "Indeed (SP) 人気タグ",
                 "アップロード CSV (Indeed SP 表示列)",
-                "Section 07.6 表示優先度シグナル",
+                "Section 05 人気度シグナル",
                 "都度",
             ),
             (
@@ -240,13 +240,13 @@ pub(crate) fn render_navy_section_08_notes(
             (
                 "年間休日 (求人説明文抽出)",
                 "アップロード CSV (自由記述解析)",
-                "Section 07.5 年間休日 × 給与",
+                "Section 04 年間休日 × 給与",
                 "都度",
             ),
             (
                 "Indeed (SP) 人気タグ",
                 "アップロード CSV (Indeed SP 表示列)",
-                "Section 07.6 表示優先度シグナル",
+                "Section 05 人気度シグナル",
                 "都度",
             ),
             (
@@ -400,7 +400,7 @@ pub(crate) fn render_navy_section_08_notes(
     html.push_str("<p class=\"caption\">e-Stat = 政府統計の総合窓口 (https://www.e-stat.go.jp/)。各テーブルの取得 SQL とカラム定義は内部 docs を参照。</p>\n");
 
     // 2026-05-14 撤去 (ユーザー判断):
-    //   表 8-B「主要 集計定義」を全撤去。
+    //   表 12-B「主要 集計定義」を全撤去。
     //   - 「給与の月給換算」「給与解析率」等の内部運用定義はレポート受領側が
     //     関知すべき情報ではない (Section 03 等で必要な閾値は本文に統合済み)。
 

@@ -89,7 +89,7 @@ pub(super) fn compute_skew_severity(
         (
             "warn",
             format!(
-                "{}偏り 顕著 (上位「{}」{:.1}%、サンプル代表性 低い)",
+                "{}偏り 顕著 (最大構成「{}」{:.1}%、サンプル代表性 低い)",
                 label, top_label, max_share
             ),
         )
@@ -97,7 +97,7 @@ pub(super) fn compute_skew_severity(
         (
             "neu",
             format!(
-                "{}偏りあり (上位「{}」{:.1}%、データ代表性に注意)",
+                "{}偏りあり (最大構成「{}」{:.1}%、データ代表性に注意)",
                 label, top_label, max_share
             ),
         )
@@ -105,7 +105,7 @@ pub(super) fn compute_skew_severity(
         (
             "pos",
             format!(
-                "{}上位カテゴリへの偏りは限定的 (最大構成「{}」{:.1}%)",
+                "{}特定カテゴリへの偏りは限定的 (最大構成「{}」{:.1}%)",
                 label, top_label, max_share
             ),
         )

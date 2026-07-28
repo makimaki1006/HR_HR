@@ -252,7 +252,7 @@ pub(crate) fn render_navy_section_06_demographics(
     //    対象都道府県内で postings (HW 掲載求人) 件数上位 3 市区町村のピラミッドを並列表示。
     //    ctx.muni_pyramids が空 (pref 未指定 / データ不足) のときは何も出力しない。
     if !ctx.muni_pyramids.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">図 6-2b &nbsp;市区町村別 人口ピラミッド (上位 3)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">図 6-2b &nbsp;市区町村別 人口ピラミッド (求人件数の多い3市区町村)</div>\n");
         html.push_str(
             "<div class=\"muni-pyramid-grid\" \
              style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:6mm;margin-top:2mm;\">\n",
@@ -291,7 +291,7 @@ pub(crate) fn render_navy_section_06_demographics(
         }
         html.push_str("</div>\n");
         html.push_str(
-            "<p class=\"caption\">対象都道府県の CSV 件数上位 3 市区町村のピラミッドを並列表示。\
+            "<p class=\"caption\">対象都道府県の CSV 件数が多い3市区町村のピラミッドを並列表示。\
              出典: 国勢調査 v2_external_population_pyramid (市区町村粒度)。</p>\n",
         );
     }
@@ -402,7 +402,7 @@ pub(crate) fn render_navy_section_06_demographics(
     if !ctx.ext_labor_stats.is_empty() {
         html.push_str("<div class=\"block-title block-title-spaced\">表 6-E &nbsp;労働統計 詳細 (賃金・離職率)</div>\n");
         html.push_str(&build_navy_auto_table(&ctx.ext_labor_stats, 5));
-        html.push_str("<p class=\"caption\">出典: e-Stat 社会人口統計体系 v2_external_labor_stats。年度別の月給 (男女別)・パート時給 (男女別)・離職率 (%) を示す。先頭 5 行表示。<br/>※ 本表の「離職率 (%)」は労働統計 (v2_external_labor_stats) 由来で、§04 の離職率 (雇用動向調査ベース) とは出典・定義・粒度が異なるため、数値が一致しない場合があります。</p>\n");
+        html.push_str("<p class=\"caption\">出典: e-Stat 社会人口統計体系 v2_external_labor_stats。年度別の月給 (男女別)・パート時給 (男女別)・離職率 (%) を示す。先頭 5 行表示。<br/>※ 本表の「離職率 (%)」は労働統計 (v2_external_labor_stats) 由来で、§08 の離職率 (雇用動向調査ベース) とは出典・定義・粒度が異なるため、数値が一致しない場合があります。</p>\n");
     }
 
     // -- 表 6-F 学歴構成 (ext_education) [P1-5 (2026-05-25): 手書き化 + 構成比列追加]

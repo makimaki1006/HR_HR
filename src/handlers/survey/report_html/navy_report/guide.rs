@@ -216,7 +216,7 @@ fn push_section_position(html: &mut String, agg: &SurveyAggregation, company: &s
 
     if let (Some(p), true) = (pos, c.median_salary > 0) {
         let landing = if p >= 60.0 {
-            "提示額は市場の上位側にあり、金額そのものよりも「何がその金額に含まれるか」の見せ方が比較材料になるとみられます。"
+            "提示額は市場で高い方にあり、金額そのものよりも「何がその金額に含まれるか」の見せ方が比較材料になるとみられます。"
         } else if p >= 40.0 {
             "提示額は市場の中心帯にあり、金額だけでは差がつきにくい位置とみられます。休日・働き方など金額以外の定量項目の見せ方が比較材料になる可能性があります。"
         } else {
@@ -257,7 +257,7 @@ fn push_block_market_size(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str("<h3>土俵の広さと動き</h3>\n");
     html.push_str(&format!(
-        "<p>重複整理後 {} 件。掲載から間もない求人の割合 (目安) は {:.0}%。勤務地の上位: {}。</p>\n",
+        "<p>重複整理後 {} 件。掲載から間もない求人の割合 (目安) は {:.0}%。件数の多い勤務地: {}。</p>\n",
         format_number(agg.total_count as i64),
         new_pct,
         if top3.is_empty() { "—".to_string() } else { top3 },
@@ -443,7 +443,7 @@ fn push_block_commute(html: &mut String, ctx: Option<&InsightContext>) {
             .collect::<Vec<_>>()
             .join(" / ");
         html.push_str(&format!(
-            " 実際の流入元の上位は {} で、配信を広げる際の最初の候補になります。",
+            " 実際に流入が多い地域は {} で、配信を広げる際の最初の候補になります。",
             top
         ));
     }

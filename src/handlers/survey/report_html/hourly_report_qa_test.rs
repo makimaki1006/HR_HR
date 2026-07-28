@@ -2,7 +2,7 @@
 //!
 //! 対象:
 //!   - H1: 扶養範囲到達時給 (Section 03 表 3-H) → `build_navy_fuyou_table`
-//!   - H3: 最賃プレミアム率分布 (Section 07 図 7-3) → `build_navy_minwage_premium_histogram_svg`
+//!   - H3: 最賃プレミアム率分布 (Section 09 図 9-3) → `build_navy_minwage_premium_histogram_svg`
 //!
 //! 2026-06-01: H4 (時給帯別 求人件数, 表 6-J) は HW postings 求人側集計ブロック
 //! (図 6-3 + 表 6-G/H/I/J) の削除に伴い、`build_hourly_band_distribution` も
@@ -13,7 +13,7 @@
 //!   - 各 H に対し、空 / 単一値 / 通常 / 境界値 / 異常値 を網羅
 //!   - 不変条件 (invariant) を assert! で検証 (`feedback_reverse_proof_tests.md`)
 //!   - silent fallback 監査: 空入力で空文字 OR 明示的「該当データなし」を確認
-//!   - 月給モード (is_hourly=false) で表 3-H / 図 7-3 が出力されないことを確認
+//!   - 月給モード (is_hourly=false) で表 3-H / 図 9-3 が出力されないことを確認
 //!
 //! 既存テスト (`report_html_qa_test.rs` / `invariant_tests.rs`) との重複は避け、
 //! 本ファイルは時給特有指標に限定する。
@@ -327,7 +327,7 @@ fn h3_premium_large_input_no_panic() {
 // `build_hourly_band_distribution` を撤去したため全削除。
 
 // ============================================================
-// 統合: Section render-level 制御 (月給モードで表 3-H / 図 7-3 非表示)
+// 統合: Section render-level 制御 (月給モードで表 3-H / 図 9-3 非表示)
 // ============================================================
 //
 // navy_report::render_navy_section_03_salary は HW context や salary_min_values 等
@@ -351,15 +351,15 @@ fn integration_monthly_mode_no_fuyou_table_3h() {
     );
 }
 
-/// H-INT-02: 月給モード — 図 7-3 ヘッダが出ない
+/// H-INT-02: 月給モード — 図 9-3 ヘッダが出ない
 #[test]
 fn integration_monthly_mode_no_premium_histogram_7_3() {
     let agg = SurveyAggregation::default();
     let seeker = JobSeekerAnalysis::default();
     let html = render_survey_report_page(&agg, &seeker, &[], &[], &[], &[], None, &[]);
     assert!(
-        !html.contains("図 7-3"),
-        "月給モードでは図 7-3 (最賃プレミアム率分布) を出力すべきでない"
+        !html.contains("図 9-3"),
+        "月給モードでは図 9-3 (最賃プレミアム率分布) を出力すべきでない"
     );
 }
 

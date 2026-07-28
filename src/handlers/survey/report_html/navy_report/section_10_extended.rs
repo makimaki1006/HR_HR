@@ -113,7 +113,7 @@ pub(crate) fn render_navy_section_10_extended(
     html.push_str("<section class=\"page-navy navy-extended\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 10",
+        "SECTION 11",
         "採用環境の詳細分析",
         "働き手の将来 / 給与の相場 / 転職を考えている人 / 採用の何がネックか",
     );
@@ -1244,7 +1244,7 @@ mod tests {
         );
         assert!(!html.is_empty());
         // Section 見出し
-        assert!(html.contains("採用環境の詳細分析"), "SECTION 10 見出し");
+        assert!(html.contains("採用環境の詳細分析"), "SECTION 11 見出し");
         // 図1
         assert!(
             html.contains("働き手はこの先どれだけ減るか"),
@@ -1264,7 +1264,7 @@ mod tests {
         // 図3
         assert!(html.contains("転職を考えている人は、どれくらいいるか（大分県）"));
         // 2026-07-27 item24: 転職意向の文脈から有効求人倍率 (全職種) を削除した。
-        assert!(!html.contains("有効求人倍率"), "§10 から有効求人倍率は削除済み");
+        assert!(!html.contains("有効求人倍率"), "§11 から有効求人倍率は削除済み");
         // 図4
         assert!(html.contains("採用の何がネックか — 大分市 の診断"));
         // 2026-07-28 item11: 駅別乗降客数は未投入のため、駅の人通り行は出さない。

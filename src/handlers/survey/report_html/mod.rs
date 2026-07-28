@@ -162,7 +162,7 @@ pub enum ReportVariant {
     /// - §02 冒頭の説明ブロックと表2-A を削除、表2-E は table2e パラメータで表示制御
     /// - §03 表3-A から四分位を別表に分離 / 表3-E を主要列に絞る / 図3-6 を削除
     ///   (図3-5 は残し、見やすさを改善)
-    /// - §04 (採用市場 逼迫度) はセクションごと非表示 (現場いわく「ハロワ調べは逆効果」)
+    /// - §08 (採用市場 逼迫度) はセクションごと非表示 (現場いわく「ハロワ調べは逆効果」)
     ///
     /// 既存 variant (Full / Public / MarketIntelligence / Extended / Sp) の出力は
     /// 1 バイトも変えない (Ver10 専用の分岐・置換層は `variant == Ver10` のときだけ働く)。
@@ -391,7 +391,7 @@ impl SectionSet {
         match &self.explicit {
             Some(set) => set.contains(code),
             None => match code {
-                // Ver10 は §04 (採用市場 逼迫度) をセクションごと非表示にする
+                // Ver10 は §08 (採用市場 逼迫度) をセクションごと非表示にする
                 // (現場レビュー: 有効求人倍率等の公式統計であっても逆効果)。目次も連動する。
                 "04" => !self.variant.is_ver10(),
                 "09" => self.variant.show_market_intelligence_sections(),
@@ -1098,31 +1098,13 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             navy_report::render_sp_salary_quartiles(&mut html, cfg.agg);
         }
     }
-    if cfg.section_set.shows("04") {
-        if cfg.variant.show_sp_sections() {
-            navy_report::render_sp_conclusion_band(&mut html, "04", cfg.agg, cfg.hw_context);
-        }
-        navy_report::render_navy_section_04_market_tightness(
-            &mut html,
-            cfg.hw_context,
-            cfg.variant,
-            &target_region,
-        );
+    // 旧 07.5 / 07.6 は表示上の独立セクション 04 / 05 として、給与の直後に配置する。
+    // 内部 SectionSet コードは既存 URL 互換のため 075 / 076 を維持する。
+    if cfg.section_set.shows("075") {
+        navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
     }
-    if cfg.section_set.shows("05") {
-        if cfg.variant.show_sp_sections() {
-            navy_report::render_sp_conclusion_band(&mut html, "05", cfg.agg, cfg.hw_context);
-        }
-        navy_report::render_navy_section_05_companies(
-            &mut html,
-            cfg.hw_context,
-            cfg.by_company,
-            cfg.salesnow_segments,
-            cfg.salesnow_segments_industry,
-            cfg.industry_filter,
-            cfg.variant,
-            &target_region,
-        );
+    if cfg.section_set.shows("076") {
+        navy_report::render_navy_section_popularity(&mut html, cfg.agg);
     }
     if cfg.section_set.shows("06") {
         if cfg.variant.show_sp_sections() {
@@ -1135,9 +1117,35 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             &target_region,
         );
     }
-    if cfg.section_set.shows("07") {
+    if cfg.section_set.shows("05") {
         if cfg.variant.show_sp_sections() {
             navy_report::render_sp_conclusion_band(&mut html, "07", cfg.agg, cfg.hw_context);
+        }
+        navy_report::render_navy_section_05_companies(
+            &mut html,
+            cfg.hw_context,
+            cfg.by_company,
+            cfg.salesnow_segments,
+            cfg.salesnow_segments_industry,
+            cfg.industry_filter,
+            cfg.variant,
+            &target_region,
+        );
+    }
+    if cfg.section_set.shows("04") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "08", cfg.agg, cfg.hw_context);
+        }
+        navy_report::render_navy_section_04_market_tightness(
+            &mut html,
+            cfg.hw_context,
+            cfg.variant,
+            &target_region,
+        );
+    }
+    if cfg.section_set.shows("07") {
+        if cfg.variant.show_sp_sections() {
+            navy_report::render_sp_conclusion_band(&mut html, "09", cfg.agg, cfg.hw_context);
         }
         navy_report::render_navy_section_07_lifestyle(
             &mut html,
@@ -1145,22 +1153,6 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             &target_region,
             cfg.agg,
         );
-    }
-    // 2026-05-15: 旧 Section 7.5 (補助データ全展開) は廃止し、各 ext_* 系を
-    //   Section 02/04/06/07 に統合。
-    // 2026-06-24: 新 Section 07.5「求人ボックス 年間休日 × 給与 詳細」を再導入。
-    //   求人ボックス CSV の description から年間休日を抽出した個別求人一覧 +
-    //   カテゴリ分布 + 給与帯別 平均年間休日 を表示する。
-    //   Indeed CSV や年間休日抽出ゼロの場合は自動スキップ (HTML 出力なし)。
-    if cfg.section_set.shows("075") {
-        navy_report::render_navy_section_jobbox_detail(&mut html, cfg.agg);
-    }
-    // 2026-06-30: 新 Section 07.6「人気度シグナル」を Indeed (SP) 用に追加。
-    //   Indeed (SP) CSV の `css-u74ql7` 列から抽出した「人気」「超人気」タグの
-    //   件数 / 比率 / 月給・年間休日 中央値比較を表示。
-    //   人気タグが 1 件もなければ (Indeed SP 以外のソース) 自動スキップ (HTML 出力なし)。
-    if cfg.section_set.shows("076") {
-        navy_report::render_navy_section_popularity(&mut html, cfg.agg);
     }
     // P0-8 (2026-05-30): Section 09 (Market Intelligence variant 専用) を Section 08 直前に挿入。
     //   MI variant のときだけ 6 サブセクション (9-A〜9-F) を追加表示する。
@@ -1174,7 +1166,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   Full/Public での出力は不変。sections 指定時は variant 無関係に 09 を出せる。
     if cfg.section_set.shows("09") {
         if cfg.variant.show_sp_sections() {
-            navy_report::render_sp_conclusion_band(&mut html, "09", cfg.agg, cfg.hw_context);
+            navy_report::render_sp_conclusion_band(&mut html, "10", cfg.agg, cfg.hw_context);
         }
         navy_report::render_navy_section_09_market_intelligence(
             &mut html,
@@ -1190,7 +1182,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
     //   2026-07-10: gate を SectionSet.shows("10") に変更 (09 と同様に variant 準拠を維持)。
     if cfg.section_set.shows("10") {
         if cfg.variant.show_sp_sections() {
-            navy_report::render_sp_conclusion_band(&mut html, "10", cfg.agg, cfg.hw_context);
+            navy_report::render_sp_conclusion_band(&mut html, "11", cfg.agg, cfg.hw_context);
         }
         navy_report::render_navy_section_10_extended(
             &mut html,
@@ -1381,7 +1373,7 @@ mod section_set_tests {
 
     #[test]
     fn render_gate_sections_02_only() {
-        // sections=02 のみ → §02 見出しは出る、§03/§09 は出ない。01/08 は常時。
+        // sections=02 のみ → §02 見出しは出る、§03/§09 は出ない。01/12 は常時。
         let agg = SurveyAggregation::default();
         let seeker = JobSeekerAnalysis::default();
         let ss = SectionSet::from_query(Some("02"), ReportVariant::MarketIntelligence);
@@ -1394,7 +1386,7 @@ mod section_set_tests {
         let html = render_survey_report_page_with_config(&cfg);
         // 常時セクション
         assert!(html.contains("SECTION 01"), "01 Executive は常時表示");
-        assert!(html.contains("SECTION 08"), "08 注記は常時表示");
+        assert!(html.contains("SECTION 12"), "12 注記は常時表示");
         // 選択セクション
         assert!(html.contains("SECTION 02"), "02 は選択済で出る");
         // 非選択セクション
@@ -1425,8 +1417,8 @@ mod section_set_tests {
         assert!(html.contains("SECTION 03"), "03 は選択済で出る");
         assert!(!html.contains("SECTION 02"), "02 は非選択で出ない");
         assert!(
-            html.contains("SECTION 01") && html.contains("SECTION 08"),
-            "01/08 常時"
+            html.contains("SECTION 01") && html.contains("SECTION 12"),
+            "01/12 常時"
         );
     }
 }
@@ -2732,7 +2724,7 @@ mod ui2_contract_tests {
         );
     }
 
-    // ---- Section 4: 雇用形態 ----
+    // ---- Section 8: 雇用形態・採用市場の逼迫度 ----
 
     #[test]
     fn ui2_employment_has_dumbbell_chart() {
@@ -2742,8 +2734,8 @@ mod ui2_contract_tests {
             "雇用形態 dumbbell chart (dumbbell-list/row) が必須"
         );
         assert!(
-            html.contains("図 4-1") || html.contains("図 4-2") || html.contains("表 4-1"),
-            "雇用形態セクションに図 4-1/4-2 または表 4-1 のキャプションが必須"
+            html.contains("図 8-1") || html.contains("図 8-2") || html.contains("表 8-1"),
+            "雇用形態セクションに図 8-1/8-2 または表 8-1 のキャプションが必須"
         );
     }
 
@@ -3861,7 +3853,7 @@ mod variant_indicator_tests {
         assert!(!sp.contains("要点まとめ"), "SP に Ver10 用語は出ない");
     }
 
-    /// 削除対象 (雇用形態構成 / 表2-A / 図3-6 / §04) が Ver10 に出ず、SP には出る逆証明。
+    /// 削除対象 (雇用形態構成 / 表2-A / 図3-6 / §08) が Ver10 に出ず、SP には出る逆証明。
     #[test]
     fn ver10_deletions_reverse_proof() {
         let ver10 = render_ver10(true);
@@ -3891,16 +3883,16 @@ mod variant_indicator_tests {
         // 図3-5 は Ver10 でも残る (見やすさ改善対象)
         assert!(ver10.contains("図 3-5"), "Ver10 に図 3-5 (改善版) は残る");
 
-        // (4) §04 (採用市場 逼迫度): セクションごと Ver10 に不在、SP には存在
+        // (4) §08 (採用市場 逼迫度): セクションごと Ver10 に不在、SP には存在
         assert!(
             !ver10.contains("採用市場 逼迫度"),
-            "Ver10 に §04 (採用市場 逼迫度) が残存"
+            "Ver10 に §08 (採用市場 逼迫度) が残存"
         );
-        assert!(sp.contains("採用市場 逼迫度"), "SP には §04 がある");
-        // 目次連動: Ver10 の目次にも §04 が載らない
+        assert!(sp.contains("採用市場 逼迫度"), "SP には §08 がある");
+        // 目次連動: Ver10 の目次にも §08 が載らない
         assert!(
             !ver10.contains("<span class=\"t-name\">採用市場 逼迫度</span>"),
-            "Ver10 の目次に §04 が残存 (目次連動していない)"
+            "Ver10 の目次に §08 が残存 (目次連動していない)"
         );
     }
 

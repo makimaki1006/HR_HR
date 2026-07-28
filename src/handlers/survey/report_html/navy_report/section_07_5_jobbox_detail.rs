@@ -1,12 +1,12 @@
-//! Section 07.5 - 年間休日 × 給与 詳細
+//! Section 04 - 年間休日 × 給与 詳細
 //!
 //! ## 構成 (2026-07-01 セグメント別給与拡張版)
 //!
-//! - §07.5-1 サマリー: 概況 KPI 5 枚 (抽出件数/平均/中央値/Q3/120日以上比率)
-//! - §07.5-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG + 給与中央値テーブル)
-//! - §07.5-3 相関: 給与×年間休日 散布図 (雇用形態色分け + 相関係数 r + 回帰直線)
-//! - §07.5-4 具体例: 個別求人テーブル (年間休日色分けバッジ + 給与 mini bar、最大 100 件)
-//! - §07.5-5 セグメント別給与統計: 年間休日カテゴリ別 下限/上限の 平均/中央値/最頻値
+//! - §04-1 サマリー: 概況 KPI 5 枚 (抽出件数/平均/中央値/Q3/120日以上比率)
+//! - §04-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG + 給与中央値テーブル)
+//! - §04-3 相関: 給与×年間休日 散布図 (雇用形態色分け + 相関係数 r + 回帰直線)
+//! - §04-4 具体例: 個別求人テーブル (年間休日色分けバッジ + 給与 mini bar、最大 100 件)
+//! - §04-5 セグメント別給与統計: 年間休日カテゴリ別 下限/上限の 平均/中央値/最頻値
 
 // 一部 helper 関数は test 用、または将来拡張のために定義済み (使用されていないものは dead_code)
 #![allow(dead_code)]
@@ -28,7 +28,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
     html.push_str("<section class=\"page-navy navy-jobbox-detail\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 07.5",
+        "SECTION 04",
         "年間休日 × 給与 詳細",
         "テキストから年間休日数を抽出し、給与・企業別に集計",
     );
@@ -64,7 +64,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
 
     // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-jobbox-detail スコープで改ページ制御
     // rank 5-2 (2026-07-02): table を break-inside:avoid から除外。
-    //   §07.5-4 の個別求人テーブルは A4 に収まらず、avoid 指定だと PDF 下端でクリップされる。
+    //   §04-4 の個別求人テーブルは A4 に収まらず、avoid 指定だと PDF 下端でクリップされる。
     //   テーブルの改ページ + ヘッダ再表示は既存グローバル設定に委ね、ここでは .kpi-row のみ制御。
     // rank 6 (2026-07-03): 残件 <details.jobbox-rest> の PDF 強制展開を打ち消す。
     //   グローバル style.rs:698 の `@media print { details { display:block !important; } }`
@@ -83,7 +83,7 @@ pub(crate) fn render_navy_section_jobbox_detail(html: &mut String, agg: &SurveyA
 }
 
 // ============================================================================
-// §07.5-1 サマリー: 概況 KPI 6 枚
+// §04-1 サマリー: 概況 KPI 6 枚
 // ============================================================================
 fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     let extracted = agg.jobbox.annual_holidays_values.len();
@@ -108,7 +108,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         .copied()
         .unwrap_or(0);
 
-    html.push_str("<div class=\"block-title\">§07.5-1 &nbsp;サマリー</div>\n");
+    html.push_str("<div class=\"block-title\">§04-1 &nbsp;サマリー</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
     // 2026-06-26 「抽出件数 N件 全 M件中 (X%)」KPI は削除 (信頼性低下の印象を回避)
     push_kpi_card_simple(
@@ -121,7 +121,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
         html,
         "第3四分位 (Q3)",
         &format!("{} 日", agg.jobbox.holiday_q3),
-        "上位 25% はこれ以上",
+        "高い方から 25% はこれ以上",
     );
     push_kpi_card_simple(
         html,
@@ -145,7 +145,7 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
 }
 
 // ============================================================================
-// §07.5-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG)
+// §04-2 分布: 年間休日カテゴリ分布 (横棒グラフ SVG)
 // ============================================================================
 fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
     if agg.jobbox.annual_holidays_category_distribution.is_empty() {
@@ -155,7 +155,7 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
     if extracted == 0 {
         return;
     }
-    html.push_str("<div class=\"block-title\">§07.5-2 &nbsp;年間休日カテゴリ分布</div>\n");
+    html.push_str("<div class=\"block-title\">§04-2 &nbsp;年間休日カテゴリ分布</div>\n");
 
     // カテゴリラベルに副題を付ける
     let subtitles: std::collections::HashMap<&str, &str> = [
@@ -255,7 +255,7 @@ fn render_distribution_block(html: &mut String, agg: &SurveyAggregation) {
     render_distribution_salary_median_table(html, agg);
 }
 
-/// §07.5-2 分布 SVG の下に配置される「カテゴリ別 月給下限/上限 中央値」表。
+/// §04-2 分布 SVG の下に配置される「カテゴリ別 月給下限/上限 中央値」表。
 /// 表 7.5-A への給与列追加要件 (2026-07-01) に対応。
 fn render_distribution_salary_median_table(html: &mut String, agg: &SurveyAggregation) {
     let stats = compute_salary_stats_by_holiday_category(agg);
@@ -308,14 +308,14 @@ fn render_distribution_salary_median_table(html: &mut String, agg: &SurveyAggreg
 }
 
 // ============================================================================
-// §07.5-3 相関: 給与×年間休日 散布図 (雇用形態色分け + 相関係数 r + 回帰直線)
+// §04-3 相関: 給与×年間休日 散布図 (雇用形態色分け + 相関係数 r + 回帰直線)
 // ============================================================================
 fn render_correlation_block(html: &mut String, agg: &SurveyAggregation) {
     if agg.jobbox.salary_vs_holidays_scatter.is_empty() {
         return;
     }
     html.push_str(
-        "<div class=\"block-title\">§07.5-3 &nbsp;給与 × 年間休日 散布図 (月給/年俸のみ)</div>\n",
+        "<div class=\"block-title\">§04-3 &nbsp;給与 × 年間休日 散布図 (月給/年俸のみ)</div>\n",
     );
 
     // 相関係数の表示
@@ -547,7 +547,7 @@ fn render_scatter_svg_emp(
 }
 
 // ============================================================================
-// §07.5-4 具体例: 個別求人テーブル
+// §04-4 具体例: 個別求人テーブル
 // ============================================================================
 fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     if agg.jobbox.jobbox_records.is_empty() {
@@ -560,10 +560,10 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     let shown = limit.min(DEFAULT_SHOWN); // デフォルト表示行数 (最大 20 件)
 
     html.push_str(
-        "<div class=\"block-title\">§07.5-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
+        "<div class=\"block-title\">§04-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
     );
     // rank 5-1 (2026-07-02): デフォルトは上位 20 件のみ描画。21 件目以降は <details> に折り畳み。
-    //   PDF ではテーブル 100 行が §07.5 全体を ~8000px に肥大化させページ数が増大するため、
+    //   PDF ではテーブル 100 行が §04 全体を ~8000px に肥大化させページ数が増大するため、
     //   残件は画面のみ展開可・PDF では非表示にしたい。
     // rank 6 (2026-07-03): グローバル style.rs の
     //   `@media print { details { display:block !important; } }` (style.rs:698) により、
@@ -597,14 +597,14 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
 
     if listed > limit {
         html.push_str(&format!(
-            "<p class=\"note\">具体例 {} 件のうち上位 {} 件を対象に表示 (年間休日降順 → 企業名昇順)。</p>\n",
+            "<p class=\"note\">具体例 {} 件のうち年間休日が多い方から {} 件を対象に表示 (年間休日降順 → 企業名昇順)。</p>\n",
             format_number(listed as i64),
             format_number(limit as i64),
         ));
     }
 }
 
-/// §07.5-4 個別求人テーブル (thead + 指定レコードの tbody) を描画。
+/// §04-4 個別求人テーブル (thead + 指定レコードの tbody) を描画。
 /// メイン表示 (上位 20 件) と <details> 内 (残り) の両方で共用する (rank 5-1, 2026-07-02)。
 fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
     // rank 22 (2026-07-03): 狭幅 (~620px) 表示崩れ修正。
@@ -695,7 +695,7 @@ fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
 }
 
 // ============================================================================
-// §07.5-5 セグメント別 給与統計 (年間休日カテゴリ別 下限/上限 平均/中央値/最頻値)
+// §04-5 セグメント別 給与統計 (年間休日カテゴリ別 下限/上限 平均/中央値/最頻値)
 // 2026-07-01 追加。
 // - データソース: agg.jobbox.jobbox_records (月給制のみ)
 // - 単位: 万円表示
@@ -709,7 +709,7 @@ fn render_segment_salary_block(html: &mut String, agg: &SurveyAggregation) {
         return;
     }
     html.push_str(
-        "<div class=\"block-title\">§07.5-5 &nbsp;セグメント別 給与統計 (年間休日カテゴリ別)</div>\n",
+        "<div class=\"block-title\">§04-5 &nbsp;セグメント別 給与統計 (年間休日カテゴリ別)</div>\n",
     );
     html.push_str(
         "<p class=\"note\">※ 月給制求人のみを対象に、年間休日カテゴリ別で\
@@ -1014,7 +1014,7 @@ mod tests {
     fn renders_summary_kpi() {
         let mut html = String::new();
         render_summary_kpi(&mut html, &agg_with_jobbox());
-        assert!(html.contains("§07.5-1"), "summary subheader");
+        assert!(html.contains("§04-1"), "summary subheader");
         assert!(html.contains("第3四分位"), "Q3 KPI");
         assert!(html.contains("120日以上比率"), "120 day rate");
         assert!(html.contains("125日以上比率"), "125 day rate");
@@ -1025,7 +1025,7 @@ mod tests {
     fn renders_distribution_horizontal_bars() {
         let mut html = String::new();
         render_distribution_block(&mut html, &agg_with_jobbox());
-        assert!(html.contains("§07.5-2"));
+        assert!(html.contains("§04-2"));
         assert!(html.contains("<svg"), "SVG horizontal bar chart");
         assert!(html.contains("週休2日+祝日"), "subtitle for 120-124");
         assert!(html.contains("<rect"), "bar rect");
@@ -1035,7 +1035,7 @@ mod tests {
     fn renders_correlation_with_r_and_regression() {
         let mut html = String::new();
         render_correlation_block(&mut html, &agg_with_jobbox());
-        assert!(html.contains("§07.5-3"));
+        assert!(html.contains("§04-3"));
         assert!(html.contains("r ="), "correlation coefficient label");
         assert!(html.contains("0.450"), "r value formatted");
         // Finding #6 (2026-07-01): scatter_emp が 3 件 (n < 10) のため傾向判定なし表示
@@ -1120,7 +1120,7 @@ mod tests {
     fn renders_examples_with_badges_and_text_salary() {
         let mut html = String::new();
         render_examples_block(&mut html, &agg_with_jobbox());
-        assert!(html.contains("§07.5-4"));
+        assert!(html.contains("§04-4"));
         assert!(html.contains("テスト株式会社"));
         assert!(
             html.contains("border-radius:10px"),
@@ -1143,22 +1143,22 @@ mod tests {
     fn full_section_renders_4_subheaders() {
         let mut html = String::new();
         render_navy_section_jobbox_detail(&mut html, &agg_with_jobbox());
-        assert!(html.contains("SECTION 07.5"));
-        assert!(html.contains("§07.5-1"));
-        assert!(html.contains("§07.5-2"));
-        assert!(html.contains("§07.5-3"));
-        assert!(html.contains("§07.5-4"));
-        // 2026-07-01: §07.5-5 セグメント別給与統計セクション
+        assert!(html.contains("SECTION 04"));
+        assert!(html.contains("§04-1"));
+        assert!(html.contains("§04-2"));
+        assert!(html.contains("§04-3"));
+        assert!(html.contains("§04-4"));
+        // 2026-07-01: §04-5 セグメント別給与統計セクション
         // agg_with_jobbox() には jobbox_records が 1 件あるので描画される
-        assert!(html.contains("§07.5-5"));
+        assert!(html.contains("§04-5"));
     }
 
     // =========================================================================
-    // 2026-07-01 新規: §07.5-2 給与中央値テーブル + §07.5-5 セグメント別給与
+    // 2026-07-01 新規: §04-2 給与中央値テーブル + §04-5 セグメント別給与
     // =========================================================================
 
     /// jobbox_records に月給データがあるとき、
-    /// §07.5-2 分布 SVG の下に「月給下限/上限 中央値」テーブルが描画される。
+    /// §04-2 分布 SVG の下に「月給下限/上限 中央値」テーブルが描画される。
     #[test]
     fn renders_salary_column_in_distribution_table() {
         let mut html = String::new();
@@ -1187,13 +1187,13 @@ mod tests {
         assert!(html.contains("—"), "件数 0 のカテゴリは — 表示");
     }
 
-    /// §07.5-5 セグメント別給与統計セクションが描画される。
+    /// §04-5 セグメント別給与統計セクションが描画される。
     /// agg_with_jobbox の jobbox_records に 1 件 (120 日, 25 万-35 万) あるので表示。
     #[test]
     fn renders_segment_salary_section() {
         let mut html = String::new();
         render_segment_salary_block(&mut html, &agg_with_jobbox());
-        assert!(html.contains("§07.5-5"), "セグメント別給与セクション見出し");
+        assert!(html.contains("§04-5"), "セグメント別給与セクション見出し");
         assert!(
             html.contains("セグメント別 給与統計"),
             "セクションタイトル本体"
@@ -1213,7 +1213,7 @@ mod tests {
         assert!(html.contains("35.0"), "上限 35.0 万円");
     }
 
-    /// jobbox_records が空 (全カテゴリで n=0) の場合、§07.5-5 は描画しない。
+    /// jobbox_records が空 (全カテゴリで n=0) の場合、§04-5 は描画しない。
     #[test]
     fn skips_segment_salary_when_all_zero() {
         let agg = SurveyAggregation {
@@ -1234,7 +1234,7 @@ mod tests {
         render_segment_salary_block(&mut html, &agg);
         assert!(
             html.is_empty(),
-            "jobbox_records 空 → §07.5-5 は描画されない"
+            "jobbox_records 空 → §04-5 は描画されない"
         );
     }
 
@@ -1275,7 +1275,7 @@ mod tests {
             },
             ..Default::default()
         };
-        // §07.5-4: 残件 details に専用クラス
+        // §04-4: 残件 details に専用クラス
         let mut ex = String::new();
         render_examples_block(&mut ex, &agg);
         assert!(
@@ -1429,14 +1429,14 @@ mod tests {
         render_navy_section_jobbox_detail(&mut html, &agg);
         // セクション全体が描画される
         assert!(
-            html.contains("SECTION 07.5"),
+            html.contains("SECTION 04"),
             "annual_holidays のみでもセクション描画される"
         );
         // KPI サマリーが描画される
-        assert!(html.contains("§07.5-1"), "KPI サマリーが描画される");
+        assert!(html.contains("§04-1"), "KPI サマリーが描画される");
         // 個別求人テーブルは描画されない (jobbox_records が空)
         assert!(
-            !html.contains("§07.5-4"),
+            !html.contains("§04-4"),
             "jobbox_records 空 → 具体例テーブルは非表示"
         );
     }

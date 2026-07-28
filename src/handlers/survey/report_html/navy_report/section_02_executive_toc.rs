@@ -54,11 +54,11 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant, section
     html.push_str("<div class=\"toc-grid\">\n");
 
     // 番号はセクション見出しの SECTION 番号と一致させ、並びは実際の掲載順
-    // (…07 → 09 → 10 → 08 注記が最終ページ) に合わせる。
+    // (…09 → 10 → 11 → 12 注記が最終ページ) に合わせる。
     // 2026-07-10: SectionSet 連動。sections 未指定 (from_variant) では shows("02".."07")
     //   が常に true・09/10 が variant gate のため、従来の掲載内容と完全に等価 (byte 不変)。
-    //   07.5/07.6 は従来どおり目次に載せない (本文のみ)。
-    // 01 (Executive Summary) と 08 (注記・出典) は常時掲載 (選択不可)。
+    // 旧 07.5/07.6 は独立セクション 04/05 として目次にも掲載する。
+    // 01 (全体サマリー) と 12 (注記・出典) は常時掲載 (選択不可)。
     let mut items: Vec<(&str, &str)> = vec![("01", "全体サマリーと主要指標")];
     if sections.shows("02") {
         items.push(("02", section_02));
@@ -66,25 +66,31 @@ pub(crate) fn render_navy_toc(html: &mut String, variant: ReportVariant, section
     if sections.shows("03") {
         items.push(("03", "給与分布 統計"));
     }
-    if sections.shows("04") {
-        items.push(("04", "採用市場 逼迫度"));
+    if sections.shows("075") {
+        items.push(("04", "年間休日 × 給与 詳細"));
     }
-    if sections.shows("05") {
-        items.push(("05", "地域企業構造"));
+    if sections.shows("076") {
+        items.push(("05", "人気度シグナル"));
     }
     if sections.shows("06") {
         items.push(("06", "人材デモグラフィック"));
     }
+    if sections.shows("05") {
+        items.push(("07", "地域企業構造"));
+    }
+    if sections.shows("04") {
+        items.push(("08", "採用市場 逼迫度"));
+    }
     if sections.shows("07") {
-        items.push(("07", "最低賃金・ライフスタイル"));
+        items.push(("09", "最低賃金・ライフスタイル"));
     }
     if sections.shows("09") {
-        items.push(("09", "採用マーケットインテリジェンス"));
+        items.push(("10", "採用マーケットインテリジェンス"));
     }
     if sections.shows("10") {
-        items.push(("10", "採用環境の詳細分析"));
+        items.push(("11", "採用環境の詳細分析"));
     }
-    items.push(("08", "注記・出典・免責"));
+    items.push(("12", "注記・出典・免責"));
 
     let split = items.len().div_ceil(2);
     for col in [&items[..split], &items[split..]] {
@@ -537,7 +543,7 @@ fn build_findings(
         sev,
         "地域カバレッジ".to_string(),
         body,
-        "§5 地域分析".to_string(),
+        "§7 地域分析".to_string(),
     ));
 
     // ============================================================
@@ -571,7 +577,7 @@ fn build_findings(
                 sev_ind,
                 "産業構成 偏り".to_string(),
                 escape_html(&body_ind),
-                "§5 産業構成".to_string(),
+                "§7 産業構成".to_string(),
             ));
 
             // Finding 07: 職種 (job_type) の偏り
@@ -580,7 +586,7 @@ fn build_findings(
                 sev_job,
                 "職種構成 偏り".to_string(),
                 escape_html(&body_job),
-                "§4 採用市場".to_string(),
+                "§8 採用市場".to_string(),
             ));
         }
     }
@@ -835,12 +841,12 @@ mod tests {
 
     #[test]
     fn toc_explicit_sections_only_lists_selected() {
-        // sections=02,03 のみ選択 → 目次は 01/02/03/08 のみ。04-07/09/10 は載らない。
+        // sections=02,03 のみ選択 → 目次は 01/02/03/12 のみ。他セクションは載らない。
         let mut html = String::new();
         let sset = SectionSet::from_query(Some("02,03"), ReportVariant::Extended);
         render_navy_toc(&mut html, ReportVariant::Extended, &sset);
         // 常時掲載
-        for no in ["01", "02", "03", "08"] {
+        for no in ["01", "02", "03", "12"] {
             assert!(
                 html.contains(&format!(">{}</span>", no)),
                 "TOC に {} が必要: {}",
@@ -849,7 +855,7 @@ mod tests {
             );
         }
         // 非選択セクションは載らない
-        for no in ["04", "05", "06", "07", "09", "10"] {
+        for no in ["04", "05", "06", "07", "08", "09", "10", "11"] {
             assert!(
                 !html.contains(&format!(">{}</span>", no)),
                 "TOC に非選択 {} が出てはいけない: {}",
@@ -860,27 +866,53 @@ mod tests {
     }
 
     #[test]
+    fn toc_full_order_matches_display_section_numbers() {
+        let mut html = String::new();
+        let sset = SectionSet::from_query(
+            Some("02,03,075,076,06,05,04,07,09,10"),
+            ReportVariant::Sp,
+        );
+        render_navy_toc(&mut html, ReportVariant::Sp, &sset);
+
+        let mut previous = 0;
+        for no in [
+            "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+        ] {
+            let marker = format!("<span class=\"t-no\">{}</span>", no);
+            let position = html
+                .find(&marker)
+                .unwrap_or_else(|| panic!("TOC に {} が必要: {}", no, html));
+            assert!(
+                position >= previous,
+                "TOC の表示順が不正: {} は直前の項目より後ろに必要",
+                no
+            );
+            previous = position;
+        }
+    }
+
+    #[test]
     fn toc_explicit_can_include_09_10_regardless_of_variant() {
         // sections=09,10 は variant=Public でも目次に載せられる (SectionSet 明示指定)。
         let mut html = String::new();
         let sset = SectionSet::from_query(Some("09,10"), ReportVariant::Public);
         render_navy_toc(&mut html, ReportVariant::Public, &sset);
-        assert!(html.contains(">09</span>"), "09 掲載: {}", html);
         assert!(html.contains(">10</span>"), "10 掲載: {}", html);
-        // 01/08 は常時、02 は非選択なので出ない
-        assert!(html.contains(">01</span>") && html.contains(">08</span>"));
+        assert!(html.contains(">11</span>"), "11 掲載: {}", html);
+        // 01/12 は常時、02 は非選択なので出ない
+        assert!(html.contains(">01</span>") && html.contains(">12</span>"));
         assert!(!html.contains(">02</span>"), "02 は非選択: {}", html);
     }
 
     #[test]
     fn toc_minimal_lists_only_cover_summary_notes() {
-        // 最小 (要約のみ): 有効コードを含まない非空 → 目次は 01/08 のみ。
+        // 最小 (要約のみ): 有効コードを含まない非空 → 目次は 01/12 のみ。
         let mut html = String::new();
         let sset = SectionSet::from_query(Some("none"), ReportVariant::Extended);
         render_navy_toc(&mut html, ReportVariant::Extended, &sset);
         assert!(html.contains(">01</span>"), "01 常時: {}", html);
-        assert!(html.contains(">08</span>"), "08 常時: {}", html);
-        for no in ["02", "03", "04", "05", "06", "07", "09", "10"] {
+        assert!(html.contains(">12</span>"), "12 常時: {}", html);
+        for no in ["02", "03", "04", "05", "06", "07", "08", "09", "10", "11"] {
             assert!(
                 !html.contains(&format!(">{}</span>", no)),
                 "最小構成に {} が出てはいけない: {}",

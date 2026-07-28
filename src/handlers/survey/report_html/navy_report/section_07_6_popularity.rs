@@ -1,4 +1,4 @@
-//! Section 07.6 - 人気度シグナル / Indeed (SP) 表示優先度スコア 集計
+//! Section 05 - 人気度シグナル / Indeed (SP) 表示優先度スコア 集計
 //!
 //! Indeed (SP) スマートフォン版 CSV の `css-u74ql7` 列から抽出した
 //! 「人気」「超人気」タグの集計を表示する。Indeed (SP) 以外のソースでは
@@ -6,10 +6,10 @@
 //! セクションごとスキップする。
 //!
 //! ## 構成
-//! - §07.6-1 サマリー: 件数 / 比率 KPI 5 枚
-//! - §07.6-2 月給 比較: 人気タグ あり vs なし の中央値比較
-//! - §07.6-3 人気タグ別 給与統計: 超人気/人気/タグなし の下限・上限 平均/中央値/最頻値
-//! - §07.6-4 人気タグ別 年間休日統計: 超人気/人気/タグなし の 件数/中央値/平均/P25/P75
+//! - §05-1 サマリー: 件数 / 比率 KPI 5 枚
+//! - §05-2 月給 比較: 人気タグ あり vs なし の中央値比較
+//! - §05-3 人気タグ別 給与統計: 超人気/人気/タグなし の下限・上限 平均/中央値/最頻値
+//! - §05-4 人気タグ別 年間休日統計: 超人気/人気/タグなし の 件数/中央値/平均/P25/P75
 //!   (2026-07-28 復活。集計層に 3 区分別の HolidayStats を追加して実装)
 //!
 //! ## 設計メモ
@@ -36,7 +36,7 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
     html.push_str("<section class=\"page-navy navy-popularity\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 07.6",
+        "SECTION 05",
         "人気度シグナル",
         "「人気」「超人気」ラベルの集計 — 付与基準は非公開の参考指標",
     );
@@ -60,11 +60,11 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
 }
 
 // ============================================================================
-// §07.6-1 サマリー KPI
+// §05-1 サマリー KPI
 // ============================================================================
 fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     let pop = &agg.popularity;
-    html.push_str("<div class=\"block-title\">§07.6-1 &nbsp;サマリー</div>\n");
+    html.push_str("<div class=\"block-title\">§05-1 &nbsp;サマリー</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
 
     push_kpi_card_simple(
@@ -114,8 +114,8 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
     push_kpi_card_simple(html, "月給中央値差", &salary_diff_text, &salary_diff_foot);
 
     // 2026-07-27 item14: 年間休日は人気タグとの 3 区分 (超人気/人気/タグなし) 別集計が
-    //   集計層に無く、人気との紐づけが読み取れない 2 区分比較は誤解を生むため §07.6 から
-    //   外した (給与は §07.6-3 で 3 区分別に提示)。年間休日の KPI カード / 比較行は非表示。
+    //   集計層に無く、人気との紐づけが読み取れない 2 区分比較は誤解を生むため §05 から
+    //   外した (給与は §05-3 で 3 区分別に提示)。年間休日の KPI カード / 比較行は非表示。
 
     html.push_str("</div>\n");
     // rank8: 超人気逆転の注記 + 効果約束の緩和
@@ -133,12 +133,12 @@ fn render_summary_kpi(html: &mut String, agg: &SurveyAggregation) {
 }
 
 // ============================================================================
-// §07.6-2 月給・年間休日 比較
+// §05-2 月給・年間休日 比較
 // ============================================================================
 fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
     let pop = &agg.popularity;
     // 比較可能な指標が 1 つもなければスキップ
-    // 2026-07-27 item14: 年間休日比較は人気タグとの紐づけが読めないため §07.6 から除外。
+    // 2026-07-27 item14: 年間休日比較は人気タグとの紐づけが読めないため §05 から除外。
     let has_salary = pop.popular_salary_median.is_some() || pop.non_popular_salary_median.is_some();
     if !has_salary {
         return;
@@ -146,7 +146,7 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
 
     // Finding #5 (2026-07-01): n < 5 の場合は値非表示 (n 数は列ヘッダに併記)
     const N_MIN_TABLE: usize = 5;
-    html.push_str("<div class=\"block-title\">§07.6-2 &nbsp;月給 比較 (中央値)</div>\n");
+    html.push_str("<div class=\"block-title\">§05-2 &nbsp;月給 比較 (中央値)</div>\n");
 
     // rank29: ヘッダの単一 n を廃止。各指標行に実 n を個別に併記する。
     html.push_str(
@@ -192,7 +192,7 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
             pop_val, non_val,
         ));
     }
-    // 2026-07-27 item14: 年間休日行は §07.6 から除外 (人気タグとの 3 区分別集計が無く
+    // 2026-07-27 item14: 年間休日行は §05 から除外 (人気タグとの 3 区分別集計が無く
     //   2 区分比較では人気との紐づけが読めないため)。
     html.push_str("</tbody></table>\n");
 
@@ -205,10 +205,10 @@ fn render_comparison_block(html: &mut String, agg: &SurveyAggregation) {
 }
 
 // ============================================================================
-// §07.6-3 人気タグ別 給与統計 (月給下限・上限 の 平均/中央値/最頻値)
+// §05-3 人気タグ別 給与統計 (月給下限・上限 の 平均/中央値/最頻値)
 // ============================================================================
 
-/// §07.6-3 を描画。3 グループ全て n=0 なら全体スキップ。
+/// §05-3 を描画。3 グループ全て n=0 なら全体スキップ。
 fn render_salary_stats_block(html: &mut String, agg: &SurveyAggregation) {
     let pop = &agg.popularity;
     let sp = &pop.super_popular_salary_stats;
@@ -222,7 +222,7 @@ fn render_salary_stats_block(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str(
         "<div class=\"block-title\">\
-         §07.6-3 &nbsp;人気タグ別 給与統計 (月給下限・上限 の 平均/中央値/最頻値)\
+         §05-3 &nbsp;人気タグ別 給与統計 (月給下限・上限 の 平均/中央値/最頻値)\
          </div>\n",
     );
 
@@ -305,15 +305,15 @@ fn render_salary_stats_block(html: &mut String, agg: &SurveyAggregation) {
 }
 
 // ============================================================================
-// §07.6-4 人気タグ別 年間休日統計 (件数・中央値・平均・P25/P75)
+// §05-4 人気タグ別 年間休日統計 (件数・中央値・平均・P25/P75)
 // ============================================================================
 
 /// 表示側で「件数僅少」と注記する閾値 (この未満は参考値扱い)。
 const HOLIDAY_N_MIN: usize = 5;
 
-/// §07.6-4 を描画。3 グループ全て n=0 なら全体スキップ。
+/// §05-4 を描画。3 グループ全て n=0 なら全体スキップ。
 ///
-/// 給与側 (§07.6-3) と同じ 3 区分 (超人気/人気/タグなし) の表構造で、
+/// 給与側 (§05-3) と同じ 3 区分 (超人気/人気/タグなし) の表構造で、
 /// 年間休日の 件数・中央値・平均・P25・P75 を並べる。各区分の分母は
 /// 「年間休日を抽出できた件数」であり、抽出できなかった求人は除外している
 /// (分母の透明性のため n を明示)。
@@ -330,7 +330,7 @@ fn render_holiday_stats_block(html: &mut String, agg: &SurveyAggregation) {
 
     html.push_str(
         "<div class=\"block-title\">\
-         §07.6-4 &nbsp;人気タグ別 年間休日統計 (件数・中央値・平均・四分位)\
+         §05-4 &nbsp;人気タグ別 年間休日統計 (件数・中央値・平均・四分位)\
          </div>\n",
     );
 
@@ -455,7 +455,7 @@ fn build_holiday_comparison_note(
     }
 }
 
-// Finding #8 (2026-07-01): 月給中央値を万円表示に変更 (§07.6-2 比較表も統一)。
+// Finding #8 (2026-07-01): 月給中央値を万円表示に変更 (§05-2 比較表も統一)。
 fn format_salary_yen(v: Option<i64>) -> String {
     match v {
         Some(x) => format!("{:.1} 万円", x as f64 / 10_000.0),
@@ -503,16 +503,16 @@ mod tests {
     fn renders_full_section_with_popularity() {
         let mut html = String::new();
         render_navy_section_popularity(&mut html, &agg_with_popularity());
-        assert!(html.contains("SECTION 07.6"));
-        assert!(html.contains("§07.6-1"));
-        assert!(html.contains("§07.6-2"));
+        assert!(html.contains("SECTION 05"));
+        assert!(html.contains("§05-1"));
+        assert!(html.contains("§05-2"));
         assert!(html.contains("人気タグ件数"));
         assert!(html.contains("超人気タグ件数"));
         // 30% (6/20) を含む
         assert!(html.contains("30.0%"), "popular_ratio formatted");
         // Finding #8: 月給差は万円表示 (+2.0 万円)
         assert!(html.contains("+2.0 万円"), "salary diff in manyen");
-        // 2026-07-27 item14: 年間休日の KPI/比較行は §07.6 から除外したため表示されない。
+        // 2026-07-27 item14: 年間休日の KPI/比較行は §05 から除外したため表示されない。
         assert!(!html.contains("年間休日中央値差"), "年間休日 KPI は非表示");
         assert!(!html.contains("年間休日 中央値"), "年間休日 比較行は非表示");
         assert!(!html.contains("120 日"), "年間休日値は非表示");
@@ -572,7 +572,7 @@ mod tests {
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
-        assert!(html.contains("SECTION 07.6"));
+        assert!(html.contains("SECTION 05"));
         // Finding #8: 月給は万円表示
         assert!(html.contains("25.0 万円"), "250,000 → 25.0 万円");
         // holidays 行は出ない (両方 None)
@@ -654,10 +654,10 @@ mod tests {
     }
 
     // =========================================================================
-    // §07.6-3 テスト
+    // §05-3 テスト
     // =========================================================================
 
-    /// 3 グループとも n >= 1 → §07.6-3 が描画される
+    /// 3 グループとも n >= 1 → §05-3 が描画される
     #[test]
     fn renders_popularity_salary_stats_section() {
         use super::super::super::super::aggregator::SalaryStats;
@@ -705,14 +705,14 @@ mod tests {
                     max_median: Some(320_000),
                     max_mode: Some(300_000),
                 },
-                // 年間休日 3 区分統計はこのテストの対象外 (既定 = n=0 で §07.6-4 非描画)。
+                // 年間休日 3 区分統計はこのテストの対象外 (既定 = n=0 で §05-4 非描画)。
                 ..Default::default()
             },
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
-        // §07.6-3 見出しが存在する
-        assert!(html.contains("§07.6-3"), "section 07.6-3 heading present");
+        // §05-3 見出しが存在する
+        assert!(html.contains("§05-3"), "section 05-3 heading present");
         assert!(
             html.contains("人気タグ別 給与統計"),
             "section title present"
@@ -737,7 +737,7 @@ mod tests {
         );
     }
 
-    /// 3 グループとも n=0 → §07.6-3 全体スキップ
+    /// 3 グループとも n=0 → §05-3 全体スキップ
     #[test]
     fn skips_popularity_salary_stats_when_all_zero() {
         use super::super::super::super::aggregator::SalaryStats;
@@ -759,17 +759,17 @@ mod tests {
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
-        // §07.6 全体は描画される (popular_count > 0)
-        assert!(html.contains("SECTION 07.6"), "section renders");
-        // §07.6-3 はスキップされる
+        // §05 全体は描画される (popular_count > 0)
+        assert!(html.contains("SECTION 05"), "section renders");
+        // §05-3 はスキップされる
         assert!(
-            !html.contains("§07.6-3"),
+            !html.contains("§05-3"),
             "salary stats section skipped when all n=0"
         );
     }
 
     // =========================================================================
-    // §07.6-4 年間休日 3 区分統計 テスト (2026-07-28)
+    // §05-4 年間休日 3 区分統計 テスト (2026-07-28)
     // =========================================================================
 
     fn agg_with_holiday_stats() -> SurveyAggregation {
@@ -809,12 +809,12 @@ mod tests {
         }
     }
 
-    /// §07.6-4 が 3 区分の年間休日統計を描画する
+    /// §05-4 が 3 区分の年間休日統計を描画する
     #[test]
     fn renders_holiday_stats_section() {
         let mut html = String::new();
         render_navy_section_popularity(&mut html, &agg_with_holiday_stats());
-        assert!(html.contains("§07.6-4"), "section 07.6-4 heading present");
+        assert!(html.contains("§05-4"), "section 05-4 heading present");
         assert!(
             html.contains("人気タグ別 年間休日統計"),
             "holiday stats title present"
@@ -835,7 +835,7 @@ mod tests {
         assert!(html.contains("+10 日"), "super_popular vs 非人気 diff");
     }
 
-    /// 3 区分とも n=0 → §07.6-4 スキップ (但し popular_count>0 で §07.6 自体は描画)
+    /// 3 区分とも n=0 → §05-4 スキップ (但し popular_count>0 で §05 自体は描画)
     #[test]
     fn skips_holiday_stats_when_all_zero() {
         use super::super::super::super::aggregator::PopularityAnalysis;
@@ -854,9 +854,9 @@ mod tests {
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
-        assert!(html.contains("SECTION 07.6"), "section renders");
+        assert!(html.contains("SECTION 05"), "section renders");
         assert!(
-            !html.contains("§07.6-4"),
+            !html.contains("§05-4"),
             "holiday stats section skipped when all n=0"
         );
     }
@@ -897,7 +897,7 @@ mod tests {
             ..Default::default()
         };
         render_navy_section_popularity(&mut html, &agg);
-        assert!(html.contains("§07.6-4"), "section renders (n>0 somewhere)");
+        assert!(html.contains("§05-4"), "section renders (n>0 somewhere)");
         // n<5 区分の参考値注記
         assert!(html.contains("参考値(件数僅少)"), "small-n reference marker");
         // 人気 (n=0) はデータなし行

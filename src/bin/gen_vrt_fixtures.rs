@@ -2,7 +2,7 @@
 //!
 //! # 目的
 //!
-//! `navy_report` の各セクション (01-09 + 07.5 + 07.6) を、**DB / サーバ /
+//! `navy_report` の各セクション (01-12) を、**DB / サーバ /
 //! ネットワークなし**でレンダリングし、バイト単位で再現可能な HTML fixture を
 //! `vrt/fixtures/*.html` に出力する。CI (ubuntu-latest) で baseline を生成・
 //! 比較することで、レポート描画の意図しない差分を機械的に検出する。
@@ -12,7 +12,7 @@
 //! - 入力は本ファイル内で構築した**合成データのみ** (実企業名・実スクレイピング
 //!   データは一切含まない。公開リポのため)。
 //! - 生成日時は `REPORT_FIXED_TIMESTAMP` 環境変数で固定 (main 冒頭でセット)。
-//!   これにより §08 等の「YYYY年MM月DD日 HH:MM 時点」がラン毎に変化しない。
+//!   これにより §12 等の「YYYY年MM月DD日 HH:MM 時点」がラン毎に変化しない。
 //! - HashMap のイテレーション順に依存する箇所を避けるため、可変長データは
 //!   すべて `Vec` (順序保持) で与える。`hw_enrichment_map` は空 (未使用)。
 //!
@@ -21,7 +21,7 @@
 //! ```text
 //! cargo run --bin gen_vrt_fixtures
 //! # → vrt/fixtures/report_mi.html    (MarketIntelligence variant フル)
-//! # → vrt/fixtures/report_basic.html (Public variant, 07.5/07.6/09 なし)
+//! # → vrt/fixtures/report_basic.html (Public variant, 04/05/10 なし)
 //! ```
 //!
 //! # サンセット基準
@@ -67,7 +67,7 @@ fn vf(x: f64) -> Value {
 
 // ── 合成 SurveyAggregation ─────────────────────────────────────────────
 
-/// 25 件の求人ボックスレコードを決定論的に生成 (Section 07.5 用)。
+/// 25 件の求人ボックスレコードを決定論的に生成 (Section 04 用)。
 fn build_jobbox_records() -> Vec<JobBoxRecord> {
     let names = [
         "サンプル運輸株式会社",
@@ -192,7 +192,7 @@ fn build_popularity() -> PopularityAnalysis {
         non_popular_n_salary: 17,
         popular_n_holidays: 8,
         non_popular_n_holidays: 17,
-        // 2026-07-28: §07.6-4 年間休日 3 区分統計の VRT カバレッジ用 (合成値)。
+        // 2026-07-28: §05-4 年間休日 3 区分統計の VRT カバレッジ用 (合成値)。
         super_popular_holiday_stats: rust_dashboard::handlers::survey::aggregator::HolidayStats {
             n: 2,
             median: Some(122),
@@ -220,7 +220,7 @@ fn build_popularity() -> PopularityAnalysis {
 
 /// リッチな合成 `SurveyAggregation`。
 ///
-/// `include_jobbox=false` の場合は Section 07.5 / 07.6 が描画されないよう
+/// `include_jobbox=false` の場合は Section 04 / 05 が描画されないよう
 /// `jobbox` / `popularity` を default (空) にする (Public/basic fixture 用)。
 fn build_agg(include_jobbox: bool) -> SurveyAggregation {
     SurveyAggregation {
@@ -725,7 +725,7 @@ fn main() {
     let ctx = build_ctx();
     let seeker = build_seeker();
 
-    // 1) MarketIntelligence variant: 全セクション (01-09 + 07.5 + 07.6)
+    // 1) MarketIntelligence variant: 全セクション (01-12)
     let agg_full = build_agg(true);
     let html_mi = render_survey_report_page_for_vrt(
         &agg_full,
@@ -739,7 +739,7 @@ fn main() {
     );
     write_fixture(&out_dir, "report_mi.html", &html_mi);
 
-    // 2) Public variant: 07.5 / 07.6 / 09 なし (jobbox/popularity 空 + Public)
+    // 2) Public variant: 04 / 05 / 10 なし (jobbox/popularity 空 + Public)
     let agg_basic = build_agg(false);
     let html_basic = render_survey_report_page_for_vrt(
         &agg_basic,
