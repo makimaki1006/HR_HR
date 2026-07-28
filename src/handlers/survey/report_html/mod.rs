@@ -833,6 +833,8 @@ pub(crate) fn render_survey_report_page_with_sections(
     table2e: bool,
     // 2026-07-27: §02 表 2-D 市区町村統計 (基準 + 同一県内近隣)。空なら県平均表にフォールバック。
     region_2d_stats: &[RegionMuniStat],
+    // 2026-07-28: §02 表 2-C-2 通勤流出先 TOP3。空なら表非表示。
+    commute_outflow_top3: &[(String, String, i64)],
 ) -> String {
     let cfg = RenderConfig::builder()
         .agg(agg)
@@ -857,6 +859,7 @@ pub(crate) fn render_survey_report_page_with_sections(
         .section_set(section_set)
         .table2e(table2e)
         .region_2d_stats(region_2d_stats)
+        .commute_outflow_top3(commute_outflow_top3)
         .build();
     render_survey_report_page_with_config(&cfg)
 }
@@ -1073,6 +1076,7 @@ pub(crate) fn render_survey_report_page_with_config(cfg: &RenderConfig<'_>) -> S
             &target_region,
             cfg.table2e,
             cfg.region_2d_stats,
+            cfg.commute_outflow_top3,
         );
     }
     if cfg.section_set.shows("03") {
@@ -4592,6 +4596,7 @@ mod variant_indicator_tests {
             sales_range: "5億円以上".to_string(),
             employee_delta_1y: 3.5,
             employee_delta_3m: 0.8,
+            capital_stock_range: "1千万円以上5千万円未満".to_string(),
         }
     }
 

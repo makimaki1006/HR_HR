@@ -226,6 +226,7 @@ fn make_company(corp_num: &str, name: &str, employee_count: i64, delta_1y: f64) 
         sales_range: String::new(),
         employee_delta_1y: delta_1y,
         employee_delta_3m: 0.0,
+        capital_stock_range: String::new(),
     }
 }
 
@@ -1609,6 +1610,7 @@ fn invariant_table_2d_municipality_comparison_renders_base_and_reference() {
         "東京都 千代田区",
         true,
         &stats,
+        &[],
     );
 
     assert!(html.contains("表 2-D"), "表 2-D が描画される");
@@ -1634,6 +1636,89 @@ fn invariant_table_2d_sane_rate_guard_rejects_out_of_range() {
     assert_eq!(sane(Some(380.0)), None, "380% (2026-04-27 流出型) は棄却");
     assert_eq!(sane(Some(-5.0)), None, "負値は棄却");
     assert_eq!(sane(None), None, "欠損は None のまま");
+}
+
+// =====================================================================
+// 2026-07-28: 表 2-C-2 通勤流出先 TOP3 (表 2-C 流入との対称機能)
+//
+// 背景: 表 2-C は「周辺地域 → 選択市区町村」の流入のみで、選択市区町村から他地域へ
+//   働きに出る流出側の表が無いとユーザー指摘。commute_outflow_top3 を section
+//   render 関数の個別 param として渡し、基準地域を中心 (流出元) として名指しする。
+// =====================================================================
+
+#[test]
+fn invariant_table_2c2_outflow_renders_with_base_center_and_destinations() {
+    use super::ReportVariant;
+    use std::collections::HashMap;
+
+    let agg = SurveyAggregation {
+        total_count: 100,
+        ..Default::default()
+    };
+    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> =
+        HashMap::new();
+    let outflow = vec![
+        ("群馬県".to_string(), "高崎市".to_string(), 3200_i64),
+        ("埼玉県".to_string(), "本庄市".to_string(), 1800_i64),
+        ("東京都".to_string(), "新宿区".to_string(), 900_i64),
+    ];
+    let mut html = String::new();
+    super::navy_report::render_navy_section_02_region(
+        &mut html,
+        &agg,
+        None,
+        &enrich,
+        ReportVariant::Public,
+        "群馬県 藤岡市",
+        true,
+        &[],
+        &outflow,
+    );
+
+    assert!(html.contains("表 2-C-2"), "表 2-C-2 が描画される");
+    assert!(
+        html.contains("通勤流出先"),
+        "見出しに「通勤流出先」が出る"
+    );
+    // 逆証明: 基準地域 (流出元) がキャプション・見出しに名指しされる。
+    assert!(
+        html.contains("群馬県藤岡市"),
+        "基準地域 (流出元) がタイトル/キャプションに名指しされる"
+    );
+    // 流出先 3 自治体がすべて表に出る。
+    assert!(html.contains("高崎市"), "流出先 1 位が出る");
+    assert!(html.contains("本庄市"), "流出先 2 位が出る");
+    assert!(html.contains("新宿区"), "流出先 3 位が出る");
+}
+
+#[test]
+fn invariant_table_2c2_outflow_hidden_when_empty() {
+    use super::ReportVariant;
+    use std::collections::HashMap;
+
+    let agg = SurveyAggregation {
+        total_count: 100,
+        ..Default::default()
+    };
+    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> =
+        HashMap::new();
+    let mut html = String::new();
+    super::navy_report::render_navy_section_02_region(
+        &mut html,
+        &agg,
+        None,
+        &enrich,
+        ReportVariant::Public,
+        "群馬県 藤岡市",
+        true,
+        &[],
+        &[], // commute_outflow_top3 が空 → 表 2-C-2 は非表示
+    );
+
+    assert!(
+        !html.contains("表 2-C-2"),
+        "commute_outflow_top3 が空なら表 2-C-2 全体が非表示"
+    );
 }
 
 // =====================================================================
@@ -1677,6 +1762,7 @@ fn invariant_table_2a_share_label_and_base_badge() {
         ReportVariant::Public,
         "東京都 千代田区",
         true,
+        &[],
         &[],
     );
 

@@ -1353,6 +1353,32 @@ async fn build_survey_report_inner(
         Vec::new()
     };
 
+    // 2026-07-28 (表 2-C-2 通勤流出先 TOP3): 表 2-C (流入) と対称。commute_inflow_top3 は
+    //   build_insight_context 内蔵だが、InsightContext へのフィールド追加は明示コンストラクタ
+    //   15+ ファイルを壊すため、region_2d_stats (表 2-D) と同じ RenderConfig 経由の
+    //   低churn方式で個別に fetch → 描画関数へ渡す。
+    let commute_outflow_top3: Vec<(String, String, i64)> = if !muni.is_empty() {
+        if let Some(hw_db) = state.hw_db.clone() {
+            let turso = state.turso_db.clone();
+            let pref_c = pref.clone();
+            let muni_c = muni.clone();
+            tokio::task::spawn_blocking(move || {
+                super::super::insight::fetch::fetch_commute_outflow_top3(
+                    &hw_db,
+                    turso.as_ref(),
+                    &pref_c,
+                    &muni_c,
+                )
+            })
+            .await
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     let _ = (&pref, &muni);
     // 2026-04-29: variant 切替 (?variant=full|public)
     let variant = super::report_html::ReportVariant::from_query(query.variant.as_deref());
@@ -1396,6 +1422,8 @@ async fn build_survey_report_inner(
         table2e,
         // 2026-07-27: 表 2-D 市区町村化用の市区町村統計 (基準 + 同一県内近隣)。
         &region_2d_stats,
+        // 2026-07-28: 表 2-C-2 通勤流出先 TOP3 (選択市区町村 → 周辺地域)。
+        &commute_outflow_top3,
     );
 
     Html(html)

@@ -794,6 +794,28 @@ pub(crate) fn build_insight_context_with_wage_mode(
     ctx
 }
 
+/// 2026-07-28 (§02 表2-C-2 通勤流出先 TOP3): `commute_inflow_top3` と対称の独立フェッチ。
+///
+/// `InsightContext` へのフィールド追加は同構造体を明示コンストラクタで組み立てている
+/// 15+ ファイル (テストフィクスチャ群) を軒並み壊すため見送り、`commute_zone` 等と同様
+/// `af::fetch_commute_outflow` を直接ラップした独立関数として提供する (表2-D 市区町村比較
+/// で採用した RenderConfig 経由の低churn方式を踏襲: caller 側で明示的に fetch → 描画関数へ
+/// 個別パラメータとして渡す)。
+///
+/// `muni` が空文字列の場合は空 Vec を返す (`af::fetch_commute_outflow` のガードと同じ)。
+pub(crate) fn fetch_commute_outflow_top3(
+    db: &Db,
+    turso: Option<&TursoDb>,
+    pref: &str,
+    muni: &str,
+) -> Vec<(String, String, i64)> {
+    af::fetch_commute_outflow(db, turso, pref, muni)
+        .into_iter()
+        .take(3)
+        .map(|f| (f.partner_pref, f.partner_muni, f.total_commuters))
+        .collect()
+}
+
 /// 2026-07-10: 並列化 (直列 → thread::scope) の実測用 #[ignore] テスト。
 /// 実 Turso への読み取りのみ。CI では無視される (実行には環境変数 + `--ignored` が必要)。
 ///
