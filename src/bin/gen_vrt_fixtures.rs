@@ -192,6 +192,28 @@ fn build_popularity() -> PopularityAnalysis {
         non_popular_n_salary: 17,
         popular_n_holidays: 8,
         non_popular_n_holidays: 17,
+        // 2026-07-28: §07.6-4 年間休日 3 区分統計の VRT カバレッジ用 (合成値)。
+        super_popular_holiday_stats: rust_dashboard::handlers::survey::aggregator::HolidayStats {
+            n: 2,
+            median: Some(122),
+            mean: Some(121),
+            p25: Some(120),
+            p75: Some(123),
+        },
+        popular_holiday_stats: rust_dashboard::handlers::survey::aggregator::HolidayStats {
+            n: 6,
+            median: Some(118),
+            mean: Some(117),
+            p25: Some(112),
+            p75: Some(121),
+        },
+        non_popular_holiday_stats: rust_dashboard::handlers::survey::aggregator::HolidayStats {
+            n: 15,
+            median: Some(108),
+            mean: Some(109),
+            p25: Some(105),
+            p75: Some(115),
+        },
         ..Default::default()
     }
 }
