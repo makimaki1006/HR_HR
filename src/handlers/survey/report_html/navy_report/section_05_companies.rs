@@ -57,7 +57,7 @@ pub(crate) fn render_navy_section_placeholders(
 ) {
     let _ = (hw_context, variant, now);
     let sections = [(
-        "SECTION 08",
+        "SECTION 12",
         "注記・出典・免責",
         "データソース / 集計定義 / 免責事項。Phase 4 で実装予定。",
     )];
@@ -105,7 +105,7 @@ pub(crate) fn render_navy_section_05_companies(
     );
     push_page_head(
         html,
-        "SECTION 05",
+        "SECTION 07",
         "地域企業構造",
         "産業構成 / 法人セグメント / 規模帯ベンチマーク",
     );
@@ -236,7 +236,7 @@ pub(crate) fn render_navy_section_05_companies(
          まず地域全体の企業・雇用環境を示します。特定業界に絞った直接競合の姿は第2部で扱います。</p>\n",
     );
 
-    html.push_str("<div class=\"block-title\">図 5-1 &nbsp;法人セグメント (規模 × 動向)</div>\n");
+    html.push_str("<div class=\"block-title\">図 7-1 &nbsp;法人セグメント (規模 × 動向)</div>\n");
     // pool_size = 0 のときは地域企業データ未取得を明示し、誤解 (0社=企業が無い) を防ぐ
     if pool_size == 0 {
         html.push_str(
@@ -315,7 +315,7 @@ pub(crate) fn render_navy_section_05_companies(
     }
     html.push_str("</div>\n");
 
-    html.push_str("<div class=\"block-title block-title-spaced\">表 5-A &nbsp;産業大分類 構成 (件数最多 8 産業)</div>\n");
+    html.push_str("<div class=\"block-title block-title-spaced\">表 7-A &nbsp;産業大分類 構成 (件数最多 8 産業)</div>\n");
     html.push_str(&build_navy_industry_table(
         &industry_sorted,
         industry_total,
@@ -329,8 +329,8 @@ pub(crate) fn render_navy_section_05_companies(
         html.push_str("<p class=\"caption\">★ = 対象(顧客)の産業。件数最多 8 産業に入らない場合も参考として併記します(産業名が国勢調査の大分類と対応づけできた場合)。</p>\n");
     }
 
-    // 2026-07-27 item30: 図 5-2 (産業大分類シェア バー) は表 5-A と同じ産業大分類の
-    //   シェアを重複表示していたため統合 (削除)。就業者数・シェア・媒体シェアは表 5-A に
+    // 2026-07-27 item30: 図 7-2 (産業大分類シェア バー) は表 7-A と同じ産業大分類の
+    //   シェアを重複表示していたため統合 (削除)。就業者数・シェア・媒体シェアは表 7-A に
     //   集約済み。バー描画関数 build_navy_industry_bars は将来の再利用余地のため残置
     //   (#![allow(dead_code)])。
 
@@ -363,7 +363,7 @@ pub(crate) fn render_navy_section_05_companies(
 
     // ===== 第1部: 地域全体 (全業界) の個社・規模帯テーブル (5-B〜5-F) =====
     if !salesnow_segments.growth.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-B &nbsp;急成長企業 (全業界、1年 +10%〜+300%、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-B &nbsp;急成長企業 (全業界、1年 +10%〜+300%、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(
             &salesnow_segments.growth,
             8,
@@ -373,7 +373,7 @@ pub(crate) fn render_navy_section_05_companies(
 
     // -- 大手企業 (employee_count Top)
     if !salesnow_segments.large.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-C &nbsp;大手企業 (全業界、従業員 300+ 名級、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-C &nbsp;大手企業 (全業界、従業員 300+ 名級、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(
             &salesnow_segments.large,
             8,
@@ -383,13 +383,13 @@ pub(crate) fn render_navy_section_05_companies(
 
     // -- 中堅企業 (50-300 名)
     if !salesnow_segments.mid.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-D &nbsp;中堅企業 (全業界、従業員 50-299 名、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-D &nbsp;中堅企業 (全業界、従業員 50-299 名、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(&salesnow_segments.mid, 8, show_hw));
     }
 
     // -- 採用活発企業 (Full のみ、求人媒体掲載 5 件以上)
     if show_hw && !salesnow_segments.hiring.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-E &nbsp;採用活発企業 (全業界、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-E &nbsp;採用活発企業 (全業界、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n");
         html.push_str(&build_navy_company_list(
             &salesnow_segments.hiring,
             8,
@@ -405,7 +405,7 @@ pub(crate) fn render_navy_section_05_companies(
     let d_mid = salesnow_segments.decline_mid.len();
     let d_small = salesnow_segments.decline_small.len();
     if g_large + g_mid + g_small + d_large + d_mid + d_small > 0 {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 5-F &nbsp;規模 × 動向 6 マトリクス (全業界、1年 人員変動)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 7-F &nbsp;規模 × 動向 6 マトリクス (全業界、1年 人員変動)</div>\n");
         html.push_str(&build_navy_growth_decline_matrix(salesnow_segments));
     }
 
@@ -422,9 +422,9 @@ pub(crate) fn render_navy_section_05_companies(
             "<p class=\"caption\">同業種の企業に絞った姿です。{}での直接競合となる採用主体の顔ぶれ・規模・人員動向を示します。第1部(地域全体)と読み比べてください。</p>\n",
             if muni_label.is_empty() { "対象地域".to_string() } else { muni_label.trim_end_matches("× ").trim().to_string() }
         ));
-        // 表 5-B′ 急成長
+        // 表 7-B′ 急成長
         html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-B′ &nbsp;急成長企業 ({}{}、1年 +10%〜+300%、件数最多 8 社)</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 7-B′ &nbsp;急成長企業 ({}{}、1年 +10%〜+300%、件数最多 8 社)</div>\n",
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.growth.is_empty() {
@@ -432,9 +432,9 @@ pub(crate) fn render_navy_section_05_companies(
         } else {
             html.push_str(&empty_row_html(if show_hw { 8 } else { 7 }));
         }
-        // 表 5-C′ 大手
+        // 表 7-C′ 大手
         html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-C′ &nbsp;大手企業 ({}{}、従業員 300+ 名級、件数最多 8 社)</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 7-C′ &nbsp;大手企業 ({}{}、従業員 300+ 名級、件数最多 8 社)</div>\n",
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.large.is_empty() {
@@ -442,9 +442,9 @@ pub(crate) fn render_navy_section_05_companies(
         } else {
             html.push_str(&empty_row_html(if show_hw { 8 } else { 7 }));
         }
-        // 表 5-D′ 中堅
+        // 表 7-D′ 中堅
         html.push_str(&format!(
-            "<div class=\"block-title block-title-spaced\">表 5-D′ &nbsp;中堅企業 ({}{}、従業員 50-299 名、件数最多 8 社)</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 7-D′ &nbsp;中堅企業 ({}{}、従業員 50-299 名、件数最多 8 社)</div>\n",
             muni_label, escape_html(ind)
         ));
         if !salesnow_segments_industry.mid.is_empty() {
@@ -452,10 +452,10 @@ pub(crate) fn render_navy_section_05_companies(
         } else {
             html.push_str(&empty_row_html(if show_hw { 8 } else { 7 }));
         }
-        // 表 5-E′ 採用活発 (Full のみ)
+        // 表 7-E′ 採用活発 (Full のみ)
         if show_hw {
             html.push_str(&format!(
-                "<div class=\"block-title block-title-spaced\">表 5-E′ &nbsp;採用活発企業 ({}{}、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n",
+                "<div class=\"block-title block-title-spaced\">表 7-E′ &nbsp;採用活発企業 ({}{}、求人媒体掲載 5 件以上、件数最多 8 社)</div>\n",
                 muni_label, escape_html(ind)
             ));
             if !salesnow_segments_industry.hiring.is_empty() {
@@ -464,7 +464,7 @@ pub(crate) fn render_navy_section_05_companies(
                 html.push_str(&empty_row_html(8));
             }
         }
-        // 表 5-F′ 規模 × 動向 (データ 0 件時は skip)
+        // 表 7-F′ 規模 × 動向 (データ 0 件時は skip)
         let ig_l = salesnow_segments_industry.growth_large.len();
         let ig_m = salesnow_segments_industry.growth_mid.len();
         let ig_s = salesnow_segments_industry.growth_small.len();
@@ -473,7 +473,7 @@ pub(crate) fn render_navy_section_05_companies(
         let id_s = salesnow_segments_industry.decline_small.len();
         if ig_l + ig_m + ig_s + id_l + id_m + id_s > 0 {
             html.push_str(&format!(
-                "<div class=\"block-title block-title-spaced\">表 5-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1年 人員変動)</div>\n",
+                "<div class=\"block-title block-title-spaced\">表 7-F′ &nbsp;規模 × 動向 6 マトリクス ({}{}、1年 人員変動)</div>\n",
                 muni_label, escape_html(ind)
             ));
             html.push_str(&build_navy_growth_decline_matrix(salesnow_segments_industry));
@@ -488,7 +488,7 @@ pub(crate) fn render_navy_section_05_companies(
     }
 
     // ========================================================================
-    // P2-2 (2026-05-28): 企業別給与ランキング (表 5-G) + 注目企業リスト (表 5-H)
+    // P2-2 (2026-05-28): 企業別給与ランキング (表 7-G) + 注目企業リスト (表 7-H)
     //
     // データ: ctx.csv_company_ranking (postings facility_name 別 給与中央値 上位 30 社)
     // 出典: 公的機関の掲載求人の集計 (自前 HW DB 由来。SalesNow の地域企業データとは別)
@@ -644,7 +644,7 @@ pub(super) fn confidence_score_from_posting_count(posting_count: i64) -> f64 {
     (posting_count as f64 / 12.0).min(1.0)
 }
 
-/// 表 5-G: 企業別給与ランキング (上位 limit 社、上限給与中央値 降順)
+/// 表 7-G: 企業別給与ランキング (高い方から limit 社、上限給与中央値 降順)
 pub(crate) fn build_navy_csv_company_salary_table(
     ranking: &[CsvCompanySalary],
     limit: usize,
@@ -667,7 +667,7 @@ pub(crate) fn build_navy_csv_company_salary_table(
 
     let mut s = String::from(
         "<div class=\"block-title block-title-spaced\">\
-         表 5-G &nbsp;企業別給与ランキング (公的機関の掲載求人 集計、上限給与中央値 上位 ",
+         表 7-G &nbsp;企業別給与ランキング (公的機関の掲載求人 集計、上限給与中央値が高い方から ",
     );
     s.push_str(&format!("{}", limit));
     s.push_str(" 社、求人数 2 件以上)</div>\n");
@@ -773,7 +773,7 @@ pub(crate) fn build_navy_notable_companies_block(
 
     let mut s = String::from(
         "<div class=\"block-title block-title-spaced\">\
-         表 5-H &nbsp;注目企業リスト (求人数上位 ∩ 給与上位、和集合)</div>\n",
+         表 7-H &nbsp;注目企業リスト (求人数が多い企業 ∩ 給与が高い企業、和集合)</div>\n",
     );
     // R2-P1-4 (ultrathink Round 2, 2026-05-28): a11y のため列ヘッダに scope="col" を付与。
     // 2026-07-28: 列幅を colgroup で明示。No. 列を最小に、法人名に多く配分。
@@ -1145,7 +1145,7 @@ fn build_navy_company_list(
         for (i, c) in top.iter().enumerate() {
             // 2026-05-14: employee_delta_1y は DB に % 単位で格納 (5.0 = +5%)。
             // 旧コードは `delta * 100.0` で表示していたため +33.2 が +3320% と
-            // 誤表示されていた (feedback_unit_consistency_audit / 表 5-B 信頼性
+            // 誤表示されていた (feedback_unit_consistency_audit / 表 7-B 信頼性
             // 指摘 2026-05-14 の真因)。フィルタ側 (fetch.rs <=300.0) は % 前提で
             // 正しく動作していたが、表示層だけが旧 ratio 前提のままだった。
             // employee_delta_1y / employee_delta_3m はいずれも DB に % 単位で格納

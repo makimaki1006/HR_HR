@@ -1317,7 +1317,7 @@ fn invariant_salary_man_yen_conversion_realistic() {
 // invariant 11: 番兵 (sentinel) 静的監査 — HW 由来データ 顧客向け版 非漏洩
 // =====================================================================
 //
-// 2026-07-13 追加。§09 図 9-B (採用ターゲット厚み) / 図 9-C (競合求人密度) が
+// 2026-07-13 追加。§10 図 10-B (採用ターゲット厚み) / 図 10-C (競合求人密度) が
 // hw_industry_counts (postings 由来) を顧客向け variant (MarketIntelligence /
 // Extended / Sp) で表示していた違反の撤去に対する恒久回帰ガード。
 //
@@ -1336,10 +1336,10 @@ fn invariant_salary_man_yen_conversion_realistic() {
 // 回帰も同時に検出できる)。
 //
 // ## csv_company_ranking 番兵 (2026-07-13 拡張)
-// csv_company_ranking (postings facility_name 由来 = HW データ) は §05 表 5-G/5-H が
+// csv_company_ranking (postings facility_name 由来 = HW データ) は §07 表 7-G/7-H が
 // variant ガードなしで全 variant に描画していたリークを 2026-07-13 に Full 限定化。
 // 施設名番兵 (SENTINEL_CSV_COMPANY) が顧客向け variant に出ないことを assert し、
-// Full では表 5-G 経由で出ることの逆証明も行う。
+// Full では表 7-G 経由で出ることの逆証明も行う。
 
 /// HW 由来フィールドに番兵を注入した完全な InsightContext を構築。
 ///
@@ -1350,7 +1350,7 @@ fn build_hw_sentinel_ctx() -> InsightContext {
     ctx.pref = "群馬県".to_string();
     ctx.muni = "高崎市".to_string();
 
-    // 公的統計 (使用 OK): ext_industry_employees は §04 表 4-B の行名ソース。
+    // 公的統計 (使用 OK): ext_industry_employees は §08 表 8-B の行名ソース。
     ctx.ext_industry_employees = vec![
         make_row(&[
             ("industry_code", json!("H")),
@@ -1391,7 +1391,7 @@ fn build_hw_sentinel_ctx() -> InsightContext {
     ctx.salary_scatter_pairs = vec![(SENTINEL_SCATTER_X, SENTINEL_SCATTER_Y)];
 
     // csv_company_ranking (postings facility_name 由来 = HW データ)。
-    // §05 表 5-G/5-H は 2026-07-13 に Full 限定化。顧客向け variant で施設名番兵が
+    // §07 表 7-G/7-H は 2026-07-13 に Full 限定化。顧客向け variant で施設名番兵が
     // 漏れないことを保証する。posting_count は 2 件以上 (fetch 側の代表性フィルタ相当)。
     ctx.csv_company_ranking = vec![CsvCompanySalary {
         facility_name: SENTINEL_CSV_COMPANY.to_string(),
@@ -1449,14 +1449,14 @@ fn render_full_report(variant: super::ReportVariant, ctx: &InsightContext) -> St
 fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
     use super::ReportVariant;
 
-    // §09 図 9-B/9-C 撤去 + 2026-07-13 HW リーク一括撤去 (§05 表 5-G/5-H /
-    // §04 表 4-B / §01 Finding06/07) 後に、hw_industry_counts / hw_job_type_counts /
+    // §10 図 10-B/10-C 撤去 + 2026-07-13 HW リーク一括撤去 (§07 表 7-G/7-H /
+    // §08 表 8-B / §01 Finding06/07) 後に、hw_industry_counts / hw_job_type_counts /
     // csv_company_ranking / salary_scatter_pairs の番兵が顧客向け variant に
     // 一切現れないことを恒久保証。番兵は top 位置 (Finding 経路の回帰も検出)。
     //
     // Public も対象に含める (2026-07-13): show_hw_sections() = Full のみ true が
     // 設計 SSoT であり、Public (対外提案向け) も HW 非表示 variant。従来は Public に
-    // 表 4-B / Finding06/07 が漏れていた (旧 report_basic fixture で実確認) ため、
+    // 表 8-B / Finding06/07 が漏れていた (旧 report_basic fixture で実確認) ため、
     // 本テストで Public も恒久ガードする。
     let ctx = build_hw_sentinel_ctx();
     let sentinels_str = [
@@ -1478,7 +1478,7 @@ fn invariant11_hw_sentinels_absent_from_customer_facing_variants() {
             assert!(
                 !html.contains(s),
                 "HW 由来番兵 '{}' が顧客向け variant {:?} の HTML に漏洩している \
-                 (§09 図 9-B/9-C / §05 表 5-G/5-H / §04 表 4-B / §01 Finding06/07 の \
+                 (§10 図 10-B/10-C / §07 表 7-G/7-H / §08 表 8-B / §01 Finding06/07 の \
                  Full 限定ルール違反の再発)",
                 s,
                 variant
@@ -1510,7 +1510,7 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
     // 経路の対応:
     //   - SENTINEL_HW_INDUSTRY (top) → §01 Finding06 産業構成 偏り (compute_skew_severity)
     //   - SENTINEL_HW_JOBTYPE  (top) → §01 Finding07 職種構成 偏り (同上)
-    //   - SENTINEL_CSV_COMPANY       → §05 表 5-G 企業別給与ランキング / 表 5-H 注目企業
+    //   - SENTINEL_CSV_COMPANY       → §07 表 7-G 企業別給与ランキング / 表 7-H 注目企業
     //   - SCATTER_HW_CAPTION         → §03 図 3-6 給与レンジ 散布図 (HW postings 月給ペア)
     let ctx = build_hw_sentinel_ctx();
     let html = render_full_report(ReportVariant::Full, &ctx);
@@ -1524,7 +1524,7 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
     );
     assert!(
         html.contains(SENTINEL_CSV_COMPANY),
-        "逆証明: Full では CSV 企業番兵が §05 表 5-G/5-H 経由で HTML に出るはず"
+        "逆証明: Full では CSV 企業番兵が §07 表 7-G/7-H 経由で HTML に出るはず"
     );
     // 2026-07-17: 図 3-6 の HW キャプションが Full では出ること。これにより
     // 「顧客向けに出ない」= variant ガードの効果であって検出機構の不備 (どの
@@ -1537,11 +1537,11 @@ fn invariant11_hw_sentinels_visible_in_full_variant() {
     // 出典表記の訂正 (2026-07-13): 「CSV 求人データ集計」誤記が Full でも出ないこと。
     assert!(
         !html.contains("出典: CSV 求人データ集計"),
-        "表 5-G/5-H の出典は「公的機関の掲載求人の集計」に訂正済みのはず"
+        "表 7-G/7-H の出典は「公的機関の掲載求人の集計」に訂正済みのはず"
     );
     assert!(
         html.contains("出典: 公的機関の掲載求人の集計"),
-        "Full の表 5-G/5-H キャプションに訂正後の出典表記が出るはず"
+        "Full の表 7-G/7-H キャプションに訂正後の出典表記が出るはず"
     );
 }
 
@@ -1776,7 +1776,7 @@ fn invariant_table_2a_share_label_and_base_badge() {
 }
 
 // =====================================================================
-// 2026-07-27: 業種未選択時、§05 第2部が省略され注記が出る (確認クッションで
+// 2026-07-27: 業種未選択時、§07 第2部が省略され注記が出る (確認クッションで
 //   proceed した場合の挙動)。render_full_report は industry_filter 未指定 (=None)。
 // =====================================================================
 
@@ -1788,6 +1788,6 @@ fn invariant_section05_part2_note_when_no_industry() {
     let html = render_full_report(ReportVariant::Full, &ctx);
     assert!(
         html.contains("業種が選択されていないため、業種別の企業分析は省略しました"),
-        "業種未選択時、§05 に第2部省略の注記が出るはず"
+        "業種未選択時、§07 に第2部省略の注記が出るはず"
     );
 }

@@ -61,7 +61,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     html.push_str("<section class=\"page-navy navy-lifestyle\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 07",
+        "SECTION 09",
         "最低賃金・ライフスタイル",
         "最低賃金推移 / 家計支出構成 / 通勤圏",
     );
@@ -237,7 +237,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     ));
 
     // -- KPI row 5 cell
-    html.push_str("<div class=\"block-title\">図 7-1 &nbsp;生活コスト・通勤圏 主要指標</div>\n");
+    html.push_str("<div class=\"block-title\">図 9-1 &nbsp;生活コスト・通勤圏 主要指標</div>\n");
     html.push_str("<div class=\"kpi-row\">\n");
     let wage_val = latest_wage
         .map(|(_, w)| format!("{}", format_number(w)))
@@ -274,7 +274,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
         false,
     );
     // 2026-07-03 修正: 家計調査が未取得 (total_consumption == 0) の場合に
-    //   「0 円」を KPI 表示していた。lede (consumption_seg) / 表 7-A / 表 7-F は
+    //   「0 円」を KPI 表示していた。lede (consumption_seg) / 表 9-A / 表 9-F は
     //   すべて `> 0` ガード済のため、KPI も同様に未取得時は「—」表示に統一する。
     let (consumption_val, consumption_unit, consumption_foot) = if total_consumption > 0 {
         (format_number(total_consumption), "円", "世帯あたり月平均")
@@ -341,7 +341,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     // -- 最低賃金推移バー SVG
     if wages.len() >= 2 {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">図 7-2 &nbsp;最低賃金 推移</div>\n",
+            "<div class=\"block-title block-title-spaced\">図 9-2 &nbsp;最低賃金 推移</div>\n",
         );
         html.push_str(&build_navy_minwage_chart(&wages));
         html.push_str("<p class=\"caption\">出典: 厚生労働省 地域別最低賃金 (10 月発効)。年率 3% 以上は <strong>pos</strong>、1-3% は標準、1% 未満は <strong>warn</strong>。</p>\n");
@@ -349,7 +349,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
 
     // -- 家計支出構成 table-navy
     if !category_breakdown.is_empty() && total_consumption > 0 {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7-A &nbsp;家計支出構成 (件数最多 6 費目)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 9-A &nbsp;家計支出構成 (件数最多 6 費目)</div>\n");
         html.push_str(&build_navy_household_table(
             &category_breakdown,
             total_consumption,
@@ -359,7 +359,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     // -- 通勤圏 table
     if commute_pop > 0 || commute_inflow > 0 {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 7-B &nbsp;通勤圏 サマリ</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 9-B &nbsp;通勤圏 サマリ</div>\n",
         );
         html.push_str(&format!(
             "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
@@ -384,10 +384,10 @@ pub(crate) fn render_navy_section_07_lifestyle(
         html.push_str("<p class=\"caption\">出典: 国勢調査 OD (通勤・通学従業地・通学地集計)。通勤圏は対象自治体から距離ベース (デフォルト 20-30 km 圏) で抽出。</p>\n");
     }
 
-    // -- 表 7-C 昼夜間人口 (流入超過 = 職場集中度)  [旧 7.5-F 統合 2026-05-15]
+    // -- 表 9-C 昼夜間人口 (流入超過 = 職場集中度)  [旧 7.5-F 統合 2026-05-15]
     if !ctx.ext_daytime_pop.is_empty() {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 7-C &nbsp;昼夜間人口比較</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 9-C &nbsp;昼夜間人口比較</div>\n",
         );
         html.push_str(&build_navy_auto_table(&ctx.ext_daytime_pop, 3));
         let ratio_opt = ctx.ext_daytime_pop.first().and_then(|r| {
@@ -429,10 +429,10 @@ pub(crate) fn render_navy_section_07_lifestyle(
         ));
     }
 
-    // -- 表 7-D 世帯構成 (単身世帯率 = 若年単身ターゲット厚み)  [旧 7.5-L 統合 2026-05-15]
+    // -- 表 9-D 世帯構成 (単身世帯率 = 若年単身ターゲット厚み)  [旧 7.5-L 統合 2026-05-15]
     if !ctx.ext_households.is_empty() {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 7-D &nbsp;世帯構成</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 9-D &nbsp;世帯構成</div>\n",
         );
         html.push_str(&build_navy_auto_table(&ctx.ext_households, 3));
         let single_rate_opt = ctx
@@ -458,9 +458,9 @@ pub(crate) fn render_navy_section_07_lifestyle(
         ));
     }
 
-    // -- 表 7-E 最低賃金 vs 求人給与 比較 (2026-05-23 #227 統合)
+    // -- 表 9-E 最低賃金 vs 求人給与 比較 (2026-05-23 #227 統合)
     //   求人下限給与中央値を時給換算 (167h) し、当該地域の最低賃金との比率を提示。
-    //   既存「最低賃金推移」(図 7-2) を「求人とのギャップ」軸で補強する。
+    //   既存「最低賃金推移」(図 9-2) を「求人とのギャップ」軸で補強する。
     let median_min_salary: i64 = {
         // salary_min_values の中央値 (>0 のみ)
         let mut v: Vec<i64> = agg
@@ -479,13 +479,13 @@ pub(crate) fn render_navy_section_07_lifestyle(
     let minwage_vs_salary =
         build_navy_minwage_vs_salary_table(median_min_salary, agg.is_hourly, latest_wage);
     if !minwage_vs_salary.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7-E &nbsp;最低賃金 vs 求人給与 比較</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 9-E &nbsp;最低賃金 vs 求人給与 比較</div>\n");
         html.push_str(&minwage_vs_salary);
     }
 
-    // -- 表 7-F 家計支出 vs 求人給与 比較 (2026-05-23 #227 統合)
+    // -- 表 9-F 家計支出 vs 求人給与 比較 (2026-05-23 #227 統合)
     //   月給中央値と月間消費支出を直接比較し、生活コストカバー率を提示。
-    //   表 7-A (家計支出構成) を「給与水準との関係」軸で補強する。
+    //   表 9-A (家計支出構成) を「給与水準との関係」軸で補強する。
     let household_vs_salary = build_navy_household_vs_salary_table(
         median_min_salary,
         agg.is_hourly,
@@ -493,20 +493,20 @@ pub(crate) fn render_navy_section_07_lifestyle(
         &category_breakdown,
     );
     if !household_vs_salary.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7-F &nbsp;家計支出 vs 求人給与 比較</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 9-F &nbsp;家計支出 vs 求人給与 比較</div>\n");
         html.push_str(&household_vs_salary);
     }
 
-    // -- 表 7-G 社会生活・施設密度 (2026-05-23 #228 統合)
+    // -- 表 9-G 社会生活・施設密度 (2026-05-23 #228 統合)
     //   人口あたり医療・福祉・保育施設数を県平均と比較。
     //   家族層 / 単身層採用時の生活インフラ確認指標。
     let lifestyle_facilities = build_navy_lifestyle_facilities_table(ctx);
     if !lifestyle_facilities.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7-G &nbsp;社会生活・施設密度 (人口あたり)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 9-G &nbsp;社会生活・施設密度 (人口あたり)</div>\n");
         html.push_str(&lifestyle_facilities);
     }
 
-    // -- 表 7-H 家賃 m² 単価 (地域コスト指標) (PR fix/rental-data-sqm-rate, 2026-05-31)
+    // -- 表 9-H 家賃 m² 単価 (地域コスト指標) (PR fix/rental-data-sqm-rate, 2026-05-31)
     //   e-Stat 住宅・土地統計 0004021493 (借家 専用住宅 1m² 当たり家賃) と求人給与中央値を併記。
     //   仕様変更: 当初設計の「1ヶ月家賃 中央値」は市区町村粒度表に存在せず、
     //   m² 単価 (円/m², 月額) のみ取得可能。生値を地域コスト指標として活用する。
@@ -519,7 +519,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
         agg.is_hourly,
     );
     if !rental_vs_salary.is_empty() {
-        html.push_str("<div class=\"block-title block-title-spaced\">表 7-H &nbsp;家賃 m² 単価 (地域コスト指標)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">表 9-H &nbsp;家賃 m² 単価 (地域コスト指標)</div>\n");
         html.push_str(&rental_vs_salary);
         // 2026-07-27 item32: 対象市区町村の家賃行が無く県集計にフォールバックした場合は明記。
         if rental_is_pref_fallback(&ctx.muni, &ctx.ext_rental_housing) {
@@ -529,7 +529,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
         }
     }
 
-    // -- 図 7-3 最賃プレミアム率分布 (Phase 2-B H3, 2026-05-29)
+    // -- 図 9-3 最賃プレミアム率分布 (Phase 2-B H3, 2026-05-29)
     //   時給モードのみ表示。求人時給と県最低賃金の差を premium_pct = (時給-最賃)/最賃*100 で
     //   バケット化 (5% 刻み) し、件数を縦棒で示す。
     //   表示条件: agg.is_hourly == true かつ latest_wage が取れる (mw_yen > 0)。
@@ -539,7 +539,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     //     - 時給データなし: "該当データなし" 明示表示
     if agg.is_hourly {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">図 7-3 &nbsp;最賃プレミアム率分布 (求人時給 vs 県最賃)</div>\n",
+            "<div class=\"block-title block-title-spaced\">図 9-3 &nbsp;最賃プレミアム率分布 (求人時給 vs 県最賃)</div>\n",
         );
         let mw_yen: i64 = latest_wage.map(|(_, w)| w).filter(|w| *w > 0).unwrap_or(0);
         if mw_yen <= 0 {
@@ -561,7 +561,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
         }
     }
 
-    // -- 表 7-I 生活シミュレーション (単身/家族) (2026-07-27)
+    // -- 表 9-I 生活シミュレーション (単身/家族) (2026-07-27)
     //   設計書 life_affordability_design.md の A案 (§07末尾統合) に基づく。
     //   新規 DB 取得は行わず、表7-H で既に取得済みの ctx.ext_rental_housing と
     //   median_min_salary (表7-E/F/H と同一値) のみを組み合わせて算出する。
@@ -569,12 +569,12 @@ pub(crate) fn render_navy_section_07_lifestyle(
         build_navy_life_simulation_table(&ctx.ext_rental_housing, median_min_salary, agg.is_hourly);
     if !life_simulation.is_empty() {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 7-I &nbsp;生活シミュレーション (単身/家族)</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 9-I &nbsp;生活シミュレーション (単身/家族)</div>\n",
         );
         html.push_str(&life_simulation);
     }
 
-    // -- 表 7-J 世代適合の目安 (2026-07-27)
+    // -- 表 9-J 世代適合の目安 (2026-07-27)
     //   人口ピラミッド (ctx.ext_pyramid) から 0-14 歳人口比率のみ新規集計し、
     //   単身世帯率 (表7-D)・保育所密度 (表7-G)・ネット利用率 (図7-1) は既存値を再利用する。
     //   断定表現は使わず「確認できた事実/考えられること/まだ分からないこと/
@@ -582,7 +582,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
     let generation_fit = build_navy_generation_fit_block(ctx);
     if !generation_fit.is_empty() {
         html.push_str(
-            "<div class=\"block-title block-title-spaced\">表 7-J &nbsp;世代適合の目安</div>\n",
+            "<div class=\"block-title block-title-spaced\">表 9-J &nbsp;世代適合の目安</div>\n",
         );
         html.push_str(&generation_fit);
     }
@@ -608,7 +608,7 @@ pub(crate) fn render_navy_section_07_lifestyle(
 }
 
 // ============================================================
-// 2026-07-27: 表 7-I 生活シミュレーション (単身/家族) + 表 7-J 世代適合の目安
+// 2026-07-27: 表 9-I 生活シミュレーション (単身/家族) + 表 9-J 世代適合の目安
 //
 // 設計書 (life_affordability_design.md, A案: §07末尾への統合ブロック) に基づく実装。
 // 新規 DB 取得は行わず、既存 ctx フィールド (表7-D/7-G/7-H で既に取得済みの
@@ -676,7 +676,7 @@ fn find_rental_rate_for_structure(
         .map(|r| get_i64(r, "median_rent_jpy"))
 }
 
-/// 表 7-I: 生活シミュレーション (単身/家族)。
+/// 表 9-I: 生活シミュレーション (単身/家族)。
 /// median_min_salary <= 0 なら空文字 (silent skip)。
 /// 家賃データが無い場合はその行の家賃・残額セルのみ「取得不可」表示に留める。
 fn build_navy_life_simulation_table(
@@ -796,7 +796,7 @@ fn build_navy_life_simulation_table(
     s
 }
 
-/// 表 7-J: 世代適合の目安。
+/// 表 9-J: 世代適合の目安。
 ///
 /// 4段階表現 (断定禁止、MEMORY: feedback_neutral_expression_for_targets 準拠):
 /// 確認できた事実 → この情報から考えられること → まだ分からないこと →
@@ -1020,7 +1020,7 @@ fn build_navy_minwage_vs_salary_table(
         )
     };
 
-    // 2026-06-01: 表 7-E はみ出し修正。`.num` カラムは `white-space: nowrap` で
+    // 2026-06-01: 表 9-E はみ出し修正。`.num` カラムは `white-space: nowrap` で
     // 1 行にまとまる CSS のため、「万円/月」と「円/時換算」を <br> で 2 行に分割し
     // A4 横幅内に収める。
     // 2026-07-28 item6: 換算注記 (円/時換算, ÷167h) が nowrap のまま値列を超えて
@@ -1674,7 +1674,7 @@ fn build_lifestyle_so_what(
 /// - rows.len() <= max_rows なら全件、超過なら先頭 max_rows 行 + 「他 N 件」表示
 
 // ============================================================
-// 2026-05-31 (PR fix/rental-data-sqm-rate): 家賃 m² 単価 (地域コスト指標) (Section 07 表 7-H)
+// 2026-05-31 (PR fix/rental-data-sqm-rate): 家賃 m² 単価 (地域コスト指標) (Section 07 表 9-H)
 // ============================================================
 //
 // 🔴 仕様変更 (2026-05-31):
@@ -1709,7 +1709,7 @@ fn build_lifestyle_so_what(
 // - 抽出可能な (建て方, 構造, m²単価) 行が 0 件 → ""
 //
 // 戻り値: HTML 文字列 (テーブル + caption)。データ不足時は空文字。
-/// 表 7-H の家賃データが市区町村フォールバック (= 県集計) かを判定する。
+/// 表 9-H の家賃データが市区町村フォールバック (= 県集計) かを判定する。
 ///
 /// 2026-07-27 item32: `fetch_rental_housing` は muni 指定時、当該市区町村行が無ければ
 /// 県集計行 (municipality 空) + 全国行だけを返す。muni を指定したのに市区町村行が
@@ -2624,7 +2624,7 @@ mod lifestyle_tests {
         let row_count = html.matches("<tr").count() - 1; // ヘッダ <tr> を除く
         assert_eq!(
             row_count, 6,
-            "上位 6 費目に制限すべき (描画行={}): {}",
+            "金額の大きい6費目に制限すべき (描画行={}): {}",
             row_count, html
         );
     }
@@ -2717,7 +2717,7 @@ mod lifestyle_tests {
 }
 
 // ============================================================
-// 2026-07-27: 表 7-I 生活シミュレーション + 表 7-J 世代適合の目安 ユニットテスト
+// 2026-07-27: 表 9-I 生活シミュレーション + 表 9-J 世代適合の目安 ユニットテスト
 //   (life_affordability_design.md A案 実装)
 //   検証対象: 積算式の検算 (給与→手取り→残額)、家賃データ欠損時の非破綻、
 //            0-14 歳人口比率の新規集計、silent skip 境界。

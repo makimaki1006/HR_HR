@@ -92,8 +92,8 @@ pub(crate) fn render_upload_form() -> String {
                     </label>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                         <!-- 2026-07-20: 既定を自動判定に変更。従来は Indeed (PC) が既定で、
-                             Indeed SP の CSV をそのまま上げると年間休日 (§07.5)・人気タグ
-                             (§07.6) が丸ごと抜け落ちる事故が実際に起きた (富田林レポートで実証)。
+                             Indeed SP の CSV をそのまま上げると年間休日 (§04)・人気タグ
+                             (§05) が丸ごと抜け落ちる事故が実際に起きた (富田林レポートで実証)。
                              サーバ側 detect_csv_source は SP 固有 CSS クラスを最優先判定する。 -->
                         <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="auto">
                             <input type="radio" name="source_type" value="auto" class="mt-1" checked aria-describedby="src-auto-desc">
@@ -289,29 +289,29 @@ pub(crate) fn render_upload_form() -> String {
                         <div class="mt-3 space-y-3 pl-6">
 
                             <div>
-                                <div class="font-semibold text-cyan-300">Section 07.5 — 年間休日 × 給与 詳細</div>
+                                <div class="font-semibold text-cyan-300">Section 04 — 年間休日 × 給与 詳細</div>
                                 <p class="text-slate-300 text-[13px] mt-1">求人ボックス / Indeed (SP) の求人説明文から「年間休日◯◯日」を自動抽出し、給与とのクロスを可視化します。「休みが多い企業は本当に給与が低いのか」「120日以上休みで◯◯万円台の求人はどの層か」といった疑問に答えるセクションです。</p>
                                 <ul class="mt-2 text-[12px] text-slate-400 space-y-1">
-                                    <li>• <b class="text-slate-200">§07.5-1 サマリー</b>: 平均年間休日 / Q3 / 標準偏差 / 120・125 日以上比率</li>
-                                    <li>• <b class="text-slate-200">§07.5-2 分布</b>: 年間休日カテゴリ (〜89 / 90-104 / 105-119 / 120-124 / 125-129 / 130+) 別の構成比 + 給与中央値</li>
-                                    <li>• <b class="text-slate-200">§07.5-3 散布図</b>: 給与×年間休日、雇用形態色分け、Pearson r + 回帰直線</li>
-                                    <li>• <b class="text-slate-200">§07.5-4 個別求人</b>: 月給制+給与記載+会社名記載の求人リスト (最大100件、年間休日降順)</li>
-                                    <li>• <b class="text-slate-200">§07.5-5 セグメント別 給与</b>: 6 カテゴリ × 月給下限/上限 × 平均・中央値・最頻値</li>
+                                    <li>• <b class="text-slate-200">§04-1 サマリー</b>: 平均年間休日 / Q3 / 標準偏差 / 120・125 日以上比率</li>
+                                    <li>• <b class="text-slate-200">§04-2 分布</b>: 年間休日カテゴリ (〜89 / 90-104 / 105-119 / 120-124 / 125-129 / 130+) 別の構成比 + 給与中央値</li>
+                                    <li>• <b class="text-slate-200">§04-3 散布図</b>: 給与×年間休日、雇用形態色分け、Pearson r + 回帰直線</li>
+                                    <li>• <b class="text-slate-200">§04-4 個別求人</b>: 月給制+給与記載+会社名記載の求人リスト (最大100件、年間休日降順)</li>
+                                    <li>• <b class="text-slate-200">§04-5 セグメント別 給与</b>: 6 カテゴリ × 月給下限/上限 × 平均・中央値・最頻値</li>
                                 </ul>
                             </div>
 
                             <div>
-                                <div class="font-semibold text-amber-300">Section 07.6 — 人気度シグナル</div>
+                                <div class="font-semibold text-amber-300">Section 05 — 人気度シグナル</div>
                                 <p class="text-slate-300 text-[13px] mt-1">Indeed (SP) 固有の「人気」「超人気」タグを集計。Indeed が付与する「人気」ラベル(付与基準は非公開)が給与・年間休日とどう相関するかを可視化します。「人気タグ付きの求人は本当に条件が良いのか」を検証するセクションです。</p>
                                 <ul class="mt-2 text-[12px] text-slate-400 space-y-1">
-                                    <li>• <b class="text-slate-200">§07.6-1 サマリー</b>: 人気/超人気件数、比率、月給差 (万円)、年間休日差</li>
-                                    <li>• <b class="text-slate-200">§07.6-2 中央値比較</b>: 人気タグあり vs なしの月給・年間休日中央値</li>
-                                    <li>• <b class="text-slate-200">§07.6-3 タグ別 給与統計</b>: 超人気/人気/なし × 月給下限/上限 × 平均・中央値・最頻値</li>
+                                    <li>• <b class="text-slate-200">§05-1 サマリー</b>: 人気/超人気件数、比率、月給差 (万円)、年間休日差</li>
+                                    <li>• <b class="text-slate-200">§05-2 中央値比較</b>: 人気タグあり vs なしの月給・年間休日中央値</li>
+                                    <li>• <b class="text-slate-200">§05-3 タグ別 給与統計</b>: 超人気/人気/なし × 月給下限/上限 × 平均・中央値・最頻値</li>
                                 </ul>
                             </div>
 
                             <div class="text-[11px] text-slate-500 border-t border-slate-700 pt-2 mt-2">
-                                ※ 他のセクション (Section 01-07, 08, 09) は HW データ・外部統計との統合分析。上記 07.5/07.6 は媒体 CSV 独自の追加セクションです。
+                                ※ 他のセクション (Section 01-12) は HW データ・外部統計との統合分析。上記 04/05 は媒体 CSV 独自の追加セクションです。
                             </div>
                         </div>
                     </details>
@@ -328,7 +328,7 @@ pub(crate) fn render_upload_form() -> String {
                             </div>
                             <div>
                                 <b class="text-white">Q3 (第3四分位)</b>
-                                <p class="text-slate-300 mt-1">全データを昇順に並べたとき上位 25% の境界値。「Q3 以上 = 上位 1/4」の意味。§07.5-1 の「Q3=125 日」なら「上位 25% の企業は年間休日 125 日以上」。n ≥ 20 では補間処理を適用、n &lt; 20 は最近接値。</p>
+                                <p class="text-slate-300 mt-1">全データを昇順に並べたとき高い方から 25% の境界値。「Q3 以上 = 高い方から 1/4」の意味。§04-1 の「Q3=125 日」なら「高い方から 25% の企業は年間休日 125 日以上」。n ≥ 20 では補間処理を適用、n &lt; 20 は最近接値。</p>
                             </div>
                             <div>
                                 <b class="text-white">Pearson 相関係数 r</b>
@@ -341,7 +341,7 @@ pub(crate) fn render_upload_form() -> String {
                             </div>
                             <div>
                                 <b class="text-white">n閾値 (両群 n ≥ 5)</b>
-                                <p class="text-slate-300 mt-1">中央値比較 (§07.6-1 の月給差など) は両群の n が 5 未満だと外れ値 1 件で結果が乱高下します。両群 n ≥ 5 を満たさない場合は「— (n不足)」と表示され、KPI foot に実 n が併記されます。</p>
+                                <p class="text-slate-300 mt-1">中央値比較 (§05-1 の月給差など) は両群の n が 5 未満だと外れ値 1 件で結果が乱高下します。両群 n ≥ 5 を満たさない場合は「— (n不足)」と表示され、KPI foot に実 n が併記されます。</p>
                             </div>
                             <div>
                                 <b class="text-white">重複排除</b>
@@ -362,15 +362,15 @@ pub(crate) fn render_upload_form() -> String {
                                 <ul class="mt-2 space-y-2 text-slate-300 pl-4 list-disc">
                                     <li>
                                         <b class="text-white">競合水準の提示</b>：
-                                        「貴社の年間休日 X 日は §07.5-5 の 105-119 日カテゴリで下限中央値 Y 万円が標準。上限中央値 Z 万円まで引き上げると 120-124 日カテゴリと張り合えます」
+                                        「貴社の年間休日 X 日は §04-5 の 105-119 日カテゴリで下限中央値 Y 万円が標準。上限中央値 Z 万円まで引き上げると 120-124 日カテゴリと張り合えます」
                                     </li>
                                     <li>
                                         <b class="text-white">人気タグ付き求人との比較</b>：
-                                        「§07.6-3 の超人気タグ求人は中央値で月給 +A 万円、休日 +B 日の傾向があります(本媒体データでの相関であり、給与を上げれば人気タグが付くという因果関係ではありません)」
+                                        「§05-3 の超人気タグ求人は中央値で月給 +A 万円、休日 +B 日の傾向があります(本媒体データでの相関であり、給与を上げれば人気タグが付くという因果関係ではありません)」
                                     </li>
                                     <li>
                                         <b class="text-white">上限中央値の引用</b>：
-                                        「求人票の月給上限は §07.5-1 のこの地域の中央値 X 万円が参考水準。本媒体データ上、そうした水準の求人が多いという参考情報です(実際の応募数・閲覧数を保証するものではありません)」
+                                        「求人票の月給上限は §04-1 のこの地域の中央値 X 万円が参考水準。本媒体データ上、そうした水準の求人が多いという参考情報です(実際の応募数・閲覧数を保証するものではありません)」
                                     </li>
                                 </ul>
                             </div>
@@ -380,15 +380,15 @@ pub(crate) fn render_upload_form() -> String {
                                 <ul class="mt-2 space-y-2 text-slate-300 pl-4 list-disc">
                                     <li>
                                         <b class="text-white">候補者面談の材料</b>：
-                                        「同エリア/同職種の年間休日中央値は §07.5-1 で N 日。当社の X 日は上位 A% (§07.5-2 分布より) に位置します」
+                                        「同エリア/同職種の年間休日中央値は §04-1 で N 日。当社の X 日は高い方から A% (§04-2 分布より) に位置します」
                                     </li>
                                     <li>
                                         <b class="text-white">競合オファーの妥当性判定</b>：
-                                        「候補者が『他社で月給 Y 万提示』と言った際、§07.5-5 で該当カテゴリ (年間休日+雇用形態) の上限中央値と比較して現実的な水準か判定」
+                                        「候補者が『他社で月給 Y 万提示』と言った際、§04-5 で該当カテゴリ (年間休日+雇用形態) の上限中央値と比較して現実的な水準か判定」
                                     </li>
                                     <li>
                                         <b class="text-white">求人票改善の優先度</b>：
-                                        「§07.5-4 個別求人の上位企業と自社を比較し、給与/休日/勤務地のどこに差があるか特定 → 差別化訴求」
+                                        「§04-4 個別求人の条件値が高い企業と自社を比較し、給与/休日/勤務地のどこに差があるか特定 → 差別化訴求」
                                     </li>
                                 </ul>
                             </div>
@@ -897,12 +897,12 @@ fn render_action_bar(session_id: &str) -> String {
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5" role="group" aria-label="出力するページ">
                             <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="02" checked> 地域の基礎データ</label>
                             <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="03" checked> 給与の分布</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="04" checked> 採用市場の需給</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="05" checked> 地域の企業構造</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="06" checked> 働き手の年齢・人口構成</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="07" checked> 最低賃金・暮らしのデータ</label>
                             <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="075" checked> 年間休日×給与の詳細</label>
                             <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="076" checked> 人気求人の傾向 <span class="text-[10px] text-slate-500">(Indeed SPのみ)</span></label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="06" checked> 働き手の年齢・人口構成</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="05" checked> 地域の企業構造</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="04" checked> 採用市場の需給</label>
+                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="07" checked> 最低賃金・暮らしのデータ</label>
                             <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="09" checked> 採用マーケット分析</label>
                             <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="10" checked> 採用環境の詳細分析 <span class="text-[10px] text-slate-500">(働き手の将来・給与相場・転職動向)</span></label>
                         </div>

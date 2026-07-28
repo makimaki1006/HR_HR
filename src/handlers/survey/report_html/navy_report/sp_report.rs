@@ -237,7 +237,7 @@ fn conclusion_new_ratio(agg: &SurveyAggregation) -> Conclusion {
     }
 }
 
-/// 採用市場の逼迫度 (有効求人倍率) から結論を組み立てる (§04)。
+/// 採用市場の逼迫度 (有効求人倍率) から結論を組み立てる (§08)。
 fn conclusion_tightness(ctx: Option<&InsightContext>) -> Conclusion {
     let ratio = ctx
         .and_then(|c| c.ext_job_ratio.last())
@@ -249,7 +249,7 @@ fn conclusion_tightness(ctx: Option<&InsightContext>) -> Conclusion {
         Some(r) if r >= 1.5 => Conclusion {
             topic: ConclusionTopic::Tightness,
             sev: "neu",
-            section: "04",
+            section: "08",
             sentence: format!(
                 "直近の有効求人倍率 (全職種の参考値) は {:.2} 倍で、全国平均 (約 1.2 倍) を上回る水準です。",
                 r
@@ -259,7 +259,7 @@ fn conclusion_tightness(ctx: Option<&InsightContext>) -> Conclusion {
         Some(r) if r >= 1.0 => Conclusion {
             topic: ConclusionTopic::Tightness,
             sev: "neu",
-            section: "04",
+            section: "08",
             sentence: format!(
                 "直近の有効求人倍率 (全職種の参考値) は {:.2} 倍で、全国平均 (約 1.2 倍) と同程度の水準です。",
                 r
@@ -269,7 +269,7 @@ fn conclusion_tightness(ctx: Option<&InsightContext>) -> Conclusion {
         Some(r) => Conclusion {
             topic: ConclusionTopic::Tightness,
             sev: "neu",
-            section: "04",
+            section: "08",
             sentence: format!(
                 "直近の有効求人倍率 (全職種の参考値) は {:.2} 倍で、全国平均 (約 1.2 倍) を下回る水準です。",
                 r
@@ -279,14 +279,14 @@ fn conclusion_tightness(ctx: Option<&InsightContext>) -> Conclusion {
         None => Conclusion {
             topic: ConclusionTopic::Tightness,
             sev: "neu",
-            section: "04",
+            section: "08",
             sentence: "採用市場の逼迫度は参照データが不足しているため判断を保留します。".to_string(),
             outlook: None,
         },
     }
 }
 
-/// 転職を考えている人の規模から結論を組み立てる (§10 追加図)。
+/// 転職を考えている人の規模から結論を組み立てる (§11 追加図)。
 fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
     // region_name が対象県 (region_code 末尾が "000" でない、全国=00000 以外) の行を優先。
     let rate = ctx.and_then(|c| {
@@ -301,7 +301,7 @@ fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
         Some(r) => Conclusion {
             topic: ConclusionTopic::Switcher,
             sev: "pos",
-            section: "10",
+            section: "11",
             // 2026-07-17: 出典は県単位の統計のため「対象地域で」→「県単位の参考値で」に訂正。
             sentence: format!(
                 "転職を考えている人は県単位の参考値で概ね {:.1}% とみられ、潜在的な採用対象は一定数存在する可能性があります。",
@@ -312,7 +312,7 @@ fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
         None => Conclusion {
             topic: ConclusionTopic::Switcher,
             sev: "neu",
-            section: "10",
+            section: "11",
             sentence: "転職意向の規模は参照データが不足しているため判断を保留します。".to_string(),
             outlook: None,
         },
@@ -326,8 +326,8 @@ fn conclusion_switcher(ctx: Option<&InsightContext>) -> Conclusion {
 ///
 /// 2026-07-27: 経営サマリーからは有効求人倍率 (全職種値) 由来の結論
 /// (`conclusion_tightness`) を除外する。全職種の有効求人倍率を対象職種の採用しやすさの
-/// 結論に接続しない恒久ルール (§04 は参考値として別途扱う)。`conclusion_tightness`
-/// 自体は §04 の結論バンドで引き続き利用する。
+/// 結論に接続しない恒久ルール (§08 は参考値として別途扱う)。`conclusion_tightness`
+/// 自体は §08 の結論バンドで引き続き利用する。
 pub(super) fn build_conclusions(
     agg: &SurveyAggregation,
     ctx: Option<&InsightContext>,
@@ -427,7 +427,7 @@ pub(crate) fn render_sp_exec_onepager(
                 "03" => {
                     "給与レンジの提示幅を見直し、求職者が水準を判断しやすい表記に整える".to_string()
                 }
-                "04" => "競合より条件が見劣りしないか、給与・待遇の訴求点を点検する".to_string(),
+                "08" => "競合より条件が見劣りしないか、給与・待遇の訴求点を点検する".to_string(),
                 _ => "気になった所見について、社内で担当と期限を決めて確認する".to_string(),
             });
         }
@@ -493,11 +493,10 @@ pub(crate) fn render_sp_conclusion_band(
             outlook: None,
         },
         "03" => conclusion_salary(agg),
-        "04" => conclusion_tightness(ctx),
-        "05" => Conclusion {
+        "07" => Conclusion {
             topic: ConclusionTopic::Other,
             sev: "neu",
-            section: "05",
+            section: "07",
             sentence: "地域の企業構成から、競合となりうる採用主体の顔ぶれが読み取れる可能性があります。"
                 .to_string(),
             outlook: None,
@@ -510,23 +509,24 @@ pub(crate) fn render_sp_conclusion_band(
                 .to_string(),
             outlook: None,
         },
-        "07" => Conclusion {
-            topic: ConclusionTopic::Other,
-            sev: "neu",
-            section: "07",
-            sentence: "最低賃金や暮らしのデータから、提示すべき給与の下限感がつかめる可能性があります。"
-                .to_string(),
-            outlook: None,
-        },
+        "08" => conclusion_tightness(ctx),
         "09" => Conclusion {
             topic: ConclusionTopic::Other,
             sev: "neu",
             section: "09",
+            sentence: "最低賃金や暮らしのデータから、提示すべき給与の下限感がつかめる可能性があります。"
+                .to_string(),
+            outlook: None,
+        },
+        "10" => Conclusion {
+            topic: ConclusionTopic::Other,
+            sev: "neu",
+            section: "10",
             sentence: "地域ごとの相対的な採用しやすさから、媒体投下の優先順位を検討できる可能性があります。"
                 .to_string(),
             outlook: None,
         },
-        "10" => conclusion_switcher(ctx),
+        "11" => conclusion_switcher(ctx),
         _ => Conclusion {
             topic: ConclusionTopic::Other,
             sev: "neu",
@@ -676,13 +676,13 @@ pub(crate) fn render_sp_priority_actions(
                 kind: "時間がかかる",
                 action: "競合より条件が見劣りしないか、給与・休日・待遇の訴求点を点検する"
                     .to_string(),
-                section: "04",
+                section: "08",
             }),
             ConclusionTopic::Switcher => actions.push(SpAction {
                 kind: "時間がかかる",
                 action: "転職を考えている層に届くよう、媒体・配信地域の優先順位を検討する"
                     .to_string(),
-                section: "10",
+                section: "11",
             }),
             ConclusionTopic::Sample if c.sev == "warn" || c.sev == "neg" => {
                 actions.push(SpAction {
@@ -700,7 +700,7 @@ pub(crate) fn render_sp_priority_actions(
         (
             "すぐできる",
             "反応が弱い求人から順に、写真と仕事内容の説明を1箇所ずつ改善する",
-            "05",
+            "07",
         ),
         (
             "時間がかかる",

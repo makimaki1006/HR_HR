@@ -325,7 +325,7 @@ pub(crate) fn render_navy_section_02_region(
             ));
         }
         html.push_str("</tbody></table>\n");
-        html.push_str("<p class=\"caption\">出典: SSDSE-A 市区町村集計 (失業率 = 失業者 / 労働力、単身世帯率 = 単身世帯 / 総世帯)。<strong>★基準地域</strong>: アプリで選択した市区町村。近隣は同一都道府県内で CSV 件数の多い市区町村 (最大 10)。<strong>県平均 (参考)</strong> は県全体の SUM 方式集計。Section 04 の失業率と併せて読む。「—」はデータ欠損。</p>\n");
+        html.push_str("<p class=\"caption\">出典: SSDSE-A 市区町村集計 (失業率 = 失業者 / 労働力、単身世帯率 = 単身世帯 / 総世帯)。<strong>★基準地域</strong>: アプリで選択した市区町村。近隣は同一都道府県内で CSV 件数の多い市区町村 (最大 10)。<strong>県平均 (参考)</strong> は県全体の SUM 方式集計。Section 08 の失業率と併せて読む。「—」はデータ欠損。</p>\n");
     } else if pref_avg_unemp.is_some() || pref_avg_single.is_some() {
         // フォールバック: 従来の都道府県平均表 (非 SP 経路 / muni 未指定時)。
         html.push_str("<div class=\"block-title block-title-spaced\">表 2-D &nbsp;都道府県平均比較 (マクロ指標)</div>\n");
@@ -344,7 +344,7 @@ pub(crate) fn render_navy_section_02_region(
             ));
         }
         html.push_str("</tbody></table>\n");
-        html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計 (SUM 方式: 市町村集計を県全体で再集計)。対象地域固有の値ではなく県全体の平均値。Section 04 の失業率と併せて読む。</p>\n");
+        html.push_str("<p class=\"caption\">出典: SSDSE-A 都道府県集計 (SUM 方式: 市町村集計を県全体で再集計)。対象地域固有の値ではなく県全体の平均値。Section 08 の失業率と併せて読む。</p>\n");
     }
 
     // -- 表 2-E 都道府県別給与 + 地域比較 (2026-05-23 #226 統合)
@@ -479,7 +479,7 @@ fn build_navy_prefecture_salary_table(agg: &SurveyAggregation, is_hourly: bool) 
         "<p class=\"caption\">基準: CSV 内 件数加重 全体平均給与 <strong>{} {}</strong>。\
          <strong>「全体」はアップロード CSV 内の県群を対象とした集計</strong>であり、\
          47 都道府県全体や公的統計の全国平均ではありません。\
-         他媒体・公的統計との比較を行う場合は、Section 07 最低賃金表で別途確認してください。</p>\n",
+         他媒体・公的統計との比較を行う場合は、Section 09 最低賃金表で別途確認してください。</p>\n",
         fmt_val(overall_avg),
         unit_label
     ));

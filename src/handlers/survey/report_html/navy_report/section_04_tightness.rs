@@ -99,7 +99,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
     html.push_str("<section class=\"page-navy navy-tightness\" role=\"region\">\n");
     push_page_head(
         html,
-        "SECTION 04",
+        "SECTION 08",
         "採用市場 逼迫度",
         "有効求人倍率 / 失業率 / 離職率 を統合した複合指標",
     );
@@ -133,7 +133,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
 
     // -- KPI row (4 cell Full / 3 cell MI/Public)
     let d = data.as_ref();
-    html.push_str("<div class=\"block-title\">図 4-1 &nbsp;採用難度 主要 4 指標</div>\n");
+    html.push_str("<div class=\"block-title\">図 8-1 &nbsp;採用難度 主要 4 指標</div>\n");
     if show_vacancy {
         html.push_str("<div class=\"kpi-row kpi-row-4\">\n");
     } else {
@@ -234,14 +234,14 @@ pub(crate) fn render_navy_section_04_market_tightness(
 
     // -- gauge SVG (4 軸正規化、横バー)
     if let Some(d) = data.as_ref() {
-        html.push_str("<div class=\"block-title block-title-spaced\">図 4-2 &nbsp;採用難度 ゲージ (正規化 0-100)</div>\n");
+        html.push_str("<div class=\"block-title block-title-spaced\">図 8-2 &nbsp;採用難度 ゲージ (正規化 0-100)</div>\n");
         html.push_str(&build_navy_tightness_gauges(d, show_vacancy));
         html.push_str("<p class=\"caption\">ゲージは 0 (緩やか) - 100 (厳しい) に正規化。緑帯=安全 / 金帯=注意 / 赤帯=採用難度 高。</p>\n");
     }
 
     // -- table-navy 集計
     html.push_str(
-        "<div class=\"block-title block-title-spaced\">表 4-A &nbsp;採用市場 指標サマリ</div>\n",
+        "<div class=\"block-title block-title-spaced\">表 8-A &nbsp;採用市場 指標サマリ</div>\n",
     );
     html.push_str(&build_navy_tightness_table(d, show_vacancy));
 
@@ -252,10 +252,10 @@ pub(crate) fn render_navy_section_04_market_tightness(
     //   ごと出さない ("データ欠損" フォールバックも出さない)。
     if let Some(ctx) = hw_context {
         if matches!(variant, ReportVariant::Full) {
-            // 2026-05-17: 表 4-B の silent skip を fallback 表示に変更 (#244 描画漏れ調査)
+            // 2026-05-17: 表 8-B の silent skip を fallback 表示に変更 (#244 描画漏れ調査)
             //   旧: !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() のみ描画
             //   新: block-title は常時出し、データ欠損時は欠落データを明示
-            html.push_str("<div class=\"block-title block-title-spaced\">表 4-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
+            html.push_str("<div class=\"block-title block-title-spaced\">表 8-B &nbsp;産業別 採用ニーズ密度 (件数最多 8 産業)</div>\n");
             if !ctx.ext_industry_employees.is_empty() && !ctx.hw_industry_counts.is_empty() {
                 html.push_str(&build_navy_industry_tightness_table(ctx));
             } else {
@@ -274,18 +274,18 @@ pub(crate) fn render_navy_section_04_market_tightness(
                      <tbody>\
                      <tr><td class=\"dim\" style=\"text-align:center;padding:8mm 4mm;\">\
                      産業別 採用ニーズ密度は <strong>{}</strong> が取得できなかったため算出されません。\
-                     表 4-A の指標サマリ + 表 4-C/D で代替評価してください。\
+                     表 8-A の指標サマリ + 表 8-C/D で代替評価してください。\
                      </td></tr></tbody></table>\n",
                     missing
                 ));
             }
         }
 
-        // -- 表 4-C 事業所統計 (採用競合規模)  [旧 7.5-G 統合 2026-05-15]
+        // -- 表 8-C 事業所統計 (採用競合規模)  [旧 7.5-G 統合 2026-05-15]
         if !ctx.ext_establishments.is_empty() {
             html.push_str(
                 "<div class=\"block-title block-title-spaced\">\
-                 表 4-C &nbsp;事業所統計 (採用競合規模)\
+                 表 8-C &nbsp;事業所統計 (採用競合規模)\
                  </div>\n",
             );
             html.push_str(&build_navy_auto_table(&ctx.ext_establishments, 8));
@@ -298,11 +298,11 @@ pub(crate) fn render_navy_section_04_market_tightness(
             );
         }
 
-        // -- 表 4-D 開廃業動態 (市場成長性)  [旧 7.5-H 統合 2026-05-15]
+        // -- 表 8-D 開廃業動態 (市場成長性)  [旧 7.5-H 統合 2026-05-15]
         if !ctx.ext_business_dynamics.is_empty() {
             html.push_str(
                 "<div class=\"block-title block-title-spaced\">\
-                 表 4-D &nbsp;開廃業動態 (開業率・廃業率)\
+                 表 8-D &nbsp;開廃業動態 (開業率・廃業率)\
                  </div>\n",
             );
             html.push_str(&build_navy_auto_table(&ctx.ext_business_dynamics, 6));
@@ -729,7 +729,7 @@ fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> St
     };
     let mut alerts: Vec<&str> = Vec::new();
     // 2026-07-27 item4: 有効求人倍率 (全職種の参考値) は採用難度の総合判定 (=採用しやすさの
-    //   結論) の driver から除外する。全国平均との高低は表 4-A / 図 4-1 の参考値として別途提示。
+    //   結論) の driver から除外する。全国平均との高低は表 8-A / 図 8-1 の参考値として別途提示。
     if let Some(u) = d.unemployment {
         if u < 2.5 {
             alerts.push("低失業率");
