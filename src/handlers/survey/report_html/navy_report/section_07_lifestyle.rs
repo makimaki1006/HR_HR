@@ -752,10 +752,12 @@ fn build_navy_life_simulation_table(
          </colgroup>\n\
          <thead><tr>",
     );
+    // 2026-07-28 item8: 見出しを平易に (給与→手取り→家賃→残り の流れは左→右で維持)。
+    //   「代理指標」等の用語を避け、家賃の前提が分かる列名にする。
     s.push_str(
-        "<th>パターン</th><th class=\"num\">求人給与 (月換算)</th>\
-         <th class=\"num\">手取り概算</th><th class=\"num\">家賃目安</th>\
-         <th class=\"num\">家賃差引後の残額</th><th>代理指標</th>",
+        "<th>世帯タイプ</th><th class=\"num\">月の給与 (額面)</th>\
+         <th class=\"num\">手取り (概算)</th><th class=\"num\">家賃の目安</th>\
+         <th class=\"num\">家賃を引いた残り</th><th>家賃の前提</th>",
     );
     s.push_str("</tr></thead>\n<tbody>\n");
     s.push_str(&render_row(
@@ -763,14 +765,14 @@ fn build_navy_life_simulation_table(
         take_home_single,
         single_rate,
         ASSUMED_AREA_SINGLE_SQM,
-        "共同住宅 (1R/1K相当の代理指標)",
+        "共同住宅 1R/1K 相当で試算",
     ));
     s.push_str(&render_row(
         "家族 (子育て世帯)",
         take_home_family,
         family_rate,
         ASSUMED_AREA_FAMILY_SQM,
-        "一戸建 (2-3LDK相当の代理指標)",
+        "一戸建 2-3LDK 相当で試算",
     ));
     s.push_str("</tbody></table>\n");
 
@@ -869,61 +871,85 @@ fn build_navy_generation_fit_block(ctx: &InsightContext) -> String {
 
     let mut s = String::new();
 
+    // 2026-07-28 item8: 4 段階 (事実→考察→未確認→確認事項) を色分けチップの
+    //   ステップに分け、両カードで並びを揃えて視覚的に区別しやすくする。
+    let life_step = |idx: u8, label: &str, body: &str| -> String {
+        format!(
+            "<div class=\"life-step life-step-{}\"><span class=\"life-step-label\">{}</span>\
+             <span class=\"life-step-body\">{}</span></div>\n",
+            idx, label, body
+        )
+    };
+
     // -- カード1: 単身世代
-    let mut body1 = String::new();
-    body1.push_str("<strong>確認できた事実:</strong> ");
+    let mut fact1 = String::new();
     match (single_rate, pref_avg_single) {
-        (Some(sr), Some(p)) => {
-            body1.push_str(&format!("単身世帯率 {:.1}%(県平均 {:.1}%)。", sr, p))
-        }
-        (Some(sr), None) => body1.push_str(&format!("単身世帯率 {:.1}%。", sr)),
-        (None, _) => body1.push_str("単身世帯率データは未取得。"),
+        (Some(sr), Some(p)) => fact1.push_str(&format!("単身世帯率 {:.1}%(県平均 {:.1}%)。", sr, p)),
+        (Some(sr), None) => fact1.push_str(&format!("単身世帯率 {:.1}%。", sr)),
+        (None, _) => fact1.push_str("単身世帯率データは未取得。"),
     }
     match internet_rate {
-        Some(r) => body1.push_str(&format!(" ネット利用率 {:.1}%。", r)),
-        None => body1.push_str(" ネット利用率データは未取得。"),
+        Some(r) => fact1.push_str(&format!(" ネット利用率 {:.1}%。", r)),
+        None => fact1.push_str(" ネット利用率データは未取得。"),
     }
-    body1.push_str(
-        "<br><strong>この情報から考えられること:</strong> \
-         単身世帯率やネット利用率が県平均を上回る場合、単身の若年層への訴求 \
-         (オンライン媒体経由の応募等) が比較的届きやすい地域である可能性があります。\
-         <br><strong>まだ分からないこと:</strong> \
-         実際の年代構成・通勤時間・余暇環境等、本データに含まれない要因が \
-         採用のしやすさに影響します。\
-         <br><strong>コンサルタント確認事項:</strong> \
-         表7-B(通勤圏サマリ)・図7-1(ネット利用率)と併せて確認し、\
+    let mut body1 = String::new();
+    body1.push_str(&life_step(1, "確認できた事実", &fact1));
+    body1.push_str(&life_step(
+        2,
+        "この情報から考えられること",
+        "単身世帯率やネット利用率が県平均を上回る場合、単身の若年層への訴求 \
+         (オンライン媒体経由の応募等) が比較的届きやすい地域である可能性があります。",
+    ));
+    body1.push_str(&life_step(
+        3,
+        "まだ分からないこと",
+        "実際の年代構成・通勤時間・余暇環境等、本データに含まれない要因が \
+         採用のしやすさに影響します。",
+    ));
+    body1.push_str(&life_step(
+        4,
+        "コンサルタント確認事項",
+        "表7-B(通勤圏サマリ)・図7-1(ネット利用率)と併せて確認し、\
          訴求文言への反映は個別に判断してください。",
-    );
+    ));
     s.push_str("<div class=\"so-what\" style=\"margin-top:4mm;\">\n");
     s.push_str("<div class=\"sw-label\">世代適合の目安 (単身層)</div>\n");
     s.push_str(&format!("<div class=\"sw-body\">{}</div>\n", body1));
     s.push_str("</div>\n");
 
     // -- カード2: 子育て世帯
-    let mut body2 = String::new();
-    body2.push_str("<strong>確認できた事実:</strong> ");
+    let mut fact2 = String::new();
     match young_pct {
-        Some(y) => body2.push_str(&format!("0-14歳人口比率 {:.1}%。", y)),
-        None => body2.push_str("0-14歳人口比率データは未取得。"),
+        Some(y) => fact2.push_str(&format!("0-14歳人口比率 {:.1}%。", y)),
+        None => fact2.push_str("0-14歳人口比率データは未取得。"),
     }
     match (daycare_per_1k, pref_avg_daycare) {
-        (Some(d), Some(p)) => body2.push_str(&format!(
+        (Some(d), Some(p)) => fact2.push_str(&format!(
             " 保育所密度 {:.1} 施設/千人(0-14歳)(県平均 {:.1})。",
             d, p
         )),
-        (Some(d), None) => body2.push_str(&format!(" 保育所密度 {:.1} 施設/千人(0-14歳)。", d)),
-        (None, _) => body2.push_str(" 保育所密度データは未取得。"),
+        (Some(d), None) => fact2.push_str(&format!(" 保育所密度 {:.1} 施設/千人(0-14歳)。", d)),
+        (None, _) => fact2.push_str(" 保育所密度データは未取得。"),
     }
-    body2.push_str(
-        "<br><strong>この情報から考えられること:</strong> \
-         0-14歳人口比率や保育所密度が県平均を上回る場合、子育てインフラの厚みが \
-         子育て世帯への訴求材料になる可能性があります。\
-         <br><strong>まだ分からないこと:</strong> \
-         保育所の空き状況・入所しやすさ・待機児童数等は本データに含まれません \
-         (施設数のみに基づく指標です)。\
-         <br><strong>コンサルタント確認事項:</strong> \
-         実際の入所可否・自治体の最新の子育て支援情報は別途確認が必要です。",
-    );
+    let mut body2 = String::new();
+    body2.push_str(&life_step(1, "確認できた事実", &fact2));
+    body2.push_str(&life_step(
+        2,
+        "この情報から考えられること",
+        "0-14歳人口比率や保育所密度が県平均を上回る場合、子育てインフラの厚みが \
+         子育て世帯への訴求材料になる可能性があります。",
+    ));
+    body2.push_str(&life_step(
+        3,
+        "まだ分からないこと",
+        "保育所の空き状況・入所しやすさ・待機児童数等は本データに含まれません \
+         (施設数のみに基づく指標です)。",
+    ));
+    body2.push_str(&life_step(
+        4,
+        "コンサルタント確認事項",
+        "実際の入所可否・自治体の最新の子育て支援情報は別途確認が必要です。",
+    ));
     s.push_str("<div class=\"so-what\" style=\"margin-top:3mm;\">\n");
     s.push_str("<div class=\"sw-label\">世代適合の目安 (子育て世帯)</div>\n");
     s.push_str(&format!("<div class=\"sw-body\">{}</div>\n", body2));
@@ -997,11 +1023,14 @@ fn build_navy_minwage_vs_salary_table(
     // 2026-06-01: 表 7-E はみ出し修正。`.num` カラムは `white-space: nowrap` で
     // 1 行にまとまる CSS のため、「万円/月」と「円/時換算」を <br> で 2 行に分割し
     // A4 横幅内に収める。
+    // 2026-07-28 item6: 換算注記 (円/時換算, ÷167h) が nowrap のまま値列を超えて
+    //   備考列に食い込んでいた。注記を white-space:normal の小さめ span に入れて
+    //   セル内で折り返し、あわせて値列を 16%→24% に拡げる (備考 62%→54%)。
     let median_repr = if is_hourly {
         format!("{} 円/時", format_number(median_min_salary))
     } else {
         format!(
-            "{} 万円/月<br>({} 円/時換算, &divide;167h)",
+            "{} 万円/月<br><span class=\"dim\" style=\"white-space:normal;font-weight:400;font-size:7.5pt;\">({} 円/時換算, &divide;167h)</span>",
             format_mm(median_min_salary),
             format_number(hourly_equiv)
         )
@@ -1009,7 +1038,7 @@ fn build_navy_minwage_vs_salary_table(
 
     let mut s = String::from(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
-         <colgroup><col style=\"width:22%\"><col style=\"width:16%\"><col style=\"width:62%\"></colgroup>\n\
+         <colgroup><col style=\"width:22%\"><col style=\"width:24%\"><col style=\"width:54%\"></colgroup>\n\
          <thead><tr>",
     );
     s.push_str("<th>指標</th><th class=\"num\">値</th><th>備考</th>");
@@ -1333,13 +1362,16 @@ fn build_navy_lifestyle_facilities_table(ctx: &InsightContext) -> String {
     s.push_str("<th>区分</th><th class=\"num\">施設・人員数</th><th class=\"num\">県平均比較</th><th>備考</th>");
     s.push_str("</tr></thead>\n<tbody>\n");
 
+    // 2026-07-28 item6: 県平均比較列は .num (white-space:nowrap) のため、括弧内の
+    //   長い比較テキスト (県平均・差) が値列を超えて備考列に食い込んでいた。括弧部分を
+    //   white-space:normal の span に入れてセル内で折り返させる (親の nowrap を上書き)。
     let fmt_cmp = |target: f64, pref_avg: Option<f64>, unit: &str| -> String {
         match pref_avg {
             Some(p) if p > 0.0 => {
                 let diff = target - p;
                 let sign = if diff >= 0.0 { "+" } else { "" };
                 format!(
-                    "{:.1} {} <span class=\"dim\">(県平均 {:.1}{}, 差 {}{:.1}{})</span>",
+                    "{:.1} {} <span class=\"dim\" style=\"white-space:normal;\">(県平均 {:.1}{}, 差 {}{:.1}{})</span>",
                     target, unit, p, unit, sign, diff, unit
                 )
             }
@@ -1913,8 +1945,12 @@ fn build_navy_rental_vs_salary_table(
     let national_avg_str = national_avg
         .map(|v| format!("{} 円/m²", format_number(v)))
         .unwrap_or_else(|| "取得不可".to_string());
+    // 2026-07-28 item7: 長文の補足を出典 + m² 単価方式 + 概算である旨に要約 (2〜3 行)。
+    //   旧版の SO WHAT / 5 年周期注記 / 可処分所得の但し書き等は割愛。
     s.push_str(&format!(
-        "<p class=\"caption\">出典: 総務省 e-Stat 住宅・土地統計調査 0004021493 (借家 専用住宅 延べ面積 1m² 当たり家賃、2023 年実施)         + CSV 給与集計。<strong>m² 単価</strong> は 「家賃0円を含まない」区分の月額単価 (円/m²)。         <strong>全国平均</strong> = {national_avg}。月給は CSV 中央値 (時給ベースは &times; 167h で換算)。         <strong>想定 50m² 月家賃</strong> = m² 単価 &times; 50 (1LDK 相当の概算、実物件家賃は別途確認が必要)。         <strong>判定基準 (全国平均比):</strong> 70% 以下を <strong>家賃低水準</strong>、70-130% を <strong>全国標準水準</strong>、130% 超を <strong>家賃高水準</strong> としています。         <strong>SO WHAT:</strong> 家賃低水準帯では給与の絶対水準で訴求余地があります。家賃高水準帯では家賃補助・住宅手当・通勤手当等の付帯条件強化が候補となります。         住宅・土地統計は 5 年に 1 回の調査であり、最新基準年は as_of=2023 です。本表は掲載求人 (アップロード CSV) の給与中央値と公的 m² 単価指標の対比であり、         実物件家賃 / 世帯収入 / 可処分所得 等は別軸で評価が必要です。m² 単価は土地価格と連動する地域コスト指標として活用してください。</p>\n",
+        "<p class=\"caption\">出典: 総務省 e-Stat 住宅・土地統計調査 0004021493 (借家 専用住宅 1m² 当たり家賃、2023 年) + CSV 給与集計 (全国平均 {national_avg})。\
+         数値は家賃の <strong>1m² 当たり単価 (円/m²)</strong> で、想定 50m² 月家賃は「m² 単価 &times; 50」の概算です (実物件家賃とは異なります)。\
+         判定は全国平均比 (70% 以下=家賃低水準 / 70-130%=全国標準 / 130% 超=家賃高水準)。</p>\n",
         national_avg = national_avg_str,
     ));
     s

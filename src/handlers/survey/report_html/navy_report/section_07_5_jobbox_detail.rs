@@ -617,14 +617,19 @@ fn push_examples_table(html: &mut String, records: &[JobBoxRecord]) {
     //     雇用    11% = 68px → 内側60px ≧ 正社員バッジ(11px×3字+padding12 ≈45px)
     //     年間休日13% = 81px → 内側73px ≧ ヘッダ「年間休日」(11.3px×4≈47px) / 「136 日」バッジ≈44px
     //     月給    26% =161px → 折返し許容、各数値は nowrap span で数字内改行を防止
+    // 2026-07-28 item9: 企業名が潰れて読みにくいとの指摘。「雇用」11%→9% /
+    //   「年間休日」13%→11% を切り詰め、その 4% を企業名 16%→20% に配分する。
+    //   雇用 9%(≈50px 内側42px) は「正社員」バッジ(≈45px)にほぼ張り付くが、バッジは
+    //   font 11px + padding 圧縮済みで収まる想定。年間休日 11%(内側≈60px)はヘッダ「年間休日」
+    //   (≈47px)・「136 日」バッジ(≈44px)を確保できる。
     html.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
-         <col style=\"width:16%;\">\
+         <col style=\"width:20%;\">\
          <col style=\"width:22%;\">\
          <col style=\"width:12%;\">\
+         <col style=\"width:9%;\">\
          <col style=\"width:11%;\">\
-         <col style=\"width:13%;\">\
          <col style=\"width:26%;\">\
          </colgroup>\n\
          <thead><tr>\

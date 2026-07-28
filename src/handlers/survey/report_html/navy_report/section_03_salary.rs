@@ -152,9 +152,9 @@ pub(crate) fn render_navy_section_03_salary(
     //   2026-05-14: 最頻値 (mode) を追加。3x2 グリッド。
     //   Phase 2-A (2026-05-29): is_hourly に応じて単位ラベルを切替。
     let mode_foot = if is_hourly {
-        "50円/時刻みの最頻 bin"
+        "最も求人が多い金額帯 (50円刻み)"
     } else {
-        "10,000円刻みの最頻 bin"
+        "最も求人が多い金額帯 (1万円刻み)"
     };
     if let Some(s) = stats_min.as_ref() {
         html.push_str("<div class=\"block-title\">図 3-1 &nbsp;下限給与 主要分位点</div>\n");
@@ -165,7 +165,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.p25),
             unit_label,
             "neu",
-            "安い方から4分の1の水準",
+            "求人を安い順に並べて下から1/4の位置の金額",
             false,
         );
         push_kpi(
@@ -174,7 +174,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.median),
             unit_label,
             "neu",
-            "ちょうど真ん中の水準",
+            "求人を安い順に並べてちょうど真ん中の金額",
             true,
         );
         push_kpi(
@@ -183,7 +183,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.mean),
             unit_label,
             "neu",
-            "外れ値の影響を含む",
+            "全求人の合計÷件数。一部の高い求人に上振れしやすい",
             false,
         );
         push_kpi(
@@ -201,7 +201,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.p75),
             unit_label,
             "neu",
-            "高い方から4分の1の境目",
+            "求人を安い順に並べて下から3/4 (高い方から1/4) の位置の金額",
             false,
         );
         push_kpi(
@@ -210,7 +210,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.p90),
             unit_label,
             "neu",
-            "高い方から1割の水準",
+            "求人を安い順に並べて下から9割の位置の金額 (高い方の1割に入る手前)",
             false,
         );
         html.push_str("</div>\n");
@@ -238,7 +238,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.p25),
             unit_label,
             "neu",
-            "安い方から4分の1の水準",
+            "求人を安い順に並べて下から1/4の位置の金額",
             false,
         );
         push_kpi(
@@ -247,7 +247,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.median),
             unit_label,
             "neu",
-            "ちょうど真ん中の水準",
+            "求人を安い順に並べてちょうど真ん中の金額",
             true,
         );
         push_kpi(
@@ -256,7 +256,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.mean),
             unit_label,
             "neu",
-            "外れ値の影響を含む",
+            "全求人の合計÷件数。一部の高い求人に上振れしやすい",
             false,
         );
         push_kpi(
@@ -274,7 +274,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.p75),
             unit_label,
             "neu",
-            "高い方から4分の1の境目",
+            "求人を安い順に並べて下から3/4 (高い方から1/4) の位置の金額",
             false,
         );
         push_kpi(
@@ -283,7 +283,7 @@ pub(crate) fn render_navy_section_03_salary(
             &fmt_val(s.p90),
             unit_label,
             "neu",
-            "高い方から1割の水準",
+            "求人を安い順に並べて下から9割の位置の金額 (高い方の1割に入る手前)",
             false,
         );
         html.push_str("</div>\n");
@@ -384,8 +384,8 @@ pub(crate) fn render_navy_section_03_salary(
              background:var(--paper);border:1px solid var(--rule-soft);padding:3mm 4mm;margin:2mm 0 3mm;\">\
              <div><strong>図の読み方 (箱ひげ図)</strong><br>\
              この図は給与のばらつきを箱とヒゲで表したものです。<br>\
-             <span style=\"display:inline-block;width:10px;height:10px;background:#F0E9D6;border:1px solid #C9A24B;vertical-align:middle;margin-right:4px;\"></span>箱 = <strong>安い方から1/4〜高い方から1/4</strong> (P25〜P75、真ん中50%の給与帯)<br>\
-             <span style=\"display:inline-block;width:2px;height:10px;background:#3CA46E;vertical-align:middle;margin-right:6px;\"></span>緑線 = <strong>中央値</strong> (P50、ちょうど真ん中)<br>\
+             <span style=\"display:inline-block;width:10px;height:10px;background:#F0E9D6;border:1px solid #C9A24B;vertical-align:middle;margin-right:4px;\"></span>箱 = <strong>求人を安い順に並べたときの真ん中50%</strong> (下から1/4〜3/4、P25〜P75)<br>\
+             <span style=\"display:inline-block;width:2px;height:10px;background:#3CA46E;vertical-align:middle;margin-right:6px;\"></span>緑線 = <strong>中央値</strong> (ちょうど真ん中、P50)<br>\
              <span style=\"display:inline-block;width:6px;height:6px;background:#C9A24B;border-radius:50%;vertical-align:middle;margin-right:4px;\"></span>金ドット = <strong>平均値</strong><br>\
              ヒゲ (両端) = <strong>最小/最大</strong>。箱が長い = レンジが広い。\
              </div>\
@@ -672,11 +672,13 @@ fn build_navy_emp_type_salary_table(
         0
     };
 
+    // 2026-07-28 item3: 雇用形態列 20%→14% に切り詰め、給与の本文列 (平均給与/中央値)
+    //   に配分 (雇用形態名は短く、数値列を読みやすくするため)。
     let mut s = String::from(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
-         <col style=\"width:6%\"><col style=\"width:20%\"><col style=\"width:8%\">\
-         <col style=\"width:9%\"><col style=\"width:13%\"><col style=\"width:13%\">\
+         <col style=\"width:6%\"><col style=\"width:14%\"><col style=\"width:8%\">\
+         <col style=\"width:9%\"><col style=\"width:16%\"><col style=\"width:16%\">\
          <col style=\"width:31%\">\
          </colgroup>\n\
          <thead><tr>",
@@ -1203,26 +1205,29 @@ fn build_navy_cluster_table(
 ) -> String {
     let mut s = if compact {
         // Ver10: 6 列 (No. / クラスタ / 件数 / 中央値 / 平均 / 解釈)
+        // 2026-07-28 item3: クラスタ列 30%→24% に切り詰め、解釈列 22%→28% に配分。
         String::from(
             "<table class=\"table-navy\">\n\
              <colgroup>\
              <col style=\"width:8%\"/>\
-             <col style=\"width:30%\"/>\
+             <col style=\"width:24%\"/>\
              <col style=\"width:12%\"/>\
              <col style=\"width:14%\"/>\
              <col style=\"width:14%\"/>\
-             <col style=\"width:22%\"/>\
+             <col style=\"width:28%\"/>\
              </colgroup>\n\
              <thead><tr>",
         )
     } else {
         // rank 26: 第1列 (クラスタ名) が幅指定なしで 3 行折返しになる問題を回避するため
-        //   colgroup で列幅を明示 (クラスタ列 22% + No. 6% + 各分位点 8% + 解釈 16%)。
+        //   colgroup で列幅を明示。
+        // 2026-07-28 item2/3: クラスタ列を 22%→18% に切り詰め、はみ出していた解釈列を
+        //   16%→20% に拡げる (クラスタ名は短く、解釈文が長いため)。
         String::from(
             "<table class=\"table-navy\">\n\
              <colgroup>\
              <col style=\"width:6%\"/>\
-             <col style=\"width:22%\"/>\
+             <col style=\"width:18%\"/>\
              <col style=\"width:8%\"/>\
              <col style=\"width:8%\"/>\
              <col style=\"width:8%\"/>\
@@ -1230,7 +1235,7 @@ fn build_navy_cluster_table(
              <col style=\"width:8%\"/>\
              <col style=\"width:8%\"/>\
              <col style=\"width:8%\"/>\
-             <col style=\"width:16%\"/>\
+             <col style=\"width:20%\"/>\
              </colgroup>\n\
              <thead><tr>",
         )
@@ -1274,7 +1279,7 @@ fn build_navy_cluster_table(
                  <td class=\"num bold\">{}</td>\
                  <td class=\"num bold\">{}</td>\
                  <td class=\"num\">{}</td>\
-                 <td><span class=\"tag tag-{}\">{}</span></td>\
+                 <td><span class=\"tag tag-{} tag-wrap\">{}</span></td>\
                  </tr>\n",
                 row_class,
                 i + 1,
@@ -1297,7 +1302,7 @@ fn build_navy_cluster_table(
                  <td class=\"num\">{}</td>\
                  <td class=\"num\">{}</td>\
                  <td class=\"num\">{}</td>\
-                 <td><span class=\"tag tag-{}\">{}</span></td>\
+                 <td><span class=\"tag tag-{} tag-wrap\">{}</span></td>\
                  </tr>\n",
                 row_class,
                 i + 1,
@@ -1388,12 +1393,13 @@ fn build_navy_cluster_fitting_table(
         "<div class=\"block-title block-title-spaced\">\
          表 3-F &nbsp;CSV 求人 × クラスタ当て込み (10 件抽出)</div>\n",
     );
+    // 2026-07-28 item3: 割当クラスタ列 22%→16% に切り詰め、求人列と判定列に配分。
     s.push_str(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
          <colgroup>\
-         <col style=\"width:5%\"><col style=\"width:10%\"><col style=\"width:12%\">\
-         <col style=\"width:12%\"><col style=\"width:22%\"><col style=\"width:12%\">\
-         <col style=\"width:12%\"><col style=\"width:15%\">\
+         <col style=\"width:5%\"><col style=\"width:13%\"><col style=\"width:12%\">\
+         <col style=\"width:12%\"><col style=\"width:16%\"><col style=\"width:12%\">\
+         <col style=\"width:12%\"><col style=\"width:18%\">\
          </colgroup>\n\
          <thead><tr>",
     );
