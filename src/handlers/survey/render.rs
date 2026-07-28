@@ -828,10 +828,10 @@ fn render_action_bar(session_id: &str) -> String {
                        class="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-400"
                        aria-label="本編レポートを新しいタブで開く"
                        title="本編レポート: 詳細版に「持ち歩ける経営サマリー1ページ」「各ページの結論バンド」「優先アクション表」「給与の四分位」を加えた標準のレポートです。">
-                        <span class="text-base" aria-hidden="true">🧪</span>
+                        <span class="text-base" aria-hidden="true">📄</span>
                         <span class="flex flex-col items-start leading-tight">
                             <span>本編レポートを作成</span>
-                            <span class="text-[10px] opacity-80 font-normal">レビュー改善を全部入れした試作版</span>
+                            <span class="text-[10px] opacity-80 font-normal">経営サマリー・優先アクション付きの標準版</span>
                         </span>
                     </a>
                     <!-- Ver10: ver10 — 現場レビュー反映版 (冒頭まとめを簡単に / 難しい言葉を減らす / 一部の図表を省く) -->

@@ -43,6 +43,13 @@ use models::job_seeker::PREFECTURE_ORDER;
 /// - 将来、allowlisted なルートで 100MB 等へ拡張するため定数で定義。
 pub const UPLOAD_BODY_LIMIT_BYTES: usize = 20 * 1024 * 1024;
 
+/// 求人票生成の入力取り込み (/api/jobgen/normalize) 専用のボディ上限: 24MB
+/// - PDF/Excel は JSON ボディ内の base64 で届くため、実ファイル上限 15MB
+///   (job_gen::inputs::MAX_UPLOAD_BYTES) の 4/3 倍 (=20MB) + JSON 外皮分が必要。
+/// - axum 既定の 2MB のままだと大きめの PDF が route 層で切断され、
+///   inputs.rs 側の丁寧なサイズエラーに到達しない (2026-07-28 実測)。
+pub const JOBGEN_NORMALIZE_BODY_LIMIT_BYTES: usize = 24 * 1024 * 1024;
+
 /// アプリケーション共有状態
 pub struct AppState {
     pub config: AppConfig,
@@ -634,7 +641,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route("/jobgen", get(job_gen::handlers::ui_jobgen))
         .route(
             "/api/jobgen/normalize",
-            post(job_gen::handlers::jobgen_normalize),
+            post(job_gen::handlers::jobgen_normalize)
+                // PDF/Excel の base64 JSON を受けるため専用上限 (既定2MBでは切断される)
+                .layer(DefaultBodyLimit::max(JOBGEN_NORMALIZE_BODY_LIMIT_BYTES)),
         )
         .route(
             "/api/jobgen/extract",
