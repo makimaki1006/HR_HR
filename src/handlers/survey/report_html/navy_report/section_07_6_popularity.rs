@@ -7,7 +7,10 @@
 //!
 //! ## 構成
 //! - §07.6-1 サマリー: 件数 / 比率 KPI 5 枚
-//! - §07.6-2 月給・年間休日 比較: 人気タグ あり vs なし の中央値比較
+//! - §07.6-2 月給 比較: 人気タグ あり vs なし の中央値比較
+//! - §07.6-3 人気タグ別 給与統計: 超人気/人気/タグなし の下限・上限 平均/中央値/最頻値
+//! - §07.6-4 人気タグ別 年間休日統計: 超人気/人気/タグなし の 件数/中央値/平均/P25/P75
+//!   (2026-07-28 復活。集計層に 3 区分別の HolidayStats を追加して実装)
 //!
 //! ## 設計メモ
 //! - 「人気タグ」は Indeed 内部の表示優先度スコアにすぎず、給与差・休日差は
@@ -17,7 +20,7 @@
 #![allow(dead_code)]
 
 use super::super::super::super::helpers::{escape_html, format_number};
-use super::super::super::aggregator::{SalaryStats, SurveyAggregation};
+use super::super::super::aggregator::{HolidayStats, SalaryStats, SurveyAggregation};
 use super::common::{push_kpi_card_simple, push_page_head};
 
 /// 人気度シグナル セクションを描画。
@@ -41,6 +44,7 @@ pub(crate) fn render_navy_section_popularity(html: &mut String, agg: &SurveyAggr
     render_summary_kpi(html, agg);
     render_comparison_block(html, agg);
     render_salary_stats_block(html, agg);
+    render_holiday_stats_block(html, agg);
 
     // Finding #9 (2026-07-01): 印刷崩れ対策 — .navy-popularity スコープで改ページ制御
     // rank5 fix: table セレクタを除去し .kpi-row のみ残す (table は別ページ跨ぎを許容)
@@ -300,6 +304,157 @@ fn render_salary_stats_block(html: &mut String, agg: &SurveyAggregation) {
     );
 }
 
+// ============================================================================
+// §07.6-4 人気タグ別 年間休日統計 (件数・中央値・平均・P25/P75)
+// ============================================================================
+
+/// 表示側で「件数僅少」と注記する閾値 (この未満は参考値扱い)。
+const HOLIDAY_N_MIN: usize = 5;
+
+/// §07.6-4 を描画。3 グループ全て n=0 なら全体スキップ。
+///
+/// 給与側 (§07.6-3) と同じ 3 区分 (超人気/人気/タグなし) の表構造で、
+/// 年間休日の 件数・中央値・平均・P25・P75 を並べる。各区分の分母は
+/// 「年間休日を抽出できた件数」であり、抽出できなかった求人は除外している
+/// (分母の透明性のため n を明示)。
+fn render_holiday_stats_block(html: &mut String, agg: &SurveyAggregation) {
+    let pop = &agg.popularity;
+    let sp = &pop.super_popular_holiday_stats;
+    let pp = &pop.popular_holiday_stats;
+    let np = &pop.non_popular_holiday_stats;
+
+    // 3 グループ全て n=0 なら スキップ (年間休日を 1 件も抽出できていない)
+    if sp.n == 0 && pp.n == 0 && np.n == 0 {
+        return;
+    }
+
+    html.push_str(
+        "<div class=\"block-title\">\
+         §07.6-4 &nbsp;人気タグ別 年間休日統計 (件数・中央値・平均・四分位)\
+         </div>\n",
+    );
+
+    html.push_str(
+        "<table class=\"table-navy\" \
+         style=\"table-layout:fixed;width:100%;font-size:0.82em;\">\n\
+         <colgroup>\
+         <col style=\"width:16%;\">\
+         <col style=\"width:20%;\">\
+         <col style=\"width:16%;\">\
+         <col style=\"width:16%;\">\
+         <col style=\"width:16%;\">\
+         <col style=\"width:16%;\">\
+         </colgroup>\n\
+         <thead><tr>\
+         <th>グループ</th>\
+         <th style=\"text-align:right;\">休日データあり件数</th>\
+         <th style=\"text-align:right;\">中央値</th>\
+         <th style=\"text-align:right;\">平均</th>\
+         <th style=\"text-align:right;\">P25</th>\
+         <th style=\"text-align:right;\">P75</th>\
+         </tr></thead>\n<tbody>\n",
+    );
+
+    let groups: &[(&str, &HolidayStats)] = &[("超人気", sp), ("人気", pp), ("タグなし", np)];
+    for (label, stats) in groups {
+        if stats.n == 0 {
+            html.push_str(&format!(
+                "<tr style=\"color:#9ca3af;\">\
+                 <td>{}</td>\
+                 <td style=\"text-align:right;\">0</td>\
+                 <td colspan=\"4\" style=\"text-align:center;\">— (データなし)</td>\
+                 </tr>\n",
+                escape_html(label),
+            ));
+        } else {
+            // n < 5 は参考値 (件数僅少) として件数セルに注記を添える。
+            let n_cell = if stats.n < HOLIDAY_N_MIN {
+                format!("{} 件<br><span style=\"font-size:0.8em;color:#9ca3af;\">参考値(件数僅少)</span>",
+                    format_number(stats.n as i64))
+            } else {
+                format!("{} 件", format_number(stats.n as i64))
+            };
+            html.push_str(&format!(
+                "<tr>\
+                 <td>{}</td>\
+                 <td style=\"text-align:right;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 <td style=\"text-align:right;white-space:nowrap;\">{}</td>\
+                 </tr>\n",
+                escape_html(label),
+                n_cell,
+                format_days(stats.median),
+                format_days(stats.mean),
+                format_days(stats.p25),
+                format_days(stats.p75),
+            ));
+        }
+    }
+    html.push_str("</tbody></table>\n");
+
+    // 中立表現: 超人気/人気 の中央値をタグなしと比較 (両群 n>=5 のときのみ)。
+    // 差の有無を「確認できました/できませんでした」型で記述し、因果は断定しない。
+    let cmp_note = build_holiday_comparison_note(sp, pp, np);
+    if !cmp_note.is_empty() {
+        html.push_str(&format!("<p class=\"note\">{}</p>\n", cmp_note));
+    }
+
+    // 分母の透明性 + 因果を断定しない注記。
+    html.push_str(
+        "<p class=\"note\">※ 各区分の分母は年間休日を抽出できた求人のみ (抽出できなかった求人は除外)。\
+         P25/P75 は第 1・第 3 四分位 (日)。件数が少ない区分 (5 件未満) は参考値です。</p>\n",
+    );
+    // 2026-07-27 item13 の注記を維持: 人気・超人気の付与要因は給料・年間休日に限らない。
+    html.push_str(
+        "<p class=\"note\">※ 「人気」「超人気」の付与には、給料や年間休日以外にも\
+         多くの要因(掲載内容・応募状況・閲覧動向など)が関わります。\
+         年間休日の差だけで人気の理由を説明できるものではありません。</p>\n",
+    );
+}
+
+/// 超人気/人気 の年間休日中央値をタグなしと比較し、中立的な差分注記を組み立てる。
+///
+/// - 比較対象は両群とも n >= `HOLIDAY_N_MIN` かつ中央値が Some のときのみ。
+/// - 差があれば「+N 日／−N 日の差が確認できました」、同値なら「差は確認できませんでした」。
+/// - 高低の理由 (因果) には言及しない。比較不能なら空文字を返す (注記なし)。
+fn build_holiday_comparison_note(
+    sp: &HolidayStats,
+    pp: &HolidayStats,
+    np: &HolidayStats,
+) -> String {
+    // タグなしの中央値が比較基準。n 不足または欠損なら比較しない。
+    let base = match (np.n >= HOLIDAY_N_MIN, np.median) {
+        (true, Some(v)) => v,
+        _ => return String::new(),
+    };
+    let mut parts: Vec<String> = Vec::new();
+    for (label, stats) in [("超人気", sp), ("人気", pp)] {
+        if stats.n >= HOLIDAY_N_MIN {
+            if let Some(v) = stats.median {
+                let diff = v - base;
+                if diff == 0 {
+                    parts.push(format!("{}区分はタグなしと中央値の差は確認できませんでした", label));
+                } else {
+                    let sign = if diff > 0 { "+" } else { "−" };
+                    parts.push(format!(
+                        "{}区分はタグなしと比べ中央値で {}{} 日の差が確認できました",
+                        label,
+                        sign,
+                        diff.abs()
+                    ));
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("※ {}(相関の参考値であり、差の理由・因果は示しません)。", parts.join("、"))
+    }
+}
+
 // Finding #8 (2026-07-01): 月給中央値を万円表示に変更 (§07.6-2 比較表も統一)。
 fn format_salary_yen(v: Option<i64>) -> String {
     match v {
@@ -550,6 +705,8 @@ mod tests {
                     max_median: Some(320_000),
                     max_mode: Some(300_000),
                 },
+                // 年間休日 3 区分統計はこのテストの対象外 (既定 = n=0 で §07.6-4 非描画)。
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -608,6 +765,180 @@ mod tests {
         assert!(
             !html.contains("§07.6-3"),
             "salary stats section skipped when all n=0"
+        );
+    }
+
+    // =========================================================================
+    // §07.6-4 年間休日 3 区分統計 テスト (2026-07-28)
+    // =========================================================================
+
+    fn agg_with_holiday_stats() -> SurveyAggregation {
+        use super::super::super::super::aggregator::{HolidayStats, PopularityAnalysis};
+        SurveyAggregation {
+            total_count: 30,
+            popularity: PopularityAnalysis {
+                popular_count: 6,
+                super_popular_count: 6,
+                none_count: 18,
+                popular_ratio: 12.0 / 30.0,
+                indeed_sp_total: 30,
+                super_popular_holiday_stats: HolidayStats {
+                    n: 6,
+                    median: Some(120),
+                    mean: Some(121),
+                    p25: Some(115),
+                    p75: Some(125),
+                },
+                popular_holiday_stats: HolidayStats {
+                    n: 6,
+                    median: Some(118),
+                    mean: Some(117),
+                    p25: Some(112),
+                    p75: Some(122),
+                },
+                non_popular_holiday_stats: HolidayStats {
+                    n: 18,
+                    median: Some(110),
+                    mean: Some(109),
+                    p25: Some(105),
+                    p75: Some(115),
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// §07.6-4 が 3 区分の年間休日統計を描画する
+    #[test]
+    fn renders_holiday_stats_section() {
+        let mut html = String::new();
+        render_navy_section_popularity(&mut html, &agg_with_holiday_stats());
+        assert!(html.contains("§07.6-4"), "section 07.6-4 heading present");
+        assert!(
+            html.contains("人気タグ別 年間休日統計"),
+            "holiday stats title present"
+        );
+        // 各区分ラベル
+        assert!(html.contains("超人気"), "super_popular row");
+        assert!(html.contains(">人気<"), "popular row");
+        assert!(html.contains("タグなし"), "non_popular row");
+        // 分母 (件数) 明示: 超人気 n=6 / タグなし n=18
+        assert!(html.contains("6 件"), "super_popular n=6");
+        assert!(html.contains("18 件"), "non_popular n=18");
+        // 日単位の中央値/四分位が出る
+        assert!(html.contains("120 日"), "super_popular median 120");
+        assert!(html.contains("110 日"), "non_popular median 110");
+        assert!(html.contains("125 日"), "super_popular P75 125");
+        // 中立の差分注記 (超人気 +10 日, 人気 +8 日)
+        assert!(html.contains("差が確認できました"), "neutral diff wording");
+        assert!(html.contains("+10 日"), "super_popular vs 非人気 diff");
+    }
+
+    /// 3 区分とも n=0 → §07.6-4 スキップ (但し popular_count>0 で §07.6 自体は描画)
+    #[test]
+    fn skips_holiday_stats_when_all_zero() {
+        use super::super::super::super::aggregator::PopularityAnalysis;
+        let mut html = String::new();
+        let agg = SurveyAggregation {
+            total_count: 10,
+            popularity: PopularityAnalysis {
+                popular_count: 3,
+                super_popular_count: 2,
+                none_count: 5,
+                popular_ratio: 0.5,
+                indeed_sp_total: 10,
+                // holiday_stats は全て default (n=0)
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        render_navy_section_popularity(&mut html, &agg);
+        assert!(html.contains("SECTION 07.6"), "section renders");
+        assert!(
+            !html.contains("§07.6-4"),
+            "holiday stats section skipped when all n=0"
+        );
+    }
+
+    /// n<5 の区分は「参考値(件数僅少)」注記が付き、差分注記の対象外になる
+    #[test]
+    fn holiday_stats_marks_small_n_as_reference() {
+        use super::super::super::super::aggregator::{HolidayStats, PopularityAnalysis};
+        let mut html = String::new();
+        let agg = SurveyAggregation {
+            total_count: 20,
+            popularity: PopularityAnalysis {
+                popular_count: 3,
+                super_popular_count: 2,
+                none_count: 15,
+                popular_ratio: 5.0 / 20.0,
+                indeed_sp_total: 20,
+                // 超人気: n=2 (< 5) → 参考値
+                super_popular_holiday_stats: HolidayStats {
+                    n: 2,
+                    median: Some(130),
+                    mean: Some(130),
+                    p25: Some(125),
+                    p75: Some(135),
+                },
+                // 人気: n=0 (データなし)
+                popular_holiday_stats: HolidayStats::default(),
+                // タグなし: n=15
+                non_popular_holiday_stats: HolidayStats {
+                    n: 15,
+                    median: Some(108),
+                    mean: Some(108),
+                    p25: Some(104),
+                    p75: Some(112),
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        render_navy_section_popularity(&mut html, &agg);
+        assert!(html.contains("§07.6-4"), "section renders (n>0 somewhere)");
+        // n<5 区分の参考値注記
+        assert!(html.contains("参考値(件数僅少)"), "small-n reference marker");
+        // 人気 (n=0) はデータなし行
+        assert!(html.contains("データなし"), "n=0 group shows データなし");
+        // 超人気 n=2 (< 5) は差分注記の対象外 → 差分注記自体が出ない
+        assert!(
+            !html.contains("差が確認できました"),
+            "small-n excluded from neutral diff note"
+        );
+    }
+
+    /// 逆証明: 出力に因果を断定する語が含まれないこと。
+    #[test]
+    fn holiday_stats_has_no_causal_assertions() {
+        let mut html = String::new();
+        render_navy_section_popularity(&mut html, &agg_with_holiday_stats());
+        // 断定語のブラックリスト (因果・理由の断定)
+        for forbidden in [
+            "人気の理由は",
+            "人気だから",
+            "が原因で",
+            "ため人気",
+            "によって人気",
+            "休日が多いから人気",
+            "人気の要因は",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "断定語 '{}' が出力に含まれてはならない",
+                forbidden
+            );
+        }
+        // 中立表現 (差の有無を確認する型) は含まれる
+        assert!(
+            html.contains("確認できました") || html.contains("確認できませんでした"),
+            "中立の差分表現が含まれる"
+        );
+        // 因果を示さない旨の明示注記
+        assert!(
+            html.contains("因果は示しません") || html.contains("説明できるものではありません"),
+            "因果否定の注記が含まれる"
         );
     }
 }

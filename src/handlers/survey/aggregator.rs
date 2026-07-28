@@ -360,6 +360,19 @@ pub struct PopularityAnalysis {
     /// 2026-07-01 追加。
     #[serde(default)]
     pub non_popular_salary_stats: SalaryStats,
+    /// 超人気タグ付き求人 (IndeedSp) の年間休日統計 (件数・中央値・平均・P25/P75)
+    /// 2026-07-28 追加。annual_holidays が Some のレコードのみを分母とする。
+    /// `#[serde(default)]` により旧 JSON キャッシュは n=0 で復元 (§07.6-4 スキップ)。
+    #[serde(default)]
+    pub super_popular_holiday_stats: HolidayStats,
+    /// 人気タグ付き求人 (IndeedSp) の年間休日統計
+    /// 2026-07-28 追加。
+    #[serde(default)]
+    pub popular_holiday_stats: HolidayStats,
+    /// 人気タグなし求人 (IndeedSp) の年間休日統計
+    /// 2026-07-28 追加。
+    #[serde(default)]
+    pub non_popular_holiday_stats: HolidayStats,
 }
 
 /// Section 07.5 用集計の集約サブ構造体 (2026-06-30 Finding #12)
@@ -632,6 +645,57 @@ pub fn compute_salary_stats(salaries: &[(Option<i64>, Option<i64>)]) -> SalarySt
         max_mean: mean_opt(&maxs),
         max_median: median_opt(&maxs),
         max_mode: mode_bin_50k(&maxs),
+    }
+}
+
+// ============================================================
+// 2026-07-28 HolidayStats: 年間休日の件数・中央値・平均・四分位統計
+// Section 07.6 (人気タグ 3 区分別) で使用する。給与側の SalaryStats に対応する
+// 年間休日版。給与は下限/上限の 2 系列だが年間休日は単一系列 (annual_holidays)
+// のため、フィールド構成は独立に定義する。
+// ============================================================
+
+/// 年間休日 (日) の分布統計 (件数・中央値・平均・P25・P75)
+///
+/// - `n`: 年間休日を抽出できたレコード数 (`annual_holidays.is_some()` のみ)。
+///   `annual_holidays == None` は呼び出し側で除外され、分母 (n) に含めない。
+/// - `median` / `mean`: 中央値 / 平均 (整数丸め、日)。
+/// - `p25` / `p75`: 第 1・第 3 四分位 (R-7 法、日)。n=1 のときは両者とも唯一値。
+/// - サンプル 0 件のとき全 `Option` フィールドは `None`、`n = 0`。
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HolidayStats {
+    /// サンプル数 (年間休日を抽出できたレコード数)
+    pub n: usize,
+    /// 年間休日 中央値 (日)
+    pub median: Option<i64>,
+    /// 年間休日 平均 (整数丸め、日)
+    pub mean: Option<i64>,
+    /// 年間休日 第 1 四分位 P25 (R-7 法、日)
+    pub p25: Option<i64>,
+    /// 年間休日 第 3 四分位 P75 (R-7 法、日)
+    pub p75: Option<i64>,
+}
+
+/// 年間休日値の列から `HolidayStats` を計算する
+///
+/// - `values`: `annual_holidays` を抽出できたレコードの値列 (None は呼び出し側で除外済み)
+/// - `n`: `values.len()` (= 抽出できた件数)。分母の透明性のためそのまま保持する。
+/// - median は `median_of`、P25/P75 は `percentile_r7` (Excel/numpy 既定の R-7 法) を使用。
+pub fn compute_holiday_stats(values: &[i64]) -> HolidayStats {
+    let n = values.len();
+    if n == 0 {
+        return HolidayStats::default();
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort();
+    let sum: i128 = sorted.iter().map(|&x| x as i128).sum();
+    let mean = (sum / n as i128) as i64;
+    HolidayStats {
+        n,
+        median: Some(median_of(&sorted)),
+        mean: Some(mean),
+        p25: Some(percentile_r7(&sorted, 0.25)),
+        p75: Some(percentile_r7(&sorted, 0.75)),
     }
 }
 
@@ -1360,6 +1424,12 @@ fn aggregate_records_core(
         let mut non_popular_salaries: Vec<i64> = Vec::new();
         let mut popular_holidays: Vec<i64> = Vec::new();
         let mut non_popular_holidays: Vec<i64> = Vec::new();
+        // 2026-07-28: 年間休日 3 区分別 (超人気/人気/タグなし) の値列 (HolidayStats 用)。
+        // 既存の 2 区分 (popular_holidays / non_popular_holidays) は互換のため保持し、
+        // 3 区分統計はこの 3 本で別途集計する。
+        let mut super_popular_holiday_values: Vec<i64> = Vec::new();
+        let mut popular_holiday_values: Vec<i64> = Vec::new();
+        let mut non_popular_holiday_values: Vec<i64> = Vec::new();
         // 2026-07-01: 下限/上限ペア (SalaryStats 用) — Monthly かつ MIN_MONTHLY_SALARY 以上のみ
         let mut popular_salary_pairs: Vec<(Option<i64>, Option<i64>)> = Vec::new();
         let mut super_popular_salary_pairs: Vec<(Option<i64>, Option<i64>)> = Vec::new();
@@ -1426,6 +1496,16 @@ fn aggregate_records_core(
                 } else {
                     non_popular_holidays.push(h);
                 }
+                // 2026-07-28: 3 区分別 (超人気/人気/タグなし)。判定順は給与側と同一
+                // (超人気 → 人気 → タグなし)。annual_holidays が None のレコードは
+                // ここに到達せず、各区分の分母 (n) から自動的に除外される。
+                if is_super {
+                    super_popular_holiday_values.push(h);
+                } else if is_popular {
+                    popular_holiday_values.push(h);
+                } else {
+                    non_popular_holiday_values.push(h);
+                }
             }
         }
 
@@ -1466,6 +1546,10 @@ fn aggregate_records_core(
             popular_salary_stats: compute_salary_stats(&popular_salary_pairs),
             super_popular_salary_stats: compute_salary_stats(&super_popular_salary_pairs),
             non_popular_salary_stats: compute_salary_stats(&non_popular_salary_pairs),
+            // 2026-07-28 年間休日 3 区分別 統計 (件数・中央値・平均・P25/P75)
+            super_popular_holiday_stats: compute_holiday_stats(&super_popular_holiday_values),
+            popular_holiday_stats: compute_holiday_stats(&popular_holiday_values),
+            non_popular_holiday_stats: compute_holiday_stats(&non_popular_holiday_values),
         }
     };
 
@@ -2979,6 +3063,139 @@ mod tests {
             pop.non_popular_n_salary, 4,
             "non-popular Monthly 4 件 → non_popular_n_salary=4"
         );
+    }
+
+    // =========================================================================
+    // 2026-07-28 年間休日 3 区分別統計 (HolidayStats) ユニットテスト
+    // =========================================================================
+
+    /// (a) 3 区分の年間休日統計が正しく集計される検算。
+    /// 区分ごとに既知の値を入れ、中央値・平均・P25・P75 を検証する。
+    #[test]
+    fn popularity_holiday_stats_three_groups_compute_correctly() {
+        let mut records: Vec<SurveyRecord> = Vec::new();
+        // 超人気: [100,105,110,115,120] → median=110, mean=110, P25=105, P75=115
+        for h in [100, 105, 110, 115, 120] {
+            records.push(mk_indeed_sp_record(
+                "超人気",
+                SalaryType::Monthly,
+                Some(250_000),
+                Some(h),
+                "正社員",
+            ));
+        }
+        // 人気: [120,122,124,126,128] → median=124, mean=124, P25=122, P75=126
+        for h in [120, 122, 124, 126, 128] {
+            records.push(mk_indeed_sp_record(
+                "人気",
+                SalaryType::Monthly,
+                Some(250_000),
+                Some(h),
+                "正社員",
+            ));
+        }
+        // タグなし: [90,95,100,105,110] → median=100, mean=100, P25=95, P75=105
+        for h in [90, 95, 100, 105, 110] {
+            records.push(mk_indeed_sp_record(
+                "",
+                SalaryType::Monthly,
+                Some(250_000),
+                Some(h),
+                "正社員",
+            ));
+        }
+        let agg = aggregate_records(&records);
+        let pop = &agg.popularity;
+
+        let sp = &pop.super_popular_holiday_stats;
+        assert_eq!(sp.n, 5, "超人気 n=5");
+        assert_eq!(sp.median, Some(110), "超人気 中央値");
+        assert_eq!(sp.mean, Some(110), "超人気 平均");
+        assert_eq!(sp.p25, Some(105), "超人気 P25");
+        assert_eq!(sp.p75, Some(115), "超人気 P75");
+
+        let pp = &pop.popular_holiday_stats;
+        assert_eq!(pp.n, 5, "人気 n=5");
+        assert_eq!(pp.median, Some(124), "人気 中央値");
+        assert_eq!(pp.mean, Some(124), "人気 平均");
+        assert_eq!(pp.p25, Some(122), "人気 P25");
+        assert_eq!(pp.p75, Some(126), "人気 P75");
+
+        let np = &pop.non_popular_holiday_stats;
+        assert_eq!(np.n, 5, "タグなし n=5");
+        assert_eq!(np.median, Some(100), "タグなし 中央値");
+        assert_eq!(np.mean, Some(100), "タグなし 平均");
+        assert_eq!(np.p25, Some(95), "タグなし P25");
+        assert_eq!(np.p75, Some(105), "タグなし P75");
+    }
+
+    /// (b) annual_holidays=None のレコードは各区分の分母 (n) から除外される。
+    /// 超人気優先の判定順 (超人気 > 人気) も同時に検証する。
+    #[test]
+    fn popularity_holiday_stats_excludes_none_and_counts_denominator() {
+        let mut records: Vec<SurveyRecord> = Vec::new();
+        // 超人気: 休日あり 2 件 [110,130] + 休日 None 1 件 → n=2
+        records.push(mk_indeed_sp_record(
+            "超人気",
+            SalaryType::Monthly,
+            Some(250_000),
+            Some(110),
+            "正社員",
+        ));
+        records.push(mk_indeed_sp_record(
+            "超人気",
+            SalaryType::Monthly,
+            Some(250_000),
+            Some(130),
+            "正社員",
+        ));
+        records.push(mk_indeed_sp_record(
+            "超人気",
+            SalaryType::Monthly,
+            Some(250_000),
+            None,
+            "正社員",
+        ));
+        // 人気: 休日 None のみ 1 件 → n=0
+        records.push(mk_indeed_sp_record(
+            "人気",
+            SalaryType::Monthly,
+            Some(250_000),
+            None,
+            "正社員",
+        ));
+        // タグなし: 休日あり 1 件 [105] → n=1 (P25=P75=105)
+        records.push(mk_indeed_sp_record(
+            "",
+            SalaryType::Monthly,
+            Some(250_000),
+            Some(105),
+            "正社員",
+        ));
+        let agg = aggregate_records(&records);
+        let pop = &agg.popularity;
+
+        // 超人気: None 除外で n=2、median=(110+130)/2=120
+        assert_eq!(pop.super_popular_holiday_stats.n, 2, "超人気 None 除外 n=2");
+        assert_eq!(pop.super_popular_holiday_stats.median, Some(120));
+        // 人気: 休日データなし → n=0、全 Option None
+        assert_eq!(pop.popular_holiday_stats.n, 0, "人気 休日データなし n=0");
+        assert_eq!(pop.popular_holiday_stats.median, None);
+        assert_eq!(pop.popular_holiday_stats.mean, None);
+        // タグなし: n=1、単一値のため median/P25/P75 全て 105
+        assert_eq!(pop.non_popular_holiday_stats.n, 1, "タグなし n=1");
+        assert_eq!(pop.non_popular_holiday_stats.median, Some(105));
+        assert_eq!(pop.non_popular_holiday_stats.p25, Some(105));
+        assert_eq!(pop.non_popular_holiday_stats.p75, Some(105));
+    }
+
+    /// compute_holiday_stats 単体: 空スライスは n=0 / 全 None
+    #[test]
+    fn compute_holiday_stats_empty_is_default() {
+        let s = compute_holiday_stats(&[]);
+        assert_eq!(s, HolidayStats::default());
+        assert_eq!(s.n, 0);
+        assert_eq!(s.median, None);
     }
 
     // ============================================================
