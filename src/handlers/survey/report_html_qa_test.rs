@@ -232,6 +232,7 @@ fn mock_nearby_company() -> NearbyCompany {
         sales_range: "10-50億円".to_string(),
         employee_delta_1y: 12.5,
         employee_delta_3m: 3.2,
+        capital_stock_range: "10-50億円".to_string(),
     }
 }
 

@@ -2452,6 +2452,26 @@ body.theme-navy .tag-pos { background: var(--pos-tint); color: var(--pos); }
 body.theme-navy .tag-neu { background: var(--rule-soft); color: var(--ink-soft); }
 body.theme-navy .tag-warn { background: var(--warn-tint); color: var(--warn); }
 body.theme-navy .tag-neg { background: var(--neg-tint); color: var(--neg); }
+/* 2026-07-28 item2: 解釈列など、長い文をタグ表示する場合の折り返し許可。
+ * 既定の .tag は white-space:nowrap で幅の狭い列からはみ出すため、
+ * .tag-wrap を併記したセルのみ折り返し + 左寄せ + 行間確保にする。 */
+body.theme-navy .tag.tag-wrap {
+  white-space: normal; word-break: break-word; overflow-wrap: anywhere;
+  text-align: left; line-height: 1.35;
+}
+/* 2026-07-28 item8: 表7-J 世代適合の 4 段階 (事実→考察→未確認→確認事項) を
+ * 視覚的に区別。段階ごとにラベルを色分けチップ化し、本文をブロックで揃える。
+ * 配色は既存の tag カラー変数を流用 (中立/前向き/注意/アクセント)。 */
+body.theme-navy .life-step { margin: 2mm 0 0; }
+body.theme-navy .life-step-label {
+  display: inline-block; font-size: 7.5pt; font-weight: 700;
+  padding: 1px 6px; border-radius: 2px; margin-bottom: 1mm; letter-spacing: 0.02em;
+}
+body.theme-navy .life-step-body { display: block; line-height: 1.5; }
+body.theme-navy .life-step-1 .life-step-label { background: var(--rule-soft); color: var(--ink-soft); }
+body.theme-navy .life-step-2 .life-step-label { background: var(--pos-tint); color: var(--pos); }
+body.theme-navy .life-step-3 .life-step-label { background: var(--warn-tint); color: var(--warn); }
+body.theme-navy .life-step-4 .life-step-label { background: var(--accent-soft); color: var(--accent-dark); }
 
 @media print {
   body.theme-navy { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #fff; }

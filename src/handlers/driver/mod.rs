@@ -1,4 +1,4 @@
-//! 職種カルテタブ (driver/職業情報) Axum handler
+//! 職種辞典タブ (driver/職業情報) Axum handler
 //!
 //! ルート（call_quality 流儀: Router::merge() で組み込み）:
 //!   GET /tab/driver                     : 一覧（カテゴリでフィルタ可: ?category=driver）
@@ -93,7 +93,7 @@ async fn tab_driver_index(
         Some(db) => db,
         None => {
             return render_degraded(
-                "Turso country-statistics 未接続のため職種カルテを表示できません",
+                "Turso country-statistics 未接続のため職種辞典を表示できません",
             )
             .into_response();
         }
@@ -182,7 +182,7 @@ async fn tab_driver_detail(
         Some(db) => db,
         None => {
             return render_degraded(
-                "Turso country-statistics 未接続のため職種カルテを表示できません",
+                "Turso country-statistics 未接続のため職種辞典を表示できません",
             )
             .into_response();
         }
@@ -559,7 +559,7 @@ async fn tab_driver_compare(
         Some(db) => db,
         None => {
             return render_degraded(
-                "Turso country-statistics 未接続のため職種カルテを表示できません",
+                "Turso country-statistics 未接続のため職種辞典を表示できません",
             )
             .into_response();
         }
@@ -630,7 +630,7 @@ fn render_degraded(msg: &str) -> Html<String> {
     let safe = msg.replace('<', "&lt;").replace('>', "&gt;");
     Html(format!(
         r#"<div class="p-6 bg-yellow-900/30 border border-yellow-600 rounded text-yellow-200">
-            <h2 class="text-lg font-bold mb-2">職種カルテ — 表示できません</h2>
+            <h2 class="text-lg font-bold mb-2">職種辞典 — 表示できません</h2>
             <p>{safe}</p>
         </div>"#
     ))

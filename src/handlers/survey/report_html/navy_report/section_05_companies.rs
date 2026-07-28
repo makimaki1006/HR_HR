@@ -430,7 +430,7 @@ pub(crate) fn render_navy_section_05_companies(
         if !salesnow_segments_industry.growth.is_empty() {
             html.push_str(&build_navy_company_list(&salesnow_segments_industry.growth, 8, show_hw));
         } else {
-            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
+            html.push_str(&empty_row_html(if show_hw { 8 } else { 7 }));
         }
         // 表 5-C′ 大手
         html.push_str(&format!(
@@ -440,7 +440,7 @@ pub(crate) fn render_navy_section_05_companies(
         if !salesnow_segments_industry.large.is_empty() {
             html.push_str(&build_navy_company_list(&salesnow_segments_industry.large, 8, show_hw));
         } else {
-            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
+            html.push_str(&empty_row_html(if show_hw { 8 } else { 7 }));
         }
         // 表 5-D′ 中堅
         html.push_str(&format!(
@@ -450,7 +450,7 @@ pub(crate) fn render_navy_section_05_companies(
         if !salesnow_segments_industry.mid.is_empty() {
             html.push_str(&build_navy_company_list(&salesnow_segments_industry.mid, 8, show_hw));
         } else {
-            html.push_str(&empty_row_html(if show_hw { 6 } else { 5 }));
+            html.push_str(&empty_row_html(if show_hw { 8 } else { 7 }));
         }
         // 表 5-E′ 採用活発 (Full のみ)
         if show_hw {
@@ -461,7 +461,7 @@ pub(crate) fn render_navy_section_05_companies(
             if !salesnow_segments_industry.hiring.is_empty() {
                 html.push_str(&build_navy_company_list(&salesnow_segments_industry.hiring, 8, show_hw));
             } else {
-                html.push_str(&empty_row_html(6));
+                html.push_str(&empty_row_html(8));
             }
         }
         // 表 5-F′ 規模 × 動向 (データ 0 件時は skip)
@@ -1103,26 +1103,30 @@ fn build_navy_company_list(
     // 2026-07-27 item6: 列幅を colgroup で明示。No. 列を最小に、産業/従業員数/増減列を
     //   圧縮し、企業名が省略されずに表示されることを最優先にする。table-layout:fixed で
     //   colgroup 幅を効かせ、企業名セルは折返し許容 (word-break) で全文表示する。
+    // 2026-07-28 item5: 従業員数の隣に「資本金」列 (帯表示 capital_stock_range) を追加。
+    //   企業名を最優先で潰さないよう、産業列を圧縮して資本金列の幅を捻出する。
     let mut s = String::from("<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n");
     if show_hw {
         s.push_str(
             "<colgroup>\
-             <col style=\"width:5%\"><col style=\"width:30%\"><col style=\"width:17%\">\
-             <col style=\"width:12%\"><col style=\"width:12%\"><col style=\"width:12%\">\
-             <col style=\"width:12%\">\
+             <col style=\"width:5%\"><col style=\"width:28%\"><col style=\"width:13%\">\
+             <col style=\"width:11%\"><col style=\"width:14%\"><col style=\"width:11%\">\
+             <col style=\"width:10%\"><col style=\"width:8%\">\
              </colgroup>\n",
         );
     } else {
         s.push_str(
             "<colgroup>\
-             <col style=\"width:6%\"><col style=\"width:34%\"><col style=\"width:20%\">\
-             <col style=\"width:13%\"><col style=\"width:13.5%\"><col style=\"width:13.5%\">\
+             <col style=\"width:6%\"><col style=\"width:30%\"><col style=\"width:16%\">\
+             <col style=\"width:12%\"><col style=\"width:16%\"><col style=\"width:10%\">\
+             <col style=\"width:10%\">\
              </colgroup>\n",
         );
     }
     s.push_str("<thead><tr>");
     s.push_str("<th>No.</th><th>企業名</th><th>産業</th>");
     s.push_str("<th class=\"num\">従業員数</th>");
+    s.push_str("<th>資本金</th>");
     s.push_str("<th class=\"num\">1年 増減</th>");
     s.push_str("<th class=\"num\">3ヶ月 増減</th>");
     if show_hw {
@@ -1132,7 +1136,7 @@ fn build_navy_company_list(
 
     let top: Vec<_> = companies.iter().take(take).collect();
     if top.is_empty() {
-        let cols = if show_hw { 7 } else { 6 };
+        let cols = if show_hw { 8 } else { 7 };
         s.push_str(&format!(
             "<tr><td colspan=\"{}\" class=\"dim\">該当企業データなし。</td></tr>\n",
             cols
@@ -1162,17 +1166,25 @@ fn build_navy_company_list(
             } else {
                 "neu"
             };
+            // 2026-07-28 item5: 資本金は帯 (capital_stock_range)。空値は "—"。
+            let cap = if c.capital_stock_range.trim().is_empty() {
+                "—".to_string()
+            } else {
+                escape_html(&c.capital_stock_range)
+            };
             s.push_str(&format!(
                 "<tr><td class=\"num bold\">{}</td>\
                  <td style=\"word-break:keep-all;overflow-wrap:anywhere;\"><strong>{}</strong></td>\
                  <td><span class=\"dim\">{}</span></td>\
                  <td class=\"num bold\">{}</td>\
+                 <td style=\"word-break:keep-all;overflow-wrap:anywhere;\"><span class=\"dim\">{}</span></td>\
                  <td class=\"num\"><span class=\"tag tag-{}\">{:+.1}%</span></td>\
                  <td class=\"num\"><span class=\"tag tag-{}\">{:+.1}%</span></td>",
                 i + 1,
                 escape_html(&c.company_name),
                 escape_html(&c.sn_industry),
                 format_number(c.employee_count),
+                cap,
                 delta_tag,
                 delta,
                 delta_3m_tag,
