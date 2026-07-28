@@ -122,6 +122,12 @@ pub(crate) struct RenderConfig<'a> {
     /// 空 slice なら §02 は従来の「都道府県平均」表にフォールバックする (既存 caller /
     /// テストは未指定 = `&[]` のため出力不変)。SP 本編 handler のみ実データを渡す。
     pub region_2d_stats: &'a [RegionMuniStat],
+    /// 2026-07-28: §02 表 2-C-2「通勤流出先 TOP3」用 (選択市区町村 → 周辺地域)。
+    ///
+    /// `commute_inflow_top3` (`InsightContext` 内蔵) と対称のデータだが、`InsightContext`
+    /// への追加は明示コンストラクタ多数を壊すため本 field 経由で個別に渡す。空 slice なら
+    /// 表 2-C-2 は非表示 (既存 caller / テストは未指定 = `&[]` のため出力不変)。
+    pub commute_outflow_top3: &'a [(String, String, i64)],
 }
 
 impl<'a> RenderConfig<'a> {
@@ -164,6 +170,8 @@ pub(crate) struct RenderConfigBuilder<'a> {
     table2e: Option<bool>,
     /// 2026-07-27: §02 表 2-D 市区町村統計 (None → &[] = 従来の県平均表)
     region_2d_stats: Option<&'a [RegionMuniStat]>,
+    /// 2026-07-28: §02 表 2-C-2 通勤流出先 TOP3 (None → &[] = 表非表示)
+    commute_outflow_top3: Option<&'a [(String, String, i64)]>,
 }
 
 impl<'a> RenderConfigBuilder<'a> {
@@ -287,6 +295,12 @@ impl<'a> RenderConfigBuilder<'a> {
         self
     }
 
+    /// 2026-07-28: §02 表 2-C-2 通勤流出先 TOP3 setter (未設定時は &[] = 表非表示)。
+    pub fn commute_outflow_top3(mut self, v: &'a [(String, String, i64)]) -> Self {
+        self.commute_outflow_top3 = Some(v);
+        self
+    }
+
     /// `RenderConfig<'a>` を構築する。
     ///
     /// # Panics
@@ -348,6 +362,8 @@ impl<'a> RenderConfigBuilder<'a> {
             table2e: self.table2e.unwrap_or(true),
             // 2026-07-27: region_2d_stats デフォルトは空 (§02 は従来の県平均表)
             region_2d_stats: self.region_2d_stats.unwrap_or(&[]),
+            // 2026-07-28: commute_outflow_top3 デフォルトは空 (表2-C-2 非表示)
+            commute_outflow_top3: self.commute_outflow_top3.unwrap_or(&[]),
         }
     }
 }

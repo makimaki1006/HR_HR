@@ -58,6 +58,10 @@ pub(crate) fn render_navy_section_02_region(
     // 2026-07-27: 表 2-D 市区町村化用。基準 (選択muni) + 同一県内近隣の市区町村統計。
     //   空なら従来の「都道府県平均」表にフォールバック。
     region_2d_stats: &[super::super::super::aggregator::RegionMuniStat],
+    // 2026-07-28: 表 2-C-2 通勤流出先 TOP3 用。(dest_pref, dest_muni, 通勤者数) の降順配列。
+    //   空なら表 2-C-2 は非表示。InsightContext には持たせず個別 param で受け取る
+    //   (commute_inflow_top3 と同一伝搬経路にすると明示コンストラクタ多数が壊れるため)。
+    commute_outflow_top3: &[(String, String, i64)],
 ) {
     let show_hw = matches!(variant, ReportVariant::Full);
     let is_ver10 = variant.is_ver10();
@@ -233,6 +237,40 @@ pub(crate) fn render_navy_section_02_region(
                 center
             ));
         }
+    }
+
+    // -- 表 2-C-2 通勤流出先 TOP3 (選択市区町村から他自治体へ働きに出る通勤者の多い自治体)
+    //   2026-07-28: 表 2-C (流入) と対称。選択市区町村に住みながら他地域で働く求職者が
+    //   多いほど、その地域は「採用競合エリア」であり媒体出稿・給与訴求の比較対象になる。
+    if !commute_outflow_top3.is_empty() {
+        let center = base_muni
+            .map(|(p, m)| format!("{}{}", escape_html(p), escape_html(m)))
+            .unwrap_or_else(|| "対象地域".to_string());
+        html.push_str(&format!(
+            "<div class=\"block-title block-title-spaced\">表 2-C-2 &nbsp;通勤流出先 TOP3 ({} → 周辺地域)</div>\n",
+            center
+        ));
+        html.push_str(
+            "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
+            <colgroup>\
+            <col style=\"width:8%\"><col style=\"width:20%\">\
+            <col style=\"width:42%\"><col style=\"width:30%\">\
+            </colgroup>\n\
+            <thead><tr>\
+            <th>順位</th><th>都道府県</th><th>市区町村</th><th class=\"num\">流出人数</th>\
+            </tr></thead>\n<tbody>\n",
+        );
+        for (i, (p, m, cnt)) in commute_outflow_top3.iter().take(3).enumerate() {
+            html.push_str(&format!(
+                "<tr><td class=\"num bold\">{}</td><td>{}</td><td>{}</td><td class=\"num bold\">{}</td></tr>\n",
+                i + 1, escape_html(p), escape_html(m), format_number(*cnt)
+            ));
+        }
+        html.push_str("</tbody></table>\n");
+        html.push_str(&format!(
+            "<p class=\"caption\">出典: 国勢調査 通勤 OD。<strong>{}</strong> に住みながら他市区町村・他都道府県へ通勤する求職者の多い 3 自治体 (流出元はアプリで選択した市区町村)。採用競合エリアの特定・給与訴求の比較対象の指針。</p>\n",
+            center
+        ));
     }
 
     // -- 表 2-D 地域比較 (マクロ指標)
