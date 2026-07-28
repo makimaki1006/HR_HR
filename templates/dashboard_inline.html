@@ -82,22 +82,23 @@
             handler/route コードは温存 (将来 V2 ダッシュボード再設計で再利用可能)。
             URL 直接アクセス (/tab/market 等) は引き続き動作する。
         -->
-        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">地図</button>
+        <!-- 2026-07-28: タブ再編 (ユーザー指定順)。求人検索 (/tab/competitive) は UI 非表示
+             (handler/URL 直アクセスは温存、上記 2026-05-15 の非表示タブと同じ扱い)。
+             職種カルテ→職種辞典、資格カルテ→資格辞書に改名 (URL・handler は不変)。 -->
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">媒体分析</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/competitive" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">求人検索</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">企業検索</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/regional_analysis" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">地域分析</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">職種カルテ</button>
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/license" hx-target="#content" hx-swap="innerHTML"
-            onclick="setActiveTab(this)">資格カルテ</button>
         {{KEYWORDS_TAB}}
         {{JOBGEN_TAB}}
+        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">地図</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/regional_analysis" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">地域分析</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/company" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">企業検索</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/driver" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">職種辞典</button>
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/license" hx-target="#content" hx-swap="innerHTML"
+            onclick="setActiveTab(this)">資格辞書</button>
         <a href="/proposal-mock" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="採用提案パッケージの試作モック（新しいタブで開く）">採用提案 試作 ↗</a>
     </nav>
 

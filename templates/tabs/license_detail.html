@@ -1,4 +1,4 @@
-{# 資格カルテ 個別ページ #}
+{# 資格辞書 個別ページ #}
 {# 直接アクセス時(base layout経由なし): nav が無ければ ?tab= 付きで top にリダイレクト #}
 <script>
 (function(){
@@ -14,7 +14,7 @@
     {# パンくず #}
     <div class="text-xs text-gray-400">
         <a href="/tab/license" hx-get="/tab/license" hx-target="#content" hx-swap="innerHTML" hx-push-url="true"
-           class="hover:text-blue-300">← 資格カルテ 一覧</a>
+           class="hover:text-blue-300">← 資格辞書 一覧</a>
     </div>
 
     {# ヘッダー #}
@@ -237,7 +237,7 @@
     {% if !detail.occupations.is_empty() %}
     <section class="bg-gray-800 border border-gray-700 rounded-lg p-5">
         <h2 class="text-lg font-bold text-gray-100 mb-3 border-l-4 border-blue-500 pl-3">関連職業 ({{ detail.occupations.len() }} 件)</h2>
-        <p class="text-xs text-gray-400 mb-3">この資格を必要とする職業の一覧。各カードから職種カルテに移動できます。</p>
+        <p class="text-xs text-gray-400 mb-3">この資格を必要とする職業の一覧。各カードから職種辞典に移動できます。</p>
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {% for o in detail.occupations %}
             <a href="/tab/driver/{{ o.jobtag_id }}"
