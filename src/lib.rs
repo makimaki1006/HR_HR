@@ -640,6 +640,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
     let jobgen_routes = Router::new()
         .route("/jobgen", get(job_gen::handlers::ui_jobgen))
         .route(
+            "/jobgen/competitive-beta",
+            get(job_gen::handlers::ui_jobgen_competitive_beta),
+        )
+        .route(
             "/api/jobgen/normalize",
             post(job_gen::handlers::jobgen_normalize)
                 // PDF/Excel の base64 JSON を受けるため専用上限 (既定2MBでは切断される)
@@ -1274,7 +1278,8 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     };
     // 求人票生成 (2026-07-24): Gemini キーがある環境でのみリンクを出す。別画面のため新タブ。
     let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
-        r#"<a href="/jobgen" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="求人票生成（新しいタブで開く）">求人票生成 ↗</a>"#
+        r#"<a href="/jobgen" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="求人票生成（新しいタブで開く）">求人票生成 ↗</a>
+        <a href="/jobgen/competitive-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="競合求人との比較から採用戦略を設計（ベータ版・新しいタブで開く）">競合比較から求人作成（仮）↗</a>"#
     } else {
         ""
     };
