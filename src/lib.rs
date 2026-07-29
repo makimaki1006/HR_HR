@@ -662,6 +662,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             post(job_gen::handlers::jobgen_personas),
         )
         .route(
+            "/api/jobgen/competitive-analyze",
+            post(job_gen::handlers::jobgen_competitive_analyze),
+        )
+        .route(
             "/api/jobgen/competitive-generate",
             post(job_gen::handlers::jobgen_competitive_generate),
         )
