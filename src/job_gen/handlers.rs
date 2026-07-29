@@ -24,6 +24,12 @@ pub async fn ui_jobgen() -> axum::response::Html<&'static str> {
     axum::response::Html(include_str!("../../static/jobgen.html"))
 }
 
+/// 競合求人との比較から採用ポジションを設計するベータ UI。
+/// 既存の求人票生成パイプラインとは画面・状態・APIを共有しない。
+pub async fn ui_jobgen_competitive_beta() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("../../static/jobgen_competitive_beta.html"))
+}
+
 /// 埋め込みNGワードルール (コンパイル時同梱。正本= Sheets「求人系」NGワードタブ)。
 const EMBEDDED_NG_WORDS_JSON: &str = include_str!("../../assets/ng_words.json");
 
