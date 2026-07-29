@@ -167,6 +167,96 @@ pub async fn jobgen_auth_middleware(
 
 use axum::response::IntoResponse;
 
+/// `POST /api/jobgen/competitive-generate` — 競合比較ベータ専用の差別化求人生成。
+///
+/// 競合求人は比較材料としてのみ使用し、生成文の事実根拠は顧客求人に限定する。
+pub async fn jobgen_competitive_generate(Json(body): Json<Value>) -> Json<Value> {
+    let client = body_str(&body, "client_job");
+    if client.trim().chars().count() < 20 {
+        return Json(json!({"status":"error","message":"顧客求人を20文字以上入力してください。"}));
+    }
+    let competitors: Vec<String> = body
+        .get("competitors")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().filter_map(Value::as_str).map(str::trim)
+                .filter(|s| !s.is_empty()).take(10).map(str::to_string).collect()
+        })
+        .unwrap_or_default();
+    if competitors.is_empty() {
+        return Json(json!({"status":"error","message":"競合求人を1件以上入力してください。"}));
+    }
+    let strategy = body.get("strategy").cloned().unwrap_or(Value::Null);
+    let movable = body.get("movable").cloned().unwrap_or_else(|| json!([]));
+    let notes = body_str(&body, "notes");
+    let excerpt = |text: &str, limit: usize| text.chars().take(limit).collect::<String>();
+    let competitor_text = competitors.iter().enumerate()
+        .map(|(i, text)| format!("## 競合求人{}\n{}", i + 1, excerpt(text, 2500)))
+        .collect::<Vec<_>>().join("\n\n");
+    let prompt = format!(r#"あなたは採用コンサルタントです。選択済みの採用戦略に沿って、顧客求人を差別化して書き直してください。
+
+# 最重要ルール
+- 労働条件・数値・制度・仕事内容の事実根拠は「顧客求人」だけに限定する。
+- 競合求人は比較と重複回避にだけ使い、競合固有の条件・表現・制度を顧客求人へ移さない。
+- 原文で確認できない内容は生成せず、client_questions に確認事項として出す。
+- 給与や休日で負けている場合も隠したり誇張したりしない。
+- 年齢・性別・MBTIタイプを応募条件や人物評価に使わない。
+- 「必ず」「業界最高」など根拠のない断定をしない。
+
+# 選択戦略
+{strategy}
+
+# 変更を検討できる条件
+{movable}
+
+# その他の制約・補足
+{notes}
+
+# 顧客求人（生成事実の唯一の根拠）
+{client}
+
+# 競合求人（比較専用）
+{competitors}
+
+# 出力
+求人タイトル、冒頭文、求人本文を作る。求人本文は「この仕事について」「具体的な仕事内容」「この求人が合う可能性のある人」「条件・働き方」の順で、原文に根拠がない節は無理に埋めない。差別化ポイント、顧客への確認事項、注意事項も分けて返す。"#,
+        strategy = strategy,
+        movable = movable,
+        notes = excerpt(&notes, 1500),
+        client = excerpt(&client, 7000),
+        competitors = competitor_text,
+    );
+    let schema = json!({
+        "type":"object",
+        "properties":{
+            "strategy_summary":{"type":"string"},
+            "persona":{"type":"string"},
+            "title":{"type":"string"},
+            "lead":{"type":"string"},
+            "job_body":{"type":"string"},
+            "differentiation_points":{"type":"array","items":{"type":"string"}},
+            "client_questions":{"type":"array","items":{"type":"string"}},
+            "caveats":{"type":"array","items":{"type":"string"}}
+        },
+        "required":["strategy_summary","persona","title","lead","job_body","differentiation_points","client_questions","caveats"]
+    });
+    match jobgen_llm(&prompt, &schema, 0.6).await {
+        Ok(result) => {
+            let texts = ["title", "lead", "job_body"].iter()
+                .filter_map(|key| result.get(*key).and_then(Value::as_str).map(str::to_string))
+                .collect::<Vec<_>>();
+            let (ng, expression, ng_review) = ng_and_expression_gate(&texts);
+            let (numbers, number_check, number_review) = number_gate(&client, &texts);
+            Json(json!({
+                "status":"ok", "result":result,
+                "ng_violations":ng, "expression_warnings":expression,
+                "number_violations":numbers, "number_check":number_check,
+                "review_required":ng_review || number_review
+            }))
+        }
+        Err(error) => Json(json!({"status":"error","message":error.to_string()})),
+    }
+}
 /// `POST /api/jobgen/normalize` — 入力6形式を求人原文テキストに正規化。
 pub async fn jobgen_normalize(Json(body): Json<Value>) -> Json<Value> {
     let kind = match body_str(&body, "kind").as_str() {

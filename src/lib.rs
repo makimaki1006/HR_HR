@@ -661,6 +661,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/jobgen/personas",
             post(job_gen::handlers::jobgen_personas),
         )
+        .route(
+            "/api/jobgen/competitive-generate",
+            post(job_gen::handlers::jobgen_competitive_generate),
+        )
         .route("/api/jobgen/copy", post(job_gen::handlers::jobgen_copy))
         .route("/api/jobgen/images", post(job_gen::handlers::jobgen_images))
         .route(
