@@ -404,7 +404,12 @@ fn parse_csv_bytes_inner(
         };
         let employment_type = {
             let mapped = get("employment_type");
-            if score_employment_type(&mapped) > 0 {
+            // Indeed SP / 求人ボックスの明示的な雇用形態列は、未知の値でも原文を保持する。
+            // 「フリーランス」「短時間正規」等を捨てて給与単位から正社員へ推定すると、
+            // 比較母集団へ異なる雇用形態が混入するため。
+            let explicit_source_value = !mapped.trim().is_empty()
+                && matches!(source, CsvSource::IndeedSp | CsvSource::JobBox);
+            if explicit_source_value || score_employment_type(&mapped) > 0 {
                 mapped
             } else {
                 let mut best_val = String::new();
@@ -2380,6 +2385,18 @@ mod indeed_sp_detection_tests {
             "IndeedSp: Hourly + 雇用形態空欄 → 'パート・アルバイト' フォールバック: got '{}'",
             records[0].employment_type
         );
+    }
+
+    #[test]
+    fn indeed_sp_preserves_explicit_unrecognized_employment_types() {
+        let csv = "css-1hwmqh1,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu,css-u74ql7\n\
+                   フリーランス,販売スタッフ,A社,東京都大田区,月給30万円,仕事内容,\n\
+                   短時間正規,販売スタッフ,B社,東京都大田区,月給28万円,仕事内容,\n";
+        let records = parse_csv_bytes_with_hints(csv.as_bytes(), None, UserSourceHint::IndeedSp)
+            .expect("IndeedSp CSV parse");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].employment_type, "フリーランス");
+        assert_eq!(records[1].employment_type, "短時間正規");
     }
 
     /// JobBox の Monthly レコードで employment_type 空欄 → "正社員" にフォールバック
