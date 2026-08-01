@@ -682,6 +682,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                 // 顧客求人HTML + 競合CSV + 口コミCSVの base64 JSON を受ける。
                 .layer(DefaultBodyLimit::max(JOBGEN_JOURNEY_BODY_LIMIT_BYTES)),
         )
+        .route(
+            "/api/jobgen/journey-persona-detail",
+            post(job_gen::handlers::jobgen_journey_persona_detail),
+        )
         .route("/api/jobgen/copy", post(job_gen::handlers::jobgen_copy))
         .route("/api/jobgen/images", post(job_gen::handlers::jobgen_images))
         .route(

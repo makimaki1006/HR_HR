@@ -87,7 +87,10 @@ impl KnowledgeStore {
     pub fn from_bundle_str(raw: &str) -> Result<KnowledgeStore> {
         let b: BundleFile =
             serde_json::from_str(raw).with_context(|| "knowledge_bundle のJSON解析失敗")?;
-        Ok(KnowledgeStore { index: b.index, sheets: b.sheets })
+        Ok(KnowledgeStore {
+            index: b.index,
+            sheets: b.sheets,
+        })
     }
 
     /// 埋め込みバンドル(プロセス内で1回だけ解析)。
@@ -108,8 +111,25 @@ impl KnowledgeStore {
                 .and_then(|sheet| sheet_to_section(sheet, fallback)))
         })
         // クロージャが Err を返さないため unwrap は安全だが、防御的に空束へ倒す。
-        .unwrap_or_else(|_| KnowledgeBundle { category: "その他".into(), sections: Vec::new() })
+        .unwrap_or_else(|_| KnowledgeBundle {
+            category: "その他".into(),
+            sections: Vec::new(),
+        })
     }
+
+    /// 職種名だけを既存の職種キーワード辞書へ照合する。
+    ///
+    /// シート本文を組み立てないため、競合求人を多数分類する用途で使用する。
+    pub fn classify_job_title(&self, job_title: &str) -> String {
+        best_index_entry(&self.index, job_title)
+            .map(|entry| clean_title(&entry.sheet))
+            .unwrap_or_else(|| "その他".to_string())
+    }
+}
+
+/// 埋め込み知識辞書を使って職種カテゴリを返す。
+pub fn classify_job_title(job_title: &str) -> String {
+    KnowledgeStore::embedded().classify_job_title(job_title)
 }
 
 /// 既定経路の lookup: env `KNOWLEDGE_DIR`(ng_words.json と sheets/ を含む階層)が
@@ -148,32 +168,11 @@ fn select_and_build(
     job_title: &str,
     mut get_section: impl FnMut(&str, &str) -> Result<Option<(String, String)>>,
 ) -> Result<KnowledgeBundle> {
-    let mut best: Option<(&IndexEntry, usize)> = None;
-    for e in &index.files {
-        if e.kind != "job_specific" {
-            continue;
-        }
-        // この職種の中で job_title に部分一致する最長キーワード長。
-        let matched_len = e
-            .job_keywords
-            .iter()
-            .filter(|kw| !kw.is_empty() && job_title.contains(kw.as_str()))
-            .map(|kw| kw.chars().count())
-            .max();
-        if let Some(len) = matched_len {
-            let better = match best {
-                Some((_, cur)) => len > cur,
-                None => true,
-            };
-            if better {
-                best = Some((e, len));
-            }
-        }
-    }
+    let best = best_index_entry(index, job_title);
 
     let mut sections: Vec<(String, String)> = Vec::new();
     let category = match best {
-        Some((e, _)) => {
+        Some(e) => {
             if let Some(sec) = get_section(&e.slug, &e.sheet)? {
                 sections.push(sec);
             }
@@ -195,8 +194,33 @@ fn select_and_build(
     Ok(KnowledgeBundle { category, sections })
 }
 
+fn best_index_entry<'a>(index: &'a IndexFile, job_title: &str) -> Option<&'a IndexEntry> {
+    let mut best: Option<(&IndexEntry, usize)> = None;
+    for entry in &index.files {
+        if entry.kind != "job_specific" {
+            continue;
+        }
+        let matched_len = entry
+            .job_keywords
+            .iter()
+            .filter(|keyword| !keyword.is_empty() && job_title.contains(keyword.as_str()))
+            .map(|keyword| keyword.chars().count())
+            .max();
+        if let Some(length) = matched_len {
+            if best.map(|(_, current)| length > current).unwrap_or(true) {
+                best = Some((entry, length));
+            }
+        }
+    }
+    best.map(|(entry, _)| entry)
+}
+
 /// 1シートを読み、(見出し, 本文) に整形。空(全セル空)のシートは None。
-fn load_section(data_dir: &Path, slug: &str, fallback_title: &str) -> Result<Option<(String, String)>> {
+fn load_section(
+    data_dir: &Path,
+    slug: &str,
+    fallback_title: &str,
+) -> Result<Option<(String, String)>> {
     let path = data_dir.join(format!("{slug}.json"));
     let raw = std::fs::read_to_string(&path)
         .with_context(|| format!("シートJSON読み込み失敗: {}", path.display()))?;
@@ -327,25 +351,45 @@ mod tests {
             "sheet":"介護職",
             "values":[["職種名：介護職",""],["主な転職理由","業界の状況"],["","" ],["・人間関係","・非正規依存"]]
         }).to_string());
-        d.write("houmon_kaigo.json", &json!({
-            "sheet":"訪問介護",
-            "values":[["訪問介護のポイント"],["直行直帰"]]
-        }).to_string());
-        d.write("kango.json", &json!({
-            "sheet":"看護師 ",
-            "values":[["看護師の訴求"],["夜勤なし"]]
-        }).to_string());
-        d.write("fuhen.json", &json!({
-            "sheet":"普遍的なKW",
-            "values":[["未経験歓迎"],["土日休み"]]
-        }).to_string());
-        d.write("nanido.json", &json!({
-            "sheet":"職種別難易度",
-            "values":[["採用レベル","職種"],["低","送迎・調理"]]
-        }).to_string());
-        d.write("toc.json", &json!({
-            "sheet":"目次","values":[["これは注入されない"]]
-        }).to_string());
+        d.write(
+            "houmon_kaigo.json",
+            &json!({
+                "sheet":"訪問介護",
+                "values":[["訪問介護のポイント"],["直行直帰"]]
+            })
+            .to_string(),
+        );
+        d.write(
+            "kango.json",
+            &json!({
+                "sheet":"看護師 ",
+                "values":[["看護師の訴求"],["夜勤なし"]]
+            })
+            .to_string(),
+        );
+        d.write(
+            "fuhen.json",
+            &json!({
+                "sheet":"普遍的なKW",
+                "values":[["未経験歓迎"],["土日休み"]]
+            })
+            .to_string(),
+        );
+        d.write(
+            "nanido.json",
+            &json!({
+                "sheet":"職種別難易度",
+                "values":[["採用レベル","職種"],["低","送迎・調理"]]
+            })
+            .to_string(),
+        );
+        d.write(
+            "toc.json",
+            &json!({
+                "sheet":"目次","values":[["これは注入されない"]]
+            })
+            .to_string(),
+        );
         d
     }
 
@@ -395,18 +439,29 @@ mod tests {
         let d = TmpDir::new("trunc");
         // 1セルに MAX 超えの本文を持つシート。
         let long_cell: String = "あ".repeat(MAX_SECTION_CHARS + 500);
-        d.write("index.json", &json!({
-            "files":[{"slug":"big","sheet":"介護職","spreadsheet":"x",
-                      "kind":"job_specific","job_keywords":["介護"]}]
-        }).to_string());
-        d.write("big.json", &json!({
-            "sheet":"介護職","values":[[long_cell]]
-        }).to_string());
+        d.write(
+            "index.json",
+            &json!({
+                "files":[{"slug":"big","sheet":"介護職","spreadsheet":"x",
+                          "kind":"job_specific","job_keywords":["介護"]}]
+            })
+            .to_string(),
+        );
+        d.write(
+            "big.json",
+            &json!({
+                "sheet":"介護職","values":[[long_cell]]
+            })
+            .to_string(),
+        );
         let b = lookup(d.path(), "介護職").unwrap();
         let body = &b.sections[0].1;
         assert!(body.ends_with(TRUNCATE_MARK));
         // 上限文字数 + 印 の長さちょうど。
-        assert_eq!(body.chars().count(), MAX_SECTION_CHARS + TRUNCATE_MARK.chars().count());
+        assert_eq!(
+            body.chars().count(),
+            MAX_SECTION_CHARS + TRUNCATE_MARK.chars().count()
+        );
     }
 
     #[test]
@@ -424,8 +479,16 @@ mod tests {
     #[test]
     fn embedded_bundle_が解析でき実データ規模を持つ() {
         let s = KnowledgeStore::embedded();
-        assert!(s.index.files.len() >= 160, "index件数が想定より少ない: {}", s.index.files.len());
-        assert!(s.sheets.len() >= 160, "シート数が想定より少ない: {}", s.sheets.len());
+        assert!(
+            s.index.files.len() >= 160,
+            "index件数が想定より少ない: {}",
+            s.index.files.len()
+        );
+        assert!(
+            s.sheets.len() >= 160,
+            "シート数が想定より少ない: {}",
+            s.sheets.len()
+        );
     }
 
     #[test]
@@ -434,7 +497,10 @@ mod tests {
         assert_eq!(b.category, "介護職");
         assert!(!b.sections.is_empty());
         let headings: Vec<&str> = b.sections.iter().map(|(h, _)| h.as_str()).collect();
-        assert!(headings.iter().any(|h| h.contains("介護")), "職種シートが先頭にない: {headings:?}");
+        assert!(
+            headings.iter().any(|h| h.contains("介護")),
+            "職種シートが先頭にない: {headings:?}"
+        );
     }
 
     #[test]

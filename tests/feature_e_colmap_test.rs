@@ -59,6 +59,7 @@ fn is_parse_poor_true_for_records_with_all_empty_salary() {
             url: None,
             is_new: false,
             description: String::new(),
+            snippet: String::new(),
             salary_parsed: parse_salary("", SalaryType::Monthly),
             location_parsed: parse_location("", None),
             annual_holidays: None,
@@ -207,6 +208,7 @@ fn guard_demo_15_call_cap_skips_over_300_records() {
                 "勤務内容詳細 {}番目。年間休日120日。週休2日制。残業少なめ。",
                 i
             ),
+            snippet: String::new(),
             salary_parsed: parse_salary("", SalaryType::Monthly),
             location_parsed: parse_location("", None),
             annual_holidays: None,
