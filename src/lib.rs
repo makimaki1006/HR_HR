@@ -49,6 +49,9 @@ pub const UPLOAD_BODY_LIMIT_BYTES: usize = 20 * 1024 * 1024;
 /// - axum 既定の 2MB のままだと大きめの PDF が route 層で切断され、
 ///   inputs.rs 側の丁寧なサイズエラーに到達しない (2026-07-28 実測)。
 pub const JOBGEN_NORMALIZE_BODY_LIMIT_BYTES: usize = 24 * 1024 * 1024;
+/// 顧客求人本文 + 競合求人CSV + 口コミCSVを1リクエストで受ける診断専用上限。
+/// CSVは各15MBまでで、base64化による約4/3倍の増加を含める。
+pub const JOBGEN_JOURNEY_BODY_LIMIT_BYTES: usize = 48 * 1024 * 1024;
 
 /// アプリケーション共有状態
 pub struct AppState {
@@ -644,6 +647,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(job_gen::handlers::ui_jobgen_competitive_beta),
         )
         .route(
+            "/jobgen/applicant-journey-beta",
+            get(job_gen::handlers::ui_jobgen_applicant_journey_beta),
+        )
+        .route(
             "/api/jobgen/normalize",
             post(job_gen::handlers::jobgen_normalize)
                 // PDF/Excel の base64 JSON を受けるため専用上限 (既定2MBでは切断される)
@@ -668,6 +675,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/api/jobgen/competitive-generate",
             post(job_gen::handlers::jobgen_competitive_generate),
+        )
+        .route(
+            "/api/jobgen/journey-diagnose",
+            post(job_gen::handlers::jobgen_journey_diagnose)
+                // 顧客求人HTML + 競合CSV + 口コミCSVの base64 JSON を受ける。
+                .layer(DefaultBodyLimit::max(JOBGEN_JOURNEY_BODY_LIMIT_BYTES)),
         )
         .route("/api/jobgen/copy", post(job_gen::handlers::jobgen_copy))
         .route("/api/jobgen/images", post(job_gen::handlers::jobgen_images))
@@ -1287,7 +1300,8 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // 求人票生成 (2026-07-24): Gemini キーがある環境でのみリンクを出す。別画面のため新タブ。
     let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
         r#"<a href="/jobgen" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="求人票生成（新しいタブで開く）">求人票生成 ↗</a>
-        <a href="/jobgen/competitive-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="競合求人との比較から採用戦略を設計（ベータ版・新しいタブで開く）">競合比較から求人作成（仮）↗</a>"#
+        <a href="/jobgen/competitive-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="競合求人との比較から採用戦略を設計（ベータ版・新しいタブで開く）">競合比較から求人作成（仮）↗</a>
+        <a href="/jobgen/applicant-journey-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="ペルソナ別の応募者ジャーニーと離脱対策を診断（ベータ版・新しいタブで開く）">応募者ジャーニー診断（仮）↗</a>"#
     } else {
         ""
     };
