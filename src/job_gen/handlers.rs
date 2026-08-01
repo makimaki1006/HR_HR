@@ -959,7 +959,7 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
     };
     journey::normalize_evidence_aliases(&mut result);
     let mut quality_issues =
-        journey::validate_persona_detail(&result, &persona_id, &prepared.allowed_evidence_refs);
+        journey::validate_persona_detail(&result, &persona, &prepared.allowed_evidence_refs);
     if !quality_issues.is_empty() {
         tracing::warn!(
             target: "jobgen_journey",
@@ -984,7 +984,7 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         llm_calls += 1;
         journey::normalize_evidence_aliases(&mut result);
         quality_issues =
-            journey::validate_persona_detail(&result, &persona_id, &prepared.allowed_evidence_refs);
+            journey::validate_persona_detail(&result, &persona, &prepared.allowed_evidence_refs);
         if !quality_issues.is_empty() {
             tracing::warn!(
                 target: "jobgen_journey",
