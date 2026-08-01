@@ -11,11 +11,14 @@
 //!   ([`jobgen_auth_middleware`]。ユーザー決定 2026-07-24: 生成系もトークン併用)
 //! - NGワードルール・職種知識はバイナリ埋め込み (env `KNOWLEDGE_DIR` で差し替え可)
 
-use axum::response::Response;
 use axum::extract::State;
+use axum::response::Response;
 use axum::Json;
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::job_gen::{
     fact_extract, hrhacker, inputs, journey, knowledge, ng_words, strategy, types as job_types,
@@ -47,7 +50,28 @@ pub async fn ui_jobgen_applicant_journey_beta() -> axum::response::Html<&'static
 const EMBEDDED_NG_WORDS_JSON: &str = include_str!("../../assets/ng_words.json");
 
 /// 埋め込み表現レビュー辞書 (警告レベル。法令NGとは別系統。severity=warning)。
-const EMBEDDED_EXPRESSION_RULES_JSON: &str = include_str!("../../assets/expression_review_rules.json");
+const EMBEDDED_EXPRESSION_RULES_JSON: &str =
+    include_str!("../../assets/expression_review_rules.json");
+
+const JOURNEY_CASE_TTL: Duration = Duration::from_secs(30 * 60);
+
+#[derive(Clone)]
+struct PreparedJourneyCase {
+    created_at: Instant,
+    case_profile: Value,
+    job_facts: Vec<Value>,
+    customer_statements: Vec<Value>,
+    competitor: journey::CompetitorSummary,
+    reviews: journey::ReviewSummary,
+    public_stats: Value,
+    prepare_result: Value,
+    allowed_evidence_refs: HashSet<String>,
+}
+
+fn journey_case_store() -> &'static AsyncMutex<HashMap<String, PreparedJourneyCase>> {
+    static STORE: OnceLock<AsyncMutex<HashMap<String, PreparedJourneyCase>>> = OnceLock::new();
+    STORE.get_or_init(|| AsyncMutex::new(HashMap::new()))
+}
 
 /// NGワードルールを読み込む。
 ///
@@ -126,7 +150,10 @@ fn ng_and_expression_gate(texts: &[String]) -> (Vec<Value>, Vec<Value>, bool) {
 }
 
 fn body_str(body: &Value, key: &str) -> String {
-    body.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    body.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Gemini を1回呼ぶ共通ヘルパ (キー未設定はエラー)。
@@ -186,18 +213,32 @@ pub async fn jobgen_competitive_analyze(Json(body): Json<Value>) -> Json<Value> 
     if client.trim().chars().count() < 20 {
         return Json(json!({"status":"error","message":"顧客求人を20文字以上入力してください。"}));
     }
-    let competitors: Vec<String> = body.get("competitors").and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::trim)
-            .filter(|s| !s.is_empty()).take(10).map(str::to_string).collect())
+    let competitors: Vec<String> = body
+        .get("competitors")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .take(10)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     if competitors.is_empty() {
         return Json(json!({"status":"error","message":"競合求人を1件以上入力してください。"}));
     }
     let excerpt = |text: &str, limit: usize| text.chars().take(limit).collect::<String>();
-    let competitor_text = competitors.iter().enumerate()
+    let competitor_text = competitors
+        .iter()
+        .enumerate()
         .map(|(i, text)| format!("## 競合求人{}\n{}", i + 1, excerpt(text, 2500)))
-        .collect::<Vec<_>>().join("\n\n");
-    let prompt = format!(r#"あなたは採用コンサルタントです。採用戦略を選ぶ前に、顧客求人と登録された競合求人を比較してください。
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let prompt = format!(
+        r#"あなたは採用コンサルタントです。採用戦略を選ぶ前に、顧客求人と登録された競合求人を比較してください。
 
 # ルール
 - 書かれている事実だけを使い、推測で条件を補わない。
@@ -212,7 +253,9 @@ pub async fn jobgen_competitive_analyze(Json(body): Json<Value>) -> Json<Value> 
 
 # 競合求人
 {competitors}"#,
-        client = excerpt(&client, 7000), competitors = competitor_text);
+        client = excerpt(&client, 7000),
+        competitors = competitor_text
+    );
     let schema = json!({
         "type":"object","properties":{
             "competitor_rows":{"type":"array","items":{"type":"object","properties":{
@@ -245,8 +288,14 @@ pub async fn jobgen_competitive_generate(Json(body): Json<Value>) -> Json<Value>
         .get("competitors")
         .and_then(Value::as_array)
         .map(|items| {
-            items.iter().filter_map(Value::as_str).map(str::trim)
-                .filter(|s| !s.is_empty()).take(10).map(str::to_string).collect()
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .take(10)
+                .map(str::to_string)
+                .collect()
         })
         .unwrap_or_default();
     if competitors.is_empty() {
@@ -256,10 +305,14 @@ pub async fn jobgen_competitive_generate(Json(body): Json<Value>) -> Json<Value>
     let movable = body.get("movable").cloned().unwrap_or_else(|| json!([]));
     let notes = body_str(&body, "notes");
     let excerpt = |text: &str, limit: usize| text.chars().take(limit).collect::<String>();
-    let competitor_text = competitors.iter().enumerate()
+    let competitor_text = competitors
+        .iter()
+        .enumerate()
         .map(|(i, text)| format!("## 競合求人{}\n{}", i + 1, excerpt(text, 2500)))
-        .collect::<Vec<_>>().join("\n\n");
-    let prompt = format!(r#"あなたは採用コンサルタントです。選択済みの採用戦略に沿って、顧客求人を差別化して書き直してください。
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let prompt = format!(
+        r#"あなたは採用コンサルタントです。選択済みの採用戦略に沿って、顧客求人を差別化して書き直してください。
 
 # 最重要ルール
 - 労働条件・数値・制度・仕事内容の事実根拠は「顧客求人」だけに限定する。
@@ -325,7 +378,8 @@ avoided_overlap には、競合と重なるため主軸にしなかった訴求�
     });
     match jobgen_llm(&prompt, &schema, 0.6).await {
         Ok(result) => {
-            let texts = ["title", "lead", "job_body"].iter()
+            let texts = ["title", "lead", "job_body"]
+                .iter()
                 .filter_map(|key| result.get(*key).and_then(Value::as_str).map(str::to_string))
                 .collect::<Vec<_>>();
             let (ng, expression, ng_review) = ng_and_expression_gate(&texts);
@@ -350,7 +404,8 @@ avoided_overlap には、競合と重なるため主軸にしなかった訴求�
 ///
 /// 求人の不変条件、CSV件数、給与分布、人気タグ、口コミ本文の有無はコードで確定する。
 /// LLM は事実抽出後のペルソナ・検索行動・離脱仮説・対策生成にだけ使用する。
-pub async fn jobgen_journey_diagnose(
+#[allow(dead_code)]
+async fn jobgen_journey_diagnose_legacy(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
@@ -392,20 +447,17 @@ pub async fn jobgen_journey_diagnose(
         }));
     }
 
-    let competitor_bytes = match journey::decode_csv_base64(
-        &body_str(&body, "competitor_csv_base64"),
-        "競合求人CSV",
-    ) {
-        Ok(bytes) => bytes,
-        Err(message) => return Json(json!({"status":"error","message":message})),
-    };
-    let review_bytes = match journey::decode_csv_base64(
-        &body_str(&body, "review_csv_base64"),
-        "口コミCSV",
-    ) {
-        Ok(bytes) => bytes,
-        Err(message) => return Json(json!({"status":"error","message":message})),
-    };
+    let competitor_bytes =
+        match journey::decode_csv_base64(&body_str(&body, "competitor_csv_base64"), "競合求人CSV")
+        {
+            Ok(bytes) => bytes,
+            Err(message) => return Json(json!({"status":"error","message":message})),
+        };
+    let review_bytes =
+        match journey::decode_csv_base64(&body_str(&body, "review_csv_base64"), "口コミCSV") {
+            Ok(bytes) => bytes,
+            Err(message) => return Json(json!({"status":"error","message":message})),
+        };
 
     let competitor_filename = body_str(&body, "competitor_filename");
     let review_filename = body_str(&body, "review_filename");
@@ -464,11 +516,8 @@ pub async fn jobgen_journey_diagnose(
 
     let salary_text = verified_fact_value(&facts, "salary");
     let employment_type = verified_fact_value(&facts, "employment_type");
-    let client_salary = journey::client_salary_position(
-        &salary_text,
-        &employment_type,
-        &competitor,
-    );
+    let client_salary =
+        journey::client_salary_position(&salary_text, &employment_type, &competitor);
     let work_location = verified_fact_value(&facts, "work_location");
     let public_stats = fetch_journey_public_stats(&state, &work_location).await;
 
@@ -514,6 +563,524 @@ pub async fn jobgen_journey_diagnose(
     }))
 }
 
+/// `POST /api/jobgen/journey-diagnose` — 品質優先モードの準備工程。
+///
+/// 引用照合済みの求人事実、比較可能な競合母集団、口コミ原文を確定してから、
+/// 4ペルソナと検索仮説を作る。品質基準を満たすまで後工程用の case_id は発行しない。
+pub async fn jobgen_journey_diagnose(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let raw_client = body_str(&body, "client_job");
+    if raw_client.len() > 5 * 1024 * 1024 {
+        return Json(json!({
+            "status":"error",
+            "message":"顧客求人は5MB以内のHTMLまたはテキストを指定してください。"
+        }));
+    }
+    if raw_client.trim().chars().count() < 20 {
+        return Json(json!({
+            "status":"error",
+            "message":"顧客求人を20文字以上入力するか、求人HTMLを選択してください。"
+        }));
+    }
+    let input_kind = if body_str(&body, "client_kind") == "html" {
+        inputs::InputKind::Html
+    } else {
+        inputs::InputKind::FreeText
+    };
+    let normalized = match inputs::normalize(input_kind, Some(raw_client), None, None).await {
+        Ok(mut jobs) if !jobs.is_empty() => jobs.remove(0),
+        Ok(_) => {
+            return Json(json!({
+                "status":"error",
+                "message":"顧客求人から本文を取得できませんでした。"
+            }))
+        }
+        Err(error) => return Json(json!({"status":"error","message":error.to_string()})),
+    };
+    if normalized.source_text.trim().chars().count() < 20 {
+        return Json(json!({
+            "status":"error",
+            "message":"顧客求人から分析可能な本文を取得できませんでした。"
+        }));
+    }
+
+    let competitor_bytes =
+        match journey::decode_csv_base64(&body_str(&body, "competitor_csv_base64"), "競合求人CSV")
+        {
+            Ok(bytes) => bytes,
+            Err(message) => return Json(json!({"status":"error","message":message})),
+        };
+    let review_bytes =
+        match journey::decode_csv_base64(&body_str(&body, "review_csv_base64"), "口コミCSV") {
+            Ok(bytes) => bytes,
+            Err(message) => return Json(json!({"status":"error","message":message})),
+        };
+    let competitor_filename = body_str(&body, "competitor_filename");
+    let review_filename = body_str(&body, "review_filename");
+    let competitor_label = if competitor_filename.is_empty() {
+        "競合求人.csv"
+    } else {
+        &competitor_filename
+    };
+    let review_label = if review_filename.is_empty() {
+        "口コミ.csv"
+    } else {
+        &review_filename
+    };
+    let competitor_captured_at = optional_body_str(&body, "competitor_captured_at");
+    let review_captured_at = optional_body_str(&body, "review_captured_at");
+    let employer_note = truncate_text(&body_str(&body, "employer_note"), 2_000);
+    let statement_speaker = optional_body_str(&body, "customer_statement_speaker")
+        .unwrap_or_else(|| "顧客担当者".to_string());
+    let customer_statements = build_customer_statement_evidence(
+        &body_str(&body, "customer_statements"),
+        optional_body_str(&body, "customer_statement_date").as_deref(),
+        &statement_speaker,
+    );
+
+    let competitor_source_summary = match journey::summarize_competitor_csv(
+        &competitor_bytes,
+        competitor_label,
+        competitor_captured_at.clone(),
+    ) {
+        Ok(summary) => summary,
+        Err(message) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("競合求人CSVを解析できません: {message}")
+            }))
+        }
+    };
+    let reviews =
+        match journey::summarize_review_csv(&review_bytes, review_label, review_captured_at) {
+            Ok(summary) => summary,
+            Err(message) => {
+                return Json(json!({
+                    "status":"error",
+                    "message":format!("口コミCSVを解析できません: {message}")
+                }))
+            }
+        };
+
+    // 1回目: 顧客求人の8項目を抽出し、コードで引用の実在を照合する。
+    let fact_prompt = fact_extract::build_extract_prompt(&normalized.source_text);
+    let fact_raw = match jobgen_llm(&fact_prompt, &fact_extract::response_schema(), 0.0).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("顧客求人の事実抽出に失敗しました: {error}")
+            }))
+        }
+    };
+    let facts = fact_extract::verify(&normalized.source_text, &fact_raw);
+    let facts_value = serde_json::to_value(&facts).unwrap_or_else(|_| json!({}));
+    let job_facts = journey::build_job_fact_evidence(&facts_value);
+
+    // 2回目: 比較母集団を選ぶための職種・地域プロフィールだけを抽出する。
+    let profile_prompt = journey::build_case_profile_prompt(&normalized.source_text, &facts_value);
+    let mut case_profile =
+        match jobgen_llm(&profile_prompt, &journey::case_profile_schema(), 0.0).await {
+            Ok(value) => value,
+            Err(error) => {
+                return Json(json!({
+                    "status":"error",
+                    "message":format!("比較条件の抽出に失敗しました: {error}")
+                }))
+            }
+        };
+    let employment_type = verified_fact_value(&facts, "employment_type");
+    let work_location = verified_fact_value(&facts, "work_location");
+    apply_verified_profile_fields(&mut case_profile, &employment_type, &work_location);
+
+    let occupation_keywords = case_profile
+        .get("occupation_keywords")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let (cohort, competitor) = match journey::build_comparison_cohort(
+        &competitor_bytes,
+        competitor_label,
+        competitor_captured_at,
+        &value_text(&case_profile, "job_title"),
+        &value_text(&case_profile, "occupation"),
+        &occupation_keywords,
+        &value_text(&case_profile, "prefecture"),
+        &value_text(&case_profile, "municipality"),
+        &employment_type,
+    ) {
+        Ok(result) => result,
+        Err(message) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("比較母集団を作成できません: {message}")
+            }))
+        }
+    };
+
+    if cohort.status == "blocked" {
+        let warning = cohort.warning.clone();
+        return Json(json!({
+            "status":"ok",
+            "phase":"cohort_blocked",
+            "generated_at":chrono::Utc::now().to_rfc3339(),
+            "facts":facts,
+            "job_fact_evidence":job_facts,
+            "customer_statement_evidence":customer_statements,
+            "case_profile":case_profile,
+            "competitor_source_summary":competitor_source_summary,
+            "comparison_cohort":cohort,
+            "review_summary":reviews,
+            "quality_gate":{"passed":false,"issues":[warning]},
+            "review_required":true,
+            "llm_calls":2
+        }));
+    }
+    let competitor = match competitor {
+        Some(summary) => summary,
+        None => {
+            return Json(json!({
+                "status":"error",
+                "message":"比較対象求人を集計できませんでした。"
+            }))
+        }
+    };
+    let salary_text = verified_fact_value(&facts, "salary");
+    let client_salary =
+        journey::client_salary_position(&salary_text, &employment_type, &competitor);
+    let public_stats = fetch_journey_public_stats(&state, &work_location).await;
+
+    // 3回目以降: 4ペルソナと検索仮説。構造不備は最大2回まで自動補修する。
+    let prepare_prompt = journey::build_prepare_prompt(
+        &case_profile,
+        &job_facts,
+        &customer_statements,
+        &competitor,
+        &cohort,
+        &reviews,
+        client_salary.as_ref(),
+        &public_stats,
+        &employer_note,
+    );
+    let allowed_evidence_refs =
+        journey::allowed_evidence_refs(&job_facts, &customer_statements, &competitor, &reviews);
+    let mut llm_calls = 3;
+    let mut result = match jobgen_llm(&prepare_prompt, &journey::prepare_schema(), 0.25).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("ペルソナと検索仮説の生成に失敗しました: {error}")
+            }))
+        }
+    };
+    journey::normalize_evidence_aliases(&mut result);
+    set_case_profile(&mut result, &case_profile);
+    let mut quality_issues = journey::validate_prepare_result(&result, &allowed_evidence_refs);
+    if !quality_issues.is_empty() {
+        tracing::warn!(
+            target: "jobgen_journey",
+            attempt = 0,
+            issues = ?quality_issues,
+            "prepare quality gate requested repair"
+        );
+    }
+    for _ in 0..2 {
+        if quality_issues.is_empty() {
+            break;
+        }
+        let repair_prompt =
+            journey::build_prepare_repair_prompt(&prepare_prompt, &result, &quality_issues);
+        result = match jobgen_llm(&repair_prompt, &journey::prepare_schema(), 0.1).await {
+            Ok(value) => value,
+            Err(error) => {
+                quality_issues.push(format!("自動補修APIに失敗しました: {error}"));
+                break;
+            }
+        };
+        llm_calls += 1;
+        journey::normalize_evidence_aliases(&mut result);
+        set_case_profile(&mut result, &case_profile);
+        quality_issues = journey::validate_prepare_result(&result, &allowed_evidence_refs);
+        if !quality_issues.is_empty() {
+            tracing::warn!(
+                target: "jobgen_journey",
+                issues = ?quality_issues,
+                "prepare quality gate still failing after repair"
+            );
+        }
+    }
+
+    if !quality_issues.is_empty() {
+        return Json(json!({
+            "status":"ok",
+            "phase":"quality_blocked",
+            "generated_at":chrono::Utc::now().to_rfc3339(),
+            "facts":facts,
+            "job_fact_evidence":job_facts,
+            "customer_statement_evidence":customer_statements,
+            "case_profile":case_profile,
+            "competitor_source_summary":competitor_source_summary,
+            "competitor_summary":competitor,
+            "comparison_cohort":cohort,
+            "review_summary":reviews,
+            "client_salary_position":client_salary,
+            "public_stats":public_stats,
+            "result":result,
+            "quality_gate":{"passed":false,"issues":quality_issues},
+            "review_required":true,
+            "llm_calls":llm_calls
+        }));
+    }
+
+    let case_id = uuid::Uuid::new_v4().to_string();
+    {
+        let mut store = journey_case_store().lock().await;
+        store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
+        store.insert(
+            case_id.clone(),
+            PreparedJourneyCase {
+                created_at: Instant::now(),
+                case_profile: case_profile.clone(),
+                job_facts: job_facts.clone(),
+                customer_statements: customer_statements.clone(),
+                competitor: competitor.clone(),
+                reviews: reviews.clone(),
+                public_stats: public_stats.clone(),
+                prepare_result: result.clone(),
+                allowed_evidence_refs,
+            },
+        );
+    }
+
+    Json(json!({
+        "status":"ok",
+        "phase":"prepared",
+        "case_id":case_id,
+        "case_expires_in_minutes":30,
+        "generated_at":chrono::Utc::now().to_rfc3339(),
+        "facts":facts,
+        "job_fact_evidence":job_facts,
+        "customer_statement_evidence":customer_statements,
+        "case_profile":case_profile,
+        "competitor_source_summary":competitor_source_summary,
+        "competitor_summary":competitor,
+        "comparison_cohort":cohort,
+        "review_summary":reviews,
+        "client_salary_position":client_salary,
+        "public_stats":public_stats,
+        "result":result,
+        "quality_gate":{"passed":true,"issues":[]},
+        "review_required":cohort.status == "limited",
+        "llm_calls":llm_calls,
+        "notes":{
+            "truth_scope":"顧客企業について確定事実として扱うのは、顧客求人から引用照合できた項目と顧客発言だけです。",
+            "review_scope":"口コミは求職者が触れ得る外部観測であり、会社の労働実態を断定する根拠にはしません。",
+            "persona_scope":"ペルソナと離脱地点は、比較母集団・公的統計・職種一般論を組み合わせた検討仮説です。"
+        }
+    }))
+}
+
+/// `POST /api/jobgen/journey-persona-detail` — 検索実測値を反映して1ペルソナを診断。
+pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Value> {
+    let case_id = body_str(&body, "case_id");
+    let persona_id = body_str(&body, "persona_id");
+    if case_id.is_empty() || persona_id.is_empty() {
+        return Json(json!({
+            "status":"error",
+            "message":"準備済みケースとペルソナを指定してください。"
+        }));
+    }
+    let keyword_metrics = body
+        .get("keyword_metrics")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let prepared = {
+        let mut store = journey_case_store().lock().await;
+        store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
+        store.get(&case_id).cloned()
+    };
+    let prepared = match prepared {
+        Some(value) => value,
+        None => {
+            return Json(json!({
+                "status":"error",
+                "message":"準備データの有効期限が切れました。最初の分析からやり直してください。"
+            }))
+        }
+    };
+    let persona = prepared
+        .prepare_result
+        .get("personas")
+        .and_then(Value::as_array)
+        .and_then(|values| {
+            values
+                .iter()
+                .find(|value| value.get("id").and_then(Value::as_str) == Some(persona_id.as_str()))
+        })
+        .cloned();
+    let persona = match persona {
+        Some(value) => value,
+        None => {
+            return Json(json!({
+                "status":"error",
+                "message":"準備結果に存在しないペルソナです。"
+            }))
+        }
+    };
+
+    let base_prompt = journey::build_persona_detail_prompt(
+        &prepared.case_profile,
+        &persona,
+        &prepared.job_facts,
+        &prepared.customer_statements,
+        &prepared.competitor,
+        &prepared.reviews,
+        &prepared.public_stats,
+        &keyword_metrics,
+    );
+    let mut llm_calls = 1;
+    let mut result = match jobgen_llm(&base_prompt, &journey::persona_detail_schema(), 0.25).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("8段階ジャーニーの生成に失敗しました: {error}")
+            }))
+        }
+    };
+    journey::normalize_evidence_aliases(&mut result);
+    let mut quality_issues =
+        journey::validate_persona_detail(&result, &persona_id, &prepared.allowed_evidence_refs);
+    if !quality_issues.is_empty() {
+        tracing::warn!(
+            target: "jobgen_journey",
+            persona_id = %persona_id,
+            issues = ?quality_issues,
+            "persona detail quality gate requested repair"
+        );
+    }
+    for _ in 0..2 {
+        if quality_issues.is_empty() {
+            break;
+        }
+        let repair_prompt =
+            journey::build_detail_repair_prompt(&base_prompt, &result, &quality_issues);
+        result = match jobgen_llm(&repair_prompt, &journey::persona_detail_schema(), 0.1).await {
+            Ok(value) => value,
+            Err(error) => {
+                quality_issues.push(format!("自動補修APIに失敗しました: {error}"));
+                break;
+            }
+        };
+        llm_calls += 1;
+        journey::normalize_evidence_aliases(&mut result);
+        quality_issues =
+            journey::validate_persona_detail(&result, &persona_id, &prepared.allowed_evidence_refs);
+        if !quality_issues.is_empty() {
+            tracing::warn!(
+                target: "jobgen_journey",
+                persona_id = %persona_id,
+                issues = ?quality_issues,
+                "persona detail quality gate still failing after repair"
+            );
+        }
+    }
+
+    if !quality_issues.is_empty() {
+        return Json(json!({
+            "status":"ok",
+            "phase":"quality_blocked",
+            "quality_gate":{"passed":false,"issues":quality_issues},
+            "result":result,
+            "review_required":true,
+            "llm_calls":llm_calls
+        }));
+    }
+    Json(json!({
+        "status":"ok",
+        "phase":"complete",
+        "quality_gate":{"passed":true,"issues":[]},
+        "result":result,
+        "review_required":false,
+        "llm_calls":llm_calls
+    }))
+}
+
+fn build_customer_statement_evidence(
+    raw: &str,
+    stated_at: Option<&str>,
+    speaker: &str,
+) -> Vec<Value> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(20)
+        .enumerate()
+        .map(|(index, statement)| {
+            json!({
+                "source_ref":format!("U{}", index + 1),
+                "speaker":truncate_text(speaker, 120),
+                "stated_at":stated_at.unwrap_or("日付未入力"),
+                "statement":truncate_text(statement, 500)
+            })
+        })
+        .collect()
+}
+
+fn apply_verified_profile_fields(profile: &mut Value, employment_type: &str, work_location: &str) {
+    let Some(object) = profile.as_object_mut() else {
+        return;
+    };
+    if !employment_type.trim().is_empty() {
+        object.insert(
+            "employment_type".to_string(),
+            Value::String(employment_type.trim().to_string()),
+        );
+    }
+    if work_location.trim().is_empty() {
+        return;
+    }
+    let location = crate::handlers::survey::location_parser::parse_location(work_location, None);
+    if let Some(prefecture) = location.prefecture {
+        object.insert("prefecture".to_string(), Value::String(prefecture));
+    }
+    if let Some(municipality) = location.municipality {
+        object.insert("municipality".to_string(), Value::String(municipality));
+    }
+}
+
+fn value_text(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn set_case_profile(result: &mut Value, case_profile: &Value) {
+    if let Some(object) = result.as_object_mut() {
+        object.insert("case_profile".to_string(), case_profile.clone());
+    }
+}
+
+fn truncate_text(value: &str, limit: usize) -> String {
+    let mut output = value.chars().take(limit).collect::<String>();
+    if value.chars().count() > limit {
+        output.push('…');
+    }
+    output
+}
+
 fn optional_body_str(body: &Value, key: &str) -> Option<String> {
     body.get(key)
         .and_then(Value::as_str)
@@ -522,10 +1089,7 @@ fn optional_body_str(body: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn verified_fact_value(
-    facts: &crate::job_gen::types::ExtractedFacts,
-    key: &str,
-) -> String {
+fn verified_fact_value(facts: &crate::job_gen::types::ExtractedFacts, key: &str) -> String {
     facts
         .get(key)
         .filter(|field| field.status == "verified")
@@ -700,7 +1264,10 @@ pub async fn jobgen_normalize(Json(body): Json<Value>) -> Json<Value> {
     };
     let text = body.get("text").and_then(Value::as_str).map(String::from);
     let url = body.get("url").and_then(Value::as_str).map(String::from);
-    let b64 = body.get("data_base64").and_then(Value::as_str).map(String::from);
+    let b64 = body
+        .get("data_base64")
+        .and_then(Value::as_str)
+        .map(String::from);
     match inputs::normalize(kind, text, url, b64).await {
         Ok(jobs) => Json(json!({
             "status": "ok",
@@ -764,11 +1331,17 @@ pub async fn jobgen_analyze(Json(body): Json<Value>) -> Json<Value> {
 pub async fn jobgen_personas(Json(body): Json<Value>) -> Json<Value> {
     let source = body_str(&body, "source_text");
     let analysis = body.get("analysis").cloned().unwrap_or(Value::Null);
-    let count = body.get("count").and_then(Value::as_u64).unwrap_or(5).clamp(3, 5) as usize;
+    let count = body
+        .get("count")
+        .and_then(Value::as_u64)
+        .unwrap_or(5)
+        .clamp(3, 5) as usize;
     let prompt = strategy::build_personas_prompt(&source, &analysis, count);
     let schema = strategy::personas_schema();
     match jobgen_llm(&prompt, &schema, 0.7).await {
-        Ok(v) => Json(json!({"status":"ok","personas": v.get("personas").cloned().unwrap_or(Value::Null)})),
+        Ok(v) => Json(
+            json!({"status":"ok","personas": v.get("personas").cloned().unwrap_or(Value::Null)}),
+        ),
         Err(e) => Json(json!({"status":"error","message": e.to_string()})),
     }
 }
@@ -883,7 +1456,12 @@ pub async fn jobgen_mobile(Json(body): Json<Value>) -> Json<Value> {
             let lines: Vec<String> = v
                 .get("lines")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from)
+                        .collect()
+                })
                 .unwrap_or_default();
             let joined = lines.join("\n");
             let texts = vec![joined];
@@ -913,13 +1491,17 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
     let facts: job_types::ExtractedFacts = match body.get("facts").cloned() {
         Some(v) => match serde_json::from_value(v) {
             Ok(f) => f,
-            Err(e) => return Json(json!({"status":"error","message":format!("facts の形式が不正: {e}")})),
+            Err(e) => {
+                return Json(json!({"status":"error","message":format!("facts の形式が不正: {e}")}))
+            }
         },
         None => return Json(json!({"status":"error","message":"facts が必要です"})),
     };
     let ng = match load_ng_rules() {
         Ok(n) => n,
-        Err(e) => return Json(json!({"status":"error","message":format!("NGワードルール読込失敗: {e}")})),
+        Err(e) => {
+            return Json(json!({"status":"error","message":format!("NGワードルール読込失敗: {e}")}))
+        }
     };
     let facts_text = job_types::facts_to_text(&facts);
     let schema = hrhacker::response_schema();
@@ -933,7 +1515,10 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
                 .as_ref()
                 .map(|g| g.values().flat_map(|f| f.issues.iter().cloned()).collect())
                 .unwrap_or_default();
-            format!("{strategy_hint}\n# 前回生成の問題点(必ず回避すること)\n{}", issues.join("\n"))
+            format!(
+                "{strategy_hint}\n# 前回生成の問題点(必ず回避すること)\n{}",
+                issues.join("\n")
+            )
         };
         let prompt = hrhacker::build_generation_prompt(&facts_text, &hint);
         let raw = match jobgen_llm(&prompt, &schema, 0.4).await {
@@ -942,7 +1527,10 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
         };
         let generated = hrhacker::validate_generated(&source, &raw, &ng);
         attempts = attempt + 1;
-        let review_count = generated.values().filter(|g| g.status == "review_required").count();
+        let review_count = generated
+            .values()
+            .filter(|g| g.status == "review_required")
+            .count();
         let best_review = best
             .as_ref()
             .map(|g| g.values().filter(|f| f.status == "review_required").count())
@@ -963,7 +1551,10 @@ pub async fn jobgen_hrhacker(Json(body): Json<Value>) -> Json<Value> {
     // 列順の正本は HRHACKER_COLUMNS (serde_json preserve_order で挿入順のままUIへ届く)。
     let mut ordered = serde_json::Map::new();
     for col in hrhacker::HRHACKER_COLUMNS {
-        ordered.insert(col.to_string(), Value::String(row.get(col).cloned().unwrap_or_default()));
+        ordered.insert(
+            col.to_string(),
+            Value::String(row.get(col).cloned().unwrap_or_default()),
+        );
     }
     let review: Vec<&String> = generated
         .iter()
@@ -1038,7 +1629,9 @@ pub async fn jobgen_ab(Json(body): Json<Value>) -> Json<Value> {
 pub async fn jobgen_ng_check(Json(body): Json<Value>) -> Json<Value> {
     let ng = match load_ng_rules() {
         Ok(n) => n,
-        Err(e) => return Json(json!({"status":"error","message":format!("NGワードルール読込失敗: {e}")})),
+        Err(e) => {
+            return Json(json!({"status":"error","message":format!("NGワードルール読込失敗: {e}")}))
+        }
     };
     let items = match body.get("items").and_then(Value::as_array) {
         Some(a) => a,
@@ -1046,7 +1639,9 @@ pub async fn jobgen_ng_check(Json(body): Json<Value>) -> Json<Value> {
     };
     const MAX_ITEMS: usize = 50_000; // 公開求人×十数列を1リクエストで賄える上限。
     if items.len() > MAX_ITEMS {
-        return Json(json!({"status":"error","message":format!("items が多すぎます(最大{MAX_ITEMS})")}));
+        return Json(
+            json!({"status":"error","message":format!("items が多すぎます(最大{MAX_ITEMS})")}),
+        );
     }
     let mut results: Vec<Value> = Vec::new();
     let mut checked = 0usize;

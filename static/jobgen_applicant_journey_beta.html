@@ -39,6 +39,7 @@
     .truthbar b{display:block;color:var(--ink);font-size:11px}
     .pipeline{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:16px 0}
     .pstep{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:8px 10px;color:var(--ink-3);font-size:11px;text-align:left}
+    .pstep:disabled{cursor:not-allowed;opacity:.72}
     .pstep b{display:block;font-size:12px;color:var(--ink-2)}
     .pstep.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent-ink)}
     .pstep.on b{color:var(--accent-ink)}
@@ -54,7 +55,9 @@
     .upload label{font-size:13px;font-weight:800;margin-bottom:4px}
     .upload p{font-size:11.5px;color:var(--ink-3);margin:0 0 10px}
     input[type=file]{width:100%;font-size:12px;color:var(--ink-2);margin-top:auto}
-    textarea{width:100%;min-height:92px;resize:vertical;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:9px 11px;font-size:13px}
+    textarea,input[type=text],input[type=date]{width:100%;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:9px 11px;font-size:13px}
+    textarea{min-height:92px;resize:vertical}
+    .source-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
     textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px}
     .fileok{font-size:11px;color:var(--lo);font-weight:700;margin-top:7px;min-height:18px}
     .optional{margin-top:14px}
@@ -164,11 +167,11 @@
   </header>
 
   <nav class="pipeline" aria-label="診断工程">
-    <button class="pstep on" data-step="1"><b>1. データ投入</b>3つの入力</button>
-    <button class="pstep" data-step="2"><b>2. 事実・市場</b>相対条件を確認</button>
-    <button class="pstep" data-step="3"><b>3. ペルソナ</b>採用希望を選択</button>
-    <button class="pstep" data-step="4"><b>4. ジャーニー</b>検索・離脱を再現</button>
-    <button class="pstep" data-step="5"><b>5. 対策</b>実行先へ割り当て</button>
+    <button class="pstep on" data-step="1" aria-current="step"><b>1. データ投入</b>求人・競合・口コミ</button>
+    <button class="pstep" data-step="2" disabled><b>2. 事実・比較母集団</b>根拠を確認</button>
+    <button class="pstep" data-step="3" disabled><b>3. ペルソナ</b>採用希望を選択</button>
+    <button class="pstep" data-step="4" disabled><b>4. 検索需要</b>実測値を確認</button>
+    <button class="pstep" data-step="5" disabled><b>5. ジャーニー・対策</b>8段階で確認</button>
   </nav>
 
   <section class="panel input-panel" data-panel="1">
@@ -193,6 +196,8 @@
         <p>Indeed・求人ボックス等のスクレイピングCSV。給与や掲載条件の相対比較に使います。</p>
         <input id="competitorFile" type="file" accept=".csv,text/csv">
         <div class="fileok" id="competitorFileStatus"></div>
+        <label for="competitorCapturedAt" class="hint">取得日（ファイル名に日付がない場合）</label>
+        <input id="competitorCapturedAt" type="date">
       </div>
       <div class="upload">
         <div class="num">3</div>
@@ -200,15 +205,26 @@
         <p>顧客のGoogleビジネスプロフィール等。本文がある口コミを認知リスクの観測に使います。</p>
         <input id="reviewFile" type="file" accept=".csv,text/csv">
         <div class="fileok" id="reviewFileStatus"></div>
+        <label for="reviewCapturedAt" class="hint">取得日（ファイル名に日付がない場合）</label>
+        <input id="reviewCapturedAt" type="date">
       </div>
     </div>
     <div class="optional">
-      <label for="employerNote">顧客が採りたい人物について、すでに確認できていること（任意）</label>
-      <textarea id="employerNote" placeholder="例：同職種経験者を優先。ただし未経験でも中型免許取得意欲があれば検討可能。"></textarea>
-      <p class="hint">未入力でもペルソナ候補を作成できます。最終的な「採用したい」は診断後にコンサルが選択します。</p>
+      <label for="customerStatements">顧客から確認済みの発言（任意・1行1件）</label>
+      <textarea id="customerStatements" placeholder="例：同職種経験者を優先する&#10;例：未経験でも中型免許の取得意欲があれば検討できる"></textarea>
+      <div class="source-meta">
+        <div><label for="customerStatementSpeaker">発言者・情報源</label><input id="customerStatementSpeaker" type="text" value="顧客担当者"></div>
+        <div><label for="customerStatementDate">確認日</label><input id="customerStatementDate" type="date"></div>
+      </div>
+      <p class="hint">ここに入力した各行は、求人票の事実とは別に「顧客が発言した事実（U番号）」として追跡します。</p>
     </div>
-    <div class="actions"><button class="btn" id="diagnoseBtn">一気通貫で診断する</button></div>
-    <div class="status" id="diagnoseStatus"></div>
+    <div class="optional">
+      <label for="employerNote">採用したい人物についてのコンサル仮説・補足（任意）</label>
+      <textarea id="employerNote" placeholder="例：現時点では経験者優先と見られるが、競合状況を踏まえ対象拡張も確認する。"></textarea>
+      <p class="hint">この欄は確認済み発言ではなく仮説として扱います。最終的な「採用したい」はペルソナ確認後に人が選択します。</p>
+    </div>
+    <div class="actions"><button class="btn" id="diagnoseBtn">事実・比較母集団・4ペルソナを作成</button></div>
+    <div class="status" id="diagnoseStatus" role="status" aria-live="polite"></div>
   </section>
 
   <section class="panel" data-panel="2" hidden>
@@ -222,7 +238,7 @@
     <div id="overviewContent"></div>
     <div class="actions">
       <button class="btn2" data-go="1">入力へ戻る</button>
-      <button class="btn" data-go="3">ペルソナを確認する</button>
+      <button class="btn" id="personaNextBtn" data-go="3">ペルソナを確認する</button>
     </div>
   </section>
 
@@ -239,48 +255,45 @@
     <div id="personaStatus" class="status"></div>
     <div class="actions">
       <button class="btn2" data-go="2">事実・市場へ戻る</button>
-      <button class="btn" id="journeyBtn">採用したい候補のジャーニーを見る</button>
+      <button class="btn" id="searchBtn">選択した候補の検索需要を確認</button>
     </div>
   </section>
 
   <section class="panel" data-panel="4" hidden>
     <div class="panelhead">
       <div>
-        <h2>ペルソナ別の採用カスタマージャーニー</h2>
-        <p class="lead">求人認知から入社判断まで、候補者の疑問・離脱要因・対策を並べます。</p>
+        <h2>自然検索・調査行動の需要確認</h2>
+        <p class="lead">選択したペルソナが調べる語を実測し、検索量の大小だけでは落とせない社名検索・ロングテールも確認します。</p>
       </div>
       <span class="badge neutral">検索量は需要の参考値</span>
     </div>
-    <div id="journeyContent"></div>
-    <div class="sectiongap">
-      <h2>自然検索・調査行動</h2>
-      <p class="lead">求人と口コミだけでなく、職種・業界で一般に調べられる「あるある」を含めています。</p>
-      <div id="keywordStatus" class="status"></div>
-      <div id="keywordContent"></div>
-    </div>
+    <div id="keywordStatus" class="status" role="status" aria-live="polite"></div>
+    <div id="keywordContent"></div>
     <div class="actions">
       <button class="btn2" data-go="3">ペルソナを選び直す</button>
-      <button class="btn" data-go="5">優先対策を確認する</button>
+      <button class="btn" id="detailBtn">検索需要を反映して8段階診断を開始</button>
     </div>
   </section>
 
   <section class="panel" data-panel="5" hidden>
     <div class="panelhead">
       <div>
-        <h2>離脱対策と顧客確認事項</h2>
-        <p class="lead">求人表現で補えること、検索面・選考で補うこと、条件や実態の変更が必要なことを分けます。</p>
+        <h2>8段階ジャーニー・離脱対策・顧客確認事項</h2>
+        <p class="lead">検索実測値を反映し、求人認知から入社判断までをペルソナ別に確認します。</p>
       </div>
       <span class="badge warn">最終結論はコンサル判断</span>
     </div>
-    <div id="actionContent"></div>
+    <div id="detailStatus" class="status" role="status" aria-live="polite"></div>
+    <div id="journeyContent"></div>
+    <div id="actionContent" class="sectiongap"></div>
     <div class="exportbar">
       <p class="hint">顧客提示前に、求人原文・口コミ引用・顧客確認事項を担当コンサルが確認してください。</p>
       <div class="actions export-controls">
-        <button class="btn2" id="downloadBtn">診断JSONを保存</button>
+        <button class="btn2" id="downloadBtn">内部引継ぎJSONを保存</button>
         <button class="btn" id="printBtn">印刷・PDF</button>
       </div>
     </div>
-    <div class="actions"><button class="btn2" data-go="4">ジャーニーへ戻る</button></div>
+    <div class="actions"><button class="btn2" data-go="4">検索需要へ戻る</button></div>
   </section>
 
   <p class="foot">本機能は応募・採用を予測するものではありません。求人票、スクレイピング時点の外部観測、公的統計、職種一般論から検討仮説を作成し、コンサルの確認と判断を支援します。</p>
@@ -294,7 +307,10 @@
     node.textContent=String(value??"");
     return node.innerHTML;
   };
-  const S={data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:""};
+  const S={
+    data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:"",
+    details:new Map(),maxStep:1
+  };
   const FACT_LABELS={
     salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
     employment_type:"雇用形態",insurance:"保険",allowances:"手当",required_qualifications:"必須資格"
@@ -311,6 +327,8 @@
     if(REF_LABELS[ref])return REF_LABELS[ref];
     if(/^C\d+$/i.test(ref))return `競合求人 ${ref.toUpperCase()}`;
     if(/^R\d+$/i.test(ref))return `口コミ ${ref.toUpperCase()}`;
+    if(/^J\d+$/i.test(ref))return `顧客求人 ${ref.toUpperCase()}`;
+    if(/^U\d+$/i.test(ref))return `顧客発言 ${ref.toUpperCase()}`;
     if(/^[a-z][a-z0-9_]*$/i.test(ref))return "顧客求人の確認項目";
     return ref;
   }
@@ -320,12 +338,21 @@
   }
 
   function showStep(step){
+    step=Number(step);
+    if(step>S.maxStep)return;
     $$("[data-panel]").forEach(panel=>panel.hidden=Number(panel.dataset.panel)!==Number(step));
-    $$(".pstep").forEach(item=>item.classList.toggle("on",Number(item.dataset.step)===Number(step)));
+    $$(".pstep").forEach(item=>{
+      const active=Number(item.dataset.step)===step;
+      item.classList.toggle("on",active);
+      item.disabled=Number(item.dataset.step)>S.maxStep;
+      if(active)item.setAttribute("aria-current","step");else item.removeAttribute("aria-current");
+    });
     window.scrollTo({top:0,behavior:"smooth"});
-    if(Number(step)===5) renderActions();
+    if(step===5){renderJourney();renderActions()}
   }
+  function unlockStep(step){S.maxStep=Math.max(S.maxStep,Number(step));showStep(step)}
   $$("[data-go]").forEach(button=>button.addEventListener("click",()=>showStep(button.dataset.go)));
+  $$(".pstep").forEach(button=>button.addEventListener("click",()=>showStep(button.dataset.step)));
 
   function setupFile(inputId,statusId){
     $(inputId).addEventListener("change",event=>{
@@ -343,18 +370,18 @@
     return `${(bytes/1024/1024).toFixed(1)} MB`;
   }
   function formatNumber(value){
-    return Number.isFinite(Number(value))?Number(value).toLocaleString("ja-JP"):"—";
+    return value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?Number(value).toLocaleString("ja-JP"):"—";
   }
   function formatYen(value){
-    return Number.isFinite(Number(value))?`${Number(value).toLocaleString("ja-JP")}円`:"—";
+    return value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?`${Number(value).toLocaleString("ja-JP")}円`:"—";
   }
-  function captureDate(file){
+  function formatDecimal(value,digits=1,suffix=""){
+    return value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?`${Number(value).toFixed(digits)}${suffix}`:"—";
+  }
+  function captureDate(file,explicit){
+    if(explicit)return explicit;
     const match=file.name.match(/(20\d{2})[-_](\d{2})[-_](\d{2})/);
     if(match)return `${match[1]}-${match[2]}-${match[3]}`;
-    if(file.lastModified){
-      const d=new Date(file.lastModified),pad=n=>String(n).padStart(2,"0");
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    }
     return "";
   }
   async function fileToBase64(file){
@@ -389,9 +416,10 @@
     button.disabled=true;
     const messages=[
       "顧客求人の条件を引用照合しています…",
-      "競合求人の給与・掲載条件を集計しています…",
-      "口コミを外部観測として整理しています…",
-      "地域統計を照合し、ペルソナと採用ジャーニーを作成しています…"
+      "同じ職種・雇用形態・地域の比較母集団を確定しています…",
+      "口コミ原文と地域統計を根拠ごとに整理しています…",
+      "4ペルソナと自然検索仮説を生成しています…",
+      "件数・行動区分・根拠番号を品質ゲートで検査し、必要なら自動補修しています…"
     ];
     let messageIndex=0;
     status.innerHTML=`<div class="loading">${messages[0]}</div>`;
@@ -406,10 +434,13 @@
         client_kind:["html","htm"].includes(extension)?"html":"text",
         competitor_csv_base64:await fileToBase64(competitor),
         competitor_filename:competitor.name,
-        competitor_captured_at:captureDate(competitor),
+        competitor_captured_at:captureDate(competitor,$("#competitorCapturedAt").value),
         review_csv_base64:await fileToBase64(review),
         review_filename:review.name,
-        review_captured_at:captureDate(review),
+        review_captured_at:captureDate(review,$("#reviewCapturedAt").value),
+        customer_statements:$("#customerStatements").value.trim(),
+        customer_statement_speaker:$("#customerStatementSpeaker").value.trim(),
+        customer_statement_date:$("#customerStatementDate").value,
         employer_note:$("#employerNote").value.trim()
       });
       S.data=data;
@@ -417,10 +448,21 @@
       S.keywordMap.clear();
       S.suggestions=[];
       S.keywordMessage="";
+      S.details.clear();
+      S.maxStep=2;
       renderOverview();
-      renderPersonas();
-      status.innerHTML='<div class="oknote">診断が完了しました。事実・市場の確認へ進みます。</div>';
-      showStep(2);
+      const passed=Boolean(data.quality_gate?.passed&&data.case_id);
+      $("#personaNextBtn").disabled=!passed;
+      if(passed){
+        renderPersonas();
+        S.maxStep=3;
+        status.innerHTML=`<div class="oknote">準備工程が完了しました（LLM ${formatNumber(data.llm_calls)}回）。事実・比較母集団を確認してください。</div>`;
+      }else{
+        $("#personaGrid").innerHTML="";
+        const issues=(data.quality_gate?.issues||["品質基準を満たしませんでした。"]).map(esc).join("／");
+        status.innerHTML=`<div class="notice">次工程を停止しました：${issues}</div>`;
+      }
+      unlockStep(2);
     }catch(error){
       status.innerHTML=`<div class="error">${esc(error.message)}</div>`;
     }finally{
@@ -430,17 +472,23 @@
   });
 
   function renderOverview(){
-    const d=S.data,r=d.result||{},p=r.case_profile||{},c=d.competitor_summary||{},v=d.review_summary||{},stats=d.public_stats||{};
+    const d=S.data,r=d.result||{},p=d.case_profile||r.case_profile||{},c=d.competitor_summary||{},source=d.competitor_source_summary||{},cohort=d.comparison_cohort||{},v=d.review_summary||{},stats=d.public_stats||{};
     const factRows=Object.entries(d.facts||{}).map(([key,fact])=>{
       const status=fact.status==="verified"?'<span class="badge ok">求人票で確認</span>':fact.status==="rejected"?'<span class="badge bad">引用不一致</span>':'<span class="badge neutral">記載なし</span>';
       return `<div class="fact"><div class="flabel">${esc(FACT_LABELS[key]||key)} ${status}</div><div class="fvalue">${esc(fact.value||"—")}</div><div class="quote">${fact.evidence_quote?`引用：${esc(fact.evidence_quote)}`:"確認できる記載なし"}</div></div>`;
     }).join("");
+    const customerRows=(d.customer_statement_evidence||[]).map(item=>`
+      <div class="fact"><div class="flabel">${esc(humanizeRef(item.source_ref))} <span class="badge ok">顧客発言</span></div>
+      <div class="fvalue">${esc(item.statement)}</div><div class="quote">${esc(item.speaker)}・確認日 ${esc(item.stated_at)}</div></div>`).join("");
     const salary=d.client_salary_position;
+    const popularityTotal=[c.popular_count,c.super_popular_count].some(value=>value!=null)
+      ? Number(c.popular_count||0)+Number(c.super_popular_count||0)
+      : null;
     const salaryHtml=salary?`
       <div class="kpis">
         <div class="kpi"><span>顧客求人・月給換算</span><b>${formatYen(salary.client_monthly_equivalent_yen)}</b><small>範囲表記は上下限の中点</small></div>
         <div class="kpi"><span>比較求人の中央値</span><b>${formatYen(salary.median_yen)}</b><small>${esc(salary.comparison_group)} ${formatNumber(salary.sample_count)}件</small></div>
-        <div class="kpi"><span>比較分布での位置</span><b>${esc(salary.position_label)}</b><small>${Number(salary.percentile_position).toFixed(1)}パーセンタイル</small></div>
+        <div class="kpi"><span>比較分布での位置</span><b>${esc(salary.position_label||"—")}</b><small>${formatDecimal(salary.percentile_position,1,"パーセンタイル")}</small></div>
         <div class="kpi"><span>四分位範囲</span><b>${formatYen(salary.first_quartile_yen)}–${formatYen(salary.third_quartile_yen)}</b><small>固定残業・賞与・手当は別確認</small></div>
       </div>
       <p class="hint">${esc(salary.calculation_note)}</p>`:
@@ -456,9 +504,15 @@
       <div><b>求職者認知仮説：</b>${esc(item.candidate_perception_hypothesis)}</div>
       <div><b>検索候補：</b>${esc(item.relevant_search)}</div>
       <div class="source">顧客確認：${esc(item.client_confirmation)}</div></div>`).join("")||'<p class="hint">本文から採用認知へ接続する論点は抽出されませんでした。</p>';
+    const reviewEvidence=(v.evidence||[]).map(item=>`<details class="finding"><summary><b>${esc(humanizeRef(item.source_ref))}</b> ${esc(item.posted_relative||"")}</summary><p>${esc(item.text)}</p>${item.reactions?`<div class="source">反応：${esc(item.reactions)}</div>`:""}</details>`).join("")||'<p class="hint">本文付き口コミなし</p>';
+    const qualityIssues=(d.quality_gate?.issues||[]).map(item=>`<li>${esc(item)}</li>`).join("");
+    const qualityBanner=d.quality_gate?.passed
+      ? (d.review_required?'<div class="notice">比較対象が小標本のため、結果は参考値としてコンサル確認が必要です。</div>':'<div class="oknote">比較母集団とペルソナ出力は品質ゲートを通過しました。</div>')
+      : `<div class="error"><b>次工程を停止しました。</b><ul class="clean">${qualityIssues||"<li>品質基準を満たしませんでした。</li>"}</ul></div>`;
     const publicHtml=renderPublicStats(stats);
     $("#overviewContent").innerHTML=`
-      <div class="casebar">
+      ${qualityBanner}
+      <div class="casebar sectiongap">
         <div><span>対象求人</span>${esc(p.job_title||"未確認")}</div>
         <div><span>企業</span>${esc(p.company_name||"未確認")}</div>
         <div><span>職種</span>${esc(p.occupation||"未確認")}</div>
@@ -466,25 +520,25 @@
         <div><span>雇用形態</span>${esc(p.employment_type||"未確認")}</div>
       </div>
       <div class="kpis">
-        <div class="kpi"><span>競合求人・分析対象</span><b>${formatNumber(c.record_count)}件</b><small>CSV ${formatNumber(c.raw_row_count)}行・除外 ${formatNumber(c.analysis_excluded_rows)}行・${formatNumber(c.unique_company_count)}社・取得 ${esc(c.captured_at||"不明")}</small></div>
-        <div class="kpi"><span>口コミ本文</span><b>${formatNumber(v.text_rows)}件</b><small>全${formatNumber(v.total_rows)}件、本文なし${formatNumber(v.blank_text_rows)}件・取得 ${esc(v.captured_at||"不明")}</small></div>
-        <div class="kpi"><span>人気度タグ</span><b>${formatNumber((c.popular_count||0)+(c.super_popular_count||0))}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
+        <div class="kpi"><span>比較母集団</span><b>${formatNumber(cohort.matched_record_count)}件</b><small>元CSV ${formatNumber(cohort.source_record_count||source.record_count)}件から抽出・${esc(cohort.scope||"未確定")}・取得 ${esc(c.captured_at||source.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>口コミ本文</span><b>${formatNumber(v.text_rows)}件</b><small>全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件・取得 ${esc(v.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>人気度タグ</span><b>${formatNumber(popularityTotal)}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
         <div class="kpi"><span>地域統計</span><b>${stats.available?"取得":"未取得"}</b><small>${esc(stats.available?"人材母集団の補助情報":"求人診断は継続")}</small></div>
       </div>
       <div class="twocol">
-        <div class="box"><h3>顧客求人から引用確認した事実</h3><div class="facts">${factRows}</div></div>
+        <div class="box"><h3>顧客求人から引用確認した事実</h3><div class="facts">${factRows}</div>${customerRows?`<h3 class="sectiongap">顧客から確認済みの発言</h3><div class="facts">${customerRows}</div>`:""}</div>
         <div class="box"><h3>地域・人材母集団の補助情報</h3>${publicHtml}</div>
       </div>
       <div class="box sectiongap"><h3>給与の相対位置</h3>${salaryHtml}
         <div class="tblwrap"><table><thead><tr><th>比較区分</th><th>件数</th><th>最小</th><th>第1四分位</th><th>中央値</th><th>第3四分位</th><th>最大</th></tr></thead><tbody>${distributions||'<tr><td colspan="7">給与比較データなし</td></tr>'}</tbody></table></div>
       </div>
       <div class="twocol sectiongap">
-        <div class="box"><h3>競合求人で観測された特徴</h3><div class="stack">${tags}</div><p class="hint sectiongap">比較母集団：${esc(c.filename||"競合CSV")}、分析対象${formatNumber(c.record_count)}件。CSVデータ行から重複・メタ情報・不完全行等を${formatNumber(c.analysis_excluded_rows)}行除外しています。求人媒体に掲載された比較対象であり、求人市場全体ではありません。</p></div>
+        <div class="box"><h3>競合求人で観測された特徴</h3><div class="stack">${tags}</div><p class="hint sectiongap">比較母集団：${esc(cohort.scope||"未確定")}、${formatNumber(c.record_count)}件（元CSV ${formatNumber(source.record_count)}件）。同一市区町村で5件未満の場合のみ同一都道府県へ広げ、別職種・全国求人へは自動拡張しません。</p>${cohort.warning?`<div class="notice sectiongap">${esc(cohort.warning)}</div>`:""}</div>
         <div class="box"><h3>競合条件から分かったこと</h3>${conditions}</div>
       </div>
       <div class="twocol sectiongap">
-        <div class="box"><h3>口コミから観測された求職者認知</h3>${reviews}<p class="hint sectiongap">口コミは会社の労働実態を確定する事実ではありません。求職者が検索時に目にする情報として扱います。</p></div>
-        <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(p.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
+        <div class="box"><h3>口コミから観測された求職者認知</h3>${reviews}<details class="sectiongap"><summary><b>分析に使用した口コミ原文を確認</b></summary>${reviewEvidence}</details><p class="hint sectiongap">個々の口コミは会社実態の確定事実ではありませんが、求職者が1件でも真実として受け取る可能性がある外部情報として扱います。</p></div>
+        <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(r.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
       </div>`;
   }
 
@@ -504,8 +558,8 @@
   }
 
   function badgeForEligibility(value){
-    if(value==="応募可能性が高い")return "ok";
-    if(value==="現条件では難しい")return "bad";
+    if(value==="必須条件を満たす")return "ok";
+    if(value==="必須条件を満たさない")return "bad";
     return "warn";
   }
   function badgeForBehavior(value){
@@ -525,14 +579,20 @@
         </div>
         <p class="pdesc">${esc(p.profile)}</p>
         <dl>
+          <dt>前職・経験</dt><dd>${esc(p.previous_work_context)}</dd>
           <dt>転職理由</dt><dd>${esc(p.transfer_reason)}</dd>
+          <dt>最低条件</dt><dd>${esc((p.must_have_conditions||[]).join("／")||"未確認")}</dd>
+          <dt>優先条件</dt><dd>${esc((p.priority_conditions||[]).join("／")||"未確認")}</dd>
+          <dt>妥協可能</dt><dd>${esc((p.acceptable_tradeoffs||[]).join("／")||"未確認")}</dd>
           <dt>行動理由</dt><dd>${esc(p.behavior_reason)}</dd>
           <dt>企業適合仮説</dt><dd>${esc(p.employer_fit_hypothesis)}</dd>
-          <dt>市場根拠</dt><dd>${esc((p.market_basis||[]).join("／")||"仮説のみ")}</dd>
+          <dt>根拠</dt><dd>${esc(formatRefs(p.evidence_refs))}</dd>
         </dl>
         <label class="selectpersona"><input type="checkbox" data-persona-id="${esc(p.id)}"><span>企業として採用したい候補にする<br><small class="hint">顧客意向またはコンサル判断として確定</small></span></label>
       </article>`).join("");
     $$("#personaGrid input[type=checkbox]").forEach(input=>input.addEventListener("change",()=>{
+      S.details.clear();
+      S.maxStep=Math.min(S.maxStep,4);
       const card=input.closest(".pcard"),status=card.querySelector(".desire-status");
       if(input.checked){
         S.selected.add(input.dataset.personaId);
@@ -549,13 +609,12 @@
     }));
   }
 
-  $("#journeyBtn").addEventListener("click",async()=>{
+  $("#searchBtn").addEventListener("click",async()=>{
     if(!S.selected.size){
       $("#personaStatus").innerHTML='<div class="error">企業として採用したいペルソナを1つ以上選択してください。</div>';
       return;
     }
-    renderJourney();
-    showStep(4);
+    unlockStep(4);
     await loadKeywordData();
   });
 
@@ -567,7 +626,8 @@
   function renderJourney(){
     const personas=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id));
     $("#journeyContent").innerHTML=personas.map(p=>{
-      const rows=(p.journey||[]).map(stage=>`<tr>
+      const detail=S.details.get(p.id)||{};
+      const rows=(detail.journey||[]).map(stage=>`<tr>
         <td class="stagecell">${esc(stage.stage)}</td><td>${esc(stage.candidate_action)}</td>
         <td>${esc(stage.question_or_expectation)}</td><td>${esc(stage.dropoff_trigger)}</td>
         <td>${esc(stage.countermeasure)}</td><td>${esc(stage.channel)}</td>
@@ -575,7 +635,6 @@
       return `<article class="journeyblock"><div class="journeyhead"><div><h3>${esc(p.label)}</h3><div class="route">${esc(routingText(p))}</div></div><div class="badges"><span class="badge ${badgeForEligibility(p.eligibility)}">${esc(p.eligibility)}</span><span class="badge ${badgeForBehavior(p.likely_behavior)}">${esc(p.likely_behavior)}</span></div></div>
       <div class="tblwrap" style="border:0;border-radius:0"><table><thead><tr><th>段階</th><th>候補者の行動</th><th>疑問・期待</th><th>離脱要因</th><th>対策</th><th>実施場所</th><th>根拠</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
     }).join("");
-    renderKeywords();
   }
 
   function selectedQueries(){
@@ -612,7 +671,7 @@
     const status=$("#keywordStatus"),rows=selectedQueries(),queries=[...new Set(rows.map(row=>row.query))].slice(0,30);
     if(!queries.length){S.keywordMessage="未取得";renderKeywords();return}
     status.innerHTML='<div class="loading">ペルソナ別検索語の検索需要と関連語を確認しています…</div>';
-    const profile=S.data?.result?.case_profile||{};
+    const profile=S.data?.case_profile||S.data?.result?.case_profile||{};
     const region=[profile.prefecture,profile.municipality].filter(Boolean).join(" ");
     try{
       const batches=[];
@@ -644,25 +703,75 @@
     renderKeywords();
   }
 
+  $("#detailBtn").addEventListener("click",async()=>{
+    const button=$("#detailBtn");
+    const personas=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id));
+    if(!personas.length||!S.data?.case_id){
+      $("#keywordStatus").innerHTML='<div class="error">準備済みケースと選択ペルソナがありません。最初の分析からやり直してください。</div>';
+      return;
+    }
+    button.disabled=true;
+    S.details.clear();
+    try{
+      for(let index=0;index<personas.length;index++){
+        const persona=personas[index];
+        $("#keywordStatus").innerHTML=`<div class="loading">${formatNumber(index+1)} / ${formatNumber(personas.length)}：${esc(persona.label)}の検索需要を反映し、8段階ジャーニーを生成・検査しています。最大2回自動補修します…</div>`;
+        const keywordMetrics=(persona.search_queries||[]).map(query=>({
+          ...query,
+          measured:S.keywordMap.get(query.query)||null
+        }));
+        const response=await postJSON("/api/jobgen/journey-persona-detail",{
+          case_id:S.data.case_id,
+          persona_id:persona.id,
+          keyword_metrics:keywordMetrics
+        });
+        if(!response.quality_gate?.passed){
+          const issues=(response.quality_gate?.issues||["品質基準を満たしませんでした。"]).join("／");
+          throw new Error(`${persona.label}の生成を停止しました：${issues}`);
+        }
+        S.details.set(persona.id,response.result);
+      }
+      $("#keywordStatus").innerHTML='<div class="oknote">選択した全ペルソナが8段階・根拠番号・対策数の品質ゲートを通過しました。</div>';
+      $("#detailStatus").innerHTML=`<div class="oknote">${formatNumber(personas.length)}ペルソナの診断が完了しました。検索実測値を反映済みです。</div>`;
+      unlockStep(5);
+    }catch(error){
+      S.details.clear();
+      $("#keywordStatus").innerHTML=`<div class="error">${esc(error.message)}</div>`;
+    }finally{
+      button.disabled=false;
+    }
+  });
+
   function renderActions(){
     if(!S.data)return;
     const result=S.data.result||{},personas=result.personas||[];
-    const selectedActions=(result.priority_actions||[]).filter(action=>S.selected.has(action.persona_id));
+    const selectedPersonas=personas.filter(p=>S.selected.has(p.id));
+    const selectedActions=selectedPersonas.flatMap(persona=>
+      (S.details.get(persona.id)?.priority_actions||[]).map(action=>({...action,persona_id:persona.id,persona_label:persona.label}))
+    );
     const actionsHtml=selectedActions.map(action=>{
       const level=action.priority==="高"?"high":action.priority==="中"?"medium":"low";
-      return `<article class="actioncard ${level}"><div class="badges"><span class="badge ${action.priority==="高"?"bad":action.priority==="中"?"warn":"ok"}">優先度 ${esc(action.priority)}</span><span class="badge neutral">${esc(action.stage)}</span><span class="badge neutral">${esc(action.channel)}</span></div>
+      return `<article class="actioncard ${level}"><div class="badges"><span class="badge neutral">${esc(action.persona_label)}</span><span class="badge ${action.priority==="高"?"bad":action.priority==="中"?"warn":"ok"}">優先度 ${esc(action.priority)}</span><span class="badge neutral">${esc(action.stage)}</span><span class="badge neutral">${esc(action.channel)}</span></div>
         <h3>${esc(action.risk)}</h3><p><b>原因：</b>${esc(action.cause_type)}</p><p><b>対策：</b>${esc(action.countermeasure)}</p>
         <p><b>顧客確認：</b>${esc(action.client_confirmation||"なし")}</p><small>根拠：${esc(formatRefs(action.evidence_refs))}</small></article>`;
     }).join("")||'<p class="hint">選択したペルソナの優先対策はありません。</p>';
-    const mismatch=personas.filter(p=>!S.selected.has(p.id)&&p.likely_behavior==="応募へ進む").map(p=>`
-      <div class="finding"><b>${esc(p.label)}：ミスマッチ応募の確認</b>${esc(p.if_not_target_action||"応募条件と仕事内容を明確にし、対象外応募を減らすか判断します。")}</div>`).join("");
-    const questions=(result.client_questions||[]).map(q=>`<li>${esc(q)}</li>`).join("");
-    const limitations=(result.limitations||[]).map(q=>`<li>${esc(q)}</li>`).join("");
-    const selectedLabels=personas.filter(p=>S.selected.has(p.id)).map(p=>p.label).join(" ／ ");
+    const routeActions=selectedPersonas.map(persona=>{
+      const detail=S.details.get(persona.id)||{};
+      const post=(detail.post_application_actions||[]).map(item=>`<li>${esc(item)}</li>`).join("")||"<li>追加対策なし</li>";
+      const wanted=(detail.if_employer_wants_actions||[]).map(item=>`<li>${esc(item)}</li>`).join("")||"<li>追加対策なし</li>";
+      return `<div class="box"><h3>${esc(persona.label)}</h3>
+        <b>応募後の取りこぼし対策</b><ul class="clean">${post}</ul>
+        <b>企業が採用したい場合の対策</b><ul class="clean">${wanted}</ul>
+        <p class="finding"><b>採用対象外と判断する場合</b>${esc(detail.if_not_target_action||"必須条件と仕事内容を明確にし、対象外応募を減らすかを判断します。")}</p>
+      </div>`;
+    }).join("");
+    const questions=[...(result.client_questions||[]),...selectedPersonas.flatMap(p=>S.details.get(p.id)?.client_questions||[])].map(q=>`<li>${esc(q)}</li>`).join("");
+    const limitations=[...(result.limitations||[]),...selectedPersonas.flatMap(p=>S.details.get(p.id)?.limitations||[])].map(q=>`<li>${esc(q)}</li>`).join("");
+    const selectedLabels=selectedPersonas.map(p=>p.label).join(" ／ ");
     $("#actionContent").innerHTML=`
       <div class="casebar"><div><span>企業として採用したい候補</span>${esc(selectedLabels||"未選択")}</div><div><span>優先対策</span>${formatNumber(selectedActions.filter(a=>a.priority==="高").length)}件</div><div><span>対策総数</span>${formatNumber(selectedActions.length)}件</div><div><span>求人外の対策</span>${formatNumber(selectedActions.filter(a=>a.channel!=="求人票").length)}件</div><div><span>生成時点</span>${esc((S.data.generated_at||"").replace("T"," ").slice(0,16)||"—")}</div></div>
       <h3>採用したいペルソナを逃がさないための対策</h3><div class="actiongrid">${actionsHtml}</div>
-      ${mismatch?`<div class="box sectiongap"><h3>採用対象外だが応募へ進みそうな層</h3>${mismatch}</div>`:""}
+      <h3 class="sectiongap">応募前・応募後・対象外の扱い</h3><div class="twocol">${routeActions}</div>
       <div class="twocol sectiongap">
         <div class="box"><h3>顧客への確認事項</h3><ul class="clean">${questions||"<li>追加確認なし</li>"}</ul></div>
         <div class="box"><h3>診断の限界</h3><ul class="clean">${limitations||"<li>特記事項なし</li>"}</ul></div>
@@ -678,7 +787,8 @@
         desired_personas:(S.data.result?.personas||[]).filter(p=>S.selected.has(p.id)).map(p=>p.label)
       },
       keyword_metrics:Object.fromEntries(S.keywordMap),
-      keyword_suggestions:S.suggestions
+      keyword_suggestions:S.suggestions,
+      persona_details:Object.fromEntries(S.details)
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
