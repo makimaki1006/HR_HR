@@ -21,6 +21,7 @@ COPY static/keywords.html static/keywords.html
 # include_str! で job_gen が求人票生成 UI と知識データ (NGワード/職種知識) を埋め込む
 COPY static/jobgen.html static/jobgen.html
 COPY static/jobgen_competitive_beta.html static/jobgen_competitive_beta.html
+COPY static/jobgen_applicant_journey_beta.html static/jobgen_applicant_journey_beta.html
 COPY assets/ assets/
 # include_str! で採用提案の試作モックページを埋め込む
 COPY static/proposal_mock.html static/proposal_mock.html
