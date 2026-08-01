@@ -195,6 +195,15 @@ fn normalize_text(s: &str) -> String {
     out
 }
 
+/// 意味照合では改行を項目境界として残し、隣の行の数値を借用しない。
+fn normalize_semantic_text(s: &str) -> String {
+    s.split(['\r', '\n'])
+        .map(normalize_text)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("。")
+}
+
 /// `\d+(?:\.\d+)?` 相当の数字トークンを(正規化後の文字列から)抽出する。
 fn find_numbers(s: &str) -> Vec<String> {
     let chars: Vec<char> = s.chars().collect();
@@ -246,9 +255,365 @@ fn numbers_in_text(text: &str) -> HashSet<String> {
     expanded
 }
 
+#[derive(Debug, Clone)]
+struct NumberSpan {
+    start: usize,
+    end: usize,
+    raw: String,
+}
+
+#[derive(Debug, Clone)]
+struct MoneyEvidence {
+    amount_yen: i128,
+    pay_period: Option<&'static str>,
+    salary_context: bool,
+    allowance_context: bool,
+}
+
+const SALARY_CONTEXT: [&str; 12] = [
+    "給与",
+    "給料",
+    "賃金",
+    "月給",
+    "月収",
+    "年収",
+    "年俸",
+    "日給",
+    "時給",
+    "基本給",
+    "固定給",
+    "報酬",
+];
+const ALLOWANCE_CONTEXT: [&str; 11] = [
+    "手当",
+    "交通費",
+    "通勤費",
+    "補助",
+    "支給",
+    "祝い金",
+    "一時金",
+    "インセンティブ",
+    "残業代",
+    "賞与",
+    "ボーナス",
+];
+const WORKING_HOURS_CONTEXT: [&str; 8] = [
+    "勤務時間",
+    "就業時間",
+    "労働時間",
+    "実働",
+    "休憩時間",
+    "勤務帯",
+    "シフト",
+    "勤務",
+];
+const HOLIDAY_CONTEXT: [&str; 8] = [
+    "休日",
+    "休暇",
+    "休業",
+    "週休",
+    "有給",
+    "年間休日",
+    "休み",
+    "公休",
+];
+
+fn find_number_spans(chars: &[char]) -> Vec<NumberSpan> {
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i + 1 < chars.len() && chars[i] == '.' && chars[i + 1].is_ascii_digit() {
+            i += 1;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+        }
+        spans.push(NumberSpan {
+            start,
+            end: i,
+            raw: chars[start..i].iter().collect(),
+        });
+    }
+    spans
+}
+
+fn starts_with_chars(chars: &[char], start: usize, needle: &str) -> bool {
+    let needle = needle.chars().collect::<Vec<_>>();
+    chars.get(start..start + needle.len()) == Some(needle.as_slice())
+}
+
+fn local_text(chars: &[char], start: usize, end: usize, radius: usize) -> String {
+    fn is_boundary(ch: char) -> bool {
+        matches!(ch, '。' | '、' | '；' | ';' | '\n' | '\r')
+    }
+
+    let mut clause_start = start;
+    while clause_start > 0 && !is_boundary(chars[clause_start - 1]) {
+        clause_start -= 1;
+    }
+    let mut clause_end = end;
+    while clause_end < chars.len() && !is_boundary(chars[clause_end]) {
+        clause_end += 1;
+    }
+    let window_start = start.saturating_sub(radius).max(clause_start);
+    let window_end = (end + radius).min(clause_end);
+    chars[window_start..window_end].iter().collect()
+}
+
+fn contains_any(text: &str, terms: &[&str]) -> bool {
+    terms.iter().any(|term| text.contains(term))
+}
+
+fn parse_scaled_number(raw: &str, multiplier: i128) -> Option<i128> {
+    let (whole, fraction) = raw.split_once('.').unwrap_or((raw, ""));
+    let whole = whole.parse::<i128>().ok()?;
+    if fraction.is_empty() {
+        return whole.checked_mul(multiplier);
+    }
+    let scale = 10_i128.checked_pow(fraction.len() as u32)?;
+    let fraction = fraction.parse::<i128>().ok()?;
+    let numerator = whole.checked_mul(scale)?.checked_add(fraction)?;
+    numerator.checked_mul(multiplier)?.checked_div(scale)
+}
+
+fn money_multiplier(chars: &[char], end: usize) -> Option<i128> {
+    if starts_with_chars(chars, end, "万円") {
+        Some(10_000)
+    } else if starts_with_chars(chars, end, "千円") {
+        Some(1_000)
+    } else if starts_with_chars(chars, end, "円") {
+        Some(1)
+    } else if starts_with_chars(chars, end, "万") {
+        Some(10_000)
+    } else {
+        None
+    }
+}
+
+fn is_range_separator(chars: &[char]) -> bool {
+    !chars.is_empty()
+        && chars
+            .iter()
+            .all(|ch| matches!(ch, '〜' | '～' | '~' | '-' | '－' | '–' | '—'))
+}
+
+fn pay_period_near(local: &str) -> Option<&'static str> {
+    let periods = [
+        ("hourly", ["時給", "時間給"].as_slice()),
+        ("daily", ["日給"].as_slice()),
+        ("monthly", ["月給", "月収", "月額", "基本給"].as_slice()),
+        ("annual", ["年収", "年俸", "年額"].as_slice()),
+        ("bonus", ["賞与", "ボーナス"].as_slice()),
+    ];
+    let detected = periods
+        .iter()
+        .filter_map(|(period, terms)| contains_any(local, terms).then_some(*period))
+        .collect::<Vec<_>>();
+    (detected.len() == 1).then(|| detected[0])
+}
+
+fn money_evidence(text: &str) -> Vec<MoneyEvidence> {
+    let normalized = normalize_semantic_text(text);
+    let chars = normalized.chars().collect::<Vec<_>>();
+    let spans = find_number_spans(&chars);
+    let mut multipliers = spans
+        .iter()
+        .map(|span| money_multiplier(&chars, span.end))
+        .collect::<Vec<_>>();
+
+    // 「30〜40万円」の先頭値にも、同じ範囲の末尾に付いた単位だけを引き継ぐ。
+    for index in 0..spans.len().saturating_sub(1) {
+        if multipliers[index].is_none()
+            && multipliers[index + 1].is_some()
+            && is_range_separator(&chars[spans[index].end..spans[index + 1].start])
+        {
+            multipliers[index] = multipliers[index + 1];
+        }
+    }
+
+    spans
+        .iter()
+        .zip(multipliers)
+        .filter_map(|(span, multiplier)| {
+            let amount_yen = parse_scaled_number(&span.raw, multiplier?)?;
+            let local = local_text(&chars, span.start, span.end, 14);
+            Some(MoneyEvidence {
+                amount_yen,
+                pay_period: pay_period_near(&local),
+                salary_context: contains_any(&local, &SALARY_CONTEXT),
+                allowance_context: contains_any(&local, &ALLOWANCE_CONTEXT),
+            })
+        })
+        .collect()
+}
+
+fn salary_numbers_supported(value: &str, quote: &str) -> bool {
+    let value_evidence = money_evidence(value);
+    if value_evidence.is_empty() {
+        return false;
+    }
+    let quote_evidence = money_evidence(quote)
+        .into_iter()
+        // 手当だけの金額を給与額として借用しない。給与文脈も併記される場合は残す。
+        .filter(|item| !item.allowance_context || item.salary_context)
+        .collect::<Vec<_>>();
+
+    value_evidence.iter().all(|value_item| {
+        quote_evidence.iter().any(|quote_item| {
+            value_item.amount_yen == quote_item.amount_yen
+                && match value_item.pay_period {
+                    Some(period) => quote_item.pay_period == Some(period),
+                    None => true,
+                }
+        })
+    })
+}
+
+fn allowance_numbers_supported(value: &str, quote: &str) -> bool {
+    let value_evidence = money_evidence(value);
+    if value_evidence.is_empty() {
+        return false;
+    }
+    let quote_norm = normalize_text(quote);
+    let value_norm = normalize_text(value);
+    let quote_evidence = money_evidence(quote)
+        .into_iter()
+        .filter(|item| item.allowance_context || quote_norm == value_norm)
+        .collect::<Vec<_>>();
+    value_evidence.iter().all(|value_item| {
+        quote_evidence
+            .iter()
+            .any(|quote_item| value_item.amount_yen == quote_item.amount_yen)
+    })
+}
+
+fn unit_numbers(
+    text: &str,
+    units: &[(&str, &str)],
+    required_context: Option<&[&str]>,
+) -> Vec<(String, String)> {
+    let normalized = normalize_semantic_text(text);
+    let chars = normalized.chars().collect::<Vec<_>>();
+    find_number_spans(&chars)
+        .into_iter()
+        .filter_map(|span| {
+            let item = units
+                .iter()
+                .find(|(suffix, _)| starts_with_chars(&chars, span.end, suffix))
+                .map(|(_, kind)| (span.raw, (*kind).to_string()))?;
+            let context_matches = required_context.is_none_or(|terms| {
+                contains_any(&local_text(&chars, span.start, span.end, 14), terms)
+            });
+            context_matches.then_some(item)
+        })
+        .collect()
+}
+
+fn holiday_numbers_supported(value: &str, quote: &str) -> bool {
+    let value_numbers = unit_numbers(value, &[("日", "days")], None);
+    if value_numbers.is_empty() {
+        return false;
+    }
+    let quote_norm = normalize_text(quote);
+    let value_norm = normalize_text(value);
+    let required_context = (quote_norm != value_norm).then_some(HOLIDAY_CONTEXT.as_slice());
+    let quote_numbers = unit_numbers(quote, &[("日", "days")], required_context);
+    value_numbers
+        .iter()
+        .all(|value_item| quote_numbers.contains(value_item))
+}
+
+fn clock_values(text: &str, required_context: Option<&[&str]>) -> Vec<String> {
+    let normalized = normalize_semantic_text(text);
+    let chars = normalized.chars().collect::<Vec<_>>();
+    let spans = find_number_spans(&chars);
+    let mut values = Vec::new();
+    for pair in spans.windows(2) {
+        let left = &pair[0];
+        let right = &pair[1];
+        let context_matches = required_context.is_none_or(|terms| {
+            contains_any(&local_text(&chars, left.start, right.end, 14), terms)
+        });
+        if chars.get(left.end) == Some(&':') && right.start == left.end + 1 && context_matches {
+            values.push(format!("{}:{}", left.raw, right.raw));
+        }
+    }
+    values
+}
+
+fn working_hours_numbers_supported(value: &str, quote: &str) -> bool {
+    let mut value_numbers = unit_numbers(
+        value,
+        &[
+            ("時間", "duration_hours"),
+            ("時", "clock_hours"),
+            ("分", "minutes"),
+        ],
+        None,
+    );
+    value_numbers.extend(
+        clock_values(value, None)
+            .into_iter()
+            .map(|clock| (clock, "clock".to_string())),
+    );
+    if value_numbers.is_empty() {
+        return false;
+    }
+
+    let quote_norm = normalize_text(quote);
+    let value_norm = normalize_text(value);
+    let required_context = (quote_norm != value_norm).then_some(WORKING_HOURS_CONTEXT.as_slice());
+    let mut quote_numbers = unit_numbers(
+        quote,
+        &[
+            ("時間", "duration_hours"),
+            ("時", "clock_hours"),
+            ("分", "minutes"),
+        ],
+        required_context,
+    );
+    quote_numbers.extend(
+        clock_values(quote, required_context)
+            .into_iter()
+            .map(|clock| (clock, "clock".to_string())),
+    );
+    value_numbers
+        .iter()
+        .all(|value_item| quote_numbers.contains(value_item))
+}
+
+fn numeric_semantics_supported(field_name: &str, value: &str, quote: &str) -> bool {
+    match field_name {
+        "salary" => salary_numbers_supported(value, quote),
+        "working_hours" => working_hours_numbers_supported(value, quote),
+        "holidays" => holiday_numbers_supported(value, quote),
+        "allowances" => allowance_numbers_supported(value, quote),
+        _ => false,
+    }
+}
+
+fn non_numeric_field_context_supported(field_name: &str, quote: &str) -> bool {
+    let quote = normalize_text(quote);
+    match field_name {
+        "salary" => contains_any(&quote, &SALARY_CONTEXT),
+        "working_hours" => contains_any(&quote, &WORKING_HOURS_CONTEXT),
+        "holidays" => contains_any(&quote, &HOLIDAY_CONTEXT),
+        "allowances" => contains_any(&quote, &ALLOWANCE_CONTEXT),
+        _ => true,
+    }
+}
+
 /// 抽出値が根拠引用内で確認できるか。Python `value_supported_by_quote` の移植。
 ///
-/// 部分文字列一致でまず判定し、数値系項目のみ「値の数字が引用の数字の部分集合」も許容する。
+/// 数値系項目は、同じ数字だけでなく単位・項目文脈・給与周期まで一致する場合だけ許容する。
 fn value_supported_by_quote(field_name: &str, value: &str, quote: &str) -> bool {
     if value.is_empty() {
         return true;
@@ -258,17 +623,15 @@ fn value_supported_by_quote(field_name: &str, value: &str, quote: &str) -> bool 
     if value_norm.is_empty() {
         return true;
     }
-    if quote_norm.contains(&value_norm) {
-        return true;
-    }
     if NUMERIC_FACT_FIELDS.contains(&field_name) {
-        let quote_nums = numbers_in_text(quote);
-        let value_nums = numbers_in_text(value);
-        if !value_nums.is_empty() && value_nums.is_subset(&quote_nums) {
-            return true;
+        let has_numbers = !numbers_in_text(value).is_empty();
+        if has_numbers {
+            return numeric_semantics_supported(field_name, value, quote);
         }
+        return quote_norm.contains(&value_norm)
+            && non_numeric_field_context_supported(field_name, quote);
     }
-    false
+    quote_norm.contains(&value_norm)
 }
 
 #[cfg(test)]
@@ -342,7 +705,10 @@ mod tests {
         // rejected は value を保持しない。
         assert_eq!(facts["salary"].value, "");
         // 引用はレビュー用に残す。
-        assert_eq!(facts["salary"].evidence_quote, "月給300,000円（原文に存在しない引用）");
+        assert_eq!(
+            facts["salary"].evidence_quote,
+            "月給300,000円（原文に存在しない引用）"
+        );
     }
 
     // --- verify: 値が引用と無関係 ---
@@ -368,6 +734,100 @@ mod tests {
         });
         let facts = verify(source, &raw);
         assert_eq!(facts["salary"].status, "verified");
+    }
+
+    #[test]
+    fn numeric_facts_reject_numbers_borrowed_from_other_meanings() {
+        let source = "給与は月給30万円。年間休日120日。勤務時間は実働8時間。通勤手当は5,000円。";
+        let cases = [
+            ("salary", "月給120万円"),
+            ("salary", "月給5,000円"),
+            ("holidays", "年間休日30日"),
+            ("working_hours", "実働120時間"),
+            ("allowances", "通勤手当120円"),
+            ("allowances", "通勤手当30万円"),
+        ];
+
+        for (key, value) in cases {
+            let raw = json!({ key: item(value, source) });
+            let facts = verify(source, &raw);
+            assert_eq!(facts[key].status, "rejected", "field={key}, value={value}");
+        }
+    }
+
+    #[test]
+    fn salary_rejects_same_amount_with_a_different_pay_period() {
+        let source = "給与は年収300万円です。";
+        let raw = json!({
+            "salary": item("月給300万円", "給与は年収300万円です。"),
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(facts["salary"].status, "rejected");
+    }
+
+    #[test]
+    fn salary_accepts_equivalent_man_yen_and_yen_notation() {
+        let source = "給与は月給300,000円です。";
+        let raw = json!({
+            "salary": item("月給30万円", "給与は月給300,000円です。"),
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(facts["salary"].status, "verified");
+        assert_eq!(facts["salary"].value, "月給30万円");
+    }
+
+    #[test]
+    fn numeric_fact_rejects_an_exact_quote_with_the_wrong_field_semantics() {
+        let source = "年間休日120日";
+        let raw = json!({
+            "salary": item("年間休日120日", "年間休日120日"),
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(facts["salary"].status, "rejected");
+    }
+
+    #[test]
+    fn salary_accepts_ranges_and_decimal_man_yen_notation() {
+        let source = "給与は月給205,000円〜400,000円です。";
+        let raw = json!({
+            "salary": item("月給20.5万円〜40万円", "給与は月給205,000円〜400,000円です。"),
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(facts["salary"].status, "verified");
+    }
+
+    #[test]
+    fn working_hours_do_not_borrow_a_holiday_number_as_a_clock_time() {
+        let source = "勤務時間は9:00〜18:00。年間休日120日。";
+        let raw = json!({
+            "working_hours": item("9:00〜12:00", source),
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(facts["working_hours"].status, "rejected");
+    }
+
+    #[test]
+    fn holidays_do_not_borrow_days_from_a_trial_period() {
+        for source in [
+            "年間休日120日。試用期間30日。",
+            "年間休日120日\n試用期間30日",
+        ] {
+            let raw = json!({
+                "holidays": item("年間休日30日", source),
+            });
+            let facts = verify(source, &raw);
+            assert_eq!(facts["holidays"].status, "rejected", "source={source}");
+        }
+    }
+
+    #[test]
+    fn working_hours_do_not_borrow_minutes_from_commuting_time() {
+        let source = "勤務時間は実働8時間。通勤時間は60分。";
+        let raw = json!({
+            "working_hours": item("実働60分", source),
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(facts["working_hours"].status, "rejected");
     }
 
     // --- verify: キー欠落 ---
@@ -423,7 +883,10 @@ mod tests {
         });
         let facts = verify(source, &raw);
         for key in FACT_KEYS {
-            assert_eq!(facts[key].status, "verified", "key={key} が verified でない");
+            assert_eq!(
+                facts[key].status, "verified",
+                "key={key} が verified でない"
+            );
             assert!(!facts[key].value.is_empty(), "key={key} の value が空");
         }
         // facts_to_text にも8項目全部が乗る。
