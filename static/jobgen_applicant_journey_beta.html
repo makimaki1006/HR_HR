@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>応募者ジャーニー診断（仮）</title>
+  <style>
+    :root{
+      --bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#7e8aa0;
+      --line:#e0e5ee;--line-2:#cfd6e2;--accent:#3d5afe;--accent-ink:#2a3eb1;--accent-bg:#eaeeff;
+      --hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;--shadow:0 1px 2px rgba(20,30,50,.05),0 8px 24px rgba(20,30,50,.07);
+    }
+    @media(prefers-color-scheme:dark){:root{
+      --bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#e8edf5;--ink-2:#adb8c8;--ink-3:#7a8698;
+      --line:#252f3f;--line-2:#33404f;--accent:#7c8cff;--accent-ink:#aab4ff;--accent-bg:#1a2138;
+      --hi:#f0776a;--mid:#e6b35c;--lo:#5ed6a0;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.4);
+    }}
+    :root[data-theme="light"]{
+      --bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#7e8aa0;
+      --line:#e0e5ee;--line-2:#cfd6e2;--accent:#3d5afe;--accent-ink:#2a3eb1;--accent-bg:#eaeeff;
+      --hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;--shadow:0 1px 2px rgba(20,30,50,.05),0 8px 24px rgba(20,30,50,.07);
+    }
+    :root[data-theme="dark"]{
+      --bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#e8edf5;--ink-2:#adb8c8;--ink-3:#7a8698;
+      --line:#252f3f;--line-2:#33404f;--accent:#7c8cff;--accent-ink:#aab4ff;--accent-bg:#1a2138;
+      --hi:#f0776a;--mid:#e6b35c;--lo:#5ed6a0;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.4);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65}
+    button,input,textarea{font:inherit}
+    button.theme{position:fixed;top:14px;right:14px;z-index:20;background:var(--surface);border:1px solid var(--line-2);color:var(--ink-2);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer}
+    .wrap{max-width:1160px;margin:0 auto;padding:28px 18px 72px}
+    header{margin-bottom:18px}
+    .eyebrow{font-size:12px;letter-spacing:.08em;color:var(--ink-3);font-weight:800}
+    h1{font-size:clamp(23px,3vw,30px);margin:.2em 0 .15em;letter-spacing:-.02em}
+    .sub{font-size:14px;color:var(--ink-2);max-width:86ch;margin:0 0 14px}
+    .truthbar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .truthbar div{font-size:11.5px;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:8px 10px;color:var(--ink-2)}
+    .truthbar b{display:block;color:var(--ink);font-size:11px}
+    .pipeline{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:16px 0}
+    .pstep{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:8px 10px;color:var(--ink-3);font-size:11px;text-align:left}
+    .pstep b{display:block;font-size:12px;color:var(--ink-2)}
+    .pstep.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent-ink)}
+    .pstep.on b{color:var(--accent-ink)}
+    .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:19px;margin-bottom:17px}
+    .panel[hidden]{display:none}
+    .panelhead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
+    h2{font-size:18px;margin:0 0 3px}
+    h3{font-size:14px;margin:0 0 8px}
+    .lead,.hint,.meta{color:var(--ink-3);font-size:12px;margin:0}
+    .input-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .upload{position:relative;min-height:178px;background:var(--surface-2);border:1px dashed var(--line-2);border-radius:12px;padding:14px;display:flex;flex-direction:column}
+    .upload .num{width:26px;height:26px;display:grid;place-items:center;border-radius:50%;background:var(--accent-bg);color:var(--accent-ink);font-weight:800;font-size:12px;margin-bottom:8px}
+    .upload label{font-size:13px;font-weight:800;margin-bottom:4px}
+    .upload p{font-size:11.5px;color:var(--ink-3);margin:0 0 10px}
+    input[type=file]{width:100%;font-size:12px;color:var(--ink-2);margin-top:auto}
+    textarea{width:100%;min-height:92px;resize:vertical;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:9px 11px;font-size:13px}
+    textarea:focus,input:focus{outline:2px solid var(--accent);outline-offset:1px}
+    .fileok{font-size:11px;color:var(--lo);font-weight:700;margin-top:7px;min-height:18px}
+    .optional{margin-top:14px}
+    .optional label{display:block;font-size:12px;font-weight:800;color:var(--ink-2);margin-bottom:5px}
+    .actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:15px}
+    .btn{border:0;border-radius:9px;padding:10px 15px;background:var(--accent);color:#fff;font-weight:800;font-size:13px;cursor:pointer}
+    .btn:hover{filter:brightness(1.06)}.btn:disabled{opacity:.5;cursor:default}
+    .btn2{border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:9px;padding:9px 14px;background:var(--surface-2);color:var(--accent-ink);font-weight:800;font-size:13px;cursor:pointer}
+    .status{margin-top:12px}
+    .loading,.error,.notice,.oknote{border-radius:10px;padding:11px 13px;font-size:12.5px}
+    .loading{color:var(--accent-ink);background:var(--accent-bg);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)}
+    .loading:before{content:"";display:inline-block;width:11px;height:11px;border:2px solid color-mix(in srgb,var(--accent) 25%,transparent);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:-1px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .error{color:var(--hi);background:color-mix(in srgb,var(--hi) 9%,transparent);border:1px solid color-mix(in srgb,var(--hi) 35%,transparent)}
+    .notice{color:var(--mid);background:color-mix(in srgb,var(--mid) 8%,transparent);border:1px solid color-mix(in srgb,var(--mid) 32%,transparent)}
+    .oknote{color:var(--lo);background:color-mix(in srgb,var(--lo) 8%,transparent);border:1px solid color-mix(in srgb,var(--lo) 32%,transparent)}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:14px}
+    .kpi{border:1px solid var(--line);border-radius:11px;background:var(--surface-2);padding:11px}
+    .kpi span{display:block;font-size:10.5px;color:var(--ink-3);font-weight:700}
+    .kpi b{display:block;font-size:20px;letter-spacing:-.02em;margin:2px 0}
+    .kpi small{display:block;font-size:10.5px;color:var(--ink-3)}
+    .casebar{display:grid;grid-template-columns:1.4fr repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:14px}
+    .casebar div{background:var(--surface);padding:9px 10px;font-size:12px}
+    .casebar span{display:block;color:var(--ink-3);font-size:10px;font-weight:700}
+    .twocol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .box{border:1px solid var(--line);border-radius:11px;background:var(--surface-2);padding:13px}
+    .box h3{color:var(--accent-ink)}
+    .facts{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+    .fact{border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:8px 10px}
+    .fact .flabel{font-size:10.5px;color:var(--ink-3);font-weight:800}
+    .fact .fvalue{font-size:12.5px;font-weight:700;margin:2px 0}
+    .fact .quote{font-size:10.5px;color:var(--ink-3)}
+    .badge{display:inline-flex;align-items:center;border:1px solid;border-radius:999px;padding:2px 8px;font-size:10.5px;font-weight:800;white-space:nowrap}
+    .badge.ok{color:var(--lo);border-color:color-mix(in srgb,var(--lo) 38%,transparent);background:color-mix(in srgb,var(--lo) 8%,transparent)}
+    .badge.warn{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 38%,transparent);background:color-mix(in srgb,var(--mid) 8%,transparent)}
+    .badge.bad{color:var(--hi);border-color:color-mix(in srgb,var(--hi) 38%,transparent);background:color-mix(in srgb,var(--hi) 8%,transparent)}
+    .badge.neutral{color:var(--ink-2);border-color:var(--line-2);background:var(--surface-2)}
+    .tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin-top:8px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    th{font-size:10.5px;color:var(--ink-3);background:var(--surface-2);white-space:nowrap}
+    tr:last-child td{border-bottom:0}
+    .money{font-variant-numeric:tabular-nums;white-space:nowrap}
+    .stack{display:flex;flex-wrap:wrap;gap:5px}
+    .chip{font-size:10.5px;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:2px 7px;color:var(--ink-2)}
+    .sectiongap{margin-top:14px}
+    .finding{border-left:3px solid var(--accent);padding:7px 10px;margin:7px 0;background:var(--surface-2);border-radius:0 8px 8px 0;font-size:12px}
+    .finding b{display:block;margin-bottom:2px}
+    .finding .source{font-size:10.5px;color:var(--ink-3);margin-top:4px}
+    .pgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}
+    .pcard{border:1px solid var(--line);border-radius:12px;background:var(--surface-2);padding:14px;display:flex;flex-direction:column}
+    .pcard.selected{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 14%,transparent)}
+    .pcard h3{font-size:15px;color:var(--accent-ink)}
+    .badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+    .pdesc{font-size:12px;color:var(--ink-2);margin-bottom:8px}
+    dl{display:grid;grid-template-columns:90px 1fr;gap:5px 8px;font-size:11.5px;margin:0}
+    dt{font-weight:800;color:var(--ink-3)}dd{margin:0}
+    .selectpersona{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:9px;margin-top:auto;cursor:pointer;font-size:12px;font-weight:700}
+    .selectpersona input{margin-top:3px;accent-color:var(--accent)}
+    .journeyblock{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:13px}
+    .journeyhead{background:var(--surface-2);padding:11px 13px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+    .journeyhead h3{margin:0;color:var(--accent-ink)}
+    .route{font-size:11px;color:var(--ink-3)}
+    .stagecell{min-width:88px;font-weight:800;color:var(--accent-ink)}
+    .queryhigh{border-left:3px solid var(--hi)}
+    .querymid{border-left:3px solid var(--mid)}
+    .volume{font-variant-numeric:tabular-nums;font-weight:800}
+    .volume.pending{color:var(--ink-3);font-weight:400}
+    .suggestions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .suggestion{border:1px solid var(--line);border-radius:8px;background:var(--surface-2);padding:5px 8px;font-size:11px}
+    .actiongrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+    .actioncard{border:1px solid var(--line);border-radius:11px;background:var(--surface-2);padding:12px}
+    .actioncard.high{border-left:4px solid var(--hi)}.actioncard.medium{border-left:4px solid var(--mid)}.actioncard.low{border-left:4px solid var(--lo)}
+    .actioncard h3{margin-bottom:4px}.actioncard p{font-size:12px;margin:4px 0;color:var(--ink-2)}
+    .actioncard small{font-size:10.5px;color:var(--ink-3)}
+    ul.clean{margin:5px 0 0;padding-left:18px;font-size:12px;color:var(--ink-2)}
+    .exportbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px;margin-top:15px}
+    .foot{font-size:11px;color:var(--ink-3);margin-top:18px}
+    @media(max-width:900px){
+      .input-grid,.truthbar{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}
+      .casebar{grid-template-columns:1fr 1fr}.twocol,.pgrid,.actiongrid{grid-template-columns:1fr}
+    }
+    @media(max-width:620px){
+      .pipeline{grid-template-columns:1fr 1fr}.kpis,.facts{grid-template-columns:1fr}
+      .casebar{grid-template-columns:1fr}.wrap{padding:20px 12px 48px}.panel{padding:14px}
+      th,td{padding:7px 8px}
+    }
+    @media print{
+      body{background:#fff;color:#111}.theme,.pipeline,.input-panel,.actions,.selectpersona,.export-controls{display:none!important}
+      .wrap{max-width:none;padding:0}.panel{box-shadow:none;break-inside:avoid}.panel[hidden]{display:block}
+      .pcard,.actioncard,.journeyblock{break-inside:avoid}
+    }
+  </style>
+</head>
+<body>
+<button class="theme" id="themeBtn" title="テーマ切替">◐</button>
+<main class="wrap">
+  <header>
+    <div class="eyebrow">求人票生成・特別機能 / BETA</div>
+    <h1>応募者ジャーニー診断（仮）</h1>
+    <p class="sub">顧客求人、競合求人CSV、口コミCSVから、応募しそうな人・採用したい人・求人閲覧後に離脱しそうな人を洗い出し、求人認知から入社判断までの対策を組み立てます。</p>
+    <div class="truthbar">
+      <div><b>顧客求人</b>引用照合できた条件だけを顧客事実として使用</div>
+      <div><b>競合求人・公的統計</b>取得時点と比較母集団を明示した市場観測</div>
+      <div><b>口コミ・ペルソナ</b>外部観測と求職者認知仮説を分離して表示</div>
+    </div>
+  </header>
+
+  <nav class="pipeline" aria-label="診断工程">
+    <button class="pstep on" data-step="1"><b>1. データ投入</b>3つの入力</button>
+    <button class="pstep" data-step="2"><b>2. 事実・市場</b>相対条件を確認</button>
+    <button class="pstep" data-step="3"><b>3. ペルソナ</b>採用希望を選択</button>
+    <button class="pstep" data-step="4"><b>4. ジャーニー</b>検索・離脱を再現</button>
+    <button class="pstep" data-step="5"><b>5. 対策</b>実行先へ割り当て</button>
+  </nav>
+
+  <section class="panel input-panel" data-panel="1">
+    <div class="panelhead">
+      <div>
+        <h2>診断するデータを登録</h2>
+        <p class="lead">現在のスクレイピングCSVをそのまま使用できます。星評価は不要です。</p>
+      </div>
+      <span class="badge neutral">既存求人生成とは独立</span>
+    </div>
+    <div class="input-grid">
+      <div class="upload">
+        <div class="num">1</div>
+        <label for="clientFile">顧客の求人</label>
+        <p>保存HTMLまたは求人票テキスト。顧客企業についての事実根拠になります。</p>
+        <input id="clientFile" type="file" accept=".html,.htm,.txt">
+        <div class="fileok" id="clientFileStatus"></div>
+      </div>
+      <div class="upload">
+        <div class="num">2</div>
+        <label for="competitorFile">競合求人CSV</label>
+        <p>Indeed・求人ボックス等のスクレイピングCSV。給与や掲載条件の相対比較に使います。</p>
+        <input id="competitorFile" type="file" accept=".csv,text/csv">
+        <div class="fileok" id="competitorFileStatus"></div>
+      </div>
+      <div class="upload">
+        <div class="num">3</div>
+        <label for="reviewFile">口コミCSV</label>
+        <p>顧客のGoogleビジネスプロフィール等。本文がある口コミを認知リスクの観測に使います。</p>
+        <input id="reviewFile" type="file" accept=".csv,text/csv">
+        <div class="fileok" id="reviewFileStatus"></div>
+      </div>
+    </div>
+    <div class="optional">
+      <label for="employerNote">顧客が採りたい人物について、すでに確認できていること（任意）</label>
+      <textarea id="employerNote" placeholder="例：同職種経験者を優先。ただし未経験でも中型免許取得意欲があれば検討可能。"></textarea>
+      <p class="hint">未入力でもペルソナ候補を作成できます。最終的な「採用したい」は診断後にコンサルが選択します。</p>
+    </div>
+    <div class="actions"><button class="btn" id="diagnoseBtn">一気通貫で診断する</button></div>
+    <div class="status" id="diagnoseStatus"></div>
+  </section>
+
+  <section class="panel" data-panel="2" hidden>
+    <div class="panelhead">
+      <div>
+        <h2>事実・市場・外部観測の確認</h2>
+        <p class="lead">ペルソナを作る前に、何が確認済みで、何が比較結果・仮説なのかを分けます。</p>
+      </div>
+      <span class="badge warn">コンサル確認</span>
+    </div>
+    <div id="overviewContent"></div>
+    <div class="actions">
+      <button class="btn2" data-go="1">入力へ戻る</button>
+      <button class="btn" data-go="3">ペルソナを確認する</button>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="3" hidden>
+    <div class="panelhead">
+      <div>
+        <h2>ペルソナ候補と初期行動</h2>
+        <p class="lead">応募資格、求人閲覧後の行動、企業として採用したいかを別々に判定します。</p>
+      </div>
+      <span class="badge neutral">採用希望は人が確定</span>
+    </div>
+    <div class="notice">「応募できる」と「現在の求人で応募へ進む」は別です。資格上応募できても、自然検索や他求人比較で離脱する可能性があります。</div>
+    <div class="pgrid sectiongap" id="personaGrid"></div>
+    <div id="personaStatus" class="status"></div>
+    <div class="actions">
+      <button class="btn2" data-go="2">事実・市場へ戻る</button>
+      <button class="btn" id="journeyBtn">採用したい候補のジャーニーを見る</button>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="4" hidden>
+    <div class="panelhead">
+      <div>
+        <h2>ペルソナ別の採用カスタマージャーニー</h2>
+        <p class="lead">求人認知から入社判断まで、候補者の疑問・離脱要因・対策を並べます。</p>
+      </div>
+      <span class="badge neutral">検索量は需要の参考値</span>
+    </div>
+    <div id="journeyContent"></div>
+    <div class="sectiongap">
+      <h2>自然検索・調査行動</h2>
+      <p class="lead">求人と口コミだけでなく、職種・業界で一般に調べられる「あるある」を含めています。</p>
+      <div id="keywordStatus" class="status"></div>
+      <div id="keywordContent"></div>
+    </div>
+    <div class="actions">
+      <button class="btn2" data-go="3">ペルソナを選び直す</button>
+      <button class="btn" data-go="5">優先対策を確認する</button>
+    </div>
+  </section>
+
+  <section class="panel" data-panel="5" hidden>
+    <div class="panelhead">
+      <div>
+        <h2>離脱対策と顧客確認事項</h2>
+        <p class="lead">求人表現で補えること、検索面・選考で補うこと、条件や実態の変更が必要なことを分けます。</p>
+      </div>
+      <span class="badge warn">最終結論はコンサル判断</span>
+    </div>
+    <div id="actionContent"></div>
+    <div class="exportbar">
+      <p class="hint">顧客提示前に、求人原文・口コミ引用・顧客確認事項を担当コンサルが確認してください。</p>
+      <div class="actions export-controls">
+        <button class="btn2" id="downloadBtn">診断JSONを保存</button>
+        <button class="btn" id="printBtn">印刷・PDF</button>
+      </div>
+    </div>
+    <div class="actions"><button class="btn2" data-go="4">ジャーニーへ戻る</button></div>
+  </section>
+
+  <p class="foot">本機能は応募・採用を予測するものではありません。求人票、スクレイピング時点の外部観測、公的統計、職種一般論から検討仮説を作成し、コンサルの確認と判断を支援します。</p>
+</main>
+
+<script>
+  const $=selector=>document.querySelector(selector);
+  const $$=selector=>[...document.querySelectorAll(selector)];
+  const esc=value=>{
+    const node=document.createElement("div");
+    node.textContent=String(value??"");
+    return node.innerHTML;
+  };
+  const S={data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:""};
+  const FACT_LABELS={
+    salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
+    employment_type:"雇用形態",insurance:"保険",allowances:"手当",required_qualifications:"必須資格"
+  };
+  const REF_LABELS={
+    annual_holidays:"年間休日",job_title:"求人名",company_name:"企業名",occupation:"職種",
+    competitor_csv:"競合求人CSV",review_csv:"口コミCSV",client_job:"顧客求人",
+    "競合CSV":"競合求人CSV","顧客求人原文":"顧客求人","職種一般仮説":"職種一般の確認仮説"
+  };
+  function humanizeRef(value){
+    const ref=String(value??"").trim();
+    if(!ref)return "";
+    if(FACT_LABELS[ref])return `顧客求人：${FACT_LABELS[ref]}`;
+    if(REF_LABELS[ref])return REF_LABELS[ref];
+    if(/^C\d+$/i.test(ref))return `競合求人 ${ref.toUpperCase()}`;
+    if(/^R\d+$/i.test(ref))return `口コミ ${ref.toUpperCase()}`;
+    if(/^[a-z][a-z0-9_]*$/i.test(ref))return "顧客求人の確認項目";
+    return ref;
+  }
+  function formatRefs(values,fallback="仮説"){
+    const refs=[...new Set((values||[]).map(humanizeRef).filter(Boolean))];
+    return refs.join("、")||fallback;
+  }
+
+  function showStep(step){
+    $$("[data-panel]").forEach(panel=>panel.hidden=Number(panel.dataset.panel)!==Number(step));
+    $$(".pstep").forEach(item=>item.classList.toggle("on",Number(item.dataset.step)===Number(step)));
+    window.scrollTo({top:0,behavior:"smooth"});
+    if(Number(step)===5) renderActions();
+  }
+  $$("[data-go]").forEach(button=>button.addEventListener("click",()=>showStep(button.dataset.go)));
+
+  function setupFile(inputId,statusId){
+    $(inputId).addEventListener("change",event=>{
+      const file=event.target.files[0];
+      $(statusId).textContent=file?`${file.name}（${formatBytes(file.size)}）`:"";
+    });
+  }
+  setupFile("#clientFile","#clientFileStatus");
+  setupFile("#competitorFile","#competitorFileStatus");
+  setupFile("#reviewFile","#reviewFileStatus");
+
+  function formatBytes(bytes){
+    if(bytes<1024)return `${bytes} B`;
+    if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;
+    return `${(bytes/1024/1024).toFixed(1)} MB`;
+  }
+  function formatNumber(value){
+    return Number.isFinite(Number(value))?Number(value).toLocaleString("ja-JP"):"—";
+  }
+  function formatYen(value){
+    return Number.isFinite(Number(value))?`${Number(value).toLocaleString("ja-JP")}円`:"—";
+  }
+  function captureDate(file){
+    const match=file.name.match(/(20\d{2})[-_](\d{2})[-_](\d{2})/);
+    if(match)return `${match[1]}-${match[2]}-${match[3]}`;
+    if(file.lastModified){
+      const d=new Date(file.lastModified),pad=n=>String(n).padStart(2,"0");
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    }
+    return "";
+  }
+  async function fileToBase64(file){
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    let binary="",chunk=0x8000;
+    for(let i=0;i<bytes.length;i+=chunk){
+      binary+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+    }
+    return btoa(binary);
+  }
+  async function postJSON(url,body){
+    const response=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const data=await response.json().catch(()=>({status:"error",message:`HTTP ${response.status}`}));
+    if(!response.ok||data.status==="error")throw new Error(data.message||`HTTP ${response.status}`);
+    return data;
+  }
+
+  $("#diagnoseBtn").addEventListener("click",async()=>{
+    const client=$("#clientFile").files[0];
+    const competitor=$("#competitorFile").files[0];
+    const review=$("#reviewFile").files[0];
+    const status=$("#diagnoseStatus");
+    if(!client||!competitor||!review){
+      status.innerHTML='<div class="error">顧客求人・競合求人CSV・口コミCSVの3ファイルを選択してください。</div>';
+      return;
+    }
+    if(client.size>5*1024*1024||competitor.size>15*1024*1024||review.size>15*1024*1024){
+      status.innerHTML='<div class="error">顧客求人は5MB以内、CSVは1ファイル15MB以内にしてください。</div>';
+      return;
+    }
+    const button=$("#diagnoseBtn");
+    button.disabled=true;
+    const messages=[
+      "顧客求人の条件を引用照合しています…",
+      "競合求人の給与・掲載条件を集計しています…",
+      "口コミを外部観測として整理しています…",
+      "地域統計を照合し、ペルソナと採用ジャーニーを作成しています…"
+    ];
+    let messageIndex=0;
+    status.innerHTML=`<div class="loading">${messages[0]}</div>`;
+    const timer=setInterval(()=>{
+      messageIndex=Math.min(messageIndex+1,messages.length-1);
+      status.innerHTML=`<div class="loading">${messages[messageIndex]}</div>`;
+    },6500);
+    try{
+      const extension=client.name.split(".").pop().toLowerCase();
+      const data=await postJSON("/api/jobgen/journey-diagnose",{
+        client_job:await client.text(),
+        client_kind:["html","htm"].includes(extension)?"html":"text",
+        competitor_csv_base64:await fileToBase64(competitor),
+        competitor_filename:competitor.name,
+        competitor_captured_at:captureDate(competitor),
+        review_csv_base64:await fileToBase64(review),
+        review_filename:review.name,
+        review_captured_at:captureDate(review),
+        employer_note:$("#employerNote").value.trim()
+      });
+      S.data=data;
+      S.selected.clear();
+      S.keywordMap.clear();
+      S.suggestions=[];
+      S.keywordMessage="";
+      renderOverview();
+      renderPersonas();
+      status.innerHTML='<div class="oknote">診断が完了しました。事実・市場の確認へ進みます。</div>';
+      showStep(2);
+    }catch(error){
+      status.innerHTML=`<div class="error">${esc(error.message)}</div>`;
+    }finally{
+      clearInterval(timer);
+      button.disabled=false;
+    }
+  });
+
+  function renderOverview(){
+    const d=S.data,r=d.result||{},p=r.case_profile||{},c=d.competitor_summary||{},v=d.review_summary||{},stats=d.public_stats||{};
+    const factRows=Object.entries(d.facts||{}).map(([key,fact])=>{
+      const status=fact.status==="verified"?'<span class="badge ok">求人票で確認</span>':fact.status==="rejected"?'<span class="badge bad">引用不一致</span>':'<span class="badge neutral">記載なし</span>';
+      return `<div class="fact"><div class="flabel">${esc(FACT_LABELS[key]||key)} ${status}</div><div class="fvalue">${esc(fact.value||"—")}</div><div class="quote">${fact.evidence_quote?`引用：${esc(fact.evidence_quote)}`:"確認できる記載なし"}</div></div>`;
+    }).join("");
+    const salary=d.client_salary_position;
+    const salaryHtml=salary?`
+      <div class="kpis">
+        <div class="kpi"><span>顧客求人・月給換算</span><b>${formatYen(salary.client_monthly_equivalent_yen)}</b><small>範囲表記は上下限の中点</small></div>
+        <div class="kpi"><span>比較求人の中央値</span><b>${formatYen(salary.median_yen)}</b><small>${esc(salary.comparison_group)} ${formatNumber(salary.sample_count)}件</small></div>
+        <div class="kpi"><span>比較分布での位置</span><b>${esc(salary.position_label)}</b><small>${Number(salary.percentile_position).toFixed(1)}パーセンタイル</small></div>
+        <div class="kpi"><span>四分位範囲</span><b>${formatYen(salary.first_quartile_yen)}–${formatYen(salary.third_quartile_yen)}</b><small>固定残業・賞与・手当は別確認</small></div>
+      </div>
+      <p class="hint">${esc(salary.calculation_note)}</p>`:
+      '<div class="notice">顧客求人の給与を引用確認できなかったため、給与の相対位置は未計算です。</div>';
+    const distributions=(c.salary_distributions||[]).map(row=>`<tr><td>${esc(row.group)}</td><td>${formatNumber(row.count)}件</td><td class="money">${formatYen(row.minimum_yen)}</td><td class="money">${formatYen(row.first_quartile_yen)}</td><td class="money">${formatYen(row.median_yen)}</td><td class="money">${formatYen(row.third_quartile_yen)}</td><td class="money">${formatYen(row.maximum_yen)}</td></tr>`).join("");
+    const tags=(c.top_tags||[]).slice(0,12).map(row=>`<span class="chip">${esc(row.name)} ${formatNumber(row.count)}件</span>`).join("")||'<span class="hint">タグなし</span>';
+    const conditions=(r.condition_findings||[]).map(item=>`
+      <div class="finding"><b>${esc(item.dimension)}：${esc(item.relative_evaluation)}</b>
+      ${esc(item.client_observation)} ／ ${esc(item.market_observation)}
+      <div>${esc(item.candidate_effect)}</div><div class="source">根拠：${esc(formatRefs(item.evidence_refs,"未確認"))}</div></div>`).join("")||'<p class="hint">条件比較なし</p>';
+    const reviews=(r.review_findings||[]).map(item=>`
+      <div class="finding"><b>${esc(humanizeRef(item.source_ref))} 外部で観測</b>${esc(item.external_observation)}
+      <div><b>求職者認知仮説：</b>${esc(item.candidate_perception_hypothesis)}</div>
+      <div><b>検索候補：</b>${esc(item.relevant_search)}</div>
+      <div class="source">顧客確認：${esc(item.client_confirmation)}</div></div>`).join("")||'<p class="hint">本文から採用認知へ接続する論点は抽出されませんでした。</p>';
+    const publicHtml=renderPublicStats(stats);
+    $("#overviewContent").innerHTML=`
+      <div class="casebar">
+        <div><span>対象求人</span>${esc(p.job_title||"未確認")}</div>
+        <div><span>企業</span>${esc(p.company_name||"未確認")}</div>
+        <div><span>職種</span>${esc(p.occupation||"未確認")}</div>
+        <div><span>地域</span>${esc([p.prefecture,p.municipality].filter(Boolean).join(" ")||"未確認")}</div>
+        <div><span>雇用形態</span>${esc(p.employment_type||"未確認")}</div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span>競合求人・分析対象</span><b>${formatNumber(c.record_count)}件</b><small>CSV ${formatNumber(c.raw_row_count)}行・除外 ${formatNumber(c.analysis_excluded_rows)}行・${formatNumber(c.unique_company_count)}社・取得 ${esc(c.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>口コミ本文</span><b>${formatNumber(v.text_rows)}件</b><small>全${formatNumber(v.total_rows)}件、本文なし${formatNumber(v.blank_text_rows)}件・取得 ${esc(v.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>人気度タグ</span><b>${formatNumber((c.popular_count||0)+(c.super_popular_count||0))}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
+        <div class="kpi"><span>地域統計</span><b>${stats.available?"取得":"未取得"}</b><small>${esc(stats.available?"人材母集団の補助情報":"求人診断は継続")}</small></div>
+      </div>
+      <div class="twocol">
+        <div class="box"><h3>顧客求人から引用確認した事実</h3><div class="facts">${factRows}</div></div>
+        <div class="box"><h3>地域・人材母集団の補助情報</h3>${publicHtml}</div>
+      </div>
+      <div class="box sectiongap"><h3>給与の相対位置</h3>${salaryHtml}
+        <div class="tblwrap"><table><thead><tr><th>比較区分</th><th>件数</th><th>最小</th><th>第1四分位</th><th>中央値</th><th>第3四分位</th><th>最大</th></tr></thead><tbody>${distributions||'<tr><td colspan="7">給与比較データなし</td></tr>'}</tbody></table></div>
+      </div>
+      <div class="twocol sectiongap">
+        <div class="box"><h3>競合求人で観測された特徴</h3><div class="stack">${tags}</div><p class="hint sectiongap">比較母集団：${esc(c.filename||"競合CSV")}、分析対象${formatNumber(c.record_count)}件。CSVデータ行から重複・メタ情報・不完全行等を${formatNumber(c.analysis_excluded_rows)}行除外しています。求人媒体に掲載された比較対象であり、求人市場全体ではありません。</p></div>
+        <div class="box"><h3>競合条件から分かったこと</h3>${conditions}</div>
+      </div>
+      <div class="twocol sectiongap">
+        <div class="box"><h3>口コミから観測された求職者認知</h3>${reviews}<p class="hint sectiongap">口コミは会社の労働実態を確定する事実ではありません。求職者が検索時に目にする情報として扱います。</p></div>
+        <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(p.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
+      </div>`;
+  }
+
+  function renderPublicStats(stats){
+    if(!stats.available)return `<div class="notice">${esc(stats.reason||"地域統計を取得できませんでした。")}</div>`;
+    const labor=stats.labor_force||{},day=stats.daytime_population||{},housing=stats.housing||{},minimumWage=stats.minimum_wage||{};
+    const origins=(stats.commute_origins||[]).map(item=>`<li>${esc(item.prefecture)} ${esc(item.municipality)}：${formatNumber(item.commuters)}人</li>`).join("");
+    return `<dl>
+      <dt>就業者</dt><dd>${formatNumber(labor.employed)}人</dd>
+      <dt>失業者</dt><dd>${formatNumber(labor.unemployed)}人</dd>
+      <dt>労働力率</dt><dd>${labor.labor_force_participation_rate_percent!=null?Number(labor.labor_force_participation_rate_percent).toFixed(1)+"%":"—"}</dd>
+      <dt>夜間／昼間人口</dt><dd>${formatNumber(day.nighttime_population)}人 ／ ${formatNumber(day.daytime_population)}人</dd>
+      <dt>1畳当たり家賃</dt><dd>${formatYen(housing.rent_per_tatami_yen)} <span class="hint">月額家賃ではありません</span></dd>
+      <dt>都道府県最低賃金</dt><dd>${minimumWage.hourly_yen!=null?formatYen(minimumWage.hourly_yen)+"/時":"—"} <span class="hint">適法性判定には算入賃金・所定時間の確認が必要</span></dd>
+      </dl>${origins?`<h3 class="sectiongap">主な通勤流入元</h3><ul class="clean">${origins}</ul>`:""}
+      <p class="hint sectiongap">${esc(stats.caveat||"")}</p>`;
+  }
+
+  function badgeForEligibility(value){
+    if(value==="応募可能性が高い")return "ok";
+    if(value==="現条件では難しい")return "bad";
+    return "warn";
+  }
+  function badgeForBehavior(value){
+    if(value==="応募へ進む")return "ok";
+    if(value==="求人閲覧段階で離脱する")return "bad";
+    return "warn";
+  }
+  function renderPersonas(){
+    const personas=S.data?.result?.personas||[];
+    $("#personaGrid").innerHTML=personas.map((p,index)=>`
+      <article class="pcard" data-persona-index="${index}">
+        <h3>${index+1}. ${esc(p.label)}</h3>
+        <div class="badges">
+          <span class="badge ${badgeForEligibility(p.eligibility)}">${esc(p.eligibility)}</span>
+          <span class="badge ${badgeForBehavior(p.likely_behavior)}">${esc(p.likely_behavior)}</span>
+          <span class="badge neutral desire-status">企業希望：未確認</span>
+        </div>
+        <p class="pdesc">${esc(p.profile)}</p>
+        <dl>
+          <dt>転職理由</dt><dd>${esc(p.transfer_reason)}</dd>
+          <dt>行動理由</dt><dd>${esc(p.behavior_reason)}</dd>
+          <dt>企業適合仮説</dt><dd>${esc(p.employer_fit_hypothesis)}</dd>
+          <dt>市場根拠</dt><dd>${esc((p.market_basis||[]).join("／")||"仮説のみ")}</dd>
+        </dl>
+        <label class="selectpersona"><input type="checkbox" data-persona-id="${esc(p.id)}"><span>企業として採用したい候補にする<br><small class="hint">顧客意向またはコンサル判断として確定</small></span></label>
+      </article>`).join("");
+    $$("#personaGrid input[type=checkbox]").forEach(input=>input.addEventListener("change",()=>{
+      const card=input.closest(".pcard"),status=card.querySelector(".desire-status");
+      if(input.checked){
+        S.selected.add(input.dataset.personaId);
+        card.classList.add("selected");
+        status.textContent="企業希望：選択済み";
+        status.className="badge ok desire-status";
+      }else{
+        S.selected.delete(input.dataset.personaId);
+        card.classList.remove("selected");
+        status.textContent="企業希望：未確認";
+        status.className="badge neutral desire-status";
+      }
+      $("#personaStatus").innerHTML="";
+    }));
+  }
+
+  $("#journeyBtn").addEventListener("click",async()=>{
+    if(!S.selected.size){
+      $("#personaStatus").innerHTML='<div class="error">企業として採用したいペルソナを1つ以上選択してください。</div>';
+      return;
+    }
+    renderJourney();
+    showStep(4);
+    await loadKeywordData();
+  });
+
+  function routingText(persona){
+    if(persona.likely_behavior==="応募へ進む")return "現在の求人で応募へ進む想定：応募後連絡・面接・オファー対策を中心に確認";
+    if(persona.likely_behavior==="検索・比較する")return "応募前に調査する想定：自然検索・他求人比較・応募転換に加え、応募後対策まで接続";
+    return "求人閲覧段階で離脱する想定：企業が欲しい場合のみ、認知・検索・比較・応募転換から対策";
+  }
+  function renderJourney(){
+    const personas=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id));
+    $("#journeyContent").innerHTML=personas.map(p=>{
+      const rows=(p.journey||[]).map(stage=>`<tr>
+        <td class="stagecell">${esc(stage.stage)}</td><td>${esc(stage.candidate_action)}</td>
+        <td>${esc(stage.question_or_expectation)}</td><td>${esc(stage.dropoff_trigger)}</td>
+        <td>${esc(stage.countermeasure)}</td><td>${esc(stage.channel)}</td>
+        <td>${esc(formatRefs(stage.evidence_refs))}</td></tr>`).join("");
+      return `<article class="journeyblock"><div class="journeyhead"><div><h3>${esc(p.label)}</h3><div class="route">${esc(routingText(p))}</div></div><div class="badges"><span class="badge ${badgeForEligibility(p.eligibility)}">${esc(p.eligibility)}</span><span class="badge ${badgeForBehavior(p.likely_behavior)}">${esc(p.likely_behavior)}</span></div></div>
+      <div class="tblwrap" style="border:0;border-radius:0"><table><thead><tr><th>段階</th><th>候補者の行動</th><th>疑問・期待</th><th>離脱要因</th><th>対策</th><th>実施場所</th><th>根拠</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
+    }).join("");
+    renderKeywords();
+  }
+
+  function selectedQueries(){
+    const personas=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id));
+    const rows=[],seen=new Set();
+    for(const persona of personas){
+      for(const query of persona.search_queries||[]){
+        const key=String(query.query||"").trim();
+        if(!key||seen.has(`${persona.id}\u0000${key}`))continue;
+        seen.add(`${persona.id}\u0000${key}`);
+        rows.push({...query,personaId:persona.id,personaLabel:persona.label});
+      }
+    }
+    return rows;
+  }
+  function renderKeywords(){
+    const rows=selectedQueries();
+    const tableRows=rows.map(item=>{
+      const metric=S.keywordMap.get(item.query);
+      const volume=metric&&metric.avg_monthly!=null?formatNumber(metric.avg_monthly):S.keywordMessage?esc(S.keywordMessage):'<span class="volume pending">取得中</span>';
+      return `<tr class="${item.importance==="高"?"queryhigh":item.importance==="中"?"querymid":""}">
+        <td>${esc(item.personaLabel)}</td><td><b>${esc(item.query)}</b></td><td>${esc(item.stage)}</td>
+        <td>${esc(item.intent)}</td><td>${esc(item.reason)}</td><td>${esc(item.basis_type)}</td>
+        <td>${esc(item.importance)}</td><td class="volume">${volume}</td></tr>`;
+    }).join("");
+    const suggestions=S.suggestions.map(item=>`<span class="suggestion">${esc(item.keyword)} <b>${item.avg_monthly!=null?formatNumber(item.avg_monthly):"—"}</b></span>`).join("");
+    $("#keywordContent").innerHTML=`
+      <div class="tblwrap"><table><thead><tr><th>ペルソナ</th><th>検索内容</th><th>段階</th><th>意図</th><th>検索する理由</th><th>生成根拠</th><th>重要度</th><th>月間検索目安</th></tr></thead><tbody>${tableRows||'<tr><td colspan="8">検索候補なし</td></tr>'}</tbody></table></div>
+      <p class="hint sectiongap">検索量が0または取得対象外でも、社名検索や離脱影響の大きいロングテールは削除しません。検索量は人数・応募確率ではありません。</p>
+      ${suggestions?`<h3 class="sectiongap">Google広告データから得た関連語候補</h3><div class="suggestions">${suggestions}</div>`:""}`;
+  }
+
+  async function loadKeywordData(){
+    const status=$("#keywordStatus"),rows=selectedQueries(),queries=[...new Set(rows.map(row=>row.query))].slice(0,30);
+    if(!queries.length){S.keywordMessage="未取得";renderKeywords();return}
+    status.innerHTML='<div class="loading">ペルソナ別検索語の検索需要と関連語を確認しています…</div>';
+    const profile=S.data?.result?.case_profile||{};
+    const region=[profile.prefecture,profile.municipality].filter(Boolean).join(" ");
+    try{
+      const batches=[];
+      for(let i=0;i<queries.length;i+=12)batches.push(queries.slice(i,i+12));
+      const keywordResults=await Promise.all(batches.map(async batch=>{
+        const params=new URLSearchParams({kw:batch.join("\n"),region,noise_floor:"0",months:"12"});
+        const response=await fetch(`/api/keywords?${params}`);
+        return response.json();
+      }));
+      S.keywordMap.clear();
+      let keywordOk=false;
+      for(const data of keywordResults){
+        if(data.status!=="ok")continue;
+        keywordOk=true;
+        for(const metric of data.keywords||[])S.keywordMap.set(metric.keyword,metric);
+      }
+      S.keywordMessage=keywordOk?"0 / 対象外":"未取得";
+      const seeds=queries.slice(0,8);
+      const suggestParams=new URLSearchParams({seed:seeds.join("\n"),region,limit:"20",noise_floor:"0",exclude_brand:"false"});
+      const suggestResponse=await fetch(`/api/suggest?${suggestParams}`);
+      const suggestData=await suggestResponse.json();
+      S.suggestions=suggestData.status==="ok"?(suggestData.suggestions||[]):[];
+      const missing=keywordResults.some(data=>data.status==="missing_credentials")||suggestData.status==="missing_credentials";
+      status.innerHTML=missing?'<div class="notice">Google広告の認証情報が未設定のため検索量は未取得です。ペルソナ・離脱診断は利用できます。</div>':'<div class="oknote">検索需要を取得しました。少数検索や社名検索は検索量が表示されなくても診断対象に残します。</div>';
+    }catch(error){
+      S.keywordMessage="未取得";
+      status.innerHTML=`<div class="notice">検索需要を取得できませんでした：${esc(error.message)}。診断結果はそのまま確認できます。</div>`;
+    }
+    renderKeywords();
+  }
+
+  function renderActions(){
+    if(!S.data)return;
+    const result=S.data.result||{},personas=result.personas||[];
+    const selectedActions=(result.priority_actions||[]).filter(action=>S.selected.has(action.persona_id));
+    const actionsHtml=selectedActions.map(action=>{
+      const level=action.priority==="高"?"high":action.priority==="中"?"medium":"low";
+      return `<article class="actioncard ${level}"><div class="badges"><span class="badge ${action.priority==="高"?"bad":action.priority==="中"?"warn":"ok"}">優先度 ${esc(action.priority)}</span><span class="badge neutral">${esc(action.stage)}</span><span class="badge neutral">${esc(action.channel)}</span></div>
+        <h3>${esc(action.risk)}</h3><p><b>原因：</b>${esc(action.cause_type)}</p><p><b>対策：</b>${esc(action.countermeasure)}</p>
+        <p><b>顧客確認：</b>${esc(action.client_confirmation||"なし")}</p><small>根拠：${esc(formatRefs(action.evidence_refs))}</small></article>`;
+    }).join("")||'<p class="hint">選択したペルソナの優先対策はありません。</p>';
+    const mismatch=personas.filter(p=>!S.selected.has(p.id)&&p.likely_behavior==="応募へ進む").map(p=>`
+      <div class="finding"><b>${esc(p.label)}：ミスマッチ応募の確認</b>${esc(p.if_not_target_action||"応募条件と仕事内容を明確にし、対象外応募を減らすか判断します。")}</div>`).join("");
+    const questions=(result.client_questions||[]).map(q=>`<li>${esc(q)}</li>`).join("");
+    const limitations=(result.limitations||[]).map(q=>`<li>${esc(q)}</li>`).join("");
+    const selectedLabels=personas.filter(p=>S.selected.has(p.id)).map(p=>p.label).join(" ／ ");
+    $("#actionContent").innerHTML=`
+      <div class="casebar"><div><span>企業として採用したい候補</span>${esc(selectedLabels||"未選択")}</div><div><span>優先対策</span>${formatNumber(selectedActions.filter(a=>a.priority==="高").length)}件</div><div><span>対策総数</span>${formatNumber(selectedActions.length)}件</div><div><span>求人外の対策</span>${formatNumber(selectedActions.filter(a=>a.channel!=="求人票").length)}件</div><div><span>生成時点</span>${esc((S.data.generated_at||"").replace("T"," ").slice(0,16)||"—")}</div></div>
+      <h3>採用したいペルソナを逃がさないための対策</h3><div class="actiongrid">${actionsHtml}</div>
+      ${mismatch?`<div class="box sectiongap"><h3>採用対象外だが応募へ進みそうな層</h3>${mismatch}</div>`:""}
+      <div class="twocol sectiongap">
+        <div class="box"><h3>顧客への確認事項</h3><ul class="clean">${questions||"<li>追加確認なし</li>"}</ul></div>
+        <div class="box"><h3>診断の限界</h3><ul class="clean">${limitations||"<li>特記事項なし</li>"}</ul></div>
+      </div>`;
+  }
+
+  $("#downloadBtn").addEventListener("click",()=>{
+    if(!S.data)return;
+    const payload={
+      ...S.data,
+      consultant_selection:{
+        desired_persona_ids:[...S.selected],
+        desired_personas:(S.data.result?.personas||[]).filter(p=>S.selected.has(p.id)).map(p=>p.label)
+      },
+      keyword_metrics:Object.fromEntries(S.keywordMap),
+      keyword_suggestions:S.suggestions
+    };
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    const date=new Date().toISOString().slice(0,10);
+    a.href=url;a.download=`応募者ジャーニー診断_${date}.json`;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+  $("#printBtn").addEventListener("click",()=>window.print());
+
+  const root=document.documentElement;
+  const storedTheme=localStorage.getItem("jobgen-theme");
+  if(storedTheme)root.dataset.theme=storedTheme;
+  $("#themeBtn").addEventListener("click",()=>{
+    const current=root.dataset.theme||((matchMedia&&matchMedia("(prefers-color-scheme:dark)").matches)?"dark":"light");
+    root.dataset.theme=current==="dark"?"light":"dark";
+    localStorage.setItem("jobgen-theme",root.dataset.theme);
+  });
+</script>
+</body>
+</html>

@@ -12,12 +12,17 @@
 //! - NGワードルール・職種知識はバイナリ埋め込み (env `KNOWLEDGE_DIR` で差し替え可)
 
 use axum::response::Response;
+use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
-use crate::job_gen::{fact_extract, hrhacker, inputs, knowledge, ng_words, strategy, types as job_types};
+use crate::job_gen::{
+    fact_extract, hrhacker, inputs, journey, knowledge, ng_words, strategy, types as job_types,
+};
 use crate::media_engine::config::{gemini_api_key, gemini_model};
 use crate::media_engine::gemini;
+use crate::AppState;
 
 /// 求人票生成 UI ページ (自己完結 HTML、CDN 依存なし)。
 pub async fn ui_jobgen() -> axum::response::Html<&'static str> {
@@ -28,6 +33,14 @@ pub async fn ui_jobgen() -> axum::response::Html<&'static str> {
 /// 既存の求人票生成パイプラインとは画面・状態・APIを共有しない。
 pub async fn ui_jobgen_competitive_beta() -> axum::response::Html<&'static str> {
     axum::response::Html(include_str!("../../static/jobgen_competitive_beta.html"))
+}
+
+/// 顧客求人・競合求人CSV・口コミCSVから応募者ジャーニーを診断するベータ UI。
+/// 既存の求人票生成・競合比較求人作成とは画面とブラウザ状態を共有しない。
+pub async fn ui_jobgen_applicant_journey_beta() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!(
+        "../../static/jobgen_applicant_journey_beta.html"
+    ))
 }
 
 /// 埋め込みNGワードルール (コンパイル時同梱。正本= Sheets「求人系」NGワードタブ)。
@@ -327,6 +340,353 @@ avoided_overlap には、競合と重なるため主軸にしなかった訴求�
         Err(error) => Json(json!({"status":"error","message":error.to_string()})),
     }
 }
+
+/// `POST /api/jobgen/journey-diagnose` — 3入力からペルソナ別採用ジャーニーを診断。
+///
+/// 入力:
+/// - 顧客求人 (HTML またはテキスト)
+/// - 競合求人 CSV (base64)
+/// - Google ビジネスプロフィール等の口コミ CSV (base64、星評価不要)
+///
+/// 求人の不変条件、CSV件数、給与分布、人気タグ、口コミ本文の有無はコードで確定する。
+/// LLM は事実抽出後のペルソナ・検索行動・離脱仮説・対策生成にだけ使用する。
+pub async fn jobgen_journey_diagnose(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let raw_client = body_str(&body, "client_job");
+    if raw_client.len() > 5 * 1024 * 1024 {
+        return Json(json!({
+            "status":"error",
+            "message":"顧客求人は5MB以内のHTMLまたはテキストを指定してください。"
+        }));
+    }
+    if raw_client.trim().chars().count() < 20 {
+        return Json(json!({
+            "status":"error",
+            "message":"顧客求人を20文字以上入力するか、求人HTMLを選択してください。"
+        }));
+    }
+    let client_kind = body_str(&body, "client_kind");
+    let input_kind = if client_kind == "html" {
+        inputs::InputKind::Html
+    } else {
+        inputs::InputKind::FreeText
+    };
+    let normalized = match inputs::normalize(input_kind, Some(raw_client), None, None).await {
+        Ok(mut jobs) if !jobs.is_empty() => jobs.remove(0),
+        Ok(_) => {
+            return Json(json!({
+                "status":"error",
+                "message":"顧客求人から本文を取得できませんでした。"
+            }))
+        }
+        Err(error) => {
+            return Json(json!({"status":"error","message":error.to_string()}));
+        }
+    };
+    if normalized.source_text.trim().chars().count() < 20 {
+        return Json(json!({
+            "status":"error",
+            "message":"顧客求人から分析可能な本文を取得できませんでした。"
+        }));
+    }
+
+    let competitor_bytes = match journey::decode_csv_base64(
+        &body_str(&body, "competitor_csv_base64"),
+        "競合求人CSV",
+    ) {
+        Ok(bytes) => bytes,
+        Err(message) => return Json(json!({"status":"error","message":message})),
+    };
+    let review_bytes = match journey::decode_csv_base64(
+        &body_str(&body, "review_csv_base64"),
+        "口コミCSV",
+    ) {
+        Ok(bytes) => bytes,
+        Err(message) => return Json(json!({"status":"error","message":message})),
+    };
+
+    let competitor_filename = body_str(&body, "competitor_filename");
+    let review_filename = body_str(&body, "review_filename");
+    let competitor_captured_at = optional_body_str(&body, "competitor_captured_at");
+    let review_captured_at = optional_body_str(&body, "review_captured_at");
+    let employer_note = body_str(&body, "employer_note");
+
+    let competitor = match journey::summarize_competitor_csv(
+        &competitor_bytes,
+        if competitor_filename.is_empty() {
+            "競合求人.csv"
+        } else {
+            &competitor_filename
+        },
+        competitor_captured_at,
+    ) {
+        Ok(summary) => summary,
+        Err(message) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("競合求人CSVを解析できません: {message}")
+            }))
+        }
+    };
+    let reviews = match journey::summarize_review_csv(
+        &review_bytes,
+        if review_filename.is_empty() {
+            "口コミ.csv"
+        } else {
+            &review_filename
+        },
+        review_captured_at,
+    ) {
+        Ok(summary) => summary,
+        Err(message) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("口コミCSVを解析できません: {message}")
+            }))
+        }
+    };
+
+    // 顧客求人の条件は既存の引用照合ゲートを必ず通す。
+    let fact_prompt = fact_extract::build_extract_prompt(&normalized.source_text);
+    let fact_raw = match jobgen_llm(&fact_prompt, &fact_extract::response_schema(), 0.0).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("顧客求人の事実抽出に失敗しました: {error}")
+            }))
+        }
+    };
+    let facts = fact_extract::verify(&normalized.source_text, &fact_raw);
+    let facts_value = serde_json::to_value(&facts).unwrap_or_else(|_| json!({}));
+
+    let salary_text = verified_fact_value(&facts, "salary");
+    let employment_type = verified_fact_value(&facts, "employment_type");
+    let client_salary = journey::client_salary_position(
+        &salary_text,
+        &employment_type,
+        &competitor,
+    );
+    let work_location = verified_fact_value(&facts, "work_location");
+    let public_stats = fetch_journey_public_stats(&state, &work_location).await;
+
+    let prompt = journey::build_diagnosis_prompt(
+        &normalized.source_text,
+        &facts_value,
+        &competitor,
+        &reviews,
+        client_salary.as_ref(),
+        &public_stats,
+        &employer_note,
+    );
+    let result = match jobgen_llm(&prompt, &journey::diagnosis_schema(), 0.4).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("ペルソナ・採用ジャーニー診断に失敗しました: {error}")
+            }))
+        }
+    };
+    let persona_count = result
+        .get("personas")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+
+    Json(json!({
+        "status":"ok",
+        "generated_at":chrono::Utc::now().to_rfc3339(),
+        "facts":facts,
+        "competitor_summary":competitor,
+        "review_summary":reviews,
+        "client_salary_position":client_salary,
+        "public_stats":public_stats,
+        "result":result,
+        "review_required":persona_count < 3,
+        "notes":{
+            "truth_scope":"顧客企業について確定事実として扱うのは、顧客求人から引用照合できた項目だけです。",
+            "review_scope":"口コミは求職者が触れ得る外部観測であり、会社の労働実態を断定する根拠にはしません。",
+            "persona_scope":"ペルソナと離脱地点は、競合求人・公的統計・職種一般論を組み合わせた検討仮説です。"
+        }
+    }))
+}
+
+fn optional_body_str(body: &Value, key: &str) -> Option<String> {
+    body.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn verified_fact_value(
+    facts: &crate::job_gen::types::ExtractedFacts,
+    key: &str,
+) -> String {
+    facts
+        .get(key)
+        .filter(|field| field.status == "verified")
+        .map(|field| field.value.clone())
+        .unwrap_or_default()
+}
+
+/// 求人の検証済み勤務地から、既存の公的統計を読み取り専用で取得する。
+///
+/// 地域の母集団・通勤・住居費をペルソナ仮説の補助にするが、
+/// 個人の応募意向や採用可能人数には変換しない。
+async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) -> Value {
+    use crate::handlers::survey::location_parser::parse_location;
+
+    if location_text.trim().is_empty() {
+        return json!({
+            "available":false,
+            "reason":"顧客求人から勤務地を引用確認できなかったため、公的統計は未取得です。"
+        });
+    }
+    let location = parse_location(location_text, None);
+    let prefecture = match location.prefecture.clone() {
+        Some(value) => value,
+        None => {
+            return json!({
+                "available":false,
+                "reason":"勤務地から都道府県を特定できなかったため、公的統計は未取得です。",
+                "location_observation":location_text
+            })
+        }
+    };
+    let municipality = location.municipality.clone().unwrap_or_default();
+    let db = match state.hw_db.clone() {
+        Some(db) => db,
+        None => {
+            return json!({
+                "available":false,
+                "reason":"統計参照用データベースに接続できないため、公的統計は未取得です。",
+                "prefecture":prefecture,
+                "municipality":municipality
+            })
+        }
+    };
+    let turso = state.turso_db.clone();
+    let pref_for_query = prefecture.clone();
+    let muni_for_query = municipality.clone();
+
+    tokio::task::spawn_blocking(move || {
+        use crate::handlers::analysis::fetch as analysis_fetch;
+        use crate::handlers::helpers::{get_f64_opt, get_i64_opt, get_str};
+
+        let labor = analysis_fetch::fetch_labor_force(
+            &db,
+            turso.as_ref(),
+            &pref_for_query,
+            &muni_for_query,
+        );
+        let daytime = analysis_fetch::fetch_daytime_population(
+            &db,
+            turso.as_ref(),
+            &pref_for_query,
+            &muni_for_query,
+        );
+        let rental = analysis_fetch::fetch_rental_housing(
+            &db,
+            turso.as_ref(),
+            &pref_for_query,
+            &muni_for_query,
+        );
+        let minimum_wage = analysis_fetch::fetch_minimum_wage(&db, &pref_for_query);
+        let inflow = analysis_fetch::fetch_commute_inflow(
+            &db,
+            turso.as_ref(),
+            &pref_for_query,
+            &muni_for_query,
+        );
+
+        let labor_row = labor.first();
+        let daytime_row = daytime.first();
+        let minimum_wage_row = minimum_wage.first();
+        let local_rent = rental
+            .iter()
+            .find(|row| {
+                get_str(row, "prefecture") == pref_for_query
+                    && matches!(get_str(row, "structure").as_str(), "" | "総数")
+                    && matches!(get_str(row, "area_class").as_str(), "" | "総数")
+            })
+            .or_else(|| {
+                rental
+                    .iter()
+                    .find(|row| get_str(row, "prefecture") == pref_for_query)
+            });
+
+        let commute_origins = inflow
+            .iter()
+            .take(5)
+            .map(|row| {
+                json!({
+                    "prefecture":row.partner_pref,
+                    "municipality":row.partner_muni,
+                    "commuters":row.total_commuters
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let available = labor_row.is_some()
+            || daytime_row.is_some()
+            || local_rent.is_some()
+            || minimum_wage_row.is_some();
+        json!({
+            "available":available,
+            "area":{
+                "prefecture":pref_for_query,
+                "municipality":muni_for_query
+            },
+            "labor_force":{
+                "employed":labor_row.and_then(|row| get_i64_opt(row, "employed")),
+                "unemployed":labor_row.and_then(|row| get_i64_opt(row, "unemployed")),
+                "not_in_labor_force":labor_row.and_then(|row| get_i64_opt(row, "not_in_labor_force")),
+                "unemployment_rate_percent":labor_row.and_then(|row| get_f64_opt(row, "unemployment_rate")),
+                "labor_force_participation_rate_percent":labor_row.and_then(|row| get_f64_opt(row, "labor_force_participation_rate")),
+                "reference_date":labor_row.map(|row| get_str(row, "reference_date")).unwrap_or_default()
+            },
+            "daytime_population":{
+                "nighttime_population":daytime_row.and_then(|row| get_i64_opt(row, "nighttime_pop")),
+                "daytime_population":daytime_row.and_then(|row| get_i64_opt(row, "daytime_pop")),
+                "day_night_ratio_percent":daytime_row.and_then(|row| get_f64_opt(row, "day_night_ratio")),
+                "inflow_population":daytime_row.and_then(|row| get_i64_opt(row, "inflow_pop")),
+                "outflow_population":daytime_row.and_then(|row| get_i64_opt(row, "outflow_pop"))
+            },
+            "commute_origins":commute_origins,
+            "housing":{
+                "rent_per_tatami_yen":local_rent.and_then(|row| get_i64_opt(row, "median_rent_jpy")),
+                "reference_date":local_rent.map(|row| get_str(row, "as_of")).unwrap_or_default(),
+                "unit_note":"住宅・土地統計の1畳当たり家賃。月額家賃ではありません。"
+            },
+            "minimum_wage":{
+                "hourly_yen":minimum_wage_row.and_then(|row| get_i64_opt(row, "hourly_min_wage")),
+                "area_note":"最低賃金は都道府県単位。顧客求人の適法性判定には算入賃金と所定労働時間の確認が必要。"
+            },
+            "sources":[
+                "国勢調査・SSDSE 労働力統計",
+                "国勢調査 従業地・通学地集計",
+                "国勢調査 通勤OD",
+                "住宅・土地統計調査",
+                "厚生労働省 地域別最低賃金"
+            ],
+            "caveat":"地域集計は人材母集団を考える補助情報で、個人の応募意向や採用可能人数を示しません。"
+        })
+    })
+    .await
+    .unwrap_or_else(|_| {
+        json!({
+            "available":false,
+            "reason":"公的統計の取得処理が完了しませんでした。",
+            "prefecture":prefecture,
+            "municipality":municipality
+        })
+    })
+}
+
 /// `POST /api/jobgen/normalize` — 入力6形式を求人原文テキストに正規化。
 pub async fn jobgen_normalize(Json(body): Json<Value>) -> Json<Value> {
     let kind = match body_str(&body, "kind").as_str() {

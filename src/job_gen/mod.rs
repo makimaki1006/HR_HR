@@ -25,6 +25,7 @@ pub mod fact_extract;
 pub mod handlers;
 pub mod hrhacker;
 pub mod inputs;
+pub mod journey;
 pub mod knowledge;
 pub mod ng_words;
 pub mod strategy;
