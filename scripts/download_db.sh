@@ -30,6 +30,25 @@ if [ -n "$GITHUB_TOKEN" ]; then
     echo "Using GITHUB_TOKEN for API authentication"
 fi
 
+# Common settings for transient Render/GitHub connection failures.
+CURL_COMMON_ARGS=(
+    --fail
+    --silent
+    --show-error
+    --location
+    --connect-timeout 30
+)
+
+fetch_release_info() {
+    if [ -n "$AUTH_HEADER" ]; then
+        curl "${CURL_COMMON_ARGS[@]}" -H "$AUTH_HEADER" \
+            "https://api.github.com/repos/${REPO}/releases/latest"
+    else
+        curl "${CURL_COMMON_ARGS[@]}" \
+            "https://api.github.com/repos/${REPO}/releases/latest"
+    fi
+}
+
 if [ -n "$DB_RELEASE_URL" ]; then
     URL="$DB_RELEASE_URL"
     echo "Downloading DB from specified URL: $URL"
@@ -37,13 +56,16 @@ else
     # GitHub API で最新ReleaseのアセットURLを取得
     echo "Fetching latest release info from $REPO..."
 
-    if [ -n "$AUTH_HEADER" ]; then
-        API_RESPONSE=$(curl -sL -H "$AUTH_HEADER" \
-            "https://api.github.com/repos/${REPO}/releases/latest")
-    else
-        API_RESPONSE=$(curl -sL \
-            "https://api.github.com/repos/${REPO}/releases/latest")
-    fi
+    API_ATTEMPT=1
+    while ! API_RESPONSE=$(fetch_release_info); do
+        if [ "$API_ATTEMPT" -ge 5 ]; then
+            echo "ERROR: Failed to fetch GitHub release info after ${API_ATTEMPT} attempts."
+            exit 1
+        fi
+        echo "Release API attempt ${API_ATTEMPT} failed; retrying..."
+        sleep $((API_ATTEMPT * 5))
+        API_ATTEMPT=$((API_ATTEMPT + 1))
+    done
 
     # レート制限チェック
     if echo "$API_RESPONSE" | grep -q "API rate limit exceeded"; then
@@ -69,12 +91,35 @@ else
     fi
 fi
 
-# ダウンロード（リダイレクト対応、リトライ3回）
-if [ -n "$AUTH_HEADER" ]; then
-    curl -L -H "$AUTH_HEADER" --retry 3 --retry-delay 5 -o "$DB_GZ" "$URL"
-else
-    curl -L --retry 3 --retry-delay 5 -o "$DB_GZ" "$URL"
-fi
+# ダウンロード（リダイレクト・途中再開対応）
+# Resume the 310MB+ release asset after curl 56 or another transient failure.
+DOWNLOAD_ARGS=(
+    --fail
+    --show-error
+    --location
+    --connect-timeout 30
+    --continue-at -
+    --output "$DB_GZ"
+)
+
+DOWNLOAD_ATTEMPT=1
+while true; do
+    if [ -n "$AUTH_HEADER" ]; then
+        curl "${DOWNLOAD_ARGS[@]}" -H "$AUTH_HEADER" "$URL" && break
+    else
+        curl "${DOWNLOAD_ARGS[@]}" "$URL" && break
+    fi
+
+    if [ "$DOWNLOAD_ATTEMPT" -ge 8 ]; then
+        echo "ERROR: DB download failed after ${DOWNLOAD_ATTEMPT} attempts."
+        exit 1
+    fi
+
+    PARTIAL_BYTES=$(stat -c%s "$DB_GZ" 2>/dev/null || echo 0)
+    echo "Download attempt ${DOWNLOAD_ATTEMPT} failed at ${PARTIAL_BYTES} bytes; resuming..."
+    sleep $((DOWNLOAD_ATTEMPT * 5))
+    DOWNLOAD_ATTEMPT=$((DOWNLOAD_ATTEMPT + 1))
+done
 
 # サイズ確認
 SIZE=$(du -h "$DB_GZ" | cut -f1)
