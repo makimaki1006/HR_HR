@@ -95,7 +95,7 @@
     .badge.warn{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 38%,transparent);background:color-mix(in srgb,var(--mid) 8%,transparent)}
     .badge.bad{color:var(--hi);border-color:color-mix(in srgb,var(--hi) 38%,transparent);background:color-mix(in srgb,var(--hi) 8%,transparent)}
     .badge.neutral{color:var(--ink-2);border-color:var(--line-2);background:var(--surface-2)}
-    .tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin-top:8px}
+    .tblwrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-inline:contain;border:1px solid var(--line);border-radius:10px;margin-top:8px}
     table{width:100%;border-collapse:collapse;font-size:12px}
     th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
     th{font-size:10.5px;color:var(--ink-3);background:var(--surface-2);white-space:nowrap}
@@ -107,6 +107,11 @@
     .finding{border-left:3px solid var(--accent);padding:7px 10px;margin:7px 0;background:var(--surface-2);border-radius:0 8px 8px 0;font-size:12px}
     .finding b{display:block;margin-bottom:2px}
     .finding .source{font-size:10.5px;color:var(--ink-3);margin-top:4px}
+    .statmeta{display:block;color:var(--ink-3);font-size:10.5px;font-weight:400;margin-top:2px}
+    .sourcebox{border-top:1px solid var(--line);padding-top:11px}
+    .sourcebox h3{font-size:12px;color:var(--ink-2)}
+    .sourcelist{margin:0;padding-left:18px;color:var(--ink-2);font-size:11px}
+    .sourcelist li+li{margin-top:6px}
     .pgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}
     .pcard{border:1px solid var(--line);border-radius:12px;background:var(--surface-2);padding:14px;display:flex;flex-direction:column}
     .pcard.selected{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 14%,transparent)}
@@ -141,8 +146,16 @@
       .casebar{grid-template-columns:1fr 1fr}.twocol,.pgrid,.actiongrid{grid-template-columns:1fr}
     }
     @media(max-width:620px){
-      .pipeline{grid-template-columns:1fr 1fr}.kpis,.facts{grid-template-columns:1fr}
+      .pipeline{display:flex;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:6px}
+      .pstep{flex:0 0 158px;scroll-snap-align:start}
+      .kpis,.facts{grid-template-columns:1fr}
       .casebar{grid-template-columns:1fr}.wrap{padding:20px 12px 48px}.panel{padding:14px}
+      .panelhead,.journeyhead{flex-direction:column}
+      .source-meta{grid-template-columns:1fr}
+      .box,.fact,.pcard,.actioncard,.kpi{min-width:0;overflow-wrap:anywhere}
+      .actions{align-items:stretch}.actions .btn,.actions .btn2{width:100%}
+      .tblwrap table{min-width:680px}
+      dl{grid-template-columns:1fr;gap:2px}dd{margin:0 0 7px}
       th,td{padding:7px 8px}
     }
     @media print{
@@ -545,15 +558,31 @@
   function renderPublicStats(stats){
     if(!stats.available)return `<div class="notice">${esc(stats.reason||"地域統計を取得できませんでした。")}</div>`;
     const labor=stats.labor_force||{},day=stats.daytime_population||{},housing=stats.housing||{},minimumWage=stats.minimum_wage||{};
+    const area=stats.area||{};
+    const areaLabel=[area.prefecture,area.municipality].filter(Boolean).join(" ");
+    const referenceLabel=item=>{
+      if(item?.effective_date)return `${item.effective_date}適用`;
+      if(item?.reference_date)return `${item.reference_date}時点`;
+      if(item?.reference_year!=null)return `${item.reference_year}年`;
+      if(item?.fiscal_year!=null)return `${item.fiscal_year}年度`;
+      return "基準時点未収録";
+    };
     const origins=(stats.commute_origins||[]).map(item=>`<li>${esc(item.prefecture)} ${esc(item.municipality)}：${formatNumber(item.commuters)}人</li>`).join("");
+    const sourceDetails=Array.isArray(stats.source_details)&&stats.source_details.length
+      ?stats.source_details
+      :(stats.sources||[]).map(source=>({source}));
+    const sources=sourceDetails.map(item=>`<li><b>${esc(item.label||"参照データ")}</b>：${esc(item.source||"—")}
+      <span class="statmeta">基準 ${esc(referenceLabel(item))}${item.scope?` ／ 対象 ${esc(item.scope)}`:""}</span></li>`).join("");
     return `<dl>
-      <dt>就業者</dt><dd>${formatNumber(labor.employed)}人</dd>
-      <dt>失業者</dt><dd>${formatNumber(labor.unemployed)}人</dd>
-      <dt>労働力率</dt><dd>${labor.labor_force_participation_rate_percent!=null?Number(labor.labor_force_participation_rate_percent).toFixed(1)+"%":"—"}</dd>
-      <dt>夜間／昼間人口</dt><dd>${formatNumber(day.nighttime_population)}人 ／ ${formatNumber(day.daytime_population)}人</dd>
-      <dt>1畳当たり家賃</dt><dd>${formatYen(housing.rent_per_tatami_yen)} <span class="hint">月額家賃ではありません</span></dd>
-      <dt>都道府県最低賃金</dt><dd>${minimumWage.hourly_yen!=null?formatYen(minimumWage.hourly_yen)+"/時":"—"} <span class="hint">適法性判定には算入賃金・所定時間の確認が必要</span></dd>
-      </dl>${origins?`<h3 class="sectiongap">主な通勤流入元</h3><ul class="clean">${origins}</ul>`:""}
+      <dt>対象地域</dt><dd>${esc(areaLabel||"未確認")}</dd>
+      <dt>就業者</dt><dd>${formatNumber(labor.employed)}人<span class="statmeta">基準 ${esc(referenceLabel(labor))}</span></dd>
+      <dt>失業者</dt><dd>${formatNumber(labor.unemployed)}人<span class="statmeta">基準 ${esc(referenceLabel(labor))}</span></dd>
+      <dt>労働力率</dt><dd>${labor.labor_force_participation_rate_percent!=null?Number(labor.labor_force_participation_rate_percent).toFixed(1)+"%":"—"}<span class="statmeta">基準 ${esc(referenceLabel(labor))}</span></dd>
+      <dt>夜間／昼間人口</dt><dd>${formatNumber(day.nighttime_population)}人 ／ ${formatNumber(day.daytime_population)}人<span class="statmeta">基準 ${esc(referenceLabel(day))}</span></dd>
+      <dt>1畳当たり家賃</dt><dd>${formatYen(housing.rent_per_tatami_yen)}<span class="statmeta">月額家賃ではありません ／ 基準 ${esc(referenceLabel(housing))}</span></dd>
+      <dt>都道府県最低賃金</dt><dd>${minimumWage.hourly_yen!=null?formatYen(minimumWage.hourly_yen)+"/時":"—"}<span class="statmeta">基準 ${esc(referenceLabel(minimumWage))} ／ 適法性判定には算入賃金・所定時間の確認が必要</span></dd>
+      </dl>${origins?`<h3 class="sectiongap">主な通勤流入元 <span class="statmeta">基準 ${esc(referenceLabel({reference_year:stats.commute_reference_year}))}</span></h3><ul class="clean">${origins}</ul>`:""}
+      ${sources?`<div class="sourcebox sectiongap"><h3>出典と基準時点</h3><ul class="sourcelist">${sources}</ul></div>`:""}
       <p class="hint sectiongap">${esc(stats.caveat||"")}</p>`;
   }
 

@@ -2848,4 +2848,21 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         normalize_evidence_aliases(&mut value);
         assert_eq!(value["evidence_refs"], json!(["給与比較", "J1"]));
     }
+
+    #[test]
+    fn journey_ui_explains_public_stat_sources_and_supports_mobile_scrolling() {
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        for required in [
+            "出典と基準時点",
+            "基準時点未収録",
+            "対象地域",
+            "scroll-snap-type:x proximity",
+            "-webkit-overflow-scrolling:touch",
+        ] {
+            assert!(
+                html.contains(required),
+                "応募者ジャーニー画面に必要な表示契約がありません: {required}"
+            );
+        }
+    }
 }

@@ -1182,6 +1182,29 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
                     .iter()
                     .find(|row| get_str(row, "prefecture") == pref_for_query)
             });
+        let area_scope = if muni_for_query.is_empty() {
+            pref_for_query.clone()
+        } else {
+            format!("{pref_for_query} {muni_for_query}")
+        };
+        let labor_reference_date = labor_row
+            .map(|row| get_str(row, "reference_date"))
+            .unwrap_or_default();
+        let daytime_reference_year =
+            daytime_row.and_then(|row| get_i64_opt(row, "reference_year"));
+        let housing_reference_date = local_rent
+            .map(|row| get_str(row, "as_of"))
+            .unwrap_or_default();
+        let minimum_wage_effective_date = minimum_wage_row
+            .map(|row| get_str(row, "effective_date"))
+            .unwrap_or_default();
+        let minimum_wage_fiscal_year =
+            minimum_wage_row.and_then(|row| get_i64_opt(row, "fiscal_year"));
+        let commute_reference_year = inflow
+            .iter()
+            .map(|row| row.reference_year)
+            .filter(|year| *year > 0)
+            .max();
 
         let commute_origins = inflow
             .iter()
@@ -1190,7 +1213,8 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
                 json!({
                     "prefecture":row.partner_pref,
                     "municipality":row.partner_muni,
-                    "commuters":row.total_commuters
+                    "commuters":row.total_commuters,
+                    "reference_year":row.reference_year
                 })
             })
             .collect::<Vec<_>>();
@@ -1198,7 +1222,50 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
         let available = labor_row.is_some()
             || daytime_row.is_some()
             || local_rent.is_some()
-            || minimum_wage_row.is_some();
+            || minimum_wage_row.is_some()
+            || !inflow.is_empty();
+        let mut source_details = Vec::new();
+        if labor_row.is_some() {
+            source_details.push(json!({
+                "label":"労働力人口",
+                "source":"国勢調査・SSDSE 労働力統計",
+                "reference_date":labor_reference_date,
+                "scope":area_scope
+            }));
+        }
+        if daytime_row.is_some() {
+            source_details.push(json!({
+                "label":"昼夜間人口",
+                "source":"国勢調査 従業地・通学地集計",
+                "reference_year":daytime_reference_year,
+                "scope":area_scope
+            }));
+        }
+        if !inflow.is_empty() {
+            source_details.push(json!({
+                "label":"通勤流入",
+                "source":"国勢調査 通勤OD",
+                "reference_year":commute_reference_year,
+                "scope":area_scope
+            }));
+        }
+        if local_rent.is_some() {
+            source_details.push(json!({
+                "label":"住宅・家賃",
+                "source":"住宅・土地統計調査",
+                "reference_date":housing_reference_date,
+                "scope":area_scope
+            }));
+        }
+        if minimum_wage_row.is_some() {
+            source_details.push(json!({
+                "label":"最低賃金",
+                "source":"厚生労働省 地域別最低賃金",
+                "effective_date":minimum_wage_effective_date,
+                "fiscal_year":minimum_wage_fiscal_year,
+                "scope":pref_for_query
+            }));
+        }
         json!({
             "available":available,
             "area":{
@@ -1211,25 +1278,30 @@ async fn fetch_journey_public_stats(state: &Arc<AppState>, location_text: &str) 
                 "not_in_labor_force":labor_row.and_then(|row| get_i64_opt(row, "not_in_labor_force")),
                 "unemployment_rate_percent":labor_row.and_then(|row| get_f64_opt(row, "unemployment_rate")),
                 "labor_force_participation_rate_percent":labor_row.and_then(|row| get_f64_opt(row, "labor_force_participation_rate")),
-                "reference_date":labor_row.map(|row| get_str(row, "reference_date")).unwrap_or_default()
+                "reference_date":labor_reference_date
             },
             "daytime_population":{
                 "nighttime_population":daytime_row.and_then(|row| get_i64_opt(row, "nighttime_pop")),
                 "daytime_population":daytime_row.and_then(|row| get_i64_opt(row, "daytime_pop")),
                 "day_night_ratio_percent":daytime_row.and_then(|row| get_f64_opt(row, "day_night_ratio")),
                 "inflow_population":daytime_row.and_then(|row| get_i64_opt(row, "inflow_pop")),
-                "outflow_population":daytime_row.and_then(|row| get_i64_opt(row, "outflow_pop"))
+                "outflow_population":daytime_row.and_then(|row| get_i64_opt(row, "outflow_pop")),
+                "reference_year":daytime_reference_year
             },
             "commute_origins":commute_origins,
+            "commute_reference_year":commute_reference_year,
             "housing":{
                 "rent_per_tatami_yen":local_rent.and_then(|row| get_i64_opt(row, "median_rent_jpy")),
-                "reference_date":local_rent.map(|row| get_str(row, "as_of")).unwrap_or_default(),
+                "reference_date":housing_reference_date,
                 "unit_note":"住宅・土地統計の1畳当たり家賃。月額家賃ではありません。"
             },
             "minimum_wage":{
                 "hourly_yen":minimum_wage_row.and_then(|row| get_i64_opt(row, "hourly_min_wage")),
+                "effective_date":minimum_wage_effective_date,
+                "fiscal_year":minimum_wage_fiscal_year,
                 "area_note":"最低賃金は都道府県単位。顧客求人の適法性判定には算入賃金と所定労働時間の確認が必要。"
             },
+            "source_details":source_details,
             "sources":[
                 "国勢調査・SSDSE 労働力統計",
                 "国勢調査 従業地・通学地集計",
