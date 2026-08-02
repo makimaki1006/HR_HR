@@ -412,7 +412,7 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/report/survey/job/result/{job_id}",
             get(handlers::survey::survey_guide_result),
         )
-            // 採用提案パッケージの試作モック (2026-07-25)。静的HTML・API消費ゼロ。
+        // 採用提案パッケージの試作モック (2026-07-25)。静的HTML・API消費ゼロ。
         // 既存3機能 (レポート/キーワード需要/求人票生成) を統合した場合の完成イメージ。
         .route("/proposal-mock", get(ui_proposal_mock))
         // ======== キーワード需要ビューア (検索エンジン部) 2026-07-24 ========
@@ -424,14 +424,23 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/keywords",
             get(media_engine::handlers::keywords_endpoint),
         )
-        .route("/api/suggest", get(media_engine::handlers::suggest_endpoint))
-        .route("/api/regions", get(media_engine::handlers::regions_endpoint))
+        .route(
+            "/api/suggest",
+            get(media_engine::handlers::suggest_endpoint),
+        )
+        .route(
+            "/api/regions",
+            get(media_engine::handlers::regions_endpoint),
+        )
         .route(
             "/api/forecast",
             get(media_engine::handlers::forecast_endpoint),
         )
         .route("/api/serp", get(media_engine::handlers::serp_endpoint))
-        .route("/api/cluster", get(media_engine::handlers::cluster_endpoint))
+        .route(
+            "/api/cluster",
+            get(media_engine::handlers::cluster_endpoint),
+        )
         // ======== コンサル支援 (商談準備レポート、社内用) 2026-07-10 ========
         // protected_routes 内のため auth_middleware の保護下に置かれる
         .route("/consult/brief", get(handlers::consult::consult_brief))
@@ -685,6 +694,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         .route(
             "/api/jobgen/journey-persona-detail",
             post(job_gen::handlers::jobgen_journey_persona_detail),
+        )
+        .route(
+            "/api/jobgen/journey-keywords",
+            post(job_gen::handlers::jobgen_journey_keywords),
         )
         .route("/api/jobgen/copy", post(job_gen::handlers::jobgen_copy))
         .route("/api/jobgen/images", post(job_gen::handlers::jobgen_images))
