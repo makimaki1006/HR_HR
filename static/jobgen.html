@@ -73,12 +73,15 @@
   .st.fail{color:var(--hi);border-color:color-mix(in srgb,var(--hi) 40%,transparent);background:color-mix(in srgb,var(--hi) 10%,transparent)}
   .st.review{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 40%,transparent);background:color-mix(in srgb,var(--mid) 10%,transparent)}
   .st.confirmed{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-bg)}
+  .st.stale{color:var(--mid);border-color:color-mix(in srgb,var(--mid) 55%,transparent);background:color-mix(in srgb,var(--mid) 14%,transparent);font-weight:800}
+  .stalebar{background:color-mix(in srgb,var(--mid) 13%,transparent);border:1px solid color-mix(in srgb,var(--mid) 45%,transparent);color:var(--mid);border-radius:9px;padding:9px 12px;margin-bottom:10px;font-size:12.5px;font-weight:700}
   /* 状態の凡例 */
   .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:2px 0 4px;font-size:11px;color:var(--ink-2)}
   .legend .lg{display:inline-flex;align-items:center;gap:5px}
   .legend .dot{width:9px;height:9px;border-radius:50%;border:1px solid}
   .legend .dot.done{background:color-mix(in srgb,var(--lo) 20%,transparent);border-color:var(--lo)}
   .legend .dot.plain{background:var(--surface-2);border-color:var(--line-2)}
+  .legend .dot.stale{background:color-mix(in srgb,var(--mid) 25%,transparent);border-color:var(--mid)}
   .legend .dot.review{background:color-mix(in srgb,var(--mid) 20%,transparent);border-color:var(--mid)}
   .legend .dot.confirmed{background:var(--accent-bg);border-color:var(--accent)}
   /* 工程結果セクションの「コンサル確認済み」チェック */
@@ -216,6 +219,7 @@
       <span class="lg"><span class="dot plain"></span>生成完了（自動検証なし）</span>
       <span class="lg"><span class="dot review"></span>警告あり（要確認）</span>
       <span class="lg"><span class="dot confirmed"></span>コンサル確認済み</span>
+      <span class="lg"><span class="dot stale"></span>要再実行（前工程が更新済み）</span>
     </div>
   </header>
 
@@ -328,7 +332,44 @@ const STEPS=[
 ];
 STEPS.forEach(s=>S.status[s.key]="wait");
 
-const ST_LABEL={wait:"待機",run:"実行中",done:"完了",fail:"失敗",review:"レビュー要"};
+const ST_LABEL={wait:"待機",run:"実行中",done:"完了",fail:"失敗",review:"レビュー要",stale:"要再実行（前工程が更新済み）"};
+// 各工程が入力に使う前工程（直接の依存元）。工程を単独で再実行したとき、
+// この関係を辿って「古くなった」後続工程に印を付けるために使う。
+const STEP_INPUTS={
+  extract:[], analyze:[],
+  personas:["analyze"],
+  copy:["analyze","personas"],
+  images:["personas"],
+  mobile:["extract","personas"],
+  hrhacker:["extract","analyze"],
+  ab:["analyze","personas"]
+};
+// key を実行し直したときに結果が古くなる後続工程（推移的に辿る）
+function staleAfter(key){
+  const out=new Set(); let changed=true;
+  while(changed){
+    changed=false;
+    for(const k in STEP_INPUTS){
+      if(out.has(k)||k===key) continue;
+      if(STEP_INPUTS[k].some(i=>i===key||out.has(i))){out.add(k);changed=true;}
+    }
+  }
+  return [...out];
+}
+// 後続工程を「要再実行」にし、表示済みの結果には古い旨の帯を出す。
+// 既に実行済み（done/review/fail/stale）の工程だけが対象。未実行はそのまま待機。
+function markStaleAfter(key){
+  const src=STEPS.find(s=>s.key===key)||{num:"",name:key};
+  staleAfter(key).forEach(k=>{
+    if(S.status[k]==="wait"||S.status[k]==="run") return;
+    S.status[k]="stale"; S.confirmed[k]=false;
+    const el=$("#res-"+k);
+    if(el&&!el.hidden&&!el.querySelector(".stalebar")){
+      el.insertAdjacentHTML("afterbegin",
+        `<div class="stalebar">⚠ ${esc(src.num)} ${esc(src.name)} を実行し直したため、この結果は古い可能性があります。必要なら再実行してください。</div>`);
+    }
+  });
+}
 // 検証ゲートの有無で「完了」の意味を分ける。gate==="—" はコード検証ゲートを持たない工程(②③⑤⑧)。
 const GATED=k=>{const s=STEPS.find(x=>x.key===k);return !!s&&s.gate!=="—";};
 // 工程ピルの表示ラベル/クラス。コンサル確認済みが最優先で「品質確認済み」を示す。
@@ -337,6 +378,7 @@ function stView(key){
   if(S.confirmed[key]&&(st==="done"||st==="review"))return {cls:"confirmed",label:"コンサル確認済み"};
   if(st==="done")return {cls:"done",label:GATED(key)?"生成完了・自動検証済み":"生成完了（自動検証なし）"};
   if(st==="review")return {cls:"review",label:"警告あり（要確認）"};
+  if(st==="stale")return {cls:"stale",label:ST_LABEL.stale};
   return {cls:st,label:ST_LABEL[st]};
 }
 // コンサル確認トグル（工程結果セクションのチェックボックスから呼ぶ）
@@ -613,7 +655,11 @@ async function runOne(key){
   $("#status").innerHTML=`<div class="loading">${STEPS.find(s=>s.key===key).num} ${STEPS.find(s=>s.key===key).name} を実行中…</div>`;
   try{
     const st=await RUNNERS[key]();
-    setStatus(key,st);$("#status").innerHTML="";
+    setStatus(key,st);
+    // 単独再実行では後続工程の結果が古いまま残るため、依存する工程に印を付ける
+    markStaleAfter(key);
+    renderSteps();
+    $("#status").innerHTML="";
   }catch(e){
     setStatus(key,"fail");
     const el=$("#res-"+key);el.hidden=false;el.innerHTML=sectionHead(STEPS.find(s=>s.key===key).num,STEPS.find(s=>s.key===key).name,gateBadge("失敗","bad",""))+`<div class="err">${esc(e.message)}</div>`;
