@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::super::super::helpers::{
-    get_f64, get_i64, get_str, haversine, normalize_muni_for_external, table_exists,
+    get_f64, get_i64, get_str, haversine, normalize_muni_for_external,
 };
 use super::query_turso_or_local;
 
@@ -30,6 +30,7 @@ pub(crate) struct CommuteFlow {
     pub total_commuters: i64,
     pub male_commuters: i64,
     pub female_commuters: i64,
+    pub reference_year: i64,
 }
 
 pub(crate) fn fetch_commute_zone(
@@ -202,7 +203,7 @@ pub(crate) fn fetch_commute_inflow(
     if muni.is_empty() {
         return vec![];
     }
-    let sql = "SELECT origin_pref, origin_muni, total_commuters, male_commuters, female_commuters \
+    let sql = "SELECT origin_pref, origin_muni, total_commuters, male_commuters, female_commuters, reference_year \
          FROM v2_external_commute_od \
          WHERE dest_pref = ?1 AND dest_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
@@ -218,6 +219,7 @@ pub(crate) fn fetch_commute_inflow(
             total_commuters: get_i64(r, "total_commuters"),
             male_commuters: get_i64(r, "male_commuters"),
             female_commuters: get_i64(r, "female_commuters"),
+            reference_year: get_i64(r, "reference_year"),
         })
         .collect()
 }
@@ -231,7 +233,7 @@ pub(crate) fn fetch_commute_outflow(
     if muni.is_empty() {
         return vec![];
     }
-    let sql = "SELECT dest_pref, dest_muni, total_commuters, male_commuters, female_commuters \
+    let sql = "SELECT dest_pref, dest_muni, total_commuters, male_commuters, female_commuters, reference_year \
          FROM v2_external_commute_od \
          WHERE origin_pref = ?1 AND origin_muni = ?2 \
            AND (origin_pref != dest_pref OR origin_muni != dest_muni) \
@@ -247,6 +249,7 @@ pub(crate) fn fetch_commute_outflow(
             total_commuters: get_i64(r, "total_commuters"),
             male_commuters: get_i64(r, "male_commuters"),
             female_commuters: get_i64(r, "female_commuters"),
+            reference_year: get_i64(r, "reference_year"),
         })
         .collect()
 }
@@ -349,4 +352,50 @@ pub(crate) fn fetch_municipality_mean(
             Some(v)
         }
     })
+}
+
+#[cfg(test)]
+mod commute_freshness_tests {
+    use super::*;
+    use crate::db::local_sqlite::LocalDb;
+
+    fn create_test_db() -> (tempfile::NamedTempFile, LocalDb) {
+        let tmp = tempfile::NamedTempFile::new().expect("一時DBを作成");
+        let path = tmp.path().to_str().expect("一時DBパス");
+        let _ = rusqlite::Connection::open(path).expect("SQLiteを初期化");
+        let db = LocalDb::new(path).expect("LocalDbを作成");
+        (tmp, db)
+    }
+
+    #[test]
+    fn commute_flow_keeps_reference_year() {
+        let (_tmp, db) = create_test_db();
+        db.execute(
+            "CREATE TABLE v2_external_commute_od (
+                origin_pref TEXT,
+                origin_muni TEXT,
+                dest_pref TEXT,
+                dest_muni TEXT,
+                total_commuters INTEGER,
+                male_commuters INTEGER,
+                female_commuters INTEGER,
+                reference_year INTEGER
+            )",
+            &[],
+        )
+        .expect("通勤ODテーブルを作成");
+        db.execute(
+            "INSERT INTO v2_external_commute_od VALUES
+             ('埼玉県', '川口市', '東京都', '千代田区', 12345, 8000, 4345, 2020)",
+            &[],
+        )
+        .expect("通勤ODデータを登録");
+
+        let rows = fetch_commute_inflow(&db, None, "東京都", "千代田区");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].partner_pref, "埼玉県");
+        assert_eq!(rows[0].partner_muni, "川口市");
+        assert_eq!(rows[0].total_commuters, 12345);
+        assert_eq!(rows[0].reference_year, 2020);
+    }
 }

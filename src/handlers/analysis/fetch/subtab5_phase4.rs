@@ -70,14 +70,14 @@ pub(crate) fn fetch_minimum_wage(db: &Db, pref: &str) -> Vec<Row> {
 
     let (sql, params): (String, Vec<String>) = if !pref.is_empty() {
         (
-            "SELECT prefecture, hourly_min_wage \
+            "SELECT prefecture, hourly_min_wage, effective_date, fiscal_year \
           FROM v2_external_minimum_wage WHERE prefecture = ?1"
                 .to_string(),
             vec![pref.to_string()],
         )
     } else {
         (
-            "SELECT prefecture, hourly_min_wage \
+            "SELECT prefecture, hourly_min_wage, effective_date, fiscal_year \
           FROM v2_external_minimum_wage ORDER BY hourly_min_wage DESC"
                 .to_string(),
             vec![],
@@ -424,7 +424,7 @@ pub(crate) fn fetch_daytime_population(
 ) -> Vec<Row> {
     let (sql, params): (String, Vec<String>) = if !muni.is_empty() {
         (
-            "SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop \
+            "SELECT nighttime_pop, daytime_pop, day_night_ratio, inflow_pop, outflow_pop, reference_year \
           FROM v2_external_daytime_population WHERE prefecture = ?1 AND municipality = ?2"
                 .to_string(),
             // postings (郡名込み) と v2_external_* (郡名なし) の不一致吸収
@@ -436,7 +436,8 @@ pub(crate) fn fetch_daytime_population(
             format!(
                 "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
           CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
-          SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
+          SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop, \
+          MAX(reference_year) as reference_year \
           FROM v2_external_daytime_population WHERE prefecture = ?1 AND {}",
                 EXTERNAL_CLEAN_FILTER
             ),
@@ -447,7 +448,8 @@ pub(crate) fn fetch_daytime_population(
             format!(
                 "SELECT SUM(nighttime_pop) as nighttime_pop, SUM(daytime_pop) as daytime_pop, \
           CAST(SUM(daytime_pop) AS REAL) / NULLIF(SUM(nighttime_pop), 0) * 100 as day_night_ratio, \
-          SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop \
+          SUM(inflow_pop) as inflow_pop, SUM(outflow_pop) as outflow_pop, \
+          MAX(reference_year) as reference_year \
           FROM v2_external_daytime_population WHERE {}",
                 EXTERNAL_CLEAN_FILTER
             ),
@@ -1731,5 +1733,79 @@ mod posting_target_profile_tests {
         }
         let sum: i64 = counts.values().sum();
         assert_eq!(sum, inputs.len() as i64);
+    }
+}
+
+#[cfg(test)]
+mod public_stat_freshness_tests {
+    use super::*;
+    use crate::db::local_sqlite::LocalDb;
+    use crate::handlers::helpers::{get_i64, get_str};
+
+    fn create_test_db() -> (tempfile::NamedTempFile, LocalDb) {
+        let tmp = tempfile::NamedTempFile::new().expect("一時DBを作成");
+        let path = tmp.path().to_str().expect("一時DBパス");
+        let _ = rusqlite::Connection::open(path).expect("SQLiteを初期化");
+        let db = LocalDb::new(path).expect("LocalDbを作成");
+        (tmp, db)
+    }
+
+    #[test]
+    fn minimum_wage_keeps_effective_date_and_fiscal_year() {
+        let (_tmp, db) = create_test_db();
+        db.execute(
+            "CREATE TABLE v2_external_minimum_wage (
+                prefecture TEXT,
+                hourly_min_wage INTEGER,
+                effective_date TEXT,
+                fiscal_year INTEGER
+            )",
+            &[],
+        )
+        .expect("最低賃金テーブルを作成");
+        db.execute(
+            "INSERT INTO v2_external_minimum_wage VALUES ('東京都', 1226, '2025-10-03', 2025)",
+            &[],
+        )
+        .expect("最低賃金データを登録");
+
+        let rows = fetch_minimum_wage(&db, "東京都");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(get_i64(&rows[0], "hourly_min_wage"), 1226);
+        assert_eq!(get_str(&rows[0], "effective_date"), "2025-10-03");
+        assert_eq!(get_i64(&rows[0], "fiscal_year"), 2025);
+    }
+
+    #[test]
+    fn daytime_population_keeps_reference_year_at_each_scope() {
+        let (_tmp, db) = create_test_db();
+        db.execute(
+            "CREATE TABLE v2_external_daytime_population (
+                prefecture TEXT,
+                municipality TEXT,
+                nighttime_pop INTEGER,
+                daytime_pop INTEGER,
+                day_night_ratio REAL,
+                inflow_pop INTEGER,
+                outflow_pop INTEGER,
+                reference_year INTEGER
+            )",
+            &[],
+        )
+        .expect("昼夜間人口テーブルを作成");
+        db.execute(
+            "INSERT INTO v2_external_daytime_population VALUES
+             ('東京都', '千代田区', 67400, 1175800, 1744.5, 1108400, 0, 2020)",
+            &[],
+        )
+        .expect("昼夜間人口データを登録");
+
+        let municipal = fetch_daytime_population(&db, None, "東京都", "千代田区");
+        assert_eq!(municipal.len(), 1);
+        assert_eq!(get_i64(&municipal[0], "reference_year"), 2020);
+
+        let prefectural = fetch_daytime_population(&db, None, "東京都", "");
+        assert_eq!(prefectural.len(), 1);
+        assert_eq!(get_i64(&prefectural[0], "reference_year"), 2020);
     }
 }
