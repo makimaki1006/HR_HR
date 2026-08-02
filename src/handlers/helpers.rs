@@ -815,7 +815,11 @@ mod tests {
     fn age_group_lower_bound_parses_leading_digits() {
         assert_eq!(age_group_lower_bound("0-4"), 0);
         assert_eq!(age_group_lower_bound("20-24"), 20);
-        assert_eq!(age_group_lower_bound("85+"), 85, "上限なしラベルも下端年齢を取る");
+        assert_eq!(
+            age_group_lower_bound("85+"),
+            85,
+            "上限なしラベルも下端年齢を取る"
+        );
     }
 
     #[test]

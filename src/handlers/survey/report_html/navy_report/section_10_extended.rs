@@ -219,7 +219,10 @@ fn render_fig1_workforce_map(html: &mut String, ctx: &InsightContext, pref_name:
          <span style=\"display:inline-block;width:9px;height:9px;border-radius:50%;background:{GREEN};margin:0 2px 0 6px;vertical-align:middle\"></span>比較的ゆとりがある</div>\n</div>\n",
         RED = RED, AMBER = AMBER, NAVY2 = NAVY2, GREEN = GREEN,
     ));
-    html.push_str(&format!("<div style=\"width:100%;margin-top:4mm;\">{}\n", bars));
+    html.push_str(&format!(
+        "<div style=\"width:100%;margin-top:4mm;\">{}\n",
+        bars
+    ));
     html.push_str(
         "<div class=\"caption dim\" style=\"margin-top:2mm;\">働き手（15〜64歳）の \
          <b>2020年→2040年 増減率</b>（国の将来人口推計）。<br>\
@@ -976,7 +979,8 @@ fn push_diag_row(body: &mut String, label: &str, value: &str, dots_n: i64, note:
 /// REFERENCE_SCORE (-1) は「参考値」表示 (全体母数の参考指標でスコアを付けない)。
 fn score_badge(dots_n: i64) -> String {
     if dots_n == REFERENCE_SCORE {
-        return "<span style=\"color:#64748b;font-weight:bold;font-size:10pt\">参考値</span>".to_string();
+        return "<span style=\"color:#64748b;font-weight:bold;font-size:10pt\">参考値</span>"
+            .to_string();
     }
     if dots_n <= 0 {
         return "<span style=\"color:#cbd5e1\">—</span>".to_string();
@@ -1264,12 +1268,21 @@ mod tests {
         // 図3
         assert!(html.contains("転職を考えている人は、どれくらいいるか（大分県）"));
         // 2026-07-27 item24: 転職意向の文脈から有効求人倍率 (全職種) を削除した。
-        assert!(!html.contains("有効求人倍率"), "§11 から有効求人倍率は削除済み");
+        assert!(
+            !html.contains("有効求人倍率"),
+            "§11 から有効求人倍率は削除済み"
+        );
         // 図4
         assert!(html.contains("採用の何がネックか — 大分市 の診断"));
         // 2026-07-28 item11: 駅別乗降客数は未投入のため、駅の人通り行は出さない。
-        assert!(!html.contains("駅の人通りの変化"), "図4 駅の人通り行は未投入なので非表示");
-        assert!(!html.contains("今後追加予定"), "「今後追加予定」を顧客に見せない");
+        assert!(
+            !html.contains("駅の人通りの変化"),
+            "図4 駅の人通り行は未投入なので非表示"
+        );
+        assert!(
+            !html.contains("今後追加予定"),
+            "「今後追加予定」を顧客に見せない"
+        );
         // 2026-07-28 item12: 応募候補は全職種の参考値。スコアではなく「参考値」表示。
         assert!(html.contains("参考値"), "応募候補行は参考値表示");
         assert!(
@@ -1294,8 +1307,16 @@ mod tests {
             ReportVariant::Extended,
             "大分県 大分市",
         );
-        assert!(!html.contains("駅別乗降客数データは未投入"), "未投入行は非表示: {}", html);
-        assert!(!html.contains("駅の人通りの変化"), "駅の人通り行は非表示: {}", html);
+        assert!(
+            !html.contains("駅別乗降客数データは未投入"),
+            "未投入行は非表示: {}",
+            html
+        );
+        assert!(
+            !html.contains("駅の人通りの変化"),
+            "駅の人通り行は非表示: {}",
+            html
+        );
     }
 
     #[test]
@@ -1357,7 +1378,11 @@ mod tests {
         assert!(score_badge(0).contains('—'), "0 は — 表示");
         // dots_n=2 → round(2/3*10)=7、dots_n=3 → 10
         assert!(score_badge(2).contains('7'), "2 → 7/10: {}", score_badge(2));
-        assert!(score_badge(3).contains("10"), "3 → 10/10: {}", score_badge(3));
+        assert!(
+            score_badge(3).contains("10"),
+            "3 → 10/10: {}",
+            score_badge(3)
+        );
         assert!(score_badge(2).contains("/10"), "10 点満点表記");
     }
 

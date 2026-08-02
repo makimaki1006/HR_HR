@@ -559,9 +559,7 @@ fn render_examples_block(html: &mut String, agg: &SurveyAggregation) {
     let limit = listed.min(TABLE_LIMIT); // 描画対象総数 (最大 100 件)
     let shown = limit.min(DEFAULT_SHOWN); // デフォルト表示行数 (最大 20 件)
 
-    html.push_str(
-        "<div class=\"block-title\">§04-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n",
-    );
+    html.push_str("<div class=\"block-title\">§04-4 &nbsp;個別求人 具体例 (年間休日降順)</div>\n");
     // rank 5-1 (2026-07-02): デフォルトは上位 20 件のみ描画。21 件目以降は <details> に折り畳み。
     //   PDF ではテーブル 100 行が §04 全体を ~8000px に肥大化させページ数が増大するため、
     //   残件は画面のみ展開可・PDF では非表示にしたい。
@@ -1232,10 +1230,7 @@ mod tests {
         };
         let mut html = String::new();
         render_segment_salary_block(&mut html, &agg);
-        assert!(
-            html.is_empty(),
-            "jobbox_records 空 → §04-5 は描画されない"
-        );
+        assert!(html.is_empty(), "jobbox_records 空 → §04-5 は描画されない");
     }
 
     /// mode_5man_bin: 5 万円ビン最頻値の基本動作。

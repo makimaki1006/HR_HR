@@ -598,9 +598,17 @@ pub(crate) fn render_sp_salary_quartiles(html: &mut String, agg: &SurveyAggregat
     html.push_str("</tr></thead>\n<tbody>\n");
     // 2026-07-27 item8: 統計記号を平易表現 + 括弧内に記号を併記。
     let rows: [(&str, i64, &str); 3] = [
-        ("安い方から1/4 (P25)", s.p25, "この額を下回る求人が全体の約4分の1"),
+        (
+            "安い方から1/4 (P25)",
+            s.p25,
+            "この額を下回る求人が全体の約4分の1",
+        ),
         ("中央値 (P50)", s.median, "ちょうど真ん中の水準"),
-        ("高い方から1/4 (P75)", s.p75, "この額を上回る求人が全体の約4分の1"),
+        (
+            "高い方から1/4 (P75)",
+            s.p75,
+            "この額を上回る求人が全体の約4分の1",
+        ),
     ];
     for (i, (label, yen, note)) in rows.iter().enumerate() {
         let hl = if i == 1 { " class=\"hl\"" } else { "" };
@@ -742,7 +750,9 @@ pub(crate) fn render_sp_priority_actions(
          「時間がかかる」は準備に時間を要するものです (着手の所要時間の目安であり、効果を保証するものではありません)。</p>\n",
     );
 
-    html.push_str("<table class=\"table-navy sp-action-table\" style=\"table-layout:fixed;width:100%;\">\n");
+    html.push_str(
+        "<table class=\"table-navy sp-action-table\" style=\"table-layout:fixed;width:100%;\">\n",
+    );
     html.push_str(
         "<colgroup><col style=\"width:18%\"><col style=\"width:64%\"><col style=\"width:18%\"></colgroup>\n",
     );
@@ -822,7 +832,11 @@ mod tests {
         assert!(html.contains("中央値 (P50)"), "P50 行: {}", html);
         assert!(html.contains("高い方から1/4 (P75)"), "P75 行: {}", html);
         // item7: page-navy カードで包み他表とサイズ感を揃える。
-        assert!(html.contains("class=\"page-navy sp-quartile-page\""), "page-navy ラッパ: {}", html);
+        assert!(
+            html.contains("class=\"page-navy sp-quartile-page\""),
+            "page-navy ラッパ: {}",
+            html
+        );
     }
 
     #[test]

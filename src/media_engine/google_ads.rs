@@ -40,7 +40,10 @@ impl std::fmt::Display for RequestError {
                 write!(f, "month must be 1..=12 (got {m})")
             }
             RequestError::InvalidDate(d) => {
-                write!(f, "forecast period date must be yyyy-mm-dd and start<=end (got {d})")
+                write!(
+                    f,
+                    "forecast period date must be yyyy-mm-dd and start<=end (got {d})"
+                )
             }
         }
     }
@@ -181,8 +184,13 @@ pub fn build_historical_metrics_request_range(
     start: (i32, u32),
     end: (i32, u32),
 ) -> Result<Value, RequestError> {
-    let mut req =
-        build_historical_metrics_request(customer_id, keywords, location_ids, language_id, network)?;
+    let mut req = build_historical_metrics_request(
+        customer_id,
+        keywords,
+        location_ids,
+        language_id,
+        network,
+    )?;
     let start_name = month_num_to_name(start.1).ok_or(RequestError::InvalidMonth(start.1))?;
     let end_name = month_num_to_name(end.1).ok_or(RequestError::InvalidMonth(end.1))?;
     if let Some(obj) = req.as_object_mut() {
@@ -241,9 +249,10 @@ pub fn latest_month_in_payload(payload: &Value) -> Option<(i32, u32)> {
             None => continue,
         };
         for row in rows {
-            let year = row
-                .get("year")
-                .and_then(|y| y.as_i64().or_else(|| y.as_str()?.trim().parse::<i64>().ok()));
+            let year = row.get("year").and_then(|y| {
+                y.as_i64()
+                    .or_else(|| y.as_str()?.trim().parse::<i64>().ok())
+            });
             let month = row
                 .get("month")
                 .and_then(Value::as_str)
@@ -396,13 +405,17 @@ pub fn parse_keyword_metrics(payload: &Value) -> Vec<KeywordMetric> {
         let m = item
             .get("keywordMetrics")
             .or_else(|| item.get("keywordIdeaMetrics"));
-        let avg_monthly = m.and_then(|x| x.get("avgMonthlySearches")).and_then(parse_int64);
+        let avg_monthly = m
+            .and_then(|x| x.get("avgMonthlySearches"))
+            .and_then(parse_int64);
         let competition = m
             .and_then(|x| x.get("competition"))
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let competition_index = m.and_then(|x| x.get("competitionIndex")).and_then(parse_int64);
+        let competition_index = m
+            .and_then(|x| x.get("competitionIndex"))
+            .and_then(parse_int64);
         let bid_low_yen = m
             .and_then(|x| x.get("lowTopOfPageBidMicros"))
             .and_then(parse_int64)
@@ -590,7 +603,11 @@ pub fn pick_geo_id_pref(
     let best = enabled
         .iter()
         .min_by_key(|c| {
-            let exact = if c.name.as_deref() == Some(query) { 0 } else { 1 };
+            let exact = if c.name.as_deref() == Some(query) {
+                0
+            } else {
+                1
+            };
             // 県一致(指定時のみ有効)。canonical に県トークンを含む候補を優先。
             let pref_match = if !pref.is_empty()
                 && c.canonical_name
@@ -623,7 +640,10 @@ async fn error_for_body(resp: reqwest::Response, ctx: &str) -> anyhow::Result<re
     }
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    anyhow::bail!("{ctx}: HTTP {status}: {}", body.chars().take(1200).collect::<String>())
+    anyhow::bail!(
+        "{ctx}: HTTP {status}: {}",
+        body.chars().take(1200).collect::<String>()
+    )
 }
 
 /// 429(RESOURCE_EXHAUSTED)の本文から `retryDelay` の秒数を取り出す(例 "4s")。
@@ -674,7 +694,10 @@ async fn post_json_with_retry(
         }
         let text = resp.text().await.unwrap_or_default();
         let wait = parse_retry_delay_secs(&text).unwrap_or(4 << attempt);
-        tracing::warn!("{ctx}: レート制限(429)。{wait}秒待って再試行します(試行{})", attempt + 1);
+        tracing::warn!(
+            "{ctx}: レート制限(429)。{wait}秒待って再試行します(試行{})",
+            attempt + 1
+        );
         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
         attempt += 1;
     }
@@ -1222,7 +1245,7 @@ mod tests {
             ]
         });
         let rows = parse_historical_metrics(&payload); // Vec<(String, Option<i64>)>
-        // build_volume_map は (String, V) を取るので Option を V として渡す。
+                                                       // build_volume_map は (String, V) を取るので Option を V として渡す。
         let requested = vec!["看護師 求人".to_string()];
         let mapped = crate::media_engine::keywords::build_volume_map(&requested, &rows);
         // 再トークナイズ吸収で Some(Some(1000)) に一致。
@@ -1369,7 +1392,10 @@ mod tests {
         // 年跨ぎ(1月終端)。
         assert_eq!(range_start_from_end(2026, 1, 13), (2025, 1));
         // 上限クランプ(49→48 と同じ)。
-        assert_eq!(range_start_from_end(2026, 7, 999), range_start_from_end(2026, 7, 48));
+        assert_eq!(
+            range_start_from_end(2026, 7, 999),
+            range_start_from_end(2026, 7, 48)
+        );
         // 下限クランプ(0→1)。
         assert_eq!(range_start_from_end(2026, 7, 0), (2026, 7));
     }
@@ -1378,9 +1404,14 @@ mod tests {
     fn range_request_adds_year_month_range_only() {
         let kws = vec!["看護師 求人".to_string()];
         let geos = vec!["1009307".to_string()];
-        let req =
-            build_historical_metrics_request_range_default("1234567890", &kws, &geos, (2026, 7), 48)
-                .unwrap();
+        let req = build_historical_metrics_request_range_default(
+            "1234567890",
+            &kws,
+            &geos,
+            (2026, 7),
+            48,
+        )
+        .unwrap();
         // 既存キーは従来どおり(後方互換)。
         assert_eq!(req["customerId"], "1234567890");
         assert_eq!(req["keywords"][0], "看護師 求人");
@@ -1403,13 +1434,25 @@ mod tests {
         let kws = vec!["a".to_string()];
         assert_eq!(
             build_historical_metrics_request_range(
-                "c", &kws, &[], DEFAULT_LANGUAGE_ID, DEFAULT_NETWORK, (2026, 0), (2026, 7)
+                "c",
+                &kws,
+                &[],
+                DEFAULT_LANGUAGE_ID,
+                DEFAULT_NETWORK,
+                (2026, 0),
+                (2026, 7)
             ),
             Err(RequestError::InvalidMonth(0))
         );
         assert_eq!(
             build_historical_metrics_request_range(
-                "c", &kws, &[], DEFAULT_LANGUAGE_ID, DEFAULT_NETWORK, (2026, 1), (2026, 13)
+                "c",
+                &kws,
+                &[],
+                DEFAULT_LANGUAGE_ID,
+                DEFAULT_NETWORK,
+                (2026, 1),
+                (2026, 13)
             ),
             Err(RequestError::InvalidMonth(13))
         );
@@ -1511,21 +1554,21 @@ mod tests {
             ]
         );
         assert!(!got[0].is_brand);
-        assert_eq!(got[1].concepts, vec![("他のブランド".to_string(), "日本交通".to_string())]);
-        assert!(got[1].is_brand, "type 欠落でもグループ名『他のブランド』でブランド判定");
+        assert_eq!(
+            got[1].concepts,
+            vec![("他のブランド".to_string(), "日本交通".to_string())]
+        );
+        assert!(
+            got[1].is_brand,
+            "type 欠落でもグループ名『他のブランド』でブランド判定"
+        );
         assert!(got[2].concepts.is_empty());
         assert!(!got[2].is_brand);
     }
 
     // --- GeoTargetConstants:suggest 解析 & pick_geo_id(純粋部分) ---
 
-    fn cand(
-        id: &str,
-        name: &str,
-        target_type: &str,
-        status: &str,
-        reach: i64,
-    ) -> GeoCandidate {
+    fn cand(id: &str, name: &str, target_type: &str, status: &str, reach: i64) -> GeoCandidate {
         GeoCandidate {
             id: Some(id.to_string()),
             name: Some(name.to_string()),
@@ -1640,8 +1683,20 @@ mod tests {
     fn pref_hint_disambiguates_same_name_city_across_prefectures() {
         // 「府中市」= 東京(reach 大)/ 広島。県ヒント Hiroshima で広島側を選ぶ。
         let cands = vec![
-            cand_canon("tokyo_fuchu", "府中市", "Fuchu,Tokyo,Japan", "City", 900_000),
-            cand_canon("hiroshima_fuchu", "府中市", "Fuchu,Hiroshima,Japan", "City", 50_000),
+            cand_canon(
+                "tokyo_fuchu",
+                "府中市",
+                "Fuchu,Tokyo,Japan",
+                "City",
+                900_000,
+            ),
+            cand_canon(
+                "hiroshima_fuchu",
+                "府中市",
+                "Fuchu,Hiroshima,Japan",
+                "City",
+                50_000,
+            ),
         ];
         // 県ヒント無し → 完全一致同士で reach 大(東京)。
         let no_hint = pick_geo_id(&cands, "府中市").unwrap();
@@ -1657,7 +1712,13 @@ mod tests {
         // 候補: ①完全一致だが別県 City ②非完全一致だが県一致 Prefecture
         // → 完全一致(①)が勝つ(pref より exact 優先)。
         let cands = vec![
-            cand_canon("exact_other", "高崎市", "Takasaki,Nagano,Japan", "City", 100),
+            cand_canon(
+                "exact_other",
+                "高崎市",
+                "Takasaki,Nagano,Japan",
+                "City",
+                100,
+            ),
             cand_canon("pref_pref", "群馬", "Gunma,Japan", "Prefecture", 100),
         ];
         let pick = pick_geo_id_pref(&cands, "高崎市", Some("Gunma")).unwrap();
@@ -1667,7 +1728,13 @@ mod tests {
         // ①県一致 Prefecture(type_rank=3) ②県不一致 City(type_rank=0)
         // → 県一致(①)が勝つ。
         let cands2 = vec![
-            cand_canon("pref_match_pref", "近隣県都市", "X,Gunma,Japan", "Prefecture", 100),
+            cand_canon(
+                "pref_match_pref",
+                "近隣県都市",
+                "X,Gunma,Japan",
+                "Prefecture",
+                100,
+            ),
             cand_canon("other_city", "近隣別県市", "Y,Saitama,Japan", "City", 100),
         ];
         let pick2 = pick_geo_id_pref(&cands2, "存在しない語", Some("Gunma")).unwrap();
@@ -1758,9 +1825,16 @@ mod tests {
     fn forecast_request_matches_verified_shape() {
         let kws = vec!["ドライバー 求人".to_string()];
         let geos = vec!["2392".to_string()];
-        let req =
-            build_forecast_request(&kws, &geos, 300.0, 5000.0, "2026-08-01", "2026-08-31", "PHRASE")
-                .unwrap();
+        let req = build_forecast_request(
+            &kws,
+            &geos,
+            300.0,
+            5000.0,
+            "2026-08-01",
+            "2026-08-31",
+            "PHRASE",
+        )
+        .unwrap();
         let bk = &req["campaign"]["adGroups"][0]["biddableKeywords"][0];
         assert_eq!(bk["keyword"]["text"], "ドライバー 求人");
         assert_eq!(bk["keyword"]["matchType"], "PHRASE");
@@ -1769,7 +1843,10 @@ mod tests {
             req["campaign"]["geoModifiers"][0]["geoTargetConstant"],
             "geoTargetConstants/2392"
         );
-        assert_eq!(req["campaign"]["languageConstants"][0], "languageConstants/1005");
+        assert_eq!(
+            req["campaign"]["languageConstants"][0],
+            "languageConstants/1005"
+        );
         assert_eq!(req["campaign"]["keywordPlanNetwork"], "GOOGLE_SEARCH");
         let bs = &req["campaign"]["biddingStrategy"]["manualCpcBiddingStrategy"];
         assert_eq!(bs["dailyBudgetMicros"], "5000000000");
@@ -1792,7 +1869,8 @@ mod tests {
             "介護 求人".to_string(),
         ];
         // 0.4 円は下限 1 円(1,000,000 micros)へクランプ。
-        let req = build_forecast_request(&kws, &[], 0.4, 0.0, "2026-08-01", "2026-08-31", "").unwrap();
+        let req =
+            build_forecast_request(&kws, &[], 0.4, 0.0, "2026-08-01", "2026-08-31", "").unwrap();
         let bks = req["campaign"]["adGroups"][0]["biddableKeywords"]
             .as_array()
             .unwrap();
@@ -1812,26 +1890,68 @@ mod tests {
     #[test]
     fn forecast_request_rejects_bad_input() {
         assert_eq!(
-            build_forecast_request(&[], &[], 300.0, 5000.0, "2026-08-01", "2026-08-31", "PHRASE"),
+            build_forecast_request(
+                &[],
+                &[],
+                300.0,
+                5000.0,
+                "2026-08-01",
+                "2026-08-31",
+                "PHRASE"
+            ),
             Err(RequestError::NoKeywords)
         );
         let kws = vec!["a".to_string()];
         assert_eq!(
-            build_forecast_request(&kws, &[], 300.0, 5000.0, "2026/08/01", "2026-08-31", "PHRASE"),
+            build_forecast_request(
+                &kws,
+                &[],
+                300.0,
+                5000.0,
+                "2026/08/01",
+                "2026-08-31",
+                "PHRASE"
+            ),
             Err(RequestError::InvalidDate("2026/08/01".to_string()))
         );
         assert_eq!(
-            build_forecast_request(&kws, &[], 300.0, 5000.0, "2026-08-01", "2026-13-01", "PHRASE"),
+            build_forecast_request(
+                &kws,
+                &[],
+                300.0,
+                5000.0,
+                "2026-08-01",
+                "2026-13-01",
+                "PHRASE"
+            ),
             Err(RequestError::InvalidDate("2026-13-01".to_string()))
         );
         // start > end。
         assert_eq!(
-            build_forecast_request(&kws, &[], 300.0, 5000.0, "2026-09-01", "2026-08-31", "PHRASE"),
-            Err(RequestError::InvalidDate("2026-09-01 > 2026-08-31".to_string()))
+            build_forecast_request(
+                &kws,
+                &[],
+                300.0,
+                5000.0,
+                "2026-09-01",
+                "2026-08-31",
+                "PHRASE"
+            ),
+            Err(RequestError::InvalidDate(
+                "2026-09-01 > 2026-08-31".to_string()
+            ))
         );
         let geos: Vec<String> = (0..11).map(|i| i.to_string()).collect();
         assert_eq!(
-            build_forecast_request(&kws, &geos, 300.0, 5000.0, "2026-08-01", "2026-08-31", "PHRASE"),
+            build_forecast_request(
+                &kws,
+                &geos,
+                300.0,
+                5000.0,
+                "2026-08-01",
+                "2026-08-31",
+                "PHRASE"
+            ),
             Err(RequestError::TooManyGeoTargets(11))
         );
     }

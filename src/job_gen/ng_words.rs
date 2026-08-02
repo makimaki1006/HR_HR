@@ -202,7 +202,10 @@ impl NgRules {
 
 /// 重複違反を排除しつつ追加する。
 fn push_unique(out: &mut Vec<NgViolation>, seen: &mut HashSet<String>, v: NgViolation) {
-    let key = format!("{}\u{1}{}\u{1}{}\u{1}{}", v.reason, v.major, v.minor, v.matched);
+    let key = format!(
+        "{}\u{1}{}\u{1}{}\u{1}{}",
+        v.reason, v.major, v.minor, v.matched
+    );
     if seen.insert(key) {
         out.push(v);
     }
@@ -234,7 +237,10 @@ fn expand_alternatives(raw: &str) -> Vec<Vec<char>> {
     let mut out = Vec::new();
     for frag in trimmed.split(['・', '/', '\n']) {
         // 先頭の「～」「~」は「…」を表す装飾なので落とす(例: minor「～〇歳まで」→「〇歳まで」)。
-        let frag = frag.trim().trim_start_matches(|c| c == '～' || c == '~').trim();
+        let frag = frag
+            .trim()
+            .trim_start_matches(|c| c == '～' || c == '~')
+            .trim();
         if frag.is_empty() {
             continue;
         }
@@ -405,7 +411,11 @@ mod tests {
         assert!(!v.is_empty(), "検出されるべき: {v:?}");
         assert!(reasons(&v).contains(&"性別差別表現".to_string()));
         // standalone は minor 空。
-        assert!(v.iter().any(|x| x.major == "主婦・ママ" && x.minor.is_empty()), "{v:?}");
+        assert!(
+            v.iter()
+                .any(|x| x.major == "主婦・ママ" && x.minor.is_empty()),
+            "{v:?}"
+        );
     }
 
     #[test]
@@ -437,7 +447,10 @@ mod tests {
         let v = rules().detect("28歳以下の方");
         let age: Vec<_> = v.iter().filter(|x| x.reason == "年齢差別").collect();
         assert_eq!(age.len(), 1, "年齢差別は1件のみのはず: {v:?}");
-        assert!(age[0].matched.contains("28歳"), "matchedに28歳を含む: {v:?}");
+        assert!(
+            age[0].matched.contains("28歳"),
+            "matchedに28歳を含む: {v:?}"
+        );
         assert!(
             !v.iter().any(|x| x.matched.starts_with("8歳")),
             "内側の8歳を単独検出してはならない: {v:?}"
@@ -518,7 +531,10 @@ mod tests {
     fn 表現辞書の違反はseverity_warning() {
         let v = expr_rules().detect("本業への影響もゼロ");
         assert!(!v.is_empty(), "検出されるべき: {v:?}");
-        assert!(v.iter().all(|x| x.severity == "warning"), "warning のはず: {v:?}");
+        assert!(
+            v.iter().all(|x| x.severity == "warning"),
+            "warning のはず: {v:?}"
+        );
     }
 
     #[test]
@@ -526,7 +542,10 @@ mod tests {
         // severity 未指定の ng_words.json は従来どおり法令NG("legal")扱い。
         let v = rules().detect("女性歓迎です");
         assert!(!v.is_empty(), "{v:?}");
-        assert!(v.iter().all(|x| x.severity == "legal"), "legal のはず: {v:?}");
+        assert!(
+            v.iter().all(|x| x.severity == "legal"),
+            "legal のはず: {v:?}"
+        );
     }
 
     #[test]

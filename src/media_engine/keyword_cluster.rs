@@ -143,7 +143,11 @@ pub fn merge(assignments: &Value, source: &[(String, Option<i64>)]) -> Value {
 
     if let Some(items) = assignments.get("items").and_then(Value::as_array) {
         for it in items {
-            let kw = it.get("keyword").and_then(Value::as_str).unwrap_or("").trim();
+            let kw = it
+                .get("keyword")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
             let cat = it
                 .get("category")
                 .and_then(Value::as_str)
@@ -258,16 +262,19 @@ mod tests {
 
     #[test]
     fn prompt_contains_discipline_lines() {
-        let p = build_prompt(
-            &["ドライバー 求人".to_string()],
-            &default_categories(),
-        );
+        let p = build_prompt(&["ドライバー 求人".to_string()], &default_categories());
         // 規律文言(捏造防止の核)が全て入っていること。
         assert!(p.contains("一字一句そのまま"), "{p}");
         assert!(p.contains("新しい語を作らない"), "{p}");
-        assert!(p.contains("すべてのキーワードを必ずどれか1つのカテゴリに入れる"), "{p}");
+        assert!(
+            p.contains("すべてのキーワードを必ずどれか1つのカテゴリに入れる"),
+            "{p}"
+        );
         assert!(p.contains("カテゴリは与えたものだけを使う"), "{p}");
-        assert!(p.contains("理由・推奨・優劣・順位・評価コメントは書かない"), "{p}");
+        assert!(
+            p.contains("理由・推奨・優劣・順位・評価コメントは書かない"),
+            "{p}"
+        );
         assert!(p.contains("数値も書かない"), "{p}");
         // キーワードとカテゴリが列挙されている。
         assert!(p.contains("- ドライバー 求人"));
@@ -325,7 +332,10 @@ mod tests {
             }
         }
         found.sort();
-        assert_eq!(found, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            found,
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
         // b, c は「その他」に回収されている。
         let other = out["categories"]
             .as_array()

@@ -166,7 +166,10 @@ async fn integrated_report_mentions_hw_scope_and_no_causation() {
     let html = integrated_report(State(state), session, Query(q)).await.0;
 
     // HW 限定性
-    assert!(html.contains("公的求人データ"), "must mention 公的求人データ (旧: ハローワーク)");
+    assert!(
+        html.contains("公的求人データ"),
+        "must mention 公的求人データ (旧: ハローワーク)"
+    );
     assert!(
         html.contains("民間"),
         "must mention 民間 to clarify exclusion"

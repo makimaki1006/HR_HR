@@ -90,8 +90,11 @@ where
         ordered.push((n.name.clone(), n.distance_km, false));
     }
     let cap = max_areas.max(1);
-    let dropped_names: Vec<String> =
-        ordered.iter().skip(cap).map(|(n, _, _)| n.clone()).collect();
+    let dropped_names: Vec<String> = ordered
+        .iter()
+        .skip(cap)
+        .map(|(n, _, _)| n.clone())
+        .collect();
     let queried: Vec<(String, f64, bool)> = ordered.into_iter().take(cap).collect();
 
     let mut areas: Vec<Area> = Vec::new();
@@ -119,14 +122,23 @@ where
         }
     }
 
-    let mut ranked: Vec<Area> = areas.iter().filter(|a| a.total_volume.is_some()).cloned().collect();
+    let mut ranked: Vec<Area> = areas
+        .iter()
+        .filter(|a| a.total_volume.is_some())
+        .cloned()
+        .collect();
     // 需要降順。安定ソートで同値は入力順を保つ(Python と一致)。
     ranked.sort_by(|a, b| b.total_volume.cmp(&a.total_volume));
 
-    let base_total = areas.iter().find(|a| a.is_base).and_then(|a| a.total_volume);
+    let base_total = areas
+        .iter()
+        .find(|a| a.is_base)
+        .and_then(|a| a.total_volume);
     let leakage: Vec<Area> = ranked
         .iter()
-        .filter(|a| !a.is_base && matches!((base_total, a.total_volume), (Some(bt), Some(v)) if v > bt))
+        .filter(|a| {
+            !a.is_base && matches!((base_total, a.total_volume), (Some(bt), Some(v)) if v > bt)
+        })
         .cloned()
         .collect();
 
@@ -154,7 +166,11 @@ mod tests {
 
     #[test]
     fn picks_max_ignoring_none() {
-        let v = vols(&[("a 求人", Some(10)), ("a 転職", Some(40)), ("a パート", None)]);
+        let v = vols(&[
+            ("a 求人", Some(10)),
+            ("a 転職", Some(40)),
+            ("a パート", None),
+        ]);
         assert_eq!(dominant_keyword(&v), Some(("a 転職".to_string(), 40)));
     }
 
@@ -187,7 +203,15 @@ mod tests {
         let resolve = |name: &str| ids.get(name).map(|s| s.to_string());
         let volume = |_kws: &[String], loc: &str| *totals.get(loc).unwrap_or(&0);
 
-        let dm = build_demand_map("基準", &["a 求人".to_string()], &synthetic(), 15.0, 20, resolve, volume);
+        let dm = build_demand_map(
+            "基準",
+            &["a 求人".to_string()],
+            &synthetic(),
+            15.0,
+            20,
+            resolve,
+            volume,
+        );
         assert!(dm.resolved);
         assert_eq!(dm.base_total_volume, Some(100));
         assert!(!dm.areas.iter().any(|a| a.name == "遠")); // 半径外は含まれない
@@ -201,7 +225,15 @@ mod tests {
     fn demand_map_caps_and_logs_dropped() {
         let resolve = |name: &str| Some(format!("id-{name}"));
         let volume = |_kws: &[String], _loc: &str| 10;
-        let dm = build_demand_map("基準", &["a 求人".to_string()], &synthetic(), 15.0, 2, resolve, volume);
+        let dm = build_demand_map(
+            "基準",
+            &["a 求人".to_string()],
+            &synthetic(),
+            15.0,
+            2,
+            resolve,
+            volume,
+        );
         assert_eq!(dm.queried_count, 2); // 基準+最近隣1
         assert_eq!(dm.dropped_count, 1);
         assert_eq!(dm.dropped_names, vec!["隣B".to_string()]); // 黙って切らず記録
@@ -211,7 +243,15 @@ mod tests {
     fn demand_map_base_missing_unresolved() {
         let resolve = |_name: &str| Some("x".to_string());
         let volume = |_kws: &[String], _loc: &str| 1;
-        let dm = build_demand_map("無い", &["a".to_string()], &synthetic(), 15.0, 12, resolve, volume);
+        let dm = build_demand_map(
+            "無い",
+            &["a".to_string()],
+            &synthetic(),
+            15.0,
+            12,
+            resolve,
+            volume,
+        );
         assert!(!dm.resolved);
         assert!(dm.areas.is_empty());
     }

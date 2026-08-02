@@ -82,7 +82,9 @@ fn window_wait(window: &mut VecDeque<Instant>, now: Instant, limit: usize) -> Op
         window.push_back(now);
         None
     } else {
-        let oldest = *window.front().expect("len>=limit>0 なので front は必ずある");
+        let oldest = *window
+            .front()
+            .expect("len>=limit>0 なので front は必ずある");
         Some(
             Duration::from_secs(60)
                 .saturating_sub(now.duration_since(oldest))
@@ -103,7 +105,10 @@ pub(crate) async fn acquire_rate_slot() {
         match wait {
             None => return,
             Some(d) => {
-                tracing::info!("Gemini: 分間レート枠が埋まっているため {:.0} 秒待機", d.as_secs_f64());
+                tracing::info!(
+                    "Gemini: 分間レート枠が埋まっているため {:.0} 秒待機",
+                    d.as_secs_f64()
+                );
                 tokio::time::sleep(d).await;
             }
         }

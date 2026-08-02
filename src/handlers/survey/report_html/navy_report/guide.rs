@@ -188,7 +188,9 @@ fn push_section_position(html: &mut String, agg: &SurveyAggregation, company: &s
     let market_median = median_of(&agg.salary_values);
     let pos = percentile_from_below(&agg.salary_values, c.median_salary);
 
-    html.push_str("<table><tr><th>観測 (収集データ内の貴社求人)</th><th>市場との重ね合わせ</th></tr>\n");
+    html.push_str(
+        "<table><tr><th>観測 (収集データ内の貴社求人)</th><th>市場との重ね合わせ</th></tr>\n",
+    );
     html.push_str(&format!(
         "<tr><td>掲載 {} 件 (企業名: {})</td><td>同じ検索画面で比較される求人 {} 件の中での掲載数です</td></tr>\n",
         format_number(c.count as i64),
@@ -222,7 +224,10 @@ fn push_section_position(html: &mut String, agg: &SurveyAggregation, company: &s
         } else {
             "提示額は市場の中心より低い側にあります。金額を動かせない場合は、上限の見せ方や金額以外の訴求で補う構成が考えられます。"
         };
-        html.push_str(&format!("<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n", landing));
+        html.push_str(&format!(
+            "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
+            landing
+        ));
     }
     html.push_str(
         "<p class=\"note\">※ 給与の位置づけは、貴社求人の給与欄をレポートと同じ基準 \
@@ -316,7 +321,10 @@ fn push_block_salary(html: &mut String, agg: &SurveyAggregation) {
          休日・働き方など金額以外の定量項目の見せ方が比較材料になる可能性があります。"
             .to_string()
     };
-    html.push_str(&format!("<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n", landing));
+    html.push_str(&format!(
+        "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
+        landing
+    ));
 }
 
 fn push_block_holidays(html: &mut String, agg: &SurveyAggregation) {
@@ -353,7 +361,10 @@ fn push_block_holidays(html: &mut String, agg: &SurveyAggregation) {
             ge120
         )
     };
-    html.push_str(&format!("<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n", landing));
+    html.push_str(&format!(
+        "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
+        landing
+    ));
 
     if let Some(r) = jb.salary_holidays_correlation {
         // 2026-07-21: 符号で3分岐 (逆相関市場では休日訴求のトレードオフを明示する)。
@@ -411,7 +422,10 @@ fn push_block_tightness(html: &mut String, ctx: Option<&InsightContext>) {
         "求職側が相対的に多い水準で、採用は比較的進めやすいとみられます。\
          応募の質を上げる絞り込み型の訴求も選択肢になります。"
     };
-    html.push_str(&format!("<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n", landing));
+    html.push_str(&format!(
+        "<div class=\"dakara\">→ <strong>だから:</strong> {}</div>\n",
+        landing
+    ));
 }
 
 fn push_block_commute(html: &mut String, ctx: Option<&InsightContext>) {
@@ -433,7 +447,10 @@ fn push_block_commute(html: &mut String, ctx: Option<&InsightContext>) {
         "市外から働き手が入ってくる構造です。周辺自治体への露出 (配信対象地域の設定) が\
          母集団の確保につながる可能性があります。"
     };
-    html.push_str(&format!("<div class=\"dakara\">→ <strong>だから:</strong> {}", landing));
+    html.push_str(&format!(
+        "<div class=\"dakara\">→ <strong>だから:</strong> {}",
+        landing
+    ));
     if !c.commute_inflow_top3.is_empty() {
         let top = c
             .commute_inflow_top3
@@ -492,7 +509,8 @@ fn push_section_confirmations(
     // 休日
     if agg.jobbox.annual_holidays_values.len() >= 20 {
         items.push(
-            "年間休日を求人の目立つ位置に、具体的な日数で掲載できるかを確認してください。".to_string(),
+            "年間休日を求人の目立つ位置に、具体的な日数で掲載できるかを確認してください。"
+                .to_string(),
         );
     }
     // 通勤
@@ -662,20 +680,18 @@ mod tests {
     #[test]
     fn guide_without_company_has_no_position_section() {
         let html = render_survey_guide_page(&rich_agg(), None, "大阪府", "富田林市", None);
-        assert!(!html.contains("貴社の現在地"), "company 未指定で貴社ブロックが出ている");
+        assert!(
+            !html.contains("貴社の現在地"),
+            "company 未指定で貴社ブロックが出ている"
+        );
         assert!(html.contains("今回確認できた3点"), "§2 は常に出る");
         assert!(html.contains("この資料の前提"), "§1 前提は常に出る");
     }
 
     #[test]
     fn guide_with_company_hit_renders_position() {
-        let html = render_survey_guide_page(
-            &rich_agg(),
-            None,
-            "大阪府",
-            "富田林市",
-            Some("テスト工業"),
-        );
+        let html =
+            render_survey_guide_page(&rich_agg(), None, "大阪府", "富田林市", Some("テスト工業"));
         assert!(html.contains("貴社の現在地"));
         assert!(html.contains("テスト工業株式会社"));
         assert!(html.contains("下位からおよそ"), "分布内の位置づけが出る");
@@ -719,7 +735,8 @@ mod tests {
     #[test]
     fn guide_tightness_block_removed() {
         // 2026-07-22 再監査: 有効求人倍率ブロックは撤去済み (提案に接続しない参考値のため)
-        let html = render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
+        let html =
+            render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
         // §2 の需給ブロック見出しが出ないこと (§3 まとめの結論エンジン文は対象外)
         assert!(
             !html.contains("需給 — 市場の混み具合"),
@@ -730,7 +747,8 @@ mod tests {
     #[test]
     fn guide_commute_direction_logic() {
         // 流出超過 → 「働き手が市外へ出ていく構造」+ 流入元の配信候補
-        let html = render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
+        let html =
+            render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
         assert!(html.contains("市外へ出ていく構造"));
         assert!(html.contains("河内長野市"));
     }
@@ -740,7 +758,10 @@ mod tests {
         // 2026-07-27 顧客提示レビュー: タグ別給与・人気表示は解説資料から撤去
         let html =
             render_survey_guide_page(&rich_agg(), Some(&rich_ctx()), "大阪府", "富田林市", None);
-        assert!(!html.contains("訴求ワード"), "タグ別給与ブロックは出ないはず");
+        assert!(
+            !html.contains("訴求ワード"),
+            "タグ別給与ブロックは出ないはず"
+        );
         assert!(!html.contains("人気表示"), "人気表示ブロックは出ないはず");
     }
 

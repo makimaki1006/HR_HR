@@ -413,7 +413,9 @@ pub(super) fn build_fact_inventory(
         // - 説明文に上限記載がある場合: それを反映した仮の中間値での位置も併記
         // 2026-07-22 再監査対応: 結論先出し。「で、うちは高いの安いの?」に最初の1文で
         // 答え、内訳 (下限比較・中間値比較の注意) は補足に回す。位置はすべて同順位按分。
-        let own_min = cards.iter().find_map(|cb| cb.salary_min.filter(|_| cb.is_monthly));
+        let own_min = cards
+            .iter()
+            .find_map(|cb| cb.salary_min.filter(|_| cb.is_monthly));
         let market_lo_median = median_of(&agg.salary_min_values);
         // 説明文の上限記載を反映した仮の中間値 (単一値カードのみ意味を持つ)
         let hypo: Option<(i64, i64)> = match (own_min, pos.market_median, cards.first()) {
@@ -502,7 +504,11 @@ fn build_card_statement(cb: &CardBrief, agg: &SurveyAggregation) -> Option<Strin
     if cb.is_monthly {
         match (cb.salary_min, cb.salary_max) {
             (Some(lo), Some(hi)) if hi > lo => {
-                parts.push(format!("給与欄は {}〜{} の幅表示", man_yen(lo), man_yen(hi)));
+                parts.push(format!(
+                    "給与欄は {}〜{} の幅表示",
+                    man_yen(lo),
+                    man_yen(hi)
+                ));
             }
             (Some(lo), _) => {
                 parts.push(format!("給与欄は単一値 {} (幅の表示なし)", man_yen(lo)));
@@ -705,7 +711,9 @@ pub(super) fn numbers_ok(text: &str, allowed: &HashSet<String>) -> bool {
     let plain_ok = extract_numbers(text)
         .iter()
         .all(|t| t.chars().filter(|c| c.is_ascii_digit()).count() <= 1 || allowed.contains(t));
-    let unit_ok = extract_unit_numbers(text).iter().all(|t| allowed.contains(t));
+    let unit_ok = extract_unit_numbers(text)
+        .iter()
+        .all(|t| allowed.contains(t));
     plain_ok && unit_ok
 }
 
@@ -715,7 +723,10 @@ pub(super) fn numbers_ok(text: &str, allowed: &HashSet<String>) -> bool {
 /// - per_fact の dakara → その fact の数値のみ
 /// - lead / confirmations / candidates → 全 facts の和集合 (全体に跨る文のため)
 pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<String> {
-    let allowed: HashSet<String> = facts.iter().flat_map(|f| f.numbers.iter().cloned()).collect();
+    let allowed: HashSet<String> = facts
+        .iter()
+        .flat_map(|f| f.numbers.iter().cloned())
+        .collect();
     let allowed_of = |ids: &[&str]| -> HashSet<String> {
         facts
             .iter()
@@ -761,7 +772,10 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
             ));
         }
         if has_overclaim(text) {
-            out.push(format!("{}: 言い過ぎ表現 (希少・皆無等の断定) を含む", label));
+            out.push(format!(
+                "{}: 言い過ぎ表現 (希少・皆無等の断定) を含む",
+                label
+            ));
         }
         if !numbers_ok(text, allowed) {
             out.push(format!(
@@ -812,7 +826,11 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
         // 2026-07-27 顧客提示レビュー [高] 対応: 到達条件の確認を飛ばした反映の推奨。
         // 「月収◯万円を給与欄の上限へ反映する」型を、条件確認 (確認/保証) を伴わずに
         // 勧めていれば指摘 (非致命。修正コールで条件先出しの型へ直させる)。
-        if text.contains("上限") && text.contains("反映") && !text.contains("確認") && !text.contains("保証") {
+        if text.contains("上限")
+            && text.contains("反映")
+            && !text.contains("確認")
+            && !text.contains("保証")
+        {
             out.push(format!(
                 "{}: 到達条件の確認を飛ばした反映の推奨。まず月収額がどの条件で到達可能かを確認し、保証可能なら反映を検討する型に書き直す",
                 label
@@ -838,7 +856,11 @@ pub(super) fn guard_violations(draft: &GuideDraft, facts: &[GuideFact]) -> Vec<S
     // §3 コンサルタントが確認すること / §4 提示内容の候補。
     // どちらも全 facts の数値のみ許可 (章に跨る要約文)。3項目上限を機械検査する。
     for (i, s) in draft.confirmations.iter().enumerate() {
-        v.extend(text_issues(&format!("confirmation {}:", i + 1), s, &allowed));
+        v.extend(text_issues(
+            &format!("confirmation {}:", i + 1),
+            s,
+            &allowed,
+        ));
     }
     if draft.confirmations.len() > 3 {
         v.push(format!(
@@ -921,7 +943,9 @@ pub(super) async fn generate_guide_ai(
     );
     calls += 1;
     report_stage(progress, "解釈文を起草中 (AI 1/5)").await;
-    let resp = client.generate_json(GUIDE_SYSTEM, &user1, draft_schema()).await?;
+    let resp = client
+        .generate_json(GUIDE_SYSTEM, &user1, draft_schema())
+        .await?;
     let mut draft = parse_draft(&resp)?;
 
     // draft の JSON 表現 (レビュー・修正コールの入力用)
@@ -962,7 +986,12 @@ pub(super) async fn generate_guide_ai(
 
     calls += 1;
     report_stage(progress, "逆証明レビュー中 (AI 2/5)").await;
-    let review1 = run_review(format!("facts:\n{}\n\ndraft:\n{}", facts_str, draft_json(&draft))).await?;
+    let review1 = run_review(format!(
+        "facts:\n{}\n\ndraft:\n{}",
+        facts_str,
+        draft_json(&draft)
+    ))
+    .await?;
     let mut total_findings = 0usize;
     let mut findings = review_findings_of(&review1);
     findings.extend(guard_violations(&draft, facts));
@@ -992,7 +1021,10 @@ pub(super) async fn generate_guide_ai(
             },
         )
         .await;
-        if let Some(resp) = client.generate_json(GUIDE_SYSTEM, &user_fix, draft_schema()).await {
+        if let Some(resp) = client
+            .generate_json(GUIDE_SYSTEM, &user_fix, draft_schema())
+            .await
+        {
             if let Some(d) = parse_draft(&resp) {
                 draft = d;
             }
@@ -1001,9 +1033,12 @@ pub(super) async fn generate_guide_ai(
             // 修正後にもう一度だけ意味レビューをかける (計4コール目)。
             calls += 1;
             report_stage(progress, "修正後の再レビュー中 (AI 4/5)").await;
-            let review2 =
-                run_review(format!("facts:\n{}\n\ndraft:\n{}", facts_str, draft_json(&draft)))
-                    .await?;
+            let review2 = run_review(format!(
+                "facts:\n{}\n\ndraft:\n{}",
+                facts_str,
+                draft_json(&draft)
+            ))
+            .await?;
             findings = review_findings_of(&review2);
             findings.extend(guard_violations(&draft, facts));
             total_findings += findings.len();
@@ -1056,7 +1091,10 @@ pub(super) async fn generate_guide_ai(
 
     // per_fact が全滅したら本文の核 (§2 の 3 点) が失われるためフォールバック。
     if draft.per_fact.is_empty() {
-        tracing::warn!(?violations, "guide AI: 最終ガードで per_fact 全滅。決定的テンプレへフォールバック");
+        tracing::warn!(
+            ?violations,
+            "guide AI: 最終ガードで per_fact 全滅。決定的テンプレへフォールバック"
+        );
         return None;
     }
 
@@ -1130,7 +1168,10 @@ pub(super) fn render_guide_ai_html(
 
     // 冒頭要約 (lead)
     if !d.lead.is_empty() {
-        html.push_str(&format!("<div class=\"keybox\">{}</div>\n", escape_html(&d.lead)));
+        html.push_str(&format!(
+            "<div class=\"keybox\">{}</div>\n",
+            escape_html(&d.lead)
+        ));
     }
 
     // §1 この資料の前提 (対象・件数・広域である旨)。業種/媒体/取得日は集計に含まれない
@@ -1240,7 +1281,8 @@ pub(crate) async fn render_survey_guide_page_ai(
 ) -> Option<String> {
     let client = GeminiClient::from_env()?;
     progress("市場データから事実を整理中");
-    let (facts, position) = build_fact_inventory(agg, ctx, Some(muni).filter(|m| !m.is_empty()), company);
+    let (facts, position) =
+        build_fact_inventory(agg, ctx, Some(muni).filter(|m| !m.is_empty()), company);
     let region = if muni.is_empty() {
         pref.to_string()
     } else {
@@ -1350,8 +1392,8 @@ fn render_job_progress_shell(title: &str, hint_html: &str, start_path: &str) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::super::super::aggregator::{CompanyAgg, TagSalaryAgg};
+    use super::*;
 
     fn rich_agg() -> SurveyAggregation {
         let mut agg = SurveyAggregation {
@@ -1402,7 +1444,11 @@ mod tests {
     fn fact_numbers_are_extracted_for_provenance() {
         let (facts, _) = build_fact_inventory(&rich_agg(), None, None, None);
         let size = facts.iter().find(|f| f.id == "F-SIZE").unwrap();
-        assert!(size.numbers.contains(&"600".to_string()), "{:?}", size.numbers);
+        assert!(
+            size.numbers.contains(&"600".to_string()),
+            "{:?}",
+            size.numbers
+        );
         let hol = facts.iter().find(|f| f.id == "F-HOL").unwrap();
         assert!(hol.numbers.contains(&"120".to_string()));
         assert!(hol.numbers.contains(&"53".to_string()));
@@ -1410,8 +1456,10 @@ mod tests {
 
     #[test]
     fn numbers_guard_rejects_fabricated_and_allows_listed() {
-        let allowed: HashSet<String> =
-            ["600", "21", "29.2"].iter().map(|s| s.to_string()).collect();
+        let allowed: HashSet<String> = ["600", "21", "29.2"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert!(numbers_ok("市場は 600 件で新着 21% です", &allowed));
         assert!(numbers_ok("中央値 29.2万円 とみられます", &allowed));
         // 捏造数値 (12%) は不合格 — 大分12%移植事故の再発防止と同型
@@ -1475,12 +1523,14 @@ mod tests {
         };
         let v = guard_violations(&draft, &facts);
         assert!(
-            v.iter().any(|s| s.starts_with("confirmation 1:") && s.contains("断定表現")),
+            v.iter()
+                .any(|s| s.starts_with("confirmation 1:") && s.contains("断定表現")),
             "「無関係」の断定が検出されるはず: {:?}",
             v
         );
         assert!(
-            v.iter().any(|s| s.starts_with("candidate 1:") && s.contains("評価語")),
+            v.iter()
+                .any(|s| s.starts_with("candidate 1:") && s.contains("評価語")),
             "評価語「劣位」が検出されるはず: {:?}",
             v
         );
@@ -1503,8 +1553,12 @@ mod tests {
             candidates: (0..4).map(|i| format!("提示候補{}。", i)).collect(),
         };
         let v = guard_violations(&draft, &facts);
-        assert!(v.iter().any(|s| s.starts_with("confirmations:") && s.contains("3項目まで")));
-        assert!(v.iter().any(|s| s.starts_with("candidates:") && s.contains("3項目まで")));
+        assert!(v
+            .iter()
+            .any(|s| s.starts_with("confirmations:") && s.contains("3項目まで")));
+        assert!(v
+            .iter()
+            .any(|s| s.starts_with("candidates:") && s.contains("3項目まで")));
     }
 
     #[test]
@@ -1524,7 +1578,10 @@ mod tests {
         // ガード監査 HIGH-1/2/3 の回帰テスト
         let allowed: HashSet<String> = ["25.0", "25", "21"].iter().map(|s| s.to_string()).collect();
         // 全角数字の捏造は不合格 (正規化後に照合される)
-        assert!(!numbers_ok("上限給与は ４０万円 に達する可能性があります", &allowed));
+        assert!(!numbers_ok(
+            "上限給与は ４０万円 に達する可能性があります",
+            &allowed
+        ));
         // 漢数字2文字以上+数量単位は表記自体を不合格
         assert!(!numbers_ok("年間休日は 百三十 日以上が主流です", &allowed));
         assert!(!numbers_ok("三十五万円 まで可能です", &allowed));
@@ -1534,8 +1591,14 @@ mod tests {
         assert!(!numbers_ok("求職者の 8割 が対象です", &allowed));
         assert!(!numbers_ok("応募が 3倍 になる可能性があります", &allowed));
         // 正当な表現は通る: 許可済み数値+単位 / 序数 / 「一人ひとり」(漢数字1文字)
-        assert!(numbers_ok("市場の 21% が新着で、25万円 が下限です", &allowed));
-        assert!(numbers_ok("次の3つが優先です。一人ひとりに合わせます", &allowed));
+        assert!(numbers_ok(
+            "市場の 21% が新着で、25万円 が下限です",
+            &allowed
+        ));
+        assert!(numbers_ok(
+            "次の3つが優先です。一人ひとりに合わせます",
+            &allowed
+        ));
         // 「25.0万円」→「25万円」の言い換えは fact 側の .0 なし変種で許可される
         assert!(numbers_ok("下限は 25万円 です", &allowed));
     }
@@ -1556,7 +1619,8 @@ mod tests {
         };
         let v = guard_violations(&draft, &facts);
         assert!(
-            v.iter().any(|s| s.starts_with("per_fact F-SAL:") && s.contains("無い数値")),
+            v.iter()
+                .any(|s| s.starts_with("per_fact F-SAL:") && s.contains("無い数値")),
             "fact 跨ぎの数値流用が検出されるはず: {:?}",
             v
         );
@@ -1610,7 +1674,11 @@ mod tests {
         assert!(card.statement.contains("単一値"), "{}", card.statement);
         assert!(card.statement.contains("月収35万円"), "{}", card.statement);
         assert!(card.statement.contains("125日以上"), "{}", card.statement);
-        assert!(card.statement.contains("新着表示はない"), "{}", card.statement);
+        assert!(
+            card.statement.contains("新着表示はない"),
+            "{}",
+            card.statement
+        );
         // 数値出所ガードの許可集合に説明文給与が入る
         assert!(card.numbers.contains(&"35".to_string()));
     }
@@ -1690,7 +1758,8 @@ mod tests {
                 .iter()
                 .map(|f| PerFact {
                     fact_id: f.id.clone(),
-                    dakara: "自社の立ち位置を把握し、調整を検討する余地があるかもしれません。".to_string(),
+                    dakara: "自社の立ち位置を把握し、調整を検討する余地があるかもしれません。"
+                        .to_string(),
                 })
                 .collect(),
             confirmations: vec![],
@@ -1737,12 +1806,14 @@ mod tests {
         };
         let v = guard_violations(&draft, &facts);
         assert!(
-            v.iter().any(|s| s.starts_with("confirmation 1:") && s.contains("禁止表現")),
+            v.iter()
+                .any(|s| s.starts_with("confirmation 1:") && s.contains("禁止表現")),
             "confirmations の禁止語が検出されるはず: {:?}",
             v
         );
         assert!(
-            v.iter().any(|s| s.starts_with("candidate 1:") && s.contains("禁止表現")),
+            v.iter()
+                .any(|s| s.starts_with("candidate 1:") && s.contains("禁止表現")),
             "candidates の禁止語が検出されるはず: {:?}",
             v
         );

@@ -111,21 +111,21 @@ pub async fn upload_csv(
         "",
     )
     .await;
-    let (data, filename, source_type, wage_mode) =
-        match read_upload_multipart(&mut multipart).await {
-            Ok(v) => v,
-            Err((phase, msg)) => {
-                if is_body_size_error(&msg) {
-                    tracing::warn!("Upload rejected (size exceeded): {}", msg);
-                    return Html(body_size_error_html());
-                }
-                return Html(format!(
-                    r#"<div class="stat-card"><p class="text-red-400 text-sm">{}: {}</p></div>"#,
-                    phase,
-                    super::super::helpers::escape_html(&msg)
-                ));
+    let (data, filename, source_type, wage_mode) = match read_upload_multipart(&mut multipart).await
+    {
+        Ok(v) => v,
+        Err((phase, msg)) => {
+            if is_body_size_error(&msg) {
+                tracing::warn!("Upload rejected (size exceeded): {}", msg);
+                return Html(body_size_error_html());
             }
-        };
+            return Html(format!(
+                r#"<div class="stat-card"><p class="text-red-400 text-sm">{}: {}</p></div>"#,
+                phase,
+                super::super::helpers::escape_html(&msg)
+            ));
+        }
+    };
 
     // コンテキスト都道府県（セッションから取得）
     let filters = get_session_filters(&session).await;
@@ -954,7 +954,10 @@ async fn build_survey_report_inner(
     //   ため、query.pref/muni の有無がそのまま「明示選択の有無」になる。
     //   survey_pref_/survey_muni_ キャッシュは upload_csv が dominant を書いた自動値。
     let explicit_pref = query.pref.clone().filter(|s| !s.is_empty() && s != "全国");
-    let explicit_muni = query.muni.clone().filter(|s| !s.is_empty() && s != "すべて");
+    let explicit_muni = query
+        .muni
+        .clone()
+        .filter(|s| !s.is_empty() && s != "すべて");
     let pref = explicit_pref.clone().unwrap_or_else(|| {
         state
             .cache
@@ -1448,8 +1451,15 @@ pub async fn survey_report_download(
     // 2026-07-22: ジョブ化後もダウンロードは同期でフル HTML を得る必要があるため、
     // シェルを返す survey_report_html ではなく内部生成関数を直接呼ぶ。
     if let Some(sid) = query.session_id.clone().filter(|s| !s.is_empty()) {
-        crate::audit::record_event(&state.audit, &session, "generate_survey_report", "report", &sid, "")
-            .await;
+        crate::audit::record_event(
+            &state.audit,
+            &session,
+            "generate_survey_report",
+            "report",
+            &sid,
+            "",
+        )
+        .await;
     }
     // 2026-07-27: ダウンロード URL は業界を乗せないため、tower-session の産業フィルタで補完。
     fallback_industry_from_session(&session, &mut query).await;
@@ -1513,7 +1523,9 @@ pub async fn survey_guide_start(
         return Json(serde_json::json!({ "error": "session_id が必要です" }));
     };
     let Some(agg_val) = state.cache.get(&format!("survey_agg_{}", session_id)) else {
-        return Json(serde_json::json!({ "error": "分析データが期限切れです。CSVを再アップロードしてください" }));
+        return Json(
+            serde_json::json!({ "error": "分析データが期限切れです。CSVを再アップロードしてください" }),
+        );
     };
     let agg: super::aggregator::SurveyAggregation = match serde_json::from_value(agg_val) {
         Ok(a) => a,
@@ -1609,7 +1621,10 @@ pub async fn survey_guide_start(
             Some(h) => h,
             None => {
                 // AI 不可 (キー未設定・混雑・検証全滅) はテンプレ版に自動フォールバック
-                tracing::warn!("guide AI ジョブ失敗。テンプレ版へフォールバック (job={})", job_id_bg);
+                tracing::warn!(
+                    "guide AI ジョブ失敗。テンプレ版へフォールバック (job={})",
+                    job_id_bg
+                );
                 set_guide_status(&state_bg, &job_id_bg, "running", "テンプレート版で組版中");
                 super::report_html::render_survey_guide_page(
                     &agg,
@@ -1638,7 +1653,9 @@ pub async fn survey_guide_status(
     use axum::response::Json;
     match state.cache.get(&guide_job_status_key(&job_id)) {
         Some(v) => Json(v),
-        None => Json(serde_json::json!({ "state": "failed", "message": "ジョブが見つからないか期限切れです" })),
+        None => Json(
+            serde_json::json!({ "state": "failed", "message": "ジョブが見つからないか期限切れです" }),
+        ),
     }
 }
 
@@ -1684,7 +1701,9 @@ pub async fn survey_report_start(
         .get(&format!("survey_agg_{}", session_id))
         .is_none()
     {
-        return Json(serde_json::json!({ "error": "分析データが期限切れです。CSVを再アップロードしてください" }));
+        return Json(
+            serde_json::json!({ "error": "分析データが期限切れです。CSVを再アップロードしてください" }),
+        );
     }
 
     crate::audit::record_event(
@@ -1740,23 +1759,23 @@ pub async fn upload_csv_start(
     )
     .await;
 
-    let (data, filename, source_type, wage_mode) =
-        match read_upload_multipart(&mut multipart).await {
-            Ok(v) => v,
-            Err((phase, msg)) => {
-                let text = if is_body_size_error(&msg) {
-                    format!(
-                        "アップロード可能なファイルサイズ({}MB)を超えています",
-                        crate::UPLOAD_BODY_LIMIT_BYTES / (1024 * 1024)
-                    )
-                } else if msg.is_empty() {
-                    phase.to_string()
-                } else {
-                    format!("{}: {}", phase, msg)
-                };
-                return Json(serde_json::json!({ "error": text }));
-            }
-        };
+    let (data, filename, source_type, wage_mode) = match read_upload_multipart(&mut multipart).await
+    {
+        Ok(v) => v,
+        Err((phase, msg)) => {
+            let text = if is_body_size_error(&msg) {
+                format!(
+                    "アップロード可能なファイルサイズ({}MB)を超えています",
+                    crate::UPLOAD_BODY_LIMIT_BYTES / (1024 * 1024)
+                )
+            } else if msg.is_empty() {
+                phase.to_string()
+            } else {
+                format!("{}: {}", phase, msg)
+            };
+            return Json(serde_json::json!({ "error": text }));
+        }
+    };
 
     let filters = get_session_filters(&session).await;
     let context_pref = if filters.prefecture.is_empty() {
@@ -1971,7 +1990,10 @@ mod selection_gate_tests {
         assert!(url.contains("proceed_unselected=1"), "proceed フラグ付与");
         // 日本語はパーセントエンコードされる (生の日本語は含まない)
         assert!(!url.contains("東京都"), "pref は encode 済み");
-        assert!(url.contains("pref=%E6%9D%B1%E4%BA%AC%E9%83%BD"), "pref encode 値");
+        assert!(
+            url.contains("pref=%E6%9D%B1%E4%BA%AC%E9%83%BD"),
+            "pref encode 値"
+        );
     }
 
     // 確認ページは不足項目のみ表示し、proceed リンクを含む。
@@ -1987,7 +2009,10 @@ mod selection_gate_tests {
         assert!(html.contains("この内容で作成しますか"), "確認見出し");
         assert!(html.contains("神奈川県 川崎市"), "自動採用地域を表示");
         assert!(html.contains("業種別の分析"), "業種省略の注記");
-        assert!(html.contains("proceed_unselected=1"), "このまま作成するリンク");
+        assert!(
+            html.contains("proceed_unselected=1"),
+            "このまま作成するリンク"
+        );
         assert!(html.contains("選び直す"), "選び直すボタン");
 
         // 地域は明示済み → 地域行は出さず、業種行のみ。

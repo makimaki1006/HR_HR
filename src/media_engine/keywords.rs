@@ -59,7 +59,9 @@ pub fn build_volume_map<V: Clone>(
     for (text, value) in rows {
         by_text.insert(text.as_str(), value); // 後勝ち
         by_squash.entry(squash_keyword(text)).or_insert(value); // 先勝ち
-        by_sorted.entry(normalize_keyword_key(text)).or_insert(value); // 先勝ち
+        by_sorted
+            .entry(normalize_keyword_key(text))
+            .or_insert(value); // 先勝ち
     }
     requested
         .iter()
@@ -101,7 +103,10 @@ mod tests {
             normalize_keyword_key("介護 求人 東京"),
             normalize_keyword_key("東京 介護 求人")
         );
-        assert_eq!(normalize_keyword_key("IT 求人"), normalize_keyword_key("it 求人"));
+        assert_eq!(
+            normalize_keyword_key("IT 求人"),
+            normalize_keyword_key("it 求人")
+        );
     }
 
     #[test]

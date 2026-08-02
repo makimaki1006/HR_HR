@@ -537,8 +537,7 @@ fn build_navy_region_table(
         let key = format!("{}:{}", row.prefecture, row.name);
         let enrich = hw_enrichment_map.get(&key);
         let med_man = format!("{:.1}", row.median_salary as f64 / 10000.0);
-        let is_base =
-            base_muni.map_or(false, |(bp, bm)| row.prefecture == bp && row.name == bm);
+        let is_base = base_muni.map_or(false, |(bp, bm)| row.prefecture == bp && row.name == bm);
         let row_class = if hl { " class=\"hl\"" } else { "" };
         let badge = if is_base {
             " <span style=\"display:inline-block;padding:1px 6px;border-radius:4px;\
@@ -625,8 +624,7 @@ fn build_navy_region_table(
     };
 
     // 件数最多 10 市区町村 (CSV 件数降順)
-    let top10: Vec<&MunicipalitySalaryAgg> =
-        agg.by_municipality_salary.iter().take(10).collect();
+    let top10: Vec<&MunicipalitySalaryAgg> = agg.by_municipality_salary.iter().take(10).collect();
 
     if top10.is_empty() {
         let cols = if show_hw { 8 } else { 6 };
