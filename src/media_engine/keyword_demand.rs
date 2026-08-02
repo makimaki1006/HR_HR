@@ -154,7 +154,13 @@ pub fn compute_recent_trend(monthly_12m: &[(String, i64)], threshold: f64) -> Re
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     let n = rows.len();
     if n < 6 {
-        let recent3_months = rows.iter().rev().take(3).rev().map(|(m, _)| m.clone()).collect();
+        let recent3_months = rows
+            .iter()
+            .rev()
+            .take(3)
+            .rev()
+            .map(|(m, _)| m.clone())
+            .collect();
         return RecentTrend {
             trend: "データ不足".to_string(),
             recent3_avg: None,
@@ -170,7 +176,11 @@ pub fn compute_recent_trend(monthly_12m: &[(String, i64)], threshold: f64) -> Re
     let recent3_months: Vec<String> = rows[n - 3..].iter().map(|(m, _)| m.clone()).collect();
 
     let (trend, change_ratio) = if prior3_avg == 0.0 {
-        let t = if recent3_avg == 0.0 { "横ばい" } else { "増加" };
+        let t = if recent3_avg == 0.0 {
+            "横ばい"
+        } else {
+            "増加"
+        };
         (t.to_string(), None)
     } else {
         let cr = (recent3_avg - prior3_avg) / prior3_avg;
@@ -224,7 +234,10 @@ fn build_prep_month_candidates(
             "peak_value".to_string(),
             peak_value.map(Value::from).unwrap_or(Value::Null),
         );
-        o.insert("median".to_string(), median.map(f64_val).unwrap_or(Value::Null));
+        o.insert(
+            "median".to_string(),
+            median.map(f64_val).unwrap_or(Value::Null),
+        );
         o.insert(
             "ratio_vs_median".to_string(),
             ratio.map(f64_val).unwrap_or(Value::Null),
@@ -293,7 +306,7 @@ pub fn analyze_keyword(
 pub fn peak_month_argmax(monthly_12m: &[(String, i64)]) -> Option<String> {
     let mut rows: Vec<(String, i64)> = monthly_12m.to_vec();
     rows.sort_by(|a, b| a.0.cmp(&b.0)); // 月昇順
-    // 同値は早い月を採るため strict `>` で先勝ち(max_by_key は同値で後勝ちのため使わない)。
+                                        // 同値は早い月を採るため strict `>` で先勝ち(max_by_key は同値で後勝ちのため使わない)。
     let mut best: Option<(String, i64)> = None;
     for (m, v) in rows {
         if best.as_ref().map(|(_, bv)| v > *bv).unwrap_or(true) {
@@ -370,7 +383,10 @@ pub fn rotation_calendar(kws: &[KeywordMetric], noise_floor: i64) -> RotationCal
             .map(|(_, v)| *v)
             .unwrap_or(0);
         if let Some(mn) = month_num_of(&peak) {
-            by_month.entry(mn).or_default().push((km.keyword.clone(), peak_val));
+            by_month
+                .entry(mn)
+                .or_default()
+                .push((km.keyword.clone(), peak_val));
         }
     }
     let calendar = (1..=12u32)
@@ -417,7 +433,11 @@ pub fn concentration_from_metrics(kws: &[KeywordMetric]) -> Concentration {
     // 検索量 > 0 のものだけ。
     let mut eff: Vec<(String, f64)> = kws
         .iter()
-        .filter_map(|k| k.avg_monthly.filter(|v| *v > 0).map(|v| (k.keyword.clone(), v as f64)))
+        .filter_map(|k| {
+            k.avg_monthly
+                .filter(|v| *v > 0)
+                .map(|v| (k.keyword.clone(), v as f64))
+        })
         .collect();
     let total: f64 = eff.iter().map(|(_, v)| v).sum();
     if total <= 0.0 {
@@ -497,7 +517,9 @@ pub fn year_over_year(metric: &KeywordMetric) -> Value {
         .collect();
 
     let latest_year = by_year.keys().next_back().copied();
-    let previous_year = latest_year.filter(|y| by_year.contains_key(&(y - 1))).map(|y| y - 1);
+    let previous_year = latest_year
+        .filter(|y| by_year.contains_key(&(y - 1)))
+        .map(|y| y - 1);
 
     let (monthly, common, annual) = match (latest_year, previous_year) {
         (Some(ly), Some(py)) => {
@@ -652,13 +674,26 @@ mod tests {
     fn seasonality_flags_peaks_above_threshold() {
         // median=10, threshold=13。70/20/20/20 がピーク、他は 10。
         let monthly = [
-            ("2025-07", 70), ("2025-08", 10), ("2025-09", 10), ("2025-10", 20),
-            ("2025-11", 10), ("2025-12", 20), ("2026-01", 10), ("2026-02", 10),
-            ("2026-03", 10), ("2026-04", 10), ("2026-05", 10), ("2026-06", 20),
-        ].map(|(m, v)| (m.to_string(), v));
+            ("2025-07", 70),
+            ("2025-08", 10),
+            ("2025-09", 10),
+            ("2025-10", 20),
+            ("2025-11", 10),
+            ("2025-12", 20),
+            ("2026-01", 10),
+            ("2026-02", 10),
+            ("2026-03", 10),
+            ("2026-04", 10),
+            ("2026-05", 10),
+            ("2026-06", 20),
+        ]
+        .map(|(m, v)| (m.to_string(), v));
         let s = compute_seasonality(&monthly, DEFAULT_PEAK_RATIO);
         assert_eq!(s.median, Some(10.0));
-        assert_eq!(s.peak_months, vec!["2025-07", "2025-10", "2025-12", "2026-06"]);
+        assert_eq!(
+            s.peak_months,
+            vec!["2025-07", "2025-10", "2025-12", "2026-06"]
+        );
         assert_eq!(s.bottom_value, Some(10));
         assert_eq!(s.bottom_month.as_deref(), Some("2025-08")); // 先勝ちの最小
     }
@@ -667,9 +702,14 @@ mod tests {
     fn recent_trend_increase_and_data_short() {
         // 前3=[10,10,10]平均10, 直近3=[10,10,20]平均13.33 → +33% → 増加
         let monthly = [
-            ("2025-07", 10), ("2025-08", 10), ("2025-09", 10),
-            ("2025-10", 10), ("2025-11", 10), ("2025-12", 20),
-        ].map(|(m, v)| (m.to_string(), v));
+            ("2025-07", 10),
+            ("2025-08", 10),
+            ("2025-09", 10),
+            ("2025-10", 10),
+            ("2025-11", 10),
+            ("2025-12", 20),
+        ]
+        .map(|(m, v)| (m.to_string(), v));
         let t = compute_recent_trend(&monthly, DEFAULT_TREND_THRESHOLD);
         assert_eq!(t.trend, "増加");
         assert_eq!(t.prior3_avg, Some(10.0));
@@ -677,13 +717,16 @@ mod tests {
         assert_eq!(t.change_ratio, Some(0.333));
         // 6ヶ月未満はデータ不足。
         let short = [("2025-07".to_string(), 10), ("2025-08".to_string(), 20)];
-        assert_eq!(compute_recent_trend(&short, DEFAULT_TREND_THRESHOLD).trend, "データ不足");
+        assert_eq!(
+            compute_recent_trend(&short, DEFAULT_TREND_THRESHOLD).trend,
+            "データ不足"
+        );
     }
 
     #[test]
     fn peak_month_argmax_ties_earliest() {
-        let monthly = [("2025-09", 720), ("2025-07", 720), ("2025-08", 100)]
-            .map(|(m, v)| (m.to_string(), v));
+        let monthly =
+            [("2025-09", 720), ("2025-07", 720), ("2025-08", 100)].map(|(m, v)| (m.to_string(), v));
         // 720 が 2 つ → 早い月 2025-07。
         assert_eq!(peak_month_argmax(&monthly).as_deref(), Some("2025-07"));
     }
@@ -743,12 +786,22 @@ mod tests {
         // 2025: 全月 100。2026: 1-6月 だけ 120/50/100/100/100/100。
         let mut monthly = year_series(2025, [100; 12]);
         monthly.extend(
-            [(1u32, 120i64), (2, 50), (3, 100), (4, 100), (5, 100), (6, 100)]
-                .iter()
-                .map(|(m, v)| (format!("2026-{m:02}"), *v)),
+            [
+                (1u32, 120i64),
+                (2, 50),
+                (3, 100),
+                (4, 100),
+                (5, 100),
+                (6, 100),
+            ]
+            .iter()
+            .map(|(m, v)| (format!("2026-{m:02}"), *v)),
         );
         let m = km("kw", Some(100), &[]);
-        let m = KeywordMetric { monthly_12m: monthly, ..m };
+        let m = KeywordMetric {
+            monthly_12m: monthly,
+            ..m
+        };
         let v = year_over_year(&m);
         assert_eq!(v["latest_year"], 2026);
         assert_eq!(v["previous_year"], 2025);
@@ -768,8 +821,8 @@ mod tests {
         assert_eq!(mon[0]["previous"], 100);
         assert_eq!(mon[0]["change_ratio"], 0.2);
         assert_eq!(mon[1]["change_ratio"], -0.5); // 50 vs 100
-        assert_eq!(mon[2]["change_ratio"], 0.0);  // 100 vs 100(同値は 0.0、null ではない)
-        // 共通6ヶ月: 570 vs 600 → -0.05。
+        assert_eq!(mon[2]["change_ratio"], 0.0); // 100 vs 100(同値は 0.0、null ではない)
+                                                 // 共通6ヶ月: 570 vs 600 → -0.05。
         assert_eq!(v["common_months_count"], 6);
         assert_eq!(v["annual_change_ratio"], -0.05);
     }
@@ -777,7 +830,10 @@ mod tests {
     #[test]
     fn year_over_year_null_when_insufficient() {
         // 単年のみ → 比較不能(0 ではなく null)。
-        let single = KeywordMetric { monthly_12m: year_series(2026, [10; 12]), ..km("kw", Some(10), &[]) };
+        let single = KeywordMetric {
+            monthly_12m: year_series(2026, [10; 12]),
+            ..km("kw", Some(10), &[])
+        };
         let v = year_over_year(&single);
         assert_eq!(v["latest_year"], 2026);
         assert!(v["previous_year"].is_null());
@@ -795,7 +851,10 @@ mod tests {
         // 連続しない年(2023 と 2026)→ 前年が無いので比較不能。
         let mut gap = year_series(2023, [10; 12]);
         gap.extend(year_series(2026, [20; 12]));
-        let v3 = year_over_year(&KeywordMetric { monthly_12m: gap, ..km("kw", Some(10), &[]) });
+        let v3 = year_over_year(&KeywordMetric {
+            monthly_12m: gap,
+            ..km("kw", Some(10), &[])
+        });
         assert_eq!(v3["latest_year"], 2026);
         assert!(v3["previous_year"].is_null());
         assert!(v3["annual_change_ratio"].is_null());
@@ -806,7 +865,10 @@ mod tests {
         // 前年が 0 の月は比率を出せない → null(∞ や 0 にしない)。
         let mut monthly = year_series(2025, [0; 12]);
         monthly.extend(year_series(2026, [100; 12]));
-        let v = year_over_year(&KeywordMetric { monthly_12m: monthly, ..km("kw", Some(50), &[]) });
+        let v = year_over_year(&KeywordMetric {
+            monthly_12m: monthly,
+            ..km("kw", Some(50), &[])
+        });
         let mon = v["monthly"].as_array().unwrap();
         assert_eq!(mon[0]["previous"], 0);
         assert!(mon[0]["change_ratio"].is_null());
@@ -833,7 +895,10 @@ mod tests {
         v2026[3] = 800;
         v2026[11] = 700;
         monthly.extend(year_series(2026, v2026));
-        let m = KeywordMetric { monthly_12m: monthly, ..km("kw", Some(200), &[]) };
+        let m = KeywordMetric {
+            monthly_12m: monthly,
+            ..km("kw", Some(200), &[])
+        };
 
         let rp = recurring_peak_months(&m);
         let rows = rp.as_array().unwrap();
@@ -851,19 +916,31 @@ mod tests {
     #[test]
     fn recurring_peaks_empty_for_single_year_or_flat_zero() {
         // 単年のみ → 空。
-        let single = KeywordMetric { monthly_12m: year_series(2026, [10; 12]), ..km("kw", Some(10), &[]) };
-        assert!(recurring_peak_months(&single).as_array().unwrap().is_empty());
+        let single = KeywordMetric {
+            monthly_12m: year_series(2026, [10; 12]),
+            ..km("kw", Some(10), &[])
+        };
+        assert!(recurring_peak_months(&single)
+            .as_array()
+            .unwrap()
+            .is_empty());
 
         // 全ゼロの複数年 → ピーク無しで空(0 を「ピーク」にしない)。
         let mut zeros = year_series(2025, [0; 12]);
         zeros.extend(year_series(2026, [0; 12]));
-        let z = KeywordMetric { monthly_12m: zeros, ..km("kw", Some(0), &[]) };
+        let z = KeywordMetric {
+            monthly_12m: zeros,
+            ..km("kw", Some(0), &[])
+        };
         assert!(recurring_peak_months(&z).as_array().unwrap().is_empty());
 
         // 完全に平坦(全月同値)の複数年 → 中央値超えの月が無いのでピーク無し(空)。
         let mut flat = year_series(2025, [10; 12]);
         flat.extend(year_series(2026, [10; 12]));
-        let f = KeywordMetric { monthly_12m: flat, ..km("kw", Some(10), &[]) };
+        let f = KeywordMetric {
+            monthly_12m: flat,
+            ..km("kw", Some(10), &[])
+        };
         assert!(recurring_peak_months(&f).as_array().unwrap().is_empty());
 
         // 1月だけ突出し他が全部同値 → 1月のみ(閾値が並の値に落ちて全月ピーク化しない)。
@@ -871,7 +948,10 @@ mod tests {
         spike[0] = 900;
         let mut sp = year_series(2025, spike);
         sp.extend(year_series(2026, spike));
-        let s = KeywordMetric { monthly_12m: sp, ..km("kw", Some(160), &[]) };
+        let s = KeywordMetric {
+            monthly_12m: sp,
+            ..km("kw", Some(160), &[])
+        };
         let rows = recurring_peak_months(&s);
         let rows = rows.as_array().unwrap();
         assert_eq!(rows.len(), 1);

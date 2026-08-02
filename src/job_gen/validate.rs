@@ -39,7 +39,7 @@ fn normalize_text(value: &str) -> String {
             }
             '．' => out.push('.'),
             '：' => out.push(':'),
-            ',' | '，' => {} // カンマは除去
+            ',' | '，' => {}             // カンマは除去
             c if c.is_whitespace() => {} // 空白は除去
             c => out.push(c),
         }
@@ -235,7 +235,10 @@ mod tests {
             "40 は原文にあるので段①では出ないはず: {un:?}"
         );
         assert!(un.contains(&"40代".to_string()), "got {un:?}");
-        assert!(!un.contains(&"40時間".to_string()), "40時間は原文にある: {un:?}");
+        assert!(
+            !un.contains(&"40時間".to_string()),
+            "40時間は原文にある: {un:?}"
+        );
     }
 
     #[test]
@@ -263,8 +266,14 @@ mod tests {
         let source = "月給25万円";
         let gen = "月給250,000円からスタート";
         let un = find_unsupported_numbers(source, gen);
-        assert!(!un.contains(&"250000".to_string()), "数字自体は段①で吸収: {un:?}");
-        assert!(un.contains(&"250000円".to_string()), "ペアは段②で検知: {un:?}");
+        assert!(
+            !un.contains(&"250000".to_string()),
+            "数字自体は段①で吸収: {un:?}"
+        );
+        assert!(
+            un.contains(&"250000円".to_string()),
+            "ペアは段②で検知: {un:?}"
+        );
     }
 
     #[test]
@@ -279,20 +288,27 @@ mod tests {
         // レビュー実障害の再現: 原文は実働7.5時間しか書いていないのに、
         // コピー/スマホ原稿が「朝の2時間だけ働ける」と誤解釈した。
         // 「2」も「2時間」も原文に無いため、段①・段②の双方で検知される。
-        let source = "05:50〜14:20 / 11:50〜20:20 実働時間7.5時間。5:50〜8:00は早朝割増時給の時間帯";
+        let source =
+            "05:50〜14:20 / 11:50〜20:20 実働時間7.5時間。5:50〜8:00は早朝割増時給の時間帯";
         let gen = "空港の早朝2時間で時給1,450円、朝の2時間を副収入に";
         let un = find_unsupported_numbers(source, gen);
-        assert!(un.contains(&"2時間".to_string()), "2時間 が検知されるべき: {un:?}");
+        assert!(
+            un.contains(&"2時間".to_string()),
+            "2時間 が検知されるべき: {un:?}"
+        );
         // 7.5時間 は原文にあるので誤検知しない。
-        assert!(!un.contains(&"7.5時間".to_string()), "7.5時間は原文にある: {un:?}");
+        assert!(
+            !un.contains(&"7.5時間".to_string()),
+            "7.5時間は原文にある: {un:?}"
+        );
     }
 
     #[test]
     fn collect_number_violations_は違反テキストのみ返す() {
         let source = "実働時間7.5時間。時給1,450円";
         let texts = [
-            "時給1,450円で働けます",   // 原文どおり → 合格
-            "朝の2時間だけ働ける",     // 2時間は原文に無い → 違反
+            "時給1,450円で働けます", // 原文どおり → 合格
+            "朝の2時間だけ働ける",   // 2時間は原文に無い → 違反
         ];
         let v = collect_number_violations(source, &texts);
         assert_eq!(v.len(), 1, "違反は1件のはず: {v:?}");

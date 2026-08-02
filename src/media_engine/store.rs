@@ -59,7 +59,11 @@ fn ensure_tables(turso: &TursoDb) {
     if q.is_ok() && c.is_ok() {
         TABLES_READY.store(true, Ordering::Relaxed);
     } else {
-        tracing::warn!("media_engine store: テーブル作成に失敗 (quota={:?}, cache={:?})", q.err(), c.err());
+        tracing::warn!(
+            "media_engine store: テーブル作成に失敗 (quota={:?}, cache={:?})",
+            q.err(),
+            c.err()
+        );
     }
 }
 
@@ -89,7 +93,11 @@ pub async fn quota_increment(turso: Option<TursoDb>, n: i64) {
         let cur = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-        if let Some(month) = cur.as_ref().and_then(|v| v.get("month")).and_then(Value::as_str) {
+        if let Some(month) = cur
+            .as_ref()
+            .and_then(|v| v.get("month"))
+            .and_then(Value::as_str)
+        {
             let count = cur
                 .as_ref()
                 .and_then(|v| v.get("count"))
@@ -97,7 +105,10 @@ pub async fn quota_increment(turso: Option<TursoDb>, n: i64) {
                 .unwrap_or(0)
                 + n;
             let next = json!({"month": month, "count": count});
-            let _ = std::fs::write(&path, serde_json::to_string(&next).unwrap_or_default() + "\n");
+            let _ = std::fs::write(
+                &path,
+                serde_json::to_string(&next).unwrap_or_default() + "\n",
+            );
         }
     }
 }
@@ -110,9 +121,16 @@ pub async fn quota_read(turso: Option<TursoDb>) -> Value {
         let month_for_out = month.clone();
         let used = tokio::task::spawn_blocking(move || -> Option<i64> {
             ensure_tables(&db);
-            db.query("SELECT used FROM jme_serpapi_quota WHERE month = ?", &[&month])
-                .ok()
-                .and_then(|rows| rows.first().and_then(|r| r.get("used")).and_then(Value::as_i64))
+            db.query(
+                "SELECT used FROM jme_serpapi_quota WHERE month = ?",
+                &[&month],
+            )
+            .ok()
+            .and_then(|rows| {
+                rows.first()
+                    .and_then(|r| r.get("used"))
+                    .and_then(Value::as_i64)
+            })
         })
         .await
         .ok()
@@ -125,7 +143,11 @@ pub async fn quota_read(turso: Option<TursoDb>) -> Value {
         let cur = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-        if let Some(month) = cur.as_ref().and_then(|v| v.get("month")).and_then(Value::as_str) {
+        if let Some(month) = cur
+            .as_ref()
+            .and_then(|v| v.get("month"))
+            .and_then(Value::as_str)
+        {
             let count = cur
                 .as_ref()
                 .and_then(|v| v.get("count"))

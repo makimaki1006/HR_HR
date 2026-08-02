@@ -1099,7 +1099,11 @@ mod rental_housing_sql_tests {
             "muni 指定時は municipality を ?2 で絞ること: {}",
             sql
         );
-        assert!(sql.contains("prefecture = ?1"), "pref も ?1 で絞ること: {}", sql);
+        assert!(
+            sql.contains("prefecture = ?1"),
+            "pref も ?1 で絞ること: {}",
+            sql
+        );
     }
 
     // muni 行が無い場合のフォールバックは県集計 (municipality 空) + 全国に限定し、
@@ -1112,7 +1116,11 @@ mod rental_housing_sql_tests {
             "フォールバックは県集計 (municipality 空) に限定すること: {}",
             sql
         );
-        assert!(sql.contains("prefecture = '全国'"), "全国比較行を含むこと: {}", sql);
+        assert!(
+            sql.contains("prefecture = '全国'"),
+            "全国比較行を含むこと: {}",
+            sql
+        );
     }
 
     // 従来経路 (muni 未指定) は pref + 全国 のプールを維持する (consult / jobmap 用)。

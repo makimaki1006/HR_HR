@@ -898,10 +898,18 @@ mod tests {
         );
         let h12 =
             build_navy_tightness_table(Some(&make_data(Some(1.2), None, None, None, None)), false);
-        assert!(h12.contains("全国平均と同程度"), "1.2 -> 全国平均と同程度: {}", h12);
+        assert!(
+            h12.contains("全国平均と同程度"),
+            "1.2 -> 全国平均と同程度: {}",
+            h12
+        );
         let h08 =
             build_navy_tightness_table(Some(&make_data(Some(0.8), None, None, None, None)), false);
-        assert!(h08.contains("全国平均を下回る"), "0.8 -> 全国平均を下回る: {}", h08);
+        assert!(
+            h08.contains("全国平均を下回る"),
+            "0.8 -> 全国平均を下回る: {}",
+            h08
+        );
     }
 
     // [境界] None データ (全指標欠損) でも panic せず、"—" 行 + table を返す。

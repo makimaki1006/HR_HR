@@ -868,10 +868,8 @@ mod tests {
     #[test]
     fn toc_full_order_matches_display_section_numbers() {
         let mut html = String::new();
-        let sset = SectionSet::from_query(
-            Some("02,03,075,076,06,05,04,07,09,10"),
-            ReportVariant::Sp,
-        );
+        let sset =
+            SectionSet::from_query(Some("02,03,075,076,06,05,04,07,09,10"), ReportVariant::Sp);
         render_navy_toc(&mut html, ReportVariant::Sp, &sset);
 
         let mut previous = 0;

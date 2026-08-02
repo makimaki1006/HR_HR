@@ -604,7 +604,9 @@ fn render_mi_9d_scenario_intensity(
         wage_attractiveness_index,
     );
 
-    html.push_str("<table class=\"table-navy\" style=\"font-size:10pt;table-layout:fixed;width:100%;\">\n");
+    html.push_str(
+        "<table class=\"table-navy\" style=\"font-size:10pt;table-layout:fixed;width:100%;\">\n",
+    );
     html.push_str(
         "<colgroup>\
          <col style=\"width:10%\"><col style=\"width:20%\">\
@@ -613,8 +615,16 @@ fn render_mi_9d_scenario_intensity(
     );
     html.push_str("<thead><tr><th>シナリオ</th><th>強弱 (推定)</th><th>指数</th><th>想定する進め方</th></tr></thead>\n<tbody>\n");
     for (name, idx, decision) in &[
-        ("保守", cons, "既存経験者・近接地域を中心に、低リスクで掲載する前提。"),
-        ("標準", std_idx, "通勤圏 + 近接職種まで含めた標準的な掲載の前提。"),
+        (
+            "保守",
+            cons,
+            "既存経験者・近接地域を中心に、低リスクで掲載する前提。",
+        ),
+        (
+            "標準",
+            std_idx,
+            "通勤圏 + 近接職種まで含めた標準的な掲載の前提。",
+        ),
         (
             "強気",
             agg_idx,

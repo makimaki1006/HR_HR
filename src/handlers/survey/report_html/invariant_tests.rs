@@ -1599,7 +1599,8 @@ fn invariant_table_2d_municipality_comparison_renders_base_and_reference() {
             single_rate: Some(60.0),
         },
     ];
-    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> = HashMap::new();
+    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> =
+        HashMap::new();
     let mut html = String::new();
     super::navy_report::render_navy_section_02_region(
         &mut html,
@@ -1676,10 +1677,7 @@ fn invariant_table_2c2_outflow_renders_with_base_center_and_destinations() {
     );
 
     assert!(html.contains("表 2-C-2"), "表 2-C-2 が描画される");
-    assert!(
-        html.contains("通勤流出先"),
-        "見出しに「通勤流出先」が出る"
-    );
+    assert!(html.contains("通勤流出先"), "見出しに「通勤流出先」が出る");
     // 逆証明: 基準地域 (流出元) がキャプション・見出しに名指しされる。
     assert!(
         html.contains("群馬県藤岡市"),
@@ -1751,7 +1749,8 @@ fn invariant_table_2a_share_label_and_base_badge() {
         ],
         ..Default::default()
     };
-    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> = HashMap::new();
+    let enrich: HashMap<String, crate::handlers::survey::report_html::HwAreaEnrichment> =
+        HashMap::new();
     let mut html = String::new();
     // Public variant (show_hw=false) で「掲載シェア」列が出る。
     super::navy_report::render_navy_section_02_region(

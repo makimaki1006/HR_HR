@@ -1547,7 +1547,8 @@ mod fixb_tests {
         assert!(
             html.contains("公的機関の掲載求人のみ")
                 || html.contains("HW 掲載求人のみ")
-                || html.contains("公的機関の掲載求人") || html.contains("公的求人データ"),
+                || html.contains("公的機関の掲載求人")
+                || html.contains("公的求人データ"),
             "HW 限定スコープの注記が必須 (feedback_hw_data_scope.md)"
         );
         assert!(

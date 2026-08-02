@@ -217,14 +217,22 @@ pub fn build_generation_prompt(facts_text: &str, strategy_hint: &str) -> String 
 
     let spec_lines = GENERATION_FIELD_SPECS
         .iter()
-        .map(|s| format!("- {}({}): {}。{}字以内", s.key, s.column, s.guide, s.max_len))
+        .map(|s| {
+            format!(
+                "- {}({}): {}。{}字以内",
+                s.key, s.column, s.guide, s.max_len
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
     let strategy_block = if strategy_hint.trim().is_empty() {
         String::new()
     } else {
-        format!("\n【戦略の要約(訴求の方向性。事実の追加根拠にはしない)】\n{}\n", strategy_hint.trim())
+        format!(
+            "\n【戦略の要約(訴求の方向性。事実の追加根拠にはしない)】\n{}\n",
+            strategy_hint.trim()
+        )
     };
 
     format!(
@@ -482,7 +490,10 @@ pub fn detect_unassigned_hints(
             continue;
         }
         // 対応列が既に埋まっているなら指摘不要。
-        let filled = row.get(column).map(|v| !v.trim().is_empty()).unwrap_or(false);
+        let filled = row
+            .get(column)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
         if filled {
             continue;
         }
@@ -527,7 +538,8 @@ mod tests {
     // NG ワード最小ルール(契約の NgRules::load_from_str をインラインJSONで使う)。
     // standalone=true のトリガーは major 自身なので、禁止語を major に置く。
     fn test_ng() -> NgRules {
-        let json = r#"{"groups":[{"reason":"誇張表現","major":"絶対","minors":[],"standalone":true}]}"#;
+        let json =
+            r#"{"groups":[{"reason":"誇張表現","major":"絶対","minors":[],"standalone":true}]}"#;
         NgRules::load_from_str(json).expect("ng rules")
     }
 
@@ -609,12 +621,20 @@ mod tests {
     fn 原文にない数値はレビュー行き() {
         let source = "介護のお仕事です。未経験歓迎。";
         // 賞与年3回 の "3" は原文に無い。
-        let raw = raw5("案件名", "賞与年3回支給します", "コピー", "メリット", "介護");
+        let raw = raw5(
+            "案件名",
+            "賞与年3回支給します",
+            "コピー",
+            "メリット",
+            "介護",
+        );
         let g = validate_generated(source, &raw, &test_ng());
         let f = &g["job_description"];
         assert_eq!(f.status, "review_required");
         assert!(
-            f.issues.iter().any(|i| i.starts_with("unsupported_numbers:")),
+            f.issues
+                .iter()
+                .any(|i| i.starts_with("unsupported_numbers:")),
             "{:?}",
             f.issues
         );
@@ -624,7 +644,13 @@ mod tests {
     fn ngワード違反はレビュー行き() {
         // 数値混入を避け、NGワード(「絶対」)のみで落ちることを確認する。
         let source = "介護のお仕事です。安心の職場です。";
-        let raw = raw5("案件名", "絶対に安心の職場です", "コピー", "メリット", "介護");
+        let raw = raw5(
+            "案件名",
+            "絶対に安心の職場です",
+            "コピー",
+            "メリット",
+            "介護",
+        );
         let g = validate_generated(source, &raw, &test_ng());
         let f = &g["job_description"];
         assert_eq!(f.status, "review_required");
@@ -654,7 +680,10 @@ mod tests {
         facts.insert("working_hours".into(), verified("8時30分〜17時30分"));
         facts.insert("salary".into(), verified("192,000円〜195,000円"));
         facts.insert("holidays".into(), verified("週休二日制 年次有給休暇10日"));
-        facts.insert("insurance".into(), verified("雇用保険 労災保険 健康保険 厚生年金"));
+        facts.insert(
+            "insurance".into(),
+            verified("雇用保険 労災保険 健康保険 厚生年金"),
+        );
         facts.insert("allowances".into(), verified("夜勤手当3,500円/回"));
 
         let generated = BTreeMap::new();
@@ -799,7 +828,10 @@ mod tests {
             .collect();
         let source = "試用期間3ヶ月あり、研修も充実。";
         let hints = detect_unassigned_hints(source, &row);
-        let count = hints.iter().filter(|h| h.column == "試用・研修の有無").count();
+        let count = hints
+            .iter()
+            .filter(|h| h.column == "試用・研修の有無")
+            .count();
         assert_eq!(count, 1, "同一列は1件: {hints:?}");
     }
 

@@ -394,7 +394,11 @@ pub fn images_schema() -> Value {
 /// 出力プロンプトをラベル付きセクション構造で固定し、人数・服装・表情・視線・配置まで
 /// 数値と具体語で確定させる。曖昧語を禁止し、禁止事項を本文にも埋め込む
 /// (ネガティブプロンプト欄を持たない生成AIでも抑制が効くように)。
-pub fn build_image_prompts_prompt(directions: &Value, personas: &Value, source_text: &str) -> String {
+pub fn build_image_prompts_prompt(
+    directions: &Value,
+    personas: &Value,
+    source_text: &str,
+) -> String {
     let list = directions
         .get("directions")
         .and_then(Value::as_array)
@@ -435,7 +439,10 @@ pub fn build_image_prompts_prompt(directions: &Value, personas: &Value, source_t
                 } else {
                     format!("\n### このペルソナの人物像(訴求の根拠)\n{ptext}")
                 };
-                format!("{head}\n### ディレクション\n{}{persona_block}", str_field(d, "direction"))
+                format!(
+                    "{head}\n### ディレクション\n{}{persona_block}",
+                    str_field(d, "direction")
+                )
             })
             .collect::<Vec<_>>()
             .join("\n\n")
@@ -641,8 +648,14 @@ mod tests {
 
     /// 全プロンプトに共通制約2文が入っていること。
     fn assert_common_constraints(p: &str) {
-        assert!(p.contains(CONSTRAINT_NO_FABRICATION), "事実追加禁止が無い:\n{p}");
-        assert!(p.contains(CONSTRAINT_NO_GENERIC), "無難表現禁止が無い:\n{p}");
+        assert!(
+            p.contains(CONSTRAINT_NO_FABRICATION),
+            "事実追加禁止が無い:\n{p}"
+        );
+        assert!(
+            p.contains(CONSTRAINT_NO_GENERIC),
+            "無難表現禁止が無い:\n{p}"
+        );
     }
 
     fn sample_analysis() -> Value {
@@ -665,7 +678,10 @@ mod tests {
 
     #[test]
     fn analyze_prompt_embeds_source_and_knowledge_and_constraints() {
-        let p = build_analyze_prompt("大型ドライバー募集 月給35万円", "運送業の転職理由は労働時間");
+        let p = build_analyze_prompt(
+            "大型ドライバー募集 月給35万円",
+            "運送業の転職理由は労働時間",
+        );
         assert_common_constraints(&p);
         // 入力値がプロンプトに埋まっている。
         assert!(p.contains("大型ドライバー募集 月給35万円"), "{p}");
@@ -725,7 +741,11 @@ mod tests {
     #[test]
     fn copy_prompt_injects_source_constraints() {
         // 原文を渡すと制約ブロックと原文抜粋が入る。
-        let p = build_copy_prompt(&sample_persona(), &sample_analysis(), "勤務中のネイル禁止。実働7.5時間。");
+        let p = build_copy_prompt(
+            &sample_persona(),
+            &sample_analysis(),
+            "勤務中のネイル禁止。実働7.5時間。",
+        );
         assert!(p.contains("原文制約(厳守)"), "{p}");
         assert!(p.contains("勤務中のネイル禁止"), "{p}");
         assert!(p.contains("勤務形態"), "{p}");
@@ -759,7 +779,10 @@ mod tests {
     #[test]
     fn images_prompt_injects_source_constraints() {
         // 原文の身だしなみ規定が制約として入る(ネイル禁止 → 画像に描かせない)。
-        let p = build_images_prompt(&json!({"personas": [sample_persona()]}), "勤務中のネイル・アクセサリーは禁止");
+        let p = build_images_prompt(
+            &json!({"personas": [sample_persona()]}),
+            "勤務中のネイル・アクセサリーは禁止",
+        );
         assert!(p.contains("原文制約(厳守)"), "{p}");
         assert!(p.contains("ネイル"), "{p}");
     }
@@ -822,7 +845,13 @@ mod tests {
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>();
-        for k in ["persona_label", "appeal_core", "prompt", "negative_prompt", "aspect_ratio"] {
+        for k in [
+            "persona_label",
+            "appeal_core",
+            "prompt",
+            "negative_prompt",
+            "aspect_ratio",
+        ] {
             assert!(req.contains(&k), "required に {k} が無い: {req:?}");
         }
     }
@@ -877,31 +906,59 @@ mod tests {
         // analyze
         let a = analyze_schema();
         assert_eq!(a["type"], "object");
-        let req: Vec<&str> = a["required"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert_eq!(req, vec!["surface_strengths", "hidden_strengths", "bottlenecks"]);
+        let req: Vec<&str> = a["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            req,
+            vec!["surface_strengths", "hidden_strengths", "bottlenecks"]
+        );
 
         // personas: items の required に5フィールド。
         let pe = personas_schema();
         assert_eq!(pe["required"][0], "personas");
         let pitem_req: Vec<&str> = pe["properties"]["personas"]["items"]["required"]
-            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert_eq!(pitem_req, vec!["label", "profile", "dissatisfaction", "environment", "pain"]);
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            pitem_req,
+            vec!["label", "profile", "dissatisfaction", "environment", "pain"]
+        );
 
         // copy: style は enum で3種固定。
         let c = copy_schema();
         assert_eq!(c["required"][0], "copies");
-        let enum_vals: Vec<&str> = c["properties"]["copies"]["items"]["properties"]["style"]["enum"]
-            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let enum_vals: Vec<&str> = c["properties"]["copies"]["items"]["properties"]["style"]
+            ["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert_eq!(enum_vals, COPY_STYLES.to_vec());
         let citem_req: Vec<&str> = c["properties"]["copies"]["items"]["required"]
-            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert_eq!(citem_req, vec!["style", "text"]);
 
         // images
         let im = images_schema();
         assert_eq!(im["required"][0], "directions");
         let iitem_req: Vec<&str> = im["properties"]["directions"]["items"]["required"]
-            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert_eq!(iitem_req, vec!["persona_label", "direction"]);
 
         // mobile
@@ -914,7 +971,11 @@ mod tests {
         let ab = ab_schema();
         assert_eq!(ab["required"][0], "steps");
         let abitem_req: Vec<&str> = ab["properties"]["steps"]["items"]["required"]
-            .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
         assert_eq!(abitem_req, vec!["metric", "action"]);
     }
 }
