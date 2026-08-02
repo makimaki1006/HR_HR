@@ -23,7 +23,10 @@ Thumbs.db
 nul
 
 # Windows-specific cargo config
-.cargo/
+# ディレクトリごとではなく中身を除外する (ディレクトリ除外だと下の否定が効かないため)
+.cargo/*
+# ただし audit.toml は CI の security-audit ジョブが読むため追跡する
+!.cargo/audit.toml
 
 # Build scripts (development only)
 build_release.bat
