@@ -521,7 +521,7 @@
       </div>
       <div class="kpis">
         <div class="kpi"><span>比較母集団</span><b>${formatNumber(cohort.matched_record_count)}件</b><small>元CSV ${formatNumber(cohort.source_record_count||source.record_count)}件から抽出・${esc(cohort.scope||"未確定")}・取得 ${esc(c.captured_at||source.captured_at||"不明")}</small></div>
-        <div class="kpi"><span>口コミ本文</span><b>${formatNumber(v.text_rows)}件</b><small>全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件・取得 ${esc(v.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>口コミ本文</span><b>${formatNumber(v.text_rows)}件</b><small>全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件${v.sampled_risk_rows!==undefined?"（離脱関連語を含む"+formatNumber(v.sampled_risk_rows)+"件・その他"+formatNumber(v.sampled_other_rows)+"件）":""}・取得 ${esc(v.captured_at||"不明")}</small></div>
         <div class="kpi"><span>人気度タグ</span><b>${formatNumber(popularityTotal)}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
         <div class="kpi"><span>地域統計</span><b>${stats.available?"取得":"未取得"}</b><small>${esc(stats.available?"人材母集団の補助情報":"求人診断は継続")}</small></div>
       </div>

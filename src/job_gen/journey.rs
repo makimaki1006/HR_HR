@@ -123,6 +123,9 @@ pub struct ReviewSummary {
     pub total_rows: usize,
     pub text_rows: usize,
     pub evidence_sampled_rows: usize,
+    pub risk_flagged_text_rows: usize,
+    pub sampled_risk_rows: usize,
+    pub sampled_other_rows: usize,
     pub blank_text_rows: usize,
     pub duplicate_text_rows: usize,
     pub evidence: Vec<ReviewEvidence>,
@@ -618,7 +621,15 @@ pub fn summarize_review_csv(
     }
 
     let text_rows = all_evidence.len();
+    let risk_flagged_text_rows = all_evidence
+        .iter()
+        .filter(|evidence| review_risk_score(evidence) > 0)
+        .count();
     let evidence = select_review_evidence(all_evidence, REVIEW_EVIDENCE_LIMIT);
+    let sampled_risk_rows = evidence
+        .iter()
+        .filter(|evidence| review_risk_score(evidence) > 0)
+        .count();
     Ok(ReviewSummary {
         filename: filename.to_string(),
         captured_at,
@@ -626,6 +637,9 @@ pub fn summarize_review_csv(
         total_rows,
         text_rows,
         evidence_sampled_rows: evidence.len(),
+        risk_flagged_text_rows,
+        sampled_risk_rows,
+        sampled_other_rows: evidence.len().saturating_sub(sampled_risk_rows),
         blank_text_rows,
         duplicate_text_rows,
         evidence,
@@ -633,10 +647,7 @@ pub fn summarize_review_csv(
     })
 }
 
-fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Vec<ReviewEvidence> {
-    if all_evidence.len() <= limit {
-        return all_evidence;
-    }
+fn review_risk_score(evidence: &ReviewEvidence) -> usize {
     const RISK_TERMS: [&str; 21] = [
         "残業",
         "パワハラ",
@@ -660,14 +671,21 @@ fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Ve
         "怒",
         "不安",
     ];
+    RISK_TERMS
+        .iter()
+        .filter(|term| evidence.text.contains(**term))
+        .count()
+}
+
+fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Vec<ReviewEvidence> {
+    if all_evidence.len() <= limit {
+        return all_evidence;
+    }
     let mut prioritized = all_evidence
         .iter()
         .enumerate()
         .filter_map(|(index, evidence)| {
-            let score = RISK_TERMS
-                .iter()
-                .filter(|term| evidence.text.contains(**term))
-                .count();
+            let score = review_risk_score(evidence);
             (score > 0).then_some((index, score))
         })
         .collect::<Vec<_>>();
@@ -677,21 +695,43 @@ fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Ve
             .then_with(|| left_index.cmp(right_index))
     });
 
-    let mut selected = prioritized
-        .into_iter()
-        .take(limit)
-        .map(|(index, _)| index)
+    let risk_indices = prioritized
+        .iter()
+        .map(|(index, _)| *index)
         .collect::<HashSet<_>>();
+    let other_indices = (0..all_evidence.len())
+        .filter(|index| !risk_indices.contains(index))
+        .collect::<Vec<_>>();
+    let balanced_risk_target = if prioritized.is_empty() || other_indices.is_empty() {
+        limit
+    } else {
+        limit.div_ceil(2)
+    };
+    let mut selected = prioritized
+        .iter()
+        .take(balanced_risk_target.min(prioritized.len()))
+        .map(|(index, _)| *index)
+        .collect::<HashSet<_>>();
+
     if selected.len() < limit {
-        for index in sample_indices(all_evidence.len(), limit) {
-            selected.insert(index);
+        let remaining = limit - selected.len();
+        for position in sample_indices(other_indices.len(), remaining.min(other_indices.len())) {
+            selected.insert(other_indices[position]);
             if selected.len() >= limit {
                 break;
             }
         }
     }
     if selected.len() < limit {
-        for index in 0..all_evidence.len() {
+        for (index, _) in &prioritized {
+            selected.insert(*index);
+            if selected.len() >= limit {
+                break;
+            }
+        }
+    }
+    if selected.len() < limit {
+        for index in other_indices {
             selected.insert(index);
             if selected.len() >= limit {
                 break;
@@ -2226,6 +2266,9 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             total_rows: 0,
             text_rows: 0,
             evidence_sampled_rows: 0,
+            risk_flagged_text_rows: 0,
+            sampled_risk_rows: 0,
+            sampled_other_rows: 0,
             blank_text_rows: 0,
             duplicate_text_rows: 0,
             evidence: vec![],
@@ -2532,10 +2575,43 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         let summary = summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("reviews");
         assert_eq!(summary.text_rows, 45);
         assert_eq!(summary.evidence_sampled_rows, REVIEW_EVIDENCE_LIMIT);
+        assert_eq!(summary.risk_flagged_text_rows, 1);
+        assert_eq!(summary.sampled_risk_rows, 1);
+        assert_eq!(summary.sampled_other_rows, REVIEW_EVIDENCE_LIMIT - 1);
         assert!(summary
             .evidence
             .iter()
             .any(|evidence| evidence.text.contains("残業と人間関係")));
+    }
+
+    #[test]
+    fn review_evidence_reserves_space_for_non_risk_observations() {
+        let mut csv = String::from("OA1nbd,y3Ibjb\n");
+        for index in 1..=50 {
+            csv.push_str(&format!(
+                "残業が多く人間関係が悪いという口コミ{index},1年前\n"
+            ));
+        }
+        for index in 1..=50 {
+            csv.push_str(&format!("研修が丁寧だったという口コミ{index},1年前\n"));
+        }
+        let summary = summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("reviews");
+        let risk_count = summary
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.text.contains("残業"))
+            .count();
+        let other_count = summary
+            .evidence
+            .iter()
+            .filter(|evidence| evidence.text.contains("研修"))
+            .count();
+        assert_eq!(summary.evidence_sampled_rows, REVIEW_EVIDENCE_LIMIT);
+        assert_eq!(risk_count, REVIEW_EVIDENCE_LIMIT / 2);
+        assert_eq!(other_count, REVIEW_EVIDENCE_LIMIT / 2);
+        assert_eq!(summary.risk_flagged_text_rows, 50);
+        assert_eq!(summary.sampled_risk_rows, REVIEW_EVIDENCE_LIMIT / 2);
+        assert_eq!(summary.sampled_other_rows, REVIEW_EVIDENCE_LIMIT / 2);
     }
 
     fn valid_prepare_persona(id: &str, behavior: &str) -> Value {
