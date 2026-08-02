@@ -83,7 +83,10 @@ mod tests {
     fn build_body_shape_matches_python() {
         let b = build_request_body("hello", None, 0.0);
         assert_eq!(b["contents"][0]["parts"][0]["text"], "hello");
-        assert_eq!(b["generationConfig"]["responseMimeType"], "application/json");
+        assert_eq!(
+            b["generationConfig"]["responseMimeType"],
+            "application/json"
+        );
         assert_eq!(b["generationConfig"]["temperature"], 0.0);
         assert!(b["generationConfig"].get("responseSchema").is_none());
     }

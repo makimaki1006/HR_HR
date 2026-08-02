@@ -47,7 +47,10 @@ pub fn load_centroids(path: &Path) -> anyhow::Result<HashMap<String, (f64, f64)>
         if name.is_empty() {
             continue;
         }
-        let (lat, lon) = match (fields[i_lat].trim().parse::<f64>(), fields[i_lon].trim().parse::<f64>()) {
+        let (lat, lon) = match (
+            fields[i_lat].trim().parse::<f64>(),
+            fields[i_lon].trim().parse::<f64>(),
+        ) {
             (Ok(la), Ok(lo)) => (la, lo),
             _ => continue,
         };
@@ -62,8 +65,7 @@ pub fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let phi2 = lat2.to_radians();
     let d_phi = (lat2 - lat1).to_radians();
     let d_lambda = (lon2 - lon1).to_radians();
-    let a = (d_phi / 2.0).sin().powi(2)
-        + phi1.cos() * phi2.cos() * (d_lambda / 2.0).sin().powi(2);
+    let a = (d_phi / 2.0).sin().powi(2) + phi1.cos() * phi2.cos() * (d_lambda / 2.0).sin().powi(2);
     2.0 * EARTH_RADIUS_KM * a.sqrt().asin()
 }
 

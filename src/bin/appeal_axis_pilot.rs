@@ -55,9 +55,18 @@ const COMMON_PHRASES: [&str; 8] = [
 
 /// 空白地帯の観測パターン (明記している競合が少ないと想定される訴求)。
 const WHITESPACE_PATTERNS: [(&str, &[&str]); 3] = [
-    ("残業時間の具体値", &["残業月", "残業時間", "残業は月", "残業10", "残業20"]),
-    ("帰宅・帰庫時刻の目安", &["帰庫", "帰社", "に帰れ", "時退社", "時帰"]),
-    ("直行直帰・日帰り", &["直行直帰", "日帰り", "地場のみ", "泊まりなし", "車中泊なし"]),
+    (
+        "残業時間の具体値",
+        &["残業月", "残業時間", "残業は月", "残業10", "残業20"],
+    ),
+    (
+        "帰宅・帰庫時刻の目安",
+        &["帰庫", "帰社", "に帰れ", "時退社", "時帰"],
+    ),
+    (
+        "直行直帰・日帰り",
+        &["直行直帰", "日帰り", "地場のみ", "泊まりなし", "車中泊なし"],
+    ),
 ];
 
 /// 分類プロンプト (keyword_cluster::build_prompt と同じ構造・同じ出力契約で、
@@ -89,10 +98,14 @@ fn build_appeal_prompt(items: &[(String, String)], categories: &[String]) -> Str
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let csv_path = args.get(1).cloned().unwrap_or_else(|| {
-        "C:/Users/fuji1/Downloads/indeed-2026-07-10.csv".to_string()
-    });
-    let out_path = args.get(2).cloned().unwrap_or_else(|| "appeal_axis_pilot_result.json".to_string());
+    let csv_path = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| "C:/Users/fuji1/Downloads/indeed-2026-07-10.csv".to_string());
+    let out_path = args
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| "appeal_axis_pilot_result.json".to_string());
 
     // ── 1. 実パーサーで CSV 解析 ──
     let data = std::fs::read(&csv_path)?;
@@ -118,7 +131,11 @@ async fn main() -> anyhow::Result<()> {
             })
         })
         .collect();
-    eprintln!("[2] aggregate_records: tags={} tag_salary={}", agg.by_tags.len(), agg.by_tag_salary.len());
+    eprintln!(
+        "[2] aggregate_records: tags={} tag_salary={}",
+        agg.by_tags.len(),
+        agg.by_tag_salary.len()
+    );
 
     // ── 3. 頻出語・空白地帯 (コードのみ・部分一致) ──
     let text_of = |r: &rust_dashboard::handlers::survey::upload::SurveyRecord| {

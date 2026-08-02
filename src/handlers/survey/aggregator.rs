@@ -1843,7 +1843,10 @@ mod desc_salary_tests {
         );
         assert_eq!(extract_desc_salary_man("月給25万円〜"), Some(25));
         // 複数記載は最大値
-        assert_eq!(extract_desc_salary_man("月収28万、繁忙期は月収40万も"), Some(40));
+        assert_eq!(
+            extract_desc_salary_man("月収28万、繁忙期は月収40万も"),
+            Some(40)
+        );
         // 対象外: キーなし / 1桁 (手当等との混同防止) / 数字なし
         assert_eq!(extract_desc_salary_man("賞与3万円支給"), None);
         assert_eq!(extract_desc_salary_man("月収8万円のパート"), None);

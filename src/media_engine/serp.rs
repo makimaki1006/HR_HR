@@ -11,7 +11,11 @@ pub fn host_of(url: &str) -> String {
     let authority = after_scheme.split('/').next().unwrap_or("");
     let authority = authority.split('@').last().unwrap_or(authority); // userinfo 除去
     let host_port = authority.split('?').next().unwrap_or(authority);
-    let host = host_port.split(':').next().unwrap_or(host_port).to_lowercase();
+    let host = host_port
+        .split(':')
+        .next()
+        .unwrap_or(host_port)
+        .to_lowercase();
     host.strip_prefix("www.").unwrap_or(&host).to_string()
 }
 
@@ -72,8 +76,14 @@ mod tests {
     #[test]
     fn host_of_strips_scheme_www_port() {
         assert_eq!(host_of("https://www.baitoru.com/kanto/x"), "baitoru.com");
-        assert_eq!(host_of("https://jp.indeed.com:443/q-x?a=1"), "jp.indeed.com");
-        assert_eq!(host_of("http://job-medley.com/hh/pref13/"), "job-medley.com");
+        assert_eq!(
+            host_of("https://jp.indeed.com:443/q-x?a=1"),
+            "jp.indeed.com"
+        );
+        assert_eq!(
+            host_of("http://job-medley.com/hh/pref13/"),
+            "job-medley.com"
+        );
     }
 
     #[test]
@@ -93,20 +103,38 @@ mod tests {
 
     #[test]
     fn city_and_location_pick() {
-        assert_eq!(city_from_canonical("Takasaki,Gunma,Japan").as_deref(), Some("Takasaki"));
+        assert_eq!(
+            city_from_canonical("Takasaki,Gunma,Japan").as_deref(),
+            Some("Takasaki")
+        );
         let matches = vec![
-            GeoLocation { country_code: "US".into(), canonical_name: "Takasaki, X".into() },
-            GeoLocation { country_code: "JP".into(), canonical_name: "Takasaki, Gunma, Japan".into() },
+            GeoLocation {
+                country_code: "US".into(),
+                canonical_name: "Takasaki, X".into(),
+            },
+            GeoLocation {
+                country_code: "JP".into(),
+                canonical_name: "Takasaki, Gunma, Japan".into(),
+            },
         ];
-        assert_eq!(pick_serp_location(&matches).as_deref(), Some("Takasaki, Gunma, Japan"));
+        assert_eq!(
+            pick_serp_location(&matches).as_deref(),
+            Some("Takasaki, Gunma, Japan")
+        );
     }
 
     #[test]
     fn pick_serp_location_none_when_no_jp() {
         // JP 一致が無ければ None(=全国SERP)。非JPにフォールバックしない。
         let matches = vec![
-            GeoLocation { country_code: "US".into(), canonical_name: "Springfield, US".into() },
-            GeoLocation { country_code: "GB".into(), canonical_name: "London, UK".into() },
+            GeoLocation {
+                country_code: "US".into(),
+                canonical_name: "Springfield, US".into(),
+            },
+            GeoLocation {
+                country_code: "GB".into(),
+                canonical_name: "London, UK".into(),
+            },
         ];
         assert_eq!(pick_serp_location(&matches), None);
         assert_eq!(pick_serp_location(&[]), None);

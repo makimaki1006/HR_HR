@@ -19,8 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// 一般的なブラウザを騙る User-Agent(素の reqwest だと 403 を返すサイトがある)。
-const BROWSER_UA: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 /// タイトル推定・自由テキスト先頭行の最大文字数。
@@ -151,9 +150,7 @@ async fn fetch_url(url: &str) -> Result<String> {
 
     let scheme = parsed.scheme();
     if scheme != "http" && scheme != "https" {
-        return Err(anyhow!(
-            "http/https のスキームのみ対応です(指定: {scheme})"
-        ));
+        return Err(anyhow!("http/https のスキームのみ対応です(指定: {scheme})"));
     }
     let host = parsed
         .host_str()
@@ -750,7 +747,8 @@ mod tests {
 
     #[test]
     fn html_to_text_タグ除去とエンティティ復元() {
-        let html = "<div>給与 &amp; 手当 &lt;重要&gt; &quot;固定&quot; &#39;円&#39; &nbsp; 末尾</div>";
+        let html =
+            "<div>給与 &amp; 手当 &lt;重要&gt; &quot;固定&quot; &#39;円&#39; &nbsp; 末尾</div>";
         let text = html_to_text(html);
         assert_eq!(text, "給与 & 手当 <重要> \"固定\" '円' 末尾");
     }
@@ -819,8 +817,16 @@ mod tests {
         assert_eq!(jobs[1].title_hint, "看護師");
 
         // 原文に機械名ヘッダ・URL断片が入らない。
-        assert!(!jobs[0].source_text.contains("css-"), "css-* が混入しない: {:?}", jobs[0].source_text);
-        assert!(!jobs[0].source_text.contains("http"), "URL断片が混入しない: {:?}", jobs[0].source_text);
+        assert!(
+            !jobs[0].source_text.contains("css-"),
+            "css-* が混入しない: {:?}",
+            jobs[0].source_text
+        );
+        assert!(
+            !jobs[0].source_text.contains("http"),
+            "URL断片が混入しない: {:?}",
+            jobs[0].source_text
+        );
         // ラベル付きで主要項目が入る。
         assert!(jobs[0].source_text.contains("職種: 介護スタッフ"));
         assert!(jobs[0].source_text.contains("会社名: 株式会社ケア"));
@@ -838,7 +844,10 @@ mod tests {
     fn csv_クォート内カンマを1フィールドとして扱う() {
         let csv = "職種,給与\n\"営業, 法人\",\"300,000円\"\n";
         let rows = parse_csv(csv).unwrap();
-        assert_eq!(rows[1], vec!["営業, 法人".to_string(), "300,000円".to_string()]);
+        assert_eq!(
+            rows[1],
+            vec!["営業, 法人".to_string(), "300,000円".to_string()]
+        );
         let jobs = rows_to_jobs(rows);
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].title_hint, "営業, 法人");
@@ -954,7 +963,9 @@ mod tests {
     async fn pdf_合成pdfからテキスト抽出() {
         let pdf = build_min_pdf("Hello PDF");
         let b64 = base64::engine::general_purpose::STANDARD.encode(&pdf);
-        let jobs = normalize(InputKind::Pdf, None, None, Some(b64)).await.unwrap();
+        let jobs = normalize(InputKind::Pdf, None, None, Some(b64))
+            .await
+            .unwrap();
         assert_eq!(jobs.len(), 1);
         assert!(
             jobs[0].source_text.contains("Hello"),

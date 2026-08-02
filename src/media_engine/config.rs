@@ -197,8 +197,14 @@ mod tests {
     fn customer_id_prefers_explicit_override() {
         // GOOGLE_ADS_CUSTOMER_ID 指定時はそちらを優先。
         let dotenv = HashMap::from([
-            ("GOOGLE_ADS_LOGIN_CUSTOMER_ID".to_string(), "1112223333".to_string()),
-            ("GOOGLE_ADS_CUSTOMER_ID".to_string(), "9998887777".to_string()),
+            (
+                "GOOGLE_ADS_LOGIN_CUSTOMER_ID".to_string(),
+                "1112223333".to_string(),
+            ),
+            (
+                "GOOGLE_ADS_CUSTOMER_ID".to_string(),
+                "9998887777".to_string(),
+            ),
         ]);
         let cfg = GoogleAdsConfig::from_maps(&dotenv);
         assert_eq!(cfg.customer_id(), "9998887777");

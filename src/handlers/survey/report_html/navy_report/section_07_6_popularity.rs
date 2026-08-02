@@ -435,7 +435,10 @@ fn build_holiday_comparison_note(
             if let Some(v) = stats.median {
                 let diff = v - base;
                 if diff == 0 {
-                    parts.push(format!("{}区分はタグなしと中央値の差は確認できませんでした", label));
+                    parts.push(format!(
+                        "{}区分はタグなしと中央値の差は確認できませんでした",
+                        label
+                    ));
                 } else {
                     let sign = if diff > 0 { "+" } else { "−" };
                     parts.push(format!(
@@ -451,7 +454,10 @@ fn build_holiday_comparison_note(
     if parts.is_empty() {
         String::new()
     } else {
-        format!("※ {}(相関の参考値であり、差の理由・因果は示しません)。", parts.join("、"))
+        format!(
+            "※ {}(相関の参考値であり、差の理由・因果は示しません)。",
+            parts.join("、")
+        )
     }
 }
 
@@ -899,7 +905,10 @@ mod tests {
         render_navy_section_popularity(&mut html, &agg);
         assert!(html.contains("§05-4"), "section renders (n>0 somewhere)");
         // n<5 区分の参考値注記
-        assert!(html.contains("参考値(件数僅少)"), "small-n reference marker");
+        assert!(
+            html.contains("参考値(件数僅少)"),
+            "small-n reference marker"
+        );
         // 人気 (n=0) はデータなし行
         assert!(html.contains("データなし"), "n=0 group shows データなし");
         // 超人気 n=2 (< 5) は差分注記の対象外 → 差分注記自体が出ない

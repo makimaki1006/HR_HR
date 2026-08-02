@@ -702,47 +702,43 @@ fn build_navy_life_simulation_table(
     let take_home_single = (monthly_salary as f64 * NET_INCOME_RATIO_SINGLE).round() as i64;
     let take_home_family = (monthly_salary as f64 * NET_INCOME_RATIO_FAMILY).round() as i64;
 
-    let render_row = |label: &str,
-                       take_home: i64,
-                       rate: Option<i64>,
-                       area: i64,
-                       proxy_note: &str|
-     -> String {
-        match rate {
-            Some(r) if r > 0 => {
-                let rent = r * area;
-                let remainder = take_home - rent;
-                format!(
-                    "<tr><td><strong>{}</strong></td>\
+    let render_row =
+        |label: &str, take_home: i64, rate: Option<i64>, area: i64, proxy_note: &str| -> String {
+            match rate {
+                Some(r) if r > 0 => {
+                    let rent = r * area;
+                    let remainder = take_home - rent;
+                    format!(
+                        "<tr><td><strong>{}</strong></td>\
                      <td class=\"num bold\">{}</td>\
                      <td class=\"num\">{}</td>\
                      <td class=\"num\">{} <span class=\"dim\">({}円/m²&times;{}m²)</span></td>\
                      <td class=\"num bold\">{}</td>\
                      <td><span class=\"dim\">{}</span></td></tr>\n",
-                    label,
-                    format_number(monthly_salary),
-                    format_number(take_home),
-                    format_number(rent),
-                    format_number(r),
-                    area,
-                    format_number(remainder),
-                    proxy_note,
-                )
-            }
-            _ => format!(
-                "<tr><td><strong>{}</strong></td>\
+                        label,
+                        format_number(monthly_salary),
+                        format_number(take_home),
+                        format_number(rent),
+                        format_number(r),
+                        area,
+                        format_number(remainder),
+                        proxy_note,
+                    )
+                }
+                _ => format!(
+                    "<tr><td><strong>{}</strong></td>\
                  <td class=\"num bold\">{}</td>\
                  <td class=\"num\">{}</td>\
                  <td class=\"num dim\">取得不可</td>\
                  <td class=\"num dim\">&mdash;</td>\
                  <td><span class=\"dim\">{}</span></td></tr>\n",
-                label,
-                format_number(monthly_salary),
-                format_number(take_home),
-                proxy_note,
-            ),
-        }
-    };
+                    label,
+                    format_number(monthly_salary),
+                    format_number(take_home),
+                    proxy_note,
+                ),
+            }
+        };
 
     let mut s = String::from(
         "<table class=\"table-navy\" style=\"table-layout:fixed;width:100%;\">\n\
@@ -811,7 +807,9 @@ fn build_navy_life_simulation_table(
 ///
 /// すべてのデータが欠損している場合は空文字を返す (silent skip)。
 fn build_navy_generation_fit_block(ctx: &InsightContext) -> String {
-    use super::super::super::super::helpers::{age_group_lower_bound, get_f64, get_i64, get_str_ref};
+    use super::super::super::super::helpers::{
+        age_group_lower_bound, get_f64, get_i64, get_str_ref,
+    };
 
     // -- 0-14 歳人口比率 (新規集計。ctx.ext_pyramid の再利用、新規 DB 取得なし)
     let bands: Vec<(i32, i64, i64)> = ctx
@@ -884,7 +882,9 @@ fn build_navy_generation_fit_block(ctx: &InsightContext) -> String {
     // -- カード1: 単身世代
     let mut fact1 = String::new();
     match (single_rate, pref_avg_single) {
-        (Some(sr), Some(p)) => fact1.push_str(&format!("単身世帯率 {:.1}%(県平均 {:.1}%)。", sr, p)),
+        (Some(sr), Some(p)) => {
+            fact1.push_str(&format!("単身世帯率 {:.1}%(県平均 {:.1}%)。", sr, p))
+        }
         (Some(sr), None) => fact1.push_str(&format!("単身世帯率 {:.1}%。", sr)),
         (None, _) => fact1.push_str("単身世帯率データは未取得。"),
     }
@@ -2724,11 +2724,11 @@ mod lifestyle_tests {
 // ============================================================
 #[cfg(test)]
 mod life_simulation_tests {
+    use super::super::super::super::super::insight::fetch::InsightContext;
     use super::{
         build_navy_generation_fit_block, build_navy_life_simulation_table,
         find_rental_rate_for_structure, NET_INCOME_RATIO_FAMILY, NET_INCOME_RATIO_SINGLE,
     };
-    use super::super::super::super::super::insight::fetch::InsightContext;
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -2806,7 +2806,13 @@ mod life_simulation_tests {
     #[test]
     fn life_simulation_hourly_mode_converts_to_monthly_before_calculating() {
         // 時給 1,800円 → 月給換算 1,800×167h = 300,600円 を基準に手取り・残額が計算される
-        let rows = vec![make_rental_row("東京都", "新宿区", "共同住宅", "総数", 2_000)];
+        let rows = vec![make_rental_row(
+            "東京都",
+            "新宿区",
+            "共同住宅",
+            "総数",
+            2_000,
+        )];
         let html = build_navy_life_simulation_table(&rows, 1_800, true);
         assert!(!html.is_empty());
         // 月給換算値がそのまま「求人給与 (月換算)」列に出る
@@ -2825,7 +2831,10 @@ mod life_simulation_tests {
         // 家賃・残額のみ「取得不可」に留める (表全体を破綻させない)。
         let rows: Vec<HashMap<String, serde_json::Value>> = vec![];
         let html = build_navy_life_simulation_table(&rows, 300_000, false);
-        assert!(!html.is_empty(), "家賃データが無くても給与行は表示されるべき");
+        assert!(
+            !html.is_empty(),
+            "家賃データが無くても給与行は表示されるべき"
+        );
         assert!(
             html.contains("取得不可"),
             "家賃データ欠損時は「取得不可」と明示すべき: {}",
@@ -2839,7 +2848,13 @@ mod life_simulation_tests {
     #[test]
     fn life_simulation_zero_salary_returns_empty_string() {
         // 境界: median_min_salary <= 0 は計算不能のため完全 silent skip
-        let rows = vec![make_rental_row("東京都", "新宿区", "共同住宅", "総数", 2_000)];
+        let rows = vec![make_rental_row(
+            "東京都",
+            "新宿区",
+            "共同住宅",
+            "総数",
+            2_000,
+        )];
         assert!(build_navy_life_simulation_table(&rows, 0, false).is_empty());
         assert!(build_navy_life_simulation_table(&rows, -500, false).is_empty());
     }
@@ -2881,7 +2896,11 @@ mod life_simulation_tests {
 
     // ---- build_navy_generation_fit_block: 4段階表現 + 0-14歳人口比率の新規集計 ----
 
-    fn make_pyramid_row(age_group: &str, male: i64, female: i64) -> HashMap<String, serde_json::Value> {
+    fn make_pyramid_row(
+        age_group: &str,
+        male: i64,
+        female: i64,
+    ) -> HashMap<String, serde_json::Value> {
         let mut m = HashMap::new();
         m.insert("age_group".to_string(), json!(age_group));
         m.insert("male_count".to_string(), json!(male));
@@ -2906,7 +2925,10 @@ mod life_simulation_tests {
             ..Default::default()
         };
         let html = build_navy_generation_fit_block(&ctx);
-        assert!(!html.is_empty(), "ピラミッドデータがあれば HTML 生成されるべき");
+        assert!(
+            !html.is_empty(),
+            "ピラミッドデータがあれば HTML 生成されるべき"
+        );
         assert!(
             html.contains("30.0%"),
             "0-14歳人口比率 30.0% (300/1000) が表示されるべき: {}",

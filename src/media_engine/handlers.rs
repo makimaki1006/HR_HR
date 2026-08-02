@@ -142,8 +142,10 @@ async fn run_keywords(q: KeywordsQuery) -> anyhow::Result<Value> {
         Some(name) => resolve_geo(&cfg, name, None).await?,
         None => None,
     };
-    let location_ids: Vec<String> =
-        geo_pick.as_ref().map(|p| vec![p.id.clone()]).unwrap_or_default();
+    let location_ids: Vec<String> = geo_pick
+        .as_ref()
+        .map(|p| vec![p.id.clone()])
+        .unwrap_or_default();
 
     let months = clamp_months_back(q.months);
     let long_range = months > DEFAULT_MONTHS_BACK;
@@ -252,14 +254,20 @@ async fn run_suggest(q: SuggestQuery) -> anyhow::Result<Value> {
         Some(name) => resolve_geo(&cfg, name, None).await?,
         None => None,
     };
-    let location_ids: Vec<String> =
-        geo_pick.as_ref().map(|p| vec![p.id.clone()]).unwrap_or_default();
+    let location_ids: Vec<String> = geo_pick
+        .as_ref()
+        .map(|p| vec![p.id.clone()])
+        .unwrap_or_default();
 
     let resp = generate_keyword_ideas(&cfg, &cfg.customer_id(), &seeds, &location_ids).await?;
     let metrics: Vec<KeywordMetric> = parse_keyword_metrics(&resp);
 
     let mut sorted = metrics;
-    sorted.sort_by(|a, b| b.avg_monthly.unwrap_or(-1).cmp(&a.avg_monthly.unwrap_or(-1)));
+    sorted.sort_by(|a, b| {
+        b.avg_monthly
+            .unwrap_or(-1)
+            .cmp(&a.avg_monthly.unwrap_or(-1))
+    });
 
     let noise = q.noise_floor.max(0);
     let mut seen = std::collections::HashSet::new();
@@ -398,8 +406,10 @@ async fn run_forecast(q: ForecastQuery) -> anyhow::Result<Value> {
         Some(name) => resolve_geo(&cfg, name, None).await?,
         None => None,
     };
-    let location_ids: Vec<String> =
-        geo_pick.as_ref().map(|p| vec![p.id.clone()]).unwrap_or_default();
+    let location_ids: Vec<String> = geo_pick
+        .as_ref()
+        .map(|p| vec![p.id.clone()])
+        .unwrap_or_default();
 
     let resp = generate_keyword_forecast(
         &cfg,
@@ -467,7 +477,10 @@ async fn resolve_geo(
 /// canonical("City,Prefecture,Japan")から県トークン(第2要素)を取り出す。
 fn prefecture_of(canonical: Option<&str>) -> Option<String> {
     let parts: Vec<&str> = canonical?.split(',').map(str::trim).collect();
-    parts.get(1).filter(|p| !p.is_empty()).map(|p| p.to_string())
+    parts
+        .get(1)
+        .filter(|p| !p.is_empty())
+        .map(|p| p.to_string())
 }
 
 /// 1 地域の需要合計(キーワード群の avgMonthlySearches 合計)を得る。
@@ -518,7 +531,11 @@ async fn build_regional_demand(
     }
     let unique_ids: Vec<String> = {
         let mut seen = std::collections::HashSet::new();
-        id_map.values().filter(|id| seen.insert((*id).clone())).cloned().collect()
+        id_map
+            .values()
+            .filter(|id| seen.insert((*id).clone()))
+            .cloned()
+            .collect()
     };
     // 連続照会は Google Ads のレート制限 (429) に当たるため 400ms 間隔を空ける。
     for (i, gid) in unique_ids.iter().enumerate() {
@@ -530,7 +547,9 @@ async fn build_regional_demand(
     }
     let resolve = |name: &str| id_map.get(name).cloned();
     let volume = |_kws: &[String], geo_id: &str| vol_map.get(geo_id).copied().unwrap_or(0);
-    let dm = build_demand_map(base, keywords, &centroids, radius_km, max_areas, resolve, volume);
+    let dm = build_demand_map(
+        base, keywords, &centroids, radius_km, max_areas, resolve, volume,
+    );
     Ok((dm, base_pick))
 }
 
@@ -623,7 +642,9 @@ pub async fn serp_endpoint(
 async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result<Value> {
     let key = serpapi_key();
     if key.is_empty() {
-        return Ok(json!({"status": "missing_serpapi_key", "message": "SERPAPI_API_KEY が未設定です"}));
+        return Ok(
+            json!({"status": "missing_serpapi_key", "message": "SERPAPI_API_KEY が未設定です"}),
+        );
     }
     let turso = state.turso_db.clone();
     let kw = match split_keywords(&q.kw).into_iter().next() {
@@ -633,38 +654,39 @@ async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result
     // 地域: 日本語地名は SerpApi locations.json が受け付けないため、Google Ads の
     // GeoTarget Suggest で英語 canonical に変換してから引く。解決不能は全国 SERP に degrade。
     let mut location_note: Option<String> = None;
-    let location: Option<String> = match q.region.as_deref().map(str::trim).filter(|s| !s.is_empty())
-    {
-        Some(name) => {
-            let mut queries: Vec<String> = Vec::new();
-            let cfg = GoogleAdsConfig::from_env();
-            if cfg.missing().is_empty() {
-                if let Ok(Some(pick)) = resolve_geo(&cfg, name, None).await {
-                    if let Some(canon) = pick.canonical_name.as_deref() {
-                        if let Some(city) = serp::city_from_canonical(canon) {
-                            queries.push(city);
+    let location: Option<String> =
+        match q.region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            Some(name) => {
+                let mut queries: Vec<String> = Vec::new();
+                let cfg = GoogleAdsConfig::from_env();
+                if cfg.missing().is_empty() {
+                    if let Ok(Some(pick)) = resolve_geo(&cfg, name, None).await {
+                        if let Some(canon) = pick.canonical_name.as_deref() {
+                            if let Some(city) = serp::city_from_canonical(canon) {
+                                queries.push(city);
+                            }
+                            queries.push(canon.to_string());
                         }
-                        queries.push(canon.to_string());
                     }
                 }
-            }
-            queries.push(name.to_string());
-            let mut found = None;
-            for qy in &queries {
-                let locs = serpapi::fetch_locations(qy, 10).await.unwrap_or_default();
-                if let Some(loc) = serp::pick_serp_location(&locs) {
-                    found = Some(loc);
-                    break;
+                queries.push(name.to_string());
+                let mut found = None;
+                for qy in &queries {
+                    let locs = serpapi::fetch_locations(qy, 10).await.unwrap_or_default();
+                    if let Some(loc) = serp::pick_serp_location(&locs) {
+                        found = Some(loc);
+                        break;
+                    }
                 }
+                if found.is_none() {
+                    location_note = Some(format!(
+                        "「{name}」は SerpApi の地域名に解決できず、全国の検索結果です"
+                    ));
+                }
+                found
             }
-            if found.is_none() {
-                location_note =
-                    Some(format!("「{name}」は SerpApi の地域名に解決できず、全国の検索結果です"));
-            }
-            found
-        }
-        None => None,
-    };
+            None => None,
+        };
     let device = match q.device.as_deref().map(str::trim).unwrap_or("") {
         "mobile" => "mobile",
         "tablet" => "tablet",
@@ -709,24 +731,36 @@ async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result
         .unwrap_or(0);
     for (rank, host) in organic_domains(&payload) {
         let row = media::resolve_by_host(&host, &index);
-        let media_id = row.map(|r| r.media_id.clone()).unwrap_or_else(|| host.clone());
+        let media_id = row
+            .map(|r| r.media_id.clone())
+            .unwrap_or_else(|| host.clone());
         if !seen.insert(media_id.clone()) {
-            let name = row.map(|r| r.media_name.clone()).unwrap_or_else(|| host.clone());
+            let name = row
+                .map(|r| r.media_name.clone())
+                .unwrap_or_else(|| host.clone());
             dedup_note.push(json!({"rank": rank, "media_name": name}));
             continue;
         }
         let (media_name, known, specialized, job_scope) = match row {
-            Some(r) => (r.media_name.clone(), true, r.is_specialized(), r.job_scope.clone()),
+            Some(r) => (
+                r.media_name.clone(),
+                true,
+                r.is_specialized(),
+                r.job_scope.clone(),
+            ),
             None => (host.clone(), false, false, String::new()),
         };
         let detail = payload
             .get("organic_results")
             .and_then(Value::as_array)
             .and_then(|arr| {
-                arr.iter().find(|r| r.get("position").and_then(Value::as_i64) == Some(rank))
+                arr.iter()
+                    .find(|r| r.get("position").and_then(Value::as_i64) == Some(rank))
             });
-        let snippet =
-            detail.and_then(|d| d.get("snippet")).and_then(Value::as_str).unwrap_or("");
+        let snippet = detail
+            .and_then(|d| d.get("snippet"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
         results.push(json!({
             "rank": rank, "domain": host, "media_id": media_id, "media_name": media_name,
             "known": known, "specialized": specialized, "job_scope": job_scope,
@@ -789,7 +823,11 @@ async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter_map(|x| x.get("query").and_then(Value::as_str).map(|s| s.to_string()))
+                .filter_map(|x| {
+                    x.get("query")
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -800,7 +838,11 @@ async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter_map(|x| x.get("question").and_then(Value::as_str).map(|s| s.to_string()))
+                .filter_map(|x| {
+                    x.get("question")
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string())
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -821,7 +863,9 @@ async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result
                         .and_then(Value::as_array)
                         .map(|o| {
                             o.iter()
-                                .filter_map(|x| x.get("name").and_then(Value::as_str).map(|s| s.to_string()))
+                                .filter_map(|x| {
+                                    x.get("name").and_then(Value::as_str).map(|s| s.to_string())
+                                })
                                 .collect()
                         })
                         .unwrap_or_default();
@@ -839,9 +883,13 @@ async fn run_serp_endpoint(state: Arc<AppState>, q: SerpQuery) -> anyhow::Result
             ai_overview = format_ai_overview(ao);
         } else if q_wants_answers {
             if let Some(tok) = ao.get("page_token").and_then(Value::as_str) {
-                if let Ok(r) =
-                    serpapi::fetch_by_token("google_ai_overview", "page_token", tok, &key_for_tokens)
-                        .await
+                if let Ok(r) = serpapi::fetch_by_token(
+                    "google_ai_overview",
+                    "page_token",
+                    tok,
+                    &key_for_tokens,
+                )
+                .await
                 {
                     extra_spent += 1;
                     if let Some(inner) = r.get("ai_overview") {
@@ -905,8 +953,19 @@ fn format_ai_overview(ao: &Value) -> Value {
                                 .filter_map(|x| {
                                     let t = x.get("title").and_then(Value::as_str).unwrap_or("");
                                     let s = x.get("snippet").and_then(Value::as_str).unwrap_or("");
-                                    let joined = format!("{t}{}{s}", if !t.is_empty() && !s.is_empty() { "：" } else { "" });
-                                    if joined.trim().is_empty() { None } else { Some(joined) }
+                                    let joined = format!(
+                                        "{t}{}{s}",
+                                        if !t.is_empty() && !s.is_empty() {
+                                            "："
+                                        } else {
+                                            ""
+                                        }
+                                    );
+                                    if joined.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(joined)
+                                    }
                                 })
                                 .collect()
                         })
@@ -955,7 +1014,10 @@ fn extract_listing_count(snippet: &str) -> Option<i64> {
                 break;
             }
         }
-        let num: String = snippet[start..end].chars().filter(|c| c.is_ascii_digit()).collect();
+        let num: String = snippet[start..end]
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .collect();
         if let Ok(v) = num.parse::<i64>() {
             if v > 0 {
                 return Some(v);
@@ -990,11 +1052,19 @@ async fn run_cluster(q: ClusterQuery) -> anyhow::Result<Value> {
     }
     let key = gemini_api_key();
     if key.is_empty() {
-        return Ok(json!({"status": "missing_gemini_key", "message": "GEMINI_API_KEY が未設定です"}));
+        return Ok(
+            json!({"status": "missing_gemini_key", "message": "GEMINI_API_KEY が未設定です"}),
+        );
     }
-    let vols = q.vol.as_deref().map(keyword_cluster::parse_volumes).unwrap_or_default();
-    let source: Vec<(String, Option<i64>)> =
-        keywords.iter().map(|k| (k.clone(), vols.get(k).copied())).collect();
+    let vols = q
+        .vol
+        .as_deref()
+        .map(keyword_cluster::parse_volumes)
+        .unwrap_or_default();
+    let source: Vec<(String, Option<i64>)> = keywords
+        .iter()
+        .map(|k| (k.clone(), vols.get(k).copied()))
+        .collect();
 
     let categories = keyword_cluster::default_categories();
     let prompt = keyword_cluster::build_prompt(&keywords, &categories);
@@ -1066,6 +1136,9 @@ mod listing_count_tests {
     #[test]
     fn split_keywords_dedups_and_trims() {
         let got = super::split_keywords(" 看護師 求人 ,\n介護 求人, 看護師 求人 ,, ");
-        assert_eq!(got, vec!["看護師 求人".to_string(), "介護 求人".to_string()]);
+        assert_eq!(
+            got,
+            vec!["看護師 求人".to_string(), "介護 求人".to_string()]
+        );
     }
 }

@@ -964,10 +964,14 @@ fn row_to_posting(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let salary_min =
-        normalize_hourly_salary(&salary_type, r.get("salary_min").map(value_to_i64).unwrap_or(0));
-    let salary_max =
-        normalize_hourly_salary(&salary_type, r.get("salary_max").map(value_to_i64).unwrap_or(0));
+    let salary_min = normalize_hourly_salary(
+        &salary_type,
+        r.get("salary_min").map(value_to_i64).unwrap_or(0),
+    );
+    let salary_max = normalize_hourly_salary(
+        &salary_type,
+        r.get("salary_max").map(value_to_i64).unwrap_or(0),
+    );
     PostingRow {
         facility_name: r
             .get("facility_name")
