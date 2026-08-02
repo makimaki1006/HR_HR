@@ -11,11 +11,11 @@
 //!   ([`jobgen_auth_middleware`]。ユーザー決定 2026-07-24: 生成系もトークン併用)
 //! - NGワードルール・職種知識はバイナリ埋め込み (env `KNOWLEDGE_DIR` で差し替え可)
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::Response;
 use axum::Json;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
@@ -54,6 +54,10 @@ const EMBEDDED_EXPRESSION_RULES_JSON: &str =
     include_str!("../../assets/expression_review_rules.json");
 
 const JOURNEY_CASE_TTL: Duration = Duration::from_secs(30 * 60);
+const JOURNEY_GOOGLE_ADS_WINDOW: Duration = Duration::from_secs(60);
+const JOURNEY_GOOGLE_ADS_REQUEST_LIMIT: usize = 15;
+// 地域解決1回 + 履歴指標1回 + 429時の最大3再試行を保守的に予約する。
+const JOURNEY_GOOGLE_ADS_RESERVED_REQUESTS: usize = 5;
 
 #[derive(Clone)]
 struct PreparedJourneyCase {
@@ -66,11 +70,84 @@ struct PreparedJourneyCase {
     public_stats: Value,
     prepare_result: Value,
     allowed_evidence_refs: HashSet<String>,
+    keyword_metrics_by_persona: HashMap<String, Value>,
+    keyword_metrics_by_query: HashMap<String, Value>,
+    keyword_completed_personas: HashSet<String>,
+    keyword_measurement_status: Option<String>,
 }
 
 fn journey_case_store() -> &'static AsyncMutex<HashMap<String, PreparedJourneyCase>> {
     static STORE: OnceLock<AsyncMutex<HashMap<String, PreparedJourneyCase>>> = OnceLock::new();
     STORE.get_or_init(|| AsyncMutex::new(HashMap::new()))
+}
+
+fn journey_keyword_fetch_lock() -> &'static AsyncMutex<()> {
+    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| AsyncMutex::new(()))
+}
+
+fn journey_google_ads_budget() -> &'static AsyncMutex<VecDeque<Instant>> {
+    static BUDGET: OnceLock<AsyncMutex<VecDeque<Instant>>> = OnceLock::new();
+    BUDGET.get_or_init(|| AsyncMutex::new(VecDeque::new()))
+}
+
+pub(crate) fn reserve_journey_google_ads_budget(
+    requests: &mut VecDeque<Instant>,
+    now: Instant,
+    cost: usize,
+) -> Option<Duration> {
+    while requests
+        .front()
+        .is_some_and(|started| now.duration_since(*started) >= JOURNEY_GOOGLE_ADS_WINDOW)
+    {
+        requests.pop_front();
+    }
+    if requests.len() + cost <= JOURNEY_GOOGLE_ADS_REQUEST_LIMIT {
+        requests.extend((0..cost).map(|_| now));
+        return None;
+    }
+    requests.front().map(|started| {
+        JOURNEY_GOOGLE_ADS_WINDOW
+            .saturating_sub(now.duration_since(*started))
+            .saturating_add(Duration::from_millis(25))
+    })
+}
+
+pub(crate) fn refresh_latest_journey_google_ads_reservation(
+    requests: &mut VecDeque<Instant>,
+    completed_at: Instant,
+    cost: usize,
+) {
+    let reservation_start = requests.len().saturating_sub(cost);
+    for request in requests.iter_mut().skip(reservation_start) {
+        *request = completed_at;
+    }
+}
+
+async fn acquire_journey_google_ads_budget() {
+    loop {
+        let wait = {
+            let mut requests = journey_google_ads_budget().lock().await;
+            reserve_journey_google_ads_budget(
+                &mut requests,
+                Instant::now(),
+                JOURNEY_GOOGLE_ADS_RESERVED_REQUESTS,
+            )
+        };
+        match wait {
+            Some(duration) => tokio::time::sleep(duration).await,
+            None => return,
+        }
+    }
+}
+
+async fn finish_journey_google_ads_budget() {
+    let mut requests = journey_google_ads_budget().lock().await;
+    refresh_latest_journey_google_ads_reservation(
+        &mut requests,
+        Instant::now(),
+        JOURNEY_GOOGLE_ADS_RESERVED_REQUESTS,
+    );
 }
 
 /// NGワードルールを読み込む。
@@ -757,6 +834,18 @@ pub async fn jobgen_journey_diagnose(
     let client_salary =
         journey::client_salary_position(&salary_text, &employment_type, &competitor);
     let public_stats = fetch_journey_public_stats(&state, &work_location).await;
+    let mut allowed_evidence_refs =
+        journey::allowed_evidence_refs(&job_facts, &customer_statements, &competitor, &reviews);
+    if client_salary.is_some() {
+        allowed_evidence_refs.insert("給与比較".to_string());
+    }
+    if public_stats
+        .get("available")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        allowed_evidence_refs.insert("公的統計".to_string());
+    }
 
     // 3回目以降: 4ペルソナと検索仮説。構造不備は最大2回まで自動補修する。
     let prepare_prompt = journey::build_prepare_prompt(
@@ -769,11 +858,11 @@ pub async fn jobgen_journey_diagnose(
         client_salary.as_ref(),
         &public_stats,
         &employer_note,
+        &allowed_evidence_refs,
     );
-    let allowed_evidence_refs =
-        journey::allowed_evidence_refs(&job_facts, &customer_statements, &competitor, &reviews);
+    let prepare_schema = journey::prepare_schema_with_evidence_refs(&allowed_evidence_refs);
     let mut llm_calls = 3;
-    let mut result = match jobgen_llm(&prepare_prompt, &journey::prepare_schema(), 0.25).await {
+    let mut result = match jobgen_llm(&prepare_prompt, &prepare_schema, 0.25).await {
         Ok(value) => value,
         Err(error) => {
             return Json(json!({
@@ -799,7 +888,7 @@ pub async fn jobgen_journey_diagnose(
         }
         let repair_prompt =
             journey::build_prepare_repair_prompt(&prepare_prompt, &result, &quality_issues);
-        result = match jobgen_llm(&repair_prompt, &journey::prepare_schema(), 0.1).await {
+        result = match jobgen_llm(&repair_prompt, &prepare_schema, 0.1).await {
             Ok(value) => value,
             Err(error) => {
                 quality_issues.push(format!("自動補修APIに失敗しました: {error}"));
@@ -857,6 +946,10 @@ pub async fn jobgen_journey_diagnose(
                 public_stats: public_stats.clone(),
                 prepare_result: result.clone(),
                 allowed_evidence_refs,
+                keyword_metrics_by_persona: HashMap::new(),
+                keyword_metrics_by_query: HashMap::new(),
+                keyword_completed_personas: HashSet::new(),
+                keyword_measurement_status: None,
             },
         );
     }
@@ -889,6 +982,269 @@ pub async fn jobgen_journey_diagnose(
     }))
 }
 
+/// `POST /api/jobgen/journey-keywords` — 準備済みペルソナの検索需要をサーバー側で取得する。
+///
+/// ブラウザから検索量を受け取らず、既存の Google Ads API ハンドラをサーバー内で呼び、
+/// case store に保存した値だけを後続の詳細生成へ渡す。
+pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
+    let case_id = body_str(&body, "case_id");
+    let requested_persona_ids = body
+        .get("persona_ids")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if case_id.is_empty() || requested_persona_ids.is_empty() {
+        return Json(json!({
+            "status":"error",
+            "message":"準備済みケースと検索需要を確認するペルソナを指定してください。"
+        }));
+    }
+    let requested_persona_ids = requested_persona_ids.into_iter().collect::<HashSet<_>>();
+    if requested_persona_ids.len() > journey::REQUIRED_PERSONA_COUNT {
+        return Json(json!({
+            "status":"error",
+            "message":"指定できるペルソナ数を超えています。"
+        }));
+    }
+
+    // 二重クリックや同時セッションを直列化する。待機後にstoreを読み直すため、
+    // 同一case・personaの先行取得結果は外部APIを再実行せず再利用できる。
+    let _fetch_guard = journey_keyword_fetch_lock().lock().await;
+    let prepared = {
+        let mut store = journey_case_store().lock().await;
+        store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
+        store.get(&case_id).cloned()
+    };
+    let Some(prepared) = prepared else {
+        return Json(json!({
+            "status":"error",
+            "message":"準備データの有効期限が切れました。最初の分析からやり直してください。"
+        }));
+    };
+    let all_personas = prepared
+        .prepare_result
+        .get("personas")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let personas = all_personas
+        .into_iter()
+        .filter(|persona| {
+            persona
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| requested_persona_ids.contains(id))
+        })
+        .collect::<Vec<_>>();
+    if personas.len() != requested_persona_ids.len() {
+        return Json(json!({
+            "status":"error",
+            "message":"準備結果に存在しないペルソナが含まれています。"
+        }));
+    }
+
+    let mut query_order = Vec::new();
+    let mut seen_queries = HashSet::new();
+    for persona in &personas {
+        for query in persona
+            .get("search_queries")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(query) = query.get("query").and_then(Value::as_str).map(str::trim) else {
+                continue;
+            };
+            if !query.is_empty() && seen_queries.insert(query.to_string()) {
+                query_order.push(query.to_string());
+            }
+        }
+    }
+    if query_order.is_empty() || query_order.len() > 32 {
+        return Json(json!({
+            "status":"error",
+            "message":"検索需要の確認対象が1〜32件になるよう、ペルソナを作り直してください。"
+        }));
+    }
+    if requested_persona_ids
+        .iter()
+        .all(|persona_id| prepared.keyword_completed_personas.contains(persona_id))
+    {
+        let measured_query_count = query_order
+            .iter()
+            .filter(|query| prepared.keyword_metrics_by_query.contains_key(*query))
+            .count();
+        return Json(json!({
+            "status":"ok",
+            "measurement_status":prepared
+                .keyword_measurement_status
+                .as_deref()
+                .unwrap_or("measured"),
+            "keywords":query_order
+                .iter()
+                .filter_map(|query| prepared.keyword_metrics_by_query.get(query).cloned())
+                .collect::<Vec<_>>(),
+            "requested_query_count":query_order.len(),
+            "measured_query_count":measured_query_count,
+            "source":"Google広告 Keyword Planner API（サーバー取得）",
+            "cache":"case"
+        }));
+    }
+    let personas_to_fetch = personas
+        .iter()
+        .filter(|persona| {
+            persona
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !prepared.keyword_completed_personas.contains(id))
+        })
+        .collect::<Vec<_>>();
+    let mut queries_to_fetch = Vec::new();
+    let mut seen_to_fetch = HashSet::new();
+    for persona in &personas_to_fetch {
+        for query in persona
+            .get("search_queries")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(query) = query.get("query").and_then(Value::as_str).map(str::trim) else {
+                continue;
+            };
+            if !query.is_empty() && seen_to_fetch.insert(query.to_string()) {
+                queries_to_fetch.push(query.to_string());
+            }
+        }
+    }
+    if queries_to_fetch.is_empty() {
+        return Json(json!({
+            "status":"error",
+            "message":"未取得ペルソナの検索語を確認できませんでした。"
+        }));
+    }
+
+    let region = [
+        prepared
+            .case_profile
+            .get("prefecture")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+        prepared
+            .case_profile
+            .get("municipality")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    ]
+    .into_iter()
+    .filter(|value| !value.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join(" ");
+    let mut fetched_by_query = prepared.keyword_metrics_by_query.clone();
+    let mut measurement_status = "measured";
+    let query = serde_json::from_value::<crate::media_engine::handlers::KeywordsQuery>(json!({
+        "kw":queries_to_fetch.join("\n"),
+        "region":region,
+        "noise_floor":0,
+        "months":12
+    }));
+    let query = match query {
+        Ok(value) => value,
+        Err(_) => {
+            return Json(json!({
+                "status":"error",
+                "message":"検索需要APIの入力を組み立てられませんでした。"
+            }))
+        }
+    };
+    // 1回の検索需要取得を、地域解決1 + 履歴指標1 + 最大3再試行の5要求として予約する。
+    acquire_journey_google_ads_budget().await;
+    let Json(response) = crate::media_engine::handlers::keywords_endpoint(Query(query)).await;
+    // 予約枠をAPI完了時刻へ更新し、429再試行が長引いても完了後60秒は枠を保持する。
+    finish_journey_google_ads_budget().await;
+    match response.get("status").and_then(Value::as_str) {
+        Some("ok") => {
+            for metric in response
+                .get("keywords")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(keyword) = metric
+                    .get("keyword")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|keyword| seen_queries.contains(*keyword))
+                {
+                    fetched_by_query.insert(keyword.to_string(), metric.clone());
+                }
+            }
+        }
+        Some("missing_credentials") => {
+            measurement_status = "missing_credentials";
+        }
+        _ => {
+            return Json(json!({
+                "status":"error",
+                "message":"Google広告から検索需要を取得できませんでした。"
+            }))
+        }
+    }
+
+    let mut metrics_by_persona = HashMap::new();
+    for persona in &personas {
+        let Some(persona_id) = persona.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        metrics_by_persona.insert(
+            persona_id.to_string(),
+            journey::build_trusted_keyword_metrics(persona, &fetched_by_query),
+        );
+    }
+    {
+        let mut store = journey_case_store().lock().await;
+        let Some(stored) = store.get_mut(&case_id) else {
+            return Json(json!({
+                "status":"error",
+                "message":"検索需要の取得中に準備データの有効期限が切れました。"
+            }));
+        };
+        stored.keyword_metrics_by_query = fetched_by_query.clone();
+        stored.keyword_metrics_by_persona.extend(metrics_by_persona);
+        stored.keyword_completed_personas.extend(
+            personas_to_fetch
+                .iter()
+                .filter_map(|persona| persona.get("id").and_then(Value::as_str))
+                .map(str::to_string),
+        );
+        stored.keyword_measurement_status = Some(measurement_status.to_string());
+    }
+
+    let measured_query_count = query_order
+        .iter()
+        .filter(|query| fetched_by_query.contains_key(*query))
+        .count();
+    Json(json!({
+        "status":"ok",
+        "measurement_status":measurement_status,
+        "keywords":query_order
+            .iter()
+            .filter_map(|query| fetched_by_query.get(query).cloned())
+            .collect::<Vec<_>>(),
+        "requested_query_count":query_order.len(),
+        "measured_query_count":measured_query_count,
+        "source":"Google広告 Keyword Planner API（サーバー取得）",
+        "cache":"fresh"
+    }))
+}
+
 /// `POST /api/jobgen/journey-persona-detail` — 検索実測値を反映して1ペルソナを診断。
 pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Value> {
     let case_id = body_str(&body, "case_id");
@@ -899,10 +1255,6 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
             "message":"準備済みケースとペルソナを指定してください。"
         }));
     }
-    let keyword_metrics = body
-        .get("keyword_metrics")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
     let prepared = {
         let mut store = journey_case_store().lock().await;
         store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
@@ -936,6 +1288,15 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
             }))
         }
     };
+    let keyword_metrics = match prepared.keyword_metrics_by_persona.get(&persona_id) {
+        Some(value) => value.clone(),
+        None => {
+            return Json(json!({
+                "status":"error",
+                "message":"先に選択ペルソナの検索需要を確認してください。"
+            }))
+        }
+    };
 
     let base_prompt = journey::build_persona_detail_prompt(
         &prepared.case_profile,
@@ -946,9 +1307,12 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         &prepared.reviews,
         &prepared.public_stats,
         &keyword_metrics,
+        &prepared.allowed_evidence_refs,
     );
+    let detail_schema =
+        journey::persona_detail_schema_with_evidence_refs(&prepared.allowed_evidence_refs);
     let mut llm_calls = 1;
-    let mut result = match jobgen_llm(&base_prompt, &journey::persona_detail_schema(), 0.25).await {
+    let mut result = match jobgen_llm(&base_prompt, &detail_schema, 0.25).await {
         Ok(value) => value,
         Err(error) => {
             return Json(json!({
@@ -974,7 +1338,7 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         }
         let repair_prompt =
             journey::build_detail_repair_prompt(&base_prompt, &result, &quality_issues);
-        result = match jobgen_llm(&repair_prompt, &journey::persona_detail_schema(), 0.1).await {
+        result = match jobgen_llm(&repair_prompt, &detail_schema, 0.1).await {
             Ok(value) => value,
             Err(error) => {
                 quality_issues.push(format!("自動補修APIに失敗しました: {error}"));
