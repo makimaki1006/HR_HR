@@ -53,25 +53,41 @@ pub async fn ui_jobgen_applicant_journey_beta() -> axum::response::Html<&'static
 /// 各ツールの画面・API・認証は一切変更しない (iframe はセッション Cookie を共有)。
 /// 全画面で使いたい場合のために「別ウィンドウで開く」も残す。
 pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
+    // iframe は3枚を hidden で切り替える (2026-08-04 レビュー指摘の修正)。
+    // 単一 iframe の src 差し替えだと、切り替えのたびにページが再ロードされ
+    // 入力途中の求人票や診断結果が消える (旧・別ブラウザタブ時代からの機能後退)。
+    // src は初回表示時にだけ data-src から設定する遅延ロード。
     axum::response::Html(
         r#"<div class="space-y-4">
   <h2 class="text-lg font-bold text-slate-100">求人票作成</h2>
   <div class="flex flex-wrap items-center gap-2" id="jobtools-nav">
-    <button type="button" class="tab-btn active" data-src="/jobgen" onclick="jobtoolsSwitch(this)">求人票生成</button>
-    <button type="button" class="tab-btn" data-src="/jobgen/competitive-beta" onclick="jobtoolsSwitch(this)">競合比較から求人作成</button>
-    <button type="button" class="tab-btn" data-src="/jobgen/applicant-journey-beta" onclick="jobtoolsSwitch(this)">応募者ジャーニー診断</button>
+    <button type="button" class="tab-btn active" data-frame="jt-frame-0" data-src="/jobgen" onclick="jobtoolsSwitch(this)">求人票生成</button>
+    <button type="button" class="tab-btn" data-frame="jt-frame-1" data-src="/jobgen/competitive-beta" onclick="jobtoolsSwitch(this)">競合比較から求人作成</button>
+    <button type="button" class="tab-btn" data-frame="jt-frame-2" data-src="/jobgen/applicant-journey-beta" onclick="jobtoolsSwitch(this)">応募者ジャーニー診断</button>
     <a id="jobtools-open" href="/jobgen" target="_blank" rel="noopener" class="text-[11px] text-slate-400 underline ml-auto">別ウィンドウで開く ↗</a>
   </div>
-  <iframe id="jobtools-frame" src="/jobgen" title="求人票作成ツール"
-          style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+  <div id="jobtools-frames">
+    <iframe id="jt-frame-0" src="/jobgen" title="求人票生成"
+            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+    <iframe id="jt-frame-1" data-src="/jobgen/competitive-beta" title="競合比較から求人作成" hidden
+            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+    <iframe id="jt-frame-2" data-src="/jobgen/applicant-journey-beta" title="応募者ジャーニー診断" hidden
+            style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+  </div>
   <script>
     function jobtoolsSwitch(btn){
       var nav=document.getElementById("jobtools-nav");
-      nav.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");b.setAttribute("aria-selected","false");});
+      nav.querySelectorAll("button").forEach(function(b){b.classList.remove("active");b.setAttribute("aria-selected","false");});
       btn.classList.add("active");btn.setAttribute("aria-selected","true");
-      var src=btn.getAttribute("data-src");
-      document.getElementById("jobtools-frame").src=src;
-      document.getElementById("jobtools-open").href=src;
+      var frames=document.getElementById("jobtools-frames");
+      frames.querySelectorAll("iframe").forEach(function(f){f.hidden=true;});
+      var frame=document.getElementById(btn.getAttribute("data-frame"));
+      if(frame){
+        // 初回だけロード。以降は hidden 切替のみで状態を保つ。
+        if(!frame.getAttribute("src")&&frame.getAttribute("data-src")){frame.src=frame.getAttribute("data-src");}
+        frame.hidden=false;
+      }
+      document.getElementById("jobtools-open").href=btn.getAttribute("data-src");
     }
   </script>
 </div>"#,
