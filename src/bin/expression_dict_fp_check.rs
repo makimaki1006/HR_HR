@@ -62,12 +62,16 @@ const ZERO_MINORS: [&str; 6] = [
 
 /// 求人1件のレビュー対象テキスト (職種名 + 訴求文 + 説明文)。
 fn review_text(r: &SurveyRecord) -> String {
-    [r.job_title.as_str(), r.snippet.as_str(), r.description.as_str()]
-        .iter()
-        .filter(|s| !s.trim().is_empty())
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" ")
+    [
+        r.job_title.as_str(),
+        r.snippet.as_str(),
+        r.description.as_str(),
+    ]
+    .iter()
+    .filter(|s| !s.trim().is_empty())
+    .cloned()
+    .collect::<Vec<_>>()
+    .join(" ")
 }
 
 /// `text` 中の `matched` の前後 [`CONTEXT_CHARS`] 文字を含む文脈を返す (文字境界安全)。
@@ -93,8 +97,8 @@ fn context_and_next(text: &str, matched: &str) -> (String, Option<char>) {
 /// 誤検出候補を機械的に分類する。判定基準はモジュール doc コメントを参照。
 fn classify(major: &str, minor: &str, matched: &str, next_char: Option<char>) -> &'static str {
     // --- C1: 命令形ルールで、命令形語幹の直後が活用語尾 ---
-    let is_imperative_rule = IMPERATIVE_MAJOR_HEADS.iter().any(|h| major.contains(h))
-        || minor.starts_with("外せ");
+    let is_imperative_rule =
+        IMPERATIVE_MAJOR_HEADS.iter().any(|h| major.contains(h)) || minor.starts_with("外せ");
     if is_imperative_rule {
         for stem in IMPERATIVE_STEMS {
             if let Some(idx) = matched.find(stem) {
@@ -289,7 +293,10 @@ fn main() -> anyhow::Result<()> {
     std::fs::write(&out_path, serde_json::to_string_pretty(&result)?)?;
 
     eprintln!("--------------------------------------------------");
-    eprintln!("求人 {total_records} 件 / {total_chars} 字 / 検出行 {} 件", flagged_rows.len());
+    eprintln!(
+        "求人 {total_records} 件 / {total_chars} 字 / 検出行 {} 件",
+        flagged_rows.len()
+    );
     eprintln!("検出 {total_hits} 件の内訳: {grand:?}");
     for v in &rule_rows {
         eprintln!(
