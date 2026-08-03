@@ -946,6 +946,37 @@ fn try_ambiguous(text: &str) -> Option<ParsedLocation> {
 }
 
 /// 駅名マッチ
+/// 「川崎市川崎区」のような区付き表記から、先頭の政令指定都市名を取り出す。
+/// 一致しなければ None (政令市以外の値はそのまま使う)。
+fn designated_city_prefix(municipality: &str) -> Option<&'static str> {
+    const DESIGNATED_CITIES: [&str; 20] = [
+        "札幌市",
+        "仙台市",
+        "さいたま市",
+        "千葉市",
+        "横浜市",
+        "川崎市",
+        "相模原市",
+        "新潟市",
+        "静岡市",
+        "浜松市",
+        "名古屋市",
+        "京都市",
+        "大阪市",
+        "堺市",
+        "神戸市",
+        "岡山市",
+        "広島市",
+        "北九州市",
+        "福岡市",
+        "熊本市",
+    ];
+    DESIGNATED_CITIES
+        .iter()
+        .find(|city| municipality.starts_with(**city))
+        .copied()
+}
+
 fn try_station(text: &str) -> Option<ParsedLocation> {
     // 「XX駅」パターンを検出
     let station_pos = text.find('駅')?;
@@ -957,10 +988,17 @@ fn try_station(text: &str) -> Option<ParsedLocation> {
         let start = before.chars().count().saturating_sub(len);
         let candidate: String = before.chars().skip(start).collect();
         if let Some(info) = map.get(candidate.as_str()) {
+            // 2026-08-03: 駅名マップだけが「川崎市川崎区」のように区付きの値を持ち、
+            // 政令指定都市の経路 (try_designated_city) は市名のみを返すため、同じ市の
+            // 求人が2つの粒度に割れて集計・比較母集団のキーが分裂していた
+            // (実測: 川崎市479件 vs 川崎市川崎区10件)。さらに「新川崎駅」が部分一致で
+            // 「川崎駅」に当たり誤った区が付く例もあった (正: 幸区)。
+            // 市区町村は政令市経路と同じ市名までに丸めて粒度を統一する。
+            let municipality = designated_city_prefix(info.city).unwrap_or(info.city);
             return Some(ParsedLocation {
                 original_text: text.to_string(),
                 prefecture: Some(info.prefecture.to_string()),
-                municipality: Some(info.city.to_string()),
+                municipality: Some(municipality.to_string()),
                 region_block: Some(prefecture_to_region(info.prefecture).to_string()),
                 city_type: Some("駅名マッチ".to_string()),
                 confidence: 0.9,
@@ -1183,9 +1221,29 @@ fn try_municipality_pattern(text: &str, pref: Option<&str>) -> Option<ParsedLoca
         text.to_string()
     };
 
-    // 市 > 区 > 町 > 村 の優先順
-    for suffix in &["市", "区", "町", "村"] {
-        if let Some(pos) = clean.find(suffix) {
+    // 市 > 区 > 町 > 村 の優先順。
+    // 2026-08-03: 郡部住所では字名に「市」が含まれることがあり (「児玉郡 神川町 八日市」)、
+    // 市を先に探すと町名を奪って存在しない自治体キー「八日市」を作っていた (実測3件)。
+    // 「郡」を含む住所では 町 > 村 を先に試す。
+    let suffix_order: &[&str] = if clean.contains('郡') {
+        &["町", "村", "市", "区"]
+    } else {
+        &["市", "区", "町", "村"]
+    };
+    for suffix in suffix_order {
+        // 2026-08-03: find は最初の1箇所しか見ないため、「市川市」「市原市」は先頭の
+        // 「市」で切って名前が空になり、次の出現位置を試さずに市区町村を取り落としていた
+        // (「四日市市」は「四日市」に切り詰め)。出現位置を先頭から順に試し、
+        // (a) 名前が空になる位置 (「市川市」の先頭の市) と
+        // (b) 直後に同じサフィックスが続く位置 (「四日市市」の1つ目の市) はスキップする。
+        let suffix_char = suffix.chars().next().unwrap_or_default();
+        for (pos, _) in clean.match_indices(suffix) {
+            // 「四日市市」型: この位置の直後に同じサフィックスが続くなら、
+            // ここは自治体名の一部であって境界ではない。
+            let after = &clean[pos + suffix.len()..];
+            if after.chars().next() == Some(suffix_char) {
+                continue;
+            }
             // suffixの前の文字列（最大8文字）を市区町村名として抽出
             let before = &clean[..pos];
             let chars: Vec<char> = before.chars().collect();
@@ -1409,5 +1467,47 @@ mod tests {
 
         let r = parse_location("大阪府 堺市 中区", None);
         assert_eq!(r.municipality.as_deref(), Some("堺市"));
+    }
+
+    // =====================================================================
+    // 2026-08-03: 実データ監査 (indeed 16ファイル 2,709件 + 合成62ケース) で
+    // 見つかった市区町村切り出しの3系統の回帰テスト。
+    // =====================================================================
+
+    /// 郡部住所の字名に「市」が含まれると町名を奪い、存在しない自治体キーを
+    /// 作っていた (実測: 「児玉郡 神川町 八日市」→「八日市」3件)。
+    #[test]
+    fn regression_county_town_wins_over_aza_containing_shi() {
+        let r = parse_location("埼玉県 児玉郡 神川町 八日市", None);
+        assert_eq!(r.municipality.as_deref(), Some("神川町"));
+        let r = parse_location("埼玉県 大里郡 寄居町 今市", None);
+        assert_eq!(r.municipality.as_deref(), Some("寄居町"));
+        // 郡なしの通常住所は従来どおり市が勝つ
+        let r = parse_location("群馬県 前橋市 五代町", None);
+        assert_eq!(r.municipality.as_deref(), Some("前橋市"));
+    }
+
+    /// 「市」で始まる市名・「市」を2つ含む市名が取り落とされていた
+    /// (実測: 市川市→municipality空、四日市市→「四日市」)。
+    #[test]
+    fn regression_city_names_starting_or_doubling_shi() {
+        let r = parse_location("千葉県 市川市", None);
+        assert_eq!(r.municipality.as_deref(), Some("市川市"));
+        let r = parse_location("千葉県 市原市 五井", None);
+        assert_eq!(r.municipality.as_deref(), Some("市原市"));
+        let r = parse_location("三重県 四日市市", None);
+        assert_eq!(r.municipality.as_deref(), Some("四日市市"));
+    }
+
+    /// 駅名マップ由来の市区町村が「川崎市川崎区」のように区付きで、政令市経路の
+    /// 「川崎市」と2粒度に割れていた (実測: 川崎市479件 vs 川崎市川崎区10件が別集計)。
+    /// 「新川崎駅」が部分一致で川崎駅に当たり誤った区が付く問題も、市に丸めることで
+    /// 実害がなくなる。
+    #[test]
+    fn regression_station_derived_municipality_uses_city_granularity() {
+        let r = parse_location("神奈川県 川崎市 川崎区 川崎駅", None);
+        assert_eq!(r.municipality.as_deref(), Some("川崎市"));
+        let r = parse_location("神奈川県 川崎市 幸区 新川崎駅", None);
+        assert_eq!(r.municipality.as_deref(), Some("川崎市"));
     }
 }
