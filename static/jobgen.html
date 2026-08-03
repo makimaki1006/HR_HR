@@ -523,8 +523,12 @@ function pickJob(i){
     +`<label class="jobconfirm" id="jobConfirm"><input type="checkbox" id="jobConfirmChk"><span>この職種名で<b>市場分析（工程②）</b>を行います。職種名が正しいことを確認しました。<br>（確認するまで<b>一括実行</b>は押せません。工程を1つずつ実行する場合は不要です。）</span></label>`;
   $("#jobTitle").value=S.titleHint||"";
   // 職種名を編集したら確認をやり直させる（誤った職種名のまま一括実行するのを防ぐ）
+  // 2026-08-03: 職種名は②市場分析の入力なので、分析済みなら②以下も「要再実行」にする。
+  // 従来は確認チェックが外れるだけで、古い職種名の成果物が「生成完了」のまま残っていた。
   $("#jobTitle").oninput=()=>{
-    if(S.jobTitleConfirmed){S.jobTitleConfirmed=false;const c=$("#jobConfirmChk");if(c)c.checked=false;$("#jobConfirm").classList.remove("on");renderSteps();}
+    if(S.jobTitleConfirmed){S.jobTitleConfirmed=false;const c=$("#jobConfirmChk");if(c)c.checked=false;$("#jobConfirm").classList.remove("on");}
+    if(S.analysis&&S.status.analyze==="done"){S.status.analyze="stale";S.confirmed.analyze=false;markStaleAfter("analyze");}
+    renderSteps();
   };
   $("#jobConfirmChk").onchange=e=>{S.jobTitleConfirmed=!!e.target.checked;$("#jobConfirm").classList.toggle("on",!!e.target.checked);renderSteps();};
   $("#ctlHint").textContent="職種名を確認すると「一括実行」で工程①〜⑧を順に走らせます。各工程は個別に再実行できます。";
