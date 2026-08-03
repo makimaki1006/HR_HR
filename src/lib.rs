@@ -361,6 +361,15 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ======== P1-04: 47 都道府県横断比較ビュー（リサーチャー C 決定打）========
         .route("/tab/comparison", get(handlers::comparison::tab_comparison))
         .route("/tab/survey", get(handlers::survey::tab_survey))
+        // 2026-08-04: 求人系ツールとキーワード需要のアプリ内タブ (iframe 統合)
+        .route(
+            "/tab/jobgen_tools",
+            get(job_gen::handlers::tab_jobgen_tools),
+        )
+        .route(
+            "/tab/keyword_tools",
+            get(media_engine::handlers::tab_keyword_tools),
+        )
         .route(
             "/api/survey/upload",
             post(handlers::survey::upload_csv)
@@ -755,9 +764,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
          img-src 'self' data: blob: https:; \
          font-src 'self' data: https:; \
          connect-src 'self'; \
-         frame-ancestors 'none'; \
+         frame-ancestors 'self'; \
          base-uri 'self'; \
          form-action 'self'";
+    // frame-ancestors は 'self' (2026-08-04)。求人票生成・ジャーニー診断等を
+    // ダッシュボードのタブ内 iframe (同一オリジン) として統合するため。
+    // 外部サイトからの埋め込み (クリックジャッキング) は引き続き遮断される。
 
     Router::new()
         .route("/health", get(health_check))
@@ -781,11 +793,17 @@ pub fn build_app(state: Arc<AppState>) -> Router {
                  img-src 'self' data: blob: https:; \
                  font-src 'self' data: https:; \
                  connect-src 'self'; \
-                 frame-ancestors 'none'; \
+                 frame-ancestors 'self'; \
                  base-uri 'self'; \
                  form-action 'self'",
             ),
         ))
+        // frame-ancestors 'self' (2026-08-04): 求人票生成・ジャーニー診断等を
+        // ダッシュボードのタブ内 iframe (同一オリジン) として統合するため。
+        // 外部サイトからの埋め込み (クリックジャッキング) は引き続き遮断。
+        // 下の X-Frame-Options: DENY は据え置き — CSP frame-ancestors を解釈する
+        // ブラウザでは CSP が優先されるため同一オリジン埋め込みは機能し、
+        // CSP 未対応の旧ブラウザでは枠内表示だけが失敗する (外部リンクで代替可)。
         .layer(SetResponseHeaderLayer::if_not_present(
             http::header::X_FRAME_OPTIONS,
             HeaderValue::from_static("DENY"),
@@ -1307,18 +1325,18 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // 2026-05-22 セキュリティ修正 (Agent A3 M2): user_email を escape_html 通過。
     // session 由来だが email validation が緩い経路で stored XSS のリスク。
     let user_email_safe = crate::handlers::helpers::escape_html(&user_email);
-    // キーワード需要ビューア (2026-07-24): Google Ads 資格情報がある環境でのみ
-    // リンクを出す (未設定環境ではタブごと非表示 = フラグ分離)。別画面のため新タブで開く。
+    // キーワード需要ビューア (2026-07-24): Google Ads 資格情報がある環境でのみ表示。
+    // 2026-08-04: 別ブラウザタブへ飛ばすのをやめ、アプリ内タブ (iframe) に統合。
     let keywords_tab = if media_engine::handlers::media_engine_enabled() {
-        r#"<a href="/keywords-ui" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="キーワード需要ビューア（新しいタブで開く）">キーワード需要 ↗</a>"#
+        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/keyword_tools" hx-target="#content" hx-swap="innerHTML" title="検索キーワードの需要をアプリ内で確認">キーワード需要</button>"##
     } else {
         ""
     };
-    // 求人票生成 (2026-07-24): Gemini キーがある環境でのみリンクを出す。別画面のため新タブ。
+    // 求人票作成 (2026-07-24): Gemini キーがある環境でのみ表示。
+    // 2026-08-04: 求人票生成・競合比較・ジャーニー診断の3画面を1タブに統合
+    // (タブ内サブナビ + 同一オリジン iframe)。別ウィンドウで開く導線は断片内に残す。
     let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
-        r#"<a href="/jobgen" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="求人票生成（新しいタブで開く）">求人票生成 ↗</a>
-        <a href="/jobgen/competitive-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="競合求人との比較から採用戦略を設計（ベータ版・新しいタブで開く）">競合比較から求人作成（仮）↗</a>
-        <a href="/jobgen/applicant-journey-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="ペルソナ別に応募までの離脱ポイントと対策を診断（新しいタブで開く）">応募者ジャーニー診断 ↗</a>"#
+        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobgen_tools" hx-target="#content" hx-swap="innerHTML" title="求人票生成・競合比較・応募者ジャーニー診断">求人票作成</button>"##
     } else {
         ""
     };

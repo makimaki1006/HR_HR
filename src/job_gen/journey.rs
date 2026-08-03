@@ -3301,6 +3301,46 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         );
     }
 
+    /// タブ内 iframe 統合の契約 (2026-08-04)。
+    /// (1) タブ断片の iframe/サブナビが指す URL は実在するルートと一致する
+    /// (2) 断片は同一オリジンpágina のみ参照する (外部URLを iframe にしない)
+    /// ルート側を変えたのに断片を直し忘れると、タブが白画面になる silent 故障のため固定。
+    #[tokio::test]
+    async fn jobgen_tools_tab_fragment_references_registered_routes() {
+        let fragment = crate::job_gen::handlers::tab_jobgen_tools().await.0;
+        for path in [
+            "/jobgen",
+            "/jobgen/competitive-beta",
+            "/jobgen/applicant-journey-beta",
+        ] {
+            assert!(
+                fragment.contains(&format!("data-src=\"{path}\""))
+                    || fragment.contains(&format!("src=\"{path}\"")),
+                "断片が {path} を参照していない"
+            );
+        }
+        assert!(
+            !fragment.contains("src=\"http"),
+            "iframe は同一オリジンのみ参照するべき"
+        );
+        // ルート登録側 (lib.rs) がこれらのパスを持つことも確認
+        let lib_src = include_str!("../lib.rs");
+        for route in [
+            "\"/jobgen\"",
+            "\"/jobgen/competitive-beta\"",
+            "\"/jobgen/applicant-journey-beta\"",
+            "\"/tab/jobgen_tools\"",
+            "\"/tab/keyword_tools\"",
+        ] {
+            assert!(lib_src.contains(route), "lib.rs にルート {route} がない");
+        }
+        // CSP が同一オリジン埋め込みを許可していること (iframe 統合の前提)
+        assert!(
+            lib_src.contains("frame-ancestors 'self'"),
+            "CSP frame-ancestors が 'self' でないと iframe 統合が全ブラウザで白画面になる"
+        );
+    }
+
     /// 画面の「求人外の対策」集計は分類名の完全一致に依存する。
     /// 定数を変えたのに画面を直し忘れると、集計だけが静かにずれるので突合する。
     #[test]
