@@ -46,6 +46,38 @@ pub async fn ui_jobgen_applicant_journey_beta() -> axum::response::Html<&'static
     ))
 }
 
+/// ダッシュボードのタブ「求人票作成」断片 (2026-08-04)。
+///
+/// それまで求人票生成・競合比較・ジャーニー診断は別ブラウザタブへ飛ばしていたが、
+/// アプリ内で完結するよう同一オリジン iframe で切り替え表示する。
+/// 各ツールの画面・API・認証は一切変更しない (iframe はセッション Cookie を共有)。
+/// 全画面で使いたい場合のために「別ウィンドウで開く」も残す。
+pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
+    axum::response::Html(
+        r#"<div class="space-y-4">
+  <h2 class="text-lg font-bold text-slate-100">求人票作成</h2>
+  <div class="flex flex-wrap items-center gap-2" id="jobtools-nav">
+    <button type="button" class="tab-btn active" data-src="/jobgen" onclick="jobtoolsSwitch(this)">求人票生成</button>
+    <button type="button" class="tab-btn" data-src="/jobgen/competitive-beta" onclick="jobtoolsSwitch(this)">競合比較から求人作成</button>
+    <button type="button" class="tab-btn" data-src="/jobgen/applicant-journey-beta" onclick="jobtoolsSwitch(this)">応募者ジャーニー診断</button>
+    <a id="jobtools-open" href="/jobgen" target="_blank" rel="noopener" class="text-[11px] text-slate-400 underline ml-auto">別ウィンドウで開く ↗</a>
+  </div>
+  <iframe id="jobtools-frame" src="/jobgen" title="求人票作成ツール"
+          style="width:100%;height:calc(100vh - 230px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
+  <script>
+    function jobtoolsSwitch(btn){
+      var nav=document.getElementById("jobtools-nav");
+      nav.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");b.setAttribute("aria-selected","false");});
+      btn.classList.add("active");btn.setAttribute("aria-selected","true");
+      var src=btn.getAttribute("data-src");
+      document.getElementById("jobtools-frame").src=src;
+      document.getElementById("jobtools-open").href=src;
+    }
+  </script>
+</div>"#,
+    )
+}
+
 /// 埋め込みNGワードルール (コンパイル時同梱。正本= Sheets「求人系」NGワードタブ)。
 const EMBEDDED_NG_WORDS_JSON: &str = include_str!("../../assets/ng_words.json");
 
