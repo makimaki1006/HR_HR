@@ -57,6 +57,12 @@ pub fn is_outside_job_posting_channel(channel: &str) -> bool {
     channel != REQUIRED_ACTION_CHANNELS[0]
 }
 
+/// 優先対策の優先度。2026-08-03: それまでスキーマの enum だけで、品質ゲートの
+/// membership 検査が無かった。画面は「優先対策N件」を `priority==="高"` の完全一致で
+/// 集計するため (channel と同じ構造)、スキーマ・プロンプト・品質ゲートの3か所で
+/// この定数を使い、表記ゆれを止める。
+pub const REQUIRED_ACTION_PRIORITIES: [&str; 3] = ["高", "中", "低"];
+
 #[derive(Debug, Clone, Serialize)]
 pub struct NamedCount {
     pub name: String,
@@ -454,7 +460,7 @@ pub fn build_comparison_cohort(
         ("同一都道府県・同一職種・同一雇用形態", prefecture_matches)
     };
     let matched_record_count = selected.len();
-    let (status, warning) = if client_employment_type.trim().is_empty() {
+    let (status, base_warning) = if client_employment_type.trim().is_empty() {
         (
             "blocked",
             "顧客求人の雇用形態を引用確認できないため、比較母集団を確定できません。",
@@ -477,6 +483,31 @@ pub fn build_comparison_cohort(
     } else {
         ("ready", "")
     };
+    // 2026-08-03: 母集団の中身に対する告知。実データ監査で (1) タイトル部分一致により
+    // タクシー・送迎等の近接職種が18.5%混入 (2) 雇用形態が給与単位からの推定で埋まった
+    // CSVでは表示上の「同一雇用形態」が確定情報でない、の2点が確認された。
+    // 絞り込みを黙って強化するのではなく、母集団が甘い可能性を利用者に伝えて
+    // 確認を促す方針 (2026-08-03 ユーザー判断)。
+    let mut warnings: Vec<String> = Vec::new();
+    if !base_warning.is_empty() {
+        warnings.push(base_warning.to_string());
+    }
+    if status != "blocked" {
+        warnings.push(
+            "職種の絞り込みは求人タイトルへの部分一致です。送迎・タクシー等の近い職種が混ざることがあるため、給与を比較する際は件数の内訳もあわせて確認してください。"
+                .to_string(),
+        );
+        let inferred_count = selected
+            .iter()
+            .filter(|record| record.employment_type_inferred)
+            .count();
+        if inferred_count > 0 {
+            warnings.push(format!(
+                "比較対象{matched_record_count}件のうち{inferred_count}件は、雇用形態が求人票の明示ではなく給与単位からの推定です（月給・年俸→正社員、時給→パート・アルバイト）。"
+            ));
+        }
+    }
+    let warning = warnings.join(" ");
 
     let summary = if selected.is_empty() {
         None
@@ -501,7 +532,7 @@ pub fn build_comparison_cohort(
             client_prefecture: client_prefecture.trim().to_string(),
             client_municipality: client_municipality.trim().to_string(),
             client_employment_type: client_employment_type.trim().to_string(),
-            warning: warning.to_string(),
+            warning,
         },
         summary,
     ))
@@ -702,6 +733,15 @@ fn review_risk_score(evidence: &ReviewEvidence) -> usize {
         .count()
 }
 
+/// 打ち切り時でも無条件に保持する直近の口コミ件数。
+///
+/// 2026-08-03: リスク語の単純一致は実在の苦情 (「煽り運転」「割り込むな」等、
+/// 21語のどれにも当たらない) を捕まえられないことが実口コミCSVで確認された。
+/// GoogleマップのエクスポートはCSVの先頭が新しい口コミであるため、語彙判定に
+/// 関係なく先頭N件を必ず残し、会社名検索で最初に目に入る口コミが根拠から
+/// 消えないようにする (語彙判定の全面見直しは別途)。
+const REVIEW_RECENT_KEEP: usize = 5;
+
 fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Vec<ReviewEvidence> {
     if all_evidence.len() <= limit {
         return all_evidence;
@@ -732,11 +772,17 @@ fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Ve
     } else {
         limit.div_ceil(2)
     };
-    let mut selected = prioritized
+    // 直近 (= 先頭) の口コミはリスク語の有無に関係なく必ず残す。
+    let mut selected: HashSet<usize> = (0..REVIEW_RECENT_KEEP.min(all_evidence.len())).collect();
+    for (index, _) in prioritized
         .iter()
         .take(balanced_risk_target.min(prioritized.len()))
-        .map(|(index, _)| *index)
-        .collect::<HashSet<_>>();
+    {
+        if selected.len() >= limit {
+            break;
+        }
+        selected.insert(*index);
+    }
 
     if selected.len() < limit {
         let remaining = limit - selected.len();
@@ -820,7 +866,7 @@ pub fn client_salary_position(
         third_quartile_yen: distribution.third_quartile_yen,
         percentile_position: (percentile * 10.0).round() / 10.0,
         position_label: position_label.to_string(),
-        calculation_note: "競合CSVと顧客求人の給与表記を既存パーサで月給換算。範囲表記は上下限の中点を代表値として配置し、固定残業代・賞与・手当の内訳差は別途確認が必要。".to_string(),
+        calculation_note: "競合CSVと顧客求人の給与表記を既存パーサで月給換算。範囲表記は上下限の中点、「◯円以上」表記は下限をそのまま代表値として配置（上限は推測しない）。固定残業代・賞与・手当の内訳差は別途確認が必要。".to_string(),
     })
 }
 
@@ -1011,7 +1057,9 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
                                 "type":"object",
                                 "properties":{
                                     "query":{"type":"string"},
-                                    "stage":{"type":"string"},
+                                    // 2026-08-03: 8段階の名称に拘束。自由記述だと「情報収集
+                                    // フェーズ」等が混ざり、工程5の8段階表と対応しなくなっていた。
+                                    "stage":{"type":"string","enum":REQUIRED_JOURNEY_STAGES},
                                     "intent":{"type":"string"},
                                     "reason":{"type":"string"},
                                     "basis_type":{"type":"string","enum":["求人由来","職種あるある","口コミ由来","競合比較","応募段階","顧客発言"]},
@@ -1095,6 +1143,7 @@ pub fn build_prepare_prompt(
 - 「応募へ進む」「検索・比較する」「求人閲覧段階で離脱する」を最低1件ずつ含める。
 - 人手不足市場のため、年齢・性別・MBTIで水増しせず、転職理由・経験・生活制約・最低条件・検索行動で必要最小限に分ける。
 - 各ペルソナの検索語は5〜8件。
+- 各検索語の stage は次の8段階の名称を一字一句そのまま使う: 求人認知、求人閲覧、自然検索、他求人比較、応募判断、応募後連絡、面接、オファー・入社判断。「情報収集」等の独自の段階名を作らない。
 - analysis_summary、条件比較、顧客への確認事項、限界事項を空にしない。
 - 各ペルソナの条件軸と各検索語の意図・理由・根拠を空にしない。
 - 顧客が採用したいかは決めず、employer_fit_hypothesis は仮説に留める。
@@ -1447,6 +1496,11 @@ pub fn validate_prepare_result(
                     ],
                     &mut issues,
                 );
+                validate_journey_stage_name(
+                    query,
+                    &format!("ペルソナ{}の検索語{}", index + 1, query_index + 1),
+                    &mut issues,
+                );
                 if evidence_ref_count(query) == 0 {
                     issues.push(format!(
                         "ペルソナ{}の検索語{}に根拠番号がありません。",
@@ -1474,8 +1528,12 @@ pub fn persona_detail_schema() -> Value {
 pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
     let string_array = || json!({"type":"array","items":{"type":"string"}});
     let evidence_refs = || evidence_ref_array_schema(allowed);
-    // 実行場所は定数から enum を組み立て、プロンプト・品質ゲートと必ず同じ集合にする。
+    // 実行場所・段階・優先度は定数から enum を組み立て、プロンプト・品質ゲートと
+    // 必ず同じ集合にする (2026-08-03: channel 修正と同時に stage/priority も同型の
+    // 自由記述だったことが監査で判明。実測で「自然検索・比較検討段階」等のズレ値が出ていた)。
     let channel = || json!({"type":"string","enum":REQUIRED_ACTION_CHANNELS});
+    let stage = || json!({"type":"string","enum":REQUIRED_JOURNEY_STAGES});
+    let priority = || json!({"type":"string","enum":REQUIRED_ACTION_PRIORITIES});
     json!({
         "type":"object",
         "properties":{
@@ -1498,10 +1556,7 @@ pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Va
                 "items":{
                     "type":"object",
                     "properties":{
-                        "stage":{"type":"string","enum":[
-                            "求人認知","求人閲覧","自然検索","他求人比較",
-                            "応募判断","応募後連絡","面接","オファー・入社判断"
-                        ]},
+                        "stage":stage(),
                         "candidate_action":{"type":"string"},
                         "question_or_expectation":{"type":"string"},
                         "dropoff_trigger":{"type":"string"},
@@ -1520,13 +1575,13 @@ pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Va
                 "items":{
                     "type":"object",
                     "properties":{
-                        "stage":{"type":"string"},
+                        "stage":stage(),
                         "risk":{"type":"string"},
                         "cause_type":{"type":"string"},
                         "countermeasure":{"type":"string"},
                         "channel":channel(),
                         "client_confirmation":{"type":"string"},
-                        "priority":{"type":"string","enum":["高","中","低"]},
+                        "priority":priority(),
                         "evidence_refs":evidence_refs()
                     },
                     "required":[
@@ -1612,6 +1667,8 @@ pub fn build_persona_detail_prompt(
 - journey は必ず次の8段階を順番どおり1件ずつ返す: {stages}
 - 各段階の候補者行動・疑問・離脱要因・対策・チャネルを空にしない。
 - channel は対策を実行する場所であり、次の分類のいずれかを一字一句そのまま使う: {channels}
+- priority_actions の stage は上記8段階の名称を一字一句そのまま使う。「〜段階」を付けたり独自の段階名を作らない。
+- priority は 高・中・低 のいずれかをそのまま使う。
 - 対策の本体を求人票の書き換えで実現するなら「求人票」、求人票を直しても解決せず別の場で実施するなら該当する分類を選ぶ。
 - 求人票に書いていない制度・条件を新たに設ける対策は「実態・条件変更」とし、「求人票」に含めない。
 - 優先対策、応募後対策、採用したい場合の対策、顧客質問、限界事項を空にしない。
@@ -1684,6 +1741,44 @@ fn validate_action_channel(item: &Value, label: &str, issues: &mut Vec<String>) 
         issues.push(format!(
             "{label}の実行場所「{channel}」は定義済み分類にありません。次のいずれかをそのまま使ってください: {}",
             REQUIRED_ACTION_CHANNELS.join("、")
+        ));
+    }
+}
+
+/// 段階名が8段階の正式名称であることを確認する。
+///
+/// journey[] 側は順序まで検査済みだが、priority_actions[] と search_queries[] の
+/// stage は自由記述だったため「自然検索・比較検討段階」のような表記ゆれが画面に出て、
+/// 8段階表と行が対応しなくなっていた (2026-08-03 実測)。
+fn validate_journey_stage_name(item: &Value, label: &str, issues: &mut Vec<String>) {
+    let Some(stage) = item.get("stage").and_then(Value::as_str) else {
+        return;
+    };
+    let stage = stage.trim();
+    if stage.is_empty() {
+        return;
+    }
+    if !REQUIRED_JOURNEY_STAGES.contains(&stage) {
+        issues.push(format!(
+            "{label}の段階「{stage}」は8段階の名称にありません。次のいずれかをそのまま使ってください: {}",
+            REQUIRED_JOURNEY_STAGES.join("、")
+        ));
+    }
+}
+
+/// 優先度が定義済みの3値であることを確認する。画面は「優先対策N件」を
+/// `priority==="高"` の完全一致で数えるため、表記ゆれは集計ズレになる。
+fn validate_action_priority(item: &Value, label: &str, issues: &mut Vec<String>) {
+    let Some(priority) = item.get("priority").and_then(Value::as_str) else {
+        return;
+    };
+    let priority = priority.trim();
+    if priority.is_empty() {
+        return;
+    }
+    if !REQUIRED_ACTION_PRIORITIES.contains(&priority) {
+        issues.push(format!(
+            "{label}の優先度「{priority}」は定義外です。高・中・低のいずれかをそのまま使ってください。"
         ));
     }
 }
@@ -1825,6 +1920,8 @@ pub fn validate_persona_detail(
                 &mut issues,
             );
             validate_action_channel(action, &format!("優先対策{}", index + 1), &mut issues);
+            validate_journey_stage_name(action, &format!("優先対策{}", index + 1), &mut issues);
+            validate_action_priority(action, &format!("優先対策{}", index + 1), &mut issues);
             if evidence_ref_count(action) == 0 {
                 issues.push(format!("優先対策{}に根拠番号がありません。", index + 1));
             }
@@ -2261,7 +2358,7 @@ fn distribution(group: &str, mut values: Vec<i64>) -> SalaryDistribution {
         median_yen: quantile(&values, 1, 2),
         third_quartile_yen: quantile(&values, 3, 4),
         maximum_yen: values[n - 1],
-        unit_note: "各求人の給与表記を月給換算。範囲表記は上下限の中点、時給×167時間、日給×21日、週給×4.33。".to_string(),
+        unit_note: "各求人の給与表記を月給換算。範囲表記は上下限の中点、「◯円以上」表記は下限をそのまま代表値に使用（上限は推測しない）、年収・年俸表記は÷12。時給×167時間、日給×21日、週給×4.33。".to_string(),
     }
 }
 
@@ -2301,12 +2398,20 @@ fn same_employment_group(left: &str, right: &str) -> bool {
     }
 }
 
+/// 候補リストの並び順を優先度として列を引き当てる。
+///
+/// 2026-08-03: 旧実装は headers.iter().position だったため「CSV上で先に現れた列」が
+/// 勝っていた。本文候補の末尾にある汎用名 `review` (口コミURL列にありがちな名前) が
+/// 本文列 `OA1nbd` より左にあると、URLが口コミ本文としてR番号付きでLLMへ流れる
+/// 実害を合成データで確認した。候補の先頭 (スクレイパ固有の難読名) から順に探す。
 fn find_header(headers: &[String], candidates: &[&str]) -> Option<usize> {
-    headers.iter().position(|header| {
-        let normalized = header.trim().to_lowercase();
-        candidates
-            .iter()
-            .any(|candidate| normalized == candidate.to_lowercase())
+    let normalized: Vec<String> = headers
+        .iter()
+        .map(|header| header.trim().to_lowercase())
+        .collect();
+    candidates.iter().find_map(|candidate| {
+        let candidate = candidate.to_lowercase();
+        normalized.iter().position(|header| *header == candidate)
     })
 }
 
@@ -2987,6 +3092,156 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             issues.iter().any(|issue| issue.contains("SNS運用")),
             "優先対策の分類外の実行場所が品質ゲートを通過した: {issues:?}"
         );
+    }
+
+    /// 列の引き当てが「候補の優先順位」で決まる (2026-08-03 修正の回帰)。
+    /// 旧実装は CSV 上の列順で先勝ちだったため、`review` (口コミURL列にありがちな名前) が
+    /// 本文列 `OA1nbd` より左にあると URL が口コミ本文として扱われた。
+    #[test]
+    fn review_csv_text_column_wins_by_candidate_priority_not_column_order() {
+        // review(URL列) が OA1nbd(本文列) より左にあるヘッダ
+        let csv = "review,date,OA1nbd,y3Ibjb\n\
+https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらいです,3 か月前\n";
+        let summary =
+            summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("review csv");
+        assert_eq!(summary.text_rows, 1);
+        assert!(
+            summary.evidence[0].text.contains("残業が多く"),
+            "本文列 OA1nbd の内容が使われるべき (実際: {:?})",
+            summary.evidence[0].text
+        );
+        assert!(
+            !summary.evidence[0].text.starts_with("http"),
+            "URL列を口コミ本文として扱わないべき"
+        );
+    }
+
+    /// 40件打ち切り時、リスク語を含まない直近口コミ (CSV先頭) が必ず残る。
+    /// 実口コミで「煽り運転」等の苦情が21語のリスク語彙に当たらず、
+    /// 打ち切りの格子から外れて消える経路が確認された (2026-08-03)。
+    #[test]
+    fn recent_reviews_survive_truncation_even_without_risk_terms() {
+        // 先頭2件がリスク語なしの苦情、後方にリスク語ありを大量に置く
+        let mut csv = String::from("OA1nbd,y3Ibjb\n");
+        csv.push_str("朝5時から車間距離不保持で幅寄せしてくる車両を見ました,4 か月前\n");
+        csv.push_str("急に割り込むのはやめてほしい,5 か月前\n");
+        for index in 3..=120 {
+            csv.push_str(&format!("残業が多いという話 その{index},1 年前\n"));
+        }
+        let summary =
+            summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("review csv");
+        let texts: Vec<&str> = summary
+            .evidence
+            .iter()
+            .map(|evidence| evidence.text.as_str())
+            .collect();
+        assert!(
+            texts.iter().any(|text| text.contains("車間距離不保持")),
+            "リスク語を含まない直近口コミ1件目が保持されるべき"
+        );
+        assert!(
+            texts.iter().any(|text| text.contains("急に割り込む")),
+            "リスク語を含まない直近口コミ2件目が保持されるべき"
+        );
+        assert!(
+            summary.evidence.len() <= REVIEW_EVIDENCE_LIMIT,
+            "打ち切り上限は維持されるべき"
+        );
+    }
+
+    /// 優先対策の段階・優先度の表記ゆれを品質ゲートで止める (channel と同型の穴の回帰)。
+    /// 実測では「自然検索・比較検討段階」等のズレ値が品質ゲートを素通りして画面に出ていた。
+    #[test]
+    fn detail_quality_gate_rejects_undefined_stage_and_priority() {
+        let allowed = HashSet::from(["職種一般仮説".to_string()]);
+        let persona = valid_prepare_persona("p1", "検索・比較する");
+
+        // 実測で観測されたズレ値そのもの
+        let mut invalid_stage = valid_detail_result(&persona);
+        invalid_stage["priority_actions"][0]["stage"] = json!("自然検索・比較検討段階");
+        let issues = validate_persona_detail(&invalid_stage, &persona, &allowed);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("自然検索・比較検討段階")),
+            "8段階外の段階名が品質ゲートを通過した: {issues:?}"
+        );
+
+        let mut invalid_priority = valid_detail_result(&persona);
+        invalid_priority["priority_actions"][0]["priority"] = json!("最優先");
+        let issues = validate_persona_detail(&invalid_priority, &persona, &allowed);
+        assert!(
+            issues.iter().any(|issue| issue.contains("最優先")),
+            "定義外の優先度が品質ゲートを通過した: {issues:?}"
+        );
+
+        // 正式名称は全段階・全優先度が受理される
+        for stage in REQUIRED_JOURNEY_STAGES {
+            let mut valid = valid_detail_result(&persona);
+            valid["priority_actions"][0]["stage"] = json!(stage);
+            assert!(
+                validate_persona_detail(&valid, &persona, &allowed).is_empty(),
+                "正式な段階名「{stage}」が拒否された"
+            );
+        }
+        for priority in REQUIRED_ACTION_PRIORITIES {
+            let mut valid = valid_detail_result(&persona);
+            valid["priority_actions"][0]["priority"] = json!(priority);
+            assert!(
+                validate_persona_detail(&valid, &persona, &allowed).is_empty(),
+                "定義済み優先度「{priority}」が拒否された"
+            );
+        }
+    }
+
+    /// 検索語の段階名も8段階に拘束する (prepare 側の品質ゲート)。
+    #[test]
+    fn prepare_quality_gate_rejects_undefined_search_query_stage() {
+        let allowed = HashSet::from(["職種一般仮説".to_string()]);
+        let mut invalid = valid_prepare_result();
+        invalid["personas"][0]["search_queries"][0]["stage"] = json!("情報収集フェーズ");
+        let issues = validate_prepare_result(&invalid, &allowed);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("情報収集フェーズ")),
+            "8段階外の検索語段階が品質ゲートを通過した: {issues:?}"
+        );
+    }
+
+    /// スキーマの stage/priority enum が定数と一致する (集合ずれの番兵)。
+    #[test]
+    fn stage_and_priority_enums_match_constants() {
+        let schema = persona_detail_schema();
+        for path in [
+            &schema["properties"]["journey"]["items"]["properties"]["stage"]["enum"],
+            &schema["properties"]["priority_actions"]["items"]["properties"]["stage"]["enum"],
+        ] {
+            let values: Vec<&str> = path
+                .as_array()
+                .expect("stage enum")
+                .iter()
+                .map(|value| value.as_str().unwrap_or_default())
+                .collect();
+            assert_eq!(values, REQUIRED_JOURNEY_STAGES.to_vec());
+        }
+        let priority_values: Vec<&str> = schema["properties"]["priority_actions"]["items"]
+            ["properties"]["priority"]["enum"]
+            .as_array()
+            .expect("priority enum")
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(priority_values, REQUIRED_ACTION_PRIORITIES.to_vec());
+        let prepare = prepare_schema();
+        let prepare_stage_values: Vec<&str> = prepare["properties"]["personas"]["items"]
+            ["properties"]["search_queries"]["items"]["properties"]["stage"]["enum"]
+            .as_array()
+            .expect("search query stage enum")
+            .iter()
+            .map(|value| value.as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(prepare_stage_values, REQUIRED_JOURNEY_STAGES.to_vec());
     }
 
     /// 定義済み分類はすべて受理される（プロンプト・スキーマ・品質ゲートの集合ずれ検出）。
