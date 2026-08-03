@@ -32,6 +32,31 @@ pub const REQUIRED_JOURNEY_STAGES: [&str; 8] = [
     "オファー・入社判断",
 ];
 
+/// 対策をどこで打つか（実行場所）の分類。
+///
+/// 2026-08-03: それまで channel は自由記述で、プロンプトにも「空にしない」としか
+/// 書かれていなかった。画面側は「求人外の対策」を `channel !== "求人票"` の完全一致で
+/// 数えているため、生成側が「求人原稿」等と書くだけで集計が崩れていた。
+/// 分類を固定し、スキーマ enum・プロンプト・品質ゲートの3か所で同じ定数を使う。
+///
+/// 用途は集計だけではない。「求人票を直せば済む対策」と「求人票の外でしか
+/// 打てない対策」をコンサルが仕分けできることが目的。
+pub const REQUIRED_ACTION_CHANNELS: [&str; 8] = [
+    "求人票",
+    "採用サイト・FAQ",
+    "口コミ返信・情報発信",
+    "応募フォーム",
+    "応募後連絡",
+    "面接",
+    "オファー",
+    "実態・条件変更",
+];
+
+/// 求人票そのものを直しても解決しない実行場所。画面の「求人外の対策」集計と対応する。
+pub fn is_outside_job_posting_channel(channel: &str) -> bool {
+    channel != REQUIRED_ACTION_CHANNELS[0]
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct NamedCount {
     pub name: String,
@@ -1449,6 +1474,8 @@ pub fn persona_detail_schema() -> Value {
 pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
     let string_array = || json!({"type":"array","items":{"type":"string"}});
     let evidence_refs = || evidence_ref_array_schema(allowed);
+    // 実行場所は定数から enum を組み立て、プロンプト・品質ゲートと必ず同じ集合にする。
+    let channel = || json!({"type":"string","enum":REQUIRED_ACTION_CHANNELS});
     json!({
         "type":"object",
         "properties":{
@@ -1479,7 +1506,7 @@ pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Va
                         "question_or_expectation":{"type":"string"},
                         "dropoff_trigger":{"type":"string"},
                         "countermeasure":{"type":"string"},
-                        "channel":{"type":"string"},
+                        "channel":channel(),
                         "evidence_refs":evidence_refs()
                     },
                     "required":[
@@ -1497,7 +1524,7 @@ pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Va
                         "risk":{"type":"string"},
                         "cause_type":{"type":"string"},
                         "countermeasure":{"type":"string"},
-                        "channel":{"type":"string"},
+                        "channel":channel(),
                         "client_confirmation":{"type":"string"},
                         "priority":{"type":"string","enum":["高","中","低"]},
                         "evidence_refs":evidence_refs()
@@ -1572,6 +1599,7 @@ pub fn build_persona_detail_prompt(
     allowed_evidence_refs: &HashSet<String>,
 ) -> String {
     let stages = REQUIRED_JOURNEY_STAGES.join(" → ");
+    let channels = REQUIRED_ACTION_CHANNELS.join("、");
     let allowed_evidence_refs = serde_json::to_string(&sorted_evidence_refs(allowed_evidence_refs))
         .unwrap_or_else(|_| "[]".to_string());
     format!(
@@ -1583,6 +1611,9 @@ pub fn build_persona_detail_prompt(
 - search_assessment は selected_persona.search_queries の全queryを、重複なく1件ずつ評価する。
 - journey は必ず次の8段階を順番どおり1件ずつ返す: {stages}
 - 各段階の候補者行動・疑問・離脱要因・対策・チャネルを空にしない。
+- channel は対策を実行する場所であり、次の分類のいずれかを一字一句そのまま使う: {channels}
+- 対策の本体を求人票の書き換えで実現するなら「求人票」、求人票を直しても解決せず別の場で実施するなら該当する分類を選ぶ。
+- 求人票に書いていない制度・条件を新たに設ける対策は「実態・条件変更」とし、「求人票」に含めない。
 - 優先対策、応募後対策、採用したい場合の対策、顧客質問、限界事項を空にしない。
 - 検索量は需要の参考であり、応募人数・応募確率・採用可能人数へ変換しない。
 - 検索量が0または未取得でも、社名検索・ロングテール・離脱影響の大きい検索を削除しない。
@@ -1602,6 +1633,7 @@ pub fn build_persona_detail_prompt(
 <review_observations>{reviews}</review_observations>
 <public_statistics>{public_stats}</public_statistics>
 <keyword_metrics>{keyword_metrics}</keyword_metrics>"#,
+        channels = channels,
         case_profile = prompt_json(case_profile, "{}"),
         persona = prompt_json(persona, "{}"),
         job_facts = prompt_json(job_facts, "[]"),
@@ -1633,6 +1665,27 @@ pub fn build_detail_repair_prompt(
         issues = prompt_json(issues, "[]"),
         previous = prompt_json(previous_result, "{}")
     )
+}
+
+/// 対策の実行場所が定義済み分類のいずれかであることを確認する。
+///
+/// 画面は「求人外の対策」を分類名の完全一致で数えるため、「求人原稿」「求人票の記載」等の
+/// 表記ゆれをここで止める。不合格は品質ゲートに載り、自動補修プロンプトへ回る。
+/// channel 自体の欠落は validate_required_strings が別に報告するので、ここでは扱わない。
+fn validate_action_channel(item: &Value, label: &str, issues: &mut Vec<String>) {
+    let Some(channel) = item.get("channel").and_then(Value::as_str) else {
+        return;
+    };
+    let channel = channel.trim();
+    if channel.is_empty() {
+        return;
+    }
+    if !REQUIRED_ACTION_CHANNELS.contains(&channel) {
+        issues.push(format!(
+            "{label}の実行場所「{channel}」は定義済み分類にありません。次のいずれかをそのまま使ってください: {}",
+            REQUIRED_ACTION_CHANNELS.join("、")
+        ));
+    }
 }
 
 pub fn validate_persona_detail(
@@ -1738,6 +1791,7 @@ pub fn validate_persona_detail(
                 ],
                 &mut issues,
             );
+            validate_action_channel(item, &format!("{}番目の段階", index + 1), &mut issues);
         }
         if journey.get(index).map(evidence_ref_count).unwrap_or(0) == 0 {
             issues.push(format!("{}番目の段階に根拠番号がありません。", index + 1));
@@ -1770,6 +1824,7 @@ pub fn validate_persona_detail(
                 ],
                 &mut issues,
             );
+            validate_action_channel(action, &format!("優先対策{}", index + 1), &mut issues);
             if evidence_ref_count(action) == 0 {
                 issues.push(format!("優先対策{}に根拠番号がありません。", index + 1));
             }
@@ -2865,7 +2920,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
                     "question_or_expectation":"疑問または期待",
                     "dropoff_trigger":"離脱要因仮説",
                     "countermeasure":"対策候補",
-                    "channel":"求人または選考",
+                    "channel":"求人票",
                     "evidence_refs":["職種一般仮説"]
                 })
             })
@@ -2877,7 +2932,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
                     "risk":"離脱リスク",
                     "cause_type":"情報不足",
                     "countermeasure":"対策候補",
-                    "channel":"求人または選考",
+                    "channel":"採用サイト・FAQ",
                     "client_confirmation":"顧客への確認事項",
                     "priority":"高",
                     "evidence_refs":["職種一般仮説"]
@@ -2907,6 +2962,112 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         let mut invalid = valid_detail_result(&persona);
         invalid["journey"].as_array_mut().expect("journey").pop();
         assert!(!validate_persona_detail(&invalid, &persona, &allowed).is_empty());
+    }
+
+    /// 実行場所は画面の「求人外の対策」集計に完全一致で使われるため、表記ゆれを通さない。
+    #[test]
+    fn detail_quality_gate_rejects_undefined_action_channel() {
+        let allowed = HashSet::from(["職種一般仮説".to_string()]);
+        let persona = valid_prepare_persona("p1", "検索・比較する");
+
+        // 「求人票」に似ているが分類外の表記。素通しすると求人外の対策として二重計上される。
+        let mut invalid = valid_detail_result(&persona);
+        invalid["journey"][0]["channel"] = json!("求人原稿");
+        let issues = validate_persona_detail(&invalid, &persona, &allowed);
+        assert!(
+            issues.iter().any(|issue| issue.contains("求人原稿")),
+            "分類外の実行場所が品質ゲートを通過した: {issues:?}"
+        );
+
+        // 優先対策側も同じ検証を通す。
+        let mut invalid_action = valid_detail_result(&persona);
+        invalid_action["priority_actions"][0]["channel"] = json!("SNS運用");
+        let issues = validate_persona_detail(&invalid_action, &persona, &allowed);
+        assert!(
+            issues.iter().any(|issue| issue.contains("SNS運用")),
+            "優先対策の分類外の実行場所が品質ゲートを通過した: {issues:?}"
+        );
+    }
+
+    /// 定義済み分類はすべて受理される（プロンプト・スキーマ・品質ゲートの集合ずれ検出）。
+    #[test]
+    fn detail_quality_gate_accepts_every_defined_channel() {
+        let allowed = HashSet::from(["職種一般仮説".to_string()]);
+        let persona = valid_prepare_persona("p1", "検索・比較する");
+        for channel in REQUIRED_ACTION_CHANNELS {
+            let mut detail = valid_detail_result(&persona);
+            detail["journey"][0]["channel"] = json!(channel);
+            detail["priority_actions"][0]["channel"] = json!(channel);
+            let issues = validate_persona_detail(&detail, &persona, &allowed);
+            assert!(
+                issues.is_empty(),
+                "定義済み分類「{channel}」が拒否された: {issues:?}"
+            );
+        }
+    }
+
+    /// スキーマの enum とプロンプト・品質ゲートが同じ集合を指していることを確かめる。
+    #[test]
+    fn action_channel_enum_matches_constant() {
+        let schema = persona_detail_schema();
+        for path in [
+            &schema["properties"]["journey"]["items"]["properties"]["channel"]["enum"],
+            &schema["properties"]["priority_actions"]["items"]["properties"]["channel"]["enum"],
+        ] {
+            let values = path.as_array().expect("channel enum");
+            let values = values
+                .iter()
+                .map(|value| value.as_str().unwrap_or_default())
+                .collect::<Vec<_>>();
+            assert_eq!(values, REQUIRED_ACTION_CHANNELS.to_vec());
+        }
+    }
+
+    /// 求人票作成からの求人原文の引き継ぎは、2つの画面が同じ localStorage キーを
+    /// 使うことだけが接点。片方だけ変えても実行時エラーにならず「引き継ぎが出ない」
+    /// という静かな故障になるため、キーの一致をここで固定する。
+    #[test]
+    fn jobgen_source_handoff_key_matches_between_screens() {
+        const HANDOFF_KEY: &str = "hrhr-jobgen-source-handoff";
+        let producer = include_str!("../../static/jobgen.html");
+        let consumer = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        assert!(
+            producer.contains(HANDOFF_KEY),
+            "求人票作成の画面が引き継ぎキーを保存していない"
+        );
+        assert!(
+            consumer.contains(HANDOFF_KEY),
+            "応募者ジャーニー診断の画面が引き継ぎキーを読んでいない"
+        );
+        // 保存側は求人を確定する pickJob からのみ書き出す（取り込み途中の本文を渡さない）。
+        assert!(
+            producer.contains("saveSourceHandoff()"),
+            "求人確定時に引き継ぎを保存していない"
+        );
+    }
+
+    /// 画面の「求人外の対策」集計は分類名の完全一致に依存する。
+    /// 定数を変えたのに画面を直し忘れると、集計だけが静かにずれるので突合する。
+    #[test]
+    fn journey_ui_outside_channel_count_matches_constant() {
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        let expected = format!("a.channel!==\"{}\"", REQUIRED_ACTION_CHANNELS[0]);
+        assert!(
+            html.contains(&expected),
+            "画面の求人外集計が定数と一致しない。期待した式: {expected}"
+        );
+    }
+
+    /// 「求人外の対策」の判定が求人票だけを内側に置いていることを固定する。
+    #[test]
+    fn outside_job_posting_channel_covers_all_but_job_posting() {
+        assert!(!is_outside_job_posting_channel("求人票"));
+        for channel in REQUIRED_ACTION_CHANNELS.iter().skip(1) {
+            assert!(
+                is_outside_job_posting_channel(channel),
+                "「{channel}」が求人票側に分類された"
+            );
+        }
     }
 
     #[test]
