@@ -28,6 +28,12 @@ pub struct SurveyRecord {
     pub location_raw: String,
     pub salary_raw: String,
     pub employment_type: String,
+    /// employment_type が求人票の明示値ではなく給与単位からの推定
+    /// (月給/年俸→正社員、時給→パート・アルバイト) で埋まったことを示す。
+    /// 2026-08-03: 比較母集団の「同一雇用形態」が推定値で構成されうることを
+    /// 下流 (build_comparison_cohort の警告) が利用者に告知するために持つ。
+    /// 推定自体は 2026-07-01 のユーザー方針 (css-1hwmqh1 消失対応) で維持する。
+    pub employment_type_inferred: bool,
     pub tags_raw: String,
     pub url: Option<String>,
     pub is_new: bool,
@@ -61,10 +67,17 @@ pub struct SurveyRecord {
 /// ヘッダーからCSVソースを自動判定
 pub fn detect_csv_source(headers: &[String]) -> CsvSource {
     let header_str = headers.join(",").to_lowercase();
-    // 2026-06-30 追加: Indeed (SP) スマホ版を最優先で判定
-    // 固有 CSS クラス: css-u74ql7 (人気/超人気タグ列) は Indeed SP のみが出力。
-    // フォールバック: css-bxyec3 (求人タイトル) + css-1vlebyu (description) の組み合わせも SP 固有。
-    // 注意: 既存 Indeed (PC) は jcs-jobtitle / css-19eicqx 等の別 CSS クラスを使うため衝突しない。
+    // 2026-08-03: Indeed (PC) 固有の jcs-jobtitle を最優先で判定する。
+    // 従来は「css-u74ql7 は Indeed SP のみが出力」という前提で SP を先に見ていたが、
+    // 実データで PC 形式にも css-u74ql7 (人気タグ列) が混在することが判明した
+    // (16ファイル中8件が SP と誤判定され、SP 用の explicit_source_value 経路が
+    // 特徴タグ「長期」等を雇用形態として素通しした。実測26件)。
+    // PC マーカーがあれば PC。SP 判定はその後に行う。
+    if header_str.contains("jcs-jobtitle") {
+        return CsvSource::Indeed;
+    }
+    // Indeed (SP) スマホ版: css-u74ql7 (人気タグ列) または
+    // css-bxyec3 (求人タイトル) + css-1vlebyu (description) の組み合わせ。
     if header_str.contains("css-u74ql7")
         || (header_str.contains("css-bxyec3") && header_str.contains("css-1vlebyu"))
     {
@@ -169,6 +182,18 @@ pub fn parse_csv_bytes(
 ///
 /// # 戻り値
 /// 正規化後の UTF-8 バイト列 (Vec<u8>) と検出したエンコーディング名
+/// Indeed URL から求人を一意に識別する jk= パラメータを取り出す。
+/// `https://jp.indeed.com/viewjob?jk=9f3cb61a2546f67b&bb=...` → `9f3cb61a2546f67b`。
+/// トラッキングパラメータ (bb= 等) は収集のたびに変わるため、full URL ではなく
+/// jk だけを重複判定キーに使う。
+fn extract_indeed_job_key(url: &str) -> Option<&str> {
+    let start = url.find("jk=")? + 3;
+    let rest = &url[start..];
+    let end = rest.find('&').unwrap_or(rest.len());
+    let key = &rest[..end];
+    (!key.is_empty()).then_some(key)
+}
+
 pub fn decode_csv_bytes(data: &[u8]) -> (Vec<u8>, &'static str) {
     // 1. UTF-8 BOM
     if data.starts_with(&[0xEF, 0xBB, 0xBF]) {
@@ -187,6 +212,40 @@ pub fn decode_csv_bytes(data: &[u8]) -> (Vec<u8>, &'static str) {
     // 4. UTF-8 valid?
     if std::str::from_utf8(data).is_ok() {
         return (data.to_vec(), "UTF-8");
+    }
+    // 4b. BOM の無い UTF-16 (Excel「Unicode テキスト」保存等)。
+    // 2026-08-03: この分岐が無いと UTF-16LE の NUL バイトが Shift-JIS として
+    // 「妥当」に化け、54行のCSVが65件のゴミとして Err ではなく Ok で通ることが
+    // 再エンコード実験で確認された。ASCII 主体のヘッダ行を持つ CSV では UTF-16 の
+    // 片側バイトが NUL になるため、先頭 256 バイトの NUL 密度で判定する。
+    // (UTF-8 / Shift-JIS の正常データに NUL はまず現れない。)
+    {
+        let head = &data[..data.len().min(256)];
+        let nul_count = head.iter().filter(|byte| **byte == 0).count();
+        // 正常な UTF-8 / Shift-JIS のテキスト CSV に NUL バイトは現れない。
+        // UTF-16 なら区切りのカンマ・改行 (ASCII) だけでも NUL が複数出るため、
+        // 日本語主体の内容でも「先頭256バイトに4個以上」で確実に判別できる。
+        if head.len() >= 8 && nul_count >= 4 {
+            // 偶数位置に NUL が多ければ BE (ASCII の上位バイトが先)、奇数位置なら LE。
+            let even_nuls = head.iter().step_by(2).filter(|byte| **byte == 0).count();
+            let odd_nuls = head
+                .iter()
+                .skip(1)
+                .step_by(2)
+                .filter(|byte| **byte == 0)
+                .count();
+            let (cow, _, _) = if even_nuls > odd_nuls {
+                encoding_rs::UTF_16BE.decode(data)
+            } else {
+                encoding_rs::UTF_16LE.decode(data)
+            };
+            let label = if even_nuls > odd_nuls {
+                "UTF-16BE (BOM無し推定)"
+            } else {
+                "UTF-16LE (BOM無し推定)"
+            };
+            return (cow.into_owned().into_bytes(), label);
+        }
     }
     // 5. Shift-JIS (CP932 superset)
     let (cow, _, had_errors) = encoding_rs::SHIFT_JIS.decode(data);
@@ -492,17 +551,27 @@ fn parse_csv_bytes_inner(
         //   2026-07-01 ユーザー方針転換で復活: IndeedSp CSV の css-1hwmqh1 列消失に対応。
         //   契約社員も正社員雇用の最初6ヶ月であるケースが多いため、月給→正社員 / 時給→パート・アルバイト
         //   の粗い区分で十分 (Commit 1 で IndeedSp 除外したが再導入)。
-        let employment_type = if matches!(source, CsvSource::JobBox | CsvSource::IndeedSp)
-            && employment_type.trim().is_empty()
-        {
-            infer_employment_type_for_jobbox(&salary_parsed.salary_type).unwrap_or(employment_type)
-        } else {
-            employment_type
-        };
+        let (employment_type, employment_type_inferred) =
+            if matches!(source, CsvSource::JobBox | CsvSource::IndeedSp)
+                && employment_type.trim().is_empty()
+            {
+                match infer_employment_type_for_jobbox(&salary_parsed.salary_type) {
+                    Some(inferred) => (inferred, true),
+                    None => (employment_type, false),
+                }
+            } else {
+                (employment_type, false)
+            };
 
         // 2026-04-26 Fix-A: 行レベル重複検出
         // employment_type を key に含めることで「正社員/パート」が別レコード扱いになる
         // (V2 ルール: 同一施設の正社員/パートは別求人。MEMORY: feedback_dedup_rules)
+        //
+        // 2026-08-03: Indeed の求人キー (URL の jk= パラメータ) もキーに含める。
+        // 表示5項目が完全一致でも jk が違えば別求人であり、実測で 180 行中 7 件の
+        // 別求人が過剰削除されていた。逆に同一 jk でトラッキングだけ違う再収集
+        // (実測17件) は full URL でなく jk を使うことで従来どおり1件にまとまる。
+        // jk が取れない媒体は従来キーのまま。
         {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -511,6 +580,9 @@ fn parse_csv_bytes_inner(
             location_raw.hash(&mut hasher);
             salary_raw.hash(&mut hasher);
             employment_type.hash(&mut hasher);
+            if let Some(job_key) = url.as_deref().and_then(extract_indeed_job_key) {
+                job_key.hash(&mut hasher);
+            }
             let row_hash = hasher.finish();
             if !seen_row_hashes.insert(row_hash) {
                 duplicates_removed += 1;
@@ -526,6 +598,7 @@ fn parse_csv_bytes_inner(
             location_raw,
             salary_raw,
             employment_type,
+            employment_type_inferred,
             tags_raw,
             url,
             is_new,
@@ -690,8 +763,12 @@ fn build_column_map(
                     map.insert("salary", i);
                 }
                 // 雇用形態は col 0 (css-1hwmqh1) が主、col 26 (css-1hwmqh1 (2)) が副。
-                // 副があれば優先しない (主を採用)。
-                if h == "css-1hwmqh1" && !map.contains_key("employment_type") {
+                // 2026-08-03: 新しいエクスポートは主列が無く副列しか持たないことが実データで
+                // 判明した (この場合に列が未マップだと全列走査が本文の「正社員募集」を拾い、
+                // それも無ければ給与単位から推定される)。主が先に現れれば主が勝つ。
+                if (h == "css-1hwmqh1" || h == "css-1hwmqh1 (2)")
+                    && !map.contains_key("employment_type")
+                {
                     map.insert("employment_type", i);
                 }
                 // description: 本文 (年間休日含む)
@@ -728,7 +805,11 @@ fn build_column_map(
             }
             CsvSource::JobBox => {
                 // 日本語ベース判定 (Excel エクスポート / 手作業整形 CSV 用)
-                if h.contains("職種") || h.contains("求人名") {
+                // 2026-08-03: 「求人タイトル」ヘッダが職種にマップされず、他5列が
+                // マップ済みのため動的検出も走らず、職種名だけが全件空になる
+                // サイレント欠測が fixture で実証された。Indeed 分岐は「タイトル」を
+                // 見ているのに JobBox 分岐だけ見ていなかった非対称を解消する。
+                if h.contains("職種") || h.contains("求人名") || h.contains("タイトル") {
                     map.insert("job_title", i);
                 }
                 if h.contains("企業名") || h.contains("会社名") {
@@ -1043,6 +1124,14 @@ fn score_location(val: &str) -> i32 {
 
 fn score_salary(val: &str) -> i32 {
     if val.starts_with("http") {
+        return 0;
+    }
+    // 2026-08-03: 給与セルは実データで最長でも40文字に収まらないものは無かった一方、
+    // 給与列が空のカードで全列総当たりが説明文本文 (200字級、「◯万円」を含む) を
+    // 給与として採用する事故が実測2件出た。片方は本文中の「491万6000円/30歳」(年収実績)
+    // が月給4,916,000円と解釈され、レポートの最低給与平均を+5.7%押し上げていた。
+    // 長文は給与セルではないので失格にする。
+    if val.chars().count() > 40 {
         return 0;
     }
     let mut score = 0;
@@ -1915,6 +2004,172 @@ mod fixa_upload_tests {
     //   出ていたが、全件読めば 350,000 円だった。
     //   上の is_new テストは css-1hq3y4h を後方の列に置いていたため、この形を踏めていない。
     // =====================================================================
+    // =====================================================================
+    // 2026-08-03: PC 形式 CSV が css-u74ql7 (人気タグ列) を含むと SP と誤判定され、
+    //   explicit_source_value 経路が特徴タグ「長期」等を雇用形態として素通しした
+    //   回帰テスト (実測: 16ファイル中8件が誤判定、雇用形態26件汚染)。
+    //   PC 固有マーカー jcs-jobtitle があれば人気タグ列の有無に関係なく PC と判定する。
+    // =====================================================================
+    #[test]
+    fn pc_export_with_popularity_column_is_detected_as_indeed_pc() {
+        let headers: Vec<String> =
+            "jcs-JobTitle href,jcs-JobTitle,css-1f06pz4,css-n5nzmv,css-u74ql7,css-19eicqx"
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+        assert_eq!(
+            detect_csv_source(&headers),
+            CsvSource::Indeed,
+            "PC マーカー jcs-jobtitle がある CSV は css-u74ql7 を含んでいても PC と判定するべき"
+        );
+        // SP 形式 (jcs-jobtitle 無し) は従来どおり SP。
+        let sp_headers: Vec<String> =
+            "css-1hq3y4h,css-bxyec3 href,css-bxyec3,css-u74ql7,css-1vlebyu"
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+        assert_eq!(detect_csv_source(&sp_headers), CsvSource::IndeedSp);
+    }
+
+    // =====================================================================
+    // 2026-08-03: 新形式 SP エクスポートは雇用形態の主列 css-1hwmqh1 を持たず
+    //   副列 css-1hwmqh1 (2) しか無い。未マップだと全列走査が本文の「正社員募集」を
+    //   拾い、それも無ければ給与単位から推定される (比較母集団の実測で選定211件の
+    //   100%が推定由来、パート求人の正社員混入を1件確認)。副列をマップして
+    //   明示値を使う回帰テスト。
+    // =====================================================================
+    #[test]
+    fn secondary_employment_column_is_mapped_when_primary_is_absent() {
+        let header = "css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu,css-1hwmqh1 (2)";
+        let mut csv = String::from(header);
+        csv.push('\n');
+        csv.push_str("https://example.com/1,配送ドライバー,サンプル運輸,群馬県前橋市,月給30万円,本文に正社員募集の文言,パート・アルバイト\n");
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].employment_type, "パート・アルバイト",
+            "副列の明示値を採用するべき (本文の「正社員」や月給からの推定にしない)"
+        );
+        assert!(
+            !records[0].employment_type_inferred,
+            "明示値なので推定フラグは立たないべき"
+        );
+    }
+
+    // =====================================================================
+    // 2026-08-03: 給与列が空のカードで全列総当たりが説明文本文を給与として
+    //   採用した回帰テスト (実測2件、うち1件は月給491万円としてレポート到達)。
+    //   score_salary は40文字超を失格にする。
+    // =====================================================================
+    #[test]
+    fn long_description_text_is_not_selected_as_salary() {
+        let header = "css-1hq3y4h,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu";
+        let mut csv = String::from(header);
+        csv.push('\n');
+        // 給与列(css-18rxko3 (2))が空で、本文に金額を含む200字級の説明文がある
+        let long_desc = "ここで手放せました。無理な働き方は一切ありません。年間休日120日以上。有休取得率70%以上を会社が推奨し、上司から声かけもあります。491万6000円/30歳 <内訳> (基本給+セールスインセンティブ+残業手当)×12ヶ月 + 賞与4.5ヶ月分を支給した実績があります。";
+        csv.push_str(&format!(
+            ",https://example.com/1,営業ドライバー,サンプル運輸,神奈川県川崎市,,{long_desc}\n"
+        ));
+        let records = parse_csv_bytes(csv.as_bytes(), Some("神奈川県")).expect("parse 成功");
+        assert_eq!(records.len(), 1);
+        assert!(
+            records[0].salary_raw.is_empty(),
+            "説明文本文を給与として採用しないべき (実際: {:?})",
+            records[0].salary_raw
+        );
+        assert_eq!(
+            records[0].salary_parsed.min_value, None,
+            "本文の年収実績491万円が給与として数値化されないべき"
+        );
+    }
+
+    // =====================================================================
+    // 2026-08-03: 「求人タイトル」ヘッダの JobBox CSV で職種名が全件空になる
+    //   サイレント欠測の回帰テスト (fixture jobbox_test_50.csv で実証)。
+    // =====================================================================
+    #[test]
+    fn jobbox_kyujin_title_header_maps_to_job_title() {
+        let csv = "求人タイトル,企業名,勤務地,給与,雇用形態,仕事内容,掲載日\n\
+配送ドライバー,サンプル物流,群馬県前橋市,月給28万円,正社員,ルート配送の仕事です,2026-08-01\n";
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].job_title, "配送ドライバー",
+            "「求人タイトル」ヘッダが職種名にマップされるべき"
+        );
+    }
+
+    // =====================================================================
+    // 2026-08-03: BOM の無い UTF-16 が Shift-JIS と誤検出され、54行のCSVが
+    //   65件のゴミとして Ok で通っていた回帰テスト (再エンコード実験で実証)。
+    // =====================================================================
+    #[test]
+    fn bomless_utf16_is_decoded_not_garbled() {
+        let source = "タイトル,会社名,勤務地,給与,雇用形態,仕事内容,掲載日\n\
+配送ドライバー,サンプル物流,群馬県前橋市,月給28万円,正社員,ルート配送,2026-08-01\n";
+        // UTF-16LE (BOM無し)
+        let utf16le: Vec<u8> = source
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        let (decoded, label) = decode_csv_bytes(&utf16le);
+        assert!(label.contains("UTF-16LE"), "検出結果: {label}");
+        assert_eq!(String::from_utf8_lossy(&decoded), source);
+        // UTF-16BE (BOM無し)
+        let utf16be: Vec<u8> = source
+            .encode_utf16()
+            .flat_map(|unit| unit.to_be_bytes())
+            .collect();
+        let (decoded, label) = decode_csv_bytes(&utf16be);
+        assert!(label.contains("UTF-16BE"), "検出結果: {label}");
+        assert_eq!(String::from_utf8_lossy(&decoded), source);
+    }
+
+    // =====================================================================
+    // 2026-08-03: dedup キーの回帰テスト。表示5項目が同一でも jk が違えば別求人
+    //   (実測: 180行中7件の過剰削除)。同一 jk のトラッキング違い再収集は1件に
+    //   まとまる (実測: 17件の正当な重複除去)。
+    // =====================================================================
+    #[test]
+    fn dedup_uses_indeed_job_key_not_full_url() {
+        let header = "css-1hq3y4h,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu";
+        // ケース1: 表示項目が同一で jk が異なる2行 → 2件とも残る
+        let mut csv = String::from(header);
+        csv.push('\n');
+        csv.push_str(",https://jp.indeed.com/viewjob?jk=aaa111,ドライバー,サンプル運輸,群馬県前橋市,月給30万円,本文\n");
+        csv.push_str(",https://jp.indeed.com/viewjob?jk=bbb222,ドライバー,サンプル運輸,群馬県前橋市,月給30万円,本文\n");
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(records.len(), 2, "jk が違えば別求人として残るべき");
+
+        // ケース2: 同一 jk でトラッキングだけ違う2行 → 1件にまとまる
+        let mut csv = String::from(header);
+        csv.push('\n');
+        csv.push_str(",https://jp.indeed.com/viewjob?jk=ccc333&bb=track1,ドライバー,サンプル運輸,群馬県前橋市,月給30万円,本文\n");
+        csv.push_str(",https://jp.indeed.com/viewjob?jk=ccc333&bb=track2,ドライバー,サンプル運輸,群馬県前橋市,月給30万円,本文\n");
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(records.len(), 1, "同一 jk の再収集は1件にまとまるべき");
+    }
+
+    // 給与単位からの推定で埋まった場合は推定フラグが立つ (下流の告知に使う)。
+    #[test]
+    fn inferred_employment_type_is_flagged() {
+        let header = "css-1hq3y4h,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu";
+        let mut csv = String::from(header);
+        csv.push('\n');
+        csv.push_str(",https://example.com/1,配送ドライバー,サンプル運輸,群馬県前橋市,月給30万円,雇用形態の記載がない本文\n");
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].employment_type, "正社員",
+            "月給→正社員の推定は維持"
+        );
+        assert!(
+            records[0].employment_type_inferred,
+            "推定で埋めた事実をフラグで保持するべき"
+        );
+    }
+
     #[test]
     fn blank_leading_badge_column_does_not_drop_job_rows() {
         // 実ファイル準拠: 1列目が掲載バッジで、5 件中 1 件しか値が入っていない。
@@ -2490,6 +2745,7 @@ mod gemini_fallback_tests {
             location_raw: String::new(),
             salary_raw: salary.to_string(),
             employment_type: String::new(),
+            employment_type_inferred: false,
             tags_raw: String::new(),
             url: None,
             is_new: false,

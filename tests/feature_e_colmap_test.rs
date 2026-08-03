@@ -55,6 +55,7 @@ fn is_parse_poor_true_for_records_with_all_empty_salary() {
             location_raw: "東京都".to_string(),
             salary_raw: String::new(), // ← 空
             employment_type: "正社員".to_string(),
+            employment_type_inferred: false,
             tags_raw: String::new(),
             url: None,
             is_new: false,
@@ -200,6 +201,7 @@ fn guard_demo_15_call_cap_skips_over_300_records() {
             location_raw: String::new(),
             salary_raw: String::new(),
             employment_type: String::new(),
+            employment_type_inferred: false,
             tags_raw: String::new(),
             url: None,
             is_new: false,
