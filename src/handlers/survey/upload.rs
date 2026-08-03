@@ -330,8 +330,16 @@ fn parse_csv_bytes_inner(
         };
 
         // GAS isMetadataRow() 移植: メタデータ行を除外
+        //
+        // 2026-08-03: 以前は「1列目が空」だけでメタデータ行と見なして捨てていた。GAS 側の
+        // シートは1列目が必ず埋まっていたが、新しい Indeed のエクスポートは1列目が掲載バッジ
+        // (`css-1hq3y4h` = 「新着」「あと3日」) で、大半の求人では空欄になる。その結果、
+        // 実在の求人を最大8割落としていた (実測: 225行 → 45件)。
+        // 空欄判定は行全体に対して行い、1列目の有無では捨てない。職種名も会社名も無い行は
+        // この直後の cleanDataFromSheet 相当の判定で落ちるため、ゴミ行は素通りしない。
         let first_col = row.get(0).unwrap_or("").trim();
-        if first_col.is_empty()
+        let row_is_blank = row.iter().all(|cell| cell.trim().is_empty());
+        if row_is_blank
             || first_col.contains("この採用企業")
             || first_col.contains("優先条件")
             || first_col.contains("希望する給与")
@@ -1899,6 +1907,49 @@ mod fixa_upload_tests {
     //   修正後: css-1hq3y4h を is_new にマップ (css-o67di7 より優先) し、実 CSV 相当
     //   (5 件中 1 件が「新着」= 20%) で新着が正しく検出される。
     // =====================================================================
+    // =====================================================================
+    // 2026-08-03: 掲載バッジ列が「1列目」に来るエクスポートで求人が大量に消えた回帰テスト。
+    //   バグ: メタデータ行の判定が「1列目が空なら捨てる」だったため、1列目が
+    //   css-1hq3y4h (「新着」「あと3日」= 大半の求人で空欄) の実 CSV で 8 割が失われた。
+    //   実測: indeed-2026-07-28 (1).csv が 225 行 → 45 件。給与中央値が 305,000 円と
+    //   出ていたが、全件読めば 350,000 円だった。
+    //   上の is_new テストは css-1hq3y4h を後方の列に置いていたため、この形を踏めていない。
+    // =====================================================================
+    #[test]
+    fn blank_leading_badge_column_does_not_drop_job_rows() {
+        // 実ファイル準拠: 1列目が掲載バッジで、5 件中 1 件しか値が入っていない。
+        let header = "css-1hq3y4h,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu";
+        let mut csv = String::from(header);
+        csv.push('\n');
+        csv.push_str("新着,https://example.com/1,大型ドライバー,サンプル運輸,群馬県前橋市,月給35万円,本文1\n");
+        csv.push_str(
+            ",https://example.com/2,中型ドライバー,架空物流,群馬県前橋市,月給30万円,本文2\n",
+        );
+        csv.push_str(
+            ",https://example.com/3,配送ドライバー,テスト輸送,群馬県前橋市,月給28万円,本文3\n",
+        );
+        csv.push_str(
+            ",https://example.com/4,トラックドライバー,モデル運送,群馬県高崎市,月給32万円,本文4\n",
+        );
+        csv.push_str(
+            ",https://example.com/5,ルート配送,ダミー流通,群馬県伊勢崎市,月給27万円,本文5\n",
+        );
+        // 行全体が空の行は従来どおり捨てる。
+        csv.push_str(",,,,,,\n");
+
+        let records = parse_csv_bytes(csv.as_bytes(), Some("群馬県")).expect("parse 成功");
+        assert_eq!(
+            records.len(),
+            5,
+            "1列目のバッジが空でも求人行は残るべき (実際は {} 件)",
+            records.len()
+        );
+        assert!(
+            records.iter().any(|r| r.job_title.contains("ルート配送")),
+            "バッジが空の最終行まで読めているべき"
+        );
+    }
+
     #[test]
     fn indeed_sp_new_badge_column_is_parsed_into_is_new() {
         // ヘッダ (実 CSV indeed-2026-07-01 のサブセット、順序も実物準拠):
