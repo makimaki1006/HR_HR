@@ -1513,8 +1513,14 @@ async fn health_check(
         "degraded"
     };
 
+    // 2026-08-04: デプロイ監視用にコミットSHAを載せる。Render はビルド時に
+    // RENDER_GIT_COMMIT を設定する。ローカル実行では "dev"。
+    // push→デプロイ完了の検証を「/health の commit が一致するまで待つ」で
+    // 自動化できるようにする (認証不要の既存公開エンドポイントのため追加リスクなし)。
+    let commit = std::env::var("RENDER_GIT_COMMIT").unwrap_or_else(|_| "dev".to_string());
     axum::response::Json(serde_json::json!({
         "status": status,
+        "commit": commit,
         "db_connected": db_ok,
         "db_rows": db_rows,
         "cache_entries": state.cache.len(),
