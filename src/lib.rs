@@ -1318,7 +1318,7 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
         r#"<a href="/jobgen" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="求人票生成（新しいタブで開く）">求人票生成 ↗</a>
         <a href="/jobgen/competitive-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="競合求人との比較から採用戦略を設計（ベータ版・新しいタブで開く）">競合比較から求人作成（仮）↗</a>
-        <a href="/jobgen/applicant-journey-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="ペルソナ別の応募者ジャーニーと離脱対策を診断（ベータ版・新しいタブで開く）">応募者ジャーニー診断（仮）↗</a>"#
+        <a href="/jobgen/applicant-journey-beta" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="ペルソナ別に応募までの離脱ポイントと対策を診断（新しいタブで開く）">応募者ジャーニー診断 ↗</a>"#
     } else {
         ""
     };
