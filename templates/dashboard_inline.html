@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>求人ダッシュボード</title>
     <link rel="stylesheet" href="/static/css/tailwind-precompiled.css">
-    <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" defer></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR" crossorigin="anonymous" defer></script>
     <script src="/static/js/survey_explore.js" defer></script>
     <link rel="stylesheet" href="/static/css/dashboard.css">
     <script>
     // Leaflet 遅延ローダー（地図タブ初回表示時にのみロード）
-    window.ensureLeaflet=(function(){var p=null;return function(){if(window.L)return Promise.resolve();if(p)return p;p=new Promise(function(ok){var c=document.createElement('link');c.rel='stylesheet';c.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(c);var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';s.onload=ok;document.head.appendChild(s)});return p}})();
+    window.ensureLeaflet=(function(){var p=null;return function(){if(window.L)return Promise.resolve();if(p)return p;p=new Promise(function(ok){var c=document.createElement('link');c.rel='stylesheet';c.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';c.integrity='sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H';c.crossOrigin='anonymous';document.head.appendChild(c);var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';s.integrity='sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH';s.crossOrigin='anonymous';s.onload=ok;document.head.appendChild(s)});return p}})();
     </script>
 </head>
 <body class="bg-navy-900 text-slate-100 min-h-screen">
@@ -246,11 +246,18 @@
             // 初回表示時にブレッドクラム更新
             updateBreadcrumb();
 
+            // 地域フィルタに依存しないツールタブ (iframe ホスト)。
+            // フィルタ変更で再読み込みすると、入力途中の求人票や診断結果が
+            // 巻き添えで消えるため再読み込み対象から除外する (2026-08-04)。
+            function isToolTab(url) {
+                return url === '/tab/jobgen_tools' || url === '/tab/keyword_tools';
+            }
             // アクティブタブ再読み込み共通関数
             function reloadActiveTab() {
                 var activeBtn = document.querySelector('.tab-btn.active');
                 if (activeBtn) {
                     var url = activeBtn.getAttribute('hx-get');
+                    if (isToolTab(url)) return;
                     htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
                 }
             }
@@ -1017,7 +1024,7 @@
                         var activeBtn = document.querySelector('.tab-btn.active');
                         if (activeBtn) {
                             var url = activeBtn.getAttribute('hx-get');
-                            htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                            if (!isToolTab(url)) htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
                         }
                     });
                 } else {
@@ -1030,7 +1037,7 @@
                         var activeBtn = document.querySelector('.tab-btn.active');
                         if (activeBtn) {
                             var url = activeBtn.getAttribute('hx-get');
-                            htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
+                            if (!isToolTab(url)) htmx.ajax('GET', url, {target: '#content', swap: 'innerHTML'});
                         }
                     });
                 }

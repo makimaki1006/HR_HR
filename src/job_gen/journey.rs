@@ -3335,6 +3335,12 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
             assert!(lib_src.contains(route), "lib.rs にルート {route} がない");
         }
         // CSP が同一オリジン埋め込みを許可していること (iframe 統合の前提)
+        // タブボタンは setActiveTab を呼ばないとハイライトが切り替わらない
+        // (2026-08-04 本番検証で発見した実バグの回帰)
+        assert!(
+            lib_src.matches("setActiveTab(this)").count() >= 2,
+            "新タブボタン2つの両方が setActiveTab を呼ぶべき (片方の欠落も検出する)"
+        );
         assert!(
             lib_src.contains("frame-ancestors 'self'"),
             "CSP frame-ancestors が 'self' でないと iframe 統合が全ブラウザで白画面になる"

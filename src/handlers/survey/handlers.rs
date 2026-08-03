@@ -675,13 +675,14 @@ pub async fn report_json(
         }));
     };
     let aggregation = state.cache.get(&format!("survey_agg_{}", session_id));
-    let seeker = state.cache.get(&format!("survey_seeker_{}", session_id));
+    // seeker (求職者分析) は返さない (2026-08-04 レビュー):
+    // 探索パネルは aggregation しか使っておらず、使わないデータを返すのは露出の無駄。
+    // 必要になったらフィールド単位で追加する。
     match aggregation {
         Some(aggregation) => axum::response::Json(serde_json::json!({
             "status": "ok",
             "session_id": session_id,
             "aggregation": aggregation,
-            "seeker": seeker,
         })),
         None => axum::response::Json(serde_json::json!({
             "status": "expired",

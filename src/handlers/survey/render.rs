@@ -501,6 +501,11 @@ pub(crate) fn render_upload_form() -> String {
                                         if (typeof htmx !== 'undefined') htmx.process(target);
                                         setTimeout(function() {
                                             if (typeof window.initECharts === 'function') window.initECharts(target);
+                                            // データ探索（動的）パネルの起動。innerHTML 挿入は
+                                            // htmx:afterSettle を発火しないため明示的に呼ぶ
+                                            // (2026-08-04 レビューで発見: これが無いとパネルは
+                                            //  本番のアップロード経路で一度も初期化されない)。
+                                            if (typeof window.surveyExploreScan === 'function') window.surveyExploreScan(target);
                                         }, 50);
                                         status.textContent = '完了';
                                         status.className = 'mt-3 text-sm text-emerald-400';
@@ -786,12 +791,12 @@ fn render_dynamic_explore_section(session_id: &str) -> String {
     format!(
         r#"<section id="survey-explore" data-session-id="{sid}" class="stat-card">
         <h3 class="text-sm font-semibold text-slate-200 mb-1 border-l-4 border-emerald-500 pl-2">データ探索（動的）</h3>
-        <p class="text-[11px] text-slate-500 mb-3">レポートと同じ集計を、この画面で操作しながら確認できます。数値はアップロード時の集計そのままです。</p>
+        <p class="text-[11px] text-slate-500 mb-3">レポートと同じ集計を、この画面で操作しながら確認できます。給与の数値は外れ値（IQR法）除外後、市区町村は求人件数の多い上位15件です。</p>
         <p data-explore-status class="text-[11px] text-amber-400 mb-2">集計を読み込んでいます…</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
                 <div class="flex items-center gap-2 mb-1">
-                    <span class="text-[11px] text-slate-400">市区町村別</span>
+                    <span class="text-[11px] text-slate-400">市区町村別（求人件数の多い上位15件）</span>
                     <select data-explore-control="muni-metric" class="text-[11px] bg-slate-800 text-slate-200 border border-slate-600 rounded px-1 py-0.5">
                         <option value="count">件数</option>
                         <option value="median_salary">給与中央値</option>
@@ -821,7 +826,7 @@ fn render_dynamic_explore_section(session_id: &str) -> String {
             </div>
             <div>
                 <div class="flex items-center gap-2 mb-1">
-                    <span class="text-[11px] text-slate-400">条件タグ別の給与差（全体平均比）</span>
+                    <span class="text-[11px] text-slate-400">給与が高い方の条件タグ（全体平均との差）</span>
                     <select data-explore-control="tag-min-count" class="text-[11px] bg-slate-800 text-slate-200 border border-slate-600 rounded px-1 py-0.5">
                         <option value="5" selected>5件以上のタグ</option>
                         <option value="10">10件以上のタグ</option>
@@ -2192,6 +2197,19 @@ mod variant_ui_tests {
         assert!(
             js.contains("/api/survey/report?session_id="),
             "JS のデータ源が /api/survey/report でない"
+        );
+        // 起動経路の契約 (2026-08-04 レビューで発見した silent 故障の回帰):
+        // innerHTML + htmx.process() は htmx:afterSettle を発火しないため、
+        // アップロード完了ハンドラが window.surveyExploreScan を明示的に呼ぶこと、
+        // JS 側がそれを公開していることの両方が必要。
+        assert!(
+            js.contains("window.surveyExploreScan = scan"),
+            "JS が起動入口 window.surveyExploreScan を公開していない"
+        );
+        let upload_form = render_upload_form();
+        assert!(
+            upload_form.contains("window.surveyExploreScan"),
+            "アップロード完了ハンドラが surveyExploreScan を呼んでいない (パネルが一度も初期化されない)"
         );
     }
 }

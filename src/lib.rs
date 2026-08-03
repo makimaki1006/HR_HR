@@ -758,18 +758,9 @@ pub fn build_app(state: Arc<AppState>) -> Router {
     // CSP は cdn.tailwindcss.com / cdn.jsdelivr.net 等の inline cdn を許可しないと
     // 既存 UI が壊れるため、必要 origin のみ allowlist。
     use http::HeaderValue;
-    let csp_value = "default-src 'self'; \
-         script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com; \
-         style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; \
-         img-src 'self' data: blob: https:; \
-         font-src 'self' data: https:; \
-         connect-src 'self'; \
-         frame-ancestors 'self'; \
-         base-uri 'self'; \
-         form-action 'self'";
-    // frame-ancestors は 'self' (2026-08-04)。求人票生成・ジャーニー診断等を
-    // ダッシュボードのタブ内 iframe (同一オリジン) として統合するため。
-    // 外部サイトからの埋め込み (クリックジャッキング) は引き続き遮断される。
+    // 2026-08-04: ここにあった csp_value ローカル変数は参照ゼロのデッドコードだった
+    // ため削除 (実際に配信される CSP は下の SetResponseHeaderLayer 内の文字列のみ)。
+    // 重複定義が残っていると「テストは通るのに本物のヘッダだけ古い」事故の温床になる。
 
     Router::new()
         .route("/health", get(health_check))
@@ -1328,7 +1319,7 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // キーワード需要ビューア (2026-07-24): Google Ads 資格情報がある環境でのみ表示。
     // 2026-08-04: 別ブラウザタブへ飛ばすのをやめ、アプリ内タブ (iframe) に統合。
     let keywords_tab = if media_engine::handlers::media_engine_enabled() {
-        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/keyword_tools" hx-target="#content" hx-swap="innerHTML" title="検索キーワードの需要をアプリ内で確認">キーワード需要</button>"##
+        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/keyword_tools" hx-target="#content" hx-swap="innerHTML" onclick="setActiveTab(this)" title="検索キーワードの需要をアプリ内で確認">キーワード需要</button>"##
     } else {
         ""
     };
@@ -1336,7 +1327,7 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     // 2026-08-04: 求人票生成・競合比較・ジャーニー診断の3画面を1タブに統合
     // (タブ内サブナビ + 同一オリジン iframe)。別ウィンドウで開く導線は断片内に残す。
     let jobgen_tab = if !media_engine::config::gemini_api_key().is_empty() {
-        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobgen_tools" hx-target="#content" hx-swap="innerHTML" title="求人票生成・競合比較・応募者ジャーニー診断">求人票作成</button>"##
+        r##"<button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobgen_tools" hx-target="#content" hx-swap="innerHTML" onclick="setActiveTab(this)" title="求人票生成・競合比較・応募者ジャーニー診断">求人票作成</button>"##
     } else {
         ""
     };
