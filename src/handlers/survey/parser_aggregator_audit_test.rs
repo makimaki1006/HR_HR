@@ -82,6 +82,7 @@ fn rec_with_salary_and_pref(
         location_raw: String::new(),
         salary_raw: String::new(),
         employment_type: "正社員".to_string(),
+        employment_type_inferred: false,
         tags_raw: String::new(),
         url: None,
         is_new: false,
@@ -350,18 +351,17 @@ fn alpha_range_max_only_unified_uses_max() {
 /// normalize_text から 'ー' の置換を除外する修正が必要。
 #[test]
 fn alpha_bug_katakana_prolongation_triggers_false_range() {
+    // 2026-08-03 修正済: このテストが「仕様バグ候補」として記録していた誤分割は、
+    // 実データ監査で実害 (説明文の「セールス」の長音符で分割 → 年収491.6万円が
+    // 月給491万円化) が確認されたため修正した。長音符は直前が数字・円・万のとき
+    // だけ範囲記号になり、語中の長音符では分割されない。
     let r = parse_salary("サラリーマン月給25万円", SalaryType::Monthly);
-    // BUG: 'ー' が '~' に正規化されて false range が発生
     assert!(
-        r.has_range,
-        "カタカナ長音符 'ー' が '~' に正規化されるため has_range=true (仕様バグ候補)"
+        !r.has_range,
+        "語中のカタカナ長音符 'ー' は範囲記号にしない (2026-08-03 修正)"
     );
-    assert_eq!(r.min_value, None, "left 側に数字なし → None");
-    assert_eq!(
-        r.max_value,
-        Some(250_000),
-        "right 側に 25万円 → max=250_000 (本来は min=250_000 であるべき)"
-    );
+    assert_eq!(r.min_value, Some(250_000), "25万円が下限として拾えるべき");
+    assert_eq!(r.max_value, None);
 }
 
 /// 🟡 逆証明: 全角ダッシュ '―'(U+2015), 全角ハイフン '－'(U+FF0D) も '~' に正規化
