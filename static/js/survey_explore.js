@@ -14,6 +14,7 @@
   "use strict";
 
   var PALETTE = ["#5b8ff9", "#5ad8a6", "#f6bd16", "#e8684a", "#6dc8ec", "#9270ca", "#ff9d4d", "#269a99"];
+  var INSTANCES = [];
 
   function yen(v) {
     if (v == null || isNaN(v)) return "—";
@@ -25,8 +26,20 @@
     var existing = echarts.getInstanceByDom(el);
     if (existing) existing.dispose();
     var chart = echarts.init(el, "dark");
+    INSTANCES.push(chart);
     return chart;
   }
+
+  // 探索パネルは app.js の ResizeObserver 対象 (.echart) から意図的に外れているため、
+  // リサイズ追随を自前で持つ (2026-08-04 レビュー指摘)。
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      INSTANCES = INSTANCES.filter(function (chart) { return !chart.isDisposed(); });
+      INSTANCES.forEach(function (chart) { chart.resize(); });
+    }, 200);
+  });
 
   function baseOption(extra) {
     var option = {
@@ -91,8 +104,13 @@
 
     function draw() {
       var bin = binSel ? Number(binSel.value) : 50000;
-      var min = Math.floor(Math.min.apply(null, values) / bin) * bin;
-      var max = Math.max.apply(null, values);
+      // Math.min.apply は数万件で引数上限の RangeError になるためループで求める
+      var rawMin = Infinity, max = -Infinity;
+      for (var vi = 0; vi < values.length; vi++) {
+        if (values[vi] < rawMin) rawMin = values[vi];
+        if (values[vi] > max) max = values[vi];
+      }
+      var min = Math.floor(rawMin / bin) * bin;
       var buckets = [];
       for (var b = min; b <= max; b += bin) buckets.push(0);
       values.forEach(function (v) {
@@ -165,7 +183,8 @@
           }
         },
         grid: { left: "22%", right: "8%", top: "6%", bottom: "10%" },
-        xAxis: { type: "value", axisLabel: { color: "#94a3b8", fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(0) + "万"; } } },
+        // 差分は数千円規模もあるため 0.1万円単位で表示 (整数万だと全目盛りが「0万」になる)
+        xAxis: { type: "value", axisLabel: { color: "#94a3b8", fontSize: 10, formatter: function (v) { return (v / 10000).toFixed(1) + "万"; } } },
         yAxis: { type: "category", data: filtered.map(function (r) { return r.tag; }).reverse(), axisLabel: { color: "#cbd5e1", fontSize: 10 } },
         series: [{
           type: "bar",
@@ -187,6 +206,12 @@
     var sessionId = root.getAttribute("data-session-id") || "";
     var status = root.querySelector("[data-explore-status]");
     if (!sessionId) return;
+    // チャートライブラリが読めていない場合は空枠でなくメッセージを出す
+    // (SRI 検証失敗や CDN 障害で silent に4枠が空になるのを防ぐ)
+    if (typeof echarts === "undefined") {
+      if (status) status.textContent = "チャート描画ライブラリを読み込めませんでした。ページを再読み込みしてください。";
+      return;
+    }
     fetch("/api/survey/report?session_id=" + encodeURIComponent(sessionId), { credentials: "same-origin" })
       .then(function (res) { return res.json(); })
       .then(function (data) {
@@ -194,8 +219,16 @@
           if (status) status.textContent = data.message || "集計を取得できませんでした。CSVを再アップロードしてください。";
           return;
         }
-        if (status) status.hidden = true;
         var agg = data.aggregation;
+        if (status) {
+          if (agg.is_hourly) {
+            // 時給モードのレポートはネイティブ値(円/時)で表記されるため、
+            // 換算方法の違いを明示する (「レポートと同じ数字」の例外)
+            status.textContent = "時給中心のデータのため、このパネルは月給換算（×167時間）で表示しています。レポート本体は時給表記です。";
+          } else {
+            status.hidden = true;
+          }
+        }
         renderMunicipality(root, agg);
         renderHistogram(root, agg);
         renderEmployment(root, agg);
@@ -209,6 +242,11 @@
   function scan(scope) {
     (scope || document).querySelectorAll("#survey-explore[data-session-id]").forEach(bind);
   }
+
+  // アップロード完了ハンドラ (render.rs) が innerHTML 挿入後に明示的に呼ぶ入口。
+  // innerHTML + htmx.process() は htmx:afterSettle を発火しないため、
+  // イベント監視だけではパネルが一度も初期化されない (2026-08-04 レビューで判明)。
+  window.surveyExploreScan = scan;
 
   document.addEventListener("DOMContentLoaded", function () { scan(document); });
   document.body.addEventListener("htmx:afterSettle", function (event) {
