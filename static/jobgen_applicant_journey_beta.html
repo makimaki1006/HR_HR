@@ -805,7 +805,9 @@
   function renderKeywords(){
     const rows=selectedQueries();
     const tableRows=rows.map(item=>{
-      const metric=S.keywordMap.get(item.query);
+      // サーバーは trim したキーで実測値を返すため、こちらも trim して引く
+      // (末尾空白付きの検索語が「0 / 対象外」と誤表示されるのを防ぐ)
+      const metric=S.keywordMap.get((item.query||"").trim());
       const volume=metric&&metric.avg_monthly!=null?formatNumber(metric.avg_monthly):S.keywordMessage?esc(S.keywordMessage):'<span class="volume pending">取得中</span>';
       return `<tr class="${item.importance==="高"?"queryhigh":item.importance==="中"?"querymid":""}">
         <td>${esc(item.personaLabel)}</td><td><b>${esc(item.query)}</b></td><td>${esc(item.stage)}</td>
