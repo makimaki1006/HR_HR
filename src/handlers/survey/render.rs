@@ -579,6 +579,11 @@ pub(crate) fn render_analysis_result(
     // 4. 給与分布・雇用形態分布（チャート群）
     html.push_str(&render_distribution_charts(agg));
 
+    // 4a. データ探索（動的）。static/js/survey_explore.js が
+    //     /api/survey/report?session_id=… から集計を取得して描画・操作を担う。
+    //     レポートと同じキャッシュ済み集計を使うため数字は必ず一致する (2026-08-04)。
+    html.push_str(&render_dynamic_explore_section(session_id));
+
     // 4b. 都道府県別 KPI ヒートマップ（新規）
     html.push_str(&render_prefecture_heatmap_section(agg));
 
@@ -770,6 +775,66 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
 // =============================================================================
 // セクション: アクションバー
 // =============================================================================
+
+/// データ探索（動的）セクション。
+///
+/// 2026-08-04: レポート出力の一方通行だった集計を、アプリ内で並べ替え・ビン幅変更
+/// しながら見られるようにする。描画とイベントは static/js/survey_explore.js。
+/// チャート要素は app.js の data-chart-config 自動初期化と衝突しないよう
+/// .echart クラスを使わない。
+fn render_dynamic_explore_section(session_id: &str) -> String {
+    format!(
+        r#"<section id="survey-explore" data-session-id="{sid}" class="stat-card">
+        <h3 class="text-sm font-semibold text-slate-200 mb-1 border-l-4 border-emerald-500 pl-2">データ探索（動的）</h3>
+        <p class="text-[11px] text-slate-500 mb-3">レポートと同じ集計を、この画面で操作しながら確認できます。数値はアップロード時の集計そのままです。</p>
+        <p data-explore-status class="text-[11px] text-amber-400 mb-2">集計を読み込んでいます…</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[11px] text-slate-400">市区町村別</span>
+                    <select data-explore-control="muni-metric" class="text-[11px] bg-slate-800 text-slate-200 border border-slate-600 rounded px-1 py-0.5">
+                        <option value="count">件数</option>
+                        <option value="median_salary">給与中央値</option>
+                        <option value="avg_salary">給与平均</option>
+                    </select>
+                    <select data-explore-control="muni-order" class="text-[11px] bg-slate-800 text-slate-200 border border-slate-600 rounded px-1 py-0.5">
+                        <option value="desc">多い順</option>
+                        <option value="asc">少ない順</option>
+                    </select>
+                </div>
+                <div data-explore-chart="municipality" style="height:340px"></div>
+            </div>
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[11px] text-slate-400">給与ヒストグラム（月給換算）</span>
+                    <select data-explore-control="bin-width" class="text-[11px] bg-slate-800 text-slate-200 border border-slate-600 rounded px-1 py-0.5">
+                        <option value="25000">2.5万円刻み</option>
+                        <option value="50000" selected>5万円刻み</option>
+                        <option value="100000">10万円刻み</option>
+                    </select>
+                </div>
+                <div data-explore-chart="histogram" style="height:340px"></div>
+            </div>
+            <div>
+                <div class="mb-1"><span class="text-[11px] text-slate-400">雇用形態の内訳</span></div>
+                <div data-explore-chart="employment" style="height:300px"></div>
+            </div>
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[11px] text-slate-400">条件タグ別の給与差（全体平均比）</span>
+                    <select data-explore-control="tag-min-count" class="text-[11px] bg-slate-800 text-slate-200 border border-slate-600 rounded px-1 py-0.5">
+                        <option value="5" selected>5件以上のタグ</option>
+                        <option value="10">10件以上のタグ</option>
+                        <option value="20">20件以上のタグ</option>
+                    </select>
+                </div>
+                <div data-explore-chart="tags" style="height:300px"></div>
+            </div>
+        </div>
+    </section>"#,
+        sid = crate::handlers::helpers::escape_html(session_id)
+    )
+}
 
 fn render_action_bar(session_id: &str) -> String {
     format!(
@@ -2082,6 +2147,51 @@ mod variant_ui_tests {
         assert!(
             html.contains("出力する内容を選んでレポートを作成"),
             "collapsible panel heading missing"
+        );
+    }
+
+    /// データ探索（動的）パネルの3点契約 (2026-08-04):
+    /// (1) パネルHTMLが session_id を data 属性で持つ
+    /// (2) ダッシュボードが survey_explore.js を読み込む
+    /// (3) JS が参照する data 属性名がパネル側と一致する
+    /// どれか1つだけ変えると「エラーなくパネルが出ない」silent 故障になるため固定する。
+    #[test]
+    fn dynamic_explore_panel_contract_holds() {
+        let html = render_dynamic_explore_section("sid_abc");
+        assert!(html.contains(r#"id="survey-explore""#));
+        assert!(html.contains(r#"data-session-id="sid_abc""#));
+        for chart in ["municipality", "histogram", "employment", "tags"] {
+            assert!(
+                html.contains(&format!(r#"data-explore-chart="{chart}""#)),
+                "チャート枠 {chart} がパネルにない"
+            );
+        }
+        // app.js の自動初期化 (.echart) と衝突しないこと
+        assert!(
+            !html.contains("class=\"echart\""),
+            "動的パネルは data-chart-config 自動初期化と分離するべき"
+        );
+
+        let dashboard = include_str!("../../../templates/dashboard_inline.html");
+        assert!(
+            dashboard.contains("/static/js/survey_explore.js"),
+            "ダッシュボードが survey_explore.js を読み込んでいない"
+        );
+
+        let js = include_str!("../../../static/js/survey_explore.js");
+        assert!(
+            js.contains("#survey-explore[data-session-id]"),
+            "JS の起点セレクタがパネルと一致しない"
+        );
+        for chart in ["municipality", "histogram", "employment", "tags"] {
+            assert!(
+                js.contains(&format!("data-explore-chart='{chart}'")),
+                "JS がチャート枠 {chart} を参照していない"
+            );
+        }
+        assert!(
+            js.contains("/api/survey/report?session_id="),
+            "JS のデータ源が /api/survey/report でない"
         );
     }
 }
