@@ -43,6 +43,11 @@ pub const SCATTER_X_MIN: i64 = 150_000;
 // ======== 給与フィルタ閾値定数 (Finding #12, 2026-07-01) ========
 /// 月給フィルタ下限: 5 万円未満は異常値 / 誤抽出として除外
 pub const MIN_MONTHLY_SALARY: i64 = 50_000;
+/// 月給換算の上限ガード。2026-08-03: 説明文の「491万6000円/30歳」(年収実績) が
+/// 月給4,916,000円として salary_min_values に混入し、最低給与平均を+5.7%押し上げた
+/// 実測を受けて追加。journey.rs の集計フィルタ (50_000..=2_000_000) と同じ値にし、
+/// 同一アプリ内で外れ値ガードの基準を揃える。
+pub const MAX_MONTHLY_SALARY: i64 = 2_000_000;
 /// 給与×年間休日 散布図 Y 軸 (年間休日) 最小値
 pub const SCATTER_Y_MIN: i64 = 70;
 /// 給与×年間休日 散布図 Y 軸 (年間休日) 最大値
@@ -758,13 +763,26 @@ fn aggregate_records_core(
 
     // 市区町村別（最多を特定）
     // Finding #17 (2026-06-30): 平均 5 件/市区町村 を想定し records/5 を初期容量に
-    let mut muni_map: HashMap<String, usize> = HashMap::with_capacity(records.len() / 5 + 1);
+    // 2026-08-03: 2つの修正。
+    //   (1) キーを (都道府県, 市区町村) にする。市区町村名だけだと東京都府中市と
+    //       広島県府中市のような同名自治体が合算されていた。
+    //   (2) 同数タイの勝者を (件数降順, 名前昇順) で決定的にする。HashMap の反復順は
+    //       実行ごとに変わるため、max_by_key だけではレポートの表示地域が実行ごとに
+    //       変わることがあった (実測: 16ファイル中9件で最多または15位に同数タイ)。
+    let mut muni_map: HashMap<(String, String), usize> =
+        HashMap::with_capacity(records.len() / 5 + 1);
     for r in records {
         if let Some(muni) = &r.location_parsed.municipality {
-            *muni_map.entry(muni.clone()).or_default() += 1;
+            let pref = r.location_parsed.prefecture.clone().unwrap_or_default();
+            *muni_map.entry((pref, muni.clone())).or_default() += 1;
         }
     }
-    let dominant_municipality = muni_map.into_iter().max_by_key(|(_, c)| *c).map(|(m, _)| m);
+    let dominant_municipality = muni_map
+        .into_iter()
+        .max_by(|((_, muni_a), count_a), ((_, muni_b), count_b)| {
+            count_a.cmp(count_b).then(muni_b.cmp(muni_a))
+        })
+        .map(|((_, muni), _)| muni);
 
     // 給与レンジ別
     // Finding #17 (2026-06-30): range_category は 10 種程度想定
@@ -894,7 +912,7 @@ fn aggregate_records_core(
                 _ => None, // Unknown / その他も除外 (設計メモ §5 準拠)
             }
         })
-        .filter(|&v| v >= MIN_MONTHLY_SALARY) // 5万円未満は異常値として除外
+        .filter(|&v| (MIN_MONTHLY_SALARY..=MAX_MONTHLY_SALARY).contains(&v)) // 5万〜200万円の外は異常値として除外
         .collect();
     let salary_max_values: Vec<i64> = records
         .iter()
@@ -908,7 +926,7 @@ fn aggregate_records_core(
                 _ => None,
             }
         })
-        .filter(|&v| v >= MIN_MONTHLY_SALARY)
+        .filter(|&v| (MIN_MONTHLY_SALARY..=MAX_MONTHLY_SALARY).contains(&v))
         .collect();
 
     // Phase 2-A (2026-05-29): ネイティブ単位 (時給=円/時、月給=円/月) の下限/上限給与
@@ -1179,7 +1197,10 @@ fn aggregate_records_core(
             }
         })
         .collect();
-    by_municipality_salary.sort_by(|a, b| b.count.cmp(&a.count));
+    // 2026-08-03: 同数タイの並びを名前で決定的にする。件数のみのソートは HashMap の
+    // 反復順の影響を受け、15位近辺に同数タイがあると上位15件の顔ぶれが実行ごとに
+    // 変わっていた (実測: indeed-2026-04-13.csv で15位=2件に11自治体が同数タイ)。
+    by_municipality_salary.sort_by(|a, b| b.count.cmp(&a.count).then(a.name.cmp(&b.name)));
     by_municipality_salary.truncate(15);
 
     // ============================================================
@@ -1920,6 +1941,7 @@ mod tests {
             location_raw: String::new(),
             salary_raw: String::new(),
             employment_type: emp_type.to_string(),
+            employment_type_inferred: false,
             tags_raw: tags.to_string(),
             url: None,
             is_new: false,
@@ -2611,6 +2633,7 @@ mod tests {
             location_raw: "東京都千代田区".to_string(),
             salary_raw: format!("月給{}円", salary_min),
             employment_type: "正社員".to_string(),
+            employment_type_inferred: false,
             tags_raw: String::new(),
             url: None,
             is_new: false,
@@ -2741,6 +2764,7 @@ mod tests {
             location_raw: location.to_string(),
             salary_raw: salary_raw.to_string(),
             employment_type: emp_type.to_string(),
+            employment_type_inferred: false,
             tags_raw: String::new(),
             url: None,
             is_new: false,
@@ -2876,6 +2900,7 @@ mod tests {
             location_raw: "東京都千代田区".to_string(),
             salary_raw: String::new(),
             employment_type: emp_type.to_string(),
+            employment_type_inferred: false,
             tags_raw: tags.to_string(),
             url: None,
             is_new: false,
