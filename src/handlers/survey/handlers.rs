@@ -656,12 +656,38 @@ pub async fn analyze_survey(
     Html(r#"<p class="text-slate-400 text-sm">CSVをアップロードしてください</p>"#.to_string())
 }
 
-/// レポートJSON API
+/// レポートJSON API — アップロード済みCSVの集計結果を返す。
+///
+/// 2026-08-04: レポートHTML生成の一方通行だった媒体分析を、アプリ内で動的に
+/// 可視化するための土台。アップロード時にキャッシュへ保存済みの集計
+/// (`survey_agg_{session_id}` / `survey_seeker_{session_id}`) をそのまま返す。
+/// 再計算はしない (アップロードと同じ数字を画面でも使う)。
+/// session_id が無い・期限切れの場合は再アップロードを促す。
 pub async fn report_json(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     _session: Session,
+    Query(query): Query<IntegrateQuery>,
 ) -> axum::response::Json<serde_json::Value> {
-    axum::response::Json(serde_json::json!({"status": "upload_csv_first"}))
+    let Some(session_id) = query.session_id.filter(|id| !id.is_empty()) else {
+        return axum::response::Json(serde_json::json!({
+            "status": "upload_csv_first",
+            "message": "CSVをアップロードすると、この画面で集計を確認できます。"
+        }));
+    };
+    let aggregation = state.cache.get(&format!("survey_agg_{}", session_id));
+    let seeker = state.cache.get(&format!("survey_seeker_{}", session_id));
+    match aggregation {
+        Some(aggregation) => axum::response::Json(serde_json::json!({
+            "status": "ok",
+            "session_id": session_id,
+            "aggregation": aggregation,
+            "seeker": seeker,
+        })),
+        None => axum::response::Json(serde_json::json!({
+            "status": "expired",
+            "message": "集計の保持期限が切れました。CSVを再アップロードしてください。"
+        })),
+    }
 }
 
 /// 媒体分析PDF/印刷用HTMLレポート (エントリ)。
