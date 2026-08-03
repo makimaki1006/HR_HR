@@ -492,9 +492,26 @@ function renderJobList(){
   }).join("")+`</div><div class="note">複数の求人が見つかりました。1件を選ぶとパイプラインを実行できます。</div>`;
   box.querySelectorAll(".jobitem").forEach(el=>el.onclick=()=>{pickJob(+el.getAttribute("data-i"));renderJobList();});
 }
+// 応募者ジャーニー診断へ求人原文を引き継ぐ。別タブ（同一オリジン）で開くため localStorage を使う。
+// 渡すのは正規化済みの本文と職種名候補だけで、元ファイルそのものは持ち出さない。
+const HANDOFF_KEY="hrhr-jobgen-source-handoff";
+const HANDOFF_MAX_CHARS=400000; // 保存失敗でこの画面を壊さないための上限
+function saveSourceHandoff(){
+  try{
+    if(!S.sourceText||S.sourceText.length>HANDOFF_MAX_CHARS){localStorage.removeItem(HANDOFF_KEY);return;}
+    localStorage.setItem(HANDOFF_KEY,JSON.stringify({
+      text:S.sourceText,
+      title:S.titleHint||"",
+      saved_at:new Date().toISOString()
+    }));
+  }catch(e){
+    // 容量超過・プライベートモード等。引き継ぎは補助機能なので、この画面の動作は止めない。
+  }
+}
 function pickJob(i){
   const j=S.jobs[i];if(!j)return;
   S.titleHint=j.title_hint||"";S.sourceText=j.source_text||"";
+  saveSourceHandoff();
   // 取り込み直しに伴い下流の結果を破棄（職種確認ゲートもリセット）
   resetResults();
   $("#pickedInfo").innerHTML=`<div class="picked">取り込み済み: <b>${esc(S.titleHint||"（先頭行を職種名候補にしています）")}</b>（原文 ${S.sourceText.length.toLocaleString("ja-JP")}字）</div>`

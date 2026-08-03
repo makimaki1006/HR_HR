@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>応募者ジャーニー診断（仮）</title>
+  <title>応募者ジャーニー診断</title>
   <style>
     :root{
       --bg:#eef1f6;--surface:#fbfcfe;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#5f6b7d;
@@ -62,6 +62,14 @@
     .source-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
     textarea:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
     .fileok{font-size:11px;color:var(--lo);font-weight:700;margin-top:7px;min-height:18px}
+    /* 求人票作成から引き継いだ求人原文の提示。ファイル選択と併存させ、どちらでも進められるようにする。 */
+    .handoff{background:var(--surface-1);border:1px solid var(--line-2);border-radius:10px;padding:9px 10px;margin-bottom:9px}
+    .handoff p{font-size:11.5px;color:var(--ink-2);margin:0 0 7px;line-height:1.5}
+    .handoff .handoff-title{font-weight:800;color:var(--ink-1)}
+    .handoff button{font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-1);cursor:pointer}
+    .handoff button:hover{border-color:var(--ink-3)}
+    .handoff button[disabled]{cursor:default;opacity:.65}
+    .handoff .handoff-using{font-size:11px;font-weight:700;color:var(--lo);margin-top:6px}
     .optional{margin-top:14px}
     .optional label{display:block;font-size:12px;font-weight:800;color:var(--ink-2);margin-bottom:5px}
     .actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:15px}
@@ -184,7 +192,7 @@
 <main class="wrap">
   <header>
     <div class="eyebrow">求人票生成・特別機能 / BETA</div>
-    <h1>応募者ジャーニー診断（仮）</h1>
+    <h1>応募者ジャーニー診断</h1>
     <p class="sub">顧客求人、競合求人CSV、口コミCSVから、応募しそうな人・採用したい人・求人閲覧後に離脱しそうな人を洗い出し、求人認知から入社判断までの対策を組み立てます。</p>
     <div class="truthbar">
       <div><b>顧客求人</b>引用照合できた条件だけを顧客事実として使用</div>
@@ -207,13 +215,14 @@
         <h2>診断するデータを登録</h2>
         <p class="lead">現在のスクレイピングCSVをそのまま使用できます。星評価は不要です。</p>
       </div>
-      <span class="badge neutral">既存求人生成とは独立</span>
+      <span class="badge neutral">求人票作成の取り込みを再利用できます</span>
     </div>
     <div class="input-grid">
       <div class="upload">
         <div class="num">1</div>
         <label for="clientFile">顧客の求人</label>
         <p>保存HTMLまたは求人票テキスト。顧客企業についての事実根拠になります。</p>
+        <div id="clientHandoff" class="handoff" hidden></div>
         <input id="clientFile" type="file" accept=".html,.htm,.txt">
         <div class="fileok" id="clientFileStatus"></div>
       </div>
@@ -427,6 +436,57 @@
   setupFile("#competitorFile","#competitorFileStatus");
   setupFile("#reviewFile","#reviewFileStatus");
 
+  // 求人票作成（/jobgen）で取り込み済みの求人原文を引き継ぐ。
+  // 別タブ（同一オリジン）で開くため localStorage 経由。使うかどうかはコンサルが選ぶ。
+  const HANDOFF_KEY="hrhr-jobgen-source-handoff";
+  const HANDOFF_MAX_AGE_MS=24*60*60*1000;
+  let clientHandoff=null; // 引き継ぎを使用中のときだけ中身が入る
+
+  function readHandoff(){
+    let raw=null;
+    try{raw=localStorage.getItem(HANDOFF_KEY);}catch(e){return null;}
+    if(!raw)return null;
+    let parsed=null;
+    try{parsed=JSON.parse(raw);}catch(e){return null;}
+    const text=parsed&&typeof parsed.text==="string"?parsed.text:"";
+    if(!text.trim())return null;
+    const savedAt=Date.parse(parsed&&parsed.saved_at||"");
+    // 古い取り込みを黙って使うと別案件の求人で診断してしまう。24時間を過ぎたら提示しない。
+    if(!Number.isFinite(savedAt)||Date.now()-savedAt>HANDOFF_MAX_AGE_MS)return null;
+    return {text:text,title:parsed&&typeof parsed.title==="string"?parsed.title:"",savedAt:savedAt};
+  }
+
+  function renderHandoff(){
+    const box=$("#clientHandoff");
+    const available=readHandoff();
+    if(!available){box.hidden=true;box.innerHTML="";clientHandoff=null;return;}
+    const when=new Date(available.savedAt).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
+    const title=available.title||"職種名の候補なし";
+    box.hidden=false;
+    if(clientHandoff){
+      box.innerHTML=`<p>求人票作成で取り込んだ<span class="handoff-title">${esc(title)}</span>を使います。</p>`
+        +`<button type="button" id="handoffClear">使わない（ファイルを選ぶ）</button>`
+        +`<div class="handoff-using">引き継ぎ中（原文 ${formatNumber(clientHandoff.text.length)}字・${esc(when)} 取り込み）</div>`;
+      $("#handoffClear").addEventListener("click",()=>{clientHandoff=null;renderHandoff();});
+    }else{
+      box.innerHTML=`<p>求人票作成で<span class="handoff-title">${esc(title)}</span>を取り込み済みです（${esc(when)}・原文 ${formatNumber(available.text.length)}字）。同じ求人を診断するなら、ファイルを選び直さずに使えます。</p>`
+        +`<button type="button" id="handoffUse">この求人を使う</button>`;
+      $("#handoffUse").addEventListener("click",()=>{
+        clientHandoff=readHandoff();
+        if(!clientHandoff){renderHandoff();return;}
+        // 取り違えを防ぐため、引き継ぎを選んだらファイル選択は空に戻す。
+        $("#clientFile").value="";
+        $("#clientFileStatus").textContent="";
+        renderHandoff();
+      });
+    }
+  }
+  // 逆にファイルを選んだら、手元のファイルを優先する。
+  $("#clientFile").addEventListener("change",()=>{
+    if($("#clientFile").files[0]&&clientHandoff){clientHandoff=null;renderHandoff();}
+  });
+  renderHandoff();
+
   function formatBytes(bytes){
     if(bytes<1024)return `${bytes} B`;
     if(bytes<1024*1024)return `${(bytes/1024).toFixed(1)} KB`;
@@ -467,11 +527,12 @@
     const competitor=$("#competitorFile").files[0];
     const review=$("#reviewFile").files[0];
     const status=$("#diagnoseStatus");
-    if(!client||!competitor||!review){
-      status.innerHTML='<div class="error">顧客求人・競合求人CSV・口コミCSVの3ファイルを選択してください。</div>';
+    // 顧客求人はファイル選択と求人票作成からの引き継ぎのどちらでもよい。CSV 2件は必須のまま。
+    if((!client&&!clientHandoff)||!competitor||!review){
+      status.innerHTML='<div class="error">顧客求人（ファイル選択または求人票作成からの引き継ぎ）・競合求人CSV・口コミCSVを揃えてください。</div>';
       return;
     }
-    if(client.size>5*1024*1024||competitor.size>15*1024*1024||review.size>15*1024*1024){
+    if((client&&client.size>5*1024*1024)||competitor.size>15*1024*1024||review.size>15*1024*1024){
       status.innerHTML='<div class="error">顧客求人は5MB以内、CSVは1ファイル15MB以内にしてください。</div>';
       return;
     }
@@ -491,10 +552,11 @@
       status.innerHTML=`<div class="loading">${messages[messageIndex]}</div>`;
     },6500);
     try{
-      const extension=client.name.split(".").pop().toLowerCase();
+      // 引き継ぎは正規化済みの本文なので、拡張子判定を通さず text として送る。
+      const extension=client?client.name.split(".").pop().toLowerCase():"";
       const data=await postJSON("/api/jobgen/journey-diagnose",{
-        client_job:await client.text(),
-        client_kind:["html","htm"].includes(extension)?"html":"text",
+        client_job:client?await client.text():clientHandoff.text,
+        client_kind:client&&["html","htm"].includes(extension)?"html":"text",
         competitor_csv_base64:await fileToBase64(competitor),
         competitor_filename:competitor.name,
         competitor_captured_at:captureDate(competitor,$("#competitorCapturedAt").value),
