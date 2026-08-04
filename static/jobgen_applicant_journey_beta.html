@@ -663,7 +663,7 @@
         <div class="box"><h3>競合条件から分かったこと</h3>${conditions}</div>
       </div>
       <div class="twocol sectiongap">
-        <div class="box"><h3>口コミから観測された求職者認知</h3>${reviews}<details class="sectiongap"><summary><b>分析に使用した口コミ原文を確認</b></summary>${reviewEvidence}</details><p class="hint sectiongap">個々の口コミは会社実態の確定事実ではありませんが、求職者が1件でも真実として受け取る可能性がある外部情報として扱います。</p></div>
+        <div class="box"><h3>口コミから観測された求職者認知</h3>${d.review_csv_warning?`<div class="notice">${esc(d.review_csv_warning)} 口コミ由来の根拠なしで診断を続行しました。</div>`:""}${reviews}<details class="sectiongap"><summary><b>分析に使用した口コミ原文を確認</b></summary>${reviewEvidence}</details><p class="hint sectiongap">個々の口コミは会社実態の確定事実ではありませんが、求職者が1件でも真実として受け取る可能性がある外部情報として扱います。</p></div>
         <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(r.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
       </div>`;
     updateTableHints();

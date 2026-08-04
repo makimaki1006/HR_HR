@@ -785,17 +785,21 @@ pub async fn jobgen_journey_diagnose(
             }))
         }
     };
-    let reviews = match &review_bytes {
-        None => journey::ReviewSummary::not_provided(),
+    // 2026-08-04: 口コミCSVは任意入力なので、解析できなくても診断全体は止めない。
+    // 添付されたのに使えなかった場合は、その理由を warning として明示したうえで
+    // 「未提供」と同じ縮退 (R番号・口コミ件数集計が許可されない) で続行する。
+    // 黙って無視はしない — 画面の口コミ欄は「未提供」表示になり、理由が警告に出る。
+    let (reviews, review_csv_warning) = match &review_bytes {
+        None => (journey::ReviewSummary::not_provided(), None),
         Some(bytes) => {
             match journey::summarize_review_csv(bytes, review_label, review_captured_at) {
-                Ok(summary) => summary,
-                Err(message) => {
-                    return Json(json!({
-                        "status":"error",
-                        "message":format!("口コミCSVを解析できません: {message}")
-                    }))
-                }
+                Ok(summary) => (summary, None),
+                Err(message) => (
+                    journey::ReviewSummary::not_provided(),
+                    Some(format!(
+                        "口コミCSV「{review_label}」は使用しませんでした。{message}"
+                    )),
+                ),
             }
         }
     };
@@ -978,6 +982,7 @@ pub async fn jobgen_journey_diagnose(
             "competitor_summary":competitor,
             "comparison_cohort":cohort,
             "review_summary":reviews,
+            "review_csv_warning":review_csv_warning,
             "client_salary_position":client_salary,
             "public_stats":public_stats,
             "result":result,
@@ -1025,12 +1030,14 @@ pub async fn jobgen_journey_diagnose(
         "competitor_summary":competitor,
         "comparison_cohort":cohort,
         "review_summary":reviews,
+        "review_csv_warning":review_csv_warning,
         "client_salary_position":client_salary,
         "public_stats":public_stats,
         "result":result,
         "quality_gate":{"passed":true,"issues":[]},
-        // ready 以外 (limited=小標本 / blocked=比較不能で縮退続行) はコンサル確認を促す
-        "review_required":cohort.status != "ready",
+        // ready 以外 (limited=小標本 / blocked=縮退続行)・口コミCSVが使えなかった場合は
+        // コンサル確認を促す
+        "review_required":cohort.status != "ready" || review_csv_warning.is_some(),
         "llm_calls":llm_calls,
         "notes":{
             "truth_scope":"顧客企業について確定事実として扱うのは、顧客求人から引用照合できた項目と顧客発言だけです。",
