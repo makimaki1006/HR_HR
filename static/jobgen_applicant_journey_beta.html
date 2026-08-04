@@ -193,7 +193,7 @@
   <header>
     <div class="eyebrow">求人票生成・特別機能 / BETA</div>
     <h1>応募者ジャーニー診断</h1>
-    <p class="sub">顧客求人、競合求人CSV、口コミCSVから、応募しそうな人・採用したい人・求人閲覧後に離脱しそうな人を洗い出し、求人認知から入社判断までの対策を組み立てます。</p>
+    <p class="sub">顧客求人と競合求人CSV（口コミCSVは任意）から、応募しそうな人・採用したい人・求人閲覧後に離脱しそうな人を洗い出し、求人認知から入社判断までの対策を組み立てます。</p>
     <div class="truthbar">
       <div><b>顧客求人</b>引用照合できた条件だけを顧客事実として使用</div>
       <div><b>競合求人・公的統計</b>取得時点と比較母集団を明示した市場観測</div>
@@ -237,8 +237,8 @@
       </div>
       <div class="upload">
         <div class="num">3</div>
-        <label for="reviewFile">口コミCSV</label>
-        <p>顧客のGoogleビジネスプロフィール等。本文がある口コミを認知リスクの観測に使います。</p>
+        <label for="reviewFile">口コミCSV（任意）</label>
+        <p>顧客のGoogleビジネスプロフィール等。本文がある口コミを認知リスクの観測に使います。口コミが無い場合は未選択のまま進めます（口コミ由来の根拠なしで診断します）。</p>
         <input id="reviewFile" type="file" accept=".csv,text/csv">
         <div class="fileok" id="reviewFileStatus"></div>
         <label for="reviewCapturedAt" class="hint">取得日（ファイル名に日付がない場合）</label>
@@ -527,12 +527,14 @@
     const competitor=$("#competitorFile").files[0];
     const review=$("#reviewFile").files[0];
     const status=$("#diagnoseStatus");
-    // 顧客求人はファイル選択と求人票作成からの引き継ぎのどちらでもよい。CSV 2件は必須のまま。
-    if((!client&&!clientHandoff)||!competitor||!review){
-      status.innerHTML='<div class="error">顧客求人（ファイル選択または求人票作成からの引き継ぎ）・競合求人CSV・口コミCSVを揃えてください。</div>';
+    // 顧客求人はファイル選択と求人票作成からの引き継ぎのどちらでもよい。
+    // 口コミCSVは任意 (2026-08-04): 顧客が Google ビジネスプロフィール等を
+    // 持っていない場合は未選択のまま診断できる。
+    if((!client&&!clientHandoff)||!competitor){
+      status.innerHTML='<div class="error">顧客求人（ファイル選択または求人票作成からの引き継ぎ）と競合求人CSVを揃えてください。口コミCSVは任意です。</div>';
       return;
     }
-    if((client&&client.size>5*1024*1024)||competitor.size>15*1024*1024||review.size>15*1024*1024){
+    if((client&&client.size>5*1024*1024)||competitor.size>15*1024*1024||(review&&review.size>15*1024*1024)){
       status.innerHTML='<div class="error">顧客求人は5MB以内、CSVは1ファイル15MB以内にしてください。</div>';
       return;
     }
@@ -560,9 +562,9 @@
         competitor_csv_base64:await fileToBase64(competitor),
         competitor_filename:competitor.name,
         competitor_captured_at:captureDate(competitor,$("#competitorCapturedAt").value),
-        review_csv_base64:await fileToBase64(review),
-        review_filename:review.name,
-        review_captured_at:captureDate(review,$("#reviewCapturedAt").value),
+        review_csv_base64:review?await fileToBase64(review):"",
+        review_filename:review?review.name:"",
+        review_captured_at:review?captureDate(review,$("#reviewCapturedAt").value):null,
         customer_statements:$("#customerStatements").value.trim(),
         customer_statement_speaker:$("#customerStatementSpeaker").value.trim(),
         customer_statement_date:$("#customerStatementDate").value,
@@ -645,7 +647,7 @@
       </div>
       <div class="kpis">
         <div class="kpi"><span>比較母集団</span><b>${formatNumber(cohort.matched_record_count)}件</b><small>${esc(source.filename||c.filename||"ファイル名不明")}・元CSV ${formatNumber(cohort.source_record_count||source.record_count)}件から抽出・${esc(cohort.scope||"未確定")}・取得 ${esc(c.captured_at||source.captured_at||"不明")}</small></div>
-        <div class="kpi"><span>口コミ本文</span><b>${formatNumber(v.text_rows)}件</b><small>${esc(v.filename||"ファイル名不明")}・全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件${v.sampled_risk_rows!==undefined?"（離脱関連語を含む"+formatNumber(v.sampled_risk_rows)+"件・その他"+formatNumber(v.sampled_other_rows)+"件）":""}・取得 ${esc(v.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>口コミ本文</span>${v.filename==="未提供"?`<b>未提供</b><small>口コミ由来の根拠なしで診断しています</small>`:`<b>${formatNumber(v.text_rows)}件</b><small>${esc(v.filename||"ファイル名不明")}・全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件${v.sampled_risk_rows!==undefined?"（離脱関連語を含む"+formatNumber(v.sampled_risk_rows)+"件・その他"+formatNumber(v.sampled_other_rows)+"件）":""}・取得 ${esc(v.captured_at||"不明")}</small>`}</div>
         <div class="kpi"><span>人気度タグ</span><b>${formatNumber(popularityTotal)}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
         <div class="kpi"><span>地域統計</span><b>${stats.available?"取得":"未取得"}</b><small>${esc(stats.available?"人材母集団の補助情報":"求人診断は継続")}</small></div>
       </div>

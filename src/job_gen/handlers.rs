@@ -737,11 +737,18 @@ pub async fn jobgen_journey_diagnose(
             Ok(bytes) => bytes,
             Err(message) => return Json(json!({"status":"error","message":message})),
         };
-    let review_bytes =
-        match journey::decode_csv_base64(&body_str(&body, "review_csv_base64"), "口コミCSV") {
-            Ok(bytes) => bytes,
+    // 口コミCSVは任意 (2026-08-04)。顧客が Google ビジネスプロフィール等を
+    // 持っていないことは普通にあるため、未提供なら空サマリで診断を続行する
+    // (R番号・口コミ件数集計が許可根拠から自動的に消える設計に乗る)。
+    let review_base64 = body_str(&body, "review_csv_base64");
+    let review_bytes = if review_base64.trim().is_empty() {
+        None
+    } else {
+        match journey::decode_csv_base64(&review_base64, "口コミCSV") {
+            Ok(bytes) => Some(bytes),
             Err(message) => return Json(json!({"status":"error","message":message})),
-        };
+        }
+    };
     let competitor_filename = body_str(&body, "competitor_filename");
     let review_filename = body_str(&body, "review_filename");
     let competitor_label = if competitor_filename.is_empty() {
@@ -778,16 +785,20 @@ pub async fn jobgen_journey_diagnose(
             }))
         }
     };
-    let reviews =
-        match journey::summarize_review_csv(&review_bytes, review_label, review_captured_at) {
-            Ok(summary) => summary,
-            Err(message) => {
-                return Json(json!({
-                    "status":"error",
-                    "message":format!("口コミCSVを解析できません: {message}")
-                }))
+    let reviews = match &review_bytes {
+        None => journey::ReviewSummary::not_provided(),
+        Some(bytes) => {
+            match journey::summarize_review_csv(bytes, review_label, review_captured_at) {
+                Ok(summary) => summary,
+                Err(message) => {
+                    return Json(json!({
+                        "status":"error",
+                        "message":format!("口コミCSVを解析できません: {message}")
+                    }))
+                }
             }
-        };
+        }
+    };
 
     // 1回目: 顧客求人の8項目を抽出し、コードで引用の実在を照合する。
     let fact_prompt = fact_extract::build_extract_prompt(&normalized.source_text);
