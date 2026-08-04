@@ -659,7 +659,7 @@
         <p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="給与比較表。横にスクロールできます"><table><thead><tr><th>比較区分</th><th>件数</th><th>最小</th><th>第1四分位</th><th>中央値</th><th>第3四分位</th><th>最大</th></tr></thead><tbody>${distributions||'<tr><td colspan="7">給与比較データなし</td></tr>'}</tbody></table></div>
       </div>
       <div class="twocol sectiongap">
-        <div class="box"><h3>競合求人で観測された特徴</h3><div class="stack">${tags}</div><p class="hint sectiongap">比較母集団：${esc(cohort.scope||"未確定")}、${formatNumber(c.record_count)}件（元CSV ${formatNumber(source.record_count)}件）。同一市区町村で5件未満の場合のみ同一都道府県へ広げ、別職種・全国求人へは自動拡張しません。</p>${cohort.warning?`<div class="notice sectiongap">${esc(cohort.warning)}</div>`:""}</div>
+        <div class="box"><h3>競合求人で観測された特徴</h3><div class="stack">${tags}</div><p class="hint sectiongap">比較母集団：${esc(cohort.scope||"未確定")}、${formatNumber(c.record_count)}件（元CSV ${formatNumber(source.record_count)}件）。同一市区町村だけで15件に満たない場合は、通勤圏を考慮して同一都道府県まで広げます。別職種・全国求人へは自動拡張しません。</p>${cohort.warning?`<div class="notice sectiongap">${esc(cohort.warning)}</div>`:""}</div>
         <div class="box"><h3>競合条件から分かったこと</h3>${conditions}</div>
       </div>
       <div class="twocol sectiongap">
