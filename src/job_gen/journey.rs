@@ -163,6 +163,33 @@ pub struct ReviewSummary {
     pub scope_note: String,
 }
 
+impl ReviewSummary {
+    /// 口コミCSVが提供されなかった場合の空サマリ (2026-08-04)。
+    ///
+    /// 顧客が Google ビジネスプロフィール等を持っていないケースは普通にあるため、
+    /// 口コミは必須入力にしない。空サマリは既存の仕組みにそのまま乗る:
+    /// evidence が空なので R 番号は許可されず、total_rows=0 なので
+    /// 「口コミ件数集計」も許可されず (allowed_evidence_refs)、prepare スキーマは
+    /// review_findings を空配列に強制する。診断は口コミ由来の根拠なしで成立する。
+    pub fn not_provided() -> Self {
+        Self {
+            filename: "未提供".to_string(),
+            captured_at: None,
+            encoding: String::new(),
+            total_rows: 0,
+            text_rows: 0,
+            evidence_sampled_rows: 0,
+            risk_flagged_text_rows: 0,
+            sampled_risk_rows: 0,
+            sampled_other_rows: 0,
+            blank_text_rows: 0,
+            duplicate_text_rows: 0,
+            evidence: Vec::new(),
+            scope_note: "口コミCSVは提供されていません。求職者の外部認知(口コミ由来)の根拠なしで診断しています。".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ClientSalaryPosition {
     pub client_salary_text: String,
@@ -2443,6 +2470,50 @@ fn sample_indices(total: usize, limit: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 口コミCSVは任意 (2026-08-04)。未提供の空サマリが根拠体系に正しく乗ることを固定する:
+    /// R番号と「口コミ件数集計」が許可されず、prepare スキーマは review_findings を
+    /// 空配列に強制する。UI 側も口コミなしで送信できる文言・分岐になっていること。
+    #[test]
+    fn review_csv_is_optional_and_absence_removes_review_evidence() {
+        let reviews = ReviewSummary::not_provided();
+        assert_eq!(reviews.total_rows, 0);
+        assert!(reviews.evidence.is_empty());
+
+        let csv = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu\n\
+正社員,https://example.com/1,配送ドライバー,会社A,東京都 大田区,月給 300000円,本文\n";
+        let competitor = summarize_competitor_csv(csv.as_bytes(), "competitors.csv", None)
+            .expect("competitor csv");
+        let refs = allowed_evidence_refs(&[], &[], &competitor, &reviews);
+        assert!(
+            !refs
+                .iter()
+                .any(|r| r.starts_with('R') || r == "口コミ件数集計"),
+            "口コミ未提供なのに口コミ由来の根拠が許可されている: {refs:?}"
+        );
+
+        let schema = prepare_schema_with_evidence_refs(&refs);
+        assert_eq!(
+            schema["properties"]["review_findings"]["maxItems"],
+            json!(0),
+            "口コミ未提供時は review_findings が空配列に強制されるべき"
+        );
+
+        // UI 契約: 口コミ必須の検証が残っていないこと・任意の文言があること
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        assert!(
+            html.contains("口コミCSV（任意）"),
+            "ラベルが任意になっていない"
+        );
+        assert!(
+            !html.contains("||!review){"),
+            "送信前検証が口コミを必須にしたまま"
+        );
+        assert!(
+            html.contains("review?await fileToBase64(review)"),
+            "口コミ未選択のとき fileToBase64(undefined) で落ちる送信コードのまま"
+        );
+    }
 
     #[test]
     fn google_review_csv_without_rating_is_accepted() {
