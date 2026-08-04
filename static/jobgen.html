@@ -3,19 +3,19 @@
 <title>求人票生成パイプライン</title>
 <style>
   :root{
-    --bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#7e8aa0;--line:#e0e5ee;--line-2:#cfd6e2;
-    --accent:#3d5afe;--accent-ink:#2a3eb1;--accent-bg:#eaeeff;
+    --bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#3c4a60;--ink-3:#5c6a80;--line:#e0e5ee;--line-2:#cfd6e2;
+    --accent:#3d5afe;--accent-ink:#1e2d8f;--accent-bg:#eef1ff;
     --hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;
     --shadow:0 1px 2px rgba(20,30,50,.05),0 8px 24px rgba(20,30,50,.07);
   }
   @media(prefers-color-scheme:dark){:root{
-    --bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#e8edf5;--ink-2:#adb8c8;--ink-3:#7a8698;--line:#252f3f;--line-2:#33404f;
-    --accent:#7c8cff;--accent-ink:#aab4ff;--accent-bg:#1a2138;
-    --hi:#f0776a;--mid:#e6b35c;--lo:#5ed6a0;
+    --bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#eef2f8;--ink-2:#c6cfdc;--ink-3:#9daabb;--line:#252f3f;--line-2:#33404f;
+    --accent:#8c9aff;--accent-ink:#ccd3ff;--accent-bg:#1a2138;
+    --hi:#f58a7e;--mid:#f0c274;--lo:#6fe0ac;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.4);
   }}
-  :root[data-theme="light"]{--bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#48566c;--ink-3:#7e8aa0;--line:#e0e5ee;--line-2:#cfd6e2;--accent:#3d5afe;--accent-ink:#2a3eb1;--accent-bg:#eaeeff;--hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;--shadow:0 1px 2px rgba(20,30,50,.05),0 8px 24px rgba(20,30,50,.07);}
-  :root[data-theme="dark"]{--bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#e8edf5;--ink-2:#adb8c8;--ink-3:#7a8698;--line:#252f3f;--line-2:#33404f;--accent:#7c8cff;--accent-ink:#aab4ff;--accent-bg:#1a2138;--hi:#f0776a;--mid:#e6b35c;--lo:#5ed6a0;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.4);}
+  :root[data-theme="light"]{--bg:#eef1f6;--surface:#fff;--surface-2:#f6f8fb;--ink:#182031;--ink-2:#3c4a60;--ink-3:#5c6a80;--line:#e0e5ee;--line-2:#cfd6e2;--accent:#3d5afe;--accent-ink:#1e2d8f;--accent-bg:#eef1ff;--hi:#c0392b;--mid:#b26a00;--lo:#1a7f57;--shadow:0 1px 2px rgba(20,30,50,.05),0 8px 24px rgba(20,30,50,.07);}
+  :root[data-theme="dark"]{--bg:#0d1119;--surface:#151b26;--surface-2:#1b2331;--ink:#eef2f8;--ink-2:#c6cfdc;--ink-3:#9daabb;--line:#252f3f;--line-2:#33404f;--accent:#8c9aff;--accent-ink:#ccd3ff;--accent-bg:#1a2138;--hi:#f58a7e;--mid:#f0c274;--lo:#6fe0ac;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.4);}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}
   .wrap{max-width:1080px;margin:0 auto;padding:28px 18px 64px}
