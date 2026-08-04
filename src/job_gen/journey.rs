@@ -699,20 +699,43 @@ pub fn summarize_review_csv(
         .map(|h| h.trim_matches('\u{feff}').trim().to_string())
         .collect::<Vec<_>>();
 
-    let text_index = find_header(
-        &headers,
-        &[
-            "oa1nbd",
-            "口コミ本文",
-            "口コミ",
-            "レビュー本文",
-            "review_text",
-            "review",
-            "text",
-            "本文",
-        ],
-    )
-    .ok_or_else(|| "口コミ本文の列を特定できませんでした。".to_string())?;
+    // 本文列の候補。先頭ほど優先 (スクレイパ固有の難読クラス名 → 日本語 → 英語汎用)。
+    // 2026-08-04: 実CSVで列名が認識されない事例を受けて拡充。Google マップの
+    // 口コミ本文の要素クラス (wiI7pd) と、手作業整形でよくある別名を追加。
+    const TEXT_COLUMN_CANDIDATES: &[&str] = &[
+        "oa1nbd",
+        "wii7pd",
+        "口コミ本文",
+        "クチコミ本文",
+        "口コミ内容",
+        "口コミ",
+        "クチコミ",
+        "レビュー本文",
+        "レビュー内容",
+        "review_text",
+        "reviewtext",
+        "review text",
+        "review",
+        "comment",
+        "コメント",
+        "content",
+        "snippet",
+        "text",
+        "本文",
+        "内容",
+    ];
+    // 2026-08-04: 「何のエラーなのか報告しない」問題への対応。
+    // 何を探し、CSVに実際何があり、次に何をすればよいかまでエラーに含める。
+    let text_index = find_header(&headers, TEXT_COLUMN_CANDIDATES).ok_or_else(|| {
+        let found = if headers.is_empty() {
+            "（列なし）".to_string()
+        } else {
+            headers.join("・")
+        };
+        format!(
+            "口コミ本文の列を特定できませんでした。このCSVの列: {found}。本文として認識できる列名の例: OA1nbd・口コミ本文・口コミ・レビュー本文・review_text・comment・本文。スクレイピングの取得項目に口コミ本文（展開後の全文）を追加して取り直してください。星評価だけで本文が無い口コミしか無い場合は、口コミCSVを外して診断できます（任意入力です）。"
+        )
+    })?;
     let date_index = find_header(
         &headers,
         &["y3ibjb", "投稿日", "投稿時期", "review_date", "date"],
@@ -738,7 +761,9 @@ pub fn summarize_review_csv(
         let row = row.map_err(|e| format!("口コミCSVのデータ行を読めません: {e}"))?;
         total_rows += 1;
         let text = row.get(text_index).unwrap_or("").trim();
-        if text.is_empty() {
+        // 記号・区切り文字だけのセル (実CSVで「·」のみの列を確認) は本文なしとして扱う。
+        // 文字・数字を1つも含まないテキストを根拠 (R番号) に昇格させない。
+        if text.is_empty() || !text.chars().any(|c| c.is_alphanumeric()) {
             blank_text_rows += 1;
             continue;
         }
@@ -2677,6 +2702,52 @@ mod tests {
             !handlers_src.contains("\"phase\":\"cohort_blocked\""),
             "blocked の早期 return が復活している"
         );
+    }
+
+    /// 本文列が見つからないエラーは「何を探し・何があり・どうすればよいか」まで報告する
+    /// (2026-08-04 実CSV事例: 本文なしエクスポートで「特定できませんでした」だけが出た)。
+    #[test]
+    fn review_csv_without_text_column_reports_actionable_error() {
+        // 実CSVのヘッダそのまま (本文列が無いエクスポート)
+        let csv = "NBa7we src,d4r55,RfnDt,rsqaWe\n\
+https://example.com/a.png,投稿者A,6 件のクチコミ,2 か月前\n";
+        let error = summarize_review_csv(csv.as_bytes(), "google-2026-08-04 (1).csv", None)
+            .expect_err("本文列が無いのだからエラーになるべき");
+        assert!(
+            error.contains("NBa7we src"),
+            "CSVの実際の列名が無い: {error}"
+        );
+        assert!(
+            error.contains("OA1nbd"),
+            "認識できる列名の例が無い: {error}"
+        );
+        assert!(
+            error.contains("任意入力"),
+            "口コミなしで診断できる案内が無い: {error}"
+        );
+    }
+
+    /// 記号だけのセル (実CSVで「·」のみを確認) は本文なしとして扱い、R番号に昇格させない。
+    #[test]
+    fn punctuation_only_review_text_counts_as_blank() {
+        let csv = "OA1nbd,y3Ibjb\n·,2 か月前\n・,4 か月前\n実際の口コミ本文です,1 年前\n";
+        let summary =
+            summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("review csv");
+        assert_eq!(summary.total_rows, 3);
+        assert_eq!(summary.blank_text_rows, 2, "記号だけの2行は本文なし扱い");
+        assert_eq!(summary.text_rows, 1);
+        assert!(summary.evidence[0].text.contains("実際の口コミ本文"));
+    }
+
+    /// 追加した列名の別名 (コメント / Google マップの wiI7pd 等) が認識される。
+    #[test]
+    fn widened_review_text_column_aliases_are_recognized() {
+        for header in ["コメント", "wiI7pd", "口コミ内容", "content"] {
+            let csv = format!("{header},y3Ibjb\n残業が多いという口コミです,1 年前\n");
+            let summary = summarize_review_csv(csv.as_bytes(), "reviews.csv", None)
+                .unwrap_or_else(|e| panic!("列名「{header}」が認識されない: {e}"));
+            assert_eq!(summary.text_rows, 1, "列名「{header}」");
+        }
     }
 
     #[test]
