@@ -123,6 +123,39 @@ pub struct CompetitorSummary {
     salary_values_by_group: BTreeMap<String, Vec<i64>>,
 }
 
+impl CompetitorSummary {
+    /// 比較母集団が成立しなかった場合の空サマリ (2026-08-04)。
+    ///
+    /// 顧客求人と地域・職種・雇用形態が一致する競合が5件未満のとき、以前は診断全体を
+    /// 停止していたが、実運用では「手元の競合CSVがたまたま別地域・別職種」は普通に起きる
+    /// (実例: 沖縄の消防設備点検の求人 × 川崎のドライバーCSV)。無関係な求人と給与比較を
+    /// しない原則は守ったまま、競合由来の根拠だけを欠いて診断を続行するために使う。
+    /// record_count=0・briefs空・salary_distributions空により、C番号・競合条件集計・
+    /// 競合人気度集計・競合給与集計・給与比較のいずれも許可根拠に入らない。
+    /// filename 等の取得元情報は表示用に元CSVのものを引き継ぐ。
+    pub fn not_comparable(source: &CompetitorSummary) -> Self {
+        Self {
+            filename: source.filename.clone(),
+            captured_at: source.captured_at.clone(),
+            encoding: source.encoding.clone(),
+            raw_row_count: source.raw_row_count,
+            record_count: 0,
+            analysis_excluded_rows: 0,
+            unique_company_count: 0,
+            unique_url_count: 0,
+            employment_types: Vec::new(),
+            salary_distributions: Vec::new(),
+            top_locations: Vec::new(),
+            top_tags: Vec::new(),
+            popular_count: 0,
+            super_popular_count: 0,
+            coverage: Vec::new(),
+            briefs: Vec::new(),
+            salary_values_by_group: BTreeMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CohortAssessment {
     pub status: String,
@@ -436,7 +469,10 @@ pub fn build_comparison_cohort(
     }
     let keywords = normalize_occupation_keywords(&raw_keywords);
 
-    let occupation_matches = records
+    // 2026-08-04: どの段階で候補が消えたかを利用者へ報告するため、
+    // 職種一致と雇用形態一致を分けて数える (「5件未満です」だけでは
+    // CSVの地域が違うのか職種が合わないのか判断できない、という実運用の指摘対応)。
+    let title_matches = records
         .iter()
         .filter(|record| {
             let title = normalize_match_text(&record.job_title);
@@ -444,9 +480,28 @@ pub fn build_comparison_cohort(
                 .iter()
                 .any(|keyword| title.contains(&normalize_match_text(keyword)))
         })
-        .filter(|record| same_employment_group(&record.employment_type, client_employment_type))
         .cloned()
         .collect::<Vec<_>>();
+    let title_match_count = title_matches.len();
+    let occupation_matches = title_matches
+        .into_iter()
+        .filter(|record| same_employment_group(&record.employment_type, client_employment_type))
+        .collect::<Vec<_>>();
+    let employment_match_count = occupation_matches.len();
+    // CSV の実際の中身 (最多の都道府県) — 地域ミスマッチを一目で分かるようにする
+    let mut prefecture_counts: HashMap<String, usize> = HashMap::new();
+    for record in &records {
+        if let Some(pref) = record.location_parsed.prefecture.as_deref() {
+            *prefecture_counts.entry(pref.to_string()).or_default() += 1;
+        }
+    }
+    let csv_main_prefecture = prefecture_counts
+        .into_iter()
+        .max_by(|(pref_a, count_a), (pref_b, count_b)| {
+            count_a.cmp(count_b).then(pref_b.cmp(pref_a))
+        })
+        .map(|(pref, count)| format!("{pref}（{count}件）"))
+        .unwrap_or_else(|| "不明".to_string());
 
     let municipality_matches = if client_municipality.trim().is_empty() {
         Vec::new()
@@ -500,7 +555,7 @@ pub fn build_comparison_cohort(
     } else if matched_record_count < MINIMUM {
         (
             "blocked",
-            "同一都道府県・同一職種・同一雇用形態の求人が5件未満です。検索条件を見直して競合CSVを再取得してください。",
+            "顧客求人と地域・職種・雇用形態が一致する競合が5件未満のため、比較できません。",
         )
     } else if matched_record_count < READY_SAMPLE {
         (
@@ -518,6 +573,15 @@ pub fn build_comparison_cohort(
     let mut warnings: Vec<String> = Vec::new();
     if !base_warning.is_empty() {
         warnings.push(base_warning.to_string());
+    }
+    // 2026-08-04: 「5件未満です」だけでは原因が分からない、という実運用の指摘対応。
+    // どの絞り込み段階で候補が消えたかの内訳と、CSVの実際の中身 (最多地域) を示し、
+    // 「何を取り直せばよいか」まで利用者が判断できるようにする。
+    if status == "blocked" && !keywords.is_empty() && !client_employment_type.trim().is_empty() {
+        let keyword_list = keywords.join("・");
+        warnings.push(format!(
+            "内訳: 元CSV{source_record_count}件 → 職種キーワード（{keyword_list}）一致{title_match_count}件 → 同一雇用形態（{client_employment_type}）{employment_match_count}件 → {client_prefecture}{client_municipality}内{matched_record_count}件。CSVの最多地域は{csv_main_prefecture}です。顧客求人と同じ地域・職種の競合CSVを取得し直すと比較できます。"
+        ));
     }
     if status != "blocked" {
         warnings.push(
@@ -2512,6 +2576,106 @@ mod tests {
         assert!(
             html.contains("review?await fileToBase64(review)"),
             "口コミ未選択のとき fileToBase64(undefined) で落ちる送信コードのまま"
+        );
+    }
+
+    /// blocked の警告は「なぜ0件か」の内訳まで報告する (2026-08-04)。
+    /// 実運用の指摘: 「5件未満です」だけでは、CSVの地域が違うのか職種が合わないのか
+    /// 利用者に判断できなかった (実例: 沖縄の消防設備点検 × 川崎のドライバーCSV)。
+    #[test]
+    fn blocked_cohort_warning_explains_the_filter_funnel() {
+        // 実ケースの縮約: CSVは神奈川県のドライバー求人だけ、顧客は沖縄の電気工事
+        let mut csv = String::from(
+            "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu\n",
+        );
+        for index in 1..=6 {
+            csv.push_str(&format!(
+                "正社員,https://example.com/{index},配送ドライバー,会社{index},神奈川県 川崎市,月給 300000円,本文\n"
+            ));
+        }
+        let (cohort, summary) = build_comparison_cohort(
+            csv.as_bytes(),
+            "indeed-2026-07-28 (1).csv",
+            None,
+            "消防設備点検スタッフ",
+            "電気工事作業者",
+            &["消防設備点検".to_string(), "電気工事".to_string()],
+            "沖縄県",
+            "沖縄市",
+            "職業紹介（正社員）",
+        )
+        .expect("cohort");
+        assert_eq!(cohort.status, "blocked");
+        assert!(summary.is_none());
+        // 内訳: 何件がどの段階で消えたか
+        assert!(
+            cohort.warning.contains("内訳") && cohort.warning.contains("元CSV6件"),
+            "絞り込み内訳が警告に無い: {}",
+            cohort.warning
+        );
+        assert!(
+            cohort.warning.contains("職種キーワード") && cohort.warning.contains("一致0件"),
+            "職種段階の内訳が無い: {}",
+            cohort.warning
+        );
+        // CSVの実際の中身 (最多地域) — 地域ミスマッチが一目で分かる
+        assert!(
+            cohort.warning.contains("神奈川県（6件）"),
+            "CSVの最多地域が警告に無い: {}",
+            cohort.warning
+        );
+        // 次の行動 (取り直し) の案内
+        assert!(
+            cohort.warning.contains("取得し直す"),
+            "対処方法の案内が無い: {}",
+            cohort.warning
+        );
+    }
+
+    /// 比較母集団が成立しない場合の縮退続行 (2026-08-04)。
+    /// 実例: 沖縄の消防設備点検の求人 × 川崎のドライバーCSV → 一致0件。
+    /// 以前は診断全体が停止したが、競合由来の根拠だけを外して続行する。
+    /// not_comparable サマリでは C番号・競合3集計・給与比較のいずれも許可されないこと、
+    /// 給与の相対位置が計算されないことを固定する (無関係な求人と比較しない原則の維持)。
+    #[test]
+    fn blocked_cohort_degrades_without_competitor_evidence() {
+        let csv = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu\n\
+正社員,https://example.com/1,配送ドライバー,会社A,神奈川県 川崎市,月給 300000円,本文\n";
+        let source = summarize_competitor_csv(csv.as_bytes(), "competitors.csv", None)
+            .expect("competitor csv");
+        let degraded = CompetitorSummary::not_comparable(&source);
+
+        // 表示用の取得元情報は残る
+        assert_eq!(degraded.filename, "competitors.csv");
+        assert_eq!(degraded.raw_row_count, source.raw_row_count);
+
+        // 競合由来の根拠は一切許可されない
+        let refs = allowed_evidence_refs(&[], &[], &degraded, &ReviewSummary::not_provided());
+        assert!(
+            !refs.iter().any(|r| {
+                r.starts_with('C')
+                    || r == "競合条件集計"
+                    || r == "競合人気度集計"
+                    || r == "競合給与集計"
+            }),
+            "比較不能なのに競合由来の根拠が許可されている: {refs:?}"
+        );
+
+        // 給与の相対位置も計算されない (比較先が無いため)
+        assert!(
+            client_salary_position("月給230,000円〜270,000円", "正社員", &degraded).is_none(),
+            "比較先が無いのに給与の相対位置が計算された"
+        );
+
+        // ハンドラが縮退続行の分岐を持つこと (blocked での早期 return 復活の回帰防止)
+        let handlers_src = include_str!("handlers.rs");
+        assert!(
+            handlers_src.contains("CompetitorSummary::not_comparable"),
+            "ハンドラが縮退続行せず blocked で停止する実装に戻っている"
+        );
+        assert!(
+            !handlers_src.contains("\"phase\":\"cohort_blocked\""),
+            "blocked の早期 return が復活している"
         );
     }
 
