@@ -683,6 +683,55 @@ fn normalize_match_text(value: &str) -> String {
 /// Google ビジネスプロフィール等からスクレイピングした口コミ CSV を解釈する。
 ///
 /// 星評価は必須にしない。本文が空の行は件数には含めるが、LLM の内容分析には渡さない。
+/// 口コミ本文らしくないセル (URL・件数・相対日付・記号のみ) の判定。
+/// 内容ベースの本文列検出で、投稿者名や「15 件のクチコミ」等の列を除外するために使う。
+fn looks_like_review_meta_cell(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() || text.starts_with("http") {
+        return true;
+    }
+    if text.contains("件のクチコミ") || text.contains("枚の写真") || text.contains("ローカルガイド")
+    {
+        return true;
+    }
+    // 「3 か月前」「1 年前」等の相対日付
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if ["か月前", "年前", "日前", "週間前", "時間前", "分前"]
+        .iter()
+        .any(|suffix| compact.ends_with(suffix))
+        && compact.chars().next().is_some_and(|c| c.is_ascii_digit())
+    {
+        return true;
+    }
+    // 記号だけ (「·」等)
+    !text.chars().any(|c| c.is_alphanumeric())
+}
+
+/// ヘッダ名で本文列を特定できなかったとき、中身から本文列を推定する (2026-08-04)。
+///
+/// Google マップの難読クラス名 (OA1nbd → 別名) は予告なく変わるため、列名の辞書だけに
+/// 頼ると本文が入っているのに読めないことがある。「メタ情報らしくない15文字以上の
+/// セルが最も多い列」を本文とみなす。1件も該当が無ければ None (本文が本当に無いCSV)。
+fn detect_review_text_column_by_content(
+    headers: &[String],
+    records: &[csv::StringRecord],
+) -> Option<usize> {
+    let mut best: Option<(usize, usize)> = None;
+    for index in 0..headers.len() {
+        let score = records
+            .iter()
+            .filter(|record| {
+                let cell = record.get(index).unwrap_or("").trim();
+                !looks_like_review_meta_cell(cell) && cell.chars().count() >= 15
+            })
+            .count();
+        if score > 0 && best.is_none_or(|(_, top)| score > top) {
+            best = Some((index, score));
+        }
+    }
+    best.map(|(index, _)| index)
+}
+
 pub fn summarize_review_csv(
     bytes: &[u8],
     filename: &str,
@@ -724,18 +773,38 @@ pub fn summarize_review_csv(
         "本文",
         "内容",
     ];
+    // 行を先に読み切る (列名で特定できない場合に、中身から本文列を推定するため)。
+    let records = reader
+        .records()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("口コミCSVのデータ行を読めません: {e}"))?;
+
     // 2026-08-04: 「何のエラーなのか報告しない」問題への対応。
+    // 列名 → 内容ベースの順で本文列を探し、どちらでも見つからない場合は
     // 何を探し、CSVに実際何があり、次に何をすればよいかまでエラーに含める。
-    let text_index = find_header(&headers, TEXT_COLUMN_CANDIDATES).ok_or_else(|| {
-        let found = if headers.is_empty() {
-            "（列なし）".to_string()
-        } else {
-            headers.join("・")
-        };
-        format!(
-            "口コミ本文の列を特定できませんでした。このCSVの列: {found}。本文として認識できる列名の例: OA1nbd・口コミ本文・口コミ・レビュー本文・review_text・comment・本文。スクレイピングの取得項目に口コミ本文（展開後の全文）を追加して取り直してください。星評価だけで本文が無い口コミしか無い場合は、口コミCSVを外して診断できます（任意入力です）。"
-        )
-    })?;
+    let (text_index, content_detected_column) = match find_header(&headers, TEXT_COLUMN_CANDIDATES)
+    {
+        Some(index) => (index, None),
+        None => match detect_review_text_column_by_content(&headers, &records) {
+            Some(index) => {
+                let column = headers
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}列目", index + 1));
+                (index, Some(column))
+            }
+            None => {
+                let found = if headers.is_empty() {
+                    "（列なし）".to_string()
+                } else {
+                    headers.join("・")
+                };
+                return Err(format!(
+                    "口コミ本文の列を特定できませんでした（列名でも、文章が入った列の自動検出でも見つかりません）。このCSVの列: {found}。どの列にも口コミの文章が入っていないため、スクレイピングの取得項目に口コミ本文（「もっと見る」展開後の全文）を追加して取り直してください。星評価だけで本文が無い口コミしか無い場合は、口コミCSVを外して診断できます（任意入力です）。"
+                ));
+            }
+        },
+    };
     let date_index = find_header(
         &headers,
         &["y3ibjb", "投稿日", "投稿時期", "review_date", "date"],
@@ -757,8 +826,7 @@ pub fn summarize_review_csv(
     let mut seen_text = HashSet::new();
     let mut all_evidence = Vec::new();
 
-    for row in reader.records() {
-        let row = row.map_err(|e| format!("口コミCSVのデータ行を読めません: {e}"))?;
+    for row in &records {
         total_rows += 1;
         let text = row.get(text_index).unwrap_or("").trim();
         // 記号・区切り文字だけのセル (実CSVで「·」のみの列を確認) は本文なしとして扱う。
@@ -815,7 +883,13 @@ pub fn summarize_review_csv(
         blank_text_rows,
         duplicate_text_rows,
         evidence,
-        scope_note: "口コミは会社の労働実態を確定する事実ではなく、求職者が検索時に目にし得る外部観測として扱う。単独のネガティブ情報も、認知上の影響仮説から除外しない。".to_string(),
+        scope_note: match &content_detected_column {
+            // 内容ベースで推定した場合はその事実を明示する (列名辞書に無い難読クラス名対応)
+            Some(column) => format!(
+                "口コミは会社の労働実態を確定する事実ではなく、求職者が検索時に目にし得る外部観測として扱う。単独のネガティブ情報も、認知上の影響仮説から除外しない。本文列は列名では特定できなかったため、文章が入っている「{column}」列を本文として使用した。"
+            ),
+            None => "口コミは会社の労働実態を確定する事実ではなく、求職者が検索時に目にし得る外部観測として扱う。単独のネガティブ情報も、認知上の影響仮説から除外しない。".to_string(),
+        },
     })
 }
 
@@ -2727,6 +2801,31 @@ mod tests {
         );
     }
 
+    /// 列名が未知の難読クラスでも、文章が入っていれば内容から本文列を検出する (2026-08-04)。
+    /// Google の難読クラス名 (OA1nbd 等) は予告なく変わるため、列名辞書だけに頼らない。
+    #[test]
+    fn unknown_class_name_with_real_text_is_detected_by_content() {
+        // 7/31実CSVの構成で、本文列だけ未知のクラス名に変えた形
+        let csv = "yC3ZMb href,Vpc5Fe,GSM50,y3Ibjb,Zx9QwErT,uo5PT\n\
+https://example.com/a,投稿者A,6 件のクチコミ,2 か月前,３月２７日朝５時１０分頃から車間距離不保持の運転を見ました,❤️1\n\
+https://example.com/b,投稿者B,ローカルガイド·15 件のクチコミ·99 枚の写真,4 か月前,·,\n";
+        let summary =
+            summarize_review_csv(csv.as_bytes(), "google-new-class.csv", None).expect("review csv");
+        assert_eq!(
+            summary.text_rows, 1,
+            "未知クラス名の本文列が内容から検出されるべき"
+        );
+        assert!(summary.evidence[0].text.contains("車間距離不保持"));
+        assert!(
+            summary.scope_note.contains("Zx9QwErT"),
+            "内容から推定した事実が scope_note に明示されるべき: {}",
+            summary.scope_note
+        );
+        // 投稿者名・件数・日付・URLの列が本文に誤選択されていないこと
+        assert!(!summary.evidence[0].text.contains("件のクチコミ"));
+        assert!(!summary.evidence[0].text.starts_with("http"));
+    }
+
     /// 本文列が見つからないエラーは「何を探し・何があり・どうすればよいか」まで報告する
     /// (2026-08-04 実CSV事例: 本文なしエクスポートで「特定できませんでした」だけが出た)。
     #[test]
@@ -2741,8 +2840,8 @@ https://example.com/a.png,投稿者A,6 件のクチコミ,2 か月前\n";
             "CSVの実際の列名が無い: {error}"
         );
         assert!(
-            error.contains("OA1nbd"),
-            "認識できる列名の例が無い: {error}"
+            error.contains("自動検出でも見つかりません"),
+            "内容ベース検出まで試した事実の説明が無い: {error}"
         );
         assert!(
             error.contains("任意入力"),
