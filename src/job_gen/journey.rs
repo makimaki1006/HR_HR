@@ -536,10 +536,24 @@ pub fn build_comparison_cohort(
             .collect::<Vec<_>>()
     };
 
-    let (scope, selected) = if municipality_matches.len() >= MINIMUM {
-        ("同一市区町村・同一職種・同一雇用形態", municipality_matches)
+    // 2026-08-04: 市区町村で確定する閾値を MINIMUM(5) から READY_SAMPLE(15) に変更。
+    // 実運用 (沖縄県: 同一職種126件のうち沖縄市内は12件) で、5件を超えた瞬間に市区町村で
+    // 確定してしまい、県内他市町村の100件超が使われない事例が出た。通勤流入 (国勢調査OD)
+    // が示すとおり通勤圏は市区町村を跨ぐのが普通なので、市区町村内だけで十分な標本
+    // (15件以上) が無ければ同一都道府県まで広げる。別職種・全国への自動拡張はしない。
+    let municipality_match_count = municipality_matches.len();
+    let (scope, selected, widened_from_municipality) = if municipality_match_count >= READY_SAMPLE {
+        (
+            "同一市区町村・同一職種・同一雇用形態",
+            municipality_matches,
+            None,
+        )
     } else {
-        ("同一都道府県・同一職種・同一雇用形態", prefecture_matches)
+        (
+            "同一都道府県・同一職種・同一雇用形態",
+            prefecture_matches,
+            (municipality_match_count > 0).then_some(municipality_match_count),
+        )
     };
     let matched_record_count = selected.len();
     let (status, base_warning) = if client_employment_type.trim().is_empty() {
@@ -574,14 +588,32 @@ pub fn build_comparison_cohort(
     if !base_warning.is_empty() {
         warnings.push(base_warning.to_string());
     }
-    // 2026-08-04: 「5件未満です」だけでは原因が分からない、という実運用の指摘対応。
-    // どの絞り込み段階で候補が消えたかの内訳と、CSVの実際の中身 (最多地域) を示し、
-    // 「何を取り直せばよいか」まで利用者が判断できるようにする。
-    if status == "blocked" && !keywords.is_empty() && !client_employment_type.trim().is_empty() {
+    // 2026-08-04: 「5件未満です」「小標本です」だけでは原因が分からない、という
+    // 実運用の指摘対応。どの絞り込み段階で候補が減ったかの内訳を blocked / limited の
+    // 両方で示し、「元CSVの件数と比較件数の差」を利用者が自分で説明できるようにする。
+    if !keywords.is_empty() && !client_employment_type.trim().is_empty() {
         let keyword_list = keywords.join("・");
-        warnings.push(format!(
-            "内訳: 元CSV{source_record_count}件 → 職種キーワード（{keyword_list}）一致{title_match_count}件 → 同一雇用形態（{client_employment_type}）{employment_match_count}件 → {client_prefecture}{client_municipality}内{matched_record_count}件。CSVの最多地域は{csv_main_prefecture}です。顧客求人と同じ地域・職種の競合CSVを取得し直すと比較できます。"
-        ));
+        let region_label = if scope.starts_with("同一市区町村") {
+            format!("{client_prefecture}{client_municipality}内")
+        } else {
+            format!("{client_prefecture}内")
+        };
+        if status == "blocked" {
+            warnings.push(format!(
+                "内訳: 元CSV{source_record_count}件 → 職種キーワード（{keyword_list}）一致{title_match_count}件 → 同一雇用形態（{client_employment_type}）{employment_match_count}件 → {region_label}{matched_record_count}件。CSVの最多地域は{csv_main_prefecture}です。顧客求人と同じ地域・職種の競合CSVを取得し直すと比較できます。"
+            ));
+        } else if status == "limited" {
+            warnings.push(format!(
+                "内訳: 元CSV{source_record_count}件 → 職種キーワード（{keyword_list}）一致{title_match_count}件 → 同一雇用形態（{client_employment_type}）{employment_match_count}件 → {region_label}{matched_record_count}件。"
+            ));
+        }
+        if let Some(municipality_count) = widened_from_municipality {
+            if status != "blocked" {
+                warnings.push(format!(
+                    "{client_municipality}内の一致は{municipality_count}件と15件に満たないため、通勤圏を考慮して{client_prefecture}全体まで広げて比較しています。"
+                ));
+            }
+        }
     }
     if status != "blocked" {
         warnings.push(
@@ -3078,9 +3110,61 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         )
         .expect("cohort");
         assert_eq!(cohort.status, "limited");
-        assert_eq!(cohort.scope, "同一市区町村・同一職種・同一雇用形態");
+        // 2026-08-04: 市区町村で確定する閾値を 5→15 に変更。大田区内5件は15件に
+        // 満たないため同一都道府県へ広がる (神奈川県川崎市の1件は都道府県不一致で
+        // 引き続き除外、別職種の配送ドライバーも除外されたまま)。
+        assert_eq!(cohort.scope, "同一都道府県・同一職種・同一雇用形態");
         assert_eq!(cohort.matched_record_count, 5);
         assert_eq!(summary.expect("summary").record_count, 5);
+        assert!(
+            cohort.warning.contains("大田区内の一致は5件"),
+            "市区町村→都道府県へ広げた事実の告知が無い: {}",
+            cohort.warning
+        );
+    }
+
+    /// 実運用ケースの回帰 (2026-08-04 沖縄): 市区町村内が12件でも、旧ルール(5件で確定)だと
+    /// 県内の同職種100件超が使われなかった。15件未満なら県まで広げ、標本を確保する。
+    #[test]
+    fn municipality_sample_below_ready_widens_to_prefecture() {
+        let mut csv = String::from(
+            "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-lx9x6g,css-14qk2ra,css-18rxko3,css-18rxko3 (2),jobsearch-JobCard-tag,css-1vlebyu,css-u74ql7\n",
+        );
+        // 沖縄市内 12件 + 県内他市 20件 (全て同一職種・正社員)
+        for index in 1..=12 {
+            csv.push_str(&format!(
+                "正社員,https://example.com/c{index},電気工事士,補足,会社c{index},沖縄県 沖縄市,月給 280000円,研修あり,仕事内容,人気\n"
+            ));
+        }
+        for index in 1..=20 {
+            csv.push_str(&format!(
+                "正社員,https://example.com/p{index},電気工事士,補足,会社p{index},沖縄県 那覇市,月給 300000円,研修あり,仕事内容,人気\n"
+            ));
+        }
+        let (cohort, summary) = build_comparison_cohort(
+            csv.as_bytes(),
+            "indeed-okinawa.csv",
+            None,
+            "消防設備点検スタッフ",
+            "電気工事作業者",
+            &["電気工事士".to_string(), "電気工事".to_string()],
+            "沖縄県",
+            "沖縄市",
+            "正社員",
+        )
+        .expect("cohort");
+        assert_eq!(cohort.scope, "同一都道府県・同一職種・同一雇用形態");
+        assert_eq!(
+            cohort.matched_record_count, 32,
+            "市内12+県内20の全件が使われるべき"
+        );
+        assert_eq!(cohort.status, "ready", "32件あるので ready になるべき");
+        assert!(
+            cohort.warning.contains("沖縄市内の一致は12件"),
+            "広げた理由の告知が無い: {}",
+            cohort.warning
+        );
+        assert_eq!(summary.expect("summary").record_count, 32);
     }
 
     #[test]
