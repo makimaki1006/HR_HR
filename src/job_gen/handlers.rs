@@ -862,31 +862,29 @@ pub async fn jobgen_journey_diagnose(
         }
     };
 
-    if cohort.status == "blocked" {
-        let warning = cohort.warning.clone();
-        return Json(json!({
-            "status":"ok",
-            "phase":"cohort_blocked",
-            "generated_at":chrono::Utc::now().to_rfc3339(),
-            "facts":facts,
-            "job_fact_evidence":job_facts,
-            "customer_statement_evidence":customer_statements,
-            "case_profile":case_profile,
-            "competitor_source_summary":competitor_source_summary,
-            "comparison_cohort":cohort,
-            "review_summary":reviews,
-            "quality_gate":{"passed":false,"issues":[warning]},
-            "review_required":true,
-            "llm_calls":2
-        }));
-    }
-    let competitor = match competitor {
-        Some(summary) => summary,
-        None => {
-            return Json(json!({
-                "status":"error",
-                "message":"比較対象求人を集計できませんでした。"
-            }))
+    // 2026-08-04: 比較母集団が成立しない場合でも診断を停止しない。
+    // 以前は blocked で全体を止めていたが、「競合CSVが別地域・別職種だった」は
+    // 実運用で普通に起きる (実例: 沖縄の消防設備点検 × 川崎のドライバーCSV)。
+    // 無関係な求人と給与比較しない原則は、競合由来の根拠 (C番号・競合集計・給与比較)
+    // を許可リストから外すことで守り、その事実を警告として明示して続行する。
+    let mut cohort = cohort;
+    let competitor = if cohort.status == "blocked" {
+        cohort.warning = format!(
+            "{} 競合比較の根拠なしで診断を続行します（ペルソナ・対策は顧客求人の事実と職種一般仮説に基づきます）。",
+            cohort.warning
+        )
+        .trim()
+        .to_string();
+        journey::CompetitorSummary::not_comparable(&competitor_source_summary)
+    } else {
+        match competitor {
+            Some(summary) => summary,
+            None => {
+                return Json(json!({
+                    "status":"error",
+                    "message":"比較対象求人を集計できませんでした。"
+                }))
+            }
         }
     };
     let salary_text = verified_fact_value(&facts, "salary");
@@ -1031,7 +1029,8 @@ pub async fn jobgen_journey_diagnose(
         "public_stats":public_stats,
         "result":result,
         "quality_gate":{"passed":true,"issues":[]},
-        "review_required":cohort.status == "limited",
+        // ready 以外 (limited=小標本 / blocked=比較不能で縮退続行) はコンサル確認を促す
+        "review_required":cohort.status != "ready",
         "llm_calls":llm_calls,
         "notes":{
             "truth_scope":"顧客企業について確定事実として扱うのは、顧客求人から引用照合できた項目と顧客発言だけです。",
