@@ -2704,6 +2704,29 @@ mod tests {
         );
     }
 
+    /// 口コミCSVが読めなくても診断全体は止めない (2026-08-04 実運用の指摘)。
+    /// 任意入力なので、使えなかった理由を warning で明示して縮退続行する。
+    /// 生きているハンドラが解析失敗で error を返す実装に戻っていないことを固定する
+    /// (「口コミCSVを解析できません」の hard error はデッドコードの legacy 側1箇所だけ)。
+    #[test]
+    fn unusable_review_csv_degrades_instead_of_failing_the_diagnosis() {
+        let handlers_src = include_str!("handlers.rs");
+        assert!(
+            handlers_src.contains("review_csv_warning"),
+            "使えなかった理由を warning として返す実装が消えている"
+        );
+        assert_eq!(
+            handlers_src.matches("口コミCSVを解析できません").count(),
+            1,
+            "live ハンドラが口コミ解析失敗で診断全体を止める実装に戻っている (legacy の1箇所だけであるべき)"
+        );
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        assert!(
+            html.contains("review_csv_warning"),
+            "画面が warning を表示していない (黙って口コミを無視する形になる)"
+        );
+    }
+
     /// 本文列が見つからないエラーは「何を探し・何があり・どうすればよいか」まで報告する
     /// (2026-08-04 実CSV事例: 本文なしエクスポートで「特定できませんでした」だけが出た)。
     #[test]
