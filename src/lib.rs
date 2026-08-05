@@ -51,7 +51,11 @@ pub const UPLOAD_BODY_LIMIT_BYTES: usize = 20 * 1024 * 1024;
 pub const JOBGEN_NORMALIZE_BODY_LIMIT_BYTES: usize = 24 * 1024 * 1024;
 /// 顧客求人本文 + 競合求人CSV + 口コミCSVを1リクエストで受ける診断専用上限。
 /// CSVは各15MBまでで、base64化による約4/3倍の増加を含める。
-pub const JOBGEN_JOURNEY_BODY_LIMIT_BYTES: usize = 48 * 1024 * 1024;
+/// 2026-08-05: 顧客求人のPDF添付 (client_pdf_base64) を追加したため 48MB → 68MB。
+/// base64を伴う添付が CSV2本 + PDF1本の計3本になり、各15MB×4/3=20MB で 60MB。
+/// 従来と同じ 8MB のJSON外皮分を足した値。ここが不足すると route 層で切断され、
+/// inputs.rs 側の丁寧なサイズエラーに到達しない (normalize 側の 2026-07-28 実測と同型)。
+pub const JOBGEN_JOURNEY_BODY_LIMIT_BYTES: usize = 68 * 1024 * 1024;
 
 /// アプリケーション共有状態
 pub struct AppState {
@@ -628,6 +632,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ======== 資格カルテタブ (license / 免許・資格情報) ========
         // 出典: JILPT 職業情報データベース 資格情報 ver.7.01
         .merge(handlers::license::router())
+        // ======== 辞書カード API (ジャーニーマップのホバー用、2026-08-05) ========
+        // 資格辞書 / 職種辞典と同じテーブルの読み取り専用・軽量 JSON。
+        // GET /api/dict/license_card?name=... / GET /api/dict/occupation_card?name=...
+        .merge(handlers::dict_cards::router())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

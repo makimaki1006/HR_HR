@@ -122,6 +122,11 @@ struct PreparedJourneyCase {
     keyword_metrics_by_query: HashMap<String, Value>,
     keyword_completed_personas: HashSet<String>,
     keyword_measurement_status: Option<String>,
+    /// UI が読む形 (`{keyword, avg_monthly}`) の関連語候補。ケース単位で1回だけ取得する。
+    keyword_suggestions: Vec<Value>,
+    /// 関連語候補の取得を試行済みか。資格情報未設定のときは false のままにして、
+    /// 設定後の再実行で取得できるようにする。
+    keyword_suggestions_fetched: bool,
 }
 
 fn journey_case_store() -> &'static AsyncMutex<HashMap<String, PreparedJourneyCase>> {
@@ -696,39 +701,70 @@ pub async fn jobgen_journey_diagnose(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
 ) -> Json<Value> {
+    // 顧客求人はテキスト/HTML 貼り付けのほか PDF 添付でも受ける (2026-08-05)。
+    // PDF が付いていれば client_kind (html/text) は無視し、PDF のテキスト抽出結果を
+    // そのまま既存フロー (事実抽出 → 引用照合) に流す。
+    let client_pdf_base64 = body_str(&body, "client_pdf_base64");
+    let has_client_pdf = !client_pdf_base64.trim().is_empty();
     let raw_client = body_str(&body, "client_job");
-    if raw_client.len() > 5 * 1024 * 1024 {
-        return Json(json!({
-            "status":"error",
-            "message":"顧客求人は5MB以内のHTMLまたはテキストを指定してください。"
-        }));
-    }
-    if raw_client.trim().chars().count() < 20 {
-        return Json(json!({
-            "status":"error",
-            "message":"顧客求人を20文字以上入力するか、求人HTMLを選択してください。"
-        }));
-    }
-    let input_kind = if body_str(&body, "client_kind") == "html" {
-        inputs::InputKind::Html
-    } else {
-        inputs::InputKind::FreeText
-    };
-    let normalized = match inputs::normalize(input_kind, Some(raw_client), None, None).await {
-        Ok(mut jobs) if !jobs.is_empty() => jobs.remove(0),
-        Ok(_) => {
+    if !has_client_pdf {
+        if raw_client.len() > 5 * 1024 * 1024 {
             return Json(json!({
                 "status":"error",
-                "message":"顧客求人から本文を取得できませんでした。"
-            }))
+                "message":"顧客求人は5MB以内のHTMLまたはテキストを指定してください。"
+            }));
         }
-        Err(error) => return Json(json!({"status":"error","message":error.to_string()})),
+        if raw_client.trim().chars().count() < 20 {
+            return Json(json!({
+                "status":"error",
+                "message":"顧客求人を20文字以上入力するか、求人HTMLを選択してください。"
+            }));
+        }
+    }
+    let normalized = if has_client_pdf {
+        // base64 長・復号後サイズ・PDF テキスト抽出の失敗はいずれも inputs 側が
+        // 具体的な理由付きのエラーにするため、そのまま文面に載せる。
+        match inputs::normalize(inputs::InputKind::Pdf, None, None, Some(client_pdf_base64)).await {
+            Ok(mut jobs) if !jobs.is_empty() => jobs.remove(0),
+            Ok(_) => {
+                return Json(json!({
+                    "status":"error",
+                    "message":"顧客求人PDFを読み取れません: テキストを1件も抽出できませんでした。"
+                }))
+            }
+            Err(error) => {
+                return Json(json!({
+                    "status":"error",
+                    "message":format!("顧客求人PDFを読み取れません: {error}")
+                }))
+            }
+        }
+    } else {
+        let input_kind = if body_str(&body, "client_kind") == "html" {
+            inputs::InputKind::Html
+        } else {
+            inputs::InputKind::FreeText
+        };
+        match inputs::normalize(input_kind, Some(raw_client), None, None).await {
+            Ok(mut jobs) if !jobs.is_empty() => jobs.remove(0),
+            Ok(_) => {
+                return Json(json!({
+                    "status":"error",
+                    "message":"顧客求人から本文を取得できませんでした。"
+                }))
+            }
+            Err(error) => return Json(json!({"status":"error","message":error.to_string()})),
+        }
     };
     if normalized.source_text.trim().chars().count() < 20 {
-        return Json(json!({
-            "status":"error",
-            "message":"顧客求人から分析可能な本文を取得できませんでした。"
-        }));
+        // 画像スキャンPDFはテキスト層を持たず、抽出結果がほぼ空になる。
+        // 貼り付け入力と原因が違うので、PDF のときは対処が分かる文面にする。
+        let message = if has_client_pdf {
+            "顧客求人PDFを読み取れません: 抽出できた本文が20文字未満です(文字情報を持たない画像PDFの可能性があります。テキスト貼り付けをお試しください)。"
+        } else {
+            "顧客求人から分析可能な本文を取得できませんでした。"
+        };
+        return Json(json!({"status":"error","message":message}));
     }
 
     let competitor_bytes =
@@ -1012,6 +1048,8 @@ pub async fn jobgen_journey_diagnose(
                 keyword_metrics_by_query: HashMap::new(),
                 keyword_completed_personas: HashSet::new(),
                 keyword_measurement_status: None,
+                keyword_suggestions: Vec::new(),
+                keyword_suggestions_fetched: false,
             },
         );
     }
@@ -1045,6 +1083,122 @@ pub async fn jobgen_journey_diagnose(
             "persona_scope":"ペルソナと離脱地点は、比較母集団・公的統計・職種一般論を組み合わせた検討仮説です。"
         }
     }))
+}
+
+/// 関連語候補の種にする代表検索語の上限。Google広告への問い合わせを1回に抑えるため少数に絞る。
+const JOURNEY_SUGGESTION_SEED_LIMIT: usize = 3;
+/// 画面に出す関連語候補の上限。
+const JOURNEY_SUGGESTION_LIMIT: usize = 12;
+
+/// 関連語候補の種になる代表検索語を選ぶ。
+///
+/// 準備結果の先頭にある（＝最重要の）ペルソナから importance 高→中→低 の順に数語だけ取り、
+/// 全検索語を種にしないことで Google広告への問い合わせを1リクエストに保つ。
+pub(crate) fn journey_suggestion_seeds(personas: &[Value], limit: usize) -> Vec<String> {
+    fn importance_rank(query: &Value) -> u8 {
+        match query
+            .get("importance")
+            .and_then(Value::as_str)
+            .map(str::trim)
+        {
+            Some("高") => 0,
+            Some("中") => 1,
+            _ => 2,
+        }
+    }
+    for persona in personas {
+        let mut queries = persona
+            .get("search_queries")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        // sort_by_key は安定ソートなので、同じ重要度の中では元の並び順が保たれる。
+        queries.sort_by_key(importance_rank);
+        let mut seeds: Vec<String> = Vec::new();
+        let mut seen = HashSet::new();
+        for query in &queries {
+            let Some(text) = query.get("query").and_then(Value::as_str).map(str::trim) else {
+                continue;
+            };
+            if text.is_empty() || !seen.insert(text.to_string()) {
+                continue;
+            }
+            seeds.push(text.to_string());
+            if seeds.len() >= limit {
+                break;
+            }
+        }
+        if !seeds.is_empty() {
+            return seeds;
+        }
+    }
+    Vec::new()
+}
+
+/// suggest 応答から画面が読む `{keyword, avg_monthly}` だけを取り出す。
+///
+/// 既に検索需要表へ出している語は候補から除く。status が ok 以外なら空配列。
+pub(crate) fn journey_suggestions_from_response(
+    response: &Value,
+    exclude: &HashSet<String>,
+    limit: usize,
+) -> Vec<Value> {
+    if response.get("status").and_then(Value::as_str) != Some("ok") {
+        return Vec::new();
+    }
+    let mut seen = HashSet::new();
+    response
+        .get("suggestions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let keyword = item.get("keyword").and_then(Value::as_str).map(str::trim)?;
+            if keyword.is_empty() || exclude.contains(keyword) || !seen.insert(keyword.to_string())
+            {
+                return None;
+            }
+            Some(json!({
+                "keyword":keyword,
+                "avg_monthly":item.get("avg_monthly").cloned().unwrap_or(Value::Null),
+            }))
+        })
+        .take(limit)
+        .collect()
+}
+
+/// 関連語候補を Google広告から取得する。
+///
+/// 戻り値 `None` は「取得を試していない」（種なし・入力組み立て失敗・資格情報未設定）。
+/// 取得に失敗した場合は `Some(空配列)` を返し、診断本体は止めない。
+async fn fetch_journey_suggestions(
+    seeds: &[String],
+    region: &str,
+    exclude: &HashSet<String>,
+) -> Option<Vec<Value>> {
+    if seeds.is_empty() {
+        return None;
+    }
+    let query = serde_json::from_value::<crate::media_engine::handlers::SuggestQuery>(json!({
+        "seed":seeds.join("\n"),
+        "region":region,
+        "limit":JOURNEY_SUGGESTION_LIMIT,
+        "noise_floor":0,
+        "exclude_brand":false
+    }))
+    .ok()?;
+    // 地域解決1 + キーワードアイデア1 + 再試行分を、検索需要取得と同じ枠で予約する。
+    acquire_journey_google_ads_budget().await;
+    let Json(response) = crate::media_engine::handlers::suggest_endpoint(Query(query)).await;
+    finish_journey_google_ads_budget().await;
+    if response.get("status").and_then(Value::as_str) == Some("missing_credentials") {
+        return None;
+    }
+    Some(journey_suggestions_from_response(
+        &response,
+        exclude,
+        JOURNEY_SUGGESTION_LIMIT,
+    ))
 }
 
 /// `POST /api/jobgen/journey-keywords` — 準備済みペルソナの検索需要をサーバー側で取得する。
@@ -1159,6 +1313,7 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
                 .collect::<Vec<_>>(),
             "requested_query_count":query_order.len(),
             "measured_query_count":measured_query_count,
+            "suggestions":prepared.keyword_suggestions.clone(),
             "source":"Google広告 Keyword Planner API（サーバー取得）",
             "cache":"case"
         }));
@@ -1263,6 +1418,17 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
         }
     }
 
+    // 関連語候補はケース単位で1回だけ取得し、再取得時はキャッシュを返す。
+    let mut suggestions = prepared.keyword_suggestions.clone();
+    let mut suggestions_fetched = prepared.keyword_suggestions_fetched;
+    if !suggestions_fetched && measurement_status == "measured" {
+        let seeds = journey_suggestion_seeds(&personas, JOURNEY_SUGGESTION_SEED_LIMIT);
+        if let Some(fetched) = fetch_journey_suggestions(&seeds, &region, &seen_queries).await {
+            suggestions = fetched;
+            suggestions_fetched = true;
+        }
+    }
+
     let mut metrics_by_persona = HashMap::new();
     for persona in &personas {
         let Some(persona_id) = persona.get("id").and_then(Value::as_str) else {
@@ -1290,6 +1456,8 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
                 .map(str::to_string),
         );
         stored.keyword_measurement_status = Some(measurement_status.to_string());
+        stored.keyword_suggestions = suggestions.clone();
+        stored.keyword_suggestions_fetched = suggestions_fetched;
     }
 
     let measured_query_count = query_order
@@ -1305,6 +1473,7 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
             .collect::<Vec<_>>(),
         "requested_query_count":query_order.len(),
         "measured_query_count":measured_query_count,
+        "suggestions":suggestions,
         "source":"Google広告 Keyword Planner API（サーバー取得）",
         "cache":"fresh"
     }))
