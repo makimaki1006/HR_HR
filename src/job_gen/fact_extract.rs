@@ -66,6 +66,7 @@ pub fn build_extract_prompt(source_text: &str) -> String {
 ルール:\n\
 - 各項目は value と evidence_quote を返す。\n\
 - evidence_quote は、元テキストから一字一句そのまま抜き出した短い引用にする。\n\
+- evidence_quote は原文の連続した一節をそのまま抜く。離れた行をつなげて1つの引用にしない(箇条書きの明細を飛ばす場合は「・」区切りの各項目を原文と一字一句一致させること)。\n\
 - 元テキストに根拠がない項目は value=\"\" evidence_quote=\"\" にする。\n\
 - 要約・推測・言い換えは禁止。\n\
 - 原文にない数字や条件を絶対に追加しない。\n\
@@ -139,7 +140,7 @@ pub fn verify(source_text: &str, raw: &Value) -> ExtractedFacts {
                 evidence_quote: String::new(),
                 status: "rejected".to_string(),
             }
-        } else if !source_norm.contains(&normalize_text(quote)) {
+        } else if !quote_exists_in_source(&source_norm, &normalize_text(quote)) {
             // 引用が原文に実在しない(Python: evidence_not_found)。引用は残す(レビュー用)。
             FactField {
                 value: String::new(),
@@ -163,6 +164,38 @@ pub fn verify(source_text: &str, raw: &Value) -> ExtractedFacts {
         out.insert(key.to_string(), field);
     }
     out
+}
+
+/// 引用が原文に実在するかの判定。
+///
+/// 基本は正規化後の連続一致。それで一致しない場合に限り、箇条書きの「中抜き引用」を許容する
+/// (2026-08-04 実データで発見: 原文「・通勤手当…／・資格手当（以下例）／◆明細…／・時間外手当」
+///  に対し LLM が ◆ の明細行を飛ばして「・通勤手当… ・資格手当（以下例） ・時間外手当」と引用し、
+///  実在する内容なのに rejected になっていた)。
+///
+/// 中抜き許容の条件は厳格に保つ: 引用を箇条書き記号で分割し、**全断片が原文に一字一句存在し、
+/// かつ原文での出現順が引用と同じ**場合のみ一致とみなす。順序の入れ替え・存在しない断片は
+/// 従来どおり rejected。断片の捏造・合成による誤検証は起きない。
+fn quote_exists_in_source(source_norm: &str, quote_norm: &str) -> bool {
+    if source_norm.contains(quote_norm) {
+        return true;
+    }
+    // 箇条書き記号で分割 (正規化済みなので空白・改行は既に無い)
+    let segments: Vec<&str> = quote_norm
+        .split(['・', '◆', '●', '■', '▼'])
+        .filter(|segment| segment.chars().count() >= 2)
+        .collect();
+    if segments.len() < 2 {
+        return false;
+    }
+    let mut cursor = 0usize;
+    for segment in segments {
+        match source_norm[cursor..].find(segment) {
+            Some(position) => cursor += position + segment.len(),
+            None => return false,
+        }
+    }
+    true
 }
 
 /// 照合用の正規化。Python `fact_validation.normalize_text` と同一手順。
@@ -628,10 +661,35 @@ fn value_supported_by_quote(field_name: &str, value: &str, quote: &str) -> bool 
         if has_numbers {
             return numeric_semantics_supported(field_name, value, quote);
         }
-        return quote_norm.contains(&value_norm)
+        return value_contained_or_enumerated(&quote_norm, &value_norm)
             && non_numeric_field_context_supported(field_name, quote);
     }
-    quote_norm.contains(&value_norm)
+    value_contained_or_enumerated(&quote_norm, &value_norm)
+}
+
+/// 値が引用に含まれるかの判定。全体一致に加え、列挙型の値
+/// (「通勤手当・資格手当・時間外手当」) は各要素が引用内に**同じ順序で**存在すれば
+/// 支持されているとみなす (2026-08-04 実データ: 引用側の「（実費支給／規定あり）」等の
+/// 注記を挟むと全体一致が成立しないため)。要素の捏造・順序入れ替えは通らない。
+fn value_contained_or_enumerated(quote_norm: &str, value_norm: &str) -> bool {
+    if quote_norm.contains(value_norm) {
+        return true;
+    }
+    let parts: Vec<&str> = value_norm
+        .split(['・', '、', ',', '/', '／'])
+        .filter(|part| part.chars().count() >= 2)
+        .collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let mut cursor = 0usize;
+    for part in parts {
+        match quote_norm[cursor..].find(part) {
+            Some(position) => cursor += position + part.len(),
+            None => return false,
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -894,6 +952,61 @@ mod tests {
         for key in FACT_KEYS {
             assert!(text.contains(&format!("{key}: ")), "text に {key} が無い");
         }
+    }
+
+    // --- 引用実在チェック(中抜き引用) ---
+    // 2026-08-04 実データ回帰: 沖縄の実求人で、箇条書きの明細(◆行)を飛ばした引用が
+    // rejected になり「手当 引用不一致」と表示された。原文はそのままの抜粋。
+    #[test]
+    fn 箇条書きの中抜き引用は順序が保たれていれば実在扱い() {
+        let source = "※以下手当は別途支給いたします。\n【手当】\n・通勤手当（実費支給／規定あり）\n・資格手当（以下例）\n◆消防設備士（甲1-5類/乙6-7類）：各1,000円\n◆消防設備点検資格者（1級/2級）：各2,000円\n◆第2種電気工事士：1,500円\n・時間外手当\n【昇給・賞与】";
+        let raw = serde_json::json!({
+            "allowances": {
+                "value": "通勤手当・資格手当・時間外手当",
+                "evidence_quote": "・通勤手当（実費支給／規定あり） ・資格手当（以下例） ・時間外手当"
+            }
+        });
+        let facts = verify(source, &raw);
+        assert_eq!(
+            facts["allowances"].status, "verified",
+            "実在する箇条書きの中抜き引用が rejected になっている: {:?}",
+            facts["allowances"]
+        );
+
+        // 逆証明1: 順序を入れ替えた引用は拒否される
+        let raw = serde_json::json!({
+            "allowances": {
+                "value": "手当",
+                "evidence_quote": "・時間外手当 ・通勤手当（実費支給／規定あり）"
+            }
+        });
+        assert_eq!(
+            verify(source, &raw)["allowances"].status,
+            "rejected",
+            "順序の入れ替わった引用を通してはいけない"
+        );
+
+        // 逆証明2: 原文に無い断片を混ぜた引用は拒否される
+        let raw = serde_json::json!({
+            "allowances": {
+                "value": "手当",
+                "evidence_quote": "・通勤手当（実費支給／規定あり） ・家族手当 ・時間外手当"
+            }
+        });
+        assert_eq!(
+            verify(source, &raw)["allowances"].status,
+            "rejected",
+            "存在しない断片(家族手当)を含む引用を通してはいけない"
+        );
+
+        // 逆証明3: 箇条書きでない普通の不一致引用は従来どおり拒否
+        let raw = serde_json::json!({
+            "allowances": {
+                "value": "手当",
+                "evidence_quote": "全ての手当を無制限に支給"
+            }
+        });
+        assert_eq!(verify(source, &raw)["allowances"].status, "rejected");
     }
 
     // --- 正規化ユニット ---
