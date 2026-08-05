@@ -144,6 +144,8 @@
     .journeyhead h3{margin:0;color:var(--accent-ink)}
     .route{font-size:11px;color:var(--ink-3)}
     .stagecell{min-width:88px;font-weight:800;color:var(--accent-ink)}
+    /* 内心のセリフ (2026-08-05): 行動の裏の気持ちを吹き出し風に */
+    .mindvoice{margin-top:5px;padding:5px 9px;border-left:3px solid var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent);border-radius:0 8px 8px 0;font-size:11.5px;color:var(--accent-ink);font-style:italic}
     .queryhigh{background:color-mix(in srgb,var(--hi) 5%,transparent)}
     .querymid{background:color-mix(in srgb,var(--mid) 5%,transparent)}
     .volume{font-variant-numeric:tabular-nums;font-weight:800}
@@ -221,9 +223,9 @@
       <div class="upload">
         <div class="num">1</div>
         <label for="clientFile">顧客の求人</label>
-        <p>保存HTMLまたは求人票テキスト。顧客企業についての事実根拠になります。</p>
+        <p>保存HTML・求人票テキスト・PDFのいずれか。顧客企業についての事実根拠になります。</p>
         <div id="clientHandoff" class="handoff" hidden></div>
-        <input id="clientFile" type="file" accept=".html,.htm,.txt">
+        <input id="clientFile" type="file" accept=".html,.htm,.txt,.pdf">
         <div class="fileok" id="clientFileStatus"></div>
       </div>
       <div class="upload">
@@ -556,8 +558,10 @@
     try{
       // 引き継ぎは正規化済みの本文なので、拡張子判定を通さず text として送る。
       const extension=client?client.name.split(".").pop().toLowerCase():"";
+      const isPdf=extension==="pdf";
       const data=await postJSON("/api/jobgen/journey-diagnose",{
-        client_job:client?await client.text():clientHandoff.text,
+        client_job:client?(isPdf?"":await client.text()):clientHandoff.text,
+        client_pdf_base64:client&&isPdf?await fileToBase64(client):"",
         client_kind:client&&["html","htm"].includes(extension)?"html":"text",
         competitor_csv_base64:await fileToBase64(competitor),
         competitor_filename:competitor.name,
@@ -647,7 +651,7 @@
       </div>
       <div class="kpis">
         <div class="kpi"><span>比較母集団</span><b>${formatNumber(cohort.matched_record_count)}件</b><small>${esc(source.filename||c.filename||"ファイル名不明")}・元CSV ${formatNumber(cohort.source_record_count||source.record_count)}件から抽出・${esc(cohort.scope||"未確定")}・取得 ${esc(c.captured_at||source.captured_at||"不明")}</small></div>
-        <div class="kpi"><span>口コミ本文</span>${v.filename==="未提供"?`<b>未提供</b><small>口コミ由来の根拠なしで診断しています</small>`:`<b>${formatNumber(v.text_rows)}件</b><small>${esc(v.filename||"ファイル名不明")}・全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件${v.sampled_risk_rows!==undefined?"（離脱関連語を含む"+formatNumber(v.sampled_risk_rows)+"件・その他"+formatNumber(v.sampled_other_rows)+"件）":""}・取得 ${esc(v.captured_at||"不明")}</small>`}</div>
+        <div class="kpi"><span>口コミ本文</span>${v.filename==="未提供"?`<b>未提供</b><small>口コミ由来の根拠なしで診断しています</small>`:`<b>${formatNumber(v.text_rows)}件</b><small>${esc(v.filename||"ファイル名不明")}・全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件（新しい順）・取得 ${esc(v.captured_at||"不明")}</small>`}</div>
         <div class="kpi"><span>人気度タグ</span><b>${formatNumber(popularityTotal)}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
         <div class="kpi"><span>地域統計</span><b>${stats.available?"取得":"未取得"}</b><small>${esc(stats.available?"人材母集団の補助情報":"求人診断は継続")}</small></div>
       </div>
@@ -780,7 +784,7 @@
         <td><b>${esc(item.query)}</b></td><td>${esc(item.observed_demand)}</td>
         <td>${esc(item.interpretation)}</td><td>${esc(item.action_implication)}</td></tr>`).join("");
       const rows=(detail.journey||[]).map(stage=>`<tr>
-        <td class="stagecell">${esc(stage.stage)}</td><td>${esc(stage.candidate_action)}</td>
+        <td class="stagecell">${esc(stage.stage)}</td><td>${esc(stage.candidate_action)}${stage.mind_voice?`<div class="mindvoice">${esc(stage.mind_voice)}</div>`:""}</td>
         <td>${esc(stage.question_or_expectation)}</td><td>${esc(stage.dropoff_trigger)}</td>
         <td>${esc(stage.countermeasure)}</td><td>${esc(stage.channel)}</td>
         <td>${esc(formatRefs(stage.evidence_refs))}</td></tr>`).join("");
@@ -838,6 +842,7 @@
         persona_ids:[...S.selected]
       });
       for(const metric of data.keywords||[])S.keywordMap.set(metric.keyword,metric);
+      S.suggestions=data.suggestions||[];
       const measured=data.measurement_status==="measured";
       S.keywordMessage=measured?"0 / 対象外":"未取得";
       const cached=data.cache==="case"?"（このケースの取得済み結果を再利用）":"";
