@@ -9,6 +9,7 @@ pub mod competitive;
 pub mod consult;
 pub mod demographics;
 pub mod diagnostic;
+pub mod dict_cards;
 pub mod driver;
 pub mod emp_classifier;
 pub mod guide;
