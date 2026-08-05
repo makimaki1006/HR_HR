@@ -187,8 +187,11 @@ pub struct ReviewSummary {
     pub total_rows: usize,
     pub text_rows: usize,
     pub evidence_sampled_rows: usize,
+    /// 2026-08-05 語彙判定廃止により常に0(互換のため残置)。
     pub risk_flagged_text_rows: usize,
+    /// 2026-08-05 語彙判定廃止により常に0(互換のため残置)。
     pub sampled_risk_rows: usize,
+    /// 2026-08-05 語彙判定廃止により常に0(互換のため残置)。
     pub sampled_other_rows: usize,
     pub blank_text_rows: usize,
     pub duplicate_text_rows: usize,
@@ -893,15 +896,7 @@ pub fn summarize_review_csv(
     }
 
     let text_rows = all_evidence.len();
-    let risk_flagged_text_rows = all_evidence
-        .iter()
-        .filter(|evidence| review_risk_score(evidence) > 0)
-        .count();
     let evidence = select_review_evidence(all_evidence, REVIEW_EVIDENCE_LIMIT);
-    let sampled_risk_rows = evidence
-        .iter()
-        .filter(|evidence| review_risk_score(evidence) > 0)
-        .count();
     Ok(ReviewSummary {
         filename: filename.to_string(),
         captured_at,
@@ -909,9 +904,10 @@ pub fn summarize_review_csv(
         total_rows,
         text_rows,
         evidence_sampled_rows: evidence.len(),
-        risk_flagged_text_rows,
-        sampled_risk_rows,
-        sampled_other_rows: evidence.len().saturating_sub(sampled_risk_rows),
+        // 2026-08-05: 語彙によるリスク判定を廃止したため常に0 (JSON互換のため残置)。
+        risk_flagged_text_rows: 0,
+        sampled_risk_rows: 0,
+        sampled_other_rows: 0,
         blank_text_rows,
         duplicate_text_rows,
         evidence,
@@ -925,118 +921,20 @@ pub fn summarize_review_csv(
     })
 }
 
-fn review_risk_score(evidence: &ReviewEvidence) -> usize {
-    const RISK_TERMS: [&str; 21] = [
-        "残業",
-        "パワハラ",
-        "給与",
-        "給料",
-        "退職",
-        "辞め",
-        "事故",
-        "危険",
-        "休み",
-        "休日",
-        "人間関係",
-        "最悪",
-        "悪い",
-        "不満",
-        "ブラック",
-        "きつい",
-        "辛い",
-        "いじめ",
-        "クレーム",
-        "怒",
-        "不安",
-    ];
-    RISK_TERMS
-        .iter()
-        .filter(|term| evidence.text.contains(**term))
-        .count()
-}
-
-/// 打ち切り時でも無条件に保持する直近の口コミ件数。
+/// 口コミの採用規則: 新しい順に上限まで採る。
 ///
-/// 2026-08-03: リスク語の単純一致は実在の苦情 (「煽り運転」「割り込むな」等、
-/// 21語のどれにも当たらない) を捕まえられないことが実口コミCSVで確認された。
-/// GoogleマップのエクスポートはCSVの先頭が新しい口コミであるため、語彙判定に
-/// 関係なく先頭N件を必ず残し、会社名検索で最初に目に入る口コミが根拠から
-/// 消えないようにする (語彙判定の全面見直しは別途)。
-const REVIEW_RECENT_KEEP: usize = 5;
-
+/// 2026-08-05: 語彙 (21語) との単純一致でリスクを数え上げる方式を廃止した。
+/// 実口コミCSVでの検証により、実在の苦情 (「煽り運転」「割り込むな」等) が
+/// 1語も当たらず0件判定になる一方、「残業ほとんどなく」のような肯定文が
+/// リスクとして誤検知されることが確認されたため。語彙による重み付けをやめ、
+/// Googleマップのエクスポートが新しい順であることだけに依拠して、
+/// 先頭 (= 直近) から上限件数を採る単純な規則にする。
+/// 採否の理由が「新しい順の上限まで」だけになるので、
+/// 何が根拠に入って何が落ちたのかを利用者に正直に説明できる。
 fn select_review_evidence(all_evidence: Vec<ReviewEvidence>, limit: usize) -> Vec<ReviewEvidence> {
-    if all_evidence.len() <= limit {
-        return all_evidence;
-    }
-    let mut prioritized = all_evidence
-        .iter()
-        .enumerate()
-        .filter_map(|(index, evidence)| {
-            let score = review_risk_score(evidence);
-            (score > 0).then_some((index, score))
-        })
-        .collect::<Vec<_>>();
-    prioritized.sort_by(|(left_index, left_score), (right_index, right_score)| {
-        right_score
-            .cmp(left_score)
-            .then_with(|| left_index.cmp(right_index))
-    });
-
-    let risk_indices = prioritized
-        .iter()
-        .map(|(index, _)| *index)
-        .collect::<HashSet<_>>();
-    let other_indices = (0..all_evidence.len())
-        .filter(|index| !risk_indices.contains(index))
-        .collect::<Vec<_>>();
-    let balanced_risk_target = if prioritized.is_empty() || other_indices.is_empty() {
-        limit
-    } else {
-        limit.div_ceil(2)
-    };
-    // 直近 (= 先頭) の口コミはリスク語の有無に関係なく必ず残す。
-    let mut selected: HashSet<usize> = (0..REVIEW_RECENT_KEEP.min(all_evidence.len())).collect();
-    for (index, _) in prioritized
-        .iter()
-        .take(balanced_risk_target.min(prioritized.len()))
-    {
-        if selected.len() >= limit {
-            break;
-        }
-        selected.insert(*index);
-    }
-
-    if selected.len() < limit {
-        let remaining = limit - selected.len();
-        for position in sample_indices(other_indices.len(), remaining.min(other_indices.len())) {
-            selected.insert(other_indices[position]);
-            if selected.len() >= limit {
-                break;
-            }
-        }
-    }
-    if selected.len() < limit {
-        for (index, _) in &prioritized {
-            selected.insert(*index);
-            if selected.len() >= limit {
-                break;
-            }
-        }
-    }
-    if selected.len() < limit {
-        for index in other_indices {
-            selected.insert(index);
-            if selected.len() >= limit {
-                break;
-            }
-        }
-    }
-    let mut indices = selected.into_iter().collect::<Vec<_>>();
-    indices.sort_unstable();
-    indices
-        .into_iter()
-        .map(|index| all_evidence[index].clone())
-        .collect()
+    let mut evidence = all_evidence;
+    evidence.truncate(limit);
+    evidence
 }
 
 /// 顧客求人の給与を競合 CSV の月給換算分布に置く。
@@ -1364,6 +1262,7 @@ pub fn build_prepare_prompt(
 - 必ず4ペルソナを返す。
 - 「応募へ進む」「検索・比較する」「求人閲覧段階で離脱する」を最低1件ずつ含める。
 - 人手不足市場のため、年齢・性別・MBTIで水増しせず、転職理由・経験・生活制約・最低条件・検索行動で必要最小限に分ける。
+- 各ペルソナの profile は、前職の情景・転職のきっかけ・生活の制約(家族・通勤・体力など)が目に浮かぶ具体度で書く。抽象的な属性の羅列は禁止。
 - 各ペルソナの検索語は5〜8件。
 - 各検索語の stage は次の8段階の名称を一字一句そのまま使う: 求人認知、求人閲覧、自然検索、他求人比較、応募判断、応募後連絡、面接、オファー・入社判断。「情報収集」等の独自の段階名を作らない。
 - analysis_summary、条件比較、顧客への確認事項、限界事項を空にしない。
@@ -1780,6 +1679,9 @@ pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Va
                     "properties":{
                         "stage":stage(),
                         "candidate_action":{"type":"string"},
+                        // 2026-08-05: 内心のセリフ (一人称・かぎ括弧)。行動の裏にある
+                        // 気持ちを顧客に伝え、「なので◯◯すべき」の提案接続を作るため。
+                        "mind_voice":{"type":"string"},
                         "question_or_expectation":{"type":"string"},
                         "dropoff_trigger":{"type":"string"},
                         "countermeasure":{"type":"string"},
@@ -1787,7 +1689,7 @@ pub fn persona_detail_schema_with_evidence_refs(allowed: &HashSet<String>) -> Va
                         "evidence_refs":evidence_refs()
                     },
                     "required":[
-                        "stage","candidate_action","question_or_expectation",
+                        "stage","candidate_action","mind_voice","question_or_expectation",
                         "dropoff_trigger","countermeasure","channel","evidence_refs"
                     ]
                 }
@@ -1887,7 +1789,10 @@ pub fn build_persona_detail_prompt(
 - persona_id は入力と完全一致させる。
 - search_assessment は selected_persona.search_queries の全queryを、重複なく1件ずつ評価する。
 - journey は必ず次の8段階を順番どおり1件ずつ返す: {stages}
-- 各段階の候補者行動・疑問・離脱要因・対策・チャネルを空にしない。
+- 各段階の候補者行動・内心・疑問・離脱要因・対策・チャネルを空にしない。
+- candidate_action は場面が目に浮かぶ具体度で書く: いつ(時間帯・状況)・どこで(通勤中・自宅など)・何を使い(スマホ・アプリ・検索)・何と何をどう比較するか、まで踏み込む。「求人を比較する」のような抽象文は禁止。
+- mind_voice はこのペルソナの内心のつぶやきを一人称・かぎ括弧で1〜2文。例の形式:「夜勤続きはもう限界。でも手取りが下がるのは困る」。求人事実と矛盾する内容や、実在データに無い数値を混ぜない。
+- countermeasure は「〜のため、◯◯すべき」の助言形式で書き、何をどこにどう書く/変えるかまで具体化する。抽象的な「魅力を訴求する」は禁止。
 - channel は対策を実行する場所であり、次の分類のいずれかを一字一句そのまま使う: {channels}
 - priority_actions の stage は上記8段階の名称を一字一句そのまま使う。「〜段階」を付けたり独自の段階名を作らない。
 - priority は 高・中・低 のいずれかをそのまま使う。
@@ -2101,6 +2006,7 @@ pub fn validate_persona_detail(
                 &format!("{}番目の段階", index + 1),
                 &[
                     "candidate_action",
+                    "mind_voice",
                     "question_or_expectation",
                     "dropoff_trigger",
                     "countermeasure",
@@ -3399,8 +3305,10 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         assert!(summary.is_none());
     }
 
+    /// 45件の口コミから先頭40件 (= 新しい順) だけが採用され、41件目以降は落ちる。
+    /// R番号は元CSVの行番号を保つ (2026-08-05 語彙判定廃止後の採用規則)。
     #[test]
-    fn review_evidence_is_bounded_but_keeps_a_late_negative_review() {
+    fn review_evidence_keeps_the_newest_rows_up_to_the_limit() {
         let mut csv = String::from("OA1nbd,y3Ibjb\n");
         for index in 1..=44 {
             csv.push_str(&format!("通常の口コミ{index},1年前\n"));
@@ -3409,17 +3317,36 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         let summary = summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("reviews");
         assert_eq!(summary.text_rows, 45);
         assert_eq!(summary.evidence_sampled_rows, REVIEW_EVIDENCE_LIMIT);
-        assert_eq!(summary.risk_flagged_text_rows, 1);
-        assert_eq!(summary.sampled_risk_rows, 1);
-        assert_eq!(summary.sampled_other_rows, REVIEW_EVIDENCE_LIMIT - 1);
-        assert!(summary
-            .evidence
-            .iter()
-            .any(|evidence| evidence.text.contains("残業と人間関係")));
+        assert_eq!(summary.evidence.len(), REVIEW_EVIDENCE_LIMIT);
+        // 先頭40件がそのままの順序で採用される
+        for (position, evidence) in summary.evidence.iter().enumerate() {
+            assert_eq!(
+                evidence.text,
+                format!("通常の口コミ{}", position + 1),
+                "position={position}"
+            );
+            assert_eq!(evidence.source_ref, format!("R{}", position + 1));
+        }
+        // 41件目以降 (末尾のリスク語を含む行を含む) は落ちる
+        assert!(
+            !summary
+                .evidence
+                .iter()
+                .any(|evidence| evidence.text.contains("残業と人間関係")),
+            "41件目以降は語彙に関係なく落ちるべき"
+        );
+        assert!(
+            !summary
+                .evidence
+                .iter()
+                .any(|evidence| evidence.text == "通常の口コミ41"),
+            "41件目は落ちるべき"
+        );
     }
 
+    /// 語彙判定廃止に伴い、リスク件数系のフィールドは常に0 (JSON互換のため残置)。
     #[test]
-    fn review_evidence_reserves_space_for_non_risk_observations() {
+    fn review_risk_counters_are_always_zero_after_vocabulary_scoring_removal() {
         let mut csv = String::from("OA1nbd,y3Ibjb\n");
         for index in 1..=50 {
             csv.push_str(&format!(
@@ -3430,22 +3357,35 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             csv.push_str(&format!("研修が丁寧だったという口コミ{index},1年前\n"));
         }
         let summary = summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("reviews");
-        let risk_count = summary
-            .evidence
-            .iter()
-            .filter(|evidence| evidence.text.contains("残業"))
-            .count();
-        let other_count = summary
-            .evidence
-            .iter()
-            .filter(|evidence| evidence.text.contains("研修"))
-            .count();
         assert_eq!(summary.evidence_sampled_rows, REVIEW_EVIDENCE_LIMIT);
-        assert_eq!(risk_count, REVIEW_EVIDENCE_LIMIT / 2);
-        assert_eq!(other_count, REVIEW_EVIDENCE_LIMIT / 2);
-        assert_eq!(summary.risk_flagged_text_rows, 50);
-        assert_eq!(summary.sampled_risk_rows, REVIEW_EVIDENCE_LIMIT / 2);
-        assert_eq!(summary.sampled_other_rows, REVIEW_EVIDENCE_LIMIT / 2);
+        assert_eq!(summary.risk_flagged_text_rows, 0);
+        assert_eq!(summary.sampled_risk_rows, 0);
+        assert_eq!(summary.sampled_other_rows, 0);
+        // 語彙で並べ替えないので、採用されるのは先頭40件 (すべて「残業〜」側)
+        assert!(
+            summary
+                .evidence
+                .iter()
+                .all(|evidence| evidence.text.contains("残業")),
+            "新しい順の先頭40件がそのまま採用されるべき"
+        );
+    }
+
+    /// 上限以下の件数なら全件が採用され、順序も元のまま。
+    #[test]
+    fn review_evidence_keeps_every_row_when_under_the_limit() {
+        let mut csv = String::from("OA1nbd,y3Ibjb\n");
+        for index in 1..=REVIEW_EVIDENCE_LIMIT {
+            csv.push_str(&format!("口コミ{index},1年前\n"));
+        }
+        let summary = summarize_review_csv(csv.as_bytes(), "reviews.csv", None).expect("reviews");
+        assert_eq!(summary.evidence.len(), REVIEW_EVIDENCE_LIMIT);
+        assert_eq!(summary.evidence_sampled_rows, REVIEW_EVIDENCE_LIMIT);
+        assert_eq!(summary.evidence[0].source_ref, "R1");
+        assert_eq!(
+            summary.evidence[REVIEW_EVIDENCE_LIMIT - 1].source_ref,
+            format!("R{REVIEW_EVIDENCE_LIMIT}")
+        );
     }
 
     fn valid_prepare_persona(id: &str, behavior: &str) -> Value {
@@ -3534,6 +3474,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
                 json!({
                     "stage":stage,
                     "candidate_action":"候補者行動",
+                    "mind_voice":"「内心のつぶやき」",
                     "question_or_expectation":"疑問または期待",
                     "dropoff_trigger":"離脱要因仮説",
                     "countermeasure":"対策候補",
@@ -3606,6 +3547,30 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         );
     }
 
+    /// PDF入力と内心セリフのUI契約 (2026-08-05)。
+    /// サーバー側だけ実装してもUIが送らなければ silent に死ぬ (関連語候補の前例) ため、
+    /// beta HTML の送信コード・accept属性・mind_voice 表示を固定する。
+    #[test]
+    fn journey_ui_sends_pdf_and_renders_mind_voice() {
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        assert!(
+            html.contains("client_pdf_base64"),
+            "UIが client_pdf_base64 を送信していない (PDF対応がサーバー側だけになっている)"
+        );
+        assert!(
+            html.contains(r#"accept=".html,.htm,.txt,.pdf""#),
+            "顧客求人のファイル選択が .pdf を受け付けていない"
+        );
+        assert!(
+            html.contains("mind_voice"),
+            "内心のセリフ (mind_voice) がUIに表示されていない"
+        );
+        assert!(
+            html.contains("S.suggestions=data.suggestions"),
+            "関連語候補のサーバー応答をUIが受けていない (恒久死の再発)"
+        );
+    }
+
     /// 列の引き当てが「候補の優先順位」で決まる (2026-08-03 修正の回帰)。
     /// 旧実装は CSV 上の列順で先勝ちだったため、`review` (口コミURL列にありがちな名前) が
     /// 本文列 `OA1nbd` より左にあると URL が口コミ本文として扱われた。
@@ -3628,9 +3593,10 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         );
     }
 
-    /// 40件打ち切り時、リスク語を含まない直近口コミ (CSV先頭) が必ず残る。
+    /// 40件打ち切り時、直近 (CSV先頭) の口コミが語彙に関係なく残る。
     /// 実口コミで「煽り運転」等の苦情が21語のリスク語彙に当たらず、
     /// 打ち切りの格子から外れて消える経路が確認された (2026-08-03)。
+    /// 2026-08-05 に語彙判定自体を廃止し、新しい順の採用でこれを保証する。
     #[test]
     fn recent_reviews_survive_truncation_even_without_risk_terms() {
         // 先頭2件がリスク語なしの苦情、後方にリスク語ありを大量に置く
@@ -4270,6 +4236,84 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         assert!(handlers.contains("\"kw\":queries_to_fetch.join(\"\\n\")"));
         assert!(!handlers.contains("query_order.chunks(12)"));
         assert!(!html.contains("/api/suggest"));
+    }
+
+    #[test]
+    fn journey_suggestion_seeds_take_top_queries_of_the_first_persona_only() {
+        let personas = vec![
+            json!({
+                "id":"p1",
+                "search_queries":[
+                    {"query":"介護 求人 中","importance":"中"},
+                    {"query":"介護 求人 低","importance":"低"},
+                    {"query":"介護 求人 高1","importance":"高"},
+                    {"query":"介護 求人 高2","importance":"高"},
+                ]
+            }),
+            json!({"id":"p2","search_queries":[{"query":"別ペルソナ","importance":"高"}]}),
+        ];
+        let seeds = crate::job_gen::handlers::journey_suggestion_seeds(&personas, 3);
+        assert_eq!(
+            seeds,
+            vec![
+                "介護 求人 高1".to_string(),
+                "介護 求人 高2".to_string(),
+                "介護 求人 中".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn journey_suggestions_keep_only_keyword_and_avg_monthly_and_drop_shown_queries() {
+        let response = json!({
+            "status":"ok",
+            "suggestions":[
+                {"keyword":"表示済み","avg_monthly":100,"competition":"HIGH"},
+                {"keyword":"関連語A","avg_monthly":50,"competition":"LOW"},
+                {"keyword":"関連語A","avg_monthly":50},
+                {"keyword":"関連語B"},
+            ]
+        });
+        let exclude = ["表示済み".to_string()]
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        let suggestions =
+            crate::job_gen::handlers::journey_suggestions_from_response(&response, &exclude, 12);
+        assert_eq!(
+            suggestions,
+            vec![
+                json!({"keyword":"関連語A","avg_monthly":50}),
+                json!({"keyword":"関連語B","avg_monthly":Value::Null}),
+            ]
+        );
+        // 画面は item.keyword / item.avg_monthly だけを読むため、他フィールドは持ち込まない。
+        assert!(suggestions[0].get("competition").is_none());
+    }
+
+    #[test]
+    fn journey_suggestions_are_empty_when_credentials_or_api_fail() {
+        let exclude = std::collections::HashSet::new();
+        for response in [
+            json!({"status":"missing_credentials","missing":["GOOGLE_ADS_DEVELOPER_TOKEN"]}),
+            json!({"status":"error","message":"boom"}),
+        ] {
+            assert!(crate::job_gen::handlers::journey_suggestions_from_response(
+                &response, &exclude, 12
+            )
+            .is_empty());
+        }
+    }
+
+    #[test]
+    fn journey_keywords_response_carries_suggestions_for_the_ui() {
+        let handlers = include_str!("handlers.rs");
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        // 応答に suggestions を積む箇所 (fresh / case キャッシュ) が両方あること。
+        assert!(handlers.contains("\"suggestions\":suggestions"));
+        assert!(handlers.contains("\"suggestions\":prepared.keyword_suggestions.clone()"));
+        // 画面が読むフィールド名と一致していること。
+        assert!(html.contains("item.keyword"));
+        assert!(html.contains("item.avg_monthly"));
     }
 
     #[test]
