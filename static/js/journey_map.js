@@ -169,6 +169,11 @@
     return typeof v === "number" && isFinite(v);
   }
 
+  /** 内心のセリフは表示側で「」を付けるため、元データに付いていれば外して二重括弧を防ぐ。 */
+  function stripQuotes(s) {
+    return String(s || "").trim().replace(/^「/, "").replace(/」$/, "");
+  }
+
   function fmtInt(n) {
     return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
@@ -456,7 +461,7 @@
 
       var mind = s.mind_voice
         ? '<div class="fld wide mindvoice"><b>この人の内心</b><span class="mv">「' +
-          markTerms(s.mind_voice) +
+          markTerms(stripQuotes(s.mind_voice)) +
           "」</span></div>"
         : "";
 
@@ -537,7 +542,7 @@
         esc(p.label) +
         "</b>" +
         esc(s.candidate_action) +
-        (s.mind_voice ? '<div class="mv">「' + esc(s.mind_voice) + "」</div>" : "") +
+        (s.mind_voice ? '<div class="mv">「' + esc(stripQuotes(s.mind_voice)) + "」</div>" : "") +
         '<div class="q">不安・疑問: ' +
         esc(s.question_or_expectation) +
         "</div>";

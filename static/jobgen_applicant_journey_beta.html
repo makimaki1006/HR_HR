@@ -139,13 +139,75 @@
     dt{font-weight:800;color:var(--ink-3)}dd{margin:0}
     .selectpersona{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:9px;margin-top:auto;cursor:pointer;font-size:12px;font-weight:700}
     .selectpersona input{margin-top:3px;accent-color:var(--accent)}
-    .journeyblock{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:13px}
-    .journeyhead{background:var(--surface-2);padding:11px 13px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-    .journeyhead h3{margin:0;color:var(--accent-ink)}
-    .route{font-size:11px;color:var(--ink-3)}
-    .stagecell{min-width:88px;font-weight:800;color:var(--accent-ink)}
-    /* 内心のセリフ (2026-08-05): 行動の裏の気持ちを吹き出し風に */
-    .mindvoice{margin-top:5px;padding:5px 9px;border-left:3px solid var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent);border-radius:0 8px 8px 0;font-size:11.5px;color:var(--accent-ink);font-style:italic}
+    /* ── 工程5 ジャーニーマップ (static/js/journey_map.js) ─────────────────
+       部品側は <style> を注入しないので、必要なCSSはここに置く。既存の
+       .chip / .fact / .panel などと名前が衝突するため .jmroot 配下に限定し、
+       モックの固定色は画面のテーマ変数に載せ替える（明暗どちらでも読める）。 */
+    .jmroot{--navy:var(--accent-ink);--blue:var(--accent);--mut:var(--ink-3);--card:var(--surface);--laneA:var(--surface-2);--laneB:var(--surface)}
+    .jmroot .maplead{font-size:12px;color:var(--ink-2);margin:0 0 8px}
+    .jmroot .mapwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-inline:contain;padding-bottom:6px}
+    .jmroot .mapwrap:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+    .jmroot .jmap{min-width:940px}
+    .jmroot .jhead{display:grid;grid-template-columns:170px repeat(8,1fr);gap:0;margin-bottom:4px}
+    .jmroot .jhead .ph{font-size:11.5px;font-weight:800;color:var(--navy);text-align:center;padding:7px 2px;background:var(--accent-bg);border-right:1px solid var(--surface);position:relative}
+    .jmroot .jhead .ph:first-child{background:none}
+    .jmroot .jhead .ph small{display:block;font-weight:600;color:var(--mut);font-size:9.5px}
+    .jmroot .jhead .ph:nth-child(2){border-radius:9px 0 0 9px}
+    .jmroot .jhead .ph:last-child{border-radius:0 9px 9px 0;border-right:0}
+    .jmroot .lane{display:grid;grid-template-columns:170px repeat(8,1fr);align-items:center;border-radius:11px;transition:background .18s}
+    .jmroot .lane:nth-child(odd){background:var(--laneA)}
+    .jmroot .lane:nth-child(even){background:var(--laneB)}
+    .jmroot .lane:hover{background:var(--accent-bg)}
+    .jmroot .pname{padding:10px;font-size:12px;font-weight:800;color:var(--navy);min-width:0;overflow-wrap:anywhere}
+    .jmroot .pname small{display:block;font-weight:600;color:var(--mut);font-size:10px}
+    .jmroot .pname .beh{display:inline-block;margin-top:3px;font-size:9.5px;font-weight:700;border-radius:999px;padding:1px 7px;background:var(--accent-bg);color:var(--accent-ink)}
+    .jmroot .cell{position:relative;height:64px;display:grid;place-items:center}
+    .jmroot .cell::before{content:"";position:absolute;left:0;right:0;top:50%;height:2px;background:var(--line-2);z-index:0}
+    .jmroot .node{position:relative;z-index:1;width:26px;height:26px;border-radius:50%;border:3px solid var(--blue);background:var(--card);cursor:pointer;transition:transform .15s,box-shadow .15s}
+    .jmroot .node.injob{background:var(--blue)}
+    .jmroot .node.outjob{background:linear-gradient(135deg,var(--blue) 50%,var(--card) 50%)}
+    .jmroot .node.pHigh{border-color:var(--hi);box-shadow:0 0 0 4px color-mix(in srgb,var(--hi) 18%,transparent);animation:jmpulse 1.8s infinite}
+    .jmroot .node.pMid{border-color:var(--mid)}
+    .jmroot .node:hover{transform:scale(1.35)}
+    .jmroot .node.sel{transform:scale(1.35);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 28%,transparent)}
+    .jmroot .node:focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+    @keyframes jmpulse{0%,100%{box-shadow:0 0 0 4px color-mix(in srgb,var(--hi) 18%,transparent)}50%{box-shadow:0 0 0 9px color-mix(in srgb,var(--hi) 6%,transparent)}}
+    .jmroot .jmlegend{display:flex;gap:14px;font-size:11px;color:var(--ink-2);margin-top:10px;flex-wrap:wrap;align-items:center}
+    .jmroot .lg{display:inline-flex;align-items:center;gap:5px}
+    .jmroot .dot{width:15px;height:15px;border-radius:50%;border:3px solid var(--blue);display:inline-block}
+    .jmroot .dot.f{background:var(--blue)}
+    .jmroot .dot.h{background:linear-gradient(135deg,var(--blue) 50%,var(--card) 50%)}
+    .jmroot .dot.r{border-color:var(--hi);box-shadow:0 0 0 3px color-mix(in srgb,var(--hi) 18%,transparent)}
+    .jmroot #panel{border:1px solid var(--line);border-radius:13px;margin-top:12px;overflow:hidden;opacity:0;transform:translateY(6px);transition:opacity .22s,transform .22s}
+    .jmroot #panel.show{opacity:1;transform:none}
+    .jmroot #panel .phead{background:linear-gradient(135deg,var(--accent-ink),var(--accent));color:var(--on-accent);padding:10px 16px;font-size:13px;font-weight:800;display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .jmroot #panel .pbody{background:var(--surface);color:var(--ink);padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+    .jmroot .fld{font-size:13px;min-width:0;overflow-wrap:anywhere}
+    .jmroot .fld b{display:block;font-size:10.5px;color:var(--mut);font-weight:800;margin-bottom:1px}
+    .jmroot .fld.wide{grid-column:1/-1}
+    /* 打ち手カードは部品側がインラインstyleで薄橙を指定するため、テーマ側で上書きする */
+    .jmroot #pbody .fld.wide[style]{background:color-mix(in srgb,var(--mid) 10%,var(--surface))!important;border:1px solid color-mix(in srgb,var(--mid) 35%,transparent)!important}
+    .jmroot .mindvoice{background:var(--accent-bg);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);border-left:4px solid var(--accent);border-radius:9px;padding:8px 11px}
+    .jmroot .mindvoice .mv{font-style:italic;color:var(--accent-ink)}
+    .jmroot .chips{margin-top:3px}
+    .jmroot .chip{display:inline-block;background:var(--accent-bg);color:var(--accent-ink);border:0;border-radius:999px;padding:1px 9px;font-size:10.5px;font-weight:700;margin:2px 4px 0 0}
+    .jmroot .chip.act{background:color-mix(in srgb,var(--mid) 12%,var(--surface));color:var(--mid)}
+    .jmroot .kwvol{font-style:normal;font-weight:700;margin-left:5px;color:var(--mut)}
+    .jmroot .dict-term{border-bottom:2px dotted var(--blue);cursor:help;color:var(--navy);font-weight:700}
+    .searchnote{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:9px 11px;margin-top:8px}
+    .searchnote summary{font-size:12px;font-weight:800;color:var(--accent-ink);cursor:pointer}
+    /* ツールチップと辞書カードは body 直下の単一要素（部品が生成する） */
+    #tip{position:fixed;z-index:50;max-width:290px;background:#10243e;color:#fff;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.55;pointer-events:none;opacity:0;transition:opacity .12s;box-shadow:0 8px 22px rgba(10,20,40,.35)}
+    #tip b{color:#9ec7ea;display:block;font-size:10px;margin-bottom:1px}
+    #tip .q{color:#ffd9a0}
+    #tip .mv{color:#ffe9c9;font-style:italic;margin-top:3px}
+    #dictpop{position:fixed;z-index:60;width:300px;background:var(--surface);color:var(--ink);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .15s;font-size:12px;overflow:hidden}
+    #dictpop .dh{background:var(--accent-bg);padding:8px 12px;font-weight:800;color:var(--accent-ink);font-size:12.5px}
+    #dictpop .db{padding:10px 12px}
+    #dictpop .db .row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding:3px 0;font-size:11.5px}
+    #dictpop .db .row span{color:var(--ink-3)}
+    #dictpop .note{padding:7px 12px;background:color-mix(in srgb,var(--mid) 12%,var(--surface));color:var(--mid);font-size:10.5px}
+    @media(max-width:760px){.jmroot #panel .pbody{grid-template-columns:1fr}}
     .queryhigh{background:color-mix(in srgb,var(--hi) 5%,transparent)}
     .querymid{background:color-mix(in srgb,var(--mid) 5%,transparent)}
     .volume{font-variant-numeric:tabular-nums;font-weight:800}
@@ -154,7 +216,7 @@
     .suggestion{border:1px solid var(--line);border-radius:8px;background:var(--surface-2);padding:5px 8px;font-size:11px}
     .actiongrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
     .actioncard{border:1px solid var(--line);border-radius:11px;background:var(--surface-2);padding:12px}
-    .actioncard .badge,.journeyhead .badge{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+    .actioncard .badge{max-width:100%;white-space:normal;overflow-wrap:anywhere}
     .actioncard.high{border-color:color-mix(in srgb,var(--hi) 45%,var(--line))}.actioncard.medium{border-color:color-mix(in srgb,var(--mid) 45%,var(--line))}.actioncard.low{border-color:color-mix(in srgb,var(--lo) 45%,var(--line))}
     .actioncard h3{margin-bottom:4px}.actioncard p{font-size:12px;margin:4px 0;color:var(--ink-2)}
     .actioncard small{font-size:10.5px;color:var(--ink-3)}
@@ -170,7 +232,7 @@
       .pstep{flex:0 0 158px;scroll-snap-align:start}
       .kpis,.facts{grid-template-columns:1fr}
       .casebar{grid-template-columns:1fr}.wrap{padding:20px 12px 48px}.panel{padding:14px}
-      .panelhead,.journeyhead{flex-direction:column}
+      .panelhead{flex-direction:column}
       .source-meta{grid-template-columns:1fr}
       .box,.fact,.pcard,.actioncard,.kpi{min-width:0;overflow-wrap:anywhere}
       .badge{max-width:100%;white-space:normal;overflow-wrap:anywhere}
@@ -185,7 +247,13 @@
     @media print{
       body{background:var(--print-bg);color:var(--print-ink)}.theme,.pipeline,.input-panel,.actions,.selectpersona,.export-controls,.scrollhint{display:none!important}
       .wrap{max-width:none;padding:0}.panel{box-shadow:none;break-inside:avoid}.panel[hidden]{display:block}
-      .pcard,.actioncard,.journeyblock{break-inside:avoid}
+      .pcard,.actioncard,.jmroot .lane,.jmroot #panel{break-inside:avoid}
+      /* マップは印刷時も詳細パネルごと出す（画面では選択時のみ表示している） */
+      .jmroot #panel{opacity:1!important;transform:none!important}
+      .jmroot .mapwrap{overflow:visible}
+      .jmroot .node{animation:none!important}
+      .searchnote{break-inside:avoid}
+      #tip,#dictpop{display:none!important}
     }
   </style>
 </head>
@@ -337,6 +405,7 @@
   <p class="foot">本機能は応募・採用を予測するものではありません。求人票、スクレイピング時点の外部観測、公的統計、職種一般論から検討仮説を作成し、コンサルの確認と判断を支援します。</p>
 </main>
 
+<script src="/static/js/journey_map.js"></script>
 <script>
   const $=selector=>document.querySelector(selector);
   const $$=selector=>[...document.querySelectorAll(selector)];
@@ -347,7 +416,7 @@
   };
   const S={
     data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:"",
-    details:new Map(),maxStep:1
+    details:new Map(),maxStep:1,mapInstance:null
   };
   const FACT_LABELS={
     salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
@@ -776,22 +845,61 @@
     if(persona.likely_behavior==="検索・比較する")return "応募前に調査する想定：自然検索・他求人比較・応募転換に加え、応募後対策まで接続";
     return "求人閲覧段階で離脱する想定：企業が欲しい場合のみ、認知・検索・比較・応募転換から対策";
   }
+  // 工程5: 表の羅列をやめ、レーン×段階のジャーニーマップ (journey_map.js) で描く。
+  // ペルソナ概要 (適格性・想定行動) はマップのレーン名に集約し、旧 journeyhead との重複を無くす。
+  function journeyMapData(personas){
+    return {
+      personas:personas.map(p=>{
+        const detail=S.details.get(p.id)||{};
+        return {
+          id:p.id,label:p.label,profile:p.profile||"",behavior:p.likely_behavior||"",
+          queries:[...new Set((p.search_queries||[]).map(q=>String(q.query||"").trim()).filter(Boolean))].slice(0,8),
+          journey:(detail.journey||[]).map(s=>({
+            stage:s.stage,candidate_action:s.candidate_action,mind_voice:s.mind_voice,
+            question_or_expectation:s.question_or_expectation,dropoff_trigger:s.dropoff_trigger,
+            countermeasure:s.countermeasure,channel:s.channel,evidence:s.evidence_refs||[]
+          })),
+          actions:(detail.priority_actions||[]).map(a=>({
+            stage:a.stage,risk:a.risk,countermeasure:a.countermeasure,channel:a.channel,
+            priority:a.priority,client_confirmation:a.client_confirmation,evidence:a.evidence_refs||[]
+          }))
+        };
+      }),
+      facts:S.data?.facts||{},
+      cohort:{scope:S.data?.comparison_cohort?.scope||"",matched:S.data?.comparison_cohort?.matched_record_count||0}
+    };
+  }
   function renderJourney(){
+    const container=$("#journeyContent");
     const personas=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id)&&S.details.has(p.id));
-    $("#journeyContent").innerHTML=personas.map(p=>{
+    // 部品は document にもリスナーを張るため、再描画時は必ず destroy してから作り直す
+    if(S.mapInstance){S.mapInstance.destroy();S.mapInstance=null}
+    if(!personas.length){container.innerHTML='<p class="hint">診断済みのペルソナがありません。</p>';return}
+    if(typeof window.renderJourneyMap!=="function"){
+      container.innerHTML='<div class="error">ジャーニーマップ部品（/static/js/journey_map.js）を読み込めませんでした。ページを再読み込みしてください。内部引継ぎJSONの保存は利用できます。</div>';
+      return;
+    }
+    const notes=personas.map(p=>{
       const detail=S.details.get(p.id)||{};
       const assessmentRows=(detail.search_assessment||[]).map(item=>`<tr>
         <td><b>${esc(item.query)}</b></td><td>${esc(item.observed_demand)}</td>
         <td>${esc(item.interpretation)}</td><td>${esc(item.action_implication)}</td></tr>`).join("");
-      const rows=(detail.journey||[]).map(stage=>`<tr>
-        <td class="stagecell">${esc(stage.stage)}</td><td>${esc(stage.candidate_action)}${stage.mind_voice?`<div class="mindvoice">${esc(stage.mind_voice)}</div>`:""}</td>
-        <td>${esc(stage.question_or_expectation)}</td><td>${esc(stage.dropoff_trigger)}</td>
-        <td>${esc(stage.countermeasure)}</td><td>${esc(stage.channel)}</td>
-        <td>${esc(formatRefs(stage.evidence_refs))}</td></tr>`).join("");
-      return `<article class="journeyblock"><div class="journeyhead"><div><h3>${esc(p.label)}</h3><div class="route">${esc(routingText(p))}</div></div><div class="badges"><span class="badge ${badgeForEligibility(p.eligibility)}">${esc(p.eligibility)}</span><span class="badge ${badgeForBehavior(p.likely_behavior)}">${esc(p.likely_behavior)}</span></div></div>
-      <div class="box" style="border:0;border-radius:0"><h3>検索実測から分かったこと</h3><p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の検索実測評価表。横にスクロールできます"><table><thead><tr><th>検索内容</th><th>実測需要</th><th>読み取り</th><th>施策への反映</th></tr></thead><tbody>${assessmentRows||'<tr><td colspan="4">検索実測評価なし</td></tr>'}</tbody></table></div></div>
-      <p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の8段階ジャーニー表。横にスクロールできます" style="border:0;border-radius:0"><table><thead><tr><th>段階</th><th>候補者の行動</th><th>疑問・期待</th><th>離脱要因</th><th>対策</th><th>実施場所</th><th>根拠</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
+      return `<details class="searchnote"><summary>${esc(p.label)}｜検索実測から分かったこと・想定ルート</summary>
+        <p class="hint">${esc(routingText(p))}</p>
+        ${assessmentRows?`<p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の検索実測評価表。横にスクロールできます"><table><thead><tr><th>検索内容</th><th>実測需要</th><th>読み取り</th><th>施策への反映</th></tr></thead><tbody>${assessmentRows}</tbody></table></div>`:'<p class="hint">検索実測評価はありません。</p>'}
+      </details>`;
     }).join("");
+    container.innerHTML=`<div class="jmroot">
+      <p class="maplead">丸印をクリックすると、その段階での行動・内心・離脱の引き金・打ち手を下の詳細に表示します。点線の下線が付いた語にカーソルを載せると、資格辞書・職種辞典のカードが開きます。</p>
+      <div class="mapwrap" tabindex="0" role="region" aria-label="ペルソナ別の段階別ジャーニーマップ。横にスクロールできます"><div class="jmap"></div></div>
+      <div class="jmlegend"><span class="lg"><span class="dot f"></span>打ち手が求人票の中にある段階</span><span class="lg"><span class="dot h"></span>打ち手が求人票の外（検索結果・口コミ・面接など）にある段階</span><span class="lg"><span class="dot r"></span>優先度「高」の打ち手あり</span></div>
+    </div>${notes}`;
+    const keywordMap={};
+    for(const [key,metric] of S.keywordMap)keywordMap[key]={avg_monthly:metric.avg_monthly};
+    S.mapInstance=window.renderJourneyMap(container.querySelector(".jmroot"),journeyMapData(personas),{
+      keywordMap,
+      dictEndpoints:{license:"/api/dict/license_card",occupation:"/api/dict/occupation_card"}
+    });
     updateTableHints();
   }
 
@@ -950,7 +1058,8 @@
     a.href=url;a.download=`応募者ジャーニー診断_${date}.json`;a.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
-  $("#printBtn").addEventListener("click",()=>window.print());
+  // 印刷時は折りたたみ (検索実測の読み取り) を開いてから出力する
+  $("#printBtn").addEventListener("click",()=>{$$(".searchnote").forEach(d=>d.open=true);window.print()});
 
   const root=document.documentElement;
   const storedTheme=localStorage.getItem("jobgen-theme");
