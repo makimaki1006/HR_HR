@@ -696,7 +696,7 @@ async fn jobgen_journey_diagnose_legacy(
 /// `POST /api/jobgen/journey-diagnose` — 品質優先モードの準備工程。
 ///
 /// 引用照合済みの求人事実、比較可能な競合母集団、口コミ原文を確定してから、
-/// 4ペルソナと検索仮説を作る。品質基準を満たすまで後工程用の case_id は発行しない。
+/// 6ペルソナと検索仮説を作る。品質基準を満たすまで後工程用の case_id は発行しない。
 pub async fn jobgen_journey_diagnose(
     State(state): State<Arc<AppState>>,
     Json(body): Json<Value>,
@@ -944,7 +944,7 @@ pub async fn jobgen_journey_diagnose(
         allowed_evidence_refs.insert("公的統計".to_string());
     }
 
-    // 3回目以降: 4ペルソナと検索仮説。構造不備は最大2回まで自動補修する。
+    // 3回目以降: 6ペルソナと検索仮説。構造不備は最大2回まで自動補修する。
     let prepare_prompt = journey::build_prepare_prompt(
         &case_profile,
         &job_facts,
