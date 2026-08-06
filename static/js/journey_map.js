@@ -71,7 +71,8 @@
  *   {
  *     personas: [{
  *       id, label, profile, behavior,
- *       queries: ["検索語", ...],
+ *       queries: ["検索語", ...] または [{query:"検索語", stage:"求人認知"}, ...],
+ *                （stage 付きは該当段階の詳細に、文字列は「自然検索」の詳細に表示）
  *       journey: [{ stage, candidate_action, question_or_expectation, dropoff_trigger,
  *                   countermeasure, channel, evidence: [...],
  *                   mind_voice: "内心のセリフ（任意・新フィールド）" }, ...],
@@ -156,10 +157,11 @@
   }
 
   function refLabel(r) {
-    if (/^J\d+$/i.test(r)) return "求人票の記載";
-    if (/^U\d+$/i.test(r)) return "担当者に確認済み";
-    if (/^C\d+$/i.test(r)) return "競合求人";
-    if (/^R\d+$/i.test(r)) return "クチコミ";
+    // 番号は根拠の識別子なので落とさない（C23とC40は別の実測求人）
+    if (/^J\d+$/i.test(r)) return "求人票の記載 " + String(r).toUpperCase();
+    if (/^U\d+$/i.test(r)) return "担当者に確認済み " + String(r).toUpperCase();
+    if (/^C\d+$/i.test(r)) return "競合求人 " + String(r).toUpperCase();
+    if (/^R\d+$/i.test(r)) return "クチコミ " + String(r).toUpperCase();
     if (r === "職種一般仮説") return "職種の一般傾向";
     if (r === "給与比較") return "給与の相対比較";
     return String(r).replace("集計", "の集計");
@@ -418,8 +420,22 @@
         .join("");
     }
 
-    function queryBlock(p) {
-      var queries = Array.isArray(p.queries) ? p.queries : [];
+    /** queries は文字列（従来）または {query, stage} を受ける。stage 付きなら該当段階だけに、
+     *  文字列なら従来どおり「自然検索」の詳細にだけ表示する。 */
+    function queriesFor(p, stage) {
+      var items = Array.isArray(p.queries) ? p.queries : [];
+      var out = [];
+      items.forEach(function (item) {
+        var text = typeof item === "string" ? item : item && item.query;
+        if (!text) return;
+        var qstage = item && typeof item === "object" ? item.stage : null;
+        if (qstage ? stageMatcher(qstage, stage) : stage === "自然検索") out.push(text);
+      });
+      return out;
+    }
+
+    function queryBlock(p, stage) {
+      var queries = queriesFor(p, stage);
       if (!queries.length) return "";
       var measured = 0;
       if (keywordMap) {
@@ -428,8 +444,8 @@
         });
       }
       var head = keywordMap
-        ? "この人が使いそうな検索語（月間検索量は実測 " + measured + "/" + queries.length + " 語）"
-        : "この人が使いそうな検索語（検索需要の実測対象）";
+        ? "この段階で使いそうな検索語（月間検索量は実測 " + measured + "/" + queries.length + " 語）"
+        : "この段階で使いそうな検索語（検索量は未取得・検索仮説）";
       return '<div class="fld wide"><b>' + esc(head) + "</b>" + queryChips(queries) + "</div>";
     }
 
@@ -465,7 +481,7 @@
           "」</span></div>"
         : "";
 
-      var extra = s.stage === "自然検索" ? queryBlock(p) : "";
+      var extra = queryBlock(p, s.stage);
 
       var actHtml = acts
         .map(function (a) {
