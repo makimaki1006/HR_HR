@@ -72,6 +72,12 @@
     .handoff .handoff-using{font-size:11px;font-weight:700;color:var(--lo);margin-top:6px}
     .optional{margin-top:14px}
     .optional label{display:block;font-size:12px;font-weight:800;color:var(--ink-2);margin-bottom:5px}
+    /* 人気求人の逆算 (2026-08-06): 折りたたみ内に最大3件の入力枠 */
+    details.optional summary{font-size:12.5px;color:var(--accent-ink);cursor:pointer;margin-bottom:6px}
+    .popular-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .popular-entry{background:var(--surface-2);border:1px dashed var(--line-2);border-radius:12px;padding:11px}
+    .popular-entry textarea{min-height:88px}
+    @media(max-width:900px){.popular-grid{grid-template-columns:1fr}}
     .actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:15px}
     .btn{border:0;border-radius:9px;padding:10px 15px;background:var(--accent);color:var(--on-accent);font-weight:800;font-size:13px;cursor:pointer;white-space:nowrap}
     .btn:hover{filter:brightness(1.06)}.btn:disabled{opacity:.5;cursor:not-allowed}
@@ -329,6 +335,36 @@
       <textarea id="employerNote" placeholder="例：現時点では経験者優先と見られるが、競合状況を踏まえ対象拡張も確認する。"></textarea>
       <p class="hint">この欄は確認済み発言ではなく仮説として扱います。最終的な「採用したい」はペルソナ確認後に人が選択します。</p>
     </div>
+    <details class="optional" id="popularSection">
+      <summary><b>人気求人の逆算（任意・最大3件）</b> — 同じ媒体で人気・超人気の他社求人を貼ると、人気要因を分解して対策に反映します</summary>
+      <p class="hint">「人気と判断した根拠」（応募数・掲載順位・顧客の証言など）が未入力の求人は使用しません。人気要因は傾向仮説として扱い、給与・ブランドなど真似で埋まらない要素は打ち手にせず区別して表示します。</p>
+      <div class="popular-grid">
+        <div class="popular-entry" data-popular="1">
+          <label>人気求人 1：本文</label>
+          <textarea class="popularContent" placeholder="人気求人の本文を貼り付け（30文字以上）"></textarea>
+          <div class="source-meta">
+            <div><label>人気の度合い</label><select class="popularTier"><option value="人気">人気</option><option value="超人気">超人気</option></select></div>
+            <div><label>人気と判断した根拠（必須）</label><input class="popularBasis" type="text" placeholder="例：応募数が月30件と顧客が証言"></div>
+          </div>
+        </div>
+        <div class="popular-entry" data-popular="2">
+          <label>人気求人 2：本文</label>
+          <textarea class="popularContent" placeholder="（任意）"></textarea>
+          <div class="source-meta">
+            <div><label>人気の度合い</label><select class="popularTier"><option value="人気">人気</option><option value="超人気">超人気</option></select></div>
+            <div><label>人気と判断した根拠（必須）</label><input class="popularBasis" type="text"></div>
+          </div>
+        </div>
+        <div class="popular-entry" data-popular="3">
+          <label>人気求人 3：本文</label>
+          <textarea class="popularContent" placeholder="（任意）"></textarea>
+          <div class="source-meta">
+            <div><label>人気の度合い</label><select class="popularTier"><option value="人気">人気</option><option value="超人気">超人気</option></select></div>
+            <div><label>人気と判断した根拠（必須）</label><input class="popularBasis" type="text"></div>
+          </div>
+        </div>
+      </div>
+    </details>
     <div class="actions"><button class="btn" id="diagnoseBtn">事実・比較母集団・6ペルソナを作成</button></div>
     <div class="status" id="diagnoseStatus" role="status" aria-live="polite"></div>
   </section>
@@ -439,6 +475,7 @@
     if(/^R\d+$/i.test(ref))return `口コミ ${ref.toUpperCase()}`;
     if(/^J\d+$/i.test(ref))return `顧客求人 ${ref.toUpperCase()}`;
     if(/^U\d+$/i.test(ref))return `顧客発言 ${ref.toUpperCase()}`;
+    if(/^P\d+$/i.test(ref))return `人気求人 ${ref.toUpperCase()}`;
     if(/^[a-z][a-z0-9_]*$/i.test(ref))return "顧客求人の確認項目";
     return "未確認の根拠";
   }
@@ -641,7 +678,12 @@
         customer_statements:$("#customerStatements").value.trim(),
         customer_statement_speaker:$("#customerStatementSpeaker").value.trim(),
         customer_statement_date:$("#customerStatementDate").value,
-        employer_note:$("#employerNote").value.trim()
+        employer_note:$("#employerNote").value.trim(),
+        popular_jobs:$$(".popular-entry").map(entry=>({
+          content:entry.querySelector(".popularContent").value.trim(),
+          tier:entry.querySelector(".popularTier").value,
+          basis:entry.querySelector(".popularBasis").value.trim()
+        })).filter(item=>item.content||item.basis)
       });
       S.data=data;
       S.selected.clear();
@@ -738,8 +780,31 @@
       <div class="twocol sectiongap">
         <div class="box"><h3>口コミから観測された求職者認知</h3>${d.review_csv_warning?`<div class="notice">${esc(d.review_csv_warning)} 口コミ由来の根拠なしで診断を続行しました。</div>`:""}${reviews}<details class="sectiongap"><summary><b>分析に使用した口コミ原文を確認</b></summary>${reviewEvidence}</details><p class="hint sectiongap">個々の口コミは会社実態の確定事実ではありませんが、求職者が1件でも真実として受け取る可能性がある外部情報として扱います。</p></div>
         <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(r.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
-      </div>`;
+      </div>
+      ${renderPopularAnalysis(d,r)}`;
     updateTableHints();
+  }
+
+  // 人気求人の逆算 (2026-08-06): 入力・警告・分類結果を工程2で開示する。
+  // 「再現困難」(給与上位・ブランド等) は打ち手対象外であることを明示する。
+  function renderPopularAnalysis(d,r){
+    const warnings=(d.popular_jobs_warnings||[]).map(w=>`<div class="notice">${esc(w)}</div>`).join("");
+    const evidence=d.popular_job_evidence||[];
+    const analysis=r.popular_analysis||[];
+    if(!warnings&&!evidence.length)return "";
+    const classBadge=cls=>cls==="再現困難"?'<span class="badge warn">再現困難・打ち手対象外</span>':cls==="ニッチ訴求"?'<span class="badge neutral">ニッチ訴求</span>':'<span class="badge ok">量的適合・再現可能</span>';
+    const cards=evidence.map(item=>{
+      const rows=analysis.filter(a=>a.source_ref===item.source_ref).map(a=>`
+        <div class="fact"><div class="flabel">${classBadge(a.factor_class)}</div>
+        <div class="fvalue">${esc(a.observation)}</div>
+        <div class="quote">候補者への影響：${esc(a.candidate_effect)}<br>再現可能性：${esc(a.reproducibility_note)}</div></div>`).join("");
+      return `<div class="box"><h3>${esc(humanizeRef(item.source_ref))}（${esc(item.tier)}）</h3>
+        <p class="hint">人気と判断した根拠：${esc(item.popularity_basis)}</p>
+        <div class="facts">${rows||'<p class="hint">逆算結果がありません。</p>'}</div></div>`;
+    }).join("");
+    return `<div class="box sectiongap"><h3>人気求人の逆算</h3>${warnings}
+      ${cards?`<div class="twocol">${cards}</div><p class="hint sectiongap">人気要因は応募実態の因果ではなく傾向仮説です。「再現困難」（給与が分布上位・ブランド等）は訴求の真似では埋まらないため打ち手にせず、顧客への確認事項に回します。</p>`:""}
+    </div>`;
   }
 
   function renderPublicStats(stats){

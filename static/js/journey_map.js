@@ -162,6 +162,7 @@
     if (/^U\d+$/i.test(r)) return "担当者に確認済み " + String(r).toUpperCase();
     if (/^C\d+$/i.test(r)) return "競合求人 " + String(r).toUpperCase();
     if (/^R\d+$/i.test(r)) return "クチコミ " + String(r).toUpperCase();
+    if (/^P\d+$/i.test(r)) return "人気求人 " + String(r).toUpperCase();
     if (r === "職種一般仮説") return "職種の一般傾向";
     if (r === "給与比較") return "給与の相対比較";
     return String(r).replace("集計", "の集計");
