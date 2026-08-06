@@ -115,6 +115,8 @@ struct PreparedJourneyCase {
     customer_statements: Vec<Value>,
     competitor: journey::CompetitorSummary,
     reviews: journey::ReviewSummary,
+    /// 人気求人オプションのP番号根拠 (未入力なら空)。詳細プロンプトにも渡す。
+    popular_jobs: Vec<Value>,
     public_stats: Value,
     prepare_result: Value,
     allowed_evidence_refs: HashSet<String>,
@@ -807,6 +809,14 @@ pub async fn jobgen_journey_diagnose(
         optional_body_str(&body, "customer_statement_date").as_deref(),
         &statement_speaker,
     );
+    // 人気求人の逆算オプション (2026-08-06)。判断根拠のない項目は P番号に昇格させず、
+    // 理由を warning で返して縮退続行する。
+    let popular_raw = body
+        .get("popular_jobs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let (popular_jobs, popular_warnings) = journey::build_popular_job_evidence(&popular_raw);
 
     let competitor_source_summary = match journey::summarize_competitor_csv(
         &competitor_bytes,
@@ -931,8 +941,13 @@ pub async fn jobgen_journey_diagnose(
     let client_salary =
         journey::client_salary_position(&salary_text, &employment_type, &competitor);
     let public_stats = fetch_journey_public_stats(&state, &work_location).await;
-    let mut allowed_evidence_refs =
-        journey::allowed_evidence_refs(&job_facts, &customer_statements, &competitor, &reviews);
+    let mut allowed_evidence_refs = journey::allowed_evidence_refs(
+        &job_facts,
+        &customer_statements,
+        &competitor,
+        &reviews,
+        &popular_jobs,
+    );
     if client_salary.is_some() {
         allowed_evidence_refs.insert("給与比較".to_string());
     }
@@ -955,6 +970,7 @@ pub async fn jobgen_journey_diagnose(
         client_salary.as_ref(),
         &public_stats,
         &employer_note,
+        &popular_jobs,
         &allowed_evidence_refs,
     );
     let prepare_schema = journey::prepare_schema_with_evidence_refs(&allowed_evidence_refs);
@@ -1019,6 +1035,8 @@ pub async fn jobgen_journey_diagnose(
             "comparison_cohort":cohort,
             "review_summary":reviews,
             "review_csv_warning":review_csv_warning,
+            "popular_job_evidence":popular_jobs,
+            "popular_jobs_warnings":popular_warnings,
             "client_salary_position":client_salary,
             "public_stats":public_stats,
             "result":result,
@@ -1041,6 +1059,7 @@ pub async fn jobgen_journey_diagnose(
                 customer_statements: customer_statements.clone(),
                 competitor: competitor.clone(),
                 reviews: reviews.clone(),
+                popular_jobs: popular_jobs.clone(),
                 public_stats: public_stats.clone(),
                 prepare_result: result.clone(),
                 allowed_evidence_refs,
@@ -1054,6 +1073,10 @@ pub async fn jobgen_journey_diagnose(
         );
     }
 
+    // ready 以外 (limited=小標本 / blocked=縮退続行)・口コミCSVや人気求人の入力が
+    // 使えなかった場合はコンサル確認を促す
+    let review_required =
+        cohort.status != "ready" || review_csv_warning.is_some() || !popular_warnings.is_empty();
     Json(json!({
         "status":"ok",
         "phase":"prepared",
@@ -1069,13 +1092,13 @@ pub async fn jobgen_journey_diagnose(
         "comparison_cohort":cohort,
         "review_summary":reviews,
         "review_csv_warning":review_csv_warning,
+        "popular_job_evidence":popular_jobs,
+        "popular_jobs_warnings":popular_warnings,
         "client_salary_position":client_salary,
         "public_stats":public_stats,
         "result":result,
         "quality_gate":{"passed":true,"issues":[]},
-        // ready 以外 (limited=小標本 / blocked=縮退続行)・口コミCSVが使えなかった場合は
-        // コンサル確認を促す
-        "review_required":cohort.status != "ready" || review_csv_warning.is_some(),
+        "review_required":review_required,
         "llm_calls":llm_calls,
         "notes":{
             "truth_scope":"顧客企業について確定事実として扱うのは、顧客求人から引用照合できた項目と顧客発言だけです。",
@@ -1532,6 +1555,11 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         }
     };
 
+    let popular_analysis = prepared
+        .prepare_result
+        .get("popular_analysis")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let base_prompt = journey::build_persona_detail_prompt(
         &prepared.case_profile,
         &persona,
@@ -1541,6 +1569,8 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         &prepared.reviews,
         &prepared.public_stats,
         &keyword_metrics,
+        &prepared.popular_jobs,
+        &popular_analysis,
         &prepared.allowed_evidence_refs,
     );
     let detail_schema =
