@@ -937,6 +937,11 @@ pub async fn jobgen_journey_diagnose(
             }
         }
     };
+    // CSVに媒体の人気・超人気タグ付き求人があれば自動で逆算対象に合流させる
+    // (比較不能CSVは候補が空なので何も足されない)。手入力分を優先して最大3件。
+    let mut popular_jobs = popular_jobs;
+    journey::extend_with_auto_popular(&mut popular_jobs, &competitor);
+
     let salary_text = verified_fact_value(&facts, "salary");
     let client_salary =
         journey::client_salary_position(&salary_text, &employment_type, &competitor);

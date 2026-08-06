@@ -123,6 +123,11 @@ pub struct CompetitorSummary {
     /// 顧客給与の実測パーセンタイル計算にだけ使う。LLM・ブラウザへは渡さない。
     #[serde(skip_serializing)]
     salary_values_by_group: BTreeMap<String, Vec<i64>>,
+    /// 媒体の人気・超人気タグ付き求人から作った逆算候補 (2026-08-06)。
+    /// 人気の事実確認はユーザー入力ではなく媒体タグの実測を第一根拠にする。
+    /// P番号は手入力分と合流時に振り直すため、ここでは未確定のまま持つ。
+    #[serde(skip_serializing)]
+    pub auto_popular_candidates: Vec<Value>,
 }
 
 impl CompetitorSummary {
@@ -154,6 +159,8 @@ impl CompetitorSummary {
             coverage: Vec::new(),
             briefs: Vec::new(),
             salary_values_by_group: BTreeMap::new(),
+            // 比較不能なCSVの人気タグは顧客と無関係なので自動逆算にも使わない
+            auto_popular_candidates: Vec::new(),
         }
     }
 }
@@ -392,6 +399,76 @@ fn summarize_competitor_records(
         })
         .collect();
 
+    // 媒体の人気・超人気タグ付き求人を逆算候補へ (超人気優先、本文が厚い順、最大 POPULAR_JOB_LIMIT 件)。
+    // 「人気の事実確認」を媒体タグの実測で行うため、ユーザーの根拠入力は不要になる。
+    let mut popular_rows: Vec<(bool, usize, &SurveyRecord)> = records
+        .iter()
+        .filter_map(|record| {
+            let tags = split_tags(&record.tags_raw);
+            let is_super = tags.iter().any(|tag| tag == "超人気");
+            let is_popular = tags.iter().any(|tag| tag == "人気");
+            if !is_super && !is_popular {
+                return None;
+            }
+            let text_len =
+                record.snippet.trim().chars().count() + record.description.trim().chars().count();
+            Some((is_super, text_len, record))
+        })
+        .collect();
+    popular_rows.sort_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
+    let auto_popular_candidates = popular_rows
+        .into_iter()
+        .take(POPULAR_JOB_LIMIT)
+        .map(|(is_super, _, record)| {
+            let tier = if is_super { "超人気" } else { "人気" };
+            let tags = split_tags(&record.tags_raw)
+                .into_iter()
+                .filter(|tag| !looks_like_tag_overflow(tag))
+                .collect::<Vec<_>>()
+                .join("、");
+            let body = [record.snippet.trim(), record.description.trim()]
+                .iter()
+                .filter(|text| !text.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" / ");
+            let content = [
+                record.job_title.trim().to_string(),
+                format!(
+                    "{}（{}）",
+                    record.company_name.trim(),
+                    display_location(record)
+                ),
+                format!("給与: {}", record.salary_raw.trim()),
+                if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!("特徴: {tags}")
+                },
+                body,
+            ]
+            .into_iter()
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+            json!({
+                // P番号は手入力分との合流時に extend_with_auto_popular が振り直す
+                "source_ref":"P0",
+                "tier":tier,
+                "popularity_basis":format!(
+                    "媒体の人気度表示（「{tier}」タグ・{filename}{} の実測、元CSV {}行目）",
+                    captured_at
+                        .as_deref()
+                        .map(|date| format!(" {date}時点"))
+                        .unwrap_or_default(),
+                    record.row_index + 1
+                ),
+                "content":truncate_text_chars(&content, 4_000),
+                "origin":"csv_auto"
+            })
+        })
+        .collect::<Vec<_>>();
+
     CompetitorSummary {
         filename: filename.to_string(),
         captured_at,
@@ -407,6 +484,7 @@ fn summarize_competitor_records(
         top_tags: sorted_counts(tag_counts, 20),
         popular_count,
         super_popular_count,
+        auto_popular_candidates,
         coverage: vec![
             CoverageCount {
                 label: "給与表記あり".to_string(),
@@ -2393,6 +2471,21 @@ pub fn build_popular_job_evidence(raw_items: &[Value]) -> (Vec<Value>, Vec<Strin
     (evidence, warnings)
 }
 
+/// 手入力の人気求人に、CSVの人気・超人気タグ由来の自動候補を合流させる (2026-08-06)。
+/// 手入力(コンサルの明示的な選択)を優先し、合計 POPULAR_JOB_LIMIT 件まで自動分で埋める。
+/// P番号はここで通し番号に振り直す。
+pub fn extend_with_auto_popular(popular_jobs: &mut Vec<Value>, competitor: &CompetitorSummary) {
+    for candidate in &competitor.auto_popular_candidates {
+        if popular_jobs.len() >= POPULAR_JOB_LIMIT {
+            break;
+        }
+        popular_jobs.push(candidate.clone());
+    }
+    for (index, item) in popular_jobs.iter_mut().enumerate() {
+        item["source_ref"] = json!(format!("P{}", index + 1));
+    }
+}
+
 fn truncate_text_chars(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         text.to_string()
@@ -3180,6 +3273,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
                 ),
                 ("正社員".to_string(), vec![250_000, 300_000, 350_000]),
             ]),
+            auto_popular_candidates: vec![],
         };
         let position =
             client_salary_position("月給31万円", "正社員", &summary).expect("salary position");
@@ -3218,6 +3312,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             coverage: vec![],
             briefs: vec![],
             salary_values_by_group: BTreeMap::new(),
+            auto_popular_candidates: vec![],
         };
         let reviews = ReviewSummary {
             filename: "r.csv".into(),
@@ -3769,8 +3864,60 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         );
     }
 
+    /// 人気の事実確認はユーザー入力ではなく媒体タグの実測を第一根拠にする (2026-08-06)。
+    /// 「人気と判断した根拠を分析するのが本懐なのに、なぜユーザーが必須入力なのか」という
+    /// 指摘への対応: CSV内の人気・超人気タグ付き求人は入力なしで自動逆算する。
+    #[test]
+    fn csv_popularity_tags_feed_auto_reverse_analysis_without_user_input() {
+        let csv = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-lx9x6g,css-14qk2ra,css-18rxko3,css-18rxko3 (2),jobsearch-JobCard-tag,css-1vlebyu,css-u74ql7\n\
+正社員,https://example.com/1,配送ドライバー,地場配送,会社A,東京都 大田区,月給 300000円,研修あり,仕事内容A,人気\n\
+正社員,https://example.com/2,配送ドライバー,日勤,会社B,東京都 大田区,月給 340000円,資格取得支援あり,仕事内容B,超人気\n\
+正社員,https://example.com/3,配送ドライバー,夜勤,会社C,東京都 大田区,月給 320000円,交通費支給,仕事内容C,\n";
+        let summary = summarize_competitor_csv(csv.as_bytes(), "indeed-2026-07-10.csv", None)
+            .expect("competitor csv");
+        let candidates = &summary.auto_popular_candidates;
+        assert_eq!(candidates.len(), 2, "タグ付き2行だけが候補になるべき");
+        assert_eq!(candidates[0]["tier"], "超人気", "超人気を優先すべき");
+        let basis = candidates[0]["popularity_basis"].as_str().unwrap_or("");
+        assert!(
+            basis.contains("媒体の人気度表示") && basis.contains("実測"),
+            "根拠が媒体タグの実測であることを明示すべき: {basis}"
+        );
+        let content = candidates[0]["content"].as_str().unwrap_or("");
+        assert!(
+            content.contains("会社B") && content.contains("月給 340000円"),
+            "本文に実在フィールドが組み立てられるべき: {content}"
+        );
+
+        // 手入力なし → 自動分だけで P1/P2
+        let mut auto_only = Vec::new();
+        extend_with_auto_popular(&mut auto_only, &summary);
+        assert_eq!(auto_only.len(), 2);
+        assert_eq!(auto_only[0]["source_ref"], "P1");
+        assert_eq!(auto_only[1]["source_ref"], "P2");
+
+        // 手入力1件があれば手入力が P1、自動分が P2〜 (合計 POPULAR_JOB_LIMIT 件まで)
+        let (mut merged, _) = build_popular_job_evidence(&[json!({
+            "content":"月給30万円、賞与年2回、大型免許取得支援ありのドライバー求人の本文です。",
+            "tier":"人気","basis":"顧客が応募数月30件と証言"
+        })]);
+        extend_with_auto_popular(&mut merged, &summary);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0]["source_ref"], "P1");
+        assert_eq!(merged[0]["popularity_basis"], "顧客が応募数月30件と証言");
+        assert_eq!(merged[1]["tier"], "超人気");
+        assert_eq!(merged[2]["source_ref"], "P3");
+
+        // 比較不能CSV (別地域・別職種) の人気タグは自動逆算にも使わない
+        let degraded = CompetitorSummary::not_comparable(&summary);
+        let mut none = Vec::new();
+        extend_with_auto_popular(&mut none, &degraded);
+        assert!(none.is_empty(), "比較不能CSVから人気候補を作ってはいけない");
+    }
+
     /// 人気求人オプション (2026-08-06): 判断根拠のない項目は P番号に昇格させず、
-    /// 理由を warning で返す (縮退続行の原則)。
+    /// 理由を warning で返す (縮退続行の原則)。手入力はCSV外の求人用で、
+    /// 人気の事実を実測確認できないため根拠を必須にする。
     #[test]
     fn popular_job_evidence_requires_basis_and_reports_reasons() {
         let long_body = "月給35万円、年間休日128日、未経験歓迎の配送ドライバー求人本文。".repeat(2);
@@ -4129,6 +4276,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             "popular_analysis",
             "再現困難・打ち手対象外",
             "傾向仮説",
+            "自動で逆算します（入力不要）",
         ] {
             assert!(
                 html.contains(required),
