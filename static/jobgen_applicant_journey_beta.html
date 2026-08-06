@@ -416,7 +416,7 @@
   };
   const S={
     data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:"",
-    details:new Map(),maxStep:1,mapInstance:null
+    details:new Map(),maxStep:1,mapInstance:null,measured:false
   };
   const FACT_LABELS={
     salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
@@ -853,7 +853,8 @@
         const detail=S.details.get(p.id)||{};
         return {
           id:p.id,label:p.label,profile:p.profile||"",behavior:p.likely_behavior||"",
-          queries:[...new Set((p.search_queries||[]).map(q=>String(q.query||"").trim()).filter(Boolean))].slice(0,8),
+          // 検索語は段階付きで渡し、認知・比較など該当段階の詳細にも実測値ごと表示する
+          queries:(p.search_queries||[]).map(q=>({query:String(q.query||"").trim(),stage:q.stage||""})).filter(q=>q.query).slice(0,12),
           journey:(detail.journey||[]).map(s=>({
             stage:s.stage,candidate_action:s.candidate_action,mind_voice:s.mind_voice,
             question_or_expectation:s.question_or_expectation,dropoff_trigger:s.dropoff_trigger,
@@ -884,7 +885,7 @@
       const assessmentRows=(detail.search_assessment||[]).map(item=>`<tr>
         <td><b>${esc(item.query)}</b></td><td>${esc(item.observed_demand)}</td>
         <td>${esc(item.interpretation)}</td><td>${esc(item.action_implication)}</td></tr>`).join("");
-      return `<details class="searchnote"><summary>${esc(p.label)}｜検索実測から分かったこと・想定ルート</summary>
+      return `<details class="searchnote" open><summary>${esc(p.label)}｜検索実測から分かったこと・想定ルート</summary>
         <p class="hint">${esc(routingText(p))}</p>
         ${assessmentRows?`<p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の検索実測評価表。横にスクロールできます"><table><thead><tr><th>検索内容</th><th>実測需要</th><th>読み取り</th><th>施策への反映</th></tr></thead><tbody>${assessmentRows}</tbody></table></div>`:'<p class="hint">検索実測評価はありません。</p>'}
       </details>`;
@@ -894,8 +895,13 @@
       <div class="mapwrap" tabindex="0" role="region" aria-label="ペルソナ別の段階別ジャーニーマップ。横にスクロールできます"><div class="jmap"></div></div>
       <div class="jmlegend"><span class="lg"><span class="dot f"></span>打ち手が求人票の中にある段階</span><span class="lg"><span class="dot h"></span>打ち手が求人票の外（検索結果・口コミ・面接など）にある段階</span><span class="lg"><span class="dot r"></span>優先度「高」の打ち手あり</span></div>
     </div>${notes}`;
-    const keywordMap={};
-    for(const [key,metric] of S.keywordMap)keywordMap[key]={avg_monthly:metric.avg_monthly};
+    // 検索量が実測できたときだけ実測値として渡す。未取得時は null にして
+    // 部品側が「検索量は未取得・検索仮説」と正直に表示する
+    let keywordMap=null;
+    if(S.measured){
+      keywordMap={};
+      for(const [key,metric] of S.keywordMap)keywordMap[key]={avg_monthly:metric.avg_monthly};
+    }
     S.mapInstance=window.renderJourneyMap(container.querySelector(".jmroot"),journeyMapData(personas),{
       keywordMap,
       dictEndpoints:{license:"/api/dict/license_card",occupation:"/api/dict/occupation_card"}
@@ -942,6 +948,7 @@
     status.innerHTML='<div class="loading">ペルソナ別検索語の検索需要をサーバーで確認しています…</div>';
     S.keywordMap.clear();
     S.suggestions=[];
+    S.measured=false;
     S.keywordMessage="取得中";
     renderKeywords();
     try{
@@ -952,6 +959,7 @@
       for(const metric of data.keywords||[])S.keywordMap.set(metric.keyword,metric);
       S.suggestions=data.suggestions||[];
       const measured=data.measurement_status==="measured";
+      S.measured=measured;
       S.keywordMessage=measured?"0 / 対象外":"未取得";
       const cached=data.cache==="case"?"（このケースの取得済み結果を再利用）":"";
       status.innerHTML=!measured?'<div class="notice">Google広告の認証情報が未設定のため検索量は未取得です。ペルソナ・離脱診断は利用できます。</div>':`<div class="oknote">検索需要をサーバーで取得・保存しました${cached}。少数検索や社名検索は検索量が表示されなくても診断対象に残します。</div>`;
@@ -990,7 +998,9 @@
         S.details.set(persona.id,response.result);
       }
       $("#keywordStatus").innerHTML='<div class="oknote">選択した全ペルソナが8段階・根拠番号・対策数の品質ゲートを通過しました。</div>';
-      $("#detailStatus").innerHTML=`<div class="oknote">${formatNumber(personas.length)}ペルソナの診断が完了しました。検索実測値を反映済みです。</div>`;
+      $("#detailStatus").innerHTML=S.measured
+        ?`<div class="oknote">${formatNumber(personas.length)}ペルソナの診断が完了しました。検索実測値を反映済みです。</div>`
+        :`<div class="notice">${formatNumber(personas.length)}ペルソナの診断が完了しました。Google広告の検索量は未取得のため、検索需要は仮説ベースで表示しています。</div>`;
       unlockStep(5);
     }catch(error){
       $("#keywordStatus").innerHTML=`<div class="error">${esc(error.message)} 完了済みのペルソナ結果は保持しています。再実行すると未完了分だけを続けます。</div>`;
