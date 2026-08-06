@@ -1793,6 +1793,8 @@ pub fn build_persona_detail_prompt(
 - candidate_action は場面が目に浮かぶ具体度で書く: いつ(時間帯・状況)・どこで(通勤中・自宅など)・何を使い(スマホ・アプリ・検索)・何と何をどう比較するか、まで踏み込む。「求人を比較する」のような抽象文は禁止。
 - mind_voice はこのペルソナの内心のつぶやきを一人称・かぎ括弧で1〜2文。例の形式:「夜勤続きはもう限界。でも手取りが下がるのは困る」。求人事実と矛盾する内容や、実在データに無い数値を混ぜない。
 - countermeasure は「〜のため、◯◯すべき」の助言形式で書き、何をどこにどう書く/変えるかまで具体化する。抽象的な「魅力を訴求する」は禁止。
+- 「他求人比較」の段階は、一般論でなく competitor_observations と client_salary_position の実測に基づいて書く: 顧客求人が競合の給与分布のどこにいるか、競合の上位条件タグのうち顧客求人に無いもの、実在する競合求人(C番号)との具体的な差、を必ず反映し、根拠にC番号または競合集計・給与比較を引用する。
+- このペルソナが職種の一般傾向としては気にしない条件でも、競合が実測で明確に上回っている項目(例: 給与・休日日数)は、比較の段階で目に入って離脱要因になり得る。単体閲覧では問題にならない条件が比較で顕在化する、という順序を意識して書く。
 - channel は対策を実行する場所であり、次の分類のいずれかを一字一句そのまま使う: {channels}
 - priority_actions の stage は上記8段階の名称を一字一句そのまま使う。「〜段階」を付けたり独自の段階名を作らない。
 - priority は 高・中・低 のいずれかをそのまま使う。
@@ -2015,6 +2017,40 @@ pub fn validate_persona_detail(
                 &mut issues,
             );
             validate_action_channel(item, &format!("{}番目の段階", index + 1), &mut issues);
+            // 2026-08-05: 「他求人比較」は実測の競合データに接地させる。
+            // 職種あるあるだけの一般論比較では、単体閲覧で問題にならない条件が
+            // 競合比較で顕在化する離脱 (例: 競合の給与が実測で高い) を見落とすため、
+            // 競合由来の根拠が使える診断では、比較段階に競合由来の引用を最低1つ要求する。
+            // 縮退時 (比較母集団なし = 競合根拠が許可集合に無い) は自動的に免除される。
+            if required_stage == &"他求人比較" {
+                let competitor_refs_available = allowed_evidence_refs.iter().any(|reference| {
+                    numbered_evidence_ref(reference, 'C')
+                        || reference == "競合条件集計"
+                        || reference == "競合給与集計"
+                        || reference == "競合人気度集計"
+                        || reference == "給与比較"
+                });
+                if competitor_refs_available {
+                    let cites_competitor = item
+                        .get("evidence_refs")
+                        .and_then(Value::as_array)
+                        .map(|refs| {
+                            refs.iter().filter_map(Value::as_str).any(|reference| {
+                                numbered_evidence_ref(reference, 'C')
+                                    || reference == "競合条件集計"
+                                    || reference == "競合給与集計"
+                                    || reference == "競合人気度集計"
+                                    || reference == "給与比較"
+                            })
+                        })
+                        .unwrap_or(false);
+                    if !cites_competitor {
+                        issues.push(
+                            "「他求人比較」の段階が競合の実測データ(C番号・競合集計・給与比較)を1つも引用していません。一般論でなく、実在の競合と顧客求人の実測差に基づいて比較段階を書いてください。".to_string(),
+                        );
+                    }
+                }
+            }
         }
         if journey.get(index).map(evidence_ref_count).unwrap_or(0) == 0 {
             issues.push(format!("{}番目の段階に根拠番号がありません。", index + 1));
@@ -3624,6 +3660,48 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         assert!(
             summary.evidence.len() <= REVIEW_EVIDENCE_LIMIT,
             "打ち切り上限は維持されるべき"
+        );
+    }
+
+    /// 「他求人比較」段階の競合実測への接地強制 (2026-08-05 ユーザー指摘)。
+    /// 職種あるあるだけの比較では「単体閲覧では気にならないが競合が実測で上回る条件」
+    /// (例: この職種は給料を調べない層でも、他社が高ければ移る) の離脱を見落とす。
+    #[test]
+    fn comparison_stage_must_cite_measured_competitor_evidence() {
+        let persona = valid_prepare_persona("p1", "検索・比較する");
+
+        // 競合根拠が許可されている診断で、比較段階が職種一般仮説のみ → 不合格
+        let allowed: HashSet<String> = ["職種一般仮説", "C1", "競合給与集計", "給与比較"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let generic = valid_detail_result(&persona);
+        let issues = validate_persona_detail(&generic, &persona, &allowed);
+        assert!(
+            issues.iter().any(|issue| issue.contains("他求人比較")),
+            "一般論だけの比較段階が通ってしまう: {issues:?}"
+        );
+
+        // 比較段階が競合実測 (競合給与集計) を引用 → 合格
+        let mut grounded = valid_detail_result(&persona);
+        let comparison_index = REQUIRED_JOURNEY_STAGES
+            .iter()
+            .position(|s| *s == "他求人比較")
+            .expect("stage");
+        grounded["journey"][comparison_index]["evidence_refs"] =
+            json!(["職種一般仮説", "競合給与集計"]);
+        let issues = validate_persona_detail(&grounded, &persona, &allowed);
+        assert!(
+            !issues.iter().any(|issue| issue.contains("他求人比較")),
+            "競合実測を引用した比較段階が拒否された: {issues:?}"
+        );
+
+        // 縮退時 (競合根拠なし = 比較母集団が作れなかった) は免除される
+        let degraded_allowed = HashSet::from(["職種一般仮説".to_string()]);
+        let issues = validate_persona_detail(&generic, &persona, &degraded_allowed);
+        assert!(
+            !issues.iter().any(|issue| issue.contains("他求人比較")),
+            "縮退時にも接地を要求して診断が全滅する: {issues:?}"
         );
     }
 
