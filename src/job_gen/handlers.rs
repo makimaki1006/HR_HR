@@ -1310,10 +1310,13 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
             }
         }
     }
-    if query_order.is_empty() || query_order.len() > 32 {
+    // 上限はペルソナ数×検索語最大数に連動させる (2026-08-06: 32固定のままだと
+    // 6ペルソナ×最大8語=48語の全選択で工程4が止まる回帰があった)
+    let query_limit = journey::REQUIRED_PERSONA_COUNT * journey::REQUIRED_SEARCH_QUERY_MAX;
+    if query_order.is_empty() || query_order.len() > query_limit {
         return Json(json!({
             "status":"error",
-            "message":"検索需要の確認対象が1〜32件になるよう、ペルソナを作り直してください。"
+            "message":format!("検索需要の確認対象が1〜{query_limit}件になるよう、ペルソナを作り直してください。")
         }));
     }
     if requested_persona_ids
