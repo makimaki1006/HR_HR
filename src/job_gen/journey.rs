@@ -1106,6 +1106,21 @@ fn review_source_ref_schema(allowed: &HashSet<String>) -> Value {
     }
 }
 
+/// 人気求人逆算の分類。②再現困難は打ち手にしない (条件・ブランド由来のため真似では埋まらない)。
+pub const POPULAR_FACTOR_CLASSES: [&str; 3] = ["量的適合", "ニッチ訴求", "再現困難"];
+
+fn popular_source_ref_schema(allowed: &HashSet<String>) -> Value {
+    let popular_refs = sorted_evidence_refs(allowed)
+        .into_iter()
+        .filter(|reference| numbered_evidence_ref(reference, 'P'))
+        .collect::<Vec<_>>();
+    if popular_refs.is_empty() {
+        json!({"type":"string"})
+    } else {
+        json!({"type":"string","enum":popular_refs})
+    }
+}
+
 pub fn prepare_schema() -> Value {
     prepare_schema_with_evidence_refs(&HashSet::from(["職種一般仮説".to_string()]))
 }
@@ -1203,12 +1218,31 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
                     ]
                 }
             },
+            "popular_analysis":{
+                "type":"array",
+                "items":{
+                    "type":"object",
+                    "properties":{
+                        "source_ref":popular_source_ref_schema(allowed),
+                        "tier":{"type":"string","enum":["人気","超人気"]},
+                        "factor_class":{"type":"string","enum":POPULAR_FACTOR_CLASSES},
+                        "observation":{"type":"string"},
+                        "candidate_effect":{"type":"string"},
+                        "reproducibility_note":{"type":"string"},
+                        "evidence_refs":evidence_refs()
+                    },
+                    "required":[
+                        "source_ref","tier","factor_class","observation",
+                        "candidate_effect","reproducibility_note","evidence_refs"
+                    ]
+                }
+            },
             "client_questions":string_array(),
             "limitations":string_array()
         },
         "required":[
             "case_profile","analysis_summary","condition_findings","review_findings",
-            "personas","client_questions","limitations"
+            "popular_analysis","personas","client_questions","limitations"
         ]
     });
     if !allowed
@@ -1216,6 +1250,12 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
         .any(|reference| numbered_evidence_ref(reference, 'R'))
     {
         schema["properties"]["review_findings"]["maxItems"] = json!(0);
+    }
+    if !allowed
+        .iter()
+        .any(|reference| numbered_evidence_ref(reference, 'P'))
+    {
+        schema["properties"]["popular_analysis"]["maxItems"] = json!(0);
     }
     schema
 }
@@ -1231,6 +1271,7 @@ pub fn build_prepare_prompt(
     client_salary: Option<&ClientSalaryPosition>,
     public_stats: &Value,
     employer_note: &str,
+    popular_jobs: &[Value],
     allowed_evidence_refs: &HashSet<String>,
 ) -> String {
     const COMMON_SEARCH_AXES: &str = r#"
@@ -1250,6 +1291,14 @@ pub fn build_prepare_prompt(
         .any(|reference| numbered_evidence_ref(reference, 'R'));
     let allowed_evidence_refs = serde_json::to_string(&sorted_evidence_refs(allowed_evidence_refs))
         .unwrap_or_else(|_| "[]".to_string());
+    let popular_instruction = if popular_jobs.is_empty() {
+        "入力にP番号がないため、popular_analysis は空配列にする。".to_string()
+    } else {
+        format!(
+            "popular_analysis で各P番号の人気要因を逆算する。P番号ごとに1件以上返し、source_ref と同じP番号をその項目の evidence_refs にも入れる。分類 (factor_class) は次の3種のみ: 「量的適合」=市場の最大ボリューム層の条件・訴求に合致 (競合条件集計・競合給与集計との位置関係で裏付ける)、「ニッチ訴求」=比較母集団に類例が少ない条件・訴求で特定層に刺さる、「再現困難」=給与が分布上位・会社ブランド・突出した待遇など、見せ方の模倣では埋まらない要素。「再現困難」の要素は候補者への影響 (candidate_effect) と顧客への確認事項に回し、訴求の真似を提案しない。人気は応募実態の因果ではなく傾向仮説に留め、「人気の理由はXだ」と断定しない。人気求人の逆算件数は最大{}件×3分類まで。",
+            popular_jobs.len()
+        )
+    };
     let review_instruction = if has_review_evidence {
         "review_findings の source_ref は入力に実在するR番号とし、同じR番号をその項目の evidence_refs にも入れる。"
     } else {
@@ -1278,6 +1327,8 @@ pub fn build_prepare_prompt(
 - U番号は「顧客がその内容を発言した」確認済み情報。
 - C番号は比較母集団の競合求人。
 - R番号は求職者が目にする口コミ原文であり、会社実態とは断定しない。
+- P番号は営業担当が「人気・超人気」と判断した実在の他社求人。人気の判断根拠 (popularity_basis) 込みで提示され、応募実態の観測値ではない。
+- {popular_instruction}
 - 「給与比較」はコード計算した顧客給与の相対位置。
 - 「公的統計」は地域母集団の補助、「職種一般仮説」は一般的な確認行動。
 - evidence_refs は次の許可一覧にある値だけを完全一致で使う: {allowed_evidence_refs}
@@ -1313,6 +1364,9 @@ pub fn build_prepare_prompt(
 <review_observations>
 {reviews}
 </review_observations>
+<popular_job_observations>
+{popular_jobs}
+</popular_job_observations>
 <public_statistics>
 {public_stats}
 </public_statistics>
@@ -1327,9 +1381,11 @@ pub fn build_prepare_prompt(
         competitor = prompt_json(competitor, "{}"),
         client_salary = prompt_json(&client_salary, "null"),
         reviews = prompt_json(reviews, "{}"),
+        popular_jobs = prompt_json(popular_jobs, "[]"),
         public_stats = prompt_json(public_stats, "{}"),
         allowed_evidence_refs = allowed_evidence_refs,
         review_instruction = review_instruction,
+        popular_instruction = popular_instruction,
         employer_note = if employer_note.trim().is_empty() {
             "\"未入力\"".to_string()
         } else {
@@ -1486,6 +1542,78 @@ pub fn validate_prepare_result(
                     index + 1
                 ));
             }
+        }
+    }
+
+    // 人気求人の逆算 (2026-08-06): P番号が入力されたら全P番号の逆算を必須にする。
+    // 逆に入力が無いのに逆算が出てきたら捏造なので拒否する。
+    let popular_refs: Vec<&String> = {
+        let mut refs: Vec<&String> = allowed_evidence_refs
+            .iter()
+            .filter(|reference| numbered_evidence_ref(reference, 'P'))
+            .collect();
+        refs.sort();
+        refs
+    };
+    let popular_analysis = result
+        .get("popular_analysis")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    if popular_refs.is_empty() && !popular_analysis.is_empty() {
+        issues.push(
+            "人気求人が入力されていないため popular_analysis は空配列にしてください。".to_string(),
+        );
+    }
+    for popular_ref in &popular_refs {
+        if !popular_analysis.iter().any(|item| {
+            item.get("source_ref").and_then(Value::as_str) == Some(popular_ref.as_str())
+        }) {
+            issues.push(format!(
+                "人気求人{popular_ref}の逆算 (popular_analysis) がありません。"
+            ));
+        }
+    }
+    for (index, item) in popular_analysis.iter().enumerate() {
+        validate_required_strings(
+            item,
+            &format!("人気求人逆算{}", index + 1),
+            &["observation", "candidate_effect", "reproducibility_note"],
+            &mut issues,
+        );
+        let factor_class = item
+            .get("factor_class")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !POPULAR_FACTOR_CLASSES.contains(&factor_class) {
+            issues.push(format!(
+                "人気求人逆算{}のfactor_classは 量的適合・ニッチ訴求・再現困難 のいずれかにしてください。",
+                index + 1
+            ));
+        }
+        let source_ref = item
+            .get("source_ref")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if !numbered_evidence_ref(source_ref, 'P') || !allowed_evidence_refs.contains(source_ref) {
+            issues.push(format!(
+                "人気求人逆算{}のsource_refは入力に存在するP番号を指定してください。",
+                index + 1
+            ));
+        } else if !item
+            .get("evidence_refs")
+            .and_then(Value::as_array)
+            .is_some_and(|references| {
+                references
+                    .iter()
+                    .any(|reference| reference.as_str() == Some(source_ref))
+            })
+        {
+            issues.push(format!(
+                "人気求人逆算{}のevidence_refsにsource_refと同じP番号を入れてください。",
+                index + 1
+            ));
         }
     }
 
@@ -1769,6 +1897,7 @@ pub fn build_trusted_keyword_metrics(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn build_persona_detail_prompt(
     case_profile: &Value,
     persona: &Value,
@@ -1778,10 +1907,17 @@ pub fn build_persona_detail_prompt(
     reviews: &ReviewSummary,
     public_stats: &Value,
     keyword_metrics: &Value,
+    popular_jobs: &[Value],
+    popular_analysis: &Value,
     allowed_evidence_refs: &HashSet<String>,
 ) -> String {
     let stages = REQUIRED_JOURNEY_STAGES.join(" → ");
     let channels = REQUIRED_ACTION_CHANNELS.join("、");
+    let popular_rule = if popular_jobs.is_empty() {
+        String::new()
+    } else {
+        "\n- P番号は営業担当が人気・超人気と判断した実在の他社求人。popular_analysis はその逆算済み分類。「求人認知」「他求人比較」の段階と対策では、分類が「量的適合」「ニッチ訴求」の要素を打ち手の参考にし、P番号を根拠に引用する。分類が「再現困難」の要素 (給与上位・ブランド等) は打ち手にせず、離脱要因の説明と顧客への確認事項に回す。人気は傾向仮説であり「人気の理由はXだ」と断定しない。".to_string()
+    };
     let allowed_evidence_refs = serde_json::to_string(&sorted_evidence_refs(allowed_evidence_refs))
         .unwrap_or_else(|_| "[]".to_string());
     format!(
@@ -1812,7 +1948,7 @@ pub fn build_persona_detail_prompt(
 - evidence_refs は次の許可一覧にある値だけを完全一致で使う: {allowed_evidence_refs}
 - competitor_observations、review_observations、public_statistics、client_salary_position などの入力ブロック名は根拠IDではないため出力しない。
 - 競合条件・給与・人気度の集計は、それぞれ「競合条件集計」「競合給与集計」「競合人気度集計」を使う。
-- 口コミ件数の集計は「口コミ件数集計」、個別内容はC/R番号を使う。
+- 口コミ件数の集計は「口コミ件数集計」、個別内容はC/R番号を使う。{popular_rule}
 
 <case_profile>{case_profile}</case_profile>
 <selected_persona>{persona}</selected_persona>
@@ -1820,6 +1956,8 @@ pub fn build_persona_detail_prompt(
 <customer_statement_evidence>{customer_statements}</customer_statement_evidence>
 <competitor_observations>{competitor}</competitor_observations>
 <review_observations>{reviews}</review_observations>
+<popular_job_observations>{popular_jobs}</popular_job_observations>
+<popular_analysis>{popular_analysis}</popular_analysis>
 <public_statistics>{public_stats}</public_statistics>
 <keyword_metrics>{keyword_metrics}</keyword_metrics>"#,
         channels = channels,
@@ -1829,9 +1967,12 @@ pub fn build_persona_detail_prompt(
         customer_statements = prompt_json(customer_statements, "[]"),
         competitor = prompt_json(competitor, "{}"),
         reviews = prompt_json(reviews, "{}"),
+        popular_jobs = prompt_json(popular_jobs, "[]"),
+        popular_analysis = prompt_json(popular_analysis, "[]"),
         public_stats = prompt_json(public_stats, "{}"),
         keyword_metrics = prompt_json(keyword_metrics, "[]"),
         allowed_evidence_refs = allowed_evidence_refs,
+        popular_rule = popular_rule,
     )
 }
 
@@ -2174,14 +2315,86 @@ fn evidence_ref_count(value: &Value) -> usize {
         .unwrap_or(0)
 }
 
+/// 人気求人オプション (2026-08-06) の入力を P番号根拠へ変換する。
+///
+/// 「人気」は応募実態の観測ではなく営業判断なので、判断根拠 (basis) の無い項目は
+/// P番号に昇格させない。止めずに理由を warning で返して除外する (縮退続行の原則)。
+pub const POPULAR_JOB_LIMIT: usize = 3;
+const POPULAR_CONTENT_MIN_CHARS: usize = 30;
+const POPULAR_CONTENT_LIMIT_CHARS: usize = 4_000;
+
+pub fn build_popular_job_evidence(raw_items: &[Value]) -> (Vec<Value>, Vec<String>) {
+    let mut evidence = Vec::new();
+    let mut warnings = Vec::new();
+    for (index, item) in raw_items.iter().enumerate() {
+        let position = index + 1;
+        let content = item
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let basis = item
+            .get("basis")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if content.is_empty() && basis.is_empty() {
+            continue;
+        }
+        if content.chars().count() < POPULAR_CONTENT_MIN_CHARS {
+            warnings.push(format!(
+                "人気求人{position}は本文が{POPULAR_CONTENT_MIN_CHARS}文字未満のため使用しませんでした。求人本文を貼り付けてください。"
+            ));
+            continue;
+        }
+        if basis.is_empty() {
+            warnings.push(format!(
+                "人気求人{position}は「人気と判断した根拠」が未入力のため使用しませんでした。応募数・掲載順位・顧客の証言など、人気と判断した理由を入力してください。"
+            ));
+            continue;
+        }
+        if evidence.len() >= POPULAR_JOB_LIMIT {
+            warnings.push(format!(
+                "人気求人は{POPULAR_JOB_LIMIT}件まで使用します。人気求人{position}以降は使用しませんでした。"
+            ));
+            break;
+        }
+        let tier = match item.get("tier").and_then(Value::as_str).map(str::trim) {
+            Some("超人気") => "超人気",
+            _ => "人気",
+        };
+        evidence.push(json!({
+            "source_ref":format!("P{}", evidence.len() + 1),
+            "tier":tier,
+            "popularity_basis":truncate_text_chars(basis, 300),
+            "content":truncate_text_chars(content, POPULAR_CONTENT_LIMIT_CHARS)
+        }));
+    }
+    (evidence, warnings)
+}
+
+fn truncate_text_chars(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(limit).collect();
+        format!("{truncated}…")
+    }
+}
+
 pub fn allowed_evidence_refs(
     job_facts: &[Value],
     customer_statements: &[Value],
     competitor: &CompetitorSummary,
     reviews: &ReviewSummary,
+    popular_jobs: &[Value],
 ) -> HashSet<String> {
     let mut refs = HashSet::from(["職種一般仮説".to_string()]);
-    for value in job_facts.iter().chain(customer_statements.iter()) {
+    for value in job_facts
+        .iter()
+        .chain(customer_statements.iter())
+        .chain(popular_jobs.iter())
+    {
         if let Some(reference) = value.get("source_ref").and_then(Value::as_str) {
             refs.insert(reference.to_string());
         }
@@ -2624,7 +2837,7 @@ mod tests {
 正社員,https://example.com/1,配送ドライバー,会社A,東京都 大田区,月給 300000円,本文\n";
         let competitor = summarize_competitor_csv(csv.as_bytes(), "competitors.csv", None)
             .expect("competitor csv");
-        let refs = allowed_evidence_refs(&[], &[], &competitor, &reviews);
+        let refs = allowed_evidence_refs(&[], &[], &competitor, &reviews, &[]);
         assert!(
             !refs
                 .iter()
@@ -2726,7 +2939,7 @@ mod tests {
         assert_eq!(degraded.raw_row_count, source.raw_row_count);
 
         // 競合由来の根拠は一切許可されない
-        let refs = allowed_evidence_refs(&[], &[], &degraded, &ReviewSummary::not_provided());
+        let refs = allowed_evidence_refs(&[], &[], &degraded, &ReviewSummary::not_provided(), &[]);
         assert!(
             !refs.iter().any(|r| {
                 r.starts_with('C')
@@ -3495,6 +3708,234 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         assert!(validate_prepare_result(&valid, &allowed).is_empty());
     }
 
+    /// 人気求人オプション (2026-08-06): 判断根拠のない項目は P番号に昇格させず、
+    /// 理由を warning で返す (縮退続行の原則)。
+    #[test]
+    fn popular_job_evidence_requires_basis_and_reports_reasons() {
+        let long_body = "月給35万円、年間休日128日、未経験歓迎の配送ドライバー求人本文。".repeat(2);
+        let items = vec![
+            json!({"content":long_body,"tier":"超人気","basis":"顧客が応募数月30件と証言"}),
+            json!({"content":"短い本文","tier":"人気","basis":"営業の実感"}),
+            json!({"content":"月給30万円、賞与年2回、大型免許取得支援ありのドライバー求人の本文です。","tier":"人気","basis":""}),
+            json!({"content":"","basis":""}),
+        ];
+        let (evidence, warnings) = build_popular_job_evidence(&items);
+        assert_eq!(evidence.len(), 1, "根拠付きの1件だけがP番号に昇格すべき");
+        assert_eq!(evidence[0]["source_ref"], "P1");
+        assert_eq!(evidence[0]["tier"], "超人気");
+        assert_eq!(
+            warnings.len(),
+            2,
+            "短い本文と根拠なしの2件は理由付き警告になるべき: {warnings:?}"
+        );
+        assert!(warnings[0].contains("30文字未満"), "{}", warnings[0]);
+        assert!(warnings[1].contains("判断した根拠"), "{}", warnings[1]);
+
+        // ティア不明値は「人気」に正規化される
+        let (normalized, _) = build_popular_job_evidence(&[
+            json!({"content":"月給30万円、賞与年2回、大型免許取得支援ありのドライバー求人の本文です。","tier":"バズってる","basis":"掲載順位が常に上位"}),
+        ]);
+        assert_eq!(normalized[0]["tier"], "人気");
+    }
+
+    #[test]
+    fn popular_refs_gate_schema_and_reverse_analysis() {
+        let csv = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu\n正社員,https://example.com/1,配送ドライバー,会社A,東京都 大田区,月給 300000円,本文\n";
+        let competitor = summarize_competitor_csv(csv.as_bytes(), "competitors.csv", None)
+            .expect("competitor csv");
+        let popular = vec![json!({
+            "source_ref":"P1","tier":"人気",
+            "popularity_basis":"応募数","content":"本文"
+        })];
+        let refs = allowed_evidence_refs(
+            &[],
+            &[],
+            &competitor,
+            &ReviewSummary::not_provided(),
+            &popular,
+        );
+        assert!(refs.contains("P1"), "P番号が許可根拠に入るべき: {refs:?}");
+        let schema = prepare_schema_with_evidence_refs(&refs);
+        assert!(
+            schema["properties"]["popular_analysis"]
+                .get("maxItems")
+                .is_none(),
+            "P番号があるのに popular_analysis が空配列に固定されている"
+        );
+        assert_eq!(
+            schema["properties"]["popular_analysis"]["items"]["properties"]["source_ref"]["enum"],
+            json!(["P1"]),
+            "source_ref はP番号enumで拘束されるべき"
+        );
+
+        // 入力なしなら逆算そのものを封じる (捏造経路を閉じる)
+        let no_popular =
+            allowed_evidence_refs(&[], &[], &competitor, &ReviewSummary::not_provided(), &[]);
+        assert!(!no_popular.iter().any(|r| r.starts_with('P')));
+        let schema = prepare_schema_with_evidence_refs(&no_popular);
+        assert_eq!(
+            schema["properties"]["popular_analysis"]["maxItems"],
+            json!(0)
+        );
+    }
+
+    #[test]
+    fn popular_analysis_gate_requires_coverage_and_rejects_fabrication() {
+        let mut allowed = HashSet::from(["職種一般仮説".to_string()]);
+        allowed.insert("P1".to_string());
+
+        // P1 が入力されたのに逆算が無い → 差し戻し
+        let missing = valid_prepare_result();
+        let issues = validate_prepare_result(&missing, &allowed);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("人気求人P1の逆算")),
+            "P番号入力時は逆算必須のはず: {issues:?}"
+        );
+
+        // 正しい逆算は通る
+        let mut valid = valid_prepare_result();
+        valid["popular_analysis"] = json!([{
+            "source_ref":"P1","tier":"人気","factor_class":"量的適合",
+            "observation":"年間休日と手当一覧を冒頭に明記している",
+            "candidate_effect":"休日重視層が一覧画面で手を止めやすい",
+            "reproducibility_note":"見せ方の工夫のため求人票の書き換えで再現可能",
+            "evidence_refs":["P1","職種一般仮説"]
+        }]);
+        assert!(
+            validate_prepare_result(&valid, &allowed).is_empty(),
+            "{:?}",
+            validate_prepare_result(&valid, &allowed)
+        );
+
+        // P番号が入力されていないのに逆算が出てきたら捏造として拒否
+        let no_popular = HashSet::from(["職種一般仮説".to_string()]);
+        let issues = validate_prepare_result(&valid, &no_popular);
+        assert!(
+            issues.iter().any(|issue| issue.contains("空配列")),
+            "{issues:?}"
+        );
+
+        // evidence_refs に自身のP番号が無い → 差し戻し
+        let mut missing_self = valid.clone();
+        missing_self["popular_analysis"][0]["evidence_refs"] = json!(["職種一般仮説"]);
+        let issues = validate_prepare_result(&missing_self, &allowed);
+        assert!(
+            issues.iter().any(|issue| issue.contains("同じP番号")),
+            "{issues:?}"
+        );
+
+        // 分類は3種に拘束
+        let mut bad_class = valid.clone();
+        bad_class["popular_analysis"][0]["factor_class"] = json!("バズ要因");
+        let issues = validate_prepare_result(&bad_class, &allowed);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("量的適合・ニッチ訴求・再現困難")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn prompts_explain_popular_reverse_analysis_only_when_provided() {
+        let csv = "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu\n正社員,https://example.com/1,配送ドライバー,会社A,東京都 大田区,月給 300000円,本文\n";
+        let competitor = summarize_competitor_csv(csv.as_bytes(), "competitors.csv", None)
+            .expect("competitor csv");
+        let (cohort, _) = build_comparison_cohort(
+            csv.as_bytes(),
+            "competitors.csv",
+            None,
+            "配送ドライバー",
+            "配送ドライバー",
+            &["配送".to_string()],
+            "東京都",
+            "大田区",
+            "職業紹介（正社員）",
+        )
+        .expect("cohort");
+        let popular = vec![json!({
+            "source_ref":"P1","tier":"超人気",
+            "popularity_basis":"掲載順位が常に上位","content":"人気求人の本文"
+        })];
+        let allowed = allowed_evidence_refs(
+            &[],
+            &[],
+            &competitor,
+            &ReviewSummary::not_provided(),
+            &popular,
+        );
+        let prompt = build_prepare_prompt(
+            &json!({}),
+            &[],
+            &[],
+            &competitor,
+            &cohort,
+            &ReviewSummary::not_provided(),
+            None,
+            &json!({"available":false}),
+            "",
+            &popular,
+            &allowed,
+        );
+        for required in [
+            "量的適合",
+            "ニッチ訴求",
+            "再現困難",
+            "断定しない",
+            "popular_job_observations",
+        ] {
+            assert!(prompt.contains(required), "missing: {required}");
+        }
+
+        let without = build_prepare_prompt(
+            &json!({}),
+            &[],
+            &[],
+            &competitor,
+            &cohort,
+            &ReviewSummary::not_provided(),
+            None,
+            &json!({"available":false}),
+            "",
+            &[],
+            &allowed,
+        );
+        assert!(without.contains("popular_analysis は空配列にする"));
+
+        // 詳細プロンプト: 再現困難は打ち手にしない規律が入る
+        let detail = build_persona_detail_prompt(
+            &json!({}),
+            &json!({"id":"p1"}),
+            &[],
+            &[],
+            &competitor,
+            &ReviewSummary::not_provided(),
+            &json!({"available":false}),
+            &json!([]),
+            &popular,
+            &json!([]),
+            &allowed,
+        );
+        assert!(detail.contains("「再現困難」の要素"));
+        assert!(detail.contains("打ち手にせず"));
+        let detail_without = build_persona_detail_prompt(
+            &json!({}),
+            &json!({"id":"p1"}),
+            &[],
+            &[],
+            &competitor,
+            &ReviewSummary::not_provided(),
+            &json!({"available":false}),
+            &json!([]),
+            &[],
+            &json!([]),
+            &allowed,
+        );
+        assert!(!detail_without.contains("「再現困難」の要素"));
+    }
+
     fn valid_detail_result(persona: &Value) -> Value {
         let search_assessment = persona["search_queries"]
             .as_array()
@@ -3609,6 +4050,34 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         assert!(
             html.contains("S.suggestions=data.suggestions"),
             "関連語候補のサーバー応答をUIが受けていない (恒久死の再発)"
+        );
+    }
+
+    /// 人気求人オプション (2026-08-06) のUI契約: 入力3点セットの収集・警告表示・
+    /// 逆算結果の分類表示 (再現困難は打ち手対象外の明示) が画面に存在すること。
+    #[test]
+    fn journey_ui_collects_and_renders_popular_jobs() {
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        for required in [
+            "popular_jobs:",
+            "popularContent",
+            "popularTier",
+            "popularBasis",
+            "人気求人の逆算",
+            "popular_jobs_warnings",
+            "popular_analysis",
+            "再現困難・打ち手対象外",
+            "傾向仮説",
+        ] {
+            assert!(
+                html.contains(required),
+                "missing popular UI contract: {required}"
+            );
+        }
+        let map_js = include_str!("../../static/js/journey_map.js");
+        assert!(
+            map_js.contains("人気求人 "),
+            "マップの根拠チップがP番号を人気求人として表示していない"
         );
     }
 
@@ -4102,7 +4571,7 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         let reviews =
             summarize_review_csv("OA1nbd\n確認対象の口コミ\n".as_bytes(), "reviews.csv", None)
                 .expect("reviews");
-        let allowed = allowed_evidence_refs(&[], &[], &competitor, &reviews);
+        let allowed = allowed_evidence_refs(&[], &[], &competitor, &reviews, &[]);
 
         for expected in [
             "職種一般仮説",
@@ -4409,7 +4878,7 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         let reviews =
             summarize_review_csv("OA1nbd\n確認対象の口コミ\n".as_bytes(), "reviews.csv", None)
                 .expect("reviews");
-        let allowed = allowed_evidence_refs(&[], &[], &competitor, &reviews);
+        let allowed = allowed_evidence_refs(&[], &[], &competitor, &reviews, &[]);
         let cohort = CohortAssessment {
             status: "limited".to_string(),
             scope: "同一市区町村・同一職種・同一雇用形態".to_string(),
@@ -4433,6 +4902,7 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
             None,
             &json!({"available":false}),
             "",
+            &[],
             &allowed,
         );
         assert!(prompt.contains("許可一覧"));
@@ -4465,7 +4935,7 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
         let reviews =
             summarize_review_csv("OA1nbd\n確認対象の口コミ\n".as_bytes(), "reviews.csv", None)
                 .expect("reviews");
-        let allowed = allowed_evidence_refs(&[], &[], &competitor, &reviews);
+        let allowed = allowed_evidence_refs(&[], &[], &competitor, &reviews, &[]);
         let cohort = CohortAssessment {
             status: "limited".to_string(),
             scope: "同一市区町村".to_string(),
@@ -4489,6 +4959,7 @@ https://maps.google.com/r/1,2026-08-03,残業が多く休みも取りづらい�
             None,
             &json!({"available":false}),
             "",
+            &[],
             &allowed,
         );
         assert_eq!(prompt.matches("</competitor_observations>").count(), 1);
