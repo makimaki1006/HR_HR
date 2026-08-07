@@ -119,6 +119,9 @@ struct PreparedJourneyCase {
     popular_jobs: Vec<Value>,
     public_stats: Value,
     prepare_result: Value,
+    /// ゲート通過済みの8段階診断結果 (persona_id → result)。note記事案の生成が
+    /// クライアント送信値でなくサーバー保存値に接地するために持つ (2026-08-07)。
+    persona_details: HashMap<String, Value>,
     allowed_evidence_refs: HashSet<String>,
     keyword_metrics_by_persona: HashMap<String, Value>,
     keyword_metrics_by_query: HashMap<String, Value>,
@@ -1067,6 +1070,7 @@ pub async fn jobgen_journey_diagnose(
                 popular_jobs: popular_jobs.clone(),
                 public_stats: public_stats.clone(),
                 prepare_result: result.clone(),
+                persona_details: HashMap::new(),
                 allowed_evidence_refs,
                 keyword_metrics_by_persona: HashMap::new(),
                 keyword_metrics_by_query: HashMap::new(),
@@ -1631,6 +1635,144 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         }
     }
 
+    if !quality_issues.is_empty() {
+        return Json(json!({
+            "status":"ok",
+            "phase":"quality_blocked",
+            "quality_gate":{"passed":false,"issues":quality_issues},
+            "result":result,
+            "review_required":true,
+            "llm_calls":llm_calls
+        }));
+    }
+    // note記事案などの後工程がサーバー保存値に接地できるよう、ゲート通過済みの
+    // 診断結果をケースに保存する (TTL内の再診断は上書き)。
+    {
+        let mut store = journey_case_store().lock().await;
+        if let Some(case) = store.get_mut(&case_id) {
+            case.persona_details
+                .insert(persona_id.clone(), result.clone());
+        }
+    }
+    Json(json!({
+        "status":"ok",
+        "phase":"complete",
+        "quality_gate":{"passed":true,"issues":[]},
+        "result":result,
+        "review_required":false,
+        "llm_calls":llm_calls
+    }))
+}
+
+/// `POST /api/jobgen/journey-note-draft` — ペルソナの離脱要因に応えるnote記事案を作る。
+/// 8段階診断 (persona-detail) 完了後のみ。外部公開素材のため、本文の数値は確認済み
+/// ソースとの機械照合ゲートを通す。
+pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
+    let case_id = body_str(&body, "case_id");
+    let persona_id = body_str(&body, "persona_id");
+    if case_id.is_empty() || persona_id.is_empty() {
+        return Json(json!({
+            "status":"error",
+            "message":"準備済みケースとペルソナを指定してください。"
+        }));
+    }
+    let prepared = {
+        let mut store = journey_case_store().lock().await;
+        store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
+        store.get(&case_id).cloned()
+    };
+    let prepared = match prepared {
+        Some(value) => value,
+        None => {
+            return Json(json!({
+                "status":"error",
+                "message":"準備データの有効期限が切れました。最初の分析からやり直してください。"
+            }))
+        }
+    };
+    let Some(detail) = prepared.persona_details.get(&persona_id) else {
+        return Json(json!({
+            "status":"error",
+            "message":"このペルソナの8段階診断がまだ完了していません。工程5の診断を先に実行してください。"
+        }));
+    };
+    let persona = prepared
+        .prepare_result
+        .get("personas")
+        .and_then(Value::as_array)
+        .and_then(|values| {
+            values
+                .iter()
+                .find(|value| value.get("id").and_then(Value::as_str) == Some(persona_id.as_str()))
+        })
+        .cloned();
+    let Some(persona) = persona else {
+        return Json(json!({
+            "status":"error",
+            "message":"指定されたペルソナが見つかりません。"
+        }));
+    };
+    let popular_analysis = prepared
+        .prepare_result
+        .get("popular_analysis")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let base_prompt = journey::build_note_draft_prompt(
+        &prepared.case_profile,
+        &persona,
+        detail,
+        &prepared.job_facts,
+        &prepared.customer_statements,
+        &prepared.popular_jobs,
+        &popular_analysis,
+        &prepared.allowed_evidence_refs,
+    );
+    let schema = journey::note_draft_schema_with_evidence_refs(&prepared.allowed_evidence_refs);
+    let verified_source = journey::note_verified_source_text(
+        &prepared.job_facts,
+        &prepared.customer_statements,
+        &prepared.popular_jobs,
+    );
+    let mut llm_calls = 1;
+    let mut result = match jobgen_llm(&base_prompt, &schema, 0.3).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("note記事案の生成に失敗しました: {error}")
+            }))
+        }
+    };
+    journey::normalize_evidence_aliases(&mut result);
+    let mut quality_issues =
+        journey::validate_note_draft(&result, &prepared.allowed_evidence_refs, &verified_source);
+    for _ in 0..2 {
+        if quality_issues.is_empty() {
+            break;
+        }
+        tracing::warn!(
+            target: "jobgen_journey",
+            persona_id = %persona_id,
+            issues = ?quality_issues,
+            "note draft quality gate requested repair"
+        );
+        let repair_prompt =
+            journey::build_detail_repair_prompt(&base_prompt, &result, &quality_issues);
+        result = match jobgen_llm(&repair_prompt, &schema, 0.1).await {
+            Ok(value) => value,
+            Err(error) => {
+                quality_issues.push(format!("自動補修APIに失敗しました: {error}"));
+                break;
+            }
+        };
+        llm_calls += 1;
+        journey::normalize_evidence_aliases(&mut result);
+        quality_issues = journey::validate_note_draft(
+            &result,
+            &prepared.allowed_evidence_refs,
+            &verified_source,
+        );
+    }
     if !quality_issues.is_empty() {
         return Json(json!({
             "status":"ok",
