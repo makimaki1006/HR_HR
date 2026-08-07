@@ -22,6 +22,7 @@ fi
 # URL決定: 環境変数 > ビルド引数 > デフォルト（最新Release）
 REPO="makimaki1006/HR_HR"
 ASSET_NAME="hellowork.db.gz"
+DOWNLOAD_ACCEPT=""
 
 # GitHub API認証ヘッダー（レート制限回避）
 AUTH_HEADER=""
@@ -73,6 +74,27 @@ else
         # フォールバック: 既知の最新タグで直接URL構築
         URL="https://github.com/${REPO}/releases/download/db-v2.0/${ASSET_NAME}"
         echo "Trying fallback URL: $URL"
+    elif [ -n "$GITHUB_TOKEN" ]; then
+        # 非公開リポジトリ (2026-08-07〜): browser_download_url は 404 になるため、
+        # アセットのAPI URL (…/releases/assets/ID) + Accept: application/octet-stream で落とす
+        ASSET_API_URL=$(echo "$API_RESPONSE" \
+            | grep -B3 "\"name\": *\"${ASSET_NAME}\"" \
+            | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
+            | head -1)
+        if [ -z "$ASSET_API_URL" ]; then
+            # 並び順の揺れに備えて逆方向でも探す
+            ASSET_API_URL=$(echo "$API_RESPONSE" \
+                | grep -o "https://api.github.com/repos/${REPO}/releases/assets/[0-9]*" \
+                | head -1)
+        fi
+        if [ -z "$ASSET_API_URL" ]; then
+            echo "ERROR: Could not find asset API url for $ASSET_NAME in latest release."
+            echo "API response (first 500 chars): $(echo "$API_RESPONSE" | head -c 500)"
+            exit 1
+        fi
+        URL="$ASSET_API_URL"
+        DOWNLOAD_ACCEPT="application/octet-stream"
+        echo "Downloading DB via authenticated asset API: $URL"
     else
         RELEASE_URL=$(echo "$API_RESPONSE" \
             | grep -o "https://github.com/${REPO}/releases/download/[^\"]*${ASSET_NAME}" \
@@ -104,7 +126,9 @@ DOWNLOAD_ARGS=(
 
 DOWNLOAD_ATTEMPT=1
 while true; do
-    if [ -n "$AUTH_HEADER" ]; then
+    if [ -n "$AUTH_HEADER" ] && [ -n "$DOWNLOAD_ACCEPT" ]; then
+        curl "${DOWNLOAD_ARGS[@]}" -H "$AUTH_HEADER" -H "Accept: $DOWNLOAD_ACCEPT" "$URL" && break
+    elif [ -n "$AUTH_HEADER" ]; then
         curl "${DOWNLOAD_ARGS[@]}" -H "$AUTH_HEADER" "$URL" && break
     else
         curl "${DOWNLOAD_ARGS[@]}" "$URL" && break
