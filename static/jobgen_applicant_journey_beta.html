@@ -980,12 +980,12 @@
       container.innerHTML='<div class="error">ジャーニーマップ部品（/static/js/journey_map.js）を読み込めませんでした。ページを再読み込みしてください。内部引継ぎJSONの保存は利用できます。</div>';
       return;
     }
-    const notes=personas.map(p=>{
+    const notes=personas.map((p,noteIndex)=>{
       const detail=S.details.get(p.id)||{};
       const assessmentRows=(detail.search_assessment||[]).map(item=>`<tr>
         <td><b>${esc(item.query)}</b></td><td>${esc(item.observed_demand)}</td>
         <td>${esc(item.interpretation)}</td><td>${esc(item.action_implication)}</td></tr>`).join("");
-      return `<details class="searchnote" open><summary>${esc(p.label)}｜検索実測から分かったこと・想定ルート</summary>
+      return `<details class="searchnote"${noteIndex===0?" open":""}><summary>${esc(p.label)}｜検索実測から分かったこと・想定ルート</summary>
         <p class="hint">${esc(routingText(p))}</p>
         ${assessmentRows?`<p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の検索実測評価表。横にスクロールできます"><table><thead><tr><th>検索内容</th><th>実測需要</th><th>読み取り</th><th>施策への反映</th></tr></thead><tbody>${assessmentRows}</tbody></table></div>`:'<p class="hint">検索実測評価はありません。</p>'}
       </details>`;
@@ -995,20 +995,20 @@
       <div class="mapwrap" tabindex="0" role="region" aria-label="ペルソナ別の段階別ジャーニーマップ。横にスクロールできます"><div class="jmap"></div></div>
       <div class="jmlegend"><span class="lg"><span class="dot f"></span>打ち手が求人票の中にある段階</span><span class="lg"><span class="dot h"></span>打ち手が求人票の外（検索結果・口コミ・面接など）にある段階</span><span class="lg"><span class="dot r"></span>優先度「高」の打ち手あり</span></div>
     </div>${notes}
-    <div class="notegen sectiongap">
-      <h3>ペルソナ別 note記事案（採用広報の下書き）</h3>
+    <details class="searchnote notegen sectiongap">
+      <summary><b>ペルソナ別 note記事案（採用広報の下書き）</b></summary>
       <p class="hint">診断済みペルソナの離脱要因・内心の不安に応えるnote記事の下書きを作ります。書くのは確認済み事実（求人票照合済み・顧客発言・人気求人の実測）だけで、社員の声など未確認の内容は本文に創作せず【取材で確認】の質問リストにします。</p>
       <div class="actions">${personas.map(p=>`<button class="btn2 notedraftbtn" data-persona="${esc(p.id)}">${esc(p.label)}の記事案を作成</button>`).join("")}</div>
       <div id="noteStatus" class="status" role="status" aria-live="polite"></div>
       <div id="noteContent"></div>
-    </div>
-    <div class="postinggen sectiongap">
-      <h3>診断を反映した求人票案</h3>
+    </details>
+    <details class="searchnote postinggen sectiongap">
+      <summary><b>診断を反映した求人票案</b></summary>
       <p class="hint">診断済みペルソナ全員の「求人票チャネルの離脱対策」を反映した求人票の訴求原稿を作ります。データやペルソナを入れ直す必要はありません。募集要項の事実は求人票と照合済みのものだけを表示し、訴求文の数値も事実照合を通します。</p>
       <div class="actions"><button class="btn2" id="postingDraftBtn">診断済み${formatNumber(personas.length)}ペルソナの対策を反映して求人票案を作成</button></div>
       <div id="postingStatus" class="status" role="status" aria-live="polite"></div>
       <div id="postingContent"></div>
-    </div>`;
+    </details>`;
     // 検索量が実測できたときだけ実測値として渡す。未取得時は null にして
     // 部品側が「検索量は未取得・検索仮説」と正直に表示する
     let keywordMap=null;
@@ -1275,7 +1275,7 @@
   async function loadKeywordData(){
     const status=$("#keywordStatus"),rows=selectedQueries(),queries=[...new Set(rows.map(row=>row.query))];
     if(!queries.length){S.keywordMessage="未取得";renderKeywords();return}
-    status.innerHTML='<div class="loading">ペルソナ別検索語の検索需要をサーバーで確認しています…</div>';
+    status.innerHTML='<div class="loading">ペルソナ別検索語の検索需要をサーバーで確認しています…（Google広告の混雑時は最大90秒ほどかかります）</div>';
     S.keywordMap.clear();
     S.suggestions=[];
     S.measured=false;
@@ -1292,7 +1292,14 @@
       S.measured=measured;
       S.keywordMessage=measured?"0 / 対象外":"未取得";
       const cached=data.cache==="case"?"（このケースの取得済み結果を再利用）":"";
-      status.innerHTML=!measured?'<div class="notice">Google広告の認証情報が未設定のため検索量は未取得です。ペルソナ・離脱診断は利用できます。</div>':`<div class="oknote">検索需要をサーバーで取得・保存しました${cached}。少数検索や社名検索は検索量が表示されなくても診断対象に残します。</div>`;
+      if(measured){
+        status.innerHTML=`<div class="oknote">検索需要をサーバーで取得・保存しました${cached}。少数検索や社名検索は検索量が表示されなくても診断対象に残します。</div>`;
+      }else if(data.measurement_status==="fetch_failed"){
+        // 取得失敗でも診断は止めない (2026-08-07)。理由と再試行手段を明示する
+        status.innerHTML='<div class="notice">Google広告から検索量を取得できませんでした（混雑・一時エラーの可能性）。検索需要は仮説のまま8段階診断へ進めます。「選択した候補の検索需要を確認」を再実行すると取得をやり直します。</div>';
+      }else{
+        status.innerHTML='<div class="notice">Google広告の認証情報が未設定のため検索量は未取得です。ペルソナ・離脱診断は利用できます。</div>';
+      }
     }catch(error){
       S.keywordMessage="未取得";
       status.innerHTML=`<div class="error">検索需要を取得できませんでした：${esc(error.message)}。再実行してください。</div>`;
