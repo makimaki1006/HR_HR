@@ -720,6 +720,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/api/jobgen/journey-note-draft",
             post(job_gen::handlers::jobgen_journey_note_draft),
         )
+        .route(
+            "/api/jobgen/journey-posting-draft",
+            post(job_gen::handlers::jobgen_journey_posting_draft),
+        )
         .route("/api/jobgen/copy", post(job_gen::handlers::jobgen_copy))
         .route("/api/jobgen/images", post(job_gen::handlers::jobgen_images))
         .route(

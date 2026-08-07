@@ -1830,6 +1830,183 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
     }))
 }
 
+/// `POST /api/jobgen/journey-posting-draft` — 診断済みペルソナ群の離脱対策を反映した
+/// 求人票の訴求原稿を作る (ジャーニー内で一貫完結、2026-08-07)。8段階診断が完了した
+/// ペルソナのみ対象。募集要項の事実は画面側が照合済みfactsを直接表示する。
+pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value> {
+    let case_id = body_str(&body, "case_id");
+    let requested_ids: Vec<String> = body
+        .get("persona_ids")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if case_id.is_empty() || requested_ids.is_empty() {
+        return Json(json!({
+            "status":"error",
+            "message":"準備済みケースと対象ペルソナを指定してください。"
+        }));
+    }
+    if requested_ids.len() > journey::REQUIRED_PERSONA_COUNT {
+        return Json(json!({
+            "status":"error",
+            "message":"対象ペルソナ数が上限を超えています。"
+        }));
+    }
+    let prepared = {
+        let mut store = journey_case_store().lock().await;
+        store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
+        store.get(&case_id).cloned()
+    };
+    let Some(prepared) = prepared else {
+        return Json(json!({
+            "status":"error",
+            "message":"準備データの有効期限が切れました。最初の分析からやり直してください。"
+        }));
+    };
+    let missing: Vec<&String> = requested_ids
+        .iter()
+        .filter(|id| !prepared.persona_details.contains_key(*id))
+        .collect();
+    if !missing.is_empty() {
+        return Json(json!({
+            "status":"error",
+            "message":format!(
+                "8段階診断が未完了のペルソナがあります: {}。工程5の診断を先に実行してください。",
+                missing.iter().map(|id| id.as_str()).collect::<Vec<_>>().join("、")
+            )
+        }));
+    }
+    let personas = prepared
+        .prepare_result
+        .get("personas")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut personas_with_details = Vec::new();
+    let mut persona_queries: Vec<String> = Vec::new();
+    for id in &requested_ids {
+        let Some(persona) = personas
+            .iter()
+            .find(|value| value.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        else {
+            return Json(json!({
+                "status":"error",
+                "message":format!("ペルソナ{id}が見つかりません。")
+            }));
+        };
+        for query in persona
+            .get("search_queries")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
+            if let Some(text) = query.get("query").and_then(Value::as_str) {
+                let text = text.trim().to_string();
+                if !text.is_empty() && !persona_queries.contains(&text) {
+                    persona_queries.push(text);
+                }
+            }
+        }
+        personas_with_details.push(json!({
+            "persona":persona,
+            "journey_detail":prepared.persona_details.get(id)
+        }));
+    }
+    let popular_analysis = prepared
+        .prepare_result
+        .get("popular_analysis")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let base_prompt = journey::build_posting_draft_prompt(
+        &prepared.case_profile,
+        &Value::Array(personas_with_details),
+        &prepared.job_facts,
+        &prepared.customer_statements,
+        &prepared.popular_jobs,
+        &popular_analysis,
+        &prepared.keyword_suggestions,
+        &prepared.allowed_evidence_refs,
+    );
+    let schema = journey::posting_draft_schema_with_evidence_refs(
+        &prepared.allowed_evidence_refs,
+        &requested_ids,
+        &persona_queries,
+    );
+    let verified_source = journey::note_verified_source_text(
+        &prepared.job_facts,
+        &prepared.customer_statements,
+        &prepared.popular_jobs,
+    );
+    let mut llm_calls = 1;
+    let mut result = match jobgen_llm(&base_prompt, &schema, 0.3).await {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(json!({
+                "status":"error",
+                "message":format!("求人票案の生成に失敗しました: {error}")
+            }))
+        }
+    };
+    journey::normalize_evidence_aliases(&mut result);
+    let mut quality_issues = journey::validate_posting_draft(
+        &result,
+        &prepared.allowed_evidence_refs,
+        &verified_source,
+        &requested_ids,
+    );
+    for _ in 0..2 {
+        if quality_issues.is_empty() {
+            break;
+        }
+        tracing::warn!(
+            target: "jobgen_journey",
+            issues = ?quality_issues,
+            "posting draft quality gate requested repair"
+        );
+        let repair_prompt =
+            journey::build_detail_repair_prompt(&base_prompt, &result, &quality_issues);
+        result = match jobgen_llm(&repair_prompt, &schema, 0.1).await {
+            Ok(value) => value,
+            Err(error) => {
+                quality_issues.push(format!("自動補修APIに失敗しました: {error}"));
+                break;
+            }
+        };
+        llm_calls += 1;
+        journey::normalize_evidence_aliases(&mut result);
+        quality_issues = journey::validate_posting_draft(
+            &result,
+            &prepared.allowed_evidence_refs,
+            &verified_source,
+            &requested_ids,
+        );
+    }
+    if !quality_issues.is_empty() {
+        return Json(json!({
+            "status":"ok",
+            "phase":"quality_blocked",
+            "quality_gate":{"passed":false,"issues":quality_issues},
+            "result":result,
+            "review_required":true,
+            "llm_calls":llm_calls
+        }));
+    }
+    Json(json!({
+        "status":"ok",
+        "phase":"complete",
+        "quality_gate":{"passed":true,"issues":[]},
+        "result":result,
+        "review_required":false,
+        "llm_calls":llm_calls
+    }))
+}
+
 fn build_customer_statement_evidence(
     raw: &str,
     stated_at: Option<&str>,
