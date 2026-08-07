@@ -57,22 +57,58 @@ pub async fn generate_json(
     if api_key.is_empty() {
         anyhow::bail!("GEMINI_API_KEY が未設定です");
     }
-    // 2026-07-24 HR_HR 統合: プロセス共通のレートリミッタ (12回/分) を通す。
-    // 解説資料・商談準備と同じ予算を共有し、無料枠の分間制限を超えない。
-    crate::gemini::acquire_rate_slot().await;
     let url = format!("{API_BASE}/{model}:generateContent");
     let body = build_request_body(prompt, schema, temperature);
     let client = reqwest::Client::new();
-    let resp = client
-        .post(&url)
-        .header("x-goog-api-key", api_key)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await?
-        .error_for_status()?;
-    let payload: Value = resp.json().await?;
-    parse_response(&payload)
+    // 2026-08-07: 503 (過負荷)・429・一時的な5xxで1回きり失敗すると、多段パイプライン
+    // (診断7回呼び等) 全体が無駄になる実害が出た。指数バックオフで最大3回試行する。
+    let mut last_error: Option<anyhow::Error> = None;
+    for attempt in 0u32..3 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(2u64 << attempt)).await;
+        }
+        // 2026-07-24 HR_HR 統合: プロセス共通のレートリミッタ (12回/分) を通す。
+        // 解説資料・商談準備と同じ予算を共有し、無料枠の分間制限を超えない。
+        crate::gemini::acquire_rate_slot().await;
+        let resp = client
+            .post(&url)
+            .header("x-goog-api-key", api_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await;
+        match resp {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    let payload: Value = resp.json().await?;
+                    return parse_response(&payload);
+                }
+                let retryable = status.as_u16() == 429 || status.is_server_error();
+                let error = anyhow::anyhow!(
+                    "HTTP status {status} for url ({url})",
+                    status = status,
+                    url = url
+                );
+                if !retryable {
+                    return Err(error);
+                }
+                tracing::warn!(
+                    target: "gemini",
+                    %status,
+                    attempt,
+                    "transient Gemini error; retrying"
+                );
+                last_error = Some(error);
+            }
+            Err(error) => {
+                // 接続断・タイムアウトも一時要因として再試行
+                tracing::warn!(target: "gemini", %error, attempt, "Gemini request failed; retrying");
+                last_error = Some(error.into());
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Gemini呼び出しに失敗しました")))
 }
 
 #[cfg(test)]
