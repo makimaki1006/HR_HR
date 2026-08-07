@@ -1444,11 +1444,22 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
         Some("missing_credentials") => {
             measurement_status = "missing_credentials";
         }
-        _ => {
-            return Json(json!({
-                "status":"error",
-                "message":"Google広告から検索需要を取得できませんでした。"
-            }))
+        other => {
+            // 2026-08-07: ここでエラー返却すると工程5へ一切進めなくなる実害が出た
+            // (実運用報告「検索ボリュームの取得から動かず先に進まない」)。
+            // 検索量は診断の補助情報なので、理由を明示して未取得のまま縮退続行する。
+            // keyword_completed_personas は立てないので、再実行すれば取得を再試行できる。
+            let reason = response
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("原因不明のエラー");
+            tracing::warn!(
+                target: "jobgen_journey",
+                status = ?other,
+                reason = %reason,
+                "keyword fetch failed; continuing without measurements"
+            );
+            measurement_status = "fetch_failed";
         }
     }
 
@@ -1483,12 +1494,16 @@ pub async fn jobgen_journey_keywords(Json(body): Json<Value>) -> Json<Value> {
         };
         stored.keyword_metrics_by_query = fetched_by_query.clone();
         stored.keyword_metrics_by_persona.extend(metrics_by_persona);
-        stored.keyword_completed_personas.extend(
-            personas_to_fetch
-                .iter()
-                .filter_map(|persona| persona.get("id").and_then(Value::as_str))
-                .map(str::to_string),
-        );
+        // fetch_failed のときは完了扱いにしない: 8段階診断へは進めるが、
+        // 工程4を再実行すれば検索量の取得をやり直せる
+        if measurement_status != "fetch_failed" {
+            stored.keyword_completed_personas.extend(
+                personas_to_fetch
+                    .iter()
+                    .filter_map(|persona| persona.get("id").and_then(Value::as_str))
+                    .map(str::to_string),
+            );
+        }
         stored.keyword_measurement_status = Some(measurement_status.to_string());
         stored.keyword_suggestions = suggestions.clone();
         stored.keyword_suggestions_fetched = suggestions_fetched;
