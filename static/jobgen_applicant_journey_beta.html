@@ -202,17 +202,33 @@
     .jmroot .dict-term{border-bottom:2px dotted var(--blue);cursor:help;color:var(--navy);font-weight:700}
     .searchnote{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:9px 11px;margin-top:8px}
     .searchnote summary{font-size:12px;font-weight:800;color:var(--accent-ink);cursor:pointer}
-    /* note記事案 (2026-08-07): note.comの読み味に寄せた白カードのプレビュー */
-    .notecard{max-width:680px;margin:10px auto 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:26px 30px;box-shadow:var(--shadow)}
-    .notecard .ntitle{font-size:1.45em;font-weight:800;line-height:1.4;color:var(--ink);margin:0 0 4px}
+    /* note記事案 (2026-08-07): 実物のnote記事画面に寄せたプレビュー。
+       白基調・中央1カラム・大きなタイトル・著者行・16:9アイキャッチ・ゆったりした行間 */
+    .notecard{max-width:680px;margin:10px auto 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:34px 38px 28px;box-shadow:var(--shadow)}
+    .notecard .ntitle{font-size:1.75em;font-weight:800;line-height:1.45;color:var(--ink);margin:0 0 10px;letter-spacing:.01em}
+    .notecard .nauthor{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+    .notecard .nava{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-ink));color:var(--on-accent);display:grid;place-items:center;font-weight:800;font-size:15px;flex:none}
+    .notecard .nauthor b{font-size:13px;color:var(--ink)}
+    .notecard .nauthor small{display:block;font-size:11px;color:var(--ink-3)}
     .notecard .nalt{font-size:11.5px;color:var(--ink-3);margin:0 0 12px}
-    .notecard .neyecatch{background:linear-gradient(135deg,var(--surface-2),var(--accent-bg));border:1px dashed var(--line-2);border-radius:10px;padding:22px 16px;text-align:center;font-size:12px;color:var(--ink-2);margin-bottom:14px}
-    .notecard .nlead{font-size:13.5px;color:var(--ink-2);line-height:1.8;margin-bottom:16px}
-    .notecard h4{font-size:15px;font-weight:800;color:var(--ink);border-left:4px solid var(--accent);padding-left:9px;margin:18px 0 7px}
-    .notecard .nbody{font-size:13px;line-height:1.9;color:var(--ink)}
-    .notecard .nbody ul{margin:6px 0;padding-left:20px}
-    .notecard .npurpose{font-size:11px;color:var(--ink-3);margin-top:3px}
+    .notecard .neyecatch{aspect-ratio:1.91/1;display:grid;place-items:center;background:linear-gradient(160deg,var(--accent-bg) 0%,var(--surface-2) 55%,color-mix(in srgb,var(--mid) 14%,var(--surface)) 100%);border:1px dashed var(--line-2);border-radius:12px;padding:14px;text-align:center;font-size:12.5px;color:var(--ink-2);margin-bottom:20px;position:relative;overflow:hidden}
+    .notecard .neyecatch::before{content:"アイキャッチ（撮影案）";position:absolute;top:8px;left:10px;font-size:10px;font-weight:700;color:var(--ink-3);background:var(--surface);border-radius:999px;padding:2px 9px;border:1px solid var(--line)}
+    .notecard .nlead{font-size:14.5px;color:var(--ink-2);line-height:2.0;margin-bottom:20px}
+    .notecard h4{font-size:17px;font-weight:800;color:var(--ink);margin:26px 0 10px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+    .notecard .nsec{border-radius:10px;margin:0 -10px;padding:0 10px;transition:background .15s;cursor:help}
+    .notecard .nsec:hover{background:var(--accent-bg)}
+    .notecard .nbody{font-size:14px;line-height:2.05;color:var(--ink)}
+    .notecard .nbody ul{margin:8px 0;padding-left:22px}
+    .notecard .nphoto{aspect-ratio:2.4/1;display:grid;place-items:center;background:linear-gradient(150deg,var(--surface-2),color-mix(in srgb,var(--accent) 8%,var(--surface)));border:1px dashed var(--line-2);border-radius:12px;margin:16px 0;font-size:12px;color:var(--ink-2);text-align:center;padding:10px}
+    .notecard .nlike{display:flex;align-items:center;gap:8px;margin-top:20px;padding-top:14px;border-top:1px solid var(--line);color:var(--ink-3);font-size:12.5px}
+    .notecard .nlike .heart{width:34px;height:34px;border-radius:50%;border:1px solid var(--line-2);display:grid;place-items:center;font-size:15px}
+    .notecard .npurpose{display:none}
+    #notetip{position:fixed;z-index:70;max-width:320px;background:var(--surface);color:var(--ink);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;font-size:12px;line-height:1.7;opacity:0;pointer-events:none;transition:opacity .12s}
+    #notetip b{display:block;font-size:10.5px;color:var(--accent-ink);margin-bottom:2px}
+    #notetip .row{margin-bottom:7px}
+    #notetip .row:last-child{margin-bottom:0}
     .notecard mark.notetodo{background:color-mix(in srgb,var(--mid) 18%,var(--surface));color:var(--mid);font-weight:700;border-radius:4px;padding:0 3px}
+    .notecard .ncta{margin-top:16px;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);background:var(--accent-bg);border-radius:10px;padding:11px 14px;font-size:13px;font-weight:700;color:var(--accent-ink)}
     .notecard .ntags{margin-top:16px;display:flex;flex-wrap:wrap;gap:6px}
     .notecard .ntag{background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:2px 11px;font-size:11.5px;color:var(--accent-ink);font-weight:700}
     .noteinterview{max-width:680px;margin:10px auto 0;border:1px solid color-mix(in srgb,var(--mid) 35%,transparent);background:color-mix(in srgb,var(--mid) 8%,var(--surface));border-radius:11px;padding:11px 14px;font-size:12.5px}
@@ -276,7 +292,8 @@
       .jmroot .mapwrap{overflow:visible}
       .jmroot .node{animation:none!important}
       .searchnote{break-inside:avoid}
-      #tip,#dictpop{display:none!important}
+      #tip,#dictpop,#notetip{display:none!important}
+      .notecard .npurpose{display:block}
     }
   </style>
 </head>
@@ -353,8 +370,8 @@
       <p class="hint">この欄は確認済み発言ではなく仮説として扱います。最終的な「採用したい」はペルソナ確認後に人が選択します。</p>
     </div>
     <details class="optional" id="popularSection">
-      <summary><b>人気求人の逆算</b> — 競合CSVに媒体の「人気」「超人気」タグ付き求人があれば<b>自動で逆算します（入力不要）</b>。CSVに無い人気求人を追加したい場合だけ開いてください（最大3件・自動分と合わせて3件まで）</summary>
-      <p class="hint">手入力の場合のみ「人気と判断した根拠」（応募数・掲載順位・顧客の証言など）が必要です — CSV内の求人は媒体タグの実測が根拠になるため入力不要ですが、CSV外の求人は人気の事実を確認する手段がないためです。人気要因は傾向仮説として扱い、給与・ブランドなど真似で埋まらない要素は打ち手にせず区別して表示します。</p>
+      <summary><b>人気求人の逆算</b> — 競合CSVの「人気」「超人気」タグ付き求人は<b>自動で逆算します（入力不要）</b>。ただしCSVに入っているのは抜粋だけなので、その求人ページの<b>全文を貼ると逆算の精度が上がります</b>（最大3件）</summary>
+      <p class="hint">人気タグ付き求人の全文を貼った場合は社名で自動照合し、人気の根拠は媒体タグの実測になるため「判断した根拠」の入力は不要です（同じ求人を二重には数えません）。CSVに無い求人を貼る場合のみ、人気と判断した根拠（応募数・掲載順位・顧客の証言など）を入力してください — 人気の事実を実測で確認する手段がないためです。人気要因は傾向仮説として扱い、給与・ブランドなど真似で埋まらない要素は打ち手にせず区別して表示します。</p>
       <div class="popular-grid">
         <div class="popular-entry" data-popular="1">
           <label>人気求人 1：本文</label>
@@ -1036,11 +1053,41 @@
     }).join("");
     return paragraphs.replace(/【取材で確認[:：]([^】]*)】/g,(_,inner)=>`<mark class="notetodo">【取材で確認:${esc(inner)}】</mark>`);
   }
+  // 検索量の実測があれば「(月N回)」を併記する
+  function volumeNote(query){
+    const metric=S.keywordMap.get(String(query||"").trim());
+    return metric&&metric.avg_monthly!=null?`（月${formatNumber(metric.avg_monthly)}回）`:"";
+  }
+  // 各セクションにカーソルを載せると「どのペルソナのどの感情に、どうアプローチしている節か」を表示
+  function ensureNoteTip(){
+    let tip=document.getElementById("notetip");
+    if(!tip){tip=document.createElement("div");tip.id="notetip";document.body.appendChild(tip)}
+    return tip;
+  }
+  $("#journeyContent").addEventListener("mousemove",event=>{
+    const tip=ensureNoteTip();
+    const sec=event.target.closest?event.target.closest(".nsec"):null;
+    if(!sec||!S.noteActive){tip.style.opacity=0;return}
+    const draft=S.noteDrafts.get(S.noteActive);
+    const persona=(S.data?.result?.personas||[]).find(p=>p.id===S.noteActive);
+    const section=(draft?.sections||[])[Number(sec.dataset.sec)];
+    if(!draft||!section||!persona){tip.style.opacity=0;return}
+    tip.innerHTML=`
+      <div class="row"><b>この節の意図</b>${esc(persona.label)}の「${esc(section.purpose)}」という感情への先回り</div>
+      ${section.target_query&&section.target_query!=="回答なし"?`<div class="row"><b>答える検索（実測クエリ）</b>「${esc(section.target_query)}」${esc(volumeNote(section.target_query))}で調べた人への回答</div>`:`<div class="row"><b>役割</b>検索回答ではなく、共感と読み進める導線を作る節</div>`}
+      <div class="row"><b>アプローチ</b>確認済み事実（${esc(formatRefs(section.evidence_refs))}）だけで答え、未確認の点は取材プレースホルダに逃がす</div>`;
+    tip.style.left=Math.min(event.clientX+14,window.innerWidth-340)+"px";
+    tip.style.top=(event.clientY+16)+"px";
+    tip.style.opacity=1;
+  });
+  $("#journeyContent").addEventListener("mouseleave",()=>{const tip=document.getElementById("notetip");if(tip)tip.style.opacity=0});
   function noteDraftMarkdown(persona,draft){
-    const sections=(draft.sections||[]).map(s=>`## ${s.heading}\n\n${s.body_markdown}`).join("\n\n");
+    const photos=draft.photo_ideas||[];
+    const sections=(draft.sections||[]).map((s,i)=>`## ${s.heading}\n\n${s.body_markdown}${photos[i]?`\n\n（写真案: ${photos[i]}）`:""}`).join("\n\n");
     const tags=(draft.hashtags||[]).map(t=>`#${t}`).join(" ");
     const interviews=(draft.interview_items||[]).map(i=>`- ${i}`).join("\n");
-    return `※この記事案はあくまでイメージです。\n\n# ${(draft.title_options||[])[0]||""}\n\n（アイキャッチ案: ${draft.eyecatch_idea||""}）\n\n${draft.lead||""}\n\n${sections}\n\n${tags}\n\n---\n公開前の取材確認:\n${interviews}`;
+    const seo=[`- 主要キーワード: ${draft.primary_keyword||"—"}`,...(draft.supporting_keywords||[]).map(k=>`- 補助: ${k}`)].join("\n");
+    return `※この記事案はあくまでイメージです。\n\n# ${(draft.title_options||[])[0]||""}\n\n（アイキャッチ案: ${draft.eyecatch_idea||""}）\n\n${draft.lead||""}\n\n${sections}\n\n${draft.cta_text||""}\n\n${tags}\n\n---\n公開前の取材確認:\n${interviews}\n\n記事設計メモ（SEO・実測クエリ由来）:\n${seo}`;
   }
   function renderNoteDraft(personaId){
     const draft=S.noteDrafts.get(personaId);
@@ -1049,21 +1096,34 @@
     const container=$("#noteContent");
     if(!container)return;
     const titles=draft.title_options||[];
-    const sections=(draft.sections||[]).map(s=>`
-      <h4>${esc(s.heading)}</h4><div class="nbody">${noteBodyHtml(s.body_markdown)}</div>
-      <p class="npurpose">この節が応える不安：${esc(s.purpose)}／根拠：${esc(formatRefs(s.evidence_refs))}</p>`).join("");
+    const photos=draft.photo_ideas||[];
+    const sections=(draft.sections||[]).map((s,i)=>`
+      <div class="nsec" data-sec="${i}">
+        <h4>${esc(s.heading)}</h4><div class="nbody">${noteBodyHtml(s.body_markdown)}</div>
+        <p class="npurpose">${s.target_query&&s.target_query!=="回答なし"?`答える検索：「${esc(s.target_query)}」${volumeNote(s.target_query)}／`:""}この節が応える不安：${esc(s.purpose)}／根拠：${esc(formatRefs(s.evidence_refs))}</p>
+      </div>
+      ${photos[i]?`<div class="nphoto">📷 写真案：${esc(photos[i])}</div>`:""}`).join("");
     const interviews=(draft.interview_items||[]).map(i=>`<li>${esc(i)}</li>`).join("");
+    const seoChips=[
+      draft.primary_keyword?`<span class="badge ok">主要キーワード：${esc(draft.primary_keyword)}${volumeNote(draft.primary_keyword)}</span>`:"",
+      ...(draft.supporting_keywords||[]).map(k=>`<span class="badge neutral">${esc(k)}${volumeNote(k)}</span>`)
+    ].filter(Boolean).join("");
+    const company=String(S.data?.case_profile?.company_name||S.data?.result?.case_profile?.company_name||"採用担当").trim()||"採用担当";
     container.innerHTML=`
       <div class="notemeta"><span class="badge neutral">${esc(persona.label)}向け</span>${(draft.target_dropoffs||[]).map(s=>`<span class="badge warn">${esc(s)}の離脱に対応</span>`).join("")}<button class="btn2" id="noteCopyBtn">Markdownをコピー</button></div>
       <p class="hint" style="max-width:680px;margin:6px auto 0">※この記事案はあくまでイメージです。</p>
       <article class="notecard">
         <h3 class="ntitle">${esc(titles[0]||"")}</h3>
+        <div class="nauthor"><span class="nava">${esc(company.slice(0,1))}</span><span><b>${esc(company)}</b><small>${esc((S.data?.generated_at||"").slice(0,10))}・読了目安 ${Math.max(1,Math.round((draft.sections||[]).reduce((n,s)=>n+String(s.body_markdown||"").length,0)/500))}分</small></span></div>
         ${titles.length>1?`<p class="nalt">別案：${titles.slice(1).map(esc).join("／")}</p>`:""}
-        <div class="neyecatch">📷 アイキャッチ案：${esc(draft.eyecatch_idea||"")}</div>
+        <div class="neyecatch">📷 ${esc(draft.eyecatch_idea||"")}</div>
         <p class="nlead">${esc(draft.lead||"")}</p>
         ${sections}
+        ${draft.cta_text?`<div class="ncta">${esc(draft.cta_text)}</div>`:""}
         <div class="ntags">${(draft.hashtags||[]).map(t=>`<span class="ntag">#${esc(t)}</span>`).join("")}</div>
+        <div class="nlike"><span class="heart">♡</span>読者の反応はここに付きます（イメージ）</div>
       </article>
+      ${seoChips?`<div class="notemeta"><span style="font-weight:700">SEO設計（実測クエリ由来）:</span>${seoChips}</div>`:""}
       ${interviews?`<div class="noteinterview"><b>公開前の取材で埋める項目</b><ul class="clean">${interviews}</ul></div>`:""}
       ${(draft.limitations||[]).length?`<p class="hint" style="max-width:680px;margin:8px auto 0">${(draft.limitations||[]).map(esc).join("／")}</p>`:""}`;
     $("#noteCopyBtn")?.addEventListener("click",async()=>{

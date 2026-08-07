@@ -812,14 +812,13 @@ pub async fn jobgen_journey_diagnose(
         optional_body_str(&body, "customer_statement_date").as_deref(),
         &statement_speaker,
     );
-    // 人気求人の逆算オプション (2026-08-06)。判断根拠のない項目は P番号に昇格させず、
-    // 理由を warning で返して縮退続行する。
+    // 人気求人の逆算オプション (2026-08-06)。P番号根拠の組み立ては比較母集団の
+    // 確定後に行う (手貼り全文とCSVの人気タグ行を社名照合するため)。
     let popular_raw = body
         .get("popular_jobs")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let (popular_jobs, popular_warnings) = journey::build_popular_job_evidence(&popular_raw);
 
     let competitor_source_summary = match journey::summarize_competitor_csv(
         &competitor_bytes,
@@ -940,10 +939,10 @@ pub async fn jobgen_journey_diagnose(
             }
         }
     };
-    // CSVに媒体の人気・超人気タグ付き求人があれば自動で逆算対象に合流させる
-    // (比較不能CSVは候補が空なので何も足されない)。手入力分を優先して最大3件。
-    let mut popular_jobs = popular_jobs;
-    journey::extend_with_auto_popular(&mut popular_jobs, &competitor);
+    // 手貼り全文をCSVの人気タグ行と社名照合し、残り枠を自動候補で埋める
+    // (比較不能CSVは候補が空。根拠なし・照合不能の手貼りは警告して除外)。
+    let (popular_jobs, popular_warnings) =
+        journey::build_popular_job_evidence(&popular_raw, &competitor);
 
     let salary_text = verified_fact_value(&facts, "salary");
     let client_salary =
@@ -1717,6 +1716,32 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
         .get("popular_analysis")
         .cloned()
         .unwrap_or_else(|| json!([]));
+    // SEO材料: このペルソナの検索クエリ (実測対象) と検索量、Google広告の関連語候補。
+    // primary_keyword とtarget_query はこのクエリ一覧の enum に拘束され、
+    // 実在しないキーワードでのSEO設計を機械的に封じる。
+    let persona_queries: Vec<String> = persona
+        .get("search_queries")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|query| query.get("query").and_then(Value::as_str))
+                .map(|query| query.trim().to_string())
+                .filter(|query| !query.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let suggestion_keywords: Vec<String> = prepared
+        .keyword_suggestions
+        .iter()
+        .filter_map(|item| item.get("keyword").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    let keyword_metrics = prepared
+        .keyword_metrics_by_persona
+        .get(&persona_id)
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let base_prompt = journey::build_note_draft_prompt(
         &prepared.case_profile,
         &persona,
@@ -1725,9 +1750,14 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
         &prepared.customer_statements,
         &prepared.popular_jobs,
         &popular_analysis,
+        &keyword_metrics,
+        &prepared.keyword_suggestions,
         &prepared.allowed_evidence_refs,
     );
-    let schema = journey::note_draft_schema_with_evidence_refs(&prepared.allowed_evidence_refs);
+    let schema = journey::note_draft_schema_with_evidence_refs(
+        &prepared.allowed_evidence_refs,
+        &persona_queries,
+    );
     let verified_source = journey::note_verified_source_text(
         &prepared.job_facts,
         &prepared.customer_statements,
@@ -1744,8 +1774,13 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
         }
     };
     journey::normalize_evidence_aliases(&mut result);
-    let mut quality_issues =
-        journey::validate_note_draft(&result, &prepared.allowed_evidence_refs, &verified_source);
+    let mut quality_issues = journey::validate_note_draft(
+        &result,
+        &prepared.allowed_evidence_refs,
+        &verified_source,
+        &persona_queries,
+        &suggestion_keywords,
+    );
     for _ in 0..2 {
         if quality_issues.is_empty() {
             break;
@@ -1771,6 +1806,8 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
             &result,
             &prepared.allowed_evidence_refs,
             &verified_source,
+            &persona_queries,
+            &suggestion_keywords,
         );
     }
     if !quality_issues.is_empty() {
