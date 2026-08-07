@@ -487,7 +487,7 @@
   const S={
     data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:"",
     details:new Map(),maxStep:1,mapInstance:null,measured:false,
-    noteDrafts:new Map(),noteActive:null,postingDraft:null,postingIds:[]
+    noteDrafts:new Map(),noteActive:null,postingDrafts:new Map(),postingActive:null
   };
   const FACT_LABELS={
     salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
@@ -1003,9 +1003,9 @@
       <div id="noteContent"></div>
     </details>
     <details class="searchnote postinggen sectiongap">
-      <summary><b>診断を反映した求人票案</b></summary>
-      <p class="hint">診断済みペルソナ全員の「求人票チャネルの離脱対策」を反映した求人票の訴求原稿を作ります。データやペルソナを入れ直す必要はありません。募集要項の事実は求人票と照合済みのものだけを表示し、訴求文の数値も事実照合を通します。</p>
-      <div class="actions"><button class="btn2" id="postingDraftBtn">診断済み${formatNumber(personas.length)}ペルソナの対策を反映して求人票案を作成</button></div>
+      <summary><b>診断を反映した求人票案（ペルソナ別）</b></summary>
+      <p class="hint">選んだペルソナの「求人票チャネルの離脱対策」を反映した求人票案を1枚ずつ作ります。仕事内容は元求人の記載に接地し、募集要項は照合済みの事実のみ、訴求文の数値も事実照合を通します。</p>
+      <div class="actions">${personas.map(p=>`<button class="btn2 postingdraftbtn" data-persona="${esc(p.id)}">${esc(p.label)}向けの求人票案を作成</button>`).join("")}</div>
       <div id="postingStatus" class="status" role="status" aria-live="polite"></div>
       <div id="postingContent"></div>
     </details>`;
@@ -1021,29 +1021,29 @@
       dictEndpoints:{license:"/api/dict/license_card",occupation:"/api/dict/occupation_card"}
     });
     if(S.noteActive&&S.noteDrafts.has(S.noteActive))renderNoteDraft(S.noteActive);
-    if(S.postingDraft)renderPostingDraft();
+    if(S.postingActive&&S.postingDrafts.has(S.postingActive))renderPostingDraft();
     updateTableHints();
   }
 
   // ── 診断を反映した求人票案 (2026-08-07): ジャーニー内で一貫完結 ──
   $("#journeyContent").addEventListener("click",async event=>{
-    const button=event.target.closest("#postingDraftBtn");
+    const button=event.target.closest(".postingdraftbtn");
     if(!button)return;
-    const ids=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id)&&S.details.has(p.id)).map(p=>p.id);
+    const personaId=button.dataset.persona;
     const status=$("#postingStatus");
-    if(!ids.length||!S.data?.case_id){status.innerHTML='<div class="error">診断済みのペルソナがありません。</div>';return}
-    if(S.postingDraft){renderPostingDraft();return}
+    if(!S.details.has(personaId)||!S.data?.case_id){status.innerHTML='<div class="error">このペルソナの8段階診断が未完了です。</div>';return}
+    if(S.postingDrafts.has(personaId)){S.postingActive=personaId;renderPostingDraft();return}
     button.disabled=true;
-    status.innerHTML='<div class="loading">診断の離脱対策を反映した求人票案を生成・検査しています（数値は事実照合、全ペルソナの対策反映を機械チェック）…</div>';
+    status.innerHTML='<div class="loading">このペルソナの離脱対策を反映した求人票案を生成・検査しています（仕事内容は元求人に接地、数値は事実照合）…</div>';
     try{
-      const response=await postJSON("/api/jobgen/journey-posting-draft",{case_id:S.data.case_id,persona_ids:ids});
+      const response=await postJSON("/api/jobgen/journey-posting-draft",{case_id:S.data.case_id,persona_ids:[personaId]});
       if(!response.quality_gate?.passed){
         status.innerHTML=`<div class="error">求人票案の品質検査を通過できませんでした：${esc(issueSummary(response.quality_gate?.issues))}</div>`;
         return;
       }
-      S.postingDraft=response.result;
-      S.postingIds=ids;
-      status.innerHTML='<div class="oknote">求人票案を生成しました。各ブロックにカーソルを載せると、どのペルソナのどの対策を反映したかが表示されます。</div>';
+      S.postingDrafts.set(personaId,response.result);
+      S.postingActive=personaId;
+      status.innerHTML='<div class="oknote">求人票案を生成しました。各ブロックにカーソルを載せると、反映した対策が表示されます。</div>';
       renderPostingDraft();
     }catch(error){
       status.innerHTML=`<div class="error">${esc(error.message)}</div>`;
@@ -1057,28 +1057,29 @@
   function postingDraftMarkdown(draft){
     const facts=verifiedFacts().map(([k,f])=>`- ${FACT_LABELS[k]||k}: ${f.value}`).join("\n");
     const photos=draft.photo_ideas||[];
-    const sections=(draft.sections||[]).map((s,i)=>`## ${s.heading}\n\n${s.body_markdown}${photos[i]?`\n\n（写真案: ${photos[i]}）`:""}`).join("\n\n");
+    const sections=(draft.sections||[]).map((s,i)=>`## ${s.heading}\n\n${s.body_markdown}${photos[i+1]?`\n\n（写真案: ${photos[i+1]}）`:""}`).join("\n\n");
     const applied=(draft.applied_countermeasures||[]).map(a=>`- [${a.persona_id}/${a.stage}] ${a.countermeasure_summary} → ${a.where_in_posting}`).join("\n");
-    return `※この求人票案はあくまでイメージです。\n\n# ${(draft.catch_copy_options||[])[0]?.text||""}\n\n${draft.headline||""}\n\n${sections}\n\n## 募集要項（求人票と照合済みの事実）\n${facts}\n\n---\n反映した診断対策:\n${applied}\n\nSEOキーワード（実測クエリ）: ${(draft.seo_keywords||[]).join(" / ")}\n\n公開前の取材確認:\n${(draft.interview_items||[]).map(i=>`- ${i}`).join("\n")}`;
+    return `※この求人票案はあくまでイメージです。\n\n# ${(draft.catch_copy_options||[])[0]?.text||""}\n\n${draft.headline||""}\n\n## 仕事内容\n\n${draft.job_description_markdown||""}\n\n${sections}\n\n## 募集要項（求人票と照合済みの事実）\n${facts}\n\n---\n反映した診断対策:\n${applied}\n\nSEOキーワード（実測クエリ）: ${(draft.seo_keywords||[]).join(" / ")}\n\n公開前の取材確認:\n${(draft.interview_items||[]).map(i=>`- ${i}`).join("\n")}`;
   }
   function renderPostingDraft(){
-    const draft=S.postingDraft;
+    const draft=S.postingDrafts.get(S.postingActive);
     const container=$("#postingContent");
     if(!draft||!container)return;
     const personaLabel=id=>((S.data?.result?.personas||[]).find(p=>p.id===id)||{}).label||id;
     const catches=draft.catch_copy_options||[];
     const photos=draft.photo_ideas||[];
+    // 写真案[0]はアイキャッチに使うため、本文中は[1]以降を挿む (重複表示バグの修正)
     const sections=(draft.sections||[]).map((s,i)=>`
       <div class="nsec psec" data-psec="${i}">
         <h4>${esc(s.heading)}</h4><div class="nbody">${noteBodyHtml(s.body_markdown)}</div>
       </div>
-      ${photos[i]?`<div class="nphoto">📷 写真案：${esc(photos[i])}</div>`:""}`).join("");
+      ${photos[i+1]?`<div class="nphoto">📷 写真案：${esc(photos[i+1])}</div>`:""}`).join("");
     const facts=verifiedFacts();
     const badge=key=>{const f=(S.data?.facts||{})[key];return f&&f.status==="verified"&&f.value?`<span class="badge ok">${esc(f.value.length>28?f.value.slice(0,28)+"…":f.value)}</span>`:""};
     const req=facts.map(([k,f])=>`<tr><th>${esc(FACT_LABELS[k]||k)}</th><td>${esc(f.value)}</td></tr>`).join("");
     const applied=(draft.applied_countermeasures||[]).map(a=>`<li><b>${esc(personaLabel(a.persona_id))}・${esc(a.stage)}</b>：${esc(a.countermeasure_summary)} → <i>${esc(a.where_in_posting)}</i></li>`).join("");
     container.innerHTML=`
-      <div class="notemeta"><span class="badge neutral">対象：${S.postingIds.map(id=>esc(personaLabel(id))).join("／")}</span><button class="btn2" id="postingCopyBtn">Markdownをコピー</button></div>
+      <div class="notemeta"><span class="badge neutral">対象：${esc(personaLabel(S.postingActive))}</span><button class="btn2" id="postingCopyBtn">Markdownをコピー</button></div>
       <p class="hint" style="max-width:680px;margin:6px auto 0">※この求人票案はあくまでイメージです。</p>
       <article class="notecard">
         ${photos.length?`<div class="neyecatch">📷 ${esc(photos[0])}</div>`:""}
@@ -1086,6 +1087,7 @@
         ${catches.length>1?`<p class="nalt">別案：${catches.slice(1).map(c=>esc(c.text)).join("／")}</p>`:""}
         <p class="nlead"><b>${esc(draft.headline||"")}</b></p>
         <div class="ntags">${badge("salary")}${badge("work_location")}${badge("employment_type")}${badge("holidays")}</div>
+        <div class="nsec psec" data-pjd="1"><h4>仕事内容</h4><div class="nbody">${noteBodyHtml(draft.job_description_markdown)}</div></div>
         ${sections}
         <h4>募集要項（求人票と照合済みの事実のみ）</h4>
         <div class="tblwrap"><table>${req||'<tr><td>照合済みの事実がありません</td></tr>'}</table></div>
@@ -1157,12 +1159,15 @@
     const sec=event.target.closest?event.target.closest(".nsec"):null;
     if(!sec){tip.style.opacity=0;return}
     let html="";
-    if(sec.dataset.psec!=null&&S.postingDraft){
+    if(sec.dataset.pjd&&S.postingActive){
+      html=`<div class="row"><b>このブロック</b>元求人の記載に基づく仕事内容（数値は事実照合済み。不足の細部は取材プレースホルダ）</div>`;
+    }else if(sec.dataset.psec!=null&&S.postingActive&&S.postingDrafts.has(S.postingActive)){
+      const postingDraft=S.postingDrafts.get(S.postingActive);
       // 求人票案: どのペルソナ向けの節か+反映した診断対策
-      const section=(S.postingDraft.sections||[])[Number(sec.dataset.psec)];
+      const section=(postingDraft.sections||[])[Number(sec.dataset.psec)];
       if(!section){tip.style.opacity=0;return}
       const personaLabel=id=>((S.data?.result?.personas||[]).find(p=>p.id===id)||{}).label||id;
-      const applied=(S.postingDraft.applied_countermeasures||[]).filter(a=>section.applied_for==="全体"||a.persona_id===section.applied_for);
+      const applied=(postingDraft.applied_countermeasures||[]).filter(a=>section.applied_for==="全体"||a.persona_id===section.applied_for);
       html=`
         <div class="row"><b>この節の対象</b>${esc(section.applied_for==="全体"?"全ペルソナ共通":personaLabel(section.applied_for)+"向け")}</div>
         ${applied.length?`<div class="row"><b>反映した診断対策</b>${applied.slice(0,2).map(a=>`${esc(personaLabel(a.persona_id))}・${esc(a.stage)}：${esc(a.countermeasure_summary)}`).join("<br>")}</div>`:""}
@@ -1399,7 +1404,7 @@
       keyword_suggestions:S.suggestions,
       persona_details:Object.fromEntries(S.details),
       note_drafts:Object.fromEntries(S.noteDrafts),
-      posting_draft:S.postingDraft
+      posting_drafts:Object.fromEntries(S.postingDrafts)
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");

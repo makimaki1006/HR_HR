@@ -117,6 +117,9 @@ struct PreparedJourneyCase {
     reviews: journey::ReviewSummary,
     /// 人気求人オプションのP番号根拠 (未入力なら空)。詳細プロンプトにも渡す。
     popular_jobs: Vec<Value>,
+    /// 顧客求人の元本文 (正規化済み)。求人票案の「仕事内容」が元求人の記載に
+    /// 接地するために持つ (2026-08-07: 照合済み8項目だけでは仕事内容が書けない)。
+    client_job_source: String,
     public_stats: Value,
     prepare_result: Value,
     /// ゲート通過済みの8段階診断結果 (persona_id → result)。note記事案の生成が
@@ -1067,6 +1070,7 @@ pub async fn jobgen_journey_diagnose(
                 competitor: competitor.clone(),
                 reviews: reviews.clone(),
                 popular_jobs: popular_jobs.clone(),
+                client_job_source: truncate_text(&normalized.source_text, 8_000),
                 public_stats: public_stats.clone(),
                 prepare_result: result.clone(),
                 persona_details: HashMap::new(),
@@ -1938,9 +1942,25 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
         .get("popular_analysis")
         .cloned()
         .unwrap_or_else(|| json!([]));
+    // スプレッドシート由来の求人ナレッジ (職種別+汎用の書き方ノウハウ) を注入する。
+    // 職種の当て方は /jobgen 工程②と同じ最長マッチ。
+    let knowledge_title = [
+        value_text(&prepared.case_profile, "job_title"),
+        value_text(&prepared.case_profile, "occupation"),
+    ]
+    .into_iter()
+    .find(|value| !value.trim().is_empty())
+    .unwrap_or_default();
+    let knowledge_text = knowledge::lookup_default(&knowledge_title)
+        .ok()
+        .filter(|bundle| !bundle.sections.is_empty())
+        .map(|bundle| knowledge::bundle_to_text(&bundle))
+        .unwrap_or_default();
     let base_prompt = journey::build_posting_draft_prompt(
         &prepared.case_profile,
         &Value::Array(personas_with_details),
+        &prepared.client_job_source,
+        &knowledge_text,
         &prepared.job_facts,
         &prepared.customer_statements,
         &prepared.popular_jobs,
@@ -1953,11 +1973,13 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
         &requested_ids,
         &persona_queries,
     );
-    let verified_source = journey::note_verified_source_text(
+    // 仕事内容は元求人の本文に接地するため、数値照合ソースにも元本文を含める
+    let mut verified_source = journey::note_verified_source_text(
         &prepared.job_facts,
         &prepared.customer_statements,
         &prepared.popular_jobs,
     );
+    verified_source.push_str(&prepared.client_job_source);
     let mut llm_calls = 1;
     let mut result = match jobgen_llm(&base_prompt, &schema, 0.3).await {
         Ok(value) => value,

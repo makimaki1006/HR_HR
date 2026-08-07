@@ -1,3 +1,5 @@
+// json! マクロの深いネスト (journey の prepare スキーマ) が既定の上限を超えるため引き上げる
+#![recursion_limit = "256"]
 pub mod audit;
 pub mod auth;
 pub mod config;

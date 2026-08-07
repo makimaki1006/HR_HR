@@ -1260,6 +1260,8 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
                     ]
                 }
             },
+            // ペルソナ件数のminItems/maxItemsはGeminiが400で拒否する (2026-08-07 プローブ実証。
+            // 複雑なitemsとの組合せ起因とみられる)。件数は品質ゲート+自動補修で強制する。
             "personas":{
                 "type":"array",
                 "items":{
@@ -1272,6 +1274,8 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
                         "profile":{"type":"string"},
                         "previous_work_context":{"type":"string"},
                         "transfer_reason":{"type":"string"},
+                        // 分割軸をどの入力観測から導出したか (テンプレ化防止の説明責任)
+                        "market_basis":{"type":"string"},
                         "must_have_conditions":string_array(),
                         "priority_conditions":string_array(),
                         "acceptable_tradeoffs":string_array(),
@@ -1282,6 +1286,8 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
                         "evidence_refs":evidence_refs(),
                         "search_queries":{
                             "type":"array",
+                            "minItems":REQUIRED_SEARCH_QUERY_MIN,
+                            "maxItems":REQUIRED_SEARCH_QUERY_MAX,
                             "items":{
                                 "type":"object",
                                 "properties":{
@@ -1304,8 +1310,8 @@ pub fn prepare_schema_with_evidence_refs(allowed: &HashSet<String>) -> Value {
                     },
                     "required":[
                         "id","label","profile","previous_work_context","transfer_reason",
-                        "must_have_conditions","priority_conditions","acceptable_tradeoffs",
-                        "eligibility","likely_behavior","behavior_reason",
+                        "market_basis","must_have_conditions","priority_conditions",
+                        "acceptable_tradeoffs","eligibility","likely_behavior","behavior_reason",
                         "employer_fit_hypothesis","evidence_refs","search_queries"
                     ]
                 }
@@ -1405,7 +1411,9 @@ pub fn build_prepare_prompt(
 - 必ず6ペルソナを返す。id は persona_1〜persona_6 の形式をそのまま使う (P1 のような根拠番号形式のIDは使わない)。
 - 「応募へ進む」「検索・比較する」「求人閲覧段階で離脱する」を最低1件ずつ含める。
 - 人手不足市場のため、年齢・性別・MBTIで水増しせず、転職理由・経験・生活制約・最低条件・検索行動で分ける。
-- 6ペルソナは分割軸が互いに異なること。例: 同職種の経験者/異業種からの未経験者/資格保持者と未保持者/家庭の制約が強い層/給与最優先層/通勤圏・地元定着層。同じ軸の言い換えで数を増やさない。
+- 6ペルソナは分割軸が互いに異なること。分割軸を汎用テンプレート (経験の有無・家庭の制約・給与重視…の定番の並び) から選ばず、次の4つの観測だけから「この労働市場に実在する人材構造」として案件固有に導出する: ①業界・職種の人材市場構造 ②顧客求人が想定しているターゲット (必須資格・条件・給与帯からの読み取り) ③競合求人群が想定しているターゲット (competitor_observations のタグ実測: 未経験歓迎・経験者歓迎・ブランクOK等の件数分布) ④地域のオープンデータ (public_statistics の労働力人口・通勤流入元・昼夜間人口)。
+- 口コミ (review_observations) は分割軸に使わない。ペルソナは「誰がこの市場にいるか」であり、口コミへの反応は誰にでも起こる認知リスクとしてジャーニーの離脱段階で扱う。
+- どの観測からその軸を立てたかを、実際の件数・数値を引いて各ペルソナの market_basis に具体的に書く (「競合◯件中◯件が未経験歓迎タグ」「◯◯市からの通勤流入が最多」のように、この案件の実測値で)。同じ軸の言い換えで数を増やさない。
 - 各ペルソナの profile は、前職の情景・転職のきっかけ・生活の制約(家族・通勤・体力など)が目に浮かぶ具体度で書く。抽象的な属性の羅列は禁止。
 - 各ペルソナの検索語は5〜8件。
 - 各検索語の stage は次の8段階の名称を一字一句そのまま使う: 求人認知、求人閲覧、自然検索、他求人比較、応募判断、応募後連絡、面接、オファー・入社判断。「情報収集」等の独自の段階名を作らない。
@@ -1724,11 +1732,24 @@ pub fn validate_prepare_result(
     let mut ids = HashSet::new();
     let mut behaviors = HashSet::new();
     for (index, persona) in personas.iter().enumerate() {
+        // ペルソナは市場構造 (求人・競合実測・地域統計) から導出する。口コミ由来の軸は
+        // 認知リスクとの混同なので機械的に差し戻す (2026-08-07 ユーザー指摘)。
+        let market_basis = persona
+            .get("market_basis")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if market_basis.contains("口コミ") || market_basis.contains("レビュー") {
+            issues.push(format!(
+                "ペルソナ{}の分割軸 (market_basis) が口コミ由来です。ペルソナは市場構造の観測 (顧客求人の条件・競合タグ実測・地域統計) から導出し、口コミへの反応はジャーニーの離脱段階で扱ってください。",
+                index + 1
+            ));
+        }
         for key in [
             "label",
             "profile",
             "previous_work_context",
             "transfer_reason",
+            "market_basis",
             "behavior_reason",
             "employer_fit_hypothesis",
         ] {
@@ -2585,6 +2606,8 @@ pub fn note_verified_source_text(
 pub fn build_posting_draft_prompt(
     case_profile: &Value,
     personas_with_details: &Value,
+    client_job_source: &str,
+    job_knowledge: &str,
     job_facts: &[Value],
     customer_statements: &[Value],
     popular_jobs: &[Value],
@@ -2606,6 +2629,15 @@ pub fn build_posting_draft_prompt(
 - 社員の声・実績など未確認の内容は本文に創作せず「{placeholder}◯◯】」を置き、interview_items に取材質問を入れる。
 - 「日本一」「圧倒的」「絶対」などの誇張・断定表現を使わない。
 
+# 求人ナレッジの使い方
+- job_knowledge はスプレッドシート由来の職種別・汎用の書き方ノウハウ (有効なキーワード・原稿フォーマット・訴求の型)。構成・言い回し・強調点の指針として使う。
+- ナレッジの内容を顧客企業の事実として書かない (事実は job_fact_evidence と client_job_source のみ)。
+
+# 仕事内容 (求人票の本体)
+- job_description_markdown に、client_job_source (顧客求人の元本文) の記載に基づく具体的な仕事内容を書く: 何を・どこで・どうやる業務か、使う車両・機材、1日の流れ (元本文にあれば)。元本文に無い業務を作らない。
+- 元本文に無い細部 (繁忙期・チーム構成など) は「{placeholder}◯◯】」を置き interview_items に回す。
+- 訴求だけで仕事の実態が分からない原稿は不合格。読んだ人が「自分が何をする仕事か」を説明できる具体度にする。
+
 # 診断の反映 (この原稿の存在理由)
 - personas_with_details の各ペルソナの priority_actions のうち channel が「求人票」のものを原稿に反映する。優先度「高」は必ず反映する。
 - applied_countermeasures に「どのペルソナのどの段階の対策を、原稿のどこにどう反映したか」を列挙する。対象の全ペルソナを最低1件ずつカバーする。stage は次の8段階名をそのまま使う: {stages}
@@ -2618,6 +2650,8 @@ pub fn build_posting_draft_prompt(
 
 <case_profile>{case_profile}</case_profile>
 <personas_with_details>{personas_with_details}</personas_with_details>
+<client_job_source>{client_job_source}</client_job_source>
+<job_knowledge>{job_knowledge}</job_knowledge>
 <job_fact_evidence>{job_facts}</job_fact_evidence>
 <customer_statement_evidence>{customer_statements}</customer_statement_evidence>
 <popular_job_observations>{popular_jobs}</popular_job_observations>
@@ -2627,6 +2661,8 @@ pub fn build_posting_draft_prompt(
         stages = stages,
         case_profile = prompt_json(case_profile, "{}"),
         personas_with_details = prompt_json(personas_with_details, "[]"),
+        client_job_source = prompt_json(client_job_source, "\"\""),
+        job_knowledge = prompt_json(job_knowledge, "\"\""),
         job_facts = prompt_json(job_facts, "[]"),
         customer_statements = prompt_json(customer_statements, "[]"),
         popular_jobs = prompt_json(popular_jobs, "[]"),
@@ -2675,6 +2711,7 @@ pub fn posting_draft_schema_with_evidence_refs(
                 }
             },
             "headline":{"type":"string"},
+            "job_description_markdown":{"type":"string"},
             "sections":{
                 "type":"array",
                 "items":{
@@ -2707,8 +2744,8 @@ pub fn posting_draft_schema_with_evidence_refs(
             "limitations":string_array()
         },
         "required":[
-            "catch_copy_options","headline","sections","applied_countermeasures",
-            "seo_keywords","photo_ideas","interview_items","limitations"
+            "catch_copy_options","headline","job_description_markdown","sections",
+            "applied_countermeasures","seo_keywords","photo_ideas","interview_items","limitations"
         ]
     })
 }
@@ -2780,6 +2817,17 @@ pub fn validate_posting_draft(
         result.get("headline").and_then(Value::as_str).unwrap_or(""),
         &mut issues,
     );
+    let job_description = result
+        .get("job_description_markdown")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if job_description.chars().count() < 80 {
+        issues.push(
+            "job_description_markdown (仕事内容) が80文字未満です。元求人の記載に基づき、何をする仕事か分かる具体度で書いてください。".to_string(),
+        );
+    }
+    check_numbers("仕事内容", job_description, &mut issues);
     let sections = result
         .get("sections")
         .and_then(Value::as_array)
@@ -2791,7 +2839,7 @@ pub fn validate_posting_draft(
             sections.len()
         ));
     }
-    let mut has_placeholder = false;
+    let mut has_placeholder = job_description.contains(NOTE_INTERVIEW_PLACEHOLDER);
     for (index, section) in sections.iter().enumerate() {
         validate_required_strings(
             section,
@@ -4635,6 +4683,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             "profile":"プロフィール",
             "previous_work_context":"前職",
             "transfer_reason":"転職理由",
+            "market_basis":"競合給与集計の中央値との差から導出",
             "must_have_conditions":["必須条件"],
             "priority_conditions":["優先条件"],
             "acceptable_tradeoffs":["許容可能な条件"],
@@ -4681,6 +4730,19 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
 
         let valid = valid_prepare_result();
         assert!(validate_prepare_result(&valid, &allowed).is_empty());
+    }
+
+    /// ペルソナは市場構造由来 (2026-08-07 ユーザー指摘)。口コミ由来の分割軸は機械拒否。
+    #[test]
+    fn persona_axis_derived_from_reviews_is_rejected() {
+        let allowed = HashSet::from(["職種一般仮説".to_string()]);
+        let mut tainted = valid_prepare_result();
+        tainted["personas"][0]["market_basis"] = json!("口コミで待機時間への不満が散見されるため");
+        let issues = validate_prepare_result(&tainted, &allowed);
+        assert!(
+            issues.iter().any(|issue| issue.contains("口コミ由来")),
+            "口コミ由来のペルソナ軸が通ってしまう: {issues:?}"
+        );
     }
 
     /// 実出力の逆証明で発見 (2026-08-06): LLMがペルソナidを「P1」等と自由生成し、
@@ -5073,6 +5135,7 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
                 {"text":"経験を給与に反映したい人へ","target_persona":"persona_2","addressed_emotion":"評価への不満"}
             ],
             "headline":"川崎の配送ドライバー（正社員）",
+            "job_description_markdown":"固定ルートでの配送業務を担当します。朝は営業所で車両点検から始まり、決められたコースを回って納品します。荷物の積み込みと伝票の確認も業務に含まれます。【取材で確認: 1日の配送件数の目安】",
             "sections":[
                 {"heading":"働き方","body_markdown":"年間休日は105日です。【取材で確認: 希望休の通りやすさ】","applied_for":"persona_1","evidence_refs":["J1"]},
                 {"heading":"給与","body_markdown":"月給30万3000円〜53万3000円。","applied_for":"persona_2","evidence_refs":["J1"]},
@@ -5110,6 +5173,13 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
             .iter()
             .any(|issue| issue.contains("45")));
 
+        // 逆証明2b: 仕事内容が薄い(80字未満)原稿は拒否 (「訴求だけで仕事が分からない」の再発防止)
+        let mut thin_jd = valid.clone();
+        thin_jd["job_description_markdown"] = json!("配送の仕事です。");
+        assert!(validate_posting_draft(&thin_jd, &allowed, source, &ids)
+            .iter()
+            .any(|issue| issue.contains("仕事内容") && issue.contains("80文字未満")));
+
         // 逆証明3: 反映ゼロは目的に反するため拒否
         let mut none_applied = valid.clone();
         none_applied["applied_countermeasures"] = json!([]);
@@ -5138,6 +5208,8 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         let prompt = build_posting_draft_prompt(
             &json!({}),
             &json!([]),
+            "元求人の本文",
+            "職種ナレッジ本文",
             &[],
             &[],
             &[],
@@ -5147,6 +5219,60 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         );
         assert!(prompt.contains("優先度「高」は必ず反映"));
         assert!(prompt.contains("applied_countermeasures"));
+        // スプレッドシート由来の求人ナレッジを書き方指針として注入 (事実とは区別)
+        assert!(prompt.contains("求人ナレッジの使い方"));
+        assert!(prompt.contains("顧客企業の事実として書かない"));
+        // ペルソナ分割軸のテンプレ固定化の再発防止 (2026-08-07 実運用指摘)
+        let prepare = build_prepare_prompt(
+            &json!({}),
+            &[],
+            &[],
+            &CompetitorSummary::not_comparable(&CompetitorSummary::not_comparable(
+                &summarize_competitor_csv(
+                    "css-1hwmqh1,css-bxyec3 href,css-bxyec3,css-14qk2ra,css-18rxko3,css-18rxko3 (2),css-1vlebyu
+正社員,https://example.com/1,配送,会社A,東京都,月給 300000円,本文
+".as_bytes(),
+                    "c.csv",
+                    None,
+                )
+                .expect("csv"),
+            )),
+            &CohortAssessment {
+                status: "blocked".to_string(),
+                scope: String::new(),
+                source_record_count: 0,
+                matched_record_count: 0,
+                minimum_required: 5,
+                client_job_category: String::new(),
+                client_occupation_keywords: vec![],
+                client_prefecture: String::new(),
+                client_municipality: String::new(),
+                client_employment_type: String::new(),
+                warning: String::new(),
+            },
+            &ReviewSummary::not_provided(),
+            None,
+            &json!({"available":false}),
+            "",
+            &[],
+            &HashSet::from(["職種一般仮説".to_string()]),
+        );
+        assert!(
+            prepare.contains("案件固有に導出"),
+            "分割軸の案件由来導出の指示が無い"
+        );
+        assert!(
+            prepare.contains("口コミ (review_observations) は分割軸に使わない"),
+            "口コミをペルソナ軸に使う余地が残っている (ペルソナは市場構造、口コミは認知リスク)"
+        );
+        assert!(
+            prepare.contains("public_statistics の労働力人口・通勤流入元"),
+            "地域オープンデータからの軸導出の指示が無い"
+        );
+        assert!(
+            !prepare.contains("通勤圏・地元定着層"),
+            "分割軸のテンプレ例示が残っている (毎回同じペルソナになる)"
+        );
         let lib = include_str!("../lib.rs");
         let route = lib
             .find("\"/api/jobgen/journey-posting-draft\"")
@@ -5181,13 +5307,14 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
     fn journey_ui_renders_posting_draft() {
         let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
         for required in [
-            "postingDraftBtn",
+            "postingdraftbtn",
             "/api/jobgen/journey-posting-draft",
             "※この求人票案はあくまでイメージです",
             "募集要項（求人票と照合済みの事実のみ）",
             "応募する（イメージ）",
             "反映した診断対策",
-            "posting_draft:S.postingDraft",
+            "posting_drafts:Object.fromEntries(S.postingDrafts)",
+            "job_description_markdown",
         ] {
             assert!(
                 html.contains(required),
