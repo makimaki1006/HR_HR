@@ -5154,6 +5154,28 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         assert!(lib[route..].contains("jobgen_auth_middleware"));
     }
 
+    /// 実運用報告 (2026-08-07)「検索ボリューム取得から動かず工程5へ進めない」への対応:
+    /// Ads取得失敗は縮退続行し、完了扱いにせず再試行可能にする。
+    #[test]
+    fn keyword_fetch_failure_degrades_instead_of_blocking() {
+        let handlers = include_str!("handlers.rs");
+        assert!(
+            handlers.contains("\"fetch_failed\""),
+            "Ads失敗の縮退ステータスが無い"
+        );
+        assert!(
+            !handlers.contains("\"message\":\"Google広告から検索需要を取得できませんでした。\""),
+            "Ads失敗でエラー返却する実装に戻っている (工程5へ進めなくなる)"
+        );
+        assert!(
+            handlers.contains("if measurement_status != \"fetch_failed\""),
+            "失敗時も完了扱いになり再試行できない"
+        );
+        let html = include_str!("../../static/jobgen_applicant_journey_beta.html");
+        assert!(html.contains("fetch_failed"));
+        assert!(html.contains("検索需要は仮説のまま8段階診断へ進めます"));
+    }
+
     /// ジャーニー内求人票案のUI契約。
     #[test]
     fn journey_ui_renders_posting_draft() {
