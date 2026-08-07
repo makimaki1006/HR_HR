@@ -202,6 +202,23 @@
     .jmroot .dict-term{border-bottom:2px dotted var(--blue);cursor:help;color:var(--navy);font-weight:700}
     .searchnote{border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:9px 11px;margin-top:8px}
     .searchnote summary{font-size:12px;font-weight:800;color:var(--accent-ink);cursor:pointer}
+    /* note記事案 (2026-08-07): note.comの読み味に寄せた白カードのプレビュー */
+    .notecard{max-width:680px;margin:10px auto 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:26px 30px;box-shadow:var(--shadow)}
+    .notecard .ntitle{font-size:1.45em;font-weight:800;line-height:1.4;color:var(--ink);margin:0 0 4px}
+    .notecard .nalt{font-size:11.5px;color:var(--ink-3);margin:0 0 12px}
+    .notecard .neyecatch{background:linear-gradient(135deg,var(--surface-2),var(--accent-bg));border:1px dashed var(--line-2);border-radius:10px;padding:22px 16px;text-align:center;font-size:12px;color:var(--ink-2);margin-bottom:14px}
+    .notecard .nlead{font-size:13.5px;color:var(--ink-2);line-height:1.8;margin-bottom:16px}
+    .notecard h4{font-size:15px;font-weight:800;color:var(--ink);border-left:4px solid var(--accent);padding-left:9px;margin:18px 0 7px}
+    .notecard .nbody{font-size:13px;line-height:1.9;color:var(--ink)}
+    .notecard .nbody ul{margin:6px 0;padding-left:20px}
+    .notecard .npurpose{font-size:11px;color:var(--ink-3);margin-top:3px}
+    .notecard mark.notetodo{background:color-mix(in srgb,var(--mid) 18%,var(--surface));color:var(--mid);font-weight:700;border-radius:4px;padding:0 3px}
+    .notecard .ntags{margin-top:16px;display:flex;flex-wrap:wrap;gap:6px}
+    .notecard .ntag{background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:2px 11px;font-size:11.5px;color:var(--accent-ink);font-weight:700}
+    .noteinterview{max-width:680px;margin:10px auto 0;border:1px solid color-mix(in srgb,var(--mid) 35%,transparent);background:color-mix(in srgb,var(--mid) 8%,var(--surface));border-radius:11px;padding:11px 14px;font-size:12.5px}
+    .noteinterview b{color:var(--mid)}
+    .notemeta{max-width:680px;margin:8px auto 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11.5px;color:var(--ink-3)}
+    @media print{.notecard,.noteinterview{break-inside:avoid}}
     /* ツールチップと辞書カードは body 直下の単一要素（部品が生成する） */
     #tip{position:fixed;z-index:50;max-width:290px;background:#10243e;color:#fff;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.55;pointer-events:none;opacity:0;transition:opacity .12s;box-shadow:0 8px 22px rgba(10,20,40,.35)}
     #tip b{color:#9ec7ea;display:block;font-size:10px;margin-bottom:1px}
@@ -452,7 +469,8 @@
   };
   const S={
     data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:"",
-    details:new Map(),maxStep:1,mapInstance:null,measured:false
+    details:new Map(),maxStep:1,mapInstance:null,measured:false,
+    noteDrafts:new Map(),noteActive:null
   };
   const FACT_LABELS={
     salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
@@ -959,7 +977,14 @@
       <p class="maplead">丸印をクリックすると、その段階での行動・内心・離脱の引き金・打ち手を下の詳細に表示します。点線の下線が付いた語にカーソルを載せると、資格辞書・職種辞典のカードが開きます。</p>
       <div class="mapwrap" tabindex="0" role="region" aria-label="ペルソナ別の段階別ジャーニーマップ。横にスクロールできます"><div class="jmap"></div></div>
       <div class="jmlegend"><span class="lg"><span class="dot f"></span>打ち手が求人票の中にある段階</span><span class="lg"><span class="dot h"></span>打ち手が求人票の外（検索結果・口コミ・面接など）にある段階</span><span class="lg"><span class="dot r"></span>優先度「高」の打ち手あり</span></div>
-    </div>${notes}`;
+    </div>${notes}
+    <div class="notegen sectiongap">
+      <h3>ペルソナ別 note記事案（採用広報の下書き）</h3>
+      <p class="hint">診断済みペルソナの離脱要因・内心の不安に応えるnote記事の下書きを作ります。書くのは確認済み事実（求人票照合済み・顧客発言・人気求人の実測）だけで、社員の声など未確認の内容は本文に創作せず【取材で確認】の質問リストにします。</p>
+      <div class="actions">${personas.map(p=>`<button class="btn2 notedraftbtn" data-persona="${esc(p.id)}">${esc(p.label)}の記事案を作成</button>`).join("")}</div>
+      <div id="noteStatus" class="status" role="status" aria-live="polite"></div>
+      <div id="noteContent"></div>
+    </div>`;
     // 検索量が実測できたときだけ実測値として渡す。未取得時は null にして
     // 部品側が「検索量は未取得・検索仮説」と正直に表示する
     let keywordMap=null;
@@ -971,7 +996,84 @@
       keywordMap,
       dictEndpoints:{license:"/api/dict/license_card",occupation:"/api/dict/occupation_card"}
     });
+    if(S.noteActive&&S.noteDrafts.has(S.noteActive))renderNoteDraft(S.noteActive);
     updateTableHints();
+  }
+
+  // ── note記事案 (2026-08-07) ──
+  $("#journeyContent").addEventListener("click",async event=>{
+    const button=event.target.closest(".notedraftbtn");
+    if(!button)return;
+    const personaId=button.dataset.persona;
+    if(S.noteDrafts.has(personaId)){S.noteActive=personaId;renderNoteDraft(personaId);return}
+    const status=$("#noteStatus");
+    button.disabled=true;
+    status.innerHTML='<div class="loading">確認済み事実だけでnote記事の下書きを生成・検査しています（数値は事実照合、未確認内容は取材リスト化）…</div>';
+    try{
+      const response=await postJSON("/api/jobgen/journey-note-draft",{case_id:S.data?.case_id,persona_id:personaId});
+      if(!response.quality_gate?.passed){
+        status.innerHTML=`<div class="error">記事案の品質検査を通過できませんでした：${esc(issueSummary(response.quality_gate?.issues))}</div>`;
+        return;
+      }
+      S.noteDrafts.set(personaId,response.result);
+      S.noteActive=personaId;
+      status.innerHTML='<div class="oknote">記事案を生成しました。本文の数値は確認済み事実と照合済みです。公開前に取材項目を埋めて顧客の確認を得てください。</div>';
+      renderNoteDraft(personaId);
+    }catch(error){
+      status.innerHTML=`<div class="error">${esc(error.message)}</div>`;
+    }finally{
+      button.disabled=false;
+    }
+  });
+  function noteBodyHtml(markdown){
+    // 素朴なマークダウン（段落・箇条書き）だけを描画し、取材プレースホルダを強調する
+    const paragraphs=String(markdown||"").split(/\n{2,}/).map(block=>{
+      const lines=block.split("\n").map(l=>l.trim()).filter(Boolean);
+      if(lines.length&&lines.every(l=>/^[-・]/.test(l))){
+        return `<ul>${lines.map(l=>`<li>${esc(l.replace(/^[-・]\s*/,""))}</li>`).join("")}</ul>`;
+      }
+      return `<p>${lines.map(esc).join("<br>")}</p>`;
+    }).join("");
+    return paragraphs.replace(/【取材で確認[:：]([^】]*)】/g,(_,inner)=>`<mark class="notetodo">【取材で確認:${esc(inner)}】</mark>`);
+  }
+  function noteDraftMarkdown(persona,draft){
+    const sections=(draft.sections||[]).map(s=>`## ${s.heading}\n\n${s.body_markdown}`).join("\n\n");
+    const tags=(draft.hashtags||[]).map(t=>`#${t}`).join(" ");
+    const interviews=(draft.interview_items||[]).map(i=>`- ${i}`).join("\n");
+    return `※この記事案はあくまでイメージです。\n\n# ${(draft.title_options||[])[0]||""}\n\n（アイキャッチ案: ${draft.eyecatch_idea||""}）\n\n${draft.lead||""}\n\n${sections}\n\n${tags}\n\n---\n公開前の取材確認:\n${interviews}`;
+  }
+  function renderNoteDraft(personaId){
+    const draft=S.noteDrafts.get(personaId);
+    const persona=(S.data?.result?.personas||[]).find(p=>p.id===personaId);
+    if(!draft||!persona)return;
+    const container=$("#noteContent");
+    if(!container)return;
+    const titles=draft.title_options||[];
+    const sections=(draft.sections||[]).map(s=>`
+      <h4>${esc(s.heading)}</h4><div class="nbody">${noteBodyHtml(s.body_markdown)}</div>
+      <p class="npurpose">この節が応える不安：${esc(s.purpose)}／根拠：${esc(formatRefs(s.evidence_refs))}</p>`).join("");
+    const interviews=(draft.interview_items||[]).map(i=>`<li>${esc(i)}</li>`).join("");
+    container.innerHTML=`
+      <div class="notemeta"><span class="badge neutral">${esc(persona.label)}向け</span>${(draft.target_dropoffs||[]).map(s=>`<span class="badge warn">${esc(s)}の離脱に対応</span>`).join("")}<button class="btn2" id="noteCopyBtn">Markdownをコピー</button></div>
+      <p class="hint" style="max-width:680px;margin:6px auto 0">※この記事案はあくまでイメージです。</p>
+      <article class="notecard">
+        <h3 class="ntitle">${esc(titles[0]||"")}</h3>
+        ${titles.length>1?`<p class="nalt">別案：${titles.slice(1).map(esc).join("／")}</p>`:""}
+        <div class="neyecatch">📷 アイキャッチ案：${esc(draft.eyecatch_idea||"")}</div>
+        <p class="nlead">${esc(draft.lead||"")}</p>
+        ${sections}
+        <div class="ntags">${(draft.hashtags||[]).map(t=>`<span class="ntag">#${esc(t)}</span>`).join("")}</div>
+      </article>
+      ${interviews?`<div class="noteinterview"><b>公開前の取材で埋める項目</b><ul class="clean">${interviews}</ul></div>`:""}
+      ${(draft.limitations||[]).length?`<p class="hint" style="max-width:680px;margin:8px auto 0">${(draft.limitations||[]).map(esc).join("／")}</p>`:""}`;
+    $("#noteCopyBtn")?.addEventListener("click",async()=>{
+      try{
+        await navigator.clipboard.writeText(noteDraftMarkdown(persona,draft));
+        $("#noteStatus").innerHTML='<div class="oknote">Markdownをコピーしました。noteのエディタに貼り付けて、取材項目を埋めてから公開してください。</div>';
+      }catch{
+        $("#noteStatus").innerHTML='<div class="error">コピーできませんでした。内部引継ぎJSONをご利用ください。</div>';
+      }
+    });
   }
 
   function selectedQueries(){
@@ -1125,7 +1227,8 @@
       },
       keyword_metrics:Object.fromEntries(S.keywordMap),
       keyword_suggestions:S.suggestions,
-      persona_details:Object.fromEntries(S.details)
+      persona_details:Object.fromEntries(S.details),
+      note_drafts:Object.fromEntries(S.noteDrafts)
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
     const url=URL.createObjectURL(blob),a=document.createElement("a");
