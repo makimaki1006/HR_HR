@@ -169,17 +169,72 @@
   .pbox.pneg{opacity:.85}
   .pmeta{font-size:12px;margin-top:6px;color:var(--ink-2)}
   .pappeal{font-size:12.5px;font-weight:700;background:var(--surface);border-left:3px solid var(--accent-ink);border-radius:0 8px 8px 0;padding:8px 12px;margin-bottom:6px}
-  .copybtn{flex:none;font-size:11.5px;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+  /* color 未指定だとボタン既定色(黒)のままで暗テーマだと判読できないため明示する */
+  .copybtn{flex:none;font-size:11.5px;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer}
   .copybtn:hover{border-color:var(--accent-ink)}
   .copybtn:disabled{opacity:.7;cursor:default}
   /* スマホ原稿プレビュー */
-  .mobwrap{display:flex;flex-wrap:wrap;gap:16px}
-  .mobcol{flex:0 0 auto}
+  .mobwrap{display:flex;flex-wrap:wrap;gap:18px}
+  .mobcol{flex:0 0 auto;max-width:100%}
   .moblabel{font-weight:800;font-size:12.5px;color:var(--accent-ink);margin-bottom:6px}
   .phone{width:375px;max-width:100%;background:var(--surface);border:1px solid var(--line-2);border-radius:16px;box-shadow:var(--shadow);padding:16px 16px 20px;font-size:14px;line-height:1.7}
   .phone .ml-line{white-space:pre-wrap;word-break:break-word}
   .phone .ml-empty{height:1.1em}
   .phone-cap{font-size:11px;color:var(--ink-3);text-align:center;margin-top:5px}
+  /* 作成例カード（求人媒体の求人ページ風・イメージ） */
+  .jpost{width:375px;max-width:100%;background:var(--surface);border:1px solid var(--line-2);border-radius:18px;overflow:hidden;box-shadow:var(--shadow);transition:transform .25s ease,box-shadow .25s ease}
+  .jpost:hover{transform:translateY(-3px);box-shadow:0 8px 18px rgba(16,24,44,.12),0 22px 48px rgba(16,24,44,.18)}
+  .jpost-photo{position:relative;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;padding:13px;color:#fff;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 58%,#101a35),color-mix(in srgb,var(--accent) 16%,#101a35));overflow:hidden}
+  .jpost-photo::after{content:"";position:absolute;inset:-50% -60%;z-index:0;pointer-events:none;background:linear-gradient(105deg,transparent 42%,rgba(255,255,255,.20) 50%,transparent 58%);animation:jpshine 6s ease-in-out infinite}
+  @keyframes jpshine{0%,68%{transform:translateX(-46%)}100%{transform:translateX(46%)}}
+  .jpost-cam{position:absolute;top:11px;left:14px;z-index:1;font-size:25px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.55))}
+  .jpost-ph-tag{position:absolute;top:14px;right:13px;z-index:1;font-size:10.5px;font-weight:800;letter-spacing:.03em;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:2px 9px}
+  .jpost-ph-txt{position:relative;z-index:1;font-size:11.5px;line-height:1.6;background:rgba(0,0,0,.46);border-radius:9px;padding:7px 9px;white-space:pre-wrap;word-break:break-word;max-height:84px;overflow-y:auto}
+  .jpost-ph-txt .pht{font-size:10px;font-weight:800;letter-spacing:.04em;opacity:.92;display:block;margin-bottom:2px}
+  .jpost-main{padding:14px 15px 17px}
+  .jstyle{display:inline-block;font-size:10px;font-weight:800;color:#fff;background:color-mix(in srgb,var(--accent) 62%,#101a35);border-radius:5px;padding:1px 7px;margin-right:7px;vertical-align:middle}
+  .jpost-catch{font-size:15px;font-weight:800;line-height:1.55;letter-spacing:-.01em;margin:0 0 9px;word-break:break-word}
+  .jpost-title{font-size:18px;font-weight:800;line-height:1.4;margin:0 0 9px;word-break:break-word}
+  .jbadges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}
+  .jbadge{display:inline-flex;align-items:baseline;gap:5px;font-size:11.5px;font-weight:700;color:var(--accent-ink);background:var(--accent-bg);border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);border-radius:8px;padding:4px 9px;max-width:100%;word-break:break-word}
+  .jbadge .jbk{font-size:10px;font-weight:800;color:var(--ink-3)}
+  /* var(--lo) そのままだと明テーマで白地に 4.21:1 しか出ないため --ink を混ぜて濃くする */
+  .jbadge.pay{color:color-mix(in srgb,var(--lo) 78%,var(--ink));background:color-mix(in srgb,var(--lo) 11%,transparent);border-color:color-mix(in srgb,var(--lo) 38%,transparent)}
+  .jbadge.pay .jbk{color:color-mix(in srgb,var(--lo) 62%,var(--ink-2))}
+  .jchips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:4px}
+  .jchip{font-size:11px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line-2);border-radius:999px;padding:3px 10px;max-width:100%;word-break:break-word;animation:jchipin .45s ease both}
+  @keyframes jchipin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+  .jsec{border-top:1px solid var(--line);padding:10px 5px 2px;margin:11px -5px 0}
+  .jsec-h{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--accent-ink);margin-bottom:7px}
+  .jsec-h::before{content:"";width:3px;height:14px;border-radius:2px;background:var(--accent)}
+  .jbody{font-size:13.5px;line-height:1.85;word-break:break-word}
+  .jbody .ml-line{white-space:pre-wrap}
+  .jbody .ml-empty{height:.9em}
+  .jdl{display:flex;flex-direction:column;font-size:12.5px}
+  .jrow{display:flex;gap:10px;padding:6px 5px;border-top:1px solid var(--line)}
+  .jrow:first-child{border-top:none}
+  .jrow .jdt{flex:0 0 72px;color:var(--ink-3);font-weight:700}
+  .jrow .jdd{flex:1 1 auto;min-width:0;word-break:break-word}
+  .japply{width:100%;margin-top:15px;padding:12px;border:none;border-radius:11px;font:inherit;font-size:14px;font-weight:800;color:#fff;cursor:default;opacity:1;background:linear-gradient(120deg,color-mix(in srgb,var(--accent) 62%,#0d1030),color-mix(in srgb,var(--accent) 45%,#4a1668))}
+  .jdisc{font-size:11px;color:var(--ink-3);margin-top:9px;text-align:center}
+  .jraw{margin-top:10px;width:375px;max-width:100%}
+  .jraw>summary{font-size:11.5px;font-weight:700;color:var(--ink-2);cursor:pointer;padding:4px 0}
+  .jraw .phone{margin-top:6px}
+  .jrawbar{display:flex;justify-content:flex-end;margin-top:6px}
+  .ihint{font-size:11.5px;color:var(--ink-3);margin:0 0 12px}
+  /* 意図ポップアップ（③ペルソナ・④コピー・⑤画像案の生成結果をそのまま出す） */
+  .ipop{position:fixed;z-index:80;max-width:320px;background:var(--surface);color:var(--ink);border:1px solid var(--accent);border-radius:12px;box-shadow:0 12px 34px rgba(10,16,32,.3);padding:11px 13px;font-size:12px;line-height:1.65;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .16s ease,transform .16s ease}
+  .ipop.on{opacity:1;transform:none}
+  .ipop .ih{font-size:11px;font-weight:800;color:var(--accent-ink);letter-spacing:.03em;margin-bottom:6px}
+  .ipop .ir{display:grid;grid-template-columns:62px 1fr;gap:8px;margin:4px 0}
+  .ipop .ik{font-size:10.5px;font-weight:800;color:var(--ink-3);padding-top:2px}
+  .ipop .iv{color:var(--ink-2);word-break:break-word}
+  .ipop .ifoot{margin-top:7px;padding-top:5px;border-top:1px solid var(--line);font-size:10.5px;color:var(--ink-3)}
+  /* ホバー時の下地は background-color のみ（写真の背景グラデーションを打ち消さない） */
+  [data-ipop]{cursor:help}
+  [data-ipop]:not(.jpost-photo):hover{background-color:color-mix(in srgb,var(--accent) 8%,transparent);border-radius:9px}
+  [data-ipop]:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 45%,transparent);border-radius:9px}
+  @media(prefers-reduced-motion:reduce){.jpost,.ipop,.jchip{transition:none;animation:none}.jpost-photo::after{animation:none}}
   /* 84列 */
   .genwrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:14px}
   .gencard{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
@@ -817,8 +872,115 @@ function copyText(btn){
     setTimeout(()=>{btn.textContent=orig;btn.disabled=false;},1500);
   }).catch(()=>{alert("コピーに失敗しました。テキストを選択して手動でコピーしてください。");});
 }
+// ── 作成例プレビューの「意図」ポップアップ ────────────────────────
+// 中身は③ペルソナ設計・④キャッチコピー・⑤画像案・①事実抽出の生成結果そのもの。
+// 値が無い行は出さない（実物らしく見せるために意図を創作しない）。
+const IPOP=[];          // renderMobile のたびに作り直す
+let ipopBox=null;
+function ipopPush(head,rows,foot){
+  const rs=(rows||[]).filter(r=>r&&r[1]&&String(r[1]).trim());
+  if(!rs.length)return null;
+  IPOP.push({head,rows:rs,foot:foot||""});
+  return IPOP.length-1;
+}
+function ipopAttr(idx){return idx==null?"":` data-ipop="${idx}" tabindex="0"`;}
+let ipopFor=null;       // 今ポップアップを出している対象要素
+// 表示してから実寸を測り、画面外にはみ出さない位置へ寄せる
+function ipopPlace(el){
+  const r=el.getBoundingClientRect(),pw=ipopBox.offsetWidth,ph=ipopBox.offsetHeight;
+  let left=r.left,top=r.bottom+8;
+  if(left+pw>innerWidth-10)left=innerWidth-pw-10;
+  if(left<10)left=10;
+  if(top+ph>innerHeight-10)top=Math.max(10,r.top-ph-8);
+  ipopBox.style.left=left+"px";ipopBox.style.top=top+"px";
+}
+function ipopShow(el){
+  const d=IPOP[+el.getAttribute("data-ipop")];
+  if(!d)return;
+  if(!ipopBox){ipopBox=document.createElement("div");ipopBox.className="ipop";ipopBox.id="intentPop";document.body.appendChild(ipopBox);}
+  ipopBox.innerHTML=`<div class="ih">${esc(d.head)}</div>`
+    +d.rows.map(r=>`<div class="ir"><div class="ik">${esc(r[0])}</div><div class="iv">${esc(r[1])}</div></div>`).join("")
+    +(d.foot?`<div class="ifoot">${esc(d.foot)}</div>`:"");
+  ipopBox.classList.add("on");ipopFor=el;ipopPlace(el);
+}
+function ipopHide(){if(ipopBox)ipopBox.classList.remove("on");ipopFor=null;}
+function ipopTarget(t){return t&&t.closest?t.closest("[data-ipop]"):null;}
+// スクロールでは即座に消さない。scroll イベントは次の描画まで遅れて届くため、
+// 「要素へスクロール→ホバー」の直後に消えてしまうのを避ける。まだ対象を指している
+// 間は位置だけ追従させ、離れていたら閉じる。
+function ipopReflow(){
+  if(!ipopFor||!ipopBox||!ipopBox.classList.contains("on"))return;
+  if(!document.body.contains(ipopFor)||!(ipopFor.matches(":hover")||document.activeElement===ipopFor)){ipopHide();return;}
+  ipopPlace(ipopFor);
+}
+document.addEventListener("mouseover",e=>{const t=ipopTarget(e.target);if(t)ipopShow(t);else if(ipopFor&&document.activeElement!==ipopFor)ipopHide();});
+document.addEventListener("focusin",e=>{const t=ipopTarget(e.target);if(t)ipopShow(t);else ipopHide();});
+document.addEventListener("focusout",ipopHide);
+addEventListener("scroll",ipopReflow,true);
+addEventListener("resize",ipopHide);
+
+// ── 作成例カード（求人媒体の求人ページ風レイアウト） ──────────────
+// ⑥スマホ原稿を本文に、①事実／②強み／④コピー／⑤画像案の生成済みデータだけを流し込む。
+// データが無いブロックは出力しない。
+function pvPersona(label){return (S.personas||[]).find(p=>(p.label||"")===label)||null;}
+function pvCopy(label){const c=(S.copies||[]).find(x=>x.label===label);return (c&&c.copies)?(c.copies.find(cp=>cp&&(cp.text||"").trim())||null):null;}
+function pvDirection(label){const d=(S.images||[]).find(x=>(x.persona_label||"")===label);return (d&&(d.direction||"").trim())||"";}
+function pvAppeal(label){const p=(S.imagePrompts||[]).find(x=>(x.persona_label||"")===label);return (p&&(p.appeal_core||"").trim())||"";}
+function pvFact(k){const f=(S.facts||{})[k];return (f&&f.status==="verified"&&f.value)?String(f.value).trim():"";}
+function pvQuote(k){const f=(S.facts||{})[k];return (f&&f.evidence_quote)?String(f.evidence_quote).trim():"";}
+function pvTitle(){const el=$("#jobTitle");return String((el&&el.value)||S.titleHint||"").trim();}
+function pvPersonaRows(p){
+  return p?[["ターゲット",p.label||""],["人物像",p.profile||""],["現職の不満",p.dissatisfaction||""],["痛み",p.pain||""],["生活環境",p.environment||""]]:[];
+}
+const PV_FACT_KEYS=["salary","working_hours","holidays","work_location","employment_type","insurance","allowances","required_qualifications"];
+const PV_FACT_SRC="①事実抽出で原文と一字一句照合した項目";
+function jobPostCard(m){
+  const label=m.label||"";
+  const p=pvPersona(label);
+  const prows=pvPersonaRows(p);
+  const cp=pvCopy(label);
+  const dirTxt=pvDirection(label);
+  const appeal=pvAppeal(label);
+  // 写真プレースホルダ（実画像は載せない。⑤の撮影案があれば重ねる）
+  const photoIdx=ipopPush("写真の意図",[["画像の狙い",appeal]].concat(prows),
+    appeal?"出所: ⑤画像案・生成プロンプト／③ペルソナ設計":"出所: ③ペルソナ設計");
+  const photoTxt=dirTxt?`<div class="jpost-ph-txt"><span class="pht">撮影案（⑤画像案）</span>${esc(dirTxt)}</div>`:"";
+  const photo=`<div class="jpost-photo"${ipopAttr(photoIdx)}><span class="jpost-cam">📷</span><span class="jpost-ph-tag">写真はイメージ</span>${photoTxt}</div>`;
+  // キャッチコピー（④の1案目）
+  const catchIdx=cp?ipopPush("キャッチコピーの意図",prows.concat([["コピーの型",cp.style||""]]),"出所: ③ペルソナ設計／④キャッチコピー"):null;
+  const catchHtml=cp?`<div class="jpost-catch"${ipopAttr(catchIdx)}>${cp.style?`<span class="jstyle">${esc(cp.style)}</span>`:""}${esc(cp.text||"")}</div>`:"";
+  // 職種名（②市場分析に使う職種名欄の値）
+  const title=pvTitle();
+  const titleHtml=title?`<h3 class="jpost-title">${esc(title)}</h3>`:"";
+  // 給与・勤務地・雇用形態バッジ（①の検証済み事実のみ）
+  const badges=[["salary","給与"," pay"],["work_location","勤務地",""],["employment_type","雇用形態",""]].map(b=>{
+    const v=pvFact(b[0]);if(!v)return "";
+    const i=ipopPush(b[1]+"の出所",[["原文の引用",pvQuote(b[0])]],PV_FACT_SRC);
+    return `<span class="jbadge${b[2]}"${ipopAttr(i)}><span class="jbk">${esc(b[1])}</span>${esc(v)}</span>`;
+  }).join("");
+  const badgeHtml=badges?`<div class="jbadges">${badges}</div>`:"";
+  // 特徴タグ（②市場分析の表面の強み）
+  const st=((S.analysis&&S.analysis.surface_strengths)||[]).filter(x=>x&&String(x).trim()).slice(0,4);
+  const chipIdx=st.length?ipopPush("特徴タグの出所",[["出所","②市場分析で抽出した表面の強み"]],""):null;
+  const chipHtml=st.length?`<div class="jchips"${ipopAttr(chipIdx)}>${st.map(x=>`<span class="jchip">${esc(x)}</span>`).join("")}</div>`:"";
+  // 本文（⑥スマホ原稿）
+  const bodyIdx=ipopPush("この本文の意図",prows,"出所: ③ペルソナ設計（このペルソナ向けに⑥スマホ原稿を生成）");
+  const body=(m.lines||[]).map(l=>l===""?`<div class="ml-empty"></div>`:`<div class="ml-line">${esc(l)}</div>`).join("");
+  const bodySec=`<div class="jsec"${ipopAttr(bodyIdx)}><div class="jsec-h">募集メッセージ</div><div class="jbody">${body||"<div class='note'>原稿なし</div>"}</div></div>`;
+  // 募集要項（①の検証済み事実のみ・行ごとに原文の引用を出す）
+  const reqRows=PV_FACT_KEYS.map(k=>{
+    const v=pvFact(k);if(!v)return "";
+    const i=ipopPush((FKEY_JA[k]||k)+"の出所",[["原文の引用",pvQuote(k)]],PV_FACT_SRC);
+    return `<div class="jrow"${ipopAttr(i)}><div class="jdt">${esc(FKEY_JA[k]||k)}</div><div class="jdd">${esc(v)}</div></div>`;
+  }).join("");
+  const reqSec=reqRows?`<div class="jsec"><div class="jsec-h">募集要項</div><div class="jdl">${reqRows}</div></div>`:"";
+  return `<article class="jpost">${photo}<div class="jpost-main">${catchHtml}${titleHtml}${badgeHtml}${chipHtml}${bodySec}${reqSec}`
+    +`<button class="japply" type="button" disabled>応募する（イメージ）</button>`
+    +`<div class="jdisc">※この作成例はあくまでイメージです。</div></div></article>`;
+}
 function renderMobile(){
   const el=$("#res-mobile");el.hidden=false;
+  IPOP.length=0;ipopHide();
   const totalNg=S.mobile.reduce((n,m)=>n+m.ng_violations.length,0);
   const totalNv=S.mobile.reduce((n,m)=>n+(m.number_violations?m.number_violations.length:0),0);
   const totalEw=S.mobile.reduce((n,m)=>n+(m.expression_warnings?m.expression_warnings.length:0),0);
@@ -832,9 +994,16 @@ function renderMobile(){
     const nv=(m.number_violations&&m.number_violations.length)?`<div style="width:375px;max-width:100%">${numberViolationsHtml(m.number_violations)}</div>`:"";
     const ew=(m.expression_warnings&&m.expression_warnings.length)?`<div style="width:375px;max-width:100%">${exprWarningsHtml(m.expression_warnings)}</div>`:"";
     const warn=(m.review_required||(m.number_violations&&m.number_violations.length)||(m.expression_warnings&&m.expression_warnings.length));
-    return `<div class="mobcol"><div class="moblabel">${esc(m.label)}${warn?' <span class="gstat review">要確認</span>':""}</div><div class="phone">${body||"<div class='note'>原稿なし</div>"}</div><div class="phone-cap">スマホ幅 375px プレビュー</div>${ng}${nv}${ew}${numberCheckNote(m.number_check)}</div>`;
+    // 生成された原稿そのもの（プレーンテキスト）も畳んで残す。コピーはここから。
+    const raw=`<details class="jraw"><summary>原稿テキスト（プレーン）</summary>`
+      +`<div class="phone">${body||"<div class='note'>原稿なし</div>"}</div>`
+      +`<div class="phone-cap">スマホ幅 375px プレビュー</div>`
+      +`<div class="jrawbar"><button class="copybtn" onclick="copyText(this)" data-copy="${escAttr((m.lines||[]).join("\n"))}">原稿テキストをコピー</button></div></details>`;
+    return `<div class="mobcol"><div class="moblabel">${esc(m.label)}${warn?' <span class="gstat review">要確認</span>':""}</div>`
+      +jobPostCard(m)+raw+ng+nv+ew+numberCheckNote(m.number_check)+`</div>`;
   }).join("");
-  el.innerHTML=sectionHead("⑥","スマホ原稿",gates)+`<div class="mobwrap">${cols}</div>`+confirmBox("mobile");
+  const hint=IPOP.length?`<p class="ihint">下は<b>求人ページ風の作成例（イメージ）</b>です。各ブロックにマウスを載せる（キーボードならフォーカスする）と、どのターゲットのどんな不満・痛みに向けた訴求なのかが出ます。表示内容は③ペルソナ設計・④キャッチコピー・⑤画像案・①事実抽出の生成結果そのものです。</p>`:"";
+  el.innerHTML=sectionHead("⑥","スマホ原稿",gates)+hint+`<div class="mobwrap">${cols}</div>`+confirmBox("mobile");
 }
 function renderHrhacker(){
   const el=$("#res-hrhacker");el.hidden=false;
