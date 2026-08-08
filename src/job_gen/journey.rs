@@ -2767,9 +2767,25 @@ fn self_contradiction_issues(
     verified_source_text: &str,
     issues: &mut Vec<String>,
 ) {
+    // 複合語 (例: フォークリフト経験者) はソースに全体一致しなくても、任意の2分割の
+    // 両半が実在すれば照合済みとみなす (SEOキーワード照合と同じ規則。過剰ブロック防止)。
+    let term_in_source = |term: &str| -> bool {
+        if verified_source_text.contains(term) {
+            return true;
+        }
+        let chars: Vec<char> = term.chars().collect();
+        if chars.len() < 4 {
+            return false;
+        }
+        (2..=chars.len() - 2).any(|split| {
+            let head: String = chars[..split].iter().collect();
+            let tail: String = chars[split..].iter().collect();
+            verified_source_text.contains(&head) && verified_source_text.contains(&tail)
+        })
+    };
     let soft_terms: Vec<String> = interview_topic_terms(soft_items)
         .into_iter()
-        .filter(|term| !verified_source_text.contains(term.as_str()))
+        .filter(|term| !term_in_source(term))
         .collect();
     let hard_terms = interview_topic_terms(hard_items);
     let mut terms: Vec<String> = soft_terms;
@@ -2873,17 +2889,16 @@ pub fn note_topic_candidates(persona_details: &[&Value]) -> Vec<String> {
 
 /// 矛盾検出結果を「未確認トピック文」へ変換する (自己矛盾ゲートの語抽出に流用)。
 pub fn conflict_unconfirmed_texts(fact_conflicts: &[Value]) -> Vec<String> {
+    // topic のみを禁止語の抽出元にする。explanation は自由文で「給与・福利厚生欄では〜」の
+    // ように矛盾と無関係な語を含み、それを hard 禁止語にすると正当な断定まで
+    // ブロックされる (2026-08-08 センコー実データで「給与」誤ブロックを確認)。
     fact_conflicts
         .iter()
-        .map(|conflict| {
-            format!(
-                "{} {}",
-                conflict.get("topic").and_then(Value::as_str).unwrap_or(""),
-                conflict
-                    .get("explanation")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-            )
+        .filter_map(|conflict| {
+            conflict
+                .get("topic")
+                .and_then(Value::as_str)
+                .map(str::to_string)
         })
         .filter(|text| !text.trim().is_empty())
         .collect()
@@ -5468,6 +5483,41 @@ https://example.com/b,投稿者B,2 件,1 年前,,\n";
         assert!(
             soft_ok.is_empty(),
             "照合済み事実の断定が過剰ブロックされる: {soft_ok:?}"
+        );
+
+        // hard 禁止語は topic のみから抽出する。explanation の自由文に含まれる
+        // 「給与・福利厚生欄では〜」等の語を禁止語にしない (2026-08-08 実データ誤ブロック)
+        let conflicts2 = vec![json!({
+            "topic":"賞与","quote_a":"賞与年3回実績","quote_b":"賞与年2回",
+            "explanation":"キャッチコピーでは年3回、給与・福利厚生欄では年2回と記載され食い違い"
+        })];
+        let texts2 = conflict_unconfirmed_texts(&conflicts2);
+        let mut explain_ok = Vec::new();
+        self_contradiction_issues(
+            &[],
+            &texts2,
+            &[("セクション1", "給与は月給221,200円からの支給です。")],
+            "月給221,200円 給与",
+            &mut explain_ok,
+        );
+        assert!(
+            explain_ok.is_empty(),
+            "explanation由来の語で正当な断定がブロックされる: {explain_ok:?}"
+        );
+
+        // soft の複合語はソースに分割実在すれば照合済み扱い (フォークリフト経験者 =
+        // フォークリフト + 経験者 がそれぞれ実在)
+        let mut compound_ok = Vec::new();
+        self_contradiction_issues(
+            &["フォークリフト経験者の給与反映基準を教えてください。".to_string()],
+            &[],
+            &[("セクション1", "フォークリフト経験者を歓迎します。")],
+            "フォークリフトを用いた入出庫作業。経験者歓迎。給与反映あり",
+            &mut compound_ok,
+        );
+        assert!(
+            compound_ok.is_empty(),
+            "分割実在する複合語が過剰ブロックされる: {compound_ok:?}"
         );
     }
 

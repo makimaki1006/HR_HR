@@ -893,26 +893,6 @@ pub async fn jobgen_journey_diagnose(
             (Vec::new(), true)
         }
     };
-    // 雇用形態は機械検出を併用 (LLMが「説明があるので矛盾でない」と見逃しても起票する)
-    let mut fact_conflicts = fact_conflicts;
-    if !fact_conflicts
-        .iter()
-        .any(|c| c.get("topic").and_then(Value::as_str) == Some("雇用形態"))
-    {
-        let employment_quote = facts_value
-            .get("employment_type")
-            .and_then(|f| f.get("evidence_quote"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if let Some(conflict) = fact_extract::mechanical_employment_conflict(
-            &normalized.source_text,
-            &verified_fact_value(&facts, "employment_type"),
-            employment_quote,
-        ) {
-            fact_conflicts.push(conflict);
-        }
-    }
-
     // 2回目: 比較母集団を選ぶための職種・地域プロフィールだけを抽出する。
     let profile_prompt = journey::build_case_profile_prompt(&normalized.source_text, &facts_value);
     let mut case_profile =
