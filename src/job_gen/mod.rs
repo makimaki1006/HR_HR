@@ -21,6 +21,8 @@
 //! (ユニットテスト可能)、ライブ HTTP は [`crate::media_engine::gemini`] 経由のみ
 //! (HR_HR 統合でプロセス共通レートリミッタを共有)。
 
+pub mod claim_audit;
+pub mod commute;
 pub mod fact_extract;
 pub mod handlers;
 pub mod hrhacker;
@@ -28,6 +30,8 @@ pub mod inputs;
 pub mod journey;
 pub mod knowledge;
 pub mod ng_words;
+pub mod review_roles;
+pub mod salary_breakdown;
 pub mod strategy;
 pub mod types;
 pub mod validate;
