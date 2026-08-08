@@ -487,7 +487,7 @@
   const S={
     data:null,selected:new Set(),keywordMap:new Map(),suggestions:[],keywordMessage:"",
     details:new Map(),maxStep:1,mapInstance:null,measured:false,
-    noteDrafts:new Map(),noteActive:null,postingDrafts:new Map(),postingActive:null
+    noteDrafts:new Map(),noteActive:null,noteTargets:new Map(),postingDrafts:new Map(),postingActive:null
   };
   const FACT_LABELS={
     salary:"給与・賃金",working_hours:"勤務時間",holidays:"休日",work_location:"勤務地",
@@ -780,7 +780,8 @@
       <div><b>求職者認知仮説：</b>${esc(item.candidate_perception_hypothesis)}</div>
       <div><b>検索候補：</b>${esc(item.relevant_search)}</div>
       <div class="source">顧客確認：${esc(item.client_confirmation)}</div></div>`).join("")||'<p class="hint">本文から採用認知へ接続する論点は抽出されませんでした。</p>';
-    const reviewEvidence=(v.evidence||[]).map(item=>`<details class="finding"><summary><b>${esc(humanizeRef(item.source_ref))}</b> ${esc(item.posted_relative||"")}</summary><p>${esc(item.text)}</p>${item.reactions?`<div class="source">反応：${esc(item.reactions)}</div>`:""}</details>`).join("")||'<p class="hint">本文付き口コミなし</p>';
+    const roleLabel=item=>{const map={Employee:"社員",FormerEmployee:"元社員",VisitingDriver:"取引ドライバー",Visitor:"来訪者",Unknown:"立場不明"};const label=map[item.speaker_role]||"立場不明";return item.usable_for_working_conditions?`<span class="badge ok">${label}</span>`:`<span class="badge warn">${label}・検索評判リスクとしてのみ扱う</span>`};
+    const reviewEvidence=(v.evidence||[]).map(item=>`<details class="finding"><summary><b>${esc(humanizeRef(item.source_ref))}</b> ${roleLabel(item)} ${esc(item.posted_relative||"")}</summary><p>${esc(item.text)}</p>${item.role_evidence?`<div class="source">立場の根拠：「${esc(item.role_evidence)}」</div>`:""}${item.reactions?`<div class="source">反応：${esc(item.reactions)}</div>`:""}</details>`).join("")||'<p class="hint">本文付き口コミなし</p>';
     const qualityIssues=renderIssueList(d.quality_gate?.issues);
     const qualityBanner=d.quality_gate?.passed
       ? (d.review_required?'<div class="notice">比較対象が小標本のため、結果は参考値としてコンサル確認が必要です。</div>':'<div class="oknote">比較母集団とペルソナ出力は品質ゲートを通過しました。</div>')
@@ -796,7 +797,7 @@
         <div><span>雇用形態</span>${esc(p.employment_type||"未確認")}</div>
       </div>
       <div class="kpis">
-        <div class="kpi"><span>比較母集団</span><b>${formatNumber(cohort.matched_record_count)}件</b><small>${esc(source.filename||c.filename||"ファイル名不明")}・元CSV ${formatNumber(cohort.source_record_count||source.record_count)}件から抽出・${esc(cohort.scope||"未確定")}・取得 ${esc(c.captured_at||source.captured_at||"不明")}</small></div>
+        <div class="kpi"><span>比較母集団</span><b>${formatNumber(cohort.matched_record_count)}件</b><small>${cohort.commute_within_30km_count!=null?`うち通勤圏30km内 ${formatNumber(cohort.commute_within_30km_count)}件（15km内 ${formatNumber(cohort.commute_within_15km_count)}件）・`:""}${esc(source.filename||c.filename||"ファイル名不明")}・元CSV ${formatNumber(cohort.source_record_count||source.record_count)}件から抽出・${esc(cohort.scope||"未確定")}・取得 ${esc(c.captured_at||source.captured_at||"不明")}</small></div>
         <div class="kpi"><span>口コミ本文</span>${v.filename==="未提供"?`<b>未提供</b><small>口コミ由来の根拠なしで診断しています</small>`:`<b>${formatNumber(v.text_rows)}件</b><small>${esc(v.filename||"ファイル名不明")}・全${formatNumber(v.total_rows)}件、分析提示${formatNumber(v.evidence_sampled_rows)}件（新しい順）・取得 ${esc(v.captured_at||"不明")}</small>`}</div>
         <div class="kpi"><span>人気度タグ</span><b>${formatNumber(popularityTotal)}件</b><small>人気 ${formatNumber(c.popular_count)}・超人気 ${formatNumber(c.super_popular_count)}</small></div>
         <div class="kpi"><span>地域統計</span><b>${stats.available?"取得":"未取得"}</b><small>${esc(stats.available?"人材母集団の補助情報":"求人診断は継続")}</small></div>
@@ -805,7 +806,7 @@
         <div class="box"><h3>顧客求人から引用確認した事実</h3><div class="facts">${factRows}</div>${customerRows?`<h3 class="sectiongap">顧客から確認済みの発言</h3><div class="facts">${customerRows}</div>`:""}</div>
         <div class="box"><h3>地域・人材母集団の補助情報</h3>${publicHtml}</div>
       </div>
-      <div class="box sectiongap"><h3>給与の相対位置</h3>${salaryHtml}
+      <div class="box sectiongap"><h3>給与の相対位置</h3>${renderSalaryBreakdown(d)}${salaryHtml}
         <p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="給与比較表。横にスクロールできます"><table><thead><tr><th>比較区分</th><th>件数</th><th>最小</th><th>第1四分位</th><th>中央値</th><th>第3四分位</th><th>最大</th></tr></thead><tbody>${distributions||'<tr><td colspan="7">給与比較データなし</td></tr>'}</tbody></table></div>
       </div>
       <div class="twocol sectiongap">
@@ -816,8 +817,40 @@
         <div class="box"><h3>口コミから観測された求職者認知</h3>${d.review_csv_warning?`<div class="notice">${esc(d.review_csv_warning)} 口コミ由来の根拠なしで診断を続行しました。</div>`:""}${reviews}<details class="sectiongap"><summary><b>分析に使用した口コミ原文を確認</b></summary>${reviewEvidence}</details><p class="hint sectiongap">個々の口コミは会社実態の確定事実ではありませんが、求職者が1件でも真実として受け取る可能性がある外部情報として扱います。</p></div>
         <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(r.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
       </div>
+      ${renderConflicts(d)}
       ${renderPopularAnalysis(d,r)}`;
     updateTableHints();
+  }
+
+  // P1-1 (2026-08-08): 給与内訳の分解結果。残業込み表示の可能性を比較の前提として明示
+  function renderSalaryBreakdown(d){
+    const b=d.salary_breakdown||{};
+    if(!b.decomposed&&!b.includes_fixed_overtime)return "";
+    const base=b.base_monthly_yen!=null?`基本給 ${formatYen(b.base_monthly_yen)}`:"基本給の記載なし";
+    const ot=b.includes_fixed_overtime?`表示給与に残業代が含まれる記載あり${b.overtime_hours_range?`（想定残業 月${b.overtime_hours_range[0]}〜${b.overtime_hours_range[1]}時間)`:""}`:"";
+    const notes=(b.notes||[]).map(esc).join("／");
+    return `<div class="notice" style="border-left:4px solid var(--mid)">
+      <b>給与内訳の注意：</b>${esc(base)}${ot?`。${esc(ot)}`:""}。下の相対位置は表示給与同士の比較であり、基本給と残業込みが混在している可能性があります。公開前に給与内訳の明確化を推奨します。
+      ${notes?`<br><small>判定根拠：${notes}</small>`:""}
+    </div>`;
+  }
+
+  // P0-3 (2026-08-08): 元求人の内部矛盾を引用ペア付きで赤表示。勝手に片方を採用しない
+  function renderConflicts(d){
+    const conflicts=d.fact_conflicts||[];
+    const failed=d.conflict_check_failed;
+    if(!conflicts.length&&!failed)return "";
+    const rows=conflicts.map(c=>`
+      <div class="fact" style="border-left:4px solid var(--hi)">
+        <div class="flabel"><span class="badge bad">矛盾: ${esc(c.topic)}</span></div>
+        <div class="fvalue">${esc(c.explanation)}</div>
+        <div class="quote">記載A「${esc(c.quote_a)}」 ⇔ 記載B「${esc(c.quote_b)}」</div>
+      </div>`).join("");
+    return `<div class="box sectiongap" style="border-color:color-mix(in srgb,var(--hi) 45%,transparent)">
+      <h3 style="color:var(--hi)">元求人の内部矛盾（公開前に要確認 ${formatNumber(conflicts.length)}件）</h3>
+      ${failed?'<div class="notice">矛盾チェックを実行できませんでした（一時エラー）。矛盾ゼロの保証はありません。</div>':""}
+      ${rows?`<div class="facts">${rows}</div><p class="hint sectiongap">矛盾項目はシステムが勝手にどちらかを採用せず、生成物での断定を機械的に差し戻します。顧客に確認し、回答を工程1の「顧客から確認済みの発言」に貼って再診断すると確認済み事実（U番号）として解消されます。</p>`:""}
+    </div>`;
   }
 
   // 人気求人の逆算 (2026-08-06): 入力・警告・分類結果を工程2で開示する。
@@ -985,20 +1018,27 @@
       const assessmentRows=(detail.search_assessment||[]).map(item=>`<tr>
         <td><b>${esc(item.query)}</b></td><td>${esc(item.observed_demand)}</td>
         <td>${esc(item.interpretation)}</td><td>${esc(item.action_implication)}</td></tr>`).join("");
-      return `<details class="searchnote"${noteIndex===0?" open":""}><summary>${esc(p.label)}｜検索実測から分かったこと・想定ルート</summary>
+      return `<details class="searchnote"${noteIndex===0?" open":""}><summary>${esc(p.label)}｜${S.measured?"検索実測から分かったこと・想定ルート":"検索クエリ仮説（未実測）・想定ルート"}</summary>
         <p class="hint">${esc(routingText(p))}</p>
-        ${assessmentRows?`<p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の検索実測評価表。横にスクロールできます"><table><thead><tr><th>検索内容</th><th>実測需要</th><th>読み取り</th><th>施策への反映</th></tr></thead><tbody>${assessmentRows}</tbody></table></div>`:'<p class="hint">検索実測評価はありません。</p>'}
+        ${assessmentRows?`<p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="${esc(p.label)}の検索実測評価表。横にスクロールできます"><table><thead><tr><th>検索内容</th><th>${S.measured?"実測需要":"需要の見立て（未実測）"}</th><th>読み取り</th><th>施策への反映</th></tr></thead><tbody>${assessmentRows}</tbody></table></div>`:'<p class="hint">検索実測評価はありません。</p>'}
       </details>`;
     }).join("");
-    container.innerHTML=`<div class="jmroot">
+    const conflicts=S.data?.fact_conflicts||[];
+    const questionCount=[...(S.data?.result?.client_questions||[]),...personas.flatMap(p=>S.details.get(p.id)?.client_questions||[])].length;
+    const blockerBanner=(conflicts.length||questionCount)?`
+      <div class="notice sectiongap" style="border-left:4px solid var(--hi)">
+        <b>公開前ブロッカー：</b>元求人の内部矛盾 ${formatNumber(conflicts.length)}件 ／ 顧客への確認事項 ${formatNumber(questionCount)}件。
+        note記事案・求人票案は下書き扱いです。顧客の回答を工程1の「顧客から確認済みの発言」に貼って再診断すると、確認済み事実（U番号）として生成物に反映されます。
+      </div>`:"";
+    container.innerHTML=`${blockerBanner}<div class="jmroot">
       <p class="maplead">丸印をクリックすると、その段階での行動・内心・離脱の引き金・打ち手を下の詳細に表示します。点線の下線が付いた語にカーソルを載せると、資格辞書・職種辞典のカードが開きます。</p>
       <div class="mapwrap" tabindex="0" role="region" aria-label="ペルソナ別の段階別ジャーニーマップ。横にスクロールできます"><div class="jmap"></div></div>
       <div class="jmlegend"><span class="lg"><span class="dot f"></span>打ち手が求人票の中にある段階</span><span class="lg"><span class="dot h"></span>打ち手が求人票の外（検索結果・口コミ・面接など）にある段階</span><span class="lg"><span class="dot r"></span>優先度「高」の打ち手あり</span></div>
     </div>${notes}
     <details class="searchnote notegen sectiongap">
-      <summary><b>ペルソナ別 note記事案（採用広報の下書き）</b></summary>
-      <p class="hint">診断済みペルソナの離脱要因・内心の不安に応えるnote記事の下書きを作ります。書くのは確認済み事実（求人票照合済み・顧客発言・人気求人の実測）だけで、社員の声など未確認の内容は本文に創作せず【取材で確認】の質問リストにします。</p>
-      <div class="actions">${personas.map(p=>`<button class="btn2 notedraftbtn" data-persona="${esc(p.id)}">${esc(p.label)}の記事案を作成</button>`).join("")}</div>
+      <summary><b>論点別 note記事案（採用広報の下書き）</b></summary>
+      <p class="hint">診断で見つかった離脱リスク＝読者が本当に判断したい論点ごとに、note記事の下書きを作ります（ペルソナ別の量産はしません）。書くのは確認済み事実だけで、未確認の内容は本文に創作せず【取材で確認】の質問リストにします。</p>
+      <div class="actions">${noteTopics(personas).map(t=>`<button class="btn2 notedraftbtn" data-topic="${esc(t)}">論点「${esc(t.length>24?t.slice(0,24)+"…":t)}」で記事案を作成</button>`).join("")||'<p class="hint">論点候補がありません（8段階診断を完了してください）。</p>'}</div>
       <div id="noteStatus" class="status" role="status" aria-live="polite"></div>
       <div id="noteContent"></div>
     </details>
@@ -1108,24 +1148,37 @@
   }
 
   // ── note記事案 (2026-08-07) ──
+  // 論点候補 = 診断済みペルソナの離脱リスク (サーバー側derivationと同一規則)
+  function noteTopics(personas){
+    const topics=[];
+    for(const p of personas){
+      for(const a of (S.details.get(p.id)?.priority_actions||[])){
+        const risk=String(a.risk||"").trim();
+        if(risk&&!topics.includes(risk))topics.push(risk);
+      }
+    }
+    return topics.slice(0,8);
+  }
   $("#journeyContent").addEventListener("click",async event=>{
     const button=event.target.closest(".notedraftbtn");
     if(!button)return;
-    const personaId=button.dataset.persona;
-    if(S.noteDrafts.has(personaId)){S.noteActive=personaId;renderNoteDraft(personaId);return}
+    const topic=button.dataset.topic;
+    if(S.noteDrafts.has(topic)){S.noteActive=topic;renderNoteDraft(topic);return}
     const status=$("#noteStatus");
+    const ids=(S.data?.result?.personas||[]).filter(p=>S.selected.has(p.id)&&S.details.has(p.id)).map(p=>p.id);
     button.disabled=true;
-    status.innerHTML='<div class="loading">確認済み事実だけでnote記事の下書きを生成・検査しています（数値は事実照合、未確認内容は取材リスト化）…</div>';
+    status.innerHTML='<div class="loading">この論点に正面から答えるnote記事の下書きを生成・検査しています（数値は事実照合、未確認内容は取材リスト化）…</div>';
     try{
-      const response=await postJSON("/api/jobgen/journey-note-draft",{case_id:S.data?.case_id,persona_id:personaId});
+      const response=await postJSON("/api/jobgen/journey-note-draft",{case_id:S.data?.case_id,topic,persona_ids:ids});
       if(!response.quality_gate?.passed){
         status.innerHTML=`<div class="error">記事案の品質検査を通過できませんでした：${esc(issueSummary(response.quality_gate?.issues))}</div>`;
         return;
       }
-      S.noteDrafts.set(personaId,response.result);
-      S.noteActive=personaId;
+      S.noteDrafts.set(topic,response.result);
+      S.noteTargets.set(topic,response.target_persona_ids||ids);
+      S.noteActive=topic;
       status.innerHTML='<div class="oknote">記事案を生成しました。本文の数値は確認済み事実と照合済みです。公開前に取材項目を埋めて顧客の確認を得てください。</div>';
-      renderNoteDraft(personaId);
+      renderNoteDraft(topic);
     }catch(error){
       status.innerHTML=`<div class="error">${esc(error.message)}</div>`;
     }finally{
@@ -1174,11 +1227,12 @@
         <div class="row"><b>根拠</b>${esc(formatRefs(section.evidence_refs))}</div>`;
     }else if(S.noteActive){
       const draft=S.noteDrafts.get(S.noteActive);
-      const persona=(S.data?.result?.personas||[]).find(p=>p.id===S.noteActive);
+      const targetIds=S.noteTargets.get(S.noteActive)||[];
+      const label=targetIds.map(id=>((S.data?.result?.personas||[]).find(p=>p.id===id)||{}).label||id).join("／")||"読者";
       const section=(draft?.sections||[])[Number(sec.dataset.sec)];
-      if(!draft||!section||!persona){tip.style.opacity=0;return}
+      if(!draft||!section){tip.style.opacity=0;return}
       html=`
-        <div class="row"><b>この節の意図</b>${esc(persona.label)}の「${esc(section.purpose)}」という感情への先回り</div>
+        <div class="row"><b>この節の意図</b>${esc(label)}の「${esc(section.purpose)}」という感情への先回り</div>
         ${section.target_query&&section.target_query!=="回答なし"?`<div class="row"><b>答える検索（実測クエリ）</b>「${esc(section.target_query)}」${esc(volumeNote(section.target_query))}で調べた人への回答</div>`:`<div class="row"><b>役割</b>検索回答ではなく、共感と読み進める導線を作る節</div>`}
         <div class="row"><b>アプローチ</b>確認済み事実（${esc(formatRefs(section.evidence_refs))}）だけで答え、未確認の点は取材プレースホルダに逃がす</div>`;
     }
@@ -1197,10 +1251,12 @@
     const seo=[`- 主要キーワード: ${draft.primary_keyword||"—"}`,...(draft.supporting_keywords||[]).map(k=>`- 補助: ${k}`)].join("\n");
     return `※この記事案はあくまでイメージです。\n\n# ${(draft.title_options||[])[0]||""}\n\n（アイキャッチ案: ${draft.eyecatch_idea||""}）\n\n${draft.lead||""}\n\n${sections}\n\n${draft.cta_text||""}\n\n${tags}\n\n---\n公開前の取材確認:\n${interviews}\n\n記事設計メモ（SEO・実測クエリ由来）:\n${seo}`;
   }
-  function renderNoteDraft(personaId){
-    const draft=S.noteDrafts.get(personaId);
-    const persona=(S.data?.result?.personas||[]).find(p=>p.id===personaId);
-    if(!draft||!persona)return;
+  function renderNoteDraft(topicKey){
+    const draft=S.noteDrafts.get(topicKey);
+    if(!draft)return;
+    const targetIds=S.noteTargets.get(topicKey)||[];
+    const personaLabels=targetIds.map(id=>((S.data?.result?.personas||[]).find(p=>p.id===id)||{}).label||id);
+    const persona={label:personaLabels.join("／")||"診断済みペルソナ"};
     const container=$("#noteContent");
     if(!container)return;
     const titles=draft.title_options||[];
@@ -1218,7 +1274,7 @@
     ].filter(Boolean).join("");
     const company=String(S.data?.case_profile?.company_name||S.data?.result?.case_profile?.company_name||"採用担当").trim()||"採用担当";
     container.innerHTML=`
-      <div class="notemeta"><span class="badge neutral">${esc(persona.label)}向け</span>${(draft.target_dropoffs||[]).map(s=>`<span class="badge warn">${esc(s)}の離脱に対応</span>`).join("")}<button class="btn2" id="noteCopyBtn">Markdownをコピー</button></div>
+      <div class="notemeta"><span class="badge ok">論点：${esc(topicKey.length>32?topicKey.slice(0,32)+"…":topicKey)}</span><span class="badge neutral">${esc(persona.label)}向け</span>${(draft.target_dropoffs||[]).map(s=>`<span class="badge warn">${esc(s)}の離脱に対応</span>`).join("")}<button class="btn2" id="noteCopyBtn">Markdownをコピー</button></div>
       <p class="hint" style="max-width:680px;margin:6px auto 0">※この記事案はあくまでイメージです。</p>
       <article class="notecard">
         <h3 class="ntitle">${esc(titles[0]||"")}</h3>
