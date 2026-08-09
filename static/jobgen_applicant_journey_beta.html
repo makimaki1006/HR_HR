@@ -1077,6 +1077,12 @@
       <div class="actions">${personas.map(p=>`<button class="btn2 postingdraftbtn" data-persona="${esc(p.id)}">${esc(p.label)}向けの求人票案を作成</button>`).join("")}</div>
       <div id="postingStatus" class="status" role="status" aria-live="polite"></div>
       <div id="postingContent"></div>
+    </details>
+    <details class="searchnote customerreport sectiongap">
+      <summary><b>顧客提示用レポート</b></summary>
+      <p class="hint">診断結果を顧客企業にそのまま渡せる体裁でまとめます（内部の根拠番号・検査記録は含みません）。生成済みのnote記事案・求人票案があれば抜粋が載ります。</p>
+      <div class="actions"><button class="btn2" id="customerReportBtn">顧客提示用レポートを開く</button></div>
+      <div id="customerReportStatus" class="status" role="status" aria-live="polite"></div>
     </details>`;
     // 検索量が実測できたときだけ実測値として渡す。未取得時は null にして
     // 部品側が「検索量は未取得・検索仮説」と正直に表示する
@@ -1189,6 +1195,27 @@
     return topics.slice(0,8);
   }
   $("#journeyContent").addEventListener("click",async event=>{
+    if(event.target.closest("#customerReportBtn")){
+      const status=$("#customerReportStatus");
+      const btn=$("#customerReportBtn");
+      btn.disabled=true;
+      status.innerHTML='<div class="loading">顧客提示用レポートを組み立てています…</div>';
+      try{
+        const response=await postJSON("/api/jobgen/journey-customer-report",{case_id:S.data?.case_id});
+        if(response.status!=="ok"||!response.html){
+          status.innerHTML=`<div class="error">${esc(response.message||"レポートを生成できませんでした。")}</div>`;
+          return;
+        }
+        const blob=new Blob([response.html],{type:"text/html"});
+        window.open(URL.createObjectURL(blob),"_blank");
+        status.innerHTML=`<div class="oknote">別タブで開きました（note記事案 ${formatNumber(response.note_draft_count||0)}件・求人票案 ${formatNumber(response.posting_draft_count||0)}件を抜粋掲載）。ブラウザの印刷からPDF保存できます。</div>`;
+      }catch(error){
+        status.innerHTML=`<div class="error">レポート生成に失敗しました：${esc(String(error))}</div>`;
+      }finally{
+        btn.disabled=false;
+      }
+      return;
+    }
     const button=event.target.closest(".notedraftbtn");
     if(!button)return;
     const topic=button.dataset.topic;
