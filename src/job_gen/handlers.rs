@@ -130,6 +130,12 @@ struct PreparedJourneyCase {
     /// Canonical Fact Ledger (2026-08-08): 全工程が参照する唯一の事実台帳と照合用テキスト。
     fact_ledger: Value,
     ledger_text: String,
+    /// 顧客提示用レポート (A7) の材料。facts=照合済み事実マップ、cohort=比較母集団。
+    facts_value: Value,
+    cohort_value: Value,
+    /// 品質ゲート通過済みの下書き (生成順)。顧客レポートは先頭を抜粋表示する。
+    note_drafts: Vec<Value>,
+    posting_drafts: Vec<Value>,
     /// 照合済み事実の値 (休日・必須資格等)。Coverage Gateに使う。
     verified_holidays: String,
     verified_required_qualifications: String,
@@ -1128,6 +1134,10 @@ pub async fn jobgen_journey_diagnose(
                 salary_breakdown: salary_breakdown_value.clone(),
                 fact_ledger: fact_ledger.clone(),
                 ledger_text: ledger_text.clone(),
+                facts_value: facts_value.clone(),
+                cohort_value: serde_json::to_value(&cohort).unwrap_or(Value::Null),
+                note_drafts: Vec::new(),
+                posting_drafts: Vec::new(),
                 verified_holidays: verified_fact_value(&facts, "holidays"),
                 verified_required_qualifications: verified_fact_value(
                     &facts,
@@ -2031,6 +2041,13 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
             "llm_calls":llm_calls
         }));
     }
+    // A7: 顧客提示用レポートの材料としてゲート通過済みドラフトをケースに保存する
+    {
+        let mut store = journey_case_store().lock().await;
+        if let Some(case) = store.get_mut(&case_id) {
+            case.note_drafts.push(result.clone());
+        }
+    }
     Json(json!({
         "status":"ok",
         "phase":"complete",
@@ -2048,6 +2065,46 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
 /// `POST /api/jobgen/journey-posting-draft` — 診断済みペルソナ群の離脱対策を反映した
 /// 求人票の訴求原稿を作る (ジャーニー内で一貫完結、2026-08-07)。8段階診断が完了した
 /// ペルソナのみ対象。募集要項の事実は画面側が照合済みfactsを直接表示する。
+/// A7 (2026-08-10): 顧客提示用レポート。診断済みケースから顧客向けHTMLを決定論生成する。
+/// LLMは呼ばない。生成済みドラフトが無いセクションは省略される。
+pub async fn jobgen_journey_customer_report(Json(body): Json<Value>) -> Json<Value> {
+    let case_id = body_str(&body, "case_id");
+    if case_id.is_empty() {
+        return Json(json!({"status":"error","message":"case_idが必要です。"}));
+    }
+    let prepared = {
+        let mut store = journey_case_store().lock().await;
+        store.retain(|_, value| value.created_at.elapsed() < JOURNEY_CASE_TTL);
+        store.get(&case_id).cloned()
+    };
+    let Some(prepared) = prepared else {
+        return Json(json!({
+            "status":"error",
+            "message":"準備データの有効期限が切れました。最初の分析からやり直してください。"
+        }));
+    };
+    let input = crate::job_gen::customer_report::CustomerReportInput {
+        case_profile: &prepared.case_profile,
+        facts: &prepared.facts_value,
+        fact_ledger: &prepared.fact_ledger,
+        salary_breakdown: &prepared.salary_breakdown,
+        client_salary_position: &prepared.client_salary_position,
+        comparison_cohort: &prepared.cohort_value,
+        prepare_result: &prepared.prepare_result,
+        fact_conflicts: &prepared.fact_conflicts,
+        persona_details: &prepared.persona_details,
+        note_drafts: &prepared.note_drafts,
+        posting_drafts: &prepared.posting_drafts,
+    };
+    let html = crate::job_gen::customer_report::render_customer_report(&input);
+    Json(json!({
+        "status":"ok",
+        "html":html,
+        "note_draft_count":prepared.note_drafts.len(),
+        "posting_draft_count":prepared.posting_drafts.len()
+    }))
+}
+
 pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value> {
     let case_id = body_str(&body, "case_id");
     let requested_ids: Vec<String> = body
@@ -2279,6 +2336,13 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
             "review_required":true,
             "llm_calls":llm_calls
         }));
+    }
+    // A7: 顧客提示用レポートの材料としてゲート通過済みドラフトをケースに保存する
+    {
+        let mut store = journey_case_store().lock().await;
+        if let Some(case) = store.get_mut(&case_id) {
+            case.posting_drafts.push(result.clone());
+        }
     }
     Json(json!({
         "status":"ok",
