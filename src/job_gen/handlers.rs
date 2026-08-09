@@ -21,7 +21,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::job_gen::{
-    fact_extract, hrhacker, inputs, journey, knowledge, ng_words, strategy, types as job_types,
+    coverage_gate, fact_extract, hrhacker, inputs, journey, knowledge, ng_words, strategy,
+    types as job_types,
 };
 use crate::media_engine::config::{gemini_api_key, gemini_model};
 use crate::media_engine::gemini;
@@ -124,6 +125,14 @@ struct PreparedJourneyCase {
     /// 顧客求人の元本文 (正規化済み)。求人票案の「仕事内容」が元求人の記載に
     /// 接地するために持つ (2026-08-07: 照合済み8項目だけでは仕事内容が書けない)。
     client_job_source: String,
+    /// 給与の内訳分解 (機械判定)。求人票のMaterial Fact Coverage Gateに使う。
+    salary_breakdown: Value,
+    /// Canonical Fact Ledger (2026-08-08): 全工程が参照する唯一の事実台帳と照合用テキスト。
+    fact_ledger: Value,
+    ledger_text: String,
+    /// 照合済み事実の値 (休日・必須資格等)。Coverage Gateに使う。
+    verified_holidays: String,
+    verified_required_qualifications: String,
     public_stats: Value,
     prepare_result: Value,
     /// ゲート通過済みの8段階診断結果 (persona_id → result)。note記事案の生成が
@@ -907,6 +916,7 @@ pub async fn jobgen_journey_diagnose(
         };
     let employment_type = verified_fact_value(&facts, "employment_type");
     let work_location = verified_fact_value(&facts, "work_location");
+    let salary_text = verified_fact_value(&facts, "salary");
     apply_verified_profile_fields(&mut case_profile, &employment_type, &work_location);
 
     let occupation_keywords = case_profile
@@ -930,6 +940,7 @@ pub async fn jobgen_journey_diagnose(
         &value_text(&case_profile, "prefecture"),
         &value_text(&case_profile, "municipality"),
         &employment_type,
+        &salary_text,
     ) {
         Ok(result) => result,
         Err(message) => {
@@ -970,7 +981,6 @@ pub async fn jobgen_journey_diagnose(
     let (popular_jobs, popular_warnings) =
         journey::build_popular_job_evidence(&popular_raw, &competitor);
 
-    let salary_text = verified_fact_value(&facts, "salary");
     let client_salary =
         journey::client_salary_position(&salary_text, &employment_type, &competitor);
     // P1-1 (2026-08-08): 給与の内訳分解 (基本給/固定残業/表示給与)。Apple-to-Apple比較の
@@ -979,6 +989,13 @@ pub async fn jobgen_journey_diagnose(
         crate::job_gen::salary_breakdown::analyze(&salary_text, &normalized.source_text);
     let salary_breakdown_value =
         serde_json::to_value(&salary_breakdown).unwrap_or_else(|_| json!({}));
+    // Canonical Fact Ledger: 以降の全ゲート (ペルソナ照合・断定・Claim・Coverage) は
+    // 原文の独自解釈ではなくこの台帳に対して照合する。
+    let (fact_ledger, ledger_text) = journey::build_fact_ledger(
+        &normalized.source_text,
+        &facts_value,
+        &salary_breakdown_value,
+    );
     let public_stats = fetch_journey_public_stats(&state, &work_location).await;
     let mut allowed_evidence_refs = journey::allowed_evidence_refs(
         &job_facts,
@@ -1025,7 +1042,8 @@ pub async fn jobgen_journey_diagnose(
     };
     journey::normalize_evidence_aliases(&mut result);
     set_case_profile(&mut result, &case_profile);
-    let mut quality_issues = journey::validate_prepare_result(&result, &allowed_evidence_refs);
+    let mut quality_issues =
+        journey::validate_prepare_result(&result, &allowed_evidence_refs, &ledger_text);
     if !quality_issues.is_empty() {
         tracing::warn!(
             target: "jobgen_journey",
@@ -1050,7 +1068,8 @@ pub async fn jobgen_journey_diagnose(
         llm_calls += 1;
         journey::normalize_evidence_aliases(&mut result);
         set_case_profile(&mut result, &case_profile);
-        quality_issues = journey::validate_prepare_result(&result, &allowed_evidence_refs);
+        quality_issues =
+            journey::validate_prepare_result(&result, &allowed_evidence_refs, &ledger_text);
         if !quality_issues.is_empty() {
             tracing::warn!(
                 target: "jobgen_journey",
@@ -1080,6 +1099,7 @@ pub async fn jobgen_journey_diagnose(
             "popular_jobs_warnings":popular_warnings,
             "client_salary_position":client_salary,
             "salary_breakdown":salary_breakdown_value,
+            "fact_ledger":fact_ledger.clone(),
             "public_stats":public_stats,
             "result":result,
             "quality_gate":{"passed":false,"issues":quality_issues},
@@ -1105,6 +1125,14 @@ pub async fn jobgen_journey_diagnose(
                 fact_conflicts: fact_conflicts.clone(),
                 client_salary_position: serde_json::to_value(&client_salary).unwrap_or(Value::Null),
                 client_job_source: truncate_text(&normalized.source_text, 8_000),
+                salary_breakdown: salary_breakdown_value.clone(),
+                fact_ledger: fact_ledger.clone(),
+                ledger_text: ledger_text.clone(),
+                verified_holidays: verified_fact_value(&facts, "holidays"),
+                verified_required_qualifications: verified_fact_value(
+                    &facts,
+                    "required_qualifications",
+                ),
                 public_stats: public_stats.clone(),
                 prepare_result: result.clone(),
                 persona_details: HashMap::new(),
@@ -1144,6 +1172,7 @@ pub async fn jobgen_journey_diagnose(
         "popular_jobs_warnings":popular_warnings,
         "client_salary_position":client_salary,
         "salary_breakdown":salary_breakdown_value,
+        "fact_ledger":fact_ledger,
         "public_stats":public_stats,
         "result":result,
         "quality_gate":{"passed":true,"issues":[]},
@@ -1653,8 +1682,12 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         }
     };
     journey::normalize_evidence_aliases(&mut result);
-    let mut quality_issues =
-        journey::validate_persona_detail(&result, &persona, &prepared.allowed_evidence_refs);
+    let mut quality_issues = journey::validate_persona_detail(
+        &result,
+        &persona,
+        &prepared.allowed_evidence_refs,
+        &prepared.ledger_text,
+    );
     if !quality_issues.is_empty() {
         tracing::warn!(
             target: "jobgen_journey",
@@ -1678,8 +1711,12 @@ pub async fn jobgen_journey_persona_detail(Json(body): Json<Value>) -> Json<Valu
         };
         llm_calls += 1;
         journey::normalize_evidence_aliases(&mut result);
-        quality_issues =
-            journey::validate_persona_detail(&result, &persona, &prepared.allowed_evidence_refs);
+        quality_issues = journey::validate_persona_detail(
+            &result,
+            &persona,
+            &prepared.allowed_evidence_refs,
+            &prepared.ledger_text,
+        );
         if !quality_issues.is_empty() {
             tracing::warn!(
                 target: "jobgen_journey",
@@ -1892,6 +1929,7 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
         &prepared.popular_jobs,
     );
     // 実測の比較データも出典として許可する (相対的な給与主張の根拠)
+    verified_source.push_str(&prepared.ledger_text);
     verified_source.push_str(&prepared.client_salary_position.to_string());
     verified_source.push_str(
         &serde_json::to_value(&prepared.competitor.salary_distributions)
@@ -1911,14 +1949,31 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
     };
     journey::normalize_evidence_aliases(&mut result);
     let conflict_texts = journey::conflict_unconfirmed_texts(&prepared.fact_conflicts);
-    let mut quality_issues = journey::validate_note_draft(
-        &result,
-        &prepared.allowed_evidence_refs,
-        &verified_source,
-        &persona_queries,
-        &suggestion_keywords,
-        &conflict_texts,
-    );
+    // P0-2: ペルソナの希望条件のうち顧客求人から照合できないもの (例: 転勤なし) を
+    // soft項目としてゲートに渡し、顧客企業の事実としての断定を防ぐ。
+    let unconfirmed_persona_texts =
+        journey::unconfirmed_persona_condition_texts(&all_personas, &prepared.ledger_text);
+    // P0-2 社名隣接ゲート: 未確認条件語×顧客社名の同一文結合を検査する
+    let company_terms =
+        journey::company_name_terms(&value_text(&prepared.case_profile, "company_name"));
+    let validate_note_full = |value: &Value| -> Vec<String> {
+        let mut issues = journey::validate_note_draft(
+            value,
+            &prepared.allowed_evidence_refs,
+            &verified_source,
+            &persona_queries,
+            &suggestion_keywords,
+            &conflict_texts,
+            &unconfirmed_persona_texts,
+        );
+        issues.extend(journey::unconfirmed_company_adjacency_issues(
+            &unconfirmed_persona_texts,
+            &company_terms,
+            &note_draft_audit_text(value),
+        ));
+        issues
+    };
+    let mut quality_issues = validate_note_full(&result);
     for _ in 0..2 {
         if quality_issues.is_empty() {
             break;
@@ -1940,14 +1995,7 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
         };
         llm_calls += 1;
         journey::normalize_evidence_aliases(&mut result);
-        quality_issues = journey::validate_note_draft(
-            &result,
-            &prepared.allowed_evidence_refs,
-            &verified_source,
-            &persona_queries,
-            &suggestion_keywords,
-            &conflict_texts,
-        );
+        quality_issues = validate_note_full(&result);
     }
     if !quality_issues.is_empty() {
         return Json(json!({
@@ -1969,16 +2017,7 @@ pub async fn jobgen_journey_note_draft(Json(body): Json<Value>) -> Json<Value> {
         &mut llm_calls_i64,
         &verified_source,
         note_draft_audit_text,
-        |value| {
-            journey::validate_note_draft(
-                value,
-                &prepared.allowed_evidence_refs,
-                &verified_source,
-                &persona_queries,
-                &suggestion_keywords,
-                &conflict_texts,
-            )
-        },
+        |value| validate_note_full(value),
     )
     .await;
     let llm_calls = llm_calls_i64;
@@ -2137,8 +2176,8 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
         &prepared.customer_statements,
         &prepared.popular_jobs,
     );
-    verified_source.push_str(&prepared.client_job_source);
     // 実測の比較データも出典として許可する (「高月給」「中央値241,000円」等の比較主張の根拠)
+    verified_source.push_str(&prepared.ledger_text);
     verified_source.push_str(&prepared.client_salary_position.to_string());
     verified_source.push_str(
         &serde_json::to_value(&prepared.competitor.salary_distributions)
@@ -2157,13 +2196,34 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
     };
     journey::normalize_evidence_aliases(&mut result);
     let conflict_texts = journey::conflict_unconfirmed_texts(&prepared.fact_conflicts);
-    let mut quality_issues = journey::validate_posting_draft(
-        &result,
-        &prepared.allowed_evidence_refs,
-        &verified_source,
-        &requested_ids,
-        &conflict_texts,
-    );
+    // P0-2: ペルソナ希望条件のうち顧客求人から照合できないものをsoft項目として渡す
+    let unconfirmed_persona_texts =
+        journey::unconfirmed_persona_condition_texts(&personas, &prepared.ledger_text);
+    // P0-4: Material Fact Coverage Gate。応募判断に重大な条件の網羅を決定論的に検査する。
+    let material_facts = build_material_facts(&prepared);
+    let company_terms =
+        journey::company_name_terms(&value_text(&prepared.case_profile, "company_name"));
+    let validate_with_coverage = |value: &Value| -> Vec<String> {
+        let mut issues = journey::validate_posting_draft(
+            value,
+            &prepared.allowed_evidence_refs,
+            &verified_source,
+            &requested_ids,
+            &conflict_texts,
+            &unconfirmed_persona_texts,
+        );
+        issues.extend(coverage_gate::material_fact_coverage_issues(
+            &material_facts,
+            &posting_full_text(value),
+        ));
+        issues.extend(journey::unconfirmed_company_adjacency_issues(
+            &unconfirmed_persona_texts,
+            &company_terms,
+            &posting_full_text(value),
+        ));
+        issues
+    };
+    let mut quality_issues = validate_with_coverage(&result);
     for _ in 0..2 {
         if quality_issues.is_empty() {
             break;
@@ -2184,13 +2244,7 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
         };
         llm_calls += 1;
         journey::normalize_evidence_aliases(&mut result);
-        quality_issues = journey::validate_posting_draft(
-            &result,
-            &prepared.allowed_evidence_refs,
-            &verified_source,
-            &requested_ids,
-            &conflict_texts,
-        );
+        quality_issues = validate_with_coverage(&result);
     }
     if !quality_issues.is_empty() {
         return Json(json!({
@@ -2212,15 +2266,7 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
         &mut llm_calls_i64,
         &verified_source,
         posting_draft_audit_text,
-        |value| {
-            journey::validate_posting_draft(
-                value,
-                &prepared.allowed_evidence_refs,
-                &verified_source,
-                &requested_ids,
-                &conflict_texts,
-            )
-        },
+        |value| validate_with_coverage(value),
     )
     .await;
     let llm_calls = llm_calls_i64;
@@ -2243,6 +2289,67 @@ pub async fn jobgen_journey_posting_draft(Json(body): Json<Value>) -> Json<Value
         "review_required":false,
         "llm_calls":llm_calls
     }))
+}
+
+/// P0-4 (2026-08-08 レビュー): 準備済みケースからMaterial Facts (応募判断に重大な条件) を組む。
+/// 入力に存在した条件だけを要求対象にする (存在しない条件は要求しない)。
+fn build_material_facts(prepared: &PreparedJourneyCase) -> coverage_gate::MaterialFacts {
+    let breakdown = &prepared.salary_breakdown;
+    let get_i64 = |key: &str| breakdown.get(key).and_then(Value::as_i64);
+    let overtime_hours_range = breakdown
+        .get("overtime_hours_range")
+        .and_then(Value::as_array)
+        .and_then(|pair| {
+            let low = pair.first().and_then(Value::as_u64)? as u32;
+            let high = pair.get(1).and_then(Value::as_u64)? as u32;
+            Some((low, high))
+        });
+    let nonempty = |text: &str| {
+        let trimmed = text.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    };
+    coverage_gate::MaterialFacts {
+        first_year_employment: coverage_gate::detect_first_year_employment(&prepared.ledger_text),
+        salary_min_yen: get_i64("display_monthly_min_yen"),
+        base_monthly_yen: get_i64("base_monthly_yen"),
+        overtime_pay_included: breakdown
+            .get("overtime_pay_included_in_display")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        overtime_hours_range,
+        holidays: nonempty(&prepared.verified_holidays),
+        required_qualifications: nonempty(&prepared.verified_required_qualifications),
+    }
+}
+
+/// 求人票案の全訴求テキストを連結する (Coverage Gate の検査対象)。
+fn posting_full_text(result: &Value) -> String {
+    let mut out = String::new();
+    if let Some(catches) = result.get("catch_copy_options").and_then(Value::as_array) {
+        for catch in catches {
+            if let Some(text) = catch.get("text").and_then(Value::as_str) {
+                out.push_str(text);
+                out.push('\n');
+            }
+        }
+    }
+    for key in ["headline", "job_description_markdown"] {
+        if let Some(text) = result.get(key).and_then(Value::as_str) {
+            out.push_str(text);
+            out.push('\n');
+        }
+    }
+    if let Some(sections) = result.get("sections").and_then(Value::as_array) {
+        for section in sections {
+            for key in ["heading", "body_markdown"] {
+                if let Some(text) = section.get(key).and_then(Value::as_str) {
+                    out.push_str(text);
+                    out.push('\n');
+                }
+            }
+        }
+    }
+    out
 }
 
 /// P0-2 LLM層 (2026-08-08): 生成物のClaim監査。構造ゲート通過後に主張単位の出典を検査し、
