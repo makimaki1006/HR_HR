@@ -23,6 +23,7 @@
 
 pub mod claim_audit;
 pub mod commute;
+pub mod coverage_gate;
 pub mod fact_extract;
 pub mod handlers;
 pub mod hrhacker;

@@ -806,7 +806,7 @@
         <div class="box"><h3>顧客求人から引用確認した事実</h3><div class="facts">${factRows}</div>${customerRows?`<h3 class="sectiongap">顧客から確認済みの発言</h3><div class="facts">${customerRows}</div>`:""}</div>
         <div class="box"><h3>地域・人材母集団の補助情報</h3>${publicHtml}</div>
       </div>
-      <div class="box sectiongap"><h3>給与の相対位置</h3>${renderSalaryBreakdown(d)}${salaryHtml}
+      <div class="box sectiongap"><h3>給与の相対位置</h3>${renderSalaryBreakdown(d)}${salaryHtml}${renderCommuteSalaryLayers(cohort)}
         <p class="scrollhint">表は横にスクロールできます。</p><div class="tblwrap" tabindex="0" role="region" aria-label="給与比較表。横にスクロールできます"><table><thead><tr><th>比較区分</th><th>件数</th><th>最小</th><th>第1四分位</th><th>中央値</th><th>第3四分位</th><th>最大</th></tr></thead><tbody>${distributions||'<tr><td colspan="7">給与比較データなし</td></tr>'}</tbody></table></div>
       </div>
       <div class="twocol sectiongap">
@@ -817,20 +817,47 @@
         <div class="box"><h3>口コミから観測された求職者認知</h3>${d.review_csv_warning?`<div class="notice">${esc(d.review_csv_warning)} 口コミ由来の根拠なしで診断を続行しました。</div>`:""}${reviews}<details class="sectiongap"><summary><b>分析に使用した口コミ原文を確認</b></summary>${reviewEvidence}</details><p class="hint sectiongap">個々の口コミは会社実態の確定事実ではありませんが、求職者が1件でも真実として受け取る可能性がある外部情報として扱います。</p></div>
         <div class="box"><h3>分析の要約</h3><p class="pdesc">${esc(r.analysis_summary||"—")}</p><div class="notice">この画面で確認した事実・比較母集団が、後続のペルソナと離脱仮説の根拠になります。</div></div>
       </div>
+      ${renderFactLedgerSupplement(d)}
       ${renderConflicts(d)}
       ${renderPopularAnalysis(d,r)}`;
     updateTableHints();
   }
 
-  // P1-1 (2026-08-08): 給与内訳の分解結果。残業込み表示の可能性を比較の前提として明示
+  // Canonical Fact Ledger (2026-08-08): 原文への完全一致で機械照合した補助条件。
+  // LLM抽出が引用不一致でも原文に実在すれば確認済みとして全工程が参照する。
+  function renderFactLedgerSupplement(d){
+    const supp=(d.fact_ledger||{}).supplementary_conditions||[];
+    if(!supp.length)return "";
+    return `<div class="box sectiongap"><h3>補助確認された条件（事実台帳）</h3>
+      <p>${supp.map(t=>`<span class="badge ok">${esc(t)}</span>`).join(" ")}</p>
+      <p class="hint">原文への完全一致で機械照合した条件です。生成・検査の全工程がこの台帳を参照します。</p></div>`;
+  }
+
+  // P1-1 (2026-08-08 レビュー): 給与比較を通勤圏レイヤー別に分離。「県で高い」ではなく
+  // 「実際の通勤競合の中でも高い」まで確認できるようにする。
+  function renderCommuteSalaryLayers(cohort){
+    const layers=cohort?.commute_salary_layers||[];
+    if(!layers.length)return "";
+    const rows=layers.map(l=>`<tr><td>${esc(l.layer)}</td><td>${formatNumber(l.count)}件</td><td>${formatYen(l.median_yen)}</td><td>${formatYen(l.third_quartile_yen)}</td><td>${l.client_percentile_position!=null?`${l.client_percentile_position}パーセンタイル（${esc(l.client_position_label||"")}）`:"—"}</td></tr>`).join("");
+    return `<div class="tablewrap sectiongap"><table><thead><tr><th>比較レイヤー</th><th>件数</th><th>中央値</th><th>第3四分位</th><th>自社位置</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // P0-1 (2026-08-08 レビュー): 給与内訳の分解結果。固定残業の有無と「表示に残業代を
+  // 含む」を区別し、レンジ中点を「下限」と呼ばない。差額を残業代と断定しない。
   function renderSalaryBreakdown(d){
     const b=d.salary_breakdown||{};
-    if(!b.decomposed&&!b.includes_fixed_overtime)return "";
-    const base=b.base_monthly_yen!=null?`基本給 ${formatYen(b.base_monthly_yen)}`:"基本給の記載なし";
-    const ot=b.includes_fixed_overtime?`表示給与に残業代が含まれる記載あり${b.overtime_hours_range?`（想定残業 月${b.overtime_hours_range[0]}〜${b.overtime_hours_range[1]}時間)`:""}`:"";
+    if(!b.decomposed&&!b.overtime_pay_included_in_display&&b.fixed_overtime==null)return "";
+    const parts=[];
+    if(b.display_monthly_min_yen!=null){
+      parts.push(`表示月給 ${formatYen(b.display_monthly_min_yen)}${b.display_monthly_max_yen!=null?`〜${formatYen(b.display_monthly_max_yen)}（比較用の中点 ${formatYen(b.display_monthly_midpoint_yen)}）`:"以上"}`);
+    }
+    parts.push(b.base_monthly_yen!=null?`基本給 ${formatYen(b.base_monthly_yen)}`:"基本給の記載なし");
+    if(b.fixed_overtime===false)parts.push("固定残業制度：なし（原文に明示）");
+    else if(b.fixed_overtime===true)parts.push("固定残業（みなし残業）の記載あり");
+    if(b.overtime_pay_included_in_display)parts.push(`表示月給に残業代を含む記載あり${b.overtime_hours_range?`（想定残業 月${b.overtime_hours_range[0]}〜${b.overtime_hours_range[1]}時間）`:""}`);
     const notes=(b.notes||[]).map(esc).join("／");
     return `<div class="notice" style="border-left:4px solid var(--mid)">
-      <b>給与内訳の注意：</b>${esc(base)}${ot?`。${esc(ot)}`:""}。下の相対位置は表示給与同士の比較であり、基本給と残業込みが混在している可能性があります。公開前に給与内訳の明確化を推奨します。
+      <b>給与内訳の注意：</b>${parts.map(esc).join("。")}。基本給と表示月給の差の内訳（残業代か諸手当か）は判定していません。下の相対位置は表示給与同士の比較です。公開前に給与内訳の明確化を推奨します。
       ${notes?`<br><small>判定根拠：${notes}</small>`:""}
     </div>`;
   }
@@ -870,8 +897,8 @@
         <p class="hint">人気と判断した根拠：${esc(item.popularity_basis)}</p>
         <div class="facts">${rows||'<p class="hint">逆算結果がありません。</p>'}</div></div>`;
     }).join("");
-    return `<div class="box sectiongap"><h3>人気求人の逆算</h3>${warnings}
-      ${cards?`<div class="twocol">${cards}</div><p class="hint sectiongap">人気要因は応募実態の因果ではなく傾向仮説です。「再現困難」（給与が分布上位・ブランド等）は訴求の真似では埋まらないため打ち手にせず、顧客への確認事項に回します。</p>`:""}
+    return `<div class="box sectiongap"><h3>人気タグ求人の共通訴求・成功要因仮説</h3>${warnings}
+      ${cards?`<div class="twocol">${cards}</div><p class="hint sectiongap">実測できているのは「人気タグが付いていた」「こういう条件が書いてあった」までで、条件が人気の原因かは観測できていません（勝ち求人から逆算した仮説）。「再現困難」（給与が分布上位・ブランド等）は訴求の真似では埋まらないため打ち手にせず、顧客への確認事項に回します。</p>`:""}
     </div>`;
   }
 
@@ -928,6 +955,8 @@
         </div>
         <p class="pdesc">${esc(p.profile)}</p>
         <dl>
+          <dt>市場根拠</dt><dd>${esc(p.market_basis||"")}${(p.evidence_backed_segment||[]).length?`<br><small>実測から言える属性：${esc((p.evidence_backed_segment||[]).join("／"))}</small>`:""}</dd>
+          ${(p.synthetic_scenario_elements||[]).length?`<dt>シナリオ設定（作例）</dt><dd><small>${esc((p.synthetic_scenario_elements||[]).join("／"))}（具体化のための架空設定であり実測ではありません）</small></dd>`:""}
           <dt>前職・経験</dt><dd>${esc(p.previous_work_context)}</dd>
           <dt>転職理由</dt><dd>${esc(p.transfer_reason)}</dd>
           <dt>最低条件</dt><dd>${esc((p.must_have_conditions||[]).join("／")||"未確認")}</dd>
@@ -1422,8 +1451,8 @@
     const actionsHtml=selectedActions.map(action=>{
       const level=action.priority==="高"?"high":action.priority==="中"?"medium":"low";
       return `<article class="actioncard ${level}"><div class="badges"><span class="badge neutral">${esc(action.persona_label)}</span><span class="badge ${action.priority==="高"?"bad":action.priority==="中"?"warn":"ok"}">優先度 ${esc(action.priority)}</span><span class="badge neutral">${esc(action.stage)}</span><span class="badge neutral">${esc(action.channel)}</span></div>
-        <h3>${esc(action.risk)}</h3><p><b>原因：</b>${esc(action.cause_type)}</p><p><b>対策：</b>${esc(action.countermeasure)}</p>
-        <p><b>顧客確認：</b>${esc(action.client_confirmation||"なし")}</p><small>根拠：${esc(formatRefs(action.evidence_refs))}</small></article>`;
+        <h3>${esc(action.risk)}</h3><p><b>原因：</b>${esc(action.cause_type)}${action.basis_type?` <span class="badge ${action.basis_type==="データ由来"?"ok":action.basis_type==="データからの推論"?"neutral":"warn"}">${esc(action.basis_type)}</span>`:""}${action.client_fact_status?` <span class="badge ${action.client_fact_status==="確認済み事実"?"ok":action.client_fact_status==="未確認"?"warn":"neutral"}">${esc(action.client_fact_status)}</span>`:""}</p><p><b>対策：</b>${esc(action.countermeasure)}</p>
+        <p><b>顧客確認：</b>${esc(action.client_confirmation||"なし")}</p><small>根拠：${action.basis_type==="一般的な採用施策"?"一般的な採用施策（実測由来ではありません）":esc(formatRefs(action.evidence_refs))}</small></article>`;
     }).join("")||'<p class="hint">選択したペルソナの優先対策はありません。</p>';
     const routeActions=selectedPersonas.map(persona=>{
       const detail=S.details.get(persona.id)||{};
