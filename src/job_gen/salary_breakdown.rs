@@ -1,8 +1,23 @@
 //! 給与の Apple-to-Apple 比較のための内訳分解(P1-1)。
 //!
-//! 求人票の「月給254,200円〜326,000円」は、実際には「基本給221,200円＋残業30〜40時間分」
+//! 求人票の「月給254,200円〜326,000円」は、実際には「基本給221,200円＋残業代を含んだ想定月収」
 //! であることがある。この状態で中点290,100円を競合分布に置くと過大訴求になるため、
-//! **表示給与 / 基本給 / 固定残業の有無** を分けて持てるようにする。
+//! **表示月給(下限/上限/中点) / 基本給 / 固定残業制度の有無 / 表示に残業代を含むか** を
+//! 分けて持てるようにする。
+//!
+//! # 「固定残業」と「表示に残業代を含む」は別概念
+//!
+//! この2つを1つのフラグにまとめると意味が反転するため、必ず別々に持つ。
+//!
+//! - `fixed_overtime`: **固定残業(みなし残業)制度**の有無。一定時間分の残業代を
+//!   実際の残業時間に関わらず定額で支払う制度があるか。原文に「固定残業なし」と
+//!   書かれていれば `Some(false)`。
+//! - `overtime_pay_included_in_display`: 表示月給(またはその例)が
+//!   **実残業代を含んだ金額**として提示されているか。固定残業制度が無くても真になる。
+//!
+//! 実例(センコー): 「月給254,200円〜326,000円」「221,200＋残業代を含んだ金額」「固定残業なし」
+//! → `fixed_overtime = Some(false)` かつ `overtime_pay_included_in_display = true`。
+//! これは「固定残業代を含む月給」ではなく「基本給＋実残業代を含んだ想定月収レンジ」である。
 //!
 //! # 判定は機械的に行う(LLM を使わない)
 //!
@@ -14,10 +29,14 @@
 //!
 //! - 基本給:
 //!   - 「基本給221,200円」「基本給：221,200円」— キーワードの直後14文字以内の金額
-//!   - 「221,200円＋残業代」— `＋残業代` の直前で終わる金額(センコー実例。基本給の語が無い)
-//! - 固定残業の示唆: 「残業代を含んだ金額」「◯時間分の残業代」「みなし残業」「固定残業」等
+//!   - 「221,200円＋残業代」— `＋残業` の直前で終わる金額(センコー実例。基本給の語が無い)
+//! - 固定残業制度: 「固定残業」「みなし残業」「定額残業」の出現。ただし直後20文字以内に
+//!   「なし」「ありません」「無し」があれば**否定を最優先**して `Some(false)`。
+//! - 表示に残業代を含む: 「残業代を含んだ金額」「残業代を含む」「残業代込」「残業手当を含」
+//!   「◯時間分の残業代」
 //! - 想定残業時間: 「残業 月30〜40時間」「月平均20時間」「20時間分の残業代」
-//! - 表示給与: 「月給◯円〜◯円」→ 中点、「月給◯円以上」→ 下限(上限は推測しない)
+//! - 表示月給: 「月給A円〜B円」→ 下限A/上限B/中点(A+B)/2、「月給A円以上」→ 下限Aのみ
+//!   (上限・中点は推測しない)
 //!
 //! # 誤検出を避けるための制約
 //!
@@ -29,11 +48,13 @@
 //!
 //! # 既知の限界
 //!
-//! - 時給・日給・年俸表記の月額換算は行わない(`display_monthly_yen` は None)。
+//! - 時給・日給・年俸表記の月額換算は行わない(`display_monthly_*_yen` は None)。
 //!   単位換算は `crate::handlers::survey::salary_parser` の担当。
 //! - 「基本給」が金額より後ろに来る表記(「221,200円(基本給)」)は未対応。
-//! - 手当の内訳(住宅手当・皆勤手当等)の分解は対象外。基本給と表示給与の差が
-//!   固定残業なのか諸手当なのかまでは判定しない。
+//! - **基本給と表示月給の差額の内訳は一切判定しない**。差が残業代なのか、諸手当
+//!   (住宅手当・職務手当・皆勤手当等)なのか、その混合なのかは原文からは決まらない。
+//!   差を「残業代」と呼ぶ出力を作ってはならない。
+//! - 上限側の金額が何を前提にしているか(残業上限時・経験者採用時等)も判定しない。
 
 use serde::Serialize;
 
@@ -44,33 +65,50 @@ const MAX_PLAUSIBLE_MONTHLY_YEN: i64 = 3_000_000;
 /// 月あたり残業時間として妥当と見なす上限。これ超は所定労働時間等の誤検出とみなして捨てる。
 const MAX_PLAUSIBLE_OVERTIME_HOURS: u32 = 100;
 
-/// 固定残業(みなし残業)が表示給与に含まれることを示唆する語。
+/// 表示月給に**実残業代が含まれる**旨を示す語。固定残業制度の有無とは無関係。
 /// 出現位置が最も早いものを採用し、同位置なら長いものを優先する。
-const FIXED_OVERTIME_MARKERS: [&str; 10] = [
+const OVERTIME_INCLUDED_MARKERS: [&str; 6] = [
     "残業代を含んだ金額",
     "残業代を含む",
     "残業代を含み",
     "残業代込",
     "残業手当を含",
     "時間分の残業代",
-    "固定残業",
-    "みなし残業",
-    "定額残業",
-    "見なし残業",
 ];
+
+/// 固定残業(みなし残業)**制度**を指す語。肯定・否定いずれの判定にも使う。
+const FIXED_OVERTIME_SYSTEM_MARKERS: [&str; 4] =
+    ["固定残業", "みなし残業", "定額残業", "見なし残業"];
+
+/// 制度語の直後にあれば「制度なし」と判定する語。
+const NEGATION_WORDS: [&str; 3] = ["なし", "ありません", "無し"];
+
+/// 制度語の直後、否定語を探す範囲(文字数)。句読点・改行があればそこで打ち切る。
+const NEGATION_WINDOW_CHARS: usize = 20;
 
 /// 給与表記の内訳分解結果。検出できなかった項目は None / false のまま返す。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct SalaryBreakdown {
     /// 基本給(月額・円)。原文に基本給が明示されている場合のみ。
     pub base_monthly_yen: Option<i64>,
-    /// 表示給与に残業代が含まれる示唆があるか。
-    pub includes_fixed_overtime: bool,
+    /// 表示月給の下限(円)。範囲表記「A円〜B円」なら A、「A円以上」なら A。
+    pub display_monthly_min_yen: Option<i64>,
+    /// 表示月給の上限(円)。「A円以上」のように上限が書かれていない場合は None(推測しない)。
+    pub display_monthly_max_yen: Option<i64>,
+    /// 表示月給の中点(円)。上限が取れた場合のみ `(min + max) / 2`。
+    /// **中点であって下限ではない**。単独訴求に使うと過大表示になる。
+    pub display_monthly_midpoint_yen: Option<i64>,
+    /// 固定残業(みなし残業)制度の有無。
+    /// 「固定残業なし」等の明示的な否定があれば `Some(false)`(**最優先**)。
+    /// 「固定残業」「みなし残業」「定額残業」の肯定文脈があれば `Some(true)`。
+    /// どちらの記載も無ければ `None`(推測しない)。
+    pub fixed_overtime: Option<bool>,
+    /// 表示月給(またはその例)に残業代が含まれる旨の記載があるか。
+    /// 「残業代を含んだ金額」「残業代込」等。**固定残業制度の有無とは独立**。
+    pub overtime_pay_included_in_display: bool,
     /// 想定残業時間(月・時間)。単一値の場合は (n, n)。
     pub overtime_hours_range: Option<(u32, u32)>,
-    /// 表示給与の代表値(月額・円)。範囲表記は中点、「◯円以上」は下限。
-    pub display_monthly_yen: Option<i64>,
-    /// 内訳分解に成功したか(基本給と表示給与の両方が取れた場合に true)。
+    /// 内訳分解に成功したか(基本給と表示月給の両方が取れた場合に true)。
     pub decomposed: bool,
     /// 判定根拠。原文の該当語句を引用して残す。
     pub notes: Vec<String>,
@@ -79,14 +117,18 @@ pub struct SalaryBreakdown {
 /// 給与欄(`salary_text`)と本文(`body_text`)から内訳を分解する。
 ///
 /// 基本給・固定残業・残業時間は給与欄→本文の順に探し、最初に見つかったものを採用する。
-/// 表示給与は給与欄のみから取る(本文中の他社比較の金額等を拾わないため)。
+/// ただし固定残業だけは**否定表現を全ソースで先に探す**(否定が最優先)。
+/// 表示月給は給与欄のみから取る(本文中の他社比較の金額等を拾わないため)。
 pub fn analyze(salary_text: &str, body_text: &str) -> SalaryBreakdown {
     let salary = Norm::new(salary_text);
     let body = Norm::new(body_text);
     let sources: [(&str, &Norm); 2] = [("給与欄", &salary), ("本文", &body)];
     let mut notes: Vec<String> = Vec::new();
 
-    let display_monthly_yen = detect_display(&salary, &mut notes);
+    let display = detect_display(&salary, &mut notes);
+    let display_monthly_min_yen = display.as_ref().map(|d| d.min);
+    let display_monthly_max_yen = display.as_ref().and_then(|d| d.max);
+    let display_monthly_midpoint_yen = display.as_ref().and_then(|d| d.midpoint);
 
     let mut base_monthly_yen = None;
     for (label, source) in sources {
@@ -102,14 +144,45 @@ pub fn analyze(salary_text: &str, body_text: &str) -> SalaryBreakdown {
         }
     }
 
-    let mut includes_fixed_overtime = false;
+    // 固定残業制度: 否定 → 肯定 の順。否定があれば肯定マーカーは無視する。
+    let mut fixed_overtime: Option<bool> = None;
     for (label, source) in sources {
-        if let Some((start, end)) = detect_fixed_overtime_marker(source) {
+        if let Some((start, end)) = detect_fixed_overtime_negation(source) {
             notes.push(format!(
-                "{label}に表示給与へ残業代が含まれる示唆あり: 「{}」",
+                "{label}に固定残業(みなし残業)を否定する記載あり: 「{}」→ 固定残業制度は無いと判定。",
                 source.quote(start, end)
             ));
-            includes_fixed_overtime = true;
+            fixed_overtime = Some(false);
+            break;
+        }
+    }
+    if fixed_overtime.is_none() {
+        for (label, source) in sources {
+            if let Some((start, end)) = detect_fixed_overtime_positive(source) {
+                notes.push(format!(
+                    "{label}に固定残業(みなし残業)制度の記載あり: 「{}」",
+                    source.quote(start, end)
+                ));
+                fixed_overtime = Some(true);
+                break;
+            }
+        }
+    }
+    if fixed_overtime.is_none() {
+        notes.push(
+            "固定残業(みなし残業)制度の有無に関する記載が原文に無いため、有無は判定しない。"
+                .to_string(),
+        );
+    }
+
+    let mut overtime_pay_included_in_display = false;
+    for (label, source) in sources {
+        if let Some((start, end)) = detect_overtime_included_marker(source) {
+            notes.push(format!(
+                "{label}に表示月給へ残業代が含まれる旨の記載あり: 「{}」",
+                source.quote(start, end)
+            ));
+            overtime_pay_included_in_display = true;
             break;
         }
     }
@@ -128,46 +201,64 @@ pub fn analyze(salary_text: &str, body_text: &str) -> SalaryBreakdown {
         }
     }
 
-    let decomposed = base_monthly_yen.is_some() && display_monthly_yen.is_some();
+    let decomposed = base_monthly_yen.is_some() && display_monthly_min_yen.is_some();
     if !decomposed {
-        if includes_fixed_overtime {
+        if overtime_pay_included_in_display {
             notes.push(
-                "残業代が含まれる示唆はあるが基本給の金額が原文にないため、内訳は未分解。\
+                "表示月給に残業代が含まれる旨の記載はあるが基本給の金額が原文にないため、内訳は未分解。\
                  基本給の明示を顧客に確認する必要がある。"
                     .to_string(),
             );
         } else if base_monthly_yen.is_none() {
             notes.push(
-                "基本給・固定残業・みなし残業に相当する記載が見つからないため、内訳は未分解。\
-                 表示給与の中に固定残業代が含まれているかは原文からは判断できない。"
+                "基本給に相当する金額の記載が見つからないため、内訳は未分解。\
+                 表示月給の内訳(基本給・手当・残業代の別)は原文からは判断できない。"
                     .to_string(),
             );
         }
-    } else if let (Some(base), Some(display)) = (base_monthly_yen, display_monthly_yen) {
+    } else if let (Some(base), Some(min)) = (base_monthly_yen, display_monthly_min_yen) {
+        let display_desc = match (display_monthly_max_yen, display_monthly_midpoint_yen) {
+            (Some(max), Some(mid)) => format!(
+                "表示月給{}〜{}円(中点{}円)",
+                fmt_yen(min),
+                fmt_yen(max),
+                fmt_yen(mid)
+            ),
+            _ => format!("表示月給{}円以上", fmt_yen(min)),
+        };
         notes.push(format!(
-            "内訳分解済み: 基本給{}円 / 表示給与{}円(差額{}円)。比較は基本給同士・表示給与同士で行う。",
-            fmt_yen(base),
-            fmt_yen(display),
-            fmt_yen(display - base)
+            "内訳分解済み: 基本給{}円 / {display_desc}。比較は基本給同士・表示月給同士で行う。\
+             基本給と表示月給の開きが何によるもの(諸手当・残業代・その他)かは原文からは判定しない。",
+            fmt_yen(base)
         ));
     }
 
     SalaryBreakdown {
         base_monthly_yen,
-        includes_fixed_overtime,
+        display_monthly_min_yen,
+        display_monthly_max_yen,
+        display_monthly_midpoint_yen,
+        fixed_overtime,
+        overtime_pay_included_in_display,
         overtime_hours_range,
-        display_monthly_yen,
         decomposed,
         notes,
     }
 }
 
-// ======== 表示給与 ========
+// ======== 表示月給 ========
 
-/// 給与欄から表示給与の代表値を求める。範囲は中点、「◯円以上」は下限。
-fn detect_display(salary: &Norm, notes: &mut Vec<String>) -> Option<i64> {
+/// 表示月給の下限・上限・中点。上限が原文に無い場合 `max` / `midpoint` は None。
+struct DisplayRange {
+    min: i64,
+    max: Option<i64>,
+    midpoint: Option<i64>,
+}
+
+/// 給与欄から表示月給の下限・上限・中点を求める。
+fn detect_display(salary: &Norm, notes: &mut Vec<String>) -> Option<DisplayRange> {
     if salary.chars.iter().all(|c| c.is_whitespace()) {
-        notes.push("給与欄が空のため表示給与を算出できない。".to_string());
+        notes.push("給与欄が空のため表示月給を算出できない。".to_string());
         return None;
     }
     let text: String = salary.chars.iter().collect();
@@ -180,7 +271,7 @@ fn detect_display(salary: &Norm, notes: &mut Vec<String>) -> Option<i64> {
             .find(|k| text.contains(**k));
         if let Some(unit) = other {
             notes.push(format!(
-                "給与欄が月給表記ではない(「{unit}」)ため、月額の代表値は算出しない(単位換算は行わない)。"
+                "給与欄が月給表記ではない(「{unit}」)ため、月額は算出しない(単位換算は行わない)。"
             ));
             return None;
         }
@@ -204,30 +295,44 @@ fn detect_display(salary: &Norm, notes: &mut Vec<String>) -> Option<i64> {
         if only_sep {
             let mid = (low.yen + high.yen) / 2;
             notes.push(format!(
-                "表示給与は範囲表記のため中点を代表値とした: 「{}」→ {}円",
+                "表示月給は範囲表記: 「{}」→ 下限{}円 / 上限{}円 / 中点{}円(中点は代表値であって下限ではない)",
                 salary.quote(low.start, high.end),
+                fmt_yen(low.yen),
+                fmt_yen(high.yen),
                 fmt_yen(mid)
             ));
-            return Some(mid);
+            return Some(DisplayRange {
+                min: low.yen,
+                max: Some(high.yen),
+                midpoint: Some(mid),
+            });
         }
     }
 
     let after = window_after(&salary.chars, low.end, 4);
     if after.starts_with("以上") || after.starts_with("〜") || after.starts_with("～") {
         notes.push(format!(
-            "表示給与は下限のみの表記のため下限を代表値とした(上限は推測しない): 「{}」→ {}円",
+            "表示月給は下限のみの表記のため下限だけを採用した(上限・中点は推測しない): 「{}」→ 下限{}円",
             salary.quote(low.start, low.end + after.chars().count().min(2)),
             fmt_yen(low.yen)
         ));
-        return Some(low.yen);
+        return Some(DisplayRange {
+            min: low.yen,
+            max: None,
+            midpoint: None,
+        });
     }
 
     notes.push(format!(
-        "表示給与: 「{}」→ {}円",
+        "表示月給は単一額の表記: 「{}」→ {}円",
         salary.quote(low.start, low.end),
         fmt_yen(low.yen)
     ));
-    Some(low.yen)
+    Some(DisplayRange {
+        min: low.yen,
+        max: Some(low.yen),
+        midpoint: Some(low.yen),
+    })
 }
 
 // ======== 基本給 ========
@@ -313,12 +418,68 @@ fn detect_base_before_overtime(source: &Norm, amounts: &[Amount]) -> Option<Base
     None
 }
 
-// ======== 固定残業 ========
+// ======== 固定残業(みなし残業)制度 ========
 
-/// 固定残業の示唆語のうち、最も早い位置(同位置なら最長)のものを返す。
-fn detect_fixed_overtime_marker(source: &Norm) -> Option<(usize, usize)> {
+/// 「固定残業なし」「みなし残業代はありません」等、制度の**明示的な否定**を探す。
+///
+/// 制度語の直後 `NEGATION_WINDOW_CHARS` 文字以内(句読点・改行で打ち切り)に否定語があれば
+/// 該当とみなす。返す範囲は制度語の開始から否定語の終端まで(引用にそのまま使える)。
+fn detect_fixed_overtime_negation(source: &Norm) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize)> = None;
-    for marker in FIXED_OVERTIME_MARKERS {
+    for marker in FIXED_OVERTIME_SYSTEM_MARKERS {
+        let pattern: Vec<char> = marker.chars().collect();
+        let mut from = 0;
+        while let Some(pos) = find_chars(&source.chars, &pattern, from) {
+            let marker_end = pos + pattern.len();
+            from = marker_end;
+            let window: Vec<char> = window_after(&source.chars, marker_end, NEGATION_WINDOW_CHARS)
+                .chars()
+                .collect();
+            let hit = NEGATION_WORDS.iter().filter_map(|word| {
+                let needle: Vec<char> = word.chars().collect();
+                find_chars(&window, &needle, 0).map(|idx| idx + needle.len())
+            });
+            if let Some(rel_end) = hit.min() {
+                let end = marker_end + rel_end;
+                let better = match best {
+                    None => true,
+                    Some((b_start, _)) => pos < b_start,
+                };
+                if better {
+                    best = Some((pos, end));
+                }
+            }
+        }
+    }
+    best
+}
+
+/// 否定を伴わない固定残業(みなし残業)制度の記載を探す。最も早い位置のものを返す。
+fn detect_fixed_overtime_positive(source: &Norm) -> Option<(usize, usize)> {
+    let mut best: Option<(usize, usize)> = None;
+    for marker in FIXED_OVERTIME_SYSTEM_MARKERS {
+        let pattern: Vec<char> = marker.chars().collect();
+        if let Some(pos) = find_chars(&source.chars, &pattern, 0) {
+            let end = pos + pattern.len();
+            let better = match best {
+                None => true,
+                Some((b_start, b_end)) => pos < b_start || (pos == b_start && end > b_end),
+            };
+            if better {
+                best = Some((pos, end));
+            }
+        }
+    }
+    best
+}
+
+// ======== 表示月給に残業代を含むか ========
+
+/// 「残業代を含んだ金額」等の語のうち、最も早い位置(同位置なら最長)のものを返す。
+/// 固定残業制度の語(固定残業/みなし残業/定額残業)はここでは使わない。
+fn detect_overtime_included_marker(source: &Norm) -> Option<(usize, usize)> {
+    let mut best: Option<(usize, usize)> = None;
+    for marker in OVERTIME_INCLUDED_MARKERS {
         let pattern: Vec<char> = marker.chars().collect();
         if let Some(pos) = find_chars(&source.chars, &pattern, 0) {
             let end = pos + pattern.len();
@@ -338,9 +499,35 @@ fn detect_fixed_overtime_marker(source: &Norm) -> Option<(usize, usize)> {
 
 /// 「残業 月30〜40時間」「月平均20時間」「20時間分の残業代」から時間数を取る。
 fn detect_overtime_hours(source: &Norm) -> Option<((u32, u32), usize, usize)> {
+    // 「時間」に加えて「h」単位表記 (実データ例:「残業あり（月30～40h）」) も対象にする。
+    // h は残業文脈 (overtime_context) の必須判定があるため、URL等の h を誤検出しない。
+    // 給与例の「残業30時間」(単一値) より、勤務時間欄の「月30〜40h」(範囲) を優先する:
+    // 範囲表記の候補があればそれを採用し、無ければ最初の単一値を採用する。
+    let mut first_single: Option<((u32, u32), usize, usize)> = None;
+    for unit in ["時間", "h", "H", "ｈ", "Ｈ"] {
+        let mut from = 0;
+        while let Some(hit) = detect_overtime_hours_with_unit_from(source, unit, from) {
+            let ((lo, hi), start, end) = hit;
+            if lo < hi {
+                return Some(hit);
+            }
+            if first_single.is_none() {
+                first_single = Some(((lo, hi), start, end));
+            }
+            from = end;
+        }
+    }
+    first_single
+}
+
+fn detect_overtime_hours_with_unit_from(
+    source: &Norm,
+    unit: &str,
+    start_from: usize,
+) -> Option<((u32, u32), usize, usize)> {
     let chars = &source.chars;
-    let pattern: Vec<char> = "時間".chars().collect();
-    let mut from = 0;
+    let pattern: Vec<char> = unit.chars().collect();
+    let mut from = start_from;
     while let Some(pos) = find_chars(chars, &pattern, from) {
         from = pos + pattern.len();
 
@@ -397,12 +584,16 @@ fn detect_overtime_hours(source: &Norm) -> Option<((u32, u32), usize, usize)> {
         if !overtime_context {
             continue;
         }
-        // 所定労働時間・休憩時間の誤検出を避ける
-        let working_hours_context = ["実働", "休憩", "勤務", "拘束", "就業", "所定"]
-            .iter()
-            .any(|k| before.contains(k));
-        if working_hours_context {
-            continue;
+        // 所定労働時間・休憩時間の誤検出を避ける。ただし「休憩75分※残業あり（月30〜40h）」の
+        // ように残業語の方が数値に近い場合は残業として扱う (数値に近いキーワードを優先)。
+        let last_pos =
+            |keys: &[&str]| -> Option<usize> { keys.iter().filter_map(|k| before.rfind(k)).max() };
+        let overtime_pos = last_pos(&["残業", "みなし", "見なし", "月平均"]);
+        let working_pos = last_pos(&["実働", "休憩", "勤務", "拘束", "就業", "所定"]);
+        if let Some(w) = working_pos {
+            if overtime_pos.is_none_or(|o| o < w) {
+                continue;
+            }
         }
 
         return Some(((lo, hi), lo_start, pos + pattern.len()));
@@ -549,7 +740,7 @@ struct Amount {
 }
 
 /// 数値 + 任意の「万」「円」を金額として拾う。単位を伴わないものも位置把握のため返す
-/// (基本給・表示給与の判定側で `has_yen || has_man` を必須にしている)。
+/// (基本給・表示月給の判定側で `has_yen || has_man` を必須にしている)。
 fn scan_amounts(chars: &[char]) -> Vec<Amount> {
     let mut out: Vec<Amount> = Vec::new();
     let mut i = 0;
@@ -642,70 +833,172 @@ fn fmt_yen(value: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// 給与例の単一値「残業30時間」より勤務時間欄の範囲「月30～40h」を優先する。
+    #[test]
+    fn overtime_hours_prefers_range_over_single_example() {
+        let b = analyze(
+            "月給254,200円〜326,000円",
+            "給与例: 1年目 月22日勤務／残業30時間。勤務時間: 07:00~15:45※残業あり（月30～40h）",
+        );
+        assert_eq!(b.overtime_hours_range, Some((30, 40)), "{:?}", b.notes);
+    }
+
+    /// 実データ表記「※残業あり（月30～40h）」(h単位+全角チルダ) の検出 (2026-08-08 Ledger化)。
+    #[test]
+    fn overtime_hours_with_h_unit_and_fullwidth_tilde() {
+        let b = analyze(
+            "月給254,200円〜326,000円",
+            "07:00~15:45《日勤》※実働7時間30分＋休憩75分※残業あり（月30～40h）",
+        );
+        assert_eq!(b.overtime_hours_range, Some((30, 40)), "{:?}", b.notes);
+    }
+
     use super::*;
 
-    /// 実例(センコー): 表示給与は範囲だが、本文に「221,200円＋残業代を含んだ金額」とある。
+    /// 実例(センコー)フル: 表示は範囲、本文に「221,200＋残業代を含んだ金額」「固定残業なし」
+    /// 「残業 月30〜40時間」。**固定残業は無い**が表示には実残業代が含まれる、という組み合わせ。
     #[test]
-    fn decomposes_senko_style_fixed_overtime_salary() {
-        let salary = "月給254,200円〜326,000円";
-        let body = "上記月給は、221,200円＋残業代を含んだ金額です。残業 月30〜40時間程度。";
-        let breakdown_no_yen = analyze(
+    fn senko_full_example_has_no_fixed_overtime_but_includes_overtime_pay() {
+        let result = analyze(
             "月給254,200円〜326,000円",
-            "※221,200＋残業代を含んだ金額 ※固定残業なし",
+            "※221,200＋残業代を含んだ金額 ※固定残業なし ※残業 月30〜40時間",
         );
-        assert_eq!(
-            breakdown_no_yen.base_monthly_yen,
-            Some(221_200),
-            "円省略表記 (実HTMLの原文ママ) で基本給を検出できるべき"
-        );
-        let result = analyze(salary, body);
 
-        assert_eq!(result.base_monthly_yen, Some(221_200));
-        assert!(result.includes_fixed_overtime);
+        assert_eq!(result.base_monthly_yen, Some(221_200), "{:?}", result.notes);
+        assert_eq!(result.display_monthly_min_yen, Some(254_200));
+        assert_eq!(result.display_monthly_max_yen, Some(326_000));
+        assert_eq!(result.display_monthly_midpoint_yen, Some(290_100));
+        assert_eq!(
+            result.fixed_overtime,
+            Some(false),
+            "「固定残業なし」は明示否定として最優先されるべき: {:?}",
+            result.notes
+        );
+        assert!(result.overtime_pay_included_in_display);
         assert_eq!(result.overtime_hours_range, Some((30, 40)));
-        assert_eq!(result.display_monthly_yen, Some(290_100));
         assert!(result.decomposed);
-        // 判定根拠に原文の該当語句が引用されている
+
         let notes = result.notes.join("\n");
-        assert!(notes.contains("221,200円"), "notes={notes}");
+        assert!(notes.contains("221,200"), "notes={notes}");
         assert!(notes.contains("残業代を含んだ金額"), "notes={notes}");
+        assert!(notes.contains("固定残業なし"), "notes={notes}");
         assert!(notes.contains("30〜40時間"), "notes={notes}");
     }
 
-    /// 内訳の記載がない単純な月給: 表示給与だけ算出し、分解は未達とする。
+    /// 逆証明(センコー実例): 基本給と表示月給の差(290,100-221,200=68,900)を
+    /// 「残業代」「差額」と断定する文言を notes に出してはならない。
+    #[test]
+    fn notes_never_attribute_the_gap_to_overtime_pay() {
+        let result = analyze(
+            "月給254,200円〜326,000円",
+            "※221,200＋残業代を含んだ金額 ※固定残業なし ※残業 月30〜40時間",
+        );
+        let notes = result.notes.join("\n");
+
+        for forbidden in ["68,900", "68900", "差額", "＝残業代", "=残業代"] {
+            assert!(
+                !notes.contains(forbidden),
+                "notes に「{forbidden}」が含まれてはならない: {notes}"
+            );
+        }
+    }
+
+    /// 固定残業の明示否定は、同じ本文に肯定マーカーがあっても優先される。
+    #[test]
+    fn explicit_negation_wins_over_positive_marker() {
+        let result = analyze(
+            "月給300,000円",
+            "みなし残業手当の制度はありません。固定残業なし。",
+        );
+        assert_eq!(result.fixed_overtime, Some(false), "{:?}", result.notes);
+    }
+
+    /// 固定残業(みなし残業)制度の肯定記載。
+    #[test]
+    fn deemed_overtime_marker_sets_fixed_overtime_true() {
+        let result = analyze("月給300,000円", "みなし残業20時間分を含みます。");
+
+        assert_eq!(result.fixed_overtime, Some(true));
+        assert_eq!(result.overtime_hours_range, Some((20, 20)));
+        // 制度語だけでは「表示額に残業代を含む」とは言えない(概念が別)
+        assert!(
+            !result.overtime_pay_included_in_display,
+            "{:?}",
+            result.notes
+        );
+        assert_eq!(result.base_monthly_yen, None);
+        assert!(!result.decomposed);
+        assert!(result.notes.iter().any(|n| n.contains("未分解")));
+    }
+
+    /// 固定残業肯定 かつ 表示額に残業代を含む、の両立ケース。
+    #[test]
+    fn fixed_overtime_and_included_pay_can_both_be_true() {
+        let result = analyze("月給300,000円", "みなし残業20時間分の残業代を含みます。");
+
+        assert_eq!(result.fixed_overtime, Some(true));
+        assert!(result.overtime_pay_included_in_display);
+    }
+
+    /// 記載が無ければ固定残業の有無は判定しない(false と断定しない)。
+    #[test]
+    fn absent_fixed_overtime_description_is_none() {
+        let result = analyze("月給250,000円", "未経験歓迎。研修制度あり。");
+
+        assert_eq!(result.fixed_overtime, None);
+        assert!(result
+            .notes
+            .iter()
+            .any(|n| n.contains("記載が原文に無いため")));
+    }
+
+    /// 内訳の記載がない単純な月給: 表示月給だけ算出し、分解は未達とする。
     #[test]
     fn plain_monthly_salary_is_not_decomposed() {
         let result = analyze("月給250,000円", "未経験歓迎。研修制度あり。");
 
-        assert_eq!(result.display_monthly_yen, Some(250_000));
+        assert_eq!(result.display_monthly_min_yen, Some(250_000));
+        assert_eq!(result.display_monthly_max_yen, Some(250_000));
+        assert_eq!(result.display_monthly_midpoint_yen, Some(250_000));
         assert_eq!(result.base_monthly_yen, None);
-        assert!(!result.includes_fixed_overtime);
+        assert!(!result.overtime_pay_included_in_display);
         assert_eq!(result.overtime_hours_range, None);
         assert!(!result.decomposed);
         assert!(result.notes.iter().any(|n| n.contains("未分解")));
     }
 
-    /// 「◯円以上」は下限を代表値にする(上限を推測しない)。
+    /// 「◯円以上」は下限のみ。上限・中点は推測しない。
     #[test]
-    fn open_ended_salary_uses_lower_bound() {
+    fn open_ended_salary_reports_min_only() {
         let result = analyze("月給30万円以上", "");
 
-        assert_eq!(result.display_monthly_yen, Some(300_000));
-        assert!(result.notes.iter().any(|n| n.contains("下限")));
+        assert_eq!(result.display_monthly_min_yen, Some(300_000));
+        assert_eq!(result.display_monthly_max_yen, None);
+        assert_eq!(result.display_monthly_midpoint_yen, None);
+        assert!(result.notes.iter().any(|n| n.contains("下限のみの表記")));
     }
 
-    /// 範囲表記の中点。
+    /// 範囲表記は下限・上限・中点の3点を返す。
     #[test]
-    fn range_salary_uses_midpoint() {
+    fn range_salary_reports_min_max_and_midpoint() {
         let result = analyze("月給200,000円〜300,000円", "");
-        assert_eq!(result.display_monthly_yen, Some(250_000));
+
+        assert_eq!(result.display_monthly_min_yen, Some(200_000));
+        assert_eq!(result.display_monthly_max_yen, Some(300_000));
+        assert_eq!(result.display_monthly_midpoint_yen, Some(250_000));
+        // 中点を「下限」と呼ばないこと
+        let notes = result.notes.join("\n");
+        assert!(notes.contains("中点"), "notes={notes}");
     }
 
     /// 単位が後ろにしか付かない範囲表記「25〜30万円」。
     #[test]
     fn range_with_trailing_unit_only() {
         let result = analyze("月給25〜30万円", "");
-        assert_eq!(result.display_monthly_yen, Some(275_000));
+
+        assert_eq!(result.display_monthly_min_yen, Some(250_000));
+        assert_eq!(result.display_monthly_max_yen, Some(300_000));
+        assert_eq!(result.display_monthly_midpoint_yen, Some(275_000));
     }
 
     /// 全角数字・全角カンマ・全角プラス・全角スペースの混在。
@@ -715,9 +1008,11 @@ mod tests {
         let body = "基本給２２１，２００円＋残業代を含んだ金額です。残業　月３０〜４０時間";
         let result = analyze(salary, body);
 
-        assert_eq!(result.display_monthly_yen, Some(290_100));
+        assert_eq!(result.display_monthly_min_yen, Some(254_200));
+        assert_eq!(result.display_monthly_max_yen, Some(326_000));
+        assert_eq!(result.display_monthly_midpoint_yen, Some(290_100));
         assert_eq!(result.base_monthly_yen, Some(221_200));
-        assert!(result.includes_fixed_overtime);
+        assert!(result.overtime_pay_included_in_display);
         assert_eq!(result.overtime_hours_range, Some((30, 40)));
         assert!(result.decomposed);
         // 引用は原文のまま(全角)であること
@@ -742,9 +1037,11 @@ mod tests {
             "notes={:?}",
             result.notes
         );
-        assert!(!result.includes_fixed_overtime);
+        assert!(!result.overtime_pay_included_in_display);
+        // 「残業ほぼなし」は固定残業制度の記載ではないので None のまま
+        assert_eq!(result.fixed_overtime, None, "notes={:?}", result.notes);
         assert!(!result.decomposed);
-        assert_eq!(result.display_monthly_yen, Some(290_100));
+        assert_eq!(result.display_monthly_midpoint_yen, Some(290_100));
     }
 
     /// 逆証明: 所定労働時間は残業時間として拾わない。
@@ -765,35 +1062,33 @@ mod tests {
     #[test]
     fn base_salary_with_colon() {
         let result = analyze("月給280,000円", "内訳 基本給：230,000円 職務手当50,000円");
+
         assert_eq!(result.base_monthly_yen, Some(230_000));
         assert!(result.decomposed);
-    }
-
-    /// みなし残業の時間数のみが書かれているケース。基本給が無いので未分解のまま。
-    #[test]
-    fn deemed_overtime_hours_without_base_salary() {
-        let result = analyze("月給300,000円", "みなし残業20時間分を含みます。");
-
-        assert!(result.includes_fixed_overtime);
-        assert_eq!(result.overtime_hours_range, Some((20, 20)));
-        assert_eq!(result.base_monthly_yen, None);
-        assert!(!result.decomposed);
-        assert!(result.notes.iter().any(|n| n.contains("未分解")));
+        // 手当込みの差を残業代と断定しない
+        let notes = result.notes.join("\n");
+        assert!(!notes.contains("差額"), "notes={notes}");
     }
 
     /// 「◯時間分の残業代」は数値の後ろの文脈から残業時間と判定する。
+    /// 固定残業制度の語は無いので `fixed_overtime` は None のまま。
     #[test]
     fn overtime_hours_from_trailing_context() {
         let result = analyze("月給300,000円", "45時間分の残業代を含みます。");
+
         assert_eq!(result.overtime_hours_range, Some((45, 45)));
-        assert!(result.includes_fixed_overtime);
+        assert!(result.overtime_pay_included_in_display);
+        assert_eq!(result.fixed_overtime, None);
     }
 
     /// 時給表記は月額換算しない(単位換算は別モジュールの担当)。
     #[test]
     fn hourly_salary_is_not_converted() {
         let result = analyze("時給1,200円", "");
-        assert_eq!(result.display_monthly_yen, None);
+
+        assert_eq!(result.display_monthly_min_yen, None);
+        assert_eq!(result.display_monthly_max_yen, None);
+        assert_eq!(result.display_monthly_midpoint_yen, None);
         assert!(result.notes.iter().any(|n| n.contains("時給")));
     }
 
@@ -801,8 +1096,11 @@ mod tests {
     #[test]
     fn empty_salary_text_is_safe() {
         let result = analyze("", "");
-        assert_eq!(result.display_monthly_yen, None);
+
+        assert_eq!(result.display_monthly_min_yen, None);
         assert_eq!(result.base_monthly_yen, None);
+        assert_eq!(result.fixed_overtime, None);
+        assert!(!result.overtime_pay_included_in_display);
         assert!(!result.decomposed);
     }
 
