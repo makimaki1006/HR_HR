@@ -1052,6 +1052,139 @@ pub struct ClusterQuery {
     vol: Option<String>,
 }
 
+/// URL Seed PoC (2026-08-10): 同一条件で KeywordSeed / UrlSeed / KeywordAndUrlSeed の
+/// 返却キーワードを並べ、市場語彙と「Google Adsがそのページから連想する語」の差分を見る。
+/// 注意: UrlSeedの返却は非公開アルゴリズム由来。診断利用時は仮説表現に限定する。
+#[derive(Debug, Deserialize)]
+pub struct SeedCompareQuery {
+    /// 市場側キーワード (カンマ/改行区切り)。例:「フォークリフト 求人」
+    kw: String,
+    /// 顧客求人の公開URL (1本)
+    url: String,
+    /// 任意の地域名
+    #[serde(default)]
+    region: Option<String>,
+    /// 各シードの上位何件を比較対象にするか (既定30、最大100)
+    #[serde(default = "default_compare_top")]
+    top: usize,
+}
+
+fn default_compare_top() -> usize {
+    30
+}
+
+pub async fn seed_compare_endpoint(Query(q): Query<SeedCompareQuery>) -> Json<Value> {
+    match run_seed_compare(q).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({"status": "error", "message": e.to_string()})),
+    }
+}
+
+async fn run_seed_compare(q: SeedCompareQuery) -> anyhow::Result<Value> {
+    use crate::media_engine::google_ads::{generate_keyword_ideas_with_seed, IdeaSeed};
+    let cfg = GoogleAdsConfig::from_env();
+    let missing = cfg.missing();
+    if !missing.is_empty() {
+        return Ok(json!({
+            "status": "missing_credentials",
+            "message": "Google Ads の資格情報が未設定です",
+            "missing": missing,
+        }));
+    }
+    let keywords = split_keywords(&q.kw);
+    if keywords.is_empty() || q.url.trim().is_empty() {
+        return Ok(json!({"status":"error","message":"kw と url の両方が必要です"}));
+    }
+    let top = q.top.clamp(5, 100);
+    let region = q.region.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let geo_pick = match region {
+        Some(name) => resolve_geo(&cfg, name, None).await?,
+        None => None,
+    };
+    let location_ids: Vec<String> = geo_pick
+        .as_ref()
+        .map(|p| vec![p.id.clone()])
+        .unwrap_or_default();
+
+    let seeds: [(&str, IdeaSeed); 3] = [
+        ("keyword_seed", IdeaSeed::Keywords(keywords.clone())),
+        ("url_seed", IdeaSeed::Url(q.url.trim().to_string())),
+        (
+            "keyword_and_url_seed",
+            IdeaSeed::KeywordsAndUrl(keywords.clone(), q.url.trim().to_string()),
+        ),
+    ];
+    let mut sets = serde_json::Map::new();
+    let mut top_lists: Vec<(String, Vec<(String, i64)>)> = Vec::new();
+    for (label, seed) in seeds {
+        let resp =
+            generate_keyword_ideas_with_seed(&cfg, &cfg.customer_id(), &seed, &location_ids).await;
+        match resp {
+            Ok(value) => {
+                let mut metrics: Vec<KeywordMetric> = parse_keyword_metrics(&value);
+                metrics.sort_by(|a, b| {
+                    b.avg_monthly
+                        .unwrap_or(-1)
+                        .cmp(&a.avg_monthly.unwrap_or(-1))
+                });
+                let list: Vec<(String, i64)> = metrics
+                    .iter()
+                    .take(top)
+                    .map(|m| (m.keyword.clone(), m.avg_monthly.unwrap_or(0)))
+                    .collect();
+                sets.insert(
+                    label.to_string(),
+                    json!({
+                        "status": "ok",
+                        "total": metrics.len(),
+                        "top": list.iter().map(|(k, v)| json!({"keyword": k, "avg_monthly": v})).collect::<Vec<_>>(),
+                    }),
+                );
+                top_lists.push((label.to_string(), list));
+            }
+            Err(error) => {
+                sets.insert(
+                    label.to_string(),
+                    json!({"status": "error", "message": error.to_string()}),
+                );
+            }
+        }
+    }
+
+    // 差分表: keyword_seed 上位の各語が他の2シードにも現れるか (○×表)
+    let presence = |lists: &[(String, Vec<(String, i64)>)], label: &str, kw: &str| -> bool {
+        lists
+            .iter()
+            .find(|(l, _)| l == label)
+            .map(|(_, list)| list.iter().any(|(k, _)| k == kw))
+            .unwrap_or(false)
+    };
+    let market: Vec<Value> = top_lists
+        .iter()
+        .find(|(l, _)| l == "keyword_seed")
+        .map(|(_, list)| {
+            list.iter()
+                .map(|(kw, monthly)| {
+                    json!({
+                        "keyword": kw,
+                        "avg_monthly": monthly,
+                        "in_url_seed": presence(&top_lists, "url_seed", kw),
+                        "in_keyword_and_url_seed": presence(&top_lists, "keyword_and_url_seed", kw),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(json!({
+        "status": "ok",
+        "note": "url_seed系の返却は『Google Adsがそのページから連想する広告キーワード』であり、検索者の実流入語ではない。差分は仮説シグナルとして扱う。",
+        "region": geo_pick.as_ref().map(|p| p.name.clone()),
+        "sets": Value::Object(sets),
+        "market_presence_matrix": market,
+    }))
+}
+
 pub async fn cluster_endpoint(Query(q): Query<ClusterQuery>) -> Json<Value> {
     match run_cluster(q).await {
         Ok(v) => Json(v),
