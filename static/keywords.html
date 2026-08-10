@@ -267,6 +267,7 @@
       <div class="fc-form">
         <div style="grid-column:1/-1"><label for="uvUrl">求人ページのURL</label><input type="text" id="uvUrl" placeholder="https://…（公開中の求人ページ。自社採用ページ向き。Indeed等の掲載URLは不可）"></div>
         <div><label for="uvJob">職種</label><input type="text" id="uvJob" placeholder="例: 配送ドライバー"></div>
+        <div><label for="uvRegion">地域（任意）</label><input type="text" id="uvRegion" placeholder="例: 神奈川県 / 横浜市"></div>
         <div style="grid-column:span 2"><label for="uvSib">同じサイトの別職種の求人URL（任意・精度向上用、カンマ区切り最大3件）</label><input type="text" id="uvSib" placeholder="https://…, https://…"></div>
         <div style="align-self:end"><button type="button" class="btn" id="uvGo" style="margin:0;width:100%">見え方を調べる</button></div>
       </div>
@@ -608,6 +609,7 @@ $("#uvGo").addEventListener("click",async()=>{
   const url=$("#uvUrl").value.trim(),job=$("#uvJob").value.trim(),box=$("#uvResult");
   if(!url||!job){box.innerHTML=`<div class="err">求人ページのURLと職種の両方を入れてください。</div>`;return;}
   const p=new URLSearchParams({url,job});
+  const rg=$("#uvRegion").value.trim();if(rg)p.set("region",rg);
   const sib=$("#uvSib").value.trim();if(sib)p.set("sibling_urls",sib);
   const b=$("#uvGo"),t=b.textContent;b.disabled=true;b.textContent="調査中…";
   box.innerHTML=`<div class="loading" style="margin-top:12px">検索エンジンに問い合わせ中…（20〜60秒かかります）</div>`;
@@ -626,8 +628,9 @@ $("#uvGo").addEventListener("click",async()=>{
     }
     const mk=(d.market||[]);
     if(mk.length){
+      const regionNote=d.region_applied?`<div class="fc-note">地域「${esc(d.region_applied)}」の検索量で照合しています。</div>`:"";
       const seedNote=(d.market_seed&&d.market_seed!==d.job)?`<div class="fc-note">職種名そのままでは検索数が計上されないため、関連語「${esc(d.market_seed)}」で市場の言葉を照合しています。</div>`:"";
-      h+=`<div style="margin-top:12px"><b>この職種でよく検索される言葉との突合</b>${seedNote}<div class="tblwrap" style="margin-top:6px"><table><tr><th>検索される言葉</th><th>月間検索数</th><th>ページとの関連</th></tr>`
+      h+=`<div style="margin-top:12px"><b>この職種でよく検索される言葉との突合</b>${regionNote}${seedNote}<div class="tblwrap" style="margin-top:6px"><table><tr><th>検索される言葉</th><th>月間検索数</th><th>ページとの関連</th></tr>`
         +mk.map(m=>`<tr><td>${esc(m.keyword)}</td><td>${fmtVol(m.avg_monthly)}</td><td>${(m.in_page||m.in_both)?"○ 認識あり":"× 確認できず"}</td></tr>`).join("")
         +`</table></div><div class="fc-note">「10未満」= 検索データ上は10回未満に丸められている言葉（厳密な0ではありません）。</div></div>`;
     }
