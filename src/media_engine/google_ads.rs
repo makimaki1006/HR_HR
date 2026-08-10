@@ -835,17 +835,80 @@ pub async fn generate_keyword_ideas(
     seeds: &[String],
     location_ids: &[String],
 ) -> anyhow::Result<Value> {
-    // seed を strip → 空除去 → 順序保持で重複排除(履歴指標と同じ規律)。
-    let mut seen = std::collections::HashSet::new();
-    let cleaned: Vec<String> = seeds
-        .iter()
-        .map(|k| k.trim().to_string())
-        .filter(|k| !k.is_empty())
-        .filter(|k| seen.insert(k.clone()))
-        .collect();
-    if cleaned.is_empty() {
-        return Err(RequestError::NoKeywords.into());
+    generate_keyword_ideas_with_seed(
+        cfg,
+        customer_id,
+        &IdeaSeed::Keywords(seeds.to_vec()),
+        location_ids,
+    )
+    .await
+}
+
+/// GenerateKeywordIdeas のシード指定 (URL Seed PoC、2026-08-10)。
+///
+/// Google Ads API の仕様:
+/// - UrlSeed: 指定URLのページ内容から広告キーワード候補を生成 (リンク先はクロールしない)
+/// - KeywordAndUrlSeed: キーワード+URLの併用。UrlSeed単独より多くの候補が得られることがある
+/// 返却は「検索者の実流入語」ではなく「Google Adsがそのページから連想する広告KW」。
+/// 診断シグナルとして使う場合は仮説表現に留める (断定禁止)。
+#[derive(Debug, Clone)]
+pub enum IdeaSeed {
+    Keywords(Vec<String>),
+    Url(String),
+    KeywordsAndUrl(Vec<String>, String),
+}
+
+/// シード種別に応じた generateKeywordIdeas リクエストのシード部を組む (純関数・テスト対象)。
+/// キーワードは strip → 空除去 → 順序保持で重複排除。空になったら Err。
+pub fn idea_seed_body(seed: &IdeaSeed) -> anyhow::Result<(String, Value)> {
+    let clean = |keywords: &[String]| -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        keywords
+            .iter()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .filter(|k| seen.insert(k.clone()))
+            .collect()
+    };
+    match seed {
+        IdeaSeed::Keywords(keywords) => {
+            let cleaned = clean(keywords);
+            if cleaned.is_empty() {
+                return Err(RequestError::NoKeywords.into());
+            }
+            Ok((
+                "keywordSeed".to_string(),
+                serde_json::json!({"keywords": cleaned}),
+            ))
+        }
+        IdeaSeed::Url(url) => {
+            let url = url.trim();
+            if url.is_empty() {
+                return Err(RequestError::NoKeywords.into());
+            }
+            Ok(("urlSeed".to_string(), serde_json::json!({"url": url})))
+        }
+        IdeaSeed::KeywordsAndUrl(keywords, url) => {
+            let cleaned = clean(keywords);
+            let url = url.trim();
+            if cleaned.is_empty() || url.is_empty() {
+                return Err(RequestError::NoKeywords.into());
+            }
+            Ok((
+                "keywordAndUrlSeed".to_string(),
+                serde_json::json!({"keywords": cleaned, "url": url}),
+            ))
+        }
     }
+}
+
+pub async fn generate_keyword_ideas_with_seed(
+    cfg: &GoogleAdsConfig,
+    customer_id: &str,
+    seed: &IdeaSeed,
+    location_ids: &[String],
+) -> anyhow::Result<Value> {
+    let (seed_key, seed_value) = idea_seed_body(seed)?;
 
     let token = refresh_access_token(cfg).await?;
     let cid = customer_id.replace('-', "");
@@ -868,8 +931,10 @@ pub async fn generate_keyword_ideas(
             "keywordPlanNetwork": "GOOGLE_SEARCH_AND_PARTNERS",
             // 概念タグ(業種/サービス/ブランド区分)を各結果に付けさせる。追加課金なし。
             "keywordAnnotation": ["KEYWORD_CONCEPT"],
-            "keywordSeed": {"keywords": cleaned.clone()},
         });
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(seed_key.clone(), seed_value.clone());
+        }
         if let (Some(obj), Some(tok)) = (body.as_object_mut(), page_token.as_ref()) {
             obj.insert("pageToken".into(), Value::String(tok.clone()));
         }
@@ -1168,6 +1233,38 @@ pub async fn generate_keyword_forecast(
 
 #[cfg(test)]
 mod tests {
+
+    /// URL Seed PoC (2026-08-10): シード3方式のリクエスト部が仕様どおり組まれる。
+    #[test]
+    fn idea_seed_body_builds_three_variants() {
+        let (k, v) = idea_seed_body(&IdeaSeed::Keywords(vec![
+            " フォークリフト 求人 ".into(),
+            "".into(),
+            "フォークリフト 求人".into(),
+        ]))
+        .expect("keywords");
+        assert_eq!(k, "keywordSeed");
+        assert_eq!(v["keywords"], serde_json::json!(["フォークリフト 求人"]));
+
+        let (k, v) =
+            idea_seed_body(&IdeaSeed::Url(" https://example.jp/job/1 ".into())).expect("url");
+        assert_eq!(k, "urlSeed");
+        assert_eq!(v["url"], "https://example.jp/job/1");
+
+        let (k, v) = idea_seed_body(&IdeaSeed::KeywordsAndUrl(
+            vec!["フォークリフト".into()],
+            "https://example.jp/job/1".into(),
+        ))
+        .expect("both");
+        assert_eq!(k, "keywordAndUrlSeed");
+        assert_eq!(v["keywords"][0], "フォークリフト");
+        assert_eq!(v["url"], "https://example.jp/job/1");
+
+        // 逆証明: 空は全部エラー
+        assert!(idea_seed_body(&IdeaSeed::Keywords(vec!["  ".into()])).is_err());
+        assert!(idea_seed_body(&IdeaSeed::Url("".into())).is_err());
+        assert!(idea_seed_body(&IdeaSeed::KeywordsAndUrl(vec![], "https://x".into())).is_err());
+    }
     use super::*;
     use serde_json::json;
 
