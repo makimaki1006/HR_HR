@@ -519,7 +519,7 @@ async fn build_regional_demand(
     keywords: &[String],
     radius_km: f64,
     max_areas: usize,
-) -> anyhow::Result<(DemandMap, Option<GeoPick>)> {
+) -> anyhow::Result<(DemandMap, Option<GeoPick>, HashMap<String, String>)> {
     let centroids = load_centroids(&centroids_path())?;
     let base_pick = resolve_geo(cfg, base, None).await?;
     let base_prefecture =
@@ -566,7 +566,7 @@ async fn build_regional_demand(
     let dm = build_demand_map(
         base, keywords, &centroids, radius_km, max_areas, resolve, volume,
     );
-    Ok((dm, base_pick))
+    Ok((dm, base_pick, id_map))
 }
 
 #[derive(Debug, Deserialize)]
@@ -616,7 +616,7 @@ async fn run_regions(q: RegionsQuery) -> anyhow::Result<Value> {
     if keywords.is_empty() {
         return Ok(json!({"status": "error", "message": "有効なキーワードがありません"}));
     }
-    let (dm, base_pick) =
+    let (dm, base_pick, id_map) =
         build_regional_demand(&cfg, base, &keywords, q.radius_km, q.max_areas).await?;
     Ok(json!({
         "status": "ok",
@@ -625,6 +625,9 @@ async fn run_regions(q: RegionsQuery) -> anyhow::Result<Value> {
         "base_geo_type": base_pick.as_ref().and_then(|p| p.target_type.clone()),
         "radius_km": q.radius_km,
         "keywords": keywords,
+        // 地域名→検索データ上の地域区分ID。小さな町村は同じ区分に解決されることがあり、
+        // その場合は検索数が同値になる (UIで開示する)
+        "resolved_geo": id_map,
         "demand": demand_to_json(&dm),
     }))
 }
@@ -1246,9 +1249,38 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         metrics
     };
 
-    let market_resp =
+    // 市場語彙の取得。ニッチ職種で検索量が全て10未満なら、役割接尾辞を剥がした
+    // 関連語 (電気機械修理工→機械修理) で検索量が計上されるまで追いかける (最大2回)。
+    let mut market_seed = job.clone();
+    let mut market_resp =
         generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Keywords(keywords.clone()), &[])
             .await?;
+    {
+        let has_volume = |value: &Value| {
+            parse_keyword_metrics(value)
+                .iter()
+                .filter(|m| m.avg_monthly.unwrap_or(0) >= 10)
+                .count()
+                >= 5
+        };
+        if !has_volume(&market_resp) {
+            for candidate in crate::media_engine::url_visibility::fallback_job_terms(&job) {
+                let candidate_keywords = place_agnostic_keywords(&candidate);
+                let resp = generate_keyword_ideas_with_seed(
+                    &cfg,
+                    &cid,
+                    &IdeaSeed::Keywords(candidate_keywords),
+                    &[],
+                )
+                .await?;
+                if has_volume(&resp) {
+                    market_seed = candidate;
+                    market_resp = resp;
+                    break;
+                }
+            }
+        }
+    }
     let page_resp =
         generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(url.clone()), &[]).await?;
     let both_resp = generate_keyword_ideas_with_seed(
@@ -1319,6 +1351,7 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
     Ok(json!({
         "status": "ok",
         "job": job,
+        "market_seed": market_seed,
         "unique_terms": unique.iter().take(10).map(|(k, v)| json!({"keyword": k, "avg_monthly": v})).collect::<Vec<_>>(),
         "market": market_rows,
         "hypotheses": hypotheses,

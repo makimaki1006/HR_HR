@@ -259,6 +259,8 @@
   <div id="suggest" hidden></div>
   <div id="status"></div>
 
+  <section class="res" id="res" hidden></section>
+
   <details class="fc-panel" id="uvPanel">
     <summary class="fc-sum">求人ページの見え方チェック<span class="sg-note">検索エンジンがその求人ページを"何の求人"と読んでいるか（無料）</span></summary>
     <div class="fc-body">
@@ -329,8 +331,6 @@
       <div id="fcResult"></div>
     </div>
   </details>
-  <section class="res" id="res" hidden></section>
-
   <p class="foot">データ源：Google Ads Keyword Planning（generateKeywordHistoricalMetrics・無料）。単価は上位掲載入札の下限〜上限（円）。job_media_engine_rs / GET /api/keywords。</p>
 </div>
 
@@ -592,7 +592,12 @@ $("#rgGo").addEventListener("click",async()=>{
        +`<span class="rg-bar"><span class="rg-fill${a.is_base?" me":""}" style="width:${w}%"></span></span>`
        +`<span class="rg-v">${fmt(a.total_volume)}</span>`
        +`<span class="rg-d">${a.distance_km!=null?(Math.round(a.distance_km*10)/10)+"km":""}</span></div>`;});
-    h+=`</div><div class="fc-note">対象キーワード合計の月間検索数（Google Ads実測）。${dm.dropped_count?`半径内で上限を超えた${dm.dropped_count}地域は未取得: ${esc((dm.dropped_names||[]).slice(0,8).join("、"))}`:""}</div>`;
+    // 同じ地域区分に解決された地域名は検索数が同値になる → グループを開示する
+    const geo=d.resolved_geo||{};
+    const byId={};Object.entries(geo).forEach(([name,id])=>{(byId[id]=byId[id]||[]).push(name);});
+    const grouped=Object.values(byId).filter(g=>g.length>=2);
+    const groupNote=grouped.length?`同じ数字が並ぶのは、検索データ上の地域区分が同じためです（${grouped.map(g=>esc(g.join("・"))).join(" ／ ")}）。小さな町村は近隣の区分にまとめられます。`:"";
+    h+=`</div><div class="fc-note">対象キーワード合計の月間検索数（Google Ads実測・段階的に丸めた概算値）。${groupNote}${dm.dropped_count?`半径内で上限を超えた${dm.dropped_count}地域は未取得: ${esc((dm.dropped_names||[]).slice(0,8).join("、"))}`:""}</div>`;
     box.innerHTML=h;
   }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
   finally{b.disabled=false;b.textContent=t;}
@@ -612,17 +617,19 @@ $("#uvGo").addEventListener("click",async()=>{
     let h="";
     const hyp=(d.hypotheses||[]).map(x=>`<div class="fc-note" style="border-left:3px solid var(--accent);padding-left:10px;margin:8px 0">${esc(x)}</div>`).join("");
     h+=`<div style="margin-top:12px"><b>診断（仮説）</b>${hyp}</div>`;
+    const fmtVol=v=>(v==null||v<10)?"10未満":fmt(v);
     const uniq=(d.unique_terms||[]);
     if(uniq.length){
       h+=`<div style="margin-top:10px"><b>検索エンジンがこのページから読み取った言葉</b><div style="margin-top:6px">`
-        +uniq.map(u=>`<span style="display:inline-block;border:1px solid var(--line);border-radius:12px;padding:2px 10px;margin:2px;font-size:12px">${esc(u.keyword)}<small style="opacity:.6"> ${fmt(u.avg_monthly)}</small></span>`).join(" ")
+        +uniq.map(u=>`<span style="display:inline-block;border:1px solid var(--line);border-radius:12px;padding:2px 10px;margin:2px;font-size:12px">${esc(u.keyword)}<small style="opacity:.6"> ${fmtVol(u.avg_monthly)}</small></span>`).join(" ")
         +`</div></div>`;
     }
     const mk=(d.market||[]);
     if(mk.length){
-      h+=`<div style="margin-top:12px"><b>この職種でよく検索される言葉との突合</b><div class="tblwrap" style="margin-top:6px"><table><tr><th>検索される言葉</th><th>月間検索数</th><th>ページとの関連</th></tr>`
-        +mk.map(m=>`<tr><td>${esc(m.keyword)}</td><td>${fmt(m.avg_monthly)}</td><td>${(m.in_page||m.in_both)?"○ 認識あり":"× 確認できず"}</td></tr>`).join("")
-        +`</table></div></div>`;
+      const seedNote=(d.market_seed&&d.market_seed!==d.job)?`<div class="fc-note">職種名そのままでは検索数が計上されないため、関連語「${esc(d.market_seed)}」で市場の言葉を照合しています。</div>`:"";
+      h+=`<div style="margin-top:12px"><b>この職種でよく検索される言葉との突合</b>${seedNote}<div class="tblwrap" style="margin-top:6px"><table><tr><th>検索される言葉</th><th>月間検索数</th><th>ページとの関連</th></tr>`
+        +mk.map(m=>`<tr><td>${esc(m.keyword)}</td><td>${fmtVol(m.avg_monthly)}</td><td>${(m.in_page||m.in_both)?"○ 認識あり":"× 確認できず"}</td></tr>`).join("")
+        +`</table></div><div class="fc-note">「10未満」= 検索データ上は10回未満に丸められている言葉（厳密な0ではありません）。</div></div>`;
     }
     h+=`<div class="fc-note" style="margin-top:10px">${esc(d.note||"")}${d.sibling_count?`（同サイト${d.sibling_count}件でサイト共通語を除去済み）`:"（別職種URLを入れるとサイト共通語の除去精度が上がります）"}</div>`;
     box.innerHTML=h;
