@@ -1185,6 +1185,148 @@ async fn run_seed_compare(q: SeedCompareQuery) -> anyhow::Result<Value> {
     }))
 }
 
+/// 検索エンジンからの見え方チェック (2026-08-10、URL Seed PoCの製品化)。
+/// 求人ページURL+職種 → ページ固有語・市場語との突合・ズレ仮説 (決定論・仮説形固定)。
+#[derive(Debug, Deserialize)]
+pub struct VisibilityQuery {
+    url: String,
+    job: String,
+    /// 任意: 同じサイトの「別職種」の求人URL (カンマ区切り最大3件)。サイト共通語の除去精度が上がる
+    #[serde(default)]
+    sibling_urls: Option<String>,
+}
+
+pub async fn url_visibility_endpoint(Query(q): Query<VisibilityQuery>) -> Json<Value> {
+    match run_url_visibility(q).await {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({"status": "error", "message": e.to_string()})),
+    }
+}
+
+async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
+    use crate::media_engine::google_ads::{generate_keyword_ideas_with_seed, IdeaSeed};
+    use crate::media_engine::url_visibility::{unique_page_terms, visibility_hypotheses};
+    use std::collections::HashSet as StdHashSet;
+
+    let cfg = GoogleAdsConfig::from_env();
+    let missing = cfg.missing();
+    if !missing.is_empty() {
+        return Ok(json!({
+            "status": "missing_credentials",
+            "message": "検索データの資格情報が未設定です",
+            "missing": missing,
+        }));
+    }
+    let url = q.url.trim().to_string();
+    let job = q.job.trim().to_string();
+    if url.is_empty() || job.is_empty() {
+        return Ok(json!({"status":"error","message":"url と job の両方が必要です"}));
+    }
+    let siblings: Vec<String> = q
+        .sibling_urls
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .take(3)
+        .map(str::to_string)
+        .collect();
+
+    let keywords = place_agnostic_keywords(&job);
+    let cid = cfg.customer_id();
+
+    let sorted_metrics = |value: &Value| -> Vec<KeywordMetric> {
+        let mut metrics: Vec<KeywordMetric> = parse_keyword_metrics(value);
+        metrics.sort_by(|a, b| {
+            b.avg_monthly
+                .unwrap_or(-1)
+                .cmp(&a.avg_monthly.unwrap_or(-1))
+        });
+        metrics
+    };
+
+    let market_resp =
+        generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Keywords(keywords.clone()), &[])
+            .await?;
+    let page_resp =
+        generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(url.clone()), &[]).await?;
+    let both_resp = generate_keyword_ideas_with_seed(
+        &cfg,
+        &cid,
+        &IdeaSeed::KeywordsAndUrl(keywords.clone(), url.clone()),
+        &[],
+    )
+    .await?;
+
+    let mut sibling_sets: Vec<StdHashSet<String>> = Vec::new();
+    for sibling in &siblings {
+        match generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(sibling.clone()), &[])
+            .await
+        {
+            Ok(value) => sibling_sets.push(
+                sorted_metrics(&value)
+                    .iter()
+                    .take(100)
+                    .map(|m| m.keyword.clone())
+                    .collect(),
+            ),
+            Err(error) => {
+                tracing::warn!(target: "url_visibility", %error, "sibling url_seed failed");
+            }
+        }
+    }
+
+    let page_metrics = sorted_metrics(&page_resp);
+    let page_terms: Vec<(String, i64)> = page_metrics
+        .iter()
+        .take(100)
+        .map(|m| (m.keyword.clone(), m.avg_monthly.unwrap_or(0)))
+        .collect();
+    let unique = unique_page_terms(&page_terms, &sibling_sets, &url);
+
+    let page_set: StdHashSet<&str> = page_metrics.iter().map(|m| m.keyword.as_str()).collect();
+    let both_metrics = sorted_metrics(&both_resp);
+    let both_set: StdHashSet<&str> = both_metrics.iter().map(|m| m.keyword.as_str()).collect();
+
+    let market_metrics = sorted_metrics(&market_resp);
+    let market_rows: Vec<Value> = market_metrics
+        .iter()
+        .take(10)
+        .map(|m| {
+            json!({
+                "keyword": m.keyword,
+                "avg_monthly": m.avg_monthly.unwrap_or(0),
+                "in_page": page_set.contains(m.keyword.as_str()),
+                "in_both": both_set.contains(m.keyword.as_str()),
+            })
+        })
+        .collect();
+    let market_missing: Vec<String> = market_metrics
+        .iter()
+        .take(10)
+        .filter(|m| {
+            !page_set.contains(m.keyword.as_str()) && !both_set.contains(m.keyword.as_str())
+        })
+        .map(|m| m.keyword.clone())
+        .collect();
+
+    let location_names = crate::job_gen::commute::CommuteClassifier::load()
+        .map(|c| c.location_names())
+        .unwrap_or_default();
+    let hypotheses = visibility_hypotheses(&job, &unique, &market_missing, &location_names);
+
+    Ok(json!({
+        "status": "ok",
+        "job": job,
+        "unique_terms": unique.iter().take(10).map(|(k, v)| json!({"keyword": k, "avg_monthly": v})).collect::<Vec<_>>(),
+        "market": market_rows,
+        "hypotheses": hypotheses,
+        "sibling_count": sibling_sets.len(),
+        "note": "検索エンジンの意味理解上の確認であり、実際の検索流入・応募効果を示すものではありません。お客様への説明は「〜の可能性があります」の形でお願いします。",
+    }))
+}
+
 pub async fn cluster_endpoint(Query(q): Query<ClusterQuery>) -> Json<Value> {
     match run_cluster(q).await {
         Ok(v) => Json(v),
