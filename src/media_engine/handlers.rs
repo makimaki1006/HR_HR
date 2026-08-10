@@ -1194,6 +1194,9 @@ async fn run_seed_compare(q: SeedCompareQuery) -> anyhow::Result<Value> {
 pub struct VisibilityQuery {
     url: String,
     job: String,
+    /// 任意の地域名 (地名を指定すると市場の検索語をその地域の検索量で照合する)
+    #[serde(default)]
+    region: Option<String>,
     /// 任意: 同じサイトの「別職種」の求人URL (カンマ区切り最大3件)。サイト共通語の除去精度が上がる
     #[serde(default)]
     sibling_urls: Option<String>,
@@ -1221,10 +1224,23 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         }));
     }
     let url = q.url.trim().to_string();
-    let job = q.job.trim().to_string();
-    if url.is_empty() || job.is_empty() {
+    if url.is_empty() || q.job.trim().is_empty() {
         return Ok(json!({"status":"error","message":"url と job の両方が必要です"}));
     }
+    // 職種欄に地域が混ざる入力 (「神奈川県 フロントスタッフ」) を分離する。
+    // 明示のregion指定があればそちらを優先する。
+    let location_names = crate::job_gen::commute::CommuteClassifier::load()
+        .map(|c| c.location_names())
+        .unwrap_or_default();
+    let (extracted_region, job) =
+        crate::media_engine::url_visibility::split_region_and_job(q.job.trim(), &location_names);
+    let region_input = q
+        .region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or(extracted_region);
     let siblings: Vec<String> = q
         .sibling_urls
         .as_deref()
@@ -1238,6 +1254,14 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
 
     let keywords = place_agnostic_keywords(&job);
     let cid = cfg.customer_id();
+    let geo_pick = match region_input.as_deref() {
+        Some(name) => resolve_geo(&cfg, name, None).await?,
+        None => None,
+    };
+    let location_ids: Vec<String> = geo_pick
+        .as_ref()
+        .map(|p| vec![p.id.clone()])
+        .unwrap_or_default();
 
     let sorted_metrics = |value: &Value| -> Vec<KeywordMetric> {
         let mut metrics: Vec<KeywordMetric> = parse_keyword_metrics(value);
@@ -1252,9 +1276,13 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
     // 市場語彙の取得。ニッチ職種で検索量が全て10未満なら、役割接尾辞を剥がした
     // 関連語 (電気機械修理工→機械修理) で検索量が計上されるまで追いかける (最大2回)。
     let mut market_seed = job.clone();
-    let mut market_resp =
-        generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Keywords(keywords.clone()), &[])
-            .await?;
+    let mut market_resp = generate_keyword_ideas_with_seed(
+        &cfg,
+        &cid,
+        &IdeaSeed::Keywords(keywords.clone()),
+        &location_ids,
+    )
+    .await?;
     {
         let has_volume = |value: &Value| {
             parse_keyword_metrics(value)
@@ -1270,7 +1298,7 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
                     &cfg,
                     &cid,
                     &IdeaSeed::Keywords(candidate_keywords),
-                    &[],
+                    &location_ids,
                 )
                 .await?;
                 if has_volume(&resp) {
@@ -1282,19 +1310,25 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         }
     }
     let page_resp =
-        generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(url.clone()), &[]).await?;
+        generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(url.clone()), &location_ids)
+            .await?;
     let both_resp = generate_keyword_ideas_with_seed(
         &cfg,
         &cid,
         &IdeaSeed::KeywordsAndUrl(keywords.clone(), url.clone()),
-        &[],
+        &location_ids,
     )
     .await?;
 
     let mut sibling_sets: Vec<StdHashSet<String>> = Vec::new();
     for sibling in &siblings {
-        match generate_keyword_ideas_with_seed(&cfg, &cid, &IdeaSeed::Url(sibling.clone()), &[])
-            .await
+        match generate_keyword_ideas_with_seed(
+            &cfg,
+            &cid,
+            &IdeaSeed::Url(sibling.clone()),
+            &location_ids,
+        )
+        .await
         {
             Ok(value) => sibling_sets.push(
                 sorted_metrics(&value)
@@ -1343,14 +1377,12 @@ async fn run_url_visibility(q: VisibilityQuery) -> anyhow::Result<Value> {
         .map(|m| m.keyword.clone())
         .collect();
 
-    let location_names = crate::job_gen::commute::CommuteClassifier::load()
-        .map(|c| c.location_names())
-        .unwrap_or_default();
     let hypotheses = visibility_hypotheses(&job, &unique, &market_missing, &location_names);
 
     Ok(json!({
         "status": "ok",
         "job": job,
+        "region_applied": geo_pick.as_ref().map(|p| p.name.clone()),
         "market_seed": market_seed,
         "unique_terms": unique.iter().take(10).map(|(k, v)| json!({"keyword": k, "avg_monthly": v})).collect::<Vec<_>>(),
         "market": market_rows,

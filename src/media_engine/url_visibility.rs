@@ -88,22 +88,78 @@ pub fn unique_page_terms(
         .collect()
 }
 
+/// 職種入力から地域語を分離する (2026-08-10 現場フィードバック:
+/// 「神奈川県 フロントスタッフ」のような入力が実際に来る)。
+/// 地名リスト (市区町村重心データ) に前方一致するトークンを地域、残りを職種として返す。
+pub fn split_region_and_job(input: &str, location_names: &[String]) -> (Option<String>, String) {
+    let mut region: Option<String> = None;
+    let mut job_tokens: Vec<&str> = Vec::new();
+    for token in input.split_whitespace() {
+        let is_location = token.chars().count() >= 2
+            && location_names.iter().any(|name| {
+                name == token
+                    || name.trim_end_matches(['県', '府', '都']) == token
+                    || (token.chars().count() >= 3 && name.starts_with(token))
+            });
+        if is_location && region.is_none() {
+            region = Some(token.to_string());
+        } else {
+            job_tokens.push(token);
+        }
+    }
+    let job = if job_tokens.is_empty() {
+        input.trim().to_string()
+    } else {
+        job_tokens.join(" ")
+    };
+    (region, job)
+}
+
+/// 汎用役割語 (これ単体では職種を表さない語)。フォールバック候補として返さない。
+const GENERIC_ROLE_WORDS: [&str; 6] = ["スタッフ", "作業員", "係", "担当", "要員", "メンバー"];
+
 /// ニッチ職種の市場語フォールバック候補 (2026-08-10 ユーザー指摘対応)。
 /// 「電気機械修理工 求人」のような複合職種語は検索量が10未満に丸められ突合が形骸化する。
-/// 役割接尾辞 (工・員・者・士・師・職・手) を剥がし、末尾の意味語へ段階的に短縮した
-/// 候補を返す (検索量が計上される関連語まで追いかけるため。最大2候補)。
+/// 候補の作り方 (語境界を尊重・汎用語は候補禁止):
+/// 1) 末尾の汎用役割語を剥がす (フロントスタッフ → フロント)
+/// 2) 役割接尾辞 (工・員・者・士・師・職・手) を剥がす (電気機械修理工 → 電気機械修理)
+/// 3) 最終トークン内の末尾4文字 (電気機械修理 → 機械修理)
 pub fn fallback_job_terms(job: &str) -> Vec<String> {
     const ROLE_SUFFIXES: [char; 7] = ['工', '員', '者', '士', '師', '職', '手'];
+    let job = job.trim();
     let mut out: Vec<String> = Vec::new();
     let mut push = |candidate: String| {
         let trimmed = candidate.trim().to_string();
-        if trimmed.chars().count() >= 2 && trimmed != job && !out.contains(&trimmed) {
+        if trimmed.chars().count() >= 2
+            && trimmed != job
+            && !GENERIC_ROLE_WORDS.contains(&trimmed.as_str())
+            && !GENERIC_RECRUIT_TOKENS.contains(&trimmed.as_str())
+            && !out.contains(&trimmed)
+        {
             out.push(trimmed);
         }
     };
-    // 1) 役割接尾辞を剥がす (電気機械修理工 → 電気機械修理)
+    // 対象は最終トークン (複数語入力では前方の語を壊さない)
+    let last_token = job.split_whitespace().last().unwrap_or(job).to_string();
+    let prefix: String = {
+        let head: Vec<&str> = job.split_whitespace().collect();
+        if head.len() > 1 {
+            head[..head.len() - 1].join(" ") + " "
+        } else {
+            String::new()
+        }
+    };
+    // 1) 末尾の汎用役割語を剥がす
+    for role in GENERIC_ROLE_WORDS {
+        if let Some(base) = last_token.strip_suffix(role) {
+            if !base.is_empty() {
+                push(format!("{prefix}{base}").trim().to_string());
+            }
+        }
+    }
+    // 2) 役割接尾辞を剥がす
     let stripped: String = {
-        let mut chars: Vec<char> = job.trim().chars().collect();
+        let mut chars: Vec<char> = last_token.chars().collect();
         while chars
             .last()
             .map(|c| ROLE_SUFFIXES.contains(c))
@@ -113,8 +169,10 @@ pub fn fallback_job_terms(job: &str) -> Vec<String> {
         }
         chars.iter().collect()
     };
-    push(stripped.clone());
-    // 2) 末尾4文字 (機械修理)。短い職種語は末尾2文字まで落とさない (誤爆防止)
+    if stripped != last_token {
+        push(format!("{prefix}{stripped}").trim().to_string());
+    }
+    // 3) 最終トークン内の末尾4文字 (語境界の内側のみ)
     let chars: Vec<char> = stripped.chars().collect();
     if chars.len() > 4 {
         push(chars[chars.len() - 4..].iter().collect());
@@ -310,6 +368,41 @@ mod tests {
         // 短い職種は候補が出ないか1件のみ (誤爆防止)
         assert!(fallback_job_terms("営業職") == vec!["営業".to_string()]);
         assert!(fallback_job_terms("事務").is_empty() || fallback_job_terms("事務").len() <= 1);
+    }
+
+    /// 現場フィードバック (2026-08-10): 「フロントスタッフ」は汎用語「スタッフ」でなく
+    /// 職種の実体「フロント」へフォールバックする。語境界を跨いだ切り出しをしない。
+    #[test]
+    fn fallback_terms_never_return_generic_role_words() {
+        assert_eq!(
+            fallback_job_terms("フロントスタッフ"),
+            vec!["フロント".to_string()]
+        );
+        assert!(
+            !fallback_job_terms("倉庫スタッフ").contains(&"スタッフ".to_string()),
+            "{:?}",
+            fallback_job_terms("倉庫スタッフ")
+        );
+        // 複数語入力でも前方の語を壊さない (末尾トークンだけを短縮)
+        let multi = fallback_job_terms("ホテル フロントスタッフ");
+        assert!(multi.contains(&"ホテル フロント".to_string()), "{multi:?}");
+    }
+
+    /// 職種欄に地域が混ざる入力 (「神奈川県 フロントスタッフ」) を地域+職種に分離する。
+    #[test]
+    fn split_region_extracts_prefecture_from_job_input() {
+        let locations = vec!["神奈川県".to_string(), "横浜市".to_string()];
+        let (region, job) = split_region_and_job("神奈川県 フロントスタッフ", &locations);
+        assert_eq!(region.as_deref(), Some("神奈川県"));
+        assert_eq!(job, "フロントスタッフ");
+        // 地域なし入力はそのまま
+        let (region2, job2) = split_region_and_job("配送ドライバー", &locations);
+        assert!(region2.is_none());
+        assert_eq!(job2, "配送ドライバー");
+        // 「神奈川」だけでも県名に前方一致で拾う
+        let (region3, job3) = split_region_and_job("神奈川 フロント", &locations);
+        assert_eq!(region3.as_deref(), Some("神奈川"));
+        assert_eq!(job3, "フロント");
     }
 
     /// 地名語は「別テーマ認識」として誤検出しない (広島/千歳のPoC実データ対策)。
