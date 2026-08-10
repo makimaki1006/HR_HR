@@ -88,6 +88,41 @@ pub fn unique_page_terms(
         .collect()
 }
 
+/// ニッチ職種の市場語フォールバック候補 (2026-08-10 ユーザー指摘対応)。
+/// 「電気機械修理工 求人」のような複合職種語は検索量が10未満に丸められ突合が形骸化する。
+/// 役割接尾辞 (工・員・者・士・師・職・手) を剥がし、末尾の意味語へ段階的に短縮した
+/// 候補を返す (検索量が計上される関連語まで追いかけるため。最大2候補)。
+pub fn fallback_job_terms(job: &str) -> Vec<String> {
+    const ROLE_SUFFIXES: [char; 7] = ['工', '員', '者', '士', '師', '職', '手'];
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |candidate: String| {
+        let trimmed = candidate.trim().to_string();
+        if trimmed.chars().count() >= 2 && trimmed != job && !out.contains(&trimmed) {
+            out.push(trimmed);
+        }
+    };
+    // 1) 役割接尾辞を剥がす (電気機械修理工 → 電気機械修理)
+    let stripped: String = {
+        let mut chars: Vec<char> = job.trim().chars().collect();
+        while chars
+            .last()
+            .map(|c| ROLE_SUFFIXES.contains(c))
+            .unwrap_or(false)
+        {
+            chars.pop();
+        }
+        chars.iter().collect()
+    };
+    push(stripped.clone());
+    // 2) 末尾4文字 (機械修理)。短い職種語は末尾2文字まで落とさない (誤爆防止)
+    let chars: Vec<char> = stripped.chars().collect();
+    if chars.len() > 4 {
+        push(chars[chars.len() - 4..].iter().collect());
+    }
+    out.truncate(2);
+    out
+}
+
 /// 職種の内容語 (職種名から汎用語尾を除いたトークン群)。照合は部分一致。
 fn job_content_tokens(job: &str) -> Vec<String> {
     job.split_whitespace()
@@ -263,6 +298,18 @@ mod tests {
             "4語目まで列挙している: {joined}"
         );
         assert!(joined.contains("可能性"));
+    }
+
+    /// ニッチ職種のフォールバック候補: 役割接尾辞を剥がし段階的に短縮する。
+    #[test]
+    fn fallback_terms_shorten_niche_occupations() {
+        assert_eq!(
+            fallback_job_terms("電気機械修理工"),
+            vec!["電気機械修理".to_string(), "機械修理".to_string()]
+        );
+        // 短い職種は候補が出ないか1件のみ (誤爆防止)
+        assert!(fallback_job_terms("営業職") == vec!["営業".to_string()]);
+        assert!(fallback_job_terms("事務").is_empty() || fallback_job_terms("事務").len() <= 1);
     }
 
     /// 地名語は「別テーマ認識」として誤検出しない (広島/千歳のPoC実データ対策)。
