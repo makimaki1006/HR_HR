@@ -97,6 +97,18 @@ pub struct CommuteClassifier {
 
 impl CommuteClassifier {
     /// 既定パス (`CENTROIDS_PATH` または `data/media_engine/municipality_centroids.csv`) から読む。
+    /// 収録している市区町村名+都道府県名の一覧 (見え方チェックの地名判定用)。
+    pub fn location_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .by_prefecture
+            .keys()
+            .flat_map(|(pref, muni)| [pref.clone(), muni.clone()])
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     pub fn load() -> anyhow::Result<Self> {
         Self::load_from_path(&centroids_path())
     }

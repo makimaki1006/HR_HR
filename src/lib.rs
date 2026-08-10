@@ -440,6 +440,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             get(media_engine::handlers::seed_compare_endpoint),
         )
         .route(
+            "/api/url-visibility-check",
+            get(media_engine::handlers::url_visibility_endpoint),
+        )
+        .route(
             "/api/keywords",
             get(media_engine::handlers::keywords_endpoint),
         )

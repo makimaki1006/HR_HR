@@ -23,3 +23,4 @@ pub mod media;
 pub mod serp;
 pub mod serpapi;
 pub mod store;
+pub mod url_visibility;
