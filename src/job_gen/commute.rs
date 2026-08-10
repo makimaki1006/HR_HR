@@ -93,17 +93,22 @@ pub struct CommuteClassifier {
     unique_names: HashMap<String, (f64, f64)>,
     /// 複数県に存在する市区町村名。素の名前での照合を禁止する集合。
     ambiguous_names: HashSet<String>,
+    /// 都道府県のフル名 (「神奈川県」等、CSVの level=prefecture 行)。地名判定用。
+    prefecture_names: Vec<String>,
 }
 
 impl CommuteClassifier {
-    /// 既定パス (`CENTROIDS_PATH` または `data/media_engine/municipality_centroids.csv`) から読む。
-    /// 収録している市区町村名+都道府県名の一覧 (見え方チェックの地名判定用)。
+    /// 収録している地名一覧 (見え方チェックの地名判定用)。
+    /// 都道府県フル名 (神奈川県) + 県幹 (神奈川) + 全市区町村名を含む。
     pub fn location_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .by_prefecture
-            .keys()
-            .flat_map(|(pref, muni)| [pref.clone(), muni.clone()])
-            .collect();
+        let mut names: Vec<String> = self.prefecture_names.clone();
+        names.extend(
+            self.by_prefecture
+                .keys()
+                .flat_map(|(pref, muni)| [pref.clone(), muni.clone()]),
+        );
+        names.extend(self.unique_names.keys().cloned());
+        names.retain(|n| !n.trim().is_empty());
         names.sort();
         names.dedup();
         names
@@ -147,6 +152,7 @@ impl CommuteClassifier {
 
         // 1周目: 都道府県の幹の集合を作る (parent が県か市かの判定に使う)。
         let mut prefecture_stems: HashSet<String> = HashSet::new();
+        let mut prefecture_names: Vec<String> = Vec::new();
         for line in content.lines().skip(1) {
             let fields: Vec<&str> = line.split(',').collect();
             if fields.len() <= max_index || fields[i_level].trim() != "prefecture" {
@@ -155,6 +161,7 @@ impl CommuteClassifier {
             let name = strip_spaces(fields[i_name]);
             if !name.is_empty() {
                 prefecture_stems.insert(prefecture_stem(&name));
+                prefecture_names.push(name);
             }
         }
         if prefecture_stems.is_empty() {
@@ -211,6 +218,7 @@ impl CommuteClassifier {
             by_prefecture,
             unique_names,
             ambiguous_names,
+            prefecture_names,
         })
     }
 
