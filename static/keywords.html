@@ -259,6 +259,19 @@
   <div id="suggest" hidden></div>
   <div id="status"></div>
 
+  <details class="fc-panel" id="uvPanel">
+    <summary class="fc-sum">求人ページの見え方チェック<span class="sg-note">検索エンジンがその求人ページを"何の求人"と読んでいるか（無料）</span></summary>
+    <div class="fc-body">
+      <div class="fc-form">
+        <div style="grid-column:1/-1"><label for="uvUrl">求人ページのURL</label><input type="text" id="uvUrl" placeholder="https://…（公開中の求人ページ。自社採用ページ向き。Indeed等の掲載URLは不可）"></div>
+        <div><label for="uvJob">職種</label><input type="text" id="uvJob" placeholder="例: 配送ドライバー"></div>
+        <div style="grid-column:span 2"><label for="uvSib">同じサイトの別職種の求人URL（任意・精度向上用、カンマ区切り最大3件）</label><input type="text" id="uvSib" placeholder="https://…, https://…"></div>
+        <div style="align-self:end"><button type="button" class="btn" id="uvGo" style="margin:0;width:100%">見え方を調べる</button></div>
+      </div>
+      <div id="uvResult"></div>
+    </div>
+  </details>
+
   <details class="fc-panel" id="rgPanel">
     <summary class="fc-sum">地域ごとの検索需要<span class="sg-note">基準地の周辺で、どの市区町村にどれだけ需要があるか（Google Ads・無料）</span></summary>
     <div class="fc-body">
@@ -580,6 +593,38 @@ $("#rgGo").addEventListener("click",async()=>{
        +`<span class="rg-v">${fmt(a.total_volume)}</span>`
        +`<span class="rg-d">${a.distance_km!=null?(Math.round(a.distance_km*10)/10)+"km":""}</span></div>`;});
     h+=`</div><div class="fc-note">対象キーワード合計の月間検索数（Google Ads実測）。${dm.dropped_count?`半径内で上限を超えた${dm.dropped_count}地域は未取得: ${esc((dm.dropped_names||[]).slice(0,8).join("、"))}`:""}</div>`;
+    box.innerHTML=h;
+  }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
+  finally{b.disabled=false;b.textContent=t;}
+});
+
+// ── 求人ページの見え方チェック(無料) ────────────────────────
+$("#uvGo").addEventListener("click",async()=>{
+  const url=$("#uvUrl").value.trim(),job=$("#uvJob").value.trim(),box=$("#uvResult");
+  if(!url||!job){box.innerHTML=`<div class="err">求人ページのURLと職種の両方を入れてください。</div>`;return;}
+  const p=new URLSearchParams({url,job});
+  const sib=$("#uvSib").value.trim();if(sib)p.set("sibling_urls",sib);
+  const b=$("#uvGo"),t=b.textContent;b.disabled=true;b.textContent="調査中…";
+  box.innerHTML=`<div class="loading" style="margin-top:12px">検索エンジンに問い合わせ中…（20〜60秒かかります）</div>`;
+  try{
+    const r=await fetch("/api/url-visibility-check?"+p.toString());const d=await r.json();
+    if(d.status!=="ok"){box.innerHTML=`<div class="err">${esc(d.message||d.status)}</div>`;return;}
+    let h="";
+    const hyp=(d.hypotheses||[]).map(x=>`<div class="fc-note" style="border-left:3px solid var(--accent);padding-left:10px;margin:8px 0">${esc(x)}</div>`).join("");
+    h+=`<div style="margin-top:12px"><b>診断（仮説）</b>${hyp}</div>`;
+    const uniq=(d.unique_terms||[]);
+    if(uniq.length){
+      h+=`<div style="margin-top:10px"><b>検索エンジンがこのページから読み取った言葉</b><div style="margin-top:6px">`
+        +uniq.map(u=>`<span style="display:inline-block;border:1px solid var(--line);border-radius:12px;padding:2px 10px;margin:2px;font-size:12px">${esc(u.keyword)}<small style="opacity:.6"> ${fmt(u.avg_monthly)}</small></span>`).join(" ")
+        +`</div></div>`;
+    }
+    const mk=(d.market||[]);
+    if(mk.length){
+      h+=`<div style="margin-top:12px"><b>この職種でよく検索される言葉との突合</b><div class="tblwrap" style="margin-top:6px"><table><tr><th>検索される言葉</th><th>月間検索数</th><th>ページとの関連</th></tr>`
+        +mk.map(m=>`<tr><td>${esc(m.keyword)}</td><td>${fmt(m.avg_monthly)}</td><td>${(m.in_page||m.in_both)?"○ 認識あり":"× 確認できず"}</td></tr>`).join("")
+        +`</table></div></div>`;
+    }
+    h+=`<div class="fc-note" style="margin-top:10px">${esc(d.note||"")}${d.sibling_count?`（同サイト${d.sibling_count}件でサイト共通語を除去済み）`:"（別職種URLを入れるとサイト共通語の除去精度が上がります）"}</div>`;
     box.innerHTML=h;
   }catch(err){box.innerHTML=`<div class="err">通信エラー: ${err.message}</div>`;}
   finally{b.disabled=false;b.textContent=t;}
