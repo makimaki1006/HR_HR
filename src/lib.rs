@@ -436,6 +436,10 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // ナビのリンク自体も出さない (handlers::media_engine_enabled)。
         .route("/keywords-ui", get(media_engine::handlers::ui_keywords))
         .route(
+            "/api/keyword-seed-compare",
+            get(media_engine::handlers::seed_compare_endpoint),
+        )
+        .route(
             "/api/keywords",
             get(media_engine::handlers::keywords_endpoint),
         )
