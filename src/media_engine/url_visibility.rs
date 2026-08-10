@@ -95,10 +95,15 @@ pub fn split_region_and_job(input: &str, location_names: &[String]) -> (Option<S
     let mut region: Option<String> = None;
     let mut job_tokens: Vec<&str> = Vec::new();
     for token in input.split_whitespace() {
+        // 重心CSVの都道府県は「神奈川」のような語幹 (県なし) で収録されているため、
+        // 入力側・辞書側の両方を語幹に落として照合する (実データ由来の仕様。
+        // フィクスチャだけで検証して本番で不発だった2026-08-10の教訓)。
+        let token_stem = token.trim_end_matches(['県', '府', '都']);
         let is_location = token.chars().count() >= 2
             && location_names.iter().any(|name| {
+                let name_stem = name.trim_end_matches(['県', '府', '都']);
                 name == token
-                    || name.trim_end_matches(['県', '府', '都']) == token
+                    || name_stem == token_stem
                     || (token.chars().count() >= 3 && name.starts_with(token))
             });
         if is_location && region.is_none() {
@@ -389,9 +394,10 @@ mod tests {
     }
 
     /// 職種欄に地域が混ざる入力 (「神奈川県 フロントスタッフ」) を地域+職種に分離する。
+    /// 地名リストは実データ (重心CSV) と同じ形状 = 都道府県は語幹 (県なし) で持つ。
     #[test]
     fn split_region_extracts_prefecture_from_job_input() {
-        let locations = vec!["神奈川県".to_string(), "横浜市".to_string()];
+        let locations = vec!["神奈川".to_string(), "横浜市".to_string()];
         let (region, job) = split_region_and_job("神奈川県 フロントスタッフ", &locations);
         assert_eq!(region.as_deref(), Some("神奈川県"));
         assert_eq!(job, "フロントスタッフ");
@@ -418,6 +424,23 @@ mod tests {
             !hypotheses.iter().any(|h| h.contains("千歳")),
             "地名を別テーマとして誤検出: {hypotheses:?}"
         );
+    }
+
+    /// 本番実データ結合: 実際の重心CSVの地名一覧で「神奈川県 フロントスタッフ」が
+    /// 分離できる (フィクスチャと実データの乖離で本番不発だった事故の再発防止)。
+    #[test]
+    fn split_region_works_with_real_gazetteer() {
+        let Ok(classifier) = crate::job_gen::commute::CommuteClassifier::load() else {
+            // CSVが無い環境 (CI等) ではスキップ扱い。本番同梱物はリポジトリ内のCSV
+            return;
+        };
+        let names = classifier.location_names();
+        let (region, job) = split_region_and_job("神奈川県 フロントスタッフ", &names);
+        assert_eq!(region.as_deref(), Some("神奈川県"), "実CSVで県名が拾えない");
+        assert_eq!(job, "フロントスタッフ");
+        let (region2, job2) = split_region_and_job("横浜市 配送ドライバー", &names);
+        assert_eq!(region2.as_deref(), Some("横浜市"));
+        assert_eq!(job2, "配送ドライバー");
     }
 
     /// 表現の規律: 生成文に「Google」を出さない (現場・顧客向け表記ルール)。
