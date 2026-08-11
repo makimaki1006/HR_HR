@@ -95,3 +95,48 @@ pub async fn admin_login_failures(
     };
     Html(render::login_failures_page(&failures))
 }
+
+/// GET /admin/usage?days=30 : 利用状況（ユーザー別 / 機能別 / クロス）
+///
+/// 2026-08-10 追加。ユーザー決定により、記録対象は
+/// タブ切替・検索実行・レポート生成・CSV取込などの「意味のある操作」のみ。
+pub async fn admin_usage(
+    State(state): State<Arc<AppState>>,
+    _session: Session,
+    axum::extract::Query(q): axum::extract::Query<UsageQuery>,
+) -> Html<String> {
+    let Some(audit) = &state.audit else {
+        return Html(render::no_audit_db());
+    };
+    // 想定外の値で全期間スキャンにならないよう 1〜365 日に丸める
+    let days = q.days.unwrap_or(30).clamp(1, 365);
+    let since = (chrono::Utc::now() - chrono::Duration::days(days))
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
+
+    let audit_clone = audit.clone();
+    let since_clone = since.clone();
+    let triple = tokio::task::spawn_blocking(move || {
+        let turso = audit_clone.turso();
+        (
+            dao::usage_by_event(turso, &since_clone, 100),
+            dao::usage_by_account(turso, &since_clone, 100),
+            dao::usage_by_account_and_event(turso, &since_clone, 100),
+        )
+    })
+    .await;
+
+    let (by_event, by_account, cross) = match triple {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("admin_usage spawn_blocking join failed: {e}");
+            (Vec::new(), Vec::new(), Vec::new())
+        }
+    };
+    Html(render::usage_page(days, &by_event, &by_account, &cross))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UsageQuery {
+    pub days: Option<i64>,
+}

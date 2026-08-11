@@ -89,15 +89,26 @@ pub async fn record_event(
         .await
         .unwrap_or(None);
     let sid = login_session_id.unwrap_or_default();
-    dao::insert_activity(
-        audit,
-        &account_id,
-        &sid,
-        event_type,
-        target_type,
-        target_id,
-        meta,
-    );
+    // 2026-08-10: 記録対象をタブ切替まで広げたので、INSERT で応答を待たせない。
+    // dao::insert_activity は reqwest::blocking を使う同期関数なので、
+    // spawn_blocking に載せて detach する (失敗しても本番動作に影響させない)。
+    let audit = audit.clone();
+    let account_id = account_id.clone();
+    let event_type = event_type.to_string();
+    let target_type = target_type.to_string();
+    let target_id = target_id.to_string();
+    let meta = meta.to_string();
+    tokio::task::spawn_blocking(move || {
+        dao::insert_activity(
+            &audit,
+            &account_id,
+            &sid,
+            &event_type,
+            &target_type,
+            &target_id,
+            &meta,
+        );
+    });
 }
 
 /// 現在時刻を ISO-8601 UTC 文字列で取得 (例: 2026-04-15T07:12:34Z)
