@@ -12,7 +12,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://hr-hw.onrender.com"
-EMAIL = "test@cyxen.co.jp"
+EMAIL = "test@f-a-c.co.jp"
 PASSWORD = "cyxen_2025"
 
 SCREENSHOT_DIR = Path(r"C:\Users\fuji1\AppData\Local\Temp\hellowork-deploy\scripts\screenshots\prod_choropleth")
