@@ -72,7 +72,7 @@ with sync_playwright() as p:
 
     # === Login ===
     page.goto(f"{BASE}/login", wait_until="networkidle", timeout=60000)
-    page.fill('input[name=email]', 'test@cyxen.co.jp')
+    page.fill('input[name=email]', 'test@f-a-c.co.jp')
     page.fill('input[name=password]', 'cyxen_2025')
     page.click('button[type=submit]')
     page.wait_for_timeout(8000)

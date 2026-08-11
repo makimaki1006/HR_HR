@@ -363,7 +363,7 @@ python scripts/compute_v2_phase2.py
 | `AUTH_PASSWORD` | "" | 平文パスワード (社内・無期限) | 認証 OFF |
 | `AUTH_PASSWORD_HASH` | "" | bcrypt ハッシュ (社内・無期限) | 同上 |
 | `AUTH_PASSWORDS_EXTRA` | "" | 外部期限付きパスワード `pass1:2026-06-30,...` | 外部認証なし |
-| `ALLOWED_DOMAINS` | `f-a-c.co.jp,cyxen.co.jp` | 社内ドメイン | デフォルト 2 ドメイン |
+| `ALLOWED_DOMAINS` | `f-a-c.co.jp` | 社内ドメイン | 2026-08-10 に cyxen.co.jp を削除 |
 | `ALLOWED_DOMAINS_EXTRA` | "" | 外部追加ドメイン | 追加なし |
 | `HELLOWORK_DB_PATH` | `data/hellowork.db` | SQLite ファイルパス | デフォルト |
 | `CACHE_TTL_SECS` | `1800` (30 分) | DashMap TTL | デフォルト |
