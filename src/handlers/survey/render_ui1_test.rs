@@ -147,7 +147,7 @@ fn ui1_upload_form_contains_step_guide_with_4_numbered_items() {
         "CSVエクスポート",
         "アップロード",
         "サマリ確認",
-        "HW統合分析",
+        "公的データと比較",
     ] {
         assert!(html.contains(label), "ステップラベル '{}' が必要", label);
     }
@@ -165,8 +165,8 @@ fn ui1_upload_form_source_type_visualized_as_3_radio_cards() {
         html.contains(r#"role="radiogroup""#),
         "アクセシビリティ用 role=radiogroup が必要"
     );
-    // 4 つのソース媒体カードが data-source 属性で識別可能 (indeed / indeed_sp / jobbox / other)
-    for src in &["indeed", "indeed_sp", "jobbox", "other"] {
+    // 2026-08-10: 実際に使う 3 媒体だけを残した (auto / other カードは削除)
+    for src in &["indeed", "indeed_sp", "jobbox"] {
         let pattern = format!(r#"data-source="{}""#, src);
         assert!(
             html.contains(&pattern),
@@ -174,13 +174,27 @@ fn ui1_upload_form_source_type_visualized_as_3_radio_cards() {
             src
         );
     }
+    for src in &["auto", "other"] {
+        let pattern = format!(r#"data-source="{}""#, src);
+        assert!(
+            !html.contains(&pattern),
+            "data-source='{}' のカードは削除済みのはず",
+            src
+        );
+    }
+    // 既定は Indeed が選択済み
+    assert!(
+        html.contains(
+            r#"<input type="radio" name="source_type" value="indeed" class="mt-1" checked"#
+        ),
+        "既定で Indeed が選択されている必要がある"
+    );
     // 各カードに色マーカーが存在（カラー識別）
     assert!(
         html.contains("bg-blue-500")
             && html.contains("bg-cyan-500")
-            && html.contains("bg-emerald-500")
-            && html.contains("bg-amber-500"),
-        "ソース媒体ごとに異なる色マーカーが必要 (blue/cyan/emerald/amber)"
+            && html.contains("bg-emerald-500"),
+        "ソース媒体ごとに異なる色マーカーが必要 (blue/cyan/emerald)"
     );
 }
 
