@@ -470,7 +470,8 @@ h2 { font-size: 14px; color: #2c3e50; margin: 16px 0 8px 0; border-bottom: 1px s
 </head>
 <body>
 <button class="theme-toggle no-print" type="button" onclick="toggleTheme()" aria-label="ダークモード/ライトモードを切替">🌙 ダーク / ☀ ライト</button>
-<button class="print-btn" onclick="window.print()" aria-label="印刷またはPDFで保存">印刷 / PDF保存</button>
+<!-- 2026-08-10: 「印刷 / PDF保存」ボタンを削除（当面この機能は提供しない）。
+     印刷が必要な場合はブラウザの印刷機能を使う。 -->
 "#);
 
     // 採用困難度グレード算出

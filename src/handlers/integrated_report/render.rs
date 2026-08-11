@@ -312,7 +312,8 @@ fn render_integrated_html(
         r#"<title>採用市場統合レポート - {loc}</title>
 </head>
 <body>
-<button class="print-btn no-print" onclick="window.print()" aria-label="印刷またはPDFで保存">印刷 / PDF保存</button>
+<!-- 2026-08-10: 「印刷 / PDF保存」ボタンを削除（当面この機能は提供しない）。
+     印刷が必要な場合はブラウザの印刷機能を使う。 -->
 "#,
         loc = escape_html(&location)
     )
