@@ -768,6 +768,12 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         ));
 
     // 静的ファイル配信
+    //
+    // Cache-Control に immutable を付けているので、ブラウザは有効期限内に
+    // 再取得も再確認もしない。URL にバージョンが無いままだと、CSS/JS を更新しても
+    // 既存ユーザーには最大 7 日間反映されず、新しい HTML に古い CSS が当たって
+    // 画面が崩れる（2026-08-11 に絞り込み欄が素の見た目になった事故）。
+    // asset_version() をクエリに付けてキャッシュを破棄する。
     let static_router = Router::new()
         .nest_service("/static", ServeDir::new("static").precompressed_gzip())
         .layer(SetResponseHeaderLayer::if_not_present(
@@ -1441,6 +1447,7 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     };
 
     let html = include_str!("../templates/dashboard_inline.html")
+        .replace("{{ASSET_V}}", asset_version())
         .replace("{{ADMIN_LINK}}", admin_link)
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
@@ -1685,6 +1692,24 @@ async fn api_status(State(state): State<Arc<AppState>>) -> axum::response::Json<
     }))
 }
 
+/// 静的ファイル URL に付けるバージョン文字列 (2026-08-11)。
+///
+/// `/static` は `Cache-Control: immutable` で配信しているため、URL が変わらない限り
+/// ブラウザは更新を取りに来ない。デプロイごとに変わる値をクエリに付けて破棄させる。
+///
+/// - Render: `RENDER_GIT_COMMIT` の先頭 12 文字（デプロイ単位で変わる）
+/// - ローカル: プロセス起動時刻の秒（再起動すれば変わるので開発中も詰まらない）
+pub fn asset_version() -> &'static str {
+    static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    V.get_or_init(|| match std::env::var("RENDER_GIT_COMMIT") {
+        Ok(sha) if !sha.is_empty() => sha.chars().take(12).collect(),
+        _ => std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "dev".to_string()),
+    })
+}
+
 fn render_login(state: &AppState, error_message: Option<String>) -> Html<String> {
     let domains = state
         .config
@@ -1705,6 +1730,7 @@ fn render_login(state: &AppState, error_message: Option<String>) -> Html<String>
     // 2026-08-10: ログイン前の取扱説明書表示を廃止したため build_guide_html() は
     // 呼ばない（/tab/guide 側では引き続き使用）。
     let html = include_str!("../templates/login_inline.html")
+        .replace("{{ASSET_V}}", asset_version())
         .replace("{{ERROR_HTML}}", &error_html)
         .replace("{{DOMAINS}}", &domains);
 
@@ -1912,6 +1938,61 @@ pub fn precompress_geojson() {
     }
     if count > 0 {
         tracing::info!("Pre-compressed {count} GeoJSON files to .gz");
+    }
+}
+
+#[cfg(test)]
+mod asset_version_tests {
+    use super::asset_version;
+
+    /// 逆証明: 自前の CSS/JS は必ず ?v= 付きで参照すること。
+    ///
+    /// /static は Cache-Control: immutable で配信しているので、バージョンの無い
+    /// URL を 1 本でも足すと、そのファイルの更新が既存ユーザーに最大 7 日届かず、
+    /// 新しい HTML に古い CSS が当たって画面が崩れる (2026-08-11 の事故)。
+    #[test]
+    fn every_local_asset_url_is_versioned() {
+        let templates = [
+            (
+                "dashboard_inline.html",
+                include_str!("../templates/dashboard_inline.html"),
+            ),
+            (
+                "login_inline.html",
+                include_str!("../templates/login_inline.html"),
+            ),
+        ];
+        let mut checked = 0usize;
+        for (name, html) in templates {
+            for (attr, _) in [("href=\"", ""), ("src=\"", "")] {
+                let needle = format!("{attr}/static/");
+                let mut rest = html;
+                while let Some(i) = rest.find(&needle) {
+                    let tail = &rest[i + needle.len()..];
+                    let url_end = tail.find('"').unwrap_or(tail.len());
+                    let url = &tail[..url_end];
+                    assert!(
+                        url.contains("?v={{ASSET_V}}"),
+                        "{name}: /static/{url} に ?v={{{{ASSET_V}}}} が必要                          (immutable キャッシュで更新が届かなくなる)"
+                    );
+                    checked += 1;
+                    rest = &tail[url_end..];
+                }
+            }
+        }
+        // 検査対象を 1 つも拾えていないと、このテストは何も守らずに通ってしまう
+        assert!(
+            checked >= 9,
+            "検査した /static URL が {checked} 本しかない（走査が壊れている可能性）"
+        );
+    }
+
+    /// バージョンは空にならない（空だと ?v= だけになりキャッシュを破棄できない）
+    #[test]
+    fn asset_version_is_not_empty() {
+        let v = asset_version();
+        assert!(!v.is_empty(), "asset_version が空");
+        assert!(!v.contains(' '), "asset_version に空白は入らない: {v}");
     }
 }
 
