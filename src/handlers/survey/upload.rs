@@ -316,10 +316,31 @@ fn parse_csv_bytes_inner(
         .map(|s| s.to_string())
         .collect();
 
-    // ユーザー明示指定があれば優先、それ以外は自動判定
+    // ユーザー明示指定があれば優先、それ以外は自動判定。
+    //
+    // 2026-08-10: UI から「自動判定」カードを外し Indeed を既定にしたため、
+    // Indeed PC ⇄ SP の取り違えだけはサーバ側で補正する。両者は
+    // jcs-jobtitle (PC) / css-u74ql7 等 (SP) という媒体固有の列名で機械的に
+    // 区別でき、取り違えると年間休日 (§04)・人気タグ (§05) が丸ごと欠落する
+    // 実害が出た (2026-07-20 富田林レポート)。補正するのは Indeed 系 2 種の
+    // 相互取り違えのみで、他媒体への横断的な上書きは行わない。
     let source = match source_hint {
-        UserSourceHint::Indeed => CsvSource::Indeed,
-        UserSourceHint::IndeedSp => CsvSource::IndeedSp,
+        UserSourceHint::Indeed | UserSourceHint::IndeedSp => {
+            let declared = if matches!(source_hint, UserSourceHint::Indeed) {
+                CsvSource::Indeed
+            } else {
+                CsvSource::IndeedSp
+            };
+            match detect_csv_source(&headers) {
+                detected @ (CsvSource::Indeed | CsvSource::IndeedSp) if detected != declared => {
+                    tracing::info!(
+                        "source_type corrected: declared={declared:?} detected={detected:?}"
+                    );
+                    detected
+                }
+                _ => declared,
+            }
+        }
         UserSourceHint::JobBox => CsvSource::JobBox,
         UserSourceHint::Other => CsvSource::Unknown,
         UserSourceHint::Auto => detect_csv_source(&headers),
