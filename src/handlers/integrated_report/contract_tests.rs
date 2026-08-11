@@ -148,8 +148,12 @@ async fn integrated_report_contains_all_required_sections() {
         "must define @page A4"
     );
 
-    // window.print() ボタン
-    assert!(html.contains("window.print()"), "must contain print button");
+    // 2026-08-10: 「印刷 / PDF保存」ボタンは撤去（当面この機能は提供しない）。
+    // A4 の @page 定義は残すので、ブラウザの印刷機能でそのまま出せる。
+    assert!(
+        !html.contains("window.print()"),
+        "印刷ボタンは撤去済みのはず"
+    );
 }
 
 #[tokio::test]

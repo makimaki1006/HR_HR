@@ -27,10 +27,7 @@ pub fn render_search_page() -> String {
         <h2 class="text-xl font-bold text-white">🔎 企業検索
             <span class="text-blue-400 text-base font-normal">企業データ × 求人市場データ</span>
         </h2>
-        <div class="flex gap-2">
-            <button class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1 rounded transition-colors" onclick="window.print()">🖨 印刷</button>
-            <button class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1 rounded transition-colors" onclick="if(typeof exportAsImage==='function')exportAsImage()">📷 画像保存</button>
-        </div>
+        <!-- 2026-08-10: タブ内の「印刷」「画像保存」ボタンを削除（当面この機能は提供しない） -->
     </div>
     <div class="stat-card">
         <div class="relative">
@@ -225,7 +222,7 @@ pub fn render_company_profile(ctx: &CompanyContext) -> String {
         r#"<div class="text-right mt-4">
             <a href="/report/company/{}" target="_blank"
                class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-colors text-sm">
-                🖨 印刷用レポートを開く
+                企業レポートを開く
             </a>
         </div>"#,
         escape_html(&ctx.corporate_number)
@@ -1364,7 +1361,8 @@ pub fn render_company_report(ctx: &CompanyContext) -> String {
 <div class="max-w-6xl mx-auto">
     <div class="flex justify-between items-center mb-4 no-print">
         <h1 class="text-lg font-bold">企業分析レポート</h1>
-        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm">🖨 印刷 / PDF保存</button>
+        <!-- 2026-08-10: 「印刷 / PDF保存」ボタンを削除（当面この機能は提供しない）。
+     印刷が必要な場合はブラウザの印刷機能を使う。 -->
     </div>
     <div class="text-xs text-slate-500 mb-4">生成日: <script>document.write(new Date().toLocaleDateString('ja-JP'))</script> | データソース: 企業属性 + 公的求人データ + 外部統計</div>
     {body}
