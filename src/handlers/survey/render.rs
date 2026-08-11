@@ -28,18 +28,13 @@ pub(crate) fn render_upload_form() -> String {
                         <span class="text-blue-400 text-base font-normal">求人媒体 CSV 取込</span>
                     </h2>
                     <p class="text-xs text-slate-400 mt-1">
-                        ユーザーがエクスポートした求人媒体CSVをアップロードし、HWデータ・外部統計と突き合わせて地域別の相対比較を行います。
+                        ユーザーがエクスポートした求人媒体CSVをアップロードし、公的求人データ・外部統計と突き合わせて地域別の相対比較を行います。
                     </p>
                 </div>
                 <div class="text-xs text-slate-500 text-right">
                     <div>対応形式: 主要求人媒体 CSV</div>
                     <div>文字コード: UTF-8（CSV/TXT）</div>
-                    <button type="button" id="btn-open-report-guide"
-                        class="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded shadow transition-colors"
-                        aria-label="レポートの見方を開く">
-                        <span aria-hidden="true">📖</span>
-                        <span>レポートの見方</span>
-                    </button>
+                    <!-- 2026-08-10: 「レポートの見方」ボタンを削除（モーダルごと撤去） -->
                 </div>
             </div>
         </header>
@@ -72,8 +67,8 @@ pub(crate) fn render_upload_form() -> String {
                 <li class="bg-slate-800/40 rounded p-3 flex gap-3 items-start">
                     <div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-600 text-white text-sm font-bold flex items-center justify-center" aria-hidden="true">4</div>
                     <div>
-                        <div class="text-xs font-semibold text-white mb-0.5">HW統合分析</div>
-                        <div class="text-[11px] text-slate-400">「HWデータと統合分析」で比較レポート生成</div>
+                        <div class="text-xs font-semibold text-white mb-0.5">公的データと比較</div>
+                        <div class="text-[11px] text-slate-400">「公的求人データと比較」で比較レポート生成</div>
                     </div>
                 </li>
             </ol>
@@ -88,25 +83,17 @@ pub(crate) fn render_upload_form() -> String {
                 <!-- ソース媒体: ラジオカード形式で視覚化 -->
                 <div class="mb-4" id="source-type-cards" role="radiogroup" aria-label="ソース媒体">
                     <label class="block text-xs text-slate-400 mb-2">ソース媒体 <span class="text-red-400" aria-label="必須">*</span>
-                        <span class="text-[10px] text-slate-500 ml-2">通常は「自動判定」のまま。判定を誤る場合のみ明示指定してください</span>
+                        <span class="text-[10px] text-slate-500 ml-2">CSVをエクスポートした媒体を選んでください</span>
                     </label>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                        <!-- 2026-07-20: 既定を自動判定に変更。従来は Indeed (PC) が既定で、
-                             Indeed SP の CSV をそのまま上げると年間休日 (§04)・人気タグ
-                             (§05) が丸ごと抜け落ちる事故が実際に起きた (富田林レポートで実証)。
-                             サーバ側 detect_csv_source は SP 固有 CSS クラスを最優先判定する。 -->
-                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="auto">
-                            <input type="radio" name="source_type" value="auto" class="mt-1" checked aria-describedby="src-auto-desc">
-                            <div>
-                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
-                                    <span class="inline-block w-3 h-3 rounded-full bg-violet-500" aria-hidden="true"></span>
-                                    自動判定 (推奨)
-                                </div>
-                                <div id="src-auto-desc" class="text-[10px] text-slate-400 mt-0.5">列名から媒体を自動で見分けます</div>
-                            </div>
-                        </label>
+                    <!-- 2026-08-10: 選択肢を実際に使う 3 媒体だけに絞った（「自動判定」
+                         「その他 / 手動編集」カードを削除）。既定は Indeed。
+                         2026-07-20 の事故（Indeed SP の CSV を PC 扱いで取り込み、年間休日
+                         §04・人気タグ §05 が丸ごと欠落）を再発させないため、サーバ側
+                         parse_csv に Indeed PC ⇄ SP の取り違えだけを自動補正するガードを
+                         入れてある (upload.rs)。 -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="indeed">
-                            <input type="radio" name="source_type" value="indeed" class="mt-1" aria-describedby="src-indeed-desc">
+                            <input type="radio" name="source_type" value="indeed" class="mt-1" checked aria-describedby="src-indeed-desc">
                             <div>
                                 <div class="text-sm font-bold text-white flex items-center gap-1.5">
                                     <span class="inline-block w-3 h-3 rounded-full bg-blue-500" aria-hidden="true"></span>
@@ -133,16 +120,6 @@ pub(crate) fn render_upload_form() -> String {
                                     求人ボックス
                                 </div>
                                 <div id="src-jobbox-desc" class="text-[10px] text-slate-400 mt-0.5">国内求人ポータル・日本語列名</div>
-                            </div>
-                        </label>
-                        <label class="source-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors min-h-[72px]" data-source="other">
-                            <input type="radio" name="source_type" value="other" class="mt-1" aria-describedby="src-other-desc">
-                            <div>
-                                <div class="text-sm font-bold text-white flex items-center gap-1.5">
-                                    <span class="inline-block w-3 h-3 rounded-full bg-amber-500" aria-hidden="true"></span>
-                                    その他 / 手動編集
-                                </div>
-                                <div id="src-other-desc" class="text-[10px] text-slate-400 mt-0.5">汎用CSV・列名フリー</div>
                             </div>
                         </label>
                     </div>
@@ -212,11 +189,15 @@ pub(crate) fn render_upload_form() -> String {
             <div id="upload-status" class="mt-3" aria-live="polite"></div>
             <div class="text-xs text-slate-600 mt-3 border-t border-slate-800 pt-3">
                 アップロードしたCSVはブラウザセッション内でのみ処理され、永続保存されません。
-                HW掲載求人との比較は相対的な参考値であり、採用判断の唯一の根拠としないでください。
+                公的機関に掲載された求人との比較は相対的な参考値であり、採用判断の唯一の根拠としないでください。
             </div>
         </section>
 
-        <!-- サンプルCSV列の折畳展開 -->
+        <!-- 2026-08-10: 分析結果を「対応CSV列の例」より上に置く。CSV を投げた直後の
+             ユーザーはレポートを見たい状態なので、参考情報が結果より上に来ないようにした。 -->
+        <div id="survey-result"></div>
+
+        <!-- サンプルCSV列の折畳展開（参考情報なので最下部） -->
         <section class="stat-card" id="survey-csv-samples">
             <details>
                 <summary class="cursor-pointer text-sm font-semibold text-slate-200 border-l-4 border-slate-500 pl-2 select-none hover:text-white">
@@ -254,161 +235,8 @@ pub(crate) fn render_upload_form() -> String {
             </details>
         </section>
 
-        <div id="survey-result"></div>
-
-        <!-- ==================================================================
-             レポートの見方 モーダル (2026-07-02 追加)
-             ==================================================================
-             - トリガー: 右上「📖 レポートの見方」ボタン (btn-open-report-guide)
-             - 内容: a. 各 Section の目的 / b. 統計用語 / d. 活用例 (営業・採用)
-             - Esc / 背景クリック / × で閉じる。role=dialog + focus trap 相当のシンプル実装。
-        -->
-        <div id="report-guide-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
-             role="dialog" aria-modal="true" aria-labelledby="report-guide-title">
-            <div id="report-guide-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
-            <div class="relative bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col">
-                <div class="flex items-start justify-between p-5 border-b border-slate-700">
-                    <div>
-                        <h2 id="report-guide-title" class="text-lg font-bold text-white flex items-center gap-2">
-                            <span aria-hidden="true">📖</span> レポートの見方 (使い方ガイド)
-                        </h2>
-                        <p class="text-[11px] text-slate-400 mt-1">各セクションの目的、統計用語、営業/採用での活用例。折りたたみを開いて閲覧してください。</p>
-                    </div>
-                    <button type="button" id="btn-close-report-guide"
-                        class="text-slate-400 hover:text-white text-2xl leading-none px-2"
-                        aria-label="ガイドを閉じる">×</button>
-                </div>
-
-                <div class="overflow-y-auto p-5 space-y-4 text-slate-200 text-sm">
-
-                    <!-- ==== a. 各 Section の目的 ==== -->
-                    <details class="bg-slate-800/40 rounded p-3 border border-slate-700" open>
-                        <summary class="cursor-pointer font-semibold text-white select-none">
-                            <span class="inline-block w-5 text-blue-400">A</span>各セクションの目的・ストーリー
-                        </summary>
-                        <div class="mt-3 space-y-3 pl-6">
-
-                            <div>
-                                <div class="font-semibold text-cyan-300">Section 04 — 年間休日 × 給与 詳細</div>
-                                <p class="text-slate-300 text-[13px] mt-1">求人ボックス / Indeed (SP) の求人説明文から「年間休日◯◯日」を自動抽出し、給与とのクロスを可視化します。「休みが多い企業は本当に給与が低いのか」「120日以上休みで◯◯万円台の求人はどの層か」といった疑問に答えるセクションです。</p>
-                                <ul class="mt-2 text-[12px] text-slate-400 space-y-1">
-                                    <li>• <b class="text-slate-200">§04-1 サマリー</b>: 平均年間休日 / Q3 / 標準偏差 / 120・125 日以上比率</li>
-                                    <li>• <b class="text-slate-200">§04-2 分布</b>: 年間休日カテゴリ (〜89 / 90-104 / 105-119 / 120-124 / 125-129 / 130+) 別の構成比 + 給与中央値</li>
-                                    <li>• <b class="text-slate-200">§04-3 散布図</b>: 給与×年間休日、雇用形態色分け、Pearson r + 回帰直線</li>
-                                    <li>• <b class="text-slate-200">§04-4 個別求人</b>: 月給制+給与記載+会社名記載の求人リスト (最大100件、年間休日降順)</li>
-                                    <li>• <b class="text-slate-200">§04-5 セグメント別 給与</b>: 6 カテゴリ × 月給下限/上限 × 平均・中央値・最頻値</li>
-                                </ul>
-                            </div>
-
-                            <div>
-                                <div class="font-semibold text-amber-300">Section 05 — 人気度シグナル</div>
-                                <p class="text-slate-300 text-[13px] mt-1">Indeed (SP) 固有の「人気」「超人気」タグを集計。Indeed が付与する「人気」ラベル(付与基準は非公開)が給与・年間休日とどう相関するかを可視化します。「人気タグ付きの求人は本当に条件が良いのか」を検証するセクションです。</p>
-                                <ul class="mt-2 text-[12px] text-slate-400 space-y-1">
-                                    <li>• <b class="text-slate-200">§05-1 サマリー</b>: 人気/超人気件数、比率、月給差 (万円)、年間休日差</li>
-                                    <li>• <b class="text-slate-200">§05-2 中央値比較</b>: 人気タグあり vs なしの月給・年間休日中央値</li>
-                                    <li>• <b class="text-slate-200">§05-3 タグ別 給与統計</b>: 超人気/人気/なし × 月給下限/上限 × 平均・中央値・最頻値</li>
-                                </ul>
-                            </div>
-
-                            <div class="text-[11px] text-slate-500 border-t border-slate-700 pt-2 mt-2">
-                                ※ 他のセクション (Section 01-12) は HW データ・外部統計との統合分析。上記 04/05 は媒体 CSV 独自の追加セクションです。
-                            </div>
-                        </div>
-                    </details>
-
-                    <!-- ==== b. 統計用語ガイド ==== -->
-                    <details class="bg-slate-800/40 rounded p-3 border border-slate-700">
-                        <summary class="cursor-pointer font-semibold text-white select-none">
-                            <span class="inline-block w-5 text-emerald-400">B</span>統計用語ガイド (中央値・Q3・r・最頻値・n閾値)
-                        </summary>
-                        <div class="mt-3 pl-6 space-y-3 text-[13px]">
-                            <div>
-                                <b class="text-white">平均 vs 中央値</b>
-                                <p class="text-slate-300 mt-1">平均は外れ値の影響を受けます (1件の高額求人で全体が引き上げ)。<b class="text-emerald-300">中央値</b>は全データを並べた真ん中の値なので、実態に近い水準を示します。両者の乖離が大きい場合は分布の歪みを疑ってください。</p>
-                            </div>
-                            <div>
-                                <b class="text-white">Q3 (第3四分位)</b>
-                                <p class="text-slate-300 mt-1">全データを昇順に並べたとき高い方から 25% の境界値。「Q3 以上 = 高い方から 1/4」の意味。§04-1 の「Q3=125 日」なら「高い方から 25% の企業は年間休日 125 日以上」。n ≥ 20 では補間処理を適用、n &lt; 20 は最近接値。</p>
-                            </div>
-                            <div>
-                                <b class="text-white">Pearson 相関係数 r</b>
-                                <p class="text-slate-300 mt-1">-1 〜 +1 の範囲。0 に近いほど無相関、±1 に近いほど強い線形関係。目安: |r|&lt;0.2 = ほぼ無相関 / 0.4 = 弱い / 0.6 = 中程度 / 0.8 = 強い。<b class="text-yellow-300">相関 ≠ 因果</b>: 給与と年間休日に相関があっても、片方が原因とは限りません (第三変数の可能性)。</p>
-                                <p class="text-slate-400 text-[11px] mt-1">本レポートでは n &lt; 10 は「傾向判定なし」、10 ≤ n &lt; 30 は「参考値」注記付き、n ≥ 30 でのみ確定表示します。</p>
-                            </div>
-                            <div>
-                                <b class="text-white">最頻値 (5 万円ビン)</b>
-                                <p class="text-slate-300 mt-1">給与は連続値なので、そのままでは最頻値が出にくい。5 万円刻みでビン化し「20〜24 万」「25〜29 万」…と集計、最も件数の多いビン開始値を最頻値としています。「20.0 万円」= 20 〜 25 万円のビン。同数の場合は最小ビン。</p>
-                            </div>
-                            <div>
-                                <b class="text-white">n閾値 (両群 n ≥ 5)</b>
-                                <p class="text-slate-300 mt-1">中央値比較 (§05-1 の月給差など) は両群の n が 5 未満だと外れ値 1 件で結果が乱高下します。両群 n ≥ 5 を満たさない場合は「— (n不足)」と表示され、KPI foot に実 n が併記されます。</p>
-                            </div>
-                            <div>
-                                <b class="text-white">重複排除</b>
-                                <p class="text-slate-300 mt-1">同一施設の別求人 (経験別 / 雇用形態別 / 給与レンジ別) は別レコードとして残します。会社・職種・勤務地・給与・雇用形態が完全に一致する同時掲載の重複のみ 1 件に集約します。</p>
-                            </div>
-                        </div>
-                    </details>
-
-                    <!-- ==== d. 活用例 (営業・採用) ==== -->
-                    <details class="bg-slate-800/40 rounded p-3 border border-slate-700">
-                        <summary class="cursor-pointer font-semibold text-white select-none">
-                            <span class="inline-block w-5 text-fuchsia-400">C</span>数値の読み替え / 活用例
-                        </summary>
-                        <div class="mt-3 pl-6 space-y-4 text-[13px]">
-
-                            <div>
-                                <div class="text-fuchsia-300 font-semibold">💼 営業提案での活用</div>
-                                <ul class="mt-2 space-y-2 text-slate-300 pl-4 list-disc">
-                                    <li>
-                                        <b class="text-white">競合水準の提示</b>：
-                                        「貴社の年間休日 X 日は §04-5 の 105-119 日カテゴリで下限中央値 Y 万円が標準。上限中央値 Z 万円まで引き上げると 120-124 日カテゴリと張り合えます」
-                                    </li>
-                                    <li>
-                                        <b class="text-white">人気タグ付き求人との比較</b>：
-                                        「§05-3 の超人気タグ求人は中央値で月給 +A 万円、休日 +B 日の傾向があります(本媒体データでの相関であり、給与を上げれば人気タグが付くという因果関係ではありません)」
-                                    </li>
-                                    <li>
-                                        <b class="text-white">上限中央値の引用</b>：
-                                        「求人票の月給上限は §04-1 のこの地域の中央値 X 万円が参考水準。本媒体データ上、そうした水準の求人が多いという参考情報です(実際の応募数・閲覧数を保証するものではありません)」
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div>
-                                <div class="text-fuchsia-300 font-semibold">🧑‍💼 採用実務での活用</div>
-                                <ul class="mt-2 space-y-2 text-slate-300 pl-4 list-disc">
-                                    <li>
-                                        <b class="text-white">候補者面談の材料</b>：
-                                        「同エリア/同職種の年間休日中央値は §04-1 で N 日。当社の X 日は高い方から A% (§04-2 分布より) に位置します」
-                                    </li>
-                                    <li>
-                                        <b class="text-white">競合オファーの妥当性判定</b>：
-                                        「候補者が『他社で月給 Y 万提示』と言った際、§04-5 で該当カテゴリ (年間休日+雇用形態) の上限中央値と比較して現実的な水準か判定」
-                                    </li>
-                                    <li>
-                                        <b class="text-white">求人票改善の優先度</b>：
-                                        「§04-4 個別求人の条件値が高い企業と自社を比較し、給与/休日/勤務地のどこに差があるか特定 → 差別化訴求」
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <div class="text-[11px] text-slate-500 border-t border-slate-700 pt-3 mt-2">
-                                <b class="text-slate-400">⚠️ 注意</b>: 数値は媒体スクレイピング時点の状態です。求人ボックス / Indeed (SP) 掲載求人のみが集計対象で、全求人市場を代表しません。相関の話をする際は必ず「本媒体データでは」と限定してください。
-                            </div>
-                        </div>
-                    </details>
-
-                </div>
-
-                <div class="p-4 border-t border-slate-700 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Esc キー / 背景クリックでも閉じられます</span>
-                    <button type="button" data-close-guide
-                        class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs">閉じる</button>
-                </div>
-            </div>
-        </div>
-    </div>
+        <!-- 2026-08-10: 「レポートの見方」モーダルを削除。記載内容が現行レポートと
+             乖離しており、更新されるまで表示しない（認知負荷削減）。 -->
     <script>
     // ラジオカード選択時のハイライト（source/wage 共通）
     (function() {
@@ -525,31 +353,26 @@ pub(crate) fn render_upload_form() -> String {
             });
     }
 
-    // ==== レポートの見方 モーダル 開閉 (2026-07-02) ====
-    (function() {
-        var modal = document.getElementById('report-guide-modal');
-        var btnOpen = document.getElementById('btn-open-report-guide');
-        var btnClose = document.getElementById('btn-close-report-guide');
-        var backdrop = document.getElementById('report-guide-backdrop');
-        if (!modal || !btnOpen) return;
-        function open() {
-            modal.classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
+    // ==== 折りたたみセクション (details.survey-fold) を開いたときのチャート描画 ====
+    // 2026-08-10: 分析結果の各セクションを既定で折りたたみにしたため、閉じている
+    // 間はチャート要素の高さが 0 になる。app.js は offsetHeight===0 の要素を
+    // スキップするので、開いた瞬間に初期化とリサイズをやり直す必要がある。
+    // toggle イベントはバブリングしないのでキャプチャフェーズで受ける。
+    document.addEventListener('toggle', function(e) {
+        var d = e.target;
+        if (!d || d.tagName !== 'DETAILS' || !d.open) return;
+        if (!d.classList || !d.classList.contains('survey-fold')) return;
+        // データ探索パネルは survey_explore.js が閉じた状態で init 済み（サイズ 0）。
+        // scan() の再実行はリスナー二重登録になるため、resize だけで足りる。
+        if (typeof window.initECharts === 'function') window.initECharts(d);
+        if (typeof echarts !== 'undefined') {
+            d.querySelectorAll('.echart, [data-explore-chart]').forEach(function(el) {
+                var c = echarts.getInstanceByDom(el);
+                if (c) c.resize();
+            });
         }
-        function close() {
-            modal.classList.add('hidden');
-            document.body.style.overflow = '';
-        }
-        btnOpen.addEventListener('click', open);
-        if (btnClose) btnClose.addEventListener('click', close);
-        if (backdrop) backdrop.addEventListener('click', close);
-        document.querySelectorAll('[data-close-guide]').forEach(function(b) {
-            b.addEventListener('click', close);
-        });
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
-        });
-    })();
+    }, true);
+
     </script>"##.to_string()
 }
 
@@ -567,16 +390,21 @@ pub(crate) fn render_analysis_result(
 
     html.push_str(r#"<div class="space-y-6 mt-6" id="survey-analysis">"#);
 
-    // 1. TL;DR (最上部サマリ)
-    html.push_str(&render_tldr(agg, seeker));
+    // 2026-08-10: 並び順を「レポート出力が最上部」に変更。CSV を投げた時点で
+    // ユーザーはレポートを求めている状態なので、まず出力導線を出す。
+    // 数値セクション（エグゼクティブサマリ以下）は既定で折りたたみ、
+    // 見たい人だけが開く形にした（認知負荷削減）。
 
-    // 2. アクションボタン（TL;DR直下に配置 - すぐに次ステップへ進めるように）
+    // 1. アクションボタン（レポート出力導線）
     html.push_str(&render_action_bar(session_id));
 
-    // 2b. コンサル準備パネル（社内用、2026-07-10 フェーズB）
+    // 1b. コンサル準備パネル（社内用、2026-07-10 フェーズB）
     html.push_str(&render_consult_prep_panel(session_id));
 
     html.push_str(r#"<div id="survey-integration-result"></div>"#);
+
+    // 2. エグゼクティブサマリ（折りたたみ）
+    html.push_str(&render_tldr(agg, seeker));
 
     // 3. 給与サマリカード（主要KPI）
     html.push_str(&render_salary_summary(agg));
@@ -689,13 +517,14 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
     };
 
     write!(html,
-        r#"<section class="stat-card border-l-4 border-blue-500" id="survey-executive-summary" data-total="{total_raw}">
-            <div class="flex items-start justify-between flex-wrap gap-3 mb-4">
+        r#"<details class="stat-card border-l-4 border-blue-500 survey-fold" id="survey-executive-summary" data-total="{total_raw}">
+            <summary class="text-lg font-bold text-white flex items-center gap-2 cursor-pointer select-none hover:text-blue-200">
+                <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                エグゼクティブサマリ
+                <span class="text-xs font-normal text-slate-500 ml-1">分析対象 {total}件</span>
+            </summary>
+            <div class="flex items-start justify-between flex-wrap gap-3 mb-4 mt-3">
                 <div>
-                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                        エグゼクティブサマリ
-                    </h3>
                     <p class="text-xs text-slate-500 mt-0.5">アップロードCSVから抽出した「この地域・職種で見るべき主要KPI」</p>
                 </div>
                 <div class="text-xs text-slate-500 text-right">
@@ -759,9 +588,9 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
                 <div class="text-xs text-slate-200">{gap_label}</div>
             </div>
             <div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
-                本サマリはアップロードされたCSVのみに基づく参考指標です。HW掲載求人との比較は下部「HWデータと統合分析」で確認してください。
+                本サマリはアップロードされたCSVのみに基づく参考指標です。
             </div>
-        </section>"#,
+        </details>"#,
         total = format_number(agg.total_count as i64),
         total_raw = agg.total_count,
         new_rate = new_rate,
@@ -789,9 +618,9 @@ fn render_tldr(agg: &SurveyAggregation, seeker: &JobSeekerAnalysis) -> String {
 /// .echart クラスを使わない。
 fn render_dynamic_explore_section(session_id: &str) -> String {
     format!(
-        r#"<section id="survey-explore" data-session-id="{sid}" class="stat-card">
-        <h3 class="text-sm font-semibold text-slate-200 mb-1 border-l-4 border-emerald-500 pl-2">データ探索（動的）</h3>
-        <p class="text-[11px] text-slate-500 mb-3">レポートと同じ集計を、この画面で操作しながら確認できます。給与の数値は外れ値（IQR法）除外後、市区町村は求人件数の多い上位15件です。</p>
+        r#"<details id="survey-explore" data-session-id="{sid}" class="stat-card survey-fold">
+        <summary class="text-sm font-semibold text-slate-200 mb-1 border-l-4 border-emerald-500 pl-2 cursor-pointer select-none hover:text-white">データ探索（動的）</summary>
+        <p class="text-[11px] text-slate-500 mb-3 mt-2">レポートと同じ集計を、この画面で操作しながら確認できます。給与の数値は外れ値（IQR法）除外後、市区町村は求人件数の多い上位15件です。</p>
         <p data-explore-status class="text-[11px] text-amber-400 mb-2">集計を読み込んでいます…</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -836,7 +665,7 @@ fn render_dynamic_explore_section(session_id: &str) -> String {
                 <div data-explore-chart="tags" style="height:300px"></div>
             </div>
         </div>
-    </section>"#,
+    </details>"#,
         sid = crate::handlers::helpers::escape_html(session_id)
     )
 }
@@ -845,16 +674,17 @@ fn render_action_bar(session_id: &str) -> String {
     format!(
         r##"<section class="stat-card" id="survey-action-bar" data-session-id="{sid}">
             <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-emerald-500 pl-2">次のアクション</h3>
-            <!-- プライマリ動線: HW統合分析（最も目立たせる） -->
+            <!-- プライマリ動線: 公的求人データとの比較（最も目立たせる）。
+                 2026-08-10: 画面上の「HW」表記を廃止し平易な語に統一（社内略語を表に出さない）。 -->
             <div class="mb-3">
                 <button hx-get="/api/survey/integrate?session_id={sid}"
                         hx-target="#survey-integration-result" hx-swap="innerHTML"
                         id="btn-hw-integrate"
                         class="group w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg text-base font-bold shadow-lg shadow-blue-500/20 transition-all hover:shadow-blue-500/40 min-h-[44px]"
-                        title="この地域のHW求人・外部統計・企業データと突合した比較レポートを生成します">
+                        title="この地域の公的求人データ・外部統計・企業データと突合した比較レポートを生成します">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                    HWデータと統合分析
-                    <span class="hidden group-hover:inline text-[10px] opacity-75 ml-1">（地域×HW×統計の比較レポート）</span>
+                    公的求人データと比較
+                    <span class="hidden group-hover:inline text-[10px] opacity-75 ml-1">（地域×公的求人×統計の比較レポート）</span>
                 </button>
             </div>
             <!-- PDF出力: 通常導線は採用コンサルレポートに一本化。旧 full/public は URL 互換のみ維持。 -->
@@ -904,19 +734,9 @@ fn render_action_bar(session_id: &str) -> String {
                             <span class="text-[10px] opacity-80 font-normal">経営サマリー・優先アクション付きの標準版</span>
                         </span>
                     </a>
-                    <!-- Ver10: ver10 — 現場レビュー反映版 (冒頭まとめを簡単に / 難しい言葉を減らす / 一部の図表を省く) -->
-                    <a href="/report/survey?session_id={sid}&variant=ver10" target="_blank" rel="noopener"
-                       onclick="return openVer10Report(event, '{sid}')"
-                       data-variant="ver10"
-                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-700 hover:bg-sky-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-sky-400"
-                       aria-label="Ver10 レポートPDFを新しいタブで開く"
-                       title="Ver10: 現場の声を反映した読みやすい版。冒頭のまとめを超簡単にして難しい言葉を減らし、雇用形態構成・採用市場の需給ページ・一部の図表を省いています。">
-                        <span class="text-base" aria-hidden="true">📘</span>
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>Ver10 レポートを作成</span>
-                            <span class="text-[10px] opacity-80 font-normal">現場の声を反映した読みやすい版</span>
-                        </span>
-                    </a>
+                    <!-- 2026-08-10: 「Ver10 レポート」ボタンを削除（ユーザー指示）。
+                         ReportVariant::Ver10 と /report/survey のクエリ指定は温存しており、
+                         URL 直アクセスでは引き続き生成できる。 -->
                     <!-- 解説資料: guide — レポートに添える顧客向け読み解きガイド (2026-07-17) -->
                     <a href="/report/survey?session_id={sid}&variant=guide" target="_blank" rel="noopener"
                        onclick="return openGuideReport(event, '{sid}')"
@@ -931,13 +751,10 @@ fn render_action_bar(session_id: &str) -> String {
                         </span>
                     </a>
                 </div>
-                <!-- Ver10 の表2-E (都道府県別の給与比較) を含めるかのチェックボックス。既定オン。 -->
-                <label class="inline-flex items-center gap-2 mt-2 text-[12px] text-slate-300" title="Ver10 レポートに、都道府県別の給与比較の表 (表2-E) を含めるかどうかを選べます。">
-                    <input type="checkbox" id="ver10-table2e" checked class="align-middle">
-                    <span>都道府県別の給与比較の表を含める (表2-E)</span>
-                </label>
+                <!-- 2026-08-10: Ver10 専用だった「表2-E を含める」チェックボックスも
+                     Ver10 ボタン削除に伴い撤去。 -->
                 <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                    PDF出力は<strong class="text-slate-200">2種類</strong>から選択できます。旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
+                    レポートは<strong class="text-slate-200">3種類</strong>（標準 / 詳細 / 本編）から選べます。これに添える解説資料も同じ場所から作成できます。旧「併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
                 </p>
                 <!-- 2026-05-19: openVariantReport は templates/dashboard_inline.html へ移動。
                      HTMX で動的挿入された <script> は eval されないため、ここで定義すると
@@ -1004,7 +821,7 @@ fn render_action_bar(session_id: &str) -> String {
                 </a>
             </div>
             <p class="text-[11px] text-slate-500 mt-3">
-                統合分析を最初に実行することを推奨します。HW・外部統計と突き合わせた相対評価により、本CSVの位置付けが明確になります。
+                統合分析を最初に実行することを推奨します。公的求人・外部統計と突き合わせた相対評価により、本CSVの位置付けが明確になります。
             </p>
         </section>
         <!-- 2026-05-19: downloadReportHtml は templates/dashboard_inline.html へ移動。
@@ -1111,8 +928,8 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
 
     let mut html = String::with_capacity(2_000);
     html.push_str(
-        r#"<section class="stat-card" id="survey-salary-stats">
-            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-2">
+        r#"<details class="stat-card survey-fold" id="survey-salary-stats">
+            <summary class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-2 cursor-pointer select-none hover:text-white">
                 給与統計（月給換算）
                 <span class="text-[10px] font-normal text-slate-500" tabindex="0" title="IQR×1.5 (Tukey法) で外れ値を除外した統計値。中央値は外れ値の影響を受けにくく、実勢に近い指標です。">ⓘ</span>
                 <span class="ml-2 text-[10px] font-normal text-slate-500">外れ値除外（IQR法）</span>
@@ -1177,7 +994,7 @@ fn render_salary_summary(agg: &SurveyAggregation) -> String {
     .unwrap();
 
     html.push_str(r#"<p class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">月給換算は時給×167h/月（厚労省「就業条件総合調査 2024」基準）、年俸÷12で統一。中央値は外れ値の影響を受けにくいため、平均より実勢に近い目安として推奨されます。</p>"#);
-    html.push_str("</section>");
+    html.push_str("</details>");
     html
 }
 
@@ -1191,9 +1008,9 @@ fn render_distribution_charts(agg: &SurveyAggregation) -> String {
     // パース直後の生レコードを件数集計しており、IQR は適用されていない。
     // 旧ラベル「外れ値除外（IQR法）適用済」は事実と異なるため「件数集計（生値ベース）」に変更。
     // IQR は給与統計（mean/median/Q1/Q3）と雇用形態グループ別集計の数値計算側のみに適用。
-    html.push_str(r#"<section>
-        <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">分布<span class="ml-2 text-[10px] font-normal text-slate-500">件数集計（生値ベース・IQR 未適用）</span></h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">"#);
+    html.push_str(r#"<details class="stat-card survey-fold" id="survey-distribution">
+        <summary class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 cursor-pointer select-none hover:text-white">分布<span class="ml-2 text-[10px] font-normal text-slate-500">件数集計（生値ベース・IQR 未適用）</span></summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">"#);
 
     // 給与帯分布
     if !agg.by_salary_range.is_empty() {
@@ -1205,7 +1022,7 @@ fn render_distribution_charts(agg: &SurveyAggregation) -> String {
         html.push_str(&render_employment_type_chart(agg));
     }
 
-    html.push_str("</div></section>");
+    html.push_str("</div></details>");
     html
 }
 
@@ -1493,7 +1310,15 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
         .map(|(k, v)| (k.as_str(), *v))
         .collect();
 
-    // 件数ベースのデータ配列（ECharts heatmap 用 [col, row, value, name]）
+    // 件数ベースのデータ配列（ECharts heatmap 用）
+    //
+    // 2026-08-10 修正: 以前は series.label.formatter / tooltip.formatter に
+    // "function(p){...}" という文字列を入れ、app.js 側で new Function() に
+    // 復元していた。しかし本アプリの CSP (lib.rs) は script-src に 'unsafe-eval'
+    // を含まないため new Function() が例外になり、app.js の catch に握り潰されて
+    // formatter が「文字列のまま」ECharts に渡っていた。結果、各セルとツールチップ
+    // に関数のソースコードがそのまま表示されていた（ユーザー報告の「謎のテキスト」）。
+    // CSP は緩めず、データ項目ごとに静的な文字列 formatter を持たせて解決する。
     let mut data: Vec<serde_json::Value> = Vec::new();
     let mut max_val: i64 = 1;
     let mut covered = 0usize;
@@ -1504,7 +1329,18 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
             covered += 1;
         }
         max_val = max_val.max(cnt);
-        data.push(json!([*col as i64, *row as i64, cnt, name]));
+        // セル内表示用の短縮名: 末尾の 都/道/府/県 を落として先頭 2 文字
+        let short: String = name
+            .trim_end_matches(['都', '道', '府', '県'])
+            .chars()
+            .take(2)
+            .collect();
+        data.push(json!({
+            "value": [*col as i64, *row as i64, cnt],
+            "name": name,
+            "label": {"formatter": short},
+            "tooltip": {"formatter": format!("{name}<br/>掲載: {cnt}件")},
+        }));
     }
 
     // 県別給与中央値マップ（オプショナル）
@@ -1516,10 +1352,8 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
 
     // ECharts heatmap config
     let chart = json!({
-        "tooltip": {
-            "position": "top",
-            "formatter": "function(p){return p.data[3]+'<br/>掲載: '+p.data[2]+'件';}"
-        },
+        // formatter はデータ項目側に静的文字列で持たせる（CSP で new Function 不可のため）
+        "tooltip": {"position": "top"},
         "grid": {"left": "3%", "right": "3%", "top": "3%", "bottom": "12%", "containLabel": true},
         "xAxis": {
             "type": "category",
@@ -1547,7 +1381,7 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
         "series": [{
             "type": "heatmap",
             "data": data,
-            "label": {"show": true, "color": "#e2e8f0", "fontSize": 9, "formatter": "function(p){return p.data[3].replace(/[県府都道]$/,'').slice(0,2);}"},
+            "label": {"show": true, "color": "#e2e8f0", "fontSize": 9},
             "itemStyle": {"borderColor": "#334155", "borderWidth": 1},
             "emphasis": {"itemStyle": {"shadowBlur": 10, "shadowColor": "rgba(59,130,246,0.5)"}}
         }]
@@ -1576,13 +1410,13 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
     table_html.push_str("</tbody></table>");
 
     format!(
-        r##"<section class="stat-card" id="survey-prefecture-heatmap" data-pref-count="{covered}">
-            <h3 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-2">
+        r##"<details class="stat-card survey-fold" id="survey-prefecture-heatmap" data-pref-count="{covered}">
+            <summary class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2 flex items-center gap-2 cursor-pointer select-none hover:text-white">
                 都道府県別ヒートマップ
                 <span class="text-[10px] font-normal text-slate-500" tabindex="0" title="47都道府県を地理的に配置したヒートマップ。色濃度が掲載件数を表します。データのある県のみ着色。">ⓘ</span>
                 <span class="ml-auto text-[10px] font-normal text-slate-500">対象: {covered}/47県</span>
-            </h3>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            </summary>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
                 <div class="lg:col-span-2 bg-slate-900/40 rounded p-2">
                     <div class="echart" style="height:340px" data-chart-config='{config_str}'></div>
                 </div>
@@ -1595,7 +1429,7 @@ fn render_prefecture_heatmap_section(agg: &SurveyAggregation) -> String {
             <div class="mt-3 p-2 bg-blue-500/5 border-l-2 border-blue-500/40 rounded text-[11px] text-slate-300">
                 <span class="text-blue-400 font-semibold">読み方:</span> 色が濃いほど掲載件数が多い地域。空白セルはデータなし（0件）です。求人の地理的偏在を一目で確認できます。
             </div>
-        </section>"##
+        </details>"##
     )
 }
 
@@ -1965,7 +1799,7 @@ fn render_data_quality_section(agg: &SurveyAggregation) -> String {
                 {warn}
                 <div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2 space-y-1">
                     <div>・本分析はアップロードされたCSVのみに基づきます。求人市場全体の代表値ではありません。</div>
-                    <div>・HWデータとの比較は「HWデータと統合分析」で実施されますが、HW掲載は全求人の一部であり産業偏り（IT・通信は少ない等）があります。</div>
+                    <div>・公的求人データとの比較は「公的求人データと比較」で実施されますが、公的機関に掲載される求人は全求人の一部であり産業偏り（IT・通信は少ない等）があります。</div>
                     <div>・相関指標（例: 未経験タグと給与差）は因果関係を示すものではありません。</div>
                 </div>
             </details>
@@ -2066,16 +1900,33 @@ mod variant_ui_tests {
         );
     }
 
+    /// 2026-08-10: Ver10 ボタンを撤去し、説明文を実態（標準/詳細/本編の3種）に合わせた。
+    /// 以前は 5 ボタン出ているのに「2種類」と書かれており、説明が実態と食い違っていた。
     #[test]
-    fn action_bar_explains_two_report_types() {
+    fn action_bar_explains_report_types() {
         let html = render_action_bar("sid");
         assert!(
-            html.contains("2種類"),
-            "should explain that two PDF variants are available"
+            html.contains("3種類"),
+            "should explain how many report variants are available"
+        );
+        // 実際に露出しているボタン数と説明文が一致していること（逆証明）
+        for v in ["market_intelligence", "extended", "sp"] {
+            assert!(
+                html.contains(&format!("variant={v}")),
+                "variant={v} のボタンが必要"
+            );
+        }
+        assert!(
+            !html.contains("variant=ver10"),
+            "Ver10 ボタンは撤去済みのはず"
+        );
+        assert!(
+            !html.contains("ver10-table2e"),
+            "Ver10 専用チェックボックスは撤去済みのはず"
         );
         assert!(
             html.contains(
-                "旧「HW併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません"
+                "旧「併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません"
             ),
             "should explain why legacy variants are hidden"
         );
