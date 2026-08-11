@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>求人ダッシュボード</title>
-    <link rel="stylesheet" href="/static/css/tailwind-precompiled.css">
+    <link rel="stylesheet" href="/static/css/tailwind-precompiled.css?v={{ASSET_V}}">
     <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR" crossorigin="anonymous" defer></script>
-    <script src="/static/js/survey_explore.js" defer></script>
-    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script src="/static/js/survey_explore.js?v={{ASSET_V}}" defer></script>
+    <link rel="stylesheet" href="/static/css/dashboard.css?v={{ASSET_V}}">
     <script>
     // Leaflet 遅延ローダー（地図タブ初回表示時にのみロード）
     window.ensureLeaflet=(function(){var p=null;return function(){if(window.L)return Promise.resolve();if(p)return p;p=new Promise(function(ok){var c=document.createElement('link');c.rel='stylesheet';c.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';c.integrity='sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H';c.crossOrigin='anonymous';document.head.appendChild(c);var s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';s.integrity='sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH';s.crossOrigin='anonymous';s.onload=ok;document.head.appendChild(s)});return p}})();
@@ -155,9 +155,9 @@
         </div>
     </main>
 
-    <script src="/static/js/tabcache.js"></script>
-    <script src="/static/js/app.js"></script>
-    <script src="/static/js/a11y.js" defer></script>
+    <script src="/static/js/tabcache.js?v={{ASSET_V}}"></script>
+    <script src="/static/js/app.js?v={{ASSET_V}}"></script>
+    <script src="/static/js/a11y.js?v={{ASSET_V}}" defer></script>
     <script>
     // タブ切替・フィルタ変更時のローディングフィードバック
     // 2026-06-05: 同タブ再クリックや afterSwap/afterSettle 不発火・通信エラー・
@@ -211,13 +211,13 @@
         document.body.addEventListener('htmx:timeout', function() { stopLoading(false); });
     })();
     </script>
-    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/charts.js?v={{ASSET_V}}"></script>
     <!-- 2026-08-10: 各タブ見出しへ「印刷 / 画像保存」バーを自動注入する export.js の
          読み込みを停止（認知負荷削減）。static/js/export.js と CSS は温存しており、
          この 1 行を戻せば復活する。 -->
     <!-- 2026-05-15: region_karte.js は static/js/ に未存在 (過去削除済) で 404。
          地域カルテタブを UI 非表示化したので参照削除 (handler は温存). -->
-    <!-- <script src="/static/js/region_karte.js"></script> -->
+    <!-- <script src="/static/js/region_karte.js?v={{ASSET_V}}"></script> -->
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
