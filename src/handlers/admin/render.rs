@@ -286,22 +286,39 @@ fn event_label(event_type: &str, target_id: &str) -> String {
         return format!("タブを開く: {name}");
     }
     match event_type {
+        // 認証
+        "login" => "ログイン".to_string(),
+        "logout" => "ログアウト".to_string(),
+        // 検索・調査
         "keyword_search" => "キーワード検索".to_string(),
         "keyword_seed_compare" => "見え方チェック(比較)".to_string(),
         "visibility_check" => "求人ページの見え方チェック".to_string(),
         "serp_search" => "検索結果の取得".to_string(),
-        "view_survey_report" => "媒体分析レポートを開く".to_string(),
-        "view_integrated_report" => "統合レポートを開く".to_string(),
-        "compare_public_jobs" => "公的求人データと比較".to_string(),
-        "upload_survey_csv" | "upload" => "CSV取込".to_string(),
-        "generate_survey_report" => "媒体分析レポート生成".to_string(),
-        "generate_survey_guide" => "解説資料の生成".to_string(),
-        "generate_integrated_report" => "統合レポート生成".to_string(),
-        "generate_insight_report" => "示唆レポート生成".to_string(),
         "view_company_profile" => "企業カルテを見る".to_string(),
         "view_industry_companies" => "業種別の企業一覧".to_string(),
+        // 媒体分析
+        "upload_survey_csv" | "upload" => "CSV取込".to_string(),
+        "compare_public_jobs" => "公的求人データと比較".to_string(),
+        "generate_survey_report" => "媒体分析レポート生成".to_string(),
+        "generate_survey_guide" => "解説資料の生成".to_string(),
+        "view_survey_report" => "媒体分析レポートを開く".to_string(),
+        // レポート
+        "generate_integrated_report" => "統合レポート生成".to_string(),
+        "view_integrated_report" => "統合レポートを開く".to_string(),
+        "generate_insight_report" => "示唆レポート生成".to_string(),
+        // コンサル準備（社内用）
+        "generate_consult_brief" => "商談準備レポートの作成".to_string(),
+        "generate_consult_evidence_pack" => "証拠データJSONの出力".to_string(),
+        "generate_consult_hearing_sheet" => "ヒアリングシートの作成".to_string(),
+        "generate_consult_action_memo" => "アクションメモの作成".to_string(),
+        "view_consult_hearing_form" => "ヒアリング入力を開く".to_string(),
+        "save_consult_hearing" => "ヒアリング内容の保存".to_string(),
+        "view_consult_hypothesis_review" => "仮説の確認画面を開く".to_string(),
+        "save_consult_hypothesis_review" => "仮説の確認内容を保存".to_string(),
+        // その他
         "download_csv" => "CSVダウンロード".to_string(),
         "update_profile" => "プロフィール更新".to_string(),
+        // 未知のコードはそのまま出す（記録を足したときに黙って消えないように）
         other => other.to_string(),
     }
 }
@@ -329,7 +346,7 @@ pub fn usage_page(
     for r in by_event {
         event_rows.push_str(&format!(
             r#"<tr class="border-b border-slate-700"><td class="py-2 px-3">{name}</td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
-            name = escape_html(&event_label(&r.event_type, "")),
+            name = escape_html(&event_label(&r.event_type, &r.target_id)),
             cnt = r.count,
             last = escape_html(&r.last_at),
         ));
@@ -357,7 +374,7 @@ pub fn usage_page(
         cross_rows.push_str(&format!(
             r#"<tr class="border-b border-slate-700"><td class="py-2 px-3">{email}</td><td class="py-2 px-3">{name}</td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
             email = escape_html(if r.email.is_empty() { "(不明)" } else { &r.email }),
-            name = escape_html(&event_label(&r.event_type, "")),
+            name = escape_html(&event_label(&r.event_type, &r.target_id)),
             cnt = r.count,
             last = escape_html(&r.last_at),
         ));
@@ -408,10 +425,15 @@ mod usage_render_tests {
     use crate::audit::dao::UsageRow;
 
     fn row(email: &str, ev: &str, cnt: i64) -> UsageRow {
+        row_t(email, ev, "", cnt)
+    }
+
+    fn row_t(email: &str, ev: &str, target: &str, cnt: i64) -> UsageRow {
         UsageRow {
             account_id: "acc-1".to_string(),
             email: email.to_string(),
             event_type: ev.to_string(),
+            target_id: target.to_string(),
             count: cnt,
             last_at: "2026-08-10T09:00:00Z".to_string(),
         }
@@ -445,6 +467,67 @@ mod usage_render_tests {
         // 期間切替リンク
         for d in ["days=7", "days=30", "days=90"] {
             assert!(html.contains(d), "{d} の切替リンクが必要");
+        }
+    }
+
+    /// 逆証明: タブ閲覧は「どのタブか」まで出さないと集計の意味がない。
+    /// 2026-08-10 の本番確認で「タブを開く:」と行き先が空のまま出ていた回帰。
+    #[test]
+    fn tab_views_are_broken_down_by_tab() {
+        let by_event = vec![
+            row_t("", "view_tab", "/tab/survey", 12),
+            row_t("", "view_tab", "/tab/company", 5),
+        ];
+        let html = usage_page(30, &by_event, &[], &[]);
+        assert!(html.contains("タブを開く: 媒体分析"), "どのタブか出ること");
+        assert!(
+            html.contains("タブを開く: 企業検索"),
+            "タブごとに行が分かれること"
+        );
+        assert!(
+            !html.contains("タブを開く:<"),
+            "行き先が空のまま出てはいけない"
+        );
+    }
+
+    /// 記録している全イベントが日本語名を持つ（内部コードの露出を防ぐ）
+    #[test]
+    fn every_recorded_event_has_a_japanese_label() {
+        let recorded = [
+            "login",
+            "logout",
+            "upload_survey_csv",
+            "generate_survey_report",
+            "generate_survey_guide",
+            "generate_integrated_report",
+            "generate_insight_report",
+            "generate_consult_brief",
+            "generate_consult_evidence_pack",
+            "generate_consult_hearing_sheet",
+            "generate_consult_action_memo",
+            "view_consult_hearing_form",
+            "save_consult_hearing",
+            "view_consult_hypothesis_review",
+            "save_consult_hypothesis_review",
+            "view_company_profile",
+            "view_industry_companies",
+            "download_csv",
+            "update_profile",
+            "view_tab",
+            "keyword_search",
+            "keyword_seed_compare",
+            "visibility_check",
+            "serp_search",
+            "view_survey_report",
+            "view_integrated_report",
+            "compare_public_jobs",
+        ];
+        for ev in recorded {
+            let label = event_label(ev, "/tab/survey");
+            assert_ne!(
+                label, ev,
+                "{ev} に日本語名が必要（内部コードが画面に出ている）"
+            );
         }
     }
 
