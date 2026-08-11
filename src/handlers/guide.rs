@@ -78,7 +78,7 @@ fn build_section_basic() -> String {
           <h4 class="text-white font-semibold mb-1">ログイン</h4>
           <ul class="list-disc list-inside ml-2">
             <li>メールアドレスとパスワードを入力してログイン</li>
-            <li>許可ドメイン: @f-a-c.co.jp, @cyxen.co.jp</li>
+            <li>許可ドメイン: @f-a-c.co.jp</li>
           </ul>
         </div>
         <div>

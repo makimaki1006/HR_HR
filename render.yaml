@@ -16,7 +16,7 @@ services:
       - key: AUTH_PASSWORD
         sync: false
       - key: ALLOWED_DOMAINS
-        value: "f-a-c.co.jp,cyxen.co.jp"
+        value: "f-a-c.co.jp"
       - key: HELLOWORK_DB_PATH
         value: "data/hellowork.db"
       - key: TURSO_EXTERNAL_URL

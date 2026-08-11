@@ -90,8 +90,10 @@ impl AppConfig {
                     }
                 })
                 .collect(),
+            // 2026-08-10: cyxen.co.jp を許可ドメインから削除（ユーザー指示）。
+            // このドメインのアカウントはログインできなくなる。
             allowed_domains: env::var("ALLOWED_DOMAINS")
-                .unwrap_or_else(|_| "f-a-c.co.jp,cyxen.co.jp".to_string())
+                .unwrap_or_else(|_| "f-a-c.co.jp".to_string())
                 .split(',')
                 .map(|s| s.trim().to_lowercase())
                 .collect(),

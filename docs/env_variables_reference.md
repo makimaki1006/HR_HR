@@ -25,7 +25,7 @@
 | 2 | `AUTH_PASSWORD` | `""` | 平文パスワード (社内・無期限) | 認証 OFF (`auth_password.is_empty() && auth_password_hash.is_empty()` 時) | `config.rs:56` |
 | 3 | `AUTH_PASSWORD_HASH` | `""` | bcrypt ハッシュ (社内・無期限、Cargo.toml `bcrypt = "0.16"`) | 同上 | `config.rs:57` |
 | 4 | `AUTH_PASSWORDS_EXTRA` | `""` | 外部期限付きパスワード `pass1:2026-06-30,pass2:2026-12-31` 形式 | 外部認証なし | `config.rs:58` |
-| 5 | `ALLOWED_DOMAINS` | `f-a-c.co.jp,cyxen.co.jp` | 社内ドメイン (カンマ区切り) | デフォルト 2 ドメイン | `config.rs:75` |
+| 5 | `ALLOWED_DOMAINS` | `f-a-c.co.jp` | 社内ドメイン (カンマ区切り) | 2026-08-10 に cyxen.co.jp を削除 | `config.rs:93` |
 | 6 | `ALLOWED_DOMAINS_EXTRA` | `""` | 外部追加ドメイン | 追加なし | `config.rs:80` |
 | 7 | `HELLOWORK_DB_PATH` | `data/hellowork.db` | SQLite ファイルパス | デフォルト | `config.rs:86` |
 | 8 | `CACHE_TTL_SECS` | `1800` (30 分) | DashMap TTL | デフォルト | `config.rs:88` |
@@ -100,7 +100,7 @@ cargo run
 | `PORT` | (Render が自動設定、9216 のまま) |
 | `AUTH_PASSWORD_HASH` | bcrypt ハッシュ (sync:false) |
 | `AUTH_PASSWORDS_EXTRA` | `clientA:2026-06-30,clientB:2026-12-31` |
-| `ALLOWED_DOMAINS` | `f-a-c.co.jp,cyxen.co.jp` (デフォルト) |
+| `ALLOWED_DOMAINS` | `f-a-c.co.jp` (デフォルト) |
 | `TURSO_EXTERNAL_URL` / `_TOKEN` | (sync:false) |
 | `SALESNOW_TURSO_URL` / `_TOKEN` | (sync:false) |
 | `AUDIT_TURSO_URL` / `_TOKEN` | (sync:false) |
