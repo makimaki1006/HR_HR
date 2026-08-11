@@ -19,6 +19,7 @@ fn layout(title: &str, body: &str) -> String {
 <nav class="mb-6 flex items-center gap-4 text-sm">
   <a href="/" class="text-slate-400 hover:text-white">← ダッシュボード</a>
   <span class="text-slate-600">|</span>
+  <a href="/admin/usage" class="text-blue-400 hover:text-blue-300">利用状況</a>
   <a href="/admin/users" class="text-blue-400 hover:text-blue-300">ユーザー一覧</a>
   <a href="/admin/login-failures" class="text-blue-400 hover:text-blue-300">失敗監視</a>
   <a href="/my/activity" class="text-blue-400 hover:text-blue-300 ml-auto">自分の履歴</a>
@@ -259,4 +260,220 @@ pub fn login_failures_page(failures: &[LoginSessionRow]) -> String {
         failures.len()
     );
     layout("ログイン失敗 - 管理", &body)
+}
+
+// ============================================================================
+// 利用状況 (2026-08-10 追加)
+// ============================================================================
+
+/// 機能コード → 画面に出す日本語名。
+///
+/// 未知のコードはそのまま表示する（新しい記録を足したときに黙って消えないように）。
+fn event_label(event_type: &str, target_id: &str) -> String {
+    if event_type == "view_tab" {
+        let name = match target_id {
+            "/tab/survey" => "媒体分析",
+            "/tab/jobmap" => "地図",
+            "/tab/regional_analysis" => "地域分析",
+            "/tab/company" => "企業検索",
+            "/tab/driver" => "職種辞典",
+            "/tab/license" => "資格辞書",
+            "/tab/keyword_tools" => "キーワード需要",
+            "/tab/jobgen_tools" => "求人票作成",
+            "/tab/guide" => "使い方ガイド",
+            other => other,
+        };
+        return format!("タブを開く: {name}");
+    }
+    match event_type {
+        "keyword_search" => "キーワード検索".to_string(),
+        "keyword_seed_compare" => "見え方チェック(比較)".to_string(),
+        "visibility_check" => "求人ページの見え方チェック".to_string(),
+        "serp_search" => "検索結果の取得".to_string(),
+        "view_survey_report" => "媒体分析レポートを開く".to_string(),
+        "view_integrated_report" => "統合レポートを開く".to_string(),
+        "compare_public_jobs" => "公的求人データと比較".to_string(),
+        "upload_survey_csv" | "upload" => "CSV取込".to_string(),
+        "generate_survey_report" => "媒体分析レポート生成".to_string(),
+        "generate_survey_guide" => "解説資料の生成".to_string(),
+        "generate_integrated_report" => "統合レポート生成".to_string(),
+        "generate_insight_report" => "示唆レポート生成".to_string(),
+        "view_company_profile" => "企業カルテを見る".to_string(),
+        "view_industry_companies" => "業種別の企業一覧".to_string(),
+        "download_csv" => "CSVダウンロード".to_string(),
+        "update_profile" => "プロフィール更新".to_string(),
+        other => other.to_string(),
+    }
+}
+
+pub fn usage_page(
+    days: i64,
+    by_event: &[crate::audit::dao::UsageRow],
+    by_account: &[crate::audit::dao::UsageRow],
+    cross: &[crate::audit::dao::UsageRow],
+) -> String {
+    let period_links = [7_i64, 30, 90]
+        .iter()
+        .map(|d| {
+            let cls = if *d == days {
+                "px-3 py-1 rounded bg-blue-700 text-white text-xs"
+            } else {
+                "px-3 py-1 rounded bg-slate-700 text-slate-300 text-xs hover:bg-slate-600"
+            };
+            format!(r#"<a href="/admin/usage?days={d}" class="{cls}">直近{d}日</a>"#)
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let mut event_rows = String::new();
+    for r in by_event {
+        event_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700"><td class="py-2 px-3">{name}</td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
+            name = escape_html(&event_label(&r.event_type, "")),
+            cnt = r.count,
+            last = escape_html(&r.last_at),
+        ));
+    }
+    if event_rows.is_empty() {
+        event_rows.push_str(r#"<tr><td colspan="3" class="py-4 px-3 text-slate-500">この期間の記録はまだありません。</td></tr>"#);
+    }
+
+    let mut account_rows = String::new();
+    for r in by_account {
+        account_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700"><td class="py-2 px-3"><a class="text-blue-400 hover:underline" href="/admin/users/{id}">{email}</a></td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
+            id = escape_html(&r.account_id),
+            email = escape_html(if r.email.is_empty() { "(不明)" } else { &r.email }),
+            cnt = r.count,
+            last = escape_html(&r.last_at),
+        ));
+    }
+    if account_rows.is_empty() {
+        account_rows.push_str(r#"<tr><td colspan="3" class="py-4 px-3 text-slate-500">この期間の記録はまだありません。</td></tr>"#);
+    }
+
+    let mut cross_rows = String::new();
+    for r in cross {
+        cross_rows.push_str(&format!(
+            r#"<tr class="border-b border-slate-700"><td class="py-2 px-3">{email}</td><td class="py-2 px-3">{name}</td><td class="py-2 px-3 text-right text-emerald-400">{cnt}</td><td class="py-2 px-3 text-slate-400 text-xs">{last}</td></tr>"#,
+            email = escape_html(if r.email.is_empty() { "(不明)" } else { &r.email }),
+            name = escape_html(&event_label(&r.event_type, "")),
+            cnt = r.count,
+            last = escape_html(&r.last_at),
+        ));
+    }
+    if cross_rows.is_empty() {
+        cross_rows.push_str(r#"<tr><td colspan="4" class="py-4 px-3 text-slate-500">この期間の記録はまだありません。</td></tr>"#);
+    }
+
+    let body = format!(
+        r#"<h1 class="text-2xl font-bold mb-1">利用状況</h1>
+<p class="text-slate-400 text-sm mb-4">誰が・どの機能を・どれだけ使ったかの集計です。記録しているのはタブ切替・検索実行・レポート生成・CSV取込などの操作で、入力途中の絞り込みや画面の再描画は含みません。</p>
+<div class="mb-5 flex items-center gap-2">{period_links}</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+  <div>
+    <h2 class="text-sm font-semibold text-slate-200 mb-2">機能別</h2>
+    <div class="overflow-x-auto rounded bg-slate-800/30"><table class="w-full text-sm">
+      <thead class="bg-slate-800 text-xs uppercase text-slate-300"><tr>
+        <th class="py-2 px-3 text-left">機能</th><th class="py-2 px-3 text-right">回数</th><th class="py-2 px-3 text-left">最終利用</th>
+      </tr></thead><tbody>{event_rows}</tbody>
+    </table></div>
+  </div>
+  <div>
+    <h2 class="text-sm font-semibold text-slate-200 mb-2">ユーザー別</h2>
+    <div class="overflow-x-auto rounded bg-slate-800/30"><table class="w-full text-sm">
+      <thead class="bg-slate-800 text-xs uppercase text-slate-300"><tr>
+        <th class="py-2 px-3 text-left">ユーザー</th><th class="py-2 px-3 text-right">操作回数</th><th class="py-2 px-3 text-left">最終利用</th>
+      </tr></thead><tbody>{account_rows}</tbody>
+    </table></div>
+  </div>
+</div>
+
+<h2 class="text-sm font-semibold text-slate-200 mb-2">ユーザー × 機能（上位100件）</h2>
+<div class="overflow-x-auto rounded bg-slate-800/30"><table class="w-full text-sm">
+  <thead class="bg-slate-800 text-xs uppercase text-slate-300"><tr>
+    <th class="py-2 px-3 text-left">ユーザー</th><th class="py-2 px-3 text-left">機能</th>
+    <th class="py-2 px-3 text-right">回数</th><th class="py-2 px-3 text-left">最終利用</th>
+  </tr></thead><tbody>{cross_rows}</tbody>
+</table></div>
+<p class="text-slate-600 text-xs mt-4">日時は協定世界時(UTC)です。ログは1年で自動削除されます。</p>"#
+    );
+    layout("利用状況 - 管理", &body)
+}
+
+#[cfg(test)]
+mod usage_render_tests {
+    use super::*;
+    use crate::audit::dao::UsageRow;
+
+    fn row(email: &str, ev: &str, cnt: i64) -> UsageRow {
+        UsageRow {
+            account_id: "acc-1".to_string(),
+            email: email.to_string(),
+            event_type: ev.to_string(),
+            count: cnt,
+            last_at: "2026-08-10T09:00:00Z".to_string(),
+        }
+    }
+
+    /// 集計値がそのまま画面に出ること（要素の存在だけでなく実数を検証）
+    #[test]
+    fn usage_page_shows_counts_and_japanese_labels() {
+        let by_event = vec![row("", "view_tab", 42), row("", "upload_survey_csv", 7)];
+        let by_account = vec![row("a@f-a-c.co.jp", "", 49)];
+        let cross = vec![row("a@f-a-c.co.jp", "view_tab", 42)];
+        let html = usage_page(30, &by_event, &by_account, &cross);
+
+        assert!(html.contains(">42<"), "機能別の回数 42 が表示されること");
+        assert!(
+            html.contains(">49<"),
+            "ユーザー別の回数 49 が表示されること"
+        );
+        assert!(
+            html.contains("a@f-a-c.co.jp"),
+            "ユーザーのメールが表示されること"
+        );
+        assert!(
+            html.contains("CSV取込"),
+            "内部コードでなく日本語名で表示されること"
+        );
+        assert!(
+            !html.contains("upload_survey_csv"),
+            "内部イベントコードを画面に出さない"
+        );
+        // 期間切替リンク
+        for d in ["days=7", "days=30", "days=90"] {
+            assert!(html.contains(d), "{d} の切替リンクが必要");
+        }
+    }
+
+    /// タブ名は URL でなく日本語で出す
+    #[test]
+    fn tab_paths_are_shown_in_japanese() {
+        assert_eq!(
+            event_label("view_tab", "/tab/survey"),
+            "タブを開く: 媒体分析"
+        );
+        assert_eq!(
+            event_label("view_tab", "/tab/company"),
+            "タブを開く: 企業検索"
+        );
+        // 未知のパスは握り潰さずそのまま出す（記録が黙って消えないように）
+        assert_eq!(
+            event_label("view_tab", "/tab/unknown"),
+            "タブを開く: /tab/unknown"
+        );
+        assert_eq!(event_label("mystery_event", ""), "mystery_event");
+    }
+
+    /// 記録が 0 件のときに空表ではなく説明を出す
+    #[test]
+    fn empty_usage_shows_explanation_not_blank_table() {
+        let html = usage_page(7, &[], &[], &[]);
+        assert!(
+            html.contains("この期間の記録はまだありません"),
+            "0 件のとき空表にしない"
+        );
+    }
 }

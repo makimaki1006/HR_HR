@@ -646,6 +646,13 @@ pub fn build_app(state: Arc<AppState>) -> Router {
         // 資格辞書 / 職種辞典と同じテーブルの読み取り専用・軽量 JSON。
         // GET /api/dict/license_card?name=... / GET /api/dict/occupation_card?name=...
         .merge(handlers::dict_cards::router())
+        // 2026-08-10: 「意味のある操作」を activity_logs に記録する層。
+        // auth_middleware より内側に置く (route_layer は後に足した方が外側)。
+        // 各ハンドラのシグネチャを変えずに済むよう middleware で一括記録する。
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            activity_log_mw,
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -662,6 +669,8 @@ pub fn build_app(state: Arc<AppState>) -> Router {
             "/admin/login-failures",
             get(handlers::admin::admin_login_failures),
         )
+        // 2026-08-10: 利用状況（誰が・どの機能を・どれだけ使ったか）
+        .route("/admin/usage", get(handlers::admin::admin_usage))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             require_admin_mw,
@@ -950,6 +959,57 @@ async fn auth_middleware(
 
 /// 管理者専用ミドルウェア (require_auth 配下で動作)。
 /// Cookie セッションの account_id を accounts.role と照合。
+/// 記録対象にする「意味のある操作」の対応表 (2026-08-10)。
+///
+/// ユーザー決定 (2026-08-10): 全リクエストではなく、タブ切替・検索実行・
+/// レポート生成・CSV取込といった意味のある操作だけを記録する。
+/// 打鍵ごとに走るタイプアヘッド (`/api/company/search`) や、チャート再描画用の
+/// 細かい API は意図的に対象外 (書き込み量が跳ね上がるため)。
+///
+/// Returns: `(event_type, target_type)`
+fn meaningful_activity(
+    method: &axum::http::Method,
+    path: &str,
+) -> Option<(&'static str, &'static str)> {
+    if method != axum::http::Method::GET {
+        return None;
+    }
+    if path.starts_with("/tab/") {
+        return Some(("view_tab", "tab"));
+    }
+    match path {
+        "/api/keywords" => Some(("keyword_search", "keyword")),
+        "/api/url-visibility-check" => Some(("visibility_check", "url")),
+        "/api/keyword-seed-compare" => Some(("keyword_seed_compare", "url")),
+        "/api/serp" => Some(("serp_search", "keyword")),
+        "/report/survey" => Some(("view_survey_report", "report")),
+        "/report/integrated" => Some(("view_integrated_report", "report")),
+        "/api/survey/integrate" => Some(("compare_public_jobs", "survey")),
+        _ => None,
+    }
+}
+
+/// 意味のある操作を activity_logs に記録するミドルウェア (2026-08-10)。
+///
+/// 記録は fire-and-forget (`audit::record_event` が spawn_blocking で detach)。
+/// 成功応答のときだけ記録するので、認証エラーや 404 は数に入らない。
+async fn activity_log_mw(
+    session: Session,
+    State(state): State<Arc<AppState>>,
+    request: axum::extract::Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let hit = meaningful_activity(request.method(), request.uri().path())
+        .map(|(ev, tt)| (ev, tt, request.uri().path().to_string()));
+    let response = next.run(request).await;
+    if let Some((event_type, target_type, path)) = hit {
+        if response.status().is_success() {
+            audit::record_event(&state.audit, &session, event_type, target_type, &path, "").await;
+        }
+    }
+    response
+}
+
 async fn require_admin_mw(
     session: Session,
     State(state): State<Arc<AppState>>,
@@ -1361,7 +1421,27 @@ async fn dashboard_page(State(state): State<Arc<AppState>>, session: Session) ->
     } else {
         ""
     };
+    // 2026-08-10: 「履歴」(自分の操作履歴だけが見える画面) はヘッダーから外し、
+    // 管理者にだけ「管理」リンクを出す。他ユーザーを含む利用状況は /admin/usage で見る。
+    let admin_link = {
+        // 管理者判定は config の admin_emails で行う（DB 往復を避けるため）。
+        // upsert_account は「昇格のみ」なので、config に載っている限り DB 側も
+        // admin になる。実際の入場ゲートは require_admin_mw（DB の role を見る）
+        // なので、ここでの判定はリンクの出し分けだけに使う。
+        let is_admin = state
+            .config
+            .admin_emails
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(&user_email));
+        if is_admin {
+            r#"<a href="/admin/usage" class="text-slate-400 hover:text-white text-sm transition" title="利用状況・ユーザー管理">管理</a>"#
+        } else {
+            ""
+        }
+    };
+
     let html = include_str!("../templates/dashboard_inline.html")
+        .replace("{{ADMIN_LINK}}", admin_link)
         .replace("{{PREF_OPTIONS}}", &pref_options)
         .replace("{{MUNI_OPTIONS}}", &muni_options)
         .replace("{{SELECTED_JOB_TYPES_JSON}}", &selected_job_types_json)
@@ -1622,12 +1702,11 @@ fn render_login(state: &AppState, error_message: Option<String>) -> Html<String>
         })
         .unwrap_or_default();
 
-    let guide_html = handlers::guide::build_guide_html();
-
+    // 2026-08-10: ログイン前の取扱説明書表示を廃止したため build_guide_html() は
+    // 呼ばない（/tab/guide 側では引き続き使用）。
     let html = include_str!("../templates/login_inline.html")
         .replace("{{ERROR_HTML}}", &error_html)
-        .replace("{{DOMAINS}}", &domains)
-        .replace("{{GUIDE_HTML}}", &guide_html);
+        .replace("{{DOMAINS}}", &domains);
 
     Html(html)
 }
@@ -1833,5 +1912,68 @@ pub fn precompress_geojson() {
     }
     if count > 0 {
         tracing::info!("Pre-compressed {count} GeoJSON files to .gz");
+    }
+}
+
+#[cfg(test)]
+mod activity_log_tests {
+    use super::meaningful_activity;
+    use axum::http::Method;
+
+    /// 記録対象になる操作（ユーザー決定 2026-08-10「意味のある操作だけ」）
+    #[test]
+    fn logs_tab_views_and_explicit_actions() {
+        let cases = [
+            ("/tab/survey", "view_tab"),
+            ("/tab/jobmap", "view_tab"),
+            ("/tab/company", "view_tab"),
+            ("/api/keywords", "keyword_search"),
+            ("/api/url-visibility-check", "visibility_check"),
+            ("/api/keyword-seed-compare", "keyword_seed_compare"),
+            ("/api/serp", "serp_search"),
+            ("/report/survey", "view_survey_report"),
+            ("/report/integrated", "view_integrated_report"),
+            ("/api/survey/integrate", "compare_public_jobs"),
+        ];
+        for (path, expected) in cases {
+            let got = meaningful_activity(&Method::GET, path);
+            assert_eq!(
+                got.map(|(ev, _)| ev),
+                Some(expected),
+                "{path} は {expected} として記録されるべき"
+            );
+        }
+    }
+
+    /// 逆証明: 打鍵ごとに走る API や細かい描画 API は記録しない。
+    /// ここが漏れると Turso への書き込みが跳ね上がる（過去に課金事故あり）。
+    #[test]
+    fn does_not_log_typeahead_or_chart_apis() {
+        let excluded = [
+            "/api/company/search", // 2文字目から打鍵ごとに発火するタイプアヘッド
+            "/api/jobmap/markers", // 地図のパン/ズームで繰り返し呼ばれる
+            "/api/regions",        // プルダウン補完
+            "/api/status",
+            "/api/dict/license_card",
+            "/static/js/app.js",
+            "/",
+        ];
+        for path in excluded {
+            assert!(
+                meaningful_activity(&Method::GET, path).is_none(),
+                "{path} は記録対象にしてはいけない（書き込み量が跳ね上がる）"
+            );
+        }
+    }
+
+    /// GET 以外は記録しない（フォーム POST は個別ハンドラ側で記録済み）
+    #[test]
+    fn ignores_non_get_methods() {
+        for m in [Method::POST, Method::PUT, Method::DELETE] {
+            assert!(
+                meaningful_activity(&m, "/tab/survey").is_none(),
+                "{m} は記録対象外"
+            );
+        }
     }
 }

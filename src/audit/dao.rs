@@ -330,6 +330,98 @@ pub fn list_activity_for_account(
         .collect()
 }
 
+/// 利用集計 1 行 (ユーザー × 機能)
+///
+/// 2026-08-10 追加: 管理者が「誰が・どの機能を・どれだけ使ったか」を
+/// 追えるようにするための集計。個別ログではなく GROUP BY 済みの結果を返す。
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct UsageRow {
+    pub account_id: String,
+    pub email: String,
+    pub event_type: String,
+    pub count: i64,
+    pub last_at: String,
+}
+
+/// 指定日時以降の「ユーザー × 機能」利用回数。多い順。
+pub fn usage_by_account_and_event(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<UsageRow> {
+    turso
+        .query(
+            "SELECT a.account_id AS account_id, \
+                    COALESCE(ac.email, '') AS email, \
+                    a.event_type AS event_type, \
+                    COUNT(*) AS cnt, \
+                    MAX(a.at) AS last_at \
+             FROM activity_logs a \
+             LEFT JOIN accounts ac ON ac.id = a.account_id \
+             WHERE a.at >= ?1 \
+             GROUP BY a.account_id, a.event_type \
+             ORDER BY cnt DESC LIMIT ?2",
+            &[&since_iso, &limit],
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| UsageRow {
+            account_id: get_str(&r, "account_id"),
+            email: get_str(&r, "email"),
+            event_type: get_str(&r, "event_type"),
+            count: get_i64(&r, "cnt"),
+            last_at: get_str(&r, "last_at"),
+        })
+        .collect()
+}
+
+/// 指定日時以降の「機能ごと」利用回数（全ユーザー合算）。多い順。
+pub fn usage_by_event(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<UsageRow> {
+    turso
+        .query(
+            "SELECT '' AS account_id, '' AS email, \
+                    event_type AS event_type, \
+                    COUNT(*) AS cnt, \
+                    MAX(at) AS last_at \
+             FROM activity_logs WHERE at >= ?1 \
+             GROUP BY event_type ORDER BY cnt DESC LIMIT ?2",
+            &[&since_iso, &limit],
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| UsageRow {
+            account_id: String::new(),
+            email: String::new(),
+            event_type: get_str(&r, "event_type"),
+            count: get_i64(&r, "cnt"),
+            last_at: get_str(&r, "last_at"),
+        })
+        .collect()
+}
+
+/// 指定日時以降の「ユーザーごと」総操作回数。多い順。
+pub fn usage_by_account(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<UsageRow> {
+    turso
+        .query(
+            "SELECT a.account_id AS account_id, \
+                    COALESCE(ac.email, '') AS email, \
+                    '' AS event_type, \
+                    COUNT(*) AS cnt, \
+                    MAX(a.at) AS last_at \
+             FROM activity_logs a \
+             LEFT JOIN accounts ac ON ac.id = a.account_id \
+             WHERE a.at >= ?1 \
+             GROUP BY a.account_id ORDER BY cnt DESC LIMIT ?2",
+            &[&since_iso, &limit],
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| UsageRow {
+            account_id: get_str(&r, "account_id"),
+            email: get_str(&r, "email"),
+            event_type: String::new(),
+            count: get_i64(&r, "cnt"),
+            last_at: get_str(&r, "last_at"),
+        })
+        .collect()
+}
+
 /// 1年より古いログを削除 (日次バッチから呼ぶ)
 pub fn purge_old_activity(audit: &AuditDb) -> Result<(), String> {
     // 365日前の ISO8601
