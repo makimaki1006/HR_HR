@@ -24,53 +24,72 @@
     <header class="bg-navy-800 border-b border-slate-700 px-4 sm:px-6 py-3 flex items-center justify-between flex-wrap gap-2" style="overflow-x: clip;">
         <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
             <h1 class="text-lg font-bold text-white">求人ダッシュボード</h1>
-            <span class="text-slate-400 text-sm">📍</span>
-            <label for="pref-select" class="sr-only">都道府県</label>
-            <select id="pref-select" aria-label="都道府県を選択"
-                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">全国</option>
-                {{PREF_OPTIONS}}
-            </select>
-            <label for="muni-select" class="sr-only">市区町村</label>
-            <select id="muni-select" aria-label="市区町村を選択"
-                class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">すべて</option>
-                {{MUNI_OPTIONS}}
-            </select>
-            <span class="text-slate-400 text-sm">🏭</span>
-            <div class="relative" id="industry-dropdown-container">
-                <button type="button" id="industry-btn" onclick="toggleIndustryDropdown()"
-                    aria-expanded="false" aria-haspopup="true" aria-controls="industry-panel"
-                    class="bg-navy-700 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white min-w-0 sm:min-w-[180px] max-w-[60vw] sm:max-w-none flex items-center gap-1 cursor-pointer hover:border-slate-500 transition">
-                    <span id="industry-btn-text">全産業</span>
-                    <svg class="w-3 h-3 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div id="industry-panel" role="tree" aria-label="産業分類フィルタ" class="hidden absolute z-50 mt-1 bg-navy-700 border border-slate-600 rounded-lg shadow-xl"
-                     style="max-height:70vh;overflow-y:auto;min-width:min(420px, calc(100vw - 2rem));padding:8px;">
-                    <div class="flex justify-between items-center mb-2 pb-1 border-b border-slate-600">
-                        <span class="text-xs text-slate-400">産業分類（大分類展開で中分類表示）</span>
-                        <button type="button" onclick="clearIndustryFilter()" class="text-xs text-blue-400 hover:text-blue-300">全解除</button>
-                    </div>
-                    <div class="flex flex-wrap gap-1 mb-2 pb-1 border-b border-slate-700">
-                        <span class="text-xs text-slate-500 mr-1 self-center">よく使う:</span>
-                        <button type="button" onclick="applyPreset(['医療','老人福祉・介護'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">医療・介護</button>
-                        <button type="button" onclick="applyPreset(['IT・通信'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">IT・通信</button>
-                        <button type="button" onclick="applyPreset(['建設業','製造業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">建設・製造</button>
-                        <button type="button" onclick="applyPreset(['サービス業','飲食業','宿泊業','小売業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">サービス全般</button>
-                    </div>
-                    <div id="industry-tree-list"><p class="text-slate-500 text-sm p-2">読み込み中...</p></div>
+            <!-- 2026-08-10: 3 つのフィルタ（都道府県 / 市区町村 / 産業）が小さくて
+                 気づかれない・選びにくいという指摘への対応。
+                   ・「絞り込み」の枠で 3 つがひとまとまりの条件だと分かるようにした
+                   ・絵文字だけでなく「何を選ぶ欄か」の文字ラベルを常時表示
+                   ・クリック対象を拡大（高さ 36px 以上・パディング増）
+                   ・未選択（全国 / すべて / 全産業）と選択済みで配色を変える
+                     選択済みを示す .is-active は updateBreadcrumb() と
+                     updateIndustryLabel() が付け外しする（下部 script 参照）
+                 id・on* 関数名・{{...}} 置換子は既存 JS / サーバ側が依存するため不変。 -->
+            <div class="filter-group">
+                <span class="filter-group-title">絞り込み</span>
+                <div class="filter-field">
+                    <label for="pref-select" class="filter-field-label">📍 都道府県</label>
+                    <select id="pref-select" aria-label="都道府県を選択" class="filter-control">
+                        <option value="">全国</option>
+                        {{PREF_OPTIONS}}
+                    </select>
                 </div>
-            </div>
+                <div class="filter-field">
+                    <label for="muni-select" class="filter-field-label">市区町村</label>
+                    <select id="muni-select" aria-label="市区町村を選択" class="filter-control">
+                        <option value="">すべて</option>
+                        {{MUNI_OPTIONS}}
+                    </select>
+                </div>
+                <div class="filter-field">
+                    <!-- button は label の for= 対象外なので span で見出しだけ出す -->
+                    <span class="filter-field-label">🏭 産業</span>
+                    <div class="relative" id="industry-dropdown-container">
+                        <button type="button" id="industry-btn" onclick="toggleIndustryDropdown()"
+                            aria-expanded="false" aria-haspopup="true" aria-controls="industry-panel"
+                            class="filter-control">
+                            <span id="industry-btn-text">全産業</span>
+                            <svg class="w-3 h-3 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div id="industry-panel" role="tree" aria-label="産業分類フィルタ" class="hidden absolute z-50 mt-1 bg-navy-700 border border-slate-600 rounded-lg shadow-xl"
+                             style="max-height:70vh;overflow-y:auto;min-width:min(420px, calc(100vw - 2rem));padding:8px;">
+                            <div class="flex justify-between items-center mb-2 pb-1 border-b border-slate-600">
+                                <span class="text-xs text-slate-400">産業分類（大分類展開で中分類表示）</span>
+                                <button type="button" onclick="clearIndustryFilter()" class="text-xs text-blue-400 hover:text-blue-300">全解除</button>
+                            </div>
+                            <div class="flex flex-wrap gap-1 mb-2 pb-1 border-b border-slate-700">
+                                <span class="text-xs text-slate-500 mr-1 self-center">よく使う:</span>
+                                <button type="button" onclick="applyPreset(['医療','老人福祉・介護'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">医療・介護</button>
+                                <button type="button" onclick="applyPreset(['IT・通信'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">IT・通信</button>
+                                <button type="button" onclick="applyPreset(['建設業','製造業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">建設・製造</button>
+                                <button type="button" onclick="applyPreset(['サービス業','飲食業','宿泊業','小売業'])" class="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-full transition-colors">サービス全般</button>
+                            </div>
+                            <div id="industry-tree-list"><p class="text-slate-500 text-sm p-2">読み込み中...</p></div>
+                        </div>
+                    </div><!-- /#industry-dropdown-container -->
+                </div><!-- /.filter-field -->
+            </div><!-- /.filter-group -->
         </div>
         <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
-            <button type="button" onclick="openIntegratedReport()" title="採用市場 統合PDFレポート（新しいタブで開く）"
-                class="px-2 py-1 bg-blue-700 hover:bg-blue-600 text-white text-xs rounded transition">📄 統合PDF</button>
+            <!-- 2026-08-10: 「統合PDF」ボタンを UI から削除（用途不明・認知負荷）。
+                 /integrated-report のハンドラ・ルートは温存（URL 直アクセスは可）。 -->
             <button type="button" onclick="navigateToTab('/tab/guide')" title="使い方ガイド"
                 class="text-slate-400 hover:text-white text-sm transition p-1.5 rounded hover:bg-navy-700">?</button>
             <span class="text-slate-400 text-sm">ログイン: {{USER_EMAIL}}</span>
-            <a href="/my/activity" class="text-slate-400 hover:text-white text-sm transition" title="自分の履歴">履歴</a>
+            <!-- 2026-08-10: 自分の操作履歴だけを見る「履歴」リンクを削除。
+                 /my/activity のルートは温存（URL 直アクセスは可）。
+                 管理者にのみ「管理」リンク（利用状況・ユーザー一覧）を出す。 -->
+            {{ADMIN_LINK}}
             <a href="/my/profile" class="text-slate-400 hover:text-white text-sm transition" title="プロフィール編集">設定</a>
             <a href="/logout" class="text-slate-400 hover:text-white text-sm transition">ログアウト</a>
         </div>
@@ -86,11 +105,23 @@
         <!-- 2026-07-28: タブ再編 (ユーザー指定順)。求人検索 (/tab/competitive) は UI 非表示
              (handler/URL 直アクセスは温存、上記 2026-05-15 の非表示タブと同じ扱い)。
              職種カルテ→職種辞典、資格カルテ→資格辞書に改名 (URL・handler は不変)。 -->
-        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
+        <!-- 2026-08-10: タブを 4 つに集約（認知負荷削減）。
+             地図 / 地域分析 / 企業検索 / 職種辞典 / 資格辞書 は「調べる」1 タブの
+             中のサブタブに移動した。URL・handler は不変で、サブタブは従来どおり
+             #content を直接 swap する（reloadActiveTab / ?tab= 復元 / tabcache が
+             .tab-btn.active の hx-get に依存しているため、この構造を崩さない）。 -->
+        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/survey" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">媒体分析</button>
         {{KEYWORDS_TAB}}
         {{JOBGEN_TAB}}
-        <button class="tab-btn active" role="tab" aria-selected="true" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
+        <button type="button" id="explore-group-btn" class="tab-btn-group" aria-expanded="false"
+            aria-controls="explore-subnav" onclick="toggleExploreGroup()">調べる ▾</button>
+    </nav>
+
+    <!-- 「調べる」グループのサブタブ列（既定は非表示） -->
+    <div id="explore-subnav" class="hidden bg-navy-800/70 border-b border-slate-700 px-6 flex gap-1 overflow-x-auto scrollbar-thin"
+         role="tablist" aria-label="調べる（サブタブ）" style="-webkit-overflow-scrolling:touch;scrollbar-width:thin">
+        <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/jobmap" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">地図</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/regional_analysis" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">地域分析</button>
@@ -100,8 +131,7 @@
             onclick="setActiveTab(this)">職種辞典</button>
         <button class="tab-btn" role="tab" aria-selected="false" hx-get="/tab/license" hx-target="#content" hx-swap="innerHTML"
             onclick="setActiveTab(this)">資格辞書</button>
-        <a href="/proposal-mock" target="_blank" rel="noopener" class="tab-btn" role="tab" aria-selected="false" title="採用提案パッケージの試作モック（新しいタブで開く）">採用提案 試作 ↗</a>
-    </nav>
+    </div>
 
     <!-- ブレッドクラム: 現在の選択状態を表示 -->
     <div id="breadcrumb-bar" class="bg-navy-800/60 border-b border-slate-700/50 px-6 py-2 flex items-center gap-2 text-sm">
@@ -182,7 +212,9 @@
     })();
     </script>
     <script src="/static/js/charts.js"></script>
-    <script src="/static/js/export.js"></script>
+    <!-- 2026-08-10: 各タブ見出しへ「印刷 / 画像保存」バーを自動注入する export.js の
+         読み込みを停止（認知負荷削減）。static/js/export.js と CSS は温存しており、
+         この 1 行を戻せば復活する。 -->
     <!-- 2026-05-15: region_karte.js は static/js/ に未存在 (過去削除済) で 404。
          地域カルテタブを UI 非表示化したので参照削除 (handler は温存). -->
     <!-- <script src="/static/js/region_karte.js"></script> -->
@@ -195,7 +227,8 @@
             // 対応するタブを active 化 + HTMX swap で復元する。
             var params = new URLSearchParams(location.search);
             var requestedTab = params.get('tab');
-            var DEFAULT_TAB = '/tab/jobmap';
+            // 2026-08-10: 既定タブを媒体分析に変更（地図は「調べる」内へ移動）
+            var DEFAULT_TAB = '/tab/survey';
             var targetUrl = DEFAULT_TAB;
             if (requestedTab && requestedTab.startsWith('/tab/')) {
                 targetUrl = requestedTab;
@@ -212,6 +245,8 @@
                 var cleanUrl = location.pathname + location.hash;
                 history.replaceState(null, '', cleanUrl);
             }
+            // ?tab= 復元でサブタブが選ばれた場合は「調べる」列を開く
+            if (typeof syncExploreGroup === 'function') syncExploreGroup();
             htmx.ajax('GET', targetUrl, {target: '#content', swap: 'innerHTML'});
 
             // ブレッドクラム更新
@@ -231,6 +266,10 @@
                     bcPref.textContent = prefSel.value ? prefSel.options[prefSel.selectedIndex].text : '全国';
                     bcPref.classList.toggle('bc-chip-area-active', !!prefSel.value);
                 }
+                // 2026-08-10: ヘッダーの選択欄自体にも「絞り込み中」の見た目を付ける
+                // （未選択＝全国 / すべて のときは通常配色）
+                if (prefSel) prefSel.classList.toggle('is-active', !!prefSel.value);
+                if (muniSel) muniSel.classList.toggle('is-active', !!muniSel.value);
                 if (muniSel && bcMuni && bcMuniSep) {
                     if (muniSel.value) {
                         bcMuni.textContent = muniSel.options[muniSel.selectedIndex].text;
@@ -356,36 +395,10 @@
                 }
             };
 
-            // 2026-07-13: Ver10 レポート専用。openVariantReport と同じ pref/muni/industry を
-            //   組み立てつつ、チェックボックス #ver10-table2e の状態を &table2e=0/1 で付与する。
-            //   HTMX 挿入 <script> は eval されないため、本ファイルで window に登録する。
-            window.openVer10Report = function(ev, sid) {
-                try {
-                    if (ev) ev.preventDefault();
-                    var pref = (document.getElementById('pref-select') || {}).value || '';
-                    var muni = (document.getElementById('muni-select') || {}).value || '';
-                    var industries = (typeof window._selectedIndustryRaws !== 'undefined' && Array.isArray(window._selectedIndustryRaws))
-                        ? window._selectedIndustryRaws : [];
-                    var jobTypes = (typeof window._selectedJobTypes !== 'undefined' && Array.isArray(window._selectedJobTypes))
-                        ? window._selectedJobTypes : [];
-                    var industry = industries.length > 0
-                        ? industries[0]
-                        : (jobTypes.length > 0 ? jobTypes[0] : '');
-                    var cb = document.getElementById('ver10-table2e');
-                    var table2e = (cb && cb.checked === false) ? '0' : '1';
-                    var url = '/report/survey?session_id=' + encodeURIComponent(sid)
-                        + '&variant=ver10'
-                        + '&table2e=' + table2e;
-                    if (pref && pref !== '全国') url += '&pref=' + encodeURIComponent(pref);
-                    if (muni && muni !== 'すべて') url += '&muni=' + encodeURIComponent(muni);
-                    if (industry) url += '&industry=' + encodeURIComponent(industry);
-                    window.open(url, '_blank', 'noopener');
-                    return false;
-                } catch (e) {
-                    console.error('openVer10Report failed', e);
-                    return true;
-                }
-            };
+            // 2026-08-10: Ver10 レポート専用だった openVer10Report を削除。
+            //   ボタンを撤去したので呼び出し元が無くなった (2026-07-13 追加、同 08-10 撤去)。
+            //   サーバ側の ReportVariant::Ver10 と table2e パラメータは温存しているため、
+            //   URL を直接組み立てれば従来どおり生成できる。
 
             // 2026-07-10: セクション選択レポート (媒体分析タブ「出力する内容を選んで…」パネル)。
             //   openVariantReport と同根本 (HTMX 挿入 <script> は eval されない) のため
@@ -847,6 +860,8 @@
                 }
 
                 btn.textContent = text;
+                // 2026-08-10: 産業を 1 つでも選んでいれば「絞り込み中」の見た目にする
+                if (btnEl) btnEl.classList.toggle('is-active', allNames.length > 0);
                 if (btnEl && allNames.length > 0) {
                     btnEl.title = allNames.join('\n');
                 } else if (btnEl) {
@@ -959,7 +974,46 @@
             var url = el.getAttribute('hx-get');
             window._lastTab = url;
             if (typeof window.showTabSkeleton === 'function') window.showTabSkeleton(url);
+            syncExploreGroup();
         }
+
+        // ==== 「調べる」グループタブ (2026-08-10) ====
+        // サブタブが選択されている間はグループボタンを active 表示にし、
+        // サブタブ列を開いたままにする。グループボタン自体は .tab-btn を
+        // 持たないので reloadActiveTab() の hx-get 参照を邪魔しない。
+        function syncExploreGroup() {
+            var subnav = document.getElementById('explore-subnav');
+            var groupBtn = document.getElementById('explore-group-btn');
+            if (!subnav || !groupBtn) return;
+            var inGroup = !!subnav.querySelector('.tab-btn.active');
+            groupBtn.classList.toggle('active', inGroup);
+            if (inGroup) {
+                subnav.classList.remove('hidden');
+                groupBtn.setAttribute('aria-expanded', 'true');
+            }
+        }
+        function toggleExploreGroup() {
+            var subnav = document.getElementById('explore-subnav');
+            var groupBtn = document.getElementById('explore-group-btn');
+            if (!subnav || !groupBtn) return;
+            // すでにグループ内のタブを表示中なら、開閉トグルのみ
+            if (subnav.querySelector('.tab-btn.active')) {
+                var willHide = !subnav.classList.contains('hidden');
+                subnav.classList.toggle('hidden', willHide);
+                groupBtn.setAttribute('aria-expanded', willHide ? 'false' : 'true');
+                return;
+            }
+            subnav.classList.remove('hidden');
+            groupBtn.setAttribute('aria-expanded', 'true');
+            // 前回開いていたサブタブ、なければ先頭（地図）を開く
+            var last = window._lastExploreTab;
+            var btn = last ? subnav.querySelector('.tab-btn[hx-get="' + last + '"]') : null;
+            (btn || subnav.querySelector('.tab-btn')).click();
+        }
+        document.addEventListener('click', function(e) {
+            var b = e.target && e.target.closest ? e.target.closest('#explore-subnav .tab-btn') : null;
+            if (b) window._lastExploreTab = b.getAttribute('hx-get');
+        }, true);
         // クロスナビ: 他タブへのリンクからタブ遷移
         function navigateToTab(tabUrl) {
             var btn = document.querySelector('.tab-btn[hx-get="' + tabUrl + '"]');
@@ -972,7 +1026,7 @@
         // アイドル時に次のタブをプリフェッチ
         if ('requestIdleCallback' in window) {
             requestIdleCallback(function() {
-                fetch('/tab/jobmap', { priority: 'low' });
+                fetch('/tab/survey', { priority: 'low' });
             });
         }
 

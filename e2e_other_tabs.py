@@ -50,12 +50,25 @@ def info(msg):
 
 
 def click_tab(page, keyword):
-    """タブボタンをテキストマッチでクリック (実クリック)"""
+    """タブボタンをテキストマッチでクリック (実クリック)
+
+    2026-08-10: 地図 / 地域分析 / 企業検索 / 職種辞典 / 資格辞書 は
+    「調べる」グループタブの中へ移動し、既定では非表示になった。
+    非表示のボタンに当たったらグループを開いてからクリックする。
+    """
     for btn in page.query_selector_all('.tab-btn'):
         text = (btn.text_content() or "").strip()
-        if keyword in text:
-            btn.click()
-            return True
+        if keyword not in text:
+            continue
+        if not btn.is_visible():
+            group = page.query_selector('#explore-group-btn')
+            if group:
+                group.click()
+                page.wait_for_timeout(200)
+            if not btn.is_visible():
+                return False
+        btn.click()
+        return True
     return False
 
 

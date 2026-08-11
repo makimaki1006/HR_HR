@@ -63,6 +63,29 @@
     border-radius: 4px;
 }
 
+/* 2026-08-10: 「調べる」グループタブ。
+   .tab-btn を付けないのは、reloadActiveTab() 等が
+   document.querySelector('.tab-btn.active') の hx-get を読むため。
+   hx-get を持たないこのボタンが先にマッチすると再読込が壊れる。 */
+.tab-btn-group {
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+    flex-shrink: 0;
+}
+.tab-btn-group:hover { color: #e2e8f0; background-color: rgba(51, 65, 85, 0.3); }
+.tab-btn-group.active { color: #60a5fa; border-bottom-color: #3b82f6; font-weight: 600; }
+.tab-btn-group:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; border-radius: 4px; }
+
+/* 「調べる」内のサブタブ列 */
+#explore-subnav .tab-btn { font-size: 0.8125rem; padding: 0.5rem 0.875rem; }
+
 /* 分析タブ内サブタブナビゲーション */
 /* グループナビ（詳細分析タブ: 構造分析/トレンド/総合診断） */
 .analysis-group {
@@ -147,6 +170,13 @@ input:focus-visible {
     font-size: 0.8125rem;
     font-weight: 500;
     transition: all 0.2s ease;
+}
+
+/* 2026-08-10 修正: dashboard.css は tailwind-precompiled.css より後に読まれるため、
+   .bc-chip の display:inline-block が Tailwind の .hidden (display:none) を上書きし、
+   市区町村が未選択のときブレッドクラムに空の灰色チップが残っていた。 */
+.bc-chip.hidden {
+    display: none;
 }
 
 .bc-chip-job {
@@ -1079,5 +1109,178 @@ input:focus-visible {
     .karte-footer {
         border-top: 1px solid #cbd5e1;
         padding-top: 0.5rem;
+    }
+}
+
+/* 2026-08-10: 媒体分析タブの分析結果セクション。
+   既定は折りたたみ（details に open を付けない）。開いたときのチャート再描画は
+   render.rs 側の toggle リスナーが担当する。 */
+details.survey-fold > summary { list-style: none; }
+details.survey-fold > summary::-webkit-details-marker { display: none; }
+details.survey-fold > summary::before {
+    content: "\25B6";
+    display: inline-block;
+    font-size: 10px;
+    color: #64748b;
+    margin-right: 6px;
+}
+details.survey-fold[open] > summary::before { content: "\25BC"; }
+
+/* ==========================================================
+   ヘッダーの絞り込み条件（都道府県 / 市区町村 / 産業）
+   2026-08-10: 「小さくて目立たない・選びにくい・意識の外に出る」という指摘への対応。
+     1. 3 つを 1 つの枠（.filter-group）に入れ、ひとまとまりの条件だと分かるようにする
+     2. 絵文字だけでなく「何を選ぶ欄か」の文字ラベル（.filter-field-label）を常時表示
+     3. クリック対象を拡大（min-height 36px・パディング増）
+     4. 未選択（全国 / すべて / 全産業）と選択済み（.is-active）で配色を変える
+   ブレッドクラム（#breadcrumb-bar）は「現在の表示」の役割なので、ここでは
+   値の再掲は増やさず、欄の見出しと状態色だけを足している。
+   要素の id / on* 関数名は既存 JS が依存するため CSS 側だけで完結させている。
+   ========================================================== */
+.filter-group {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 5px 10px 6px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 10px;
+    background-color: rgba(15, 23, 42, 0.55);
+}
+
+/* 枠の見出し。3 つが「絞り込み条件」だと一目で分かるようにするためのラベル */
+.filter-group-title {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    padding-right: 10px;
+    border-right: 1px solid rgba(148, 163, 184, 0.2);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+/* 1 つの入力欄（見出し + コントロール）の縦積み */
+.filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.filter-field-label {
+    font-size: 10.5px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
+/* label 要素はクリックで select にフォーカスが移るので手のカーソルにする */
+label.filter-field-label {
+    cursor: pointer;
+}
+
+/* select と産業ボタンの共通スタイル（クリック領域を大きく） */
+.filter-control {
+    box-sizing: border-box;
+    min-height: 36px;
+    max-width: 100%;
+    padding: 6px 9px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    color: #f1f5f9;
+    background-color: #1e293b; /* navy-700 */
+    border: 1px solid #64748b;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.filter-control:hover {
+    border-color: #94a3b8;
+    background-color: #243349;
+}
+
+.filter-control:focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 1px;
+    border-color: #60a5fa;
+}
+
+/* 市区町村名が長くても枠が伸びすぎないように上限を付ける
+   （12rem あれば「西多摩郡奥多摩町」クラスの長い名前も収まる） */
+select.filter-control {
+    max-width: 12rem;
+}
+
+#industry-btn.filter-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    min-width: 190px;
+    max-width: min(320px, 60vw);
+    text-align: left;
+}
+
+/* 絞り込み中（何かを選んでいる）状態。
+   .is-active は updateBreadcrumb() / updateIndustryLabel() が付け外しする。 */
+.filter-control.is-active {
+    color: #eff6ff;
+    background-color: rgba(37, 99, 235, 0.25);
+    border-color: #3b82f6;
+    font-weight: 600;
+}
+
+.filter-control.is-active:hover {
+    background-color: rgba(37, 99, 235, 0.35);
+    border-color: #60a5fa;
+}
+
+/* 見出しも合わせて色を変える（:has 非対応ブラウザでは通常色のまま） */
+.filter-field:has(.filter-control.is-active) .filter-field-label {
+    color: #93c5fd;
+}
+
+/* 狭幅では産業パネル（幅 420px）がヘッダー右端からはみ出し、
+   header の overflow-x: clip で見えなくなる（この切れは今回の変更前からある）。
+   ボタンの右端を基準に開かせて画面内に収める。
+   2026-08-10 実測（620px 幅・ヘッドレス Chromium）:
+     変更前 panel right=934 / 変更後（右寄せ前）=777 → いずれも 620 を超過。 */
+@media (max-width: 1023px) {
+    #industry-panel {
+        left: auto;
+        right: 0;
+    }
+}
+
+/* 狭幅（〜700px）。横スクロールを出さず、枠の中で折り返す */
+@media (max-width: 700px) {
+    .filter-group {
+        gap: 6px 8px;
+        padding: 5px 8px 6px;
+    }
+    .filter-group-title {
+        padding-right: 8px;
+        font-size: 9.5px;
+    }
+    .filter-control {
+        min-height: 34px;
+        padding: 5px 8px;
+        font-size: 13px;
+    }
+    select.filter-control {
+        max-width: 10.5rem;
+    }
+    #industry-btn.filter-control {
+        min-width: 140px;
+        max-width: 52vw;
     }
 }
