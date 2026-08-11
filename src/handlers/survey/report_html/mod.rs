@@ -199,7 +199,7 @@ impl ReportVariant {
     /// 表示名
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Full => "HW併載版",
+            Self::Full => "公的求人 併載版",
             Self::Public => "公開データ中心版",
             Self::MarketIntelligence => "採用マーケットインテリジェンス版",
             Self::Extended => "詳細版",
@@ -3406,7 +3406,7 @@ mod variant_indicator_tests {
             "Full バリアントインジケータに「現在:」表記必須"
         );
         assert!(
-            html.contains("HW併載版"),
+            html.contains("公的求人 併載版"),
             "Full バリアントインジケータに「HW併載版」表記必須"
         );
         // 反対バリアント切替リンク
@@ -3434,7 +3434,7 @@ mod variant_indicator_tests {
         );
         // 反対バリアント切替リンク
         assert!(
-            html.contains("HW併載版"),
+            html.contains("公的求人 併載版"),
             "Public バリアントから「HW併載版」へ切替リンク必須"
         );
         assert!(
@@ -3477,8 +3477,8 @@ mod variant_indicator_tests {
             "Full の切替リンク aria-label 必須"
         );
         assert!(
-            html_public.contains("PDF出力モードを HW併載版に切替")
-                || html_public.contains("PDF出力モードをHW併載版に切替"),
+            html_public.contains("PDF出力モードを 公的求人 併載版に切替")
+                || html_public.contains("PDF出力モードを公的求人 併載版に切替"),
             "Public の切替リンク aria-label 必須"
         );
     }

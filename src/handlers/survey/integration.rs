@@ -86,15 +86,15 @@ pub(crate) fn render_integration_with_ext(
         <section class="stat-card border-l-4 border-blue-500">
             <div class="flex items-start justify-between flex-wrap gap-3">
                 <div>
-                    <h3 class="text-lg font-bold text-white">HW統合分析
+                    <h3 class="text-lg font-bold text-white">公的求人データとの比較
                         <span class="text-blue-400 text-base font-normal ml-2">{}</span>
                     </h3>
                     <p class="text-xs text-slate-400 mt-1">
-                        アップロードCSVの主要地域に対して、HW求人・外部統計・企業データを突き合わせた参考比較です。
+                        アップロードCSVの主要地域に対して、公的求人データ・外部統計・企業データを突き合わせた参考比較です。
                     </p>
                 </div>
                 <div class="text-xs text-slate-500 text-right">
-                    <div>スコープ: HW掲載求人のみ</div>
+                    <div>対象: 公的機関に掲載された求人のみ</div>
                     <div>外部統計: e-Stat / SSDSE-A</div>
                 </div>
             </div>
@@ -157,7 +157,9 @@ fn render_hw_section(ctx: &InsightContext) -> String {
     html.push_str(r#"<section class="stat-card"><h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-blue-500 pl-2">求人市場データ</h4>"#);
 
     if ctx.vacancy.is_empty() && ctx.cascade.is_empty() {
-        html.push_str(r#"<p class="text-slate-500 text-xs">この地域のHWデータはありません</p>"#);
+        html.push_str(
+            r#"<p class="text-slate-500 text-xs">この地域の公的求人データはありません</p>"#,
+        );
     } else {
         html.push_str(r#"<div class="grid grid-cols-2 md:grid-cols-4 gap-3">"#);
         // 正社員の欠員率
@@ -170,7 +172,7 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             let vacancy_rate = get_f64(row, "vacancy_rate");
             kpi_card(
                 &mut html,
-                "HW求人数",
+                "公的求人数",
                 &format_number(total),
                 "text-blue-400",
             );
@@ -199,7 +201,7 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             if avg_sal > 0 {
                 kpi_card(
                     &mut html,
-                    "HW平均月給",
+                    "公的求人 平均月給",
                     &format!("{}円", format_number(avg_sal)),
                     "text-white",
                 );
@@ -207,7 +209,7 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             if holidays > 0 {
                 kpi_card(
                     &mut html,
-                    "HW平均休日",
+                    "公的求人 平均休日",
                     &format!("{}日", holidays),
                     "text-white",
                 );
@@ -230,7 +232,7 @@ fn render_hw_section(ctx: &InsightContext) -> String {
             }
         }
     }
-    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">HW掲載求人のみを対象とした集計です。IT・通信等でHW掲載が少ない産業では参考値となります。</div>"#);
+    html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">公的機関に掲載された求人のみを対象とした集計です。IT・通信等で掲載が少ない産業では参考値となります。</div>"#);
     html.push_str("</section>");
     html
 }
@@ -402,7 +404,7 @@ fn render_insights_section(insights: &[Insight]) -> String {
     }
 
     html.push_str(r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
-        示唆はHW掲載求人と外部統計に基づく相対的観察です。採用判断の唯一の根拠とせず、詳細分析タブでの個別検証を推奨します。
+        示唆は公的機関に掲載された求人と外部統計に基づく相対的観察です。採用判断の唯一の根拠とせず、詳細分析タブでの個別検証を推奨します。
     </div>"#);
     html.push_str("</section>");
     html
@@ -447,7 +449,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
     };
 
     write!(html,
-        r#"<div class="text-xs text-slate-300 mb-3">{}の企業 <span class="text-white font-bold">{}社</span>{}（うちHW求人あり: {}社）</div>"#,
+        r#"<div class="text-xs text-slate-300 mb-3">{}の企業 <span class="text-white font-bold">{}社</span>{}（うち公的求人あり: {}社）</div>"#,
         escape_html(location), total, escape_html(&ind_text), with_hw
     ).unwrap();
 
@@ -461,7 +463,7 @@ fn render_companies_section(companies: &[NearbyCompany], location: &str) -> Stri
             <th class="text-right py-1.5 px-2">売上</th>
             <th class="text-right py-1.5 px-2">1年人員推移</th>
             <th class="text-right py-1.5 px-2">3ヶ月人員推移</th>
-            <th class="text-right py-1.5 px-2">HW求人</th>
+            <th class="text-right py-1.5 px-2">公的求人</th>
             <th class="text-center py-1.5 px-2">詳細</th>
         </tr></thead><tbody>"#,
     );
@@ -557,11 +559,11 @@ fn render_hw_area_enrichment_section(
 ) -> String {
     let mut html = String::with_capacity(3_000);
     html.push_str(r#"<section class="stat-card">
-        <h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-cyan-500 pl-2">地域×HW データ連携</h4>"#);
+        <h4 class="text-sm font-semibold text-slate-200 mb-3 border-l-4 border-cyan-500 pl-2">地域×公的求人データ 連携</h4>"#);
 
     if enrichments.is_empty() {
         html.push_str(
-            r#"<p class="text-slate-500 text-xs">CSV から地域（都道府県＋市区町村）を特定できなかったため、地域別 HW 連携は表示できません。</p>
+            r#"<p class="text-slate-500 text-xs">CSV から地域（都道府県＋市区町村）を特定できなかったため、地域別の公的求人データ連携は表示できません。</p>
             </section>"#,
         );
         return html;
@@ -581,7 +583,7 @@ fn render_hw_area_enrichment_section(
 
     write!(html,
         r#"<div class="text-xs text-slate-400 mb-3">
-            CSV に含まれる {n} 件の地域について、HW DB から現在掲載件数を市区町村粒度で突合しています。
+            CSV に含まれる {n} 件の地域について、公的求人データから現在の掲載件数を市区町村粒度で突合しています。
         </div>"#,
         n = enrichments.len()
     ).unwrap();
@@ -602,7 +604,7 @@ fn render_hw_area_enrichment_section(
         <thead><tr class="text-slate-400 border-b border-slate-700">
             <th class="text-left py-1.5 px-2">都道府県</th>
             <th class="text-left py-1.5 px-2">市区町村</th>
-            <th class="text-right py-1.5 px-2">HW現在掲載件数</th>
+            <th class="text-right py-1.5 px-2">公的求人 現在掲載件数</th>
             <th class="text-right py-1.5 px-2">欠員率（都道府県）</th>
         </tr></thead><tbody>"#,
     );
@@ -666,7 +668,7 @@ fn render_hw_area_enrichment_section(
 
     html.push_str(
         r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
-        ※ HW現在掲載件数は市区町村粒度の値ですが、3ヶ月／1年の求人件数推移と欠員率は HW 時系列 DB / 外部統計の都道府県粒度のため、市区町村別の差分は反映していません。
+        ※ 現在掲載件数は市区町村粒度の値ですが、3ヶ月／1年の求人件数推移と欠員率は公的求人の時系列データ／外部統計の都道府県粒度のため、市区町村別の差分は反映していません。
         市区町村行に都道府県値をコピー表示すると粒度の誤誘導となるため、推移は上部の都道府県別カードに分離しています。
         本セクションは公的機関の掲載求人のみを対象としており、全求人市場の動向ではありません。
         集計値は傾向の観測であり、因果関係を主張するものではありません。
@@ -711,7 +713,7 @@ fn build_pref_change_summary(enrichments: &[HwAreaEnrichment]) -> String {
         r#"<div class="mb-3 p-3 rounded bg-slate-800/40 border border-slate-700" data-testid="hw-pref-trend-card">
             <div class="text-[11px] text-slate-400 mb-2">
                 <strong class="text-slate-200">都道府県粒度の参考値</strong>
-                ／ HW 時系列 DB は都道府県単位の集計のため、市区町村別の差分は反映していません。
+                ／ 公的求人の時系列データは都道府県単位の集計のため、市区町村別の差分は反映していません。
                 ※ ETL 初期スナップショットによるノイズ（暴走値）はサニティチェックで除外しています。
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">"#,
@@ -920,7 +922,7 @@ fn render_region_benchmark_radar_section(top3: &[(String, Row)]) -> String {
     html.push_str(
         r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
         6 軸スコアは相対値です。地域間の戦略的優劣ではなく特性の違いを示す傾向参照値であり、因果関係や採用成功の保証ではありません。
-        スコープは HW 掲載求人および外部統計に基づきます。
+        対象は公的機関に掲載された求人および外部統計に基づきます。
     </div>"#,
     );
     html.push_str("</section>");
@@ -1051,7 +1053,7 @@ fn render_municipality_benchmark_radar_section(top3: &[(String, Row, bool)]) -> 
     html.push_str(
         r#"<div class="text-[11px] text-slate-600 mt-2 border-t border-slate-800 pt-2">
         6 軸スコアは相対値です。市区町村間の戦略的優劣ではなく特性の違いを示す傾向参照値であり、因果関係や採用成功の保証ではありません。
-        スコープは HW 掲載求人および外部統計（市区町村粒度）に基づきます。
+        対象は公的機関に掲載された求人および外部統計（市区町村粒度）に基づきます。
     </div>"#,
     );
     html.push_str("</section>");
@@ -1278,7 +1280,7 @@ fn render_geography_aging_section(ctx: &InsightContext) -> String {
 /// dominant 都道府県の v2_external_industry_structure から取得した
 /// industry_code / industry_name / employees_total をベースに横バー形式で表示。
 ///
-/// 必須注記: 「産業分類は国勢調査 2020 ベース。HW industry_raw と粒度が異なる可能性」
+/// 必須注記: 「産業分類は国勢調査 2020 ベース。公的求人データの業種区分と粒度が異なる可能性」
 fn render_industry_structure_section(rows: &[Row], pref: &str) -> String {
     if rows.is_empty() {
         return String::new();
@@ -1338,7 +1340,7 @@ fn render_industry_structure_section(rows: &[Row], pref: &str) -> String {
 
     html.push_str(
         r#"<div class="text-[11px] text-slate-600 mt-3 border-t border-slate-800 pt-2">
-        産業分類は国勢調査 2020 ベース。HW industry_raw と粒度が異なる可能性があるため、HW 求人の業種比率と直接の対応は保証されません。\
+        産業分類は国勢調査 2020 ベース。公的求人データの業種区分と粒度が異なる可能性があるため、公的求人の業種比率と直接の対応は保証されません。\
         産業別就業者数と採用容易性に相関が見られる場合がありますが、職種・条件マッチングが本質的要因です。
     </div>"#,
     );
@@ -1537,19 +1539,18 @@ mod fixb_tests {
         );
     }
 
-    /// HW 限定スコープと因果非主張の注記が必ず含まれる
+    /// 掲載範囲の限定スコープと因果非主張の注記が必ず含まれる
     #[test]
     fn fixb_section_has_hw_scope_and_no_causation_note() {
         let ctx = empty_ctx();
         let enrichments = build_two_muni_same_pref();
         let html = render_hw_area_enrichment_section(&enrichments, &ctx);
 
+        // 2026-08-10: 画面表記から「HW」を廃止したが、掲載範囲が限定である
+        // ことを明示する注記は必須のまま (feedback_hw_data_scope.md)。
         assert!(
-            html.contains("公的機関の掲載求人のみ")
-                || html.contains("HW 掲載求人のみ")
-                || html.contains("公的機関の掲載求人")
-                || html.contains("公的求人データ"),
-            "HW 限定スコープの注記が必須 (feedback_hw_data_scope.md)"
+            html.contains("公的機関の掲載求人のみを対象としており、全求人市場の動向ではありません"),
+            "掲載範囲の限定注記が必須 (feedback_hw_data_scope.md)"
         );
         assert!(
             html.contains("因果関係を主張するものではありません"),
@@ -1888,7 +1889,7 @@ mod impl1_contract_tests {
             "D-3 必須注記: 国勢調査 2020 ベース"
         );
         assert!(
-            html.contains("HW industry_raw と粒度が異なる可能性"),
+            html.contains("公的求人データの業種区分と粒度が異なる可能性"),
             "粒度差異の注記必須"
         );
         assert!(
@@ -2011,8 +2012,8 @@ mod impl1_contract_tests {
         // 既存挙動を保つことを保証（後方互換の逆証明）
         let ctx = empty_ctx_for_impl1();
         let html = render_integration("東京都", "千代田区", &[], &ctx, &[], &[]);
-        // HW統合分析 見出しは出る
-        assert!(html.contains("HW統合分析"), "見出しは旧と同じ");
+        // 見出しは出る (2026-08-10: 画面表記から「HW」を廃止)
+        assert!(html.contains("公的求人データとの比較"), "見出しが必要");
         // 拡張セクションは出ない（データなし、ext default empty）
         assert!(
             !html.contains("data-testid=\"region-benchmark-radar\""),
