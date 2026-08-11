@@ -339,32 +339,46 @@ pub struct UsageRow {
     pub account_id: String,
     pub email: String,
     pub event_type: String,
+    /// `view_tab` のときだけタブのパス (例: `/tab/survey`)。他のイベントでは空。
+    ///
+    /// 2026-08-10: 当初は event_type だけで GROUP BY していたため、タブ閲覧が
+    /// 「タブを開く:」と行き先不明のまま 1 行に潰れ、「どのタブが使われているか」を
+    /// 出すという目的を果たせていなかった。タブだけ target_id も集計キーに含める。
+    /// 他イベントを一律に含めないのは、企業カルテ閲覧などが対象 ID ごとに
+    /// 行数分だけ散らばって一覧が読めなくなるため。
+    pub target_id: String,
     pub count: i64,
     pub last_at: String,
 }
 
+/// タブ閲覧のみ target_id を集計キーに含めるための SQL 断片
+const USAGE_TARGET_KEY: &str =
+    "CASE WHEN event_type = 'view_tab' THEN target_id ELSE '' END AS target_key";
+
 /// 指定日時以降の「ユーザー × 機能」利用回数。多い順。
 pub fn usage_by_account_and_event(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<UsageRow> {
+    let sql = format!(
+        "SELECT a.account_id AS account_id, \
+                COALESCE(ac.email, '') AS email, \
+                a.event_type AS event_type, \
+                CASE WHEN a.event_type = 'view_tab' THEN a.target_id ELSE '' END AS target_key, \
+                COUNT(*) AS cnt, \
+                MAX(a.at) AS last_at \
+         FROM activity_logs a \
+         LEFT JOIN accounts ac ON ac.id = a.account_id \
+         WHERE a.at >= ?1 \
+         GROUP BY a.account_id, a.event_type, target_key \
+         ORDER BY cnt DESC LIMIT ?2"
+    );
     turso
-        .query(
-            "SELECT a.account_id AS account_id, \
-                    COALESCE(ac.email, '') AS email, \
-                    a.event_type AS event_type, \
-                    COUNT(*) AS cnt, \
-                    MAX(a.at) AS last_at \
-             FROM activity_logs a \
-             LEFT JOIN accounts ac ON ac.id = a.account_id \
-             WHERE a.at >= ?1 \
-             GROUP BY a.account_id, a.event_type \
-             ORDER BY cnt DESC LIMIT ?2",
-            &[&since_iso, &limit],
-        )
+        .query(&sql, &[&since_iso, &limit])
         .unwrap_or_default()
         .into_iter()
         .map(|r| UsageRow {
             account_id: get_str(&r, "account_id"),
             email: get_str(&r, "email"),
             event_type: get_str(&r, "event_type"),
+            target_id: get_str(&r, "target_key"),
             count: get_i64(&r, "cnt"),
             last_at: get_str(&r, "last_at"),
         })
@@ -373,22 +387,22 @@ pub fn usage_by_account_and_event(turso: &TursoDb, since_iso: &str, limit: i64) 
 
 /// 指定日時以降の「機能ごと」利用回数（全ユーザー合算）。多い順。
 pub fn usage_by_event(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<UsageRow> {
+    let sql = format!(
+        "SELECT '' AS account_id, '' AS email, \
+                event_type AS event_type, {USAGE_TARGET_KEY}, \
+                COUNT(*) AS cnt, MAX(at) AS last_at \
+         FROM activity_logs WHERE at >= ?1 \
+         GROUP BY event_type, target_key ORDER BY cnt DESC LIMIT ?2"
+    );
     turso
-        .query(
-            "SELECT '' AS account_id, '' AS email, \
-                    event_type AS event_type, \
-                    COUNT(*) AS cnt, \
-                    MAX(at) AS last_at \
-             FROM activity_logs WHERE at >= ?1 \
-             GROUP BY event_type ORDER BY cnt DESC LIMIT ?2",
-            &[&since_iso, &limit],
-        )
+        .query(&sql, &[&since_iso, &limit])
         .unwrap_or_default()
         .into_iter()
         .map(|r| UsageRow {
             account_id: String::new(),
             email: String::new(),
             event_type: get_str(&r, "event_type"),
+            target_id: get_str(&r, "target_key"),
             count: get_i64(&r, "cnt"),
             last_at: get_str(&r, "last_at"),
         })
@@ -416,6 +430,7 @@ pub fn usage_by_account(turso: &TursoDb, since_iso: &str, limit: i64) -> Vec<Usa
             account_id: get_str(&r, "account_id"),
             email: get_str(&r, "email"),
             event_type: String::new(),
+            target_id: String::new(),
             count: get_i64(&r, "cnt"),
             last_at: get_str(&r, "last_at"),
         })
