@@ -472,10 +472,7 @@ fn render_karte(pref: &str, muni: &str, b: &KarteBundle, insights: &[Insight]) -
                 class="karte-btn karte-btn-share" aria-label="この地域カルテのURLをコピー">
                 🔗 URL共有
             </button>
-            <button type="button" onclick="window.print()"
-                class="karte-btn karte-btn-print" aria-label="A4で印刷">
-                🖨️ 印刷
-            </button>
+            <!-- 2026-08-10: 「印刷」ボタンを削除（当面この機能は提供しない） -->
         </div>
     </div>
     {badges}

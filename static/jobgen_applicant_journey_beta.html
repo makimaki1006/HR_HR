@@ -466,7 +466,7 @@
       <p class="hint">顧客提示前に、求人原文・口コミ引用・顧客確認事項を担当コンサルが確認してください。</p>
       <div class="actions export-controls">
         <button class="btn2" id="downloadBtn">内部引継ぎJSONを保存</button>
-        <button class="btn" id="printBtn">印刷・PDF</button>
+        <!-- 2026-08-10: 「印刷・PDF」ボタンを削除（当面この機能は提供しない） -->
       </div>
     </div>
     <div class="actions"><button class="btn2" data-go="4">検索需要へ戻る</button></div>
@@ -1525,7 +1525,7 @@
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
   // 印刷時は折りたたみ (検索実測の読み取り) を開いてから出力する
-  $("#printBtn").addEventListener("click",()=>{$$(".searchnote").forEach(d=>d.open=true);window.print()});
+  // 2026-08-10: 印刷ボタン撤去に伴い、印刷前に検索メモを開く処理も削除。
 
   const root=document.documentElement;
   const storedTheme=localStorage.getItem("jobgen-theme");
