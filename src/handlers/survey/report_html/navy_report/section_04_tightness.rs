@@ -106,7 +106,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
     push_region_scope_banner(html, target_region);
 
     let data = hw_context.map(extract_tightness);
-    let show_vacancy = matches!(variant, ReportVariant::Full); // HW 欠員補充率は Full のみ
+    let show_vacancy = matches!(variant, ReportVariant::Full); // 欠員補充率は Full のみ
 
     let lede = match data.as_ref() {
         Some(d) => format!(
@@ -116,7 +116,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
             fmt_pct(d.unemployment),
             fmt_pct(d.separation),
             if show_vacancy {
-                format!(" / HW 欠員補充率 <strong>{}</strong>", fmt_pct_from_ratio(d.vacancy_rate))
+                format!(" / 公的求人 欠員補充率 <strong>{}</strong>", fmt_pct_from_ratio(d.vacancy_rate))
             } else {
                 String::new()
             }
@@ -182,7 +182,7 @@ pub(crate) fn render_navy_section_04_market_tightness(
             ),
             None => ("—".to_string(), "neu", "データなし".to_string()),
         };
-        push_kpi(html, "HW 欠員補充率", &val, "%", dot, &foot, false);
+        push_kpi(html, "公的求人 欠員補充率", &val, "%", dot, &foot, false);
     }
     {
         let unemp = d.and_then(|d| d.unemployment);
@@ -489,7 +489,12 @@ fn build_navy_tightness_gauges(d: &TightnessData, show_vacancy: bool) -> String 
             } else {
                 "pos"
             };
-            items.push(("HW 欠員補充率", s, leak(&format!("{:.1}%", v * 100.0)), sev));
+            items.push((
+                "公的求人 欠員補充率",
+                s,
+                leak(&format!("{:.1}%", v * 100.0)),
+                sev,
+            ));
         }
     }
     if let Some(u) = d.unemployment {
@@ -652,12 +657,12 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
     s.push_str(&row("有効求人倍率", val, "全国 1.20", tag, cmt));
     if show_vacancy {
         let (val, tag, cmt) = match d.and_then(|d| d.vacancy_rate) {
-            Some(v) if v >= 0.25 => (format!("{:.1}%", v * 100.0), "warn", "HW 求人埋まらず"),
+            Some(v) if v >= 0.25 => (format!("{:.1}%", v * 100.0), "warn", "公的求人が埋まらず"),
             Some(v) if v >= 0.15 => (format!("{:.1}%", v * 100.0), "neu", "標準水準"),
             Some(v) => (format!("{:.1}%", v * 100.0), "pos", "充足傾向"),
             None => ("—".to_string(), "neu", "—"),
         };
-        s.push_str(&row("HW 欠員補充率", val, "標準 15-25%", tag, cmt));
+        s.push_str(&row("公的求人 欠員補充率", val, "標準 15-25%", tag, cmt));
     }
     let unemp = d.and_then(|d| d.unemployment);
     let nat = d.and_then(|d| d.unemployment_national);
@@ -711,7 +716,7 @@ fn build_navy_tightness_table(d: Option<&TightnessData>, show_vacancy: bool) -> 
     }
     s.push_str("</tbody></table>\n");
     if show_vacancy {
-        s.push_str("<p class=\"caption\">出典: e-Stat 有効求人倍率 / 労働力調査 (失業率) / 雇用動向調査 (離職率・入職率)。求人媒体欠員補充率はローカル DB。</p>\n");
+        s.push_str("<p class=\"caption\">出典: e-Stat 有効求人倍率 / 労働力調査 (失業率) / 雇用動向調査 (離職率・入職率)。欠員補充率は公的求人データ。</p>\n");
     } else {
         s.push_str("<p class=\"caption\">出典: e-Stat 有効求人倍率 / 労働力調査 (失業率) / 雇用動向調査 (離職率・入職率)。</p>\n");
     }
@@ -742,7 +747,7 @@ fn build_tightness_so_what(d: Option<&TightnessData>, _show_vacancy: bool) -> St
     }
     if let Some(v) = d.vacancy_rate {
         if v >= 0.25 {
-            alerts.push("HW 欠員補充率");
+            alerts.push("公的求人 欠員補充率");
         }
     }
 

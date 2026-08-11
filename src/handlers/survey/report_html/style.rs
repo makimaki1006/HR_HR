@@ -169,7 +169,7 @@ body {
 
 /* バリアントインジケータ + 切替リンク (2026-04-29)
  * 画面表示のみ（印刷時は @media print の .no-print で非表示）
- * 現在の PDF 出力モード（HW併載版 / 公開データ中心版）を視覚化し、
+ * 現在の PDF 出力モード（公的求人 併載版 / 公開データ中心版）を視覚化し、
  * 反対バリアントへワンクリックで切替できる導線を提供 */
 .variant-indicator {
   margin: 0 16px 12px;
@@ -609,7 +609,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums lining-nums; }
 }
 .guide-item .guide-title { font-weight: bold; color: var(--c-primary); font-size: 9pt; margin-bottom: 2px; }
 
-/* HW市場比較カード */
+/* 公的求人との比較カード */
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -646,7 +646,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums lining-nums; }
 /* EChartsコンテナ */
 .echart { max-width: 100%; }
 
-/* HW データ連携セクション用テーブル */
+/* 公的求人データ連携セクション用テーブル */
 .hw-enrichment-table { width: 100%; border-collapse: collapse; font-size: 10pt; margin: 8px 0; }
 .hw-enrichment-table th { background: var(--c-primary); color: #fff; padding: 6px 8px; text-align: left; font-weight: 700; border-bottom: 0; }
 .hw-enrichment-table td { padding: 5px 8px; border-bottom: 1px solid var(--c-border); }
@@ -1331,7 +1331,7 @@ body.theme-dark .report-banner-gray {
   vertical-align: middle;
 }
 
-/* CSV/HW 概念 Venn */
+/* CSV / 公的求人データ 概念 Venn */
 .report-venn {
   display: flex;
   justify-content: center;
