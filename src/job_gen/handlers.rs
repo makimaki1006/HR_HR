@@ -60,12 +60,17 @@ pub async fn tab_jobgen_tools() -> axum::response::Html<&'static str> {
     // src は初回表示時にだけ data-src から設定する遅延ロード。
     axum::response::Html(
         r#"<div class="space-y-4">
-  <h2 class="text-lg font-bold text-slate-100">求人票作成</h2>
+  <!-- 2026-08-12: 「別ウィンドウで開く」をサブタブ列の右端から見出しのすぐ右へ移動。
+       jobtoolsSwitch() は nav 内の button と #jobtools-open の id しか見ていないので、
+       この <a> を nav の外に出しても切替動作には影響しない。 -->
+  <div class="flex flex-wrap items-center gap-2">
+    <h2 class="text-lg font-bold text-slate-100">求人票作成</h2>
+    <a id="jobtools-open" href="/jobgen" target="_blank" rel="noopener" class="text-[11px] text-slate-400 underline">別ウィンドウで開く ↗</a>
+  </div>
   <div class="flex flex-wrap items-center gap-2" id="jobtools-nav" role="tablist" aria-label="求人票作成ツール">
     <button type="button" class="tab-btn active" role="tab" aria-selected="true" data-frame="jt-frame-0" data-src="/jobgen" onclick="jobtoolsSwitch(this)">求人票生成</button>
     <button type="button" class="tab-btn" role="tab" aria-selected="false" data-frame="jt-frame-1" data-src="/jobgen/competitive-beta" onclick="jobtoolsSwitch(this)">競合比較から求人作成</button>
     <button type="button" class="tab-btn" role="tab" aria-selected="false" data-frame="jt-frame-2" data-src="/jobgen/applicant-journey-beta" onclick="jobtoolsSwitch(this)">応募者ジャーニー診断</button>
-    <a id="jobtools-open" href="/jobgen" target="_blank" rel="noopener" class="text-[11px] text-slate-400 underline ml-auto">別ウィンドウで開く ↗</a>
   </div>
   <div id="jobtools-frames">
     <iframe id="jt-frame-0" src="/jobgen" title="求人票生成"
