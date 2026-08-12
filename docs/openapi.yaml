@@ -126,7 +126,18 @@ paths:
                         companies: {type: integer}
                         total_emp: {type: integer}
                         net_change_1y: {type: integer}
-                        avg_delta_1y: {type: number}
+                        net_change_3m: {type: integer}
+                        # 人数加重の増減率 (%)。増減人数の合計 ÷ 過去の従業員数の合計。
+                        # 企業数が 30 社未満、または 1 社が人員変動の 50% 以上を
+                        # 占める場合は null (地域の傾向として示せないため)。
+                        # 2026-08-12: 旧 avg_delta_1y (各社の増減率の単純平均) を置換。
+                        # 単純平均は分母の小さい企業に支配され、実測で 1 社が
+                        # 表示値の 99.4% を占めるケースがあった。
+                        headcount_rate_1y: {type: number, nullable: true}
+                        # headcount_rate_1y が null のときに理由を伝える文言。表示時は null。
+                        headcount_notice: {type: string, nullable: true}
+                        # 最大 1 社が人員変動 (絶対値合計) に占める割合 (%)
+                        top1_share_pct: {type: number, nullable: true}
 
   /api/jobmap/industry-companies:
     get:

@@ -56,51 +56,83 @@ pub async fn labor_flow(
     };
 
     let result = tokio::task::spawn_blocking(move || {
-        use crate::handlers::helpers::{get_f64, get_i64, get_str, strip_county_prefix};
+        use crate::handlers::helpers::{get_i64, get_str, strip_county_prefix};
+        use crate::handlers::region_headcount::HeadcountAggregate;
+
+        // 2026-08-12: 地域の人員推移の集計方法を見直した。
+        //
+        // 旧実装は `ROUND(AVG(employee_delta_1y), 1)` を「平均変動率」として返していたが、
+        // 増減率は分母 (過去の人数) が小さい企業ほど値が爆発するため、単純平均は
+        // 1 社に支配される。実測では東京都 × 人材・アウトソーシング 696 社の平均が
+        // +752.7% になり、その 99.4% が 1 社 (1 年前 1 人 → 現在 5,210 人) 由来だった。
+        // 人数加重で見れば同じ 696 社は +2.62% である。
+        //
+        // あわせて `CAST(... AS INTEGER)` を `ROUND` に変更した。CAST は 0 方向へ
+        // 切り捨てるため、増減人数の真値が整数であるにもかかわらず全国で 66,794 社
+        // (32.8%) が 1 人ずれ、純増減が 2,002 人 (-0.7%) 過小になっていた。
+        //
+        // 根拠: claudedocs/SALESNOW_MAP_PHASE0_FINDINGS_2026-08-12.md §2
+        // 集計と表示可否の判定は handlers::region_headcount に集約している。
+        const AGG_COLUMNS: &str = r#"
+                       COUNT(*) as companies,
+                       SUM(employee_count) as total_emp,
+                       CAST(SUM(ROUND(employee_count * employee_delta_1y
+                            / (100.0 + employee_delta_1y))) AS INTEGER) as net_change_1y,
+                       CAST(SUM(CASE WHEN employee_delta_3m > -100
+                            THEN ROUND(employee_count * employee_delta_3m
+                                 / (100.0 + employee_delta_3m)) ELSE 0 END) AS INTEGER)
+                            as net_change_3m,
+                       CAST(SUM(ABS(ROUND(employee_count * employee_delta_1y
+                            / (100.0 + employee_delta_1y)))) AS INTEGER) as abs_change_1y,
+                       CAST(MAX(ABS(ROUND(employee_count * employee_delta_1y
+                            / (100.0 + employee_delta_1y)))) AS INTEGER) as top1_change_1y"#;
 
         // 市区町村が指定されている場合、address LIKE で絞り込む
         // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip し、6市町
         // (郡山市/郡上市/蒲郡市/上郡町/大和郡山市/小郡市) は COUNTY_PREFIX_KEEP で保護。
         // 旧実装は `%東彼杵郡東彼杵町%` で SalesNow `address` (郡名なし) に対して
         // 0件マッチしていた。
-        let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) = if !muni.is_empty() {
-            let muni_key = strip_county_prefix(&muni);
-            let muni_pattern = format!("%{}%", muni_key);
-            (r#"
-                SELECT sn_industry,
-                       COUNT(*) as companies,
-                       SUM(employee_count) as total_emp,
-                       SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)) as net_change_1y,
-                       SUM(CAST(employee_count * employee_delta_3m / (100.0 + employee_delta_3m) AS INTEGER)) as net_change_3m,
-                       ROUND(AVG(employee_delta_1y), 1) as avg_delta_1y
+        let (sql, params_db): (String, Vec<Box<dyn crate::db::turso_http::ToSqlTurso>>) =
+            if !muni.is_empty() {
+                let muni_key = strip_county_prefix(&muni);
+                let muni_pattern = format!("%{}%", muni_key);
+                (
+                    format!(
+                        r#"
+                SELECT sn_industry,{AGG_COLUMNS}
                 FROM v2_salesnow_companies
                 WHERE prefecture = ?1 AND address LIKE ?2
                   AND employee_count > 0
                   AND employee_delta_1y IS NOT NULL
+                  AND employee_delta_1y > -100
                   AND sn_industry IS NOT NULL AND sn_industry != ''
                 GROUP BY sn_industry
                 ORDER BY net_change_1y DESC
-            "#.to_string(),
-            vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
-                 Box::new(muni_pattern)])
-        } else {
-            (r#"
-                SELECT sn_industry,
-                       COUNT(*) as companies,
-                       SUM(employee_count) as total_emp,
-                       SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)) as net_change_1y,
-                       SUM(CAST(employee_count * employee_delta_3m / (100.0 + employee_delta_3m) AS INTEGER)) as net_change_3m,
-                       ROUND(AVG(employee_delta_1y), 1) as avg_delta_1y
+            "#
+                    ),
+                    vec![
+                        Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>,
+                        Box::new(muni_pattern),
+                    ],
+                )
+            } else {
+                (
+                    format!(
+                        r#"
+                SELECT sn_industry,{AGG_COLUMNS}
                 FROM v2_salesnow_companies
                 WHERE prefecture = ?1
                   AND employee_count > 0
                   AND employee_delta_1y IS NOT NULL
+                  AND employee_delta_1y > -100
                   AND sn_industry IS NOT NULL AND sn_industry != ''
                 GROUP BY sn_industry
                 ORDER BY net_change_1y DESC
-            "#.to_string(),
-            vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>])
-        };
+            "#
+                    ),
+                    vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>],
+                )
+            };
 
         let param_refs: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
             params_db.iter().map(|p| p.as_ref()).collect();
@@ -118,18 +150,40 @@ pub async fn labor_flow(
             }
         };
 
-        let industries: Vec<Value> = rows.iter().map(|r| {
-            json!({
-                "sn_industry": get_str(r, "sn_industry"),
-                "companies": get_i64(r, "companies"),
-                "total_emp": get_i64(r, "total_emp"),
-                "net_change_1y": get_i64(r, "net_change_1y"),
-                "net_change_3m": get_i64(r, "net_change_3m"),
-                "avg_delta_1y": get_f64(r, "avg_delta_1y"),
+        let industries: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                let total_emp = get_i64(r, "total_emp");
+                let net_change_1y = get_i64(r, "net_change_1y");
+                let agg = HeadcountAggregate::from_parts(
+                    get_i64(r, "companies").max(0) as usize,
+                    total_emp,
+                    total_emp - net_change_1y,
+                    net_change_1y,
+                    get_i64(r, "abs_change_1y"),
+                    get_i64(r, "top1_change_1y"),
+                );
+                let gate = agg.gate();
+                json!({
+                    "sn_industry": get_str(r, "sn_industry"),
+                    "companies": agg.companies,
+                    "total_emp": total_emp,
+                    "net_change_1y": net_change_1y,
+                    "net_change_3m": get_i64(r, "net_change_3m"),
+                    // 人数加重の増減率。企業数が少ない / 1 社集中の場合は null。
+                    // 値を出さない理由は headcount_notice に入れて必ず利用者に伝える。
+                    "headcount_rate_1y": agg.displayed_rate_pct(),
+                    "headcount_notice": gate.notice(),
+                    "top1_share_pct": agg.top1_share_pct(),
+                })
             })
-        }).collect();
+            .collect();
 
-        let loc = if !muni.is_empty() { format!("{} {}", pref, muni) } else { pref.clone() };
+        let loc = if !muni.is_empty() {
+            format!("{} {}", pref, muni)
+        } else {
+            pref.clone()
+        };
         json!({
             "prefecture": pref,
             "municipality": muni,
@@ -137,12 +191,16 @@ pub async fn labor_flow(
             "industries": industries,
             "total_industries": industries.len(),
         })
-    }).await.unwrap_or_else(|_| json!({
-        "prefecture": prefecture,
-        "municipality": municipality,
-        "industries": [],
-        "error": "タスク実行エラー"
-    }));
+    })
+    .await
+    .unwrap_or_else(|_| {
+        json!({
+            "prefecture": prefecture,
+            "municipality": municipality,
+            "industries": [],
+            "error": "タスク実行エラー"
+        })
+    });
 
     Json(result)
 }

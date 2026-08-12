@@ -23,6 +23,7 @@ pub mod my;
 pub mod overview;
 pub mod recruitment_diag;
 pub mod region;
+pub mod region_headcount;
 pub mod regional_analysis;
 pub mod survey;
 pub mod trend;
