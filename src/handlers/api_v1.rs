@@ -293,7 +293,11 @@ fn context_to_json(ctx: &fetch::CompanyContext) -> Value {
             "region_industry": {
                 "total_employees": ctx.region_industry_total_employees,
                 "net_change": ctx.region_industry_net_change,
-                "avg_delta": ctx.region_industry_avg_delta,
+                // 2026-08-12: avg_delta (各社の増減率の単純平均) を廃止し、
+                // headcount_rate (人数加重) に置換。企業数が少ない / 1 社集中の
+                // 場合は null で、理由が headcount_notice に入る。
+                "headcount_rate": ctx.region_industry_rate,
+                "headcount_notice": ctx.region_industry_notice,
                 "company_count": ctx.region_industry_company_count,
             },
             "company_vs_region_gap": ctx.company_vs_region_gap,

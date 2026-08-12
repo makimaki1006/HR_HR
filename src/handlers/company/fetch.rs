@@ -91,14 +91,26 @@ pub struct CompanyContext {
     pub national_avg_salary: f64,
     pub national_vacancy_rate: f64,
 
-    // 地域×業種の人材フロー（SalesNow集計）
+    // 地域×業種の人材フロー（企業データ集計）
     pub region_industry_total_employees: i64,
     pub region_industry_net_change: i64,
-    pub region_industry_avg_delta: f64,
+    /// 地域×業種の人員増減率 (%)。人数加重 = 増減人数の合計 ÷ 過去の従業員数の合計。
+    ///
+    /// 2026-08-12: 旧実装は `AVG(employee_delta_1y)` (各社の増減率の単純平均) だった。
+    /// 増減率は分母 (過去の人数) が小さい企業ほど爆発するため 1 社に支配され、
+    /// 東京都 × 人材・アウトソーシング 696 社で +752.7% になっていた
+    /// (実測でその 99.4% が 1 社由来。人数加重なら +2.62%)。
+    ///
+    /// 企業数が少ない / 1 社集中の場合は `None`。地域の傾向として示せないため、
+    /// 表示にも営業提案にも使わない (`region_industry_notice` に理由が入る)。
+    /// 判定は `handlers::region_headcount` に集約している。
+    pub region_industry_rate: Option<f64>,
+    /// `region_industry_rate` が `None` のときの理由 (画面にそのまま出せる日本語)
+    pub region_industry_notice: Option<String>,
     pub region_industry_company_count: i64,
 
-    // 個社 vs 地域の比較
-    pub company_vs_region_gap: f64,
+    /// 個社 vs 地域の比較 (pt)。地域側が示せないときは `None`
+    pub company_vs_region_gap: Option<f64>,
 
     // 自社の給与 vs 市場（月給のみ）
     pub company_avg_salary_min: f64,
@@ -324,31 +336,44 @@ pub fn build_company_context(
 
         // Thread B: 地域×業種 人材フロー
         let h_flow = s.spawn(|| {
+            use crate::handlers::region_headcount::HeadcountAggregate;
+            let empty = HeadcountAggregate::default();
             if pref_snap.is_empty() || sn_industry_snap.is_empty() {
-                return (0i64, 0i64, 0i64, 0.0f64);
+                return empty;
             }
+            // 2026-08-12: AVG(employee_delta_1y) をやめ、人数加重で集計する。
+            // CAST も切り捨てのため ROUND に変更した (根拠は region_headcount の doc)。
             let sql = r#"
                 SELECT COUNT(*) as companies,
                        COALESCE(SUM(employee_count), 0) as total_employees,
-                       COALESCE(SUM(CAST(employee_count * employee_delta_1y / (100.0 + employee_delta_1y) AS INTEGER)), 0) as net_change,
-                       COALESCE(AVG(employee_delta_1y), 0.0) as avg_delta
+                       COALESCE(CAST(SUM(ROUND(employee_count * employee_delta_1y
+                            / (100.0 + employee_delta_1y))) AS INTEGER), 0) as net_change,
+                       COALESCE(CAST(SUM(ABS(ROUND(employee_count * employee_delta_1y
+                            / (100.0 + employee_delta_1y)))) AS INTEGER), 0) as abs_change,
+                       COALESCE(CAST(MAX(ABS(ROUND(employee_count * employee_delta_1y
+                            / (100.0 + employee_delta_1y)))) AS INTEGER), 0) as top1_change
                 FROM v2_salesnow_companies
                 WHERE prefecture = ?1 AND sn_industry = ?2
                   AND employee_count > 0 AND employee_delta_1y IS NOT NULL
+                  AND employee_delta_1y > -100
             "#;
             let params: Vec<&dyn crate::db::turso_http::ToSqlTurso> =
                 vec![&pref_snap, &sn_industry_snap];
             if let Ok(rows) = sn_db.query(sql, &params) {
                 if let Some(r) = rows.first() {
-                    return (
-                        get_i64(r, "companies"),
-                        get_i64(r, "total_employees"),
-                        get_i64(r, "net_change"),
-                        get_f64(r, "avg_delta"),
+                    let total = get_i64(r, "total_employees");
+                    let net = get_i64(r, "net_change");
+                    return HeadcountAggregate::from_parts(
+                        get_i64(r, "companies").max(0) as usize,
+                        total,
+                        total - net,
+                        net,
+                        get_i64(r, "abs_change"),
+                        get_i64(r, "top1_change"),
                     );
                 }
             }
-            (0, 0, 0, 0.0)
+            empty
         });
 
         // Thread C: 近隣企業（郵便番号prefixマッチ、最も重い）
@@ -361,7 +386,7 @@ pub fn build_company_context(
 
         (
             h_ext.join().unwrap_or((0, 0.0, 0.0)),
-            h_flow.join().unwrap_or((0, 0, 0, 0.0)),
+            h_flow.join().unwrap_or_default(),
             h_nearby.join().unwrap_or_default(),
         )
     });
@@ -372,11 +397,15 @@ pub fn build_company_context(
     ctx.aging_rate = ext_result.2;
 
     // Thread B 結果
-    ctx.region_industry_company_count = flow_result.0;
-    ctx.region_industry_total_employees = flow_result.1;
-    ctx.region_industry_net_change = flow_result.2;
-    ctx.region_industry_avg_delta = flow_result.3;
-    ctx.company_vs_region_gap = ctx.employee_delta_1y - ctx.region_industry_avg_delta;
+    ctx.region_industry_company_count = flow_result.companies as i64;
+    ctx.region_industry_total_employees = flow_result.current_employees;
+    ctx.region_industry_net_change = flow_result.net_change;
+    // 地域の傾向として示せる場合のみ値を持つ。抑制時は比較 (gap) も作らない。
+    ctx.region_industry_rate = flow_result.displayed_rate_pct();
+    ctx.region_industry_notice = flow_result.gate().notice();
+    ctx.company_vs_region_gap = ctx
+        .region_industry_rate
+        .map(|region| ctx.employee_delta_1y - region);
 
     // Thread C 結果
     ctx.nearby_companies = nearby_result;
@@ -1771,34 +1800,42 @@ fn compute_hiring_risk(
 fn generate_sales_pitches(ctx: &CompanyContext) -> Vec<(String, String)> {
     let mut pitches = Vec::new();
 
-    // 1. 地域比較（自社 vs 地域平均の従業員変化率）
-    if ctx.region_industry_company_count > 0 && ctx.employee_delta_1y != 0.0 {
-        if ctx.employee_delta_1y < ctx.region_industry_avg_delta {
-            let gap = ctx.region_industry_avg_delta - ctx.employee_delta_1y;
-            pitches.push((
-                format!(
-                    "地域の{}業界は年間{:+}人の変動に対し、御社は{:.1}%の成長率です",
-                    ctx.sn_industry, ctx.region_industry_net_change, ctx.employee_delta_1y
-                ),
-                format!(
-                    "{}の{}業界{}社の平均成長率は{:.1}%です。御社は地域平均より{:.1}%ポイント下回っています。人材確保の強化が競争力維持に重要です。",
-                    ctx.prefecture, ctx.sn_industry, ctx.region_industry_company_count,
-                    ctx.region_industry_avg_delta, gap
-                ),
-            ));
-        } else if ctx.employee_delta_1y > ctx.region_industry_avg_delta + 2.0 {
-            pitches.push((
-                format!(
-                    "御社は地域の{}業界平均を{:.1}%ポイント上回る成長率です",
-                    ctx.sn_industry,
-                    ctx.employee_delta_1y - ctx.region_industry_avg_delta
-                ),
-                format!(
-                    "成長に伴う採用ニーズの増加が見込まれます。{}の{}業界全体で{}人が従事しており、質の高い人材の早期確保が重要です。",
-                    ctx.prefecture, ctx.sn_industry,
-                    ctx.region_industry_total_employees
-                ),
-            ));
+    // 1. 地域比較（自社 vs 地域の人員増減率）
+    //
+    // 2026-08-12: 地域側は人数加重で、企業数が少ない / 1 社集中の場合は None になる。
+    // 旧実装は単純平均だったため、東京都 × 人材・アウトソーシングでは地域側が
+    // +752.7% (実測でその 99.4% が 1 社由来) となり、「地域平均より 747.7%ポイント
+    // 下回っています」という営業トークが顧客に出る状態だった。
+    // 地域の傾向として示せないときは比較の提案自体を作らない。
+    if let Some(region_rate) = ctx.region_industry_rate {
+        if ctx.region_industry_company_count > 0 && ctx.employee_delta_1y != 0.0 {
+            if ctx.employee_delta_1y < region_rate {
+                let gap = region_rate - ctx.employee_delta_1y;
+                pitches.push((
+                    format!(
+                        "地域の{}業界は年間{:+}人の変動に対し、御社は{:.1}%の成長率です",
+                        ctx.sn_industry, ctx.region_industry_net_change, ctx.employee_delta_1y
+                    ),
+                    format!(
+                        "{}の{}業界{}社の人員増減率は{:.1}%です。御社は地域より{:.1}%ポイント下回っています。人材確保の強化が競争力維持に重要です。",
+                        ctx.prefecture, ctx.sn_industry, ctx.region_industry_company_count,
+                        region_rate, gap
+                    ),
+                ));
+            } else if ctx.employee_delta_1y > region_rate + 2.0 {
+                pitches.push((
+                    format!(
+                        "御社は地域の{}業界を{:.1}%ポイント上回る成長率です",
+                        ctx.sn_industry,
+                        ctx.employee_delta_1y - region_rate
+                    ),
+                    format!(
+                        "成長に伴う採用ニーズの増加が見込まれます。{}の{}業界全体で{}人が従事しており、質の高い人材の早期確保が重要です。",
+                        ctx.prefecture, ctx.sn_industry,
+                        ctx.region_industry_total_employees
+                    ),
+                ));
+            }
         }
     }
 
