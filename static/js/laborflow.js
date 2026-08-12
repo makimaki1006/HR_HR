@@ -33,7 +33,21 @@
    * 棒の色と軸ラベルでも区別する。
    */
   function isSuppressed(d) {
-    return d.headcount_rate_1y === null || d.headcount_rate_1y === undefined;
+    return typeof d.headcount_rate_1y !== "number" || !isFinite(d.headcount_rate_1y);
+  }
+
+  /**
+   * 数値として扱えない値を 0 に倒す。
+   *
+   * renderTable は `d.net_change_1y || 0` でガードしていたが renderChart は
+   * していなかったため、1 件でも null が混ざると tooltip と棒ラベルが
+   * `Cannot read properties of null (reading 'toLocaleString')` で落ちていた。
+   * renderTable 側も companies / total_emp は素通しで、fetch の .catch() に
+   * 落ちて「データ取得に失敗しました」という誤解を招く表示になっていた。
+   * 両者でガードを揃える。
+   */
+  function num(v) {
+    return typeof v === "number" && isFinite(v) ? v : 0;
   }
 
   var SUPPRESS_MARK = "※";
@@ -135,15 +149,16 @@
           var p = params[0];
           var d = top[p.dataIndex];
           if (!d) return "";
-          var sign = d.net_change_1y >= 0 ? "+" : "";
+          var c1y = num(d.net_change_1y);
+          var c3m = num(d.net_change_3m);
           return '<div style="font-weight:bold;">' + escapeText(d.sn_industry) + '</div>'
             + '<div style="margin-top:4px;">'
-            + '1Y変動: <span style="color:' + (d.net_change_1y >= 0 ? '#22c55e' : '#ef4444') + ';">'
-            + sign + d.net_change_1y.toLocaleString() + '人</span>'
+            + '1Y変動: <span style="color:' + (c1y >= 0 ? '#22c55e' : '#ef4444') + ';">'
+            + (c1y >= 0 ? '+' : '') + c1y.toLocaleString() + '人</span>'
             + '</div>'
-            + '<div>3M変動: ' + (d.net_change_3m >= 0 ? '+' : '') + d.net_change_3m.toLocaleString() + '人</div>'
-            + '<div>企業数: ' + d.companies.toLocaleString() + '社</div>'
-            + '<div>総従業員: ' + d.total_emp.toLocaleString() + '人</div>'
+            + '<div>3M変動: ' + (c3m >= 0 ? '+' : '') + c3m.toLocaleString() + '人</div>'
+            + '<div>企業数: ' + num(d.companies).toLocaleString() + '社</div>'
+            + '<div>総従業員: ' + num(d.total_emp).toLocaleString() + '人</div>'
             + '<div>人員増減率: ' + formatHeadcountRate(d) + '</div>'
             + (d.headcount_notice
                 ? '<div style="margin-top:4px;color:#94a3b8;max-width:260px;white-space:normal;">'
@@ -202,7 +217,7 @@
           fontSize: 10,
           color: "#94a3b8",
           formatter: function(p) {
-            var v = p.value;
+            var v = num(p.value);
             if (v === 0) return "";
             return (v >= 0 ? "+" : "") + v.toLocaleString();
           }
@@ -274,8 +289,8 @@
       html += '<tr class="border-b border-gray-800 hover:bg-gray-700/50 cursor-pointer" onclick="loadIndustryCompanies(\'' + escapeAttr(currentPref) + '\',\'' + escapeAttr(currentMuni) + '\',\'' + escapeAttr(d.sn_industry) + '\')">'
         + '<td class="py-1 pr-2 text-gray-200 max-w-[160px] truncate" title="' + escapeAttr(d.sn_industry) + '">'
         + escapeText(d.sn_industry) + (isSuppressed(d) ? ' <span class="text-gray-500">' + SUPPRESS_MARK + '</span>' : '') + '</td>'
-        + '<td class="py-1 px-2 text-right text-gray-300">' + d.companies.toLocaleString() + '</td>'
-        + '<td class="py-1 px-2 text-right text-gray-300">' + d.total_emp.toLocaleString() + '</td>'
+        + '<td class="py-1 px-2 text-right text-gray-300">' + num(d.companies).toLocaleString() + '</td>'
+        + '<td class="py-1 px-2 text-right text-gray-300">' + num(d.total_emp).toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right" style="color:' + (c1y >= 0 ? '#22c55e' : '#ef4444') + ';">'
         + (c1y >= 0 ? '+' : '') + c1y.toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right" style="color:' + (c3m >= 0 ? '#22c55e' : '#ef4444') + ';">'
