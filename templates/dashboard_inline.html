@@ -446,7 +446,47 @@
                 document.querySelectorAll('.section-pick').forEach(function(b) {
                     b.checked = set.indexOf(b.value) !== -1;
                 });
+                if (typeof window.syncSectionCount === 'function') window.syncSectionCount();
             };
+
+            // 2026-08-12: レポート作成を「すべて載せる / 内容を選ぶ」の 2 択にした。
+            //   選ぶ前に何が載るか分かるよう、章ごとに説明を出し、選択中の章数も表示する。
+            //   HTMX 挿入 <script> は eval されないため、本ファイルで window 登録する。
+            window.syncReportMode = function() {
+                var picked = document.querySelector('input[name="report_mode"]:checked');
+                var mode = picked ? picked.value : 'all';
+                var all = document.getElementById('report-mode-all');
+                var pick = document.getElementById('report-mode-pick');
+                if (all) all.classList.toggle('hidden', mode !== 'all');
+                if (pick) pick.classList.toggle('hidden', mode !== 'pick');
+                document.querySelectorAll('.report-mode-card').forEach(function(card) {
+                    var input = card.querySelector('input[type="radio"]');
+                    var on = !!(input && input.checked);
+                    card.classList.toggle('border-blue-500', on);
+                    card.classList.toggle('bg-blue-500/10', on);
+                });
+                if (mode === 'pick' && typeof window.syncSectionCount === 'function') window.syncSectionCount();
+            };
+
+            window.syncSectionCount = function() {
+                var boxes = document.querySelectorAll('.section-pick');
+                var on = document.querySelectorAll('.section-pick:checked');
+                var el = document.getElementById('section-count');
+                if (!el) return;
+                if (on.length === 0) {
+                    el.textContent = '章がすべて外れています（表紙・要約・出典だけのレポートになります）';
+                    el.className = 'text-xs text-amber-300';
+                } else {
+                    el.textContent = '選択中: ' + on.length + ' / ' + boxes.length + ' 章';
+                    el.className = 'text-xs text-slate-300';
+                }
+            };
+
+            // 分析結果は HTMX ではなく fetch + innerHTML で挿入されるため、
+            // 挿入後にも初期表示を合わせる必要がある（DOMContentLoaded だけでは間に合わない）。
+            document.addEventListener('change', function(e) {
+                if (e.target && e.target.name === 'report_mode') window.syncReportMode();
+            });
 
             // 2026-07-10: コンサル準備パネル (社内用)。render.rs の
             //   render_consult_prep_panel から呼ばれる。HTMX 挿入 <script> は
