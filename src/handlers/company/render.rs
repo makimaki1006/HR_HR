@@ -993,10 +993,19 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         return;
     }
 
-    let region_delta_display = if ctx.region_industry_avg_delta.abs() > 0.01 {
-        format!("{:+.1}%", ctx.region_industry_avg_delta)
-    } else {
-        "0.0%".to_string()
+    // 地域の人員増減率。企業数が少ない / 1 社集中の場合は値を出さず理由を書く。
+    // (2026-08-12: 旧実装は各社の増減率の単純平均で、1 社に支配されていた)
+    let region_delta_display = match ctx.region_industry_rate {
+        Some(r) if r.abs() > 0.01 => format!("{:+.1}%", r),
+        Some(_) => "0.0%".to_string(),
+        None => "&mdash;".to_string(),
+    };
+    let region_notice_html = match &ctx.region_industry_notice {
+        Some(n) => format!(
+            r#"<div class="text-[11px] text-slate-500 mt-1 leading-snug">{}</div>"#,
+            escape_html(n)
+        ),
+        None => String::new(),
     };
 
     let net_change_color = if ctx.region_industry_net_change > 0 {
@@ -1007,20 +1016,19 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         "text-slate-400"
     };
 
-    let gap_display = if ctx.company_vs_region_gap.abs() > 0.1 {
-        if ctx.company_vs_region_gap > 0.0 {
+    // 地域側を示せないときは比較も出さない (存在しない基準との差を語らないため)
+    let gap_display = match ctx.company_vs_region_gap {
+        Some(gap) if gap > 0.1 => {
             format!(
                 r#"<span class="text-green-400">+{:.1}pt 上回る</span>"#,
-                ctx.company_vs_region_gap
-            )
-        } else {
-            format!(
-                r#"<span class="text-red-400">{:.1}pt 下回る</span>"#,
-                ctx.company_vs_region_gap
+                gap
             )
         }
-    } else {
-        r#"<span class="text-slate-400">同水準</span>"#.to_string()
+        Some(gap) if gap < -0.1 => {
+            format!(r#"<span class="text-red-400">{:.1}pt 下回る</span>"#, gap)
+        }
+        Some(_) => r#"<span class="text-slate-400">同水準</span>"#.to_string(),
+        None => r#"<span class="text-slate-400">比較なし</span>"#.to_string(),
     };
 
     write!(html,
@@ -1030,12 +1038,13 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
             <div class="bg-slate-800/50 rounded-lg p-4">
                 <div class="text-xs text-slate-500 mb-1">{pref}の{ind}業界（{cnt}社）</div>
                 <div class="text-xl font-bold text-white">{total}人</div>
-                <div class="text-sm {net_color} mt-1">年間 {net_change:+}人（平均 {avg_delta}）</div>
+                <div class="text-sm {net_color} mt-1">年間 {net_change:+}人（増減率 {avg_delta}）</div>
+                {region_notice}
             </div>
             <div class="bg-slate-800/50 rounded-lg p-4">
                 <div class="text-xs text-slate-500 mb-1">御社</div>
                 <div class="text-xl font-bold text-white">{emp}人</div>
-                <div class="text-sm mt-1">前年比 {delta:.1}%（地域平均比: {gap}）</div>
+                <div class="text-sm mt-1">前年比 {delta:.1}%（地域との比較: {gap}）</div>
             </div>
         </div>
     </div>"#,
@@ -1046,6 +1055,7 @@ fn render_region_vs_company(html: &mut String, ctx: &CompanyContext) {
         net_color = net_change_color,
         net_change = ctx.region_industry_net_change,
         avg_delta = region_delta_display,
+        region_notice = region_notice_html,
         emp = format_number(ctx.employee_count),
         delta = ctx.employee_delta_1y,
         gap = gap_display,
