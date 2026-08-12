@@ -51,9 +51,21 @@
   }
 
   var SUPPRESS_MARK = "※";
+
+  /**
+   * 3 か月の増減人数を 1 社が過半を占めているか。
+   *
+   * 3 か月側は率を出さないためゲートは掛からないが、1 年側が表示される業種でも
+   * 3 か月は 1 社が過半を握ることがある (実測 24 件。例: 東京都 × 自動車・輸送は
+   * 3 か月 -8,001 人のうち 1 社が -7,206 人)。※ を付けて区別する。
+   */
+  function isConcentrated3m(d) {
+    return typeof d.top1_share_3m === "number" && d.top1_share_3m >= 50;
+  }
   var SUPPRESS_FOOTNOTE =
     "※ 対象企業が少ない、または 1 社の増減が大半を占める業種。" +
-    "増減率を地域の傾向としては示していない。";
+    "増減率を地域の傾向としては示していない。" +
+    "増減人数の欄に付く ※ は、その期間の増減の過半を 1 社が占めることを示す。";
 
   /**
    * 都道府県を指定して人材フローデータをロード・描画
@@ -156,7 +168,11 @@
             + '1Y変動: <span style="color:' + (c1y >= 0 ? '#22c55e' : '#ef4444') + ';">'
             + (c1y >= 0 ? '+' : '') + c1y.toLocaleString() + '人</span>'
             + '</div>'
-            + '<div>3M変動: ' + (c3m >= 0 ? '+' : '') + c3m.toLocaleString() + '人</div>'
+            + '<div>3M変動: ' + (c3m >= 0 ? '+' : '') + c3m.toLocaleString() + '人'
+            + (isConcentrated3m(d)
+                ? ' <span style="color:#94a3b8;">(うち 1 社が '
+                  + Math.round(d.top1_share_3m) + '%)</span>'
+                : '') + '</div>'
             + '<div>企業数: ' + num(d.companies).toLocaleString() + '社</div>'
             + '<div>総従業員: ' + num(d.total_emp).toLocaleString() + '人</div>'
             + '<div>人員増減率: ' + formatHeadcountRate(d) + '</div>'
@@ -293,8 +309,13 @@
         + '<td class="py-1 px-2 text-right text-gray-300">' + num(d.total_emp).toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right" style="color:' + (c1y >= 0 ? '#22c55e' : '#ef4444') + ';">'
         + (c1y >= 0 ? '+' : '') + c1y.toLocaleString() + '</td>'
-        + '<td class="py-1 px-2 text-right" style="color:' + (c3m >= 0 ? '#22c55e' : '#ef4444') + ';">'
-        + (c3m >= 0 ? '+' : '') + c3m.toLocaleString() + '</td>'
+        + '<td class="py-1 px-2 text-right" style="color:' + (c3m >= 0 ? '#22c55e' : '#ef4444') + ';"'
+        + (isConcentrated3m(d)
+            ? ' title="この期間の人員変動の ' + Math.round(d.top1_share_3m) + '% を 1 社が占めています"'
+            : '')
+        + '>' + (c3m >= 0 ? '+' : '') + c3m.toLocaleString()
+        + (isConcentrated3m(d) ? ' <span class="text-gray-500">' + SUPPRESS_MARK + '</span>' : '')
+        + '</td>'
         + '<td class="py-1 px-2 text-right text-gray-300"'
         + (d.headcount_notice ? ' title="' + escapeAttr(d.headcount_notice) + '"' : '')
         + '>' + formatHeadcountRate(d) + '</td>'

@@ -85,7 +85,15 @@ pub async fn labor_flow(
                        CAST(SUM(ABS(ROUND(employee_count * employee_delta_1y
                             / (100.0 + employee_delta_1y)))) AS INTEGER) as abs_change_1y,
                        CAST(MAX(ABS(ROUND(employee_count * employee_delta_1y
-                            / (100.0 + employee_delta_1y)))) AS INTEGER) as top1_change_1y"#;
+                            / (100.0 + employee_delta_1y)))) AS INTEGER) as top1_change_1y,
+                       CAST(SUM(CASE WHEN employee_delta_3m > -100
+                            THEN ABS(ROUND(employee_count * employee_delta_3m
+                                 / (100.0 + employee_delta_3m))) ELSE 0 END) AS INTEGER)
+                            as abs_change_3m,
+                       CAST(MAX(CASE WHEN employee_delta_3m > -100
+                            THEN ABS(ROUND(employee_count * employee_delta_3m
+                                 / (100.0 + employee_delta_3m))) ELSE 0 END) AS INTEGER)
+                            as top1_change_3m"#;
 
         // 市区町村が指定されている場合、address LIKE で絞り込む
         // 2026-06-08 Team H-Fix: 「郡」プレフィックスを strip し、6市町
@@ -172,12 +180,27 @@ pub async fn labor_flow(
                     get_i64(r, "top1_change_1y"),
                 );
                 let gate = agg.gate();
+                // 3 か月側は増減「人数」しか出さないので率のゲートは掛けないが、
+                // 1 年側が表示されるセルでも 3 か月は 1 社が過半を占めることがある
+                // (実測 24 件)。集中度だけ返して画面で区別できるようにする。
+                //
+                // 注意: 3 か月の集計対象行は WHERE 句の `employee_delta_1y IS NOT NULL
+                // AND > -100` に縛られる。3m を復元できるのに 1y 条件で落ちる企業が
+                // 312 社 (39,122 人) あり、3 か月の合計は本来より約 0.5% 小さい。
+                let abs_3m = get_i64(r, "abs_change_3m");
+                let top1_3m = get_i64(r, "top1_change_3m");
+                let share_3m = if abs_3m > 0 {
+                    Some(top1_3m as f64 / abs_3m as f64 * 100.0)
+                } else {
+                    None
+                };
                 json!({
                     "sn_industry": get_str(r, "sn_industry"),
                     "companies": agg.companies,
                     "total_emp": total_emp,
                     "net_change_1y": net_change_1y,
                     "net_change_3m": get_i64(r, "net_change_3m"),
+                    "top1_share_3m": share_3m,
                     // 人数加重の増減率。企業数が少ない / 1 社集中の場合は null。
                     // 値を出さない理由は headcount_notice に入れて必ず利用者に伝える。
                     "headcount_rate_1y": agg.displayed_rate_pct(),

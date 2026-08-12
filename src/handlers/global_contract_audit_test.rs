@@ -512,6 +512,50 @@ fn labor_flow_headcount_field_names_match_between_backend_and_frontend() {
     );
 }
 
+/// 逆証明: `/api/v1/companies/{n}` の人員推移フィールドが、実装と openapi 記載で一致すること。
+///
+/// これは**認証不要の MCP/AI 連携端点** (`lib.rs:786-799`)。2026-08-12 に
+/// `cross_analysis.region_industry.avg_delta` を削除して `headcount_rate` /
+/// `headcount_notice` に置き換えた。外部の利用者がいる可能性がある破壊変更なのに、
+/// 当初は契約テストも openapi 記載も無かった (2026-04-23 の 8 panel 全滅と同じクラス)。
+#[test]
+fn api_v1_headcount_fields_match_implementation_and_openapi() {
+    const RS: &str = include_str!("api_v1.rs");
+    const YAML: &str = include_str!("../../docs/openapi.yaml");
+
+    // 廃止した JSON キーが実装に残っていないこと
+    assert!(
+        !RS.contains("\"avg_delta\""),
+        "api_v1.rs が廃止済み JSON キー avg_delta を返している"
+    );
+
+    // 実装と openapi の両方に新フィールドがあること
+    for key in ["headcount_rate", "headcount_notice"] {
+        assert!(RS.contains(key), "api_v1.rs が {key} を返していない");
+        assert!(
+            YAML.contains(key),
+            "docs/openapi.yaml に {key} の記載が無い。\
+             認証不要端点の shape 変更は必ず契約に反映すること"
+        );
+    }
+
+    // openapi に /api/v1/companies の記載自体があること
+    assert!(
+        YAML.contains("/api/v1/companies/{corporate_number}"),
+        "docs/openapi.yaml に /api/v1/* の記載が無い"
+    );
+
+    // 比較値は nullable。地域側または自社側が示せないときに null になる
+    assert!(
+        RS.contains("company_vs_region_gap"),
+        "api_v1.rs が company_vs_region_gap を返していない"
+    );
+    assert!(
+        YAML.contains("company_vs_region_gap"),
+        "docs/openapi.yaml に company_vs_region_gap の記載が無い"
+    );
+}
+
 // ========== 既知ミスマッチの記録テスト（#[ignore]） ==========
 
 /// 🔴 BUG MARKER: Mismatch #4 (docs/contract_audit_2026_04_23.md)
