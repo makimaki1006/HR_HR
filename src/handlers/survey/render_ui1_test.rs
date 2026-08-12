@@ -362,14 +362,19 @@ fn ui1_analysis_action_bar_primary_hw_integrate_emphasized() {
         html.contains("shadow-lg") || html.contains("shadow-blue"),
         "プライマリボタンに shadow 必要"
     );
-    // PDF 導線: 標準レポート (market_intelligence) と詳細レポート (extended) の 2 ボタン
+    // 2026-08-12: レポートの入口は「すべて載せる / 内容を選ぶ」の 2 択。
+    // 標準 (market_intelligence) と本編 (sp) のボタンは撤去済み。
     assert!(
-        html.contains("標準レポートを作成"),
-        "標準レポートを作成 ボタン必須 (variant=market_intelligence)"
+        html.contains("すべて載せる") && html.contains("内容を選ぶ"),
+        "レポート作成の 2 つの入口が必要"
     );
     assert!(
-        html.contains("詳細レポートを作成 (データ拡大版)"),
-        "詳細レポートを作成 ボタン必須 (variant=extended)"
+        html.contains("variant=extended"),
+        "レポートは詳細版 (extended) で出す"
+    );
+    assert!(
+        !html.contains("標準レポートを作成"),
+        "標準レポートのボタンは撤去済みのはず"
     );
     assert!(
         !html.contains("HW併載版 PDF"),

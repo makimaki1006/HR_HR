@@ -334,6 +334,11 @@ pub(crate) fn render_upload_form() -> String {
                                             // (2026-08-04 レビューで発見: これが無いとパネルは
                                             //  本番のアップロード経路で一度も初期化されない)。
                                             if (typeof window.surveyExploreScan === 'function') window.surveyExploreScan(target);
+                                            // 2026-08-12: レポート作成の 2 択（すべて載せる / 内容を選ぶ）の
+                                            // 初期表示を合わせる。結果は innerHTML 挿入なので
+                                            // DOMContentLoaded では間に合わない。
+                                            if (typeof window.syncReportMode === 'function') window.syncReportMode();
+                                            if (typeof window.syncSectionCount === 'function') window.syncSectionCount();
                                         }, 50);
                                         status.textContent = '完了';
                                         status.className = 'mt-3 text-sm text-emerald-400';
@@ -687,57 +692,71 @@ fn render_action_bar(session_id: &str) -> String {
                     <span class="hidden group-hover:inline text-[10px] opacity-75 ml-1">（地域×公的求人×統計の比較レポート）</span>
                 </button>
             </div>
-            <!-- PDF出力: 通常導線は採用コンサルレポートに一本化。旧 full/public は URL 互換のみ維持。 -->
-            <div class="mb-3 p-3 bg-slate-900/40 rounded border border-slate-700" role="group" aria-label="PDFレポート出力">
-                <div class="text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
+            <!-- 2026-08-12: レポート出力を「すべて載せる」か「内容を選ぶ」かの 2 択に整理。
+                 標準(market_intelligence) と 本編(sp) のボタンは撤去（URL は温存）。
+                 詳細(extended) を唯一のレポートとし、章を選ぶ場合も同じ詳細版に載せる。
+                 章ごとの説明文は生成済みレポートの実出力から起こしたもので、
+                 レポート本文には手を入れていない（画面側の案内のみ）。 -->
+            <div class="mb-3 p-3 bg-slate-900/40 rounded border border-slate-700" role="group" aria-label="レポート出力">
+                <div class="text-xs font-semibold text-slate-200 mb-2 flex items-center gap-1.5">
                     <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                    PDFレポート出力
-                    <span class="text-[10px] font-normal text-emerald-300">2種類から選択</span>
+                    レポートを作成
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    <!-- 標準レポート: market_intelligence — 従来の動線・URL 不変 -->
-                    <a href="/report/survey?session_id={sid}&variant=market_intelligence" target="_blank" rel="noopener"
-                       onclick="return openVariantReport(event, '{sid}', 'market_intelligence')"
-                       data-variant="market_intelligence"
-                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-purple-400"
-                       aria-label="標準レポートPDFを新しいタブで開く"
-                       title="標準レポート: いつもの構成（採用マーケットインテリジェンス版）。ヘッダーで選択中の都道府県/市区町村/業種が自動的に適用されます。">
-                        <span class="text-base" aria-hidden="true">📄</span>
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>標準レポートを作成</span>
-                            <span class="text-[10px] opacity-80 font-normal">いつもの構成</span>
-                        </span>
-                    </a>
-                    <!-- 詳細レポート: extended — 働き手の将来・給与相場・転職動向を追加 (Section 10) -->
+                <div id="report-mode-cards" role="radiogroup" aria-label="レポートの作り方" class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                    <label class="report-mode-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors" data-mode="all">
+                        <input type="radio" name="report_mode" value="all" class="mt-1" checked onchange="syncReportMode()">
+                        <div>
+                            <div class="text-sm font-bold text-white">すべて載せる</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">全10章。まずはこちらで問題ありません</div>
+                        </div>
+                    </label>
+                    <label class="report-mode-card flex items-start gap-2 p-3 bg-slate-800/40 border border-slate-700 rounded cursor-pointer hover:border-blue-500 transition-colors" data-mode="pick">
+                        <input type="radio" name="report_mode" value="pick" class="mt-1" onchange="syncReportMode()">
+                        <div>
+                            <div class="text-sm font-bold text-white">内容を選ぶ</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">要らない章を外して短くします</div>
+                        </div>
+                    </label>
+                </div>
+                <div id="report-mode-all">
                     <a href="/report/survey?session_id={sid}&variant=extended" target="_blank" rel="noopener"
                        onclick="return openVariantReport(event, '{sid}', 'extended')"
                        data-variant="extended"
-                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                       aria-label="詳細レポートPDFを新しいタブで開く（データ拡大版）"
-                       title="詳細レポート: 働き手の将来・給与相場・転職動向の分析を追加した版。公的統計×今回の求人データのクロス集計（国の将来人口推計等）を含む。データ未投入時は該当セクションをスキップします。">
-                        <span class="text-base" aria-hidden="true">📊</span>
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>詳細レポートを作成 (データ拡大版)</span>
-                            <span class="text-[10px] opacity-80 font-normal">働き手の将来・給与相場・転職動向の分析を追加した版</span>
-                        </span>
+                       class="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded text-sm font-bold transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                       aria-label="レポートPDFを新しいタブで開く">
+                        <span class="text-base" aria-hidden="true">📊</span> レポートを作成（全10章）
                     </a>
-                    <!-- 本編: sp — 詳細版 + 経営サマリー1ページ/結論バンド/優先アクション表/給与四分位 -->
-                    <a href="/report/survey?session_id={sid}&variant=sp" target="_blank" rel="noopener"
-                       onclick="return openVariantReport(event, '{sid}', 'sp')"
-                       data-variant="sp"
-                       class="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-teal-400"
-                       aria-label="本編レポートを新しいタブで開く"
-                       title="本編レポート: 詳細版に「持ち歩ける経営サマリー1ページ」「各ページの結論バンド」「優先アクション表」「給与の四分位」を加えた標準のレポートです。">
-                        <span class="text-base" aria-hidden="true">📄</span>
-                        <span class="flex flex-col items-start leading-tight">
-                            <span>本編レポートを作成</span>
-                            <span class="text-[10px] opacity-80 font-normal">経営サマリー・優先アクション付きの標準版</span>
-                        </span>
-                    </a>
-                    <!-- 2026-08-10: 「Ver10 レポート」ボタンを削除（ユーザー指示）。
-                         ReportVariant::Ver10 と /report/survey のクエリ指定は温存しており、
-                         URL 直アクセスでは引き続き生成できる。 -->
-                    <!-- 解説資料: guide — レポートに添える顧客向け読み解きガイド (2026-07-17) -->
+                </div>
+                <div id="report-mode-pick" class="hidden">
+                    <p class="text-[11px] text-slate-400 mb-2">載せる章を選んでください。<strong class="text-slate-200">表紙・要約・出典は常に入ります。</strong></p>
+                    <div class="flex flex-wrap gap-2 mb-2" role="group" aria-label="よく使う組み合わせ">
+                        <button type="button" onclick="applySectionPreset('full')"
+                                class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">すべて選ぶ</button>
+                        <button type="button" onclick="applySectionPreset('minimal')"
+                                class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">すべて外す</button>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-1" role="group" aria-label="載せる章">
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="02" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">地域の基礎データ</span><br><span class="text-[10px] text-slate-400">可住地面積・人口密度・件数が多い市区町村・通勤の流入元</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="03" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">給与の分布</span><br><span class="text-[10px] text-slate-400">下限と上限それぞれの分布と分位点、雇用形態別の給与</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="075" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">年間休日×給与の詳細</span><br><span class="text-[10px] text-slate-400">休日数別の給与、給与×休日の散布図、個別求人の具体例、セグメント別統計</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="076" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">人気求人の傾向</span><br><span class="text-[10px] text-slate-400">人気タグ別の月給・年間休日の比較（Indeed (SP) のCSVのときだけ出ます）</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="06" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">働き手の年齢・人口構成</span><br><span class="text-[10px] text-slate-400">人口構造の主要指標、年齢階級別の人口ピラミッド</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="05" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">地域の企業構造</span><br><span class="text-[10px] text-slate-400">規模×動向の法人セグメント、産業大分類の構成</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="04" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">採用市場の需給</span><br><span class="text-[10px] text-slate-400">採用難度の指標、事業所統計、開業率・廃業率</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="07" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">最低賃金・暮らしのデータ</span><br><span class="text-[10px] text-slate-400">最低賃金の推移、家計支出、通勤圏、昼夜間人口</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="09" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">採用マーケット分析</span><br><span class="text-[10px] text-slate-400">配信の優先度、通勤の届く範囲、生活コストで補正した給与の魅力度</span></span></label>
+                        <label class="pick-row flex items-start gap-2 p-2 rounded hover:bg-slate-800/60 cursor-pointer"><input type="checkbox" class="section-pick mt-0.5" value="10" checked onchange="syncSectionCount()"><span><span class="text-xs text-slate-100">採用環境の詳細分析</span><br><span class="text-[10px] text-slate-400">働き手の将来推計、地域相場との給与比較、転職意向、採用のネック診断</span></span></label>
+                    </div>
+                    <div class="mt-3 flex items-center gap-3 flex-wrap">
+                        <button type="button" onclick="return buildSectionsReport(event, '{sid}')"
+                                class="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-bold transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                                aria-label="選んだ内容でレポートを新しいタブで開く">
+                            <span class="text-base" aria-hidden="true">🧾</span> 選んだ内容でレポートを作成
+                        </button>
+                        <span id="section-count" class="text-xs text-slate-300" aria-live="polite">選択中: 10 / 10 章</span>
+                    </div>
+                </div>
+                <div class="mt-3 pt-2 border-t border-slate-700/60">
                     <a href="/report/survey?session_id={sid}&variant=guide" target="_blank" rel="noopener"
                        onclick="return openGuideReport(event, '{sid}')"
                        data-variant="guide"
@@ -751,59 +770,7 @@ fn render_action_bar(session_id: &str) -> String {
                         </span>
                     </a>
                 </div>
-                <!-- 2026-08-10: Ver10 専用だった「表2-E を含める」チェックボックスも
-                     Ver10 ボタン削除に伴い撤去。 -->
-                <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                    レポートは<strong class="text-slate-200">3種類</strong>（標準 / 詳細 / 本編）から選べます。これに添える解説資料も同じ場所から作成できます。旧「併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません。<br><strong class="text-amber-300">📌 ヘッダー上部で選択中の都道府県/市区町村/業種が PDF に自動適用されます。</strong>
-                </p>
-                <!-- 2026-05-19: openVariantReport は templates/dashboard_inline.html へ移動。
-                     HTMX で動的挿入された <script> は eval されないため、ここで定義すると
-                     onclick 実行時に ReferenceError → static href (pref/muni 無し) に
-                     フォールバック navigate されていた。 -->
-                <!-- 2026-07-10: セクション選択パネル (折りたたみ)。
-                     チェックした内容だけを詳細版レポートに載せる。applySectionPreset /
-                     buildSectionsReport は openVariantReport と同じく templates/dashboard_inline.html
-                     に window 登録済み (HTMX 挿入 <script> は eval されないため)。 -->
-                <details class="mt-3 rounded border border-slate-700 bg-slate-900/40" id="section-pick-panel">
-                    <summary class="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                        <span aria-hidden="true">📋</span> 出力する内容を選んでレポートを作成
-                        <span class="text-[10px] font-normal text-slate-400">（必要なページだけ選べます）</span>
-                    </summary>
-                    <div class="px-3 pb-3 pt-1">
-                        <div class="flex flex-wrap gap-1.5 mb-2" role="group" aria-label="よく使う組み合わせ">
-                            <button type="button" onclick="applySectionPreset('standard')"
-                                    class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-                                    title="よく使う標準的なページ一式を選びます">標準セット</button>
-                            <button type="button" onclick="applySectionPreset('full')"
-                                    class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-                                    title="すべてのページを選びます">詳細セット</button>
-                            <button type="button" onclick="applySectionPreset('minimal')"
-                                    class="px-2.5 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-                                    title="表紙・要約・出典だけの最小構成にします">最小 (要約のみ)</button>
-                        </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5" role="group" aria-label="出力するページ">
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="02" checked> 地域の基礎データ</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="03" checked> 給与の分布</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="075" checked> 年間休日×給与の詳細</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="076" checked> 人気求人の傾向 <span class="text-[10px] text-slate-500">(Indeed SPのみ)</span></label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="06" checked> 働き手の年齢・人口構成</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="05" checked> 地域の企業構造</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="04" checked> 採用市場の需給</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="07" checked> 最低賃金・暮らしのデータ</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="09" checked> 採用マーケット分析</label>
-                            <label class="flex items-start gap-2 text-xs text-slate-200"><input type="checkbox" class="section-pick mt-0.5" value="10" checked> 採用環境の詳細分析 <span class="text-[10px] text-slate-500">(働き手の将来・給与相場・転職動向)</span></label>
-                        </div>
-                        <div class="mt-3">
-                            <button type="button" onclick="return buildSectionsReport(event, '{sid}')"
-                                    class="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-sm font-medium transition-colors min-h-[44px] focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                                    aria-label="選んだ内容でレポートを新しいタブで開く"
-                                    title="チェックした内容だけを詳細版レポートに載せて新しいタブで開きます">
-                                <span class="text-base" aria-hidden="true">🧾</span> 選んだ内容でレポートを作成
-                            </button>
-                        </div>
-                        <p class="text-[11px] text-slate-400 mt-2">表紙・要約・出典は常に含まれます。</p>
-                    </div>
-                </details>
+                <p class="text-[11px] text-amber-300 mt-2 leading-relaxed">📌 ヘッダー上部で選択中の都道府県 / 市区町村 / 業種が、レポートに自動で適用されます。</p>
             </div>
             <!-- セカンダリ動線: ボタングループ化（HTMLダウンロード + 別CSV） -->
             <div class="flex flex-wrap gap-2" role="group" aria-label="その他の出力">
@@ -1840,109 +1807,118 @@ fn render_kpi_card(html: &mut String, label: &str, value: &str, value_color: &st
 mod variant_ui_tests {
     use super::*;
 
-    /// 標準レポート (market_intelligence) と詳細レポート (extended) の 2 ボタンが露出することを確認。
-    /// full / public はタブ UI に表示しない (URL 互換のみ維持)。
+    /// 2026-08-12: レポートの入口を「すべて載せる」「内容を選ぶ」の 2 択に整理した。
+    ///
+    /// 標準(market_intelligence) と 本編(sp) のボタンは撤去。本編は章立てが詳細版と
+    /// 完全に同一で（実出力で確認済み）、並べる意味が無かった。URL は温存しているので
+    /// クエリを直接叩けば従来どおり生成できる。
     #[test]
-    fn action_bar_exposes_both_report_buttons() {
+    fn action_bar_offers_two_ways_to_build_a_report() {
         let html = render_action_bar("test_session_123");
-        // 標準ボタン
+
+        // 入口は 2 つ。ラジオで切り替える
         assert!(
-            html.contains("標準レポートを作成"),
-            "action bar should contain the standard report button"
+            html.contains(r#"name="report_mode" value="all""#),
+            "「すべて載せる」の選択肢が必要"
         );
         assert!(
-            html.contains("variant=market_intelligence"),
-            "action bar should link to the market_intelligence report (URL unchanged)"
+            html.contains(r#"name="report_mode" value="pick""#),
+            "「内容を選ぶ」の選択肢が必要"
         );
-        // 詳細ボタン
         assert!(
-            html.contains("詳細レポートを作成 (データ拡大版)"),
-            "action bar should contain the extended report button"
+            html.contains("すべて載せる") && html.contains("内容を選ぶ"),
+            "2 つの入口のラベルが必要"
         );
+
+        // 出力はどちらも詳細版
         assert!(
             html.contains("variant=extended"),
-            "action bar should link to the extended report"
+            "レポートは詳細版 (extended) で出す"
         );
-        // full / public は非表示
+
+        // 撤去したボタンが復活していないこと（逆証明）
+        for gone in [
+            "variant=market_intelligence",
+            "variant=sp",
+            "variant=full",
+            "variant=public",
+            "variant=ver10",
+        ] {
+            assert!(
+                !html.contains(gone),
+                "{gone} はタブ UI から撤去済みのはず（URL 互換のみ維持）"
+            );
+        }
         assert!(
-            !html.contains("variant=full") && !html.contains("variant=public"),
-            "full/public report variants must not be exposed in the tab UI"
+            !html.contains("標準レポートを作成") && !html.contains("本編レポートを作成"),
+            "標準 / 本編 のボタンは撤去済みのはず"
+        );
+    }
+
+    /// 「出力後に初めて中身が分かる」状態を解消するため、章ごとに何が載るかを事前に示す。
+    #[test]
+    fn section_picker_explains_what_each_section_contains() {
+        let html = render_action_bar("sid");
+        // 章名だけでなく、実際に出力される図表の中身が説明として添えられていること。
+        // 文言は生成済みレポートの実出力から起こしている。
+        let expected = [
+            ("地域の基礎データ", "可住地面積・人口密度"),
+            ("給与の分布", "雇用形態別の給与"),
+            ("年間休日×給与の詳細", "個別求人の具体例"),
+            ("人気求人の傾向", "人気タグ別"),
+            ("働き手の年齢・人口構成", "人口ピラミッド"),
+            ("地域の企業構造", "産業大分類の構成"),
+            ("採用市場の需給", "開業率・廃業率"),
+            ("最低賃金・暮らしのデータ", "最低賃金の推移"),
+            ("採用マーケット分析", "通勤の届く範囲"),
+            ("採用環境の詳細分析", "働き手の将来推計"),
+        ];
+        for (title, detail) in expected {
+            assert!(html.contains(title), "章名『{title}』が必要");
+            assert!(
+                html.contains(detail),
+                "章『{title}』に中身の説明『{detail}』が必要（出力後に気づく状態を防ぐ）"
+            );
+        }
+        // 選択結果が分かること
+        assert!(
+            html.contains(r#"id="section-count""#),
+            "選択中の章数の表示が必要"
+        );
+        // 常に入るものが明示されていること
+        assert!(
+            html.contains("表紙・要約・出典は常に入ります"),
+            "常時含まれる章の説明が必要"
         );
     }
 
     #[test]
-    fn action_bar_standard_report_has_accessible_label() {
-        let html = render_action_bar("test_session_456");
-        assert!(
-            html.contains("標準レポートPDFを新しいタブで開く"),
-            "standard report button should have aria-label"
-        );
-    }
-
-    #[test]
-    fn action_bar_extended_report_has_accessible_label() {
-        let html = render_action_bar("test_session_789");
-        assert!(
-            html.contains("詳細レポートPDFを新しいタブで開く（データ拡大版）"),
-            "extended report button should have aria-label"
-        );
-    }
-
-    #[test]
-    fn action_bar_variant_buttons_have_min_height_for_mobile() {
-        // スマホでもタップしやすいサイズ (min-height:44px) — 2 ボタン分
+    fn action_bar_buttons_have_min_height_for_mobile() {
+        // スマホでもタップしやすいサイズ (min-height:44px)
         let html = render_action_bar("sid");
         let count = html.matches("min-h-[44px]").count();
         assert!(
-            count >= 2,
-            "both report buttons should have min-h-[44px] for mobile tappability (found {})",
+            count >= 3,
+            "レポート作成 / 選んで作成 / 解説資料 の各ボタンに min-h-[44px] が必要 (found {})",
             count
         );
     }
 
-    /// 2026-08-10: Ver10 ボタンを撤去し、説明文を実態（標準/詳細/本編の3種）に合わせた。
-    /// 以前は 5 ボタン出ているのに「2種類」と書かれており、説明が実態と食い違っていた。
     #[test]
-    fn action_bar_explains_report_types() {
+    fn action_bar_keeps_filter_propagation_guidance() {
         let html = render_action_bar("sid");
         assert!(
-            html.contains("3種類"),
-            "should explain how many report variants are available"
-        );
-        // 実際に露出しているボタン数と説明文が一致していること（逆証明）
-        for v in ["market_intelligence", "extended", "sp"] {
-            assert!(
-                html.contains(&format!("variant={v}")),
-                "variant={v} のボタンが必要"
-            );
-        }
-        assert!(
-            !html.contains("variant=ver10"),
-            "Ver10 ボタンは撤去済みのはず"
-        );
-        assert!(
-            !html.contains("ver10-table2e"),
-            "Ver10 専用チェックボックスは撤去済みのはず"
-        );
-        assert!(
-            html.contains(
-                "旧「併載版」「公開データ中心版」は混乱防止のため媒体分析タブには表示しません"
-            ),
-            "should explain why legacy variants are hidden"
-        );
-        assert!(
-            html.contains("都道府県/市区町村/業種が PDF に自動適用"),
-            "should keep filter propagation guidance"
+            html.contains("都道府県 / 市区町村 / 業種が、レポートに自動で適用されます"),
+            "ヘッダーのフィルタが効く旨の案内は残す"
         );
     }
 
+    /// 解説資料はレポートとは別の成果物なので、統合せず残す
     #[test]
-    fn action_bar_extended_button_describes_content() {
+    fn action_bar_keeps_guide_button() {
         let html = render_action_bar("sid");
-        assert!(
-            html.contains("働き手の将来・給与相場・転職動向の分析を追加した版"),
-            "extended button sub-label should describe what is added"
-        );
+        assert!(html.contains("解説資料を作成"), "解説資料のボタンは残す");
+        assert!(html.contains("variant=guide"), "解説資料の導線が必要");
     }
 
     // ---- セクション選択パネル (2026-07-10) ----
@@ -1967,18 +1943,21 @@ mod variant_ui_tests {
         }
     }
 
+    /// 2026-08-12: ショートカットを「すべて選ぶ / すべて外す」の 2 つに整理。
+    /// 旧「標準セット」は、どの章が入るのか名前から分からず選びようがなかった。
     #[test]
-    fn action_bar_section_picker_has_three_shortcuts() {
-        // 標準セット / 詳細セット / 最小 の 3 ショートカット。
+    fn action_bar_section_picker_has_two_shortcuts() {
         let html = render_action_bar("sid");
-        assert!(html.contains("標準セット"), "standard preset missing");
-        assert!(html.contains("詳細セット"), "full preset missing");
-        assert!(html.contains("最小 (要約のみ)"), "minimal preset missing");
+        assert!(html.contains("すべて選ぶ"), "全選択のショートカットが必要");
+        assert!(html.contains("すべて外す"), "全解除のショートカットが必要");
         assert!(
-            html.contains("applySectionPreset('standard')")
-                && html.contains("applySectionPreset('full')")
+            html.contains("applySectionPreset('full')")
                 && html.contains("applySectionPreset('minimal')"),
-            "preset buttons should call applySectionPreset"
+            "ショートカットは applySectionPreset を呼ぶ"
+        );
+        assert!(
+            !html.contains("標準セット"),
+            "中身の分からない「標準セット」は撤去済みのはず"
         );
     }
 
@@ -1996,12 +1975,12 @@ mod variant_ui_tests {
         );
         // 常時含まれる注記
         assert!(
-            html.contains("表紙・要約・出典は常に含まれます"),
-            "always-included note missing"
+            html.contains("表紙・要約・出典は常に入ります"),
+            "常時含まれる章の注記が必要"
         );
-        // パネル見出し
+        // 入口のラベル
         assert!(
-            html.contains("出力する内容を選んでレポートを作成"),
+            html.contains("内容を選ぶ"),
             "collapsible panel heading missing"
         );
     }
