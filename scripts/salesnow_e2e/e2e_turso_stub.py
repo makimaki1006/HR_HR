@@ -22,13 +22,19 @@ DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "e2e_salesnow.db")
 PORT = int(os.environ.get("STUB_PORT", "9401"))
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "e2e_stub_queries.log")
 
-_local = threading.local()
+# 1 接続を全スレッドで共有し、ロックで直列化する。
+# スレッドごとに接続を開くと書き込みで "database is locked" になる
+# (本物の Turso はサーバ側で直列化するため、この差はスタブ固有)。
+_lock = threading.Lock()
+_conn = None
 
 
 def conn():
-    if not hasattr(_local, "c"):
-        _local.c = sqlite3.connect(DB, check_same_thread=False)
-    return _local.c
+    global _conn
+    if _conn is None:
+        _conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
+        _conn.execute("PRAGMA journal_mode=WAL")
+    return _conn
 
 
 def to_cell(v):
@@ -83,8 +89,10 @@ class Handler(BaseHTTPRequestHandler):
             with open(LOG, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"sql": sql, "args": args}, ensure_ascii=False) + "\n")
             try:
-                cur = conn().execute(sql, args)
-                rows = cur.fetchall()
+                with _lock:
+                    cur = conn().execute(sql, args)
+                    rows = cur.fetchall()
+                    conn().commit()
                 cols = [{"name": d[0], "decltype": None} for d in (cur.description or [])]
                 results.append({
                     "type": "ok",

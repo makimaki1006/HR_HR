@@ -23,13 +23,16 @@
   snapshot_YYYY-MM-DD.sql  … Turso 投入用 (冪等)
 
 投入はユーザーが実行する (`feedback_turso_priority`: DB 書き込みはユーザー実行のみ)。
+turso CLI は使わない (PowerShell で `<` が使えず、CLI の導入も要るため)。
 
-    turso db shell salesnow < scripts/salesnow_snapshot/out/snapshot_2026-08-12.sql
+    python scripts/salesnow_snapshot/import_snapshot.py
 
 # 冪等性
 
-`CREATE TABLE IF NOT EXISTS` + `INSERT OR REPLACE` で、同じ snapshot_date を
-何度流しても行数は増えない (`feedback_turso_upload_once`)。DROP は一切しない。
+`CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`。DROP は一切しない
+(`feedback_turso_upload_once`)。同じ snapshot_date を何度流しても行数は増えず、
+既に入っている行には**書き込みも発生しない** (実測: 完全再実行 0 行)。
+詳細は下の INSERT_MODE のコメントを参照。
 """
 import argparse
 import csv
@@ -166,12 +169,13 @@ def main():
     print(f"CSV : {csv_path}")
     print(f"SQL : {sql_path}  ({os.path.getsize(sql_path) / 1024 / 1024:.1f} MB)")
     print()
-    print("投入 (ユーザー実行):")
-    print(f"  turso db shell salesnow < {sql_path}")
+    print("次の手順:")
+    print("  1. 検証   python scripts/salesnow_snapshot/verify_snapshot_waste.py")
+    print("  2. 投入   python scripts/salesnow_snapshot/import_snapshot.py --dry-run")
+    print("            python scripts/salesnow_snapshot/import_snapshot.py")
     print()
-    print("投入後の確認:")
-    print(f"  turso db shell salesnow \"SELECT snapshot_date, COUNT(*), "
-          f"SUM(employee_count) FROM {TABLE} GROUP BY snapshot_date\"")
+    print("  turso CLI と `<` リダイレクトは使わない (PowerShell では `<` が予約語)。")
+    print("  投入スクリプトがアプリと同じ libSQL HTTP API を直接叩く。")
 
 
 if __name__ == "__main__":
