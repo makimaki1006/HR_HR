@@ -57,7 +57,8 @@ pub async fn tab_keyword_tools() -> axum::response::Html<&'static str> {
         r#"<div class="space-y-4">
   <div class="flex flex-wrap items-center gap-2">
     <h2 class="text-lg font-bold text-slate-100">キーワード需要</h2>
-    <a href="/keywords-ui" target="_blank" rel="noopener" class="text-[11px] text-slate-400 underline ml-auto">別ウィンドウで開く ↗</a>
+    <!-- 2026-08-12: 右端 (ml-auto) だと視線から外れるので、見出しのすぐ右に置く -->
+    <a href="/keywords-ui" target="_blank" rel="noopener" class="text-[11px] text-slate-400 underline">別ウィンドウで開く ↗</a>
   </div>
   <iframe src="/keywords-ui" title="キーワード需要ビューア"
           style="width:100%;height:calc(100vh - 210px);min-height:560px;border:0;border-radius:12px;background:#fff"></iframe>
