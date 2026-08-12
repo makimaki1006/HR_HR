@@ -600,6 +600,86 @@ mod tests {
     }
 
     // ============================================================
+    // 閾値そのものの固定
+    //
+    // 2026-08-12 のミューテーションテストで、`MAX_TOP1_SHARE_PCT` を 50.0 → 90.0 に
+    // 変えても既存 17 本が全通過することが判明した。閾値は doc と定数コメントと E2E で
+    // 語られていたが、ユニットテストは誰も 50 という数を検証していなかった。
+    // 集中度の境界と `past_employees <= 0` の分岐も同様に未固定だった。
+    // ============================================================
+
+    #[test]
+    fn concentration_threshold_is_pinned_at_fifty_percent() {
+        // ちょうど 50.0% は抑制する (`>=` 判定)
+        let exactly_50 = HeadcountAggregate::from_parts(30, 1_000, 900, 100, 200, 100);
+        assert_eq!(
+            exactly_50.top1_share_pct(),
+            Some(50.0),
+            "テストデータが 50.0% ちょうどになっていない"
+        );
+        match exactly_50.gate() {
+            DisplayGate::SingleCompanyDominant { top1_share_pct, .. } => {
+                assert_eq!(top1_share_pct, 50.0);
+            }
+            other => panic!("50.0% ちょうどは抑制されるべき: {other:?}"),
+        }
+        assert_eq!(exactly_50.displayed_rate_pct(), None);
+
+        // 50% をわずかに下回れば表示する
+        let just_under = HeadcountAggregate::from_parts(30, 1_000, 900, 100, 201, 100);
+        let share = just_under.top1_share_pct().unwrap();
+        assert!(share < 50.0 && share > 49.0, "境界のすぐ下のはず: {share}");
+        assert!(
+            just_under.gate().is_shown(),
+            "50% 未満は表示されるべき (占有率 {share})"
+        );
+
+        // 閾値を緩めると 50% ちょうどが通ってしまうことを固定する。
+        // この assert は MAX_TOP1_SHARE_PCT を 50.0 以外にすると落ちる。
+        assert_eq!(
+            MAX_TOP1_SHARE_PCT, 50.0,
+            "閾値を変えるなら §9.2 の実測 (62.2% → 9.2%) を取り直すこと"
+        );
+    }
+
+    #[test]
+    fn non_positive_past_headcount_yields_no_data() {
+        // 過去人数 0: 増減率の分母が作れない
+        let zero_past = HeadcountAggregate::from_parts(50, 100, 0, 100, 100, 10);
+        assert_eq!(zero_past.gate(), DisplayGate::NoData);
+        assert_eq!(zero_past.weighted_rate_pct(), None);
+        assert_eq!(zero_past.displayed_rate_pct(), None);
+        assert!(zero_past.gate().notice().is_some());
+
+        // 過去人数が負: データ矛盾。企業数が足りていても値を出さない
+        let neg_past = HeadcountAggregate::from_parts(50, 100, -10, 110, 110, 10);
+        assert_eq!(
+            neg_past.gate(),
+            DisplayGate::NoData,
+            "過去人数が負なら企業数ゲートより先に NoData になるべき"
+        );
+        assert_eq!(neg_past.displayed_rate_pct(), None);
+    }
+
+    #[test]
+    fn company_count_threshold_is_pinned_at_thirty() {
+        let n29 = HeadcountAggregate::from_parts(29, 1_000, 900, 100, 1_000, 10);
+        assert_eq!(
+            n29.gate(),
+            DisplayGate::TooFewCompanies {
+                companies: 29,
+                required: 30
+            }
+        );
+        let n30 = HeadcountAggregate::from_parts(30, 1_000, 900, 100, 1_000, 10);
+        assert!(n30.gate().is_shown(), "30 社ちょうどは表示する");
+        assert_eq!(
+            MIN_COMPANIES, 30,
+            "閾値を変えるなら §9.2 の実測を取り直すこと"
+        );
+    }
+
+    // ============================================================
     // 境界とデータ欠落
     // ============================================================
 
