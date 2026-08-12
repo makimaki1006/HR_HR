@@ -74,20 +74,61 @@ python scripts/salesnow_snapshot/build_snapshot.py \
 
 ⚠ **DB 書き込みはユーザー実行のみ** (`feedback_turso_priority`、2026-01 $195 超過請求)。
 
-```bash
-turso db shell salesnow < scripts/salesnow_snapshot/out/snapshot_2026-08-12.sql
+`turso` CLI は**使わない**。理由は 2 つ:
+
+- PowerShell では `<` が予約語で、`turso db shell db < file.sql` は
+  `RedirectionNotSupported` で失敗する
+- そもそも CLI の導入が必要になる
+
+アプリ本体 (`src/db/turso_http.rs`) と同じ libSQL HTTP API を叩く投入スクリプトを使う。
+CLI もリダイレクトも要らない。
+
+```powershell
+# 認証情報 (アプリが使うものと同じ)
+$env:SALESNOW_TURSO_URL   = "https://<db>-<org>.turso.io"
+$env:SALESNOW_TURSO_TOKEN = "<token>"
+
+# 何が起きるかだけ見る (書き込まない)
+python scripts/salesnow_snapshot/import_snapshot.py --dry-run
+
+# 投入
+python scripts/salesnow_snapshot/import_snapshot.py
 ```
+
+bash なら `export SALESNOW_TURSO_URL=... SALESNOW_TURSO_TOKEN=...`。
+
+投入スクリプトの安全設計 (libSQL 互換スタブ相手に実測済み):
+
+| 状況 | 動作 |
+|---|---|
+| 同じ `snapshot_date` が投入済み | **書き込まずに終了**。貼り替えるなら明示的な `DELETE` を促す |
+| 途中で落ちた後の再実行 | 入っている分を検出し、**残りだけ**投入 (162,856 行を検出 → 残り 50,000 行) |
+| 認証情報が無い | 設定方法を示して `exit 1`。接続しに行かない |
+| 想定外の文が SQL に混ざる | 投入前に検出して中止 |
+
+投入後は行数・従業員数合計・法人番号の重複を自動で読み出して検証する。
+
+<details>
+<summary>turso CLI を使う場合 (PowerShell の正しい書き方)</summary>
+
+```powershell
+# `<` は使えない。Get-Content でパイプする
+Get-Content -Raw scripts/salesnow_snapshot/out/snapshot_2026-08-12.sql | turso db shell salesnow
+```
+
+ただし CLI 経路では上記の事前確認・事後検証が働かない。
+</details>
 
 ### 3. 確認する
 
-```bash
-turso db shell salesnow \
-  "SELECT snapshot_date, COUNT(*) AS rows, SUM(employee_count) AS total_emp
-   FROM v2_salesnow_headcount_snapshot GROUP BY snapshot_date ORDER BY snapshot_date"
+`import_snapshot.py` が投入直後に自動で実行する。手動で確認するなら:
+
+```powershell
+python scripts/salesnow_snapshot/import_snapshot.py --dry-run   # 再実行しても安全
 ```
 
-2026-08-12 のスナップショットなら `212856` 行 / `22666055` 人 になる
-(ローカル SQLite で検証済み)。
+2026-08-12 のスナップショットなら **212,856 行 / 22,666,055 人**、法人番号の重複 0 になる
+(ローカル SQLite と libSQL 互換スタブの両方で確認済み)。
 
 ## 冪等性と再試行コスト (実測)
 
