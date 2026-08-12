@@ -8,20 +8,55 @@
   (4) 再実行したときの追加コスト
   (5) 情報を持たない行 (employee_count が NULL) の割合
   (6) 索引が書き込みを増幅していないか
+
+# 使い方
+
+    # 既定 (scripts/salesnow_snapshot/out/ の最新 snapshot_*.sql を検査)
+    python scripts/salesnow_snapshot/verify_snapshot_waste.py
+
+    # ファイルを明示する
+    python scripts/salesnow_snapshot/verify_snapshot_waste.py path/to/snapshot_2026-08-12.sql
+
+検査対象が見つからない場合は、生成コマンドを示して異常終了する。
 """
+import argparse
+import glob
 import os
 import re
 import sqlite3
 import sys
 
-SP = os.path.dirname(os.path.abspath(__file__))
-SQL_PATH = os.path.join(SP, "snapout", "snapshot_2026-08-12.sql")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUTDIR = os.path.join(SCRIPT_DIR, "out")
 TABLE = "v2_salesnow_headcount_snapshot"
 
 
 def hr(t):
     print("\n" + "=" * 76 + f"\n## {t}\n" + "=" * 76)
 
+
+def resolve_sql_path(arg):
+    """検査する SQL を決める。見つからなければ生成方法を示して終了する。"""
+    if arg:
+        if not os.path.isfile(arg):
+            sys.exit(f"指定されたファイルがない: {arg}")
+        return arg
+    found = sorted(glob.glob(os.path.join(DEFAULT_OUTDIR, "snapshot_*.sql")))
+    if not found:
+        sys.exit(
+            f"検査対象が見つからない: {DEFAULT_OUTDIR}/snapshot_*.sql\n"
+            "先に生成すること:\n"
+            "  python scripts/salesnow_snapshot/build_snapshot.py \\\n"
+            '      --source "<salesnow_companies.csv のパス>" \\\n'
+            "      --date YYYY-MM-DD"
+        )
+    return found[-1]  # 日付順で最新
+
+
+_ap = argparse.ArgumentParser()
+_ap.add_argument("sql", nargs="?", help="検査する snapshot_*.sql (省略時は out/ の最新)")
+SQL_PATH = resolve_sql_path(_ap.parse_args().sql)
+print(f"検査対象: {SQL_PATH}")
 
 sql = open(SQL_PATH, encoding="utf-8").read()
 # コメント行 (-- で始まる) を除いた「実行される SQL」だけを判定対象にする。
@@ -57,7 +92,7 @@ print(f"  ファイルサイズ: {os.path.getsize(SQL_PATH)/1024/1024:.1f} MB")
 print(f"  → 1 行ずつの INSERT なら {len(vals):,} 文になるところを {stmts} 文に圧縮している")
 
 hr("(4) 実際の書き込み行数を計測 (SQLite total_changes)")
-db = os.path.join(SP, "waste_test.db")
+db = os.path.join(os.path.dirname(SQL_PATH), "_waste_test.db")
 if os.path.exists(db):
     os.remove(db)
 c = sqlite3.connect(db)
