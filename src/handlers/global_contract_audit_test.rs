@@ -439,6 +439,49 @@ async fn jobmap_labor_flow_contract_error_path_when_no_salesnow() {
     );
 }
 
+/// 逆証明: labor_flow の人員推移フィールドが backend と frontend で一致していること。
+///
+/// 2026-08-12 に `avg_delta_1y` (各社の増減率の単純平均) を廃止し、
+/// `headcount_rate_1y` (人数加重、抑制時は null) + `headcount_notice` に置き換えた。
+/// 旧フィールド名が JS 側に残ると、表示が `undefined%` になっても誰も気付かない
+/// (2026-04-23 の 8 panel 全滅と同じクラスの事故)。
+///
+/// backend の応答は SalesNow DB が要るためテストで叩けない。ここでは
+/// 「JS が参照するキー」と「Rust が生成するキー」を両方のソースから読んで突き合わせる。
+#[test]
+fn labor_flow_headcount_field_names_match_between_backend_and_frontend() {
+    const JS: &str = include_str!("../../static/js/laborflow.js");
+    const RS: &str = include_str!("jobmap/company_markers.rs");
+
+    // 廃止したフィールドが「参照」として残っていないこと。
+    // 経緯を説明するコメント中の言及は許す (プロパティアクセス / JSON キーだけを見る)。
+    assert!(
+        !JS.contains(".avg_delta_1y"),
+        "laborflow.js に廃止済みフィールドの参照 (.avg_delta_1y) が残っている \
+         (単純平均は 1 社に支配されるため headcount_rate_1y に置換した)"
+    );
+    assert!(
+        !RS.contains("\"avg_delta_1y\""),
+        "company_markers.rs が廃止済み JSON キー avg_delta_1y を返している"
+    );
+
+    // 新フィールドが両側に存在すること
+    for key in ["headcount_rate_1y", "headcount_notice"] {
+        assert!(
+            RS.contains(key),
+            "company_markers.rs が {key} を返していない"
+        );
+        assert!(JS.contains(key), "laborflow.js が {key} を読んでいない");
+    }
+
+    // 抑制時の null を JS が数値として扱わないこと (undefined% を出さない)
+    assert!(
+        JS.contains("headcount_rate_1y === null"),
+        "laborflow.js が headcount_rate_1y の null を明示的に処理していない。\
+         企業数不足 / 1 社集中の業種で null が返るため必須"
+    );
+}
+
 // ========== 既知ミスマッチの記録テスト（#[ignore]） ==========
 
 /// 🔴 BUG MARKER: Mismatch #4 (docs/contract_audit_2026_04_23.md)

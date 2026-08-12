@@ -9,6 +9,23 @@
   var chart = null;
 
   /**
+   * 人員増減率の表示文字列を返す。
+   *
+   * backend (region_headcount) が企業数不足 / 1 社集中と判定した業種は
+   * headcount_rate_1y に null が入る。値のかわりに「—」を出し、伏せた理由は
+   * headcount_notice として tooltip / title に出す。
+   *
+   * 2026-08-12: 旧実装は各社の増減率を単純平均した avg_delta_1y を出していたが、
+   * 増減率は分母 (過去の人数) が小さい企業ほど爆発するため 1 社に支配される。
+   * 実測で東京都 × 人材・アウトソーシングが +752.7% と表示されており、
+   * その 99.4% が 1 社由来だった (人数加重なら +2.62%)。
+   */
+  function formatHeadcountRate(d) {
+    if (d.headcount_rate_1y === null || d.headcount_rate_1y === undefined) return "—";
+    return (d.headcount_rate_1y >= 0 ? "+" : "") + d.headcount_rate_1y.toFixed(1) + "%";
+  }
+
+  /**
    * 都道府県を指定して人材フローデータをロード・描画
    * @param {string} prefecture - 都道府県名
    */
@@ -108,7 +125,11 @@
             + '<div>3M変動: ' + (d.net_change_3m >= 0 ? '+' : '') + d.net_change_3m.toLocaleString() + '人</div>'
             + '<div>企業数: ' + d.companies.toLocaleString() + '社</div>'
             + '<div>総従業員: ' + d.total_emp.toLocaleString() + '人</div>'
-            + '<div>平均変動率: ' + (d.avg_delta_1y >= 0 ? '+' : '') + d.avg_delta_1y + '%</div>';
+            + '<div>人員増減率: ' + formatHeadcountRate(d) + '</div>'
+            + (d.headcount_notice
+                ? '<div style="margin-top:4px;color:#94a3b8;max-width:260px;white-space:normal;">'
+                  + escapeText(d.headcount_notice) + '</div>'
+                : '');
         }
       },
       grid: {
@@ -218,7 +239,7 @@
       + '<th class="py-1 px-2 text-right">従業員</th>'
       + '<th class="py-1 px-2 text-right">1Y増減</th>'
       + '<th class="py-1 px-2 text-right">3M増減</th>'
-      + '<th class="py-1 px-2 text-right">平均変動率</th>'
+      + '<th class="py-1 px-2 text-right">人員増減率</th>'
       + '</tr></thead><tbody>';
 
     // 現在の都道府県・市区町村を保持（企業一覧取得用）
@@ -237,8 +258,9 @@
         + (c1y >= 0 ? '+' : '') + c1y.toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right" style="color:' + (c3m >= 0 ? '#22c55e' : '#ef4444') + ';">'
         + (c3m >= 0 ? '+' : '') + c3m.toLocaleString() + '</td>'
-        + '<td class="py-1 px-2 text-right text-gray-300">'
-        + (d.avg_delta_1y >= 0 ? '+' : '') + d.avg_delta_1y + '%</td>'
+        + '<td class="py-1 px-2 text-right text-gray-300"'
+        + (d.headcount_notice ? ' title="' + escapeAttr(d.headcount_notice) + '"' : '')
+        + '>' + formatHeadcountRate(d) + '</td>'
         + '</tr>';
     }
 
