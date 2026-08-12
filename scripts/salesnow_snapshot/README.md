@@ -42,6 +42,16 @@ turso db inspect country-statistics   # v2_flow_mesh1km_* が 38M 行ある
 
 ## 手順
 
+⚠ **以下のコマンドはすべてリポジトリのルートで実行する。**
+相対パス (`scripts/salesnow_snapshot/...`) はルート基準で書いてある。
+
+```bash
+cd C:/Users/fuji1/AppData/Local/Temp/HR_HR_salesnow_map
+```
+
+生成物は `scripts/salesnow_snapshot/out/` に出る (`.gitignore` 済み、約 21MB)。
+**別の場所に `--outdir` を向けた場合は、以降のコマンドのパスも合わせて変えること。**
+
 ### 1. スナップショット SQL を生成する (私が実行可)
 
 ```bash
@@ -100,8 +110,14 @@ SQLite の `total_changes` で実測した:
 ### 投入前の検証
 
 ```bash
+# 引数なし: out/ の最新 snapshot_*.sql を自動で拾う
 python scripts/salesnow_snapshot/verify_snapshot_waste.py
+
+# ファイルを明示することもできる
+python scripts/salesnow_snapshot/verify_snapshot_waste.py path/to/snapshot_2026-08-12.sql
 ```
+
+対象が見つからない場合は生成コマンドを表示して異常終了する (exit 1)。
 
 次を実測する。**課金される DB に流す前に必ず通すこと。**
 
