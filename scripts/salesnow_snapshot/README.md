@@ -79,13 +79,43 @@ turso db shell salesnow \
 2026-08-12 のスナップショットなら `212856` 行 / `22666055` 人 になる
 (ローカル SQLite で検証済み)。
 
-## 冪等性
+## 冪等性と再試行コスト (実測)
 
-`CREATE TABLE IF NOT EXISTS` + `INSERT OR REPLACE` で構成しており、
-**同じ `snapshot_date` を何度流しても行数は増えない**。`DROP` は一切しない
+`CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`。`DROP` は一切しない
 (`feedback_turso_upload_once`、2026-04-03 無料枠浪費)。
 
-ローカル SQLite で 2 回連続実行し、212,856 行のまま変わらないことを確認済み。
+`OR REPLACE` ではなく `OR IGNORE` を選んだのは課金のため。
+SQLite の `total_changes` で実測した:
+
+| 方式 | 誤って再実行 | 途中失敗後の再試行 |
+|---|---|---|
+| `INSERT OR REPLACE` | 212,856 行を再課金 | 212,856 行 (全額) |
+| **`INSERT OR IGNORE`** | **0 行** | **162,856 行** (残りのみ) |
+
+スナップショットは不変の記録なので上書き意味論は要らない。
+値が誤っていた場合は別の `snapshot_date` を使う。同じ日付を意図的に貼り替えるには
+先に `DELETE FROM ... WHERE snapshot_date = '...'` を明示すること
+(黙って歴史を書き換えないための設計)。
+
+### 投入前の検証
+
+```bash
+python scripts/salesnow_snapshot/verify_snapshot_waste.py
+```
+
+次を実測する。**課金される DB に流す前に必ず通すこと。**
+
+| 検査 | 2026-08-12 の結果 |
+|---|---|
+| 破壊的文 (DROP/DELETE/UPDATE/ALTER) | **0 件** |
+| ファイル内の PK 重複 (自己 REPLACE) | **0 件** |
+| 1 回目の書き込み | 212,856 行 (増幅率 **1.00 倍**) |
+| 2 回目の書き込み | **0 行** |
+| PK 重複 / 法人番号 NULL / 日付混在 / 負の従業員数 | すべて 0 |
+
+⚠ 索引は 2 個 (PRIMARY KEY 由来 + 明示的な 1 個) 付く。
+**Turso が索引への書き込みを行数としてどう数えるかは確認できていない。**
+最悪 3 倍を見込むと 638,568 行相当で、Scaler 100M/月に対し 0.639%。
 
 ## 前処理として何をしているか
 
