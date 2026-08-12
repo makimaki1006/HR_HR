@@ -149,3 +149,6 @@ test-results/
 # E2E 検証ハーネスが生成するローカル DB
 scripts/salesnow_e2e/*.db
 scripts/salesnow_e2e/*.log
+
+# スナップショット生成物 (11MB の SQL)
+scripts/salesnow_snapshot/out/
