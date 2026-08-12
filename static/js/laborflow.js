@@ -21,9 +21,25 @@
    * その 99.4% が 1 社由来だった (人数加重なら +2.62%)。
    */
   function formatHeadcountRate(d) {
-    if (d.headcount_rate_1y === null || d.headcount_rate_1y === undefined) return "—";
+    if (isSuppressed(d)) return "—";
     return (d.headcount_rate_1y >= 0 ? "+" : "") + d.headcount_rate_1y.toFixed(1) + "%";
   }
+
+  /**
+   * 増減率が抑制されている業種か (企業数不足 または 1 社集中)。
+   *
+   * 抑制されていても増減「人数」は事実として返るため、棒グラフには棒が立つ。
+   * 率だけ伏せて棒をそのまま描くと、1 社の増員が地域の傾向に見えてしまうので、
+   * 棒の色と軸ラベルでも区別する。
+   */
+  function isSuppressed(d) {
+    return d.headcount_rate_1y === null || d.headcount_rate_1y === undefined;
+  }
+
+  var SUPPRESS_MARK = "※";
+  var SUPPRESS_FOOTNOTE =
+    "※ 対象企業が少ない、または 1 社の増減が大半を占める業種。" +
+    "増減人数は実数だが、地域の傾向としては増減率を示していない。";
 
   /**
    * 都道府県を指定して人材フローデータをロード・描画
@@ -91,7 +107,10 @@
     // チャート表示用に昇順（下から大きい値）
     top.reverse();
 
-    var names = top.map(function(d) { return d.sn_industry; });
+    // 抑制された業種は軸ラベルに ※ を付けて区別する
+    var names = top.map(function(d) {
+      return isSuppressed(d) ? d.sn_industry + " " + SUPPRESS_MARK : d.sn_industry;
+    });
     var values = top.map(function(d) { return d.net_change_1y; });
 
     // 既存チャートがあれば破棄
@@ -165,11 +184,13 @@
       },
       series: [{
         type: "bar",
-        data: values.map(function(v) {
+        data: values.map(function(v, i) {
+          // 抑制された業種は緑/赤ではなく灰色にして「地域の傾向ではない」ことを示す
+          var muted = isSuppressed(top[i]);
           return {
             value: v,
             itemStyle: {
-              color: v >= 0 ? "#22c55e" : "#ef4444",
+              color: muted ? "#64748b" : (v >= 0 ? "#22c55e" : "#ef4444"),
               borderRadius: v >= 0 ? [0, 3, 3, 0] : [3, 0, 0, 3]
             }
           };
@@ -251,7 +272,8 @@
       var c1y = d.net_change_1y || 0;
       var c3m = d.net_change_3m || 0;
       html += '<tr class="border-b border-gray-800 hover:bg-gray-700/50 cursor-pointer" onclick="loadIndustryCompanies(\'' + escapeAttr(currentPref) + '\',\'' + escapeAttr(currentMuni) + '\',\'' + escapeAttr(d.sn_industry) + '\')">'
-        + '<td class="py-1 pr-2 text-gray-200 max-w-[160px] truncate" title="' + escapeAttr(d.sn_industry) + '">' + escapeText(d.sn_industry) + '</td>'
+        + '<td class="py-1 pr-2 text-gray-200 max-w-[160px] truncate" title="' + escapeAttr(d.sn_industry) + '">'
+        + escapeText(d.sn_industry) + (isSuppressed(d) ? ' <span class="text-gray-500">' + SUPPRESS_MARK + '</span>' : '') + '</td>'
         + '<td class="py-1 px-2 text-right text-gray-300">' + d.companies.toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right text-gray-300">' + d.total_emp.toLocaleString() + '</td>'
         + '<td class="py-1 px-2 text-right" style="color:' + (c1y >= 0 ? '#22c55e' : '#ef4444') + ';">'
@@ -265,6 +287,11 @@
     }
 
     html += '</tbody></table></div>';
+    // 抑制された業種が 1 件でもあれば、※ の意味を必ず画面に書く
+    if (industries.some(isSuppressed)) {
+      html += '<p class="mt-1 text-[10px] text-gray-400 leading-snug">'
+        + escapeText(SUPPRESS_FOOTNOTE) + '</p>';
+    }
     el.innerHTML = html;
   }
 
