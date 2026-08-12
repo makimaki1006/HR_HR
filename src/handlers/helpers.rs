@@ -829,3 +829,93 @@ mod tests {
         assert_eq!(age_group_lower_bound("総数"), -1);
     }
 }
+
+/// 企業データ (`v2_salesnow_companies.address`) を市区町村で絞り込む LIKE パターンを作る。
+///
+/// # なぜ先頭一致なのか
+///
+/// 従来は `format!("%{}%", strip_county_prefix(muni))` の**部分一致**を使っていたが、
+/// 市区町村名が別の市区町村名に包含される 17 組で誤検出が起きていた。実測:
+///
+/// | 検索 | 現行のヒット | 正しい件数 | 誤検出 |
+/// |---|---|---|---|
+/// | 福島県 相馬市 | 186 社 | 62 社 | 121 社 (65.1%) が南相馬市 |
+/// | 新潟県 魚沼市 | 246 社 | 96 社 | 143 社 (58.1%) が南魚沼市 |
+/// | 北海道 標津郡標津町 | 77 社 | 15 社 | 54 社 (70.1%) が中標津町 |
+/// | 愛知県 北設楽郡東栄町 | 22 社 | 5 社 | 17 社 (77.3%) |
+///
+/// 全 1,858 市区町村で **783 社**が誤って別の自治体に計上されていた。
+///
+/// `address` は実データ 213,145 件の **100.00%** が `prefecture` で始まり、
+/// 郡も含む (「北海道茅部郡森町字富士見町」形式、18,536 件)。
+/// したがって `prefecture || municipality || '%'` で先頭一致させれば一意に切れる。
+/// 全市区町村で検証した結果、**取りこぼし 0 社**で誤検出 783 社が消えた。
+///
+/// # 2026-06-08 の「郡 strip」は誤診だった
+///
+/// 当時 `%東彼杵郡東彼杵町%` が 0 件だったため「address に郡名が無い」と判断して
+/// [`strip_county_prefix`] を導入したが、実際には郡込みの先頭一致で 4 社ヒットする。
+/// 0 件の理由は別にあった。この関数では strip せず、渡された市区町村名をそのまま使う。
+///
+/// # 前提
+///
+/// `municipality` は郡を含む正式名 (例「東彼杵郡東彼杵町」) で渡ってくること。
+/// UI のカスケードも [`strip_county_prefix`] のテスト入力もこの形式である。
+pub fn municipality_address_pattern(prefecture: &str, municipality: &str) -> String {
+    format!("{}{}%", prefecture, municipality)
+}
+
+#[cfg(test)]
+mod municipality_address_pattern_tests {
+    use super::municipality_address_pattern;
+
+    /// 逆証明: 包含関係のある市区町村を取り違えないこと。
+    #[test]
+    fn anchors_at_prefecture_so_prefixed_names_do_not_collide() {
+        let soma = municipality_address_pattern("福島県", "相馬市");
+        assert_eq!(soma, "福島県相馬市%");
+        // 実データの住所で確認
+        let minami = "福島県南相馬市原町区金沢字物見山１３１番地";
+        let honshi = "福島県相馬市塚部字中谷地１１３番地の３";
+        let like = |pat: &str, s: &str| {
+            let head = pat.trim_end_matches('%');
+            s.starts_with(head)
+        };
+        assert!(like(&soma, honshi), "相馬市の企業は拾う");
+        assert!(!like(&soma, minami), "南相馬市の企業は拾わない");
+
+        // 旧実装 (部分一致) はどちらも拾ってしまっていた
+        assert!(minami.contains("相馬市") && honshi.contains("相馬市"));
+    }
+
+    /// 郡を含む正式名をそのまま使うこと (strip しない)
+    #[test]
+    fn keeps_county_prefix_because_addresses_contain_it() {
+        assert_eq!(
+            municipality_address_pattern("北海道", "茅部郡森町"),
+            "北海道茅部郡森町%"
+        );
+        let mori = "北海道茅部郡森町字富士見町１６３番地５０";
+        assert!(mori.starts_with("北海道茅部郡森町"));
+
+        // 中標津町を標津町で拾わないこと
+        let pat = municipality_address_pattern("北海道", "標津郡標津町");
+        let nakashibetsu = "北海道標津郡中標津町東十一条北１丁目１番地";
+        assert!(!nakashibetsu.starts_with(pat.trim_end_matches('%')));
+    }
+
+    /// 郡を地名に含む 6 市町も素通しでよい (strip しないので保護が不要)
+    #[test]
+    fn county_named_cities_need_no_special_case() {
+        for (pref, muni) in [
+            ("福島県", "郡山市"),
+            ("岐阜県", "郡上市"),
+            ("愛知県", "蒲郡市"),
+            ("奈良県", "大和郡山市"),
+            ("福岡県", "小郡市"),
+        ] {
+            let pat = municipality_address_pattern(pref, muni);
+            assert_eq!(pat, format!("{pref}{muni}%"));
+        }
+    }
+}
