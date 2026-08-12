@@ -1942,6 +1942,37 @@ pub fn precompress_geojson() {
 }
 
 #[cfg(test)]
+mod css_utility_tests {
+    /// 逆証明: 見た目を担保しているクラスが CSS に本当に定義されているか。
+    ///
+    /// 2026-08-12 に実測したところ、`min-h-[44px]` は 20 箇所で「スマホでも
+    /// タップしやすいサイズ」の保証として使われているのに min-height が 0px の
+    /// ままだった。tailwind-precompiled.css に含まれておらず、既存テストは
+    /// 「HTML に文字列があるか」しか見ていなかったため誰も気づけていない。
+    /// クラス名を書いただけで効いた気になるのを防ぐため、CSS 側を検査する。
+    #[test]
+    fn utility_classes_used_for_layout_are_actually_defined() {
+        let precompiled = include_str!("../static/css/tailwind-precompiled.css");
+        let dashboard = include_str!("../static/css/dashboard.css");
+
+        // (クラス名, CSS セレクタとしてのエスケープ形)
+        let required = [
+            ("min-h-[44px]", r".min-h-\[44px\]"),
+            ("mt-0.5", r".mt-0\.5"),
+            ("gap-1.5", r".gap-1\.5"),
+            ("text-[10px]", r".text-\[10px\]"),
+            ("text-[11px]", r".text-\[11px\]"),
+        ];
+        for (name, selector) in required {
+            assert!(
+                precompiled.contains(selector) || dashboard.contains(selector),
+                "クラス {name} が CSS に定義されていない（HTML で使っても効かない）"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod asset_version_tests {
     use super::asset_version;
 

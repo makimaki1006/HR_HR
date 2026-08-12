@@ -1284,3 +1284,12 @@ select.filter-control {
         max-width: 52vw;
     }
 }
+
+/* 2026-08-12: tailwind-precompiled.css に含まれていない実用クラスの補完。
+   実測で min-h-[44px] が min-height:0px、mt-0.5 と gap-1.5 が無効だった。
+   min-h-[44px] は 20 箇所で「スマホでもタップしやすいサイズ」の保証として使われて
+   いるが、これまで一度も効いていなかった（テストは HTML に文字列があるかしか
+   見ていなかった）。tailwind-precompiled.css は生成物なので、こちらで補う。 */
+.min-h-\[44px\] { min-height: 44px; }
+.mt-0\.5 { margin-top: 0.125rem; }
+.gap-1\.5 { gap: 0.375rem; }
