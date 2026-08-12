@@ -165,10 +165,20 @@ impl DisplayGate {
     }
 }
 
-/// 地域 (市区町村 / 半径内 / 業種セル) の人員推移集計値。
+/// 地域 (市区町村 / 業種セル) の人員推移集計値。
 ///
 /// 率ではなく人数を保持するため、`merge` で足し合わせても歪まない。
-/// 半径◯km の集計は市区町村ごとの本構造体を `merge` して作る。
+///
+/// # 現在の利用状況 (2026-08-12)
+///
+/// 本番から呼ばれているのは `from_parts` の 2 箇所
+/// (`jobmap/company_markers.rs` の業種別集計、`company/fetch.rs` の地域×業種集計) のみで、
+/// いずれも SQL の `GROUP BY` 結果をそのまま受けている。
+///
+/// **`merge` と `from_companies` は本番から呼ばれていない (テストのみ)。**
+/// `merge` は半径◯km の集計を人数ベースで合算するために用意したが、
+/// 半径検索そのものが未実装のため、まだ配線されていない。
+/// (地図タブの既存の半径検索は公的求人データ側の経路で、本モジュールを通らない)
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct HeadcountAggregate {
     /// 集計対象の企業数
@@ -226,10 +236,25 @@ impl HeadcountAggregate {
         }
     }
 
-    /// 複数地域を合算する (半径◯km の集計に使う)。
+    /// 複数地域を合算する (半径◯km の集計を想定。現時点で本番の呼び出し元は無い)。
     ///
     /// 率を平均するのではなく人数を足すため、合算しても値が歪まない。
-    /// 最大 1 社は各地域の最大の中の最大であり、全体の最大と厳密に一致する。
+    ///
+    /// # 前提条件: 地域どうしが企業について互いに素であること
+    ///
+    /// 最大 1 社を「各地域の最大の中の最大」で求めているため、
+    /// **同じ企業が複数の `parts` に含まれていると集中度が過小評価される。**
+    ///
+    /// - `total_abs_change` (分母) はその企業を重複して加算する
+    /// - `top1_abs_change` (分子) は 1 社分のまま
+    /// - 結果として `top1_share_pct()` が実際より小さく出て、
+    ///   本来止めるべきセルが `Show` を通ってしまう
+    ///
+    /// 半径◯km を市区町村の集合として組み立てる限り重複は起きないが、
+    /// `company_markers.rs` のように `address LIKE '%市区町村名%'` で地域を切ると、
+    /// 住所文字列に複数の自治体名を含む企業が両方にマッチしうる。
+    /// 呼び出し側で企業の重複が無いことを保証すること。
+    /// (この性質は `merge_double_counted_company_underestimates_concentration` で固定している)
     pub fn merge<'a, I: IntoIterator<Item = &'a Self>>(parts: I) -> Self {
         let mut agg = Self::default();
         for p in parts {
@@ -534,6 +559,44 @@ mod tests {
         let rate = merged.displayed_rate_pct().unwrap();
         // (200 + 573) / (19,800 + 360) = +3.83%
         assert!((rate - 3.834).abs() < 0.01, "合算後の増減率: {rate}");
+    }
+
+    #[test]
+    fn merge_double_counted_company_underestimates_concentration() {
+        // merge の前提条件 (地域どうしが企業について互いに素) を破ったときに
+        // 何が起きるかを固定する。同じ企業が 2 つの parts に入ると、
+        // 分母 (total_abs_change) だけ二重に積まれて分子 (top1_abs_change) は
+        // 1 社分のままなので、集中度が過小評価される。
+        //
+        // これは「安全側に倒れない」誤りである: 本来止めるべきセルが通ってしまう。
+        // 半径◯km を市区町村の集合として組むなら重複は起きないが、
+        // address LIKE で地域を切る場合は呼び出し側で重複排除が要る。
+        let mut rows = vec![CompanyDelta::new(2000, 100.0)]; // +1,000 人の 1 社
+        rows.extend((0..29).map(|_| CompanyDelta::new(1010, 1.0))); // 各 +10 人
+        let region = HeadcountAggregate::from_companies(rows);
+        assert_eq!(region.companies, 30, "企業数ゲートは通る規模");
+
+        // 単独なら 1 社集中で止まる
+        let share_single = region.top1_share_pct().unwrap();
+        assert!(
+            share_single > 75.0,
+            "単独地域の占有率が想定と違う: {share_single}"
+        );
+        assert!(!region.gate().is_shown(), "単独なら抑制されるはず");
+
+        // 同じ地域を 2 回 merge する (= 全企業が二重計上された状態)
+        let merged = HeadcountAggregate::merge([&region, &region]);
+        let share_dup = merged.top1_share_pct().unwrap();
+        assert!(
+            (share_dup - share_single / 2.0).abs() < 0.01,
+            "二重計上で占有率がちょうど半分になるはず: {share_single} -> {share_dup}"
+        );
+        assert!(
+            merged.gate().is_shown(),
+            "二重計上すると本来止まるセルがゲートを通ってしまう \
+             (占有率 {share_single:.1}% -> {share_dup:.1}%)。\
+             merge に渡す地域は企業について互いに素であること"
+        );
     }
 
     // ============================================================

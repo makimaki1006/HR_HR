@@ -107,7 +107,11 @@ pub async fn labor_flow(
                   AND employee_delta_1y > -100
                   AND sn_industry IS NOT NULL AND sn_industry != ''
                 GROUP BY sn_industry
-                ORDER BY net_change_1y DESC
+                -- 2026-08-12: 同値タイで並びが環境依存にならないよう sn_industry で
+                -- tie-break する。net_change_1y が同値になる業種の組は実データに 110 組
+                -- あり、37/47 都道府県で発生する。SQLite の ORDER BY は同値の順序を
+                -- 保証しないため、インデックス構成が違うだけで表示順が入れ替わっていた。
+                ORDER BY net_change_1y DESC, sn_industry
             "#
                     ),
                     vec![
@@ -127,7 +131,11 @@ pub async fn labor_flow(
                   AND employee_delta_1y > -100
                   AND sn_industry IS NOT NULL AND sn_industry != ''
                 GROUP BY sn_industry
-                ORDER BY net_change_1y DESC
+                -- 2026-08-12: 同値タイで並びが環境依存にならないよう sn_industry で
+                -- tie-break する。net_change_1y が同値になる業種の組は実データに 110 組
+                -- あり、37/47 都道府県で発生する。SQLite の ORDER BY は同値の順序を
+                -- 保証しないため、インデックス構成が違うだけで表示順が入れ替わっていた。
+                ORDER BY net_change_1y DESC, sn_industry
             "#
                     ),
                     vec![Box::new(pref.clone()) as Box<dyn crate::db::turso_http::ToSqlTurso>],

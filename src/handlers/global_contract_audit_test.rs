@@ -474,6 +474,29 @@ fn labor_flow_headcount_field_names_match_between_backend_and_frontend() {
         assert!(JS.contains(key), "laborflow.js が {key} を読んでいない");
     }
 
+    // 業種の並びが環境依存にならないこと。
+    //
+    // `ORDER BY net_change_1y DESC` だけだと SQLite は同値の順序を保証せず、
+    // インデックス構成が違うだけで表示順が入れ替わる (小さな fixture で再現確認済み:
+    // index 無し ['金融','製造','教育',...] / index 有り ['IT','商社','建設',...])。
+    // net_change_1y が同値になる業種の組は実データに 110 組あり、37/47 都道府県で発生する。
+    // 本番 Turso と手元で並びが変わると、同じデータの画面が再現しない。
+    let order_by_count = RS.matches("ORDER BY net_change_1y DESC").count();
+    let tie_break_count = RS
+        .matches("ORDER BY net_change_1y DESC, sn_industry")
+        .count();
+    assert_eq!(
+        order_by_count,
+        tie_break_count,
+        "company_markers.rs に tie-break の無い ORDER BY net_change_1y DESC が \
+         {} 箇所ある。同値の業種で並びが環境依存になる",
+        order_by_count - tie_break_count
+    );
+    assert!(
+        tie_break_count >= 2,
+        "labor_flow の 2 クエリ両方に tie-break が要る"
+    );
+
     // 抑制時の null を JS が数値として扱わないこと (undefined% / NaN% を出さない)。
     //
     // `if (d.headcount_rate_1y)` のような真偽値判定だと 0% が抑制扱いになってしまうので、
